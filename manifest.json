@@ -1,0 +1,26 @@
+{
+    "name": "HR Mármores e Granitos",
+    "short_name": "HR Mármores",
+    "description": "Sistema de gestão HR Mármores e Granitos",
+    "start_url": "/Aplicativo-/index.html",
+    "scope": "/Aplicativo-/",
+    "display": "standalone",
+    "orientation": "any",
+    "background_color": "#070709",
+    "theme_color": "#C9A84C",
+    "lang": "pt-BR",
+    "icons": [
+          {
+                  "src": "icon-192.png",
+                  "sizes": "192x192",
+                  "type": "image/png",
+                  "purpose": "any maskable"
+          },
+          {
+                  "src": "icon-512.png",
+                  "sizes": "512x512",
+                  "type": "image/png",
+                  "purpose": "any maskable"
+          }
+    ]
+}
