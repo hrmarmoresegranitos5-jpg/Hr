@@ -58,6 +58,11 @@ if (!CFG.mob)   CFG.mob   = JSON.parse(JSON.stringify(DEF_CFG.mob));
 if (!CFG.civil) CFG.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
 if (!CFG.pedras)CFG.pedras= JSON.parse(JSON.stringify(DEF_CFG.pedras));
 if (typeof CFG.groqKey === 'undefined') CFG.groqKey = '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';
+// Garantir campos escalares — podem estar ausentes se hr_tum_cfg foi gravado
+// parcialmente por tumSincPedrasGlobais() antes da primeira carga completa
+if (CFG.margem  === undefined || CFG.margem  === null) CFG.margem  = DEF_CFG.margem;
+if (CFG.parcMax === undefined || CFG.parcMax === null) CFG.parcMax = DEF_CFG.parcMax;
+if (CFG.juros   === undefined || CFG.juros   === null) CFG.juros   = DEF_CFG.juros;
 // Migração: garantir campo esp em pedras antigas
 CFG.pedras.forEach(function(p){ if (!p.esp) p.esp = 2; });
 
@@ -1940,7 +1945,11 @@ function calcularFinal() {
   _gel('hdNum').textContent = numStr;
   renderResultado(pendOrc);
   renderProducao();
-  showTab('resultado', document.querySelectorAll('.tab')[1]);
+  // Em modo embedded (_TI_ambId definido), não navega para a aba resultado —
+  // o app principal (app-tum-integracao.js) exibe o resultado na sua própria seção.
+  if (!_TI_ambId) {
+    showTab('resultado', document.querySelectorAll('.tab')[1]);
+  }
   toast('✓ Orçamento ' + numStr + ' gerado!');
 }
 
@@ -3604,6 +3613,8 @@ function tumInlineMount(ambId) {
     // Apenas sincroniza pedras e re-renderiza a lista de materiais
     if (typeof window.tumSincPedrasGlobais === 'function') window.tumSincPedrasGlobais();
     buildPedrasCfg();
+    buildMatCats();
+    buildMatList();
     return;
   }
 
@@ -3637,6 +3648,8 @@ function tumInlineMount(ambId) {
   if (typeof window.tumSincPedrasGlobais === 'function') {
     window.tumSincPedrasGlobais();
     buildPedrasCfg(); // re-renderiza a lista já com as pedras corretas
+    buildMatCats();   // atualiza filtros de categoria no seletor de material
+    buildMatList();   // atualiza os botões de seleção de pedra
   }
 }
 
