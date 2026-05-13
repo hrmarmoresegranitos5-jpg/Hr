@@ -986,7 +986,7 @@ function buildMatCats() {
   var h = '';
   cats.forEach(function(c) {
     h += '<button class="preset'+(SEL.matCat===c?' on':'')
-       + '" onclick="selMatCat(\''+c+'\')" style="font-size:.65rem;padding:4px 10px">'+c+'</button>';
+       + '" onclick="_TI_selMatCat(\''+c+'\')" style="font-size:.65rem;padding:4px 10px">'+c+'</button>';
   });
   el.innerHTML = h;
 }
@@ -1007,7 +1007,7 @@ function buildMatList() {
   filtered.forEach(function(p) {
     var on = p.id === SEL.matId;
     h += '<button class="preset'+(on?' on':'')
-       + '" onclick="selMat(\''+p.id+'\')">'
+       + '" onclick="_TI_selMat(\''+p.id+'\')">'
        + p.nm
        + ' <span style="font-size:.58rem;color:var(--gold2)">R$'+p.pr+'</span>'
        + '</button>';
@@ -3649,8 +3649,8 @@ window.tumInlineUnmount = tumInlineUnmount;
 
 // Funções de UI — onclick inline
 window.selTipoServ       = selTipoServ;
-window.selMat            = selMat;
-window.selMatCat         = selMatCat;
+window._TI_selMat        = selMat;   // namespaced - avoids collision with app-core var selMat
+window._TI_selMatCat     = selMatCat; // namespaced
 window.selAcab           = selAcab;
 window.selMoldura        = selMoldura;
 window.selGrade          = selGrade;
@@ -3730,7 +3730,7 @@ window.getEngCm                             = getEngCm;
 window.getMolduraCm                         = getMolduraCm;
 window.getTampasDims                        = getTampasDims;
 window.iaAplicarResultado                   = iaAplicarResultado;
-window.init                                 = init;
+// window.init — NOT exported: would collide with main app
 window.loadCfgUI                            = loadCfgUI;
 window.mostrarCardLapide                    = mostrarCardLapide;
 window.pltCalcAlturaTotal                   = pltCalcAlturaTotal;
@@ -3743,7 +3743,7 @@ window.pltRenderResumo                      = pltRenderResumo;
 window.pltRenderTabela                      = pltRenderTabela;
 window.renderProducao                       = renderProducao;
 window.renderResultado                      = renderResultado;
-window.toast                                = toast;
+// window.toast — NOT exported: main app toast takes priority
 window.validarForm                          = validarForm;
 
 // Expõe setter para sincronizar catálogo de pedras diretamente na memória do IIFE
