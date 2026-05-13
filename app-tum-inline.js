@@ -11,6 +11,24 @@
 // CÓDIGO V14 — PRIVADO (não polui globais do app)
 // ═══════════════════════════════════════════════════════
 
+// Helper null-safe: retorna um objeto fake se o elemento não existir no DOM
+// Evita "Cannot set properties of null" quando elementos de UI foram removidos
+function _gel(id) {
+  var el = document.getElementById(id);
+  if (el) return el;
+  // Retorna proxy que ignora assignments silenciosamente
+  return {
+    textContent: '', innerHTML: '',
+    style: { display: '' },
+    querySelector: function() { return null; },
+    querySelectorAll: function() { return []; },
+    classList: { add: function(){}, remove: function(){}, toggle: function(){}, contains: function(){ return false; } },
+    appendChild: function(){},
+    setAttribute: function(){},
+    removeAttribute: function(){}
+  };
+}
+
 var CFG = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null');
 var HIST = JSON.parse(localStorage.getItem('hr_tum_hist') || '[]');
 
@@ -1414,13 +1432,13 @@ function _TI_calcular() {
   // Calcular parcial para live bar
   try {
     var r = calcularFull();
-    document.getElementById('lbVista').textContent = 'R$ ' + _TI_fm(r.valor_vista);
-    document.getElementById('lbM2').textContent = r.m2_total.toFixed(2) + ' m²';
-    document.getElementById('lbAltura').textContent = (A*100).toFixed(0) + ' cm';
-    document.getElementById('lbPrazo').textContent = r.prazo_total + ' dias';
-    document.getElementById('lbPeso').textContent = Math.round(r.peso_total) + ' kg';
+    _gel('lbVista').textContent = 'R$ ' + _TI_fm(r.valor_vista);
+    _gel('lbM2').textContent = r.m2_total.toFixed(2) + ' m²';
+    _gel('lbAltura').textContent = (A*100).toFixed(0) + ' cm';
+    _gel('lbPrazo').textContent = r.prazo_total + ' dias';
+    _gel('lbPeso').textContent = Math.round(r.peso_total) + ' kg';
   } catch(e) {
-    document.getElementById('lbAltura').textContent = (A*100).toFixed(0) + ' cm';
+    _gel('lbAltura').textContent = (A*100).toFixed(0) + ' cm';
   }
 
   atualizarSteps();
@@ -1916,7 +1934,7 @@ function calcularFinal() {
     r: r
   };
 
-  document.getElementById('hdNum').textContent = numStr;
+  _gel('hdNum').textContent = numStr;
   renderResultado(pendOrc);
   renderProducao();
   showTab('resultado', document.querySelectorAll('.tab')[1]);
@@ -1929,11 +1947,11 @@ function calcularFinal() {
 
 function renderResultado(o) {
   var r = o.r;
-  document.getElementById('resEmpty').style.display    = 'none';
-  document.getElementById('resConteudo').style.display = 'block';
+  _gel('resEmpty').style.display    = 'none';
+  _gel('resConteudo').style.display = 'block';
 
-  document.getElementById('rCli').textContent = o.cli;
-  if (o.num) document.getElementById('hdNum').textContent = o.num;
+  _gel('rCli').textContent = o.cli;
+  if (o.num) _gel('hdNum').textContent = o.num;
 
   var meta = [];
   if (o.num)  meta.push('🔖 '+o.num);
@@ -1953,7 +1971,7 @@ function renderResultado(o) {
   if (o.quad) meta.push('Q '+o.quad);
   if (o.lote) meta.push('L '+o.lote);
   meta.push('📅 '+o.date);
-  document.getElementById('rMeta').innerHTML = meta.map(function(m){
+  _gel('rMeta').innerHTML = meta.map(function(m){
     return '<span>'+m+'</span>';
   }).join('');
 
@@ -1976,7 +1994,7 @@ function renderResultado(o) {
         + '<div class="res-val '+(g.cl||'')+'" style="font-size:.9rem">'+g.val+'</div>'
         + '<div class="res-sub">'+(g.sub||'')+'</div></div>';
   });
-  document.getElementById('rGrid').innerHTML = gh;
+  _gel('rGrid').innerHTML = gh;
 
   // Detalhamento
   var dh = '';
@@ -2074,12 +2092,12 @@ function renderResultado(o) {
   dh += '<div class="det-line"><span class="det-k">Custo total (interno)</span><span class="det-v">R$ '+_TI_fm(r.custo_total)+'</span></div>';
   dh += '<div class="det-line"><span class="det-k">Margem '+CFG.margem+'%</span><span class="det-v" style="color:var(--grn)">R$ '+_TI_fm(r.margem_reais)+'</span></div>';
   dh += '</div>';
-  document.getElementById('rDetalhe').innerHTML = dh;
+  _gel('rDetalhe').innerHTML = dh;
 
-  document.getElementById('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
-  document.getElementById('rParc').textContent =
+  _gel('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
+  _gel('rParc').textContent =
     'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
-  document.getElementById('rPrazo').textContent =
+  _gel('rPrazo').textContent =
     'Prazo estimado: aprox. '+r.prazo_total+' dias úteis';
 
   // Texto WA
@@ -2130,7 +2148,7 @@ function gerarTextoWA(o, r) {
   wa += '━━━━━━━━━━━━━━━━━━━━━\n';
   if (o.obs) wa += '📝 Obs: '+o.obs+'\n━━━━━━━━━━━━━━━━━━━━━\n';
   wa += CFG.emp.nome+'\n'+CFG.emp.tel+'\n'+CFG.emp.end;
-  document.getElementById('txtWA').value = wa;
+  _gel('txtWA').value = wa;
 }
 
 // ══════════════════════════════════════════════
@@ -2138,7 +2156,7 @@ function gerarTextoWA(o, r) {
 // ══════════════════════════════════════════════
 
 function gerarPrintArea(o, r) {
-  document.getElementById('pTitle').textContent = CFG.emp.nome + ' — Orçamento de Túmulo';
+  _gel('pTitle').textContent = CFG.emp.nome + ' — Orçamento de Túmulo';
   var espMult = {2:'1.00',3:'1.35',4:'1.70',5:'2.10'};
 
   var meta = 'Cliente: '+o.cli;
@@ -2157,7 +2175,7 @@ function gerarPrintArea(o, r) {
   if (o.cemi) meta += ' · Cemitério: '+o.cemi;
   if (o.cid)  meta += ' · Cidade: '+o.cid;
   if (o.quad||o.lote) meta += ' · Quadra: '+o.quad+' · Lote: '+o.lote;
-  document.getElementById('pMeta').textContent = meta;
+  _gel('pMeta').textContent = meta;
 
   var body = '';
   body += '<div class="print-section"><div class="print-section-title">Material e Peças</div>';
@@ -2197,8 +2215,8 @@ function gerarPrintArea(o, r) {
     body += '<p style="font-size:.78rem;color:#444;line-height:1.5">'+o.obs+'</p></div>';
   }
 
-  document.getElementById('pBody').innerHTML = body;
-  document.getElementById('pFooter').textContent = CFG.emp.nome + ' · ' + CFG.emp.tel + ' · ' + CFG.emp.end + ', ' + CFG.emp.cidade;
+  _gel('pBody').innerHTML = body;
+  _gel('pFooter').textContent = CFG.emp.nome + ' · ' + CFG.emp.tel + ' · ' + CFG.emp.end + ', ' + CFG.emp.cidade;
 }
 
 // ══════════════════════════════════════════════
@@ -2206,7 +2224,7 @@ function gerarPrintArea(o, r) {
 // ══════════════════════════════════════════════
 
 function copiarWA() {
-  var t = document.getElementById('txtWA').value;
+  var t = _gel('txtWA').value;
   if (!t) { toast('Gere um orçamento primeiro', true); return; }
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(t).then(function(){ toast('✓ Copiado para área de transferência!'); });
@@ -2249,11 +2267,11 @@ function salvarHistorico() {
 // ══════════════════════════════════════════════
 
 function renderHistorico() {
-  var el = document.getElementById('histList');
-  var em = document.getElementById('histEmpty');
-  var cnt = document.getElementById('histCount');
+  var el = _gel('histList');
+  var em = _gel('histEmpty');
+  var cnt = _gel('histCount');
 
-  var busca = (document.getElementById('histBusca').value || '').toLowerCase();
+  var busca = (_gel('histBusca').value || '').toLowerCase();
   var lista = HIST.filter(function(o) {
     if (!busca) return true;
     var falStr = Array.isArray(o.fal) ? o.fal.map(function(f){return f.nome;}).join(' ') : (o.fal||'');
@@ -2402,7 +2420,7 @@ function copiarWAHist(i) {
 
 function confirmarDel(i) {
   delIdx = i;
-  var btn = document.getElementById('btnConfirmDel');
+  var btn = _gel('btnConfirmDel');
   btn.textContent = '🗑 Excluir';
   btn.onclick = function() {
     HIST.splice(delIdx, 1);
@@ -2415,7 +2433,7 @@ function confirmarDel(i) {
 }
 
 function confirmarLimpar() {
-  var btn = document.getElementById('btnConfirmDel');
+  var btn = _gel('btnConfirmDel');
   btn.textContent = '🗑 Limpar Tudo';
   btn.onclick = function() {
     HIST = [];
@@ -2459,8 +2477,8 @@ function exportarCfg() {
 // ══════════════════════════════════════════════
 
 function testarGroq() {
-  var key = (document.getElementById('cGroqKey').value || '').trim();
-  var res = document.getElementById('groqTestResult');
+  var key = (_gel('cGroqKey').value || '').trim();
+  var res = _gel('groqTestResult');
   if (!key) { res.textContent = '⚠ Cole a chave primeiro'; res.style.color = 'var(--red)'; return; }
   res.textContent = '⏳ Testando...'; res.style.color = 'var(--gold2)';
   fetch('https://api.groq.com/openai/v1/models', {
@@ -2483,58 +2501,58 @@ function testarGroq() {
 }
 
 function loadCfgUI() {
-  document.getElementById('cGroqKey').value = CFG.groqKey || '';
-  document.getElementById('cEmpNome').value = CFG.emp.nome;
-  document.getElementById('cEmpTel').value  = CFG.emp.tel;
-  document.getElementById('cEmpEnd').value  = CFG.emp.end;
-  document.getElementById('cEmpCid').value  = CFG.emp.cidade;
-  document.getElementById('cMargem').value  = CFG.margem;
-  document.getElementById('cParc').value    = CFG.parcMax;
-  document.getElementById('cJuros').value   = CFG.juros;
-  document.getElementById('cPedreiro').value   = CFG.mob.pedreiro;
-  document.getElementById('cAjudante').value   = CFG.mob.ajudante;
-  document.getElementById('cInstalacao').value = CFG.mob.instalacao;
-  document.getElementById('cMontagem').value   = CFG.mob.montagem;
-  document.getElementById('cTransporte').value = CFG.mob.transporte;
-  document.getElementById('cCimento').value    = CFG.civil.cimento;
-  document.getElementById('cAreia').value      = CFG.civil.areia;
-  document.getElementById('cBrita').value      = CFG.civil.brita;
-  document.getElementById('cArgamassa').value  = CFG.civil.argamassa;
-  document.getElementById('cFerro38').value    = CFG.civil.ferro38;
-  document.getElementById('cFerro516').value   = CFG.civil.ferro516;
-  document.getElementById('cMalha').value      = CFG.civil.malha;
-  document.getElementById('cBlocos').value     = CFG.civil.blocos;
+  _gel('cGroqKey').value = CFG.groqKey || '';
+  _gel('cEmpNome').value = CFG.emp.nome;
+  _gel('cEmpTel').value  = CFG.emp.tel;
+  _gel('cEmpEnd').value  = CFG.emp.end;
+  _gel('cEmpCid').value  = CFG.emp.cidade;
+  _gel('cMargem').value  = CFG.margem;
+  _gel('cParc').value    = CFG.parcMax;
+  _gel('cJuros').value   = CFG.juros;
+  _gel('cPedreiro').value   = CFG.mob.pedreiro;
+  _gel('cAjudante').value   = CFG.mob.ajudante;
+  _gel('cInstalacao').value = CFG.mob.instalacao;
+  _gel('cMontagem').value   = CFG.mob.montagem;
+  _gel('cTransporte').value = CFG.mob.transporte;
+  _gel('cCimento').value    = CFG.civil.cimento;
+  _gel('cAreia').value      = CFG.civil.areia;
+  _gel('cBrita').value      = CFG.civil.brita;
+  _gel('cArgamassa').value  = CFG.civil.argamassa;
+  _gel('cFerro38').value    = CFG.civil.ferro38;
+  _gel('cFerro516').value   = CFG.civil.ferro516;
+  _gel('cMalha').value      = CFG.civil.malha;
+  _gel('cBlocos').value     = CFG.civil.blocos;
 }
 
 function svCfg() {
-  CFG.groqKey  = document.getElementById('cGroqKey').value.trim();
-  CFG.emp.nome   = document.getElementById('cEmpNome').value;
-  CFG.emp.tel    = document.getElementById('cEmpTel').value;
-  CFG.emp.end    = document.getElementById('cEmpEnd').value;
-  CFG.emp.cidade = document.getElementById('cEmpCid').value;
-  CFG.margem  = +(document.getElementById('cMargem').value)  || 35;
-  CFG.parcMax = +(document.getElementById('cParc').value)    || 8;
-  CFG.juros   = +(document.getElementById('cJuros').value)   || 12;
-  CFG.mob.pedreiro   = +(document.getElementById('cPedreiro').value);
-  CFG.mob.ajudante   = +(document.getElementById('cAjudante').value);
-  CFG.mob.instalacao = +(document.getElementById('cInstalacao').value);
-  CFG.mob.montagem   = +(document.getElementById('cMontagem').value);
-  CFG.mob.transporte = +(document.getElementById('cTransporte').value);
-  CFG.civil.cimento   = +(document.getElementById('cCimento').value);
-  CFG.civil.areia     = +(document.getElementById('cAreia').value);
-  CFG.civil.brita     = +(document.getElementById('cBrita').value);
-  CFG.civil.argamassa = +(document.getElementById('cArgamassa').value);
-  CFG.civil.ferro38   = +(document.getElementById('cFerro38').value);
-  CFG.civil.ferro516  = +(document.getElementById('cFerro516').value);
-  CFG.civil.malha     = +(document.getElementById('cMalha').value);
-  CFG.civil.blocos    = +(document.getElementById('cBlocos').value);
+  CFG.groqKey  = _gel('cGroqKey').value.trim();
+  CFG.emp.nome   = _gel('cEmpNome').value;
+  CFG.emp.tel    = _gel('cEmpTel').value;
+  CFG.emp.end    = _gel('cEmpEnd').value;
+  CFG.emp.cidade = _gel('cEmpCid').value;
+  CFG.margem  = +(_gel('cMargem').value)  || 35;
+  CFG.parcMax = +(_gel('cParc').value)    || 8;
+  CFG.juros   = +(_gel('cJuros').value)   || 12;
+  CFG.mob.pedreiro   = +(_gel('cPedreiro').value);
+  CFG.mob.ajudante   = +(_gel('cAjudante').value);
+  CFG.mob.instalacao = +(_gel('cInstalacao').value);
+  CFG.mob.montagem   = +(_gel('cMontagem').value);
+  CFG.mob.transporte = +(_gel('cTransporte').value);
+  CFG.civil.cimento   = +(_gel('cCimento').value);
+  CFG.civil.areia     = +(_gel('cAreia').value);
+  CFG.civil.brita     = +(_gel('cBrita').value);
+  CFG.civil.argamassa = +(_gel('cArgamassa').value);
+  CFG.civil.ferro38   = +(_gel('cFerro38').value);
+  CFG.civil.ferro516  = +(_gel('cFerro516').value);
+  CFG.civil.malha     = +(_gel('cMalha').value);
+  CFG.civil.blocos    = +(_gel('cBlocos').value);
   localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
   buildMatList();
   _TI_calcular();
 }
 
 function buildPedrasCfg() {
-  var el = document.getElementById('cPedrasList');
+  var el = _gel('cPedrasList');
   if (!el) return;
   var h = '';
   CFG.pedras.forEach(function(p, i) {
@@ -2882,7 +2900,7 @@ function pltDesenharCorte(d, A) {
   s+='<text x="8" y="16" fill="rgba(201,168,76,.35)" font-size="8" font-family="DM Mono,monospace">CORTE FRONTAL</text>';
   s+='<text x="8" y="26" fill="rgba(201,168,76,.2)" font-size="7" font-family="DM Mono,monospace">'+d.C+'×'+d.L+'×'+A.toFixed(0)+'cm</text>';
 
-  var el=document.getElementById('plt-svgCorte');
+  var el=_gel('plt-svgCorte');
   if (el) el.innerHTML=s;
 }
 
@@ -2959,13 +2977,13 @@ function pltDesenharPlanta(d) {
   s+='<text x="22" y="'+(H-17)+'" fill="rgba(255,140,0,.55)" font-size="7" font-family="DM Mono,monospace">Argamassa '+PLT_ARG+' cm</text>';
   s+='<text x="8" y="'+(H-5)+'" fill="rgba(255,255,255,.2)" font-size="6.5" font-family="DM Mono,monospace">PLANTA BAIXA — VISTA SUPERIOR</text>';
 
-  var el=document.getElementById('plt-svgPlanta');
+  var el=_gel('plt-svgPlanta');
   if (el) el.innerHTML=s;
 }
 
 function pltRenderTabela(pieces) {
   var total=pieces.reduce(function(s,p){return s+p.qt;},0);
-  var el=document.getElementById('plt-totalPecas');
+  var el=_gel('plt-totalPecas');
   if (el) el.textContent=total+' peças total';
   var rows='';
   pieces.forEach(function(p) {
@@ -2978,7 +2996,7 @@ function pltRenderTabela(pieces) {
       +'<td style="padding:10px 10px;color:var(--t3);font-size:.67rem">'+p.obs+'</td>'
       +'</tr>';
   });
-  var tb=document.getElementById('plt-tblBody');
+  var tb=_gel('plt-tblBody');
   if (tb) tb.innerHTML=rows;
 }
 
@@ -2995,7 +3013,7 @@ function pltRenderResumo(d, A) {
       +'<div style="font-size:.95rem;font-weight:700;color:var(--gold2);font-family:\'DM Mono\',monospace">'+it[1]+'</div>'
       +'</div>';
   });
-  var el=document.getElementById('plt-resumo');
+  var el=_gel('plt-resumo');
   if (el) el.innerHTML=h;
 }
 
@@ -3020,7 +3038,7 @@ function showTab(id, btn) {
   if (id === 'chapas') renderChapas();
   // Limpar número do header ao abrir aba de novo orçamento sem pendente
   if (id === 'orcamento' && !pendOrc) {
-    document.getElementById('hdNum').textContent = '';
+    _gel('hdNum').textContent = '';
   }
 }
 
@@ -3029,8 +3047,8 @@ function showTab(id, btn) {
 // ══════════════════════════════════════════════
 
 function renderProducao() {
-  var prodEmpty   = document.getElementById('prodEmpty');
-  var prodCont    = document.getElementById('prodConteudo');
+  var prodEmpty   = _gel('prodEmpty');
+  var prodCont    = _gel('prodConteudo');
   if (!pendOrc || !pendOrc.r) {
     prodEmpty.style.display = 'block';
     prodCont.style.display  = 'none';
@@ -3078,8 +3096,8 @@ function renderProducao() {
     idx++;
   });
 
-  document.getElementById('prodTblBody').innerHTML = rows;
-  document.getElementById('prodTotalPecas').textContent = (idx-1)+' peças · '+totalM2.toFixed(3)+' m² bruto · '+Math.round(totalPeso)+' kg';
+  _gel('prodTblBody').innerHTML = rows;
+  _gel('prodTotalPecas').textContent = (idx-1)+' peças · '+totalM2.toFixed(3)+' m² bruto · '+Math.round(totalPeso)+' kg';
 
   // Rodapé da tabela
   var foot = '<tr style="background:var(--bg3)">'
@@ -3089,7 +3107,7 @@ function renderProducao() {
     +'<td></td>'
     +'<td style="padding:10px 10px;font-family:\'DM Mono\',monospace;font-weight:700;color:var(--grn)">R$ '+_TI_fm(totalCusto)+'</td>'
     +'</tr>';
-  document.getElementById('prodTblFoot').innerHTML = foot;
+  _gel('prodTblFoot').innerHTML = foot;
 
   // ── Estrutura civil ──
   var hCivil = '';
@@ -3120,7 +3138,7 @@ function renderProducao() {
   } else {
     hCivil += '<div class="callout" style="margin:0">Serviço <strong>'+r.ts.nm+'</strong> — estrutura civil não inclusa. Apenas argamassa de assentamento: <strong>'+r.civil.sacos_argam+' sacos AC-II/III</strong>.</div>';
   }
-  document.getElementById('prodCivil').innerHTML = hCivil;
+  _gel('prodCivil').innerHTML = hCivil;
 
   // ── Mão de obra detalhada ──
   var hMob = '';
@@ -3141,7 +3159,7 @@ function renderProducao() {
   hMob += '<div class="det-line"><span class="det-k">Montagem e acabamento final — '+r.nDiasMont+' dia'+(r.nDiasMont>1?'s':'')+'</span><span class="det-v">R$ '+_TI_fm(r.custo_mont)+'</span></div>';
   hMob += '<div class="det-line"><span class="det-k">Transporte e deslocamento</span><span class="det-v">R$ '+_TI_fm(r.frete)+'</span></div>';
   hMob += '<div class="det-line" style="font-weight:700"><span class="det-k"><strong>Total mão de obra</strong></span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_mob)+'</span></div>';
-  document.getElementById('prodMob').innerHTML = hMob;
+  _gel('prodMob').innerHTML = hMob;
 
   // ── Peso por grupo ──
   var grupoPeso = { tampas:0, laterais:0, frente:0, fundo:0, lapide:0, outros:0 };
@@ -3170,7 +3188,7 @@ function renderProducao() {
   if (r.peso_total > 300) {
     hPeso += '<div class="callout warn" style="margin-top:12px;font-size:.73rem">⚠ <strong>Atenção:</strong> Peso total acima de 300 kg. Verificar capacidade de içamento e transporte.</div>';
   }
-  document.getElementById('prodPeso').innerHTML = hPeso;
+  _gel('prodPeso').innerHTML = hPeso;
 }
 
 // ══════════════════════════════════════════════
@@ -3178,17 +3196,17 @@ function renderProducao() {
 // ══════════════════════════════════════════════
 
 function renderChapas() {
-  var el = document.getElementById('chapasResultado');
+  var el = _gel('chapasResultado');
   if (!pendOrc || !pendOrc.r) {
     el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--t4)"><div style="font-size:.85rem">Gere um orçamento para ver a distribuição nas chapas</div></div>';
     return;
   }
 
-  var chapaC   = +(document.getElementById('chapaC').value)   || 320;
-  var chapaL   = +(document.getElementById('chapaL').value)   || 190;
-  var chapaE   = +(document.getElementById('chapaE').value)   || 3;
-  var sangria  = +(document.getElementById('chapaSangria').value) || 0.8;
-  var precoChapa = +(document.getElementById('chapaPreco').value) || 0;
+  var chapaC   = +(_gel('chapaC').value)   || 320;
+  var chapaL   = +(_gel('chapaL').value)   || 190;
+  var chapaE   = +(_gel('chapaE').value)   || 3;
+  var sangria  = +(_gel('chapaSangria').value) || 0.8;
+  var precoChapa = +(_gel('chapaPreco').value) || 0;
 
   var r  = pendOrc.r;
   var d  = r.d;
