@@ -26,8 +26,8 @@
     {
       padrao: /renderAmbientes|addAmbiente|rmAmbiente/i,
       titulo: 'Erro nos Ambientes do Orçamento',
-      onde: 'app-core.js → funções addAmbiente() / rmAmbiente() / renderAmbientes()',
-      como: 'Normalmente causado por dados de ambiente corrompidos. Tente criar um novo orçamento em branco. Se o erro ocorrer ao editar um orçamento salvo, verifique se o item possui "ambientes" definidos corretamente no objeto do orçamento.'
+      onde: 'app-core.js → função renderAmbientes() / buildSVHtml()',
+      como: 'Causa mais comum: um orçamento salvo tem uma cuba selecionada (selCuba) com dados incompletos — o campo "nm" (nome) está undefined.\n\n▶ Solução rápida: Abra o orçamento com problema → vá na aba Serviços → desmarque e remarque a cuba.\n\n▶ Se o erro aparecer ao abrir a tela de orçamento: crie um novo orçamento em branco para confirmar. Se funcionar, o problema está nos dados de um orçamento específico salvo.\n\n▶ Correção definitiva: em app-core.js linha com "selCuba.nm.trim()" substitua por "(amb.selCuba&&amb.selCuba.nm?amb.selCuba.nm.trim():\'Cuba\')+'
     },
     {
       padrao: /buildCatalog|buildMat|buildSV/i,
@@ -111,7 +111,7 @@
       linha: linha || '',
       col: col || '',
       stack: stack || '',
-      sug: resolverSugestao(msg, src)
+      sug: (tipo === 'error') ? resolverSugestao(msg, src) : null
     };
     DIAG.logs.unshift(entry);
     if (DIAG.logs.length > DIAG.maxLogs) DIAG.logs.pop();
@@ -278,8 +278,8 @@
       h += '</div>';
     }
 
-    // Sugestão de solução (para erros)
-    if (entry.tipo === 'error' && entry.sug) {
+    // Sugestão de solução (somente para erros reais, não para info/warn)
+    if (entry.tipo === 'error' && entry.sug && entry.src !== 'Diagnóstico/Testes') {
       var sugId = 'diagSug_' + idx;
       h += '<div style="background:#fff5;border:1px solid ' + c.borda + '33;border-radius:8px;padding:10px 12px;margin-top:6px;">';
       h += '<div style="font-size:.7rem;font-weight:700;color:' + c.borda + ';margin-bottom:4px;">🩺 ' + _esc(entry.sug.titulo) + '</div>';
@@ -407,7 +407,7 @@
     DIAG.logs.forEach(function(e, i) {
       linhas.push('[' + e.tipo.toUpperCase() + '] ' + fmtTs(e.ts) + ' — ' + e.msg);
       if (e.src) linhas.push('  Arquivo: ' + e.src + (e.linha ? ' (linha ' + e.linha + ')' : ''));
-      if (e.sug) {
+      if (e.tipo === 'error' && e.sug) {
         linhas.push('  Sugestão: ' + e.sug.titulo);
         linhas.push('  Onde: ' + e.sug.onde);
         linhas.push('  Como: ' + e.sug.como);
