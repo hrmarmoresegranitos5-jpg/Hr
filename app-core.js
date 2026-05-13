@@ -1203,7 +1203,7 @@ function buildSVHtml(amb){
         h+='<div class="sf"><span>Qtd</span><input type="number" id="sq-'+amb.id+'-'+it.k+'" value="'+(sfv.q||1)+'" min="1" style="width:48px;" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'q\',+this.value||1);calcSFAmb('+amb.id+',\''+it.k+'\')" onclick="event.stopPropagation()"></div>';
         h+='</div><div class="sfres" id="sfr-'+amb.id+'-'+it.k+'"></div></div>';
       } else if(it.u==='cuba'&&isOn){
-        var cubaInfo=amb.selCuba?('✓ '+amb.selCuba.nm.trim()+' — R$ '+fm(amb.selCuba.total)):'Toque para escolher';
+        var cubaInfo=amb.selCuba?('✓ '+(amb.selCuba.nm||'Cuba').trim()+' — R$ '+fm(amb.selCuba.total||0)):'Toque para escolher';
         h+='<div class="svcuba on" id="sq-'+amb.id+'-'+it.k+'" onclick="openCubaPickAmb('+amb.id+',\''+it.ctp+'\')" style="cursor:pointer;">'+cubaInfo+'</div>';
       } else if((it.u==='ml'||it.u==='km'||it.u==='un')&&!it.fx&&isOn){
         var sv2=sv[it.k]||{};
@@ -1370,7 +1370,7 @@ function calcular(){
         return;
       }
       if(it.u==='cuba'){
-        if(amb.selCuba){acT+=amb.selCuba.total;acL.push({l:'Cuba: '+amb.selCuba.nm.trim(),v:amb.selCuba.total});acN.push('Cuba: '+amb.selCuba.nm.trim());}
+        if(amb.selCuba){acT+=amb.selCuba.total||0;acL.push({l:'Cuba: '+(amb.selCuba.nm||'Cuba').trim(),v:amb.selCuba.total||0});acN.push('Cuba: '+(amb.selCuba.nm||'Cuba').trim());}
         return;
       }
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
@@ -1506,7 +1506,7 @@ function calcular(){
       var vP=0,dP=itP.l;
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
       else if(itP.u==='sf_slim'||itP.u==='ml_only'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml (só MO)';}
-      else if(itP.u==='cuba'){if(ambP.selCuba){vP=ambP.selCuba.total;dP+=': '+ambP.selCuba.nm.trim();}}
+      else if(itP.u==='cuba'){if(ambP.selCuba){vP=ambP.selCuba.total||0;dP+=': '+(ambP.selCuba.nm||'Cuba').trim();}}
       else if(!itP.fx){vP=(sdP.w||0)*getPr(itP.k);if(sdP.w)dP+=' '+sdP.w+(itP.u==='un'?'un':'ml');}
       else{vP=getPr(itP.k);}
       if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
