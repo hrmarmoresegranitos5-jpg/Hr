@@ -1321,6 +1321,13 @@ function abrirAIMd(ambId){
 
 // ═══ CALCULAR ═══
 function calcular(){
+  // Acionar motor do túmulo em todos os ambientes tipo Túmulo antes de calcular
+  ambientes.forEach(function(a){
+    if(a.tipo==='Túmulo'){
+      var btn=document.querySelector('#tumInline_'+a.id+' #btnTumCalcAuto');
+      if(btn) btn.click();
+    }
+  });
   var cli=document.getElementById('oCliente').value.trim()||'Cliente';
   var tel=document.getElementById('oTel').value.trim()||'';
   var cidade=document.getElementById('oCidade').value.trim()||'';
