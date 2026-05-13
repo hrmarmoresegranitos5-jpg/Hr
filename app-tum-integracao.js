@@ -596,8 +596,10 @@ function _patchTumInlineMount() {
       }
     }
 
-    // Observar clique em "Gerar Orçamento Completo" para hook automático
-    var btnCalc = root.querySelector('[onclick="calcularFinal()"]');
+    // Observar clique em "Calcular Orçamento" (app principal) → aciona o motor do túmulo
+    // O botão original "Gerar Orçamento Completo" foi removido da UI; o motor é
+    // acionado via _TI_tumCalcularAuto(ambId) chamado pelo app-core antes de calcular().
+    var btnCalc = root.querySelector('#btnTumCalcAuto') || root.querySelector('[onclick="calcularFinal()"]');
     if (btnCalc && !btnCalc._tumErpHooked) {
       btnCalc._tumErpHooked = true;
       btnCalc.addEventListener('click', function() {
