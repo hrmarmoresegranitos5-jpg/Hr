@@ -3598,9 +3598,12 @@ function tumInlineMount(ambId) {
     _TI_cssInjected = true;
   }
 
-  // Se o container já tem conteúdo para este ambiente, não re-renderizar
-  // (evita perda de estado a cada renderAmbientes do app principal)
+  // Se o container já tem conteúdo para este ambiente, não re-renderizar HTML
+  // mas SEMPRE re-sincroniza pedras e re-inicializa a UI
   if (container.children.length > 0 && container.dataset.tumMounted === String(ambId)) {
+    // Apenas sincroniza pedras e re-renderiza a lista de materiais
+    if (typeof window.tumSincPedrasGlobais === 'function') window.tumSincPedrasGlobais();
+    buildPedrasCfg();
     return;
   }
 
@@ -3628,6 +3631,13 @@ function tumInlineMount(ambId) {
   pendOrc = null;
   HIST = JSON.parse(localStorage.getItem('hr_tum_hist') || '[]');
   init();
+
+  // Sincronizar catálogo de pedras do app principal APÓS init()
+  // (init() chama buildPedrasCfg com CFG.pedras interno — precisamos substituir)
+  if (typeof window.tumSincPedrasGlobais === 'function') {
+    window.tumSincPedrasGlobais();
+    buildPedrasCfg(); // re-renderiza a lista já com as pedras corretas
+  }
 }
 
 function tumInlineUnmount() {
