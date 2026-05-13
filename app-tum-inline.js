@@ -1934,6 +1934,9 @@ function calcularFinal() {
     r: r
   };
 
+  // Expõe o resultado para app-tum-integracao.js ler via window
+  window._tumLastPendOrc = pendOrc;
+
   _gel('hdNum').textContent = numStr;
   renderResultado(pendOrc);
   renderProducao();
@@ -3742,5 +3745,16 @@ window.renderProducao                       = renderProducao;
 window.renderResultado                      = renderResultado;
 window.toast                                = toast;
 window.validarForm                          = validarForm;
+
+// Expõe setter para sincronizar catálogo de pedras diretamente na memória do IIFE
+// Chamado por app-tum-integracao.js a cada tumInlineMount
+window.tumSetPedrasCatalogo = function(pedras) {
+  if (!Array.isArray(pedras) || !pedras.length) return;
+  CFG.pedras = pedras;
+  // Garantir que matId selecionado ainda existe
+  if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
+    SEL.matId = CFG.pedras[0].id;
+  }
+};
 
 })(); // fim do IIFE
