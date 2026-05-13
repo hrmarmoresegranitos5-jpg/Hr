@@ -1068,6 +1068,11 @@ function renderAmbientes(){
     }
     // ── TÚMULO: calculadora v14 embutida inline ──
     if(amb.tipo==='Túmulo'){
+      // Resumo do orçamento de túmulo (se já calculado)
+      var tumSummary = typeof tumGetAmbSummary==='function' ? tumGetAmbSummary(amb) : '';
+      if(tumSummary){
+        h+='<div style="font-size:.68rem;color:var(--gold2);background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;padding:7px 11px;margin-bottom:8px;">⚰️ '+tumSummary+'</div>';
+      }
       h+='<div id="tumInline_'+amb.id+'" class="tum-inline-wrap"></div>';
       h+='</div></div>';
     } else {
