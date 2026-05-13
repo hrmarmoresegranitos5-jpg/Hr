@@ -489,14 +489,13 @@ window._tumPendOrcMap = window._tumPendOrcMap || {};
 
 function _hookTumCalcFinal(ambId) {
   // Após o calcularFinal do motor, este hook:
-  // 1. Guarda pendOrc no map global
-  // 2. Renderiza acessórios
-  // 3. Renderiza resumo financeiro
-  // 4. Injeta bloco ERP se ainda não existir
+  // 1. Lê pendOrc exposto via window._tumLastPendOrc (não mais pelo DOM)
+  // 2. Grava no map global e no amb
+  // 3. Renderiza acessórios e resumo financeiro
   var root = document.getElementById('tumInline_' + ambId);
   if (!root) return;
 
-  // Verificar se o bloco ERP já foi injetado
+  // Injetar bloco ERP se ainda não existir
   if (!document.getElementById('tumERPActions_' + ambId)) {
     var resPage = root.querySelector('#pg-resultado');
     if (resPage) {
@@ -509,32 +508,23 @@ function _hookTumCalcFinal(ambId) {
   // Inicializar acessórios
   _renderTumAcessorios(ambId);
 
-  // Tentar obter pendOrc do escopo do IIFE via DOM search
-  // O motor armazena em pendOrc interno; precisamos de uma referência exposta
-  var hdNum = root.querySelector('#hdNum');
-  var rVista = root.querySelector('#rVista');
-  if (rVista && rVista.textContent && rVista.textContent !== 'R$ 0') {
-    // Construir objeto resumido do pendOrc a partir do DOM para o resumo financeiro
-    var vistaText = rVista.textContent.replace(/[R$\s\.]/g, '').replace(',', '.');
-    var vista = parseFloat(vistaText) || 0;
-    var mockOrc = {
-      id:   Date.now(),
-      num:  (hdNum ? hdNum.textContent : ''),
-      cli:  (root.querySelector('#iCli') ? root.querySelector('#iCli').value : ''),
-      tel:  (root.querySelector('#iTel') ? root.querySelector('#iTel').value : ''),
-      cemi: (root.querySelector('#iCemiterio') ? root.querySelector('#iCemiterio').value : ''),
-      cid:  (root.querySelector('#iCidade') ? root.querySelector('#iCidade').value : ''),
-      quad: (root.querySelector('#iQuadra') ? root.querySelector('#iQuadra').value : ''),
-      lote: (root.querySelector('#iLote') ? root.querySelector('#iLote').value : ''),
-      obs:  (root.querySelector('#iObs') ? root.querySelector('#iObs').value : ''),
-      fal:  [],
-      r: { valor_vista: vista, valor_parc: 0, m2_total: 0, peso_total: 0, prazo_total: 0, custo_total: vista * 0.6 }
-    };
-    window['_tumPendOrc_' + ambId] = mockOrc;
-    window._tumPendOrcMap[ambId]   = mockOrc;
-    _renderTumFinResumo(ambId, mockOrc);
+  // Ler pendOrc exposto pelo motor
+  var pendOrc = window._tumLastPendOrc;
+  if (!pendOrc || !pendOrc.r || !pendOrc.r.valor_vista) return;
+
+  window['_tumPendOrc_' + ambId] = pendOrc;
+  window._tumPendOrcMap[ambId]   = pendOrc;
+
+  // Salvar resultado no objeto ambiente do app principal
+  var amb = (typeof ambientes !== 'undefined') ? ambientes.find(function(a) { return a.id == ambId; }) : null;
+  if (amb) {
+    amb.tumResult = pendOrc.r;
+    amb.tumPendOrc = pendOrc;
   }
+
+  _renderTumFinResumo(ambId, pendOrc);
 }
+
 
 // ══════════════════════════════════════════════════════
 // 10. CATÁLOGO GLOBAL — sincronizar pedras do ERP no motor
@@ -546,9 +536,14 @@ function tumSincPedrasGlobais() {
   // Isso faz o seletor de material do túmulo mostrar as mesmas pedras do ERP
   var stones = _buildTumPedrasGlobal();
   if (!stones.length) return;
-  // Expor via localStorage para o IIFE ler ao iniciar
+
+  // 1. Sync DIRETO na memória do IIFE (funciona mesmo após o IIFE já ter sido inicializado)
+  if (typeof window.tumSetPedrasCatalogo === 'function') {
+    window.tumSetPedrasCatalogo(stones);
+  }
+
+  // 2. Também persiste no localStorage para que na próxima carga já venha certo
   var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
-  // Mesclar mantendo configurações existentes, apenas atualizando pedras
   cfg.pedras = stones;
   localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
 }
