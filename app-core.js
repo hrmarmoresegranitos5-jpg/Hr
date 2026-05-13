@@ -924,7 +924,7 @@ function buildMatCarouselHtml(amb){
 
 function addAmbiente(){
   var id=Date.now();
-  var defaultMat=ambientes.length>0?ambientes[ambientes.length-1].selMat:null;
+  var defaultMat=ambientes.length>0?ambientes[ambientes.length-1].selMat:(selMat||null);
   ambientes.push({id:id,tipo:'Cozinha',pecas:[],selCuba:null,svState:{},acState:{},selMat:defaultMat});
   addPecaAmb(id);
   renderAmbientes();
