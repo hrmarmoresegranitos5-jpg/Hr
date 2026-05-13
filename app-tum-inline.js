@@ -1165,7 +1165,7 @@ function buildFalecidos() {
        + '<div style="display:flex;gap:6px;align-items:flex-end">'
        + '<div style="flex:2;min-width:0">'
        + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Falecido '+(i+1)+'</div>'
-       + '<input type="text" placeholder="Nome completo" value="'+escHtml(f.nome)+'" '
+       + '<input type="text" placeholder="Nome completo" value="'+escHtml(f.nome||'')+'" '
        + 'oninput="SEL.falecidos['+i+'].nome=this.value;atualizarFalLabel()" '
        + 'style="width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:7px 10px;color:var(--tx);font-size:.8rem">'
        + '</div>'
@@ -1903,7 +1903,7 @@ function calcularFinal() {
     tel:  document.getElementById('iTel').value.trim(),
     cemi: document.getElementById('iCemiterio').value.trim(),
     cid:  document.getElementById('iCidade').value.trim(),
-    fal:  SEL.falecidos.filter(function(f){ return f.nome.trim(); }),
+    fal:  SEL.falecidos.filter(function(f){ return f.nome && f.nome.trim(); }),
     quad: document.getElementById('iQuadra').value.trim(),
     lote: document.getElementById('iLote').value.trim(),
     obs:  document.getElementById('iObs').value.trim(),
@@ -1938,7 +1938,7 @@ function renderResultado(o) {
   // Falecidos: array ou string legada
   if (Array.isArray(o.fal) && o.fal.length > 0) {
     o.fal.forEach(function(f) {
-      var s = '⚰️ ' + f.nome;
+      var s = '⚰️ ' + (f.nome||'Não informado');
       if (f.nasc || f.obit) s += ' (' + (f.nasc||'?') + '–' + (f.obit||'?') + ')';
       meta.push(s);
       if (f.frase && f.frase.trim()) meta.push('✦ ' + f.frase.trim());
@@ -2099,7 +2099,7 @@ function gerarTextoWA(o, r) {
   if (o.tel)  wa += '📞 *Tel:* '+o.tel+'\n';
   if (Array.isArray(o.fal) && o.fal.length > 0) {
     o.fal.forEach(function(f, i) {
-      var s = '⚰️ *Falecido'+(o.fal.length>1?' '+(i+1):'')+'*: '+f.nome;
+      var s = '⚰️ *Falecido'+(o.fal.length>1?' '+(i+1):'')+'*: '+(f.nome||'Não informado');
       if (f.nasc || f.obit) s += ' ('+( f.nasc||'?')+'–'+(f.obit||'?')+')';
       wa += s + '\n';
       if (f.frase && f.frase.trim()) wa += '   _"' + f.frase.trim() + '"_\n';
@@ -2144,7 +2144,7 @@ function gerarPrintArea(o, r) {
   meta += ' · Data: '+o.date;
   if (Array.isArray(o.fal) && o.fal.length > 0) {
     o.fal.forEach(function(f, i) {
-      var s = '\n' + (o.fal.length > 1 ? 'Falecido '+(i+1)+': ' : 'Falecido(a): ') + f.nome;
+      var s = '\n' + (o.fal.length > 1 ? 'Falecido '+(i+1)+': ' : 'Falecido(a): ') + (f.nome||'Não informado');
       if (f.nasc || f.obit) s += ' ('+( f.nasc||'?')+'–'+(f.obit||'?')+')';
       if (f.frase && f.frase.trim()) s += '\n  "' + f.frase.trim() + '"';
       meta += s;
@@ -2280,7 +2280,7 @@ function renderHistorico() {
        + '<div class="hist-meta">'
        + (o.num?'<span>🔖 '+o.num+'</span>':'')
        + (Array.isArray(o.fal) && o.fal.length > 0
-           ? o.fal.map(function(f){ return '<span>⚰️ '+f.nome+'</span>'; }).join('')
+           ? o.fal.map(function(f){ return '<span>⚰️ '+(f.nome||'Não informado')+'</span>'; }).join('')
            : (o.fal ? '<span>⚰️ '+o.fal+'</span>' : ''))
        + (o.cemi?'<span>🏛 '+o.cemi+'</span>':'')
        + '<span>'+o.matNm+'</span>'
