@@ -3618,8 +3618,63 @@ function tumInlineUnmount() {
 
 // ═══════════════════════════════════════════════════════
 // EXPOR API PÚBLICA
+// Todas as funções usadas em onclick inline no HTML gerado
+// precisam estar no escopo global (window) — o IIFE as isola
 // ═══════════════════════════════════════════════════════
 window.tumInlineMount   = tumInlineMount;
 window.tumInlineUnmount = tumInlineUnmount;
+
+// Funções de UI — onclick inline
+window.selTipoServ       = selTipoServ;
+window.selMat            = selMat;
+window.selMatCat         = selMatCat;
+window.selAcab           = selAcab;
+window.selMoldura        = selMoldura;
+window.selGrade          = selGrade;
+window.selEngrossar      = selEngrossar;
+window.aplicarPreset     = aplicarPreset;
+window.togPeca           = togPeca;
+window.togOpt            = togOpt;
+window.adjOpt            = adjOpt;
+window.adjGrade          = adjGrade;
+window.adjTampa          = adjTampa;
+window.addFalecido       = addFalecido;
+window.remFalecido       = remFalecido;
+window.validarCli        = validarCli;
+window.mascaraTel        = mascaraTel;
+window.abrirModal        = abrirModal;
+window.fecharModal       = fecharModal;
+window.abrirModalPedra   = abrirModalPedra;
+window.confirmarAddPedra = confirmarAddPedra;
+window.remPedra          = remPedra;
+window.calcularFinal     = calcularFinal;
+window.salvarHistorico   = salvarHistorico;
+window.copiarWA          = copiarWA;
+window.imprimirPDF       = imprimirPDF;
+window.imprimirProducao  = imprimirProducao;
+window.showTab           = showTab;
+window.renderPlanta      = renderPlanta;
+window.renderChapas      = renderChapas;
+window.renderHistorico   = renderHistorico;
+window.verHistorico      = verHistorico;
+window.recarregarOrcamento = recarregarOrcamento;
+window.copiarWAHist      = copiarWAHist;
+window.confirmarDel      = confirmarDel;
+window.confirmarLimpar   = confirmarLimpar;
+window.exportarHistorico = exportarHistorico;
+window.exportarCfg       = exportarCfg;
+window.importarCfg       = importarCfg;
+window.resetCfg          = resetCfg;
+window.svCfg             = svCfg;
+window.svCfg2            = svCfg2;
+window.testarGroq        = testarGroq;
+window.iaOnFileSelect    = iaOnFileSelect;
+window.iaAnalisar        = iaAnalisar;
+window.renderEncontroBox = renderEncontroBox;
+window._TI_calcular      = _TI_calcular;
+
+// Expor PRESETS e SEL para acesso externo (usado nos onclick inline)
+window.PRESETS           = PRESETS;
+window.SEL               = SEL;
 
 })(); // fim do IIFE
