@@ -209,6 +209,8 @@ function initCFG(){
   }
   // Sync SV labels/prices from svList if it exists
   // Patch v18: força preços novos no CFG existente
+  // ── GUARD: CFG.sv pode ser undefined em CFGs antigos ──
+  if (!CFG.sv) CFG.sv = JSON.parse(JSON.stringify(DEF_SV));
   var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
   Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
   var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
