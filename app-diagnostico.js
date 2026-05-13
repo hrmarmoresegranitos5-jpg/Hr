@@ -26,8 +26,8 @@
     {
       padrao: /renderAmbientes|addAmbiente|rmAmbiente/i,
       titulo: 'Erro nos Ambientes do Orçamento',
-      onde: 'app-core.js → função renderAmbientes() / buildSVHtml()',
-      como: 'Causa mais comum: um orçamento salvo tem uma cuba selecionada (selCuba) com dados incompletos — o campo "nm" (nome) está undefined.\n\n▶ Solução rápida: Abra o orçamento com problema → vá na aba Serviços → desmarque e remarque a cuba.\n\n▶ Se o erro aparecer ao abrir a tela de orçamento: crie um novo orçamento em branco para confirmar. Se funcionar, o problema está nos dados de um orçamento específico salvo.\n\n▶ Correção definitiva: em app-core.js linha com "selCuba.nm.trim()" substitua por "(amb.selCuba&&amb.selCuba.nm?amb.selCuba.nm.trim():\'Cuba\')+'
+      onde: 'app-tum-inline.js → linhas com f.nome (buildFalecidos, calcularFinal, copiarWA)',
+      como: 'Causa raiz: um orçamento de túmulo salvo tem um falecido com campo "nome" undefined (dado incompleto ou migrado de versão antiga).\n\n▶ Solução imediata: Abra o orçamento → aba Orçamento → seção Falecido → apague e redigite o nome.\n\n▶ Se o erro travar a abertura do histórico: vá em Configurações → ↺ Restaurar dados (atenção: apaga configurações locais) ou abra o DevTools (F12) → Application → localStorage → edite o item "hr_tum_hist" removendo entradas com "fal" corrompido.\n\n▶ Esta versão do app já protege contra este crash automaticamente com (f.nome||\'Não informado\').'
     },
     {
       padrao: /buildCatalog|buildMat|buildSV/i,
