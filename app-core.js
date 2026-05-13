@@ -1324,8 +1324,30 @@ function calcular(){
   // Acionar motor do túmulo em todos os ambientes tipo Túmulo antes de calcular
   ambientes.forEach(function(a){
     if(a.tipo==='Túmulo'){
+      // Limpa resultado anterior para não usar dado velho caso o motor falhe
+      window._tumLastPendOrc = null;
+
       var btn=document.querySelector('#tumInline_'+a.id+' #btnTumCalcAuto');
-      if(btn) btn.click();
+      if(btn){
+        // Sincroniza o nome do cliente do app principal → campo #iCli do túmulo
+        // (calcularFinal valida este campo antes de calcular)
+        var cliMain = (document.getElementById('oCliente').value.trim()) || 'Cliente';
+        var iCli = document.querySelector('#tumInline_'+a.id+' #iCli');
+        if(iCli && !iCli.value.trim()) iCli.value = cliMain;
+
+        btn.click();
+
+        // calcularFinal() é síncrono — lê o resultado imediatamente após o click
+        var pend = window._tumLastPendOrc;
+        if(pend && pend.r && pend.r.valor_vista > 0){
+          a.tumResult  = pend.r;
+          a.tumPendOrc = pend;
+        } else {
+          // Motor não calculou - formulário incompleto (medidas faltando)
+          toast('⚠ Túmulo: preencha Comprimento e Largura para calcular');
+          return;
+        }
+      }
     }
   });
   var cli=document.getElementById('oCliente').value.trim()||'Cliente';
