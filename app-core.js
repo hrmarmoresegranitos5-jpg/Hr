@@ -438,10 +438,15 @@ function openApp(pg){
   var a=document.getElementById('sApp');
   a.classList.add('on');
   a.style.display='block';
+  // Guarda: DOMContentLoaded pode ainda não ter disparado (scripts carregando da rede)
+  if(typeof window.setLayout!=='function'){
+    window._pendingPg=pg;
+    return;
+  }
   setLayout();
   requestAnimationFrame(function(){
     setLayout();
-    go(pg);
+    if(typeof go==='function')go(pg);
   });
   window._pendingPg=null;
 }
