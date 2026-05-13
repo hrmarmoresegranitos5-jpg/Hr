@@ -17,7 +17,8 @@ var DB={
   q:JSON.parse(localStorage.getItem('hr_q')||'[]'),
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
-  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));if(SYNC.on)SYNC.push();}
+  b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
+  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));localStorage.setItem('hr_b',JSON.stringify(this.b));if(SYNC.on)SYNC.push();}
 };
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
@@ -999,26 +1000,7 @@ function renderAmbientes(){
       h+='<button class="amb-tip'+(amb.tipo===t?' on':'')+'" data-amb-tipo="'+t+'" data-amb-id="'+amb.id+'">'+t+'</button>';
     });
     h+='</div>';
-    if(amb.tipo==='Túmulo'){
-      if(!amb.tumExtra)amb.tumExtra={};
-      var te=amb.tumExtra;
-      h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:12px;margin:10px 0;">';
-      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">⚰️ Dados do Túmulo</div>';
-      h+='<div class="f"><label>Falecido(a)</label><input placeholder="Nome do falecido" type="text" style="background:var(--s3);" value="'+escH(te.falecido||'')+'" oninput="updTumExtra('+amb.id+',\'falecido\',this.value)"></div>';
-      h+='<div class="f"><label>Cemitério</label><input placeholder="Nome do cemitério" type="text" style="background:var(--s3);" value="'+escH(te.cemiterio||'')+'" oninput="updTumExtra('+amb.id+',\'cemiterio\',this.value)"></div>';
-      h+='<div class="r2"><div class="f"><label>Quadra</label><input placeholder="Q-12" type="text" style="background:var(--s3);" value="'+escH(te.quadra||'')+'" oninput="updTumExtra('+amb.id+',\'quadra\',this.value)"></div>';
-      h+='<div class="f"><label>Lote / Número</label><input placeholder="L-04" type="text" style="background:var(--s3);" value="'+escH(te.lote||'')+'" oninput="updTumExtra('+amb.id+',\'lote\',this.value)"></div></div>';
-      h+='<div class="f"><label>Tipo de Túmulo</label><select style="background:var(--s3);color:var(--tx);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;width:100%;font-size:.82rem;font-family:Outfit,sans-serif;" onchange="updTumExtra('+amb.id+',\'subtipo\',this.value)">';
-      ['Simples','Gaveta Dupla','Gaveta Tripla','Jazigo Familiar','Reforma / Revestimento','Monumento / Capelinha'].forEach(function(st){
-        h+='<option value="'+st+'"'+(te.subtipo===st?' selected':'')+'>'+st+'</option>';
-      });
-      h+='</select></div>';
-      h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(201,168,76,.08);border-radius:8px;font-size:.62rem;color:var(--t3);line-height:1.6;">';
-      h+='💡 <b>Como preencher as peças:</b> informe Comprimento × Largura de cada face.<br>';
-      h+='Ex: Tampa → 220×90cm | Lateral → 220×70cm (qtd 2) | Frente → 90×70cm';
-      h+='</div>';
-      h+='</div>';
-    }
+
     if(amb.tipo==='🏊 Borda Piscina'){
       if(!amb.bordaAcb)amb.bordaAcb={tipo:'polida'};
       var ba=amb.bordaAcb;
@@ -1047,7 +1029,12 @@ function renderAmbientes(){
       h+='<div style="font-size:.57rem;color:var(--t4);margin-top:8px;line-height:1.5;">💡 <b>Comprimento</b> = lado da piscina em cm &nbsp;·&nbsp; <b>Largura</b> = largura da borda em cm</div>';
       h+='</div>';
     }
-    // STEP 2: Selecao de Pedra
+    // ── TÚMULO: calculadora v14 embutida inline ──
+    if(amb.tipo==='Túmulo'){
+      h+='<div id="tumInline_'+amb.id+'" class="tum-inline-wrap"></div>';
+      h+='</div></div>';
+    } else {
+    // STEP 2: Selecao de Pedra — apenas para ambientes não-Túmulo
     h+='<div style="margin:10px 0 12px;">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">';
     h+='<span style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
@@ -1101,8 +1088,15 @@ function renderAmbientes(){
     h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
     h+=buildSVHtml(amb);
     h+='</div></div>';
+    } // fim else (não-Túmulo)
   });
   container.innerHTML=h;
+  // Montar calculadora inline para cada ambiente Túmulo
+  ambientes.forEach(function(a){
+    if(a.tipo==='Túmulo' && typeof tumInlineMount==='function'){
+      tumInlineMount(a.id);
+    }
+  });
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
 }
 // ─── BORDA PISCINA: cálculo automático de ML por lados ───────────
@@ -1291,7 +1285,7 @@ function calcular(){
   var end=document.getElementById('oEnd').value.trim()||'';
   var obs=document.getElementById('oObs').value.trim()||'';
   if(!ambientes.length){toast('Adicione pelo menos um ambiente');return;}
-  var missingMat=ambientes.find(function(a){return !a.selMat;});
+  var missingMat=ambientes.find(function(a){return !a.selMat && a.tipo!=='Túmulo';});
   if(missingMat){toast('Selecione a pedra de todos os ambientes');renderAmbientes();return;}
   var mat=CFG.stones.find(function(s){return s.id===ambientes[0].selMat;})||CFG.stones[0];
 
@@ -1387,6 +1381,11 @@ function calcular(){
 
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
     var pedTamb=m2*ambMat2.pr;
+    // Para túmulo: usar valor calculado pela calculadora inline
+    if(amb.tipo==='Túmulo' && amb.tumResult && amb.tumResult.valor_vista>0){
+      pedTamb=amb.tumResult.valor_vista;
+      m2=amb.tumResult.m2_total||0;
+    }
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
     allAcN=allAcN.concat(acN);
     var ambLabel=(idx+1)+'º Ambiente — '+tipo;
@@ -1403,12 +1402,21 @@ function calcular(){
     acL.forEach(function(a){detHtml+='<div class="rrow"><span class="rk">'+a.l+'</span><span class="rv">R$ '+fm(a.v)+'</span></div>';});
     if(acL.length===0&&m2===0)detHtml+='<div style="font-size:.72rem;color:var(--t4);padding:2px 0;">Nenhuma peça ou serviço neste ambiente</div>';
     // Dados do túmulo no bloco de detalhe
-    if(amb.tipo==='Túmulo'&&amb.tumExtra){
-      var teD=amb.tumExtra;var tumInfo=[];
-      if(teD.falecido)tumInfo.push('Falecido(a): <b>'+escH(teD.falecido)+'</b>');
-      if(teD.cemiterio)tumInfo.push('Cemitério: '+escH(teD.cemiterio));
-      if(teD.quadra||teD.lote)tumInfo.push('Quadra '+(teD.quadra||'—')+' — Lote '+(teD.lote||'—'));
-      if(teD.subtipo)tumInfo.push('Tipo: '+teD.subtipo);
+    if(amb.tipo==='Túmulo'){
+      var tumInfo=[];
+      var tumSel=amb.tumSEL||{};
+      var tumFlds=amb.tumFlds||{};
+      var tumRes=amb.tumResult||{};
+      var fal=tumSel.falecidos&&tumSel.falecidos[0]&&tumSel.falecidos[0].nome?tumSel.falecidos[0].nome:'';
+      var cemi=tumFlds.iCemiterio||'';
+      var quad=tumFlds.iQuadra||'';
+      var lote=tumFlds.iLote||'';
+      if(fal)tumInfo.push('Falecido(a): <b>'+escH(fal)+'</b>');
+      if(cemi)tumInfo.push('Cemitério: '+escH(cemi));
+      if(quad||lote)tumInfo.push('Quadra '+(quad||'—')+' — Lote '+(lote||'—'));
+      if(tumRes.mat_nm)tumInfo.push('Pedra: '+tumRes.mat_nm);
+      if(tumRes.m2_total)tumInfo.push(tumRes.m2_total.toFixed(2)+'m²');
+      if(tumRes.prazo_total)tumInfo.push(tumRes.prazo_total+' dias');
       if(tumInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+tumInfo.join(' · ')+'</div>';
     }
 
@@ -3957,8 +3965,8 @@ function testarAPIKey(){
   if(el)el.textContent='⏳ Testando...';
   fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:10,messages:[{role:'user',content:'oi'}]})
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:5,messages:[{role:'user',content:'oi'}]})
   }).then(function(r){return r.json();}).then(function(d){
     if(el)el.textContent=d.error?'❌ '+d.error.message:'✅ Conectado!';
   }).catch(function(){if(el)el.textContent='❌ Sem conexão';});
