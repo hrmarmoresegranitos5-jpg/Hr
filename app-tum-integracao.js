@@ -125,7 +125,7 @@ function _renderTumAcessorios(ambId) {
 
 function _buildTumPedrasGlobal() {
   // Retorna lista de pedras do catálogo global (CFG.stones) no formato
-  // compatível com o motor do túmulo (CFG.pedras interno ao IIFE)
+  // compatível com o motor do túmulo — inclui photo/tx/fin para o carousel
   if (typeof CFG === 'undefined' || !CFG.stones) return [];
   return CFG.stones.map(function(s) {
     return {
@@ -134,7 +134,11 @@ function _buildTumPedrasGlobal() {
       cat:   s.cat || 'Geral',
       pr:    s.pr,
       peso:  s.peso || 2700,
-      esp:   s.esp || 2
+      esp:   s.esp || 2,
+      photo: s.photo || '',
+      tx:    s.tx    || '',
+      fin:   s.fin   || 'Polida',
+      desc:  s.desc  || ''
     };
   });
 }
