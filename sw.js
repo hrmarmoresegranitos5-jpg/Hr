@@ -2,7 +2,7 @@
 // HR Mármores e Granitos — Service Worker
 // ═══════════════════════════════════════════════════════
 
-var CACHE_VERSION = 'hr-app-v15';
+var CACHE_VERSION = 'hr-app-v16';
 
 // Arquivos do app shell — cacheados para funcionar offline
 var APP_SHELL = [
@@ -11,25 +11,14 @@ var APP_SHELL = [
   '/Aplicativo-/manifest.json',
   '/Aplicativo-/icon-192.png',
   '/Aplicativo-/icon-512.png',
-  '/Aplicativo-/data-cuba-imgs.js',
-  '/Aplicativo-/data-defaults.js',
-  '/Aplicativo-/app-init.js',
-  '/Aplicativo-/app-orcamento.js',
-  '/Aplicativo-/app-financas.js',
-  '/Aplicativo-/app-catalogos.js',
-  '/Aplicativo-/app-config.js',
-  '/Aplicativo-/app-contrato.js',
-  '/Aplicativo-/fechamento.js',
-  '/Aplicativo-/app-boletos.js',
-  '/Aplicativo-/app-ai-utils.js',
-  '/Aplicativo-/pwa.js'
+  '/Aplicativo-/app-core.js',
+  '/Aplicativo-/app-tum-inline.js'
 ];
 
 // ── INSTALL: pré-cacheia o app shell ──
 self.addEventListener('install', function(e) {
   e.waitUntil(
     caches.open(CACHE_VERSION).then(function(cache) {
-      // Cacheia cada arquivo individualmente para não falhar tudo se um file falhar
       return Promise.all(
         APP_SHELL.map(function(url) {
           return fetch(url, { cache: 'no-store' })
@@ -42,7 +31,6 @@ self.addEventListener('install', function(e) {
         })
       );
     }).then(function() {
-      // Ativa imediatamente sem esperar abas fecharem
       return self.skipWaiting();
     })
   );
@@ -62,7 +50,6 @@ self.addEventListener('activate', function(e) {
     }).then(function() {
       return self.clients.claim();
     }).then(function() {
-      // Avisa todas as abas que o SW novo assumiu controle
       return self.clients.matchAll({ type: 'window' }).then(function(clients) {
         clients.forEach(function(client) {
           client.postMessage({ type: 'SW_ACTIVATED', version: CACHE_VERSION });
@@ -83,13 +70,9 @@ self.addEventListener('message', function(e) {
 self.addEventListener('fetch', function(e) {
   var req = e.request;
 
-  // Só intercepta GET — deixa POST/PUT/DELETE passar direto
   if (req.method !== 'GET') return;
-
-  // Não intercepta requests de extensões do browser ou chrome-extension
   if (req.url.startsWith('chrome-extension://')) return;
 
-  // Fontes externas (Google Fonts, CDN): cache-first, sem expirar
   var isExternal = req.url.startsWith('https://fonts.') ||
                    req.url.startsWith('https://cdnjs.') ||
                    req.url.indexOf('googleapis.com') > -1 ||
@@ -113,11 +96,9 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
-  // Arquivos do app: Network-first → se rede falhar, usa cache → se cache vazio, mostra fallback
   e.respondWith(
     fetch(req, { cache: 'no-store' })
       .then(function(res) {
-        // Atualiza cache com versão nova da rede
         if (res && res.ok) {
           var clone = res.clone();
           caches.open(CACHE_VERSION).then(function(c) { c.put(req, clone); });
@@ -125,11 +106,8 @@ self.addEventListener('fetch', function(e) {
         return res;
       })
       .catch(function() {
-        // Rede falhou — tenta cache
         return caches.match(req).then(function(cached) {
           if (cached) return cached;
-
-          // Sem cache: retorna página de offline amigável para navegação HTML
           var accept = req.headers.get('accept') || '';
           if (accept.indexOf('text/html') > -1) {
             return new Response(OFFLINE_HTML, {
@@ -137,8 +115,6 @@ self.addEventListener('fetch', function(e) {
               headers: { 'Content-Type': 'text/html; charset=utf-8' }
             });
           }
-
-          // Para outros recursos (JS, CSS, imagens): 503 simples
           return new Response('', { status: 503 });
         });
       })
