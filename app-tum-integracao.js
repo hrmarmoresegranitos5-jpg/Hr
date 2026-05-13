@@ -542,9 +542,15 @@ function tumSincPedrasGlobais() {
     window.tumSetPedrasCatalogo(stones);
   }
 
-  // 2. Também persiste no localStorage para que na próxima carga já venha certo
+  // 2. Também persiste no localStorage preservando TODOS os campos existentes
+  //    (não sobrescrever margem/juros/parcMax que possam já estar gravados)
   var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
   cfg.pedras = stones;
+  // Garantir que os defaults escalares estejam presentes para evitar
+  // CFG.margem === undefined na próxima carga do módulo
+  if (cfg.margem  === undefined) cfg.margem  = 35;
+  if (cfg.parcMax === undefined) cfg.parcMax = 8;
+  if (cfg.juros   === undefined) cfg.juros   = 12;
   localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
 }
 
