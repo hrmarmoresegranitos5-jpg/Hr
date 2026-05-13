@@ -153,13 +153,22 @@ function tumGerarPecasAuto(ambId) {
   var pecas = [];
 
   pecasCalc.forEach(function(pc, i) {
-    pecas.push({
-      id:   Date.now() + i,
-      desc: pc.nm || pc.desc || 'Peça ' + (i + 1),
-      w:    Math.round(pc.comp || 0),
-      h:    Math.round(pc.larg || 0),
-      q:    pc.qt || 1
-    });
+    // dim string: e.g. "180×50cm", "106×70cm esp.3cm", "200×70 − ..."
+    // Tentar extrair w×h do campo dim primeiro
+    var dim = pc.dim || '';
+    var match = dim.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+    var w = match ? Math.round(parseFloat(match[1])) : Math.round(pc.comp || 0);
+    var h = match ? Math.round(parseFloat(match[2])) : Math.round(pc.larg || 0);
+
+    if (w > 0 && h > 0) {
+      pecas.push({
+        id:   Date.now() + i,
+        desc: pc.nm || pc.desc || 'Peça ' + (i + 1),
+        w:    w,
+        h:    h,
+        q:    pc.qt || pc.q || 1
+      });
+    }
   });
 
   // Se não houver pecasCalc, gerar peças mínimas a partir das dimensões
@@ -520,6 +529,11 @@ function _hookTumCalcFinal(ambId) {
   if (amb) {
     amb.tumResult = pendOrc.r;
     amb.tumPendOrc = pendOrc;
+    // Popular amb.pecas com as peças do túmulo para que o PDF principal as liste
+    var pecasAuto = tumGerarPecasAuto(ambId);
+    if (pecasAuto.length > 0) {
+      amb.pecas = pecasAuto;
+    }
   }
 
   _renderTumFinResumo(ambId, pendOrc);
@@ -542,15 +556,9 @@ function tumSincPedrasGlobais() {
     window.tumSetPedrasCatalogo(stones);
   }
 
-  // 2. Também persiste no localStorage preservando TODOS os campos existentes
-  //    (não sobrescrever margem/juros/parcMax que possam já estar gravados)
+  // 2. Também persiste no localStorage para que na próxima carga já venha certo
   var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
   cfg.pedras = stones;
-  // Garantir que os defaults escalares estejam presentes para evitar
-  // CFG.margem === undefined na próxima carga do módulo
-  if (cfg.margem  === undefined) cfg.margem  = 35;
-  if (cfg.parcMax === undefined) cfg.parcMax = 8;
-  if (cfg.juros   === undefined) cfg.juros   = 12;
   localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
 }
 
