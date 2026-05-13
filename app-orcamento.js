@@ -1291,8 +1291,8 @@ function gerarPDF(){
     +'</div>'
     +'<div style="text-align:right;font-family:\'Helvetica Neue\',Arial,sans-serif;">'
       +'<div style="font-size:10px;color:rgba(201,168,76,0.7);font-weight:600;letter-spacing:0.3px;">'+emp.tel+'</div>'
-      +(emp.ig?'<div style="font-size:8.5px;color:rgba(201,168,76,0.25);margin-top:2px;">'+emp.ig+'</div>':'')
-      +'<div style="font-size:7.5px;color:rgba(255,255,255,0.1);margin-top:3px;">CNPJ: '+emp.cnpj+'</div>'
+      +(emp.ig && emp.ig!=='undefined'?'<div style="font-size:8.5px;color:rgba(201,168,76,0.25);margin-top:2px;">'+emp.ig+'</div>':'')
+      +(emp.cnpj && emp.cnpj!=='undefined'?'<div style="font-size:7.5px;color:rgba(255,255,255,0.1);margin-top:3px;">CNPJ: '+emp.cnpj+'</div>':'')
     +'</div>'
   +'</div>'
 
