@@ -35,7 +35,20 @@ function onFile(e){
 
 // ═══ MATERIAL ═══
 function buildMat(){renderAmbientes();}
-function pickMat(id){selMat=id;}
+
+function pickMat(id){
+  selMat = id;
+  // Persiste escolha para não resetar no reload
+  try { localStorage.setItem('hr_last_mat', id); } catch(e){}
+  // Sincroniza TODOS os ambientes (garante calcular() usar a pedra correta)
+  if (ambientes && ambientes.length) {
+    ambientes.forEach(function(a) { a.selMat = id; });
+  }
+  // Atualiza visual do picker global se existir
+  document.querySelectorAll('[data-mat]').forEach(function(c) {
+    c.classList.toggle('on', c.dataset.mat === id);
+  });
+}
 
 // ═══ SERVIÇOS ═══
 
@@ -367,6 +380,9 @@ function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
   amb.selMat=stoneId;
+  // Sincroniza o selMat global também (calcular() usa ambos)
+  selMat = stoneId;
+  try { localStorage.setItem('hr_last_mat', stoneId); } catch(e){}
   // Atualiza só o carrossel e o indicador — sem re-render completo
   var car=document.getElementById('mcar-'+ambId);
   if(car)car.outerHTML=buildMatCarouselHtml(amb);
@@ -461,7 +477,12 @@ function buildMatCarouselHtml(amb){
 
 function addAmbiente(){
   var id=Date.now();
-  var defaultMat=ambientes.length>0?ambientes[ambientes.length-1].selMat:(selMat||null);
+  // Herda pedra do último ambiente OU do localStorage OU do primeiro do catálogo
+  var savedMat = null;
+  try { savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
+  var defaultMat = ambientes.length > 0
+    ? ambientes[ambientes.length-1].selMat
+    : (savedMat || selMat || null);
   ambientes.push({id:id,tipo:'Cozinha',pecas:[],selCuba:null,svState:{},acState:{},selMat:defaultMat});
   addPecaAmb(id);
   renderAmbientes();
