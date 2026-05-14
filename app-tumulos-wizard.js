@@ -41,9 +41,9 @@
     window.renderTum = function () {
       var pg = document.getElementById('pg9');
       if (!pg) return;
-      tumAutoCalcDims();
-      tumAutoMatQty();
-      TUM.calc = tumCalc();
+      _tumAutoCalc();
+      
+      TUM.calc = _tumCalc();
 
       pg.innerHTML =
         _wHero() +
@@ -56,9 +56,9 @@
 
     // OVERRIDE: _tumRenderTab() — chamado por tumRecalc()
     window._tumRenderTab = function () {
-      tumAutoCalcDims();
-      tumAutoMatQty();
-      TUM.calc = tumCalc();
+      _tumAutoCalc();
+      
+      TUM.calc = _tumCalc();
       _wRender();
     };
 
@@ -177,26 +177,43 @@
     });
     h += '</div>';
 
-    // Dimensões
-    h += _wTitle('📐 Dimensões', 20);
-    var c = q.dims.comp, l = q.dims.larg, a = q.dims.alt;
-    var perda = q.pedras.perda || 15;
-    var m2base = c * l * 2 + c * a * 2 + l * a * 2;
-    var m2com  = m2base * (1 + perda / 100);
+    // Dimensões externas
+    h += _wTitle('📐 Dimensões Externas', 20);
+    var c = q.dims.comp, l = q.dims.larg;
+    var avRodW   = q.dims.avRodape     || 0;
+    var altRodW  = q.dims.altRodape    || 0;
+    var espMolW  = q.dims.espMolduraSup || 0;
+    var cUtil    = Math.max(0.01, c - 2 * avRodW);
+    var lUtil    = Math.max(0.01, l - 2 * avRodW);
+    var altCorpoW = (q.dims.gavetas || q.gavetas || 1) * q.altPorGaveta + q.dims.espLaje + espMolW;
+    var perda    = q.pedras.perda || 15;
+    var m2corpo  = cUtil * lUtil * 2 + cUtil * altCorpoW * 2 + lUtil * altCorpoW * 2;
+    var m2com    = m2corpo * (1 + perda / 100);
+
     h += '<div class="tum-grid3">';
-    h += _tumDimInput('Comprimento (m)', 'comp',    q.dims.comp,    'Ex: 2.20');
-    h += _tumDimInput('Largura (m)',     'larg',    q.dims.larg,    'Ex: 0.90');
-    h += _tumDimInput('Altura (m)',      'alt',     q.dims.alt,     'Ex: 0.60');
-    h += _tumDimInput('Espessura (cm)',  'esp',     q.dims.esp,     'Ex: 3');
-    h += _tumDimInput('Gavetas',         'gavetas', q.dims.gavetas, 'Ex: 1');
+    h += _tumDimInput('Compr. externo (m)',   'comp',       q.dims.comp,              'Ex: 2.57');
+    h += _tumDimInput('Largura externa (m)',  'larg',       q.dims.larg,              'Ex: 2.40');
+    h += _tumDimInput('Esp. Laje (m)',        'espLaje',    q.dims.espLaje,           'Ex: 0.10');
+    h += _tumDimInput('Esp. Tampa (m)',       'espTampa',   q.dims.espTampa,          'Ex: 0.03');
     h += '</div>';
+
+    // Rodapé e moldura
+    h += _wTitle('🏗️ Rodapé e Moldura', 14);
+    h += '<div class="tum-grid3">';
+    h += _tumDimInput('Altura rodapé (m)',  'altRodape',    altRodW || 0.10,  'Ex: 0.10');
+    h += _tumDimInput('Avanço/lado (m)',    'avRodape',     avRodW  || 0.05,  'Ex: 0.05');
+    h += _tumDimInput('Moldura sup. (m)',   'espMolduraSup',espMolW || 0.05,  'Ex: 0.05');
+    h += '</div>';
+
+    // Preview: externo vs útil
     h += '<div class="tum-dims-preview">';
-    h += '<div class="tum-dp-title">📏 Área estimada das peças</div>';
+    h += '<div class="tum-dp-title">📐 Externo × Corpo Útil</div>';
     h += '<div class="tum-dp-grid">';
-    h += _dpItem('Tampa + Base',  fm(c * l * 2)    + ' m²');
-    h += _dpItem('Laterais (×2)', fm(c * a * 2)    + ' m²');
-    h += _dpItem('Frontais (×2)', fm(l * a * 2)    + ' m²');
-    h += _dpItem('TOTAL líquido', fm(m2base)        + ' m²');
+    h += _dpItem('Externo total',   c.toFixed(2) + ' × ' + l.toFixed(2) + 'm');
+    h += _dpItem('Avanço rodapé',   (avRodW*100).toFixed(0) + 'cm / lado');
+    h += _dpItem('Corpo útil',      cUtil.toFixed(2) + ' × ' + lUtil.toFixed(2) + 'm');
+    h += _dpItem('Área útil',       fm(cUtil * lUtil) + ' m²');
+    h += _dpItem('Corpo m² líq.',   fm(m2corpo) + ' m²');
     h += _dpItem('c/ ' + perda + '% perda', fm(m2com) + ' m²');
     h += '</div></div>';
     h += '<div style="margin-top:8px;"><label class="tum-lbl">Perda / Desperdício (%)</label>';
@@ -661,6 +678,83 @@
       h += '</div>';
     }
 
+    // ── LÁPIDE DUPLA ENGROSSADA ─────────────────────────────────
+    var ld = q.lapideDupla || {};
+    h += _wTitle('🏛️ Lápide Dupla Engrossada', 20);
+    h += _extraSecHeader('Lápide dupla (2 pedras + ferro + concreto)', 'lapideDupla', ld.on);
+    if (ld.on) {
+      h += '<div class="tum-extra-body">';
+      // Diagrama SVG
+      if (typeof _lapDupSvg === 'function') {
+        h += '<div style="margin-bottom:10px;">' + _lapDupSvg(ld) + '</div>';
+      }
+      h += '<div class="tum-grid3">';
+      h += '<div class="tum-f"><label class="tum-lbl">Largura (m)</label><input class="tum-in" type="number" step="0.01" value="' + (ld.larg||1.70) + '" onchange="TUM.q.lapideDupla.larg=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Altura (m)</label><input class="tum-in" type="number" step="0.01" value="' + (ld.alt||1.00) + '" onchange="TUM.q.lapideDupla.alt=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Esp. total (m)</label><input class="tum-in" type="number" step="0.01" value="' + (ld.espTotal||0.10) + '" onchange="TUM.q.lapideDupla.espTotal=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Tipo</label><select class="tum-in" onchange="TUM.q.lapideDupla.tipo=this.value;tumRecalc()"><option value="dupla"' + (ld.tipo==='dupla'?' selected':'') + '>Dupla (2 pedras)</option><option value="simples"' + (ld.tipo==='simples'?' selected':'') + '>Simples</option></select></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Fotos porcelana (un)</label><input class="tum-in" type="number" min="0" value="' + (ld.nFotos||0) + '" onchange="TUM.q.lapideDupla.nFotos=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      h += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">';
+      h += '<label class="tum-ck-item"><input type="checkbox"' + (ld.bisote!==false?' checked':'') + ' style="accent-color:var(--gold);" onchange="TUM.q.lapideDupla.bisote=this.checked;tumRecalc()"><span>Bisote 45° (3 arestas)</span></label>';
+      h += '<label class="tum-ck-item"><input type="checkbox"' + (ld.ferragem!==false?' checked':'') + ' style="accent-color:var(--gold);" onchange="TUM.q.lapideDupla.ferragem=this.checked;tumRecalc()"><span>Ferragem interna</span></label>';
+      h += '</div>';
+      if (ld.ferragem !== false && ld.tipo === 'dupla') {
+        h += '<div class="tum-grid2" style="margin-top:8px;">';
+        h += '<div class="tum-f"><label class="tum-lbl">Ferro kg</label><input class="tum-in" type="number" value="' + (ld.kgFerro||8) + '" onchange="TUM.q.lapideDupla.kgFerro=+this.value;tumRecalc()"></div>';
+        h += '<div class="tum-f"><label class="tum-lbl">Preço R$/kg</label><input class="tum-in" type="number" value="' + (ld.precoFerro||14) + '" onchange="TUM.q.lapideDupla.precoFerro=+this.value;tumRecalc()"></div>';
+        h += '</div>';
+      }
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Acréscimo custo R$</label><input class="tum-in" type="number" min="0" value="' + (ld.custoExtra||0) + '" onchange="TUM.q.lapideDupla.custoExtra=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Acréscimo venda R$</label><input class="tum-in" type="number" min="0" value="' + (ld.vendaExtra||0) + '" onchange="TUM.q.lapideDupla.vendaExtra=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      var rLD = TUM.calc;
+      if (rLD.custoLapDupla > 0 && typeof _miniResumo === 'function') h += _miniResumo('Lápide Dupla', rLD.custoLapDupla, rLD.vendaLapDupla);
+      h += '</div>';
+    }
+
+    // ── SISTEMA REBAIXO + LAJE VEDANTE ─────────────────────────
+    var rt = q.rebaixoTampa || {};
+    var li = q.lajeInterna  || {};
+    h += _wTitle('🔧 Rebaixo de Encaixe + Laje Vedante', 16);
+    h += _extraSecHeader('Sistema de vedação 100% das tampas', 'rebaixoTampa', rt.on);
+    if (rt.on) {
+      h += '<div class="tum-extra-body">';
+      h += '<div class="tum-laje-diagram">';
+      h += '<div class="tum-ld-row tum-ld-tampa">🪨 Tampa de granito</div>';
+      h += '<div class="tum-ld-row tum-ld-laje">🧱 Laje vedante de concreto</div>';
+      h += '<div class="tum-ld-row tum-ld-rebaixo">◻ Rebaixo de encaixe ' + ((rt.espRebaixo||0.05)*100).toFixed(0) + 'cm</div>';
+      h += '<div class="tum-ld-row tum-ld-caixao">⬛ Compartimento interno</div>';
+      h += '</div>';
+      h += '<div class="tum-grid2" style="margin-top:10px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Profundidade rebaixo (m)</label><input class="tum-in" type="number" step="0.005" value="' + (rt.espRebaixo||0.05) + '" onchange="TUM.q.rebaixoTampa.espRebaixo=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Total usinagem (ml auto)</label><div class="tum-in" style="background:var(--s3);color:var(--gold2);cursor:default;">' + fm(rt.mlTotal||0) + ' ml</div></div>';
+      h += '</div>';
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Custo R$/ml</label><input class="tum-in" type="number" value="' + (rt.custoUsinagem||80) + '" onchange="TUM.q.rebaixoTampa.custoUsinagem=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Venda R$/ml</label><input class="tum-in" type="number" value="' + (rt.vendaUsinagem||150) + '" onchange="TUM.q.rebaixoTampa.vendaUsinagem=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      // Laje toggle
+      h += '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;">';
+      h += '<label class="tum-tog"><input type="checkbox"' + (li.on?' checked':'') + ' onchange="TUM.q.lajeInterna.on=this.checked;tumRecalc()"><span class="tum-tog-slider"></span></label>';
+      h += '<span style="font-size:.72rem;color:' + (li.on?'var(--gold2)':'var(--t3)') + ';font-weight:600;">Laje vedante: ' + (li.nLajes||4) + ' lajes · ' + fm(li.m2Total||0) + ' m²</span>';
+      h += '</div>';
+      if (li.on) {
+        h += '<div class="tum-grid2" style="margin-top:8px;">';
+        h += '<div class="tum-f"><label class="tum-lbl">Custo R$/m²</label><input class="tum-in" type="number" value="' + (li.custoM2||120) + '" onchange="TUM.q.lajeInterna.custoM2=+this.value;tumRecalc()"></div>';
+        h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Venda R$/m²</label><input class="tum-in" type="number" value="' + (li.vendaM2||200) + '" onchange="TUM.q.lajeInterna.vendaM2=+this.value;tumRecalc()"></div>';
+        h += '</div>';
+        var rLJ = TUM.calc;
+        if (rLJ.vendaLajeInt > 0 && typeof _miniResumo === 'function') h += _miniResumo('Lajes vedantes', rLJ.custoLajeInt, rLJ.vendaLajeInt);
+      }
+      var rRT = TUM.calc;
+      if (rRT.vendaRebaixo > 0 && typeof _miniResumo === 'function') h += _miniResumo('Rebaixo usinagem', rRT.custoRebaixo, rRT.vendaRebaixo);
+      h += '</div>';
+    }
+
     h += '</div>';
     h += _wNav(true, true, 'Ver Resumo →');
     return h;
@@ -668,14 +762,16 @@
 
   // ──────────────────────────────────────────────────────────────────────
   // ETAPA 6 — RESUMO
-  // Usa a função _tumResumo() existente do app-tumulos.js
   // ──────────────────────────────────────────────────────────────────────
   function _sResumo() {
     var h = '';
-    if (typeof _tumResumo === 'function') {
+    // _tabResumo() é a função correta do app-tumulos.js
+    if (typeof _tabResumo === 'function') {
+      h += _tabResumo();
+    } else if (typeof _tumResumo === 'function') {
       h += _tumResumo();
     } else {
-      h += '<div class="tum-sec"><div style="color:var(--t3);padding:24px;text-align:center;">Resumo não disponível.<br>Verifique se app-tumulos.js está carregado.</div></div>';
+      h += '<div class="tum-sec"><div style="color:var(--t3);padding:24px;text-align:center;">Resumo não disponível.</div></div>';
     }
     h += _wNav(true, false, '', true);
     return h;
@@ -856,6 +952,24 @@
       .wiz-nbtn {
         min-width:110px; padding:12px 16px;
         font-size:.72rem; font-weight:700;
+      }
+
+      /* ── LAJE DIAGRAM (compartilhado com app-tumulos.js) ─────── */
+      .tum-laje-diagram{border-radius:10px;overflow:hidden;border:1px solid var(--bd2);margin-bottom:10px;}
+      .tum-ld-row{padding:8px 13px;font-size:.65rem;font-weight:600;display:flex;align-items:center;gap:8px;}
+      .tum-ld-tampa{background:rgba(201,168,76,.12);color:var(--gold2);border-bottom:1px solid rgba(255,255,255,.06);}
+      .tum-ld-laje{background:rgba(74,128,181,.1);color:#4a80b5;border-bottom:1px solid rgba(255,255,255,.06);}
+      .tum-ld-rebaixo{background:rgba(76,218,128,.07);color:#4cda80;font-size:.58rem;border-bottom:1px solid rgba(255,255,255,.06);}
+      .tum-ld-caixao{background:var(--s3);color:var(--t3);}
+
+      /* ── CHECKBOX INLINE ─────────────────────────────────────── */
+      .tum-ck-item{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.65rem;color:var(--t3);}
+
+      /* ── SECTION LABELS (override para wizard) ───────────────── */
+      .wiz-body .tum-sec-lbl{
+        padding:0 0 6px 10px;
+        border-left:3px solid var(--gold);
+        border-bottom:1px solid rgba(201,168,76,.08);
       }
     `;
     document.head.appendChild(s);
