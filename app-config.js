@@ -91,6 +91,7 @@ function buildCfg(){
         {k:'peit_ping', l:'c/ Pingadeira',          preco:CFG.sv.peit_ping||70, grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_col',  l:'c/ Pedra Colada+Pingadeira',preco:CFG.sv.peit_col||120,grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_portal',l:'p/ Portal Madeira',     preco:CFG.sv.peit_portal||180,grp:'Soleira/Peitoril',u:'ml'},
+        {k:'rdbox_sup', l:'Rodapé de Box (1 lado)', preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
         {k:'forn',      l:'Furo Torneira',          preco:CFG.sv.forn||45,      grp:'Furos & Recortes',u:'un'},
         {k:'fralo',     l:'Furo Ralo',              preco:CFG.sv.fralo||45,     grp:'Furos & Recortes',u:'un'},
         {k:'cook',      l:'Recorte Cooktop',        preco:CFG.sv.cook||140,     grp:'Furos & Recortes',u:'un'},
@@ -102,6 +103,11 @@ function buildCfg(){
         {k:'inst_c',    l:'Instalação Complexa',    preco:CFG.sv.inst_c||420,   grp:'Instalação',u:'un'},
         {k:'desl_for',  l:'Deslocamento fora cidade',preco:CFG.sv.desl_for||3.5,grp:'Deslocamento',u:'km'}
       ];
+      svCFG();
+    }
+    // Patch migração: adicionar rdbox_sup ao svList existente se não estiver lá
+    if(!CFG.svList.find(function(x){return x.k==='rdbox_sup';})){
+      CFG.svList.push({k:'rdbox_sup',l:'Rodapé de Box (1 lado)',preco:CFG.sv.rdbox_sup||38,grp:'Rodapé de Box',u:'ml'});
       svCFG();
     }
 
