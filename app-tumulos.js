@@ -21,12 +21,16 @@ var TUM = {
 
     // ── DIMENSÕES ESTRUTURAIS ─────────────────────────────────────
     dims: {
-      comp:       2.20,  // comprimento externo (m)
-      larg:       0.90,  // largura externa (m)
-      altEst:     0.40,  // altura da estrutura (base elevada) (m)
-      espParede:  0.15,  // espessura das paredes (m)
-      espLaje:    0.10,  // espessura da laje (m)
-      espTampa:   0.03,  // espessura da tampa de granito (m)
+      comp:          2.20,  // comprimento EXTERNO total (m)
+      larg:          0.90,  // largura EXTERNA total (m)
+      altEst:        0.40,  // altura da estrutura base interna (m)
+      espParede:     0.15,  // espessura das paredes internas (m)
+      espLaje:       0.10,  // espessura da laje (m)
+      espTampa:      0.03,  // espessura da tampa de granito (m)
+      // ── Rodapé e moldura ─────────────────────────────────────
+      altRodape:     0.10,  // altura do rodapé/base externo (m)
+      avRodape:      0.05,  // avanço lateral do rodapé por lado (m)
+      espMolduraSup: 0.05,  // espessura da moldura superior (m)
     },
 
     // ── GAVETAS (compartimentos de caixão) ────────────────────────
@@ -47,6 +51,7 @@ var TUM = {
       fundo:      { on: false, m2: 0, extra: 0, desc: 'Parede de fundo' },
       lapide:     { on: false, m2: 0, extra: 0, desc: 'Lápide gravada' },
       revestExt:  { on: false, m2: 0, extra: 0, desc: 'Revestimento externo' },
+      rodape:     { on: false, m2: 0, extra: 0, desc: 'Rodapé externo (base)' },
       moldura:    { on: false, ml: 0, vlrMl: 120, extra: 0, desc: 'Moldura (ml)' },
       pingadeira: { on: false, ml: 0, vlrMl: 80,  extra: 0, desc: 'Pingadeira (ml)' },
     },
@@ -99,6 +104,49 @@ var TUM = {
       on: false, tamanho: '10x15',
       custo: 85, venda: 160,
       moldura: false, custoMoldura: 40, vendaMoldura: 80,
+    },
+
+    // ── LÁPIDE DUPLA ENGROSSADA ───────────────────────────────────
+    // Duas pedras face a face com ferragem + concreto interno
+    lapideDupla: {
+      on:          false,
+      tipo:        'dupla',   // 'simples' | 'dupla'
+      larg:        1.70,      // largura (m)
+      alt:         1.00,      // altura (m)
+      espPedra:    0.04,      // espessura de CADA pedra (m)
+      espTotal:    0.10,      // espessura total da lápide (m)
+      bisote:      true,      // acabamento 45° nas 3 arestas visíveis
+      mlBisote:    0,         // calculado: larg + alt×2
+      ferragem:    true,      // ferro vergalhão interno
+      kgFerro:     8,         // kg de vergalhão
+      precoFerro:  14,        // R$/kg
+      nFotos:      2,         // fotos em porcelana embutidas
+      custoFoto:   85,        // custo por foto
+      vendaFoto:   160,       // venda por foto
+      nCruzes:     2,         // cruzes gravadas (custo zero se já na pedra)
+      gravacao:    true,      // texto gravado (custo via acréscimo)
+      custoExtra:  0,         // acréscimo manual (gravação, transporte, etc.)
+      vendaExtra:  0,
+    },
+
+    // ── SISTEMA REBAIXO + LAJE VEDANTE ───────────────────────────
+    // Rebaixo de encaixe na tampa + laje de concreto para vedação 100%
+    rebaixoTampa: {
+      on:           false,
+      espRebaixo:   0.05,    // profundidade do rebaixo de encaixe (m)
+      mlTotal:      0,       // perímetro calculado automaticamente
+      custoUsinagem: 80,     // R$/ml de usinagem
+      vendaUsinagem: 150,    // R$/ml de venda
+    },
+
+    lajeInterna: {
+      on:      false,
+      nLajes:  4,            // calculado pelo nº de tampas
+      m2Total: 0,            // área calculada automaticamente
+      espLaje: 0.08,         // espessura da laje (m)
+      armacao: true,         // tela de armação
+      custoM2: 120,          // R$/m² (material + MO)
+      vendaM2: 200,          // R$/m²
     },
 
     // ── PRECIFICAÇÃO ──────────────────────────────────────────────
@@ -163,12 +211,13 @@ var TUM = {
   },
 
   PEDRA_LABELS: {
-    tampa:      'Tampa removível',
-    laterais:   'Laterais (×2)',
-    frente:     'Frente',
-    fundo:      'Fundo',
+    tampa:      'Tampa removível (corpo)',
+    laterais:   'Laterais — corpo (×2)',
+    frente:     'Frente — corpo',
+    fundo:      'Fundo — corpo',
     lapide:     'Lápide na pedra',
-    revestExt:  'Revestimento externo',
+    revestExt:  'Revestimento externo total',
+    rodape:     'Rodapé externo (base)',
     moldura:    'Moldura (ml)',
     pingadeira: 'Pingadeira (ml)',
   },
@@ -205,6 +254,79 @@ var TUM = {
 };
 
 // ══════════════════════════════════════════════════════════════════════
+// LÁPIDE DUPLA — DIAGRAMA DE CORTE TRANSVERSAL (SVG)
+// ══════════════════════════════════════════════════════════════════════
+function _lapDupSvg(ld) {
+  var W = 220, H = 82;
+  var px = 16, py = 10;
+  var espF = Math.max(14, (ld.espPedra || 0.04) / (ld.espTotal || 0.10) * (W - 2*px));
+  var espB = espF;
+  var espI = Math.max(12, (W - 2*px) - espF - espB);
+  var y1 = py, y2 = H - py;
+  var x0 = px, x1 = x0 + espF, x2 = x1 + espI, x3 = x2 + espB;
+
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:76px;display:block;border-radius:8px;overflow:hidden;">';
+
+  // Background
+  s += '<rect width="' + W + '" height="' + H + '" fill="var(--s3,#18181f)"/>';
+
+  // FRENTE — pedra visível (com fotos e gravações)
+  s += '<rect x="' + x0 + '" y="' + y1 + '" width="' + espF + '" height="' + (y2-y1) + '" fill="rgba(201,168,76,.18)" stroke="#C9A84C" stroke-width="1.5"/>';
+  // bisote 45° corner indicator
+  s += '<polygon points="' + x0+',' + y1 + ' ' + (x0+6)+',' + y1 + ' ' + x0+','+(y1+6) + '" fill="#C9A84C" opacity=".8"/>';
+  s += '<polygon points="' + x0+',' + y2 + ' ' + (x0+6)+',' + y2 + ' ' + x0+','+(y2-6) + '" fill="#C9A84C" opacity=".8"/>';
+  s += '<text x="' + (x0+espF/2) + '" y="' + (H/2-2) + '" font-size="6.5" fill="#C9A84C" text-anchor="middle" font-family="Outfit,sans-serif" font-weight="700">FRENTE</text>';
+  s += '<text x="' + (x0+espF/2) + '" y="' + (H/2+8) + '" font-size="5" fill="rgba(201,168,76,.6)" text-anchor="middle" font-family="Outfit,sans-serif">' + ((ld.espPedra||0.04)*100).toFixed(0) + 'cm</text>';
+  // Icon: fotos indicator
+  if ((ld.nFotos||0) > 0) {
+    s += '<rect x="' + (x0+4) + '" y="' + (y1+4) + '" width="8" height="8" fill="none" stroke="rgba(201,168,76,.5)" stroke-width=".8" rx="1"/>';
+    s += '<text x="' + (x0+8) + '" y="' + (y1+11) + '" font-size="5" fill="rgba(201,168,76,.7)" text-anchor="middle" font-family="Outfit,sans-serif">📷</text>';
+  }
+
+  // INTERNO — ferro + concreto
+  s += '<rect x="' + x1 + '" y="' + y1 + '" width="' + espI + '" height="' + (y2-y1) + '" fill="rgba(74,128,181,.15)" stroke="rgba(74,128,181,.35)" stroke-width="1"/>';
+  // Rods verticais
+  var nRods = Math.max(2, Math.round(espI / 10));
+  for (var ri = 0; ri < nRods; ri++) {
+    var rx = x1 + (espI / (nRods+1)) * (ri+1);
+    s += '<line x1="' + rx + '" y1="' + (y1+5) + '" x2="' + rx + '" y2="' + (y2-5) + '" stroke="#4a80b5" stroke-width="1.8" opacity=".7"/>';
+  }
+  // Estribos horizontais
+  for (var ei = 0; ei < 2; ei++) {
+    var ey = y1 + (y2-y1) * (0.3 + ei * 0.35);
+    s += '<line x1="' + (x1+2) + '" y1="' + ey + '" x2="' + (x2-2) + '" y2="' + ey + '" stroke="rgba(74,128,181,.5)" stroke-width="1"/>';
+  }
+  s += '<text x="' + (x1+espI/2) + '" y="' + (H/2-2) + '" font-size="6" fill="#4a80b5" text-anchor="middle" font-family="Outfit,sans-serif" font-weight="700">FERRO</text>';
+  s += '<text x="' + (x1+espI/2) + '" y="' + (H/2+7) + '" font-size="4.8" fill="rgba(74,128,181,.7)" text-anchor="middle" font-family="Outfit,sans-serif">+ concreto</text>';
+
+  // FUNDO — pedra traseira
+  s += '<rect x="' + x2 + '" y="' + y1 + '" width="' + espB + '" height="' + (y2-y1) + '" fill="rgba(160,140,100,.15)" stroke="rgba(160,140,100,.45)" stroke-width="1.5"/>';
+  s += '<text x="' + (x2+espB/2) + '" y="' + (H/2-2) + '" font-size="6.5" fill="rgba(180,155,100,.9)" text-anchor="middle" font-family="Outfit,sans-serif" font-weight="700">FUNDO</text>';
+  s += '<text x="' + (x2+espB/2) + '" y="' + (H/2+8) + '" font-size="5" fill="rgba(160,140,100,.6)" text-anchor="middle" font-family="Outfit,sans-serif">' + ((ld.espPedra||0.04)*100).toFixed(0) + 'cm</text>';
+
+  // Cota total
+  var cotaY = y2 + 6;
+  s += '<line x1="' + x0 + '" y1="' + cotaY + '" x2="' + x3 + '" y2="' + cotaY + '" stroke="rgba(255,255,255,.2)" stroke-width=".7"/>';
+  s += '<text x="' + ((x0+x3)/2) + '" y="' + (cotaY+8) + '" font-size="5.5" fill="rgba(255,255,255,.4)" text-anchor="middle" font-family="Outfit,sans-serif">' + ((ld.espTotal||0.10)*100).toFixed(0) + 'cm total</text>';
+
+  // Label VISÍVEL e 45°
+  if (ld.bisote) {
+    s += '<text x="' + (x0-6) + '" y="' + (H/2+3) + '" font-size="5" fill="rgba(201,168,76,.7)" text-anchor="middle" font-family="Outfit,sans-serif">45°</text>';
+  }
+
+  s += '</svg>';
+  return s;
+}
+
+// KPI card no hero
+function _heroMetric(label, val, cor) {
+  return '<div class="tum-hm">' +
+    '<div class="tum-hm-lbl">' + label + '</div>' +
+    '<div class="tum-hm-val" style="color:' + cor + '">' + val + '</div>' +
+    '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // INIT / RENDER
 // ══════════════════════════════════════════════════════════════════════
 function tumInit() { renderTum(); }
@@ -226,23 +348,50 @@ function renderTum() {
 // HERO
 // ══════════════════════════════════════════════════════════════════════
 function _tumHero() {
-  var r = TUM.calc;
-  var vf = r.venda || 0;
+  var r    = TUM.calc;
+  var vf   = r.venda || 0;
+  var ct   = r.custoTotal || 0;
   var lucro = r.lucroTotal || 0;
-  var margemPct = r.margemReal || 0;
+  var mg   = r.margemReal || 0;
   var tipo = TUM.TIPOS[TUM.q.tipoBase] || {};
-  return '<div class="tum-hero">' +
-    '<div class="tum-hero-row">' +
-    '<div>' +
-    '<div class="tum-hero-title">⚰️ Orçamento de Túmulo</div>' +
-    '<div class="tum-hero-sub">' + (tipo.label || '') + (TUM.q.gavetas > 0 ? ' · ' + TUM.q.gavetas + ' gaveta' + (TUM.q.gavetas > 1 ? 's' : '') : '') + '</div>' +
-    '</div>' +
-    '<div style="text-align:right;">' +
-    '<div class="tum-hero-val">' + (vf > 0 ? 'R$ ' + fm(vf) : '—') + '</div>' +
-    (lucro > 0 ? '<div style="font-size:.65rem;color:#4cda80;margin-top:2px;">lucro R$ ' + fm(lucro) + ' · ' + margemPct.toFixed(0) + '%</div>' : '') +
-    '</div>' +
-    '</div>' +
-    '</div>';
+  var d    = TUM.q.dims;
+  var avRod = d.avRodape || 0;
+  var cUtil = Math.max(0, +(d.comp - 2*avRod).toFixed(2));
+  var lUtil = Math.max(0, +(d.larg - 2*avRod).toFixed(2));
+  var mgCor = mg >= 30 ? '#4cda80' : mg >= 20 ? '#C9A84C' : '#e07070';
+
+  var extra1 = (r.vendaLapDupla || 0) + (r.vendaRebaixo || 0) + (r.vendaLajeInt || 0)
+             + (r.vendaLapide  || 0) + (r.vendaCruz    || 0) + (r.vendaFoto    || 0);
+  var obra   = (r.custoEstrutura || 0) + (r.custoMat || 0);
+
+  var h = '<div class="tum-hero">';
+  h += '<div class="tum-hero-row">';
+  h += '<div>';
+  h += '<div class="tum-hero-title">⚰️ ' + (tipo.label || 'Orçamento de Túmulo') + '</div>';
+  if (TUM.q.gavetas > 0) {
+    h += '<div class="tum-hero-sub">' + TUM.q.gavetas + ' compartimento' + (TUM.q.gavetas > 1 ? 's' : '') +
+      ' · ' + d.comp + '×' + d.larg + 'm ext';
+    if (avRod > 0) h += ' · ' + cUtil + '×' + lUtil + 'm útil';
+    h += '</div>';
+  }
+  h += '</div>';
+  h += '<div style="text-align:right;">';
+  h += '<div class="tum-hero-val">' + (vf > 0 ? 'R$\u00a0' + fm(vf) : '—') + '</div>';
+  if (lucro > 0) h += '<div style="font-size:.62rem;color:#4cda80;margin-top:2px;">lucro R$ ' + fm(lucro) + ' · ' + mg.toFixed(0) + '%</div>';
+  h += '</div></div>';
+
+  // KPI bar (só quando há valores)
+  if (ct > 0) {
+    h += '<div class="tum-hero-kpi">';
+    h += _heroMetric('💎 Pedra', 'R$ ' + fm(r.custoPedra || 0), 'var(--t2)');
+    h += _heroMetric('🔨 MO', 'R$ ' + fm(r.vendaMdo || 0), 'var(--t2)');
+    h += _heroMetric('🏛️ Extras', 'R$ ' + fm(extra1), '#C9A84C');
+    h += _heroMetric('🏗️ Obra', 'R$ ' + fm(obra), 'var(--t2)');
+    h += _heroMetric('📈 Margem', mg.toFixed(0) + '%', mgCor);
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -337,18 +486,76 @@ function _tabProjeto() {
   h += '<div class="tum-sec-lbl" style="margin-top:14px;">📝 Descrição do Projeto</div>';
   h += '<textarea class="tum-obs" rows="3" placeholder="Descreva o projeto: cor da pedra, estilo, desejos do cliente, referências..." onchange="TUM.q.descModelo=this.value">' + (q.descModelo || '') + '</textarea>';
 
-  // ── Dimensões ─────────────────────────────────────────────────
-  h += '<div class="tum-sec-lbl" style="margin-top:16px;">📐 Dimensões (m)</div>';
+  // ── Dimensões externas ────────────────────────────────────────
+  h += '<div class="tum-sec-lbl" style="margin-top:16px;">📐 Dimensões Externas (m)</div>';
   h += '<div style="background:var(--s3);border:1px solid rgba(100,180,255,.15);border-radius:10px;padding:10px 13px;margin-bottom:10px;font-size:.63rem;color:var(--t3);line-height:1.6;">';
-  h += '💡 Dimensões <b>externas</b> da estrutura. A altura total é calculada automaticamente pelas gavetas.';
+  h += '📏 Dimensões <b>externas totais</b> da estrutura. A área útil do corpo é calculada automaticamente após descontar o rodapé.';
   h += '</div>';
   h += '<div class="tum-grid3">';
-  h += _tDim('Comprimento (m)', 'comp',    q.dims.comp,    '2.20');
-  h += _tDim('Largura (m)',     'larg',    q.dims.larg,    '0.90');
-  h += _tDim('Parede (m)',      'espParede',q.dims.espParede,'0.15');
-  h += _tDim('Esp. Laje (m)',   'espLaje', q.dims.espLaje, '0.10');
-  h += _tDim('Esp. Tampa (m)',  'espTampa',q.dims.espTampa,'0.03');
+  h += _tDim('Comprimento ext. (m)', 'comp',    q.dims.comp,    '2.20');
+  h += _tDim('Largura ext. (m)',     'larg',    q.dims.larg,    '0.90');
+  h += _tDim('Parede interna (m)',   'espParede',q.dims.espParede,'0.15');
+  h += _tDim('Esp. Laje (m)',        'espLaje', q.dims.espLaje, '0.10');
+  h += _tDim('Esp. Tampa (m)',       'espTampa',q.dims.espTampa,'0.03');
   h += '</div>';
+
+  // ── Rodapé e moldura ──────────────────────────────────────────
+  h += '<div class="tum-sec-lbl" style="margin-top:16px;">🏗️ Rodapé e Moldura</div>';
+  h += '<div style="background:rgba(106,80,48,.1);border:1px solid rgba(138,96,64,.3);border-radius:10px;padding:10px 13px;margin-bottom:10px;font-size:.63rem;color:var(--t3);line-height:1.6;">';
+  h += '🧱 O <b>rodapé</b> é a base mais larga que o corpo, projetando-se para fora. A <b>moldura superior</b> é o arremate no topo do corpo antes da tampa.';
+  h += '</div>';
+  h += '<div class="tum-grid3">';
+  h += _tDim('Altura rodapé (m)',   'altRodape',    q.dims.altRodape    || 0.10, '0.10');
+  h += _tDim('Avanço/lado (m)',     'avRodape',     q.dims.avRodape     || 0.05, '0.05');
+  h += _tDim('Moldura sup. (m)',    'espMolduraSup',q.dims.espMolduraSup|| 0.05, '0.05');
+  h += '</div>';
+
+  // ── Resultado: externo × útil ─────────────────────────────────
+  (function() {
+    var avRod   = q.dims.avRodape     || 0;
+    var altRod  = q.dims.altRodape    || 0;
+    var espMolSup = q.dims.espMolduraSup || 0;
+    var cUtil   = Math.max(0, q.dims.comp - 2 * avRod);
+    var lUtil   = Math.max(0, q.dims.larg - 2 * avRod);
+    var altCorpo = (q.gavetas * q.altPorGaveta) + q.dims.espLaje + espMolSup;
+    var areaExt  = q.dims.comp * q.dims.larg;
+    var areaUtil = cUtil * lUtil;
+
+    h += '<div style="background:var(--s3);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;margin-bottom:8px;">';
+    // Header
+    h += '<div style="background:rgba(201,168,76,.05);padding:9px 13px;border-bottom:1px solid var(--bd2);font-size:.54rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);font-weight:700;">📐 Resumo dimensional</div>';
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;padding:0;">';
+    // Externo
+    h += '<div style="padding:11px 13px;border-right:1px solid var(--bd2);">';
+    h += '<div style="font-size:.48rem;letter-spacing:1.5px;text-transform:uppercase;color:#a07050;margin-bottom:4px;">EXTERNO TOTAL</div>';
+    h += '<div style="font-size:.9rem;font-weight:800;color:var(--t2);">' + q.dims.comp.toFixed(2) + ' × ' + q.dims.larg.toFixed(2) + '</div>';
+    h += '<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">' + areaExt.toFixed(3) + ' m²</div>';
+    h += '</div>';
+    // Útil
+    h += '<div style="padding:11px 13px;">';
+    h += '<div style="font-size:.48rem;letter-spacing:1.5px;text-transform:uppercase;color:#4a80b5;margin-bottom:4px;">CORPO ÚTIL</div>';
+    h += '<div style="font-size:.9rem;font-weight:800;color:#4a80b5;">' + cUtil.toFixed(2) + ' × ' + lUtil.toFixed(2) + '</div>';
+    h += '<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">' + areaUtil.toFixed(3) + ' m²</div>';
+    h += '</div>';
+    h += '</div>';
+    // Barra de diferença
+    var perc = areaExt > 0 ? (areaUtil / areaExt * 100).toFixed(0) : 100;
+    h += '<div style="padding:8px 13px;border-top:1px solid var(--bd2);background:rgba(255,255,255,.02);">';
+    h += '<div style="display:flex;justify-content:space-between;margin-bottom:5px;">';
+    h += '<span style="font-size:.58rem;color:var(--t4);">Utilização da área externa</span>';
+    h += '<span style="font-size:.62rem;font-weight:700;color:#4a80b5;">' + perc + '%</span>';
+    h += '</div>';
+    h += '<div style="height:5px;background:var(--s4);border-radius:3px;">';
+    h += '<div style="height:100%;background:linear-gradient(90deg,#4a80b5,#6aaad5);border-radius:3px;width:' + perc + '%;"></div>';
+    h += '</div>';
+    if (avRod > 0) {
+      h += '<div style="font-size:.58rem;color:var(--t4);margin-top:5px;">Rodapé: ' + (avRod*100).toFixed(0) + 'cm/lado · Área do rodapé: ' + (areaExt - areaUtil).toFixed(3) + ' m²</div>';
+    }
+    if (altRod > 0) {
+      h += '<div style="font-size:.58rem;color:var(--t4);">Altura corpo: ' + altCorpo.toFixed(2) + 'm · Rodapé: ' + altRod.toFixed(2) + 'm</div>';
+    }
+    h += '</div></div>';
+  })();
 
   // ── Gavetas ───────────────────────────────────────────────────
   h += '<div class="tum-sec-lbl" style="margin-top:16px;">⬛ Compartimentos (Gavetas)</div>';
@@ -370,7 +577,9 @@ function _tabProjeto() {
   h += '<div class="tum-f"><label class="tum-lbl">Altura por gaveta (m)</label>';
   h += '<input class="tum-in" type="number" step="0.05" min="0.50" max="1.00" value="' + q.altPorGaveta + '" onchange="TUM.q.altPorGaveta=+this.value;tumRecalc()"></div>';
   h += '<div class="tum-f"><label class="tum-lbl">Altura total calculada</label>';
-  var altTotal = q.dims.altEst + (q.gavetas * q.altPorGaveta) + q.dims.espLaje + q.dims.espTampa;
+  var altRod2    = q.dims.altRodape    || 0;
+  var espMolSup2 = q.dims.espMolduraSup || 0;
+  var altTotal = altRod2 + (q.gavetas * q.altPorGaveta) + q.dims.espLaje + espMolSup2 + q.dims.espTampa;
   h += '<div style="padding:10px;background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.2);border-radius:8px;font-size:.82rem;font-weight:700;color:var(--gold2);">' + altTotal.toFixed(2) + ' m</div>';
   h += '</div></div>';
 
@@ -402,41 +611,138 @@ function _tabProjeto() {
   return h;
 }
 
+// Planta baixa SVG: externo vs corpo útil
+function _planViewSvg(comp, larg, avRod) {
+  var cUtil = Math.max(0.01, comp - 2 * avRod);
+  var lUtil = Math.max(0.01, larg - 2 * avRod);
+  var SVG_W = 200, SVG_H = 108;
+  var padX = 18, padY = 14;
+  var sc = Math.min((SVG_W - 2*padX) / comp, (SVG_H - 2*padY) / larg);
+  var extW = comp * sc, extH = larg * sc;
+  var avPx = avRod * sc;
+  var ox = (SVG_W - extW) / 2, oy = (SVG_H - extH) / 2;
+  var bx = ox + avPx, by = oy + avPx;
+  var bw = extW - 2*avPx,    bh = extH - 2*avPx;
+
+  var s = '<svg viewBox="0 0 ' + SVG_W + ' ' + SVG_H + '" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:100px;display:block;">';
+
+  // ── Rodapé zone (hatched corners) ──
+  s += '<defs><pattern id="hatch" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">'
+     + '<line x1="0" y1="0" x2="0" y2="5" stroke="rgba(160,100,48,.25)" stroke-width="2"/></pattern></defs>';
+
+  // External rectangle (rodapé zone = hatched)
+  s += '<rect x="' + ox.toFixed(1) + '" y="' + oy.toFixed(1) + '" width="' + extW.toFixed(1) + '" height="' + extH.toFixed(1) + '" fill="url(#hatch)" stroke="#8a6040" stroke-width="1.5" rx="2"/>';
+
+  // Body rectangle (sólido azul)
+  if (bw > 2 && bh > 2) {
+    s += '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) + '" fill="rgba(74,128,181,.18)" stroke="#4a80b5" stroke-width="1.5" rx="1"/>';
+  }
+
+  // Cota externa (seta de largura)
+  var arrowY = oy - 6;
+  s += '<line x1="' + ox + '" y1="' + arrowY + '" x2="' + (ox + extW) + '" y2="' + arrowY + '" stroke="rgba(201,168,76,.6)" stroke-width=".8"/>';
+  s += '<text x="' + (SVG_W/2) + '" y="' + (arrowY - 2) + '" font-size="5.5" fill="rgba(201,168,76,.8)" text-anchor="middle" font-family="Outfit,sans-serif">' + comp.toFixed(2) + 'm ext</text>';
+
+  // Seta de avRod (mostra os 5cm de cada lado)
+  if (avPx > 3) {
+    var arY2 = oy + extH + 6;
+    s += '<line x1="' + ox + '" y1="' + arY2 + '" x2="' + bx + '" y2="' + arY2 + '" stroke="#8a6040" stroke-width="1" marker-end="url(#arr)"/>';
+    s += '<text x="' + (ox + avPx/2) + '" y="' + (arY2 + 7) + '" font-size="4.5" fill="#8a6040" text-anchor="middle" font-family="Outfit,sans-serif">' + (avRod*100).toFixed(0) + 'cm</text>';
+    s += '<text x="' + (bx + bw + avPx/2) + '" y="' + (arY2 + 7) + '" font-size="4.5" fill="#8a6040" text-anchor="middle" font-family="Outfit,sans-serif">' + (avRod*100).toFixed(0) + 'cm</text>';
+  }
+
+  // Label útil no centro
+  if (bw > 20 && bh > 14) {
+    s += '<text x="' + (SVG_W/2) + '" y="' + (SVG_H/2 + 2.5) + '" font-size="7" fill="#4a80b5" text-anchor="middle" font-family="Outfit,sans-serif" font-weight="700">' + cUtil.toFixed(2) + ' × ' + lUtil.toFixed(2) + 'm</text>';
+    s += '<text x="' + (SVG_W/2) + '" y="' + (SVG_H/2 + 10) + '" font-size="5" fill="rgba(74,128,181,.7)" text-anchor="middle" font-family="Outfit,sans-serif">corpo útil</text>';
+  }
+
+  s += '</svg>';
+  return s;
+}
+
 // Visual de altura em camadas
 function _alturaVisual(q) {
-  var altEst   = q.dims.altEst;
-  var altGavs  = q.gavetas * q.altPorGaveta;
-  var altLaje  = q.dims.espLaje;
-  var altTampa = q.dims.espTampa;
-  var altTotal = altEst + altGavs + altLaje + altTampa;
+  var d       = q.dims;
+  var avRod   = d.avRodape      || 0;
+  var altRod  = d.altRodape     || 0;
+  var espMolSup = d.espMolduraSup || 0;
+  var altGavs = q.gavetas * q.altPorGaveta;
+  var altLaje = d.espLaje;
+  var altTampa = d.espTampa;
+  var altCorpo = altGavs + altLaje + espMolSup;
+  var altTotal = altRod + altCorpo + altTampa;
+  var cUtil   = Math.max(0.01, d.comp - 2 * avRod);
+  var lUtil   = Math.max(0.01, d.larg - 2 * avRod);
+
   if (altTotal <= 0) return '';
 
   function pct(v) { return (v / altTotal * 100).toFixed(1); }
 
   var h = '<div style="margin-top:12px;">';
+
+  // ── Diagrama de altura ────────────────────────────────────────
   h += '<div style="font-size:.58rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);margin-bottom:6px;">Composição da altura</div>';
   h += '<div style="border-radius:8px;overflow:hidden;border:1px solid var(--bd2);">';
 
   var camadas = [
-    { label: 'Tampa granito',   val: altTampa, cor: '#C9A84C', opacity: '.9'  },
-    { label: 'Laje de cobertura', val: altLaje,  cor: '#666',    opacity: '.8'  },
+    { label: 'Tampa granito',             val: altTampa,  cor: '#C9A84C', opacity: '.9',  wide: false },
+    { label: 'Moldura superior',          val: espMolSup, cor: '#8a7a5a', opacity: '.85', wide: false },
+    { label: 'Laje de cobertura',         val: altLaje,   cor: '#555',    opacity: '.8',  wide: false },
   ];
-  for (var i = 0; i < q.gavetas; i++) {
-    camadas.push({ label: 'Gaveta ' + (i + 1) + ' (' + q.altPorGaveta.toFixed(2) + 'm)', val: q.altPorGaveta, cor: '#4a80b5', opacity: '.7' });
+  for (var gi = 0; gi < q.gavetas; gi++) {
+    camadas.push({
+      label: 'Gaveta ' + (q.gavetas - gi) + ' · ' + q.altPorGaveta.toFixed(2) + 'm',
+      val: q.altPorGaveta, cor: '#4a80b5', opacity: '.72', wide: false,
+    });
   }
-  camadas.push({ label: 'Base estrutural', val: altEst, cor: '#483828', opacity: '1' });
+  if (altRod > 0) {
+    camadas.push({
+      label: 'Rodapé externo (+' + (avRod*100).toFixed(0) + 'cm/lado)',
+      val: altRod, cor: '#6a4828', opacity: '1', wide: true,
+    });
+  }
 
-  // Renderiza de cima pra baixo
   camadas.forEach(function(c) {
     if (!c.val) return;
-    h += '<div style="background:' + c.cor + ';opacity:' + c.opacity + ';padding:5px 10px;' +
-      'min-height:' + Math.max(24, pct(c.val) * 1.5) + 'px;display:flex;align-items:center;justify-content:space-between;">' +
+    var minH = Math.max(22, +pct(c.val) * 1.6);
+    var borderTop = c.wide ? 'border-top:2px solid rgba(201,168,76,.25);' : '';
+    var indent     = c.wide ? '' : 'margin:0 0px;';  // corpo indented visually via border-left
+    var bodyBorder = !c.wide && altRod > 0 ? 'border-left:3px solid rgba(74,128,181,.4);' : '';
+    h += '<div style="background:' + c.cor + ';opacity:' + c.opacity + ';padding:5px 10px;min-height:' + minH + 'px;' +
+      'display:flex;align-items:center;justify-content:space-between;' + borderTop + bodyBorder + '">' +
       '<span style="font-size:.6rem;color:#fff;font-weight:600;">' + c.label + '</span>' +
       '<span style="font-size:.6rem;color:rgba(255,255,255,.8);">' + c.val.toFixed(2) + 'm</span>' +
       '</div>';
   });
+
   h += '</div>';
-  h += '<div style="text-align:right;font-size:.65rem;color:var(--gold2);font-weight:700;margin-top:4px;">Total: ' + altTotal.toFixed(2) + ' m</div>';
+  h += '<div style="display:flex;justify-content:space-between;margin-top:4px;">';
+  h += '<span style="font-size:.58rem;color:var(--t4);">Total: <b style="color:var(--gold2);">' + altTotal.toFixed(2) + ' m</b></span>';
+  h += '<span style="font-size:.58rem;color:var(--t4);">Corpo: <b style="color:#4a80b5;">' + altCorpo.toFixed(2) + ' m</b></span>';
+  h += '</div>';
+
+  // ── Planta baixa: externo × útil ─────────────────────────────
+  if (avRod > 0) {
+    h += '<div style="margin-top:12px;">';
+    h += '<div style="font-size:.58rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);margin-bottom:5px;">Planta — externo × corpo útil</div>';
+    h += _planViewSvg(d.comp, d.larg, avRod);
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">';
+    // Card externo
+    h += '<div style="background:rgba(106,80,48,.12);border:1px solid rgba(138,96,64,.35);border-radius:8px;padding:8px 10px;">';
+    h += '<div style="font-size:.48rem;letter-spacing:1.5px;text-transform:uppercase;color:#a07050;margin-bottom:3px;">EXTERNO (total)</div>';
+    h += '<div style="font-size:.78rem;font-weight:800;color:var(--t2);">' + d.comp.toFixed(2) + ' × ' + d.larg.toFixed(2) + 'm</div>';
+    h += '<div style="font-size:.56rem;color:var(--t4);margin-top:2px;">inclui rodapé (' + (avRod*100).toFixed(0) + 'cm/lado)</div>';
+    h += '</div>';
+    // Card útil
+    h += '<div style="background:rgba(74,128,181,.1);border:1px dashed rgba(74,128,181,.5);border-radius:8px;padding:8px 10px;">';
+    h += '<div style="font-size:.48rem;letter-spacing:1.5px;text-transform:uppercase;color:#4a80b5;margin-bottom:3px;">ÚTIL (corpo)</div>';
+    h += '<div style="font-size:.78rem;font-weight:800;color:#4a80b5;">' + cUtil.toFixed(2) + ' × ' + lUtil.toFixed(2) + 'm</div>';
+    h += '<div style="font-size:.56rem;color:var(--t4);margin-top:2px;">gautas e painéis de pedra</div>';
+    h += '</div>';
+    h += '</div></div>';
+  }
+
   h += '</div>';
   return h;
 }
@@ -541,13 +847,21 @@ function _tabEstrutura() {
 
   // Influência automática das gavetas
   if (q.gavetas > 0) {
+    var avRodE   = q.dims.avRodape  || 0;
+    var cUtilE   = Math.max(0, q.dims.comp - 2 * avRodE);
+    var lUtilE   = Math.max(0, q.dims.larg - 2 * avRodE);
+    var espMolE  = q.dims.espMolduraSup || 0;
+    var altCorpoE = (q.gavetas * q.altPorGaveta) + q.dims.espLaje + espMolE;
+    var altRodE   = q.dims.altRodape || 0;
+    var altTotE   = altRodE + altCorpoE + q.dims.espTampa;
     h += '<div style="background:rgba(74,128,181,.08);border:1px solid rgba(74,128,181,.2);border-radius:10px;padding:10px 13px;margin-top:10px;">';
-    h += '<div style="font-size:.6rem;color:#4a80b5;font-weight:700;margin-bottom:6px;">⬛ Influência das ' + q.gavetas + ' gaveta(s)</div>';
+    h += '<div style="font-size:.6rem;color:#4a80b5;font-weight:700;margin-bottom:6px;">⬛ Base de cálculo automático</div>';
     h += '<div style="font-size:.62rem;color:var(--t3);line-height:1.7;">';
+    h += '• Corpo útil: <b>' + cUtilE.toFixed(2) + ' × ' + lUtilE.toFixed(2) + 'm</b> (ext. ' + q.dims.comp + ' × ' + q.dims.larg + 'm − rodapé)<br>';
     h += '• Ferragem: +' + fm(q.gavetas * 15) + ' kg por gaveta<br>';
     h += '• Concreto: +' + fm(q.gavetas * 0.12) + ' m³ por gaveta<br>';
-    h += '• Altura total: ' + (q.dims.altEst + q.gavetas * q.altPorGaveta + q.dims.espLaje + q.dims.espTampa).toFixed(2) + ' m<br>';
-    h += '• Tampa: ' + fm(TUM.q.dims.comp * TUM.q.dims.larg) + ' m² (reforçada)';
+    h += '• Altura corpo: ' + altCorpoE.toFixed(2) + 'm · Rodapé: ' + altRodE.toFixed(2) + 'm<br>';
+    h += '• Altura total: ' + altTotE.toFixed(2) + ' m';
     h += '</div></div>';
   }
 
@@ -804,6 +1118,114 @@ function _tabExtras() {
     h += '</div>';
   }
 
+  // ── LÁPIDE DUPLA ENGROSSADA ──────────────────────────────────
+  var ld = q.lapideDupla || {};
+  h += _extraHd('🏛️ Lápide Dupla Engrossada', 'lapideDupla', ld.on);
+  if (ld.on) {
+    h += '<div class="tum-extra-body">';
+    // Diagrama de corte
+    h += '<div style="margin-bottom:10px;">' + _lapDupSvg(ld) + '</div>';
+    // Tipo + dimensões
+    h += '<div class="tum-grid3">';
+    h += '<div class="tum-f"><label class="tum-lbl">Largura (m)</label><input class="tum-in" type="number" step="0.01" min="0.5" value="' + (ld.larg||1.70) + '" onchange="TUM.q.lapideDupla.larg=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Altura (m)</label><input class="tum-in" type="number" step="0.01" min="0.3" value="' + (ld.alt||1.00) + '" onchange="TUM.q.lapideDupla.alt=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Esp. total (m)</label><input class="tum-in" type="number" step="0.01" value="' + (ld.espTotal||0.10) + '" onchange="TUM.q.lapideDupla.espTotal=+this.value;tumRecalc()"></div>';
+    h += '</div>';
+    h += '<div class="tum-grid2" style="margin-top:8px;">';
+    h += '<div class="tum-f"><label class="tum-lbl">Tipo</label><select class="tum-in" onchange="TUM.q.lapideDupla.tipo=this.value;tumRecalc()">';
+    h += '<option value="dupla"' + (ld.tipo==='dupla'?' selected':'') + '>Dupla (2 pedras + ferro + concreto)</option>';
+    h += '<option value="simples"' + (ld.tipo==='simples'?' selected':'') + '>Simples (1 pedra)</option>';
+    h += '</select></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Fotos em porcelana (un)</label><input class="tum-in" type="number" min="0" max="8" value="' + (ld.nFotos||0) + '" onchange="TUM.q.lapideDupla.nFotos=+this.value;tumRecalc()"></div>';
+    h += '</div>';
+    // Esp pedra
+    h += '<div class="tum-grid2" style="margin-top:8px;">';
+    h += '<div class="tum-f"><label class="tum-lbl">Esp. cada pedra (m)</label><input class="tum-in" type="number" step="0.01" value="' + (ld.espPedra||0.04) + '" onchange="TUM.q.lapideDupla.espPedra=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Bisote 45° (ml auto)</label><div class="tum-in" style="background:var(--s3);color:var(--gold2);">' + fm(ld.mlBisote||0) + ' ml</div></div>';
+    h += '</div>';
+    // Checkboxes: bisote + ferragem
+    h += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;">';
+    h += '<label class="tum-ck-item"><input type="checkbox"' + (ld.bisote!==false?' checked':'') + ' style="accent-color:var(--gold);" onchange="TUM.q.lapideDupla.bisote=this.checked;tumRecalc()"><span>Acabamento 45° (3 arestas)</span></label>';
+    h += '<label class="tum-ck-item"><input type="checkbox"' + (ld.ferragem!==false?' checked':'') + ' style="accent-color:var(--gold);" onchange="TUM.q.lapideDupla.ferragem=this.checked;tumRecalc()"><span>Ferragem interna</span></label>';
+    h += '</div>';
+    // Ferragem detail
+    if (ld.ferragem !== false && ld.tipo === 'dupla') {
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Vergalhão (kg)</label><input class="tum-in" type="number" step="0.5" value="' + (ld.kgFerro||8) + '" onchange="TUM.q.lapideDupla.kgFerro=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Preço R$/kg</label><input class="tum-in" type="number" value="' + (ld.precoFerro||14) + '" onchange="TUM.q.lapideDupla.precoFerro=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+    }
+    // Fotos custo/venda
+    if ((ld.nFotos||0) > 0) {
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Custo foto R$</label><input class="tum-in" type="number" value="' + (ld.custoFoto||85) + '" onchange="TUM.q.lapideDupla.custoFoto=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Venda foto R$</label><input class="tum-in" type="number" value="' + (ld.vendaFoto||160) + '" onchange="TUM.q.lapideDupla.vendaFoto=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+    }
+    // Acréscimos manuais
+    h += '<div class="tum-grid2" style="margin-top:8px;">';
+    h += '<div class="tum-f"><label class="tum-lbl">Acréscimo custo R$ (gravação etc.)</label><input class="tum-in" type="number" min="0" value="' + (ld.custoExtra||0) + '" onchange="TUM.q.lapideDupla.custoExtra=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Acréscimo venda R$</label><input class="tum-in" type="number" min="0" value="' + (ld.vendaExtra||0) + '" onchange="TUM.q.lapideDupla.vendaExtra=+this.value;tumRecalc()"></div>';
+    h += '</div>';
+    // Resumo m² e custo
+    var r2 = TUM.calc;
+    var m2Ld = _r((ld.larg||1.70) * (ld.alt||1.00));
+    h += '<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;padding:9px 12px;margin-top:10px;font-size:.65rem;color:var(--t3);line-height:1.7;">';
+    h += '📐 <b>' + m2Ld + ' m²/pedra</b> × ' + (ld.tipo==='dupla'?'2 pedras':'1 pedra') + ' = <b>' + _r(m2Ld*(ld.tipo==='dupla'?2:1)) + ' m² total</b>';
+    if (ld.bisote) h += ' · Bisote: <b>' + fm(ld.mlBisote||0) + ' ml</b>';
+    if (ld.ferragem && ld.tipo==='dupla') h += ' · Ferro: <b>' + (ld.kgFerro||8) + ' kg</b>';
+    h += '</div>';
+    if (r2.custoLapDupla > 0) h += _miniRes('Lápide Dupla', r2.custoLapDupla, r2.vendaLapDupla);
+    h += '</div>';
+  }
+
+  // ── SISTEMA REBAIXO + LAJE VEDANTE ───────────────────────────
+  var rt = q.rebaixoTampa || {};
+  h += _extraHd('🔧 Rebaixo de Encaixe + Laje Vedante', 'rebaixoTampa', rt.on);
+  if (rt.on) {
+    h += '<div class="tum-extra-body">';
+    // Diagrama explicativo
+    h += '<div class="tum-laje-diagram">';
+    h += '<div class="tum-ld-row tum-ld-tampa">🪨 Tampa de granito</div>';
+    h += '<div class="tum-ld-row tum-ld-laje">🧱 Laje vedante de concreto</div>';
+    h += '<div class="tum-ld-row tum-ld-rebaixo">◻ Moldura de encaixe ' + ((rt.espRebaixo||0.05)*100).toFixed(0) + 'cm</div>';
+    h += '<div class="tum-ld-row tum-ld-caixao">⬛ Compartimento (caixão)</div>';
+    h += '</div>';
+    // Rebaixo inputs
+    h += '<div class="tum-sec-lbl" style="margin-top:12px;">🔲 Rebaixo de Encaixe (usinagem)</div>';
+    h += '<div class="tum-grid2">';
+    h += '<div class="tum-f"><label class="tum-lbl">Profundidade do rebaixo (m)</label><input class="tum-in" type="number" step="0.005" value="' + (rt.espRebaixo||0.05) + '" onchange="TUM.q.rebaixoTampa.espRebaixo=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Total usinagem (ml — auto)</label><div class="tum-in" style="background:var(--s3);color:var(--gold2);cursor:default;">' + fm(rt.mlTotal||0) + ' ml</div></div>';
+    h += '</div>';
+    h += '<div class="tum-grid2" style="margin-top:8px;">';
+    h += '<div class="tum-f"><label class="tum-lbl">Custo usinagem R$/ml</label><input class="tum-in" type="number" value="' + (rt.custoUsinagem||80) + '" onchange="TUM.q.rebaixoTampa.custoUsinagem=+this.value;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Venda R$/ml</label><input class="tum-in" type="number" value="' + (rt.vendaUsinagem||150) + '" onchange="TUM.q.rebaixoTampa.vendaUsinagem=+this.value;tumRecalc()"></div>';
+    h += '</div>';
+    var r3 = TUM.calc;
+    if (r3.vendaRebaixo > 0) h += _miniRes('Usinagem rebaixo', r3.custoRebaixo, r3.vendaRebaixo);
+
+    // Laje interna
+    var li = q.lajeInterna || {};
+    h += '<div class="tum-sec-lbl" style="margin-top:14px;">🪨 Laje Vedante Interna</div>';
+    h += '<div class="tum-extra-hd" style="border-radius:10px;margin-bottom:8px;">';
+    h += '<label class="tum-tog" onclick="event.stopPropagation()"><input type="checkbox"' + (li.on?' checked':'') + ' onchange="TUM.q.lajeInterna.on=this.checked;tumRecalc()"><span class="tum-tog-slider"></span></label>';
+    h += '<span style="font-size:.72rem;color:' + (li.on?'var(--gold2)':'var(--t3)') + ';font-weight:600;">Incluir ' + (li.nLajes||4) + ' lajes vedantes de concreto</span>';
+    h += '</div>';
+    if (li.on) {
+      h += '<div class="tum-grid3">';
+      h += '<div class="tum-f"><label class="tum-lbl">Nº de lajes (auto)</label><div class="tum-in" style="background:var(--s3);color:var(--gold2);cursor:default;">' + (li.nLajes||4) + '</div></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Área total (m² — auto)</label><div class="tum-in" style="background:var(--s3);color:var(--gold2);cursor:default;">' + fm(li.m2Total||0) + ' m²</div></div>';
+      h += '<div class="tum-f"><label class="tum-lbl">Espessura (m)</label><input class="tum-in" type="number" step="0.01" value="' + (li.espLaje||0.08) + '" onchange="TUM.q.lajeInterna.espLaje=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      h += '<div class="tum-grid2" style="margin-top:8px;">';
+      h += '<div class="tum-f"><label class="tum-lbl">Custo R$/m²</label><input class="tum-in" type="number" value="' + (li.custoM2||120) + '" onchange="TUM.q.lajeInterna.custoM2=+this.value;tumRecalc()"></div>';
+      h += '<div class="tum-f"><label class="tum-lbl" style="color:var(--gold);">Venda R$/m²</label><input class="tum-in" type="number" value="' + (li.vendaM2||200) + '" onchange="TUM.q.lajeInterna.vendaM2=+this.value;tumRecalc()"></div>';
+      h += '</div>';
+      if (r3.vendaLajeInt > 0) h += _miniRes('Lajes vedantes', r3.custoLajeInt, r3.vendaLajeInt);
+    }
+    h += '</div>';
+  }
+
   h += '<div class="tum-nav-row">';
   h += '<button class="btn btn-o" style="font-size:.7rem;" onclick="tumTab(\'mdo\')">← MO</button>';
   h += '<button class="btn btn-g" style="font-size:.7rem;" onclick="tumTab(\'resumo\')">Ver Resumo →</button>';
@@ -825,13 +1247,16 @@ function _tabResumo() {
   h += '<div class="tum-dre-head"><span>Categoria</span><span>Custo</span><span>Venda</span><span>Lucro</span></div>';
 
   var cats = [
-    { icon: '💎', label: 'Pedra',      custo: r.custoPedra,    venda: r.vendaPedra    },
-    { icon: '📜', label: 'Lápide',     custo: r.custoLapide,   venda: r.vendaLapide   },
-    { icon: '✝️', label: 'Cruz',        custo: r.custoCruz,     venda: r.vendaCruz     },
-    { icon: '📷', label: 'Foto',        custo: r.custoFoto,     venda: r.vendaFoto     },
-    { icon: '🔨', label: 'Mão de Obra', custo: r.custoMdo,      venda: r.vendaMdo      },
-    { icon: '🏗️', label: 'Estrutura',   custo: r.custoEstrutura,venda: r.custoEstrutura},
-    { icon: '🪣', label: 'Materiais',   custo: r.custoMat,      venda: r.custoMat      },
+    { icon: '💎', label: 'Pedra',            custo: r.custoPedra,    venda: r.vendaPedra    },
+    { icon: '🏛️', label: 'Lápide Dupla',     custo: r.custoLapDupla, venda: r.vendaLapDupla },
+    { icon: '📜', label: 'Lápide simples',   custo: r.custoLapide,   venda: r.vendaLapide   },
+    { icon: '✝️', label: 'Cruz',              custo: r.custoCruz,     venda: r.vendaCruz     },
+    { icon: '📷', label: 'Foto',             custo: r.custoFoto,     venda: r.vendaFoto     },
+    { icon: '🔧', label: 'Rebaixo (usinagem)',custo: r.custoRebaixo,  venda: r.vendaRebaixo  },
+    { icon: '🪨', label: 'Laje vedante',     custo: r.custoLajeInt,  venda: r.vendaLajeInt  },
+    { icon: '🔨', label: 'Mão de Obra',      custo: r.custoMdo,      venda: r.vendaMdo      },
+    { icon: '🏗️', label: 'Estrutura civil',  custo: r.custoEstrutura,venda: r.custoEstrutura},
+    { icon: '🪣', label: 'Materiais',        custo: r.custoMat,      venda: r.custoMat      },
   ];
 
   cats.forEach(function(cat) {
@@ -899,18 +1324,26 @@ function _tabResumo() {
   h += '<div class="tum-sec-lbl" style="margin-top:16px;">📋 Ficha Técnica</div>';
   h += '<div class="tum-tech-box">';
   var sel = q.stoneId && typeof CFG !== 'undefined' && CFG.stones ? CFG.stones.find(function(s) { return s.id === q.stoneId; }) : null;
-  var altTotal = q.dims.altEst + (q.gavetas * q.altPorGaveta) + q.dims.espLaje + q.dims.espTampa;
-  h += _techR('Tipo',        tipo.label || q.tipoBase);
-  h += _techR('Cliente',     q.cli || '—');
-  if (q.falecido)  h += _techR('Falecido',   q.falecido);
-  if (q.cemiterio) h += _techR('Cemitério',  q.cemiterio);
-  if (q.quadra)    h += _techR('Quadra/Lote',q.quadra);
-  h += _techR('Pedra',       sel ? sel.nm + ' (R$ ' + fm(sel.pr) + '/m²)' : 'Não selecionada');
-  h += _techR('Comprimento', q.dims.comp + ' m');
-  h += _techR('Largura',     q.dims.larg + ' m');
-  h += _techR('Altura total',altTotal.toFixed(2) + ' m');
-  h += _techR('Gavetas',     q.gavetas + (q.gavetas === 0 ? ' (sem compartimento)' : ' compartimento' + (q.gavetas > 1 ? 's' : '')));
-  h += _techR('Área c/ perda', fm(r.m2Total || 0) + ' m²');
+  var avRodFT   = q.dims.avRodape     || 0;
+  var altRodFT  = q.dims.altRodape    || 0;
+  var espMolFT  = q.dims.espMolduraSup || 0;
+  var cUtilFT   = Math.max(0, q.dims.comp - 2 * avRodFT);
+  var lUtilFT   = Math.max(0, q.dims.larg - 2 * avRodFT);
+  var altTotalFT = altRodFT + (q.gavetas * q.altPorGaveta) + q.dims.espLaje + espMolFT + q.dims.espTampa;
+  h += _techR('Tipo',             tipo.label || q.tipoBase);
+  h += _techR('Cliente',          q.cli || '—');
+  if (q.falecido)  h += _techR('Falecido',     q.falecido);
+  if (q.cemiterio) h += _techR('Cemitério',    q.cemiterio);
+  if (q.quadra)    h += _techR('Quadra/Lote',  q.quadra);
+  h += _techR('Pedra',            sel ? sel.nm + ' (R$ ' + fm(sel.pr) + '/m²)' : 'Não selecionada');
+  h += _techR('Medida externa',   q.dims.comp + ' × ' + q.dims.larg + ' m');
+  if (avRodFT > 0) {
+    h += _techR('Rodapé',         altRodFT.toFixed(2) + 'm alt · ' + (avRodFT*100).toFixed(0) + 'cm avanço/lado');
+    h += _techR('Corpo útil',     cUtilFT.toFixed(2) + ' × ' + lUtilFT.toFixed(2) + ' m');
+  }
+  h += _techR('Altura total',     altTotalFT.toFixed(2) + ' m');
+  h += _techR('Gavetas',          q.gavetas + (q.gavetas === 0 ? ' (sem compartimento)' : ' compartimento' + (q.gavetas > 1 ? 's' : '')));
+  h += _techR('Área c/ perda',    fm(r.m2Total || 0) + ' m²');
   if (q.lapide.on) h += _techR('Lápide', q.lapide.tipo);
   if (q.cruz.on)   h += _techR('Cruz',   q.cruz.tipo + ' ' + q.cruz.modelo);
   if (q.foto.on)   h += _techR('Foto',   q.foto.tamanho + (q.foto.moldura ? ' c/ moldura' : ''));
@@ -1030,9 +1463,57 @@ function _tumCalc() {
     custoMdo += rq; vendaMdo += rq;
   }
 
+  // ── Lápide Dupla Engrossada ──────────────────────────────────────
+  var custoLapDupla = 0, vendaLapDupla = 0;
+  if (q.lapideDupla && q.lapideDupla.on) {
+    var ld = q.lapideDupla;
+    var m2LdUnit = ld.larg * ld.alt;
+    var nPecasLd = ld.tipo === 'dupla' ? 2 : 1;
+    // Pedra (usa preço da pedra selecionada; vendaPedra = custoPedra para pedra)
+    var custoP_Ld = _r(m2LdUnit * nPecasLd * stPr);
+    custoLapDupla += custoP_Ld;
+    vendaLapDupla += custoP_Ld;
+    // Bisote 45° nas 3 arestas (custo de acabamento por ml)
+    if (ld.bisote) {
+      var ml_Bis = ld.mlBisote || _r(ld.larg + ld.alt * 2);
+      custoLapDupla += _r(ml_Bis * 40);   // ~R$40/ml custo
+      vendaLapDupla += _r(ml_Bis * 40);   // margem via markup geral
+    }
+    // Ferragem interna (só se dupla)
+    if (ld.ferragem && ld.tipo === 'dupla') {
+      var cFerroLd = _r((ld.kgFerro || 8) * (ld.precoFerro || 14));
+      custoLapDupla += cFerroLd;
+      vendaLapDupla += _r(cFerroLd * 1.5);
+    }
+    // Fotos em porcelana embutidas
+    if ((ld.nFotos || 0) > 0) {
+      custoLapDupla += _r(ld.nFotos * (ld.custoFoto || 85));
+      vendaLapDupla += _r(ld.nFotos * (ld.vendaFoto || 160));
+    }
+    // Acréscimos manuais (gravação, transporte, etc.)
+    custoLapDupla += ld.custoExtra || 0;
+    vendaLapDupla += ld.vendaExtra || 0;
+  }
+
+  // ── Rebaixo de Encaixe (usinagem nas tampas) ─────────────────────
+  var custoRebaixo = 0, vendaRebaixo = 0;
+  if (q.rebaixoTampa && q.rebaixoTampa.on && (q.rebaixoTampa.mlTotal || 0) > 0) {
+    custoRebaixo = _r(q.rebaixoTampa.mlTotal * q.rebaixoTampa.custoUsinagem);
+    vendaRebaixo = _r(q.rebaixoTampa.mlTotal * q.rebaixoTampa.vendaUsinagem);
+  }
+
+  // ── Laje Vedante Interna ──────────────────────────────────────────
+  var custoLajeInt = 0, vendaLajeInt = 0;
+  if (q.lajeInterna && q.lajeInterna.on && (q.lajeInterna.m2Total || 0) > 0) {
+    custoLajeInt = _r(q.lajeInterna.m2Total * q.lajeInterna.custoM2);
+    vendaLajeInt = _r(q.lajeInterna.m2Total * q.lajeInterna.vendaM2);
+  }
+
   // ── Totais ───────────────────────────────────────────────────────
-  var custoTotal = custoPedra + custoLapide + custoCruz + custoFoto + custoMdo + custoEstrutura + custoMat;
-  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + custoEstrutura + custoMat;
+  var custoTotal = custoPedra + custoLapide + custoCruz + custoFoto + custoMdo + custoEstrutura + custoMat
+                 + custoLapDupla + custoRebaixo + custoLajeInt;
+  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + custoEstrutura + custoMat
+                 + vendaLapDupla + vendaRebaixo + vendaLajeInt;
   var lucroTotal = vendaTotal - custoTotal;
 
   var margemExtra = vendaTotal * (q.margem || 0) / 100;
@@ -1047,6 +1528,11 @@ function _tumCalc() {
     custoFoto, vendaFoto,
     custoMdo, vendaMdo,
     custoEstrutura, custoMat,
+    custoLapDupla, vendaLapDupla,
+    custoRebaixo, vendaRebaixo,
+    custoLajeInt, vendaLajeInt,
+    m2LapDupla: q.lapideDupla && q.lapideDupla.on
+      ? _r(q.lapideDupla.larg * q.lapideDupla.alt) : 0,
     custoTotal, vendaTotal, lucroTotal,
     margemExtra, venda, margemReal,
   };
@@ -1059,88 +1545,134 @@ function _tumAutoCalc() {
   var q   = TUM.q;
   var d   = q.dims;
   var gav = q.gavetas;
-  var c   = d.comp;
-  var l   = d.larg;
-  var ep  = d.espParede;
+  var c   = d.comp;           // comprimento EXTERNO total
+  var l   = d.larg;           // largura EXTERNA total
   var el  = d.espLaje;
   var et  = d.espTampa;
   var ag  = q.altPorGaveta;
 
-  // Altura da estrutura base
-  d.altEst = 0.40;
-  // Altura total
-  var altTotal = d.altEst + gav * ag + el + et;
+  // ── RODAPÉ E MOLDURA ─────────────────────────────────────────
+  var avRod    = d.avRodape      || 0;   // avanço lateral por lado (m)
+  var altRod   = d.altRodape     || 0;   // altura do rodapé externo (m)
+  var espMolSup = d.espMolduraSup || 0;  // moldura superior (m)
 
-  // ── Peças de pedra ────────────────────────────────────────────
+  // Dimensões ÚTEIS do corpo (externo − 2 × avanço)
+  var cUtil = Math.max(0.01, _r(c - 2 * avRod));
+  var lUtil = Math.max(0.01, _r(l - 2 * avRod));
+
+  // Expõe dimensões úteis para render e outros módulos
+  d._compUtil = cUtil;
+  d._largUtil = lUtil;
+
+  // Atualiza altEst para compatibilidade (rodapé é a nova base)
+  d.altEst = altRod > 0 ? altRod : 0.40;
+
+  // Altura do CORPO (gavetas + laje + moldura superior)
+  var altCorpo = _r(gav * ag + el + espMolSup);
+  // Altura TOTAL (rodapé + corpo + tampa)
+  var altTotal = _r(altRod + altCorpo + et);
+
+  // ── PEÇAS DE PEDRA ────────────────────────────────────────────
   var p = q.pedras;
 
-  // Tampa: comprimento × largura
+  // Tampa: cobre o topo do CORPO (área útil)
   if (p.tampa && !p.tampa._manual)
-    p.tampa.m2 = _r(c * l);
+    p.tampa.m2 = _r(cUtil * lUtil);
 
-  // Laterais: 2 × comprimento × altura total (ambos os lados)
+  // Laterais: CORPO × altura do corpo × 2 lados (dimensões úteis)
   if (p.laterais && !p.laterais._manual)
-    p.laterais.m2 = _r(c * altTotal * 2);
+    p.laterais.m2 = _r(cUtil * altCorpo * 2);
 
-  // Frente: largura × altura total
+  // Frente do CORPO (largura útil)
   if (p.frente && !p.frente._manual)
-    p.frente.m2 = _r(l * altTotal);
+    p.frente.m2 = _r(lUtil * altCorpo);
 
-  // Fundo: igual à frente
+  // Fundo do CORPO (largura útil)
   if (p.fundo && !p.fundo._manual)
-    p.fundo.m2 = _r(l * altTotal);
+    p.fundo.m2 = _r(lUtil * altCorpo);
 
-  // Revestimento externo: área total das faces externas
+  // Rodapé externo: perímetro EXTERNO × altRodape
+  if (p.rodape && !p.rodape._manual)
+    p.rodape.m2 = altRod > 0 ? _r((c * 2 + l * 2) * altRod) : 0;
+
+  // Revestimento externo: dimensões externas × altura total
   if (p.revestExt && !p.revestExt._manual)
     p.revestExt.m2 = _r((c * 2 + l * 2) * altTotal);
 
-  // Lápide: 0.60 × 0.40 padrão
+  // Lápide: padrão 0.60 × 0.40
   if (p.lapide && !p.lapide._manual)
     p.lapide.m2 = _r(0.60 * 0.40);
 
-  // Moldura e pingadeira: perímetro
+  // Moldura e pingadeira: perímetro do CORPO (útil)
   if (p.moldura && !p.moldura._ml_manual)
-    p.moldura.ml = _r((c + l) * 2);
+    p.moldura.ml = _r((cUtil + lUtil) * 2);
   if (p.pingadeira && !p.pingadeira._ml_manual)
-    p.pingadeira.ml = _r((c + l) * 2);
+    p.pingadeira.ml = _r((cUtil + lUtil) * 2);
 
-  // ── Estrutura civil ───────────────────────────────────────────
+  // ── ESTRUTURA CIVIL ───────────────────────────────────────────
   var est = q.estrutura;
-  var volFund = _r(c * l * 0.20); // 20cm de base
 
-  if (est.fundacao && !est.fundacao._manual)  est.fundacao.m3 = volFund;
-  if (est.paredes  && !est.paredes._manual)   est.paredes.m2  = _r((c * 2 + l * 2) * altTotal);
-  if (est.laje     && !est.laje._manual)      est.laje.m2     = _r(c * l);
+  // Fundação usa área EXTERNA (inclui o rodapé)
+  if (est.fundacao && !est.fundacao._manual)  est.fundacao.m3 = _r(c * l * 0.20);
+  // Paredes e laje usam dimensões ÚTEIS do corpo
+  if (est.paredes  && !est.paredes._manual)   est.paredes.m2  = _r((cUtil * 2 + lUtil * 2) * altCorpo);
+  if (est.laje     && !est.laje._manual)      est.laje.m2     = _r(cUtil * lUtil);
 
-  // Ferragem: aumenta com gavetas (15 kg/gaveta base + reforço)
-  var kgBase = c * l * 8;
+  // Ferragem: por área útil + reforço por gaveta
+  var kgBase = cUtil * lUtil * 8;
   if (est.reforco && !est.reforco._manual)
     est.reforco.kg = _r(kgBase + gav * 15);
 
-  // Concreto armado para gavetas
+  // Concreto armado (laje útil + volume das gavetas)
   if (est.concreto && !est.concreto._manual)
-    est.concreto.m3 = _r(c * l * el + gav * 0.12);
+    est.concreto.m3 = _r(cUtil * lUtil * el + gav * 0.12);
 
-  // ── Materiais ─────────────────────────────────────────────────
+  // ── MATERIAIS ─────────────────────────────────────────────────
   var mat = q.mat;
-  var vol = c * l * altTotal;
+  var vol = cUtil * lUtil * altCorpo;  // volume do CORPO
 
   if (mat.cimento   && !mat.cimento._manual)   mat.cimento.qty   = Math.ceil(vol * 6);
   if (mat.areia     && !mat.areia._manual)     mat.areia.qty     = _r(vol * 0.06);
   if (mat.brita     && !mat.brita._manual)     mat.brita.qty     = _r(vol * 0.04);
-  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil((c * l * 2 + c * altTotal * 2 + l * altTotal * 2) / 8);
-  if (mat.cola      && !mat.cola._manual)      mat.cola.qty      = Math.ceil((p.tampa && p.tampa.on ? p.tampa.m2 : 0) + (p.laterais && p.laterais.on ? p.laterais.m2 : 0) + (p.frente && p.frente.on ? p.frente.m2 : 0));
-  if (mat.rejunte   && !mat.rejunte._manual)   mat.rejunte.qty   = _r(((p.tampa && p.tampa.on ? p.tampa.m2 : 0) + (p.laterais && p.laterais.on ? p.laterais.m2 : 0)) * 0.5);
-  if (mat.ferro     && !mat.ferro._manual)     mat.ferro.qty     = _r(kgBase + gav * 15);
+  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil(
+    (cUtil * lUtil * 2 + cUtil * altCorpo * 2 + lUtil * altCorpo * 2) / 8
+  );
+  var m2Cola = (p.tampa    && p.tampa.on    ? p.tampa.m2    : 0) +
+               (p.laterais && p.laterais.on ? p.laterais.m2 : 0) +
+               (p.frente   && p.frente.on   ? p.frente.m2   : 0);
+  if (mat.cola    && !mat.cola._manual)    mat.cola.qty    = Math.ceil(m2Cola);
+  if (mat.rejunte && !mat.rejunte._manual) mat.rejunte.qty = _r(
+    ((p.tampa    && p.tampa.on    ? p.tampa.m2    : 0) +
+     (p.laterais && p.laterais.on ? p.laterais.m2 : 0)) * 0.5
+  );
+  if (mat.ferro && !mat.ferro._manual) mat.ferro.qty = _r(kgBase + gav * 15);
 
-  // ── Dias de mão de obra (automático por gavetas) ──────────────
+  // ── DIAS DE MÃO DE OBRA ───────────────────────────────────────
   var preset = TUM.TIPOS[q.tipoBase];
   if (preset) {
-    var diasPed = (preset.diasPedreiro || 1) + gav;  // +1 dia por gaveta
+    var diasPed = (preset.diasPedreiro || 1) + gav;
     var diasMar = preset.diasMarmorista || 1;
     if (!q.mdo.pedreiro._manual)   { q.mdo.pedreiro.dias   = diasPed; }
     if (!q.mdo.ajudante._manual)   { q.mdo.ajudante.dias   = diasPed; }
     if (!q.mdo.marmorista._manual) { q.mdo.marmorista.dias = diasMar; }
+  }
+
+  // ── REBAIXO TAMPAS + LAJE INTERNA (auto) ─────────────────────
+  var nCols = gav <= 2 ? gav : 2;
+  var nRows = Math.ceil(Math.max(1, gav) / nCols);
+  var gap   = 0.08;  // parede entre compartimentos (m)
+  var opW   = Math.max(0.10, (cUtil - gap * (nCols - 1)) / nCols);
+  var opH   = Math.max(0.10, (lUtil - gap * (nRows - 1)) / nRows);
+  if (q.rebaixoTampa && !q.rebaixoTampa._manual) {
+    q.rebaixoTampa.mlTotal = _r(Math.max(1, gav) * 2 * (opW + opH));
+  }
+  if (q.lajeInterna && !q.lajeInterna._manual) {
+    q.lajeInterna.nLajes  = Math.max(1, gav);
+    q.lajeInterna.m2Total = _r(Math.max(1, gav) * opW * opH);
+  }
+  // Lápide dupla: calcular ml de bisote automaticamente
+  if (q.lapideDupla) {
+    q.lapideDupla.mlBisote = _r(q.lapideDupla.larg + q.lapideDupla.alt * 2);
   }
 }
 
@@ -1243,6 +1775,9 @@ function _tumResetManual() {
   delete TUM.q.mdo.pedreiro._manual;
   delete TUM.q.mdo.ajudante._manual;
   delete TUM.q.mdo.marmorista._manual;
+  // Limpa dimensões computadas cacheadas
+  delete TUM.q.dims._compUtil;
+  delete TUM.q.dims._largUtil;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1418,16 +1953,46 @@ function _tDim(label, key, val, ph) {
   var s = document.createElement('style');
   s.textContent = `
     /* ── DRE TABLE ── */
-    .tum-dre-table{background:var(--s3);border:1px solid var(--bd2);border-radius:14px;overflow:hidden;margin-bottom:12px;}
-    .tum-dre-head{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;padding:8px 12px;background:rgba(201,168,76,.08);border-bottom:1px solid var(--bd2);}
-    .tum-dre-head span{font-size:.52rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);font-weight:700;}
-    .tum-dre-row{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.04);}
+    .tum-dre-table{background:var(--s2);border:1px solid var(--bd2);border-radius:14px;overflow:hidden;margin-bottom:12px;}
+    .tum-dre-head{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;padding:8px 13px;background:rgba(201,168,76,.07);border-bottom:1px solid var(--bd2);}
+    .tum-dre-head span{font-size:.5rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);font-weight:700;}
+    .tum-dre-row{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.04);transition:background .15s;}
+    .tum-dre-row:hover{background:rgba(255,255,255,.02);}
     .tum-dre-row span{font-size:.68rem;color:var(--t2);}
-    .tum-dre-total{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;padding:10px 12px;background:rgba(201,168,76,.06);border-top:1px solid rgba(201,168,76,.2);}
-    .tum-dre-total span{font-size:.72rem;font-weight:700;color:var(--tx);}
+    .tum-dre-total{display:grid;grid-template-columns:1.8fr 1fr 1fr 1fr;padding:11px 13px;background:rgba(201,168,76,.06);border-top:1px solid rgba(201,168,76,.18);}
+    .tum-dre-total span{font-size:.74rem;font-weight:700;color:var(--tx);}
+
+    /* ── HERO ── */
+    .tum-hero{background:linear-gradient(135deg,#0e0e14,#12100b);border-bottom:1px solid var(--bd);}
+    .tum-hero-row{display:flex;justify-content:space-between;align-items:flex-start;padding:14px 16px 10px;}
+    .tum-hero-title{font-size:.74rem;font-weight:700;color:var(--t2);}
+    .tum-hero-sub{font-size:.6rem;color:var(--t4);margin-top:3px;line-height:1.5;}
+    .tum-hero-val{font-family:'Cormorant Garamond',serif;font-size:1.7rem;font-weight:700;color:var(--gold2);line-height:1;}
+    /* KPI bar */
+    .tum-hero-kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:rgba(255,255,255,.05);border-top:1px solid rgba(255,255,255,.05);}
+    .tum-hm{padding:7px 10px;background:var(--s1);}
+    .tum-hm-lbl{font-size:.44rem;letter-spacing:1px;text-transform:uppercase;color:var(--t4);margin-bottom:2px;}
+    .tum-hm-val{font-size:.7rem;font-weight:700;}
+
+    /* ── TABS ── */
+    .tum-tabs{display:flex;gap:0;overflow-x:auto;background:var(--s2);border-bottom:1px solid var(--bd);scrollbar-width:none;}
+    .tum-tabs::-webkit-scrollbar{display:none;}
+    .tum-tab{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 11px;cursor:pointer;white-space:nowrap;font-size:.5rem;color:var(--t4);border-bottom:2.5px solid transparent;transition:color .15s,border-color .15s;}
+    .tum-tab.on{color:var(--gold);border-bottom-color:var(--gold);background:rgba(201,168,76,.04);}
+    .tum-tab span:first-child{font-size:.9rem;}
+
+    /* ── SECTION LABELS ── */
+    .tum-sec-lbl{
+      font-size:.54rem;letter-spacing:1.8px;text-transform:uppercase;
+      color:var(--gold3);font-weight:700;margin-bottom:8px;
+      padding:0 0 6px 10px;
+      border-left:3px solid var(--gold);
+      border-bottom:1px solid rgba(201,168,76,.08);
+    }
 
     /* ── EXTRAS ── */
-    .tum-extra-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--s3);border:1px solid var(--bd2);border-radius:12px;margin-bottom:6px;cursor:pointer;margin-top:10px;}
+    .tum-extra-hd{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--s2);border:1px solid var(--bd2);border-radius:12px;margin-bottom:6px;cursor:pointer;margin-top:10px;transition:border-color .15s;}
+    .tum-extra-hd:hover{border-color:rgba(201,168,76,.25);}
     .tum-extra-body{background:var(--s2);border:1px solid var(--bd2);border-radius:0 0 12px 12px;padding:14px;margin-top:-6px;margin-bottom:10px;}
 
     /* ── FOTO ÁREA ── */
@@ -1455,7 +2020,7 @@ function _tDim(label, key, val, ph) {
     .tum-prec-row{display:flex;justify-content:space-between;padding:5px 0;font-size:.68rem;color:var(--t3);border-bottom:1px solid rgba(255,255,255,.04);}
     .tum-prec-final{display:flex;justify-content:space-between;padding:10px 0 2px;font-size:.85rem;font-weight:800;color:var(--gold2);}
 
-    /* ── WARN ── */
+    /* ── WARN / INFO ── */
     .tum-warn{background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:10px 13px;font-size:.68rem;color:var(--gold3);margin-bottom:10px;}
     .tum-info-box{background:rgba(100,180,255,.06);border:1px solid rgba(100,180,255,.15);border-radius:10px;padding:10px 13px;font-size:.65rem;color:var(--t3);margin-bottom:10px;line-height:1.6;}
 
@@ -1467,12 +2032,12 @@ function _tDim(label, key, val, ph) {
     .tum-sp-pr{font-size:.68rem;color:var(--gold2);}
 
     /* ── TOTALS ── */
-    .tum-total-box{background:var(--s3);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;margin-top:10px;}
+    .tum-total-box{background:var(--s2);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;margin-top:10px;border-top:2px solid rgba(201,168,76,.25);}
     .tum-total-row{display:flex;justify-content:space-between;padding:8px 13px;border-bottom:1px solid rgba(255,255,255,.04);font-size:.7rem;color:var(--t2);}
     .tum-total-big{background:rgba(201,168,76,.05);font-weight:700;font-size:.76rem;color:var(--tx);}
 
     /* ── TECH BOX ── */
-    .tum-tech-box{background:var(--s3);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;}
+    .tum-tech-box{background:var(--s2);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;}
     .tum-tech-row{display:flex;justify-content:space-between;padding:8px 13px;border-bottom:1px solid rgba(255,255,255,.04);}
     .tum-tech-l{font-size:.62rem;color:var(--t4);}
     .tum-tech-v{font-size:.66rem;color:var(--t2);font-weight:600;text-align:right;max-width:60%;}
@@ -1486,16 +2051,18 @@ function _tDim(label, key, val, ph) {
 
     /* ── TIPOS GRID ── */
     .tum-tipos-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;}
-    .tum-tipo-card{background:var(--s3);border:1.5px solid var(--bd2);border-radius:12px;padding:10px;cursor:pointer;transition:border-color .15s;}
-    .tum-tipo-card.on{border-color:var(--gold);background:rgba(201,168,76,.07);}
+    .tum-tipo-card{background:var(--s3);border:1.5px solid var(--bd2);border-radius:12px;padding:10px;cursor:pointer;transition:all .15s;}
+    .tum-tipo-card:hover{border-color:rgba(201,168,76,.3);}
+    .tum-tipo-card.on{border-color:var(--gold);background:rgba(201,168,76,.07);box-shadow:0 0 12px rgba(201,168,76,.1);}
     .tum-tipo-icon{font-size:1.2rem;margin-bottom:4px;}
     .tum-tipo-label{font-size:.68rem;font-weight:700;color:var(--t2);margin-bottom:2px;}
     .tum-tipo-desc{font-size:.56rem;color:var(--t4);line-height:1.4;}
 
     /* ── PECA LIST ── */
-    .tum-peca-list{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
-    .tum-peca-row{background:var(--s3);border:1px solid var(--bd2);border-radius:10px;overflow:hidden;}
-    .tum-peca-off{opacity:.55;}
+    .tum-peca-list{display:flex;flex-direction:column;gap:5px;margin-bottom:8px;}
+    .tum-peca-row{background:var(--s2);border:1px solid var(--bd2);border-radius:10px;overflow:hidden;transition:border-color .15s;}
+    .tum-peca-row:has(input[type=checkbox]:checked){border-color:rgba(201,168,76,.2);}
+    .tum-peca-off{opacity:.5;}
     .tum-peca-header{display:flex;align-items:center;gap:10px;padding:10px 12px;}
     .tum-peca-label{flex:1;font-size:.72rem;font-weight:600;color:var(--t2);}
     .tum-peca-val{flex-shrink:0;}
@@ -1505,35 +2072,33 @@ function _tDim(label, key, val, ph) {
     .tum-tog{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0;}
     .tum-tog input{opacity:0;width:0;height:0;}
     .tum-tog-slider{position:absolute;inset:0;background:var(--s4);border-radius:20px;transition:.2s;}
-    .tum-tog-slider:before{content:"";position:absolute;width:14px;height:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;}
+    .tum-tog-slider:before{content:"";position:absolute;width:14px;height:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
     .tum-tog input:checked+.tum-tog-slider{background:var(--gold);}
     .tum-tog input:checked+.tum-tog-slider:before{transform:translateX(14px);}
 
+    /* ── CHECKBOX INLINE ── */
+    .tum-ck-item{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.65rem;color:var(--t3);}
+    .tum-ck-item input{flex-shrink:0;}
+
+    /* ── LAJE DIAGRAM ── */
+    .tum-laje-diagram{border-radius:10px;overflow:hidden;border:1px solid var(--bd2);margin-bottom:10px;}
+    .tum-ld-row{padding:8px 13px;font-size:.65rem;font-weight:600;display:flex;align-items:center;gap:8px;}
+    .tum-ld-tampa{background:rgba(201,168,76,.12);color:var(--gold2);border-bottom:1px solid rgba(255,255,255,.06);}
+    .tum-ld-laje{background:rgba(74,128,181,.1);color:#4a80b5;border-bottom:1px solid rgba(255,255,255,.06);}
+    .tum-ld-rebaixo{background:rgba(76,218,128,.07);color:#4cda80;font-size:.58rem;border-bottom:1px solid rgba(255,255,255,.06);}
+    .tum-ld-caixao{background:var(--s3);color:var(--t3);}
+
     /* ── MISC ── */
     .tum-sec{padding:14px 15px;}
-    .tum-sec-lbl{font-size:.56rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:8px;}
     .tum-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
     .tum-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
     .tum-f{display:flex;flex-direction:column;gap:4px;}
-    .tum-lbl{font-size:.56rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t4);}
-    .tum-in{background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.82rem;outline:none;width:100%;box-sizing:border-box;}
+    .tum-lbl{font-size:.54rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t4);}
+    .tum-in{background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.82rem;outline:none;width:100%;box-sizing:border-box;transition:border-color .15s;}
+    .tum-in:focus{border-color:rgba(201,168,76,.4);}
     .tum-obs{width:100%;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;outline:none;resize:vertical;box-sizing:border-box;}
     .tum-nav-row{display:flex;gap:8px;margin-top:16px;}
     .tum-action-btns{display:flex;gap:8px;margin-top:16px;}
-
-    /* ── HERO ── */
-    .tum-hero{background:linear-gradient(135deg,var(--s2),var(--s1));border-bottom:1px solid var(--bd);padding:14px 16px 12px;}
-    .tum-hero-row{display:flex;justify-content:space-between;align-items:flex-start;}
-    .tum-hero-title{font-size:.72rem;font-weight:700;color:var(--t2);}
-    .tum-hero-sub{font-size:.62rem;color:var(--t3);margin-top:2px;}
-    .tum-hero-val{font-family:'Cormorant Garamond',serif;font-size:1.6rem;font-weight:700;color:var(--gold2);}
-
-    /* ── TABS ── */
-    .tum-tabs{display:flex;gap:0;overflow-x:auto;background:var(--s1);border-bottom:1px solid var(--bd);scrollbar-width:none;}
-    .tum-tabs::-webkit-scrollbar{display:none;}
-    .tum-tab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 12px;cursor:pointer;white-space:nowrap;font-size:.52rem;color:var(--t4);border-bottom:2px solid transparent;transition:color .15s;}
-    .tum-tab.on{color:var(--gold);border-bottom-color:var(--gold);}
-    .tum-tab span:first-child{font-size:.9rem;}
   `;
   document.head.appendChild(s);
 })();
