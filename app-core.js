@@ -1019,16 +1019,76 @@ function remPeca(id){ambientes.forEach(function(a){if(a.pecas.length>1){a.pecas=
 // ═══════════════════════════════════════════════════════════════════════════
 // ACABAMENTO POR LADO + PREVIEW SVG TÉCNICO POR PEÇA
 // ═══════════════════════════════════════════════════════════════════════════
+// Estrutura de pc.bordas:
+// { fr: {tipo:'sainha'|'frontao'|null, sub:'s_reta'|'s_45'|..., ml:null|float, alt:6}, ... }
 
-var BORDA_OPTS = [
-  { k: null,           l: '—',       cor: 'rgba(255,255,255,.12)', bg: 'transparent' },
-  { k: 's_reta',       l: 'Sainha',  cor: '#5a9a6a', bg: 'rgba(90,154,106,.18)' },
-  { k: 's_45',         l: 'S.45°',   cor: '#6a9a5a', bg: 'rgba(106,154,90,.18)' },
-  { k: 's_boleada',    l: 'Bolead.', cor: '#8a9a4a', bg: 'rgba(138,154,74,.18)' },
-  { k: 'frontao',      l: 'Frontão', cor: '#5a7aaa', bg: 'rgba(90,122,170,.18)' },
-  { k: 'frontao_chf',  l: 'Chanfr.', cor: '#8a5aaa', bg: 'rgba(138,90,170,.18)' },
+var BORDA_TIPOS = [
+  { k: null,      l: '—',      cor: 'rgba(255,255,255,.15)', bg: 'transparent' },
+  { k: 'sainha',  l: 'Sainha', cor: '#4fa86b',               bg: 'rgba(79,168,107,.18)' },
+  { k: 'frontao', l: 'Frontão',cor: '#5a7fc4',               bg: 'rgba(90,127,196,.18)' },
+];
+var SAINHA_SUBS  = [
+  {k:'s_reta',l:'Reta'},{k:'s_45',l:'45°'},{k:'s_boleada',l:'Boleada'},{k:'s_slim',l:'Slim'}
+];
+var FRONTAO_SUBS = [
+  {k:'frontao',l:'Reto'},{k:'frontao_chf',l:'Chanfrado'}
 ];
 var BORDA_SVCS = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
+var BORDA_OPTS = BORDA_TIPOS; // backwards-compat alias
+
+function _getBd(pc, lado) {
+  return (pc.bordas && pc.bordas[lado]) || null;
+}
+function _setBd(pc, lado, patch) {
+  if (!pc.bordas) pc.bordas = {};
+  if (!patch) { pc.bordas[lado] = null; return; }
+  if (!pc.bordas[lado]) pc.bordas[lado] = { tipo: null, sub: null, ml: null, alt: 6 };
+  Object.assign(pc.bordas[lado], patch);
+}
+
+function updPcBordaTipo(ambId, pcId, lado, tipo) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  if (!tipo) {
+    _setBd(pc, lado, null);
+  } else {
+    var defSub = tipo === 'sainha' ? 's_reta' : 'frontao';
+    _setBd(pc, lado, { tipo: tipo, sub: defSub });
+  }
+  _syncBordaSvState(amb);
+  renderAmbientes();
+}
+function updPcBordaSub(ambId, pcId, lado, sub) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  _setBd(pc, lado, { sub: sub });
+  _syncBordaSvState(amb);
+  renderAmbientes();
+}
+function updPcBordaML(ambId, pcId, lado, val) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  var v = val === '' || val == null ? null : +val;
+  _setBd(pc, lado, { ml: v });
+  _syncBordaSvState(amb);
+  // No re-render needed (just data update)
+}
+function updPcBordaAlt(ambId, pcId, lado, val) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  _setBd(pc, lado, { alt: +val || 6 });
+  _syncBordaSvState(amb);
+}
+// compat alias
+function renderAmbientes(){
 
 function updPcBorda(ambId, pcId, lado, svc) {
   var amb = ambientes.find(function(a){ return a.id == ambId; });
@@ -1039,15 +1099,6 @@ function updPcBorda(ambId, pcId, lado, svc) {
   pc.bordas[lado] = svc || null;
   _syncBordaSvState(amb);
   renderAmbientes();
-}
-
-function updPcBordaAlt(ambId, pcId, val) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  pc.bordaAlt = +val || 6;
-  _syncBordaSvState(amb);
 }
 
 function _syncBordaSvState(amb) {
@@ -1210,7 +1261,6 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:8px;margin-top:8px;">'+svg+'</div>';
 }
 
-function renderAmbientes(){
   try{
   var container=document.getElementById('ambientesList');
   if(!container)return;
