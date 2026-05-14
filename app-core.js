@@ -1130,135 +1130,136 @@ function _syncBordaSvState(amb) {
 function _ambHasBordas(amb) {
   return amb.pecas.some(function(pc) {
     if (!pc.bordas) return false;
-    return ['fr','fd','esq','dir'].some(function(l){ return !!pc.bordas[l]; });
+    return ['fr','fd','esq','dir'].some(function(l){
+      var bd = pc.bordas[l];
+      return bd && bd.tipo;
+    });
   });
 }
 
 function buildPecaBordaHtml(amb, pc) {
   if (!pc.bordas) pc.bordas = {};
-  var b = pc.bordas;
-  var alt = pc.bordaAlt || 6;
   var SIDES = [
-    { k:'fr',  l:'Frente', dim: pc.w },
-    { k:'fd',  l:'Fundo',  dim: pc.w },
-    { k:'esq', l:'Esq.',   dim: pc.h },
-    { k:'dir', l:'Dir.',   dim: pc.h },
+    { k:'fr',  l:'Frente', dim: pc.w, icon:'▼' },
+    { k:'fd',  l:'Fundo',  dim: pc.w, icon:'▲' },
+    { k:'esq', l:'Esq.',   dim: pc.h, icon:'◄' },
+    { k:'dir', l:'Dir.',   dim: pc.h, icon:'►' },
   ];
-  // ML summary
-  var mlMap = {};
-  SIDES.forEach(function(s){
-    var svc = b[s.k]; if(!svc||!s.dim) return;
-    mlMap[svc] = (mlMap[svc]||0) + s.dim/100 * (pc.q||1);
-  });
-  var summaryParts = Object.keys(mlMap).map(function(k){
-    var o = BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'};
-    return '<span style="color:'+o.cor+'">'+o.l+' '+mlMap[k].toFixed(2)+'m</span>';
-  });
-
-  var h = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd2);">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;margin-bottom:8px;">';
-  h += '<span style="font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:600;">Acabamento por lado</span>';
-  h += '<div style="display:flex;align-items:center;gap:5px;">';
-  if (summaryParts.length) h += '<span style="font-size:.55rem;">'+summaryParts.join(' · ')+'</span>';
-  h += '<span style="font-size:.55rem;color:var(--t4);">Alt.</span>';
-  h += '<input type="number" min="1" max="20" step="0.5" value="'+alt+'" style="width:42px;padding:2px 4px;font-size:.65rem;text-align:center;background:var(--bg3);border:1px solid var(--bd2);border-radius:5px;color:var(--tx);" oninput="updPcBordaAlt('+amb.id+','+pc.id+',this.value)">';
-  h += '<span style="font-size:.55rem;color:var(--t4);">cm</span>';
-  h += '</div></div>';
-
+  var h = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd2);">';
+  h += '<div style="font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">Acabamento por lado</div>';
   SIDES.forEach(function(side) {
-    var sel = b[side.k];
-    var selOpt = BORDA_OPTS.find(function(o){return o.k===sel;})||BORDA_OPTS[0];
-    h += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">';
-    h += '<span style="font-size:.58rem;font-weight:600;color:'+(sel?selOpt.cor:'var(--t4)')+';min-width:44px;">'+side.l+'</span>';
-    h += side.dim
-      ? '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">'+side.dim+'cm</span>'
-      : '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">—</span>';
-    h += '<div style="display:flex;gap:3px;flex-wrap:wrap;">';
-    BORDA_OPTS.forEach(function(opt) {
-      var on = sel === opt.k;
-      var svcArg = opt.k ? ('\''+opt.k+'\'') : 'null';
-      h += '<div onclick="updPcBorda('+amb.id+','+pc.id+',\''+side.k+'\','+svcArg+')" ';
-      h += 'style="cursor:pointer;padding:2px 8px;border-radius:5px;border:1px solid '+(on?opt.cor:'rgba(255,255,255,.1)')+';';
-      h += 'background:'+(on?opt.bg:'transparent')+';font-size:.53rem;';
-      h += 'color:'+(on?opt.cor:'var(--t4)')+';font-weight:'+(on?700:400)+';white-space:nowrap;">'+opt.l+'</div>';
+    var bd = (pc.bordas && pc.bordas[side.k] && pc.bordas[side.k].tipo) ? pc.bordas[side.k] : null;
+    var tipo = bd ? bd.tipo : null;
+    var tipoOpt = BORDA_TIPOS.find(function(t){return t.k===tipo;})||BORDA_TIPOS[0];
+    var curML = bd && bd.ml != null ? bd.ml : null;
+    var autoML = side.dim ? (side.dim/100).toFixed(2) : '?';
+    var alt = bd ? (bd.alt||6) : 6;
+    h += '<div style="background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;">';
+    // Header: icon + label + dim + type buttons
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';">';
+    h += '<span style="font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;">'+side.icon+' '+side.l+'</span>';
+    h += '<span style="font-size:.6rem;color:var(--t4);min-width:36px;">'+(side.dim?side.dim+'cm':'—')+'</span>';
+    h += '<div style="display:flex;gap:4px;flex:1;">';
+    BORDA_TIPOS.forEach(function(t) {
+      var on = tipo === t.k;
+      var tArg = t.k ? ("'" + t.k + "'") : 'null';
+      h += '<div onclick="updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')" ';
+      h += 'style="cursor:pointer;flex:1;text-align:center;padding:7px 4px;border-radius:7px;border:1.5px solid ';
+      h += (on?t.cor:'rgba(255,255,255,.1)')+';background:'+(on?t.bg:'transparent')+';';
+      h += 'font-size:.68rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';">'+t.l+'</div>';
     });
     h += '</div></div>';
+    if (tipo) {
+      var subs = tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
+      var curSub = bd ? bd.sub : null;
+      h += '<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">';
+      subs.forEach(function(sub) {
+        var on = curSub===sub.k;
+        h += '<div onclick="updPcBordaSub('+amb.id+','+pc.id+',\''+side.k+'\',\''+sub.k+'\')" ';
+        h += 'style="cursor:pointer;padding:5px 12px;border-radius:7px;border:1px solid ';
+        h += (on?tipoOpt.cor:'rgba(255,255,255,.12)')+';background:'+(on?tipoOpt.bg:'transparent')+';';
+        h += 'font-size:.62rem;font-weight:'+(on?700:400)+';color:'+(on?tipoOpt.cor:'var(--t3)')+';">'+sub.l+'</div>';
+      });
+      h += '</div>';
+      // ML + Alt row
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;">';
+      h += '<div><div style="font-size:.55rem;color:var(--t4);margin-bottom:3px;">ML (cm) — vazio = '+autoML+'m auto</div>';
+      h += '<input type="number" min="0" max="9999" step="1" value="'+(curML!=null?curML:'')+'" placeholder="Auto" ';
+      h += 'style="width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;" ';
+      h += 'oninput="updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)"></div>';
+      h += '<div><div style="font-size:.55rem;color:var(--t4);margin-bottom:3px;">Altura (cm)</div>';
+      h += '<input type="number" min="1" max="30" step="0.5" value="'+alt+'" ';
+      h += 'style="width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;" ';
+      h += 'oninput="updPcBordaAlt('+amb.id+','+pc.id+',\''+side.k+'\',this.value)"></div>';
+      h += '</div>';
+      var finalML = curML!=null ? (curML/100)*(pc.q||1) : (side.dim?(side.dim/100)*(pc.q||1):0);
+      if (finalML>0) {
+        h += '<div style="margin-top:6px;font-size:.62rem;color:'+tipoOpt.cor+';font-weight:600;">= '+finalML.toFixed(2)+'m linear</div>';
+      }
+    }
+    h += '</div>';
   });
-  if (!pc.w || !pc.h) {
-    h += '<div style="font-size:.58rem;color:var(--t4);margin-top:4px;">← Preencha comprimento e largura para ver o desenho técnico</div>';
-  }
+  if (!pc.w || !pc.h) h += '<div style="font-size:.58rem;color:var(--t4);margin-top:4px;font-style:italic;">Preencha comprimento e largura para ver o desenho técnico</div>';
   h += '</div>';
   return h;
 }
 
 function buildPecaPreviewSVG(amb, pc, pcIdx) {
-  var W = pc.w || 0, H = pc.h || 0;
-  if (!W || !H) return '';
-  var b = pc.bordas || {};
-  var MAX_W = 260, MAX_H = 180;
-  var scale = Math.min(MAX_W / W, MAX_H / H, 1.8);
-  var rw = Math.round(W * scale), rh = Math.round(H * scale);
-  var ox = 34, oy = 22;
-  var vw = rw + ox + 14, vh = rh + oy + 20;
-  var getOpt = function(k){ return BORDA_OPTS.find(function(o){return o.k===k;})||BORDA_OPTS[0]; };
-
-  var svg = '<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:190px;">';
-  // Fill
-  svg += '<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="rgba(201,168,76,.07)" stroke="rgba(201,168,76,.2)" stroke-width=".5" rx="1"/>';
-
-  // Cuba cutout (first piece)
-  if (pcIdx === 0 && amb.selCuba) {
-    var cbW = Math.round(38 * scale), cbH = Math.round(46 * scale);
-    var cbX = ox + Math.round(rw * 0.32) - cbW/2, cbY = oy + Math.round(rh * 0.28);
-    cbX = Math.max(ox+3, Math.min(cbX, ox+rw-cbW-3));
-    cbY = Math.max(oy+3, Math.min(cbY, oy+rh-cbH-3));
-    svg += '<rect x="'+cbX+'" y="'+cbY+'" width="'+cbW+'" height="'+cbH+'" fill="rgba(60,130,220,.13)" stroke="rgba(100,170,255,.65)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
-    svg += '<text x="'+(cbX+cbW/2)+'" y="'+(cbY+cbH/2+3)+'" text-anchor="middle" font-size="'+ Math.max(5,Math.min(8,cbW/5))+'" fill="rgba(100,170,255,.9)" font-family="DM Mono,monospace">CUBA</text>';
+  var W=pc.w||0, H=pc.h||0;
+  if(!W||!H) return '';
+  var MAX_W=250, MAX_H=165;
+  var scale=Math.min(MAX_W/W, MAX_H/H, 2.0);
+  var rw=Math.round(W*scale), rh=Math.round(H*scale);
+  var ox=36, oy=22, vw=rw+ox+16, vh=rh+oy+28;
+  var getBd=function(l){ var bd=(pc.bordas&&pc.bordas[l]&&pc.bordas[l].tipo)?pc.bordas[l]:null; return bd; };
+  var getOpt=function(tipo){ return BORDA_TIPOS.find(function(t){return t.k===tipo;})||BORDA_TIPOS[0]; };
+  var svg='<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:200px;">';
+  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="rgba(201,168,76,.07)" rx="1"/>';
+  // Cuba
+  if(pcIdx===0&&amb.selCuba){
+    var cbW=Math.round(36*scale),cbH=Math.round(44*scale);
+    var cbX=Math.max(ox+3,Math.min(ox+rw*0.3-cbW/2,ox+rw-cbW-3));
+    var cbY=Math.max(oy+3,Math.min(oy+rh/2-cbH/2,oy+rh-cbH-3));
+    svg+='<rect x="'+cbX+'" y="'+cbY+'" width="'+cbW+'" height="'+cbH+'" fill="rgba(60,130,220,.13)" stroke="rgba(100,170,255,.7)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
+    svg+='<text x="'+(cbX+cbW/2)+'" y="'+(cbY+cbH/2+3)+'" text-anchor="middle" font-size="'+Math.max(5,Math.min(8,cbW/5))+'" fill="rgba(100,170,255,.9)" font-family="monospace">CUBA</text>';
   }
-  // Cooktop cutout
-  var hasCook = amb.svState && amb.svState['cook'];
-  if (pcIdx === 0 && hasCook) {
-    var ckW = Math.round(60 * scale), ckH = Math.round(52 * scale);
-    var ckX = ox + Math.round(rw * 0.68) - ckW/2, ckY = oy + Math.round(rh * 0.28);
-    ckX = Math.max(ox+3, Math.min(ckX, ox+rw-ckW-3));
-    ckY = Math.max(oy+3, Math.min(ckY, oy+rh-ckH-3));
-    svg += '<rect x="'+ckX+'" y="'+ckY+'" width="'+ckW+'" height="'+ckH+'" fill="rgba(220,100,50,.1)" stroke="rgba(255,145,80,.65)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
-    // 4 burner circles
-    [[.3,.35],[.7,.35],[.3,.65],[.7,.65]].forEach(function(p) {
-      var br = Math.max(3, ckH * 0.11);
-      svg += '<circle cx="'+(ckX+ckW*p[0]).toFixed(0)+'" cy="'+(ckY+ckH*p[1]).toFixed(0)+'" r="'+br.toFixed(0)+'" fill="none" stroke="rgba(255,145,80,.5)" stroke-width="1"/>';
+  // Cooktop
+  if(pcIdx===0&&amb.svState&&amb.svState['cook']){
+    var ckW=Math.round(58*scale),ckH=Math.round(50*scale);
+    var ckX=Math.max(ox+3,Math.min(ox+rw*0.65-ckW/2,ox+rw-ckW-3));
+    var ckY=Math.max(oy+3,Math.min(oy+rh/2-ckH/2,oy+rh-ckH-3));
+    svg+='<rect x="'+ckX+'" y="'+ckY+'" width="'+ckW+'" height="'+ckH+'" fill="rgba(220,100,50,.1)" stroke="rgba(255,145,80,.7)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
+    [[.25,.3],[.75,.3],[.25,.7],[.75,.7]].forEach(function(p){
+      svg+='<circle cx="'+(ckX+ckW*p[0]).toFixed(0)+'" cy="'+(ckY+ckH*p[1]).toFixed(0)+'" r="'+Math.max(3,ckH*.1).toFixed(0)+'" fill="none" stroke="rgba(255,145,80,.6)" stroke-width="1"/>';
     });
-    svg += '<text x="'+(ckX+ckW/2)+'" y="'+(ckY+ckH*0.88)+'" text-anchor="middle" font-size="'+ Math.max(5,Math.min(8,ckW/9))+'" fill="rgba(255,145,80,.9)" font-family="DM Mono,monospace">COOKTOP</text>';
+    svg+='<text x="'+(ckX+ckW/2)+'" y="'+(ckY+ckH*.87)+'" text-anchor="middle" font-size="'+Math.max(5,Math.min(7,ckW/9))+'" fill="rgba(255,145,80,.9)" font-family="monospace">COOKTOP</text>';
   }
-
-  // Edge lines
-  var SIDE_LINES = [
-    { k:'fr',  x1:ox,    y1:oy,    x2:ox+rw, y2:oy,    lx:ox+rw/2, ly:oy+9, anchor:'middle' },
-    { k:'fd',  x1:ox,    y1:oy+rh, x2:ox+rw, y2:oy+rh, lx:ox+rw/2, ly:oy+rh-3, anchor:'middle' },
-    { k:'esq', x1:ox,    y1:oy,    x2:ox,    y2:oy+rh, lx:ox+5,    ly:oy+rh/2+2, anchor:'start' },
-    { k:'dir', x1:ox+rw, y1:oy,    x2:ox+rw, y2:oy+rh, lx:ox+rw-4, ly:oy+rh/2+2, anchor:'end' },
+  // Edges — Frente=BOTTOM, Fundo=TOP, Esq=LEFT, Dir=RIGHT
+  var EDGES=[
+    {k:'fd', x1:ox,    y1:oy,    x2:ox+rw, y2:oy,    lx:ox+rw/2, ly:oy+10, anc:'middle'},
+    {k:'fr', x1:ox,    y1:oy+rh, x2:ox+rw, y2:oy+rh, lx:ox+rw/2, ly:oy+rh-5,anc:'middle'},
+    {k:'esq',x1:ox,    y1:oy,    x2:ox,    y2:oy+rh, lx:ox+5,    ly:oy+rh/2,anc:'start'},
+    {k:'dir',x1:ox+rw, y1:oy,    x2:ox+rw, y2:oy+rh, lx:ox+rw-4, ly:oy+rh/2,anc:'end'},
   ];
-  SIDE_LINES.forEach(function(s) {
-    var opt = getOpt(b[s.k]);
-    var cor = b[s.k] ? opt.cor : 'rgba(201,168,76,.35)';
-    var sw = b[s.k] ? 3 : 1;
-    svg += '<line x1="'+s.x1+'" y1="'+s.y1+'" x2="'+s.x2+'" y2="'+s.y2+'" stroke="'+cor+'" stroke-width="'+sw+'"/>';
-    if (b[s.k]) {
-      svg += '<text x="'+s.lx+'" y="'+s.ly+'" text-anchor="'+s.anchor+'" font-size="6" fill="'+cor+'" font-family="DM Mono,monospace" font-weight="700">'+opt.l+'</text>';
+  EDGES.forEach(function(e){
+    var bd=getBd(e.k); var opt=getOpt(bd?bd.tipo:null);
+    var cor=bd?opt.cor:'rgba(201,168,76,.3)'; var sw=bd?3:1;
+    svg+='<line x1="'+e.x1+'" y1="'+e.y1+'" x2="'+e.x2+'" y2="'+e.y2+'" stroke="'+cor+'" stroke-width="'+sw+'"/>';
+    if(bd){
+      var subs=bd.tipo==='sainha'?SAINHA_SUBS:FRONTAO_SUBS;
+      var sub=subs.find(function(s){return s.k===bd.sub;})||subs[0];
+      svg+='<text x="'+e.lx+'" y="'+e.ly+'" text-anchor="'+e.anc+'" font-size="7" fill="'+cor+'" font-family="monospace" font-weight="700">'+(bd.tipo==='sainha'?'Sainha':'Frontão')+' '+(sub?sub.l:'')+'</text>';
     }
   });
-
-  // Dimension labels
-  var fs = Math.max(7, Math.min(10, rw/18));
-  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-7)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="DM Mono,monospace">'+W+' cm</text>';
-  svg += '<text x="'+(ox-8)+'" y="'+(oy+rh/2)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="DM Mono,monospace" transform="rotate(-90,'+(ox-8)+','+(oy+rh/2)+')">'+H+' cm</text>';
-  // Qty badge
-  if ((pc.q||1) > 1) {
-    svg += '<rect x="'+(ox+rw-20)+'" y="'+(oy+1)+'" width="18" height="11" rx="5" fill="rgba(201,168,76,.8)"/>';
-    svg += '<text x="'+(ox+rw-11)+'" y="'+(oy+9)+'" text-anchor="middle" font-size="7" fill="#1a0800" font-weight="700">×'+(pc.q||1)+'</text>';
-  }
-  svg += '</svg>';
-  return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:8px;margin-top:8px;">'+svg+'</div>';
+  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="none" stroke="rgba(201,168,76,.4)" stroke-width=".5" rx="1"/>';
+  var fs=Math.max(7,Math.min(10,rw/18));
+  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy-7)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="monospace">'+W+' cm</text>';
+  svg+='<text x="'+(ox-10)+'" y="'+(oy+rh/2)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="monospace" transform="rotate(-90,'+(ox-10)+','+(oy+rh/2)+')">'+H+' cm</text>';
+  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy+rh+14)+'" text-anchor="middle" font-size="'+(fs-1)+'" fill="rgba(255,255,255,.25)" font-family="monospace">▲ FRENTE</text>';
+  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy-1)+'" text-anchor="middle" font-size="'+(fs-1)+'" fill="rgba(255,255,255,.18)" font-family="monospace">FUNDO</text>';
+  if((pc.q||1)>1){ svg+='<rect x="'+(ox+rw-20)+'" y="'+(oy+1)+'" width="18" height="11" rx="5" fill="rgba(201,168,76,.85)"/><text x="'+(ox+rw-11)+'" y="'+(oy+9)+'" text-anchor="middle" font-size="7" fill="#1a0800" font-weight="700">×'+(pc.q||1)+'</text>'; }
+  svg+='</svg>';
+  return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-top:10px;">'+svg+'</div>';
 }
 
   try{
