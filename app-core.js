@@ -1215,7 +1215,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   var cubaY_cm = (H - cubaH) / 2;        // centralizada na largura
 
   // Cooktop: 60×52cm, posicionado após a cuba + 10cm de folga
-  var ckW = 60, ckH = 52;
+  var ckW = 60, ckH = 45;  // padrão: 60×45cm (4 bocas)
   var ckX_cm = cubaX_cm + cubaW + 10;
   var ckY_cm = (H - ckH) / 2;
 
