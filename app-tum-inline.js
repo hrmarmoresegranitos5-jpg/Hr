@@ -619,11 +619,19 @@ function buildTampasAcab() {
   var h = '';
   ACABAMENTOS.forEach(function(a) {
     var on = (SEL.tampas.acabTampa || 'POL') === a.id;
-    h += '<button class="preset'+(on?' on':'')+'" style="font-size:.65rem;padding:4px 10px" '
-       + 'onclick="SEL.tampas.acabTampa=\''+a.id+'\';buildTampasAcab();_TI_calcular()">'+a.nm+'</button>';
+    h += '<button class="preset'+(on?' on':'')+'" style="font-size:.65rem;padding:5px 12px" '
+       + 'onclick="_TI_selAcabTampa(\'' + a.id + '\')">' + a.nm + '</button>';
   });
   el.innerHTML = h;
 }
+
+function selAcabTampa(id) {
+  SEL.tampas.acabTampa = id;
+  buildTampasAcab();
+  _TI_calcular();
+}
+
+
 
 /* ── Desenha o SVG de vista superior ── */
 function desenharTampasSVG(td) {
@@ -3783,6 +3791,7 @@ window.buildOpcionais                       = buildOpcionais;
 window.buildPecas                           = buildPecas;
 window.buildPedrasCfg                       = buildPedrasCfg;
 window.buildPresets                         = buildPresets;
+window._TI_selAcabTampa = selAcabTampa;
 window.buildTampasAcab                      = buildTampasAcab;
 window.buildTipoServ                        = buildTipoServ;
 window.calcularFull                         = calcularFull;
