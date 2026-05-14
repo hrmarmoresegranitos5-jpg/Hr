@@ -438,15 +438,10 @@ function openApp(pg){
   var a=document.getElementById('sApp');
   a.classList.add('on');
   a.style.display='block';
-  // Guarda: DOMContentLoaded pode ainda não ter disparado (scripts carregando da rede)
-  if(typeof window.setLayout!=='function'){
-    window._pendingPg=pg;
-    return;
-  }
   setLayout();
   requestAnimationFrame(function(){
     setLayout();
-    if(typeof go==='function')go(pg);
+    go(pg);
   });
   window._pendingPg=null;
 }
@@ -1021,6 +1016,196 @@ function addPeca(){if(ambientes.length>0)addPecaAmb(ambientes[0].id);}
 function updPc(id,prop,val){ambientes.forEach(function(a){var p=a.pecas.find(function(x){return x.id===id;});if(p)p[prop]=val;});}
 function remPeca(id){ambientes.forEach(function(a){if(a.pecas.length>1){a.pecas=a.pecas.filter(function(p){return p.id!==id;});}});renderAmbientes();}
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ACABAMENTO POR LADO + PREVIEW SVG TÉCNICO POR PEÇA
+// ═══════════════════════════════════════════════════════════════════════════
+
+var BORDA_OPTS = [
+  { k: null,           l: '—',       cor: 'rgba(255,255,255,.12)', bg: 'transparent' },
+  { k: 's_reta',       l: 'Sainha',  cor: '#5a9a6a', bg: 'rgba(90,154,106,.18)' },
+  { k: 's_45',         l: 'S.45°',   cor: '#6a9a5a', bg: 'rgba(106,154,90,.18)' },
+  { k: 's_boleada',    l: 'Bolead.', cor: '#8a9a4a', bg: 'rgba(138,154,74,.18)' },
+  { k: 'frontao',      l: 'Frontão', cor: '#5a7aaa', bg: 'rgba(90,122,170,.18)' },
+  { k: 'frontao_chf',  l: 'Chanfr.', cor: '#8a5aaa', bg: 'rgba(138,90,170,.18)' },
+];
+var BORDA_SVCS = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
+
+function updPcBorda(ambId, pcId, lado, svc) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  if (!pc.bordas) pc.bordas = {};
+  pc.bordas[lado] = svc || null;
+  _syncBordaSvState(amb);
+  renderAmbientes();
+}
+
+function updPcBordaAlt(ambId, pcId, val) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  pc.bordaAlt = +val || 6;
+  _syncBordaSvState(amb);
+}
+
+function _syncBordaSvState(amb) {
+  var totML = {}, totAlt = {}, hasBordas = false;
+  amb.pecas.forEach(function(pc) {
+    if (!pc.bordas) return;
+    var q = pc.q || 1;
+    var alt = pc.bordaAlt || 6;
+    var dims = { fr: pc.w||0, fd: pc.w||0, esq: pc.h||0, dir: pc.h||0 };
+    ['fr','fd','esq','dir'].forEach(function(lado) {
+      var svc = pc.bordas[lado];
+      if (!svc || !dims[lado]) return;
+      hasBordas = true;
+      totML[svc] = (totML[svc] || 0) + (dims[lado] / 100) * q;
+      totAlt[svc] = alt; // última peça vence (simplificação)
+    });
+  });
+  if (!hasBordas) return;
+  if (!amb.svState) amb.svState = {};
+  BORDA_SVCS.forEach(function(k) {
+    if (totML[k] > 0) {
+      amb.svState[k] = { ml: +totML[k].toFixed(3), altCm: totAlt[k] || 6, q: 1, qty: 1, _fb: true };
+    } else if (amb.svState[k] && amb.svState[k]._fb) {
+      delete amb.svState[k];
+    }
+  });
+}
+
+function _ambHasBordas(amb) {
+  return amb.pecas.some(function(pc) {
+    if (!pc.bordas) return false;
+    return ['fr','fd','esq','dir'].some(function(l){ return !!pc.bordas[l]; });
+  });
+}
+
+function buildPecaBordaHtml(amb, pc) {
+  if (!pc.w || !pc.h) return '';
+  if (!pc.bordas) pc.bordas = {};
+  var b = pc.bordas;
+  var alt = pc.bordaAlt || 6;
+  var SIDES = [
+    { k:'fr',  l:'Frente', dim: pc.w },
+    { k:'fd',  l:'Fundo',  dim: pc.w },
+    { k:'esq', l:'Esq.',   dim: pc.h },
+    { k:'dir', l:'Dir.',   dim: pc.h },
+  ];
+  // ML summary
+  var mlMap = {};
+  SIDES.forEach(function(s){
+    var svc = b[s.k]; if(!svc||!s.dim) return;
+    mlMap[svc] = (mlMap[svc]||0) + s.dim/100 * (pc.q||1);
+  });
+  var summaryParts = Object.keys(mlMap).map(function(k){
+    var o = BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'};
+    return '<span style="color:'+o.cor+'">'+o.l+' '+mlMap[k].toFixed(2)+'m</span>';
+  });
+
+  var h = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd2);">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;margin-bottom:8px;">';
+  h += '<span style="font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:600;">Acabamento por lado</span>';
+  h += '<div style="display:flex;align-items:center;gap:5px;">';
+  if (summaryParts.length) h += '<span style="font-size:.55rem;">'+summaryParts.join(' · ')+'</span>';
+  h += '<span style="font-size:.55rem;color:var(--t4);">Alt.</span>';
+  h += '<input type="number" min="1" max="20" step="0.5" value="'+alt+'" style="width:42px;padding:2px 4px;font-size:.65rem;text-align:center;background:var(--bg3);border:1px solid var(--bd2);border-radius:5px;color:var(--tx);" oninput="updPcBordaAlt('+amb.id+','+pc.id+',this.value)">';
+  h += '<span style="font-size:.55rem;color:var(--t4);">cm</span>';
+  h += '</div></div>';
+
+  SIDES.forEach(function(side) {
+    var sel = b[side.k];
+    var selOpt = BORDA_OPTS.find(function(o){return o.k===sel;})||BORDA_OPTS[0];
+    h += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">';
+    h += '<span style="font-size:.58rem;font-weight:600;color:'+(sel?selOpt.cor:'var(--t4)')+';min-width:44px;">'+side.l+'</span>';
+    h += '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">'+side.dim+'cm</span>';
+    h += '<div style="display:flex;gap:3px;flex-wrap:wrap;">';
+    BORDA_OPTS.forEach(function(opt) {
+      var on = sel === opt.k;
+      var svcArg = opt.k ? ('\''+opt.k+'\'') : 'null';
+      h += '<div onclick="updPcBorda('+amb.id+','+pc.id+',\''+side.k+'\','+svcArg+')" ';
+      h += 'style="cursor:pointer;padding:2px 8px;border-radius:5px;border:1px solid '+(on?opt.cor:'rgba(255,255,255,.1)')+';';
+      h += 'background:'+(on?opt.bg:'transparent')+';font-size:.53rem;';
+      h += 'color:'+(on?opt.cor:'var(--t4)')+';font-weight:'+(on?700:400)+';white-space:nowrap;">'+opt.l+'</div>';
+    });
+    h += '</div></div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function buildPecaPreviewSVG(amb, pc, pcIdx) {
+  var W = pc.w || 0, H = pc.h || 0;
+  if (!W || !H) return '';
+  var b = pc.bordas || {};
+  var MAX_W = 260, MAX_H = 180;
+  var scale = Math.min(MAX_W / W, MAX_H / H, 1.8);
+  var rw = Math.round(W * scale), rh = Math.round(H * scale);
+  var ox = 34, oy = 22;
+  var vw = rw + ox + 14, vh = rh + oy + 20;
+  var getOpt = function(k){ return BORDA_OPTS.find(function(o){return o.k===k;})||BORDA_OPTS[0]; };
+
+  var svg = '<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:190px;">';
+  // Fill
+  svg += '<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="rgba(201,168,76,.07)" stroke="rgba(201,168,76,.2)" stroke-width=".5" rx="1"/>';
+
+  // Cuba cutout (first piece)
+  if (pcIdx === 0 && amb.selCuba) {
+    var cbW = Math.round(38 * scale), cbH = Math.round(46 * scale);
+    var cbX = ox + Math.round(rw * 0.32) - cbW/2, cbY = oy + Math.round(rh * 0.28);
+    cbX = Math.max(ox+3, Math.min(cbX, ox+rw-cbW-3));
+    cbY = Math.max(oy+3, Math.min(cbY, oy+rh-cbH-3));
+    svg += '<rect x="'+cbX+'" y="'+cbY+'" width="'+cbW+'" height="'+cbH+'" fill="rgba(60,130,220,.13)" stroke="rgba(100,170,255,.65)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
+    svg += '<text x="'+(cbX+cbW/2)+'" y="'+(cbY+cbH/2+3)+'" text-anchor="middle" font-size="'+ Math.max(5,Math.min(8,cbW/5))+'" fill="rgba(100,170,255,.9)" font-family="DM Mono,monospace">CUBA</text>';
+  }
+  // Cooktop cutout
+  var hasCook = amb.svState && amb.svState['cook'];
+  if (pcIdx === 0 && hasCook) {
+    var ckW = Math.round(60 * scale), ckH = Math.round(52 * scale);
+    var ckX = ox + Math.round(rw * 0.68) - ckW/2, ckY = oy + Math.round(rh * 0.28);
+    ckX = Math.max(ox+3, Math.min(ckX, ox+rw-ckW-3));
+    ckY = Math.max(oy+3, Math.min(ckY, oy+rh-ckH-3));
+    svg += '<rect x="'+ckX+'" y="'+ckY+'" width="'+ckW+'" height="'+ckH+'" fill="rgba(220,100,50,.1)" stroke="rgba(255,145,80,.65)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
+    // 4 burner circles
+    [[.3,.35],[.7,.35],[.3,.65],[.7,.65]].forEach(function(p) {
+      var br = Math.max(3, ckH * 0.11);
+      svg += '<circle cx="'+(ckX+ckW*p[0]).toFixed(0)+'" cy="'+(ckY+ckH*p[1]).toFixed(0)+'" r="'+br.toFixed(0)+'" fill="none" stroke="rgba(255,145,80,.5)" stroke-width="1"/>';
+    });
+    svg += '<text x="'+(ckX+ckW/2)+'" y="'+(ckY+ckH*0.88)+'" text-anchor="middle" font-size="'+ Math.max(5,Math.min(8,ckW/9))+'" fill="rgba(255,145,80,.9)" font-family="DM Mono,monospace">COOKTOP</text>';
+  }
+
+  // Edge lines
+  var SIDE_LINES = [
+    { k:'fr',  x1:ox,    y1:oy,    x2:ox+rw, y2:oy,    lx:ox+rw/2, ly:oy+9, anchor:'middle' },
+    { k:'fd',  x1:ox,    y1:oy+rh, x2:ox+rw, y2:oy+rh, lx:ox+rw/2, ly:oy+rh-3, anchor:'middle' },
+    { k:'esq', x1:ox,    y1:oy,    x2:ox,    y2:oy+rh, lx:ox+5,    ly:oy+rh/2+2, anchor:'start' },
+    { k:'dir', x1:ox+rw, y1:oy,    x2:ox+rw, y2:oy+rh, lx:ox+rw-4, ly:oy+rh/2+2, anchor:'end' },
+  ];
+  SIDE_LINES.forEach(function(s) {
+    var opt = getOpt(b[s.k]);
+    var cor = b[s.k] ? opt.cor : 'rgba(201,168,76,.35)';
+    var sw = b[s.k] ? 3 : 1;
+    svg += '<line x1="'+s.x1+'" y1="'+s.y1+'" x2="'+s.x2+'" y2="'+s.y2+'" stroke="'+cor+'" stroke-width="'+sw+'"/>';
+    if (b[s.k]) {
+      svg += '<text x="'+s.lx+'" y="'+s.ly+'" text-anchor="'+s.anchor+'" font-size="6" fill="'+cor+'" font-family="DM Mono,monospace" font-weight="700">'+opt.l+'</text>';
+    }
+  });
+
+  // Dimension labels
+  var fs = Math.max(7, Math.min(10, rw/18));
+  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-7)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="DM Mono,monospace">'+W+' cm</text>';
+  svg += '<text x="'+(ox-8)+'" y="'+(oy+rh/2)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="DM Mono,monospace" transform="rotate(-90,'+(ox-8)+','+(oy+rh/2)+')">'+H+' cm</text>';
+  // Qty badge
+  if ((pc.q||1) > 1) {
+    svg += '<rect x="'+(ox+rw-20)+'" y="'+(oy+1)+'" width="18" height="11" rx="5" fill="rgba(201,168,76,.8)"/>';
+    svg += '<text x="'+(ox+rw-11)+'" y="'+(oy+9)+'" text-anchor="middle" font-size="7" fill="#1a0800" font-weight="700">×'+(pc.q||1)+'</text>';
+  }
+  svg += '</svg>';
+  return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:8px;margin-top:8px;">'+svg+'</div>';
+}
+
 function renderAmbientes(){
   try{
   var container=document.getElementById('ambientesList');
@@ -1102,6 +1287,11 @@ function renderAmbientes(){
       h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="300" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value)"></div>';
       h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
+      // SVG technical preview + per-side borda selector
+      if(amb.tipo!=='🏊 Borda Piscina'){
+        h+=buildPecaPreviewSVG(amb,pc,pi);
+        h+=buildPecaBordaHtml(amb,pc);
+      }
       if(amb.tipo==='🏊 Borda Piscina'){
         var pcLados=pc.acabLados||0;
         var pcBaTipDef=BP_TIPOS_ACB.find(function(t){return t.k===((amb.bordaAcb||{}).tipo||'polida');})||BP_TIPOS_ACB[0];
@@ -1189,8 +1379,29 @@ function updBordaAcb(ambId,prop,val){
 function buildSVHtml(amb){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
   var sv=amb.svState||{};
+  var hasBordas=_ambHasBordas(amb);
   var h='';
+  // When per-side bordas are set, show Sainha/Frontão as computed summary
+  if(hasBordas){
+    var bordaKeys=BORDA_SVCS.filter(function(k){return sv[k]&&sv[k]._fb&&sv[k].ml>0;});
+    if(bordaKeys.length){
+      h+='<div class="svblk"><div class="svhd">Bordas — calculado por lado das peças</div>';
+      bordaKeys.forEach(function(k){
+        var svd=sv[k]; var pr=getPr(k);
+        var opt=BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'};
+        var m2=(svd.ml*(svd.altCm/100)*(svd.q||1)).toFixed(3);
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-bottom:1px solid var(--bd2);">';
+        h+='<span style="font-size:.7rem;font-weight:600;color:'+opt.cor+'">'+opt.l+' — '+svd.ml.toFixed(2)+'m × '+svd.altCm+'cm = '+m2+'m²</span>';
+        h+='<span style="font-size:.68rem;color:var(--gold2);">R$ '+((svd.ml*pr*(svd.q||1)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}))+'</span>';
+        h+='</div>';
+      });
+      h+='<div style="font-size:.57rem;color:var(--t4);padding:5px 8px;">← Valores definidos em cada peça</div>';
+      h+='</div>';
+    }
+  }
   g.forEach(function(grp){
+    // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
+    if(hasBordas&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
