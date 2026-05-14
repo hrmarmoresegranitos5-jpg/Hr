@@ -36,6 +36,108 @@ function gerarPDFTumulo(q){
   function fd(d){if(!d)return new Date().toLocaleDateString('pt-BR');try{return new Date(d).toLocaleDateString('pt-BR');}catch(e){return d;}}
   function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
 
+  // ── Peças e Dimensões do Túmulo ──
+  var PECAS_LABEL={
+    tampo:'Tampo (Tampa Superior)',
+    frente:'Frente (Frontal)',
+    lateral_d:'Lateral Direita',
+    lateral_e:'Lateral Esquerda',
+    fundo:'Fundo (Traseira)',
+    base:'Base / Soleira',
+    cruz:'Cruz / Símbolo',
+    gaveta:'Gaveta',
+    gaveta2:'2ª Gaveta',
+    gaveta3:'3ª Gaveta',
+    painel:'Painel de Fundo',
+    degrau:'Degrau / Piso',
+    chapim:'Chapim / Arremate',
+    lateral_int:'Lateral Interna',
+    peitoril:'Peitoril',
+    coluna:'Coluna',
+    arco:'Arco / Verga',
+  };
+
+  var pecasRows='';
+  var pecasList=res.pecas||(tum.pecas)||[];
+
+  // Se não vier lista de peças, reconstruir a partir das dimensões do túmulo
+  if(!pecasList||!pecasList.length){
+    var d=tum.dims||{};
+    var comp=parseFloat(d.comp)||0;
+    var larg=parseFloat(d.larg)||0;
+    var alt=parseFloat(d.alt)||0;
+    var esp=parseFloat(d.esp)||0.02;
+
+    var tipo=tum.tipo||'simples';
+    var pecasAuto=[];
+
+    if(comp&&larg){
+      // Tampo
+      pecasAuto.push({id:'tampo',comp:comp,larg:larg,esp:esp,qtd:1});
+      // Frente
+      if(alt) pecasAuto.push({id:'frente',comp:comp,larg:alt,esp:esp,qtd:1});
+      // Laterais
+      if(alt&&larg) pecasAuto.push({id:'lateral_d',comp:larg,larg:alt,esp:esp,qtd:1});
+      if(alt&&larg) pecasAuto.push({id:'lateral_e',comp:larg,larg:alt,esp:esp,qtd:1});
+      // Fundo
+      if(alt&&comp) pecasAuto.push({id:'fundo',comp:comp,larg:alt,esp:esp,qtd:1});
+      // Base
+      pecasAuto.push({id:'base',comp:comp,larg:larg,esp:esp,qtd:1});
+      // Gavetas extras
+      if(tipo==='gaveta_dupla') pecasAuto.push({id:'gaveta',comp:comp,larg:larg,esp:esp,qtd:2});
+      if(tipo==='gaveta_tripla') pecasAuto.push({id:'gaveta',comp:comp,larg:larg,esp:esp,qtd:3});
+    }
+    pecasList=pecasAuto;
+  }
+
+  if(pecasList&&pecasList.length){
+    var totalM2=0;
+    pecasList.forEach(function(p,i){
+      var nm=p.nome||(PECAS_LABEL[p.id]||p.id||('Peça '+(i+1)));
+      var qtd=parseFloat(p.qtd)||1;
+      var c=parseFloat(p.comp||p.comprimento)||0;
+      var l=parseFloat(p.larg||p.largura)||0;
+      var e=parseFloat(p.esp||p.espessura)||0;
+      var m2=parseFloat(p.m2)||(c&&l?(c*l*qtd):0);
+      totalM2+=m2;
+      var dimStr='';
+      if(c&&l){
+        dimStr=c.toFixed(2)+'m × '+l.toFixed(2)+'m';
+        if(e) dimStr+=' × '+e.toFixed(2)+'m';
+      } else if(p.dims){
+        dimStr=p.dims;
+      }
+      var bg=i%2===0?'#fff':'#faf6ef';
+      pecasRows+='<tr>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(nm)+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#555;text-align:center;">'+escH(dimStr)+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#777;text-align:center;">'+(qtd>1?qtd+'x':'—')+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11.5px;text-align:right;font-weight:700;color:#5a3800;">'+(m2?m2.toFixed(3)+' m²':'—')+'</td>'
+        +'</tr>';
+    });
+    // Rodapé total m²
+    pecasRows+='<tr style="background:#f7f2e8;">'
+      +'<td colspan="3" style="padding:10px 14px;font-size:10px;font-weight:900;color:#7a4400;letter-spacing:1px;">ÁREA TOTAL DE PEDRA</td>'
+      +'<td style="padding:10px 14px;text-align:right;font-size:12px;font-weight:900;color:#7a4400;">'+totalM2.toFixed(3)+' m²</td>'
+      +'</tr>';
+  }
+
+  var secaoPecas='';
+  if(pecasRows){
+    secaoPecas=sh('Peças e Dimensões')
+      +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
+        +'<table style="width:100%;border-collapse:collapse;">'
+          +'<thead><tr style="background:#0f0c00;">'
+            +'<th style="padding:9px 14px;text-align:left;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
+            +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">QTD</th>'
+            +'<th style="padding:9px 14px;text-align:right;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">M²</th>'
+          +'</tr></thead>'
+          +'<tbody>'+pecasRows+'</tbody>'
+        +'</table>'
+      +'</div>';
+  }
+
   // Linhas de custo
   var custoRows='';
   var custoItems=[
@@ -128,6 +230,8 @@ function gerarPDFTumulo(q){
         +'</div>'
       +'</div>'
     +'</div>'
+    // Peças e Dimensões
+    +secaoPecas
     // Custos
     +sh('Composição do Projeto')
     +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
