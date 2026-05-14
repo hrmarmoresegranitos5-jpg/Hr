@@ -1046,61 +1046,6 @@ function _setBd(pc, lado, patch) {
   Object.assign(pc.bordas[lado], patch);
 }
 
-function updPcBordaTipo(ambId, pcId, lado, tipo) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  if (!tipo) {
-    _setBd(pc, lado, null);
-  } else {
-    var defSub = tipo === 'sainha' ? 's_reta' : 'frontao';
-    _setBd(pc, lado, { tipo: tipo, sub: defSub });
-  }
-  _syncBordaSvState(amb);
-  renderAmbientes();
-}
-function updPcBordaSub(ambId, pcId, lado, sub) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  _setBd(pc, lado, { sub: sub });
-  _syncBordaSvState(amb);
-  renderAmbientes();
-}
-function updPcBordaML(ambId, pcId, lado, val) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  var v = val === '' || val == null ? null : +val;
-  _setBd(pc, lado, { ml: v });
-  _syncBordaSvState(amb);
-  // No re-render needed (just data update)
-}
-function updPcBordaAlt(ambId, pcId, lado, val) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  _setBd(pc, lado, { alt: +val || 6 });
-  _syncBordaSvState(amb);
-}
-// compat alias
-function renderAmbientes(){
-
-function updPcBorda(ambId, pcId, lado, svc) {
-  var amb = ambientes.find(function(a){ return a.id == ambId; });
-  if (!amb) return;
-  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
-  if (!pc) return;
-  if (!pc.bordas) pc.bordas = {};
-  pc.bordas[lado] = svc || null;
-  _syncBordaSvState(amb);
-  renderAmbientes();
-}
-
 function _syncBordaSvState(amb) {
   var totML = {}, totAlt = {}, hasBordas = false;
   amb.pecas.forEach(function(pc) {
@@ -1135,6 +1080,61 @@ function _ambHasBordas(amb) {
       return bd && bd.tipo;
     });
   });
+}
+
+function updPcBordaTipo(ambId, pcId, lado, tipo) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  if (!tipo) {
+    _setBd(pc, lado, null);
+  } else {
+    var defSub = tipo === 'sainha' ? 's_reta' : 'frontao';
+    _setBd(pc, lado, { tipo: tipo, sub: defSub });
+  }
+  if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
+  renderAmbientes();
+}
+function updPcBordaSub(ambId, pcId, lado, sub) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  _setBd(pc, lado, { sub: sub });
+  if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
+  renderAmbientes();
+}
+function updPcBordaML(ambId, pcId, lado, val) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  var v = val === '' || val == null ? null : +val;
+  _setBd(pc, lado, { ml: v });
+  if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
+  // No re-render needed (just data update)
+}
+function updPcBordaAlt(ambId, pcId, lado, val) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  _setBd(pc, lado, { alt: +val || 6 });
+  if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
+}
+// compat alias
+function renderAmbientes(){
+
+function updPcBorda(ambId, pcId, lado, svc) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  if (!pc.bordas) pc.bordas = {};
+  pc.bordas[lado] = svc || null;
+  if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
+  renderAmbientes();
 }
 
 function buildPecaBordaHtml(amb, pc) {
