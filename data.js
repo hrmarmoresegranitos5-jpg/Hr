@@ -210,6 +210,7 @@ var DEF_ACESS=[
 var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   bp_boleada:25,bp_antiderap:18,bp_pingad:30,bp_mcana:35,bp_chanfro:20,
-  bp_c_arred:45,bp_c_curva:80,bp_c_infinita:120};
+  bp_c_arred:45,bp_c_curva:80,bp_c_infinita:120,
+  rdbox_sem:0,rdbox_sup:38};
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
