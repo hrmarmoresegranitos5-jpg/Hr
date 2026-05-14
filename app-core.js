@@ -1205,61 +1205,156 @@ function buildPecaBordaHtml(amb, pc) {
 }
 
 function buildPecaPreviewSVG(amb, pc, pcIdx) {
-  var W=pc.w||0, H=pc.h||0;
-  if(!W||!H) return '';
-  var MAX_W=250, MAX_H=165;
-  var scale=Math.min(MAX_W/W, MAX_H/H, 2.0);
-  var rw=Math.round(W*scale), rh=Math.round(H*scale);
-  var ox=36, oy=22, vw=rw+ox+16, vh=rh+oy+28;
-  var getBd=function(l){ var bd=(pc.bordas&&pc.bordas[l]&&pc.bordas[l].tipo)?pc.bordas[l]:null; return bd; };
-  var getOpt=function(tipo){ return BORDA_TIPOS.find(function(t){return t.k===tipo;})||BORDA_TIPOS[0]; };
-  var svg='<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:200px;">';
-  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="rgba(201,168,76,.07)" rx="1"/>';
-  // Cuba
-  if(pcIdx===0&&amb.selCuba){
-    var cbW=Math.round(36*scale),cbH=Math.round(44*scale);
-    var cbX=Math.max(ox+3,Math.min(ox+rw*0.3-cbW/2,ox+rw-cbW-3));
-    var cbY=Math.max(oy+3,Math.min(oy+rh/2-cbH/2,oy+rh-cbH-3));
-    svg+='<rect x="'+cbX+'" y="'+cbY+'" width="'+cbW+'" height="'+cbH+'" fill="rgba(60,130,220,.13)" stroke="rgba(100,170,255,.7)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
-    svg+='<text x="'+(cbX+cbW/2)+'" y="'+(cbY+cbH/2+3)+'" text-anchor="middle" font-size="'+Math.max(5,Math.min(8,cbW/5))+'" fill="rgba(100,170,255,.9)" font-family="monospace">CUBA</text>';
+  var W = pc.w || 0, H = pc.h || 0;
+  if (!W || !H) return '';
+
+  // ── Dimensões reais das instalações (cm) ──────────────────────────────────
+  // Cuba: ~50×40cm (padrão inox), posicionada a 15cm da esq e 10cm do fundo
+  var cubaW = 50, cubaH = 40;     // cm
+  var cubaX_cm = Math.min(15, W * 0.07);  // cm da borda esq
+  var cubaY_cm = (H - cubaH) / 2;        // centralizada na largura
+
+  // Cooktop: 60×52cm, posicionado após a cuba + 10cm de folga
+  var ckW = 60, ckH = 52;
+  var ckX_cm = cubaX_cm + cubaW + 10;
+  var ckY_cm = (H - ckH) / 2;
+
+  // Se cooktop não cabe (largura < 60cm), adapta  
+  if (ckH > H * 0.95) { ckH = Math.round(H * 0.92); ckW = Math.round(ckH * (60/52)); }
+  if (ckX_cm + ckW > W - 5) { ckX_cm = W - ckW - 5; }
+
+  // ── Layout SVG ────────────────────────────────────────────────────────────
+  var MARGIN_L = 44, MARGIN_R = 14, MARGIN_T = 28, MARGIN_B = 36;
+  var MAX_DRAW_W = 270, MAX_DRAW_H = 160;
+  var scale = Math.min(MAX_DRAW_W / W, MAX_DRAW_H / H, 2.2);
+  var rw = W * scale, rh = H * scale;
+  var vw = rw + MARGIN_L + MARGIN_R, vh = rh + MARGIN_T + MARGIN_B;
+  var ox = MARGIN_L, oy = MARGIN_T;  // origin (top-left of stone rect)
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  var cx = function(v){ return ox + v * scale; };  // cm → px (x)
+  var cy = function(v){ return oy + v * scale; };  // cm → px (y)
+  var px = function(v){ return v * scale; };        // cm → px (no offset)
+
+  var getBd = function(l) { var bd=(pc.bordas&&pc.bordas[l]&&pc.bordas[l].tipo)?pc.bordas[l]:null; return bd; };
+  var getOpt = function(t) { return BORDA_TIPOS.find(function(x){return x.k===t;})||BORDA_TIPOS[0]; };
+
+  var svg = '<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" '
+          + 'style="width:100%;display:block;max-height:240px;font-family:\'Courier New\',monospace;">';
+
+  // ── Hachura da pedra (fundo) ──────────────────────────────────────────────
+  svg += '<defs>';
+  svg += '<pattern id="stone_hatch_'+pc.id+'" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">';
+  svg += '<line x1="0" y1="0" x2="0" y2="8" stroke="rgba(201,168,76,.12)" stroke-width="1"/>';
+  svg += '</pattern>';
+  svg += '<clipPath id="stone_clip_'+pc.id+'">';
+  svg += '<rect x="'+(ox+1)+'" y="'+(oy+1)+'" width="'+(rw-2)+'" height="'+(rh-2)+'" rx="1"/>';
+  svg += '</clipPath>';
+  svg += '</defs>';
+
+  // Fill com hachura
+  svg += '<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="url(#stone_hatch_'+pc.id+')" rx="1"/>';
+  // Borda de pedra
+  svg += '<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="none" stroke="rgba(201,168,76,.7)" stroke-width="1.5" rx="1"/>';
+
+  // ── Cuba ─────────────────────────────────────────────────────────────────
+  if (pcIdx === 0 && amb.selCuba) {
+    var cbx = cx(cubaX_cm), cby = cy(cubaY_cm);
+    var cbw = px(cubaW), cbh = px(cubaH);
+    // Shadow
+    svg += '<rect x="'+(cbx+2)+'" y="'+(cby+2)+'" width="'+cbw+'" height="'+cbh+'" fill="rgba(0,0,0,.3)" rx="3"/>';
+    // Fill
+    svg += '<rect x="'+cbx+'" y="'+cby+'" width="'+cbw+'" height="'+cbh+'" fill="rgba(30,70,160,.25)" stroke="rgba(100,160,255,.9)" stroke-width="1.5" rx="3"/>';
+    // Cruz central (indica cuba esculpida / drain)
+    var ccx = cbx + cbw/2, ccy = cby + cbh/2;
+    svg += '<line x1="'+(ccx-cbw*.25)+'" y1="'+ccy+'" x2="'+(ccx+cbw*.25)+'" y2="'+ccy+'" stroke="rgba(100,160,255,.6)" stroke-width="1"/>';
+    svg += '<line x1="'+ccx+'" y1="'+(ccy-cbh*.25)+'" x2="'+ccx+'" y2="'+(ccy+cbh*.25)+'" stroke="rgba(100,160,255,.6)" stroke-width="1"/>';
+    // Ralo (círculo)
+    svg += '<circle cx="'+ccx+'" cy="'+ccy+'" r="'+(Math.min(cbw,cbh)*.08)+'" fill="none" stroke="rgba(100,160,255,.7)" stroke-width="1"/>';
+    // Label
+    var cbfs = Math.max(5, Math.min(8, cbw/7));
+    svg += '<text x="'+ccx+'" y="'+(cby+cbh*.15+cbfs*.8)+'" text-anchor="middle" font-size="'+cbfs+'" fill="rgba(100,200,255,.95)" font-weight="700" letter-spacing=".5">CUBA</text>';
+    svg += '<text x="'+ccx+'" y="'+(cby+cbh*.15+cbfs*2.2)+'" text-anchor="middle" font-size="'+(cbfs*.85)+'" fill="rgba(100,200,255,.6)">'+cubaW+'×'+cubaH+'cm</text>';
+    // Cota de posição: seta da borda esq até cuba
+    var cotaY = oy + rh + 10;
+    svg += '<line x1="'+ox+'" y1="'+cotaY+'" x2="'+cbx+'" y2="'+cotaY+'" stroke="rgba(201,168,76,.5)" stroke-width=".7"/>';
+    svg += '<text x="'+(ox+px(cubaX_cm)/2)+'" y="'+(cotaY+8)+'" text-anchor="middle" font-size="5.5" fill="rgba(201,168,76,.55)">'+cubaX_cm+'cm</text>';
   }
-  // Cooktop
-  if(pcIdx===0&&amb.svState&&amb.svState['cook']){
-    var ckW=Math.round(58*scale),ckH=Math.round(50*scale);
-    var ckX=Math.max(ox+3,Math.min(ox+rw*0.65-ckW/2,ox+rw-ckW-3));
-    var ckY=Math.max(oy+3,Math.min(oy+rh/2-ckH/2,oy+rh-ckH-3));
-    svg+='<rect x="'+ckX+'" y="'+ckY+'" width="'+ckW+'" height="'+ckH+'" fill="rgba(220,100,50,.1)" stroke="rgba(255,145,80,.7)" stroke-width="1" rx="2" stroke-dasharray="3,2"/>';
-    [[.25,.3],[.75,.3],[.25,.7],[.75,.7]].forEach(function(p){
-      svg+='<circle cx="'+(ckX+ckW*p[0]).toFixed(0)+'" cy="'+(ckY+ckH*p[1]).toFixed(0)+'" r="'+Math.max(3,ckH*.1).toFixed(0)+'" fill="none" stroke="rgba(255,145,80,.6)" stroke-width="1"/>';
+
+  // ── Cooktop ───────────────────────────────────────────────────────────────
+  if (pcIdx === 0 && amb.svState && amb.svState['cook']) {
+    var kkx = cx(ckX_cm), kky = cy(ckY_cm);
+    var kkw = px(ckW), kkh = px(ckH);
+    svg += '<rect x="'+(kkx+2)+'" y="'+(kky+2)+'" width="'+kkw+'" height="'+kkh+'" fill="rgba(0,0,0,.3)" rx="3"/>';
+    svg += '<rect x="'+kkx+'" y="'+kky+'" width="'+kkw+'" height="'+kkh+'" fill="rgba(180,80,20,.2)" stroke="rgba(255,150,50,.9)" stroke-width="1.5" rx="3"/>';
+    // 4 bocas em grid 2×2
+    var burnerR = Math.max(3, Math.min(kkw, kkh) * 0.13);
+    var bx = [[.28,.32],[.72,.32],[.28,.68],[.72,.68]];
+    bx.forEach(function(p) {
+      var bcx = kkx + kkw*p[0], bcy = kky + kkh*p[1];
+      svg += '<circle cx="'+bcx.toFixed(1)+'" cy="'+bcy.toFixed(1)+'" r="'+burnerR+'" fill="rgba(255,100,20,.15)" stroke="rgba(255,150,50,.85)" stroke-width="1.5"/>';
+      svg += '<circle cx="'+bcx.toFixed(1)+'" cy="'+bcy.toFixed(1)+'" r="'+(burnerR*.35)+'" fill="rgba(255,150,50,.5)"/>';
     });
-    svg+='<text x="'+(ckX+ckW/2)+'" y="'+(ckY+ckH*.87)+'" text-anchor="middle" font-size="'+Math.max(5,Math.min(7,ckW/9))+'" fill="rgba(255,145,80,.9)" font-family="monospace">COOKTOP</text>';
+    var kkfs = Math.max(5, Math.min(8, kkw/9));
+    svg += '<text x="'+(kkx+kkw/2)+'" y="'+(kky+6+kkfs*.7)+'" text-anchor="middle" font-size="'+kkfs+'" fill="rgba(255,170,80,.95)" font-weight="700" letter-spacing=".5">COOKTOP</text>';
+    svg += '<text x="'+(kkx+kkw/2)+'" y="'+(kky+6+kkfs*2)+'" text-anchor="middle" font-size="'+(kkfs*.85)+'" fill="rgba(255,150,50,.6)">'+ckW+'×'+ckH+'cm</text>';
   }
-  // Edges — Frente=BOTTOM, Fundo=TOP, Esq=LEFT, Dir=RIGHT
-  var EDGES=[
-    {k:'fd', x1:ox,    y1:oy,    x2:ox+rw, y2:oy,    lx:ox+rw/2, ly:oy+10, anc:'middle'},
-    {k:'fr', x1:ox,    y1:oy+rh, x2:ox+rw, y2:oy+rh, lx:ox+rw/2, ly:oy+rh-5,anc:'middle'},
-    {k:'esq',x1:ox,    y1:oy,    x2:ox,    y2:oy+rh, lx:ox+5,    ly:oy+rh/2,anc:'start'},
-    {k:'dir',x1:ox+rw, y1:oy,    x2:ox+rw, y2:oy+rh, lx:ox+rw-4, ly:oy+rh/2,anc:'end'},
+
+  // ── Linhas de borda coloridas (tratamento) ────────────────────────────────
+  var EDGES = [
+    {k:'fd', x1:ox,    y1:oy,    x2:ox+rw, y2:oy,    vert:false, lx:ox+rw/2, ly:oy+10 },
+    {k:'fr', x1:ox,    y1:oy+rh, x2:ox+rw, y2:oy+rh, vert:false, lx:ox+rw/2, ly:oy+rh-5},
+    {k:'esq',x1:ox,    y1:oy,    x2:ox,    y2:oy+rh, vert:true,  lx:ox+6,    ly:oy+rh/2},
+    {k:'dir',x1:ox+rw, y1:oy,    x2:ox+rw, y2:oy+rh, vert:true,  lx:ox+rw-5, ly:oy+rh/2},
   ];
-  EDGES.forEach(function(e){
-    var bd=getBd(e.k); var opt=getOpt(bd?bd.tipo:null);
-    var cor=bd?opt.cor:'rgba(201,168,76,.3)'; var sw=bd?3:1;
-    svg+='<line x1="'+e.x1+'" y1="'+e.y1+'" x2="'+e.x2+'" y2="'+e.y2+'" stroke="'+cor+'" stroke-width="'+sw+'"/>';
-    if(bd){
-      var subs=bd.tipo==='sainha'?SAINHA_SUBS:FRONTAO_SUBS;
-      var sub=subs.find(function(s){return s.k===bd.sub;})||subs[0];
-      svg+='<text x="'+e.lx+'" y="'+e.ly+'" text-anchor="'+e.anc+'" font-size="7" fill="'+cor+'" font-family="monospace" font-weight="700">'+(bd.tipo==='sainha'?'Sainha':'Frontão')+' '+(sub?sub.l:'')+'</text>';
-    }
+  EDGES.forEach(function(e) {
+    var bd = getBd(e.k);
+    if (!bd) return;
+    var opt = getOpt(bd.tipo);
+    // Linha espessa de acabamento
+    svg += '<line x1="'+e.x1+'" y1="'+e.y1+'" x2="'+e.x2+'" y2="'+e.y2
+         + '" stroke="'+opt.cor+'" stroke-width="4" stroke-linecap="round" opacity=".85"/>';
+    // Label de acabamento
+    var subs = bd.tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
+    var sub = subs.find(function(s){return s.k===bd.sub;})||subs[0];
+    var lbl = (bd.tipo==='sainha'?'Sainha':'Frontão') + (sub?' '+sub.l:'');
+    svg += '<text x="'+e.lx+'" y="'+e.ly+'" text-anchor="middle" font-size="6.5" fill="'+opt.cor
+         + '" font-weight="700">'+lbl+'</text>';
   });
-  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+rw+'" height="'+rh+'" fill="none" stroke="rgba(201,168,76,.4)" stroke-width=".5" rx="1"/>';
-  var fs=Math.max(7,Math.min(10,rw/18));
-  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy-7)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="monospace">'+W+' cm</text>';
-  svg+='<text x="'+(ox-10)+'" y="'+(oy+rh/2)+'" text-anchor="middle" font-size="'+fs+'" fill="rgba(201,168,76,.8)" font-family="monospace" transform="rotate(-90,'+(ox-10)+','+(oy+rh/2)+')">'+H+' cm</text>';
-  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy+rh+14)+'" text-anchor="middle" font-size="'+(fs-1)+'" fill="rgba(255,255,255,.25)" font-family="monospace">▲ FRENTE</text>';
-  svg+='<text x="'+(ox+rw/2)+'" y="'+(oy-1)+'" text-anchor="middle" font-size="'+(fs-1)+'" fill="rgba(255,255,255,.18)" font-family="monospace">FUNDO</text>';
-  if((pc.q||1)>1){ svg+='<rect x="'+(ox+rw-20)+'" y="'+(oy+1)+'" width="18" height="11" rx="5" fill="rgba(201,168,76,.85)"/><text x="'+(ox+rw-11)+'" y="'+(oy+9)+'" text-anchor="middle" font-size="7" fill="#1a0800" font-weight="700">×'+(pc.q||1)+'</text>'; }
-  svg+='</svg>';
-  return '<div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-top:10px;">'+svg+'</div>';
+
+  // ── Cotas externas (dimension lines) ─────────────────────────────────────
+  var arrowLen = 5;
+  var dimColor = 'rgba(201,168,76,.75)';
+  var dimFs = Math.max(7, Math.min(9, rw/22));
+
+  // Comprimento (top)
+  var dimTopY = oy - 14;
+  svg += '<line x1="'+ox+'" y1="'+dimTopY+'" x2="'+(ox+rw)+'" y2="'+dimTopY+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<line x1="'+ox+'" y1="'+(dimTopY-4)+'" x2="'+ox+'" y2="'+(dimTopY+4)+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<line x1="'+(ox+rw)+'" y1="'+(dimTopY-4)+'" x2="'+(ox+rw)+'" y2="'+(dimTopY+4)+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<text x="'+(ox+rw/2)+'" y="'+(dimTopY-3)+'" text-anchor="middle" font-size="'+dimFs+'" fill="'+dimColor+'" font-weight="600">'+W+' cm</text>';
+
+  // Largura (left)
+  var dimLX = ox - 18;
+  svg += '<line x1="'+dimLX+'" y1="'+oy+'" x2="'+dimLX+'" y2="'+(oy+rh)+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<line x1="'+(dimLX-4)+'" y1="'+oy+'" x2="'+(dimLX+4)+'" y2="'+oy+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<line x1="'+(dimLX-4)+'" y1="'+(oy+rh)+'" x2="'+(dimLX+4)+'" y2="'+(oy+rh)+'" stroke="'+dimColor+'" stroke-width=".8"/>';
+  svg += '<text x="'+(dimLX-5)+'" y="'+(oy+rh/2)+'" text-anchor="middle" font-size="'+dimFs+'" fill="'+dimColor+'" font-weight="600" '
+       + 'transform="rotate(-90,'+(dimLX-5)+','+(oy+rh/2)+')">'+H+' cm</text>';
+
+  // Rótulos de orientação
+  var orFs = Math.max(5.5, Math.min(7.5, rw/30));
+  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy+rh+16)+'" text-anchor="middle" font-size="'+(orFs+1)+'" fill="rgba(255,255,255,.3)">▲ FRENTE (parede)</text>';
+  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-2)+'" text-anchor="middle" font-size="'+orFs+'" fill="rgba(255,255,255,.2)">FUNDO</text>';
+
+  // Badge quantidade
+  if ((pc.q||1) > 1) {
+    svg += '<rect x="'+(ox+rw-22)+'" y="'+(oy+2)+'" width="20" height="12" rx="6" fill="rgba(201,168,76,.85)"/>';
+    svg += '<text x="'+(ox+rw-12)+'" y="'+(oy+10)+'" text-anchor="middle" font-size="7.5" fill="#1a0800" font-weight="700">×'+(pc.q||1)+'</text>';
+  }
+
+  svg += '</svg>';
+  return '<div style="background:var(--bg2);border:1px solid rgba(201,168,76,.25);border-radius:12px;padding:10px;margin-top:10px;">'+svg+'</div>';
 }
 
   try{
