@@ -175,7 +175,7 @@ function initCFG(){
   }
   // Sync SV labels/prices from svList if it exists
   // Patch v18: força preços novos no CFG existente
-  var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
+  var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,rdbox_sup:38};
   Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
   // Patch: garantir preços de Rodapé de Box (rdbox) para CFGs existentes
   if(CFG.sv['rdbox_sup']===undefined)CFG.sv['rdbox_sup']=38;
