@@ -1084,7 +1084,6 @@ function _ambHasBordas(amb) {
 }
 
 function buildPecaBordaHtml(amb, pc) {
-  if (!pc.w || !pc.h) return '';
   if (!pc.bordas) pc.bordas = {};
   var b = pc.bordas;
   var alt = pc.bordaAlt || 6;
@@ -1120,7 +1119,9 @@ function buildPecaBordaHtml(amb, pc) {
     var selOpt = BORDA_OPTS.find(function(o){return o.k===sel;})||BORDA_OPTS[0];
     h += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">';
     h += '<span style="font-size:.58rem;font-weight:600;color:'+(sel?selOpt.cor:'var(--t4)')+';min-width:44px;">'+side.l+'</span>';
-    h += '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">'+side.dim+'cm</span>';
+    h += side.dim
+      ? '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">'+side.dim+'cm</span>'
+      : '<span style="font-size:.5rem;color:var(--t4);min-width:34px;">—</span>';
     h += '<div style="display:flex;gap:3px;flex-wrap:wrap;">';
     BORDA_OPTS.forEach(function(opt) {
       var on = sel === opt.k;
@@ -1132,6 +1133,9 @@ function buildPecaBordaHtml(amb, pc) {
     });
     h += '</div></div>';
   });
+  if (!pc.w || !pc.h) {
+    h += '<div style="font-size:.58rem;color:var(--t4);margin-top:4px;">← Preencha comprimento e largura para ver o desenho técnico</div>';
+  }
   h += '</div>';
   return h;
 }
