@@ -646,6 +646,28 @@ function buildSVHtml(amb){
   var sv=amb.svState||{};
   var h='';
   g.forEach(function(grp){
+    // acb_auto: render como radio buttons (igual Soleira/Peitoril)
+    var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
+    if(isAcbGrp){
+      var selAcb=null;
+      grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
+      if(!selAcb)selAcb=grp.its[0].k;
+      h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      grp.its.forEach(function(it){
+        var active=selAcb===it.k;
+        var autoMl=_calcAcbAutoMl(amb,it.lados||0);
+        var pr=getPr(it.k);
+        var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
+        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+          +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
+          +'</div>';
+      });
+      h+='</div></div>';
+      return;
+    }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
