@@ -211,7 +211,34 @@ window.aplicarEstiloNi=function(){
   setLayout();
 
   initCFG();
-  selMat=CFG.stones[0].id;
+
+  // ── selMat: carrega do localStorage (não reseta para Cinza Nobre a cada reload) ──
+  var _savedMat = null;
+  try { _savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
+  selMat = (_savedMat && CFG.stones.find(function(s){return s.id===_savedMat;}))
+    ? _savedMat
+    : (CFG.stones && CFG.stones.length ? CFG.stones[0].id : null);
+
+  // ── Bridge bidirecional: pedra do módulo Túmulos ↔ selMat global ──
+  // Quando tumPickStone() escolhe pedra no módulo dedicado, sincroniza com selMat.
+  window.tumSyncMat = function(stoneId) {
+    if (!stoneId) return;
+    selMat = stoneId;
+    try { localStorage.setItem('hr_last_mat', stoneId); } catch(e){}
+    if (ambientes && ambientes.length) {
+      ambientes.forEach(function(a) { a.selMat = stoneId; });
+    }
+  };
+  // Patch pós-load (tumPickStone é definida depois em app-tumulos.js)
+  window.addEventListener('load', function() {
+    if (typeof tumPickStone === 'function') {
+      var _orig = tumPickStone;
+      window.tumPickStone = function(id) {
+        _orig(id);
+        window.tumSyncMat(id);
+      };
+    }
+  }, { once: true });
   var now=new Date();
   document.getElementById('hdrDate').textContent=now.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'});
   document.getElementById('jStart').value=td();
