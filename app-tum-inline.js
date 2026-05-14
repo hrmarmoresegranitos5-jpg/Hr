@@ -1226,6 +1226,16 @@ function adjOpt(qtdKey, delta) {
 // GESTÃO DE FALECIDOS
 // ══════════════════════════════════════════════
 
+// ── CORREÇÃO: setter seguro para campos de falecidos ─────────────────────────
+// Protege contra eventos oninput "fantasma" no Android que disparam depois que
+// remFalecido() já encolheu o array, causando "Cannot set properties of undefined".
+function _setFal(i, campo, val) {
+  if (SEL.falecidos && SEL.falecidos[i] !== undefined) {
+    SEL.falecidos[i][campo] = val;
+    if (campo === 'nome') atualizarFalLabel();
+  }
+}
+
 function buildFalecidos() {
   // Garante pelo menos 1 falecido
   if (!SEL.falecidos || SEL.falecidos.length === 0) SEL.falecidos = [{ nome:'', nasc:'', obit:'', frase:'' }];
@@ -1241,19 +1251,19 @@ function buildFalecidos() {
        + '<div style="flex:2;min-width:0">'
        + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Falecido '+(i+1)+'</div>'
        + '<input type="text" placeholder="Nome completo" value="'+escHtml(f.nome||'')+'" '
-       + 'oninput="SEL.falecidos['+i+'].nome=this.value;atualizarFalLabel()" '
+       + 'oninput="_setFal('+i+',\'nome\',this.value)" '
        + 'style="width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:7px 10px;color:var(--tx);font-size:.8rem">'
        + '</div>'
        + '<div style="width:72px">'
        + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Nasc.</div>'
        + '<input type="number" placeholder="1940" value="'+(f.nasc||'')+'" min="1880" max="2030" '
-       + 'oninput="SEL.falecidos['+i+'].nasc=this.value" '
+       + 'oninput="_setFal('+i+',\'nasc\',this.value)" '
        + 'style="width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:7px 8px;color:var(--tx);font-size:.8rem">'
        + '</div>'
        + '<div style="width:72px">'
        + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Óbito</div>'
        + '<input type="number" placeholder="2020" value="'+(f.obit||'')+'" min="1900" max="2030" '
-       + 'oninput="SEL.falecidos['+i+'].obit=this.value" '
+       + 'oninput="_setFal('+i+',\'obit\',this.value)" '
        + 'style="width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:7px 8px;color:var(--tx);font-size:.8rem">'
        + '</div>'
        + (SEL.falecidos.length > 1
@@ -1265,7 +1275,7 @@ function buildFalecidos() {
        + '<div>'
        + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">✦ Frase / Epitáfio <span style="text-transform:none;letter-spacing:0;font-style:italic;opacity:.7">(opcional)</span></div>'
        + '<input type="text" placeholder=\'Ex: "Saudade é amor que não acaba..."\' value="'+escHtml(f.frase||'')+'" '
-       + 'oninput="SEL.falecidos['+i+'].frase=this.value" '
+       + 'oninput="_setFal('+i+',\'frase\',this.value)" '
        + 'style="width:100%;background:var(--bg2);border:1px solid rgba(201,168,76,.25);border-radius:6px;padding:7px 10px;color:var(--gold2);font-size:.78rem;font-style:italic">'
        + '</div>'
 
@@ -3783,6 +3793,7 @@ window.buildAcabamentos                     = buildAcabamentos;
 window.buildAvancado                        = buildAvancado;
 window.buildEngList                         = buildEngList;
 window.buildFalecidos                       = buildFalecidos;
+window._setFal                              = _setFal;
 window.buildGradePresets                    = buildGradePresets;
 window.buildMatCats                         = buildMatCats;
 window.buildMatList                         = buildMatList;
