@@ -1434,7 +1434,8 @@ function updBordaAcb(ambId,prop,val){
 function buildSVHtml(amb){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
   var sv=amb.svState||{};
-  var hasBordas=_ambHasBordas(amb);
+  // Guard: _ambHasBordas may not exist in older cached versions
+  var hasBordas=typeof _ambHasBordas==='function' ? _ambHasBordas(amb) : false;
   var h='';
   // When per-side bordas are set, show Sainha/Frontão as computed summary
   if(hasBordas){
