@@ -4194,6 +4194,19 @@ window.salvarHistorico   = salvarHistorico;
 window.copiarWA          = copiarWA;
 window.imprimirPDF       = imprimirPDF;
 window.imprimirProducao  = imprimirProducao;
+
+// ── PDF chamado pelo app-core.js quando há Túmulo inline ─────────────────
+window._TI_imprimirPDF = function() {
+  if (!pendOrc) { toast('Gere um orçamento no túmulo primeiro', true); return; }
+  window.print();
+};
+// Carrega pendOrc do histórico e abre a impressão (PDF salvo no hist)
+window._TI_loadAndPrint = function(savedPendOrc) {
+  if (!savedPendOrc || !savedPendOrc.r) { toast('Dados incompletos', true); return; }
+  pendOrc = savedPendOrc;
+  try { gerarPrintArea(savedPendOrc, savedPendOrc.r); } catch(e) { console.error(e); }
+  setTimeout(function() { window.print(); }, 300);
+};
 window.showTab           = showTab;
 window.renderPlanta      = renderPlanta;
 window.renderChapas      = renderChapas;
