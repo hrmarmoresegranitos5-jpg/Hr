@@ -1,7 +1,30 @@
 // ═══════════════════════════════════════════════════════
 // HR Mármores e Granitos — Service Worker
+// MODO DIAGNÓSTICO: cache e fetch DESATIVADOS
 // ═══════════════════════════════════════════════════════
 
+// ── INSTALL: apenas skipWaiting, SEM cache ──
+self.addEventListener('install', function(e) {
+  e.waitUntil(self.skipWaiting());
+});
+
+// ── ACTIVATE: apenas claim, SEM remover caches ──
+self.addEventListener('activate', function(e) {
+  e.waitUntil(self.clients.claim());
+});
+
+// ── FETCH: DESATIVADO — tudo vai direto para a rede ──
+// ── MESSAGE: mantém compatibilidade com pwa.js ──
+self.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// ══════════════════════════════════════════════════════════
+// CÓDIGO ORIGINAL COMENTADO (restaurar após diagnóstico):
+// ══════════════════════════════════════════════════════════
+/*
 var CACHE_VERSION = 'hr-app-v22';
 
 // Arquivos do app shell — cacheados para funcionar offline
@@ -157,3 +180,5 @@ var OFFLINE_HTML = '<!DOCTYPE html><html lang="pt-BR"><head>' +
   '  <button onclick="window.location.reload()">Tentar novamente</button>' +
   '</div>' +
   '</body></html>';
+
+*/
