@@ -1108,6 +1108,15 @@ var FRONTAO_SUBS = [
 var BORDA_SVCS = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
 var BORDA_OPTS = BORDA_TIPOS; // backwards-compat alias
 
+// Acabamentos de superfície para Divisória WC
+var BORDA_TIPOS_DIV = [
+  { k: null,       l: '—',        cor: 'rgba(255,255,255,.15)', bg: 'transparent',           pr: 0 },
+  { k: 'polido',   l: 'Polido',   cor: '#C9A84C',               bg: 'rgba(201,168,76,.18)',  pr: 0 },
+  { k: 'escovado', l: 'Escovado', cor: '#a0c4ff',               bg: 'rgba(160,196,255,.18)', pr: 15 },
+  { k: 'jateado',  l: 'Jateado',  cor: '#b4b4c0',               bg: 'rgba(180,180,192,.18)', pr: 20 },
+  { k: 'levigado', l: 'Levigado', cor: '#c4a4d4',               bg: 'rgba(196,164,212,.18)', pr: 12 },
+];
+
 function _getBd(pc, lado) {
   return (pc.bordas && pc.bordas[lado]) || null;
 }
@@ -1162,7 +1171,8 @@ function updPcBordaTipo(ambId, pcId, lado, tipo) {
   if (!tipo) {
     _setBd(pc, lado, null);
   } else {
-    var defSub = tipo === 'sainha' ? 's_reta' : 'frontao';
+    var isDivTipo = BORDA_TIPOS_DIV.some(function(t){return t.k===tipo && t.k!==null;});
+    var defSub = isDivTipo ? null : (tipo === 'sainha' ? 's_reta' : 'frontao');
     _setBd(pc, lado, { tipo: tipo, sub: defSub });
   }
   if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
@@ -1211,71 +1221,88 @@ function updPcBorda(ambId, pcId, lado, svc) {
 
 function buildPecaBordaHtml(amb, pc) {
   if (!pc.bordas) pc.bordas = {};
+  var isDiv = amb.tipo === '🚽 Divisória WC';
+  var TIPO_LIST = isDiv ? BORDA_TIPOS_DIV : BORDA_TIPOS;
   var SIDES = [
     { k:'fr',  l:'Frente', dim: pc.w, icon:'▼' },
     { k:'fd',  l:'Fundo',  dim: pc.w, icon:'▲' },
     { k:'esq', l:'Esq.',   dim: pc.h, icon:'◄' },
     { k:'dir', l:'Dir.',   dim: pc.h, icon:'►' },
   ];
-  var h = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bd2);">';
-  h += '<div style="font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">Acabamento por lado</div>';
+  var h = '<div style=\"margin-top:12px;padding-top:12px;border-top:1px solid var(--bd2);\">';
+  h += '<div style=\"font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;\">'+(isDiv?'Acabamento da Lateral':'Acabamento por lado')+'</div>';
+  if (isDiv) {
+    h += '<div style=\"font-size:.6rem;color:var(--t3);margin-bottom:8px;\">Polido já incluído. Outros acabamentos têm custo extra por metro linear.</div>';
+  }
   SIDES.forEach(function(side) {
     var bd = (pc.bordas && pc.bordas[side.k] && pc.bordas[side.k].tipo) ? pc.bordas[side.k] : null;
     var tipo = bd ? bd.tipo : null;
-    var tipoOpt = BORDA_TIPOS.find(function(t){return t.k===tipo;})||BORDA_TIPOS[0];
+    var tipoOpt = TIPO_LIST.find(function(t){return t.k===tipo;})||TIPO_LIST[0];
     var curML = bd && bd.ml != null ? bd.ml : null;
     var autoML = side.dim ? (side.dim/100).toFixed(2) : '?';
     var alt = bd ? (bd.alt||6) : 6;
-    h += '<div style="background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;">';
-    // Header: icon + label + dim + type buttons
-    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';">';
-    h += '<span style="font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;">'+side.icon+' '+side.l+'</span>';
-    h += '<span style="font-size:.6rem;color:var(--t4);min-width:36px;">'+(side.dim?side.dim+'cm':'—')+'</span>';
-    h += '<div style="display:flex;gap:4px;flex:1;">';
-    BORDA_TIPOS.forEach(function(t) {
+    h += '<div style=\"background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;\">';
+    h += '<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';\">'; 
+    h += '<span style=\"font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;\">'+side.icon+' '+side.l+'</span>';
+    h += '<span style=\"font-size:.6rem;color:var(--t4);min-width:36px;\">'+(side.dim?side.dim+'cm':'—')+'</span>';
+    h += '<div style=\"display:flex;gap:4px;flex:1;flex-wrap:wrap;\">';
+    TIPO_LIST.forEach(function(t) {
       var on = tipo === t.k;
       var tArg = t.k ? ("'" + t.k + "'") : 'null';
-      h += '<div onclick="updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')" ';
-      h += 'style="cursor:pointer;flex:1;text-align:center;padding:7px 4px;border-radius:7px;border:1.5px solid ';
+      h += '<div onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
+      h += 'style=\"cursor:pointer;flex:1;text-align:center;padding:6px 3px;border-radius:7px;border:1.5px solid ';
       h += (on?t.cor:'rgba(255,255,255,.1)')+';background:'+(on?t.bg:'transparent')+';';
-      h += 'font-size:.68rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';">'+t.l+'</div>';
+      h += 'font-size:.65rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';\">';
+      h += t.l;
+      if (isDiv && t.k && t.pr > 0) h += '<br><span style=\"font-size:.52rem;opacity:.7;\">+R$'+t.pr+'/m</span>';
+      h += '</div>';
     });
     h += '</div></div>';
-    if (tipo) {
+    if (tipo && !isDiv) {
       var subs = tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
       var curSub = bd ? bd.sub : null;
-      h += '<div style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">';
+      h += '<div style=\"display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;\">';
       subs.forEach(function(sub) {
         var on = curSub===sub.k;
-        h += '<div onclick="updPcBordaSub('+amb.id+','+pc.id+',\''+side.k+'\',\''+sub.k+'\')" ';
-        h += 'style="cursor:pointer;padding:5px 12px;border-radius:7px;border:1px solid ';
+        h += '<div onclick=\"updPcBordaSub('+amb.id+','+pc.id+',\''+side.k+'\',\''+sub.k+'\')\" ';
+        h += 'style=\"cursor:pointer;padding:5px 12px;border-radius:7px;border:1px solid ';
         h += (on?tipoOpt.cor:'rgba(255,255,255,.12)')+';background:'+(on?tipoOpt.bg:'transparent')+';';
-        h += 'font-size:.62rem;font-weight:'+(on?700:400)+';color:'+(on?tipoOpt.cor:'var(--t3)')+';">'+sub.l+'</div>';
+        h += 'font-size:.62rem;font-weight:'+(on?700:400)+';color:'+(on?tipoOpt.cor:'var(--t3)')+';\">';
+        h += sub.l+'</div>';
       });
       h += '</div>';
-      // ML + Alt row
-      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;">';
-      h += '<div><div style="font-size:.55rem;color:var(--t4);margin-bottom:3px;">ML (cm) — vazio = '+autoML+'m auto</div>';
-      h += '<input type="number" min="0" max="9999" step="1" value="'+(curML!=null?curML:'')+'" placeholder="Auto" ';
-      h += 'style="width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;" ';
-      h += 'oninput="updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)"></div>';
-      h += '<div><div style="font-size:.55rem;color:var(--t4);margin-bottom:3px;">Altura (cm)</div>';
-      h += '<input type="number" min="1" max="30" step="0.5" value="'+alt+'" ';
-      h += 'style="width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;" ';
-      h += 'oninput="updPcBordaAlt('+amb.id+','+pc.id+',\''+side.k+'\',this.value)"></div>';
+      h += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;\">';
+      h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">ML (cm) — vazio = '+autoML+'m auto</div>';
+      h += '<input type=\"number\" min=\"0\" max=\"9999\" step=\"1\" value=\"'+(curML!=null?curML:'')+'\" placeholder=\"Auto\" ';
+      h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
+      h += 'oninput=\"updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
+      h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">Altura (cm)</div>';
+      h += '<input type=\"number\" min=\"1\" max=\"30\" step=\".5\" value=\"'+alt+'\" ';
+      h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
+      h += 'oninput=\"updPcBordaAlt('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
       h += '</div>';
       var finalML = curML!=null ? (curML/100)*(pc.q||1) : (side.dim?(side.dim/100)*(pc.q||1):0);
-      if (finalML>0) {
-        h += '<div style="margin-top:6px;font-size:.62rem;color:'+tipoOpt.cor+';font-weight:600;">= '+finalML.toFixed(2)+'m linear</div>';
+      if (finalML>0) h += '<div style=\"margin-top:6px;font-size:.62rem;color:'+tipoOpt.cor+';font-weight:600;\">→ '+finalML.toFixed(2)+'m linear</div>';
+    } else if (tipo && isDiv) {
+      var finalML = side.dim ? (side.dim/100)*(pc.q||1) : 0;
+      if (finalML > 0) {
+        var divVal = finalML * (tipoOpt.pr || 0);
+        h += '<div style=\"display:flex;align-items:center;justify-content:space-between;margin-top:6px;\">';
+        h += '<div style=\"font-size:.62rem;color:'+tipoOpt.cor+';font-weight:600;\">→ '+finalML.toFixed(2)+'m linear</div>';
+        if (divVal > 0) {
+          h += '<div style=\"font-size:.65rem;color:var(--gold2);font-weight:700;\">R$ '+divVal.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>';
+        } else {
+          h += '<div style=\"font-size:.6rem;color:var(--t4);\">✔ Polido — incluído</div>';
+        }
+        h += '</div>';
       }
     }
     h += '</div>';
   });
-  if (!pc.w || !pc.h) h += '<div style="font-size:.58rem;color:var(--t4);margin-top:4px;font-style:italic;">Preencha comprimento e largura para ver o desenho técnico</div>';
+  if (!pc.w || !pc.h) h += '<div style=\"font-size:.58rem;color:var(--t4);margin-top:4px;font-style:italic;\">Preencha comprimento e largura para ver o desenho técnico</div>';
   h += '</div>';
   return h;
 }
-
 function buildPecaPreviewSVG(amb, pc, pcIdx) {
   var W = pc.w || 0, H = pc.h || 0;
   if (!W || !H) return '';
@@ -1309,7 +1336,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   var px = function(v){ return v * scale; };        // cm → px (no offset)
 
   var getBd = function(l) { var bd=(pc.bordas&&pc.bordas[l]&&pc.bordas[l].tipo)?pc.bordas[l]:null; return bd; };
-  var getOpt = function(t) { return BORDA_TIPOS.find(function(x){return x.k===t;})||BORDA_TIPOS[0]; };
+  var getOpt = function(t) { return BORDA_TIPOS_DIV.find(function(x){return x.k===t;}) || BORDA_TIPOS.find(function(x){return x.k===t;})||BORDA_TIPOS[0]; };
 
   var svg = '<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" '
           + 'style="width:100%;display:block;max-height:240px;font-family:\'Courier New\',monospace;">';
@@ -1387,9 +1414,15 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     svg += '<line x1="'+e.x1+'" y1="'+e.y1+'" x2="'+e.x2+'" y2="'+e.y2
          + '" stroke="'+opt.cor+'" stroke-width="4" stroke-linecap="round" opacity=".85"/>';
     // Label de acabamento
-    var subs = bd.tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
-    var sub = subs.find(function(s){return s.k===bd.sub;})||subs[0];
-    var lbl = (bd.tipo==='sainha'?'Sainha':'Frontão') + (sub?' '+sub.l:'');
+    var divTipoFnd = BORDA_TIPOS_DIV.find(function(t){return t.k===bd.tipo && t.k;});
+    var lbl;
+    if (divTipoFnd) {
+      lbl = divTipoFnd.l;
+    } else {
+      var subs = bd.tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
+      var sub = subs.find(function(s){return s.k===bd.sub;})||subs[0];
+      lbl = (bd.tipo==='sainha'?'Sainha':'Frontão') + (sub?' '+sub.l:'');
+    }
     svg += '<text x="'+e.lx+'" y="'+e.ly+'" text-anchor="middle" font-size="6.5" fill="'+opt.cor
          + '" font-weight="700">'+lbl+'</text>';
   });
@@ -1418,6 +1451,24 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   var orFs = Math.max(5.5, Math.min(7.5, rw/30));
   svg += '<text x="'+(ox+rw/2)+'" y="'+(oy+rh+16)+'" text-anchor="middle" font-size="'+(orFs+1)+'" fill="rgba(255,255,255,.3)">▲ FRENTE (parede)</text>';
   svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-2)+'" text-anchor="middle" font-size="'+orFs+'" fill="rgba(255,255,255,.2)">FUNDO</text>';
+
+  // ── Recorte de Abertura Inferior (Divisória WC) ──
+  if (amb.tipo === '🚽 Divisória WC') {
+    var svDiv = amb.svState || {};
+    var recQty = (svDiv.div_recorte && svDiv.div_recorte.qty > 0) ? (svDiv.div_recorte.qty || 0) : 0;
+    if (recQty > 0) {
+      var recW_cm = Math.min(70, W * 0.65);
+      var recH_cm = Math.min(25, H * 0.18);
+      var recX_cm = (W - recW_cm) / 2;
+      var recY_cm = H - recH_cm;
+      var rrx = cx(recX_cm), rry = cy(recY_cm);
+      var rrw = px(recW_cm), rrh = px(recH_cm);
+      svg += '<rect x=\"'+rrx+'\" y=\"'+rry+'\" width=\"'+rrw+'\" height=\"'+rrh+'\" fill=\"rgba(0,0,0,.65)\" stroke=\"rgba(201,168,76,.85)\" stroke-width=\"1.5\" stroke-dasharray=\"3,2\"/>';
+      var rcfs = Math.max(5, Math.min(7.5, rrw/10));
+      svg += '<text x=\"'+(rrx+rrw/2)+'\" y=\"'+(rry+rrh/2-rcfs*.2)+'\" text-anchor=\"middle\" font-size=\"'+rcfs+'\" fill=\"rgba(201,168,76,.95)\" font-weight=\"700\">RECORTE</text>';
+      svg += '<text x=\"'+(rrx+rrw/2)+'\" y=\"'+(rry+rrh/2+rcfs*1.6)+'\" text-anchor=\"middle\" font-size=\"'+(rcfs*.85)+'\" fill=\"rgba(201,168,76,.65)\">abertura embaixo</text>';
+    }
+  }
 
   // Badge quantidade
   if ((pc.q||1) > 1) {
@@ -1917,6 +1968,29 @@ function calcular(){
         bpPcLines.forEach(function(ln){acN.push(ln);});
         if(!bpPcLines.length)acN.push('Acabamento '+baDefGlobal.l+' — '+bpPcTotal.toFixed(2)+'m linear');
       }
+
+    // Divisória WC: acabamento lateral premium
+    if (tipo === '🚽 Divisória WC') {
+      amb.pecas.forEach(function(p) {
+        if (!p.bordas || !p.w || !p.h) return;
+        var q = p.q || 1;
+        var dims = { fr: p.w, fd: p.w, esq: p.h, dir: p.h };
+        ['fr','fd','esq','dir'].forEach(function(lado) {
+          var bd = p.bordas[lado];
+          if (!bd || !bd.tipo) return;
+          var divTp = BORDA_TIPOS_DIV.find(function(t){return t.k===bd.tipo;});
+          if (!divTp || !divTp.pr) return;
+          var ml = (dims[lado]/100) * q;
+          var val = ml * divTp.pr;
+          if (val <= 0) return;
+          var ladoNm = {fr:'Frente',fd:'Fundo',esq:'Esq.',dir:'Dir.'}[lado];
+          var pcNm = p.desc && p.desc.trim() ? p.desc : 'Peça';
+          acT += val;
+          acL.push({l: 'Acab. '+divTp.l+' — '+pcNm+' ('+ladoNm+') '+ml.toFixed(2)+'m', v: val});
+          acN.push('Acab. '+divTp.l+' '+ladoNm);
+        });
+      });
+    }
     }
 
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
