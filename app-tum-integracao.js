@@ -564,36 +564,51 @@ function tumSincPedrasGlobais() {
   var stones = _buildTumPedrasGlobal();
   if (!stones.length) return;
 
+  // ── Preservar pedras adicionadas localmente (via modal "Adicionar Pedra") ──
+  // CFG.stones só contém pedras do catálogo global (app-config.js).
+  // Pedras adicionadas dentro do módulo de túmulo ficam apenas em CFG.pedras/hr_tum_cfg.
+  // Substituir CFG.pedras inteiro apagaria essas pedras locais a cada mount.
+  // Solução: mesclar — stones globais + pedras locais cujo id não existe nas globais.
+  var globalIds = stones.map(function(s){ return s.id; });
+  var localExtras = [];
+  try {
+    var cfgAtual = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null');
+    if (cfgAtual && Array.isArray(cfgAtual.pedras)) {
+      cfgAtual.pedras.forEach(function(p) {
+        if (globalIds.indexOf(p.id) === -1) {
+          localExtras.push(p); // pedra adicionada localmente, não está no catálogo global
+        }
+      });
+    }
+  } catch(e) {}
+  var merged = stones.concat(localExtras);
+
   // Sync DIRETO na memória do IIFE
   if (typeof window.tumSetPedrasCatalogo === 'function') {
-    window.tumSetPedrasCatalogo(stones);
+    window.tumSetPedrasCatalogo(merged);
   }
 
   // Persiste no localStorage SEM sobrescrever margem/mob/civil/etc
   try {
     var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
-    cfg.pedras = stones;
-    // Preservar campos escalares se já existirem
+    cfg.pedras = merged;
     if (!cfg.margem)  cfg.margem  = 35;
     if (!cfg.parcMax) cfg.parcMax = 8;
     if (!cfg.juros)   cfg.juros   = 12;
     localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
   } catch(e) {}
 
-  // ── Reparar ambientes com tumSEL.matId inválido (corrompidos pelo bug anterior) ──
-  // Se um orçamento de túmulo foi salvo com matId de uma pedra que não existe mais
-  // no catálogo (ex.: 'andorinha' hardcoded), corrigir agora enquanto temos o
-  // catálogo real em mãos.
+  // ── Reparar ambientes com tumSEL.matId inválido ──
+  // Verifica contra merged (globais + locais) para não derrubar pedras locais válidas.
   try {
     if (typeof ambientes !== 'undefined' && Array.isArray(ambientes)) {
-      var stoneIds = stones.map(function(s){ return s.id; });
+      var mergedIds = merged.map(function(s){ return s.id; });
       ambientes.forEach(function(amb) {
         if (amb && amb.tumSEL && amb.tumSEL.matId) {
-          if (stoneIds.indexOf(amb.tumSEL.matId) === -1) {
-            // matId inválido — escolher melhor substituto
-            var gabriel = stones.find(function(s){ return s.id === 'p_gabriel' || s.nm.toLowerCase().indexOf('gabriel') >= 0; });
-            var preto   = stones.find(function(s){ return (s.cat || '').toLowerCase().indexOf('preto') >= 0; });
-            amb.tumSEL.matId = (gabriel || preto || stones[0]).id;
+          if (mergedIds.indexOf(amb.tumSEL.matId) === -1) {
+            var gabriel = merged.find(function(s){ return s.id === 'p_gabriel' || s.nm.toLowerCase().indexOf('gabriel') >= 0; });
+            var preto   = merged.find(function(s){ return (s.cat || '').toLowerCase().indexOf('preto') >= 0; });
+            amb.tumSEL.matId = (gabriel || preto || merged[0]).id;
           }
         }
       });
