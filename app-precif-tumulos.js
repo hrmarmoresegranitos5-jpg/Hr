@@ -81,6 +81,12 @@ function tumAplicarTabela(opts) {
   tumInitPrecos();
   var tp = CFG.tumPrecos;
   var q  = TUM.q;
+  // Guard: dims pode estar ausente em orçamentos antigos — tumPatchQ resolve,
+  // mas blindamos aqui também como segunda linha de defesa
+  if (!q.dims || typeof q.dims !== 'object') {
+    if (typeof tumPatchQ === 'function') tumPatchQ();
+    if (!q.dims) return; // segurança absoluta
+  }
   var d  = q.dims;
   var gavetas = d.gavetas || 1;
   opts = opts || {};
