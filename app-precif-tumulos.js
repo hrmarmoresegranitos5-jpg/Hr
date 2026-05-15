@@ -275,6 +275,19 @@ function buildCfgTumPrecos() {
   });
   h += '</div>';
 
+  // ── MARKUP DE OBRA (Estrutura + Materiais) ─────────────────────────
+  var markupAtual = (tp.markupObra != null ? tp.markupObra : 35);
+  h += '<div class="tp-sec-hd" style="margin-top:20px;">📐 MARKUP DE OBRA</div>';
+  h += '<div class="tp-sec-desc">Percentual de margem aplicado sobre Estrutura civil e Materiais de construção. Padrão 35% — garante que você lucra também sobre esses custos.</div>';
+  h += '<div class="tp-stone-card" style="margin-bottom:6px;">';
+  h += '<div class="tp-sc-inp-row" style="padding:12px;gap:8px;">';
+  h += '<span class="tp-t-nm" style="flex:1;">Markup sobre Estrutura e Materiais</span>';
+  h += '<input class="cfginp tp-sm-num" type="number" min="0" max="200" step="1" value="'+ markupAtual +'" ';
+  h += 'onchange="CFG.tumPrecos.markupObra=+this.value;svCFG();toast(\'✓ Markup atualizado!\');" ';
+  h += 'style="width:68px;text-align:right;">';
+  h += '<span class="tp-un-label">%</span>';
+  h += '</div></div>';
+
   // ── SIMULADOR RÁPIDO ──────────────────────────────────────────────
   h += '<div class="tp-sec-hd" style="margin-top:20px;">⚡ SIMULADOR</div>';
   h += '<div class="tp-sec-desc">Estimativa instantânea com base nesta tabela. Não altera o orçamento em aberto.</div>';

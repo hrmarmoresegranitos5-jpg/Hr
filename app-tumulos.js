@@ -362,7 +362,7 @@ function _tumHero() {
 
   var extra1 = (r.vendaLapDupla || 0) + (r.vendaRebaixo || 0) + (r.vendaLajeInt || 0)
              + (r.vendaLapide  || 0) + (r.vendaCruz    || 0) + (r.vendaFoto    || 0);
-  var obra   = (r.custoEstrutura || 0) + (r.custoMat || 0);
+  var obra   = (r.vendaEstrutura || 0) + (r.vendaMat || 0);
 
   var h = '<div class="tum-hero">';
   h += '<div class="tum-hero-row">';
@@ -867,7 +867,7 @@ function _tabEstrutura() {
 
   var r = TUM.calc;
   h += '<div class="tum-total-box" style="margin-top:12px;">';
-  h += _totRow('🏗️ Total Estrutura', 'R$ ' + fm(r.custoEstrutura || 0), true);
+  h += _totRow('🏗️ Total Estrutura', 'R$ ' + fm(r.vendaEstrutura || 0), true);
   h += '</div>';
 
   h += '<div class="tum-nav-row">';
@@ -930,7 +930,7 @@ function _tabMateriais() {
   h += '</div>';
   var r = TUM.calc;
   h += '<div class="tum-total-box">';
-  h += _totRow('🪣 Total Materiais', 'R$ ' + fm(r.custoMat || 0), true);
+  h += _totRow('🪣 Total Materiais', 'R$ ' + fm(r.vendaMat || 0), true);
   h += '</div>';
 
   h += '<div class="tum-nav-row">';
@@ -1255,8 +1255,8 @@ function _tabResumo() {
     { icon: '🔧', label: 'Rebaixo (usinagem)',custo: r.custoRebaixo,  venda: r.vendaRebaixo  },
     { icon: '🪨', label: 'Laje vedante',     custo: r.custoLajeInt,  venda: r.vendaLajeInt  },
     { icon: '🔨', label: 'Mão de Obra',      custo: r.custoMdo,      venda: r.vendaMdo      },
-    { icon: '🏗️', label: 'Estrutura civil',  custo: r.custoEstrutura,venda: r.custoEstrutura},
-    { icon: '🪣', label: 'Materiais',        custo: r.custoMat,      venda: r.custoMat      },
+    { icon: '🏗️', label: 'Estrutura civil',  custo: r.custoEstrutura, venda: r.vendaEstrutura},
+    { icon: '🪣', label: 'Materiais',        custo: r.custoMat,       venda: r.vendaMat      },
   ];
 
   cats.forEach(function(cat) {
@@ -1399,15 +1399,16 @@ function _tumCalc() {
   });
 
   var m2Total    = m2Liq * (1 + (q.perda || 15) / 100);
-  custoPedra     = m2Total * stPr; // recalcula com perda
+  var custoPedraM2 = m2Total * stPr; // custo só do granito/mármore (base para risco de quebra)
+  custoPedra     = custoPedraM2; // recalcula com perda
 
-  // Soma extras (moldura, pingadeira, acréscimos)
+  // Soma extras (moldura, pingadeira)
+  // NOTA: peca.extra NÃO é somado aqui — já foi somado no loop anterior para evitar duplicidade
   Object.keys(q.pedras).forEach(function(k) {
     var peca = q.pedras[k];
     if (!peca || !peca.on) return;
     if (k === 'moldura')    custoPedra += (peca.ml || 0) * (peca.vlrMl || 120);
     if (k === 'pingadeira') custoPedra += (peca.ml || 0) * (peca.vlrMl || 80);
-    if (peca.extra)         custoPedra += peca.extra;
   });
 
   var vendaPedra = custoPedra; // pedra: preço já é de venda
@@ -1459,7 +1460,8 @@ function _tumCalc() {
     if (it && it.on) { custoMdo += it.custo || 0; vendaMdo += it.venda || 0; }
   });
   if (q.mdo.riscoQuebra && q.mdo.riscoQuebra.on) {
-    var rq = custoPedra * (q.mdo.riscoQuebra.perc || 0) / 100;
+    // Risco de quebra incide apenas sobre o custo do material de pedra (m²), não sobre moldura/pingadeira
+    var rq = custoPedraM2 * (q.mdo.riscoQuebra.perc || 0) / 100;
     custoMdo += rq; vendaMdo += rq;
   }
 
@@ -1509,10 +1511,19 @@ function _tumCalc() {
     vendaLajeInt = _r(q.lajeInterna.m2Total * q.lajeInterna.vendaM2);
   }
 
+  // ── Markup de estrutura e materiais ─────────────────────────────
+  // Estrutura civil e materiais de construção têm markup de venda separado do custo.
+  // O percentual é configurável via CFG.tumPrecos.markupObra (padrão 35%).
+  var markupObra = (typeof CFG !== 'undefined' && CFG.tumPrecos && CFG.tumPrecos.markupObra != null)
+    ? CFG.tumPrecos.markupObra / 100
+    : 0.35;
+  var vendaEstrutura = _r(custoEstrutura * (1 + markupObra));
+  var vendaMat       = _r(custoMat       * (1 + markupObra));
+
   // ── Totais ───────────────────────────────────────────────────────
   var custoTotal = custoPedra + custoLapide + custoCruz + custoFoto + custoMdo + custoEstrutura + custoMat
                  + custoLapDupla + custoRebaixo + custoLajeInt;
-  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + custoEstrutura + custoMat
+  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + vendaEstrutura + vendaMat
                  + vendaLapDupla + vendaRebaixo + vendaLajeInt;
   var lucroTotal = vendaTotal - custoTotal;
 
@@ -1527,7 +1538,8 @@ function _tumCalc() {
     custoCruz, vendaCruz,
     custoFoto, vendaFoto,
     custoMdo, vendaMdo,
-    custoEstrutura, custoMat,
+    custoEstrutura, vendaEstrutura,
+    custoMat, vendaMat,
     custoLapDupla, vendaLapDupla,
     custoRebaixo, vendaRebaixo,
     custoLajeInt, vendaLajeInt,
