@@ -3464,10 +3464,81 @@ function gerarPDFTumulo(q){
   function fd(d){if(!d)return new Date().toLocaleDateString('pt-BR');try{return new Date(d).toLocaleDateString('pt-BR');}catch(e){return d;}}
   function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
 
+  // ── Peças e Dimensões do Túmulo ──
+  var PECAS_LABEL={
+    tampo:'Tampo (Tampa Superior)',frente:'Frente (Frontal)',
+    lateral_d:'Lateral Direita',lateral_e:'Lateral Esquerda',
+    fundo:'Fundo (Traseira)',base:'Base / Soleira',cruz:'Cruz / Símbolo',
+    gaveta:'Gaveta',gaveta2:'2ª Gaveta',gaveta3:'3ª Gaveta',
+    painel:'Painel de Fundo',degrau:'Degrau / Piso',chapim:'Chapim / Arremate',
+    lateral_int:'Lateral Interna',peitoril:'Peitoril',coluna:'Coluna',arco:'Arco / Verga'
+  };
+  var pecasRows='';
+  var pecasList=res.pecas||(tum.pecas)||[];
+  if(!pecasList||!pecasList.length){
+    var _d=tum.dims||{};
+    var _comp=parseFloat(_d.comp)||0;
+    var _larg=parseFloat(_d.larg)||0;
+    var _alt=parseFloat(_d.alt||_d.altEst)||0;
+    var _esp=parseFloat(_d.esp||_d.espTampa)||0.02;
+    var _tipo=tum.tipo||'simples';
+    var _pecasAuto=[];
+    if(_comp&&_larg){
+      _pecasAuto.push({id:'tampo',comp:_comp,larg:_larg,esp:_esp,qtd:1});
+      if(_alt) _pecasAuto.push({id:'frente',comp:_comp,larg:_alt,esp:_esp,qtd:1});
+      if(_alt&&_larg){_pecasAuto.push({id:'lateral_d',comp:_larg,larg:_alt,esp:_esp,qtd:1});_pecasAuto.push({id:'lateral_e',comp:_larg,larg:_alt,esp:_esp,qtd:1});}
+      if(_alt&&_comp) _pecasAuto.push({id:'fundo',comp:_comp,larg:_alt,esp:_esp,qtd:1});
+      _pecasAuto.push({id:'base',comp:_comp,larg:_larg,esp:_esp,qtd:1});
+      if(_tipo==='gaveta_dupla') _pecasAuto.push({id:'gaveta',comp:_comp,larg:_larg,esp:_esp,qtd:2});
+      if(_tipo==='gaveta_tripla') _pecasAuto.push({id:'gaveta',comp:_comp,larg:_larg,esp:_esp,qtd:3});
+    }
+    pecasList=_pecasAuto;
+  }
+  if(pecasList&&pecasList.length){
+    var _totalM2=0;
+    pecasList.forEach(function(p,i){
+      var nm=p.nome||(PECAS_LABEL[p.id]||p.id||('Peça '+(i+1)));
+      var qtd=parseFloat(p.qtd)||1;
+      var c=parseFloat(p.comp||p.comprimento)||0;
+      var l=parseFloat(p.larg||p.largura)||0;
+      var e=parseFloat(p.esp||p.espessura)||0;
+      var m2=parseFloat(p.m2)||(c&&l?(c*l*qtd):0);
+      _totalM2+=m2;
+      var dimStr='';
+      if(c&&l){dimStr=c.toFixed(2)+'m × '+l.toFixed(2)+'m';if(e)dimStr+=' × '+e.toFixed(2)+'m';}else if(p.dims){dimStr=p.dims;}
+      var bg=i%2===0?'#fff':'#faf6ef';
+      pecasRows+='<tr>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(nm)+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#555;text-align:center;">'+escH(dimStr)+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#777;text-align:center;">'+(qtd>1?qtd+'x':'—')+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11.5px;text-align:right;font-weight:700;color:#5a3800;">'+(m2?m2.toFixed(3)+' m²':'—')+'</td>'
+        +'</tr>';
+    });
+    pecasRows+='<tr style="background:#f7f2e8;">'
+      +'<td colspan="3" style="padding:10px 14px;font-size:10px;font-weight:900;color:#7a4400;letter-spacing:1px;">ÁREA TOTAL DE PEDRA</td>'
+      +'<td style="padding:10px 14px;text-align:right;font-size:12px;font-weight:900;color:#7a4400;">'+_totalM2.toFixed(3)+' m²</td>'
+      +'</tr>';
+  }
+  var secaoPecas='';
+  if(pecasRows){
+    secaoPecas=sh('Peças e Dimensões')
+      +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
+        +'<table style="width:100%;border-collapse:collapse;">'
+          +'<thead><tr style="background:#0f0c00;">'
+            +'<th style="padding:9px 14px;text-align:left;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
+            +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">QTD</th>'
+            +'<th style="padding:9px 14px;text-align:right;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">M²</th>'
+          +'</tr></thead>'
+          +'<tbody>'+pecasRows+'</tbody>'
+        +'</table>'
+      +'</div>';
+  }
+
   // Linhas de custo
   var custoRows='';
   var custoItems=[
-    {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2total?' — '+(+res.m2total).toFixed(3)+' m²':'')},
+    {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2Total?' — '+(+res.m2Total).toFixed(3)+' m²':'')},
     {icon:'🔨',l:'Mão de Obra Marmoraria',v:res.custoMdo||0,sub:''},
     {icon:'🧱',l:'Pedreiro / Construção',v:res.custoObra||0,sub:''},
     {icon:'🪣',l:'Materiais',v:res.custoMat||0,sub:''}
@@ -3534,7 +3605,7 @@ function gerarPDFTumulo(q){
       +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:10px;padding:14px 18px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:120px;">'
         +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:6px;font-weight:900;">PROJETO</div>'
         +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+tipoLabel+'</div>'
-        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+(tum.dims.alt||tum.dims.altEst?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
+        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+((tum.dims.alt||tum.dims.altEst)?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
       +'</div>'
     +'</div>'
     +obsBox
@@ -3550,12 +3621,14 @@ function gerarPDFTumulo(q){
           +'</div>'
           +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
             +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">ÁREA TOTAL</div>'
-            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2total?(+res.m2total).toFixed(3)+' m²':'—')+'</div>'
+            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2Total?(+res.m2Total).toFixed(3)+' m²':'—')+'</div>'
             +(tum.dims&&(tum.dims.esp||tum.dims.espTampa)?'<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:3px;">Espessura: '+(tum.dims.esp||tum.dims.espTampa)+' cm</div>':'')
           +'</div>'
         +'</div>'
       +'</div>'
     +'</div>'
+    // Peças e Dimensões
+    +secaoPecas
     // Custos
     +sh('Composição do Projeto')
     +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'

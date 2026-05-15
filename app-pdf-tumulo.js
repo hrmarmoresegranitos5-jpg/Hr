@@ -67,8 +67,8 @@ function gerarPDFTumulo(q){
     var d=tum.dims||{};
     var comp=parseFloat(d.comp)||0;
     var larg=parseFloat(d.larg)||0;
-    var alt=parseFloat(d.alt)||0;
-    var esp=parseFloat(d.esp)||0.02;
+    var alt=parseFloat(d.alt||d.altEst)||0;
+    var esp=parseFloat(d.esp||d.espTampa)||0.02;
 
     var tipo=tum.tipo||'simples';
     var pecasAuto=[];
@@ -143,7 +143,7 @@ function gerarPDFTumulo(q){
   // Linhas de custo
   var custoRows='';
   var custoItems=[
-    {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2total?' — '+(+res.m2total).toFixed(3)+' m²':'')},
+    {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2Total?' — '+(+res.m2Total).toFixed(3)+' m²':'')},
     {icon:'🔨',l:'Mão de Obra Marmoraria',v:res.custoMdo||0,sub:''},
     {icon:'🧱',l:'Pedreiro / Construção',v:res.custoObra||0,sub:''},
     {icon:'🪣',l:'Materiais',v:res.custoMat||0,sub:''}
@@ -210,7 +210,7 @@ function gerarPDFTumulo(q){
       +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:10px;padding:14px 18px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:120px;">'
         +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:6px;font-weight:900;">PROJETO</div>'
         +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+tipoLabel+'</div>'
-        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+(tum.dims.alt||tum.dims.altEst?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
+        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+((tum.dims.alt||tum.dims.altEst)?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
       +'</div>'
     +'</div>'
     +obsBox
@@ -226,7 +226,7 @@ function gerarPDFTumulo(q){
           +'</div>'
           +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
             +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">ÁREA TOTAL</div>'
-            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2total?(+res.m2total).toFixed(3)+' m²':'—')+'</div>'
+            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2Total?(+res.m2Total).toFixed(3)+' m²':'—')+'</div>'
             +(tum.dims&&(tum.dims.esp||tum.dims.espTampa)?'<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:3px;">Espessura: '+(tum.dims.esp||tum.dims.espTampa)+' cm</div>':'')
           +'</div>'
         +'</div>'
