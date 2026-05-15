@@ -3768,6 +3768,7 @@ function orcEditar(id, e){
     if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
       try{
         TUM.q = JSON.parse(JSON.stringify(q.tum));
+        if (typeof tumPatchQ === 'function') tumPatchQ(); // migra campos ausentes em orçamentos antigos
         go(9);
         setTimeout(function(){ renderTum(); },100);
         toast('✓ Túmulo carregado! Edite e recalcule.');

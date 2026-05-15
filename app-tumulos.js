@@ -254,6 +254,99 @@ var TUM = {
 };
 
 // ══════════════════════════════════════════════════════════════════════
+// PATCH / MIGRAÇÃO — garante que TUM.q tem todos os campos obrigatórios
+// Deve ser chamado SEMPRE que TUM.q for substituído por dados do storage
+// ══════════════════════════════════════════════════════════════════════
+function tumPatchQ() {
+  var def = TUM.q;  // referência ao objeto padrão já definido acima
+  var q   = TUM.q;  // mesmo objeto se não foi substituído; caso contrário é o carregado
+
+  // ── dims: sub-objeto mais crítico — raiz do TypeError
+  if (!q.dims || typeof q.dims !== 'object') {
+    q.dims = {
+      comp: 2.20, larg: 0.90, altEst: 0.40,
+      espParede: 0.15, espLaje: 0.10, espTampa: 0.03,
+      altRodape: 0.10, avRodape: 0.05, espMolduraSup: 0.05,
+    };
+  } else {
+    // Garante cada sub-chave individualmente (orçamento antigo pode não ter as novas)
+    var dimsDefault = { comp:2.20, larg:0.90, altEst:0.40, espParede:0.15,
+                        espLaje:0.10, espTampa:0.03, altRodape:0.10,
+                        avRodape:0.05, espMolduraSup:0.05 };
+    Object.keys(dimsDefault).forEach(function(k) {
+      if (q.dims[k] == null) q.dims[k] = dimsDefault[k];
+    });
+  }
+
+  // ── gavetas
+  if (q.gavetas == null) q.gavetas = 1;
+  if (q.altPorGaveta == null) q.altPorGaveta = 0.70;
+  if (q.perda == null) q.perda = 15;
+
+  // ── pedras
+  if (!q.pedras || typeof q.pedras !== 'object') {
+    q.pedras = { tampa:{on:true,m2:0,extra:0}, laterais:{on:true,m2:0,extra:0},
+                 frente:{on:true,m2:0,extra:0}, fundo:{on:false,m2:0,extra:0},
+                 lapide:{on:false,m2:0,extra:0}, revestExt:{on:false,m2:0,extra:0},
+                 rodape:{on:false,m2:0,extra:0},
+                 moldura:{on:false,ml:0,vlrMl:120,extra:0},
+                 pingadeira:{on:false,ml:0,vlrMl:80,extra:0} };
+  }
+
+  // ── mdo
+  if (!q.mdo || typeof q.mdo !== 'object') {
+    q.mdo = { pedreiro:{on:true,dias:2,diaria:350}, ajudante:{on:true,dias:2,diaria:220},
+              marmorista:{on:true,dias:2,diaria:400}, acabamento:{on:true,custo:150,venda:280},
+              instalacao:{on:true,custo:200,venda:380}, transporte:{on:true,custo:120,venda:180},
+              riscoQuebra:{on:true,perc:3} };
+  } else {
+    if (!q.mdo.pedreiro)    q.mdo.pedreiro    = {on:true,dias:2,diaria:350};
+    if (!q.mdo.ajudante)    q.mdo.ajudante    = {on:true,dias:2,diaria:220};
+    if (!q.mdo.marmorista)  q.mdo.marmorista  = {on:true,dias:2,diaria:400};
+    if (!q.mdo.acabamento)  q.mdo.acabamento  = {on:true,custo:150,venda:280};
+    if (!q.mdo.instalacao)  q.mdo.instalacao  = {on:true,custo:200,venda:380};
+    if (!q.mdo.transporte)  q.mdo.transporte  = {on:true,custo:120,venda:180};
+    if (!q.mdo.riscoQuebra) q.mdo.riscoQuebra = {on:true,perc:3};
+  }
+
+  // ── obra (sub-objeto de serviços de construção)
+  if (!q.obra || typeof q.obra !== 'object') {
+    q.obra = { fundacao:{on:true,dias:1,diaria:350}, levantamento:{on:false,dias:2,diaria:350},
+               concreto:{on:false,dias:1,diaria:480}, gavetas:{on:false,dias:1,diaria:350} };
+  }
+
+  // ── mat
+  if (!q.mat || typeof q.mat !== 'object') {
+    q.mat = { cimento:{on:true,qty:0,preco:38,unid:'sc'}, areia:{on:true,qty:0,preco:200,unid:'m³'},
+              brita:{on:true,qty:0,preco:220,unid:'m³'}, argamassa:{on:true,qty:0,preco:32,unid:'sc'},
+              cola:{on:true,qty:0,preco:48,unid:'sc'}, rejunte:{on:true,qty:0,preco:14,unid:'kg'},
+              ferro:{on:true,qty:0,preco:14,unid:'kg'}, tijolos:{on:false,qty:0,preco:1.20,unid:'un'},
+              frete:{on:true,vlr:0} };
+  }
+
+  // ── estrutura
+  if (!q.estrutura || typeof q.estrutura !== 'object') {
+    q.estrutura = { fundacao:{on:true,m3:0,preco:350}, paredes:{on:true,m2:0,preco:280},
+                    laje:{on:true,m2:0,preco:320}, reforco:{on:true,kg:0,preco:14},
+                    concreto:{on:true,m3:0,preco:420} };
+  }
+
+  // ── acab
+  if (!q.acab || typeof q.acab !== 'object') {
+    q.acab = { bisote:{on:false,ml:0,custo:0,venda:0}, polimento:{on:false,m2:0,custo:0,venda:0},
+               resinagem:{on:false,m2:0,custo:0,venda:0}, chanfro:{on:false,ml:0,custo:0,venda:0} };
+  }
+
+  // ── lapide, cruz, foto
+  if (!q.lapide || typeof q.lapide !== 'object')
+    q.lapide = {on:false,tipo:'padrao',custo:280,venda:480,linhas:4,custoPorLinha:35,vendaPorLinha:60,texto:''};
+  if (!q.cruz || typeof q.cruz !== 'object')
+    q.cruz = {on:false,tipo:'granito',modelo:'simples',custo:0,venda:0};
+  if (!q.foto || typeof q.foto !== 'object')
+    q.foto = {on:false,custo:0,venda:0};
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // LÁPIDE DUPLA — DIAGRAMA DE CORTE TRANSVERSAL (SVG)
 // ══════════════════════════════════════════════════════════════════════
 function _lapDupSvg(ld) {
@@ -334,6 +427,7 @@ function tumInit() { renderTum(); }
 function renderTum() {
   var pg = document.getElementById('pg9');
   if (!pg) return;
+  tumPatchQ();
   _tumAutoCalc();
   TUM.calc = _tumCalc();
   pg.innerHTML =
@@ -1554,6 +1648,7 @@ function _tumCalc() {
 // AUTO-CÁLCULO — preenche áreas e quantidades automaticamente
 // ══════════════════════════════════════════════════════════════════════
 function _tumAutoCalc() {
+  tumPatchQ();
   var q   = TUM.q;
   var d   = q.dims;
   var gav = q.gavetas;
