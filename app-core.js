@@ -1766,6 +1766,12 @@ function calcular(){
         if(pend && pend.r && pend.r.valor_vista > 0){
           a.tumResult  = pend.r;
           a.tumPendOrc = pend;
+          // ── SYNC: pedra escolhida no Túmulo → amb.selMat (fix "sempre Via Láctea") ──
+          if (pend.r.mat && pend.r.mat.id) {
+            a.selMat = pend.r.mat.id;
+            selMat   = pend.r.mat.id;
+            try { localStorage.setItem('hr_last_mat', pend.r.mat.id); } catch(e){}
+          }
         } else {
           // Motor não calculou - formulário incompleto (medidas faltando)
           toast('⚠ Túmulo: preencha Comprimento e Largura para calcular');
