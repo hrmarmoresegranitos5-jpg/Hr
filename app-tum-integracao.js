@@ -579,6 +579,26 @@ function tumSincPedrasGlobais() {
     if (!cfg.juros)   cfg.juros   = 12;
     localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
   } catch(e) {}
+
+  // ── Reparar ambientes com tumSEL.matId inválido (corrompidos pelo bug anterior) ──
+  // Se um orçamento de túmulo foi salvo com matId de uma pedra que não existe mais
+  // no catálogo (ex.: 'andorinha' hardcoded), corrigir agora enquanto temos o
+  // catálogo real em mãos.
+  try {
+    if (typeof ambientes !== 'undefined' && Array.isArray(ambientes)) {
+      var stoneIds = stones.map(function(s){ return s.id; });
+      ambientes.forEach(function(amb) {
+        if (amb && amb.tumSEL && amb.tumSEL.matId) {
+          if (stoneIds.indexOf(amb.tumSEL.matId) === -1) {
+            // matId inválido — escolher melhor substituto
+            var gabriel = stones.find(function(s){ return s.id === 'p_gabriel' || s.nm.toLowerCase().indexOf('gabriel') >= 0; });
+            var preto   = stones.find(function(s){ return (s.cat || '').toLowerCase().indexOf('preto') >= 0; });
+            amb.tumSEL.matId = (gabriel || preto || stones[0]).id;
+          }
+        }
+      });
+    }
+  } catch(e) {}
 }
 
 // ══════════════════════════════════════════════════════
