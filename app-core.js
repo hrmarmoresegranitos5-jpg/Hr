@@ -2149,7 +2149,10 @@ function calcular(){
   var ambSnap=ambientes.map(function(a){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
+  // Para Túmulos: incluir pendOrc do módulo inline para o PDF usar os dados corretos
+  var _tumAmb = ambientes.find(function(a){ return a.tipo === 'Túmulo' && a.tumPendOrc; });
+  var _tumPend = _tumAmb ? _tumAmb.tumPendOrc : null;
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,tum:_tumPend?true:undefined,tumPendOrc:_tumPend||undefined};
   DB.q.unshift(q);DB.sv();pendQ=q;
 }
 function selectQuote(){
@@ -2219,6 +2222,16 @@ function _copiarModal(t){
 
 function gerarPDF(){
   if(!pendQ){toast('Calcule um orçamento primeiro');return;}
+
+  // ── Se há ambiente Túmulo com dados do módulo inline, usar a impressão dele ──
+  // O módulo inline já gerou o layout no #printArea via gerarPrintArea()
+  var hasTumInline = ambientes.some(function(a){
+    return a.tipo === 'Túmulo' && a.tumPendOrc;
+  });
+  if (hasTumInline && typeof window._TI_imprimirPDF === 'function') {
+    window._TI_imprimirPDF();
+    return;
+  }
   // Load PDF libs on-demand if not already loaded
   if(typeof html2canvas==='undefined'||typeof window.jspdf==='undefined'){
     toast('Carregando bibliotecas PDF...');
@@ -3540,6 +3553,11 @@ function lastEnd(){var a=DB.j.filter(function(j){return !j.done&&j.end;}).sort(f
 // ═══════════════════════════════════════════════
 // ── GERADOR DE PDF PARA TÚMULOS ──
 function gerarPDFTumulo(q){
+  // ── Se dados vêm do módulo inline (tumPendOrc), usar impressão inline ──
+  if (q.tumPendOrc && typeof window._TI_loadAndPrint === 'function') {
+    window._TI_loadAndPrint(q.tumPendOrc);
+    return;
+  }
   if(typeof html2canvas==='undefined'||typeof window.jspdf==='undefined'){
     toast('Carregando bibliotecas PDF...');
     var s1=document.createElement('script');
