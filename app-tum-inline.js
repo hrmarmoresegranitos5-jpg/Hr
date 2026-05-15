@@ -40,14 +40,13 @@ var DEF_CFG = {
   mob: { pedreiro:280, ajudante:160, instalacao:300, montagem:280, transporte:200 },
   civil: { cimento:38, areia:120, brita:150, argamassa:28, ferro38:42, ferro516:28, malha:45, blocos:4.5 },
   groqKey: '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',
+  // Pedras de fallback — substituídas pelo catálogo global (CFG.stones) ao montar
   pedras: [
-    { id:'p_gabriel', nm:'Preto São Gabriel', cat:'Popular', pr:180, peso:2750, esp:2 },
-    { id:'cinza_and', nm:'Cinza Andorinha',   cat:'Popular', pr:170, peso:2700, esp:2 },
-    { id:'branco_si', nm:'Branco Siena',      cat:'Médio',   pr:220, peso:2680, esp:2 },
-    { id:'verde_lab', nm:'Verde Labrador',    cat:'Médio',   pr:240, peso:2800, esp:2 },
-    { id:'absoluto',  nm:'Absoluto Negro',    cat:'Premium', pr:380, peso:2820, esp:2 },
-    { id:'carrara',   nm:'Mármore Carrara',   cat:'Premium', pr:420, peso:2600, esp:2 },
-    { id:'quartzito', nm:'Quartzito Branco',  cat:'Premium', pr:460, peso:2650, esp:2 }
+    { id:'p_gabriel', nm:'Preto São Gabriel', cat:'Granito Preto', pr:500,  peso:2950, esp:3 },
+    { id:'andorinha', nm:'Cinza Andorinha',   cat:'Granito Cinza', pr:320,  peso:2720, esp:3 },
+    { id:'branco_si', nm:'Branco Siena',      cat:'Granito Branco',pr:580,  peso:2650, esp:3 },
+    { id:'verde_ub',  nm:'Verde Ubatuba',     cat:'Granito Verde', pr:340,  peso:2820, esp:3 },
+    { id:'via_lactea',nm:'Preto Via Láctea',  cat:'Granito Preto', pr:750,  peso:2950, esp:3 }
   ]
 };
 
@@ -58,6 +57,8 @@ if (!CFG.mob)   CFG.mob   = JSON.parse(JSON.stringify(DEF_CFG.mob));
 if (!CFG.civil) CFG.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
 if (!CFG.pedras)CFG.pedras= JSON.parse(JSON.stringify(DEF_CFG.pedras));
 if (typeof CFG.groqKey === 'undefined') CFG.groqKey = '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';
+// ── Garantir esp=3 em todas as pedras (túmulo usa 3cm como padrão) ──
+CFG.pedras.forEach(function(p){ if (!p.esp || p.esp < 2) p.esp = 3; });
 // Garantir campos escalares — podem estar ausentes se hr_tum_cfg foi gravado
 // parcialmente por tumSincPedrasGlobais() antes da primeira carga completa
 if (CFG.margem  === undefined || CFG.margem  === null) CFG.margem  = DEF_CFG.margem;
@@ -1061,7 +1062,7 @@ function buildMatList() {
     h += '<div style="font-size:.64rem;font-weight:700;color:var(--tx);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+p.nm+'</div>';
     h += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;">';
     h += '<span style="font-size:.46rem;color:var(--t4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:54%;">'+(p.fin||'Polida')+'</span>';
-    h += '<span style="font-size:.55rem;color:var(--gold2);font-weight:600;white-space:nowrap;">R$'+(p.pr||0).toLocaleString('pt-BR')+'</span>';
+    h += '<span style="font-size:.52rem;color:var(--gold2);font-weight:600;white-space:nowrap;">R$'+(p.pr||0).toLocaleString('pt-BR')+'/m²</span>';
     h += '</div></div></div>';
   });
 
@@ -2047,26 +2048,47 @@ function renderResultado(o) {
     return '<span>'+m+'</span>';
   }).join('');
 
-  // Grid de resumo
-  var espMult = {2:'1.00',3:'1.35',4:'1.70',5:'2.10'};
-  var grid = [
-    { lbl:'m² Revestimento', val:r.m2_total.toFixed(3)+' m²', cl:'', sub:r.m2_bruto.toFixed(3)+' bruto · perda '+r.perdaFinal+'%' },
-    { lbl:'m lineares bordas', val:r.ml_total.toFixed(2)+' ml', cl:'', sub:r.acab.nm },
-    { lbl:'Peso aprox.', val:Math.round(r.peso_total)+' kg', cl:'', sub:r.d.E+'cm esp. · '+r.mat.peso+' kg/m³' },
-    { lbl:'Custo Pedra', val:'R$ '+_TI_fm(r.custo_pedra), cl:'gold', sub:r.mat.nm },
-    { lbl:'Material Civil', val:'R$ '+_TI_fm(r.civil.custo), cl:'', sub:r.ts.nm },
-    { lbl:'Mão de Obra', val:'R$ '+_TI_fm(r.custo_mob), cl:'', sub:r.ts.nm },
-    { lbl:'Acabamentos', val:'R$ '+_TI_fm(r.custo_acabamento), cl:'', sub:r.acab.nm },
-    { lbl:'Custo Total', val:'R$ '+_TI_fm(r.custo_total), cl:'', sub:'Sem lucro' },
-    { lbl:'Margem '+CFG.margem+'%', val:'R$ '+_TI_fm(r.margem_reais), cl:'grn', sub:'Lucro estimado' }
+  // ── Grid de resumo REORGANIZADO ────────────────────────────
+  // Agrupa por MATERIAL / SERVIÇO / FINANCEIRO para clareza
+  var _fn = function(v){ return _TI_fm(v); };
+
+  // Linha 1: dados técnicos
+  var gridTec = [
+    { lbl:'Material',        val: r.mat.nm,                         cl:'gold', sub: r.mat.pr.toLocaleString('pt-BR')+'/m² · '+r.d.E+'cm esp.' },
+    { lbl:'Acabamento',      val: r.acab.nm,                        cl:'',     sub: r.ml_total.toFixed(1)+' ml de borda' },
+    { lbl:'Área de pedra',   val: r.m2_total.toFixed(3)+' m²',     cl:'',     sub: r.m2_bruto.toFixed(3)+' bruto · +'+r.perdaFinal+'% perda' },
+    { lbl:'Peso aprox.',     val: Math.round(r.peso_total)+' kg',   cl:'',     sub: r.d.E+'cm · '+r.mat.peso+' kg/m³' },
   ];
+
+  // Linha 2: custos
+  var gridCusto = [
+    { lbl:'Custo Pedra',     val:'R$ '+_fn(r.custo_pedra),          cl:'gold', sub: r.mat.nm+' × '+r.m2_total.toFixed(2)+'m²' },
+    { lbl:'Acabamento',      val:'R$ '+_fn(r.custo_acabamento),     cl:'',     sub: r.acab.prML > 0 ? 'R$ '+r.acab.prML+'/ml × '+r.ml_total.toFixed(1)+'ml' : 'Incluso' },
+    { lbl:'Material Civil',  val:'R$ '+_fn(r.civil.custo),          cl:'',     sub: r.ts.nm },
+    { lbl:'Mão de Obra',     val:'R$ '+_fn(r.custo_mob),            cl:'',     sub: r.prazo_total+' dias úteis' },
+  ];
+  if (r.custo_extras > 0) {
+    gridCusto.push({ lbl:'Extras/Opcionais', val:'R$ '+_fn(r.custo_extras), cl:'', sub:'Cruz, foto, jarro...' });
+  }
+  gridCusto.push({ lbl:'Custo Total',    val:'R$ '+_fn(r.custo_total),    cl:'',     sub:'Sem lucro' });
+  gridCusto.push({ lbl:'Margem '+CFG.margem+'%', val:'R$ '+_fn(r.margem_reais), cl:'grn', sub:'Lucro estimado' });
+
   var gh = '';
-  grid.forEach(function(g) {
+  // Seção técnica
+  gh += '<div style="font-size:.55rem;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:4px 0 8px;grid-column:1/-1">📐 Técnico</div>';
+  gridTec.forEach(function(g) {
     gh += '<div class="res-card"><div class="res-lbl">'+g.lbl+'</div>'
-        + '<div class="res-val '+(g.cl||'')+'" style="font-size:.9rem">'+g.val+'</div>'
+        + '<div class="res-val '+(g.cl||'')+'" style="font-size:.82rem;line-height:1.2">'+g.val+'</div>'
         + '<div class="res-sub">'+(g.sub||'')+'</div></div>';
   });
-  _gel('rGrid').innerHTML = gh;
+  // Seção custos
+  gh += '<div style="font-size:.55rem;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:10px 0 8px;grid-column:1/-1">💰 Composição de Custos</div>';
+  gridCusto.forEach(function(g) {
+    gh += '<div class="res-card"><div class="res-lbl">'+g.lbl+'</div>'
+        + '<div class="res-val '+(g.cl||'')+'" style="font-size:.82rem;line-height:1.2">'+g.val+'</div>'
+        + '<div class="res-sub">'+(g.sub||'')+'</div></div>';
+  });
+  _gel('rGrid').innerHTML = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">' + gh + '</div>';
 
   // Detalhamento
   var dh = '';
@@ -2204,8 +2226,8 @@ function gerarTextoWA(o, r) {
   if (o.quad||o.lote) wa += '📌 *Local:* Quadra '+o.quad+' · Lote '+o.lote+'\n';
   wa += '\n';
   wa += '🏗 *Serviço:* '+(o.tipoServNm||'Revestimento')+'\n';
-  wa += '🪨 *Material:* '+o.matNm+'\n';
-  wa += '✨ *Acabamento:* '+o.acabNm+'\n';
+  wa += '🪨 *Material:* '+o.matNm+' (R$ '+r.mat.pr.toLocaleString('pt-BR')+'/m²)\n';
+  wa += '✨ *Acabamento:* '+o.acabNm+(r.acab.prML > 0 ? ' — R$ '+r.acab.prML+'/ml' : ' — incluso')+'\n';
   wa += '📐 *Dimensões:* '+r.d.C_cm+'cm × '+r.d.L_cm+'cm × '+(r.A*100).toFixed(0)+'cm alt.\n';
   wa += '🪣 *Compartimentos:* '+r.d.N+(r.d.N===0?' (simples)':(r.d.N===1?' (1 caixão)':' ('+r.d.N+' caixões)'))+'\n';
   if (r.d.N > 0) {
@@ -3686,9 +3708,19 @@ function tumInlineMount(ambId) {
   var amb = (typeof ambientes !== 'undefined') ? ambientes.find(function(a){ return a.id == ambId; }) : null;
   if (amb && amb.tumSEL) {
     SEL = JSON.parse(JSON.stringify(amb.tumSEL));
+    // Validar matId restaurado — se não existe no catálogo atual, usar fallback inteligente
+    if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
+      var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || (p.nm && p.nm.toLowerCase().indexOf('gabriel') >= 0); });
+      var preto   = CFG.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
+      SEL.matId = (gabriel || preto || CFG.pedras[0]).id;
+    }
   } else {
     // Reset para estado padrão
     SEL = JSON.parse(JSON.stringify(_TI_SEL_DEF));
+    // Garantir matId válido ao inicializar do zero
+    if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
+      SEL.matId = CFG.pedras[0].id;
+    }
   }
   if (amb && amb.tumFlds) {
     var flds = amb.tumFlds;
@@ -3836,9 +3868,14 @@ window.validarForm                          = validarForm;
 window.tumSetPedrasCatalogo = function(pedras) {
   if (!Array.isArray(pedras) || !pedras.length) return;
   CFG.pedras = pedras;
-  // Garantir que matId selecionado ainda existe
+  // Garantir que matId selecionado ainda existe no novo catálogo
+  // Se existia antes, manter (usuário pode ter escolhido manualmente)
+  // Se não existia, usar a primeira pedra da lista
   if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
-    SEL.matId = CFG.pedras[0].id;
+    // Tentar primeiro p_gabriel ou o primeiro preto disponível (mais comum em túmulos)
+    var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || p.nm.toLowerCase().indexOf('gabriel') >= 0; });
+    var preto   = CFG.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
+    SEL.matId = (gabriel || preto || CFG.pedras[0]).id;
   }
 };
 
