@@ -124,17 +124,28 @@ function _renderTumAcessorios(ambId) {
 // ══════════════════════════════════════════════════════
 
 function _buildTumPedrasGlobal() {
-  // Retorna lista de pedras do catálogo global (CFG.stones) no formato
-  // compatível com o motor do túmulo — inclui photo/tx/fin para o carousel
   if (typeof CFG === 'undefined' || !CFG.stones) return [];
+
+  // Mapa de peso real por categoria de pedra (kg/m3)
+  var PESO_CAT = {
+    'Granito Preto': 2950, 'Granito Cinza': 2720, 'Granito Verde': 2820,
+    'Granito Branco': 2650, 'Granito Bege': 2680, 'Granito': 2750,
+    'Quartzito': 2650, 'Marmore': 2600, 'Nano': 2400, 'Porcelanato': 2300
+  };
+
   return CFG.stones.map(function(s) {
+    var pesoBase = 2750;
+    var cat = s.cat || '';
+    Object.keys(PESO_CAT).forEach(function(k) {
+      if (cat.indexOf(k) >= 0) pesoBase = PESO_CAT[k];
+    });
     return {
       id:    s.id,
       nm:    s.nm,
-      cat:   s.cat || 'Geral',
+      cat:   cat || 'Geral',
       pr:    s.pr,
-      peso:  s.peso || 2700,
-      esp:   s.esp || 2,
+      peso:  s.peso || pesoBase,
+      esp:   s.esp || 3,
       photo: s.photo || '',
       tx:    s.tx    || '',
       fin:   s.fin   || 'Polida',
@@ -550,20 +561,24 @@ function _hookTumCalcFinal(ambId) {
 // ══════════════════════════════════════════════════════
 
 function tumSincPedrasGlobais() {
-  // Injeta as pedras do catálogo global (CFG.stones) no CFG interno do IIFE
-  // Isso faz o seletor de material do túmulo mostrar as mesmas pedras do ERP
   var stones = _buildTumPedrasGlobal();
   if (!stones.length) return;
 
-  // 1. Sync DIRETO na memória do IIFE (funciona mesmo após o IIFE já ter sido inicializado)
+  // Sync DIRETO na memória do IIFE
   if (typeof window.tumSetPedrasCatalogo === 'function') {
     window.tumSetPedrasCatalogo(stones);
   }
 
-  // 2. Também persiste no localStorage para que na próxima carga já venha certo
-  var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
-  cfg.pedras = stones;
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
+  // Persiste no localStorage SEM sobrescrever margem/mob/civil/etc
+  try {
+    var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
+    cfg.pedras = stones;
+    // Preservar campos escalares se já existirem
+    if (!cfg.margem)  cfg.margem  = 35;
+    if (!cfg.parcMax) cfg.parcMax = 8;
+    if (!cfg.juros)   cfg.juros   = 12;
+    localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
+  } catch(e) {}
 }
 
 // ══════════════════════════════════════════════════════
