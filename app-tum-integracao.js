@@ -544,6 +544,12 @@ function _hookTumCalcFinal(ambId) {
   if (amb) {
     amb.tumResult = pendOrc.r;
     amb.tumPendOrc = pendOrc;
+    // ── SYNC: pedra do motor túmulo → amb.selMat do orçamento principal ──
+    if (pendOrc.r && pendOrc.r.mat && pendOrc.r.mat.id) {
+      amb.selMat = pendOrc.r.mat.id;
+      if (typeof selMat !== 'undefined') { selMat = pendOrc.r.mat.id; }
+      try { localStorage.setItem('hr_last_mat', pendOrc.r.mat.id); } catch(e){}
+    }
     // Popular amb.pecas com as peças do túmulo para que o PDF principal as liste
     var pecasAuto = tumGerarPecasAuto(ambId);
     if (pecasAuto.length > 0) {

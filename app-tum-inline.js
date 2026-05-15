@@ -1080,6 +1080,13 @@ function selMat(id) {
   buildMatList();
   atualizarEspessuraDaPedra();
   _TI_calcular();
+  // ── SYNC: atualiza amb.selMat do orçamento principal imediatamente ──
+  // Sem isso, calcular() do app-core usa a pedra errada (Via Láctea / padrão)
+  if (_TI_ambId && typeof ambientes !== 'undefined') {
+    var _syncAmb = ambientes.find(function(a){ return a.id == _TI_ambId; });
+    if (_syncAmb) { _syncAmb.selMat = id; }
+  }
+  try { localStorage.setItem('hr_last_mat', id); } catch(e){}
 }
 
 function atualizarEspessuraDaPedra() {
