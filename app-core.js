@@ -408,7 +408,31 @@ window.aplicarEstiloNi=function(){
     return;
   }
 
-  selMat = CFG.stones[0].id;
+  // ── selMat: carrega do localStorage (não reseta para Cinza Nobre a cada reload) ──
+  var _savedMat = null;
+  try { _savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
+  selMat = (_savedMat && CFG.stones.find(function(s){return s.id===_savedMat;}))
+    ? _savedMat
+    : (CFG.stones && CFG.stones.length ? CFG.stones[0].id : null);
+
+  // ── Bridge bidirecional: pedra do módulo Túmulos ↔ selMat global ──
+  window.tumSyncMat = function(stoneId) {
+    if (!stoneId) return;
+    selMat = stoneId;
+    try { localStorage.setItem('hr_last_mat', stoneId); } catch(e){}
+    if (ambientes && ambientes.length) {
+      ambientes.forEach(function(a) { a.selMat = stoneId; });
+    }
+  };
+  window.addEventListener('load', function() {
+    if (typeof tumPickStone === 'function') {
+      var _orig = tumPickStone;
+      window.tumPickStone = function(id) {
+        _orig(id);
+        window.tumSyncMat(id);
+      };
+    }
+  });
   var now=new Date();
   document.getElementById('hdrDate').textContent=now.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'});
   document.getElementById('jStart').value=td();
@@ -595,7 +619,19 @@ function buildMat(){
   renderAmbientes();
   console.log('renderAmbientes OK');
 }
-function pickMat(id){selMat=id;}
+function pickMat(id){
+  selMat = id;
+  // Persiste escolha para não resetar no reload
+  try { localStorage.setItem('hr_last_mat', id); } catch(e){}
+  // Sincroniza TODOS os ambientes (garante calcular() usar a pedra correta)
+  if (ambientes && ambientes.length) {
+    ambientes.forEach(function(a) { a.selMat = id; });
+  }
+  // Atualiza visual do picker global se existir
+  document.querySelectorAll('[data-mat]').forEach(function(c) {
+    c.classList.toggle('on', c.dataset.mat === id);
+  });
+}
 
 // ═══ SERVIÇOS ═══
 
@@ -885,14 +921,16 @@ function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
   amb.selMat=stoneId;
+  // Sincroniza o selMat global também (calcular() usa ambos)
+  selMat = stoneId;
+  try { localStorage.setItem('hr_last_mat', stoneId); } catch(e){}
   var car=document.getElementById('mcar-'+ambId);
   if(car)car.outerHTML=buildMatCarouselHtml(amb);
   var ind=document.getElementById('mind-'+ambId);
   if(ind){
     var s=CFG.stones.find(function(x){return x.id===amb.selMat;});
-    ind.innerHTML=s
-      ?s.nm+' <span style="color:var(--gold2);">R$'+s.pr.toLocaleString('pt-BR')+'/m²</span>'
-      :'<span style="color:var(--t4);">selecione uma pedra</span>';
+    ind.innerHTML=s?s.nm+' · <span style="color:var(--gold2);">R$ '+s.pr.toLocaleString('pt-BR')+'/m²</span>'
+                   :'<span style="color:var(--t4);">selecione uma pedra</span>';
   }
 }
 function buildMatBarHtml(amb){return '';}
@@ -964,7 +1002,12 @@ function buildMatCarouselHtml(amb){
 
 function addAmbiente(){
   var id=Date.now();
-  var defaultMat=ambientes.length>0?ambientes[ambientes.length-1].selMat:(selMat||null);
+  // Herda pedra do último ambiente OU do localStorage OU do primeiro do catálogo
+  var savedMat = null;
+  try { savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
+  var defaultMat = ambientes.length > 0
+    ? ambientes[ambientes.length-1].selMat
+    : (savedMat || selMat || null);
   ambientes.push({id:id,tipo:'Cozinha',pecas:[],selCuba:null,svState:{},acState:{},selMat:defaultMat});
   addPecaAmb(id);
   renderAmbientes();
