@@ -1712,6 +1712,7 @@ function togSV(k,ambId){
   g.forEach(function(grp){grp.its.forEach(function(i){if(i.k===k)it=i;});});
   if(!it)return;
   if(it.u==='info')return; // apenas informativo, não togável
+  if(sv[k]){
     delete sv[k];
     if(it.u==='cuba')amb.selCuba=null;
   } else {
