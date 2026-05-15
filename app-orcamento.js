@@ -82,6 +82,24 @@ SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
+// ─── DIVISÓRIA WC ────────────────────────────────────────────────
+SV_DEFS['🚽 Divisória WC']=[
+  {g:'Recortes',its:[
+    {k:'div_recorte', l:'Recorte de Abertura (embaixo)', u:'un', fx:0}
+  ]},
+  {g:'Instalação',its:[
+    {k:'div_inst', l:'Instalação c/ Vergalhão Chumbado', u:'un', fx:0}
+  ]},
+  {g:'⚠️ Não incluso',its:[
+    {k:'div_obs_nota', l:'Porta de Alumínio (fornecimento)', u:'info'},
+    {k:'div_obs_inst', l:'Instalação da Porta', u:'info'}
+  ]},
+  {g:'Deslocamento',its:[
+    {k:'desl_cid', l:'Na cidade', u:'livre'},
+    {k:'desl_for', l:'Fora da cidade', u:'km', fx:0}
+  ]}
+];
+
 // ─── BORDA DE PISCINA ────────────────────────────────────────────
 SV_DEFS['🏊 Borda Piscina']=[
   {g:'Acabamento da Borda',its:[
@@ -174,7 +192,9 @@ var DEF_TUM_SV = {
   tum_pol:   160,  tum_rec:    50, tum_mont:  380, tum_montc: 580,
   // bp_ (borda piscina)
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
-  bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350
+  bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
+  // div_ (divisória wc)
+  div_recorte:80, div_inst:120
 };
 
 function getPr(k){
@@ -377,7 +397,7 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','🏊 Borda Piscina','Rodapé de Box','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -413,6 +433,7 @@ function buildMatCarouselHtml(amb){
     'Túmulo':   ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     '🏊 Borda Piscina':['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Rodapé de Box':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
+    '🚽 Divisória WC':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
     'Outro':    ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto']
   };
   var ordem=PREF[amb.tipo]||PREF['Outro'];
@@ -594,6 +615,19 @@ function renderAmbientes(){
       h+='</div>';
       h+='</div>';
     }
+    if(amb.tipo==='🚽 Divisória WC'){
+      h+='<div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:12px;margin:10px 0;">';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🚽 Como orçar divisórias</div>';
+      h+='<div style="font-size:.65rem;color:var(--t3);line-height:1.8;">';
+      h+='Adicione uma peça para cada tipo de pedra:<br>';
+      h+='• <b>Divisória</b> = painel inteiro (ex: 150×180cm)<br>';
+      h+='• <b>Testeira</b> = peça frontal onde a porta de alumínio é instalada<br>';
+      h+='<br>';
+      h+='Em <b>Serviços</b>, informe a qtd de <b>recortes</b> (abertura embaixo) e <b>instalações</b> com vergalhão.<br>';
+      h+='<span style="color:#e05a5a;font-weight:600;">⚠️ Não incluso:</span> fornecimento de porta e instalação da porta.';
+      h+='</div>';
+      h+='</div>';
+    }
     h+='<div style="margin:10px 0 12px;">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
     h+='<span style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
@@ -696,6 +730,13 @@ function buildSVHtml(amb){
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
       var isOn=!!sv[it.k];
+      // u:'info' = item informativo, não clicável, só exibe aviso
+      if(it.u==='info'){
+        h+='<div style="display:flex;align-items:center;gap:7px;padding:8px 12px;background:rgba(224,90,90,.07);border-left:3px solid #e05a5a;margin:2px 0;border-radius:0 7px 7px 0;">';
+        h+='<span style="font-size:.8rem;">⚠️</span>';
+        h+='<span style="font-size:.72rem;color:#e05a5a;font-weight:500;">'+it.l+' — NÃO incluso</span></div>';
+        return;
+      }
       var hint=it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':'R$ '+pr;
       h+='<div class="svrow'+(isOn?' on':'')+'" data-sv="'+it.k+'" data-amb="'+amb.id+'">';
       h+='<div class="svchk">✓</div><div class="svlbl">'+it.l+'<span class="svph">'+hint+'</span></div></div>';
@@ -755,6 +796,7 @@ function togSV(k,ambId){
   var it=null;
   g.forEach(function(grp){grp.its.forEach(function(i){if(i.k===k)it=i;});});
   if(!it)return;
+  if(it.u==='info')return; // apenas informativo, não togável
   if(sv[k]){
     delete sv[k];
     if(it.u==='cuba')amb.selCuba=null;
