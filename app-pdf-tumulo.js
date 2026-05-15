@@ -16,7 +16,9 @@ function gerarPDFTumulo(q){
   }
 
   var emp=CFG.emp;
-  var tum=q.tum||{};
+  // tum pode ser um objeto completo (app-tumulos) ou apenas `true` (app-tum-integracao)
+  var tum=(q.tum&&typeof q.tum==='object')?q.tum:{};
+  if(!tum.dims||typeof tum.dims!=='object') tum.dims={};
   var res=q.tumCalc||{};
   var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
   var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
@@ -208,7 +210,7 @@ function gerarPDFTumulo(q){
       +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:10px;padding:14px 18px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:120px;">'
         +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:6px;font-weight:900;">PROJETO</div>'
         +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+tipoLabel+'</div>'
-        +'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+tum.dims.comp+'m × '+tum.dims.larg+'m × '+tum.dims.alt+'m</div>'
+        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+(tum.dims.alt||tum.dims.altEst?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
       +'</div>'
     +'</div>'
     +obsBox
@@ -225,7 +227,7 @@ function gerarPDFTumulo(q){
           +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
             +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">ÁREA TOTAL</div>'
             +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2total?(+res.m2total).toFixed(3)+' m²':'—')+'</div>'
-            +(tum.dims.esp?'<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:3px;">Espessura: '+tum.dims.esp+' cm</div>':'')
+            +(tum.dims&&(tum.dims.esp||tum.dims.espTampa)?'<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:3px;">Espessura: '+(tum.dims.esp||tum.dims.espTampa)+' cm</div>':'')
           +'</div>'
         +'</div>'
       +'</div>'
