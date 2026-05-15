@@ -1865,12 +1865,17 @@ function calcular(){
 
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
     var pedTamb=m2*ambMat2.pr;
-    // Para túmulo: usar valor calculado pela calculadora inline
+    // Para túmulo: custo real vem do motor inline (custo_total = sem margem)
+    // O valor_vista do motor já inclui a margem configurada no motor —
+    // guardamos separadamente para usar como preço de venda direto
+    var tumVistaOverride=0;
     if(amb.tipo==='Túmulo' && amb.tumResult && amb.tumResult.valor_vista>0){
-      pedTamb=amb.tumResult.valor_vista;
+      pedTamb=amb.tumResult.custo_total||amb.tumResult.valor_vista;
+      tumVistaOverride=amb.tumResult.valor_vista;
       m2=amb.tumResult.m2_total||0;
     }
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
+    if(tumVistaOverride>0) window._tumVistaOverride=(window._tumVistaOverride||0)+tumVistaOverride-pedTamb;
     allAcN=allAcN.concat(acN);
     var ambLabel=(idx+1)+'º Ambiente — '+tipo;
     detHtml+='<div style="font-size:.62rem;color:var(--gold);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px;">'+ambLabel+'</div>';
@@ -1913,7 +1918,12 @@ function calcular(){
 
   var pedT=totalPedT;
   var bruto=pedT+totalAcT;
-  var vista=bruto;
+  // Se há túmulo com valor_vista próprio (já com margem do motor), ajustar o total de venda:
+  // _tumVistaOverride contém a diferença entre valor_vista e custo_total do túmulo,
+  // ou seja, a margem já embutida — somamos ao bruto para obter o vista correto.
+  var tumAdj=window._tumVistaOverride||0;
+  window._tumVistaOverride=0; // reset para próximo cálculo
+  var vista=bruto+tumAdj;
   var parc=vista*1.12;
   var p8=parc/8,ent=vista/2;
 
@@ -1966,12 +1976,16 @@ function calcular(){
       pi+='<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);opacity:.7;margin-bottom:6px;">'+ambP.tipo+'</div>'+rowsP+'</div>';
     }
   });
+  // Para o painel interno: custo_mob do túmulo vem do tumResult; acessórios comuns = totalAcT
+  var tumMobPainel=ambientes.reduce(function(s,a){return s+((a.tipo==='Túmulo'&&a.tumResult)?a.tumResult.custo_mob||0:0);},0);
+  var mobPainel=totalAcT+tumMobPainel;
+  var custoPainel=pedT+mobPainel;
   pi+='<div style="padding:14px 16px;background:var(--s2);">';
   pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(pedT)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
-  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(pedT+totalAcT)+'</b></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(mobPainel)+'</b></div>';
+  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b style="color:var(--grn);">R$ '+fm(vista-(pedT+totalAcT))+'</b></div></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
   var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
