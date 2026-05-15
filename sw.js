@@ -25,7 +25,7 @@ self.addEventListener('message', function(e) {
 // CÓDIGO ORIGINAL COMENTADO (restaurar após diagnóstico):
 // ══════════════════════════════════════════════════════════
 /*
-var CACHE_VERSION = 'hr-app-v23';
+var CACHE_VERSION = 'hr-app-v24';
 
 // Arquivos do app shell — cacheados para funcionar offline
 var APP_SHELL = [
