@@ -849,7 +849,10 @@ function pickEsculpida(escId, tipo){
   var moTotal=moBase+moExtra;
 
   // Pedra: área removida × preço/m²
-  var mat=CFG.stones.find(function(s){return s.id===selMat;})||{pr:0,nm:''};
+  var _escAmbId = _cubaPickAmbId;
+  var _escAmb = _escAmbId ? ambientes.find(function(a){return a.id==_escAmbId;}) : null;
+  var _escMatId = (_escAmb && _escAmb.selMat) ? _escAmb.selMat : selMat;
+  var mat=CFG.stones.find(function(s){return s.id===_escMatId;})||{pr:0,nm:''};
   var valorPedra=Math.round(aExtra*mat.pr);
   var totalCuba=moTotal+valorPedra;
 
@@ -1704,7 +1707,7 @@ function calcSFAmb(ambId,k){
   var ml=sv.ml||0,altCm=sv.altCm||0,q=sv.q||1;
   if(ml&&altCm){
     var m2=ml*(altCm/100)*q;
-    var mat=CFG.stones.find(function(s){return s.id===selMat;});
+    var mat=CFG.stones.find(function(s){return s.id===(amb.selMat||selMat);});
     var pv=mat?m2*mat.pr:0;
     var mo=ml*q*getPr(k);
     el.innerHTML='<span style="color:var(--grn)">Pedra: '+m2.toFixed(3)+'m² → R$ '+fm(pv)+'</span>  <span style="color:var(--gold2)">M.O.: R$ '+fm(mo)+'</span>';
