@@ -408,12 +408,12 @@ window.aplicarEstiloNi=function(){
     return;
   }
 
-  // ── selMat: carrega do localStorage (não reseta para Cinza Nobre a cada reload) ──
+  // ── selMat global: referência da última pedra usada ──
   var _savedMat = null;
   try { _savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
-  selMat = (_savedMat && CFG.stones.find(function(s){return s.id===_savedMat;}))
-    ? _savedMat
-    : (CFG.stones && CFG.stones.length ? CFG.stones[0].id : null);
+  var _savedMatValid = _savedMat && CFG.stones.find(function(s){return s.id===_savedMat;});
+  selMat = _savedMatValid ? _savedMat : null;
+  if(_savedMat && !_savedMatValid){ try{localStorage.removeItem('hr_last_mat');}catch(e){} }
 
   // ── Bridge bidirecional: pedra do módulo Túmulos ↔ selMat global ──
   window.tumSyncMat = function(stoneId) {
@@ -1005,12 +1005,14 @@ function buildMatCarouselHtml(amb){
 
 function addAmbiente(){
   var id=Date.now();
-  // Herda pedra do último ambiente OU do localStorage OU do primeiro do catálogo
-  var savedMat = null;
-  try { savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
-  var defaultMat = ambientes.length > 0
-    ? ambientes[ambientes.length-1].selMat
-    : (savedMat || selMat || null);
+  // Herda pedra do último ambiente (se tiver) ou da última usada (se válida no catálogo)
+  var defaultMat = null;
+  if(ambientes.length > 0){
+    defaultMat = ambientes[ambientes.length-1].selMat || null;
+  } else {
+    // Primeiro ambiente: usar selMat global só se for válido
+    defaultMat = (selMat && CFG.stones.find(function(s){return s.id===selMat;})) ? selMat : null;
+  }
   ambientes.push({id:id,tipo:'Cozinha',pecas:[],selCuba:null,svState:{},acState:{},selMat:defaultMat});
   addPecaAmb(id);
   renderAmbientes();
@@ -1409,6 +1411,12 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   try{
   var container=document.getElementById('ambientesList');
   if(!container)return;
+  // Validar selMat de cada ambiente — se a pedra não existe mais no catálogo, limpar
+  ambientes.forEach(function(amb){
+    if(amb.selMat && !CFG.stones.find(function(s){return s.id===amb.selMat;})){
+      amb.selMat=null;
+    }
+  });
   var h='';
   ambientes.forEach(function(amb,idx){
     var num=idx+1;
@@ -1772,7 +1780,7 @@ function calcular(){
   var end=document.getElementById('oEnd').value.trim()||'';
   var obs=document.getElementById('oObs').value.trim()||'';
   if(!ambientes.length){toast('Adicione pelo menos um ambiente');return;}
-  var missingMat=ambientes.find(function(a){return !a.selMat && a.tipo!=='Túmulo';});
+  var missingMat=ambientes.find(function(a){return a.tipo!=='Túmulo' && (!a.selMat || !CFG.stones.find(function(s){return s.id===a.selMat;}));});
   if(missingMat){toast('Selecione a pedra de todos os ambientes');renderAmbientes();return;}
   var mat=CFG.stones.find(function(s){return s.id===ambientes[0].selMat;})||CFG.stones[0];
 
@@ -1945,10 +1953,31 @@ function calcular(){
   pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:2px;">'+dtHP+'</div></div>';
   pi+='<div style="padding:12px 16px;border-bottom:1px solid var(--bd);">';
   pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:6px;">Material</div>';
-  pi+='<div style="display:flex;justify-content:space-between;">';
-  pi+='<b style="font-size:.85rem;color:var(--tx);">'+mat.nm+' — '+mat.fin+'</b>';
-  pi+='<b style="color:var(--gold2);">R$ '+fm(mat.pr)+'/m²</b></div>';
-  pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div></div>';
+  // Se todos os ambientes usam a mesma pedra, mostra uma linha; senão mostra por ambiente
+  var ambsNaoTumulo=ambientes.filter(function(a){return a.tipo!=='Túmulo';});
+  var pedrasUnicas=[];
+  ambsNaoTumulo.forEach(function(a){if(a.selMat&&pedrasUnicas.indexOf(a.selMat)===-1)pedrasUnicas.push(a.selMat);});
+  if(pedrasUnicas.length<=1){
+    var matDisplay=CFG.stones.find(function(s){return s.id===pedrasUnicas[0];})||mat;
+    pi+='<div style="display:flex;justify-content:space-between;">';
+    pi+='<b style="font-size:.85rem;color:var(--tx);">'+matDisplay.nm+' — '+matDisplay.fin+'</b>';
+    pi+='<b style="color:var(--gold2);">R$ '+fm(matDisplay.pr)+'/m²</b></div>';
+    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
+  } else {
+    pedrasUnicas.forEach(function(mid){
+      var ms=CFG.stones.find(function(s){return s.id===mid;});
+      if(!ms)return;
+      var ambsComEssa=ambsNaoTumulo.filter(function(a){return a.selMat===mid;});
+      var m2Essa=0;ambsComEssa.forEach(function(a){
+        (a.pecas||[]).forEach(function(p){if(p.w&&p.h)m2Essa+=(p.w/100)*(p.h/100)*(p.q||1);});
+      });
+      pi+='<div style="display:flex;justify-content:space-between;margin-bottom:2px;">';
+      pi+='<span style="font-size:.82rem;color:var(--tx);font-weight:700;">'+ms.nm+'</span>';
+      pi+='<span style="color:var(--gold2);font-weight:700;">R$ '+fm(ms.pr)+'/m²</span></div>';
+    });
+    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área total: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
+  }
+  pi+='</div>';
   var acbNmP={borda_reta:'Borda Reta',borda_45:'Borda 45°',borda_boleada:'Borda Boleada',borda_chf:'Borda Chanfrada',cant:'Cantoneira',rodape:'Rodapé'};
   ambientes.forEach(function(ambP){
     var gP=SV_DEFS[ambP.tipo]||SV_DEFS.Cozinha;
@@ -1999,7 +2028,7 @@ function calcular(){
 
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
-    return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{}))};
+    return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
   DB.q.unshift(q);DB.sv();pendQ=q;
@@ -3772,13 +3801,16 @@ function orcRefazer(id, e) {
     // Orçamento novo: tem snapshot completo dos ambientes
     q.ambSnap.forEach(function(snap,idx){
       var ambId=Date.now()+idx;
+      // selMat: usa o do snap; se não tiver, usa a pedra salva no orçamento (q.mat)
+      var snapMat=snap.selMat||(mat?mat.id:null)||selMat||null;
       ambientes.push({
         id:ambId,
         tipo:snap.tipo||'Cozinha',
-        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1};}) ,
+        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1};}),
         selCuba:snap.selCuba||null,
         svState:JSON.parse(JSON.stringify(snap.svState||{})),
-        acState:JSON.parse(JSON.stringify(snap.acState||{}))
+        acState:JSON.parse(JSON.stringify(snap.acState||{})),
+        selMat:snapMat
       });
     });
   } else {
@@ -3795,7 +3827,9 @@ function orcRefazer(id, e) {
       } else {
         pecas.push({id:Date.now()+Math.random(),desc:'',w:0,h:0,q:1});
       }
-      ambientes.push({id:ambId,tipo:tipo,pecas:pecas,selCuba:null,svState:{},acState:{},selMat:null});
+      // Fallback: usa a pedra que estava no orçamento salvo
+      var fallbackMat=mat?mat.id:selMat||null;
+      ambientes.push({id:ambId,tipo:tipo,pecas:pecas,selCuba:null,svState:{},acState:{},selMat:fallbackMat});
     });
   }
 
