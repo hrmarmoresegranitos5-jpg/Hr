@@ -3704,11 +3704,20 @@ function tumInlineMount(ambId) {
   container.dataset.tumMounted = String(ambId);
   container.innerHTML = '<div class="tum-v14-root">' + _TI_getHTML() + '</div>';
 
+  // ── CRÍTICO: sincronizar catálogo ANTES de restaurar SEL ──────────────────
+  // tumSincPedrasGlobais() popula CFG.pedras com CFG.stones (catálogo global).
+  // A validação de SEL.matId abaixo precisa enxergar as pedras reais do usuário,
+  // não as 5 pedras de fallback do DEF_CFG — que é o que estava em CFG.pedras
+  // antes desta chamada. Mover para cá resolve o bug de "trava em Cinza Andorinha".
+  if (typeof window.tumSincPedrasGlobais === 'function') {
+    window.tumSincPedrasGlobais();
+  }
+
   // Restaurar estado salvo
   var amb = (typeof ambientes !== 'undefined') ? ambientes.find(function(a){ return a.id == ambId; }) : null;
   if (amb && amb.tumSEL) {
     SEL = JSON.parse(JSON.stringify(amb.tumSEL));
-    // Validar matId restaurado — se não existe no catálogo atual, usar fallback inteligente
+    // Validar matId restaurado — agora CFG.pedras já tem o catálogo real
     if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
       var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || (p.nm && p.nm.toLowerCase().indexOf('gabriel') >= 0); });
       var preto   = CFG.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
@@ -3722,6 +3731,10 @@ function tumInlineMount(ambId) {
       SEL.matId = CFG.pedras[0].id;
     }
   }
+  // Manter window.SEL sincronizado com o objeto SEL local recém-criado.
+  // window.SEL = SEL é executado UMA VEZ na carga do script (fim do IIFE) e
+  // não acompanha reassignments subsequentes — portanto atualizar explicitamente.
+  window.SEL = SEL;
   if (amb && amb.tumFlds) {
     var flds = amb.tumFlds;
     Object.keys(flds).forEach(function(id) {
@@ -3735,14 +3748,10 @@ function tumInlineMount(ambId) {
   HIST = JSON.parse(localStorage.getItem('hr_tum_hist') || '[]');
   init();
 
-  // Sincronizar catálogo de pedras do app principal APÓS init()
-  // (init() chama buildPedrasCfg com CFG.pedras interno — precisamos substituir)
-  if (typeof window.tumSincPedrasGlobais === 'function') {
-    window.tumSincPedrasGlobais();
-    buildPedrasCfg(); // re-renderiza a lista já com as pedras corretas
-    buildMatCats();   // atualiza filtros de categoria no seletor de material
-    buildMatList();   // atualiza os botões de seleção de pedra
-  }
+  // Re-renderizar listas de material com o catálogo correto (já sincronizado acima)
+  buildPedrasCfg();
+  buildMatCats();
+  buildMatList();
 }
 
 function tumInlineUnmount() {
@@ -3869,14 +3878,13 @@ window.tumSetPedrasCatalogo = function(pedras) {
   if (!Array.isArray(pedras) || !pedras.length) return;
   CFG.pedras = pedras;
   // Garantir que matId selecionado ainda existe no novo catálogo
-  // Se existia antes, manter (usuário pode ter escolhido manualmente)
-  // Se não existia, usar a primeira pedra da lista
   if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
-    // Tentar primeiro p_gabriel ou o primeiro preto disponível (mais comum em túmulos)
     var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || p.nm.toLowerCase().indexOf('gabriel') >= 0; });
     var preto   = CFG.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
     SEL.matId = (gabriel || preto || CFG.pedras[0]).id;
   }
+  // Manter window.SEL sempre apontando para o objeto SEL corrente do IIFE
+  window.SEL = SEL;
 };
 
 })(); // fim do IIFE
