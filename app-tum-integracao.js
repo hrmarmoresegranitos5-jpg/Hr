@@ -564,26 +564,26 @@ function tumSincPedrasGlobais() {
   var stones = _buildTumPedrasGlobal();
   if (!stones.length) return;
 
-  // ── Preservar pedras adicionadas localmente (via modal "Adicionar Pedra") ──
-  // CFG.stones só contém pedras do catálogo global (app-config.js).
-  // Pedras adicionadas dentro do módulo de túmulo ficam apenas em CFG.pedras/hr_tum_cfg.
-  // Substituir CFG.pedras inteiro apagaria essas pedras locais a cada mount.
-  // Solução: mesclar — stones globais + pedras locais cujo id não existe nas globais.
-  var globalIds = stones.map(function(s){ return s.id; });
-  var localExtras = [];
-  try {
-    var cfgAtual = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null');
-    if (cfgAtual && Array.isArray(cfgAtual.pedras)) {
-      cfgAtual.pedras.forEach(function(p) {
-        if (globalIds.indexOf(p.id) === -1) {
-          localExtras.push(p); // pedra adicionada localmente, não está no catálogo global
-        }
-      });
-    }
-  } catch(e) {}
-  var merged = stones.concat(localExtras);
+  // Buscar pedras locais via API do IIFE (evita ler localStorage,
+  // que pode estar desatualizado em relação ao CFG.pedras em memória)
+  var pedrasLocais = (typeof window.tumGetPedrasLocais === 'function')
+    ? window.tumGetPedrasLocais()
+    : [];
 
-  // Sync DIRETO na memória do IIFE
+  // Ids das pedras vindas do ERP (para não duplicar)
+  var idsERP = {};
+  stones.forEach(function(s) { idsERP[s.id] = true; });
+
+  // Mesclar: pedras do ERP primeiro; depois pedras locais (criadas pelo usuário)
+  // que NÃO existam no ERP — identificadas pelo prefixo "p_" + timestamp
+  var merged = stones.slice();
+  pedrasLocais.forEach(function(p) {
+    if (!idsERP[p.id]) {
+      merged.push(p);
+    }
+  });
+
+  // Sync DIRETO na memória do IIFE com o catálogo mesclado
   if (typeof window.tumSetPedrasCatalogo === 'function') {
     window.tumSetPedrasCatalogo(merged);
   }
@@ -592,27 +592,11 @@ function tumSincPedrasGlobais() {
   try {
     var cfg = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null') || {};
     cfg.pedras = merged;
+    // Preservar campos escalares se já existirem
     if (!cfg.margem)  cfg.margem  = 35;
     if (!cfg.parcMax) cfg.parcMax = 8;
     if (!cfg.juros)   cfg.juros   = 12;
     localStorage.setItem('hr_tum_cfg', JSON.stringify(cfg));
-  } catch(e) {}
-
-  // ── Reparar ambientes com tumSEL.matId inválido ──
-  // Verifica contra merged (globais + locais) para não derrubar pedras locais válidas.
-  try {
-    if (typeof ambientes !== 'undefined' && Array.isArray(ambientes)) {
-      var mergedIds = merged.map(function(s){ return s.id; });
-      ambientes.forEach(function(amb) {
-        if (amb && amb.tumSEL && amb.tumSEL.matId) {
-          if (mergedIds.indexOf(amb.tumSEL.matId) === -1) {
-            var gabriel = merged.find(function(s){ return s.id === 'p_gabriel' || s.nm.toLowerCase().indexOf('gabriel') >= 0; });
-            var preto   = merged.find(function(s){ return (s.cat || '').toLowerCase().indexOf('preto') >= 0; });
-            amb.tumSEL.matId = (gabriel || preto || merged[0]).id;
-          }
-        }
-      });
-    }
   } catch(e) {}
 }
 
