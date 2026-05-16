@@ -1120,10 +1120,25 @@ function rmAmbiente(id){
 function setAmbTipo(id,tipo){
   var amb=ambientes.find(function(a){return a.id==id;});
   if(!amb)return;
+  var oldTipo=amb.tipo;
   amb.tipo=tipo;
   amb.selCuba=null;
   amb.svState={};
   amb.acState={};
+  // Limpar pecas ao trocar tipo — evita contaminação entre tipos
+  amb.pecas=[];
+  // Limpar dados exclusivos do Túmulo inline ao sair do tipo Túmulo
+  if(oldTipo==='Túmulo'&&tipo!=='Túmulo'){
+    delete amb.tumResult;
+    delete amb.tumSEL;
+    delete amb.tumFlds;
+    delete amb.tumPendOrc;
+    delete amb.tumInlineHtml;
+  }
+  // Para ambientes não-túmulo: adicionar 1 peça inicial vazia
+  if(tipo!=='Túmulo'){
+    amb.pecas.push({id:Date.now(),desc:'',w:0,h:0,q:1});
+  }
   var gNew=SV_DEFS[tipo]||SV_DEFS.Cozinha;
   gNew.forEach(function(grp){
     if(grp.its.length>0&&grp.its[0].u==='acb_auto'){
