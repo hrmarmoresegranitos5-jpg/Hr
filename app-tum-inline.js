@@ -1595,6 +1595,12 @@ function calcularFull() {
 
   // ─── TAMPAS: lógica real de marmoraria ────────────────────────────
   // As tampas NÃO ocupam a área total. Ficam recuadas dentro da moldura.
+
+  // Definir dimensões do corpo antes de calcular tampas
+  var Avis    = A - d.Ae;
+  var C_corpo = (d.AvRod > 0) ? d.CUtil : d.C;
+  var L_corpo = (d.AvRod > 0) ? d.LUtil : d.L;
+
   if (SEL.pecas.tampa) {
     var td    = getTampasDims();   // usa getDims() internamente
     var acTampa = ACABAMENTOS.find(function(x){ return x.id===(SEL.tampas.acabTampa||'POL'); }) || acab;
@@ -1648,10 +1654,6 @@ function calcularFull() {
       }
     }
   }
-  var Avis = A - d.Ae;
-  var C_corpo = (d.AvRod > 0) ? d.CUtil : d.C;
-  var L_corpo = (d.AvRod > 0) ? d.LUtil : d.L;
-
   if (SEL.pecas.lat_esq) {
     var a = Avis * L_corpo;
     pecasCalc.push({ nm:'Lateral Esquerda', dim:(Avis*100).toFixed(0)+'×'+Math.round(L_corpo*100)+'cm', m2:a, ml:Avis, prML:acab.prML });
