@@ -2774,82 +2774,114 @@ function verHistorico(i) {
 
 function recarregarOrcamento(i) {
   var o = HIST[i];
-  if (!o) return;
+  if (!o) { toast('Orçamento não encontrado', true); return; }
 
-  // Campos de cliente
-  document.getElementById('iCli').value       = o.cli  || '';
-  document.getElementById('iTel').value       = o.tel  || '';
-  document.getElementById('iCemiterio').value = o.cemi || '';
-  document.getElementById('iCidade').value    = o.cid  || '';
-  document.getElementById('iQuadra').value    = o.quad || '';
-  document.getElementById('iLote').value      = o.lote || '';
-  document.getElementById('iObs').value       = o.obs  || '';
+  // ── 1. CAMPOS DO CLIENTE ────────────────────────────────────────────────
+  function sv(id, val) {
+    var el = document.getElementById(id);
+    if (el && val != null && val !== undefined) el.value = val;
+  }
+  sv('iCli',       o.cli  || '');
+  sv('iTel',       o.tel  || '');
+  sv('iCemiterio', o.cemi || '');
+  sv('iCidade',    o.cid  || '');
+  sv('iQuadra',    o.quad || '');
+  sv('iLote',      o.lote || '');
+  sv('iObs',       o.obs  || '');
 
-  // Restaurar falecidos
+  // ── 2. FALECIDOS ────────────────────────────────────────────────────────
   if (Array.isArray(o.fal) && o.fal.length > 0) {
-    SEL.falecidos = o.fal.map(function(f){
-      return { nome:f.nome||'', nasc:f.nasc||'', obit:f.obit||'', frase:f.frase||'' };
-    });
-  } else if (o.fal && typeof o.fal === 'string') {
-    SEL.falecidos = [{ nome:o.fal, nasc:'', obit:'', frase:'' }];
+    SEL.falecidos = JSON.parse(JSON.stringify(o.fal));
   } else {
     SEL.falecidos = [{ nome:'', nasc:'', obit:'', frase:'' }];
   }
   buildFalecidos();
 
-  if (o.r && o.r.d) {
+  // ── 3. ESTADO SEL COMPLETO (_sel tem prioridade sobre o.r) ─────────────
+  if (o._sel) {
+    var s = o._sel;
+    if (s.tipoServ)   SEL.tipoServ   = s.tipoServ;
+    if (s.matId)      SEL.matId      = s.matId;
+    if (s.acabamento) SEL.acabamento = s.acabamento;
+    if (s.pecas)      Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
+    if (s.tampas)     Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
+    if (s.lapide)     Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
+    if (s.rebaixo)    Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
+    if (s.opts)       Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
+    if (s.adv)        Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
+    if (o.preset)     SEL.preset = o.preset;
+  } else {
+    // Fallback: reconstruir do resultado calculado (formato antigo sem _sel)
+    if (o.r && o.r.mat)  SEL.matId      = o.r.mat.id;
+    if (o.r && o.r.acab) SEL.acabamento = o.r.acab.id;
+    if (o.r && o.r.ts)   SEL.tipoServ   = o.r.ts.id;
+    if (o.preset)         SEL.preset     = o.preset;
+    if (o.r) {
+      if (o.r.nCruz  != null) { SEL.opts.nCruz   = o.r.nCruz;  SEL.opts.cruzGranito = o.r.nCruz  > 0; }
+      if (o.r.nFotos != null) { SEL.opts.nFotos  = o.r.nFotos; SEL.opts.foto_porc   = o.r.nFotos > 0; }
+      if (o.r.nJarros!= null) { SEL.opts.nJarros = o.r.nJarros;SEL.opts.jarro       = o.r.nJarros> 0; }
+    }
+  }
+
+  // ── 4. DIMENSÕES (_dims tem prioridade) ─────────────────────────────────
+  if (o._dims) {
+    var dm = o._dims;
+    sv('mC',          dm.C);
+    sv('mL',          dm.L);
+    sv('mE',          dm.E);
+    sv('mGav',        dm.N);
+    sv('mDisp',       dm.disp);
+    sv('mAe',         dm.Ae);
+    sv('mAb',         dm.Ab);
+    sv('mHcomp',      dm.Hc);
+    sv('mHlaje',      dm.Hl);
+    sv('mLapW',       dm.LapW);
+    sv('mLapH',       dm.LapH);
+    sv('mAlturaFinal',dm.altFinal);
+    if (dm.AvRod != null) {
+      sv('mAvRodape', dm.AvRod);
+      if (SEL.rebaixo) SEL.rebaixo.avRodape = dm.AvRod;
+    }
+  } else if (o.r && o.r.d) {
     var d = o.r.d;
-    document.getElementById('mC').value   = d.C_cm   || Math.round(d.C   * 100);
-    document.getElementById('mL').value   = d.L_cm   || Math.round(d.L   * 100);
-    document.getElementById('mE').value   = d.E;
-    document.getElementById('mGav').value = d.N;
-    document.getElementById('mAe').value  = d.Ae_cm  || Math.round(d.Ae  * 100);
-    document.getElementById('mAb').value  = d.Ab_cm  != null ? d.Ab_cm : d.Ab;
-    if (document.getElementById('mHcomp'))
-      document.getElementById('mHcomp').value = d.Hc_cm  || Math.round((d.Hcomp ||0.45)*100);
-    if (document.getElementById('mHlaje'))
-      document.getElementById('mHlaje').value = d.Hl_cm  || Math.round((d.Hlaje ||0.08)*100);
-    if (document.getElementById('mLapW'))
-      document.getElementById('mLapW').value  = d.LapW_cm || Math.round((d.LapW  ||0.80)*100);
-    if (document.getElementById('mLapH'))
-      document.getElementById('mLapH').value  = d.LapH_cm || Math.round((d.LapH  ||0.60)*100);
-    if (document.getElementById('mDisp') && d.disp)
-      document.getElementById('mDisp').value = d.disp;
+    sv('mC',    d.C_cm    || Math.round((d.C  ||0)*100));
+    sv('mL',    d.L_cm    || Math.round((d.L  ||0)*100));
+    sv('mE',    d.E);
+    sv('mGav',  d.N);
+    sv('mDisp', d.disp);
+    sv('mAe',   d.Ae_cm   || Math.round((d.Ae ||0)*100));
+    sv('mAb',   d.Ab_cm   != null ? d.Ab_cm : (Math.round((d.Ab||0)*100)));
+    sv('mHcomp',d.Hc_cm   || Math.round((d.Hcomp||0.45)*100));
+    sv('mHlaje',d.Hl_cm   || Math.round((d.Hlaje||0.08)*100));
+    sv('mLapW', d.LapW_cm || Math.round((d.LapW ||0.80)*100));
+    sv('mLapH', d.LapH_cm || Math.round((d.LapH ||0.60)*100));
+    if (d.AvRod != null) {
+      sv('mAvRodape', d.AvRod);
+      if (SEL.rebaixo) SEL.rebaixo.avRodape = d.AvRod;
+    }
   }
 
-  // Restaurar seleções
-  if (o.r && o.r.mat)  { SEL.matId      = o.r.mat.id;  }
-  if (o.r && o.r.acab) { SEL.acabamento = o.r.acab.id; }
-  if (o.r && o.r.ts)   { SEL.tipoServ   = o.r.ts.id;   }
-  if (o.preset)         { SEL.preset     = o.preset;    }
-
-  // Restaurar peças
-  if (o.r && o.r.pecasCalc) {
-    // melhor fonte: SEL.pecas do momento da gravação (não disponível diretamente)
-    // reconstituir a partir do que foi salvo no resultado
-  }
-  // Restaurar opts (nCruz, nFotos, nJarros)
-  if (o.r) {
-    if (o.r.nCruz   != null) SEL.opts.nCruz   = o.r.nCruz;
-    if (o.r.nFotos  != null) SEL.opts.nFotos  = o.r.nFotos;
-    if (o.r.nJarros != null) SEL.opts.nJarros = o.r.nJarros;
-    // Restaurar flags booleanas dos opts a partir do que foi gasto
-    SEL.opts.cruzGranito  = o.r.nCruz   > 0;
-    SEL.opts.foto_porc    = o.r.nFotos  > 0;
-    SEL.opts.jarro        = o.r.nJarros > 0;
-    SEL.opts.cemiterio    = !!(o.r.frete && o.r.frete > (CFG.mob.transporte || 200) + 60);
-  }
-
-  buildPresets();
-  buildTipoServ();
-  buildMatList();
-  buildAcabamentos();
-  buildPecas();
-  buildOpcionais();
+  // ── 5. RECONSTRUIR TODA A UI ────────────────────────────────────────────
+  buildPresets();          // Presets de tipo de túmulo
+  buildTipoServ();         // Tipo de serviço
+  buildAcabamentos();      // Acabamento das bordas
+  buildTampasAcab();       // Acabamento das tampas
+  buildMolduraPresets();   // Moldura / rebaixo
+  buildGradePresets();     // Grade de tampas
+  buildPecas();            // Peças incluídas (toggles)
+  buildOpcionais();        // Itens opcionais
+  buildAvancado();         // Seção avançado
+  buildMatList();          // Lista de materiais (marca selecionado)
   atualizarEspessuraDaPedra();
+  atualizarTampasUI();     // Preview SVG + tabela de tampas
+  mostrarCardLapide();     // Mostra/oculta card lápide
+  buildFalecidos();        // Re-renderiza falecidos (garante)
+
+  // ── 6. CALCULAR E NAVEGAR ───────────────────────────────────────────────
   _TI_calcular();
   showTab('orcamento', document.querySelectorAll('.tab')[0]);
-  toast('✓ Orçamento carregado para edição');
+  window.scrollTo(0, 0);
+  toast('✓ Orçamento carregado — edite e gere novamente');
 }
 
 function copiarWAHist(i) {
