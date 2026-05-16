@@ -32,8 +32,66 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
-  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));localStorage.setItem('hr_b',JSON.stringify(this.b));if(SYNC.on)SYNC.push();}
+  sv:function(){
+    var self=this;
+    // Wrapper robusto — nunca deixa a app travar por quota
+    function trySet(key,val){
+      try {
+        localStorage.setItem(key,JSON.stringify(val));
+      } catch(e) {
+        var isQuota = e.name==='QuotaExceededError'||e.code===22||e.code===1014;
+        if(!isQuota) return;
+        if(key==='hr_q' && self.q.length>1){
+          // Remove as 3 entradas mais antigas e tenta de novo
+          self.q=self.q.slice(0,Math.max(3,self.q.length-3));
+          try { localStorage.setItem(key,JSON.stringify(self.q)); } catch(e2){
+            // Último recurso: remove o tumPendOrc de todas as entradas
+            var stripped=self.q.map(function(q){var c=Object.assign({},q);delete c.tumPendOrc;return c;});
+            try { localStorage.setItem(key,JSON.stringify(stripped)); } catch(e3){}
+          }
+        }
+      }
+    }
+    trySet('hr_q',this.q);
+    trySet('hr_j',this.j);
+    trySet('hr_t',this.t);
+    trySet('hr_b',this.b);
+    if(SYNC.on)SYNC.push();
+  }
 };
+
+// ── Slim tumPendOrc para localStorage ────────────────────────────────────────
+// Remove campos de cálculo desnecessários; mantém apenas o essencial para o PDF
+function _slimTumPendOrc(pend){
+  if(!pend||!pend.r) return null;
+  var r=pend.r;
+  return {
+    cli:pend.cli, tel:pend.tel, cemi:pend.cemi, cid:pend.cid,
+    fal:pend.fal, quad:pend.quad, lote:pend.lote, obs:pend.obs,
+    num:pend.num, date:pend.date,
+    tipoServNm:pend.tipoServNm, matNm:pend.matNm, acabNm:pend.acabNm,
+    preset:pend.preset,
+    r:{
+      d:r.d, A:r.A,
+      ts:{ nm:r.ts?r.ts.nm:'' },
+      // mat: sem photo/img para não pesar
+      mat:r.mat?{id:r.mat.id,nm:r.mat.nm,pr:r.mat.pr,cat:r.mat.cat||'',fin:r.mat.fin||''}:{},
+      acab:r.acab?{nm:r.acab.nm}:{},
+      pecasCalc:r.pecasCalc,
+      m2_bruto:r.m2_bruto, m2_total:r.m2_total, perdaFinal:r.perdaFinal,
+      peso_total:r.peso_total, prazo_total:r.prazo_total,
+      custo_pedra:r.custo_pedra, custo_acabamento:r.custo_acabamento,
+      civil:{ custo:r.civil?(r.civil.custo||0):0 },
+      custo_mob:r.custo_mob, custo_extras:r.custo_extras||0, custo_total:r.custo_total,
+      ml_rebaixo:r.ml_rebaixo||0, m2_laje_ved:r.m2_laje_ved||0,
+      custo_rebaixo:r.custo_rebaixo||0, venda_rebaixo:r.venda_rebaixo||0,
+      custo_laje_ved:r.custo_laje_ved||0, venda_laje_ved:r.venda_laje_ved||0,
+      valor_vista:r.valor_vista, valor_parc:r.valor_parc, parc_mensal:r.parc_mensal,
+      margem_reais:r.margem_reais,
+      nCruz:r.nCruz||0, nFotos:r.nFotos||0, nJarros:r.nJarros||0
+    }
+  };
+}
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
 // ═══ SYNC (Firebase) ═══
@@ -2152,7 +2210,9 @@ function calcular(){
   // Para Túmulos: incluir pendOrc do módulo inline para o PDF usar os dados corretos
   var _tumAmb = ambientes.find(function(a){ return a.tipo === 'Túmulo' && a.tumPendOrc; });
   var _tumPend = _tumAmb ? _tumAmb.tumPendOrc : null;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,tum:_tumPend?true:undefined,tumPendOrc:_tumPend||undefined};
+  // Usar versão slim para não exceder quota do localStorage
+  var _tumPendSlim = _tumPend ? _slimTumPendOrc(_tumPend) : null;
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,tum:_tumPendSlim?true:undefined,tumPendOrc:_tumPendSlim||undefined};
   DB.q.unshift(q);DB.sv();pendQ=q;
 }
 function selectQuote(){
