@@ -1,6 +1,6 @@
 // PWA Service Worker
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js?v=50', { updateViaCache: 'none' }).then(function(reg){
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function(reg){
     // Força verificação imediata de atualização
     reg.update();
     // Quando novo SW estiver esperando, ativa imediatamente
@@ -15,8 +15,11 @@ if('serviceWorker' in navigator){
       }
     });
   }).catch(function(){});
-  // Recarrega quando novo SW assumir
+  // Recarrega quando novo SW assumir (guard anti-loop)
+  var _swReloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(_swReloading) return;
+    _swReloading = true;
     window.location.reload();
   });
 }
