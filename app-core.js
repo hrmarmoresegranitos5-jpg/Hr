@@ -5163,10 +5163,14 @@ function tumSimular(pedraKey, tipoKey) {
   tumInitPrecos();
   var tp     = CFG.tumPrecos;
   var preset = TUM.TIPOS[tipoKey] || TUM.TIPOS['simples'];
-  var d      = preset.dims;
-  var gav    = d.gavetas || 1;
   var pedra  = tp.pedras[pedraKey] || tp.pedras['granito_simples'];
-  var c = d.comp, l = d.larg, a = d.alt;
+
+  // Dimensões: usa TUM.q.dims como base, ou defaults
+  var qd = (TUM && TUM.q && TUM.q.dims) ? TUM.q.dims : {};
+  var c   = qd.comp || 2.20;
+  var l   = qd.larg || 0.90;
+  var a   = preset.altEst || 0.70;
+  var gav = typeof preset.gavetas === 'number' ? preset.gavetas : 1;
 
   // Área com 15% de perda
   var m2Liq   = c*l*2 + c*a*2 + l*a*2;
@@ -5175,23 +5179,23 @@ function tumSimular(pedraKey, tipoKey) {
   // Custo pedra
   var custoPedra = m2Total * pedra.preco;
 
-  // Estrutura baseada no preset
-  var te = tp.estrutura;
+  // Estrutura baseada no preset (usa preset.estrutura em vez de preset.obra)
+  var te   = tp.estrutura;
+  var obra = preset.estrutura || [];
   var custoEst = 0;
-  if (preset.obra.indexOf('fundacao')     > -1) custoEst += te.fundacao     ? te.fundacao.preco     : 0;
-  if (preset.obra.indexOf('levantamento') > -1) custoEst += te.alvenaria_dia ? te.alvenaria_dia.preco * 2 : 0;
-  if (preset.obra.indexOf('concreto')     > -1) custoEst += te.concreto     ? te.concreto.preco     : 0;
-  if (preset.obra.indexOf('gavetas')      > -1 && gav > 1)
+  if (obra.indexOf('fundacao')     > -1) custoEst += te.fundacao      ? te.fundacao.preco      : 0;
+  if (obra.indexOf('paredes')      > -1) custoEst += te.alvenaria_dia ? te.alvenaria_dia.preco * 2 : 0;
+  if (obra.indexOf('concreto')     > -1) custoEst += te.concreto      ? te.concreto.preco      : 0;
+  if (gav > 1)
     custoEst += (gav - 1) * (te.gaveta_extra ? te.gaveta_extra.preco : 650);
 
-  // MO
-  var mo = tp.mdo;
-  var diasMdo = preset.diasMdo || 2;
-  var custoMo = diasMdo * ((mo.marmorista ? mo.marmorista.diaria : 400) + (mo.ajudante ? mo.ajudante.diaria : 220));
-  if (preset.mdo.indexOf('instalacao') > -1) custoMo += mo.instalacao ? mo.instalacao.custo : 200;
-  if (preset.mdo.indexOf('acabamento') > -1) custoMo += mo.acabamento ? mo.acabamento.custo : 120;
-  if (preset.mdo.indexOf('montagem')   > -1) custoMo += mo.montagem   ? mo.montagem.custo   : 200;
-  if (preset.mdo.indexOf('transporte') > -1) custoMo += mo.transporte ? mo.transporte.custo : 100;
+  // MO — usa diasPedreiro / diasMarmorista do preset
+  var mo       = tp.mdo;
+  var diasPed  = preset.diasPedreiro  || 2;
+  var diasMarm = preset.diasMarmorista || 2;
+  var custoMo  = diasPed  * (mo.marmorista ? mo.marmorista.diaria : 400)
+               + diasMarm * (mo.ajudante   ? mo.ajudante.diaria   : 220);
+  custoMo += mo.instalacao ? mo.instalacao.custo : 200;
 
   var custoTotal = custoPedra + custoEst + custoMo;
   var vendaTotal = custoTotal * 1.40;
