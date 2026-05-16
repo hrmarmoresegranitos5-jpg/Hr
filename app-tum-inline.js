@@ -1855,12 +1855,12 @@ function calcularFull() {
   if (SEL.opts.gravacao)     custo_mob += mob.instalacao * 0.3;
   if (SEL.opts.polido_extra && SEL.tipoServ !== 'estrutura') custo_mob += mob.instalacao * 0.2;
 
-  // Alias para compatibilidade com render (armazena custo R$, não dias)
-  var dias_ped  = custo_ped;
-  var dias_ajud = custo_ajud;
-  var dias_inst = custo_inst;
-  var dias_mont = custo_mont;
-  var dias_remocao = custo_remocao;
+  // Dias reais (não custo R$)
+  var dias_ped  = nDias_ped;
+  var dias_ajud = nDias_ajud;
+  var dias_inst = nDiasInst;
+  var dias_mont = nDiasMont;
+  var dias_remocao = custo_remocao > 0 ? Math.ceil(custo_remocao / mob.ajudante) : 0;
 
   // ─── 5. ITENS OPCIONAIS ───────────────────────────────────────────
   var custo_extras = 0;
@@ -2537,7 +2537,7 @@ function gerarPrintArea(o,r){
   p1+='<div style="background:#0f0c00;padding:9px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:9px;color:rgba(201,168,76,.55)">'+esc(emp.nome||'')+' · '+esc(emp.tel||'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.15)">CNPJ: '+esc(emp.cnpj||'—')+'</div></div>';
 
   // ── PAGE 2 ──────────────────────────────────────────────────────────────
-  var p2='<div style="page-break-before:always"></div>';
+  var p2='';
   p2+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
   p2+='<div style="background:#0f0c00;padding:11px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:14px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">DETALHAMENTO TÉCNICO</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
   p2+='<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(o.cli||'—')+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+esc(mat.nm||o.matNm||'—')+'</strong> &nbsp;·&nbsp; '+esc(o.date||'')+'</span></div>';
@@ -4220,6 +4220,7 @@ window._TI_preencherCliente = function(pend){
 // renderFalecidos = buildFalecidos (alias para compatibilidade)
 window.renderFalecidos = buildFalecidos;
 
+window.SEL               = SEL;
 // ── Exports completos da API pública ─────────────────────────────────────
 window.tumInlineUnmount = tumInlineUnmount;
 window.mascaraTel        = mascaraTel;
