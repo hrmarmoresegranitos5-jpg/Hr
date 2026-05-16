@@ -39,8 +39,20 @@ var DEF_CFG = {
   juros: 12,
   mob: { pedreiro:280, ajudante:160, instalacao:300, montagem:280, transporte:200 },
   civil: { cimento:52, areia:160, brita:190, argamassa:35, ferro38:68, ferro516:45, malha:65, blocos:5.8 },
+  // ── Custos Indiretos — valores padrão editáveis em Configurações ──────────
+  ind: {
+    // 1. Consumíveis: discos, brocas, cola, silicone, EPIs
+    consumivel_por_m2: 12,    // R$/m² de pedra cortada
+    // 2. Operacional: energia, combustível, manutenção
+    energia_pct:   1.5,       // % do custo direto total
+    combustivel:   80,        // R$ fixo por obra
+    manutencao_pct: 0.5,      // % do custo direto
+    // 3. Perdas: quebra, sobra, desperdício
+    perdas_pct: 2.5,          // % sobre custo da pedra
+    // 4. Risco técnico: içamento, retrabalho, garantia
+    risco_pct: 2.0            // % sobre custo direto total
+  },
   groqKey: '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',
-  // Pedras de fallback — substituídas pelo catálogo global (CFG.stones) ao montar
   pedras: [
     { id:'p_gabriel', nm:'Preto São Gabriel', cat:'Granito Preto', pr:500,  peso:2950, esp:3 },
     { id:'andorinha', nm:'Cinza Andorinha',   cat:'Granito Cinza', pr:320,  peso:2720, esp:3 },
@@ -64,6 +76,9 @@ CFG.pedras.forEach(function(p){ if (!p.esp || p.esp < 2) p.esp = 3; });
 if (CFG.margem  === undefined || CFG.margem  === null) CFG.margem  = DEF_CFG.margem;
 if (CFG.parcMax === undefined || CFG.parcMax === null) CFG.parcMax = DEF_CFG.parcMax;
 if (CFG.juros   === undefined || CFG.juros   === null) CFG.juros   = DEF_CFG.juros;
+if (!CFG.ind) CFG.ind = JSON.parse(JSON.stringify(DEF_CFG.ind));
+// Garantir que todos os campos de ind existam
+Object.keys(DEF_CFG.ind).forEach(function(k){ if(CFG.ind[k]===undefined)CFG.ind[k]=DEF_CFG.ind[k]; });
 // Migração: garantir campo esp em pedras antigas
 CFG.pedras.forEach(function(p){ if (!p.esp) p.esp = 2; });
 
@@ -81,6 +96,18 @@ var SEL = {
   opts: { cemiterio:false, polido_extra:false, gravacao:false, cruzGranito:false, foto_porc:false, jarro:false, lapide45:false,
           nCruz:1, nFotos:1, nJarros:1 },
   adv: { fatorCem:20 },
+  // ── Custos Indiretos ─────────────────────────────────────────────────────
+  ind: {
+    consumivel: true,        // Discos, brocas, cola, silicone, EPIs
+    operacional: true,       // Energia, combustível, manutenção
+    perdas: true,            // Quebra de pedra, sobra, desperdício
+    risco: true,             // Içamento, retrabalho, garantia
+    // Overrides manuais — 0 = usar cálculo automático dos CFG
+    consumivel_manual: 0,
+    operacional_manual: 0,
+    perdas_manual: 0,
+    risco_manual: 0,
+  },
   falecidos: [{ nome:'', nasc:'', obit:'', frase:'' }],
   // ── CONFIGURAÇÃO DE TAMPAS INDIVIDUAIS ──
   tampas: {
@@ -1516,6 +1543,14 @@ function _TI_calcular() {
   atualizarAreaUtil();
   _TI_injectDynamicUI();
   buildPosicaoPresets();
+  buildCustosIndiretos(r);
+  // Atualizar badge do card indireto
+  var indBadge = document.getElementById('indBadge');
+  if (indBadge && r) {
+    var total_ind = r.custo_ind_total || 0;
+    indBadge.textContent = total_ind > 0 ? 'R$ ' + _TI_fm(total_ind) : '';
+    indBadge.style.display = total_ind > 0 ? 'inline-block' : 'none';
+  }
   if(_TI_ambId)_tumInlineSaveAmb();
 }
 
@@ -1729,79 +1764,118 @@ function calcularFull() {
     custo_acabamento += p.ml * prMLPeca;
   });
 
-  // ─── 3. CONSTRUÇÃO CIVIL ──────────────────────────────────────────
+  // ─── 3. CONSTRUÇÃO CIVIL — ENGENHARIA REAL ──────────────────────────
+  // Referências: NBR 6118 (concreto), prática de marmoraria do Nordeste
+  // traço 1:2:3 para fundação/lajes, blocos de cimento/canaletas 14cm para alvenaria
   var civil = {
     sacos_cimento: 0, m3_areia: 0, m3_brita: 0,
     sacos_argam:   0, barras_f38: 0, barras_f516: 0,
     m2_malha: 0, unid_blocos: 0, custo: 0
   };
 
-  // Argamassa de assentamento: sempre presente quando há revestimento
+  // Argamassa de assentamento do revestimento: sempre presente
+  // Consumo: ~1 saco AC-II (20 kg) por 3,5 m² (espessura 5 mm, fator 1,15 desperdício)
   civil.sacos_argam = Math.ceil((m2_bruto * 1.15) / 3.5);
 
+  // Variáveis de escopo civil (usadas também na MO abaixo)
+  var e_bl = 0.14;           // espessura do bloco/canaleta 14 cm
+  var Perim = 2 * (d.C + d.L); // perímetro externo
+  var N_lajes = Math.max(d.N, 1); // lajes: N-1 divisórias + 1 tampa
+  var Vol_fund = 0, Vol_lajes = 0, m2_blocos_liq = 0;
+  var nDias_fund = 0, nDias_alv = 0, nDias_laje = 0;
+
   if (SEL.tipoServ === 'estrutura') {
-    // Túmulo de marmoraria: estrutura com paredes finas + lajes
-    // NÃO é bloco maciço — tem compartimentos ocos internos
+    // ── FUNDAÇÃO — sapata corrida ─────────────────────────────────────
+    // Largura = bloco (14 cm) + 10 cm cada lado = 34 cm
+    // Profundidade padrão: 50 cm (abaixo do nível do chão)
+    var prof_fund  = 0.50;
+    var larg_fund  = e_bl + 0.20;
+    Vol_fund       = Perim * larg_fund * prof_fund;
 
-    var e_parede   = 0.14;   // espessura parede de bloco 14cm
-    var Perim_base = 2 * (d.C + d.L);
-
-    // Base: apenas anel perimetral de concreto (fundação), não bloco maciço
-    // Volume = perímetro × largura parede × espessura base
-    var Vol_base_anel = Perim_base * e_parede * d.Ae;
-    // Laje de fundo: C × L × 8cm (chão do compartimento)
+    // ── LAJE DE FUNDO — piso do 1º compartimento ─────────────────────
+    // Concreto simples 8 cm sobre brita compactada
     var esp_laje_fundo = 0.08;
     var Vol_laje_fundo = d.C * d.L * esp_laje_fundo;
 
-    // Paredes laterais externas: volume real (não maciço, apenas paredes)
-    // 2 laterais + frente + fundo, cada e_parede de espessura
-    var Vol_paredes = Perim_base * Avis * e_parede;  // Avis = altura visual sem base
+    // ── LAJES DIVISÓRIAS + TAMPA — concreto armado ──────────────────
+    // Espessura concreto = Hlaje − espessura da pedra de revestimento, mínimo 6 cm
+    var esp_laje_conc = Math.max(d.Hlaje - Esp_m, 0.06);
+    Vol_lajes         = d.C * d.L * esp_laje_conc * N_lajes;
 
-    // Lajes de concreto sobre compartimentos (tampa de concreto + divisórias internas)
-    var esp_concreto_laje = Math.max(d.Hlaje - Esp_m, 0.06);
-    var N_lajes_total = Math.max(d.N, 1);  // pelo menos 1 laje (tampa)
-    var Vol_lajes_c   = d.C * d.L * esp_concreto_laje * N_lajes_total;
+    // ── ALVENARIA — blocos de cimento / canaletas ────────────────────
+    // Paredes externas: perímetro × altura visual
+    // 65% efetivo em bloco (35% substituído pelas peças de pedra estruturais)
+    var m2_alvenaria  = Perim * Avis;
+    m2_blocos_liq     = m2_alvenaria * 0.65;
+    // Rendimento: canaleta 14×19×39 cm = ~12,5 unidades/m²
+    civil.unid_blocos = Math.ceil(m2_blocos_liq * 12.5);
 
-    // Total concreto/argamassa estrutural
-    var Vol_total = Vol_base_anel + Vol_laje_fundo + Vol_lajes_c;
+    // ── CONCRETO TOTAL — traço 1:2:3 ────────────────────────────────
+    var Vol_concreto = Vol_fund + Vol_laje_fundo + Vol_lajes;
+    // 7 sacos de cimento (350 kg) por m³, fator de perda 1,05
+    civil.sacos_cimento = Math.ceil(Vol_concreto * 7 * 1.05);
+    // Areia: 0,55 m³ por m³ de concreto
+    civil.m3_areia      = +((Vol_concreto * 0.55).toFixed(2));
+    // Brita: só para fundação e lajes (alvenaria usa argamassa de assentamento)
+    var Vol_brita       = Vol_fund + Vol_lajes;
+    civil.m3_brita      = +((Vol_brita * 0.65).toFixed(2));
 
-    // Área de alvenaria: paredes laterais para blocos
-    var m2_alvenaria = Perim_base * Avis;
+    // ── FERRAGEM — escalonada por geometria real ──────────────────────
+    // Ferro 3/8" — armação longitudinal da fundação + barras das lajes divisórias
+    // Fundação: 4 barras perimétricas (2 inf + 2 sup) + estribos a cada 30 cm
+    var barras_fund_long = 4;
+    var barras_fund_est  = Math.ceil(Perim / 0.30);
+    // Lajes divisórias internas (N-1): 1 barra a cada 25 cm no eixo C
+    var N_div       = Math.max(d.N - 1, 0);
+    var barras_laje_div = Math.ceil(d.C / 0.25) * N_div;
+    civil.barras_f38 = barras_fund_long + barras_fund_est + barras_laje_div;
 
-    // Traço 1:2:3 — 6 sacos cimento por m³ concreto
-    civil.sacos_cimento = Math.ceil(Vol_total * 6);
-    civil.m3_areia      = +(( Vol_total * 0.45 ).toFixed(2));
-    civil.m3_brita      = +(( (Vol_base_anel + Vol_lajes_c) * 0.70 ).toFixed(2));
-    // Blocos apenas nas paredes laterais — descontar aberturas
-    civil.barras_f38    = Math.ceil(Perim_base / 3) + N_lajes_div * 2;
-    civil.barras_f516   = Math.ceil(Avis * 2) + d.N;
-    civil.m2_malha      = d.C * d.L * N_lajes_total;
-    // Blocos: paredes externas × rendimento (~13 blocos/m²), descontando area das peças de pedra (que substituem blocos)
-    var m2_blocos_real = m2_alvenaria * 0.6;  // 40% já será revestimento de pedra, não precisa de bloco por trás
-    civil.unid_blocos   = Math.ceil(m2_blocos_real * 10);
+    // Ferro 5/16" — distribuição nas lajes (perpendicular) + laje tampa (2 direções)
+    // Laje tampa: 1 barra a cada 20 cm nos dois eixos
+    var barras_tampa_c = Math.ceil(d.C / 0.20);
+    var barras_tampa_l = Math.ceil(d.L / 0.20);
+    // Acréscimo p/ altura ≥ 1,5 m (esforço horizontal nas paredes)
+    var acrescimo_alt  = A >= 1.5 ? Math.ceil(Perim / 0.40) : 0;
+    civil.barras_f516  = barras_tampa_c + barras_tampa_l + acrescimo_alt + (d.N >= 3 ? 4 : 0);
 
+    // Malha Q-92 — laje de fundo + todas as lajes de cobertura/divisória
+    civil.m2_malha = +((d.C * d.L * (1 + N_lajes)).toFixed(2));
+
+    // ── CUSTO TOTAL CIVIL ─────────────────────────────────────────────
     var cv = CFG.civil;
     civil.custo =
-      civil.sacos_cimento * cv.cimento +
-      civil.m3_areia      * cv.areia   +
-      civil.m3_brita      * cv.brita   +
+      civil.sacos_cimento * cv.cimento   +
+      civil.m3_areia      * cv.areia     +
+      civil.m3_brita      * cv.brita     +
       civil.sacos_argam   * cv.argamassa +
-      civil.barras_f38    * cv.ferro38  +
-      civil.barras_f516   * cv.ferro516 +
-      civil.m2_malha      * cv.malha    +
+      civil.barras_f38    * cv.ferro38   +
+      civil.barras_f516   * cv.ferro516  +
+      civil.m2_malha      * cv.malha     +
       civil.unid_blocos   * cv.blocos;
 
     if (SEL.opts.cemiterio) civil.custo *= (1 + SEL.adv.fatorCem / 100);
 
+    // ── Dias por fase (usados na MO) ──────────────────────────────────
+    // Fundação: equipe de 2 — rendimento real ~0,8 m³/dia em escavação manual + concretagem
+    nDias_fund = Math.max(1, Math.ceil(Vol_fund / 0.80));
+    // Alvenaria: 1 pedreiro assenta ~8 m²/dia de bloco 14 cm
+    nDias_alv  = Math.max(1, Math.ceil(m2_blocos_liq / 8.0));
+    // Lajes: ~1 dia por laje (forma, armação, concretagem)
+    nDias_laje = Math.max(1, N_lajes);
+
   } else {
-    // Só revestimento ou reforma: apenas argamassa de assentamento
+    // Somente revestimento ou reforma: apenas argamassa de assentamento
     civil.custo = civil.sacos_argam * CFG.civil.argamassa;
     if (SEL.opts.cemiterio) civil.custo *= (1 + SEL.adv.fatorCem / 100);
   }
 
-  // ─── 4. MÃO DE OBRA ──────────────────────────────────────────────
-  // Calculado por DIÁRIAS reais: N dias × N pessoas × valor da diária
-  // Lógica real de marmoraria: complexidade por m², compartimentos e tipo de serviço
+  // ─── 4. MÃO DE OBRA — FASES SEPARADAS ───────────────────────────
+  // Rendimentos de referência (marmoraria, sertão BA):
+  //   Fundação:    ~0,8 m³/dia (2 pessoas)
+  //   Alvenaria:   ~8 m²/dia (1 pedreiro + 1 ajudante)
+  //   Laje:        ~1 laje/dia (concretagem + forma simples)
+  //   Revestimento:~3 m²/dia (1 marmoreiro + 1 ajudante)
+  //   Acabamento:  ~0,5 dia base + complexidade
   var mob = CFG.mob;
   var custo_mob = 0;
   var nDias_ped = 0, nDias_ajud = 0;
@@ -1809,30 +1883,31 @@ function calcularFull() {
   var custo_inst = 0, custo_mont = 0, frete = 0;
   var custo_remocao = 0;
 
-  // Dias de instalação: base real por área e compartimentos
-  // 1 marmoreiro instala ~3m² de pedra por dia em túmulo
-  var nDiasInst  = Math.max(1, Math.ceil(m2_bruto / 3.0 + d.N * 0.25));
-  // Montagem/acabamento: 0,5 dia base + 0,1 por compartimento
-  var nDiasMont  = Math.max(1, Math.ceil(0.5 + d.N * 0.10 + m2_bruto * 0.05));
+  // Instalação do revestimento de pedra (todas as modalidades)
+  // 3 m²/dia em túmulo (ajuste + nível + prumo + cola)
+  // +0,5 dia por compartimento (cada gaveta exige encaixe individual)
+  var nDiasInst = Math.max(1, Math.ceil(m2_bruto / 3.0 + d.N * 0.5));
+
+  // Montagem final: rejunte, limpeza, silicone, acabamento de bordas
+  // 0,5 dia base + 0,15/compartimento + 0,04/m²
+  var nDiasMont = Math.max(1, Math.ceil(0.5 + d.N * 0.15 + m2_bruto * 0.04));
 
   if (SEL.tipoServ === 'rev') {
-    // Só revestimento: 1 instalador + 1 ajudante
-    custo_inst = nDiasInst  * mob.instalacao;
-    custo_mont = nDiasMont  * mob.montagem;
+    // ── SOMENTE REVESTIMENTO ─────────────────────────────────────────
+    custo_inst = nDiasInst * mob.instalacao;
+    custo_mont = nDiasMont * mob.montagem;
     frete      = mob.transporte + (SEL.opts.cemiterio ? 80 : 0);
     custo_mob  = custo_inst + custo_mont + frete;
 
   } else if (SEL.tipoServ === 'estrutura') {
-    // Estrutura completa: equipe de obra + equipe de instalação
-    // Dias de obra civil: mínimo 2 dias, +1,5 por compartimento
-    // Equipe: 1 pedreiro + 1 ajudante por turno
-    nDias_ped  = Math.max(2, Math.ceil(2 + d.N * 1.5));
-    nDias_ajud = nDias_ped;  // 1 ajudante por cada dia do pedreiro
+    // ── ESTRUTURA COMPLETA ───────────────────────────────────────────
+    // Obra civil: pedreiro + ajudante em todas as fases (fund + alv + laje)
+    nDias_ped  = nDias_fund + nDias_alv + nDias_laje;
+    nDias_ajud = nDias_ped; // 1 ajudante acompanha todas as fases
 
-    // Acréscimos por complexidade
-    if (SEL.opts.cemiterio)    { nDias_ped += 1; nDias_ajud += 1; }
-    if (d.N >= 3)              { nDias_ped += 1; nDias_ajud += 1; }
-    if (SEL.pecas.fundo && SEL.pecas.lat_esq && SEL.pecas.lat_dir) { nDias_ped += 1; }
+    // Acréscimos por condicionantes
+    if (SEL.opts.cemiterio) { nDias_ped += 1; nDias_ajud += 1; } // acesso difícil
+    if (A >= 1.8)           { nDias_ped += 1; nDias_ajud += 1; } // andaime necessário
 
     custo_ped  = nDias_ped  * mob.pedreiro;
     custo_ajud = nDias_ajud * mob.ajudante;
@@ -1842,9 +1917,9 @@ function calcularFull() {
     custo_mob  = custo_ped + custo_ajud + custo_inst + custo_mont + frete;
 
   } else {
-    // Reforma: equipe de remoção + equipe de instalação
-    // Remoção: ~4m² removidos por dia
-    var nDiasRemocao = Math.max(1, Math.ceil(m2_bruto / 4.0));
+    // ── REFORMA ──────────────────────────────────────────────────────
+    // Remoção: pedra colada = ~3 m²/dia (mais lento que demolição a seco)
+    var nDiasRemocao = Math.max(1, Math.ceil(m2_bruto / 3.0));
     custo_remocao = nDiasRemocao * mob.ajudante;
     custo_inst    = nDiasInst    * mob.instalacao;
     custo_mont    = nDiasMont    * mob.montagem;
@@ -1855,7 +1930,6 @@ function calcularFull() {
   if (SEL.opts.gravacao)     custo_mob += mob.instalacao * 0.3;
   if (SEL.opts.polido_extra && SEL.tipoServ !== 'estrutura') custo_mob += mob.instalacao * 0.2;
 
-  // Dias reais (não custo R$)
   var dias_ped  = nDias_ped;
   var dias_ajud = nDias_ajud;
   var dias_inst = nDiasInst;
@@ -1872,31 +1946,83 @@ function calcularFull() {
   if (nJarros > 0) custo_extras += nJarros * 280;  // par por unidade marcada
   if (SEL.opts.lapide45) custo_extras += 180;
 
-  // ─── 6. PRAZO ─────────────────────────────────────────────────────
+  // ─── 6. PRAZO — baseado nas fases reais de obra ─────────────────
+  // Fabricação na pedreira: ~6 m²/dia de corte + polimento + 1 dia por compartimento
+  var dias_fabr = Math.ceil(m2_total / 6) + d.N;
   var prazo_total = 0;
-  var dias_fabr   = Math.ceil(m2_total / 6) + d.N;
 
   if (SEL.tipoServ === 'rev') {
-    prazo_total = dias_fabr + Math.ceil(1 + d.N * 0.5);
-    prazo_total = Math.max(prazo_total, 2);
-    prazo_total = Math.min(prazo_total, 6);
-  } else if (SEL.tipoServ === 'estrutura') {
-    var dias_obra2  = 3 + d.N * 2;
-    var dias_cura   = 7;
-    var dias_inst2  = Math.ceil(1 + d.N * 0.5);
-    prazo_total     = Math.max(dias_fabr, dias_obra2) + dias_cura + dias_inst2;
-    prazo_total     = Math.max(prazo_total, 7);
-    prazo_total     = Math.min(prazo_total, 21);
-  } else {
-    prazo_total = dias_fabr + Math.ceil(1.5 + d.N * 0.5);
+    // Só revestimento: fabricação paralela à preparação do local
+    // Prazo = max(fabricação, prep.) + instalação + montagem
+    prazo_total = dias_fabr + nDiasInst + nDiasMont;
     prazo_total = Math.max(prazo_total, 3);
-    prazo_total = Math.min(prazo_total, 8);
+    prazo_total = Math.min(prazo_total, 10);
+
+  } else if (SEL.tipoServ === 'estrutura') {
+    // Estrutura completa: fases em série (obra ≠ fabricação)
+    // Fundação + alvenaria + lajes (obra civil)
+    var dias_obra_civil = nDias_fund + nDias_alv + nDias_laje;
+    // Cura mínima do concreto antes de assentar pedra
+    var dias_cura = 7;
+    // Fabricação e obra civil podem ser parcialmente paralelas
+    // mas a pedra só entra após a cura
+    prazo_total = Math.max(dias_fabr, dias_obra_civil) + dias_cura + nDiasInst + nDiasMont;
+    prazo_total = Math.max(prazo_total, 10);
+    prazo_total = Math.min(prazo_total, 35);
+
+  } else {
+    // Reforma: desmonte + instalação nova
+    var nDiasRemocao2 = Math.max(1, Math.ceil(m2_bruto / 3.0));
+    prazo_total = dias_fabr + nDiasRemocao2 + nDiasInst + nDiasMont;
+    prazo_total = Math.max(prazo_total, 4);
+    prazo_total = Math.min(prazo_total, 12);
   }
-  if (SEL.opts.cemiterio) prazo_total += 1;
+  if (SEL.opts.cemiterio) prazo_total += 2; // logística de cemitério
 
   // ─── 7. TOTAIS ───────────────────────────────────────────────────
-  var custo_total=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)+cr+clv;
-  var valor_vista=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)*(1+CFG.margem/100)+vr+vlv;
+  // ── CUSTOS INDIRETOS ──────────────────────────────────────────────────────
+  var ind = SEL.ind || {};
+  var ci = CFG.ind || DEF_CFG.ind;
+  var custo_direto_base = custo_pedra + custo_acabamento + civil.custo + custo_mob + custo_extras;
+
+  // 1. Consumíveis: discos, brocas, cola, silicone, EPIs
+  var custo_consumivel = 0;
+  if (ind.consumivel) {
+    custo_consumivel = ind.consumivel_manual > 0
+      ? ind.consumivel_manual
+      : +(m2_total * (ci.consumivel_por_m2 || 12)).toFixed(2);
+  }
+
+  // 2. Operacional: energia + combustível + manutenção
+  var custo_operacional = 0;
+  if (ind.operacional) {
+    custo_operacional = ind.operacional_manual > 0
+      ? ind.operacional_manual
+      : +((custo_direto_base * (ci.energia_pct || 1.5) / 100)
+         + (ci.combustivel || 80)
+         + (custo_direto_base * (ci.manutencao_pct || 0.5) / 100)).toFixed(2);
+  }
+
+  // 3. Perdas: quebra de pedra, sobra concreto, recortes
+  var custo_perdas = 0;
+  if (ind.perdas) {
+    custo_perdas = ind.perdas_manual > 0
+      ? ind.perdas_manual
+      : +(custo_pedra * (ci.perdas_pct || 2.5) / 100).toFixed(2);
+  }
+
+  // 4. Risco técnico: içamento, retrabalho, garantia
+  var custo_risco = 0;
+  if (ind.risco) {
+    custo_risco = ind.risco_manual > 0
+      ? ind.risco_manual
+      : +(custo_direto_base * (ci.risco_pct || 2.0) / 100).toFixed(2);
+  }
+
+  var custo_ind_total = +(custo_consumivel + custo_operacional + custo_perdas + custo_risco).toFixed(2);
+
+  var custo_total=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)+cr+clv+custo_ind_total;
+  var valor_vista=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras+custo_ind_total)*(1+CFG.margem/100)+vr+vlv;
   var valor_parc   = valor_vista * (1 + CFG.juros  / 100);
   var parc_mensal  = valor_parc  / CFG.parcMax;
   var margem_reais = valor_vista - custo_total;
@@ -1918,6 +2044,8 @@ function calcularFull() {
     custo_remocao:custo_remocao, dias_remocao:dias_remocao, frete:frete,
     nCruz:nCruz, nFotos:nFotos, nJarros:nJarros,
     custo_extras:custo_extras,custo_total:custo_total,
+    custo_consumivel:custo_consumivel,custo_operacional:custo_operacional,
+    custo_perdas:custo_perdas,custo_risco:custo_risco,custo_ind_total:custo_ind_total,
     ml_rebaixo:mlr,m2_laje_ved:m2lv,custo_rebaixo:cr,venda_rebaixo:vr,custo_laje_ved:clv,venda_laje_ved:vlv,
     valor_vista:valor_vista, valor_parc:valor_parc, parc_mensal:parc_mensal,
     margem_reais:margem_reais,
@@ -1925,9 +2053,93 @@ function calcularFull() {
   };
 }
 
-// ══════════════════════════════════════════════
-// NOVAS FUNÇÕES — Área útil / Posição tampas / UI dinâmica
-// ══════════════════════════════════════════════
+// ── Custos Indiretos ────────────────────────────────────────────────────────
+function buildCustosIndiretos(r) {
+  var card = document.getElementById('cardCustosInd');
+  if (!card) return;
+  var ci = CFG.ind || DEF_CFG.ind;
+  var ind = SEL.ind || {};
+  var m2 = (r && r.m2_total) ? r.m2_total : 0;
+  var direto = r ? (r.custo_pedra||0)+(r.custo_acabamento||0)+(r.civil?r.civil.custo:0)+(r.custo_mob||0)+(r.custo_extras||0) : 0;
+
+  function fv(v){ return 'R$\u00a0' + _TI_fm(v); }
+  function pct(v,base){ return base>0?((v/base)*100).toFixed(1)+'%':'—'; }
+
+  var grupos = [
+    {
+      id:'consumivel', icon:'🔧', lbl:'Consumíveis',
+      sub:'Discos de corte, brocas, cola, silicone, EPIs',
+      auto: +(m2*(ci.consumivel_por_m2||12)).toFixed(2),
+      manual: ind.consumivel_manual||0, on: ind.consumivel,
+      desc:'R$ '+(ci.consumivel_por_m2||12).toFixed(0)+'/m²',
+    },
+    {
+      id:'operacional', icon:'⚡', lbl:'Operacional',
+      sub:'Energia elétrica, combustível, manutenção de equipamentos',
+      auto: +(direto*(ci.energia_pct+ci.manutencao_pct||2)/100+(ci.combustivel||80)).toFixed(2),
+      manual: ind.operacional_manual||0, on: ind.operacional,
+      desc:'Energia '+(ci.energia_pct||1.5)+'% + R$'+(ci.combustivel||80)+' comb.',
+    },
+    {
+      id:'perdas', icon:'📉', lbl:'Perdas',
+      sub:'Quebra de pedra, sobra de concreto, recortes perdidos',
+      auto: +(direto>0?(r?r.custo_pedra||0:0)*(ci.perdas_pct||2.5)/100:0).toFixed(2),
+      manual: ind.perdas_manual||0, on: ind.perdas,
+      desc:(ci.perdas_pct||2.5)+'% sobre custo da pedra',
+    },
+    {
+      id:'risco', icon:'⚠️', lbl:'Risco Técnico',
+      sub:'Içamento, retrabalho, peças pesadas, garantia de instalação',
+      auto: +(direto*(ci.risco_pct||2.0)/100).toFixed(2),
+      manual: ind.risco_manual||0, on: ind.risco,
+      desc:(ci.risco_pct||2.0)+'% sobre custo direto',
+    },
+  ];
+
+  var total = grupos.reduce(function(s,g){
+    if(!g.on) return s;
+    return s + (g.manual>0?g.manual:g.auto);
+  }, 0);
+
+  var html = '';
+  grupos.forEach(function(g) {
+    var val = g.on ? (g.manual>0?g.manual:g.auto) : 0;
+    html += '<div style="border:1px solid var(--bd);border-radius:10px;padding:11px 13px;margin-bottom:8px;background:var(--bg3)">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
+    html += '<div class="tog'+(g.on?' on':'')+'" id="togInd_'+g.id+'" onclick="_togInd(\''+g.id+'\')" style="width:38px;height:22px;flex-shrink:0"></div>';
+    html += '<div><div style="font-size:.8rem;font-weight:600;color:var(--tx)">'+g.icon+' '+g.lbl+'</div>';
+    html += '<div style="font-size:.62rem;color:var(--t4)">'+g.sub+'</div></div>';
+    html += '</div>';
+    html += '<div style="text-align:right"><div style="font-size:.88rem;font-weight:700;color:'+(g.on?'var(--gold2)':'var(--t4)')+'">'+fv(val)+'</div>';
+    html += '<div style="font-size:.6rem;color:var(--t4)">'+pct(val,direto)+'</div></div>';
+    html += '</div>';
+    if (g.on) {
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">';
+      html += '<span style="font-size:.65rem;color:var(--t4);flex:1">Auto: '+g.desc+' = '+fv(g.auto)+'</span>';
+      html += '<div style="display:flex;align-items:center;gap:4px">';
+      html += '<span style="font-size:.62rem;color:var(--t3)">Override R$</span>';
+      html += '<input type="number" min="0" value="'+(g.manual||'')+'" placeholder="0"'
+        +' oninput="SEL.ind.'+g.id+'_manual=+this.value||0;_TI_calcular()"'
+        +' style="width:80px;padding:4px 8px;border-radius:7px;border:1px solid var(--bd2);background:var(--bg4);color:var(--tx);font-size:.78rem;font-family:inherit">';
+      html += '</div></div>';
+    }
+    html += '</div>';
+  });
+
+  // Total
+  html += '<div style="background:rgba(201,168,76,.06);border:1.5px solid rgba(201,168,76,.25);border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">';
+  html += '<div><div style="font-size:.7rem;font-weight:700;color:var(--gold2);text-transform:uppercase;letter-spacing:.06em">Total Indireto</div>';
+  html += '<div style="font-size:.62rem;color:var(--t4)">'+(direto>0?pct(total,direto)+' do custo direto':'')+'</div></div>';
+  html += '<div style="font-size:1.1rem;font-weight:800;color:var(--gold2)">'+fv(total)+'</div></div>';
+
+  card.querySelector('.card-body').innerHTML = html;
+}
+
+function _togInd(grupo) {
+  SEL.ind[grupo] = !SEL.ind[grupo];
+  _TI_calcular();
+}
 
 function atualizarAreaUtil(){
   var d=getDims(), box=document.getElementById('divAreaUtil');
@@ -2103,7 +2315,28 @@ function _TI_injectDynamicUI(){
       matCard.before(lj);
     }
   }
-  // 6. Melhorar labels dos card heads com descrições (run once)
+  // 6. Card Custos Indiretos antes do card Avançado
+  if(!document.getElementById('cardCustosInd')){
+    var allCards3=document.querySelectorAll('.card'), advCard=null;
+    allCards3.forEach(function(card){
+      var t=card.querySelector('.card-title');
+      if(t&&t.textContent&&(t.textContent.indexOf('Avançado')>=0||t.textContent.indexOf('⑨')>=0))advCard=card;
+    });
+    if(advCard){
+      var ciCard=document.createElement('div');ciCard.className='card';ciCard.id='cardCustosInd';
+      ciCard.innerHTML='<div class="card-head">'
+        +'<span class="card-title">⑩ Custos Indiretos</span>'
+        +'<span id="indBadge" class="card-badge" style="background:rgba(212,148,58,.1);color:#d4943a;border-color:rgba(212,148,58,.25)"></span>'
+        +'</div>'
+        +'<div class="card-body">'
+        +'<div class="callout warn" style="font-size:.72rem;margin-bottom:12px">'
+        +'Custos reais que impactam a margem: consumíveis, operacional, perdas e risco técnico. '
+        +'Configure os percentuais em <strong>Configurações → Custos Indiretos</strong>.'
+        +'</div>'
+        +'</div>';
+      advCard.before(ciCard);
+    }
+  }
   if(!document.getElementById('_uiEnhanced')){
     var enhMark=document.createElement('div');
     enhMark.id='_uiEnhanced';enhMark.style.display='none';
@@ -2329,24 +2562,40 @@ function renderResultado(o) {
   dh += '<div class="det-sec">📐 Acabamentos</div>';
   dh += '<div class="det-line"><span class="det-k">'+r.acab.nm+' — '+r.ml_total.toFixed(2)+' ml de borda</span><span class="det-v">R$ '+_TI_fm(r.custo_acabamento)+'</span></div>';
 
+  // ── Material Civil — qtd × R$ unit = subtotal ───────────────────
   dh += '<div class="det-sec">🧱 Material Civil</div>';
-  dh += '<div class="det-line"><span class="det-k">Argamassa assentamento AC2/AC3 <span style="color:var(--t4);font-size:.65rem">('+r.m2_bruto.toFixed(2)+'m² ÷ 3,5 +15%)</span></span><span class="det-v">'+r.civil.sacos_argam+' sacos</span></div>';
-  if (r.ts.id === 'estrutura') {
-    if (r.d.N > 0) {
-      dh += '<div class="det-line"><span class="det-k">Lajes de concreto <span style="color:var(--t4);font-size:.65rem">('+r.d.N+' lajes × '+r.d.Hl_cm+'cm — concreto armado)</span></span><span class="det-v">'+r.d.N+' un.</span></div>';
+  (function() {
+    var cv = r.civil;
+    var p  = CFG.civil;
+    // helper: linha com quantidade, unidade, preço unitário e subtotal
+    function civLn(label, qtd, unit, prUnit, sub) {
+      if (!qtd || qtd <= 0) return;
+      dh += '<div class="det-line">'
+          + '<span class="det-k">' + label
+          + ' <span style="color:var(--t4);font-size:.62rem">'
+          + qtd + ' ' + unit + ' × R$ ' + _TI_fm(prUnit) + '/' + unit
+          + '</span></span>'
+          + '<span class="det-v">R$ ' + _TI_fm(sub) + '</span>'
+          + '</div>';
     }
-    dh += '<div class="det-line"><span class="det-k">Cimento CP-II (traço 1:2:3)</span><span class="det-v">'+r.civil.sacos_cimento+' sacos</span></div>';
-    dh += '<div class="det-line"><span class="det-k">Areia</span><span class="det-v">'+r.civil.m3_areia.toFixed(2)+' m³</span></div>';
-    dh += '<div class="det-line"><span class="det-k">Brita 1</span><span class="det-v">'+r.civil.m3_brita.toFixed(2)+' m³</span></div>';
-    dh += '<div class="det-line"><span class="det-k">Ferro 3/8"</span><span class="det-v">'+r.civil.barras_f38+' barras</span></div>';
-    dh += '<div class="det-line"><span class="det-k">Ferro 5/16"</span><span class="det-v">'+r.civil.barras_f516+' barras</span></div>';
-    if (r.civil.m2_malha > 0) dh += '<div class="det-line"><span class="det-k">Malha Q-92 (lajes)</span><span class="det-v">'+r.civil.m2_malha.toFixed(2)+' m²</span></div>';
-    dh += '<div class="det-line"><span class="det-k">Blocos 14×19×39</span><span class="det-v">'+r.civil.unid_blocos+' un.</span></div>';
-  } else {
-    dh += '<div class="det-line" style="font-size:.72rem;color:var(--t4)"><span class="det-k">Cimento, brita, blocos, ferro, lajes</span><span class="det-v">— não incluso</span></div>';
-  }
-  if (SEL.opts.cemiterio) dh += '<div class="det-line"><span class="det-k">Frete cemitério (+'+SEL.adv.fatorCem+'%)</span><span class="det-v" style="color:var(--amber)">aplicado</span></div>';
-  dh += '<div class="det-line"><span class="det-k">Total material civil</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.civil.custo)+'</span></div>';
+    if (r.ts.id === 'estrutura') {
+      civLn('Blocos de cimento / Canaletas 14×19×39cm', cv.unid_blocos, 'un',   p.blocos,   cv.unid_blocos * p.blocos);
+      civLn('Cimento CP-II (sacos 50 kg)',              cv.sacos_cimento,'saco', p.cimento,  cv.sacos_cimento * p.cimento);
+      civLn('Areia lavada',                             cv.m3_areia,     'm³',  p.areia,    cv.m3_areia * p.areia);
+      civLn('Brita 3/4"',                               cv.m3_brita,     'm³',  p.brita,    cv.m3_brita * p.brita);
+      civLn('Treliça / Malha soldada Q-92',             cv.m2_malha,     'm²',  p.malha,    cv.m2_malha * p.malha);
+      civLn('Ferro 3/8" — alicerce / alvenaria (12m)', cv.barras_f38,  'barra',p.ferro38,  cv.barras_f38 * p.ferro38);
+      civLn('Ferro 5/16" — laje (12m)',                 cv.barras_f516, 'barra',p.ferro516, cv.barras_f516 * p.ferro516);
+    }
+    // Argamassa de assentamento: sempre presente
+    civLn('Argamassa AC-II (sacos 20 kg) — assentamento', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa);
+
+    if (r.ts.id !== 'estrutura') {
+      dh += '<div class="det-line" style="font-size:.72rem;color:var(--t4)"><span class="det-k">Cimento, brita, blocos, ferro</span><span class="det-v">— não incluso</span></div>';
+    }
+    if (SEL.opts.cemiterio) dh += '<div class="det-line"><span class="det-k">Frete cemitério (+' + SEL.adv.fatorCem + '%)</span><span class="det-v" style="color:var(--amber)">aplicado</span></div>';
+    dh += '<div class="det-line" style="font-weight:700"><span class="det-k"><strong>Total material civil</strong></span><span class="det-v" style="color:var(--gold2)">R$ ' + _TI_fm(r.civil.custo) + '</span></div>';
+  })();
 
   dh += '<div class="det-sec">🔨 Mão de Obra</div>';
   if (r.ts.id === 'estrutura') {
@@ -2578,20 +2827,41 @@ function gerarPrintArea(o,r){
     civRows.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#555">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
     p2+='</div>';
   }
-  // Civil — todos os materiais estruturais
-  if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0)){
+  // Civil — tabela completa: item | qtd × R$/unit | subtotal
+  if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0||r.civil.sacos_argam>0)){
     p2+=sh('🏗️ Quantitativo Civil');
-    var cv=r.civil,civItems=[];
-    if(cv.unid_blocos>0)civItems.push({l:'Blocos de cimento / Canaletas 14×19×39cm',v:cv.unid_blocos+' unidades'});
-    if(cv.sacos_cimento>0)civItems.push({l:'Cimento CP-II (sacos 50kg)',v:cv.sacos_cimento+' sacos'});
-    if(cv.m3_areia>0)civItems.push({l:'Areia lavada',v:cv.m3_areia.toFixed(2)+' m³'});
-    if(cv.m3_brita>0)civItems.push({l:'Brita 3/4"',v:cv.m3_brita.toFixed(2)+' m³'});
-    if(cv.sacos_argam>0)civItems.push({l:'Argamassa AC-II (sacos 20kg)',v:cv.sacos_argam+' sacos'});
-    if(cv.m2_malha>0)civItems.push({l:'Treliça / Malha soldada Q-92',v:cv.m2_malha.toFixed(2)+' m²'});
-    if(cv.barras_f38>0)civItems.push({l:'Ferro 3/8" — alvenaria / alicerce (barras 12m)',v:cv.barras_f38+' barras'});
-    if(cv.barras_f516>0)civItems.push({l:'Ferro 5/16" — laje (barras 12m)',v:cv.barras_f516+' barras'});
+    var cv=r.civil, pp=CFG.civil;
+    // Cabeçalho da tabela
     p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
-    civItems.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#333">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
+    p2+='<div style="background:#faf6ec;padding:6px 13px;display:grid;grid-template-columns:1fr auto auto;gap:8px;border-bottom:2px solid #e0d4a8">'
+      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em">Material</span>'
+      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Qtd × Unit.</span>'
+      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Subtotal</span>'
+      + '</div>';
+    var civRows2=[];
+    if(r.ts&&r.ts.id==='estrutura'){
+      if(cv.unid_blocos>0)  civRows2.push({nm:'Blocos cimento / Canaletas 14×19×39cm', qtd:cv.unid_blocos,           unit:'un',    pr:pp.blocos,   sub:cv.unid_blocos*pp.blocos});
+      if(cv.sacos_cimento>0)civRows2.push({nm:'Cimento CP-II (sacos 50 kg)',           qtd:cv.sacos_cimento,          unit:'saco',  pr:pp.cimento,  sub:cv.sacos_cimento*pp.cimento});
+      if(cv.m3_areia>0)     civRows2.push({nm:'Areia lavada',                          qtd:+cv.m3_areia.toFixed(2),   unit:'m³',    pr:pp.areia,    sub:cv.m3_areia*pp.areia});
+      if(cv.m3_brita>0)     civRows2.push({nm:'Brita 3/4"',                            qtd:+cv.m3_brita.toFixed(2),   unit:'m³',    pr:pp.brita,    sub:cv.m3_brita*pp.brita});
+      if(cv.m2_malha>0)     civRows2.push({nm:'Treliça / Malha soldada Q-92',          qtd:+cv.m2_malha.toFixed(2),   unit:'m²',    pr:pp.malha,    sub:cv.m2_malha*pp.malha});
+      if(cv.barras_f38>0)   civRows2.push({nm:'Ferro 3/8" — alicerce / alvenaria',    qtd:cv.barras_f38,             unit:'barra', pr:pp.ferro38,  sub:cv.barras_f38*pp.ferro38});
+      if(cv.barras_f516>0)  civRows2.push({nm:'Ferro 5/16" — laje',                   qtd:cv.barras_f516,            unit:'barra', pr:pp.ferro516, sub:cv.barras_f516*pp.ferro516});
+    }
+    if(cv.sacos_argam>0) civRows2.push({nm:'Argamassa AC-II — assentamento (sacos 20 kg)', qtd:cv.sacos_argam, unit:'saco', pr:pp.argamassa, sub:cv.sacos_argam*pp.argamassa});
+    civRows2.forEach(function(it,i){
+      var bg=i%2===0?'#fff':'#fdfaf3';
+      p2+='<div style="background:'+bg+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">'
+        + '<span style="font-size:10px;color:#333">'+it.nm+'</span>'
+        + '<span style="font-size:9.5px;color:#666;text-align:right;white-space:nowrap">'+it.qtd+' '+it.unit+' × R$&nbsp;'+_TI_fm(it.pr)+'</span>'
+        + '<span style="font-size:10.5px;font-weight:700;color:#1a1a1a;text-align:right;white-space:nowrap">R$&nbsp;'+_TI_fm(it.sub)+'</span>'
+        + '</div>';
+    });
+    // Linha de total
+    p2+='<div style="background:#f5edcc;padding:8px 13px;display:grid;grid-template-columns:1fr auto;gap:8px;border-top:2px solid #e0d4a8">'
+      + '<span style="font-size:10.5px;font-weight:700;color:#5a3800">TOTAL MATERIAL CIVIL</span>'
+      + '<span style="font-size:11px;font-weight:700;color:#1a1a1a;text-align:right">R$&nbsp;'+_TI_fm(r.civil.custo)+'</span>'
+      + '</div>';
     p2+='</div>';
   }
   // Params
@@ -2980,6 +3250,15 @@ function loadCfgUI() {
   _gel('cFerro516').value   = CFG.civil.ferro516;
   _gel('cMalha').value      = CFG.civil.malha;
   _gel('cBlocos').value     = CFG.civil.blocos;
+  // Custos Indiretos
+  _gel('cIndConsumivel').value  = CFG.ind.consumivel_por_m2;
+  _gel('cIndEnergia').value     = CFG.ind.energia_pct;
+  _gel('cIndCombust').value     = CFG.ind.combustivel;
+  _gel('cIndManut').value       = CFG.ind.manutencao_pct;
+  _gel('cIndPerdas').value      = CFG.ind.perdas_pct;
+  _gel('cIndRisco').value       = CFG.ind.risco_pct;
+  // Injetar card de custos indiretos na config (se ainda não existe)
+  _injectCfgIndCard();
 }
 
 function svCfg() {
@@ -3004,9 +3283,62 @@ function svCfg() {
   CFG.civil.ferro516  = +(_gel('cFerro516').value);
   CFG.civil.malha     = +(_gel('cMalha').value);
   CFG.civil.blocos    = +(_gel('cBlocos').value);
+  // Custos Indiretos
+  if (!CFG.ind) CFG.ind = JSON.parse(JSON.stringify(DEF_CFG.ind));
+  CFG.ind.consumivel_por_m2 = +(_gel('cIndConsumivel').value) || 12;
+  CFG.ind.energia_pct       = +(_gel('cIndEnergia').value)    || 1.5;
+  CFG.ind.combustivel       = +(_gel('cIndCombust').value)    || 80;
+  CFG.ind.manutencao_pct    = +(_gel('cIndManut').value)      || 0.5;
+  CFG.ind.perdas_pct        = +(_gel('cIndPerdas').value)     || 2.5;
+  CFG.ind.risco_pct         = +(_gel('cIndRisco').value)      || 2.0;
   localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
   buildMatList();
   _TI_calcular();
+}
+
+function _injectCfgIndCard() {
+  if (document.getElementById('cfgIndCard')) return;
+  // Find the import/export buttons div to insert before
+  var pg = document.getElementById('pg-config');
+  if (!pg) return;
+  var btnDiv = pg.querySelector('div[style*="margin-bottom:30px"]');
+  if (!btnDiv) return;
+  var card = document.createElement('div');
+  card.id = 'cfgIndCard';
+  card.className = 'card';
+  card.innerHTML = '<div class="card-head" style="background:rgba(212,148,58,.04);border-color:rgba(212,148,58,.2)">'
+    +'<span class="card-title">📊 Custos Indiretos — Bases de Cálculo</span></div>'
+    +'<div class="card-body">'
+    +'<div class="callout warn" style="font-size:.72rem;margin-bottom:12px">Valores usados no cálculo automático de cada categoria. Para projetos específicos, use o override no card do orçamento.</div>'
+    // Consumíveis
+    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 6px">🔧 Consumíveis</div>'
+    +'<div class="cfg-row"><div class="cfg-k">Custo por m² de pedra (R$)<div style="font-size:.6rem;color:var(--t4)">Discos, brocas, cola, silicone, EPIs</div></div>'
+    +'<input class="cfg-inp" id="cIndConsumivel" type="number" min="0" step="1" oninput="svCfg()"></div>'
+    // Operacional
+    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">⚡ Operacional</div>'
+    +'<div class="cfg-row"><div class="cfg-k">Energia (% do custo direto)<div style="font-size:.6rem;color:var(--t4)">Energia elétrica + ferramental</div></div>'
+    +'<input class="cfg-inp" id="cIndEnergia" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
+    +'<div class="cfg-row"><div class="cfg-k">Combustível / frete (R$ fixo)<div style="font-size:.6rem;color:var(--t4)">Por obra</div></div>'
+    +'<input class="cfg-inp" id="cIndCombust" type="number" min="0" step="5" oninput="svCfg()"></div>'
+    +'<div class="cfg-row"><div class="cfg-k">Manutenção (% do custo direto)<div style="font-size:.6rem;color:var(--t4)">Desgaste de equipamentos</div></div>'
+    +'<input class="cfg-inp" id="cIndManut" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
+    // Perdas
+    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">📉 Perdas</div>'
+    +'<div class="cfg-row"><div class="cfg-k">Perdas (% sobre custo da pedra)<div style="font-size:.6rem;color:var(--t4)">Quebras, recortes, sobras</div></div>'
+    +'<input class="cfg-inp" id="cIndPerdas" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
+    // Risco
+    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">⚠️ Risco Técnico</div>'
+    +'<div class="cfg-row"><div class="cfg-k">Risco (% do custo direto total)<div style="font-size:.6rem;color:var(--t4)">Içamento, retrabalho, garantia</div></div>'
+    +'<input class="cfg-inp" id="cIndRisco" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
+    +'</div>';
+  btnDiv.before(card);
+  // Populate values
+  _gel('cIndConsumivel').value = CFG.ind.consumivel_por_m2;
+  _gel('cIndEnergia').value    = CFG.ind.energia_pct;
+  _gel('cIndCombust').value    = CFG.ind.combustivel;
+  _gel('cIndManut').value      = CFG.ind.manutencao_pct;
+  _gel('cIndPerdas').value     = CFG.ind.perdas_pct;
+  _gel('cIndRisco').value      = CFG.ind.risco_pct;
 }
 
 function buildPedrasCfg() {
@@ -4262,6 +4594,10 @@ window._TI_preencherCliente = function(pend){
   mostrarCardLapide(!!SEL.pecas.lapide);
   _TI_calcular();
 };
+
+window.buildCustosIndiretos = buildCustosIndiretos;
+window._togInd              = _togInd;
+window._injectCfgIndCard    = _injectCfgIndCard;
 
 // renderFalecidos = buildFalecidos (alias para compatibilidade)
 window.renderFalecidos = buildFalecidos;
