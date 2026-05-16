@@ -4207,6 +4207,11 @@ window._TI_loadAndPrint = function(savedPendOrc) {
   try { gerarPrintArea(savedPendOrc, savedPendOrc.r); } catch(e) { console.error(e); }
   setTimeout(function() { window.print(); }, 300);
 };
+
+// Foto upload — precisa ser global pois é chamada por onchange= no HTML template
+window.carregarFotoOrc  = carregarFotoOrc;
+window._tLajeToggle     = _tLajeToggle;
+window._tUsinToggle     = _tUsinToggle;
 window.showTab           = showTab;
 window.renderPlanta      = renderPlanta;
 window.renderChapas      = renderChapas;
