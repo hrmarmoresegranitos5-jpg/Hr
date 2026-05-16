@@ -2645,14 +2645,17 @@ function gerarPrintArea(o, r) {
     p2 += sh('📐 Detalhamento dos Compartimentos');
     var posLabel = (SEL.tampas.posicao||'superior') === 'frontal' ? 'Abertura frontal (tampa de pé)' : 'Abertura superior (tampa deitada)';
     var dispLabel = d.disp === 'horizontal' ? 'Lado a lado (horizontal)' : 'Empilhados (vertical)';
+    // C_corpo/L_corpo: equivalente ao calculado em calcularFull()
+    var _Cc = (d.AvRod > 0 && d.CUtil) ? d.CUtil : d.C;
+    var _Lc = (d.AvRod > 0 && d.LUtil) ? d.LUtil : d.L;
     p2 += '<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px;">';
     var specs2 = [
       { l:'Número de compartimentos', v:d.N+' und.' },
       { l:'Disposição', v:dispLabel },
       { l:'Tipo de abertura', v:posLabel },
       { l:'Dimensão interna por compartimento', v:(d.disp==='horizontal')
-          ? Math.round(C_corpo*100/d.N)+'×'+Math.round(L_corpo*100)+'×'+d.Hc_cm+' cm (C×L×H)'
-          : Math.round(C_corpo*100)+'×'+Math.round(L_corpo*100)+'×'+d.Hc_cm+' cm (C×L×H)' },
+          ? Math.round(_Cc*100/d.N)+'×'+Math.round(_Lc*100)+'×'+d.Hc_cm+' cm (C×L×H)'
+          : Math.round(_Cc*100)+'×'+Math.round(_Lc*100)+'×'+d.Hc_cm+' cm (C×L×H)' },
       { l:'Altura livre para caixão', v:d.Hc_cm+' cm' },
       { l:'Espessura da laje (concreto + pedra)', v:d.Hl_cm+' cm' },
     ];
