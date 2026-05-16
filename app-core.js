@@ -71,6 +71,9 @@ function _slimTumPendOrc(pend){
     num:pend.num, date:pend.date,
     tipoServNm:pend.tipoServNm, matNm:pend.matNm, acabNm:pend.acabNm,
     preset:pend.preset,
+    // Dados para restaurar o formulário ao editar
+    _sel:  pend._sel  || null,
+    _dims: pend._dims || null,
     r:{
       d:r.d, A:r.A,
       ts:{ nm:r.ts?r.ts.nm:'' },
