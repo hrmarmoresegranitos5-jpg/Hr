@@ -2578,37 +2578,25 @@ function gerarPrintArea(o,r){
     civRows.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#555">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
     p2+='</div>';
   }
-  // Civil
+  // Civil — todos os materiais estruturais
   if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0)){
     p2+=sh('🏗️ Quantitativo Civil');
     var cv=r.civil,civItems=[];
+    if(cv.unid_blocos>0)civItems.push({l:'Blocos de cimento / Canaletas 14×19×39cm',v:cv.unid_blocos+' unidades'});
     if(cv.sacos_cimento>0)civItems.push({l:'Cimento CP-II (sacos 50kg)',v:cv.sacos_cimento+' sacos'});
     if(cv.m3_areia>0)civItems.push({l:'Areia lavada',v:cv.m3_areia.toFixed(2)+' m³'});
     if(cv.m3_brita>0)civItems.push({l:'Brita 3/4"',v:cv.m3_brita.toFixed(2)+' m³'});
     if(cv.sacos_argam>0)civItems.push({l:'Argamassa AC-II (sacos 20kg)',v:cv.sacos_argam+' sacos'});
-    if(cv.barras_f38>0)civItems.push({l:'Ferro 3/8" (barras 12m)',v:cv.barras_f38+' barras'});
-    if(cv.barras_f516>0)civItems.push({l:'Ferro 5/16" (barras 12m)',v:cv.barras_f516+' barras'});
-    if(cv.m2_malha>0)civItems.push({l:'Malha soldada Q-92',v:cv.m2_malha.toFixed(2)+' m²'});
-    if(cv.unid_blocos>0)civItems.push({l:'Blocos concreto 14×19×39cm',v:cv.unid_blocos+' unidades'});
+    if(cv.m2_malha>0)civItems.push({l:'Treliça / Malha soldada Q-92',v:cv.m2_malha.toFixed(2)+' m²'});
+    if(cv.barras_f38>0)civItems.push({l:'Ferro 3/8" — alvenaria / alicerce (barras 12m)',v:cv.barras_f38+' barras'});
+    if(cv.barras_f516>0)civItems.push({l:'Ferro 5/16" — laje (barras 12m)',v:cv.barras_f516+' barras'});
     p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
     civItems.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#333">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
     p2+='</div>';
   }
-  // MO
-  p2+=sh('🔨 Mão de Obra');
-  var mob=[];
-  if(r.dias_ped>0)mob.push({l:'Pedreiro',v:r.dias_ped+' dia(s)'});
-  if(r.dias_ajud>0)mob.push({l:'Ajudante',v:r.dias_ajud+' dia(s)'});
-  if(r.dias_inst>0)mob.push({l:'Instalação de pedra',v:r.dias_inst+' dia(s)'});
-  if(r.dias_mont>0)mob.push({l:'Montagem final',v:r.dias_mont+' dia(s)'});
-  p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
-  if(!mob.length)p2+='<div style="padding:12px 13px;font-size:10px;color:#888;background:#fff">Conforme tipo de serviço</div>';
-  mob.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;font-weight:600;color:#333">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
-  // PRAZO REMOVIDO — não exibir dias no PDF (p2)
-  p2+='</div>';
   // Params
   p2+=sh('⚙️ Parâmetros do Projeto');
-  var params=[{l:'Tipo de serviço',v:o.tipoServNm||'—'},{l:'Material',v:esc(mat.nm||o.matNm||'—')+(mat.pr?' — R$ '+mat.pr+'/m²':'')},{l:'Acabamento',v:esc(acab.nm||o.acabNm||'—')},{l:'Espessura da pedra',v:d.E+' cm'},{l:'Fator de perda',v:r.perdaFinal+'%'},{l:'Margem comercial',v:(CFG.margem||0)+'%'}];
+  var params=[{l:'Tipo de serviço',v:o.tipoServNm||'—'},{l:'Material',v:esc(mat.nm||o.matNm||'—')+(mat.pr?' — R$ '+mat.pr+'/m²':'')},{l:'Acabamento',v:esc(acab.nm||o.acabNm||'—')},{l:'Espessura da pedra',v:d.E+' cm'}];
   if(ex.length)params.push({l:'Acessórios',v:ex.map(function(e2){return e2.i+' '+e2.l;}).join(', ')});
   p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
   params.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10px;color:#555">'+it.l+'</span><span style="font-size:10px;font-weight:600;color:#1a1a1a">'+it.v+'</span></div>';});
