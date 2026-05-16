@@ -84,9 +84,9 @@ var SEL = {
   falecidos: [{ nome:'', nasc:'', obit:'', frase:'' }],
   // ── CONFIGURAÇÃO DE TAMPAS INDIVIDUAIS ──
   tampas: {
-    posicao: 'superior',  // 'superior' = deitada em cima | 'frontal' = de pé na frente
     // Moldura/rebaixo lateral (desconto das bordas da área superior)
-    moldura: 10,         // cm descontados em cada lado (padrão 10 cm)
+    posicao: 'superior',  // 'superior' | 'frontal'
+    moldura: 10,
     molduraCustom: 10,   // valor personalizado
     // Modo de divisão: linhas × colunas
     linhas: 1,           // divisão no eixo da LARGURA (L)
@@ -100,20 +100,17 @@ var SEL = {
   },
   // ── CONFIGURAÇÃO DE LÁPIDE ENGROSSADA ──
   lapide: {
-    engrossar: 'nao',    // 'nao' | '5cm' | '10cm' | 'custom'
-    engCustom: 7,        // valor personalizado (cm)
-    pecasEncontro: true  // gerar peças de encontro automaticamente
+    engrossar: 'nao',
+    engCustom: 7,
+    pecasEncontro: true
   },
-  // ── RODAPÉ + LAJE VEDANTE ──
   rebaixo: {
-    avRodape:    5,
+    avRodape: 5,
     lajeVedante: false,
-    lajeInteira: true,   // true=1 laje inteira | false=1 por compartimento
-    usinagem:    false,
-    custoUsin:   80,
-    vendaUsin:   150,
-    custoLaje:   120,
-    vendaLaje:   200,
+    lajeInteira: true,
+    usinagem: false,
+    custoUsin: 80,  vendaUsin: 150,
+    custoLaje: 120, vendaLaje: 200
   }
 };
 var _TI_SEL_DEF = JSON.parse(JSON.stringify(SEL));
@@ -128,9 +125,7 @@ function carregarFotoOrc(input) {
   reader.onload = function(e) {
     _tumFotoOrc = e.target.result;
     var prev = document.getElementById('tumFotoPreview');
-    if (prev) {
-      prev.innerHTML = '<img src="'+_tumFotoOrc+'" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;display:block;">';
-    }
+    if (prev) prev.innerHTML = '<img src="'+_tumFotoOrc+'" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;display:block;">';
     var area = document.getElementById('tumFotoArea');
     if (area) area.style.borderColor = 'var(--gold)';
   };
@@ -558,8 +553,8 @@ function getTampasDims() {
 
   var C_base = (d.AvRod > 0) ? d.CUtil : d.C;
   var L_base = (d.AvRod > 0) ? d.LUtil : d.L;
-  var C_util = Math.max(C_base - 2 * mol, 0.05);
-  var L_util = Math.max(L_base - 2 * mol, 0.05);
+  var C_util = Math.max(C_base - 2*mol, 0.05);
+  var L_util = Math.max(L_base - 2*mol, 0.05);
 
   // Cada tampa = (área útil − folgas entre peças) ÷ número de divisões
   var C_cada = (C_util - (cols - 1) * fC) / cols;
@@ -1110,8 +1105,8 @@ function selMat(id) {
   atualizarEspessuraDaPedra();
   _TI_calcular();
   if (_TI_ambId && typeof ambientes !== 'undefined') {
-    var _syncAmb = ambientes.find(function(a){ return a.id == _TI_ambId; });
-    if (_syncAmb) { _syncAmb.selMat = id; }
+    var _sa = ambientes.find(function(a){ return a.id==_TI_ambId; });
+    if (_sa) _sa.selMat = id;
   }
   try { localStorage.setItem('hr_last_mat', id); } catch(e){}
 }
@@ -1468,8 +1463,8 @@ function getDims() {
   var LapH_cm = +(document.getElementById('mLapH') ? document.getElementById('mLapH').value : 60) || 60;
   var disp  = (document.getElementById('mDisp') ? document.getElementById('mDisp').value : 'vertical') || 'vertical';
   var AvRod_cm = SEL.rebaixo ? (SEL.rebaixo.avRodape || 0) : 0;
-  var CUtil_cm = Math.max(10, C_cm - 2 * AvRod_cm);
-  var LUtil_cm = Math.max(10, L_cm - 2 * AvRod_cm);
+  var CUtil_cm = Math.max(10, C_cm - 2*AvRod_cm);
+  var LUtil_cm = Math.max(10, L_cm - 2*AvRod_cm);
   return {
     C:    C_cm  / 100,   // comprimento em m
     L:    L_cm  / 100,   // largura em m
@@ -1484,8 +1479,9 @@ function getDims() {
     disp:  disp,         // 'vertical' | 'horizontal'
     // valores originais em cm para exibição
     AvRod: AvRod_cm, CUtil: CUtil_cm/100, LUtil: LUtil_cm/100,
-    C_cm:C_cm, L_cm:L_cm, Ae_cm:Ae_cm, Ab_cm:Ab_cm, Hc_cm:Hc_cm, Hl_cm:Hl_cm,
-    LapW_cm:LapW_cm, LapH_cm:LapH_cm, CUtil_cm:CUtil_cm, LUtil_cm:LUtil_cm
+    C_cm:C_cm, L_cm:L_cm, Ae_cm:Ae_cm, Ab_cm:Ab_cm,
+    Hc_cm:Hc_cm, Hl_cm:Hl_cm, LapW_cm:LapW_cm, LapH_cm:LapH_cm,
+    CUtil_cm:CUtil_cm, LUtil_cm:LUtil_cm
   };
 }
 
@@ -1547,6 +1543,7 @@ function _TI_calcular() {
   }
 
   atualizarSteps();
+  _TI_injectDynamicUI();
   buildPosicaoPresets();
   atualizarAreaUtil();
   if (_TI_ambId) _tumInlineSaveAmb();
@@ -1594,85 +1591,69 @@ function calcularFull() {
   var m2_bruto  = 0;
 
   // ─── TAMPAS: lógica real de marmoraria ────────────────────────────
-  // As tampas NÃO ocupam a área total. Ficam recuadas dentro da moldura.
-
-  // Definir dimensões do corpo antes de calcular tampas
   var Avis    = A - d.Ae;
   var C_corpo = (d.AvRod > 0) ? d.CUtil : d.C;
   var L_corpo = (d.AvRod > 0) ? d.LUtil : d.L;
 
   if (SEL.pecas.tampa) {
-    var td    = getTampasDims();   // usa getDims() internamente
     var acTampa = ACABAMENTOS.find(function(x){ return x.id===(SEL.tampas.acabTampa||'POL'); }) || acab;
-    var pos   = SEL.tampas.posicao || 'superior';
-
+    var pos = SEL.tampas.posicao || 'superior';
+    var td  = getTampasDims();
     if (pos === 'frontal') {
-      // ─── TAMPAS FRONTAIS — verticais, na fachada frontal ────────────
-      // Dimensão de cada tampa: largura = C_corpo / colunas, altura = Hcomp (por compartimento)
-      var nCols  = SEL.tampas.colunas || 1;
-      var nLins  = SEL.tampas.linhas  || 1;
-      var nTotal = nCols * nLins;
-      var W_cada = C_corpo / nCols;          // largura de cada abertura
-      var H_cada = d.Hcomp;                  // altura de cada abertura
-      var espT   = SEL.tampas.espTampa || 3;
-      var m2c    = W_cada * H_cada;
-      var mlc    = 2 * (W_cada + H_cada);
-
-      for (var it = 0; it < nTotal; it++) {
-        pecasCalc.push({
-          nm: nTotal===1 ? 'Tampa Frontal' : 'Tampa Frontal '+(it+1)+'/'+nTotal,
-          dim: Math.round(W_cada*100)+'×'+Math.round(H_cada*100)+'cm esp.'+espT+'cm',
-          m2: m2c, ml: mlc, prML: acTampa.prML
-        });
-        m2_bruto += m2c;
+      var nCols=SEL.tampas.colunas||1, nLins=SEL.tampas.linhas||1, nTot=nCols*nLins;
+      var Wc=C_corpo/nCols, Hc=d.Hcomp, espT=SEL.tampas.espTampa||3;
+      var m2c=Wc*Hc, mlc=2*(Wc+Hc);
+      for(var it=0;it<nTot;it++){
+        pecasCalc.push({nm:nTot===1?'Tampa Frontal':'Tampa Frontal '+(it+1)+'/'+nTot,
+          dim:Math.round(Wc*100)+'×'+Math.round(Hc*100)+'cm esp.'+espT+'cm',
+          m2:m2c,ml:mlc,prML:acTampa.prML});
+        m2_bruto+=m2c;
       }
-
     } else {
-      // ─── TAMPAS SUPERIORES — horizontais, em cima ───────────────────
-      var nTotal  = td.nTotal;
-      var m2_cada = td.C_cada * td.L_cada;
-      var ml_cada = 2 * (td.C_cada + td.L_cada);
-
-      for (var it = 0; it < nTotal; it++) {
-        pecasCalc.push({
-          nm: nTotal===1 ? 'Tampa Superior' : 'Tampa '+(it+1)+'/'+nTotal+' ('+td.cols+'×'+td.lins+')',
-          dim: Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+'cm esp.'+td.espT+'cm',
-          m2:  m2_cada, ml: ml_cada, prML: acTampa.prML
-        });
-        m2_bruto += m2_cada;
+      // tampas superiores (existing logic)
+      var nTotal=td.nTotal, m2c2=td.C_cada*td.L_cada, mlc2=2*(td.C_cada+td.L_cada);
+      for(var it=0;it<nTotal;it++){
+        pecasCalc.push({nm:nTotal===1?'Tampa Superior':'Tampa '+(it+1)+'/'+nTotal+' ('+td.cols+'×'+td.lins+')',
+          dim:Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+'cm esp.'+td.espT+'cm',
+          m2:m2c2,ml:mlc2,prML:acTampa.prML});
+        m2_bruto+=m2c2;
       }
-
-      // Moldura superior (anel periférico) — a moldura em si também é pedra!
-      var m2_moldura = td.C_ext * td.L_ext - td.C_util * td.L_util;
-      if (m2_moldura > 0.001) {
-        pecasCalc.push({
-          nm: 'Moldura/Borda Superior (rebaixo '+Math.round(td.mol*100)+'cm cada lado)',
-          dim: Math.round(td.C_ext*100)+'×'+Math.round(td.L_ext*100)+' − área tampas',
-          m2:  m2_moldura, ml: 2*(td.C_ext + td.L_ext), prML: acab.prML
-        });
-        m2_bruto += m2_moldura;
+      var m2_moldura=td.C_ext*td.L_ext-td.C_util*td.L_util;
+      if(m2_moldura>0.001){
+        pecasCalc.push({nm:'Moldura/Borda Superior (rebaixo '+Math.round(td.mol*100)+'cm cada lado)',
+          dim:Math.round(td.C_ext*100)+'×'+Math.round(td.L_ext*100)+' − área tampas',
+          m2:m2_moldura,ml:2*(td.C_ext+td.L_ext),prML:acab.prML});
+        m2_bruto+=m2_moldura;
       }
     }
   }
+  // Altura visual das peças de pedra = altura total − base de concreto
+  // A base de concreto é estrutura, não revestida por painéis de pedra laterais
+  var Avis = A - d.Ae;  // altura visual aparente (sem base)
+
+  // Lateral esquerda: altura visual × largura
   if (SEL.pecas.lat_esq) {
-    var a = Avis * L_corpo;
-    pecasCalc.push({ nm:'Lateral Esquerda', dim:(Avis*100).toFixed(0)+'×'+Math.round(L_corpo*100)+'cm', m2:a, ml:Avis, prML:acab.prML });
-    m2_bruto += a;
+    var a=Avis*L_corpo;
+    pecasCalc.push({nm:'Lateral Esquerda',dim:(Avis*100).toFixed(0)+'×'+Math.round(L_corpo*100)+'cm',m2:a,ml:Avis,prML:acab.prML});
+    m2_bruto+=a;
   }
+  // Lateral direita: igual à esquerda
   if (SEL.pecas.lat_dir) {
-    var a = Avis * L_corpo;
-    pecasCalc.push({ nm:'Lateral Direita', dim:(Avis*100).toFixed(0)+'×'+Math.round(L_corpo*100)+'cm', m2:a, ml:Avis, prML:acab.prML });
-    m2_bruto += a;
+    var a=Avis*L_corpo;
+    pecasCalc.push({nm:'Lateral Direita',dim:(Avis*100).toFixed(0)+'×'+Math.round(L_corpo*100)+'cm',m2:a,ml:Avis,prML:acab.prML});
+    m2_bruto+=a;
   }
+  // Frente: altura visual × comprimento — borda somente na frente (1 lado)
   if (SEL.pecas.frente) {
-    var a = Avis * C_corpo;
-    pecasCalc.push({ nm:'Frente / Frontal', dim:(Avis*100).toFixed(0)+'×'+Math.round(C_corpo*100)+'cm', m2:a, ml:C_corpo, prML:acab.prML });
-    m2_bruto += a;
+    var a=Avis*C_corpo;
+    pecasCalc.push({nm:'Frente / Frontal',dim:(Avis*100).toFixed(0)+'×'+Math.round(C_corpo*100)+'cm',m2:a,ml:C_corpo,prML:acab.prML});
+    m2_bruto+=a;
   }
+  // Fundo: altura visual × comprimento — sem borda (não visível)
   if (SEL.pecas.fundo) {
-    var a = Avis * C_corpo;
-    pecasCalc.push({ nm:'Fundo / Tardoz', dim:(Avis*100).toFixed(0)+'×'+Math.round(C_corpo*100)+'cm', m2:a, ml:0, prML:0 });
-    m2_bruto += a;
+    var a=Avis*C_corpo;
+    pecasCalc.push({nm:'Fundo / Tardoz',dim:(Avis*100).toFixed(0)+'×'+Math.round(C_corpo*100)+'cm',m2:a,ml:0,prML:0});
+    m2_bruto+=a;
   }
   // Lápide: calculada como peça REAL de marmoraria (frente + encontros se engrossada)
   if (SEL.pecas.lapide) {
@@ -1750,18 +1731,18 @@ function calcularFull() {
     // Horizontal: divisórias verticais de pedra entre os compartimentos (N-1 divisórias)
     var N_div_horiz = d.N - 1;
     var divAltura = A - d.Ae;          // altura do compartimento (sem base) = Avis
-    var divLargura = L_corpo;          // largura da parede divisória = largura útil
+    var divLargura = L_corpo;
     var a_div = divAltura * divLargura * N_div_horiz;
     pecasCalc.push({
-      nm: 'Divisória lateral entre compartimentos (×'+N_div_horiz+')',
-      dim: (divAltura*100).toFixed(0)+'×'+Math.round(divLargura*100)+'cm × '+N_div_horiz+' un.',
+      nm:'Divisória lateral entre compartimentos (×'+N_div_horiz+')',
+      dim:(divAltura*100).toFixed(0)+'×'+Math.round(divLargura*100)+'cm × '+N_div_horiz+' un.',
       m2: a_div, ml: 0, prML: 0  // divisórias internas: sem acabamento de borda
     });
     m2_bruto += a_div;
   } else if (N_lajes_div > 0) {
     // Vertical: lajes divisórias horizontais entre compartimentos
-    var L_liq = C_corpo - (SEL.pecas.lat_esq && SEL.pecas.lat_dir ? 2 * Esp_m : Esp_m);
-    var C_liq = L_corpo - (SEL.pecas.frente && SEL.pecas.fundo ? 2 * Esp_m : Esp_m);
+    var L_liq=C_corpo-(SEL.pecas.lat_esq&&SEL.pecas.lat_dir?2*Esp_m:Esp_m);
+    var C_liq=L_corpo-(SEL.pecas.frente&&SEL.pecas.fundo?2*Esp_m:Esp_m);
     L_liq = Math.max(L_liq, 0.05);
     C_liq = Math.max(C_liq, 0.10);
     var a_laje = C_liq * L_liq * N_lajes_div;
@@ -1772,33 +1753,29 @@ function calcularFull() {
     });
     m2_bruto += a_laje;
   }
+  // Rodapé: perímetro × altura em metros — borda somente na frente
   if (SEL.pecas.rodape && d.Ab > 0) {
     var perimetro = 2 * (d.C + d.L);
     var a = (d.Ab / 100) * perimetro;
-    pecasCalc.push({ nm:'Rodapé externo', dim:d.Ab+'cm × '+perimetro.toFixed(2)+'m perímetro ext.', m2:a, ml:d.C, prML:acab.prML });
+    pecasCalc.push({ nm:'Rodapé', dim:d.Ab+'cm × '+perimetro.toFixed(2)+'m perímetro', m2:a, ml:d.C, prML:acab.prML });
     m2_bruto += a;
   }
 
-  // ── REBAIXO + LAJE VEDANTE ───────────────────────────────────────────────
-  var custo_rebaixo = 0, venda_rebaixo = 0;
-  var custo_laje_ved = 0, venda_laje_ved = 0;
-  var ml_rebaixo = 0, m2_laje_ved = 0;
-  if (SEL.rebaixo && (SEL.rebaixo.usinagem || SEL.rebaixo.lajeVedante)) {
-    var tdReb = getTampasDims();
-    ml_rebaixo = tdReb.nTotal * 2 * (tdReb.C_cada + tdReb.L_cada);
-    if (SEL.rebaixo.lajeInteira) {
-      m2_laje_ved = d.CUtil * d.LUtil;
-    } else {
-      m2_laje_ved = tdReb.nTotal * tdReb.C_cada * tdReb.L_cada;
-    }
+  // ── REBAIXO + LAJE VEDANTE ────────────────────────────────────────────
+  var custo_rebaixo=0,venda_rebaixo=0,custo_laje_ved=0,venda_laje_ved=0;
+  var ml_rebaixo=0,m2_laje_ved=0;
+  if(SEL.rebaixo&&(SEL.rebaixo.usinagem||SEL.rebaixo.lajeVedante)){
+    var tdR=getTampasDims();
+    ml_rebaixo=tdR.nTotal*2*(tdR.C_cada+tdR.L_cada);
+    m2_laje_ved=SEL.rebaixo.lajeInteira?(d.CUtil*d.LUtil):(tdR.nTotal*tdR.C_cada*tdR.L_cada);
   }
-  if (SEL.rebaixo && SEL.rebaixo.usinagem && ml_rebaixo > 0) {
-    custo_rebaixo = +(ml_rebaixo * (SEL.rebaixo.custoUsin || 80)).toFixed(2);
-    venda_rebaixo = +(ml_rebaixo * (SEL.rebaixo.vendaUsin || 150)).toFixed(2);
+  if(SEL.rebaixo&&SEL.rebaixo.usinagem&&ml_rebaixo>0){
+    custo_rebaixo=+(ml_rebaixo*(SEL.rebaixo.custoUsin||80)).toFixed(2);
+    venda_rebaixo=+(ml_rebaixo*(SEL.rebaixo.vendaUsin||150)).toFixed(2);
   }
-  if (SEL.rebaixo && SEL.rebaixo.lajeVedante && m2_laje_ved > 0) {
-    custo_laje_ved = +(m2_laje_ved * (SEL.rebaixo.custoLaje || 120)).toFixed(2);
-    venda_laje_ved = +(m2_laje_ved * (SEL.rebaixo.vendaLaje || 200)).toFixed(2);
+  if(SEL.rebaixo&&SEL.rebaixo.lajeVedante&&m2_laje_ved>0){
+    custo_laje_ved=+(m2_laje_ved*(SEL.rebaixo.custoLaje||120)).toFixed(2);
+    venda_laje_ved=+(m2_laje_ved*(SEL.rebaixo.vendaLaje||200)).toFixed(2);
   }
 
   // Fator de perda dinâmico por acabamento e tipo de serviço
@@ -1995,10 +1972,8 @@ function calcularFull() {
   if (SEL.opts.cemiterio) prazo_total += 1;
 
   // ─── 7. TOTAIS ───────────────────────────────────────────────────
-  var custo_base   = custo_pedra + custo_acabamento + civil.custo + custo_mob + custo_extras;
-  var custo_total  = custo_base + custo_rebaixo + custo_laje_ved;
-  var valor_base   = custo_base * (1 + CFG.margem / 100);
-  var valor_vista  = valor_base + venda_rebaixo + venda_laje_ved;
+  var custo_total=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)+custo_rebaixo+custo_laje_ved;
+  var valor_vista=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)*(1+CFG.margem/100)+venda_rebaixo+venda_laje_ved;
   var valor_parc   = valor_vista * (1 + CFG.juros  / 100);
   var parc_mensal  = valor_parc  / CFG.parcMax;
   var margem_reais = valor_vista - custo_total;
@@ -2019,17 +1994,17 @@ function calcularFull() {
     dias_inst:dias_inst, dias_mont:dias_mont,
     custo_remocao:custo_remocao, dias_remocao:dias_remocao, frete:frete,
     nCruz:nCruz, nFotos:nFotos, nJarros:nJarros,
-    custo_extras:custo_extras, custo_total:custo_total,
-    ml_rebaixo:ml_rebaixo, m2_laje_ved:m2_laje_ved,
-    custo_rebaixo:custo_rebaixo, venda_rebaixo:venda_rebaixo,
-    custo_laje_ved:custo_laje_ved, venda_laje_ved:venda_laje_ved,
+    custo_extras:custo_extras,custo_total:custo_total,
+    ml_rebaixo:ml_rebaixo,m2_laje_ved:m2_laje_ved,
+    custo_rebaixo:custo_rebaixo,venda_rebaixo:venda_rebaixo,
+    custo_laje_ved:custo_laje_ved,venda_laje_ved:venda_laje_ved,
     valor_vista:valor_vista, valor_parc:valor_parc, parc_mensal:parc_mensal,
     margem_reais:margem_reais,
     prazo_total:prazo_total
   };
 }
 
-// ── ÁREA ÚTIL — atualiza info boxes ─────────────────────────────────────────
+// ── Área útil ─────────────────────────────────────────────────────────────
 function atualizarAreaUtil() {
   var d = getDims();
   var box = document.getElementById('divAreaUtil');
@@ -2039,37 +2014,166 @@ function atualizarAreaUtil() {
       box.innerHTML = '<strong style="color:#4a80b5;">📐 Externo × Corpo Útil</strong><br>'
         + 'Externo: <b>' + d.C_cm + ' × ' + d.L_cm + ' cm</b> &nbsp;|&nbsp; Avanço: <b>' + d.AvRod + 'cm/lado</b><br>'
         + 'Corpo útil: <b style="color:#4a80b5;">' + d.CUtil_cm + ' × ' + d.LUtil_cm + ' cm</b>'
-        + ' (' + (d.CUtil*d.LUtil).toFixed(3) + ' m²)';
+        + ' (' + (d.CUtil * d.LUtil).toFixed(3) + ' m²)';
     } else {
       box.style.display = 'none';
     }
   }
-  // Info laje vedante
-  var r; try { r = calcularFull(); } catch(e) { return; }
-  var infoLaje = document.getElementById('lajeVedInfo');
-  if (infoLaje) {
-    if (SEL.rebaixo.lajeVedante) {
-      var desc = SEL.rebaixo.lajeInteira
-        ? '1 laje inteira de ' + Math.round(d.CUtil_cm) + '×' + Math.round(d.LUtil_cm) + ' cm'
-        : (getTampasDims().nTotal) + ' lajes de ' + Math.round(getTampasDims().C_cada*100) + '×' + Math.round(getTampasDims().L_cada*100) + ' cm';
-      infoLaje.textContent = desc + ' — ' + r.m2_laje_ved.toFixed(3) + ' m² · ' + (r.venda_laje_ved>0?'R$ '+_TI_fm(r.venda_laje_ved):'');
-    } else {
-      var t = getTampasDims();
-      infoLaje.textContent = t.nTotal + ' laje(s) de ' + Math.round(t.C_cada*100) + '×' + Math.round(t.L_cada*100) + ' cm';
-    }
-  }
-  var infoUsin = document.getElementById('usinagemInfo');
-  if (infoUsin) {
-    var t2 = getTampasDims();
-    var ml = (t2.nTotal * 2 * (t2.C_cada + t2.L_cada)).toFixed(2);
-    infoUsin.textContent = ml + ' ml estimado' + (r.venda_rebaixo>0?' · R$ '+_TI_fm(r.venda_rebaixo):'');
-  }
   var badge = document.getElementById('lajeVedBadge');
   if (badge) {
     var ativos = [];
-    if (SEL.rebaixo.lajeVedante) ativos.push('Laje vedante');
-    if (SEL.rebaixo.usinagem) ativos.push('Usinagem');
+    if (SEL.rebaixo && SEL.rebaixo.lajeVedante) ativos.push('Laje');
+    if (SEL.rebaixo && SEL.rebaixo.usinagem)    ativos.push('Usinagem');
     badge.textContent = ativos.join(' + ');
+  }
+}
+
+function _tLajeToggle() {
+  SEL.rebaixo.lajeVedante = !SEL.rebaixo.lajeVedante;
+  var el = document.getElementById('togLajeVed');
+  if (el) el.classList.toggle('on', SEL.rebaixo.lajeVedante);
+  var pr = document.getElementById('lajeVedPrecos');
+  if (pr) pr.style.display = SEL.rebaixo.lajeVedante ? 'block' : 'none';
+  _TI_calcular();
+}
+function _tUsinToggle() {
+  SEL.rebaixo.usinagem = !SEL.rebaixo.usinagem;
+  var el = document.getElementById('togUsinagem');
+  if (el) el.classList.toggle('on', SEL.rebaixo.usinagem);
+  var pr = document.getElementById('usinagemPrecos');
+  if (pr) pr.style.display = SEL.rebaixo.usinagem ? 'block' : 'none';
+  _TI_calcular();
+}
+
+// Tampa posição
+function buildPosicaoPresets() {
+  var el = document.getElementById('posicaoPresets');
+  if (!el) return;
+  var cur = SEL.tampas.posicao || 'superior';
+  var opts = [
+    { id:'superior', label:'🪨 Superior (em cima)',  dica:'Tampas horizontais deitadas sobre os compartimentos' },
+    { id:'frontal',  label:'🚪 Frontal (na frente)', dica:'Tampas verticais na fachada — abertura frontal' }
+  ];
+  el.innerHTML = opts.map(function(o) {
+    return '<button class="preset'+(o.id===cur?' on':'')+'" onclick="_setPosicao(\''+o.id+'\')" type="button">'+o.label+'</button>';
+  }).join('');
+  var dica = document.getElementById('tampaPosDica');
+  if (dica) { var f=opts.find(function(o){return o.id===cur;}); if(f) dica.textContent=f.dica; }
+}
+function _setPosicao(id) {
+  SEL.tampas.posicao = id;
+  buildPosicaoPresets();
+  _TI_calcular();
+}
+
+// ── DOM injection: injects new UI without touching template strings ─────────
+function _TI_injectDynamicUI() {
+  // 1. mAvRodape field after mAb
+  if (!document.getElementById('mAvRodape')) {
+    var mAbEl = document.getElementById('mAb');
+    if (mAbEl) {
+      var mAbF = mAbEl.closest('.f');
+      if (mAbF) {
+        var avDiv = document.createElement('div');
+        avDiv.className = 'f';
+        avDiv.innerHTML = '<label>Avanço lateral rodapé (cm)</label>'
+          + '<input id="mAvRodape" type="number" step="1" min="0" max="20" value="'+(SEL.rebaixo.avRodape||5)+'">'
+          + '<span class="f-hint">Projeção além do corpo (0=sem)</span>';
+        avDiv.querySelector('#mAvRodape').addEventListener('input', function() {
+          SEL.rebaixo.avRodape = +this.value; _TI_calcular();
+        });
+        mAbF.after(avDiv);
+      }
+    }
+  }
+
+  // 2. divAreaUtil before molduraPresets
+  if (!document.getElementById('divAreaUtil')) {
+    var mp = document.getElementById('molduraPresets');
+    if (mp) {
+      var auDiv = document.createElement('div');
+      auDiv.id = 'divAreaUtil';
+      auDiv.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;background:rgba(74,128,181,.08);border:1px solid rgba(74,128,181,.25);border-radius:10px;font-size:.64rem;color:var(--t3);line-height:1.8';
+      mp.before(auDiv);
+    }
+  }
+
+  // 3. posicaoPresets at top of tampas card body
+  if (!document.getElementById('posicaoPresets')) {
+    var tampasBody = document.querySelector('#cardTampas .card-body');
+    if (tampasBody) {
+      var posWrap = document.createElement('div');
+      posWrap.style.marginBottom = '12px';
+      posWrap.innerHTML = '<div style="font-size:.6rem;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;font-weight:500;margin-bottom:8px">Posição das Tampas</div>'
+        + '<div class="presets" id="posicaoPresets"></div>'
+        + '<div id="tampaPosDica" style="font-size:.62rem;color:var(--t4);margin-top:4px"></div>';
+      var firstSep = tampasBody.querySelector('.sep');
+      if (firstSep) { firstSep.before(posWrap); var s2=document.createElement('div'); s2.className='sep'; posWrap.after(s2); }
+      else tampasBody.insertBefore(posWrap, tampasBody.firstChild);
+      buildPosicaoPresets();
+    }
+  }
+
+  // 4. foto upload at bottom of client card
+  if (!document.getElementById('tumFotoArea')) {
+    var loteEl = document.getElementById('iLote');
+    if (loteEl) {
+      var fotoDiv = document.createElement('div');
+      fotoDiv.className = 'f';
+      fotoDiv.style.gridColumn = '1/-1';
+      fotoDiv.innerHTML = '<label>📷 Foto do modelo (aparece no PDF)</label>'
+        + '<div id="tumFotoArea" style="border:2px dashed var(--bd2);border-radius:10px;padding:10px;text-align:center;cursor:pointer;min-height:44px;display:flex;align-items:center;justify-content:center;margin-top:4px;transition:border-color .2s">'
+        + '<input type="file" id="tumFotoInput" accept="image/*" style="display:none">'
+        + '<div id="tumFotoPreview" style="font-size:.7rem;color:var(--t4)">📷 Adicionar foto do túmulo ao PDF</div>'
+        + '</div>';
+      fotoDiv.querySelector('#tumFotoArea').addEventListener('click', function() {
+        document.getElementById('tumFotoInput').click();
+      });
+      fotoDiv.querySelector('#tumFotoInput').addEventListener('change', function() {
+        carregarFotoOrc(this);
+      });
+      loteEl.closest('.f').after(fotoDiv);
+    }
+  }
+
+  // 5. laje vedante card (IV-D) before material card
+  if (!document.getElementById('cardLajeVed')) {
+    var matCard = document.getElementById('cardMat') || document.querySelector('.card-title');
+    // find material card by text
+    var allCards = document.querySelectorAll('.card');
+    var matCardEl = null;
+    allCards.forEach(function(card) {
+      var title = card.querySelector('.card-title');
+      if (title && title.textContent && title.textContent.indexOf('Material') >= 0) matCardEl = card;
+    });
+    if (matCardEl) {
+      var ljCard = document.createElement('div');
+      ljCard.className = 'card';
+      ljCard.id = 'cardLajeVed';
+      ljCard.innerHTML =
+        '<div class="card-head"><span class="card-title">④-D Laje Vedante + Usinagem</span>'
+        + '<span id="lajeVedBadge" style="font-size:.62rem;color:var(--gold2)"></span></div>'
+        + '<div class="card-body">'
+        + '<div class="callout info" style="font-size:.72rem;margin-bottom:12px">Laje vedante abaixo das tampas e usinagem do rebaixo de encaixe.</div>'
+        + '<div class="tog-row"><div><div class="tog-lbl">🧱 Laje vedante</div><div class="tog-sub">Sela 100% cada compartimento abaixo da tampa</div></div>'
+        + '<div class="tog" id="togLajeVed" onclick="_tLajeToggle()"></div></div>'
+        + '<div id="lajeVedPrecos" style="display:none;margin-top:10px">'
+        + '<div class="f-grid"><div class="f"><label>Custo R$/m²</label><input type="number" value="120" min="0" oninput="SEL.rebaixo.custoLaje=+this.value;_TI_calcular()"></div>'
+        + '<div class="f"><label>Venda R$/m²</label><input type="number" value="200" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaLaje=+this.value;_TI_calcular()"></div></div>'
+        + '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">'
+        + '<label style="font-size:.72rem;color:var(--t2);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="i" checked onchange="SEL.rebaixo.lajeInteira=true;_TI_calcular()" style="accent-color:var(--gold)">🧱 Uma laje inteira (toda área útil)</label>'
+        + '<label style="font-size:.72rem;color:var(--t3);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="c" onchange="SEL.rebaixo.lajeInteira=false;_TI_calcular()" style="accent-color:var(--gold)">📦 Uma por compartimento</label>'
+        + '</div><div id="lajeVedInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>'
+        + '<div class="sep"></div>'
+        + '<div class="tog-row"><div><div class="tog-lbl">🔧 Usinagem rebaixo</div><div class="tog-sub">Serviço de corte nas bordas das tampas (R$/ml)</div></div>'
+        + '<div class="tog" id="togUsinagem" onclick="_tUsinToggle()"></div></div>'
+        + '<div id="usinagemPrecos" style="display:none;margin-top:10px">'
+        + '<div class="f-grid"><div class="f"><label>Custo R$/ml</label><input type="number" value="80" min="0" oninput="SEL.rebaixo.custoUsin=+this.value;_TI_calcular()"></div>'
+        + '<div class="f"><label>Venda R$/ml</label><input type="number" value="150" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaUsin=+this.value;_TI_calcular()"></div></div>'
+        + '<div id="usinagemInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>'
+        + '</div>';
+      matCardEl.before(ljCard);
+    }
   }
 }
 
@@ -2109,52 +2213,34 @@ function calcularFinal() {
   var numStr = 'ORC-' + String(num).padStart(4,'0') + '-' + new Date().getFullYear();
 
   pendOrc = {
-    id:Date.now(),
-    num: numStr,
-    date:new Date().toLocaleDateString('pt-BR'),
-    dateISO: new Date().toISOString(),
+    id:Date.now(), num:numStr,
+    date:new Date().toLocaleDateString('pt-BR'), dateISO:new Date().toISOString(),
     cli:cli,
     tel:  document.getElementById('iTel').value.trim(),
     cemi: document.getElementById('iCemiterio').value.trim(),
     cid:  document.getElementById('iCidade').value.trim(),
-    fal:  SEL.falecidos.filter(function(f){ return f.nome && f.nome.trim(); }),
+    fal:  SEL.falecidos.filter(function(f){ return f.nome&&f.nome.trim(); }),
     quad: document.getElementById('iQuadra').value.trim(),
     lote: document.getElementById('iLote').value.trim(),
     obs:  document.getElementById('iObs').value.trim(),
-    preset: SEL.preset,
-    tipoServNm: r.ts.nm,
-    matNm: r.mat.nm,
-    acabNm: r.acab.nm,
-    // ── Dados para restaurar o orçamento ao editar do histórico ──────────
-    // Configurações do formulário
-    _sel: {
-      tipoServ:  SEL.tipoServ,
-      matId:     SEL.matId,
-      acabamento: SEL.acabamento,
-      pecas:     JSON.parse(JSON.stringify(SEL.pecas)),
-      tampas:    JSON.parse(JSON.stringify(SEL.tampas)),
-      lapide:    JSON.parse(JSON.stringify(SEL.lapide)),
-      rebaixo:   JSON.parse(JSON.stringify(SEL.rebaixo)),
-      opts:      JSON.parse(JSON.stringify(SEL.opts)),
-      adv:       JSON.parse(JSON.stringify(SEL.adv))
+    preset:SEL.preset, tipoServNm:r.ts.nm, matNm:r.mat.nm, acabNm:r.acab.nm,
+    // Estado completo para restaurar ao editar do histórico
+    _sel:{
+      tipoServ:SEL.tipoServ, matId:SEL.matId, acabamento:SEL.acabamento,
+      pecas:JSON.parse(JSON.stringify(SEL.pecas)),
+      tampas:JSON.parse(JSON.stringify(SEL.tampas)),
+      lapide:JSON.parse(JSON.stringify(SEL.lapide)),
+      rebaixo:JSON.parse(JSON.stringify(SEL.rebaixo)),
+      opts:JSON.parse(JSON.stringify(SEL.opts)),
+      adv:JSON.parse(JSON.stringify(SEL.adv))
     },
-    // Dimensões exatas lidas dos inputs
-    _dims: {
-      C:       r.d.C_cm,
-      L:       r.d.L_cm,
-      E:       r.d.E,
-      N:       r.d.N,
-      disp:    r.d.disp,
-      Ae:      r.d.Ae_cm,
-      Ab:      r.d.Ab_cm,
-      Hc:      r.d.Hc_cm,
-      Hl:      r.d.Hl_cm,
-      LapW:    r.d.LapW_cm,
-      LapH:    r.d.LapH_cm,
-      AvRod:   r.d.AvRod,
-      altFinal: (document.getElementById('mAlturaFinal')||{}).value || ''
+    _dims:{
+      C:r.d.C_cm, L:r.d.L_cm, E:r.d.E, N:r.d.N, disp:r.d.disp,
+      Ae:r.d.Ae_cm, Ab:r.d.Ab_cm, Hc:r.d.Hc_cm, Hl:r.d.Hl_cm,
+      LapW:r.d.LapW_cm, LapH:r.d.LapH_cm, AvRod:r.d.AvRod,
+      altFinal:(document.getElementById('mAlturaFinal')||{}).value||''
     },
-    r: r
+    r:r
   };
 
   // Expõe o resultado para app-tum-integracao.js ler via window
@@ -2226,9 +2312,6 @@ function renderResultado(o) {
   ];
   if (r.custo_extras > 0) {
     gridCusto.push({ lbl:'Extras/Opcionais', val:'R$ '+_fn(r.custo_extras), cl:'', sub:'Cruz, foto, jarro...' });
-  }
-  if ((r.venda_rebaixo||0) + (r.venda_laje_ved||0) > 0) {
-    gridCusto.push({ lbl:'Vedação + Usinagem', val:'R$ '+_fn((r.venda_rebaixo||0)+(r.venda_laje_ved||0)), cl:'', sub:'Laje vedante + rebaixo' });
   }
   gridCusto.push({ lbl:'Custo Total',    val:'R$ '+_fn(r.custo_total),    cl:'',     sub:'Sem lucro' });
   gridCusto.push({ lbl:'Margem '+CFG.margem+'%', val:'R$ '+_fn(r.margem_reais), cl:'grn', sub:'Lucro estimado' });
@@ -2337,15 +2420,6 @@ function renderResultado(o) {
     if (SEL.opts.lapide45)    dh += '<div class="det-line"><span class="det-k">Lápide 45° engrossada</span><span class="det-v">R$ 180,00</span></div>';
   }
 
-  if ((r.venda_rebaixo||0) > 0 || (r.venda_laje_ved||0) > 0) {
-    dh += '<div class="det-sec">🔧 Vedação e Usinagem</div>';
-    if ((r.venda_rebaixo||0) > 0) {
-      dh += '<div class="det-line"><span class="det-k">Usinagem rebaixo — '+(r.ml_rebaixo||0).toFixed(2)+' ml × R$'+(SEL.rebaixo.vendaUsin||150)+'/ml</span><span class="det-v">R$ '+_TI_fm(r.venda_rebaixo)+'</span></div>';
-    }
-    if ((r.venda_laje_ved||0) > 0) {
-      dh += '<div class="det-line"><span class="det-k">Laje vedante — '+(r.m2_laje_ved||0).toFixed(3)+' m² × R$'+(SEL.rebaixo.vendaLaje||200)+'/m²</span><span class="det-v">R$ '+_TI_fm(r.venda_laje_ved)+'</span></div>';
-    }
-  }
   if (o.obs) {
     dh += '<div class="det-sec">📝 Observações</div>';
     dh += '<div style="font-size:.78rem;color:var(--t2);padding:8px 0;line-height:1.5">'+o.obs+'</div>';
@@ -4204,7 +4278,7 @@ function _TI_getCSS() {
 }
 
 function _TI_getHTML() {
-  return '<!-- MODAL EXCLUIR -->\n<div class="modal-overlay" id="modalDel">\n  <div class="modal">\n    <div class="modal-title">Confirmar Exclusão</div>\n    <button class="modal-close" onclick="fecharModal(\'modalDel\')">✕</button>\n    <p style="font-size:.85rem;color:var(--t2);margin-bottom:20px">Tem certeza que deseja excluir este orçamento do histórico? Esta ação não pode ser desfeita.</p>\n    <div style="display:flex;gap:10px">\n      <button class="btn btn-out btn-sm" onclick="fecharModal(\'modalDel\')" style="flex:1;justify-content:center">Cancelar</button>\n      <button class="btn btn-red btn-sm" id="btnConfirmDel" style="flex:1;justify-content:center">🗑 Excluir</button>\n    </div>\n  </div>\n</div>\n\n<!-- MODAL NOVA PEDRA -->\n<div class="modal-overlay" id="modalPedra">\n  <div class="modal">\n    <div class="modal-title">Adicionar Pedra</div>\n    <button class="modal-close" onclick="fecharModal(\'modalPedra\')">✕</button>\n    <div class="f-grid full" style="margin-bottom:12px">\n      <div class="f"><label>Nome da Pedra</label><input id="npNome" type="text" placeholder="Ex: Verde Ubatuba"></div>\n    </div>\n    <div class="f-grid" style="margin-bottom:12px">\n      <div class="f"><label>Categoria</label>\n        <select id="npCat">\n          <option value="Popular">Popular</option>\n          <option value="Médio">Médio</option>\n          <option value="Premium">Premium</option>\n          <option value="Personalizado">Personalizado</option>\n        </select>\n      </div>\n      <div class="f"><label>Preço por m² (R$)</label><input id="npPr" type="number" min="50" max="2000" placeholder="250"></div>\n    </div>\n    <div class="f-grid" style="margin-bottom:20px">\n      <div class="f"><label>Peso (kg/m³)</label><input id="npPeso" type="number" min="1000" max="4000" value="2700" placeholder="2700"></div>\n      <div class="f"><label>Espessura padrão (cm)</label><input id="npEsp" type="number" min="1" max="6" value="2" placeholder="2"></div>\n    </div>\n    <button class="btn btn-gold btn-full" onclick="confirmarAddPedra()">✓ Adicionar Pedra</button>\n  </div>\n</div>\n\n<!-- MODAL ANÁLISE IA -->\n<div class="modal-overlay" id="modalIA">\n  <div class="modal" style="max-width:480px">\n    <div class="modal-title">🤖 Analisar Foto do Túmulo</div>\n    <button class="modal-close" onclick="fecharModal(\'modalIA\')">✕</button>\n\n    <div class="callout info" style="margin-bottom:14px;font-size:.73rem">\n      Envie uma foto do modelo de túmulo. A IA identifica o tipo, disposição, acabamentos e preenche os campos automaticamente.<br>\n      <span style="color:var(--gold2)">✦ Se o material ou acabamento não existir, é criado automaticamente.</span><br>\n      <span style="color:var(--t4);font-size:.68rem">⚠ Se aparecer erro de chave, vá em Configurações → IA e verifique se a chave não tem restrição de domínio.</span>\n    </div>\n\n    <!-- Upload área -->\n    <div id="iaUploadArea" onclick="document.getElementById(\'iaFileInput\').click()"\n      style="border:2px dashed var(--bd2);border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;position:relative">\n      <input type="file" id="iaFileInput" accept="image/*" style="display:none" onchange="iaOnFileSelect(this)">\n      <div id="iaUploadIcon" style="font-size:2rem;margin-bottom:6px">📷</div>\n      <div id="iaUploadTxt" style="font-size:.78rem;color:var(--t3)">Toque para selecionar uma foto</div>\n      <img id="iaPreviewImg" style="display:none;max-width:100%;border-radius:8px;margin-top:10px" alt="preview">\n    </div>\n\n    <!-- Descrição opcional -->\n    <div class="f" style="margin-bottom:14px">\n      <label>Descrição adicional (opcional)</label>\n      <textarea id="iaDesc" style="min-height:60px" placeholder="Ex: 4 gavetas lado a lado, mármore branco, lápide com chanfro 45°, 2 jarros..."></textarea>\n    </div>\n\n    <!-- Status -->\n    <div id="iaStatus" style="display:none;font-size:.75rem;color:var(--gold2);margin-bottom:10px;text-align:center;padding:8px;background:var(--gdim);border-radius:8px"></div>\n\n    <div style="display:flex;gap:10px">\n      <button class="btn btn-out btn-sm" onclick="fecharModal(\'modalIA\')" style="flex:1;justify-content:center">Cancelar</button>\n      <button class="btn btn-gold" id="iaBtnAnalisar" onclick="iaAnalisar()" style="flex:2;justify-content:center">\n        🔍 Analisar com IA\n      </button>\n    </div>\n  </div>\n</div>\n\n<!-- PRINT AREA -->\n<div id="printArea">\n  <div class="print-header">\n    <div class="print-title" id="pTitle">HR Mármores e Granitos</div>\n    <div class="print-meta" id="pMeta"></div>\n  </div>\n  <div id="pBody"></div>\n  <div class="print-footer" id="pFooter"></div>\n</div>\n\n<!-- IDs ocultos para compatibilidade com o motor interno -->\n<span id="hdNum" style="display:none"></span>\n\n<!-- ═══════════════════════════════ ORÇAMENTO ═══════════════════════════════ -->\n<div id="pg-orcamento" class="page on">\n\n  <!-- BOTÃO IA -->\n  <div style="margin-bottom:14px">\n    <button class="btn btn-out btn-full" style="border-color:rgba(201,168,76,.3);gap:10px;padding:12px 20px" onclick="abrirModal(\'modalIA\')">\n      <span style="font-size:1.1rem">🤖</span>\n      <span style="flex:1;text-align:left">\n        <span style="color:var(--gold2);font-weight:600;font-size:.82rem">Analisar foto do modelo</span><br>\n        <span style="font-size:.65rem;color:var(--t4);font-weight:400">Envie uma imagem e a IA preenche os campos automaticamente</span>\n      </span>\n      <span style="font-size:.65rem;color:var(--t4)">IA ›</span>\n    </button>\n  </div>\n\n  <!-- PROGRESSO -->\n  <div class="steps-wrap" id="stepsWrap">\n    <div class="step" id="sCliente"><div class="step-dot">1</div><div class="step-nm">Cliente</div><div class="step-line"></div></div>\n    <div class="step" id="sTipo"><div class="step-dot">2</div><div class="step-nm">Tipo</div><div class="step-line"></div></div>\n    <div class="step" id="sMedidas"><div class="step-dot">3</div><div class="step-nm">Medidas</div><div class="step-line"></div></div>\n    <div class="step" id="sMaterial"><div class="step-dot">4</div><div class="step-nm">Material</div><div class="step-line"></div></div>\n    <div class="step" id="sItens"><div class="step-dot">5</div><div class="step-nm">Itens</div></div>\n  </div>\n\n  <!-- CLIENTE -->\n  <div class="card" id="cardCliente">\n    <div class="card-head">\n      <span class="card-title">① Cliente</span>\n      <span id="statusCliente" style="font-size:.65rem;color:var(--t4)"></span>\n    </div>\n    <div class="card-body">\n      <div class="f-grid">\n        <div class="f" id="fCli"><label>Nome do Cliente *</label><input id="iCli" type="text" placeholder="Ex: Maria Silva" oninput="validarCli();_TI_calcular()"><div class="f-err">Nome obrigatório</div></div>\n        <div class="f"><label>Telefone</label><input id="iTel" type="tel" placeholder="(74) 99999-9999" oninput="mascaraTel(this)"></div>\n      </div>\n      <div class="f-grid">\n        <div class="f"><label>Cemitério</label><input id="iCemiterio" type="text" placeholder="Nome do cemitério"></div>\n        <div class="f"><label>Cidade</label><input id="iCidade" type="text" placeholder="Pilão Arcado — BA"></div>\n      </div>\n      <div class="f-grid cols3">\n        <div class="f" style="grid-column:1/-1">\n          <label>Falecido(a) — <span id="falLabelQtd" style="color:var(--gold2);font-weight:600">1 pessoa</span></label>\n          <div id="falecidosLista" style="display:flex;flex-direction:column;gap:8px;margin-top:4px"></div>\n          <div style="display:flex;gap:8px;margin-top:6px">\n            <button class="btn btn-out" style="font-size:.7rem;padding:5px 12px" onclick="addFalecido()">+ Adicionar falecido</button>\n            <span style="font-size:.67rem;color:var(--t4);align-self:center">Independente do nº de compartimentos</span>\n          </div>\n        </div>\n        <div class="f"><label>Quadra</label><input id="iQuadra" type="text" placeholder="Q-12"></div>\n        <div class="f"><label>Lote / Número</label><input id="iLote" type="text" placeholder="L-04"></div>\n      </div>\n    </div>\n  </div>\n\n  <!-- PRESET / TIPO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">② Tipo de Túmulo</span>\n      <span id="presetAtivo" class="badge badge-gold" style="display:none"></span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="presetList"></div>\n    </div>\n  </div>\n\n  <!-- TIPO DE SERVIÇO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">③ Tipo de Serviço</span>\n      <span id="tipoServicoLabel" class="badge badge-gold"></span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="tipoServList"></div>\n      <div id="tipoServDesc" class="callout" style="margin-top:10px;margin-bottom:0"></div>\n    </div>\n  </div>\n\n  <!-- MEDIDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">④ Medidas</span>\n      <span id="alturaCalc" style="font-size:.7rem;color:var(--gold2);font-weight:600"></span>\n    </div>\n    <div class="card-body">\n      \n\n      <!-- ALTURA TOTAL MANUAL -->\n      <div class="f-grid" style="margin-bottom:4px">\n        <div class="f">\n          <label>Altura Total (cm)</label>\n          <input id="mAlturaFinal" type="number" step="1" min="0" max="300" placeholder="Deixe vazio = calcular auto"\n            oninput="_TI_calcular()"\n            style="border-color:rgba(201,168,76,.35)">\n          <span class="f-hint">Deixe vazio = calcular automaticamente</span>\n        </div>\n        <div class="f" style="justify-content:flex-end;padding-bottom:4px">\n          <button class="btn btn-out btn-sm" onclick="document.getElementById(\'mAlturaFinal\').value=\'\';_TI_calcular()" style="margin-top:auto">↺ Usar automático</button>\n        </div>\n      </div>\n      \n\n      <!-- PREVIEW SVG -->\n      <div class="preview-3d" id="prevDiv">\n        <svg id="prevSVG" class="tum-svg" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n      <!-- Info técnica do preview -->\n      <div id="prevInfo" style="font-size:.62rem;color:var(--t4);text-align:center;margin-top:4px;margin-bottom:12px;font-family:\'DM Mono\',monospace;letter-spacing:.05em"></div>\n\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Comprimento (cm)</label>\n          <input id="mC" type="number" step="1" min="50" max="500" placeholder="200" oninput="_TI_calcular()">\n          <span class="f-hint">Tampa, frente, fundo, base</span>\n        </div>\n        <div class="f">\n          <label>Largura (cm)</label>\n          <input id="mL" type="number" step="1" min="30" max="300" placeholder="70" oninput="_TI_calcular()">\n          <span class="f-hint">Tampa, laterais, base</span>\n        </div>\n        <div class="f">\n          <label>Espessura pedra (cm)</label>\n          <select id="mE" onchange="_TI_calcular()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n          <span class="f-hint">2–3cm lateral / 3–4cm tampa</span>\n        </div>\n      </div>\n      <div class="f-grid">\n        <div class="f">\n          <label>Nº de Compartimentos</label>\n          <select id="mGav" onchange="_TI_calcular()">\n            <option value="0">0 — Simples (sem comp.)</option>\n            <option value="1">1 Compartimento</option>\n            <option value="2" selected>2 Compartimentos</option>\n            <option value="3">3 Compartimentos</option>\n            <option value="4">4 Compartimentos</option>\n          </select>\n          <span class="f-hint">Cada compartimento = 1 caixão + laje</span>\n        </div>\n        <div class="f">\n          <label>Disposição dos compartimentos</label>\n          <select id="mDisp" onchange="_TI_calcular()">\n            <option value="vertical">Vertical (um sobre o outro)</option>\n            <option value="horizontal">Horizontal (lado a lado)</option>\n          </select>\n          <span class="f-hint">Vertical = empilhado · Horizontal = lado a lado</span>\n        </div>\n      </div>\n      <div class="f-grid">\n        <div class="f">\n          <label>Alt. livre por compartimento (cm)</label>\n          <input id="mHcomp" type="number" step="1" min="30" max="80" value="45" oninput="_TI_calcular()">\n          <span class="f-hint">Espaço interno p/ caixão (padrão 45cm)</span>\n        </div>\n        <div class="f">\n          <label>Espessura da laje (cm)</label>\n          <input id="mHlaje" type="number" step="1" min="6" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">Laje concreto + revestimento pedra</span>\n        </div>\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Base estrutural (cm)</label>\n          <input id="mAe" type="number" step="1" min="10" max="100" value="30" oninput="_TI_calcular()">\n          <span class="f-hint">Altura da base de concreto</span>\n        </div>\n        <div class="f">\n          <label>Altura rodapé de pedra (cm)</label>\n          <input id="mAb" type="number" step="1" min="0" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">0 = sem rodapé de pedra</span>\\\n        </div>\n        <div class="f">\n          <label>Avanço lateral rodapé (cm)</label>\n          <input id="mAvRodape" type="number" step="1" min="0" max="20" value="5" oninput="SEL.rebaixo.avRodape=+this.value;_TI_calcular()">\n          <span class="f-hint">Projeção além do corpo (0=sem)</span>n        </div>\n        <div class="f">\n          <label>Largura da lápide (cm)</label>\n          <input id="mLapW" type="number" step="1" min="20" max="200" value="80" oninput="_TI_calcular()">\n          <span class="f-hint">Largura — padrão 80 cm</span>\n        </div>\n        <div class="f">\n          <label>Altura da lápide (cm)</label>\n          <input id="mLapH" type="number" step="1" min="20" max="150" value="60" oninput="_TI_calcular()">\n          <span class="f-hint">Altura — padrão 60 cm</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- TAMPAS INDIVIDUAIS -->\n  <div class="card" id="cardTampas">\n    <div class="card-head">\n      <span class="card-title">④-B Tampas Superiores</span>\n      <span id="tampasSummary" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div class="card-body">\n\n      <!-- POSIÇÃO DAS TAMPAS -->\n      <div style=\"margin-bottom:14px\">\n        <div style=\"font-size:.6rem;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;font-weight:500;margin-bottom:8px\">Posição das Tampas</div>\n        <div class=\"presets\" id=\"posicaoPresets\"></div>\n        <div id=\"tampaPosDica\" style=\"font-size:.62rem;color:var(--t4);margin-top:4px\">Abertura em cima — tampas horizontais sobre os compartimentos</div>\n      </div>\n      <div class=\"sep\"></div>\n      <!-- MOLDURA / REBAIXO -->\n      \n      \n      <div id="divAreaUtil" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(74,128,181,.08);border:1px solid rgba(74,128,181,.25);border-radius:10px;font-size:.64rem;color:var(--t3);line-height:1.8"></div>\n      <div class="presets" id="molduraPresets"></div>\n      <div id="molduraCustomBox" style="display:none;margin-bottom:12px">\n        <div class="f-grid cols3">\n          <div class="f">\n            <label>Moldura personalizada (cm)</label>\n            <input type="number" id="tMolduraCustom" min="0" max="30" value="10"\n              oninput="SEL.tampas.molduraCustom=+this.value;atualizarTampasUI();_TI_calcular()">\n            <span class="f-hint">Desconto em cada lado</span>\n          </div>\n        </div>\n      </div>\n\n      <!-- MODO DE DIVISÃO -->\n      <div class="sep"></div>\n      \n      <div class="presets" id="gradePresets"></div>\n\n      <!-- CONFIGURAÇÃO MANUAL DE GRADE -->\n      <div id="gradeCustomBox" style="display:none;margin-bottom:0">\n        <div class="f-grid">\n          <div class="f">\n            <label>Colunas (eixo comprimento)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'colunas\',-1)">−</div>\n              <input type="number" id="tColunas" min="1" max="4" value="1"\n                oninput="SEL.tampas.colunas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n              <div class="num-btn" onclick="adjGrade(\'colunas\',+1)">+</div>\n            </div>\n          </div>\n          <div class="f">\n            <label>Linhas (eixo largura)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',-1)">−</div>\n              <input type="number" id="tLinhas" min="1" max="4" value="1"\n                oninput="SEL.tampas.linhas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',+1)">+</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- FOLGAS -->\n      <div class="sep"></div>\n      \n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Folga entre tampas — C (cm)</label>\n          <input type="number" id="tFolgaC" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaC=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta no comprimento</span>\n        </div>\n        <div class="f">\n          <label>Folga entre tampas — L (cm)</label>\n          <input type="number" id="tFolgaL" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaL=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta na largura</span>\n        </div>\n        <div class="f">\n          <label>Espessura das tampas (cm)</label>\n          <select id="tEspTampa" onchange="SEL.tampas.espTampa=+this.value;atualizarTampasUI();_TI_calcular()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n\n      <!-- ACABAMENTO + ARGOLAS -->\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Acabamento das tampas</label>\n          <div id="tampasAcabList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>\n        </div>\n        <div class="f">\n          <label>Argolas de içamento</label>\n          <div class="tog-row" style="border:none;padding:6px 0 0 0">\n            <div><div class="tog-lbl">Argolas metálicas</div><div class="tog-sub">Tampas pesadas (&gt;60 kg)</div></div>\n            <div class="tog" id="togArgolas"\n              onclick="SEL.tampas.argolas=!SEL.tampas.argolas;this.classList.toggle(\'on\',SEL.tampas.argolas);_TI_calcular()"></div>\n          </div>\n        </div>\n      </div>\n\n      <!-- ④ PREVIEW ESQUEMÁTICO SVG -->\n      <div class="sep"></div>\n      \n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px">\n        <svg id="tampasSVG" style="width:100%;display:block;max-height:200px" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n\n      <!-- ⑤ TABELA DE PEÇAS -->\n      <div id="tampasPreviewBox" style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-top:10px">\n        \n        <div id="tampasPreviewRows"></div>\n        <div id="tampasTotais" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)"></div>\n      </div>\n\n    </div>\n  </div>\n\n  <!-- LÁPIDE ENGROSSADA -->\n  <div class="card" id="cardLapideEng" style="display:none">\n    <div class="card-head">\n      <span class="card-title">④-C Lápide Engrossada</span>\n      <span id="lapideEngBadge" class="badge badge-gold" style="display:none">Engrossada</span>\n    </div>\n    <div class="card-body">\n      \n      <div class="f-grid full" style="margin-bottom:12px">\n        <div class="f">\n          <label>Engrossamento da lápide</label>\n          <div class="presets" id="engList"></div>\n        </div>\n      </div>\n      <!-- Preview peças de encontro (aparece quando ativado) -->\n      <div id="encontroBox" style="display:none">\n        <div class="sep"></div>\n        \n        \n        <div id="encontroRows"></div>\n        <div class="tog-row" style="margin-top:10px">\n          <div><div class="tog-lbl">Incluir peças de encontro no orçamento</div><div class="tog-sub">Superior + 2 laterais — calculadas automaticamente</div></div>\n          <div class="tog on" id="togEncontro" onclick="SEL.lapide.pecasEncontro=!SEL.lapide.pecasEncontro;this.classList.toggle(\'on\',SEL.lapide.pecasEncontro);renderEncontroBox();_TI_calcular()"></div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- LAJE VEDANTE -->\n  <div class="card" id="cardLajeVed">\n    <div class="card-head">\n      <span class="card-title">④-D Laje Vedante + Usinagem</span>\n      <span id="lajeVedBadge" style="font-size:.62rem;color:var(--gold2)"></span>\n    </div>\n    <div class="card-body">\n      <div class="callout info" style="font-size:.72rem;margin-bottom:12px">Laje vedante abaixo das tampas e usinagem do rebaixo de encaixe.</div>\n      <div class="tog-row"><div><div class="tog-lbl">🧱 Laje vedante</div><div class="tog-sub">Sela 100% cada compartimento abaixo da tampa</div></div><div class="tog" id="togLajeVed" onclick="_tLajeToggle()"></div></div>\n      <div id="lajeVedPrecos" style="display:none;margin-top:10px"><div class="f-grid"><div class="f"><label>Custo R$/m²</label><input type="number" value="120" min="0" oninput="SEL.rebaixo.custoLaje=+this.value;_TI_calcular()"></div><div class="f"><label>Venda R$/m²</label><input type="number" value="200" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaLaje=+this.value;_TI_calcular()"></div></div><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px"><label style="font-size:.72rem;color:var(--t2);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="i" checked onchange="SEL.rebaixo.lajeInteira=true;_TI_calcular()" style="accent-color:var(--gold)">🧱 Uma laje inteira (toda área útil)</label><label style="font-size:.72rem;color:var(--t3);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="c" onchange="SEL.rebaixo.lajeInteira=false;_TI_calcular()" style="accent-color:var(--gold)">📦 Uma por compartimento</label></div><div id="lajeVedInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>\n      <div class="sep"></div>\n      <div class="tog-row"><div><div class="tog-lbl">🔧 Usinagem rebaixo</div><div class="tog-sub">Serviço de corte nas bordas das tampas (R$/ml)</div></div><div class="tog" id="togUsinagem" onclick="_tUsinToggle()"></div></div>\n      <div id="usinagemPrecos" style="display:none;margin-top:10px"><div class="f-grid"><div class="f"><label>Custo R$/ml</label><input type="number" value="80" min="0" oninput="SEL.rebaixo.custoUsin=+this.value;_TI_calcular()"></div><div class="f"><label>Venda R$/ml</label><input type="number" value="150" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaUsin=+this.value;_TI_calcular()"></div></div><div id="usinagemInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>\n    </div>\n  </div>\n\n  <!-- MATERIAL -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑤ Material da Pedra</span>\n      <span id="matSel" style="font-size:.72rem;color:var(--gold2)"></span>\n    </div>\n    <div class="card-body">\n      <div id="matCats" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 0 10px;margin:0 -4px 2px;"></div>\n      <div id="matList" style="display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 0 10px;"></div>\n      <div style="font-size:.65rem;color:var(--t4);margin-top:6px" id="matInfo"></div>\n    </div>\n  </div>\n\n  <!-- PEÇAS INCLUÍDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑥ Revestimento</span>\n      <span id="pecasCount" style="font-size:.65rem;color:var(--t3)"></span>\n    </div>\n    <div class="card-body">\n      <div id="pecasTogList"></div>\n    </div>\n  </div>\n\n  <!-- ACABAMENTO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑦ Acabamento das Bordas</span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="acabList"></div>\n    </div>\n  </div>\n\n  <!-- OPCIONAIS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑧ Itens Opcionais</span>\n    </div>\n    <div class="card-body">\n      <div id="opcionaisList"></div>\n    </div>\n  </div>\n\n  <!-- AVANÇADO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑨ Avançado</span>\n    </div>\n    <div class="card-body">\n      <div id="avancadoList"></div>\n    </div>\n  </div>\n\n  <!-- OBSERVAÇÕES -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">⑩ Observações</span></div>\n    <div class="card-body">\n      <div class="f full">\n        <textarea id="iObs" placeholder="Detalhes especiais, instruções de instalação, pedidos do cliente..."></textarea>\n      </div>\n    </div>\n  </div>\n\n  <!-- Botão oculto: acionado por _TI_tumCalcularAuto() do app-tum-integracao.js -->\n  <button id="btnTumCalcAuto" style="display:none" onclick="calcularFinal()"></button>\n\n</div>\n\n<!-- ═══════════════════════════════ RESULTADO ═══════════════════════════════ -->\n<div id="pg-resultado" class="page">\n\n  <div id="resEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">⚰️</div>\n    <div style="font-size:.85rem">Preencha o orçamento e toque em <strong style="color:var(--gold)">Gerar Orçamento</strong></div>\n  </div>\n\n  <div id="resConteudo" style="display:none">\n\n    <!-- CABEÇALHO DO RESULTADO -->\n    <div class="card" style="background:linear-gradient(135deg,var(--bg2),rgba(201,168,76,.04))">\n      <div class="card-body">\n        <div style="font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold3);margin-bottom:5px;font-family:\'DM Mono\',monospace">Orçamento Gerado</div>\n        <div id="rCli" style="font-family:\'Cormorant Garamond\',serif;font-size:1.7rem;font-weight:700;color:var(--gold2);line-height:1.1;margin-bottom:4px"></div>\n        <div id="rMeta" style="font-size:.72rem;color:var(--t3);display:flex;gap:12px;flex-wrap:wrap"></div>\n      </div>\n    </div>\n\n    <!-- RESUMO NÚMEROS -->\n    <div class="res-grid" id="rGrid"></div>\n\n    <!-- DETALHAMENTO -->\n    <div class="card">\n      <div class="card-head"><span class="card-title">Detalhamento Completo</span></div>\n      <div class="card-body" id="rDetalhe"></div>\n    </div>\n\n    <!-- VALOR FINAL -->\n    <div class="total-box">\n      <div class="total-main">\n        <span class="total-lbl">À Vista (sem juros)</span>\n        <span class="total-val" id="rVista">R$ 0</span>\n      </div>\n      <div id="rParc" class="total-parc"></div>\n      <div id="rPrazo" style="font-size:.7rem;color:var(--t3);margin-top:6px"></div>\n    </div>\n\n    <!-- AÇÕES -->\n    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;margin-bottom:30px">\n      <!-- PDF block -->\n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px">\n        <div style="font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--t4);margin-bottom:10px;font-weight:700">PDF do Orçamento</div>\n        <button class="btn btn-gold btn-full" onclick="baixarPDF()" style="font-size:.88rem;padding:13px;justify-content:center;gap:10px;margin-bottom:8px">📥 Baixar PDF</button>\n        <div style="display:flex;gap:8px">\n          <button class="btn btn-out btn-sm" onclick="compartilharPDF()" style="flex:1;justify-content:center;border-color:rgba(201,168,76,.3);color:var(--gold)">📱 Compartilhar</button>\n          <button class="btn btn-out btn-sm" onclick="imprimirPDF()" style="flex:1;justify-content:center">🖨 Imprimir</button>\n        </div>\n      </div>\n      <div style="display:flex;gap:8px">\n        <button class="btn btn-out btn-sm" onclick="copiarWA()" style="flex:1;justify-content:center">📲 WhatsApp</button>\n        <button class="btn btn-gold btn-sm" onclick="salvarHistorico()" style="flex:2;justify-content:center">💾 Salvar</button>\n    </div>\n\n    <textarea id="txtWA" style="position:absolute;left:-9999px" readonly></textarea>\n\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ PLANTA TÉCNICA ═══════════════════════════════ -->\n<div id="pg-planta" class="page">\n\n  <!-- Resumo cards -->\n  <div id="plt-resumo" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>\n\n  <!-- Corte Frontal -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Corte Frontal — Vista em Elevação</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgCorte" style="width:100%;display:block" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Planta Baixa -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Planta Baixa — Vista Superior</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgPlanta" style="width:100%;display:block" viewBox="0 0 520 240" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Tabela de Pedras -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head">\n      <span class="card-title">Lista de Pedras — Medidas Exatas</span>\n      <span id="plt-totalPecas" style="font-size:.65rem;color:var(--t3);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div style="overflow-x:auto">\n      <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n        <thead>\n          <tr>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Peça</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Qt</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Comp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Larg.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Esp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Observação</th>\n          </tr>\n        </thead>\n        <tbody id="plt-tblBody"></tbody>\n      </table>\n    </div>\n  </div>\n\n  <!-- Legenda -->\n  <div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.15);border-radius:10px;padding:12px 14px;font-size:.72rem;color:var(--t2);line-height:1.8;margin-bottom:20px">\n    <strong style="color:var(--gold2)">Legenda:</strong><br>\n    <span style="color:rgba(201,168,76,.75)">▪ Hachura dourada</span> = espessura da pedra + argamassa &nbsp;\n    <span style="color:rgba(255,140,0,.75)">▪ Laranja</span> = camada de argamassa (1 cm) &nbsp;\n    <span style="color:rgba(74,122,170,.75)">▪ Azul</span> = espaço interno dos compartimentos<br>\n    Todas as medidas já descontam <strong>1 cm de argamassa por face</strong> de assentamento.\n  </div>\n\n</div>\n\n<!-- ═══════════════════════════════ PRODUÇÃO ═══════════════════════════════ -->\n<div id="pg-producao" class="page">\n  <div id="prodEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">🔩</div>\n    <div style="font-size:.85rem">Gere um orçamento primeiro para ver o detalhamento de produção</div>\n  </div>\n  <div id="prodConteudo" style="display:none">\n\n    <!-- RESUMO ESTRUTURAL -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">📐 Estrutura Civil — Camadas Separadas</span></div>\n      <div class="card-body" id="prodCivil"></div>\n    </div>\n\n    <!-- LISTA REAL DE PEÇAS -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head">\n        <span class="card-title">🪨 Lista Técnica de Peças em Pedra</span>\n        <span id="prodTotalPecas" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n      </div>\n      <div style="overflow-x:auto">\n        <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n          <thead>\n            <tr style="background:var(--bg3)">\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">#</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peça</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Comp. × Larg.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Esp.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Área m²</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peso kg</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Acabamento</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">R$ Peça</th>\n            </tr>\n          </thead>\n          <tbody id="prodTblBody"></tbody>\n          <tfoot id="prodTblFoot"></tfoot>\n        </table>\n      </div>\n    </div>\n\n    <!-- MÃO DE OBRA DETALHADA -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">🔨 Composição Real da Mão de Obra</span></div>\n      <div class="card-body" id="prodMob"></div>\n    </div>\n\n    <!-- PESO DETALHADO -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">⚖️ Peso por Grupo de Peças</span></div>\n      <div class="card-body" id="prodPeso"></div>\n    </div>\n\n    <!-- BOTÃO IMPRIMIR LISTA -->\n    <button class="btn btn-out btn-full" style="margin-bottom:30px" onclick="imprimirProducao()">🖨 Imprimir Lista de Produção</button>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CHAPAS ═══════════════════════════════ -->\n<div id="pg-chapas" class="page">\n  <div class="card" style="margin-bottom:14px">\n    <div class="card-head"><span class="card-title">🧩 Otimizador de Chapas — Corte Profissional</span></div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:14px;font-size:.73rem">\n        Informe a chapa disponível. O sistema distribui as peças automaticamente, calcula aproveitamento e mostra a sobra real.\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Comprimento da Chapa (cm)</label>\n          <input id="chapaC" type="number" value="320" min="100" max="600" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Largura da Chapa (cm)</label>\n          <input id="chapaL" type="number" value="190" min="60" max="400" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Espessura da Chapa (cm)</label>\n          <select id="chapaE" onchange="renderChapas()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Espessura de corte / sangria (cm)</label>\n          <input id="chapaSangria" type="number" value="0.8" step="0.1" min="0" max="3" oninput="renderChapas()">\n          <span class="f-hint">Largura perdida no disco de corte (padrão 0,8 cm)</span>\n        </div>\n        <div class="f">\n          <label>Preço da Chapa (R$/chapa)</label>\n          <input id="chapaPreco" type="number" value="0" min="0" oninput="renderChapas()">\n          <span class="f-hint">Opcional — para calcular custo por chapa</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <div id="chapasResultado">\n    <div style="text-align:center;padding:40px 20px;color:var(--t4)">\n      <div style="font-size:.85rem">Gere um orçamento para ver a distribuição nas chapas</div>\n    </div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ HISTÓRICO ═══════════════════════════════ -->\n<div id="pg-historico" class="page">\n  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">\n    <div style="font-size:.75rem;color:var(--t3)" id="histCount">Orçamentos salvos</div>\n    <div style="display:flex;gap:8px">\n      <button class="btn btn-out btn-sm" onclick="exportarHistorico()">⬇ Exportar</button>\n      <button class="btn btn-red btn-sm" onclick="confirmarLimpar()">🗑 Limpar</button>\n    </div>\n  </div>\n  <!-- BUSCA -->\n  <div class="f" style="margin-bottom:14px">\n    <input id="histBusca" type="text" placeholder="Buscar por cliente, cemitério, material..." oninput="renderHistorico()">\n  </div>\n  <div id="histList"></div>\n  <div id="histEmpty" style="text-align:center;padding:60px 20px;color:var(--t4);display:none">\n    <div style="font-size:2.5rem;margin-bottom:12px">📋</div>\n    <div style="font-size:.85rem">Nenhum orçamento salvo ainda</div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CONFIGURAÇÕES ═══════════════════════════ -->\n<div id="pg-config" class="page">\n\n  <!-- IA -->\n  <div class="card" style="border-color:rgba(201,168,76,.25)">\n    <div class="card-head" style="background:var(--gdim)">\n      <span class="card-title">🤖 Inteligência Artificial (Groq)</span>\n    </div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:12px;font-size:.73rem">\n        A IA analisa fotos de túmulos e preenche o orçamento automaticamente.<br><br>\n        <strong>Como obter a chave gratuita:</strong><br>\n        1. Acesse <strong>console.groq.com</strong><br>\n        2. Clique em <strong>API Keys → Create API Key</strong><br>\n        3. Copie e cole a chave aqui — sem restrições de domínio!\n      </div>\n      <div class="f-grid full">\n        <div class="f">\n          <label>Chave API Groq</label>\n          <input id="cGroqKey" type="password" placeholder="gsk_..." oninput="svCfg()" autocomplete="off">\n          <span class="f-hint">Gratuito · Sem restrição de domínio · console.groq.com</span>\n        </div>\n      </div>\n      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">\n        <button class="btn btn-out btn-sm" onclick="testarGroq()">🔍 Testar conexão</button>\n        <span id="groqTestResult" style="font-size:.72rem;color:var(--t3)"></span>\n      </div>\n    </div>\n  </div>\n\n  <!-- EMPRESA -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Empresa</span></div>\n    <div class="card-body">\n      <div class="f-grid">\n        <div class="f"><label>Nome</label><input id="cEmpNome" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Telefone</label><input id="cEmpTel" type="tel" oninput="svCfg()"></div>\n      </div>\n      <div class="f-grid">\n        <div class="f"><label>Endereço</label><input id="cEmpEnd" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Cidade</label><input id="cEmpCid" type="text" oninput="svCfg()"></div>\n      </div>\n    </div>\n  </div>\n\n  <!-- MARGEM E PARCELAMENTO -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Preços e Margens</span></div>\n    <div class="card-body">\n      <div class="cfg-row">\n        <div><div class="cfg-k">Margem de lucro (%)</div><div style="font-size:.62rem;color:var(--t4)">Aplicada sobre custo total</div></div>\n        <input class="cfg-inp" id="cMargem" type="number" min="0" max="200" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Parcelas máx. (cartão)</div></div>\n        <input class="cfg-inp" id="cParc" type="number" min="1" max="18" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Acréscimo parcelado (%)</div></div>\n        <input class="cfg-inp" id="cJuros" type="number" min="0" max="50" step="0.5" oninput="svCfg()">\n      </div>\n    </div>\n  </div>\n\n  <!-- PEDRAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">Pedras — Preço por m²</span>\n      <button class="btn btn-out btn-sm" onclick="abrirModalPedra()">+ Adicionar</button>\n    </div>\n    <div class="card-body" id="cPedrasList"></div>\n  </div>\n\n  <!-- MÃO DE OBRA BASE -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Mão de Obra — Valores/dia</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Pedreiro (R$/dia)</div><input class="cfg-inp" id="cPedreiro" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ajudante (R$/dia)</div><input class="cfg-inp" id="cAjudante" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Instalação pedra (R$/dia)</div><input class="cfg-inp" id="cInstalacao" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Montagem (R$/dia)</div><input class="cfg-inp" id="cMontagem" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Transporte base (R$)</div><input class="cfg-inp" id="cTransporte" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <!-- MATERIAIS CIVIS -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Materiais Civis — Preços Ref.</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Cimento CP-II (saco 50kg)</div><input class="cfg-inp" id="cCimento" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Areia (m³)</div><input class="cfg-inp" id="cAreia" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Brita (m³)</div><input class="cfg-inp" id="cBrita" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Argamassa AC-II (saco 20kg)</div><input class="cfg-inp" id="cArgamassa" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 3/8" (barra 12m)</div><input class="cfg-inp" id="cFerro38" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 5/16" (barra 12m)</div><input class="cfg-inp" id="cFerro516" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Malha Q-92 (m²)</div><input class="cfg-inp" id="cMalha" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Blocos 14×19×39 (unid.)</div><input class="cfg-inp" id="cBlocos" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <div style="display:flex;gap:10px;margin-bottom:30px">\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="importarCfg()">⬆ Importar</button>\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="exportarCfg()">⬇ Exportar</button>\n    <button class="btn btn-red btn-sm" style="flex:1;justify-content:center" onclick="resetCfg()">↺ Restaurar</button>\n  </div>\n</div>';
+  return '<!-- MODAL EXCLUIR -->\n<div class="modal-overlay" id="modalDel">\n  <div class="modal">\n    <div class="modal-title">Confirmar Exclusão</div>\n    <button class="modal-close" onclick="fecharModal(\'modalDel\')">✕</button>\n    <p style="font-size:.85rem;color:var(--t2);margin-bottom:20px">Tem certeza que deseja excluir este orçamento do histórico? Esta ação não pode ser desfeita.</p>\n    <div style="display:flex;gap:10px">\n      <button class="btn btn-out btn-sm" onclick="fecharModal(\'modalDel\')" style="flex:1;justify-content:center">Cancelar</button>\n      <button class="btn btn-red btn-sm" id="btnConfirmDel" style="flex:1;justify-content:center">🗑 Excluir</button>\n    </div>\n  </div>\n</div>\n\n<!-- MODAL NOVA PEDRA -->\n<div class="modal-overlay" id="modalPedra">\n  <div class="modal">\n    <div class="modal-title">Adicionar Pedra</div>\n    <button class="modal-close" onclick="fecharModal(\'modalPedra\')">✕</button>\n    <div class="f-grid full" style="margin-bottom:12px">\n      <div class="f"><label>Nome da Pedra</label><input id="npNome" type="text" placeholder="Ex: Verde Ubatuba"></div>\n    </div>\n    <div class="f-grid" style="margin-bottom:12px">\n      <div class="f"><label>Categoria</label>\n        <select id="npCat">\n          <option value="Popular">Popular</option>\n          <option value="Médio">Médio</option>\n          <option value="Premium">Premium</option>\n          <option value="Personalizado">Personalizado</option>\n        </select>\n      </div>\n      <div class="f"><label>Preço por m² (R$)</label><input id="npPr" type="number" min="50" max="2000" placeholder="250"></div>\n    </div>\n    <div class="f-grid" style="margin-bottom:20px">\n      <div class="f"><label>Peso (kg/m³)</label><input id="npPeso" type="number" min="1000" max="4000" value="2700" placeholder="2700"></div>\n      <div class="f"><label>Espessura padrão (cm)</label><input id="npEsp" type="number" min="1" max="6" value="2" placeholder="2"></div>\n    </div>\n    <button class="btn btn-gold btn-full" onclick="confirmarAddPedra()">✓ Adicionar Pedra</button>\n  </div>\n</div>\n\n<!-- MODAL ANÁLISE IA -->\n<div class="modal-overlay" id="modalIA">\n  <div class="modal" style="max-width:480px">\n    <div class="modal-title">🤖 Analisar Foto do Túmulo</div>\n    <button class="modal-close" onclick="fecharModal(\'modalIA\')">✕</button>\n\n    <div class="callout info" style="margin-bottom:14px;font-size:.73rem">\n      Envie uma foto do modelo de túmulo. A IA identifica o tipo, disposição, acabamentos e preenche os campos automaticamente.<br>\n      <span style="color:var(--gold2)">✦ Se o material ou acabamento não existir, é criado automaticamente.</span><br>\n      <span style="color:var(--t4);font-size:.68rem">⚠ Se aparecer erro de chave, vá em Configurações → IA e verifique se a chave não tem restrição de domínio.</span>\n    </div>\n\n    <!-- Upload área -->\n    <div id="iaUploadArea" onclick="document.getElementById(\'iaFileInput\').click()"\n      style="border:2px dashed var(--bd2);border-radius:12px;padding:24px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;position:relative">\n      <input type="file" id="iaFileInput" accept="image/*" style="display:none" onchange="iaOnFileSelect(this)">\n      <div id="iaUploadIcon" style="font-size:2rem;margin-bottom:6px">📷</div>\n      <div id="iaUploadTxt" style="font-size:.78rem;color:var(--t3)">Toque para selecionar uma foto</div>\n      <img id="iaPreviewImg" style="display:none;max-width:100%;border-radius:8px;margin-top:10px" alt="preview">\n    </div>\n\n    <!-- Descrição opcional -->\n    <div class="f" style="margin-bottom:14px">\n      <label>Descrição adicional (opcional)</label>\n      <textarea id="iaDesc" style="min-height:60px" placeholder="Ex: 4 gavetas lado a lado, mármore branco, lápide com chanfro 45°, 2 jarros..."></textarea>\n    </div>\n\n    <!-- Status -->\n    <div id="iaStatus" style="display:none;font-size:.75rem;color:var(--gold2);margin-bottom:10px;text-align:center;padding:8px;background:var(--gdim);border-radius:8px"></div>\n\n    <div style="display:flex;gap:10px">\n      <button class="btn btn-out btn-sm" onclick="fecharModal(\'modalIA\')" style="flex:1;justify-content:center">Cancelar</button>\n      <button class="btn btn-gold" id="iaBtnAnalisar" onclick="iaAnalisar()" style="flex:2;justify-content:center">\n        🔍 Analisar com IA\n      </button>\n    </div>\n  </div>\n</div>\n\n<!-- PRINT AREA -->\n<div id="printArea">\n  <div class="print-header">\n    <div class="print-title" id="pTitle">HR Mármores e Granitos</div>\n    <div class="print-meta" id="pMeta"></div>\n  </div>\n  <div id="pBody"></div>\n  <div class="print-footer" id="pFooter"></div>\n</div>\n\n<!-- IDs ocultos para compatibilidade com o motor interno -->\n<span id="hdNum" style="display:none"></span>\n\n<!-- ═══════════════════════════════ ORÇAMENTO ═══════════════════════════════ -->\n<div id="pg-orcamento" class="page on">\n\n  <!-- BOTÃO IA -->\n  <div style="margin-bottom:14px">\n    <button class="btn btn-out btn-full" style="border-color:rgba(201,168,76,.3);gap:10px;padding:12px 20px" onclick="abrirModal(\'modalIA\')">\n      <span style="font-size:1.1rem">🤖</span>\n      <span style="flex:1;text-align:left">\n        <span style="color:var(--gold2);font-weight:600;font-size:.82rem">Analisar foto do modelo</span><br>\n        <span style="font-size:.65rem;color:var(--t4);font-weight:400">Envie uma imagem e a IA preenche os campos automaticamente</span>\n      </span>\n      <span style="font-size:.65rem;color:var(--t4)">IA ›</span>\n    </button>\n  </div>\n\n  <!-- PROGRESSO -->\n  <div class="steps-wrap" id="stepsWrap">\n    <div class="step" id="sCliente"><div class="step-dot">1</div><div class="step-nm">Cliente</div><div class="step-line"></div></div>\n    <div class="step" id="sTipo"><div class="step-dot">2</div><div class="step-nm">Tipo</div><div class="step-line"></div></div>\n    <div class="step" id="sMedidas"><div class="step-dot">3</div><div class="step-nm">Medidas</div><div class="step-line"></div></div>\n    <div class="step" id="sMaterial"><div class="step-dot">4</div><div class="step-nm">Material</div><div class="step-line"></div></div>\n    <div class="step" id="sItens"><div class="step-dot">5</div><div class="step-nm">Itens</div></div>\n  </div>\n\n  <!-- CLIENTE -->\n  <div class="card" id="cardCliente">\n    <div class="card-head">\n      <span class="card-title">① Cliente</span>\n      <span id="statusCliente" style="font-size:.65rem;color:var(--t4)"></span>\n    </div>\n    <div class="card-body">\n      <div class="f-grid">\n        <div class="f" id="fCli"><label>Nome do Cliente *</label><input id="iCli" type="text" placeholder="Ex: Maria Silva" oninput="validarCli();_TI_calcular()"><div class="f-err">Nome obrigatório</div></div>\n        <div class="f"><label>Telefone</label><input id="iTel" type="tel" placeholder="(74) 99999-9999" oninput="mascaraTel(this)"></div>\n      </div>\n      <div class="f-grid">\n        <div class="f"><label>Cemitério</label><input id="iCemiterio" type="text" placeholder="Nome do cemitério"></div>\n        <div class="f"><label>Cidade</label><input id="iCidade" type="text" placeholder="Pilão Arcado — BA"></div>\n      </div>\n      <div class="f-grid cols3">\n        <div class="f" style="grid-column:1/-1">\n          <label>Falecido(a) — <span id="falLabelQtd" style="color:var(--gold2);font-weight:600">1 pessoa</span></label>\n          <div id="falecidosLista" style="display:flex;flex-direction:column;gap:8px;margin-top:4px"></div>\n          <div style="display:flex;gap:8px;margin-top:6px">\n            <button class="btn btn-out" style="font-size:.7rem;padding:5px 12px" onclick="addFalecido()">+ Adicionar falecido</button>\n            <span style="font-size:.67rem;color:var(--t4);align-self:center">Independente do nº de compartimentos</span>\n          </div>\n        </div>\n        <div class="f"><label>Quadra</label><input id="iQuadra" type="text" placeholder="Q-12"></div>\n        <div class="f"><label>Lote / Número</label><input id="iLote" type="text" placeholder="L-04"></div>\n      </div>\n    </div>\n  </div>\n\n  <!-- PRESET / TIPO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">② Tipo de Túmulo</span>\n      <span id="presetAtivo" class="badge badge-gold" style="display:none"></span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="presetList"></div>\n    </div>\n  </div>\n\n  <!-- TIPO DE SERVIÇO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">③ Tipo de Serviço</span>\n      <span id="tipoServicoLabel" class="badge badge-gold"></span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="tipoServList"></div>\n      <div id="tipoServDesc" class="callout" style="margin-top:10px;margin-bottom:0"></div>\n    </div>\n  </div>\n\n  <!-- MEDIDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">④ Medidas</span>\n      <span id="alturaCalc" style="font-size:.7rem;color:var(--gold2);font-weight:600"></span>\n    </div>\n    <div class="card-body">\n      \n\n      <!-- ALTURA TOTAL MANUAL -->\n      <div class="f-grid" style="margin-bottom:4px">\n        <div class="f">\n          <label>Altura Total (cm)</label>\n          <input id="mAlturaFinal" type="number" step="1" min="0" max="300" placeholder="Deixe vazio = calcular auto"\n            oninput="_TI_calcular()"\n            style="border-color:rgba(201,168,76,.35)">\n          <span class="f-hint">Deixe vazio = calcular automaticamente</span>\n        </div>\n        <div class="f" style="justify-content:flex-end;padding-bottom:4px">\n          <button class="btn btn-out btn-sm" onclick="document.getElementById(\'mAlturaFinal\').value=\'\';_TI_calcular()" style="margin-top:auto">↺ Usar automático</button>\n        </div>\n      </div>\n      \n\n      <!-- PREVIEW SVG -->\n      <div class="preview-3d" id="prevDiv">\n        <svg id="prevSVG" class="tum-svg" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n      <!-- Info técnica do preview -->\n      <div id="prevInfo" style="font-size:.62rem;color:var(--t4);text-align:center;margin-top:4px;margin-bottom:12px;font-family:\'DM Mono\',monospace;letter-spacing:.05em"></div>\n\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Comprimento (cm)</label>\n          <input id="mC" type="number" step="1" min="50" max="500" placeholder="200" oninput="_TI_calcular()">\n          <span class="f-hint">Tampa, frente, fundo, base</span>\n        </div>\n        <div class="f">\n          <label>Largura (cm)</label>\n          <input id="mL" type="number" step="1" min="30" max="300" placeholder="70" oninput="_TI_calcular()">\n          <span class="f-hint">Tampa, laterais, base</span>\n        </div>\n        <div class="f">\n          <label>Espessura pedra (cm)</label>\n          <select id="mE" onchange="_TI_calcular()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n          <span class="f-hint">2–3cm lateral / 3–4cm tampa</span>\n        </div>\n      </div>\n      <div class="f-grid">\n        <div class="f">\n          <label>Nº de Compartimentos</label>\n          <select id="mGav" onchange="_TI_calcular()">\n            <option value="0">0 — Simples (sem comp.)</option>\n            <option value="1">1 Compartimento</option>\n            <option value="2" selected>2 Compartimentos</option>\n            <option value="3">3 Compartimentos</option>\n            <option value="4">4 Compartimentos</option>\n          </select>\n          <span class="f-hint">Cada compartimento = 1 caixão + laje</span>\n        </div>\n        <div class="f">\n          <label>Disposição dos compartimentos</label>\n          <select id="mDisp" onchange="_TI_calcular()">\n            <option value="vertical">Vertical (um sobre o outro)</option>\n            <option value="horizontal">Horizontal (lado a lado)</option>\n          </select>\n          <span class="f-hint">Vertical = empilhado · Horizontal = lado a lado</span>\n        </div>\n      </div>\n      <div class="f-grid">\n        <div class="f">\n          <label>Alt. livre por compartimento (cm)</label>\n          <input id="mHcomp" type="number" step="1" min="30" max="80" value="45" oninput="_TI_calcular()">\n          <span class="f-hint">Espaço interno p/ caixão (padrão 45cm)</span>\n        </div>\n        <div class="f">\n          <label>Espessura da laje (cm)</label>\n          <input id="mHlaje" type="number" step="1" min="6" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">Laje concreto + revestimento pedra</span>\n        </div>\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Base estrutural (cm)</label>\n          <input id="mAe" type="number" step="1" min="10" max="100" value="30" oninput="_TI_calcular()">\n          <span class="f-hint">Altura da base de concreto</span>\n        </div>\n        <div class="f">\n          <label>Altura rodapé de pedra (cm)</label>\n          <input id="mAb" type="number" step="1" min="0" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">0 = sem rodapé de pedra</span>\\\n        </div>\\n        <div class="f">\\n          <label>Avanço lateral rodapé (cm)</label>\\n          <input id="mAvRodape" type="number" step="1" min="0" max="20" value="5" oninput="SEL.rebaixo.avRodape=+this.value;_TI_calcular()">\\n          <span class="f-hint">Projeção além do corpo (0=sem)</span>n        </div>\n        <div class="f">\n          <label>Largura da lápide (cm)</label>\n          <input id="mLapW" type="number" step="1" min="20" max="200" value="80" oninput="_TI_calcular()">\n          <span class="f-hint">Largura — padrão 80 cm</span>\n        </div>\n        <div class="f">\n          <label>Altura da lápide (cm)</label>\n          <input id="mLapH" type="number" step="1" min="20" max="150" value="60" oninput="_TI_calcular()">\n          <span class="f-hint">Altura — padrão 60 cm</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- TAMPAS INDIVIDUAIS -->\n  <div class="card" id="cardTampas">\n    <div class="card-head">\n      <span class="card-title">④-B Tampas Superiores</span>\n      <span id="tampasSummary" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div class="card-body">\n\n      <<!-- POSIÇÃO DAS TAMPAS -->\\n      <div style=\"margin-bottom:14px\">\\n        <div style=\"font-size:.6rem;color:var(--t3);letter-spacing:.05em;text-transform:uppercase;font-weight:500;margin-bottom:8px\">Posição das Tampas</div>\\n        <div class=\"presets\" id=\"posicaoPresets\"></div>\\n        <div id=\"tampaPosDica\" style=\"font-size:.62rem;color:var(--t4);margin-top:4px\">Abertura em cima — tampas horizontais sobre os compartimentos</div>\\n      </div>\\n      <div class=\"sep\"></div>\\n      <!-- MOLDURA / REBAIXO -->\n      \n      \n      <div id="divAreaUtil" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(74,128,181,.08);border:1px solid rgba(74,128,181,.25);border-radius:10px;font-size:.64rem;color:var(--t3);line-height:1.8"></div>\\n      <div class="presets" id="molduraPresets"></div>\n      <div id="molduraCustomBox" style="display:none;margin-bottom:12px">\n        <div class="f-grid cols3">\n          <div class="f">\n            <label>Moldura personalizada (cm)</label>\n            <input type="number" id="tMolduraCustom" min="0" max="30" value="10"\n              oninput="SEL.tampas.molduraCustom=+this.value;atualizarTampasUI();_TI_calcular()">\n            <span class="f-hint">Desconto em cada lado</span>\n          </div>\n        </div>\n      </div>\n\n      <!-- MODO DE DIVISÃO -->\n      <div class="sep"></div>\n      \n      <div class="presets" id="gradePresets"></div>\n\n      <!-- CONFIGURAÇÃO MANUAL DE GRADE -->\n      <div id="gradeCustomBox" style="display:none;margin-bottom:0">\n        <div class="f-grid">\n          <div class="f">\n            <label>Colunas (eixo comprimento)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'colunas\',-1)">−</div>\n              <input type="number" id="tColunas" min="1" max="4" value="1"\n                oninput="SEL.tampas.colunas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n              <div class="num-btn" onclick="adjGrade(\'colunas\',+1)">+</div>\n            </div>\n          </div>\n          <div class="f">\n            <label>Linhas (eixo largura)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',-1)">−</div>\n              <input type="number" id="tLinhas" min="1" max="4" value="1"\n                oninput="SEL.tampas.linhas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',+1)">+</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- FOLGAS -->\n      <div class="sep"></div>\n      \n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Folga entre tampas — C (cm)</label>\n          <input type="number" id="tFolgaC" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaC=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta no comprimento</span>\n        </div>\n        <div class="f">\n          <label>Folga entre tampas — L (cm)</label>\n          <input type="number" id="tFolgaL" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaL=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta na largura</span>\n        </div>\n        <div class="f">\n          <label>Espessura das tampas (cm)</label>\n          <select id="tEspTampa" onchange="SEL.tampas.espTampa=+this.value;atualizarTampasUI();_TI_calcular()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n\n      <!-- ACABAMENTO + ARGOLAS -->\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Acabamento das tampas</label>\n          <div id="tampasAcabList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>\n        </div>\n        <div class="f">\n          <label>Argolas de içamento</label>\n          <div class="tog-row" style="border:none;padding:6px 0 0 0">\n            <div><div class="tog-lbl">Argolas metálicas</div><div class="tog-sub">Tampas pesadas (&gt;60 kg)</div></div>\n            <div class="tog" id="togArgolas"\n              onclick="SEL.tampas.argolas=!SEL.tampas.argolas;this.classList.toggle(\'on\',SEL.tampas.argolas);_TI_calcular()"></div>\n          </div>\n        </div>\n      </div>\n\n      <!-- ④ PREVIEW ESQUEMÁTICO SVG -->\n      <div class="sep"></div>\n      \n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px">\n        <svg id="tampasSVG" style="width:100%;display:block;max-height:200px" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n\n      <!-- ⑤ TABELA DE PEÇAS -->\n      <div id="tampasPreviewBox" style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-top:10px">\n        \n        <div id="tampasPreviewRows"></div>\n        <div id="tampasTotais" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)"></div>\n      </div>\n\n    </div>\n  </div>\n\n  <!-- LÁPIDE ENGROSSADA -->\n  <div class="card" id="cardLapideEng" style="display:none">\n    <div class="card-head">\n      <span class="card-title">④-C Lápide Engrossada</span>\n      <span id="lapideEngBadge" class="badge badge-gold" style="display:none">Engrossada</span>\n    </div>\n    <div class="card-body">\n      \n      <div class="f-grid full" style="margin-bottom:12px">\n        <div class="f">\n          <label>Engrossamento da lápide</label>\n          <div class="presets" id="engList"></div>\n        </div>\n      </div>\n      <!-- Preview peças de encontro (aparece quando ativado) -->\n      <div id="encontroBox" style="display:none">\n        <div class="sep"></div>\n        \n        \n        <div id="encontroRows"></div>\n        <div class="tog-row" style="margin-top:10px">\n          <div><div class="tog-lbl">Incluir peças de encontro no orçamento</div><div class="tog-sub">Superior + 2 laterais — calculadas automaticamente</div></div>\n          <div class="tog on" id="togEncontro" onclick="SEL.lapide.pecasEncontro=!SEL.lapide.pecasEncontro;this.classList.toggle(\'on\',SEL.lapide.pecasEncontro);renderEncontroBox();_TI_calcular()"></div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- LAJE VEDANTE -->\\n  <div class="card" id="cardLajeVed">\\n    <div class="card-head">\\n      <span class="card-title">④-D Laje Vedante + Usinagem</span>\\n      <span id="lajeVedBadge" style="font-size:.62rem;color:var(--gold2)"></span>\\n    </div>\\n    <div class="card-body">\\n      <div class="callout info" style="font-size:.72rem;margin-bottom:12px">Laje vedante abaixo das tampas e usinagem do rebaixo de encaixe.</div>\\n      <div class="tog-row"><div><div class="tog-lbl">🧱 Laje vedante</div><div class="tog-sub">Sela 100% cada compartimento abaixo da tampa</div></div><div class="tog" id="togLajeVed" onclick="_tLajeToggle()"></div></div>\\n      <div id="lajeVedPrecos" style="display:none;margin-top:10px"><div class="f-grid"><div class="f"><label>Custo R$/m²</label><input type="number" value="120" min="0" oninput="SEL.rebaixo.custoLaje=+this.value;_TI_calcular()"></div><div class="f"><label>Venda R$/m²</label><input type="number" value="200" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaLaje=+this.value;_TI_calcular()"></div></div><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px"><label style="font-size:.72rem;color:var(--t2);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="i" checked onchange="SEL.rebaixo.lajeInteira=true;_TI_calcular()" style="accent-color:var(--gold)">🧱 Uma laje inteira (toda área útil)</label><label style="font-size:.72rem;color:var(--t3);display:flex;align-items:center;gap:8px;cursor:pointer"><input type="radio" name="lajeMode" value="c" onchange="SEL.rebaixo.lajeInteira=false;_TI_calcular()" style="accent-color:var(--gold)">📦 Uma por compartimento</label></div><div id="lajeVedInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>\\n      <div class="sep"></div>\\n      <div class="tog-row"><div><div class="tog-lbl">🔧 Usinagem rebaixo</div><div class="tog-sub">Serviço de corte nas bordas das tampas (R$/ml)</div></div><div class="tog" id="togUsinagem" onclick="_tUsinToggle()"></div></div>\\n      <div id="usinagemPrecos" style="display:none;margin-top:10px"><div class="f-grid"><div class="f"><label>Custo R$/ml</label><input type="number" value="80" min="0" oninput="SEL.rebaixo.custoUsin=+this.value;_TI_calcular()"></div><div class="f"><label>Venda R$/ml</label><input type="number" value="150" min="0" style="border-color:rgba(201,168,76,.4)" oninput="SEL.rebaixo.vendaUsin=+this.value;_TI_calcular()"></div></div><div id="usinagemInfo" style="font-size:.62rem;color:var(--t4);margin-top:5px"></div></div>\\n    </div>\\n  </div>\\n\\n  <!-- MATERIAL -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑤ Material da Pedra</span>\n      <span id="matSel" style="font-size:.72rem;color:var(--gold2)"></span>\n    </div>\n    <div class="card-body">\n      <div id="matCats" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 0 10px;margin:0 -4px 2px;"></div>\n      <div id="matList" style="display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 0 10px;"></div>\n      <div style="font-size:.65rem;color:var(--t4);margin-top:6px" id="matInfo"></div>\n    </div>\n  </div>\n\n  <!-- PEÇAS INCLUÍDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑥ Revestimento</span>\n      <span id="pecasCount" style="font-size:.65rem;color:var(--t3)"></span>\n    </div>\n    <div class="card-body">\n      <div id="pecasTogList"></div>\n    </div>\n  </div>\n\n  <!-- ACABAMENTO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑦ Acabamento das Bordas</span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="acabList"></div>\n    </div>\n  </div>\n\n  <!-- OPCIONAIS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑧ Itens Opcionais</span>\n    </div>\n    <div class="card-body">\n      <div id="opcionaisList"></div>\n    </div>\n  </div>\n\n  <!-- AVANÇADO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑨ Avançado</span>\n    </div>\n    <div class="card-body">\n      <div id="avancadoList"></div>\n    </div>\n  </div>\n\n  <!-- OBSERVAÇÕES -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">⑩ Observações</span></div>\n    <div class="card-body">\n      <div class="f full">\n        <textarea id="iObs" placeholder="Detalhes especiais, instruções de instalação, pedidos do cliente..."></textarea>\n      </div>\n    </div>\n  </div>\n\n  <!-- Botão oculto: acionado por _TI_tumCalcularAuto() do app-tum-integracao.js -->\n  <button id="btnTumCalcAuto" style="display:none" onclick="calcularFinal()"></button>\n\n</div>\n\n<!-- ═══════════════════════════════ RESULTADO ═══════════════════════════════ -->\n<div id="pg-resultado" class="page">\n\n  <div id="resEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">⚰️</div>\n    <div style="font-size:.85rem">Preencha o orçamento e toque em <strong style="color:var(--gold)">Gerar Orçamento</strong></div>\n  </div>\n\n  <div id="resConteudo" style="display:none">\n\n    <!-- CABEÇALHO DO RESULTADO -->\n    <div class="card" style="background:linear-gradient(135deg,var(--bg2),rgba(201,168,76,.04))">\n      <div class="card-body">\n        <div style="font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold3);margin-bottom:5px;font-family:\'DM Mono\',monospace">Orçamento Gerado</div>\n        <div id="rCli" style="font-family:\'Cormorant Garamond\',serif;font-size:1.7rem;font-weight:700;color:var(--gold2);line-height:1.1;margin-bottom:4px"></div>\n        <div id="rMeta" style="font-size:.72rem;color:var(--t3);display:flex;gap:12px;flex-wrap:wrap"></div>\n      </div>\n    </div>\n\n    <!-- RESUMO NÚMEROS -->\n    <div class="res-grid" id="rGrid"></div>\n\n    <!-- DETALHAMENTO -->\n    <div class="card">\n      <div class="card-head"><span class="card-title">Detalhamento Completo</span></div>\n      <div class="card-body" id="rDetalhe"></div>\n    </div>\n\n    <!-- VALOR FINAL -->\n    <div class="total-box">\n      <div class="total-main">\n        <span class="total-lbl">À Vista (sem juros)</span>\n        <span class="total-val" id="rVista">R$ 0</span>\n      </div>\n      <div id="rParc" class="total-parc"></div>\n      <div id="rPrazo" style="font-size:.7rem;color:var(--t3);margin-top:6px"></div>\n    </div>\n\n    <!-- AÇÕES -->\n    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;margin-bottom:30px">\n      <button class="btn btn-out btn-sm" onclick="copiarWA()"><!-- PDF block -->\\n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px">\\n        <div style="font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--t4);margin-bottom:10px;font-weight:700">PDF do Orçamento</div>\\n        <button class="btn btn-gold btn-full" onclick="baixarPDF()" style="font-size:.88rem;padding:13px;justify-content:center;gap:10px;margin-bottom:8px">📥 Baixar PDF</button>\\n        <div style="display:flex;gap:8px">\\n          <button class="btn btn-out btn-sm" onclick="compartilharPDF()" style="flex:1;justify-content:center;border-color:rgba(201,168,76,.3);color:var(--gold)">📱 Compartilhar</button>\\n          <button class="btn btn-out btn-sm" onclick="imprimirPDF()" style="flex:1;justify-content:center">🖨 Imprimir</button>\\n        </div>\\n      </div>\\n      <div style="display:flex;gap:8px">\\n        <button class="btn btn-out btn-sm" onclick="copiarWA()" style="flex:1;justify-content:center">📲 WhatsApp</button>\\n        <button class="btn btn-gold btn-sm" onclick="salvarHistorico()" style="flex:2;justify-content:center">💾 Salvar</button>\n    </div>\n\n    <textarea id="txtWA" style="position:absolute;left:-9999px" readonly></textarea>\n\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ PLANTA TÉCNICA ═══════════════════════════════ -->\n<div id="pg-planta" class="page">\n\n  <!-- Resumo cards -->\n  <div id="plt-resumo" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>\n\n  <!-- Corte Frontal -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Corte Frontal — Vista em Elevação</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgCorte" style="width:100%;display:block" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Planta Baixa -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Planta Baixa — Vista Superior</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgPlanta" style="width:100%;display:block" viewBox="0 0 520 240" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Tabela de Pedras -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head">\n      <span class="card-title">Lista de Pedras — Medidas Exatas</span>\n      <span id="plt-totalPecas" style="font-size:.65rem;color:var(--t3);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div style="overflow-x:auto">\n      <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n        <thead>\n          <tr>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Peça</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Qt</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Comp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Larg.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Esp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Observação</th>\n          </tr>\n        </thead>\n        <tbody id="plt-tblBody"></tbody>\n      </table>\n    </div>\n  </div>\n\n  <!-- Legenda -->\n  <div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.15);border-radius:10px;padding:12px 14px;font-size:.72rem;color:var(--t2);line-height:1.8;margin-bottom:20px">\n    <strong style="color:var(--gold2)">Legenda:</strong><br>\n    <span style="color:rgba(201,168,76,.75)">▪ Hachura dourada</span> = espessura da pedra + argamassa &nbsp;\n    <span style="color:rgba(255,140,0,.75)">▪ Laranja</span> = camada de argamassa (1 cm) &nbsp;\n    <span style="color:rgba(74,122,170,.75)">▪ Azul</span> = espaço interno dos compartimentos<br>\n    Todas as medidas já descontam <strong>1 cm de argamassa por face</strong> de assentamento.\n  </div>\n\n</div>\n\n<!-- ═══════════════════════════════ PRODUÇÃO ═══════════════════════════════ -->\n<div id="pg-producao" class="page">\n  <div id="prodEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">🔩</div>\n    <div style="font-size:.85rem">Gere um orçamento primeiro para ver o detalhamento de produção</div>\n  </div>\n  <div id="prodConteudo" style="display:none">\n\n    <!-- RESUMO ESTRUTURAL -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">📐 Estrutura Civil — Camadas Separadas</span></div>\n      <div class="card-body" id="prodCivil"></div>\n    </div>\n\n    <!-- LISTA REAL DE PEÇAS -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head">\n        <span class="card-title">🪨 Lista Técnica de Peças em Pedra</span>\n        <span id="prodTotalPecas" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n      </div>\n      <div style="overflow-x:auto">\n        <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n          <thead>\n            <tr style="background:var(--bg3)">\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">#</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peça</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Comp. × Larg.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Esp.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Área m²</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peso kg</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Acabamento</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">R$ Peça</th>\n            </tr>\n          </thead>\n          <tbody id="prodTblBody"></tbody>\n          <tfoot id="prodTblFoot"></tfoot>\n        </table>\n      </div>\n    </div>\n\n    <!-- MÃO DE OBRA DETALHADA -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">🔨 Composição Real da Mão de Obra</span></div>\n      <div class="card-body" id="prodMob"></div>\n    </div>\n\n    <!-- PESO DETALHADO -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">⚖️ Peso por Grupo de Peças</span></div>\n      <div class="card-body" id="prodPeso"></div>\n    </div>\n\n    <!-- BOTÃO IMPRIMIR LISTA -->\n    <button class="btn btn-out btn-full" style="margin-bottom:30px" onclick="imprimirProducao()">🖨 Imprimir Lista de Produção</button>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CHAPAS ═══════════════════════════════ -->\n<div id="pg-chapas" class="page">\n  <div class="card" style="margin-bottom:14px">\n    <div class="card-head"><span class="card-title">🧩 Otimizador de Chapas — Corte Profissional</span></div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:14px;font-size:.73rem">\n        Informe a chapa disponível. O sistema distribui as peças automaticamente, calcula aproveitamento e mostra a sobra real.\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Comprimento da Chapa (cm)</label>\n          <input id="chapaC" type="number" value="320" min="100" max="600" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Largura da Chapa (cm)</label>\n          <input id="chapaL" type="number" value="190" min="60" max="400" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Espessura da Chapa (cm)</label>\n          <select id="chapaE" onchange="renderChapas()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Espessura de corte / sangria (cm)</label>\n          <input id="chapaSangria" type="number" value="0.8" step="0.1" min="0" max="3" oninput="renderChapas()">\n          <span class="f-hint">Largura perdida no disco de corte (padrão 0,8 cm)</span>\n        </div>\n        <div class="f">\n          <label>Preço da Chapa (R$/chapa)</label>\n          <input id="chapaPreco" type="number" value="0" min="0" oninput="renderChapas()">\n          <span class="f-hint">Opcional — para calcular custo por chapa</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <div id="chapasResultado">\n    <div style="text-align:center;padding:40px 20px;color:var(--t4)">\n      <div style="font-size:.85rem">Gere um orçamento para ver a distribuição nas chapas</div>\n    </div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ HISTÓRICO ═══════════════════════════════ -->\n<div id="pg-historico" class="page">\n  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">\n    <div style="font-size:.75rem;color:var(--t3)" id="histCount">Orçamentos salvos</div>\n    <div style="display:flex;gap:8px">\n      <button class="btn btn-out btn-sm" onclick="exportarHistorico()">⬇ Exportar</button>\n      <button class="btn btn-red btn-sm" onclick="confirmarLimpar()">🗑 Limpar</button>\n    </div>\n  </div>\n  <!-- BUSCA -->\n  <div class="f" style="margin-bottom:14px">\n    <input id="histBusca" type="text" placeholder="Buscar por cliente, cemitério, material..." oninput="renderHistorico()">\n  </div>\n  <div id="histList"></div>\n  <div id="histEmpty" style="text-align:center;padding:60px 20px;color:var(--t4);display:none">\n    <div style="font-size:2.5rem;margin-bottom:12px">📋</div>\n    <div style="font-size:.85rem">Nenhum orçamento salvo ainda</div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CONFIGURAÇÕES ═══════════════════════════ -->\n<div id="pg-config" class="page">\n\n  <!-- IA -->\n  <div class="card" style="border-color:rgba(201,168,76,.25)">\n    <div class="card-head" style="background:var(--gdim)">\n      <span class="card-title">🤖 Inteligência Artificial (Groq)</span>\n    </div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:12px;font-size:.73rem">\n        A IA analisa fotos de túmulos e preenche o orçamento automaticamente.<br><br>\n        <strong>Como obter a chave gratuita:</strong><br>\n        1. Acesse <strong>console.groq.com</strong><br>\n        2. Clique em <strong>API Keys → Create API Key</strong><br>\n        3. Copie e cole a chave aqui — sem restrições de domínio!\n      </div>\n      <div class="f-grid full">\n        <div class="f">\n          <label>Chave API Groq</label>\n          <input id="cGroqKey" type="password" placeholder="gsk_..." oninput="svCfg()" autocomplete="off">\n          <span class="f-hint">Gratuito · Sem restrição de domínio · console.groq.com</span>\n        </div>\n      </div>\n      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">\n        <button class="btn btn-out btn-sm" onclick="testarGroq()">🔍 Testar conexão</button>\n        <span id="groqTestResult" style="font-size:.72rem;color:var(--t3)"></span>\n      </div>\n    </div>\n  </div>\n\n  <!-- EMPRESA -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Empresa</span></div>\n    <div class="card-body">\n      <div class="f-grid">\n        <div class="f"><label>Nome</label><input id="cEmpNome" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Telefone</label><input id="cEmpTel" type="tel" oninput="svCfg()"></div>\n      </div>\n      <div class="f-grid">\n        <div class="f"><label>Endereço</label><input id="cEmpEnd" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Cidade</label><input id="cEmpCid" type="text" oninput="svCfg()"></div>\n      </div>\n    </div>\n  </div>\n\n  <!-- MARGEM E PARCELAMENTO -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Preços e Margens</span></div>\n    <div class="card-body">\n      <div class="cfg-row">\n        <div><div class="cfg-k">Margem de lucro (%)</div><div style="font-size:.62rem;color:var(--t4)">Aplicada sobre custo total</div></div>\n        <input class="cfg-inp" id="cMargem" type="number" min="0" max="200" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Parcelas máx. (cartão)</div></div>\n        <input class="cfg-inp" id="cParc" type="number" min="1" max="18" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Acréscimo parcelado (%)</div></div>\n        <input class="cfg-inp" id="cJuros" type="number" min="0" max="50" step="0.5" oninput="svCfg()">\n      </div>\n    </div>\n  </div>\n\n  <!-- PEDRAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">Pedras — Preço por m²</span>\n      <button class="btn btn-out btn-sm" onclick="abrirModalPedra()">+ Adicionar</button>\n    </div>\n    <div class="card-body" id="cPedrasList"></div>\n  </div>\n\n  <!-- MÃO DE OBRA BASE -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Mão de Obra — Valores/dia</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Pedreiro (R$/dia)</div><input class="cfg-inp" id="cPedreiro" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ajudante (R$/dia)</div><input class="cfg-inp" id="cAjudante" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Instalação pedra (R$/dia)</div><input class="cfg-inp" id="cInstalacao" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Montagem (R$/dia)</div><input class="cfg-inp" id="cMontagem" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Transporte base (R$)</div><input class="cfg-inp" id="cTransporte" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <!-- MATERIAIS CIVIS -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Materiais Civis — Preços Ref.</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Cimento CP-II (saco 50kg)</div><input class="cfg-inp" id="cCimento" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Areia (m³)</div><input class="cfg-inp" id="cAreia" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Brita (m³)</div><input class="cfg-inp" id="cBrita" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Argamassa AC-II (saco 20kg)</div><input class="cfg-inp" id="cArgamassa" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 3/8" (barra 12m)</div><input class="cfg-inp" id="cFerro38" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 5/16" (barra 12m)</div><input class="cfg-inp" id="cFerro516" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Malha Q-92 (m²)</div><input class="cfg-inp" id="cMalha" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Blocos 14×19×39 (unid.)</div><input class="cfg-inp" id="cBlocos" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <div style="display:flex;gap:10px;margin-bottom:30px">\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="importarCfg()">⬆ Importar</button>\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="exportarCfg()">⬇ Exportar</button>\n    <button class="btn btn-red btn-sm" style="flex:1;justify-content:center" onclick="resetCfg()">↺ Restaurar</button>\n  </div>\n</div>';
 }
 
 
