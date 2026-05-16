@@ -4039,13 +4039,32 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Orçamento de túmulo — tentar carregar no módulo de túmulos (pg9)
+  // Túmulo com módulo inline (novo): carregar usando orcRefazer + pre-preencher campos
+  if(q.tum && q.tumPendOrc){
+    orcRefazer(id, e);
+    // Após renderAmbientes montar o módulo inline, preencher os campos do cliente
+    setTimeout(function(){
+      if (typeof window._TI_preencherCliente === 'function') {
+        window._TI_preencherCliente(q.tumPendOrc);
+      }
+      // Sincronizar pedra selecionada
+      if (q.tumPendOrc.r && q.tumPendOrc.r.mat && q.tumPendOrc.r.mat.id) {
+        if (typeof window._TI_selMat === 'function') {
+          window._TI_selMat(q.tumPendOrc.r.mat.id);
+        }
+      }
+      toast('✓ Túmulo carregado — ajuste e recalcule!');
+    }, 400);
+    return;
+  }
+
+  // Túmulo antigo (módulo pg9/TUM) — tentar carregar
   if(q.tum){
     var pg9 = document.getElementById('pg9');
     if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
       try{
         TUM.q = JSON.parse(JSON.stringify(q.tum));
-        if (typeof tumPatchQ === 'function') tumPatchQ(); // migra campos ausentes em orçamentos antigos
+        if (typeof tumPatchQ === 'function') tumPatchQ();
         go(9);
         setTimeout(function(){ renderTum(); },100);
         toast('✓ Túmulo carregado! Edite e recalcule.');
@@ -4053,8 +4072,8 @@ function orcEditar(id, e){
         toast('Erro ao carregar orçamento de túmulo');
       }
     } else {
-      // Módulo de túmulos não disponível nesta tela
-      toast('⚠️ Para editar túmulos, acesse o módulo de Túmulos');
+      // Tenta mesmo assim via orcRefazer
+      orcRefazer(id, e);
     }
     return;
   }
