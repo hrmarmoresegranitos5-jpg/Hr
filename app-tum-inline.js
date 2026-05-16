@@ -2703,7 +2703,44 @@ function copiarWA() {
 
 function imprimirPDF() {
   if (!pendOrc) { toast('Gere um orçamento primeiro', true); return; }
-  window.print();
+  var pBody = document.getElementById('pBody');
+  if (!pBody || !pBody.innerHTML.trim()) {
+    toast('Recalcule o orçamento antes de imprimir', true); return;
+  }
+  _abrirJanelaPDF(pBody.innerHTML);
+}
+
+function _abrirJanelaPDF(bodyHtml) {
+  var emp = CFG && CFG.emp ? CFG.emp : {};
+  var html = '<!DOCTYPE html><html lang="pt-BR"><head>'
+    + '<meta charset="UTF-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Orçamento — ' + (emp.nome || 'HR Mármores e Granitos') + '</title>'
+    + '<style>'
+    + '@page{size:A4;margin:0}'
+    + 'body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    + '#pdfPage1{page-break-after:always}'
+    + '#pdfPage2{page-break-after:auto}'
+    + '</style>'
+    + '</head><body>'
+    + bodyHtml
+    + '<script>window.onload=function(){window.print();}<\/script>'
+    + '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+  } else {
+    // Popup bloqueado — fallback: abre como blob
+    try {
+      var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      var url  = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 10000);
+    } catch(e) { toast('Permita pop-ups para imprimir', true); }
+  }
 }
 
 function salvarHistorico() {
@@ -4198,14 +4235,24 @@ window.imprimirProducao  = imprimirProducao;
 // ── PDF chamado pelo app-core.js quando há Túmulo inline ─────────────────
 window._TI_imprimirPDF = function() {
   if (!pendOrc) { toast('Gere um orçamento no túmulo primeiro', true); return; }
-  window.print();
+  var pBody = document.getElementById('pBody');
+  if (pBody && pBody.innerHTML.trim()) {
+    _abrirJanelaPDF(pBody.innerHTML);
+  } else {
+    toast('Recalcule o orçamento antes de imprimir', true);
+  }
 };
 // Carrega pendOrc do histórico e abre a impressão (PDF salvo no hist)
 window._TI_loadAndPrint = function(savedPendOrc) {
   if (!savedPendOrc || !savedPendOrc.r) { toast('Dados incompletos', true); return; }
   pendOrc = savedPendOrc;
-  try { gerarPrintArea(savedPendOrc, savedPendOrc.r); } catch(e) { console.error(e); }
-  setTimeout(function() { window.print(); }, 300);
+  try {
+    gerarPrintArea(savedPendOrc, savedPendOrc.r);
+    var pBody = document.getElementById('pBody');
+    if (pBody && pBody.innerHTML.trim()) {
+      _abrirJanelaPDF(pBody.innerHTML);
+    }
+  } catch(e) { console.error(e); toast('Erro ao gerar PDF', true); }
 };
 
 // Foto upload — precisa ser global pois é chamada por onchange= no HTML template
