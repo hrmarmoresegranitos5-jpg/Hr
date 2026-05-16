@@ -1251,7 +1251,7 @@ function buildFalecidos() {
        // Linha 1: nome + datas + botão remover
        + '<div style="display:flex;gap:6px;align-items:flex-end">'
        + '<div style="flex:2;min-width:0">'
-       + '<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Falecido '+(i+1)+'</div>'
+       + '<div style="font-size:.78rem;color:var(--gold2);font-weight:700;letter-spacing:.04em;margin-bottom:4px">Falecido '+(i+1)+'</div>'
        + '<input type="text" placeholder="Nome completo" value="'+escHtml(f.nome||'')+'" '
        + 'oninput="_setFal('+i+',\'nome\',this.value)" '
        + 'style="width:100%;background:var(--bg2);border:1px solid var(--bd2);border-radius:6px;padding:7px 10px;color:var(--tx);font-size:.8rem">'
@@ -1985,6 +1985,7 @@ function carregarFotoOrc(input){
     if(prev)prev.innerHTML='<img src="'+_tumFotoOrc+'" style="width:100%;max-height:150px;object-fit:cover;border-radius:8px;display:block">';
     var area=document.getElementById('tumFotoArea');
     if(area)area.style.borderColor='var(--gold)';
+    if(pendOrc&&pendOrc.r){try{gerarPrintArea(pendOrc,pendOrc.r);}catch(ex){}}
   };
   r.readAsDataURL(input.files[0]);
 }
@@ -2386,8 +2387,8 @@ function renderResultado(o) {
   _gel('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
   _gel('rParc').textContent =
     'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
-  _gel('rPrazo').textContent =
-    'Prazo estimado: aprox. '+r.prazo_total+' dias úteis';
+  // PRAZO REMOVIDO — não exibir dias no resultado
+  // (linha prazo_total removida)
 
   // Texto WA
   gerarTextoWA(o, r);
@@ -2433,7 +2434,7 @@ function gerarTextoWA(o, r) {
   wa += '\n━━━━━━━━━━━━━━━━━━━━━\n';
   wa += '💰 *À VISTA: R$ '+_TI_fm(r.valor_vista)+'*\n';
   wa += '💳 Parcelado: até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal)+'\n';
-  wa += '⏱ Prazo: aprox. '+r.prazo_total+' dias úteis\n';
+  // PRAZO REMOVIDO — não incluir dias no WhatsApp
   wa += '━━━━━━━━━━━━━━━━━━━━━\n';
   if (o.obs) wa += '📝 Obs: '+o.obs+'\n━━━━━━━━━━━━━━━━━━━━━\n';
   wa += CFG.emp.nome+'\n'+CFG.emp.tel+'\n'+CFG.emp.end;
@@ -2531,7 +2532,7 @@ function gerarPrintArea(o,r){
   p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:11px 15px"><div style="font-size:6px;letter-spacing:1.5px;color:#9a7840;font-weight:900;text-transform:uppercase;margin-bottom:3px">ENTRADA — 50%</div><div style="font-size:17px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:2px">Na assinatura / medição</div></div>';
   p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:11px 15px"><div style="font-size:6px;letter-spacing:1.5px;color:#9a7840;font-weight:900;text-transform:uppercase;margin-bottom:3px">NA ENTREGA — 50%</div><div style="font-size:17px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:2px">Na entrega / instalação</div></div>';
   p1+='</div>';
-  p1+='<div style="background:#0f0c00;border-radius:8px;padding:8px 14px;display:flex;justify-content:space-between;margin-bottom:14px"><span style="font-size:9px;color:rgba(255,255,255,.35)">⏱ PRAZO ESTIMADO</span><span style="font-size:12px;font-weight:700;color:#C9A84C">'+r.prazo_total+' dias úteis</span></div>';
+  // PRAZO REMOVIDO — não exibir dias no PDF
   if(o.obs)p1+='<div style="background:#fffbf0;border-left:3px solid #C9A84C;padding:9px 13px;margin-bottom:12px;font-size:11px;color:#555;border-radius:0 8px 8px 0"><strong style="color:#7a4e00">Obs:</strong> '+esc(o.obs)+'</div>';
   p1+='</div>';
   p1+='<div style="background:#0f0c00;padding:9px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:9px;color:rgba(201,168,76,.55)">'+esc(emp.nome||'')+' · '+esc(emp.tel||'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.15)">CNPJ: '+esc(emp.cnpj||'—')+'</div></div>';
@@ -2603,7 +2604,7 @@ function gerarPrintArea(o,r){
   p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
   if(!mob.length)p2+='<div style="padding:12px 13px;font-size:10px;color:#888;background:#fff">Conforme tipo de serviço</div>';
   mob.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;font-weight:600;color:#333">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
-  p2+='<div style="background:#f7f2e8;padding:9px 13px;display:flex;justify-content:space-between"><span style="font-size:10.5px;font-weight:700;color:#5a3800">⏱ Prazo Total</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+r.prazo_total+' dias úteis</span></div>';
+  // PRAZO REMOVIDO — não exibir dias no PDF (p2)
   p2+='</div>';
   // Params
   p2+=sh('⚙️ Parâmetros do Projeto');
