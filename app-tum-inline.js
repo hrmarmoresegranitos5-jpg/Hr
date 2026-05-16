@@ -2776,10 +2776,59 @@ function recarregarOrcamento(i) {
   var o = HIST[i];
   if (!o) { toast('Orçamento não encontrado', true); return; }
 
-  // ── 1. CAMPOS DO CLIENTE ────────────────────────────────────────────────
+  // ── PASSO 1: Restaurar SEL completo ANTES de qualquer rebuild de UI ─────
+  if (o._sel) {
+    var s = o._sel;
+    if (s.tipoServ)   SEL.tipoServ   = s.tipoServ;
+    if (s.matId)      SEL.matId      = s.matId;
+    if (s.acabamento) SEL.acabamento = s.acabamento;
+    if (s.pecas)  Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
+    if (s.tampas) Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
+    if (s.lapide) Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
+    if (s.rebaixo)Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
+    if (s.opts)   Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
+    if (s.adv)    Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
+    if (o.preset) SEL.preset = o.preset;
+  } else {
+    // Formato antigo (sem _sel): reconstruir do resultado
+    if (o.r && o.r.mat)  SEL.matId      = o.r.mat.id;
+    if (o.r && o.r.acab) SEL.acabamento = o.r.acab.id;
+    if (o.r && o.r.ts)   SEL.tipoServ   = o.r.ts.id;
+    if (o.preset)         SEL.preset     = o.preset;
+    if (o.r) {
+      SEL.opts.nCruz   = o.r.nCruz   || 0; SEL.opts.cruzGranito = (o.r.nCruz  || 0) > 0;
+      SEL.opts.nFotos  = o.r.nFotos  || 0; SEL.opts.foto_porc   = (o.r.nFotos || 0) > 0;
+      SEL.opts.nJarros = o.r.nJarros || 0; SEL.opts.jarro       = (o.r.nJarros|| 0) > 0;
+    }
+  }
+
+  // Falecidos
+  SEL.falecidos = (Array.isArray(o.fal) && o.fal.length > 0)
+    ? JSON.parse(JSON.stringify(o.fal))
+    : [{ nome:'', nasc:'', obit:'', frase:'' }];
+
+  // ── PASSO 2: Rebuild da UI com o SEL correto ────────────────────────────
+  buildPresets();
+  buildTipoServ();
+  buildAcabamentos();
+  buildTampasAcab();
+  buildMolduraPresets();
+  buildGradePresets();
+  buildPecas();
+  buildOpcionais();
+  buildAvancado();
+  buildMatCats();
+  buildMatList();
+  // atualizarEspessuraDaPedra() é chamada ANTES de setar mE do _dims,
+  // portanto ela pode sobrescrever o valor — os inputs de dims virão depois
+  atualizarEspessuraDaPedra();
+  buildFalecidos();
+
+  // ── PASSO 3: Setar inputs de texto e dimensões APÓS os rebuilds ─────────
+  // (garante que atualizarEspessuraDaPedra não sobrescreva o mE salvo)
   function sv(id, val) {
     var el = document.getElementById(id);
-    if (el && val != null && val !== undefined) el.value = val;
+    if (el && val != null && val !== '') el.value = val;
   }
   sv('iCli',       o.cli  || '');
   sv('iTel',       o.tel  || '');
@@ -2789,46 +2838,11 @@ function recarregarOrcamento(i) {
   sv('iLote',      o.lote || '');
   sv('iObs',       o.obs  || '');
 
-  // ── 2. FALECIDOS ────────────────────────────────────────────────────────
-  if (Array.isArray(o.fal) && o.fal.length > 0) {
-    SEL.falecidos = JSON.parse(JSON.stringify(o.fal));
-  } else {
-    SEL.falecidos = [{ nome:'', nasc:'', obit:'', frase:'' }];
-  }
-  buildFalecidos();
-
-  // ── 3. ESTADO SEL COMPLETO (_sel tem prioridade sobre o.r) ─────────────
-  if (o._sel) {
-    var s = o._sel;
-    if (s.tipoServ)   SEL.tipoServ   = s.tipoServ;
-    if (s.matId)      SEL.matId      = s.matId;
-    if (s.acabamento) SEL.acabamento = s.acabamento;
-    if (s.pecas)      Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
-    if (s.tampas)     Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
-    if (s.lapide)     Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
-    if (s.rebaixo)    Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
-    if (s.opts)       Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
-    if (s.adv)        Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
-    if (o.preset)     SEL.preset = o.preset;
-  } else {
-    // Fallback: reconstruir do resultado calculado (formato antigo sem _sel)
-    if (o.r && o.r.mat)  SEL.matId      = o.r.mat.id;
-    if (o.r && o.r.acab) SEL.acabamento = o.r.acab.id;
-    if (o.r && o.r.ts)   SEL.tipoServ   = o.r.ts.id;
-    if (o.preset)         SEL.preset     = o.preset;
-    if (o.r) {
-      if (o.r.nCruz  != null) { SEL.opts.nCruz   = o.r.nCruz;  SEL.opts.cruzGranito = o.r.nCruz  > 0; }
-      if (o.r.nFotos != null) { SEL.opts.nFotos  = o.r.nFotos; SEL.opts.foto_porc   = o.r.nFotos > 0; }
-      if (o.r.nJarros!= null) { SEL.opts.nJarros = o.r.nJarros;SEL.opts.jarro       = o.r.nJarros> 0; }
-    }
-  }
-
-  // ── 4. DIMENSÕES (_dims tem prioridade) ─────────────────────────────────
   if (o._dims) {
     var dm = o._dims;
     sv('mC',          dm.C);
     sv('mL',          dm.L);
-    sv('mE',          dm.E);
+    sv('mE',          dm.E);          // Sobrescreve o default do material
     sv('mGav',        dm.N);
     sv('mDisp',       dm.disp);
     sv('mAe',         dm.Ae);
@@ -2840,50 +2854,31 @@ function recarregarOrcamento(i) {
     sv('mAlturaFinal',dm.altFinal);
     if (dm.AvRod != null) {
       sv('mAvRodape', dm.AvRod);
-      if (SEL.rebaixo) SEL.rebaixo.avRodape = dm.AvRod;
+      if (SEL.rebaixo) SEL.rebaixo.avRodape = +dm.AvRod;
     }
   } else if (o.r && o.r.d) {
     var d = o.r.d;
-    sv('mC',    d.C_cm    || Math.round((d.C  ||0)*100));
-    sv('mL',    d.L_cm    || Math.round((d.L  ||0)*100));
-    sv('mE',    d.E);
-    sv('mGav',  d.N);
-    sv('mDisp', d.disp);
-    sv('mAe',   d.Ae_cm   || Math.round((d.Ae ||0)*100));
-    sv('mAb',   d.Ab_cm   != null ? d.Ab_cm : (Math.round((d.Ab||0)*100)));
-    sv('mHcomp',d.Hc_cm   || Math.round((d.Hcomp||0.45)*100));
-    sv('mHlaje',d.Hl_cm   || Math.round((d.Hlaje||0.08)*100));
-    sv('mLapW', d.LapW_cm || Math.round((d.LapW ||0.80)*100));
-    sv('mLapH', d.LapH_cm || Math.round((d.LapH ||0.60)*100));
-    if (d.AvRod != null) {
-      sv('mAvRodape', d.AvRod);
-      if (SEL.rebaixo) SEL.rebaixo.avRodape = d.AvRod;
-    }
+    sv('mC',    d.C_cm    || '');
+    sv('mL',    d.L_cm    || '');
+    sv('mE',    d.E       || '');
+    sv('mGav',  d.N       || '');
+    sv('mDisp', d.disp    || '');
+    sv('mAe',   d.Ae_cm   || '');
+    sv('mAb',   d.Ab_cm   || '');
+    sv('mHcomp',d.Hc_cm   || '');
+    sv('mHlaje',d.Hl_cm   || '');
+    sv('mLapW', d.LapW_cm || '');
+    sv('mLapH', d.LapH_cm || '');
   }
 
-  // ── 5. RECONSTRUIR TODA A UI ────────────────────────────────────────────
-  buildPresets();          // Presets de tipo de túmulo
-  buildTipoServ();         // Tipo de serviço
-  buildAcabamentos();      // Acabamento das bordas
-  buildTampasAcab();       // Acabamento das tampas
-  buildMolduraPresets();   // Moldura / rebaixo
-  buildGradePresets();     // Grade de tampas
-  buildPecas();            // Peças incluídas (toggles)
-  buildOpcionais();        // Itens opcionais
-  buildAvancado();         // Seção avançado
-  buildMatList();          // Lista de materiais (marca selecionado)
-  atualizarEspessuraDaPedra();
-  atualizarTampasUI();     // Preview SVG + tabela de tampas
-  mostrarCardLapide();     // Mostra/oculta card lápide
-  buildFalecidos();        // Re-renderiza falecidos (garante)
-
-  // ── 6. CALCULAR E NAVEGAR ───────────────────────────────────────────────
+  // ── PASSO 4: Atualizar UIs dependentes de dimensões + calcular ──────────
+  atualizarTampasUI();
+  mostrarCardLapide(!!SEL.pecas.lapide);
   _TI_calcular();
   showTab('orcamento', document.querySelectorAll('.tab')[0]);
   window.scrollTo(0, 0);
   toast('✓ Orçamento carregado — edite e gere novamente');
 }
-
 function copiarWAHist(i) {
   var o = HIST[i];
   if (!o) return;
@@ -4216,36 +4211,66 @@ window._TI_loadAndPrint = function(savedPendOrc){
 // Restaurar orçamento do histórico
 window._TI_preencherCliente = function(pend){
   if(!pend)return;
-  var flds={iCli:pend.cli||'',iTel:pend.tel||'',iCemiterio:pend.cemi||'',iCidade:pend.cid||'',iQuadra:pend.quad||'',iLote:pend.lote||'',iObs:pend.obs||''};
+
+  // 1. Campos de texto
+  var flds={iCli:pend.cli||'',iTel:pend.tel||'',iCemiterio:pend.cemi||'',
+    iCidade:pend.cid||'',iQuadra:pend.quad||'',iLote:pend.lote||'',iObs:pend.obs||''};
   Object.keys(flds).forEach(function(id){var el=document.getElementById(id);if(el)el.value=flds[id];});
-  if(Array.isArray(pend.fal)&&pend.fal.length){SEL.falecidos=JSON.parse(JSON.stringify(pend.fal));buildFalecidos();}
+
+  // 2. Falecidos
+  if(Array.isArray(pend.fal)&&pend.fal.length){
+    SEL.falecidos=JSON.parse(JSON.stringify(pend.fal));
+    buildFalecidos();
+  }
+
+  // 3. Restaurar SEL completo SEM chamar selMat (evita cálculo com SEL incompleto)
   if(pend._sel){
     var s=pend._sel;
-    if(s.tipoServ)SEL.tipoServ=s.tipoServ;
-    if(s.matId){SEL.matId=s.matId;selMat(s.matId);}
-    if(s.acabamento)SEL.acabamento=s.acabamento;
-    if(s.pecas)Object.assign(SEL.pecas,s.pecas);
-    if(s.tampas)Object.assign(SEL.tampas,s.tampas);
-    if(s.lapide)Object.assign(SEL.lapide,s.lapide);
-    if(s.rebaixo)Object.assign(SEL.rebaixo,s.rebaixo);
-    if(s.opts)Object.assign(SEL.opts,s.opts);
-    if(s.adv)Object.assign(SEL.adv,s.adv);
+    if(s.tipoServ)   SEL.tipoServ   =s.tipoServ;
+    if(s.matId)      SEL.matId      =s.matId;   // ← só atribuição, não selMat()
+    if(s.acabamento) SEL.acabamento =s.acabamento;
+    if(s.pecas)  Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
+    if(s.tampas) Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
+    if(s.lapide) Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
+    if(s.rebaixo)Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
+    if(s.opts)   Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
+    if(s.adv)    Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
   }
+
+  // 4. Rebuild UI com SEL correto
+  buildPresets();
+  buildTipoServ();
+  buildAcabamentos();
+  buildTampasAcab();
+  buildMolduraPresets();
+  buildGradePresets();
+  buildPecas();
+  buildOpcionais();
+  buildAvancado();
+  buildMatCats();
+  buildMatList();
+  atualizarEspessuraDaPedra(); // Seta mE ao padrão do material
+  buildFalecidos();
+
+  // 5. Restaurar dimensões APÓS atualizarEspessuraDaPedra (sobrescreve o padrão)
+  function sv2(id,v){var el=document.getElementById(id);if(el&&v!=null&&v!=='')el.value=v;}
   if(pend._dims){
     var dm=pend._dims;
-    var sv=function(id,v){var el=document.getElementById(id);if(el&&v!==undefined&&v!==null&&v!=='')el.value=v;};
-    sv('mC',dm.C);sv('mL',dm.L);sv('mE',dm.E);sv('mGav',dm.N);sv('mDisp',dm.disp);
-    sv('mAe',dm.Ae);sv('mAb',dm.Ab);sv('mHcomp',dm.Hc);sv('mHlaje',dm.Hl);
-    sv('mLapW',dm.LapW);sv('mLapH',dm.LapH);sv('mAvRodape',dm.AvRod);sv('mAlturaFinal',dm.altFinal);
-    if(SEL.rebaixo&&dm.AvRod!==undefined)SEL.rebaixo.avRodape=dm.AvRod;
-  } else if(pend.r&&pend.r.d){
+    sv2('mC',dm.C);sv2('mL',dm.L);sv2('mE',dm.E);sv2('mGav',dm.N);sv2('mDisp',dm.disp);
+    sv2('mAe',dm.Ae);sv2('mAb',dm.Ab);sv2('mHcomp',dm.Hc);sv2('mHlaje',dm.Hl);
+    sv2('mLapW',dm.LapW);sv2('mLapH',dm.LapH);sv2('mAlturaFinal',dm.altFinal);
+    if(dm.AvRod!=null){sv2('mAvRodape',dm.AvRod);if(SEL.rebaixo)SEL.rebaixo.avRodape=+dm.AvRod;}
+  }else if(pend.r&&pend.r.d){
     var d2=pend.r.d;
-    var sv2=function(id,v){var el=document.getElementById(id);if(el&&v!==undefined)el.value=v;};
     sv2('mC',d2.C_cm);sv2('mL',d2.L_cm);sv2('mE',d2.E);sv2('mGav',d2.N);sv2('mDisp',d2.disp);
     sv2('mAe',d2.Ae_cm);sv2('mAb',d2.Ab_cm);sv2('mHcomp',d2.Hc_cm);sv2('mHlaje',d2.Hl_cm);
     sv2('mLapW',d2.LapW_cm);sv2('mLapH',d2.LapH_cm);
-    if(d2.AvRod!==undefined){sv2('mAvRodape',d2.AvRod);if(SEL.rebaixo)SEL.rebaixo.avRodape=d2.AvRod;}
+    if(d2.AvRod!=null){sv2('mAvRodape',d2.AvRod);if(SEL.rebaixo)SEL.rebaixo.avRodape=d2.AvRod;}
   }
+
+  // 6. UI final + cálculo
+  atualizarTampasUI();
+  mostrarCardLapide(!!SEL.pecas.lapide);
   _TI_calcular();
 };
 
