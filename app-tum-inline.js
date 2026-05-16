@@ -4186,7 +4186,7 @@ window._TI_preencherCliente = function(pend){
   if(!pend)return;
   var flds={iCli:pend.cli||'',iTel:pend.tel||'',iCemiterio:pend.cemi||'',iCidade:pend.cid||'',iQuadra:pend.quad||'',iLote:pend.lote||'',iObs:pend.obs||''};
   Object.keys(flds).forEach(function(id){var el=document.getElementById(id);if(el)el.value=flds[id];});
-  if(Array.isArray(pend.fal)&&pend.fal.length){SEL.falecidos=JSON.parse(JSON.stringify(pend.fal));if(typeof renderFalecidos==='function')renderFalecidos();}
+  if(Array.isArray(pend.fal)&&pend.fal.length){SEL.falecidos=JSON.parse(JSON.stringify(pend.fal));buildFalecidos();}
   if(pend._sel){
     var s=pend._sel;
     if(s.tipoServ)SEL.tipoServ=s.tipoServ;
@@ -4216,6 +4216,81 @@ window._TI_preencherCliente = function(pend){
   }
   _TI_calcular();
 };
+
+// renderFalecidos = buildFalecidos (alias para compatibilidade)
+window.renderFalecidos = buildFalecidos;
+
+// ── Exports completos da API pública ─────────────────────────────────────
+window.tumInlineUnmount = tumInlineUnmount;
+window.mascaraTel        = mascaraTel;
+window.abrirModal        = abrirModal;
+window.fecharModal       = fecharModal;
+window.abrirModalPedra   = abrirModalPedra;
+window.confirmarAddPedra = confirmarAddPedra;
+window.remPedra          = remPedra;
+window.showTab           = showTab;
+window.renderPlanta      = renderPlanta;
+window.renderChapas      = renderChapas;
+window.renderHistorico   = renderHistorico;
+window.verHistorico      = verHistorico;
+window.copiarWAHist      = copiarWAHist;
+window.confirmarDel      = confirmarDel;
+window.confirmarLimpar   = confirmarLimpar;
+window.exportarHistorico = exportarHistorico;
+window.exportarCfg       = exportarCfg;
+window.importarCfg       = importarCfg;
+window.resetCfg          = resetCfg;
+window.svCfg             = svCfg;
+window.svCfg2            = svCfg2;
+window.testarGroq        = testarGroq;
+window.iaOnFileSelect    = iaOnFileSelect;
+window.iaAnalisar        = iaAnalisar;
+window.renderEncontroBox = renderEncontroBox;
+window.PRESETS           = PRESETS;
+window.atualizarEspessuraDaPedra            = atualizarEspessuraDaPedra;
+window.atualizarFalLabel                    = atualizarFalLabel;
+window.atualizarPreview                     = atualizarPreview;
+window.atualizarSteps                       = atualizarSteps;
+window.atualizarTampasUI                    = atualizarTampasUI;
+window.buildAcabamentos                     = buildAcabamentos;
+window.buildAvancado                        = buildAvancado;
+window.buildEngList                         = buildEngList;
+window.buildFalecidos                       = buildFalecidos;
+window._setFal                              = _setFal;
+window.buildGradePresets                    = buildGradePresets;
+window.buildMatCats                         = buildMatCats;
+window.buildMatList                         = buildMatList;
+window.buildMolduraPresets                  = buildMolduraPresets;
+window.buildOpcionais                       = buildOpcionais;
+window.buildPecas                           = buildPecas;
+window.buildPedrasCfg                       = buildPedrasCfg;
+window.buildPresets                         = buildPresets;
+window._TI_selAcabTampa = selAcabTampa;
+window.buildTampasAcab                      = buildTampasAcab;
+window.buildTipoServ                        = buildTipoServ;
+window.calcularFull                         = calcularFull;
+window.desenharTampasSVG                    = desenharTampasSVG;
+window.escHtml                              = escHtml;
+window.gerarPrintArea                       = gerarPrintArea;
+window.gerarTextoWA                         = gerarTextoWA;
+window.getDims                              = getDims;
+window.getEngCm                             = getEngCm;
+window.getMolduraCm                         = getMolduraCm;
+window.getTampasDims                        = getTampasDims;
+window.iaAplicarResultado                   = iaAplicarResultado;
+window.loadCfgUI                            = loadCfgUI;
+window.mostrarCardLapide                    = mostrarCardLapide;
+window.pltCalcAlturaTotal                   = pltCalcAlturaTotal;
+window.pltCalcPedras                        = pltCalcPedras;
+window.pltDesenharCorte                     = pltDesenharCorte;
+window.pltDesenharPlanta                    = pltDesenharPlanta;
+window.pltFmt                               = pltFmt;
+window.pltGetDims                           = pltGetDims;
+window.pltRenderResumo                      = pltRenderResumo;
+window.pltRenderTabela                      = pltRenderTabela;
+window.renderProducao                       = renderProducao;
+window.renderResultado                      = renderResultado;
+window.validarForm                          = validarForm;
 
 // ── tumInlineMount override: inject dynamic UI after rendering ─────────────
 (function(){
