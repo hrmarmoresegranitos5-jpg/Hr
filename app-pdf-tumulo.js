@@ -145,11 +145,11 @@ function gerarPDFTumulo(q){
   var custoItems=[
     {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2Total?' — '+(+res.m2Total).toFixed(3)+' m²':'')},
     {icon:'🔨',l:'Mão de Obra Marmoraria',v:res.custoMdo||0,sub:''},
-    {icon:'🧱',l:'Pedreiro / Construção',v:res.custoObra||0,sub:''},
+    {icon:'🏗️',l:'Estrutura Civil',v:res.custoEstrutura||0,sub:''},
     {icon:'🪣',l:'Materiais',v:res.custoMat||0,sub:''}
   ];
   custoItems.forEach(function(it,i){
-    if(!it.v&&it.v!==0)return;
+    if(it.v==null)return;
     var bg=i%2===0?'#fff':'#faf6ef';
     custoRows+='<tr>'
       +'<td style="padding:10px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:600;color:#1a1a1a;">'+it.icon+' '+it.l+'</td>'
