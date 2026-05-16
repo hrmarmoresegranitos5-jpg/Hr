@@ -1,6 +1,6 @@
 // PWA Service Worker
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(function(reg){
+  navigator.serviceWorker.register('sw.js?v=50', { updateViaCache: 'none' }).then(function(reg){
     // Força verificação imediata de atualização
     reg.update();
     // Quando novo SW estiver esperando, ativa imediatamente
