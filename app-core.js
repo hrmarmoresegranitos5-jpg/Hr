@@ -3934,9 +3934,21 @@ function buildOrcList(list) {
       h+='</div>';
       h+='<div class="qcard-body">';
       h+='<div class="qcard-detail">';
-      if(q.pds&&q.pds.length)q.pds.forEach(function(p){
+      // Para túmulos: não mostrar peças técnicas (dados internos)
+      // Para outros: mostrar peças normalmente
+      if(!isTum && q.pds&&q.pds.length) q.pds.forEach(function(p){
         h+='<div class="qdr"><span class="k">'+escH(p.desc||'Peça')+'</span><span class="v">'+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span></div>';
       });
+      if(isTum && q.tumPendOrc && q.tumPendOrc.r){
+        var r=q.tumPendOrc.r;
+        if(r.ts && r.ts.nm) h+='<div class="qdr"><span class="k">Serviço</span><span class="v">'+escH(r.ts.nm)+'</span></div>';
+        if(r.d) {
+          var dC=r.d.C_cm||r.d.C||0, dL=r.d.L_cm||r.d.L||0;
+          if(dC&&dL) h+='<div class="qdr"><span class="k">Dimensões</span><span class="v">'+dC+'×'+dL+' cm</span></div>';
+        }
+        if(r.m2_total) h+='<div class="qdr"><span class="k">Área</span><span class="v">'+r.m2_total.toFixed(2)+' m²</span></div>';
+        if(Array.isArray(r.pecasCalc)) h+='<div class="qdr"><span class="k">Peças</span><span class="v">'+r.pecasCalc.length+' peças</span></div>';
+      }
       if(q.cidade)h+='<div class="qdr"><span class="k">Cidade</span><span class="v">'+escH(q.cidade)+'</span></div>';
       if(q.obs)h+='<div class="qdr"><span class="k">Obs.</span><span class="v grn">'+escH(q.obs)+'</span></div>';
       h+='</div>';
@@ -3962,13 +3974,32 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Orçamento de túmulo — tentar carregar no módulo de túmulos (pg9)
+  // ── Túmulo com módulo inline (tumPendOrc) ──────────────────────────────
+  if(q.tum && q.tumPendOrc){
+    orcRefazer(id, e);
+    setTimeout(function(){
+      if(typeof window._TI_preencherCliente === 'function'){
+        window._TI_preencherCliente(q.tumPendOrc);
+      }
+      toast('✓ Túmulo carregado — ajuste e recalcule!');
+    }, 400);
+    return;
+  }
+
+  // ── Túmulo antigo ou sem dados inline ────────────────────────────────
   if(q.tum){
+    // Usa módulo inline se disponível (apenas restaura o ambiente)
+    if(typeof window.tumInlineMount === 'function'){
+      orcRefazer(id, e);
+      toast('✓ Ambiente restaurado — configure o túmulo e recalcule!');
+      return;
+    }
+    // Fallback módulo antigo pg9
     var pg9 = document.getElementById('pg9');
     if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
       try{
         TUM.q = JSON.parse(JSON.stringify(q.tum));
-        if (typeof tumPatchQ === 'function') tumPatchQ(); // migra campos ausentes em orçamentos antigos
+        if(typeof tumPatchQ === 'function') tumPatchQ();
         go(9);
         setTimeout(function(){ renderTum(); },100);
         toast('✓ Túmulo carregado! Edite e recalcule.');
@@ -3976,8 +4007,8 @@ function orcEditar(id, e){
         toast('Erro ao carregar orçamento de túmulo');
       }
     } else {
-      // Módulo de túmulos não disponível nesta tela
-      toast('⚠️ Para editar túmulos, acesse o módulo de Túmulos');
+      orcRefazer(id, e);
+      toast('⚠️ Orçamento restaurado — reconfigure as medidas');
     }
     return;
   }
