@@ -2516,7 +2516,8 @@ function calcularFinal() {
     _sel:{tipoServ:SEL.tipoServ,matId:SEL.matId,acabamento:SEL.acabamento,
       pecas:JSON.parse(JSON.stringify(SEL.pecas)),tampas:JSON.parse(JSON.stringify(SEL.tampas)),
       lapide:JSON.parse(JSON.stringify(SEL.lapide)),rebaixo:JSON.parse(JSON.stringify(SEL.rebaixo)),
-      opts:JSON.parse(JSON.stringify(SEL.opts)),adv:JSON.parse(JSON.stringify(SEL.adv))},
+      opts:JSON.parse(JSON.stringify(SEL.opts)),adv:JSON.parse(JSON.stringify(SEL.adv)),
+      ind:SEL.ind?JSON.parse(JSON.stringify(SEL.ind)):undefined},
     _dims:{C:r.d.C_cm,L:r.d.L_cm,E:r.d.E,N:r.d.N,disp:r.d.disp,
       Ae:r.d.Ae_cm,Ab:r.d.Ab_cm,Hc:r.d.Hc_cm,Hl:r.d.Hl_cm,
       LapW:r.d.LapW_cm,LapH:r.d.LapH_cm,AvRod:r.d.AvRod,
@@ -3241,16 +3242,17 @@ function recarregarOrcamento(i) {
   if (o._sel) {
     // Novo formato: dados completos salvos
     var s = o._sel;
-    if (s.tipoServ)   SEL.tipoServ   = s.tipoServ;
-    if (s.matId)      SEL.matId      = s.matId;
-    if (s.acabamento) SEL.acabamento = s.acabamento;
-    if (s.pecas)   { SEL.pecas   = JSON.parse(JSON.stringify(s.pecas));   }
-    if (s.tampas)  { SEL.tampas  = JSON.parse(JSON.stringify(s.tampas));  }
-    if (s.lapide)  { SEL.lapide  = JSON.parse(JSON.stringify(s.lapide));  }
-    if (s.rebaixo) { SEL.rebaixo = JSON.parse(JSON.stringify(s.rebaixo)); }
-    if (s.opts)    { Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));   }
-    if (s.adv)     { Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));    }
-    if (s.ind)     { Object.assign(SEL.ind||{}, JSON.parse(JSON.stringify(s.ind)));   }
+    if (s.tipoServ   !== undefined) SEL.tipoServ   = s.tipoServ;
+    if (s.matId      !== undefined) SEL.matId      = s.matId;
+    if (s.acabamento !== undefined) SEL.acabamento = s.acabamento;
+    // Use Object.assign to preserve new fields added after save
+    if (s.pecas)   Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
+    if (s.tampas)  Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
+    if (s.lapide)  Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
+    if (s.rebaixo) Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
+    if (s.opts)    Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
+    if (s.adv)     Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
+    if (s.ind && SEL.ind) Object.assign(SEL.ind, JSON.parse(JSON.stringify(s.ind)));
     if (o.preset)  SEL.preset = o.preset;
   } else {
     // Formato antigo: reconstruir do resultado calculado
@@ -4642,9 +4644,9 @@ window._TI_preencherCliente = function(pend){
   // 3. Restaurar SEL completo SEM chamar selMat (evita cálculo com SEL incompleto)
   if(pend._sel){
     var s=pend._sel;
-    if(s.tipoServ)   SEL.tipoServ   =s.tipoServ;
-    if(s.matId)      SEL.matId      =s.matId;   // ← só atribuição, não selMat()
-    if(s.acabamento) SEL.acabamento =s.acabamento;
+    if(s.tipoServ  !== undefined) SEL.tipoServ   = s.tipoServ;
+    if(s.matId     !== undefined) SEL.matId      = s.matId;
+    if(s.acabamento!== undefined) SEL.acabamento = s.acabamento;
     if(s.pecas)  Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
     if(s.tampas) Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
     if(s.lapide) Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
@@ -4709,7 +4711,6 @@ window._histSetFiltro = _histSetFiltro;
 window._histFmtDate = _histFmtDate;
 window._TI_fmK = _TI_fmK;
 window.renderHistorico   = renderHistorico;
-window.verHistorico      = verHistorico;
 window.copiarWAHist      = copiarWAHist;
 window.confirmarDel      = confirmarDel;
 window.confirmarLimpar   = confirmarLimpar;
