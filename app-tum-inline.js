@@ -2472,7 +2472,11 @@ function _TI_injectDynamicUI(){
   }
 }
 // VALIDAÇÃO
+// ── NS exports for File 2 ─────────────────────────────────────
 NS.PRESETS=PRESETS;NS.TIPOS_SERV=TIPOS_SERV;NS.ACABAMENTOS=ACABAMENTOS;
-NS.MOLDURA_OPCOES=MOLDURA_OPCOES;NS.GRADE_OPCOES=GRADE_OPCOES;NS._TI_SEL_DEF=_TI_SEL_DEF;
+NS.MOLDURA_OPCOES=MOLDURA_OPCOES;NS.GRADE_OPCOES=GRADE_OPCOES;
+NS._TI_SEL_DEF=_TI_SEL_DEF;
+// Critical functions used in File 2 but defined here
+NS._gel=_gel;NS.fv=fv;NS.init=init;NS.selMat=selMat;
 
 })();
