@@ -2147,15 +2147,9 @@ function calcular(){
 
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
-    var snap={tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
-    if(a.tumSEL)     snap.tumSEL=JSON.parse(JSON.stringify(a.tumSEL));
-    if(a.tumFlds)    snap.tumFlds=JSON.parse(JSON.stringify(a.tumFlds));
-    if(a.tumPendOrc) snap.tumPendOrc=JSON.parse(JSON.stringify(a.tumPendOrc));
-    return snap;
+    return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
-  var tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo';});
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
-  if(tumAmb&&tumAmb.tumPendOrc) q.tumPendOrc=tumAmb.tumPendOrc;
   DB.q.unshift(q);DB.sv();pendQ=q;
 }
 function selectQuote(){
@@ -3933,7 +3927,7 @@ function buildOrcList(list) {
       if(sub2)h+='<div class="qc2-sub">'+(isTum?'⚰ ':'📍 ')+escH(sub2)+'</div>';
       h+='</div>';
       h+='<div class="qc2-right"><div class="tier-c-'+tier+'">R$ '+fm(val)+'</div>';
-      h+='<div class="qc2-dt">'+dt+'</div></div></div>';
+      h+='<div class="qc2-dt">'+dt+'</div><div class="qc2-chev">▾</div></div></div>';
       h+='<div class="qc2-tags"><span class="qc2-tag ic">'+icon+' '+escH(tipos[0]||'')+'</span>';
       if(mat)h+='<span class="qc2-tag">'+mat+'</span>';
       if(q.m2&&q.m2>0)h+='<span class="qc2-tag">'+q.m2.toFixed(2)+' m²</span>';
@@ -3968,58 +3962,22 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Orçamento de túmulo — carregar no módulo inline (pg0)
+  // Orçamento de túmulo — tentar carregar no módulo de túmulos (pg9)
   if(q.tum){
-    try{
-      // Dados do cliente
-      var cliEl=document.getElementById('oCliente'); if(cliEl) cliEl.value=q.tum.cli||q.cli||'';
-      var telEl=document.getElementById('oTel');     if(telEl) telEl.value=q.tum.tel||q.tel||'';
-      var cidEl=document.getElementById('oCidade');  if(cidEl) cidEl.value=q.tum.cid||q.cidade||'';
-      var endEl=document.getElementById('oEnd');     if(endEl) endEl.value=q.end||'';
-      var obsEl=document.getElementById('oObs');     if(obsEl) obsEl.value=q.obs||'';
-
-      // Criar ambiente Túmulo com estado SEL restaurado
-      var newId=Date.now();
-      var novoAmb={id:newId,tipo:'Túmulo',pecas:[],selCuba:null,svState:{},acState:{},selMat:null};
-      if(q.tum._sel) novoAmb.tumSEL=JSON.parse(JSON.stringify(q.tum._sel));
-      // Restaurar campos de formulário do módulo inline
-      novoAmb.tumFlds={
-        iCli:        q.tum.cli||q.cli||'',
-        iTel:        q.tum.tel||q.tel||'',
-        iCemiterio:  q.tum.cemi||'',
-        iCidade:     q.tum.cid||q.cidade||'',
-        iQuadra:     q.tum.quad||'',
-        iLote:       q.tum.lote||'',
-        iObs:        q.tum.obs||q.obs||''
-      };
-      if(q.tum._dims){
-        novoAmb.tumFlds.mC=q.tum._dims.C||'';
-        novoAmb.tumFlds.mL=q.tum._dims.L||'';
-        novoAmb.tumFlds.mE=q.tum._dims.E||'';
-        novoAmb.tumFlds.mGav=q.tum._dims.N||'';
-        novoAmb.tumFlds.mAe=q.tum._dims.Ae||'';
-        novoAmb.tumFlds.mAb=q.tum._dims.Ab||'';
-        novoAmb.tumFlds.mHcomp=q.tum._dims.Hc||'';
-        novoAmb.tumFlds.mHlaje=q.tum._dims.Hl||'';
-        novoAmb.tumFlds.mLapW=q.tum._dims.LapW||'';
-        novoAmb.tumFlds.mLapH=q.tum._dims.LapH||'';
-        novoAmb.tumFlds.mAlturaFinal=q.tum._dims.altFinal||'';
+    var pg9 = document.getElementById('pg9');
+    if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
+      try{
+        TUM.q = JSON.parse(JSON.stringify(q.tum));
+        if (typeof tumPatchQ === 'function') tumPatchQ(); // migra campos ausentes em orçamentos antigos
+        go(9);
+        setTimeout(function(){ renderTum(); },100);
+        toast('✓ Túmulo carregado! Edite e recalcule.');
+      }catch(err){
+        toast('Erro ao carregar orçamento de túmulo');
       }
-      ambientes=[novoAmb];
-      go(0);
-      renderAmbientes();
-      // Preencher campos inline após montagem
-      setTimeout(function(){
-        var flds=novoAmb.tumFlds||{};
-        Object.keys(flds).forEach(function(fid){
-          var el=document.querySelector('#tumInline_'+newId+' #'+fid);
-          if(el&&flds[fid]) el.value=flds[fid];
-        });
-        document.getElementById('pg0').scrollTop=0;
-      },250);
-      toast('✓ Túmulo carregado! Edite e recalcule.');
-    }catch(err){
-      toast('Erro ao carregar túmulo');
+    } else {
+      // Módulo de túmulos não disponível nesta tela
+      toast('⚠️ Para editar túmulos, acesse o módulo de Túmulos');
     }
     return;
   }
@@ -4059,10 +4017,7 @@ function orcRefazer(id, e) {
         selCuba:snap.selCuba||null,
         svState:JSON.parse(JSON.stringify(snap.svState||{})),
         acState:JSON.parse(JSON.stringify(snap.acState||{})),
-        selMat:snapMat,
-        tumSEL:snap.tumSEL?JSON.parse(JSON.stringify(snap.tumSEL)):undefined,
-        tumFlds:snap.tumFlds?JSON.parse(JSON.stringify(snap.tumFlds)):undefined,
-        tumPendOrc:snap.tumPendOrc?JSON.parse(JSON.stringify(snap.tumPendOrc)):undefined
+        selMat:snapMat
       });
     });
   } else {
@@ -6484,15 +6439,12 @@ window.addEventListener('load', function _vtBoot() {
   +'.qc2-tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 14px 10px}'
   +'.qc2-tag{font-size:.62rem;padding:3px 8px;border-radius:20px;background:var(--bg3,#222);color:var(--t3,#888);border:1px solid var(--bd,#333)}'
   +'.qc2-tag.ic{color:var(--t2,#aaa)}'
-  +'.qcard-body{display:none;padding:0 14px 12px;border-top:1px solid var(--bd,#333);margin-top:2px}'
-  +'.qcard2.open .qcard-body{display:block}'
-  +'.qcard2.open{border-color:var(--gold,#c9a84c)}'
-  +'.qcard-detail{margin-bottom:8px}'
-  +'.qdr{display:flex;justify-content:space-between;font-size:.75rem;padding:5px 0;border-bottom:1px solid var(--bg3,#222)}'
-  +'.qdr .k{color:var(--t3,#888)}.qdr .v{color:var(--tx,#f0f0f0);text-align:right}.qdr .v.grn{color:#7ec8a0}'
-  +'.qcard-total{display:flex;justify-content:space-between;font-size:.85rem;font-weight:700;padding:8px 0}'
-  +'.qcard-total .k{color:var(--t3,#888)}.qcard-total .v{color:#c9a84c}'
-  +'.qcard-btns{display:flex;gap:6px;flex-wrap:wrap;padding-top:6px}';
+  // Toggle body: qcard-body is hidden by default (from styles.css for .qcard)
+  // We need same rules for .qcard2
+  +'.qcard2 .qcard-body{display:none;padding:0}'
+  +'.qcard2.open .qcard-body{display:block;padding:0 14px 12px;border-top:1px solid var(--bd,#333);margin-top:4px}'
+  +'.qcard2 .qc2-chev{font-size:.6rem;color:var(--t4,#666);margin-left:4px;transition:transform .2s;display:inline-block}'
+  +'.qcard2.open .qc2-chev{transform:rotate(180deg)}';
   document.head.appendChild(s);
 })();
 
