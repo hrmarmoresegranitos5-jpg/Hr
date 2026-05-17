@@ -3063,19 +3063,61 @@ function salvarHistorico() {
 // ══════════════════════════════════════════════
 
 function renderHistorico() {
-  var el = _gel('histList');
-  var em = _gel('histEmpty');
+  // Inject filter chips if not yet present
+  if (!_gel('histStats')) {
+    var histListEl = _gel('histList');
+    if (histListEl) {
+      var statsDiv = document.createElement('div');
+      statsDiv.id = 'histStats';
+      histListEl.before(statsDiv);
+      var filRow = document.createElement('div');
+      filRow.className = 'hfil-row';
+      filRow.innerHTML = "<button class=\"hfil-btn on\" data-f=\"todos\" onclick=\"_histSetFiltro('todos')\">Todos</button>" + "<button class=\"hfil-btn\" data-f=\"hoje\" onclick=\"_histSetFiltro('hoje')\">Hoje</button>" + "<button class=\"hfil-btn\" data-f=\"semana\" onclick=\"_histSetFiltro('semana')\">Semana</button>" + "<button class=\"hfil-btn\" data-f=\"mes\" onclick=\"_histSetFiltro('mes')\">M\u00eas</button>";
+      statsDiv.after(filRow);
+    }
+  }
+  var el  = _gel('histList');
+  var em  = _gel('histEmpty');
   var cnt = _gel('histCount');
+  if (!el) return;
 
-  var busca = (_gel('histBusca').value || '').toLowerCase();
+  var busca = ((_gel('histBusca') && _gel('histBusca').value) || '').toLowerCase().trim();
+  var filtro = window._histFiltro || 'todos';
+
+  // Filter
+  var now = Date.now();
   var lista = HIST.filter(function(o) {
+    if (filtro === 'hoje') {
+      var d = new Date(o.id || 0);
+      var t = new Date(); 
+      if (d.toDateString() !== t.toDateString()) return false;
+    } else if (filtro === 'semana') {
+      if ((now - (o.id||0)) > 7*86400000) return false;
+    } else if (filtro === 'mes') {
+      if ((now - (o.id||0)) > 30*86400000) return false;
+    }
     if (!busca) return true;
-    var falStr = Array.isArray(o.fal) ? o.fal.map(function(f){return f.nome;}).join(' ') : (o.fal||'');
-    var termos = [o.cli, o.cemi, o.matNm, falStr, o.cid, o.quad, o.lote, o.obs].join(' ').toLowerCase();
+    var falStr = Array.isArray(o.fal) ? o.fal.map(function(f){return(f.nome||'');}).join(' ') : '';
+    var termos = [o.cli,o.cemi,o.matNm,(o.r&&o.r.mat?o.r.mat.nm:''),falStr,o.cid,o.quad,o.lote,o.obs]
+      .filter(Boolean).join(' ').toLowerCase();
     return termos.indexOf(busca) >= 0;
   });
 
-  cnt.textContent = HIST.length + ' orçamento' + (HIST.length!==1?'s':'') + ' salvo' + (HIST.length!==1?'s':'');
+  // Stats
+  var totalVal = HIST.reduce(function(s,o){return s+(o.r&&o.r.valor_vista?o.r.valor_vista:0);},0);
+  var mesVal   = HIST.filter(function(o){return (now-(o.id||0))<30*86400000;})
+                     .reduce(function(s,o){return s+(o.r&&o.r.valor_vista?o.r.valor_vista:0);},0);
+
+  // Stats bar
+  var statsEl = _gel('histStats');
+  if (statsEl) {
+    statsEl.innerHTML = 
+      '<div class="hstat"><div class="hstat-v">'+HIST.length+'</div><div class="hstat-l">Total</div></div>'
+     +'<div class="hstat"><div class="hstat-v">'+HIST.filter(function(o){return (now-(o.id||0))<30*86400000;}).length+'</div><div class="hstat-l">Este mês</div></div>'
+     +'<div class="hstat gold"><div class="hstat-v">R$'+_TI_fmK(totalVal)+'</div><div class="hstat-l">Em orçamentos</div></div>';
+  }
+
+  cnt.textContent = lista.length + ' resultado' + (lista.length!==1?'s':'');
 
   if (!lista.length) {
     el.innerHTML = '';
@@ -3084,84 +3126,150 @@ function renderHistorico() {
   }
   em.style.display = 'none';
 
-  var h = '';
-  lista.forEach(function(o, i) {
-    var r = o.r;
-    var idx = HIST.indexOf(o);
-    h += '<div class="hist-card">'
-       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">'
-       + '<div class="hist-cli">'+o.cli+'</div>'
-       + '<div class="hist-val">R$ '+_TI_fm(r.valor_vista)+'</div>'
-       + '</div>'
-       + '<div class="hist-meta">'
-       + (o.num?'<span>🔖 '+o.num+'</span>':'')
-       + (Array.isArray(o.fal) && o.fal.length > 0
-           ? o.fal.map(function(f){ return '<span>⚰️ '+(f.nome||'Não informado')+'</span>'; }).join('')
-           : (o.fal ? '<span>⚰️ '+o.fal+'</span>' : ''))
-       + (o.cemi?'<span>🏛 '+o.cemi+'</span>':'')
-       + '<span>'+o.matNm+'</span>'
-       + '<span>'+r.d.N+' gav.</span>'
-       + '<span>'+o.date+'</span>'
-       + '</div>'
-       + '<div style="margin-top:6px;display:flex;gap:8px">'
-       + '<span class="badge badge-gold">'+r.m2_total.toFixed(2)+'m²</span>'
-       + '<span class="badge badge-grn">'+r.prazo_total+' dias</span>'
-       + '</div>'
-       + '<div class="hist-actions">'
-       + '<button class="btn btn-out btn-sm" onclick="verHistorico('+idx+')" style="flex:1;justify-content:center">👁 Ver</button>'
-       + '<button class="btn btn-out btn-sm" onclick="recarregarOrcamento('+idx+')" style="flex:1;justify-content:center">✏️ Editar</button>'
-       + '<button class="btn btn-out btn-sm" onclick="copiarWAHist('+idx+')" style="flex:1;justify-content:center">📲 WA</button>'
-       + '<button class="btn btn-red btn-sm" onclick="confirmarDel('+idx+')">🗑</button>'
-       + '</div>'
-       + '</div>';
+  // Group by date
+  var groups = {};
+  var groupOrder = [];
+  lista.forEach(function(o) {
+    var key = _histDateGroup(o.id);
+    if (!groups[key]) { groups[key] = []; groupOrder.push(key); }
+    groups[key].push(o);
   });
+
+  var h = '';
+  groupOrder.forEach(function(grp) {
+    h += '<div class="hist-grp-label">'+grp+'</div>';
+    groups[grp].forEach(function(o) {
+      var idx = HIST.indexOf(o);
+      var r   = o.r || {};
+      var val = r.valor_vista || 0;
+      var mat = (r.mat && r.mat.nm) || o.matNm || '—';
+      var ts  = (r.ts && r.ts.nm) || '';
+      var dt  = _histFmtDate(o.id);
+      var tier = val >= 15000 ? 'gold' : val >= 5000 ? 'silver' : 'bronze';
+      var cli  = o.cli || 'Cliente';
+      var cem  = [o.cemi, o.cid, o.quad ? 'Q.'+o.quad : '', o.lote ? 'L.'+o.lote : ''].filter(Boolean).join(' · ');
+      var fal  = Array.isArray(o.fal) && o.fal.length ? o.fal.map(function(f){return f.nome||'';}).filter(Boolean).join(', ') : '';
+
+      h += '<div class="hist-card2 tier-'+tier+'">';
+
+      // Header row
+      h += '<div class="hc-head">';
+      h += '<div class="hc-avatar">'+cli.charAt(0).toUpperCase()+'</div>';
+      h += '<div class="hc-info">';
+      h += '<div class="hc-cli">'+cli+'</div>';
+      if (cem) h += '<div class="hc-cem">⚰ '+cem+'</div>';
+      if (fal) h += '<div class="hc-fal">👤 '+fal+'</div>';
+      h += '</div>';
+      h += '<div class="hc-right">';
+      h += '<div class="hc-val tier-val-'+tier+'">R$ '+_TI_fm(val)+'</div>';
+      h += '<div class="hc-dt">'+dt+'</div>';
+      h += '</div></div>';
+
+      // Tags row
+      h += '<div class="hc-tags">';
+      if (mat !== '—') h += '<span class="hc-tag">'+mat+'</span>';
+      if (ts) h += '<span class="hc-tag">'+ts+'</span>';
+      if (r.m2_total) h += '<span class="hc-tag">'+r.m2_total.toFixed(2)+' m²</span>';
+      if (Array.isArray(r.pecasCalc)) h += '<span class="hc-tag">'+r.pecasCalc.length+' peças</span>';
+      h += '</div>';
+
+      // Actions
+      h += '<div class="hc-actions">';
+      h += '<button class="hc-btn primary" onclick="recarregarOrcamento('+idx+')">✏️ Editar</button>';
+      h += '<button class="hc-btn" onclick="copiarWAHist('+idx+')">📱 WA</button>';
+      h += '<button class="hc-btn" onclick="_histGerarPDF('+idx+')">📄 PDF</button>';
+      h += '<button class="hc-btn danger" onclick="confirmarDel('+idx+')">🗑</button>';
+      h += '</div></div>';
+    });
+  });
+
   el.innerHTML = h;
 }
 
-function verHistorico(i) {
-  var o = HIST[i];
-  if (!o) return;
+// Helpers for history
+function _histDateGroup(ts) {
+  if (!ts) return 'Sem data';
+  var d = new Date(ts);
+  var now = new Date();
+  var diffDays = Math.floor((now - d) / 86400000);
+  if (diffDays === 0) return '📅 Hoje';
+  if (diffDays === 1) return '📅 Ontem';
+  if (diffDays < 7)  return '📅 Esta semana';
+  if (diffDays < 14) return '📅 Semana passada';
+  var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  if (d.getFullYear() === now.getFullYear())
+    return '📅 ' + meses[d.getMonth()] + ' ' + d.getFullYear();
+  return '📅 ' + d.getFullYear();
+}
+
+function _histFmtDate(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  var dd = String(d.getDate()).padStart(2,'0');
+  var meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  var mm = meses[d.getMonth()];
+  var hh = String(d.getHours()).padStart(2,'0');
+  var min = String(d.getMinutes()).padStart(2,'0');
+  return dd + ' ' + mm + ' · ' + hh + ':' + min;
+}
+
+function _TI_fmK(v) {
+  if (v >= 1000000) return (v/1000000).toFixed(1)+'M';
+  if (v >= 1000)    return (v/1000).toFixed(0)+'k';
+  return _TI_fm(v);
+}
+
+function _histGerarPDF(idx) {
+  var o = HIST[idx];
+  if (!o || !o.r) { toast('Sem resultado para gerar PDF', true); return; }
   pendOrc = o;
-  renderResultado(o);
-  showTab('resultado', document.querySelectorAll('.tab')[1]);
+  try { gerarPrintArea(o, o.r); } catch(e) { toast('Erro ao gerar PDF: '+e.message, true); }
+}
+
+function _histSetFiltro(f) {
+  window._histFiltro = f;
+  var btns = document.querySelectorAll('.hfil-btn');
+  btns.forEach(function(b){ b.classList.toggle('on', b.dataset.f === f); });
+  renderHistorico();
 }
 
 function recarregarOrcamento(i) {
   var o = HIST[i];
   if (!o) { toast('Orçamento não encontrado', true); return; }
 
-  // ── PASSO 1: Restaurar SEL completo ANTES de qualquer rebuild de UI ─────
+  // ── 1. Restaurar SEL completo ────────────────────────────────────────────
   if (o._sel) {
+    // Novo formato: dados completos salvos
     var s = o._sel;
     if (s.tipoServ)   SEL.tipoServ   = s.tipoServ;
     if (s.matId)      SEL.matId      = s.matId;
     if (s.acabamento) SEL.acabamento = s.acabamento;
-    if (s.pecas)  Object.assign(SEL.pecas,  JSON.parse(JSON.stringify(s.pecas)));
-    if (s.tampas) Object.assign(SEL.tampas, JSON.parse(JSON.stringify(s.tampas)));
-    if (s.lapide) Object.assign(SEL.lapide, JSON.parse(JSON.stringify(s.lapide)));
-    if (s.rebaixo)Object.assign(SEL.rebaixo,JSON.parse(JSON.stringify(s.rebaixo)));
-    if (s.opts)   Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));
-    if (s.adv)    Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));
-    if (o.preset) SEL.preset = o.preset;
+    if (s.pecas)   { SEL.pecas   = JSON.parse(JSON.stringify(s.pecas));   }
+    if (s.tampas)  { SEL.tampas  = JSON.parse(JSON.stringify(s.tampas));  }
+    if (s.lapide)  { SEL.lapide  = JSON.parse(JSON.stringify(s.lapide));  }
+    if (s.rebaixo) { SEL.rebaixo = JSON.parse(JSON.stringify(s.rebaixo)); }
+    if (s.opts)    { Object.assign(SEL.opts,   JSON.parse(JSON.stringify(s.opts)));   }
+    if (s.adv)     { Object.assign(SEL.adv,    JSON.parse(JSON.stringify(s.adv)));    }
+    if (s.ind)     { Object.assign(SEL.ind||{}, JSON.parse(JSON.stringify(s.ind)));   }
+    if (o.preset)  SEL.preset = o.preset;
   } else {
-    // Formato antigo (sem _sel): reconstruir do resultado
-    if (o.r && o.r.mat)  SEL.matId      = o.r.mat.id;
-    if (o.r && o.r.acab) SEL.acabamento = o.r.acab.id;
-    if (o.r && o.r.ts)   SEL.tipoServ   = o.r.ts.id;
-    if (o.preset)         SEL.preset     = o.preset;
-    if (o.r) {
-      SEL.opts.nCruz   = o.r.nCruz   || 0; SEL.opts.cruzGranito = (o.r.nCruz  || 0) > 0;
-      SEL.opts.nFotos  = o.r.nFotos  || 0; SEL.opts.foto_porc   = (o.r.nFotos || 0) > 0;
-      SEL.opts.nJarros = o.r.nJarros || 0; SEL.opts.jarro       = (o.r.nJarros|| 0) > 0;
-    }
+    // Formato antigo: reconstruir do resultado calculado
+    var r = o.r || {};
+    if (r.mat)  SEL.matId      = r.mat.id;
+    if (r.acab) SEL.acabamento = r.acab.id;
+    if (r.ts)   SEL.tipoServ   = r.ts.id;
+    if (o.preset) SEL.preset   = o.preset;
+    if (r.nCruz  != null) { SEL.opts.nCruz   = r.nCruz;   SEL.opts.cruzGranito = r.nCruz  > 0; }
+    if (r.nFotos != null) { SEL.opts.nFotos  = r.nFotos;  SEL.opts.foto_porc   = r.nFotos > 0; }
+    if (r.nJarros!= null) { SEL.opts.nJarros = r.nJarros; SEL.opts.jarro       = r.nJarros> 0; }
   }
 
-  // Falecidos
+  // ── 2. Restaurar falecidos ───────────────────────────────────────────────
   SEL.falecidos = (Array.isArray(o.fal) && o.fal.length > 0)
     ? JSON.parse(JSON.stringify(o.fal))
     : [{ nome:'', nasc:'', obit:'', frase:'' }];
 
-  // ── PASSO 2: Rebuild da UI com o SEL correto ────────────────────────────
+  // ── 3. Reconstruir toda a UI com o SEL correto ───────────────────────────
   buildPresets();
   buildTipoServ();
   buildAcabamentos();
@@ -3173,16 +3281,14 @@ function recarregarOrcamento(i) {
   buildAvancado();
   buildMatCats();
   buildMatList();
-  // atualizarEspessuraDaPedra() é chamada ANTES de setar mE do _dims,
-  // portanto ela pode sobrescrever o valor — os inputs de dims virão depois
-  atualizarEspessuraDaPedra();
+  atualizarEspessuraDaPedra(); // seta mE ao padrão do material
   buildFalecidos();
 
-  // ── PASSO 3: Setar inputs de texto e dimensões APÓS os rebuilds ─────────
-  // (garante que atualizarEspessuraDaPedra não sobrescreva o mE salvo)
+  // ── 4. Preencher campos de texto e dimensões APÓS rebuilds ───────────────
+  // (dimensões vêm depois de atualizarEspessuraDaPedra para não serem sobrescritas)
   function sv(id, val) {
     var el = document.getElementById(id);
-    if (el && val != null && val !== '') el.value = val;
+    if (el && val != null && val !== '' && val !== undefined) el.value = val;
   }
   sv('iCli',       o.cli  || '');
   sv('iTel',       o.tel  || '');
@@ -3192,47 +3298,39 @@ function recarregarOrcamento(i) {
   sv('iLote',      o.lote || '');
   sv('iObs',       o.obs  || '');
 
-  if (o._dims) {
-    var dm = o._dims;
-    sv('mC',          dm.C);
-    sv('mL',          dm.L);
-    sv('mE',          dm.E);          // Sobrescreve o default do material
-    sv('mGav',        dm.N);
-    sv('mDisp',       dm.disp);
-    sv('mAe',         dm.Ae);
-    sv('mAb',         dm.Ab);
-    sv('mHcomp',      dm.Hc);
-    sv('mHlaje',      dm.Hl);
-    sv('mLapW',       dm.LapW);
-    sv('mLapH',       dm.LapH);
-    sv('mAlturaFinal',dm.altFinal);
-    if (dm.AvRod != null) {
-      sv('mAvRodape', dm.AvRod);
-      if (SEL.rebaixo) SEL.rebaixo.avRodape = +dm.AvRod;
-    }
-  } else if (o.r && o.r.d) {
-    var d = o.r.d;
-    sv('mC',    d.C_cm    || '');
-    sv('mL',    d.L_cm    || '');
-    sv('mE',    d.E       || '');
-    sv('mGav',  d.N       || '');
-    sv('mDisp', d.disp    || '');
-    sv('mAe',   d.Ae_cm   || '');
-    sv('mAb',   d.Ab_cm   || '');
-    sv('mHcomp',d.Hc_cm   || '');
-    sv('mHlaje',d.Hl_cm   || '');
-    sv('mLapW', d.LapW_cm || '');
-    sv('mLapH', d.LapH_cm || '');
+  // Dimensões: _dims tem prioridade, fallback para r.d
+  var dm = o._dims, rd = (o.r && o.r.d) ? o.r.d : {};
+  sv('mC',    dm ? dm.C    : (rd.C_cm    || ''));
+  sv('mL',    dm ? dm.L    : (rd.L_cm    || ''));
+  sv('mE',    dm ? dm.E    : (rd.E       || ''));  // sobrescreve padrão do material
+  sv('mGav',  dm ? dm.N    : (rd.N       || ''));
+  sv('mDisp', dm ? dm.disp : (rd.disp    || ''));
+  sv('mAe',   dm ? dm.Ae   : (rd.Ae_cm   || ''));
+  sv('mAb',   dm ? dm.Ab   : (rd.Ab_cm   || ''));
+  sv('mHcomp',dm ? dm.Hc   : (rd.Hc_cm   || ''));
+  sv('mHlaje',dm ? dm.Hl   : (rd.Hl_cm   || ''));
+  sv('mLapW', dm ? dm.LapW : (rd.LapW_cm || ''));
+  sv('mLapH', dm ? dm.LapH : (rd.LapH_cm || ''));
+  if (dm && dm.altFinal) sv('mAlturaFinal', dm.altFinal);
+  if (dm && dm.AvRod != null) {
+    sv('mAvRodape', dm.AvRod);
+    if (SEL.rebaixo) SEL.rebaixo.avRodape = +dm.AvRod;
+  } else if (rd.AvRod != null) {
+    sv('mAvRodape', rd.AvRod);
+    if (SEL.rebaixo) SEL.rebaixo.avRodape = rd.AvRod;
   }
 
-  // ── PASSO 4: Atualizar UIs dependentes de dimensões + calcular ──────────
+  // ── 5. Finalizar UI e calcular ───────────────────────────────────────────
   atualizarTampasUI();
-  mostrarCardLapide(!!SEL.pecas.lapide);
+  if (typeof mostrarCardLapide === 'function') mostrarCardLapide(!!SEL.pecas.lapide);
   _TI_calcular();
+
+  // Navegar para o orçamento
   showTab('orcamento', document.querySelectorAll('.tab')[0]);
   window.scrollTo(0, 0);
   toast('✓ Orçamento carregado — edite e gere novamente');
 }
+
 function copiarWAHist(i) {
   var o = HIST[i];
   if (!o) return;
@@ -4606,6 +4704,10 @@ window.remPedra          = remPedra;
 window.showTab           = showTab;
 window.renderPlanta      = renderPlanta;
 window.renderChapas      = renderChapas;
+window._histGerarPDF = _histGerarPDF;
+window._histSetFiltro = _histSetFiltro;
+window._histFmtDate = _histFmtDate;
+window._TI_fmK = _TI_fmK;
 window.renderHistorico   = renderHistorico;
 window.verHistorico      = verHistorico;
 window.copiarWAHist      = copiarWAHist;
