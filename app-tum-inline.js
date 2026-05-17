@@ -7,6 +7,7 @@
 (function() {
 'use strict';
 var NS = window._TUI = {};
+var NS = window._TUI = {};
 
 // ═══════════════════════════════════════════════════════
 // CÓDIGO V14 — PRIVADO (não polui globais do app)
@@ -2471,12 +2472,73 @@ function _TI_injectDynamicUI(){
     });
   }
 }
-// VALIDAÇÃO
-// ── NS exports for File 2 ─────────────────────────────────────
+// ── NS for File 2 ────────────────────────────────────────────
 NS.PRESETS=PRESETS;NS.TIPOS_SERV=TIPOS_SERV;NS.ACABAMENTOS=ACABAMENTOS;
 NS.MOLDURA_OPCOES=MOLDURA_OPCOES;NS.GRADE_OPCOES=GRADE_OPCOES;
 NS._TI_SEL_DEF=_TI_SEL_DEF;
-// Critical functions used in File 2 but defined here
 NS._gel=_gel;NS.fv=fv;NS.init=init;NS.selMat=selMat;
+// ── Window exports for all File 1 functions ──────────────────
+window._TI_selMat        = selMat;
+window._TI_selMatCat     = selMatCat;
+window._TI_calcular      = _TI_calcular;
+window.selTipoServ       = selTipoServ;
+window.selAcab           = selAcab;
+window.selMoldura        = selMoldura;
+window.selGrade          = selGrade;
+window.selEngrossar      = selEngrossar;
+window.aplicarPreset     = aplicarPreset;
+window.togPeca           = togPeca;
+window.togOpt            = togOpt;
+window.adjOpt            = adjOpt;
+window.adjGrade          = adjGrade;
+window.adjTampa          = adjTampa;
+window.addFalecido       = addFalecido;
+window.remFalecido       = remFalecido;
+window.carregarFotoOrc   = carregarFotoOrc;
+window._tLajeToggle      = _tLajeToggle;
+window._tUsinToggle      = _tUsinToggle;
+window._setPosicao       = _setPosicao;
+window.buildPosicaoPresets = buildPosicaoPresets;
+window.renderFalecidos = buildFalecidos;
+window.iaOnFileSelect    = iaOnFileSelect;
+window.iaAnalisar        = iaAnalisar;
+window.renderEncontroBox = renderEncontroBox;
+window.atualizarEspessuraDaPedra            = atualizarEspessuraDaPedra;
+window.atualizarFalLabel                    = atualizarFalLabel;
+window.atualizarPreview                     = atualizarPreview;
+window.atualizarSteps                       = atualizarSteps;
+window.atualizarTampasUI                    = atualizarTampasUI;
+window.buildAcabamentos                     = buildAcabamentos;
+window.buildAvancado                        = buildAvancado;
+window.buildEngList                         = buildEngList;
+window.buildFalecidos                       = buildFalecidos;
+window._setFal                              = _setFal;
+window.buildGradePresets                    = buildGradePresets;
+window.buildMatCats                         = buildMatCats;
+window.buildMatList                         = buildMatList;
+window.buildMolduraPresets                  = buildMolduraPresets;
+window.buildOpcionais                       = buildOpcionais;
+window.buildPecas                           = buildPecas;
+window.buildPresets                         = buildPresets;
+window._TI_selAcabTampa = selAcabTampa;
+window.buildTampasAcab                      = buildTampasAcab;
+window.buildTipoServ                        = buildTipoServ;
+window.calcularFull                         = calcularFull;
+window.desenharTampasSVG                    = desenharTampasSVG;
+window.escHtml                              = escHtml;
+window.getDims                              = getDims;
+window.getEngCm                             = getEngCm;
+window.getMolduraCm                         = getMolduraCm;
+window.getTampasDims                        = getTampasDims;
+window.iaAplicarResultado                   = iaAplicarResultado;
+window.mostrarCardLapide                    = mostrarCardLapide;
+
+// New session functions
+window._togInd               = _togInd;
+window.buildCustosIndiretos  = buildCustosIndiretos;
+window.atualizarAreaUtil     = atualizarAreaUtil;
+// window.SEL exposed for onclick handlers in HTML template
+window.SEL = SEL;
+window.CFG = CFG;
 
 })();

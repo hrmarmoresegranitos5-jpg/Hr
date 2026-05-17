@@ -1,24 +1,17 @@
 (function() {
 'use strict';
-// ── Read shared state + functions from app-tum-inline.js ──────
-var NS            = window._TUI || {};
-var SEL           = NS.SEL           || {};
-var CFG           = NS.CFG           || {};
-var HIST          = NS.HIST          || [];
-var DEF_CFG       = NS.DEF_CFG       || {};
-var PRESETS       = NS.PRESETS       || [];
-var TIPOS_SERV    = NS.TIPOS_SERV    || [];
-var ACABAMENTOS   = NS.ACABAMENTOS   || [];
-var MOLDURA_OPCOES= NS.MOLDURA_OPCOES|| [];
-var GRADE_OPCOES  = NS.GRADE_OPCOES  || [];
-var _TI_SEL_DEF   = NS._TI_SEL_DEF   || {};
-// Functions defined in File 1, needed here
-var _gel    = function(id){ return NS._gel ? NS._gel(id) : document.getElementById(id); };
-var fv      = function(v){ return NS.fv ? NS.fv(v) : (typeof _TI_fm==='function'?_TI_fm(v):v); };
-var init    = function(){ if(NS.init) NS.init(); };
-var selMat  = function(id){ if(NS.selMat) NS.selMat(id); else if(window._TI_selMat) window._TI_selMat(id); };
-var pendOrc = NS.pendOrc = null;
+var NS=window._TUI||{};var SEL=NS.SEL||{};var CFG=NS.CFG||{};
+var HIST=NS.HIST||[];var DEF_CFG=NS.DEF_CFG||{};var PRESETS=NS.PRESETS||[];
+var TIPOS_SERV=NS.TIPOS_SERV||[];var ACABAMENTOS=NS.ACABAMENTOS||[];
+var MOLDURA_OPCOES=NS.MOLDURA_OPCOES||[];var GRADE_OPCOES=NS.GRADE_OPCOES||[];
+var _TI_SEL_DEF=NS._TI_SEL_DEF||{};
+var _gel=function(id){return NS._gel?NS._gel(id):document.getElementById(id);};
+var fv=function(v){return NS.fv?NS.fv(v):(typeof _TI_fm==='function'?_TI_fm(v):v);};
+var init=function(){if(NS.init)NS.init();};
+var selMat=function(id){if(NS.selMat)NS.selMat(id);};
+var pendOrc=null;var _TI_ambId=null;
 
+// VALIDAÇÃO
 // ══════════════════════════════════════════════
 
 function validarCli() {
@@ -227,23 +220,16 @@ function renderResultado(o) {
           + '</div>';
     }
     if (r.ts.id === 'estrutura') {
+      civLn('Blocos de cimento / Canaletas 14×19×39cm', cv.unid_blocos, 'un',   p.blocos,   cv.unid_blocos * p.blocos);
       civLn('Cimento CP-II (sacos 50 kg)',              cv.sacos_cimento,'saco', p.cimento,  cv.sacos_cimento * p.cimento);
-      civLn('Areia lavada (m³)',                      cv.m3_areia,     'm³',  p.areia,    cv.m3_areia * p.areia);
-      civLn('Brita 3/4" (m³)',                         cv.m3_brita,     'm³',  p.brita,    cv.m3_brita * p.brita);
-      civLn('Blocos 14×19×39 (preenchimento parede)',  cv.unid_blocos, 'un', p.blocos,   cv.unid_blocos * p.blocos);
-      if(cv.unid_canaletas>0) civLn('Canaletas 14×19×39 (cintas de amarração)', cv.unid_canaletas, 'un', p.canaleta||p.blocos, cv.unid_canaletas*(p.canaleta||p.blocos));
-      if(cv.m_trelica>0)    civLn('Treliça eletrossoldada (alicerce+lajes)', cv.m_trelica, 'm', p.trelica||20, cv.m_trelica*(p.trelica||20));
-      if(cv.m2_reboco>0)    civLn('Reboco cimento+areia (paredes)', cv.m2_reboco, 'm²', 0, 0);
-      if(cv.sacos_argam>0)  civLn('Argamassa AC3 (assentamento pedra)', cv.sacos_argam, 'sc', p.argamassa, cv.sacos_argam*p.argamassa);
-      if(cv.kg_massa_plastica>0) civLn('Massa plástica resina+talco (juntas)', cv.kg_massa_plastica, 'kg', p.massa_plastica||35, cv.kg_massa_plastica*(p.massa_plastica||35));
-            civLn('Areia lavada',                             cv.m3_areia,     'm³',  p.areia,    cv.m3_areia * p.areia);
+      civLn('Areia lavada',                             cv.m3_areia,     'm³',  p.areia,    cv.m3_areia * p.areia);
       civLn('Brita 3/4"',                               cv.m3_brita,     'm³',  p.brita,    cv.m3_brita * p.brita);
       civLn('Treliça / Malha soldada Q-92',             cv.m2_malha,     'm²',  p.malha,    cv.m2_malha * p.malha);
       civLn('Ferro 3/8" — alicerce / alvenaria (12m)', cv.barras_f38,  'barra',p.ferro38,  cv.barras_f38 * p.ferro38);
       civLn('Ferro 5/16" — laje (12m)',                 cv.barras_f516, 'barra',p.ferro516, cv.barras_f516 * p.ferro516);
     }
     // Argamassa de assentamento: sempre presente
-    civLn('Argamassa AC3 (sacos 20 kg) — assentamento', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa);
+    civLn('Argamassa AC-II (sacos 20 kg) — assentamento', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa);
 
     if (r.ts.id !== 'estrutura') {
       dh += '<div class="det-line" style="font-size:.72rem;color:var(--t4)"><span class="det-k">Cimento, brita, blocos, ferro</span><span class="det-v">— não incluso</span></div>';
@@ -495,12 +481,7 @@ function gerarPrintArea(o,r){
       + '</div>';
     var civRows2=[];
     if(r.ts&&r.ts.id==='estrutura'){
-      if(cv.unid_blocos>0)     civRows2.push({nm:'Blocos 14×19×39 (preenchimento)',            qtd:cv.unid_blocos,     unit:'un',  pr:pp.blocos,             sub:cv.unid_blocos*pp.blocos});
-      if(cv.unid_canaletas>0) civRows2.push({nm:'Canaletas 14×19×39 (cintas de amarração)', qtd:cv.unid_canaletas, unit:'un', pr:pp.canaleta||pp.blocos, sub:cv.unid_canaletas*(pp.canaleta||pp.blocos)});
-      if(cv.m_trelica>0)    civRows2.push({nm:'Treliça eletrossoldada (alicerce+lajes)',  qtd:cv.m_trelica,          unit:'m',   pr:pp.trelica||20,          sub:cv.m_trelica*(pp.trelica||20)});
-      if(cv.m2_reboco>0)    civRows2.push({nm:'Reboco cimento+areia (m²)',                 qtd:cv.m2_reboco,          unit:'m²',  pr:0,                       sub:0});
-      if(cv.sacos_argam>0)  civRows2.push({nm:'Argamassa AC3 (assentamento pedra)',       qtd:cv.sacos_argam,        unit:'sc',  pr:pp.argamassa,            sub:cv.sacos_argam*pp.argamassa});
-      if(cv.kg_massa_plastica>0) civRows2.push({nm:'Massa plástica resina+talco (juntas)', qtd:cv.kg_massa_plastica, unit:'kg',  pr:pp.massa_plastica||35,   sub:cv.kg_massa_plastica*(pp.massa_plastica||35)});
+      if(cv.unid_blocos>0)  civRows2.push({nm:'Blocos cimento / Canaletas 14×19×39cm', qtd:cv.unid_blocos,           unit:'un',    pr:pp.blocos,   sub:cv.unid_blocos*pp.blocos});
       if(cv.sacos_cimento>0)civRows2.push({nm:'Cimento CP-II (sacos 50 kg)',           qtd:cv.sacos_cimento,          unit:'saco',  pr:pp.cimento,  sub:cv.sacos_cimento*pp.cimento});
       if(cv.m3_areia>0)     civRows2.push({nm:'Areia lavada',                          qtd:+cv.m3_areia.toFixed(2),   unit:'m³',    pr:pp.areia,    sub:cv.m3_areia*pp.areia});
       if(cv.m3_brita>0)     civRows2.push({nm:'Brita 3/4"',                            qtd:+cv.m3_brita.toFixed(2),   unit:'m³',    pr:pp.brita,    sub:cv.m3_brita*pp.brita});
@@ -508,7 +489,7 @@ function gerarPrintArea(o,r){
       if(cv.barras_f38>0)   civRows2.push({nm:'Ferro 3/8" — alicerce / alvenaria',    qtd:cv.barras_f38,             unit:'barra', pr:pp.ferro38,  sub:cv.barras_f38*pp.ferro38});
       if(cv.barras_f516>0)  civRows2.push({nm:'Ferro 5/16" — laje',                   qtd:cv.barras_f516,            unit:'barra', pr:pp.ferro516, sub:cv.barras_f516*pp.ferro516});
     }
-    if(cv.sacos_argam>0) civRows2.push({nm:'Argamassa AC3 — assentamento (sacos 20 kg)', qtd:cv.sacos_argam, unit:'saco', pr:pp.argamassa, sub:cv.sacos_argam*pp.argamassa});
+    if(cv.sacos_argam>0) civRows2.push({nm:'Argamassa AC-II — assentamento (sacos 20 kg)', qtd:cv.sacos_argam, unit:'saco', pr:pp.argamassa, sub:cv.sacos_argam*pp.argamassa});
     civRows2.forEach(function(it,i){
       var bg=i%2===0?'#fff':'#fdfaf3';
       p2+='<div style="background:'+bg+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">'
@@ -910,20 +891,6 @@ function loadCfgUI() {
   _gel('cFerro516').value   = CFG.civil.ferro516;
   _gel('cMalha').value      = CFG.civil.malha;
   _gel('cBlocos').value     = CFG.civil.blocos;
-  _gel('cCanaleta').value   = CFG.civil.canaleta || 6.5;
-  // Inject canaleta field in CFG UI after blocos (if not yet present)
-  _injectCanaletaCfgField();
-  // Custos Indiretos
-  _gel('cTrelica').value        = CFG.civil.trelica       || 22;
-  _gel('cMassaPlastica').value  = CFG.civil.massa_plastica || 35;
-  _gel('cIndConsumivel').value  = CFG.ind.consumivel_por_m2;
-  _gel('cIndEnergia').value     = CFG.ind.energia_pct;
-  _gel('cIndCombust').value     = CFG.ind.combustivel;
-  _gel('cIndManut').value       = CFG.ind.manutencao_pct;
-  _gel('cIndPerdas').value      = CFG.ind.perdas_pct;
-  _gel('cIndRisco').value       = CFG.ind.risco_pct;
-  // Injetar card de custos indiretos na config (se ainda não existe)
-  _injectCfgIndCard();
 }
 
 function svCfg() {
@@ -948,96 +915,9 @@ function svCfg() {
   CFG.civil.ferro516  = +(_gel('cFerro516').value);
   CFG.civil.malha     = +(_gel('cMalha').value);
   CFG.civil.blocos    = +(_gel('cBlocos').value);
-  CFG.civil.canaleta       = +(_gel('cCanaleta').value)      || 6.5;
-  CFG.civil.trelica        = +(_gel('cTrelica').value)       || 22;
-  CFG.civil.massa_plastica = +(_gel('cMassaPlastica').value) || 35;
-  // Custos Indiretos
-  if (!CFG.ind) CFG.ind = JSON.parse(JSON.stringify(DEF_CFG.ind));
-  CFG.ind.consumivel_por_m2 = +(_gel('cIndConsumivel').value) || 12;
-  CFG.ind.energia_pct       = +(_gel('cIndEnergia').value)    || 1.5;
-  CFG.ind.combustivel       = +(_gel('cIndCombust').value)    || 80;
-  CFG.ind.manutencao_pct    = +(_gel('cIndManut').value)      || 0.5;
-  CFG.ind.perdas_pct        = +(_gel('cIndPerdas').value)     || 2.5;
-  CFG.ind.risco_pct         = +(_gel('cIndRisco').value)      || 2.0;
   localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
   buildMatList();
   _TI_calcular();
-}
-
-function _injectCanaletaCfgField() {
-  if (document.getElementById('cCanaleta')) return;
-  var blocosRow = document.querySelector('[for="cBlocos"]') ||
-    Array.from(document.querySelectorAll('.cfg-k')).find(function(el){ return el.textContent.indexOf('Bloco')>=0; });
-  if (!blocosRow) return;
-  var parentRow = blocosRow.closest('.cfg-row') || blocosRow.parentElement;
-  if (!parentRow) return;
-  var newRow = document.createElement('div');
-  newRow.className = 'cfg-row';
-  newRow.innerHTML = '<div><div class="cfg-k">Canaleta 14×19×39 (un.)</div>'
-    +'<div style="font-size:.6rem;color:var(--t4)">Cinta de amarração — diferente do bloco!</div></div>'
-    +'<input class="cfg-inp" id="cCanaleta" type="number" min="0" step="0.1" oninput="svCfg()" value="'+(CFG.civil.canaleta||6.5)+'">';
-  parentRow.after(newRow);
-  // Treliça
-  if (!document.getElementById('cTrelica')) {
-    var rowTr = document.createElement('div');
-    rowTr.className = 'cfg-row';
-    rowTr.innerHTML = '<div><div class="cfg-k">Treliça eletrossoldada (R$/m)</div>'
-      +'<div style="font-size:.6rem;color:var(--t4)">Alicerce + cintas + lajes</div></div>'
-      +'<input class="cfg-inp" id="cTrelica" type="number" min="0" step="1" oninput="svCfg()" value="'+(CFG.civil.trelica||22)+'">';
-    newRow.after(rowTr);
-    // Massa plástica
-    var rowMp = document.createElement('div');
-    rowMp.className = 'cfg-row';
-    rowMp.innerHTML = '<div><div class="cfg-k">Massa plástica resina+talco (R$/kg)</div>'
-      +'<div style="font-size:.6rem;color:var(--t4)">Juntas entre peças de pedra</div></div>'
-      +'<input class="cfg-inp" id="cMassaPlastica" type="number" min="0" step="1" oninput="svCfg()" value="'+(CFG.civil.massa_plastica||35)+'">';
-    rowTr.after(rowMp);
-  }
-}
-
-function _injectCfgIndCard() {
-  if (document.getElementById('cfgIndCard')) return;
-  // Find the import/export buttons div to insert before
-  var pg = document.getElementById('pg-config');
-  if (!pg) return;
-  var btnDiv = pg.querySelector('div[style*="margin-bottom:30px"]');
-  if (!btnDiv) return;
-  var card = document.createElement('div');
-  card.id = 'cfgIndCard';
-  card.className = 'card';
-  card.innerHTML = '<div class="card-head" style="background:rgba(212,148,58,.04);border-color:rgba(212,148,58,.2)">'
-    +'<span class="card-title">📊 Custos Indiretos — Bases de Cálculo</span></div>'
-    +'<div class="card-body">'
-    +'<div class="callout warn" style="font-size:.72rem;margin-bottom:12px">Valores usados no cálculo automático de cada categoria. Para projetos específicos, use o override no card do orçamento.</div>'
-    // Consumíveis
-    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:8px 0 6px">🔧 Consumíveis</div>'
-    +'<div class="cfg-row"><div class="cfg-k">Custo por m² de pedra (R$)<div style="font-size:.6rem;color:var(--t4)">Discos, brocas, cola, silicone, EPIs</div></div>'
-    +'<input class="cfg-inp" id="cIndConsumivel" type="number" min="0" step="1" oninput="svCfg()"></div>'
-    // Operacional
-    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">⚡ Operacional</div>'
-    +'<div class="cfg-row"><div class="cfg-k">Energia (% do custo direto)<div style="font-size:.6rem;color:var(--t4)">Energia elétrica + ferramental</div></div>'
-    +'<input class="cfg-inp" id="cIndEnergia" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
-    +'<div class="cfg-row"><div class="cfg-k">Combustível / frete (R$ fixo)<div style="font-size:.6rem;color:var(--t4)">Por obra</div></div>'
-    +'<input class="cfg-inp" id="cIndCombust" type="number" min="0" step="5" oninput="svCfg()"></div>'
-    +'<div class="cfg-row"><div class="cfg-k">Manutenção (% do custo direto)<div style="font-size:.6rem;color:var(--t4)">Desgaste de equipamentos</div></div>'
-    +'<input class="cfg-inp" id="cIndManut" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
-    // Perdas
-    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">📉 Perdas</div>'
-    +'<div class="cfg-row"><div class="cfg-k">Perdas (% sobre custo da pedra)<div style="font-size:.6rem;color:var(--t4)">Quebras, recortes, sobras</div></div>'
-    +'<input class="cfg-inp" id="cIndPerdas" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
-    // Risco
-    +'<div style="font-size:.65rem;font-weight:700;color:#d4943a;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px">⚠️ Risco Técnico</div>'
-    +'<div class="cfg-row"><div class="cfg-k">Risco (% do custo direto total)<div style="font-size:.6rem;color:var(--t4)">Içamento, retrabalho, garantia</div></div>'
-    +'<input class="cfg-inp" id="cIndRisco" type="number" min="0" step="0.1" oninput="svCfg()"></div>'
-    +'</div>';
-  btnDiv.before(card);
-  // Populate values
-  _gel('cIndConsumivel').value = CFG.ind.consumivel_por_m2;
-  _gel('cIndEnergia').value    = CFG.ind.energia_pct;
-  _gel('cIndCombust').value    = CFG.ind.combustivel;
-  _gel('cIndManut').value      = CFG.ind.manutencao_pct;
-  _gel('cIndPerdas').value     = CFG.ind.perdas_pct;
-  _gel('cIndRisco').value      = CFG.ind.risco_pct;
 }
 
 function buildPedrasCfg() {
@@ -1634,16 +1514,11 @@ function renderProducao() {
     hCivil += '<div class="det-line"><span class="det-k">Ferro 3/8"</span><span class="det-v">'+r.civil.barras_f38+' barras</span></div>';
     hCivil += '<div class="det-line"><span class="det-k">Ferro 5/16"</span><span class="det-v">'+r.civil.barras_f516+' barras</span></div>';
     hCivil += '<div class="det-line"><span class="det-k">Malha Q-92 (lajes)</span><span class="det-v">'+r.civil.m2_malha.toFixed(1)+' m²</span></div>';
-    hCivil += '<div class="det-line"><span class="det-k">Blocos 14×19×39 (preenchimento)</span><span class="det-v">'+r.civil.unid_blocos+' un.</span></div>';
-    if(r.civil.unid_canaletas>0) hCivil += '<div class="det-line"><span class="det-k">Canaletas 14×19×39 (cintas)</span><span class="det-v">'+r.civil.unid_canaletas+' un.</span></div>';
-    if(r.civil.m_trelica>0)    hCivil += '<div class="det-line"><span class="det-k">Treliça eletrossoldada</span><span class="det-v">'+r.civil.m_trelica+' m</span></div>';
-    if(r.civil.m2_reboco>0)    hCivil += '<div class="det-line"><span class="det-k">Reboco cimento+areia</span><span class="det-v">'+r.civil.m2_reboco+' m²</span></div>';
-    if(r.civil.sacos_argam>0)  hCivil += '<div class="det-line"><span class="det-k">Argamassa AC3 (pedra)</span><span class="det-v">'+r.civil.sacos_argam+' sacos 20kg</span></div>';
-    if(r.civil.kg_massa_plastica>0) hCivil += '<div class="det-line"><span class="det-k">Massa plástica resina+talco</span><span class="det-v">'+r.civil.kg_massa_plastica+' kg</span></div>';
+    hCivil += '<div class="det-line"><span class="det-k">Blocos 14×19×39</span><span class="det-v">'+r.civil.unid_blocos+' un.</span></div>';
     hCivil += '<div class="det-line"><span class="det-k">Argamassa de assentamento AC2/3</span><span class="det-v">'+r.civil.sacos_argam+' sacos × 20kg</span></div>';
     hCivil += '<div class="det-line"><span class="det-k">Custo civil total</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.civil.custo)+'</span></div>';
   } else {
-    hCivil += '<div class="callout" style="margin:0">Serviço <strong>'+r.ts.nm+'</strong> — estrutura civil não inclusa. Apenas argamassa de assentamento: <strong>'+r.civil.sacos_argam+' sacos AC3/III</strong>.</div>';
+    hCivil += '<div class="callout" style="margin:0">Serviço <strong>'+r.ts.nm+'</strong> — estrutura civil não inclusa. Apenas argamassa de assentamento: <strong>'+r.civil.sacos_argam+' sacos AC-II/III</strong>.</div>';
   }
   _gel('prodCivil').innerHTML = hCivil;
 
@@ -2040,18 +1915,18 @@ function _TI_getHTML() {
     + '            <option value="3">3 Compartimentos</option>\n            <option value="4">4 Compartimentos</option>\n          </select>\n          <span class="f-hint">Cada compartimento = 1 caixão + laje</span>\n        </div>\n        <div class="f">\n          <label>Disposição dos compartimentos</label>\n          <select id="mDisp" onchange="_TI_calcular()">\n            <option value="vertical">Vertical (um sobre o outro)</option>\n            <option value="horizontal">Horizontal (lado a lado)</option>\n          </select>\n          <span class="f-hint">Vertical = empilhado · Horizontal = lado a lado</span>\n        </div>\n      </div>\n      <div class="f-grid">\n        <div class="f">\n          <label>Alt. livre por compartimento (cm)</label>\n          <input id="mHcomp" type="number" step="1" min="30" max="80" value="45" oninput="_TI_calcular()">\n          <span class="f-hint">Espaço interno p/ caixão (padrão 45cm)</span>\n        </div>\n        <div class="f">\n          <label>Espessura da laje (cm)</label>\n          <input id="mHlaje" type="number" step="1" min="6" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">Laje concreto + revestimento pedra</span>\n        </div>\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Base estrutural (cm)</label>\n          <input id="mAe" type="number" step="1" min="10" max="100" value="30" oninput="_TI_calcular()">\n          <span class="f-hint">Altura da base de concreto</span>\n        </div>\n        <div class="f">\n          <label>Altura rodapé de pedra (cm)</label>\n          <input id="mAb" type="number" step="1" min="0" max="20" value="8" oninput="_TI_calcular()">\n          <span class="f-hint">0 = sem rodapé de pedra</span>\n        </div>\n        <div class="f">\n          <label>Largura da lápide (cm)</label>\n          <input id="mLapW" type="number" step="1" min="20" max="200" value="80" oninput="_TI_calcular()">\n'
     + '          <span class="f-hint">Largura — padrão 80 cm</span>\n        </div>\n        <div class="f">\n          <label>Altura da lápide (cm)</label>\n          <input id="mLapH" type="number" step="1" min="20" max="150" value="60" oninput="_TI_calcular()">\n          <span class="f-hint">Altura — padrão 60 cm</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- TAMPAS INDIVIDUAIS -->\n  <div class="card" id="cardTampas">\n    <div class="card-head">\n      <span class="card-title">④-B Tampas Superiores</span>\n      <span id="tampasSummary" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div class="card-body">\n\n      <!-- MOLDURA / REBAIXO -->\n      \n      \n      <div class="presets" id="molduraPresets"></div>\n      <div id="molduraCustomBox" style="display:none;margin-bottom:12px">\n        <div class="f-grid cols3">\n          <div class="f">\n            <label>Moldura personalizada (cm)</label>\n            <input type="number" id="tMolduraCustom" min="0" max="30" value="10"\n              oninput="SEL.tampas.molduraCustom=+this.value;atualizarTampasUI();_TI_calcular()">\n            <span class="f-hint">Desconto em cada lado</span>\n          </div>\n        </div>\n      </div>\n\n      <!-- MODO DE DIVISÃO -->\n      <div class="sep"></div>\n      \n      <div class="presets" id="gradePresets"></div>\n\n      <!-- CONFIGURAÇÃO MANUAL DE GRADE -->\n      <div id="gradeCustomBox" style="display:none;margin-bottom:0">\n        <div class="f-grid">\n          <div class="f">\n            <label>Colunas (eixo comprimento)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'colunas\',-1)">−</div>\n              <input type="number" id="tColunas" min="1" max="4" value="1"\n                oninput="SEL.tampas.colunas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n'
     + '              <div class="num-btn" onclick="adjGrade(\'colunas\',+1)">+</div>\n            </div>\n          </div>\n          <div class="f">\n            <label>Linhas (eixo largura)</label>\n            <div class="num-ctrl">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',-1)">−</div>\n              <input type="number" id="tLinhas" min="1" max="4" value="1"\n                oninput="SEL.tampas.linhas=Math.max(1,+this.value);atualizarTampasUI();_TI_calcular()">\n              <div class="num-btn" onclick="adjGrade(\'linhas\',+1)">+</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- FOLGAS -->\n      <div class="sep"></div>\n      \n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Folga entre tampas — C (cm)</label>\n          <input type="number" id="tFolgaC" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaC=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta no comprimento</span>\n        </div>\n        <div class="f">\n          <label>Folga entre tampas — L (cm)</label>\n          <input type="number" id="tFolgaL" min="0" max="5" step="0.5" value="1"\n            oninput="SEL.tampas.folgaL=+this.value;atualizarTampasUI();_TI_calcular()">\n          <span class="f-hint">Junta na largura</span>\n        </div>\n        <div class="f">\n          <label>Espessura das tampas (cm)</label>\n          <select id="tEspTampa" onchange="SEL.tampas.espTampa=+this.value;atualizarTampasUI();_TI_calcular()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n\n      <!-- ACABAMENTO + ARGOLAS -->\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Acabamento das tampas</label>\n'
-    + '          <div id="tampasAcabList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>\n        </div>\n        <div class="f">\n          <label>Argolas de içamento</label>\n          <div class="tog-row" style="border:none;padding:6px 0 0 0">\n            <div><div class="tog-lbl">Argolas de içamento — bronze</div><div class="tog-sub">R$100 cada · 2 por tampa · tampas pesadas (>60 kg)</div></div>\n            <div class="tog" id="togArgolas"\n              onclick="SEL.tampas.argolas=!SEL.tampas.argolas;this.classList.toggle(\'on\',SEL.tampas.argolas);_TI_calcular()"></div>\n          </div>\n        </div>\n      </div>\n\n      <!-- ④ PREVIEW ESQUEMÁTICO SVG -->\n      <div class="sep"></div>\n      \n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px">\n        <svg id="tampasSVG" style="width:100%;display:block;max-height:200px" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n\n      <!-- ⑤ TABELA DE PEÇAS -->\n      <div id="tampasPreviewBox" style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-top:10px">\n        \n        <div id="tampasPreviewRows"></div>\n        <div id="tampasTotais" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)"></div>\n      </div>\n\n    </div>\n  </div>\n\n  <!-- LÁPIDE ENGROSSADA -->\n  <div class="card" id="cardLapideEng" style="display:none">\n    <div class="card-head">\n      <span class="card-title">④-C Lápide Engrossada</span>\n      <span id="lapideEngBadge" class="badge badge-gold" style="display:none">Engrossada</span>\n    </div>\n    <div class="card-body">\n      \n      <div class="f-grid full" style="margin-bottom:12px">\n        <div class="f">\n          <label>Engrossamento da lápide</label>\n          <div class="presets" id="engList"></div>\n        </div>\n      </div>\n      <!-- Preview peças de encontro (aparece quando ativado) -->\n'
-    + '      <div id="encontroBox" style="display:none">\n        <div class="sep"></div>\n        \n        \n        <div id="encontroRows"></div>\n        <div class="tog-row" style="margin-top:10px">\n          <div><div class="tog-lbl">Incluir peças de encontro no orçamento</div><div class="tog-sub">Superior + 2 laterais — calculadas automaticamente</div></div>\n          <div class="tog on" id="togEncontro" onclick="SEL.lapide.pecasEncontro=!SEL.lapide.pecasEncontro;this.classList.toggle(\'on\',SEL.lapide.pecasEncontro);renderEncontroBox();_TI_calcular()"></div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- MATERIAL -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑤ Material da Pedra</span>\n      <span id="matSel" style="font-size:.72rem;color:var(--gold2)"></span>\n    </div>\n    <div class="card-body">\n      <div id="matCats" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 0 10px;margin:0 -4px 2px;"></div>\n      <div id="matList" style="display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 0 10px;"></div>\n      <div style="font-size:.65rem;color:var(--t4);margin-top:6px" id="matInfo"></div>\n    </div>\n  </div>\n\n  <!-- PEÇAS INCLUÍDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑥ Revestimento</span>\n      <span id="pecasCount" style="font-size:.65rem;color:var(--t3)"></span>\n    </div>\n    <div class="card-body">\n      <div id="pecasTogList"></div>\n    </div>\n  </div>\n\n  <!-- ACABAMENTO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑦ Acabamento das Bordas</span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="acabList"></div>\n    </div>\n  </div>\n\n  <!-- OPCIONAIS -->\n  <div class="card">\n    <div class="card-head">\n'
-    + '      <span class="card-title">⑧ Itens Opcionais</span>\n    </div>\n    <div class="card-body">\n      <div id="opcionaisList"></div>\n    </div>\n  </div>\n\n  <!-- AVANÇADO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑨ Avançado</span>\n    </div>\n    <div class="card-body">\n      <div id="avancadoList"></div>\n    </div>\n  </div>\n\n  <!-- OBSERVAÇÕES -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">⑩ Observações</span></div>\n    <div class="card-body">\n      <div class="f full">\n        <textarea id="iObs" placeholder="Detalhes especiais, instruções de instalação, pedidos do cliente..."></textarea>\n      </div>\n    </div>\n  </div>\n\n  <!-- Botão oculto: acionado por _TI_tumCalcularAuto() do app-tum-integracao.js -->\n  <button id="btnTumCalcAuto" style="display:none" onclick="calcularFinal()"></button>\n\n</div>\n\n<!-- ═══════════════════════════════ RESULTADO ═══════════════════════════════ -->\n<div id="pg-resultado" class="page">\n\n  <div id="resEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">⚰️</div>\n    <div style="font-size:.85rem">Preencha o orçamento e toque em <strong style="color:var(--gold)">Gerar Orçamento</strong></div>\n  </div>\n\n  <div id="resConteudo" style="display:none">\n\n    <!-- CABEÇALHO DO RESULTADO -->\n    <div class="card" style="background:linear-gradient(135deg,var(--bg2),rgba(201,168,76,.04))">\n      <div class="card-body">\n        <div style="font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold3);margin-bottom:5px;font-family:\'DM Mono\',monospace">Orçamento Gerado</div>\n        <div id="rCli" style="font-family:\'Cormorant Garamond\',serif;font-size:1.7rem;font-weight:700;color:var(--gold2);line-height:1.1;margin-bottom:4px"></div>\n        <div id="rMeta" style="font-size:.72rem;color:var(--t3);display:flex;gap:12px;flex-wrap:wrap"></div>\n'
-    + '      </div>\n    </div>\n\n    <!-- RESUMO NÚMEROS -->\n    <div class="res-grid" id="rGrid"></div>\n\n    <!-- DETALHAMENTO -->\n    <div class="card">\n      <div class="card-head"><span class="card-title">Detalhamento Completo</span></div>\n      <div class="card-body" id="rDetalhe"></div>\n    </div>\n\n    <!-- VALOR FINAL -->\n    <div class="total-box">\n      <div class="total-main">\n        <span class="total-lbl">À Vista (sem juros)</span>\n        <span class="total-val" id="rVista">R$ 0</span>\n      </div>\n      <div id="rParc" class="total-parc"></div>\n      <div id="rPrazo" style="font-size:.7rem;color:var(--t3);margin-top:6px"></div>\n    </div>\n\n    <!-- AÇÕES -->\n    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;margin-bottom:30px">\n      <button class="btn btn-out btn-sm" onclick="copiarWA()">📲 Copiar WhatsApp</button>\n      <button class="btn btn-out btn-sm" onclick="imprimirPDF()">🖨 Imprimir / PDF</button>\n      <button class="btn btn-gold btn-sm" onclick="salvarHistorico()">💾 Salvar</button>\n    </div>\n\n    <textarea id="txtWA" style="position:absolute;left:-9999px" readonly></textarea>\n\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ PLANTA TÉCNICA ═══════════════════════════════ -->\n<div id="pg-planta" class="page">\n\n  <!-- Resumo cards -->\n  <div id="plt-resumo" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>\n\n  <!-- Corte Frontal -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Corte Frontal — Vista em Elevação</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgCorte" style="width:100%;display:block" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Planta Baixa -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n'
-    + '    <div class="card-head"><span class="card-title">Planta Baixa — Vista Superior</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgPlanta" style="width:100%;display:block" viewBox="0 0 520 240" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Tabela de Pedras -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head">\n      <span class="card-title">Lista de Pedras — Medidas Exatas</span>\n      <span id="plt-totalPecas" style="font-size:.65rem;color:var(--t3);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div style="overflow-x:auto">\n      <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n        <thead>\n          <tr>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Peça</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Qt</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Comp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Larg.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Esp.</th>\n'
+    + '          <div id="tampasAcabList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>\n        </div>\n        <div class="f">\n          <label>Argolas de içamento</label>\n          <div class="tog-row" style="border:none;padding:6px 0 0 0">\n            <div><div class="tog-lbl">Argolas de içamento — bronze</div><div class="tog-sub">R$100 cada · 2 por tampa</div></div>\n            <div class="tog" id="togArgolas"\n              onclick="SEL.tampas.argolas=!SEL.tampas.argolas;this.classList.toggle(\'on\',SEL.tampas.argolas);_TI_calcular()"></div>\n          </div>\n        </div>\n      </div>\n\n      <!-- ④ PREVIEW ESQUEMÁTICO SVG -->\n      <div class="sep"></div>\n      \n      <div style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px">\n        <svg id="tampasSVG" style="width:100%;display:block;max-height:200px" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg"></svg>\n      </div>\n\n      <!-- ⑤ TABELA DE PEÇAS -->\n      <div id="tampasPreviewBox" style="background:var(--bg3);border:1px solid var(--bd);border-radius:10px;padding:12px;margin-top:10px">\n        \n        <div id="tampasPreviewRows"></div>\n        <div id="tampasTotais" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)"></div>\n      </div>\n\n    </div>\n  </div>\n\n  <!-- LÁPIDE ENGROSSADA -->\n  <div class="card" id="cardLapideEng" style="display:none">\n    <div class="card-head">\n      <span class="card-title">④-C Lápide Engrossada</span>\n      <span id="lapideEngBadge" class="badge badge-gold" style="display:none">Engrossada</span>\n    </div>\n    <div class="card-body">\n      \n      <div class="f-grid full" style="margin-bottom:12px">\n        <div class="f">\n          <label>Engrossamento da lápide</label>\n          <div class="presets" id="engList"></div>\n        </div>\n      </div>\n      <!-- Preview peças de encontro (aparece quando ativado) -->\n      <div id="encontroBox" style="display:none">\n'
+    + '        <div class="sep"></div>\n        \n        \n        <div id="encontroRows"></div>\n        <div class="tog-row" style="margin-top:10px">\n          <div><div class="tog-lbl">Incluir peças de encontro no orçamento</div><div class="tog-sub">Superior + 2 laterais — calculadas automaticamente</div></div>\n          <div class="tog on" id="togEncontro" onclick="SEL.lapide.pecasEncontro=!SEL.lapide.pecasEncontro;this.classList.toggle(\'on\',SEL.lapide.pecasEncontro);renderEncontroBox();_TI_calcular()"></div>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <!-- MATERIAL -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑤ Material da Pedra</span>\n      <span id="matSel" style="font-size:.72rem;color:var(--gold2)"></span>\n    </div>\n    <div class="card-body">\n      <div id="matCats" style="display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 0 10px;margin:0 -4px 2px;"></div>\n      <div id="matList" style="display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 0 10px;"></div>\n      <div style="font-size:.65rem;color:var(--t4);margin-top:6px" id="matInfo"></div>\n    </div>\n  </div>\n\n  <!-- PEÇAS INCLUÍDAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑥ Revestimento</span>\n      <span id="pecasCount" style="font-size:.65rem;color:var(--t3)"></span>\n    </div>\n    <div class="card-body">\n      <div id="pecasTogList"></div>\n    </div>\n  </div>\n\n  <!-- ACABAMENTO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑦ Acabamento das Bordas</span>\n    </div>\n    <div class="card-body">\n      <div class="presets" id="acabList"></div>\n    </div>\n  </div>\n\n  <!-- OPCIONAIS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑧ Itens Opcionais</span>\n    </div>\n'
+    + '    <div class="card-body">\n      <div id="opcionaisList"></div>\n    </div>\n  </div>\n\n  <!-- AVANÇADO -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">⑨ Avançado</span>\n    </div>\n    <div class="card-body">\n      <div id="avancadoList"></div>\n    </div>\n  </div>\n\n  <!-- OBSERVAÇÕES -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">⑩ Observações</span></div>\n    <div class="card-body">\n      <div class="f full">\n        <textarea id="iObs" placeholder="Detalhes especiais, instruções de instalação, pedidos do cliente..."></textarea>\n      </div>\n    </div>\n  </div>\n\n  <!-- Botão oculto: acionado por _TI_tumCalcularAuto() do app-tum-integracao.js -->\n  <button id="btnTumCalcAuto" style="display:none" onclick="calcularFinal()"></button>\n\n</div>\n\n<!-- ═══════════════════════════════ RESULTADO ═══════════════════════════════ -->\n<div id="pg-resultado" class="page">\n\n  <div id="resEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">⚰️</div>\n    <div style="font-size:.85rem">Preencha o orçamento e toque em <strong style="color:var(--gold)">Gerar Orçamento</strong></div>\n  </div>\n\n  <div id="resConteudo" style="display:none">\n\n    <!-- CABEÇALHO DO RESULTADO -->\n    <div class="card" style="background:linear-gradient(135deg,var(--bg2),rgba(201,168,76,.04))">\n      <div class="card-body">\n        <div style="font-size:.58rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold3);margin-bottom:5px;font-family:\'DM Mono\',monospace">Orçamento Gerado</div>\n        <div id="rCli" style="font-family:\'Cormorant Garamond\',serif;font-size:1.7rem;font-weight:700;color:var(--gold2);line-height:1.1;margin-bottom:4px"></div>\n        <div id="rMeta" style="font-size:.72rem;color:var(--t3);display:flex;gap:12px;flex-wrap:wrap"></div>\n      </div>\n    </div>\n\n    <!-- RESUMO NÚMEROS -->\n'
+    + '    <div class="res-grid" id="rGrid"></div>\n\n    <!-- DETALHAMENTO -->\n    <div class="card">\n      <div class="card-head"><span class="card-title">Detalhamento Completo</span></div>\n      <div class="card-body" id="rDetalhe"></div>\n    </div>\n\n    <!-- VALOR FINAL -->\n    <div class="total-box">\n      <div class="total-main">\n        <span class="total-lbl">À Vista (sem juros)</span>\n        <span class="total-val" id="rVista">R$ 0</span>\n      </div>\n      <div id="rParc" class="total-parc"></div>\n      <div id="rPrazo" style="font-size:.7rem;color:var(--t3);margin-top:6px"></div>\n    </div>\n\n    <!-- AÇÕES -->\n    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;margin-bottom:30px">\n      <button class="btn btn-out btn-sm" onclick="copiarWA()">📲 Copiar WhatsApp</button>\n      <button class="btn btn-out btn-sm" onclick="imprimirPDF()">🖨 Imprimir / PDF</button>\n      <button class="btn btn-gold btn-sm" onclick="salvarHistorico()">💾 Salvar</button>\n    </div>\n\n    <textarea id="txtWA" style="position:absolute;left:-9999px" readonly></textarea>\n\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ PLANTA TÉCNICA ═══════════════════════════════ -->\n<div id="pg-planta" class="page">\n\n  <!-- Resumo cards -->\n  <div id="plt-resumo" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>\n\n  <!-- Corte Frontal -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Corte Frontal — Vista em Elevação</span></div>\n    <div class="card-body" style="padding:8px">\n      <svg id="plt-svgCorte" style="width:100%;display:block" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Planta Baixa -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head"><span class="card-title">Planta Baixa — Vista Superior</span></div>\n    <div class="card-body" style="padding:8px">\n'
+    + '      <svg id="plt-svgPlanta" style="width:100%;display:block" viewBox="0 0 520 240" xmlns="http://www.w3.org/2000/svg"></svg>\n    </div>\n  </div>\n\n  <!-- Tabela de Pedras -->\n  <div class="card" style="overflow:hidden;margin-bottom:12px">\n    <div class="card-head">\n      <span class="card-title">Lista de Pedras — Medidas Exatas</span>\n      <span id="plt-totalPecas" style="font-size:.65rem;color:var(--t3);font-family:\'DM Mono\',monospace"></span>\n    </div>\n    <div style="overflow-x:auto">\n      <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n        <thead>\n          <tr>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Peça</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Qt</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Comp.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Larg.</th>\n            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Esp.</th>\n'
     + '            <th style="padding:8px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.57rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd)">Observação</th>\n          </tr>\n        </thead>\n        <tbody id="plt-tblBody"></tbody>\n      </table>\n    </div>\n  </div>\n\n  <!-- Legenda -->\n  <div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.15);border-radius:10px;padding:12px 14px;font-size:.72rem;color:var(--t2);line-height:1.8;margin-bottom:20px">\n    <strong style="color:var(--gold2)">Legenda:</strong><br>\n    <span style="color:rgba(201,168,76,.75)">▪ Hachura dourada</span> = espessura da pedra + argamassa &nbsp;\n    <span style="color:rgba(255,140,0,.75)">▪ Laranja</span> = camada de argamassa (1 cm) &nbsp;\n    <span style="color:rgba(74,122,170,.75)">▪ Azul</span> = espaço interno dos compartimentos<br>\n    Todas as medidas já descontam <strong>1 cm de argamassa por face</strong> de assentamento.\n  </div>\n\n</div>\n\n<!-- ═══════════════════════════════ PRODUÇÃO ═══════════════════════════════ -->\n<div id="pg-producao" class="page">\n  <div id="prodEmpty" style="text-align:center;padding:60px 20px;color:var(--t4)">\n    <div style="font-size:2.5rem;margin-bottom:12px">🔩</div>\n    <div style="font-size:.85rem">Gere um orçamento primeiro para ver o detalhamento de produção</div>\n  </div>\n  <div id="prodConteudo" style="display:none">\n\n    <!-- RESUMO ESTRUTURAL -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">📐 Estrutura Civil — Camadas Separadas</span></div>\n      <div class="card-body" id="prodCivil"></div>\n    </div>\n\n    <!-- LISTA REAL DE PEÇAS -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head">\n        <span class="card-title">🪨 Lista Técnica de Peças em Pedra</span>\n'
     + '        <span id="prodTotalPecas" style="font-size:.65rem;color:var(--gold2);font-family:\'DM Mono\',monospace"></span>\n      </div>\n      <div style="overflow-x:auto">\n        <table style="width:100%;border-collapse:collapse;font-size:.78rem">\n          <thead>\n            <tr style="background:var(--bg3)">\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">#</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peça</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Comp. × Larg.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Esp.</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Área m²</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Peso kg</th>\n              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">Acabamento</th>\n'
     + '              <th style="padding:9px 10px;text-align:left;color:var(--t3);font-family:\'DM Mono\',monospace;font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;font-weight:500;border-bottom:1px solid var(--bd2)">R$ Peça</th>\n            </tr>\n          </thead>\n          <tbody id="prodTblBody"></tbody>\n          <tfoot id="prodTblFoot"></tfoot>\n        </table>\n      </div>\n    </div>\n\n    <!-- MÃO DE OBRA DETALHADA -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">🔨 Composição Real da Mão de Obra</span></div>\n      <div class="card-body" id="prodMob"></div>\n    </div>\n\n    <!-- PESO DETALHADO -->\n    <div class="card" style="margin-bottom:14px">\n      <div class="card-head"><span class="card-title">⚖️ Peso por Grupo de Peças</span></div>\n      <div class="card-body" id="prodPeso"></div>\n    </div>\n\n    <!-- BOTÃO IMPRIMIR LISTA -->\n    <button class="btn btn-out btn-full" style="margin-bottom:30px" onclick="imprimirProducao()">🖨 Imprimir Lista de Produção</button>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CHAPAS ═══════════════════════════════ -->\n<div id="pg-chapas" class="page">\n  <div class="card" style="margin-bottom:14px">\n    <div class="card-head"><span class="card-title">🧩 Otimizador de Chapas — Corte Profissional</span></div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:14px;font-size:.73rem">\n        Informe a chapa disponível. O sistema distribui as peças automaticamente, calcula aproveitamento e mostra a sobra real.\n      </div>\n      <div class="f-grid cols3">\n        <div class="f">\n          <label>Comprimento da Chapa (cm)</label>\n          <input id="chapaC" type="number" value="320" min="100" max="600" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Largura da Chapa (cm)</label>\n'
     + '          <input id="chapaL" type="number" value="190" min="60" max="400" oninput="renderChapas()">\n        </div>\n        <div class="f">\n          <label>Espessura da Chapa (cm)</label>\n          <select id="chapaE" onchange="renderChapas()">\n            <option value="2">2 cm</option>\n            <option value="3" selected>3 cm</option>\n            <option value="4">4 cm</option>\n            <option value="5">5 cm</option>\n          </select>\n        </div>\n      </div>\n      <div class="f-grid" style="margin-top:4px">\n        <div class="f">\n          <label>Espessura de corte / sangria (cm)</label>\n          <input id="chapaSangria" type="number" value="0.8" step="0.1" min="0" max="3" oninput="renderChapas()">\n          <span class="f-hint">Largura perdida no disco de corte (padrão 0,8 cm)</span>\n        </div>\n        <div class="f">\n          <label>Preço da Chapa (R$/chapa)</label>\n          <input id="chapaPreco" type="number" value="0" min="0" oninput="renderChapas()">\n          <span class="f-hint">Opcional — para calcular custo por chapa</span>\n        </div>\n      </div>\n    </div>\n  </div>\n\n  <div id="chapasResultado">\n    <div style="text-align:center;padding:40px 20px;color:var(--t4)">\n      <div style="font-size:.85rem">Gere um orçamento para ver a distribuição nas chapas</div>\n    </div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ HISTÓRICO ═══════════════════════════════ -->\n<div id="pg-historico" class="page">\n  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">\n    <div style="font-size:.75rem;color:var(--t3)" id="histCount">Orçamentos salvos</div>\n    <div style="display:flex;gap:8px">\n      <button class="btn btn-out btn-sm" onclick="exportarHistorico()">⬇ Exportar</button>\n      <button class="btn btn-red btn-sm" onclick="confirmarLimpar()">🗑 Limpar</button>\n    </div>\n  </div>\n  <!-- BUSCA -->\n  <div class="f" style="margin-bottom:14px">\n'
     + '    <input id="histBusca" type="text" placeholder="Buscar por cliente, cemitério, material..." oninput="renderHistorico()">\n  </div>\n  <div id="histList"></div>\n  <div id="histEmpty" style="text-align:center;padding:60px 20px;color:var(--t4);display:none">\n    <div style="font-size:2.5rem;margin-bottom:12px">📋</div>\n    <div style="font-size:.85rem">Nenhum orçamento salvo ainda</div>\n  </div>\n</div>\n\n<!-- ═══════════════════════════════ CONFIGURAÇÕES ═══════════════════════════ -->\n<div id="pg-config" class="page">\n\n  <!-- IA -->\n  <div class="card" style="border-color:rgba(201,168,76,.25)">\n    <div class="card-head" style="background:var(--gdim)">\n      <span class="card-title">🤖 Inteligência Artificial (Groq)</span>\n    </div>\n    <div class="card-body">\n      <div class="callout info" style="margin-bottom:12px;font-size:.73rem">\n        A IA analisa fotos de túmulos e preenche o orçamento automaticamente.<br><br>\n        <strong>Como obter a chave gratuita:</strong><br>\n        1. Acesse <strong>console.groq.com</strong><br>\n        2. Clique em <strong>API Keys → Create API Key</strong><br>\n        3. Copie e cole a chave aqui — sem restrições de domínio!\n      </div>\n      <div class="f-grid full">\n        <div class="f">\n          <label>Chave API Groq</label>\n          <input id="cGroqKey" type="password" placeholder="gsk_..." oninput="svCfg()" autocomplete="off">\n          <span class="f-hint">Gratuito · Sem restrição de domínio · console.groq.com</span>\n        </div>\n      </div>\n      <div style="display:flex;gap:8px;margin-top:10px;align-items:center">\n        <button class="btn btn-out btn-sm" onclick="testarGroq()">🔍 Testar conexão</button>\n        <span id="groqTestResult" style="font-size:.72rem;color:var(--t3)"></span>\n      </div>\n    </div>\n  </div>\n\n  <!-- EMPRESA -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Empresa</span></div>\n    <div class="card-body">\n'
     + '      <div class="f-grid">\n        <div class="f"><label>Nome</label><input id="cEmpNome" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Telefone</label><input id="cEmpTel" type="tel" oninput="svCfg()"></div>\n      </div>\n      <div class="f-grid">\n        <div class="f"><label>Endereço</label><input id="cEmpEnd" type="text" oninput="svCfg()"></div>\n        <div class="f"><label>Cidade</label><input id="cEmpCid" type="text" oninput="svCfg()"></div>\n      </div>\n    </div>\n  </div>\n\n  <!-- MARGEM E PARCELAMENTO -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Preços e Margens</span></div>\n    <div class="card-body">\n      <div class="cfg-row">\n        <div><div class="cfg-k">Margem de lucro (%)</div><div style="font-size:.62rem;color:var(--t4)">Aplicada sobre custo total</div></div>\n        <input class="cfg-inp" id="cMargem" type="number" min="0" max="200" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Parcelas máx. (cartão)</div></div>\n        <input class="cfg-inp" id="cParc" type="number" min="1" max="18" oninput="svCfg()">\n      </div>\n      <div class="cfg-row">\n        <div><div class="cfg-k">Acréscimo parcelado (%)</div></div>\n        <input class="cfg-inp" id="cJuros" type="number" min="0" max="50" step="0.5" oninput="svCfg()">\n      </div>\n    </div>\n  </div>\n\n  <!-- PEDRAS -->\n  <div class="card">\n    <div class="card-head">\n      <span class="card-title">Pedras — Preço por m²</span>\n      <button class="btn btn-out btn-sm" onclick="abrirModalPedra()">+ Adicionar</button>\n    </div>\n    <div class="card-body" id="cPedrasList"></div>\n  </div>\n\n  <!-- MÃO DE OBRA BASE -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Mão de Obra — Valores/dia</span></div>\n    <div class="card-body">\n'
-    + '      <div class="cfg-row"><div class="cfg-k">Pedreiro (R$/dia)</div><input class="cfg-inp" id="cPedreiro" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ajudante (R$/dia)</div><input class="cfg-inp" id="cAjudante" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Instalação pedra (R$/dia)</div><input class="cfg-inp" id="cInstalacao" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Montagem (R$/dia)</div><input class="cfg-inp" id="cMontagem" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Transporte base (R$)</div><input class="cfg-inp" id="cTransporte" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <!-- MATERIAIS CIVIS -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Materiais Civis — Preços Ref.</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Cimento CP-II (saco 50kg)</div><input class="cfg-inp" id="cCimento" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Areia (m³)</div><input class="cfg-inp" id="cAreia" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Brita (m³)</div><input class="cfg-inp" id="cBrita" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Argamassa AC3 (saco 20kg)</div><input class="cfg-inp" id="cArgamassa" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 3/8" (barra 12m)</div><input class="cfg-inp" id="cFerro38" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 5/16" (barra 12m)</div><input class="cfg-inp" id="cFerro516" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Malha Q-92 (m²)</div><input class="cfg-inp" id="cMalha" type="number" oninput="svCfg()"></div>\n'
+    + '      <div class="cfg-row"><div class="cfg-k">Pedreiro (R$/dia)</div><input class="cfg-inp" id="cPedreiro" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ajudante (R$/dia)</div><input class="cfg-inp" id="cAjudante" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Instalação pedra (R$/dia)</div><input class="cfg-inp" id="cInstalacao" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Montagem (R$/dia)</div><input class="cfg-inp" id="cMontagem" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Transporte base (R$)</div><input class="cfg-inp" id="cTransporte" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <!-- MATERIAIS CIVIS -->\n  <div class="card">\n    <div class="card-head"><span class="card-title">Materiais Civis — Preços Ref.</span></div>\n    <div class="card-body">\n      <div class="cfg-row"><div class="cfg-k">Cimento CP-II (saco 50kg)</div><input class="cfg-inp" id="cCimento" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Areia (m³)</div><input class="cfg-inp" id="cAreia" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Brita (m³)</div><input class="cfg-inp" id="cBrita" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Argamassa AC-II (saco 20kg)</div><input class="cfg-inp" id="cArgamassa" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 3/8" (barra 12m)</div><input class="cfg-inp" id="cFerro38" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Ferro 5/16" (barra 12m)</div><input class="cfg-inp" id="cFerro516" type="number" oninput="svCfg()"></div>\n      <div class="cfg-row"><div class="cfg-k">Malha Q-92 (m²)</div><input class="cfg-inp" id="cMalha" type="number" oninput="svCfg()"></div>\n'
     + '      <div class="cfg-row"><div class="cfg-k">Blocos 14×19×39 (unid.)</div><input class="cfg-inp" id="cBlocos" type="number" oninput="svCfg()"></div>\n    </div>\n  </div>\n\n  <div style="display:flex;gap:10px;margin-bottom:30px">\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="importarCfg()">⬆ Importar</button>\n    <button class="btn btn-out btn-sm" style="flex:1;justify-content:center" onclick="exportarCfg()">⬇ Exportar</button>\n    <button class="btn btn-red btn-sm" style="flex:1;justify-content:center" onclick="resetCfg()">↺ Restaurar</button>\n  </div>\n</div>';
 }
 
@@ -2059,7 +1934,6 @@ function _TI_getHTML() {
 // ═══════════════════════════════════════════════════════
 // CAMADA DE INTEGRAÇÃO COM O ERP
 // ═══════════════════════════════════════════════════════
-var _TI_ambId = NS._TI_ambId = null;
 var _TI_cssInjected = false;
 
 // APP-TUM-INLINE.JS — Calculadora de Túmulos v14 embutida no orçamento
@@ -2211,24 +2085,8 @@ function tumInlineUnmount() {
 window.tumInlineMount   = tumInlineMount;
 
 // UI globals
-window._TI_selMat        = selMat;
-window._TI_selMatCat     = selMatCat;
-window._TI_calcular      = _TI_calcular;
 window._TI_getHTML       = _TI_getHTML;
 window._TI_getCSS        = _TI_getCSS;
-window.selTipoServ       = selTipoServ;
-window.selAcab           = selAcab;
-window.selMoldura        = selMoldura;
-window.selGrade          = selGrade;
-window.selEngrossar      = selEngrossar;
-window.aplicarPreset     = aplicarPreset;
-window.togPeca           = togPeca;
-window.togOpt            = togOpt;
-window.adjOpt            = adjOpt;
-window.adjGrade          = adjGrade;
-window.adjTampa          = adjTampa;
-window.addFalecido       = addFalecido;
-window.remFalecido       = remFalecido;
 window.validarCli        = validarCli;
 window.calcularFinal     = calcularFinal;
 window.recarregarOrcamento = recarregarOrcamento;
@@ -2240,11 +2098,6 @@ window.compartilharPDF   = compartilharPDF;
 window.imprimirProducao  = imprimirProducao;
 
 // Foto + UI injetados via DOM
-window.carregarFotoOrc   = carregarFotoOrc;
-window._tLajeToggle      = _tLajeToggle;
-window._tUsinToggle      = _tUsinToggle;
-window._setPosicao       = _setPosicao;
-window.buildPosicaoPresets = buildPosicaoPresets;
 
 // PDF routes para app-core.js
 window._TI_imprimirPDF = function(){
@@ -2326,12 +2179,7 @@ window._TI_preencherCliente = function(pend){
   _TI_calcular();
 };
 
-window.buildCustosIndiretos = buildCustosIndiretos;
-window._togInd              = _togInd;
-window._injectCfgIndCard    = _injectCfgIndCard;
-
 // renderFalecidos = buildFalecidos (alias para compatibilidade)
-window.renderFalecidos = buildFalecidos;
 
 window.SEL               = SEL;
 // ── Exports completos da API pública ─────────────────────────────────────
@@ -2357,43 +2205,11 @@ window.resetCfg          = resetCfg;
 window.svCfg             = svCfg;
 window.svCfg2            = svCfg2;
 window.testarGroq        = testarGroq;
-window.iaOnFileSelect    = iaOnFileSelect;
-window.iaAnalisar        = iaAnalisar;
-window.renderEncontroBox = renderEncontroBox;
 window.PRESETS           = PRESETS;
-window.atualizarEspessuraDaPedra            = atualizarEspessuraDaPedra;
-window.atualizarFalLabel                    = atualizarFalLabel;
-window.atualizarPreview                     = atualizarPreview;
-window.atualizarSteps                       = atualizarSteps;
-window.atualizarTampasUI                    = atualizarTampasUI;
-window.buildAcabamentos                     = buildAcabamentos;
-window.buildAvancado                        = buildAvancado;
-window.buildEngList                         = buildEngList;
-window.buildFalecidos                       = buildFalecidos;
-window._setFal                              = _setFal;
-window.buildGradePresets                    = buildGradePresets;
-window.buildMatCats                         = buildMatCats;
-window.buildMatList                         = buildMatList;
-window.buildMolduraPresets                  = buildMolduraPresets;
-window.buildOpcionais                       = buildOpcionais;
-window.buildPecas                           = buildPecas;
 window.buildPedrasCfg                       = buildPedrasCfg;
-window.buildPresets                         = buildPresets;
-window._TI_selAcabTampa = selAcabTampa;
-window.buildTampasAcab                      = buildTampasAcab;
-window.buildTipoServ                        = buildTipoServ;
-window.calcularFull                         = calcularFull;
-window.desenharTampasSVG                    = desenharTampasSVG;
-window.escHtml                              = escHtml;
 window.gerarPrintArea                       = gerarPrintArea;
 window.gerarTextoWA                         = gerarTextoWA;
-window.getDims                              = getDims;
-window.getEngCm                             = getEngCm;
-window.getMolduraCm                         = getMolduraCm;
-window.getTampasDims                        = getTampasDims;
-window.iaAplicarResultado                   = iaAplicarResultado;
 window.loadCfgUI                            = loadCfgUI;
-window.mostrarCardLapide                    = mostrarCardLapide;
 window.pltCalcAlturaTotal                   = pltCalcAlturaTotal;
 window.pltCalcPedras                        = pltCalcPedras;
 window.pltDesenharCorte                     = pltDesenharCorte;
