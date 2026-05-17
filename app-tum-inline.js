@@ -31,8 +31,8 @@ function _gel(id) {
   };
 }
 
-var CFG = NS.CFG = JSON.parse(localStorage.getItem('hr_tum_cfg') || 'null');
-var HIST = NS.HIST = JSON.parse(localStorage.getItem('hr_tum_hist') || '[]');
+var CFG = NS.CFG = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_cfg')||'null'); }catch(e){ return null; } })();
+var HIST = NS.HIST = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_hist')||'[]')||[]; }catch(e){ return []; } })();
 
 var DEF_CFG = NS.DEF_CFG = {
   emp: { nome:'HR Mármores e Granitos', tel:'(74) 99148-4460', end:'Av. Dep. Rodolfo Queiroz, 653 — Centro', cidade:'Pilão Arcado — BA' },
