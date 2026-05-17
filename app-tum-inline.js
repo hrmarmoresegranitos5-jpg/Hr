@@ -1,5 +1,6 @@
 (function() {
 'use strict';
+var _TI_ambId = null; // ID do ambiente de túmulo montado atualmente
 
 var NS = window._TUI = {};
 
