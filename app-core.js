@@ -32,80 +32,8 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
-  sv:function(){
-    var self=this;
-    // Wrapper robusto — nunca deixa a app travar por quota
-    function trySet(key,val){
-      try {
-        localStorage.setItem(key,JSON.stringify(val));
-      } catch(e) {
-        var isQuota = e.name==='QuotaExceededError'||e.code===22||e.code===1014;
-        if(!isQuota) return;
-        if(key==='hr_q' && self.q.length>1){
-          // Remove as 3 entradas mais antigas e tenta de novo
-          self.q=self.q.slice(0,Math.max(3,self.q.length-3));
-          try { localStorage.setItem(key,JSON.stringify(self.q)); } catch(e2){
-            // Último recurso: remove o tumPendOrc de todas as entradas
-            var stripped=self.q.map(function(q){var c=Object.assign({},q);delete c.tumPendOrc;return c;});
-            try { localStorage.setItem(key,JSON.stringify(stripped)); } catch(e3){}
-          }
-        }
-      }
-    }
-    trySet('hr_q',this.q);
-    trySet('hr_j',this.j);
-    trySet('hr_t',this.t);
-    trySet('hr_b',this.b);
-    if(SYNC.on)SYNC.push();
-  }
+  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));localStorage.setItem('hr_b',JSON.stringify(this.b));if(SYNC.on)SYNC.push();}
 };
-
-// ── Slim tumPendOrc para localStorage ────────────────────────────────────────
-// Remove campos de cálculo desnecessários; mantém apenas o essencial para o PDF
-function _slimTumPendOrc(pend){
-  if(!pend||!pend.r) return null;
-  var r=pend.r;
-  return {
-    cli:pend.cli, tel:pend.tel, cemi:pend.cemi, cid:pend.cid,
-    fal:pend.fal, quad:pend.quad, lote:pend.lote, obs:pend.obs,
-    num:pend.num, date:pend.date,
-    tipoServNm:pend.tipoServNm, matNm:pend.matNm, acabNm:pend.acabNm,
-    preset:pend.preset,
-    // Dados para restaurar o formulário ao editar
-    _sel:  pend._sel  || null,
-    _dims: pend._dims || null,
-    r:{
-      d:r.d, A:r.A,
-      ts:{ nm:r.ts?r.ts.nm:'' },
-      // mat: sem photo/img para não pesar
-      mat:r.mat?{id:r.mat.id,nm:r.mat.nm,pr:r.mat.pr,cat:r.mat.cat||'',fin:r.mat.fin||''}:{},
-      acab:r.acab?{nm:r.acab.nm}:{},
-      pecasCalc:r.pecasCalc,
-      m2_bruto:r.m2_bruto, m2_total:r.m2_total, perdaFinal:r.perdaFinal,
-      peso_total:r.peso_total, prazo_total:r.prazo_total,
-      custo_pedra:r.custo_pedra, custo_acabamento:r.custo_acabamento,
-      civil:{ custo:r.civil?(r.civil.custo||0):0,
-              sacos_cimento:r.civil?(r.civil.sacos_cimento||0):0,
-              m3_areia:r.civil?(r.civil.m3_areia||0):0,
-              m3_brita:r.civil?(r.civil.m3_brita||0):0,
-              sacos_argam:r.civil?(r.civil.sacos_argam||0):0,
-              barras_f38:r.civil?(r.civil.barras_f38||0):0,
-              barras_f516:r.civil?(r.civil.barras_f516||0):0,
-              m2_malha:r.civil?(r.civil.m2_malha||0):0,
-              unid_blocos:r.civil?(r.civil.unid_blocos||0):0 },
-      custo_mob:r.custo_mob, custo_extras:r.custo_extras||0, custo_total:r.custo_total,
-      dias_ped:r.dias_ped||0, dias_ajud:r.dias_ajud||0,
-      dias_inst:r.dias_inst||0, dias_mont:r.dias_mont||0,
-      frete:r.frete||0, custo_remocao:r.custo_remocao||0,
-      ml_rebaixo:r.ml_rebaixo||0, m2_laje_ved:r.m2_laje_ved||0,
-      custo_rebaixo:r.custo_rebaixo||0, venda_rebaixo:r.venda_rebaixo||0,
-      custo_laje_ved:r.custo_laje_ved||0, venda_laje_ved:r.venda_laje_ved||0,
-      valor_vista:r.valor_vista, valor_parc:r.valor_parc, parc_mensal:r.parc_mensal,
-      margem_reais:r.margem_reais,
-      nCruz:r.nCruz||0, nFotos:r.nFotos||0, nJarros:r.nJarros||0
-    }
-  };
-}
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
 // ═══ SYNC (Firebase) ═══
@@ -1120,25 +1048,10 @@ function rmAmbiente(id){
 function setAmbTipo(id,tipo){
   var amb=ambientes.find(function(a){return a.id==id;});
   if(!amb)return;
-  var oldTipo=amb.tipo;
   amb.tipo=tipo;
   amb.selCuba=null;
   amb.svState={};
   amb.acState={};
-  // Limpar pecas ao trocar tipo — evita contaminação entre tipos
-  amb.pecas=[];
-  // Limpar dados exclusivos do Túmulo inline ao sair do tipo Túmulo
-  if(oldTipo==='Túmulo'&&tipo!=='Túmulo'){
-    delete amb.tumResult;
-    delete amb.tumSEL;
-    delete amb.tumFlds;
-    delete amb.tumPendOrc;
-    delete amb.tumInlineHtml;
-  }
-  // Para ambientes não-túmulo: adicionar 1 peça inicial vazia
-  if(tipo!=='Túmulo'){
-    amb.pecas.push({id:Date.now(),desc:'',w:0,h:0,q:1});
-  }
   var gNew=SV_DEFS[tipo]||SV_DEFS.Cozinha;
   gNew.forEach(function(grp){
     if(grp.its.length>0&&grp.its[0].u==='acb_auto'){
@@ -2236,12 +2149,7 @@ function calcular(){
   var ambSnap=ambientes.map(function(a){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
-  // Para Túmulos: incluir pendOrc do módulo inline para o PDF usar os dados corretos
-  var _tumAmb = ambientes.find(function(a){ return a.tipo === 'Túmulo' && a.tumPendOrc; });
-  var _tumPend = _tumAmb ? _tumAmb.tumPendOrc : null;
-  // Usar versão slim para não exceder quota do localStorage
-  var _tumPendSlim = _tumPend ? _slimTumPendOrc(_tumPend) : null;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,tum:_tumPendSlim?true:undefined,tumPendOrc:_tumPendSlim||undefined};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
   DB.q.unshift(q);DB.sv();pendQ=q;
 }
 function selectQuote(){
@@ -2311,16 +2219,6 @@ function _copiarModal(t){
 
 function gerarPDF(){
   if(!pendQ){toast('Calcule um orçamento primeiro');return;}
-
-  // ── Se há ambiente Túmulo com dados do módulo inline, usar a impressão dele ──
-  // O módulo inline já gerou o layout no #printArea via gerarPrintArea()
-  var hasTumInline = ambientes.some(function(a){
-    return a.tipo === 'Túmulo' && a.tumPendOrc;
-  });
-  if (hasTumInline && typeof window._TI_imprimirPDF === 'function') {
-    window._TI_imprimirPDF();
-    return;
-  }
   // Load PDF libs on-demand if not already loaded
   if(typeof html2canvas==='undefined'||typeof window.jspdf==='undefined'){
     toast('Carregando bibliotecas PDF...');
@@ -3642,11 +3540,6 @@ function lastEnd(){var a=DB.j.filter(function(j){return !j.done&&j.end;}).sort(f
 // ═══════════════════════════════════════════════
 // ── GERADOR DE PDF PARA TÚMULOS ──
 function gerarPDFTumulo(q){
-  // ── Se dados vêm do módulo inline (tumPendOrc), usar impressão inline ──
-  if (q.tumPendOrc && typeof window._TI_loadAndPrint === 'function') {
-    window._TI_loadAndPrint(q.tumPendOrc);
-    return;
-  }
   if(typeof html2canvas==='undefined'||typeof window.jspdf==='undefined'){
     toast('Carregando bibliotecas PDF...');
     var s1=document.createElement('script');
@@ -3982,69 +3875,81 @@ function buildOrcList(list) {
   var el = document.getElementById('orcList');
   if(!el) return;
   if(!list.length) {
-    el.innerHTML = '<div class="orc-empty"><div class="orc-empty-icon">📋</div>' +
-      (_orcFilter ? 'Nenhum orçamento para "'+_orcFilter+'"' : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
+    el.innerHTML = '<div class="orc-empty"><div class="orc-empty-icon">📋</div>'+
+      (_orcFilter?'Nenhum resultado para "'+_orcFilter+'"':'Nenhum orçamento ainda.<br>Faça um orçamento para começar!')+'</div>';
     return;
   }
-  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
-  var h = '';
-  list.forEach(function(q,idx) {
-    var icon = tipo_icons[q.tipo]||'📦';
-    var dateStr = q.date ? fd(q.date) : '';
-    var pdsCount = (q.pds||[]).length + (q.sfPcs||[]).length;
-    h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
-    // Head
-    h += '<div class="qcard-head">';
-    h +=   '<div class="qcard-badge">'+icon+'</div>';
-    h +=   '<div class="qcard-info">';
-    h +=     '<div class="qcard-cli">'+escH(q.cli)+'</div>';
-    h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+'</div>';
-    h +=   '</div>';
-    h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
-    h +=   '<span class="qcard-chev">▼</span>';
-    h += '</div>';
-    // Body (hidden until expanded)
-    h += '<div class="qcard-body">';
-    // Pills
-    h += '<div class="qcard-pills">';
-    if(q.m2) h += '<div class="qpill gold">'+q.m2.toFixed(3)+' m²</div>';
-    if(pdsCount) h += '<div class="qpill">'+pdsCount+' peça'+(pdsCount>1?'s':'')+'</div>';
-    if(q.mat) h += '<div class="qpill">'+escH(q.mat)+'</div>';
-    if(q.tel) h += '<div class="qpill">'+escH(q.tel)+'</div>';
-    h += '</div>';
-    // Detail table
-    h += '<div class="qcard-detail">';
-    if(q.pds&&q.pds.length) {
-      q.pds.forEach(function(p){
-        h += '<div class="qdr"><span class="k">'+escH(p.desc||'Peça')+'</span><span class="v">'+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span></div>';
-      });
-    }
-    if(q.sfPcs&&q.sfPcs.length) {
-      q.sfPcs.forEach(function(p){
-        h += '<div class="qdr"><span class="k">'+escH(p.l||'Sainha/Frontão')+'</span><span class="v">'+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span></div>';
-      });
-    }
-    if(q.acN&&q.acN.length) {
-      h += '<div class="qdr"><span class="k">Serviços incluso</span><span class="v" style="font-size:.68rem;text-align:right;max-width:180px;">'+q.acN.join(', ')+'</span></div>';
-    }
-    if(q.cidade) h += '<div class="qdr"><span class="k">Cidade</span><span class="v">'+escH(q.cidade)+'</span></div>';
-    if(q.end) h += '<div class="qdr"><span class="k">Endereço</span><span class="v" style="font-size:.72rem;text-align:right;max-width:180px;">'+escH(q.end)+'</span></div>';
-    if(q.obs) h += '<div class="qdr"><span class="k">Obs.</span><span class="v grn" style="font-size:.72rem;max-width:180px;text-align:right;">'+escH(q.obs)+'</span></div>';
-    h += '</div>';
-    // Totals
-    h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
-    // Buttons
-    h += '<div class="qcard-btns">';
-    h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
-    h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
-    h += '<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
-    h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
-    h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
-    h += '</div>';
-    h += '</div>'; // qcard-body
-    h += '</div>'; // qcard
+  var IC={Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️','Túmulo':'⚰️',Outro:'📦'};
+  var MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  var now=new Date();
+  function dGrp(d){
+    if(!d)return'Sem data';
+    var p=d.split('/');if(p.length<3)return d;
+    var dt=new Date(p[2]+'-'+p[1]+'-'+p[0]);
+    var df=Math.floor((now-dt)/86400000);
+    if(df===0)return'📅 Hoje';if(df===1)return'📅 Ontem';
+    if(df<7)return'📅 Esta semana';if(df<14)return'📅 Semana passada';
+    return'📅 '+MESES[dt.getMonth()]+' '+dt.getFullYear();
+  }
+  function dFmt(d){
+    if(!d)return'';var p=d.split('/');
+    return p.length<2?d:p[0]+' '+MESES[+p[1]-1];
+  }
+  var groups={},gOrder=[];
+  list.forEach(function(q){
+    var g=dGrp(q.date);
+    if(!groups[g]){groups[g]=[];gOrder.push(g);}
+    groups[g].push(q);
   });
-  el.innerHTML = h;
+  var h='';
+  gOrder.forEach(function(grp){
+    h+='<div class="qgrp-lbl">'+grp+'</div>';
+    groups[grp].forEach(function(q){
+      var val=q.vista||0;
+      var tier=val>=15000?'gold':val>=5000?'silver':'bronze';
+      var tipos=(q.tipo||'').split('+').map(function(t){return t.trim();});
+      var icon=IC[tipos[0]]||'📦';
+      var isTum=tipos.indexOf('Túmulo')>=0;
+      var cli=escH(q.cli||'Cliente');
+      var mat=escH(q.mat||'');
+      var dt=dFmt(q.date);
+      var sub1='',sub2='';
+      if(isTum&&q.tumPendOrc){
+        if(Array.isArray(q.tumPendOrc.fal))
+          sub1=q.tumPendOrc.fal.filter(function(f){return f.nome;}).map(function(f){return f.nome;}).join(', ');
+        sub2=q.tumPendOrc.cemi||q.tumPendOrc.cid||'';
+      }else if(q.cidade){sub2=q.cidade;}
+      h+='<div class="qcard2 tier-'+tier+'" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
+      h+='<div class="qc2-head">';
+      h+='<div class="qc2-av">'+cli.charAt(0).toUpperCase()+'</div>';
+      h+='<div class="qc2-info"><div class="qc2-cli">'+cli+'</div>';
+      if(sub1)h+='<div class="qc2-sub">👤 '+escH(sub1)+'</div>';
+      if(sub2)h+='<div class="qc2-sub">'+(isTum?'⚰ ':'📍 ')+escH(sub2)+'</div>';
+      h+='</div>';
+      h+='<div class="qc2-right"><div class="tier-c-'+tier+'">R$ '+fm(val)+'</div>';
+      h+='<div class="qc2-dt">'+dt+'</div></div></div>';
+      h+='<div class="qc2-tags"><span class="qc2-tag ic">'+icon+' '+escH(tipos[0]||'')+'</span>';
+      if(mat)h+='<span class="qc2-tag">'+mat+'</span>';
+      if(q.m2&&q.m2>0)h+='<span class="qc2-tag">'+q.m2.toFixed(2)+' m²</span>';
+      h+='</div>';
+      h+='<div class="qcard-body">';
+      h+='<div class="qcard-detail">';
+      if(q.pds&&q.pds.length)q.pds.forEach(function(p){
+        h+='<div class="qdr"><span class="k">'+escH(p.desc||'Peça')+'</span><span class="v">'+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span></div>';
+      });
+      if(q.cidade)h+='<div class="qdr"><span class="k">Cidade</span><span class="v">'+escH(q.cidade)+'</span></div>';
+      if(q.obs)h+='<div class="qdr"><span class="k">Obs.</span><span class="v grn">'+escH(q.obs)+'</span></div>';
+      h+='</div>';
+      h+='<div class="qcard-total"><span class="k">À Vista</span><span class="v">R$ '+fm(val)+'</span></div>';
+      h+='<div class="qcard-btns">';
+      h+='<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
+      h+='<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
+      h+='<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
+      h+='<button class="btn btn-del" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
+      h+='</div></div></div>';
+    });
+  });
+  el.innerHTML=h;
 }
 
 function togQCard(id) {
@@ -4057,32 +3962,13 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Túmulo com módulo inline (novo): carregar usando orcRefazer + pre-preencher campos
-  if(q.tum && q.tumPendOrc){
-    orcRefazer(id, e);
-    // Após renderAmbientes montar o módulo inline, preencher os campos do cliente
-    setTimeout(function(){
-      if (typeof window._TI_preencherCliente === 'function') {
-        window._TI_preencherCliente(q.tumPendOrc);
-      }
-      // Sincronizar pedra selecionada
-      if (q.tumPendOrc.r && q.tumPendOrc.r.mat && q.tumPendOrc.r.mat.id) {
-        if (typeof window._TI_selMat === 'function') {
-          window._TI_selMat(q.tumPendOrc.r.mat.id);
-        }
-      }
-      toast('✓ Túmulo carregado — ajuste e recalcule!');
-    }, 400);
-    return;
-  }
-
-  // Túmulo antigo (módulo pg9/TUM) — tentar carregar
+  // Orçamento de túmulo — tentar carregar no módulo de túmulos (pg9)
   if(q.tum){
     var pg9 = document.getElementById('pg9');
     if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
       try{
         TUM.q = JSON.parse(JSON.stringify(q.tum));
-        if (typeof tumPatchQ === 'function') tumPatchQ();
+        if (typeof tumPatchQ === 'function') tumPatchQ(); // migra campos ausentes em orçamentos antigos
         go(9);
         setTimeout(function(){ renderTum(); },100);
         toast('✓ Túmulo carregado! Edite e recalcule.');
@@ -4090,8 +3976,8 @@ function orcEditar(id, e){
         toast('Erro ao carregar orçamento de túmulo');
       }
     } else {
-      // Tenta mesmo assim via orcRefazer
-      orcRefazer(id, e);
+      // Módulo de túmulos não disponível nesta tela
+      toast('⚠️ Para editar túmulos, acesse o módulo de Túmulos');
     }
     return;
   }
@@ -4127,7 +4013,7 @@ function orcRefazer(id, e) {
       ambientes.push({
         id:ambId,
         tipo:snap.tipo||'Cozinha',
-        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1};}),
+        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1,bordas:JSON.parse(JSON.stringify(p.bordas||{}))}}),
         selCuba:snap.selCuba||null,
         svState:JSON.parse(JSON.stringify(snap.svState||{})),
         acState:JSON.parse(JSON.stringify(snap.acState||{})),
@@ -5163,14 +5049,10 @@ function tumSimular(pedraKey, tipoKey) {
   tumInitPrecos();
   var tp     = CFG.tumPrecos;
   var preset = TUM.TIPOS[tipoKey] || TUM.TIPOS['simples'];
+  var d      = preset.dims;
+  var gav    = d.gavetas || 1;
   var pedra  = tp.pedras[pedraKey] || tp.pedras['granito_simples'];
-
-  // Dimensões: usa TUM.q.dims como base, ou defaults
-  var qd = (TUM && TUM.q && TUM.q.dims) ? TUM.q.dims : {};
-  var c   = qd.comp || 2.20;
-  var l   = qd.larg || 0.90;
-  var a   = preset.altEst || 0.70;
-  var gav = typeof preset.gavetas === 'number' ? preset.gavetas : 1;
+  var c = d.comp, l = d.larg, a = d.alt;
 
   // Área com 15% de perda
   var m2Liq   = c*l*2 + c*a*2 + l*a*2;
@@ -5179,23 +5061,23 @@ function tumSimular(pedraKey, tipoKey) {
   // Custo pedra
   var custoPedra = m2Total * pedra.preco;
 
-  // Estrutura baseada no preset (usa preset.estrutura em vez de preset.obra)
-  var te   = tp.estrutura;
-  var obra = preset.estrutura || [];
+  // Estrutura baseada no preset
+  var te = tp.estrutura;
   var custoEst = 0;
-  if (obra.indexOf('fundacao')     > -1) custoEst += te.fundacao      ? te.fundacao.preco      : 0;
-  if (obra.indexOf('paredes')      > -1) custoEst += te.alvenaria_dia ? te.alvenaria_dia.preco * 2 : 0;
-  if (obra.indexOf('concreto')     > -1) custoEst += te.concreto      ? te.concreto.preco      : 0;
-  if (gav > 1)
+  if (preset.obra.indexOf('fundacao')     > -1) custoEst += te.fundacao     ? te.fundacao.preco     : 0;
+  if (preset.obra.indexOf('levantamento') > -1) custoEst += te.alvenaria_dia ? te.alvenaria_dia.preco * 2 : 0;
+  if (preset.obra.indexOf('concreto')     > -1) custoEst += te.concreto     ? te.concreto.preco     : 0;
+  if (preset.obra.indexOf('gavetas')      > -1 && gav > 1)
     custoEst += (gav - 1) * (te.gaveta_extra ? te.gaveta_extra.preco : 650);
 
-  // MO — usa diasPedreiro / diasMarmorista do preset
-  var mo       = tp.mdo;
-  var diasPed  = preset.diasPedreiro  || 2;
-  var diasMarm = preset.diasMarmorista || 2;
-  var custoMo  = diasPed  * (mo.marmorista ? mo.marmorista.diaria : 400)
-               + diasMarm * (mo.ajudante   ? mo.ajudante.diaria   : 220);
-  custoMo += mo.instalacao ? mo.instalacao.custo : 200;
+  // MO
+  var mo = tp.mdo;
+  var diasMdo = preset.diasMdo || 2;
+  var custoMo = diasMdo * ((mo.marmorista ? mo.marmorista.diaria : 400) + (mo.ajudante ? mo.ajudante.diaria : 220));
+  if (preset.mdo.indexOf('instalacao') > -1) custoMo += mo.instalacao ? mo.instalacao.custo : 200;
+  if (preset.mdo.indexOf('acabamento') > -1) custoMo += mo.acabamento ? mo.acabamento.custo : 120;
+  if (preset.mdo.indexOf('montagem')   > -1) custoMo += mo.montagem   ? mo.montagem.custo   : 200;
+  if (preset.mdo.indexOf('transporte') > -1) custoMo += mo.transporte ? mo.transporte.custo : 100;
 
   var custoTotal = custoPedra + custoEst + custoMo;
   var vendaTotal = custoTotal * 1.40;
@@ -6540,3 +6422,23 @@ window.addEventListener('load', function _vtBoot() {
     if (e.target === modal && typeof closeAll === 'function') closeAll();
   });
 });
+
+// New qcard2 styles
+(function(){
+  var s=document.createElement('style');
+  s.textContent='.qgrp-lbl{font-size:.62rem;font-weight:700;color:var(--t3,#888);text-transform:uppercase;letter-spacing:.08em;padding:14px 2px 5px}'
+  +'.qcard2{background:var(--card-bg,#1a1a1a);border:1px solid var(--bd,#333);border-radius:14px;margin-bottom:9px;overflow:hidden;cursor:pointer;transition:border-color .2s}'
+  +'.qcard2.tier-gold{border-left:3px solid #c9a84c}.qcard2.tier-silver{border-left:3px solid #8a9bb0}.qcard2.tier-bronze{border-left:3px solid #8b6a3e}'
+  +'.qc2-head{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 8px}'
+  +'.qc2-av{width:38px;height:38px;border-radius:10px;background:rgba(201,168,76,.15);color:#c9a84c;font-size:1rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}'
+  +'.qc2-info{flex:1;min-width:0}.qc2-cli{font-size:.92rem;font-weight:700;color:var(--tx,#f0f0f0)}'
+  +'.qc2-sub{font-size:.65rem;color:var(--t3,#888);margin-top:2px}'
+  +'.qc2-right{text-align:right;flex-shrink:0}'
+  +'.tier-c-gold{color:#c9a84c;font-size:.9rem;font-weight:800}.tier-c-silver{color:#8a9bb0;font-size:.9rem;font-weight:800}.tier-c-bronze{color:#a07850;font-size:.9rem;font-weight:800}'
+  +'.qc2-dt{font-size:.62rem;color:var(--t4,#666);margin-top:2px}'
+  +'.qc2-tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 14px 10px}'
+  +'.qc2-tag{font-size:.62rem;padding:3px 8px;border-radius:20px;background:var(--bg3,#222);color:var(--t3,#888);border:1px solid var(--bd,#333)}'
+  +'.qc2-tag.ic{color:var(--t2,#aaa)}';
+  document.head.appendChild(s);
+})();
+
