@@ -1,10 +1,23 @@
 (function() {
 'use strict';
-var NS=window._TUI||{};var SEL=NS.SEL||{};var CFG=NS.CFG||{};
-var HIST=NS.HIST||[];var DEF_CFG=NS.DEF_CFG||{};var PRESETS=NS.PRESETS||[];
-var TIPOS_SERV=NS.TIPOS_SERV||[];var ACABAMENTOS=NS.ACABAMENTOS||[];
-var MOLDURA_OPCOES=NS.MOLDURA_OPCOES||[];var GRADE_OPCOES=NS.GRADE_OPCOES||[];
-var _TI_SEL_DEF=NS._TI_SEL_DEF||{};var pendOrc=null;var _TI_ambId=null;
+// ── Read shared state + functions from app-tum-inline.js ──────
+var NS            = window._TUI || {};
+var SEL           = NS.SEL           || {};
+var CFG           = NS.CFG           || {};
+var HIST          = NS.HIST          || [];
+var DEF_CFG       = NS.DEF_CFG       || {};
+var PRESETS       = NS.PRESETS       || [];
+var TIPOS_SERV    = NS.TIPOS_SERV    || [];
+var ACABAMENTOS   = NS.ACABAMENTOS   || [];
+var MOLDURA_OPCOES= NS.MOLDURA_OPCOES|| [];
+var GRADE_OPCOES  = NS.GRADE_OPCOES  || [];
+var _TI_SEL_DEF   = NS._TI_SEL_DEF   || {};
+// Functions defined in File 1, needed here
+var _gel    = function(id){ return NS._gel ? NS._gel(id) : document.getElementById(id); };
+var fv      = function(v){ return NS.fv ? NS.fv(v) : (typeof _TI_fm==='function'?_TI_fm(v):v); };
+var init    = function(){ if(NS.init) NS.init(); };
+var selMat  = function(id){ if(NS.selMat) NS.selMat(id); else if(window._TI_selMat) window._TI_selMat(id); };
+var pendOrc = NS.pendOrc = null;
 
 // ══════════════════════════════════════════════
 
@@ -2046,6 +2059,7 @@ function _TI_getHTML() {
 // ═══════════════════════════════════════════════════════
 // CAMADA DE INTEGRAÇÃO COM O ERP
 // ═══════════════════════════════════════════════════════
+var _TI_ambId = NS._TI_ambId = null;
 var _TI_cssInjected = false;
 
 // APP-TUM-INLINE.JS — Calculadora de Túmulos v14 embutida no orçamento
