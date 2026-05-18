@@ -4241,8 +4241,6 @@ function confirmarContrato(){
 }
 
 function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
-  if(e)e.stopPropagation();
-  var q=DB.q.find(function(x){return x.id==id;});
   if(!q){toast('Orçamento não encontrado');return;}
   var emp=CFG.emp;
   var hoje=new Date();
