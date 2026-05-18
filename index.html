@@ -368,14 +368,14 @@ function openApp(pg){
 
       <div>
         <div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:#60a0e0;font-weight:700;margin-bottom:7px;">Forma de Pagamento</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;" id="contrPgBtns">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;" id="contrPgBtns">
           <button class="contr-pg-btn on" data-pg="50_50" onclick="selContrPg('50_50')">50%+50%</button>
           <button class="contr-pg-btn" data-pg="30_70" onclick="selContrPg('30_70')">30%+70%</button>
           <button class="contr-pg-btn" data-pg="40_60" onclick="selContrPg('40_60')">40%+60%</button>
           <button class="contr-pg-btn" data-pg="60_40" onclick="selContrPg('60_40')">60%+40%</button>
           <button class="contr-pg-btn" data-pg="3x" onclick="selContrPg('3x')">3× iguais</button>
           <button class="contr-pg-btn" data-pg="vista" onclick="selContrPg('vista')">À vista</button>
-          <button class="contr-pg-btn" data-pg="personalizado" onclick="selContrPg('personalizado')" style="grid-column:span 3;">✏️ Personalizado</button>
+          <button class="contr-pg-btn" data-pg="personalizado" onclick="selContrPg('personalizado')" style="grid-column:1/-1;">✏️ Personalizado</button>
         </div>
         <div id="contrPgCustom" style="display:none;margin-top:8px;background:var(--s3);border-radius:10px;padding:10px;gap:8px;flex-direction:column;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
