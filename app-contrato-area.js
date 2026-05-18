@@ -317,3 +317,34 @@ function ctrSalvarEdicao(){
     if(t>60)clearInterval(iv);
   },150);
 })();
+
+// ── Auto-init: renderiza quando pg10 fica visível ──
+(function(){
+  // Tenta renderizar imediatamente se pg10 já está ativo
+  function tryRender(){
+    var pg=document.getElementById('pg10');
+    if(pg&&pg.classList.contains('on')){renderContratos();return;}
+  }
+  // MutationObserver como fallback robusto
+  var obs=new MutationObserver(function(muts){
+    muts.forEach(function(m){
+      if(m.target&&m.target.id==='pg10'&&m.target.classList.contains('on')){
+        renderContratos();
+      }
+    });
+  });
+  function startObs(){
+    var pg=document.getElementById('pg10');
+    if(pg){
+      obs.observe(pg,{attributes:true,attributeFilter:['class']});
+      tryRender();
+    } else {
+      setTimeout(startObs,300);
+    }
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',startObs);
+  } else {
+    startObs();
+  }
+})();
