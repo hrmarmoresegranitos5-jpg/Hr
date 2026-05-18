@@ -4232,10 +4232,9 @@ function confirmarContrato(){
   if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🚚',txt:'<strong>Previsão de entrega:</strong> '+de+' ('+prazo+' dias úteis)'});}
   if(obsContr)pgConds.push({icon:'📝',txt:obsContr});
   if(regFin&&entVal>0){
-    if(!DB.j)DB.j=[];
-    DB.j.push({id:Date.now(),tipo:'r',desc:'Entrada — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',val:entVal,dt:new Date().toISOString().slice(0,10),status:'pendente',qid:q.id});
-    if(entgVal>0)DB.j.push({id:Date.now()+1,tipo:'r',desc:'Entrega — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',val:entgVal,dt:dataEntrega||new Date().toISOString().slice(0,10),status:'pendente',qid:q.id});
-    DB.sv();toast('✓ Lançado nas Finanças: R$ '+fm(entVal)+' pendente');
+    addTr('in','Entrada contrato — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entVal);
+    if(entgVal>0&&pgTipo!=='vista')addTr('pend','A receber entrega — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entgVal);
+    toast('✓ Lançado nas Finanças: Entrada R$ '+fm(entVal));
   }
   _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa);
   }catch(err){console.error('confirmarContrato:',err);toast('Erro: '+err.message);}
@@ -4253,6 +4252,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   var tiposGrandes=['Cozinha','Banheiro','Lavabo','Escada','Fachada'];
   var isGrande=tiposGrandes.indexOf(tipo)>=0;
   var garantiaMeses=isGrande?12:6;
+  var temInstalacao=(q.acN||[]).some(function(a){return a.toLowerCase().indexOf('instala')>=0;});
 
   // Montar lista de peças
   var pecasHtml='';
@@ -4407,8 +4407,8 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'<div class="cond-item"><div class="cond-num">6</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
   +'</div>'
 
-  // GARANTIA
-  +'<div class="section">'
+  // GARANTIA — só exibida se houver instalação da equipe
+  +(temInstalacao ? '<div class="section">'
   +'<div class="sec-title">Garantia</div>'
   +'<div class="guarantee">'
     +'<div class="guarantee-title">✅ Garantia de '+garantiaMeses+' meses</div>'
@@ -4418,7 +4418,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
       +'<strong>Não coberto:</strong> Danos por mau uso, impactos físicos, produtos químicos inadequados, infiltrações ou problemas estruturais do imóvel.'
     +'</div>'
   +'</div>'
-  +'</div>'
+  +'</div>' : '')
 
   // ASSINATURAS
   +'<div class="section">'
@@ -4441,16 +4441,33 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},500);});<\/script>'
   +'</body></html>';
 
-  // Download como HTML
+  // Preview + Download
+  var nomeCliente=(q.cli||'cliente').replace(/\s+/g,'_').toLowerCase();
   var blob=new Blob([html],{type:'text/html;charset=utf-8'});
   var url=URL.createObjectURL(blob);
-  var a=document.createElement('a');
-  var nomeCliente=(q.cli||'cliente').replace(/\s+/g,'_').toLowerCase();
-  a.href=url;
-  a.download='Contrato_'+nomeCliente+'_HR.html';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  setTimeout(function(){URL.revokeObjectURL(url);},8000);
-  toast('📜 Contrato baixado! Abra e use Compartilhar → Imprimir para PDF');
+  // Mostrar overlay de preview antes de baixar
+  var prevOv=document.createElement('div');
+  prevOv.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;';
+  var prevBar=document.createElement('div');
+  prevBar.style.cssText='width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;gap:10px;flex-shrink:0;';
+  prevBar.innerHTML='<span style="color:#4db87a;font-weight:700;font-size:.9rem;">📜 Prévia do Contrato</span>'
+    +'<div style="display:flex;gap:8px;">'
+    +'<button id="contrPrevDownBtn" style="background:#0a1f12;border:1px solid #1a4030;border-radius:9px;padding:8px 14px;color:#4db87a;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;">⬇ Baixar</button>'
+    +'<button onclick="this.closest('div[style*=fixed]').remove();URL.revokeObjectURL(''+url+'');" style="background:var(--s3,#1a1a22);border:1px solid #333;border-radius:9px;padding:8px 12px;color:#aaa;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✕ Fechar</button>'
+    +'</div>';
+  var prevFr=document.createElement('iframe');
+  prevFr.src=url;
+  prevFr.style.cssText='flex:1;width:100%;max-width:520px;border:none;background:#fff;';
+  prevOv.appendChild(prevBar);
+  prevOv.appendChild(prevFr);
+  document.body.appendChild(prevOv);
+  document.getElementById('contrPrevDownBtn').onclick=function(){
+    var a=document.createElement('a');
+    a.href=url;a.download='Contrato_'+nomeCliente+'_HR.html';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(function(){URL.revokeObjectURL(url);},8000);
+    toast('📜 Contrato baixado!');
+  };
 }
 
 function _numPorExtenso(n){
