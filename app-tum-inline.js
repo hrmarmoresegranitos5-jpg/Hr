@@ -1635,9 +1635,9 @@ function calcularFull() {
   if(SEL.pecas.fundo){var a=Avis*CC;pecasCalc.push({nm:'Fundo / Tardoz',dim:(Avis*100).toFixed(0)+'×'+Math.round(CC*100)+'cm',m2:a,ml:0,prML:0});m2_bruto+=a;}
 
   // RODAPÉ — 4 peças ao redor da base do túmulo
-  // H_rod = d.Ab (altura do rodapé configurada no formulário)
+  // H_rod = d.Ab está em cm; converter para metros dividindo por 100
   if(SEL.pecas.rodape && d.Ab > 0) {
-    var Hr=d.Ab; // metros
+    var Hr = d.Ab / 100; // convertido de cm para metros
     var rodPcs=[
       {nm:'Rodapé Frente',   W:CC, H:Hr},
       {nm:'Rodapé Fundo',    W:CC, H:Hr},
