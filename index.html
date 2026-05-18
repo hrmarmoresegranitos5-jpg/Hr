@@ -214,6 +214,15 @@ function openApp(pg){
       <div style="height:14px;"></div>
     </div>
 
+    <!-- 10: CONTRATOS -->
+    <div class="pg" id="pg10">
+      <div class="ctr-hero">
+        <div class="htitle" style="color:#4db87a;">📜 Contratos</div>
+        <div class="hsub2">Geração e acompanhamento de contratos</div>
+      </div>
+      <div id="ctrWrap"></div>
+    </div>
+
     <!-- 3: AGENDA -->
     <div class="pg" id="pg3">
       <div class="hero"><div class="htitle">Agenda</div><div class="hsub2">Serviços e entregas</div></div>
@@ -281,6 +290,7 @@ function openApp(pg){
     <div class="ni" data-pg="1"><span class="ni-i">🪨</span><span class="ni-l">Pedras</span></div>
     <div class="ni" data-pg="2"><span class="ni-i">🚰</span><span class="ni-l">Cubas</span></div>
     <div class="ni" data-pg="7"><span class="ni-i">📋</span><span class="ni-l">Histórico</span></div>
+    <div class="ni" data-pg="10"><span class="ni-i">📜</span><span class="ni-l">Contratos</span></div>
     <div class="ni" data-pg="8"><span class="ni-i">🔩</span><span class="ni-l">Acessórios</span></div>
     <div class="ni" data-pg="3"><span class="ni-i">📅</span><span class="ni-l">Agenda</span><span class="ndot" id="urgDot"></span></div>
     <div class="ni" data-pg="4"><span class="ni-i">💵</span><span class="ni-l">Finanças</span></div>
@@ -345,6 +355,14 @@ function openApp(pg){
     <div style="background:linear-gradient(135deg,#0a1520,#0d2035);padding:16px 18px;border-bottom:1px solid #1a4070;">
       <div style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:#60a0e0;font-weight:700;">📜 Configurar Contrato</div>
       <div style="font-size:.65rem;color:rgba(96,160,224,.5);margin-top:2px;">Defina os termos antes de gerar</div>
+      <!-- Strip com info do cliente -->
+      <div class="contr-cli-strip" id="contrCliStrip">
+        <div>
+          <div class="contr-cli-nm" id="contrCliNm"></div>
+          <div class="contr-cli-tipo" id="contrCliTipo"></div>
+        </div>
+        <div class="contr-cli-val" id="contrCliVal"></div>
+      </div>
     </div>
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:13px;max-height:75vh;overflow-y:auto;">
 
@@ -433,6 +451,7 @@ function openApp(pg){
   <script src="app-tum-inline.js?v=12"></script>
   <script src="app-tum-integracao.js?v=12"></script>
   <script src="app-diagnostico.js?v=11"></script>
+  <script src="app-contrato-area.js?v=1"></script>
 <div class="ov" id="adminPinMd" style="align-items:flex-end;">
   <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
     <div style="text-align:center;margin-bottom:16px;">

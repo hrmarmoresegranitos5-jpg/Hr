@@ -217,6 +217,7 @@ function go(n){
   if(n===5)updEmp();
   if(n===6){cfgTab=0;document.querySelectorAll('.cfgtab').forEach(function(t){t.classList.toggle('on',t.dataset.cftab==='0');});buildCfg();}
   if(n===9){if(typeof renderTum==='function')renderTum();}
+  if(n===10){if(typeof renderContratos==='function')renderContratos();}
 }
 
 // ═══ DISPATCH ═══
