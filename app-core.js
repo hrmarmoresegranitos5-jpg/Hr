@@ -3522,8 +3522,12 @@ function importarDados(){
   var el=document.getElementById('cfgImport');
   var txt=el?el.value.trim():'';
   if(!txt)return;
-  try{var d=JSON.parse(txt);if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));}if(d.q)DB.q=d.q;if(d.j)DB.j=d.j;if(d.t)DB.t=d.t;DB.sv();toast('✓ Dados restaurados!');setTimeout(function(){location.reload();},800);}
-  catch(e){toast('❌ Dados inválidos');}
+  try{
+    var d=JSON.parse(txt);
+    _restaurarBackup(d);
+    toast('✓ Dados restaurados!');
+    setTimeout(function(){location.reload();},800);
+  }catch(e){toast('❌ Dados inválidos');}
 }
 
 // ═══ CONFIRM BANNER ═══
@@ -4431,8 +4435,49 @@ function _numPorExtenso(n){
 }
 
 // ═══ BACKUP ═══
+function _coletarHRdb(){
+  // Coleta todos os módulos do HRdb (hrdb_*) do localStorage
+  var hrdb={};
+  var prefix='hrdb_';
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k&&k.indexOf(prefix)===0){
+        var modKey=k.slice(prefix.length);
+        try{hrdb[modKey]=JSON.parse(localStorage.getItem(k));}catch(e){hrdb[modKey]=localStorage.getItem(k);}
+      }
+    }
+  }catch(e){}
+  return hrdb;
+}
+
+function _coletarLocalStorageExtra(){
+  // Coleta chaves extras que não entram nos grupos acima
+  var extra={};
+  var ignorar={hr_q:1,hr_j:1,hr_t:1,hr_b:1,hr_cfg:1,hr_sync_code:1,hr_sync_ts:1,hr_adm:1};
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k&&k.indexOf('hr_')===0&&!ignorar[k]&&k.indexOf('hrdb_')!==0){
+        extra[k]=localStorage.getItem(k);
+      }
+    }
+  }catch(e){}
+  return extra;
+}
+
 function baixarBackup(){
-  var dados={cfg:CFG,q:DB.q,j:DB.j,t:DB.t};
+  var dados={
+    _v:2,
+    _ts:Date.now(),
+    cfg:CFG,
+    q:DB.q,
+    j:DB.j,
+    t:DB.t,
+    b:DB.b,
+    hrdb:_coletarHRdb(),
+    extra:_coletarLocalStorageExtra()
+  };
   var json=JSON.stringify(dados);
   var dt=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
   var fname='HR_Backup_'+dt+'.json';
@@ -4455,15 +4500,37 @@ function _baixarViaLink(json,fname){
   toast('📥 Backup salvo! Verifique seus Downloads.');
 }
 
+function _restaurarBackup(d){
+  // 1. CFG
+  if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));}
+  // 2. DB legado
+  if(d.q)DB.q=d.q;
+  if(d.j)DB.j=d.j;
+  if(d.t)DB.t=d.t;
+  if(d.b)DB.b=d.b;
+  DB.sv();
+  // 3. Módulos HRdb (hrdb_*)
+  if(d.hrdb&&typeof d.hrdb==='object'){
+    var prefix='hrdb_';
+    Object.keys(d.hrdb).forEach(function(modKey){
+      try{localStorage.setItem(prefix+modKey,JSON.stringify(d.hrdb[modKey]));}catch(e){console.warn('[Backup] Falha ao restaurar hrdb_'+modKey,e);}
+    });
+  }
+  // 4. Chaves extras hr_*
+  if(d.extra&&typeof d.extra==='object'){
+    Object.keys(d.extra).forEach(function(k){
+      try{localStorage.setItem(k,d.extra[k]);}catch(e){console.warn('[Backup] Falha ao restaurar '+k,e);}
+    });
+  }
+}
+
 function carregarBackup(input){
   var file=input.files[0];if(!file)return;
   var reader=new FileReader();
   reader.onload=function(e){
     try{
       var d=JSON.parse(e.target.result);
-      if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));}
-      if(d.q)DB.q=d.q;if(d.j)DB.j=d.j;if(d.t)DB.t=d.t;
-      DB.sv();
+      _restaurarBackup(d);
       toast('✓ Backup restaurado! Recarregando...');
       setTimeout(function(){location.reload();},900);
     }catch(err){toast('❌ Arquivo inválido');}
