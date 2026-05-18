@@ -4453,7 +4453,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   prevBar.innerHTML='<span style="color:#4db87a;font-weight:700;font-size:.9rem;">📜 Prévia do Contrato</span>'
     +'<div style="display:flex;gap:8px;">'
     +'<button id="contrPrevDownBtn" style="background:#0a1f12;border:1px solid #1a4030;border-radius:9px;padding:8px 14px;color:#4db87a;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;">⬇ Baixar</button>'
-    +'<button onclick="this.closest('div[style*=fixed]').remove();URL.revokeObjectURL(''+url+'');" style="background:var(--s3,#1a1a22);border:1px solid #333;border-radius:9px;padding:8px 12px;color:#aaa;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✕ Fechar</button>'
+    +'<button id="contrPrevCloseBtn" style="background:var(--s3,#1a1a22);border:1px solid #333;border-radius:9px;padding:8px 12px;color:#aaa;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✕ Fechar</button>'
     +'</div>';
   var prevFr=document.createElement('iframe');
   prevFr.src=url;
@@ -4461,6 +4461,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   prevOv.appendChild(prevBar);
   prevOv.appendChild(prevFr);
   document.body.appendChild(prevOv);
+  document.getElementById('contrPrevCloseBtn').onclick=function(){prevOv.remove();URL.revokeObjectURL(url);};
   document.getElementById('contrPrevDownBtn').onclick=function(){
     var a=document.createElement('a');
     a.href=url;a.download='Contrato_'+nomeCliente+'_HR.html';
