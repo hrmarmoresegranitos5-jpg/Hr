@@ -4502,7 +4502,7 @@ function _baixarViaLink(json,fname){
 
 function _restaurarBackup(d){
   // 1. CFG
-  if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));}
+  if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));localStorage.setItem('hr_cfg_ver','18');}
   // 2. DB legado
   if(d.q)DB.q=d.q;
   if(d.j)DB.j=d.j;
