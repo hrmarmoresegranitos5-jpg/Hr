@@ -27,6 +27,7 @@ var CUBA_IMGS = {
 };
 
 // ═══ DB ═══
+var pendEditId=null;
 var DB={
   q:JSON.parse(localStorage.getItem('hr_q')||'[]'),
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
@@ -1031,6 +1032,7 @@ function buildMatCarouselHtml(amb){
 }
 
 function addAmbiente(){
+  pendEditId=null;
   var id=Date.now();
   // Herda pedra do último ambiente (se tiver) ou da última usada (se válida no catálogo)
   var defaultMat = null;
@@ -2156,7 +2158,19 @@ function calcular(){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
-  DB.q.unshift(q);DB.sv();pendQ=q;
+  if(pendEditId){
+    var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
+    if(eIdx>=0){
+      q.id=DB.q[eIdx].id;
+      DB.q[eIdx]=q;
+    } else {
+      DB.q.unshift(q);
+    }
+    pendEditId=null;
+  } else {
+    DB.q.unshift(q);
+  }
+  DB.sv();pendQ=q;
 }
 function selectQuote(){
   var el=document.getElementById('quoteBox');
@@ -4030,6 +4044,7 @@ function orcRefazer(id, e) {
   e.stopPropagation();
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
+  pendEditId = id;
 
   // Preencher dados do cliente
   var cliEl=document.getElementById('oCliente'); if(cliEl)cliEl.value=q.cli||'';
