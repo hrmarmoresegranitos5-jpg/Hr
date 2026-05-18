@@ -172,6 +172,9 @@ var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:15
 function initCFG(){
   var CFG_VER = 18;
   var storedVer = +localStorage.getItem('hr_cfg_ver') || 0;
+  // Se acabou de restaurar um backup, limpar o flag e pular sobrescrita de preços/dados do usuário
+  var justRestored = localStorage.getItem('hr_just_restored') === '1';
+  if(justRestored){ try{localStorage.removeItem('hr_just_restored');}catch(e){} }
 
   if(!CFG || storedVer < CFG_VER){
     if(!CFG){
@@ -218,10 +221,13 @@ function initCFG(){
   if (!CFG.ac)     CFG.ac     = JSON.parse(JSON.stringify(DEF_ACESS));
   if (!CFG.emp)    CFG.emp    = JSON.parse(JSON.stringify(DEF_EMP));
   if (!CFG.fixos)  CFG.fixos  = JSON.parse(JSON.stringify(DEF_FIXOS));
-  var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
-  Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
-  var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
-  CFG.stones.forEach(function(s){if(_pr[s.id])s.pr=_pr[s.id];});
+  // Forçar preços padrão somente se NÃO acabou de restaurar um backup do usuário
+  if(!justRestored){
+    var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
+    Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
+    var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
+    CFG.stones.forEach(function(s){if(_pr[s.id])s.pr=_pr[s.id];});
+  }
   syncSVDefsFromList();
   // Apply photos from CUBA_IMGS for any cuba without a custom photo
   CFG.coz.forEach(function(c){if(!c.photo&&CUBA_IMGS[c.id])c.photo=CUBA_IMGS[c.id];});
@@ -4522,6 +4528,8 @@ function _restaurarBackup(d){
       try{localStorage.setItem(k,d.extra[k]);}catch(e){console.warn('[Backup] Falha ao restaurar '+k,e);}
     });
   }
+  // 5. Marcar que acabou de restaurar backup — impede initCFG de sobrescrever dados do usuário
+  try{localStorage.setItem('hr_just_restored','1');}catch(e){}
 }
 
 function carregarBackup(input){
