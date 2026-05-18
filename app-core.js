@@ -171,6 +171,10 @@ var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:1
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
 function initCFG(){
+  // Re-ler hr_cfg do localStorage para não ser afetado pela declaração
+  // de var CFG no app-tum-inline.js que sobrescreve o CFG global
+  var _savedCFG = JSON.parse(localStorage.getItem('hr_cfg')||'null');
+  if(_savedCFG) CFG = _savedCFG;
   var CFG_VER = 18;
   var storedVer = +localStorage.getItem('hr_cfg_ver') || 0;
   // Se acabou de restaurar um backup, limpar o flag e pular sobrescrita de preços/dados do usuário
@@ -4545,6 +4549,8 @@ function _restaurarBackup(d){
   }
   // 5. Marcar que acabou de restaurar backup — impede initCFG de sobrescrever dados do usuário
   try{localStorage.setItem('hr_just_restored','1');}catch(e){}
+  // 6. Re-sincronizar CFG em memória para não ser sobrescrito depois
+  if(d.cfg) CFG = d.cfg;
 }
 
 function carregarBackup(input){
