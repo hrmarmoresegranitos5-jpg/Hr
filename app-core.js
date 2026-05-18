@@ -4370,9 +4370,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     +'<div class="title-num">Nº '+String(q.id).slice(-6)+'<br>'+dataSimples+'</div>'
   +'</div>'
 
-  // ALERT: prazo entrega
-  +(temInstalacao ? '<div class="alert-banner">⚠️ No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá <strong>2 dias úteis</strong> para regularizar. Não regularizado, o agendamento será remarcado conforme nosso cronograma.</div>' : '')
-
   +'<div class="body">'
 
   // PARTES
@@ -4433,6 +4430,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'<div class="cond-item"><div class="cond-num">3</div><div class="cond-text">Variações naturais de cor, veios e textura são características próprias de pedras naturais e não constituem defeito de fabricação.</div></div>'
   +(temInstalacao
     ? '<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">O cliente é responsável por garantir que o ambiente esteja completamente pronto e nivelado no dia da instalação (gabinetes, paredes, encanamentos). <strong>Caso o ambiente não esteja pronto, o cliente terá 2 (dois) dias úteis para regularizar.</strong> Não regularizado nesse prazo, o agendamento será remarcado conforme o cronograma da contratada, sem custo adicional.</div></div>'
+    +'<div class="alert-banner" style="margin:0 0 8px 0;border-radius:0 8px 8px 0;padding:10px 14px;border-left:4px solid #C9A84C;">⚠️ <strong>Atenção:</strong> No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá <strong>2 dias úteis</strong> para regularizar — não regularizado, o agendamento será remarcado conforme nosso cronograma.</div>'
     +'<div class="cond-item"><div class="cond-num">5</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
     +'<div class="cond-item"><div class="cond-num">6</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
     : '<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
