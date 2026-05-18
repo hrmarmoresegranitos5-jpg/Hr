@@ -525,6 +525,7 @@ function go(n){
   if(n===8)buildAcList();
   if(n===3)renderAg();
   if(n===4)renderFin();
+  if(n===10&&typeof renderContratos==='function')renderContratos();
   if(n===5)updEmp();
   if(n===6){cfgTab=0;document.querySelectorAll('.cfgtab').forEach(function(t){t.classList.toggle('on',t.dataset.cftab==='0');});buildCfg();}
 }
