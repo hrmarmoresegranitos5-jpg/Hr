@@ -4226,7 +4226,7 @@ function confirmarContrato(){
   if(entPct>0)pgConds.push({icon:'💰',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
   if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalação'});
   if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª:</strong> R$ '+fm(v3)+' na metade'},{icon:'💰',txt:'<strong>3ª:</strong> R$ '+fm(v3)+' na entrega'});}
-  if(parc>0){var pv=vista*(1+taxa/100)/parc;pgConds.push({icon:'💳',txt:'Parcelado em '+parc+'× de R$ '+fm(pv)+' (taxa '+taxa+'%)'});}
+  // parcelamento mostrado na price-box, não duplicar em pgConds
   pgConds.push({icon:'📅',txt:'Orçamento válido por '+valid+' dias'});
   if(dataInicio){var di=new Date(dataInicio+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🔨',txt:'<strong>Início:</strong> '+di});}
   if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🚚',txt:'<strong>Previsão de entrega:</strong> '+de+' ('+prazo+' dias úteis)'});}
@@ -4269,11 +4269,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   }).join('');
 
   // Parcelamento no cartão
-  var parcHtml='';
-  if(parc>0){
-    var pv=(q.vista||0)*(1+taxa/100)/parc;
-    parcHtml='<div class="cond-item"><div class="cond-num">💳</div><div class="cond-text">Parcelamento no cartão em '+parc+'× de R$ '+fm(pv)+' — acréscimo de '+taxa+'%</div></div>';
-  }
 
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
   +'<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -4428,7 +4423,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     +(parc>0?'<hr class="price-divider"><div class="price-row"><span class="price-label">Parcelado em até '+parc+'× no cartão (+'+taxa+'%)</span><span class="price-val gray">'+parc+'× de R$ '+fm((q.vista||0)*(1+taxa/100)/parc)+'</span></div>':'')
   +'</div>'
   +pgCondsHtml
-  +parcHtml
   +'</div>'
 
   // CONDIÇÕES GERAIS
@@ -4446,28 +4440,36 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   )
   +'</div>'
 
-  // GARANTIA
+  // GARANTIA — diferenciada: instalação = 12 meses, só fornecimento = até a entrega
+  +'<div class="section">'
+  +'<div class="sec-title">Garantia</div>'
   +(temInstalacao
-    ? '<div class="section">'
-    +'<div class="sec-title">Garantia</div>'
-    +'<div class="guarantee">'
-      +'<div class="guarantee-badge">✅ Garantia Oficial</div>'
-      +'<div class="guarantee-title">1 (um) ano de garantia contra defeitos de fabricação e instalação</div>'
-      +'<div class="guarantee-text">A <strong>'+emp.nome+'</strong> garante a qualidade dos materiais fornecidos e dos serviços executados pelo período de <strong>12 (doze) meses</strong>, a contar da data de entrega e instalação.</div>'
-      +'<div class="guarantee-grid">'
-        +'<div class="g-box">'
-          +'<div class="g-box-title green">✅ O que cobre</div>'
-          +'<p>Trincas ou quebras por má execução · Falhas no acabamento superficial · Problemas de fixação ou instalação causados pela equipe · Desnivelamento causado pela instalação</p>'
+    ? '<div class="guarantee">'
+        +'<div class="guarantee-badge">✅ Garantia Oficial</div>'
+        +'<div class="guarantee-title">12 meses para peças instaladas pela nossa equipe</div>'
+        +'<div class="guarantee-text">A <strong>'+emp.nome+'</strong> garante por <strong>12 (doze) meses</strong>, a partir da data de instalação, todas as peças instaladas pela nossa equipe, contra defeitos de fabricação e instalação.<br><br>'
+        +'<em>Peças fornecidas mas não instaladas pela contratada possuem garantia somente até o ato da entrega — após a entrega ao cliente, a responsabilidade pela integridade é do contratante.</em>'
         +'</div>'
-        +'<div class="g-box">'
-          +'<div class="g-box-title red">❌ O que não cobre</div>'
-          +'<p>Danos por mau uso ou impactos físicos · Produtos químicos abrasivos ou inadequados · Infiltrações ou problemas estruturais do imóvel · Desgaste natural da pedra</p>'
+        +'<div class="guarantee-grid">'
+          +'<div class="g-box">'
+            +'<div class="g-box-title green">✅ Peças instaladas pela HR (12 meses)</div>'
+            +'<p>Trincas por má execução · Falhas no acabamento · Problemas de fixação causados pela equipe · Desnivelamento causado na instalação</p>'
+          +'</div>'
+          +'<div class="g-box">'
+            +'<div class="g-box-title red">❌ Não cobre (qualquer peça)</div>'
+            +'<p>Danos por mau uso ou impactos · Produtos químicos inadequados · Problemas estruturais do imóvel · Desgaste natural · Peças não instaladas pela HR após entrega</p>'
+          +'</div>'
         +'</div>'
       +'</div>'
-    +'</div>'
-    +'</div>'
-    : '')
-
+    : '<div class="guarantee" style="background:linear-gradient(135deg,#fef9e7,#fffdf0);border-color:#d4ac0d;">'
+        +'<div class="guarantee-badge" style="background:#7d6608;">📦 Garantia de Fornecimento</div>'
+        +'<div class="guarantee-title" style="color:#4a3800;">Garantia válida até a entrega</div>'
+        +'<div class="guarantee-text" style="color:#5a4500;">As peças fornecidas possuem garantia de qualidade de fabricação <strong>até o momento da entrega ao cliente.</strong> Após a entrega, a responsabilidade pela integridade, transporte e instalação é do contratante.<br><br>'
+        +'A <strong>'+emp.nome+'</strong> se compromete a entregar as peças dentro das especificações acordadas, sem defeitos de fabricação, acabamento e dimensões.'
+        +'</div>'
+      +'</div>'
+  )
+  +'</div>'
   // ASSINATURAS
   +'<div class="section">'
   +'<div class="sec-title">Assinaturas</div>'

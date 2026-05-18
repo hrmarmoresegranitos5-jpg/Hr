@@ -351,7 +351,7 @@ function openApp(pg){
 
 <!-- MODAL CONTRATO -->
 <div class="ov" id="contrMd" onclick="if(event.target===this)closeAll()">
-  <div class="modal" style="max-width:500px;padding:0;overflow:hidden;">
+  <div class="modal" style="max-width:500px;padding:0;overflow:hidden;display:flex;flex-direction:column;max-height:90vh;">
     <div style="background:linear-gradient(135deg,#0a1520,#0d2035);padding:16px 18px;border-bottom:1px solid #1a4070;">
       <div style="font-family:'Cormorant Garamond',serif;font-size:1.15rem;color:#60a0e0;font-weight:700;">📜 Configurar Contrato</div>
       <div style="font-size:.65rem;color:rgba(96,160,224,.5);margin-top:2px;">Defina os termos antes de gerar</div>
@@ -436,10 +436,11 @@ function openApp(pg){
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;">
-        <button class="btn" onclick="closeAll()" style="flex:1;padding:12px;">Cancelar</button>
-        <button class="btn btn-contrato" onclick="confirmarContrato()" style="flex:2;padding:12px;font-size:.83rem;">📜 Gerar Contrato</button>
-      </div>
+    </div>
+    <!-- Botões fixos fora do scroll -->
+    <div style="padding:12px 18px;border-top:1px solid rgba(96,160,224,.15);background:var(--s1,#10101a);display:flex;gap:8px;flex-shrink:0;">
+      <button class="btn" onclick="closeAll()" style="flex:1;padding:12px;">Cancelar</button>
+      <button class="btn btn-contrato" onclick="confirmarContrato()" style="flex:2;padding:12px;font-size:.83rem;">📜 Gerar Contrato</button>
     </div>
   </div>
 </div>
