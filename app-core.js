@@ -4247,11 +4247,8 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   var dataStr=hoje.toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
   var dataSimples=hoje.toLocaleDateString('pt-BR');
 
-  // Detectar tipo de projeto para garantia
+  // Detectar instalação e tipo
   var tipo=(q.tipo||'Outro');
-  var tiposGrandes=['Cozinha','Banheiro','Lavabo','Escada','Fachada'];
-  var isGrande=tiposGrandes.indexOf(tipo)>=0;
-  var garantiaMeses=isGrande?12:6;
   var temInstalacao=(q.acN||[]).some(function(a){return a.toLowerCase().indexOf('instala')>=0;});
 
   // Montar lista de peças
@@ -4264,75 +4261,105 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   });
 
   // Serviços inclusos
-  var svHtml=(q.acN&&q.acN.length)?q.acN.map(function(s){return '<li>'+s+'</li>';}).join(''):'<li>Acabamento e instalação profissional</li>';
+  var svHtml=(q.acN&&q.acN.length)?q.acN.map(function(s){return '<li>'+s+'</li>';}).join(''):'<li>Acabamento profissional</li>';
+
+  // Condições de pagamento (dinâmico)
+  var pgCondsHtml=pgConds.map(function(c){
+    return '<div class="cond-item"><div class="cond-num">'+c.icon+'</div><div class="cond-text">'+c.txt+'</div></div>';
+  }).join('');
+
+  // Parcelamento no cartão
+  var parcHtml='';
+  if(parc>0){
+    var pv=(q.vista||0)*(1+taxa/100)/parc;
+    parcHtml='<div class="cond-item"><div class="cond-num">💳</div><div class="cond-text">Parcelamento no cartão em '+parc+'× de R$ '+fm(pv)+' — acréscimo de '+taxa+'%</div></div>';
+  }
 
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
   +'<meta name="viewport" content="width=device-width,initial-scale=1">'
   +'<title>Contrato — '+q.cli+'</title>'
   +'<style>'
+  +'@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap");'
   +'*{margin:0;padding:0;box-sizing:border-box;}'
-  +'body{font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:0;}'
-  +'.page{max-width:780px;margin:0 auto;padding:0 0 40px;}'
-  // Header
-  +'.hdr{background:#0f0c00;padding:22px 36px;display:flex;justify-content:space-between;align-items:center;}'
-  +'.hdr-logo{font-size:22px;font-weight:900;color:#C9A84C;letter-spacing:-.3px;}'
-  +'.hdr-tag{font-size:8px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.5);margin-top:3px;}'
-  +'.hdr-info{text-align:right;color:rgba(255,255,255,.7);font-size:10px;line-height:1.7;}'
-  +'.hdr-info span{color:#C9A84C;font-weight:700;}'
+  +'body{font-family:Inter,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;}'
+  +'.page{max-width:800px;margin:0 auto;}'
+  // Header premium
+  +'.hdr{background:linear-gradient(135deg,#0f0c00 0%,#1a1400 60%,#0f0c00 100%);padding:24px 40px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #C9A84C;}'
+  +'.hdr-left{display:flex;align-items:center;gap:14px;}'
+  +'.hdr-logo{font-size:20px;font-weight:900;color:#C9A84C;letter-spacing:-.3px;line-height:1.1;}'
+  +'.hdr-tag{font-size:8px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.5);margin-top:4px;}'
+  +'.hdr-info{text-align:right;color:rgba(255,255,255,.65);font-size:10px;line-height:1.8;}'
+  +'.hdr-info strong{color:#C9A84C;}'
   // Title strip
-  +'.title-strip{background:#f7f2e8;border-bottom:3px solid #C9A84C;padding:14px 36px;display:flex;justify-content:space-between;align-items:center;}'
-  +'.title-main{font-size:16px;font-weight:900;color:#3a2000;letter-spacing:-.2px;}'
-  +'.title-num{font-size:10px;color:#999;}'
+  +'.title-strip{background:#f7f2e8;border-bottom:2px solid #e8d090;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;}'
+  +'.title-main{font-size:15px;font-weight:900;color:#2a1800;letter-spacing:.3px;}'
+  +'.title-sub{font-size:9px;color:#999;letter-spacing:1px;text-transform:uppercase;margin-top:2px;}'
+  +'.title-num{text-align:right;font-size:10px;color:#888;line-height:1.7;}'
+  // Alert banner
+  +'.alert-banner{background:#FFF8E1;border-left:4px solid #C9A84C;padding:10px 40px;font-size:11px;color:#5a3e00;display:flex;align-items:center;gap:8px;}'
   // Body
-  +'.body{padding:24px 36px;}'
-  +'.section{margin-bottom:22px;}'
-  +'.sec-title{font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;}'
-  +'.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}'
-  +'.field{margin-bottom:8px;}'
-  +'.field label{display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;}'
+  +'.body{padding:28px 40px;}'
+  +'.section{margin-bottom:24px;page-break-inside:avoid;}'
+  +'.sec-title{font-size:9px;font-weight:900;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;border-bottom:1.5px solid #e8d090;padding-bottom:6px;margin-bottom:14px;}'
+  +'.row2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}'
+  +'.field{margin-bottom:10px;}'
+  +'.field label{display:block;font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:3px;}'
   +'.field span{font-size:12px;font-weight:700;color:#1a1a1a;}'
   // Table
-  +'table{width:100%;border-collapse:collapse;font-size:11px;}'
-  +'th{background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;}'
-  +'td{padding:7px 10px;border-bottom:1px solid #f0e8d8;}'
+  +'table{width:100%;border-collapse:collapse;font-size:11px;border-radius:8px;overflow:hidden;}'
+  +'th{background:#1a1400;color:#C9A84C;padding:9px 12px;text-align:left;font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;}'
+  +'td{padding:8px 12px;border-bottom:1px solid #f0e8d8;color:#1a1a1a;}'
   +'tr:last-child td{border-bottom:none;}'
   +'tr:nth-child(even) td{background:#faf5ea;}'
-  // Prices
-  +'.price-box{background:#0f0c00;border-radius:10px;padding:16px 20px;margin-bottom:16px;}'
-  +'.price-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}'
-  +'.price-label{font-size:10px;color:rgba(255,255,255,.5);letter-spacing:1px;text-transform:uppercase;}'
-  +'.price-val{font-size:14px;font-weight:900;color:#C9A84C;}'
-  +'.price-val.main{font-size:22px;}'
-  +'.price-val.gray{color:rgba(255,255,255,.4);font-size:12px;}'
-  +'.price-divider{border:none;border-top:1px solid rgba(201,168,76,.2);margin:8px 0;}'
+  // Price box
+  +'.price-box{background:linear-gradient(135deg,#0f0c00,#1e1800);border-radius:12px;padding:20px 24px;margin-bottom:14px;border:1px solid rgba(201,168,76,.2);}'
+  +'.price-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}'
+  +'.price-row:last-child{margin-bottom:0;}'
+  +'.price-label{font-size:9.5px;color:rgba(255,255,255,.5);letter-spacing:1px;text-transform:uppercase;}'
+  +'.price-val{font-size:15px;font-weight:900;color:#C9A84C;}'
+  +'.price-val.main{font-size:24px;}'
+  +'.price-val.gray{color:rgba(255,255,255,.35);font-size:12px;font-weight:600;}'
+  +'.price-divider{border:none;border-top:1px solid rgba(201,168,76,.15);margin:10px 0;}'
   // Conditions
-  +'.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}'
-  +'.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}'
-  +'.cond-text{font-size:11px;color:#333;line-height:1.5;}'
+  +'.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;padding:10px 14px;background:#faf6ef;border-left:3px solid #C9A84C;border-radius:0 8px 8px 0;}'
+  +'.cond-num{font-size:12px;font-weight:900;color:#C9A84C;min-width:20px;flex-shrink:0;}'
+  +'.cond-text{font-size:11px;color:#333;line-height:1.6;}'
   // Guarantee
-  +'.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}'
-  +'.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}'
-  +'.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}'
+  +'.guarantee{background:linear-gradient(135deg,#e8f5e8,#f0faf0);border:1.5px solid #7bc47b;border-radius:10px;padding:16px 20px;}'
+  +'.guarantee-badge{display:inline-flex;align-items:center;gap:6px;background:#2a6a2a;color:#fff;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:20px;margin-bottom:10px;}'
+  +'.guarantee-title{font-size:13px;font-weight:900;color:#1a4a1a;margin-bottom:8px;}'
+  +'.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.7;}'
+  +'.guarantee-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}'
+  +'.g-box{background:#fff;border-radius:8px;padding:10px 12px;border:1px solid #b8e0b8;}'
+  +'.g-box-title{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;}'
+  +'.g-box-title.green{color:#2a6a2a;}'
+  +'.g-box-title.red{color:#8a2a2a;}'
+  +'.g-box p{font-size:10.5px;color:#333;line-height:1.5;}'
   // Signature
-  +'.sig-area{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:40px;}'
-  +'.sig-line{border-top:1px solid #333;padding-top:8px;}'
+  +'.sig-area{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:36px;}'
+  +'.sig-line{border-top:1.5px solid #333;padding-top:10px;}'
   +'.sig-name{font-size:11px;font-weight:700;}'
   +'.sig-role{font-size:9px;color:#666;margin-top:2px;}'
-  +'.sig-date{font-size:9px;color:#999;margin-top:6px;}'
   // Footer
-  +'.foot{background:#0f0c00;padding:12px 36px;display:flex;justify-content:space-between;align-items:center;margin-top:24px;}'
+  +'.foot{background:#0f0c00;padding:14px 40px;display:flex;justify-content:space-between;align-items:center;margin-top:0;}'
   +'.foot span{font-size:9px;color:rgba(201,168,76,.4);}'
-  +'ul{padding-left:16px;}'
-  +'ul li{margin-bottom:4px;font-size:11px;color:#333;}'
-  +'@media print{body{padding:0;}.page{max-width:100%;}}'
+  +'ul{padding-left:0;list-style:none;}'
+  +'ul li{margin-bottom:5px;font-size:11px;color:#333;padding-left:14px;position:relative;}'
+  +'ul li::before{content:"▸";position:absolute;left:0;color:#C9A84C;font-size:10px;}'
+  +'@media print{body{padding:0;}.page{max-width:100%;}.alert-banner{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.guarantee{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.price-box{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
   +'</style></head><body>'
   +'<div class="page">'
 
   // HEADER
   +'<div class="hdr">'
-    +'<div><div class="hdr-logo">'+emp.nome+'</div><div class="hdr-tag">Mármores · Granitos · Quartzitos</div></div>'
+    +'<div class="hdr-left">'
+      +'<div>'
+        +'<div class="hdr-logo">'+emp.nome+'</div>'
+        +'<div class="hdr-tag">Mármores · Granitos · Quartzitos</div>'
+      +'</div>'
+    +'</div>'
     +'<div class="hdr-info">'
-      +'<span>'+emp.tel+'</span><br>'
+      +'<strong>'+emp.tel+'</strong><br>'
       +emp.end+'<br>'
       +emp.cidade+'<br>'
       +'CNPJ: '+emp.cnpj
@@ -4341,9 +4368,15 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
 
   // TITLE
   +'<div class="title-strip">'
-    +'<div class="title-main">📜 CONTRATO DE FORNECIMENTO E INSTALAÇÃO</div>'
-    +'<div class="title-num">Nº '+String(q.id).slice(-6)+' · '+dataSimples+'</div>'
+    +'<div>'
+      +'<div class="title-main">📜 CONTRATO DE FORNECIMENTO'+(temInstalacao?' E INSTALAÇÃO':'')+'</div>'
+      +'<div class="title-sub">Documento com validade jurídica entre as partes</div>'
+    +'</div>'
+    +'<div class="title-num">Nº '+String(q.id).slice(-6)+'<br>'+dataSimples+'</div>'
   +'</div>'
+
+  // ALERT: prazo entrega
+  +(temInstalacao ? '<div class="alert-banner">⚠️ No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá <strong>2 dias úteis</strong> para regularizar. Não regularizado, o agendamento será remarcado conforme nosso cronograma.</div>' : '')
 
   +'<div class="body">'
 
@@ -4355,7 +4388,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
       +'<div class="field"><label>Contratada</label><span>'+emp.nome+'</span></div>'
       +'<div class="field"><label>CNPJ</label><span>'+emp.cnpj+'</span></div>'
       +'<div class="field"><label>Endereço</label><span>'+emp.end+'</span></div>'
-      +'<div class="field"><label>Telefone</label><span>'+emp.tel+'</span></div>'
+      +'<div class="field"><label>Telefone / WhatsApp</label><span>'+emp.tel+'</span></div>'
     +'</div>'
     +'<div>'
       +'<div class="field"><label>Contratante (Cliente)</label><span>'+escH(q.cli||'')+'</span></div>'
@@ -4369,61 +4402,76 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   // OBJETO
   +'<div class="section">'
   +'<div class="sec-title">Objeto do Contrato</div>'
-  +'<div class="field" style="margin-bottom:12px;"><label>Tipo de Serviço</label><span>'+tipo+'</span></div>'
-  +'<div class="field" style="margin-bottom:12px;"><label>Material</label><span>'+(q.mat||'Granito/Mármore')+' — R$ '+(q.matPr||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²</span></div>'
-  +(pecasHtml?'<table><thead><tr><th>Nº</th><th>Descrição</th><th>Medidas</th><th>Qtd</th><th>Área</th></tr></thead><tbody>'+pecasHtml+'</tbody></table>':'')
-  +'<div style="margin-top:12px;"><div class="field"><label>Total de m²</label><span>'+fm(q.m2||0)+' m²</span></div></div>'
+  +'<div class="row2" style="margin-bottom:14px;">'
+    +'<div class="field"><label>Tipo de Serviço</label><span>'+tipo+'</span></div>'
+    +'<div class="field"><label>Material</label><span>'+(q.mat||'Pedra Natural')+' — R$ '+(q.matPr||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²</span></div>'
+  +'</div>'
+  +(pecasHtml?'<table><thead><tr><th>Nº</th><th>Descrição</th><th>Medidas</th><th>Qtd</th><th>Área (m²)</th></tr></thead><tbody>'+pecasHtml+'</tbody></table>':'')
+  +'<div style="margin-top:14px;padding:10px 14px;background:#f7f2e8;border-radius:8px;display:flex;justify-content:space-between;align-items:center;">'
+    +'<span style="font-size:11px;color:#666;">Área total fabricada</span>'
+    +'<span style="font-size:14px;font-weight:900;color:#1a1a1a;">'+fm(q.m2||0)+' m²</span>'
+  +'</div>'
   +'</div>'
 
   // SERVIÇOS
   +'<div class="section">'
   +'<div class="sec-title">Serviços Inclusos</div>'
   +'<ul>'+svHtml+'<li>Fabricação e acabamento completo</li></ul>'
-  +(q.obs?'<div style="margin-top:10px;" class="field"><label>Observações</label><span>'+escH(q.obs)+'</span></div>':'')
+  +(q.obs?'<div style="margin-top:12px;padding:10px 14px;background:#f0f4ff;border-left:3px solid #6080c0;border-radius:0 8px 8px 0;"><span style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#6080c0;font-weight:700;">Observações</span><p style="font-size:11px;color:#333;margin-top:4px;line-height:1.6;">'+escH(q.obs)+'</p></div>':'')
   +'</div>'
 
   // VALORES
   +'<div class="section">'
   +'<div class="sec-title">Valores e Pagamento</div>'
   +'<div class="price-box">'
-    +'<div class="price-row"><span class="price-label">Valor à vista (melhor preço)</span><span class="price-val main">R$ '+fm(q.vista||0)+'</span></div>'
-    +'<hr class="price-divider">'
-    +'<div class="price-row"><span class="price-label">Parcelado em até 8×</span><span class="price-val gray">R$ '+fm(q.parc||0)+' — 8× de R$ '+fm(q.p8||0)+'</span></div>'
+    +'<div class="price-row"><span class="price-label">Valor à vista</span><span class="price-val main">R$ '+fm(q.vista||0)+'</span></div>'
+    +(parc>0?'<hr class="price-divider"><div class="price-row"><span class="price-label">Parcelado em até '+parc+'× no cartão (+'+taxa+'%)</span><span class="price-val gray">'+parc+'× de R$ '+fm((q.vista||0)*(1+taxa/100)/parc)+'</span></div>':'')
   +'</div>'
-  +'<div class="cond-item"><div class="cond-num">💰</div><div class="cond-text"><strong>Entrada:</strong> 50% no ato da assinatura do contrato — R$ '+fm((q.vista||0)/2)+'</div></div>'
-  +'<div class="cond-item"><div class="cond-num">💰</div><div class="cond-text"><strong>Entrega:</strong> 50% na entrega e instalação — R$ '+fm((q.vista||0)/2)+'</div></div>'
-  +'<div class="cond-item"><div class="cond-num">📅</div><div class="cond-text">Parcelamento no cartão acarreta acréscimo de 12% sobre o valor total. Máximo 8 parcelas.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">💡</div><div class="cond-text">Orçamento com validade de 7 dias. Após este prazo, sujeito a reajuste de materiais.</div></div>'
+  +pgCondsHtml
+  +parcHtml
   +'</div>'
 
   // CONDIÇÕES GERAIS
   +'<div class="section">'
   +'<div class="sec-title">Condições Gerais</div>'
-  +'<div class="cond-item"><div class="cond-num">1</div><div class="cond-text">A <strong>'+emp.nome+'</strong> se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado verbalmente entre as partes.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">2</div><div class="cond-text">O prazo de entrega começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">3</div><div class="cond-text">Variações naturais de cor, veios e textura são características próprias de pedras naturais (granito, mármore, quartzito) e não constituem defeito de fabricação.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">O cliente é responsável por garantir o acesso ao local, bem como que a estrutura de apoio (gabinetes, paredes) esteja pronta e nivelada no dia da instalação.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">5</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
-  +'<div class="cond-item"><div class="cond-num">6</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
+  +'<div class="cond-item"><div class="cond-num">1</div><div class="cond-text">A <strong>'+emp.nome+'</strong> se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.</div></div>'
+  +'<div class="cond-item"><div class="cond-num">2</div><div class="cond-text">O prazo de produção de <strong>'+prazo+' dias úteis</strong> começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.</div></div>'
+  +'<div class="cond-item"><div class="cond-num">3</div><div class="cond-text">Variações naturais de cor, veios e textura são características próprias de pedras naturais e não constituem defeito de fabricação.</div></div>'
+  +(temInstalacao
+    ? '<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">O cliente é responsável por garantir que o ambiente esteja completamente pronto e nivelado no dia da instalação (gabinetes, paredes, encanamentos). <strong>Caso o ambiente não esteja pronto, o cliente terá 2 (dois) dias úteis para regularizar.</strong> Não regularizado nesse prazo, o agendamento será remarcado conforme o cronograma da contratada, sem custo adicional.</div></div>'
+    +'<div class="cond-item"><div class="cond-num">5</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
+    +'<div class="cond-item"><div class="cond-num">6</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
+    : '<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
+    +'<div class="cond-item"><div class="cond-num">5</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
+  )
   +'</div>'
 
-  // GARANTIA — só exibida se houver instalação da equipe
-  +(temInstalacao ? '<div class="section">'
-  +'<div class="sec-title">Garantia</div>'
-  +'<div class="guarantee">'
-    +'<div class="guarantee-title">✅ Garantia de '+garantiaMeses+' meses</div>'
-    +'<div class="guarantee-text">'
-      +'A <strong>'+emp.nome+'</strong> oferece garantia de <strong>'+garantiaMeses+' ('+_numPorExtenso(garantiaMeses)+') meses</strong> contra defeitos de fabricação e instalação, a contar da data de entrega.<br><br>'
-      +'<strong>Coberto:</strong> Trincas por má execução, falhas no acabamento, problemas de instalação causados pela contratada.<br><br>'
-      +'<strong>Não coberto:</strong> Danos por mau uso, impactos físicos, produtos químicos inadequados, infiltrações ou problemas estruturais do imóvel.'
+  // GARANTIA
+  +(temInstalacao
+    ? '<div class="section">'
+    +'<div class="sec-title">Garantia</div>'
+    +'<div class="guarantee">'
+      +'<div class="guarantee-badge">✅ Garantia Oficial</div>'
+      +'<div class="guarantee-title">1 (um) ano de garantia contra defeitos de fabricação e instalação</div>'
+      +'<div class="guarantee-text">A <strong>'+emp.nome+'</strong> garante a qualidade dos materiais fornecidos e dos serviços executados pelo período de <strong>12 (doze) meses</strong>, a contar da data de entrega e instalação.</div>'
+      +'<div class="guarantee-grid">'
+        +'<div class="g-box">'
+          +'<div class="g-box-title green">✅ O que cobre</div>'
+          +'<p>Trincas ou quebras por má execução · Falhas no acabamento superficial · Problemas de fixação ou instalação causados pela equipe · Desnivelamento causado pela instalação</p>'
+        +'</div>'
+        +'<div class="g-box">'
+          +'<div class="g-box-title red">❌ O que não cobre</div>'
+          +'<p>Danos por mau uso ou impactos físicos · Produtos químicos abrasivos ou inadequados · Infiltrações ou problemas estruturais do imóvel · Desgaste natural da pedra</p>'
+        +'</div>'
+      +'</div>'
     +'</div>'
-  +'</div>'
-  +'</div>' : '')
+    +'</div>'
+    : '')
 
   // ASSINATURAS
   +'<div class="section">'
   +'<div class="sec-title">Assinaturas</div>'
-  +'<div style="text-align:center;font-size:11px;color:#666;margin-bottom:24px;">'+q.cidade+', '+dataStr+'</div>'
+  +'<div style="text-align:center;font-size:11px;color:#666;margin-bottom:28px;">'+emp.cidade+', '+dataStr+'</div>'
   +'<div class="sig-area">'
     +'<div><div class="sig-line"><div class="sig-name">'+emp.nome+'</div><div class="sig-role">Contratada · CNPJ: '+emp.cnpj+'</div></div></div>'
     +'<div><div class="sig-line"><div class="sig-name">'+escH(q.cli||'')+'</div><div class="sig-role">Contratante · CPF: ___________________</div></div></div>'
@@ -4434,7 +4482,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
 
   +'<div class="foot">'
     +'<span>'+emp.nome+' · '+emp.cnpj+'</span>'
-    +'<span>Contrato gerado em '+dataSimples+' · HR App</span>'
+    +'<span>Contrato gerado em '+dataSimples+' via HR App</span>'
   +'</div>'
   +'</div>' // page
 
@@ -4445,7 +4493,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   var nomeCliente=(q.cli||'cliente').replace(/\s+/g,'_').toLowerCase();
   var blob=new Blob([html],{type:'text/html;charset=utf-8'});
   var url=URL.createObjectURL(blob);
-  // Mostrar overlay de preview antes de baixar
   var prevOv=document.createElement('div');
   prevOv.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;';
   var prevBar=document.createElement('div');
@@ -4470,7 +4517,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     toast('📜 Contrato baixado!');
   };
 }
-
 function _numPorExtenso(n){
   var m={6:'seis',12:'doze',3:'três',1:'um'};
   return m[n]||String(n);
