@@ -111,9 +111,8 @@ textarea{resize:none;}
 .btn-grn{background:#0a1f12;color:var(--grn);border:1px solid #1a4030;}
 .btn-red{background:#1f0a0a;color:var(--red);border:1px solid #4a1a1a;}
 .btn-contrato{background:linear-gradient(135deg,#0a1520,#0d2035);color:#60a0e0;border:1px solid #1a4070;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:600;padding:9px 13px;border-radius:10px;cursor:pointer;}
-.contr-pg-btn{background:var(--s2);border:1.5px solid var(--bd2);border-radius:10px;padding:11px 8px;color:var(--t2);font-family:Outfit,sans-serif;font-size:.72rem;font-weight:600;cursor:pointer;text-align:center;line-height:1.3;transition:all .15s;touch-action:manipulation;outline:none;min-height:42px;display:flex;align-items:center;justify-content:center;}
-.contr-pg-btn:active{transform:scale(.95);}
-.contr-pg-btn.on{background:linear-gradient(135deg,#0a1520,#0d2035);border-color:#2a5090;color:#70b0ff;font-weight:700;box-shadow:0 0 0 1px rgba(96,160,224,.15);}
+.contr-pg-btn{background:var(--s2);border:1.5px solid var(--bd2);border-radius:9px;padding:9px 6px;color:var(--t2);font-family:Outfit,sans-serif;font-size:.7rem;cursor:pointer;text-align:center;line-height:1.4;transition:all .15s;}
+.contr-pg-btn.on{background:linear-gradient(135deg,#0a1520,#0d2035);border-color:#1a4070;color:#60a0e0;font-weight:700;}
 .btn-sm{padding:6px 11px;width:auto;font-size:.7rem;border-radius:8px;}
 .row{display:flex;gap:7px;}
 .mt{margin-top:9px;}.mt6{margin-top:6px;}
@@ -158,8 +157,8 @@ textarea{resize:none;}
 .svrow{display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #0d0d10;cursor:pointer;}
 .svrow:last-of-type{border-bottom:none;}
 .svrow.on{background:linear-gradient(90deg,#130c00,#0d0800);}
-.svchk{width:20px;height:20px;border-radius:5px;border:1.5px solid var(--s5);flex-shrink:0;display:grid;place-items:center;font-size:.65rem;font-weight:900;color:transparent;transition:all .15s;}
-.svrow.on .svchk,.svchk.on{background:var(--gold);border-color:var(--gold);color:#000;}
+.svchk{width:18px;height:18px;border-radius:4px;border:1.5px solid var(--s5);flex-shrink:0;display:grid;place-items:center;font-size:.6rem;font-weight:900;color:transparent;}
+.svrow.on .svchk{background:var(--gold);border-color:var(--gold);color:#000;}
 .svlbl{font-size:.81rem;color:var(--t2);flex:1;}
 .svrow.on .svlbl{color:var(--gold2);}
 .svph{font-size:.6rem;color:var(--t4);display:block;margin-top:1px;}
@@ -2114,17 +2113,3 @@ label {
     flex-direction: column;
   }
 }
-
-/* ═══ MODAL CONTRATO — MELHORIAS ═══ */
-.contr-pg-btn{background:rgba(255,255,255,.04) !important;border:1.5px solid rgba(255,255,255,.08) !important;border-radius:10px !important;padding:11px 8px !important;color:var(--t2) !important;font-family:Outfit,sans-serif;font-size:.72rem !important;font-weight:600 !important;cursor:pointer;text-align:center;line-height:1.3;transition:all .15s;touch-action:manipulation;outline:none;min-height:44px;display:flex;align-items:center;justify-content:center;}
-.contr-pg-btn:active{transform:scale(.95) !important;opacity:.8 !important;}
-.contr-pg-btn.on{background:linear-gradient(135deg,#0d1e36,#0f2540) !important;border-color:#2a5a9a !important;color:#80b8ff !important;font-weight:700 !important;box-shadow:0 0 0 1px rgba(80,150,230,.12),0 2px 8px rgba(0,30,80,.3) !important;}
-.contr-section{background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:12px 13px;}
-.contr-section-lbl{font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:#70b0ff;font-weight:700;margin-bottom:9px;}
-.contr-field-lbl{font-size:.6rem;color:var(--t3);margin-bottom:4px;}
-.contr-fin-chk{width:22px;height:22px;border-radius:6px;border:2px solid rgba(201,168,76,.35);flex-shrink:0;display:grid;place-items:center;font-size:.7rem;font-weight:900;color:transparent;transition:all .2s;background:transparent;}
-.contr-fin-chk.on{background:var(--gold) !important;border-color:var(--gold) !important;color:#1a0e00 !important;}
-#contrFinBox{transition:all .2s;}
-#contrFinBox:active{transform:scale(.99);}
-#contrFinBox.off{background:rgba(255,255,255,.02) !important;border-color:rgba(255,255,255,.07) !important;}
-#contrFinBox.off #contrFinPreview{display:none !important;}
