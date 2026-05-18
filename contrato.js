@@ -10,6 +10,13 @@ function gerarContrato(id, e){
     _contrId=id;
     var obsEl=document.getElementById('contrObs');
     if(obsEl)obsEl.value=q.obs||'';
+    // Preenche strip do cliente no modal
+    var cliEl=document.getElementById('contrCliNm');
+    var valEl=document.getElementById('contrCliVal');
+    var tipoEl=document.getElementById('contrCliTipo');
+    if(cliEl)cliEl.textContent=q.cli||'Cliente';
+    if(valEl)valEl.textContent='R$ '+fm(q.vista||0);
+    if(tipoEl)tipoEl.textContent=(q.tipo||'')+(q.mat?' · '+q.mat:'');
     try{
       var hoje=new Date();
       var startDt=new Date(hoje);
