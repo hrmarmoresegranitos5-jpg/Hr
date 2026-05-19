@@ -2,6 +2,56 @@
 // MATERIAL, SERVIÇOS, AMBIENTES, CÁLCULO
 // ══════════════════════════════════
 
+// ═══ NOVO ORÇAMENTO ═══
+function novoOrcamento(){
+  // Confirmação para evitar perda acidental de dados
+  if(ambientes.length > 0){
+    var temDados = false;
+    try {
+      var cli = document.getElementById('oCliente')&&document.getElementById('oCliente').value.trim();
+      if(cli) temDados = true;
+      if(!temDados) ambientes.forEach(function(a){
+        (a.pecas||[]).forEach(function(p){ if(p.w||p.h||p.desc) temDados=true; });
+      });
+    } catch(e){}
+    if(temDados && !confirm('Deseja realmente iniciar um novo orçamento?\n\nO orçamento atual será apagado.\n\nSe quiser salvá-lo antes, cancele e clique em "Calcular Orçamento".')){
+      return;
+    }
+  }
+
+  // Limpa campos do cliente
+  ['oCliente','oTel','oCidade','oEnd','oObs'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+
+  // Reseta ambientes para um único ambiente limpo
+  var savedMat = null;
+  try { savedMat = localStorage.getItem('hr_last_mat'); } catch(e){}
+  var defaultMat = savedMat || selMat || null;
+  ambientes = [{
+    id: Date.now(),
+    tipo: 'Cozinha',
+    pecas: [{id: Date.now()+1, desc:'', w:0, h:0, q:1}],
+    selCuba: null,
+    svState: {},
+    acState: {},
+    selMat: defaultMat
+  }];
+
+  // Esconde área de resultado se estiver visível
+  var resArea = document.getElementById('resArea');
+  if(resArea) resArea.style.display = 'none';
+
+  renderAmbientes();
+
+  // Volta ao topo da página
+  var pg = document.getElementById('pg0');
+  if(pg) pg.scrollTop = 0;
+
+  toast('✦ Novo orçamento pronto!');
+}
+
 // ═══ PHOTO PICKER ═══
 function pickPhoto(target,idx){fileTarget={t:target,i:idx};document.getElementById('fileInp').click();}
 function onFile(e){

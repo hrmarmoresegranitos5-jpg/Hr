@@ -135,7 +135,15 @@ function openApp(pg){
   <div id="pages">
     <!-- 0: ORÇAMENTO -->
     <div class="pg on" id="pg0">
-      <div class="hero"><div class="htitle">Orçamento</div><div class="hsub2">Calcule e gere o texto profissional</div></div>
+      <div class="hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div>
+          <div class="htitle">Orçamento</div>
+          <div class="hsub2">Calcule e gere o texto profissional</div>
+        </div>
+        <button id="btnNovoOrc" onclick="novoOrcamento()" title="Limpar tudo e começar novo orçamento" style="flex-shrink:0;display:flex;align-items:center;gap:6px;background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.45);border-radius:12px;padding:9px 14px;font-size:.72rem;font-family:Outfit,sans-serif;font-weight:600;letter-spacing:.5px;color:var(--gold);cursor:pointer;transition:background .2s,border-color .2s;white-space:nowrap;">
+          ✦ Novo
+        </button>
+      </div>
       <div class="cbwrap" id="cbWrap"><div class="cbq" id="cbQ"></div><div class="cbs"><button class="cby" id="cbY">Sim</button><button class="cbn" id="cbN">Não agora</button></div></div>
       <div class="sec">
         <div class="sl">Dados do Cliente</div>
