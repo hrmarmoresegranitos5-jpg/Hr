@@ -240,15 +240,22 @@ function openApp(pg){
         <div class="finval pos" id="finSaldo">R$ 0,00</div>
         <div class="finsub" id="finSub">Nenhuma movimentação</div>
       </div>
-      <div class="fingrid" id="finCards"></div>
-      <div class="qagrid">
-        <div class="qa" data-qa="in"><div class="qaI in">📈</div><div><div class="qanm">Entrada</div><div class="qasub">Valor recebido</div></div></div>
-        <div class="qa" data-qa="out"><div class="qaI out">📉</div><div><div class="qanm">Gasto</div><div class="qasub">Despesa</div></div></div>
-        <div class="qa" data-qa="note"><div class="qaI note">📝</div><div><div class="qanm">Nota</div><div class="qasub">Anotação</div></div></div>
-        <div class="qa" data-qa="pend"><div class="qaI pend">⏳</div><div><div class="qanm">A Receber</div><div class="qasub">Pendente</div></div></div>
+      <div class="fingrid" id="finMiniCards"></div>
+      <!-- Abas -->
+      <div class="fin-tabs">
+        <div class="fin-tab on" data-ftab="resumo">📊 Resumo</div>
+        <div class="fin-tab" data-ftab="recebidos">✅ Recebidos</div>
+        <div class="fin-tab" data-ftab="areceber">⏳ A Receber</div>
+        <div class="fin-tab" data-ftab="despesas">📉 Despesas</div>
+        <div class="fin-tab" data-ftab="caixa">🏦 Caixa</div>
       </div>
-      <div class="sec mt"><div class="sl">Movimentações</div><div class="card" style="padding:0 13px;" id="trList"></div></div>
-      <div class="sec mt" style="padding-bottom:18px;"><div class="sl">Custos Fixos</div><div class="card" id="fixosCard"></div></div>
+      <!-- Corpo dinâmico das abas -->
+      <div style="padding:0 14px 6px;" id="finBody"></div>
+      <!-- Custos fixos sempre visíveis -->
+      <div style="padding:0 14px 24px;">
+        <div class="sl" style="margin:10px 0 6px;">Custos Fixos</div>
+        <div class="card" id="fixosCard"></div>
+      </div>
     </div>
 
     <!-- 5: EMPRESA -->
@@ -448,6 +455,7 @@ function openApp(pg){
 <div class="toast" id="toast"></div>
 
   <script src="app-core.js?v=14"></script>
+  <script src="app-financas.js?v=2"></script>
   <script src="app-tum-template.js?v=12"></script>
   <script src="app-tum-inline.js?v=12"></script>
   <script src="app-tum-integracao.js?v=12"></script>
