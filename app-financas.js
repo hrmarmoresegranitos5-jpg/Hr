@@ -132,8 +132,19 @@ function renderFin() {
   var fsub = document.getElementById('finSub');
   if (fsub) {
     fsub.textContent = totalPendente > 0
-      ? 'R$ ' + fm(totalPendente) + ' a receber · ' + (atrasados.length ? atrasados.length + ' em atraso' : 'sem atrasos')
-      : 'Sem pendências';
+      ? 'R$ ' + fm(totalPendente) + ' a receber' + (atrasados.length ? ' · ⚠️ ' + atrasados.length + ' em atraso' : '')
+      : 'R$ 0,00 a receber dos serviços';
+  }
+  // Mini-cards no hero (Entradas / Saídas / A Receber)
+  var fmc = document.getElementById('finMiniCards');
+  if (fmc) {
+    fmc.innerHTML = ''
+      + '<div class="fc"><div class="fcl">Entradas</div><div class="fcv g">R$ ' + fm(totalRecebido) + '</div></div>'
+      + '<div class="fc"><div class="fcl">Saídas</div><div class="fcv r">R$ ' + fm(totalDespesas) + '</div></div>'
+      + '<div class="fc" style="cursor:pointer;" onclick="finTab(\'areceber\')">'
+        + '<div class="fcl">A Receber</div>'
+        + '<div class="fcv b">R$ ' + fm(totalPendente) + '</div>'
+      + '</div>';
   }
 
   window._finMetrics = {
