@@ -1864,6 +1864,76 @@ function setUrgPct(pct) {
   if (hint) hint.textContent = _urgHints[pct] || '+' + pct + '% sobre o valor';
 }
 
+// ── Texto de preços para quoteBox ──
+function _buildPriceText(q) {
+  var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
+  return urg
+    + 'PARCELADO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(total parcelado: R$ ' + fm(q.parc) + ')\n\n'
+    + 'À VISTA\nR$ ' + fm(q.vista) + '\n\n'
+    + 'Entrada 50%: R$ ' + fm(q.ent) + '\n'
+    + 'Entrega 50%: R$ ' + fm(q.ent) + '\n';
+}
+
+// ── Ajuste do valor à vista ──
+window._vistaAdjMode = 'none';
+function setVistaMode(mode) {
+  window._vistaAdjMode = mode;
+  document.querySelectorAll('[data-vmode]').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.vmode === mode);
+  });
+  document.getElementById('vistaAdjPct').style.display   = mode === 'pct'   ? 'block' : 'none';
+  document.getElementById('vistaAdjFixed').style.display = mode === 'fixed' ? 'block' : 'none';
+  if (mode === 'none' && pendQ && pendQ._vistaCalc) {
+    pendQ.vista = pendQ._vistaCalc;
+    pendQ.ent   = Math.round(pendQ.vista / 2 * 100) / 100;
+    pendQ.parc  = Math.round(pendQ.vista * 1.15 * 100) / 100;
+    pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
+    _applyVistaToUI();
+    var res = document.getElementById('vistaAdjResult');
+    if (res) res.style.display = 'none';
+  }
+}
+function aplicarVistaAdj() {
+  if (!pendQ) return;
+  var base = pendQ._vistaCalc || pendQ.vista;
+  var newVista;
+  var mode = window._vistaAdjMode;
+  if (mode === 'pct') {
+    var pct = parseFloat(document.getElementById('vistaDiscPct').value) || 0;
+    if (pct < 0 || pct > 60) { toast('Desconto entre 0 e 60%'); return; }
+    newVista = Math.round(base * (1 - pct / 100) * 100) / 100;
+  } else if (mode === 'fixed') {
+    newVista = parseFloat(document.getElementById('vistaDiscFixed').value) || 0;
+    if (newVista <= 0) { toast('Informe um valor válido'); return; }
+    newVista = Math.round(newVista * 100) / 100;
+  } else return;
+  pendQ.vista = newVista;
+  pendQ.ent   = Math.round(newVista / 2 * 100) / 100;
+  pendQ.parc  = Math.round(newVista * 1.15 * 100) / 100;
+  pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
+  _applyVistaToUI();
+  var res = document.getElementById('vistaAdjResult');
+  var fin = document.getElementById('vistaFinalShow');
+  if (res) res.style.display = 'block';
+  if (fin) fin.textContent = 'R$ ' + fm(newVista) + (mode === 'pct' ? '  (-' + parseFloat(document.getElementById('vistaDiscPct').value) + '%)' : '');
+  toast('✓ À vista ajustado: R$ ' + fm(newVista));
+}
+function _applyVistaToUI() {
+  if (!pendQ) return;
+  var rdV = document.getElementById('rdVistaVal');
+  var rdP = document.getElementById('rdParc');
+  if (rdV) rdV.textContent = 'R$ ' + fm(pendQ.vista);
+  if (rdP) { var rv = rdP.querySelector('.rv'); if (rv) rv.textContent = '8× R$ ' + fm(pendQ.p8) + ' (total R$ ' + fm(pendQ.parc) + ')'; }
+  var piV = document.getElementById('piVista');
+  var piM = document.getElementById('piMargem');
+  if (piV) piV.textContent = 'R$ ' + fm(pendQ.vista);
+  if (piM) piM.textContent = 'R$ ' + fm(pendQ.vista - (pendQ._custoPainel || 0));
+  var qb = document.getElementById('quoteBox');
+  if (qb && pendQ._txtPre) {
+    qb.textContent = pendQ._txtPre + _buildPriceText(pendQ) + pendQ._txtFooter;
+  }
+}
+
 function calcular(){
   // Acionar motor do túmulo em todos os ambientes tipo Túmulo antes de calcular
   ambientes.forEach(function(a){
@@ -2093,13 +2163,13 @@ function calcular(){
       + '<span class="rv" style="color:#ff9060;font-weight:800;">+R$ ' + fm(urgVal) + '</span></div>';
   }
 
-  var parc=vista*1.12;
+  var parc=vista*1.15;
   var p8=parc/8,ent=vista/2;
 
   detHtml+='<div style="border-top:1px solid var(--bd);margin:10px 0 6px;"></div>';
   detHtml+='<div class="rrow"><span class="rk">Total m² de pedra</span><span class="rv">'+totalM2.toFixed(3)+'m²</span></div>';
-  detHtml+='<div class="rrow"><span class="rk">Parcelado 8×</span><span class="rv" style="color:var(--t3)">R$ '+fm(parc)+' — 8× R$ '+fm(p8)+'</span></div>';
-  detHtml+='<div class="rtot"><span class="k">À Vista</span><span class="v">R$ '+fm(vista)+'</span></div>';
+  detHtml+='<div class="rrow" id="rdParc"><span class="rk">Parcelado 8×</span><span class="rv" style="color:var(--t3)">8× R$ '+fm(p8)+' (total R$ '+fm(parc)+')</span></div>';
+  detHtml+='<div class="rtot" id="rdVista"><span class="k">À Vista</span><span class="v" id="rdVistaVal">R$ '+fm(vista)+'</span></div>';
   document.getElementById('resDetail').innerHTML=detHtml;
 
   // PAINEL INTERNO
@@ -2174,21 +2244,37 @@ function calcular(){
   pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(pedT)+'</b></div>';
   pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(mobPainel)+'</b></div>';
   pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
-  pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
+  pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b id="piVista" style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b id="piMargem" style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
-  var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
-  if(cidade)txt+='\n'+cidade;
+  // Texto base para regeneração após ajuste de vista
+  var _txtPre='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n';
+  var _txtFooter='==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel+(cidade?'\n'+cidade:'');
+
+  var txt=_txtPre+_buildPriceText({vista:vista,parc:parc,p8:p8,ent:ent,urgPct:urgPct,urgVal:urgVal})+_txtFooter;
   document.getElementById('quoteBox').textContent=txt;
   document.getElementById('resArea').style.display='block';
   document.getElementById('resArea').scrollIntoView({behavior:'smooth',block:'start'});
+
+  // Mostra painel de ajuste de vista
+  var adjSec=document.getElementById('vistaAdjSec');
+  if(adjSec){adjSec.style.display='block';}
+  var vbEl=document.getElementById('vistaBase');
+  if(vbEl)vbEl.textContent='R$ '+fm(vista);
+  var adjRes=document.getElementById('vistaAdjResult');
+  if(adjRes)adjRes.style.display='none';
+  // Resetar modo para "sem ajuste"
+  window._vistaAdjMode='none';
+  document.querySelectorAll('[data-vmode]').forEach(function(b){b.classList.toggle('on',b.dataset.vmode==='none');});
+  document.getElementById('vistaAdjPct').style.display='none';
+  document.getElementById('vistaAdjFixed').style.display='none';
 
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter};
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
@@ -2553,11 +2639,15 @@ function gerarPDF(){
     +sh('Valores do Projeto')
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
       // parcelado
-      +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
-        +'<div style="background:#f0ece3;padding:10px 16px;font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#999;font-weight:900;">PARCELADO</div>'
-        +'<div style="padding:14px 16px;background:#faf8f4;">'
-          +'<div style="font-size:22px;font-weight:900;color:#aaa;line-height:1;margin-bottom:4px;">R$ '+fm(q.parc)+'</div>'
-          +'<div style="font-size:11px;color:#bbb;">ate 8x de R$ '+fm(q.p8)+'</div>'
+      +'<div style="border:2px solid #c8b870;border-radius:10px;overflow:hidden;">'
+        +'<div style="background:#2a2000;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c8a850;font-weight:900;">PARCELADO EM 8×</span>'
+          +'<span style="background:#c8a850;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">+15%</span>'
+        +'</div>'
+        +'<div style="padding:14px 16px;background:#fffdf5;">'
+          +'<div style="font-size:28px;font-weight:900;color:#7a5500;line-height:1;margin-bottom:4px;">R$ '+fm(q.p8)+'</div>'
+          +'<div style="font-size:11px;color:#a07020;font-weight:700;margin-bottom:4px;">por mês · 8 parcelas</div>'
+          +'<div style="font-size:10px;color:#bba060;">Total: R$ '+fm(q.parc)+'</div>'
         +'</div>'
       +'</div>'
       // a vista — destaque
@@ -2594,7 +2684,10 @@ function gerarPDF(){
       var pd=window._pdfPrazoData;
       window._pdfClearPrazo&&window._pdfClearPrazo();
       var agendaInfo='';
-      if(pd.lastEnd&&pd.lastEnd>pd.hoje){
+      if(pd.isUrgent){
+        agendaInfo='<div style="display:flex;align-items:center;gap:6px;margin-top:8px;">'
+          +'<span style="font-size:9.5px;color:#ff9060;font-weight:700;">🚨 Atendimento prioritário — entra na frente da fila. Início imediato após assinatura.</span></div>';
+      } else if(pd.lastEnd&&pd.lastEnd>pd.hoje){
         agendaInfo='<div style="display:flex;align-items:center;gap:6px;margin-top:8px;">'
           +'<span style="font-size:9.5px;color:#888;">📋 Agenda em produção até <strong style="color:#7a4400;">'+fd(pd.lastEnd)+'</strong>'
           +(pd.emProd>0?' &nbsp;·&nbsp; '+pd.emProd+' serviço'+(pd.emProd>1?'s':'')+' na fila':'')
@@ -3673,7 +3766,7 @@ function gerarPDFTumulo(q){
   var tipoLabel=TIPOS_LABEL[tum.tipo]||tum.tipo||'Túmulo';
   var mat=CFG.stones.find(function(s){return s.id===tum.stoneId;})||{nm:q.mat||'',tx:'',photo:''};
   var vista=q.vista||res.venda||0;
-  var parc=vista*1.12;
+  var parc=vista*1.15;
   var p8=parc/8;
   var ent=vista*0.5;
   var economia=parc-vista;

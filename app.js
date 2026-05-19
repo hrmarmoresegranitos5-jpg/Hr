@@ -252,6 +252,8 @@ window.aplicarEstiloNi=function(){
   document.querySelectorAll('.ov').forEach(function(o){o.addEventListener('click',function(e){if(e.target===o)closeAll();});});
   // Build
   buildMat();addAmbiente();buildCatalog();buildCubaList();buildAcList();renderAg();renderFin();updEmp();updUrgDot();renderFixos();renderInfoList();renderOrc();
+  // Secretária
+  renderSecretaria();secNotifDotUpdate();secInitNotif();
   // Sync automático via Supabase — sem precisar configurar nada
   setTimeout(function(){SYNC.init();},1500);
   // Handle any tap that happened before DOMContentLoaded finished
@@ -315,6 +317,7 @@ function go(n){
   if(n===2)buildCubaList();
   if(n===7)renderOrc();
   if(n===8)buildAcList();
+  if(n===11){renderSecretaria();secNotifDotUpdate();}
   if(n===3)renderAg();
   if(n===4)renderFin();
   if(n===5)updEmp();

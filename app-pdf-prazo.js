@@ -22,9 +22,12 @@
       // Preenche info da agenda no modal
       var last = lastEnd();
       var hoje = td();
+      var isUrg = (window._urgPct || 0) > 0;
       var infoEl = document.getElementById('pdfPrazoInfo');
       if (infoEl) {
-        if (last && last > hoje) {
+        if (isUrg) {
+          infoEl.innerHTML = '🚨 <strong style="color:#ff9060;">Serviço urgente</strong> — entra na frente da fila.<br>Estimativa conta a partir de <strong>hoje</strong>.';
+        } else if (last && last > hoje) {
           infoEl.innerHTML = '📋 Agenda ocupada até <strong>' + fd(last) + '</strong>.<br>A estimativa começa a partir dessa data.';
         } else {
           infoEl.innerHTML = '📋 Agenda livre — a estimativa começa a partir de hoje.';
@@ -43,19 +46,16 @@
 
     var hoje = td();
     var last = lastEnd();
-    var base = (last && last > hoje) ? last : hoje;
+    var isUrgent = (window._urgPct || 0) > 0;
+    // Urgente: projeto fura a fila — base é HOJE, não o fim da fila
+    var base = isUrgent ? hoje : ((last && last > hoje) ? last : hoje);
     var dataEst = addD(base, dias);
 
-    // Conta serviços em produção
     var emProd = (DB.j || []).filter(function (j) { return !j.done; }).length;
 
     window._pdfPrazoData = {
-      dias: dias,
-      base: base,
-      dataEst: dataEst,
-      lastEnd: last,
-      emProd: emProd,
-      hoje: hoje
+      dias: dias, base: base, dataEst: dataEst,
+      lastEnd: last, emProd: emProd, hoje: hoje, isUrgent: isUrgent
     };
 
     closeAll();
