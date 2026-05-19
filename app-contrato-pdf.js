@@ -400,6 +400,36 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
   _mostrarViewerContrato(pdfBlob,pdfUrl,nomeArq,contrNum,q,emp);
 }
 
+function _loadPdfJs(cb){
+  if(window.pdfjsLib){cb();return;}
+  var s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  s.onload=function(){
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    cb();
+  };
+  s.onerror=function(){cb(true);};
+  document.head.appendChild(s);
+}
+
+function _renderPdfPages(pdfDoc,container,scale){
+  container.innerHTML='';
+  var total=pdfDoc.numPages;
+  for(var i=1;i<=total;i++){
+    (function(pageNum){
+      pdfDoc.getPage(pageNum).then(function(page){
+        var vp=page.getViewport({scale:scale});
+        var canvas=document.createElement('canvas');
+        canvas.width=vp.width;
+        canvas.height=vp.height;
+        canvas.style.cssText='display:block;margin:0 auto 8px;width:100%;max-width:'+vp.width+'px;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;background:#fff;';
+        container.appendChild(canvas);
+        page.render({canvasContext:canvas.getContext('2d'),viewport:vp});
+      });
+    })(i);
+  }
+}
+
 function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
   var old=document.getElementById('contrPdfOv');if(old){old.remove();}
   var ov=document.createElement('div');
@@ -416,14 +446,31 @@ function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
   ov.appendChild(bar);
 
   var preview=document.createElement('div');
-  preview.style.cssText='flex:1;overflow:auto;background:#444;display:flex;justify-content:center;padding:12px 6px;';
-  var iframe=document.createElement('iframe');
-  iframe.src=url+'#toolbar=1&navpanes=0';
-  iframe.style.cssText='width:100%;max-width:820px;height:100%;min-height:500px;border:none;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;';
-  iframe.title='Contrato PDF';
-  preview.appendChild(iframe);
+  preview.style.cssText='flex:1;overflow:auto;background:#555;padding:12px 8px;';
+
+  // Placeholder de loading
+  var loading=document.createElement('div');
+  loading.style.cssText='display:flex;align-items:center;justify-content:center;height:200px;color:#aaa;font-size:.9rem;';
+  loading.textContent='Carregando visualização...';
+  preview.appendChild(loading);
   ov.appendChild(preview);
   document.body.appendChild(ov);
+
+  // Renderizar com pdf.js (funciona em mobile iOS/Android)
+  _loadPdfJs(function(err){
+    if(err){
+      preview.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><p style="color:#ccc;font-size:.9rem;text-align:center;">Visualização indisponível neste dispositivo.<br>Use ⬇ Salvar PDF para abrir o arquivo.</p></div>';
+      return;
+    }
+    var getAb=blob.arrayBuffer?blob.arrayBuffer():new Promise(function(res){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.readAsArrayBuffer(blob);});
+    Promise.resolve(getAb).then(function(ab){
+      return window.pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise;
+    }).then(function(pdfDoc){
+      preview.removeChild(loading);
+      var scale=Math.min(2.0,(preview.clientWidth-24)/595);
+      _renderPdfPages(pdfDoc,preview,scale);
+    }).catch(function(e){loading.textContent='Erro ao renderizar: '+e.message;});
+  });
 
   document.getElementById('cPdfClose').onclick=function(){ov.remove();URL.revokeObjectURL(url);};
 
