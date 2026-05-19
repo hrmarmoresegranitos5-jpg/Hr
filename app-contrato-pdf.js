@@ -298,39 +298,79 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
       // A4 em pontos (595.28 × 841.89 pt)
       var pageW=595.28;
       var pageH=841.89;
-      // Altura total da imagem escalada para largura A4
       var imgW=pageW;
-      var imgH=canvas.height*(pageW/canvas.width);
-      var nPages=Math.ceil(imgH/pageH);
+      // Pixels por página A4 no canvas
+      var pxPerPage=Math.round(canvas.height/(canvas.height*(pageW/canvas.width)/pageH));
+      var nPagesEst=Math.ceil(canvas.height/pxPerPage);
+
+      // ── Corte inteligente: busca linha branca próxima ao ponto ideal ──
+      // Em vez de cortar mecanicamente, vasculha o canvas buscando
+      // uma linha majoritariamente branca (espaço entre seções) para cortar ali.
+      var ctxScan=canvas.getContext('2d');
+      function findSmartCut(idealPx){
+        var search=Math.round(pxPerPage*0.13); // busca em ±13% da página
+        var from=Math.max(1,idealPx-search);
+        var to=Math.min(canvas.height-2,idealPx+Math.round(search*0.25));
+        // Lê todas as linhas da área de busca de uma vez (eficiente)
+        var rows=to-from+1;
+        var imgData=ctxScan.getImageData(0,from,canvas.width,rows).data;
+        var bestY=idealPx;
+        var bestScore=-1;
+        // Percorre de baixo para cima (prefere cortar antes, não depois)
+        for(var r=rows-1;r>=0;r--){
+          var w=0;
+          var base=r*canvas.width*4;
+          for(var x=0;x<canvas.width;x++){
+            var i=base+x*4;
+            if(imgData[i]>228&&imgData[i+1]>228&&imgData[i+2]>228)w++;
+          }
+          var score=w/canvas.width;
+          if(score>bestScore){bestScore=score;bestY=from+r;}
+          if(bestScore>0.96)break; // linha quase toda branca — perfeito
+        }
+        return bestY;
+      }
+
+      // Monta pontos de corte reais
+      var cuts=[0];
+      for(var k=1;k<nPagesEst;k++){
+        var ideal=Math.round(k*pxPerPage);
+        if(ideal<canvas.height) cuts.push(findSmartCut(ideal));
+      }
+      cuts.push(canvas.height);
+      var nPages=cuts.length-1;
+
+      // Gera PDF com fatias nos pontos de corte inteligentes
       var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
       for(var pg=0;pg<nPages;pg++){
         if(pg>0)pdf.addPage();
-        // Fatia correspondente a esta página no canvas original
-        var sliceCanvas=document.createElement('canvas');
-        var pxPerPage=canvas.height/nPages;
-        sliceCanvas.width=canvas.width;
-        sliceCanvas.height=Math.ceil(pxPerPage);
-        var ctx2=sliceCanvas.getContext('2d');
-        ctx2.fillStyle='#ffffff';
-        ctx2.fillRect(0,0,sliceCanvas.width,sliceCanvas.height);
-        ctx2.drawImage(canvas,0,Math.round(pg*pxPerPage),canvas.width,Math.ceil(pxPerPage),0,0,canvas.width,Math.ceil(pxPerPage));
-        pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,imgW,pageH);
+        var y0=cuts[pg];
+        var y1=cuts[pg+1];
+        var sh=y1-y0;
+        var sc=document.createElement('canvas');
+        sc.width=canvas.width; sc.height=sh;
+        var sc2=sc.getContext('2d');
+        sc2.fillStyle='#ffffff';
+        sc2.fillRect(0,0,sc.width,sh);
+        sc2.drawImage(canvas,0,y0,canvas.width,sh,0,0,canvas.width,sh);
+        // Altura proporcional desta fatia em pt (pode ser < pageH na última página)
+        var slicePtH=sh*(pageW/canvas.width);
+        pdf.addImage(sc.toDataURL('image/jpeg',0.96),'JPEG',0,0,imgW,slicePtH);
       }
       var pdfBlob=pdf.output('blob');
 
-      // Preview: uma imagem por página A4
+      // Preview: uma imagem por página com os cortes inteligentes
       preview.innerHTML='';
       var wrapAll=document.createElement('div');
       wrapAll.style.cssText='display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:700px;';
       for(var pi=0;pi<nPages;pi++){
+        var py0=cuts[pi],py1=cuts[pi+1],psh=py1-py0;
         var pc=document.createElement('canvas');
-        var ppx=canvas.height/nPages;
-        pc.width=canvas.width;
-        pc.height=Math.ceil(ppx);
+        pc.width=canvas.width; pc.height=psh;
         var pctx=pc.getContext('2d');
         pctx.fillStyle='#ffffff';
-        pctx.fillRect(0,0,pc.width,pc.height);
-        pctx.drawImage(canvas,0,Math.round(pi*ppx),canvas.width,Math.ceil(ppx),0,0,canvas.width,Math.ceil(ppx));
+        pctx.fillRect(0,0,pc.width,psh);
+        pctx.drawImage(canvas,0,py0,canvas.width,psh,0,0,canvas.width,psh);
         var pimg=document.createElement('img');
         pimg.src=pc.toDataURL('image/jpeg',0.88);
         pimg.style.cssText='width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
