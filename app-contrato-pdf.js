@@ -1,358 +1,303 @@
 // ══════════════════════════════════════════════════════════════
-// CONTRATO PDF PROFISSIONAL v3
-// jsPDF vetorial puro — sem html2canvas, sem imagem
-// WhatsApp direto, visualização inline, texto selecionável
+// CONTRATO PDF PROFISSIONAL v4
+// jsPDF vetorial — 2 páginas, texto real, WhatsApp direto
 // ══════════════════════════════════════════════════════════════
 
-// ── Carrega jsPDF + autotable on-demand ──
 function _loadContrPDFLibs(cb){
-  if(typeof window.jspdf!=='undefined'&&typeof window.jspdf.jsPDF!=='undefined'){cb();return;}
+  if(typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){
+    if(document._ctrAutoTableLoaded){cb();return;}
+  }
   var s1=document.createElement('script');
   s1.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
   s1.onload=function(){
     var s2=document.createElement('script');
     s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
-    s2.onload=cb;
-    s2.onerror=function(){console.warn('autotable nao carregou, continuando sem tabela vetorial');cb();};
+    s2.onload=function(){document._ctrAutoTableLoaded=true;cb();};
+    s2.onerror=function(){cb();};
     document.head.appendChild(s2);
   };
   s1.onerror=function(){if(typeof toast==='function')toast('Erro ao carregar biblioteca PDF');};
   document.head.appendChild(s1);
 }
 
-// ── Utilitários de texto ──
-function _ctrPdfFm(v){return'R$ '+(parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function _ctrEsc(s){return(s||'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
-function _ctrFmDate(iso){try{return new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});}catch(e){return iso||'';}}
-function _ctrFmDateShort(iso){try{return new Date(iso+'T12:00:00').toLocaleDateString('pt-BR');}catch(e){return iso||'';}}
+function _pfm(v){return'R$ '+(parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function _pesc(s){return(s||'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
+function _pstrip(s){return(s||'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ');}
 
-// ── CORES ──
-var C={
-  gold:   [201,168,76],
-  goldDk: [120,95,30],
-  dark:   [15,12,0],
-  darkHdr:[26,20,0],
-  white:  [255,255,255],
-  offWh:  [247,242,232],
-  text:   [26,26,26],
-  gray:   [102,102,102],
-  lgray:  [180,180,180],
-  green:  [42,106,42],
-  greenLt:[232,245,232],
-  red:    [138,42,42],
-  blue:   [40,80,160],
-  blueLt: [240,244,255],
-  warn:   [255,248,225],
-  warnBd: [201,168,76],
-  rowAlt: [250,245,234],
-  tblHdr: [26,20,0],
-  condBg: [250,246,239],
-  divider:[232,208,144],
+var PC={
+  gold:[201,168,76],goldDk:[120,90,20],dark:[15,12,0],darkHdr:[20,16,0],
+  white:[255,255,255],offWh:[247,242,232],text:[26,26,26],gray:[100,100,100],
+  lgray:[160,160,160],divider:[220,200,140],
+  green:[42,106,42],greenLt:[232,245,232],
+  warn:[255,248,225],warnBd:[201,168,76],condBg:[250,246,239],
+  rowAlt:[250,245,234],blueLt:[240,244,255],blue:[40,80,160],
 };
 
-// ── GERADOR PRINCIPAL ──
-function gerarContratoPDFVetorial(q, pgConds, prazo, valid, parc, taxa){
+// Estado do doc durante geração
+var _pd={doc:null,PW:595.28,PH:841.89,ML:36,MR:36,Y:0};
+function _MW(){return _pd.PW-_pd.ML-_pd.MR;}
+
+function _pRect(x,y,w,h,c,r){
+  _pd.doc.setFillColor(c[0],c[1],c[2]);
+  r?_pd.doc.roundedRect(x,y,w,h,r,r,'F'):_pd.doc.rect(x,y,w,h,'F');
+}
+function _pRectS(x,y,w,h,f,s,lw,r){
+  _pd.doc.setFillColor(f[0],f[1],f[2]);
+  _pd.doc.setDrawColor(s[0],s[1],s[2]);
+  _pd.doc.setLineWidth(lw||0.5);
+  r?_pd.doc.roundedRect(x,y,w,h,r,r,'FD'):_pd.doc.rect(x,y,w,h,'FD');
+}
+function _pLine(x1,y1,x2,y2,c,lw){
+  _pd.doc.setDrawColor(c[0],c[1],c[2]);
+  _pd.doc.setLineWidth(lw||0.5);
+  _pd.doc.line(x1,y1,x2,y2);
+}
+function _pFont(sz,st,c){
+  _pd.doc.setFontSize(sz);
+  _pd.doc.setFont('helvetica',st||'normal');
+  if(c)_pd.doc.setTextColor(c[0],c[1],c[2]);
+}
+function _pT(txt,x,y,opts){_pd.doc.text(String(txt||''),x,y,opts||{});}
+function _pSpl(txt,w){return _pd.doc.splitTextToSize(String(txt||''),w);}
+
+function _pChk(need){
+  if(_pd.Y+need>_pd.PH-44){
+    _pd.doc.addPage();
+    _pd.Y=36;
+  }
+}
+
+function _pSecTitle(label){
+  _pChk(22);
+  _pLine(_pd.ML,_pd.Y,_pd.PW-_pd.MR,_pd.Y,PC.gold,0.5);
+  _pd.Y+=7;
+  _pFont(6.5,'bold',PC.gold);
+  _pd.doc.setCharSpace(2);
+  _pT(label.toUpperCase(),_pd.ML,_pd.Y);
+  _pd.doc.setCharSpace(0);
+  _pd.Y+=11;
+}
+
+function _pCondItem(num,text){
+  var lines=_pSpl(_pstrip(text),_MW()-36);
+  var h=Math.max(22,lines.length*12+12);
+  _pChk(h+4);
+  var x=_pd.ML,y=_pd.Y;
+  _pRect(x,y,3,h,PC.gold);
+  _pRect(x+3,y,_MW()-3,h,PC.condBg);
+  _pFont(10,'bold',PC.gold);_pT(String(num),x+10,y+h/2+4);
+  _pFont(9.5,'normal',PC.text);
+  var ty=y+(h/2)-(lines.length*12/2)+8;
+  lines.forEach(function(l){_pT(l,x+30,ty);ty+=12;});
+  _pd.Y=y+h+4;
+}
+
+function gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa){
   _loadContrPDFLibs(function(){
-    try{
-      _buildContratoPDF(q, pgConds, prazo, valid, parc, taxa);
-    }catch(err){
-      console.error('contratoPDF erro:',err);
-      if(typeof toast==='function')toast('Erro ao gerar PDF: '+err.message);
-    }
+    try{_buildPDF(q,pgConds,prazo,valid,parc,taxa);}
+    catch(e){console.error('contratoPDF:',e);if(typeof toast==='function')toast('Erro PDF: '+e.message);}
   });
 }
 
-function _buildContratoPDF(q, pgConds, prazo, valid, parc, taxa){
+function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
   var jsPDF=window.jspdf.jsPDF;
-  var emp=CFG.emp;
+  var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR',cnpj:'',end:'',cidade:'',tel:''};
   var hoje=new Date();
   var dataStr=hoje.toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
   var dataSimples=hoje.toLocaleDateString('pt-BR');
   var contrNum='CTR-'+String(q.id).slice(-6);
-  var nomeCliente=(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_');
-  var fileName='Contrato_'+contrNum+'_'+nomeCliente+'.pdf';
-  var tipo=(q.tipo||'Projeto');
-  var temInstalacao=(q.acN||[]).some(function(a){return a.toLowerCase().indexOf('instala')>=0;});
+  var nomeArq='Contrato_'+contrNum+'_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var tipo=q.tipo||'Projeto';
+  var temInst=(q.acN||[]).some(function(a){return(a||'').toLowerCase().indexOf('instala')>=0;});
   var vista=q.vista||0;
-  var valorCartao=parc>0?vista*(1+(taxa/100)):0;
+  var vCartao=parc>0?vista*(1+taxa/100):0;
 
-  // ── jsPDF A4 ──
-  var doc=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-  var PW=595.28, PH=841.89;
-  var ML=36, MR=36, MW=PW-ML-MR; // margens
+  _pd.doc=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+  _pd.PW=595.28;_pd.PH=841.89;_pd.ML=36;_pd.MR=36;_pd.Y=0;
 
-  // ── helpers de desenho ──
-  function setFont(size,style,color){
-    doc.setFontSize(size);
-    doc.setFont('helvetica',style||'normal');
-    doc.setTextColor.apply(doc,color||C.text);
-  }
-  function rect(x,y,w,h,color,radius){
-    doc.setFillColor.apply(doc,color);
-    if(radius){doc.roundedRect(x,y,w,h,radius,radius,'F');}
-    else{doc.rect(x,y,w,h,'F');}
-  }
-  function rectStroke(x,y,w,h,fill,stroke,lw,radius){
-    doc.setFillColor.apply(doc,fill);
-    doc.setDrawColor.apply(doc,stroke);
-    doc.setLineWidth(lw||0.5);
-    if(radius){doc.roundedRect(x,y,w,h,radius,radius,'FD');}
-    else{doc.rect(x,y,w,h,'FD');}
-  }
-  function line(x1,y1,x2,y2,color,lw){
-    doc.setDrawColor.apply(doc,color||C.divider);
-    doc.setLineWidth(lw||0.5);
-    doc.line(x1,y1,x2,y2);
-  }
-  function txt(text,x,y,opts){
-    opts=opts||{};
-    doc.text(String(text),x,y,{align:opts.align||'left',maxWidth:opts.maxWidth});
-  }
-  function multiLine(text,x,y,maxW,lineH,maxH){
-    var lines=doc.splitTextToSize(String(text||''),maxW);
-    var used=0;
-    lines.forEach(function(ln){
-      if(maxH&&used+lineH>maxH)return;
-      doc.text(ln,x,y+used);
-      used+=lineH;
-    });
-    return used;
-  }
-  function secTitle(label,y){
-    // linha dourada
-    line(ML,y,PW-MR,y,C.gold,0.5);
-    y+=7;
-    setFont(7,'bold',C.gold);
-    doc.setCharSpace(2);
-    txt(label.toUpperCase(),ML,y);
-    doc.setCharSpace(0);
-    return y+10;
-  }
-  function labelValue(label,value,x,y,w){
-    setFont(7,'normal',C.lgray);
-    doc.setCharSpace(0.8);
-    txt(label.toUpperCase(),x,y);
-    doc.setCharSpace(0);
-    setFont(11,'bold',C.text);
-    var lines=doc.splitTextToSize(String(value||'—'),w||MW/2-8);
-    lines.forEach(function(l,i){doc.text(l,x,y+12+(i*13));});
-    return y+12+(lines.length*13)+4;
-  }
-  function condItem(num,text,x,y,maxW){
-    // barra dourada esquerda
-    rect(x,y,3,0,'F');// placeholder, calculamos altura depois
-    var lines=doc.splitTextToSize(text,maxW-42);
-    var h=Math.max(26, lines.length*13+14);
-    rect(x,y,3,h,C.gold);
-    rect(x+3,y,maxW-3,h,C.condBg);
-    // número/ícone
-    setFont(11,'bold',C.gold);
-    txt(String(num),x+11,y+h/2+4);
-    // texto
-    setFont(10,'normal',C.text);
-    var ty=y+(h/2)-(lines.length*13/2)+10;
-    lines.forEach(function(l){doc.text(l,x+32,ty);ty+=13;});
-    return y+h+4;
-  }
+  var PW=_pd.PW,PH=_pd.PH,ML=_pd.ML,MR=_pd.MR;
 
-  var Y=0; // cursor vertical
-
-  // ════════════════════════════════════════
-  // HEADER
-  // ════════════════════════════════════════
-  rect(0,0,PW,72,C.darkHdr);
-  line(0,72,PW,72,C.gold,2);
-  // logo/nome empresa
-  setFont(16,'bold',C.gold);
-  txt(emp.nome||'HR Mármores',ML,30);
-  setFont(7,'normal',[201,168,76,0.5]);
-  doc.setCharSpace(2.5);
-  txt('MÁRMORES · GRANITOS · QUARTZITOS',ML,43);
-  doc.setCharSpace(0);
-  // info empresa (direita)
-  setFont(9,'normal',[200,200,200]);
-  var empLines=[emp.tel||'',emp.end||'',emp.cidade||'','CNPJ: '+(emp.cnpj||'')];
-  var ey=20;
-  empLines.forEach(function(l){
-    if(!l)return;
-    doc.text(l,PW-MR,ey,{align:'right'});
-    ey+=13;
+  // ════ HEADER ════
+  _pRect(0,0,PW,70,PC.darkHdr);
+  _pLine(0,70,PW,70,PC.gold,2);
+  _pFont(15,'bold',PC.gold);_pT(emp.nome||'HR Mármores',ML,29);
+  _pFont(7,'normal',[150,120,40]);_pd.doc.setCharSpace(2.2);
+  _pT('MÁRMORES · GRANITOS · QUARTZITOS',ML,41);_pd.doc.setCharSpace(0);
+  _pFont(8.5,'normal',[200,195,185]);
+  var ey=18;
+  [emp.tel,emp.end,emp.cidade,'CNPJ: '+emp.cnpj].forEach(function(l){
+    if(l&&l.trim()){_pd.doc.text(l,PW-MR,ey,{align:'right'});ey+=12;}
   });
 
-  // ════════════════════════════════════════
-  // FAIXA TÍTULO
-  // ════════════════════════════════════════
-  Y=72;
-  rect(0,Y,PW,46,C.offWh);
-  line(0,Y+46,PW,Y+46,C.divider,1);
-  setFont(14,'bold',C.dark);
-  txt('📜 CONTRATO DE FORNECIMENTO'+(temInstalacao?' E INSTALAÇÃO':''),ML,Y+20);
-  setFont(8,'normal',C.gray);
-  doc.setCharSpace(0.5);
-  txt('Documento com validade jurídica entre as partes',ML,Y+35);
-  doc.setCharSpace(0);
-  // número + data
-  setFont(9,'normal',C.gray);
-  doc.text('Nº '+String(q.id).slice(-6),PW-MR,Y+20,{align:'right'});
-  doc.text(dataSimples,PW-MR,Y+35,{align:'right'});
+  // ════ FAIXA TÍTULO ════
+  _pRect(0,70,PW,44,PC.offWh);
+  _pLine(0,114,PW,114,PC.divider,1);
+  _pFont(13,'bold',PC.dark);_pT('CONTRATO DE FORNECIMENTO'+(temInst?' E INSTALAÇÃO':''),ML,91);
+  _pFont(7.5,'normal',PC.gray);_pd.doc.setCharSpace(0.3);
+  _pT('Documento com validade jurídica entre as partes',ML,104);_pd.doc.setCharSpace(0);
+  _pFont(8.5,'normal',PC.gray);
+  _pd.doc.text('Nº '+String(q.id).slice(-6),PW-MR,88,{align:'right'});
+  _pd.doc.text(dataSimples,PW-MR,101,{align:'right'});
+  _pd.Y=128;
 
-  Y=118; // abaixo do header+faixa
+  // ════ PARTES CONTRATANTES ════
+  _pSecTitle('Partes Contratantes');
+  var col1=ML,col2=ML+_MW()/2+8,cW=_MW()/2-12;
+  var yBase=_pd.Y;
 
-  // ════════════════════════════════════════
-  // CORPO
-  // ════════════════════════════════════════
-  var body_x=ML, body_w=MW;
-  Y+=16;
+  // col esquerda
+  _pd.Y=yBase;
+  var campos1=[
+    ['CONTRATADA',emp.nome||''],
+    ['CNPJ',emp.cnpj||''],
+    ['ENDEREÇO',emp.end||''],
+    ['TELEFONE / WHATSAPP',emp.tel||'']
+  ];
+  campos1.forEach(function(c){
+    _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT(c[0],col1,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
+    _pFont(10.5,'bold',PC.text);
+    var ls=_pSpl(c[1]||'—',cW);
+    ls.forEach(function(l){_pT(l,col1,_pd.Y);_pd.Y+=12;});
+    _pd.Y+=3;
+  });
+  var yL=_pd.Y;
 
-  // ── PARTES CONTRATANTES ──
-  Y=secTitle('Partes Contratantes',Y);
-  var col1x=body_x, col2x=body_x+MW/2+8, colW=MW/2-12;
-  var yL=Y, yR=Y;
-  yL=labelValue('Contratada',emp.nome||'',col1x,yL,colW);
-  yL=labelValue('CNPJ',emp.cnpj||'',col1x,yL,colW);
-  yL=labelValue('Endereço',emp.end||'',col1x,yL,colW);
-  yL=labelValue('Telefone / WhatsApp',emp.tel||'',col1x,yL,colW);
-  yR=labelValue('Contratante (Cliente)',_ctrEsc(q.cli||''),col2x,yR,colW);
-  if(q.tel)yR=labelValue('Telefone',_ctrEsc(q.tel),col2x,yR,colW);
-  if(q.end)yR=labelValue('Endereço de Entrega',_ctrEsc(q.end),col2x,yR,colW);
-  if(q.cidade)yR=labelValue('Cidade',_ctrEsc(q.cidade),col2x,yR,colW);
-  Y=Math.max(yL,yR)+10;
+  // col direita
+  _pd.Y=yBase;
+  var campos2=[['CONTRATANTE (CLIENTE)',_pesc(q.cli||'')]];
+  if(q.tel)campos2.push(['TELEFONE',_pesc(q.tel)]);
+  if(q.end)campos2.push(['ENDEREÇO DE ENTREGA',_pesc(q.end)]);
+  if(q.cidade)campos2.push(['CIDADE',_pesc(q.cidade)]);
+  campos2.forEach(function(c){
+    _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT(c[0],col2,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
+    _pFont(10.5,'bold',PC.text);
+    var ls=_pSpl(c[1]||'—',cW);
+    ls.forEach(function(l){_pT(l,col2,_pd.Y);_pd.Y+=12;});
+    _pd.Y+=3;
+  });
+  _pd.Y=Math.max(yL,_pd.Y)+10;
 
-  // ── OBJETO DO CONTRATO ──
-  Y=secTitle('Objeto do Contrato',Y);
-  var yO=Y;
-  yO=labelValue('Tipo de Serviço',tipo,col1x,yO,colW);
-  yO=labelValue('Material',(q.mat||'Pedra Natural')+(q.matPr?' — R$ '+parseFloat(q.matPr||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²':''),col2x,Y,colW);
-  Y=Math.max(yO,Y+40)+8;
+  // ════ OBJETO DO CONTRATO ════
+  _pSecTitle('Objeto do Contrato');
+  var yObj=_pd.Y;
+  // tipo
+  _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT('TIPO DE SERVIÇO',col1,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
+  _pFont(11,'bold',PC.text);_pT(tipo,col1,_pd.Y);
+  var yTipo=_pd.Y+13;
+  // material
+  _pd.Y=yObj;
+  _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT('MATERIAL',col2,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
+  _pFont(10,'bold',PC.text);
+  var matStr=(q.mat||'Pedra Natural')+(q.matPr?' — R$ '+parseFloat(q.matPr).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²':'');
+  var matLs=_pSpl(matStr,cW);
+  matLs.forEach(function(l){_pT(l,col2,_pd.Y);_pd.Y+=12;});
+  _pd.Y=Math.max(yTipo,_pd.Y)+10;
 
-  // Tabela de peças (se houver)
-  var pecasRows=[];
+  // Tabela de peças
+  var pRows=[];
   (q.pds||[]).forEach(function(p,i){
-    pecasRows.push([String(i+1),p.desc||'Peça',p.w+'×'+p.h+' cm',String(p.q||1),((p.w/100)*(p.h/100)*(p.q||1)).toFixed(3)+' m²']);
+    if(!p.w||!p.h)return;
+    pRows.push([String(i+1),_pesc(p.desc||'Peça'),p.w+'×'+p.h+' cm',String(p.q||1),((p.w/100)*(p.h/100)*(p.q||1)).toFixed(3)+' m²']);
   });
   (q.sfPcs||[]).forEach(function(p){
-    pecasRows.push(['+',p.l||'Serviço',p.w+'ml × '+p.h+' cm',String(p.q||1),p.m2.toFixed(3)+' m²']);
+    pRows.push(['+',_pesc(p.l||'Serviço'),p.w+'ml × '+p.h+' cm',String(p.q||1),(p.m2||0).toFixed(3)+' m²']);
   });
-  if(pecasRows.length>0&&typeof doc.autoTable==='function'){
-    doc.autoTable({
-      startY:Y,
+
+  if(pRows.length>0&&typeof _pd.doc.autoTable==='function'){
+    _pd.doc.autoTable({
+      startY:_pd.Y,
       margin:{left:ML,right:MR},
       head:[['Nº','Descrição','Medidas','Qtd','Área (m²)']],
-      body:pecasRows,
-      styles:{fontSize:9,cellPadding:5,fontStyle:'normal'},
-      headStyles:{fillColor:C.tblHdr,textColor:C.gold,fontStyle:'bold',fontSize:7.5,letterSpacing:1},
-      alternateRowStyles:{fillColor:C.rowAlt},
-      columnStyles:{0:{cellWidth:20,halign:'center'},2:{cellWidth:70},3:{cellWidth:25,halign:'center'},4:{cellWidth:55,halign:'right'}},
+      body:pRows,
+      styles:{fontSize:9,cellPadding:{top:6,bottom:6,left:7,right:7}},
+      headStyles:{fillColor:[20,16,0],textColor:[201,168,76],fontStyle:'bold',fontSize:7.5},
+      alternateRowStyles:{fillColor:[250,245,234]},
+      columnStyles:{0:{cellWidth:22,halign:'center'},2:{cellWidth:72},3:{cellWidth:28,halign:'center'},4:{cellWidth:58,halign:'right'}},
       theme:'plain',
-      tableLineColor:C.divider,
+      tableLineColor:[220,200,140],
       tableLineWidth:0.3,
     });
-    Y=doc.lastAutoTable.finalY+8;
-  } else if(pecasRows.length>0){
-    // fallback sem autotable — lista simples
-    pecasRows.forEach(function(r){
-      setFont(10,'normal',C.text);
-      txt(r[1]+' · '+r[2],body_x,Y);
-      setFont(9,'normal',C.gray);
-      txt(r[4],PW-MR,Y,{align:'right'});
-      Y+=14;
+    _pd.Y=_pd.doc.lastAutoTable.finalY+6;
+  } else if(pRows.length>0){
+    pRows.forEach(function(r,i){
+      _pChk(17);
+      if(i%2===0)_pRect(ML,_pd.Y-10,_MW(),16,PC.rowAlt);
+      _pFont(9,'normal',PC.text);_pT(r[1],ML+6,_pd.Y);
+      _pFont(9,'normal',PC.gray);_pd.doc.text(r[2],PW-MR,_pd.Y,{align:'right'});
+      _pd.Y+=17;
     });
-    Y+=6;
+    _pd.Y+=4;
   }
 
   // Área total
-  rect(body_x,Y,body_w,24,C.offWh,3);
-  setFont(9,'normal',C.gray);
-  txt('Área total fabricada',body_x+12,Y+15);
-  setFont(13,'bold',C.text);
-  doc.text((typeof fm==='function'?fm(q.m2||0):parseFloat(q.m2||0).toFixed(3))+' m²',PW-MR-12,Y+15,{align:'right'});
-  Y+=32;
+  _pChk(26);
+  _pRect(ML,_pd.Y,_MW(),24,PC.offWh,3);
+  _pFont(9,'normal',PC.gray);_pT('Área total fabricada',ML+12,_pd.Y+15);
+  _pFont(13,'bold',PC.text);
+  var m2s=(typeof fm==='function'?fm(q.m2||0):(q.m2||0).toFixed(3))+' m²';
+  _pd.doc.text(m2s,PW-MR-12,_pd.Y+15,{align:'right'});
+  _pd.Y+=32;
 
-  // ── VERIFICAR QUEBRA DE PÁGINA ──
-  function checkPage(neededH){
-    if(Y+neededH>PH-60){
-      doc.addPage();
-      Y=36;
-    }
-  }
-
-  // ── SERVIÇOS INCLUSOS ──
-  checkPage(80);
-  Y=secTitle('Serviços Inclusos',Y);
+  // ════ SERVIÇOS INCLUSOS ════
+  _pSecTitle('Serviços Inclusos');
   var svcs=(q.acN&&q.acN.length?q.acN:[]).concat(['Fabricação e acabamento completo']);
   svcs.forEach(function(s){
-    setFont(10,'normal',C.gold);
-    txt('✓',body_x,Y);
-    setFont(10,'normal',C.text);
-    var lines=doc.splitTextToSize(_ctrEsc(s),body_w-20);
-    lines.forEach(function(l,i){doc.text(l,body_x+16,Y+(i*13));});
-    Y+=lines.length*13+4;
+    _pChk(16);
+    _pFont(10,'bold',PC.gold);_pT('✓',ML,_pd.Y);
+    _pFont(9.5,'normal',PC.text);
+    var sl=_pSpl(_pesc(s),_MW()-16);
+    sl.forEach(function(l,i){_pT(l,ML+13,_pd.Y+(i*12));});
+    _pd.Y+=sl.length*12+3;
   });
   if(q.obs){
-    Y+=4;
-    var obsLines=doc.splitTextToSize(_ctrEsc(q.obs),body_w-28);
-    var obsH=obsLines.length*13+16;
-    rect(body_x,Y,body_w,obsH,C.blueLt,3);
-    rect(body_x,Y,3,obsH,C.blue);
-    setFont(7,'bold',C.blue);
-    doc.setCharSpace(0.8);
-    txt('OBSERVAÇÕES',body_x+10,Y+10);
-    doc.setCharSpace(0);
-    setFont(10,'normal',C.text);
-    obsLines.forEach(function(l,i){doc.text(l,body_x+10,Y+22+(i*13));});
-    Y+=obsH+8;
+    _pChk(38);
+    _pd.Y+=4;
+    var obl=_pSpl(_pesc(q.obs),_MW()-20);
+    var obh=obl.length*12+18;
+    _pRect(ML,_pd.Y,_MW(),obh,PC.blueLt,3);
+    _pRect(ML,_pd.Y,3,obh,PC.blue);
+    _pFont(6.5,'bold',PC.blue);_pd.doc.setCharSpace(0.7);_pT('OBSERVAÇÕES',ML+9,_pd.Y+11);_pd.doc.setCharSpace(0);
+    _pFont(9.5,'normal',PC.text);
+    obl.forEach(function(l,i){_pT(l,ML+9,_pd.Y+22+(i*12));});
+    _pd.Y+=obh+8;
   }
-  Y+=6;
+  _pd.Y+=6;
 
-  // ── VALORES E PAGAMENTO ──
-  checkPage(120);
-  Y=secTitle('Valores e Pagamento',Y);
-
-  // Price box escura
-  var pbH=parc>0?70:48;
-  rect(body_x,Y,body_w,pbH,C.dark,6);
-  rectStroke(body_x,Y,body_w,pbH,C.dark,C.gold,0.4,6);
+  // ════ VALORES E PAGAMENTO ════
+  _pSecTitle('Valores e Pagamento');
+  var pbH=parc>0?66:46;
+  _pChk(pbH+8);
+  _pRectS(ML,_pd.Y,_MW(),pbH,PC.dark,PC.gold,0.4,5);
   if(parc>0){
-    setFont(8,'normal',[200,200,200]);
-    doc.setCharSpace(0.8);
-    txt('VALOR NO CARTÃO ('+parc+'×)',body_x+16,Y+18);
-    doc.setCharSpace(0);
-    setFont(18,'bold',C.gold);
-    txt(parc+'× de '+_ctrPdfFm(valorCartao/parc),body_x+16,Y+37);
-    line(body_x+16,Y+44,PW-MR-16,Y+44,[201,168,76,80],0.4);
-    setFont(8,'normal',[100,200,120]);
-    doc.setCharSpace(0.5);
-    txt('↓ À VISTA ('+taxa+'% de desconto)',body_x+16,Y+56);
-    doc.setCharSpace(0);
-    setFont(13,'bold',[100,200,120]);
-    txt(_ctrPdfFm(vista),PW-MR-16,Y+56,{align:'right'});
+    _pFont(7.5,'normal',[170,165,155]);_pd.doc.setCharSpace(0.7);
+    _pT('VALOR NO CARTÃO ('+parc+'×)',ML+14,_pd.Y+16);_pd.doc.setCharSpace(0);
+    _pFont(17,'bold',PC.gold);_pT(parc+'× de '+_pfm(vCartao/parc),ML+14,_pd.Y+34);
+    _pLine(ML+14,_pd.Y+40,PW-MR-14,_pd.Y+40,[150,120,40],0.4);
+    _pFont(7.5,'normal',[100,195,130]);_pd.doc.setCharSpace(0.5);
+    _pT('↓ À VISTA ('+taxa+'% de desconto)',ML+14,_pd.Y+52);_pd.doc.setCharSpace(0);
+    _pFont(12,'bold',[100,195,130]);_pd.doc.text(_pfm(vista),PW-MR-14,_pd.Y+52,{align:'right'});
   } else {
-    setFont(8,'normal',[160,160,160]);
-    doc.setCharSpace(1);
-    txt('VALOR À VISTA',body_x+16,Y+18);
-    doc.setCharSpace(0);
-    setFont(22,'bold',C.gold);
-    txt(_ctrPdfFm(vista),body_x+16,Y+40);
+    _pFont(7.5,'normal',[160,155,145]);_pd.doc.setCharSpace(0.9);
+    _pT('VALOR À VISTA',ML+14,_pd.Y+16);_pd.doc.setCharSpace(0);
+    _pFont(21,'bold',PC.gold);_pT(_pfm(vista),ML+14,_pd.Y+37);
   }
-  Y+=pbH+8;
+  _pd.Y+=pbH+8;
 
-  // Condições de pagamento (pgConds)
-  pgConds.forEach(function(c){
-    checkPage(36);
-    var textClean=c.txt.replace(/<strong>/g,'').replace(/<\/strong>/g,'').replace(/<[^>]+>/g,'');
-    Y=condItem(c.icon||'•',textClean,body_x,Y,body_w);
-  });
-  Y+=8;
+  pgConds.forEach(function(c){_pCondItem(c.icon||'•',c.txt||'');});
+  _pd.Y+=8;
 
-  // ── CONDIÇÕES GERAIS ──
-  checkPage(160);
-  Y=secTitle('Condições Gerais',Y);
+  // ════ FORÇA PG 2 — Condições + Garantia + Assinaturas ════
+  // Sempre garante que estas seções ficam juntas na pg 2
+  _pChk(600);
+
+  // ════ CONDIÇÕES GERAIS ════
+  _pSecTitle('Condições Gerais');
   var conds=[
     [1,'A '+emp.nome+' se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.'],
     [2,'O prazo de produção de '+prazo+' dias úteis começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.'],
     [3,'Variações naturais de cor, veios e textura são características próprias de pedras naturais e não constituem defeito de fabricação.'],
   ];
-  if(temInstalacao){
+  if(temInst){
     conds.push([4,'O cliente é responsável por garantir que o ambiente esteja completamente pronto e nivelado no dia da instalação (gabinetes, paredes, encanamentos). Caso o ambiente não esteja pronto, o cliente terá 2 (dois) dias úteis para regularizar; não regularizado, o agendamento será remarcado conforme o cronograma da contratada, sem custo adicional.']);
     conds.push([5,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
     conds.push([6,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
@@ -360,236 +305,174 @@ function _buildContratoPDF(q, pgConds, prazo, valid, parc, taxa){
     conds.push([4,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
     conds.push([5,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
   }
-  conds.forEach(function(c){
-    checkPage(44);
-    Y=condItem(c[0],c[1],body_x,Y,body_w);
-  });
+  conds.forEach(function(c){_pCondItem(c[0],c[1]);});
 
-  // Alerta instalação
-  if(temInstalacao){
-    checkPage(50);
-    Y+=4;
-    var warnLines=doc.splitTextToSize('⚠️ Atenção: No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá 2 dias úteis para regularizar — não regularizado, o agendamento será remarcado conforme nosso cronograma.',body_w-20);
-    var warnH=warnLines.length*13+16;
-    rect(body_x,Y,body_w,warnH,C.warn,3);
-    rect(body_x,Y,4,warnH,C.warnBd);
-    setFont(10,'normal',C.goldDk);
-    warnLines.forEach(function(l,i){doc.text(l,body_x+14,Y+13+(i*13));});
-    Y+=warnH+8;
+  if(temInst){
+    _pChk(48);
+    _pd.Y+=4;
+    var wl=_pSpl('Atenção: No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá 2 dias úteis para regularizar — não regularizado, o agendamento será remarcado conforme nosso cronograma.',_MW()-20);
+    var wh=wl.length*12+16;
+    _pRect(ML,_pd.Y,_MW(),wh,PC.warn,3);
+    _pRect(ML,_pd.Y,4,wh,PC.warnBd);
+    _pFont(9.5,'bold',PC.goldDk);
+    wl.forEach(function(l,i){_pT(l,ML+12,_pd.Y+12+(i*12));});
+    _pd.Y+=wh+8;
   }
-  Y+=6;
+  _pd.Y+=6;
 
-  // ── GARANTIA ──
-  checkPage(120);
-  Y=secTitle('Garantia',Y);
-  if(temInstalacao){
-    var gLines1=doc.splitTextToSize('A '+emp.nome+' garante por 12 (doze) meses, a partir da data de instalação, todas as peças instaladas pela nossa equipe, contra defeitos de fabricação e instalação.',body_w-20);
-    var gLines2=doc.splitTextToSize('Peças fornecidas mas não instaladas pela contratada possuem garantia somente até o ato da entrega — após a entrega ao cliente, a responsabilidade pela integridade é do contratante.',body_w-20);
-    var gH=(gLines1.length+gLines2.length)*13+36;
-    rectStroke(body_x,Y,body_w,gH,C.greenLt,[100,180,100],0.5,6);
-    // badge
-    rect(body_x+10,Y+10,110,16,C.green,8);
-    setFont(7.5,'bold',C.white);
-    doc.text('✅ GARANTIA OFICIAL',body_x+65,Y+20,{align:'center'});
-    setFont(11,'bold',C.dark);
-    txt('12 meses para peças instaladas pela nossa equipe',body_x+10,Y+36);
-    setFont(10,'normal',[42,74,42]);
-    var gy=Y+50;
-    gLines1.forEach(function(l){doc.text(l,body_x+10,gy);gy+=13;});
+  // ════ GARANTIA ════
+  _pSecTitle('Garantia');
+  if(temInst){
+    var gl1=_pSpl('A '+emp.nome+' garante por 12 (doze) meses, a partir da data de instalação, todas as peças instaladas pela nossa equipe, contra defeitos de fabricação e instalação.',_MW()-20);
+    var gl2=_pSpl('Peças fornecidas mas não instaladas pela contratada possuem garantia somente até o ato da entrega — após a entrega, a responsabilidade pela integridade é do contratante.',_MW()-20);
+    var gh=(gl1.length+gl2.length)*12+48;
+    _pChk(gh+8);
+    _pRectS(ML,_pd.Y,_MW(),gh,PC.greenLt,[100,180,100],0.5,5);
+    _pRect(ML+10,_pd.Y+10,106,16,PC.green,8);
+    _pFont(7,'bold',PC.white);_pd.doc.text('✅ GARANTIA OFICIAL',ML+63,_pd.Y+20,{align:'center'});
+    _pFont(11,'bold',PC.dark);_pT('12 meses para peças instaladas pela nossa equipe',ML+10,_pd.Y+36);
+    _pFont(9.5,'normal',[42,74,42]);
+    var gy=_pd.Y+50;
+    gl1.forEach(function(l){_pT(l,ML+10,gy);gy+=12;});
     gy+=4;
-    setFont(9,'italic',[80,100,80]);
-    gLines2.forEach(function(l){doc.text(l,body_x+10,gy);gy+=12;});
-    Y+=gH+10;
+    _pFont(8.5,'italic',[70,100,70]);
+    gl2.forEach(function(l){_pT(l,ML+10,gy);gy+=11;});
+    _pd.Y+=gh+10;
 
-    // Grid cobre/não cobre
-    checkPage(80);
-    var gCols=body_w/2-4;
-    // Cobre
-    var cobLines=doc.splitTextToSize('Trincas por má execução · Falhas no acabamento · Problemas de fixação causados pela equipe · Desnivelamento causado na instalação',gCols-16);
-    var cobH=cobLines.length*12+32;
-    rectStroke(body_x,Y,gCols,cobH,C.greenLt,[100,180,100],0.4,4);
-    setFont(7.5,'bold',C.green);
-    doc.setCharSpace(0.5);
-    txt('✅ PEÇAS INSTALADAS PELA HR (12 MESES)',body_x+8,Y+14);
-    doc.setCharSpace(0);
-    setFont(9,'normal',[42,74,42]);
-    cobLines.forEach(function(l,i){doc.text(l,body_x+8,Y+26+(i*12));});
-    // Não cobre
-    var ncLines=doc.splitTextToSize('Danos por mau uso ou impactos · Produtos químicos inadequados · Problemas estruturais do imóvel · Desgaste natural · Peças não instaladas pela HR após entrega',gCols-16);
-    var ncX=body_x+gCols+8;
-    var ncH=Math.max(cobH,ncLines.length*12+32);
-    rectStroke(ncX,Y,gCols,ncH,[255,245,245],[180,100,100],0.4,4);
-    setFont(7.5,'bold',C.red);
-    doc.setCharSpace(0.5);
-    txt('❌ NÃO COBRE (QUALQUER PEÇA)',ncX+8,Y+14);
-    doc.setCharSpace(0);
-    setFont(9,'normal',[100,42,42]);
-    ncLines.forEach(function(l,i){doc.text(l,ncX+8,Y+26+(i*12));});
-    Y+=Math.max(cobH,ncH)+12;
+    _pChk(76);
+    var gcW=_MW()/2-4;
+    var cbl=_pSpl('Trincas por má execução · Falhas no acabamento · Problemas de fixação pela equipe · Desnivelamento na instalação',gcW-16);
+    var ncl=_pSpl('Danos por mau uso ou impactos · Produtos químicos inadequados · Problemas estruturais do imóvel · Desgaste natural · Peças não instaladas pela HR após entrega',gcW-16);
+    var ch=Math.max(cbl.length,ncl.length)*12+32;
+    _pRectS(ML,_pd.Y,gcW,ch,PC.greenLt,[100,180,100],0.4,4);
+    _pFont(6.5,'bold',[42,106,42]);_pd.doc.setCharSpace(0.4);_pT('✅ COBRE (12 MESES)',ML+8,_pd.Y+13);_pd.doc.setCharSpace(0);
+    _pFont(8.5,'normal',[42,74,42]);
+    cbl.forEach(function(l,i){_pT(l,ML+8,_pd.Y+24+(i*12));});
+    var ncX=ML+gcW+8;
+    _pRectS(ncX,_pd.Y,gcW,ch,[255,245,245],[180,100,100],0.4,4);
+    _pFont(6.5,'bold',[138,42,42]);_pd.doc.setCharSpace(0.4);_pT('❌ NÃO COBRE',ncX+8,_pd.Y+13);_pd.doc.setCharSpace(0);
+    _pFont(8.5,'normal',[100,42,42]);
+    ncl.forEach(function(l,i){_pT(l,ncX+8,_pd.Y+24+(i*12));});
+    _pd.Y+=ch+12;
   } else {
-    var gSLns=doc.splitTextToSize('As peças fornecidas possuem garantia de qualidade de fabricação até o momento da entrega ao cliente. Após a entrega, a responsabilidade pela integridade, transporte e instalação é do contratante. A '+emp.nome+' se compromete a entregar as peças dentro das especificações acordadas, sem defeitos de fabricação, acabamento e dimensões.',body_w-24);
-    var gSH=gSLns.length*13+36;
-    rectStroke(body_x,Y,body_w,gSH,[254,249,231],[200,168,76],0.5,6);
-    rect(body_x+10,Y+10,130,16,[125,102,8],8);
-    setFont(7.5,'bold',C.white);
-    doc.text('📦 GARANTIA DE FORNECIMENTO',body_x+75,Y+20,{align:'center'});
-    setFont(11,'bold',[74,56,0]);
-    txt('Garantia válida até a entrega',body_x+10,Y+36);
-    setFont(10,'normal',[90,69,0]);
-    var gsy=Y+50;
-    gSLns.forEach(function(l){doc.text(l,body_x+10,gsy);gsy+=13;});
-    Y+=gSH+12;
+    var gsl=_pSpl('As peças fornecidas possuem garantia de qualidade até o momento da entrega ao cliente. Após a entrega, a responsabilidade pela integridade, transporte e instalação é do contratante. A '+emp.nome+' se compromete a entregar as peças dentro das especificações acordadas, sem defeitos de fabricação e dimensões.',_MW()-20);
+    var gsh=gsl.length*12+44;
+    _pChk(gsh+8);
+    _pRectS(ML,_pd.Y,_MW(),gsh,[254,249,231],[200,168,76],0.5,5);
+    _pRect(ML+10,_pd.Y+10,126,16,[125,102,8],8);
+    _pFont(7,'bold',PC.white);_pd.doc.text('📦 GARANTIA DE FORNECIMENTO',ML+73,_pd.Y+20,{align:'center'});
+    _pFont(11,'bold',[74,56,0]);_pT('Garantia válida até a entrega',ML+10,_pd.Y+36);
+    _pFont(9.5,'normal',[90,70,0]);
+    var ggy=_pd.Y+50;
+    gsl.forEach(function(l){_pT(l,ML+10,ggy);ggy+=12;});
+    _pd.Y+=gsh+12;
+  }
+  _pd.Y+=8;
+
+  // ════ ASSINATURAS ════
+  _pSecTitle('Assinaturas');
+  _pChk(90);
+  _pFont(8.5,'normal',PC.gray);
+  _pd.doc.text(emp.cidade+', '+dataStr,PW/2,_pd.Y+10,{align:'center'});
+  _pd.Y+=28;
+  var sigW=_MW()/2-28;
+  _pLine(ML,_pd.Y,ML+sigW,_pd.Y,PC.text,1);
+  _pFont(10,'bold',PC.text);_pT(emp.nome||'',ML,_pd.Y+13);
+  _pFont(7.5,'normal',PC.gray);_pT('Contratada · CNPJ: '+(emp.cnpj||''),ML,_pd.Y+24);
+  var s2x=ML+_MW()/2+20;
+  _pLine(s2x,_pd.Y,s2x+sigW,_pd.Y,PC.text,1);
+  _pFont(10,'bold',PC.text);_pT(_pesc(q.cli||''),s2x,_pd.Y+13);
+  _pFont(7.5,'normal',PC.gray);_pT('Contratante · CPF: ___________________',s2x,_pd.Y+24);
+  _pd.Y+=50;
+
+  // ════ RODAPÉ EM TODAS AS PÁGINAS ════
+  var tot=_pd.doc.getNumberOfPages();
+  for(var pg=1;pg<=tot;pg++){
+    _pd.doc.setPage(pg);
+    _pRect(0,PH-28,PW,28,PC.darkHdr);
+    _pFont(7.5,'normal',[130,105,35]);
+    _pd.doc.text((emp.nome||'')+'  ·  '+(emp.cnpj||''),ML,PH-10);
+    _pd.doc.text('Gerado em '+dataSimples+'  ·  Pág '+pg+'/'+tot,PW-MR,PH-10,{align:'right'});
   }
 
-  // ── ASSINATURAS ──
-  checkPage(110);
-  Y=secTitle('Assinaturas',Y);
-  setFont(9,'normal',C.gray);
-  doc.text(emp.cidade+', '+dataStr,PW/2,Y+10,{align:'center'});
-  Y+=26;
-  var sigW=body_w/2-30;
-  // Linha contratada
-  line(body_x,Y,body_x+sigW,Y,C.text,1);
-  setFont(10,'bold',C.text);
-  txt(emp.nome||'',body_x,Y+13);
-  setFont(8,'normal',C.gray);
-  txt('Contratada · CNPJ: '+(emp.cnpj||''),body_x,Y+25);
-  // Linha contratante
-  var sig2x=body_x+body_w/2+20;
-  line(sig2x,Y,sig2x+sigW,Y,C.text,1);
-  setFont(10,'bold',C.text);
-  txt(_ctrEsc(q.cli||''),sig2x,Y+13);
-  setFont(8,'normal',C.gray);
-  txt('Contratante · CPF: ___________________',sig2x,Y+25);
-  Y+=44;
-
-  // ── RODAPÉ ──
-  // Adicionar rodapé em todas as páginas
-  var totalPages=doc.getNumberOfPages();
-  for(var pg=1;pg<=totalPages;pg++){
-    doc.setPage(pg);
-    rect(0,PH-32,PW,32,C.darkHdr);
-    setFont(8,'normal',[201,168,76,80]);
-    doc.setTextColor(100,80,20);
-    doc.setTextColor(150,120,40);
-    doc.text(emp.nome+'  ·  '+emp.cnpj,ML,PH-14);
-    doc.text('Contrato gerado em '+dataSimples+'  ·  Pg '+pg+'/'+totalPages,PW-MR,PH-14,{align:'right'});
-  }
-
-  // ════════════════════════════════════════
-  // GERAR BLOB E MOSTRAR VIEWER
-  // ════════════════════════════════════════
-  var pdfBlob=doc.output('blob');
+  var pdfBlob=_pd.doc.output('blob');
   var pdfUrl=URL.createObjectURL(pdfBlob);
-  _mostrarViewerContrato(pdfBlob,pdfUrl,fileName,contrNum,q,emp);
+  _mostrarViewerContrato(pdfBlob,pdfUrl,nomeArq,contrNum,q,emp);
 }
 
-// ── Viewer de tela cheia ──
-function _mostrarViewerContrato(pdfBlob,pdfUrl,fileName,contrNum,q,emp){
-  var old=document.getElementById('contrPdfOv');if(old)old.remove();
-
+function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
+  var old=document.getElementById('contrPdfOv');if(old){old.remove();}
   var ov=document.createElement('div');
   ov.id='contrPdfOv';
   ov.style.cssText='position:fixed;inset:0;background:#111;z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
 
-  // ── Barra superior ──
   var bar=document.createElement('div');
-  bar.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 12px;background:#0a1f12;border-bottom:1px solid rgba(77,184,122,.35);flex-shrink:0;flex-wrap:wrap;';
+  bar.style.cssText='display:flex;align-items:center;gap:7px;padding:9px 12px;background:#0a1f12;border-bottom:1px solid rgba(77,184,122,.35);flex-shrink:0;flex-wrap:wrap;';
   bar.innerHTML=
-    '<span style="flex:1;font-size:.78rem;font-weight:700;color:#4db87a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+contrNum+' — '+(q.cli||'')+'</span>'
-    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.8);padding:7px 12px;border-radius:8px;font-size:.73rem;cursor:pointer;">✕ Fechar</button>'
-    +'<button id="cPdfDown" style="background:#0d2a18;border:1px solid rgba(77,184,122,.35);color:#4db87a;padding:7px 14px;border-radius:8px;font-size:.73rem;cursor:pointer;font-weight:600;">⬇ Salvar PDF</button>'
-    +'<button id="cPdfWA"  style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:7px 14px;border-radius:8px;font-size:.73rem;cursor:pointer;font-weight:700;">💬 WhatsApp</button>';
+    '<span style="flex:1;font-size:.76rem;font-weight:700;color:#4db87a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+contrNum+' — '+(q.cli||'')+'</span>'
+    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.8);padding:7px 12px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕ Fechar</button>'
+    +'<button id="cPdfDown" style="background:#0d2a18;border:1px solid rgba(77,184,122,.4);color:#4db87a;padding:7px 14px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:600;font-family:Outfit,sans-serif;">⬇ Salvar PDF</button>'
+    +'<button id="cPdfWA"  style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:7px 15px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:700;font-family:Outfit,sans-serif;">💬 WhatsApp</button>';
   ov.appendChild(bar);
 
-  // ── Área de preview ──
   var preview=document.createElement('div');
-  preview.style.cssText='flex:1;overflow:auto;background:#333;display:flex;justify-content:center;padding:16px 8px;';
-
-  // Embed PDF no iframe (funciona em Android Chrome e iOS Safari)
+  preview.style.cssText='flex:1;overflow:auto;background:#444;display:flex;justify-content:center;padding:12px 6px;';
   var iframe=document.createElement('iframe');
-  iframe.src=pdfUrl;
-  iframe.style.cssText='width:100%;max-width:820px;height:100%;min-height:500px;border:none;background:#fff;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+  iframe.src=url+'#toolbar=1&navpanes=0';
+  iframe.style.cssText='width:100%;max-width:820px;height:100%;min-height:500px;border:none;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;';
   iframe.title='Contrato PDF';
   preview.appendChild(iframe);
   ov.appendChild(preview);
   document.body.appendChild(ov);
 
-  // ── Fechar ──
-  document.getElementById('cPdfClose').onclick=function(){
-    ov.remove();
-    URL.revokeObjectURL(pdfUrl);
-  };
+  document.getElementById('cPdfClose').onclick=function(){ov.remove();URL.revokeObjectURL(url);};
 
-  // ── Salvar PDF ──
   document.getElementById('cPdfDown').onclick=function(){
-    var a=document.createElement('a');
-    a.href=pdfUrl;
-    a.download=fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    if(typeof toast==='function')toast('✓ PDF salvo: '+fileName);
+    var a=document.createElement('a');a.href=url;a.download=nomeArq;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    if(typeof toast==='function')toast('✓ PDF salvo!');
   };
 
-  // ── WhatsApp ──
   document.getElementById('cPdfWA').onclick=function(){
-    var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-    var telEmp=(emp&&emp.tel)?emp.tel.replace(/\D/g,''):'';
-    var telCliente=(q&&q.tel)?q.tel.replace(/\D/g,''):'';
-    // Tenta Web Share API (Android nativo — envia arquivo direto para WhatsApp)
+    var pdfFile=new File([blob],nomeArq,{type:'application/pdf'});
     if(navigator.share&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
       navigator.share({
         files:[pdfFile],
         title:'Contrato '+contrNum+' — '+(q.cli||''),
-        text:(emp&&emp.nome?emp.nome:'HR Mármores')+'\nContrato de Fornecimento'+(q.tipo?' — '+q.tipo:''),
-      }).then(function(){
-        if(typeof toast==='function')toast('✓ Compartilhado!');
-      }).catch(function(err){
-        if(err.name!=='AbortError')_ctrFallbackWA(pdfUrl,fileName,telCliente,contrNum,q,emp);
-      });
+        text:(emp.nome||'HR')+'\nContrato de Fornecimento'+(q.tipo?' — '+q.tipo:''),
+      }).then(function(){if(typeof toast==='function')toast('✓ Enviado!');})
+       .catch(function(e){if(e&&e.name!=='AbortError')_ctrWaFb(url,nomeArq,q,emp,contrNum);});
     } else {
-      // Fallback: link wa.me com mensagem de texto + download separado
-      _ctrFallbackWA(pdfUrl,fileName,telCliente,contrNum,q,emp);
+      _ctrWaFb(url,nomeArq,q,emp,contrNum);
     }
   };
 
   if(typeof toast==='function')toast('✓ Contrato PDF pronto — '+contrNum);
 }
 
-function _ctrFallbackWA(pdfUrl,fileName,tel,contrNum,q,emp){
-  // Abre o PDF para download e logo em seguida o WhatsApp com a mensagem
-  var a=document.createElement('a');
-  a.href=pdfUrl;
-  a.download=fileName;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  var msg='Olá'+(q.cli?' '+_ctrEsc(q.cli):'')+',\n\nSegue o contrato referente ao seu pedido de '+(q.tipo||'mármore/granito')+'.\n\nValor: '+_ctrPdfFm(q.vista||0)+'\n\n'+((emp&&emp.nome)||'HR Mármores');
-  var waNum=tel||'';
-  var waUrl='https://wa.me/'+(waNum?'55'+waNum:'')+'?text='+encodeURIComponent(msg);
-  setTimeout(function(){window.open(waUrl,'_blank');},800);
+function _ctrWaFb(url,nomeArq,q,emp,contrNum){
+  var a=document.createElement('a');a.href=url;a.download=nomeArq;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  var tel=(q.tel||'').replace(/\D/g,'');
+  var msg='Olá'+(q.cli?' '+q.cli:'')+',\n\nSegue o contrato referente ao seu pedido de '+(q.tipo||'mármore/granito')+'.\n\nValor: '+_pfm(q.vista||0)+'\n\n'+(emp.nome||'HR');
+  setTimeout(function(){
+    window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
+  },700);
   if(typeof toast==='function')toast('📥 PDF baixado — abrindo WhatsApp...');
 }
 
-// ════════════════════════════════════════
-// SUBSTITUIÇÃO DA FUNÇÃO ORIGINAL
-// Intercepta _gerarContratoHtml e redireciona para a versão vetorial
-// ════════════════════════════════════════
+// ════ PATCH ════
 (function(){
-  // Aguarda app-core.js carregar _gerarContratoHtml
   var t=0,iv=setInterval(function(){
     t++;
-    if(typeof _gerarContratoHtml==='function'&&!_gerarContratoHtml._pdfPatched){
-      var _orig=_gerarContratoHtml;
+    if(typeof _gerarContratoHtml==='function'&&!_gerarContratoHtml._v4){
       _gerarContratoHtml=function(q,pgConds,prazo,valid,parc,taxa){
-        // Redireciona para geração vetorial
         gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa);
       };
-      _gerarContratoHtml._pdfPatched=true;
+      _gerarContratoHtml._v4=true;
       clearInterval(iv);
-      console.log('[ContratoPDF] ✓ Modo vetorial ativado');
+      console.log('[ContratoPDF v4] ✓');
     }
-    if(t>80)clearInterval(iv);
-  },150);
+    if(t>100)clearInterval(iv);
+  },100);
 })();
