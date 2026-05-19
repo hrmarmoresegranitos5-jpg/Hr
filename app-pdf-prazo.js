@@ -8,6 +8,45 @@
   // Aguarda o DOM estar pronto para sobrescrever gerarPDF
   var _originalGerarPDF = null;
 
+  // Modo atual: 'agenda' ou 'manual'
+  window._pdfModo = 'agenda';
+
+  window.pdfSetModo = function(modo) {
+    window._pdfModo = modo;
+    var btnAg  = document.getElementById('pdfModoAgenda');
+    var btnMan = document.getElementById('pdfModoManual');
+    var hint   = document.getElementById('pdfPrazoHint');
+    var info   = document.getElementById('pdfPrazoInfo');
+    if (!btnAg) return;
+    if (modo === 'agenda') {
+      btnAg.style.borderColor  = 'var(--gold)';
+      btnAg.style.background   = 'rgba(201,168,76,.15)';
+      btnAg.style.color        = 'var(--gold)';
+      btnMan.style.borderColor = 'var(--bd2)';
+      btnMan.style.background  = 'transparent';
+      btnMan.style.color       = 'var(--t3)';
+      // Atualiza info de agenda
+      var last = lastEnd(), hoje = td(), isUrg = (window._urgPct||0)>0;
+      if (isUrg) {
+        info.innerHTML = '🚨 <strong style="color:#ff9060;">Serviço urgente</strong> — entra na frente da fila.<br>Estimativa conta a partir de <strong>hoje</strong>.';
+      } else if (last && last > hoje) {
+        info.innerHTML = '📋 Agenda ocupada até <strong>' + fd(last) + '</strong>.<br>A estimativa começa a partir dessa data.';
+      } else {
+        info.innerHTML = '📋 Agenda livre — estimativa começa hoje.';
+      }
+      if (hint) hint.textContent = 'A estimativa começa após o último serviço na fila da agenda.';
+    } else {
+      btnMan.style.borderColor = 'var(--gold)';
+      btnMan.style.background  = 'rgba(201,168,76,.15)';
+      btnMan.style.color       = 'var(--gold)';
+      btnAg.style.borderColor  = 'var(--bd2)';
+      btnAg.style.background   = 'transparent';
+      btnAg.style.color        = 'var(--t3)';
+      if (info) info.innerHTML = '⚡ <strong>Prazo a partir de hoje</strong> — sem considerar a fila da agenda.';
+      if (hint) hint.textContent = 'A entrega será contada a partir da data de hoje.';
+    }
+  };
+
   function _instalar() {
     _originalGerarPDF = window.gerarPDF;
     window.gerarPDF = function () {
@@ -35,7 +74,9 @@
       }
 
       document.getElementById('pdfPrazoDias').value = '';
+      window._pdfModo = 'agenda';
       showMd('pdfPrazoMd');
+      setTimeout(function(){ if(typeof pdfSetModo==='function') pdfSetModo('agenda'); }, 50);
     };
   }
 
@@ -47,8 +88,11 @@
     var hoje = td();
     var last = lastEnd();
     var isUrgent = (window._urgPct || 0) > 0;
-    // Urgente: projeto fura a fila — base é HOJE, não o fim da fila
-    var base = isUrgent ? hoje : ((last && last > hoje) ? last : hoje);
+    var isModoManual = (window._pdfModo === 'manual');
+    // Manual: conta do hoje, ignorando a fila
+    // Urgente: também conta do hoje (fura a fila)
+    // Agenda: espera o fim da fila
+    var base = (isModoManual || isUrgent) ? hoje : ((last && last > hoje) ? last : hoje);
     var dataEst = addD(base, dias);
 
     var emProd = (DB.j || []).filter(function (j) { return !j.done; }).length;
