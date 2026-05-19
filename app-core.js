@@ -167,7 +167,7 @@ var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:1
   // Borda Piscina
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
-  rdbox_sem:0,rdbox_sup:38};
+  rdbox_sem:0,rdbox_sup:38,rdbox_cola:20};
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
 function initCFG(){
@@ -675,7 +675,7 @@ SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml'},{k:'pe
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
-SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
 // ─── DIVISÓRIA WC ─────────────────────────────────────────────
 SV_DEFS['🚽 Divisória WC']=[
@@ -1993,9 +1993,11 @@ function calcular(){
     var m2=0,acT=0,acL=[],acN=[],sfPcs=[],pds=[];
 
     // Peças
+    // Rodapé de Box: 2 pedras coladas fundo com fundo → área × 2
+    var _pecaMult = tipo==='Rodapé de Box' ? 2 : 1;
     amb.pecas.forEach(function(p){
       if(p.w&&p.h){
-        var a=(p.w/100)*(p.h/100)*(p.q||1);
+        var a=(p.w/100)*(p.h/100)*(p.q||1)*_pecaMult;
         m2+=a;
         pds.push({desc:p.desc||'Peça',w:p.w,h:p.h,q:p.q||1,m2:a});
         allPds.push({desc:(tipo+': '+(p.desc||'Peça')),w:p.w,h:p.h,q:p.q||1,m2:a});
@@ -3488,10 +3490,22 @@ function buildCfg(){
         {k:'reb_a',     l:'Rebaixo Americano',      preco:CFG.sv.reb_a||380,    grp:'Rebaixo',u:'un'},
         {k:'tubo',      l:'Tubo Metálico',          preco:CFG.sv.tubo||60,      grp:'Fixação',u:'un'},
         {k:'cant',      l:'Cantoneira',             preco:CFG.sv.cant||110,     grp:'Fixação',u:'un'},
+        {k:'rdbox_sup', l:'Rodapé de Box (1 lado)',  preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
+        {k:'rdbox_cola',l:'Cola p/ Colagem',           preco:CFG.sv.rdbox_cola||20, grp:'Rodapé de Box',u:'un'},
         {k:'inst',      l:'Instalação Padrão',      preco:CFG.sv.inst||280,     grp:'Instalação',u:'un'},
         {k:'inst_c',    l:'Instalação Complexa',    preco:CFG.sv.inst_c||420,   grp:'Instalação',u:'un'},
         {k:'desl_for',  l:'Deslocamento fora cidade',preco:CFG.sv.desl_for||3.5,grp:'Deslocamento',u:'km'}
       ];
+      svCFG();
+    }
+    // Migração: adicionar rdbox_sup e rdbox_cola se não existirem
+    if(!CFG.svList.find(function(x){return x.k==='rdbox_sup';})){
+      CFG.svList.push({k:'rdbox_sup',l:'Rodapé de Box (1 lado)',preco:CFG.sv.rdbox_sup||38,grp:'Rodapé de Box',u:'ml'});
+      svCFG();
+    }
+    if(!CFG.svList.find(function(x){return x.k==='rdbox_cola';})){
+      CFG.svList.push({k:'rdbox_cola',l:'Cola p/ Colagem',preco:CFG.sv.rdbox_cola||20,grp:'Rodapé de Box',u:'un'});
+      if(!CFG.sv['rdbox_cola'])CFG.sv['rdbox_cola']=20;
       svCFG();
     }
 
