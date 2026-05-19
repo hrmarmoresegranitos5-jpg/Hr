@@ -4493,36 +4493,99 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
   +'</div>' // page
 
-  +'<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},500);});<\/script>'
   +'</body></html>';
 
-  // Preview + Download
-  var nomeCliente=(q.cli||'cliente').replace(/\s+/g,'_').toLowerCase();
-  var blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  var url=URL.createObjectURL(blob);
-  var prevOv=document.createElement('div');
-  prevOv.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;';
-  var prevBar=document.createElement('div');
-  prevBar.style.cssText='width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;gap:10px;flex-shrink:0;';
-  prevBar.innerHTML='<span style="color:#4db87a;font-weight:700;font-size:.9rem;">📜 Prévia do Contrato</span>'
-    +'<div style="display:flex;gap:8px;">'
-    +'<button id="contrPrevDownBtn" style="background:#0a1f12;border:1px solid #1a4030;border-radius:9px;padding:8px 14px;color:#4db87a;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;">⬇ Baixar</button>'
-    +'<button id="contrPrevCloseBtn" style="background:var(--s3,#1a1a22);border:1px solid #333;border-radius:9px;padding:8px 12px;color:#aaa;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✕ Fechar</button>'
-    +'</div>';
-  var prevFr=document.createElement('iframe');
-  prevFr.src=url;
-  prevFr.style.cssText='flex:1;width:100%;max-width:520px;border:none;background:#fff;';
-  prevOv.appendChild(prevBar);
-  prevOv.appendChild(prevFr);
-  document.body.appendChild(prevOv);
-  document.getElementById('contrPrevCloseBtn').onclick=function(){prevOv.remove();URL.revokeObjectURL(url);};
-  document.getElementById('contrPrevDownBtn').onclick=function(){
-    var a=document.createElement('a');
-    a.href=url;a.download='Contrato_'+nomeCliente+'_HR.html';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    setTimeout(function(){URL.revokeObjectURL(url);},8000);
-    toast('📜 Contrato baixado!');
-  };
+  // ── PDF profissional: html2canvas + jsPDF + share (igual ao orçamento) ──
+  var nomeCliente=(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_');
+  var contrNum='CTR-'+String(q.id).slice(-6);
+  var fileName='Contrato_'+contrNum+'_'+nomeCliente+'.pdf';
+
+  function _renderContrPDF(){
+    var ov=document.createElement('div');
+    ov.id='contrPdfOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;';
+    var barEl=document.createElement('div');
+    barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0a1f12;border-bottom:1px solid rgba(77,184,122,.4);flex-shrink:0;flex-wrap:wrap;';
+    barEl.innerHTML=''
+      +'<span style="flex:1;font-size:.75rem;color:#4db87a;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">\u2318 '+contrNum+' \u2014 '+(q.cli||'')+'</span>'
+      +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">\u2715</button>'
+      +'<button id="cPdfDown" disabled style="background:#0a1f12;border:1px solid rgba(77,184,122,.2);color:rgba(77,184,122,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">\u23f3 Gerando...</button>'
+      +(navigator.share?'<button id="cPdfShare" disabled style="background:#0a1f12;border:1px solid rgba(77,184,122,.2);color:rgba(77,184,122,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">\u2197 Compartilhar</button>':'');
+    var preview=document.createElement('div');
+    preview.style.cssText='flex:1;overflow-y:auto;background:#333;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+    preview.innerHTML='<div style="text-align:center;color:#4db87a;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">\u23f3 Gerando contrato em PDF...</div>';
+    ov.appendChild(barEl);
+    ov.appendChild(preview);
+    document.body.appendChild(ov);
+    document.getElementById('cPdfClose').onclick=function(){ov.remove();};
+
+    var offscreen=document.createElement('div');
+    offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:800px;background:#fff;z-index:-1;';
+    offscreen.innerHTML=html;
+    document.body.appendChild(offscreen);
+
+    function enableBtn(id,label,cb){
+      var b=document.getElementById(id);if(!b)return;
+      b.textContent=label;b.disabled=false;
+      b.style.color='#4db87a';b.style.borderColor='rgba(77,184,122,.55)';b.style.background='#0a1f12';
+      b.onclick=cb;
+    }
+
+    setTimeout(function(){
+      var target=offscreen.querySelector('.page')||offscreen.firstElementChild||offscreen;
+      html2canvas(target,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:800,windowWidth:800})
+      .then(function(canvas){
+        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+        var jsPDF=window.jspdf.jsPDF;
+        var pageW=595.28;
+        var pageH=pageW*(canvas.height/canvas.width);
+        var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
+        pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,pageH);
+        var pdfBlob=pdf.output('blob');
+        var img=document.createElement('img');
+        img.src=canvas.toDataURL('image/jpeg',0.88);
+        img.style.cssText='width:100%;max-width:800px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+        preview.innerHTML='';preview.appendChild(img);
+        enableBtn('cPdfDown','\u2b07 Salvar PDF',function(){
+          var url=URL.createObjectURL(pdfBlob);
+          var a=document.createElement('a');
+          a.href=url;a.download=fileName;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},30000);
+          toast('\u2713 PDF salvo: '+fileName);
+        });
+        if(navigator.share){
+          enableBtn('cPdfShare','\u2197 Compartilhar',function(){
+            var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
+            var sd={title:'Contrato '+contrNum+' \u2014 '+(q.cli||''),text:(emp.nome||'HR M\u00e1rmores')+' \u2014 Contrato de Fornecimento e Instala\u00e7\u00e3o'};
+            if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
+            navigator.share(sd).catch(function(){});
+          });
+        }
+        toast('\u2713 Contrato PDF pronto \u2014 '+contrNum);
+      }).catch(function(err){
+        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+        preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar PDF.<br>Feche e tente novamente.</div>';
+        console.error('contrPDF:',err);
+      });
+    },300);
+  }
+
+  if(typeof html2canvas==='undefined'||typeof window.jspdf==='undefined'){
+    toast('Carregando bibliotecas PDF...');
+    var _cs1=document.createElement('script');
+    _cs1.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    _cs1.onload=function(){
+      var _cs2=document.createElement('script');
+      _cs2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      _cs2.onload=_renderContrPDF;
+      document.head.appendChild(_cs2);
+    };
+    document.head.appendChild(_cs1);
+  } else {
+    _renderContrPDF();
+  }
+}
 }
 function _numPorExtenso(n){
   var m={6:'seis',12:'doze',3:'três',1:'um'};
