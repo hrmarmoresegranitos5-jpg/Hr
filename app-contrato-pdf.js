@@ -243,7 +243,7 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
   var svcs=(q.acN&&q.acN.length?q.acN:[]).concat(['Fabricação e acabamento completo']);
   svcs.forEach(function(s){
     _pChk(16);
-    _pFont(10,'bold',PC.gold);_pT('✓',ML,_pd.Y);
+    _pFont(10,'bold',PC.gold);_pT('+',ML,_pd.Y);
     _pFont(9.5,'normal',PC.text);
     var sl=_pSpl(_pesc(s),_MW()-16);
     sl.forEach(function(l,i){_pT(l,ML+13,_pd.Y+(i*12));});
@@ -274,7 +274,7 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
     _pFont(17,'bold',PC.gold);_pT(parc+'× de '+_pfm(vCartao/parc),ML+14,_pd.Y+34);
     _pLine(ML+14,_pd.Y+40,PW-MR-14,_pd.Y+40,[150,120,40],0.4);
     _pFont(7.5,'normal',[100,195,130]);_pd.doc.setCharSpace(0.5);
-    _pT('↓ À VISTA ('+taxa+'% de desconto)',ML+14,_pd.Y+52);_pd.doc.setCharSpace(0);
+    _pT('* A VISTA ('+taxa+'% de desconto)',ML+14,_pd.Y+52);_pd.doc.setCharSpace(0);
     _pFont(12,'bold',[100,195,130]);_pd.doc.text(_pfm(vista),PW-MR-14,_pd.Y+52,{align:'right'});
   } else {
     _pFont(7.5,'normal',[160,155,145]);_pd.doc.setCharSpace(0.9);
@@ -328,8 +328,8 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
     var gh=(gl1.length+gl2.length)*12+48;
     _pChk(gh+8);
     _pRectS(ML,_pd.Y,_MW(),gh,PC.greenLt,[100,180,100],0.5,5);
-    _pRect(ML+10,_pd.Y+10,106,16,PC.green,8);
-    _pFont(7,'bold',PC.white);_pd.doc.text('✅ GARANTIA OFICIAL',ML+63,_pd.Y+20,{align:'center'});
+    _pRect(ML+10,_pd.Y+10,116,16,PC.green,8);
+    _pFont(7,'bold',PC.white);_pd.doc.text('GARANTIA OFICIAL 12 MESES',ML+68,_pd.Y+20,{align:'center'});
     _pFont(11,'bold',PC.dark);_pT('12 meses para peças instaladas pela nossa equipe',ML+10,_pd.Y+36);
     _pFont(9.5,'normal',[42,74,42]);
     var gy=_pd.Y+50;
@@ -345,12 +345,12 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
     var ncl=_pSpl('Danos por mau uso ou impactos · Produtos químicos inadequados · Problemas estruturais do imóvel · Desgaste natural · Peças não instaladas pela HR após entrega',gcW-16);
     var ch=Math.max(cbl.length,ncl.length)*12+32;
     _pRectS(ML,_pd.Y,gcW,ch,PC.greenLt,[100,180,100],0.4,4);
-    _pFont(6.5,'bold',[42,106,42]);_pd.doc.setCharSpace(0.4);_pT('✅ COBRE (12 MESES)',ML+8,_pd.Y+13);_pd.doc.setCharSpace(0);
+    _pFont(6.5,'bold',[42,106,42]);_pd.doc.setCharSpace(0.4);_pT('COBRE (12 MESES)',ML+8,_pd.Y+13);_pd.doc.setCharSpace(0);
     _pFont(8.5,'normal',[42,74,42]);
     cbl.forEach(function(l,i){_pT(l,ML+8,_pd.Y+24+(i*12));});
     var ncX=ML+gcW+8;
     _pRectS(ncX,_pd.Y,gcW,ch,[255,245,245],[180,100,100],0.4,4);
-    _pFont(6.5,'bold',[138,42,42]);_pd.doc.setCharSpace(0.4);_pT('❌ NÃO COBRE',ncX+8,_pd.Y+13);_pd.doc.setCharSpace(0);
+    _pFont(6.5,'bold',[138,42,42]);_pd.doc.setCharSpace(0.4);_pT('NAO COBRE',ncX+8,_pd.Y+13);_pd.doc.setCharSpace(0);
     _pFont(8.5,'normal',[100,42,42]);
     ncl.forEach(function(l,i){_pT(l,ncX+8,_pd.Y+24+(i*12));});
     _pd.Y+=ch+12;
@@ -359,8 +359,8 @@ function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
     var gsh=gsl.length*12+44;
     _pChk(gsh+8);
     _pRectS(ML,_pd.Y,_MW(),gsh,[254,249,231],[200,168,76],0.5,5);
-    _pRect(ML+10,_pd.Y+10,126,16,[125,102,8],8);
-    _pFont(7,'bold',PC.white);_pd.doc.text('📦 GARANTIA DE FORNECIMENTO',ML+73,_pd.Y+20,{align:'center'});
+    _pRect(ML+10,_pd.Y+10,150,16,[125,102,8],8);
+    _pFont(7,'bold',PC.white);_pd.doc.text('GARANTIA DE FORNECIMENTO',ML+85,_pd.Y+20,{align:'center'});
     _pFont(11,'bold',[74,56,0]);_pT('Garantia válida até a entrega',ML+10,_pd.Y+36);
     _pFont(9.5,'normal',[90,70,0]);
     var ggy=_pd.Y+50;
