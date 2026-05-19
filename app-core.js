@@ -2498,6 +2498,91 @@ function gerarPDF(){
     if(bpAcabTipoPDF==='antiderap'||bpAcabTipoPDF==='boleada')matNomePDF+=' Premium';
   }
 
+  // ── Detecta múltiplos materiais ──
+  var _snaps=(q.ambSnap||[]).filter(function(a){return a.tipo!=='Túmulo'&&a.selMat;});
+  var _matIds=[];
+  _snaps.forEach(function(a){if(_matIds.indexOf(a.selMat)===-1)_matIds.push(a.selMat);});
+  var _multiMat=_matIds.length>1;
+
+  // Calcula m² por pedra
+  function _m2PosMat(mid){
+    return _snaps.filter(function(a){return a.selMat===mid;}).reduce(function(s,a){
+      return s+(a.pecas||[]).reduce(function(s2,p){
+        return s2+(p.w&&p.h?(p.w/100)*(p.h/100)*(p.q||1):0);
+      },0);
+    },0);
+  }
+
+  // Seção de material: única ou múltipla
+  var matSecHtml;
+  if(!_multiMat){
+    // card único (original)
+    matSecHtml=sh('Material Selecionado')
+      +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;box-shadow:0 4px 20px rgba(201,168,76,0.15);">'
+        +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:110px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'">'
+          +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0.45) 50%,rgba(0,0,0,0.12) 100%);">'
+            +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
+              +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:6px;">MATERIAL SELECIONADO</div>'
+              +'<div style="font-size:26px;font-weight:900;color:#C9A84C;line-height:1;letter-spacing:-0.3px;">'+matNomePDF+'</div>'
+              +'<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:5px;letter-spacing:1px;">'+(mat.cat||'')+(mat.cat&&mat.fin?' · ':'')+( mat.fin||'')+'</div>'
+            +'</div>'
+            +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
+              +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">TOTAL DE PEDRA</div>'
+              +'<div style="font-size:26px;font-weight:900;color:#fff;line-height:1;">'+q.m2.toFixed(3)+' m&sup2;</div>'
+            +'</div>'
+          +'</div>'
+        +'</div>'
+        +'<div style="background:#fdfaf3;padding:14px 20px;display:flex;gap:0;border-top:2px solid #C9A84C;">'
+          +'<div style="flex:1;padding-right:16px;border-right:1px solid #e8dfc4;">'
+            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Categoria</div>'
+            +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.cat||'Granito')+'</div>'
+          +'</div>'
+          +'<div style="flex:1;padding-left:16px;padding-right:16px;border-right:1px solid #e8dfc4;">'
+            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Acabamento</div>'
+            +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.fin||'Polida')+'</div>'
+          +'</div>'
+          +'<div style="flex:2;padding-left:16px;">'
+            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Características</div>'
+            +'<div style="font-size:10.5px;color:#555;line-height:1.5;">'+(mat.desc?mat.desc.substring(0,120)+(mat.desc.length>120?'…':''):'Material de alta qualidade para sua obra.')+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>';
+  } else {
+    // múltiplos materiais — uma linha por pedra
+    var _mRows='';
+    _matIds.forEach(function(mid,idx){
+      var _st=CFG.stones.find(function(s){return s.id===mid;})||{nm:mid,fin:'',cat:'',desc:'',pr:0,tx:'',photo:''};
+      var _m2=_m2PosMat(mid);
+      var _ambs=_snaps.filter(function(a){return a.selMat===mid;}).map(function(a){return a.tipo;}).join(' · ');
+      var _border=idx<_matIds.length-1?'border-bottom:1px solid #e8dfc4;':'';
+      _mRows+='<div style="display:flex;align-items:stretch;'+_border+'">'
+        +'<div class="'+(_st.photo?'':_st.tx)+'" style="width:72px;flex-shrink:0;min-height:72px;'
+          +(_st.photo?'background-image:url(\''+_st.photo+'\');background-size:cover;background-position:center;':'')+'">'
+        +'</div>'
+        +'<div style="flex:1;padding:11px 14px;background:#fdfaf3;">'
+          +'<div style="font-size:14px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:2px;">'+escH(_st.nm)+'</div>'
+          +'<div style="font-size:9px;color:#aaa;margin-bottom:5px;">'+(escH(_st.cat)||'')+((_st.cat&&_st.fin)?' · ':'')+escH(_st.fin||'')+'</div>'
+          +'<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+            +'<span style="font-size:9px;color:#888;">📐 '+_m2.toFixed(3)+' m²</span>'
+            +'<span style="font-size:9px;color:#aaa;">'+escH(_ambs)+'</span>'
+          +'</div>'
+        +'</div>'
+        +'<div style="background:#0f0c00;padding:10px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;">'
+          +'<div style="font-size:6px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:2px;">R$/m²</div>'
+          +'<div style="font-size:12px;font-weight:900;color:#C9A84C;">'+fm(_st.pr||0)+'</div>'
+        +'</div>'
+      +'</div>';
+    });
+    matSecHtml=sh('Materiais do Projeto — '+_matIds.length+' pedras')
+      +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;">'
+        +'<div style="background:#0f0c00;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;">'
+          +'<span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:900;">'+_matIds.length+' MATERIAIS DIFERENTES</span>'
+          +'<span style="font-size:13px;font-weight:900;color:#fff;">'+q.m2.toFixed(3)+' m&sup2; total</span>'
+        +'</div>'
+        +_mRows
+      +'</div>';
+  }
+
   var recHtml=''
   // ── WRAPPER
   +'<div id="pdfReceipt" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;">'
@@ -2574,38 +2659,7 @@ function gerarPDF(){
     +'</div>'
 
     // MATERIAL DESTAQUE
-    +sh('Material Selecionado')
-    +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;box-shadow:0 4px 20px rgba(201,168,76,0.15);">'
-      // Faixa textura da pedra
-      +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:110px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'\">'
-        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0.45) 50%,rgba(0,0,0,0.12) 100%);">'
-          +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
-            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:6px;">MATERIAL SELECIONADO</div>'
-            +'<div style="font-size:26px;font-weight:900;color:#C9A84C;line-height:1;letter-spacing:-0.3px;">'+matNomePDF+'</div>'
-            +'<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:5px;letter-spacing:1px;">'+(mat.cat||'')+(mat.cat&&mat.fin?' · ':'')+( mat.fin||'')+'</div>'
-          +'</div>'
-          +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
-            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">TOTAL DE PEDRA</div>'
-            +'<div style="font-size:26px;font-weight:900;color:#fff;line-height:1;">'+q.m2.toFixed(3)+' m&sup2;</div>'
-          +'</div>'
-        +'</div>'
-      +'</div>'
-      // Info card abaixo da textura
-      +'<div style="background:#fdfaf3;padding:14px 20px;display:flex;gap:0;border-top:2px solid #C9A84C;">'
-        +'<div style="flex:1;padding-right:16px;border-right:1px solid #e8dfc4;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Categoria</div>'
-          +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.cat||'Granito')+'</div>'
-        +'</div>'
-        +'<div style="flex:1;padding-left:16px;padding-right:16px;border-right:1px solid #e8dfc4;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Acabamento</div>'
-          +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.fin||'Polida')+'</div>'
-        +'</div>'
-        +'<div style="flex:2;padding-left:16px;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Características</div>'
-          +'<div style="font-size:10.5px;color:#555;line-height:1.5;">'+(mat.desc?mat.desc.substring(0,120)+(mat.desc.length>120?'…':''):'Material de alta qualidade para sua obra.')+'</div>'
-        +'</div>'
-      +'</div>'
-    +'</div>'
+    +matSecHtml
 
     // INCLUSO
     +(svcs?sh('Incluso no Projeto')
