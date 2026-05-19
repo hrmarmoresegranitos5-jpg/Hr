@@ -4421,16 +4421,16 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
       +'<hr class="price-divider">'
       +'<div class="price-row"><span class="price-label" style="color:#5dbf7a;">&#9660; À vista ('+_descPct+'% de desconto)</span><span class="price-val" style="color:#5dbf7a;font-size:13px;">R$ '+fm(_vistaNominal)+'</span></div>')
     :('<div class="price-row"><span class="price-label">À vista</span><span class="price-val main">R$ '+fm(_vistaNominal)+'</span></div>');
-  +'<div class="section">'
+  html+='<div class="section">'
   +'<div class="sec-title">Valores e Pagamento</div>'
   +'<div class="price-box">'
   +_vistaPcBox
   +'</div>'
   +pgCondsHtml
-  +'</div>'
+  +'</div>';
 
   // CONDIÇÕES GERAIS
-  +'<div class="section">'
+  html+='<div class="section">'
   +'<div class="sec-title">Condições Gerais</div>'
   +'<div class="cond-item"><div class="cond-num">1</div><div class="cond-text">A <strong>'+emp.nome+'</strong> se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.</div></div>'
   +'<div class="cond-item"><div class="cond-num">2</div><div class="cond-text">O prazo de produção de <strong>'+prazo+' dias úteis</strong> começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.</div></div>'
@@ -4443,10 +4443,10 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     : '<div class="cond-item"><div class="cond-num">4</div><div class="cond-text">Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.</div></div>'
     +'<div class="cond-item"><div class="cond-num">5</div><div class="cond-text">A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.</div></div>'
   )
-  +'</div>'
+  +'</div>';
 
   // GARANTIA — diferenciada: instalação = 12 meses, só fornecimento = até a entrega
-  +'<div class="section">'
+  html+='<div class="section">'
   +'<div class="sec-title">Garantia</div>'
   +(temInstalacao
     ? '<div class="guarantee">'
@@ -4474,9 +4474,10 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         +'</div>'
       +'</div>'
   )
-  +'</div>'
+  +'</div>';
+
   // ASSINATURAS
-  +'<div class="section">'
+  html+='<div class="section">'
   +'<div class="sec-title">Assinaturas</div>'
   +'<div style="text-align:center;font-size:11px;color:#666;margin-bottom:28px;">'+emp.cidade+', '+dataStr+'</div>'
   +'<div class="sig-area">'
