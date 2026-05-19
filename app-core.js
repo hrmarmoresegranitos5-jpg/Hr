@@ -3986,9 +3986,16 @@ function buildOrcList(list) {
   var IC={Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️','Túmulo':'⚰️',Outro:'📦'};
   var MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   var now=new Date();
+  // Normaliza ISO (YYYY-MM-DD) para DD/MM/YYYY para agrupamento
+  function isoToDmy(d){
+    if(!d)return'';
+    if(d.indexOf('-')>-1){var p=d.split('-');return(p[2]||'')+'/'+(p[1]||'')+'/'+(p[0]||'');}
+    return d;
+  }
   function dGrp(d){
     if(!d)return'Sem data';
-    var p=d.split('/');if(p.length<3)return d;
+    var dmy=isoToDmy(d);
+    var p=dmy.split('/');if(p.length<3)return dmy;
     var dt=new Date(p[2]+'-'+p[1]+'-'+p[0]);
     var df=Math.floor((now-dt)/86400000);
     if(df===0)return'📅 Hoje';if(df===1)return'📅 Ontem';
@@ -3996,8 +4003,10 @@ function buildOrcList(list) {
     return'📅 '+MESES[dt.getMonth()]+' '+dt.getFullYear();
   }
   function dFmt(d){
-    if(!d)return'';var p=d.split('/');
-    return p.length<2?d:p[0]+' '+MESES[+p[1]-1];
+    if(!d)return'';
+    var dmy=isoToDmy(d);
+    var p=dmy.split('/');
+    return p.length<2?dmy:p[0]+' '+MESES[+p[1]-1];
   }
   var groups={},gOrder=[];
   list.forEach(function(q){
@@ -4289,7 +4298,6 @@ function confirmarContrato(){
   var obsContr=document.getElementById('contrObs').value.trim();
   var dataInicio=document.getElementById('contrDataInicio').value||'';
   var dataEntrega=document.getElementById('contrDataEntrega').value||'';
-  var regFin=document.getElementById('contrFinChk').classList.contains('on');
   var vista=q.vista||0;
   var pgConds=[];
   var entPct=50,entgPct=50;
@@ -4302,14 +4310,22 @@ function confirmarContrato(){
   if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalação'});
   if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª:</strong> R$ '+fm(v3)+' na metade'},{icon:'💰',txt:'<strong>3ª:</strong> R$ '+fm(v3)+' na entrega'});}
   // parcelamento mostrado na price-box, não duplicar em pgConds
-  pgConds.push({icon:'📅',txt:'Orçamento válido por '+valid+' dias'});
+  // "Orçamento válido por X dias" removido — não faz sentido em contrato assinado
   if(dataInicio){var di=new Date(dataInicio+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🔨',txt:'<strong>Início:</strong> '+di});}
   if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🚚',txt:'<strong>Previsão de entrega:</strong> '+de+' ('+prazo+' dias úteis)'});}
   if(obsContr)pgConds.push({icon:'📝',txt:obsContr});
-  if(regFin&&entVal>0){
-    addTr('in','Entrada contrato — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entVal);
-    if(entgVal>0&&pgTipo!=='vista')addTr('pend','A receber entrega — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entgVal);
-    toast('✓ Lançado nas Finanças: Entrada R$ '+fm(entVal));
+
+  // ── Lançamento automático nas Finanças ──
+  // Sempre lança: entrada como recebida (in) + entrega como a receber (pend)
+  if(entVal>0){
+    var pgDesc=pgTipo==='vista'?'à vista':(pgTipo==='3x'?'3×':'50/50');
+    addTr('in','Entrada contrato ('+pgDesc+') — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entVal);
+    var toastMsg='✓ Finanças: Entrada R$ '+fm(entVal)+' recebida';
+    if(entgVal>0&&pgTipo!=='vista'){
+      addTr('pend','A receber entrega ('+pgDesc+') — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entgVal);
+      toastMsg+=' · A receber R$ '+fm(entgVal);
+    }
+    toast(toastMsg);
   }
   _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa);
   }catch(err){console.error('confirmarContrato:',err);toast('Erro: '+err.message);}
