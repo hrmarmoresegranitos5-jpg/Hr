@@ -1,546 +1,368 @@
 // ══════════════════════════════════════════════════════════════
-// CONTRATO PDF PROFISSIONAL v4
-// jsPDF vetorial — 2 páginas, texto real, WhatsApp direto
+// CONTRATO PDF v5 — mesmo padrão do orçamento (html2canvas)
+// html2canvas → jsPDF → viewer overlay com canvas preview
 // ══════════════════════════════════════════════════════════════
 
 function _loadContrPDFLibs(cb){
-  if(typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){
-    if(document._ctrAutoTableLoaded){cb();return;}
-  }
+  if(typeof html2canvas!=='undefined'&&typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){cb();return;}
   var s1=document.createElement('script');
-  s1.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  s1.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
   s1.onload=function(){
+    if(typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){cb();return;}
     var s2=document.createElement('script');
-    s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
-    s2.onload=function(){document._ctrAutoTableLoaded=true;cb();};
-    s2.onerror=function(){cb();};
+    s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s2.onload=function(){cb();};
+    s2.onerror=function(){if(typeof toast==='function')toast('Erro ao carregar biblioteca PDF');};
     document.head.appendChild(s2);
   };
-  s1.onerror=function(){if(typeof toast==='function')toast('Erro ao carregar biblioteca PDF');};
+  s1.onerror=function(){if(typeof toast==='function')toast('Erro ao carregar html2canvas');};
   document.head.appendChild(s1);
-}
-
-function _pfm(v){return'R$ '+(parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function _pesc(s){return(s||'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
-function _pstrip(s){return(s||'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ');}
-// Remove emoji e caracteres fora do Latin-1 que quebram no jsPDF/Helvetica
-function _pclean(s){return(s||'').replace(/[^\x00-\xFF]/g,'').trim();}
-
-var PC={
-  gold:[201,168,76],goldDk:[120,90,20],dark:[15,12,0],darkHdr:[20,16,0],
-  white:[255,255,255],offWh:[247,242,232],text:[26,26,26],gray:[100,100,100],
-  lgray:[160,160,160],divider:[220,200,140],
-  green:[42,106,42],greenLt:[232,245,232],
-  warn:[255,248,225],warnBd:[201,168,76],condBg:[250,246,239],
-  rowAlt:[250,245,234],blueLt:[240,244,255],blue:[40,80,160],
-};
-
-// Estado do doc durante geração
-var _pd={doc:null,PW:595.28,PH:841.89,ML:36,MR:36,Y:0};
-function _MW(){return _pd.PW-_pd.ML-_pd.MR;}
-
-function _pRect(x,y,w,h,c,r){
-  _pd.doc.setFillColor(c[0],c[1],c[2]);
-  r?_pd.doc.roundedRect(x,y,w,h,r,r,'F'):_pd.doc.rect(x,y,w,h,'F');
-}
-function _pRectS(x,y,w,h,f,s,lw,r){
-  _pd.doc.setFillColor(f[0],f[1],f[2]);
-  _pd.doc.setDrawColor(s[0],s[1],s[2]);
-  _pd.doc.setLineWidth(lw||0.5);
-  r?_pd.doc.roundedRect(x,y,w,h,r,r,'FD'):_pd.doc.rect(x,y,w,h,'FD');
-}
-function _pLine(x1,y1,x2,y2,c,lw){
-  _pd.doc.setDrawColor(c[0],c[1],c[2]);
-  _pd.doc.setLineWidth(lw||0.5);
-  _pd.doc.line(x1,y1,x2,y2);
-}
-function _pFont(sz,st,c){
-  _pd.doc.setFontSize(sz);
-  _pd.doc.setFont('helvetica',st||'normal');
-  if(c)_pd.doc.setTextColor(c[0],c[1],c[2]);
-}
-function _pT(txt,x,y,opts){_pd.doc.text(String(txt||''),x,y,opts||{});}
-function _pSpl(txt,w){return _pd.doc.splitTextToSize(String(txt||''),w);}
-
-function _pChk(need){
-  if(_pd.Y+need>_pd.PH-44){
-    _pd.doc.addPage();
-    _pd.Y=36;
-  }
-}
-
-function _pSecTitle(label){
-  _pChk(22);
-  _pLine(_pd.ML,_pd.Y,_pd.PW-_pd.MR,_pd.Y,PC.gold,0.5);
-  _pd.Y+=7;
-  _pFont(6.5,'bold',PC.gold);
-  _pd.doc.setCharSpace(2);
-  _pT(label.toUpperCase(),_pd.ML,_pd.Y);
-  _pd.doc.setCharSpace(0);
-  _pd.Y+=11;
-}
-
-function _pCondItem(num,text){
-  var iconLabel=_pclean(String(num||'*'));
-  if(iconLabel==='')iconLabel='*';
-  var lines=_pSpl(_pstrip(text),_MW()-36);
-  var h=Math.max(22,lines.length*12+12);
-  _pChk(h+4);
-  var x=_pd.ML,y=_pd.Y;
-  _pRect(x,y,3,h,PC.gold);
-  _pRect(x+3,y,_MW()-3,h,PC.condBg);
-  _pFont(10,'bold',PC.gold);_pT(iconLabel,x+10,y+h/2+4);
-  _pFont(9.5,'normal',PC.text);
-  var ty=y+(h/2)-(lines.length*12/2)+8;
-  lines.forEach(function(l){_pT(l,x+30,ty);ty+=12;});
-  _pd.Y=y+h+4;
 }
 
 function gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa){
   _loadContrPDFLibs(function(){
-    try{_buildPDF(q,pgConds,prazo,valid,parc,taxa);}
+    try{_buildContratoPDF(q,pgConds,prazo,valid,parc,taxa);}
     catch(e){console.error('contratoPDF:',e);if(typeof toast==='function')toast('Erro PDF: '+e.message);}
   });
 }
 
-function _buildPDF(q,pgConds,prazo,valid,parc,taxa){
-  var jsPDF=window.jspdf.jsPDF;
+function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR',cnpj:'',end:'',cidade:'',tel:''};
   var hoje=new Date();
   var dataStr=hoje.toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
   var dataSimples=hoje.toLocaleDateString('pt-BR');
+
   var contrNum='CTR-'+String(q.id).slice(-6);
-  var nomeArq='Contrato_'+contrNum+'_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
-  var tipo=q.tipo||'Projeto';
+  var fileName='Contrato_'+contrNum+'_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+
+  var tipo=(q.tipo||'Outro');
+  var tiposGrandes=['Cozinha','Banheiro','Lavabo','Escada','Fachada'];
+  var isGrande=tiposGrandes.indexOf(tipo)>=0;
+  var garantiaMeses=isGrande?12:6;
   var temInst=(q.acN||[]).some(function(a){return(a||'').toLowerCase().indexOf('instala')>=0;});
-  var vista=q.vista||0;
-  var vCartao=parc>0?vista*(1+taxa/100):0;
 
-  _pd.doc=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-  _pd.PW=595.28;_pd.PH=841.89;_pd.ML=36;_pd.MR=36;_pd.Y=0;
+  function escH(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function fmV(v){return(parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+  function numExt(n){var m={6:'seis',12:'doze',3:'três',1:'um'};return m[n]||String(n);}
 
-  var PW=_pd.PW,PH=_pd.PH,ML=_pd.ML,MR=_pd.MR;
-
-  // ════ HEADER ════
-  _pRect(0,0,PW,70,PC.darkHdr);
-  _pLine(0,70,PW,70,PC.gold,2);
-  _pFont(15,'bold',PC.gold);_pT(emp.nome||'HR Mármores',ML,29);
-  _pFont(7,'normal',[150,120,40]);_pd.doc.setCharSpace(2.2);
-  _pT('MÁRMORES · GRANITOS · QUARTZITOS',ML,41);_pd.doc.setCharSpace(0);
-  _pFont(8.5,'normal',[200,195,185]);
-  var ey=18;
-  [emp.tel,emp.end,emp.cidade,'CNPJ: '+emp.cnpj].forEach(function(l){
-    if(l&&l.trim()){_pd.doc.text(l,PW-MR,ey,{align:'right'});ey+=12;}
-  });
-
-  // ════ FAIXA TÍTULO ════
-  _pRect(0,70,PW,44,PC.offWh);
-  _pLine(0,114,PW,114,PC.divider,1);
-  _pFont(13,'bold',PC.dark);_pT('CONTRATO DE FORNECIMENTO'+(temInst?' E INSTALAÇÃO':''),ML,91);
-  _pFont(7.5,'normal',PC.gray);_pd.doc.setCharSpace(0.3);
-  _pT('Documento com validade jurídica entre as partes',ML,104);_pd.doc.setCharSpace(0);
-  _pFont(8.5,'normal',PC.gray);
-  _pd.doc.text('Nº '+String(q.id).slice(-6),PW-MR,88,{align:'right'});
-  _pd.doc.text(dataSimples,PW-MR,101,{align:'right'});
-  _pd.Y=128;
-
-  // ════ PARTES CONTRATANTES ════
-  _pSecTitle('Partes Contratantes');
-  var col1=ML,col2=ML+_MW()/2+8,cW=_MW()/2-12;
-  var yBase=_pd.Y;
-
-  // col esquerda
-  _pd.Y=yBase;
-  var campos1=[
-    ['CONTRATADA',emp.nome||''],
-    ['CNPJ',emp.cnpj||''],
-    ['ENDEREÇO',emp.end||''],
-    ['TELEFONE / WHATSAPP',emp.tel||'']
-  ];
-  campos1.forEach(function(c){
-    _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT(c[0],col1,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
-    _pFont(10.5,'bold',PC.text);
-    var ls=_pSpl(c[1]||'—',cW);
-    ls.forEach(function(l){_pT(l,col1,_pd.Y);_pd.Y+=12;});
-    _pd.Y+=3;
-  });
-  var yL=_pd.Y;
-
-  // col direita
-  _pd.Y=yBase;
-  var campos2=[['CONTRATANTE (CLIENTE)',_pesc(q.cli||'')]];
-  if(q.tel)campos2.push(['TELEFONE',_pesc(q.tel)]);
-  if(q.end)campos2.push(['ENDEREÇO DE ENTREGA',_pesc(q.end)]);
-  if(q.cidade)campos2.push(['CIDADE',_pesc(q.cidade)]);
-  campos2.forEach(function(c){
-    _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT(c[0],col2,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
-    _pFont(10.5,'bold',PC.text);
-    var ls=_pSpl(c[1]||'—',cW);
-    ls.forEach(function(l){_pT(l,col2,_pd.Y);_pd.Y+=12;});
-    _pd.Y+=3;
-  });
-  _pd.Y=Math.max(yL,_pd.Y)+10;
-
-  // ════ OBJETO DO CONTRATO ════
-  _pSecTitle('Objeto do Contrato');
-  var yObj=_pd.Y;
-  // tipo
-  _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT('TIPO DE SERVIÇO',col1,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
-  _pFont(11,'bold',PC.text);_pT(tipo,col1,_pd.Y);
-  var yTipo=_pd.Y+13;
-  // material
-  _pd.Y=yObj;
-  _pFont(6.5,'normal',PC.lgray);_pd.doc.setCharSpace(0.7);_pT('MATERIAL',col2,_pd.Y);_pd.doc.setCharSpace(0);_pd.Y+=10;
-  _pFont(10,'bold',PC.text);
-  var matStr=(q.mat||'Pedra Natural')+(q.matPr?' — R$ '+parseFloat(q.matPr).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²':'');
-  var matLs=_pSpl(matStr,cW);
-  matLs.forEach(function(l){_pT(l,col2,_pd.Y);_pd.Y+=12;});
-  _pd.Y=Math.max(yTipo,_pd.Y)+10;
-
-  // Tabela de peças
-  var pRows=[];
+  // ── Montar lista de peças ──
+  var pecasHtml='';
   (q.pds||[]).forEach(function(p,i){
-    if(!p.w||!p.h)return;
-    pRows.push([String(i+1),_pesc(p.desc||'Peça'),p.w+'×'+p.h+' cm',String(p.q||1),((p.w/100)*(p.h/100)*(p.q||1)).toFixed(3)+' m²']);
+    pecasHtml+='<tr><td>'+(i+1)+'</td><td>'+(p.desc||'Peça')+'</td><td>'+p.w+'×'+p.h+' cm</td><td>'+(p.q||1)+'</td><td>'+((p.w/100)*(p.h/100)*(p.q||1)).toFixed(3)+' m²</td></tr>';
   });
   (q.sfPcs||[]).forEach(function(p){
-    pRows.push(['+',_pesc(p.l||'Serviço'),p.w+'ml × '+p.h+' cm',String(p.q||1),(p.m2||0).toFixed(3)+' m²']);
+    pecasHtml+='<tr><td>+</td><td>'+(p.l||'Serviço')+'</td><td>'+p.w+'ml × '+p.h+' cm</td><td>'+(p.q||1)+'</td><td>'+(p.m2||0).toFixed(3)+' m²</td></tr>';
   });
 
-  if(pRows.length>0&&typeof _pd.doc.autoTable==='function'){
-    _pd.doc.autoTable({
-      startY:_pd.Y,
-      margin:{left:ML,right:MR},
-      head:[['Nº','Descrição','Medidas','Qtd','Área (m²)']],
-      body:pRows,
-      styles:{fontSize:9,cellPadding:{top:6,bottom:6,left:7,right:7}},
-      headStyles:{fillColor:[20,16,0],textColor:[201,168,76],fontStyle:'bold',fontSize:7.5},
-      alternateRowStyles:{fillColor:[250,245,234]},
-      columnStyles:{0:{cellWidth:22,halign:'center'},2:{cellWidth:72},3:{cellWidth:28,halign:'center'},4:{cellWidth:58,halign:'right'}},
-      theme:'plain',
-      tableLineColor:[220,200,140],
-      tableLineWidth:0.3,
-    });
-    _pd.Y=_pd.doc.lastAutoTable.finalY+6;
-  } else if(pRows.length>0){
-    pRows.forEach(function(r,i){
-      _pChk(17);
-      if(i%2===0)_pRect(ML,_pd.Y-10,_MW(),16,PC.rowAlt);
-      _pFont(9,'normal',PC.text);_pT(r[1],ML+6,_pd.Y);
-      _pFont(9,'normal',PC.gray);_pd.doc.text(r[2],PW-MR,_pd.Y,{align:'right'});
-      _pd.Y+=17;
-    });
-    _pd.Y+=4;
-  }
+  // ── Serviços inclusos ──
+  var svHtml=(q.acN&&q.acN.length)?q.acN.map(function(s){return'<li>'+escH(s)+'</li>';}).join(''):'<li>Acabamento e instalação profissional</li>';
 
-  // Área total
-  _pChk(26);
-  _pRect(ML,_pd.Y,_MW(),24,PC.offWh,3);
-  _pFont(9,'normal',PC.gray);_pT('Área total fabricada',ML+12,_pd.Y+15);
-  _pFont(13,'bold',PC.text);
-  var m2s=(typeof fm==='function'?fm(q.m2||0):(q.m2||0).toFixed(3))+' m²';
-  _pd.doc.text(m2s,PW-MR-12,_pd.Y+15,{align:'right'});
-  _pd.Y+=32;
+  // ── Condições de pagamento dinâmicas (de pgConds) ──
+  var pgCondsHtml=pgConds.map(function(c){
+    var icon=c.icon==='$'?'💰':c.icon==='i'?'💡':c.icon==='>'?'📅':c.icon==='*'?'📝':'•';
+    return '<div class="cond-item"><div class="cond-num">'+icon+'</div><div class="cond-text">'+c.txt+'</div></div>';
+  }).join('');
 
-  // ════ SERVIÇOS INCLUSOS ════
-  _pSecTitle('Serviços Inclusos');
-  var svcs=(q.acN&&q.acN.length?q.acN:[]).concat(['Fabricação e acabamento completo']);
-  svcs.forEach(function(s){
-    _pChk(16);
-    _pFont(10,'bold',PC.gold);_pT('+',ML,_pd.Y);
-    _pFont(9.5,'normal',PC.text);
-    var sl=_pSpl(_pesc(s),_MW()-16);
-    sl.forEach(function(l,i){_pT(l,ML+13,_pd.Y+(i*12));});
-    _pd.Y+=sl.length*12+3;
-  });
-  if(q.obs){
-    _pChk(38);
-    _pd.Y+=4;
-    var obl=_pSpl(_pesc(q.obs),_MW()-20);
-    var obh=obl.length*12+18;
-    _pRect(ML,_pd.Y,_MW(),obh,PC.blueLt,3);
-    _pRect(ML,_pd.Y,3,obh,PC.blue);
-    _pFont(6.5,'bold',PC.blue);_pd.doc.setCharSpace(0.7);_pT('OBSERVAÇÕES',ML+9,_pd.Y+11);_pd.doc.setCharSpace(0);
-    _pFont(9.5,'normal',PC.text);
-    obl.forEach(function(l,i){_pT(l,ML+9,_pd.Y+22+(i*12));});
-    _pd.Y+=obh+8;
-  }
-  _pd.Y+=6;
-
-  // ════ VALORES E PAGAMENTO ════
-  _pSecTitle('Valores e Pagamento');
-  var pbH=parc>0?66:46;
-  _pChk(pbH+8);
-  _pRectS(ML,_pd.Y,_MW(),pbH,PC.dark,PC.gold,0.4,5);
-  if(parc>0){
-    _pFont(7.5,'normal',[170,165,155]);_pd.doc.setCharSpace(0.7);
-    _pT('VALOR NO CARTÃO ('+parc+'×)',ML+14,_pd.Y+16);_pd.doc.setCharSpace(0);
-    _pFont(17,'bold',PC.gold);_pT(parc+'× de '+_pfm(vCartao/parc),ML+14,_pd.Y+34);
-    _pLine(ML+14,_pd.Y+40,PW-MR-14,_pd.Y+40,[150,120,40],0.4);
-    _pFont(7.5,'normal',[100,195,130]);_pd.doc.setCharSpace(0.5);
-    _pT('* A VISTA ('+taxa+'% de desconto)',ML+14,_pd.Y+52);_pd.doc.setCharSpace(0);
-    _pFont(12,'bold',[100,195,130]);_pd.doc.text(_pfm(vista),PW-MR-14,_pd.Y+52,{align:'right'});
-  } else {
-    _pFont(7.5,'normal',[160,155,145]);_pd.doc.setCharSpace(0.9);
-    _pT('VALOR À VISTA',ML+14,_pd.Y+16);_pd.doc.setCharSpace(0);
-    _pFont(21,'bold',PC.gold);_pT(_pfm(vista),ML+14,_pd.Y+37);
-  }
-  _pd.Y+=pbH+8;
-
-  pgConds.forEach(function(c){_pCondItem(c.icon||'•',c.txt||'');});
-  _pd.Y+=8;
-
-  // ════ FORÇA PG 2 — Condições + Garantia + Assinaturas ════
-  // Sempre garante que estas seções ficam juntas na pg 2
-  _pChk(600);
-
-  // ════ CONDIÇÕES GERAIS ════
-  _pSecTitle('Condições Gerais');
+  // ── Condições gerais ──
+  var condsGeraisHtml='';
   var conds=[
-    [1,'A '+emp.nome+' se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.'],
-    [2,'O prazo de produção de '+prazo+' dias úteis começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.'],
+    [1,'A <strong>'+escH(emp.nome)+'</strong> se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.'],
+    [2,'O prazo de produção de <strong>'+prazo+' dias úteis</strong> começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.'],
     [3,'Variações naturais de cor, veios e textura são características próprias de pedras naturais e não constituem defeito de fabricação.'],
   ];
   if(temInst){
-    conds.push([4,'O cliente é responsável por garantir que o ambiente esteja completamente pronto e nivelado no dia da instalação (gabinetes, paredes, encanamentos). Caso o ambiente não esteja pronto, o cliente terá 2 (dois) dias úteis para regularizar; não regularizado, o agendamento será remarcado conforme o cronograma da contratada, sem custo adicional.']);
+    conds.push([4,'O cliente é responsável por garantir que o ambiente esteja completamente pronto e nivelado no dia da instalação (gabinetes, paredes, encanamentos). Caso o ambiente não esteja pronto, o cliente terá 2 (dois) dias úteis para regularizar.']);
     conds.push([5,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
     conds.push([6,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
   } else {
-    conds.push([4,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
-    conds.push([5,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
+    conds.push([4,'O cliente é responsável por garantir o acesso ao local, bem como que a estrutura de apoio (gabinetes, paredes) esteja pronta e nivelada no dia da instalação.']);
+    conds.push([5,'Alterações no projeto após a aprovação das medidas poderão gerar custos adicionais, sujeitos a novo orçamento.']);
+    conds.push([6,'A rescisão do contrato após o início da produção implicará cobrança mínima de 40% do valor total para cobrir materiais e mão de obra já executados.']);
   }
-  conds.forEach(function(c){_pCondItem(c[0],c[1]);});
+  conds.forEach(function(c){
+    condsGeraisHtml+='<div class="cond-item"><div class="cond-num">'+c[0]+'</div><div class="cond-text">'+c[1]+'</div></div>';
+  });
 
+  // ── Garantia ──
+  var garantiaHtml='';
   if(temInst){
-    _pChk(48);
-    _pd.Y+=4;
-    var wl=_pSpl('Atenção: No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá 2 dias úteis para regularizar — não regularizado, o agendamento será remarcado conforme nosso cronograma.',_MW()-20);
-    var wh=wl.length*12+16;
-    _pRect(ML,_pd.Y,_MW(),wh,PC.warn,3);
-    _pRect(ML,_pd.Y,4,wh,PC.warnBd);
-    _pFont(9.5,'bold',PC.goldDk);
-    wl.forEach(function(l,i){_pT(l,ML+12,_pd.Y+12+(i*12));});
-    _pd.Y+=wh+8;
-  }
-  _pd.Y+=6;
-
-  // ════ GARANTIA ════
-  _pSecTitle('Garantia');
-  if(temInst){
-    var gl1=_pSpl('A '+emp.nome+' garante por 12 (doze) meses, a partir da data de instalação, todas as peças instaladas pela nossa equipe, contra defeitos de fabricação e instalação.',_MW()-20);
-    var gl2=_pSpl('Peças fornecidas mas não instaladas pela contratada possuem garantia somente até o ato da entrega — após a entrega, a responsabilidade pela integridade é do contratante.',_MW()-20);
-    var gh=(gl1.length+gl2.length)*12+48;
-    _pChk(gh+8);
-    _pRectS(ML,_pd.Y,_MW(),gh,PC.greenLt,[100,180,100],0.5,5);
-    _pRect(ML+10,_pd.Y+10,116,16,PC.green,8);
-    _pFont(7,'bold',PC.white);_pd.doc.text('GARANTIA OFICIAL 12 MESES',ML+68,_pd.Y+20,{align:'center'});
-    _pFont(11,'bold',PC.dark);_pT('12 meses para peças instaladas pela nossa equipe',ML+10,_pd.Y+36);
-    _pFont(9.5,'normal',[42,74,42]);
-    var gy=_pd.Y+50;
-    gl1.forEach(function(l){_pT(l,ML+10,gy);gy+=12;});
-    gy+=4;
-    _pFont(8.5,'italic',[70,100,70]);
-    gl2.forEach(function(l){_pT(l,ML+10,gy);gy+=11;});
-    _pd.Y+=gh+10;
-
-    _pChk(76);
-    var gcW=_MW()/2-4;
-    var cbl=_pSpl('Trincas por má execução · Falhas no acabamento · Problemas de fixação pela equipe · Desnivelamento na instalação',gcW-16);
-    var ncl=_pSpl('Danos por mau uso ou impactos · Produtos químicos inadequados · Problemas estruturais do imóvel · Desgaste natural · Peças não instaladas pela HR após entrega',gcW-16);
-    var ch=Math.max(cbl.length,ncl.length)*12+32;
-    _pRectS(ML,_pd.Y,gcW,ch,PC.greenLt,[100,180,100],0.4,4);
-    _pFont(6.5,'bold',[42,106,42]);_pd.doc.setCharSpace(0.4);_pT('COBRE (12 MESES)',ML+8,_pd.Y+13);_pd.doc.setCharSpace(0);
-    _pFont(8.5,'normal',[42,74,42]);
-    cbl.forEach(function(l,i){_pT(l,ML+8,_pd.Y+24+(i*12));});
-    var ncX=ML+gcW+8;
-    _pRectS(ncX,_pd.Y,gcW,ch,[255,245,245],[180,100,100],0.4,4);
-    _pFont(6.5,'bold',[138,42,42]);_pd.doc.setCharSpace(0.4);_pT('NAO COBRE',ncX+8,_pd.Y+13);_pd.doc.setCharSpace(0);
-    _pFont(8.5,'normal',[100,42,42]);
-    ncl.forEach(function(l,i){_pT(l,ncX+8,_pd.Y+24+(i*12));});
-    _pd.Y+=ch+12;
+    garantiaHtml='<div class="guarantee">'
+      +'<div class="guarantee-title">✅ Garantia de 12 meses (peças instaladas pela equipe)</div>'
+      +'<div class="guarantee-text">'
+        +'A <strong>'+escH(emp.nome)+'</strong> garante por 12 (doze) meses, a partir da data de instalação, todas as peças instaladas pela nossa equipe, contra defeitos de fabricação e instalação.<br><br>'
+        +'<strong>Cobre:</strong> Trincas por má execução, falhas no acabamento, problemas de fixação pela equipe, desnivelamento na instalação.<br><br>'
+        +'<strong>Não cobre:</strong> Danos por mau uso ou impactos, produtos químicos inadequados, problemas estruturais do imóvel, desgaste natural, peças não instaladas pela equipe após entrega.'
+      +'</div>'
+    +'</div>';
   } else {
-    var gsl=_pSpl('As peças fornecidas possuem garantia de qualidade até o momento da entrega ao cliente. Após a entrega, a responsabilidade pela integridade, transporte e instalação é do contratante. A '+emp.nome+' se compromete a entregar as peças dentro das especificações acordadas, sem defeitos de fabricação e dimensões.',_MW()-20);
-    var gsh=gsl.length*12+44;
-    _pChk(gsh+8);
-    _pRectS(ML,_pd.Y,_MW(),gsh,[254,249,231],[200,168,76],0.5,5);
-    _pRect(ML+10,_pd.Y+10,150,16,[125,102,8],8);
-    _pFont(7,'bold',PC.white);_pd.doc.text('GARANTIA DE FORNECIMENTO',ML+85,_pd.Y+20,{align:'center'});
-    _pFont(11,'bold',[74,56,0]);_pT('Garantia válida até a entrega',ML+10,_pd.Y+36);
-    _pFont(9.5,'normal',[90,70,0]);
-    var ggy=_pd.Y+50;
-    gsl.forEach(function(l){_pT(l,ML+10,ggy);ggy+=12;});
-    _pd.Y+=gsh+12;
-  }
-  _pd.Y+=8;
-
-  // ════ ASSINATURAS ════
-  _pSecTitle('Assinaturas');
-  _pChk(90);
-  _pFont(8.5,'normal',PC.gray);
-  _pd.doc.text(emp.cidade+', '+dataStr,PW/2,_pd.Y+10,{align:'center'});
-  _pd.Y+=28;
-  var sigW=_MW()/2-28;
-  _pLine(ML,_pd.Y,ML+sigW,_pd.Y,PC.text,1);
-  _pFont(10,'bold',PC.text);_pT(emp.nome||'',ML,_pd.Y+13);
-  _pFont(7.5,'normal',PC.gray);_pT('Contratada · CNPJ: '+(emp.cnpj||''),ML,_pd.Y+24);
-  var s2x=ML+_MW()/2+20;
-  _pLine(s2x,_pd.Y,s2x+sigW,_pd.Y,PC.text,1);
-  _pFont(10,'bold',PC.text);_pT(_pesc(q.cli||''),s2x,_pd.Y+13);
-  _pFont(7.5,'normal',PC.gray);_pT('Contratante · CPF: ___________________',s2x,_pd.Y+24);
-  _pd.Y+=50;
-
-  // ════ RODAPÉ EM TODAS AS PÁGINAS ════
-  var tot=_pd.doc.getNumberOfPages();
-  for(var pg=1;pg<=tot;pg++){
-    _pd.doc.setPage(pg);
-    _pRect(0,PH-28,PW,28,PC.darkHdr);
-    _pFont(7.5,'normal',[130,105,35]);
-    _pd.doc.text((emp.nome||'')+'  ·  '+(emp.cnpj||''),ML,PH-10);
-    _pd.doc.text('Gerado em '+dataSimples+'  ·  Pág '+pg+'/'+tot,PW-MR,PH-10,{align:'right'});
+    garantiaHtml='<div class="guarantee">'
+      +'<div class="guarantee-title">✅ Garantia de '+garantiaMeses+' meses</div>'
+      +'<div class="guarantee-text">'
+        +'A <strong>'+escH(emp.nome)+'</strong> oferece garantia de <strong>'+garantiaMeses+' ('+numExt(garantiaMeses)+') meses</strong> contra defeitos de fabricação, a contar da data de entrega.<br><br>'
+        +'<strong>Coberto:</strong> Trincas por má execução, falhas no acabamento.<br><br>'
+        +'<strong>Não coberto:</strong> Danos por mau uso, impactos físicos, produtos químicos inadequados, infiltrações ou problemas estruturais do imóvel.'
+      +'</div>'
+    +'</div>';
   }
 
-  var pdfBlob=_pd.doc.output('blob');
-  var pdfUrl=URL.createObjectURL(pdfBlob);
-  _mostrarViewerContrato(pdfBlob,pdfUrl,nomeArq,contrNum,q,emp);
-}
+  // ── Alerta instalação ──
+  var alertaInst=temInst
+    ?'<div class="alerta-inst">⚠️ <strong>Atenção:</strong> No dia da instalação, o ambiente deve estar totalmente pronto. Caso contrário, o cliente terá 2 dias úteis para regularizar — não regularizado, o agendamento será remarcado conforme nosso cronograma.</div>'
+    :'';
 
-function _loadPdfJs(cb){
-  if(window.pdfjsLib){cb();return;}
-  var s=document.createElement('script');
-  s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-  s.onload=function(){
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    cb();
-  };
-  s.onerror=function(){cb(true);};
-  document.head.appendChild(s);
-}
+  // ── HTML do contrato ──
+  var recHtml=''
+  +'<div id="pdfContratoReceipt" style="width:700px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;position:relative;">'
 
-function _renderPdfPages(pdfDoc,container,scale){
-  container.innerHTML='';
-  var dpr=window.devicePixelRatio||1;
-  var total=pdfDoc.numPages;
-  for(var i=1;i<=total;i++){
-    (function(pageNum){
-      pdfDoc.getPage(pageNum).then(function(page){
-        var vp=page.getViewport({scale:scale*dpr});
-        var canvas=document.createElement('canvas');
-        canvas.width=vp.width;
-        canvas.height=vp.height;
-        // CSS size = physical size / dpr → texto nítido em telas Retina/AMOLED
-        var cssW=Math.round(vp.width/dpr);
-        var cssH=Math.round(vp.height/dpr);
-        canvas.style.cssText='display:block;margin:0 auto 8px;width:'+cssW+'px;height:'+cssH+'px;max-width:100%;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;background:#fff;';
-        container.appendChild(canvas);
-        var ctx=canvas.getContext('2d');
-        page.render({canvasContext:ctx,viewport:vp});
-      });
-    })(i);
-  }
-}
+  // Linha topo dourada
+  +'<div style="height:3px;background:linear-gradient(90deg,#3a2200 0%,#C9A84C 30%,#EDD06A 50%,#C9A84C 70%,#3a2200 100%);"></div>'
 
-function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
-  var old=document.getElementById('contrPdfOv');if(old){old.remove();}
+  // HEADER
+  +'<div style="background:#0f0c00;padding:22px 36px;display:flex;justify-content:space-between;align-items:center;">'
+    +'<div>'
+      +'<div style="font-size:22px;font-weight:900;color:#C9A84C;letter-spacing:-.3px;">'+escH(emp.nome)+'</div>'
+      +'<div style="font-size:8px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.5);margin-top:3px;">Mármores · Granitos · Quartzitos</div>'
+    +'</div>'
+    +'<div style="text-align:right;color:rgba(255,255,255,.7);font-size:10px;line-height:1.7;">'
+      +'<span style="color:#C9A84C;font-weight:700;">'+escH(emp.tel)+'</span><br>'
+      +escH(emp.end)+'<br>'
+      +escH(emp.cidade)+'<br>'
+      +'CNPJ: '+escH(emp.cnpj)
+    +'</div>'
+  +'</div>'
+
+  // FAIXA TÍTULO
+  +'<div style="background:#f7f2e8;border-bottom:3px solid #C9A84C;padding:14px 36px;display:flex;justify-content:space-between;align-items:center;">'
+    +'<div style="font-size:16px;font-weight:900;color:#3a2000;letter-spacing:-.2px;">📜 CONTRATO DE FORNECIMENTO'+(temInst?' E INSTALAÇÃO':'')+'</div>'
+    +'<div style="font-size:10px;color:#999;">Nº '+contrNum+' · '+dataSimples+'</div>'
+  +'</div>'
+
+  +'<div style="padding:24px 36px;">'
+
+  // PARTES
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Partes Contratantes</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
+    +'<div>'
+      +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Contratada</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(emp.nome)+'</span></div>'
+      +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">CNPJ</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(emp.cnpj)+'</span></div>'
+      +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Endereço</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(emp.end)+'</span></div>'
+      +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Telefone</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(emp.tel)+'</span></div>'
+    +'</div>'
+    +'<div>'
+      +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Contratante (Cliente)</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.cli||'')+'</span></div>'
+      +(q.tel?'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Telefone</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.tel)+'</span></div>':'')
+      +(q.end?'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Endereço de entrega</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.end)+'</span></div>':'')
+      +(q.cidade?'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Cidade</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.cidade)+'</span></div>':'')
+    +'</div>'
+  +'</div>'
+  +'</div>'
+
+  // OBJETO
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Objeto do Contrato</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">'
+    +'<div><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Tipo de Serviço</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(tipo)+'</span></div>'
+    +'<div><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Material</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.mat||'Pedra Natural')+(q.matPr?' — R$ '+(parseFloat(q.matPr)).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²':'')+'</span></div>'
+  +'</div>'
+  +(pecasHtml
+    ?'<table style="width:100%;border-collapse:collapse;font-size:11px;">'
+      +'<thead><tr>'
+        +'<th style="background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Nº</th>'
+        +'<th style="background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Descrição</th>'
+        +'<th style="background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Medidas</th>'
+        +'<th style="background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Qtd</th>'
+        +'<th style="background:#0f0c00;color:#C9A84C;padding:7px 10px;text-align:left;font-size:9px;letter-spacing:1px;text-transform:uppercase;">Área</th>'
+      +'</tr></thead>'
+      +'<tbody style="font-size:11px;">'+pecasHtml+'</tbody>'
+    +'</table>'
+    :'')
+  +'<div style="margin-top:12px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Total de m²</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+fmV(q.m2||0)+' m²</span></div>'
+  +'</div>'
+
+  // SERVIÇOS INCLUSOS
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Serviços Inclusos</div>'
+  +'<ul style="padding-left:16px;">'+svHtml+'<li>Fabricação e acabamento completo</li></ul>'
+  +(q.obs?'<div style="margin-top:10px;background:#fffbf0;border-left:3px solid #C9A84C;padding:10px 16px;font-size:11px;color:#555;border-radius:0 8px 8px 0;"><strong style="color:#7a4e00;">Observações:</strong> '+escH(q.obs)+'</div>':'')
+  +'</div>'
+
+  // VALORES E PAGAMENTO
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Valores e Pagamento</div>'
+  +'<div style="background:#0f0c00;border-radius:10px;padding:16px 20px;margin-bottom:16px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
+      +'<span style="font-size:10px;color:rgba(255,255,255,.5);letter-spacing:1px;text-transform:uppercase;">Valor à vista</span>'
+      +'<span style="font-size:22px;font-weight:900;color:#C9A84C;">R$ '+fmV(q.vista||0)+'</span>'
+    +'</div>'
+    +(parc>0
+      ?'<hr style="border:none;border-top:1px solid rgba(201,168,76,.2);margin:8px 0;">'
+       +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+         +'<span style="font-size:10px;color:rgba(255,255,255,.5);letter-spacing:1px;text-transform:uppercase;">Parcelado em '+parc+'×</span>'
+         +'<span style="font-size:14px;font-weight:900;color:rgba(255,255,255,.4);">R$ '+fmV((q.vista||0)*(1+taxa/100))+'</span>'
+       +'</div>'
+      :'')
+  +'</div>'
+  +pgCondsHtml
+  +'</div>'
+
+  // CONDIÇÕES GERAIS
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Condições Gerais</div>'
+  +condsGeraisHtml
+  +alertaInst
+  +'</div>'
+
+  // GARANTIA
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Garantia</div>'
+  +garantiaHtml
+  +'</div>'
+
+  // ASSINATURAS
+  +'<div style="margin-bottom:22px;">'
+  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Assinaturas</div>'
+  +'<div style="text-align:center;font-size:11px;color:#666;margin-bottom:24px;">'+escH(emp.cidade||q.cidade||'')+', '+dataStr+'</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;">'
+    +'<div><div style="border-top:1px solid #333;padding-top:8px;">'
+      +'<div style="font-size:11px;font-weight:700;">'+escH(emp.nome)+'</div>'
+      +'<div style="font-size:9px;color:#666;margin-top:2px;">Contratada · CNPJ: '+escH(emp.cnpj)+'</div>'
+    +'</div></div>'
+    +'<div><div style="border-top:1px solid #333;padding-top:8px;">'
+      +'<div style="font-size:11px;font-weight:700;">'+escH(q.cli||'')+'</div>'
+      +'<div style="font-size:9px;color:#666;margin-top:2px;">Contratante · CPF: ___________________</div>'
+    +'</div></div>'
+  +'</div>'
+  +'</div>'
+
+  +'</div>' // body padding
+
+  // RODAPÉ
+  +'<div style="background:#0f0c00;padding:12px 36px;display:flex;justify-content:space-between;align-items:center;">'
+    +'<span style="font-size:9px;color:rgba(201,168,76,.4);">'+escH(emp.nome)+' · '+escH(emp.cnpj)+'</span>'
+    +'<span style="font-size:9px;color:rgba(201,168,76,.4);">'+contrNum+' · Gerado em '+dataSimples+'</span>'
+  +'</div>'
+
+  // Linha base dourada
+  +'<div style="height:3px;background:linear-gradient(90deg,#3a2200 0%,#C9A84C 30%,#EDD06A 50%,#C9A84C 70%,#3a2200 100%);"></div>'
+
+  +'</div>'; // pdfContratoReceipt
+
+  // ── Overlay (mesmo padrão do orçamento) ──
   var ov=document.createElement('div');
   ov.id='contrPdfOv';
-  ov.style.cssText='position:fixed;inset:0;background:#111;z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
 
-  var bar=document.createElement('div');
-  bar.style.cssText='display:flex;align-items:center;gap:7px;padding:9px 12px;background:#0a1f12;border-bottom:1px solid rgba(77,184,122,.35);flex-shrink:0;flex-wrap:wrap;';
-  bar.innerHTML=
-    '<span style="flex:1;font-size:.76rem;font-weight:700;color:#4db87a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+contrNum+' - '+(q.cli||'')+'</span>'
-    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.8);padding:7px 12px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">Fechar</button>'
-    +'<button id="cPdfDown" style="background:#0d2a18;border:1px solid rgba(77,184,122,.4);color:#4db87a;padding:7px 14px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:600;font-family:Outfit,sans-serif;">Salvar PDF</button>'
-    +'<button id="cPdfWA" style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:7px 15px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:700;font-family:Outfit,sans-serif;">WhatsApp</button>';
-  ov.appendChild(bar);
+  var barEl=document.createElement('div');
+  barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid rgba(201,168,76,.55);flex-shrink:0;flex-wrap:wrap;';
+  barEl.innerHTML=''
+    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📜 '+contrNum+' — '+(q.cli||'')+'</span>'
+    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
+    +'<button id="cPdfDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
+    +(navigator.share?'<button id="cPdfShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'')
+    +'<button id="cPdfPrint" style="background:#C9A84C;border:none;color:#000;padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">🖨 Imprimir</button>';
 
   var preview=document.createElement('div');
-  preview.style.cssText='flex:1;overflow:auto;-webkit-overflow-scrolling:touch;background:#666;padding:10px 6px;';
+  preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando PDF, aguarde...</div>';
 
-  var loading=document.createElement('div');
-  loading.style.cssText='display:flex;align-items:center;justify-content:center;height:200px;color:#ddd;font-size:.9rem;';
-  loading.textContent='Gerando visualizacao...';
-  preview.appendChild(loading);
+  ov.appendChild(barEl);
   ov.appendChild(preview);
   document.body.appendChild(ov);
 
-  _loadPdfJs(function(err){
-    if(err){
-      loading.textContent='Erro ao carregar. Use Salvar PDF para abrir.';
-      return;
-    }
-    var getAb=blob.arrayBuffer?blob.arrayBuffer():new Promise(function(res){
-      var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.readAsArrayBuffer(blob);
-    });
-    Promise.resolve(getAb).then(function(ab){
-      return window.pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise;
-    }).then(function(pdfDoc){
-      preview.removeChild(loading);
-      var dpr=Math.min(window.devicePixelRatio||1, 3);
-      var cssWidth=preview.clientWidth-12;
-      // scale para preencher a largura CSS, multiplicado pelo dpr para nitidez
-      var scale=(cssWidth/595)*dpr;
-      var total=pdfDoc.numPages;
-      for(var i=1;i<=total;i++){
-        (function(pageNum){
-          pdfDoc.getPage(pageNum).then(function(page){
-            var vp=page.getViewport({scale:scale});
-            var wrap=document.createElement('div');
-            wrap.style.cssText='margin:0 auto 8px;width:'+cssWidth+'px;';
-            var canvas=document.createElement('canvas');
-            canvas.width=vp.width;
-            canvas.height=vp.height;
-            // Tamanho CSS = tamanho físico / dpr → nítido em telas de alta densidade
-            canvas.style.cssText='display:block;width:'+cssWidth+'px;height:'+Math.round(vp.height/dpr)+'px;box-shadow:0 2px 12px rgba(0,0,0,.5);border-radius:2px;background:#fff;';
-            wrap.appendChild(canvas);
-            preview.appendChild(wrap);
-            page.render({canvasContext:canvas.getContext('2d'),viewport:vp});
-          });
-        })(i);
-      }
-    }).catch(function(e){loading.textContent='Erro: '+e.message;});
-  });
-
-  document.getElementById('cPdfClose').onclick=function(){ov.remove();URL.revokeObjectURL(url);};
-  document.getElementById('cPdfDown').onclick=function(){
-    var a=document.createElement('a');a.href=url;a.download=nomeArq;
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
-    if(typeof toast==='function')toast('PDF salvo!');
-  };
-  document.getElementById('cPdfWA').onclick=function(){
-    var pdfFile=new File([blob],nomeArq,{type:'application/pdf'});
-    if(navigator.share&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
-      navigator.share({files:[pdfFile],title:'Contrato '+contrNum,text:(emp.nome||'HR')+' - Contrato de Fornecimento'+(q.tipo?' - '+q.tipo:'')})
-        .catch(function(e){if(e&&e.name!=='AbortError')_ctrWaFb(url,nomeArq,q,emp,contrNum);});
-    } else {
-      _ctrWaFb(url,nomeArq,q,emp,contrNum);
+  document.getElementById('cPdfClose').onclick=function(){ov.remove();};
+  document.getElementById('cPdfPrint').onclick=function(){
+    var w=window.open('','_blank');
+    if(w){
+      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
+      w.document.close();
     }
   };
-  if(typeof toast==='function')toast('Contrato PDF pronto - '+contrNum);
-}
 
-function _ctrWaFb(url,nomeArq,q,emp,contrNum){
-  var a=document.createElement('a');a.href=url;a.download=nomeArq;
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-  var tel=(q.tel||'').replace(/\D/g,'');
-  var msg='Olá'+(q.cli?' '+q.cli:'')+',\n\nSegue o contrato referente ao seu pedido de '+(q.tipo||'mármore/granito')+'.\n\nValor: '+_pfm(q.vista||0)+'\n\n'+(emp.nome||'HR');
+  // ── Off-screen render ──
+  var offscreen=document.createElement('div');
+  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
+  offscreen.innerHTML=recHtml;
+  // Injetar estilos de tabela/cond no offscreen
+  var styleEl=document.createElement('style');
+  styleEl.textContent='table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}';
+  offscreen.insertBefore(styleEl,offscreen.firstChild);
+  document.body.appendChild(offscreen);
+
   setTimeout(function(){
-    window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
-  },700);
-  if(typeof toast==='function')toast('📥 PDF baixado — abrindo WhatsApp...');
+    html2canvas(offscreen.querySelector('#pdfContratoReceipt'),{
+      scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700
+    }).then(function(canvas){
+      document.body.removeChild(offscreen);
+      var jsPDF=window.jspdf.jsPDF;
+      var pageW=595.28;
+      var pageH=pageW*(canvas.height/canvas.width);
+      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,pageW,pageH);
+      var pdfBlob=pdf.output('blob');
+
+      // Preview como imagem (mesmo padrão do orçamento)
+      var img=document.createElement('img');
+      img.src=canvas.toDataURL('image/jpeg',0.88);
+      img.style.cssText='width:100%;max-width:700px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+      preview.innerHTML='';preview.appendChild(img);
+
+      function enableBtn(id,label,cb){
+        var b=document.getElementById(id);if(!b)return;
+        b.innerHTML=label;b.disabled=false;
+        b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';
+        b.onclick=cb;
+      }
+
+      enableBtn('cPdfDown','⬇ Salvar PDF',function(){
+        var url=URL.createObjectURL(pdfBlob);
+        var a=document.createElement('a');
+        a.href=url;a.download=fileName;
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        setTimeout(function(){URL.revokeObjectURL(url);},30000);
+        if(typeof toast==='function')toast('PDF salvo: '+fileName);
+      });
+
+      if(navigator.share){
+        enableBtn('cPdfShare','↗ Compartilhar',function(){
+          var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
+          var sd={title:'Contrato '+contrNum+' — '+(q.cli||''),text:(emp.nome||'HR')+'\nR$ '+fmV(q.vista||0)+' — Contrato de Fornecimento'};
+          if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
+          navigator.share(sd).catch(function(e){
+            if(e&&e.name!=='AbortError'){
+              // fallback: baixa + abre WhatsApp
+              var url=URL.createObjectURL(pdfBlob);
+              var a=document.createElement('a');a.href=url;a.download=fileName;
+              document.body.appendChild(a);a.click();document.body.removeChild(a);
+              var tel=(q.tel||'').replace(/\D/g,'');
+              var msg='Olá'+(q.cli?' '+q.cli:'')+',\n\nSegue o contrato referente ao seu pedido de '+(q.tipo||'mármore/granito')+'.\n\nValor: R$ '+fmV(q.vista||0)+'\n\n'+(emp.nome||'HR');
+              setTimeout(function(){
+                window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
+              },700);
+            }
+          });
+        });
+      }
+
+      if(typeof toast==='function')toast('✓ Contrato PDF pronto — '+contrNum);
+    }).catch(function(){
+      if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar. Use 🖨 Imprimir.</div>';
+    });
+  },200);
 }
 
-// ════ PATCH ════
+// ════ PATCH — sobrepõe _gerarContratoHtml com versão PDF ════
 (function(){
   var t=0,iv=setInterval(function(){
     t++;
-    if(typeof _gerarContratoHtml==='function'&&!_gerarContratoHtml._v4){
+    if(typeof _gerarContratoHtml==='function'&&!_gerarContratoHtml._v5){
       _gerarContratoHtml=function(q,pgConds,prazo,valid,parc,taxa){
         gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa);
       };
-      _gerarContratoHtml._v4=true;
+      _gerarContratoHtml._v5=true;
       clearInterval(iv);
-      console.log('[ContratoPDF v4] ✓');
+      console.log('[ContratoPDF v5] ✓ — mesmo padrão do orçamento');
     }
     if(t>100)clearInterval(iv);
   },100);
