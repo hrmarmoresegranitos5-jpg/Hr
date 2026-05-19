@@ -418,17 +418,22 @@ function _loadPdfJs(cb){
 
 function _renderPdfPages(pdfDoc,container,scale){
   container.innerHTML='';
+  var dpr=window.devicePixelRatio||1;
   var total=pdfDoc.numPages;
   for(var i=1;i<=total;i++){
     (function(pageNum){
       pdfDoc.getPage(pageNum).then(function(page){
-        var vp=page.getViewport({scale:scale});
+        var vp=page.getViewport({scale:scale*dpr});
         var canvas=document.createElement('canvas');
         canvas.width=vp.width;
         canvas.height=vp.height;
-        canvas.style.cssText='display:block;margin:0 auto 8px;width:100%;max-width:'+vp.width+'px;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;background:#fff;';
+        // CSS size = physical size / dpr → texto nítido em telas Retina/AMOLED
+        var cssW=Math.round(vp.width/dpr);
+        var cssH=Math.round(vp.height/dpr);
+        canvas.style.cssText='display:block;margin:0 auto 8px;width:'+cssW+'px;height:'+cssH+'px;max-width:100%;box-shadow:0 4px 24px rgba(0,0,0,.6);border-radius:3px;background:#fff;';
         container.appendChild(canvas);
-        page.render({canvasContext:canvas.getContext('2d'),viewport:vp});
+        var ctx=canvas.getContext('2d');
+        page.render({canvasContext:ctx,viewport:vp});
       });
     })(i);
   }
@@ -471,7 +476,8 @@ function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
       return window.pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise;
     }).then(function(pdfDoc){
       preview.removeChild(loading);
-      var scale=Math.min(2.0,(preview.clientWidth-24)/595);
+      // Escala CSS: ocupa 100% da largura disponível
+      var scale=(preview.clientWidth-24)/595;
       _renderPdfPages(pdfDoc,preview,scale);
     }).catch(function(e){loading.textContent='Erro ao renderizar: '+e.message;});
   });
