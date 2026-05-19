@@ -154,20 +154,6 @@ function openApp(pg){
 
       <div class="sec mt"><button class="btn btn-g" id="btnCalc">Calcular Orçamento</button></div>
 
-      <!-- Seletor de taxa de urgência -->
-      <div style="padding:10px 0 2px;">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--s1);border:1px solid var(--bd);border-radius:12px;padding:10px 13px;">
-          <span style="font-size:.58rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t4);font-weight:700;flex-shrink:0;">🚨 Urgência</span>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;" id="urgPctBtns">
-            <button class="urg-pct-btn on" data-upct="0" onclick="setUrgPct(0)">Normal</button>
-            <button class="urg-pct-btn" data-upct="10" onclick="setUrgPct(10)">+10%</button>
-            <button class="urg-pct-btn" data-upct="20" onclick="setUrgPct(20)">+20%</button>
-            <button class="urg-pct-btn" data-upct="30" onclick="setUrgPct(30)">+30%</button>
-          </div>
-          <span id="urgPctHint" style="font-size:.6rem;color:var(--t3);margin-left:2px;">Prazo padrão da agenda</span>
-        </div>
-      </div>
-
       <div id="resArea" style="display:none;">
         <div class="sec mt">
           <div class="sl" style="display:flex;align-items:center;justify-content:space-between;">
@@ -177,6 +163,21 @@ function openApp(pg){
           <div id="painelInterno" style="background:var(--s1);border:1px solid var(--bd);border-radius:14px;overflow:hidden;"></div>
         </div>
         <div class="sec mt"><div class="sl">Resultado</div><div class="card"><div id="resDetail"></div></div></div>
+
+        <!-- Taxa de urgência — dentro do resultado para estar sempre visível -->
+        <div class="sec mt">
+          <div class="sl">🚨 Taxa de Urgência do Cliente</div>
+          <div class="card" style="padding:11px 13px;">
+            <div style="font-size:.65rem;color:var(--t3);margin-bottom:8px;">Cliente precisa de prazo prioritário? Isso <strong style="color:#ff9060;">adiciona uma taxa</strong> ao valor calculado.</div>
+            <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+              <button class="urg-pct-btn on" data-upct="0" onclick="setUrgPct(0);calcular()">Normal</button>
+              <button class="urg-pct-btn" data-upct="10" onclick="setUrgPct(10);calcular()">+10%</button>
+              <button class="urg-pct-btn" data-upct="20" onclick="setUrgPct(20);calcular()">+20%</button>
+              <button class="urg-pct-btn" data-upct="30" onclick="setUrgPct(30);calcular()">+30%</button>
+              <span id="urgPctHint" style="font-size:.62rem;color:var(--t3);">Prazo padrão</span>
+            </div>
+          </div>
+        </div>
 
         <!-- Ajuste do valor à vista -->
         <div class="sec mt" id="vistaAdjSec" style="display:none;">
