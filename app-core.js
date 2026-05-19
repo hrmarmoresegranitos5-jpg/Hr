@@ -1590,7 +1590,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
       // SVG technical preview + per-side borda selector
-      if(amb.tipo!=='🏊 Borda Piscina'){
+      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box'){
         h+=buildPecaPreviewSVG(amb,pc,pi);
         h+=buildPecaBordaHtml(amb,pc);
       }
@@ -1624,8 +1624,24 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
     h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
     h+='</div>';
-    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
-    h+=buildSVHtml(amb);
+    if(amb.tipo==='Rodapé de Box'){
+      // Rodapé de Box: serviços totalmente automáticos, sem UI
+      var _rdBoxPcs=amb.pecas.filter(function(p){return p.w&&p.h;});
+      if(_rdBoxPcs.length>0){
+        var _rdMl=(_rdBoxPcs.reduce(function(s,p){return s+(p.w/100)*(p.q||1);},0)).toFixed(2);
+        var _rdPrAcb=getPr('rdbox_sup')||38;
+        var _rdPrCola=getPr('rdbox_cola')||20;
+        h+='<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);border-radius:10px;padding:12px 14px;margin-top:4px;">';
+        h+='<div style="font-size:.58rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:8px;">✔ Serviços incluídos automaticamente</div>';
+        h+='<div style="font-size:.7rem;color:var(--t2);margin-bottom:4px;">• 2 pedras calculadas (fundo com fundo)</div>';
+        h+='<div style="font-size:.7rem;color:var(--t2);margin-bottom:4px;">• Acabamento Superior: '+_rdMl+'ml × R$'+_rdPrAcb+'/ml = <b style="color:var(--gold2);">R$ '+(_rdMl*_rdPrAcb).toFixed(2).replace('.',',')+'</b></div>';
+        h+='<div style="font-size:.7rem;color:var(--t2);">• Cola p/ Colagem: <b style="color:var(--gold2);">R$ '+_rdPrCola.toFixed(2).replace('.',',')+'</b></div>';
+        h+='</div>';
+      }
+    } else {
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
+      h+=buildSVHtml(amb);
+    }
     h+='</div></div>';
     } // fim else (não-Túmulo)
   });
@@ -1995,6 +2011,8 @@ function calcular(){
     // Peças
     // Rodapé de Box: 2 pedras coladas fundo com fundo → área × 2
     var _pecaMult = tipo==='Rodapé de Box' ? 2 : 1;
+    // Rodapé de Box: auto-calcular acabamento e cola antes dos serviços
+    var _isRdBox = tipo==='Rodapé de Box';
     amb.pecas.forEach(function(p){
       if(p.w&&p.h){
         var a=(p.w/100)*(p.h/100)*(p.q||1)*_pecaMult;
@@ -2029,6 +2047,24 @@ function calcular(){
       var qty=svd.qty||1;
       var vv=getPr(it.k)*qty;acT+=vv;acL.push({l:it.l+(qty>1?' ('+qty+it.u+')':''),v:vv});acN.push(it.l);
     });});
+
+    // Rodapé de Box: acabamento superior + cola sempre automáticos
+    if(_isRdBox){
+      var _rdAcbMl=0;
+      amb.pecas.forEach(function(p){if(p.w)_rdAcbMl+=(p.w/100)*(p.q||1);});
+      var _rdAcbPr=getPr('rdbox_sup')||38;
+      var _rdColaPr=getPr('rdbox_cola')||20;
+      if(_rdAcbMl>0&&_rdAcbPr>0){
+        acT+=_rdAcbMl*_rdAcbPr;
+        acL.push({l:'Acabamento Superior '+_rdAcbMl.toFixed(2)+'ml',v:_rdAcbMl*_rdAcbPr});
+        acN.push('Acabamento Superior');
+      }
+      if(_rdColaPr>0){
+        acT+=_rdColaPr;
+        acL.push({l:'Cola p/ Colagem (2 pedras)',v:_rdColaPr});
+        acN.push('Cola p/ Colagem');
+      }
+    }
 
     // Acessórios do catálogo
     var acState=amb.acState||{};
