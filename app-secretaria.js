@@ -6,16 +6,16 @@
 // • Follow-up automático de orçamentos sem retorno
 // ══════════════════════════════════════════════════════════════
 
-// ── Banco de Visitas ──
-// DB.v = array de visitas (adicionado ao DB padrão)
-(function(){
-  if(!DB.v){ DB.v = JSON.parse(localStorage.getItem('hr_v')||'[]'); }
-  var _svOrig = DB.sv.bind(DB);
-  DB.sv = function(){
-    localStorage.setItem('hr_v', JSON.stringify(DB.v||[]));
-    _svOrig();
-  };
-})();
+// ── Inicialização lazy de DB.v (sem sobrescrever DB.sv) ──
+function _getV() {
+  if (!DB.v) {
+    try { DB.v = JSON.parse(localStorage.getItem('hr_v')||'[]'); } catch(e){ DB.v=[]; }
+  }
+  return DB.v;
+}
+function _saveV() {
+  try { localStorage.setItem('hr_v', JSON.stringify(_getV())); } catch(e){}
+}
 
 // ─────────────────────────────────────────────
 // NOTIFICAÇÕES
@@ -42,7 +42,7 @@ function secNotifCheck() {
   var agoraMin = hh * 60 + mm;
 
   // ── Visitas próximas (30 min de antecedência) ──
-  (DB.v||[]).forEach(function(v){
+  (_getV()).forEach(function(v){
     if(v.status !== 'agendada' || v.date !== hoje) return;
     if(!v.hora) return;
     var p = v.hora.split(':');
@@ -74,7 +74,7 @@ function secNotifCheck() {
         'atrasados_' + hoje);
     }
 
-    var visitasHoje = (DB.v||[]).filter(function(v){return v.status==='agendada'&&v.date===hoje;});
+    var visitasHoje = (_getV()).filter(function(v){return v.status==='agendada'&&v.date===hoje;});
     if(visitasHoje.length){
       _sendNotif('📅 Você tem ' + visitasHoje.length + ' visita(s) hoje',
         visitasHoje.map(function(v){return v.hora + ' — ' + v.cli;}).join(' | '),
@@ -113,8 +113,16 @@ function _sendNotif(title, body, key) {
 function renderSecretaria() {
   var el = document.getElementById('secBody');
   if (!el) return;
+  try {
+    _renderSecretariaInner(el);
+  } catch(err) {
+    el.innerHTML = '<div style="padding:30px 18px;color:var(--t3);font-size:.78rem;">'
+      + '⚠️ Erro ao carregar secretária.<br><small>'+escH(String(err))+'</small></div>';
+    console.error('renderSecretaria:', err);
+  }
+}
 
-  var hoje = td();
+function _renderSecretariaInner(el) {
   var agora = new Date();
   var horaAtual = agora.getHours();
   var saudacao = horaAtual < 12 ? 'Bom dia' : horaAtual < 18 ? 'Boa tarde' : 'Boa noite';
@@ -124,8 +132,8 @@ function renderSecretaria() {
   var atrasados   = (DB.j||[]).filter(function(j){return !j.done&&j.end&&dDiff(j.end)<0;});
   var urgentes    = (DB.j||[]).filter(function(j){return !j.done&&j.urgente;});
   var emProd      = (DB.j||[]).filter(function(j){return !j.done;});
-  var visitasHoje = (DB.v||[]).filter(function(v){return v.status==='agendada'&&v.date===hoje;});
-  var visitasAmanha = (DB.v||[]).filter(function(v){return v.status==='agendada'&&v.date===addD(hoje,1);});
+  var visitasHoje = (_getV()).filter(function(v){return v.status==='agendada'&&v.date===hoje;});
+  var visitasAmanha = (_getV()).filter(function(v){return v.status==='agendada'&&v.date===addD(hoje,1);});
   var pendentes   = (DB.t||[]).filter(function(t){return t.type==='pend';});
   var pendVenc    = pendentes.filter(function(t){return t.date && t.date < hoje;});
   var totPend     = pendentes.reduce(function(s,t){return s+(t.value||0);},0);
@@ -209,7 +217,7 @@ function renderSecretaria() {
   }
 
   // ── PRÓXIMAS VISITAS ──
-  var proxVisitas = (DB.v||[])
+  var proxVisitas = (_getV())
     .filter(function(v){return v.status==='agendada'&&v.date>addD(hoje,1);})
     .sort(function(a,b){return a.date.localeCompare(b.date)||(a.hora||'').localeCompare(b.hora||'');})
     .slice(0, 5);
@@ -221,7 +229,7 @@ function renderSecretaria() {
   }
 
   // ── VISITAS REALIZADAS RECENTES ──
-  var realizadas = (DB.v||[])
+  var realizadas = (_getV())
     .filter(function(v){return v.status==='realizada';})
     .sort(function(a,b){return b.date.localeCompare(a.date);})
     .slice(0, 3);
@@ -239,7 +247,7 @@ function renderSecretaria() {
 
   h += '<div style="height:20px;"></div>';
   el.innerHTML = h;
-}
+} // end _renderSecretariaInner
 
 // ─────────────────────────────────────────────
 // HELPERS DE RENDER
@@ -328,7 +336,7 @@ function openVisitaMd(id) {
   document.getElementById('vMdTitle').textContent = id ? 'Editar Visita' : '📐 Nova Visita de Medição';
 
   if (id) {
-    var v = (DB.v||[]).find(function(x){return x.id===id;});
+    var v = (_getV()).find(function(x){return x.id===id;});
     if (!v) return;
     document.getElementById('vCli').value   = v.cli   || '';
     document.getElementById('vTel').value   = v.tel   || '';
@@ -364,12 +372,12 @@ function saveVisita() {
   if (!date){ toast('Informe a data'); return; }
 
   if (_visitaEditId) {
-    var v = (DB.v||[]).find(function(x){return x.id===_visitaEditId;});
-    if (v) { v.cli=cli; v.tel=tel; v.end=end; v.date=date; v.hora=hora; v.obs=obs; DB.sv(); }
+    var v = (_getV()).find(function(x){return x.id===_visitaEditId;});
+    if (v) { v.cli=cli; v.tel=tel; v.end=end; v.date=date; v.hora=hora; v.obs=obs; _saveV(); }
   } else {
-    if (!DB.v) DB.v = [];
-    DB.v.unshift({id:Date.now(),cli:cli,tel:tel,end:end,date:date,hora:hora,obs:obs,status:'agendada'});
-    DB.sv();
+    _getV();
+    _getV().unshift({id:Date.now(),cli:cli,tel:tel,end:end,date:date,hora:hora,obs:obs,status:'agendada'});
+    _saveV();
   }
   closeAll();
   renderSecretaria();
@@ -378,10 +386,10 @@ function saveVisita() {
 }
 
 function togVisitaStatus(id, status) {
-  var v = (DB.v||[]).find(function(x){return x.id===id;});
+  var v = (_getV()).find(function(x){return x.id===id;});
   if (!v) return;
   v.status = status;
-  DB.sv();
+  _saveV();
   renderSecretaria();
   secNotifDotUpdate();
   var msgs = {realizada:'✅ Visita marcada como realizada!', cancelada:'Visita cancelada.', agendada:'Visita reagendada!'};
@@ -390,8 +398,8 @@ function togVisitaStatus(id, status) {
 
 function delVisita(id) {
   if (!confirm('Remover visita?')) return;
-  DB.v = (DB.v||[]).filter(function(x){return x.id!==id;});
-  DB.sv();
+  DB.v = _getV().filter(function(x){return x.id!==id;});
+  _saveV();
   renderSecretaria();
   secNotifDotUpdate();
 }
@@ -402,7 +410,7 @@ function secNotifDotUpdate() {
   if (!dot) return;
   var hoje = td();
   var atrasados = (DB.j||[]).filter(function(j){return !j.done&&j.end&&dDiff(j.end)<0;}).length;
-  var visitasHoje = (DB.v||[]).filter(function(v){return v.status==='agendada'&&v.date===hoje;}).length;
+  var visitasHoje = (_getV()).filter(function(v){return v.status==='agendada'&&v.date===hoje;}).length;
   var pendVenc = (DB.t||[]).filter(function(t){return t.type==='pend'&&t.date&&t.date<hoje;}).length;
   dot.classList.toggle('on', atrasados>0||visitasHoje>0||pendVenc>0);
 }
