@@ -123,6 +123,7 @@ function renderSecretaria() {
 }
 
 function _renderSecretariaInner(el) {
+  var hoje = td(); // data de hoje no formato YYYY-MM-DD
   var agora = new Date();
   var horaAtual = agora.getHours();
   var saudacao = horaAtual < 12 ? 'Bom dia' : horaAtual < 18 ? 'Boa tarde' : 'Boa noite';
