@@ -137,7 +137,7 @@ tum_tampa:0,tum_lat:0,tum_front:0,tum_base:0,tum_det:85,tum_sainha:80,tum_mol:12
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   bp_boleada:25,bp_antiderap:18,bp_pingad:30,bp_mcana:35,bp_chanfro:20,
   bp_c_arred:45,bp_c_curva:80,bp_c_infinita:120,
-  rdbox_sem:0,rdbox_sup:38};
+  rdbox_sem:0,rdbox_sup:38,rdbox_cola:20};
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
 function initCFG(){
@@ -180,6 +180,7 @@ function initCFG(){
   // Patch: garantir preços de Rodapé de Box (rdbox) para CFGs existentes
   if(CFG.sv['rdbox_sup']===undefined)CFG.sv['rdbox_sup']=38;
   if(CFG.sv['rdbox_sem']===undefined)CFG.sv['rdbox_sem']=0;
+  if(CFG.sv['rdbox_cola']===undefined)CFG.sv['rdbox_cola']=20;
   var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
   CFG.stones.forEach(function(s){if(_pr[s.id])s.pr=_pr[s.id];});
   syncSVDefsFromList();
