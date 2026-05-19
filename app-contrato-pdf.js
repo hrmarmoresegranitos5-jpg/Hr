@@ -352,18 +352,12 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   },200);
 }
 
-// ════ PATCH — sobrepõe _gerarContratoHtml com versão PDF ════
-(function(){
-  var t=0,iv=setInterval(function(){
-    t++;
-    if(typeof _gerarContratoHtml==='function'&&!_gerarContratoHtml._v5){
-      _gerarContratoHtml=function(q,pgConds,prazo,valid,parc,taxa){
-        gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa);
-      };
-      _gerarContratoHtml._v5=true;
-      clearInterval(iv);
-      console.log('[ContratoPDF v5] ✓ — mesmo padrão do orçamento');
-    }
-    if(t>100)clearInterval(iv);
-  },100);
-})();
+// ════ DEFINIÇÃO DIRETA — sobrepõe qualquer versão anterior ════
+// Definida aqui diretamente para não depender de patch assíncrono.
+// O app-contrato.js chama _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa)
+// Este arquivo deve ser carregado DEPOIS do app-contrato.js no index.html.
+function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
+  gerarContratoPDFVetorial(q,pgConds,prazo,valid,parc,taxa);
+}
+_gerarContratoHtml._v5=true;
+console.log('[ContratoPDF v5] ✓ — mesmo padrão do orçamento');
