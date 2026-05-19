@@ -458,6 +458,9 @@ window.aplicarEstiloNi=function(){
   console.log('listeners OK');
   // Build
   buildMat();addAmbiente();buildCatalog();buildCubaList();buildAcList();renderAg();renderFin();updEmp();updUrgDot();renderFixos();renderInfoList();renderOrc();
+  if(typeof renderSecretaria==='function'){renderSecretaria();}
+  if(typeof secNotifDotUpdate==='function'){secNotifDotUpdate();}
+  if(typeof secInitNotif==='function'){secInitNotif();}
   console.log('boot completo');
   // Init sync if previously configured
   var savedCode=localStorage.getItem('hr_sync_code');
@@ -523,6 +526,7 @@ function go(n){
   if(n===2)buildCubaList();
   if(n===7)renderOrc();
   if(n===8)buildAcList();
+  if(n===11&&typeof renderSecretaria==='function'){renderSecretaria();if(typeof secNotifDotUpdate==='function')secNotifDotUpdate();}
   if(n===3)renderAg();
   if(n===4)renderFin();
   if(n===10&&typeof renderContratos==='function')renderContratos();
