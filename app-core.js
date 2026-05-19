@@ -1847,6 +1847,23 @@ function abrirAIMd(ambId){
 }
 
 // ═══ CALCULAR ═══
+// ── Taxa de Urgência ──
+window._urgPct = 0;
+var _urgHints = {
+  0:  'Prazo padrão da agenda',
+  10: 'Prioridade moderada — entra antes de 1 serviço',
+  20: 'Alta prioridade — reorganização da fila',
+  30: 'Máxima urgência — início imediato'
+};
+function setUrgPct(pct) {
+  window._urgPct = pct;
+  document.querySelectorAll('[data-upct]').forEach(function(b) {
+    b.classList.toggle('on', +b.dataset.upct === pct);
+  });
+  var hint = document.getElementById('urgPctHint');
+  if (hint) hint.textContent = _urgHints[pct] || '+' + pct + '% sobre o valor';
+}
+
 function calcular(){
   // Acionar motor do túmulo em todos os ambientes tipo Túmulo antes de calcular
   ambientes.forEach(function(a){
@@ -2061,12 +2078,21 @@ function calcular(){
 
   var pedT=totalPedT;
   var bruto=pedT+totalAcT;
-  // Se há túmulo com valor_vista próprio (já com margem do motor), ajustar o total de venda:
-  // _tumVistaOverride contém a diferença entre valor_vista e custo_total do túmulo,
-  // ou seja, a margem já embutida — somamos ao bruto para obter o vista correto.
   var tumAdj=window._tumVistaOverride||0;
-  window._tumVistaOverride=0; // reset para próximo cálculo
+  window._tumVistaOverride=0;
   var vista=bruto+tumAdj;
+
+  // ── Taxa de urgência ──
+  var urgPct = window._urgPct || 0;
+  var urgVal = urgPct > 0 ? Math.round(vista * (urgPct / 100) * 100) / 100 : 0;
+  if (urgVal > 0) {
+    vista += urgVal;
+    detHtml += '<div style="margin-top:6px;"></div>';
+    detHtml += '<div class="rrow" style="background:rgba(255,100,30,.06);border-radius:7px;padding:5px 7px;">'
+      + '<span class="rk" style="color:#ff9060;font-weight:700;">🚨 Taxa de Urgência +' + urgPct + '%</span>'
+      + '<span class="rv" style="color:#ff9060;font-weight:800;">+R$ ' + fm(urgVal) + '</span></div>';
+  }
+
   var parc=vista*1.12;
   var p8=parc/8,ent=vista/2;
 
@@ -2162,7 +2188,7 @@ function calcular(){
   var ambSnap=ambientes.map(function(a){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
   });
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal};
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
@@ -2416,6 +2442,7 @@ function gerarPDF(){
     +'<div style="display:flex;align-items:center;gap:12px;">'
       +'<div style="background:#0f0c00;color:#C9A84C;font-size:8px;font-weight:900;padding:6px 16px;border-radius:30px;letter-spacing:3px;text-transform:uppercase;border:1px solid rgba(201,168,76,0.5);">+ ORCAMENTO +</div>'
       +'<div style="background:#C9A84C;color:#000;font-size:9px;font-weight:900;padding:4px 10px;border-radius:5px;letter-spacing:1px;">'+orcNum+'</div>'
+      +(q.urgPct>0?'<div style="background:#2a0800;color:#ff8050;font-size:8px;font-weight:900;padding:5px 13px;border-radius:30px;letter-spacing:2px;text-transform:uppercase;border:1px solid rgba(255,100,30,0.5);">🚨 URGENTE +'+q.urgPct+'%</div>':'')
     +'</div>'
     +'<div style="text-align:right;">'
       +'<div style="font-size:10px;color:#888;"><strong style="color:#5a3800;">EMISSAO:</strong> '+fd(q.date)+'</div>'
@@ -2503,8 +2530,24 @@ function gerarPDF(){
           +'<span style="color:#C9A84C;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">&#10003;</span>'
           +'<span style="font-size:12px;color:#333;line-height:1.4;">Fabricacao e acabamento completo</span>'
         +'</div>'
+        +(q.urgPct>0?'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;"><span style="color:#ff8050;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">🚨</span><span style="font-size:12px;color:#c04000;font-weight:700;line-height:1.4;">Atendimento prioritário — urgência +'+q.urgPct+'%</span></div>':'')
       +'</div>'
     +'</div>':'')
+
+    // COMO FUNCIONA
+    +(q.urgPct>0?'<div style="background:#1a0600;border:1px solid rgba(255,100,30,.4);border-radius:12px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
+      +'<div>'
+        +'<div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#ff8050;font-weight:900;margin-bottom:5px;">🚨 TAXA DE URGÊNCIA — ATENDIMENTO PRIORITÁRIO</div>'
+        +'<div style="font-size:12px;color:#ffd0b0;line-height:1.5;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos pendentes.</div>'
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0;">'
+        +'<div style="font-size:8px;color:#ff8050;font-weight:700;margin-bottom:3px;">ACRÉSCIMO</div>'
+        +'<div style="font-size:22px;font-weight:900;color:#ff8050;line-height:1;">+'+q.urgPct+'%</div>'
+        +'<div style="font-size:12px;color:#c07050;font-weight:700;">+R$ '+fm(q.urgVal)+'</div>'
+      +'</div>'
+    +'</div>':'')
+    +sh('Como Funciona')
+    +(function(){var steps=[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // VALORES
     +sh('Valores do Projeto')
@@ -2545,6 +2588,38 @@ function gerarPDF(){
         +'<div style="font-size:11px;color:#999;">Na entrega / instalacao</div>'
       +'</div>'
     +'</div>'
+
+    // PRAZO ESTIMADO (injetado pelo app-pdf-prazo.js)
+    +(window._pdfPrazoData ? (function(){
+      var pd=window._pdfPrazoData;
+      window._pdfClearPrazo&&window._pdfClearPrazo();
+      var agendaInfo='';
+      if(pd.lastEnd&&pd.lastEnd>pd.hoje){
+        agendaInfo='<div style="display:flex;align-items:center;gap:6px;margin-top:8px;">'
+          +'<span style="font-size:9.5px;color:#888;">📋 Agenda em produção até <strong style="color:#7a4400;">'+fd(pd.lastEnd)+'</strong>'
+          +(pd.emProd>0?' &nbsp;·&nbsp; '+pd.emProd+' serviço'+(pd.emProd>1?'s':'')+' na fila':'')
+          +'</span></div>';
+      } else {
+        agendaInfo='<div style="font-size:9.5px;color:#4a8a4a;margin-top:6px;">📋 Agenda disponível — início imediato após assinatura.</div>';
+      }
+      return sh('Prazo Estimado de Entrega')
+        +'<div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:stretch;margin-bottom:14px;">'
+          +'<div style="border:2px solid #3a8a3a;border-radius:12px;overflow:hidden;">'
+            +'<div style="background:#0a1a0a;padding:9px 18px;">'
+              +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#6abf6a;font-weight:900;">✅ SE FECHAR HOJE</span>'
+            +'</div>'
+            +'<div style="background:#f4fbf4;padding:13px 18px;">'
+              +'<div style="font-size:28px;font-weight:900;color:#1e5a1e;line-height:1;margin-bottom:3px;">'+fd(pd.dataEst)+'</div>'
+              +'<div style="font-size:11px;color:#4a8a4a;font-weight:700;">'+pd.dias+' dias úteis de produção</div>'
+              +agendaInfo
+            +'</div>'
+          +'</div>'
+          +'<div style="background:#fffbf0;border:1px solid rgba(232,160,0,.4);border-radius:12px;padding:13px 16px;max-width:230px;">'
+            +'<div style="font-size:8px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#b87000;margin-bottom:7px;">⚠️ Estimativa</div>'
+            +'<div style="font-size:10.5px;color:#7a5000;line-height:1.6;">Este prazo é válido se o contrato for assinado hoje. Caso outro cliente feche antes, a vaga pode ser ocupada e o prazo ajustado.</div>'
+          +'</div>'
+        +'</div>';
+    })() : '')
 
   +'</div>'
 
