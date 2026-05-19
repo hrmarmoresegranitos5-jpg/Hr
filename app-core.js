@@ -4413,11 +4413,18 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
 
   // VALORES
+  var _vistaNominal=q.vista||0;
+  var _valorCartao=parc>0?_vistaNominal*(1+taxa/100):0;
+  var _descPct=taxa;
+  var _vistaPcBox=parc>0
+    ?('<div class="price-row"><span class="price-label">Valor no cartão ('+parc+'×)</span><span class="price-val main">'+parc+'× de R$ '+fm(_valorCartao/parc)+'</span></div>'
+      +'<hr class="price-divider">'
+      +'<div class="price-row"><span class="price-label" style="color:#5dbf7a;">&#9660; À vista ('+_descPct+'% de desconto)</span><span class="price-val" style="color:#5dbf7a;font-size:13px;">R$ '+fm(_vistaNominal)+'</span></div>')
+    :('<div class="price-row"><span class="price-label">À vista</span><span class="price-val main">R$ '+fm(_vistaNominal)+'</span></div>');
   +'<div class="section">'
   +'<div class="sec-title">Valores e Pagamento</div>'
   +'<div class="price-box">'
-    +'<div class="price-row"><span class="price-label">Valor à vista</span><span class="price-val main">R$ '+fm(q.vista||0)+'</span></div>'
-    +(parc>0?'<hr class="price-divider"><div class="price-row"><span class="price-label">Parcelado em até '+parc+'× no cartão (+'+taxa+'%)</span><span class="price-val gray">'+parc+'× de R$ '+fm((q.vista||0)*(1+taxa/100)/parc)+'</span></div>':'')
+  +_vistaPcBox
   +'</div>'
   +pgCondsHtml
   +'</div>'
