@@ -81,14 +81,14 @@ function confirmarContrato(){
   else if(pgTipo==='personalizado'){entPct=+document.getElementById('contrEntPct').value||50;entgPct=+document.getElementById('contrEntgPct').value||50;}
   var entVal=vista*(entPct/100);
   var entgVal=vista*(entgPct/100);
-  if(entPct>0)pgConds.push({icon:'💰',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
-  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalação'});
-  if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª:</strong> R$ '+fm(v3)+' na metade'},{icon:'💰',txt:'<strong>3ª:</strong> R$ '+fm(v3)+' na entrega'});}
-  if(parc>0){var pv=vista*(1+taxa/100)/parc;pgConds.push({icon:'💳',txt:'Parcelado em '+parc+'× de R$ '+fm(pv)+' (taxa '+taxa+'%)'});}
-  pgConds.push({icon:'📅',txt:'Orçamento válido por '+valid+' dias'});
-  if(dataInicio){var di=new Date(dataInicio+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🔨',txt:'<strong>Início:</strong> '+di});}
-  if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🚚',txt:'<strong>Previsão de entrega:</strong> '+de+' ('+prazo+' dias úteis)'});}
-  if(obsContr)pgConds.push({icon:'📝',txt:obsContr});
+  if(entPct>0)pgConds.push({icon:'$',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
+  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'$',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalacao'});
+  if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'$',txt:'<strong>1a:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'$',txt:'<strong>2a:</strong> R$ '+fm(v3)+' na metade'},{icon:'$',txt:'<strong>3a:</strong> R$ '+fm(v3)+' na entrega'});}
+  if(parc>0){var pv=vista*(1+taxa/100)/parc;pgConds.push({icon:'$',txt:'Parcelado em '+parc+'x de R$ '+fm(pv)+' (taxa '+taxa+'%)'});}
+  pgConds.push({icon:'i',txt:'Orcamento valido por '+valid+' dias'});
+  if(dataInicio){var di=new Date(dataInicio+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'>',txt:'<strong>Inicio:</strong> '+di});}
+  if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'>',txt:'<strong>Previsao de entrega:</strong> '+de+' ('+prazo+' dias uteis)'});}
+  if(obsContr)pgConds.push({icon:'*',txt:obsContr});
   _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa);
   }catch(err){console.error('confirmarContrato:',err);toast('Erro: '+err.message);}
 }
