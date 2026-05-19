@@ -4586,7 +4586,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     _renderContrPDF();
   }
 }
-}
 function _numPorExtenso(n){
   var m={6:'seis',12:'doze',3:'três',1:'um'};
   return m[n]||String(n);
