@@ -4539,9 +4539,20 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         if(document.body.contains(offscreen))document.body.removeChild(offscreen);
         var jsPDF=window.jspdf.jsPDF;
         var pageW=595.28;
-        var pageH=pageW*(canvas.height/canvas.width);
-        var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
-        pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,pageH);
+        var pageH=841.89;
+        var imgW=pageW;
+        var imgH=pageW*(canvas.height/canvas.width);
+        var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+        var posY=0;
+        var remaining=imgH;
+        var first=true;
+        while(remaining>0){
+          if(!first){pdf.addPage();}
+          pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,-posY,imgW,imgH);
+          posY+=pageH;
+          remaining-=pageH;
+          first=false;
+        }
         var pdfBlob=pdf.output('blob');
         var img=document.createElement('img');
         img.src=canvas.toDataURL('image/jpeg',0.88);
