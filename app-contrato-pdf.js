@@ -23,6 +23,8 @@ function _loadContrPDFLibs(cb){
 function _pfm(v){return'R$ '+(parseFloat(v||0)).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function _pesc(s){return(s||'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
 function _pstrip(s){return(s||'').replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ');}
+// Remove emoji e caracteres fora do Latin-1 que quebram no jsPDF/Helvetica
+function _pclean(s){return(s||'').replace(/[^\x00-\xFF]/g,'').trim();}
 
 var PC={
   gold:[201,168,76],goldDk:[120,90,20],dark:[15,12,0],darkHdr:[20,16,0],
@@ -79,13 +81,15 @@ function _pSecTitle(label){
 }
 
 function _pCondItem(num,text){
+  var iconLabel=_pclean(String(num||'*'));
+  if(iconLabel==='')iconLabel='*';
   var lines=_pSpl(_pstrip(text),_MW()-36);
   var h=Math.max(22,lines.length*12+12);
   _pChk(h+4);
   var x=_pd.ML,y=_pd.Y;
   _pRect(x,y,3,h,PC.gold);
   _pRect(x+3,y,_MW()-3,h,PC.condBg);
-  _pFont(10,'bold',PC.gold);_pT(String(num),x+10,y+h/2+4);
+  _pFont(10,'bold',PC.gold);_pT(iconLabel,x+10,y+h/2+4);
   _pFont(9.5,'normal',PC.text);
   var ty=y+(h/2)-(lines.length*12/2)+8;
   lines.forEach(function(l){_pT(l,x+30,ty);ty+=12;});
