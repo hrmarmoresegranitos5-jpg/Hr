@@ -2528,7 +2528,7 @@ function gerarPDF(){
     +'<div style="display:flex;align-items:center;gap:12px;">'
       +'<div style="background:#0f0c00;color:#C9A84C;font-size:8px;font-weight:900;padding:6px 16px;border-radius:30px;letter-spacing:3px;text-transform:uppercase;border:1px solid rgba(201,168,76,0.5);">+ ORCAMENTO +</div>'
       +'<div style="background:#C9A84C;color:#000;font-size:9px;font-weight:900;padding:4px 10px;border-radius:5px;letter-spacing:1px;">'+orcNum+'</div>'
-      +(q.urgPct>0?'<div style="background:#2a0800;color:#ff8050;font-size:8px;font-weight:900;padding:5px 13px;border-radius:30px;letter-spacing:2px;text-transform:uppercase;border:1px solid rgba(255,100,30,0.5);">🚨 URGENTE +'+q.urgPct+'%</div>':'')
+      +(q.urgPct>0?'<div style="background:#2a0800;color:#ff8050;font-size:8px;font-weight:900;padding:5px 13px;border-radius:30px;letter-spacing:2px;text-transform:uppercase;border:1px solid rgba(255,100,30,0.5);">🚨 URGENTE — PRIORITÁRIO</div>':'')
     +'</div>'
     +'<div style="text-align:right;">'
       +'<div style="font-size:10px;color:#888;"><strong style="color:#5a3800;">EMISSAO:</strong> '+fd(q.date)+'</div>'
@@ -2616,21 +2616,14 @@ function gerarPDF(){
           +'<span style="color:#C9A84C;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">&#10003;</span>'
           +'<span style="font-size:12px;color:#333;line-height:1.4;">Fabricacao e acabamento completo</span>'
         +'</div>'
-        +(q.urgPct>0?'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;"><span style="color:#ff8050;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">🚨</span><span style="font-size:12px;color:#c04000;font-weight:700;line-height:1.4;">Atendimento prioritário — urgência +'+q.urgPct+'%</span></div>':'')
+        +(q.urgPct>0?'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;"><span style="color:#ff8050;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">🚨</span><span style="font-size:12px;color:#c04000;font-weight:700;line-height:1.4;">Atendimento prioritário — prazo garantido</span></div>':'')
       +'</div>'
     +'</div>':'')
 
     // COMO FUNCIONA
-    +(q.urgPct>0?'<div style="background:#1a0600;border:1px solid rgba(255,100,30,.4);border-radius:12px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
-      +'<div>'
-        +'<div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#ff8050;font-weight:900;margin-bottom:5px;">🚨 TAXA DE URGÊNCIA — ATENDIMENTO PRIORITÁRIO</div>'
-        +'<div style="font-size:12px;color:#ffd0b0;line-height:1.5;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos pendentes.</div>'
-      +'</div>'
-      +'<div style="text-align:right;flex-shrink:0;">'
-        +'<div style="font-size:8px;color:#ff8050;font-weight:700;margin-bottom:3px;">ACRÉSCIMO</div>'
-        +'<div style="font-size:22px;font-weight:900;color:#ff8050;line-height:1;">+'+q.urgPct+'%</div>'
-        +'<div style="font-size:12px;color:#c07050;font-weight:700;">+R$ '+fm(q.urgVal)+'</div>'
-      +'</div>'
+    +(q.urgPct>0?'<div style="background:#1a0600;border:1px solid rgba(255,100,30,.4);border-radius:12px;padding:14px 20px;margin-bottom:20px;">'
+      +'<div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#ff8050;font-weight:900;margin-bottom:7px;">🚨 ATENDIMENTO PRIORITÁRIO</div>'
+      +'<div style="font-size:12px;color:#ffd0b0;line-height:1.6;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos em andamento.</div>'
     +'</div>':'')
     +sh('Como Funciona')
     +(function(){var steps=[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
@@ -2638,44 +2631,49 @@ function gerarPDF(){
     // VALORES
     +sh('Valores do Projeto')
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
-      // parcelado
-      +'<div style="border:2px solid #c8b870;border-radius:10px;overflow:hidden;">'
-        +'<div style="background:#2a2000;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c8a850;font-weight:900;">PARCELADO EM 8×</span>'
-          +'<span style="background:#c8a850;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">+15%</span>'
+      // parcelado — "preço cheio", sem mencionar taxa
+      +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+        +'<div style="background:#0f0c00;padding:10px 16px;">'
+          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:900;margin-bottom:1px;">VALOR DO PROJETO</div>'
+          +'<div style="font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:700;">Parcelado em até 8×</div>'
         +'</div>'
-        +'<div style="padding:14px 16px;background:#fffdf5;">'
-          +'<div style="font-size:28px;font-weight:900;color:#7a5500;line-height:1;margin-bottom:4px;">R$ '+fm(q.p8)+'</div>'
-          +'<div style="font-size:11px;color:#a07020;font-weight:700;margin-bottom:4px;">por mês · 8 parcelas</div>'
-          +'<div style="font-size:10px;color:#bba060;">Total: R$ '+fm(q.parc)+'</div>'
+        +'<div style="padding:14px 16px;background:#faf8f4;">'
+          +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:3px;">R$ '+fm(q.p8)+'</div>'
+          +'<div style="font-size:11px;color:#999;">por mês — 8 parcelas</div>'
         +'</div>'
       +'</div>'
-      // a vista — destaque
+      // a vista — desconto especial
       +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
         +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">A VISTA</span>'
-          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">MELHOR OPCAO</span>'
+          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">À VISTA</span>'
+          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">DESCONTO</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
           +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(q.vista)+'</div>'
-          +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Valor final sem juros</div>'
-          +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economia de R$ '+fm(economia)+'</div>'
+          +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Desconto especial pagamento à vista</div>'
+          +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
         +'</div>'
       +'</div>'
     +'</div>'
 
     // CONDIÇÃO DE PAGAMENTO
-    +sh('Condicao de Pagamento')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;">'
-      +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
-        +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">ENTRADA &mdash; 50%</div>'
-        +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(q.ent)+'</div>'
-        +'<div style="font-size:11px;color:#999;">Na assinatura / medicao</div>'
+    +sh('Como Fica o Pagamento')
+    +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:16px 18px;margin-bottom:6px;">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
+        +'<div>'
+          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ASSINATURA</div>'
+          +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
+          +'<div style="font-size:10.5px;color:#999;">Entrada para iniciar a produção</div>'
+        +'</div>'
+        +'<div style="border-left:1px solid #e8dfc4;padding-left:16px;">'
+          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
+          +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
+          +'<div style="font-size:10.5px;color:#999;">Pagamento na entrega e instalação</div>'
+        +'</div>'
       +'</div>'
-      +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
-        +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA &mdash; 50%</div>'
-        +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(q.ent)+'</div>'
-        +'<div style="font-size:11px;color:#999;">Na entrega / instalacao</div>'
+      +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8dfc4;font-size:10.5px;color:#888;display:flex;align-items:center;gap:6px;">'
+        +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
+        +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
       +'</div>'
     +'</div>'
 
