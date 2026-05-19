@@ -340,6 +340,8 @@ function dispatch(e){
   el=e.target.closest('[data-stone]');if(el){openStone(el.dataset.stone);return;}
   // Pick cuba
   el=e.target.closest('[data-pcuba]');if(el){pickCuba(el.dataset.pcuba,el.dataset.ctype);return;}
+  // Finance tabs
+  el=e.target.closest('[data-ftab]');if(el){finTab(el.dataset.ftab);return;}
   // QA finance buttons
   el=e.target.closest('[data-qa]');if(el){openFin(el.dataset.qa);return;}
   // Finance type selector in modal
