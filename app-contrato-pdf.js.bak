@@ -295,48 +295,17 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
     }).then(function(canvas){
       document.body.removeChild(offscreen);
       var jsPDF=window.jspdf.jsPDF;
-      // A4 em pontos (595.28 × 841.89 pt)
       var pageW=595.28;
-      var pageH=841.89;
-      // Altura total da imagem escalada para largura A4
-      var imgW=pageW;
-      var imgH=canvas.height*(pageW/canvas.width);
-      var nPages=Math.ceil(imgH/pageH);
-      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-      for(var pg=0;pg<nPages;pg++){
-        if(pg>0)pdf.addPage();
-        // Fatia correspondente a esta página no canvas original
-        var sliceCanvas=document.createElement('canvas');
-        var pxPerPage=canvas.height/nPages;
-        sliceCanvas.width=canvas.width;
-        sliceCanvas.height=Math.ceil(pxPerPage);
-        var ctx2=sliceCanvas.getContext('2d');
-        ctx2.fillStyle='#ffffff';
-        ctx2.fillRect(0,0,sliceCanvas.width,sliceCanvas.height);
-        ctx2.drawImage(canvas,0,Math.round(pg*pxPerPage),canvas.width,Math.ceil(pxPerPage),0,0,canvas.width,Math.ceil(pxPerPage));
-        pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,imgW,pageH);
-      }
+      var pageH=pageW*(canvas.height/canvas.width);
+      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,pageW,pageH);
       var pdfBlob=pdf.output('blob');
 
-      // Preview: uma imagem por página A4
-      preview.innerHTML='';
-      var wrapAll=document.createElement('div');
-      wrapAll.style.cssText='display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:700px;';
-      for(var pi=0;pi<nPages;pi++){
-        var pc=document.createElement('canvas');
-        var ppx=canvas.height/nPages;
-        pc.width=canvas.width;
-        pc.height=Math.ceil(ppx);
-        var pctx=pc.getContext('2d');
-        pctx.fillStyle='#ffffff';
-        pctx.fillRect(0,0,pc.width,pc.height);
-        pctx.drawImage(canvas,0,Math.round(pi*ppx),canvas.width,Math.ceil(ppx),0,0,canvas.width,Math.ceil(ppx));
-        var pimg=document.createElement('img');
-        pimg.src=pc.toDataURL('image/jpeg',0.88);
-        pimg.style.cssText='width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
-        wrapAll.appendChild(pimg);
-      }
-      preview.appendChild(wrapAll);
+      // Preview como imagem (mesmo padrão do orçamento)
+      var img=document.createElement('img');
+      img.src=canvas.toDataURL('image/jpeg',0.88);
+      img.style.cssText='width:100%;max-width:700px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+      preview.innerHTML='';preview.appendChild(img);
 
       function enableBtn(id,label,cb){
         var b=document.getElementById(id);if(!b)return;
@@ -375,7 +344,7 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
         });
       }
 
-      if(typeof toast==='function')toast('✓ Contrato PDF pronto — '+contrNum+' ('+nPages+(nPages===1?' página':' páginas')+')');
+      if(typeof toast==='function')toast('✓ Contrato PDF pronto — '+contrNum);
     }).catch(function(){
       if(document.body.contains(offscreen))document.body.removeChild(offscreen);
       preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar. Use 🖨 Imprimir.</div>';
