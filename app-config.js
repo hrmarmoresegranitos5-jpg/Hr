@@ -91,7 +91,8 @@ function buildCfg(){
         {k:'peit_ping', l:'c/ Pingadeira',          preco:CFG.sv.peit_ping||70, grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_col',  l:'c/ Pedra Colada+Pingadeira',preco:CFG.sv.peit_col||120,grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_portal',l:'p/ Portal Madeira',     preco:CFG.sv.peit_portal||180,grp:'Soleira/Peitoril',u:'ml'},
-        {k:'rdbox_sup', l:'Rodapé de Box (1 lado)', preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
+        {k:'rdbox_sup', l:'Rodapé de Box (1 lado)',  preco:CFG.sv.rdbox_sup||38,  grp:'Rodapé de Box',u:'ml'},
+        {k:'rdbox_cola',l:'Cola p/ Colagem (por serviço)',preco:CFG.sv.rdbox_cola||20, grp:'Rodapé de Box',u:'un'},
         {k:'forn',      l:'Furo Torneira',          preco:CFG.sv.forn||45,      grp:'Furos & Recortes',u:'un'},
         {k:'fralo',     l:'Furo Ralo',              preco:CFG.sv.fralo||45,     grp:'Furos & Recortes',u:'un'},
         {k:'cook',      l:'Recorte Cooktop',        preco:CFG.sv.cook||140,     grp:'Furos & Recortes',u:'un'},
@@ -109,6 +110,8 @@ function buildCfg(){
     if(!CFG.svList.find(function(x){return x.k==='rdbox_sup';})){
       CFG.svList.push({k:'rdbox_sup',l:'Rodapé de Box (1 lado)',preco:CFG.sv.rdbox_sup||38,grp:'Rodapé de Box',u:'ml'});
       svCFG();
+    }
+    if(!CFG.svList.find(function(x){return x.k==='rdbox_cola';})){ CFG.svList.push({k:'rdbox_cola',l:'Cola p/ Colagem (por serviço)',preco:CFG.sv.rdbox_cola||20,grp:'Rodapé de Box',u:'un'}); svCFG();
     }
 
     // Sync CFG.sv from svList
