@@ -2498,15 +2498,19 @@ function gerarPDF(){
     if(bpAcabTipoPDF==='antiderap'||bpAcabTipoPDF==='boleada')matNomePDF+=' Premium';
   }
 
-  // ── Detecta múltiplos materiais ──
-  var _snaps=(q.ambSnap||[]).filter(function(a){return a.tipo!=='Túmulo'&&a.selMat;});
+  // ── Detecta múltiplos materiais (usa ambientes ao vivo, não só o snapshot) ──
+  // Prioriza ambientes[] pois reflete o estado atual da UI
+  var _liveAmbs = (typeof ambientes !== 'undefined' && ambientes.length)
+    ? ambientes.filter(function(a){return a.tipo!=='Túmulo' && a.selMat;})
+    : (q.ambSnap||[]).filter(function(a){return a.tipo!=='Túmulo' && a.selMat;});
+  var _snaps = _liveAmbs; // alias para _m2PosMat
   var _matIds=[];
-  _snaps.forEach(function(a){if(_matIds.indexOf(a.selMat)===-1)_matIds.push(a.selMat);});
+  _liveAmbs.forEach(function(a){if(_matIds.indexOf(a.selMat)===-1)_matIds.push(a.selMat);});
   var _multiMat=_matIds.length>1;
 
-  // Calcula m² por pedra
+  // Calcula m² por pedra (funciona com ambientes[] e com ambSnap[])
   function _m2PosMat(mid){
-    return _snaps.filter(function(a){return a.selMat===mid;}).reduce(function(s,a){
+    return _liveAmbs.filter(function(a){return a.selMat===mid;}).reduce(function(s,a){
       return s+(a.pecas||[]).reduce(function(s2,p){
         return s2+(p.w&&p.h?(p.w/100)*(p.h/100)*(p.q||1):0);
       },0);
