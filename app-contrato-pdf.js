@@ -439,8 +439,59 @@ function _renderPdfPages(pdfDoc,container,scale){
   }
 }
 
+function _isMobile(){
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
   var old=document.getElementById('contrPdfOv');if(old){old.remove();}
+
+  // ── MOBILE: abre direto no visualizador nativo do celular ──
+  if(_isMobile()){
+    // Cria link de download e dispara automaticamente
+    var a=document.createElement('a');
+    a.href=url;
+    a.download=nomeArq;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // Toast + overlay mínimo só com botão WhatsApp
+    if(typeof toast==='function')toast('PDF gerado — abrindo visualizador...');
+
+    var ov=document.createElement('div');
+    ov.id='contrPdfOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:Outfit,sans-serif;padding:24px;';
+    ov.innerHTML=
+      '<div style="background:#0a1f12;border:1px solid rgba(77,184,122,.4);border-radius:14px;padding:24px 20px;max-width:340px;width:100%;text-align:center;">'
+      +'<div style="font-size:2.2rem;margin-bottom:10px;">PDF</div>'
+      +'<div style="color:#4db87a;font-weight:700;font-size:1rem;margin-bottom:6px;">'+contrNum+'</div>'
+      +'<div style="color:#ccc;font-size:.82rem;margin-bottom:20px;">O PDF foi baixado.<br>Abra pelo gerenciador de arquivos ou notificação.</div>'
+      +'<div style="display:flex;flex-direction:column;gap:10px;">'
+      +'<button id="cPdfDown2" style="background:#0d2a18;border:1px solid rgba(77,184,122,.5);color:#4db87a;padding:12px;border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;">Baixar novamente</button>'
+      +'<button id="cPdfWA2" style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:12px;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">Enviar pelo WhatsApp</button>'
+      +'<button id="cPdfClose2" style="background:transparent;border:1px solid rgba(255,255,255,.15);color:#aaa;padding:10px;border-radius:10px;font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Fechar</button>'
+      +'</div></div>';
+    document.body.appendChild(ov);
+
+    document.getElementById('cPdfClose2').onclick=function(){ov.remove();URL.revokeObjectURL(url);};
+    document.getElementById('cPdfDown2').onclick=function(){
+      var a2=document.createElement('a');a2.href=url;a2.download=nomeArq;
+      document.body.appendChild(a2);a2.click();document.body.removeChild(a2);
+    };
+    document.getElementById('cPdfWA2').onclick=function(){
+      var pdfFile=new File([blob],nomeArq,{type:'application/pdf'});
+      if(navigator.share&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
+        navigator.share({files:[pdfFile],title:'Contrato '+contrNum,text:(emp.nome||'HR')+' - Contrato de Fornecimento'})
+          .catch(function(e){if(e&&e.name!=='AbortError')_ctrWaFb(url,nomeArq,q,emp,contrNum);});
+      } else {
+        _ctrWaFb(url,nomeArq,q,emp,contrNum);
+      }
+    };
+    return;
+  }
+
+  // ── DESKTOP: iframe nativo do browser ──
   var ov=document.createElement('div');
   ov.id='contrPdfOv';
   ov.style.cssText='position:fixed;inset:0;background:#111;z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
@@ -448,63 +499,35 @@ function _mostrarViewerContrato(blob,url,nomeArq,contrNum,q,emp){
   var bar=document.createElement('div');
   bar.style.cssText='display:flex;align-items:center;gap:7px;padding:9px 12px;background:#0a1f12;border-bottom:1px solid rgba(77,184,122,.35);flex-shrink:0;flex-wrap:wrap;';
   bar.innerHTML=
-    '<span style="flex:1;font-size:.76rem;font-weight:700;color:#4db87a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+contrNum+' — '+(q.cli||'')+'</span>'
-    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.8);padding:7px 12px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕ Fechar</button>'
-    +'<button id="cPdfDown" style="background:#0d2a18;border:1px solid rgba(77,184,122,.4);color:#4db87a;padding:7px 14px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:600;font-family:Outfit,sans-serif;">⬇ Salvar PDF</button>'
-    +'<button id="cPdfWA"  style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:7px 15px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:700;font-family:Outfit,sans-serif;">💬 WhatsApp</button>';
+    '<span style="flex:1;font-size:.76rem;font-weight:700;color:#4db87a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+contrNum+' - '+(q.cli||'')+'</span>'
+    +'<button id="cPdfClose" style="background:transparent;border:1px solid rgba(77,184,122,.3);color:rgba(77,184,122,.8);padding:7px 12px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">Fechar</button>'
+    +'<button id="cPdfDown" style="background:#0d2a18;border:1px solid rgba(77,184,122,.4);color:#4db87a;padding:7px 14px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:600;font-family:Outfit,sans-serif;">Salvar PDF</button>'
+    +'<button id="cPdfWA" style="background:#075e36;border:1px solid #25d366;color:#25d366;padding:7px 15px;border-radius:8px;font-size:.72rem;cursor:pointer;font-weight:700;font-family:Outfit,sans-serif;">WhatsApp</button>';
   ov.appendChild(bar);
 
-  var preview=document.createElement('div');
-  preview.style.cssText='flex:1;overflow:auto;background:#555;padding:12px 8px;';
-
-  // Placeholder de loading
-  var loading=document.createElement('div');
-  loading.style.cssText='display:flex;align-items:center;justify-content:center;height:200px;color:#aaa;font-size:.9rem;';
-  loading.textContent='Carregando visualização...';
-  preview.appendChild(loading);
-  ov.appendChild(preview);
+  var iframe=document.createElement('iframe');
+  iframe.src=url+'#toolbar=1&navpanes=0';
+  iframe.style.cssText='flex:1;width:100%;border:none;background:#fff;';
+  iframe.title='Contrato PDF';
+  ov.appendChild(iframe);
   document.body.appendChild(ov);
 
-  // Renderizar com pdf.js (funciona em mobile iOS/Android)
-  _loadPdfJs(function(err){
-    if(err){
-      preview.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;"><p style="color:#ccc;font-size:.9rem;text-align:center;">Visualização indisponível neste dispositivo.<br>Use ⬇ Salvar PDF para abrir o arquivo.</p></div>';
-      return;
-    }
-    var getAb=blob.arrayBuffer?blob.arrayBuffer():new Promise(function(res){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.readAsArrayBuffer(blob);});
-    Promise.resolve(getAb).then(function(ab){
-      return window.pdfjsLib.getDocument({data:new Uint8Array(ab)}).promise;
-    }).then(function(pdfDoc){
-      preview.removeChild(loading);
-      // Escala CSS: ocupa 100% da largura disponível
-      var scale=(preview.clientWidth-24)/595;
-      _renderPdfPages(pdfDoc,preview,scale);
-    }).catch(function(e){loading.textContent='Erro ao renderizar: '+e.message;});
-  });
-
   document.getElementById('cPdfClose').onclick=function(){ov.remove();URL.revokeObjectURL(url);};
-
   document.getElementById('cPdfDown').onclick=function(){
     var a=document.createElement('a');a.href=url;a.download=nomeArq;
     document.body.appendChild(a);a.click();document.body.removeChild(a);
-    if(typeof toast==='function')toast('✓ PDF salvo!');
+    if(typeof toast==='function')toast('PDF salvo!');
   };
-
   document.getElementById('cPdfWA').onclick=function(){
     var pdfFile=new File([blob],nomeArq,{type:'application/pdf'});
     if(navigator.share&&navigator.canShare&&navigator.canShare({files:[pdfFile]})){
-      navigator.share({
-        files:[pdfFile],
-        title:'Contrato '+contrNum+' — '+(q.cli||''),
-        text:(emp.nome||'HR')+'\nContrato de Fornecimento'+(q.tipo?' — '+q.tipo:''),
-      }).then(function(){if(typeof toast==='function')toast('✓ Enviado!');})
-       .catch(function(e){if(e&&e.name!=='AbortError')_ctrWaFb(url,nomeArq,q,emp,contrNum);});
+      navigator.share({files:[pdfFile],title:'Contrato '+contrNum,text:(emp.nome||'HR')+' - Contrato de Fornecimento'})
+        .catch(function(e){if(e&&e.name!=='AbortError')_ctrWaFb(url,nomeArq,q,emp,contrNum);});
     } else {
       _ctrWaFb(url,nomeArq,q,emp,contrNum);
     }
   };
-
-  if(typeof toast==='function')toast('✓ Contrato PDF pronto — '+contrNum);
+  if(typeof toast==='function')toast('Contrato PDF pronto - '+contrNum);
 }
 
 function _ctrWaFb(url,nomeArq,q,emp,contrNum){
