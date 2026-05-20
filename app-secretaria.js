@@ -107,6 +107,202 @@ function _sendNotif(title, body, key) {
   } catch(e){}
 }
 
+// ── Config do Bot ──
+function _getBotCfg() {
+  try { return JSON.parse(localStorage.getItem('hr_bot_cfg') || '{}'); } catch(e) { return {}; }
+}
+function _saveBotCfg(obj) {
+  localStorage.setItem('hr_bot_cfg', JSON.stringify(Object.assign(_getBotCfg(), obj)));
+}
+
+var _botPollTimer = null;
+var _botPolling   = false;
+
+function botStartPoll() {
+  if (_botPolling) return;
+  _botPolling = true;
+  _botPollTimer = setInterval(botCheckStatus, 3000);
+  botCheckStatus();
+}
+function botStopPoll() {
+  _botPolling = false;
+  clearInterval(_botPollTimer);
+}
+
+function botCheckStatus() {
+  var cfg = _getBotCfg();
+  if (!cfg.url) return;
+  fetch(cfg.url + '/bot/status')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      _saveBotCfg({ status: d.status, code: d.code || null });
+      _botUpdateUI(d);
+    })
+    .catch(function(){ _botUpdateUI({ status: 'offline' }); });
+}
+
+function _botUpdateUI(d) {
+  var st = d.status;
+  var ind = document.getElementById('botStatusInd');
+  var lbl = document.getElementById('botStatusLbl');
+  var codeArea = document.getElementById('botCodeArea');
+  var connectedArea = document.getElementById('botConnectedArea');
+  var setupArea = document.getElementById('botSetupArea');
+  if (!ind) return;
+
+  // Indicador
+  var map = {
+    connected: { col: '#4abf4a', txt: '● Conectado' },
+    connecting: { col: '#f0a040', txt: '◌ Conectando...' },
+    disconnected: { col: '#e04040', txt: '● Desconectado' },
+    offline: { col: '#888', txt: '● Servidor offline' }
+  };
+  var s = map[st] || map.disconnected;
+  ind.style.color = s.col;
+  if (lbl) lbl.textContent = s.txt;
+  if (lbl) lbl.style.color = s.col;
+
+  // Áreas
+  if (codeArea) codeArea.style.display = (st === 'connecting' && d.code) ? 'block' : 'none';
+  if (connectedArea) connectedArea.style.display = st === 'connected' ? 'block' : 'none';
+  if (setupArea) setupArea.style.display = st !== 'connected' ? 'block' : 'none';
+
+  // Código de pareamento
+  if (d.code && codeArea) {
+    var codeEl = document.getElementById('botPairCode');
+    if (codeEl) codeEl.textContent = d.code;
+  }
+}
+
+function botConnect() {
+  var url   = (document.getElementById('botServerUrl').value || '').trim().replace(/\/$/, '');
+  var phone = (document.getElementById('botPhone').value || '').trim();
+  if (!url)   { toast('Informe a URL do servidor'); return; }
+  if (!phone) { toast('Informe o número do bot'); return; }
+  var cleanPhone = phone.replace(/\D/g, '');
+  if (cleanPhone.length < 12) { toast('Número inválido — use DDI+DDD+número'); return; }
+
+  _saveBotCfg({ url, phone: cleanPhone, status: 'connecting' });
+  _botUpdateUI({ status: 'connecting' });
+
+  var btnEl = document.getElementById('botConnectBtn');
+  if (btnEl) { btnEl.textContent = '⏳ Gerando código...'; btnEl.disabled = true; }
+
+  fetch(url + '/bot/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: cleanPhone })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (btnEl) { btnEl.textContent = 'Gerar Código'; btnEl.disabled = false; }
+    if (d.error) { toast('❌ ' + d.error); return; }
+    _saveBotCfg({ code: d.code });
+    _botUpdateUI({ status: d.status, code: d.code });
+    botStartPoll();
+  })
+  .catch(function(e){
+    if (btnEl) { btnEl.textContent = 'Gerar Código'; btnEl.disabled = false; }
+    toast('❌ Servidor não acessível. Verifique a URL.');
+  });
+}
+
+function botDisconnect() {
+  var cfg = _getBotCfg();
+  if (!cfg.url) return;
+  if (!confirm('Desconectar o bot do WhatsApp?')) return;
+  fetch(cfg.url + '/bot/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ limparSessao: false })
+  }).then(function(){
+    _saveBotCfg({ status: 'disconnected', code: null });
+    _botUpdateUI({ status: 'disconnected' });
+    toast('Bot desconectado.');
+  }).catch(function(){ toast('Erro ao desconectar.'); });
+}
+
+function _renderBotPanel() {
+  var cfg = _getBotCfg();
+  var st  = cfg.status || 'disconnected';
+  var statusMap = {
+    connected:    { col: '#4abf4a', txt: '● Conectado' },
+    connecting:   { col: '#f0a040', txt: '◌ Conectando...' },
+    disconnected: { col: '#e04040', txt: '● Desconectado' },
+    offline:      { col: '#888',    txt: '● Servidor offline' }
+  };
+  var sm = statusMap[st] || statusMap.disconnected;
+
+  var h = '';
+  h += '<div class="bot-panel">';
+
+  // ── Header ──
+  h += '<div class="bot-panel-head">';
+  h += '<div style="display:flex;align-items:center;gap:10px;">';
+  h += '<div class="bot-icon">📱</div>';
+  h += '<div>';
+  h += '<div class="bot-title">WhatsApp Bot</div>';
+  h += '<div class="bot-subtitle">Assistente automático para clientes</div>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div id="botStatusLbl" class="bot-status-lbl" style="color:'+sm.col+';">'+sm.txt+'</div>';
+  h += '</div>';
+
+  // ── Área de configuração (quando desconectado) ──
+  h += '<div id="botSetupArea" style="'+(st==='connected'?'display:none;':'')+'">';
+
+  // URL do servidor
+  h += '<div class="bot-field">';
+  h += '<label class="bot-label">🌐 URL do Servidor Bot</label>';
+  h += '<input id="botServerUrl" class="bot-input" type="url" placeholder="http://localhost:3001 ou https://seuservidor.com:3001" value="'+escH(cfg.url||'')+'"/>';
+  h += '</div>';
+
+  // Telefone
+  h += '<div class="bot-field">';
+  h += '<label class="bot-label">📱 Número do WhatsApp Bot</label>';
+  h += '<input id="botPhone" class="bot-input" type="tel" placeholder="5574999990000 (DDI+DDD+número)" value="'+escH(cfg.phone||'')+'"/>';
+  h += '<div class="bot-hint">Ex: 5574999990000 — sem espaços ou símbolos</div>';
+  h += '</div>';
+
+  h += '<button id="botConnectBtn" class="bot-connect-btn" onclick="botConnect()">📲 Gerar Código de Pareamento</button>';
+  h += '</div>';
+
+  // ── Código de pareamento ──
+  h += '<div id="botCodeArea" style="'+(st==='connecting'&&cfg.code?'':'display:none;')+'">';
+  h += '<div class="bot-code-section">';
+  h += '<div class="bot-code-lbl">Código gerado — insira no WhatsApp</div>';
+  h += '<div id="botPairCode" class="bot-code-display">'+(cfg.code||'——  ——')+'</div>';
+  h += '<div class="bot-code-steps">';
+  h += '<div class="bot-step"><span class="bot-step-n">1</span><span>Abra o WhatsApp no celular</span></div>';
+  h += '<div class="bot-step"><span class="bot-step-n">2</span><span>Toque em <strong>⋮ Menu → Aparelhos conectados</strong></span></div>';
+  h += '<div class="bot-step"><span class="bot-step-n">3</span><span>Toque em <strong>Conectar aparelho</strong></span></div>';
+  h += '<div class="bot-step"><span class="bot-step-n">4</span><span>Escolha <strong>"Conectar com número de telefone"</strong></span></div>';
+  h += '<div class="bot-step"><span class="bot-step-n">5</span><span>Digite o código acima</span></div>';
+  h += '</div>';
+  h += '<div class="bot-code-warn">⏳ O código expira em ~60 segundos. Se expirar, clique em Gerar Código novamente.</div>';
+  h += '</div>';
+  h += '</div>';
+
+  // ── Conectado ──
+  h += '<div id="botConnectedArea" style="'+(st==='connected'?'':'display:none;')+'">';
+  h += '<div class="bot-connected-card">';
+  h += '<div class="bot-connected-icon">✅</div>';
+  h += '<div>';
+  h += '<div class="bot-connected-title">Bot ativo e respondendo</div>';
+  h += '<div class="bot-connected-sub">Número: +'+(cfg.phone||'—')+'</div>';
+  h += '</div>';
+  h += '<button class="bot-disconnect-btn" onclick="botDisconnect()">Desconectar</button>';
+  h += '</div>';
+  h += '</div>';
+
+  // Indicador oculto para o poll atualizar
+  h += '<span id="botStatusInd" style="display:none;" data-status="'+escH(st)+'"></span>';
+
+  h += '</div>'; // bot-panel
+
+  return h;
+}
+
 // ─────────────────────────────────────────────
 // RENDER PRINCIPAL
 // ─────────────────────────────────────────────
@@ -147,6 +343,12 @@ function _renderSecretariaInner(el) {
   var totalTarefas = atrasados.length + urgentes.length + pendVenc.length + followUps.length + visitasHoje.length;
 
   var h = '';
+
+  // ── PAINEL WHATSAPP BOT ──
+  h += _renderBotPanel();
+
+  // Inicia poll de status
+  botStartPoll();
 
   // ── HERO ──
   h += '<div class="sec-hero">';
