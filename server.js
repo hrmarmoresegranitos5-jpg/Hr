@@ -1,7 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════
 // HR Mármores e Granitos — Servidor + Bot WhatsApp (Baileys)
-// Sem Evolution API. Sem Docker. Só GitHub + Railway.
-// QR Code aparece nos logs do Railway — escaneie pelo celular.
+// QR Code acessível em /qr pelo celular
 // ══════════════════════════════════════════════════════════════════════
 
 import http from 'http';
@@ -10,8 +9,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion }
   from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
 import pino from 'pino';
+import qrcode from 'qrcode';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +28,12 @@ const MIME = {
   '.png':'image/png', '.jpg':'image/jpeg',
   '.ico':'image/x-icon', '.svg':'image/svg+xml', '.webp':'image/webp',
 };
+
+// ═══════════════════════════════════════════════════════════════════
+// ESTADO DO BOT
+// ═══════════════════════════════════════════════════════════════════
+
+const bot = { qrDataUrl: null, conectado: false, numero: null };
 
 // ═══════════════════════════════════════════════════════════════════
 // BOT — lógica de atendimento
@@ -66,9 +71,7 @@ function idProjeto(msg) {
   return null;
 }
 
-let enviarMsg = async (jid, texto) => {
-  console.log(`[BOT→${jid}]: ${texto.slice(0,80)}`);
-};
+let enviarMsg = async (jid, texto) => console.log(`[BOT→${jid}]: ${texto.slice(0,80)}`);
 
 async function processarMsg(numero, texto) {
   if (!numero || !texto) return;
@@ -104,22 +107,22 @@ async function fsm(s, msg, numero) {
 
     case E.PROJETO: {
       const proj = idProjeto(msg);
-      if (!proj) return `Não entendi qual projeto 😅\nDigite o *número* ou *nome*:\n\n${PROJETOS.map((p,i)=>`*${i+1}.* ${p}`).join('\n')}`;
+      if (!proj) return `Não entendi 😅\nDigite o *número* ou *nome*:\n\n${PROJETOS.map((p,i)=>`*${i+1}.* ${p}`).join('\n')}`;
       s.d.projeto = proj;
       s.e = E.DETALHE;
-      return `Ótimo! *${proj}* 🏠\n\nMe conta mais: é *reforma* ou *obra nova*?\n_Ex: bancada nova, pia do banheiro, escada de granito..._`;
+      return `Ótimo! *${proj}* 🏠\n\nÉ *reforma* ou *obra nova*?\n_Ex: bancada nova, pia do banheiro..._`;
     }
 
     case E.DETALHE:
       s.d.detalhe = msg;
       s.e = E.MEDIDAS;
-      return `Anotei! 📝\n\nVocê já tem as *medidas* aproximadas?\n\n*1.* ✅ Sim, tenho\n*2.* ❌ Não tenho`;
+      return `Anotei! 📝\n\nTem as *medidas* aproximadas?\n\n*1.* ✅ Sim\n*2.* ❌ Não`;
 
     case E.MEDIDAS: {
       const tem = /\b(1|sim|tenho|sei)\b/.test(msg);
       if (tem) {
         s.e = E.MEDIDAS2;
-        return `Ótimo! Me informe as medidas como souber 📏\n_Ex: "bancada 2,50 x 0,60"_`;
+        return `Me informe as medidas 📏\n_Ex: "bancada 2,50 x 0,60"_`;
       } else {
         s.d.medidas = 'Sem medidas — precisa de visita técnica';
         s.e = E.VISITA_END;
@@ -130,14 +133,14 @@ async function fsm(s, msg, numero) {
     case E.MEDIDAS2:
       s.d.medidas = msg;
       s.e = E.VISITA_SN;
-      return `Medidas anotadas ✅\n\nQuer agendar uma *visita técnica gratuita*?\n\n*1.* ✅ Sim\n*2.* ❌ Não, só o orçamento`;
+      return `Medidas anotadas ✅\n\nQuer agendar uma *visita técnica gratuita*?\n\n*1.* ✅ Sim\n*2.* ❌ Não`;
 
     case E.VISITA_SN: {
       const quer = /\b(1|sim|quero|pode|agendar)\b/.test(msg);
       if (quer) {
         s.d.querVisita = true;
         s.e = E.VISITA_END;
-        return `Ótimo! 📅\n\nQual o *endereço completo* para a visita?`;
+        return `Ótimo! 📅\n\nQual o *endereço completo*?`;
       } else {
         s.d.querVisita = false;
         return await finalizar(s, numero);
@@ -147,7 +150,7 @@ async function fsm(s, msg, numero) {
     case E.VISITA_END:
       s.d.endereco = msg;
       s.e = E.HORARIO;
-      return `Endereço anotado! 📍\n\nQual o melhor *horário*?\n_Ex: "manhã", "tarde", "segunda às 14h"_`;
+      return `Anotado! 📍\n\nQual o melhor *horário*?\n_Ex: "manhã", "tarde", "segunda às 14h"_`;
 
     case E.HORARIO:
       s.d.horario = msg;
@@ -193,7 +196,81 @@ async function finalizar(s, numero) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// BAILEYS — conexão WhatsApp
+// PÁGINA /qr
+// ═══════════════════════════════════════════════════════════════════
+
+function paginaQR() {
+  if (bot.conectado) {
+    return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30">
+<title>Bot WhatsApp</title>
+<style>
+  body{font-family:sans-serif;background:#0d0d0d;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box}
+  .box{background:#141414;border-radius:20px;padding:36px 28px;max-width:400px;width:100%;text-align:center}
+  h2{color:#22c55e;font-size:22px;margin-bottom:8px}
+  p{color:#888;font-size:14px;line-height:1.6}
+  .num{color:#C9A84C;font-size:18px;font-weight:bold;margin:12px 0}
+  a{color:#C9A84C;text-decoration:none}
+</style></head><body><div class="box">
+  <div style="font-size:56px">✅</div>
+  <h2>Bot Conectado!</h2>
+  ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
+  <p>O bot está ativo e respondendo automaticamente.<br><br>
+  Esta página atualiza a cada 30s.</p>
+  <p style="margin-top:20px"><a href="/">← Voltar ao app</a></p>
+</div></body></html>`;
+  }
+
+  if (bot.qrDataUrl) {
+    return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="20">
+<title>Bot WhatsApp — QR Code</title>
+<style>
+  body{font-family:sans-serif;background:#0d0d0d;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box}
+  .box{background:#141414;border-radius:20px;padding:36px 28px;max-width:400px;width:100%;text-align:center}
+  h2{color:#C9A84C;font-size:20px;margin-bottom:4px}
+  p{color:#888;font-size:13px;line-height:1.6;margin:8px 0}
+  img{border-radius:12px;background:#fff;padding:12px;max-width:260px;width:100%;margin:16px 0}
+  .steps{text-align:left;background:#1a1a1a;border-radius:12px;padding:16px;margin:16px 0;font-size:13px;line-height:2}
+  a{color:#C9A84C}
+</style></head><body><div class="box">
+  <div style="font-size:48px">📱</div>
+  <h2>Conectar WhatsApp</h2>
+  <img src="${bot.qrDataUrl}" alt="QR Code">
+  <div class="steps">
+    <strong>Como escanear:</strong><br>
+    1. Abra o WhatsApp da empresa<br>
+    2. Toque em ⋮ → <strong>Aparelhos conectados</strong><br>
+    3. Toque em <strong>Conectar aparelho</strong><br>
+    4. Aponte para o QR Code acima
+  </div>
+  <p>🔄 Página atualiza automaticamente a cada 20s<br>
+  Se o QR expirar, aguarde — um novo aparece sozinho.</p>
+  <p><a href="/">← Voltar ao app</a></p>
+</div></body></html>`;
+  }
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="5">
+<title>Bot WhatsApp</title>
+<style>
+  body{font-family:sans-serif;background:#0d0d0d;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .box{background:#141414;border-radius:20px;padding:40px 28px;max-width:400px;width:100%;text-align:center}
+  h2{color:#C9A84C} p{color:#888;font-size:14px}
+  .spin{display:inline-block;width:40px;height:40px;border:4px solid #333;border-top-color:#C9A84C;border-radius:50%;animation:spin 1s linear infinite;margin:20px auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style></head><body><div class="box">
+  <h2>🤖 Iniciando bot...</h2>
+  <div class="spin"></div>
+  <p>Aguarde, carregando QR Code.<br>Esta página atualiza automaticamente.</p>
+</div></body></html>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BAILEYS
 // ═══════════════════════════════════════════════════════════════════
 
 async function iniciarBaileys() {
@@ -208,30 +285,32 @@ async function iniciarBaileys() {
       version,
       auth: state,
       logger: pino({ level: 'silent' }),
-      printQRInTerminal: true,
+      printQRInTerminal: false,
       browser: ['HR Mármores', 'Chrome', '1.0'],
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
-        console.log('\n══════════════════════════════════════════════');
-        console.log('📱 ESCANEIE O QR CODE ACIMA COM O WHATSAPP');
-        console.log('WhatsApp → Configurações → Aparelhos conectados → Conectar aparelho');
-        console.log('══════════════════════════════════════════════\n');
+        bot.qrDataUrl = await qrcode.toDataURL(qr);
+        bot.conectado = false;
+        console.log('[BOT] QR Code gerado — acesse /qr no app para escanear');
       }
       if (connection === 'open') {
-        console.log('\n✅ WhatsApp CONECTADO! Bot ativo e respondendo.\n');
+        bot.conectado = true;
+        bot.qrDataUrl = null;
+        console.log('✅ WhatsApp CONECTADO! Bot ativo.');
       }
       if (connection === 'close') {
+        bot.conectado = false;
         const code = (lastDisconnect?.error)?.output?.statusCode;
-        const reconectar = code !== DisconnectReason.loggedOut;
-        if (reconectar) {
-          console.log(`[BOT] Reconectando em 5s...`);
+        if (code !== DisconnectReason.loggedOut) {
+          console.log('[BOT] Reconectando...');
           setTimeout(iniciarBaileys, 5000);
         } else {
-          console.log('[BOT] Sessão encerrada. Escaneie o QR novamente reiniciando o serviço.');
+          console.log('[BOT] Sessão encerrada. Acesse /qr para reconectar.');
+          bot.qrDataUrl = null;
         }
       }
     });
@@ -265,12 +344,21 @@ async function iniciarBaileys() {
 // ═══════════════════════════════════════════════════════════════════
 
 const server = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, {'Content-Type':'application/json'});
-    res.end(JSON.stringify({ ok:true, sessoes: Object.keys(sessoes).length, ts: new Date().toISOString() }));
+  // Painel QR
+  if (req.url === '/qr' || req.url === '/qr/') {
+    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'no-cache'});
+    res.end(paginaQR());
     return;
   }
 
+  // Health
+  if (req.url === '/health') {
+    res.writeHead(200, {'Content-Type':'application/json'});
+    res.end(JSON.stringify({ ok:true, bot: bot.conectado, sessoes: Object.keys(sessoes).length, ts: new Date().toISOString() }));
+    return;
+  }
+
+  // Arquivos estáticos
   let filePath = path.join(__dirname, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
   if (!filePath.startsWith(__dirname)) { res.writeHead(403); res.end('Forbidden'); return; }
 
@@ -292,7 +380,7 @@ const server = http.createServer((req, res) => {
 
 server.listen(CFG.PORT, '0.0.0.0', () => {
   console.log(`\n✅ HR Mármores — porta ${CFG.PORT}`);
-  console.log(`📱 Dono: ${CFG.DONO}`);
-  console.log(`🤖 Iniciando bot WhatsApp...\n`);
+  console.log(`📱 Para conectar o WhatsApp acesse: SEU-APP.railway.app/qr`);
+  console.log(`📱 Dono: ${CFG.DONO}\n`);
   iniciarBaileys();
 });
