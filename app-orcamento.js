@@ -446,6 +446,15 @@ function pickCuba(id,tipo){
   }
 }
 
+// ═══ CUBA QUANTITY ═══
+function setCubaQtd(ambId, svKey, qtd){
+  qtd=Math.max(1,+qtd||1);
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.selCuba)return;
+  amb.selCuba.qtd=qtd;
+  renderAmbientes();
+}
+
 // ═══ AMBIENTES ═══
 var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
 
@@ -800,8 +809,21 @@ function buildSVHtml(amb){
         h+='<div class="sf"><span>Qtd</span><input type="number" id="sq-'+amb.id+'-'+it.k+'" value="'+(sfv.q||1)+'" min="1" style="width:48px;" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'q\',+this.value||1);calcSFAmb('+amb.id+',\''+it.k+'\')" onclick="event.stopPropagation()"></div>';
         h+='</div><div class="sfres" id="sfr-'+amb.id+'-'+it.k+'"></div></div>';
       } else if(it.u==='cuba'&&isOn){
-        var cubaInfo=amb.selCuba?('✓ '+amb.selCuba.nm.trim()+' — R$ '+fm(amb.selCuba.total)):'Toque para escolher';
+        var cubaInfo=amb.selCuba?('✓ '+amb.selCuba.nm.trim()+((amb.selCuba.qtd||1)>1?' ×'+(amb.selCuba.qtd||1):'')+' — R$ '+fm(amb.selCuba.total)):'Toque para escolher';
+        var cubaQtd=amb.selCuba?(amb.selCuba.qtd||1):1;
+        var cubaTotalQtd=amb.selCuba?(amb.selCuba.total*(amb.selCuba.qtd||1)):0;
         h+='<div class="svcuba on" id="sq-'+amb.id+'-'+it.k+'" onclick="openCubaPickAmb('+amb.id+',\''+it.ctp+'\')" style="cursor:pointer;">'+cubaInfo+'</div>';
+        if(amb.selCuba){
+          h+='<div style="display:flex;align-items:center;gap:8px;margin-top:6px;" onclick="event.stopPropagation()">';
+          h+='<span style="font-size:.7rem;color:var(--t3);">Quantidade:</span>';
+          h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;overflow:hidden;">';
+          h+='<button onclick="setCubaQtd('+amb.id+',\''+it.k+'\','+(cubaQtd-1)+')" style="background:none;border:none;color:var(--t2);font-size:1.1rem;width:34px;height:32px;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+          h+='<span style="min-width:26px;text-align:center;font-size:.88rem;font-weight:700;color:var(--tx);">'+cubaQtd+'</span>';
+          h+='<button onclick="setCubaQtd('+amb.id+',\''+it.k+'\','+(cubaQtd+1)+')" style="background:none;border:none;color:var(--gold);font-size:1.1rem;width:34px;height:32px;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+          h+='</div>';
+          if(cubaQtd>1) h+='<span style="font-size:.72rem;color:var(--gold2);font-weight:600;">= R$ '+fm(cubaTotalQtd)+'</span>';
+          h+='</div>';
+        }
       } else if((it.u==='ml'||it.u==='km'||it.u==='un')&&!it.fx&&isOn){
         var sv2=sv[it.k]||{};
         h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'"><input type="number" id="si-'+amb.id+'-'+it.k+'" placeholder="'+(it.u==='ml'?'metros':'qtd')+'" step="0.1" value="'+(sv2.qty||'')+'" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'qty\',+this.value)" onclick="event.stopPropagation()"><span class="svunit">'+it.u+'</span></div>';
@@ -994,7 +1016,7 @@ function calcular(){
         return;
       }
       if(it.u==='cuba'){
-        if(amb.selCuba){acT+=amb.selCuba.total;acL.push({l:'Cuba: '+amb.selCuba.nm.trim(),v:amb.selCuba.total});acN.push('Cuba: '+amb.selCuba.nm.trim());}
+        if(amb.selCuba){var _cQtd=amb.selCuba.qtd||1;var _cTot=amb.selCuba.total*_cQtd;acT+=_cTot;acL.push({l:'Cuba: '+amb.selCuba.nm.trim()+(_cQtd>1?' ×'+_cQtd:''),v:_cTot});acN.push('Cuba: '+amb.selCuba.nm.trim()+(_cQtd>1?' ×'+_cQtd:''));}
         return;
       }
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
@@ -1096,7 +1118,7 @@ function calcular(){
       var vP=0,dP=itP.l;
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
       else if(itP.u==='sf_slim'||itP.u==='ml_only'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml (só MO)';}
-      else if(itP.u==='cuba'){if(ambP.selCuba){vP=ambP.selCuba.total;dP+=': '+ambP.selCuba.nm.trim();}}
+      else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd=ambP.selCuba.qtd||1;vP=ambP.selCuba.total*_pQtd;dP+=': '+ambP.selCuba.nm.trim()+(_pQtd>1?' ×'+_pQtd:'');}}
       else if(!itP.fx){vP=(sdP.w||0)*getPr(itP.k);if(sdP.w)dP+=' '+sdP.w+(itP.u==='un'?'un':'ml');}
       else{vP=getPr(itP.k);}
       if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
