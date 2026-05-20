@@ -4576,6 +4576,9 @@ function tumInlineMount(ambId) {
   var amb = (typeof ambientes !== 'undefined') ? ambientes.find(function(a){ return a.id == ambId; }) : null;
   if (amb && amb.tumSEL) {
     SEL = JSON.parse(JSON.stringify(amb.tumSEL));
+    // Garantir campos que podem estar ausentes em dados antigos
+    if (!SEL.tampas) SEL.tampas = JSON.parse(JSON.stringify(_TI_SEL_DEF.tampas));
+    if (!SEL.tampas.posicao) SEL.tampas.posicao = 'superior';
     // Validar matId restaurado — se não existe no catálogo atual, usar fallback inteligente
     if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
       var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || (p.nm && p.nm.toLowerCase().indexOf('gabriel') >= 0); });
@@ -4590,6 +4593,8 @@ function tumInlineMount(ambId) {
       SEL.matId = CFG.pedras[0].id;
     }
   }
+  // Sincronizar window.SEL após reatribuição (garante que onclicks inline vejam o objeto correto)
+  window.SEL = SEL;
   if (amb && amb.tumFlds) {
     var flds = amb.tumFlds;
     Object.keys(flds).forEach(function(id) {
