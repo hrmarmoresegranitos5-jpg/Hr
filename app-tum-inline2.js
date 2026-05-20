@@ -351,7 +351,12 @@ function gerarPrintArea(o,r){
   var ex=[];
   if(SEL.pecas.tampa){
     var pos=SEL.tampas.posicao||'superior';
-    if(pos==='frontal'){ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(CC*100/td.nTotal)+'×'+Math.round(d.Hcomp*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
+    if(pos==='frontal'){
+      var _nC3=SEL.tampas.colunas||1,_E3=d.E/100,_olC3=(SEL.tampas.overlapFrontalC||5)/100,_olH3=(SEL.tampas.overlapFrontalH||5)/100;
+      var _aberW3=Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
+      var _tW3=(_aberW3+2*_olC3)/_nC3,_tH3=_aberH3+2*_olH3;
+      ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
+    }
     else{ex.push({i:'🪨',l:'Tampas Superiores ('+td.nTotal+'×)',v:Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
   }
   if(SEL.pecas.lapide){var ld=d.LapW_cm+'×'+d.LapH_cm+' cm';if(engCm>0)ld+=' (dupla '+engCm+'cm)';ex.push({i:'📜',l:'Lápide',v:ld});}
