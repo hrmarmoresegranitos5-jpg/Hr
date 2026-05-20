@@ -3,11 +3,16 @@
   "version": "2.0.0",
   "description": "Sistema HR Mármores e Granitos + Bot WhatsApp",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1",
+    "pino": "^8.21.0"
+  }
 }
