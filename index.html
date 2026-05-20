@@ -368,6 +368,17 @@ function openApp(pg){
 
 <!-- MODALS -->
 <div class="ov" id="stoneMd"><div class="modal"><div id="stoneMdC"></div><button class="btn btn-o mt" data-close>Fechar</button></div></div>
+<div class="ov" id="cubaQtdMd"><div class="modal" style="max-width:320px;">
+  <div class="mtitle">Quantidade de Cubas</div>
+  <div style="font-size:.8rem;color:var(--t3);margin-bottom:14px;" id="cubaQtdNm"></div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:0;background:var(--s3);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;margin-bottom:20px;">
+    <button onclick="var i=document.getElementById('cubaQtdInp');i.value=Math.max(1,(+i.value||1)-1);" style="background:none;border:none;color:var(--t2);font-size:1.5rem;width:52px;height:52px;cursor:pointer;font-family:Outfit,sans-serif;">−</button>
+    <input id="cubaQtdInp" type="number" min="1" value="1" onclick="event.stopPropagation()" style="width:60px;text-align:center;background:none;border:none;font-size:1.4rem;font-weight:700;color:var(--tx);font-family:Outfit,sans-serif;outline:none;">
+    <button onclick="var i=document.getElementById('cubaQtdInp');i.value=(+i.value||1)+1;" style="background:none;border:none;color:var(--gold);font-size:1.5rem;width:52px;height:52px;cursor:pointer;font-family:Outfit,sans-serif;">+</button>
+  </div>
+  <button class="btn" onclick="confirmCubaQtd()">Confirmar</button>
+  <button class="btn btn-o mt" data-close>Cancelar</button>
+</div></div>
 <div class="ov" id="cubaPickMd"><div class="modal"><div class="mtitle" id="cpTitle">Escolher Cuba</div><div style="font-size:.75rem;color:var(--t3);margin-bottom:12px;" id="cpSub"></div><div id="cpList"></div><button class="btn btn-o mt" data-close>Fechar</button></div></div>
 <div class="ov" id="visitaMd"><div class="modal"><div class="mtitle" id="vMdTitle">📐 Nova Visita de Medição</div><div class="f"><label>Cliente</label><input id="vCli" type="text" placeholder="Nome do cliente"></div><div class="r2"><div class="f"><label>Telefone / WhatsApp</label><input id="vTel" type="tel" placeholder="(74) 9xxxx-xxxx"></div><div class="f"><label>Data</label><input id="vData" type="date"></div></div><div class="f"><label>Horário</label><input id="vHora" type="time"></div><div class="f"><label>Endereço</label><input id="vEnd" type="text" placeholder="Rua, número, bairro"></div><div class="f"><label>Obs. (ambientes a medir)</label><textarea id="vObs" rows="2" placeholder="Ex: Cozinha + 2 banheiros, cliente terá planta..."></textarea></div><button class="btn btn-g" onclick="saveVisita()" style="margin-bottom:7px;">Salvar Visita</button><button class="btn btn-o" data-close>Cancelar</button></div></div>
 <div class="ov" id="pdfPrazoMd"><div class="modal">
