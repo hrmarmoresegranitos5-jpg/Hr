@@ -2104,9 +2104,17 @@ function calcular(){
   var end=document.getElementById('oEnd').value.trim()||'';
   var obs=document.getElementById('oObs').value.trim()||'';
   if(!ambientes.length){toast('Adicione pelo menos um ambiente');return;}
-  var missingMat=ambientes.find(function(a){return a.tipo!=='Túmulo' && (!a.selMat || !CFG.stones.find(function(s){return s.id===a.selMat;}));});
+  // Only require stone selection if the ambiente has stone pieces (w×h defined)
+  var missingMat=ambientes.find(function(a){
+    if(a.tipo==='Túmulo') return false;
+    var hasPecas=a.pecas&&a.pecas.some(function(p){return p.w&&p.h;});
+    if(!hasPecas) return false; // service-only: no stone needed
+    return !a.selMat || !CFG.stones.find(function(s){return s.id===a.selMat;});
+  });
   if(missingMat){toast('Selecione a pedra de todos os ambientes');renderAmbientes();return;}
-  var mat=CFG.stones.find(function(s){return s.id===ambientes[0].selMat;})||CFG.stones[0];
+  // Find first stone from any ambiente that has one selected (service-only ambientes may have none)
+  var _firstMatAmb=ambientes.find(function(a){return a.selMat&&CFG.stones.find(function(s){return s.id===a.selMat;});});
+  var mat=(_firstMatAmb&&CFG.stones.find(function(s){return s.id===_firstMatAmb.selMat;}))||CFG.stones[0]||{pr:0,nm:'Serviço',fin:'',id:''}; 
 
   var totalM2=0,totalAcT=0,totalPedT=0;
   var detHtml='';
@@ -2267,7 +2275,7 @@ function calcular(){
     if(sfPcs.length){sfPcs.forEach(function(p){
       detHtml+='<div class="rrow"><span class="rk">'+p.l+' '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span><span class="rv">'+p.m2.toFixed(3)+'m²</span></div>';
     });}
-    detHtml+='<div class="rrow"><span class="rk">'+ambMat2.nm+' — '+m2.toFixed(3)+'m²</span><span class="rv" style="color:var(--gold2)">R$ '+fm(pedTamb)+'</span></div>';
+    if(m2>0) detHtml+='<div class="rrow"><span class="rk">'+ambMat2.nm+' — '+m2.toFixed(3)+'m²</span><span class="rv" style="color:var(--gold2)">R$ '+fm(pedTamb)+'</span></div>';
     acL.forEach(function(a){detHtml+='<div class="rrow"><span class="rk">'+a.l+'</span><span class="rv">R$ '+fm(a.v)+'</span></div>';});
     if(acL.length===0&&m2===0)detHtml+='<div style="font-size:.72rem;color:var(--t4);padding:2px 0;">Nenhuma peça ou serviço neste ambiente</div>';
     // Dados do túmulo no bloco de detalhe
