@@ -231,6 +231,61 @@ SV_DEFS.Tumulo=[
 // Túmulo usa APENAS seus serviços específicos (não mistura com Cozinha)
 SV_DEFS['Túmulo'] = SV_DEFS.Tumulo;
 
+// ── SERVIÇOS ESPECÍFICOS PARA CAPELAS ──────────────────────────────────
+SV_DEFS.Capela = [
+  // ── Peças de pedra estruturais (m²) ──
+  {g:'⛪ Estrutura — Peças de Pedra (m²)',its:[
+    {k:'cap_fundo',   l:'Fundo (painel traseiro)',       u:'sf'},
+    {k:'cap_base',    l:'Base / Tampo inferior',         u:'sf'},
+    {k:'cap_teto',    l:'Teto / Tampo superior',         u:'sf'},
+    {k:'cap_lat',     l:'Laterais (×2)',                 u:'sf'},
+    {k:'cap_front',   l:'Frontão / Moldura frontal',     u:'sf'},
+    {k:'cap_degrau',  l:'Degrau de acesso',              u:'sf'}
+  ]},
+  // ── Pilares ──
+  {g:'🏛️ Pilares',its:[
+    {k:'cap_pilar_ch',l:'Pilar em chapa (p/ unidade)',   u:'sf'},
+    {k:'cap_pilar_tr',l:'Pilar torneado — pronto',       u:'un', fx:1}
+  ]},
+  // ── Acabamentos lineares ──
+  {g:'📐 Acabamentos (ml)',its:[
+    {k:'cap_mold',    l:'Moldura decorativa',            u:'ml'},
+    {k:'cap_ping',    l:'Pingadeira',                    u:'ml'},
+    {k:'cap_bisel',   l:'Borda Biselada',                u:'ml'},
+    {k:'cap_roda',    l:'Rodapé interno',                u:'ml'}
+  ]},
+  // ── Lápide / Adornos ──
+  {g:'🪦 Lápide / Adornos',its:[
+    {k:'cap_lapide',  l:'Lápide gravada em granito',     u:'un', fx:1},
+    {k:'cap_plaq',    l:'Plaquinha gravada',             u:'un', fx:1},
+    {k:'cap_foto',    l:'Foto em porcelana',             u:'un', fx:1},
+    {k:'cap_cruz_gr', l:'Cruz em granito',               u:'un', fx:1},
+    {k:'cap_cruz_mr', l:'Cruz em mármore',               u:'un', fx:1},
+    {k:'cap_vaso',    l:'Vaso integrado em pedra',       u:'un', fx:1},
+    {k:'cap_pol',     l:'Polimento extra',               u:'un', fx:1}
+  ]},
+  // ── Mão de obra ──
+  {g:'🔨 Mão de Obra',its:[
+    {k:'cap_mont',    l:'Montagem / Instalação',         u:'un', fx:1},
+    {k:'cap_montc',   l:'Instalação complexa',           u:'un', fx:1},
+    {k:'cap_recorte', l:'Recorte / Furo',               u:'un', fx:0}
+  ]},
+  // ── Construção e materiais ──
+  {g:'🧱 Construção & Materiais',its:[
+    {k:'cap_fund',    l:'Fundação / Contrapiso',         u:'livre'},
+    {k:'cap_alv',     l:'Levantamento / Alvenaria',     u:'livre'},
+    {k:'cap_reb',     l:'Reboco / Chapisco',             u:'livre'},
+    {k:'cap_cola',    l:'Cola / Argamassa p/ granito',   u:'livre'},
+    {k:'cap_rej',     l:'Rejunte',                      u:'livre'},
+    {k:'cap_frete',   l:'Frete / Entrega material',     u:'livre'}
+  ]},
+  {g:'Deslocamento',its:[
+    {k:'desl_cid',    l:'Na cidade',                    u:'livre'},
+    {k:'desl_for',    l:'Fora da cidade',               u:'km', fx:0}
+  ]}
+];
+SV_DEFS['⛪ Capela'] = SV_DEFS.Capela;
+
 function getSVGrp(){return SV_DEFS[document.getElementById('oTipo').value]||SV_DEFS.Cozinha;}
 function getIt(k){var g=getSVGrp();for(var i=0;i<g.length;i++){for(var j=0;j<g[i].its.length;j++){if(g[i].its[j].k===k)return g[i].its[j];}}return null;}
 // Preços padrão de túmulo — usados como fallback quando CFG.sv não tem o valor
@@ -456,7 +511,7 @@ function setCubaQtd(ambId, svKey, qtd){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -490,6 +545,7 @@ function buildMatCarouselHtml(amb){
     'Peitoril': ['Granito Cinza','Granito Branco','Granito Preto','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
     'Fachada':  ['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Túmulo':   ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
+    '⛪ Capela': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
     '🏊 Borda Piscina':['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Rodapé de Box':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
     '🚽 Divisória WC':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
@@ -660,6 +716,29 @@ function renderAmbientes(){
       h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(201,168,76,.08);border-radius:8px;font-size:.62rem;color:var(--t3);line-height:1.6;">';
       h+='💡 <b>Como preencher as peças:</b> informe Comprimento × Largura de cada face.<br>';
       h+='Ex: Tampa → 220×90cm | Lateral → 220×70cm (qtd 2) | Frente → 90×70cm';
+      h+='</div>';
+      h+='</div>';
+    }
+    if(amb.tipo==='⛪ Capela'){
+      if(!amb.capExtra)amb.capExtra={};
+      var ce=amb.capExtra;
+      h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:12px;margin:10px 0;">';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">⛪ Dados da Capela</div>';
+      h+='<div class="f"><label>Falecido(a)</label><input placeholder="Nome do falecido" type="text" style="background:var(--s3);" value="'+escH(ce.falecido||'')+'" oninput="updCapExtra('+amb.id+',\'falecido\',this.value)"></div>';
+      h+='<div class="f"><label>Cemitério</label><input placeholder="Nome do cemitério" type="text" style="background:var(--s3);" value="'+escH(ce.cemiterio||'')+'" oninput="updCapExtra('+amb.id+',\'cemiterio\',this.value)"></div>';
+      h+='<div class="r2"><div class="f"><label>Quadra</label><input placeholder="Q-12" type="text" style="background:var(--s3);" value="'+escH(ce.quadra||'')+'" oninput="updCapExtra('+amb.id+',\'quadra\',this.value)"></div>';
+      h+='<div class="f"><label>Nº / Lote</label><input placeholder="N-04" type="text" style="background:var(--s3);" value="'+escH(ce.lote||'')+'" oninput="updCapExtra('+amb.id+',\'lote\',this.value)"></div></div>';
+      h+='<div class="f"><label>Tipo de Capela</label><select style="background:var(--s3);color:var(--tx);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;width:100%;font-size:.82rem;font-family:Outfit,sans-serif;" onchange="updCapExtra('+amb.id+',\'subtipo\',this.value)">';
+      ['Nicho Simples (frontal)','Nicho Duplo (2 gavetas)','Nicho Triplo (3 gavetas)','Capelinha com Pilares','Capelinha com Frontão','Capelinha Monumental','Reforma / Revestimento'].forEach(function(st){
+        h+='<option value="'+st+'"'+(ce.subtipo===st?' selected':'')+'>'+st+'</option>';
+      });
+      h+='</select></div>';
+      h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(201,168,76,.08);border-radius:8px;font-size:.62rem;color:var(--t3);line-height:1.7;">';
+      h+='💡 <b>Como medir a capela:</b><br>';
+      h+='• <b>Fundo</b> = Largura × Altura interna (ex: 80×100cm)<br>';
+      h+='• <b>Base/Teto</b> = Largura × Profundidade (ex: 80×60cm)<br>';
+      h+='• <b>Laterais</b> = Profundidade × Altura, quantidade 2<br>';
+      h+='• <b>Pilar</b> = Altura × Largura da seção (ex: 90×12cm)';
       h+='</div>';
       h+='</div>';
     }
@@ -910,6 +989,13 @@ function updTumExtra(ambId,field,val){
   amb.tumExtra[field]=val;
 }
 
+function updCapExtra(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.capExtra)amb.capExtra={};
+  amb.capExtra[field]=val;
+}
+
 function calcSFAmb(ambId,k){
   var amb=ambientes.find(function(a){return a.id===ambId;});
   if(!amb||!amb.svState||!amb.svState[k])return;
@@ -1064,6 +1150,14 @@ function calcular(){
       if(teD.subtipo)tumInfo.push('Tipo: '+teD.subtipo);
       if(tumInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+tumInfo.join(' · ')+'</div>';
     }
+    if(amb.tipo==='⛪ Capela'&&amb.capExtra){
+      var ceD=amb.capExtra;var capInfo=[];
+      if(ceD.falecido)capInfo.push('Falecido(a): <b>'+escH(ceD.falecido)+'</b>');
+      if(ceD.cemiterio)capInfo.push('Cemitério: '+escH(ceD.cemiterio));
+      if(ceD.quadra||ceD.lote)capInfo.push('Quadra '+(ceD.quadra||'—')+' — Nº '+(ceD.lote||'—'));
+      if(ceD.subtipo)capInfo.push('Tipo: '+ceD.subtipo);
+      if(capInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+capInfo.join(' · ')+'</div>';
+    }
 
     // Texto WA por ambiente
     var pTxt=pds.map(function(p){return '• '+(p.desc||'Peça')+' — '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
@@ -1076,6 +1170,13 @@ function calcular(){
       if(te.cemiterio)tumTxt+='Cemitério: '+te.cemiterio+'\n';
       if(te.quadra||te.lote)tumTxt+='Local: Quadra '+( te.quadra||'—')+' Lote '+(te.lote||'—')+'\n';
       if(te.subtipo)tumTxt+='Tipo: '+te.subtipo+'\n';
+    }
+    if(amb.tipo==='⛪ Capela'&&amb.capExtra){
+      var cex=amb.capExtra;
+      if(cex.falecido)tumTxt+='Falecido(a): '+cex.falecido+'\n';
+      if(cex.cemiterio)tumTxt+='Cemitério: '+cex.cemiterio+'\n';
+      if(cex.quadra||cex.lote)tumTxt+='Local: Quadra '+(cex.quadra||'—')+' Nº '+(cex.lote||'—')+'\n';
+      if(cex.subtipo)tumTxt+='Tipo de Capitol: '+cex.subtipo+'\n';
     }
     txtAmbientes+='\n─── '+ambLabel+' ───\n'+(tumTxt||'')+(pTxt||'(sem peças)')+(aTxt?'\nInclusos:\n'+aTxt:'');
   });
