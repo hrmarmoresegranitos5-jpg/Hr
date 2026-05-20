@@ -292,6 +292,8 @@ function syncSVDefsFromList(){
       });
     });
   });
+  // Refresh dynamic borda arrays so new sainha/frontão services appear in picker
+  _refreshBordaArrays();
 }
 
 function svCFG(){localStorage.setItem('hr_cfg',JSON.stringify(CFG));if(SYNC.on)SYNC.push();}
@@ -966,7 +968,7 @@ function openCubaQtdPrompt(id, tipo){
 function confirmCubaQtd(){
   var qtd = Math.max(1, +document.getElementById('cubaQtdInp').value || 1);
   window._pendCubaQtd = qtd;
-  closeMd('cubaQtdMd');
+  closeAll();
   pickCuba(window._pendCubaId, window._pendCubaTipo);
 }
 
@@ -1168,13 +1170,59 @@ var BORDA_TIPOS = [
   { k: 'sainha',  l: 'Sainha', cor: '#4fa86b',               bg: 'rgba(79,168,107,.18)' },
   { k: 'frontao', l: 'Frontão',cor: '#5a7fc4',               bg: 'rgba(90,127,196,.18)' },
 ];
-var SAINHA_SUBS  = [
+// SAINHA_SUBS / FRONTAO_SUBS / BORDA_SVCS are built dynamically from CFG.svList
+// so that custom services added in Config show up in the borda picker
+var _SAINHA_SUBS_DEFAULT  = [
   {k:'s_reta',l:'Reta'},{k:'s_45',l:'45°'},{k:'s_boleada',l:'Boleada'},{k:'s_slim',l:'Slim'}
 ];
-var FRONTAO_SUBS = [
+var _FRONTAO_SUBS_DEFAULT = [
   {k:'frontao',l:'Reto'},{k:'frontao_chf',l:'Chanfrado'}
 ];
-var BORDA_SVCS = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
+
+function getSainhaSubs(){
+  if(!CFG||!CFG.svList) return _SAINHA_SUBS_DEFAULT;
+  var items = CFG.svList.filter(function(sv){
+    var grp=(sv.grp||'').toLowerCase();
+    return grp.indexOf('sainha')!==-1;
+  });
+  if(!items.length) return _SAINHA_SUBS_DEFAULT;
+  return items.map(function(sv){
+    // derive short label: remove "Sainha " prefix if present
+    var l=sv.l.replace(/^sainha\s*/i,'').trim()||sv.l;
+    return {k:sv.k, l:l};
+  });
+}
+
+function getFrontaoSubs(){
+  if(!CFG||!CFG.svList) return _FRONTAO_SUBS_DEFAULT;
+  var items = CFG.svList.filter(function(sv){
+    var grp=(sv.grp||'').toLowerCase();
+    return grp.indexOf('front')!==-1 || grp.indexOf('frontão')!==-1;
+  });
+  if(!items.length) return _FRONTAO_SUBS_DEFAULT;
+  return items.map(function(sv){
+    var l=sv.l.replace(/^front[aã]o\s*/i,'').trim()||sv.l;
+    return {k:sv.k, l:l};
+  });
+}
+
+function getBordaSvcs(){
+  var keys=[];
+  getSainhaSubs().forEach(function(s){keys.push(s.k);});
+  getFrontaoSubs().forEach(function(s){keys.push(s.k);});
+  return keys;
+}
+
+// Keep aliases for legacy references — will be refreshed by syncSVDefsFromList
+var SAINHA_SUBS  = _SAINHA_SUBS_DEFAULT;
+var FRONTAO_SUBS = _FRONTAO_SUBS_DEFAULT;
+var BORDA_SVCS   = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
+
+function _refreshBordaArrays(){
+  SAINHA_SUBS  = getSainhaSubs();
+  FRONTAO_SUBS = getFrontaoSubs();
+  BORDA_SVCS   = getBordaSvcs();
+}
 var BORDA_OPTS = BORDA_TIPOS; // backwards-compat alias
 
 // Acabamentos de superfície para Divisória WC
@@ -1201,19 +1249,20 @@ function _syncBordaSvState(amb) {
   amb.pecas.forEach(function(pc) {
     if (!pc.bordas) return;
     var q = pc.q || 1;
-    var alt = pc.bordaAlt || 6;
     var dims = { fr: pc.w||0, fd: pc.w||0, esq: pc.h||0, dir: pc.h||0 };
     ['fr','fd','esq','dir'].forEach(function(lado) {
-      var svc = pc.bordas[lado];
-      if (!svc || !dims[lado]) return;
+      var bd = pc.bordas[lado];
+      if (!bd || !bd.tipo || !bd.sub || !dims[lado]) return;
       hasBordas = true;
-      totML[svc] = (totML[svc] || 0) + (dims[lado] / 100) * q;
-      totAlt[svc] = alt; // última peça vence (simplificação)
+      var ml = bd.ml != null ? bd.ml : dims[lado]; // ml is in cm
+      var alt = bd.alt || 6;
+      totML[bd.sub] = (totML[bd.sub] || 0) + (ml / 100) * q;
+      totAlt[bd.sub] = alt;
     });
   });
   if (!hasBordas) return;
   if (!amb.svState) amb.svState = {};
-  BORDA_SVCS.forEach(function(k) {
+  getBordaSvcs().forEach(function(k) {
     if (totML[k] > 0) {
       amb.svState[k] = { ml: +totML[k].toFixed(3), altCm: totAlt[k] || 6, q: 1, qty: 1, _fb: true };
     } else if (amb.svState[k] && amb.svState[k]._fb) {
@@ -1241,7 +1290,8 @@ function updPcBordaTipo(ambId, pcId, lado, tipo) {
     _setBd(pc, lado, null);
   } else {
     var isDivTipo = BORDA_TIPOS_DIV.some(function(t){return t.k===tipo && t.k!==null;});
-    var defSub = isDivTipo ? null : (tipo === 'sainha' ? 's_reta' : 'frontao');
+    var _subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
+    var defSub = isDivTipo ? null : (_subs.length ? _subs[0].k : (tipo==='sainha'?'s_reta':'frontao'));
     _setBd(pc, lado, { tipo: tipo, sub: defSub });
   }
   if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
@@ -1328,7 +1378,7 @@ function buildPecaBordaHtml(amb, pc) {
     });
     h += '</div></div>';
     if (tipo && !isDiv) {
-      var subs = tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
+      var subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
       var curSub = bd ? bd.sub : null;
       h += '<div style=\"display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;\">';
       subs.forEach(function(sub) {
@@ -1488,7 +1538,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     if (divTipoFnd) {
       lbl = divTipoFnd.l;
     } else {
-      var subs = bd.tipo==='sainha' ? SAINHA_SUBS : FRONTAO_SUBS;
+      var subs = bd.tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
       var sub = subs.find(function(s){return s.k===bd.sub;})||subs[0];
       lbl = (bd.tipo==='sainha'?'Sainha':'Frontão') + (sub?' '+sub.l:'');
     }
@@ -1758,12 +1808,16 @@ function buildSVHtml(amb){
   var h='';
   // When per-side bordas are set, show Sainha/Frontão as computed summary
   if(hasBordas){
-    var bordaKeys=BORDA_SVCS.filter(function(k){return sv[k]&&sv[k]._fb&&sv[k].ml>0;});
+    var bordaKeys=getBordaSvcs().filter(function(k){return sv[k]&&sv[k]._fb&&sv[k].ml>0;});
     if(bordaKeys.length){
       h+='<div class="svblk"><div class="svhd">Bordas — calculado por lado das peças</div>';
       bordaKeys.forEach(function(k){
         var svd=sv[k]; var pr=getPr(k);
-        var opt=BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'};
+        // Look up label from dynamic subs (s_reta → 'Sainha Reta' etc)
+        var _allSubs = getSainhaSubs().concat(getFrontaoSubs());
+        var _subMatch = _allSubs.find(function(s){return s.k===k;});
+        var _svMatch = CFG.svList ? CFG.svList.find(function(s){return s.k===k;}) : null;
+        var opt = _subMatch ? {l:(_svMatch?_svMatch.l:_subMatch.l),cor:'#4fa86b'} : (BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'});
         var m2=(svd.ml*(svd.altCm/100)*(svd.q||1)).toFixed(3);
         h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-bottom:1px solid var(--bd2);">';
         h+='<span style="font-size:.7rem;font-weight:600;color:'+opt.cor+'">'+opt.l+' — '+svd.ml.toFixed(2)+'m × '+svd.altCm+'cm = '+m2+'m²</span>';
