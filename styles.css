@@ -2167,3 +2167,10 @@ label {
 .sec-vis-btn.red{background:rgba(201,68,68,.1);color:var(--red);border-color:rgba(201,68,68,.3);}
 .sec-vis-btn.blu{background:rgba(74,128,181,.12);color:#60a0e0;border-color:rgba(74,128,181,.3);}
 .sec-empty{text-align:center;padding:40px 20px;color:var(--t3);font-size:.82rem;line-height:1.8;}
+}
+.bot-code-warn{font-size:.62rem;color:rgba(240,160,64,.7);margin-top:12px;padding:8px 10px;background:rgba(240,160,64,.07);border-radius:8px;border-left:3px solid rgba(240,160,64,.4);}
+.bot-connected-card{display:flex;align-items:center;gap:12px;padding:14px 16px;}
+.bot-connected-icon{font-size:1.5rem;flex-shrink:0;}
+.bot-connected-title{font-size:.8rem;font-weight:800;color:#e0ffe8;}
+.bot-connected-sub{font-size:.62rem;color:rgba(37,211,102,.6);margin-top:2px;}
+.bot-disconnect-btn{margin-left:auto;padding:6px 13px;border-radius:8px;background:rgba(201,68,68,.12);border:1px solid rgba(201,68,68,.3);color:#e07070;font-size:.65rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;touch-action:manipulation;flex-shrink:0;}
