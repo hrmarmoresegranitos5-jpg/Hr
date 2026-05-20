@@ -257,17 +257,30 @@ function syncSVDefsFromList(){
     grpMap[sv.grp].push({k:sv.k,l:sv.l,u:sv.u||'un',fx:sv.fx||0});
   });
 
+  // Build alias map: svList group name → list of matching SV_DEFS group names
+  // e.g. 'Sainha/Frontão' maps to both 'Sainha' and 'Frontão' in SV_DEFS
+  function getDefGroups(svGrpName){
+    // If the svList group contains '/', split and try each part
+    var parts = svGrpName.split('/').map(function(p){return p.trim();});
+    return parts;
+  }
+
   // Map svList groups to SV_DEFS ambiente groups
-  // All ambientes share the same svList groups
   var ambs=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Mesa/Tampo','Outro'];
   ambs.forEach(function(amb){
     var def=SV_DEFS[amb];
     if(!def)return;
     def.forEach(function(grp){
-      // Update labels and add new items from svList for this group
-      var svItems=grpMap[grp.g];
-      if(!svItems)return;
-      // Update existing items labels
+      // Find matching svList items: exact match OR grp.g is part of a combined svList group
+      var svItems=[];
+      Object.keys(grpMap).forEach(function(svGrpName){
+        var parts=getDefGroups(svGrpName);
+        if(parts.indexOf(grp.g)!==-1 || svGrpName===grp.g){
+          svItems=svItems.concat(grpMap[svGrpName]);
+        }
+      });
+      if(!svItems.length)return;
+      // Update existing items labels/unit
       grp.its.forEach(function(it){
         var sv=CFG.svList.find(function(x){return x.k===it.k;});
         if(sv){it.l=sv.l;it.u=sv.u||it.u;}
@@ -551,8 +564,8 @@ function dispatch(e){
   el=e.target.closest('[data-mat]');if(el){pickMat(el.dataset.mat);return;}
   // Stone detail
   el=e.target.closest('[data-stone]');if(el){openStone(el.dataset.stone);return;}
-  // Pick cuba
-  el=e.target.closest('[data-pcuba]');if(el){pickCuba(el.dataset.pcuba,el.dataset.ctype);return;}
+  // Pick cuba — show quantity prompt first
+  el=e.target.closest('[data-pcuba]');if(el){openCubaQtdPrompt(el.dataset.pcuba,el.dataset.ctype);return;}
   // QA finance buttons
   el=e.target.closest('[data-qa]');if(el){openFin(el.dataset.qa);return;}
   // Finance type selector in modal
@@ -909,6 +922,8 @@ function pickEsculpida(escId, tipo){
   if(_cubaPickAmbId!==null){
     var amb=ambientes.find(function(a){return a.id==_cubaPickAmbId;});
     if(amb){
+      cubaObj.qtd = window._pendCubaQtd || 1;
+      window._pendCubaQtd = null;
       amb.selCuba=cubaObj;
       if(!amb.svState)amb.svState={};
       amb.svState[svKey]={};
@@ -918,6 +933,41 @@ function pickEsculpida(escId, tipo){
     toast('✓ '+nm+' — R$ '+fm(totalCuba)+' | M.O. R$ '+fm(moTotal)+' + Pedra R$ '+fm(valorPedra));
     _cubaPickAmbId=null;
   }
+}
+
+function openCubaQtdPrompt(id, tipo){
+  // Store pending pick
+  window._pendCubaId = id;
+  window._pendCubaTipo = tipo;
+
+  // Get cuba name for display
+  var lista = tipo==='coz' ? CFG.coz : CFG.lav;
+  var instCli = tipo==='coz' ? 160 : 280;
+  var nm;
+  if(id==='__cli__'){
+    nm = 'Só Mão de Obra (Cuba do cliente)';
+  } else {
+    var c = lista.find(function(x){return x.id===id;});
+    nm = c ? ((c.brand?' '+c.brand:'')+(c.nm?' '+c.nm:'')) : id;
+  }
+
+  // Get current qty from ambiente if already set
+  var curQtd = 1;
+  if(_cubaPickAmbId !== null){
+    var amb = ambientes.find(function(a){return a.id==_cubaPickAmbId;});
+    if(amb && amb.selCuba) curQtd = amb.selCuba.qtd || 1;
+  }
+
+  document.getElementById('cubaQtdNm').textContent = nm.trim();
+  document.getElementById('cubaQtdInp').value = curQtd;
+  showMd('cubaQtdMd');
+}
+
+function confirmCubaQtd(){
+  var qtd = Math.max(1, +document.getElementById('cubaQtdInp').value || 1);
+  window._pendCubaQtd = qtd;
+  closeMd('cubaQtdMd');
+  pickCuba(window._pendCubaId, window._pendCubaTipo);
 }
 
 function pickCuba(id,tipo){
@@ -936,6 +986,8 @@ function pickCuba(id,tipo){
   if(_cubaPickAmbId!==null){
     var amb=ambientes.find(function(a){return a.id==_cubaPickAmbId;});
     if(amb){
+      cubaObj.qtd = window._pendCubaQtd || 1;
+      window._pendCubaQtd = null;
       amb.selCuba=cubaObj;
       // Ensure the sv key is marked on
       var k=tipo==='coz'?'cuba_coz':'cuba_lav';
@@ -1749,7 +1801,9 @@ function buildSVHtml(amb){
         h+='<div class="sf"><span>Qtd</span><input type="number" id="sq-'+amb.id+'-'+it.k+'" value="'+(sfv.q||1)+'" min="1" style="width:48px;" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'q\',+this.value||1);calcSFAmb('+amb.id+',\''+it.k+'\')" onclick="event.stopPropagation()"></div>';
         h+='</div><div class="sfres" id="sfr-'+amb.id+'-'+it.k+'"></div></div>';
       } else if(it.u==='cuba'&&isOn){
-        var cubaInfo=amb.selCuba?('✓ '+(amb.selCuba.nm||'Cuba').trim()+' — R$ '+fm(amb.selCuba.total||0)):'Toque para escolher';
+        var _cq=amb.selCuba?(amb.selCuba.qtd||1):1;
+        var _ct=amb.selCuba?((amb.selCuba.total||0)*_cq):0;
+        var cubaInfo=amb.selCuba?('✓ '+(amb.selCuba.nm||'Cuba').trim()+(_cq>1?' ×'+_cq:'')+' — R$ '+fm(_ct)):'Toque para escolher';
         h+='<div class="svcuba on" id="sq-'+amb.id+'-'+it.k+'" onclick="openCubaPickAmb('+amb.id+',\''+it.ctp+'\')" style="cursor:pointer;">'+cubaInfo+'</div>';
       } else if((it.u==='ml'||it.u==='km'||it.u==='un')&&!it.fx&&isOn){
         var sv2=sv[it.k]||{};
@@ -2043,7 +2097,7 @@ function calcular(){
         return;
       }
       if(it.u==='cuba'){
-        if(amb.selCuba){acT+=amb.selCuba.total||0;acL.push({l:'Cuba: '+(amb.selCuba.nm||'Cuba').trim(),v:amb.selCuba.total||0});acN.push('Cuba: '+(amb.selCuba.nm||'Cuba').trim());}
+        if(amb.selCuba){var _cQtd2=amb.selCuba.qtd||1;var _cTot2=(amb.selCuba.total||0)*_cQtd2;acT+=_cTot2;var _cLbl='Cuba: '+(amb.selCuba.nm||'Cuba').trim()+(_cQtd2>1?' ×'+_cQtd2:'');acL.push({l:_cLbl,v:_cTot2});acN.push(_cLbl);}
         return;
       }
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
@@ -2260,7 +2314,7 @@ function calcular(){
       var vP=0,dP=itP.l;
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
       else if(itP.u==='sf_slim'||itP.u==='ml_only'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml (só MO)';}
-      else if(itP.u==='cuba'){if(ambP.selCuba){vP=ambP.selCuba.total||0;dP+=': '+(ambP.selCuba.nm||'Cuba').trim();}}
+      else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd2=ambP.selCuba.qtd||1;vP=(ambP.selCuba.total||0)*_pQtd2;dP+=': '+(ambP.selCuba.nm||'Cuba').trim()+(_pQtd2>1?' ×'+_pQtd2:'');}}
       else if(!itP.fx){vP=(sdP.w||0)*getPr(itP.k);if(sdP.w)dP+=' '+sdP.w+(itP.u==='un'?'un':'ml');}
       else{vP=getPr(itP.k);}
       if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
