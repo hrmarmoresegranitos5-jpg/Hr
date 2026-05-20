@@ -554,18 +554,32 @@ const server = http.createServer(async (req, res) => {
   if (url === '/bot/start' && method === 'POST') {
     const body = await readBody(req);
     const phone = (body.phone || '').replace(/\D/g, '');
-    if (phone.length >= 12) bot.phoneTarget = phone;
+
+    // Atualiza número sempre que um novo válido chegar
+    if (phone.length >= 12) {
+      const phoneChanged = bot.phoneTarget && bot.phoneTarget !== phone;
+      bot.phoneTarget = phone;
+
+      // Se o número mudou e já estava tentando com número errado, reinicia
+      if (phoneChanged && bot.iniciando) {
+        bot.iniciando   = false;
+        bot.pairingCode = null;
+        bot.status      = 'disconnected';
+        if (bot.sock) { try { await bot.sock.logout(); } catch(_){} bot.sock = null; }
+      }
+    }
+
     if (!bot.conectado && !bot.iniciando) {
       iniciarBaileys(bot.phoneTarget);
     }
-    // Aguarda até 6s para o código aparecer
-    for (let i = 0; i < 12; i++) {
+    // Aguarda até 8s para o código aparecer
+    for (let i = 0; i < 16; i++) {
       if (bot.pairingCode || bot.conectado) break;
       await new Promise(r => setTimeout(r, 500));
     }
     return jsonRes(res, {
       ok:     true,
-      status: bot.status,
+      status: bot.pairingCode ? 'connecting' : bot.status,
       code:   bot.pairingCode || null,
       msg:    bot.conectado
         ? 'Bot já conectado!'
