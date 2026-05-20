@@ -47,13 +47,15 @@ const MIME = {
 // ══════════════════════════════════════════════════════════════════════
 
 const bot = {
-  qrDataUrl:  null,
-  conectado:  false,
-  numero:     null,
-  tentativas: 0,
-  sock:       null,
-  iniciando:  false,
-  status:     'disconnected', // 'disconnected' | 'connecting' | 'connected'
+  qrDataUrl:   null,
+  conectado:   false,
+  numero:      null,
+  tentativas:  0,
+  sock:        null,
+  iniciando:   false,
+  status:      'disconnected', // 'disconnected' | 'connecting' | 'connected'
+  pairingCode: null,
+  phoneTarget: null,
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -336,10 +338,12 @@ ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
 // BAILEYS — Conexão WhatsApp
 // ══════════════════════════════════════════════════════════════════════
 
-async function iniciarBaileys() {
+async function iniciarBaileys(phone) {
   if (bot.iniciando) return;
   bot.iniciando  = true;
   bot.status     = 'connecting';
+  bot.pairingCode = null;
+  if (phone) bot.phoneTarget = phone;
 
   try {
     if (!fs.existsSync(CFG.AUTH_DIR)) {
@@ -370,6 +374,20 @@ async function iniciarBaileys() {
 
     bot.sock = sock;
 
+    // Se ainda não autenticado e temos número-alvo, pede código de pareamento
+    if (!state.creds.registered && bot.phoneTarget) {
+      await new Promise(r => setTimeout(r, 2500));
+      try {
+        const code = await sock.requestPairingCode(bot.phoneTarget);
+        bot.pairingCode = code?.replace(/(.{4})(.{4})/, '$1-$2') || code;
+        bot.iniciando = false;
+        console.log(`[BOT] Código de pareamento: ${bot.pairingCode}`);
+      } catch (e) {
+        console.error('[BOT] Erro ao gerar código:', e.message);
+        bot.iniciando = false;
+      }
+    }
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
@@ -381,12 +399,13 @@ async function iniciarBaileys() {
         console.log('[BOT] QR Code gerado — acesse /qr');
       }
       if (connection === 'open') {
-        bot.conectado  = true;
-        bot.qrDataUrl  = null;
-        bot.status     = 'connected';
-        bot.tentativas = 0;
-        bot.iniciando  = false;
-        bot.numero     = sock.user?.id?.split(':')[0] || CFG.DONO;
+        bot.conectado   = true;
+        bot.qrDataUrl   = null;
+        bot.pairingCode = null;
+        bot.status      = 'connected';
+        bot.tentativas  = 0;
+        bot.iniciando   = false;
+        bot.numero      = sock.user?.id?.split(':')[0] || CFG.DONO;
         console.log(`✅ WhatsApp CONECTADO! Número: ${bot.numero}`);
       }
       if (connection === 'close') {
@@ -527,21 +546,32 @@ const server = http.createServer(async (req, res) => {
     return jsonRes(res, {
       status: bot.status,
       phone:  bot.numero,
-      code:   null, // não usamos código de pareamento nessa versão
+      code:   bot.pairingCode || null,
     });
   }
 
   // POST /bot/start — Inicia o bot (chamado pelo painel secretária)
   if (url === '/bot/start' && method === 'POST') {
+    const body = await readBody(req);
+    const phone = (body.phone || '').replace(/\D/g, '');
+    if (phone.length >= 12) bot.phoneTarget = phone;
     if (!bot.conectado && !bot.iniciando) {
-      iniciarBaileys();
+      iniciarBaileys(bot.phoneTarget);
+    }
+    // Aguarda até 6s para o código aparecer
+    for (let i = 0; i < 12; i++) {
+      if (bot.pairingCode || bot.conectado) break;
+      await new Promise(r => setTimeout(r, 500));
     }
     return jsonRes(res, {
       ok:     true,
       status: bot.status,
+      code:   bot.pairingCode || null,
       msg:    bot.conectado
-        ? 'Bot já conectado! Acesse /qr para confirmar.'
-        : 'Iniciando bot... Acesse /qr para escanear o QR Code.',
+        ? 'Bot já conectado!'
+        : (bot.pairingCode
+            ? 'Código gerado! Digite no WhatsApp → Aparelhos conectados → Conectar com número.'
+            : 'Iniciando bot... Aguarde e clique em Gerar Código novamente em alguns segundos.'),
     });
   }
 
