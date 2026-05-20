@@ -2227,48 +2227,5 @@ window.renderProducao                       = renderProducao;
 window.renderResultado                      = renderResultado;
 window.validarForm                          = validarForm;
 
-// ── tumInlineMount override: inject dynamic UI after rendering ─────────────
-(function(){
-  var orig=window.tumInlineMount;
-  window.tumInlineMount=function(ambId){
-    orig(ambId);
-    // Add PDF block to resultado actions (injected after first render)
-    setTimeout(function(){
-      // Find copiarWA button - its parent is the actions container
-      if(!document.querySelector('[data-pdfbtn]')){
-        var waBtn=document.querySelector('button[onclick*="copiarWA"]');
-        if(waBtn){
-          var btnContainer=waBtn.parentElement;
-          if(btnContainer){
-            // Rebuild the actions area with PDF block at top
-            var pdfBlock=document.createElement('div');
-            pdfBlock.setAttribute('data-pdfbtn','1');
-            pdfBlock.style.cssText='background:var(--bg3);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px';
-            pdfBlock.innerHTML=
-              '<div style="font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--t4);margin-bottom:10px;font-weight:700">PDF do Orçamento</div>'
-              +'<button class="btn btn-gold btn-full" onclick="baixarPDF()" style="font-size:.88rem;padding:13px;justify-content:center;gap:10px;margin-bottom:8px">📥 Baixar PDF</button>'
-              +'<div style="display:flex;gap:8px">'
-              +'<button class="btn btn-out btn-sm" onclick="compartilharPDF()" style="flex:1;justify-content:center;border-color:rgba(201,168,76,.3);color:var(--gold)">📱 Compartilhar</button>'
-              +'<button class="btn btn-out btn-sm" onclick="imprimirPDF()" style="flex:1;justify-content:center">🖨 Imprimir</button>'
-              +'</div>';
-            // Restyle the button container
-            btnContainer.style.cssText='display:flex;flex-direction:column;gap:8px;margin-top:14px;margin-bottom:30px';
-            // Insert PDF block at top
-            btnContainer.insertBefore(pdfBlock,btnContainer.firstChild);
-            // Style existing buttons as a row at the bottom
-            var rowDiv=document.createElement('div');
-            rowDiv.style.cssText='display:flex;gap:8px';
-            var btns=Array.from(btnContainer.querySelectorAll('button:not([data-pdfbtn] button)'));
-            btns.forEach(function(b){
-              b.style.flex='1';b.style.justifyContent='center';
-              rowDiv.appendChild(b);
-            });
-            btnContainer.appendChild(rowDiv);
-          }
-        }
-      }
-    }, 300);
-  };
-})();
 
 })();
