@@ -219,7 +219,6 @@ function go(n){
   if(n===9){if(typeof renderTum==='function')renderTum();}
   if(n===10){if(typeof renderContratos==='function')renderContratos();}
   if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
-  if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
 }
 
 // ═══ DISPATCH ═══
