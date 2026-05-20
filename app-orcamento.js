@@ -175,17 +175,17 @@ SV_DEFS['🏊 Borda Piscina']=[
 ];
 
 SV_DEFS.Tumulo=[
-  // ── Peças de pedra: medidas em ml × cm de altura, m² calculado automaticamente ──
+  // ── Peças de pedra: calculado automaticamente pelas peças preenchidas ──
   {g:'🪨 Peças de Pedra (m²)',its:[
-    {k:'tum_tampa',  l:'Tampa Superior',           u:'sf'},
-    {k:'tum_lat',    l:'Laterais (×2)',            u:'sf'},
-    {k:'tum_front',  l:'Frente / Frontal',         u:'sf'},
-    {k:'tum_base',   l:'Base / Plataforma',        u:'sf'},
-    {k:'tum_det',    l:'Detalhe Superior',         u:'sf'},
-    {k:'tum_sainha', l:'Sainha Frontal',           u:'sf'},
-    {k:'tum_gav1',   l:'Frente de Gaveta — 1ª',   u:'sf'},
-    {k:'tum_gav2',   l:'Frente de Gaveta — 2ª',   u:'sf'},
-    {k:'tum_gav3',   l:'Frente de Gaveta — 3ª',   u:'sf'}
+    {k:'tum_tampa',  l:'Tampa Superior',           u:'sf_auto', match:'tampa'},
+    {k:'tum_lat',    l:'Laterais (×2)',            u:'sf_auto', match:'lateral'},
+    {k:'tum_front',  l:'Frente / Frontal',         u:'sf_auto', match:'front'},
+    {k:'tum_base',   l:'Base / Plataforma',        u:'sf_auto', match:'base'},
+    {k:'tum_det',    l:'Detalhe Superior',         u:'sf_auto', match:'detalhe'},
+    {k:'tum_sainha', l:'Sainha Frontal',           u:'sf_auto', match:'sainha'},
+    {k:'tum_gav1',   l:'Frente de Gaveta — 1ª',   u:'sf_auto', match:'gaveta 1'},
+    {k:'tum_gav2',   l:'Frente de Gaveta — 2ª',   u:'sf_auto', match:'gaveta 2'},
+    {k:'tum_gav3',   l:'Frente de Gaveta — 3ª',   u:'sf_auto', match:'gaveta 3'}
   ]},
   // ── Acabamentos em metro linear ──
   {g:'📐 Acabamentos (ml)',its:[
@@ -233,18 +233,18 @@ SV_DEFS['Túmulo'] = SV_DEFS.Tumulo;
 
 // ── SERVIÇOS ESPECÍFICOS PARA CAPELAS ──────────────────────────────────
 SV_DEFS.Capela = [
-  // ── Peças de pedra estruturais (m²) ──
+  // ── Peças de pedra estruturais (m²) — calculado automaticamente pelas peças ──
   {g:'⛪ Estrutura — Peças de Pedra (m²)',its:[
-    {k:'cap_fundo',   l:'Fundo (painel traseiro)',       u:'sf'},
-    {k:'cap_base',    l:'Base / Tampo inferior',         u:'sf'},
-    {k:'cap_teto',    l:'Teto / Tampo superior',         u:'sf'},
-    {k:'cap_lat',     l:'Laterais (×2)',                 u:'sf'},
-    {k:'cap_front',   l:'Frontão / Moldura frontal',     u:'sf'},
-    {k:'cap_degrau',  l:'Degrau de acesso',              u:'sf'}
+    {k:'cap_fundo',   l:'Fundo (painel traseiro)',       u:'sf_auto', match:'fundo'},
+    {k:'cap_base',    l:'Base / Tampo inferior',         u:'sf_auto', match:'base'},
+    {k:'cap_teto',    l:'Teto / Tampo superior',         u:'sf_auto', match:'teto'},
+    {k:'cap_lat',     l:'Laterais (×2)',                 u:'sf_auto', match:'lateral'},
+    {k:'cap_front',   l:'Frontão / Moldura frontal',     u:'sf_auto', match:'front'},
+    {k:'cap_degrau',  l:'Degrau de acesso',              u:'sf_auto', match:'degrau'}
   ]},
   // ── Pilares ──
   {g:'🏛️ Pilares',its:[
-    {k:'cap_pilar_ch',l:'Pilar em chapa (p/ unidade)',   u:'sf'},
+    {k:'cap_pilar_ch',l:'Pilar em chapa (p/ unidade)',   u:'sf_auto', match:'pilar'},
     {k:'cap_pilar_tr',l:'Pilar torneado — pronto',       u:'un', fx:1}
   ]},
   // ── Acabamentos lineares ──
@@ -295,6 +295,9 @@ var DEF_TUM_SV = {
   tum_gav3:  85,   tum_mol:   110, tum_ping:  80,  tum_bisel: 90,
   tum_lapide:480,  tum_plaq:  220, tum_foto: 170,  tum_cruz:  340,
   tum_pol:   160,  tum_rec:    50, tum_mont:  380, tum_montc: 580,
+  // cap_ (chapel)
+  cap_fundo: 85, cap_base: 85, cap_teto: 85, cap_lat: 85, cap_front: 85, cap_degrau: 85,
+  cap_pilar_ch: 85,
   // bp_ (borda piscina)
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
@@ -670,6 +673,13 @@ function updPcAmb(ambId,pcId,prop,val){
   if(!amb)return;
   var pc=amb.pecas.find(function(p){return p.id===pcId;});
   if(pc)pc[prop]=val;
+  // Re-render serviços automáticos quando peças mudam (sf_auto)
+  var g=SV_DEFS[amb.tipo]||[];
+  var hasSfAuto=g.some(function(grp){return grp.its.some(function(it){return it.u==='sf_auto';});});
+  if(hasSfAuto){
+    var svEl=document.getElementById('svAuto-'+ambId);
+    if(svEl) svEl.innerHTML=buildSVHtml(amb);
+  }
 }
 
 // Legacy - kept for AI apply compatibility
@@ -798,13 +808,33 @@ function renderAmbientes(){
     h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
     h+='</div>';
     h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
+    h+='<div id="svAuto-'+amb.id+'">';
     h+=buildSVHtml(amb);
+    h+='</div>';
     h+='</div></div>';
   });
   container.innerHTML=h;
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
 }
 
+
+// ─── SERVIÇO AUTO (Capela / Túmulo) ──────────────────────────────
+// Retorna m² total das peças cujo 'desc' contém a palavra-chave 'match'
+// Ignora case e acentos para máxima flexibilidade
+function _norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function _calcSfAutoM2(amb, match){
+  if(!match) return 0;
+  var m = _norm(match);
+  var total = 0;
+  (amb.pecas||[]).forEach(function(p){
+    if(!p.w || !p.h) return;
+    var d = _norm(p.desc||'');
+    if(d.indexOf(m) >= 0){
+      total += (p.w/100)*(p.h/100)*(p.q||1);
+    }
+  });
+  return total;
+}
 
 // ─── ACABAMENTO AUTO (Soleira / Peitoril) ───────────────────────
 // Returns total linear meters = sum of piece comprimentos × lados
@@ -839,8 +869,7 @@ function togAcbAuto(ambId,k){
 
 function buildSVHtml(amb){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
-  var sv=amb.svState||{};
-  var h='';
+  var sv=amb.svState||{};  var h='';
   g.forEach(function(grp){
     // acb_auto: render como radio buttons (igual Soleira/Peitoril)
     var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
@@ -862,6 +891,52 @@ function buildSVHtml(amb){
           +'</div>';
       });
       h+='</div></div>';
+      return;
+    }
+    // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
+    var isSfAutoGrp = grp.its.length>0 && grp.its[0].u==='sf_auto';
+    if(isSfAutoGrp){
+      var hasPecas = (amb.pecas||[]).some(function(p){return p.w&&p.h;});
+      h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
+      if(!hasPecas){
+        h+='<div style="padding:10px 12px 12px;font-size:.68rem;color:var(--t4);font-style:italic;">Preencha as peças acima para calcular automaticamente</div>';
+      } else {
+        // Show each item that has a matching piece
+        var anyMatch=false;
+        grp.its.forEach(function(it){
+          if(it.u!=='sf_auto')return;
+          var m2=_calcSfAutoM2(amb,it.match);
+          var pr=getPr(it.k);
+          var ambMat=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+          var pedra=ambMat&&m2>0?m2*ambMat.pr:0;
+          var mo=m2>0?m2*pr:0;
+          var hasData=m2>0;
+          if(hasData) anyMatch=true;
+          var cardBg=hasData?'rgba(201,168,76,.07)':'var(--s2)';
+          var cardBd=hasData?'var(--gold)':'var(--bd2)';
+          var cardOp=hasData?'1':'0.45';
+          h+='<div style="margin:4px 0;padding:9px 12px;border-radius:10px;border:1.5px solid '+cardBd+';background:'+cardBg+';opacity:'+cardOp+';transition:all .2s;">';
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;">';
+          h+='<span style="font-size:.76rem;font-weight:'+(hasData?'700':'500')+';color:'+(hasData?'var(--tx)':'var(--t3)')+'">'+it.l+'</span>';
+          if(hasData){
+            h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2.toFixed(3)+' m²</span>';
+          } else {
+            h+='<span style="font-size:.65rem;color:var(--t4);">sem peça</span>';
+          }
+          h+='</div>';
+          if(hasData){
+            h+='<div style="display:flex;gap:10px;margin-top:4px;">';
+            if(pedra>0) h+='<span style="font-size:.62rem;color:var(--grn);">Pedra: R$ '+fm(pedra)+'</span>';
+            if(mo>0) h+='<span style="font-size:.62rem;color:var(--gold2);">M.O.: R$ '+fm(mo)+'</span>';
+            h+='</div>';
+          }
+          h+='</div>';
+        });
+        if(!anyMatch){
+          h+='<div style="padding:6px 12px 10px;font-size:.68rem;color:var(--t4);font-style:italic;">Nomeie as peças com os termos: fundo, base, teto, lateral, frente, degrau, pilar...</div>';
+        }
+      }
+      h+='</div>';
       return;
     }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
@@ -1086,6 +1161,20 @@ function calcular(){
           var acbMl=_calcAcbAutoMl(amb,acbLados);
           var acbPr=getPr(it.k);
           if(acbMl>0&&acbPr>0){acT+=acbMl*acbPr;} // add to cost, invisible in output
+        }
+        return;
+      }
+      // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
+      if(it.u==='sf_auto'){
+        var sfaM2=_calcSfAutoM2(amb,it.match);
+        if(sfaM2>0){
+          var sfaPr=getPr(it.k);
+          var sfaMo=sfaM2*sfaPr;
+          if(sfaMo>0){
+            acT+=sfaMo;
+            acL.push({l:it.l+' ('+sfaM2.toFixed(3)+'m²)',v:sfaMo});
+            acN.push(it.l);
+          }
         }
         return;
       }
