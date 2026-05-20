@@ -2211,10 +2211,13 @@ function atualizarAreaUtil(){
   if(box){
     if(d.AvRod>0){
       box.style.display='block';
-      box.innerHTML='<strong style="color:#4a80b5">📐 Externo × Corpo Útil</strong><br>'
-        +'Externo: <b>'+d.C_cm+' × '+d.L_cm+' cm</b> &nbsp;|&nbsp; Avanço: <b>'+d.AvRod+'cm/lado</b><br>'
-        +'Corpo útil: <b style="color:#4a80b5">'+d.CUtil_cm+' × '+d.LUtil_cm+' cm</b>'
-        +' ('+((d.CUtil*d.LUtil).toFixed(3))+' m²)';
+      box.innerHTML='<strong style="color:#4a80b5">📐 Área útil das tampas</strong><br>'
+        +'<span style="color:var(--t4)">Externo: </span><b>'+d.C_cm+' × '+d.L_cm+' cm</b>'
+        +' <span style="color:var(--t3)">− rodapé '+d.AvRod+' cm/lado</span>'
+        +' <span style="color:var(--t3)">→</span> '
+        +'<span style="color:var(--t4)">tampas encaixam em: </span>'
+        +'<b style="color:#4a80b5">'+d.CUtil_cm+' × '+d.LUtil_cm+' cm</b>'
+        +' <span style="color:var(--t3)">('+((d.CUtil*d.LUtil).toFixed(3))+' m²)</span>';
     }else{box.style.display='none';}
   }
   var badge=document.getElementById('lajeVedBadge');
@@ -2382,9 +2385,9 @@ function _TI_injectDynamicUI(){
   }
   // 5b. Inputs de overlap para tampas frontais (injetados na seção de tampas)
   if (!document.getElementById('frontalOverlapBox')) {
-    var _tbx = document.getElementById('tampasPosBox') ||
-               document.querySelector('[id*="tampaPos"]') ||
-               document.getElementById('tampasPosicao');
+    // posicaoPresets é injetado no step 3 acima — âncora confiável no card de tampas
+    var _tbx = document.getElementById('posicaoPresets') ||
+               document.querySelector('[id*="tampaPos"]');
     if (_tbx) {
       // Campo: largura manual da abertura frontal
       var _falb = document.createElement('div');
@@ -2430,7 +2433,14 @@ function _TI_injectDynamicUI(){
       var _ha=(_d.Hcomp||0.45);
       var _wt=_wa+2*_olC2,_ht=_ha+2*_olH2;
       var _pr=document.getElementById('frontalOverlapPreview');
-      if(_pr) _pr.textContent='Abertura: '+Math.round(_wa*100)+'×'+Math.round(_ha*100)+' cm'+(_d.AberLarg>0?' (manual)':' (auto)')+' → Tampa: '+Math.round(_wt*100)+'×'+Math.round(_ht*100)+' cm';
+      if(_pr) _pr.innerHTML=
+        '<span style="color:var(--t4)">🔲 Abertura: </span>'
+        +'<b>'+Math.round(_wa*100)+'&thinsp;×&thinsp;'+Math.round(_ha*100)+' cm</b>'
+        +(_d.AberLarg>0?' <span style="color:var(--t3);font-size:.65rem">(manual)</span>':' <span style="color:var(--t3);font-size:.65rem">(auto: L − 2×esp)</span>')
+        +'<br>'
+        +'<span style="color:var(--t4)">🪨 Tampa cortada: </span>'
+        +'<b style="color:var(--gold2)">'+Math.round(_wt*100)+'&thinsp;×&thinsp;'+Math.round(_ht*100)+' cm</b>'
+        +' <span style="color:var(--t3);font-size:.65rem">(abertura + sobreposição nos 4 lados)</span>';
     }
   }
 
