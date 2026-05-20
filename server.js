@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════
 // HR Mármores e Granitos — Servidor + Bot WhatsApp (Baileys)
-// Versão 4.0 — Integrado com App Secretária
+// Versão 5.0 — Pairing Code robusto para Render
 // ══════════════════════════════════════════════════════════════════════
 
 import http                   from 'http';
@@ -26,7 +26,7 @@ const CFG = {
   EMPRESA:  process.env.EMPRESA      || 'HR Mármores e Granitos',
   PORT:     process.env.PORT         || 3000,
   AUTH_DIR: './baileys_auth',
-  TESTES:   ['5574988356878', '5574991484460'], // números de teste
+  TESTES:   ['5574988356878', '5574991484460'],
 };
 
 // ── MIME types ───────────────────────────────────────────────────────
@@ -47,15 +47,15 @@ const MIME = {
 // ══════════════════════════════════════════════════════════════════════
 
 const bot = {
-  qrDataUrl:   null,
+  sock:        null,
+  status:      'disconnected',
   conectado:   false,
   numero:      null,
-  tentativas:  0,
-  sock:        null,
-  iniciando:   false,
-  status:      'disconnected', // 'disconnected' | 'connecting' | 'connected'
   pairingCode: null,
   phoneTarget: null,
+  tentativas:  0,
+  iniciando:   false,
+  qrDataUrl:   null,
 };
 
 // ══════════════════════════════════════════════════════════════════════
@@ -63,7 +63,7 @@ const bot = {
 // ══════════════════════════════════════════════════════════════════════
 
 const sessoes        = {};
-const TIMEOUT_SESSAO = 2 * 60 * 60 * 1000; // 2 horas
+const TIMEOUT_SESSAO = 2 * 60 * 60 * 1000;
 
 const PROJETOS = [
   'Cozinha', 'Banheiro', 'Lavabo', 'Varanda/Churrasqueira',
@@ -255,95 +255,32 @@ async function finalizar(s, numero) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// PÁGINA /qr
-// ══════════════════════════════════════════════════════════════════════
-
-function paginaQR() {
-  const css = `
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-      background:#0a0a0a;color:#eee;display:flex;align-items:center;
-      justify-content:center;min-height:100vh;padding:20px}
-    .card{background:#141414;border:1px solid #222;border-radius:24px;
-      padding:40px 32px;max-width:420px;width:100%;text-align:center}
-    h1{font-size:22px;font-weight:700;margin-bottom:8px}
-    p{color:#888;font-size:14px;line-height:1.7;margin:8px 0}
-    .badge{display:inline-block;padding:6px 16px;border-radius:99px;
-      font-size:12px;font-weight:600;margin:12px 0}
-    .green{background:#052e16;color:#22c55e;border:1px solid #166534}
-    .yellow{background:#1a1200;color:#facc15;border:1px solid #854d0e}
-    .num{color:#C9A84C;font-size:20px;font-weight:700;margin:12px 0}
-    img{border-radius:16px;background:#fff;padding:14px;
-      max-width:260px;width:100%;margin:20px auto;display:block}
-    .steps{text-align:left;background:#1a1a1a;border-radius:14px;
-      padding:18px;margin:16px 0;font-size:13px;line-height:2.2;border:1px solid #222}
-    .steps strong{color:#C9A84C}
-    a{color:#C9A84C;text-decoration:none;font-size:14px}
-    .footer{margin-top:24px;padding-top:20px;border-top:1px solid #1f1f1f}
-    .spin{width:44px;height:44px;border:4px solid #222;border-top-color:#C9A84C;
-      border-radius:50%;animation:spin 1s linear infinite;margin:24px auto}
-    @keyframes spin{to{transform:rotate(360deg)}}
-  `;
-
-  if (bot.conectado) {
-    return `<!DOCTYPE html><html lang="pt-BR"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30">
-<title>Bot Conectado — HR Mármores</title>
-<style>${css}</style></head><body><div class="card">
-<div style="font-size:56px;margin-bottom:16px">✅</div>
-<h1>Bot Conectado!</h1>
-<span class="badge green">● ONLINE</span>
-${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
-<p>O bot está ativo e respondendo clientes automaticamente.</p>
-<div class="footer"><a href="/">← Voltar ao app</a> &nbsp;|&nbsp; <a href="/health">Ver status</a></div>
-</div></body></html>`;
-  }
-
-  if (bot.qrDataUrl) {
-    return `<!DOCTYPE html><html lang="pt-BR"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="20">
-<title>Conectar WhatsApp — HR Mármores</title>
-<style>${css}</style></head><body><div class="card">
-<div style="font-size:56px;margin-bottom:16px">📱</div>
-<h1>Conectar WhatsApp</h1>
-<span class="badge yellow">● AGUARDANDO LEITURA</span>
-<img src="${bot.qrDataUrl}" alt="QR Code">
-<div class="steps">
-<strong>Como escanear:</strong><br>
-1. Abra o WhatsApp da empresa<br>
-2. Toque em ⋮ → <strong>Aparelhos conectados</strong><br>
-3. Toque em <strong>Conectar aparelho</strong><br>
-4. Aponte a câmera para o QR Code
-</div>
-<p>🔄 Atualiza a cada 20s — QR expira em ~60s</p>
-<div class="footer"><a href="/">← Voltar ao app</a></div>
-</div></body></html>`;
-  }
-
-  return `<!DOCTYPE html><html lang="pt-BR"><head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="5">
-<title>Iniciando Bot — HR Mármores</title>
-<style>${css}</style></head><body><div class="card">
-<h1>🤖 Iniciando bot...</h1>
-<div class="spin"></div>
-<p>Aguarde, carregando QR Code.<br>Esta página atualiza automaticamente.</p>
-<div class="footer"><a href="/">← Voltar ao app</a></div>
-</div></body></html>`;
-}
-
-// ══════════════════════════════════════════════════════════════════════
 // BAILEYS — Conexão WhatsApp
 // ══════════════════════════════════════════════════════════════════════
 
-async function iniciarBaileys(phone) {
-  if (bot.iniciando) return;
-  bot.iniciando  = true;
-  bot.status     = 'connecting';
+// Destrói socket atual sem reconectar automaticamente
+async function destruirSock() {
+  const s = bot.sock;
+  bot.sock      = null;
+  bot.iniciando = false;
+  if (s) {
+    try { s.ev.removeAllListeners(); } catch (_) {}
+    try { await s.logout(); } catch (_) {}
+    try { s.end(); } catch (_) {}
+  }
+}
+
+// Limpa sessão salva em disco
+function limparAuth() {
+  try { fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true }); } catch (_) {}
+  try { fs.mkdirSync(CFG.AUTH_DIR, { recursive: true }); } catch (_) {}
+}
+
+async function iniciarBaileys() {
+  if (bot.iniciando || bot.conectado) return;
+  bot.iniciando   = true;
+  bot.status      = 'connecting';
   bot.pairingCode = null;
-  if (phone) bot.phoneTarget = phone;
 
   try {
     if (!fs.existsSync(CFG.AUTH_DIR)) {
@@ -353,7 +290,7 @@ async function iniciarBaileys(phone) {
     const { state, saveCreds } = await useMultiFileAuthState(CFG.AUTH_DIR);
     const { version }          = await fetchLatestBaileysVersion();
 
-    console.log(`[BOT] Baileys v${version.join('.')}`);
+    console.log(`[BOT] Baileys v${version.join('.')} | phone: ${bot.phoneTarget || 'não definido'}`);
 
     const sock = makeWASocket({
       version,
@@ -363,41 +300,42 @@ async function iniciarBaileys(phone) {
       },
       logger,
       printQRInTerminal:   false,
-      browser:             ['HR Mármores Bot', 'Chrome', '120.0.0'],
+      // IMPORTANTE: mobile:false força pairing code em vez de QR
+      // browser correto para pairing code
+      browser:             ['Ubuntu', 'Chrome', '120.0.0'],
       markOnlineOnConnect: false,
       syncFullHistory:     false,
       connectTimeoutMs:    60_000,
       keepAliveIntervalMs: 25_000,
-      retryRequestDelayMs: 2_000,
       getMessage:          async () => ({ conversation: '' }),
     });
 
     bot.sock = sock;
-
-    // Se ainda não autenticado e temos número-alvo, pede código de pareamento
-    if (!state.creds.registered && bot.phoneTarget) {
-      await new Promise(r => setTimeout(r, 2500));
-      try {
-        const code = await sock.requestPairingCode(bot.phoneTarget);
-        bot.pairingCode = code?.replace(/(.{4})(.{4})/, '$1-$2') || code;
-        bot.iniciando = false;
-        console.log(`[BOT] Código de pareamento: ${bot.pairingCode}`);
-      } catch (e) {
-        console.error('[BOT] Erro ao gerar código:', e.message);
-        bot.iniciando = false;
-      }
-    }
+    bot.iniciando = false; // libera para que /bot/start possa checar pairingCode
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+
+      // QR gerado — significa que NÃO pedimos pairing code ainda
+      // ou o número está errado. Armazena o QR mas também tenta pairing code.
       if (qr) {
-        bot.qrDataUrl  = await qrcode.toDataURL(qr, { scale: 8 });
-        bot.conectado  = false;
-        bot.status     = 'connecting';
-        bot.iniciando  = false;
-        console.log('[BOT] QR Code gerado — acesse /qr');
+        bot.qrDataUrl = await qrcode.toDataURL(qr, { scale: 8 });
+        bot.status    = 'connecting';
+        console.log('[BOT] QR gerado. Se quiser código de texto, chame /bot/start com número correto.');
+
+        // Tenta pedir pairing code se tiver número configurado e ainda não conectado
+        if (bot.phoneTarget && !bot.pairingCode && !bot.conectado) {
+          try {
+            const code = await sock.requestPairingCode(bot.phoneTarget);
+            bot.pairingCode = code?.replace(/(.{4})(.{4})/, '$1-$2') || code;
+            console.log(`[BOT] Pairing code gerado no QR handler: ${bot.pairingCode}`);
+          } catch (e) {
+            console.error('[BOT] Erro pairing code no QR handler:', e.message);
+          }
+        }
       }
+
       if (connection === 'open') {
         bot.conectado   = true;
         bot.qrDataUrl   = null;
@@ -407,7 +345,14 @@ async function iniciarBaileys(phone) {
         bot.iniciando   = false;
         bot.numero      = sock.user?.id?.split(':')[0] || CFG.DONO;
         console.log(`✅ WhatsApp CONECTADO! Número: ${bot.numero}`);
+
+        // Religa enviarMsg
+        enviarMsg = async (jid, texto) => {
+          if (!bot.sock || !bot.conectado) throw new Error('Bot desconectado');
+          await bot.sock.sendMessage(jid, { text: texto });
+        };
       }
+
       if (connection === 'close') {
         bot.conectado  = false;
         bot.sock       = null;
@@ -417,10 +362,7 @@ async function iniciarBaileys(phone) {
         const loggedOut = code === DisconnectReason.loggedOut;
         console.log(`[BOT] Conexão encerrada. Código: ${code}`);
         if (loggedOut) {
-          try {
-            fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true });
-            fs.mkdirSync(CFG.AUTH_DIR, { recursive: true });
-          } catch (_) {}
+          limparAuth();
           setTimeout(iniciarBaileys, 3000);
         } else {
           bot.tentativas++;
@@ -473,16 +415,110 @@ async function iniciarBaileys(phone) {
   }
 }
 
+// Solicita pairing code — pode ser chamado a qualquer momento se sock existir
+async function solicitarPairingCode(phone) {
+  if (!phone || phone.length < 12) {
+    throw new Error('Número inválido. Use DDI+DDD+número, ex: 5574991484460');
+  }
+  bot.phoneTarget = phone;
+  bot.pairingCode = null;
+
+  // Se não tem socket ainda, inicia o bot e aguarda
+  if (!bot.sock) {
+    await iniciarBaileys();
+    // Aguarda socket estar pronto (máx 15s)
+    for (let i = 0; i < 30; i++) {
+      if (bot.sock) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (!bot.sock) throw new Error('Não foi possível iniciar o socket. Tente novamente.');
+  }
+
+  // Aguarda um pouco para o socket se estabilizar
+  await new Promise(r => setTimeout(r, 1500));
+
+  // Pede o código
+  const code = await bot.sock.requestPairingCode(phone);
+  bot.pairingCode = code?.replace(/(.{4})(.{4})/, '$1-$2') || code;
+  console.log(`[BOT] Pairing code: ${bot.pairingCode}`);
+  return bot.pairingCode;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// PÁGINA /qr
+// ══════════════════════════════════════════════════════════════════════
+
+function paginaQR() {
+  const css = `
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:#0a0a0a;color:#eee;display:flex;align-items:center;
+      justify-content:center;min-height:100vh;padding:20px}
+    .card{background:#141414;border:1px solid #222;border-radius:24px;
+      padding:40px 32px;max-width:420px;width:100%;text-align:center}
+    h1{font-size:22px;font-weight:700;margin-bottom:8px}
+    p{color:#888;font-size:14px;line-height:1.7;margin:8px 0}
+    .badge{display:inline-block;padding:6px 16px;border-radius:99px;
+      font-size:12px;font-weight:600;margin:12px 0}
+    .green{background:#052e16;color:#22c55e;border:1px solid #166534}
+    .yellow{background:#1a1200;color:#facc15;border:1px solid #854d0e}
+    .num{color:#C9A84C;font-size:20px;font-weight:700;margin:12px 0}
+    img{border-radius:16px;background:#fff;padding:14px;
+      max-width:260px;width:100%;margin:20px auto;display:block}
+    .spin{width:44px;height:44px;border:4px solid #222;border-top-color:#C9A84C;
+      border-radius:50%;animation:spin 1s linear infinite;margin:24px auto}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    a{color:#C9A84C;text-decoration:none;font-size:14px}
+    .footer{margin-top:24px;padding-top:20px;border-top:1px solid #1f1f1f}
+  `;
+
+  if (bot.conectado) {
+    return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot Conectado</title><style>${css}</style></head><body><div class="card">
+<div style="font-size:56px;margin-bottom:16px">✅</div>
+<h1>Bot Conectado!</h1>
+<span class="badge green">● ONLINE</span>
+${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
+<p>O bot está ativo e respondendo clientes.</p>
+<div class="footer"><a href="/">← Voltar ao app</a></div>
+</div></body></html>`;
+  }
+
+  if (bot.qrDataUrl) {
+    return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="20">
+<title>Conectar WhatsApp</title><style>${css}</style></head><body><div class="card">
+<div style="font-size:56px;margin-bottom:16px">📱</div>
+<h1>Escanear QR Code</h1>
+<span class="badge yellow">● AGUARDANDO</span>
+<img src="${bot.qrDataUrl}" alt="QR Code">
+<p>Atualiza a cada 20s</p>
+<div class="footer"><a href="/">← Voltar ao app</a></div>
+</div></body></html>`;
+  }
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="5">
+<title>Iniciando Bot</title><style>${css}</style></head><body><div class="card">
+<h1>🤖 Iniciando...</h1><div class="spin"></div>
+<p>Aguarde, preparando conexão.</p>
+<div class="footer"><a href="/">← Voltar ao app</a></div>
+</div></body></html>`;
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // HELPERS HTTP
 // ══════════════════════════════════════════════════════════════════════
 
 function jsonRes(res, data, status = 200) {
   res.writeHead(status, {
-    'Content-Type': 'application/json',
+    'Content-Type':                'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers':'Content-Type',
   });
   res.end(JSON.stringify(data));
 }
@@ -507,41 +543,37 @@ const server = http.createServer(async (req, res) => {
   const url    = req.url?.split('?')[0] || '/';
   const method = req.method?.toUpperCase();
 
-  // ── CORS preflight ──
+  // CORS preflight
   if (method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers':'Content-Type',
     });
     res.end();
     return;
   }
 
-  // ── /qr — Painel visual de conexão ──
+  // /qr — Painel visual
   if (url === '/qr') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
     res.end(paginaQR());
     return;
   }
 
-  // ── /health — Status geral ──
+  // /health — Status geral
   if (url === '/health') {
     return jsonRes(res, {
       ok:        true,
       bot:       bot.conectado,
+      status:    bot.status,
       numero:    bot.numero,
       sessoes:   Object.keys(sessoes).length,
-      tentativas: bot.tentativas,
       ts:        new Date().toISOString(),
     });
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ROTAS DE INTEGRAÇÃO COM O PAINEL SECRETÁRIA DO APP
-  // ══════════════════════════════════════════════════════════════════
-
-  // GET /bot/status — Status do bot (usado pelo painel secretária)
+  // ── GET /bot/status ──
   if (url === '/bot/status' && method === 'GET') {
     return jsonRes(res, {
       status: bot.status,
@@ -550,61 +582,61 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // POST /bot/start — Inicia o bot (chamado pelo painel secretária)
+  // ── POST /bot/start ──
+  // Gera código de pareamento para o número informado
   if (url === '/bot/start' && method === 'POST') {
-    const body = await readBody(req);
+    const body  = await readBody(req);
     const phone = (body.phone || '').replace(/\D/g, '');
 
-    // Atualiza número sempre que um novo válido chegar
-    if (phone.length >= 12) {
-      const phoneChanged = bot.phoneTarget && bot.phoneTarget !== phone;
-      bot.phoneTarget = phone;
-
-      // Se o número mudou e já estava tentando com número errado, reinicia
-      if (phoneChanged && bot.iniciando) {
-        bot.iniciando   = false;
-        bot.pairingCode = null;
-        bot.status      = 'disconnected';
-        if (bot.sock) { try { await bot.sock.logout(); } catch(_){} bot.sock = null; }
-      }
+    if (!phone || phone.length < 12) {
+      return jsonRes(res, { error: 'Número inválido. Use DDI+DDD+número (ex: 5574991484460)' }, 400);
     }
 
-    if (!bot.conectado && !bot.iniciando) {
-      iniciarBaileys(bot.phoneTarget);
+    // Se já conectado com outro número, informa
+    if (bot.conectado) {
+      return jsonRes(res, { ok: true, status: 'connected', code: null, msg: 'Bot já conectado!' });
     }
-    // Aguarda até 8s para o código aparecer
-    for (let i = 0; i < 16; i++) {
-      if (bot.pairingCode || bot.conectado) break;
-      await new Promise(r => setTimeout(r, 500));
+
+    // Se número mudou em relação ao que está tentando, destrói e recomeça
+    if (bot.phoneTarget && bot.phoneTarget !== phone) {
+      console.log(`[BOT] Número mudou de ${bot.phoneTarget} para ${phone}. Reiniciando...`);
+      await destruirSock();
+      limparAuth();
+      await new Promise(r => setTimeout(r, 1000));
     }
-    return jsonRes(res, {
-      ok:     true,
-      status: bot.pairingCode ? 'connecting' : bot.status,
-      code:   bot.pairingCode || null,
-      msg:    bot.conectado
-        ? 'Bot já conectado!'
-        : (bot.pairingCode
-            ? 'Código gerado! Digite no WhatsApp → Aparelhos conectados → Conectar com número.'
-            : 'Iniciando bot... Aguarde e clique em Gerar Código novamente em alguns segundos.'),
-    });
+
+    try {
+      const code = await solicitarPairingCode(phone);
+      return jsonRes(res, {
+        ok:     true,
+        status: 'connecting',
+        code:   code,
+        msg:    'Código gerado! Vá em WhatsApp → ⋮ → Aparelhos conectados → Conectar com número de telefone → Digite o código.',
+      });
+    } catch (err) {
+      console.error('[BOT] Erro ao gerar pairing code:', err.message);
+      return jsonRes(res, {
+        ok:     false,
+        status: bot.status,
+        code:   null,
+        error:  err.message,
+        msg:    'Erro ao gerar código. Tente novamente em 10 segundos.',
+      });
+    }
   }
 
-  // POST /bot/disconnect — Desconecta o bot
+  // ── POST /bot/disconnect ──
   if (url === '/bot/disconnect' && method === 'POST') {
     const body = await readBody(req);
-    if (bot.sock) {
-      try { await bot.sock.logout(); } catch (_) {}
-      bot.sock      = null;
-      bot.conectado = false;
-      bot.status    = 'disconnected';
-    }
-    if (body.limparSessao) {
-      try { fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true }); } catch (_) {}
-    }
+    await destruirSock();
+    bot.status      = 'disconnected';
+    bot.conectado   = false;
+    bot.pairingCode = null;
+    if (body.limparSessao) limparAuth();
     return jsonRes(res, { ok: true });
   }
 
-  // POST /bot/send — Envia mensagem
+  // ── POST /bot/send ──
   if (url === '/bot/send' && method === 'POST') {
     const body = await readBody(req);
     if (!bot.conectado) return jsonRes(res, { error: 'Bot desconectado' }, 400);
@@ -617,15 +649,12 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // GET /bot/messages — Últimas mensagens recebidas
+  // ── GET /bot/messages ──
   if (url === '/bot/messages' && method === 'GET') {
     return jsonRes(res, { messages: [] });
   }
 
-  // ══════════════════════════════════════════════════════════════════
-  // ARQUIVOS ESTÁTICOS
-  // ══════════════════════════════════════════════════════════════════
-
+  // ── Arquivos estáticos ──
   let filePath = path.join(__dirname, url === '/' ? 'index.html' : url);
   if (!filePath.startsWith(__dirname)) {
     res.writeHead(403); res.end('Forbidden'); return;
@@ -646,16 +675,15 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-// ── Inicia servidor e bot ────────────────────────────────────────────
+// ── Inicia servidor ──────────────────────────────────────────────────
 server.listen(CFG.PORT, '0.0.0.0', () => {
   console.log('\n╔══════════════════════════════════════╗');
-  console.log('║  HR Mármores e Granitos — Bot v4.0  ║');
+  console.log('║  HR Mármores e Granitos — Bot v5.0  ║');
   console.log('╚══════════════════════════════════════╝');
-  console.log(`📡 Porta:   ${CFG.PORT}`);
-  console.log(`📱 Dono:    ${CFG.DONO}`);
-  console.log(`🧪 Testes:  ${CFG.TESTES.join(', ')}`);
-  console.log(`🔗 QR:      SEU-APP.onrender.com/qr\n`);
-  iniciarBaileys();
+  console.log(`📡 Porta:  ${CFG.PORT}`);
+  console.log(`📱 Dono:   ${CFG.DONO}`);
+  console.log(`🔗 Health: /health\n`);
+  // NÃO inicia Baileys automaticamente — espera /bot/start com número
 });
 
 process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
