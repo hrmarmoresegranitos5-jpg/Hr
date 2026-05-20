@@ -218,6 +218,8 @@ function go(n){
   if(n===6){cfgTab=0;document.querySelectorAll('.cfgtab').forEach(function(t){t.classList.toggle('on',t.dataset.cftab==='0');});buildCfg();}
   if(n===9){if(typeof renderTum==='function')renderTum();}
   if(n===10){if(typeof renderContratos==='function')renderContratos();}
+  if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
+  if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
 }
 
 // ═══ DISPATCH ═══

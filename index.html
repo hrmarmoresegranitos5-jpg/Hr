@@ -18,6 +18,50 @@
 <!-- external scripts loaded on-demand -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=14">
+
+<style id="capCSS">
+/* ══ CAPELAS & DETALHES AVULSOS ══ */
+#pg20{background:var(--bg,#111);color:var(--t1,#eee);}
+.cap-hdr{padding:14px 14px 0;font-size:1.1rem;font-weight:700;color:var(--gold,#C9A84C);}
+.cap-sub{padding:2px 14px 10px;font-size:.76rem;color:var(--t3,#888);}
+.cap-card{background:var(--s2,#1a1a1a);border:1px solid var(--bd,#2a2a2a);border-radius:12px;padding:12px 14px;margin:0 14px 10px;}
+.cap-sec-title{font-size:.72rem;font-weight:700;color:var(--t3,#888);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;}
+.cap-tabs{display:flex;gap:8px;margin:0 14px 10px;}
+.cap-tab{flex:1;padding:10px 6px;border-radius:10px;border:1.5px solid var(--bd,#333);background:var(--s2,#1a1a1a);color:var(--t2,#ccc);font-weight:600;font-size:.86rem;cursor:pointer;transition:all .15s;}
+.cap-tab.on{border-color:var(--gold,#C9A84C);color:var(--gold,#C9A84C);background:rgba(201,168,76,.1);}
+.cap-pedra-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.cap-pedra-btn{padding:8px 6px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t2,#ccc);font-size:.8rem;cursor:pointer;transition:all .15s;}
+.cap-pedra-btn.on{border-color:var(--gold,#C9A84C);color:var(--gold,#C9A84C);background:rgba(201,168,76,.12);font-weight:700;}
+.cap-item-row{display:flex;align-items:flex-start;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd,#222);}
+.cap-item-row:last-child{border-bottom:none;}
+.cap-chk{display:flex;align-items:center;flex-shrink:0;cursor:pointer;margin-top:2px;}
+.cap-chk input{display:none;}
+.cap-chkbox{width:20px;height:20px;border:2px solid var(--bd2,#444);border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.cap-chk input:checked+.cap-chkbox{background:var(--gold,#C9A84C);border-color:var(--gold,#C9A84C);}
+.cap-chk input:checked+.cap-chkbox::after{content:'✓';color:#000;font-size:.74rem;font-weight:900;}
+.cap-item-info{flex:1;min-width:0;}
+.cap-item-lbl{display:block;font-size:.88rem;color:var(--t1,#eee);font-weight:500;margin-bottom:4px;}
+.cap-item-prec{display:flex;flex-wrap:wrap;align-items:center;gap:5px;font-size:.74rem;color:var(--t3,#888);}
+.cap-mini{width:68px;padding:4px 5px;border-radius:6px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.8rem;text-align:right;}
+.cap-mini.sm{width:44px;}
+.cap-dims-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.cap-dim-item{display:flex;flex-direction:column;gap:4px;}
+.cap-dim-item label{font-size:.7rem;color:var(--t3,#888);line-height:1.3;}
+.cap-dim-inp{padding:7px 4px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.86rem;text-align:center;width:100%;box-sizing:border-box;}
+.cap-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.cap-result-card{border-color:var(--gold,#C9A84C)!important;background:rgba(201,168,76,.05)!important;}
+.cap-calc-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:.82rem;color:var(--t2,#ccc);border-bottom:1px dashed var(--bd,#222);}
+.cap-calc-row em{font-style:normal;color:var(--t3,#888);font-size:.74rem;}
+.cap-calc-v{font-weight:600;color:var(--t1,#eee);flex-shrink:0;margin-left:8px;}
+.cap-total-row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0 4px;font-size:1rem;font-weight:800;color:var(--gold,#C9A84C);}
+.cap-total-v{font-size:1.2rem;}
+.cap-btn-main{width:100%;padding:15px;background:var(--gold,#C9A84C);color:#000;border:none;border-radius:12px;font-weight:800;font-size:1rem;cursor:pointer;letter-spacing:.03em;margin-top:10px;}
+#pg20 .ibase{width:100%;box-sizing:border-box;padding:9px 11px;border-radius:9px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.88rem;}
+.cap-disc-row{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.8rem;color:var(--t3,#888);}
+.cap-tipo-grid{display:flex;gap:6px;margin-top:6px;}
+.cap-tipo-btn{flex:1;padding:7px 4px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t2,#ccc);font-size:.76rem;cursor:pointer;transition:all .15s;}
+.cap-tipo-btn.on{border-color:var(--gold,#C9A84C);color:var(--gold,#C9A84C);font-weight:700;}
+</style>
 </head>
 <body>
 <script>
@@ -314,6 +358,10 @@ function openApp(pg){
       </div>
     </div>
 
+
+    <!-- 20: CAPELAS & DETALHES AVULSOS -->
+    <div class="pg" id="pg20"></div>
+
     <!-- 11: SECRETÁRIA -->
     <div class="pg" id="pg11">
       <div id="secBody"></div>
@@ -358,6 +406,7 @@ function openApp(pg){
     <div class="ni" data-pg="11"><span class="ni-i">🤖</span><span class="ni-l">Secretária</span><span class="ndot" id="secDot"></span></div>
     <div class="ni" data-pg="7"><span class="ni-i">📋</span><span class="ni-l">Histórico</span></div>
     <div class="ni" data-pg="10"><span class="ni-i">📜</span><span class="ni-l">Contratos</span></div>
+    <div class="ni" data-pg="20"><span class="ni-i">⛪</span><span class="ni-l">Capelas</span></div>
     <div class="ni" data-pg="3"><span class="ni-i">📅</span><span class="ni-l">Agenda</span><span class="ndot" id="urgDot"></span></div>
     <div class="ni" data-pg="4"><span class="ni-i">💵</span><span class="ni-l">Finanças</span></div>
     <div class="ni" data-pg="5"><span class="ni-i">🏢</span><span class="ni-l">Empresa</span></div>
@@ -572,6 +621,763 @@ function openApp(pg){
   </div>
 </div>
   <script src="pwa.js"></script>
+<script>
+// ══ CAPELAS & DETALHES ══
+// ══════════════════════════════════════════════════════════════════════
+// MÓDULO CAPELAS E DETALHES AVULSOS — HR Mármores e Granitos
+// Orçamento de itens avulsos (cruz, lápide, foto) e capelas completas
+// Carregar APÓS app-core.js e app-precif-tumulos.js no index.html
+// ══════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// ESTADO GLOBAL DO MÓDULO
+// ─────────────────────────────────────────────────────────────────────
+var CAP = {
+  // Tab ativo: 'avulso' | 'capela'
+  tab: 'avulso',
+
+  // ── DADOS DO CLIENTE ─────────────────────────────────────────────
+  cliente:   '',
+  falecido:  '',
+  tel:       '',
+  obs:       '',
+
+  // ── MODO AVULSO — itens individuais ──────────────────────────────
+  avulso: {
+    pedraKey: 'granito_simples',   // 'granito_simples' | 'granito_padrao' | 'granito_premium' | 'marmore'
+
+    itens: {
+      cruz_simples:   { on: false, qty: 1, custo: 180, venda: 320, label: 'Cruz Simples (granito)',      icon: '✝️' },
+      cruz_premium:   { on: false, qty: 1, custo: 280, venda: 520, label: 'Cruz Premium (mármore/torneada)', icon: '✝️' },
+      lapide_sem:     { on: false, qty: 1, custo: 240, venda: 450, label: 'Lápide Gravada s/ foto',      icon: '📋' },
+      lapide_com:     { on: false, qty: 1, custo: 340, venda: 620, label: 'Lápide Gravada c/ foto porcelana', icon: '🖼️' },
+      foto_extra:     { on: false, qty: 1, custo:  85, venda: 160, label: 'Foto Porcelana adicional',    icon: '📸' },
+      inst_avulso:    { on: true,  qty: 1, custo: 120, venda: 200, label: 'Instalação / Deslocamento',   icon: '🚗' },
+    },
+
+    desconto:   0,
+    obsOrc:     '',
+  },
+
+  // ── MODO CAPELA COMPLETA ─────────────────────────────────────────
+  // Baseado em: base + fundo + teto + pilares (4) + cruz + lápides
+  capela: {
+    pedraKey: 'granito_padrao',   // tipo de pedra
+
+    // Dimensões principais (metros)
+    larg:  0.80,    // largura interna da abertura frontal
+    prof:  0.60,    // profundidade (espessura base-fundo)
+    alt:   1.00,    // altura total da estrutura
+
+    // Espessura das chapas de pedra (m)
+    espChapa: 0.03,
+
+    // Peças de pedra da estrutura
+    pecas: {
+      base:    { on: true,  m2: 0, label: 'Base (tampo inferior)',          desc: 'Chapa horizontal de baixo' },
+      fundo:   { on: true,  m2: 0, label: 'Fundo (painel traseiro)',        desc: 'Chapa vertical do fundo' },
+      teto:    { on: true,  m2: 0, label: 'Teto (tampo superior)',          desc: 'Chapa horizontal de cima' },
+      laterais:{ on: false, m2: 0, label: 'Laterais (2 peças)',             desc: 'Fechamento lateral opcional' },
+    },
+
+    // Pilares
+    pilares: {
+      on:         true,
+      qty:        2,          // número de pilares frontais
+      tipo:       'chapa',    // 'chapa' = chapas em L | 'torneado' = comprado pronto
+      altPilar:   0.90,       // altura do pilar (m)
+      largPilar:  0.12,       // largura/seção do pilar (m)
+      // Preço por pilar (quando tipo = 'torneado' é preço de compra)
+      custoPilarChapa:  120,  // custo quando feito em chapa
+      vendaPilarChapa:  220,  // venda quando feito em chapa
+      custoPilarTorn:   180,  // custo pilar torneado (comprado)
+      vendaPilarTorn:   320,  // venda pilar torneado
+    },
+
+    // Cruz no topo
+    cruz: {
+      on:    true,
+      tipo:  'granito',   // 'granito' | 'marmore'
+      custo: 180,
+      venda: 340,
+    },
+
+    // Lápides (pode ter 1 ou 2)
+    lapide1: {
+      on:       true,
+      tipo:     'com_foto',  // 'sem_foto' | 'com_foto'
+      custo:    240,
+      venda:    450,
+      custoFoto: 85,
+      vendaFoto: 160,
+    },
+    lapide2: {
+      on:       false,
+      tipo:     'com_foto',
+      custo:    240,
+      venda:    450,
+      custoFoto: 85,
+      vendaFoto: 160,
+    },
+
+    // Mão de obra
+    mdo: {
+      marmorista: { on: true,  dias: 1, diaria: 400 },
+      ajudante:   { on: true,  dias: 1, diaria: 220 },
+      transporte: { on: true,  custo: 100, venda: 180 },
+    },
+
+    desconto: 0,
+    obsOrc:   '',
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────
+
+// Preço do m² da pedra selecionada
+function capPedraM2(key) {
+  try {
+    if (typeof CFG !== 'undefined' && CFG.tumPrecos && CFG.tumPrecos.pedras && CFG.tumPrecos.pedras[key]) {
+      return CFG.tumPrecos.pedras[key].preco;
+    }
+    if (typeof DEF_TUM_PRECOS !== 'undefined') {
+      return DEF_TUM_PRECOS.pedras[key] ? DEF_TUM_PRECOS.pedras[key].preco : 280;
+    }
+  } catch(e) {}
+  return 280;
+}
+
+function capPedraLabel(key) {
+  var labels = {
+    granito_simples: 'Granito Simples',
+    granito_padrao:  'Granito Padrão',
+    granito_premium: 'Granito Premium',
+    marmore:         'Mármore'
+  };
+  return labels[key] || key;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CÁLCULOS — MODO AVULSO
+// ─────────────────────────────────────────────────────────────────────
+function capCalcAvulso() {
+  var a = CAP.avulso;
+  var total_custo = 0;
+  var total_venda = 0;
+  var itens_html  = '';
+
+  var keys = Object.keys(a.itens);
+  keys.forEach(function(k) {
+    var it = a.itens[k];
+    if (!it.on) return;
+    var qty  = parseInt(it.qty, 10) || 1;
+    var cv   = it.custo * qty;
+    var vv   = it.venda * qty;
+    total_custo += cv;
+    total_venda += vv;
+    itens_html += '<div class="cap-calc-row">'
+      + '<span>' + it.icon + ' ' + it.label + (qty > 1 ? ' <em>×' + qty + '</em>' : '') + '</span>'
+      + '<span class="cap-calc-v">R$ ' + fm(vv) + '</span>'
+      + '</div>';
+  });
+
+  var desc_vlr = total_venda * (a.desconto / 100);
+  var final    = total_venda - desc_vlr;
+  var margem   = total_venda > 0 ? ((total_venda - total_custo) / total_venda * 100).toFixed(1) : 0;
+
+  return { total_custo: total_custo, total_venda: total_venda, final: final, itens_html: itens_html, margem: margem, desc_vlr: desc_vlr };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CÁLCULOS — MODO CAPELA
+// ─────────────────────────────────────────────────────────────────────
+function capCalcCapela() {
+  var c = CAP.capela;
+  var pm2  = capPedraM2(c.pedraKey);
+  var perda = 1.15; // 15% perda de corte
+
+  var total_custo = 0;
+  var total_venda = 0;
+  var itens_html  = '';
+  var markup_pedra = 1.80; // margem padrão para peças de pedra (80% sobre custo)
+
+  // — Calcular m² de cada peça ——————————————————————————————————————
+  var larg = parseFloat(c.larg) || 0.80;
+  var prof = parseFloat(c.prof) || 0.60;
+  var alt  = parseFloat(c.alt)  || 1.00;
+
+  c.pecas.base.m2     = larg * prof;          // tampo inferior
+  c.pecas.fundo.m2    = larg * alt;           // painel traseiro
+  c.pecas.teto.m2     = (larg + 0.10) * (prof + 0.10); // teto com leve saliência
+  c.pecas.laterais.m2 = prof * alt * 2;       // 2 laterais
+
+  // — Peças de pedra ———————————————————————————————————————————————
+  Object.keys(c.pecas).forEach(function(k) {
+    var peca = c.pecas[k];
+    if (!peca.on) return;
+    var m2_com_perda = peca.m2 * perda;
+    var custo_peca   = m2_com_perda * pm2;
+    var venda_peca   = custo_peca * markup_pedra;
+    total_custo += custo_peca;
+    total_venda += venda_peca;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>🪨 ' + peca.label + ' <em>' + peca.m2.toFixed(2) + ' m²</em></span>'
+      + '<span class="cap-calc-v">R$ ' + fm(venda_peca) + '</span>'
+      + '</div>';
+  });
+
+  // — Pilares ——————————————————————————————————————————————————————
+  var pl = c.pilares;
+  if (pl.on && pl.qty > 0) {
+    var qty = parseInt(pl.qty, 10) || 2;
+    var custo_pilar, venda_pilar, pilar_label;
+    if (pl.tipo === 'torneado') {
+      custo_pilar = pl.custoPilarTorn;
+      venda_pilar = pl.vendaPilarTorn;
+      pilar_label = 'Pilar Torneado';
+    } else {
+      // Pilar em chapa = 2 faces visíveis em pedra
+      var m2_pilar = parseFloat(pl.altPilar) * parseFloat(pl.largPilar) * 2; // duas faces
+      custo_pilar = m2_pilar * perda * pm2;
+      venda_pilar = custo_pilar * markup_pedra;
+      // acrescenta mão de obra de moldar
+      custo_pilar += pl.custoPilarChapa;
+      venda_pilar  = Math.max(venda_pilar + pl.vendaPilarChapa, custo_pilar * 1.5);
+      pilar_label  = 'Pilar (chapa c/ MO)';
+    }
+    total_custo += custo_pilar * qty;
+    total_venda += venda_pilar * qty;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>🏛️ ' + pilar_label + ' <em>×' + qty + '</em></span>'
+      + '<span class="cap-calc-v">R$ ' + fm(venda_pilar * qty) + '</span>'
+      + '</div>';
+  }
+
+  // — Cruz ——————————————————————————————————————————————————————————
+  if (c.cruz.on) {
+    total_custo += c.cruz.custo;
+    total_venda += c.cruz.venda;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>✝️ Cruz (' + c.cruz.tipo + ')</span>'
+      + '<span class="cap-calc-v">R$ ' + fm(c.cruz.venda) + '</span>'
+      + '</div>';
+  }
+
+  // — Lápides ——————————————————————————————————————————————————————
+  [c.lapide1, c.lapide2].forEach(function(lap, i) {
+    if (!lap.on) return;
+    var lbl  = 'Lápide ' + (i === 0 ? '1' : '2');
+    var cv   = lap.custo;
+    var vv   = lap.venda;
+    var tipo_txt = lap.tipo === 'com_foto' ? 'c/ foto porcelana' : 's/ foto';
+    if (lap.tipo === 'com_foto') {
+      cv += lap.custoFoto;
+      vv += lap.vendaFoto;
+      lbl += ' ' + tipo_txt;
+    } else {
+      lbl += ' ' + tipo_txt;
+    }
+    total_custo += cv;
+    total_venda += vv;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>📋 ' + lbl + '</span>'
+      + '<span class="cap-calc-v">R$ ' + fm(vv) + '</span>'
+      + '</div>';
+  });
+
+  // — Mão de obra ————————————————————————————————————————————————————
+  var mdo = c.mdo;
+  if (mdo.marmorista.on) {
+    var vv_marm = mdo.marmorista.dias * mdo.marmorista.diaria * 1.5; // margem MO
+    var cv_marm = mdo.marmorista.dias * mdo.marmorista.diaria;
+    total_custo += cv_marm;
+    total_venda += vv_marm;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>👷 Marmorista <em>' + mdo.marmorista.dias + 'd</em></span>'
+      + '<span class="cap-calc-v">R$ ' + fm(vv_marm) + '</span>'
+      + '</div>';
+  }
+  if (mdo.ajudante.on) {
+    var vv_aj = mdo.ajudante.dias * mdo.ajudante.diaria * 1.4;
+    var cv_aj = mdo.ajudante.dias * mdo.ajudante.diaria;
+    total_custo += cv_aj;
+    total_venda += vv_aj;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>🧰 Ajudante <em>' + mdo.ajudante.dias + 'd</em></span>'
+      + '<span class="cap-calc-v">R$ ' + fm(vv_aj) + '</span>'
+      + '</div>';
+  }
+  if (mdo.transporte.on) {
+    total_custo += mdo.transporte.custo;
+    total_venda += mdo.transporte.venda;
+    itens_html  += '<div class="cap-calc-row">'
+      + '<span>🚗 Transporte / Deslocamento</span>'
+      + '<span class="cap-calc-v">R$ ' + fm(mdo.transporte.venda) + '</span>'
+      + '</div>';
+  }
+
+  var desc_vlr = total_venda * (c.desconto / 100);
+  var final    = total_venda - desc_vlr;
+  var margem   = total_venda > 0 ? ((total_venda - total_custo) / total_venda * 100).toFixed(1) : 0;
+
+  return { total_custo: total_custo, total_venda: total_venda, final: final, itens_html: itens_html, margem: margem, desc_vlr: desc_vlr };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// RENDER PRINCIPAL
+// ─────────────────────────────────────────────────────────────────────
+function buildCapelas() {
+  var el = document.getElementById('pg20');
+  if (!el) return;
+  el.innerHTML = capHtml();
+  capBindEvents();
+  capUpdateCalc();
+}
+
+function capHtml() {
+  var a = CAP.avulso;
+  var c = CAP.capela;
+  var pedras = [
+    {k:'granito_simples', l:'Granito Simples'},
+    {k:'granito_padrao',  l:'Granito Padrão'},
+    {k:'granito_premium', l:'Granito Premium'},
+    {k:'marmore',         l:'Mármore'}
+  ];
+
+  // — Cabeçalho + Tabs ————————————————————————————————————————————
+  var h = '<div style="padding:12px 14px 0;">'
+    + '<div style="font-size:1.1rem;font-weight:700;color:var(--gold,#C9A84C);margin-bottom:4px;">⛪ Capelas & Detalhes</div>'
+    + '<div style="font-size:.78rem;color:var(--t3,#888);margin-bottom:10px;">Orçamento de cruzes, lápides e capelas completas</div>';
+
+  // Dados do cliente
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">👤 Cliente</div>'
+    + '<div class="cap-row-2">'
+    + '<input class="ibase" id="capCli" placeholder="Nome do cliente" value="' + esc(CAP.cliente) + '">'
+    + '<input class="ibase" id="capTel" placeholder="Telefone" value="' + esc(CAP.tel) + '">'
+    + '</div>'
+    + '<input class="ibase" style="margin-top:6px;" id="capFalecido" placeholder="Nome do falecido (opcional)" value="' + esc(CAP.falecido) + '">'
+    + '</div>';
+
+  // Tabs
+  h += '<div class="cap-tabs">'
+    + '<button class="cap-tab' + (CAP.tab === 'avulso' ? ' on' : '') + '" onclick="capSetTab(\'avulso\')">🔩 Itens Avulsos</button>'
+    + '<button class="cap-tab' + (CAP.tab === 'capela' ? ' on' : '') + '" onclick="capSetTab(\'capela\')">⛪ Capela Completa</button>'
+    + '</div>'
+    + '</div>';
+
+  // ── TAB AVULSO ──────────────────────────────────────────────────
+  h += '<div id="capTabAvulso" style="display:' + (CAP.tab === 'avulso' ? 'block' : 'none') + ';padding:0 14px 14px;">';
+
+  // Tipo de pedra
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">🪨 Material base</div>'
+    + '<div class="cap-pedra-grid">';
+  pedras.forEach(function(p) {
+    var sel = a.pedraKey === p.k;
+    h += '<button class="cap-pedra-btn' + (sel ? ' on' : '') + '" onclick="capAvPedra(\'' + p.k + '\')">' + p.l + '</button>';
+  });
+  h += '</div></div>';
+
+  // Itens
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">📦 Itens do orçamento</div>';
+
+  Object.keys(a.itens).forEach(function(k) {
+    var it = a.itens[k];
+    h += '<div class="cap-item-row">'
+      + '<label class="cap-check">'
+      + '<input type="checkbox" ' + (it.on ? 'checked' : '') + ' onchange="capAvToggle(\'' + k + '\',this.checked)">'
+      + '<span class="cap-check-box"></span>'
+      + '</label>'
+      + '<div class="cap-item-info">'
+      + '<span class="cap-item-lbl">' + it.icon + ' ' + it.label + '</span>'
+      + '<div class="cap-item-prec">'
+      + 'Custo R$ <input class="cap-mini-inp" type="number" value="' + it.custo + '" onchange="capAvPreco(\'' + k + '\',\'custo\',this.value)">'
+      + ' Venda R$ <input class="cap-mini-inp" type="number" value="' + it.venda + '" onchange="capAvPreco(\'' + k + '\',\'venda\',this.value)">'
+      + ' Qtd <input class="cap-mini-inp cap-qty" type="number" min="1" value="' + it.qty + '" onchange="capAvQty(\'' + k + '\',this.value)">'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  });
+
+  h += '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;">'
+    + '<span style="font-size:.8rem;color:var(--t3);">Desconto %</span>'
+    + '<input class="cap-mini-inp" style="width:60px;" type="number" min="0" max="60" value="' + a.desconto + '" onchange="CAP.avulso.desconto=+this.value;capUpdateCalc()">'
+    + '</div>'
+    + '</div>';
+
+  h += '</div>'; // end tab avulso
+
+  // ── TAB CAPELA ──────────────────────────────────────────────────
+  h += '<div id="capTabCapela" style="display:' + (CAP.tab === 'capela' ? 'block' : 'none') + ';padding:0 14px 14px;">';
+
+  // Pedra
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">🪨 Material</div>'
+    + '<div class="cap-pedra-grid">';
+  pedras.forEach(function(p) {
+    var sel = c.pedraKey === p.k;
+    h += '<button class="cap-pedra-btn' + (sel ? ' on' : '') + '" onclick="capCapPedra(\'' + p.k + '\')">' + p.l + '</button>';
+  });
+  h += '</div></div>';
+
+  // Dimensões
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">📐 Dimensões da estrutura</div>'
+    + '<div class="cap-dims-grid">'
+    + '<div class="cap-dim-item"><label>Largura (m)<br><small>abertura frontal</small></label>'
+    + '<input class="cap-dim-inp" type="number" step="0.05" value="' + c.larg + '" onchange="CAP.capela.larg=+this.value;capUpdateCalc()"></div>'
+    + '<div class="cap-dim-item"><label>Profundidade (m)<br><small>espessura base→fundo</small></label>'
+    + '<input class="cap-dim-inp" type="number" step="0.05" value="' + c.prof + '" onchange="CAP.capela.prof=+this.value;capUpdateCalc()"></div>'
+    + '<div class="cap-dim-item"><label>Altura (m)<br><small>do teto ao túmulo</small></label>'
+    + '<input class="cap-dim-inp" type="number" step="0.05" value="' + c.alt + '" onchange="CAP.capela.alt=+this.value;capUpdateCalc()"></div>'
+    + '</div></div>';
+
+  // Peças de pedra
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">🪨 Peças de pedra</div>';
+  Object.keys(c.pecas).forEach(function(k) {
+    var peca = c.pecas[k];
+    h += '<div class="cap-item-row">'
+      + '<label class="cap-check">'
+      + '<input type="checkbox" ' + (peca.on ? 'checked' : '') + ' onchange="CAP.capela.pecas[\'' + k + '\'].on=this.checked;capUpdateCalc()">'
+      + '<span class="cap-check-box"></span>'
+      + '</label>'
+      + '<div class="cap-item-info">'
+      + '<span class="cap-item-lbl">🪨 ' + peca.label + '</span>'
+      + '<span style="font-size:.74rem;color:var(--t3);">' + peca.desc + '</span>'
+      + '</div>'
+      + '</div>';
+  });
+  h += '</div>';
+
+  // Pilares
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">🏛️ Pilares</div>'
+    + '<div class="cap-item-row">'
+    + '<label class="cap-check">'
+    + '<input type="checkbox" id="capPlOn" ' + (c.pilares.on ? 'checked' : '') + ' onchange="CAP.capela.pilares.on=this.checked;capUpdateCalc()">'
+    + '<span class="cap-check-box"></span>'
+    + '</label>'
+    + '<div class="cap-item-info"><span class="cap-item-lbl">Incluir pilares</span></div>'
+    + '</div>'
+    + '<div class="cap-dims-grid" style="margin-top:8px;">'
+    + '<div class="cap-dim-item"><label>Qtd pilares</label>'
+    + '<input class="cap-dim-inp" type="number" min="1" max="6" value="' + c.pilares.qty + '" onchange="CAP.capela.pilares.qty=+this.value;capUpdateCalc()"></div>'
+    + '<div class="cap-dim-item"><label>Altura (m)</label>'
+    + '<input class="cap-dim-inp" type="number" step="0.05" value="' + c.pilares.altPilar + '" onchange="CAP.capela.pilares.altPilar=+this.value;capUpdateCalc()"></div>'
+    + '</div>'
+    + '<div class="cap-pedra-grid" style="margin-top:6px;">'
+    + '<button class="cap-pedra-btn' + (c.pilares.tipo === 'chapa' ? ' on' : '') + '" onclick="CAP.capela.pilares.tipo=\'chapa\';buildCapelas()">Chapa de pedra</button>'
+    + '<button class="cap-pedra-btn' + (c.pilares.tipo === 'torneado' ? ' on' : '') + '" onclick="CAP.capela.pilares.tipo=\'torneado\';buildCapelas()">Torneado (pronto)</button>'
+    + '</div>'
+    + '</div>';
+
+  // Cruz
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">✝️ Cruz superior</div>'
+    + '<div class="cap-item-row">'
+    + '<label class="cap-check">'
+    + '<input type="checkbox" ' + (c.cruz.on ? 'checked' : '') + ' onchange="CAP.capela.cruz.on=this.checked;capUpdateCalc()">'
+    + '<span class="cap-check-box"></span>'
+    + '</label>'
+    + '<div class="cap-item-info">'
+    + '<span class="cap-item-lbl">Cruz no topo da estrutura</span>'
+    + '<div class="cap-item-prec">'
+    + 'Custo R$ <input class="cap-mini-inp" type="number" value="' + c.cruz.custo + '" onchange="CAP.capela.cruz.custo=+this.value;capUpdateCalc()">'
+    + ' Venda R$ <input class="cap-mini-inp" type="number" value="' + c.cruz.venda + '" onchange="CAP.capela.cruz.venda=+this.value;capUpdateCalc()">'
+    + '</div>'
+    + '</div>'
+    + '</div>'
+    + '<div class="cap-pedra-grid" style="margin-top:6px;">'
+    + '<button class="cap-pedra-btn' + (c.cruz.tipo === 'granito' ? ' on' : '') + '" onclick="CAP.capela.cruz.tipo=\'granito\';buildCapelas()">Granito</button>'
+    + '<button class="cap-pedra-btn' + (c.cruz.tipo === 'marmore' ? ' on' : '') + '" onclick="CAP.capela.cruz.tipo=\'marmore\';buildCapelas()">Mármore</button>'
+    + '</div>'
+    + '</div>';
+
+  // Lápides
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">📋 Lápides gravadas</div>';
+
+  [['lapide1', 'Lápide 1 (principal)'], ['lapide2', 'Lápide 2 (opcional)']].forEach(function(pair) {
+    var k = pair[0];
+    var lbl = pair[1];
+    var lap = c[k];
+    h += '<div style="border-bottom:1px solid var(--bd,#333);padding-bottom:8px;margin-bottom:8px;">'
+      + '<div class="cap-item-row">'
+      + '<label class="cap-check">'
+      + '<input type="checkbox" ' + (lap.on ? 'checked' : '') + ' onchange="CAP.capela.' + k + '.on=this.checked;capUpdateCalc()">'
+      + '<span class="cap-check-box"></span>'
+      + '</label>'
+      + '<div class="cap-item-info"><span class="cap-item-lbl">📋 ' + lbl + '</span></div>'
+      + '</div>'
+      + '<div class="cap-pedra-grid" style="margin-top:4px;margin-left:32px;">'
+      + '<button class="cap-pedra-btn' + (lap.tipo === 'sem_foto' ? ' on' : '') + '" onclick="CAP.capela.' + k + '.tipo=\'sem_foto\';buildCapelas()">Sem foto</button>'
+      + '<button class="cap-pedra-btn' + (lap.tipo === 'com_foto' ? ' on' : '') + '" onclick="CAP.capela.' + k + '.tipo=\'com_foto\';buildCapelas()">Com foto porcelana</button>'
+      + '</div>'
+      + '<div class="cap-item-prec" style="margin-left:32px;margin-top:4px;">'
+      + 'Lápide R$ <input class="cap-mini-inp" type="number" value="' + lap.venda + '" onchange="CAP.capela.' + k + '.venda=+this.value;capUpdateCalc()">'
+      + ' Foto R$ <input class="cap-mini-inp" type="number" value="' + lap.vendaFoto + '" onchange="CAP.capela.' + k + '.vendaFoto=+this.value;capUpdateCalc()">'
+      + '</div>'
+      + '</div>';
+  });
+  h += '</div>';
+
+  // Mão de obra
+  h += '<div class="cap-card">'
+    + '<div class="cap-sec-title">👷 Mão de obra & instalação</div>';
+  [
+    ['marmorista', '👷 Marmorista', 'dias'],
+    ['ajudante',   '🧰 Ajudante',   'dias']
+  ].forEach(function(arr) {
+    var mk = arr[0], lbl = arr[1], t = arr[2];
+    var mo = c.mdo[mk];
+    h += '<div class="cap-item-row">'
+      + '<label class="cap-check">'
+      + '<input type="checkbox" ' + (mo.on ? 'checked' : '') + ' onchange="CAP.capela.mdo.' + mk + '.on=this.checked;capUpdateCalc()">'
+      + '<span class="cap-check-box"></span>'
+      + '</label>'
+      + '<div class="cap-item-info">'
+      + '<span class="cap-item-lbl">' + lbl + '</span>'
+      + '<div class="cap-item-prec">'
+      + 'Diária R$ <input class="cap-mini-inp" type="number" value="' + mo.diaria + '" onchange="CAP.capela.mdo.' + mk + '.diaria=+this.value;capUpdateCalc()">'
+      + ' × Dias <input class="cap-mini-inp cap-qty" type="number" min="0.5" step="0.5" value="' + mo.dias + '" onchange="CAP.capela.mdo.' + mk + '.dias=+this.value;capUpdateCalc()">'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  });
+  // Transporte
+  var tr = c.mdo.transporte;
+  h += '<div class="cap-item-row">'
+    + '<label class="cap-check">'
+    + '<input type="checkbox" ' + (tr.on ? 'checked' : '') + ' onchange="CAP.capela.mdo.transporte.on=this.checked;capUpdateCalc()">'
+    + '<span class="cap-check-box"></span>'
+    + '</label>'
+    + '<div class="cap-item-info">'
+    + '<span class="cap-item-lbl">🚗 Transporte / Deslocamento</span>'
+    + '<div class="cap-item-prec">'
+    + 'Custo R$ <input class="cap-mini-inp" type="number" value="' + tr.custo + '" onchange="CAP.capela.mdo.transporte.custo=+this.value;capUpdateCalc()">'
+    + ' Venda R$ <input class="cap-mini-inp" type="number" value="' + tr.venda + '" onchange="CAP.capela.mdo.transporte.venda=+this.value;capUpdateCalc()">'
+    + '</div>'
+    + '</div>'
+    + '</div>';
+
+  h += '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;">'
+    + '<span style="font-size:.8rem;color:var(--t3);">Desconto %</span>'
+    + '<input class="cap-mini-inp" style="width:60px;" type="number" min="0" max="60" value="' + c.desconto + '" onchange="CAP.capela.desconto=+this.value;capUpdateCalc()">'
+    + '</div>'
+    + '</div>';
+
+  h += '</div>'; // end tab capela
+
+  // ── RESULTADO (sempre visível) ────────────────────────────────────
+  h += '<div id="capResultArea" style="padding:0 14px 80px;">'
+    + '<div class="cap-card cap-result-card">'
+    + '<div class="cap-sec-title" style="color:var(--gold,#C9A84C);">💰 Resumo do Orçamento</div>'
+    + '<div id="capCalcRows"></div>'
+    + '<div id="capTotais"></div>'
+    + '</div>'
+    + '<button class="cap-btn-main" onclick="capGerarOrcamento()">📄 Gerar / Compartilhar Orçamento</button>'
+    + '</div>';
+
+  return h;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// EVENTOS E AÇÕES
+// ─────────────────────────────────────────────────────────────────────
+function capBindEvents() {
+  ['capCli', 'capTel', 'capFalecido'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function() {
+      if (id === 'capCli')      CAP.cliente   = this.value;
+      if (id === 'capTel')      CAP.tel       = this.value;
+      if (id === 'capFalecido') CAP.falecido  = this.value;
+    });
+  });
+}
+
+function capSetTab(t) {
+  CAP.tab = t;
+  buildCapelas();
+}
+
+function capAvPedra(key) {
+  CAP.avulso.pedraKey = key;
+  buildCapelas();
+}
+
+function capCapPedra(key) {
+  CAP.capela.pedraKey = key;
+  buildCapelas();
+}
+
+function capAvToggle(k, v) {
+  CAP.avulso.itens[k].on = v;
+  capUpdateCalc();
+}
+
+function capAvPreco(k, tipo, v) {
+  CAP.avulso.itens[k][tipo] = parseFloat(v) || 0;
+  capUpdateCalc();
+}
+
+function capAvQty(k, v) {
+  CAP.avulso.itens[k].qty = parseInt(v, 10) || 1;
+  capUpdateCalc();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ATUALIZAR CÁLCULO (sem rebuild completo)
+// ─────────────────────────────────────────────────────────────────────
+function capUpdateCalc() {
+  var r = CAP.tab === 'avulso' ? capCalcAvulso() : capCalcCapela();
+
+  var rowsEl  = document.getElementById('capCalcRows');
+  var totEl   = document.getElementById('capTotais');
+  if (!rowsEl || !totEl) return;
+
+  rowsEl.innerHTML = r.itens_html || '<div style="color:var(--t3);font-size:.82rem;padding:6px 0;">Selecione pelo menos um item acima.</div>';
+
+  var desc_html = '';
+  if (r.desc_vlr > 0) {
+    desc_html = '<div class="cap-calc-row" style="color:#e07;">'
+      + '<span>Desconto (' + (CAP.tab === 'avulso' ? CAP.avulso.desconto : CAP.capela.desconto) + '%)</span>'
+      + '<span class="cap-calc-v">− R$ ' + fm(r.desc_vlr) + '</span>'
+      + '</div>';
+  }
+
+  totEl.innerHTML = desc_html
+    + '<div class="cap-total-row">'
+    + '<span>TOTAL AO CLIENTE</span>'
+    + '<span class="cap-total-v">R$ ' + fm(r.final) + '</span>'
+    + '</div>'
+    + '<div style="font-size:.74rem;color:var(--t3);margin-top:4px;">'
+    + 'Margem: ' + r.margem + '% · Custo base: R$ ' + fm(r.total_custo)
+    + '</div>';
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// GERAR ORÇAMENTO (texto para compartilhar ou imprimir)
+// ─────────────────────────────────────────────────────────────────────
+function capGerarOrcamento() {
+  if (!CAP.cliente.trim()) {
+    toast('⚠️ Informe o nome do cliente antes de gerar.');
+    return;
+  }
+
+  var r = CAP.tab === 'avulso' ? capCalcAvulso() : capCalcCapela();
+  var tipo_label = CAP.tab === 'avulso' ? 'Itens Avulsos de Túmulo' : 'Orçamento de Capela Completa';
+  var data = new Date().toLocaleDateString('pt-BR');
+
+  // Monta texto legível para WhatsApp / impressão
+  var linhas = [
+    '*HR MÁRMORES E GRANITOS*',
+    'Pilão Arcado · (74) 99148-4460',
+    '──────────────────────',
+    '*' + tipo_label + '*',
+    'Data: ' + data,
+    'Cliente: ' + CAP.cliente,
+  ];
+  if (CAP.tel)       linhas.push('Tel: ' + CAP.tel);
+  if (CAP.falecido)  linhas.push('Falecido: ' + CAP.falecido);
+  linhas.push('──────────────────────');
+
+  // Itens
+  if (CAP.tab === 'avulso') {
+    var a = CAP.avulso;
+    Object.keys(a.itens).forEach(function(k) {
+      var it = a.itens[k];
+      if (!it.on) return;
+      var qty = parseInt(it.qty, 10) || 1;
+      linhas.push('• ' + it.label + (qty > 1 ? ' ×' + qty : '') + '  →  R$ ' + fm(it.venda * qty));
+    });
+    if (r.desc_vlr > 0) linhas.push('Desconto (' + a.desconto + '%):  − R$ ' + fm(r.desc_vlr));
+  } else {
+    var c = CAP.capela;
+    linhas.push('Pedra: ' + capPedraLabel(c.pedraKey));
+    linhas.push('Dimensões: ' + c.larg + 'm × ' + c.prof + 'm × ' + c.alt + 'm');
+    linhas.push('');
+    // itens textuais (extraídos do html de forma simples)
+    var tmp = document.createElement('div');
+    tmp.innerHTML = r.itens_html;
+    tmp.querySelectorAll('.cap-calc-row').forEach(function(row) {
+      linhas.push('• ' + row.textContent.trim().replace(/\s+/g, '  '));
+    });
+    if (r.desc_vlr > 0) linhas.push('Desconto (' + c.desconto + '%):  − R$ ' + fm(r.desc_vlr));
+  }
+
+  linhas.push('──────────────────────');
+  linhas.push('*TOTAL: R$ ' + fm(r.final) + '*');
+  linhas.push('');
+  linhas.push('Condições de pagamento a combinar.');
+  linhas.push('Validade: 15 dias.');
+
+  var texto = linhas.join('\n');
+
+  // Abrir modal de compartilhamento
+  capShowModal(texto, r.final);
+}
+
+function capShowModal(texto, total) {
+  var el = document.getElementById('capModal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'capModal';
+    el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;align-items:flex-end;padding:12px;box-sizing:border-box;';
+    document.body.appendChild(el);
+  }
+
+  el.innerHTML = '<div style="background:var(--bg2,#1a1a1a);border:1px solid var(--bd,#333);border-radius:16px 16px 12px 12px;width:100%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;">'
+    + '<div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--bd,#333);">'
+    + '<span style="font-weight:700;color:var(--gold,#C9A84C);">📄 Orçamento — R$ ' + fm(total) + '</span>'
+    + '<button onclick="document.getElementById(\'capModal\').remove()" style="background:none;border:none;color:var(--t3);font-size:1.2rem;cursor:pointer;">✕</button>'
+    + '</div>'
+    + '<textarea id="capOrcTxt" readonly style="flex:1;background:var(--bg3,#111);color:var(--t1,#eee);border:none;padding:12px;font-size:.82rem;font-family:monospace;resize:none;outline:none;">' + texto + '</textarea>'
+    + '<div style="padding:10px;display:flex;gap:8px;">'
+    + '<button onclick="capCopyOrc()" style="flex:1;background:var(--gold,#C9A84C);color:#000;border:none;border-radius:10px;padding:12px;font-weight:700;font-size:.95rem;cursor:pointer;">📋 Copiar</button>'
+    + '<button onclick="capWhatsapp()" style="flex:1;background:#25d366;color:#000;border:none;border-radius:10px;padding:12px;font-weight:700;font-size:.95rem;cursor:pointer;">💬 WhatsApp</button>'
+    + '</div>'
+    + '</div>';
+
+  el.style.display = 'flex';
+}
+
+function capCopyOrc() {
+  var el = document.getElementById('capOrcTxt');
+  if (!el) return;
+  try {
+    navigator.clipboard.writeText(el.value).then(function() { toast('✓ Copiado!'); });
+  } catch(e) {
+    el.select();
+    document.execCommand('copy');
+    toast('✓ Copiado!');
+  }
+}
+
+function capWhatsapp() {
+  var el = document.getElementById('capOrcTxt');
+  if (!el) return;
+  var tel = CAP.tel.replace(/\D/g,'');
+  var url = 'https://wa.me/' + (tel ? '55' + tel : '') + '?text=' + encodeURIComponent(el.value);
+  window.open(url, '_blank');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// UTILITÁRIO: escapar HTML
+// ─────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+
+
+</script>
+
 
 </body>
 </html>
