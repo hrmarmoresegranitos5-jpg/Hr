@@ -1458,6 +1458,7 @@ function getDims() {
   var Ab_cm = +(document.getElementById('mAb').value)    || 8;
   var Hc_cm = +(document.getElementById('mHcomp') ? document.getElementById('mHcomp').value : 45) || 45;
   var Hl_cm = +(document.getElementById('mHlaje') ? document.getElementById('mHlaje').value : 8)  || 8;
+  var AberLarg_cm = +(document.getElementById('mAberLarg') ? document.getElementById('mAberLarg').value : 0) || 0;
   var LapW_cm = +(document.getElementById('mLapW') ? document.getElementById('mLapW').value : 80) || 80;
   var LapH_cm = +(document.getElementById('mLapH') ? document.getElementById('mLapH').value : 60) || 60;
   var disp=(document.getElementById('mDisp')?document.getElementById('mDisp').value:'vertical')||'vertical';
@@ -1478,7 +1479,9 @@ function getDims() {
     // valores originais em cm para exibição
     AvRod:AR,CUtil:CU/100,LUtil:LU/100,
     C_cm:C_cm,L_cm:L_cm,Ae_cm:Ae_cm,Ab_cm:Ab_cm,Hc_cm:Hc_cm,Hl_cm:Hl_cm,LapW_cm:LapW_cm,LapH_cm:LapH_cm,
-    CUtil_cm:CU,LUtil_cm:LU
+    CUtil_cm:CU,LUtil_cm:LU,
+    AberLarg_cm: AberLarg_cm,  // largura da abertura frontal (0 = auto: LC - 2×E)
+    AberLarg: AberLarg_cm / 100
   };
 }
 
@@ -1604,7 +1607,9 @@ function calcularFull() {
       // Abertura real = externo − 2×espessura da pedra
       var _E=d.E/100,_olC=(SEL.tampas.overlapFrontalC||5)/100,_olH=(SEL.tampas.overlapFrontalH||5)/100;
       // Tampa frontal: abertura está na FRENTE do túmulo → usa LC (largura) não CC (comprimento)
-      var C_aber_front=Math.max(LC-2*_E,0.05),H_aber_front=Math.max(d.Hcomp,0.30);
+      // Largura da abertura: usa valor manual (mAberLarg) se informado, senão calcula LC - 2×espessura
+      var C_aber_front = d.AberLarg > 0 ? d.AberLarg : Math.max(LC-2*_E,0.05);
+      var H_aber_front=Math.max(d.Hcomp,0.30);
       // Tampa = abertura + overlap de cada lado (passa _olC cm pra cada lado)
       var Wc=(C_aber_front+2*_olC)/nC,Hc=H_aber_front+2*_olH;
       for(var i=0;i<nT;i++){pecasCalc.push({nm:nT===1?'Tampa Frontal':'Tampa Frontal '+(i+1)+'/'+nT,dim:Math.round(Wc*100)+'×'+Math.round(Hc*100)+'cm esp.'+(SEL.tampas.espTampa||3)+'cm',m2:Wc*Hc,ml:2*(Wc+Hc),prML:acT.prML});m2_bruto+=Wc*Hc;}
@@ -2381,6 +2386,18 @@ function _TI_injectDynamicUI(){
                document.querySelector('[id*="tampaPos"]') ||
                document.getElementById('tampasPosicao');
     if (_tbx) {
+      // Campo: largura manual da abertura frontal
+      var _falb = document.createElement('div');
+      _falb.id = 'frontalAberLargBox';
+      _falb.style.cssText = 'display:none;margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:10px;border:1px solid var(--bd)';
+      _falb.innerHTML = '<div style="font-size:.65rem;font-weight:700;color:var(--gold2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">📏 Largura da abertura frontal</div>'
+        + '<div style="font-size:.68rem;color:var(--t4);margin-bottom:8px">Deixe 0 para calcular automaticamente (Largura − 2×espessura)</div>'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<input type="number" id="mAberLarg" min="0" max="200" step="1" value="0" oninput="_TI_calcular()" style="width:80px;padding:5px 8px;border-radius:8px;border:1px solid var(--bd2);background:var(--bg4);color:var(--tx);font-size:.85rem;font-family:inherit">'
+        + '<span style="font-size:.7rem;color:var(--t4)">cm (0 = auto)</span>'
+        + '</div>';
+      _tbx.after(_falb);
+
       var _fob = document.createElement('div');
       _fob.id = 'frontalOverlapBox';
       _fob.style.cssText = 'display:none;margin-top:10px;padding:10px 12px;background:var(--bg3);border-radius:10px;border:1px solid var(--bd)';
@@ -2393,23 +2410,27 @@ function _TI_injectDynamicUI(){
         + '<div style="display:flex;align-items:center;gap:6px"><input type="number" id="tOverlapH" min="0" max="20" step="1" value="'+(SEL.tampas.overlapFrontalH||5)+'" oninput="SEL.tampas.overlapFrontalH=+this.value||5;_TI_calcular()" style="width:70px;padding:5px 8px;border-radius:8px;border:1px solid var(--bd2);background:var(--bg4);color:var(--tx);font-size:.85rem;font-family:inherit"><span style="font-size:.7rem;color:var(--t4)">cm</span></div></div>'
         + '</div>'
         + '<div id="frontalOverlapPreview" style="margin-top:8px;font-size:.7rem;color:var(--gold2)"></div>';
-      _tbx.after(_fob);
+      _falb.after(_fob);
     }
   }
   // Show/hide frontal overlap box based on position
   var _fob2 = document.getElementById('frontalOverlapBox');
+  var _falb2 = document.getElementById('frontalAberLargBox');
   if (_fob2) {
     var _isF = (SEL.tampas.posicao||'superior') === 'frontal';
     _fob2.style.display = _isF ? 'block' : 'none';
+    if (_falb2) _falb2.style.display = _isF ? 'block' : 'none';
     if (_isF) {
       var _d=getDims(),_E2=_d.E/100;
       var _olC2=(SEL.tampas.overlapFrontalC||5)/100,_olH2=(SEL.tampas.overlapFrontalH||5)/100;
       // Tampa frontal: abertura na FRENTE → usa largura (_d.L), não comprimento (_d.C)
       var _LC2=(_d.AvRod>0?_d.LUtil:_d.L)||0;
-      var _wa=_LC2-2*_E2,_ha=(_d.Hcomp||0.45);
+      // Largura da abertura: usa valor manual se informado, senão calcula LC - 2×espessura
+      var _wa = _d.AberLarg > 0 ? _d.AberLarg : Math.max(_LC2-2*_E2, 0.05);
+      var _ha=(_d.Hcomp||0.45);
       var _wt=_wa+2*_olC2,_ht=_ha+2*_olH2;
       var _pr=document.getElementById('frontalOverlapPreview');
-      if(_pr) _pr.textContent='Abertura: '+Math.round(_wa*100)+'×'+Math.round(_ha*100)+' cm  →  Tampa: '+Math.round(_wt*100)+'×'+Math.round(_ht*100)+' cm';
+      if(_pr) _pr.textContent='Abertura: '+Math.round(_wa*100)+'×'+Math.round(_ha*100)+' cm'+(_d.AberLarg>0?' (manual)':' (auto)')+' → Tampa: '+Math.round(_wt*100)+'×'+Math.round(_ht*100)+' cm';
     }
   }
 
@@ -2811,7 +2832,7 @@ function gerarPrintArea(o,r){
     var pos=SEL.tampas.posicao||'superior';
     if(pos==='frontal'){
       var _nC3=SEL.tampas.colunas||1,_E3=d.E/100,_olC3=(SEL.tampas.overlapFrontalC||5)/100,_olH3=(SEL.tampas.overlapFrontalH||5)/100;
-      var _aberW3=Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
+      var _aberW3=d.AberLarg>0?d.AberLarg:Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
       var _tW3=(_aberW3+2*_olC3)/_nC3,_tH3=_aberH3+2*_olH3;
       ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
     }
@@ -4479,7 +4500,7 @@ function _tumInlineSaveAmb() {
   amb.tumSEL = JSON.parse(JSON.stringify(SEL));
   // Salvar campos do formulário
   var ids = ['iCli','iTel','iCemiterio','iCidade','iQuadra','iLote','iObs',
-             'mC','mL','mE','mGav','mAe','mAb','mHcomp','mHlaje','mLapW','mLapH','mDisp','mAlturaFinal'];
+             'mC','mL','mE','mGav','mAe','mAb','mHcomp','mHlaje','mLapW','mLapH','mDisp','mAlturaFinal','mAberLarg'];
   var flds = {};
   ids.forEach(function(id) {
     var el = document.getElementById(id);

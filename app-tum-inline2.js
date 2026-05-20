@@ -353,7 +353,7 @@ function gerarPrintArea(o,r){
     var pos=SEL.tampas.posicao||'superior';
     if(pos==='frontal'){
       var _nC3=SEL.tampas.colunas||1,_E3=d.E/100,_olC3=(SEL.tampas.overlapFrontalC||5)/100,_olH3=(SEL.tampas.overlapFrontalH||5)/100;
-      var _aberW3=Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
+      var _aberW3=d.AberLarg>0?d.AberLarg:Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
       var _tW3=(_aberW3+2*_olC3)/_nC3,_tH3=_aberH3+2*_olH3;
       ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
     }
