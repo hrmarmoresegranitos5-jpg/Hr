@@ -1603,7 +1603,8 @@ function calcularFull() {
       var nC=SEL.tampas.colunas||1,nL=SEL.tampas.linhas||1,nT=nC*nL;
       // Abertura real = externo − 2×espessura da pedra
       var _E=d.E/100,_olC=(SEL.tampas.overlapFrontalC||5)/100,_olH=(SEL.tampas.overlapFrontalH||5)/100;
-      var C_aber_front=Math.max(CC-2*_E,0.05),H_aber_front=Math.max(d.Hcomp,0.30);
+      // Tampa frontal: abertura está na FRENTE do túmulo → usa LC (largura) não CC (comprimento)
+      var C_aber_front=Math.max(LC-2*_E,0.05),H_aber_front=Math.max(d.Hcomp,0.30);
       // Tampa = abertura + overlap de cada lado (passa _olC cm pra cada lado)
       var Wc=(C_aber_front+2*_olC)/nC,Hc=H_aber_front+2*_olH;
       for(var i=0;i<nT;i++){pecasCalc.push({nm:nT===1?'Tampa Frontal':'Tampa Frontal '+(i+1)+'/'+nT,dim:Math.round(Wc*100)+'×'+Math.round(Hc*100)+'cm esp.'+(SEL.tampas.espTampa||3)+'cm',m2:Wc*Hc,ml:2*(Wc+Hc),prML:acT.prML});m2_bruto+=Wc*Hc;}
@@ -2403,7 +2404,9 @@ function _TI_injectDynamicUI(){
     if (_isF) {
       var _d=getDims(),_E2=_d.E/100;
       var _olC2=(SEL.tampas.overlapFrontalC||5)/100,_olH2=(SEL.tampas.overlapFrontalH||5)/100;
-      var _wa=(_d.C||0)-2*_E2,_ha=(_d.Hcomp||0.45);
+      // Tampa frontal: abertura na FRENTE → usa largura (_d.L), não comprimento (_d.C)
+      var _LC2=(_d.AvRod>0?_d.LUtil:_d.L)||0;
+      var _wa=_LC2-2*_E2,_ha=(_d.Hcomp||0.45);
       var _wt=_wa+2*_olC2,_ht=_ha+2*_olH2;
       var _pr=document.getElementById('frontalOverlapPreview');
       if(_pr) _pr.textContent='Abertura: '+Math.round(_wa*100)+'×'+Math.round(_ha*100)+' cm  →  Tampa: '+Math.round(_wt*100)+'×'+Math.round(_ht*100)+' cm';
@@ -2806,7 +2809,12 @@ function gerarPrintArea(o,r){
   var ex=[];
   if(SEL.pecas.tampa){
     var pos=SEL.tampas.posicao||'superior';
-    if(pos==='frontal'){ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(CC*100/td.nTotal)+'×'+Math.round(d.Hcomp*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
+    if(pos==='frontal'){
+      var _nC3=SEL.tampas.colunas||1,_E3=d.E/100,_olC3=(SEL.tampas.overlapFrontalC||5)/100,_olH3=(SEL.tampas.overlapFrontalH||5)/100;
+      var _aberW3=Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
+      var _tW3=(_aberW3+2*_olC3)/_nC3,_tH3=_aberH3+2*_olH3;
+      ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
+    }
     else{ex.push({i:'🪨',l:'Tampas Superiores ('+td.nTotal+'×)',v:Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
   }
   if(SEL.pecas.lapide){var ld=d.LapW_cm+'×'+d.LapH_cm+' cm';if(engCm>0)ld+=' (dupla '+engCm+'cm)';ex.push({i:'📜',l:'Lápide',v:ld});}
