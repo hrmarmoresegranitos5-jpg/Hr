@@ -5070,7 +5070,7 @@ function aiInterpretar(){
       st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key em Config → Empresa.';
       return;
     }
-    var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||data.content&&data.content[0]?data.content[0].text:'';
+    var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
     txt=txt.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
     var parsed;
     try{parsed=JSON.parse(txt);}

@@ -10,8 +10,8 @@ function testarAPIKey(){
   if(el)el.textContent='⏳ Testando...';
   fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:10,messages:[{role:'user',content:'oi'}]})
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:5,messages:[{role:'user',content:'oi'}]})
   }).then(function(r){return r.json();}).then(function(d){
     if(el)el.textContent=d.error?'❌ '+d.error.message:'✅ Conectado!';
   }).catch(function(){if(el)el.textContent='❌ Sem conexão';});

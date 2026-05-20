@@ -347,9 +347,6 @@ function _renderSecretariaInner(el) {
   // ── PAINEL WHATSAPP BOT ──
   h += _renderBotPanel();
 
-  // Inicia poll de status
-  botStartPoll();
-
   // ── HERO ──
   h += '<div class="sec-hero">';
   h += '<div class="sec-saud">' + saudacao + '! 👋</div>';
@@ -450,6 +447,8 @@ function _renderSecretariaInner(el) {
 
   h += '<div style="height:20px;"></div>';
   el.innerHTML = h;
+  // Inicia poll de status APÓS o DOM estar pronto
+  botStartPoll();
 } // end _renderSecretariaInner
 
 // ─────────────────────────────────────────────
