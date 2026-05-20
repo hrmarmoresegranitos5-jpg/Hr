@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════════════
 // HR Mármores e Granitos — Servidor + Bot WhatsApp (Baileys)
-// Versão 3.0 — Profissional
+// Versão 4.0 — Integrado com App Secretária
 // ══════════════════════════════════════════════════════════════════════
 
 import http                   from 'http';
@@ -20,12 +20,13 @@ import qrcode from 'qrcode';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger    = pino({ level: 'silent' });
 
-// ── Configuração ────────────────────────────────────────────────────
+// ── Configuração ─────────────────────────────────────────────────────
 const CFG = {
   DONO:     (process.env.DONO_NUMERO || '74991484460').replace(/\D/g, ''),
   EMPRESA:  process.env.EMPRESA      || 'HR Mármores e Granitos',
   PORT:     process.env.PORT         || 3000,
   AUTH_DIR: './baileys_auth',
+  TESTES:   ['5574988356878', '5574991484460'], // números de teste
 };
 
 // ── MIME types ───────────────────────────────────────────────────────
@@ -52,14 +53,15 @@ const bot = {
   tentativas: 0,
   sock:       null,
   iniciando:  false,
+  status:     'disconnected', // 'disconnected' | 'connecting' | 'connected'
 };
 
 // ══════════════════════════════════════════════════════════════════════
-// LÓGICA DE ATENDIMENTO
+// LÓGICA DE ATENDIMENTO — MÁQUINA DE ESTADOS
 // ══════════════════════════════════════════════════════════════════════
 
-const sessoes         = {};
-const TIMEOUT_SESSAO  = 2 * 60 * 60 * 1000;
+const sessoes        = {};
+const TIMEOUT_SESSAO = 2 * 60 * 60 * 1000; // 2 horas
 
 const PROJETOS = [
   'Cozinha', 'Banheiro', 'Lavabo', 'Varanda/Churrasqueira',
@@ -96,14 +98,14 @@ function extrairNome(msg) {
 
 function idProjeto(msg) {
   const mapa = {
-    '1': 'Cozinha',     'cozinha': 'Cozinha',     'pia': 'Cozinha',    'bancada': 'Cozinha',
-    '2': 'Banheiro',    'banheiro': 'Banheiro',
-    '3': 'Lavabo',      'lavabo': 'Lavabo',
-    '4': 'Varanda/Churrasqueira', 'varanda': 'Varanda/Churrasqueira', 'churrasqueira': 'Varanda/Churrasqueira',
-    '5': 'Escada',      'escada': 'Escada',        'degrau': 'Escada',
-    '6': 'Piso',        'piso': 'Piso',
-    '7': 'Túmulo/Jazigo', 'tumulo': 'Túmulo/Jazigo', 'jazigo': 'Túmulo/Jazigo', 'cemiterio': 'Túmulo/Jazigo',
-    '8': 'Outro',       'outro': 'Outro',
+    '1':'Cozinha',     'cozinha':'Cozinha',     'pia':'Cozinha',    'bancada':'Cozinha',
+    '2':'Banheiro',    'banheiro':'Banheiro',
+    '3':'Lavabo',      'lavabo':'Lavabo',
+    '4':'Varanda/Churrasqueira', 'varanda':'Varanda/Churrasqueira', 'churrasqueira':'Varanda/Churrasqueira',
+    '5':'Escada',      'escada':'Escada',        'degrau':'Escada',
+    '6':'Piso',        'piso':'Piso',
+    '7':'Túmulo/Jazigo','tumulo':'Túmulo/Jazigo','jazigo':'Túmulo/Jazigo','cemiterio':'Túmulo/Jazigo',
+    '8':'Outro',       'outro':'Outro',
   };
   for (const [k, v] of Object.entries(mapa)) {
     if (msg.includes(k)) return v;
@@ -117,7 +119,7 @@ let enviarMsg = async (jid, texto) => {
 
 async function processarMsg(numero, texto) {
   if (!numero || !texto) return;
-  const msg  = normaliza(texto);
+  const msg = normaliza(texto);
   if (!msg) return;
 
   const agora = Date.now();
@@ -128,7 +130,7 @@ async function processarMsg(numero, texto) {
   }
   s.ts = agora;
 
-  const OI = ['oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'opa', 'ei', 'menu', 'inicio', 'orcamento', 'orcamento'];
+  const OI = ['oi', 'ola', 'bom dia', 'boa tarde', 'boa noite', 'opa', 'ei', 'menu', 'inicio', 'orcamento'];
   if (s.e === E.FIM && OI.some(p => msg === p || msg.startsWith(p + ' '))) {
     s = { e: E.INICIO, d: {}, ts: agora };
   }
@@ -261,9 +263,7 @@ function paginaQR() {
       background:#0a0a0a;color:#eee;display:flex;align-items:center;
       justify-content:center;min-height:100vh;padding:20px}
     .card{background:#141414;border:1px solid #222;border-radius:24px;
-      padding:40px 32px;max-width:420px;width:100%;text-align:center;
-      box-shadow:0 20px 60px rgba(0,0,0,.5)}
-    .icon{font-size:56px;margin-bottom:16px}
+      padding:40px 32px;max-width:420px;width:100%;text-align:center}
     h1{font-size:22px;font-weight:700;margin-bottom:8px}
     p{color:#888;font-size:14px;line-height:1.7;margin:8px 0}
     .badge{display:inline-block;padding:6px 16px;border-radius:99px;
@@ -274,8 +274,7 @@ function paginaQR() {
     img{border-radius:16px;background:#fff;padding:14px;
       max-width:260px;width:100%;margin:20px auto;display:block}
     .steps{text-align:left;background:#1a1a1a;border-radius:14px;
-      padding:18px;margin:16px 0;font-size:13px;line-height:2.2;
-      border:1px solid #222}
+      padding:18px;margin:16px 0;font-size:13px;line-height:2.2;border:1px solid #222}
     .steps strong{color:#C9A84C}
     a{color:#C9A84C;text-decoration:none;font-size:14px}
     .footer{margin-top:24px;padding-top:20px;border-top:1px solid #1f1f1f}
@@ -290,7 +289,7 @@ function paginaQR() {
 <meta http-equiv="refresh" content="30">
 <title>Bot Conectado — HR Mármores</title>
 <style>${css}</style></head><body><div class="card">
-<div class="icon">✅</div>
+<div style="font-size:56px;margin-bottom:16px">✅</div>
 <h1>Bot Conectado!</h1>
 <span class="badge green">● ONLINE</span>
 ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
@@ -305,7 +304,7 @@ ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
 <meta http-equiv="refresh" content="20">
 <title>Conectar WhatsApp — HR Mármores</title>
 <style>${css}</style></head><body><div class="card">
-<div class="icon">📱</div>
+<div style="font-size:56px;margin-bottom:16px">📱</div>
 <h1>Conectar WhatsApp</h1>
 <span class="badge yellow">● AGUARDANDO LEITURA</span>
 <img src="${bot.qrDataUrl}" alt="QR Code">
@@ -316,7 +315,7 @@ ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
 3. Toque em <strong>Conectar aparelho</strong><br>
 4. Aponte a câmera para o QR Code
 </div>
-<p>🔄 Página atualiza a cada 20s — QR expira em ~60s</p>
+<p>🔄 Atualiza a cada 20s — QR expira em ~60s</p>
 <div class="footer"><a href="/">← Voltar ao app</a></div>
 </div></body></html>`;
   }
@@ -334,12 +333,13 @@ ${bot.numero ? `<div class="num">📱 +${bot.numero}</div>` : ''}
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// BAILEYS
+// BAILEYS — Conexão WhatsApp
 // ══════════════════════════════════════════════════════════════════════
 
 async function iniciarBaileys() {
   if (bot.iniciando) return;
-  bot.iniciando = true;
+  bot.iniciando  = true;
+  bot.status     = 'connecting';
 
   try {
     if (!fs.existsSync(CFG.AUTH_DIR)) {
@@ -374,28 +374,34 @@ async function iniciarBaileys() {
 
     sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
       if (qr) {
-        bot.qrDataUrl = await qrcode.toDataURL(qr, { scale: 8 });
-        bot.conectado = false;
-        bot.iniciando = false;
+        bot.qrDataUrl  = await qrcode.toDataURL(qr, { scale: 8 });
+        bot.conectado  = false;
+        bot.status     = 'connecting';
+        bot.iniciando  = false;
         console.log('[BOT] QR Code gerado — acesse /qr');
       }
       if (connection === 'open') {
         bot.conectado  = true;
         bot.qrDataUrl  = null;
+        bot.status     = 'connected';
         bot.tentativas = 0;
         bot.iniciando  = false;
         bot.numero     = sock.user?.id?.split(':')[0] || CFG.DONO;
         console.log(`✅ WhatsApp CONECTADO! Número: ${bot.numero}`);
       }
       if (connection === 'close') {
-        bot.conectado = false;
-        bot.sock      = null;
-        bot.iniciando = false;
-        const code     = lastDisconnect?.error?.output?.statusCode;
+        bot.conectado  = false;
+        bot.sock       = null;
+        bot.status     = 'disconnected';
+        bot.iniciando  = false;
+        const code      = lastDisconnect?.error?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         console.log(`[BOT] Conexão encerrada. Código: ${code}`);
         if (loggedOut) {
-          try { fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true }); fs.mkdirSync(CFG.AUTH_DIR, { recursive: true }); } catch (_) {}
+          try {
+            fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true });
+            fs.mkdirSync(CFG.AUTH_DIR, { recursive: true });
+          } catch (_) {}
           setTimeout(iniciarBaileys, 3000);
         } else {
           bot.tentativas++;
@@ -410,16 +416,21 @@ async function iniciarBaileys() {
       if (type !== 'notify') return;
       for (const m of messages) {
         try {
-          if (!m.message)                              continue;
-          if (m.key.fromMe)                            continue;
-          if (isJidBroadcast(m.key.remoteJid || ''))   continue;
-          if (m.key.remoteJid?.endsWith('@g.us'))      continue;
-          const numero = m.key.remoteJid?.replace('@s.whatsapp.net', '') || '';
-          const texto  =
+          if (!m.message)                             continue;
+          if (isJidBroadcast(m.key.remoteJid || '')) continue;
+          if (m.key.remoteJid?.endsWith('@g.us'))     continue;
+
+          const numero  = m.key.remoteJid?.replace('@s.whatsapp.net', '') || '';
+          const ehTeste = CFG.TESTES.some(t => t === numero || t === '55' + numero);
+
+          if (m.key.fromMe && !ehTeste) continue;
+
+          const texto =
             m.message?.conversation ||
             m.message?.extendedTextMessage?.text ||
             m.message?.imageMessage?.caption ||
             m.message?.videoMessage?.caption || '';
+
           if (!numero || !texto) continue;
           console.log(`[MSG] De ${numero}: ${texto.slice(0, 60)}`);
           await processarMsg(numero, texto);
@@ -436,6 +447,7 @@ async function iniciarBaileys() {
 
   } catch (err) {
     bot.iniciando = false;
+    bot.status    = 'disconnected';
     console.error('[BOT] Erro ao iniciar:', err.message);
     bot.tentativas++;
     setTimeout(iniciarBaileys, Math.min(10000 * bot.tentativas, 60000));
@@ -443,26 +455,137 @@ async function iniciarBaileys() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// HELPERS HTTP
+// ══════════════════════════════════════════════════════════════════════
+
+function jsonRes(res, data, status = 200) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  });
+  res.end(JSON.stringify(data));
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body || '{}')); }
+      catch (_) { resolve({}); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // SERVIDOR HTTP
 // ══════════════════════════════════════════════════════════════════════
 
-const server = http.createServer((req, res) => {
-  const url = req.url?.split('?')[0] || '/';
+const server = http.createServer(async (req, res) => {
+  const url    = req.url?.split('?')[0] || '/';
+  const method = req.method?.toUpperCase();
 
+  // ── CORS preflight ──
+  if (method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  // ── /qr — Painel visual de conexão ──
   if (url === '/qr') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
     res.end(paginaQR());
     return;
   }
 
+  // ── /health — Status geral ──
   if (url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, bot: bot.conectado, numero: bot.numero, sessoes: Object.keys(sessoes).length, ts: new Date().toISOString() }));
-    return;
+    return jsonRes(res, {
+      ok:        true,
+      bot:       bot.conectado,
+      numero:    bot.numero,
+      sessoes:   Object.keys(sessoes).length,
+      tentativas: bot.tentativas,
+      ts:        new Date().toISOString(),
+    });
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // ROTAS DE INTEGRAÇÃO COM O PAINEL SECRETÁRIA DO APP
+  // ══════════════════════════════════════════════════════════════════
+
+  // GET /bot/status — Status do bot (usado pelo painel secretária)
+  if (url === '/bot/status' && method === 'GET') {
+    return jsonRes(res, {
+      status: bot.status,
+      phone:  bot.numero,
+      code:   null, // não usamos código de pareamento nessa versão
+    });
+  }
+
+  // POST /bot/start — Inicia o bot (chamado pelo painel secretária)
+  if (url === '/bot/start' && method === 'POST') {
+    if (!bot.conectado && !bot.iniciando) {
+      iniciarBaileys();
+    }
+    return jsonRes(res, {
+      ok:     true,
+      status: bot.status,
+      msg:    bot.conectado
+        ? 'Bot já conectado! Acesse /qr para confirmar.'
+        : 'Iniciando bot... Acesse /qr para escanear o QR Code.',
+    });
+  }
+
+  // POST /bot/disconnect — Desconecta o bot
+  if (url === '/bot/disconnect' && method === 'POST') {
+    const body = await readBody(req);
+    if (bot.sock) {
+      try { await bot.sock.logout(); } catch (_) {}
+      bot.sock      = null;
+      bot.conectado = false;
+      bot.status    = 'disconnected';
+    }
+    if (body.limparSessao) {
+      try { fs.rmSync(CFG.AUTH_DIR, { recursive: true, force: true }); } catch (_) {}
+    }
+    return jsonRes(res, { ok: true });
+  }
+
+  // POST /bot/send — Envia mensagem
+  if (url === '/bot/send' && method === 'POST') {
+    const body = await readBody(req);
+    if (!bot.conectado) return jsonRes(res, { error: 'Bot desconectado' }, 400);
+    try {
+      const jid = body.to?.replace(/\D/g, '') + '@s.whatsapp.net';
+      await enviarMsg(jid, body.message || '');
+      return jsonRes(res, { ok: true });
+    } catch (err) {
+      return jsonRes(res, { error: err.message }, 500);
+    }
+  }
+
+  // GET /bot/messages — Últimas mensagens recebidas
+  if (url === '/bot/messages' && method === 'GET') {
+    return jsonRes(res, { messages: [] });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ARQUIVOS ESTÁTICOS
+  // ══════════════════════════════════════════════════════════════════
+
   let filePath = path.join(__dirname, url === '/' ? 'index.html' : url);
-  if (!filePath.startsWith(__dirname)) { res.writeHead(403); res.end('Forbidden'); return; }
+  if (!filePath.startsWith(__dirname)) {
+    res.writeHead(403); res.end('Forbidden'); return;
+  }
 
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -479,12 +602,14 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// ── Inicia servidor e bot ────────────────────────────────────────────
 server.listen(CFG.PORT, '0.0.0.0', () => {
   console.log('\n╔══════════════════════════════════════╗');
-  console.log('║  HR Mármores e Granitos — Bot v3.0  ║');
+  console.log('║  HR Mármores e Granitos — Bot v4.0  ║');
   console.log('╚══════════════════════════════════════╝');
   console.log(`📡 Porta:   ${CFG.PORT}`);
   console.log(`📱 Dono:    ${CFG.DONO}`);
+  console.log(`🧪 Testes:  ${CFG.TESTES.join(', ')}`);
   console.log(`🔗 QR:      SEU-APP.onrender.com/qr\n`);
   iniciarBaileys();
 });
