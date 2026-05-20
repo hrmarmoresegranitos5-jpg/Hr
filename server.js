@@ -275,7 +275,7 @@ function paginaQR() {
 
 async function iniciarBaileys() {
   try {
-    const AUTH_DIR = '/tmp/baileys_auth';
+    const AUTH_DIR = './baileys_auth';
     if (!fs.existsSync(AUTH_DIR)) fs.mkdirSync(AUTH_DIR, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
