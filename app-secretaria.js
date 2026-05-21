@@ -626,7 +626,7 @@ function secNotifDotUpdate() {
 
 // ══════════════════════════════════════════════════════════════
 // SECRETÁRIA INTELIGENTE — FASE 1 + 2
-// Cérebro de Contexto + IA Conselheira (Anthropic Claude API)
+// Cérebro de Contexto + IA Conselheira (Groq)
 // ══════════════════════════════════════════════════════════════
 
 // ── Estado global da IA ──
@@ -741,25 +741,24 @@ function secFetchAI() {
   var controller = window.AbortController ? new AbortController() : null;
   var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 20000) : null;
 
-  fetch('https://api.anthropic.com/v1/messages', {
+  fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     signal: controller ? controller.signal : undefined,
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
+      'Authorization': 'Bearer ' + key
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'llama-3.3-70b-versatile',
       max_tokens: 800,
-      system: 'Responda APENAS em JSON válido, sem markdown, sem texto fora do JSON.',
-      messages: [{ role: 'user', content: briefing }]
+      messages: [
+        { role: 'system', content: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.' },
+        { role: 'user', content: briefing }
+      ]
     })
   })
   .then(function(r) {
     if (timeoutId) clearTimeout(timeoutId);
-    // Trata erros HTTP antes de tentar parsear JSON
     if (!r.ok) {
       return r.json().then(function(errBody) {
         var msg = (errBody.error && errBody.error.message) || ('HTTP ' + r.status);
@@ -772,7 +771,7 @@ function secFetchAI() {
   })
   .then(function(d) {
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    var text = (d.content||[]).map(function(i){return i.text||'';}).join('');
+    var text = (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
     var clean = text.replace(/```json[\s\S]*?```|```/g, '').trim();
     // Extrai apenas o objeto JSON se houver texto em volta
     var match = clean.match(/\{[\s\S]*\}/);
@@ -885,8 +884,8 @@ function _secRenderTabs(container) {
 
     if (_secAI.error) {
       var errMsgs = {
-        'no_key': '🔑 Chave API não configurada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Configure nas Configurações da empresa</a>.',
-        'auth': '🔑 Chave API inválida ou expirada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Verifique nas Configurações</a>.',
+        'no_key': '🔑 Chave Groq não configurada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Configure nas Configurações da empresa</a>.',
+        'auth': '🔑 Chave Groq inválida ou expirada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Verifique nas Configurações</a>.',
         'rate': '⏳ Limite de requisições atingido. Aguarde alguns segundos e tente novamente.',
         'timeout': '⌛ A IA demorou demais para responder. Tente novamente.',
         'parse': '⚠️ Resposta da IA em formato inesperado. Tente novamente.',

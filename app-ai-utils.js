@@ -8,29 +8,14 @@ function testarAPIKey(){
   var el=document.getElementById('apiTestResult');
   if(!key){if(el)el.textContent='⚠️ Nenhuma chave configurada';return;}
   if(el)el.textContent='⏳ Testando...';
-  fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'x-api-key':key,
-      'anthropic-version':'2023-06-01',
-      'anthropic-dangerous-direct-browser-access':'true'
-    },
-    body:JSON.stringify({
-      model:'claude-haiku-4-5-20251001',
-      max_tokens:5,
-      messages:[{role:'user',content:'oi'}]
-    })
+  fetch('https://api.groq.com/openai/v1/models',{
+    method:'GET',
+    headers:{'Authorization':'Bearer '+key}
   }).then(function(r){return r.json();}).then(function(d){
-    if(d.error){
-      var msg=d.error.message||JSON.stringify(d.error);
-      if(el)el.textContent='❌ '+msg;
-    } else if(d.content){
-      if(el)el.textContent='✅ Chave válida! Claude conectado.';
-    } else {
-      if(el)el.textContent='❌ Resposta inesperada da API';
-    }
-  }).catch(function(e){if(el)el.textContent='❌ Sem conexão: '+e.message;});
+    if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
+    else if(d.data){if(el)el.textContent='✅ Groq conectado! IA pronta.';}
+    else{if(el)el.textContent='❌ Resposta inesperada';}
+  }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
 }
 
 function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}

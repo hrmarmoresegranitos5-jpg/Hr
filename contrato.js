@@ -585,21 +585,21 @@ function aiInterpretar(){
     +'Deslocamento: desl_for (inclua km como un)\n\n'
     +'Regras: w e h em cm; sainha/frontão sempre com ml e altCm (padrão 6cm); retorne SÓ o JSON.';
 
-  fetch('https://api.openai.com/v1/chat/completions',{
+  fetch('https://api.groq.com/openai/v1/chat/completions',{
     method:'POST',
     headers:{
       'Content-Type':'application/json',
       'Authorization':'Bearer '+((CFG.emp&&CFG.emp.apiKey)||'')
     },
     body:JSON.stringify({
-      model:'gpt-4o',
+      model:'llama-3.1-8b-instant',
       max_tokens:1500,
-      messages:[{role:'user',content:prompt}]
+      messages:[{role:'system',content:'Responda SOMENTE com JSON válido, sem markdown.'},{role:'user',content:prompt}]
     })
   })
   .then(function(r){return r.json();})
   .then(function(data){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     if(data.error){
       // API key not configured — try local parse fallback
       st.className='ai-status err';
@@ -621,7 +621,7 @@ function aiInterpretar(){
     st.textContent='✓ Projeto interpretado! Revise e aplique.';
   })
   .catch(function(){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     // Try local rule-based fallback
     aiFallbackLocal(desc,st);
   });
@@ -806,11 +806,7 @@ function testarAPIKey(){
   var el=document.getElementById('apiTestResult');
   if(!key){if(el)el.textContent='⚠️ Nenhuma chave configurada';return;}
   if(el)el.textContent='⏳ Testando...';
-  fetch('https://api.openai.com/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:10,messages:[{role:'user',content:'oi'}]})
-  }).then(function(r){return r.json();}).then(function(d){
+  fetch('https://api.groq.com/openai/v1/models',{method:'GET',headers:{'Authorization':'Bearer '+key}}).then(function(r){return r.json();}).then(function(d){
     if(el)el.textContent=d.error?'❌ '+d.error.message:'✅ Conectado!';
   }).catch(function(){if(el)el.textContent='❌ Sem conexão';});
 }
