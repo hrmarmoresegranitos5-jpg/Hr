@@ -830,6 +830,14 @@ var DEF_TUM_SV={
   tum_gav1:85,tum_gav2:85,tum_gav3:85,tum_mol:110,tum_ping:80,tum_bisel:90,
   tum_lapide:480,tum_plaq:220,tum_foto:170,tum_cruz:340,
   tum_pol:160,tum_rec:50,tum_mont:380,tum_montc:580,
+  // capelinha — acabamentos ml
+  cap_fundo:85,cap_base:85,cap_teto:85,cap_lat:85,cap_front:85,cap_degrau:85,cap_pilar_ch:85,
+  cap_mold:110,cap_ping:80,cap_bisel:90,cap_roda:75,
+  // capelinha — lápide/adornos
+  cap_lapide:480,cap_plaq:220,cap_foto:170,
+  cap_cruz_gr:340,cap_cruz_mr:280,cap_vaso:380,cap_pol:160,
+  // capelinha — mão de obra
+  cap_mont:420,cap_montc:620,cap_recorte:50,
   bp_boleada:110,bp_antiderap:120,bp_pingad:90,bp_mcana:100,bp_chanfro:95,
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
   div_recorte:80,div_inst:120
