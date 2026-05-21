@@ -4074,8 +4074,8 @@ function buildCfg(){
 
     // IA
     h+='<div class="cfgsec"><div class="cfghd">🤖 Inteligência Artificial</div>';
-    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">A API Key permite usar IA para interpretar projetos. Obtenha em <span style="color:#10a37f;">platform.openai.com</span> → API Keys. Gratuito para quem tem ChatGPT Pro.</div>';
-    h+='<div class="cfg-row"><span class="cfg-lbl">API Key OpenAI (ChatGPT)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="sk-proj-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
+    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave Groq gratuita para interpretar projetos com IA. Obtenha em <span style="color:#C9A84C;">console.groq.com</span> → API Keys.</div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">API Key Groq (Gratuita)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
     h+='<div style="padding:9px 13px;"><button onclick="testarAPIKey()" style="padding:7px 14px;background:var(--gdim);border:1px solid var(--gold3);border-radius:8px;color:var(--gold2);font-family:Outfit,sans-serif;font-size:.75rem;cursor:pointer;">Testar conexão</button><span id="apiTestResult" style="font-size:.72rem;color:var(--t3);margin-left:10px;"></span></div>';
     h+='</div>';
 
@@ -5413,25 +5413,27 @@ function aiInterpretar(){
     +'Deslocamento: desl_for (inclua km como un)\n\n'
     +'Regras: w e h em cm; sainha/frontão sempre com ml e altCm (padrão 6cm); retorne SÓ o JSON.';
 
-  fetch('https://api.openai.com/v1/chat/completions',{
+  fetch('https://api.groq.com/openai/v1/chat/completions',{
     method:'POST',
     headers:{
       'Content-Type':'application/json',
       'Authorization':'Bearer '+((CFG.emp&&CFG.emp.apiKey)||'')
     },
     body:JSON.stringify({
-      model:'gpt-4o',
+      model:'llama-3.1-8b-instant',
       max_tokens:1500,
-      messages:[{role:'user',content:prompt}]
+      messages:[
+        {role:'system',content:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.'},
+        {role:'user',content:prompt}
+      ]
     })
   })
   .then(function(r){return r.json();})
   .then(function(data){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     if(data.error){
-      // API key not configured — try local parse fallback
       st.className='ai-status err';
-      st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key em Config → Empresa.';
+      st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key Groq em Config → Empresa.';
       return;
     }
     var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
@@ -5449,7 +5451,7 @@ function aiInterpretar(){
     st.textContent='✓ Projeto interpretado! Revise e aplique.';
   })
   .catch(function(){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     // Try local rule-based fallback
     aiFallbackLocal(desc,st);
   });
@@ -5634,13 +5636,14 @@ function testarAPIKey(){
   var el=document.getElementById('apiTestResult');
   if(!key){if(el)el.textContent='⚠️ Nenhuma chave configurada';return;}
   if(el)el.textContent='⏳ Testando...';
-  fetch('https://api.openai.com/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:5,messages:[{role:'user',content:'oi'}]})
+  fetch('https://api.groq.com/openai/v1/models',{
+    method:'GET',
+    headers:{'Authorization':'Bearer '+key}
   }).then(function(r){return r.json();}).then(function(d){
-    if(el)el.textContent=d.error?'❌ '+d.error.message:'✅ Conectado!';
-  }).catch(function(){if(el)el.textContent='❌ Sem conexão';});
+    if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
+    else if(d.data){if(el)el.textContent='✅ Groq conectado! IA pronta.';}
+    else{if(el)el.textContent='❌ Resposta inesperada';}
+  }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
 }
 
 function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}

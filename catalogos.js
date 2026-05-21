@@ -668,8 +668,8 @@ function buildCfg(){
 
     // IA
     h+='<div class="cfgsec"><div class="cfghd">🤖 Inteligência Artificial</div>';
-    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">A API Key permite usar IA para interpretar projetos. Obtenha em <span style="color:#10a37f;">platform.openai.com</span> → API Keys. Gratuito para quem tem ChatGPT Pro.</div>';
-    h+='<div class="cfg-row"><span class="cfg-lbl">API Key OpenAI (ChatGPT)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="sk-proj-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
+    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave Groq gratuita para interpretar projetos com IA. Obtenha em <span style="color:#C9A84C;">console.groq.com</span> → API Keys.</div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">API Key Groq (Gratuita)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
     h+='<div style="padding:9px 13px;"><button onclick="testarAPIKey()" style="padding:7px 14px;background:var(--gdim);border:1px solid var(--gold3);border-radius:8px;color:var(--gold2);font-family:Outfit,sans-serif;font-size:.75rem;cursor:pointer;">Testar conexão</button><span id="apiTestResult" style="font-size:.72rem;color:var(--t3);margin-left:10px;"></span></div>';
     h+='</div>';
 

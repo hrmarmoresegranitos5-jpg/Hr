@@ -397,28 +397,30 @@ function aiInterpretar(){
     +'Deslocamento: desl_for (inclua km como un)\n\n'
     +'Regras: w e h em cm; sainha/frontão sempre com ml e altCm (padrão 6cm); retorne SÓ o JSON.';
 
-  fetch('https://api.openai.com/v1/chat/completions',{
+  fetch('https://api.groq.com/openai/v1/chat/completions',{
     method:'POST',
     headers:{
       'Content-Type':'application/json',
       'Authorization':'Bearer '+((CFG.emp&&CFG.emp.apiKey)||'')
     },
     body:JSON.stringify({
-      model:'gpt-4o',
+      model:'llama-3.1-8b-instant',
       max_tokens:1500,
-      messages:[{role:'user',content:prompt}]
+      messages:[
+        {role:'system',content:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.'},
+        {role:'user',content:prompt}
+      ]
     })
   })
   .then(function(r){return r.json();})
   .then(function(data){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     if(data.error){
-      // API key not configured — try local parse fallback
       st.className='ai-status err';
-      st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key em Config → Empresa.';
+      st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key Groq em Config → Empresa.';
       return;
     }
-    var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||data.content&&data.content[0]?data.content[0].text:'';
+    var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
     txt=txt.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
     var parsed;
     try{parsed=JSON.parse(txt);}
@@ -433,7 +435,7 @@ function aiInterpretar(){
     st.textContent='✓ Projeto interpretado! Revise e aplique.';
   })
   .catch(function(){
-    btn.disabled=false;btn.textContent='✨ Interpretar com ChatGPT';
+    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     // Try local rule-based fallback
     aiFallbackLocal(desc,st);
   });
