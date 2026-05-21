@@ -311,6 +311,8 @@ function renderSecretaria() {
   if (!el) return;
   try {
     _renderSecretariaInner(el);
+    // Renderiza painel IA após DOM pronto
+    setTimeout(function() { _secRenderAI(); }, 0);
   } catch(err) {
     el.innerHTML = '<div style="padding:30px 18px;color:var(--t3);font-size:.78rem;">'
       + '⚠️ Erro ao carregar secretária.<br><small>'+escH(String(err))+'</small></div>';
@@ -344,6 +346,9 @@ function _renderSecretariaInner(el) {
 
   var h = '';
 
+  // ── PAINEL WHATSAPP BOT ──
+  h += _renderBotPanel();
+
   // ── HERO ──
   h += '<div class="sec-hero">';
   h += '<div class="sec-saud">' + saudacao + '! 👋</div>';
@@ -364,6 +369,11 @@ function _renderSecretariaInner(el) {
   h += _secChip(visitasHoje.length,'📐', 'visita'+(visitasHoje.length!==1?'s':'')+ ' hoje', '#60c8ff', 'rgba(96,200,255,.1)');
   h += _secChip(totPend > 0 ? 'R$ '+_fmShort(totPend) : '0','💰', 'a receber', '#6abf6a', 'rgba(100,200,100,.1)');
   h += _secChip(atrasados.length, '⚠️', 'atrasado'+(atrasados.length!==1?'s':''), 'var(--red)', 'rgba(201,68,68,.12)');
+  h += '</div>';
+
+  // ── SECRETÁRIA IA ──
+  h += '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 16px;margin-bottom:14px;" id="secAIContainer">';
+  h += '<div style="color:rgba(255,255,255,.35);font-size:12px;text-align:center;padding:10px 0;">⟳ Carregando IA...</div>';
   h += '</div>';
 
   // ── BOTÃO NOVA VISITA ──
@@ -444,6 +454,8 @@ function _renderSecretariaInner(el) {
 
   h += '<div style="height:20px;"></div>';
   el.innerHTML = h;
+  // Inicia poll de status APÓS o DOM estar pronto
+  botStartPoll();
 } // end _renderSecretariaInner
 
 // ─────────────────────────────────────────────
@@ -611,3 +623,361 @@ function secNotifDotUpdate() {
   var pendVenc = (DB.t||[]).filter(function(t){return t.type==='pend'&&t.date&&t.date<hoje;}).length;
   dot.classList.toggle('on', atrasados>0||visitasHoje>0||pendVenc>0);
 }
+
+// ══════════════════════════════════════════════════════════════
+// SECRETÁRIA INTELIGENTE — FASE 1 + 2
+// Cérebro de Contexto + IA Conselheira (Anthropic Claude API)
+// ══════════════════════════════════════════════════════════════
+
+// ── Estado global da IA ──
+var _secAI = {
+  data: null,
+  loading: false,
+  lastUpdate: null,
+  error: null
+};
+
+// ── Cérebro de Contexto: compila dados reais do DB ──
+function _secBuildCtx() {
+  var hoje = td();
+  var agora = new Date();
+  var hh = agora.getHours();
+  var equipe = (CFG && CFG.emp && CFG.emp.equipe) ? +CFG.emp.equipe : 3;
+  var capacidade = equipe * 3;
+
+  var atrasados   = (DB.j||[]).filter(function(j){return !j.done && j.end && dDiff(j.end) < 0;});
+  var urgentes    = (DB.j||[]).filter(function(j){return !j.done && j.urgente;});
+  var emProd      = (DB.j||[]).filter(function(j){return !j.done;});
+  var entrega3d   = (DB.j||[]).filter(function(j){return !j.done && j.end && dDiff(j.end) >= 0 && dDiff(j.end) <= 3;});
+
+  var pendentes   = (DB.t||[]).filter(function(t){return t.type === 'pend';});
+  var pendVenc    = pendentes.filter(function(t){return t.date && t.date < hoje;});
+  var pendSem     = pendentes.filter(function(t){return t.date && dDiff(t.date) >= 0 && dDiff(t.date) <= 7;});
+  var saidas30    = (DB.t||[]).filter(function(t){return t.type === 'out' && t.date && dDiff(t.date) >= 0 && dDiff(t.date) <= 30;});
+
+  var totPend     = pendentes.reduce(function(s,t){return s + (t.value||0);}, 0);
+  var totPendVenc = pendVenc.reduce(function(s,t){return s + (t.value||0);}, 0);
+  var totSemana   = pendSem.reduce(function(s,t){return s + (t.value||0);}, 0);
+  var totSaidas   = saidas30.reduce(function(s,t){return s + (t.value||0);}, 0);
+
+  var pressura    = Math.min(100, Math.round((emProd.length / capacidade) * 100));
+  var podeAceit   = Math.max(0, capacidade - emProd.length);
+
+  var cutoff      = addD(hoje, -5);
+  var cutoff2     = addD(hoje, -30);
+  var followUps   = (DB.q||[]).filter(function(q){
+    if (!q.date || q.date > cutoff || q.date < cutoff2) return false;
+    return !(DB.t||[]).some(function(t){
+      return t.desc && t.desc.indexOf(q.cli||'') >= 0 && t.type === 'in' && t.date >= q.date;
+    });
+  });
+
+  var visitasHoje = (_getV()).filter(function(v){return v.status === 'agendada' && v.date === hoje;});
+  var nome = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'chefe';
+  var saudacao = hh < 12 ? 'Bom dia' : hh < 18 ? 'Boa tarde' : 'Boa noite';
+
+  return {
+    hoje: hoje, hh: hh, nome: nome, saudacao: saudacao,
+    equipe: equipe, capacidade: capacidade, pressura: pressura, podeAceit: podeAceit,
+    atrasados: atrasados, urgentes: urgentes, emProd: emProd, entrega3d: entrega3d,
+    pendentes: pendentes, pendVenc: pendVenc, pendSem: pendSem,
+    totPend: totPend, totPendVenc: totPendVenc, totSemana: totSemana, totSaidas: totSaidas,
+    saldo: totPend - totSaidas,
+    followUps: followUps, visitasHoje: visitasHoje
+  };
+}
+
+// ── Monta o briefing para a IA ──
+function _secBuildBriefing(ctx) {
+  var linhasServicos = (ctx.emProd||[]).map(function(j) {
+    var diff = dDiff(j.end);
+    var status = diff < 0 ? 'ATRASADO ' + Math.abs(diff) + 'd' : 'em ' + diff + 'd';
+    return '• ' + j.cli + ' — ' + j.desc + ' | Prazo: ' + j.end + ' (' + status + ') | R$ ' + fm(j.value||0) + (j.urgente ? ' | ⚠️ URGENTE: ' + (j.urgMotivo||'urgente') : '');
+  }).join('\n') || 'Nenhum serviço em produção';
+
+  var linhasFollowUp = (ctx.followUps||[]).map(function(q) {
+    return '• ' + q.cli + ' — R$ ' + fm(q.vista||0) + ' | orçado em ' + fd(q.date) + (q.tel ? ' | Tel: ' + q.tel : '');
+  }).join('\n') || 'Nenhum';
+
+  var linhasVisitas = (ctx.visitasHoje||[]).map(function(v) {
+    return '• ' + v.cli + ' às ' + (v.hora||'?') + ' — ' + (v.end||'');
+  }).join('\n') || 'Nenhuma';
+
+  return 'Você é a Secretária Inteligente da HR Mármores, uma marmoraria.\n'
+    + 'Analise os dados e gere um briefing DIRETO e PRÁTICO. Use nomes e valores reais.\n\n'
+    + 'DADOS DE HOJE (' + ctx.hoje + '):\n'
+    + '- Equipe: ' + ctx.equipe + ' pessoas | Capacidade: ' + ctx.capacidade + ' serviços\n'
+    + '- Pressão de produção: ' + ctx.pressura + '% (' + ctx.emProd.length + ' ativos de ' + ctx.capacidade + ')\n'
+    + '- Pode aceitar: ' + ctx.podeAceit + ' serviços novos\n\n'
+    + 'SERVIÇOS EM PRODUÇÃO (' + ctx.emProd.length + '):\n' + linhasServicos + '\n\n'
+    + 'FINANÇAS:\n'
+    + '- Total a receber: R$ ' + fm(ctx.totPend) + '\n'
+    + '- Vencido/atrasado: R$ ' + fm(ctx.totPendVenc) + '\n'
+    + '- A receber em 7 dias: R$ ' + fm(ctx.totSemana) + '\n'
+    + '- Compromissos 30 dias: R$ ' + fm(ctx.totSaidas) + '\n'
+    + '- Saldo projetado: R$ ' + fm(ctx.saldo) + ' ' + (ctx.saldo >= 0 ? '(positivo)' : '(NEGATIVO)') + '\n\n'
+    + 'ORÇAMENTOS SEM RETORNO (' + ctx.followUps.length + '):\n' + linhasFollowUp + '\n\n'
+    + 'VISITAS HOJE: ' + ctx.visitasHoje.length + '\n' + linhasVisitas + '\n\n'
+    + 'Responda APENAS em JSON válido, sem markdown:\n'
+    + '{"fazerAgora":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + '"ondeApertar":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + '"oportunidade":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + '"alertaRitmo":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + '"conselhoFinanceiro":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + '"humorGeral":"otimo|bom|atencao|critico"}';
+}
+
+// ── Chama API do Claude ──
+function secFetchAI() {
+  var key = CFG && CFG.emp && CFG.emp.apiKey;
+  if (!key) {
+    _secAI.error = 'Configure a chave API nas configurações da empresa.';
+    _secRenderAI();
+    return;
+  }
+
+  _secAI.loading = true;
+  _secAI.error = null;
+  _secRenderAI();
+
+  var ctx = _secBuildCtx();
+  var briefing = _secBuildBriefing(ctx);
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      system: 'Você é a Secretária Inteligente da HR Mármores. Responda APENAS em JSON válido, sem markdown, sem texto fora do JSON.',
+      messages: [{ role: 'user', content: briefing }]
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var text = (d.content||[]).map(function(i){return i.text||'';}).join('');
+    var clean = text.replace(/```json|```/g, '').trim();
+    _secAI.data = JSON.parse(clean);
+    _secAI.loading = false;
+    _secAI.lastUpdate = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    _secAI.error = null;
+    _secRenderAI();
+    toast('✨ Briefing da IA atualizado!');
+  })
+  .catch(function(e) {
+    _secAI.loading = false;
+    _secAI.error = 'Erro ao conectar à IA. Verifique a chave API.';
+    _secRenderAI();
+    console.error('secFetchAI:', e);
+  });
+}
+
+// ── Humor → cor ──
+function _secHumorColor(humor) {
+  var map = {otimo:'#4ade80', bom:'#60a5fa', atencao:'#fb923c', critico:'#f87171'};
+  return map[humor] || '#60a5fa';
+}
+
+// ── Gauge de pressão SVG ──
+function _secGaugeSVG(val) {
+  var color = val < 60 ? '#4ade80' : val < 80 ? '#fb923c' : '#f87171';
+  var r = 32, circ = 2 * Math.PI * r;
+  var dash = (val / 100) * circ;
+  return '<svg width="80" height="80" viewBox="0 0 80 80">'
+    + '<circle cx="40" cy="40" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="7"/>'
+    + '<circle cx="40" cy="40" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="7"'
+    + ' stroke-dasharray="' + dash.toFixed(1) + ' ' + circ.toFixed(1) + '"'
+    + ' stroke-linecap="round" transform="rotate(-90 40 40)"/>'
+    + '<text x="40" y="45" text-anchor="middle" fill="' + color + '" style="font:bold 15px \'Courier New\',monospace;">' + val + '%</text>'
+    + '</svg>';
+}
+
+// ── Cards da IA ──
+function _secAICards(data) {
+  if (!data) return '';
+  var cards = [
+    {icon:'🎯', key:'fazerAgora',        color:'#60a5fa', label:'Fazer agora'},
+    {icon:'🔧', key:'ondeApertar',        color:'#fb923c', label:'Onde apertar'},
+    {icon:'💡', key:'oportunidade',       color:'#a78bfa', label:'Oportunidade'},
+    {icon:'📊', key:'alertaRitmo',        color:'#34d399', label:'Ritmo'},
+    {icon:'💰', key:'conselhoFinanceiro', color:'#fbbf24', label:'Financeiro'},
+  ];
+  var h = '';
+  cards.forEach(function(c) {
+    var d = data[c.key];
+    if (!d) return;
+    h += '<div style="border-left:3px solid ' + c.color + ';background:' + c.color + '0a;border-radius:0 10px 10px 0;padding:12px 14px;margin-bottom:8px;">'
+      + '<div style="display:flex;align-items:center;gap:7px;margin-bottom:5px;">'
+      + '<span style="font-size:16px;">' + c.icon + '</span>'
+      + '<span style="color:' + c.color + ';font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">' + escH(d.titulo||c.label) + '</span>'
+      + '</div>'
+      + '<div style="color:rgba(255,255,255,.75);font-size:13px;line-height:1.5;">' + escH(d.detalhe||'') + '</div>'
+      + '</div>';
+  });
+  return h;
+}
+
+// ── Tab segurada ──
+var _secActiveTab = 'briefing';
+
+function secTab(tab) {
+  _secActiveTab = tab;
+  var container = document.getElementById('secAIContainer');
+  if (container) _secRenderTabs(container);
+}
+
+// ── Render das tabs ──
+function _secRenderTabs(container) {
+  var ctx = _secBuildCtx();
+  var tabs = [
+    {id:'briefing', label:'Briefing IA'},
+    {id:'contexto', label:'Contexto'},
+    {id:'followups', label:'Follow-ups (' + ctx.followUps.length + ')'}
+  ];
+
+  var h = '';
+
+  // Tab buttons
+  h += '<div style="display:flex;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:14px;">';
+  tabs.forEach(function(t) {
+    var on = _secActiveTab === t.id;
+    h += '<button onclick="secTab(\'' + t.id + '\')" style="flex:1;background:none;border:none;border-bottom:2px solid ' + (on?'#60a5fa':'transparent') + ';padding:9px 4px;font-size:11px;font-weight:' + (on?'700':'500') + ';color:' + (on?'#fff':'rgba(255,255,255,.35)') + ';cursor:pointer;font-family:inherit;transition:all .2s;">' + t.label + '</button>';
+  });
+  h += '</div>';
+
+  // ── TAB: BRIEFING ──
+  if (_secActiveTab === 'briefing') {
+    // Botão gerar / atualizar
+    var btnTxt = _secAI.loading ? '⟳ Analisando...' : (_secAI.lastUpdate ? '↺ ' + _secAI.lastUpdate : '✨ Gerar briefing');
+    h += '<button onclick="secFetchAI()" ' + (_secAI.loading?'disabled':'') + ' style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px;color:rgba(255,255,255,.7);font-size:12px;font-family:inherit;cursor:pointer;margin-bottom:12px;">' + btnTxt + '</button>';
+
+    if (_secAI.error) {
+      h += '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:12px 14px;color:#f87171;font-size:12px;margin-bottom:10px;">⚠️ ' + escH(_secAI.error) + '</div>';
+    }
+
+    if (_secAI.loading && !_secAI.data) {
+      // Skeleton
+      h += '<div style="display:flex;flex-direction:column;gap:10px;">';
+      [1,.7,.85,.6,.9].forEach(function(w) {
+        h += '<div style="height:50px;border-radius:8px;background:rgba(255,255,255,.04);width:' + Math.round(w*100) + '%;animation:secPulse 1.5s ease-in-out infinite;"></div>';
+      });
+      h += '</div>';
+    } else if (_secAI.data) {
+      var hum = _secAI.data.humorGeral;
+      var humColor = _secHumorColor(hum);
+      var humLabel = {otimo:'Ótimo dia!',bom:'Dia tranquilo',atencao:'Atenção necessária',critico:'Situação crítica'}[hum] || '';
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+        + '<div style="width:8px;height:8px;border-radius:50%;background:' + humColor + ';box-shadow:0 0 8px ' + humColor + ';"></div>'
+        + '<span style="color:' + humColor + ';font-size:12px;font-weight:700;">' + humLabel + '</span>'
+        + '</div>';
+      h += _secAICards(_secAI.data);
+    } else {
+      h += '<div style="text-align:center;padding:30px 20px;color:rgba(255,255,255,.3);font-size:13px;">Toque em "Gerar briefing" para o conselho do dia ✨</div>';
+    }
+  }
+
+  // ── TAB: CONTEXTO ──
+  if (_secActiveTab === 'contexto') {
+    var pressura = ctx.pressura;
+    var pressColor = pressura < 60 ? '#4ade80' : pressura < 80 ? '#fb923c' : '#f87171';
+
+    // Gauge + chips
+    h += '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;">';
+    h += '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">' + _secGaugeSVG(pressura) + '<div style="color:rgba(255,255,255,.4);font-size:10px;letter-spacing:1px;text-transform:uppercase;">pressão</div></div>';
+    h += '<div style="flex:1;display:flex;flex-direction:column;gap:8px;">';
+    h += '<div style="display:flex;gap:8px;">';
+    h += '<div style="flex:1;background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.15);border-radius:10px;padding:10px 12px;">';
+    h += '<div style="font-size:18px;">🔨</div><div style="color:#fb923c;font-size:15px;font-weight:700;line-height:1;">' + ctx.emProd.length + '</div><div style="color:rgba(255,255,255,.4);font-size:10px;text-transform:uppercase;">em produção</div></div>';
+    h += '<div style="flex:1;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.15);border-radius:10px;padding:10px 12px;">';
+    h += '<div style="font-size:18px;">✅</div><div style="color:#4ade80;font-size:15px;font-weight:700;line-height:1;">+' + ctx.podeAceit + '</div><div style="color:rgba(255,255,255,.4);font-size:10px;text-transform:uppercase;">pode aceitar</div></div>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;">';
+    h += '<div style="flex:1;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.15);border-radius:10px;padding:10px 12px;">';
+    h += '<div style="font-size:18px;">⚠️</div><div style="color:#f87171;font-size:15px;font-weight:700;line-height:1;">' + ctx.atrasados.length + '</div><div style="color:rgba(255,255,255,.4);font-size:10px;text-transform:uppercase;">atrasados</div></div>';
+    h += '<div style="flex:1;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.15);border-radius:10px;padding:10px 12px;">';
+    h += '<div style="font-size:18px;">📐</div><div style="color:#60a5fa;font-size:15px;font-weight:700;line-height:1;">' + ctx.visitasHoje.length + '</div><div style="color:rgba(255,255,255,.4);font-size:10px;text-transform:uppercase;">visitas hoje</div></div>';
+    h += '</div></div></div>';
+
+    // Radar Financeiro
+    var maxF = Math.max(ctx.totPend, ctx.totSaidas, 1);
+    h += '<div style="background:rgba(255,255,255,.04);border-radius:10px;padding:14px 16px;margin-bottom:12px;">';
+    h += '<div style="color:rgba(255,255,255,.4);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;">💵 Radar Financeiro</div>';
+    [
+      {label:'A receber', val:ctx.totPend, color:'#4ade80'},
+      {label:'Compromissos', val:ctx.totSaidas, color:'#f87171'}
+    ].forEach(function(item) {
+      h += '<div style="margin-bottom:8px;">';
+      h += '<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="color:rgba(255,255,255,.5);font-size:11px;">' + item.label + '</span><span style="color:' + item.color + ';font-size:11px;font-weight:700;font-family:\'Courier New\',monospace;">R$ ' + fm(item.val) + '</span></div>';
+      h += '<div style="height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;"><div style="height:100%;background:' + item.color + ';border-radius:2px;width:' + Math.round((item.val/maxF)*100) + '%;"></div></div>';
+      h += '</div>';
+    });
+    var saldoColor = ctx.saldo >= 0 ? '#4ade80' : '#f87171';
+    h += '<div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);">';
+    h += '<span style="color:rgba(255,255,255,.5);font-size:11px;">Saldo projetado</span>';
+    h += '<span style="color:' + saldoColor + ';font-size:13px;font-weight:700;font-family:\'Courier New\',monospace;">' + (ctx.saldo>=0?'+':'') + 'R$ ' + fm(ctx.saldo) + '</span>';
+    h += '</div></div>';
+
+    // Entregas críticas
+    if (ctx.entrega3d.length) {
+      h += '<div style="background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);border-radius:10px;padding:12px 14px;">';
+      h += '<div style="color:rgba(255,255,255,.4);font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">⚡ Entregas em 3 dias</div>';
+      ctx.entrega3d.forEach(function(j) {
+        var diff = dDiff(j.end);
+        var dlbl = diff === 0 ? 'HOJE' : diff === 1 ? 'AMANHÃ' : 'em ' + diff + 'd';
+        var dc = diff === 0 ? '#f87171' : diff === 1 ? '#fb923c' : '#fbbf24';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+        h += '<div><div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.85);">' + escH(j.cli) + '</div><div style="font-size:11px;color:rgba(255,255,255,.35);">' + escH(j.desc) + '</div></div>';
+        h += '<div style="background:rgba(248,113,113,.1);color:' + dc + ';border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;font-family:\'Courier New\',monospace;">' + dlbl + '</div>';
+        h += '</div>';
+      });
+      h += '</div>';
+    }
+  }
+
+  // ── TAB: FOLLOW-UPS ──
+  if (_secActiveTab === 'followups') {
+    if (!ctx.followUps.length) {
+      h += '<div style="text-align:center;padding:30px 20px;color:rgba(255,255,255,.3);font-size:13px;">✅ Nenhum orçamento pendente de retorno!</div>';
+    } else {
+      h += '<div style="color:rgba(255,255,255,.4);font-size:12px;margin-bottom:10px;">' + ctx.followUps.length + ' orçamento(s) sem retorno há mais de 5 dias</div>';
+      ctx.followUps.forEach(function(q) {
+        var dias = Math.abs(dDiff(q.date));
+        var waNum = q.tel ? q.tel.replace(/\D/g,'') : '';
+        h += '<div style="background:rgba(96,165,250,.05);border:1px solid rgba(96,165,250,.15);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">';
+        h += '<div><div style="color:rgba(255,255,255,.85);font-size:13px;font-weight:600;">' + escH(q.cli) + '</div>';
+        h += '<div style="color:rgba(255,255,255,.4);font-size:11px;margin-top:2px;">R$ ' + fm(q.vista||0) + ' · há ' + dias + ' dias sem retorno</div></div>';
+        if (waNum) {
+          h += '<a href="https://wa.me/55' + waNum + '" target="_blank" style="background:#25D366;color:#fff;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap;">📱 WhatsApp</a>';
+        }
+        h += '</div>';
+      });
+      h += '<div style="background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.12);border-radius:10px;padding:12px 14px;margin-top:6px;">';
+      h += '<div style="font-size:12px;color:rgba(255,255,255,.5);line-height:1.5;">💡 Melhor horário para follow-up: 9h–11h ou 15h–17h.</div>';
+      h += '</div>';
+    }
+  }
+
+  container.innerHTML = h;
+}
+
+// ── Render do painel IA na secretária ──
+function _secRenderAI() {
+  var container = document.getElementById('secAIContainer');
+  if (!container) return;
+  _secRenderTabs(container);
+}
+
+// ── CSS da animação pulse ──
+(function() {
+  if (document.getElementById('secAIStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'secAIStyle';
+  s.textContent = '@keyframes secPulse{0%,100%{opacity:.3}50%{opacity:.7}}';
+  document.head.appendChild(s);
+})();
+
