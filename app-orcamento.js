@@ -846,25 +846,42 @@ function renderAmbientes(){
     h+='</div>';
     h+=buildMatCarouselHtml(amb);
     h+='</div>';
-    // Pecas
-    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
-    h+='<div class="amb-pecas">';
-    amb.pecas.forEach(function(pc,pi){
-      var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
-      h+='<div class="peca">';
-      h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
-      h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="Ex: Bancada" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
-      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="300" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value)"></div>';
-      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
-      h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
+    // Pecas — para Capela, as peças são geradas pelo configurador (oculto aqui)
+    if(amb.tipo !== '⛪ Capela'){
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
+      h+='<div class="amb-pecas">';
+      amb.pecas.forEach(function(pc,pi){
+        var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
+        h+='<div class="peca">';
+        h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
+        h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="Ex: Bancada" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
+        h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="300" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value)"></div>';
+        h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
+        h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
+        h+='</div>';
+      });
       h+='</div>';
-    });
-    h+='</div>';
-    h+='<div class="row" style="gap:7px;margin-bottom:10px;">';
-    h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
-    h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
-    h+='</div>';
-    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
+      h+='<div class="row" style="gap:7px;margin-bottom:10px;">';
+      h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
+      h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
+      h+='</div>';
+    } else {
+      // Chapel: show read-only piece list after configurator applies them
+      if(amb.pecas && amb.pecas.some(function(p){return p.w&&p.h;})){
+        h+='<div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.12);border-radius:10px;padding:10px 12px;margin:8px 0 10px;">';
+        h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">✦ Peças aplicadas</div>';
+        amb.pecas.forEach(function(pc){
+          if(!pc.w||!pc.h)return;
+          var m2=(pc.w/100)*(pc.h/100)*(pc.q||1);
+          h+='<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+          h+='<span style="font-size:.7rem;color:var(--t2);">'+escH(pc.desc||'Peça')+(pc.q>1?' ×'+pc.q:'')+'</span>';
+          h+='<span style="font-size:.68rem;color:var(--gold2);font-weight:600;">'+m2.toFixed(3)+' m²</span>';
+          h+='</div>';
+        });
+        h+='</div>';
+      }
+    }
+    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços'+(amb.tipo==='⛪ Capela'?' adicionais':'')+'</div>';
     h+='<div id="svAuto-'+amb.id+'">';
     h+=buildSVHtml(amb);
     h+='</div>';
@@ -953,6 +970,8 @@ function buildSVHtml(amb){
     // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
     var isSfAutoGrp = grp.its.length>0 && grp.its[0].u==='sf_auto';
     if(isSfAutoGrp){
+      // Para Capela: estrutura já é exibida no configurador acima — não duplica
+      if(amb.tipo==='⛪ Capela') return;
       var hasPecas = (amb.pecas||[]).some(function(p){return p.w&&p.h;});
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
       if(!hasPecas){
