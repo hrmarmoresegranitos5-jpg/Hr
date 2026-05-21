@@ -280,9 +280,6 @@ function _renderSecretariaInner(el) {
 
   var h = '';
 
-  // ── BOT PANEL ──
-  h += _renderBotPanel();
-
   // ── HERO ──
   h += '<div class="sec2-hero">';
   h += '<div class="sec2-hero-inner">';
@@ -380,7 +377,6 @@ function _renderSecretariaInner(el) {
 
   h += '<div style="height:24px;"></div>';
   el.innerHTML = h;
-  botStartPoll();
 }
 
 // ─────────────────────────────────────────────
