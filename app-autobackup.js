@@ -3,37 +3,40 @@
 // • Salva snapshot no localStorage a cada 30 minutos
 // • Mantém os últimos 7 snapshots locais (rotação automática)
 // • Dispara download automático uma vez por dia
-// • Mostra indicador discreto na tela
+// • Sincroniza com Supabase (mesma tabela hr_sync, coluna backup)
 // ══════════════════════════════════════════════════════════════
 
 var AUTOBACKUP = {
 
   // ── Configuração ──
-  INTERVALO_MIN:   30,      // salva snapshot a cada X minutos
-  MAX_SNAPSHOTS:   7,       // quantos snapshots locais manter
-  KEY_SNAPSHOTS:  'hr_ab_snaps',   // chave no localStorage
-  KEY_ULTIMO_DL:  'hr_ab_ultimo_dl', // data do último download
-  KEY_ULTIMO_SV:  'hr_ab_ultimo_sv', // timestamp do último snapshot
+  INTERVALO_MIN:   30,
+  MAX_SNAPSHOTS:   7,
+  KEY_SNAPSHOTS:  'hr_ab_snaps',
+  KEY_ULTIMO_DL:  'hr_ab_ultimo_dl',
+  KEY_ULTIMO_SV:  'hr_ab_ultimo_sv',
+
+  // ── Supabase (mesma config do app) ──
+  SUPABASE_URL: 'https://rdqvjohsxiydcdigygvn.supabase.co',
+  SUPABASE_KEY: 'sb_publishable_TxqiXyBNdlePn1d1dFzVug_DjcpKAKp',
+  CHAVE:        'hr_marmores_granitos',
 
   _timer: null,
+  _pushDebounce: null,
 
   // ── Inicializa ──
   init: function() {
     var self = this;
-    // Primeiro snapshot logo na abertura (após 10s para dados carregarem)
     setTimeout(function() { self.salvarSnapshot(); }, 10000);
-    // Intervalo regular
     this._timer = setInterval(function() { self.salvarSnapshot(); }, this.INTERVALO_MIN * 60 * 1000);
-    // Injetar estilos e indicador
     this._injetarEstilos();
     this._renderIndicador();
-    // Verificar se download diário é necessário (após 5s)
     setTimeout(function() { self._verificarDownloadDiario(); }, 5000);
+    // Tenta puxar último backup da nuvem ao abrir
+    setTimeout(function() { self._pullNuvem(); }, 3000);
   },
 
   // ── Coleta todos os dados do app ──
   _coletarDados: function() {
-    // Coleta módulos hrdb_*
     var hrdb = {};
     try {
       for (var i = 0; i < localStorage.length; i++) {
@@ -44,7 +47,6 @@ var AUTOBACKUP = {
       }
     } catch(e) {}
 
-    // Coleta chaves extras hr_*
     var extra = {};
     var ignorar = {hr_q:1,hr_j:1,hr_t:1,hr_b:1,hr_cfg:1,hr_sync_code:1,hr_sync_ts:1,hr_adm:1};
     try {
@@ -69,17 +71,15 @@ var AUTOBACKUP = {
     };
   },
 
-  // ── Salva snapshot no localStorage (rotação de 7) ──
+  // ── Salva snapshot no localStorage ──
   salvarSnapshot: function() {
     try {
       var dados = this._coletarDados();
       var json  = JSON.stringify(dados);
 
-      // Lê lista de snapshots atual
       var lista = [];
       try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
 
-      // Adiciona novo snapshot com timestamp e tamanho
       lista.push({
         ts:   dados._ts,
         data: new Date(dados._ts).toLocaleString('pt-BR'),
@@ -87,7 +87,6 @@ var AUTOBACKUP = {
         json: json
       });
 
-      // Mantém só os últimos MAX_SNAPSHOTS
       if (lista.length > this.MAX_SNAPSHOTS) {
         lista = lista.slice(lista.length - this.MAX_SNAPSHOTS);
       }
@@ -96,23 +95,114 @@ var AUTOBACKUP = {
       localStorage.setItem(this.KEY_ULTIMO_SV, String(dados._ts));
 
       this._atualizarIndicador(dados._ts, lista.length);
+
+      // Envia para nuvem (debounce 5s)
+      this._pushNuvem(dados);
+
     } catch(e) {
       console.warn('[AutoBackup] Erro ao salvar snapshot:', e);
     }
   },
 
-  // ── Verifica e dispara download diário automático ──
+  // ── Push para Supabase ──
+  _pushNuvem: function(dados) {
+    var self = this;
+    clearTimeout(self._pushDebounce);
+    self._pushDebounce = setTimeout(function() {
+      try {
+        var ts  = dados._ts;
+        var url = self.SUPABASE_URL + '/rest/v1/hr_sync';
+        var headers = {
+          'Content-Type': 'application/json',
+          'apikey': self.SUPABASE_KEY,
+          'Authorization': 'Bearer ' + self.SUPABASE_KEY,
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        };
+        // Guardamos o backup na coluna "backup" — não toca na coluna "dados"
+        var body = JSON.stringify({
+          codigo:  self.CHAVE,
+          backup:  JSON.stringify(dados),
+          backup_ts: ts
+        });
+        fetch(url, { method: 'POST', headers: headers, body: body })
+          .then(function(r) {
+            if (!r.ok) throw new Error(r.status);
+            self._mostrarToastBackup('☁️ Backup salvo na nuvem!');
+          })
+          .catch(function() {
+            // Tenta PATCH se POST falhou (registro já existe)
+            fetch(url + '?codigo=eq.' + encodeURIComponent(self.CHAVE),
+              { method: 'PATCH', headers: headers,
+                body: JSON.stringify({ backup: JSON.stringify(dados), backup_ts: ts }) })
+              .then(function(r2) {
+                if (r2.ok) self._mostrarToastBackup('☁️ Backup atualizado na nuvem!');
+              })
+              .catch(function() {});
+          });
+      } catch(e) {
+        console.warn('[AutoBackup] Erro ao enviar para nuvem:', e);
+      }
+    }, 5000);
+  },
+
+  // ── Pull da nuvem ao abrir ──
+  _pullNuvem: function() {
+    var self = this;
+    try {
+      var url = self.SUPABASE_URL + '/rest/v1/hr_sync?codigo=eq.' +
+                encodeURIComponent(self.CHAVE) + '&select=backup,backup_ts';
+      var headers = {
+        'apikey': self.SUPABASE_KEY,
+        'Authorization': 'Bearer ' + self.SUPABASE_KEY
+      };
+      fetch(url, { headers: headers })
+        .then(function(r) { return r.json(); })
+        .then(function(rows) {
+          if (!rows || !rows.length || !rows[0].backup) return;
+          var row = rows[0];
+          var localTs = +localStorage.getItem(self.KEY_ULTIMO_SV) || 0;
+          if (!row.backup_ts || row.backup_ts <= localTs) return;
+
+          // Nuvem tem dado mais recente — adiciona como snapshot
+          try {
+            var dadosNuvem = JSON.parse(row.backup);
+            var lista = [];
+            try { lista = JSON.parse(localStorage.getItem(self.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
+
+            // Só adiciona se ainda não existe este timestamp
+            var existe = lista.some(function(s) { return s.ts === dadosNuvem._ts; });
+            if (!existe) {
+              var json = row.backup;
+              lista.push({
+                ts:       dadosNuvem._ts,
+                data:     new Date(dadosNuvem._ts).toLocaleString('pt-BR') + ' ☁️',
+                kb:       Math.round(json.length / 1024),
+                json:     json,
+                deNuvem:  true
+              });
+              if (lista.length > self.MAX_SNAPSHOTS) {
+                lista = lista.slice(lista.length - self.MAX_SNAPSHOTS);
+              }
+              localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
+              self._atualizarIndicador(dadosNuvem._ts, lista.length);
+              self._mostrarToastBackup('☁️ Backup da nuvem disponível!');
+            }
+          } catch(e) {}
+        })
+        .catch(function() {});
+    } catch(e) {}
+  },
+
+  // ── Verifica download diário ──
   _verificarDownloadDiario: function() {
     try {
       var hoje = new Date().toLocaleDateString('pt-BR');
       var ultimoDl = localStorage.getItem(this.KEY_ULTIMO_DL) || '';
-      if (ultimoDl === hoje) return; // já fez hoje
+      if (ultimoDl === hoje) return;
 
-      // Aguarda o app estar completamente carregado (dados não podem estar vazios)
       var q = (typeof DB !== 'undefined' && DB.q) ? DB.q : [];
       var j = (typeof DB !== 'undefined' && DB.j) ? DB.j : [];
       if (q.length === 0 && j.length === 0) {
-        // App pode ainda estar carregando — tenta de novo em 30s
         var self = this;
         setTimeout(function() { self._verificarDownloadDiario(); }, 30000);
         return;
@@ -125,7 +215,7 @@ var AUTOBACKUP = {
     }
   },
 
-  // ── Dispara o download do arquivo .json ──
+  // ── Dispara o download ──
   _dispararDownload: function() {
     try {
       var dados = this._coletarDados();
@@ -134,7 +224,6 @@ var AUTOBACKUP = {
       var fname = 'HR_AutoBackup_' + dt + '.json';
       var blob  = new Blob([json], { type: 'application/json' });
 
-      // Tenta Web Share API (abre "Salvar em..." no celular)
       if (navigator.share && navigator.canShare) {
         var file = new File([blob], fname, { type: 'application/json' });
         if (navigator.canShare({ files: [file] })) {
@@ -162,7 +251,7 @@ var AUTOBACKUP = {
     } catch(e) {}
   },
 
-  // ── Toast personalizado (não usa o toast() global para não poluir) ──
+  // ── Toast ──
   _mostrarToastBackup: function(msg) {
     var el = document.getElementById('ab-toast');
     if (!el) return;
@@ -171,9 +260,8 @@ var AUTOBACKUP = {
     setTimeout(function() { el.classList.remove('visivel'); }, 4000);
   },
 
-  // ── Indicador de status no canto ──
+  // ── Indicador de status ──
   _renderIndicador: function() {
-    // Remove existente
     var old = document.getElementById('ab-badge');
     if (old) old.remove();
 
@@ -187,7 +275,6 @@ var AUTOBACKUP = {
     badge.innerHTML = '<span id="ab-dot" class="ab-dot"></span><span id="ab-lbl">Backup</span>';
     document.body.appendChild(badge);
 
-    // Toast elemento
     var toast = document.createElement('div');
     toast.id  = 'ab-toast';
     document.body.appendChild(toast);
@@ -215,7 +302,7 @@ var AUTOBACKUP = {
   abrirPainel: function() {
     var lista = [];
     try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
-    lista = lista.slice().reverse(); // mais recente primeiro
+    lista = lista.slice().reverse();
 
     var ultimoDl    = localStorage.getItem(this.KEY_ULTIMO_DL) || '—';
     var totalKb     = lista.reduce(function(s, x) { return s + (x.kb || 0); }, 0);
@@ -223,14 +310,12 @@ var AUTOBACKUP = {
     var h = '<div id="ab-painel-overlay" onclick="AUTOBACKUP._fecharPainel(event)">';
     h += '<div id="ab-painel">';
 
-    // Header
     h += '<div class="ab-painel-hd">';
     h += '<div><div class="ab-painel-title">🛡️ Auto-Backup</div>';
-    h += '<div class="ab-painel-sub">Seus dados estão protegidos automaticamente</div></div>';
+    h += '<div class="ab-painel-sub">Local + Nuvem (Supabase)</div></div>';
     h += '<button class="ab-painel-close" onclick="AUTOBACKUP.fecharPainel()">✕</button>';
     h += '</div>';
 
-    // Status cards
     h += '<div class="ab-status-grid">';
     h += '<div class="ab-status-card">';
     h += '<div class="ab-status-icon">🗂️</div>';
@@ -243,17 +328,18 @@ var AUTOBACKUP = {
     h += '<div class="ab-status-lbl">Armazenado</div>';
     h += '</div>';
     h += '<div class="ab-status-card">';
-    h += '<div class="ab-status-icon">📅</div>';
-    h += '<div class="ab-status-val" style="font-size:11px;">' + ultimoDl + '</div>';
-    h += '<div class="ab-status-lbl">Último arquivo</div>';
+    h += '<div class="ab-status-icon">☁️</div>';
+    h += '<div class="ab-status-val" style="font-size:11px;">Ativo</div>';
+    h += '<div class="ab-status-lbl">Supabase</div>';
     h += '</div>';
     h += '</div>';
 
-    // Botão baixar agora
     h += '<button class="ab-btn-dl" onclick="AUTOBACKUP._dispararDownload();AUTOBACKUP._mostrarToastBackup(\'📥 Backup gerado!\');">';
     h += '📥 Baixar Backup Agora</button>';
 
-    // Lista de snapshots
+    h += '<button class="ab-btn-nuvem" onclick="AUTOBACKUP._pullNuvem();AUTOBACKUP._mostrarToastBackup(\'☁️ Buscando da nuvem...\');">';
+    h += '☁️ Sincronizar da Nuvem</button>';
+
     h += '<div class="ab-snaps-title">Histórico de snapshots</div>';
     if (lista.length === 0) {
       h += '<div class="ab-snaps-empty">Nenhum snapshot ainda. O primeiro será salvo em breve.</div>';
@@ -264,7 +350,7 @@ var AUTOBACKUP = {
         h += '<div class="ab-snap-row' + (isMaisRecente ? ' recente' : '') + '">';
         h += '<div class="ab-snap-info">';
         h += '<div class="ab-snap-data">' + s.data + (isMaisRecente ? ' <span class="ab-snap-badge">Mais recente</span>' : '') + '</div>';
-        h += '<div class="ab-snap-kb">' + (s.kb || '?') + ' KB</div>';
+        h += '<div class="ab-snap-kb">' + (s.kb || '?') + ' KB' + (s.deNuvem ? ' · ☁️ nuvem' : '') + '</div>';
         h += '</div>';
         h += '<button class="ab-snap-btn" onclick="AUTOBACKUP.restaurarSnapshot(' + (lista.length - 1 - i) + ')">↩ Restaurar</button>';
         h += '</div>';
@@ -272,7 +358,7 @@ var AUTOBACKUP = {
       h += '</div>';
     }
 
-    h += '<div class="ab-rodape">Snapshots são salvos no seu dispositivo a cada ' + this.INTERVALO_MIN + ' minutos. Um arquivo .json é baixado automaticamente 1× por dia.</div>';
+    h += '<div class="ab-rodape">Snapshots salvos a cada ' + this.INTERVALO_MIN + ' min · Download automático 1×/dia · Backup na nuvem ativo</div>';
 
     h += '</div></div>';
 
@@ -291,7 +377,7 @@ var AUTOBACKUP = {
     if (el) el.remove();
   },
 
-  // ── Restaurar a partir de um snapshot local ──
+  // ── Restaurar snapshot ──
   restaurarSnapshot: function(idx) {
     var lista = [];
     try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
@@ -303,7 +389,6 @@ var AUTOBACKUP = {
 
     try {
       var d = JSON.parse(snap.json);
-      // Usa a função de restauração existente do app
       if (typeof _restaurarBackup === 'function') {
         _restaurarBackup(d);
         this.fecharPainel();
@@ -323,107 +408,53 @@ var AUTOBACKUP = {
     var s = document.createElement('style');
     s.id  = 'ab-style';
     s.textContent = `
-      /* ── Badge flutuante ── */
       #ab-badge {
-        position: fixed;
-        bottom: 72px;
-        right: 12px;
-        z-index: 9000;
+        position: fixed; bottom: 72px; right: 12px; z-index: 9000;
         background: rgba(20,20,30,0.92);
         border: 1px solid rgba(255,255,255,.1);
-        border-radius: 20px;
-        padding: 5px 10px 5px 8px;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        font-size: 11px;
-        font-weight: 700;
-        color: rgba(255,255,255,.6);
-        cursor: pointer;
+        border-radius: 20px; padding: 5px 10px 5px 8px;
+        display: flex; align-items: center; gap: 5px;
+        font-size: 11px; font-weight: 700;
+        color: rgba(255,255,255,.6); cursor: pointer;
         backdrop-filter: blur(8px);
         box-shadow: 0 2px 12px rgba(0,0,0,.4);
-        transition: opacity .3s;
-        user-select: none;
+        transition: opacity .3s; user-select: none;
       }
       #ab-badge:active { opacity: .7; }
-
-      .ab-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        flex-shrink: 0;
-        background: #6b7280;
-      }
-      .ab-dot.verde {
-        background: #4ade80;
-        box-shadow: 0 0 6px #4ade80;
-        animation: abPulse 2.5s ease-in-out infinite;
-      }
+      .ab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: #6b7280; }
+      .ab-dot.verde { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: abPulse 2.5s ease-in-out infinite; }
       .ab-dot.cinza { background: #6b7280; }
+      @keyframes abPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 
-      @keyframes abPulse {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: .45; }
-      }
-
-      /* ── Toast ── */
       #ab-toast {
-        position: fixed;
-        bottom: 110px;
-        left: 50%;
+        position: fixed; bottom: 110px; left: 50%;
         transform: translateX(-50%) translateY(10px);
         background: rgba(20,20,30,.97);
         border: 1px solid rgba(74,222,128,.3);
-        border-radius: 12px;
-        padding: 10px 18px;
-        font-size: 13px;
-        font-weight: 600;
-        color: #4ade80;
-        z-index: 9100;
-        opacity: 0;
+        border-radius: 12px; padding: 10px 18px;
+        font-size: 13px; font-weight: 600; color: #4ade80;
+        z-index: 9100; opacity: 0;
         transition: opacity .3s, transform .3s;
-        pointer-events: none;
-        white-space: nowrap;
+        pointer-events: none; white-space: nowrap;
         box-shadow: 0 4px 20px rgba(0,0,0,.5);
       }
-      #ab-toast.visivel {
-        opacity: 1;
-        transform: translateX(-50%) translateY(0);
-      }
+      #ab-toast.visivel { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-      /* ── Overlay ── */
       #ab-painel-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0,0,0,.65);
-        z-index: 9200;
-        display: flex;
-        align-items: flex-end;
+        position: fixed; inset: 0; background: rgba(0,0,0,.65);
+        z-index: 9200; display: flex; align-items: flex-end;
         animation: abFadeIn .2s ease;
       }
       @keyframes abFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-      /* ── Painel ── */
       #ab-painel {
-        width: 100%;
-        max-height: 88vh;
-        overflow-y: auto;
-        background: #13131a;
-        border-radius: 22px 22px 0 0;
-        padding: 20px 16px 36px;
-        animation: abSlideUp .25s ease;
+        width: 100%; max-height: 88vh; overflow-y: auto;
+        background: #13131a; border-radius: 22px 22px 0 0;
+        padding: 20px 16px 36px; animation: abSlideUp .25s ease;
       }
-      @keyframes abSlideUp {
-        from { transform: translateY(60px); opacity: 0; }
-        to   { transform: translateY(0);    opacity: 1; }
-      }
+      @keyframes abSlideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-      .ab-painel-hd {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 18px;
-      }
+      .ab-painel-hd { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
       .ab-painel-title { font-size: 18px; font-weight: 900; color: #fff; }
       .ab-painel-sub   { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 2px; }
       .ab-painel-close {
@@ -433,111 +464,71 @@ var AUTOBACKUP = {
         cursor: pointer; display: flex; align-items: center; justify-content: center;
       }
 
-      /* ── Status grid ── */
-      .ab-status-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 14px;
-      }
+      .ab-status-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
       .ab-status-card {
         background: rgba(255,255,255,.04);
         border: 1px solid rgba(255,255,255,.07);
-        border-radius: 14px;
-        padding: 12px 10px;
-        text-align: center;
+        border-radius: 14px; padding: 12px 10px; text-align: center;
       }
       .ab-status-icon { font-size: 18px; margin-bottom: 4px; }
       .ab-status-val  { font-size: 13px; font-weight: 800; color: #fff; margin-bottom: 2px; }
       .ab-status-lbl  { font-size: 9px; text-transform: uppercase; letter-spacing: .8px; color: rgba(255,255,255,.35); }
 
-      /* ── Botão download ── */
       .ab-btn-dl {
         width: 100%;
         background: linear-gradient(135deg, #1a5c2e, #166534);
         border: 1px solid rgba(74,222,128,.25);
-        border-radius: 14px;
-        padding: 13px;
-        color: #4ade80;
-        font-size: 14px;
-        font-weight: 800;
-        font-family: inherit;
-        cursor: pointer;
-        margin-bottom: 18px;
-        transition: opacity .2s;
+        border-radius: 14px; padding: 13px; color: #4ade80;
+        font-size: 14px; font-weight: 800; font-family: inherit;
+        cursor: pointer; margin-bottom: 8px; transition: opacity .2s;
       }
       .ab-btn-dl:active { opacity: .8; }
 
-      /* ── Snapshots ── */
+      .ab-btn-nuvem {
+        width: 100%;
+        background: rgba(96,165,250,.08);
+        border: 1px solid rgba(96,165,250,.2);
+        border-radius: 14px; padding: 11px; color: #60a5fa;
+        font-size: 13px; font-weight: 700; font-family: inherit;
+        cursor: pointer; margin-bottom: 18px; transition: opacity .2s;
+      }
+      .ab-btn-nuvem:active { opacity: .7; }
+
       .ab-snaps-title {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        color: rgba(255,255,255,.35);
-        margin-bottom: 10px;
+        font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+        text-transform: uppercase; color: rgba(255,255,255,.35); margin-bottom: 10px;
       }
-      .ab-snaps-empty {
-        text-align: center;
-        color: rgba(255,255,255,.3);
-        font-size: 13px;
-        padding: 20px 0;
-      }
-      .ab-snaps-list { display: flex; flex-direction: column; gap: 7px; }
+      .ab-snaps-empty { text-align: center; color: rgba(255,255,255,.3); font-size: 13px; padding: 20px 0; }
+      .ab-snaps-list  { display: flex; flex-direction: column; gap: 7px; }
       .ab-snap-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
         background: rgba(255,255,255,.04);
         border: 1px solid rgba(255,255,255,.07);
-        border-radius: 12px;
-        padding: 11px 13px;
+        border-radius: 12px; padding: 11px 13px;
       }
-      .ab-snap-row.recente {
-        background: rgba(74,222,128,.06);
-        border-color: rgba(74,222,128,.2);
-      }
+      .ab-snap-row.recente { background: rgba(74,222,128,.06); border-color: rgba(74,222,128,.2); }
       .ab-snap-info { flex: 1; min-width: 0; }
       .ab-snap-data {
-        font-size: 13px;
-        font-weight: 600;
-        color: rgba(255,255,255,.85);
-        display: flex;
-        align-items: center;
-        gap: 6px;
+        font-size: 13px; font-weight: 600; color: rgba(255,255,255,.85);
+        display: flex; align-items: center; gap: 6px;
       }
       .ab-snap-badge {
-        font-size: 9px;
-        background: rgba(74,222,128,.15);
-        color: #4ade80;
-        border-radius: 6px;
-        padding: 2px 6px;
-        font-weight: 700;
-        letter-spacing: .5px;
+        font-size: 9px; background: rgba(74,222,128,.15); color: #4ade80;
+        border-radius: 6px; padding: 2px 6px; font-weight: 700; letter-spacing: .5px;
       }
       .ab-snap-kb { font-size: 11px; color: rgba(255,255,255,.35); margin-top: 2px; }
       .ab-snap-btn {
         background: rgba(96,165,250,.1);
         border: 1px solid rgba(96,165,250,.2);
-        border-radius: 9px;
-        padding: 6px 11px;
-        color: #60a5fa;
-        font-size: 11px;
-        font-weight: 700;
-        font-family: inherit;
-        cursor: pointer;
-        white-space: nowrap;
-        flex-shrink: 0;
+        border-radius: 9px; padding: 6px 11px; color: #60a5fa;
+        font-size: 11px; font-weight: 700; font-family: inherit;
+        cursor: pointer; white-space: nowrap; flex-shrink: 0;
       }
       .ab-snap-btn:active { opacity: .7; }
 
       .ab-rodape {
-        margin-top: 16px;
-        font-size: 11px;
-        color: rgba(255,255,255,.25);
-        line-height: 1.6;
-        text-align: center;
+        margin-top: 16px; font-size: 11px; color: rgba(255,255,255,.25);
+        line-height: 1.6; text-align: center;
       }
     `;
     document.head.appendChild(s);
@@ -547,7 +538,6 @@ var AUTOBACKUP = {
 // ── Auto-inicia quando o DOM estiver pronto ──
 (function() {
   function iniciar() {
-    // Aguarda o app estar pronto (CFG e DB disponíveis)
     if (typeof CFG === 'undefined' || typeof DB === 'undefined') {
       setTimeout(iniciar, 500);
       return;
