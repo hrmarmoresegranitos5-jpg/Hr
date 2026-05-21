@@ -58,14 +58,14 @@ var AUTOBACKUP = {
         return;
       }
       // Adiciona aba se ainda não existe
-      if (!document.querySelector('[data-cftab="7"]')) {
+      if (!document.querySelector('[data-cftab="8"]')) {
         var novaAba = document.createElement('div');
         novaAba.className = 'cfgtab';
-        novaAba.setAttribute('data-cftab', '7');
+        novaAba.setAttribute('data-cftab', '8');
         novaAba.textContent = '🛡️ Backup';
         tabs.appendChild(novaAba);
       }
-      // Intercepta clique nas abas para capturar quando cftab=7 é selecionada
+      // Intercepta clique nas abas para capturar quando cftab=8 é selecionada
       self._observarAbas();
     }
     tentar();
@@ -81,7 +81,7 @@ var AUTOBACKUP = {
       var tab = e.target.closest('[data-cftab]');
       if (!tab) return;
       var cftab = tab.getAttribute('data-cftab');
-      if (cftab === '7') {
+      if (cftab === '8') {
         // Pequeno delay para o app-core marcar a aba como ativa e limpar cfgBody
         setTimeout(function() { self.renderizarPainelCfg(); }, 30);
       }
@@ -196,6 +196,8 @@ var AUTOBACKUP = {
   // ── Salva snapshot no localStorage ──
   salvarSnapshot: function() {
     try {
+      // Guard: CFG e DB precisam existir
+      if (typeof CFG === 'undefined' || typeof DB === 'undefined') return;
       var dados = this._coletarDados();
       var json  = JSON.stringify(dados);
 

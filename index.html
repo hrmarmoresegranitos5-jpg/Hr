@@ -589,6 +589,81 @@ function openApp(pg){
 
 <div class="toast" id="toast"></div>
 
+  <script>
+// ── Stub mínimo de TUM — garante que app-core.js não quebre antes de app-tumulos.js ──
+// As funções reais (tumSimular, tumAplicarTabela etc.) dependem de TUM.q e TUM.TIPOS.
+// O app-tumulos.js não está sendo carregado (usa app-tum-* no lugar), então definimos
+// aqui o mínimo necessário para o app-core.js não lançar ReferenceError.
+if (typeof TUM === 'undefined') {
+  var TUM = {
+    q: {
+      cli:'', falecido:'', cemiterio:'', quadra:'', lote:'', obs:'',
+      fotoModelo:'', descModelo:'', tipoBase:'simples',
+      dims:{ comp:2.20, larg:0.90, altEst:0.40, espParede:0.15,
+             espLaje:0.10, espTampa:0.03, altRodape:0.10,
+             avRodape:0.05, espMolduraSup:0.05 },
+      gavetas:1, altPorGaveta:0.70,
+      stoneId:null, stonePrice:0, perda:15,
+      pedras:{
+        tampa:     {on:true, m2:0,extra:0},
+        laterais:  {on:true, m2:0,extra:0},
+        frente:    {on:true, m2:0,extra:0},
+        fundo:     {on:false,m2:0,extra:0},
+        lapide:    {on:false,m2:0,extra:0},
+        revestExt: {on:false,m2:0,extra:0},
+        rodape:    {on:false,m2:0,extra:0},
+        moldura:   {on:false,ml:0,vlrMl:120,extra:0},
+        pingadeira:{on:false,ml:0,vlrMl:80, extra:0},
+      },
+      estrutura:{
+        fundacao:{on:true,m3:0,preco:350},
+        paredes: {on:true,m2:0,preco:280},
+        laje:    {on:true,m2:0,preco:320},
+        reforco: {on:true,kg:0,preco:14},
+        concreto:{on:true,m3:0,preco:420},
+      },
+      mat:{
+        cimento:  {on:true,qty:0,preco:38, unid:'sc'},
+        areia:    {on:true,qty:0,preco:200,unid:'m³'},
+        brita:    {on:true,qty:0,preco:220,unid:'m³'},
+        argamassa:{on:true,qty:0,preco:32, unid:'sc'},
+        cola:     {on:true,qty:0,preco:48, unid:'sc'},
+        rejunte:  {on:true,qty:0,preco:14, unid:'kg'},
+        ferro:    {on:true,qty:0,preco:14, unid:'kg'},
+        tijolos:  {on:false,qty:0,preco:1.20,unid:'un'},
+        frete:    {on:true,vlr:0},
+      },
+      mdo:{
+        pedreiro:  {on:true,dias:2,diaria:350},
+        ajudante:  {on:true,dias:2,diaria:220},
+        marmorista:{on:true,dias:2,diaria:400},
+        acabamento:{on:true,custo:150,venda:280},
+        instalacao:{on:true,custo:200,venda:380},
+        transporte:{on:true,custo:120,venda:180},
+        riscoQuebra:{on:true,perc:3},
+      },
+      lapide:{on:false,tipo:'padrao',custo:280,venda:480,linhas:4,custoPorLinha:35,vendaPorLinha:60,texto:''},
+      cruz:{on:false,tipo:'granito',modelo:'simples',custo:180,venda:340},
+      foto:{on:false,tamanho:'10x15',custo:85,venda:160,moldura:false,custoMoldura:40,vendaMoldura:80},
+      lapideDupla:{on:false,tipo:'dupla',larg:1.70,alt:1.00,espPedra:0.04,espTotal:0.10,bisote:true,mlBisote:0,ferragem:true,kgFerro:8,precoFerro:14,nFotos:2,custoFoto:85,vendaFoto:160,nCruzes:2,gravacao:true,custoExtra:0,vendaExtra:0},
+      rebaixoTampa:{on:false,espRebaixo:0.05,mlTotal:0,custoUsinagem:80,vendaUsinagem:150},
+      lajeInterna:{on:false,nLajes:4,m2Total:0,espLaje:0.08,armacao:true,custoM2:120,vendaM2:200},
+      margem:40, desconto:0,
+    },
+    calc: {},
+    TIPOS: {
+      simples:     {label:'Simples (sem gaveta)',icon:'⬜',gavetas:0,altEst:0.40,pedras:['tampa','laterais','frente'],estrutura:['fundacao','paredes'],diasPedreiro:1,diasMarmorista:1},
+      uma_gaveta:  {label:'1 Gaveta',           icon:'⬛',gavetas:1,altEst:0.70,pedras:['tampa','laterais','frente'],estrutura:['fundacao','paredes','laje','reforco','concreto'],diasPedreiro:2,diasMarmorista:2},
+      duas_gavetas:{label:'2 Gavetas',           icon:'📦',gavetas:2,altEst:1.40,pedras:['tampa','laterais','frente','lapide'],estrutura:['fundacao','paredes','laje','reforco','concreto'],diasPedreiro:4,diasMarmorista:3},
+      tres_gavetas:{label:'3 Gavetas',           icon:'🗃️',gavetas:3,altEst:2.10,pedras:['tampa','laterais','frente','lapide','moldura'],estrutura:['fundacao','paredes','laje','reforco','concreto'],diasPedreiro:6,diasMarmorista:4},
+      jazigo:      {label:'Jazigo Familiar',     icon:'🏛️',gavetas:4,altEst:2.80,pedras:['tampa','laterais','frente','fundo','lapide','revestExt','moldura','pingadeira'],estrutura:['fundacao','paredes','laje','reforco','concreto'],diasPedreiro:10,diasMarmorista:7},
+      reforma:     {label:'Reforma / Revestimento',icon:'🔧',gavetas:0,altEst:0.80,pedras:['tampa','laterais','frente','revestExt'],estrutura:['paredes'],diasPedreiro:1,diasMarmorista:2},
+    },
+    PEDRA_LABELS:{tampa:'Tampo superior',laterais:'Laterais ×2',frente:'Frontão / Frente',fundo:'Parede de fundo',lapide:'Lápide na pedra',revestExt:'Revestimento externo',rodape:'Rodapé externo',moldura:'Moldura (ml)',pingadeira:'Pingadeira (ml)'},
+    EST_LABELS:{fundacao:'Fundação',paredes:'Paredes / Alvenaria',laje:'Laje armada',reforco:'Ferragem / Armação',concreto:'Concreto armado'},
+  };
+}
+  </script>
   <script src="app-core.js?v=15"></script>
   <script src="app-financas.js?v=2"></script>
   <script src="app-pdf-prazo.js?v=2"></script>
@@ -628,7 +703,7 @@ function openApp(pg){
     <div id="adMsg" style="text-align:center;color:var(--red);font-size:.72rem;min-height:18px;font-weight:600;"></div>
   </div>
 </div>
-  <script src="app-autobackup.js?v=2"></script>
+  <script src="app-autobackup.js?v=3"></script>
   <script src="pwa.js"></script>
 <script>
 // ══ CAPELAS & DETALHES ══
