@@ -1,9 +1,13 @@
 // ══════════════════════════════════════════════════════════════
-// AUTO-BACKUP — HR Mármores e Granitos
+// AUTO-BACKUP — HR Mármores e Granitos  v2
 // • Salva snapshot no localStorage a cada 30 minutos
 // • Mantém os últimos 7 snapshots locais (rotação automática)
 // • Dispara download automático uma vez por dia
-// • Sincroniza com Supabase (mesma tabela hr_sync, coluna backup)
+// • Sincroniza com Supabase usando a coluna "dados" existente,
+//   guardando o backup dentro da chave "_ab" do JSON da linha
+//   (não precisa criar coluna nova no banco)
+// • Painel integrado em Configurações → aba "🛡️ Backup"
+//   (sem badge flutuante na tela inicial)
 // ══════════════════════════════════════════════════════════════
 
 var AUTOBACKUP = {
@@ -14,6 +18,7 @@ var AUTOBACKUP = {
   KEY_SNAPSHOTS:  'hr_ab_snaps',
   KEY_ULTIMO_DL:  'hr_ab_ultimo_dl',
   KEY_ULTIMO_SV:  'hr_ab_ultimo_sv',
+  KEY_NUVEM_TS:   'hr_ab_nuvem_ts',
 
   // ── Supabase (mesma config do app) ──
   SUPABASE_URL: 'https://rdqvjohsxiydcdigygvn.supabase.co',
@@ -26,13 +31,130 @@ var AUTOBACKUP = {
   // ── Inicializa ──
   init: function() {
     var self = this;
-    setTimeout(function() { self.salvarSnapshot(); }, 10000);
-    this._timer = setInterval(function() { self.salvarSnapshot(); }, this.INTERVALO_MIN * 60 * 1000);
+    // Injeta estilos e toast (sem badge flutuante)
     this._injetarEstilos();
-    this._renderIndicador();
+    this._criarToast();
+    // Primeiro snapshot após 10s
+    setTimeout(function() { self.salvarSnapshot(); }, 10000);
+    // Snapshots periódicos
+    this._timer = setInterval(function() { self.salvarSnapshot(); }, this.INTERVALO_MIN * 60 * 1000);
+    // Download diário
     setTimeout(function() { self._verificarDownloadDiario(); }, 5000);
-    // Tenta puxar último backup da nuvem ao abrir
+    // Puxa backup da nuvem ao abrir
     setTimeout(function() { self._pullNuvem(); }, 3000);
+    // Registra o renderizador da aba de Backup em Configurações
+    this._registrarAbaCfg();
+  },
+
+  // ── Registra a aba "Backup" no sistema de Configurações ──
+  _registrarAbaCfg: function() {
+    // Aguarda o cfgTabs existir no DOM
+    var self = this;
+    var tentativas = 0;
+    function tentar() {
+      var tabs = document.getElementById('cfgTabs');
+      if (!tabs) {
+        if (tentativas++ < 20) setTimeout(tentar, 500);
+        return;
+      }
+      // Adiciona aba se ainda não existe
+      if (!document.querySelector('[data-cftab="7"]')) {
+        var novaAba = document.createElement('div');
+        novaAba.className = 'cfgtab';
+        novaAba.setAttribute('data-cftab', '7');
+        novaAba.textContent = '🛡️ Backup';
+        tabs.appendChild(novaAba);
+      }
+      // Intercepta clique nas abas para capturar quando cftab=7 é selecionada
+      self._observarAbas();
+    }
+    tentar();
+  },
+
+  _observarAbas: function() {
+    var self = this;
+    var tabs = document.getElementById('cfgTabs');
+    if (!tabs) return;
+
+    // Usa event delegation no container das abas
+    tabs.addEventListener('click', function(e) {
+      var tab = e.target.closest('[data-cftab]');
+      if (!tab) return;
+      var cftab = tab.getAttribute('data-cftab');
+      if (cftab === '7') {
+        // Pequeno delay para o app-core marcar a aba como ativa e limpar cfgBody
+        setTimeout(function() { self.renderizarPainelCfg(); }, 30);
+      }
+    });
+  },
+
+  // ── Renderiza o painel de backup dentro do cfgBody ──
+  renderizarPainelCfg: function() {
+    var body = document.getElementById('cfgBody');
+    if (!body) return;
+
+    var lista = [];
+    try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
+    var listaRev = lista.slice().reverse();
+
+    var totalKb = listaRev.reduce(function(s, x) { return s + (x.kb || 0); }, 0);
+    var nuvemTs = +localStorage.getItem(this.KEY_NUVEM_TS) || 0;
+    var nuvemStr = nuvemTs ? new Date(nuvemTs).toLocaleString('pt-BR') + ' ☁️' : '—';
+
+    var h = '<div class="ab-cfg-painel">';
+
+    // Cards de status
+    h += '<div class="ab-status-grid">';
+    h += '<div class="ab-status-card">';
+    h += '<div class="ab-status-icon">🗂️</div>';
+    h += '<div class="ab-status-val">' + listaRev.length + '/' + this.MAX_SNAPSHOTS + '</div>';
+    h += '<div class="ab-status-lbl">Snapshots</div>';
+    h += '</div>';
+    h += '<div class="ab-status-card">';
+    h += '<div class="ab-status-icon">💾</div>';
+    h += '<div class="ab-status-val">' + totalKb + ' KB</div>';
+    h += '<div class="ab-status-lbl">Armazenado</div>';
+    h += '</div>';
+    h += '<div class="ab-status-card">';
+    h += '<div class="ab-status-icon">☁️</div>';
+    h += '<div class="ab-status-val" style="font-size:10px;line-height:1.3;">' + (nuvemTs ? 'Ativo' : '—') + '</div>';
+    h += '<div class="ab-status-lbl">Supabase</div>';
+    h += '</div>';
+    h += '</div>';
+
+    // Botões de ação
+    h += '<button class="ab-btn-dl" onclick="AUTOBACKUP._dispararDownload();AUTOBACKUP._mostrarToastBackup(\'📥 Backup gerado!\')">';
+    h += '📥 Baixar Backup Agora</button>';
+
+    h += '<button class="ab-btn-nuvem" onclick="AUTOBACKUP._pullNuvem();AUTOBACKUP._mostrarToastBackup(\'☁️ Buscando da nuvem...\')">';
+    h += '☁️ Sincronizar da Nuvem</button>';
+
+    h += '<button class="ab-btn-snap" onclick="AUTOBACKUP.salvarSnapshot();AUTOBACKUP._mostrarToastBackup(\'✅ Snapshot salvo!\');setTimeout(function(){AUTOBACKUP.renderizarPainelCfg()},400)">';
+    h += '📸 Salvar Snapshot Agora</button>';
+
+    // Histórico
+    h += '<div class="ab-snaps-title">Histórico de Snapshots</div>';
+    if (listaRev.length === 0) {
+      h += '<div class="ab-snaps-empty">Nenhum snapshot ainda. O primeiro será salvo em breve.</div>';
+    } else {
+      h += '<div class="ab-snaps-list">';
+      listaRev.forEach(function(s, i) {
+        var isMaisRecente = i === 0;
+        h += '<div class="ab-snap-row' + (isMaisRecente ? ' recente' : '') + '">';
+        h += '<div class="ab-snap-info">';
+        h += '<div class="ab-snap-data">' + s.data + (isMaisRecente ? ' <span class="ab-snap-badge">Mais recente</span>' : '') + '</div>';
+        h += '<div class="ab-snap-kb">' + (s.kb || '?') + ' KB' + (s.deNuvem ? ' · ☁️ nuvem' : '') + '</div>';
+        h += '</div>';
+        h += '<button class="ab-snap-btn" onclick="AUTOBACKUP.restaurarSnapshot(' + (lista.length - 1 - i) + ')">↩ Restaurar</button>';
+        h += '</div>';
+      });
+      h += '</div>';
+    }
+
+    h += '<div class="ab-rodape">Snapshots salvos a cada ' + AUTOBACKUP.INTERVALO_MIN + ' min · Download automático 1×/dia · Backup na nuvem ativo</div>';
+    h += '</div>';
+
+    body.innerHTML = h;
   },
 
   // ── Coleta todos os dados do app ──
@@ -94,8 +216,6 @@ var AUTOBACKUP = {
       localStorage.setItem(this.KEY_SNAPSHOTS, JSON.stringify(lista));
       localStorage.setItem(this.KEY_ULTIMO_SV, String(dados._ts));
 
-      this._atualizarIndicador(dados._ts, lista.length);
-
       // Envia para nuvem (debounce 5s)
       this._pushNuvem(dados);
 
@@ -104,13 +224,14 @@ var AUTOBACKUP = {
     }
   },
 
-  // ── Push para Supabase ──
+  // ── Push para Supabase usando coluna "dados" existente ──
+  // Guarda o backup na chave "_ab" dentro do JSON que vai para a coluna dados.
+  // Assim não precisa de coluna extra no banco.
   _pushNuvem: function(dados) {
     var self = this;
     clearTimeout(self._pushDebounce);
     self._pushDebounce = setTimeout(function() {
       try {
-        var ts  = dados._ts;
         var url = self.SUPABASE_URL + '/rest/v1/hr_sync';
         var headers = {
           'Content-Type': 'application/json',
@@ -118,26 +239,32 @@ var AUTOBACKUP = {
           'Authorization': 'Bearer ' + self.SUPABASE_KEY,
           'Prefer': 'resolution=merge-duplicates,return=minimal'
         };
-        // Guardamos o backup na coluna "backup" — não toca na coluna "dados"
-        var body = JSON.stringify({
-          codigo:  self.CHAVE,
-          backup:  JSON.stringify(dados),
-          backup_ts: ts
-        });
-        fetch(url, { method: 'POST', headers: headers, body: body })
-          .then(function(r) {
-            if (!r.ok) throw new Error(r.status);
-            self._mostrarToastBackup('☁️ Backup salvo na nuvem!');
+
+        // Primeiro, lê a linha atual para preservar o campo "dados" original
+        var readUrl = url + '?codigo=eq.' + encodeURIComponent(self.CHAVE) + '&select=dados';
+        fetch(readUrl, { headers: { 'apikey': self.SUPABASE_KEY, 'Authorization': 'Bearer ' + self.SUPABASE_KEY } })
+          .then(function(r) { return r.json(); })
+          .then(function(rows) {
+            // Tenta parsear a linha existente
+            var dadosAtual = {};
+            if (rows && rows.length && rows[0].dados) {
+              try { dadosAtual = JSON.parse(rows[0].dados); } catch(e) { dadosAtual = {}; }
+            }
+            // Injeta o backup na chave _ab
+            dadosAtual._ab = { ts: dados._ts, json: JSON.stringify(dados) };
+            var novosDados = JSON.stringify(dadosAtual);
+
+            var body = JSON.stringify({ codigo: self.CHAVE, dados: novosDados });
+            return fetch(url, { method: 'POST', headers: headers, body: body });
           })
-          .catch(function() {
-            // Tenta PATCH se POST falhou (registro já existe)
-            fetch(url + '?codigo=eq.' + encodeURIComponent(self.CHAVE),
-              { method: 'PATCH', headers: headers,
-                body: JSON.stringify({ backup: JSON.stringify(dados), backup_ts: ts }) })
-              .then(function(r2) {
-                if (r2.ok) self._mostrarToastBackup('☁️ Backup atualizado na nuvem!');
-              })
-              .catch(function() {});
+          .then(function(r) {
+            if (r && r.ok) {
+              localStorage.setItem(self.KEY_NUVEM_TS, String(dados._ts));
+              self._mostrarToastBackup('☁️ Backup salvo na nuvem!');
+            }
+          })
+          .catch(function(err) {
+            console.warn('[AutoBackup] Erro ao enviar para nuvem:', err);
           });
       } catch(e) {
         console.warn('[AutoBackup] Erro ao enviar para nuvem:', e);
@@ -146,11 +273,12 @@ var AUTOBACKUP = {
   },
 
   // ── Pull da nuvem ao abrir ──
+  // Lê a coluna "dados" e extrai a chave "_ab"
   _pullNuvem: function() {
     var self = this;
     try {
       var url = self.SUPABASE_URL + '/rest/v1/hr_sync?codigo=eq.' +
-                encodeURIComponent(self.CHAVE) + '&select=backup,backup_ts';
+                encodeURIComponent(self.CHAVE) + '&select=dados';
       var headers = {
         'apikey': self.SUPABASE_KEY,
         'Authorization': 'Bearer ' + self.SUPABASE_KEY
@@ -158,33 +286,35 @@ var AUTOBACKUP = {
       fetch(url, { headers: headers })
         .then(function(r) { return r.json(); })
         .then(function(rows) {
-          if (!rows || !rows.length || !rows[0].backup) return;
-          var row = rows[0];
+          if (!rows || !rows.length || !rows[0].dados) return;
+          var dadosAtual = {};
+          try { dadosAtual = JSON.parse(rows[0].dados); } catch(e) { return; }
+          var ab = dadosAtual._ab;
+          if (!ab || !ab.json || !ab.ts) return;
+
           var localTs = +localStorage.getItem(self.KEY_ULTIMO_SV) || 0;
-          if (!row.backup_ts || row.backup_ts <= localTs) return;
+          if (ab.ts <= localTs) return;
 
           // Nuvem tem dado mais recente — adiciona como snapshot
           try {
-            var dadosNuvem = JSON.parse(row.backup);
+            var dadosNuvem = JSON.parse(ab.json);
             var lista = [];
             try { lista = JSON.parse(localStorage.getItem(self.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
 
-            // Só adiciona se ainda não existe este timestamp
             var existe = lista.some(function(s) { return s.ts === dadosNuvem._ts; });
             if (!existe) {
-              var json = row.backup;
               lista.push({
-                ts:       dadosNuvem._ts,
-                data:     new Date(dadosNuvem._ts).toLocaleString('pt-BR') + ' ☁️',
-                kb:       Math.round(json.length / 1024),
-                json:     json,
-                deNuvem:  true
+                ts:      dadosNuvem._ts,
+                data:    new Date(dadosNuvem._ts).toLocaleString('pt-BR') + ' ☁️',
+                kb:      Math.round(ab.json.length / 1024),
+                json:    ab.json,
+                deNuvem: true
               });
               if (lista.length > self.MAX_SNAPSHOTS) {
                 lista = lista.slice(lista.length - self.MAX_SNAPSHOTS);
               }
               localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
-              self._atualizarIndicador(dadosNuvem._ts, lista.length);
+              localStorage.setItem(self.KEY_NUVEM_TS, String(ab.ts));
               self._mostrarToastBackup('☁️ Backup da nuvem disponível!');
             }
           } catch(e) {}
@@ -252,129 +382,19 @@ var AUTOBACKUP = {
   },
 
   // ── Toast ──
+  _criarToast: function() {
+    if (document.getElementById('ab-toast')) return;
+    var toast = document.createElement('div');
+    toast.id  = 'ab-toast';
+    document.body.appendChild(toast);
+  },
+
   _mostrarToastBackup: function(msg) {
     var el = document.getElementById('ab-toast');
     if (!el) return;
     el.textContent = msg;
     el.classList.add('visivel');
     setTimeout(function() { el.classList.remove('visivel'); }, 4000);
-  },
-
-  // ── Indicador de status ──
-  _renderIndicador: function() {
-    var old = document.getElementById('ab-badge');
-    if (old) old.remove();
-
-    var ts    = +localStorage.getItem(this.KEY_ULTIMO_SV) || 0;
-    var lista = [];
-    try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
-
-    var badge = document.createElement('div');
-    badge.id  = 'ab-badge';
-    badge.setAttribute('onclick', 'AUTOBACKUP.abrirPainel()');
-    badge.innerHTML = '<span id="ab-dot" class="ab-dot"></span><span id="ab-lbl">Backup</span>';
-    document.body.appendChild(badge);
-
-    var toast = document.createElement('div');
-    toast.id  = 'ab-toast';
-    document.body.appendChild(toast);
-
-    this._atualizarIndicador(ts, lista.length);
-  },
-
-  _atualizarIndicador: function(ts, count) {
-    var dot = document.getElementById('ab-dot');
-    var lbl = document.getElementById('ab-lbl');
-    if (!dot || !lbl) return;
-
-    if (ts > 0) {
-      var agoraMin = Math.floor((Date.now() - ts) / 60000);
-      var textoHora = agoraMin < 1 ? 'agora' : agoraMin + 'min';
-      dot.className = 'ab-dot verde';
-      lbl.textContent = '✓ ' + textoHora;
-    } else {
-      dot.className = 'ab-dot cinza';
-      lbl.textContent = 'Backup';
-    }
-  },
-
-  // ── Painel de snapshots ──
-  abrirPainel: function() {
-    var lista = [];
-    try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
-    lista = lista.slice().reverse();
-
-    var ultimoDl    = localStorage.getItem(this.KEY_ULTIMO_DL) || '—';
-    var totalKb     = lista.reduce(function(s, x) { return s + (x.kb || 0); }, 0);
-
-    var h = '<div id="ab-painel-overlay" onclick="AUTOBACKUP._fecharPainel(event)">';
-    h += '<div id="ab-painel">';
-
-    h += '<div class="ab-painel-hd">';
-    h += '<div><div class="ab-painel-title">🛡️ Auto-Backup</div>';
-    h += '<div class="ab-painel-sub">Local + Nuvem (Supabase)</div></div>';
-    h += '<button class="ab-painel-close" onclick="AUTOBACKUP.fecharPainel()">✕</button>';
-    h += '</div>';
-
-    h += '<div class="ab-status-grid">';
-    h += '<div class="ab-status-card">';
-    h += '<div class="ab-status-icon">🗂️</div>';
-    h += '<div class="ab-status-val">' + lista.length + '/' + this.MAX_SNAPSHOTS + '</div>';
-    h += '<div class="ab-status-lbl">Snapshots</div>';
-    h += '</div>';
-    h += '<div class="ab-status-card">';
-    h += '<div class="ab-status-icon">💾</div>';
-    h += '<div class="ab-status-val">' + totalKb + ' KB</div>';
-    h += '<div class="ab-status-lbl">Armazenado</div>';
-    h += '</div>';
-    h += '<div class="ab-status-card">';
-    h += '<div class="ab-status-icon">☁️</div>';
-    h += '<div class="ab-status-val" style="font-size:11px;">Ativo</div>';
-    h += '<div class="ab-status-lbl">Supabase</div>';
-    h += '</div>';
-    h += '</div>';
-
-    h += '<button class="ab-btn-dl" onclick="AUTOBACKUP._dispararDownload();AUTOBACKUP._mostrarToastBackup(\'📥 Backup gerado!\');">';
-    h += '📥 Baixar Backup Agora</button>';
-
-    h += '<button class="ab-btn-nuvem" onclick="AUTOBACKUP._pullNuvem();AUTOBACKUP._mostrarToastBackup(\'☁️ Buscando da nuvem...\');">';
-    h += '☁️ Sincronizar da Nuvem</button>';
-
-    h += '<div class="ab-snaps-title">Histórico de snapshots</div>';
-    if (lista.length === 0) {
-      h += '<div class="ab-snaps-empty">Nenhum snapshot ainda. O primeiro será salvo em breve.</div>';
-    } else {
-      h += '<div class="ab-snaps-list">';
-      lista.forEach(function(s, i) {
-        var isMaisRecente = i === 0;
-        h += '<div class="ab-snap-row' + (isMaisRecente ? ' recente' : '') + '">';
-        h += '<div class="ab-snap-info">';
-        h += '<div class="ab-snap-data">' + s.data + (isMaisRecente ? ' <span class="ab-snap-badge">Mais recente</span>' : '') + '</div>';
-        h += '<div class="ab-snap-kb">' + (s.kb || '?') + ' KB' + (s.deNuvem ? ' · ☁️ nuvem' : '') + '</div>';
-        h += '</div>';
-        h += '<button class="ab-snap-btn" onclick="AUTOBACKUP.restaurarSnapshot(' + (lista.length - 1 - i) + ')">↩ Restaurar</button>';
-        h += '</div>';
-      });
-      h += '</div>';
-    }
-
-    h += '<div class="ab-rodape">Snapshots salvos a cada ' + this.INTERVALO_MIN + ' min · Download automático 1×/dia · Backup na nuvem ativo</div>';
-
-    h += '</div></div>';
-
-    var overlay = document.createElement('div');
-    overlay.innerHTML = h;
-    document.body.appendChild(overlay.firstChild);
-  },
-
-  _fecharPainel: function(e) {
-    if (e && e.target.id !== 'ab-painel-overlay') return;
-    this.fecharPainel();
-  },
-
-  fecharPainel: function() {
-    var el = document.getElementById('ab-painel-overlay');
-    if (el) el.remove();
   },
 
   // ── Restaurar snapshot ──
@@ -391,7 +411,6 @@ var AUTOBACKUP = {
       var d = JSON.parse(snap.json);
       if (typeof _restaurarBackup === 'function') {
         _restaurarBackup(d);
-        this.fecharPainel();
         if (typeof toast === 'function') toast('✓ Backup restaurado! Recarregando...');
         setTimeout(function() { location.reload(); }, 900);
       } else {
@@ -408,26 +427,9 @@ var AUTOBACKUP = {
     var s = document.createElement('style');
     s.id  = 'ab-style';
     s.textContent = `
-      #ab-badge {
-        position: fixed; bottom: 72px; right: 12px; z-index: 9000;
-        background: rgba(20,20,30,0.92);
-        border: 1px solid rgba(255,255,255,.1);
-        border-radius: 20px; padding: 5px 10px 5px 8px;
-        display: flex; align-items: center; gap: 5px;
-        font-size: 11px; font-weight: 700;
-        color: rgba(255,255,255,.6); cursor: pointer;
-        backdrop-filter: blur(8px);
-        box-shadow: 0 2px 12px rgba(0,0,0,.4);
-        transition: opacity .3s; user-select: none;
-      }
-      #ab-badge:active { opacity: .7; }
-      .ab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: #6b7280; }
-      .ab-dot.verde { background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: abPulse 2.5s ease-in-out infinite; }
-      .ab-dot.cinza { background: #6b7280; }
-      @keyframes abPulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-
+      /* ─── Toast ─────────────────────────────────────────── */
       #ab-toast {
-        position: fixed; bottom: 110px; left: 50%;
+        position: fixed; bottom: 80px; left: 50%;
         transform: translateX(-50%) translateY(10px);
         background: rgba(20,20,30,.97);
         border: 1px solid rgba(74,222,128,.3);
@@ -440,29 +442,8 @@ var AUTOBACKUP = {
       }
       #ab-toast.visivel { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-      #ab-painel-overlay {
-        position: fixed; inset: 0; background: rgba(0,0,0,.65);
-        z-index: 9200; display: flex; align-items: flex-end;
-        animation: abFadeIn .2s ease;
-      }
-      @keyframes abFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-      #ab-painel {
-        width: 100%; max-height: 88vh; overflow-y: auto;
-        background: #13131a; border-radius: 22px 22px 0 0;
-        padding: 20px 16px 36px; animation: abSlideUp .25s ease;
-      }
-      @keyframes abSlideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-      .ab-painel-hd { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
-      .ab-painel-title { font-size: 18px; font-weight: 900; color: #fff; }
-      .ab-painel-sub   { font-size: 12px; color: rgba(255,255,255,.4); margin-top: 2px; }
-      .ab-painel-close {
-        background: rgba(255,255,255,.08); border: none;
-        border-radius: 50%; width: 30px; height: 30px;
-        color: rgba(255,255,255,.6); font-size: 14px;
-        cursor: pointer; display: flex; align-items: center; justify-content: center;
-      }
+      /* ─── Painel integrado em Configurações ────────────── */
+      .ab-cfg-painel { padding: 12px 0 40px; }
 
       .ab-status-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 14px; }
       .ab-status-card {
@@ -480,7 +461,7 @@ var AUTOBACKUP = {
         border: 1px solid rgba(74,222,128,.25);
         border-radius: 14px; padding: 13px; color: #4ade80;
         font-size: 14px; font-weight: 800; font-family: inherit;
-        cursor: pointer; margin-bottom: 8px; transition: opacity .2s;
+        cursor: pointer; margin-bottom: 8px; transition: opacity .2s; display: block;
       }
       .ab-btn-dl:active { opacity: .8; }
 
@@ -490,9 +471,19 @@ var AUTOBACKUP = {
         border: 1px solid rgba(96,165,250,.2);
         border-radius: 14px; padding: 11px; color: #60a5fa;
         font-size: 13px; font-weight: 700; font-family: inherit;
-        cursor: pointer; margin-bottom: 18px; transition: opacity .2s;
+        cursor: pointer; margin-bottom: 8px; transition: opacity .2s; display: block;
       }
       .ab-btn-nuvem:active { opacity: .7; }
+
+      .ab-btn-snap {
+        width: 100%;
+        background: rgba(201,168,76,.08);
+        border: 1px solid rgba(201,168,76,.2);
+        border-radius: 14px; padding: 11px; color: #c9a84c;
+        font-size: 13px; font-weight: 700; font-family: inherit;
+        cursor: pointer; margin-bottom: 18px; transition: opacity .2s; display: block;
+      }
+      .ab-btn-snap:active { opacity: .7; }
 
       .ab-snaps-title {
         font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
@@ -510,7 +501,7 @@ var AUTOBACKUP = {
       .ab-snap-info { flex: 1; min-width: 0; }
       .ab-snap-data {
         font-size: 13px; font-weight: 600; color: rgba(255,255,255,.85);
-        display: flex; align-items: center; gap: 6px;
+        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
       }
       .ab-snap-badge {
         font-size: 9px; background: rgba(74,222,128,.15); color: #4ade80;
