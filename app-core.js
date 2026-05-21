@@ -1216,6 +1216,59 @@ function updCapExtra(ambId,field,val){
   amb.capExtra[field]=val;
 }
 
+// ─── CONFIGURADOR DE CAPELINHA ────────────────────────────────────
+function updCapMed(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.capExtra)amb.capExtra={};
+  amb.capExtra[field]=val;
+  renderAmbientes();
+}
+
+// Calcula todas as peças da capelinha a partir das medidas
+function calcCapelaPecas(ce){
+  var W=+(ce.capW||0);   // largura interna cm
+  var P=+(ce.capP||0);   // profundidade cm
+  var H=+(ce.capH||0);   // altura interna cm
+  var E=+(ce.capE||3);   // espessura chapa cm
+  var nPil=+(ce.capNPil!==undefined?ce.capNPil:2);
+  var pilW=+(ce.capPilW||0);
+  var pilH=+(ce.capPilH||H);
+  if(!W||!P||!H)return [];
+  var pecas=[];
+  function add(desc,w,h,q){
+    var m2=(w/100)*(h/100)*(q||1);
+    pecas.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
+  }
+  add('Fundo (painel traseiro)',W,H,1);
+  add('Base / Tampo inferior',W,P,1);
+  add('Teto / Tampo superior',W,P,1);
+  add('Laterais',P,H,2);
+  if(nPil>0&&pilW>0){
+    var pH=pilH||H;
+    add('Pilar em chapa',pilW,pH,nPil);
+    var esc1=pilW+4; var esc2=pilW+8;
+    var espEsc=E||3;
+    add('Escadinha pilar — interna ('+esc1+'cm)',esc1,espEsc,nPil*2);
+    add('Escadinha pilar — externa ('+esc2+'cm)',esc2,espEsc,nPil*2);
+  }
+  return pecas;
+}
+
+// Aplica as peças calculadas ao ambiente (substitui as peças manuais)
+function aplicarPecasCapela(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.capExtra)return;
+  var ce=amb.capExtra;
+  var pecas=calcCapelaPecas(ce);
+  if(!pecas.length){toast('Preencha largura, profundidade e altura');return;}
+  amb.pecas=pecas.map(function(p){
+    return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+  });
+  renderAmbientes();
+  toast('✦ '+pecas.length+' peças aplicadas automaticamente!');
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ACABAMENTO POR LADO + PREVIEW SVG TÉCNICO POR PEÇA
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1735,13 +1788,70 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<option value="'+st+'"'+(ce.subtipo===st?' selected':'')+'>'+st+'</option>';
       });
       h+='</select></div>';
-      h+='<div style="margin-top:10px;padding:8px 10px;background:rgba(201,168,76,.08);border-radius:8px;font-size:.62rem;color:var(--t3);line-height:1.7;">';
-      h+='💡 <b>Como medir a capela:</b><br>';
-      h+='• <b>Fundo</b> = Largura × Altura interna (ex: 80×100cm)<br>';
-      h+='• <b>Base/Teto</b> = Largura × Profundidade (ex: 80×60cm)<br>';
-      h+='• <b>Laterais</b> = Profundidade × Altura, quantidade 2<br>';
-      h+='• <b>Pilar em chapa</b> = Altura × Largura da seção (ex: 90×12cm)';
+      // ── Medidas da Capelinha ──
+      h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 10px;"></div>';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">📐 Medidas da Capelinha</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Largura interna (cm)</label><input type="number" placeholder="80" style="background:var(--s3);" value="'+(ce.capW||'')+'" oninput="updCapMed('+amb.id+',\'capW\',+this.value)"></div>';
+      h+='<div class="f"><label>Profundidade (cm)</label><input type="number" placeholder="60" style="background:var(--s3);" value="'+(ce.capP||'')+'" oninput="updCapMed('+amb.id+',\'capP\',+this.value)"></div>';
+      h+='</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
+      h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="3" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
+      h+='</div>';
+      // Pilares
+      h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:10px 0 10px;"></div>';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🏛️ Pilares</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Qtd de pilares</label>';
+      h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd);border-radius:8px;overflow:hidden;height:42px;">';
+      h+='<button onclick="updCapMed('+amb.id+',\'capNPil\',Math.max(0,(+('+(ce.capNPil||2)+'))-1))" style="background:none;border:none;color:var(--t2);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+      h+='<span style="flex:1;text-align:center;font-size:.95rem;font-weight:700;color:var(--tx);">'+(ce.capNPil!==undefined?ce.capNPil:2)+'</span>';
+      h+='<button onclick="updCapMed('+amb.id+',\'capNPil\',(+('+(ce.capNPil||2)+')+1))" style="background:none;border:none;color:var(--gold);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
       h+='</div></div>';
+      h+='<div class="f"><label>Largura do pilar (cm)</label><input type="number" placeholder="10" step="1" style="background:var(--s3);" value="'+(ce.capPilW||'')+'" oninput="updCapMed('+amb.id+',\'capPilW\',+this.value)"></div>';
+      h+='</div>';
+      h+='<div class="f"><label>Altura do pilar (cm)</label><input type="number" placeholder="igual altura interna" step="1" style="background:var(--s3);" value="'+(ce.capPilH||'')+'" oninput="updCapMed('+amb.id+',\'capPilH\',+this.value)"></div>';
+      // Preview escadinha do pilar
+      var capPilWv=+(ce.capPilW||0);
+      if(capPilWv>0){
+        var esc1v=capPilWv+4; var esc2v=capPilWv+8;
+        h+='<div style="margin-top:6px;padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);line-height:1.8;">';
+        h+='🪨 <b>Escadinha do pilar (auto):</b><br>';
+        h+='• Interna: <b>'+esc1v+' × '+esc1v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid<br>';
+        h+='• Externa: <b>'+esc2v+' × '+esc2v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid';
+        h+='</div>';
+      }
+      // Preview de peças calculadas automaticamente
+      var capCalcPrev=calcCapelaPecas(ce);
+      if(capCalcPrev&&capCalcPrev.length>0){
+        var ambMatCapPrev=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        var prMO_cap=getPr('cap_fundo')||85;
+        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
+        var totalM2capPrev=0;
+        var totalValCapPrev=0;
+        capCalcPrev.forEach(function(p){
+          var m2p=p.m2;
+          totalM2capPrev+=m2p;
+          var prPedraP=ambMatCapPrev&&ambMatCapPrev.pr>0?m2p*ambMatCapPrev.pr:0;
+          var prMOP=m2p*prMO_cap;
+          totalValCapPrev+=prPedraP+prMOP;
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+          h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
+          h+='<div style="font-size:.58rem;color:var(--t4);">'+p.dim+'</div></div>';
+          h+='<div style="text-align:right;">';
+          h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2p.toFixed(3)+' m²</div>';
+          if(prPedraP>0||prMOP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP+prMOP)+'</div>';
+          h+='</div></div>';
+        });
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;">';
+        h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra + M.O.</span>';
+        h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2capPrev.toFixed(3)+' m²'+(totalValCapPrev>0?' · R$ '+fm(totalValCapPrev):'')+'</span>';
+        h+='</div>';
+        h+='<button onclick="aplicarPecasCapela('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
+      }
+      h+='</div>';
     }
     // ── TÚMULO: calculadora v14 embutida inline ──
     if(amb.tipo==='Túmulo'){
@@ -1763,7 +1873,32 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     h+='</span></div>';
     h+=buildMatCarouselHtml(amb);
     h+='</div>';
-    // Pecas
+    // Pecas — para Capelinha, são geradas pelo configurador (oculto aqui)
+    if(amb.tipo==='⛪ Capela'){
+      if(amb.pecas&&amb.pecas.some(function(p){return p.w&&p.h;})){
+        var ambMatCapRO=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        var _capMoPrRO=getPr('cap_fundo')||85;
+        h+='<div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.12);border-radius:10px;padding:10px 12px;margin:8px 0 10px;">';
+        h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">✦ Peças aplicadas — calculadas automaticamente</div>';
+        var _capTotalM2ro=0;
+        var _capTotalValRO=0;
+        amb.pecas.forEach(function(pc){
+          if(!pc.w||!pc.h)return;
+          var m2pc=(pc.w/100)*(pc.h/100)*(pc.q||1);
+          _capTotalM2ro+=m2pc;
+          var prPedRO=ambMatCapRO?m2pc*ambMatCapRO.pr:0;
+          var prMORO=m2pc*_capMoPrRO;
+          _capTotalValRO+=prPedRO+prMORO;
+          h+='<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+          h+='<span style="font-size:.69rem;color:var(--t2);">'+escH(pc.desc||'Peça')+(pc.q>1?' ×'+pc.q:'')+'</span>';
+          h+='<span style="font-size:.67rem;color:var(--gold2);font-weight:600;">'+m2pc.toFixed(3)+' m²'+(prPedRO+prMORO>0?' · R$ '+fm(prPedRO+prMORO):'')+'</span>';
+          h+='</div>';
+        });
+        h+='<div style="display:flex;justify-content:space-between;padding:6px 0 2px;"><span style="font-size:.68rem;font-weight:700;color:var(--gold);">Total</span>';
+        h+='<span style="font-size:.72rem;font-weight:800;color:var(--gold2);">'+_capTotalM2ro.toFixed(3)+' m²'+(ambMatCapRO&&_capTotalValRO>0?' · R$ '+fm(_capTotalValRO):'')+'</span></div>';
+        h+='</div>';
+      }
+    } else {
     h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
     h+='<div class="amb-pecas">';
     amb.pecas.forEach(function(pc,pi){
@@ -1809,6 +1944,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
     h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
     h+='</div>';
+    } // fim else peças normais (não-capelinha)
     if(amb.tipo==='Rodapé de Box'){
       // Rodapé de Box: serviços totalmente automáticos, sem UI
       var _rdBoxPcs=amb.pecas.filter(function(p){return p.w&&p.h;});
@@ -1824,7 +1960,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='</div>';
       }
     } else {
-      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços'+(amb.tipo==='⛪ Capela'?' adicionais':'')+'</div>';
       h+=buildSVHtml(amb);
     }
     h+='</div></div>';
@@ -1910,6 +2046,9 @@ function buildSVHtml(amb){
   g.forEach(function(grp){
     // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
     if(hasBordas&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
+    // Para capelinha: ocultar grupos sf_auto (peças calculadas pelo configurador) e pilares em chapa
+    var isSfAutoGrp=grp.its.length>0&&grp.its[0].u==='sf_auto';
+    if(isSfAutoGrp&&amb.tipo==='⛪ Capela')return;
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
@@ -2328,6 +2467,21 @@ function calcular(){
         });
       });
     }
+    }
+
+    // ⛪ CAPELINHA: MO automática sobre todas as peças (R$85/m² padrão)
+    if(tipo==='⛪ Capela'){
+      var _capMoPr=getPr('cap_fundo')||85;
+      amb.pecas.forEach(function(p){
+        if(!p.w||!p.h)return;
+        var _capM2=(p.w/100)*(p.h/100)*(p.q||1);
+        var _capMo=_capM2*_capMoPr;
+        if(_capMo>0){
+          acT+=_capMo;
+          acL.push({l:'M.O. '+escH(p.desc||'Peça')+' ('+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+') '+_capM2.toFixed(3)+'m²',v:_capMo});
+          acN.push('M.O. '+(p.desc||'Peça'));
+        }
+      });
     }
 
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
