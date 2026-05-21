@@ -781,19 +781,9 @@ SV_DEFS.Tumulo=[
 SV_DEFS['Túmulo'] = SV_DEFS.Tumulo;
 
 // ── SERVIÇOS ESPECÍFICOS PARA CAPELAS ──────────────────────────────────
+// Estrutura e pilares são calculados automaticamente pelo configurador de medidas.
+// Aqui ficam apenas os serviços adicionais que o usuário escolhe manualmente.
 SV_DEFS.Capela=[
-  {g:'⛪ Estrutura — Peças de Pedra (m²)',its:[
-    {k:'cap_fundo',   l:'Fundo (painel traseiro)',     u:'sf'},
-    {k:'cap_base',    l:'Base / Tampo inferior',       u:'sf'},
-    {k:'cap_teto',    l:'Teto / Tampo superior',       u:'sf'},
-    {k:'cap_lat',     l:'Laterais (×2)',               u:'sf'},
-    {k:'cap_front',   l:'Frontão / Moldura frontal',   u:'sf'},
-    {k:'cap_degrau',  l:'Degrau de acesso',            u:'sf'}
-  ]},
-  {g:'🏛️ Pilares',its:[
-    {k:'cap_pilar_ch',l:'Pilar em chapa (p/ unidade)', u:'sf'},
-    {k:'cap_pilar_tr',l:'Pilar torneado — pronto',     u:'un',fx:1}
-  ]},
   {g:'📐 Acabamentos (ml)',its:[
     {k:'cap_mold',    l:'Moldura decorativa',          u:'ml'},
     {k:'cap_ping',    l:'Pingadeira',                  u:'ml'},
@@ -1230,7 +1220,7 @@ function calcCapelaPecas(ce){
   var W=+(ce.capW||0);   // largura interna cm
   var P=+(ce.capP||0);   // profundidade cm
   var H=+(ce.capH||0);   // altura interna cm
-  var E=+(ce.capE||3);   // espessura chapa cm
+  var E=+(ce.capE||2);   // espessura chapa cm (padrão 2cm)
   var nPil=+(ce.capNPil!==undefined?ce.capNPil:2);
   var pilW=+(ce.capPilW||0);
   var pilH=+(ce.capPilH||H);
@@ -1797,7 +1787,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='</div>';
       h+='<div class="r2">';
       h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
-      h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="3" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
+      h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="2" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
       h+='</div>';
       // Pilares
       h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:10px 0 10px;"></div>';
