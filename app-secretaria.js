@@ -703,27 +703,21 @@ function _secBuildBriefing(ctx) {
     return '• ' + v.cli + ' às ' + (v.hora||'?') + ' — ' + (v.end||'');
   }).join('\n') || 'Nenhuma';
 
-  return 'Você é a Secretária Inteligente da HR Mármores, uma marmoraria.\n'
-    + 'Analise os dados e gere um briefing DIRETO e PRÁTICO. Use nomes e valores reais.\n\n'
-    + 'DADOS DE HOJE (' + ctx.hoje + '):\n'
-    + '- Equipe: ' + ctx.equipe + ' pessoas | Capacidade: ' + ctx.capacidade + ' serviços\n'
-    + '- Pressão de produção: ' + ctx.pressura + '% (' + ctx.emProd.length + ' ativos de ' + ctx.capacidade + ')\n'
-    + '- Pode aceitar: ' + ctx.podeAceit + ' serviços novos\n\n'
+  return 'HR Mármores — dados de hoje (' + ctx.hoje + ').\n'
+    + 'Equipe: ' + ctx.equipe + ' | Capacidade: ' + ctx.capacidade + ' serviços | Pressão: ' + ctx.pressura + '% | Pode aceitar: ' + ctx.podeAceit + ' novos\n\n'
     + 'SERVIÇOS EM PRODUÇÃO (' + ctx.emProd.length + '):\n' + linhasServicos + '\n\n'
     + 'FINANÇAS:\n'
-    + '- Total a receber: R$ ' + fm(ctx.totPend) + '\n'
-    + '- Vencido/atrasado: R$ ' + fm(ctx.totPendVenc) + '\n'
-    + '- A receber em 7 dias: R$ ' + fm(ctx.totSemana) + '\n'
-    + '- Compromissos 30 dias: R$ ' + fm(ctx.totSaidas) + '\n'
+    + '- A receber: R$ ' + fm(ctx.totPend) + ' (vencido: R$ ' + fm(ctx.totPendVenc) + ')\n'
+    + '- Semana: R$ ' + fm(ctx.totSemana) + ' | Compromissos 30d: R$ ' + fm(ctx.totSaidas) + '\n'
     + '- Saldo projetado: R$ ' + fm(ctx.saldo) + ' ' + (ctx.saldo >= 0 ? '(positivo)' : '(NEGATIVO)') + '\n\n'
-    + 'ORÇAMENTOS SEM RETORNO (' + ctx.followUps.length + '):\n' + linhasFollowUp + '\n\n'
-    + 'VISITAS HOJE: ' + ctx.visitasHoje.length + '\n' + linhasVisitas + '\n\n'
-    + 'Responda APENAS em JSON válido, sem markdown:\n'
-    + '{"fazerAgora":{"titulo":"string","detalhe":"1-2 frases diretas"},'
-    + '"ondeApertar":{"titulo":"string","detalhe":"1-2 frases diretas"},'
-    + '"oportunidade":{"titulo":"string","detalhe":"1-2 frases diretas"},'
-    + '"alertaRitmo":{"titulo":"string","detalhe":"1-2 frases diretas"},'
-    + '"conselhoFinanceiro":{"titulo":"string","detalhe":"1-2 frases diretas"},'
+    + 'FOLLOW-UPS (' + ctx.followUps.length + '):\n' + linhasFollowUp + '\n\n'
+    + 'VISITAS HOJE (' + ctx.visitasHoje.length + '):\n' + linhasVisitas + '\n\n'
+    + 'Responda SOMENTE JSON sem markdown:\n'
+    + '{"fazerAgora":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais"},'
+    + '"ondeApertar":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais"},'
+    + '"oportunidade":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais"},'
+    + '"alertaRitmo":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais"},'
+    + '"conselhoFinanceiro":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais"},'
     + '"humorGeral":"otimo|bom|atencao|critico"}';
 }
 
@@ -731,7 +725,7 @@ function _secBuildBriefing(ctx) {
 function secFetchAI() {
   var key = CFG && CFG.emp && CFG.emp.apiKey;
   if (!key) {
-    _secAI.error = 'Configure a chave API nas configurações da empresa.';
+    _secAI.error = 'no_key';
     _secRenderAI();
     return;
   }
@@ -743,8 +737,13 @@ function secFetchAI() {
   var ctx = _secBuildCtx();
   var briefing = _secBuildBriefing(ctx);
 
+  // Timeout de 20 segundos
+  var controller = window.AbortController ? new AbortController() : null;
+  var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 20000) : null;
+
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: controller ? controller.signal : undefined,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': key,
@@ -752,17 +751,33 @@ function secFetchAI() {
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: 'Você é a Secretária Inteligente da HR Mármores. Responda APENAS em JSON válido, sem markdown, sem texto fora do JSON.',
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      system: 'Responda APENAS em JSON válido, sem markdown, sem texto fora do JSON.',
       messages: [{ role: 'user', content: briefing }]
     })
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) {
+    if (timeoutId) clearTimeout(timeoutId);
+    // Trata erros HTTP antes de tentar parsear JSON
+    if (!r.ok) {
+      return r.json().then(function(errBody) {
+        var msg = (errBody.error && errBody.error.message) || ('HTTP ' + r.status);
+        if (r.status === 401) throw new Error('auth:' + msg);
+        if (r.status === 429) throw new Error('rate:' + msg);
+        throw new Error(msg);
+      });
+    }
+    return r.json();
+  })
   .then(function(d) {
+    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
     var text = (d.content||[]).map(function(i){return i.text||'';}).join('');
-    var clean = text.replace(/```json|```/g, '').trim();
-    _secAI.data = JSON.parse(clean);
+    var clean = text.replace(/```json[\s\S]*?```|```/g, '').trim();
+    // Extrai apenas o objeto JSON se houver texto em volta
+    var match = clean.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('parse: resposta não contém JSON');
+    _secAI.data = JSON.parse(match[0]);
     _secAI.loading = false;
     _secAI.lastUpdate = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
     _secAI.error = null;
@@ -770,8 +785,20 @@ function secFetchAI() {
     toast('✨ Briefing da IA atualizado!');
   })
   .catch(function(e) {
+    if (timeoutId) clearTimeout(timeoutId);
     _secAI.loading = false;
-    _secAI.error = 'Erro ao conectar à IA. Verifique a chave API.';
+    var msg = e.message || '';
+    if (e.name === 'AbortError' || msg.indexOf('abort') >= 0) {
+      _secAI.error = 'timeout';
+    } else if (msg.indexOf('auth:') === 0) {
+      _secAI.error = 'auth';
+    } else if (msg.indexOf('rate:') === 0) {
+      _secAI.error = 'rate';
+    } else if (msg.indexOf('parse:') === 0) {
+      _secAI.error = 'parse';
+    } else {
+      _secAI.error = 'generic';
+    }
     _secRenderAI();
     console.error('secFetchAI:', e);
   });
@@ -857,7 +884,16 @@ function _secRenderTabs(container) {
     h += '<button onclick="secFetchAI()" ' + (_secAI.loading?'disabled':'') + ' style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px;color:rgba(255,255,255,.7);font-size:12px;font-family:inherit;cursor:pointer;margin-bottom:12px;">' + btnTxt + '</button>';
 
     if (_secAI.error) {
-      h += '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:12px 14px;color:#f87171;font-size:12px;margin-bottom:10px;">⚠️ ' + escH(_secAI.error) + '</div>';
+      var errMsgs = {
+        'no_key': '🔑 Chave API não configurada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Configure nas Configurações da empresa</a>.',
+        'auth': '🔑 Chave API inválida ou expirada. <a href="#" onclick="go(6);return false;" style="color:#60a5fa;text-decoration:underline;">Verifique nas Configurações</a>.',
+        'rate': '⏳ Limite de requisições atingido. Aguarde alguns segundos e tente novamente.',
+        'timeout': '⌛ A IA demorou demais para responder. Tente novamente.',
+        'parse': '⚠️ Resposta da IA em formato inesperado. Tente novamente.',
+        'generic': '⚠️ Erro ao conectar à IA. Verifique sua conexão e a chave API.'
+      };
+      var errHtml = errMsgs[_secAI.error] || ('⚠️ ' + escH(_secAI.error));
+      h += '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:10px;padding:12px 14px;color:#f87171;font-size:12px;margin-bottom:10px;line-height:1.6;">' + errHtml + '</div>';
     }
 
     if (_secAI.loading && !_secAI.data) {

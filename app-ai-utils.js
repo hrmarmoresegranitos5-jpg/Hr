@@ -8,13 +8,29 @@ function testarAPIKey(){
   var el=document.getElementById('apiTestResult');
   if(!key){if(el)el.textContent='⚠️ Nenhuma chave configurada';return;}
   if(el)el.textContent='⏳ Testando...';
-  fetch('https://api.openai.com/v1/chat/completions',{
+  fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:5,messages:[{role:'user',content:'oi'}]})
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':key,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-haiku-4-5-20251001',
+      max_tokens:5,
+      messages:[{role:'user',content:'oi'}]
+    })
   }).then(function(r){return r.json();}).then(function(d){
-    if(el)el.textContent=d.error?'❌ '+d.error.message:'✅ Conectado!';
-  }).catch(function(){if(el)el.textContent='❌ Sem conexão';});
+    if(d.error){
+      var msg=d.error.message||JSON.stringify(d.error);
+      if(el)el.textContent='❌ '+msg;
+    } else if(d.content){
+      if(el)el.textContent='✅ Chave válida! Claude conectado.';
+    } else {
+      if(el)el.textContent='❌ Resposta inesperada da API';
+    }
+  }).catch(function(e){if(el)el.textContent='❌ Sem conexão: '+e.message;});
 }
 
 function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
