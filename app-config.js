@@ -18,6 +18,7 @@ function buildCfg(){
       ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Travertino','Quartzito','Ultra Compacto'].forEach(function(cat){h+='<option '+(s.cat===cat?'selected':'')+'>'+cat+'</option>';});
       h+='</select></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+s.pr+'" onchange="CFG.stones['+i+'].pr=+this.value;buildMat();buildCatalog();buildPT();svCFG();"></div>';
+      h+='<div class="cfg-row" style="background:rgba(0,0,0,.18);border-radius:7px;padding:7px 10px;margin-bottom:2px;border:1px solid rgba(255,255,255,.06);"><span class="cfg-lbl">Custo R$/m²</span><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;"><input class="cfginp cfginp-w" type="number" step="0.01" value="'+(s.custo||0)+'" style="background:rgba(0,0,0,.25);" onchange="CFG.stones['+i+'].custo=Number(this.value)||0;svCFG();"><span style="font-size:.55rem;color:var(--t4);white-space:nowrap;">Dado interno — não aparece para clientes</span></div></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Acabamento</span><select class="cfginp" style="width:120px;" onchange="CFG.stones['+i+'].fin=this.value;svCFG();"><option '+(s.fin==='Polida'?'selected':'')+'>Polida</option><option '+(s.fin==='Escovada'?'selected':'')+'>Escovada</option></select></div>';
       h+='<div style="padding:9px 13px;border-top:1px solid #0c0c10;display:flex;justify-content:space-between;align-items:center;">';
       h+='<div style="display:flex;gap:6px;">';
