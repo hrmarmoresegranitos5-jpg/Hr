@@ -3449,6 +3449,181 @@ function saveTrEdit(){
   DB.sv();renderFin();closeAll();toast('✓ Atualizado!');
 }
 function delTr(){if(!confirm('Excluir lançamento?'))return;DB.t=DB.t.filter(function(x){return x.id!==editTrId;});DB.sv();renderFin();closeAll();toast('✓ Excluído!');}
+
+function gerarComprovante(id){
+  var t=DB.t.find(function(x){return x.id===(id||editTrId)});
+  if(!t){toast('Lançamento não encontrado');return;}
+  var emp=CFG.emp;
+  var hoje=new Date();
+  var dataStr=hoje.toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
+  var num='REC-'+String(t.id).slice(-6);
+
+  // Tentar extrair nome do cliente da descrição
+  var cli='';
+  var descLower=(t.desc||'').toLowerCase();
+  // padrão: "Entrada contrato ... — NomeCliente (tipo)"
+  var mCli=(t.desc||'').match(/—\s*([^\(]+)/);
+  if(mCli)cli=mCli[1].trim();
+
+  // Buscar orçamento relacionado para pegar valor total
+  var qRel=null;
+  if(cli){
+    var cliLower=cli.toLowerCase();
+    var matches=DB.q.filter(function(q){return (q.cli||'').toLowerCase().indexOf(cliLower)>=0;});
+    if(matches.length)qRel=matches[0];
+  }
+
+  // Calcular total pago pelo cliente (todas entradas com o mesmo cli)
+  var totalPago=0;
+  var historico=[];
+  if(cli){
+    var cliLower2=cli.toLowerCase();
+    DB.t.filter(function(x){
+      return x.type==='in'&&(x.desc||'').toLowerCase().indexOf(cliLower2)>=0;
+    }).forEach(function(x){
+      totalPago+=x.value||0;
+      historico.push(x);
+    });
+  } else {
+    totalPago=t.value||0;
+    historico=[t];
+  }
+  historico.sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
+
+  var totalOrc=qRel?qRel.vista:0;
+  var saldo=totalOrc>0?(totalOrc-totalPago):null;
+
+  // Tipo do pagamento
+  var tipoPag=t.type==='in'?'Pagamento Recebido':t.type==='pend'?'A Receber':'Lançamento';
+  var corTipo=t.type==='in'?'#1a7a3a':'#C9A84C';
+
+  var histHtml=historico.map(function(h,i){
+    var isPago=h.type==='in';
+    return '<tr>'
+      +'<td style="padding:9px 14px;border-bottom:1px solid #f0e8d8;font-size:11px;color:#555;">'+(h.date?new Date(h.date+'T12:00:00').toLocaleDateString('pt-BR'):'')+'</td>'
+      +'<td style="padding:9px 14px;border-bottom:1px solid #f0e8d8;font-size:11px;color:#333;">'+(h.desc||'—')+'</td>'
+      +'<td style="padding:9px 14px;border-bottom:1px solid #f0e8d8;font-size:12px;font-weight:700;text-align:right;color:'+(isPago?'#1a7a3a':'#C9A84C')+';white-space:nowrap;">'+(isPago?'+':'')+' R$ '+fm(h.value||0)+'</td>'
+    +'</tr>';
+  }).join('');
+
+  var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
+  +'<meta name="viewport" content="width=device-width,initial-scale=1">'
+  +'<title>Comprovante — '+cli+'</title>'
+  +'<style>'
+  +'@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap");'
+  +'*{margin:0;padding:0;box-sizing:border-box;}'
+  +'body{font-family:Inter,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#f5f0e8;display:flex;justify-content:center;padding:20px;}'
+  +'.page{max-width:620px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.13);}'
+  // Header
+  +'.hdr{background:linear-gradient(135deg,#0f0c00 0%,#1a1400 60%,#0f0c00 100%);padding:26px 36px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #C9A84C;}'
+  +'.hdr-brand{font-size:18px;font-weight:900;color:#C9A84C;line-height:1.1;}'
+  +'.hdr-tag{font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.45);margin-top:3px;}'
+  +'.hdr-right{text-align:right;}'
+  +'.hdr-doc{font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.3);}'
+  +'.hdr-num{font-size:14px;font-weight:900;color:#C9A84C;margin-top:2px;}'
+  +'.hdr-date{font-size:9px;color:rgba(255,255,255,0.4);margin-top:2px;}'
+  // Badge tipo
+  +'.type-strip{padding:12px 36px;background:#f9f4e8;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px;}'
+  +'.type-badge{padding:5px 14px;border-radius:20px;font-size:9px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#fff;}'
+  +'.type-label{font-size:11px;color:#666;}'
+  // Body
+  +'.body{padding:28px 36px;}'
+  +'.sec-title{font-size:8.5px;font-weight:900;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;border-bottom:1.5px solid #e8d090;padding-bottom:6px;margin-bottom:14px;}'
+  +'.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px;}'
+  +'.field label{display:block;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:3px;}'
+  +'.field span{font-size:12px;font-weight:700;color:#1a1a1a;}'
+  // Valor principal
+  +'.valor-box{background:linear-gradient(135deg,#0f0c00,#1e1800);border-radius:12px;padding:20px 24px;margin-bottom:20px;border:1px solid rgba(201,168,76,.25);display:flex;justify-content:space-between;align-items:center;}'
+  +'.valor-label{font-size:9px;color:rgba(255,255,255,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}'
+  +'.valor-num{font-size:28px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;}'
+  +'.valor-status{text-align:right;}'
+  +'.saldo-label{font-size:8.5px;color:rgba(255,255,255,0.3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}'
+  +'.saldo-num{font-size:16px;font-weight:700;color:rgba(201,168,76,0.65);}'
+  // Tabela histórico
+  +'table{width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;}'
+  +'th{background:#1a1400;color:#C9A84C;padding:9px 14px;text-align:left;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;}'
+  +'th:last-child{text-align:right;}'
+  +'tr:last-child td{border-bottom:none;}'
+  // Linha de total pago
+  +'.total-row{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;background:#faf6ef;border-top:2px solid #C9A84C;border-radius:0 0 8px 8px;}'
+  +'.total-lbl{font-size:10px;font-weight:700;color:#555;letter-spacing:1px;text-transform:uppercase;}'
+  +'.total-val{font-size:16px;font-weight:900;color:#1a7a3a;}'
+  // Saldo restante
+  +'.saldo-box{margin-top:12px;padding:14px 18px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;}'
+  +'.saldo-box.positivo{background:#fff8e1;border:1.5px solid #f0c040;}'
+  +'.saldo-box.zerado{background:#e8f5e8;border:1.5px solid #7bc47b;}'
+  +'.saldo-box-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:3px;}'
+  +'.saldo-box-val{font-size:15px;font-weight:900;}'
+  +'.saldo-box.positivo .saldo-box-val{color:#b07000;}'
+  +'.saldo-box.zerado .saldo-box-val{color:#2a6a2a;}'
+  // Rodapé
+  +'.foot{background:#0f0c00;padding:14px 36px;display:flex;justify-content:space-between;align-items:center;}'
+  +'.foot span{font-size:8.5px;color:rgba(201,168,76,0.35);}'
+  +'.foot strong{color:rgba(201,168,76,0.6);}'
+  +'@media print{body{background:#fff;padding:0;}}'
+  +'</style></head><body>'
+  +'<div class="page">'
+  // Cabeçalho
+  +'<div class="hdr">'
+    +'<div><div class="hdr-brand">'+emp.nome+'</div><div class="hdr-tag">Mármores · Granitos · Acessórios</div></div>'
+    +'<div class="hdr-right"><div class="hdr-doc">Comprovante</div><div class="hdr-num">'+num+'</div><div class="hdr-date">'+dataStr+'</div></div>'
+  +'</div>'
+  // Badge tipo
+  +'<div class="type-strip">'
+    +'<div class="type-badge" style="background:'+corTipo+';">'+tipoPag+'</div>'
+    +'<span class="type-label">'+escH(t.desc||'')+'</span>'
+  +'</div>'
+  +'<div class="body">'
+    // Dados cliente / empresa
+    +'<div class="sec-title">Informações</div>'
+    +'<div class="row2">'
+      +(cli?'<div class="field"><label>Cliente</label><span>'+escH(cli)+'</span></div>':'')
+      +(qRel?'<div class="field"><label>Serviço</label><span>'+escH(qRel.tipo||'')+'</span></div>':'')
+      +'<div class="field"><label>Data do Lançamento</label><span>'+(t.date?new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR'):'—')+'</span></div>'
+      +(qRel?'<div class="field"><label>Nº do Orçamento</label><span>#'+String(qRel.id).slice(-5)+'</span></div>':'')
+    +'</div>'
+    // Valor em destaque
+    +'<div class="valor-box">'
+      +'<div><div class="valor-label">Valor deste lançamento</div><div class="valor-num">R$ '+fm(t.value||0)+'</div></div>'
+      +(totalOrc>0?'<div class="valor-status"><div class="saldo-label">Valor total do serviço</div><div class="saldo-num">R$ '+fm(totalOrc)+'</div></div>':'')
+    +'</div>'
+    // Histórico de pagamentos
+    +(historico.length>1?('<div class="sec-title">Histórico de Pagamentos</div>'
+    +'<table>'
+      +'<tr><th>Data</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr>'
+      +histHtml
+    +'</table>'
+    +'<div class="total-row">'
+      +'<span class="total-lbl">Total Pago</span>'
+      +'<span class="total-val">R$ '+fm(totalPago)+'</span>'
+    +'</div>'):
+    ('<table>'
+      +'<tr><th>Data</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr>'
+      +histHtml
+    +'</table>'))
+    // Saldo restante
+    +(totalOrc>0?
+      '<div class="saldo-box '+(saldo<=0?'zerado':'positivo')+'">'
+        +'<div>'
+          +'<div class="saldo-box-lbl">'+(saldo<=0?'✅ Pagamento concluído':'Saldo Restante')+'</div>'
+          +'<div class="saldo-box-val">'+(saldo<=0?'Quitado':'R$ '+fm(saldo))+'</div>'
+        +'</div>'
+        +(saldo>0?('<div style="font-size:10px;color:#a07000;max-width:180px;text-align:right;line-height:1.5;">A ser pago na entrega e instalação do serviço</div>'):'')
+      +'</div>':'')
+  +'</div>'
+  // Rodapé
+  +'<div class="foot">'
+    +'<span><strong>'+emp.nome+'</strong> · '+emp.tel+'</span>'
+    +'<span>'+emp.cnpj+' · '+emp.cidade+'</span>'
+  +'</div>'
+  +'</div>'
+  +'<script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script>'
+  +'</body></html>';
+
+  var w=window.open('','_blank','width=700,height=800');
+  if(w){w.document.write(html);w.document.close();}
+  else toast('Permita pop-ups para gerar o comprovante');
+}
 function renderFin(){
   var inT=DB.t.filter(function(t){return t.type==='in';}).reduce(function(s,t){return s+t.value;},0);
   var outT=DB.t.filter(function(t){return t.type==='out';}).reduce(function(s,t){return s+t.value;},0);
@@ -4950,22 +5125,37 @@ function toggleContrModo(){
 }
 
 // Sincroniza campos e mostra preview das porcentagens
-function contrSyncCustom(origem){
+function contrSyncCustom(origem, campo){
   var vista=window._contrVista||0;
   var preview=document.getElementById('contrCustomPreview');
   if(origem==='reais'){
-    var entV=+document.getElementById('contrEntVal').value||0;
-    var entgV=+document.getElementById('contrEntgVal').value||0;
+    var elEnt=document.getElementById('contrEntVal');
+    var elEntg=document.getElementById('contrEntgVal');
+    var entV=+elEnt.value||0;
+    var entgV=+elEntg.value||0;
+    // Auto-completar o outro campo
     if(vista>0){
+      if(campo==='ent'){
+        var resto=Math.max(0,vista-entV);
+        elEntg.value=resto.toFixed(2);
+        entgV=resto;
+      } else if(campo==='entg'){
+        var restoEnt=Math.max(0,vista-entgV);
+        elEnt.value=restoEnt.toFixed(2);
+        entV=restoEnt;
+      }
       var ep=Math.round((entV/vista)*100);
       var egp=Math.round((entgV/vista)*100);
       document.getElementById('contrEntPct').value=ep;
       document.getElementById('contrEntgPct').value=egp;
-      if(preview)preview.textContent='Entrada: '+ep+'% · Entrega: '+egp+'%'+(ep+egp!==100?' ⚠️ soma '+(ep+egp)+'%':'');
+      if(preview)preview.textContent='Entrada: '+ep+'% · Entrega: '+egp+'%';
     }
   } else {
     var ep2=+document.getElementById('contrEntPct').value||0;
     var egp2=+document.getElementById('contrEntgPct').value||0;
+    // Auto-completar o outro campo de %
+    if(campo==='ent'){egp2=Math.max(0,100-ep2);document.getElementById('contrEntgPct').value=egp2;}
+    else if(campo==='entg'){ep2=Math.max(0,100-egp2);document.getElementById('contrEntPct').value=ep2;}
     if(vista>0){
       document.getElementById('contrEntVal').value=(vista*(ep2/100)).toFixed(2);
       document.getElementById('contrEntgVal').value=(vista*(egp2/100)).toFixed(2);
