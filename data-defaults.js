@@ -99,7 +99,7 @@ var DEF_STONES=[
   {id:'itaunas',nm:'Branco Itaúnas',cat:'Granito Branco',fin:'Polida',pr:510,custo:261.65,tx:'tx-itaunas',photo:'',desc:'Granito branco premium do Espírito Santo. Veios delicados em dourado e cinza criam movimento elegante. Mais sofisticado que o Dallas — ideal para projetos que querem branco com personalidade.'},
   {id:'nepal',nm:'Branco Nepal',cat:'Granito Branco',fin:'Polida',pr:540,custo:291.65,tx:'tx-nepal',photo:'',desc:'Granito branco com veios em creme e bege quente. Diferente dos brancos frios, tem calor natural que harmoniza com madeiras e cerâmicas claras. Atemporal e muito valorizado em residências de alto padrão.'},
   {id:'prime',nm:'Branco Prime',cat:'Granito Branco',fin:'Polida',pr:730,custo:491.65,tx:'tx-prime',photo:'',desc:'Granito branco de altíssimo padrão com veios dourados naturais. Polimento espelhado intenso e movimento dramático. Para projetos que exigem o máximo em sofisticação — um dos mais valorizados do mercado nacional.'},
-  {id:'mrm_branco',nm:'Mármore Branco Comercial',cat:'Mármore',fin:'Polida',pr:300,custo:101.65,tx:'tx-mrm-branco',photo:'',desc:'Mármore calcítico clássico — branco com veios cinza naturais. Material poroso que exige selagem periódica. Pela beleza única dos veios naturais, é muito utilizado em banheiros, lavabos e projetos decorativos de luxo.'},
+  {id:'mrm_branco',nm:'Mármore Branco Comercial',cat:'Mármore',fin:'Polida',pr:300,custo:139.65,tx:'tx-mrm-branco',photo:'',desc:'Mármore calcítico clássico — branco com veios cinza naturais. Material poroso que exige selagem periódica. Pela beleza única dos veios naturais, é muito utilizado em banheiros, lavabos e projetos decorativos de luxo.'},
   {id:'siena',nm:'Branco Siena',cat:'Granito Branco',fin:'Polida',pr:580,custo:281.65,tx:'tx-siena',photo:'',desc:'Granito branco com veios dourados e bege marcantes. Alta resistência e durabilidade. Polimento espelhado intenso. Uma das pedras mais elegantes do mercado — não requer selagem como o mármore.'},
   {id:'siena_e',nm:'Branco Siena Escovado',cat:'Granito Branco',fin:'Escovada',pr:620,custo:321.65,tx:'tx-siena',photo:'',desc:'Branco Siena com acabamento escovado. Textura aveludada e contemporânea esconde riscos e marcas de uso diário. Excelente para famílias com uso intenso da cozinha.'},
   {id:'parana',nm:'Branco Paraná',cat:'Mármore',fin:'Polida',pr:1490,custo:0,tx:'tx-parana',photo:'',desc:'Mármore Branco Paraná — um dos materiais mais exclusivos disponíveis. Fundo branco puro com veios dramáticos em cinza e dourado. Cada chapa é única e irrepetível. Exige cuidados especiais, mas entrega altíssimo luxo.'},
@@ -143,7 +143,7 @@ tum_tampa:0,tum_lat:0,tum_front:0,tum_base:0,tum_det:85,tum_sainha:80,tum_mol:12
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
 function initCFG(){
-  var CFG_VER = 19;
+  var CFG_VER = 20;
   var storedVer = +localStorage.getItem('hr_cfg_ver') || 0;
 
   if(!CFG || storedVer < CFG_VER){
