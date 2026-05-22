@@ -2395,11 +2395,14 @@ function calcular(){
       }
     });
 
-    // Serviços
+    // Serviços — skip _fb items (calculados por lado das peças, tratados abaixo)
+    var _sfSeenCalc={};
     g.forEach(function(grp){grp.its.forEach(function(it){
       if(!sv[it.k])return;
       var svd=sv[it.k];
+      if(svd._fb)return; // borda-por-lado: tratado separadamente abaixo (deduplificado)
       if(it.u==='sf'){
+        if(_sfSeenCalc[it.k])return;_sfSeenCalc[it.k]=true; // previne dupla contagem por grupo duplicado
         var ml=svd.ml||0,altCm=svd.altCm||0,q=svd.q||1;
         if(ml&&altCm){
           var sfM2=ml*(altCm/100)*q;
@@ -2420,6 +2423,26 @@ function calcular(){
       var qty=svd.qty||1;
       var vv=getPr(it.k)*qty;acT+=vv;acL.push({l:it.l+(qty>1?' ('+qty+it.u+')':''),v:vv});acN.push(it.l);
     });});
+    // Bordas por lado (_fb): calcular deduplificado
+    if(typeof _ambHasBordas==='function'&&_ambHasBordas(amb)){
+      var _bkSeenCalc={};
+      getBordaSvcs().forEach(function(k){
+        if(_bkSeenCalc[k])return;_bkSeenCalc[k]=true;
+        var svd=sv[k];
+        if(!svd||!svd._fb||!svd.ml||!svd.altCm)return;
+        var ml=svd.ml,altCm=svd.altCm,q=svd.q||1;
+        var sfM2=ml*(altCm/100)*q;
+        var sfMo=ml*q*getPr(k);
+        var _svMatch=CFG.svList?CFG.svList.find(function(s){return s.k===k;}):null;
+        var _allSubs=getSainhaSubs().concat(getFrontaoSubs());
+        var _subMatch=_allSubs.find(function(s){return s.k===k;});
+        var lbl=_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k);
+        m2+=sfM2;acT+=sfMo;
+        acL.push({l:lbl+' '+ml+'ml×'+altCm+'cm',v:sfMo});
+        acN.push(lbl+' ('+ml+'ml, '+sfM2.toFixed(3)+'m²)');
+        sfPcs.push({l:lbl,w:ml,h:altCm,q:q,m2:sfM2,mo:sfMo});
+      });
+    }
 
     // Rodapé de Box: acabamento superior + cola sempre automáticos
     if(_isRdBox){
@@ -2657,6 +2680,7 @@ function calcular(){
     gP.forEach(function(grpP){grpP.its.forEach(function(itP){
       if(!svP[itP.k])return;
       var sdP=svP[itP.k];
+      if(sdP._fb)return; // borda-por-lado: tratado separadamente abaixo (deduplificado)
       var mlP=sdP.ml||sdP.w||0,hP=sdP.altCm||sdP.h||0,qP=sdP.q||1;
       var vP=0,dP=itP.l;
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
@@ -2666,6 +2690,23 @@ function calcular(){
       else{vP=getPr(itP.k);}
       if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
     });});
+    // Bordas calculadas por lado das peças (_fb): adicionar deduplificado
+    if(typeof _ambHasBordas==='function'&&_ambHasBordas(ambP)){
+      var _bkSeenP={};
+      getBordaSvcs().forEach(function(k){
+        if(_bkSeenP[k])return;_bkSeenP[k]=true;
+        var sdP=svP[k];
+        if(!sdP||!sdP._fb||!sdP.ml)return;
+        var mlP=sdP.ml,hP=sdP.altCm||6,qP=sdP.q||1;
+        var vP=mlP*qP*getPr(k);if(!vP)return;
+        var _svMatch=CFG.svList?CFG.svList.find(function(s){return s.k===k;}):null;
+        var _allSubs=getSainhaSubs().concat(getFrontaoSubs());
+        var _subMatch=_allSubs.find(function(s){return s.k===k;});
+        var lbl=_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k);
+        var dP=lbl+' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');
+        rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';
+      });
+    }
     ambP.pecas.forEach(function(pP){
       if(!pP.acb)return;
       Object.keys(pP.acb).forEach(function(akP){
@@ -2863,11 +2904,13 @@ function gerarPDF(){
         var bpAcabStr=bpBA.tipo&&bpBA.tipo!=='polida'?' · acabamento '+bpBA.tipo:'';
         allRowsHtml+='<tr><td colspan="2" style="background:linear-gradient(90deg,#e8f0ff,#f0f6ff);padding:10px 14px;border-bottom:2px solid #6ea4ff;border-top:1px solid #c8d8f8;">'          +'<span style="font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:#2255aa;font-weight:900;">📏 METRAGEM LINEAR</span>'          +'&nbsp;&nbsp;<span style="font-size:15px;font-weight:900;color:#1a3a7a;">'+bpML.toFixed(2)+'m</span>'          +'<span style="font-size:11px;color:#446;font-weight:600;"> de borda'+(bpLarg?' '+bpLarg+'cm':'')+bpAcabStr+'</span>'          +'</td></tr>';
       }
-      // Saihas/frontões do svState
+      // Saihas/frontões do svState — deduplificado para evitar duplicação por grupo combinado
       var g=SV_DEFS[tipo]||SV_DEFS.Cozinha;
       var sv=snap.svState||{};
+      var _pdfSfSeen={};
       g.forEach(function(grp){grp.its.forEach(function(it){
         if(!sv[it.k]||it.u!=='sf')return;
+        if(_pdfSfSeen[it.k])return;_pdfSfSeen[it.k]=true;
         var svd=sv[it.k];
         var ml=svd.ml||0,alt=svd.altCm||0,qq=svd.q||1;
         if(!ml||!alt)return;
