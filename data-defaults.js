@@ -134,7 +134,7 @@ var DEF_ACESS=[
   {id:'calha_umida',nm:'Calha Úmida',marca:'',dim:'Sob medida',pr:0,desc:'Calha escavada na pedra para escorrer água. Integrada ao tampo.',photo:''},
   {id:'escorredor',nm:'Escorredor de Louça',marca:'',dim:'Embutir',pr:0,desc:'Escorredor em inox ou pedra esculpida integrado à bancada.',photo:''}
 ];
-var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
+var DEF_SV={fatorCustoMO:0.55,s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
 tum_tampa:0,tum_lat:0,tum_front:0,tum_base:0,tum_det:85,tum_sainha:80,tum_mol:120,tum_ping:80,tum_gav1:0,tum_gav2:0,tum_gav3:0,tum_lapide:350,tum_plaq:180,tum_foto:220,tum_cruz:280,tum_rec:90,tum_pol:150,tum_bisel:65,tum_fund:0,tum_lev:0,tum_reb:0,tum_conc:0,tum_cpiso:0,tum_acob:0,tum_cim:0,tum_cola:0,tum_rej:0,tum_ferro:0,tum_tijolo:0,tum_frete:0,tum_mont:450,tum_montc:750,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   bp_boleada:25,bp_antiderap:18,bp_pingad:30,bp_mcana:35,bp_chanfro:20,
@@ -177,7 +177,7 @@ function initCFG(){
   }
   // Sync SV labels/prices from svList if it exists
   // Patch v18: força preços novos no CFG existente
-  var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,rdbox_sup:38};
+  var _p={fatorCustoMO:0.55,s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,rdbox_sup:38};
   Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
   // Patch: garantir preços de Rodapé de Box (rdbox) para CFGs existentes
   if(CFG.sv['rdbox_sup']===undefined)CFG.sv['rdbox_sup']=38;
@@ -186,7 +186,7 @@ function initCFG(){
   var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
   CFG.stones.forEach(function(s){if(_pr[s.id])s.pr=_pr[s.id];});
   // Patch: custo real das pedras (JC Brito + frete R$40 + ICMS R$1,65)
-  var _custo={andorinha:131.65,verde_ub:141.65,verde_perla:141.65,bege:196.65,p_indiano:156.65,p_gabriel:236.65,p_gabriel_e:266.65,via_lactea:286.65,dallas:156.65,itaunas:261.65,nepal:291.65,prime:491.65,mrm_branco:101.65,siena:281.65,siena_e:321.65,perla:791.65};
+  var _custo={andorinha:131.65,verde_ub:141.65,verde_perla:141.65,bege:196.65,p_indiano:156.65,p_gabriel:236.65,p_gabriel_e:266.65,via_lactea:286.65,dallas:156.65,itaunas:261.65,nepal:291.65,prime:491.65,mrm_branco:139.65,siena:281.65,siena_e:321.65,perla:791.65};
   CFG.stones.forEach(function(s){if(s.custo===undefined)s.custo=_custo[s.id]||0;});
   syncSVDefsFromList();
   // Apply photos from CUBA_IMGS for any cuba without a custom photo
