@@ -1287,12 +1287,37 @@ var _FRONTAO_SUBS_DEFAULT = [
   {k:'frontao',l:'Reto'},{k:'frontao_chf',l:'Chanfrado'}
 ];
 
+// Chaves nativas de sainha e frontão — usadas para desambiguar grupo combinado
+var _SAINHA_NATIVE_KEYS = ['s_reta','s_45','s_boleada','s_slim'];
+var _FRONTAO_NATIVE_KEYS = ['frontao','frontao_chf'];
+
+function _grpMatchSainha(sv){
+  var grp=(sv.grp||'').toLowerCase();
+  if(grp.indexOf('sainha')===-1) return false;
+  // Grupo combinado "Sainha/Frontão": só inclui itens cujo label começa com "Sainha"
+  // ou cuja chave é nativa de sainha, para evitar incluir os frontões
+  if(grp.indexOf('front')!==-1){
+    var l=(sv.l||'').toLowerCase();
+    return l.indexOf('sainha')===0 || _SAINHA_NATIVE_KEYS.indexOf(sv.k)!==-1;
+  }
+  return true;
+}
+
+function _grpMatchFrontao(sv){
+  var grp=(sv.grp||'').toLowerCase();
+  if(grp.indexOf('front')===-1 && grp.indexOf('frontão')===-1) return false;
+  // Grupo combinado "Sainha/Frontão": só inclui itens cujo label começa com "Frontão"
+  // ou cuja chave é nativa de frontão, para evitar incluir as sainhas
+  if(grp.indexOf('sainha')!==-1){
+    var l=(sv.l||'').toLowerCase();
+    return l.indexOf('front')===0 || _FRONTAO_NATIVE_KEYS.indexOf(sv.k)!==-1;
+  }
+  return true;
+}
+
 function getSainhaSubs(){
   if(!CFG||!CFG.svList) return _SAINHA_SUBS_DEFAULT;
-  var items = CFG.svList.filter(function(sv){
-    var grp=(sv.grp||'').toLowerCase();
-    return grp.indexOf('sainha')!==-1;
-  });
+  var items = CFG.svList.filter(_grpMatchSainha);
   if(!items.length) return _SAINHA_SUBS_DEFAULT;
   return items.map(function(sv){
     // derive short label: remove "Sainha " prefix if present
@@ -1303,10 +1328,7 @@ function getSainhaSubs(){
 
 function getFrontaoSubs(){
   if(!CFG||!CFG.svList) return _FRONTAO_SUBS_DEFAULT;
-  var items = CFG.svList.filter(function(sv){
-    var grp=(sv.grp||'').toLowerCase();
-    return grp.indexOf('front')!==-1 || grp.indexOf('frontão')!==-1;
-  });
+  var items = CFG.svList.filter(_grpMatchFrontao);
   if(!items.length) return _FRONTAO_SUBS_DEFAULT;
   return items.map(function(sv){
     var l=sv.l.replace(/^front[aã]o\s*/i,'').trim()||sv.l;
@@ -1315,9 +1337,9 @@ function getFrontaoSubs(){
 }
 
 function getBordaSvcs(){
-  var keys=[];
-  getSainhaSubs().forEach(function(s){keys.push(s.k);});
-  getFrontaoSubs().forEach(function(s){keys.push(s.k);});
+  var keys=[], seen={};
+  getSainhaSubs().forEach(function(s){if(!seen[s.k]){keys.push(s.k);seen[s.k]=true;}});
+  getFrontaoSubs().forEach(function(s){if(!seen[s.k]){keys.push(s.k);seen[s.k]=true;}});
   return keys;
 }
 
@@ -1353,6 +1375,21 @@ function _setBd(pc, lado, patch) {
 }
 
 function _syncBordaSvState(amb) {
+  // Migração: corrige lados frontão que ficaram com sub de sainha por causa do bug
+  // do grupo combinado 'Sainha/Frontão' (onde getFrontaoSubs retornava s_reta como primeiro)
+  (amb.pecas||[]).forEach(function(pc){
+    if(!pc.bordas) return;
+    ['fr','fd','esq','dir'].forEach(function(lado){
+      var bd=pc.bordas[lado];
+      if(!bd||bd.tipo!=='frontao') return;
+      var sainhaSubs=getSainhaSubs().map(function(s){return s.k;});
+      var frontaoSubs=getFrontaoSubs().map(function(s){return s.k;});
+      // Se sub atual é uma chave de sainha (não de frontão), corrige para o primeiro frontão disponível
+      if(bd.sub&&sainhaSubs.indexOf(bd.sub)!==-1&&frontaoSubs.indexOf(bd.sub)===-1){
+        bd.sub=frontaoSubs[0]||'frontao';
+      }
+    });
+  });
   var totML = {}, totAlt = {}, hasBordas = false;
   amb.pecas.forEach(function(pc) {
     if (!pc.bordas) return;
@@ -2021,7 +2058,7 @@ function buildSVHtml(amb){
   var h='';
   // When per-side bordas are set, show Sainha/Frontão as computed summary
   if(hasBordas){
-    var bordaKeys=getBordaSvcs().filter(function(k){return sv[k]&&sv[k]._fb&&sv[k].ml>0;});
+    var _bkSeen={};var bordaKeys=getBordaSvcs().filter(function(k){if(_bkSeen[k])return false;_bkSeen[k]=true;return sv[k]&&sv[k]._fb&&sv[k].ml>0;});
     if(bordaKeys.length){
       h+='<div class="svblk"><div class="svhd">Bordas — calculado por lado das peças</div>';
       bordaKeys.forEach(function(k){
