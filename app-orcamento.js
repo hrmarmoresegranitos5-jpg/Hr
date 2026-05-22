@@ -1484,18 +1484,84 @@ function calcular(){
   pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Preço Venda</span><b style="color:var(--gold2);">R$ '+fm(pedT)+'</b></div>';
   if(temCustoReal){pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Custo Real</span><b style="color:var(--grn);">R$ '+fm(totalCustoPedra)+'</b></div>';}
   else{pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;font-style:italic;"><span style="font-size:.68rem;color:var(--t4);">Custo real não cadastrado</span><span style="font-size:.68rem;color:var(--t4);">—</span></div>';}
-  // fatorCustoMO: percentual do preço MO que representa custo real (ex: 0.55 = 55%)
-  var fatorMO=CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55;
-  var custoRealMO=totalAcT*fatorMO;
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra (preço cobrado)</span><b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra (custo real '+(Math.round(fatorMO*100))+'%)</span><b style="color:var(--grn);">R$ '+fm(custoRealMO)+'</b></div>';
+  // ══ CÁLCULO INTELIGENTE DE CUSTO MO ══
+  // Folha mensal configurável (salários + pró-labores HR)
+  var folhaMensal = CFG&&CFG.sv&&CFG.sv.folhaMensal!=null ? CFG.sv.folhaMensal : 9900;
+
+  // Calcula m² médio produzido nos últimos 3 meses a partir do histórico real
+  function calcM2MedioMensal() {
+    if(!DB||!DB.q||!DB.q.length) return 0;
+    var hoje = new Date();
+    var m2PorMes = {};
+    DB.q.forEach(function(q) {
+      if(!q.date||!q.m2||q.m2<=0) return;
+      var partes = q.date.split('-');
+      if(partes.length<2) return;
+      var chave = partes[0]+'-'+partes[1];
+      var d = new Date(parseInt(partes[0]), parseInt(partes[1])-1, parseInt(partes[2])||1);
+      var diffMeses = (hoje.getFullYear()-d.getFullYear())*12 + (hoje.getMonth()-d.getMonth());
+      if(diffMeses >= 0 && diffMeses < 3) {
+        m2PorMes[chave] = (m2PorMes[chave]||0) + q.m2;
+      }
+    });
+    var meses = Object.keys(m2PorMes);
+    if(!meses.length) return 0;
+    var totalM2Hist = meses.reduce(function(s,k){return s+m2PorMes[k];},0);
+    return totalM2Hist / meses.length;
+  }
+
+  var m2MedioMes = calcM2MedioMensal();
+  var custoMOm2 = m2MedioMes > 0 ? folhaMensal / m2MedioMes : 0;
+  var custoRealMO = custoMOm2 > 0 ? custoMOm2 * totalM2 : totalAcT * (CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55);
+  var moInteligente = custoMOm2 > 0;
+
+  // MO cobrada vs custo real
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
+  pi+='<span style="font-size:.72rem;color:var(--t3);">Mão de Obra (cobrado)</span>';
+  pi+='<b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
+
+  if(moInteligente){
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;">';
+    pi+='<span style="font-size:.67rem;color:var(--t4);">Custo MO ('+m2MedioMes.toFixed(1)+'m²/mês · R$'+fm(custoMOm2.toFixed(0))+'/m²)</span>';
+    pi+='<b style="color:#6ea4ff;">R$ '+fm(custoRealMO)+'</b></div>';
+  } else {
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;font-style:italic;">';
+    pi+='<span style="font-size:.65rem;color:var(--t4);">Custo MO (histórico curto — 55% estimado)</span>';
+    pi+='<b style="color:#6ea4ff;">R$ '+fm(custoRealMO)+'</b></div>';
+  }
+
   var totalCustoReal=(temCustoReal?totalCustoPedra:pedT)+custoRealMO;
-  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo Real</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
-  pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+
+  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;">';
+  pi+='<span style="font-size:.78rem;font-weight:700;">Total Custo Real</span>';
+  pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
+
+  pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;">';
+  pi+='<span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span>';
+  pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+
   var margemReal=vista-totalCustoReal;
   var margemPct=totalCustoReal>0?Math.round(margemReal/totalCustoReal*100):0;
-  var margemColor=margemPct>=30?'var(--grn)':margemPct>=15?'#f0a500':'#e05a5a';
-  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;padding:8px 10px;background:rgba(0,0,0,.15);border-radius:8px;"><span style="font-size:.78rem;font-weight:700;">💰 Lucro Real</span><b style="color:'+margemColor+';font-size:.95rem;">R$ '+fm(margemReal)+(temCustoReal?' ('+margemPct+'%)':'')+'</b></div></div>';
+  var margemSobreVenda=vista>0?Math.round(margemReal/vista*100):0;
+  var margemColor=margemPct>=40?'var(--grn)':margemPct>=20?'#f0a500':'#e05a5a';
+
+  pi+='<div style="margin-top:8px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:10px;">';
+  pi+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">';
+  pi+='<span style="font-size:.82rem;font-weight:700;">💰 Lucro Real</span>';
+  pi+='<b style="color:'+margemColor+';font-size:1.05rem;">R$ '+fm(margemReal)+'</b></div>';
+  pi+='<div style="display:flex;gap:8px;">';
+  pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
+  pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">sobre custo</div>';
+  pi+='<div style="font-size:.92rem;font-weight:700;color:'+margemColor+';">'+margemPct+'%</div></div>';
+  pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
+  pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">sobre venda</div>';
+  pi+='<div style="font-size:.92rem;font-weight:700;color:'+margemColor+';">'+margemSobreVenda+'%</div></div>';
+  if(moInteligente){
+    pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
+    pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">folha mensal</div>';
+    pi+='<div style="font-size:.72rem;font-weight:700;color:var(--gold3);">R$'+fm(Math.round(folhaMensal))+'</div></div>';
+  }
+  pi+='</div></div></div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
   var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
