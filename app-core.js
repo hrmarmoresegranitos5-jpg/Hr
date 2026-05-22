@@ -2410,7 +2410,6 @@ function calcular(){
           m2+=sfM2;acT+=sfMo;
           acL.push({l:it.l+' '+ml+'ml×'+altCm+'cm',v:sfMo});
           acN.push(it.l+' ('+ml+'ml, '+sfM2.toFixed(3)+'m²)');
-          sfPcs.push({l:it.l,w:ml,h:altCm,q:q,m2:sfM2,mo:sfMo});
         }
         return;
       }
@@ -2440,7 +2439,6 @@ function calcular(){
         m2+=sfM2;acT+=sfMo;
         acL.push({l:lbl+' '+ml+'ml×'+altCm+'cm',v:sfMo});
         acN.push(lbl+' ('+ml+'ml, '+sfM2.toFixed(3)+'m²)');
-        sfPcs.push({l:lbl,w:ml,h:altCm,q:q,m2:sfM2,mo:sfMo});
       });
     }
 
