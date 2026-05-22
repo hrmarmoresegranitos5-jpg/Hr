@@ -5323,7 +5323,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'ul{padding-left:0;list-style:none;}'
   +'ul li{margin-bottom:5px;font-size:11px;color:#333;padding-left:14px;position:relative;}'
   +'ul li::before{content:"▸";position:absolute;left:0;color:#C9A84C;font-size:10px;}'
-  +'@media print{body{padding:0;}.page{max-width:100%;}.alert-banner{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.guarantee{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.price-box{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
+  +'@media print{body{padding:0;}.page{max-width:100%;}.section{page-break-inside:avoid;}.sec-break{page-break-before:always;}.guarantee{page-break-inside:avoid;}.sig-area{page-break-inside:avoid;}.foot{page-break-inside:avoid;}.alert-banner,.guarantee,.price-box,.hdr,.title-strip,.foot{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'
   +'</style></head><body>'
   +'<div class="page">'
 
@@ -5411,8 +5411,8 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +pgCondsHtml
   +'</div>';
 
-  // CONDIÇÕES GERAIS
-  html+='<div class="section">'
+  // CONDIÇÕES GERAIS — quebra de página antes desta seção
+  html+='<div class="section sec-break">'
   +'<div class="sec-title">Condições Gerais</div>'
   +'<div class="cond-item"><div class="cond-num">1</div><div class="cond-text">A <strong>'+emp.nome+'</strong> se compromete a fornecer o material e executar os serviços descritos neste contrato dentro do prazo acordado entre as partes.</div></div>'
   +'<div class="cond-item"><div class="cond-num">2</div><div class="cond-text">O prazo de produção de <strong>'+prazo+' dias úteis</strong> começa a contar após o pagamento da entrada e confirmação das medidas definitivas pelo cliente.</div></div>'
@@ -5516,75 +5516,78 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
 
     setTimeout(function(){
       var target=offscreen.querySelector('.page')||offscreen.firstElementChild||offscreen;
+
+      // ── Estratégia: renderizar o documento inteiro mas dividir em páginas
+      // usando as posições reais dos elementos ANTES de remover do DOM ──
+      // Coleta blocos enquanto o offscreen ainda está no DOM
+      var allBlocks=Array.prototype.slice.call(
+        target.querySelectorAll('.hdr,.title-strip,.body>.section,.body>.alert-banner,.foot')
+      );
+      if(allBlocks.length===0){
+        allBlocks=Array.prototype.slice.call(target.children);
+      }
+
+      // Mede posição de cada bloco relativa ao topo do target (ainda no DOM)
+      var targetRect=target.getBoundingClientRect();
+      var measured=allBlocks.map(function(el){
+        var r=el.getBoundingClientRect();
+        return {
+          top: r.top - targetRect.top,
+          bot: r.bottom - targetRect.top,
+          isBreak: el.classList.contains('sec-break')
+        };
+      });
+      var totalH=targetRect.height;
+
       html2canvas(target,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:800,windowWidth:800})
       .then(function(canvas){
+        // Remove do DOM só depois do canvas pronto
+        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+
         var jsPDF=window.jspdf.jsPDF;
         var pageW=595.28;
         var pageH=841.89;
-        var imgW=pageW;
-        var scale=imgW/canvas.width;
-        var imgH=canvas.height*scale;
         var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
 
-        // ── Paginação inteligente via offsetTop ──
-        // IMPORTANTE: medir ANTES de remover o offscreen do DOM
+        var scale2=canvas.width/(targetRect.width||800); // pixels por px do DOM
         var pxPerPt=canvas.width/pageW;
-        var pageHpx=pageH*pxPerPt;
+        var pageHpx=pageH*pxPerPt; // altura A4 em pixels do canvas
 
-        function offsetTopRelTo(el,ancestor){
-          var top=0;
-          while(el&&el!==ancestor){top+=el.offsetTop;el=el.offsetParent;}
-          return top;
-        }
-        var blocks=Array.prototype.slice.call(
-          target.querySelectorAll('.hdr,.title-strip,.body>.section,.body>.alert-banner,.foot')
-        );
-        if(blocks.length===0){
-          blocks=Array.prototype.slice.call(target.children);
-        }
-
-        var blockRects=blocks.map(function(el){
-          var top=offsetTopRelTo(el,target);
-          return {top:top*2, bot:(top+el.offsetHeight)*2}; // *2 = scale do canvas
+        // Converte medidas DOM → pixels do canvas
+        var blocksPx=measured.map(function(m){
+          return {top:m.top*scale2, bot:m.bot*scale2, isBreak:m.isBreak};
         });
 
-        // Só remove do DOM depois de medir
-        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
-
-        // Agrupa blocos em páginas: fecha a página quando o próximo bloco
-        // ultrapassaria o limite, e abre nova página no topo desse bloco
+        // Monta páginas: quebra quando bloco tem sec-break OU quando não cabe
         var pages=[];
         var pgStart=0;
         var pgEnd=0;
-        blockRects.forEach(function(br){
-          if(pgEnd===0){pgEnd=br.bot;return;} // primeiro bloco
-          if(br.bot-pgStart<=pageHpx){
-            // Cabe na página atual
-            pgEnd=br.bot;
-          } else {
-            // Não cabe: fecha página atual e começa nova a partir deste bloco
-            pages.push({start:pgStart,end:pgEnd});
+        blocksPx.forEach(function(br){
+          if(pgEnd===0){pgEnd=br.bot;return;}
+          var forceBreak=br.isBreak;
+          var doesntFit=(br.bot-pgStart)>pageHpx;
+          if(forceBreak||doesntFit){
+            if(pgEnd>pgStart) pages.push({start:pgStart,end:pgEnd});
             pgStart=br.top;
-            pgEnd=br.bot;
           }
+          pgEnd=br.bot;
         });
         pages.push({start:pgStart,end:Math.max(pgEnd,canvas.height)});
 
-        // Renderiza cada fatia num canvas auxiliar e adiciona ao PDF
+        // Gera cada página como fatia do canvas
         pages.forEach(function(pg,idx){
           if(idx>0) pdf.addPage();
           var srcY=Math.max(0,Math.round(pg.start));
           var srcH=Math.min(Math.round(pg.end-pg.start),canvas.height-srcY);
           if(srcH<=0) return;
-          var sliceCanvas=document.createElement('canvas');
-          sliceCanvas.width=canvas.width;
-          sliceCanvas.height=srcH;
-          var ctx=sliceCanvas.getContext('2d');
-          ctx.fillStyle='#ffffff';
-          ctx.fillRect(0,0,sliceCanvas.width,sliceCanvas.height);
+          var sl=document.createElement('canvas');
+          sl.width=canvas.width; sl.height=srcH;
+          var ctx=sl.getContext('2d');
+          ctx.fillStyle='#fff';
+          ctx.fillRect(0,0,sl.width,sl.height);
           ctx.drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
-          var sliceH=srcH/pxPerPt; // altura real em pontos PDF
-          pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,sliceH);
+          var sliceHpt=srcH/pxPerPt;
+          pdf.addImage(sl.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,sliceHpt);
         });
 
         var pdfBlob=pdf.output('blob');
