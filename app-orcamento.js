@@ -1367,7 +1367,10 @@ function calcular(){
     });
 
     var pedTamb=m2*ambMat.pr;
-    var custoAmbPedra=m2*(ambMat.custo||0);
+    // Custo da pedra: tenta ambMat.custo, depois DEF_STONES, depois 0
+    var _defStone=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(s){return s.id===ambMat.id;}):null;
+    var _custoUnit=ambMat.custo||(_defStone?_defStone.custo:0)||0;
+    var custoAmbPedra=m2*_custoUnit;
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;totalCustoPedra+=custoAmbPedra;
     allAcN=allAcN.concat(acN);
     var ambLabel=(idx+1)+'º Ambiente — '+tipo;
