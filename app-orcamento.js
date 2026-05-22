@@ -1488,22 +1488,32 @@ function calcular(){
   // Folha mensal configurável (salários + pró-labores HR)
   var folhaMensal = CFG&&CFG.sv&&CFG.sv.folhaMensal!=null ? CFG.sv.folhaMensal : 9900;
 
-  // Calcula m² médio produzido nos últimos 3 meses a partir do histórico real
+  // Calcula m² médio REALMENTE PRODUZIDO nos últimos 3 meses
+  // Fonte: jobs concluídos (done:true) com m² registrado
+  // Jobs antigos sem m² são ignorados (campo ausente/zero)
+  // Se não houver histórico suficiente, retorna 0 → fallback 55%
   function calcM2MedioMensal() {
-    if(!DB||!DB.q||!DB.q.length) return 0;
+    if(!DB||!DB.j||!DB.j.length) return 0;
     var hoje = new Date();
     var m2PorMes = {};
-    DB.q.forEach(function(q) {
-      if(!q.date||!q.m2||q.m2<=0) return;
-      var partes = q.date.split('-');
+    var jobsValidos = 0;
+    DB.j.forEach(function(j) {
+      if(!j.done||!j.m2||j.m2<=0) return;
+      // Usar data de conclusão (end) ou início (start) como referência
+      var ref = j.end || j.start;
+      if(!ref) return;
+      var partes = ref.split('-');
       if(partes.length<2) return;
       var chave = partes[0]+'-'+partes[1];
       var d = new Date(parseInt(partes[0]), parseInt(partes[1])-1, parseInt(partes[2])||1);
       var diffMeses = (hoje.getFullYear()-d.getFullYear())*12 + (hoje.getMonth()-d.getMonth());
       if(diffMeses >= 0 && diffMeses < 3) {
-        m2PorMes[chave] = (m2PorMes[chave]||0) + q.m2;
+        m2PorMes[chave] = (m2PorMes[chave]||0) + j.m2;
+        jobsValidos++;
       }
     });
+    // Mínimo de 2 jobs concluídos para ativar cálculo inteligente
+    if(jobsValidos < 2) return 0;
     var meses = Object.keys(m2PorMes);
     if(!meses.length) return 0;
     var totalM2Hist = meses.reduce(function(s,k){return s+m2PorMes[k];},0);
