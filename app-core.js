@@ -5523,18 +5523,66 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         var pageW=595.28;
         var pageH=841.89;
         var imgW=pageW;
-        var imgH=pageW*(canvas.height/canvas.width);
+        var scale=imgW/canvas.width;
+        var imgH=canvas.height*scale;
         var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-        var posY=0;
-        var remaining=imgH;
-        var first=true;
-        while(remaining>0){
-          if(!first){pdf.addPage();}
-          pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,-posY,imgW,imgH);
-          posY+=pageH;
-          remaining-=pageH;
-          first=false;
+
+        // ── Paginação inteligente: nunca cortar dentro de uma seção ──
+        // Identifica as posições Y (em pontos PDF) de cada seção no canvas
+        var sections=target.querySelectorAll('.section,.hdr,.title-strip,.alert-banner,.foot');
+        var breakPoints=[0]; // posições Y seguras para iniciar nova página
+        sections.forEach(function(el){
+          var rect=el.getBoundingClientRect();
+          var parentRect=target.getBoundingClientRect();
+          var elTop=(rect.top-parentRect.top)*scale;
+          var elBot=(rect.bottom-parentRect.top)*scale;
+          // Se a seção não cabe na página atual, quebra antes dela
+          breakPoints.push(elTop);
+        });
+        breakPoints.push(imgH);
+
+        // Agrupa seções em páginas sem cortar nenhuma ao meio
+        var pages=[];
+        var curStart=0;
+        var curEnd=0;
+        for(var i=1;i<breakPoints.length;i++){
+          var segEnd=breakPoints[i];
+          var segH=segEnd-curStart;
+          if(segH>pageH&&curEnd>curStart){
+            // Fechar página atual antes deste ponto
+            pages.push({start:curStart,end:curEnd});
+            curStart=curEnd;
+          }
+          curEnd=segEnd;
         }
+        if(curEnd>curStart) pages.push({start:curStart,end:curEnd});
+
+        // Se nenhuma seção encontrada, fallback ao corte simples
+        if(pages.length===0){
+          var posY=0;var remaining=imgH;var first=true;
+          while(remaining>0){
+            if(!first){pdf.addPage();}
+            pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,-posY,imgW,imgH);
+            posY+=pageH;remaining-=pageH;first=false;
+          }
+        } else {
+          pages.forEach(function(pg,idx){
+            if(idx>0) pdf.addPage();
+            // Recortar apenas a fatia desta página do canvas
+            var srcY=Math.round(pg.start/scale);
+            var srcH=Math.round((pg.end-pg.start)/scale);
+            srcH=Math.min(srcH,canvas.height-srcY);
+            if(srcH<=0) return;
+            var sliceCanvas=document.createElement('canvas');
+            sliceCanvas.width=canvas.width;
+            sliceCanvas.height=srcH;
+            var ctx=sliceCanvas.getContext('2d');
+            ctx.drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
+            var sliceH=srcH*scale;
+            pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,imgW,sliceH);
+          });
+        }
+
         var pdfBlob=pdf.output('blob');
         var img=document.createElement('img');
         img.src=canvas.toDataURL('image/jpeg',0.88);
