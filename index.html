@@ -525,12 +525,28 @@ function openApp(pg){
           <button class="contr-pg-btn" data-pg="personalizado" onclick="selContrPg('personalizado')" style="grid-column:span 3;">✏️ Personalizado</button>
         </div>
         <div id="contrPgCustom" style="display:none;margin-top:8px;background:var(--s3);border-radius:10px;padding:10px;gap:8px;flex-direction:column;">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrada (%)</div>
-            <input type="number" id="contrEntPct" min="0" max="100" value="50" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
-            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrega (%)</div>
-            <input type="number" id="contrEntgPct" min="0" max="100" value="50" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
+          <!-- Toggle % / R$ -->
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:2px;">
+            <span style="font-size:.6rem;color:var(--t3);text-transform:uppercase;letter-spacing:1px;">Modo:</span>
+            <button id="contrModoToggle" onclick="toggleContrModo()" style="background:var(--s2);border:1px solid var(--bd2);border-radius:20px;padding:4px 14px;color:var(--tx);font-family:Outfit;font-size:.75rem;cursor:pointer;">R$</button>
+            <span id="contrModoInfo" style="font-size:.6rem;color:var(--t3);">Digite em reais — % calculada auto</span>
           </div>
+          <!-- Campos % (padrão oculto quando modo R$) -->
+          <div id="contrCustomPct" style="display:none;grid-template-columns:1fr 1fr;gap:8px;">
+            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrada (%)</div>
+            <input type="number" id="contrEntPct" min="0" max="100" value="50" oninput="contrSyncCustom('pct')" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
+            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrega (%)</div>
+            <input type="number" id="contrEntgPct" min="0" max="100" value="50" oninput="contrSyncCustom('pct')" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
+          </div>
+          <!-- Campos R$ (padrão visível) -->
+          <div id="contrCustomReais" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrada (R$)</div>
+            <input type="number" id="contrEntVal" min="0" step="0.01" placeholder="0,00" oninput="contrSyncCustom('reais')" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
+            <div><div style="font-size:.58rem;color:var(--t3);margin-bottom:4px;">Entrega (R$)</div>
+            <input type="number" id="contrEntgVal" min="0" step="0.01" placeholder="0,00" oninput="contrSyncCustom('reais')" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px;color:var(--tx);font-family:Outfit;font-size:.85rem;outline:none;"></div>
+          </div>
+          <!-- Preview das %s calculadas -->
+          <div id="contrCustomPreview" style="font-size:.65rem;color:var(--t3);text-align:center;margin-top:2px;"></div>
         </div>
       </div>
 

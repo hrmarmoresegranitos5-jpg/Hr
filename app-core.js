@@ -4883,6 +4883,16 @@ function gerarContrato(id, e){
     var q=DB.q.find(function(x){return x.id==id;});
     if(!q){toast('Orçamento não encontrado');return;}
     _contrId=id;
+    window._contrVista=q.vista||0;
+    // Preenche campos R$ com 50/50 por padrão ao abrir
+    var ev=document.getElementById('contrEntVal');if(ev)ev.value=((q.vista||0)*0.5).toFixed(2);
+    var egv=document.getElementById('contrEntgVal');if(egv)egv.value=((q.vista||0)*0.5).toFixed(2);
+    window._contrModo='reais';
+    var cr=document.getElementById('contrCustomReais');if(cr)cr.style.display='none';
+    var cp=document.getElementById('contrCustomPct');if(cp)cp.style.display='none';
+    var mt=document.getElementById('contrModoToggle');if(mt)mt.textContent='R$';
+    var mi=document.getElementById('contrModoInfo');if(mi)mi.textContent='Digite em reais — % calculada auto';
+    var pv=document.getElementById('contrCustomPreview');if(pv)pv.textContent='';
     var obsEl=document.getElementById('contrObs');
     if(obsEl)obsEl.value=q.obs||'';
     try{
@@ -4916,6 +4926,52 @@ function selContrPg(tipo){
   var btn=document.querySelector('[data-pg="'+tipo+'"]');if(btn)btn.classList.add('on');
   var custom=document.getElementById('contrPgCustom');
   custom.style.display=(tipo==='personalizado')?'flex':'none';
+  if(tipo==='personalizado'){
+    window._contrModo=window._contrModo||'reais';
+    var mR=window._contrModo==='reais';
+    var cr=document.getElementById('contrCustomReais');if(cr)cr.style.display=mR?'grid':'none';
+    var cp=document.getElementById('contrCustomPct');if(cp)cp.style.display=mR?'none':'grid';
+    contrSyncCustom(window._contrModo);
+  }
+}
+
+// Toggle entre modo R$ e modo % no Personalizado
+window._contrModo='reais';
+function toggleContrModo(){
+  window._contrModo=(window._contrModo==='reais')?'pct':'reais';
+  var modoReais=window._contrModo==='reais';
+  document.getElementById('contrCustomReais').style.display=modoReais?'grid':'none';
+  document.getElementById('contrCustomPct').style.display=modoReais?'none':'grid';
+  var btn=document.getElementById('contrModoToggle');
+  var info=document.getElementById('contrModoInfo');
+  if(btn)btn.textContent=modoReais?'R$':'%';
+  if(info)info.textContent=modoReais?'Digite em reais — % calculada auto':'Digite em porcentagem';
+  contrSyncCustom(window._contrModo);
+}
+
+// Sincroniza campos e mostra preview das porcentagens
+function contrSyncCustom(origem){
+  var vista=window._contrVista||0;
+  var preview=document.getElementById('contrCustomPreview');
+  if(origem==='reais'){
+    var entV=+document.getElementById('contrEntVal').value||0;
+    var entgV=+document.getElementById('contrEntgVal').value||0;
+    if(vista>0){
+      var ep=Math.round((entV/vista)*100);
+      var egp=Math.round((entgV/vista)*100);
+      document.getElementById('contrEntPct').value=ep;
+      document.getElementById('contrEntgPct').value=egp;
+      if(preview)preview.textContent='Entrada: '+ep+'% · Entrega: '+egp+'%'+(ep+egp!==100?' ⚠️ soma '+(ep+egp)+'%':'');
+    }
+  } else {
+    var ep2=+document.getElementById('contrEntPct').value||0;
+    var egp2=+document.getElementById('contrEntgPct').value||0;
+    if(vista>0){
+      document.getElementById('contrEntVal').value=(vista*(ep2/100)).toFixed(2);
+      document.getElementById('contrEntgVal').value=(vista*(egp2/100)).toFixed(2);
+    }
+    if(preview)preview.textContent='R$ '+fm(vista*(ep2/100))+' entrada · R$ '+fm(vista*(egp2/100))+' entrega';
+  }
 }
 
 function contrCalcEntrega(){
