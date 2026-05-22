@@ -912,6 +912,11 @@ function openCubaPick(tipo,svKey){
     h+='<div><div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Largura (cm)</div><input type="number" id="escH" placeholder="40" min="20" onclick="event.stopPropagation()" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;outline:none;"></div>';
     h+='<div><div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Profundidade (cm)</div><input type="number" id="escD" placeholder="20" min="10" onclick="event.stopPropagation()" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;outline:none;"></div>';
     h+='</div>';
+    h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">';
+    h+='<div style="font-size:.6rem;color:var(--t3);white-space:nowrap;">Quantidade:</div>';
+    h+='<input type="number" id="escQtd" value="1" min="1" max="20" onclick="event.stopPropagation()" style="width:64px;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;padding:8px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;outline:none;text-align:center;">';
+    h+='<div style="font-size:.65rem;color:var(--t3);">cuba(s) esculpida(s)</div>';
+    h+='</div>';
     h+='<div id="escPreviewBox" style="font-size:.72rem;color:var(--t3);margin-bottom:10px;">Preencha as dimensões e selecione o tipo abaixo</div>';
     h+='<div style="font-size:.6rem;color:var(--t3);margin-bottom:8px;">Tipo de acabamento:</div>';
     escLista.forEach(function(esc){
@@ -929,6 +934,7 @@ function pickEsculpida(escId, tipo){
   var escW=+(document.getElementById('escW')||{}).value||0;
   var escH=+(document.getElementById('escH')||{}).value||0;
   var escD=+(document.getElementById('escD')||{}).value||0;
+  var escQtd=Math.max(1,+(document.getElementById('escQtd')||{}).value||1);
   if(!escW||!escH||!escD){toast('Informe comprimento, largura e profundidade da cuba');return;}
 
   var esc=CFG.lav.find(function(x){return x.id===escId;});
@@ -971,15 +977,14 @@ function pickEsculpida(escId, tipo){
   if(_cubaPickAmbId!==null){
     var amb=ambientes.find(function(a){return a.id==_cubaPickAmbId;});
     if(amb){
-      cubaObj.qtd = window._pendCubaQtd || 1;
-      window._pendCubaQtd = null;
+      cubaObj.qtd = escQtd;
       amb.selCuba=cubaObj;
       if(!amb.svState)amb.svState={};
       amb.svState[svKey]={};
     }
     closeAll();
     renderAmbientes();
-    toast('✓ '+nm+' — R$ '+fm(totalCuba)+' | M.O. R$ '+fm(moTotal)+' + Pedra R$ '+fm(valorPedra));
+    toast('✓ '+escQtd+'× '+nm+' — R$ '+fm(totalCuba*escQtd)+' | M.O. R$ '+fm(moTotal*escQtd)+' + Pedra R$ '+fm(valorPedra*escQtd));
     _cubaPickAmbId=null;
   }
 }
@@ -1370,8 +1375,14 @@ function _getBd(pc, lado) {
 function _setBd(pc, lado, patch) {
   if (!pc.bordas) pc.bordas = {};
   if (!patch) { pc.bordas[lado] = null; return; }
-  if (!pc.bordas[lado]) pc.bordas[lado] = { tipo: null, sub: null, ml: null, alt: 6 };
+  // Defaults por tipo
+  var defAlt = patch.tipo === 'frontao' ? 20 : 6;
+  if (!pc.bordas[lado]) pc.bordas[lado] = { tipo: null, sub: null, ml: null, alt: defAlt };
   Object.assign(pc.bordas[lado], patch);
+  // Se tipo mudou, atualiza alt para o default do novo tipo
+  if (patch.tipo && !patch.alt) {
+    pc.bordas[lado].alt = patch.tipo === 'frontao' ? 20 : 6;
+  }
 }
 
 function _syncBordaSvState(amb) {
@@ -1436,7 +1447,10 @@ function updPcBordaTipo(ambId, pcId, lado, tipo) {
   } else {
     var isDivTipo = BORDA_TIPOS_DIV.some(function(t){return t.k===tipo && t.k!==null;});
     var _subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
-    var defSub = isDivTipo ? null : (_subs.length ? _subs[0].k : (tipo==='sainha'?'s_reta':'frontao'));
+    // Defaults: sainha → s_45 (45°), frontão → frontao (Reto)
+    var defSubKey = tipo==='sainha' ? 's_45' : 'frontao';
+    var defSubExists = _subs.some(function(s){return s.k===defSubKey;});
+    var defSub = isDivTipo ? null : (defSubExists ? defSubKey : (_subs.length ? _subs[0].k : defSubKey));
     _setBd(pc, lado, { tipo: tipo, sub: defSub });
   }
   if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
@@ -1504,7 +1518,7 @@ function buildPecaBordaHtml(amb, pc) {
     var tipoOpt = TIPO_LIST.find(function(t){return t.k===tipo;})||TIPO_LIST[0];
     var curML = bd && bd.ml != null ? bd.ml : null;
     var autoML = side.dim ? (side.dim/100).toFixed(2) : '?';
-    var alt = bd ? (bd.alt||6) : 6;
+    var alt = bd ? (bd.alt || (tipo==='frontao' ? 20 : 6)) : (tipo==='frontao' ? 20 : 6);
     h += '<div style=\"background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;\">';
     h += '<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';\">'; 
     h += '<span style=\"font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;\">'+side.icon+' '+side.l+'</span>';
@@ -5517,106 +5531,122 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     setTimeout(function(){
       var target=offscreen.querySelector('.page')||offscreen.firstElementChild||offscreen;
 
-      // ── Estratégia: renderizar o documento inteiro mas dividir em páginas
-      // usando as posições reais dos elementos ANTES de remover do DOM ──
-      // Coleta blocos enquanto o offscreen ainda está no DOM
-      var allBlocks=Array.prototype.slice.call(
+      // ── Paginação determinística por sec-break ──
+      // Renderiza o HTML inteiro uma vez, depois faz html2canvas por seção
+      // usando os parâmetros y+height que o html2canvas suporta nativamente.
+      // As posições são lidas via scrollTop da div offscreen (não depende de viewport).
+
+      var pageW=595.28;
+      var pageH=841.89;
+      // 800px DOM = pageW pt  →  1 DOM px = pageW/800 pt
+      var domPxPerPt = pageW/800;
+      // altura máxima em px DOM de uma página A4
+      var pageHdom = pageH / domPxPerPt; // ≈ 1122px
+
+      // Lê posições via scrollTop/offsetHeight — funcionam mesmo offscreen
+      // Precisa que o offscreen tenha height computada (scrollHeight)
+      offscreen.style.height='auto';
+      var totalDomH = offscreen.scrollHeight;
+
+      var blocks = Array.prototype.slice.call(
         target.querySelectorAll('.hdr,.title-strip,.body>.section,.body>.alert-banner,.foot')
       );
-      if(allBlocks.length===0){
-        allBlocks=Array.prototype.slice.call(target.children);
+      if(blocks.length===0) blocks=Array.prototype.slice.call(target.children);
+
+      // Calcula offsetTop relativo ao offscreen (não ao target, que pode ter padding)
+      function relativeTop(el){
+        var t=0;
+        var node=el;
+        while(node && node!==offscreen){
+          t+=node.offsetTop;
+          node=node.offsetParent;
+        }
+        return t;
       }
 
-      // Mede posição de cada bloco relativa ao topo do target (ainda no DOM)
-      var targetRect=target.getBoundingClientRect();
-      var measured=allBlocks.map(function(el){
-        var r=el.getBoundingClientRect();
-        return {
-          top: r.top - targetRect.top,
-          bot: r.bottom - targetRect.top,
-          isBreak: el.classList.contains('sec-break')
-        };
+      var measured=blocks.map(function(el){
+        var top=relativeTop(el);
+        return {top:top, bot:top+el.offsetHeight, isBreak:el.classList.contains('sec-break')};
       });
-      var totalH=targetRect.height;
 
-      html2canvas(target,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:800,windowWidth:800})
-      .then(function(canvas){
-        // Remove do DOM só depois do canvas pronto
-        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
-
-        var jsPDF=window.jspdf.jsPDF;
-        var pageW=595.28;
-        var pageH=841.89;
-        var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-
-        var scale2=canvas.width/(targetRect.width||800); // pixels por px do DOM
-        var pxPerPt=canvas.width/pageW;
-        var pageHpx=pageH*pxPerPt; // altura A4 em pixels do canvas
-
-        // Converte medidas DOM → pixels do canvas
-        var blocksPx=measured.map(function(m){
-          return {top:m.top*scale2, bot:m.bot*scale2, isBreak:m.isBreak};
-        });
-
-        // Monta páginas: quebra quando bloco tem sec-break OU quando não cabe
-        var pages=[];
-        var pgStart=0;
-        var pgEnd=0;
-        blocksPx.forEach(function(br){
-          if(pgEnd===0){pgEnd=br.bot;return;}
-          var forceBreak=br.isBreak;
-          var doesntFit=(br.bot-pgStart)>pageHpx;
-          if(forceBreak||doesntFit){
-            if(pgEnd>pgStart) pages.push({start:pgStart,end:pgEnd});
-            pgStart=br.top;
-          }
-          pgEnd=br.bot;
-        });
-        pages.push({start:pgStart,end:Math.max(pgEnd,canvas.height)});
-
-        // Gera cada página como fatia do canvas
-        pages.forEach(function(pg,idx){
-          if(idx>0) pdf.addPage();
-          var srcY=Math.max(0,Math.round(pg.start));
-          var srcH=Math.min(Math.round(pg.end-pg.start),canvas.height-srcY);
-          if(srcH<=0) return;
-          var sl=document.createElement('canvas');
-          sl.width=canvas.width; sl.height=srcH;
-          var ctx=sl.getContext('2d');
-          ctx.fillStyle='#fff';
-          ctx.fillRect(0,0,sl.width,sl.height);
-          ctx.drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
-          var sliceHpt=srcH/pxPerPt;
-          pdf.addImage(sl.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,sliceHpt);
-        });
-
-        var pdfBlob=pdf.output('blob');
-        var img=document.createElement('img');
-        img.src=canvas.toDataURL('image/jpeg',0.88);
-        img.style.cssText='width:100%;max-width:800px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
-        preview.innerHTML='';preview.appendChild(img);
-        enableBtn('cPdfDown','\u2b07 Salvar PDF',function(){
-          var url=URL.createObjectURL(pdfBlob);
-          var a=document.createElement('a');
-          a.href=url;a.download=fileName;
-          document.body.appendChild(a);a.click();document.body.removeChild(a);
-          setTimeout(function(){URL.revokeObjectURL(url);},30000);
-          toast('\u2713 PDF salvo: '+fileName);
-        });
-        if(navigator.share){
-          enableBtn('cPdfShare','\u2197 Compartilhar',function(){
-            var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-            var sd={title:'Contrato '+contrNum+' \u2014 '+(q.cli||''),text:(emp.nome||'HR M\u00e1rmores')+' \u2014 Contrato de Fornecimento e Instala\u00e7\u00e3o'};
-            if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
-            navigator.share(sd).catch(function(){});
-          });
+      // Agrupa em páginas
+      var groups=[];
+      var gStart=0, gEnd=0;
+      measured.forEach(function(m){
+        if(gEnd===0){gEnd=m.bot;return;}
+        var force=m.isBreak;
+        var overflow=(m.bot-gStart)>pageHdom;
+        if(force||overflow){
+          groups.push({start:gStart,end:gEnd});
+          gStart=m.top;
         }
-        toast('\u2713 Contrato PDF pronto \u2014 '+contrNum);
-      }).catch(function(err){
-        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
-        preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar PDF.<br>Feche e tente novamente.</div>';
-        console.error('contrPDF:',err);
+        gEnd=m.bot;
       });
+      groups.push({start:gStart,end:Math.max(gEnd,totalDomH)});
+
+      // Renderiza cada grupo com html2canvas usando y+height
+      var jsPDF=window.jspdf.jsPDF;
+      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+      var done=0;
+      var canvases=new Array(groups.length);
+
+      function renderGroup(idx){
+        var g=groups[idx];
+        var clipH=Math.max(1,Math.round(g.end-g.start));
+        html2canvas(offscreen,{
+          scale:2,
+          useCORS:true,
+          backgroundColor:'#ffffff',
+          logging:false,
+          width:800,
+          windowWidth:800,
+          y:Math.round(g.start),
+          height:clipH,
+          scrollY:0
+        }).then(function(cv){
+          canvases[idx]=cv;
+          done++;
+          if(done===groups.length){
+            if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+            var firstCanvas=canvases[0];
+            canvases.forEach(function(cv,i){
+              if(i>0) pdf.addPage();
+              var iw=pageW;
+              var ih=pageW*(cv.height/cv.width);
+              pdf.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,iw,ih);
+            });
+            var pdfBlob=pdf.output('blob');
+            var img=document.createElement('img');
+            img.src=firstCanvas.toDataURL('image/jpeg',0.88);
+            img.style.cssText='width:100%;max-width:800px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+            preview.innerHTML='';preview.appendChild(img);
+            enableBtn('cPdfDown','\u2b07 Salvar PDF',function(){
+              var url=URL.createObjectURL(pdfBlob);
+              var a=document.createElement('a');
+              a.href=url;a.download=fileName;
+              document.body.appendChild(a);a.click();document.body.removeChild(a);
+              setTimeout(function(){URL.revokeObjectURL(url);},30000);
+              toast('\u2713 PDF salvo: '+fileName);
+            });
+            if(navigator.share){
+              enableBtn('cPdfShare','\u2197 Compartilhar',function(){
+                var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
+                var sd={title:'Contrato '+contrNum+' \u2014 '+(q.cli||''),text:(emp.nome||'HR M\u00e1rmores')+' \u2014 Contrato de Fornecimento e Instala\u00e7\u00e3o'};
+                if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
+                navigator.share(sd).catch(function(){});
+              });
+            }
+            toast('\u2713 Contrato PDF pronto \u2014 '+contrNum);
+          }
+        }).catch(function(err){
+          if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+          preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar PDF.<br>Feche e tente novamente.</div>';
+          console.error('contrPDF:',err);
+        });
+      }
+
+      // Renderiza sequencialmente para não sobrecarregar
+      groups.forEach(function(_,i){ renderGroup(i); });
     },300);
   }
 
