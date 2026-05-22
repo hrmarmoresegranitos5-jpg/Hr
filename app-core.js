@@ -2735,10 +2735,22 @@ function calcular(){
   // Para o painel interno: custo_mob do túmulo vem do tumResult; acessórios comuns = totalAcT
   var tumMobPainel=ambientes.reduce(function(s,a){return s+((a.tipo==='Túmulo'&&a.tumResult)?a.tumResult.custo_mob||0:0);},0);
   var mobPainel=totalAcT+tumMobPainel;
-  var custoPainel=pedT+mobPainel;
+  // ── Custo REAL da pedra: custo/m² × m² (não preço de venda) ──
+  var totalCustoPedraReal=ambientes.reduce(function(s,a){
+    var ambMat=CFG.stones.find(function(x){return x.id===a.selMat;})||mat;
+    var _def=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(x){return x.id===ambMat.id;}):null;
+    var custoUnit=ambMat.custo||(_def?_def.custo:0)||0;
+    var m2Amb=(a.pecas||[]).reduce(function(sm,p){return p.w&&p.h?sm+(p.w/100)*(p.h/100)*(p.q||1):sm;},0);
+    return s+(custoUnit>0?m2Amb*custoUnit:0);
+  },0);
+  var custoPedraExibir=totalCustoPedraReal>0?totalCustoPedraReal:pedT;
+  // ── Custo REAL da MO: fallback 55% enquanto histórico de jobs for curto ──
+  var fatorMO=CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55;
+  var custoMOReal=mobPainel*fatorMO;
+  var custoPainel=custoPedraExibir+custoMOReal;
   pi+='<div style="padding:14px 16px;background:var(--s2);">';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(pedT)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(mobPainel)+'</b></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(custoPedraExibir)+'</b></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(custoMOReal)+'</b></div>';
   pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b id="piVista" style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
   pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b id="piMargem" style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
