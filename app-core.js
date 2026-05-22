@@ -5503,7 +5503,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
     document.getElementById('cPdfClose').onclick=function(){ov.remove();};
 
     var offscreen=document.createElement('div');
-    offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:800px;background:#fff;z-index:-1;';
+    offscreen.style.cssText='position:absolute;left:-9999px;top:0;width:800px;background:#fff;visibility:hidden;';
     offscreen.innerHTML=html;
     document.body.appendChild(offscreen);
 
@@ -5527,61 +5527,68 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         var imgH=canvas.height*scale;
         var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
 
-        // ── Paginação inteligente: nunca cortar dentro de uma seção ──
-        // Identifica as posições Y (em pontos PDF) de cada seção no canvas
-        var sections=target.querySelectorAll('.section,.hdr,.title-strip,.alert-banner,.foot');
-        var breakPoints=[0]; // posições Y seguras para iniciar nova página
-        sections.forEach(function(el){
-          var rect=el.getBoundingClientRect();
-          var parentRect=target.getBoundingClientRect();
-          var elTop=(rect.top-parentRect.top)*scale;
-          var elBot=(rect.bottom-parentRect.top)*scale;
-          // Se a seção não cabe na página atual, quebra antes dela
-          breakPoints.push(elTop);
+        // ── Paginação inteligente via offsetTop ──
+        // offsetTop funciona mesmo com o elemento fora da viewport (left:-9999px)
+        // pxPerPt = pixels do canvas renderizado por ponto PDF
+        var pxPerPt=canvas.width/pageW; // canvas.width px == pageW pt
+        var pageHpx=pageH*pxPerPt;      // altura de uma página A4 em pixels do canvas
+
+        // Coleta blocos: cada elemento filho direto de .body + hdr + title-strip + foot
+        // Usamos offsetTop relativo ao container (target)
+        function offsetTopRelTo(el,ancestor){
+          var top=0;
+          while(el&&el!==ancestor){top+=el.offsetTop;el=el.offsetParent;}
+          return top;
+        }
+        var blocks=Array.prototype.slice.call(
+          target.querySelectorAll('.hdr,.title-strip,.body>.section,.body>.alert-banner,.foot')
+        );
+        // Fallback: se seletor não pegou nada (estrutura diferente), usa filhos diretos
+        if(blocks.length===0){
+          blocks=Array.prototype.slice.call(target.children);
+        }
+
+        // Monta lista de {topPx, botPx} para cada bloco
+        var blockRects=blocks.map(function(el){
+          var top=offsetTopRelTo(el,target);
+          return {top:top*2, bot:(top+el.offsetHeight)*2}; // *2 porque scale=2
         });
-        breakPoints.push(imgH);
 
-        // Agrupa seções em páginas sem cortar nenhuma ao meio
+        // Agrupa blocos em páginas: fecha a página quando o próximo bloco
+        // ultrapassaria o limite, e abre nova página no topo desse bloco
         var pages=[];
-        var curStart=0;
-        var curEnd=0;
-        for(var i=1;i<breakPoints.length;i++){
-          var segEnd=breakPoints[i];
-          var segH=segEnd-curStart;
-          if(segH>pageH&&curEnd>curStart){
-            // Fechar página atual antes deste ponto
-            pages.push({start:curStart,end:curEnd});
-            curStart=curEnd;
+        var pgStart=0;
+        var pgEnd=0;
+        blockRects.forEach(function(br){
+          if(pgEnd===0){pgEnd=br.bot;return;} // primeiro bloco
+          if(br.bot-pgStart<=pageHpx){
+            // Cabe na página atual
+            pgEnd=br.bot;
+          } else {
+            // Não cabe: fecha página atual e começa nova a partir deste bloco
+            pages.push({start:pgStart,end:pgEnd});
+            pgStart=br.top;
+            pgEnd=br.bot;
           }
-          curEnd=segEnd;
-        }
-        if(curEnd>curStart) pages.push({start:curStart,end:curEnd});
+        });
+        pages.push({start:pgStart,end:Math.max(pgEnd,canvas.height)});
 
-        // Se nenhuma seção encontrada, fallback ao corte simples
-        if(pages.length===0){
-          var posY=0;var remaining=imgH;var first=true;
-          while(remaining>0){
-            if(!first){pdf.addPage();}
-            pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,-posY,imgW,imgH);
-            posY+=pageH;remaining-=pageH;first=false;
-          }
-        } else {
-          pages.forEach(function(pg,idx){
-            if(idx>0) pdf.addPage();
-            // Recortar apenas a fatia desta página do canvas
-            var srcY=Math.round(pg.start/scale);
-            var srcH=Math.round((pg.end-pg.start)/scale);
-            srcH=Math.min(srcH,canvas.height-srcY);
-            if(srcH<=0) return;
-            var sliceCanvas=document.createElement('canvas');
-            sliceCanvas.width=canvas.width;
-            sliceCanvas.height=srcH;
-            var ctx=sliceCanvas.getContext('2d');
-            ctx.drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
-            var sliceH=srcH*scale;
-            pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,imgW,sliceH);
-          });
-        }
+        // Renderiza cada fatia num canvas auxiliar e adiciona ao PDF
+        pages.forEach(function(pg,idx){
+          if(idx>0) pdf.addPage();
+          var srcY=Math.max(0,Math.round(pg.start));
+          var srcH=Math.min(Math.round(pg.end-pg.start),canvas.height-srcY);
+          if(srcH<=0) return;
+          var sliceCanvas=document.createElement('canvas');
+          sliceCanvas.width=canvas.width;
+          sliceCanvas.height=srcH;
+          var ctx=sliceCanvas.getContext('2d');
+          ctx.fillStyle='#ffffff';
+          ctx.fillRect(0,0,sliceCanvas.width,sliceCanvas.height);
+          ctx.drawImage(canvas,0,srcY,canvas.width,srcH,0,0,canvas.width,srcH);
+          var sliceH=srcH/pxPerPt; // altura real em pontos PDF
+          pdf.addImage(sliceCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,sliceH);
+        });
 
         var pdfBlob=pdf.output('blob');
         var img=document.createElement('img');
