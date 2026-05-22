@@ -1275,7 +1275,7 @@ function calcular(){
   // Global mat = first ambiente stone (for PDF header and backward compat)
   var mat=CFG.stones.find(function(s){return s.id===ambientes[0].selMat;})||CFG.stones[0];
 
-  var totalM2=0,totalAcT=0,totalPedT=0;
+  var totalM2=0,totalAcT=0,totalPedT=0,totalCustoPedra=0;
   var detHtml='';
   var txtAmbientes='';
   var allAcN=[];
@@ -1367,7 +1367,8 @@ function calcular(){
     });
 
     var pedTamb=m2*ambMat.pr;
-    totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
+    var custoAmbPedra=m2*(ambMat.custo||0);
+    totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;totalCustoPedra+=custoAmbPedra;
     allAcN=allAcN.concat(acN);
     var ambLabel=(idx+1)+'º Ambiente — '+tipo;
     detHtml+='<div style="font-size:.62rem;color:var(--gold);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px;">'+ambLabel+'</div>';
@@ -1479,11 +1480,22 @@ function calcular(){
     }
   });
   pi+='<div style="padding:14px 16px;background:var(--s2);">';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(pedT)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
-  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(pedT+totalAcT)+'</b></div>';
+  var temCustoReal=totalCustoPedra>0;
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Preço Venda</span><b style="color:var(--gold2);">R$ '+fm(pedT)+'</b></div>';
+  if(temCustoReal){pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Custo Real</span><b style="color:var(--grn);">R$ '+fm(totalCustoPedra)+'</b></div>';}
+  else{pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;font-style:italic;"><span style="font-size:.68rem;color:var(--t4);">Custo real não cadastrado</span><span style="font-size:.68rem;color:var(--t4);">—</span></div>';}
+  // fatorCustoMO: percentual do preço MO que representa custo real (ex: 0.55 = 55%)
+  var fatorMO=CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55;
+  var custoRealMO=totalAcT*fatorMO;
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra (preço cobrado)</span><b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
+  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra (custo real '+(Math.round(fatorMO*100))+'%)</span><b style="color:var(--grn);">R$ '+fm(custoRealMO)+'</b></div>';
+  var totalCustoReal=(temCustoReal?totalCustoPedra:pedT)+custoRealMO;
+  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo Real</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b style="color:var(--grn);">R$ '+fm(vista-(pedT+totalAcT))+'</b></div></div>';
+  var margemReal=vista-totalCustoReal;
+  var margemPct=totalCustoReal>0?Math.round(margemReal/totalCustoReal*100):0;
+  var margemColor=margemPct>=30?'var(--grn)':margemPct>=15?'#f0a500':'#e05a5a';
+  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;padding:8px 10px;background:rgba(0,0,0,.15);border-radius:8px;"><span style="font-size:.78rem;font-weight:700;">💰 Lucro Real</span><b style="color:'+margemColor+';font-size:.95rem;">R$ '+fm(margemReal)+(temCustoReal?' ('+margemPct+'%)':'')+'</b></div></div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
   var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
