@@ -5518,7 +5518,6 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
       var target=offscreen.querySelector('.page')||offscreen.firstElementChild||offscreen;
       html2canvas(target,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:800,windowWidth:800})
       .then(function(canvas){
-        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
         var jsPDF=window.jspdf.jsPDF;
         var pageW=595.28;
         var pageH=841.89;
@@ -5528,13 +5527,10 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
 
         // ── Paginação inteligente via offsetTop ──
-        // offsetTop funciona mesmo com o elemento fora da viewport (left:-9999px)
-        // pxPerPt = pixels do canvas renderizado por ponto PDF
-        var pxPerPt=canvas.width/pageW; // canvas.width px == pageW pt
-        var pageHpx=pageH*pxPerPt;      // altura de uma página A4 em pixels do canvas
+        // IMPORTANTE: medir ANTES de remover o offscreen do DOM
+        var pxPerPt=canvas.width/pageW;
+        var pageHpx=pageH*pxPerPt;
 
-        // Coleta blocos: cada elemento filho direto de .body + hdr + title-strip + foot
-        // Usamos offsetTop relativo ao container (target)
         function offsetTopRelTo(el,ancestor){
           var top=0;
           while(el&&el!==ancestor){top+=el.offsetTop;el=el.offsetParent;}
@@ -5543,16 +5539,17 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
         var blocks=Array.prototype.slice.call(
           target.querySelectorAll('.hdr,.title-strip,.body>.section,.body>.alert-banner,.foot')
         );
-        // Fallback: se seletor não pegou nada (estrutura diferente), usa filhos diretos
         if(blocks.length===0){
           blocks=Array.prototype.slice.call(target.children);
         }
 
-        // Monta lista de {topPx, botPx} para cada bloco
         var blockRects=blocks.map(function(el){
           var top=offsetTopRelTo(el,target);
-          return {top:top*2, bot:(top+el.offsetHeight)*2}; // *2 porque scale=2
+          return {top:top*2, bot:(top+el.offsetHeight)*2}; // *2 = scale do canvas
         });
+
+        // Só remove do DOM depois de medir
+        if(document.body.contains(offscreen))document.body.removeChild(offscreen);
 
         // Agrupa blocos em páginas: fecha a página quando o próximo bloco
         // ultrapassaria o limite, e abre nova página no topo desse bloco
