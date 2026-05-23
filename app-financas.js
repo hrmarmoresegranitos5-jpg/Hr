@@ -344,24 +344,49 @@ function _finQA(type, icon, name, sub) {
     + '</div>';
 }
 
+function _finRowParseDesc(desc) {
+  var result = { op: desc || '', client: '', service: '', raw: desc || '' };
+  if (!desc) return result;
+  var m = desc.match(/^(.+?)\s+—\s+(.+?)(?:\s+\((.+?)\))?$/);
+  if (m) {
+    result.op      = m[1].trim();
+    result.client  = m[2].trim();
+    result.service = m[3] ? m[3].trim() : '';
+  }
+  return result;
+}
+
 function _finRow(t, hoje, forceAtrasado) {
   var isAtras = (forceAtrasado || (t.type === 'pend' && t.date && t.date < hoje));
   var icons   = { in:'📈', out:'📉', note:'📝', pend:'⏳' };
   var sign    = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
   var icon    = icons[t.type] || '·';
+  var p       = _finRowParseDesc(t.desc);
 
   var h = '<div class="fin-row' + (isAtras ? ' fin-row-atras' : '') + '">';
   h += '<div class="fin-dot fin-dot-' + (isAtras ? 'red' : t.type) + '">' + icon + '</div>';
   h += '<div class="fin-row-body">';
-  h += '<div class="fin-row-desc">' + (t.desc || '') + '</div>';
+
+  if (p.client) {
+    h += '<div class="fin-row-cli">' + p.client + '</div>';
+    var sub = p.op;
+    if (p.service) sub += ' <span class="fin-row-svc">· ' + p.service + '</span>';
+    h += '<div class="fin-row-sub">' + sub + '</div>';
+  } else {
+    h += '<div class="fin-row-cli">' + (p.raw || '') + '</div>';
+  }
+
   h += '<div class="fin-row-dt">' + (t.date ? fd(t.date) : '');
   if (isAtras) h += ' <span class="fin-tag-atras">ATRASADO</span>';
-  h += '</div></div>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div class="fin-row-right">';
   h += '<div class="fin-row-val fin-val-' + t.type + '">' + (t.value ? sign + 'R$ ' + fm(t.value) : '') + '</div>';
   if (t.type === 'pend' && t.value) {
     h += '<button class="fin-receber" onclick="receberPend(' + t.id + ')" title="Marcar como recebido">✓</button>';
   }
   h += '<button class="fin-edit" data-edittr="' + t.id + '">✏️</button>';
+  h += '</div>';
   h += '</div>';
   return h;
 }
