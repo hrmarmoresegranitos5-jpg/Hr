@@ -1254,7 +1254,8 @@ function calcCapelaPecas(ce){
   add('Fundo (painel traseiro)',W,H,1);
   add('Base / Tampo inferior',W,P,1);
   add('Teto / Tampo superior',W,P,1);
-  add('Laterais',P,H,2);
+  // Laterais somente se o modelo tiver (padrão = sem laterais)
+  if(ce.capTemLat) add('Laterais',P,H,2);
   if(nPil>0&&pilW>0){
     var pH=pilH||H;
     add('Pilar em chapa',pilW,pH,nPil);
