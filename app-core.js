@@ -2336,6 +2336,60 @@ function _applyVistaToUI() {
   }
 }
 
+// ── Novo Orçamento ── reseta formulário, urgência e ambiente ────────
+function novoOrcamento() {
+  if (ambientes.length > 0) {
+    var temDados = false;
+    try {
+      var cli = document.getElementById('oCliente') && document.getElementById('oCliente').value.trim();
+      if (cli) temDados = true;
+      if (!temDados) ambientes.forEach(function(a) {
+        (a.pecas || []).forEach(function(p) { if (p.w || p.h || p.desc) temDados = true; });
+      });
+    } catch(e) {}
+    if (temDados && !confirm('Deseja realmente iniciar um novo orçamento?\n\nO orçamento atual será apagado.')) return;
+  }
+
+  ['oCliente','oTel','oCidade','oEnd','oObs'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+
+  // Reset da taxa de urgência
+  window._urgPct = 0;
+  document.querySelectorAll('[data-upct]').forEach(function(b) {
+    b.classList.toggle('on', +b.dataset.upct === 0);
+  });
+  var hint = document.getElementById('urgPctHint');
+  if (hint) hint.textContent = 'Prazo padrão';
+
+  var resArea = document.getElementById('resArea');
+  if (resArea) resArea.style.display = 'none';
+
+  var adjSec = document.getElementById('vistaAdjSec');
+  if (adjSec) adjSec.style.display = 'none';
+
+  var savedMat = null;
+  try { savedMat = localStorage.getItem('hr_last_mat'); } catch(e) {}
+  ambientes = [{
+    id: Date.now(),
+    tipo: 'Cozinha',
+    pecas: [{ id: Date.now() + 1, desc: '', w: 0, h: 0, q: 1 }],
+    selCuba: null,
+    svState: {},
+    acState: {},
+    selMat: savedMat || selMat || null
+  }];
+
+  pendQ = null;
+  renderAmbientes();
+
+  var pg = document.getElementById('pg0');
+  if (pg) pg.scrollTop = 0;
+
+  toast('✦ Novo orçamento pronto!');
+}
+
 function calcular(){
   // Acionar motor do túmulo em todos os ambientes tipo Túmulo antes de calcular
   ambientes.forEach(function(a){
@@ -5484,6 +5538,17 @@ function orcRefazer(id, e) {
   if(!ambientes.length)addAmbiente();
 
   renderAmbientes();
+
+  // ── Restaura taxa de urgência do orçamento salvo ─────────────────
+  var urgRestored = q.urgPct || 0;
+  window._urgPct = urgRestored;
+  document.querySelectorAll('[data-upct]').forEach(function(b) {
+    b.classList.toggle('on', +b.dataset.upct === urgRestored);
+  });
+  var urgHintEl = document.getElementById('urgPctHint');
+  var _urgHintsLocal = { 0:'Prazo padrão', 10:'Prioridade moderada — entra antes de 1 serviço', 20:'Alta prioridade — reorganização da fila', 30:'Máxima urgência — início imediato' };
+  if (urgHintEl) urgHintEl.textContent = _urgHintsLocal[urgRestored] || '+' + urgRestored + '% sobre o valor';
+
   go(0);
   setTimeout(function(){document.getElementById('pg0').scrollTop=0;},100);
   toast('✓ Orçamento carregado! Edite e recalcule.');
