@@ -256,12 +256,12 @@ SV_DEFS.Capela = [
   ]},
   // ── Lápide / Adornos ──
   {g:'🪦 Lápide / Adornos',its:[
-    {k:'cap_lapide',  l:'Lápide gravada em granito',     u:'un', fx:1},
-    {k:'cap_plaq',    l:'Plaquinha gravada',             u:'un', fx:1},
-    {k:'cap_foto',    l:'Foto em porcelana',             u:'un', fx:1},
-    {k:'cap_cruz_gr', l:'Cruz em granito',               u:'un', fx:1},
-    {k:'cap_cruz_mr', l:'Cruz em mármore',               u:'un', fx:1},
-    {k:'cap_vaso',    l:'Vaso integrado em pedra',       u:'un', fx:1},
+    {k:'cap_lapide',  l:'Lápide gravada em granito',     u:'un', fx:0},
+    {k:'cap_plaq',    l:'Plaquinha gravada',             u:'un', fx:0},
+    {k:'cap_foto',    l:'Foto em porcelana',             u:'un', fx:0},
+    {k:'cap_cruz_gr', l:'Cruz em granito',               u:'un', fx:0},
+    {k:'cap_cruz_mr', l:'Cruz em mármore',               u:'un', fx:0},
+    {k:'cap_vaso',    l:'Vaso integrado em pedra',       u:'un', fx:0},
     {k:'cap_pol',     l:'Polimento extra',               u:'un', fx:1}
   ]},
   // ── Mão de obra ──
@@ -1094,7 +1094,20 @@ function buildSVHtml(amb){
         }
       } else if((it.u==='ml'||it.u==='km'||it.u==='un')&&!it.fx&&isOn){
         var sv2=sv[it.k]||{};
-        h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'"><input type="number" id="si-'+amb.id+'-'+it.k+'" placeholder="'+(it.u==='ml'?'metros':'qtd')+'" step="0.1" value="'+(sv2.qty||'')+'" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'qty\',+this.value)" onclick="event.stopPropagation()"><span class="svunit">'+it.u+'</span></div>';
+        if(it.u==='un'){
+          // Stepper ± para itens por unidade (lápide, foto, cruz, etc.)
+          var _qty=+(sv2.qty||1); var _prUn=getPr(it.k);
+          h+='<div style="display:flex;align-items:center;gap:9px;padding:5px 12px 9px;" onclick="event.stopPropagation()">';
+          h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;overflow:hidden;">';
+          h+='<button onclick="updSVAmbQty('+amb.id+',\''+it.k+'\','+(Math.max(1,_qty-1))+');event.stopPropagation()" style="background:none;border:none;color:var(--t2);font-size:1.1rem;width:36px;height:32px;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+          h+='<span style="min-width:30px;text-align:center;font-size:.92rem;font-weight:700;color:var(--tx);">'+_qty+'</span>';
+          h+='<button onclick="updSVAmbQty('+amb.id+',\''+it.k+'\','+(_qty+1)+');event.stopPropagation()" style="background:none;border:none;color:var(--gold);font-size:1.1rem;width:36px;height:32px;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+          h+='</div>';
+          if(_qty>1&&_prUn>0) h+='<span style="font-size:.74rem;color:var(--gold2);font-weight:700;">= R$ '+fm(_prUn*_qty)+'</span>';
+          h+='</div>';
+        } else {
+          h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'"><input type="number" id="si-'+amb.id+'-'+it.k+'" placeholder="'+(it.u==='ml'?'metros':'qtd')+'" step="0.1" value="'+(sv2.qty||'')+'" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'qty\',+this.value)" onclick="event.stopPropagation()"><span class="svunit">'+it.u+'</span></div>';
+        }
       } else if(it.u==='livre'&&isOn){
         var sv3=sv[it.k]||{};
         h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'"><input type="number" id="si-'+amb.id+'-'+it.k+'" placeholder="valor" value="'+(sv3.qty||'')+'" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'qty\',+this.value)" onclick="event.stopPropagation()"><span class="svunit">reais</span></div>';
@@ -1186,11 +1199,30 @@ function updCapExtra(ambId,field,val){
 }
 
 // ─── CONFIGURADOR DE CAPELINHA ────────────────────────────────────
+var _capMedTimer=null;
 function updCapMed(ambId,field,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
   if(!amb.capExtra)amb.capExtra={};
   amb.capExtra[field]=val;
+  // Boolean (toggle de modelo): renderiza imediatamente
+  // Number (digitação): debounce 650ms para o teclado não fechar
+  if(typeof val==='boolean'){
+    renderAmbientes();
+  } else {
+    clearTimeout(_capMedTimer);
+    _capMedTimer=setTimeout(function(){renderAmbientes();},650);
+  }
+}
+
+// Stepper de quantidade para itens u:'un', fx:0
+function updSVAmbQty(ambId,k,qty){
+  qty=Math.max(1,+qty||1);
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.svState)amb.svState={};
+  if(!amb.svState[k])amb.svState[k]={};
+  amb.svState[k].qty=qty;
   renderAmbientes();
 }
 
@@ -1388,7 +1420,7 @@ function calcular(){
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
       if(it.fx===1){var p2=getPr(it.k);if(p2>0){acT+=p2;acL.push({l:it.l,v:p2});acN.push(it.l);}return;}
       var qty=svd.qty||1;
-      var vv=getPr(it.k)*qty;acT+=vv;acL.push({l:it.l+(qty>1?' ('+qty+it.u+')':''),v:vv});acN.push(it.l);
+      var vv=getPr(it.k)*qty;acT+=vv;acL.push({l:it.l+(qty>1?' ×'+qty:''),v:vv});acN.push(it.l+(qty>1?' ×'+qty:''));
     });});
 
     // Acessórios do catálogo
