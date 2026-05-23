@@ -376,8 +376,23 @@ function openApp(pg){
     <div class="pg" id="pg20"></div>
 
     <!-- 11: SECRETÁRIA -->
-    <div class="pg" id="pg11">
-      <div id="secBody"></div>
+    <div class="pg" id="pg11" style="display:flex;flex-direction:column;height:100%;">
+      <!-- Tab bar -->
+      <div id="secTabBar" style="display:flex;gap:0;border-bottom:1px solid var(--bd);flex-shrink:0;background:var(--s2);">
+        <button id="secTabBriefing" onclick="secSwitchTab('briefing')"
+          style="flex:1;padding:12px 6px;background:none;border:none;border-bottom:2px solid var(--gold2);
+          color:var(--gold2);font-size:.78rem;font-weight:700;font-family:inherit;cursor:pointer;">
+          🤖 Secretária
+        </button>
+        <button id="secTabChat" onclick="secSwitchTab('chat')"
+          style="flex:1;padding:12px 6px;background:none;border:none;border-bottom:2px solid transparent;
+          color:var(--t3);font-size:.78rem;font-weight:700;font-family:inherit;cursor:pointer;">
+          💬 Chat IA
+        </button>
+      </div>
+      <!-- Painéis -->
+      <div id="secBody" style="overflow-y:auto;flex:1;"></div>
+      <div id="chatBody" style="display:none;flex:1;overflow:hidden;"></div>
     </div>
 
     <!-- 5: EMPRESA -->
@@ -717,6 +732,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-financas.js?v=2"></script>
   <script src="app-pdf-prazo.js?v=2"></script>
   <script src="app-secretaria.js?v=1"></script>
+  <script src="app-secretaria-chat.js?v=1"></script>
   <script src="app-tum-template.js?v=12"></script>
   <script src="app-tum-inline.js?v=12"></script>
   <script src="app-tum-integracao.js?v=12"></script>

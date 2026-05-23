@@ -1181,3 +1181,32 @@ function _injectSec2Styles() {
 (function() {
   _injectSec2Styles();
 })();
+
+// ══════════════════════════════════════════════════════════════
+// TABS — Secretária / Chat
+// ══════════════════════════════════════════════════════════════
+var _secCurrentTab = 'briefing';
+
+function secSwitchTab(tab) {
+  _secCurrentTab = tab;
+  var briefingPanel = document.getElementById('secBody');
+  var chatPanel     = document.getElementById('chatBody');
+  var btnBriefing   = document.getElementById('secTabBriefing');
+  var btnChat       = document.getElementById('secTabChat');
+  var activeStyle   = 'border-bottom:2px solid var(--gold2);color:var(--gold2);';
+  var inactiveStyle = 'border-bottom:2px solid transparent;color:var(--t3);';
+
+  if (tab === 'chat') {
+    if (briefingPanel) briefingPanel.style.display = 'none';
+    if (chatPanel)     chatPanel.style.display = 'flex';
+    if (btnBriefing)   btnBriefing.style.cssText += inactiveStyle;
+    if (btnChat)       btnChat.style.cssText    += activeStyle;
+    if (typeof renderChat === 'function') renderChat();
+  } else {
+    if (briefingPanel) briefingPanel.style.display = '';
+    if (chatPanel)     chatPanel.style.display = 'none';
+    if (btnBriefing)   btnBriefing.style.cssText += activeStyle;
+    if (btnChat)       btnChat.style.cssText    += inactiveStyle;
+    renderSecretaria();
+  }
+}
