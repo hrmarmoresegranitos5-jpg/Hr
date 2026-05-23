@@ -949,16 +949,15 @@ function pickEsculpida(escId, tipo){
   if(!esc)return;
 
   // Cálculo da pedra removida:
-  // Fundo (comprimento × largura) + 4 paredes internas
+  // Área da abertura no tampo (apenas a face superior da cuba)
   var aFundo=(escW*escH)/10000;
-  var aParedes=(2*(escW*escD)+2*(escH*escD))/10000;
-  var aExtra=+(aFundo+aParedes).toFixed(4);
+  var aExtra=+aFundo.toFixed(4);
 
-  // Mão de obra: base + R$8 por litro removido
+  // Mão de obra: preço fixo conforme tipo (Simples/Complexa/Muito Complexa)
   var volumeLt=(escW*escH*escD)/1000;
   var moBase=esc.inst;
-  var moExtra=Math.round(volumeLt*8);
-  var moTotal=moBase+moExtra;
+  var moExtra=0;
+  var moTotal=moBase;
 
   // Pedra: área removida × preço/m²
   var _escAmbId = _cubaPickAmbId;
@@ -1228,12 +1227,20 @@ function updCapExtra(ambId,field,val){
 }
 
 // ─── CONFIGURADOR DE CAPELINHA ────────────────────────────────────
+var _capMedTimer=null;
 function updCapMed(ambId,field,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
   if(!amb.capExtra)amb.capExtra={};
   amb.capExtra[field]=val;
-  renderAmbientes();
+  // Boolean (toggle de modelo): renderiza imediatamente
+  // Number/string (digitação): debounce 650ms para o teclado não fechar
+  if(typeof val==='boolean'){
+    renderAmbientes();
+  } else {
+    clearTimeout(_capMedTimer);
+    _capMedTimer=setTimeout(function(){renderAmbientes();},650);
+  }
 }
 
 // Calcula todas as peças da capelinha a partir das medidas
