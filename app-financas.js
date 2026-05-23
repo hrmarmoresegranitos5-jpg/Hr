@@ -155,6 +155,7 @@ function renderFin() {
 
   renderFinBody();
   renderFixos();
+  renderSaudeFinanceira();
 }
 
 // ═══ CORPO DA ABA ATIVA ═══
@@ -424,4 +425,278 @@ function renderFixos() {
   });
   h += '<div class="fin-fixo-tot"><span>Total Mensal</span><span class="fin-fixo-tot-val">R$ ' + fm(tot) + '</span></div>';
   el.innerHTML = h;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PAINEL DE SAÚDE FINANCEIRA
+// ══════════════════════════════════════════════════════════════
+
+function _sfGetConfig() {
+  if (!CFG.saudeFinanceira) {
+    CFG.saudeFinanceira = {
+      metaFaturamento: 0,
+      reservaEmergencia: 3, // meses
+      orcamentoVariavel: 0  // limite mensal p/ custos variáveis
+    };
+    svCFG();
+  }
+  return CFG.saudeFinanceira;
+}
+
+function renderSaudeFinanceira() {
+  var el = document.getElementById('saudeFinCard');
+  if (!el) return;
+
+  var sf    = _sfGetConfig();
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+  var fixos = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var vars  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var totalCustos = fixos + vars;
+
+  // Dados do mês atual
+  var recMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'in' && (t.date || '').slice(0,7) === mes; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var despMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'out' && (t.date || '').slice(0,7) === mes; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var pendMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'pend'; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var saldoMes      = recMes - despMes;
+  var metaFat       = sf.metaFaturamento || 0;
+  var pctMeta       = metaFat > 0 ? Math.min(100, Math.round((recMes / metaFat) * 100)) : 0;
+  var faltaMeta     = Math.max(0, metaFat - recMes - pendMes);
+  var pontoPequilibrio = totalCustos;
+  var lucroMes      = recMes - despMes - fixos;
+  var orcVar        = sf.orcamentoVariavel || 0;
+  var gastoVar      = (DB.t || [])
+    .filter(function(t) { return t.type === 'out' && (t.date || '').slice(0,7) === mes && t.isVariavel; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  // ── Semáforo de saúde ──
+  var saude, saudeCor, saudeMsg;
+  if (recMes >= pontoPequilibrio * 1.3) {
+    saude = '🟢'; saudeCor = 'var(--grn)';
+    saudeMsg = 'Mês saudável — cobrindo custos com folga';
+  } else if (recMes >= pontoPequilibrio) {
+    saude = '🟡'; saudeCor = '#d4a017';
+    saudeMsg = 'Mês equilibrado — custos cobertos';
+  } else if (recMes + pendMes >= pontoPequilibrio) {
+    saude = '🟠'; saudeCor = '#e07820';
+    saudeMsg = 'Depende de recebimentos pendentes para fechar';
+  } else {
+    saude = '🔴'; saudeCor = 'var(--red)';
+    saudeMsg = 'Atenção — faturamento abaixo do ponto de equilíbrio';
+  }
+
+  // ── Distribuição inteligente do saldo ──
+  var saldoDisp   = Math.max(0, recMes);
+  var reserva     = Math.round(saldoDisp * 0.10);
+  var custosCobertos = Math.min(saldoDisp, fixos + vars);
+  var sobra       = Math.max(0, saldoDisp - custosCobertos - reserva);
+
+  var h = '';
+
+  // Semáforo
+  h += '<div style="display:flex;align-items:center;gap:10px;padding:14px 14px 0;">';
+  h += '<span style="font-size:1.5rem;">' + saude + '</span>';
+  h += '<div>';
+  h += '<div style="font-size:.82rem;font-weight:700;color:' + saudeCor + ';">' + saudeMsg + '</div>';
+  h += '<div style="font-size:.65rem;color:var(--t3);margin-top:2px;">Mês atual · ' + mes.replace('-','/') + '</div>';
+  h += '</div></div>';
+
+  // ── Ponto de equilíbrio ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">⚖️ Ponto de Equilíbrio</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--red);">R$ ' + fm(totalCustos) + '</div><div class="sf-eq-lbl">Precisar faturar/mês</div></div>';
+  h += '<div class="sf-eq-sep">→</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:' + (recMes >= totalCustos ? 'var(--grn)' : '#e07820') + ';">R$ ' + fm(recMes) + '</div><div class="sf-eq-lbl">Faturado este mês</div></div>';
+  h += '</div>';
+  if (pontoPequilibrio > 0) {
+    var pctEq = Math.min(100, Math.round((recMes / pontoPequilibrio) * 100));
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctEq + '%;background:' + (pctEq >= 100 ? 'var(--grn)' : pctEq >= 70 ? '#d4a017' : 'var(--red)') + ';"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctEq + '% do ponto de equilíbrio</div>';
+  }
+  h += '</div>';
+
+  // ── Meta de faturamento ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>🎯 Meta do Mês</span>';
+  h += '<button class="sf-edit-btn" onclick="sfEditMeta()">editar</button>';
+  h += '</div>';
+  if (metaFat > 0) {
+    h += '<div class="sf-eq-row">';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(metaFat) + '</div><div class="sf-eq-lbl">Meta</div></div>';
+    h += '<div class="sf-eq-sep">·</div>';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--grn);">R$ ' + fm(recMes) + '</div><div class="sf-eq-lbl">Realizado</div></div>';
+    h += '<div class="sf-eq-sep">·</div>';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:#6ab0ff;">R$ ' + fm(pendMes) + '</div><div class="sf-eq-lbl">Pendente</div></div>';
+    h += '</div>';
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctMeta + '%;background:var(--gold2);"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctMeta + '% da meta';
+    if (faltaMeta > 0) h += ' · faltam R$ ' + fm(faltaMeta);
+    else h += ' · ✅ Meta batida!';
+    h += '</div>';
+  } else {
+    h += '<div class="sf-hint" onclick="sfEditMeta()">Toque para definir sua meta de faturamento mensal →</div>';
+  }
+  h += '</div>';
+
+  // ── Distribuição do dinheiro ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">💡 Como distribuir o que entrou</div>';
+  if (recMes > 0) {
+    var pctCusto = Math.min(100, Math.round((custosCobertos / recMes) * 100));
+    var pctRes   = Math.round((reserva / recMes) * 100);
+    var pctSobra = Math.max(0, 100 - pctCusto - pctRes);
+    h += '<div class="sf-dist-row">';
+    h += _sfDistItem('🏗️', 'Cobrir custos', custosCobertos, pctCusto, '#c94444');
+    h += _sfDistItem('🛡️', 'Reserva (10%)', reserva, pctRes, '#d4a017');
+    h += _sfDistItem('💰', 'Lucro livre', sobra, pctSobra, 'var(--grn)');
+    h += '</div>';
+    h += '<div class="sf-dist-bar">';
+    h += '<div style="flex:' + pctCusto + ';background:#c94444;border-radius:4px 0 0 4px;"></div>';
+    h += '<div style="flex:' + pctRes + ';background:#d4a017;"></div>';
+    h += '<div style="flex:' + Math.max(1, pctSobra) + ';background:var(--grn);border-radius:0 4px 4px 0;"></div>';
+    h += '</div>';
+  } else {
+    h += '<div class="sf-hint">Nenhuma entrada neste mês ainda.</div>';
+  }
+  h += '</div>';
+
+  // ── Custos variáveis ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>🚗 Custos Variáveis</span>';
+  h += '<button class="sf-edit-btn" onclick="sfEditVars()">editar</button>';
+  h += '</div>';
+  var varList = CFG.variaveis || [];
+  if (varList.length) {
+    varList.forEach(function(v) {
+      h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">' + v.n + '</span><span class="fin-fixo-vl" style="color:#d4a017;">≈ R$ ' + fm(v.v) + '/mês</span></div>';
+    });
+    h += '<div class="fin-fixo-tot"><span>Estimativa Mensal</span><span class="fin-fixo-tot-val" style="color:#d4a017;">R$ ' + fm(vars) + '</span></div>';
+  } else {
+    h += '<div class="sf-hint" onclick="sfEditVars()">Cadastre combustível, materiais, frete etc →</div>';
+  }
+  h += '</div>';
+
+  // ── Alertas ──
+  var alertas = _sfAlertas(recMes, despMes, fixos, vars, orcVar, gastoVar, saldoMes, pendMes);
+  if (alertas.length) {
+    h += '<div class="sf-section">';
+    h += '<div class="sf-title">⚠️ Alertas do Mês</div>';
+    alertas.forEach(function(a) { h += '<div class="sf-alerta sf-alerta-' + a.tipo + '">' + a.msg + '</div>'; });
+    h += '</div>';
+  }
+
+  el.innerHTML = h;
+}
+
+function _sfDistItem(icon, label, val, pct, cor) {
+  return '<div class="sf-dist-item">'
+    + '<div style="font-size:.95rem;">' + icon + '</div>'
+    + '<div style="font-size:.68rem;color:var(--t3);">' + label + '</div>'
+    + '<div style="font-size:.79rem;font-weight:700;color:' + cor + ';">R$ ' + fm(val) + '</div>'
+    + '<div style="font-size:.6rem;color:var(--t4);">' + pct + '%</div>'
+    + '</div>';
+}
+
+function _sfAlertas(recMes, despMes, fixos, vars, orcVar, gastoVar, saldoMes, pendMes) {
+  var alertas = [];
+  var totalCustos = fixos + vars;
+
+  if (recMes < totalCustos && recMes + pendMes < totalCustos) {
+    alertas.push({ tipo: 'red', msg: '🔴 Faturamento + pendentes abaixo dos custos totais este mês.' });
+  } else if (recMes < totalCustos) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Faturamento ainda não cobre os custos — mas há pendentes a receber.' });
+  }
+
+  if (despMes > recMes * 0.4) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Despesas avulsas acima de 40% do faturamento (' + Math.round(despMes/recMes*100) + '%).' });
+  }
+
+  if (orcVar > 0 && gastoVar > orcVar) {
+    alertas.push({ tipo: 'red', msg: '🔴 Custos variáveis ultrapassaram o orçamento (R$ ' + fm(gastoVar) + ' de R$ ' + fm(orcVar) + ').' });
+  } else if (orcVar > 0 && gastoVar > orcVar * 0.8) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Custos variáveis em 80% do limite (R$ ' + fm(gastoVar) + ' de R$ ' + fm(orcVar) + ').' });
+  }
+
+  if (saldoMes < 0) {
+    alertas.push({ tipo: 'red', msg: '🔴 Saldo do mês negativo — saídas maiores que entradas.' });
+  }
+
+  return alertas;
+}
+
+// ── Editar meta ──
+function sfEditMeta() {
+  var sf  = _sfGetConfig();
+  var val = prompt('Meta de faturamento mensal (R$):', sf.metaFaturamento || '');
+  if (val === null) return;
+  sf.metaFaturamento = +val || 0;
+  svCFG();
+  renderSaudeFinanceira();
+}
+
+// ── Editar custos variáveis ──
+function sfEditVars() {
+  if (!CFG.variaveis) CFG.variaveis = [];
+  var el = document.getElementById('sfVarMd');
+  if (!el) {
+    // Cria modal inline
+    var md = document.createElement('div');
+    md.id = 'sfVarMd';
+    md.className = 'ov';
+    md.style.cssText = 'align-items:flex-end;';
+    md.innerHTML = '<div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;">'
+      + '<div style="font-size:1rem;font-weight:700;color:var(--gold2);margin-bottom:14px;">🚗 Custos Variáveis</div>'
+      + '<div id="sfVarList"></div>'
+      + '<button class="cfgadd" style="margin-top:10px;" onclick="sfAddVar()">+ Adicionar</button>'
+      + '<div style="display:flex;gap:10px;margin-top:16px;">'
+      + '<button class="fin-add-btn fin-add-grn" style="flex:1;" onclick="sfSaveVars()">Salvar</button>'
+      + '<button class="fin-add-btn" style="flex:1;background:var(--s3);" onclick="closeAll()">Cancelar</button>'
+      + '</div></div>';
+    document.body.appendChild(md);
+  }
+  _sfRenderVarList();
+  showMd('sfVarMd');
+}
+
+function _sfRenderVarList() {
+  var el = document.getElementById('sfVarList');
+  if (!el) return;
+  var h = '';
+  (CFG.variaveis || []).forEach(function(v, i) {
+    h += '<div class="cfg-row">'
+      + '<input class="cfginp" value="' + v.n + '" style="flex:1;text-align:left;" placeholder="Ex: Combustível" onchange="CFG.variaveis[' + i + '].n=this.value;">'
+      + '<input class="cfginp cfginp-w" type="number" value="' + v.v + '" placeholder="R$" onchange="CFG.variaveis[' + i + '].v=+this.value;">'
+      + '<button class="cfgdel" onclick="CFG.variaveis.splice(' + i + ',1);_sfRenderVarList();">✕</button>'
+      + '</div>';
+  });
+  if (!CFG.variaveis || !CFG.variaveis.length) {
+    h = '<div style="font-size:.75rem;color:var(--t3);padding:8px 0;">Nenhum custo variável cadastrado.</div>';
+  }
+  el.innerHTML = h;
+}
+
+function sfAddVar() {
+  if (!CFG.variaveis) CFG.variaveis = [];
+  CFG.variaveis.push({ n: '', v: 0 });
+  _sfRenderVarList();
+}
+
+function sfSaveVars() {
+  svCFG();
+  closeAll();
+  renderSaudeFinanceira();
+  renderFixos();
+  toast('✓ Custos variáveis salvos!');
 }
