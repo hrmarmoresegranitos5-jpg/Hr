@@ -502,7 +502,7 @@ function openApp(pg){
   setLayout();
   requestAnimationFrame(function(){
     setLayout();
-    go(pg);
+    go(pg===0 ? 12 : pg);
   });
   window._pendingPg=null;
 }
@@ -549,6 +549,7 @@ function go(n){
   if(n===7)renderOrc();
   if(n===8)buildAcList();
   if(n===11&&typeof renderSecretaria==='function'){renderSecretaria();if(typeof secNotifDotUpdate==='function')secNotifDotUpdate();}
+  if(n===12&&typeof renderDashboard==='function')renderDashboard();
   if(n===3)renderAg();
   if(n===4)renderFin();
   if(n===10&&typeof renderContratos==='function')renderContratos();
