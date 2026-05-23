@@ -3444,8 +3444,125 @@ function gerarPDF(){
     });
   },200);
 }
-function salvarAgenda(){if(!pendQ)return;var last=lastEnd();document.getElementById('diasMsg').textContent=(last?'Agenda ocupada até '+fd(last)+'. ':'')+'Quantos dias para entregar o serviço de '+pendQ.cli+'?';document.getElementById('diasIn').value='';document.getElementById('diasPrev').classList.remove('on');showMd('diasMd');}
-function prevDias(){var d=+document.getElementById('diasIn').value,p=document.getElementById('diasPrev');if(!d){p.classList.remove('on');return;}var s=lastEnd()||td();p.textContent='Início: '+fd(s)+'\nEntrega prevista: '+fd(addD(s,d));p.classList.add('on');}
+function salvarAgenda() {
+  if (!pendQ) return;
+
+  var hoje = td();
+  var last  = lastEnd();
+  var inicioJob = last && last > hoje ? last : hoje;
+
+  // ── Jobs ativos em fila (não concluídos) ──────────────────────────
+  var jobsAtivos = DB.j.filter(function(j) { return !j.done; });
+  var qtdFila = jobsAtivos.length;
+
+  // ── Estima IEO do job candidato ──────────────────────────────────
+  var catCandidato = (pendQ.tipo || 'Outro').split('+')[0].trim();
+  var ieoPreview = estimaIEO({ cat: catCandidato, m2: pendQ.m2 || 1 });
+
+  // ── Calcula semana do início sugerido ────────────────────────────
+  var semInicio = _inicioSemana(inicioJob);
+  var semAtual  = calcSemana(semInicio);
+
+  // ── Encontra a primeira semana que comporta o job sem crítica ────
+  var semanaOk = null;
+  var semTentativa = semInicio;
+  for (var w = 0; w < 8; w++) {
+    // Simula adicionar o job nesta semana
+    var jobTemp = { ieo: ieoPreview.ieo, ieo_of: ieoPreview.ieo_of, ieo_ca: ieoPreview.ieo_ca, ieo_ge: ieoPreview.ieo_ge, start: semTentativa, done: false };
+    DB.j.unshift(jobTemp);
+    var simul = calcSemana(semTentativa);
+    DB.j.shift();
+
+    if (simul.faixa !== 'critica' && simul.faixa_of !== 'critica' && simul.faixa_ca !== 'critica') {
+      semanaOk = { sem: semTentativa, simul: simul, semanas: w };
+      break;
+    }
+    semTentativa = addD(semTentativa, 7);
+  }
+
+  // ── Monta texto de status da agenda ─────────────────────────────
+  var statusEl = document.getElementById('diasAgStatus');
+  if (statusEl) {
+    var txt = '';
+    if (qtdFila === 0) {
+      txt = 'Agenda livre — o serviço pode iniciar hoje.';
+    } else {
+      txt = 'Fila atual: <strong style="color:var(--gold)">' + qtdFila + ' serviço(s)</strong> em andamento.';
+      if (last) txt += '<br>Agenda ocupada até <strong style="color:#ff9060;">' + fd(last) + '</strong>.';
+    }
+    statusEl.innerHTML = txt;
+  }
+
+  // ── Calcula prazo sugerido inteligente ───────────────────────────
+  var sugEl  = document.getElementById('diasSugestao');
+  var sugTxt = document.getElementById('diasSugTexto');
+  var alertEl  = document.getElementById('diasAlerta');
+  var alertTxt = document.getElementById('diasAlertaTexto');
+
+  // Urgência ativa?
+  var isUrgente = (window._urgPct || 0) > 0;
+
+  if (sugEl && sugTxt) {
+    var diasMinimos = Math.max(5, Math.round((ieoPreview.ieo || 1) * 2)); // estimativa baseada em IEO
+    var inicioSug   = isUrgente ? hoje : inicioJob;
+    var entregaSug  = addD(inicioSug, diasMinimos);
+
+    var textoSug = '';
+    if (isUrgente) {
+      textoSug = '🚨 <strong>Urgente:</strong> início hoje (' + fd(hoje) + '), entrega estimada em ' + diasMinimos + ' dias → <strong>' + fd(entregaSug) + '</strong>.';
+      if (qtdFila > 0) {
+        textoSug += '<br><span style="color:#ff9060;">⚠️ Este job vai passar na frente de ' + qtdFila + ' serviço(s) em andamento.</span>';
+      }
+    } else {
+      textoSug = 'Início após fila: <strong>' + fd(inicioSug) + '</strong>, entrega em ~' + diasMinimos + ' dias → <strong>' + fd(entregaSug) + '</strong>.';
+      if (semanaOk && semanaOk.semanas > 0) {
+        textoSug += '<br>Semana atual está sobrecarregada — início ideal na semana de ' + fd(semTentativa) + '.';
+      }
+    }
+
+    sugEl.style.display = 'block';
+    sugTxt.innerHTML = textoSug;
+
+    // Preenche input com sugestão
+    var diasInput = document.getElementById('diasIn');
+    if (diasInput && !diasInput.value) {
+      diasInput.value = diasMinimos;
+      prevDias();
+    }
+  }
+
+  // ── Alerta de sobrecarga ─────────────────────────────────────────
+  var alertas = [];
+  if (semAtual.faixa === 'pesada' || semAtual.faixa === 'critica')
+    alertas.push('Produção geral: ' + (semAtual.faixa === 'critica' ? '🔴 Crítica' : '⚠️ Pesada') + ' (' + Math.round(semAtual.pct_total * 100) + '%)');
+  if (semAtual.faixa_of === 'pesada' || semAtual.faixa_of === 'critica')
+    alertas.push('Oficina: ' + (semAtual.faixa_of === 'critica' ? '🔴 Crítica' : '⚠️ Pesada') + ' (' + Math.round(semAtual.pct_oficina * 100) + '%)');
+  if (semAtual.faixa_ca === 'pesada' || semAtual.faixa_ca === 'critica')
+    alertas.push('Campo: ' + (semAtual.faixa_ca === 'critica' ? '🔴 Crítica' : '⚠️ Pesada') + ' (' + Math.round(semAtual.pct_campo * 100) + '%)');
+
+  if (alertEl && alertTxt) {
+    if (alertas.length > 0) {
+      alertEl.style.display = 'block';
+      alertTxt.innerHTML = '<strong>Carga da semana ' + fd(semInicio) + ':</strong><br>' + alertas.join('<br>');
+    } else {
+      alertEl.style.display = 'none';
+    }
+  }
+
+  showMd('diasMd');
+}
+function prevDias(){
+  var d=+document.getElementById('diasIn').value,p=document.getElementById('diasPrev');
+  if(!p)return;
+  if(!d){p.classList.remove('on');p.textContent='';return;}
+  var isUrgente=(window._urgPct||0)>0;
+  var hoje=td(),last=lastEnd();
+  var s=isUrgente?hoje:(last&&last>hoje?last:hoje);
+  var entrega=addD(s,d);
+  var diasCorridos=Math.ceil((new Date(entrega+'T00:00:00')-new Date(hoje+'T00:00:00'))/86400000);
+  p.textContent='Início: '+fd(s)+'  ·  Entrega: '+fd(entrega)+'  ('+(isUrgente?'🚨 urgente, ':'')+(diasCorridos)+'d corridos)';
+  p.classList.add('on');
+}
 function confirmarAgenda() {
   var d = +document.getElementById('diasIn').value;
   if (!d || !pendQ) { toast('Informe os dias'); return; }
