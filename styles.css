@@ -2197,3 +2197,23 @@ label {
   font-size: .72rem !important;
   line-height: 1.5;
 }
+
+/* ══ SAÚDE FINANCEIRA ══ */
+.sf-section{padding:12px 14px;border-top:1px solid #0c0c10;}
+.sf-title{font-size:.72rem;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;}
+.sf-edit-btn{background:none;border:1px solid var(--bd);color:var(--t3);font-size:.65rem;padding:2px 8px;border-radius:6px;cursor:pointer;font-weight:600;}
+.sf-edit-btn:active{background:var(--s3);}
+.sf-hint{font-size:.74rem;color:var(--t3);font-style:italic;padding:6px 0;cursor:pointer;}
+.sf-eq-row{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
+.sf-eq-item{flex:1;text-align:center;}
+.sf-eq-val{font-size:.9rem;font-weight:800;}
+.sf-eq-lbl{font-size:.6rem;color:var(--t3);margin-top:1px;}
+.sf-eq-sep{color:var(--t4);font-size:.9rem;font-weight:300;}
+.sf-bar-wrap{height:7px;background:var(--s3);border-radius:4px;overflow:hidden;}
+.sf-bar-fill{height:100%;border-radius:4px;transition:width .4s ease;}
+.sf-dist-row{display:flex;gap:4px;margin-bottom:8px;}
+.sf-dist-item{flex:1;background:var(--s3);border-radius:8px;padding:8px 4px;text-align:center;display:flex;flex-direction:column;gap:2px;}
+.sf-dist-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;gap:1px;margin-top:4px;}
+.sf-alerta{font-size:.74rem;padding:8px 10px;border-radius:8px;margin-bottom:6px;font-weight:500;}
+.sf-alerta-red{background:rgba(201,68,68,.12);color:#f08080;border-left:3px solid var(--red);}
+.sf-alerta-yel{background:rgba(212,160,23,.10);color:#d4a017;border-left:3px solid #d4a017;}
