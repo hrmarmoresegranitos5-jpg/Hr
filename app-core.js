@@ -8442,7 +8442,6 @@ window.addEventListener('load', function _vtBoot() {
 (function(){
 
 var DEF_CAP_LIST = [
-  // Lápide / Adornos
   {k:'cap_lapide',      l:'Lápide gravada em granito', preco:480, u:'un', grp:'Lápide / Adornos'},
   {k:'cap_plaq',        l:'Plaquinha gravada',         preco:220, u:'un', grp:'Lápide / Adornos'},
   {k:'cap_lapide_foto', l:'Lápide com foto',           preco:500, u:'un', grp:'Lápide / Adornos'},
@@ -8451,19 +8450,16 @@ var DEF_CAP_LIST = [
   {k:'cap_cruz_mr',     l:'Cruz em mármore',           preco:280, u:'un', grp:'Lápide / Adornos'},
   {k:'cap_vaso',        l:'Vaso integrado em pedra',   preco:380, u:'un', grp:'Lápide / Adornos'},
   {k:'cap_pol',         l:'Polimento extra',           preco:160, u:'un', grp:'Lápide / Adornos'},
-  // Mão de Obra
   {k:'cap_mont',        l:'Montagem / Instalação',     preco:420, u:'un', grp:'Mão de Obra'},
   {k:'cap_montc',       l:'Instalação complexa',       preco:620, u:'un', grp:'Mão de Obra'},
   {k:'cap_recorte',     l:'Recorte / Furo',            preco:50,  u:'un', grp:'Mão de Obra'},
-  // Acabamentos (ml)
   {k:'cap_mold',        l:'Moldura decorativa',        preco:110, u:'ml', grp:'Acabamentos (ml)'},
   {k:'cap_ping',        l:'Pingadeira',                preco:80,  u:'ml', grp:'Acabamentos (ml)'},
   {k:'cap_bisel',       l:'Borda Biselada',            preco:90,  u:'ml', grp:'Acabamentos (ml)'},
-  {k:'cap_roda',        l:'Rodapé interno',            preco:75,  u:'ml', grp:'Acabamentos (ml)'},
+  {k:'cap_roda',        l:'Rodapé interno',            preco:75,  u:'ml', grp:'Acabamentos (ml)'}
 ];
 
-// Mapeia grp simples → nome do grupo em SV_DEFS.Capela
-var CAP_GRP_MAP = {
+var CAP_GRP_SV_DEF = {
   'Lápide / Adornos': '🪦 Lápide / Adornos',
   'Mão de Obra':      '🔨 Mão de Obra',
   'Acabamentos (ml)': '📐 Acabamentos (ml)'
@@ -8472,13 +8468,12 @@ var CAP_GRP_MAP = {
 function capInitList(){
   if(!CFG.capList){
     CFG.capList = DEF_CAP_LIST.map(function(x){
-      return {k:x.k, l:x.l, preco: (CFG.sv[x.k]!==undefined ? CFG.sv[x.k] : x.preco), u:x.u, grp:x.grp};
+      return {k:x.k, l:x.l, preco:(CFG.sv[x.k]!==undefined?CFG.sv[x.k]:x.preco), u:x.u, grp:x.grp};
     });
   } else {
-    // Garante que novos itens padrão apareçam se ainda não existirem
     DEF_CAP_LIST.forEach(function(def){
       if(!CFG.capList.find(function(c){return c.k===def.k;})){
-        CFG.capList.push({k:def.k, l:def.l, preco: (CFG.sv[def.k]!==undefined ? CFG.sv[def.k] : def.preco), u:def.u, grp:def.grp});
+        CFG.capList.push({k:def.k, l:def.l, preco:(CFG.sv[def.k]!==undefined?CFG.sv[def.k]:def.preco), u:def.u, grp:def.grp});
       }
     });
   }
@@ -8486,113 +8481,89 @@ function capInitList(){
 
 function syncCapList(){
   if(!CFG.capList) return;
-  // 1. Atualiza preços e labels em CFG.sv
-  CFG.capList.forEach(function(ci){ CFG.sv[ci.k] = ci.preco; });
-
-  // 2. Atualiza SV_DEFS.Capela dinamicamente
-  var capDef = (typeof SV_DEFS !== 'undefined') ? (SV_DEFS['⛪ Capela'] || SV_DEFS.Capela) : null;
+  CFG.capList.forEach(function(ci){ CFG.sv[ci.k]=ci.preco; });
+  if(typeof SV_DEFS==='undefined') return;
+  var capDef=SV_DEFS['⛪ Capela']||SV_DEFS.Capela;
   if(!capDef) return;
-
   CFG.capList.forEach(function(ci){
-    var found = false;
+    var found=false;
     capDef.forEach(function(grp){
-      var it = grp.its.find(function(i){return i.k===ci.k;});
-      if(it){ it.l = ci.l; it.u = ci.u; found = true; }
+      var it=grp.its.find(function(i){return i.k===ci.k;});
+      if(it){it.l=ci.l;it.u=ci.u;found=true;}
     });
     if(!found){
-      // Novo item: adicionar ao grupo correspondente em SV_DEFS.Capela
-      var targetGrpName = CAP_GRP_MAP[ci.grp] || ('🪦 ' + ci.grp);
-      var targetGrp = capDef.find(function(g){return g.g===targetGrpName;});
-      if(!targetGrp){
-        targetGrp = {g: targetGrpName, its:[]};
-        // Insere antes do grupo Mão de Obra
-        var moIdx = capDef.findIndex(function(g){return g.g==='🔨 Mão de Obra';});
-        if(moIdx>=0) capDef.splice(moIdx, 0, targetGrp);
-        else capDef.push(targetGrp);
+      var tgName=CAP_GRP_SV_DEF[ci.grp]||('🪦 '+ci.grp);
+      var tg=null;
+      capDef.forEach(function(g){if(g.g===tgName)tg=g;});
+      if(!tg){
+        tg={g:tgName,its:[]};
+        var moIdx=-1;
+        capDef.forEach(function(g,i){if(g.g==='🔨 Mão de Obra')moIdx=i;});
+        if(moIdx>=0)capDef.splice(moIdx,0,tg);
+        else capDef.push(tg);
       }
-      var fx = (ci.u==='ml'||ci.u==='km') ? 0 : 0;
-      targetGrp.its.push({k:ci.k, l:ci.l, u:ci.u, fx:fx});
+      tg.its.push({k:ci.k,l:ci.l,u:ci.u,fx:0});
     }
   });
-
-  // Atualiza alias
-  if(typeof SV_DEFS !== 'undefined'){
-    SV_DEFS['⛪ Capela'] = SV_DEFS.Capela;
-  }
+  SV_DEFS['⛪ Capela']=SV_DEFS.Capela;
 }
 
-function escH2(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _escCap(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function buildCfgCapela(){
   capInitList();
-  var cl = CFG.capList;
-  // Agrupa por grp
-  var grps = [];
-  var grpIdx = {};
-  cl.forEach(function(ci, i){
-    if(!grpIdx.hasOwnProperty(ci.grp)){
-      grpIdx[ci.grp] = grps.length;
-      grps.push({g:ci.grp, its:[]});
-    }
-    grps[grpIdx[ci.grp]].its.push({ci:ci, i:i});
+  var cl=CFG.capList;
+  var grps=[]; var grpIdx={};
+  cl.forEach(function(ci,i){
+    if(!grpIdx.hasOwnProperty(ci.grp)){grpIdx[ci.grp]=grps.length;grps.push({g:ci.grp,its:[]});}
+    grps[grpIdx[ci.grp]].its.push({ci:ci,i:i});
   });
-
-  var h = '<div style="font-size:.72rem;color:var(--t2);margin-bottom:14px;line-height:1.6;">Configure nomes e valores de cada item da capelinha. Adicione itens personalizados ou remova os que não usa.</div>';
-
+  var h='<div style="font-size:.72rem;color:var(--t2);margin-bottom:14px;line-height:1.6;">Configure nomes e valores de cada item da capelinha. Adicione ou remova itens conforme necessário.</div>';
   grps.forEach(function(grp){
-    h += '<div class="cfgsec">';
-    h += '<div class="cfghd" style="display:flex;justify-content:space-between;align-items:center;">'+escH2(grp.g);
-    // Botão + para o grupo
-    var grpName = escH2(grp.g).replace(/'/g,"\\'");
-    h += '<button class="cfgbtn" style="font-size:.68rem;padding:4px 10px;" onclick="(function(){var g=\''+grpName+'\';var u=g.indexOf(\'ml\')>=0?\'ml\':\'un\';CFG.capList.push({k:\'cap_\'+(Date.now()),l:\'Novo Item\',preco:0,u:u,grp:g});svCFG();buildCfg();})()">+ Adicionar</button>';
-    h += '</div>';
-
+    var gEsc=_escCap(grp.g);
+    var gJs=grp.g.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    h+='<div class="cfgsec">';
+    h+='<div class="cfghd" style="display:flex;justify-content:space-between;align-items:center;">'+gEsc;
+    var uDef=grp.g.indexOf('ml')>=0?'ml':'un';
+    h+='<button class="cfgbtn" style="font-size:.68rem;padding:4px 10px;" onclick="CFG.capList.push({k:\'cap_\'+(Date.now()),l:\'Novo Item\',preco:0,u:\''+uDef+'\',grp:\''+gJs+'\'});svCFG();buildCfg();">+ Adicionar</button>';
+    h+='</div>';
     grp.its.forEach(function(entry){
-      var ci = entry.ci; var i = entry.i;
-      h += '<div class="cfg-row" style="flex-wrap:wrap;gap:6px;">';
-      h += '<input class="cfginp" value="'+escH2(ci.l)+'" style="flex:1;min-width:120px;text-align:left;" onchange="CFG.capList['+i+'].l=this.value;svCFG();" placeholder="Nome do item">';
-      h += '<input class="cfginp cfginp-w" type="number" value="'+ci.preco+'" style="width:80px;" onchange="CFG.capList['+i+'].preco=+this.value;CFG.sv[CFG.capList['+i+'].k]=+this.value;svCFG();" placeholder="R$">';
-      h += '<select class="cfginp" style="width:58px;padding:6px 4px;" onchange="CFG.capList['+i+'].u=this.value;svCFG();">';
-      ['un','ml','km'].forEach(function(u){ h+='<option value="'+u+'"'+(ci.u===u?' selected':'')+'>'+u+'</option>'; });
-      h += '</select>';
-      h += '<button class="cfgdel" onclick="if(confirm(\'Remover '+escH2(ci.l)+'?\')){CFG.capList.splice('+i+',1);delete CFG.sv[\''+ci.k+'\'];svCFG();buildCfg();}">✕</button>';
-      h += '</div>';
+      var ci=entry.ci; var i=entry.i;
+      var lJs=ci.l.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      h+='<div class="cfg-row" style="flex-wrap:wrap;gap:6px;">';
+      h+='<input class="cfginp" value="'+_escCap(ci.l)+'" style="flex:1;min-width:110px;text-align:left;" onchange="CFG.capList['+i+'].l=this.value;svCFG();" placeholder="Nome">';
+      h+='<input class="cfginp cfginp-w" type="number" value="'+ci.preco+'" style="width:80px;" onchange="CFG.capList['+i+'].preco=+this.value;CFG.sv[CFG.capList['+i+'].k]=+this.value;svCFG();" placeholder="R$">';
+      h+='<select class="cfginp" style="width:56px;padding:6px 4px;" onchange="CFG.capList['+i+'].u=this.value;svCFG();">';
+      ['un','ml','km'].forEach(function(u){h+='<option'+(ci.u===u?' selected':'')+'>'+u+'</option>';});
+      h+='</select>';
+      h+='<button class="cfgdel" onclick="if(confirm(\'Remover \\\''+lJs+'\\\'?\')){CFG.capList.splice('+i+',1);delete CFG.sv[\''+ci.k+'\'];svCFG();buildCfg();}">✕</button>';
+      h+='</div>';
     });
-    h += '</div>';
+    h+='</div>';
   });
-
-  // Botão para novo grupo
-  h += '<button class="cfgadd" onclick="var g=prompt(\'Nome do novo grupo:\');if(g){CFG.capList.push({k:\'cap_\'+(Date.now()),l:\'Novo Item\',preco:0,u:\'un\',grp:g});svCFG();buildCfg();}">+ Novo Grupo</button>';
-
-  // Salvar
-  h += '<div style="padding:16px 17px 32px;"><button onclick="syncCapList();svCFG();toast(\'✓ Capelinhas salvo!\');if(typeof renderAmbientes===\'function\')renderAmbientes();" style="width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar Configurações</button></div>';
-
+  h+='<button class="cfgadd" onclick="var g=prompt(\'Nome do novo grupo:\');if(g&&g.trim()){CFG.capList.push({k:\'cap_\'+(Date.now()),l:\'Novo Item\',preco:0,u:\'un\',grp:g.trim()});svCFG();buildCfg();}">+ Novo Grupo</button>';
+  h+='<div style="padding:16px 17px 32px;"><button onclick="syncCapList();svCFG();toast(\'✓ Capelinhas salvo!\');if(typeof renderAmbientes===\'function\')renderAmbientes();" style="width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar Configurações</button></div>';
   return h;
 }
 
-window.addEventListener('load', function _capCfgBoot(){
-  // Init preços
+window.addEventListener('load',function _capCfgBoot(){
   capInitList();
   syncCapList();
-
-  // Injeta aba na barra de config (tab 8)
-  var cfgTabs = document.getElementById('cfgTabs');
-  if(cfgTabs && !cfgTabs.querySelector('[data-cftab="8"]')){
-    var t = document.createElement('div');
-    t.className = 'cfgtab';
+  var cfgTabs=document.getElementById('cfgTabs');
+  if(cfgTabs&&!cfgTabs.querySelector('[data-cftab="8"]')){
+    var t=document.createElement('div');
+    t.className='cfgtab';
     t.setAttribute('data-cftab','8');
-    t.textContent = '⛪ Capelinhas';
+    t.textContent='⛪ Capelinhas';
     cfgTabs.appendChild(t);
   }
-
-  // Patch buildCfg para renderizar tab 8
-  if(typeof buildCfg === 'function'){
-    var _orig = buildCfg;
-    buildCfg = function(){
-      if(typeof cfgTab !== 'undefined' && cfgTab === 8){
+  if(typeof buildCfg==='function'){
+    var _orig=buildCfg;
+    buildCfg=function(){
+      if(typeof cfgTab!=='undefined'&&cfgTab===8){
         capInitList();
-        var body = document.getElementById('cfgBody');
-        if(body) body.innerHTML = buildCfgCapela();
+        var body=document.getElementById('cfgBody');
+        if(body)body.innerHTML=buildCfgCapela();
       } else {
         _orig();
       }

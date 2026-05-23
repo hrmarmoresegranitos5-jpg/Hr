@@ -298,12 +298,11 @@ var DEF_TUM_SV = {
   tum_pol:   160,  tum_rec:    50, tum_mont:  380, tum_montc: 580,
   // cap_ (chapel)
   cap_fundo: 85, cap_base: 85, cap_teto: 85, cap_lat: 85, cap_front: 85, cap_degrau: 85,
-  cap_pilar_ch: 85,
+  cap_pilar_ch: 85, cap_pilar_tr: 0,
   cap_lapide: 480, cap_plaq: 220, cap_lapide_foto: 500, cap_foto: 170,
   cap_cruz_gr: 340, cap_cruz_mr: 280, cap_vaso: 380, cap_pol: 160,
   cap_mont: 420, cap_montc: 620, cap_recorte: 50,
   cap_mold: 110, cap_ping: 80, cap_bisel: 90, cap_roda: 75,
-  cap_pilar_tr: 0,
   // bp_ (borda piscina)
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
@@ -697,7 +696,7 @@ function renderAmbientes(){
   try{
   var container=document.getElementById('ambientesList');
   if(!container)return;
-  // Preserve focused input so the keyboard doesn't close on mobile
+  // Preserva foco para o teclado não fechar ao redigitar
   var _focusId=null,_focusSel=0,_focusSelE=0;
   var _active=document.activeElement;
   if(_active&&(_active.tagName==='INPUT'||_active.tagName==='TEXTAREA')&&_active.id){
@@ -939,13 +938,10 @@ function renderAmbientes(){
     h+='</div></div>';
   });
   container.innerHTML=h;
-  // Restore keyboard focus after re-render
+  // Restaura foco no input ativo para o teclado não fechar
   if(_focusId){
     var _el=document.getElementById(_focusId);
-    if(_el){
-      _el.focus();
-      try{_el.setSelectionRange(_focusSel,_focusSelE);}catch(e){}
-    }
+    if(_el){_el.focus();try{_el.setSelectionRange(_focusSel,_focusSelE);}catch(e){}}
   }
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
 }
