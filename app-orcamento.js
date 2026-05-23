@@ -256,9 +256,10 @@ SV_DEFS.Capela = [
   ]},
   // ── Lápide / Adornos ──
   {g:'🪦 Lápide / Adornos',its:[
-    {k:'cap_lapide',  l:'Lápide gravada em granito',     u:'un', fx:0},
-    {k:'cap_plaq',    l:'Plaquinha gravada',             u:'un', fx:0},
-    {k:'cap_foto',    l:'Foto em porcelana',             u:'un', fx:0},
+    {k:'cap_lapide',      l:'Lápide gravada em granito', u:'un', fx:0},
+    {k:'cap_plaq',        l:'Plaquinha gravada',         u:'un', fx:0},
+    {k:'cap_lapide_foto', l:'Lápide com foto',           u:'un', fx:0},
+    {k:'cap_foto',        l:'Foto em porcelana',         u:'un', fx:0},
     {k:'cap_cruz_gr', l:'Cruz em granito',               u:'un', fx:0},
     {k:'cap_cruz_mr', l:'Cruz em mármore',               u:'un', fx:0},
     {k:'cap_vaso',    l:'Vaso integrado em pedra',       u:'un', fx:0},
@@ -298,6 +299,11 @@ var DEF_TUM_SV = {
   // cap_ (chapel)
   cap_fundo: 85, cap_base: 85, cap_teto: 85, cap_lat: 85, cap_front: 85, cap_degrau: 85,
   cap_pilar_ch: 85,
+  cap_lapide: 480, cap_plaq: 220, cap_lapide_foto: 500, cap_foto: 170,
+  cap_cruz_gr: 340, cap_cruz_mr: 280, cap_vaso: 380, cap_pol: 160,
+  cap_mont: 420, cap_montc: 620, cap_recorte: 50,
+  cap_mold: 110, cap_ping: 80, cap_bisel: 90, cap_roda: 75,
+  cap_pilar_tr: 0,
   // bp_ (borda piscina)
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
@@ -691,6 +697,13 @@ function renderAmbientes(){
   try{
   var container=document.getElementById('ambientesList');
   if(!container)return;
+  // Preserve focused input so the keyboard doesn't close on mobile
+  var _focusId=null,_focusSel=0,_focusSelE=0;
+  var _active=document.activeElement;
+  if(_active&&(_active.tagName==='INPUT'||_active.tagName==='TEXTAREA')&&_active.id){
+    _focusId=_active.id;
+    try{_focusSel=_active.selectionStart;_focusSelE=_active.selectionEnd;}catch(e){}
+  }
   var h='';
   ambientes.forEach(function(amb,idx){
     var num=idx+1;
@@ -926,6 +939,14 @@ function renderAmbientes(){
     h+='</div></div>';
   });
   container.innerHTML=h;
+  // Restore keyboard focus after re-render
+  if(_focusId){
+    var _el=document.getElementById(_focusId);
+    if(_el){
+      _el.focus();
+      try{_el.setSelectionRange(_focusSel,_focusSelE);}catch(e){}
+    }
+  }
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
 }
 
