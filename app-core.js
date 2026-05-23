@@ -175,7 +175,7 @@ function initCFG(){
   // de var CFG no app-tum-inline.js que sobrescreve o CFG global
   var _savedCFG = JSON.parse(localStorage.getItem('hr_cfg')||'null');
   if(_savedCFG) CFG = _savedCFG;
-  var CFG_VER = 18;
+  var CFG_VER = 19;
   var storedVer = +localStorage.getItem('hr_cfg_ver') || 0;
   // Se acabou de restaurar um backup, limpar o flag e pular sobrescrita de preços/dados do usuário
   var justRestored = localStorage.getItem('hr_just_restored') === '1';
@@ -226,6 +226,13 @@ function initCFG(){
   if (!CFG.ac)     CFG.ac     = JSON.parse(JSON.stringify(DEF_ACESS));
   if (!CFG.emp)    CFG.emp    = JSON.parse(JSON.stringify(DEF_EMP));
   if (!CFG.fixos)  CFG.fixos  = JSON.parse(JSON.stringify(DEF_FIXOS));
+  if (!CFG.capacidade) CFG.capacidade = {
+    total:   15,
+    oficina:  8,
+    campo:    6,
+    geral:   10,
+    alerta: { leve: 0.60, normal: 0.85, pesada: 1.00 }
+  };
   // Forçar preços padrão somente se NÃO acabou de restaurar um backup do usuário
   if(!justRestored){
     var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
@@ -3385,7 +3392,7 @@ function gerarPDF(){
 }
 function salvarAgenda(){if(!pendQ)return;var last=lastEnd();document.getElementById('diasMsg').textContent=(last?'Agenda ocupada até '+fd(last)+'. ':'')+'Quantos dias para entregar o serviço de '+pendQ.cli+'?';document.getElementById('diasIn').value='';document.getElementById('diasPrev').classList.remove('on');showMd('diasMd');}
 function prevDias(){var d=+document.getElementById('diasIn').value,p=document.getElementById('diasPrev');if(!d){p.classList.remove('on');return;}var s=lastEnd()||td();p.textContent='Início: '+fd(s)+'\nEntrega prevista: '+fd(addD(s,d));p.classList.add('on');}
-function confirmarAgenda(){var d=+document.getElementById('diasIn').value;if(!d||!pendQ){toast('Informe os dias');return;}var s=lastEnd()||td(),end=addD(s,d),q=pendQ;var job={id:Date.now(),cli:q.cli,desc:q.tipo+' — '+q.mat,start:s,end:end,value:q.vista,pago:0,obs:'',done:false};DB.j.unshift(job);DB.sv();closeAll();updUrgDot();toast('✓ '+q.cli+' agendado para '+fd(end));setTimeout(function(){showCB(q.cli+' já pagou os 50% de entrada (R$ '+fm(q.ent)+')?',function(){addTr('in','Entrada 50% — '+q.cli,q.ent);var j=DB.j.find(function(x){return x.id===job.id;});if(j){j.pago=q.ent;DB.sv();}hideCB();toast('✓ Entrada registrada!');},function(){hideCB();});},600);}
+function confirmarAgenda(){var d=+document.getElementById('diasIn').value;if(!d||!pendQ){toast('Informe os dias');return;}var s=lastEnd()||td(),end=addD(s,d),q=pendQ;var job={id:Date.now(),cli:q.cli,desc:q.tipo+' — '+q.mat,start:s,end:end,value:q.vista,pago:0,obs:'',done:false,qId:q.id,m2:q.m2||0,matPr:q.matPr||0,custoPedraEpoca:q.matCusto||q.custo||0,cat:q.tipo||'Outro'};DB.j.unshift(job);DB.sv();closeAll();updUrgDot();toast('✓ '+q.cli+' agendado para '+fd(end));setTimeout(function(){showCB(q.cli+' já pagou os 50% de entrada (R$ '+fm(q.ent)+')?',function(){addTr('in','Entrada 50% — '+q.cli,q.ent);var j=DB.j.find(function(x){return x.id===job.id;});if(j){j.pago=q.ent;DB.sv();}hideCB();toast('✓ Entrada registrada!');},function(){hideCB();});},600);}
 
 function openJobModal(id){
   editJobId=id;
@@ -3431,6 +3438,18 @@ function delJob(id){if(!confirm('Remover serviço?'))return;DB.j=DB.j.filter(fun
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
 
 function renderAg(){
+  // ── Painel de carga semanal (IEO) ────────────────────────────────────────
+  var _agListEl = document.getElementById('agList');
+  if (_agListEl) {
+    var _cargaEl = document.getElementById('agCarga');
+    if (!_cargaEl) {
+      _cargaEl = document.createElement('div');
+      _cargaEl.id = 'agCarga';
+      _agListEl.parentNode.insertBefore(_cargaEl, _agListEl);
+    }
+    _cargaEl.innerHTML = _renderCargaSemana();
+  }
+  // ── Lista de jobs (inalterada) ────────────────────────────────────────────
   var ov=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)<0;});
   var ur=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;});
   var pe=DB.j.filter(function(j){return !j.done&&(!j.end||dDiff(j.end)>3);});
@@ -3440,6 +3459,91 @@ function renderAg(){
   sec('Atrasados','var(--red)',ov);sec('Próximos 3 dias','var(--gold)',ur);sec('Em andamento ('+pe.length+')','var(--t3)',pe);sec('Concluídos','var(--t3)',dn);
   if(!DB.j.length)h='<div style="text-align:center;padding:40px 20px;color:var(--t3);font-size:.82rem;"><div style="font-size:2.2rem;margin-bottom:9px;">📅</div>Nenhum serviço ainda.</div>';
   document.getElementById('agList').innerHTML=h;
+}
+
+// Monta o HTML do painel de carga semanal — chamado apenas por renderAg().
+function _renderCargaSemana() {
+  var s = calcSemana();
+
+  // Sem jobs na semana e IEO zerado: painel mínimo, sem ruído
+  if (!s.jobs.length && s.ieo_total === 0) {
+    return '<div style="background:var(--s2,#18181f);border:1px solid var(--bd,#28282f);border-radius:14px;padding:12px 14px;margin-bottom:12px;">'
+      + '<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--t3,#666);font-weight:600;">⚙ Carga Semanal</div>'
+      + '<div style="font-size:.72rem;color:var(--t3);margin-top:6px;">Nenhum job iniciando esta semana.</div>'
+      + '</div>';
+  }
+
+  // Cores e rótulos por faixa
+  var _COR = { leve:'#4cda80', normal:'#C9A84C', pesada:'#e09030', critica:'#e05151', nd:'#555' };
+  var _ROT = { leve:'Leve', normal:'Normal', pesada:'Pesada', critica:'Crítica ⚠', nd:'—' };
+
+  function _barHtml(pct, faixa) {
+    var cor = _COR[faixa] || '#555';
+    var w   = Math.min(Math.round(pct * 100), 100);
+    var pctTxt = Math.round(pct * 100) + '%';
+    return '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;">'
+      + '<div style="flex:1;height:5px;background:var(--s3,#0e0e14);border-radius:3px;overflow:hidden;">'
+      +   '<div style="height:5px;width:' + w + '%;background:' + cor + ';border-radius:3px;transition:width .3s;"></div>'
+      + '</div>'
+      + '<span style="font-size:.65rem;font-weight:700;color:' + cor + ';min-width:28px;text-align:right;">' + pctTxt + '</span>'
+      + '</div>';
+  }
+
+  function _gauge(label, pct, faixa) {
+    var cor = _COR[faixa] || '#555';
+    var rot = _ROT[faixa] || '—';
+    return '<div style="background:var(--s3,#0e0e14);border-radius:10px;padding:9px 10px;">'
+      + '<div style="font-size:.6rem;color:var(--t3);margin-bottom:2px;">' + label + '</div>'
+      + '<div style="font-size:.78rem;font-weight:700;color:' + cor + ';">' + rot + '</div>'
+      + _barHtml(pct, faixa)
+      + '</div>';
+  }
+
+  // Aviso de gargalo oculto: total ok mas oficina ou campo crítico
+  var _avisoGargalo = '';
+  if (s.faixa !== 'critica') {
+    var _gcrit = [];
+    if (s.faixa_of === 'critica' || s.faixa_of === 'pesada') _gcrit.push('oficina');
+    if (s.faixa_ca === 'critica' || s.faixa_ca === 'pesada') _gcrit.push('campo');
+    if (_gcrit.length) {
+      _avisoGargalo = '<div style="margin-top:8px;padding:7px 10px;background:rgba(224,80,80,.10);border:1px solid rgba(224,80,80,.30);border-radius:8px;font-size:.67rem;color:#e09090;line-height:1.5;">'
+        + '⚠ Gargalo oculto: <strong>' + _gcrit.join(' e ') + '</strong> sobrecarregado(s) mesmo com carga total moderada.'
+        + '</div>';
+    }
+  }
+
+  // Aviso IEO zerado mas há jobs (jobs antigos sem IEO)
+  var _avisoSemIEO = '';
+  var _semIEO = s.jobs.filter(function(j){ return !(j.ieo > 0); });
+  if (_semIEO.length && s.ieo_total === 0) {
+    _avisoSemIEO = '<div style="margin-top:8px;font-size:.63rem;color:var(--t3);font-style:italic;">'
+      + s.jobs.length + ' job(s) esta semana — IEO ainda não calculado (jobs antigos).'
+      + '</div>';
+  } else if (_semIEO.length) {
+    _avisoSemIEO = '<div style="margin-top:6px;font-size:.63rem;color:var(--t3);font-style:italic;">'
+      + _semIEO.length + ' job(s) sem IEO (antigos) — carga pode estar subestimada.'
+      + '</div>';
+  }
+
+  var corTotal = _COR[s.faixa] || '#555';
+
+  var h = '<div style="background:var(--s2,#18181f);border:1px solid var(--bd,#28282f);border-radius:14px;padding:12px 14px;margin-bottom:12px;">'
+    // Cabeçalho
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">'
+    +   '<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--t3,#666);font-weight:600;">⚙ Carga Semanal</div>'
+    +   '<div style="font-size:.65rem;color:var(--t3);">' + s.jobs.length + ' job(s) · ' + fd(s.inicio) + '–' + fd(s.fim) + '</div>'
+    + '</div>'
+    // Três gauges: total, oficina, campo
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;">'
+    +   _gauge('Total', s.pct_total, s.faixa)
+    +   _gauge('Oficina', s.pct_oficina, s.faixa_of)
+    +   _gauge('Campo', s.pct_campo, s.faixa_ca)
+    + '</div>'
+    + _avisoGargalo
+    + _avisoSemIEO
+    + '</div>';
+
+  return h;
 }
 function jCard(j){
   var rest=j.value-(j.pago||0),d=j.end?dDiff(j.end):null,st=j.done?'done':(d!==null&&d<=3?'urg':'pend');
@@ -3663,7 +3767,253 @@ function renderFin(){
   if(items.length){items.forEach(function(t){var ic=t.type==='in'?'📈':t.type==='out'?'📉':t.type==='note'?'📝':'⏳';var sign=t.type==='in'?'+':t.type==='out'?'-':'';var valStr=t.value?'R$ '+fm(t.value):'';h+='<div class="trrow"><div class="trdot '+t.type+'">'+ic+'</div><div style="flex:1;min-width:0;"><div class="trnm">'+t.desc+'</div><div class="trdt">'+(t.date?fd(t.date):'')+'</div></div><div class="trv '+t.type+'">'+sign+valStr+'</div><button class="tredt" data-edittr="'+t.id+'">✏️</button></div>';});}
   else{h='<div style="padding:18px;text-align:center;color:var(--t3);font-size:.8rem;">Nenhuma movimentação</div>';}
   document.getElementById('trList').innerHTML=h;
+  renderKPI();
 }
+
+function renderKPI(){
+  var wrap=document.getElementById('kpiProd');
+  if(!wrap){
+    var trEl=document.getElementById('trList');
+    if(!trEl)return;
+    wrap=document.createElement('div');
+    wrap.id='kpiProd';
+    trEl.parentNode.insertBefore(wrap,trEl);
+  }
+
+  var done=DB.j.filter(function(j){return j.done;});
+
+  // Jobs com dados completos de orçamento (m² e custo da pedra)
+  var comDados=done.filter(function(j){return j.m2>0||j.custoPedraEpoca>0;});
+
+  // Jobs manuais: concluídos mas sem nenhum dado de orçamento
+  var manuais=done.filter(function(j){return !j.qId&&!(j.m2>0)&&!(j.custoPedraEpoca>0);});
+  var receitaManuais=manuais.reduce(function(s,j){return s+(j.value||0);},0);
+
+  // Jobs antigos: têm qId mas m2 e custoPedraEpoca zerados (agendados antes da implementação)
+  var antigos=done.filter(function(j){return j.qId&&!(j.m2>0)&&!(j.custoPedraEpoca>0);});
+
+  var agora=new Date();
+  var mesAtual=agora.getFullYear()+'-'+(String(agora.getMonth()+1).padStart(2,'0'));
+
+  // Mês atual: usa j.end (data prevista de entrega — ver nota no rodapé)
+  var doneMes=comDados.filter(function(j){
+    if(!j.end)return false;
+    return j.end.substring(0,7)===mesAtual;
+  });
+
+  // Agrupa por mês de entrega prevista (j.end)
+  var meses={};
+  comDados.forEach(function(j){
+    var mes=j.end?j.end.substring(0,7):'s/d';
+    if(!meses[mes])meses[mes]={receita:0,custoPedra:0,m2:0,jobs:0};
+    meses[mes].receita+=j.value||0;
+    meses[mes].custoPedra+=(j.m2||0)*(j.custoPedraEpoca||0);
+    meses[mes].m2+=j.m2||0;
+    meses[mes].jobs+=1;
+  });
+  var chaves=Object.keys(meses).sort().reverse().slice(0,6);
+
+  // Totais (apenas jobs com dados completos)
+  var totReceita=comDados.reduce(function(s,j){return s+(j.value||0);},0);
+  var totCustoPedra=comDados.reduce(function(s,j){return s+(j.m2||0)*(j.custoPedraEpoca||0);},0);
+  var totM2=comDados.reduce(function(s,j){return s+(j.m2||0);},0);
+  var totContrib=totReceita-totCustoPedra;
+  var pctContrib=totReceita>0?Math.round(totContrib/totReceita*100):0;
+
+  // Mês atual
+  var recMes=doneMes.reduce(function(s,j){return s+(j.value||0);},0);
+  var m2Mes=doneMes.reduce(function(s,j){return s+(j.m2||0);},0);
+  var custoPedraMes=doneMes.reduce(function(s,j){return s+(j.m2||0)*(j.custoPedraEpoca||0);},0);
+  var contribMes=recMes-custoPedraMes;
+  var pctMes=recMes>0?Math.round(contribMes/recMes*100):0;
+
+  // Médias por m²
+  var pmedio=totM2>0?totReceita/totM2:0;
+  var cmedio=totM2>0?totCustoPedra/totM2:0;
+
+  function nomeMes(ym){
+    if(ym==='s/d')return 'Sem data';
+    var p=ym.split('-');
+    var nomes=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    return nomes[+p[1]-1]+'/'+p[0].slice(2);
+  }
+
+  // ── AVISO DE ESCOPO ──────────────────────────────────────────────────────
+  var avisoEscopo='<div style="background:#1a1510;border:1px solid #6b5320;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.72rem;color:#a08040;line-height:1.7;">'
+    +'<strong style="color:#C9A84C;display:block;margin-bottom:4px;">⚠️ Escopo destes indicadores</strong>'
+    +'Baseados em <strong>receita contratada</strong> e <strong>custo da pedra</strong> apenas.<br>'
+    +'<strong>Não incluem:</strong> mão de obra · custos fixos · instalação · frete · deslocamento · impostos · despesas operacionais'
+    +'</div>';
+
+  var s='<div style="background:var(--s2,#18181f);border:1px solid var(--bd,#28282f);border-radius:16px;padding:16px;margin-bottom:16px;">'
+    +'<div style="font-size:.7rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold3,#C9A84C);font-weight:700;margin-bottom:4px;">📊 Contribuição sobre Material</div>'
+    +'<div style="font-size:.68rem;color:var(--t3);margin-bottom:12px;">Não é lucro operacional — veja escopo abaixo</div>';
+
+  if(comDados.length===0){
+    s+=avisoEscopo;
+    s+='<div style="padding:14px;text-align:center;color:var(--t3);font-size:.8rem;">Nenhum job concluído com dados de m² ainda.<br>Os próximos jobs agendados já terão os dados automáticos.</div>';
+  } else {
+    // Cards principais — nomenclatura honesta
+    s+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">';
+    s+=_kpiCard('m² Total Entregue',totM2.toFixed(2)+' m²','var(--gold2,#C9A84C)');
+    s+=_kpiCard('Receita Contratada','R$ '+fm(totReceita),'var(--grn,#4cda80)');
+    s+=_kpiCard('Custo da Pedra','R$ '+fm(totCustoPedra),'var(--red,#e05151)');
+    s+=_kpiCard('Contribuição s/ Pedra','R$ '+fm(totContrib)+' ('+pctContrib+'%)','var(--gold2,#C9A84C)');
+    s+='</div>';
+
+    // Médias por m²
+    s+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">';
+    s+=_kpiCard('Preço médio/m²','R$ '+fm(pmedio),'var(--grn,#4cda80)');
+    s+=_kpiCard('Custo médio/m²','R$ '+fm(cmedio),'var(--red,#e05151)');
+    s+=_kpiCard('Contrib. média/m²','R$ '+fm(pmedio-cmedio),'var(--gold2,#C9A84C)');
+    s+='</div>';
+
+    // Aviso de escopo
+    s+=avisoEscopo;
+
+    // Mês atual
+    if(doneMes.length>0){
+      s+='<div style="background:var(--gdim,rgba(201,168,76,.07));border:1px solid var(--gold3,#C9A84C);border-radius:10px;padding:12px;margin-bottom:14px;">';
+      s+='<div style="font-size:.68rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3,#C9A84C);margin-bottom:8px;">Mês Atual · '+doneMes.length+' job(s) c/ dados</div>';
+      s+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">';
+      s+=_kpiCard('m² entregue',m2Mes.toFixed(2)+' m²','var(--gold2)');
+      s+=_kpiCard('Rec. contratada','R$ '+fm(recMes),'var(--grn)');
+      s+=_kpiCard('Contrib. s/ pedra','R$ '+fm(contribMes)+' ('+pctMes+'%)','var(--gold2)');
+      s+='</div></div>';
+    }
+
+    // Histórico mensal
+    if(chaves.length>0){
+      s+='<div style="font-size:.68rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:4px;">Histórico por mês de entrega prevista</div>';
+      s+='<div style="font-size:.65rem;color:var(--t3);margin-bottom:8px;font-style:italic;">Agrupado por data de entrega do job — não pela data em que foi marcado como concluído</div>';
+      s+='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.75rem;">';
+      s+='<tr style="color:var(--t3);"><th style="text-align:left;padding:4px 6px;font-weight:500;">Mês</th><th style="text-align:right;padding:4px 6px;font-weight:500;">m²</th><th style="text-align:right;padding:4px 6px;font-weight:500;">Rec. contratada</th><th style="text-align:right;padding:4px 6px;font-weight:500;">Custo pedra</th><th style="text-align:right;padding:4px 6px;font-weight:500;">Contrib. %</th></tr>';
+      chaves.forEach(function(k){
+        var m=meses[k];
+        var mg=m.receita>0?Math.round((m.receita-m.custoPedra)/m.receita*100):0;
+        var cor=mg>=40?'var(--grn,#4cda80)':mg>=25?'var(--gold2,#C9A84C)':'var(--red,#e05151)';
+        s+='<tr style="border-top:1px solid var(--bd,#28282f);">'
+          +'<td style="padding:6px;color:var(--t1);">'+nomeMes(k)+'</td>'
+          +'<td style="padding:6px;text-align:right;color:var(--gold2);">'+m.m2.toFixed(2)+'</td>'
+          +'<td style="padding:6px;text-align:right;color:var(--grn);">R$ '+fm(m.receita)+'</td>'
+          +'<td style="padding:6px;text-align:right;color:var(--red);">R$ '+fm(m.custoPedra)+'</td>'
+          +'<td style="padding:6px;text-align:right;font-weight:700;color:'+cor+';">'+mg+'%</td>'
+          +'</tr>';
+      });
+      s+='</table></div>';
+    }
+
+    // ── RODAPÉ DE AVISOS ────────────────────────────────────────────────────
+    var avisos=[];
+
+    // Jobs manuais com receita
+    if(manuais.length>0){
+      var avManuais=manuais.length+' job(s) manual(is) sem dados de orçamento';
+      if(receitaManuais>0)avManuais+=' (receita contratada total: R$ '+fm(receitaManuais)+')';
+      avManuais+=' — não entram nas médias de m²';
+      avisos.push(avManuais);
+    }
+
+    // Jobs antigos com qId mas sem m²
+    if(antigos.length>0){
+      avisos.push(antigos.length+' job(s) antigo(s) com orçamento mas sem dados de m² — agendados antes da implementação');
+    }
+
+    // Aviso de túmulos
+    var temTumulo=comDados.some(function(j){return j.desc&&j.desc.toLowerCase().indexOf('túmulo')>=0;});
+    if(temTumulo){
+      avisos.push('⚠️ Túmulos detectados no período — distorcem preço/m² e contribuição média/m² por terem área muito menor que outros produtos');
+    }
+
+    if(avisos.length>0){
+      s+='<div style="margin-top:12px;padding:10px 12px;background:var(--s3,#0e0e14);border-radius:8px;">';
+      avisos.forEach(function(a){
+        s+='<div style="font-size:.68rem;color:var(--t3);padding:3px 0;border-bottom:1px solid var(--bd);line-height:1.5;">⚠ '+a+'</div>';
+      });
+      s+='</div>';
+    }
+  }
+
+  s+='</div>';
+  wrap.innerHTML=s;
+}
+
+function _kpiCard(label,val,cor){
+  return '<div style="background:var(--s3,#0e0e14);border-radius:10px;padding:10px;text-align:center;">'
+    +'<div style="font-size:.65rem;color:var(--t3);margin-bottom:4px;">'+label+'</div>'
+    +'<div style="font-family:Cormorant Garamond,serif;font-size:1.05rem;font-weight:700;color:'+cor+';">'+val+'</div>'
+    +'</div>';
+}
+
+// ═══ IEO — DIAGNÓSTICO DE CARGA SEMANAL ═══════════════════════════════════
+// Retorna o início da semana (segunda-feira) que contém a data 'yyyy-mm-dd'.
+function _inicioSemana(dataStr) {
+  var d = new Date(dataStr + 'T00:00:00');
+  var dow = d.getDay(); // 0=dom … 6=sab
+  var diff = (dow === 0) ? -6 : 1 - dow; // ajusta para segunda-feira
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().split('T')[0];
+}
+
+// Calcula o diagnóstico de carga de uma semana a partir da sua data de início.
+// Considera jobs não-concluídos cuja data de início (j.start) caia dentro
+// dos 7 dias da semana (seg–dom).  Jobs sem IEO ainda são contados mas
+// contribuem 0 pp — compatibilidade total com jobs antigos.
+// Retorna um objeto de leitura pura; não altera nada.
+function calcSemana(inicioStr) {
+  if (!inicioStr) inicioStr = _inicioSemana(td());
+  var fimStr = addD(inicioStr, 6);
+
+  var cap = (CFG && CFG.capacidade) ? CFG.capacidade : { total: 15, oficina: 8, campo: 6, geral: 10, alerta: { leve: 0.60, normal: 0.85, pesada: 1.00 } };
+
+  var jobs = DB.j.filter(function(j) {
+    if (j.done) return false;
+    if (!j.start) return false;
+    return j.start >= inicioStr && j.start <= fimStr;
+  });
+
+  var ieo_total = 0, ieo_of = 0, ieo_ca = 0, ieo_ge = 0;
+  jobs.forEach(function(j) {
+    ieo_total += j.ieo    || 0;
+    ieo_of    += j.ieo_of || 0;
+    ieo_ca    += j.ieo_ca || 0;
+    ieo_ge    += j.ieo_ge || 0;
+  });
+
+  var al = cap.alerta || { leve: 0.60, normal: 0.85, pesada: 1.00 };
+
+  function _faixa(ieo, teto) {
+    if (!teto || teto <= 0) return 'nd';
+    var pct = ieo / teto;
+    if (pct < al.leve)   return 'leve';
+    if (pct < al.normal) return 'normal';
+    if (pct < al.pesada) return 'pesada';
+    return 'critica';
+  }
+
+  var pct_total   = cap.total   > 0 ? ieo_total / cap.total   : 0;
+  var pct_oficina = cap.oficina > 0 ? ieo_of    / cap.oficina : 0;
+  var pct_campo   = cap.campo   > 0 ? ieo_ca    / cap.campo   : 0;
+
+  return {
+    inicio:      inicioStr,
+    fim:         fimStr,
+    jobs:        jobs,
+    ieo_total:   ieo_total,
+    ieo_of:      ieo_of,
+    ieo_ca:      ieo_ca,
+    ieo_ge:      ieo_ge,
+    pct_total:   pct_total,
+    pct_oficina: pct_oficina,
+    pct_campo:   pct_campo,
+    faixa:       _faixa(ieo_total, cap.total),
+    faixa_of:    _faixa(ieo_of,    cap.oficina),
+    faixa_ca:    _faixa(ieo_ca,    cap.campo),
+    cap:         cap
+  };
+}
+// ══════════════════════════════════════════════════════════════════════════
+
 function renderFixos(){
   var tot=0,h='';
   CFG.fixos.forEach(function(f){tot+=f.v;h+='<div class="rrow2" style="padding:9px 0;border-bottom:1px solid #0c0c10;display:flex;justify-content:space-between;"><span style="font-size:.79rem;color:var(--t3);">'+f.n+'</span><span style="font-size:.8rem;font-weight:600;">R$ '+fm(f.v)+'</span></div>';});
