@@ -378,7 +378,7 @@ textarea{resize:none;}
 .cbn{flex:1;padding:9px;border-radius:8px;border:1px solid var(--bd2);background:transparent;color:var(--t3);font-size:.78rem;cursor:pointer;font-family:Outfit,sans-serif;}
 
 /* MODALS */
-.ov{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:400;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px);}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:400;display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px);-webkit-overflow-scrolling:touch;}
 .ov.on{display:flex;}
 .modal{background:var(--s2);border-radius:18px 18px 0 0;padding:15px 15px 32px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;border-top:1px solid var(--bd2);}
 .modal::before{content:"";display:block;width:32px;height:3px;background:var(--s5);border-radius:2px;margin:0 auto 14px;}
@@ -2174,3 +2174,22 @@ label {
 .bot-connected-title{font-size:.8rem;font-weight:800;color:#e0ffe8;}
 .bot-connected-sub{font-size:.62rem;color:rgba(37,211,102,.6);margin-top:2px;}
 .bot-disconnect-btn{margin-left:auto;padding:6px 13px;border-radius:8px;background:rgba(201,68,68,.12);border:1px solid rgba(201,68,68,.3);color:#e07070;font-size:.65rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;touch-action:manipulation;flex-shrink:0;}
+
+/* ── diasMd: fix tela preta no mobile com teclado ── */
+#diasMd {
+  align-items: flex-end !important;
+}
+#diasMd .modal {
+  max-height: 75vh !important;
+  overflow-y: auto !important;
+  padding-bottom: env(safe-area-inset-bottom, 20px) !important;
+}
+.dp.on {
+  background: rgba(201,168,76,.06);
+  border: 1px solid rgba(201,168,76,.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--gold3) !important;
+  font-size: .72rem !important;
+  line-height: 1.5;
+}

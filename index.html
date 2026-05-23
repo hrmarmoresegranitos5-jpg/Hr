@@ -450,7 +450,34 @@ function openApp(pg){
 <button class="btn btn-g" onclick="pdfConfirmPrazo()" style="margin-bottom:7px;">Gerar PDF →</button>
 <button class="btn btn-o" data-close>Cancelar</button>
 </div></div>
-<div class="ov" id="diasMd"><div class="modal"><div class="mtitle">📅 Definir Entrega</div><p style="font-size:.78rem;color:var(--t3);margin-bottom:12px;line-height:1.6;" id="diasMsg"></p><div class="f"><label>Dias para entregar</label><input id="diasIn" type="number" placeholder="Ex: 7" min="1"></div><div class="dp" id="diasPrev"></div><button class="btn btn-g" id="btnConfAg" style="margin-bottom:7px;">Confirmar</button><button class="btn btn-o" data-close>Cancelar</button></div></div>
+<div class="ov" id="diasMd">
+  <div class="modal" style="max-height:85vh;overflow-y:auto;">
+    <div class="mtitle">📅 Definir Entrega</div>
+
+    <!-- Linha de status da agenda -->
+    <div id="diasAgStatus" style="font-size:.72rem;color:var(--t3);margin-bottom:10px;line-height:1.5;"></div>
+
+    <!-- Sugestão inteligente de prazo -->
+    <div id="diasSugestao" style="display:none;background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);margin-bottom:4px;">Sugestão inteligente</div>
+      <div id="diasSugTexto" style="font-size:.78rem;color:var(--tx);line-height:1.5;"></div>
+    </div>
+
+    <!-- Alerta de sobrecarga pré-preenchido -->
+    <div id="diasAlerta" style="display:none;background:rgba(255,80,30,.07);border:1px solid rgba(255,80,30,.3);border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+      <div id="diasAlertaTexto" style="font-size:.75rem;color:#ff7050;line-height:1.5;"></div>
+    </div>
+
+    <div class="f">
+      <label style="font-size:.68rem;letter-spacing:1px;text-transform:uppercase;color:var(--t3);">Dias para entregar</label>
+      <input id="diasIn" type="number" placeholder="Ex: 7" min="1" oninput="prevDias()" style="font-size:1.1rem;padding:12px;">
+    </div>
+    <div class="dp" id="diasPrev" style="font-size:.75rem;color:var(--gold3);margin:6px 0 12px;"></div>
+
+    <button class="btn btn-g" id="btnConfAg" style="margin-bottom:7px;font-size:.9rem;padding:13px;">Confirmar</button>
+    <button class="btn btn-o" data-close style="font-size:.85rem;">Cancelar</button>
+  </div>
+</div>
 <div class="ov" id="jobMd"><div class="modal"><div class="mtitle" id="jobMdTitle">Serviço</div><div class="f"><label>Cliente</label><input id="jCli" type="text"></div><div class="f"><label>Descrição</label><input id="jDesc" type="text" placeholder="Ex: Cozinha granito preto"></div><div class="r2"><div class="f"><label>Início</label><input id="jStart" type="date"></div><div class="f"><label>Dias p/ entrega</label><input id="jDias" type="number" placeholder="7"></div></div><div class="dp" id="jobDp"></div><div class="r2"><div class="f"><label>Valor Total R$</label><input id="jVal" type="number"></div><div class="f"><label>Entrada Paga R$</label><input id="jPago" type="number"></div></div><div class="f"><label>Obs.</label><textarea id="jObs" rows="2" placeholder="Endereço, detalhes..."></textarea></div><div class="f" style="margin-top:2px;"><label>Urgência</label><div style="display:flex;align-items:center;gap:10px;margin-top:6px;"><button id="jUrgBtn" type="button" class="urg-tog" onclick="togJUrg()">⚡ Normal</button><span id="jUrgHint" style="font-size:.62rem;color:var(--t3);">Sem prioridade especial</span></div><input id="jUrgMotivo" type="text" placeholder="Motivo: ex. obra parada, viagem marcada..." style="display:none;margin-top:7px;"></div><button class="btn btn-g" id="btnSvJob" style="margin-bottom:7px;">Salvar</button><button class="btn btn-o" data-close>Cancelar</button></div></div>
 <div class="ov" id="finMd"><div class="modal"><div class="mtitle">Lançar</div><div class="tsrow" id="tsel"><div class="ts on" data-ftp="in">Entrada</div><div class="ts" data-ftp="out">Gasto</div><div class="ts" data-ftp="note">Nota</div><div class="ts" data-ftp="pend">A receber</div></div><div class="f"><label>Descrição</label><input id="fDesc" type="text"></div><div class="r2"><div class="f"><label>Valor R$</label><input id="fVal" type="number"></div><div class="f"><label>Data</label><input id="fData" type="date"></div></div><button class="btn btn-g" id="btnSvFin" onclick="saveFin()" style="margin-bottom:7px;">Salvar</button><button class="btn btn-o" data-close>Cancelar</button></div></div>
 <div class="ov" id="trEdMd"><div class="modal"><div class="mtitle">Editar Lançamento</div><div class="tsrow" id="tesel"><div class="ts on" data-tet="in">Entrada</div><div class="ts" data-tet="out">Gasto</div><div class="ts" data-tet="note">Nota</div><div class="ts" data-tet="pend">A receber</div></div><div class="f"><label>Descrição</label><input id="teDesc" type="text"></div><div class="r2"><div class="f"><label>Valor R$</label><input id="teVal" type="number"></div><div class="f"><label>Data</label><input id="teData" type="date"></div></div><button class="btn btn-g" id="btnSvTrEd" style="margin-bottom:7px;">Salvar</button><button class="btn mt6" onclick="gerarComprovante()" style="background:linear-gradient(135deg,#1a1400,#0f0c00);color:#C9A84C;border:1px solid rgba(201,168,76,0.35);margin-bottom:7px;">🧾 Gerar Comprovante</button><button class="btn btn-red mt6" id="btnDelTr">Excluir Lançamento</button><button class="btn btn-o mt6" data-close>Cancelar</button></div></div>
