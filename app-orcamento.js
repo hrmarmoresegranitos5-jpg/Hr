@@ -741,14 +741,51 @@ function renderAmbientes(){
       h+='<div class="f"><label>Nº / Lote</label><input placeholder="N-04" type="text" style="background:var(--s3);" value="'+escH(ce.lote||'')+'" oninput="updCapExtra('+amb.id+',\'lote\',this.value)"></div></div>';
       // Divisor
       h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 12px;"></div>';
+      // ── Seletor de modelo ──────────────────────────────────────────
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:9px;">🏗️ Modelo da Capelinha</div>';
+      var _semLat=!ce.capTemLat;
+      var _comLat=!!ce.capTemLat;
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px;">';
+      // Botão: sem laterais (padrão)
+      h+='<button onclick="updCapMed('+amb.id+',\'capTemLat\',false)" style="padding:10px 6px;border-radius:10px;border:1.5px solid '+(_semLat?'var(--gold)':'rgba(201,168,76,.22)')+';background:'+(_semLat?'rgba(201,168,76,.14)':'transparent')+';color:'+(_semLat?'var(--gold)':'var(--t3)')+';font-size:.71rem;font-weight:'+(_semLat?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;text-align:center;line-height:1.5;">';
+      h+='Base + Fundo + Teto<br><span style="font-size:.6rem;opacity:.85;">⛪ sem laterais</span><br><span style="font-size:.58rem;opacity:.6;">(mais comum)</span></button>';
+      // Botão: com laterais
+      h+='<button onclick="updCapMed('+amb.id+',\'capTemLat\',true)" style="padding:10px 6px;border-radius:10px;border:1.5px solid '+(_comLat?'var(--gold)':'rgba(201,168,76,.22)')+';background:'+(_comLat?'rgba(201,168,76,.14)':'transparent')+';color:'+(_comLat?'var(--gold)':'var(--t3)')+';font-size:.71rem;font-weight:'+(_comLat?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;text-align:center;line-height:1.5;">';
+      h+='Base + Fundo + Teto<br><span style="font-size:.6rem;opacity:.85;">🧱 + 2 laterais</span><br><span style="font-size:.58rem;opacity:.6;">(fechada)</span></button>';
+      h+='</div>';
+      // Resumo visual do modelo selecionado
+      if(_semLat){
+        h+='<div style="margin-bottom:10px;padding:8px 11px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;font-size:.65rem;color:var(--t2);line-height:1.7;">';
+        h+='<b style="color:var(--gold);">Peças que serão calculadas:</b><br>';
+        h+='① Fundo (painel traseiro) — 1 un<br>';
+        h+='② Base / Tampo inferior — 1 un<br>';
+        h+='③ Teto / Tampo superior — 1 un<br>';
+        h+='④ Pilares em chapa — conforme qtd informada<br>';
+        h+='<span style="color:rgba(201,168,76,.5);">✗ Sem laterais neste modelo</span>';
+        h+='</div>';
+      } else {
+        h+='<div style="margin-bottom:10px;padding:8px 11px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;font-size:.65rem;color:var(--t2);line-height:1.7;">';
+        h+='<b style="color:var(--gold);">Peças que serão calculadas:</b><br>';
+        h+='① Fundo (painel traseiro) — 1 un<br>';
+        h+='② Base / Tampo inferior — 1 un<br>';
+        h+='③ Teto / Tampo superior — 1 un<br>';
+        h+='④ Laterais — ×2 unidades<br>';
+        h+='⑤ Pilares em chapa — conforme qtd informada';
+        h+='</div>';
+      }
+      // ── Medidas ───────────────────────────────────────────────────
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">📐 Medidas da Capelinha</div>';
+      h+='<div style="margin-bottom:9px;padding:7px 10px;background:rgba(201,168,76,.05);border-radius:8px;font-size:.6rem;color:var(--t3);line-height:1.65;">';
+      h+='💡 Informe as medidas <b>externas</b> da peça (a face que aparece no orçamento).<br>';
+      h+='Ex: Largura = medida total do fundo/teto/base (de fora a fora).';
+      h+='</div>';
       // Medidas principais
       h+='<div class="r2">';
-      h+='<div class="f"><label>Largura interna (cm)</label><input type="number" placeholder="80" style="background:var(--s3);" value="'+(ce.capW||'')+'" oninput="updCapMed('+amb.id+',\'capW\',+this.value)"></div>';
+      h+='<div class="f"><label>Largura total (cm)</label><input type="number" placeholder="80" style="background:var(--s3);" value="'+(ce.capW||'')+'" oninput="updCapMed('+amb.id+',\'capW\',+this.value)"></div>';
       h+='<div class="f"><label>Profundidade (cm)</label><input type="number" placeholder="60" style="background:var(--s3);" value="'+(ce.capP||'')+'" oninput="updCapMed('+amb.id+',\'capP\',+this.value)"></div>';
       h+='</div>';
       h+='<div class="r2">';
-      h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
+      h+='<div class="f"><label>Altura (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
       h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="3" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
       h+='</div>';
       // Pilares
@@ -763,19 +800,20 @@ function renderAmbientes(){
       h+='</div></div>';
       h+='<div class="f"><label>Largura do pilar (cm)</label><input type="number" placeholder="10" step="1" style="background:var(--s3);" value="'+(ce.capPilW||'')+'" oninput="updCapMed('+amb.id+',\'capPilW\',+this.value)"></div>';
       h+='</div>';
-      h+='<div class="f"><label>Altura do pilar (cm)</label><input type="number" placeholder="igual altura interna" step="1" style="background:var(--s3);" value="'+(ce.capPilH||'')+'" oninput="updCapMed('+amb.id+',\'capPilH\',+this.value)"></div>';
+      h+='<div class="f"><label>Altura do pilar (cm)</label><input type="number" placeholder="igual à altura total" step="1" style="background:var(--s3);" value="'+(ce.capPilH||'')+'" oninput="updCapMed('+amb.id+',\'capPilH\',+this.value)"></div>';
       // Escadinha do pilar
       h+='<div style="margin-top:8px;padding:10px 12px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;">';
-      h+='<div style="font-size:.6rem;color:var(--gold);font-weight:700;margin-bottom:6px;">🪨 Escadinha do Pilar (automático)</div>';
+      h+='<div style="font-size:.6rem;color:var(--gold);font-weight:700;margin-bottom:6px;">🪨 Base decorativa do pilar — Escadinha (automático)</div>';
       var pilW=+(ce.capPilW||0);
       if(pilW>0){
         var esc1=pilW+4; var esc2=pilW+8;
         h+='<div style="font-size:.67rem;color:var(--t2);line-height:1.9;">';
-        h+='• Pedrinha 1 (interna): <b>'+esc1+' × '+esc1+' cm</b> — 4 unid (2 pilares × embaixo+cima)<br>';
-        h+='• Pedrinha 2 (externa): <b>'+esc2+' × '+esc2+' cm</b> — 4 unid (2 pilares × embaixo+cima)';
+        h+='Cada pilar leva 4 pedrinhas (2 embaixo + 2 em cima):<br>';
+        h+='• Pedrinha interna: <b>'+esc1+' × '+esc1+' cm</b> — '+(+(ce.capNPil!==undefined?ce.capNPil:2))*2+' unid<br>';
+        h+='• Pedrinha externa: <b>'+esc2+' × '+esc2+' cm</b> — '+(+(ce.capNPil!==undefined?ce.capNPil:2))*2+' unid';
         h+='</div>';
       } else {
-        h+='<div style="font-size:.67rem;color:var(--t4);">Informe a largura do pilar para ver as medidas da escadinha</div>';
+        h+='<div style="font-size:.67rem;color:var(--t4);">Informe a largura do pilar para calcular a escadinha</div>';
       }
       h+='</div>';
       // Preview das peças calculadas
@@ -1183,8 +1221,9 @@ function calcCapelaPecas(ce){
   // Teto (tampo superior): Largura × Profundidade
   add('Teto / Tampo superior', W, P, 1);
 
-  // Laterais: Profundidade × Altura interna — 2 unidades
-  add('Laterais', P, H, 2);
+  // Laterais: Profundidade × Altura interna — 2 unidades (somente se o modelo tiver laterais)
+  // Modelo padrão (base+fundo+teto+pilares) NÃO tem laterais
+  if(ce.capTemLat) add('Laterais', P, H, 2);
 
   // Pilares (se configurados)
   if(nPil>0 && pilW>0){
