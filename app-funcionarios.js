@@ -86,6 +86,55 @@ var HR_FUNC = (function () {
     document.body.appendChild(ov);
     return ov;
   }
+  function _overlayHeader(titulo, subtitulo, onClose){
+    return '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;width:100%;">'+
+      '<div>'+
+        '<div style="font-size:.55rem;color:'+GOLD+';letter-spacing:.18em;text-transform:uppercase;margin-bottom:3px;">HR MÁRMORES</div>'+
+        '<div style="font-size:1.3rem;font-weight:800;color:'+T1+';letter-spacing:-.02em;">'+titulo+'</div>'+
+        '<div style="font-size:.72rem;color:'+T3+';margin-top:3px;">'+subtitulo+'</div>'+
+      '</div>'+
+      '<button onclick="'+onClose+'" style="background:none;border:none;color:'+T3+';cursor:pointer;font-size:1.1rem;padding:4px 0 4px 8px;">✕</button>'+
+    '</div>';
+  }
+
+  // ── Construtores de formulário ──
+  function _campo(label, inputHtml){
+    return '<div style="margin-bottom:12px;">'+
+      '<div style="font-size:.72rem;color:'+T3+';font-weight:600;letter-spacing:.04em;margin-bottom:5px;">'+label+'</div>'+
+      inputHtml+
+    '</div>';
+  }
+  function _inp(id, type, placeholder, value, extra){
+    value = value != null ? value : '';
+    extra = extra || '';
+    return '<input id="'+id+'" type="'+type+'" placeholder="'+_esc(placeholder)+'" value="'+_esc(String(value))+'" '+extra+
+      ' style="'+CSS_INP+'">';
+  }
+  function _ta(id, placeholder, value, rows){
+    value = value != null ? value : '';
+    rows  = rows  || 3;
+    return '<textarea id="'+id+'" placeholder="'+_esc(placeholder)+'" rows="'+rows+
+      '" style="'+CSS_INP+'resize:vertical;">'+_esc(String(value))+'</textarea>';
+  }
+  function _sel(id, opts, selected){
+    selected = selected != null ? String(selected) : '';
+    var ops = opts.map(function(o){
+      var sel = (String(o.v) === selected) ? ' selected' : '';
+      return '<option value="'+_esc(String(o.v))+'"'+sel+'>'+_esc(o.l)+'</option>';
+    }).join('');
+    return '<select id="'+id+'" style="'+CSS_INP+'">'+ops+'</select>';
+  }
+  function _secao(titulo, conteudo){
+    var header = titulo
+      ? '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.15em;text-transform:uppercase;'+
+          'margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid '+BD+';">'+titulo+'</div>'
+      : '';
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;'+
+      'padding:14px 16px;margin-bottom:12px;">'+header+conteudo+'</div>';
+  }
+  function _grid2(a, b){
+    return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'+a+b+'</div>';
+  }
 
   // ─────────────────────────────────────────────────────────────
   // 4. CÁLCULO FINANCEIRO
