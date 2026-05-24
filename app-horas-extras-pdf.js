@@ -105,9 +105,10 @@
 
     var f = funcs[funcId] || {};
     var salario = parseFloat(f.salario) || 0;
-    var valorHoraNormal  = (salario / 220) * (mult.normal  || 1.5);
-    var valorHoraFeriado = (salario / 220) * (mult.feriado || 2.0);
-    var valorHoraEspecial= (salario / 220) * (mult.especial|| 3.0);
+    var valorHoraBase    =  salario / 220;                // R$/h sem adicional
+    var valorHoraNormal  = valorHoraBase * mult.normal;   // ex: ×1.5
+    var valorHoraFeriado = valorHoraBase * mult.feriado;  // ex: ×2.0
+    var valorHoraEspecial= valorHoraBase * mult.especial; // ex: ×3.0
 
     var lista = Object.values(regs).filter(function (r) {
       if (r.funcionarioId !== funcId) return false;
