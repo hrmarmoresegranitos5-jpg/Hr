@@ -128,25 +128,23 @@ var HR_IMPORT = (function () {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // CÁLCULO DE HORAS EXTRAS
+  // CÁLCULO DE HORAS
+  // Recebe total de minutos já trabalhados (almoço excluído).
   // ═══════════════════════════════════════════════════════════════
-  function _calcHoras(dataISO, entradaMin, saidaMin) {
+  function _calcHoras(dataISO, trabalhadoMin) {
     var res = { horas:0, extra:0, atraso:0 };
-    if (entradaMin === null || saidaMin === null) return res;
-    var trabalhado = saidaMin - entradaMin;
-    if (trabalhado < 0) trabalhado += 1440;
-    res.horas = _min2h(trabalhado);
+    if (!trabalhadoMin || trabalhadoMin <= 0) return res;
+    res.horas = _min2h(trabalhadoMin);
 
     var meta = 480; // seg-sex 8h
     if (dataISO) {
       var p = dataISO.split('-');
-      // getUTCDay: 0=dom,1=seg,...,5=sex,6=sab
       var dow = new Date(Date.UTC(+p[0],+p[1]-1,+p[2])).getUTCDay();
       if (dow === 6) meta = 240;   // sábado 4h
       else if (dow === 0) meta = 0; // domingo
     }
 
-    var diff = trabalhado - meta;
+    var diff = trabalhadoMin - meta;
     if (diff > 0)      res.extra  = _min2h(diff);
     else if (diff < 0) res.atraso = _min2h(-diff);
     return res;
@@ -255,39 +253,54 @@ var HR_IMPORT = (function () {
           var dia = parseInt(dlm[1], 10);
           var dataISO = year + '-' + monthStr + '-' + (dia < 10 ? '0' : '') + dia;
 
-          // ── Leitura semântica dos pares de batidas ──
-          // +1=manhã entrada, +3=manhã saída
-          // +6=tarde entrada, +8=tarde saída
-          // +10=extra entrada, +12=extra saída
-          var PAIRS = [[1,3],[6,8],[10,12]];
-          var entMin = null, saiMin = null;
+          // ── Leitura semântica dos segmentos de trabalho ──────────────
+          // Pares de offsets dentro do bloco de 15 colunas:
+          //   Manhã  : +1 entrada,  +3 saída pro almoço
+          //   Tarde  : +6 volta do almoço, +8 saída
+          //   Extra  : +10 entrada, +12 saída
+          // Regra: só soma o segmento se AMBAS as batidas existirem.
+          // Batida órfã (sem par) é ignorada.
 
-          PAIRS.forEach(function(pair) {
-            var colEnt = base + pair[0];
-            var colSai = base + pair[1];
-            var vEnt = (colEnt < row.length) ? _toMin(row[colEnt]) : null;
-            var vSai = (colSai < row.length) ? _toMin(row[colSai]) : null;
-            // Só usa o par se ambas as batidas existirem
-            if (vEnt === null || vSai === null) return;
-            if (entMin === null || vEnt < entMin) entMin = vEnt;
-            if (saiMin === null || vSai > saiMin) saiMin = vSai;
+          var SEG_PAIRS = [{e:1,s:3,label:'manhã'},{e:6,s:8,label:'tarde'},{e:10,s:12,label:'extra'}];
+          var entMin = null, saiMin = null;
+          var trabalhadoMin = 0;
+          var almSaida = null, almVolta = null;
+
+          SEG_PAIRS.forEach(function(seg, idx) {
+            var colE = base + seg.e;
+            var colS = base + seg.s;
+            var vE = (colE < row.length) ? _toMin(row[colE]) : null;
+            var vS = (colS < row.length) ? _toMin(row[colS]) : null;
+            if (vE === null || vS === null) return; // batida órfã
+            var dur = vS - vE;
+            if (dur < 0) dur += 1440;
+            if (dur <= 0) return; // entrada == saída
+            trabalhadoMin += dur;
+            if (entMin === null || vE < entMin) entMin = vE;
+            if (saiMin === null || vS > saiMin) saiMin = vS;
+            if (idx === 0) almSaida = vS;  // saída da manhã = saída pro almoço
+            if (idx === 1) almVolta = vE;  // entrada da tarde = volta do almoço
           });
 
-          // Sem nenhum par completo = dia sem registro válido, ignora
-          if (entMin === null || saiMin === null) continue;
+          // Nenhum segmento válido = dia sem registro
+          if (trabalhadoMin === 0 || entMin === null) continue;
 
-          // Entrada e saída idênticas = par inválido (batida duplicada), ignora
-          if (entMin === saiMin) continue;
+          // Duração do almoço (só calculável se manhã E tarde existirem)
+          var almMin = (almSaida !== null && almVolta !== null)
+            ? (function(){ var d = almVolta - almSaida; return d < 0 ? d+1440 : d; })()
+            : null;
 
-          var incompleto = false; // chegou aqui = par válido
-
-          var calc = _calcHoras(dataISO, entMin, saiMin);
+          var calc = _calcHoras(dataISO, trabalhadoMin);
 
           rows.push({
             nome:       nome,
             data:       dataISO,
             entrada:    _min2hhmm(entMin),
             saida:      _min2hhmm(saiMin),
+            almSaida:   _min2hhmm(almSaida),
+            almVolta:   _min2hhmm(almVolta),
+            almMin:     almMin,
+            trabMin:    trabalhadoMin,
             horas:      calc.horas,
             extra:      calc.extra,
             atraso:     calc.atraso,
@@ -341,10 +354,14 @@ var HR_IMPORT = (function () {
       var dataISO = _excelDateToISO(row[cols.data]);
       var entMin  = _toMin(row[cols.entrada]);
       var saiMin  = _toMin(row[cols.saida]);
-      var calc    = _calcHoras(dataISO, entMin, saiMin);
+      var trabMin = (entMin !== null && saiMin !== null)
+        ? (function(){ var d = saiMin - entMin; return d < 0 ? d+1440 : d; })()
+        : 0;
+      var calc    = _calcHoras(dataISO, trabMin);
       rows.push({
         nome: nome, data: dataISO,
         entrada: _min2hhmm(entMin), saida: _min2hhmm(saiMin),
+        almSaida: null, almVolta: null, almMin: null, trabMin: trabMin,
         horas: calc.horas, extra: calc.extra, atraso: calc.atraso,
         incompleto: false, obs: ''
       });
@@ -463,13 +480,23 @@ var HR_IMPORT = (function () {
         } else {
           extraTxt = '✓ exato'; extraCor = GREEN;
         }
-        return '<div style="display:flex;justify-content:space-between;align-items:center;' +
-          'padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:.63rem;">' +
-          '<span style="color:'+T3+';min-width:28px;">'+dowLabel+'</span>' +
-          '<span style="color:'+T2+';min-width:68px;">'+_fmtData(d.data)+'</span>' +
-          '<span style="color:'+T2+';font-variant-numeric:tabular-nums;">'+(d.entrada||'--:--')+'→'+(d.saida||'--:--')+'</span>' +
-          '<span style="color:'+T2+';min-width:36px;text-align:right;">'+d.horas.toFixed(2)+'h</span>' +
-          '<span style="color:'+extraCor+';font-weight:700;min-width:80px;text-align:right;">'+extraTxt+'</span>' +
+        // Almoço: formata duração se disponível
+        var almTxt = '';
+        if (d.almSaida && d.almVolta) {
+          var aH2 = Math.floor((d.almMin||0)/60), aM2 = (d.almMin||0)%60;
+          almTxt = d.almSaida+'→'+d.almVolta+' ('+(aH2?aH2+'h':'')+(aM2?aM2+'min':'')+')';
+        }
+        var trabH = Math.floor((d.trabMin||0)/60), trabM = (d.trabMin||0)%60;
+        var trabTxt = (trabH?trabH+'h':'')+(trabM?trabM+'min':'') || d.horas.toFixed(2)+'h';
+        return '<div style="border-bottom:1px solid rgba(255,255,255,.05);padding:5px 0;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.63rem;">' +
+            '<span style="color:'+T3+';min-width:28px;">'+dowLabel+'</span>' +
+            '<span style="color:'+T2+';min-width:60px;">'+_fmtData(d.data)+'</span>' +
+            '<span style="color:'+T1+';font-variant-numeric:tabular-nums;font-weight:600;">'+(d.entrada||'--:--')+'→'+(d.saida||'--:--')+'</span>' +
+            '<span style="color:'+T2+';min-width:38px;text-align:right;">'+trabTxt+'</span>' +
+            '<span style="color:'+extraCor+';font-weight:700;min-width:78px;text-align:right;">'+extraTxt+'</span>' +
+          '</div>' +
+          (almTxt ? '<div style="font-size:.58rem;color:'+T3+';padding-left:28px;margin-top:1px;">🍽 almoço: '+almTxt+'</div>' : '') +
         '</div>';
       }).join('');
 
@@ -497,7 +524,7 @@ var HR_IMPORT = (function () {
           '<div style="margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:8px;border:1px solid rgba(255,255,255,.05);">' +
             '<div style="display:flex;justify-content:space-between;font-size:.58rem;color:'+T3+';' +
               'padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:2px;">' +
-              '<span>Dia</span><span style="min-width:68px;">Data</span><span>Entrada→Saída</span><span>Total</span><span style="min-width:80px;text-align:right;">Extra/Falta</span>' +
+              '<span>Dia</span><span style="min-width:60px;">Data</span><span>Entrada→Saída</span><span style="min-width:38px;text-align:right;">Trab.</span><span style="min-width:78px;text-align:right;">Extra/Falta</span>' +
             '</div>' + diasHtml +
           '</div>' +
         '</details>' +
@@ -574,8 +601,12 @@ var HR_IMPORT = (function () {
         id:            id,
         funcionarioId: funcId,
         data:          r.data    || '',
-        entrada:       r.entrada || '',
-        saida:         r.saida   || '',
+        entrada:       r.entrada  || '',
+        saida:         r.saida    || '',
+        almSaida:      r.almSaida || '',
+        almVolta:      r.almVolta || '',
+        almMin:        r.almMin   || 0,
+        trabMin:       r.trabMin  || 0,
         horas:         r.horas,
         extra:         r.extra,
         tipoExtra:     'normal',
