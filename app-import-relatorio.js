@@ -97,10 +97,21 @@ var HR_IMPORT = (function () {
     return DOW_NOMES[_dow(isoDate)];
   }
 
-  /** Jornada esperada (minutos) para uma data ISO. Domingo → 0 (folga). */
-  function _jornadaEsperada(isoDate) {
+  /** Jornada esperada (minutos) para uma data ISO.
+   * Domingo → 0 (folga).
+   * Se funcId informado e funcionário tiver jornadaDiariaMin > 0,
+   * usa esse valor para todos os dias úteis (seg–sáb). */
+  function _jornadaEsperada(isoDate, funcId) {
     var d = _dow(isoDate);
-    if (d === 0) return 0; // domingo
+    if (d === 0) return 0; // domingo = folga sempre
+    // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
+    if (funcId) {
+      try {
+        var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+        var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
+        if (jMin > 0) return jMin;
+      } catch(e) {}
+    }
     return JORNADA[DOW_KEYS[d]] || 480;
   }
 
@@ -114,13 +125,13 @@ var HR_IMPORT = (function () {
    * - Saldo = trab - jornada (pode ser negativo) (Regras 4 e 5)
    * - extra = max(0, saldo), atraso = max(0, -saldo)
    */
-  function _calcDia(entMin, saiMin, isoDate, almocoMin) {
+  function _calcDia(entMin, saiMin, isoDate, almocoMin, funcId) {
     almocoMin = almocoMin || 0;
 
     var bruto = saiMin - entMin;
     if (bruto < 0) bruto += 1440; // overnight
 
-    var jornadaMin = _jornadaEsperada(isoDate);
+    var jornadaMin = _jornadaEsperada(isoDate, funcId);
 
     // Trab = bruto menos pausa SE registrada (NÃO desconta automático)
     var trab = bruto - almocoMin;
@@ -512,8 +523,9 @@ var HR_IMPORT = (function () {
 
       if (valido) {
         // Passa almoço já calculado (minutos) diretamente ao _calcDia (Regras 2 e 3)
+        // Passa funcId para _calcDia respeitar jornada customizada do funcionário
         var almocoMin = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
-        res = _calcDia(entMin, saiMin, r.data, almocoMin);
+        res = _calcDia(entMin, saiMin, r.data, almocoMin, g.funcId || null);
         res.incompleto = false;
       }
 
@@ -1257,7 +1269,7 @@ var HR_IMPORT = (function () {
         var saiMin = _hhmm2min(r.saida);
         var almocoMin = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
         var calc = (!isNaN(entMin) && !isNaN(saiMin) && saiMin > entMin)
-          ? _calcDia(entMin, saiMin, r.data, almocoMin)
+          ? _calcDia(entMin, saiMin, r.data, almocoMin, gr.funcId || null)
           : { trab: 0, saldo: 0, extra: 0, atraso: 0, almoco: 0 };
 
         var id = _genId();

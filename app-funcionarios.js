@@ -607,6 +607,11 @@ var HR_FUNC = (function () {
         _grid2(
           _campo('Banco',_inp('ff_banco','text','Ex: Bradesco',f.banco)),
           _campo('Chave PIX',_inp('ff_pix','text','CPF, tel ou e-mail',f.pix))
+        )+
+        _campo('Jornada diária (horas) — deixe 0 para padrão (8h seg-sex / 4h sáb)',
+          _inp('ff_jornada','number','Ex: 4 para jovem aprendiz',
+            f.jornadaDiariaMin ? (f.jornadaDiariaMin/60) : '',
+            'min="0" max="12" step="0.5"')
         )
       )+
 
@@ -658,6 +663,7 @@ var HR_FUNC = (function () {
       banco:(document.getElementById('ff_banco')||{}).value||'',
       pix:(document.getElementById('ff_pix')||{}).value||'',
       ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
+      jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
