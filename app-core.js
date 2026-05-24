@@ -555,6 +555,7 @@ function go(n){
   if(n===10&&typeof renderContratos==='function')renderContratos();
   if(n===5)updEmp();
   if(n===6){cfgTab=0;document.querySelectorAll('.cfgtab').forEach(function(t){t.classList.toggle('on',t.dataset.cftab==='0');});buildCfg();}
+  if(n===30){if(typeof HR_FUNC!=='undefined'&&typeof HR_FUNC.renderPaginaFuncionarios==='function')HR_FUNC.renderPaginaFuncionarios();}
 }
 
 // ═══ DISPATCH ═══
