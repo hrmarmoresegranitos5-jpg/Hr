@@ -424,6 +424,12 @@ function openApp(pg){
         </div>
       </div>
       <div class="sec mt" style="padding-bottom:18px;"><div class="sl">Tabela de Preços</div><div class="ptwrap" id="ptWrap"></div></div>
+      <div class="sec mt" style="padding-bottom:24px;">
+        <div class="sl">Funcionários</div>
+        <button onclick="abrirRelatorioHorasExtras()" style="width:100%;padding:14px 16px;background:#1e1800;border:1.5px solid rgba(201,168,76,.5);border-radius:12px;color:#C9A84C;font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;letter-spacing:.02em;">
+          📊 Gerar Relatório de Horas Extras
+        </button>
+      </div>
     </div>
 
     <!-- 6: CONFIG -->
@@ -756,6 +762,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-diagnostico.js?v=11"></script>
   <script src="app-contrato-area.js?v=3"></script>
   <script src="app-contrato-pdf.js?v=2"></script>
+  <script src="app-horas-extras-pdf.js?v=1"></script>
 <div class="ov" id="adminPinMd" style="align-items:flex-end;">
   <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
     <div style="text-align:center;margin-bottom:16px;">
