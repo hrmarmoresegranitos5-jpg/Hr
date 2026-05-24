@@ -452,26 +452,32 @@ var HR_IMPORT = (function () {
 
     var jornadaDiariaMin = (func && parseInt(func.jornadaDiariaMin)) || 0;
 
-    if (jornadaDiariaMin > 0) {
-      var ym  = (mesISO ? mesISO : new Date().toISOString()).slice(0, 7);
-      var ano = parseInt(ym.slice(0, 4)), mes = parseInt(ym.slice(5, 7));
-      var ultimoDia = new Date(ano, mes, 0).getDate();
-      var diasSemanais = 0, diasSab = 0;
-      var d = new Date(ym + '-01T12:00:00');
-      var fim = new Date(ym + '-' + String(ultimoDia).padStart(2, '0') + 'T12:00:00');
-      while (d <= fim) {
-        var dow = d.getDay();
-        if (dow === 6) diasSab++;
-        else if (dow !== 0) diasSemanais++;
-        d.setDate(d.getDate() + 1);
-      }
-      // Sábado sempre 4h (240min) independente da jornada customizada
-      var horasMes = (diasSemanais * jornadaDiariaMin + diasSab * 240) / 60;
-      if (horasMes > 0) return salario / horasMes;
+    // Calcula dias úteis reais do mês de referência (sempre — jornada customizada ou padrão)
+    var ym  = (mesISO ? mesISO : new Date().toISOString()).slice(0, 7);
+    var ano = parseInt(ym.slice(0, 4)), mes = parseInt(ym.slice(5, 7));
+    var ultimoDia = new Date(ano, mes, 0).getDate();
+    var diasSemanais = 0, diasSab = 0;
+    var d = new Date(ym + '-01T12:00:00');
+    var fim = new Date(ym + '-' + String(ultimoDia).padStart(2, '0') + 'T12:00:00');
+    while (d <= fim) {
+      var dow = d.getDay();
+      if (dow === 6) diasSab++;
+      else if (dow !== 0) diasSemanais++;
+      d.setDate(d.getDate() + 1);
     }
 
-    // Fallback CLT: 220h mensais
-    return salario / 220;
+    var horasMes;
+    if (jornadaDiariaMin > 0) {
+      // Jornada customizada (ex: jovem aprendiz 4h/dia)
+      // Sábado sempre 4h independente da jornada customizada
+      horasMes = (diasSemanais * jornadaDiariaMin + diasSab * 240) / 60;
+    } else {
+      // Jornada padrão desta empresa: seg-sex = 8h, sáb = 4h
+      // Usa dias úteis REAIS do mês — mais justo que o divisor fixo CLT 220h
+      horasMes = diasSemanais * 8 + diasSab * 4;
+    }
+
+    return salario / (horasMes || 220);
   }
 
   /**
