@@ -1316,7 +1316,14 @@ var HR_FUNC = (function () {
       '</div>'+
       '<div id="hist_lista">'+_renderListaRegs(meusRegs,funcs,!!funcId)+'</div>'+
       '<div id="hist_lotes" style="display:none;">'+_renderListaLotes(funcId)+'</div>'+
-      '<button onclick="HR_FUNC._closeHistorico()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
+      // Botão nuclear — apaga TODOS os registros de ponto (útil para reimportar do zero)
+      '<button onclick="HR_FUNC._apagarTodosRegistros()" '+
+        'style="width:100%;padding:11px;border-radius:11px;background:rgba(200,92,92,.08);'+
+        'border:1px solid rgba(200,92,92,.25);color:'+RED+';font-family:Outfit,sans-serif;'+
+        'font-size:.8rem;cursor:pointer;margin-top:4px;margin-bottom:4px;">'+
+        '⚠️ Apagar TODOS os registros de ponto'+
+      '</button>'+
+      '<button onclick="HR_FUNC._closeHistorico()" style="'+CSS_BTN_GHOST+'margin-top:0;">Fechar</button>'+
     '</div>';
 
     _overlay('hrHistorico',html);
@@ -1403,6 +1410,18 @@ var HR_FUNC = (function () {
     if(elLotes)elLotes.innerHTML=_renderListaLotes(funcId||null);
     renderPaginaFuncionarios();
     _toast('🗑 Lote apagado — '+count+' registro(s) removido(s).');
+  }
+
+  function _apagarTodosRegistros(){
+    var regs=getRegistros();
+    var total=Object.keys(regs).length;
+    if(total===0){_toast('Nenhum registro para apagar.');return;}
+    if(!confirm('⚠️ ATENÇÃO\n\nIsso apagará TODOS os '+total+' registros de ponto de todos os funcionários.\n\nUse para reimportar do zero com o relatório correto.\n\nEsta ação NÃO pode ser desfeita.\n\nConfirmar?'))return;
+    saveRegistros({});
+    // Fecha o histórico e recarrega a tela principal
+    _closeHistorico();
+    renderPaginaFuncionarios();
+    _toast('🗑 Todos os '+total+' registros foram apagados. Reimporte o relatório.');
   }
 
   function _renderListaRegs(meusRegs,funcs,soUm){
@@ -1502,6 +1521,7 @@ var HR_FUNC = (function () {
     _filtrarHistorico:        _filtrarHistorico,
     _histTab:                 _histTab,
     _apagarLote:              _apagarLote,
+    _apagarTodosRegistros:    _apagarTodosRegistros,
     _closeExtrato:            _closeExtrato
   };
 })();
