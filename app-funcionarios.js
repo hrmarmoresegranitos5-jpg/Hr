@@ -168,6 +168,57 @@ var HR_FUNC = (function () {
     return _diasUteisNoIntervalo(ym+'-01', ym+'-'+String(ultimo).padStart(2,'0'));
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Item 4 — BANCO DE HORAS (separado do financeiro HE paga)
+  //
+  // Regras:
+  //  destinoExtra === 'banco'  → entra no saldo de banco, NÃO no financeiro
+  //  destinoExtra === 'pagar'  → entra no financeiro, NÃO no banco
+  //
+  // calcSaldoBancoHoras retorna:
+  //  acumuladoMin   — total de minutos creditados no banco (destinoExtra='banco')
+  //  utilizadoMin   — total de minutos usados como folga (registros com tipo='folga_banco')
+  //  saldoMin       — crédito disponível
+  //  registros      — array dos registros que compõem o banco
+  // ══════════════════════════════════════════════════════════════════════════
+
+  function calcSaldoBancoHoras(funcId, di, df) {
+    var regs = getRegistros();
+    var acumuladoMin = 0, utilizadoMin = 0;
+    var registrosBanco = [];
+
+    Object.values(regs).forEach(function(r) {
+      if (r.funcionarioId !== funcId) return;
+      if (di && r.data < di) return;
+      if (df && r.data > df) return;
+
+      // Crédito: extras com destino=banco
+      if (r.destinoExtra === 'banco') {
+        var min = Math.round((parseFloat(r.extra) || 0) * 60);
+        if (min > 0) {
+          acumuladoMin += min;
+          registrosBanco.push({ data: r.data, tipo: 'credito', min: min });
+        }
+      }
+
+      // Débito: folgas compensadas (tipo reservado para uso futuro)
+      if (r.tipoExtra === 'folga_banco') {
+        var dMin = Math.round(Math.abs(parseFloat(r.horas) || 0) * 60);
+        if (dMin > 0) {
+          utilizadoMin += dMin;
+          registrosBanco.push({ data: r.data, tipo: 'debito', min: dMin });
+        }
+      }
+    });
+
+    return {
+      acumuladoMin:    acumuladoMin,
+      utilizadoMin:    utilizadoMin,
+      saldoMin:        acumuladoMin - utilizadoMin,
+      registros:       registrosBanco.sort(function(a,b){ return a.data.localeCompare(b.data); })
+    };
+  }
+
   function calcSaldoFuncionario(funcId, di, df){
     var funcs  = getFuncionarios();
     var regs   = getRegistros();
@@ -269,7 +320,9 @@ var HR_FUNC = (function () {
       valorExtra200:    heResult.valorExtra200,
       totalExtra50Min:  heResult.totalExtra50Min,
       totalExtra100Min: heResult.totalExtra100Min,
-      totalExtra200Min: heResult.totalExtra200Min
+      totalExtra200Min: heResult.totalExtra200Min,
+      // Item 4 — Banco de horas (separado do financeiro)
+      banco:            calcSaldoBancoHoras(funcId, di, df)
     };
   }
 
@@ -444,6 +497,13 @@ var HR_FUNC = (function () {
           'font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;'+
           'display:flex;align-items:center;justify-content:center;gap:9px;">'+
           '<span>📥</span><span>Importar Relatório de Presença</span>'+
+        '</button>' +
+        '<button onclick="HR_FUNC.abrirDashboardRisco()" '+
+          'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(200,92,92,.06);'+
+          'border:1.5px solid rgba(200,92,92,.28);border-radius:11px;color:'+RED+';'+
+          'font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;'+
+          'display:flex;align-items:center;justify-content:center;gap:9px;">'+
+          '<span>⚠️</span><span>Dashboard de Risco</span>'+
         '</button>' +
       '</div>' +
 
@@ -1219,6 +1279,17 @@ var HR_FUNC = (function () {
   function _salvarRegistro(funcionarioId,registroId){
     var data=(document.getElementById('fr_data')||{}).value||'';
     if(!data){_toast('Informe a data');return;}
+
+    // ── Trava de jornada impossível (Item 2) ──────────────────────────────
+    var entStr=(document.getElementById('fr_entrada')||{}).value||'';
+    var saiStr=(document.getElementById('fr_saida')||{}).value||'';
+    if(entStr&&saiStr&&typeof HR_IMPORT!=='undefined'&&HR_IMPORT._validarJornada){
+      var epMin=entStr.split(':').map(Number); var spMin=saiStr.split(':').map(Number);
+      var eM=epMin[0]*60+(epMin[1]||0), sM=spMin[0]*60+(spMin[1]||0);
+      var almocoInputVal=parseFloat((document.getElementById('fr_almoco')||{}).value)||0;
+      var trava=HR_IMPORT._validarJornada(eM,sM,Math.round(almocoInputVal*60));
+      if(!trava.valido){_toast('⛔ '+trava.motivo);return;}
+    }
     var regs=getRegistros(); var regId=registroId||genId(); var isNew=!registroId;
     var dup=Object.values(regs).find(function(r){return r.funcionarioId===funcionarioId&&r.data===data&&r.id!==regId;});
     if(dup&&!confirm('⚠️ Já existe registro em '+_fmtData(data)+'. Continuar?'))return;
@@ -1539,8 +1610,133 @@ var HR_FUNC = (function () {
   function _closeExtrato(){ _closeOverlay('hrExtrato'); }
 
   // ─────────────────────────────────────────────────────────────
-  // EXPORT
+  // ITEM 6 — DASHBOARD DE RISCO
+  // Indicadores operacionais: quem tem mais atraso, mais HE100,
+  // mais banco, mais inconsistências, jornadas suspeitas recorrentes.
   // ─────────────────────────────────────────────────────────────
+  function abrirDashboardRisco(){
+    var funcs=getFuncionarios();
+    var regs=getRegistros();
+    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;});
+    var allRegs=Object.values(regs);
+
+    // Agrega indicadores por funcionário
+    var indicadores=ativos.map(function(f){
+      var meusRegs=allRegs.filter(function(r){return r.funcionarioId===f.id;});
+
+      // Atraso total (minutos)
+      var totalAtrasoMin=0;
+      meusRegs.forEach(function(r){
+        var ent=r.entrada,sai=r.saida;
+        if(ent&&sai&&typeof HR_IMPORT!=='undefined'&&HR_IMPORT._calcDia){
+          var ep=ent.split(':').map(Number),sp=sai.split(':').map(Number);
+          var eM=ep[0]*60+(ep[1]||0),sM=sp[0]*60+(sp[1]||0);
+          if(sM>eM){
+            var res=HR_IMPORT._calcDia(eM,sM,r.data,0,f.id);
+            totalAtrasoMin+=res.atraso||0;
+          }
+        }
+      });
+
+      // HE100 total (minutos)
+      var totalHE100Min=meusRegs.reduce(function(s,r){
+        return s+(r.tipoExtra==='domingo'||r.tipoExtra==='feriado'?Math.round((parseFloat(r.extra)||0)*60):0);
+      },0);
+
+      // Banco de horas (saldo)
+      var saldoBanco=calcSaldoBancoHoras(f.id,null,null);
+
+      // Inconsistências (gaps + badges de auditoria)
+      var alertas=analisarGaps(f.id).length;
+      var jornadas_suspeitas=0;
+      meusRegs.forEach(function(r){
+        if(typeof HR_IMPORT!=='undefined'&&HR_IMPORT._auditoriaBadges){
+          var entMin=r.entrada?(r.entrada.split(':').map(Number)):[];
+          var saiMin=r.saida?(r.saida.split(':').map(Number)):[];
+          if(entMin.length===2&&saiMin.length===2){
+            var eM=entMin[0]*60+entMin[1],sM=saiMin[0]*60+saiMin[1];
+            if(sM>eM){
+              var res2=HR_IMPORT._calcDia(eM,sM,r.data,0,f.id);
+              var lc={r:r,valido:true,res:Object.assign({},res2,{incompleto:false,bruto:res2.bruto||sM-eM,almoco:0})};
+              var badges=HR_IMPORT._auditoriaBadges(lc);
+              if(badges.some(function(b){return b.label.indexOf('JORNADA SUSPEITA')>=0;}))jornadas_suspeitas++;
+            }
+          }
+        }
+      });
+
+      var saldo=calcSaldoFuncionario(f.id,null,null);
+
+      return{
+        f:f,
+        totalAtrasoMin:totalAtrasoMin,
+        totalHE100Min:totalHE100Min,
+        saldoBancoMin:saldoBanco.saldoMin,
+        alertas:alertas,
+        jornadasSuspeitas:jornadas_suspeitas,
+        saldo:saldo
+      };
+    });
+
+    // Rankings (top 5 por categoria)
+    function _top(arr,key,asc){
+      return arr.slice().sort(function(a,b){return asc?(a[key]-b[key]):(b[key]-a[key]);}).slice(0,5);
+    }
+
+    var topAtraso=_top(indicadores,'totalAtrasoMin');
+    var topHE100=_top(indicadores,'totalHE100Min');
+    var topBanco=_top(indicadores,'saldoBancoMin');
+    var topInconsistencias=_top(indicadores,'alertas');
+    var topSuspeitas=_top(indicadores,'jornadasSuspeitas').filter(function(i){return i.jornadasSuspeitas>0;});
+
+    function _rankCard(titulo,cor,lista,key,fmt,emoji){
+      if(lista.every(function(i){return i[key]<=0;}))return'';
+      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:12px;">'+
+        '<div style="font-size:.6rem;color:'+cor+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">'+emoji+' '+titulo+'</div>'+
+        lista.filter(function(i){return i[key]>0;}).map(function(i,idx){
+          var pct=lista[0][key]>0?Math.round(i[key]/lista[0][key]*100):0;
+          return'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'+
+            '<div style="font-size:.68rem;color:'+T3+';width:16px;text-align:right;">'+(idx+1)+'</div>'+
+            '<div style="flex:1;min-width:0;">'+
+              '<div style="font-size:.75rem;font-weight:700;color:'+T1+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(i.f.nome.split(' ').slice(0,2).join(' '))+'</div>'+
+              '<div style="height:4px;background:rgba(255,255,255,.05);border-radius:2px;margin-top:3px;">'+
+                '<div style="height:4px;background:'+cor+';border-radius:2px;width:'+pct+'%;opacity:.8;"></div>'+
+              '</div>'+
+            '</div>'+
+            '<div style="font-size:.72rem;font-weight:700;color:'+cor+';white-space:nowrap;">'+fmt(i[key])+'</div>'+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }
+
+    function _fmtMin(m){
+      var h=Math.floor(m/60),mn=Math.round(m%60);
+      return h+'h'+(mn>0?mn+'m':'');
+    }
+
+    var html='<div style="width:100%;max-width:560px;padding:0 16px;">'+
+      _overlayHeader('Dashboard de Risco','⚠️ Indicadores Operacionais','window._hrFecharRisco()')+
+
+      // KPI resumo
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">'+
+        _statKpi('⏰','Atrasados',indicadores.filter(function(i){return i.totalAtrasoMin>0;}).length,'func.')+
+        _statKpi('⚡','Com HE100',indicadores.filter(function(i){return i.totalHE100Min>0;}).length,'func.')+
+        _statKpi('🏦','Banco ativo',indicadores.filter(function(i){return i.saldoBancoMin>0;}).length,'func.')+
+      '</div>'+
+
+      _rankCard('Mais Atrasos Acumulados',RED,topAtraso,'totalAtrasoMin',_fmtMin,'⏰')+
+      _rankCard('Mais HE100 (Dom/Feriado)',BLUE,topHE100,'totalHE100Min',_fmtMin,'⚡')+
+      _rankCard('Maior Saldo Banco de Horas',GOLD,topBanco,'saldoBancoMin',_fmtMin,'🏦')+
+      _rankCard('Mais Inconsistências (Gaps)',RED,topInconsistencias,'alertas',function(v){return v+' alerta'+(v!==1?'s':'');},  '⚠️')+
+      (topSuspeitas.length>0?_rankCard('Jornadas Suspeitas Recorrentes',RED,topSuspeitas,'jornadasSuspeitas',function(v){return v+'×';}, '🚨'):'<div style="text-align:center;color:'+T3+';font-size:.78rem;padding:12px;">✅ Nenhuma jornada suspeita recorrente</div>')+
+
+      '<button onclick="window._hrFecharRisco()" style="'+CSS_BTN_GHOST+'margin-top:8px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrRisco',html);
+  }
+  window._hrFecharRisco=function(){_closeOverlay('hrRisco');};
+
   return{
     renderPaginaFuncionarios: renderPaginaFuncionarios,
     abrirFormFuncionario:     abrirFormFuncionario,
@@ -1573,6 +1769,10 @@ var HR_FUNC = (function () {
     _histTab:                 _histTab,
     _apagarLote:              _apagarLote,
     _apagarTodosRegistros:    _apagarTodosRegistros,
-    _closeExtrato:            _closeExtrato
+    _closeExtrato:            _closeExtrato,
+    // Item 4 — Banco de horas
+    calcSaldoBancoHoras:      calcSaldoBancoHoras,
+    // Item 6 — Dashboard de risco
+    abrirDashboardRisco:      abrirDashboardRisco
   };
 })();
