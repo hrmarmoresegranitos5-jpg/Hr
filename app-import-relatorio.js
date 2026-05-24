@@ -130,6 +130,7 @@ var HR_IMPORT = (function () {
   // ═══════════════════════════════════════════════════════════════
   // CÁLCULO DE HORAS
   // Recebe total de minutos já trabalhados (almoço excluído).
+  // Meta: Seg–Sex 8h, Sáb 4h, Dom 0h.
   // ═══════════════════════════════════════════════════════════════
   function _calcHoras(dataISO, trabalhadoMin) {
     var res = { horas:0, extra:0, atraso:0 };
@@ -156,14 +157,19 @@ var HR_IMPORT = (function () {
   // Estrutura do arquivo:
   //   Abas: "1,2,3" e "4,5,6" (3 funcionários por aba, lado a lado)
   //   Cada bloco ocupa 15 colunas (base 0, 15, 30)
-  //   Dentro de cada bloco:
+  //   Dentro de cada bloco (offsets relativos à base):
   //     +0  = label do dia ("04 2ª", "09 Sá", ...)
   //     +1  = manhã entrada
-  //     +3  = manhã saída
-  //     +6  = tarde entrada
-  //     +8  = tarde saída
-  //     +10 = hora extra entrada
-  //     +12 = hora extra saída
+  //     +3  = manhã saída (saiu pro almoço)
+  //     +6  = tarde entrada (voltou do almoço)
+  //     +8  = tarde saída NORMAL (raramente usado pelo biométrico)
+  //     +10 = hora extra OU saída real da tarde (quando +8 ausente)
+  //     +12 = hora extra saída (horas além do expediente)
+  //
+  //   REGRA DE SAÍDA: o biométrico raramente preenche +8.
+  //   Quando +6 existe mas +8 é vazio, +10 é a saída da tarde.
+  //   Só é hora extra real quando +8 E +10 ambos existem.
+  //
   //   Nomes: linha idx 3, colunas 9, 24, 39
   //   Período: linha idx 4, coluna 1
   // ═══════════════════════════════════════════════════════════════
@@ -253,39 +259,73 @@ var HR_IMPORT = (function () {
           var dia = parseInt(dlm[1], 10);
           var dataISO = year + '-' + monthStr + '-' + (dia < 10 ? '0' : '') + dia;
 
-          // ── Leitura semântica dos segmentos de trabalho ──────────────
-          // Pares de offsets dentro do bloco de 15 colunas:
-          //   Manhã  : +1 entrada,  +3 saída pro almoço
-          //   Tarde  : +6 volta do almoço, +8 saída
-          //   Extra  : +10 entrada, +12 saída
-          // Regra: só soma o segmento se AMBAS as batidas existirem.
-          // Batida órfã (sem par) é ignorada.
+          // ── Leitura semântica dos segmentos ──────────────────────────
+          // Offsets dentro do bloco:
+          //   +1/+3  = manhã entrada/saída (saída pro almoço)
+          //   +6/+8  = tarde entrada/saída normal
+          //   +10/+12= extra entrada/saída
+          //
+          // O biométrico raramente preenche +8 (tarde saída).
+          // Quando +6 existe mas +8 está vazio e +10 existe:
+          //   → +10 é a saída real da tarde (não hora extra)
+          // Hora extra real = apenas quando +8 E +10 ambos existem.
 
-          var SEG_PAIRS = [{e:1,s:3,label:'manhã'},{e:6,s:8,label:'tarde'},{e:10,s:12,label:'extra'}];
-          var entMin = null, saiMin = null;
+          var _g = function(off) {
+            var ci = base + off;
+            return ci < row.length ? _toMin(row[ci]) : null;
+          };
+
+          var meMin = _g(1),  msMin = _g(3);   // manhã ent/sai
+          var teMin = _g(6),  tsMin = _g(8);   // tarde ent/sai
+          var xeMin = _g(10), xsMin = _g(12);  // extra ent/sai
+
+          // Resolver saída tarde: +8 tem prioridade, senão usa +10
+          var tardeSaiReal = (tsMin !== null) ? tsMin
+                           : (teMin !== null && xeMin !== null) ? xeMin
+                           : null;
+          // Se +10 foi consumido como saída da tarde, não é mais extra
+          var extraEnt = (tsMin !== null) ? xeMin : null;
+          var extraSai = (tsMin !== null) ? xsMin : null;
+
           var trabalhadoMin = 0;
+          var entMin = null, saiMin = null;
           var almSaida = null, almVolta = null;
 
-          SEG_PAIRS.forEach(function(seg, idx) {
-            var colE = base + seg.e;
-            var colS = base + seg.s;
-            var vE = (colE < row.length) ? _toMin(row[colE]) : null;
-            var vS = (colS < row.length) ? _toMin(row[colS]) : null;
-            if (vE === null || vS === null) return; // batida órfã
-            var dur = vS - vE;
-            if (dur < 0) dur += 1440;
-            if (dur <= 0) return; // entrada == saída
-            trabalhadoMin += dur;
-            if (entMin === null || vE < entMin) entMin = vE;
-            if (saiMin === null || vS > saiMin) saiMin = vS;
-            if (idx === 0) almSaida = vS;  // saída da manhã = saída pro almoço
-            if (idx === 1) almVolta = vE;  // entrada da tarde = volta do almoço
-          });
+          // Segmento manhã
+          if (meMin !== null && msMin !== null) {
+            var dur = msMin - meMin; if (dur < 0) dur += 1440;
+            if (dur > 0) {
+              trabalhadoMin += dur;
+              entMin = meMin;
+              almSaida = msMin;
+            }
+          }
 
-          // Nenhum segmento válido = dia sem registro
-          if (trabalhadoMin === 0 || entMin === null) continue;
+          // Segmento tarde
+          if (teMin !== null && tardeSaiReal !== null) {
+            var durT = tardeSaiReal - teMin; if (durT < 0) durT += 1440;
+            if (durT > 0) {
+              trabalhadoMin += durT;
+              almVolta = teMin;
+              saiMin = tardeSaiReal;
+            }
+          }
 
-          // Duração do almoço (só calculável se manhã E tarde existirem)
+          // Segmento extra (só quando tarde saída normal +8 existia)
+          if (extraEnt !== null && extraSai !== null) {
+            var durX = extraSai - extraEnt; if (durX < 0) durX += 1440;
+            if (durX > 0) { trabalhadoMin += durX; saiMin = extraSai; }
+          }
+
+          // Dia só manhã (sábado sem tarde)
+          if (meMin !== null && msMin !== null && teMin === null) {
+            if (saiMin === null) saiMin = msMin;
+          }
+
+          // Nenhum minuto válido = pular
+          if (trabalhadoMin === 0 || entMin === null || saiMin === null) continue;
+
+          // Duração do almoço
           var almMin = (almSaida !== null && almVolta !== null)
             ? (function(){ var d = almVolta - almSaida; return d < 0 ? d+1440 : d; })()
             : null;
@@ -480,23 +520,26 @@ var HR_IMPORT = (function () {
         } else {
           extraTxt = '✓ exato'; extraCor = GREEN;
         }
-        // Almoço: formata duração se disponível
+        // Formata tempo trabalhado em hXXmin
+        var tMin = d.trabMin || Math.round(d.horas * 60);
+        var tH = Math.floor(tMin/60), tM = tMin%60;
+        var trabTxt = (tH ? tH+'h' : '') + (tM ? tM+'min' : '') || '0min';
+        // Almoço
         var almTxt = '';
         if (d.almSaida && d.almVolta) {
           var aH2 = Math.floor((d.almMin||0)/60), aM2 = (d.almMin||0)%60;
-          almTxt = d.almSaida+'→'+d.almVolta+' ('+(aH2?aH2+'h':'')+(aM2?aM2+'min':'')+')';
+          almTxt = d.almSaida + '→' + d.almVolta +
+            ' (' + (aH2 ? aH2+'h' : '') + (aM2 ? aM2+'min' : '') + ')';
         }
-        var trabH = Math.floor((d.trabMin||0)/60), trabM = (d.trabMin||0)%60;
-        var trabTxt = (trabH?trabH+'h':'')+(trabM?trabM+'min':'') || d.horas.toFixed(2)+'h';
         return '<div style="border-bottom:1px solid rgba(255,255,255,.05);padding:5px 0;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:.63rem;">' +
             '<span style="color:'+T3+';min-width:28px;">'+dowLabel+'</span>' +
             '<span style="color:'+T2+';min-width:60px;">'+_fmtData(d.data)+'</span>' +
-            '<span style="color:'+T1+';font-variant-numeric:tabular-nums;font-weight:600;">'+(d.entrada||'--:--')+'→'+(d.saida||'--:--')+'</span>' +
-            '<span style="color:'+T2+';min-width:38px;text-align:right;">'+trabTxt+'</span>' +
+            '<span style="color:'+T1+';font-weight:600;font-variant-numeric:tabular-nums;">'+(d.entrada||'--:--')+'→'+(d.saida||'--:--')+'</span>' +
+            '<span style="color:'+T2+';min-width:40px;text-align:right;">'+trabTxt+'</span>' +
             '<span style="color:'+extraCor+';font-weight:700;min-width:78px;text-align:right;">'+extraTxt+'</span>' +
           '</div>' +
-          (almTxt ? '<div style="font-size:.58rem;color:'+T3+';padding-left:28px;margin-top:1px;">🍽 almoço: '+almTxt+'</div>' : '') +
+          (almTxt ? '<div style="font-size:.58rem;color:'+T3+';padding-left:28px;margin-top:2px;">🍽 almoço '+almTxt+'</div>' : '') +
         '</div>';
       }).join('');
 
@@ -524,7 +567,7 @@ var HR_IMPORT = (function () {
           '<div style="margin-top:6px;padding:6px 8px;background:rgba(255,255,255,.02);border-radius:8px;border:1px solid rgba(255,255,255,.05);">' +
             '<div style="display:flex;justify-content:space-between;font-size:.58rem;color:'+T3+';' +
               'padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:2px;">' +
-              '<span>Dia</span><span style="min-width:60px;">Data</span><span>Entrada→Saída</span><span style="min-width:38px;text-align:right;">Trab.</span><span style="min-width:78px;text-align:right;">Extra/Falta</span>' +
+              '<span>Dia</span><span style="min-width:60px;">Data</span><span>Entrada→Saída</span><span style="min-width:40px;text-align:right;">Trab.</span><span style="min-width:78px;text-align:right;">Extra/Falta</span>' +
             '</div>' + diasHtml +
           '</div>' +
         '</details>' +
