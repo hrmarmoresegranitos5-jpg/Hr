@@ -1,17 +1,21 @@
 // ══════════════════════════════════════════════════════════════
-// APP-FUNCIONARIOS v1 — HR Mármores e Granitos
-// Fase 1: Cadastro · Registros Operacionais · Histórico
-// Compatível com a arquitetura existente do index.html
-// Persiste via localStorage (chave: 'hr_funcionarios', 'hr_registros')
+// APP-FUNCIONARIOS v3 — HR Mármores e Granitos
+// Melhorias v3:
+//   • Detecção inteligente de gaps entre períodos de registros
+//   • Sistema de Pagamentos com crédito de horas extras
+//   • Cálculo de saldo: salário + extras − pagamentos = saldo devedor/crédito
 // ══════════════════════════════════════════════════════════════
 
-// ── NAMESPACE ISOLADO ─────────────────────────────────────────
 var HR_FUNC = (function () {
 
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA (localStorage)
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func: 'hr_funcionarios', reg: 'hr_registros' };
+  var KEYS = {
+    func: 'hr_funcionarios',
+    reg:  'hr_registros',
+    pag:  'hr_pagamentos'   // ← NOVO
+  };
 
   function _load(key) {
     try { return JSON.parse(localStorage.getItem(key) || '{}'); }
@@ -24,9 +28,11 @@ var HR_FUNC = (function () {
 
   function getFuncionarios() { return _load(KEYS.func); }
   function getRegistros()    { return _load(KEYS.reg);  }
+  function getPagamentos()   { return _load(KEYS.pag);  }
 
   function saveFuncionarios(data) { _save(KEYS.func, data); }
   function saveRegistros(data)    { _save(KEYS.reg,  data); }
+  function savePagamentos(data)   { _save(KEYS.pag,  data); }
 
   function genId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -81,7 +87,6 @@ var HR_FUNC = (function () {
     return ov;
   }
 
-  // Estilo base para inputs dentro dos overlays
   var INP_CSS = [
     'width:100%;box-sizing:border-box;padding:10px 12px;',
     'border-radius:9px;border:1px solid rgba(201,168,76,.25);',
@@ -103,6 +108,14 @@ var HR_FUNC = (function () {
     'background:transparent;border:1px solid rgba(255,255,255,.1);',
     'color:var(--t3,#888);font-family:Outfit,sans-serif;',
     'font-size:.85rem;cursor:pointer;'
+  ].join('');
+
+  var BTN_GREEN = [
+    'width:100%;padding:13px;border-radius:10px;',
+    'background:linear-gradient(135deg,#0a1e0a,#051005);',
+    'border:1.5px solid rgba(80,180,80,.5);color:#6dc86d;',
+    'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;',
+    'cursor:pointer;margin-bottom:8px;letter-spacing:.03em;'
   ].join('');
 
   function _fieldBlock(label, inputHtml) {
@@ -134,8 +147,157 @@ var HR_FUNC = (function () {
       'style="' + INP_CSS + 'resize:vertical;">' + (value||'') + '</textarea>';
   }
 
+  function _esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   // ─────────────────────────────────────────────────────────────
-  // 3. PÁGINA PRINCIPAL — RH (pg30)
+  // 3. LÓGICA FINANCEIRA DO FUNCIONÁRIO
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Calcula o saldo financeiro de um funcionário num período.
+   * Retorna: { totalSalario, totalExtra, valorExtra, totalDevido, totalPago, saldo, temCredito }
+   *
+   * Regra:
+   *   totalDevido = totalSalario + valorExtra
+   *   saldo = totalDevido - totalPago
+   *   saldo < 0 → crédito a favor do funcionário
+   *   saldo > 0 → ainda deve
+   */
+  function calcSaldoFuncionario(funcId, filtroInicio, filtroFim) {
+    var funcs = getFuncionarios();
+    var regs  = getRegistros();
+    var pags  = getPagamentos();
+
+    var f = funcs[funcId] || {};
+    var salarioDia = (parseFloat(f.salario) || 0) / 30; // estimativa por dia útil
+
+    // Filtra registros do período
+    var meusRegs = Object.values(regs).filter(function(r) {
+      if (r.funcionarioId !== funcId) return false;
+      if (filtroInicio && r.data < filtroInicio) return false;
+      if (filtroFim    && r.data > filtroFim)    return false;
+      return true;
+    });
+
+    var totalHoras  = meusRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
+    var totalExtra  = meusRegs.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+    var diasTrabalhados = meusRegs.length;
+
+    // Valor do salário proporcional aos dias trabalhados
+    var totalSalario = salarioDia * diasTrabalhados;
+
+    // Valor das horas extras (usa valor/hora = salário / 220h mensais × 1.5)
+    var valorHoraExtra = ((parseFloat(f.salario)||0) / 220) * 1.5;
+    var valorExtra = totalExtra * valorHoraExtra;
+
+    var totalDevido = totalSalario + valorExtra;
+
+    // Filtra pagamentos do período
+    var meusPags = Object.values(pags).filter(function(p) {
+      if (p.funcionarioId !== funcId) return false;
+      if (filtroInicio && p.data < filtroInicio) return false;
+      if (filtroFim    && p.data > filtroFim)    return false;
+      return true;
+    });
+
+    var totalPago = meusPags.reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+
+    var saldo = totalDevido - totalPago;
+
+    return {
+      totalHoras:     totalHoras,
+      totalExtra:     totalExtra,
+      valorExtra:     valorExtra,
+      totalSalario:   totalSalario,
+      totalDevido:    totalDevido,
+      totalPago:      totalPago,
+      saldo:          saldo,
+      temCredito:     saldo < -0.01,
+      diasTrabalhados: diasTrabalhados
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 4. DETECÇÃO DE GAPS NOS REGISTROS (INTELIGENTE)
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Analisa os registros de um funcionário e detecta:
+   * 1. Gaps entre blocos contínuos (ex: registrou dia 10→20 e depois 22→30, falta o 21)
+   * 2. Registros duplicados na mesma data
+   *
+   * Retorna array de alertas: { tipo, descricao, diasFaltando[] }
+   */
+  function analisarGaps(funcId) {
+    var regs = getRegistros();
+    var meusRegs = Object.values(regs)
+      .filter(function(r) { return r.funcionarioId === funcId; })
+      .sort(function(a,b) { return a.data.localeCompare(b.data); });
+
+    if (meusRegs.length < 2) return [];
+
+    var alertas = [];
+
+    // Detecta duplicatas
+    var dataSet = {};
+    meusRegs.forEach(function(r) {
+      if (dataSet[r.data]) {
+        alertas.push({
+          tipo: 'duplicata',
+          descricao: 'Data duplicada: ' + _fmtData(r.data) + ' — há dois registros para o mesmo dia.',
+          data: r.data
+        });
+      }
+      dataSet[r.data] = true;
+    });
+
+    // Detecta gaps entre dias consecutivos
+    // Identifica "blocos" contínuos: sequências sem gap > 1 dia útil (considera sáb/dom)
+    var datas = meusRegs.map(function(r) { return r.data; });
+    // Remove duplicatas para análise de gap
+    var datasUnicas = datas.filter(function(d, i, a) { return a.indexOf(d) === i; });
+
+    for (var i = 0; i < datasUnicas.length - 1; i++) {
+      var atual  = new Date(datasUnicas[i]  + 'T12:00:00');
+      var proximo = new Date(datasUnicas[i+1] + 'T12:00:00');
+      var diffMs  = proximo - atual;
+      var diffDias = Math.round(diffMs / 86400000);
+
+      if (diffDias <= 1) continue; // dias consecutivos, ok
+
+      // Verifica se o gap é só fim de semana
+      var diasFaltando = [];
+      for (var d = 1; d < diffDias; d++) {
+        var dFalt = new Date(atual);
+        dFalt.setDate(dFalt.getDate() + d);
+        var diaSemana = dFalt.getDay(); // 0=dom, 6=sab
+        if (diaSemana !== 0 && diaSemana !== 6) {
+          diasFaltando.push(dFalt.toISOString().slice(0, 10));
+        }
+      }
+
+      if (diasFaltando.length > 0) {
+        var msgs = diasFaltando.map(_fmtData);
+        var descricao = diasFaltando.length === 1
+          ? '⚠️ Falta registro em ' + msgs[0]
+          : '⚠️ Faltam ' + diasFaltando.length + ' dias entre ' +
+            _fmtData(datasUnicas[i]) + ' e ' + _fmtData(datasUnicas[i+1]) + ': ' +
+            msgs.slice(0, 5).join(', ') + (diasFaltando.length > 5 ? '...' : '');
+        alertas.push({
+          tipo: 'gap',
+          descricao: descricao,
+          diasFaltando: diasFaltando
+        });
+      }
+    }
+
+    return alertas;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 5. PÁGINA PRINCIPAL — RH (pg30)
   // ─────────────────────────────────────────────────────────────
   function renderPaginaFuncionarios() {
     var pg = document.getElementById('pg30');
@@ -146,13 +308,11 @@ var HR_FUNC = (function () {
     var lista  = Object.values(funcs).sort(function(a, b) { return a.nome.localeCompare(b.nome); });
     var ativos = lista.filter(function(f) { return f.ativo !== false; });
 
-    // Totais gerais
     var allRegs    = Object.values(regs);
     var totHoras   = allRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
     var totExtras  = allRegs.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
     var totalFolha = ativos.reduce(function(s,f){ return s + (parseFloat(f.salario)||0); }, 0);
 
-    // Cards dos funcionários
     var cardsHtml = lista.length === 0
       ? '<div style="text-align:center;padding:36px 20px;color:' + T3 + ';font-size:.85rem;">' +
           'Nenhum funcionário cadastrado.<br>' +
@@ -161,8 +321,6 @@ var HR_FUNC = (function () {
       : lista.map(function(f) { return _cardFuncionario(f); }).join('');
 
     pg.innerHTML =
-
-      // ── Cabeçalho RH ──
       '<div style="padding:16px 14px 10px;display:flex;justify-content:space-between;align-items:center;">' +
         '<div>' +
           '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.14em;text-transform:uppercase;">HR Mármores</div>' +
@@ -174,7 +332,6 @@ var HR_FUNC = (function () {
           'font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;">+ Cadastrar</button>' +
       '</div>' +
 
-      // ── Cards de resumo ──
       '<div style="padding:0 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">' +
         _statCard('👷 Equipe', ativos.length + ' ativo' + (ativos.length !== 1 ? 's' : '') + ' de ' + lista.length) +
         _statCard('💵 Folha', 'R$ ' + totalFolha.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})) +
@@ -182,19 +339,16 @@ var HR_FUNC = (function () {
         _statCard('⚡ H. Extras', totExtras.toFixed(2) + ' h acumuladas') +
       '</div>' +
 
-      // ── Ações rápidas ──
       '<div style="padding:0 14px;margin-bottom:14px;">' +
         '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Ações Rápidas</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
           _acaoBtn('📋 Histórico', 'Registros e ponto', 'HR_FUNC.abrirHistorico(null)') +
-          _acaoBtn('📊 Horas Extras', 'Gerar PDF/relatório', 'abrirRelatorioHorasExtras()') +
+          _acaoBtn('💳 Pagamentos', 'Registrar pagamento', 'HR_FUNC.abrirFormPagamento(null)') +
         '</div>' +
       '</div>' +
 
-      // ── Divisor ──
       '<div style="margin:0 14px 10px;height:1px;background:rgba(201,168,76,.12);"></div>' +
 
-      // ── Lista de funcionários ──
       '<div style="padding:0 14px 4px;display:flex;justify-content:space-between;align-items:center;">' +
         '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Equipe</div>' +
         '<div style="font-size:.7rem;color:' + T3 + ';">' + lista.length + ' funcionário' + (lista.length !== 1 ? 's' : '') + '</div>' +
@@ -226,6 +380,26 @@ var HR_FUNC = (function () {
   }
 
   function _cardFuncionario(f) {
+    // Mini saldo atual do funcionário (total geral)
+    var saldoInfo = calcSaldoFuncionario(f.id, null, null);
+    var saldoStr  = '';
+    if (saldoInfo.totalDevido > 0 || saldoInfo.totalPago > 0) {
+      if (saldoInfo.temCredito) {
+        saldoStr = '<div style="font-size:.68rem;color:#6dc86d;margin-top:3px;">💳 Crédito: ' + _fmtMoeda(Math.abs(saldoInfo.saldo)) + '</div>';
+      } else if (saldoInfo.saldo > 0.01) {
+        saldoStr = '<div style="font-size:.68rem;color:#c86d6d;margin-top:3px;">⚠ Deve: ' + _fmtMoeda(saldoInfo.saldo) + '</div>';
+      } else {
+        saldoStr = '<div style="font-size:.68rem;color:#6dc86d;margin-top:3px;">✓ Quitado</div>';
+      }
+    }
+
+    // Alertas de gap
+    var alertas = analisarGaps(f.id);
+    var alertaBadge = alertas.length > 0
+      ? '<div style="font-size:.65rem;background:#2a1a00;border:1px solid #c8a060;color:#c8a060;' +
+          'border-radius:4px;padding:2px 6px;margin-top:3px;">⚠️ ' + alertas.length + ' alerta' + (alertas.length>1?'s':'') + '</div>'
+      : '';
+
     return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:13px;' +
       'padding:14px 16px;margin-bottom:10px;cursor:pointer;" ' +
       'onclick="HR_FUNC.abrirDetalhesFuncionario(\'' + f.id + '\')">' +
@@ -236,12 +410,14 @@ var HR_FUNC = (function () {
           '<div style="font-size:.76rem;color:' + T3 + ';margin-top:1px;">' +
             _esc(f.cargo || '—') + (f.equipe ? ' · ' + _esc(f.equipe) : '') +
           '</div>' +
+          alertaBadge +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
           _statusBadge(f.ativo) +
           '<div style="font-size:.72rem;color:' + GOLD + ';margin-top:5px;font-weight:600;">' +
             _fmtMoeda(f.salario) +
           '</div>' +
+          saldoStr +
         '</div>' +
       '</div>' +
     '</div>';
@@ -259,12 +435,8 @@ var HR_FUNC = (function () {
       'font-size:1.1rem;font-weight:700;color:' + GOLD + ';">' + ini + '</div>';
   }
 
-  function _esc(str) {
-    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
   // ─────────────────────────────────────────────────────────────
-  // 4. FORMULÁRIO CADASTRO / EDIÇÃO
+  // 6. FORMULÁRIO CADASTRO / EDIÇÃO
   // ─────────────────────────────────────────────────────────────
   function abrirFormFuncionario(id) {
     var funcs = getFuncionarios();
@@ -273,7 +445,6 @@ var HR_FUNC = (function () {
 
     var html =
       '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        // Cabeçalho
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
           '<div>' +
             '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Equipe</div>' +
@@ -282,7 +453,6 @@ var HR_FUNC = (function () {
           '<button onclick="HR_FUNC._closeForm()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
         '</div>' +
 
-        // Campos
         '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
           '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Dados Pessoais</div>' +
           _fieldBlock('Nome completo', _inp('ff_nome', 'text', 'Ex: João da Silva', f.nome)) +
@@ -299,7 +469,7 @@ var HR_FUNC = (function () {
             {v:'escritorio', l:'Escritório'},
             {v:'geral', l:'Geral'}
           ], f.equipe || 'producao')) +
-          _fieldBlock('Salário (R$)', _inp('ff_salario', 'number', '0,00', f.salario, 'min="0" step="0.01"')) +
+          _fieldBlock('Salário base mensal (R$)', _inp('ff_salario', 'number', '0,00', f.salario, 'min="0" step="0.01"')) +
           _fieldBlock('Data de Admissão', _inp('ff_admissao', 'date', '', f.admissao)) +
           _fieldBlock('Status', _sel('ff_ativo', [
             {v:'true', l:'✓ Ativo'},
@@ -359,17 +529,22 @@ var HR_FUNC = (function () {
   function _excluirFuncionario(id) {
     var funcs = getFuncionarios();
     var nome = (funcs[id] || {}).nome || 'este funcionário';
-    if (!confirm('Excluir ' + nome + '? Os registros associados também serão apagados.')) return;
+    if (!confirm('Excluir ' + nome + '? Os registros e pagamentos também serão apagados.')) return;
 
     delete funcs[id];
     saveFuncionarios(funcs);
 
-    // Remove registros do funcionário
     var regs = getRegistros();
     Object.keys(regs).forEach(function(rid) {
       if (regs[rid].funcionarioId === id) delete regs[rid];
     });
     saveRegistros(regs);
+
+    var pags = getPagamentos();
+    Object.keys(pags).forEach(function(pid) {
+      if (pags[pid].funcionarioId === id) delete pags[pid];
+    });
+    savePagamentos(pags);
 
     _closeForm();
     renderPaginaFuncionarios();
@@ -377,7 +552,7 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 5. DETALHES DO FUNCIONÁRIO (hub de ações)
+  // 7. DETALHES DO FUNCIONÁRIO (hub de ações)
   // ─────────────────────────────────────────────────────────────
   function abrirDetalhesFuncionario(id) {
     var funcs = getFuncionarios();
@@ -391,6 +566,40 @@ var HR_FUNC = (function () {
 
     var totalHoras = meusRegs.reduce(function(s, r) { return s + (parseFloat(r.horas) || 0); }, 0);
     var totalExtra = meusRegs.reduce(function(s, r) { return s + (parseFloat(r.extra) || 0); }, 0);
+
+    // Saldo financeiro geral
+    var saldo = calcSaldoFuncionario(id, null, null);
+
+    // Alertas de gaps
+    var alertas = analisarGaps(id);
+    var alertasHtml = '';
+    if (alertas.length > 0) {
+      alertasHtml = '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
+        'border-radius:12px;padding:14px;margin-bottom:12px;">' +
+        '<div style="font-size:.68rem;color:#c8a060;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">⚠️ Alertas de Registro</div>' +
+        alertas.map(function(a) {
+          return '<div style="font-size:.78rem;color:#e0b870;padding:5px 0;' +
+            'border-bottom:1px solid rgba(200,160,60,.12);">' + _esc(a.descricao) + '</div>';
+        }).join('') +
+      '</div>';
+    }
+
+    // Saldo card
+    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
+    var saldoLabel = saldo.temCredito ? '💳 Crédito a favor' : (saldo.saldo > 0.01 ? '⚠ Saldo devedor' : '✓ Quitado');
+    var saldoHtml = (saldo.totalDevido > 0 || saldo.totalPago > 0)
+      ? '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
+          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">💰 Financeiro</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">' +
+            _miniStat('Total Devido', _fmtMoeda(saldo.totalDevido)) +
+            _miniStat('Total Pago', _fmtMoeda(saldo.totalPago)) +
+          '</div>' +
+          '<div style="text-align:center;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;">' +
+            '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:3px;">' + saldoLabel + '</div>' +
+            '<div style="font-size:1.2rem;font-weight:800;color:' + saldoColor + ';">' + _fmtMoeda(Math.abs(saldo.saldo)) + '</div>' +
+          '</div>' +
+        '</div>'
+      : '';
 
     var regsHtml = meusRegs.length === 0
       ? '<div style="text-align:center;padding:24px;color:' + T3 + ';font-size:.82rem;">Nenhum registro ainda.</div>'
@@ -415,14 +624,15 @@ var HR_FUNC = (function () {
           '<button onclick="HR_FUNC._closeDetalhes()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 12px;cursor:pointer;font-size:.8rem;">✕</button>' +
         '</div>' +
 
-        // Resumo rápido
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
           _miniStat('Salário', _fmtMoeda(f.salario)) +
           _miniStat('H. Trabalhadas', totalHoras.toFixed(1) + 'h') +
           _miniStat('H. Extras', totalExtra.toFixed(2) + 'h') +
         '</div>' +
 
-        // Info rápida
+        alertasHtml +
+        saldoHtml +
+
         '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px 16px;margin-bottom:12px;">' +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.78rem;">' +
             _infoRow('Equipe', f.equipe || '—') +
@@ -433,12 +643,12 @@ var HR_FUNC = (function () {
           (f.obs ? '<div style="margin-top:10px;font-size:.75rem;color:' + T3 + ';border-top:1px solid rgba(201,168,76,.1);padding-top:10px;">' + _esc(f.obs) + '</div>' : '') +
         '</div>' +
 
-        // Botões de ação
         '<button onclick="HR_FUNC.abrirFormRegistro(\'' + id + '\')" style="' + BTN_GOLD + '">📝 Novo Registro do Dia</button>' +
+        '<button onclick="HR_FUNC.abrirFormPagamento(\'' + id + '\')" style="' + BTN_GREEN + '">💳 Registrar Pagamento</button>' +
         '<button onclick="HR_FUNC.abrirHistorico(\'' + id + '\')" style="' + BTN_CANCEL + 'margin-bottom:8px;color:' + GOLD + ';border-color:rgba(201,168,76,.3);">📋 Histórico Completo</button>' +
+        '<button onclick="HR_FUNC.abrirExtratoPagamentos(\'' + id + '\')" style="' + BTN_CANCEL + 'margin-bottom:8px;">📊 Extrato de Pagamentos</button>' +
         '<button onclick="HR_FUNC.abrirFormFuncionario(\'' + id + '\');HR_FUNC._closeDetalhes();" style="' + BTN_CANCEL + 'margin-bottom:8px;">✏️ Editar Cadastro</button>' +
 
-        // Últimos registros
         (meusRegs.length > 0
           ? '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Últimos Registros</div>' +
             regsHtml
@@ -486,7 +696,251 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 6. FORMULÁRIO DE REGISTRO OPERACIONAL
+  // 8. SISTEMA DE PAGAMENTOS
+  // ─────────────────────────────────────────────────────────────
+
+  /**
+   * Formulário de pagamento — pode ser chamado com ou sem funcionário pré-selecionado.
+   * Quando secretaria for registrar: abrirFormPagamento(null) → seleciona o funcionário.
+   * Quando chamado direto do perfil: abrirFormPagamento(id) → já pré-preenche.
+   */
+  function abrirFormPagamento(funcIdInicial) {
+    var funcs = getFuncionarios();
+    var lista = Object.values(funcs)
+      .filter(function(f) { return f.ativo !== false; })
+      .sort(function(a,b) { return a.nome.localeCompare(b.nome); });
+
+    var opsFuncs = [{v:'', l:'— Selecione o funcionário —'}].concat(
+      lista.map(function(f) { return {v: f.id, l: f.nome}; })
+    );
+
+    var hoje = new Date().toISOString().slice(0, 10);
+
+    // Calcula saldo para feedback imediato
+    var saldoAtual = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, null, null) : null;
+    var f = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
+
+    var saldoInfoHtml = saldoAtual
+      ? _blocoSaldoPrePagamento(saldoAtual, f)
+      : '<div id="pag_saldo_info" style="margin-bottom:12px;"></div>';
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
+          '<div>' +
+            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Financeiro</div>' +
+            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Registrar Pagamento</div>' +
+          '</div>' +
+          '<button onclick="HR_FUNC._closePagamento()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
+        '</div>' +
+
+        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
+          _fieldBlock('Funcionário',
+            _sel('pag_func', opsFuncs, funcIdInicial || '')) +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+            _fieldBlock('Data do Pagamento', _inp('pag_data', 'date', '', hoje)) +
+            _fieldBlock('Valor Pago (R$)', _inp('pag_valor', 'number', '0,00', '', 'min="0.01" step="0.01"')) +
+          '</div>' +
+          _fieldBlock('Forma de Pagamento', _sel('pag_forma', [
+            {v:'dinheiro', l:'💵 Dinheiro'},
+            {v:'pix',      l:'📱 Pix'},
+            {v:'ted',      l:'🏦 TED/DOC'},
+            {v:'cheque',   l:'📋 Cheque'},
+            {v:'outro',    l:'Outro'}
+          ], 'dinheiro')) +
+          _fieldBlock('Observação (opcional)', _inp('pag_obs', 'text', 'Ex: adiantamento, salário março...', '')) +
+        '</div>' +
+
+        '<div id="pag_saldo_info">' + (funcIdInicial ? _blocoSaldoPrePagamento(saldoAtual, f) : '') + '</div>' +
+
+        '<button onclick="HR_FUNC._salvarPagamento()" style="' + BTN_GREEN + '">💳 Confirmar Pagamento</button>' +
+        '<button onclick="HR_FUNC._closePagamento()" style="' + BTN_CANCEL + 'margin-top:4px;">Cancelar</button>' +
+      '</div>';
+
+    var ov = _overlay('hrPagamento', html);
+
+    // Listener: ao mudar funcionário, atualiza bloco de saldo
+    setTimeout(function() {
+      var sel = document.getElementById('pag_func');
+      if (!sel) return;
+      sel.addEventListener('change', function() {
+        var fid = sel.value;
+        var infoDiv = document.getElementById('pag_saldo_info');
+        if (!infoDiv) return;
+        if (!fid) { infoDiv.innerHTML = ''; return; }
+        var funcs2 = getFuncionarios();
+        var s2 = calcSaldoFuncionario(fid, null, null);
+        infoDiv.innerHTML = _blocoSaldoPrePagamento(s2, funcs2[fid] || {});
+      });
+    }, 100);
+  }
+
+  function _blocoSaldoPrePagamento(saldo, f) {
+    if (!saldo) return '';
+    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
+    var saldoLabel = saldo.temCredito
+      ? '💳 Funcionário já tem crédito de ' + _fmtMoeda(Math.abs(saldo.saldo))
+      : (saldo.saldo > 0.01
+        ? '⚠ Saldo devedor: ' + _fmtMoeda(saldo.saldo)
+        : '✓ Conta quitada');
+
+    return '<div style="background:rgba(0,0,0,.3);border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
+      '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Situação Atual — ' + _esc(f.nome||'') + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">' +
+        '<div style="text-align:center;">' +
+          '<div style="font-size:.65rem;color:' + T3 + ';">Salário base</div>' +
+          '<div style="font-weight:700;color:' + GOLD + ';font-size:.85rem;">' + _fmtMoeda(f.salario) + '</div>' +
+        '</div>' +
+        '<div style="text-align:center;">' +
+          '<div style="font-size:.65rem;color:' + T3 + ';">H. Extras (R$)</div>' +
+          '<div style="font-weight:700;color:' + GOLD + ';font-size:.85rem;">' + _fmtMoeda(saldo.valorExtra) + '</div>' +
+        '</div>' +
+        '<div style="text-align:center;">' +
+          '<div style="font-size:.65rem;color:' + T3 + ';">Já pago</div>' +
+          '<div style="font-weight:700;color:#6dc86d;font-size:.85rem;">' + _fmtMoeda(saldo.totalPago) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:center;padding:8px;background:rgba(0,0,0,.3);border-radius:8px;">' +
+        '<div style="font-size:.75rem;color:' + saldoColor + ';font-weight:700;">' + saldoLabel + '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function _closePagamento() { _closeOverlay('hrPagamento'); }
+
+  function _salvarPagamento() {
+    var funcId = (document.getElementById('pag_func')  || {}).value || '';
+    var data   = (document.getElementById('pag_data')  || {}).value || '';
+    var valor  = parseFloat((document.getElementById('pag_valor') || {}).value) || 0;
+    var forma  = (document.getElementById('pag_forma') || {}).value || 'dinheiro';
+    var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+
+    if (!funcId) { _toast('Selecione o funcionário'); return; }
+    if (!data)   { _toast('Informe a data'); return; }
+    if (valor <= 0) { _toast('Informe um valor válido'); return; }
+
+    var funcs = getFuncionarios();
+    var f = funcs[funcId] || {};
+
+    // Calcula saldo ANTES do pagamento
+    var saldoAntes = calcSaldoFuncionario(funcId, null, null);
+
+    var pags = getPagamentos();
+    var pagId = genId();
+
+    pags[pagId] = {
+      id:           pagId,
+      funcionarioId: funcId,
+      funcionarioNome: f.nome || '',
+      data:         data,
+      valor:        valor,
+      forma:        forma,
+      obs:          obs,
+      saldoAntes:   saldoAntes.saldo,
+      criadoEm:     new Date().toISOString()
+    };
+
+    savePagamentos(pags);
+
+    // Calcula saldo DEPOIS
+    var saldoDepois = calcSaldoFuncionario(funcId, null, null);
+    var msg = '✓ Pagamento de ' + _fmtMoeda(valor) + ' registrado para ' + _esc(f.nome || '') + '.';
+    if (saldoDepois.temCredito) {
+      msg += ' Crédito de ' + _fmtMoeda(Math.abs(saldoDepois.saldo)) + ' a favor.';
+    } else if (saldoDepois.saldo < 0.01) {
+      msg += ' Conta quitada!';
+    }
+
+    _closePagamento();
+
+    // Atualiza telas abertas
+    if (document.getElementById('hrFuncDetalhes')) {
+      abrirDetalhesFuncionario(funcId);
+    } else {
+      renderPaginaFuncionarios();
+    }
+
+    _toast(msg);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 9. EXTRATO DE PAGAMENTOS (por funcionário)
+  // ─────────────────────────────────────────────────────────────
+  function abrirExtratoPagamentos(funcId) {
+    var funcs = getFuncionarios();
+    var f = funcs[funcId];
+    if (!f) return;
+
+    var pags = getPagamentos();
+    var meusPags = Object.values(pags)
+      .filter(function(p) { return p.funcionarioId === funcId; })
+      .sort(function(a,b) { return b.data.localeCompare(a.data); });
+
+    var saldo = calcSaldoFuncionario(funcId, null, null);
+    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
+
+    var formaIcons = {dinheiro:'💵', pix:'📱', ted:'🏦', cheque:'📋', outro:'💳'};
+
+    var pagsHtml = meusPags.length === 0
+      ? '<div style="text-align:center;padding:32px;color:' + T3 + ';font-size:.84rem;">Nenhum pagamento registrado.</div>'
+      : meusPags.map(function(p) {
+          return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:11px;padding:12px 14px;margin-bottom:9px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+              '<div>' +
+                '<div style="font-size:.82rem;font-weight:700;color:' + T1 + ';">' + _fmtData(p.data) + '</div>' +
+                '<div style="font-size:.73rem;color:' + T3 + ';margin-top:2px;">' + (formaIcons[p.forma]||'💳') + ' ' + (p.forma||'') + (p.obs ? ' · ' + _esc(p.obs) : '') + '</div>' +
+              '</div>' +
+              '<div style="font-size:1rem;font-weight:800;color:#6dc86d;">' + _fmtMoeda(p.valor) + '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+          '<div>' +
+            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Financeiro · ' + _esc(f.nome) + '</div>' +
+            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Extrato de Pagamentos</div>' +
+          '</div>' +
+          '<button onclick="HR_FUNC._closeExtrato()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
+        '</div>' +
+
+        // Resumo financeiro
+        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
+          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resumo Geral</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">' +
+            _miniStat('Dias trabalhados', saldo.diasTrabalhados + '') +
+            _miniStat('H. Extras', saldo.totalExtra.toFixed(2) + 'h') +
+            _miniStat('Total Devido', _fmtMoeda(saldo.totalDevido)) +
+            _miniStat('Total Pago', _fmtMoeda(saldo.totalPago)) +
+          '</div>' +
+          '<div style="text-align:center;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;">' +
+            '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:2px;">' +
+              (saldo.temCredito ? 'Crédito a favor' : (saldo.saldo > 0.01 ? 'Saldo devedor' : 'Situação')) +
+            '</div>' +
+            '<div style="font-size:1.3rem;font-weight:800;color:' + saldoColor + ';">' + _fmtMoeda(Math.abs(saldo.saldo)) + '</div>' +
+            (saldo.temCredito ? '<div style="font-size:.7rem;color:#6dc86d;">Próximo pagamento desconta este crédito</div>' : '') +
+          '</div>' +
+        '</div>' +
+
+        // Botão registrar pagamento
+        '<button onclick="HR_FUNC.abrirFormPagamento(\'' + funcId + '\');HR_FUNC._closeExtrato();" style="' + BTN_GREEN + '">💳 Registrar Novo Pagamento</button>' +
+
+        '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">' +
+          'Histórico (' + meusPags.length + ')' +
+        '</div>' +
+        pagsHtml +
+
+        '<button onclick="HR_FUNC._closeExtrato()" style="' + BTN_CANCEL + 'margin-top:8px;">Fechar</button>' +
+      '</div>';
+
+    _overlay('hrExtrato', html);
+  }
+
+  function _closeExtrato() { _closeOverlay('hrExtrato'); }
+
+  // ─────────────────────────────────────────────────────────────
+  // 10. FORMULÁRIO DE REGISTRO OPERACIONAL
   // ─────────────────────────────────────────────────────────────
   function abrirFormRegistro(funcionarioId, registroId) {
     var funcs = getFuncionarios();
@@ -499,6 +953,18 @@ var HR_FUNC = (function () {
     var hoje = new Date().toISOString().slice(0, 10);
     var titulo = registroId ? 'Editar Registro' : 'Novo Registro';
 
+    // Alerta de gaps ao registrar novo dia
+    var alertas = !registroId ? analisarGaps(funcionarioId) : [];
+    var alertasHtml = alertas.length > 0
+      ? '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
+          'border-radius:12px;padding:12px;margin-bottom:12px;">' +
+          '<div style="font-size:.7rem;color:#c8a060;font-weight:700;margin-bottom:6px;">⚠️ Gaps detectados nos registros:</div>' +
+          alertas.map(function(a) {
+            return '<div style="font-size:.76rem;color:#e0b870;padding:3px 0;">' + _esc(a.descricao) + '</div>';
+          }).join('') +
+        '</div>'
+      : '';
+
     var html =
       '<div style="width:100%;max-width:500px;padding:0 16px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
@@ -508,6 +974,8 @@ var HR_FUNC = (function () {
           '</div>' +
           '<button onclick="HR_FUNC._closeRegistro()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
         '</div>' +
+
+        alertasHtml +
 
         '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
           '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Ponto do Dia</div>' +
@@ -575,6 +1043,14 @@ var HR_FUNC = (function () {
     var regId = registroId || genId();
     var isNew = !registroId;
 
+    // Verifica duplicata de data (exceto na edição do próprio registro)
+    var duplicata = Object.values(regs).find(function(r) {
+      return r.funcionarioId === funcionarioId && r.data === data && r.id !== regId;
+    });
+    if (duplicata) {
+      if (!confirm('⚠️ Já existe um registro para ' + _fmtData(data) + '. Quer salvar assim mesmo?')) return;
+    }
+
     regs[regId] = {
       id:           regId,
       funcionarioId: funcionarioId,
@@ -594,12 +1070,17 @@ var HR_FUNC = (function () {
     saveRegistros(regs);
     _closeRegistro();
 
-    // Recarrega detalhes do funcionário se estiver aberto
+    // Verifica gaps após salvar e avisa
+    var novosAlertas = analisarGaps(funcionarioId);
+    if (novosAlertas.length > 0) {
+      _toast('✓ Registro salvo! ⚠️ ' + novosAlertas.length + ' alerta(s) de gap nos registros.');
+    } else {
+      _toast(isNew ? '✓ Registro salvo!' : '✓ Registro atualizado!');
+    }
+
     if (document.getElementById('hrFuncDetalhes')) {
       abrirDetalhesFuncionario(funcionarioId);
     }
-
-    _toast(isNew ? '✓ Registro salvo!' : '✓ Registro atualizado!');
   }
 
   function _excluirRegistro(registroId, funcionarioId) {
@@ -614,7 +1095,6 @@ var HR_FUNC = (function () {
     _toast('Registro excluído.');
   }
 
-  // Detalhes individuais de um registro (para edição a partir do histórico)
   function abrirDetalhesRegistro(registroId) {
     var regs = getRegistros();
     var r = regs[registroId];
@@ -623,7 +1103,7 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 7. HISTÓRICO
+  // 11. HISTÓRICO
   // ─────────────────────────────────────────────────────────────
   var _histState = { funcId: null, de: '', ate: '', busca: '' };
 
@@ -645,7 +1125,6 @@ var HR_FUNC = (function () {
       })
     );
 
-    // Filtrar
     var lista = Object.values(regs).filter(function(r) {
       if (_histState.funcId && r.funcionarioId !== _histState.funcId) return false;
       if (_histState.de  && r.data < _histState.de)  return false;
@@ -659,11 +1138,25 @@ var HR_FUNC = (function () {
       return true;
     }).sort(function(a,b){ return b.data.localeCompare(a.data); });
 
-    // Totais
     var totHoras = lista.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
     var totExtra = lista.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
 
-    // Agrupamento por funcionário (para resumo)
+    // Alertas do funcionário filtrado
+    var alertasHtml = '';
+    if (_histState.funcId) {
+      var alertas = analisarGaps(_histState.funcId);
+      if (alertas.length > 0) {
+        alertasHtml = '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
+          'border-radius:12px;padding:12px;margin-bottom:12px;">' +
+          '<div style="font-size:.7rem;color:#c8a060;font-weight:700;margin-bottom:6px;">⚠️ Alertas de período:</div>' +
+          alertas.map(function(a) {
+            return '<div style="font-size:.76rem;color:#e0b870;padding:3px 0;">' + _esc(a.descricao) + '</div>';
+          }).join('') +
+        '</div>';
+      }
+    }
+
+    // Resumo por funcionário
     var porFunc = {};
     lista.forEach(function(r) {
       if (!porFunc[r.funcionarioId]) porFunc[r.funcionarioId] = {horas:0, extra:0, dias:0};
@@ -691,7 +1184,6 @@ var HR_FUNC = (function () {
       '</div>';
     }
 
-    // Cards de registros
     var regCards = lista.length === 0
       ? '<div style="text-align:center;padding:40px 0;color:' + T3 + ';font-size:.85rem;">Nenhum registro encontrado.</div>'
       : lista.map(function(r) {
@@ -709,11 +1201,9 @@ var HR_FUNC = (function () {
           '<button onclick="HR_FUNC._closeHistorico()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
         '</div>' +
 
-        // Filtros
         '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
           '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Filtros</div>' +
-          _fieldBlock('Funcionário',
-            _sel('hf_func', opsFuncs, _histState.funcId || '')) +
+          _fieldBlock('Funcionário', _sel('hf_func', opsFuncs, _histState.funcId || '')) +
           '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
             _fieldBlock('De', _inp('hf_de', 'date', '', _histState.de)) +
             _fieldBlock('Até', _inp('hf_ate', 'date', '', _histState.ate)) +
@@ -722,13 +1212,13 @@ var HR_FUNC = (function () {
           '<button onclick="HR_FUNC._aplicarFiltroHistorico()" style="' + BTN_GOLD + 'margin-top:4px;">🔍 Filtrar</button>' +
         '</div>' +
 
-        // Totalizadores
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">' +
           _miniStat('Registros', lista.length + '') +
           _miniStat('H. Trabalhadas', totHoras.toFixed(1) + 'h') +
           _miniStat('H. Extras', totExtra.toFixed(2) + 'h') +
         '</div>' +
 
+        alertasHtml +
         resumoFuncHtml +
 
         '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Registros</div>' +
@@ -770,27 +1260,18 @@ var HR_FUNC = (function () {
         '</div>' +
       '</div>' +
 
-      (r.producao
-        ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">📦 ' + _esc(r.producao) + '</div>'
-        : '') +
-      (r.instalacao
-        ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">🔧 ' + _esc(r.instalacao) + '</div>'
-        : '') +
-      (r.ieo
-        ? '<div style="font-size:.72rem;color:#c8a060;margin-bottom:3px;">⚠️ ' + _esc(r.ieo) + '</div>'
-        : '') +
-      (r.observacao
-        ? '<div style="font-size:.72rem;color:' + T3 + ';">💬 ' + _esc(r.observacao) + '</div>'
-        : '') +
+      (r.producao   ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">📦 ' + _esc(r.producao) + '</div>'   : '') +
+      (r.instalacao ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">🔧 ' + _esc(r.instalacao) + '</div>' : '') +
+      (r.ieo        ? '<div style="font-size:.72rem;color:#c8a060;margin-bottom:3px;">⚠️ ' + _esc(r.ieo) + '</div>'           : '') +
+      (r.observacao ? '<div style="font-size:.72rem;color:' + T3 + ';">💬 ' + _esc(r.observacao) + '</div>'                   : '') +
 
     '</div>';
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 8. INICIALIZAÇÃO E HOOK NA NAVEGAÇÃO EXISTENTE
+  // 12. INICIALIZAÇÃO
   // ─────────────────────────────────────────────────────────────
   function init() {
-    // Injeta a página pg30 no DOM se não existir
     if (!document.getElementById('pg30')) {
       var pages = document.getElementById('pages');
       if (pages) {
@@ -802,10 +1283,7 @@ var HR_FUNC = (function () {
       }
     }
 
-    // Injeta item na nav bar se não existir
     if (!document.getElementById('navFunc')) {
-      var nav = document.querySelector('.nav, #nav, [class*="nav"]');
-      // tenta encontrar o container .ni items
       var niContainer = document.querySelector('.ni')
         ? document.querySelector('.ni').parentNode
         : null;
@@ -818,7 +1296,6 @@ var HR_FUNC = (function () {
         ni.innerHTML = '<span class="ni-i">🏢</span><span class="ni-l">RH</span>';
         niContainer.appendChild(ni);
 
-        // Reaplica listener via go() se existir
         ni.addEventListener('click', function() {
           if (typeof go === 'function') go(30);
           else _showPage30();
@@ -826,16 +1303,11 @@ var HR_FUNC = (function () {
       }
     }
 
-    // Listener para quando go(30) for chamado — hook no evento de mudança de página
-    // O sistema existente usa data-pg e a função go() em app-core.js.
-    // Vamos monitorar com um MutationObserver na página pg30.
     _watchPg30();
-
-    console.log('[HR_FUNC v2] ✓ Módulo RH carregado');
+    console.log('[HR_FUNC v3] ✓ RH + Pagamentos + Gaps carregado');
   }
 
   function _showPage30() {
-    // Fallback manual se go() não estiver disponível
     document.querySelectorAll('.pg').forEach(function(p) { p.style.display = 'none'; });
     document.querySelectorAll('.ni').forEach(function(n) { n.classList.remove('on'); });
     var pg30 = document.getElementById('pg30');
@@ -846,7 +1318,6 @@ var HR_FUNC = (function () {
   }
 
   function _watchPg30() {
-    // Observa quando pg30 fica visível (go() altera display)
     var pg30 = document.getElementById('pg30');
     if (!pg30) return;
 
@@ -854,15 +1325,11 @@ var HR_FUNC = (function () {
       mutations.forEach(function(m) {
         if (m.type === 'attributes' && m.attributeName === 'style') {
           var el = m.target;
-          if (el.style.display !== 'none' && el.id === 'pg30') {
-            renderPaginaFuncionarios();
-          }
+          if (el.style.display !== 'none' && el.id === 'pg30') renderPaginaFuncionarios();
         }
         if (m.type === 'attributes' && m.attributeName === 'class') {
           var el = m.target;
-          if (el.classList.contains('on') && el.id === 'pg30') {
-            renderPaginaFuncionarios();
-          }
+          if (el.classList.contains('on') && el.id === 'pg30') renderPaginaFuncionarios();
         }
       });
     });
@@ -870,35 +1337,41 @@ var HR_FUNC = (function () {
     obs.observe(pg30, { attributes: true });
   }
 
-  // Expõe API pública
+  // ─────────────────────────────────────────────────────────────
+  // API PÚBLICA
+  // ─────────────────────────────────────────────────────────────
   return {
-    init:                    init,
+    init:                     init,
     renderPaginaFuncionarios: renderPaginaFuncionarios,
-    abrirFormFuncionario:    abrirFormFuncionario,
+    abrirFormFuncionario:     abrirFormFuncionario,
     abrirDetalhesFuncionario: abrirDetalhesFuncionario,
-    abrirFormRegistro:       abrirFormRegistro,
-    abrirDetalhesRegistro:   abrirDetalhesRegistro,
-    abrirHistorico:          abrirHistorico,
+    abrirFormRegistro:        abrirFormRegistro,
+    abrirDetalhesRegistro:    abrirDetalhesRegistro,
+    abrirHistorico:           abrirHistorico,
+    abrirFormPagamento:       abrirFormPagamento,
+    abrirExtratoPagamentos:   abrirExtratoPagamentos,
 
     // Internos expostos para callbacks inline
-    _closeForm:              _closeForm,
-    _salvarFuncionario:      _salvarFuncionario,
-    _excluirFuncionario:     _excluirFuncionario,
-    _closeDetalhes:          _closeDetalhes,
-    _closeRegistro:          _closeRegistro,
-    _salvarRegistro:         _salvarRegistro,
-    _excluirRegistro:        _excluirRegistro,
-    _closeHistorico:         _closeHistorico,
-    _aplicarFiltroHistorico: _aplicarFiltroHistorico,
+    _closeForm:               _closeForm,
+    _salvarFuncionario:       _salvarFuncionario,
+    _excluirFuncionario:      _excluirFuncionario,
+    _closeDetalhes:           _closeDetalhes,
+    _closeRegistro:           _closeRegistro,
+    _salvarRegistro:          _salvarRegistro,
+    _excluirRegistro:         _excluirRegistro,
+    _closeHistorico:          _closeHistorico,
+    _aplicarFiltroHistorico:  _aplicarFiltroHistorico,
+    _closePagamento:          _closePagamento,
+    _salvarPagamento:         _salvarPagamento,
+    _closeExtrato:            _closeExtrato,
   };
 
 })();
 
-// ── Auto-inicializa após o DOM estar pronto ──
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function() { HR_FUNC.init(); });
 } else {
   HR_FUNC.init();
 }
 
-console.log('[app-funcionarios.js v2] ✓ RH carregado');
+console.log('[app-funcionarios.js v3] ✓ RH + Pagamentos + Detecção de Gaps carregado');
