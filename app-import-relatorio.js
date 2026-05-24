@@ -205,6 +205,48 @@ var HR_IMPORT = (function () {
   // ══════════════════════════════════════════════════════════════════════════
 
   /**
+   * Calcula o valor/hora real de um funcionário com base na jornada
+   * configurada (jornadaDiariaMin), evitando a distorção do divisor
+   * fixo 220h CLT para funcionários de meio período ou jornada especial.
+   *
+   * Lógica:
+   *   - Se o funcionário tem jornadaDiariaMin: usa dias úteis do mês
+   *     × jornada/dia (seg-sex) + sábados × 4h (240min fixo).
+   *   - Fallback: 220h (CLT padrão).
+   *
+   * @param {Object} func   — objeto do funcionário (de hr_funcionarios)
+   * @param {String} mesISO — "yyyy-mm" do mês de referência (padrão: mês atual)
+   * @returns {Number} valor da hora em R$
+   */
+  function _calcValorHoraReal(func, mesISO) {
+    var salario = parseFloat((func && func.salario) || 0);
+    if (!salario) return 0;
+
+    var jornadaDiariaMin = (func && parseInt(func.jornadaDiariaMin)) || 0;
+
+    if (jornadaDiariaMin > 0) {
+      var ym  = (mesISO ? mesISO : new Date().toISOString()).slice(0, 7);
+      var ano = parseInt(ym.slice(0, 4)), mes = parseInt(ym.slice(5, 7));
+      var ultimoDia = new Date(ano, mes, 0).getDate();
+      var diasSemanais = 0, diasSab = 0;
+      var d = new Date(ym + '-01T12:00:00');
+      var fim = new Date(ym + '-' + String(ultimoDia).padStart(2, '0') + 'T12:00:00');
+      while (d <= fim) {
+        var dow = d.getDay();
+        if (dow === 6) diasSab++;
+        else if (dow !== 0) diasSemanais++;
+        d.setDate(d.getDate() + 1);
+      }
+      // Sábado sempre 4h (240min) independente da jornada customizada
+      var horasMes = (diasSemanais * jornadaDiariaMin + diasSab * 240) / 60;
+      if (horasMes > 0) return salario / horasMes;
+    }
+
+    // Fallback CLT: 220h mensais
+    return salario / 220;
+  }
+
+  /**
    * Calcula o valor financeiro de horas extras.
    *
    * @param {Number} minutos      — minutos de hora extra na faixa
@@ -1284,7 +1326,13 @@ var HR_IMPORT = (function () {
           saida: r.saida || '',
           horas: parseFloat((calc.trab / 60).toFixed(4)),
           extra: parseFloat((calc.extra / 60).toFixed(4)),
-          tipoExtra: 'normal',
+          tipoExtra: (function(){
+            // Classifica pelo dia para gravar o tipo correto no registro
+            var cls = _classificarHE({ data: r.data, extra: calc.extra });
+            if (cls.extra200 > 0) return 'especial';
+            if (cls.extra100 > 0) return (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) ? 'feriado' : 'domingo';
+            return 'normal';
+          }()),
           destinoExtra: 'pagar',
           producao: '',
           instalacao: '',
@@ -1716,6 +1764,74 @@ var HR_IMPORT = (function () {
     }, 0);
   }
 
+  /**
+   * Motor financeiro unificado de horas extras.
+   * Substitui o cálculo interno do HR_FUNC, eliminando a inconsistência
+   * entre o painel do funcionário e o relatório PDF.
+   *
+   * Recebe os registros já persistidos de um funcionário e o objeto do
+   * funcionário, e retorna o breakdown financeiro correto com classificação
+   * HE50/HE100/HE200 usando o classificador oficial _classificarHE.
+   *
+   * Estratégia de classificação (dupla camada para robustez):
+   *   1. Usa tipoExtra persistido (se preenchido corretamente pelo patch A).
+   *   2. Fallback: reclassifica pela data (cobre registros importados
+   *      antes do patch, onde tipoExtra era sempre 'normal').
+   *
+   * @param {Array}  registros — registros do funcionário no período
+   * @param {Object} func      — objeto do funcionário (hr_funcionarios)
+   * @param {String} mesISO    — "yyyy-mm" de referência para valor/hora real
+   * @returns {Object} breakdown financeiro completo
+   */
+  function calcSaldoHE(registros, func, mesISO) {
+    var refMes = mesISO ||
+      (registros && registros.length > 0
+        ? registros.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data
+        : new Date().toISOString()).slice(0, 7);
+
+    var valorHoraBase    = _calcValorHoraReal(func, refMes);
+    var totalExtra50Min  = 0;
+    var totalExtra100Min = 0;
+    var totalExtra200Min = 0;
+
+    (registros || []).forEach(function(r) {
+      if (r.destinoExtra === 'banco') return; // banco de horas não entra no financeiro
+      var extraHoras = parseFloat(r.extra) || 0;
+      if (extraHoras <= 0) return;
+      var extraMin = Math.round(extraHoras * 60);
+      var tipo = r.tipoExtra || 'normal';
+
+      if (tipo === 'especial') {
+        totalExtra200Min += extraMin;
+      } else if (tipo === 'feriado' || tipo === 'domingo') {
+        totalExtra100Min += extraMin;
+      } else {
+        // 'normal' ou ausente: reclassifica pela data (retrocompatível)
+        var cls = _classificarHE({ data: r.data, extra: extraMin });
+        totalExtra50Min  += cls.extra50;
+        totalExtra100Min += cls.extra100;
+        totalExtra200Min += cls.extra200;
+      }
+    });
+
+    var valorExtra50     = _calcValorHE(totalExtra50Min,  CFG.he.normal,   valorHoraBase);
+    var valorExtra100    = _calcValorHE(totalExtra100Min, CFG.he.domingo,  valorHoraBase);
+    var valorExtra200    = _calcValorHE(totalExtra200Min, CFG.he.especial, valorHoraBase);
+    var valorTotalExtras = valorExtra50 + valorExtra100 + valorExtra200;
+
+    return {
+      valorHoraBase:    valorHoraBase,
+      totalExtra50Min:  totalExtra50Min,
+      totalExtra100Min: totalExtra100Min,
+      totalExtra200Min: totalExtra200Min,
+      valorExtra50:     valorExtra50,
+      valorExtra100:    valorExtra100,
+      valorExtra200:    valorExtra200,
+      valorTotalExtras: valorTotalExtras,
+      totalExtraHoras:  (totalExtra50Min + totalExtra100Min + totalExtra200Min) / 60
+    };
+  }
+
   // ── EXPORT ───────────────────────────────────────────────────────────────
   return {
     abrirImportacao:     abrirImportacao,
@@ -1730,6 +1846,9 @@ var HR_IMPORT = (function () {
     _gerarRelatorioHE:   _gerarRelatorioHE,
     _abrirDialogRelatorioHE: _abrirDialogRelatorioHE,
     _patchVinculacaoUI:  _patchVinculacaoUI,
+    // Motor financeiro unificado — consumido pelo HR_FUNC
+    calcSaldoHE:          calcSaldoHE,
+    calcValorHoraReal:    _calcValorHoraReal,
     // Expõe camada HE para testes externos
     _classificarHE:      _classificarHE,
     _calcValorHE:        _calcValorHE,
