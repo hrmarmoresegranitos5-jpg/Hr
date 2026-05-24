@@ -4,16 +4,19 @@
 // Padrão: html2canvas → jsPDF (igual ao app-contrato-pdf.js)
 // ══════════════════════════════════════════════════════════════
 
-// ── Tabela de valores de hora extra por funcionário (R$/hora) ──
-var HORAS_EXTRAS_VALOR = {
+// ── Tabela de salários mensais por funcionário (R$/mês) ──
+// valorHora = salarioMensal / 220  (base CLT: 220h/mês)
+var SALARIO_MENSAL = {
   'hugo':     1900,
-  'hangel':   1900, // hugo == hangel no relatório (ID 1 = hugo, ID 5 = hugo — ver mapeamento abaixo)
+  'hangel':   1900, // hugo == hangel no relatório
   'fabricio': 1600,
   'gibs':     1200, // gibson
   'gibson':   1200,
   'lucas':    800,
   'tiago':    400,
 };
+
+var DIVISOR_HORAS = 220; // base CLT padrão
 
 // Mapeamento nome do relatório → nome exibido no PDF
 var NOME_EXIBIDO = {
@@ -173,12 +176,14 @@ function _extrairDadosHE(wb) {
     var r = rows[i];
     if (!r || !r[colNome]) continue;
 
-    var nomeRaw  = String(r[colNome]).trim().toLowerCase();
-    var nomeExib = NOME_EXIBIDO[nomeRaw] || (r[colNome] ? String(r[colNome]) : '');
-    var valorHora = HORAS_EXTRAS_VALOR[nomeRaw] || 0;
+    var nomeRaw      = String(r[colNome]).trim().toLowerCase();
+    var nomeExib     = NOME_EXIBIDO[nomeRaw] || (r[colNome] ? String(r[colNome]) : '');
+    var salarioMensal = SALARIO_MENSAL[nomeRaw] || 0;
+    // Valor real da hora = salário mensal ÷ 220 (base CLT)
+    var valorHora    = salarioMensal / DIVISOR_HORAS;
 
-    var horasNorm = parseFloat(r[colHtNormal]) || 0;
-    var horasHol  = colHtHol >= 0 ? (parseFloat(r[colHtHol]) || 0) : 0;
+    var horasNorm  = parseFloat(r[colHtNormal]) || 0;
+    var horasHol   = colHtHol >= 0 ? (parseFloat(r[colHtHol]) || 0) : 0;
     var totalHoras = horasNorm + horasHol;
 
     // Dias trabalhados (parse "16/15" → normal/real)
@@ -187,23 +192,23 @@ function _extrairDadosHE(wb) {
     var diasNorm  = parseInt(diasParts[0]) || 0;
     var diasReal  = parseInt(diasParts[1]) || 0;
 
-    var ausencia  = colAusencia >= 0 ? (parseFloat(r[colAusencia]) || 0) : 0;
-
+    var ausencia   = colAusencia >= 0 ? (parseFloat(r[colAusencia]) || 0) : 0;
     var totalPagar = totalHoras * valorHora;
 
     funcionarios.push({
-      id:         r[colId]   || (i - dataStart + 1),
-      nomeRaw:    nomeRaw,
-      nome:       nomeExib,
-      dep:        r[colDep]  || 'marmoraria',
-      horasNorm:  horasNorm,
-      horasHol:   horasHol,
-      totalHoras: totalHoras,
-      diasNorm:   diasNorm,
-      diasReal:   diasReal,
-      ausencia:   ausencia,
-      valorHora:  valorHora,
-      totalPagar: totalPagar,
+      id:            r[colId]   || (i - dataStart + 1),
+      nomeRaw:       nomeRaw,
+      nome:          nomeExib,
+      dep:           r[colDep]  || 'marmoraria',
+      horasNorm:     horasNorm,
+      horasHol:      horasHol,
+      totalHoras:    totalHoras,
+      diasNorm:      diasNorm,
+      diasReal:      diasReal,
+      ausencia:      ausencia,
+      salarioMensal: salarioMensal,
+      valorHora:     valorHora,
+      totalPagar:    totalPagar,
     });
   }
 
@@ -239,46 +244,66 @@ function _abrirOverlaySelecaoFuncionario(dados, nomeArquivo) {
     '</div>';
 
   // ── Tabela resumo ──
-  var totalGeral = dados.reduce(function (s, f) { return s + f.totalPagar; }, 0);
+  var totalGeral      = dados.reduce(function (s, f) { return s + f.totalPagar; }, 0);
+  var totalHorasGeral = dados.reduce(function (s, f) { return s + f.totalHoras; }, 0);
+  var funcComHE       = dados.filter(function (f) { return f.totalHoras > 0; }).length;
 
   var tBody = '';
   dados.forEach(function (f) {
     var temHE = f.totalHoras > 0;
     tBody += '<tr style="border-bottom:1px solid rgba(201,168,76,.12);' +
-      (temHE ? '' : 'opacity:.5;') + '">' +
+      (temHE ? '' : 'opacity:.45;') + '">' +
       '<td style="padding:10px 8px;color:#f0e8d0;font-weight:600;">' + f.nome + '</td>' +
-      '<td style="padding:10px 8px;color:#aaa;font-size:.85rem;">' + f.dep + '</td>' +
-      '<td style="padding:10px 8px;color:#C9A84C;text-align:center;">' + _fmH(f.totalHoras) + 'h</td>' +
-      '<td style="padding:10px 8px;color:#888;text-align:center;font-size:.82rem;">R$ ' + _fmV(f.valorHora) + '/h</td>' +
+      '<td style="padding:10px 8px;color:#aaa;font-size:.82rem;">' + f.dep + '</td>' +
+      '<td style="padding:10px 8px;color:#bbb;text-align:right;font-size:.8rem;">R$ ' + _fmV(f.salarioMensal) + '</td>' +
+      '<td style="padding:10px 8px;color:#999;text-align:right;font-size:.76rem;">R$ ' + _fmVH(f.valorHora) + '/h</td>' +
+      '<td style="padding:10px 8px;color:#C9A84C;text-align:center;font-weight:700;">' + _fmH(f.totalHoras) + 'h</td>' +
       '<td style="padding:10px 8px;color:#f0e8d0;font-weight:700;text-align:right;">R$ ' + _fmV(f.totalPagar) + '</td>' +
       '<td style="padding:10px 8px;text-align:center;">' +
         '<button onclick="gerarHorasExtrasPDF(' + JSON.stringify(f) + ')" ' +
           'style="background:#1e1800;border:1px solid rgba(201,168,76,.5);color:#C9A84C;' +
-          'border-radius:5px;padding:5px 12px;cursor:pointer;font-size:.78rem;font-family:Outfit,sans-serif;">' +
+          'border-radius:5px;padding:5px 10px;cursor:pointer;font-size:.74rem;font-family:Outfit,sans-serif;">' +
           '📄 PDF</button>' +
       '</td>' +
     '</tr>';
   });
 
-  var tabela = '<div style="background:#141008;border:1px solid rgba(201,168,76,.2);border-radius:10px;overflow:hidden;">' +
-    '<table style="width:100%;border-collapse:collapse;">' +
+  var tabela = '<div style="background:#141008;border:1px solid rgba(201,168,76,.2);border-radius:10px;overflow:hidden;overflow-x:auto;">' +
+    '<table style="width:100%;border-collapse:collapse;min-width:560px;">' +
       '<thead><tr style="background:rgba(201,168,76,.08);">' +
-        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.78rem;font-weight:600;">Funcionário</th>' +
-        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.78rem;font-weight:600;">Setor</th>' +
-        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.78rem;font-weight:600;">H. Extras</th>' +
-        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.78rem;font-weight:600;">Valor/h</th>' +
-        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.78rem;font-weight:600;">Total</th>' +
-        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.78rem;font-weight:600;">Ação</th>' +
+        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.72rem;font-weight:700;">Funcionário</th>' +
+        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.72rem;font-weight:700;">Setor</th>' +
+        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Salário Base</th>' +
+        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Valor/h</th>' +
+        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.72rem;font-weight:700;">H. Extras</th>' +
+        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Total Extra</th>' +
+        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.72rem;font-weight:700;">PDF</th>' +
       '</tr></thead>' +
       '<tbody>' + tBody + '</tbody>' +
     '</table>' +
   '</div>';
 
-  var totalBox = '<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.25);' +
-    'border-radius:8px;padding:14px 18px;margin-top:14px;display:flex;justify-content:space-between;align-items:center;">' +
-    '<span style="color:#aaa;font-size:.88rem;">Total geral a pagar em horas extras</span>' +
-    '<span style="color:#C9A84C;font-weight:700;font-size:1.1rem;">R$ ' + _fmV(totalGeral) + '</span>' +
-  '</div>';
+  var totalBox =
+    '<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.25);' +
+    'border-radius:10px;padding:16px 18px;margin-top:14px;">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">' +
+        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
+          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Funcionários c/ HE</div>' +
+          '<div style="font-size:.95rem;font-weight:700;color:#f0e8d0;">' + funcComHE + ' de ' + dados.length + '</div>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
+          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Total Horas Extras</div>' +
+          '<div style="font-size:.95rem;font-weight:700;color:#C9A84C;">' + _fmH(totalHorasGeral) + ' h</div>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
+          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Total a Pagar</div>' +
+          '<div style="font-size:1rem;font-weight:800;color:#C9A84C;">R$ ' + _fmV(totalGeral) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:.65rem;color:#666;text-align:center;border-top:1px solid rgba(201,168,76,.1);padding-top:10px;">' +
+        '⚖️ Cálculo auditável: salário mensal ÷ 220h (base CLT) × horas extras realizadas' +
+      '</div>' +
+    '</div>';
 
   var gerarTodosBtn = '<div style="text-align:center;margin-top:18px;">' +
     '<button onclick="gerarTodosHorasExtrasPDF(' + JSON.stringify(dados) + ')" ' +
@@ -297,8 +322,12 @@ function _abrirOverlaySelecaoFuncionario(dados, nomeArquivo) {
 function _fmV(v) {
   return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// Valor/hora — 2 casas decimais, pt-BR
+function _fmVH(v) {
+  return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 function _fmH(h) {
-  return parseFloat(h || 0).toFixed(2).replace('.', ',');
+  return parseFloat(h || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -378,9 +407,10 @@ function _buildHEPDF(f) {
     // Card do funcionário
     '<div style="background:#faf7f0;border:1px solid #e8dfc8;border-radius:10px;padding:20px 24px;margin-bottom:24px;">' +
       '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Dados do Funcionário</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">' +
         _cardCampo('Nome Completo', f.nome) +
         _cardCampo('Departamento', (f.dep || 'Marmoraria').charAt(0).toUpperCase() + (f.dep || 'marmoraria').slice(1)) +
+        _cardCampo('Salário Base', 'R$ ' + _fmV(f.salarioMensal)) +
         _cardCampo('ID', String(f.id).padStart(3, '0')) +
       '</div>' +
     '</div>' +
@@ -409,8 +439,8 @@ function _buildHEPDF(f) {
           '<div style="color:#C9A84C;font-size:1.4rem;font-weight:800;">' + _fmH(f.totalHoras) + ' h</div>' +
         '</div>' +
         '<div style="text-align:center;">' +
-          '<div style="color:#aaa;font-size:.75rem;">Valor por Hora</div>' +
-          '<div style="color:#f5f0e0;font-size:1rem;font-weight:700;">R$ ' + _fmV(f.valorHora) + '</div>' +
+          '<div style="color:#aaa;font-size:.75rem;">Valor/Hora (÷220h)</div>' +
+          '<div style="color:#f5f0e0;font-size:1rem;font-weight:700;">R$ ' + _fmVH(f.valorHora) + '</div>' +
         '</div>' +
         '<div style="text-align:right;">' +
           '<div style="color:#aaa;font-size:.75rem;">Total a Receber</div>' +
@@ -429,9 +459,11 @@ function _buildHEPDF(f) {
     '<div style="background:#f9f5ef;border:1px solid #e8dfc8;border-radius:10px;padding:18px 22px;margin-bottom:28px;">' +
       '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Memória de Cálculo</div>' +
       '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
-        '<tr><td style="padding:5px 0;color:#555;">Horas extras normais</td><td style="text-align:right;color:#333;">' + _fmH(f.horasNorm) + ' h × R$ ' + _fmV(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasNorm * f.valorHora) + '</td></tr>' +
-        '<tr><td style="padding:5px 0;color:#555;">Horas extras em feriados</td><td style="text-align:right;color:#333;">' + _fmH(f.horasHol) + ' h × R$ ' + _fmV(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasHol * f.valorHora) + '</td></tr>' +
-        '<tr style="border-top:1px solid #ddd;"><td style="padding:8px 0 0;font-weight:700;color:#1a1200;" colspan="2">Total a pagar</td><td style="padding:8px 0 0;text-align:right;font-weight:800;font-size:14px;color:#C9A84C;padding-left:16px;">R$ ' + _fmV(f.totalPagar) + '</td></tr>' +
+        '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Salário mensal base</td><td style="text-align:right;color:#555;" colspan="2">R$ ' + _fmV(f.salarioMensal) + '</td></tr>' +
+        '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Valor/hora (÷ 220h CLT)</td><td style="text-align:right;color:#555;" colspan="2">R$ ' + _fmVH(f.valorHora) + '/h</td></tr>' +
+        '<tr><td style="padding:7px 0 5px;color:#555;">H. extras normais</td><td style="text-align:right;color:#333;">' + _fmH(f.horasNorm) + ' h × R$ ' + _fmVH(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasNorm * f.valorHora) + '</td></tr>' +
+        '<tr><td style="padding:5px 0;color:#555;">H. extras em feriados</td><td style="text-align:right;color:#333;">' + _fmH(f.horasHol) + ' h × R$ ' + _fmVH(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasHol * f.valorHora) + '</td></tr>' +
+        '<tr style="border-top:2px solid #ddd;"><td style="padding:8px 0 0;font-weight:700;color:#1a1200;" colspan="2">Total a pagar</td><td style="padding:8px 0 0;text-align:right;font-weight:800;font-size:14px;color:#C9A84C;padding-left:16px;">R$ ' + _fmV(f.totalPagar) + '</td></tr>' +
       '</table>' +
     '</div>' +
 
