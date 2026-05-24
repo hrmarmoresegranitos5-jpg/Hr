@@ -135,37 +135,88 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 3. PÁGINA PRINCIPAL — FUNCIONÁRIOS (pg30)
+  // 3. PÁGINA PRINCIPAL — RH (pg30)
   // ─────────────────────────────────────────────────────────────
   function renderPaginaFuncionarios() {
     var pg = document.getElementById('pg30');
     if (!pg) return;
 
-    var funcs = getFuncionarios();
-    var lista = Object.values(funcs).sort(function(a, b) {
-      return a.nome.localeCompare(b.nome);
-    });
+    var funcs  = getFuncionarios();
+    var regs   = getRegistros();
+    var lista  = Object.values(funcs).sort(function(a, b) { return a.nome.localeCompare(b.nome); });
+    var ativos = lista.filter(function(f) { return f.ativo !== false; });
 
-    var cards = lista.length === 0
-      ? '<div style="text-align:center;padding:48px 20px;color:' + T3 + ';font-size:.88rem;">Nenhum funcionário cadastrado.<br>Toque em <strong style="color:' + GOLD + '">+ Novo</strong> para começar.</div>'
+    // Totais gerais
+    var allRegs    = Object.values(regs);
+    var totHoras   = allRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
+    var totExtras  = allRegs.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+    var totalFolha = ativos.reduce(function(s,f){ return s + (parseFloat(f.salario)||0); }, 0);
+
+    // Cards dos funcionários
+    var cardsHtml = lista.length === 0
+      ? '<div style="text-align:center;padding:36px 20px;color:' + T3 + ';font-size:.85rem;">' +
+          'Nenhum funcionário cadastrado.<br>' +
+          'Toque em <strong style="color:' + GOLD + '">+ Cadastrar</strong> para começar.' +
+        '</div>'
       : lista.map(function(f) { return _cardFuncionario(f); }).join('');
 
     pg.innerHTML =
-      '<div style="padding:16px 14px 0;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-          '<div>' +
-            '<div style="font-size:1.15rem;font-weight:700;color:' + T1 + ';">Funcionários</div>' +
-            '<div style="font-size:.72rem;color:' + T3 + ';margin-top:2px;">' +
-              lista.length + ' cadastrado' + (lista.length !== 1 ? 's' : '') +
-            '</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC.abrirFormFuncionario(null)" ' +
-            'style="background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.45);' +
-            'border-radius:12px;padding:9px 16px;color:' + GOLD + ';' +
-            'font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">+ Novo</button>' +
+
+      // ── Cabeçalho RH ──
+      '<div style="padding:16px 14px 10px;display:flex;justify-content:space-between;align-items:center;">' +
+        '<div>' +
+          '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.14em;text-transform:uppercase;">HR Mármores</div>' +
+          '<div style="font-size:1.25rem;font-weight:800;color:' + T1 + ';line-height:1.1;">Recursos Humanos</div>' +
+        '</div>' +
+        '<button onclick="HR_FUNC.abrirFormFuncionario(null)" ' +
+          'style="background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.45);' +
+          'border-radius:12px;padding:9px 15px;color:' + GOLD + ';' +
+          'font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;">+ Cadastrar</button>' +
+      '</div>' +
+
+      // ── Cards de resumo ──
+      '<div style="padding:0 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">' +
+        _statCard('👷 Equipe', ativos.length + ' ativo' + (ativos.length !== 1 ? 's' : '') + ' de ' + lista.length) +
+        _statCard('💵 Folha', 'R$ ' + totalFolha.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})) +
+        _statCard('⏱️ H. Trabalhadas', totHoras.toFixed(1) + ' h registradas') +
+        _statCard('⚡ H. Extras', totExtras.toFixed(2) + ' h acumuladas') +
+      '</div>' +
+
+      // ── Ações rápidas ──
+      '<div style="padding:0 14px;margin-bottom:14px;">' +
+        '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Ações Rápidas</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+          _acaoBtn('📋 Histórico', 'Registros e ponto', 'HR_FUNC.abrirHistorico(null)') +
+          _acaoBtn('📊 Horas Extras', 'Gerar PDF/relatório', 'abrirRelatorioHorasExtras()') +
         '</div>' +
       '</div>' +
-      '<div style="padding:10px 14px 80px;">' + cards + '</div>';
+
+      // ── Divisor ──
+      '<div style="margin:0 14px 10px;height:1px;background:rgba(201,168,76,.12);"></div>' +
+
+      // ── Lista de funcionários ──
+      '<div style="padding:0 14px 4px;display:flex;justify-content:space-between;align-items:center;">' +
+        '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Equipe</div>' +
+        '<div style="font-size:.7rem;color:' + T3 + ';">' + lista.length + ' funcionário' + (lista.length !== 1 ? 's' : '') + '</div>' +
+      '</div>' +
+      '<div style="padding:8px 14px 80px;">' + cardsHtml + '</div>';
+  }
+
+  function _statCard(label, valor) {
+    return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:12px 14px;">' +
+      '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:3px;">' + label + '</div>' +
+      '<div style="font-size:.88rem;font-weight:700;color:' + GOLD + ';line-height:1.2;">' + valor + '</div>' +
+    '</div>';
+  }
+
+  function _acaoBtn(titulo, sub, onclick) {
+    return '<button onclick="' + onclick + '" style="' +
+      'background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);' +
+      'border-radius:11px;padding:11px 12px;text-align:left;cursor:pointer;' +
+      'font-family:Outfit,sans-serif;width:100%;">' +
+      '<div style="font-size:.82rem;font-weight:700;color:' + GOLD + ';">' + titulo + '</div>' +
+      '<div style="font-size:.68rem;color:' + T3 + ';margin-top:2px;">' + sub + '</div>' +
+    '</button>';
   }
 
   function _statusBadge(ativo) {
@@ -225,7 +276,7 @@ var HR_FUNC = (function () {
         // Cabeçalho
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
           '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Funcionários</div>' +
+            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Equipe</div>' +
             '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">' + titulo + '</div>' +
           '</div>' +
           '<button onclick="HR_FUNC._closeForm()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
@@ -652,7 +703,7 @@ var HR_FUNC = (function () {
       '<div style="width:100%;max-width:540px;padding:0 16px;">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
           '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Funcionários</div>' +
+            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Equipe</div>' +
             '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Histórico</div>' +
           '</div>' +
           '<button onclick="HR_FUNC._closeHistorico()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
@@ -764,7 +815,7 @@ var HR_FUNC = (function () {
         ni.className = 'ni';
         ni.id = 'navFunc';
         ni.setAttribute('data-pg', '30');
-        ni.innerHTML = '<span class="ni-i">👷</span><span class="ni-l">Equipe</span>';
+        ni.innerHTML = '<span class="ni-i">🏢</span><span class="ni-l">RH</span>';
         niContainer.appendChild(ni);
 
         // Reaplica listener via go() se existir
@@ -780,7 +831,7 @@ var HR_FUNC = (function () {
     // Vamos monitorar com um MutationObserver na página pg30.
     _watchPg30();
 
-    console.log('[HR_FUNC v1] ✓ Módulo de Funcionários carregado');
+    console.log('[HR_FUNC v2] ✓ Módulo RH carregado');
   }
 
   function _showPage30() {
@@ -850,4 +901,4 @@ if (document.readyState === 'loading') {
   HR_FUNC.init();
 }
 
-console.log('[app-funcionarios.js v1] ✓ carregado');
+console.log('[app-funcionarios.js v2] ✓ RH carregado');
