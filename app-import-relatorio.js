@@ -485,6 +485,114 @@ var HR_IMPORT = (function () {
    * Lê planilha XLS/XLSX com SheetJS e converte para texto CSV interno.
    * Tenta detectar automaticamente quais colunas são nome, data, entrada, saída.
    */
+  /**
+   * Detecta e converte tabela de turno transposta (Shift Table).
+   * Formato: cabeçalho com IDUsuário/Nome/Dep + colunas numéricas de dias (1,2,...31),
+   * linha de dia-da-semana logo abaixo, e linhas de funcionário com 1=presente.
+   * Ex: "Data:01/05/2026~23/05/2026" na linha 2 indica o período.
+   * Retorna CSV nome;data;; ou '' se não for esse formato.
+   */
+  function _xlsShiftTableParaTexto(raw, fmt) {
+    // Linha 0: título (ex: "Tabela de turno de funcionários (Para inspeção)")
+    // Linha 1: "Data:dd/mm/yyyy~dd/mm/yyyy" na col 0
+    // Linha 2: cabeçalho — IDUsuário, Nome, Dep., 1, 2, 3, ...
+    // Linha 3: dia-da-semana (2ª, 3ª, ... Sá, Do)
+    // Linha 4+: funcionários
+
+    // Detecta pela presença de "IDUsuário"/"ID" ou "Nome" na linha 0 ou 2
+    // e números sequenciais de dia (1,2,3...) no mesmo cabeçalho
+    var headerRow = -1;
+    for (var ri = 0; ri < Math.min(5, raw.length); ri++) {
+      var row = raw[ri] || [];
+      var rowStr = row.map(function(c){ return String(c||'').toLowerCase(); }).join('|');
+      if ((rowStr.indexOf('nome') >= 0 || rowStr.indexOf('idusuario') >= 0 || rowStr.indexOf('idusu') >= 0) &&
+          row.some(function(c){ return c === 1 || c === 2 || c === 3; })) {
+        headerRow = ri;
+        break;
+      }
+    }
+    if (headerRow < 0) return '';
+
+    var hdr = raw[headerRow] || [];
+
+    // Extrai período do arquivo (linha antes do cabeçalho que contém "Data:dd/mm/yyyy~dd/mm/yyyy")
+    var periodoInicio = null;
+    for (var pi = 0; pi < headerRow; pi++) {
+      var cel0 = String((fmt[pi] || [])[0] || (raw[pi] || [])[0] || '');
+      var mPer = cel0.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s*[~\-]\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (mPer) {
+        periodoInicio = new Date(parseInt(mPer[3]), parseInt(mPer[2])-1, parseInt(mPer[1]));
+        break;
+      }
+    }
+    // Fallback: ano corrente, mês 1
+    if (!periodoInicio) periodoInicio = new Date(new Date().getFullYear(), 0, 1);
+
+    // Identifica coluna de nome e mapeamento colIdx→dia-do-mês
+    var iNomeCol = -1, iDepCol = -1;
+    var diaCols = {}; // colIdx → número do dia (1-31)
+    hdr.forEach(function(c, i) {
+      var s = String(c||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      if (iNomeCol < 0 && (s === 'nome' || s.indexOf('nome') === 0)) iNomeCol = i;
+      if (iDepCol < 0 && (s === 'dep' || s === 'dep.' || s.indexOf('depart') >= 0)) iDepCol = i;
+      var num = parseInt(c);
+      if (!isNaN(num) && num >= 1 && num <= 31) diaCols[i] = num;
+    });
+    if (iNomeCol < 0 || Object.keys(diaCols).length === 0) return '';
+
+    // Pula linha de dia-da-semana (linha logo após o cabeçalho, se não contém nomes)
+    var dataStartRow = headerRow + 1;
+    if (dataStartRow < raw.length) {
+      var nextRow = raw[dataStartRow] || [];
+      var nomeCandidate = String(nextRow[iNomeCol]||'').trim();
+      // Se a célula de nome parece um dia da semana (2ª, Sá, Do, etc.) ou é vazia, pula
+      if (!nomeCandidate || nomeCandidate.match(/^[2-6]ª$|^(sab|sá|dom|do|seg|ter|qua|qui|sex)$/i)) {
+        dataStartRow++;
+      }
+    }
+
+    var linhas = [];
+    for (var i = dataStartRow; i < raw.length; i++) {
+      var row = raw[i] || [];
+      var nome = String(row[iNomeCol]||'').trim();
+      if (!nome || nome.length < 2) continue;
+      // Capitaliza primeiro caractere
+      nome = nome.charAt(0).toUpperCase() + nome.slice(1);
+
+      Object.keys(diaCols).forEach(function(ci) {
+        var dia = diaCols[ci];
+        var val = row[parseInt(ci)];
+        // Presença: valor 1 (numérico), 'x', 'X', '+', 'P'
+        var presente = (val === 1 || val === '1' ||
+          (typeof val === 'string' && val.trim().match(/^[xXpP+]$/)));
+        if (!presente) return;
+
+        // Monta data ISO usando periodoInicio como referência de ano/mês
+        var ano = periodoInicio.getFullYear();
+        var mes = periodoInicio.getMonth() + 1;
+        // Se o dia é menor que o dia inicial do período e o mês não tem esse dia antes,
+        // pode ser que role para mês seguinte (ex: período 20/05~10/06, dia 3 = junho)
+        // Heurística simples: se dia < dia-início-período por margem > 15, é mês seguinte
+        var diaInicio = periodoInicio.getDate();
+        if (dia < diaInicio && (diaInicio - dia) > 15) {
+          mes++;
+          if (mes > 12) { mes = 1; ano++; }
+        }
+        var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dia).padStart(2,'0');
+
+        // Verifica se é data válida
+        var dt = new Date(dataISO + 'T12:00:00');
+        if (isNaN(dt.getTime())) return;
+        // Domingo (dow=0) pula
+        if (dt.getDay() === 0) return;
+
+        linhas.push(nome + ';' + dataISO + ';;');
+      });
+    }
+
+    return linhas.join('\n');
+  }
+
   function _xlsParaTexto(workbook) {
     var sheetName = workbook.SheetNames[0];
     var ws = workbook.Sheets[sheetName];
@@ -494,6 +602,10 @@ var HR_IMPORT = (function () {
     var fmt  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
 
     if (!raw || raw.length < 2) return '';
+
+    // ── Tenta formato "Shift Table" (tabela transposta de presença/turno) ────
+    var shiftCsv = _xlsShiftTableParaTexto(raw, fmt);
+    if (shiftCsv) return shiftCsv;
 
     var linhas = [];
 
