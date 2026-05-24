@@ -255,27 +255,31 @@ var HR_IMPORT = (function () {
           var dia = parseInt(dlm[1], 10);
           var dataISO = year + '-' + monthStr + '-' + (dia < 10 ? '0' : '') + dia;
 
-          // Coletar todos os horários presentes nesta linha para este bloco
-          var minutosPresentes = [];
-          TIME_OFFSETS.forEach(function(off) {
-            var colIdx = base + off;
-            if (colIdx >= row.length) return;
-            var v = row[colIdx];
-            var min = _toMin(v);
-            if (min !== null) minutosPresentes.push(min);
+          // ── Leitura semântica dos pares de batidas ──
+          // +1=manhã entrada, +3=manhã saída
+          // +6=tarde entrada, +8=tarde saída
+          // +10=extra entrada, +12=extra saída
+          var PAIRS = [[1,3],[6,8],[10,12]];
+          var entMin = null, saiMin = null;
+
+          PAIRS.forEach(function(pair) {
+            var colEnt = base + pair[0];
+            var colSai = base + pair[1];
+            var vEnt = (colEnt < row.length) ? _toMin(row[colEnt]) : null;
+            var vSai = (colSai < row.length) ? _toMin(row[colSai]) : null;
+            // Só usa o par se ambas as batidas existirem
+            if (vEnt === null || vSai === null) return;
+            if (entMin === null || vEnt < entMin) entMin = vEnt;
+            if (saiMin === null || vSai > saiMin) saiMin = vSai;
           });
 
-          // Dia sem batida = pular
-          if (minutosPresentes.length === 0) continue;
+          // Sem nenhum par completo = dia sem registro válido, ignora
+          if (entMin === null || saiMin === null) continue;
 
-          // Entrada = menor, Saída = maior
-          minutosPresentes.sort(function(a,b){ return a-b; });
-          var entMin = minutosPresentes[0];
-          var saiMin = minutosPresentes[minutosPresentes.length-1];
+          // Entrada e saída idênticas = par inválido (batida duplicada), ignora
+          if (entMin === saiMin) continue;
 
-          // Se só teve 1 batida e for um horário suspeito (sem dupla registro)
-          // Ainda registra mas marca como incompleto
-          var incompleto = (minutosPresentes.length === 1);
+          var incompleto = false; // chegou aqui = par válido
 
           var calc = _calcHoras(dataISO, entMin, saiMin);
 
@@ -284,11 +288,11 @@ var HR_IMPORT = (function () {
             data:       dataISO,
             entrada:    _min2hhmm(entMin),
             saida:      _min2hhmm(saiMin),
-            horas:      incompleto ? 0 : calc.horas,
-            extra:      incompleto ? 0 : calc.extra,
-            atraso:     incompleto ? 0 : calc.atraso,
-            incompleto: incompleto,
-            obs:        incompleto ? 'Registro incompleto (1 batida apenas)' : ''
+            horas:      calc.horas,
+            extra:      calc.extra,
+            atraso:     calc.atraso,
+            incompleto: false,
+            obs:        ''
           });
         }
       });
