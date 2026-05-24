@@ -88,24 +88,33 @@ var HR_IMPORT = (function () {
     return JORNADA[DOW_KEYS[d]] || 480;
   }
 
-  /** Dado entrada, saída (minutos), e a data ISO, retorna {trab, extra, atraso, almoco}. */
-  function _calcDia(entMin, saiMin, isoDate) {
-    var bruto = saiMin - entMin;
-    if (bruto < 0) bruto += 1440; // overnight (improvável mas seguro)
+  /**
+   * Dado entrada, saída (minutos), data ISO e almoço (minutos, 0 se trabalho direto).
+   * Retorna {bruto, trab, saldo, extra, atraso, almoco}.
+   *
+   * REGRAS OFICIAIS:
+   * - Sem almoço registrado → trabalho direto, NÃO desconta nada (Regra 2)
+   * - Com almoço → trab = bruto - almoco (Regra 3)
+   * - Saldo = trab - jornada (pode ser negativo) (Regras 4 e 5)
+   * - extra = max(0, saldo), atraso = max(0, -saldo)
+   */
+  function _calcDia(entMin, saiMin, isoDate, almocoMin) {
+    almocoMin = almocoMin || 0;
 
-    var d = _dow(isoDate);
-    var isSab = (d === 6);
+    var bruto = saiMin - entMin;
+    if (bruto < 0) bruto += 1440; // overnight
+
     var jornadaMin = _jornadaEsperada(isoDate);
 
-    // Desconta almoço: apenas seg–sex E turno > 6h E intervalo não registrado separadamente
-    var almoco = 0;
-    if (!isSab && bruto > 360) almoco = ALMOCO_MIN;
+    // Trab = bruto menos pausa SE registrada (NÃO desconta automático)
+    var trab = bruto - almocoMin;
 
-    var trab  = bruto - almoco;
-    var extra = Math.max(0, trab - jornadaMin);
-    var atraso = Math.max(0, jornadaMin - trab);
+    // Saldo real — pode ser negativo (atraso/falta)
+    var saldo  = trab - jornadaMin;
+    var extra  = Math.max(0, saldo);
+    var atraso = Math.max(0, -saldo);
 
-    return { bruto: bruto, trab: trab, extra: extra, atraso: atraso, almoco: almoco };
+    return { bruto: bruto, trab: trab, saldo: saldo, extra: extra, atraso: atraso, almoco: almocoMin };
   }
 
   // ── Design tokens (mesmos do app-funcionarios) ───────────────────────────
@@ -136,7 +145,8 @@ var HR_IMPORT = (function () {
     raw: '',          // texto bruto do relatório
     linhas: [],       // [{nome, data, entrada, saida, almoco?}]
     grupos: [],       // [{nome, registros:[...], funcId:null}]
-    periodo: {di:'', df:''}
+    periodo: {di:'', df:''},
+    _registrosDiretos: null  // registros prontos do Cartão de Ponto (com almocoManual)
   };
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -337,33 +347,45 @@ var HR_IMPORT = (function () {
   }
 
   /**
-   * Calcula os dados de exibição de um grupo (totais, extra, atraso).
+   * Calcula os dados de exibição de um grupo (totais, saldo real).
+   * Segue as regras oficiais do sistema de banco de horas.
    */
   function _calcGrupo(g) {
     var totalTrabMin = 0, totalExtraMin = 0, totalAtrasoMin = 0;
     var linhasCalc = g.registros.map(function(r) {
       var entMin = _hhmm2min(r.entrada);
       var saiMin = _hhmm2min(r.saida);
-      var valido = !isNaN(entMin) && !isNaN(saiMin) && saiMin > entMin;
-      var res = valido ? _calcDia(entMin, saiMin, r.data) : { trab:0, extra:0, atraso:0, almoco:0, bruto:0 };
-      // Se o relatório forneceu intervalo manualmente, usa ele
-      if (valido && r.almocoManual !== null) {
-        res.almoco = r.almocoManual;
-        res.trab   = res.bruto - res.almoco;
-        var jorn   = _jornadaEsperada(r.data);
-        res.extra  = Math.max(0, res.trab - jorn);
-        res.atraso = Math.max(0, jorn - res.trab);
+
+      // Registro incompleto: falta entrada ou saída (Regra 12)
+      var incompleto = isNaN(entMin) || isNaN(saiMin);
+      // Horário invertido = inválido (Regra 13)
+      var valido = !incompleto && saiMin > entMin;
+
+      var res = { trab:0, saldo:0, extra:0, atraso:0, almoco:0, bruto:0, incompleto: incompleto && !!(r.entrada || r.saida) };
+
+      if (valido) {
+        // Passa almoço já calculado (minutos) diretamente ao _calcDia (Regras 2 e 3)
+        var almocoMin = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
+        res = _calcDia(entMin, saiMin, r.data, almocoMin);
+        res.incompleto = false;
       }
+
+      // Saldo real acumulado (Regra 5): extras positivas MENOS horas negativas
       totalTrabMin  += res.trab;
       totalExtraMin += res.extra;
       totalAtrasoMin+= res.atraso;
       return { r:r, valido:valido, res:res };
     });
+
+    // Saldo líquido = extras - atrasos (Regra 5)
+    var saldoLiquidoMin = totalExtraMin - totalAtrasoMin;
+
     return {
       linhasCalc: linhasCalc,
       totalTrabMin: totalTrabMin,
       totalExtraMin: totalExtraMin,
       totalAtrasoMin: totalAtrasoMin,
+      saldoLiquidoMin: saldoLiquidoMin,
       diasCount: g.registros.length
     };
   }
@@ -377,6 +399,7 @@ var HR_IMPORT = (function () {
     _state.linhas = [];
     _state.grupos = [];
     _state.periodo = { di:'', df:'' };
+    _state._registrosDiretos = null;
     _renderTelaUpload();
   }
 
@@ -572,16 +595,21 @@ var HR_IMPORT = (function () {
         var entrada = entManha || entTarde || entExtra || '';
         // Saída = último horário disponível
         var saida = saiExtra || saiTarde || saiManha || '';
-        // Almoço = saída manhã → entrada tarde (se ambos existem)
-        var almIni = (saiManha && entTarde) ? saiManha : '';
-        var almFim = (saiManha && entTarde) ? entTarde : '';
 
         if (!entrada && !saida) continue; // dia sem registro algum
+
+        // Calcula minutos de almoço se saída manhã e entrada tarde estão presentes (Regra 3)
+        var almocoMin = 0;
+        if (saiManha && entTarde) {
+          var smMin = _hhmm2min(saiManha);
+          var etMin = _hhmm2min(entTarde);
+          if (!isNaN(smMin) && !isNaN(etMin) && etMin > smMin) almocoMin = etMin - smMin;
+        }
 
         registros.push({
           nome: nome, data: dataISO,
           entrada: entrada, saida: saida,
-          almIni: almIni, almFim: almFim
+          almocoManual: almocoMin > 0 ? almocoMin : null
         });
       }
     });
@@ -620,10 +648,12 @@ var HR_IMPORT = (function () {
         var k = r.nome.toLowerCase() + '|' + r.data;
         if (!mapa[k] || (r.entrada && !mapa[k].entrada)) mapa[k] = r;
       });
-      var linhas = Object.values(mapa).map(function(r) {
-        var partes = [r.nome, r.data, r.entrada, r.saida];
-        if (r.almIni && r.almFim) partes.push(r.almIni, r.almFim);
-        return partes.join(';');
+      // Guarda registros prontos (com almocoManual em minutos) para _processar() usar
+      // sem perda de dados na conversão CSV→parse (Regras 2 e 3)
+      _state._registrosDiretos = Object.values(mapa);
+      // Retorna CSV simples apenas para preview no textarea
+      var linhas = _state._registrosDiretos.map(function(r) {
+        return [r.nome, r.data, r.entrada || '', r.saida || ''].join(';');
       });
       return linhas.join('\n');
     }
@@ -827,16 +857,25 @@ var HR_IMPORT = (function () {
   }
 
   function _processar() {
-    // Usa _state.raw (arquivo) se disponível, senão usa o textarea direto
-    var texto = (_state.raw && _state.raw.trim())
-      ? _state.raw
-      : ((document.getElementById('imp_texto') || {}).value || '');
-    texto = texto.trim();
-    // Remove linha de preview "… mais N linha(s)" se presente
-    texto = texto.replace(/\n?… mais \d+ linha\(s\)$/, '').trim();
-    if (!texto) { _toast('⚠️ Cole ou importe um relatório primeiro.'); return; }
+    var registros = [];
 
-    var registros = _parseRelatorio(texto);
+    // Se vieram do Cartão de Ponto XLS, usa os registros diretos (almocoManual preservado)
+    if (_state._registrosDiretos && _state._registrosDiretos.length > 0) {
+      registros = _state._registrosDiretos;
+      _state._registrosDiretos = null;
+    } else {
+      // Usa _state.raw (arquivo) se disponível, senão usa o textarea direto
+      var texto = (_state.raw && _state.raw.trim())
+        ? _state.raw
+        : ((document.getElementById('imp_texto') || {}).value || '');
+      texto = texto.trim();
+      // Remove linha de preview "… mais N linha(s)" se presente
+      texto = texto.replace(/\n?… mais \d+ linha\(s\)$/, '').trim();
+      if (!texto) { _toast('⚠️ Cole ou importe um relatório primeiro.'); return; }
+
+      registros = _parseRelatorio(texto);
+    }
+
     if (registros.length === 0) {
       _toast('❌ Não foi possível ler nenhum registro. Verifique o formato.');
       return;
@@ -1050,20 +1089,13 @@ var HR_IMPORT = (function () {
         });
         if (dup) { pulados++; conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data); return; }
 
-        // Calcula horas
+        // Calcula horas — passa almoço ao _calcDia, sem recalcular aqui (Regras 2, 3, 14)
         var entMin = _hhmm2min(r.entrada);
         var saiMin = _hhmm2min(r.saida);
+        var almocoMin = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
         var calc = (!isNaN(entMin) && !isNaN(saiMin) && saiMin > entMin)
-          ? _calcDia(entMin, saiMin, r.data)
-          : { trab: 0, extra: 0, atraso: 0, almoco: 0 };
-        if (r.almocoManual !== null && !isNaN(entMin) && !isNaN(saiMin)) {
-          var bruto = saiMin - entMin;
-          calc.almoco = r.almocoManual;
-          calc.trab   = bruto - calc.almoco;
-          var jorn    = _jornadaEsperada(r.data);
-          calc.extra  = Math.max(0, calc.trab - jorn);
-          calc.atraso = Math.max(0, jorn - calc.trab);
-        }
+          ? _calcDia(entMin, saiMin, r.data, almocoMin)
+          : { trab: 0, saldo: 0, extra: 0, atraso: 0, almoco: 0 };
 
         var id = _genId();
         regs[id] = {
