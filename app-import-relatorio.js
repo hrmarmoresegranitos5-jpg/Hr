@@ -486,126 +486,155 @@ var HR_IMPORT = (function () {
    * Tenta detectar automaticamente quais colunas são nome, data, entrada, saída.
    */
   /**
-   * Detecta e converte tabela de turno transposta (Shift Table).
-   * Formato: cabeçalho com IDUsuário/Nome/Dep + colunas numéricas de dias (1,2,...31),
-   * linha de dia-da-semana logo abaixo, e linhas de funcionário com 1=presente.
-   * Ex: "Data:01/05/2026~23/05/2026" na linha 2 indica o período.
-   * Retorna CSV nome;data;; ou '' se não for esse formato.
+   * Converte serial de hora do SheetJS (número 0..1 ou objeto Date/time)
+   * para string "HH:MM". Aceita também datetime.time vindo do openpyxl
+   * que o SheetJS representa como Date quando cellDates:true, mas aqui
+   * usamos cellDates:false, então vem como fração decimal.
    */
-  function _xlsShiftTableParaTexto(raw, fmt) {
-    // Linha 0: título (ex: "Tabela de turno de funcionários (Para inspeção)")
-    // Linha 1: "Data:dd/mm/yyyy~dd/mm/yyyy" na col 0
-    // Linha 2: cabeçalho — IDUsuário, Nome, Dep., 1, 2, 3, ...
-    // Linha 3: dia-da-semana (2ª, 3ª, ... Sá, Do)
-    // Linha 4+: funcionários
+  function _xlsTime2hhmm(val) {
+    if (val === null || val === undefined || val === '') return '';
+    // Número decimal 0..1 → fração do dia
+    if (typeof val === 'number') {
+      var frac = val % 1;
+      if (frac < 0) frac += 1;
+      // Se o número inteiro for grande (serial de data + hora), pega só fração
+      var totalMin = Math.round(frac * 1440);
+      return _min2hhmm(totalMin);
+    }
+    // String já formatada "HH:MM" ou "HH:MM:SS"
+    var s = String(val).trim();
+    var m = s.match(/^(\d{1,2})[h:](\d{2})(?::\d{2})?(?:\s*(AM|PM))?$/i);
+    if (m) {
+      var h = parseInt(m[1]), mn = parseInt(m[2]);
+      if (m[3] && m[3].toUpperCase() === 'PM' && h < 12) h += 12;
+      if (m[3] && m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+      return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0');
+    }
+    return '';
+  }
 
-    // Detecta pela presença de "IDUsuário"/"ID" ou "Nome" na linha 0 ou 2
-    // e números sequenciais de dia (1,2,3...) no mesmo cabeçalho
-    var headerRow = -1;
-    for (var ri = 0; ri < Math.min(5, raw.length); ri++) {
-      var row = raw[ri] || [];
-      var rowStr = row.map(function(c){ return String(c||'').toLowerCase(); }).join('|');
-      if ((rowStr.indexOf('nome') >= 0 || rowStr.indexOf('idusuario') >= 0 || rowStr.indexOf('idusu') >= 0) &&
-          row.some(function(c){ return c === 1 || c === 2 || c === 3; })) {
-        headerRow = ri;
-        break;
+  /**
+   * Detecta e extrai Cartão de Ponto de abas com formato:
+   * 3 funcionários lado a lado (offsets 0, 15, 30).
+   * Cada bloco tem: col+0=Data, col+1=EntManhã, col+3=SaiManhã,
+   *                 col+6=EntTarde, col+8=SaiTarde, col+10=EntExtra, col+12=SaiExtra
+   * Data no formato "DD DiaSem" ex: "04 2ª".
+   * Retorna array de {nome, data, entrada, saida, almIni, almFim}.
+   */
+  function _xlsCartaoPontoParaRegistros(raw, fmt, ano, mes) {
+    var registros = [];
+
+    // Localiza a linha "Cartão de ponto"
+    var cartaoRow = -1;
+    for (var ri = 0; ri < raw.length; ri++) {
+      if ((raw[ri] || []).some(function(v){ return String(v||'').trim() === 'Cartão de ponto'; })) {
+        cartaoRow = ri; break;
       }
     }
-    if (headerRow < 0) return '';
+    if (cartaoRow < 0) return registros;
 
-    var hdr = raw[headerRow] || [];
+    // Lê nomes dos funcionários (linha 3, cols 9, 24, 39)
+    var nomesRow = raw[3] || [];
+    var nomesCols = [9, 24, 39]; // posições do nome em cada bloco
+    var offsets = [0, 15, 30];   // offset de coluna de cada bloco
 
-    // Extrai período do arquivo (linha antes do cabeçalho que contém "Data:dd/mm/yyyy~dd/mm/yyyy")
-    var periodoInicio = null;
-    for (var pi = 0; pi < headerRow; pi++) {
-      var cel0 = String((fmt[pi] || [])[0] || (raw[pi] || [])[0] || '');
-      var mPer = cel0.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s*[~\-]\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-      if (mPer) {
-        periodoInicio = new Date(parseInt(mPer[3]), parseInt(mPer[2])-1, parseInt(mPer[1]));
-        break;
-      }
-    }
-    // Fallback: ano corrente, mês 1
-    if (!periodoInicio) periodoInicio = new Date(new Date().getFullYear(), 0, 1);
+    // Confirma cabeçalho de colunas (linha cartaoRow+2): Entrada nas posições relativas 1,6,10
+    // col+1=EntManhã, col+3=SaiManhã, col+6=EntTarde, col+8=SaiTarde, col+10=EntExtra, col+12=SaiExtra
+    var dataStartRow = cartaoRow + 3; // pula "Cartão de ponto" + "Data/Antes/Depois" + "Entrada/Saída"
 
-    // Identifica coluna de nome e mapeamento colIdx→dia-do-mês
-    var iNomeCol = -1, iDepCol = -1;
-    var diaCols = {}; // colIdx → número do dia (1-31)
-    hdr.forEach(function(c, i) {
-      var s = String(c||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-      if (iNomeCol < 0 && (s === 'nome' || s.indexOf('nome') === 0)) iNomeCol = i;
-      if (iDepCol < 0 && (s === 'dep' || s === 'dep.' || s.indexOf('depart') >= 0)) iDepCol = i;
-      var num = parseInt(c);
-      if (!isNaN(num) && num >= 1 && num <= 31) diaCols[i] = num;
-    });
-    if (iNomeCol < 0 || Object.keys(diaCols).length === 0) return '';
-
-    // Pula linha de dia-da-semana (linha logo após o cabeçalho, se não contém nomes)
-    var dataStartRow = headerRow + 1;
-    if (dataStartRow < raw.length) {
-      var nextRow = raw[dataStartRow] || [];
-      var nomeCandidate = String(nextRow[iNomeCol]||'').trim();
-      // Se a célula de nome parece um dia da semana (2ª, Sá, Do, etc.) ou é vazia, pula
-      if (!nomeCandidate || nomeCandidate.match(/^[2-6]ª$|^(sab|sá|dom|do|seg|ter|qua|qui|sex)$/i)) {
-        dataStartRow++;
-      }
-    }
-
-    var linhas = [];
-    for (var i = dataStartRow; i < raw.length; i++) {
-      var row = raw[i] || [];
-      var nome = String(row[iNomeCol]||'').trim();
-      if (!nome || nome.length < 2) continue;
-      // Capitaliza primeiro caractere
+    offsets.forEach(function(off, bi) {
+      var nome = String(nomesRow[nomesCols[bi]] || '').trim();
+      if (!nome || nome.length < 2) return;
       nome = nome.charAt(0).toUpperCase() + nome.slice(1);
 
-      Object.keys(diaCols).forEach(function(ci) {
-        var dia = diaCols[ci];
-        var val = row[parseInt(ci)];
-        // Presença: valor 1 (numérico), 'x', 'X', '+', 'P'
-        var presente = (val === 1 || val === '1' ||
-          (typeof val === 'string' && val.trim().match(/^[xXpP+]$/)));
-        if (!presente) return;
+      for (var ri = dataStartRow; ri < raw.length; ri++) {
+        var row = raw[ri] || [];
+        var celData = String(row[off] || '').trim();
+        // Formato: "04 2ª" ou "04 Sá" etc.
+        var mData = celData.match(/^(\d{1,2})\s+/);
+        if (!mData) continue;
+        var dia = parseInt(mData[1]);
+        if (isNaN(dia) || dia < 1 || dia > 31) continue;
 
-        // Monta data ISO usando periodoInicio como referência de ano/mês
-        var ano = periodoInicio.getFullYear();
-        var mes = periodoInicio.getMonth() + 1;
-        // Se o dia é menor que o dia inicial do período e o mês não tem esse dia antes,
-        // pode ser que role para mês seguinte (ex: período 20/05~10/06, dia 3 = junho)
-        // Heurística simples: se dia < dia-início-período por margem > 15, é mês seguinte
-        var diaInicio = periodoInicio.getDate();
-        if (dia < diaInicio && (diaInicio - dia) > 15) {
-          mes++;
-          if (mes > 12) { mes = 1; ano++; }
-        }
         var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dia).padStart(2,'0');
-
-        // Verifica se é data válida
         var dt = new Date(dataISO + 'T12:00:00');
-        if (isNaN(dt.getTime())) return;
-        // Domingo (dow=0) pula
-        if (dt.getDay() === 0) return;
+        if (isNaN(dt.getTime()) || dt.getDay() === 0) continue; // data inválida ou domingo
 
-        linhas.push(nome + ';' + dataISO + ';;');
-      });
-    }
+        // Lê os 6 slots de horário
+        var entManha = _xlsTime2hhmm(row[off + 1]);
+        var saiManha = _xlsTime2hhmm(row[off + 3]);
+        var entTarde = _xlsTime2hhmm(row[off + 6]);
+        var saiTarde = _xlsTime2hhmm(row[off + 8]);
+        var entExtra = _xlsTime2hhmm(row[off + 10]);
+        var saiExtra = _xlsTime2hhmm(row[off + 12]);
 
-    return linhas.join('\n');
+        // Entrada = primeiro horário disponível
+        var entrada = entManha || entTarde || entExtra || '';
+        // Saída = último horário disponível
+        var saida = saiExtra || saiTarde || saiManha || '';
+        // Almoço = saída manhã → entrada tarde (se ambos existem)
+        var almIni = (saiManha && entTarde) ? saiManha : '';
+        var almFim = (saiManha && entTarde) ? entTarde : '';
+
+        if (!entrada && !saida) continue; // dia sem registro algum
+
+        registros.push({
+          nome: nome, data: dataISO,
+          entrada: entrada, saida: saida,
+          almIni: almIni, almFim: almFim
+        });
+      }
+    });
+
+    return registros;
   }
 
   function _xlsParaTexto(workbook) {
+    // ── Tenta formato "Cartão de Ponto" (abas com horários reais) ────────────
+    // Varre TODAS as abas procurando "Cartão de ponto"
+    var todosRegistros = [];
+    var anoMesPeriodo = null;
+
+    workbook.SheetNames.forEach(function(sname) {
+      var ws = workbook.Sheets[sname];
+      var raw = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true,  defval: '' });
+      var fmt = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+
+      // Extrai ano/mês do período da aba (ex: "Data de presença:01/05/2026~23/05/2026")
+      var ano = new Date().getFullYear(), mes = new Date().getMonth() + 1;
+      for (var ri = 0; ri < Math.min(5, raw.length); ri++) {
+        var rowStr = (raw[ri] || []).join('|');
+        var mPer = rowStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (mPer) { ano = parseInt(mPer[3]); mes = parseInt(mPer[2]); anoMesPeriodo = {ano:ano, mes:mes}; break; }
+      }
+      if (anoMesPeriodo) { ano = anoMesPeriodo.ano; mes = anoMesPeriodo.mes; }
+
+      var regs = _xlsCartaoPontoParaRegistros(raw, fmt, ano, mes);
+      todosRegistros = todosRegistros.concat(regs);
+    });
+
+    if (todosRegistros.length > 0) {
+      // Deduplica (mesmo nome+data, mantém o que tem mais info)
+      var mapa = {};
+      todosRegistros.forEach(function(r) {
+        var k = r.nome.toLowerCase() + '|' + r.data;
+        if (!mapa[k] || (r.entrada && !mapa[k].entrada)) mapa[k] = r;
+      });
+      var linhas = Object.values(mapa).map(function(r) {
+        var partes = [r.nome, r.data, r.entrada, r.saida];
+        if (r.almIni && r.almFim) partes.push(r.almIni, r.almFim);
+        return partes.join(';');
+      });
+      return linhas.join('\n');
+    }
+
+    // ── Fallback: aba 1 no formato padrão ────────────────────────────────────
     var sheetName = workbook.SheetNames[0];
     var ws = workbook.Sheets[sheetName];
-
-    // Converte para array de arrays (raw: true para pegar seriais brutos)
     var raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true,  defval: '' });
     var fmt  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
 
     if (!raw || raw.length < 2) return '';
-
-    // ── Tenta formato "Shift Table" (tabela transposta de presença/turno) ────
-    var shiftCsv = _xlsShiftTableParaTexto(raw, fmt);
-    if (shiftCsv) return shiftCsv;
 
     var linhas = [];
 
