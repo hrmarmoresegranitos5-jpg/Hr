@@ -219,6 +219,7 @@ function go(n){
   if(n===9){if(typeof renderTum==='function')renderTum();}
   if(n===10){if(typeof renderContratos==='function')renderContratos();}
   if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
+  if(n===30){if(typeof HR_FUNC!=='undefined'&&typeof HR_FUNC.renderPaginaFuncionarios==='function')HR_FUNC.renderPaginaFuncionarios();}
 }
 
 // ═══ DISPATCH ═══
