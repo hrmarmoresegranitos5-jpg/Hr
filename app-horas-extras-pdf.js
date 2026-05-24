@@ -1,752 +1,594 @@
-// ══════════════════════════════════════════════════════════════
-// HORAS EXTRAS PDF v1 — Relatório individual por funcionário
-// Lê RelatórioPresença (.xls/.xlsx via SheetJS), gera PDF A4
-// Padrão: html2canvas → jsPDF (igual ao app-contrato-pdf.js)
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS + PDF  v2.0
+//  Arquivo: app-horas-extras-pdf.js
+//  Depende de: app-funcionarios.js (HR_FUNC), jsPDF (carregado via CDN)
+// ═══════════════════════════════════════════════════════════════════
 
-// ── Tabela de salários mensais por funcionário (R$/mês) ──
-// valorHora = salarioMensal / 220  (base CLT: 220h/mês)
-var SALARIO_MENSAL = {
-  'hugo':     1900,
-  'hangel':   1900, // hugo == hangel no relatório
-  'fabricio': 1600,
-  'gibs':     1200, // gibson
-  'gibson':   1200,
-  'lucas':    800,
-  'tiago':    400,
-};
+(function () {
+  'use strict';
 
-var DIVISOR_HORAS = 220; // base CLT padrão
+  // ── Constantes de estilo ────────────────────────────────────────
+  var GOLD   = '#C9A84C';
+  var BG     = 'var(--bg,#111)';
+  var S2     = 'var(--s2,#1a1a1a)';
+  var BD     = 'var(--bd,#2a2a2a)';
+  var T1     = 'var(--t1,#eee)';
+  var T2     = 'var(--t2,#bbb)';
+  var T3     = 'var(--t3,#888)';
 
-// ── Defaults de multiplicadores de horas extras ──
-// CFG.he pode sobrescrever via Configurações → Empresa
-var HE_DEFAULTS = { normal: 1.5, feriado: 2.0, especial: 3.0 };
-
-// Retorna multiplicadores ativos (CFG.he > defaults)
-function _getHE() {
-  if (typeof CFG !== 'undefined' && CFG && CFG.he) {
-    return {
-      normal:   parseFloat(CFG.he.normal)   || HE_DEFAULTS.normal,
-      feriado:  parseFloat(CFG.he.feriado)  || HE_DEFAULTS.feriado,
-      especial: parseFloat(CFG.he.especial) || HE_DEFAULTS.especial,
-    };
+  // ── Helpers ─────────────────────────────────────────────────────
+  function _toast(msg) {
+    if (typeof toast === 'function') toast(msg);
+    else console.log('[HE-PDF]', msg);
   }
-  return { normal: HE_DEFAULTS.normal, feriado: HE_DEFAULTS.feriado, especial: HE_DEFAULTS.especial };
-}
 
-// Mapeamento nome do relatório → nome exibido no PDF
-var NOME_EXIBIDO = {
-  'hangel':   'Hugo',
-  'hugo':     'Hugo',
-  'gibs':     'Gibson',
-  'gibson':   'Gibson',
-  'fabricio': 'Fabrício',
-  'tiago':    'Tiago',
-  'lucas':    'Lucas',
-};
+  function _fmtMoeda(v) {
+    return 'R$ ' + parseFloat(v || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    });
+  }
 
-// ── Carrega bibliotecas (mesma lógica do contrato) ──
-function _loadHEPDFLibs(cb) {
-  var needSheetJS = typeof XLSX === 'undefined';
-  var needH2C    = typeof html2canvas === 'undefined';
-  var needJsPDF  = typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF;
+  function _fmtData(iso) {
+    if (!iso) return '—';
+    var p = iso.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
 
-  function tryDone() {
-    if (typeof XLSX !== 'undefined' &&
-        typeof html2canvas !== 'undefined' &&
-        typeof window.jspdf !== 'undefined' && window.jspdf.jsPDF) {
-      cb();
+  function _fmtHoje() {
+    return _fmtData(new Date().toISOString().slice(0, 10));
+  }
+
+  function _mesAtual() {
+    var d = new Date();
+    var m = d.getMonth() + 1;
+    var y = d.getFullYear();
+    return y + '-' + (m < 10 ? '0' + m : m);
+  }
+
+  function _closeOverlay(id) {
+    var el = document.getElementById(id);
+    if (el) el.remove();
+  }
+
+  function _overlay(id, html) {
+    _closeOverlay(id);
+    var ov = document.createElement('div');
+    ov.id = id;
+    ov.style.cssText = [
+      'position:fixed;inset:0;z-index:99999;',
+      'background:rgba(10,8,0,.96);',
+      'display:flex;flex-direction:column;align-items:center;',
+      'overflow-y:auto;font-family:Outfit,sans-serif;',
+      'padding:20px 0 80px;'
+    ].join('');
+    ov.innerHTML = html;
+    document.body.appendChild(ov);
+    return ov;
+  }
+
+  // ── Acesso aos dados via HR_FUNC ou localStorage direto ─────────
+  function _getFuncionarios() {
+    if (typeof HR_FUNC !== 'undefined') {
+      // Acessa via localStorage diretamente (HR_FUNC não expõe getter público)
     }
+    try { return JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); }
+    catch (e) { return {}; }
   }
 
-  if (needSheetJS) {
-    var sx = document.createElement('script');
-    sx.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    sx.onload = function () { tryDone(); };
-    sx.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar SheetJS'); };
-    document.head.appendChild(sx);
+  function _getRegistros() {
+    try { return JSON.parse(localStorage.getItem('hr_registros') || '{}'); }
+    catch (e) { return {}; }
   }
 
-  if (needH2C) {
-    var h = document.createElement('script');
-    h.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-    h.onload = function () {
-      if (needJsPDF) {
-        var j = document.createElement('script');
-        j.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-        j.onload = function () { tryDone(); };
-        j.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); };
-        document.head.appendChild(j);
-      } else {
-        tryDone();
-      }
+  function _getPagamentos() {
+    try { return JSON.parse(localStorage.getItem('hr_pagamentos') || '{}'); }
+    catch (e) { return {}; }
+  }
+
+  // ── Multiplicadores de hora extra (lê de CFG ou usa padrão) ────
+  function _getMultiplicadores() {
+    var def = { normal: 1.5, feriado: 2.0, especial: 3.0 };
+    try {
+      if (typeof CFG !== 'undefined' && CFG && CFG.he) return CFG.he;
+      var stored = JSON.parse(localStorage.getItem('cfg') || '{}');
+      if (stored.he) return stored.he;
+    } catch (e) {}
+    return def;
+  }
+
+  // ── Cálculo de horas extras por funcionário num período ─────────
+  function _calcularHorasExtras(funcId, inicio, fim) {
+    var funcs = _getFuncionarios();
+    var regs  = _getRegistros();
+    var pags  = _getPagamentos();
+    var mult  = _getMultiplicadores();
+
+    var f = funcs[funcId] || {};
+    var salario = parseFloat(f.salario) || 0;
+    var valorHoraNormal  = (salario / 220) * (mult.normal  || 1.5);
+    var valorHoraFeriado = (salario / 220) * (mult.feriado || 2.0);
+    var valorHoraEspecial= (salario / 220) * (mult.especial|| 3.0);
+
+    var lista = Object.values(regs).filter(function (r) {
+      if (r.funcionarioId !== funcId) return false;
+      if (inicio && r.data < inicio) return false;
+      if (fim    && r.data > fim)    return false;
+      return parseFloat(r.extra) > 0;
+    }).sort(function (a, b) { return a.data.localeCompare(b.data); });
+
+    var totalHorasExtra = 0;
+    var totalValorExtra = 0;
+
+    lista.forEach(function (r) {
+      var hExtra = parseFloat(r.extra) || 0;
+      var tipo   = (r.tipoExtra || 'normal').toLowerCase();
+      var valorH = tipo === 'feriado'  ? valorHoraFeriado
+                 : tipo === 'especial' ? valorHoraEspecial
+                 : valorHoraNormal;
+      r._valorHoraUsado = valorH;
+      r._valorTotalExtra = hExtra * valorH;
+      totalHorasExtra += hExtra;
+      totalValorExtra += r._valorTotalExtra;
+    });
+
+    // Pagamentos já efetuados no período
+    var totalPago = Object.values(pags).filter(function (p) {
+      if (p.funcionarioId !== funcId) return false;
+      if (inicio && p.data < inicio) return false;
+      if (fim    && p.data > fim)    return false;
+      return true;
+    }).reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
+
+    return {
+      func:            f,
+      salario:         salario,
+      valorHoraNormal: valorHoraNormal,
+      registros:       lista,
+      totalHorasExtra: totalHorasExtra,
+      totalValorExtra: totalValorExtra,
+      totalPago:       totalPago,
+      saldo:           totalValorExtra - totalPago
     };
-    h.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar html2canvas'); };
-    document.head.appendChild(h);
-  } else if (needJsPDF) {
-    var j2 = document.createElement('script');
-    j2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-    j2.onload = function () { tryDone(); };
-    j2.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); };
-    document.head.appendChild(j2);
   }
 
-  if (!needSheetJS && !needH2C && !needJsPDF) cb();
-}
+  // ── Calcular resumo de TODOS os funcionários ────────────────────
+  function _calcularTodos(inicio, fim) {
+    var funcs = _getFuncionarios();
+    return Object.values(funcs)
+      .filter(function (f) { return f.ativo !== false; })
+      .map(function (f) { return _calcularHorasExtras(f.id, inicio, fim); })
+      .filter(function (r) { return r.totalHorasExtra > 0; })
+      .sort(function (a, b) { return a.func.nome.localeCompare(b.func.nome); });
+  }
 
-// ══════════════════════════════════════════════════════════════
-// PONTO DE ENTRADA — chamado pelo botão na UI
-// ══════════════════════════════════════════════════════════════
-function abrirRelatorioHorasExtras() {
-  // Cria input de arquivo invisível e dispara o seletor
-  var inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = '.xls,.xlsx';
-  inp.style.display = 'none';
-  inp.onchange = function () {
-    var file = inp.files[0];
-    if (!file) return;
-    _processarRelatorioHE(file);
+  // ── Estado do overlay ───────────────────────────────────────────
+  var _estado = {
+    inicio: _mesAtual() + '-01',
+    fim:    new Date().toISOString().slice(0, 10),
+    funcId: null
   };
-  document.body.appendChild(inp);
-  inp.click();
-  setTimeout(function () { document.body.removeChild(inp); }, 5000);
-}
 
-// ── Lê o arquivo XLS/XLSX e extrai dados de horas extras ──
-function _processarRelatorioHE(file) {
-  if (typeof toast === 'function') toast('Lendo relatório...');
+  // ── Abrir relatório ─────────────────────────────────────────────
+  function abrirRelatorioHorasExtras() {
+    _renderOverlay();
+  }
 
-  _loadHEPDFLibs(function () {
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      try {
-        var data   = new Uint8Array(e.target.result);
-        var wb     = XLSX.read(data, { type: 'array', cellDates: true });
-        var dados  = _extrairDadosHE(wb);
-        if (!dados || !dados.length) {
-          if (typeof toast === 'function') toast('Nenhum funcionário encontrado no relatório.');
+  function _renderOverlay() {
+    var funcs = _getFuncionarios();
+    var lista = Object.values(funcs).filter(function (f) { return f.ativo !== false; });
+    var opsFuncs = [{ v: '', l: 'Todos os funcionários' }].concat(
+      lista.sort(function (a, b) { return a.nome.localeCompare(b.nome); })
+        .map(function (f) { return { v: f.id, l: f.nome }; })
+    );
+
+    var optsHtml = opsFuncs.map(function (o) {
+      return '<option value="' + o.v + '"' +
+        (o.v === (_estado.funcId || '') ? ' selected' : '') + '>' + o.l + '</option>';
+    }).join('');
+
+    var INP = [
+      'width:100%;box-sizing:border-box;padding:10px 12px;',
+      'border-radius:9px;border:1px solid rgba(201,168,76,.25);',
+      'background:rgba(255,255,255,.04);color:var(--t1,#eee);',
+      'font-size:.88rem;font-family:Outfit,sans-serif;outline:none;'
+    ].join('');
+
+    var resultados = _calcularTodos(_estado.inicio, _estado.fim);
+    var totalGeralHoras = resultados.reduce(function (s, r) { return s + r.totalHorasExtra; }, 0);
+    var totalGeralValor = resultados.reduce(function (s, r) { return s + r.totalValorExtra; }, 0);
+
+    // Filtra por funcionário se selecionado
+    var exibir = _estado.funcId
+      ? resultados.filter(function (r) { return r.func.id === _estado.funcId; })
+      : resultados;
+
+    var tabelaHtml = '';
+    if (exibir.length === 0) {
+      tabelaHtml = '<div style="text-align:center;padding:32px 0;color:' + T3 + ';font-size:.85rem;">Nenhuma hora extra registrada no período.</div>';
+    } else {
+      tabelaHtml = '<div style="overflow-x:auto;">' +
+        '<table style="width:100%;border-collapse:collapse;font-size:.78rem;">' +
+          '<thead>' +
+            '<tr style="color:' + GOLD + ';font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;">' +
+              '<th style="text-align:left;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Funcionário</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Salário Base</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Valor/h</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">H. Extras</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Total Extra</th>' +
+              '<th style="text-align:center;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">PDF</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody>' +
+        exibir.map(function (r) {
+          return '<tr style="border-bottom:1px solid rgba(255,255,255,.05);">' +
+            '<td style="padding:9px 8px;color:' + T1 + ';font-weight:600;">' + (r.func.nome || '—') + '</td>' +
+            '<td style="padding:9px 8px;text-align:right;color:' + T2 + ';">' + _fmtMoeda(r.salario) + '</td>' +
+            '<td style="padding:9px 8px;text-align:right;color:' + T3 + ';">' +
+              'R$ ' + r.valorHoraNormal.toFixed(2).replace('.', ',') + '/h' +
+            '</td>' +
+            '<td style="padding:9px 8px;text-align:right;font-weight:700;color:' + GOLD + ';font-size:.9rem;">' +
+              r.totalHorasExtra.toFixed(2) + 'h' +
+            '</td>' +
+            '<td style="padding:9px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.92rem;">' +
+              _fmtMoeda(r.totalValorExtra) +
+            '</td>' +
+            '<td style="padding:9px 8px;text-align:center;">' +
+              '<button onclick="window._heGerarPDFFuncionario(\'' + r.func.id + '\',\'' + _estado.inicio + '\',\'' + _estado.fim + '\')" ' +
+                'style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);color:' + GOLD + ';' +
+                'border-radius:6px;padding:5px 10px;cursor:pointer;font-size:.72rem;font-family:Outfit,sans-serif;">📄 PDF</button>' +
+            '</td>' +
+          '</tr>';
+        }).join('') +
+          '</tbody>' +
+          '<tfoot>' +
+            '<tr style="background:rgba(201,168,76,.06);">' +
+              '<td colspan="3" style="padding:10px 8px;font-size:.72rem;color:' + T3 + ';font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Total Geral</td>' +
+              '<td style="padding:10px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.95rem;">' + totalGeralHoras.toFixed(2) + 'h</td>' +
+              '<td style="padding:10px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.95rem;">' + _fmtMoeda(totalGeralValor) + '</td>' +
+              '<td></td>' +
+            '</tr>' +
+          '</tfoot>' +
+        '</table>' +
+      '</div>';
+    }
+
+    var html =
+      '<div style="width:100%;max-width:600px;padding:0 16px;">' +
+        // Cabeçalho
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
+          '<div>' +
+            '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.14em;text-transform:uppercase;">Horas Extras</div>' +
+            '<div style="font-size:1.15rem;font-weight:800;color:' + T1 + ';line-height:1.1;">Relatório de Pagamento</div>' +
+          '</div>' +
+          '<button onclick="window._heFecharRelatorio()" ' +
+            'style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';' +
+            'border-radius:6px;padding:7px 14px;cursor:pointer;font-size:.78rem;">✕ Fechar</button>' +
+        '</div>' +
+
+        // Filtros
+        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:14px;">' +
+          '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Filtros</div>' +
+          '<div style="margin-bottom:10px;">' +
+            '<label style="display:block;font-size:.7rem;color:' + GOLD + ';letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px;">Funcionário</label>' +
+            '<select id="heRelFunc" style="' + INP + '">' + optsHtml + '</select>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">' +
+            '<div>' +
+              '<label style="display:block;font-size:.7rem;color:' + GOLD + ';letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px;">De</label>' +
+              '<input id="heRelInicio" type="date" value="' + (_estado.inicio || '') + '" style="' + INP + '">' +
+            '</div>' +
+            '<div>' +
+              '<label style="display:block;font-size:.7rem;color:' + GOLD + ';letter-spacing:.07em;text-transform:uppercase;margin-bottom:5px;">Até</label>' +
+              '<input id="heRelFim" type="date" value="' + (_estado.fim || '') + '" style="' + INP + '">' +
+            '</div>' +
+          '</div>' +
+          '<button onclick="window._heAplicarFiltro()" ' +
+            'style="width:100%;padding:11px;border-radius:9px;' +
+            'background:linear-gradient(135deg,#1e1800,#0f0c00);' +
+            'border:1.5px solid rgba(201,168,76,.5);color:' + GOLD + ';' +
+            'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">🔍 Filtrar</button>' +
+        '</div>' +
+
+        // Tabela
+        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:14px;">' +
+          '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resultado</div>' +
+          tabelaHtml +
+        '</div>' +
+
+        // Botão gerar todos
+        (exibir.length > 1
+          ? '<button onclick="window._heGerarTodosPDFs(\'' + _estado.inicio + '\',\'' + _estado.fim + '\')" ' +
+              'style="width:100%;padding:14px;background:rgba(201,168,76,.1);' +
+              'border:1.5px solid rgba(201,168,76,.4);color:' + GOLD + ';' +
+              'border-radius:12px;font-family:Outfit,sans-serif;font-size:.9rem;' +
+              'font-weight:700;cursor:pointer;letter-spacing:.02em;">' +
+              '📋 Gerar PDFs de Todos os Funcionários' +
+            '</button>'
+          : '') +
+      '</div>';
+
+    _overlay('heRelatorio', html);
+  }
+
+  // ── Aplicar filtro ───────────────────────────────────────────────
+  window._heAplicarFiltro = function () {
+    _estado.inicio = (document.getElementById('heRelInicio') || {}).value || '';
+    _estado.fim    = (document.getElementById('heRelFim')    || {}).value || '';
+    _estado.funcId = (document.getElementById('heRelFunc')   || {}).value || null;
+    _closeOverlay('heRelatorio');
+    _renderOverlay();
+  };
+
+  window._heFecharRelatorio = function () {
+    _closeOverlay('heRelatorio');
+  };
+
+  // ── Carregar jsPDF dinamicamente ────────────────────────────────
+  function _carregarJsPDF(callback) {
+    if (window.jspdf && window.jspdf.jsPDF) { callback(window.jspdf.jsPDF); return; }
+    if (window.jsPDF) { callback(window.jsPDF); return; }
+    var script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    script.onload = function () {
+      var JsPDF = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+      callback(JsPDF);
+    };
+    script.onerror = function () {
+      _toast('❌ Erro ao carregar biblioteca PDF. Verifique a internet.');
+    };
+    document.head.appendChild(script);
+  }
+
+  // ── Gerar PDF de um funcionário ─────────────────────────────────
+  window._heGerarPDFFuncionario = function (funcId, inicio, fim) {
+    _toast('⏳ Gerando PDF...');
+    _carregarJsPDF(function (JsPDF) {
+      var dados = _calcularHorasExtras(funcId, inicio, fim);
+      if (!dados.func || !dados.func.nome) {
+        _toast('❌ Funcionário não encontrado.');
+        return;
+      }
+      _gerarPDFComDados(JsPDF, dados, inicio, fim);
+    });
+  };
+
+  function _gerarPDFComDados(JsPDF, dados, inicio, fim) {
+    var doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var f = dados.func;
+    var empNome = (typeof CFG !== 'undefined' && CFG && CFG.emp) ? (CFG.emp.nome || 'HR Mármores e Granitos') : 'HR Mármores e Granitos';
+    var empTel  = (typeof CFG !== 'undefined' && CFG && CFG.emp) ? (CFG.emp.tel  || '') : '';
+
+    var pW = 210;  // largura A4
+    var mL = 14;   // margem esquerda
+    var mR = 14;   // margem direita
+    var cW = pW - mL - mR;
+    var y  = 18;
+
+    // ─── Cabeçalho ───────────────────────────────────────────────
+    doc.setFillColor(15, 12, 0);
+    doc.rect(0, 0, pW, 36, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(201, 168, 76);
+    doc.text(empNome, mL, y);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(170, 160, 140);
+    if (empTel) doc.text(empTel, mL, y + 5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(220, 210, 190);
+    doc.text('RELATÓRIO DE HORAS EXTRAS', pW - mR, y, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(150, 140, 120);
+    var periodoLabel = 'Período: ' + _fmtData(inicio) + ' a ' + _fmtData(fim);
+    doc.text(periodoLabel, pW - mR, y + 5, { align: 'right' });
+    doc.text('Emitido em: ' + _fmtHoje(), pW - mR, y + 9, { align: 'right' });
+
+    y = 44;
+
+    // ─── Dados do Funcionário ────────────────────────────────────
+    doc.setFillColor(30, 25, 5);
+    doc.roundedRect(mL, y, cW, 26, 2, 2, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(201, 168, 76);
+    doc.text(f.nome || '—', mL + 5, y + 8);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(180, 170, 150);
+    var cargo = f.cargo || 'Funcionário';
+    doc.text(cargo, mL + 5, y + 14);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(150, 140, 120);
+    doc.text('Salário base: ' + _fmtMoeda(f.salario), mL + 5, y + 20);
+    doc.text('Valor/h extra: ' + _fmtMoeda(dados.valorHoraNormal), mL + cW / 2, y + 20);
+
+    y += 34;
+
+    // ─── Título da tabela ─────────────────────────────────────────
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(201, 168, 76);
+    doc.text('REGISTROS DE HORAS EXTRAS', mL, y);
+    y += 5;
+
+    // ─── Header da tabela ─────────────────────────────────────────
+    var cols = [
+      { label: 'Data',       x: mL,      w: 28 },
+      { label: 'Entrada',    x: mL + 28, w: 22 },
+      { label: 'Saída',      x: mL + 50, w: 22 },
+      { label: 'H. Extra',   x: mL + 72, w: 22 },
+      { label: 'Tipo',       x: mL + 94, w: 28 },
+      { label: 'Valor Extra',x: mL + 122,w: 60 }
+    ];
+
+    doc.setFillColor(25, 20, 3);
+    doc.rect(mL, y, cW, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(201, 168, 76);
+    cols.forEach(function (c) {
+      doc.text(c.label, c.x + 2, y + 5.5);
+    });
+    y += 8;
+
+    // ─── Linhas da tabela ─────────────────────────────────────────
+    if (dados.registros.length === 0) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.setTextColor(150, 140, 120);
+      doc.text('Nenhuma hora extra registrada no período.', mL + 5, y + 7);
+      y += 14;
+    } else {
+      var linhaAlt = false;
+      dados.registros.forEach(function (r) {
+        if (y > 255) {
+          doc.addPage();
+          y = 18;
+        }
+        if (linhaAlt) {
+          doc.setFillColor(18, 15, 2);
+          doc.rect(mL, y, cW, 7, 'F');
+        }
+        linhaAlt = !linhaAlt;
+
+        var hExtra = parseFloat(r.extra) || 0;
+        var tipo   = r.tipoExtra || 'Normal';
+        var valorLinha = r._valorTotalExtra || (hExtra * dados.valorHoraNormal);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(220, 215, 200);
+
+        doc.text(_fmtData(r.data),           cols[0].x + 2, y + 5);
+        doc.text(r.entrada || '—',           cols[1].x + 2, y + 5);
+        doc.text(r.saida   || '—',           cols[2].x + 2, y + 5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(201, 168, 76);
+        doc.text(hExtra.toFixed(2) + 'h',   cols[3].x + 2, y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(180, 170, 150);
+        doc.text(tipo,                        cols[4].x + 2, y + 5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(201, 168, 76);
+        doc.text(_fmtMoeda(valorLinha),       cols[5].x + cols[5].w - 3, y + 5, { align: 'right' });
+
+        y += 7;
+
+        // Produção / obs como sub-linha
+        if (r.producao || r.observacao) {
+          var sub = (r.producao ? '📦 ' + r.producao : '') +
+                    (r.producao && r.observacao ? '  ' : '') +
+                    (r.observacao ? '💬 ' + r.observacao : '');
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(6.5);
+          doc.setTextColor(130, 120, 100);
+          var subLines = doc.splitTextToSize(sub, cW - 6);
+          subLines.slice(0, 2).forEach(function (line) {
+            doc.text(line, mL + 4, y + 3);
+            y += 4;
+          });
+        }
+      });
+    }
+
+    // ─── Linha separadora ─────────────────────────────────────────
+    y += 4;
+    doc.setDrawColor(201, 168, 76);
+    doc.setLineWidth(0.4);
+    doc.line(mL, y, pW - mR, y);
+    y += 6;
+
+    // ─── Resumo financeiro ────────────────────────────────────────
+    function _resumoLinha(label, valor, isTotal) {
+      if (y > 265) { doc.addPage(); y = 18; }
+      if (isTotal) {
+        doc.setFillColor(30, 25, 3);
+        doc.rect(mL, y - 4, cW, 10, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(201, 168, 76);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(170, 160, 140);
+      }
+      doc.text(label, mL + 5, y + 2);
+      if (isTotal) {
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(201, 168, 76);
+      }
+      doc.text(valor, pW - mR - 5, y + 2, { align: 'right' });
+      y += isTotal ? 12 : 7;
+    }
+
+    _resumoLinha('Total de Horas Extras', dados.totalHorasExtra.toFixed(2) + ' h');
+    _resumoLinha('Valor das Horas Extras', _fmtMoeda(dados.totalValorExtra));
+    if (dados.totalPago > 0) {
+      _resumoLinha('Já Pago', '− ' + _fmtMoeda(dados.totalPago));
+    }
+    _resumoLinha('SALDO A PAGAR', _fmtMoeda(Math.max(0, dados.saldo)), true);
+
+    // ─── Rodapé ───────────────────────────────────────────────────
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 90, 70);
+      doc.text(empNome + ' · Relatório de Horas Extras · ' + _fmtHoje(), mL, 290);
+      doc.text('Página ' + i + ' / ' + pageCount, pW - mR, 290, { align: 'right' });
+    }
+
+    // ─── Salvar ───────────────────────────────────────────────────
+    var nomeArq = 'HorasExtras_' + (f.nome || 'Funcionario').replace(/\s+/g, '_') +
+                  '_' + (inicio || '').replace(/-/g, '') +
+                  '_' + (fim    || '').replace(/-/g, '') + '.pdf';
+    doc.save(nomeArq);
+    _toast('✓ PDF gerado: ' + nomeArq);
+  }
+
+  // ── Gerar PDFs de todos os funcionários (sequencial) ────────────
+  window._heGerarTodosPDFs = function (inicio, fim) {
+    _toast('⏳ Gerando PDFs de todos os funcionários...');
+    _carregarJsPDF(function (JsPDF) {
+      var resultados = _calcularTodos(inicio, fim);
+      if (resultados.length === 0) {
+        _toast('Nenhum funcionário com horas extras no período.');
+        return;
+      }
+      var idx = 0;
+      function _proximo() {
+        if (idx >= resultados.length) {
+          _toast('✓ ' + resultados.length + ' PDF(s) gerado(s)!');
           return;
         }
-        _abrirOverlaySelecaoFuncionario(dados, file.name);
-      } catch (err) {
-        console.error('[HorasExtrasPDF]', err);
-        if (typeof toast === 'function') toast('Erro ao ler arquivo: ' + err.message);
+        var r = resultados[idx++];
+        setTimeout(function () {
+          _gerarPDFComDados(JsPDF, r, inicio, fim);
+          _proximo();
+        }, 600);
       }
-    };
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-// ── Extrai dados da aba "Tabela de estatísticas de prese" ──
-function _extrairDadosHE(wb) {
-  // Tenta achar a aba de estatísticas
-  var sheetName = wb.SheetNames.find(function (n) {
-    return n.toLowerCase().indexOf('estat') >= 0 || n.toLowerCase().indexOf('prese') >= 0;
-  }) || wb.SheetNames[1] || wb.SheetNames[0];
-
-  var ws   = wb.Sheets[sheetName];
-  var rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
-
-  // Encontra linha de cabeçalho (contém 'IDUsuário' ou 'Nome')
-  var headerIdx = -1;
-  rows.forEach(function (r, i) {
-    if (r && r.some(function (c) { return c && String(c).toLowerCase().indexOf('nome') >= 0; })) {
-      if (headerIdx < 0) headerIdx = i;
-    }
-  });
-  if (headerIdx < 0) headerIdx = 2; // fallback
-
-  // Mapeia colunas pelo cabeçalho principal (linha headerIdx)
-  var h      = rows[headerIdx] || [];
-  var hSub   = rows[headerIdx + 1] || []; // linha de sub-cabeçalho (normal/feriado)
-
-  var colId        = h.indexOf('IDUsuário');
-  var colNome      = h.indexOf('Nome');
-  var colDep       = h.indexOf('Dep.');
-  var colHtNormal  = -1;
-  var colHtHol     = -1;
-  var colAusencia  = -1;
-  var colDiasSem   = -1;
-
-  // Procura colunas de Horas extras: encontra 'Horas extras(hrs.)' e pega sub-colunas
-  h.forEach(function (v, i) {
-    if (!v) return;
-    var s = String(v).toLowerCase();
-    if (s.indexOf('horas extras') >= 0) {
-      // sub-coluna normal = i, feriado = i+2 (com base no padrão do relatório)
-      if (colHtNormal < 0) {
-        colHtNormal = i;
-        colHtHol    = i + 2;
-      }
-    }
-    if (s.indexOf('ausência') >= 0 && colAusencia < 0) colAusencia = i;
-    if (s.indexOf('semana') >= 0 && colDiasSem < 0) colDiasSem = i;
-  });
-
-  // Dados reais começam 2 linhas após o cabeçalho
-  var dataStart = headerIdx + 2;
-  var funcionarios = [];
-
-  for (var i = dataStart; i < rows.length; i++) {
-    var r = rows[i];
-    if (!r || !r[colNome]) continue;
-
-    var nomeRaw      = String(r[colNome]).trim().toLowerCase();
-    var nomeExib     = NOME_EXIBIDO[nomeRaw] || (r[colNome] ? String(r[colNome]) : '');
-    var salarioMensal = SALARIO_MENSAL[nomeRaw] || 0;
-    // Valor real da hora = salário mensal ÷ 220 (base CLT)
-    var valorHora    = salarioMensal / DIVISOR_HORAS;
-
-    var horasNorm  = parseFloat(r[colHtNormal]) || 0;
-    var horasHol   = colHtHol >= 0 ? (parseFloat(r[colHtHol]) || 0) : 0;
-    var horasEsp   = 0; // Horas especiais (200%) — futuro: coluna própria no XLS
-    var totalHoras = horasNorm + horasHol + horasEsp;
-
-    // Dias trabalhados (parse "16/15" → normal/real)
-    var diasStr   = colDiasSem >= 0 ? String(r[colDiasSem] || '') : '';
-    var diasParts = diasStr.split('/');
-    var diasNorm  = parseInt(diasParts[0]) || 0;
-    var diasReal  = parseInt(diasParts[1]) || 0;
-
-    var ausencia = colAusencia >= 0 ? (parseFloat(r[colAusencia]) || 0) : 0;
-
-    // Cálculo com multiplicadores diferenciados
-    var he = _getHE();
-    var totalNormal  = horasNorm * valorHora * he.normal;
-    var totalHol     = horasHol  * valorHora * he.feriado;
-    var totalEsp     = horasEsp  * valorHora * he.especial;
-    var totalPagar   = totalNormal + totalHol + totalEsp;
-
-    funcionarios.push({
-      id:            r[colId]   || (i - dataStart + 1),
-      nomeRaw:       nomeRaw,
-      nome:          nomeExib,
-      dep:           r[colDep]  || 'marmoraria',
-      horasNorm:     horasNorm,
-      horasHol:      horasHol,
-      horasEsp:      horasEsp,
-      totalHoras:    totalHoras,
-      diasNorm:      diasNorm,
-      diasReal:      diasReal,
-      ausencia:      ausencia,
-      salarioMensal: salarioMensal,
-      valorHora:     valorHora,
-      multNormal:    he.normal,
-      multFeriado:   he.feriado,
-      multEspecial:  he.especial,
-      totalNormal:   totalNormal,
-      totalHol:      totalHol,
-      totalEsp:      totalEsp,
-      totalPagar:    totalPagar,
+      _proximo();
     });
-  }
-
-  return funcionarios;
-}
-
-// ══════════════════════════════════════════════════════════════
-// OVERLAY DE SELEÇÃO — lista funcionários, gera PDF individual
-// ══════════════════════════════════════════════════════════════
-function _abrirOverlaySelecaoFuncionario(dados, nomeArquivo) {
-  // Remove overlay anterior se existir
-  var antigo = document.getElementById('heOverlay');
-  if (antigo) antigo.remove();
-
-  var ov = document.createElement('div');
-  ov.id = 'heOverlay';
-  ov.style.cssText = [
-    'position:fixed;inset:0;z-index:99999;background:rgba(10,8,0,.92);',
-    'display:flex;flex-direction:column;align-items:center;',
-    'font-family:Outfit,sans-serif;overflow-y:auto;padding:20px 0 40px;',
-  ].join('');
-
-  // ── Cabeçalho do overlay ──
-  var header = '<div style="width:100%;max-width:700px;padding:0 16px;">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
-      '<div>' +
-        '<div style="font-size:.7rem;color:#C9A84C;letter-spacing:.12em;text-transform:uppercase;">Horas Extras</div>' +
-        '<div style="font-size:1.15rem;font-weight:700;color:#f5f0e0;margin-top:2px;">Relatório de Pagamento</div>' +
-        '<div style="font-size:.72rem;color:#888;margin-top:3px;">' + nomeArquivo + '</div>' +
-      '</div>' +
-      '<button id="hePdfClose" style="background:none;border:1px solid rgba(201,168,76,.3);color:#C9A84C;' +
-        'border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
-    '</div>';
-
-  // ── Tabela resumo ──
-  var totalGeral      = dados.reduce(function (s, f) { return s + f.totalPagar; }, 0);
-  var totalHorasGeral = dados.reduce(function (s, f) { return s + f.totalHoras; }, 0);
-  var funcComHE       = dados.filter(function (f) { return f.totalHoras > 0; }).length;
-
-  var tBody = '';
-  dados.forEach(function (f) {
-    var temHE = f.totalHoras > 0;
-    tBody += '<tr style="border-bottom:1px solid rgba(201,168,76,.12);' +
-      (temHE ? '' : 'opacity:.45;') + '">' +
-      '<td style="padding:10px 8px;color:#f0e8d0;font-weight:600;">' + f.nome + '</td>' +
-      '<td style="padding:10px 8px;color:#aaa;font-size:.82rem;">' + f.dep + '</td>' +
-      '<td style="padding:10px 8px;color:#bbb;text-align:right;font-size:.8rem;">R$ ' + _fmV(f.salarioMensal) + '</td>' +
-      '<td style="padding:10px 8px;color:#999;text-align:right;font-size:.76rem;">R$ ' + _fmVH(f.valorHora) + '/h</td>' +
-      '<td style="padding:10px 8px;color:#C9A84C;text-align:center;font-weight:700;">' + _fmH(f.totalHoras) + 'h</td>' +
-      '<td style="padding:10px 8px;color:#f0e8d0;font-weight:700;text-align:right;">R$ ' + _fmV(f.totalPagar) + '</td>' +
-      '<td style="padding:10px 8px;text-align:center;">' +
-        '<button onclick="gerarHorasExtrasPDF(' + JSON.stringify(f) + ')" ' +
-          'style="background:#1e1800;border:1px solid rgba(201,168,76,.5);color:#C9A84C;' +
-          'border-radius:5px;padding:5px 10px;cursor:pointer;font-size:.74rem;font-family:Outfit,sans-serif;">' +
-          '📄 PDF</button>' +
-      '</td>' +
-    '</tr>';
-  });
-
-  var tabela = '<div style="background:#141008;border:1px solid rgba(201,168,76,.2);border-radius:10px;overflow:hidden;overflow-x:auto;">' +
-    '<table style="width:100%;border-collapse:collapse;min-width:560px;">' +
-      '<thead><tr style="background:rgba(201,168,76,.08);">' +
-        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.72rem;font-weight:700;">Funcionário</th>' +
-        '<th style="padding:10px 8px;text-align:left;color:#C9A84C;font-size:.72rem;font-weight:700;">Setor</th>' +
-        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Salário Base</th>' +
-        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Valor/h</th>' +
-        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.72rem;font-weight:700;">H. Extras</th>' +
-        '<th style="padding:10px 8px;text-align:right;color:#C9A84C;font-size:.72rem;font-weight:700;">Total Extra</th>' +
-        '<th style="padding:10px 8px;text-align:center;color:#C9A84C;font-size:.72rem;font-weight:700;">PDF</th>' +
-      '</tr></thead>' +
-      '<tbody>' + tBody + '</tbody>' +
-    '</table>' +
-  '</div>';
-
-  var totalBox =
-    '<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.25);' +
-    'border-radius:10px;padding:16px 18px;margin-top:14px;">' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">' +
-        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
-          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Funcionários c/ HE</div>' +
-          '<div style="font-size:.95rem;font-weight:700;color:#f0e8d0;">' + funcComHE + ' de ' + dados.length + '</div>' +
-        '</div>' +
-        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
-          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Total Horas Extras</div>' +
-          '<div style="font-size:.95rem;font-weight:700;color:#C9A84C;">' + _fmH(totalHorasGeral) + ' h</div>' +
-        '</div>' +
-        '<div style="background:rgba(0,0,0,.25);border-radius:8px;padding:10px;text-align:center;">' +
-          '<div style="font-size:.65rem;color:#888;margin-bottom:4px;">Total a Pagar</div>' +
-          '<div style="font-size:1rem;font-weight:800;color:#C9A84C;">R$ ' + _fmV(totalGeral) + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="font-size:.65rem;color:#666;text-align:center;border-top:1px solid rgba(201,168,76,.1);padding-top:10px;">' +
-        '⚖️ Cálculo auditável: salário ÷ 220h CLT × horas × multiplicador (50% normal · 100% feriado · 200% especial)' +
-      '</div>' +
-    '</div>';
-
-  var gerarTodosBtn = '<div style="text-align:center;margin-top:18px;">' +
-    '<button onclick="gerarTodosHorasExtrasPDF(' + JSON.stringify(dados) + ')" ' +
-      'style="background:#1e1800;border:1px solid rgba(201,168,76,.6);color:#C9A84C;' +
-      'border-radius:8px;padding:10px 28px;cursor:pointer;font-size:.88rem;font-family:Outfit,sans-serif;font-weight:600;">' +
-      '📄 Gerar PDFs de Todos os Funcionários</button>' +
-  '</div>';
-
-  ov.innerHTML = header + tabela + totalBox + gerarTodosBtn + '</div>';
-  document.body.appendChild(ov);
-
-  document.getElementById('hePdfClose').onclick = function () { ov.remove(); };
-}
-
-// ── Helpers de formatação ──
-function _fmV(v) {
-  return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-// Valor/hora — 2 casas decimais, pt-BR
-function _fmVH(v) {
-  return parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-function _fmH(h) {
-  return parseFloat(h || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-// ══════════════════════════════════════════════════════════════
-// GERAÇÃO DO PDF INDIVIDUAL
-// ══════════════════════════════════════════════════════════════
-function gerarHorasExtrasPDF(f) {
-  if (typeof f === 'string') f = JSON.parse(f);
-  _loadHEPDFLibs(function () {
-    try {
-      _buildHEPDF(f);
-    } catch (e) {
-      console.error('[HorasExtrasPDF]', e);
-      if (typeof toast === 'function') toast('Erro PDF: ' + e.message);
-    }
-  });
-}
-
-function gerarTodosHorasExtrasPDF(lista) {
-  if (typeof lista === 'string') lista = JSON.parse(lista);
-  if (typeof toast === 'function') toast('Gerando ' + lista.length + ' PDFs...');
-  var idx = 0;
-  function next() {
-    if (idx >= lista.length) {
-      if (typeof toast === 'function') toast('✓ Todos os PDFs gerados!');
-      return;
-    }
-    gerarHorasExtrasPDF(lista[idx]);
-    idx++;
-    setTimeout(next, 1800);
-  }
-  next();
-}
-
-function _buildHEPDF(f) {
-  var emp = (typeof CFG !== 'undefined' && CFG && CFG.emp)
-    ? CFG.emp
-    : { nome: 'Marmoraria', cnpj: '', end: '', cidade: '', tel: '' };
-
-  var hoje     = new Date();
-  var dataStr  = hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-  var fileName = 'HorasExtras_' + f.nome.replace(/[^a-zA-Z0-9]/g, '_') + '_' + hoje.toLocaleDateString('pt-BR').replace(/\//g, '-') + '.pdf';
-
-  // ── Monta o HTML do recibo ──
-  var temHE   = f.totalHoras > 0;
-  var statusTxt = temHE
-    ? '<span style="background:#1a3a1a;border:1px solid #4a8a4a;color:#6dc86d;border-radius:4px;padding:2px 10px;font-size:.75rem;">✓ Horas Extras Registradas</span>'
-    : '<span style="background:#3a1a1a;border:1px solid #8a4a4a;color:#c86d6d;border-radius:4px;padding:2px 10px;font-size:.75rem;">Sem Horas Extras no Período</span>';
-
-  var recHtml = '<div id="hePDFReceipt" style="' +
-    'background:#fff;width:794px;min-height:1000px;padding:52px 56px;' +
-    'box-sizing:border-box;font-family:Outfit,Helvetica,sans-serif;color:#1a1a1a;">' +
-
-    // Topo: logo + empresa
-    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;">' +
-      '<div>' +
-        '<div style="font-size:22px;font-weight:800;color:#1a1200;letter-spacing:-.3px;">' + (emp.nome || 'Marmoraria') + '</div>' +
-        (emp.cnpj ? '<div style="font-size:11px;color:#666;margin-top:2px;">CNPJ: ' + emp.cnpj + '</div>' : '') +
-        (emp.end  ? '<div style="font-size:11px;color:#666;">' + emp.end + (emp.cidade ? ' — ' + emp.cidade : '') + '</div>' : '') +
-        (emp.tel  ? '<div style="font-size:11px;color:#666;">' + emp.tel + '</div>' : '') +
-      '</div>' +
-      '<div style="text-align:right;">' +
-        '<div style="font-size:11px;color:#888;">Emitido em</div>' +
-        '<div style="font-size:12px;font-weight:600;color:#333;">' + dataStr + '</div>' +
-        '<div style="margin-top:6px;">' + statusTxt + '</div>' +
-      '</div>' +
-    '</div>' +
-
-    // Linha divisória dourada
-    '<div style="height:3px;background:linear-gradient(90deg,#C9A84C,#e8c96a,#C9A84C);border-radius:2px;margin-bottom:28px;"></div>' +
-
-    // Título
-    '<div style="text-align:center;margin-bottom:28px;">' +
-      '<div style="font-size:18px;font-weight:800;color:#1a1200;letter-spacing:.04em;text-transform:uppercase;">Comprovante de Horas Extras</div>' +
-      '<div style="font-size:11px;color:#888;margin-top:4px;">Período de apuração: 01/05/2026 – 23/05/2026</div>' +
-    '</div>' +
-
-    // Card do funcionário
-    '<div style="background:#faf7f0;border:1px solid #e8dfc8;border-radius:10px;padding:20px 24px;margin-bottom:24px;">' +
-      '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Dados do Funcionário</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">' +
-        _cardCampo('Nome Completo', f.nome) +
-        _cardCampo('Departamento', (f.dep || 'Marmoraria').charAt(0).toUpperCase() + (f.dep || 'marmoraria').slice(1)) +
-        _cardCampo('Salário Base', 'R$ ' + _fmV(f.salarioMensal)) +
-        _cardCampo('ID', String(f.id).padStart(3, '0')) +
-      '</div>' +
-    '</div>' +
-
-    // Card de presença
-    '<div style="background:#faf7f0;border:1px solid #e8dfc8;border-radius:10px;padding:20px 24px;margin-bottom:24px;">' +
-      '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resumo de Presença</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">' +
-        _cardCampo('Dias Úteis (referência)', String(f.diasNorm) + ' dias') +
-        _cardCampo('Dias Trabalhados', String(f.diasReal) + ' dias') +
-        _cardCampo('Faltas', String(f.ausencia) + (f.ausencia === 1 ? ' dia' : ' dias')) +
-      '</div>' +
-    '</div>' +
-
-    // Card de horas extras — detalhado por tipo
-    (function() {
-      var mN  = f.multNormal   || 1.5;
-      var mF  = f.multFeriado  || 2.0;
-      var mE  = f.multEspecial || 3.0;
-      var tN  = f.totalNormal  !== undefined ? f.totalNormal  : (f.horasNorm * f.valorHora * mN);
-      var tF  = f.totalHol     !== undefined ? f.totalHol     : (f.horasHol  * f.valorHora * mF);
-      var tE  = f.totalEsp     !== undefined ? f.totalEsp     : ((f.horasEsp || 0) * f.valorHora * mE);
-
-      function rowTipo(label, badge, horas, mult, total) {
-        if (horas <= 0) return '';
-        return '<tr style="border-bottom:1px solid rgba(201,168,76,.15);">' +
-          '<td style="padding:8px 0;color:#ddd;font-size:12px;">' + label +
-            ' <span style="background:rgba(201,168,76,.15);color:#C9A84C;border-radius:3px;padding:1px 6px;font-size:10px;font-weight:700;">' + badge + '</span>' +
-          '</td>' +
-          '<td style="text-align:center;color:#aaa;font-size:12px;">' + _fmH(horas) + ' h</td>' +
-          '<td style="text-align:center;color:#aaa;font-size:12px;">× ' + mult.toFixed(1) + '</td>' +
-          '<td style="text-align:center;color:#aaa;font-size:11px;">R$ ' + _fmVH(f.valorHora) + '/h</td>' +
-          '<td style="text-align:right;font-weight:700;color:#f0e8d0;font-size:13px;">R$ ' + _fmV(total) + '</td>' +
-        '</tr>';
-      }
-
-      return '<div style="background:#1e1800;border:2px solid #C9A84C;border-radius:10px;padding:22px 24px;margin-bottom:24px;">' +
-        '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;">Apuração de Horas Extras</div>' +
-        '<table style="width:100%;border-collapse:collapse;margin-bottom:14px;">' +
-          '<thead><tr style="border-bottom:1px solid rgba(201,168,76,.3);">' +
-            '<th style="text-align:left;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">TIPO</th>' +
-            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">HORAS</th>' +
-            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">MULT.</th>' +
-            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">VALOR/H</th>' +
-            '<th style="text-align:right;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">SUBTOTAL</th>' +
-          '</tr></thead>' +
-          '<tbody>' +
-            rowTipo('H. Extra Normal',   '50%',  f.horasNorm,       mN, tN) +
-            rowTipo('H. Extra Feriado',  '100%', f.horasHol,        mF, tF) +
-            rowTipo('H. Extra Especial', '200%', f.horasEsp || 0,   mE, tE) +
-          '</tbody>' +
-        '</table>' +
-        '<div style="height:1px;background:rgba(201,168,76,.3);margin-bottom:14px;"></div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-          '<div>' +
-            '<div style="color:#aaa;font-size:.75rem;">Total de Horas</div>' +
-            '<div style="color:#C9A84C;font-size:1.3rem;font-weight:800;">' + _fmH(f.totalHoras) + ' h</div>' +
-          '</div>' +
-          '<div style="text-align:center;">' +
-            '<div style="color:#aaa;font-size:.75rem;">Valor/Hora base (÷220h)</div>' +
-            '<div style="color:#f5f0e0;font-size:1rem;font-weight:700;">R$ ' + _fmVH(f.valorHora) + '</div>' +
-          '</div>' +
-          '<div style="text-align:right;">' +
-            '<div style="color:#aaa;font-size:.75rem;">Total a Receber</div>' +
-            '<div style="color:#C9A84C;font-size:1.6rem;font-weight:800;">R$ ' + _fmV(f.totalPagar) + '</div>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    })() +
-
-    // Nota / observação
-    (f.totalHoras === 0
-      ? '<div style="background:#fff8f0;border-left:3px solid #C9A84C;padding:12px 16px;border-radius:0 6px 6px 0;font-size:11px;color:#665500;margin-bottom:24px;">Nenhuma hora extra registrada para este funcionário no período apurado. O valor de horas extras devidas é R$ 0,00.</div>'
-      : ''
-    ) +
-
-    // Memória de cálculo — detalhada por tipo
-    (function() {
-      var mN  = f.multNormal   || 1.5;
-      var mF  = f.multFeriado  || 2.0;
-      var mE  = f.multEspecial || 3.0;
-      var tN  = f.totalNormal  !== undefined ? f.totalNormal  : (f.horasNorm * f.valorHora * mN);
-      var tF  = f.totalHol     !== undefined ? f.totalHol     : (f.horasHol  * f.valorHora * mF);
-      var tE  = f.totalEsp     !== undefined ? f.totalEsp     : ((f.horasEsp || 0) * f.valorHora * mE);
-
-      function calcRow(label, badge, horas, mult, total) {
-        if (horas <= 0) return '';
-        return '<tr>' +
-          '<td style="padding:5px 0;color:#555;">' + label +
-            ' <span style="background:#f5ecd0;color:#8a6a10;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;">' + badge + '</span>' +
-          '</td>' +
-          '<td style="text-align:right;color:#333;font-size:11px;">' + _fmH(horas) + ' h × R$ ' + _fmVH(f.valorHora) + ' × ' + mult.toFixed(1) + '</td>' +
-          '<td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(total) + '</td>' +
-        '</tr>';
-      }
-
-      return '<div style="background:#f9f5ef;border:1px solid #e8dfc8;border-radius:10px;padding:18px 22px;margin-bottom:28px;">' +
-        '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Memória de Cálculo</div>' +
-        '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
-          '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Salário mensal base</td><td colspan="2" style="text-align:right;color:#555;">R$ ' + _fmV(f.salarioMensal) + '</td></tr>' +
-          '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Valor/hora (÷ 220h CLT)</td><td colspan="2" style="text-align:right;color:#555;">R$ ' + _fmVH(f.valorHora) + '/h</td></tr>' +
-          calcRow('H. Extra Normal',   '50%',  f.horasNorm,     mN, tN) +
-          calcRow('H. Extra Feriado',  '100%', f.horasHol,      mF, tF) +
-          calcRow('H. Extra Especial', '200%', f.horasEsp || 0, mE, tE) +
-          '<tr style="border-top:2px solid #ddd;"><td colspan="2" style="padding:8px 0 0;font-weight:700;color:#1a1200;">Total a pagar</td><td style="padding:8px 0 0;text-align:right;font-weight:800;font-size:14px;color:#C9A84C;padding-left:16px;">R$ ' + _fmV(f.totalPagar) + '</td></tr>' +
-        '</table>' +
-      '</div>';
-    })() +
-
-    // Assinaturas
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:32px;">' +
-      '<div style="text-align:center;">' +
-        '<div style="border-top:1px solid #bbb;padding-top:8px;font-size:11px;color:#555;">' + (emp.nome || 'Empresa') + '</div>' +
-        '<div style="font-size:10px;color:#999;margin-top:2px;">Responsável / Gerência</div>' +
-      '</div>' +
-      '<div style="text-align:center;">' +
-        '<div style="border-top:1px solid #bbb;padding-top:8px;font-size:11px;color:#555;">' + f.nome + '</div>' +
-        '<div style="font-size:10px;color:#999;margin-top:2px;">Funcionário</div>' +
-      '</div>' +
-    '</div>' +
-
-    // Rodapé
-    '<div style="margin-top:36px;text-align:center;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:14px;">' +
-      'Documento gerado automaticamente • ' + dataStr + ' • ' + (emp.nome || 'Marmoraria') +
-    '</div>' +
-
-  '</div>'; // fim #hePDFReceipt
-
-  // ── Renderiza offscreen e gera PDF ──
-  var offscreen = document.createElement('div');
-  offscreen.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;pointer-events:none;z-index:-1;';
-  offscreen.innerHTML = recHtml;
-  document.body.appendChild(offscreen);
-
-  // ── Cria overlay de preview (padrão do contrato) ──
-  var ovPrev = document.createElement('div');
-  ovPrev.id = 'hePreviewOverlay';
-  ovPrev.style.cssText = [
-    'position:fixed;inset:0;z-index:100000;background:rgba(10,8,0,.95);',
-    'display:flex;flex-direction:column;align-items:center;overflow-y:auto;',
-    'font-family:Outfit,sans-serif;padding:20px 0 40px;',
-  ].join('');
-
-  ovPrev.innerHTML =
-    '<div style="width:100%;max-width:700px;padding:0 16px;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
-        '<div>' +
-          '<div style="font-size:.7rem;color:#C9A84C;letter-spacing:.12em;">HORAS EXTRAS — ' + f.nome.toUpperCase() + '</div>' +
-          '<div style="font-size:1rem;font-weight:700;color:#f5f0e0;margin-top:2px;">Preview do Comprovante</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:8px;">' +
-          '<button id="hePdfClose2" style="background:none;border:1px solid rgba(201,168,76,.3);color:#C9A84C;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
-          '<button id="hePdfPrint" style="background:#1e1800;border:1px solid rgba(201,168,76,.3);color:#666;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;" disabled>🖨 Imprimir</button>' +
-          '<button id="hePdfDown"  style="background:#1e1800;border:1px solid rgba(201,168,76,.3);color:#666;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;" disabled>⬇ Salvar PDF</button>' +
-        '</div>' +
-      '</div>' +
-      '<div id="hePreview" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;">' +
-        '<div style="color:#aaa;font-size:.82rem;padding:60px 0;">Gerando preview...</div>' +
-      '</div>' +
-    '</div>';
-
-  document.body.appendChild(ovPrev);
-  document.getElementById('hePdfClose2').onclick = function () { ovPrev.remove(); if (document.body.contains(offscreen)) document.body.removeChild(offscreen); };
-
-  var preview = document.getElementById('hePreview');
-
-  // ── Print handler ──
-  document.getElementById('hePdfPrint').onclick = function () {
-    var w = window.open('', '_blank', 'width=900,height=700');
-    if (!w) { if (typeof toast === 'function') toast('Popup bloqueado — permita popups'); return; }
-    var css = '<style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}</style>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">' + css + '</head><body>' + recHtml + '<script>window.onload=function(){window.print();};<\/script></body></html>');
   };
 
-  // ── html2canvas → jsPDF ──
-  setTimeout(function () {
-    html2canvas(offscreen.querySelector('#hePDFReceipt'), {
-      scale: 2, useCORS: true, backgroundColor: '#ffffff',
-    }).then(function (canvas) {
-      document.body.removeChild(offscreen);
+  // ── Expõe a função principal globalmente ────────────────────────
+  window.abrirRelatorioHorasExtras = abrirRelatorioHorasExtras;
 
-      var jsPDF   = window.jspdf.jsPDF;
-      var pageW   = 595.28, pageH = 841.89;
-      var imgW    = pageW, imgH = canvas.height * (pageW / canvas.width);
-      var pxPerPg = Math.round(canvas.height / (canvas.height * (pageW / canvas.width) / pageH));
-      var nEst    = Math.ceil(canvas.height / pxPerPg);
+  console.log('[app-horas-extras-pdf.js v2] ✓ Relatório de Horas Extras carregado');
 
-      // Corte inteligente (sem cortar texto)
-      var ctxS    = canvas.getContext('2d');
-      function findCut(ideal) {
-        var search = Math.round(pxPerPg * 0.08);
-        var from   = Math.max(0, ideal - search);
-        var to     = Math.min(canvas.height - 2, ideal + Math.round(search * 0.25));
-        var rows   = to - from;
-        var imgD   = ctxS.getImageData(0, from, canvas.width, rows).data;
-        for (var r = rows - 1; r >= 0; r--) {
-          var isWhite = true;
-          for (var c = 0; c < canvas.width; c++) {
-            var idx = (r * canvas.width + c) * 4;
-            if (imgD[idx] < 250 || imgD[idx + 1] < 250 || imgD[idx + 2] < 250) { isWhite = false; break; }
-          }
-          if (isWhite) return from + r;
-        }
-        return ideal;
-      }
-
-      var cuts = [0];
-      for (var k = 1; k < nEst; k++) {
-        var id = Math.round(k * pxPerPg);
-        if (id < canvas.height) cuts.push(findCut(id));
-      }
-      cuts.push(canvas.height);
-      var nPages = cuts.length - 1;
-
-      var pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-      for (var pg = 0; pg < nPages; pg++) {
-        if (pg > 0) pdf.addPage();
-        var y0 = cuts[pg], y1 = cuts[pg + 1], sh = y1 - y0;
-        var sc = document.createElement('canvas');
-        sc.width = canvas.width; sc.height = sh;
-        var sc2 = sc.getContext('2d');
-        sc2.fillStyle = '#ffffff';
-        sc2.fillRect(0, 0, sc.width, sh);
-        sc2.drawImage(canvas, 0, y0, canvas.width, sh, 0, 0, canvas.width, sh);
-        pdf.addImage(sc.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, imgW, sh * (pageW / canvas.width));
-      }
-      var pdfBlob = pdf.output('blob');
-
-      // Preview
-      preview.innerHTML = '';
-      var wrapAll = document.createElement('div');
-      wrapAll.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:700px;';
-      for (var pi = 0; pi < nPages; pi++) {
-        var py0 = cuts[pi], py1 = cuts[pi + 1], psh = py1 - py0;
-        var pc = document.createElement('canvas');
-        pc.width = canvas.width; pc.height = psh;
-        var pctx = pc.getContext('2d');
-        pctx.fillStyle = '#ffffff'; pctx.fillRect(0, 0, pc.width, psh);
-        pctx.drawImage(canvas, 0, py0, canvas.width, psh, 0, 0, canvas.width, psh);
-        var pimg = document.createElement('img');
-        pimg.src = pc.toDataURL('image/jpeg', 0.88);
-        pimg.style.cssText = 'width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
-        wrapAll.appendChild(pimg);
-      }
-      preview.appendChild(wrapAll);
-
-      function enableBtn(id, label, cb) {
-        var b = document.getElementById(id); if (!b) return;
-        b.innerHTML = label; b.disabled = false;
-        b.style.color = '#C9A84C'; b.style.borderColor = 'rgba(201,168,76,.55)'; b.style.background = '#1e1800';
-        b.onclick = cb;
-      }
-
-      enableBtn('hePdfDown', '⬇ Salvar PDF', function () {
-        var url = URL.createObjectURL(pdfBlob);
-        var a = document.createElement('a');
-        a.href = url; a.download = fileName;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
-        if (typeof toast === 'function') toast('PDF salvo: ' + fileName);
-      });
-
-      enableBtn('hePdfPrint', '🖨 Imprimir', function () {
-        var w = window.open('', '_blank', 'width=900,height=700');
-        if (!w) { if (typeof toast === 'function') toast('Popup bloqueado — permita popups'); return; }
-        var css = '<style>*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}</style>';
-        w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8">' + css + '</head><body>' + recHtml + '<script>window.onload=function(){window.print();};<\/script></body></html>');
-      });
-
-      if (navigator.share) {
-        // Adiciona botão compartilhar se disponível
-        var shareBtn = document.createElement('button');
-        shareBtn.id = 'hePdfShare';
-        shareBtn.style.cssText = 'background:#1e1800;border:1px solid rgba(201,168,76,.55);color:#C9A84C;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;font-family:Outfit,sans-serif;';
-        shareBtn.innerHTML = '↗ Compartilhar';
-        shareBtn.onclick = function () {
-          var pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
-          var sd = { title: 'Horas Extras — ' + f.nome, text: 'Comprovante de horas extras\nTotal: R$ ' + _fmV(f.totalPagar) };
-          if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) sd.files = [pdfFile];
-          navigator.share(sd).catch(function () {});
-        };
-        var btnArea = ovPrev.querySelector('div > div > div:nth-child(2)');
-        if (btnArea) btnArea.appendChild(shareBtn);
-      }
-
-      if (typeof toast === 'function') toast('✓ PDF pronto — ' + f.nome + ' (' + nPages + (nPages === 1 ? ' página' : ' páginas') + ')');
-    }).catch(function (err) {
-      console.error('[HorasExtrasPDF] canvas error:', err);
-      if (document.body.contains(offscreen)) document.body.removeChild(offscreen);
-      preview.innerHTML = '<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar preview. Use 🖨 Imprimir.</div>';
-    });
-  }, 200);
-}
-
-// ── Helpers para blocos de campo no PDF ──
-function _cardCampo(label, valor) {
-  return '<div>' +
-    '<div style="font-size:10px;color:#999;margin-bottom:3px;">' + label + '</div>' +
-    '<div style="font-size:13px;font-weight:600;color:#1a1200;">' + valor + '</div>' +
-  '</div>';
-}
-function _cardCampoEscuro(label, valor) {
-  return '<div>' +
-    '<div style="font-size:10px;color:#888;margin-bottom:3px;">' + label + '</div>' +
-    '<div style="font-size:14px;font-weight:700;color:#C9A84C;">' + valor + '</div>' +
-  '</div>';
-}
-
-console.log('[HorasExtrasPDF v2] ✓ — módulo de horas extras carregado (50%/100%/200%)');
+})();
