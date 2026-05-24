@@ -169,64 +169,108 @@ var HR_FUNC = (function () {
   }
 
   function calcSaldoFuncionario(funcId, di, df){
-    var funcs=getFuncionarios(), regs=getRegistros(), pags=getPagamentos();
-    var f=funcs[funcId]||{};
-    var salario=parseFloat(f.salario)||0;
-    var mult=_getMultNormal();
-    // Valor/hora base CLT: salário ÷ 220h mensais
-    var valorHoraBase=salario/220;
-    var valorHoraExtra=valorHoraBase*mult;
+    var funcs  = getFuncionarios();
+    var regs   = getRegistros();
+    var pags   = getPagamentos();
+    var f      = funcs[funcId] || {};
+    var salario = parseFloat(f.salario) || 0;
 
-    var meusRegs=Object.values(regs).filter(function(r){
-      if(r.funcionarioId!==funcId)return false;
-      if(di&&r.data<di)return false;
-      if(df&&r.data>df)return false;
+    // ── Filtra registros do funcionário no período ──────────────────────
+    var meusRegs = Object.values(regs).filter(function(r){
+      if (r.funcionarioId !== funcId) return false;
+      if (di && r.data < di) return false;
+      if (df && r.data > df) return false;
       return true;
     });
-    var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // Horas extras destinadas ao banco de horas NÃO entram no pagamento financeiro
-    var totalExtra=meusRegs.reduce(function(s,r){
-      return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));
-    },0);
-    var dias=meusRegs.length;
 
-    // ── Cálculo proporcional correto ──────────────────────────────
-    // Se o período tem começo e fim definidos, usa dias úteis do período.
-    // Caso contrário (saldo geral sem filtro), agrupa por mês para respeitar
-    // os dias úteis de cada mês individualmente.
-    var totalSalario=0;
-    if(di&&df){
-      var duPeríodo=_diasUteisNoIntervalo(di,df);
-      var salDia=salario/duPeríodo;
-      totalSalario=salDia*dias;
+    var totalHoras = meusRegs.reduce(function(s, r){ return s + (parseFloat(r.horas) || 0); }, 0);
+    var dias       = meusRegs.length;
+
+    // ── Cálculo de salário proporcional (inalterado) ────────────────────
+    var totalSalario = 0;
+    if (di && df) {
+      var duPeriodo = _diasUteisNoIntervalo(di, df);
+      totalSalario  = (salario / (duPeriodo || 1)) * dias;
     } else {
-      // Agrupa registros por mês e calcula proporcional em cada mês
-      var porMes={};
+      var porMes = {};
       meusRegs.forEach(function(r){
-        var m=r.data.slice(0,7);
-        if(!porMes[m])porMes[m]=0;
+        var m = r.data.slice(0, 7);
+        if (!porMes[m]) porMes[m] = 0;
         porMes[m]++;
       });
       Object.keys(porMes).forEach(function(m){
-        var duMes=_diasUteisMes(m);
-        var salDia=salario/duMes;
-        totalSalario+=salDia*porMes[m];
+        var duMes = _diasUteisMes(m);
+        totalSalario += (salario / (duMes || 1)) * porMes[m];
       });
     }
 
-    var valorExtra=totalExtra*valorHoraExtra;
-    var totalDevido=totalSalario+valorExtra;
+    // ── Motor financeiro de HE — delegado ao HR_IMPORT (Bug 1 + Bug 2) ──
+    // Mês de referência: início do período ou mês do registro mais antigo.
+    var refMes = (di
+      ? di
+      : (meusRegs.length > 0
+          ? meusRegs.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data
+          : new Date().toISOString())
+    ).slice(0, 7);
 
-    var meusPags=Object.values(pags).filter(function(p){
-      if(p.funcionarioId!==funcId)return false;
-      if(di&&p.data<di)return false;
-      if(df&&p.data>df)return false;
+    var heResult;
+    if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcSaldoHE === 'function') {
+      // Caminho principal: usa motor unificado com HE50/100/200 corretos
+      heResult = HR_IMPORT.calcSaldoHE(meusRegs, f, refMes);
+    } else {
+      // Fallback seguro: comportamento anterior (sem quebrar se HR_IMPORT
+      // não estiver carregado, ex: testes isolados)
+      var mult          = _getMultNormal();
+      var valorHoraFb   = salario / 220;
+      var totalExtraFb  = meusRegs.reduce(function(s, r){
+        return s + (r.destinoExtra === 'banco' ? 0 : (parseFloat(r.extra) || 0));
+      }, 0);
+      heResult = {
+        valorHoraBase:    valorHoraFb,
+        valorTotalExtras: totalExtraFb * valorHoraFb * mult,
+        totalExtra50Min:  0, totalExtra100Min: 0, totalExtra200Min: 0,
+        valorExtra50:     0, valorExtra100:    0, valorExtra200:    0,
+        totalExtraHoras:  totalExtraFb
+      };
+    }
+
+    var valorExtra  = heResult.valorTotalExtras;
+    var totalDevido = totalSalario + valorExtra;
+
+    // ── Pagamentos realizados ────────────────────────────────────────────
+    var meusPags = Object.values(pags).filter(function(p){
+      if (p.funcionarioId !== funcId) return false;
+      if (di && p.data < di) return false;
+      if (df && p.data > df) return false;
       return true;
     });
-    var totalPago=meusPags.reduce(function(s,p){return s+(parseFloat(p.valor)||0);},0);
-    var saldo=totalDevido-totalPago;
-    return{totalHoras,totalExtra,valorExtra,totalSalario,totalDevido,totalPago,saldo,
-           temCredito:saldo<-0.01,diasTrabalhados:dias,valorHoraBase,valorHoraExtra};
+    var totalPago = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
+    var saldo     = totalDevido - totalPago;
+
+    // valorHoraExtra de referência (HE50 — mantido para exibição na UI)
+    var valorHoraExtra = heResult.valorHoraBase * _getMultNormal();
+
+    return {
+      // Campos clássicos — mantidos para compatibilidade total com UI existente
+      totalHoras:       totalHoras,
+      totalExtra:       heResult.totalExtraHoras,
+      valorExtra:       valorExtra,
+      totalSalario:     totalSalario,
+      totalDevido:      totalDevido,
+      totalPago:        totalPago,
+      saldo:            saldo,
+      temCredito:       saldo < -0.01,
+      diasTrabalhados:  dias,
+      valorHoraBase:    heResult.valorHoraBase,
+      valorHoraExtra:   valorHoraExtra,
+      // Campos novos — breakdown por faixa (disponíveis para UI/relatórios futuros)
+      valorExtra50:     heResult.valorExtra50,
+      valorExtra100:    heResult.valorExtra100,
+      valorExtra200:    heResult.valorExtra200,
+      totalExtra50Min:  heResult.totalExtra50Min,
+      totalExtra100Min: heResult.totalExtra100Min,
+      totalExtra200Min: heResult.totalExtra200Min
+    };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -751,9 +795,16 @@ var HR_FUNC = (function () {
         '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;">💰 Financeiro</div>'+
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
           _miniKpi('Salário base',_fmtMoeda(f.salario),GOLD)+
-          _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),GOLD)+
+          _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),saldo.valorExtra>0?GOLD:T3)+
           _miniKpi('Já pago',_fmtMoeda(saldo.totalPago),GREEN)+
         '</div>'+
+        // Breakdown por faixa — exibe apenas quando há HE em múltiplas faixas
+        ((saldo.valorExtra100>0||saldo.valorExtra200>0)?
+          '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
+            (saldo.valorExtra50 >0?_miniKpi('HE 50%', _fmtMoeda(saldo.valorExtra50), GOLD)       :'')+
+            (saldo.valorExtra100>0?_miniKpi('HE 100%',_fmtMoeda(saldo.valorExtra100),'#8ec8c8')  :'')+
+            (saldo.valorExtra200>0?_miniKpi('HE 200%',_fmtMoeda(saldo.valorExtra200),'#c88e5c')  :'')+
+          '</div>':'')+
         '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
           '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
           ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
