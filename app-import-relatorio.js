@@ -1,17 +1,23 @@
 // ══════════════════════════════════════════════════════════════════════════
-// HR_IMPORT v3 — HR Mármores e Granitos
+// HR_IMPORT v4 — HR Mármores e Granitos
 // Importador de Relatório de Presença
 //
-// CORREÇÕES v3:
+// v4 — SUPORTE COMPLETO A XLS/XLSX:
+//  • Lê .xls (BIFF8) e .xlsx via SheetJS (carregado do CDN se necessário)
+//  • XLS serial de data → yyyy-mm-dd convertido corretamente
+//  • XLS serial de hora → HH:MM convertido corretamente
+//  • Fallback: se SheetJS não disponível, avisa o usuário
+//  • CSV/TXT/TSV continua funcionando normalmente
+//
+// v3 — CORREÇÕES CORE:
 //  • Parser seg–sáb correto (domingo = folga, sábado = dia útil 4h/dia)
 //  • Jornada diária por tipo: Seg-Sex = 8h, Sáb = 4h
 //  • Cálculo ao minuto (sem arredondamento prematuro)
-//  • Intervalo de almoço descontado apenas Seg-Sex (sábado não tem almoço)
+//  • Intervalo de almoço: real se fornecido, 1h automático só Seg-Sex > 6h
 //  • Extra e atraso calculados contra jornada correta do dia
-//  • Vinculação robusta funcionário ↔ nome do relatório
-//  • Confirmação com preview por dia expandível antes de importar
-//  • Deduplicação: não sobrescreve registros existentes sem aviso
-//  • Suporte a múltiplos formatos: CSV ponto-e-vírgula, TSV, espaços fixos
+//  • Vinculação automática funcionário ↔ nome do relatório
+//  • Preview por dia expandível antes de importar
+//  • Deduplicação: não sobrescreve sem aviso
 // ══════════════════════════════════════════════════════════════════════════
 
 var HR_IMPORT = (function () {
@@ -407,11 +413,11 @@ var HR_IMPORT = (function () {
           '<div style="font-size:1.4rem;">📁</div>' +
           '<div>' +
             '<div style="font-size:.82rem;font-weight:700;color:' + T1 + ';">Importar arquivo</div>' +
-            '<div style="font-size:.68rem;color:' + T3 + ';">.csv, .txt, .tsv — UTF-8 ou Latin-1</div>' +
+            '<div style="font-size:.68rem;color:' + T3 + ';">.xls · .xlsx · .csv · .txt · .tsv</div>' +
           '</div>' +
-          '<div id="imp_file_nome" style="margin-left:auto;font-size:.7rem;color:' + T3 + ';">Nenhum</div>' +
+          '<div id="imp_file_nome" style="margin-left:auto;font-size:.7rem;color:' + T3 + ';text-align:right;max-width:140px;word-break:break-all;">Nenhum</div>' +
         '</div>' +
-        '<input id="imp_file" type="file" accept=".csv,.txt,.tsv,.xls" style="display:none;" onchange="HR_IMPORT._onArquivo(this)">' +
+        '<input id="imp_file" type="file" accept=".csv,.txt,.tsv,.xls,.xlsx,.xlsm" style="display:none;" onchange="HR_IMPORT._onArquivo(this)">' +
       '</div>' +
 
       '<button onclick="HR_IMPORT._processar()" ' +
@@ -430,20 +436,229 @@ var HR_IMPORT = (function () {
     _overlay('hrImport', html);
   }
 
+  /**
+   * Converte serial numérico do Excel para "yyyy-mm-dd".
+   * Excel epoch: 1 = 01/01/1900 (com bug do 1900 como bissexto).
+   */
+  function _xlsSerial2Date(serial) {
+    if (!serial || isNaN(serial)) return '';
+    // Ajuste do bug do Excel (considera 1900 bissexto)
+    var d = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+    var y = d.getUTCFullYear(), mo = d.getUTCMonth()+1, day = d.getUTCDate();
+    if (y < 1990 || y > 2100) return ''; // serial inválido
+    return y + '-' + String(mo).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+  }
+
+  /**
+   * Converte serial fracionário de hora do Excel para "HH:MM".
+   * 0.5 = 12:00, 0.291666... = 07:00, etc.
+   */
+  function _xlsSerial2Time(serial) {
+    if (serial === '' || serial === null || serial === undefined || isNaN(parseFloat(serial))) return '';
+    var frac = parseFloat(serial) % 1; // parte fracionária
+    if (frac < 0) frac += 1;
+    var totalMin = Math.round(frac * 1440);
+    return _min2hhmm(totalMin);
+  }
+
+  /**
+   * Carrega SheetJS do CDN se ainda não disponível.
+   * Retorna Promise que resolve quando XLSX estiver pronto.
+   */
+  function _carregarSheetJS() {
+    return new Promise(function(resolve, reject) {
+      if (typeof XLSX !== 'undefined') { resolve(XLSX); return; }
+      var script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      script.onload  = function() { resolve(window.XLSX); };
+      script.onerror = function() { reject(new Error('Não foi possível carregar SheetJS.')); };
+      document.head.appendChild(script);
+    });
+  }
+
+  /**
+   * Lê planilha XLS/XLSX com SheetJS e converte para texto CSV interno.
+   * Tenta detectar automaticamente quais colunas são nome, data, entrada, saída.
+   */
+  function _xlsParaTexto(workbook) {
+    var sheetName = workbook.SheetNames[0];
+    var ws = workbook.Sheets[sheetName];
+
+    // Converte para array de arrays (raw: true para pegar seriais brutos)
+    var raw  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true,  defval: '' });
+    var fmt  = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+
+    if (!raw || raw.length < 2) return '';
+
+    var linhas = [];
+
+    // Detecta cabeçalho e índices de colunas
+    var header = (raw[0] || []).map(function(c){ return String(c||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); });
+    var startRow = 0;
+
+    // Índices conhecidos por nome de coluna
+    var iNome = -1, iData = -1, iEnt = -1, iSai = -1, iAlmIni = -1, iAlmFim = -1;
+    var colNomes  = ['nome','funcionario','colaborador','empregado','trabalhador'];
+    var colDatas  = ['data','dia','date','dt'];
+    var colEnt    = ['entrada','in','inicio','chegada','start','ponto entrada','ent'];
+    var colSai    = ['saida','saída','out','fim','saida','termino','end','ponto saida','sai'];
+    var colAlmIni = ['inicio almoco','ini almoco','almoco inicio','lunch start','int ini','intervalo ini'];
+    var colAlmFim = ['fim almoco','almoco fim','lunch end','int fim','intervalo fim'];
+
+    header.forEach(function(h, i) {
+      var hn = h.replace(/\s+/g,' ').trim();
+      if (iNome  < 0 && colNomes.some(function(c){ return hn.indexOf(c) >= 0; }))   iNome  = i;
+      if (iData  < 0 && colDatas.some(function(c){ return hn.indexOf(c) >= 0; }))   iData  = i;
+      if (iEnt   < 0 && colEnt.some(function(c){ return hn.indexOf(c) >= 0; }))     iEnt   = i;
+      if (iSai   < 0 && colSai.some(function(c){ return hn.indexOf(c) >= 0; }))     iSai   = i;
+      if (iAlmIni< 0 && colAlmIni.some(function(c){ return hn.indexOf(c) >= 0; }))  iAlmIni= i;
+      if (iAlmFim< 0 && colAlmFim.some(function(c){ return hn.indexOf(c) >= 0; }))  iAlmFim= i;
+    });
+
+    // Se não achou por cabeçalho, tenta detectar por conteúdo nas primeiras linhas de dados
+    if (iNome < 0 || iData < 0) {
+      var amostra = raw.slice(1, Math.min(6, raw.length));
+      amostra.forEach(function(row) {
+        row.forEach(function(cel, i) {
+          var s = String(cel||'').trim();
+          // Coluna de data: número serial Excel (entre 40000–50000) ou string de data
+          if (iData < 0 && ((typeof cel === 'number' && cel > 40000 && cel < 60000) || _normalizeDate(s) !== '')) iData = i;
+          // Coluna de nome: texto com letra, > 3 chars, não parece número/hora
+          if (iNome < 0 && typeof cel === 'string' && cel.trim().length > 2 && isNaN(cel) && !cel.match(/^\d{1,2}[h:]\d{2}/)) iNome = i;
+        });
+      });
+      startRow = 0; // sem cabeçalho detectado, começa na linha 0
+    } else {
+      startRow = 1; // pula cabeçalho
+    }
+
+    // Heurística de posição se ainda faltam índices
+    if (iNome < 0) iNome = 0;
+    if (iData < 0) iData = 1;
+    if (iEnt  < 0) iEnt  = 2;
+    if (iSai  < 0) iSai  = 3;
+
+    // Monta CSV
+    for (var i = startRow; i < raw.length; i++) {
+      var row = raw[i]; var rowFmt = fmt[i] || [];
+      if (!row || row.every(function(c){ return c === '' || c === null; })) continue;
+
+      var nome = String(row[iNome]||'').trim();
+      if (!nome || nome.length < 2) continue;
+
+      // Data: serial Excel ou string
+      var dataISO = '';
+      var celData = row[iData];
+      if (typeof celData === 'number' && celData > 40000 && celData < 60000) {
+        dataISO = _xlsSerial2Date(celData);
+      } else {
+        dataISO = _normalizeDate(String(rowFmt[iData]||celData||''));
+      }
+      if (!dataISO) continue;
+
+      // Horários: serial decimal (< 1) ou string
+      function _getCelHora(rawVal, fmtVal) {
+        if (typeof rawVal === 'number' && rawVal >= 0 && rawVal < 1) return _xlsSerial2Time(rawVal);
+        // Número inteiro pode ser serial com hora decimal codificada
+        if (typeof rawVal === 'number' && rawVal > 1) {
+          var frac = rawVal % 1;
+          if (frac > 0) return _xlsSerial2Time(frac);
+        }
+        var s = String(fmtVal||rawVal||'').trim();
+        // Formatos: "07:00:00", "07:00 AM", "7h00"
+        var m = s.match(/^(\d{1,2})[h:](\d{2})(?::\d{2})?(?:\s*(AM|PM))?$/i);
+        if (m) {
+          var h = parseInt(m[1]), min = parseInt(m[2]);
+          if (m[3] && m[3].toUpperCase() === 'PM' && h < 12) h += 12;
+          if (m[3] && m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+          return String(h).padStart(2,'0') + ':' + String(min).padStart(2,'0');
+        }
+        return '';
+      }
+
+      var entrada  = _getCelHora(row[iEnt],  rowFmt[iEnt]);
+      var saida    = _getCelHora(row[iSai],  rowFmt[iSai]);
+      var almIni   = iAlmIni >= 0 ? _getCelHora(row[iAlmIni], rowFmt[iAlmIni]) : '';
+      var almFim   = iAlmFim >= 0 ? _getCelHora(row[iAlmFim], rowFmt[iAlmFim]) : '';
+
+      var partes = [nome, dataISO, entrada, saida];
+      if (almIni && almFim) partes.push(almIni, almFim);
+      linhas.push(partes.join(';'));
+    }
+
+    return linhas.join('\n');
+  }
+
   function _onArquivo(input) {
     var file = input.files && input.files[0];
     if (!file) return;
+
     var nomeEl = document.getElementById('imp_file_nome');
     if (nomeEl) nomeEl.textContent = file.name;
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var txt = e.target.result;
-      var textarea = document.getElementById('imp_texto');
-      if (textarea) textarea.value = txt;
-      _state.raw = txt;
-    };
-    // Tenta UTF-8, fallback Latin-1
-    try { reader.readAsText(file, 'UTF-8'); } catch(e2) { reader.readAsText(file, 'ISO-8859-1'); }
+
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    var isExcel = (ext === 'xls' || ext === 'xlsx' || ext === 'xlsm');
+
+    if (isExcel) {
+      // ── Caminho Excel: lê como ArrayBuffer → SheetJS ──────────────────
+      if (nomeEl) nomeEl.innerHTML = '⏳ Lendo…';
+      var readerBuf = new FileReader();
+      readerBuf.onload = function(e) {
+        _carregarSheetJS().then(function(XLSX_mod) {
+          try {
+            var wb = XLSX_mod.read(e.target.result, { type: 'array', cellDates: false });
+            var csv = _xlsParaTexto(wb);
+            if (!csv) {
+              _toast('⚠️ Planilha vazia ou formato não reconhecido.');
+              if (nomeEl) nomeEl.textContent = file.name;
+              return;
+            }
+            var textarea = document.getElementById('imp_texto');
+            if (textarea) textarea.value = csv;
+            _state.raw = csv;
+            if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
+            _toast('✅ Planilha lida: ' + csv.split('\n').length + ' linhas');
+          } catch(err) {
+            console.error('[HR_IMPORT XLS]', err);
+            _toast('❌ Erro ao ler planilha: ' + err.message);
+            if (nomeEl) nomeEl.textContent = file.name;
+          }
+        }).catch(function(err) {
+          _toast('❌ ' + err.message + ' Verifique sua conexão.');
+          if (nomeEl) nomeEl.textContent = file.name;
+        });
+      };
+      readerBuf.onerror = function() { _toast('❌ Erro ao ler o arquivo.'); };
+      readerBuf.readAsArrayBuffer(file);
+
+    } else {
+      // ── Caminho texto: CSV / TXT / TSV ────────────────────────────────
+      var readerTxt = new FileReader();
+      readerTxt.onload = function(e) {
+        var txt = e.target.result;
+        // Detecta se vieram caracteres inválidos (encoding errado)
+        var garbled = (txt.match(/\uFFFD/g) || []).length;
+        if (garbled > 10) {
+          // Tenta releitura com Latin-1
+          var r2 = new FileReader();
+          r2.onload = function(ev) {
+            var txt2 = ev.target.result;
+            var textarea = document.getElementById('imp_texto');
+            if (textarea) textarea.value = txt2;
+            _state.raw = txt2;
+            if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
+          };
+          r2.readAsText(file, 'ISO-8859-1');
+        } else {
+          var textarea = document.getElementById('imp_texto');
+          if (textarea) textarea.value = txt;
+          _state.raw = txt;
+          if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
+        }
+      };
+      readerTxt.onerror = function() { _toast('❌ Erro ao ler o arquivo.'); };
+      readerTxt.readAsText(file, 'UTF-8');
+    }
   }
 
   function _processar() {
