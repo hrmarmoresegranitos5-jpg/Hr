@@ -148,12 +148,34 @@ var HR_FUNC = (function () {
     return 1.5;
   }
 
+  // Retorna o nº de dias úteis (seg–sáb) em um intervalo ISO yyyy-mm-dd (inclusivo).
+  // Sábado é dia útil nesta marmoraria (turnos de produção confirmados no XLS).
+  function _diasUteisNoIntervalo(di, df){
+    var a=new Date(di+'T12:00:00'), b=new Date(df+'T12:00:00');
+    var count=0;
+    for(var d=new Date(a);d<=b;d.setDate(d.getDate()+1)){
+      if(d.getDay()!==0) count++; // exclui apenas domingo
+    }
+    return count||1;
+  }
+
+  // Retorna o nº de dias úteis do mês da data ISO fornecida.
+  function _diasUteisMes(anoMesISO){
+    // anoMesISO pode ser 'yyyy-mm' ou uma data 'yyyy-mm-dd' — usa só yyyy-mm
+    var ym=anoMesISO.slice(0,7);
+    var ano=parseInt(ym.slice(0,4)), mes=parseInt(ym.slice(5,7));
+    var ultimo=new Date(ano,mes,0).getDate();
+    return _diasUteisNoIntervalo(ym+'-01', ym+'-'+String(ultimo).padStart(2,'0'));
+  }
+
   function calcSaldoFuncionario(funcId, di, df){
     var funcs=getFuncionarios(), regs=getRegistros(), pags=getPagamentos();
     var f=funcs[funcId]||{};
-    var salDia=(parseFloat(f.salario)||0)/30;
+    var salario=parseFloat(f.salario)||0;
     var mult=_getMultNormal();
-    var valorHoraExtra=((parseFloat(f.salario)||0)/220)*mult;
+    // Valor/hora base CLT: salário ÷ 220h mensais
+    var valorHoraBase=salario/220;
+    var valorHoraExtra=valorHoraBase*mult;
 
     var meusRegs=Object.values(regs).filter(function(r){
       if(r.funcionarioId!==funcId)return false;
@@ -162,9 +184,36 @@ var HR_FUNC = (function () {
       return true;
     });
     var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    var totalExtra=meusRegs.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    // Horas extras destinadas ao banco de horas NÃO entram no pagamento financeiro
+    var totalExtra=meusRegs.reduce(function(s,r){
+      return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));
+    },0);
     var dias=meusRegs.length;
-    var totalSalario=salDia*dias;
+
+    // ── Cálculo proporcional correto ──────────────────────────────
+    // Se o período tem começo e fim definidos, usa dias úteis do período.
+    // Caso contrário (saldo geral sem filtro), agrupa por mês para respeitar
+    // os dias úteis de cada mês individualmente.
+    var totalSalario=0;
+    if(di&&df){
+      var duPeríodo=_diasUteisNoIntervalo(di,df);
+      var salDia=salario/duPeríodo;
+      totalSalario=salDia*dias;
+    } else {
+      // Agrupa registros por mês e calcula proporcional em cada mês
+      var porMes={};
+      meusRegs.forEach(function(r){
+        var m=r.data.slice(0,7);
+        if(!porMes[m])porMes[m]=0;
+        porMes[m]++;
+      });
+      Object.keys(porMes).forEach(function(m){
+        var duMes=_diasUteisMes(m);
+        var salDia=salario/duMes;
+        totalSalario+=salDia*porMes[m];
+      });
+    }
+
     var valorExtra=totalExtra*valorHoraExtra;
     var totalDevido=totalSalario+valorExtra;
 
@@ -177,7 +226,7 @@ var HR_FUNC = (function () {
     var totalPago=meusPags.reduce(function(s,p){return s+(parseFloat(p.valor)||0);},0);
     var saldo=totalDevido-totalPago;
     return{totalHoras,totalExtra,valorExtra,totalSalario,totalDevido,totalPago,saldo,
-           temCredito:saldo<-0.01,diasTrabalhados:dias,valorHoraExtra};
+           temCredito:saldo<-0.01,diasTrabalhados:dias,valorHoraBase,valorHoraExtra};
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -201,13 +250,16 @@ var HR_FUNC = (function () {
       var diff=Math.round((b-a)/86400000);
       if(diff<=1)continue;
       var faltando=[];
-      for(var d=1;d<diff;d++){
-        var df=new Date(a); df.setDate(df.getDate()+d);
-        if(df.getDay()!==0&&df.getDay()!==6)faltando.push(df.toISOString().slice(0,10));
+      for(var dd=1;dd<diff;dd++){
+        var df2=new Date(a); df2.setDate(df2.getDate()+dd);
+        var dow=df2.getDay();
+        if(dow!==0) // ignora apenas domingo (sábado é dia útil nesta empresa)
+          faltando.push(df2.toISOString().slice(0,10));
       }
       if(faltando.length>0){
-        var msgs=faltando.map(_fmtData);
-        alertas.push({tipo:'gap',descricao:'⚠️ Faltam '+faltando.length+' dia(s): '+msgs.slice(0,3).join(', ')+(faltando.length>3?'...':''),diasFaltando:faltando});
+        faltando.forEach(function(data){
+          alertas.push({tipo:'gap',descricao:'Faltam 1 dia(s): '+_fmtData(data),diasFaltando:[data]});
+        });
       }
     }
     return alertas;
@@ -325,17 +377,22 @@ var HR_FUNC = (function () {
           'display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:8px;">' +
           '<span>⚡</span><span>Registro Rápido de Ponto</span>' +
         '</button>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' +
           '<button onclick="if(typeof abrirRelatorioHorasExtras===\'function\')abrirRelatorioHorasExtras();" '+
             'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
             'border-radius:11px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.78rem;'+
             'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
-            '<span>📊</span><span>Horas Extras</span></button>' +
+            '<span>📊</span><span>H. Extras</span></button>' +
           '<button onclick="HR_FUNC.abrirFolhaPagamento()" '+
             'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
             'border-radius:11px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.78rem;'+
             'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
-            '<span>📑</span><span>Folha de Pgto</span></button>' +
+            '<span>📑</span><span>Folha</span></button>' +
+          '<button onclick="if(typeof abrirBancoHoras===\'function\')abrirBancoHoras();" '+
+            'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
+            'border-radius:11px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.78rem;'+
+            'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
+            '<span>🏦</span><span>Banco</span></button>' +
         '</div>' +
         '<button onclick="if(typeof HR_IMPORT!==\'undefined\')HR_IMPORT.abrirImportacao();" '+
           'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(92,184,92,.06);'+
@@ -405,7 +462,7 @@ var HR_FUNC = (function () {
     if(alertas.length>0) badges+='<span style="font-size:.6rem;background:#1f1500;border:1px solid rgba(201,168,76,.4);color:#c8a060;border-radius:4px;padding:2px 7px;margin-right:4px;">⚠ '+alertas.length+' alerta'+(alertas.length>1?'s':'')+'</span>';
 
     var saldoBadge='';
-    if(saldo.saldo>0.5) saldoBadge='<span style="font-size:.62rem;color:'+RED+';">⚠ deve '+_fmtMoeda(saldo.saldo)+'</span>';
+    if(saldo.saldo>0.5) saldoBadge='<span style="font-size:.62rem;color:'+GOLD+';">💰 a receber '+_fmtMoeda(saldo.saldo)+'</span>';
     else if(saldo.temCredito) saldoBadge='<span style="font-size:.62rem;color:'+GREEN+';">💳 crédito '+_fmtMoeda(Math.abs(saldo.saldo))+'</span>';
 
     // Linha de progresso tempo de empresa
@@ -638,8 +695,8 @@ var HR_FUNC = (function () {
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
 
-    var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?RED:GOLD);
-    var saldoLabel=saldo.temCredito?'💳 Crédito':(saldo.saldo>0.01?'⚠ Deve':'✓ Quitado');
+    var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?GOLD:GREEN);
+    var saldoLabel=saldo.temCredito?'💳 Crédito (overpago)':(saldo.saldo>0.01?'💰 A Receber':'✓ Quitado');
 
     // Calendário do mês atual (últimos 28 dias como grid)
     var calHtml=_calendarioMini(id,regs);
@@ -669,6 +726,7 @@ var HR_FUNC = (function () {
             _statusPill(f.ativo)+
             (f.equipe?'<span style="font-size:.6rem;background:'+GOLD2+';border:1px solid '+GOLDB+';color:'+GOLD+';border-radius:20px;padding:2px 8px;">'+_esc(f.equipe)+'</span>':'')+
             (temPontoHoje?'<span style="font-size:.6rem;background:#0d2010;border:1px solid rgba(92,184,92,.5);color:'+GREEN+';border-radius:20px;padding:2px 8px;">✓ ponto hoje</span>':'')+
+            (typeof window.BH!=='undefined'?window.BH.badgeSaldo(id):'')+
           '</div>'+
           (_tempoEmpresa(f.admissao)?'<div style="font-size:.67rem;color:'+T3+';margin-top:4px;">⏳ '+_tempoEmpresa(f.admissao)+' na empresa</div>':'')+
         '</div>'+
@@ -689,6 +747,10 @@ var HR_FUNC = (function () {
           _miniKpi('Salário base',_fmtMoeda(f.salario),GOLD)+
           _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),GOLD)+
           _miniKpi('Já pago',_fmtMoeda(saldo.totalPago),GREEN)+
+        '</div>'+
+        '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
+          '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
+          ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
         '</div>'+
         '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;">'+
           '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
@@ -924,7 +986,9 @@ var HR_FUNC = (function () {
       var ep=r.entrada.split(':').map(Number), sp=hora.split(':').map(Number);
       var diff=(sp[0]*60+sp[1])-(ep[0]*60+ep[1]);
       if(diff<0)diff+=1440;
-      r.horas=parseFloat((diff/60).toFixed(2));
+      var horasbrutas=diff/60;
+      // Desconta 1h de almoço automaticamente se turno > 6h e não há registro de intervalo
+      r.horas=parseFloat((horasbrutas>6?horasbrutas-1:horasbrutas).toFixed(2));
     }
     r.atualizadoEm=new Date().toISOString();
     saveRegistros(regs);
@@ -1052,7 +1116,11 @@ var HR_FUNC = (function () {
         )+
         _campo('Tipo de hora extra',_sel('fr_tipoExtra',[
           {v:'normal',l:'Normal (×1.5)'},{v:'feriado',l:'Feriado (×2.0)'},{v:'especial',l:'Especial (×3.0)'}
-        ],r.tipoExtra||'normal'))
+        ],r.tipoExtra||'normal'))+
+        _campo('Destino das H. Extras',_sel('fr_destinoExtra',[
+          {v:'pagar',l:'💵 Pagar em dinheiro'},
+          {v:'banco',l:'🏦 Banco de horas (folga futura)'}
+        ],r.destinoExtra||'pagar'))
       )+
 
       _secao('Atividades',
@@ -1076,8 +1144,11 @@ var HR_FUNC = (function () {
           if(!ent.value||!sai.value)return;
           var e=ent.value.split(':').map(Number),s=sai.value.split(':').map(Number);
           var diff=(s[0]*60+s[1])-(e[0]*60+e[1]); if(diff<0)diff+=1440;
+          var horasbrutas=diff/60;
+          // Desconta 1h de almoço se turno > 6h (padrão marmoraria)
+          var horasliq=horasbrutas>6?horasbrutas-1:horasbrutas;
           var hr=document.getElementById('fr_horas');
-          if(hr&&!hr._edited)hr.value=(diff/60).toFixed(2);
+          if(hr&&!hr._edited)hr.value=horasliq.toFixed(2);
         }
         ent.addEventListener('change',calc); sai.addEventListener('change',calc);
         var hr=document.getElementById('fr_horas');
@@ -1100,6 +1171,7 @@ var HR_FUNC = (function () {
       horas:parseFloat((document.getElementById('fr_horas')||{}).value)||0,
       extra:parseFloat((document.getElementById('fr_extra')||{}).value)||0,
       tipoExtra:(document.getElementById('fr_tipoExtra')||{}).value||'normal',
+      destinoExtra:(document.getElementById('fr_destinoExtra')||{}).value||'pagar',
       producao:(document.getElementById('fr_producao')||{}).value||'',
       instalacao:(document.getElementById('fr_instalacao')||{}).value||'',
       ieo:(document.getElementById('fr_ieo')||{}).value||'',
@@ -1172,7 +1244,7 @@ var HR_FUNC = (function () {
   function _blocoSaldo(s,f){
     if(!s)return'';
     var sc=s.temCredito?GREEN:(s.saldo>0.01?RED:GOLD);
-    var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'⚠ Deve '+_fmtMoeda(s.saldo):'✓ Quitado');
+    var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'💰 A Receber '+_fmtMoeda(s.saldo):'✓ Quitado');
     return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:13px;margin-bottom:12px;">'+
       '<div style="font-size:.62rerem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">💰 Saldo do Funcionário</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">'+
