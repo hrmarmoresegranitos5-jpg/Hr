@@ -47,6 +47,7 @@ function renderChat() {
       '• 📋 Fazer orçamentos\n' +
       '• 📅 Agendar na agenda\n' +
       '• 💰 Lançar despesas e entradas\n' +
+      '• 👷 **Pagamentos de funcionários** — só falar: \"Paguei R$500 pro Hugo\"\n' +
       '• 🔍 Consultar jobs em andamento\n' +
       '• 👥 Ver histórico de clientes\n' +
       '• 📝 Qualquer outra coisa!\n\n' +
@@ -196,7 +197,31 @@ function _chatBuildContext() {
     'JOBS EM PRODUÇÃO (' + jobs.length + '):\n' + (jobs.join('\n') || 'Nenhum') + '\n\n' +
     'A RECEBER (' + pendentes.length + '):\n' + (pendentes.join('\n') || 'Nenhum') + '\n\n' +
     'VISITAS AGENDADAS:\n' + (visitas.join('\n') || 'Nenhuma') + '\n\n' +
-    'CLIENTES RECENTES: ' + (cliList || 'Nenhum');
+    'CLIENTES RECENTES: ' + (cliList || 'Nenhum') + '\n\n' +
+    _chatBuildRHContext();
+}
+
+
+// ── Contexto de RH para a IA ──
+function _chatBuildRHContext() {
+  try {
+    var funcs = {};
+    try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) {}
+    var pags  = {};
+    try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')   || '{}'); } catch(e) {}
+
+    var lista = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+    if (!lista.length) return 'FUNCIONÁRIOS: Nenhum cadastrado.';
+
+    var linhas = lista.map(function(f) {
+      var totalPago = Object.values(pags)
+        .filter(function(p){ return p.funcionarioId === f.id; })
+        .reduce(function(s,p){ return s + (p.valor||0); }, 0);
+      return f.nome + ' | salário: R$ ' + (f.salario||0).toFixed(2) + ' | pago: R$ ' + totalPago.toFixed(2) + ' | id: ' + f.id;
+    });
+
+    return 'FUNCIONÁRIOS RH (' + lista.length + '):\n' + linhas.join('\n');
+  } catch(e) { return 'FUNCIONÁRIOS: erro ao carregar.'; }
 }
 
 function _chatBuildSystem() {
@@ -366,8 +391,99 @@ function _chatExecuteAction(data) {
       }
       break;
 
+    case 'pagar_func':
+      if (data.funcionario && data.valor > 0) {
+        var nomeBusca = (data.funcionario || '').toLowerCase().trim();
+        var funcsRH = {};
+        try { funcsRH = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(eRH) {}
+        var listaRH = Object.values(funcsRH);
+
+        // Busca por nome (parcial, case-insensitive)
+        var funcEncontrado = listaRH.find(function(f) {
+          return f.nome && f.nome.toLowerCase().indexOf(nomeBusca) !== -1;
+        });
+        // fallback: busca palavras
+        if (!funcEncontrado && nomeBusca.length > 2) {
+          var palavras = nomeBusca.split(' ');
+          funcEncontrado = listaRH.find(function(f) {
+            return f.nome && palavras.some(function(p) {
+              return p.length > 2 && f.nome.toLowerCase().indexOf(p) !== -1;
+            });
+          });
+        }
+
+        if (!funcEncontrado) {
+          var nomes = listaRH.map(function(f){ return f.nome; }).join(', ');
+          result.extra = '⚠️ Funcionário **"' + data.funcionario + '"** não encontrado. Cadastrados: ' + (nomes || 'nenhum') + '.';
+        } else {
+          var pagsRH = {};
+          try { pagsRH = JSON.parse(localStorage.getItem('hr_pagamentos') || '{}'); } catch(ePag) {}
+
+          var pagId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+          var pagData = hoje;
+          var pagForma = data.forma || 'dinheiro';
+          var pagObs = data.obs || '';
+          var pagValor = +data.valor;
+
+          // Calcula saldo antes
+          var regsRH = {};
+          try { regsRH = JSON.parse(localStorage.getItem('hr_registros') || '{}'); } catch(eR) {}
+          var salarioBase = parseFloat(funcEncontrado.salario) || 0;
+          var valorExtra = Object.values(regsRH)
+            .filter(function(r){ return r.funcionarioId === funcEncontrado.id; })
+            .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+          var taxaExtra = parseFloat(funcEncontrado.taxaHoraExtra) || 0;
+          var totalDevido = salarioBase + (valorExtra * taxaExtra);
+          var totalPagoAntes = Object.values(pagsRH)
+            .filter(function(p){ return p.funcionarioId === funcEncontrado.id; })
+            .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+
+          // Registra pagamento no RH
+          pagsRH[pagId] = {
+            id:              pagId,
+            funcionarioId:   funcEncontrado.id,
+            funcionarioNome: funcEncontrado.nome,
+            data:            pagData,
+            valor:           pagValor,
+            forma:           pagForma,
+            obs:             pagObs || 'Lançado via Secretária IA',
+            saldoAntes:      totalDevido - totalPagoAntes,
+            criadoEm:        new Date().toISOString()
+          };
+          localStorage.setItem('hr_pagamentos', JSON.stringify(pagsRH));
+
+          // Lança também nas finanças como despesa
+          var descFin = 'Pagamento ' + funcEncontrado.nome + (pagForma !== 'dinheiro' ? ' (' + pagForma + ')' : '');
+          if (typeof addTr === 'function') {
+            addTr('out', descFin, pagValor);
+          } else {
+            var t = { id: Date.now(), type: 'out', desc: descFin, value: pagValor, date: pagData };
+            if (window.DB && DB.t) { DB.t.unshift(t); if(typeof DB.sv==='function') DB.sv(); if(typeof renderFin==='function') renderFin(); }
+          }
+
+          // Atualiza tela RH se aberta
+          if (typeof HR_FUNC !== 'undefined' && typeof HR_FUNC.renderPaginaFuncionarios === 'function') {
+            HR_FUNC.renderPaginaFuncionarios();
+          }
+
+          var saldoDepois = totalDevido - totalPagoAntes - pagValor;
+          var saldoTxt = saldoDepois > 0.01
+            ? ' Ainda deve: **R$ ' + saldoDepois.toFixed(2).replace('.',',') + '**.'
+            : saldoDepois < -0.01
+              ? ' Crédito de **R$ ' + Math.abs(saldoDepois).toFixed(2).replace('.',',') + '** a favor.'
+              : ' Conta **quitada**! ✅';
+
+          result.extra = '✅ Pagamento de **R$ ' + pagValor.toFixed(2).replace('.',',') + '** para **' + funcEncontrado.nome + '** registrado no RH e nas Finanças.' + saldoTxt;
+          result.actions.push({label:'👷 Ver RH', fn:'if(typeof go==="function")go(30)'});
+          result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+        }
+      } else {
+        result.extra = '⚠️ Informe o nome do funcionário e o valor do pagamento.';
+      }
+      break;
+
     case 'nav':
-      var navMap = {financas:4, agenda:0, historico:7, contratos:3, orcamento:1};
+      var navMap = {financas:4, agenda:0, historico:7, contratos:3, orcamento:1, rh:30};
       var pg = navMap[data.tela];
       if (pg !== undefined) {
         result.actions.push({label:'→ Ir agora', fn:'go('+pg+')'});
