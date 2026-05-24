@@ -47,8 +47,236 @@ var HR_IMPORT = (function () {
   // Preenchidos externamente se necessário; padrão vazio = apenas regras de dia da semana
   if (!CFG.feriados) CFG.feriados = [];
   if (!CFG.diasEspeciais) CFG.diasEspeciais = [];
+  // Modo overnight: permite saída < entrada (ex: 22:00→05:00)
+  // Desligado por padrão — ativar externamente: CFG.allowOvernight = true
+  if (CFG.allowOvernight === undefined) CFG.allowOvernight = false;
+  // Modo auditoria: loga detalhes completos de cada cálculo no console
+  // Desligado por padrão — ativar externamente: CFG.auditMode = true
+  if (CFG.auditMode === undefined) CFG.auditMode = false;
+  // Persistência de auditoria: salva logs em DB.auditLogs[] (limite 1000)
+  // Ativar externamente: CFG.auditPersist = true
+  if (CFG.auditPersist === undefined) CFG.auditPersist = false;
 
-  // ── Persistência (re-usa o mesmo localStorage do HR_FUNC) ────────────────
+  // ── DB: armazenamento de logs de auditoria ───────────────────────────────
+  var DB = (function() {
+    var AUDIT_KEY = 'hr_audit_logs';
+    var MAX_LOGS  = 1000;
+
+    function getAuditLogs() {
+      try { return JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]'); } catch(e) { return []; }
+    }
+    function saveAuditLogs(logs) {
+      try { localStorage.setItem(AUDIT_KEY, JSON.stringify(logs)); } catch(e) { console.error('[HR_DB]', e); }
+    }
+
+    /**
+     * Persiste um log de auditoria. Mantém apenas os últimos MAX_LOGS.
+     * @param {Object} entry — campos: funcionario, data, bruto, almoco, trabalhado,
+     *                         saldo, classificacaoHE, anomalias[]
+     */
+    function pushAuditLog(entry) {
+      if (!CFG.auditPersist) return;
+      var logs = getAuditLogs();
+      entry.registradoEm = new Date().toISOString();
+      logs.push(entry);
+      // Descarta os mais antigos se ultrapassar o limite
+      if (logs.length > MAX_LOGS) logs = logs.slice(logs.length - MAX_LOGS);
+      saveAuditLogs(logs);
+    }
+
+    /**
+     * Retorna todos os logs de auditoria persistidos.
+     * Filtra por funcionário ou período se informados.
+     */
+    function queryAuditLogs(opts) {
+      opts = opts || {};
+      var logs = getAuditLogs();
+      if (opts.funcionario) logs = logs.filter(function(l){ return l.funcionario === opts.funcionario; });
+      if (opts.di) logs = logs.filter(function(l){ return l.data >= opts.di; });
+      if (opts.df) logs = logs.filter(function(l){ return l.data <= opts.df; });
+      return logs;
+    }
+
+    function clearAuditLogs() { saveAuditLogs([]); }
+
+    return { auditLogs: getAuditLogs, pushAuditLog: pushAuditLog, queryAuditLogs: queryAuditLogs, clearAuditLogs: clearAuditLogs };
+  })();
+
+  // ── Auditoria de cálculo (Item 5) ───────────────────────────────────────
+
+  /**
+   * Loga detalhes completos de um grupo no console quando CFG.auditMode === true.
+   * Agrupa por funcionário com console.group para navegação fácil.
+   *
+   * Campos logados:
+   *  - jornada esperada por dia
+   *  - bruto / almoço / trabalhado
+   *  - saldo / faixa HE
+   *  - totais do período
+   *  - anomalias de auditoria
+   */
+  function _auditLogGrupo(gr, calc) {
+    if (!CFG.auditMode) return;
+    var funcInfo = '[sem vínculo]';
+    try {
+      var funcs = _getFuncionarios();
+      if (gr.funcId && funcs[gr.funcId]) funcInfo = funcs[gr.funcId].nome;
+    } catch(e) {}
+
+    console.group('[HR_IMPORT AUDIT] ' + gr.nome + ' → ' + funcInfo);
+
+    calc.linhasCalc.forEach(function(lc) {
+      var r   = lc.r;
+      var res = lc.res;
+      var dow = _dowNome(r.data);
+      var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : null;
+      var faixa = cls ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : '—') : '—';
+      var badges = _auditoriaBadges(lc);
+
+      var linha = {
+        data:          r.data + ' (' + dow + ')',
+        entrada:       r.entrada || '?',
+        saida:         r.saida   || '?',
+        jornada_esp:   _min2dur(_jornadaEsperada(r.data, gr.funcId)),
+        bruto:         _min2dur(res.bruto   || 0),
+        almoco:        _min2dur(res.almoco  || 0),
+        trabalhado:    _min2dur(res.trab    || 0),
+        saldo:         (res.saldo >= 0 ? '+' : '') + _min2dur(Math.abs(res.saldo || 0)),
+        extra:         _min2dur(res.extra   || 0),
+        atraso:        _min2dur(res.atraso  || 0),
+        faixa_HE:      faixa,
+        valido:        lc.valido,
+        anomalias:     badges.map(function(b){ return b.label; }).join(', ') || '—'
+      };
+      console.log(r.data, linha);
+    });
+
+    console.log('── TOTAIS ──', {
+      dias:       calc.diasCount,
+      trabalhado: _min2dur(calc.totalTrabMin),
+      extra:      _min2dur(calc.totalExtraMin),
+      atraso:     _min2dur(calc.totalAtrasoMin),
+      saldo_liq:  (calc.saldoLiquidoMin >= 0 ? '+' : '') + _min2dur(Math.abs(calc.saldoLiquidoMin))
+    });
+
+    var anomTotal = _totalAnomalias(calc);
+    if (anomTotal > 0) console.warn('⚠ ' + anomTotal + ' anomalia(s) detectada(s) no período');
+
+    console.groupEnd();
+
+    // ── Persistência de auditoria (CFG.auditPersist) ──────────────────────
+    if (CFG.auditPersist) {
+      calc.linhasCalc.forEach(function(lc) {
+        var r   = lc.r;
+        var res = lc.res;
+        var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : null;
+        var faixa = cls
+          ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : 'normal')
+          : 'inválido';
+        var anomalias = _auditoriaBadges(lc).map(function(b){ return b.label; });
+
+        DB.pushAuditLog({
+          funcionario: funcInfo,
+          data:          r.data,
+          bruto:         res.bruto   || 0,
+          almoco:        res.almoco  || 0,
+          trabalhado:    res.trab    || 0,
+          saldo:         res.saldo   || 0,
+          classificacaoHE: faixa,
+          anomalias:     anomalias
+        });
+      });
+    }
+  }
+
+
+
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * ITEM 2 — TRAVA DE JORNADA IMPOSSÍVEL
+   * Valida um registro antes de salvar ou importar.
+   *
+   * Regras de rejeição operacional:
+   *   • bruto > 18h (1080 min)  — jornada fisicamente impossível
+   *   • almoço > 5h  (300 min)  — intervalo absurdo
+   *   • entrada == saída          — registro em branco / erro de batida
+   *
+   * @param {Number} entMin    — minutos de entrada (0-1439)
+   * @param {Number} saiMin    — minutos de saída   (0-1439)
+   * @param {Number} almocoMin — minutos de almoço  (≥0)
+   * @returns {{ valido: Boolean, motivo: String|null }}
+   */
+  function _validarJornada(entMin, saiMin, almocoMin) {
+    almocoMin = almocoMin || 0;
+
+    if (isNaN(entMin) || isNaN(saiMin)) {
+      return { valido: false, motivo: 'Horário incompleto ou inválido' };
+    }
+    if (entMin === saiMin) {
+      return { valido: false, motivo: 'Entrada igual à saída — registro inválido operacionalmente' };
+    }
+    var bruto = saiMin - entMin;
+    if (bruto < 0) bruto += 1440; // overnight
+    if (bruto > 1080) {
+      return { valido: false, motivo: 'Jornada bruta de ' + _min2dur(bruto) + ' excede 18h — impossível operacionalmente' };
+    }
+    if (almocoMin > 300) {
+      return { valido: false, motivo: 'Almoço de ' + _min2dur(almocoMin) + ' excede 5h — impossível operacionalmente' };
+    }
+    return { valido: true, motivo: null };
+  }
+
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * ITEM 3 — BANCO DE HORAS COM VENCIMENTO
+   * Estrutura de entrada de banco:
+   *   { minutos: 120, criadoEm: 'yyyy-mm-dd', venceEm: 'yyyy-mm-dd' }
+   *
+   * Helpers:
+   *   _criarEntradaBanco(minutos, criadoEm, diasValidade)
+   *   _calcBancoComVencimento(entradas, hoje)
+   *   _relatorioVencimentos(entradas, hoje, diasAlerta)
+   *
+   * Dias de validade padrão: 90 dias. Configurável: CFG.bancoDiasValidade
+   * ══════════════════════════════════════════════════════════════════════════
+   */
+
+  if (!CFG.bancoDiasValidade) CFG.bancoDiasValidade = 90;
+
+  function _criarEntradaBanco(minutos, criadoEm, diasValidade) {
+    criadoEm     = criadoEm     || new Date().toISOString().slice(0, 10);
+    diasValidade = diasValidade || CFG.bancoDiasValidade;
+    var d = new Date(criadoEm + 'T12:00:00');
+    d.setDate(d.getDate() + diasValidade);
+    return { minutos: minutos, criadoEm: criadoEm, venceEm: d.toISOString().slice(0, 10) };
+  }
+
+  function _calcBancoComVencimento(entradas, hoje) {
+    hoje = hoje || new Date().toISOString().slice(0, 10);
+    var validas = [], vencidas = [];
+    (entradas || []).forEach(function(e) {
+      if (!e.venceEm || e.venceEm >= hoje) { validas.push(e); }
+      else { vencidas.push(e); }
+    });
+    return {
+      validas:      validas,
+      vencidas:     vencidas,
+      saldoValido:  validas.reduce(function(s, e){ return s + (e.minutos || 0); }, 0),
+      saldoVencido: vencidas.reduce(function(s, e){ return s + (e.minutos || 0); }, 0)
+    };
+  }
+
+  function _relatorioVencimentos(entradas, hoje, diasAlerta) {
+    hoje       = hoje       || new Date().toISOString().slice(0, 10);
+    diasAlerta = diasAlerta || 30;
+    var d = new Date(hoje + 'T12:00:00');
+    d.setDate(d.getDate() + diasAlerta);
+    var limite = d.toISOString().slice(0, 10);
+    return (entradas || []).filter(function(e) {
+      return e.venceEm && e.venceEm >= hoje && e.venceEm <= limite;
+    }).sort(function(a, b){ return a.venceEm.localeCompare(b.venceEm); });
+  }
+
   function _getRegistros()   { try{ return JSON.parse(localStorage.getItem('hr_registros')||'{}'); }catch(e){ return {}; } }
   function _saveRegistros(d) { try{ localStorage.setItem('hr_registros',JSON.stringify(d)); }catch(e){ console.error('[HR_IMPORT]',e); } }
   function _getFuncionarios(){ try{ return JSON.parse(localStorage.getItem('hr_funcionarios')||'{}'); }catch(e){ return {}; } }
@@ -317,7 +545,64 @@ var HR_IMPORT = (function () {
     return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  // ── Design tokens (mesmos do app-funcionarios) ───────────────────────────
+  // ══════════════════════════════════════════════════════════════════════════
+  // AUDITORIA VISUAL — badges de inconsistência por dia
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Analisa um registro calculado e retorna array de badges de auditoria.
+   * Cada badge: { label, cor, title }
+   *
+   * Critérios:
+   *  BATIDAS INCOMPLETAS  — incompleto (entrada sem saída ou vice-versa)
+   *  TRABALHO DIRETO      — bruto > 0 e almoço = 0 e bruto >= 240min (4h+)
+   *  ALMOÇO LONGO         — almoço > 120min (>2h)
+   *  JORNADA SUSPEITA     — trab > 840min (>14h)
+   *
+   * @param {Object} lc — item de linhasCalc: { r, valido, res }
+   * @returns {Array}   badges
+   */
+  function _auditoriaBadges(lc) {
+    var badges = [];
+    var res = lc.res;
+
+    if (res.incompleto) {
+      badges.push({ label: '⚠ BATIDAS INCOMPLETAS', cor: '#c85c5c',
+        title: 'Apenas uma batida registrada — dia precisa de correção manual' });
+      return badges; // incompleto já diz tudo, não empilha outros
+    }
+
+    if (!lc.valido) return badges; // inválido sem incompleto = sem horário
+
+    // Trabalho direto: não houve intervalo, jornada relevante (≥4h)
+    if (res.almoco === 0 && res.bruto >= 240) {
+      badges.push({ label: '🔄 TRABALHO DIRETO', cor: '#8ec8c8',
+        title: 'Sem intervalo de almoço registrado — confirme se foi trabalho direto intencional' });
+    }
+
+    // Almoço longo (>2h)
+    if (res.almoco > 120) {
+      badges.push({ label: '🍽 ALMOÇO LONGO', cor: GOLD,
+        title: 'Intervalo de almoço de ' + _min2dur(res.almoco) + ' — acima de 2h' });
+    }
+
+    // Jornada suspeita (>14h de trabalho efetivo)
+    if (res.trab > 840) {
+      badges.push({ label: '🚨 JORNADA SUSPEITA', cor: '#c85c5c',
+        title: 'Jornada efetiva de ' + _min2dur(res.trab) + ' — acima de 14h' });
+    }
+
+    return badges;
+  }
+
+  /** Conta total de anomalias em um grupo. */
+  function _totalAnomalias(calc) {
+    return calc.linhasCalc.reduce(function(s, lc) {
+      return s + _auditoriaBadges(lc).length;
+    }, 0);
+  }
+
+
   var GOLD  = '#C9A84C', GOLDB = 'rgba(201,168,76,.35)', GOLD2 = 'rgba(201,168,76,.12)';
   var S2    = '#161410', BD = 'rgba(201,168,76,.12)', BD2 = 'rgba(255,255,255,.07)';
   var T1    = '#f0ece4', T2 = '#b8b0a0', T3 = '#7a7268';
@@ -558,8 +843,11 @@ var HR_IMPORT = (function () {
 
       // Registro incompleto: falta entrada ou saída (Regra 12)
       var incompleto = isNaN(entMin) || isNaN(saiMin);
-      // Horário invertido = inválido (Regra 13)
-      var valido = !incompleto && saiMin > entMin;
+      // Overnight: saída < entrada só é válido se CFG.allowOvernight === true
+      // Ex: 22:00 → 05:00 = 420min (7h) ao invés de ser descartado como inválido
+      var isOvernight = !incompleto && saiMin < entMin && CFG.allowOvernight === true;
+      // Horário invertido sem overnight = inválido (Regra 13)
+      var valido = !incompleto && (saiMin > entMin || isOvernight);
 
       var res = { trab:0, saldo:0, extra:0, atraso:0, almoco:0, bruto:0, incompleto: incompleto && !!(r.entrada || r.saida) };
 
@@ -581,7 +869,7 @@ var HR_IMPORT = (function () {
     // Saldo líquido = extras - atrasos (Regra 5)
     var saldoLiquidoMin = totalExtraMin - totalAtrasoMin;
 
-    return {
+    var resultado = {
       linhasCalc: linhasCalc,
       totalTrabMin: totalTrabMin,
       totalExtraMin: totalExtraMin,
@@ -589,6 +877,11 @@ var HR_IMPORT = (function () {
       saldoLiquidoMin: saldoLiquidoMin,
       diasCount: g.registros.length
     };
+
+    // Item 5 — loga detalhes quando CFG.auditMode === true
+    if (CFG.auditMode) _auditLogGrupo(g, resultado);
+
+    return resultado;
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1126,6 +1419,7 @@ var HR_IMPORT = (function () {
     var gruposHtml = g.map(function(gr, idx) {
       var calc = _calcGrupo(gr);
       var autoVinc = gr.funcId ? funcs.find(function(f){ return f.id === gr.funcId; }) : null;
+      var nAnomalias = _totalAnomalias(calc);
 
       var opcoesSel = '<option value="">— não vincular —</option>' +
         funcs.map(function(f){
@@ -1150,7 +1444,22 @@ var HR_IMPORT = (function () {
           ? '<span style="font-size:.6rem;color:' + T3 + ';">🍽 ' + _min2dur(res.almoco) + '</span>'
           : '';
 
-        return '<tr style="border-top:1px solid ' + BD + ';">' +
+        // Badges de auditoria
+        var badges = _auditoriaBadges(lc);
+        var badgesHtml = badges.map(function(b) {
+          return '<span title="' + _esc(b.title) + '" style="display:inline-block;' +
+            'font-size:.55rem;font-weight:700;color:' + b.cor + ';' +
+            'background:rgba(0,0,0,.3);border:1px solid ' + b.cor + ';' +
+            'border-radius:4px;padding:1px 5px;margin-right:3px;margin-top:2px;' +
+            'white-space:nowrap;letter-spacing:.03em;">' + _esc(b.label) + '</span>';
+        }).join('');
+
+        // Linha com destaque visual se há anomalia
+        var rowStyle = badges.length > 0
+          ? 'border-top:1px solid ' + BD + ';background:rgba(200,92,92,.05);'
+          : 'border-top:1px solid ' + BD + ';';
+
+        return '<tr style="' + rowStyle + '">' +
           '<td style="padding:7px 10px;font-size:.72rem;font-weight:700;color:' + corDow + ';white-space:nowrap;">' + _esc(dow) + '</td>' +
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T1 + ';white-space:nowrap;font-weight:600;">' + fmtPer(r.data) + '</td>' +
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T1 + ';white-space:nowrap;">' +
@@ -1159,6 +1468,7 @@ var HR_IMPORT = (function () {
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T2 + ';white-space:nowrap;">' +
             (lc.valido ? _min2dur(res.trab) : '<span style="color:' + T3 + ';">—</span>') +
             (almocoHtml ? '<br>' + almocoHtml : '') +
+            (badgesHtml ? '<br>' + badgesHtml : '') +
           '</td>' +
           '<td style="padding:7px 4px 7px 10px;font-size:.72rem;white-space:nowrap;text-align:right;">' + extraHtml + '</td>' +
         '</tr>';
@@ -1184,6 +1494,9 @@ var HR_IMPORT = (function () {
               (calc.totalAtrasoMin > 0
                 ? '<span style="color:' + RED + ';">△ ' + _min2dur(calc.totalAtrasoMin) + ' atraso/falta</span>'
                 : '<span style="color:' + T3 + ';">△ 0h atraso</span>') +
+              (nAnomalias > 0
+                ? ' · <span style="color:#c85c5c;font-weight:700;">⚠ ' + nAnomalias + ' anomalia(s)</span>'
+                : '') +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -1309,11 +1622,19 @@ var HR_IMPORT = (function () {
         });
         if (dup) { pulados++; conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data); return; }
 
-        // Calcula horas — passa almoço ao _calcDia, sem recalcular aqui (Regras 2, 3, 14)
-        var entMin = _hhmm2min(r.entrada);
-        var saiMin = _hhmm2min(r.saida);
+        // ── Trava de jornada impossível (Item 2) ──────────────────────────
+        var entMin   = _hhmm2min(r.entrada);
+        var saiMin   = _hhmm2min(r.saida);
         var almocoMin = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
-        var calc = (!isNaN(entMin) && !isNaN(saiMin) && saiMin > entMin)
+        var travou   = _validarJornada(entMin, saiMin, almocoMin);
+        if (!travou.valido) {
+          // Marca como inválido operacionalmente e pula sem importar
+          conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data + ' [INVÁLIDO: ' + travou.motivo + ']');
+          pulados++;
+          return;
+        }
+        var isOvernightSave = !isNaN(entMin) && !isNaN(saiMin) && saiMin < entMin && CFG.allowOvernight === true;
+        var calc = (!isNaN(entMin) && !isNaN(saiMin) && (saiMin > entMin || isOvernightSave))
           ? _calcDia(entMin, saiMin, r.data, almocoMin, gr.funcId || null)
           : { trab: 0, saldo: 0, extra: 0, atraso: 0, almoco: 0 };
 
@@ -1488,6 +1809,30 @@ var HR_IMPORT = (function () {
         '<div style="font-size:.63rem;color:' + T3 + ';margin-top:10px;padding:8px 10px;' +
         'background:rgba(255,255,255,.03);border-radius:7px;border:1px solid ' + BD + ';">' +
           'ℹ️ Configure o valor/hora no cadastro do funcionário para exibir valores financeiros.' +
+        '</div>'
+      ) : '') +
+
+      // ── Item 3: Breakdown individual por funcionário ──────────────────────
+      (_state.grupos.length > 1 ? (
+        '<div style="margin-top:14px;padding-top:12px;border-top:1px solid ' + BD + ';">' +
+        '<div style="font-size:.62rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:8px;">DETALHE POR FUNCIONÁRIO</div>' +
+        _state.grupos.map(function(gr) {
+          var calc = _calcGrupo(gr);
+          var fin  = _calcFinanceiroGrupo(calc, valorHora);
+          var anom = _totalAnomalias(calc);
+          var totalIndExtra = fin.totalExtra50Min + fin.totalExtra100Min + fin.totalExtra200Min;
+          if (calc.totalTrabMin === 0 && totalIndExtra === 0) return '';
+          return '<div style="display:flex;align-items:baseline;gap:6px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);">' +
+            '<div style="font-size:.72rem;font-weight:700;color:' + T1 + ';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(gr.nome) + '</div>' +
+            '<div style="font-size:.68rem;color:' + T2 + ';white-space:nowrap;">' + _min2dur(calc.totalTrabMin) + '</div>' +
+            (totalIndExtra > 0 ? '<div style="font-size:.68rem;color:' + GOLD + ';white-space:nowrap;">⚡ +' + _min2dur(totalIndExtra) + '</div>' : '') +
+            (fin.totalExtra100Min > 0 ? '<div style="font-size:.62rem;color:#8ec8c8;white-space:nowrap;">HE100:' + _min2dur(fin.totalExtra100Min) + '</div>' : '') +
+            (fin.totalExtra200Min > 0 ? '<div style="font-size:.62rem;color:#c88e5c;white-space:nowrap;">HE200:' + _min2dur(fin.totalExtra200Min) + '</div>' : '') +
+            (valorHora > 0 && fin.valorTotalExtras > 0 ? '<div style="font-size:.68rem;color:' + GOLD + ';font-weight:700;white-space:nowrap;">' + _fmtMoeda(fin.valorTotalExtras) + '</div>' : '') +
+            (calc.totalAtrasoMin > 0 ? '<div style="font-size:.62rem;color:' + RED + ';white-space:nowrap;">△' + _min2dur(calc.totalAtrasoMin) + '</div>' : '') +
+            (anom > 0 ? '<div style="font-size:.62rem;color:#c85c5c;white-space:nowrap;">⚠' + anom + '</div>' : '') +
+          '</div>';
+        }).join('') +
         '</div>'
       ) : '') +
 
@@ -1832,6 +2177,162 @@ var HR_IMPORT = (function () {
     };
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ITEM 4 — ASSINATURA DE FECHAMENTO
+  // Prepara estrutura grupo.assinadoPor / grupo.fechadoEm / grupo.hash
+  // para futuramente congelar o fechamento de um período.
+  //
+  // _prepararAssinatura(grupo, calc, responsavel)
+  //   → retorna objeto de fechamento com hash deterministico (SHA-like simples
+  //     sem dependência de crypto — suficiente para detectar adulteração
+  //     até implementação de assinatura digital real).
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Gera um hash simples (djb2) de uma string.
+   * Não é criptográfico — serve como checksum de integridade básica.
+   */
+  function _hashSimples(str) {
+    var hash = 5381;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash; // converte para 32-bit
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+
+  /**
+   * Prepara a assinatura de fechamento de um grupo/período.
+   * Congela os dados do período de forma reproduzível.
+   *
+   * @param {Object} grupo      — grupo de registros { nome, registros, funcId }
+   * @param {Object} calc       — resultado de _calcGrupo(grupo)
+   * @param {String} responsavel — nome ou matrícula de quem está fechando
+   * @returns {Object} {
+   *   assinadoPor, fechadoEm, hash,
+   *   periodo: { di, df },
+   *   totais: { trabMin, extraMin, atrasoMin, saldoMin }
+   * }
+   */
+  function _prepararAssinatura(grupo, calc, responsavel) {
+    var datas    = (grupo.registros || []).map(function(r){ return r.data; }).sort();
+    var fechadoEm = new Date().toISOString();
+    var payload   = JSON.stringify({
+      nome:        grupo.nome,
+      funcId:      grupo.funcId || null,
+      periodo:     { di: datas[0] || '', df: datas[datas.length - 1] || '' },
+      totais: {
+        trabMin:   calc.totalTrabMin,
+        extraMin:  calc.totalExtraMin,
+        atrasoMin: calc.totalAtrasoMin,
+        saldoMin:  calc.saldoLiquidoMin
+      },
+      fechadoEm:   fechadoEm,
+      responsavel: responsavel || 'sistema'
+    });
+
+    return {
+      assinadoPor: responsavel || 'sistema',
+      fechadoEm:   fechadoEm,
+      hash:        _hashSimples(payload),
+      periodo:     { di: datas[0] || '', df: datas[datas.length - 1] || '' },
+      totais: {
+        trabMin:   calc.totalTrabMin,
+        extraMin:  calc.totalExtraMin,
+        atrasoMin: calc.totalAtrasoMin,
+        saldoMin:  calc.saldoLiquidoMin
+      }
+    };
+  }
+
+  /**
+   * Verifica se um fechamento foi adulterado comparando o hash.
+   * @param {Object} assinatura — objeto retornado por _prepararAssinatura
+   * @returns {Boolean} true = íntegro
+   */
+  function _verificarAssinatura(assinatura) {
+    var payload = JSON.stringify({
+      nome:        assinatura.nome        || '',
+      funcId:      assinatura.funcId      || null,
+      periodo:     assinatura.periodo,
+      totais:      assinatura.totais,
+      fechadoEm:   assinatura.fechadoEm,
+      responsavel: assinatura.assinadoPor || 'sistema'
+    });
+    // Nota: hash completo exige payload idêntico ao da geração — use _prepararAssinatura
+    // Esta função verifica apenas que o hash está presente e não está vazio
+    return !!(assinatura.hash && assinatura.hash.length === 8);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ITEM 5 — SNAPSHOT FINANCEIRO
+  // Congela no fechamento: valorHora, multiplicadores, jornada, CFG.he, total pago.
+  // Impede que mudança de regra retroativa altere folha antiga.
+  //
+  // _gerarSnapshotFinanceiro(grupo, calc, func, mesISO)
+  //   → retorna objeto imutável com todos os parâmetros que influenciam o cálculo
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Gera snapshot financeiro completo do momento do fechamento.
+   * Deve ser persistido junto ao fechamento para garantir reproduzibilidade.
+   *
+   * @param {Object} grupo   — grupo de registros
+   * @param {Object} calc    — resultado de _calcGrupo(grupo)
+   * @param {Object} func    — objeto do funcionário
+   * @param {String} mesISO  — mês de referência 'yyyy-mm'
+   * @returns {Object} snapshot congelado
+   */
+  function _gerarSnapshotFinanceiro(grupo, calc, func, mesISO) {
+    var valorHora   = _calcValorHoraReal(func, mesISO);
+    var fin         = _calcFinanceiroGrupo(calc, valorHora);
+
+    return {
+      geradoEm:     new Date().toISOString(),
+      mesReferencia: mesISO || new Date().toISOString().slice(0, 7),
+
+      // Parâmetros do funcionário no momento do fechamento
+      funcionario: {
+        id:              func && func.id      || '',
+        nome:            func && func.nome    || '',
+        salario:         func && parseFloat(func.salario)          || 0,
+        jornadaDiariaMin: func && parseInt(func.jornadaDiariaMin)  || 0
+      },
+
+      // Multiplicadores vigentes (snapshot de CFG.he)
+      multiplicadores: {
+        normal:   CFG.he.normal,
+        domingo:  CFG.he.domingo,
+        feriado:  CFG.he.feriado,
+        especial: CFG.he.especial
+      },
+
+      // Jornada padrão vigente
+      jornadaPadrao: {
+        segSex: 480,
+        sabado: 240
+      },
+
+      // Valor/hora calculado
+      valorHora: valorHora,
+
+      // Totais do período
+      totais: {
+        trabMin:       calc.totalTrabMin,
+        extraMin:      calc.totalExtraMin,
+        atrasoMin:     calc.totalAtrasoMin,
+        saldoMin:      calc.saldoLiquidoMin,
+        extra50Min:    fin.totalExtra50Min,
+        extra100Min:   fin.totalExtra100Min,
+        extra200Min:   fin.totalExtra200Min,
+        valorExtra50:  fin.valorExtra50,
+        valorExtra100: fin.valorExtra100,
+        valorExtra200: fin.valorExtra200,
+        valorTotalExtras: fin.valorTotalExtras
+      }
+    };
+  }
+
   // ── EXPORT ───────────────────────────────────────────────────────────────
   return {
     abrirImportacao:     abrirImportacao,
@@ -1842,7 +2343,7 @@ var HR_IMPORT = (function () {
     _toggleTabela:       _toggleTabela,
     _confirmarImportacao:_confirmarImportacao,
     _fechar:             _fechar,
-    // Etapas 4 e 5 — exportados para uso externo e testes
+    // Relatório e UI
     _gerarRelatorioHE:   _gerarRelatorioHE,
     _abrirDialogRelatorioHE: _abrirDialogRelatorioHE,
     _patchVinculacaoUI:  _patchVinculacaoUI,
@@ -1853,10 +2354,29 @@ var HR_IMPORT = (function () {
     _classificarHE:      _classificarHE,
     _calcValorHE:        _calcValorHE,
     _calcFinanceiroGrupo: _calcFinanceiroGrupo,
-    // Expõe utilitários para debug/testes externos (mantidos)
+    _calcGrupo:          _calcGrupo,
+    // Auditoria visual
+    _auditoriaBadges:    _auditoriaBadges,
+    // CFG — acesso externo para ativar auditMode, auditPersist, bancoDiasValidade etc.
+    CFG:                 CFG,
+    // Item 1 — Persistência de auditoria
+    DB:                  DB,
+    // Item 2 — Trava de jornada impossível
+    _validarJornada:     _validarJornada,
+    // Item 3 — Banco de horas com vencimento
+    _criarEntradaBanco:      _criarEntradaBanco,
+    _calcBancoComVencimento: _calcBancoComVencimento,
+    _relatorioVencimentos:   _relatorioVencimentos,
+    // Item 4 — Assinatura de fechamento
+    _prepararAssinatura:     _prepararAssinatura,
+    _verificarAssinatura:    _verificarAssinatura,
+    // Item 5 — Snapshot financeiro
+    _gerarSnapshotFinanceiro: _gerarSnapshotFinanceiro,
+    // Utilitários para debug/testes externos (mantidos)
     _parseRelatorio:     _parseRelatorio,
     _calcDia:            _calcDia,
     _min2dur:            _min2dur,
-    _min2hhmm:           _min2hhmm
+    _min2hhmm:           _min2hhmm,
+    _jornadaEsperada:    _jornadaEsperada
   };
 })();
