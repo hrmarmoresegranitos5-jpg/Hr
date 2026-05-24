@@ -18,6 +18,22 @@ var SALARIO_MENSAL = {
 
 var DIVISOR_HORAS = 220; // base CLT padrão
 
+// ── Defaults de multiplicadores de horas extras ──
+// CFG.he pode sobrescrever via Configurações → Empresa
+var HE_DEFAULTS = { normal: 1.5, feriado: 2.0, especial: 3.0 };
+
+// Retorna multiplicadores ativos (CFG.he > defaults)
+function _getHE() {
+  if (typeof CFG !== 'undefined' && CFG && CFG.he) {
+    return {
+      normal:   parseFloat(CFG.he.normal)   || HE_DEFAULTS.normal,
+      feriado:  parseFloat(CFG.he.feriado)  || HE_DEFAULTS.feriado,
+      especial: parseFloat(CFG.he.especial) || HE_DEFAULTS.especial,
+    };
+  }
+  return { normal: HE_DEFAULTS.normal, feriado: HE_DEFAULTS.feriado, especial: HE_DEFAULTS.especial };
+}
+
 // Mapeamento nome do relatório → nome exibido no PDF
 var NOME_EXIBIDO = {
   'hangel':   'Hugo',
@@ -184,7 +200,8 @@ function _extrairDadosHE(wb) {
 
     var horasNorm  = parseFloat(r[colHtNormal]) || 0;
     var horasHol   = colHtHol >= 0 ? (parseFloat(r[colHtHol]) || 0) : 0;
-    var totalHoras = horasNorm + horasHol;
+    var horasEsp   = 0; // Horas especiais (200%) — futuro: coluna própria no XLS
+    var totalHoras = horasNorm + horasHol + horasEsp;
 
     // Dias trabalhados (parse "16/15" → normal/real)
     var diasStr   = colDiasSem >= 0 ? String(r[colDiasSem] || '') : '';
@@ -192,8 +209,14 @@ function _extrairDadosHE(wb) {
     var diasNorm  = parseInt(diasParts[0]) || 0;
     var diasReal  = parseInt(diasParts[1]) || 0;
 
-    var ausencia   = colAusencia >= 0 ? (parseFloat(r[colAusencia]) || 0) : 0;
-    var totalPagar = totalHoras * valorHora;
+    var ausencia = colAusencia >= 0 ? (parseFloat(r[colAusencia]) || 0) : 0;
+
+    // Cálculo com multiplicadores diferenciados
+    var he = _getHE();
+    var totalNormal  = horasNorm * valorHora * he.normal;
+    var totalHol     = horasHol  * valorHora * he.feriado;
+    var totalEsp     = horasEsp  * valorHora * he.especial;
+    var totalPagar   = totalNormal + totalHol + totalEsp;
 
     funcionarios.push({
       id:            r[colId]   || (i - dataStart + 1),
@@ -202,12 +225,19 @@ function _extrairDadosHE(wb) {
       dep:           r[colDep]  || 'marmoraria',
       horasNorm:     horasNorm,
       horasHol:      horasHol,
+      horasEsp:      horasEsp,
       totalHoras:    totalHoras,
       diasNorm:      diasNorm,
       diasReal:      diasReal,
       ausencia:      ausencia,
       salarioMensal: salarioMensal,
       valorHora:     valorHora,
+      multNormal:    he.normal,
+      multFeriado:   he.feriado,
+      multEspecial:  he.especial,
+      totalNormal:   totalNormal,
+      totalHol:      totalHol,
+      totalEsp:      totalEsp,
       totalPagar:    totalPagar,
     });
   }
@@ -301,7 +331,7 @@ function _abrirOverlaySelecaoFuncionario(dados, nomeArquivo) {
         '</div>' +
       '</div>' +
       '<div style="font-size:.65rem;color:#666;text-align:center;border-top:1px solid rgba(201,168,76,.1);padding-top:10px;">' +
-        '⚖️ Cálculo auditável: salário mensal ÷ 220h (base CLT) × horas extras realizadas' +
+        '⚖️ Cálculo auditável: salário ÷ 220h CLT × horas × multiplicador (50% normal · 100% feriado · 200% especial)' +
       '</div>' +
     '</div>';
 
@@ -425,29 +455,61 @@ function _buildHEPDF(f) {
       '</div>' +
     '</div>' +
 
-    // Card de horas extras
-    '<div style="background:#1e1800;border:2px solid #C9A84C;border-radius:10px;padding:22px 24px;margin-bottom:24px;">' +
-      '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;">Apuração de Horas Extras</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">' +
-        _cardCampoEscuro('H. Extras em Dias Normais', _fmH(f.horasNorm) + ' h') +
-        _cardCampoEscuro('H. Extras em Feriados', _fmH(f.horasHol) + ' h') +
-      '</div>' +
-      '<div style="height:1px;background:rgba(201,168,76,.3);margin-bottom:16px;"></div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<div>' +
-          '<div style="color:#aaa;font-size:.75rem;">Total de Horas Extras</div>' +
-          '<div style="color:#C9A84C;font-size:1.4rem;font-weight:800;">' + _fmH(f.totalHoras) + ' h</div>' +
+    // Card de horas extras — detalhado por tipo
+    (function() {
+      var mN  = f.multNormal   || 1.5;
+      var mF  = f.multFeriado  || 2.0;
+      var mE  = f.multEspecial || 3.0;
+      var tN  = f.totalNormal  !== undefined ? f.totalNormal  : (f.horasNorm * f.valorHora * mN);
+      var tF  = f.totalHol     !== undefined ? f.totalHol     : (f.horasHol  * f.valorHora * mF);
+      var tE  = f.totalEsp     !== undefined ? f.totalEsp     : ((f.horasEsp || 0) * f.valorHora * mE);
+
+      function rowTipo(label, badge, horas, mult, total) {
+        if (horas <= 0) return '';
+        return '<tr style="border-bottom:1px solid rgba(201,168,76,.15);">' +
+          '<td style="padding:8px 0;color:#ddd;font-size:12px;">' + label +
+            ' <span style="background:rgba(201,168,76,.15);color:#C9A84C;border-radius:3px;padding:1px 6px;font-size:10px;font-weight:700;">' + badge + '</span>' +
+          '</td>' +
+          '<td style="text-align:center;color:#aaa;font-size:12px;">' + _fmH(horas) + ' h</td>' +
+          '<td style="text-align:center;color:#aaa;font-size:12px;">× ' + mult.toFixed(1) + '</td>' +
+          '<td style="text-align:center;color:#aaa;font-size:11px;">R$ ' + _fmVH(f.valorHora) + '/h</td>' +
+          '<td style="text-align:right;font-weight:700;color:#f0e8d0;font-size:13px;">R$ ' + _fmV(total) + '</td>' +
+        '</tr>';
+      }
+
+      return '<div style="background:#1e1800;border:2px solid #C9A84C;border-radius:10px;padding:22px 24px;margin-bottom:24px;">' +
+        '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;">Apuração de Horas Extras</div>' +
+        '<table style="width:100%;border-collapse:collapse;margin-bottom:14px;">' +
+          '<thead><tr style="border-bottom:1px solid rgba(201,168,76,.3);">' +
+            '<th style="text-align:left;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">TIPO</th>' +
+            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">HORAS</th>' +
+            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">MULT.</th>' +
+            '<th style="text-align:center;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">VALOR/H</th>' +
+            '<th style="text-align:right;font-size:9px;color:#888;padding-bottom:6px;font-weight:600;">SUBTOTAL</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            rowTipo('H. Extra Normal',   '50%',  f.horasNorm,       mN, tN) +
+            rowTipo('H. Extra Feriado',  '100%', f.horasHol,        mF, tF) +
+            rowTipo('H. Extra Especial', '200%', f.horasEsp || 0,   mE, tE) +
+          '</tbody>' +
+        '</table>' +
+        '<div style="height:1px;background:rgba(201,168,76,.3);margin-bottom:14px;"></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<div>' +
+            '<div style="color:#aaa;font-size:.75rem;">Total de Horas</div>' +
+            '<div style="color:#C9A84C;font-size:1.3rem;font-weight:800;">' + _fmH(f.totalHoras) + ' h</div>' +
+          '</div>' +
+          '<div style="text-align:center;">' +
+            '<div style="color:#aaa;font-size:.75rem;">Valor/Hora base (÷220h)</div>' +
+            '<div style="color:#f5f0e0;font-size:1rem;font-weight:700;">R$ ' + _fmVH(f.valorHora) + '</div>' +
+          '</div>' +
+          '<div style="text-align:right;">' +
+            '<div style="color:#aaa;font-size:.75rem;">Total a Receber</div>' +
+            '<div style="color:#C9A84C;font-size:1.6rem;font-weight:800;">R$ ' + _fmV(f.totalPagar) + '</div>' +
+          '</div>' +
         '</div>' +
-        '<div style="text-align:center;">' +
-          '<div style="color:#aaa;font-size:.75rem;">Valor/Hora (÷220h)</div>' +
-          '<div style="color:#f5f0e0;font-size:1rem;font-weight:700;">R$ ' + _fmVH(f.valorHora) + '</div>' +
-        '</div>' +
-        '<div style="text-align:right;">' +
-          '<div style="color:#aaa;font-size:.75rem;">Total a Receber</div>' +
-          '<div style="color:#C9A84C;font-size:1.6rem;font-weight:800;">R$ ' + _fmV(f.totalPagar) + '</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
+      '</div>';
+    })() +
 
     // Nota / observação
     (f.totalHoras === 0
@@ -455,17 +517,38 @@ function _buildHEPDF(f) {
       : ''
     ) +
 
-    // Cálculo detalhado
-    '<div style="background:#f9f5ef;border:1px solid #e8dfc8;border-radius:10px;padding:18px 22px;margin-bottom:28px;">' +
-      '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Memória de Cálculo</div>' +
-      '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
-        '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Salário mensal base</td><td style="text-align:right;color:#555;" colspan="2">R$ ' + _fmV(f.salarioMensal) + '</td></tr>' +
-        '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Valor/hora (÷ 220h CLT)</td><td style="text-align:right;color:#555;" colspan="2">R$ ' + _fmVH(f.valorHora) + '/h</td></tr>' +
-        '<tr><td style="padding:7px 0 5px;color:#555;">H. extras normais</td><td style="text-align:right;color:#333;">' + _fmH(f.horasNorm) + ' h × R$ ' + _fmVH(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasNorm * f.valorHora) + '</td></tr>' +
-        '<tr><td style="padding:5px 0;color:#555;">H. extras em feriados</td><td style="text-align:right;color:#333;">' + _fmH(f.horasHol) + ' h × R$ ' + _fmVH(f.valorHora) + '</td><td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(f.horasHol * f.valorHora) + '</td></tr>' +
-        '<tr style="border-top:2px solid #ddd;"><td style="padding:8px 0 0;font-weight:700;color:#1a1200;" colspan="2">Total a pagar</td><td style="padding:8px 0 0;text-align:right;font-weight:800;font-size:14px;color:#C9A84C;padding-left:16px;">R$ ' + _fmV(f.totalPagar) + '</td></tr>' +
-      '</table>' +
-    '</div>' +
+    // Memória de cálculo — detalhada por tipo
+    (function() {
+      var mN  = f.multNormal   || 1.5;
+      var mF  = f.multFeriado  || 2.0;
+      var mE  = f.multEspecial || 3.0;
+      var tN  = f.totalNormal  !== undefined ? f.totalNormal  : (f.horasNorm * f.valorHora * mN);
+      var tF  = f.totalHol     !== undefined ? f.totalHol     : (f.horasHol  * f.valorHora * mF);
+      var tE  = f.totalEsp     !== undefined ? f.totalEsp     : ((f.horasEsp || 0) * f.valorHora * mE);
+
+      function calcRow(label, badge, horas, mult, total) {
+        if (horas <= 0) return '';
+        return '<tr>' +
+          '<td style="padding:5px 0;color:#555;">' + label +
+            ' <span style="background:#f5ecd0;color:#8a6a10;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;">' + badge + '</span>' +
+          '</td>' +
+          '<td style="text-align:right;color:#333;font-size:11px;">' + _fmH(horas) + ' h × R$ ' + _fmVH(f.valorHora) + ' × ' + mult.toFixed(1) + '</td>' +
+          '<td style="text-align:right;font-weight:600;color:#333;padding-left:16px;">R$ ' + _fmV(total) + '</td>' +
+        '</tr>';
+      }
+
+      return '<div style="background:#f9f5ef;border:1px solid #e8dfc8;border-radius:10px;padding:18px 22px;margin-bottom:28px;">' +
+        '<div style="font-size:10px;font-weight:700;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Memória de Cálculo</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+          '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Salário mensal base</td><td colspan="2" style="text-align:right;color:#555;">R$ ' + _fmV(f.salarioMensal) + '</td></tr>' +
+          '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px 0;color:#777;">Valor/hora (÷ 220h CLT)</td><td colspan="2" style="text-align:right;color:#555;">R$ ' + _fmVH(f.valorHora) + '/h</td></tr>' +
+          calcRow('H. Extra Normal',   '50%',  f.horasNorm,     mN, tN) +
+          calcRow('H. Extra Feriado',  '100%', f.horasHol,      mF, tF) +
+          calcRow('H. Extra Especial', '200%', f.horasEsp || 0, mE, tE) +
+          '<tr style="border-top:2px solid #ddd;"><td colspan="2" style="padding:8px 0 0;font-weight:700;color:#1a1200;">Total a pagar</td><td style="padding:8px 0 0;text-align:right;font-weight:800;font-size:14px;color:#C9A84C;padding-left:16px;">R$ ' + _fmV(f.totalPagar) + '</td></tr>' +
+        '</table>' +
+      '</div>';
+    })() +
 
     // Assinaturas
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:32px;">' +
@@ -666,4 +749,4 @@ function _cardCampoEscuro(label, valor) {
   '</div>';
 }
 
-console.log('[HorasExtrasPDF v1] ✓ — módulo de horas extras carregado');
+console.log('[HorasExtrasPDF v2] ✓ — módulo de horas extras carregado (50%/100%/200%)');
