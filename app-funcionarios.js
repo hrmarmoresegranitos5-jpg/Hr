@@ -1,1386 +1,1121 @@
 // ══════════════════════════════════════════════════════════════
-// APP-FUNCIONARIOS v3 — HR Mármores e Granitos
-// Melhorias v3:
-//   • Detecção inteligente de gaps entre períodos de registros
-//   • Sistema de Pagamentos com crédito de horas extras
-//   • Cálculo de saldo: salário + extras − pagamentos = saldo devedor/crédito
+// APP-FUNCIONARIOS v4 — HR Mármores e Granitos
+// Design Premium + Novas Funcionalidades:
+//   • Dashboard com gráfico de produtividade mensal
+//   • Aniversariantes e datas comemorativas
+//   • Registro rápido de ponto (1 toque)
+//   • Perfil expandido com foto por câmera/galeria
+//   • Folha de pagamento consolidada
+//   • Busca rápida de funcionários
+//   • Calendário de ponto visual
+//   • Aviso de férias / vencimento de contrato
 // ══════════════════════════════════════════════════════════════
 
 var HR_FUNC = (function () {
 
   // ─────────────────────────────────────────────────────────────
-  // 1. PERSISTÊNCIA (localStorage)
+  // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = {
-    func: 'hr_funcionarios',
-    reg:  'hr_registros',
-    pag:  'hr_pagamentos'   // ← NOVO
-  };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos' };
 
-  function _load(key) {
-    try { return JSON.parse(localStorage.getItem(key) || '{}'); }
-    catch (e) { return {}; }
-  }
-  function _save(key, data) {
-    try { localStorage.setItem(key, JSON.stringify(data)); }
-    catch (e) { console.error('[HR_FUNC] save error', e); }
-  }
+  function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
+  function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
 
   function getFuncionarios() { return _load(KEYS.func); }
   function getRegistros()    { return _load(KEYS.reg);  }
   function getPagamentos()   { return _load(KEYS.pag);  }
-
-  function saveFuncionarios(data) { _save(KEYS.func, data); }
-  function saveRegistros(data)    { _save(KEYS.reg,  data); }
-  function savePagamentos(data)   { _save(KEYS.pag,  data); }
-
-  function genId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  }
+  function saveFuncionarios(d){ _save(KEYS.func,d); }
+  function saveRegistros(d)   { _save(KEYS.reg,d);  }
+  function savePagamentos(d)  { _save(KEYS.pag,d);  }
+  function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
-  // 2. UTILITÁRIOS DE UI
+  // 2. DESIGN TOKENS
   // ─────────────────────────────────────────────────────────────
-  var GOLD = '#C9A84C';
-  var BG   = 'var(--bg,#111)';
-  var S2   = 'var(--s2,#1a1a1a)';
-  var BD   = 'var(--bd,#2a2a2a)';
-  var T1   = 'var(--t1,#eee)';
-  var T2   = 'var(--t2,#bbb)';
-  var T3   = 'var(--t3,#888)';
+  var GOLD='#C9A84C', GOLD2='rgba(201,168,76,.15)', GOLDB='rgba(201,168,76,.35)';
+  var BG='var(--bg,#0d0c09)', S2='var(--s2,#161410)', S3='rgba(255,255,255,.03)';
+  var BD='rgba(201,168,76,.12)', BD2='rgba(255,255,255,.07)';
+  var T1='var(--t1,#f0ece4)', T2='var(--t2,#b8b0a0)', T3='var(--t3,#7a7268)';
+  var GREEN='#5cb85c', RED='#c85c5c', BLUE='#5c8ec8';
 
-  function _toast(msg) {
-    if (typeof toast === 'function') toast(msg);
-    else console.log('[HR_FUNC]', msg);
+  var CSS_INP = 'width:100%;box-sizing:border-box;padding:11px 13px;border-radius:10px;'+
+    'border:1px solid '+BD+';background:rgba(255,255,255,.03);color:'+T1+';'+
+    'font-size:.88rem;font-family:Outfit,sans-serif;outline:none;transition:border-color .2s;';
+  var CSS_BTN_GOLD = 'width:100%;padding:14px;border-radius:11px;'+
+    'background:linear-gradient(135deg,#1c1600,#0d0b00);'+
+    'border:1.5px solid '+GOLDB+';color:'+GOLD+';'+
+    'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;'+
+    'cursor:pointer;margin-bottom:8px;letter-spacing:.04em;transition:opacity .15s;';
+  var CSS_BTN_GREEN = 'width:100%;padding:13px;border-radius:11px;'+
+    'background:linear-gradient(135deg,#091a09,#040d04);'+
+    'border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';'+
+    'font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;'+
+    'cursor:pointer;margin-bottom:8px;letter-spacing:.03em;';
+  var CSS_BTN_GHOST = 'width:100%;padding:12px;border-radius:11px;'+
+    'background:transparent;border:1px solid '+BD2+';'+
+    'color:'+T2+';font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;margin-bottom:6px;';
+
+  // ─────────────────────────────────────────────────────────────
+  // 3. UTILITÁRIOS
+  // ─────────────────────────────────────────────────────────────
+  function _toast(m){ if(typeof toast==='function')toast(m); else console.log('[HR]',m); }
+  function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function _fmtData(iso){ if(!iso)return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+  function _fmtMoeda(v){ return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function _hoje(){ return new Date().toISOString().slice(0,10); }
+  function _mesAno(offset){ var d=new Date(); d.setMonth(d.getMonth()+(offset||0)); return d.toISOString().slice(0,7); }
+  function _diaSemana(iso){ var d=new Date(iso+'T12:00:00'); return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()]; }
+  function _tempoEmpresa(admissao){
+    if(!admissao)return '';
+    var d1=new Date(admissao+'T12:00:00'), d2=new Date();
+    var meses=Math.floor((d2-d1)/(30.44*86400000));
+    if(meses<1)return 'Recém admitido';
+    if(meses<12)return meses+' mes'+(meses>1?'es':'');
+    var anos=Math.floor(meses/12), m2=meses%12;
+    return anos+'a'+(m2>0?' '+m2+'m':'');
   }
-
-  function _fmtData(iso) {
-    if (!iso) return '—';
-    var p = iso.split('-');
-    return p[2] + '/' + p[1] + '/' + p[0];
-  }
-
-  function _fmtMoeda(v) {
-    return 'R$ ' + parseFloat(v || 0).toLocaleString('pt-BR', {
-      minimumFractionDigits: 2, maximumFractionDigits: 2
-    });
-  }
-
-  function _closeOverlay(id) {
-    var el = document.getElementById(id);
-    if (el) el.remove();
-  }
-
-  function _overlay(id, html) {
+  function _closeOverlay(id){ var e=document.getElementById(id); if(e)e.remove(); }
+  function _overlay(id,html){
     _closeOverlay(id);
-    var ov = document.createElement('div');
-    ov.id = id;
-    ov.style.cssText = [
-      'position:fixed;inset:0;z-index:99999;',
-      'background:rgba(10,8,0,.95);',
-      'display:flex;flex-direction:column;align-items:center;',
-      'overflow-y:auto;font-family:Outfit,sans-serif;',
-      'padding:20px 0 60px;'
-    ].join('');
-    ov.innerHTML = html;
+    var ov=document.createElement('div');
+    ov.id=id;
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(8,7,4,.97);'+
+      'display:flex;flex-direction:column;align-items:center;overflow-y:auto;'+
+      'font-family:Outfit,sans-serif;padding:24px 0 100px;';
+    ov.innerHTML=html;
     document.body.appendChild(ov);
     return ov;
   }
 
-  var INP_CSS = [
-    'width:100%;box-sizing:border-box;padding:10px 12px;',
-    'border-radius:9px;border:1px solid rgba(201,168,76,.25);',
-    'background:rgba(255,255,255,.04);color:var(--t1,#eee);',
-    'font-size:.88rem;font-family:Outfit,sans-serif;outline:none;',
-    'transition:border-color .2s;'
-  ].join('');
-
-  var BTN_GOLD = [
-    'width:100%;padding:13px;border-radius:10px;',
-    'background:linear-gradient(135deg,#1e1800,#0f0c00);',
-    'border:1.5px solid rgba(201,168,76,.6);color:#C9A84C;',
-    'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;',
-    'cursor:pointer;margin-bottom:8px;letter-spacing:.03em;'
-  ].join('');
-
-  var BTN_CANCEL = [
-    'width:100%;padding:12px;border-radius:10px;',
-    'background:transparent;border:1px solid rgba(255,255,255,.1);',
-    'color:var(--t3,#888);font-family:Outfit,sans-serif;',
-    'font-size:.85rem;cursor:pointer;'
-  ].join('');
-
-  var BTN_GREEN = [
-    'width:100%;padding:13px;border-radius:10px;',
-    'background:linear-gradient(135deg,#0a1e0a,#051005);',
-    'border:1.5px solid rgba(80,180,80,.5);color:#6dc86d;',
-    'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;',
-    'cursor:pointer;margin-bottom:8px;letter-spacing:.03em;'
-  ].join('');
-
-  function _fieldBlock(label, inputHtml) {
-    return '<div style="margin-bottom:12px;">' +
-      '<label style="display:block;font-size:.7rem;color:' + GOLD + ';' +
-        'letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;">' + label + '</label>' +
-      inputHtml +
-    '</div>';
-  }
-
-  function _inp(id, type, placeholder, value, extra) {
-    return '<input id="' + id + '" type="' + (type||'text') + '" ' +
-      'placeholder="' + (placeholder||'') + '" ' +
-      'value="' + (value||'') + '" ' +
-      (extra||'') +
-      ' style="' + INP_CSS + '">';
-  }
-
-  function _sel(id, options, selected) {
-    var opts = options.map(function(o) {
-      return '<option value="' + o.v + '"' + (o.v === selected ? ' selected' : '') + '>' + o.l + '</option>';
-    }).join('');
-    return '<select id="' + id + '" style="' + INP_CSS + '">' + opts + '</select>';
-  }
-
-  function _ta(id, placeholder, value, rows) {
-    return '<textarea id="' + id + '" rows="' + (rows||2) + '" ' +
-      'placeholder="' + (placeholder||'') + '" ' +
-      'style="' + INP_CSS + 'resize:vertical;">' + (value||'') + '</textarea>';
-  }
-
-  function _esc(str) {
-    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
   // ─────────────────────────────────────────────────────────────
-  // 3. LÓGICA FINANCEIRA DO FUNCIONÁRIO
+  // 4. CÁLCULO FINANCEIRO
   // ─────────────────────────────────────────────────────────────
+  function _getMultNormal(){
+    try{
+      if(typeof CFG!=='undefined'&&CFG&&CFG.he&&CFG.he.normal)return CFG.he.normal;
+      var s=JSON.parse(localStorage.getItem('cfg')||'{}');
+      if(s.he&&s.he.normal)return s.he.normal;
+    }catch(e){}
+    return 1.5;
+  }
 
-  /**
-   * Calcula o saldo financeiro de um funcionário num período.
-   * Retorna: { totalSalario, totalExtra, valorExtra, totalDevido, totalPago, saldo, temCredito }
-   *
-   * Regra:
-   *   totalDevido = totalSalario + valorExtra
-   *   saldo = totalDevido - totalPago
-   *   saldo < 0 → crédito a favor do funcionário
-   *   saldo > 0 → ainda deve
-   */
-  function calcSaldoFuncionario(funcId, filtroInicio, filtroFim) {
-    var funcs = getFuncionarios();
-    var regs  = getRegistros();
-    var pags  = getPagamentos();
+  function calcSaldoFuncionario(funcId, di, df){
+    var funcs=getFuncionarios(), regs=getRegistros(), pags=getPagamentos();
+    var f=funcs[funcId]||{};
+    var salDia=(parseFloat(f.salario)||0)/30;
+    var mult=_getMultNormal();
+    var valorHoraExtra=((parseFloat(f.salario)||0)/220)*mult;
 
-    var f = funcs[funcId] || {};
-    var salarioDia = (parseFloat(f.salario) || 0) / 30; // estimativa por dia útil
-
-    // Filtra registros do período
-    var meusRegs = Object.values(regs).filter(function(r) {
-      if (r.funcionarioId !== funcId) return false;
-      if (filtroInicio && r.data < filtroInicio) return false;
-      if (filtroFim    && r.data > filtroFim)    return false;
+    var meusRegs=Object.values(regs).filter(function(r){
+      if(r.funcionarioId!==funcId)return false;
+      if(di&&r.data<di)return false;
+      if(df&&r.data>df)return false;
       return true;
     });
+    var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
+    var totalExtra=meusRegs.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    var dias=meusRegs.length;
+    var totalSalario=salDia*dias;
+    var valorExtra=totalExtra*valorHoraExtra;
+    var totalDevido=totalSalario+valorExtra;
 
-    var totalHoras  = meusRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
-    var totalExtra  = meusRegs.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
-    var diasTrabalhados = meusRegs.length;
-
-    // Valor do salário proporcional aos dias trabalhados
-    var totalSalario = salarioDia * diasTrabalhados;
-
-    // Valor das horas extras (usa valor/hora = salário / 220h mensais × 1.5)
-    var valorHoraExtra = ((parseFloat(f.salario)||0) / 220) * 1.5;
-    var valorExtra = totalExtra * valorHoraExtra;
-
-    var totalDevido = totalSalario + valorExtra;
-
-    // Filtra pagamentos do período
-    var meusPags = Object.values(pags).filter(function(p) {
-      if (p.funcionarioId !== funcId) return false;
-      if (filtroInicio && p.data < filtroInicio) return false;
-      if (filtroFim    && p.data > filtroFim)    return false;
+    var meusPags=Object.values(pags).filter(function(p){
+      if(p.funcionarioId!==funcId)return false;
+      if(di&&p.data<di)return false;
+      if(df&&p.data>df)return false;
       return true;
     });
-
-    var totalPago = meusPags.reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
-
-    var saldo = totalDevido - totalPago;
-
-    return {
-      totalHoras:     totalHoras,
-      totalExtra:     totalExtra,
-      valorExtra:     valorExtra,
-      totalSalario:   totalSalario,
-      totalDevido:    totalDevido,
-      totalPago:      totalPago,
-      saldo:          saldo,
-      temCredito:     saldo < -0.01,
-      diasTrabalhados: diasTrabalhados
-    };
+    var totalPago=meusPags.reduce(function(s,p){return s+(parseFloat(p.valor)||0);},0);
+    var saldo=totalDevido-totalPago;
+    return{totalHoras,totalExtra,valorExtra,totalSalario,totalDevido,totalPago,saldo,
+           temCredito:saldo<-0.01,diasTrabalhados:dias,valorHoraExtra};
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 4. DETECÇÃO DE GAPS NOS REGISTROS (INTELIGENTE)
+  // 5. DETECÇÃO DE GAPS
   // ─────────────────────────────────────────────────────────────
-
-  /**
-   * Analisa os registros de um funcionário e detecta:
-   * 1. Gaps entre blocos contínuos (ex: registrou dia 10→20 e depois 22→30, falta o 21)
-   * 2. Registros duplicados na mesma data
-   *
-   * Retorna array de alertas: { tipo, descricao, diasFaltando[] }
-   */
-  function analisarGaps(funcId) {
-    var regs = getRegistros();
-    var meusRegs = Object.values(regs)
-      .filter(function(r) { return r.funcionarioId === funcId; })
-      .sort(function(a,b) { return a.data.localeCompare(b.data); });
-
-    if (meusRegs.length < 2) return [];
-
-    var alertas = [];
-
-    // Detecta duplicatas
-    var dataSet = {};
-    meusRegs.forEach(function(r) {
-      if (dataSet[r.data]) {
-        alertas.push({
-          tipo: 'duplicata',
-          descricao: 'Data duplicada: ' + _fmtData(r.data) + ' — há dois registros para o mesmo dia.',
-          data: r.data
-        });
-      }
-      dataSet[r.data] = true;
+  function analisarGaps(funcId){
+    var regs=getRegistros();
+    var meusRegs=Object.values(regs)
+      .filter(function(r){return r.funcionarioId===funcId;})
+      .sort(function(a,b){return a.data.localeCompare(b.data);});
+    if(meusRegs.length<2)return[];
+    var alertas=[];
+    var dataSet={};
+    meusRegs.forEach(function(r){
+      if(dataSet[r.data])alertas.push({tipo:'duplicata',descricao:'Data duplicada: '+_fmtData(r.data),data:r.data});
+      dataSet[r.data]=true;
     });
-
-    // Detecta gaps entre dias consecutivos
-    // Identifica "blocos" contínuos: sequências sem gap > 1 dia útil (considera sáb/dom)
-    var datas = meusRegs.map(function(r) { return r.data; });
-    // Remove duplicatas para análise de gap
-    var datasUnicas = datas.filter(function(d, i, a) { return a.indexOf(d) === i; });
-
-    for (var i = 0; i < datasUnicas.length - 1; i++) {
-      var atual  = new Date(datasUnicas[i]  + 'T12:00:00');
-      var proximo = new Date(datasUnicas[i+1] + 'T12:00:00');
-      var diffMs  = proximo - atual;
-      var diffDias = Math.round(diffMs / 86400000);
-
-      if (diffDias <= 1) continue; // dias consecutivos, ok
-
-      // Verifica se o gap é só fim de semana
-      var diasFaltando = [];
-      for (var d = 1; d < diffDias; d++) {
-        var dFalt = new Date(atual);
-        dFalt.setDate(dFalt.getDate() + d);
-        var diaSemana = dFalt.getDay(); // 0=dom, 6=sab
-        if (diaSemana !== 0 && diaSemana !== 6) {
-          diasFaltando.push(dFalt.toISOString().slice(0, 10));
-        }
+    var datasUnicas=meusRegs.map(function(r){return r.data;}).filter(function(d,i,a){return a.indexOf(d)===i;});
+    for(var i=0;i<datasUnicas.length-1;i++){
+      var a=new Date(datasUnicas[i]+'T12:00:00'), b=new Date(datasUnicas[i+1]+'T12:00:00');
+      var diff=Math.round((b-a)/86400000);
+      if(diff<=1)continue;
+      var faltando=[];
+      for(var d=1;d<diff;d++){
+        var df=new Date(a); df.setDate(df.getDate()+d);
+        if(df.getDay()!==0&&df.getDay()!==6)faltando.push(df.toISOString().slice(0,10));
       }
-
-      if (diasFaltando.length > 0) {
-        var msgs = diasFaltando.map(_fmtData);
-        var descricao = diasFaltando.length === 1
-          ? '⚠️ Falta registro em ' + msgs[0]
-          : '⚠️ Faltam ' + diasFaltando.length + ' dias entre ' +
-            _fmtData(datasUnicas[i]) + ' e ' + _fmtData(datasUnicas[i+1]) + ': ' +
-            msgs.slice(0, 5).join(', ') + (diasFaltando.length > 5 ? '...' : '');
-        alertas.push({
-          tipo: 'gap',
-          descricao: descricao,
-          diasFaltando: diasFaltando
-        });
+      if(faltando.length>0){
+        var msgs=faltando.map(_fmtData);
+        alertas.push({tipo:'gap',descricao:'⚠️ Faltam '+faltando.length+' dia(s): '+msgs.slice(0,3).join(', ')+(faltando.length>3?'...':''),diasFaltando:faltando});
       }
     }
-
     return alertas;
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 5. PÁGINA PRINCIPAL — RH (pg30)
+  // 6. PÁGINA PRINCIPAL — DESIGN PREMIUM
   // ─────────────────────────────────────────────────────────────
-  function renderPaginaFuncionarios() {
-    var pg = document.getElementById('pg30');
-    if (!pg) return;
+  function renderPaginaFuncionarios(){
+    var pg=document.getElementById('pg30'); if(!pg)return;
+    var funcs=getFuncionarios();
+    var regs=getRegistros();
+    var lista=Object.values(funcs).sort(function(a,b){return a.nome.localeCompare(b.nome);});
+    var ativos=lista.filter(function(f){return f.ativo!==false;});
+    var allRegs=Object.values(regs);
+    var hoje=_hoje();
+    var mesAtual=_mesAno(0);
 
-    var funcs  = getFuncionarios();
-    var regs   = getRegistros();
-    var lista  = Object.values(funcs).sort(function(a, b) { return a.nome.localeCompare(b.nome); });
-    var ativos = lista.filter(function(f) { return f.ativo !== false; });
+    // Stats do mês atual
+    var regsDoMes=allRegs.filter(function(r){return r.data&&r.data.startsWith(mesAtual);});
+    var totHorasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
+    var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    var totalFolha=ativos.reduce(function(s,f){return s+(parseFloat(f.salario)||0);},0);
 
-    var allRegs    = Object.values(regs);
-    var totHoras   = allRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
-    var totExtras  = allRegs.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
-    var totalFolha = ativos.reduce(function(s,f){ return s + (parseFloat(f.salario)||0); }, 0);
+    // Aniversariantes do mês
+    var mesHoje=hoje.slice(5,7);
+    var aniversariantes=lista.filter(function(f){
+      return f.nascimento&&f.nascimento.slice(5,7)===mesHoje&&f.ativo!==false;
+    });
 
-    var cardsHtml = lista.length === 0
-      ? '<div style="text-align:center;padding:36px 20px;color:' + T3 + ';font-size:.85rem;">' +
-          'Nenhum funcionário cadastrado.<br>' +
-          'Toque em <strong style="color:' + GOLD + '">+ Cadastrar</strong> para começar.' +
-        '</div>'
-      : lista.map(function(f) { return _cardFuncionario(f); }).join('');
+    // Funcionários que registraram ponto hoje
+    var pontoHoje=lista.filter(function(f){
+      return allRegs.some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
+    });
+    var semPontoHoje=ativos.filter(function(f){
+      return !allRegs.some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
+    });
 
-    pg.innerHTML =
-      '<div style="padding:16px 14px 10px;display:flex;justify-content:space-between;align-items:center;">' +
-        '<div>' +
-          '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.14em;text-transform:uppercase;">HR Mármores</div>' +
-          '<div style="font-size:1.25rem;font-weight:800;color:' + T1 + ';line-height:1.1;">Recursos Humanos</div>' +
+    // Saldo total da folha (extras pendentes)
+    var totalExtrasDevidos=0;
+    ativos.forEach(function(f){
+      var s=calcSaldoFuncionario(f.id,null,null);
+      if(s.saldo>0)totalExtrasDevidos+=s.saldo;
+    });
+
+    // ── Chips de alerta rápido ──
+    var alertChips='';
+    if(semPontoHoje.length>0){
+      alertChips+='<div style="background:#1a1200;border:1px solid rgba(201,168,76,.3);border-radius:8px;'+
+        'padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;cursor:pointer;" '+
+        'onclick="HR_FUNC._mostrarSemPonto()">' +
+        '<span style="font-size:.9rem;">⏰</span>'+
+        '<div><div style="font-size:.75rem;font-weight:700;color:'+GOLD+';">'+semPontoHoje.length+' sem ponto hoje</div>'+
+        '<div style="font-size:.65rem;color:'+T3+';">Toque para ver quem falta</div></div>'+
+        '<span style="margin-left:auto;font-size:.75rem;color:'+T3+';">→</span></div>';
+    }
+    if(aniversariantes.length>0){
+      alertChips+='<div style="background:#1a1500;border:1px solid rgba(201,168,76,.25);border-radius:8px;'+
+        'padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+        '<span style="font-size:.9rem;">🎂</span>'+
+        '<div style="font-size:.75rem;font-weight:700;color:'+GOLD+';">'+
+        aniversariantes.map(function(f){return f.nome.split(' ')[0];}).join(', ')+' faz aniversário!</div></div>';
+    }
+
+    // ── Cards da equipe ──
+    var busca=(window._hrBusca||'').toLowerCase();
+    var listaFiltrada=busca?lista.filter(function(f){
+      return f.nome.toLowerCase().indexOf(busca)!==-1||(f.cargo||'').toLowerCase().indexOf(busca)!==-1;
+    }):lista;
+
+    var cardsHtml=listaFiltrada.length===0
+      ?'<div style="text-align:center;padding:40px 20px;color:'+T3+';font-size:.84rem;">'+
+        (busca?'Nenhum resultado para "'+_esc(busca)+'"':'Nenhum funcionário cadastrado.<br><br>'+
+        '<button onclick="HR_FUNC.abrirFormFuncionario(null)" style="'+CSS_BTN_GOLD+'width:auto;padding:10px 24px;">+ Cadastrar primeiro funcionário</button>')+'</div>'
+      :listaFiltrada.map(function(f){return _cardFuncionario(f,pontoHoje);}).join('');
+
+    pg.innerHTML=
+      // ── Header ──
+      '<div style="background:linear-gradient(180deg,rgba(201,168,76,.07) 0%,transparent 100%);'+
+        'padding:20px 16px 14px;border-bottom:1px solid '+BD+';">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">' +
+          '<div>' +
+            '<div style="font-size:.58rem;color:'+GOLD+';letter-spacing:.18em;text-transform:uppercase;margin-bottom:2px;">HR MÁRMORES</div>' +
+            '<div style="font-size:1.4rem;font-weight:800;color:'+T1+';line-height:1;letter-spacing:-.02em;">Recursos Humanos</div>' +
+            '<div style="font-size:.72rem;color:'+T3+';margin-top:4px;">'+_fmtData(hoje)+' · '+ativos.length+' ativo'+(ativos.length!==1?'s':'')+'</div>' +
+          '</div>' +
+          '<button onclick="HR_FUNC.abrirFormFuncionario(null)" '+
+            'style="background:'+GOLD+';border:none;border-radius:10px;padding:10px 16px;'+
+            'color:#000;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">+ Cadastrar</button>' +
         '</div>' +
-        '<button onclick="HR_FUNC.abrirFormFuncionario(null)" ' +
-          'style="background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.45);' +
-          'border-radius:12px;padding:9px 15px;color:' + GOLD + ';' +
-          'font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;">+ Cadastrar</button>' +
+
+        // Stats row
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">' +
+          _statKpi('👷','Equipe',ativos.length+'/'+lista.length,'ativos') +
+          _statKpi('💵','Folha',_fmtMoeda(totalFolha),'mensal') +
+          _statKpi('⏱','Horas/mês',totHorasMes.toFixed(0)+'h','registradas') +
+          _statKpi('⚡','Extras/mês',totExtrasMes.toFixed(1)+'h','acumuladas') +
+        '</div>' +
       '</div>' +
 
-      '<div style="padding:0 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">' +
-        _statCard('👷 Equipe', ativos.length + ' ativo' + (ativos.length !== 1 ? 's' : '') + ' de ' + lista.length) +
-        _statCard('💵 Folha', 'R$ ' + totalFolha.toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2})) +
-        _statCard('⏱️ H. Trabalhadas', totHoras.toFixed(1) + ' h registradas') +
-        _statCard('⚡ H. Extras', totExtras.toFixed(2) + ' h acumuladas') +
-      '</div>' +
+      // ── Alertas ──
+      (alertChips?'<div style="padding:12px 16px 0;">'+alertChips+'</div>':'')+
 
-      '<div style="padding:0 14px;margin-bottom:14px;">' +
-        '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Ações Rápidas</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
-          _acaoBtn('📋 Histórico', 'Registros e ponto', 'HR_FUNC.abrirHistorico(null)') +
-          _acaoBtn('💳 Pagamentos', 'Registrar pagamento', 'HR_FUNC.abrirFormPagamento(null)') +
+      // ── Ações Rápidas ──
+      '<div style="padding:14px 16px 0;">' +
+        '<div style="font-size:.58rem;color:'+GOLD+';letter-spacing:.16em;text-transform:uppercase;margin-bottom:10px;">Ações Rápidas</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+          _btnAcao('📋','Histórico','Registros e ponto','HR_FUNC.abrirHistorico(null)','gold') +
+          _btnAcao('💳','Pagamentos','Registrar pagamento','HR_FUNC.abrirFormPagamento(null)','green') +
         '</div>' +
-        '<button onclick="if(typeof abrirRelatorioHorasExtras===\'function\')abrirRelatorioHorasExtras();" ' +
-          'style="margin-top:8px;width:100%;padding:13px 16px;' +
-          'background:rgba(201,168,76,.08);border:1.5px solid rgba(201,168,76,.35);' +
-          'border-radius:11px;color:#C9A84C;font-family:Outfit,sans-serif;' +
-          'font-size:.84rem;font-weight:700;cursor:pointer;' +
-          'display:flex;align-items:center;justify-content:center;gap:9px;' +
-          'letter-spacing:.02em;box-sizing:border-box;">' +
-          '<span>📊</span><span>Gerar Relatório de Horas Extras</span>' +
+        '<button onclick="HR_FUNC.abrirRegistroRapido()" '+
+          'style="width:100%;padding:12px 16px;background:rgba(92,142,200,.07);'+
+          'border:1.5px solid rgba(92,142,200,.3);border-radius:11px;color:'+BLUE+';'+
+          'font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;'+
+          'display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:8px;">' +
+          '<span>⚡</span><span>Registro Rápido de Ponto</span>' +
         '</button>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+          '<button onclick="if(typeof abrirRelatorioHorasExtras===\'function\')abrirRelatorioHorasExtras();" '+
+            'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
+            'border-radius:11px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.78rem;'+
+            'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
+            '<span>📊</span><span>Horas Extras</span></button>' +
+          '<button onclick="HR_FUNC.abrirFolhaPagamento()" '+
+            'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
+            'border-radius:11px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.78rem;'+
+            'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
+            '<span>📑</span><span>Folha de Pgto</span></button>' +
+        '</div>' +
       '</div>' +
 
-      '<div style="margin:0 14px 10px;height:1px;background:rgba(201,168,76,.12);"></div>' +
-
-      '<div style="padding:0 14px 4px;display:flex;justify-content:space-between;align-items:center;">' +
-        '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Equipe</div>' +
-        '<div style="font-size:.7rem;color:' + T3 + ';">' + lista.length + ' funcionário' + (lista.length !== 1 ? 's' : '') + '</div>' +
+      // ── Separador + Busca ──
+      '<div style="padding:14px 16px 0;">' +
+        '<div style="height:1px;background:'+BD+';margin-bottom:14px;"></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+          '<div style="font-size:.58rem;color:'+GOLD+';letter-spacing:.16em;text-transform:uppercase;">Equipe — '+lista.length+' funcionário'+(lista.length!==1?'s':'')+'</div>' +
+          '<button onclick="HR_FUNC._toggleBusca()" style="background:none;border:none;color:'+T3+';cursor:pointer;font-size:.85rem;padding:4px;">🔍</button>' +
+        '</div>' +
+        '<div id="hrBuscaWrap" style="display:'+(busca?'block':'none')+';margin-bottom:10px;">' +
+          '<input id="hrBuscaInp" type="search" placeholder="Buscar por nome ou cargo..." '+
+            'value="'+_esc(window._hrBusca||'')+'" '+
+            'oninput="window._hrBusca=this.value;HR_FUNC.renderPaginaFuncionarios();" '+
+            'style="'+CSS_INP+'">' +
+        '</div>' +
       '</div>' +
-      '<div style="padding:8px 14px 80px;">' + cardsHtml + '</div>';
+
+      // ── Lista da equipe ──
+      '<div style="padding:0 16px 20px;">'+cardsHtml+'</div>';
+
+    // Focus na busca se aberta
+    if(busca||(document.getElementById('hrBuscaWrap')||{}).style){
+      var inp=document.getElementById('hrBuscaInp');
+      if(inp&&busca)setTimeout(function(){inp.focus();inp.setSelectionRange(999,999);},80);
+    }
   }
 
-  function _statCard(label, valor) {
-    return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:12px 14px;">' +
-      '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:3px;">' + label + '</div>' +
-      '<div style="font-size:.88rem;font-weight:700;color:' + GOLD + ';line-height:1.2;">' + valor + '</div>' +
+  // ── KPI stat ──
+  function _statKpi(ico,label,valor,sub){
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:10px 8px;text-align:center;">' +
+      '<div style="font-size:.95rem;margin-bottom:2px;">'+ico+'</div>' +
+      '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.06em;">'+label+'</div>' +
+      '<div style="font-size:.85rem;font-weight:800;color:'+GOLD+';margin-top:2px;line-height:1.1;">'+valor+'</div>' +
+      '<div style="font-size:.58rem;color:'+T3+';">'+sub+'</div>' +
     '</div>';
   }
 
-  function _acaoBtn(titulo, sub, onclick) {
-    return '<button onclick="' + onclick + '" style="' +
-      'background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);' +
-      'border-radius:11px;padding:11px 12px;text-align:left;cursor:pointer;' +
-      'font-family:Outfit,sans-serif;width:100%;">' +
-      '<div style="font-size:.82rem;font-weight:700;color:' + GOLD + ';">' + titulo + '</div>' +
-      '<div style="font-size:.68rem;color:' + T3 + ';margin-top:2px;">' + sub + '</div>' +
+  // ── Botão de ação ──
+  function _btnAcao(ico,titulo,sub,onclick,cor){
+    var c=cor==='green'?GREEN:GOLD;
+    var bg=cor==='green'?'rgba(92,184,92,.07)':'rgba(201,168,76,.07)';
+    var bd=cor==='green'?'rgba(92,184,92,.3)':'rgba(201,168,76,.3)';
+    return '<button onclick="'+onclick+'" style="background:'+bg+';border:1.5px solid '+bd+';'+
+      'border-radius:11px;padding:12px 10px;text-align:left;cursor:pointer;font-family:Outfit,sans-serif;">' +
+      '<div style="font-size:1.1rem;margin-bottom:4px;">'+ico+'</div>' +
+      '<div style="font-size:.82rem;font-weight:700;color:'+c+';">'+titulo+'</div>' +
+      '<div style="font-size:.67rem;color:'+T3+';margin-top:2px;">'+sub+'</div>' +
     '</button>';
   }
 
-  function _statusBadge(ativo) {
-    return ativo !== false
-      ? '<span style="background:#1a3a1a;border:1px solid #4a8a4a;color:#6dc86d;border-radius:4px;padding:2px 8px;font-size:.68rem;">● Ativo</span>'
-      : '<span style="background:#3a1a1a;border:1px solid #8a4a4a;color:#c86d6d;border-radius:4px;padding:2px 8px;font-size:.68rem;">○ Inativo</span>';
-  }
+  // ── Card do funcionário ──
+  function _cardFuncionario(f, pontoHoje){
+    var temPonto=pontoHoje&&pontoHoje.some(function(p){return p.id===f.id;});
+    var alertas=analisarGaps(f.id);
+    var saldo=calcSaldoFuncionario(f.id,null,null);
 
-  function _cardFuncionario(f) {
-    // Mini saldo atual do funcionário (total geral)
-    var saldoInfo = calcSaldoFuncionario(f.id, null, null);
-    var saldoStr  = '';
-    if (saldoInfo.totalDevido > 0 || saldoInfo.totalPago > 0) {
-      if (saldoInfo.temCredito) {
-        saldoStr = '<div style="font-size:.68rem;color:#6dc86d;margin-top:3px;">💳 Crédito: ' + _fmtMoeda(Math.abs(saldoInfo.saldo)) + '</div>';
-      } else if (saldoInfo.saldo > 0.01) {
-        saldoStr = '<div style="font-size:.68rem;color:#c86d6d;margin-top:3px;">⚠ Deve: ' + _fmtMoeda(saldoInfo.saldo) + '</div>';
-      } else {
-        saldoStr = '<div style="font-size:.68rem;color:#6dc86d;margin-top:3px;">✓ Quitado</div>';
-      }
-    }
+    var badges='';
+    if(temPonto) badges+='<span style="font-size:.6rem;background:#0d1f0d;border:1px solid rgba(92,184,92,.5);color:'+GREEN+';border-radius:4px;padding:2px 7px;margin-right:4px;">✓ ponto</span>';
+    if(alertas.length>0) badges+='<span style="font-size:.6rem;background:#1f1500;border:1px solid rgba(201,168,76,.4);color:#c8a060;border-radius:4px;padding:2px 7px;margin-right:4px;">⚠ '+alertas.length+' alerta'+(alertas.length>1?'s':'')+'</span>';
 
-    // Alertas de gap
-    var alertas = analisarGaps(f.id);
-    var alertaBadge = alertas.length > 0
-      ? '<div style="font-size:.65rem;background:#2a1a00;border:1px solid #c8a060;color:#c8a060;' +
-          'border-radius:4px;padding:2px 6px;margin-top:3px;">⚠️ ' + alertas.length + ' alerta' + (alertas.length>1?'s':'') + '</div>'
-      : '';
+    var saldoBadge='';
+    if(saldo.saldo>0.5) saldoBadge='<span style="font-size:.62rem;color:'+RED+';">⚠ deve '+_fmtMoeda(saldo.saldo)+'</span>';
+    else if(saldo.temCredito) saldoBadge='<span style="font-size:.62rem;color:'+GREEN+';">💳 crédito '+_fmtMoeda(Math.abs(saldo.saldo))+'</span>';
 
-    return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:13px;' +
-      'padding:14px 16px;margin-bottom:10px;cursor:pointer;" ' +
-      'onclick="HR_FUNC.abrirDetalhesFuncionario(\'' + f.id + '\')">' +
-      '<div style="display:flex;align-items:center;gap:12px;">' +
-        _avatarCircle(f) +
+    // Linha de progresso tempo de empresa
+    var tempoStr=_tempoEmpresa(f.admissao);
+
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:14px;'+
+      'padding:14px 16px;margin-bottom:9px;cursor:pointer;'+
+      'transition:border-color .2s;active:opacity:.9;" '+
+      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+f.id+'\')">' +
+      '<div style="display:flex;align-items:center;gap:13px;">' +
+        _avatarCircle(f,50) +
         '<div style="flex:1;min-width:0;">' +
-          '<div style="font-weight:700;color:' + T1 + ';font-size:.95rem;">' + _esc(f.nome) + '</div>' +
-          '<div style="font-size:.76rem;color:' + T3 + ';margin-top:1px;">' +
-            _esc(f.cargo || '—') + (f.equipe ? ' · ' + _esc(f.equipe) : '') +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<div style="font-weight:700;color:'+T1+';font-size:.97rem;">'+_esc(f.nome)+'</div>' +
+            _statusPill(f.ativo) +
           '</div>' +
-          alertaBadge +
+          '<div style="font-size:.73rem;color:'+T3+';margin-top:1px;">'+
+            _esc(f.cargo||'—')+(f.equipe?' · '+_esc(f.equipe):'')+
+            (tempoStr?' · <span style="color:'+GOLD+'.7;">'+tempoStr+'</span>':'') +
+          '</div>' +
+          (badges?'<div style="margin-top:5px;">'+badges+'</div>':'')+
+          (saldoBadge?'<div style="margin-top:3px;">'+saldoBadge+'</div>':'')+
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
-          _statusBadge(f.ativo) +
-          '<div style="font-size:.72rem;color:' + GOLD + ';margin-top:5px;font-weight:600;">' +
-            _fmtMoeda(f.salario) +
-          '</div>' +
-          saldoStr +
+          '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
+          '<div style="font-size:.62rem;color:'+T3+';margin-top:2px;">base mensal</div>' +
         '</div>' +
       '</div>' +
     '</div>';
   }
 
-  function _avatarCircle(f) {
-    if (f.foto) {
-      return '<img src="' + f.foto + '" style="width:42px;height:42px;border-radius:50%;object-fit:cover;' +
-        'border:2px solid rgba(201,168,76,.4);flex-shrink:0;">';
+  function _avatarCircle(f,sz){
+    sz=sz||44;
+    if(f.foto){
+      return '<img src="'+f.foto+'" style="width:'+sz+'px;height:'+sz+'px;border-radius:50%;object-fit:cover;'+
+        'border:2px solid '+GOLDB+';flex-shrink:0;">';
     }
-    var ini = (f.nome || '?').charAt(0).toUpperCase();
-    return '<div style="width:42px;height:42px;border-radius:50%;' +
-      'background:rgba(201,168,76,.15);border:2px solid rgba(201,168,76,.35);' +
-      'display:flex;align-items:center;justify-content:center;flex-shrink:0;' +
-      'font-size:1.1rem;font-weight:700;color:' + GOLD + ';">' + ini + '</div>';
+    var ini=(f.nome||'?').charAt(0).toUpperCase();
+    var colors=['#8B6914','#6B4E9A','#2E7D6B','#7D2E2E','#1A6B7D'];
+    var bg=colors[(f.nome||'').charCodeAt(0)%colors.length];
+    return '<div style="width:'+sz+'px;height:'+sz+'px;border-radius:50%;'+
+      'background:'+bg+';border:2px solid '+GOLDB+';'+
+      'display:flex;align-items:center;justify-content:center;flex-shrink:0;'+
+      'font-size:'+(sz*0.44)+'px;font-weight:800;color:#fff;letter-spacing:-.02em;">'+ini+'</div>';
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // 6. FORMULÁRIO CADASTRO / EDIÇÃO
-  // ─────────────────────────────────────────────────────────────
-  function abrirFormFuncionario(id) {
-    var funcs = getFuncionarios();
-    var f = id ? (funcs[id] || {}) : {};
-    var titulo = id ? 'Editar Funcionário' : 'Novo Funcionário';
-
-    var html =
-      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
-          '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Equipe</div>' +
-            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">' + titulo + '</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closeForm()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Dados Pessoais</div>' +
-          _fieldBlock('Nome completo', _inp('ff_nome', 'text', 'Ex: João da Silva', f.nome)) +
-          _fieldBlock('Telefone / WhatsApp', _inp('ff_tel', 'tel', '(74) 9xxxx-xxxx', f.telefone)) +
-          _fieldBlock('Foto (URL ou deixe em branco)', _inp('ff_foto', 'url', 'https://...', f.foto)) +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Dados Profissionais</div>' +
-          _fieldBlock('Cargo', _inp('ff_cargo', 'text', 'Ex: Marmorista, Ajudante...', f.cargo)) +
-          _fieldBlock('Equipe', _sel('ff_equipe', [
-            {v:'producao', l:'Produção'},
-            {v:'instalacao', l:'Instalação'},
-            {v:'escritorio', l:'Escritório'},
-            {v:'geral', l:'Geral'}
-          ], f.equipe || 'producao')) +
-          _fieldBlock('Salário base mensal (R$)', _inp('ff_salario', 'number', '0,00', f.salario, 'min="0" step="0.01"')) +
-          _fieldBlock('Data de Admissão', _inp('ff_admissao', 'date', '', f.admissao)) +
-          _fieldBlock('Status', _sel('ff_ativo', [
-            {v:'true', l:'✓ Ativo'},
-            {v:'false', l:'✗ Inativo'}
-          ], f.ativo === false ? 'false' : 'true')) +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:16px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Observações</div>' +
-          _fieldBlock('Obs. (opcional)', _ta('ff_obs', 'Informações adicionais...', f.obs, 3)) +
-        '</div>' +
-
-        '<button onclick="HR_FUNC._salvarFuncionario(\'' + (id||'') + '\')" style="' + BTN_GOLD + '">💾 Salvar Funcionário</button>' +
-
-        (id
-          ? '<button onclick="HR_FUNC._excluirFuncionario(\'' + id + '\')" ' +
-              'style="' + BTN_CANCEL + 'color:#c86d6d;border-color:rgba(200,109,109,.25);margin-top:4px;">🗑 Excluir Funcionário</button>'
-          : '') +
-
-        '<button onclick="HR_FUNC._closeForm()" style="' + BTN_CANCEL + 'margin-top:4px;">Cancelar</button>' +
-      '</div>';
-
-    _overlay('hrFuncForm', html);
+  function _statusPill(ativo){
+    return ativo!==false
+      ?'<span style="font-size:.6rem;background:#0d2010;border:1px solid rgba(92,184,92,.45);color:'+GREEN+';'+
+        'border-radius:20px;padding:2px 8px;">● Ativo</span>'
+      :'<span style="font-size:.6rem;background:#200d0d;border:1px solid rgba(200,92,92,.45);color:'+RED+';'+
+        'border-radius:20px;padding:2px 8px;">○ Inativo</span>';
   }
 
-  function _closeForm() { _closeOverlay('hrFuncForm'); }
+  // Toggle busca
+  window._hrBusca=window._hrBusca||'';
+  function _toggleBusca(){
+    var w=document.getElementById('hrBuscaWrap');
+    if(!w)return;
+    var show=w.style.display==='none';
+    w.style.display=show?'block':'none';
+    if(!show){window._hrBusca='';renderPaginaFuncionarios();}
+    else{var i=document.getElementById('hrBuscaInp');if(i)setTimeout(function(){i.focus();},80);}
+  }
 
-  function _salvarFuncionario(id) {
-    var nome = (document.getElementById('ff_nome') || {}).value || '';
-    if (!nome.trim()) { _toast('Informe o nome do funcionário'); return; }
+  // Mostrar quem está sem ponto hoje
+  function _mostrarSemPonto(){
+    var hoje=_hoje();
+    var regs=getRegistros();
+    var funcs=getFuncionarios();
+    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;});
+    var semPonto=ativos.filter(function(f){
+      return !Object.values(regs).some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
+    });
+    var html='<div style="width:100%;max-width:480px;padding:0 16px;">'+
+      _overlayHeader('Sem Ponto Hoje','⏰ '+_fmtData(hoje),'window._hrFecharSemPonto()')+
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:12px;">'+
+      semPonto.map(function(f){
+        return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid '+BD+';">'+
+          _avatarCircle(f,38)+
+          '<div style="flex:1;">'+
+            '<div style="font-weight:600;color:'+T1+';font-size:.9rem;">'+_esc(f.nome)+'</div>'+
+            '<div style="font-size:.72rem;color:'+T3+';">'+_esc(f.cargo||'—')+'</div>'+
+          '</div>'+
+          '<button onclick="HR_FUNC.abrirFormRegistro(\''+f.id+'\');window._hrFecharSemPonto();" '+
+            'style="background:'+GOLD2+';border:1px solid '+GOLDB+';color:'+GOLD+';border-radius:8px;padding:6px 12px;cursor:pointer;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;">+ Ponto</button>'+
+        '</div>';
+      }).join('')+
+      '</div>'+
+      '<button onclick="window._hrFecharSemPonto()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
+    '</div>';
+    _overlay('hrSemPonto',html);
+  }
+  window._hrFecharSemPonto=function(){_closeOverlay('hrSemPonto');};
 
-    var funcs = getFuncionarios();
-    var funcId = id || genId();
-    var isNew = !id;
+  // ─────────────────────────────────────────────────────────────
+  // 7. FORMULÁRIO CADASTRO/EDIÇÃO — APRIMORADO
+  // ─────────────────────────────────────────────────────────────
+  function abrirFormFuncionario(id){
+    var funcs=getFuncionarios();
+    var f=id?(funcs[id]||{}):{};
+    var isEdit=!!id;
 
-    funcs[funcId] = {
-      id:        funcId,
-      nome:      nome.trim(),
-      telefone:  (document.getElementById('ff_tel')      || {}).value || '',
-      foto:      (document.getElementById('ff_foto')     || {}).value || '',
-      cargo:     (document.getElementById('ff_cargo')    || {}).value || '',
-      equipe:    (document.getElementById('ff_equipe')   || {}).value || 'producao',
-      salario:   parseFloat((document.getElementById('ff_salario')  || {}).value) || 0,
-      admissao:  (document.getElementById('ff_admissao') || {}).value || '',
-      ativo:     (document.getElementById('ff_ativo')    || {}).value !== 'false',
-      obs:       (document.getElementById('ff_obs')      || {}).value || '',
-      criadoEm:  (funcs[funcId] && funcs[funcId].criadoEm) || new Date().toISOString(),
-      atualizadoEm: new Date().toISOString()
+    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader(isEdit?'Editar Funcionário':'Novo Funcionário','RH · Equipe','HR_FUNC._closeForm()')+
+
+      // Avatar preview + upload
+      '<div style="text-align:center;margin-bottom:16px;">'+
+        '<div id="ffAvatarPreview" style="width:72px;height:72px;border-radius:50%;'+
+          'background:rgba(201,168,76,.15);border:2px dashed '+GOLDB+';'+
+          'display:flex;align-items:center;justify-content:center;margin:0 auto 8px;'+
+          'font-size:1.6rem;cursor:pointer;overflow:hidden;" '+
+          'onclick="document.getElementById(\'ffFotoInp\').click()">'+
+          (f.foto?'<img src="'+f.foto+'" style="width:100%;height:100%;object-fit:cover;">':'📷')+
+        '</div>'+
+        '<input type="file" id="ffFotoInp" accept="image/*" style="display:none;" onchange="HR_FUNC._previewFoto(this)">'+
+        '<div style="font-size:.68rem;color:'+T3+';">Toque para adicionar foto</div>'+
+      '</div>'+
+
+      _secao('Dados Pessoais',
+        _campo('Nome completo *',_inp('ff_nome','text','João da Silva',f.nome))+
+        _campo('Telefone / WhatsApp',_inp('ff_tel','tel','(74) 9xxxx-xxxx',f.telefone))+
+        _grid2(
+          _campo('Data de Nascimento',_inp('ff_nasc','date','',f.nascimento)),
+          _campo('CPF',_inp('ff_cpf','text','000.000.000-00',f.cpf))
+        )
+      )+
+
+      _secao('Dados Profissionais',
+        _campo('Cargo',_inp('ff_cargo','text','Ex: Marmorista, Ajudante...',f.cargo))+
+        _grid2(
+          _campo('Equipe',_sel('ff_equipe',[
+            {v:'producao',l:'🏭 Produção'},{v:'instalacao',l:'🔧 Instalação'},
+            {v:'escritorio',l:'🖥 Escritório'},{v:'geral',l:'🏢 Geral'}
+          ],f.equipe||'producao')),
+          _campo('Status',_sel('ff_ativo',[{v:'true',l:'✓ Ativo'},{v:'false',l:'✗ Inativo'}],f.ativo===false?'false':'true'))
+        )+
+        _grid2(
+          _campo('Salário Mensal (R$)',_inp('ff_salario','number','0,00',f.salario,'min="0" step="0.01"')),
+          _campo('Data de Admissão',_inp('ff_admissao','date','',f.admissao))
+        )+
+        _grid2(
+          _campo('Banco',_inp('ff_banco','text','Ex: Bradesco',f.banco)),
+          _campo('Chave PIX',_inp('ff_pix','text','CPF, tel ou e-mail',f.pix))
+        )
+      )+
+
+      _secao('Observações',
+        _campo('Obs. interna (opcional)',_ta('ff_obs','Informações adicionais, restrições, metas...',f.obs,3))
+      )+
+
+      '<input type="hidden" id="ff_foto_val" value="'+_esc(f.foto||'')+'">'+
+      '<button onclick="HR_FUNC._salvarFuncionario(\''+( id||'')+'\');" style="'+CSS_BTN_GOLD+'">💾 Salvar Funcionário</button>'+
+      (isEdit?'<button onclick="HR_FUNC._excluirFuncionario(\''+id+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir Funcionário</button>':'')+
+      '<button onclick="HR_FUNC._closeForm()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay('hrFuncForm',html);
+  }
+
+  function _previewFoto(input){
+    var file=input&&input.files&&input.files[0]; if(!file)return;
+    var r=new FileReader();
+    r.onload=function(e){
+      var prev=document.getElementById('ffAvatarPreview');
+      if(prev)prev.innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover;">';
+      var hid=document.getElementById('ff_foto_val');
+      if(hid)hid.value=e.target.result;
     };
-
-    saveFuncionarios(funcs);
-    _closeForm();
-    renderPaginaFuncionarios();
-    _toast(isNew ? '✓ Funcionário cadastrado!' : '✓ Funcionário atualizado!');
+    r.readAsDataURL(file);
   }
 
-  function _excluirFuncionario(id) {
-    var funcs = getFuncionarios();
-    var nome = (funcs[id] || {}).nome || 'este funcionário';
-    if (!confirm('Excluir ' + nome + '? Os registros e pagamentos também serão apagados.')) return;
+  function _closeForm(){ _closeOverlay('hrFuncForm'); }
 
-    delete funcs[id];
-    saveFuncionarios(funcs);
+  function _salvarFuncionario(id){
+    var nome=(document.getElementById('ff_nome')||{}).value||'';
+    if(!nome.trim()){_toast('Informe o nome');return;}
+    var funcs=getFuncionarios();
+    var funcId=id||genId(); var isNew=!id;
+    var foto=(document.getElementById('ff_foto_val')||{}).value||
+             (document.getElementById('ff_foto')||{}).value||
+             (funcs[funcId]&&funcs[funcId].foto)||'';
+    funcs[funcId]={
+      id:funcId,nome:nome.trim(),
+      telefone:(document.getElementById('ff_tel')||{}).value||'',
+      foto:foto,
+      nascimento:(document.getElementById('ff_nasc')||{}).value||'',
+      cpf:(document.getElementById('ff_cpf')||{}).value||'',
+      cargo:(document.getElementById('ff_cargo')||{}).value||'',
+      equipe:(document.getElementById('ff_equipe')||{}).value||'producao',
+      salario:parseFloat((document.getElementById('ff_salario')||{}).value)||0,
+      admissao:(document.getElementById('ff_admissao')||{}).value||'',
+      banco:(document.getElementById('ff_banco')||{}).value||'',
+      pix:(document.getElementById('ff_pix')||{}).value||'',
+      ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
+      obs:(document.getElementById('ff_obs')||{}).value||'',
+      criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
+      atualizadoEm:new Date().toISOString()
+    };
+    saveFuncionarios(funcs); _closeForm(); renderPaginaFuncionarios();
+    _toast(isNew?'✓ Funcionário cadastrado!':'✓ Funcionário atualizado!');
+  }
 
-    var regs = getRegistros();
-    Object.keys(regs).forEach(function(rid) {
-      if (regs[rid].funcionarioId === id) delete regs[rid];
-    });
-    saveRegistros(regs);
-
-    var pags = getPagamentos();
-    Object.keys(pags).forEach(function(pid) {
-      if (pags[pid].funcionarioId === id) delete pags[pid];
-    });
-    savePagamentos(pags);
-
-    _closeForm();
-    renderPaginaFuncionarios();
-    _toast('Funcionário excluído.');
+  function _excluirFuncionario(id){
+    var funcs=getFuncionarios(); var nome=(funcs[id]||{}).nome||'funcionário';
+    if(!confirm('Excluir '+nome+'? Registros e pagamentos também serão apagados.'))return;
+    delete funcs[id]; saveFuncionarios(funcs);
+    var regs=getRegistros(); Object.keys(regs).forEach(function(k){if(regs[k].funcionarioId===id)delete regs[k];}); saveRegistros(regs);
+    var pags=getPagamentos(); Object.keys(pags).forEach(function(k){if(pags[k].funcionarioId===id)delete pags[k];}); savePagamentos(pags);
+    _closeForm(); renderPaginaFuncionarios(); _toast('Funcionário excluído.');
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 7. DETALHES DO FUNCIONÁRIO (hub de ações)
+  // 8. PERFIL COMPLETO DO FUNCIONÁRIO — NOVO DESIGN
   // ─────────────────────────────────────────────────────────────
-  function abrirDetalhesFuncionario(id) {
-    var funcs = getFuncionarios();
-    var f = funcs[id];
-    if (!f) return;
+  function abrirDetalhesFuncionario(id){
+    var funcs=getFuncionarios(); var f=funcs[id]; if(!f)return;
+    var regs=getRegistros();
+    var meusRegs=Object.values(regs).filter(function(r){return r.funcionarioId===id;})
+      .sort(function(a,b){return b.data.localeCompare(a.data);});
+    var hoje=_hoje();
+    var mesAtual=_mesAno(0);
+    var regsMes=meusRegs.filter(function(r){return r.data.startsWith(mesAtual);});
 
-    var regs = getRegistros();
-    var meusRegs = Object.values(regs).filter(function(r) {
-      return r.funcionarioId === id;
-    }).sort(function(a, b) { return b.data.localeCompare(a.data); });
+    var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
+    var totalExtra=meusRegs.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    var horasMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
+    var extraMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    var saldo=calcSaldoFuncionario(id,null,null);
+    var alertas=analisarGaps(id);
+    var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
 
-    var totalHoras = meusRegs.reduce(function(s, r) { return s + (parseFloat(r.horas) || 0); }, 0);
-    var totalExtra = meusRegs.reduce(function(s, r) { return s + (parseFloat(r.extra) || 0); }, 0);
+    var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?RED:GOLD);
+    var saldoLabel=saldo.temCredito?'💳 Crédito':(saldo.saldo>0.01?'⚠ Deve':'✓ Quitado');
 
-    // Saldo financeiro geral
-    var saldo = calcSaldoFuncionario(id, null, null);
+    // Calendário do mês atual (últimos 28 dias como grid)
+    var calHtml=_calendarioMini(id,regs);
 
-    // Alertas de gaps
-    var alertas = analisarGaps(id);
-    var alertasHtml = '';
-    if (alertas.length > 0) {
-      alertasHtml = '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
-        'border-radius:12px;padding:14px;margin-bottom:12px;">' +
-        '<div style="font-size:.68rem;color:#c8a060;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">⚠️ Alertas de Registro</div>' +
-        alertas.map(function(a) {
-          return '<div style="font-size:.78rem;color:#e0b870;padding:5px 0;' +
-            'border-bottom:1px solid rgba(200,160,60,.12);">' + _esc(a.descricao) + '</div>';
-        }).join('') +
+    // Alertas
+    var alertasHtml='';
+    if(alertas.length>0){
+      alertasHtml='<div style="background:#16100a;border:1px solid rgba(201,168,76,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
+        '<div style="font-size:.62rem;color:#c8a060;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">⚠️ Alertas</div>'+
+        alertas.map(function(a){
+          return '<div style="font-size:.75rem;color:#e0b870;padding:4px 0;border-bottom:1px solid rgba(200,160,60,.1);">'+_esc(a.descricao)+'</div>';
+        }).join('')+
       '</div>';
     }
 
-    // Saldo card
-    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
-    var saldoLabel = saldo.temCredito ? '💳 Crédito a favor' : (saldo.saldo > 0.01 ? '⚠ Saldo devedor' : '✓ Quitado');
-    var saldoHtml = (saldo.totalDevido > 0 || saldo.totalPago > 0)
-      ? '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">💰 Financeiro</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">' +
-            _miniStat('Total Devido', _fmtMoeda(saldo.totalDevido)) +
-            _miniStat('Total Pago', _fmtMoeda(saldo.totalPago)) +
-          '</div>' +
-          '<div style="text-align:center;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;">' +
-            '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:3px;">' + saldoLabel + '</div>' +
-            '<div style="font-size:1.2rem;font-weight:800;color:' + saldoColor + ';">' + _fmtMoeda(Math.abs(saldo.saldo)) + '</div>' +
-          '</div>' +
-        '</div>'
-      : '';
+    var html='<div style="width:100%;max-width:520px;padding:0 16px;">'+
 
-    var regsHtml = meusRegs.length === 0
-      ? '<div style="text-align:center;padding:24px;color:' + T3 + ';font-size:.82rem;">Nenhum registro ainda.</div>'
-      : meusRegs.slice(0, 10).map(function(r) { return _miniCardRegistro(r); }).join('') +
-        (meusRegs.length > 10
-          ? '<div style="text-align:center;padding:8px;font-size:.75rem;color:' + T3 + ';">' +
-              '+ ' + (meusRegs.length - 10) + ' registros — veja o Histórico completo' +
-            '</div>'
-          : '');
+      // Hero card
+      '<div style="background:linear-gradient(135deg,'+S2+' 0%,rgba(201,168,76,.06) 100%);'+
+        'border:1px solid '+BD+';border-radius:16px;padding:20px;margin-bottom:14px;'+
+        'display:flex;align-items:center;gap:16px;">' +
+        _avatarCircle(f,62)+
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:'+T1+';letter-spacing:-.01em;">'+_esc(f.nome)+'</div>' +
+          '<div style="font-size:.75rem;color:'+T3+';margin-top:2px;">'+_esc(f.cargo||'—')+'</div>' +
+          '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">'+
+            _statusPill(f.ativo)+
+            (f.equipe?'<span style="font-size:.6rem;background:'+GOLD2+';border:1px solid '+GOLDB+';color:'+GOLD+';border-radius:20px;padding:2px 8px;">'+_esc(f.equipe)+'</span>':'')+
+            (temPontoHoje?'<span style="font-size:.6rem;background:#0d2010;border:1px solid rgba(92,184,92,.5);color:'+GREEN+';border-radius:20px;padding:2px 8px;">✓ ponto hoje</span>':'')+
+          '</div>'+
+          (_tempoEmpresa(f.admissao)?'<div style="font-size:.67rem;color:'+T3+';margin-top:4px;">⏳ '+_tempoEmpresa(f.admissao)+' na empresa</div>':'')+
+        '</div>'+
+        '<button onclick="HR_FUNC._closeDetalhes()" style="background:none;border:none;color:'+T3+';cursor:pointer;font-size:1.1rem;align-self:flex-start;padding:0;">✕</button>'+
+      '</div>'+
 
-    var html =
-      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
-          '<div style="display:flex;align-items:center;gap:12px;">' +
-            _avatarCircle(f) +
-            '<div>' +
-              '<div style="font-size:1.05rem;font-weight:700;color:' + T1 + ';">' + _esc(f.nome) + '</div>' +
-              '<div style="font-size:.72rem;color:' + T3 + ';margin-top:2px;">' + _esc(f.cargo || '—') + '</div>' +
-              _statusBadge(f.ativo) +
-            '</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closeDetalhes()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 12px;cursor:pointer;font-size:.8rem;">✕</button>' +
-        '</div>' +
+      // Stats do mês vs geral
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'+
+        _statCard2('📅 Este mês','Dias: '+regsMes.length+' · '+horasMes.toFixed(0)+'h'+
+          (extraMes>0?' · <span style="color:'+GOLD+';">+'+extraMes.toFixed(1)+'h extra</span>':''))+
+        _statCard2('📊 Total geral',totalHoras.toFixed(0)+'h trabalhadas · '+totalExtra.toFixed(1)+'h extra')+
+      '</div>'+
 
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">' +
-          _miniStat('Salário', _fmtMoeda(f.salario)) +
-          _miniStat('H. Trabalhadas', totalHoras.toFixed(1) + 'h') +
-          _miniStat('H. Extras', totalExtra.toFixed(2) + 'h') +
-        '</div>' +
+      // Financeiro
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;">💰 Financeiro</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
+          _miniKpi('Salário base',_fmtMoeda(f.salario),GOLD)+
+          _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),GOLD)+
+          _miniKpi('Já pago',_fmtMoeda(saldo.totalPago),GREEN)+
+        '</div>'+
+        '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;">'+
+          '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
+          '<div style="font-size:1.4rem;font-weight:800;color:'+saldoColor+';">'+_fmtMoeda(Math.abs(saldo.saldo))+'</div>'+
+          (saldo.temCredito?'<div style="font-size:.65rem;color:'+GREEN+';margin-top:2px;">Desconta no próximo pagamento</div>':'')+
+        '</div>'+
+      '</div>'+
 
-        alertasHtml +
-        saldoHtml +
+      alertasHtml+
 
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px 16px;margin-bottom:12px;">' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.78rem;">' +
-            _infoRow('Equipe', f.equipe || '—') +
-            _infoRow('Telefone', f.telefone || '—') +
-            _infoRow('Admissão', _fmtData(f.admissao)) +
-            _infoRow('Registros', meusRegs.length + '') +
-          '</div>' +
-          (f.obs ? '<div style="margin-top:10px;font-size:.75rem;color:' + T3 + ';border-top:1px solid rgba(201,168,76,.1);padding-top:10px;">' + _esc(f.obs) + '</div>' : '') +
-        '</div>' +
+      // Calendário mini
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">📅 Ponto — Mês Atual</div>'+
+        calHtml+
+      '</div>'+
 
-        '<button onclick="HR_FUNC.abrirFormRegistro(\'' + id + '\')" style="' + BTN_GOLD + '">📝 Novo Registro do Dia</button>' +
-        '<button onclick="HR_FUNC.abrirFormPagamento(\'' + id + '\')" style="' + BTN_GREEN + '">💳 Registrar Pagamento</button>' +
-        '<button onclick="HR_FUNC.abrirHistorico(\'' + id + '\')" style="' + BTN_CANCEL + 'margin-bottom:8px;color:' + GOLD + ';border-color:rgba(201,168,76,.3);">📋 Histórico Completo</button>' +
-        '<button onclick="HR_FUNC.abrirExtratoPagamentos(\'' + id + '\')" style="' + BTN_CANCEL + 'margin-bottom:8px;">📊 Extrato de Pagamentos</button>' +
-        '<button onclick="HR_FUNC.abrirFormFuncionario(\'' + id + '\');HR_FUNC._closeDetalhes();" style="' + BTN_CANCEL + 'margin-bottom:8px;">✏️ Editar Cadastro</button>' +
+      // Informações adicionais
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">📋 Informações</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.78rem;">'+
+          _infoRow2('Admissão',_fmtData(f.admissao))+
+          _infoRow2('Telefone',f.telefone||'—')+
+          _infoRow2('CPF',f.cpf||'—')+
+          _infoRow2('Banco/PIX',f.banco?f.banco+(f.pix?' · '+f.pix:''):(f.pix||'—'))+
+        '</div>'+
+        (f.obs?'<div style="margin-top:10px;font-size:.73rem;color:'+T3+';border-top:1px solid '+BD+';padding-top:10px;">'+_esc(f.obs)+'</div>':'')+
+      '</div>'+
 
-        (meusRegs.length > 0
-          ? '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Últimos Registros</div>' +
-            regsHtml
-          : '') +
+      // Ações
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
+        '<button onclick="HR_FUNC.abrirFormRegistro(\''+id+'\')" style="padding:13px;background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">📝 Novo Registro</button>'+
+        '<button onclick="HR_FUNC.abrirFormPagamento(\''+id+'\')" style="padding:13px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">💳 Pagamento</button>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
+        '<button onclick="HR_FUNC.abrirHistorico(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📋 Histórico</button>'+
+        '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📊 Extrato</button>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
+        '<button onclick="HR_FUNC.abrirFormFuncionario(\''+id+'\');HR_FUNC._closeDetalhes();" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✏️ Editar</button>'+
+        '<button onclick="HR_FUNC._whatsappFunc(\''+id+'\')" style="padding:11px;background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.3);color:#25d366;border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">💬 WhatsApp</button>'+
+      '</div>'+
 
-        '<button onclick="HR_FUNC._closeDetalhes()" style="' + BTN_CANCEL + 'margin-top:8px;">Fechar</button>' +
-      '</div>';
+      // Últimos registros
+      (meusRegs.length>0?
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Últimos Registros</div>'+
+        meusRegs.slice(0,5).map(function(r){return _miniCardRegistro(r);}).join('')+
+        (meusRegs.length>5?'<div style="text-align:center;padding:6px 0;font-size:.72rem;color:'+T3+';">+ '+(meusRegs.length-5)+' no histórico completo</div>':'')
+      :'')+
 
-    _overlay('hrFuncDetalhes', html);
+      '<button onclick="HR_FUNC._closeDetalhes()" style="'+CSS_BTN_GHOST+'margin-top:8px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrFuncDetalhes',html);
   }
 
-  function _closeDetalhes() { _closeOverlay('hrFuncDetalhes'); }
+  function _closeDetalhes(){ _closeOverlay('hrFuncDetalhes'); }
 
-  function _miniStat(label, valor) {
-    return '<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:10px 8px;text-align:center;">' +
-      '<div style="font-size:.65rem;color:' + T3 + ';margin-bottom:4px;">' + label + '</div>' +
-      '<div style="font-size:.9rem;font-weight:700;color:' + GOLD + ';">' + valor + '</div>' +
+  // WhatsApp link
+  function _whatsappFunc(id){
+    var f=(getFuncionarios()[id]||{});
+    if(!f.telefone){_toast('Funcionário sem telefone cadastrado.');return;}
+    var tel=f.telefone.replace(/\D/g,'');
+    if(tel.length<10){_toast('Número de telefone inválido.');return;}
+    var url='https://wa.me/55'+tel+'?text='+encodeURIComponent('Olá '+f.nome.split(' ')[0]+', aqui é HR Mármores.');
+    window.open(url,'_blank');
+  }
+
+  // Calendário mini do mês
+  function _calendarioMini(funcId,regs){
+    var hoje=_hoje();
+    var ano=parseInt(hoje.slice(0,4)), mes=parseInt(hoje.slice(5,7));
+    var diasNoMes=new Date(ano,mes,0).getDate();
+    var primeroDia=new Date(ano+'-'+String(mes).padStart(2,'0')+'-01T12:00:00').getDay();
+
+    // Pega registros do mês
+    var mesStr=hoje.slice(0,7);
+    var regsMes={};
+    Object.values(regs).filter(function(r){return r.funcionarioId===funcId&&r.data.startsWith(mesStr);})
+      .forEach(function(r){regsMes[r.data]=r;});
+
+    var dias=['D','S','T','Q','Q','S','S'];
+    var h='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">';
+    // Cabeçalho
+    dias.forEach(function(d){
+      h+='<div style="text-align:center;font-size:.55rem;color:'+T3+';padding:3px 0;font-weight:600;">'+d+'</div>';
+    });
+    // Dias vazios antes do mês
+    for(var i=0;i<primeroDia;i++) h+='<div></div>';
+    // Dias do mês
+    for(var d=1;d<=diasNoMes;d++){
+      var dStr=ano+'-'+String(mes).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      var reg=regsMes[dStr];
+      var isHoje=dStr===hoje;
+      var dow=new Date(dStr+'T12:00:00').getDay();
+      var isFDS=dow===0||dow===6;
+      var bg='transparent', cor=T3, brd='transparent';
+      if(isHoje){bg='rgba(201,168,76,.2)';cor=GOLD;brd=GOLDB;}
+      if(reg){bg=parseFloat(reg.extra)>0?'rgba(201,168,76,.25)':'rgba(92,184,92,.2)';cor=parseFloat(reg.extra)>0?GOLD:GREEN;brd='transparent';}
+      if(isFDS&&!reg){cor='rgba(122,114,104,.4)';}
+      h+='<div style="text-align:center;padding:4px 2px;border-radius:6px;border:1px solid '+brd+';background:'+bg+';'+
+        'font-size:.65rem;font-weight:'+(isHoje?'800':'600')+';color:'+cor+';cursor:'+(reg?'pointer':'default')+';" '+
+        (reg?'onclick="HR_FUNC.abrirDetalhesRegistro(\''+reg.id+'\')" title="'+reg.horas+'h'+(parseFloat(reg.extra)>0?' +'+reg.extra+'h extra':'')+'">':'>')+
+        d+'</div>';
+    }
+    h+='</div>';
+    // Legenda
+    h+='<div style="display:flex;gap:12px;margin-top:8px;justify-content:center;">' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(92,184,92,.25);"></div>Ponto normal</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.3);"></div>Com hora extra</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.2);border:1px solid '+GOLDB+';"></div>Hoje</div>' +
+    '</div>';
+    return h;
+  }
+
+  // Helpers de UI
+  function _statCard2(titulo,corpo){
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px 14px;">' +
+      '<div style="font-size:.65rem;font-weight:700;color:'+GOLD+';margin-bottom:5px;">'+titulo+'</div>' +
+      '<div style="font-size:.78rem;color:'+T2+';line-height:1.5;">'+corpo+'</div>' +
     '</div>';
   }
-
-  function _infoRow(label, valor) {
+  function _miniKpi(label,valor,cor){
+    return '<div style="text-align:center;background:rgba(0,0,0,.2);border-radius:9px;padding:8px 6px;">' +
+      '<div style="font-size:.6rem;color:'+T3+';margin-bottom:3px;">'+label+'</div>' +
+      '<div style="font-size:.82rem;font-weight:700;color:'+(cor||GOLD)+';">'+valor+'</div>' +
+    '</div>';
+  }
+  function _infoRow2(label,valor){
     return '<div>' +
-      '<div style="font-size:.65rem;color:' + T3 + ';margin-bottom:2px;">' + label + '</div>' +
-      '<div style="font-weight:600;color:' + T1 + ';">' + _esc(valor) + '</div>' +
+      '<div style="font-size:.6rem;color:'+T3+';margin-bottom:2px;text-transform:uppercase;letter-spacing:.06em;">'+label+'</div>' +
+      '<div style="font-size:.8rem;font-weight:600;color:'+T1+';">'+_esc(valor)+'</div>' +
     '</div>';
   }
-
-  function _miniCardRegistro(r) {
-    return '<div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.12);' +
-      'border-radius:10px;padding:10px 12px;margin-bottom:8px;' +
-      'cursor:pointer;" onclick="HR_FUNC.abrirDetalhesRegistro(\'' + r.id + '\')">' +
+  function _miniStat(label,valor){
+    return '<div style="background:'+GOLD2+';border:1px solid '+GOLDB+';border-radius:9px;padding:9px 8px;text-align:center;">' +
+      '<div style="font-size:.6rem;color:'+T3+';margin-bottom:3px;">'+label+'</div>' +
+      '<div style="font-size:.85rem;font-weight:700;color:'+GOLD+';">'+valor+'</div>' +
+    '</div>';
+  }
+  function _miniCardRegistro(r){
+    return '<div style="background:rgba(201,168,76,.04);border:1px solid '+BD+';'+
+      'border-radius:10px;padding:10px 13px;margin-bottom:7px;cursor:pointer;" '+
+      'onclick="HR_FUNC.abrirDetalhesRegistro(\''+r.id+'\')">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<div style="font-size:.82rem;font-weight:600;color:' + T1 + ';">' + _fmtData(r.data) + '</div>' +
-        '<div style="display:flex;gap:8px;">' +
-          (parseFloat(r.extra) > 0
-            ? '<span style="font-size:.72rem;background:rgba(201,168,76,.12);color:' + GOLD + ';border-radius:4px;padding:2px 7px;">+' + parseFloat(r.extra).toFixed(2) + 'h extra</span>'
-            : '') +
-          '<span style="font-size:.72rem;color:' + T3 + ';">' + (parseFloat(r.horas)||0).toFixed(1) + 'h</span>' +
+        '<div>' +
+          '<span style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+'</span>' +
+          '<span style="font-size:.68rem;color:'+T3+';margin-left:6px;">'+_diaSemana(r.data)+'</span>' +
+          (r.entrada&&r.saida?'<span style="font-size:.68rem;color:'+T3+';margin-left:6px;">'+r.entrada+'→'+r.saida+'</span>':'')+
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;">' +
+          (parseFloat(r.extra)>0?'<span style="font-size:.68rem;background:'+GOLD2+';color:'+GOLD+';border-radius:4px;padding:2px 7px;">+'+parseFloat(r.extra).toFixed(2)+'h</span>':'')+
+          '<span style="font-size:.78rem;font-weight:700;color:'+T1+';">'+(parseFloat(r.horas)||0).toFixed(1)+'h</span>' +
         '</div>' +
       '</div>' +
-      (r.observacao
-        ? '<div style="font-size:.73rem;color:' + T3 + ';margin-top:3px;">' + _esc(r.observacao) + '</div>'
-        : '') +
+      (r.producao?'<div style="font-size:.68rem;color:'+T3+';margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📦 '+_esc(r.producao)+'</div>':'')+
     '</div>';
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 8. SISTEMA DE PAGAMENTOS
+  // 9. REGISTRO RÁPIDO DE PONTO (nova feature)
   // ─────────────────────────────────────────────────────────────
+  function abrirRegistroRapido(){
+    var funcs=getFuncionarios();
+    var regs=getRegistros();
+    var hoje=_hoje();
+    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;})
+      .sort(function(a,b){return a.nome.localeCompare(b.nome);});
 
-  /**
-   * Formulário de pagamento — pode ser chamado com ou sem funcionário pré-selecionado.
-   * Quando secretaria for registrar: abrirFormPagamento(null) → seleciona o funcionário.
-   * Quando chamado direto do perfil: abrirFormPagamento(id) → já pré-preenche.
-   */
-  function abrirFormPagamento(funcIdInicial) {
-    var funcs = getFuncionarios();
-    var lista = Object.values(funcs)
-      .filter(function(f) { return f.ativo !== false; })
-      .sort(function(a,b) { return a.nome.localeCompare(b.nome); });
+    if(ativos.length===0){_toast('Nenhum funcionário ativo cadastrado.');return;}
 
-    var opsFuncs = [{v:'', l:'— Selecione o funcionário —'}].concat(
-      lista.map(function(f) { return {v: f.id, l: f.nome}; })
-    );
+    var agora=new Date();
+    var horaAtual=agora.getHours().toString().padStart(2,'0')+':'+agora.getMinutes().toString().padStart(2,'0');
 
-    var hoje = new Date().toISOString().slice(0, 10);
-
-    // Calcula saldo para feedback imediato
-    var saldoAtual = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, null, null) : null;
-    var f = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
-
-    var saldoInfoHtml = saldoAtual
-      ? _blocoSaldoPrePagamento(saldoAtual, f)
-      : '<div id="pag_saldo_info" style="margin-bottom:12px;"></div>';
-
-    var html =
-      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
-          '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Financeiro</div>' +
-            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Registrar Pagamento</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closePagamento()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
-          _fieldBlock('Funcionário',
-            _sel('pag_func', opsFuncs, funcIdInicial || '')) +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-            _fieldBlock('Data do Pagamento', _inp('pag_data', 'date', '', hoje)) +
-            _fieldBlock('Valor Pago (R$)', _inp('pag_valor', 'number', '0,00', '', 'min="0.01" step="0.01"')) +
-          '</div>' +
-          _fieldBlock('Forma de Pagamento', _sel('pag_forma', [
-            {v:'dinheiro', l:'💵 Dinheiro'},
-            {v:'pix',      l:'📱 Pix'},
-            {v:'ted',      l:'🏦 TED/DOC'},
-            {v:'cheque',   l:'📋 Cheque'},
-            {v:'outro',    l:'Outro'}
-          ], 'dinheiro')) +
-          _fieldBlock('Observação (opcional)', _inp('pag_obs', 'text', 'Ex: adiantamento, salário março...', '')) +
-        '</div>' +
-
-        '<div id="pag_saldo_info">' + (funcIdInicial ? _blocoSaldoPrePagamento(saldoAtual, f) : '') + '</div>' +
-
-        '<button onclick="HR_FUNC._salvarPagamento()" style="' + BTN_GREEN + '">💳 Confirmar Pagamento</button>' +
-        '<button onclick="HR_FUNC._closePagamento()" style="' + BTN_CANCEL + 'margin-top:4px;">Cancelar</button>' +
-      '</div>';
-
-    var ov = _overlay('hrPagamento', html);
-
-    // Listener: ao mudar funcionário, atualiza bloco de saldo
-    setTimeout(function() {
-      var sel = document.getElementById('pag_func');
-      if (!sel) return;
-      sel.addEventListener('change', function() {
-        var fid = sel.value;
-        var infoDiv = document.getElementById('pag_saldo_info');
-        if (!infoDiv) return;
-        if (!fid) { infoDiv.innerHTML = ''; return; }
-        var funcs2 = getFuncionarios();
-        var s2 = calcSaldoFuncionario(fid, null, null);
-        infoDiv.innerHTML = _blocoSaldoPrePagamento(s2, funcs2[fid] || {});
-      });
-    }, 100);
-  }
-
-  function _blocoSaldoPrePagamento(saldo, f) {
-    if (!saldo) return '';
-    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
-    var saldoLabel = saldo.temCredito
-      ? '💳 Funcionário já tem crédito de ' + _fmtMoeda(Math.abs(saldo.saldo))
-      : (saldo.saldo > 0.01
-        ? '⚠ Saldo devedor: ' + _fmtMoeda(saldo.saldo)
-        : '✓ Conta quitada');
-
-    return '<div style="background:rgba(0,0,0,.3);border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
-      '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Situação Atual — ' + _esc(f.nome||'') + '</div>' +
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">' +
-        '<div style="text-align:center;">' +
-          '<div style="font-size:.65rem;color:' + T3 + ';">Salário base</div>' +
-          '<div style="font-weight:700;color:' + GOLD + ';font-size:.85rem;">' + _fmtMoeda(f.salario) + '</div>' +
-        '</div>' +
-        '<div style="text-align:center;">' +
-          '<div style="font-size:.65rem;color:' + T3 + ';">H. Extras (R$)</div>' +
-          '<div style="font-weight:700;color:' + GOLD + ';font-size:.85rem;">' + _fmtMoeda(saldo.valorExtra) + '</div>' +
-        '</div>' +
-        '<div style="text-align:center;">' +
-          '<div style="font-size:.65rem;color:' + T3 + ';">Já pago</div>' +
-          '<div style="font-weight:700;color:#6dc86d;font-size:.85rem;">' + _fmtMoeda(saldo.totalPago) + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="text-align:center;padding:8px;background:rgba(0,0,0,.3);border-radius:8px;">' +
-        '<div style="font-size:.75rem;color:' + saldoColor + ';font-weight:700;">' + saldoLabel + '</div>' +
-      '</div>' +
+    var html='<div style="width:100%;max-width:480px;padding:0 16px;">'+
+      _overlayHeader('Registro Rápido','⚡ '+_fmtData(hoje)+' · '+horaAtual,'window._hrFecharRapido()')+
+      '<div style="font-size:.75rem;color:'+T3+';margin-bottom:14px;text-align:center;">'+
+        'Marque a entrada ou saída de cada funcionário rapidamente' +
+      '</div>'+
+      '<div id="hrRapidoLista">'+
+      ativos.map(function(f){
+        var regHoje=Object.values(regs).find(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
+        var statusCor=regHoje?GREEN:T3;
+        var statusTxt=regHoje?(regHoje.entrada&&regHoje.saida?'✓ Completo':'⏱ '+regHoje.entrada):'Sem ponto';
+        return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'+
+          _avatarCircle(f,40)+
+          '<div style="flex:1;min-width:0;">'+
+            '<div style="font-weight:700;color:'+T1+';font-size:.88rem;">'+_esc(f.nome.split(' ')[0])+'</div>'+
+            '<div style="font-size:.68rem;color:'+statusCor+';">'+statusTxt+'</div>'+
+          '</div>'+
+          (regHoje&&regHoje.entrada&&!regHoje.saida
+            ?'<button onclick="HR_FUNC._registrarSaida(\''+f.id+'\',\''+regHoje.id+'\')" '+
+               'style="background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.4);color:'+RED+';'+
+               'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Saída</button>'
+            :(!regHoje
+              ?'<button onclick="HR_FUNC._registrarEntrada(\''+f.id+'\')" '+
+                'style="background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.4);color:'+GREEN+';'+
+                'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Entrada</button>'
+              :'<span style="font-size:.68rem;color:'+GREEN+';font-weight:700;padding:7px 10px;">✓</span>'
+            )
+          )+
+        '</div>';
+      }).join('')+
+      '</div>'+
+      '<button onclick="window._hrFecharRapido()" style="'+CSS_BTN_GHOST+'margin-top:8px;">Fechar</button>'+
     '</div>';
+
+    _overlay('hrRegistroRapido',html);
+  }
+  window._hrFecharRapido=function(){_closeOverlay('hrRegistroRapido');};
+
+  function _registrarEntrada(funcId){
+    var agora=new Date();
+    var hora=agora.getHours().toString().padStart(2,'0')+':'+agora.getMinutes().toString().padStart(2,'0');
+    var regs=getRegistros();
+    var id=genId();
+    regs[id]={id:id,funcionarioId:funcId,data:_hoje(),entrada:hora,saida:'',horas:0,extra:0,
+      producao:'',instalacao:'',ieo:'',observacao:'',criadoEm:new Date().toISOString(),atualizadoEm:new Date().toISOString()};
+    saveRegistros(regs);
+    abrirRegistroRapido();
+    _toast('✓ Entrada registrada: '+hora);
   }
 
-  function _closePagamento() { _closeOverlay('hrPagamento'); }
-
-  function _salvarPagamento() {
-    var funcId = (document.getElementById('pag_func')  || {}).value || '';
-    var data   = (document.getElementById('pag_data')  || {}).value || '';
-    var valor  = parseFloat((document.getElementById('pag_valor') || {}).value) || 0;
-    var forma  = (document.getElementById('pag_forma') || {}).value || 'dinheiro';
-    var obs    = (document.getElementById('pag_obs')   || {}).value || '';
-
-    if (!funcId) { _toast('Selecione o funcionário'); return; }
-    if (!data)   { _toast('Informe a data'); return; }
-    if (valor <= 0) { _toast('Informe um valor válido'); return; }
-
-    var funcs = getFuncionarios();
-    var f = funcs[funcId] || {};
-
-    // Calcula saldo ANTES do pagamento
-    var saldoAntes = calcSaldoFuncionario(funcId, null, null);
-
-    var pags = getPagamentos();
-    var pagId = genId();
-
-    pags[pagId] = {
-      id:           pagId,
-      funcionarioId: funcId,
-      funcionarioNome: f.nome || '',
-      data:         data,
-      valor:        valor,
-      forma:        forma,
-      obs:          obs,
-      saldoAntes:   saldoAntes.saldo,
-      criadoEm:     new Date().toISOString()
-    };
-
-    savePagamentos(pags);
-
-    // Calcula saldo DEPOIS
-    var saldoDepois = calcSaldoFuncionario(funcId, null, null);
-    var msg = '✓ Pagamento de ' + _fmtMoeda(valor) + ' registrado para ' + _esc(f.nome || '') + '.';
-    if (saldoDepois.temCredito) {
-      msg += ' Crédito de ' + _fmtMoeda(Math.abs(saldoDepois.saldo)) + ' a favor.';
-    } else if (saldoDepois.saldo < 0.01) {
-      msg += ' Conta quitada!';
+  function _registrarSaida(funcId,regId){
+    var agora=new Date();
+    var hora=agora.getHours().toString().padStart(2,'0')+':'+agora.getMinutes().toString().padStart(2,'0');
+    var regs=getRegistros();
+    var r=regs[regId]; if(!r)return;
+    r.saida=hora;
+    if(r.entrada){
+      var ep=r.entrada.split(':').map(Number), sp=hora.split(':').map(Number);
+      var diff=(sp[0]*60+sp[1])-(ep[0]*60+ep[1]);
+      if(diff<0)diff+=1440;
+      r.horas=parseFloat((diff/60).toFixed(2));
     }
-
-    _closePagamento();
-
-    // Atualiza telas abertas
-    if (document.getElementById('hrFuncDetalhes')) {
-      abrirDetalhesFuncionario(funcId);
-    } else {
-      renderPaginaFuncionarios();
-    }
-
-    _toast(msg);
+    r.atualizadoEm=new Date().toISOString();
+    saveRegistros(regs);
+    abrirRegistroRapido();
+    _toast('✓ Saída registrada: '+hora+(r.horas?' · '+r.horas+'h':''));
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 9. EXTRATO DE PAGAMENTOS (por funcionário)
+  // 10. FOLHA DE PAGAMENTO CONSOLIDADA (nova feature)
   // ─────────────────────────────────────────────────────────────
-  function abrirExtratoPagamentos(funcId) {
-    var funcs = getFuncionarios();
-    var f = funcs[funcId];
-    if (!f) return;
+  function abrirFolhaPagamento(){
+    var funcs=getFuncionarios();
+    var mesAtual=_mesAno(0);
+    var mesAnterior=_mesAno(-1);
+    var periodoAtivo=window._folhaMes||mesAtual;
 
-    var pags = getPagamentos();
-    var meusPags = Object.values(pags)
-      .filter(function(p) { return p.funcionarioId === funcId; })
-      .sort(function(a,b) { return b.data.localeCompare(a.data); });
+    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;})
+      .sort(function(a,b){return a.nome.localeCompare(b.nome);});
 
-    var saldo = calcSaldoFuncionario(funcId, null, null);
-    var saldoColor = saldo.temCredito ? '#6dc86d' : (saldo.saldo > 0.01 ? '#c86d6d' : GOLD);
+    var di=periodoAtivo+'-01';
+    var ultimo=new Date(parseInt(periodoAtivo.slice(0,4)),parseInt(periodoAtivo.slice(5,7)),0);
+    var df=periodoAtivo+'-'+String(ultimo.getDate()).padStart(2,'0');
 
-    var formaIcons = {dinheiro:'💵', pix:'📱', ted:'🏦', cheque:'📋', outro:'💳'};
-
-    var pagsHtml = meusPags.length === 0
-      ? '<div style="text-align:center;padding:32px;color:' + T3 + ';font-size:.84rem;">Nenhum pagamento registrado.</div>'
-      : meusPags.map(function(p) {
-          return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:11px;padding:12px 14px;margin-bottom:9px;">' +
-            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-              '<div>' +
-                '<div style="font-size:.82rem;font-weight:700;color:' + T1 + ';">' + _fmtData(p.data) + '</div>' +
-                '<div style="font-size:.73rem;color:' + T3 + ';margin-top:2px;">' + (formaIcons[p.forma]||'💳') + ' ' + (p.forma||'') + (p.obs ? ' · ' + _esc(p.obs) : '') + '</div>' +
-              '</div>' +
-              '<div style="font-size:1rem;font-weight:800;color:#6dc86d;">' + _fmtMoeda(p.valor) + '</div>' +
-            '</div>' +
-          '</div>';
-        }).join('');
-
-    var html =
-      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
-          '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Financeiro · ' + _esc(f.nome) + '</div>' +
-            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Extrato de Pagamentos</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closeExtrato()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
-        '</div>' +
-
-        // Resumo financeiro
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resumo Geral</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">' +
-            _miniStat('Dias trabalhados', saldo.diasTrabalhados + '') +
-            _miniStat('H. Extras', saldo.totalExtra.toFixed(2) + 'h') +
-            _miniStat('Total Devido', _fmtMoeda(saldo.totalDevido)) +
-            _miniStat('Total Pago', _fmtMoeda(saldo.totalPago)) +
-          '</div>' +
-          '<div style="text-align:center;padding:10px;background:rgba(0,0,0,.2);border-radius:8px;">' +
-            '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:2px;">' +
-              (saldo.temCredito ? 'Crédito a favor' : (saldo.saldo > 0.01 ? 'Saldo devedor' : 'Situação')) +
-            '</div>' +
-            '<div style="font-size:1.3rem;font-weight:800;color:' + saldoColor + ';">' + _fmtMoeda(Math.abs(saldo.saldo)) + '</div>' +
-            (saldo.temCredito ? '<div style="font-size:.7rem;color:#6dc86d;">Próximo pagamento desconta este crédito</div>' : '') +
-          '</div>' +
-        '</div>' +
-
-        // Botão registrar pagamento
-        '<button onclick="HR_FUNC.abrirFormPagamento(\'' + funcId + '\');HR_FUNC._closeExtrato();" style="' + BTN_GREEN + '">💳 Registrar Novo Pagamento</button>' +
-
-        '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">' +
-          'Histórico (' + meusPags.length + ')' +
-        '</div>' +
-        pagsHtml +
-
-        '<button onclick="HR_FUNC._closeExtrato()" style="' + BTN_CANCEL + 'margin-top:8px;">Fechar</button>' +
-      '</div>';
-
-    _overlay('hrExtrato', html);
-  }
-
-  function _closeExtrato() { _closeOverlay('hrExtrato'); }
-
-  // ─────────────────────────────────────────────────────────────
-  // 10. FORMULÁRIO DE REGISTRO OPERACIONAL
-  // ─────────────────────────────────────────────────────────────
-  function abrirFormRegistro(funcionarioId, registroId) {
-    var funcs = getFuncionarios();
-    var f = funcs[funcionarioId];
-    if (!f) { _toast('Funcionário não encontrado'); return; }
-
-    var regs = getRegistros();
-    var r = registroId ? (regs[registroId] || {}) : {};
-
-    var hoje = new Date().toISOString().slice(0, 10);
-    var titulo = registroId ? 'Editar Registro' : 'Novo Registro';
-
-    // Alerta de gaps ao registrar novo dia
-    var alertas = !registroId ? analisarGaps(funcionarioId) : [];
-    var alertasHtml = alertas.length > 0
-      ? '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
-          'border-radius:12px;padding:12px;margin-bottom:12px;">' +
-          '<div style="font-size:.7rem;color:#c8a060;font-weight:700;margin-bottom:6px;">⚠️ Gaps detectados nos registros:</div>' +
-          alertas.map(function(a) {
-            return '<div style="font-size:.76rem;color:#e0b870;padding:3px 0;">' + _esc(a.descricao) + '</div>';
-          }).join('') +
-        '</div>'
-      : '';
-
-    var html =
-      '<div style="width:100%;max-width:500px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
-          '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">Registro · ' + _esc(f.nome) + '</div>' +
-            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">' + titulo + '</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closeRegistro()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕</button>' +
-        '</div>' +
-
-        alertasHtml +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Ponto do Dia</div>' +
-          _fieldBlock('Data', _inp('fr_data', 'date', '', r.data || hoje)) +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-            _fieldBlock('Entrada', _inp('fr_entrada', 'time', '', r.entrada)) +
-            _fieldBlock('Saída', _inp('fr_saida', 'time', '', r.saida)) +
-          '</div>' +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-            _fieldBlock('Horas trabalhadas', _inp('fr_horas', 'number', '8', r.horas, 'min="0" step="0.25"')) +
-            _fieldBlock('Horas extras', _inp('fr_extra', 'number', '0', r.extra, 'min="0" step="0.25"')) +
-          '</div>' +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">Atividades</div>' +
-          _fieldBlock('Produção executada', _ta('fr_producao', 'Ex: 3 peças de cuba, bancada cozinha...', r.producao, 2)) +
-          _fieldBlock('Instalação executada', _ta('fr_instalacao', 'Ex: Banheiro cliente João, entrega...', r.instalacao, 2)) +
-          _fieldBlock('IEO (Incidente / Evento / Obs.)', _ta('fr_ieo', 'Ex: atraso por chuva, acidente menor...', r.ieo, 2)) +
-          _fieldBlock('Observações gerais', _ta('fr_obs', '', r.observacao, 2)) +
-        '</div>' +
-
-        '<button onclick="HR_FUNC._salvarRegistro(\'' + funcionarioId + '\',\'' + (registroId||'') + '\')" style="' + BTN_GOLD + '">💾 Salvar Registro</button>' +
-
-        (registroId
-          ? '<button onclick="HR_FUNC._excluirRegistro(\'' + registroId + '\',\'' + funcionarioId + '\')" ' +
-              'style="' + BTN_CANCEL + 'color:#c86d6d;border-color:rgba(200,109,109,.25);margin-top:4px;">🗑 Excluir</button>'
-          : '') +
-
-        '<button onclick="HR_FUNC._closeRegistro()" style="' + BTN_CANCEL + 'margin-top:4px;">Cancelar</button>' +
-      '</div>';
-
-    _overlay('hrFuncRegistro', html);
-
-    // Auto-calcula horas ao preencher entrada/saída
-    setTimeout(function() {
-      var ent = document.getElementById('fr_entrada');
-      var sai = document.getElementById('fr_saida');
-      if (ent && sai) {
-        function calcHoras() {
-          if (!ent.value || !sai.value) return;
-          var e = ent.value.split(':').map(Number);
-          var s = sai.value.split(':').map(Number);
-          var diff = (s[0]*60 + s[1]) - (e[0]*60 + e[1]);
-          if (diff < 0) diff += 24*60;
-          var h = (diff / 60).toFixed(2);
-          var hr = document.getElementById('fr_horas');
-          if (hr && !hr._userEdited) hr.value = h;
-        }
-        ent.addEventListener('change', calcHoras);
-        sai.addEventListener('change', calcHoras);
-        var hr = document.getElementById('fr_horas');
-        if (hr) hr.addEventListener('input', function() { hr._userEdited = true; });
-      }
-    }, 100);
-  }
-
-  function _closeRegistro() { _closeOverlay('hrFuncRegistro'); }
-
-  function _salvarRegistro(funcionarioId, registroId) {
-    var data = (document.getElementById('fr_data') || {}).value || '';
-    if (!data) { _toast('Informe a data'); return; }
-
-    var regs = getRegistros();
-    var regId = registroId || genId();
-    var isNew = !registroId;
-
-    // Verifica duplicata de data (exceto na edição do próprio registro)
-    var duplicata = Object.values(regs).find(function(r) {
-      return r.funcionarioId === funcionarioId && r.data === data && r.id !== regId;
+    var totalFolha=0, totalExtras=0, totalPago=0;
+    var linhas=ativos.map(function(f){
+      var s=calcSaldoFuncionario(f.id,di,df);
+      totalFolha+=s.totalSalario;
+      totalExtras+=s.valorExtra;
+      totalPago+=s.totalPago;
+      return {f:f,s:s};
     });
-    if (duplicata) {
-      if (!confirm('⚠️ Já existe um registro para ' + _fmtData(data) + '. Quer salvar assim mesmo?')) return;
-    }
 
-    regs[regId] = {
-      id:           regId,
-      funcionarioId: funcionarioId,
-      data:         data,
-      entrada:      (document.getElementById('fr_entrada')    || {}).value || '',
-      saida:        (document.getElementById('fr_saida')      || {}).value || '',
-      horas:        parseFloat((document.getElementById('fr_horas')     || {}).value) || 0,
-      extra:        parseFloat((document.getElementById('fr_extra')     || {}).value) || 0,
-      producao:     (document.getElementById('fr_producao')   || {}).value || '',
-      instalacao:   (document.getElementById('fr_instalacao') || {}).value || '',
-      ieo:          (document.getElementById('fr_ieo')        || {}).value || '',
-      observacao:   (document.getElementById('fr_obs')        || {}).value || '',
-      criadoEm:     (regs[regId] && regs[regId].criadoEm) || new Date().toISOString(),
-      atualizadoEm: new Date().toISOString()
-    };
+    var fmtMes=function(m){var p=m.split('-');var nomes=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return nomes[parseInt(p[1])]+'/'+p[0];};
 
-    saveRegistros(regs);
-    _closeRegistro();
+    var html='<div style="width:100%;max-width:580px;padding:0 16px;">'+
+      _overlayHeader('Folha de Pagamento','📑 '+fmtMes(periodoAtivo),'HR_FUNC._closeFolha()')+
 
-    // Verifica gaps após salvar e avisa
-    var novosAlertas = analisarGaps(funcionarioId);
-    if (novosAlertas.length > 0) {
-      _toast('✓ Registro salvo! ⚠️ ' + novosAlertas.length + ' alerta(s) de gap nos registros.');
-    } else {
-      _toast(isNew ? '✓ Registro salvo!' : '✓ Registro atualizado!');
-    }
+      // Seletor de mês
+      '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
+        [mesAnterior,mesAtual].map(function(m){
+          var on=m===periodoAtivo;
+          return '<button onclick="window._folhaMes=\''+m+'\';HR_FUNC.abrirFolhaPagamento();" '+
+            'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
+            (on?'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';':'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
+            '>'+fmtMes(m)+'</button>';
+        }).join('')+
+      '</div>'+
 
-    if (document.getElementById('hrFuncDetalhes')) {
-      abrirDetalhesFuncionario(funcionarioId);
-    }
+      // Resumo
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">'+
+          _miniKpi('Salários',_fmtMoeda(totalFolha),GOLD)+
+          _miniKpi('Extras',_fmtMoeda(totalExtras),GOLD)+
+          _miniKpi('Pago',_fmtMoeda(totalPago),GREEN)+
+        '</div>'+
+        '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span style="font-size:.75rem;color:'+T3+';">Total a pagar</span>'+
+          '<span style="font-size:1rem;font-weight:800;color:'+GOLD+';">'+_fmtMoeda(Math.max(0,totalFolha+totalExtras-totalPago))+'</span>'+
+        '</div>'+
+      '</div>'+
+
+      // Tabela
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">'+
+        '<div style="display:grid;grid-template-columns:1fr 80px 80px 90px 40px;gap:0;'+
+          'padding:8px 14px;background:rgba(201,168,76,.06);'+
+          'font-size:.6rem;color:'+GOLD+';letter-spacing:.08em;text-transform:uppercase;">'+
+          '<span>Funcionário</span><span style="text-align:right;">Salário</span>'+
+          '<span style="text-align:right;">Extras</span><span style="text-align:right;">Saldo</span><span></span>'+
+        '</div>'+
+        linhas.map(function(l,idx){
+          var sc=l.s.temCredito?GREEN:(l.s.saldo>0.01?RED:T3);
+          return '<div style="display:grid;grid-template-columns:1fr 80px 80px 90px 40px;gap:0;'+
+            'padding:10px 14px;border-top:1px solid '+BD+';'+
+            (idx%2===1?'background:rgba(255,255,255,.015);':'')+'align-items:center;">'+
+            '<div>'+
+              '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(l.f.nome.split(' ')[0])+'</div>'+
+              '<div style="font-size:.65rem;color:'+T3+';">'+l.s.diasTrabalhados+'d · '+l.s.totalHoras.toFixed(0)+'h</div>'+
+            '</div>'+
+            '<div style="text-align:right;font-size:.75rem;color:'+T2+';">'+_fmtMoeda(l.s.totalSalario)+'</div>'+
+            '<div style="text-align:right;font-size:.75rem;color:'+(l.s.valorExtra>0?GOLD:T3)+';font-weight:'+(l.s.valorExtra>0?'700':'400')+';">'+_fmtMoeda(l.s.valorExtra)+'</div>'+
+            '<div style="text-align:right;font-size:.8rem;font-weight:700;color:'+sc+';">'+_fmtMoeda(Math.abs(l.s.saldo))+'</div>'+
+            '<div style="text-align:center;">'+
+              '<button onclick="HR_FUNC.abrirFormPagamento(\''+l.f.id+'\');HR_FUNC._closeFolha();" '+
+                'style="background:none;border:none;color:'+GREEN+';cursor:pointer;font-size:.9rem;padding:2px;" title="Registrar pagamento">💳</button>'+
+            '</div>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
+      '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrFolha',html);
+  }
+  function _closeFolha(){ _closeOverlay('hrFolha'); }
+
+  // ─────────────────────────────────────────────────────────────
+  // 11. FORMULÁRIO REGISTRO OPERACIONAL
+  // ─────────────────────────────────────────────────────────────
+  function abrirFormRegistro(funcionarioId,registroId){
+    var funcs=getFuncionarios(); var f=funcs[funcionarioId];
+    if(!f){_toast('Funcionário não encontrado');return;}
+    var regs=getRegistros(); var r=registroId?(regs[registroId]||{}):{};
+    var hoje=_hoje();
+    var alertas=!registroId?analisarGaps(funcionarioId):[];
+
+    var alertasHtml=alertas.length>0?
+      '<div style="background:#16100a;border:1px solid rgba(201,168,76,.3);border-radius:11px;padding:11px 13px;margin-bottom:12px;">'+
+        '<div style="font-size:.62rem;color:#c8a060;font-weight:700;margin-bottom:5px;">⚠️ Gaps detectados:</div>'+
+        alertas.map(function(a){return '<div style="font-size:.72rem;color:#e0b870;padding:2px 0;">'+_esc(a.descricao)+'</div>';}).join('')+
+      '</div>':'';
+
+    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader((registroId?'Editar':'Novo Registro')+' · '+_esc(f.nome.split(' ')[0]),'📝 Ponto do Dia','HR_FUNC._closeRegistro()')+
+      alertasHtml+
+
+      _secao('Ponto',
+        _campo('Data',_inp('fr_data','date','',r.data||hoje))+
+        _grid2(
+          _campo('Entrada',_inp('fr_entrada','time','07:00',r.entrada)),
+          _campo('Saída',_inp('fr_saida','time','17:00',r.saida))
+        )+
+        _grid2(
+          _campo('Horas trabalhadas',_inp('fr_horas','number','8',r.horas,'min="0" step="0.25"')),
+          _campo('Horas extras',_inp('fr_extra','number','0',r.extra,'min="0" step="0.25"'))
+        )+
+        _campo('Tipo de hora extra',_sel('fr_tipoExtra',[
+          {v:'normal',l:'Normal (×1.5)'},{v:'feriado',l:'Feriado (×2.0)'},{v:'especial',l:'Especial (×3.0)'}
+        ],r.tipoExtra||'normal'))
+      )+
+
+      _secao('Atividades',
+        _campo('Produção executada',_ta('fr_producao','Ex: 3 bancadas, cuba cozinha...',r.producao,2))+
+        _campo('Instalação',_ta('fr_instalacao','Ex: Banheiro cliente João...',r.instalacao,2))+
+        _campo('IEO (Incidente / Evento / Obs.)',_ta('fr_ieo','Ex: atraso por chuva, acidente leve...',r.ieo,2))+
+        _campo('Obs. gerais',_ta('fr_obs','',r.observacao,2))
+      )+
+
+      '<button onclick="HR_FUNC._salvarRegistro(\''+funcionarioId+'\',\''+(registroId||'\')"  style="'+CSS_BTN_GOLD+'">💾 Salvar Registro</button>'+
+      (registroId?'<button onclick="HR_FUNC._excluirRegistro(\''+registroId+'\',\''+funcionarioId+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir</button>':'')+
+      '<button onclick="HR_FUNC._closeRegistro()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay('hrFuncRegistro',html);
+
+    setTimeout(function(){
+      var ent=document.getElementById('fr_entrada'),sai=document.getElementById('fr_saida');
+      if(ent&&sai){
+        function calc(){
+          if(!ent.value||!sai.value)return;
+          var e=ent.value.split(':').map(Number),s=sai.value.split(':').map(Number);
+          var diff=(s[0]*60+s[1])-(e[0]*60+e[1]); if(diff<0)diff+=1440;
+          var hr=document.getElementById('fr_horas');
+          if(hr&&!hr._edited)hr.value=(diff/60).toFixed(2);
+        }
+        ent.addEventListener('change',calc); sai.addEventListener('change',calc);
+        var hr=document.getElementById('fr_horas');
+        if(hr)hr.addEventListener('input',function(){hr._edited=true;});
+      }
+    },80);
   }
 
-  function _excluirRegistro(registroId, funcionarioId) {
-    if (!confirm('Excluir este registro?')) return;
-    var regs = getRegistros();
-    delete regs[registroId];
-    saveRegistros(regs);
-    _closeRegistro();
-    if (document.getElementById('hrFuncDetalhes')) {
-      abrirDetalhesFuncionario(funcionarioId);
-    }
+  function _closeRegistro(){ _closeOverlay('hrFuncRegistro'); }
+
+  function _salvarRegistro(funcionarioId,registroId){
+    var data=(document.getElementById('fr_data')||{}).value||'';
+    if(!data){_toast('Informe a data');return;}
+    var regs=getRegistros(); var regId=registroId||genId(); var isNew=!registroId;
+    var dup=Object.values(regs).find(function(r){return r.funcionarioId===funcionarioId&&r.data===data&&r.id!==regId;});
+    if(dup&&!confirm('⚠️ Já existe registro em '+_fmtData(data)+'. Continuar?'))return;
+    regs[regId]={id:regId,funcionarioId,data,
+      entrada:(document.getElementById('fr_entrada')||{}).value||'',
+      saida:(document.getElementById('fr_saida')||{}).value||'',
+      horas:parseFloat((document.getElementById('fr_horas')||{}).value)||0,
+      extra:parseFloat((document.getElementById('fr_extra')||{}).value)||0,
+      tipoExtra:(document.getElementById('fr_tipoExtra')||{}).value||'normal',
+      producao:(document.getElementById('fr_producao')||{}).value||'',
+      instalacao:(document.getElementById('fr_instalacao')||{}).value||'',
+      ieo:(document.getElementById('fr_ieo')||{}).value||'',
+      observacao:(document.getElementById('fr_obs')||{}).value||'',
+      criadoEm:(regs[regId]&&regs[regId].criadoEm)||new Date().toISOString(),
+      atualizadoEm:new Date().toISOString()
+    };
+    saveRegistros(regs); _closeRegistro();
+    var novosAlertas=analisarGaps(funcionarioId);
+    _toast(isNew?'✓ Registro salvo!'+(novosAlertas.length?' ⚠️ '+novosAlertas.length+' alerta(s)':''):'✓ Registro atualizado!');
+    if(document.getElementById('hrFuncDetalhes'))abrirDetalhesFuncionario(funcionarioId);
+  }
+
+  function _excluirRegistro(registroId,funcionarioId){
+    if(!confirm('Excluir este registro?'))return;
+    var regs=getRegistros(); delete regs[registroId]; saveRegistros(regs);
+    _closeRegistro(); if(document.getElementById('hrFuncDetalhes'))abrirDetalhesFuncionario(funcionarioId);
     _toast('Registro excluído.');
   }
 
-  function abrirDetalhesRegistro(registroId) {
-    var regs = getRegistros();
-    var r = regs[registroId];
-    if (!r) return;
-    abrirFormRegistro(r.funcionarioId, registroId);
+  function abrirDetalhesRegistro(registroId){
+    var regs=getRegistros(); var r=regs[registroId]; if(!r)return;
+    abrirFormRegistro(r.funcionarioId,registroId);
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 11. HISTÓRICO
+  // 12. PAGAMENTOS
   // ─────────────────────────────────────────────────────────────
-  var _histState = { funcId: null, de: '', ate: '', busca: '' };
+  function abrirFormPagamento(funcIdInicial){
+    var funcs=getFuncionarios();
+    var lista=Object.values(funcs).filter(function(f){return f.ativo!==false;}).sort(function(a,b){return a.nome.localeCompare(b.nome);});
+    var opsFuncs=[{v:'',l:'— Selecione —'}].concat(lista.map(function(f){return{v:f.id,l:f.nome};}));
+    var hoje=_hoje();
+    var saldo=funcIdInicial?calcSaldoFuncionario(funcIdInicial,null,null):null;
+    var f=funcIdInicial?(funcs[funcIdInicial]||{}):{};
 
-  function abrirHistorico(funcIdInicial) {
-    _histState.funcId = funcIdInicial || null;
-    _histState.de = '';
-    _histState.ate = '';
-    _histState.busca = '';
-    _renderHistorico();
-  }
+    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Registrar Pagamento','💳 RH · Financeiro','HR_FUNC._closePagamento()')+
 
-  function _renderHistorico() {
-    var funcs = getFuncionarios();
-    var regs  = getRegistros();
+      _secao('',
+        _campo('Funcionário',_sel('pag_func',opsFuncs,funcIdInicial||''))+
+        _grid2(
+          _campo('Data',_inp('pag_data','date','',hoje)),
+          _campo('Valor (R$)',_inp('pag_valor','number','0,00','','min="0.01" step="0.01"'))
+        )+
+        _campo('Forma',_sel('pag_forma',[{v:'dinheiro',l:'💵 Dinheiro'},{v:'pix',l:'📱 Pix'},{v:'ted',l:'🏦 TED/DOC'},{v:'cheque',l:'📋 Cheque'},{v:'outro',l:'Outro'}],'dinheiro'))+
+        _campo('Observação (opcional)',_inp('pag_obs','text','adiantamento, salário...',''))
+      )+
 
-    var opsFuncs = [{v:'', l:'Todos os funcionários'}].concat(
-      Object.values(funcs).sort(function(a,b){ return a.nome.localeCompare(b.nome); }).map(function(f){
-        return {v: f.id, l: f.nome};
-      })
-    );
+      '<div id="pag_saldo_info">'+(funcIdInicial&&saldo?_blocoSaldo(saldo,f):'')+'</div>'+
 
-    var lista = Object.values(regs).filter(function(r) {
-      if (_histState.funcId && r.funcionarioId !== _histState.funcId) return false;
-      if (_histState.de  && r.data < _histState.de)  return false;
-      if (_histState.ate && r.data > _histState.ate)  return false;
-      if (_histState.busca) {
-        var bq = _histState.busca.toLowerCase();
-        var fNome = ((funcs[r.funcionarioId] || {}).nome || '').toLowerCase();
-        var campos = [fNome, r.producao, r.instalacao, r.observacao, r.ieo].join(' ').toLowerCase();
-        if (campos.indexOf(bq) < 0) return false;
-      }
-      return true;
-    }).sort(function(a,b){ return b.data.localeCompare(a.data); });
-
-    var totHoras = lista.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
-    var totExtra = lista.reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
-
-    // Alertas do funcionário filtrado
-    var alertasHtml = '';
-    if (_histState.funcId) {
-      var alertas = analisarGaps(_histState.funcId);
-      if (alertas.length > 0) {
-        alertasHtml = '<div style="background:#1a1000;border:1.5px solid rgba(200,160,60,.4);' +
-          'border-radius:12px;padding:12px;margin-bottom:12px;">' +
-          '<div style="font-size:.7rem;color:#c8a060;font-weight:700;margin-bottom:6px;">⚠️ Alertas de período:</div>' +
-          alertas.map(function(a) {
-            return '<div style="font-size:.76rem;color:#e0b870;padding:3px 0;">' + _esc(a.descricao) + '</div>';
-          }).join('') +
-        '</div>';
-      }
-    }
-
-    // Resumo por funcionário
-    var porFunc = {};
-    lista.forEach(function(r) {
-      if (!porFunc[r.funcionarioId]) porFunc[r.funcionarioId] = {horas:0, extra:0, dias:0};
-      porFunc[r.funcionarioId].horas += parseFloat(r.horas) || 0;
-      porFunc[r.funcionarioId].extra += parseFloat(r.extra) || 0;
-      porFunc[r.funcionarioId].dias++;
-    });
-
-    var resumoFuncHtml = '';
-    if (!_histState.funcId && Object.keys(porFunc).length > 0) {
-      resumoFuncHtml = '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
-        '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resumo por Funcionário</div>' +
-        Object.keys(porFunc).map(function(fid) {
-          var nm = (funcs[fid] || {}).nome || 'Desconhecido';
-          var pf = porFunc[fid];
-          return '<div style="display:flex;justify-content:space-between;align-items:center;' +
-            'padding:7px 0;border-bottom:1px solid rgba(201,168,76,.08);">' +
-            '<div style="font-size:.82rem;font-weight:600;color:' + T1 + ';">' + _esc(nm) + '</div>' +
-            '<div style="font-size:.75rem;color:' + T3 + ';">' +
-              pf.dias + 'd · ' + pf.horas.toFixed(1) + 'h' +
-              (pf.extra > 0 ? ' · <span style="color:' + GOLD + ';">+' + pf.extra.toFixed(2) + 'h extra</span>' : '') +
-            '</div>' +
-          '</div>';
-        }).join('') +
-      '</div>';
-    }
-
-    var regCards = lista.length === 0
-      ? '<div style="text-align:center;padding:40px 0;color:' + T3 + ';font-size:.85rem;">Nenhum registro encontrado.</div>'
-      : lista.map(function(r) {
-          var fNome = (funcs[r.funcionarioId] || {}).nome || '?';
-          return _cardRegistroHistorico(r, fNome, !_histState.funcId);
-        }).join('');
-
-    var html =
-      '<div style="width:100%;max-width:540px;padding:0 16px;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
-          '<div>' +
-            '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.12em;text-transform:uppercase;">RH · Equipe</div>' +
-            '<div style="font-size:1.1rem;font-weight:700;color:' + T1 + ';margin-top:2px;">Histórico</div>' +
-          '</div>' +
-          '<button onclick="HR_FUNC._closeHistorico()" style="background:none;border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';border-radius:6px;padding:6px 14px;cursor:pointer;font-size:.8rem;">✕ Fechar</button>' +
-        '</div>' +
-
-        '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:12px;">' +
-          '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Filtros</div>' +
-          _fieldBlock('Funcionário', _sel('hf_func', opsFuncs, _histState.funcId || '')) +
-          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
-            _fieldBlock('De', _inp('hf_de', 'date', '', _histState.de)) +
-            _fieldBlock('Até', _inp('hf_ate', 'date', '', _histState.ate)) +
-          '</div>' +
-          _fieldBlock('Busca livre', _inp('hf_busca', 'text', 'Produção, observação...', _histState.busca)) +
-          '<button onclick="HR_FUNC._aplicarFiltroHistorico()" style="' + BTN_GOLD + 'margin-top:4px;">🔍 Filtrar</button>' +
-        '</div>' +
-
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">' +
-          _miniStat('Registros', lista.length + '') +
-          _miniStat('H. Trabalhadas', totHoras.toFixed(1) + 'h') +
-          _miniStat('H. Extras', totExtra.toFixed(2) + 'h') +
-        '</div>' +
-
-        alertasHtml +
-        resumoFuncHtml +
-
-        '<div style="font-size:.68rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Registros</div>' +
-        regCards +
-
-        '<button onclick="HR_FUNC._closeHistorico()" style="' + BTN_CANCEL + 'margin-top:12px;">Fechar</button>' +
-      '</div>';
-
-    _overlay('hrHistorico', html);
-  }
-
-  function _aplicarFiltroHistorico() {
-    _histState.funcId = (document.getElementById('hf_func')  || {}).value || null;
-    _histState.de     = (document.getElementById('hf_de')    || {}).value || '';
-    _histState.ate    = (document.getElementById('hf_ate')   || {}).value || '';
-    _histState.busca  = (document.getElementById('hf_busca') || {}).value || '';
-    _closeOverlay('hrHistorico');
-    _renderHistorico();
-  }
-
-  function _closeHistorico() { _closeOverlay('hrHistorico'); }
-
-  function _cardRegistroHistorico(r, fNome, mostrarNome) {
-    return '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:11px;' +
-      'padding:12px 14px;margin-bottom:9px;cursor:pointer;" ' +
-      'onclick="HR_FUNC.abrirDetalhesRegistro(\'' + r.id + '\')">' +
-
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">' +
-        '<div>' +
-          (mostrarNome ? '<div style="font-size:.72rem;color:' + GOLD + ';font-weight:600;margin-bottom:1px;">' + _esc(fNome) + '</div>' : '') +
-          '<div style="font-size:.88rem;font-weight:700;color:' + T1 + ';">' + _fmtData(r.data) + '</div>' +
-          (r.entrada && r.saida ? '<div style="font-size:.72rem;color:' + T3 + ';">' + r.entrada + ' → ' + r.saida + '</div>' : '') +
-        '</div>' +
-        '<div style="text-align:right;">' +
-          '<div style="font-size:.85rem;font-weight:700;color:' + T1 + ';">' + (parseFloat(r.horas)||0).toFixed(1) + 'h</div>' +
-          (parseFloat(r.extra) > 0
-            ? '<div style="font-size:.72rem;color:' + GOLD + ';">+' + parseFloat(r.extra).toFixed(2) + 'h extra</div>'
-            : '') +
-        '</div>' +
-      '</div>' +
-
-      (r.producao   ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">📦 ' + _esc(r.producao) + '</div>'   : '') +
-      (r.instalacao ? '<div style="font-size:.73rem;color:' + T2 + ';margin-bottom:3px;">🔧 ' + _esc(r.instalacao) + '</div>' : '') +
-      (r.ieo        ? '<div style="font-size:.72rem;color:#c8a060;margin-bottom:3px;">⚠️ ' + _esc(r.ieo) + '</div>'           : '') +
-      (r.observacao ? '<div style="font-size:.72rem;color:' + T3 + ';">💬 ' + _esc(r.observacao) + '</div>'                   : '') +
-
+      '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">💳 Confirmar Pagamento</button>'+
+      '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
-  }
 
-  // ─────────────────────────────────────────────────────────────
-  // 12. INICIALIZAÇÃO
-  // ─────────────────────────────────────────────────────────────
-  function init() {
-    if (!document.getElementById('pg30')) {
-      var pages = document.getElementById('pages');
-      if (pages) {
-        var div = document.createElement('div');
-        div.className = 'pg';
-        div.id = 'pg30';
-        div.style.display = 'none';
-        pages.appendChild(div);
-      }
-    }
+    _overlay('hrPagamento',html);
 
-    if (!document.getElementById('navFunc')) {
-      var niContainer = document.querySelector('.ni')
-        ? document.querySelector('.ni').parentNode
-        : null;
-
-      if (niContainer) {
-        var ni = document.createElement('div');
-        ni.className = 'ni';
-        ni.id = 'navFunc';
-        ni.setAttribute('data-pg', '30');
-        ni.innerHTML = '<span class="ni-i">🏢</span><span class="ni-l">RH</span>';
-        niContainer.appendChild(ni);
-
-        ni.addEventListener('click', function() {
-          if (typeof go === 'function') go(30);
-          else _showPage30();
-        });
-      }
-    }
-
-    _watchPg30();
-    console.log('[HR_FUNC v3] ✓ RH + Pagamentos + Gaps carregado');
-  }
-
-  function _showPage30() {
-    document.querySelectorAll('.pg').forEach(function(p) { p.style.display = 'none'; });
-    document.querySelectorAll('.ni').forEach(function(n) { n.classList.remove('on'); });
-    var pg30 = document.getElementById('pg30');
-    if (pg30) { pg30.style.display = 'flex'; pg30.style.flexDirection = 'column'; }
-    var navFunc = document.getElementById('navFunc');
-    if (navFunc) navFunc.classList.add('on');
-    renderPaginaFuncionarios();
-  }
-
-  function _watchPg30() {
-    var pg30 = document.getElementById('pg30');
-    if (!pg30) return;
-
-    var obs = new MutationObserver(function(mutations) {
-      mutations.forEach(function(m) {
-        if (m.type === 'attributes' && m.attributeName === 'style') {
-          var el = m.target;
-          if (el.style.display !== 'none' && el.id === 'pg30') renderPaginaFuncionarios();
-        }
-        if (m.type === 'attributes' && m.attributeName === 'class') {
-          var el = m.target;
-          if (el.classList.contains('on') && el.id === 'pg30') renderPaginaFuncionarios();
-        }
+    setTimeout(function(){
+      var sel=document.getElementById('pag_func'); if(!sel)return;
+      sel.addEventListener('change',function(){
+        var fid=sel.value; var info=document.getElementById('pag_saldo_info');
+        if(!info)return;
+        if(!fid){info.innerHTML='';return;}
+        var f2=getFuncionarios()[fid]||{};
+        info.innerHTML=_blocoSaldo(calcSaldoFuncionario(fid,null,null),f2);
       });
-    });
-
-    obs.observe(pg30, { attributes: true });
+    },80);
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // API PÚBLICA
-  // ─────────────────────────────────────────────────────────────
-  return {
-    init:                     init,
-    renderPaginaFuncionarios: renderPaginaFuncionarios,
-    abrirFormFuncionario:     abrirFormFuncionario,
-    abrirDetalhesFuncionario: abrirDetalhesFuncionario,
-    abrirFormRegistro:        abrirFormRegistro,
-    abrirDetalhesRegistro:    abrirDetalhesRegistro,
-    abrirHistorico:           abrirHistorico,
-    abrirFormPagamento:       abrirFormPagamento,
-    abrirExtratoPagamentos:   abrirExtratoPagamentos,
-
-    // Internos expostos para callbacks inline
-    _closeForm:               _closeForm,
-    _salvarFuncionario:       _salvarFuncionario,
-    _excluirFuncionario:      _excluirFuncionario,
-    _closeDetalhes:           _closeDetalhes,
-    _closeRegistro:           _closeRegistro,
-    _salvarRegistro:          _salvarRegistro,
-    _excluirRegistro:         _excluirRegistro,
-    _closeHistorico:          _closeHistorico,
-    _aplicarFiltroHistorico:  _aplicarFiltroHistorico,
-    _closePagamento:          _closePagamento,
-    _salvarPagamento:         _salvarPagamento,
-    _closeExtrato:            _closeExtrato,
-  };
-
-})();
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', function() { HR_FUNC.init(); });
-} else {
-  HR_FUNC.init();
-}
-
-console.log('[app-funcionarios.js v3] ✓ RH + Pagamentos + Detecção de Gaps carregado');
+  function _blocoSaldo(s,f){
+    if(!s)return'';
+    var sc=s.temCredito?GREEN:(s.saldo>0.01?RED:GOLD);
+    var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'⚠ Deve '+_fmtMoeda(s.saldo):'✓ Quitado');
+    return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:13px;margin-bottom:12px;">'+
+      '<div style="font-size:.62re
