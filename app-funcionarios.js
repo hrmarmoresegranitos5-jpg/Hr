@@ -337,6 +337,13 @@ var HR_FUNC = (function () {
             'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
             '<span>📑</span><span>Folha de Pgto</span></button>' +
         '</div>' +
+        '<button onclick="if(typeof HR_IMPORT!==\'undefined\')HR_IMPORT.abrirImportacao();" '+
+          'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(92,184,92,.06);'+
+          'border:1.5px solid rgba(92,184,92,.28);border-radius:11px;color:'+GREEN+';'+
+          'font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;'+
+          'display:flex;align-items:center;justify-content:center;gap:9px;">'+
+          '<span>📥</span><span>Importar Relatório de Presença</span>'+
+        '</button>' +
       '</div>' +
 
       // ── Separador + Busca ──
