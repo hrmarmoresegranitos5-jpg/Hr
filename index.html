@@ -443,6 +443,7 @@ function openApp(pg){
         <div class="cfgtab" data-cftab="5">📷 Catálogo</div>
         <div class="cfgtab" data-cftab="3">⚙️ Serviços</div>
         <div class="cfgtab" data-cftab="4">🏢 Empresa</div>
+        <div class="cfgtab" data-cftab="7">⏱️ H. Extras</div>
       </div>
       <div class="cfgbody" id="cfgBody"></div>
     </div>
@@ -762,7 +763,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-diagnostico.js?v=11"></script>
   <script src="app-contrato-area.js?v=3"></script>
   <script src="app-contrato-pdf.js?v=2"></script>
-  <script src="app-horas-extras-pdf.js?v=1"></script>
+  <script src="app-horas-extras-pdf.js?v=2"></script>
   <script src="app-funcionarios.js?v=1"></script>
 <div class="ov" id="adminPinMd" style="align-items:flex-end;">
   <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
@@ -1547,6 +1548,127 @@ function capWhatsapp() {
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// HORAS EXTRAS — Renderização e persistência da aba cftab=7
+// ─────────────────────────────────────────────────────────────────────
+function _heRenderCfg() {
+  var he = (typeof CFG !== 'undefined' && CFG && CFG.he) ? CFG.he : {};
+  var vN = parseFloat(he.normal)   || 1.5;
+  var vF = parseFloat(he.feriado)  || 2.0;
+  var vE = parseFloat(he.especial) || 3.0;
+
+  var html =
+    '<div style="padding:14px;">' +
+    '<div style="font-size:.72rem;color:var(--t3,#888);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;">Multiplicadores de Hora Extra</div>' +
+
+    '<div class="card" style="padding:14px;margin-bottom:14px;">' +
+      '<div style="font-size:.65rem;color:var(--t3,#888);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">⚖️ Regras CLT</div>' +
+
+      '<div style="margin-bottom:14px;">' +
+        '<label style="font-size:.75rem;color:var(--t2,#ccc);display:block;margin-bottom:5px;">Hora Extra Normal <span style="background:rgba(201,168,76,.15);color:var(--gold,#C9A84C);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:4px;">50%</span></label>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<input id="heCfgNormal" type="number" step="0.1" min="1" max="5" value="' + vN.toFixed(1) + '" ' +
+            'style="width:80px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.95rem;text-align:center;">' +
+          '<span style="font-size:.78rem;color:var(--t3,#888);">× valor/hora &nbsp;→&nbsp; ex: 1.5 = 50% a mais</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="margin-bottom:14px;">' +
+        '<label style="font-size:.75rem;color:var(--t2,#ccc);display:block;margin-bottom:5px;">Hora Extra Domingo/Feriado <span style="background:rgba(201,168,76,.15);color:var(--gold,#C9A84C);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:4px;">100%</span></label>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<input id="heCfgFeriado" type="number" step="0.1" min="1" max="5" value="' + vF.toFixed(1) + '" ' +
+            'style="width:80px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.95rem;text-align:center;">' +
+          '<span style="font-size:.78rem;color:var(--t3,#888);">× valor/hora &nbsp;→&nbsp; ex: 2.0 = 100% a mais</span>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="margin-bottom:6px;">' +
+        '<label style="font-size:.75rem;color:var(--t2,#ccc);display:block;margin-bottom:5px;">Hora Extra Especial/Emergencial <span style="background:rgba(201,168,76,.15);color:var(--gold,#C9A84C);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:4px;">200%</span></label>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<input id="heCfgEspecial" type="number" step="0.1" min="1" max="10" value="' + vE.toFixed(1) + '" ' +
+            'style="width:80px;padding:8px 10px;border-radius:8px;border:1px solid var(--bd,#333);background:var(--bg,#111);color:var(--t1,#eee);font-size:.95rem;text-align:center;">' +
+          '<span style="font-size:.78rem;color:var(--t3,#888);">× valor/hora &nbsp;→&nbsp; ex: 3.0 = 200% a mais</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="card" style="padding:12px 14px;margin-bottom:14px;background:rgba(201,168,76,.04);border-color:rgba(201,168,76,.2);">' +
+      '<div style="font-size:.65rem;color:var(--t3,#888);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">🧮 Preview do Cálculo</div>' +
+      '<div id="hePreviewCalc" style="font-size:.78rem;color:var(--t2,#ccc);line-height:1.9;"></div>' +
+    '</div>' +
+
+    '<button onclick="_heSalvarCfg()" style="width:100%;padding:13px;background:var(--gold,#C9A84C);color:#000;border:none;border-radius:12px;font-weight:800;font-size:.95rem;cursor:pointer;letter-spacing:.03em;">💾 Salvar Configuração</button>' +
+    '</div>';
+
+  var body = document.getElementById('cfgBody');
+  if (body) body.innerHTML = html;
+
+  // Atualizar preview em tempo real
+  ['heCfgNormal','heCfgFeriado','heCfgEspecial'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', _heAtualizarPreview);
+  });
+  _heAtualizarPreview();
+}
+
+function _heAtualizarPreview() {
+  var vN = parseFloat((document.getElementById('heCfgNormal')   || {}).value) || 1.5;
+  var vF = parseFloat((document.getElementById('heCfgFeriado')  || {}).value) || 2.0;
+  var vE = parseFloat((document.getElementById('heCfgEspecial') || {}).value) || 3.0;
+  var ex = 10; // R$ 10/h de exemplo
+  var prev = document.getElementById('hePreviewCalc');
+  if (!prev) return;
+  prev.innerHTML =
+    'Exemplo com R$ 10,00/hora:<br>' +
+    '&nbsp;• Normal (×' + vN.toFixed(1) + ') → <b style="color:var(--gold);">R$ ' + (ex * vN).toFixed(2).replace('.',',') + '/h</b><br>' +
+    '&nbsp;• Feriado (×' + vF.toFixed(1) + ') → <b style="color:var(--gold);">R$ ' + (ex * vF).toFixed(2).replace('.',',') + '/h</b><br>' +
+    '&nbsp;• Especial (×' + vE.toFixed(1) + ') → <b style="color:var(--gold);">R$ ' + (ex * vE).toFixed(2).replace('.',',') + '/h</b>';
+}
+
+function _heSalvarCfg() {
+  var vN = parseFloat((document.getElementById('heCfgNormal')   || {}).value) || 1.5;
+  var vF = parseFloat((document.getElementById('heCfgFeriado')  || {}).value) || 2.0;
+  var vE = parseFloat((document.getElementById('heCfgEspecial') || {}).value) || 3.0;
+
+  if (typeof CFG === 'undefined' || !CFG) {
+    if (typeof toast === 'function') toast('CFG não carregado ainda.');
+    return;
+  }
+  CFG.he = { normal: vN, feriado: vF, especial: vE };
+
+  // Persistir no localStorage junto com o restante do CFG
+  try {
+    var stored = JSON.parse(localStorage.getItem('cfg') || '{}');
+    stored.he = CFG.he;
+    localStorage.setItem('cfg', JSON.stringify(stored));
+    if (typeof toast === 'function') toast('✓ Multiplicadores salvos!');
+  } catch(e) {
+    if (typeof toast === 'function') toast('Erro ao salvar: ' + e.message);
+  }
+}
+
+// Interceptar clique nas cfgTabs para renderizar aba 7
+document.addEventListener('click', function(e) {
+  var tab = e.target.closest('[data-cftab]');
+  if (!tab) return;
+  if (tab.getAttribute('data-cftab') === '7') {
+    // Pequeno delay para o cfgBody ser mostrado pelo handler original
+    setTimeout(_heRenderCfg, 30);
+  }
+});
+
+// Carregar CFG.he do localStorage na inicialização
+(function() {
+  function _tryLoadHE() {
+    if (typeof CFG === 'undefined' || !CFG) { setTimeout(_tryLoadHE, 400); return; }
+    try {
+      var stored = JSON.parse(localStorage.getItem('cfg') || '{}');
+      if (stored.he) CFG.he = stored.he;
+    } catch(e) {}
+  }
+  _tryLoadHE();
+})();
 
 
 
