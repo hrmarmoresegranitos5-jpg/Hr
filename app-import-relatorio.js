@@ -32,6 +32,22 @@ var HR_IMPORT = (function () {
   var DOW_NOMES  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   var DOW_KEYS   = ['dom','seg','ter','qua','qui','sex','sab'];
 
+  // ── CFG global — multiplicadores de HE ──────────────────────────────────
+  // Guard: mantém configuração existente se já definida externamente
+  var CFG = (typeof CFG !== 'undefined' && CFG) ? CFG : {};
+  if (!CFG.he) {
+    CFG.he = {
+      normal:   1.5,   // HE 50%  — dias úteis normais
+      domingo:  2.0,   // HE 100% — domingos
+      feriado:  2.0,   // HE 100% — feriados
+      especial: 3.0    // HE 200% — dias especiais definidos externamente
+    };
+  }
+  // Lista de feriados e dias especiais (arrays de "yyyy-mm-dd")
+  // Preenchidos externamente se necessário; padrão vazio = apenas regras de dia da semana
+  if (!CFG.feriados) CFG.feriados = [];
+  if (!CFG.diasEspeciais) CFG.diasEspeciais = [];
+
   // ── Persistência (re-usa o mesmo localStorage do HR_FUNC) ────────────────
   function _getRegistros()   { try{ return JSON.parse(localStorage.getItem('hr_registros')||'{}'); }catch(e){ return {}; } }
   function _saveRegistros(d) { try{ localStorage.setItem('hr_registros',JSON.stringify(d)); }catch(e){ console.error('[HR_IMPORT]',e); } }
@@ -115,6 +131,137 @@ var HR_IMPORT = (function () {
     var atraso = Math.max(0, -saldo);
 
     return { bruto: bruto, trab: trab, saldo: saldo, extra: extra, atraso: atraso, almoco: almocoMin };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ETAPA 2 — CLASSIFICADOR DE HE
+  // Função pura: recebe registro já calculado por _calcDia e classifica
+  // os minutos de hora extra em faixas (50%, 100%, 200%).
+  // NÃO faz nenhum cálculo financeiro.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Classifica os minutos de hora extra de um registro em faixas de HE.
+   *
+   * @param {Object} registro - objeto com { data: "yyyy-mm-dd", extra: Number (minutos) }
+   * @returns {{ extra50: Number, extra100: Number, extra200: Number }} — minutos por faixa
+   *
+   * Regras:
+   *   - dia especial (CFG.diasEspeciais)  → HE200
+   *   - feriado     (CFG.feriados)        → HE100
+   *   - domingo                           → HE100
+   *   - demais dias úteis                 → HE50
+   */
+  function _classificarHE(registro) {
+    var result = { extra50: 0, extra100: 0, extra200: 0 };
+
+    // Sem horas extras → retorna zeros
+    var extraMin = (registro && registro.extra) ? registro.extra : 0;
+    if (extraMin <= 0) return result;
+
+    var data = registro.data || '';
+
+    // Verifica dia especial primeiro (maior prioridade)
+    if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(data) >= 0) {
+      result.extra200 = extraMin;
+      return result;
+    }
+
+    // Verifica feriado
+    if (CFG.feriados && CFG.feriados.indexOf(data) >= 0) {
+      result.extra100 = extraMin;
+      return result;
+    }
+
+    // Verifica domingo (dow === 0)
+    // Nota: domingos normalmente são ignorados pelo parser, mas podem
+    // existir em importações manuais ou feriados em domingo
+    var dow = data ? new Date(data + 'T12:00:00').getDay() : -1;
+    if (dow === 0) {
+      result.extra100 = extraMin;
+      return result;
+    }
+
+    // Dia útil normal (seg–sáb, sem feriado, sem especial) → HE50
+    result.extra50 = extraMin;
+    return result;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ETAPA 3 — CÁLCULO FINANCEIRO DE HE
+  // Funções puras, desacopladas de _calcDia e do classificador.
+  // Recebem minutos + multiplicador + valor/hora → retornam valor em R$.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Calcula o valor financeiro de horas extras.
+   *
+   * @param {Number} minutos      — minutos de hora extra na faixa
+   * @param {Number} multiplicador — 1.5 (HE50) / 2.0 (HE100) / 3.0 (HE200)
+   * @param {Number} valorHora    — valor base da hora em R$
+   * @returns {Number} valor em R$
+   *
+   * Fórmula: (minutos / 60) × multiplicador × valorHora
+   */
+  function _calcValorHE(minutos, multiplicador, valorHora) {
+    if (!minutos || minutos <= 0) return 0;
+    if (!multiplicador || multiplicador <= 0) return 0;
+    if (!valorHora || valorHora <= 0) return 0;
+    return (minutos / 60) * multiplicador * valorHora;
+  }
+
+  /**
+   * Calcula o resumo financeiro completo de horas extras de um grupo.
+   * Recebe o resultado de _calcGrupo e o valor/hora do funcionário.
+   *
+   * @param {Object} calcGrupo  — retorno de _calcGrupo(grupo)
+   * @param {Number} valorHora  — valor da hora em R$ (0 se não informado)
+   * @returns {Object} resumo financeiro:
+   *   {
+   *     totalExtra50Min, totalExtra100Min, totalExtra200Min,
+   *     valorExtra50, valorExtra100, valorExtra200,
+   *     valorTotalExtras
+   *   }
+   */
+  function _calcFinanceiroGrupo(calcGrupo, valorHora) {
+    valorHora = valorHora || 0;
+
+    var totalExtra50Min  = 0;
+    var totalExtra100Min = 0;
+    var totalExtra200Min = 0;
+
+    // Itera pelas linhas calculadas e classifica cada dia
+    (calcGrupo.linhasCalc || []).forEach(function(lc) {
+      if (!lc.valido || !lc.res || lc.res.extra <= 0) return;
+
+      // Monta objeto mínimo para o classificador
+      var reg = { data: lc.r.data, extra: lc.res.extra };
+      var classe = _classificarHE(reg);
+
+      totalExtra50Min  += classe.extra50;
+      totalExtra100Min += classe.extra100;
+      totalExtra200Min += classe.extra200;
+    });
+
+    var valorExtra50  = _calcValorHE(totalExtra50Min,  CFG.he.normal,   valorHora);
+    var valorExtra100 = _calcValorHE(totalExtra100Min, CFG.he.domingo,  valorHora);
+    var valorExtra200 = _calcValorHE(totalExtra200Min, CFG.he.especial, valorHora);
+
+    return {
+      totalExtra50Min:  totalExtra50Min,
+      totalExtra100Min: totalExtra100Min,
+      totalExtra200Min: totalExtra200Min,
+      valorExtra50:     valorExtra50,
+      valorExtra100:    valorExtra100,
+      valorExtra200:    valorExtra200,
+      valorTotalExtras: valorExtra50 + valorExtra100 + valorExtra200
+    };
+  }
+
+  /** Formata valor monetário: 1234.5 → "R$ 1.234,50" */
+  function _fmtMoeda(v) {
+    if (isNaN(v) || v === null || v === undefined) return 'R$ —';
+    return 'R$ ' + parseFloat(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   // ── Design tokens (mesmos do app-funcionarios) ───────────────────────────
@@ -1044,6 +1191,9 @@ var HR_IMPORT = (function () {
     '</div>';
 
     _overlay('hrImport', html);
+
+    // ── ETAPA 5: injeta painel de resumo operacional e botão PDF ──────────
+    _patchVinculacaoUI();
   }
 
   function _kpi(valor, label) {
@@ -1147,6 +1297,396 @@ var HR_IMPORT = (function () {
 
   function _fechar() { _closeOverlay('hrImport'); }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ETAPA 5 — RESUMO OPERACIONAL
+  // Painel de totais agregados de todos os grupos do período importado.
+  // Exibido na tela de vinculação, abaixo do resumo de KPIs existente.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Gera o HTML do painel de resumo operacional de HE.
+   * Agrega todos os grupos de _state.grupos.
+   *
+   * @param {Number} valorHora — valor da hora em R$ (0 se não configurado)
+   * @returns {String} HTML do painel
+   */
+  function _htmlResumoOperacional(valorHora) {
+    valorHora = valorHora || 0;
+
+    var totTrabMin    = 0;
+    var totExtra50Min = 0;
+    var totExtra100Min= 0;
+    var totExtra200Min= 0;
+    var totAtrasoMin  = 0;
+    var totSaldoMin   = 0;
+
+    _state.grupos.forEach(function(gr) {
+      var calc = _calcGrupo(gr);
+      var fin  = _calcFinanceiroGrupo(calc, valorHora);
+      totTrabMin     += calc.totalTrabMin;
+      totExtra50Min  += fin.totalExtra50Min;
+      totExtra100Min += fin.totalExtra100Min;
+      totExtra200Min += fin.totalExtra200Min;
+      totAtrasoMin   += calc.totalAtrasoMin;
+      totSaldoMin    += calc.saldoLiquidoMin;
+    });
+
+    var totExtraMin   = totExtra50Min + totExtra100Min + totExtra200Min;
+    var valorFin50    = _calcValorHE(totExtra50Min,  CFG.he.normal,   valorHora);
+    var valorFin100   = _calcValorHE(totExtra100Min, CFG.he.domingo,  valorHora);
+    var valorFin200   = _calcValorHE(totExtra200Min, CFG.he.especial, valorHora);
+    var valorFinTotal = valorFin50 + valorFin100 + valorFin200;
+
+    var corSaldo = totSaldoMin >= 0 ? GOLD : RED;
+    var saldoSinal = totSaldoMin >= 0 ? '+' : '';
+
+    var linhaHE = function(label, min, mult, valor, cor) {
+      if (min <= 0) return '';
+      return '<tr>' +
+        '<td style="padding:5px 10px;font-size:.72rem;color:' + T2 + ';">' + label + '</td>' +
+        '<td style="padding:5px 4px;font-size:.72rem;color:' + cor + ';font-weight:700;">' + _min2dur(min) + '</td>' +
+        '<td style="padding:5px 4px;font-size:.7rem;color:' + T3 + ';">× ' + mult + '</td>' +
+        '<td style="padding:5px 10px 5px 4px;font-size:.72rem;color:' + cor + ';text-align:right;">' +
+          (valorHora > 0 ? _fmtMoeda(valor) : '—') +
+        '</td>' +
+      '</tr>';
+    };
+
+    return '<div style="' + CSS_CARD + 'margin-bottom:16px;">' +
+      // Título
+      '<div style="font-size:.6rem;color:' + GOLD + ';letter-spacing:.15em;text-transform:uppercase;margin-bottom:12px;">' +
+        '📊 RESUMO OPERACIONAL DO PERÍODO' +
+      '</div>' +
+
+      // Linha de totais principais
+      '<div style="display:flex;gap:0;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid ' + BD + ';">' +
+        '<div style="flex:1;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + T1 + ';">' + _min2dur(totTrabMin) + '</div>' +
+          '<div style="font-size:.6rem;color:' + T3 + ';">total trabalhado</div>' +
+        '</div>' +
+        '<div style="width:1px;background:' + BD + ';margin:0 8px;"></div>' +
+        '<div style="flex:1;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + GOLD + ';">' + _min2dur(totExtraMin) + '</div>' +
+          '<div style="font-size:.6rem;color:' + T3 + ';">total extras</div>' +
+        '</div>' +
+        '<div style="width:1px;background:' + BD + ';margin:0 8px;"></div>' +
+        '<div style="flex:1;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + RED + ';">' + _min2dur(totAtrasoMin) + '</div>' +
+          '<div style="font-size:.6rem;color:' + T3 + ';">total atrasos</div>' +
+        '</div>' +
+        '<div style="width:1px;background:' + BD + ';margin:0 8px;"></div>' +
+        '<div style="flex:1;text-align:center;">' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + corSaldo + ';">' + saldoSinal + _min2dur(Math.abs(totSaldoMin)) + '</div>' +
+          '<div style="font-size:.6rem;color:' + T3 + ';">saldo final</div>' +
+        '</div>' +
+      '</div>' +
+
+      // Tabela de classificação de HE
+      (totExtraMin > 0 ? (
+        '<div style="font-size:.62rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:8px;">CLASSIFICAÇÃO DE HORAS EXTRAS</div>' +
+        '<table style="width:100%;border-collapse:collapse;">' +
+          '<thead><tr style="font-size:.58rem;color:' + GOLD + ';letter-spacing:.06em;">' +
+            '<th style="padding:3px 10px;text-align:left;font-weight:600;">Tipo</th>' +
+            '<th style="padding:3px 4px;text-align:left;font-weight:600;">Horas</th>' +
+            '<th style="padding:3px 4px;text-align:left;font-weight:600;">Mult.</th>' +
+            '<th style="padding:3px 10px 3px 4px;text-align:right;font-weight:600;">Valor</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+            linhaHE('HE 50% — Dias úteis',  totExtra50Min,  CFG.he.normal,   valorFin50,  GOLD) +
+            linhaHE('HE 100% — Dom/Feriado', totExtra100Min, CFG.he.domingo,  valorFin100, '#8ec8c8') +
+            linhaHE('HE 200% — Especial',   totExtra200Min, CFG.he.especial, valorFin200, '#c88e5c') +
+            // Linha de total financeiro (só se há valor hora configurado)
+            (valorHora > 0 && valorFinTotal > 0 ? (
+              '<tr style="border-top:1px solid ' + BD + ';">' +
+                '<td colspan="3" style="padding:7px 10px;font-size:.72rem;font-weight:700;color:' + T1 + ';">Total financeiro extras</td>' +
+                '<td style="padding:7px 10px 7px 4px;font-size:.8rem;font-weight:800;color:' + GOLD + ';text-align:right;">' + _fmtMoeda(valorFinTotal) + '</td>' +
+              '</tr>'
+            ) : '') +
+          '</tbody>' +
+        '</table>'
+      ) : '<div style="font-size:.72rem;color:' + T3 + ';text-align:center;padding:8px 0;">Sem horas extras no período</div>') +
+
+      // Nota sobre valor/hora
+      (valorHora <= 0 ? (
+        '<div style="font-size:.63rem;color:' + T3 + ';margin-top:10px;padding:8px 10px;' +
+        'background:rgba(255,255,255,.03);border-radius:7px;border:1px solid ' + BD + ';">' +
+          'ℹ️ Configure o valor/hora no cadastro do funcionário para exibir valores financeiros.' +
+        '</div>'
+      ) : '') +
+
+    '</div>';
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ETAPA 4 — RELATÓRIO PDF
+  // Geração de relatório HTML imprimível com todas as faixas de HE.
+  // Usa window.print() nativo — sem dependência de biblioteca externa.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Abre janela de impressão com relatório completo de HE.
+   * Inclui: horas normais, HE50, HE100, HE200, totais financeiros.
+   *
+   * @param {Number} valorHora — valor da hora em R$ (0 se não configurado)
+   */
+  function _gerarRelatorioHE(valorHora) {
+    valorHora = valorHora || 0;
+
+    var di = _state.periodo.di || '';
+    var df = _state.periodo.df || '';
+    var fmtPer = function(iso) {
+      if (!iso) return '—';
+      var p = iso.split('-');
+      return p[2] + '/' + p[1] + '/' + p[0];
+    };
+
+    // Gera HTML de cada funcionário
+    var secoesFuncs = _state.grupos.map(function(gr) {
+      var calc = _calcGrupo(gr);
+      var fin  = _calcFinanceiroGrupo(calc, valorHora);
+
+      // Tabela de dias
+      var linhasDias = calc.linhasCalc.map(function(lc) {
+        var r   = lc.r;
+        var res = lc.res;
+        var dow = _dowNome(r.data);
+        var isSab = _dow(r.data) === 6;
+
+        // Classifica HE do dia
+        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : { extra50:0, extra100:0, extra200:0 };
+
+        var heLabel = '';
+        if (classeHE.extra50  > 0) heLabel = 'HE 50%';
+        if (classeHE.extra100 > 0) heLabel = 'HE 100%';
+        if (classeHE.extra200 > 0) heLabel = 'HE 200%';
+
+        return '<tr>' +
+          '<td>' + _esc(dow) + '</td>' +
+          '<td>' + fmtPer(r.data) + '</td>' +
+          '<td>' + (r.entrada && r.saida ? r.entrada + ' → ' + r.saida : '—') + '</td>' +
+          '<td>' + (res.almoco > 0 ? _min2dur(res.almoco) : '—') + '</td>' +
+          '<td>' + (lc.valido ? _min2dur(res.trab) : '—') + '</td>' +
+          '<td class="he-extra">' + (res.extra > 0 ? _min2dur(res.extra) : '—') + '</td>' +
+          '<td class="he-tipo">' + (heLabel || '—') + '</td>' +
+        '</tr>';
+      }).join('');
+
+      // Totais do funcionário
+      var jornadaNorm = calc.totalTrabMin - calc.totalExtraMin;
+      var funcNome = gr.nome;
+
+      return '<div class="func-section">' +
+        '<h3>' + _esc(funcNome) + '</h3>' +
+        '<table class="tabela-dias">' +
+          '<thead><tr>' +
+            '<th>Dia</th><th>Data</th><th>Entrada → Saída</th>' +
+            '<th>Almoço</th><th>Trabalhado</th><th>H. Extra</th><th>Tipo HE</th>' +
+          '</tr></thead>' +
+          '<tbody>' + linhasDias + '</tbody>' +
+        '</table>' +
+
+        '<div class="totais-func">' +
+          '<table class="tabela-totais">' +
+            '<tr><td>Total trabalhado</td><td class="val">' + _min2dur(calc.totalTrabMin) + '</td></tr>' +
+            '<tr><td>Horas normais (jornada)</td><td class="val">' + _min2dur(Math.max(0, jornadaNorm)) + '</td></tr>' +
+            (fin.totalExtra50Min  > 0 ? '<tr class="he50"><td>Horas extras 50% (HE50)</td><td class="val">' + _min2dur(fin.totalExtra50Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra50) : '') + '</td></tr>' : '') +
+            (fin.totalExtra100Min > 0 ? '<tr class="he100"><td>Horas extras 100% (HE100)</td><td class="val">' + _min2dur(fin.totalExtra100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra100) : '') + '</td></tr>' : '') +
+            (fin.totalExtra200Min > 0 ? '<tr class="he200"><td>Horas extras 200% (HE200)</td><td class="val">' + _min2dur(fin.totalExtra200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra200) : '') + '</td></tr>' : '') +
+            (calc.totalAtrasoMin  > 0 ? '<tr class="atraso"><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(calc.totalAtrasoMin) + '</td></tr>' : '') +
+            '<tr class="saldo"><td>Saldo líquido</td><td class="val">' + (calc.saldoLiquidoMin >= 0 ? '+' : '') + _min2dur(Math.abs(calc.saldoLiquidoMin)) + '</td></tr>' +
+            (valorHora > 0 && fin.valorTotalExtras > 0 ? '<tr class="fin-total"><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(fin.valorTotalExtras) + '</b></td></tr>' : '') +
+          '</table>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    // Totais globais
+    var gTotTrab    = 0, gTot50Min = 0, gTot100Min = 0, gTot200Min = 0;
+    var gTotAtraso  = 0, gValorFin = 0;
+    _state.grupos.forEach(function(gr) {
+      var calc = _calcGrupo(gr);
+      var fin  = _calcFinanceiroGrupo(calc, valorHora);
+      gTotTrab   += calc.totalTrabMin;
+      gTot50Min  += fin.totalExtra50Min;
+      gTot100Min += fin.totalExtra100Min;
+      gTot200Min += fin.totalExtra200Min;
+      gTotAtraso += calc.totalAtrasoMin;
+      gValorFin  += fin.valorTotalExtras;
+    });
+
+    var html = '<!DOCTYPE html><html lang="pt-BR"><head>' +
+      '<meta charset="UTF-8">' +
+      '<title>Relatório de Horas Extras — HR Mármores</title>' +
+      '<style>' +
+        'body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;margin:20px;}' +
+        'h1{font-size:16px;margin-bottom:2px;}' +
+        '.subtitulo{font-size:11px;color:#555;margin-bottom:18px;}' +
+        'h3{font-size:13px;margin:20px 0 6px;border-bottom:2px solid #c9a84c;padding-bottom:4px;color:#3d2e00;}' +
+        '.tabela-dias{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px;}' +
+        '.tabela-dias th{background:#f5f0e8;padding:5px 8px;text-align:left;border:1px solid #ddd;font-weight:600;}' +
+        '.tabela-dias td{padding:4px 8px;border:1px solid #ddd;white-space:nowrap;}' +
+        '.tabela-dias tr:nth-child(even) td{background:#fafaf7;}' +
+        '.he-extra{color:#7a5200;font-weight:700;}' +
+        '.he-tipo{font-size:10px;color:#555;}' +
+        '.totais-func{margin-top:6px;margin-bottom:20px;}' +
+        '.tabela-totais{border-collapse:collapse;font-size:11px;}' +
+        '.tabela-totais td{padding:3px 14px 3px 0;}' +
+        '.tabela-totais .val{font-weight:700;text-align:right;padding-left:20px;}' +
+        '.he50 td{color:#7a5200;}' +
+        '.he100 td{color:#1a5c6b;}' +
+        '.he200 td{color:#6b2800;}' +
+        '.atraso td{color:#c00;}' +
+        '.saldo td{color:#3d7a00;font-weight:700;}' +
+        '.fin-total td{color:#3d2e00;border-top:1px solid #ddd;padding-top:6px;}' +
+        '.resumo-global{background:#f5f0e8;border:1px solid #c9a84c;border-radius:6px;padding:12px 16px;margin-bottom:20px;}' +
+        '.resumo-global h2{font-size:13px;margin:0 0 10px;color:#3d2e00;}' +
+        '.resumo-global table{font-size:11px;border-collapse:collapse;}' +
+        '.resumo-global td{padding:2px 16px 2px 0;}' +
+        '.resumo-global .val{font-weight:700;text-align:right;}' +
+        '.func-section{page-break-inside:avoid;}' +
+        '@media print{body{margin:10px;}h3{color:#000;}}' +
+      '</style>' +
+    '</head><body>' +
+
+    '<h1>📋 Relatório de Horas Extras — HR Mármores e Granitos</h1>' +
+    '<div class="subtitulo">' +
+      'Período: ' + fmtPer(di) + ' a ' + fmtPer(df) + ' · ' +
+      'Gerado em: ' + new Date().toLocaleString('pt-BR') +
+      (valorHora > 0 ? ' · Valor/hora: ' + _fmtMoeda(valorHora) : '') +
+    '</div>' +
+
+    // Resumo global
+    '<div class="resumo-global">' +
+      '<h2>Resumo Consolidado</h2>' +
+      '<table>' +
+        '<tr><td>Total geral trabalhado</td><td class="val">' + _min2dur(gTotTrab) + '</td></tr>' +
+        (gTot50Min  > 0 ? '<tr><td>HE 50% — Dias úteis</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, CFG.he.normal, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, CFG.he.domingo, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot200Min > 0 ? '<tr><td>HE 200% — Especial</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, CFG.he.especial, valorHora)) : '') + '</td></tr>' : '') +
+        (gTotAtraso > 0 ? '<tr><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(gTotAtraso) + '</td></tr>' : '') +
+        (valorHora > 0 && gValorFin > 0 ? '<tr><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(gValorFin) + '</b></td></tr>' : '') +
+      '</table>' +
+    '</div>' +
+
+    secoesFuncs +
+
+    '</body></html>';
+
+    var win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) {
+      _toast('⚠️ Pop-up bloqueado. Permita pop-ups para gerar o relatório.');
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
+    // Aguarda carregamento antes de imprimir
+    win.onload = function() { win.print(); };
+    // Fallback para browsers que disparam onload antes do write terminar
+    setTimeout(function() {
+      try { if (!win.closed) win.print(); } catch(e) {}
+    }, 800);
+  }
+
+  /**
+   * Abre o modal de configuração para geração do relatório de HE.
+   * Permite informar o valor/hora antes de gerar o PDF.
+   */
+  function _abrirDialogRelatorioHE() {
+    // Tenta obter valor/hora do primeiro funcionário vinculado (se houver)
+    var funcs = _getFuncionarios();
+    var valorHoraDefault = 0;
+    _state.grupos.some(function(gr) {
+      if (gr.funcId && funcs[gr.funcId] && funcs[gr.funcId].valorHora) {
+        valorHoraDefault = parseFloat(funcs[gr.funcId].valorHora) || 0;
+        return true;
+      }
+      return false;
+    });
+
+    var overlayId = 'hrImportRelHE';
+    var ovEl = document.createElement('div');
+    ovEl.id = overlayId;
+    ovEl.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(8,7,4,.97);' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'font-family:Outfit,sans-serif;';
+    ovEl.innerHTML =
+      '<div style="width:100%;max-width:380px;padding:0 20px;">' +
+        '<div style="' + CSS_CARD + 'padding:22px 20px;">' +
+          '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;text-transform:uppercase;margin-bottom:6px;">HR MÁRMORES</div>' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + T1 + ';margin-bottom:4px;">📄 Relatório de HE</div>' +
+          '<div style="font-size:.72rem;color:' + T3 + ';margin-bottom:18px;">' +
+            'Informe o valor/hora para calcular valores financeiros (opcional).' +
+          '</div>' +
+
+          '<div style="font-size:.62rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:5px;">VALOR DA HORA (R$)</div>' +
+          '<input id="he_valor_hora" type="number" min="0" step="0.01" ' +
+            'value="' + (valorHoraDefault > 0 ? valorHoraDefault.toFixed(2) : '') + '" ' +
+            'placeholder="Ex: 18.50" ' +
+            'style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:10px;' +
+            'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
+            'font-family:Outfit,sans-serif;font-size:.9rem;outline:none;margin-bottom:14px;">' +
+
+          '<button onclick="(function(){' +
+            'var vh = parseFloat(document.getElementById(\'he_valor_hora\').value)||0;' +
+            'document.getElementById(\'' + overlayId + '\').remove();' +
+            'HR_IMPORT._gerarRelatorioHE(vh);' +
+          '})()" ' +
+            'style="width:100%;padding:12px;border-radius:10px;' +
+            'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
+            'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
+            'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;' +
+            'cursor:pointer;margin-bottom:8px;">📥 Gerar e Imprimir PDF</button>' +
+
+          '<button onclick="document.getElementById(\'' + overlayId + '\').remove()" ' +
+            'style="width:100%;padding:10px;border-radius:10px;background:transparent;' +
+            'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
+            'font-size:.82rem;cursor:pointer;">Cancelar</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ovEl);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // INTEGRAÇÃO — Injeção do resumo operacional na tela de vinculação
+  // (patch aditivo, sem alterar a estrutura existente de _renderTelaVinculacao)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // Sobrescreve apenas o botão final para incluir o botão de PDF
+  // A lógica original de _renderTelaVinculacao não é modificada estruturalmente.
+  // O resumo operacional é injetado via _patchVinculacaoUI() chamado após o render.
+
+  /**
+   * Injeta o painel de resumo e o botão de PDF na tela de vinculação,
+   * após ela ser renderizada. Chamado ao final de _renderTelaVinculacao.
+   */
+  function _patchVinculacaoUI() {
+    // Aguarda o DOM estar pronto
+    setTimeout(function() {
+      var overlay = document.getElementById('hrImport');
+      if (!overlay) return;
+
+      // ── Painel de resumo operacional (inserido antes do botão "Importar") ──
+      var btnImportar = overlay.querySelector('button[onclick*="_confirmarImportacao"]');
+      if (btnImportar && btnImportar.parentNode) {
+        var painelResumo = document.createElement('div');
+        painelResumo.innerHTML = _htmlResumoOperacional(0);
+        btnImportar.parentNode.insertBefore(painelResumo.firstChild, btnImportar);
+      }
+
+      // ── Botão de relatório PDF (inserido após botão "Importar") ──
+      var btnCancelar = overlay.querySelector('button[onclick*="_fechar"]');
+      if (btnCancelar && btnCancelar.parentNode) {
+        var btnPDF = document.createElement('button');
+        btnPDF.textContent = '📄 Gerar Relatório de HE (PDF)';
+        btnPDF.style.cssText = 'width:100%;padding:12px;border-radius:11px;background:transparent;' +
+          'border:1.5px solid rgba(201,168,76,.35);color:#C9A84C;font-family:Outfit,sans-serif;' +
+          'font-size:.85rem;font-weight:600;cursor:pointer;margin-bottom:8px;';
+        btnPDF.onclick = function() { _abrirDialogRelatorioHE(); };
+        btnCancelar.parentNode.insertBefore(btnPDF, btnCancelar);
+      }
+    }, 0);
+  }
+
   // ── EXPORT ───────────────────────────────────────────────────────────────
   return {
     abrirImportacao:     abrirImportacao,
@@ -1157,7 +1697,15 @@ var HR_IMPORT = (function () {
     _toggleTabela:       _toggleTabela,
     _confirmarImportacao:_confirmarImportacao,
     _fechar:             _fechar,
-    // Expõe utilitários para debug/testes externos
+    // Etapas 4 e 5 — exportados para uso externo e testes
+    _gerarRelatorioHE:   _gerarRelatorioHE,
+    _abrirDialogRelatorioHE: _abrirDialogRelatorioHE,
+    _patchVinculacaoUI:  _patchVinculacaoUI,
+    // Expõe camada HE para testes externos
+    _classificarHE:      _classificarHE,
+    _calcValorHE:        _calcValorHE,
+    _calcFinanceiroGrupo: _calcFinanceiroGrupo,
+    // Expõe utilitários para debug/testes externos (mantidos)
     _parseRelatorio:     _parseRelatorio,
     _calcDia:            _calcDia,
     _min2dur:            _min2dur,
