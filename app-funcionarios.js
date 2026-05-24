@@ -1006,7 +1006,7 @@ var HR_FUNC = (function () {
         _campo('Obs. gerais',_ta('fr_obs','',r.observacao,2))
       )+
 
-      '<button onclick="HR_FUNC._salvarRegistro(\''+funcionarioId+'\',\''+(registroId||'\')"  style="'+CSS_BTN_GOLD+'">💾 Salvar Registro</button>'+
+      '<button onclick="HR_FUNC._salvarRegistro(\''+funcionarioId+'\',\''+(registroId||'')+'\')\" style="'+CSS_BTN_GOLD+'">💾 Salvar Registro</button>'+
       (registroId?'<button onclick="HR_FUNC._excluirRegistro(\''+registroId+'\',\''+funcionarioId+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir</button>':'')+
       '<button onclick="HR_FUNC._closeRegistro()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
@@ -1118,4 +1118,165 @@ var HR_FUNC = (function () {
     var sc=s.temCredito?GREEN:(s.saldo>0.01?RED:GOLD);
     var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'⚠ Deve '+_fmtMoeda(s.saldo):'✓ Quitado');
     return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:13px;margin-bottom:12px;">'+
-      '<div style="font-size:.62re
+      '<div style="font-size:.62rerem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">💰 Saldo do Funcionário</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">'+
+        _miniKpi('Salário',_fmtMoeda(f&&f.salario?f.salario:0),GOLD)+
+        _miniKpi('H. Extras',_fmtMoeda(s.valorExtra),GOLD)+
+        _miniKpi('Já pago',_fmtMoeda(s.totalPago),GREEN)+
+      '</div>'+
+      '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;text-align:center;">'+
+        '<div style="font-size:.67rem;color:'+T3+';margin-bottom:3px;">'+sl+'</div>'+
+        '<div style="font-size:1.3rem;font-weight:800;color:'+sc+';">'+_fmtMoeda(Math.abs(s.saldo))+'</div>'+
+        (s.temCredito?'<div style="font-size:.63rem;color:'+GREEN+';margin-top:3px;">Desconta no próximo pagamento</div>':'')+
+      '</div>'+
+    '</div>';
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 13. SALVAR / FECHAR PAGAMENTO
+  // ─────────────────────────────────────────────────────────────
+  function _closePagamento(){ _closeOverlay('hrPagamento'); }
+
+  function _salvarPagamento(){
+    var funcId=(document.getElementById('pag_func')||{}).value;
+    var data=(document.getElementById('pag_data')||{}).value;
+    var valor=parseFloat((document.getElementById('pag_valor')||{}).value);
+    var forma=(document.getElementById('pag_forma')||{}).value||'dinheiro';
+    var obs=(document.getElementById('pag_obs')||{}).value||'';
+    if(!funcId){_toast('Selecione um funcionário');return;}
+    if(!data){_toast('Informe a data');return;}
+    if(!valor||valor<=0){_toast('Valor inválido');return;}
+    var funcs=getFuncionarios();
+    if(!funcs[funcId]){_toast('Funcionário não encontrado');return;}
+    var pags=getPagamentos();
+    var id=genId();
+    pags[id]={id:id,funcionarioId:funcId,data:data,valor:valor,forma:forma,obs:obs,criadoEm:new Date().toISOString()};
+    savePagamentos(pags);
+    _toast('Pagamento de '+_fmtMoeda(valor)+' registrado!');
+    _closePagamento();
+    renderPaginaFuncionarios();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 14. HISTÓRICO DE REGISTROS
+  // ─────────────────────────────────────────────────────────────
+  function abrirHistorico(funcId){
+    var funcs=getFuncionarios();
+    var lista=Object.values(funcs).filter(function(f){return f.ativo!==false;}).sort(function(a,b){return a.nome.localeCompare(b.nome);});
+    var regs=getRegistros();
+    var meusRegs=Object.values(regs).filter(function(r){return!funcId||r.funcionarioId===funcId;}).sort(function(a,b){return b.data.localeCompare(a.data);});
+
+    var html='<div style="width:100%;max-width:540px;padding:0 16px;">'+
+      _overlayHeader('Histórico de Registros','📋 RH · Ponto','HR_FUNC._closeHistorico()')+
+      (lista.length>0?
+        '<div style="margin-bottom:12px;">'+
+          '<select id="hist_func" onchange="HR_FUNC._filtrarHistorico(this.value)" style="width:100%;padding:10px 14px;background:#1a1006;border:1px solid '+BD+';border-radius:10px;color:'+T1+';font-family:Outfit,sans-serif;font-size:.85rem;">'+
+            '<option value="">— Todos os funcionários —</option>'+
+            lista.map(function(fx){return'<option value="'+fx.id+'"'+(funcId===fx.id?' selected':'')+'>'+_esc(fx.nome)+'</option>';}).join('')+
+          '</select>'+
+        '</div>':'')+
+      '<div id="hist_lista">'+_renderListaRegs(meusRegs,funcs,!!funcId)+'</div>'+
+      '<button onclick="HR_FUNC._closeHistorico()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrHistorico',html);
+  }
+
+  function _renderListaRegs(meusRegs,funcs,soUm){
+    if(meusRegs.length===0)return'<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum registro encontrado</div>';
+    return meusRegs.slice(0,60).map(function(r){
+      var fx=funcs[r.funcionarioId]||{nome:'?'};
+      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+r.funcionarioId+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+          '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+' · '+_diaSemana(r.data)+'</div>'+
+          '<div style="font-size:.78rem;color:'+GOLD+';">'+parseFloat(r.horas||0).toFixed(1)+'h'+(parseFloat(r.extra||0)>0?' <span style="color:'+GREEN+';">+'+parseFloat(r.extra).toFixed(1)+'h</span>':'')+'</div>'+
+        '</div>'+
+        (!soUm?'<div style="font-size:.72rem;color:'+T3+';margin-top:2px;">'+_esc(fx.nome)+'</div>':'')+
+        (r.producao?'<div style="font-size:.72rem;color:'+T2+';margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(r.producao)+'</div>':'')+
+      '</div>';
+    }).join('');
+  }
+
+  function _closeHistorico(){ _closeOverlay('hrHistorico'); }
+
+  function _filtrarHistorico(funcId){
+    var regs=getRegistros(); var funcs=getFuncionarios();
+    var meusRegs=Object.values(regs).filter(function(r){return!funcId||r.funcionarioId===funcId;}).sort(function(a,b){return b.data.localeCompare(a.data);});
+    var el=document.getElementById('hist_lista'); if(!el)return;
+    el.innerHTML=_renderListaRegs(meusRegs,funcs,!!funcId);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 15. EXTRATO DE PAGAMENTOS
+  // ─────────────────────────────────────────────────────────────
+  function abrirExtratoPagamentos(funcId){
+    var funcs=getFuncionarios();
+    var f=funcs[funcId]||{nome:'?'};
+    var pags=getPagamentos();
+    var meusPags=Object.values(pags).filter(function(p){return p.funcionarioId===funcId;}).sort(function(a,b){return b.data.localeCompare(a.data);});
+    var total=meusPags.reduce(function(s,p){return s+(parseFloat(p.valor)||0);},0);
+    var iconForma={dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'};
+
+    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Extrato de Pagamentos','📊 '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeExtrato()')+
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px;margin-bottom:14px;text-align:center;">'+
+        '<div style="font-size:.62rem;color:'+T3+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Total pago</div>'+
+        '<div style="font-size:1.4rem;font-weight:800;color:'+GREEN+';">'+_fmtMoeda(total)+'</div>'+
+        '<div style="font-size:.7rem;color:'+T3+';margin-top:2px;">'+meusPags.length+' pagamento'+(meusPags.length!==1?'s':'')+'</div>'+
+      '</div>'+
+      (meusPags.length===0?
+        '<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum pagamento registrado</div>':
+        meusPags.map(function(p){
+          return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
+              '<div style="flex:1;min-width:0;">'+
+                '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+(iconForma[p.forma]||'💳')+' '+_fmtData(p.data)+'</div>'+
+                (p.obs?'<div style="font-size:.72rem;color:'+T3+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(p.obs)+'</div>':'')+
+              '</div>'+
+              '<div style="font-size:.9rem;font-weight:700;color:'+GREEN+';white-space:nowrap;">'+_fmtMoeda(p.valor)+'</div>'+
+            '</div>'+
+          '</div>';
+        }).join(''))+
+      '<button onclick="HR_FUNC._closeExtrato()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrExtrato',html);
+  }
+
+  function _closeExtrato(){ _closeOverlay('hrExtrato'); }
+
+  // ─────────────────────────────────────────────────────────────
+  // EXPORT
+  // ─────────────────────────────────────────────────────────────
+  return{
+    renderPaginaFuncionarios: renderPaginaFuncionarios,
+    abrirFormFuncionario:     abrirFormFuncionario,
+    abrirDetalhesFuncionario: abrirDetalhesFuncionario,
+    abrirRegistroRapido:      abrirRegistroRapido,
+    abrirFolhaPagamento:      abrirFolhaPagamento,
+    abrirFormRegistro:        abrirFormRegistro,
+    abrirDetalhesRegistro:    abrirDetalhesRegistro,
+    abrirHistorico:           abrirHistorico,
+    abrirFormPagamento:       abrirFormPagamento,
+    abrirExtratoPagamentos:   abrirExtratoPagamentos,
+    _toggleBusca:             _toggleBusca,
+    _mostrarSemPonto:         _mostrarSemPonto,
+    _closeForm:               _closeForm,
+    _previewFoto:             _previewFoto,
+    _salvarFuncionario:       _salvarFuncionario,
+    _excluirFuncionario:      _excluirFuncionario,
+    _closeDetalhes:           _closeDetalhes,
+    _whatsappFunc:            _whatsappFunc,
+    _closeRegistro:           _closeRegistro,
+    _salvarRegistro:          _salvarRegistro,
+    _excluirRegistro:         _excluirRegistro,
+    _registrarEntrada:        _registrarEntrada,
+    _registrarSaida:          _registrarSaida,
+    _closeFolha:              _closeFolha,
+    _closePagamento:          _closePagamento,
+    _salvarPagamento:         _salvarPagamento,
+    _closeHistorico:          _closeHistorico,
+    _filtrarHistorico:        _filtrarHistorico,
+    _closeExtrato:            _closeExtrato
+  };
+})();
