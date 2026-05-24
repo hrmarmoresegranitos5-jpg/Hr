@@ -345,6 +345,15 @@ var HR_FUNC = (function () {
           _acaoBtn('📋 Histórico', 'Registros e ponto', 'HR_FUNC.abrirHistorico(null)') +
           _acaoBtn('💳 Pagamentos', 'Registrar pagamento', 'HR_FUNC.abrirFormPagamento(null)') +
         '</div>' +
+        '<button onclick="if(typeof abrirRelatorioHorasExtras===\'function\')abrirRelatorioHorasExtras();" ' +
+          'style="margin-top:8px;width:100%;padding:13px 16px;' +
+          'background:rgba(201,168,76,.08);border:1.5px solid rgba(201,168,76,.35);' +
+          'border-radius:11px;color:#C9A84C;font-family:Outfit,sans-serif;' +
+          'font-size:.84rem;font-weight:700;cursor:pointer;' +
+          'display:flex;align-items:center;justify-content:center;gap:9px;' +
+          'letter-spacing:.02em;box-sizing:border-box;">' +
+          '<span>📊</span><span>Gerar Relatório de Horas Extras</span>' +
+        '</button>' +
       '</div>' +
 
       '<div style="margin:0 14px 10px;height:1px;background:rgba(201,168,76,.12);"></div>' +
