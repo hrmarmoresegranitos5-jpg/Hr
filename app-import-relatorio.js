@@ -400,11 +400,16 @@ var HR_IMPORT = (function () {
       // Área de texto
       '<div style="margin-bottom:12px;">' +
         '<div style="font-size:.72rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:5px;">RELATÓRIO (cole aqui)</div>' +
-        '<textarea id="imp_texto" rows="10" placeholder="gibs;09/05/2026;07:00;11:06&#10;gibs;11/05/2026;07:03;17:01&#10;fabricio;09/05/2026;07:00;17:10&#10;..." ' +
+        '<textarea id="imp_texto" rows="10" ' +
           'style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:11px;' +
           'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
           'font-size:.78rem;font-family:\'Courier New\',monospace;outline:none;resize:vertical;' +
-          'line-height:1.6;"></textarea>' +
+          'line-height:1.6;" ' +
+          'oninput="HR_IMPORT._onTextareaInput(this)">' +
+        '</textarea>' +
+        '<div id="imp_textarea_hint" style="font-size:.65rem;color:' + T3 + ';margin-top:4px;padding:0 2px;">' +
+          'Ex: gibs;09/05/2026;07:00;11:06' +
+        '</div>' +
       '</div>' +
 
       // Upload de arquivo
@@ -589,71 +594,90 @@ var HR_IMPORT = (function () {
     return linhas.join('\n');
   }
 
+  function _onTextareaInput(ta) {
+    var hint = document.getElementById('imp_textarea_hint');
+    if (!hint) return;
+    var linhas = (ta.value || '').trim().split('\n').filter(function(l){ return l.trim(); });
+    // Ao digitar manualmente, sincroniza o raw
+    _state.raw = '';
+    hint.textContent = linhas.length > 0
+      ? linhas.length + ' linha(s) · Pronto para processar'
+      : 'Ex: gibs;09/05/2026;07:00;11:06';
+    hint.style.color = linhas.length > 0 ? GREEN : T3;
+  }
+
   function _onArquivo(input) {
     var file = input.files && input.files[0];
     if (!file) return;
 
     var nomeEl = document.getElementById('imp_file_nome');
+    var hintEl = document.getElementById('imp_textarea_hint');
+    var taEl   = document.getElementById('imp_texto');
+
     if (nomeEl) nomeEl.textContent = file.name;
 
     var ext = (file.name.split('.').pop() || '').toLowerCase();
     var isExcel = (ext === 'xls' || ext === 'xlsx' || ext === 'xlsm');
 
+    function _setResultado(csv) {
+      var linhas = csv.split('\n').filter(function(l){ return l.trim(); });
+      // Preview: primeiras 5 linhas no textarea (visual); raw completo no state
+      _state.raw = csv;
+      var preview = linhas.slice(0, 5).join('\n');
+      if (linhas.length > 5) preview += '\n… mais ' + (linhas.length - 5) + ' linha(s)';
+      if (taEl) taEl.value = preview;
+      if (hintEl) {
+        hintEl.textContent = '✅ ' + linhas.length + ' registro(s) lidos · Clique em Processar';
+        hintEl.style.color = GREEN;
+      }
+      if (nomeEl) nomeEl.textContent = '✅ ' + file.name;
+    }
+
     if (isExcel) {
-      // ── Caminho Excel: lê como ArrayBuffer → SheetJS ──────────────────
-      if (nomeEl) nomeEl.innerHTML = '⏳ Lendo…';
+      if (nomeEl) nomeEl.textContent = '⏳ Lendo…';
+      if (hintEl) { hintEl.textContent = 'Carregando planilha…'; hintEl.style.color = GOLD; }
+
       var readerBuf = new FileReader();
       readerBuf.onload = function(e) {
-        _carregarSheetJS().then(function(XLSX_mod) {
+        _carregarSheetJS().then(function() {
           try {
-            var wb = XLSX_mod.read(e.target.result, { type: 'array', cellDates: false });
+            var wb = XLSX.read(e.target.result, { type: 'array', cellDates: false });
             var csv = _xlsParaTexto(wb);
-            if (!csv) {
+            if (!csv || !csv.trim()) {
               _toast('⚠️ Planilha vazia ou formato não reconhecido.');
               if (nomeEl) nomeEl.textContent = file.name;
+              if (hintEl) { hintEl.textContent = 'Nenhum dado reconhecido.'; hintEl.style.color = RED; }
               return;
             }
-            var textarea = document.getElementById('imp_texto');
-            if (textarea) textarea.value = csv;
-            _state.raw = csv;
-            if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
-            _toast('✅ Planilha lida: ' + csv.split('\n').length + ' linhas');
+            _setResultado(csv);
+            _toast('✅ Planilha lida com sucesso!');
           } catch(err) {
             console.error('[HR_IMPORT XLS]', err);
             _toast('❌ Erro ao ler planilha: ' + err.message);
             if (nomeEl) nomeEl.textContent = file.name;
+            if (hintEl) { hintEl.textContent = 'Erro: ' + err.message; hintEl.style.color = RED; }
           }
         }).catch(function(err) {
-          _toast('❌ ' + err.message + ' Verifique sua conexão.');
+          _toast('❌ ' + err.message);
           if (nomeEl) nomeEl.textContent = file.name;
+          if (hintEl) { hintEl.textContent = 'Falha ao carregar leitor XLS.'; hintEl.style.color = RED; }
         });
       };
       readerBuf.onerror = function() { _toast('❌ Erro ao ler o arquivo.'); };
       readerBuf.readAsArrayBuffer(file);
 
     } else {
-      // ── Caminho texto: CSV / TXT / TSV ────────────────────────────────
       var readerTxt = new FileReader();
       readerTxt.onload = function(e) {
         var txt = e.target.result;
-        // Detecta se vieram caracteres inválidos (encoding errado)
         var garbled = (txt.match(/\uFFFD/g) || []).length;
         if (garbled > 10) {
-          // Tenta releitura com Latin-1
           var r2 = new FileReader();
-          r2.onload = function(ev) {
-            var txt2 = ev.target.result;
-            var textarea = document.getElementById('imp_texto');
-            if (textarea) textarea.value = txt2;
-            _state.raw = txt2;
-            if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
-          };
+          r2.onload = function(ev) { _setResultado(ev.target.result); };
+          r2.onerror = function() { _toast('❌ Erro ao ler arquivo.'); };
           r2.readAsText(file, 'ISO-8859-1');
         } else {
-          var textarea = document.getElementById('imp_texto');
-          if (textarea) textarea.value = txt;
-          _state.raw = txt;
-          if (nomeEl) nomeEl.innerHTML = '✅ ' + file.name;
+          _setResultado(txt);
         }
       };
       readerTxt.onerror = function() { _toast('❌ Erro ao ler o arquivo.'); };
@@ -662,9 +686,13 @@ var HR_IMPORT = (function () {
   }
 
   function _processar() {
-    var el = document.getElementById('imp_texto');
-    var texto = (el && el.value) || _state.raw || '';
+    // Usa _state.raw (arquivo) se disponível, senão usa o textarea direto
+    var texto = (_state.raw && _state.raw.trim())
+      ? _state.raw
+      : ((document.getElementById('imp_texto') || {}).value || '');
     texto = texto.trim();
+    // Remove linha de preview "… mais N linha(s)" se presente
+    texto = texto.replace(/\n?… mais \d+ linha\(s\)$/, '').trim();
     if (!texto) { _toast('⚠️ Cole ou importe um relatório primeiro.'); return; }
 
     var registros = _parseRelatorio(texto);
@@ -675,7 +703,6 @@ var HR_IMPORT = (function () {
 
     _state.grupos = _vincularAuto(_agrupar(registros));
 
-    // Calcula período geral
     var todas = registros.map(function(r){ return r.data; }).sort();
     _state.periodo = { di: todas[0], df: todas[todas.length-1] };
 
@@ -952,6 +979,7 @@ var HR_IMPORT = (function () {
     abrirImportacao:     abrirImportacao,
     _processar:          _processar,
     _onArquivo:          _onArquivo,
+    _onTextareaInput:    _onTextareaInput,
     _onVincular:         _onVincular,
     _toggleTabela:       _toggleTabela,
     _confirmarImportacao:_confirmarImportacao,
