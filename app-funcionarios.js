@@ -1309,11 +1309,100 @@ var HR_FUNC = (function () {
             lista.map(function(fx){return'<option value="'+fx.id+'"'+(funcId===fx.id?' selected':'')+'>'+_esc(fx.nome)+'</option>';}).join('')+
           '</select>'+
         '</div>':'')+
+      // Abas: Registros / Lotes importados
+      '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
+        '<button id="hist_tab_regs" onclick="HR_FUNC._histTab(\'regs\')" style="flex:1;padding:9px;border-radius:9px;background:rgba(201,168,76,.18);border:1.5px solid '+GOLD+';color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;">📋 Registros</button>'+
+        '<button id="hist_tab_lotes" onclick="HR_FUNC._histTab(\'lotes\')" style="flex:1;padding:9px;border-radius:9px;background:transparent;border:1px solid rgba(255,255,255,.1);color:'+T2+';font-family:Outfit,sans-serif;font-size:.8rem;cursor:pointer;">📦 Lotes importados</button>'+
+      '</div>'+
       '<div id="hist_lista">'+_renderListaRegs(meusRegs,funcs,!!funcId)+'</div>'+
+      '<div id="hist_lotes" style="display:none;">'+_renderListaLotes(funcId)+'</div>'+
       '<button onclick="HR_FUNC._closeHistorico()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
     '</div>';
 
     _overlay('hrHistorico',html);
+  }
+
+  function _histTab(aba){
+    var elRegs=document.getElementById('hist_lista');
+    var elLotes=document.getElementById('hist_lotes');
+    var btnRegs=document.getElementById('hist_tab_regs');
+    var btnLotes=document.getElementById('hist_tab_lotes');
+    if(!elRegs||!elLotes)return;
+    var ativo='flex:1;padding:9px;border-radius:9px;background:rgba(201,168,76,.18);border:1.5px solid '+GOLD+';color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;';
+    var inativo='flex:1;padding:9px;border-radius:9px;background:transparent;border:1px solid rgba(255,255,255,.1);color:'+T2+';font-family:Outfit,sans-serif;font-size:.8rem;cursor:pointer;';
+    if(aba==='regs'){
+      elRegs.style.display=''; elLotes.style.display='none';
+      if(btnRegs)btnRegs.style.cssText=ativo; if(btnLotes)btnLotes.style.cssText=inativo;
+    } else {
+      elRegs.style.display='none'; elLotes.style.display='';
+      if(btnRegs)btnRegs.style.cssText=inativo; if(btnLotes)btnLotes.style.cssText=ativo;
+      // Atualiza a lista de lotes com o filtro atual de funcionário
+      var funcId=(document.getElementById('hist_func')||{}).value||'';
+      elLotes.innerHTML=_renderListaLotes(funcId||null);
+    }
+  }
+
+  function _renderListaLotes(funcId){
+    var regs=getRegistros(); var funcs=getFuncionarios();
+    // Agrupa registros por loteId
+    var lotes={};
+    Object.values(regs).forEach(function(r){
+      if(!r.loteId)return;
+      if(funcId&&r.funcionarioId!==funcId)return;
+      if(!lotes[r.loteId])lotes[r.loteId]={loteId:r.loteId,regs:[],datas:[],funcsSet:{}};
+      lotes[r.loteId].regs.push(r);
+      lotes[r.loteId].datas.push(r.data);
+      lotes[r.loteId].funcsSet[r.funcionarioId]=true;
+    });
+    var lista=Object.values(lotes).sort(function(a,b){
+      // ordena pelo registro mais recente de cada lote
+      var ma=a.regs.map(function(r){return r.criadoEm||'';}).sort().pop()||'';
+      var mb=b.regs.map(function(r){return r.criadoEm||'';}).sort().pop()||'';
+      return mb.localeCompare(ma);
+    });
+    if(lista.length===0)return'<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum lote importado encontrado</div>';
+    return lista.map(function(l){
+      var datasSort=l.datas.slice().sort();
+      var di=datasSort[0],df=datasSort[datasSort.length-1];
+      var nFuncs=Object.keys(l.funcsSet).length;
+      var nRegs=l.regs.length;
+      // Data de importação = criadoEm do primeiro registro do lote
+      var criadoEm=l.regs.map(function(r){return r.criadoEm||'';}).sort()[0]||'';
+      var dtImp=criadoEm?new Date(criadoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'?';
+      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:13px;margin-bottom:10px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">'+
+          '<div style="flex:1;min-width:0;">'+
+            '<div style="font-size:.82rem;font-weight:700;color:'+T1+';margin-bottom:2px;">'+
+              '📅 '+_fmtData(di)+(di!==df?' → '+_fmtData(df):'')+
+            '</div>'+
+            '<div style="font-size:.7rem;color:'+T3+';">'+
+              nRegs+' registro'+(nRegs!==1?'s':'')+' · '+nFuncs+' funcionário'+(nFuncs!==1?'s':'')+
+            '</div>'+
+            '<div style="font-size:.65rem;color:'+T3+';margin-top:2px;">Importado em '+dtImp+'</div>'+
+          '</div>'+
+          '<button onclick="HR_FUNC._apagarLote(\''+l.loteId+'\')" '+
+            'style="padding:7px 12px;border-radius:8px;background:rgba(200,92,92,.12);'+
+            'border:1px solid rgba(200,92,92,.3);color:'+RED+';font-family:Outfit,sans-serif;'+
+            'font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">'+
+            '🗑 Apagar lote'+
+          '</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+  }
+
+  function _apagarLote(loteId){
+    var regs=getRegistros();
+    var count=Object.values(regs).filter(function(r){return r.loteId===loteId;}).length;
+    if(!confirm('Apagar este lote?\n\n'+count+' registro(s) serão removidos permanentemente.\nEsta ação não pode ser desfeita.'))return;
+    Object.keys(regs).forEach(function(k){if(regs[k].loteId===loteId)delete regs[k];});
+    saveRegistros(regs);
+    // Atualiza a lista de lotes na tela
+    var funcId=(document.getElementById('hist_func')||{}).value||'';
+    var elLotes=document.getElementById('hist_lotes');
+    if(elLotes)elLotes.innerHTML=_renderListaLotes(funcId||null);
+    renderPaginaFuncionarios();
+    _toast('🗑 Lote apagado — '+count+' registro(s) removido(s).');
   }
 
   function _renderListaRegs(meusRegs,funcs,soUm){
@@ -1411,6 +1500,8 @@ var HR_FUNC = (function () {
     _salvarPagamento:         _salvarPagamento,
     _closeHistorico:          _closeHistorico,
     _filtrarHistorico:        _filtrarHistorico,
+    _histTab:                 _histTab,
+    _apagarLote:              _apagarLote,
     _closeExtrato:            _closeExtrato
   };
 })();

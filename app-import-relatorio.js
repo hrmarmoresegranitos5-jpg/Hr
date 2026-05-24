@@ -1252,13 +1252,16 @@ var HR_IMPORT = (function () {
     var importados = 0, pulados = 0, semFunc = 0;
     var conflitos = [];
 
+    // Identificador único deste lote de importação (usado para apagar em bloco)
+    var loteId = 'lote_' + Date.now();
+
     _state.grupos.forEach(function(gr) {
       if (!gr.funcId) { semFunc += gr.registros.length; return; }
       var f = funcs[gr.funcId];
       if (!f) { semFunc += gr.registros.length; return; }
 
       gr.registros.forEach(function(r) {
-        // Verifica duplicata
+        // Verifica duplicata — mesmo funcionário + mesma data = pula sem exceção
         var dup = Object.values(regs).find(function(rx) {
           return rx.funcionarioId === gr.funcId && rx.data === r.data;
         });
@@ -1287,6 +1290,7 @@ var HR_IMPORT = (function () {
           instalacao: '',
           ieo: '',
           observacao: 'Importado do relatório de presença',
+          loteId: loteId,
           criadoEm: new Date().toISOString(),
           atualizadoEm: new Date().toISOString()
         };
