@@ -730,26 +730,39 @@ var HR_IMPORT = (function () {
         var dt = new Date(dataISO + 'T12:00:00');
         if (isNaN(dt.getTime()) || dt.getDay() === 0) continue; // data inválida ou domingo
 
-        // Lê os 6 slots de horário
-        var entManha = _xlsTime2hhmm(row[off + 1]);
-        var saiManha = _xlsTime2hhmm(row[off + 3]);
-        var entTarde = _xlsTime2hhmm(row[off + 6]);
-        var saiTarde = _xlsTime2hhmm(row[off + 8]);
-        var entExtra = _xlsTime2hhmm(row[off + 10]);
-        var saiExtra = _xlsTime2hhmm(row[off + 12]);
+        // Lê os 6 slots de horário em ordem de coluna (batida1..batida6)
+        // IMPORTANTE: o XLS usa colunas fixas para sequência de batidas, NÃO
+        // semântica fixa de "manhã/tarde". Uma jornada direta sem almoço tem
+        // batida1=entrada e batida2=saída — que caem em off+1 e off+3 (slots
+        // originalmente chamados de "entManha" e "saiManha"). Quando o
+        // trabalhador vai ao almoço, tem 4 batidas: off+1, off+3, off+6, off+8.
+        // Tratar os slots com nomes semânticos causava:
+        //   - saída do dia lida em off+6 ("entTarde") → saída ficava vazia → "sem horário"
+        //   - última batida real ignorada → almoço e jornada calculados errado
+        var slot1 = _xlsTime2hhmm(row[off + 1]);
+        var slot2 = _xlsTime2hhmm(row[off + 3]);
+        var slot3 = _xlsTime2hhmm(row[off + 6]);
+        var slot4 = _xlsTime2hhmm(row[off + 8]);
+        var slot5 = _xlsTime2hhmm(row[off + 10]);
+        var slot6 = _xlsTime2hhmm(row[off + 12]);
 
-        // Entrada = primeiro horário disponível
-        var entrada = entManha || entTarde || entExtra || '';
-        // Saída = último horário disponível
-        var saida = saiExtra || saiTarde || saiManha || '';
+        // Coleta todas as batidas presentes e ordena cronologicamente
+        var batidas = [slot1, slot2, slot3, slot4, slot5, slot6]
+          .filter(function(b) { return !!b; })
+          .sort(); // HH:MM ordena corretamente como string
 
-        if (!entrada && !saida) continue; // dia sem registro algum
+        if (batidas.length === 0) continue; // dia sem registro algum
 
-        // Calcula minutos de almoço se saída manhã e entrada tarde estão presentes (Regra 3)
+        // Primeira batida = entrada do dia / última = saída do dia
+        var entrada = batidas[0];
+        var saida   = batidas[batidas.length - 1];
+
+        // Almoço: calculado apenas se houver 4+ batidas
+        // batidas[1] = saída para almoço, batidas[2] = retorno do almoço
         var almocoMin = 0;
-        if (saiManha && entTarde) {
-          var smMin = _hhmm2min(saiManha);
-          var etMin = _hhmm2min(entTarde);
+        if (batidas.length >= 4) {
+          var smMin = _hhmm2min(batidas[1]);
+          var etMin = _hhmm2min(batidas[2]);
           if (!isNaN(smMin) && !isNaN(etMin) && etMin > smMin) almocoMin = etMin - smMin;
         }
 
