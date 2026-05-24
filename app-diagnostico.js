@@ -400,6 +400,16 @@
   // Expõe buildDiagHTML para uso interno
   window._buildDiagHTML = _buildDiagHTML;
 
+  // Expõe logs para a Secretária IA (acesso total ao diagnóstico)
+  window._diagGetLogs = function() { return DIAG.logs.slice(); };
+
+  // Notifica a Secretária IA a cada novo erro grave
+  var _origAddLog = addLog;
+  // Hook de erro já integrado via window.onerror + console.error acima;
+  // esta linha garante que _secretariaReceberErro seja chamado mesmo se
+  // app-secretaria-chat.js ainda não tiver carregado no momento do erro.
+  window._pendingErrNotifs = window._pendingErrNotifs || [];
+
   // ── Ação: exportar relatório ───────────────────────────────────────
   window._diagExportar = function() {
     var linhas = ['=== RELATÓRIO DE DIAGNÓSTICO HR MÁRMORES ===',
