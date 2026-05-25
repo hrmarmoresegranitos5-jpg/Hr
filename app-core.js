@@ -2822,30 +2822,43 @@ function calcular(){
   // Para o painel interno: custo_mob do túmulo vem do tumResult; acessórios comuns = totalAcT
   var tumMobPainel=ambientes.reduce(function(s,a){return s+((a.tipo==='Túmulo'&&a.tumResult)?a.tumResult.custo_mob||0:0);},0);
   var mobPainel=totalAcT+tumMobPainel;
-  // ── Custo REAL da pedra: custo/m² × m² (não preço de venda) ──
-  // Para Túmulos com motor inline: usa tumResult.custo_pedra diretamente (já calculado com mat.pr sem multiplicadores)
-  // Para outros ambientes: usa campo custo do cadastro × m² das peças; fallback = preço de venda
+  // ── Custo REAL da pedra (para ambientes não-Túmulo) ──
   var totalCustoPedraReal=ambientes.reduce(function(s,a){
-    if(a.tipo==='Túmulo'){
-      // tumResult.custo_pedra = m2_total × mat.pr (calculado em app-tum-inline.js)
-      return s+(a.tumResult?a.tumResult.custo_pedra||0:0);
-    }
+    if(a.tipo==='Túmulo') return s; // Túmulo tratado separado abaixo
     var ambMat=CFG.stones.find(function(x){return x.id===a.selMat;})||mat;
     var _def=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(x){return x.id===ambMat.id;}):null;
     var custoUnit=ambMat.custo||(_def?_def.custo:0)||0;
     var m2Amb=(a.pecas||[]).reduce(function(sm,p){return p.w&&p.h?sm+(p.w/100)*(p.h/100)*(p.q||1):sm;},0);
-    // Se custo não cadastrado, usa preço de venda como estimativa conservadora
     var unitEfetivo=custoUnit>0?custoUnit:ambMat.pr||0;
     return s+(m2Amb*unitEfetivo);
   },0);
   var custoPedraExibir=totalCustoPedraReal>0?totalCustoPedraReal:pedT;
-  // ── Custo REAL da MO: fallback 55% enquanto histórico de jobs for curto ──
+  // ── Custo REAL da MO: fallback 55% (apenas para ambientes não-Túmulo) ──
   var fatorMO=CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55;
   var custoMOReal=mobPainel*fatorMO;
-  var custoPainel=custoPedraExibir+custoMOReal;
+  // ── Para Túmulos: custo_total do motor inline já inclui pedra+acabamento+civil+mob+indiretos ──
+  var custoTotalTumulos=ambientes.reduce(function(s,a){
+    return s+(a.tipo==='Túmulo'&&a.tumResult?a.tumResult.custo_total||0:0);
+  },0);
+  var temTumulo=ambientes.some(function(a){return a.tipo==='Túmulo'&&a.tumResult;});
+  // custoPainel: para orçamento puro de túmulo usa custo_total direto; misto soma os dois
+  var custoPainel=temTumulo
+    ? custoTotalTumulos+(totalCustoPedraReal>0?totalCustoPedraReal+custoMOReal:0)
+    : custoPedraExibir+custoMOReal;
+  // Labels do painel adaptam conforme tipo
   pi+='<div style="padding:14px 16px;background:var(--s2);">';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(custoPedraExibir)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(custoMOReal)+'</b></div>';
+  if(temTumulo){
+    // Detalha os componentes do custo do túmulo
+    var _tr=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumResult;});
+    var _r=_tr?_tr.tumResult:{};
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Pedra</span><b style="color:var(--grn);font-size:.85rem;">R$ '+fm(_r.custo_pedra||0)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Acabamento</span><b style="font-size:.85rem;">R$ '+fm(_r.custo_acabamento||0)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Civil + Mob + Extras</span><b style="font-size:.85rem;">R$ '+fm((_r.civil?_r.civil.custo:0)+(_r.custo_mob||0)+(_r.custo_extras||0))+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Indiretos</span><b style="font-size:.85rem;">R$ '+fm((_r.custo_total||0)-((_r.custo_pedra||0)+(_r.custo_acabamento||0)+(_r.civil?_r.civil.custo:0)+(_r.custo_mob||0)+(_r.custo_extras||0)))+'</b></div>';
+  } else {
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Custo Pedra</span><b style="color:var(--grn);">R$ '+fm(custoPedraExibir)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(custoMOReal)+'</b></div>';
+  }
   pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b id="piVista" style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
   pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b id="piMargem" style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
