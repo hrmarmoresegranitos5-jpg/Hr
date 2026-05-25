@@ -2823,12 +2823,20 @@ function calcular(){
   var tumMobPainel=ambientes.reduce(function(s,a){return s+((a.tipo==='Túmulo'&&a.tumResult)?a.tumResult.custo_mob||0:0);},0);
   var mobPainel=totalAcT+tumMobPainel;
   // ── Custo REAL da pedra: custo/m² × m² (não preço de venda) ──
+  // Para Túmulos com motor inline: usa tumResult.custo_pedra diretamente (já calculado com mat.pr sem multiplicadores)
+  // Para outros ambientes: usa campo custo do cadastro × m² das peças; fallback = preço de venda
   var totalCustoPedraReal=ambientes.reduce(function(s,a){
+    if(a.tipo==='Túmulo'){
+      // tumResult.custo_pedra = m2_total × mat.pr (calculado em app-tum-inline.js)
+      return s+(a.tumResult?a.tumResult.custo_pedra||0:0);
+    }
     var ambMat=CFG.stones.find(function(x){return x.id===a.selMat;})||mat;
     var _def=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(x){return x.id===ambMat.id;}):null;
     var custoUnit=ambMat.custo||(_def?_def.custo:0)||0;
     var m2Amb=(a.pecas||[]).reduce(function(sm,p){return p.w&&p.h?sm+(p.w/100)*(p.h/100)*(p.q||1):sm;},0);
-    return s+(custoUnit>0?m2Amb*custoUnit:0);
+    // Se custo não cadastrado, usa preço de venda como estimativa conservadora
+    var unitEfetivo=custoUnit>0?custoUnit:ambMat.pr||0;
+    return s+(m2Amb*unitEfetivo);
   },0);
   var custoPedraExibir=totalCustoPedraReal>0?totalCustoPedraReal:pedT;
   // ── Custo REAL da MO: fallback 55% enquanto histórico de jobs for curto ──
