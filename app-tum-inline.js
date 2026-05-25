@@ -1742,10 +1742,12 @@ function calcularFull() {
     m2_bruto += a_div;
   } else if (N_lajes_div > 0) {
     // Vertical: lajes divisórias horizontais entre compartimentos
-    var L_liq=CC-(SEL.pecas.lat_esq&&SEL.pecas.lat_dir?2*Esp_m:Esp_m);
-    var C_liq=LC-(SEL.pecas.frente&&SEL.pecas.fundo?2*Esp_m:Esp_m);
-    L_liq = Math.max(L_liq, 0.05);
+    // C_liq = comprimento útil interno (CC) menos espessura das peças de FRENTE/FUNDO
+    // L_liq = largura útil interna  (LC) menos espessura das peças LATERAIS
+    var C_liq=CC-(SEL.pecas.frente&&SEL.pecas.fundo?2*Esp_m:Esp_m);
+    var L_liq=LC-(SEL.pecas.lat_esq&&SEL.pecas.lat_dir?2*Esp_m:Esp_m);
     C_liq = Math.max(C_liq, 0.10);
+    L_liq = Math.max(L_liq, 0.05);
     var a_laje = C_liq * L_liq * N_lajes_div;
     pecasCalc.push({
       nm:'Laje divisória — revestimento pedra (×'+N_lajes_div+')',
@@ -1754,13 +1756,7 @@ function calcularFull() {
     });
     m2_bruto += a_laje;
   }
-  // Rodapé: perímetro × altura em metros — borda somente na frente
-  if (SEL.pecas.rodape && d.Ab > 0) {
-    var perimetro = 2 * (d.C + d.L);
-    var a = (d.Ab / 100) * perimetro;
-    pecasCalc.push({ nm:'Rodapé', dim:d.Ab+'cm × '+perimetro.toFixed(2)+'m perímetro', m2:a, ml:d.C, prML:acab.prML });
-    m2_bruto += a;
-  }
+  // Rodapé já calculado acima (4 peças individuais, linhas 1643-1658) — bloco duplicado removido
 
   var cr=0,vr=0,clv=0,vlv=0,mlr=0,m2lv=0;
   if(SEL.rebaixo&&(SEL.rebaixo.usinagem||SEL.rebaixo.lajeVedante)){
@@ -1780,9 +1776,10 @@ function calcularFull() {
   var m2_total   = m2_bruto * fatorPerda;
 
   // Custo da pedra: área × preço/m² × fator de espessura
-  var espMult = { 2:1.00, 3:1.35, 4:1.70, 5:2.10 };
-  var espM = espMult[d.E] || 1.35;
-  var custo_pedra = m2_total * mat.pr * espM;
+  // espFatores: multiplicador de preço por espessura (2cm=base, 3cm=+35%, 4cm=+70%, 5cm=+110%)
+  var espFatores = { 2:1.00, 3:1.35, 4:1.70, 5:2.10 };
+  var espFator = espFatores[d.E] || 1.35;
+  var custo_pedra = m2_total * mat.pr * espFator;
 
   // Peso real: m² × espessura (m) × densidade (kg/m³)
   // Fórmula correta: cada peça tem peso = area_m2 × espessura_m × densidade
@@ -2742,7 +2739,7 @@ function renderResultado(o) {
   if (r.custo_extras > 0) {
     dh += '<div class="det-sec">✨ Extras</div>';
     if (SEL.opts.cruzGranito) dh += '<div class="det-line"><span class="det-k">Cruz em granito ('+r.nCruz+'×)</span><span class="det-v">R$ '+_TI_fm(r.nCruz*350)+'</span></div>';
-    if (SEL.opts.foto_porc)   dh += '<div class="det-line"><span class="det-k">Foto em porcelana ('+r.nFotos+'×)</span><span class="det-v">R$ '+_TI_fm(r.nFotos*200)+'</span></div>';
+    if (SEL.opts.foto_porc)   dh += '<div class="det-line"><span class="det-k">Foto em porcelana ('+r.nFotos+'×)</span><span class="det-v">R$ '+_TI_fm(r.nFotos*300)+'</span></div>';
     if (SEL.opts.jarro)       dh += '<div class="det-line"><span class="det-k">Jarro em granito ('+r.nJarros+' par'+(r.nJarros>1?'es':'')+')</span><span class="det-v">R$ '+_TI_fm(r.nJarros*280)+'</span></div>';
     if (SEL.opts.lapide45)    dh += '<div class="det-line"><span class="det-k">Lápide 45° engrossada</span><span class="det-v">R$ 180,00</span></div>';
   }
