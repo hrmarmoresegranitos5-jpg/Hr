@@ -2144,31 +2144,71 @@ var HR_IMPORT = (function () {
     var totalExtra50Min  = 0;
     var totalExtra100Min = 0;
     var totalExtra200Min = 0;
+    var totalExtraBancoMin = 0; // horas que foram para banco (não entram no financeiro)
+
+    // ── Audit opcional: window._hrAuditExtras = true ativa logs no console ──
+    var audit = (typeof window !== 'undefined' && window._hrAuditExtras);
+    if (audit) {
+      console.group('[HR] calcSaldoHE — func: ' + (func && func.nome || '?') + ' · refMes: ' + refMes);
+      console.log('Total registros recebidos:', (registros || []).length);
+    }
 
     (registros || []).forEach(function(r) {
-      if (r.destinoExtra === 'banco') return; // banco de horas não entra no financeiro
       var extraHoras = parseFloat(r.extra) || 0;
-      if (extraHoras <= 0) return;
+
+      if (r.destinoExtra === 'banco') {
+        // banco de horas não entra no financeiro — rastreamos separado
+        var bancoMin = Math.round(extraHoras * 60);
+        if (bancoMin > 0) totalExtraBancoMin += bancoMin;
+        if (audit) console.log('%c[BANCO]  ' + r.data + ' → ' + extraHoras + 'h → destinoExtra=banco — EXCLUÍDO do financeiro',
+          'color:#8ec8f0', { id: r.id, tipoExtra: r.tipoExtra, extraHoras: extraHoras });
+        return;
+      }
+
+      if (extraHoras <= 0) {
+        if (audit && r.extra !== undefined && r.extra !== null && r.extra !== 0 && r.extra !== '')
+          console.log('%c[ZERO]   ' + r.data + ' → extra=' + r.extra + ' → ignorado (≤0)',
+            'color:#888', { id: r.id });
+        return;
+      }
+
       var extraMin = Math.round(extraHoras * 60);
       var tipo = r.tipoExtra || 'normal';
+      var faixaUsada;
 
       if (tipo === 'especial') {
         totalExtra200Min += extraMin;
+        faixaUsada = 'HE200';
       } else if (tipo === 'feriado' || tipo === 'domingo') {
         totalExtra100Min += extraMin;
+        faixaUsada = 'HE100';
       } else {
         // 'normal' ou ausente: reclassifica pela data (retrocompatível)
         var cls = _classificarHE({ data: r.data, extra: extraMin });
         totalExtra50Min  += cls.extra50;
         totalExtra100Min += cls.extra100;
         totalExtra200Min += cls.extra200;
+        faixaUsada = cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : 'HE50';
       }
+
+      if (audit) console.log('%c[PAGAR]  ' + r.data + ' → ' + extraHoras + 'h (' + extraMin + 'min) → ' + faixaUsada + ' · tipoExtra=' + tipo,
+        'color:#c9a84c', { id: r.id, destinoExtra: r.destinoExtra || 'pagar' });
     });
 
     var valorExtra50     = _calcValorHE(totalExtra50Min,  CFG.he.normal,   valorHoraBase);
     var valorExtra100    = _calcValorHE(totalExtra100Min, CFG.he.domingo,  valorHoraBase);
     var valorExtra200    = _calcValorHE(totalExtra200Min, CFG.he.especial, valorHoraBase);
     var valorTotalExtras = valorExtra50 + valorExtra100 + valorExtra200;
+
+    if (audit) {
+      console.log('── RESUMO ──');
+      console.log('HE50: '  + (totalExtra50Min/60).toFixed(2)  + 'h → R$ ' + valorExtra50.toFixed(2));
+      console.log('HE100: ' + (totalExtra100Min/60).toFixed(2) + 'h → R$ ' + valorExtra100.toFixed(2));
+      console.log('HE200: ' + (totalExtra200Min/60).toFixed(2) + 'h → R$ ' + valorExtra200.toFixed(2));
+      console.log('🏦 Banco: ' + (totalExtraBancoMin/60).toFixed(2) + 'h (não entra no financeiro)');
+      console.log('TOTAL FINANCEIRO: ' + ((totalExtra50Min+totalExtra100Min+totalExtra200Min)/60).toFixed(2) + 'h → R$ ' + valorTotalExtras.toFixed(2));
+      console.groupEnd();
+    }
 
     return {
       valorHoraBase:    valorHoraBase,
@@ -2179,7 +2219,10 @@ var HR_IMPORT = (function () {
       valorExtra100:    valorExtra100,
       valorExtra200:    valorExtra200,
       valorTotalExtras: valorTotalExtras,
-      totalExtraHoras:  (totalExtra50Min + totalExtra100Min + totalExtra200Min) / 60
+      totalExtraHoras:  (totalExtra50Min + totalExtra100Min + totalExtra200Min) / 60,
+      // Campo extra: banco de horas (para exibição na UI, não entra no pagamento)
+      totalExtraBancoMin: totalExtraBancoMin,
+      totalExtraBancoHoras: totalExtraBancoMin / 60
     };
   }
 
