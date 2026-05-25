@@ -1865,7 +1865,9 @@ var HR_FUNC = (function () {
           var ep=ent.split(':').map(Number),sp=sai.split(':').map(Number);
           var eM=ep[0]*60+(ep[1]||0),sM=sp[0]*60+(sp[1]||0);
           if(sM>eM){
-            var res=HR_IMPORT._calcDia(eM,sM,r.data,0,f.id);
+            // CORREÇÃO: passa o intervalo real do registro (r.intervaloMin) em vez de 0 fixo
+            var almocoMin=r.intervaloMin||0;
+            var res=HR_IMPORT._calcDia(eM,sM,r.data,almocoMin,f.id);
             totalAtrasoMin+=res.atraso||0;
           }
         }
@@ -1889,8 +1891,10 @@ var HR_FUNC = (function () {
           if(entMin.length===2&&saiMin.length===2){
             var eM=entMin[0]*60+entMin[1],sM=saiMin[0]*60+saiMin[1];
             if(sM>eM){
-              var res2=HR_IMPORT._calcDia(eM,sM,r.data,0,f.id);
-              var lc={r:r,valido:true,res:Object.assign({},res2,{incompleto:false,bruto:res2.bruto||sM-eM,almoco:0})};
+              // CORREÇÃO: passa intervalo real — era sempre 0, causando TRABALHO DIRETO em todos os dias
+              var almocoMin2=r.intervaloMin||0;
+              var res2=HR_IMPORT._calcDia(eM,sM,r.data,almocoMin2,f.id);
+              var lc={r:r,valido:true,res:Object.assign({},res2,{incompleto:false,bruto:res2.bruto||sM-eM,almoco:almocoMin2})};
               var badges=HR_IMPORT._auditoriaBadges(lc);
               if(badges.some(function(b){return b.label.indexOf('JORNADA SUSPEITA')>=0;}))jornadas_suspeitas++;
             }
