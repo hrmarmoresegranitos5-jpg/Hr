@@ -16,7 +16,7 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos' };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias' };
 
   function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
   function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
@@ -24,9 +24,11 @@ var HR_FUNC = (function () {
   function getFuncionarios() { return _load(KEYS.func); }
   function getRegistros()    { return _load(KEYS.reg);  }
   function getPagamentos()   { return _load(KEYS.pag);  }
+  function getOcorrencias()  { return _load(KEYS.ocor); }
   function saveFuncionarios(d){ _save(KEYS.func,d); }
   function saveRegistros(d)   { _save(KEYS.reg,d);  }
   function savePagamentos(d)  { _save(KEYS.pag,d);  }
+  function saveOcorrencias(d) { _save(KEYS.ocor,d); }
   function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
@@ -360,6 +362,147 @@ var HR_FUNC = (function () {
       }
     }
     return alertas;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 5b. SISTEMA DE PENALIDADES — FALHA DE REGISTRO DE PONTO
+  // Regra: registro incompleto de dia passado → auto-completa
+  // com horário padrão e aplica desconto progressivo:
+  //   1ª ocorrência consecutiva → −10 min
+  //   2ª consecutiva            → −20 min
+  //   nª consecutiva            → −(n×10) min
+  // Sequência é reiniciada quando o funcionário registra
+  // corretamente (sem auto-completamento).
+  // ─────────────────────────────────────────────────────────────
+
+  // Conta ocorrências consecutivas de falha imediatamente anteriores a dataRef
+  function _contarOcorrenciasConsecutivas(funcId, dataRef) {
+    var regs = getRegistros();
+    var anteriores = Object.values(regs)
+      .filter(function(r){ return r.funcionarioId === funcId && r.data < dataRef; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); }); // mais recente primeiro
+    var count = 0;
+    for (var i = 0; i < anteriores.length; i++) {
+      if (anteriores[i].autoCompletado) { count++; }
+      else { break; } // dia limpo interrompe a sequência
+    }
+    return count;
+  }
+
+  // Auto-completa um registro incompleto de dia passado e aplica penalidade
+  function _autoCompletarRegistro(funcId, reg) {
+    if (!reg || reg.data >= _hoje()) return null; // apenas dias passados
+    if (reg.autoCompletado) return null;          // já processado
+    var faltaEntrada = !reg.entrada;
+    var faltaSaida   = !reg.saida;
+    if (!faltaEntrada && !faltaSaida) return null; // completo
+
+    var funcs = getFuncionarios();
+    var f = funcs[funcId] || {};
+    var regs = getRegistros();
+
+    // Horários padrão (usam horario do cadastro se disponível)
+    var hrEnt = f.horarioEntrada || '07:00';
+    var hrSai = f.horarioSaida   || '17:00';
+    if (faltaEntrada) reg.entrada = hrEnt;
+    if (faltaSaida)   reg.saida   = hrSai;
+
+    // Recalcula horas a partir dos horários completos
+    var ep = reg.entrada.split(':').map(Number);
+    var sp = reg.saida.split(':').map(Number);
+    var diff = (sp[0]*60+sp[1]) - (ep[0]*60+ep[1]);
+    if (diff < 0) diff += 1440;
+    var horasBrutas = diff / 60;
+    reg.horas = parseFloat((horasBrutas > 6 ? horasBrutas - 1 : horasBrutas).toFixed(2));
+
+    // Calcula penalidade progressiva
+    var nConsec = _contarOcorrenciasConsecutivas(funcId, reg.data);
+    var penMin  = (nConsec + 1) * 10;           // 10, 20, 30...
+
+    // Aplica desconto nas horas
+    reg.horas        = Math.max(0, parseFloat((reg.horas - penMin / 60).toFixed(2)));
+    reg.penalidade   = penMin;                   // minutos descontados (para exibição)
+    reg.autoCompletado = true;
+    reg.tipoFalha    = faltaEntrada ? 'sem_entrada' : (faltaSaida ? 'sem_saida' : 'ambos');
+    reg.atualizadoEm = new Date().toISOString();
+
+    regs[reg.id] = reg;
+    saveRegistros(regs);
+
+    // Registra ocorrência para auditoria
+    var ocors = getOcorrencias();
+    var oid = genId();
+    ocors[oid] = {
+      id: oid,
+      funcionarioId: funcId,
+      data: reg.data,
+      registroId: reg.id,
+      tipoFalha: reg.tipoFalha,
+      horaAutoCompletada: faltaEntrada ? hrEnt : hrSai,
+      penalidade: penMin,
+      ocorrenciaNumero: nConsec + 1,
+      criadoEm: new Date().toISOString()
+    };
+    saveOcorrencias(ocors);
+
+    return { penMin: penMin, numero: nConsec + 1, data: reg.data };
+  }
+
+  // Varre registros incompletos de dias passados e aplica penalidades
+  // Retorna array das penalidades aplicadas nesta chamada
+  function _verificarRegistrosIncompletos(funcId) {
+    var regs = getRegistros();
+    var hoje = _hoje();
+    var aplicadas = [];
+    Object.values(regs)
+      .filter(function(r){
+        return r.funcionarioId === funcId
+            && r.data < hoje
+            && !r.autoCompletado
+            && (!r.entrada || !r.saida);
+      })
+      .sort(function(a,b){ return a.data.localeCompare(b.data); })
+      .forEach(function(r){
+        var res = _autoCompletarRegistro(funcId, r);
+        if (res) aplicadas.push(res);
+      });
+    return aplicadas;
+  }
+
+  // Retorna ocorrências de um funcionário ordenadas por data desc
+  function getOcorrenciasFuncionario(funcId) {
+    var ocors = getOcorrencias();
+    return Object.values(ocors)
+      .filter(function(o){ return o.funcionarioId === funcId; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+  }
+
+  // Bloco HTML resumido de penalidades para exibir no perfil
+  function _blocoPenalidades(funcId) {
+    var ocors = getOcorrenciasFuncionario(funcId);
+    if (!ocors.length) return '';
+    var totalMin = ocors.reduce(function(s,o){ return s + (o.penalidade||0); }, 0);
+    var tipoLabel = { sem_entrada:'sem entrada', sem_saida:'sem saída', ambos:'sem entrada/saída' };
+    var itens = ocors.slice(0,5).map(function(o){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+        'padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
+        '<div>' +
+          '<span style="font-size:.78rem;font-weight:700;color:'+T1+';">'+_fmtData(o.data)+'</span>' +
+          '<span style="font-size:.65rem;color:'+T3+';margin-left:7px;">'+_esc(tipoLabel[o.tipoFalha]||o.tipoFalha)+'</span>' +
+          '<span style="font-size:.62rem;color:'+T3+';margin-left:5px;">(#'+o.ocorrenciaNumero+')</span>'+
+        '</div>' +
+        '<span style="font-size:.75rem;font-weight:700;color:'+RED+';white-space:nowrap;">−'+o.penalidade+' min</span>' +
+      '</div>';
+    }).join('');
+    var mais = ocors.length > 5 ? '<div style="font-size:.65rem;color:'+T3+';text-align:center;padding:6px 0;">+' + (ocors.length-5) + ' ocorrência(s) anteriores</div>' : '';
+    return '<div style="background:rgba(200,92,92,.06);border:1px solid rgba(200,92,92,.2);'+
+      'border-radius:12px;padding:12px 14px;margin-bottom:12px;">' +
+      '<div style="font-size:.68rem;font-weight:700;color:'+RED+';margin-bottom:8px;display:flex;justify-content:space-between;">' +
+        '<span>⚠️ OCORRÊNCIAS DE PONTO</span>' +
+        '<span>Total: −'+totalMin+' min</span>' +
+      '</div>' +
+      itens + mais +
+    '</div>';
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -793,6 +936,8 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   function abrirDetalhesFuncionario(id){
     var funcs=getFuncionarios(); var f=funcs[id]; if(!f)return;
+    // Verifica e auto-completa registros incompletos de dias passados antes de calcular
+    _verificarRegistrosIncompletos(id);
     var regs=getRegistros();
     var meusRegs=Object.values(regs).filter(function(r){return r.funcionarioId===id;})
       .sort(function(a,b){return b.data.localeCompare(a.data);});
@@ -828,6 +973,8 @@ var HR_FUNC = (function () {
         }).join('')+
       '</div>';
     }
+    // Bloco de ocorrências de falha de registro (penalidades)
+    var penHtml=_blocoPenalidades(id);
 
     var html='<div style="width:100%;max-width:520px;padding:0 16px;">'+
 
@@ -901,6 +1048,7 @@ var HR_FUNC = (function () {
         '</div>'+
       '</div>'+
 
+      penHtml+
       alertasHtml+
 
       // Calendário mini
@@ -990,11 +1138,15 @@ var HR_FUNC = (function () {
       var isFDS=dow===0||dow===6;
       var bg='transparent', cor=T3, brd='transparent';
       if(isHoje){bg='rgba(201,168,76,.2)';cor=GOLD;brd=GOLDB;}
-      if(reg){bg=parseFloat(reg.extra)>0?'rgba(201,168,76,.25)':'rgba(92,184,92,.2)';cor=parseFloat(reg.extra)>0?GOLD:GREEN;brd='transparent';}
+      if(reg){
+        if(reg.autoCompletado){bg='rgba(200,92,92,.18)';cor=RED;brd='rgba(200,92,92,.3)';}
+        else if(parseFloat(reg.extra)>0){bg='rgba(201,168,76,.25)';cor=GOLD;brd='transparent';}
+        else{bg='rgba(92,184,92,.2)';cor=GREEN;brd='transparent';}
+      }
       if(isFDS&&!reg){cor='rgba(122,114,104,.4)';}
       h+='<div style="text-align:center;padding:4px 2px;border-radius:6px;border:1px solid '+brd+';background:'+bg+';'+
         'font-size:.65rem;font-weight:'+(isHoje?'800':'600')+';color:'+cor+';cursor:'+(reg?'pointer':'default')+';" '+
-        (reg?'onclick="HR_FUNC.abrirDetalhesRegistro(\''+reg.id+'\')" title="'+reg.horas+'h'+(parseFloat(reg.extra)>0?' +'+reg.extra+'h extra':'')+'">':'>')+
+        (reg?'onclick="HR_FUNC.abrirDetalhesRegistro(\''+reg.id+'\')" title="'+reg.horas+'h'+(parseFloat(reg.extra)>0?' +'+reg.extra+'h extra':'')+(reg.autoCompletado?' ⚠️ −'+reg.penalidade+'min':'')+'">':'>')+
         d+'</div>';
     }
     h+='</div>';
@@ -1002,6 +1154,8 @@ var HR_FUNC = (function () {
     h+='<div style="display:flex;gap:12px;margin-top:8px;justify-content:center;">' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
         '<div style="width:10px;height:10px;border-radius:3px;background:rgba(92,184,92,.25);"></div>Ponto normal</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(200,92,92,.2);border:1px solid rgba(200,92,92,.4);"></div>Auto-completado ⚠️</div>' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
         '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.3);"></div>Com hora extra</div>' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
@@ -1107,6 +1261,13 @@ var HR_FUNC = (function () {
   window._hrFecharRapido=function(){_closeOverlay('hrRegistroRapido');};
 
   function _registrarEntrada(funcId){
+    // Verifica e auto-completa registros incompletos de dias anteriores
+    var penalidades = _verificarRegistrosIncompletos(funcId);
+    if (penalidades.length > 0) {
+      penalidades.forEach(function(p){
+        _toast('⚠️ Ocorrência #'+p.numero+' em '+_fmtData(p.data)+': −'+p.penMin+' min');
+      });
+    }
     var agora=new Date();
     var hora=agora.getHours().toString().padStart(2,'0')+':'+agora.getMinutes().toString().padStart(2,'0');
     var regs=getRegistros();
@@ -1798,6 +1959,9 @@ var HR_FUNC = (function () {
     // Item 4 — Banco de horas
     calcSaldoBancoHoras:      calcSaldoBancoHoras,
     // Item 6 — Dashboard de risco
-    abrirDashboardRisco:      abrirDashboardRisco
+    abrirDashboardRisco:      abrirDashboardRisco,
+    // Sistema de penalidades
+    getOcorrenciasFuncionario: getOcorrenciasFuncionario,
+    _verificarRegistrosIncompletos: _verificarRegistrosIncompletos
   };
 })();
