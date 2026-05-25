@@ -1976,7 +1976,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
       // SVG technical preview + per-side borda selector
-      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box'){
+      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
         h+=buildPecaPreviewSVG(amb,pc,pi);
         h+=buildPecaBordaHtml(amb,pc);
       }
@@ -2126,10 +2126,16 @@ function buildSVHtml(amb){
         h+='<span style="font-size:.72rem;color:#e05a5a;font-weight:500;">'+it.l+' — NÃO incluso</span></div>';
         return;
       }
-      var hint=it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':'R$ '+pr;
+      var autoMlQty = it.u==='ml_auto' ? (function(){ var t=0; (amb.pecas||[]).forEach(function(p){if(p.w)t+=(p.w/100)*(p.q||1);}); return t; })() : 0;
+      var hint=it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='ml_auto'?'R$ '+pr+'/ml · auto':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':'R$ '+pr;
       h+='<div class="svrow'+(isOn?' on':'')+'" data-sv="'+it.k+'" data-amb="'+amb.id+'">';
       h+='<div class="svchk">✓</div><div class="svlbl">'+it.l+'<span class="svph">'+hint+'</span></div></div>';
-      if(it.u==='sf'&&isOn){
+      if(it.u==='ml_auto'&&isOn){
+        var custo_auto=autoMlQty>0&&pr>0?' · R$ '+fm(autoMlQty*pr):'';
+        h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'" style="pointer-events:none;opacity:.85;">';
+        h+='<span style="font-size:.72rem;color:var(--gold2);font-weight:600;">'+autoMlQty.toFixed(2)+' ml'+custo_auto+'</span>';
+        h+='<span style="font-size:.58rem;color:var(--t4);margin-left:4px;">← das peças</span></div>';
+      } else if(it.u==='sf'&&isOn){
         var sfv=sv[it.k]||{};
         h+='<div class="sfw on" id="sf-'+amb.id+'-'+it.k+'">';
         h+='<div class="sfl">'+it.l+'</div><div class="sfr">';
@@ -2486,6 +2492,16 @@ function calcular(){
       if(!sv[it.k])return;
       var svd=sv[it.k];
       if(svd._fb)return; // borda-por-lado: tratado separadamente abaixo (deduplificado)
+      if(it.u==='ml_auto'){
+        var _autoMl2=0;(amb.pecas||[]).forEach(function(p){if(p.w)_autoMl2+=(p.w/100)*(p.q||1);});
+        if(_autoMl2>0){var _pA=getPr(it.k);var _vA=_pA*_autoMl2;acT+=_vA;acL.push({l:it.l+' '+_autoMl2.toFixed(2)+'ml',v:_vA});acN.push(it.l+' ('+_autoMl2.toFixed(2)+'ml)');}
+        return;
+      }
+      if(it.u==='acb_auto'){
+        var _acbLados2=svd.lados||0;
+        if(_acbLados2>0){var _acbMl2=_calcAcbAutoMl(amb,_acbLados2);var _acbPr2=getPr(it.k);if(_acbMl2>0&&_acbPr2>0){acT+=_acbMl2*_acbPr2;}}
+        return;
+      }
       if(it.u==='sf'){
         if(_sfSeenCalc[it.k])return;_sfSeenCalc[it.k]=true; // previne dupla contagem por grupo duplicado
         var ml=svd.ml||0,altCm=svd.altCm||0,q=svd.q||1;
