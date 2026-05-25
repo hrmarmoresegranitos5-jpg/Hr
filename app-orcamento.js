@@ -126,7 +126,7 @@ SV_DEFS.Banheiro=[
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
@@ -345,9 +345,16 @@ function buildSV(){
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
-      var hint=it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':it.fx===1&&pr?'R$ '+pr:'R$ '+pr;
+      var hint=it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='ml_auto'?'R$ '+pr+'/ml · auto':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':it.fx===1&&pr?'R$ '+pr:'R$ '+pr;
       h+='<div class="svrow" id="sr-'+it.k+'" data-sv="'+it.k+'"><div class="svchk">✓</div><div class="svlbl">'+it.l+'<span class="svph">'+hint+'</span></div></div>';
-      if(it.u==='sf'){
+      if(it.u==='ml_auto'&&sv[it.k]){
+        var _pA=getPr(it.k),_mlA=0;
+        (amb?amb.pecas:pecas||[]).forEach(function(p){if(p.w)_mlA+=(p.w/100)*(p.q||1);});
+        var _cA=_mlA>0&&_pA>0?' · R$ '+fm(_mlA*_pA):'';
+        h+='<div class="svxtr" id="sq-'+it.k+'" style="pointer-events:none;background:transparent;">'
+          +'<span style="font-size:.72rem;color:var(--gold2);font-weight:600;">'+_mlA.toFixed(2)+' ml'+_cA+'</span>'
+          +'<span style="font-size:.58rem;color:var(--t4);margin-left:4px;">← das peças</span></div>';
+      } else if(it.u==='sf'){
         h+='<div class="sfw" id="sf-'+it.k+'"><div class="sfl">'+it.l+'</div><div class="sfr"><div class="sf"><span>Comprimento (ml)</span><input type="number" id="sw-'+it.k+'" placeholder="2.50" step="0.01" min="0" oninput="calcSF(\''+it.k+'\')" onclick="event.stopPropagation()"></div><div class="sfx">×</div><div class="sf"><span>Altura (cm)</span><input type="number" id="sh-'+it.k+'" placeholder="6" step="0.5" min="0" oninput="calcSF(\''+it.k+'\')" onclick="event.stopPropagation()"></div><div class="sf"><span>Qtd</span><input type="number" id="sq-'+it.k+'" value="1" min="1" style="width:48px;" oninput="calcSF(\''+it.k+'\')" onclick="event.stopPropagation()"></div></div><div class="sfres" id="sfr-'+it.k+'"></div></div>';
       } else if(it.u==='cuba'){
         h+='<div class="svcuba" id="sq-'+it.k+'"><span id="cdisp-'+it.k+'"></span></div>';
@@ -1404,6 +1411,12 @@ function calcular(){
         }
         return;
       }
+      // ml_auto: Peitoril tipo com ml calculado automaticamente das peças
+      if(it.u==='ml_auto'){
+        var _autoMlP=0;(amb.pecas||[]).forEach(function(p){if(p.w)_autoMlP+=(p.w/100)*(p.q||1);});
+        if(_autoMlP>0){var _pmlA=getPr(it.k);var _vmlA=_pmlA*_autoMlP;acT+=_vmlA;acL.push({l:it.l+' '+_autoMlP.toFixed(2)+'ml',v:_vmlA});acN.push(it.l+' ('+_autoMlP.toFixed(2)+'ml)');}
+        return;
+      }
       // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
       if(it.u==='sf_auto'){
         var sfaM2=_calcSfAutoM2(amb,it.match);
@@ -1783,7 +1796,10 @@ function gerarPDF(){
       var g=SV_DEFS[tipo]||SV_DEFS.Cozinha;
       var sv=snap.svState||{};
       var hasSf=false;
-      g.forEach(function(grp){grp.its.forEach(function(it){if(sv[it.k]&&it.u==='sf'){var d=sv[it.k];if(d.ml&&d.altCm)hasSf=true;}});});
+      g.forEach(function(grp){grp.its.forEach(function(it){
+        if(sv[it.k]&&it.u==='sf'){var d=sv[it.k];if(d.ml&&d.altCm)hasSf=true;}
+        if(sv[it.k]&&it.u==='ml_auto'&&(snap.pecas||[]).some(function(p){return p.w;}))hasSf=true;
+      });});
       if(!hasPecas&&!hasSf)return;
       if(q.ambSnap.length>1){
         pecasListHtml+='<div style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;font-weight:700;padding:12px 0 8px;margin-top:4px;border-top:1px solid #EDE5CC;">'+(idx+1)+'&ordm; Ambiente &mdash; '+tipo+'</div>';
@@ -1796,13 +1812,59 @@ function gerarPDF(){
           +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:#999;font-weight:400;letter-spacing:0.3px;">'+dimStr+'</span>'
           +'</div>';
       });
+      // Montar segmentos detalhados por sub-tipo de borda a partir de pc.bordas
+      var bordaSegs = {}; // { sub: [ {cm, alt, q, pcDesc} ] }
+      (snap.pecas||[]).forEach(function(pc){
+        if(!pc.bordas||!pc.w||!pc.h) return;
+        var q = pc.q||1;
+        var dims = {fr:pc.w||0,fd:pc.w||0,esq:pc.h||0,dir:pc.h||0};
+        ['fr','fd','esq','dir'].forEach(function(lado){
+          var bd=pc.bordas[lado];
+          if(!bd||!bd.tipo||!bd.sub||!dims[lado]) return;
+          var cm = bd.ml!=null ? bd.ml : dims[lado];
+          var alt = bd.alt||6;
+          if(!bordaSegs[bd.sub]) bordaSegs[bd.sub]=[];
+          // Se quantidade > 1, repete o segmento q vezes para mostrar claramente
+          for(var qi=0;qi<q;qi++) bordaSegs[bd.sub].push({cm:cm,alt:alt});
+        });
+      });
       g.forEach(function(grp){grp.its.forEach(function(it){
         if(!sv[it.k]||it.u!=='sf')return;
-        var svd=sv[it.k];var ml=svd.ml||0,alt=svd.altCm||0,qq=svd.q||1;
-        if(!ml||!alt)return;
+        var svd=sv[it.k];var alt=svd.altCm||0;
+        if(!svd.ml||!alt)return;
+        var segs = bordaSegs[it.k];
+        var dimStr;
+        if(segs&&segs.length>0){
+          // Agrupa segmentos idênticos (mesmo cm e alt)
+          var grouped={};
+          segs.forEach(function(s){
+            var k2=s.cm+'_'+s.alt;
+            grouped[k2]=(grouped[k2]||{cm:s.cm,alt:s.alt,n:0});
+            grouped[k2].n++;
+          });
+          var parts=Object.keys(grouped).map(function(k2){
+            var g2=grouped[k2];
+            var seg=g2.cm+'×'+g2.alt;
+            return g2.n>1?seg+' (×'+g2.n+')':seg;
+          });
+          dimStr=parts.join(' + ')+' cm';
+        } else {
+          // Fallback: mostra total em metros como antes
+          dimStr=svd.ml+' ml × '+alt+' cm';
+        }
         pecasListHtml+='<div style="display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;border-bottom:1px solid #EDE5CC;">'
           +'<span style="font-size:14px;font-weight:600;color:#1a1a1a;letter-spacing:0.1px;">'+it.l+'</span>'
-          +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:#999;font-weight:400;letter-spacing:0.3px;">'+ml+' ml × '+alt+' cm'+(qq>1?' (×'+qq+')':'')+'</span>'
+          +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:#999;font-weight:400;letter-spacing:0.3px;">'+dimStr+'</span>'
+          +'</div>';
+      });});
+      // ml_auto: Peitoril tipos com ml calculado das peças
+      g.forEach(function(grp){grp.its.forEach(function(it){
+        if(!sv[it.k]||it.u!=='ml_auto')return;
+        var _mlPdf=0;(snap.pecas||[]).forEach(function(p){if(p.w)_mlPdf+=(p.w/100)*(p.q||1);});
+        if(!_mlPdf)return;
+        pecasListHtml+='<div style="display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;border-bottom:1px solid #EDE5CC;">'
+          +'<span style="font-size:14px;font-weight:600;color:#1a1a1a;letter-spacing:0.1px;">'+it.l+'</span>'
+          +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:#999;font-weight:400;letter-spacing:0.3px;">'+_mlPdf.toFixed(2)+' ml</span>'
           +'</div>';
       });});
     });
