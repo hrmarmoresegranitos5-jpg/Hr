@@ -203,8 +203,9 @@ var HR_FUNC = (function () {
         }
       }
 
-      // Débito: folgas compensadas (tipo reservado para uso futuro)
-      if (r.tipoExtra === 'folga_banco') {
+      // Débito: folgas compensadas — registros com tipo='folga_banco' criados ao lançar folga
+      // (campo `tipo` no registro, distinto de `tipoExtra` que é 'normal'/'feriado'/'especial')
+      if (r.tipo === 'folga_banco') {
         var dMin = Math.round(Math.abs(parseFloat(r.horas) || 0) * 60);
         if (dMin > 0) {
           utilizadoMin += dMin;
@@ -412,8 +413,11 @@ var HR_FUNC = (function () {
     var sp = reg.saida.split(':').map(Number);
     var diff = (sp[0]*60+sp[1]) - (ep[0]*60+ep[1]);
     if (diff < 0) diff += 1440;
+    // CORREÇÃO: não desconta almoço automaticamente no auto-completamento.
+    // O registro foi auto-completado com horário padrão — já é uma situação
+    // de exceção; subtrair mais 1h seria dupla penalidade injusta.
     var horasBrutas = diff / 60;
-    reg.horas = parseFloat((horasBrutas > 6 ? horasBrutas - 1 : horasBrutas).toFixed(2));
+    reg.horas = parseFloat(horasBrutas.toFixed(2));
 
     // Calcula penalidade progressiva
     var nConsec = _contarOcorrenciasConsecutivas(funcId, reg.data);
@@ -1284,19 +1288,44 @@ var HR_FUNC = (function () {
     var hora=agora.getHours().toString().padStart(2,'0')+':'+agora.getMinutes().toString().padStart(2,'0');
     var regs=getRegistros();
     var r=regs[regId]; if(!r)return;
+
+    // Validação: saída não pode ser igual à entrada (registro impossível)
+    if(r.entrada && r.entrada === hora){
+      _toast('⛔ Horário de saída igual ao de entrada. Verifique o relógio.');
+      return;
+    }
+
     r.saida=hora;
     if(r.entrada){
       var ep=r.entrada.split(':').map(Number), sp=hora.split(':').map(Number);
-      var diff=(sp[0]*60+sp[1])-(ep[0]*60+ep[1]);
-      if(diff<0)diff+=1440;
-      var horasbrutas=diff/60;
-      // Desconta 1h de almoço automaticamente se turno > 6h e não há registro de intervalo
-      r.horas=parseFloat((horasbrutas>6?horasbrutas-1:horasbrutas).toFixed(2));
+      var diffMin=(sp[0]*60+sp[1])-(ep[0]*60+ep[1]);
+      if(diffMin<0)diffMin+=1440;
+
+      // CORREÇÃO: não desconta almoço automaticamente.
+      // O relógio de ponto registra TRABALHO DIRETO quando não há batida de intervalo.
+      // Descontar 1h sem registro real prejudica o funcionário.
+      // O desconto só ocorre se houver intervalo registrado explicitamente (r.intervaloMin).
+      var intervaloMin = r.intervaloMin || 0;
+      r.horas = parseFloat(Math.max(0, (diffMin - intervaloMin) / 60).toFixed(2));
+
+      // CORREÇÃO: calcula horas extras em relação à jornada esperada do funcionário
+      var funcs = getFuncionarios();
+      var f2 = funcs[funcId] || {};
+      var dow = new Date(r.data+'T12:00:00').getDay();
+      var jornadaEsperadaMin;
+      if(f2.jornadaDiariaMin && f2.jornadaDiariaMin > 0){
+        jornadaEsperadaMin = f2.jornadaDiariaMin;
+      } else {
+        // Padrão marmoraria: sábado = 4h, demais dias úteis = 8h
+        jornadaEsperadaMin = (dow === 6) ? 240 : 480;
+      }
+      var extraMin = (diffMin - intervaloMin) - jornadaEsperadaMin;
+      r.extra = extraMin > 0 ? parseFloat((extraMin / 60).toFixed(2)) : 0;
     }
     r.atualizadoEm=new Date().toISOString();
     saveRegistros(regs);
     abrirRegistroRapido();
-    _toast('✓ Saída registrada: '+hora+(r.horas?' · '+r.horas+'h':''));
+    _toast('✓ Saída registrada: '+hora+(r.horas?' · '+r.horas+'h'+(r.extra>0?' +'+r.extra+'h extra':''):''));
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1445,13 +1474,17 @@ var HR_FUNC = (function () {
       if(ent&&sai){
         function calc(){
           if(!ent.value||!sai.value)return;
+          if(ent.value===sai.value){
+            _toast('⚠️ Entrada e saída iguais — verifique os horários.');
+            return;
+          }
           var e=ent.value.split(':').map(Number),s=sai.value.split(':').map(Number);
-          var diff=(s[0]*60+s[1])-(e[0]*60+e[1]); if(diff<0)diff+=1440;
-          var horasbrutas=diff/60;
-          // Desconta 1h de almoço se turno > 6h (padrão marmoraria)
-          var horasliq=horasbrutas>6?horasbrutas-1:horasbrutas;
+          var diffMin=(s[0]*60+s[1])-(e[0]*60+e[1]); if(diffMin<0)diffMin+=1440;
+          // CORREÇÃO: não desconta almoço automaticamente.
+          // O desconto só ocorre se houver intervalo registrado explicitamente.
+          // O usuário pode ajustar o campo "Horas trabalhadas" manualmente se houver pausa.
           var hr=document.getElementById('fr_horas');
-          if(hr&&!hr._edited)hr.value=horasliq.toFixed(2);
+          if(hr&&!hr._edited)hr.value=(diffMin/60).toFixed(2);
         }
         ent.addEventListener('change',calc); sai.addEventListener('change',calc);
         var hr=document.getElementById('fr_horas');
@@ -1466,15 +1499,29 @@ var HR_FUNC = (function () {
     var data=(document.getElementById('fr_data')||{}).value||'';
     if(!data){_toast('Informe a data');return;}
 
-    // ── Trava de jornada impossível (Item 2) ──────────────────────────────
+    // ── Validações básicas de jornada ────────────────────────────────────
     var entStr=(document.getElementById('fr_entrada')||{}).value||'';
     var saiStr=(document.getElementById('fr_saida')||{}).value||'';
-    if(entStr&&saiStr&&typeof HR_IMPORT!=='undefined'&&HR_IMPORT._validarJornada){
+    if(entStr&&saiStr){
+      // CORREÇÃO: bloqueia registro com entrada = saída (ex: 17:30→17:30)
+      if(entStr===saiStr){
+        _toast('⛔ Entrada e saída não podem ser iguais. Verifique os horários.');
+        return;
+      }
       var epMin=entStr.split(':').map(Number); var spMin=saiStr.split(':').map(Number);
       var eM=epMin[0]*60+(epMin[1]||0), sM=spMin[0]*60+(spMin[1]||0);
-      var almocoInputVal=parseFloat((document.getElementById('fr_almoco')||{}).value)||0;
-      var trava=HR_IMPORT._validarJornada(eM,sM,Math.round(almocoInputVal*60));
-      if(!trava.valido){_toast('⛔ '+trava.motivo);return;}
+      var diffTotalMin=sM-eM; if(diffTotalMin<0)diffTotalMin+=1440;
+      // Bloqueia jornadas impossíveis (> 16h brutas)
+      if(diffTotalMin>960){
+        _toast('⛔ Jornada de '+Math.round(diffTotalMin/60)+'h parece incorreta. Verifique entrada e saída.');
+        return;
+      }
+      // Integração com HR_IMPORT se disponível
+      if(typeof HR_IMPORT!=='undefined'&&HR_IMPORT._validarJornada){
+        var almocoInputVal=parseFloat((document.getElementById('fr_almoco')||{}).value)||0;
+        var trava=HR_IMPORT._validarJornada(eM,sM,Math.round(almocoInputVal*60));
+        if(!trava.valido){_toast('⛔ '+trava.motivo);return;}
+      }
     }
     var regs=getRegistros(); var regId=registroId||genId(); var isNew=!registroId;
     var dup=Object.values(regs).find(function(r){return r.funcionarioId===funcionarioId&&r.data===data&&r.id!==regId;});
@@ -1560,7 +1607,7 @@ var HR_FUNC = (function () {
     var sc=s.temCredito?GREEN:(s.saldo>0.01?RED:GOLD);
     var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'💰 A Receber '+_fmtMoeda(s.saldo):'✓ Quitado');
     return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:13px;margin-bottom:12px;">'+
-      '<div style="font-size:.62rerem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">💰 Saldo do Funcionário</div>'+
+      '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">💰 Saldo do Funcionário</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">'+
         _miniKpi('Salário',_fmtMoeda(f&&f.salario?f.salario:0),GOLD)+
         _miniKpi('H. Extras',_fmtMoeda(s.valorExtra),GOLD)+
