@@ -1848,9 +1848,18 @@ function gerarPDF(){
             return g2.n>1?seg+' (×'+g2.n+')':seg;
           });
           dimStr=parts.join(' + ')+' cm';
+        } else if(snap.pecas&&snap.pecas.length>0){
+          // Snap antigo sem bordas: reconstruir segmentos a partir das peças do snap
+          var pcParts=[];
+          snap.pecas.forEach(function(p){
+            if(!p.w) return;
+            var seg=p.w+'×'+alt;
+            if(p.q>1) seg+=' (×'+p.q+')';
+            pcParts.push(seg);
+          });
+          dimStr=pcParts.length>0 ? pcParts.join(' + ')+' cm' : svd.ml+'ml × '+alt+' cm';
         } else {
-          // Fallback: mostra total em metros como antes
-          dimStr=svd.ml+' ml × '+alt+' cm';
+          dimStr=svd.ml+'ml × '+alt+' cm';
         }
         pecasListHtml+='<div style="display:flex;justify-content:space-between;align-items:baseline;padding:11px 0;border-bottom:1px solid #EDE5CC;">'
           +'<span style="font-size:14px;font-weight:600;color:#1a1a1a;letter-spacing:0.1px;">'+it.l+'</span>'
