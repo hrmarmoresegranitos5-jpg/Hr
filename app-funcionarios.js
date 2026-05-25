@@ -378,7 +378,10 @@ var HR_FUNC = (function () {
     // Stats do mês atual
     var regsDoMes=allRegs.filter(function(r){return r.data&&r.data.startsWith(mesAtual);});
     var totHorasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    // totExtrasMes: apenas extras a PAGAR (alinhado com cálculo financeiro)
+    var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
+    // totBancoMes: extras que foram para o banco de horas (separado, para exibição)
+    var totBancoMes=regsDoMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var totalFolha=ativos.reduce(function(s,f){return s+(parseFloat(f.salario)||0);},0);
 
     // Aniversariantes do mês
@@ -453,7 +456,7 @@ var HR_FUNC = (function () {
           _statKpi('👷','Equipe',ativos.length+'/'+lista.length,'ativos') +
           _statKpi('💵','Folha',_fmtMoeda(totalFolha),'mensal') +
           _statKpi('⏱','Horas/mês',totHorasMes.toFixed(0)+'h','registradas') +
-          _statKpi('⚡','Extras/mês',totExtrasMes.toFixed(1)+'h','acumuladas') +
+          _statKpi('⚡','Extras/mês',totExtrasMes.toFixed(1)+'h'+(totBancoMes>0?' + 🏦'+totBancoMes.toFixed(1)+'h':''),'a pagar'+(totBancoMes>0?' · banco':' · acumuladas')) +
         '</div>' +
       '</div>' +
 
@@ -798,9 +801,13 @@ var HR_FUNC = (function () {
     var regsMes=meusRegs.filter(function(r){return r.data.startsWith(mesAtual);});
 
     var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    var totalExtra=meusRegs.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    // totalExtra: apenas extras a pagar (alinhado com calcSaldoFuncionario → calcSaldoHE)
+    var totalExtra=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
+    var totalExtraBanco=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var horasMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    var extraMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
+    var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
+    var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var saldo=calcSaldoFuncionario(id,null,null);
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
@@ -846,8 +853,10 @@ var HR_FUNC = (function () {
       // Stats do mês vs geral
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'+
         _statCard2('📅 Este mês','Dias: '+regsMes.length+' · '+horasMes.toFixed(0)+'h'+
-          (extraMes>0?' · <span style="color:'+GOLD+';">+'+extraMes.toFixed(1)+'h extra</span>':''))+
-        _statCard2('📊 Total geral',totalHoras.toFixed(0)+'h trabalhadas · '+totalExtra.toFixed(1)+'h extra')+
+          (extraMes>0?' · <span style="color:'+GOLD+';">+'+extraMes.toFixed(1)+'h extra</span>':'')+
+          (extraMesBanco>0?' · <span style="color:#8ec8f0;">🏦 '+extraMesBanco.toFixed(1)+'h banco</span>':''))+
+        _statCard2('📊 Total geral',totalHoras.toFixed(0)+'h trabalhadas · '+totalExtra.toFixed(1)+'h extra'+
+          (totalExtraBanco>0?' · <span style="color:#8ec8f0;">🏦 '+totalExtraBanco.toFixed(1)+'h banco</span>':''))+
       '</div>'+
 
       // Financeiro
@@ -858,6 +867,22 @@ var HR_FUNC = (function () {
           _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),saldo.valorExtra>0?GOLD:T3)+
           _miniKpi('Já pago',_fmtMoeda(saldo.totalPago),GREEN)+
         '</div>'+
+        // Banco de horas — exibe linha separada quando há horas no banco (não entram no financeiro pago)
+        (saldo.banco&&saldo.banco.acumuladoMin>0?
+          '<div style="background:rgba(92,150,200,.08);border:1px solid rgba(92,150,200,.25);border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
+            '<div>'+
+              '<div style="font-size:.65rem;color:#8ec8f0;font-weight:700;margin-bottom:1px;">🏦 Banco de Horas</div>'+
+              '<div style="font-size:.62rem;color:'+T3+';">Extras direcionadas para folga futura — não entram no pagamento</div>'+
+            '</div>'+
+            '<div style="text-align:right;white-space:nowrap;margin-left:12px;">'+
+              '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+
+                (saldo.banco.saldoMin>=0?'+':'')+Math.floor(Math.abs(saldo.banco.saldoMin)/60)+'h'+
+                (saldo.banco.saldoMin%60!==0?String(Math.abs(saldo.banco.saldoMin%60)).padStart(2,'0')+'m':'')+
+              '</div>'+
+              (saldo.banco.utilizadoMin>0?'<div style="font-size:.6rem;color:'+T3+';">usado: '+Math.floor(saldo.banco.utilizadoMin/60)+'h'+
+                (saldo.banco.utilizadoMin%60!==0?String(saldo.banco.utilizadoMin%60).padStart(2,'0')+'m':'')+'</div>':'')+
+            '</div>'+
+          '</div>':'')+
         // Breakdown por faixa — exibe apenas quando há HE em múltiplas faixas
         ((saldo.valorExtra100>0||saldo.valorExtra200>0)?
           '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
@@ -1021,7 +1046,7 @@ var HR_FUNC = (function () {
           (r.entrada&&r.saida?'<span style="font-size:.68rem;color:'+T3+';margin-left:6px;">'+r.entrada+'→'+r.saida+'</span>':'')+
         '</div>' +
         '<div style="display:flex;gap:6px;align-items:center;">' +
-          (parseFloat(r.extra)>0?'<span style="font-size:.68rem;background:'+GOLD2+';color:'+GOLD+';border-radius:4px;padding:2px 7px;">+'+parseFloat(r.extra).toFixed(2)+'h</span>':'')+
+          (parseFloat(r.extra)>0?'<span style="font-size:.68rem;background:'+(r.destinoExtra==='banco'?'rgba(92,150,200,.18)':GOLD2)+';color:'+(r.destinoExtra==='banco'?'#8ec8f0':GOLD)+';border-radius:4px;padding:2px 7px;">'+(r.destinoExtra==='banco'?'🏦 ':'+')+(r.destinoExtra==='banco'?parseFloat(r.extra).toFixed(2)+'h banco':parseFloat(r.extra).toFixed(2)+'h')+'</span>':'')+
           '<span style="font-size:.78rem;font-weight:700;color:'+T1+';">'+(parseFloat(r.horas)||0).toFixed(1)+'h</span>' +
         '</div>' +
       '</div>' +
@@ -1553,7 +1578,7 @@ var HR_FUNC = (function () {
       return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+r.funcionarioId+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;">'+
           '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+' · '+_diaSemana(r.data)+'</div>'+
-          '<div style="font-size:.78rem;color:'+GOLD+';">'+parseFloat(r.horas||0).toFixed(1)+'h'+(parseFloat(r.extra||0)>0?' <span style="color:'+GREEN+';">+'+parseFloat(r.extra).toFixed(1)+'h</span>':'')+'</div>'+
+          '<div style="font-size:.78rem;color:'+GOLD+';">'+parseFloat(r.horas||0).toFixed(1)+'h'+(parseFloat(r.extra||0)>0?' <span style="color:'+(r.destinoExtra==='banco'?'#8ec8f0':GREEN)+';">'+(r.destinoExtra==='banco'?'🏦 ':'+')+(parseFloat(r.extra)).toFixed(1)+'h'+(r.destinoExtra==='banco'?' banco':'')+'</span>':'')+'</div>'+
         '</div>'+
         (!soUm?'<div style="font-size:.72rem;color:'+T3+';margin-top:2px;">'+_esc(fx.nome)+'</div>':'')+
         (r.producao?'<div style="font-size:.72rem;color:'+T2+';margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(r.producao)+'</div>':'')+
