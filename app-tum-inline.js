@@ -2585,9 +2585,8 @@ function renderResultado(o) {
   _gel('rCli').textContent = o.cli;
   if (o.num) _gel('hdNum').textContent = o.num;
 
+  // ── Cabeçalho hero com nome do cliente e tags ──────────────────
   var meta = [];
-  if (o.num)  meta.push('🔖 '+o.num);
-  // Falecidos: array ou string legada
   if (Array.isArray(o.fal) && o.fal.length > 0) {
     o.fal.forEach(function(f) {
       var s = '⚰️ ' + (f.nome||'Não informado');
@@ -2600,53 +2599,50 @@ function renderResultado(o) {
   }
   if (o.cemi) meta.push('🏛 '+o.cemi);
   if (o.cid)  meta.push('📍 '+o.cid);
-  if (o.quad) meta.push('Q '+o.quad);
-  if (o.lote) meta.push('L '+o.lote);
+  if (o.quad) meta.push('⬜ Q'+o.quad);
+  if (o.lote) meta.push('📌 L'+o.lote);
+  if (o.num)  meta.push('🔖 '+o.num);
   meta.push('📅 '+o.date);
+
   _gel('rMeta').innerHTML = meta.map(function(m){
-    return '<span>'+m+'</span>';
+    return '<span class="res-hero-tag">'+m+'</span>';
   }).join('');
 
-  // ── Grid de resumo REORGANIZADO ────────────────────────────
-  // Agrupa por MATERIAL / SERVIÇO / FINANCEIRO para clareza
+  // ── Grid de resumo ─────────────────────────────────────────────
   var _fn = function(v){ return _TI_fm(v); };
 
-  // Linha 1: dados técnicos
   var gridTec = [
-    { lbl:'Material',        val: r.mat.nm,                         cl:'gold', sub: r.mat.pr.toLocaleString('pt-BR')+'/m² · '+r.d.E+'cm esp.' },
-    { lbl:'Acabamento',      val: r.acab.nm,                        cl:'',     sub: r.ml_total.toFixed(1)+' ml de borda' },
-    { lbl:'Área de pedra',   val: r.m2_total.toFixed(3)+' m²',     cl:'',     sub: r.m2_bruto.toFixed(3)+' bruto · +'+r.perdaFinal+'% perda' },
-    { lbl:'Peso aprox.',     val: Math.round(r.peso_total)+' kg',   cl:'',     sub: r.d.E+'cm · '+r.mat.peso+' kg/m³' },
+    { lbl:'Material',      val: r.mat.nm,                       cl:'gold', sub: 'R$ '+r.mat.pr.toLocaleString('pt-BR')+'/m² · '+r.d.E+'cm' },
+    { lbl:'Tipo de Obra',  val: r.ts.nm,                        cl:'',     sub: r.ts.badge||'' },
+    { lbl:'Área de Pedra', val: r.m2_total.toFixed(3)+' m²',   cl:'',     sub: '+'+r.perdaFinal+'% perda incluída' },
+    { lbl:'Peso Aprox.',   val: Math.round(r.peso_total)+' kg', cl:'',     sub: r.d.E+'cm · '+r.mat.peso+' kg/m³' },
   ];
 
-  // Linha 2: custos
   var gridCusto = [
-    { lbl:'Custo Pedra',     val:'R$ '+_fn(r.custo_pedra),          cl:'gold', sub: r.mat.nm+' × '+r.m2_total.toFixed(2)+'m²' },
-    { lbl:'Acabamento',      val:'R$ '+_fn(r.custo_acabamento),     cl:'',     sub: r.acab.prML > 0 ? 'R$ '+r.acab.prML+'/ml × '+r.ml_total.toFixed(1)+'ml' : 'Incluso' },
-    { lbl:'Material Civil',  val:'R$ '+_fn(r.civil.custo),          cl:'',     sub: r.ts.nm },
-    { lbl:'Mão de Obra',     val:'R$ '+_fn(r.custo_mob),            cl:'',     sub: r.prazo_total+' dias úteis' },
+    { lbl:'Pedra',         val:'R$ '+_fn(r.custo_pedra),         cl:'gold', sub: r.m2_total.toFixed(3)+'m² × R$'+r.mat.pr+'/m²' },
+    { lbl:'Acabamento',    val:'R$ '+_fn(r.custo_acabamento),    cl:'',     sub: r.ml_total.toFixed(1)+' ml de borda' },
+    { lbl:'Civil',         val:'R$ '+_fn(r.civil.custo),         cl:'',     sub: 'Material de construção' },
+    { lbl:'Mão de Obra',   val:'R$ '+_fn(r.custo_mob),           cl:'',     sub: r.prazo_total+' dias úteis' },
   ];
-  if (r.custo_extras > 0) {
-    gridCusto.push({ lbl:'Extras/Opcionais', val:'R$ '+_fn(r.custo_extras), cl:'', sub:'Cruz, foto, jarro...' });
+  if (r.custo_extras > 0)
+    gridCusto.push({ lbl:'Extras', val:'R$ '+_fn(r.custo_extras), cl:'', sub:'Cruz, foto, jarro...' });
+  gridCusto.push({ lbl:'Custo Total',         val:'R$ '+_fn(r.custo_total),    cl:'',    sub:'Sem margem de lucro' });
+  gridCusto.push({ lbl:'Lucro '+CFG.margem+'%', val:'R$ '+_fn(r.margem_reais), cl:'grn', sub:'Margem aplicada' });
+
+  function _card(g) {
+    return '<div class="res-card">'
+      +'<div class="res-lbl">'+g.lbl+'</div>'
+      +'<div class="res-val '+(g.cl||'')+'">'+g.val+'</div>'
+      +'<div class="res-sub">'+(g.sub||'')+'</div>'
+      +'</div>';
   }
-  gridCusto.push({ lbl:'Custo Total',    val:'R$ '+_fn(r.custo_total),    cl:'',     sub:'Sem lucro' });
-  gridCusto.push({ lbl:'Margem '+CFG.margem+'%', val:'R$ '+_fn(r.margem_reais), cl:'grn', sub:'Lucro estimado' });
 
   var gh = '';
-  // Seção técnica
-  gh += '<div style="font-size:.55rem;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:4px 0 8px;grid-column:1/-1">📐 Técnico</div>';
-  gridTec.forEach(function(g) {
-    gh += '<div class="res-card"><div class="res-lbl">'+g.lbl+'</div>'
-        + '<div class="res-val '+(g.cl||'')+'" style="font-size:.82rem;line-height:1.2">'+g.val+'</div>'
-        + '<div class="res-sub">'+(g.sub||'')+'</div></div>';
-  });
-  // Seção custos
-  gh += '<div style="font-size:.55rem;letter-spacing:.15em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:10px 0 8px;grid-column:1/-1">💰 Composição de Custos</div>';
-  gridCusto.forEach(function(g) {
-    gh += '<div class="res-card"><div class="res-lbl">'+g.lbl+'</div>'
-        + '<div class="res-val '+(g.cl||'')+'" style="font-size:.82rem;line-height:1.2">'+g.val+'</div>'
-        + '<div class="res-sub">'+(g.sub||'')+'</div></div>';
-  });
+  gh += '<div style="font-size:.55rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:4px 0 8px;grid-column:1/-1;border-bottom:1px solid rgba(201,168,76,.15);margin-bottom:2px">📐 Dados Técnicos</div>';
+  gridTec.forEach(function(g){ gh += _card(g); });
+  gh += '<div style="font-size:.55rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:12px 0 8px;grid-column:1/-1;border-bottom:1px solid rgba(201,168,76,.15);margin-bottom:2px">💰 Composição de Custos</div>';
+  gridCusto.forEach(function(g){ gh += _card(g); });
+
   _gel('rGrid').innerHTML = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">' + gh + '</div>';
 
   // Detalhamento
@@ -2686,8 +2682,7 @@ function renderResultado(o) {
     dh += '<div class="det-line"><span class="det-k">'+p.nm+' <span style="color:var(--t4)">'+p.dim+'</span>'+acabInfo+'</span><span class="det-v">'+p.m2.toFixed(3)+' m²</span></div>';
   });
   dh += '<div class="det-line"><span class="det-k">Perda real ('+r.perdaFinal+'% — acabamento + recortes)</span><span class="det-v">'+r.m2_total.toFixed(3)+' m² final</span></div>';
-  var espMult2 = {2:'1.00',3:'1.35',4:'1.70',5:'2.10'};
-  dh += '<div class="det-line"><span class="det-k">'+r.mat.nm+' (esp. '+r.d.E+'cm × fator '+(espMult2[r.d.E]||1.35)+')</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_pedra)+'</span></div>';
+  dh += '<div class="det-line"><span class="det-k">'+r.mat.nm+' (esp. '+r.d.E+'cm · R$ '+r.mat.pr.toLocaleString('pt-BR')+'/m² × '+r.m2_total.toFixed(3)+'m²)</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_pedra)+'</span></div>';
 
   dh += '<div class="det-sec">📐 Acabamentos</div>';
   dh += '<div class="det-line"><span class="det-k">'+r.acab.nm+' — '+r.ml_total.toFixed(2)+' ml de borda</span><span class="det-v">R$ '+_TI_fm(r.custo_acabamento)+'</span></div>';
@@ -2763,11 +2758,20 @@ function renderResultado(o) {
   dh += '</div>';
   _gel('rDetalhe').innerHTML = dh;
 
-  _gel('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
-  _gel('rParc').textContent =
-    'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
-  // PRAZO REMOVIDO — não exibir dias no resultado
-  // (linha prazo_total removida)
+  // ── Caixa de preço final premium ───────────────────────────────
+  var priceBoxEl = document.getElementById('rPriceBox');
+  if (priceBoxEl) {
+    priceBoxEl.innerHTML =
+      '<div class="price-box-lbl">💎 VALOR DO ORÇAMENTO</div>'
+      +'<div id="rVista" class="price-box-val">R$ '+_TI_fm(r.valor_vista)+'</div>'
+      +'<div class="price-box-parc">'
+        +'💳 Parcelado em até '+CFG.parcMax+'× de <strong>R$ '+_TI_fm(r.parc_mensal)+'</strong>'
+        +'<br><span style="color:var(--t4)">Total parcelado: R$ '+_TI_fm(r.valor_parc)+'</span>'
+      +'</div>';
+  } else {
+    _gel('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
+    _gel('rParc').textContent = 'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
+  }
 
   // Texto WA
   gerarTextoWA(o, r);
@@ -4044,14 +4048,11 @@ function renderProducao() {
   var totalM2   = 0;
   var totalPeso = 0;
   var totalCusto = 0;
-  var espMult = { 2:1.00, 3:1.35, 4:1.70, 5:2.10 };
-  var espM2 = espMult[d.E] || 1.35;
-
   var rows = '';
   var idx  = 1;
   r.pecasCalc.forEach(function(p) {
     var peso_peca = p.m2 * Esp_m * mat.peso;
-    var custo_peca = p.m2 * mat.pr * espM2;
+    var custo_peca = p.m2 * mat.pr; // custo real: m² × preço/m² (sem multiplicador de espessura)
     var acabNm = p.prML > 0 ? (ACABAMENTOS.find(function(a){ return a.prML === p.prML; }) || {nm:'—'}).nm : '—';
     totalM2   += p.m2;
     totalPeso += peso_peca;
