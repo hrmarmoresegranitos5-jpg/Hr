@@ -37,9 +37,9 @@ var HR_IMPORT = (function () {
   var CFG = (typeof CFG !== 'undefined' && CFG) ? CFG : {};
   if (!CFG.he) {
     CFG.he = {
-      normal:   1.5,   // HE 50%  — dias úteis normais
-      domingo:  2.0,   // HE 100% — domingos
-      feriado:  2.0,   // HE 100% — feriados
+      normal:   2.0,   // HE 100% — dias úteis normais (hora extra = 2× a hora normal)
+      domingo:  3.0,   // HE 200% — sábados, domingos e feriados (3× a hora normal)
+      feriado:  3.0,   // HE 200% — feriados
       especial: 3.0    // HE 200% — dias especiais definidos externamente
     };
   }
@@ -421,7 +421,13 @@ var HR_IMPORT = (function () {
       return result;
     }
 
-    // Dia útil normal (seg–sáb, sem feriado, sem especial) → HE50
+    // Sábado → mesmo multiplicador que domingo/feriado (3×)
+    if (dow === 6) {
+      result.extra100 = extraMin;
+      return result;
+    }
+
+    // Dia útil normal (seg–sex, sem feriado, sem especial) → HE normal (2×)
     result.extra50 = extraMin;
     return result;
   }

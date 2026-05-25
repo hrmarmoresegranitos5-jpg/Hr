@@ -145,7 +145,7 @@ var HR_FUNC = (function () {
       var s=JSON.parse(localStorage.getItem('cfg')||'{}');
       if(s.he&&s.he.normal)return s.he.normal;
     }catch(e){}
-    return 1.5;
+    return 2.0;
   }
 
   // Retorna o nº de dias úteis (seg–sáb) em um intervalo ISO yyyy-mm-dd (inclusivo).
