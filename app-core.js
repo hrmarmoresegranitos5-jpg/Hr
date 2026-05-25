@@ -2888,9 +2888,19 @@ function calcular(){
 
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
-    return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
+    var snap={tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
+    if(a.tipo==='Túmulo'){
+      if(a.tumResult)  snap.tumResult  = JSON.parse(JSON.stringify(a.tumResult));
+      if(a.tumPendOrc) snap.tumPendOrc = JSON.parse(JSON.stringify(a.tumPendOrc));
+    }
+    return snap;
   });
+  // Detectar se há Túmulo com dados do motor inline
+  var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
+  var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter};
+  // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
+  if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
@@ -5601,42 +5611,30 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // ── Túmulo com módulo inline (tumPendOrc) ──────────────────────────────
-  if(q.tum && q.tumPendOrc){
-    orcRefazer(id, e);
-    setTimeout(function(){
-      if(typeof window._TI_preencherCliente === 'function'){
-        window._TI_preencherCliente(q.tumPendOrc);
-      }
-      toast('✓ Túmulo carregado — ajuste e recalcule!');
-    }, 400);
-    return;
-  }
+  // Detectar se é túmulo: flag q.tum OU ambSnap com tipo Túmulo
+  var isTumulo = q.tum || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
 
-  // ── Túmulo antigo ou sem dados inline ────────────────────────────────
-  if(q.tum){
-    // Usa módulo inline se disponível (apenas restaura o ambiente)
-    if(typeof window.tumInlineMount === 'function'){
+  if(isTumulo){
+    // tumPendOrc pode estar na raiz (q.tumPendOrc) ou dentro do ambSnap
+    var pendOrcTum = q.tumPendOrc
+      || (q.ambSnap && (function(){
+           var s=q.ambSnap.find(function(s){return s.tipo==='Túmulo'&&s.tumPendOrc;});
+           return s?s.tumPendOrc:null;
+         })());
+
+    if(pendOrcTum && typeof window._TI_preencherCliente === 'function'){
+      // Fluxo completo: restaura ambientes + motor inline com todos os dados
       orcRefazer(id, e);
-      toast('✓ Ambiente restaurado — configure o túmulo e recalcule!');
+      setTimeout(function(){
+        window._TI_preencherCliente(pendOrcTum);
+        toast('✓ Túmulo carregado — ajuste e recalcule!');
+      }, 400);
       return;
     }
-    // Fallback módulo antigo pg9
-    var pg9 = document.getElementById('pg9');
-    if(pg9 && typeof TUM !== 'undefined' && typeof renderTum === 'function'){
-      try{
-        TUM.q = JSON.parse(JSON.stringify(q.tum));
-        if(typeof tumPatchQ === 'function') tumPatchQ();
-        go(9);
-        setTimeout(function(){ renderTum(); },100);
-        toast('✓ Túmulo carregado! Edite e recalcule.');
-      }catch(err){
-        toast('Erro ao carregar orçamento de túmulo');
-      }
-    } else {
-      orcRefazer(id, e);
-      toast('⚠️ Orçamento restaurado — reconfigure as medidas');
-    }
+
+    // Sem dados do motor inline: apenas restaura o ambiente
+    orcRefazer(id, e);
+    toast('⚠️ Orçamento antigo — configure as medidas e recalcule');
     return;
   }
 
@@ -5667,9 +5665,8 @@ function orcRefazer(id, e) {
     // Orçamento novo: tem snapshot completo dos ambientes
     q.ambSnap.forEach(function(snap,idx){
       var ambId=Date.now()+idx;
-      // selMat: usa o do snap; se não tiver, usa a pedra salva no orçamento (q.mat)
       var snapMat=snap.selMat||(mat?mat.id:null)||selMat||null;
-      ambientes.push({
+      var amb={
         id:ambId,
         tipo:snap.tipo||'Cozinha',
         pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1,bordas:JSON.parse(JSON.stringify(p.bordas||{}))}}),
@@ -5677,7 +5674,13 @@ function orcRefazer(id, e) {
         svState:JSON.parse(JSON.stringify(snap.svState||{})),
         acState:JSON.parse(JSON.stringify(snap.acState||{})),
         selMat:snapMat
-      });
+      };
+      // Restaurar dados do motor inline para Túmulos
+      if(snap.tipo==='Túmulo'){
+        if(snap.tumResult)  amb.tumResult  = JSON.parse(JSON.stringify(snap.tumResult));
+        if(snap.tumPendOrc) amb.tumPendOrc = JSON.parse(JSON.stringify(snap.tumPendOrc));
+      }
+      ambientes.push(amb);
     });
   } else {
     // Orçamento antigo: reconstruir do que temos
@@ -5702,6 +5705,17 @@ function orcRefazer(id, e) {
   if(!ambientes.length)addAmbiente();
 
   renderAmbientes();
+
+  // ── Restaurar motor inline de Túmulos após renderAmbientes ───────
+  // renderAmbientes chama tumInlineMount que reseta SEL;
+  // _TI_preencherCliente restaura SEL, dimensões e recalcula
+  setTimeout(function(){
+    ambientes.forEach(function(a){
+      if(a.tipo==='Túmulo' && a.tumPendOrc && typeof window._TI_preencherCliente==='function'){
+        window._TI_preencherCliente(a.tumPendOrc);
+      }
+    });
+  }, 300);
 
   // ── Restaura taxa de urgência do orçamento salvo ─────────────────
   var urgRestored = q.urgPct || 0;

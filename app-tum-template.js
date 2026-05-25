@@ -44,3 +44,43 @@ window._TI_getHTML = function() {
     return (orig ? orig() : '') + '.hist-grp-label{font-size:.65rem;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;padding:14px 4px 6px;margin-top:4px}.hist-card2{background:var(--bg2);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:10px}.hist-card2.tier-gold{border-left:3px solid #c9a84c}.hist-card2.tier-silver{border-left:3px solid #8a9bb0}.hist-card2.tier-bronze{border-left:3px solid #8b6a3e}.hc-head{display:flex;align-items:flex-start;gap:11px;margin-bottom:10px}.hc-avatar{width:40px;height:40px;border-radius:10px;background:rgba(201,168,76,.15);color:var(--gold2);font-size:1.1rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}.hc-info{flex:1;min-width:0}.hc-cli{font-size:.95rem;font-weight:700;color:var(--tx)}.hc-cem,.hc-fal{font-size:.68rem;color:var(--t3);margin-top:2px}.hc-right{text-align:right;flex-shrink:0}.tier-val-gold{color:#c9a84c;font-size:.95rem;font-weight:800}.tier-val-silver{color:#8a9bb0;font-size:.95rem;font-weight:800}.tier-val-bronze{color:#a07850;font-size:.95rem;font-weight:800}.hc-dt{font-size:.62rem;color:var(--t4);margin-top:2px}.hc-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}.hc-tag{font-size:.65rem;padding:3px 8px;border-radius:20px;background:var(--bg3);color:var(--t3);border:1px solid var(--bd)}.hc-actions{display:flex;gap:6px}.hc-btn{flex:1;padding:8px 4px;border:1px solid var(--bd2);border-radius:9px;background:var(--bg3);color:var(--t2);font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit;text-align:center}.hc-btn.primary{background:rgba(201,168,76,.12);border-color:rgba(201,168,76,.3);color:var(--gold2)}.hc-btn.danger{color:#e05a5a;border-color:rgba(224,90,90,.2);flex:0 0 36px}#histStats{display:flex;gap:10px;margin:12px 0}.hstat{flex:1;background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:10px;text-align:center}.hstat.gold{border-color:rgba(201,168,76,.25);background:rgba(201,168,76,.06)}.hstat-v{font-size:1.05rem;font-weight:800;color:var(--tx)}.hstat.gold .hstat-v{color:var(--gold2)}.hstat-l{font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}.hfil-row{display:flex;gap:6px;overflow-x:auto;margin:8px 0;padding-bottom:4px}.hfil-btn{flex-shrink:0;padding:6px 13px;border:1px solid var(--bd2);border-radius:20px;background:var(--bg3);color:var(--t3);font-size:.7rem;font-weight:600;cursor:pointer;font-family:inherit}.hfil-btn.on{background:rgba(201,168,76,.12);border-color:rgba(201,168,76,.3);color:var(--gold2)}';
   };
 })();
+
+// ── Estilos faltantes: resultado, detalhe, res-lbl/val, det-* ──
+(function(){
+  var orig = window._TI_getCSS;
+  window._TI_getCSS = function(){
+    var extra = [
+      /* ── Cabeçalho do resultado ── */
+      '.res-hero{background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.03));border:1.5px solid rgba(201,168,76,.25);border-radius:16px;padding:20px;margin-bottom:14px}',
+      '.res-hero-cli{font-family:\'Cormorant Garamond\',serif;font-size:1.6rem;font-weight:700;color:var(--gold2);line-height:1.2;margin-bottom:8px}',
+      '.res-hero-meta{display:flex;flex-wrap:wrap;gap:6px}',
+      '.res-hero-tag{font-size:.65rem;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.05);color:var(--t3);border:1px solid var(--bd)}',
+      /* ── Cards de res-grid ── */
+      '.res-lbl{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;color:var(--t4);font-weight:700;margin-bottom:5px}',
+      '.res-val{font-size:.88rem;font-weight:800;color:var(--tx);line-height:1.2}',
+      '.res-val.gold{color:var(--gold2)}',
+      '.res-val.grn{color:var(--grn)}',
+      '.res-val.red{color:#e05a5a}',
+      '.res-sub{font-size:.62rem;color:var(--t4);margin-top:3px;line-height:1.4}',
+      /* ── Vista/Parc destaque ── */
+      '#rVista{font-family:\'Cormorant Garamond\',serif;font-size:2rem;font-weight:900;color:var(--gold2)}',
+      '#rParc{font-size:.72rem;color:var(--t3);margin-top:4px}',
+      /* ── Detalhe: seções e linhas ── */
+      '.det-sec{font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;padding:14px 0 7px;border-bottom:1px solid rgba(201,168,76,.15);margin-bottom:6px}',
+      '.det-sec:first-child{padding-top:4px}',
+      '.det-line{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:10px}',
+      '.det-line:last-child{border-bottom:none}',
+      '.det-k{font-size:.76rem;color:var(--t2);font-weight:500;flex:1;line-height:1.4}',
+      '.det-v{font-size:.78rem;font-weight:700;color:var(--tx);white-space:nowrap;font-family:\'DM Mono\',monospace}',
+      /* ── Caixa de preço final ── */
+      '.price-box{background:linear-gradient(135deg,rgba(201,168,76,.1),rgba(201,168,76,.04));border:2px solid rgba(201,168,76,.35);border-radius:16px;padding:20px;margin:16px 0;text-align:center}',
+      '.price-box-lbl{font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:8px}',
+      '.price-box-val{font-family:\'Cormorant Garamond\',serif;font-size:2.4rem;font-weight:900;color:var(--gold2);line-height:1}',
+      '.price-box-parc{font-size:.72rem;color:var(--t3);margin-top:8px;line-height:1.5}',
+      /* ── Botões de ação do resultado ── */
+      '.res-actions{display:flex;flex-direction:column;gap:9px;margin-top:16px}',
+      '.res-act-row{display:flex;gap:8px}',
+    ].join('');
+    return (orig ? orig() : '') + extra;
+  };
+})();
