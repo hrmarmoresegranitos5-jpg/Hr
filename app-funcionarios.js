@@ -641,6 +641,18 @@ var HR_FUNC = (function () {
             'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
             '<span>🏦</span><span>Banco</span></button>' +
         '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">' +
+          '<button onclick="HR_FUNC.abrirHorasExtrasDuplicadas(null)" '+
+            'style="padding:11px;background:rgba(92,150,220,.07);border:1.5px solid rgba(92,150,220,.3);'+
+            'border-radius:11px;color:'+BLUE+';font-family:Outfit,sans-serif;font-size:.78rem;'+
+            'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
+            '<span>⚡⚡</span><span>H. Duplas (2×)</span></button>' +
+          '<button onclick="HR_FUNC.abrirBonificacaoHE3x(null)" '+
+            'style="padding:11px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.3);'+
+            'border-radius:11px;color:'+GREEN+';font-family:Outfit,sans-serif;font-size:.78rem;'+
+            'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
+            '<span>🏆</span><span>Bonificação (3×)</span></button>' +
+        '</div>' +
         '<button onclick="if(typeof HR_IMPORT!==\'undefined\')HR_IMPORT.abrirImportacao();" '+
           'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(92,184,92,.06);'+
           'border:1.5px solid rgba(92,184,92,.28);border-radius:11px;color:'+GREEN+';'+
@@ -1974,6 +1986,249 @@ var HR_FUNC = (function () {
   }
   window._hrFecharRisco=function(){_closeOverlay('hrRisco');};
 
+  // ══════════════════════════════════════════════════════════════
+  // HORAS EXTRAS DUPLICADAS (2×) E BONIFICAÇÃO (3×)
+  // Integrado ao HR_FUNC — não requer arquivo externo
+  // ══════════════════════════════════════════════════════════════
+
+  // ── Helpers de período ──
+  function _mesAno(offset) {
+    var d = new Date();
+    d.setMonth(d.getMonth() + (offset || 0));
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  function _hoje() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  // ── Cálculo genérico (multiplier = 2 ou 3) ──
+  function _calcHEMulti(funcId, di, df, multiplier) {
+    var funcs   = getFuncionarios();
+    var regs    = getRegistros();
+    var f       = funcs[funcId] || {};
+    var salario = parseFloat(f.salario) || 0;
+
+    var meusRegs = Object.values(regs).filter(function(r) {
+      if (r.funcionarioId !== funcId) return false;
+      if (di && r.data < di) return false;
+      if (df && r.data > df) return false;
+      return true;
+    });
+
+    var refMes = (di || (meusRegs.length > 0
+      ? meusRegs.slice().sort(function(a,b){ return a.data.localeCompare(b.data); })[0].data
+      : new Date().toISOString()
+    )).slice(0, 7);
+
+    var heResult;
+    if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcSaldoHE === 'function') {
+      heResult = HR_IMPORT.calcSaldoHE(meusRegs, f, refMes);
+    } else {
+      var valorHoraFb  = salario / 220;
+      var totalExtraFb = meusRegs.reduce(function(s, r) {
+        return s + (r.destinoExtra === 'banco' ? 0 : (parseFloat(r.extra) || 0));
+      }, 0);
+      heResult = {
+        valorHoraBase:    valorHoraFb,
+        valorTotalExtras: totalExtraFb * valorHoraFb * 2,
+        totalExtraHoras:  totalExtraFb
+      };
+    }
+
+    var totalHoras  = heResult.totalExtraHoras || 0;
+    var valorNormal = heResult.valorTotalExtras || 0;
+    var valorHora   = heResult.valorHoraBase || (salario / 220);
+    var valorMulti  = valorHora * multiplier * totalHoras;
+    var acrescimo   = valorMulti - valorNormal;
+
+    return {
+      funcId: funcId, nome: f.nome || '',
+      totalHorasExtra: totalHoras,
+      valorHoraBase:   valorHora,
+      valorNormal:     valorNormal,
+      valorMulti:      valorMulti,
+      acrescimo:       acrescimo,
+      multiplier:      multiplier,
+      di: di, df: df
+    };
+  }
+
+  // ── Tela genérica (2× ou 3×) ──
+  function _abrirTelaHEMulti(funcId, multiplier) {
+    var funcs      = getFuncionarios();
+    var mesAtual   = _mesAno(0);
+    var mesAnterior = _mesAno(-1);
+    var storeKey   = '_bonifMes' + multiplier;
+    var periodoAtivo = window[storeKey] || mesAtual;
+
+    var di = periodoAtivo + '-01';
+    var ultimo = new Date(parseInt(periodoAtivo.slice(0,4)), parseInt(periodoAtivo.slice(5,7)), 0);
+    var df = periodoAtivo + '-' + String(ultimo.getDate()).padStart(2,'0');
+
+    var fmtMes = function(m) {
+      var p = m.split('-');
+      var nomes = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      return nomes[parseInt(p[1])] + '/' + p[0];
+    };
+
+    var isTriplo = multiplier === 3;
+    var titulo   = isTriplo ? 'Bonificação HE 3×' : 'Horas Extras Duplicadas 2×';
+    var emoji    = isTriplo ? '🏆' : '⚡⚡';
+    var cor      = isTriplo ? GREEN : BLUE;
+    var tipo     = isTriplo ? 'bonificacao_he3x' : 'he_duplicada_2x';
+    var overlayId = isTriplo ? 'hrBonificacao3x' : 'hrDuplicada2x';
+    var fecharFn  = isTriplo ? '_hrFecharBonif3x' : '_hrFecharDupl2x';
+
+    var alvos;
+    if (funcId) {
+      var fAlvo = funcs[funcId];
+      alvos = fAlvo ? [fAlvo] : [];
+    } else {
+      alvos = Object.values(funcs)
+        .filter(function(f){ return f.ativo !== false; })
+        .sort(function(a,b){ return a.nome.localeCompare(b.nome); });
+    }
+
+    var resultados = alvos.map(function(f){
+      return _calcHEMulti(f.id, di, df, multiplier);
+    }).filter(function(r){ return r.totalHorasExtra > 0; });
+
+    var totalAcrescimo = resultados.reduce(function(s,r){ return s + r.acrescimo; }, 0);
+    var totalValor     = resultados.reduce(function(s,r){ return s + r.valorMulti; }, 0);
+
+    var seletorBtns = [mesAnterior, mesAtual].map(function(m){
+      var on = m === periodoAtivo;
+      return '<button onclick="window[\''+storeKey+'\']=\''+m+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+funcId+'\'':'null')+');" '+
+        'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
+        (on
+          ? 'background:rgba(92,150,220,.15);border:1.5px solid rgba(92,150,220,.5);color:'+cor+';'
+          : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';')+
+        '">'+fmtMes(m)+'</button>';
+    }).join('');
+
+    var tabelaLinhas = resultados.map(function(r, idx){
+      return '<div style="display:grid;grid-template-columns:1fr 60px 80px 80px;gap:0;'+
+        'padding:10px 14px;border-top:1px solid '+BD+';'+
+        (idx%2===1?'background:rgba(255,255,255,.015);':'')+
+        'align-items:center;">'+
+        '<div>'+
+          '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(r.nome.split(' ').slice(0,2).join(' '))+'</div>'+
+          '<div style="font-size:.63rem;color:'+T3+';">hora base: '+_fmtMoeda(r.valorHoraBase)+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;font-size:.78rem;font-weight:700;color:'+GOLD+';">'+r.totalHorasExtra.toFixed(2)+'h</div>'+
+        '<div style="text-align:right;font-size:.75rem;color:'+T2+';">'+_fmtMoeda(r.valorNormal)+'</div>'+
+        '<div style="text-align:right;font-size:.82rem;font-weight:700;color:'+cor+';">'+_fmtMoeda(r.valorMulti)+'</div>'+
+      '</div>';
+    }).join('');
+
+    var html = '<div style="width:100%;max-width:560px;padding:0 16px;">'+
+      _overlayHeader(titulo, emoji+' '+titulo+' · '+fmtMes(periodoAtivo), 'window.'+fecharFn+'()')+
+      '<div style="display:flex;gap:8px;margin-bottom:14px;">'+seletorBtns+'</div>'+
+      '<div style="background:rgba(92,150,220,.06);border:1px solid rgba(92,150,220,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
+        '<div style="font-size:.68rem;font-weight:700;color:'+cor+';margin-bottom:5px;">📋 REGRA</div>'+
+        '<div style="font-size:.75rem;color:'+T2+';line-height:1.6;">'+
+          'Todas as horas extras do período são pagas a <strong style="color:'+cor+';">'+multiplier+'× o valor da hora base</strong>.<br>'+
+          'O acréscimo é a diferença entre o valor '+multiplier+'× e o valor normal já calculado.'+
+        '</div>'+
+      '</div>'+
+      (resultados.length > 0
+        ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'+
+              _miniKpi('Funcionários', resultados.length+' com HE', GOLD)+
+              _miniKpi('Total Acréscimo', _fmtMoeda(totalAcrescimo), cor)+
+            '</div>'+
+            '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;display:flex;justify-content:space-between;align-items:center;">'+
+              '<span style="font-size:.75rem;color:'+T3+';">Total ('+multiplier+'×)</span>'+
+              '<span style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(totalValor)+'</span>'+
+            '</div>'+
+          '</div>'
+        : '<div style="text-align:center;padding:28px;color:'+T3+';font-size:.84rem;">😕 Nenhum funcionário com horas extras no período.</div>'
+      )+
+      (resultados.length > 0
+        ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">'+
+            '<div style="padding:8px 14px;background:rgba(92,150,220,.06);font-size:.6rem;color:'+cor+';letter-spacing:.08em;text-transform:uppercase;display:grid;grid-template-columns:1fr 60px 80px 80px;gap:0;">'+
+              '<span>Funcionário</span><span style="text-align:right;">H. Extra</span><span style="text-align:right;">Normal</span><span style="text-align:right;">'+multiplier+'× Valor</span>'+
+            '</div>'+tabelaLinhas+
+          '</div>'+
+          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+')" '+
+            'style="'+CSS_BTN_GREEN+'">✅ Confirmar e Registrar '+titulo+'</button>'
+        : ''
+      )+
+      '<button onclick="window.'+fecharFn+'()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay(overlayId, html);
+  }
+
+  window._hrFecharBonif3x = function(){ _closeOverlay('hrBonificacao3x'); };
+  window._hrFecharDupl2x  = function(){ _closeOverlay('hrDuplicada2x'); };
+
+  function abrirBonificacaoHE3x(funcId)       { _abrirTelaHEMulti(funcId, 3); }
+  function abrirHorasExtrasDuplicadas(funcId)  { _abrirTelaHEMulti(funcId, 2); }
+
+  // ── Confirmar e gravar ──
+  function _confirmarHEMulti(funcId, periodoAtivo, multiplier) {
+    var di = periodoAtivo + '-01';
+    var ultimo = new Date(parseInt(periodoAtivo.slice(0,4)), parseInt(periodoAtivo.slice(5,7)), 0);
+    var df = periodoAtivo + '-' + String(ultimo.getDate()).padStart(2,'0');
+    var isTriplo = multiplier === 3;
+    var tipo     = isTriplo ? 'bonificacao_he3x' : 'he_duplicada_2x';
+    var label    = isTriplo ? 'Bonificação 3×' : 'H. Extras 2×';
+
+    var funcs = getFuncionarios();
+    var pags  = getPagamentos();
+
+    var alvos;
+    if (funcId) {
+      var fAlvo = funcs[funcId];
+      alvos = fAlvo ? [fAlvo] : [];
+    } else {
+      alvos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+    }
+
+    var gravados = 0;
+    alvos.forEach(function(f){
+      var r = _calcHEMulti(f.id, di, df, multiplier);
+      if (r.totalHorasExtra <= 0) return;
+
+      var jaTem = Object.values(pags).some(function(p){
+        return p.funcionarioId === f.id && p.tipo === tipo && p.periodo === periodoAtivo;
+      });
+      if (jaTem) {
+        _toast('⚠️ '+f.nome.split(' ')[0]+' já tem '+label+' registrado para '+periodoAtivo);
+        return;
+      }
+
+      var pid = genId();
+      pags[pid] = {
+        id: pid,
+        funcionarioId: f.id,
+        data: _hoje(),
+        valor: parseFloat(r.valorMulti.toFixed(2)),
+        tipo: tipo,
+        periodo: periodoAtivo,
+        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
+        horasExtra: r.totalHorasExtra,
+        valorNormal: parseFloat(r.valorNormal.toFixed(2)),
+        acrescimo: parseFloat(r.acrescimo.toFixed(2)),
+        criadoEm: new Date().toISOString()
+      };
+      gravados++;
+    });
+
+    savePagamentos(pags);
+    _closeOverlay(isTriplo ? 'hrBonificacao3x' : 'hrDuplicada2x');
+
+    if (gravados > 0) {
+      _toast((isTriplo?'🏆':'⚡⚡')+' '+label+' registrada para '+gravados+' funcionário'+(gravados>1?'s':'')+'!');
+      if (typeof renderPaginaFuncionarios === 'function') renderPaginaFuncionarios();
+    } else {
+      _toast('Nenhum registro gravado (verifique duplicidades ou HE zerada).');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+
   return{
     renderPaginaFuncionarios: renderPaginaFuncionarios,
     abrirFormFuncionario:     abrirFormFuncionario,
@@ -2013,6 +2268,10 @@ var HR_FUNC = (function () {
     abrirDashboardRisco:      abrirDashboardRisco,
     // Sistema de penalidades
     getOcorrenciasFuncionario: getOcorrenciasFuncionario,
-    _verificarRegistrosIncompletos: _verificarRegistrosIncompletos
+    _verificarRegistrosIncompletos: _verificarRegistrosIncompletos,
+    // Horas extras duplicadas (2×) e bonificação (3×)
+    abrirHorasExtrasDuplicadas: abrirHorasExtrasDuplicadas,
+    abrirBonificacaoHE3x:       abrirBonificacaoHE3x,
+    _confirmarHEMulti:          _confirmarHEMulti
   };
 })();
