@@ -685,10 +685,12 @@ function updPcAmb(ambId,pcId,prop,val){
   if(!amb)return;
   var pc=amb.pecas.find(function(p){return p.id===pcId;});
   if(pc)pc[prop]=val;
-  // Re-render serviços automáticos quando peças mudam (sf_auto)
+  // Re-render serviços automáticos quando peças mudam (sf_auto, acb_auto, ml_auto)
   var g=SV_DEFS[amb.tipo]||[];
-  var hasSfAuto=g.some(function(grp){return grp.its.some(function(it){return it.u==='sf_auto';});});
-  if(hasSfAuto){
+  var hasSvAuto=g.some(function(grp){return grp.its.some(function(it){
+    return it.u==='sf_auto'||it.u==='acb_auto'||it.u==='ml_auto';
+  });});
+  if(hasSvAuto){
     var svEl=document.getElementById('svAuto-'+ambId);
     if(svEl) svEl.innerHTML=buildSVHtml(amb);
   }
