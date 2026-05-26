@@ -282,12 +282,14 @@ function calcularOrcamento({ tipo, larg, alt, vidro, accs, km, folhasCorrer, piv
     }
 
     // ── Cálculo de material ─────────────────────────────────
-    let areaTotal = pecas.reduce((s,p) => s + p.area, 0);
-    if (fatores) areaTotal *= 1.10;  // +10% perda de corte
+    const areaLiq = pecas.reduce((s,p) => s + p.area, 0);
+    const fatorPerda = fatores ? 1.10 : 1.0;
+    const areaTotal  = areaLiq * fatorPerda;  // área com perda de corte
 
     pecas.forEach(function(p) {
-      const val = p.area * precoM2 * (fatores ? 1.10 : 1.0);
-      const dimStr = p.cCm.toFixed(0) + '×' + p.lCm.toFixed(0) + ' cm = ' + (p.area).toFixed(2) + ' m²';
+      const areaComPerda = p.area * fatorPerda;
+      const val = areaComPerda * precoM2;
+      const dimStr = p.cCm.toFixed(0) + '×' + p.lCm.toFixed(0) + ' cm = ' + (p.area).toFixed(2) + ' m²' + (fatores ? ' (+10%)' : '');
       linhas.push({ nome: p.nome + ' (' + dimStr + ')', valor: val });
       total += val;
     });

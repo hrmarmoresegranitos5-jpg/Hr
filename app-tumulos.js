@@ -362,7 +362,7 @@ function _tumHero() {
 
   var extra1 = (r.vendaLapDupla || 0) + (r.vendaRebaixo || 0) + (r.vendaLajeInt || 0)
              + (r.vendaLapide  || 0) + (r.vendaCruz    || 0) + (r.vendaFoto    || 0);
-  var obra   = (r.custoEstrutura || 0) + (r.custoMat || 0);
+  var obra   = (r.vendaEstrutura || 0) + (r.vendaMat || 0);
 
   var h = '<div class="tum-hero">';
   h += '<div class="tum-hero-row">';
@@ -760,7 +760,7 @@ function _tabPedras() {
 
   h += '<div class="tum-sec-lbl">🪨 Peças de Granito</div>';
   h += '<div style="background:var(--s3);border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:.62rem;color:var(--t3);line-height:1.6;">';
-  h += '📏 Áreas calculadas automaticamente pelas dimensões. Ajuste manualmente se necessário.';
+  h += '📏 Áreas calculadas automaticamente. Valores por peça são <b>antes da perda de corte (' + (q.perda || 15) + '%)</b>. O custo total já inclui a perda.';
   h += '</div>';
 
   h += '<div class="tum-peca-list">';
@@ -768,9 +768,10 @@ function _tabPedras() {
     var peca = q.pedras[k]; if (!peca) return;
     var isML = (k === 'moldura' || k === 'pingadeira');
     var m2   = isML ? (peca.ml || 0) : (peca.m2 || 0);
+    // Exibe custo pre-perda por peça (informativo); o total real inclui perda
     var custo = isML
       ? (peca.ml || 0) * (peca.vlrMl || 0)
-      : m2 * stPr + (peca.extra || 0);
+      : _r(m2 * stPr) + (peca.extra || 0);
 
     // Mostrar dimensões calculadas junto com a área
     var dimHint = '';
@@ -881,7 +882,8 @@ function _tabEstrutura() {
 
   var r = TUM.calc;
   h += '<div class="tum-total-box" style="margin-top:12px;">';
-  h += _totRow('🏗️ Total Estrutura', 'R$ ' + fm(r.custoEstrutura || 0), true);
+  h += _totRow('🏗️ Custo Estrutura', 'R$ ' + fm(r.custoEstrutura || 0), false);
+  h += _totRow('🏗️ Venda Estrutura (c/ markup)', 'R$ ' + fm(r.vendaEstrutura || 0), true, 'grn');
   h += '</div>';
 
   h += '<div class="tum-nav-row">';
@@ -944,7 +946,8 @@ function _tabMateriais() {
   h += '</div>';
   var r = TUM.calc;
   h += '<div class="tum-total-box">';
-  h += _totRow('🪣 Total Materiais', 'R$ ' + fm(r.custoMat || 0), true);
+  h += _totRow('🪣 Custo Materiais', 'R$ ' + fm(r.custoMat || 0), false);
+  h += _totRow('🪣 Venda Materiais (c/ markup)', 'R$ ' + fm(r.vendaMat || 0), true, 'grn');
   h += '</div>';
 
   h += '<div class="tum-nav-row">';
@@ -1269,8 +1272,8 @@ function _tabResumo() {
     { icon: '🔧', label: 'Rebaixo (usinagem)',custo: r.custoRebaixo,  venda: r.vendaRebaixo  },
     { icon: '🪨', label: 'Laje vedante',     custo: r.custoLajeInt,  venda: r.vendaLajeInt  },
     { icon: '🔨', label: 'Mão de Obra',      custo: r.custoMdo,      venda: r.vendaMdo      },
-    { icon: '🏗️', label: 'Estrutura civil',  custo: r.custoEstrutura,venda: r.custoEstrutura},
-    { icon: '🪣', label: 'Materiais',        custo: r.custoMat,      venda: r.custoMat      },
+    { icon: '🏗️', label: 'Estrutura civil',  custo: r.custoEstrutura, venda: r.vendaEstrutura },
+    { icon: '🪣', label: 'Materiais',        custo: r.custoMat,       venda: r.vendaMat       },
   ];
 
   cats.forEach(function(cat) {
@@ -1315,15 +1318,19 @@ function _tabResumo() {
   h += '</div>';
   h += '<div class="tum-prec-breakdown">';
   h += '<div class="tum-prec-row"><span>Custo real total</span><span>R$ ' + fm(r.custoTotal || 0) + '</span></div>';
-  h += '<div class="tum-prec-row"><span>Lucro embutido</span><span style="color:#4cda80;">+ R$ ' + fm(r.lucroTotal || 0) + '</span></div>';
+  h += '<div class="tum-prec-row"><span>Lucro base (preços embutidos)</span><span style="color:#4cda80;">+ R$ ' + fm(r.lucroTotal || 0) + '</span></div>';
   if (q.margem > 0) h += '<div class="tum-prec-row"><span>Margem adicional (' + q.margem + '%)</span><span style="color:#4cda80;">+ R$ ' + fm(r.margemExtra || 0) + '</span></div>';
   if (q.desconto > 0) h += '<div class="tum-prec-row"><span>Desconto</span><span style="color:#e07070;">− R$ ' + fm(q.desconto || 0) + '</span></div>';
+  var lucroFinal = (r.venda || 0) - (r.custoTotal || 0);
+  h += '<div class="tum-prec-row" style="border-top:1px solid rgba(201,168,76,.2);padding-top:8px;"><span style="color:var(--gold3);">Lucro final sobre custo</span><span style="color:#C9A84C;font-weight:700;">R$ ' + fm(lucroFinal) + '</span></div>';
   h += '<div class="tum-prec-final"><span>💰 VALOR FINAL</span><span>R$ ' + fm(r.venda || 0) + '</span></div>';
   h += '</div></div>';
 
   // ── Cronograma ────────────────────────────────────────────────
-  var diasObra = (tipo.diasPedreiro || 0) + (q.gavetas || 0);
-  var diasMar  = tipo.diasMarmorista || 0;
+  var presetGavCrono   = tipo.gavetas != null ? tipo.gavetas : 0;
+  var gavetasExtraCrono = Math.max(0, (q.gavetas || 0) - presetGavCrono);
+  var diasObra = (tipo.diasPedreiro || 0) + gavetasExtraCrono;
+  var diasMar  = (tipo.diasMarmorista || 0) + Math.floor(gavetasExtraCrono / 2);
   var total    = diasObra + diasMar;
   h += '<div class="tum-sec-lbl" style="margin-top:16px;">📅 Cronograma estimado</div>';
   h += '<div class="tum-crono">';
@@ -1399,32 +1406,31 @@ function _tumCalc() {
   var m2Liq = 0;
   var custoPedra = 0;
 
+  // 1ª passagem: soma m² das peças de pedra (ignora moldura/pingadeira que são por ml)
   Object.keys(q.pedras).forEach(function(k) {
     var peca = q.pedras[k];
     if (!peca || !peca.on) return;
     var isML = (k === 'moldura' || k === 'pingadeira');
-    if (isML) {
-      // Custo da moldura/pingadeira é pelo vlrMl, não pelo m²
-      custoPedra += (peca.ml || 0) * (peca.vlrMl || 0);
-    } else {
+    if (!isML) {
       m2Liq += (peca.m2 || 0);
-      custoPedra += (peca.m2 || 0) * stPr + (peca.extra || 0);
     }
   });
 
-  var m2Total    = m2Liq * (1 + (q.perda || 15) / 100);
-  custoPedra     = m2Total * stPr; // recalcula com perda
+  // Aplica perda de corte sobre a área líquida
+  var m2Total = _r(m2Liq * (1 + (q.perda || 15) / 100));
+  custoPedra  = _r(m2Total * stPr);
 
-  // Soma extras (moldura, pingadeira, acréscimos)
+  // 2ª passagem: soma acréscimos fixos (extra por peça), moldura e pingadeira
+  // — feita UMA só vez, após recalcular com perda
   Object.keys(q.pedras).forEach(function(k) {
     var peca = q.pedras[k];
     if (!peca || !peca.on) return;
-    if (k === 'moldura')    custoPedra += (peca.ml || 0) * (peca.vlrMl || 120);
-    if (k === 'pingadeira') custoPedra += (peca.ml || 0) * (peca.vlrMl || 80);
-    if (peca.extra)         custoPedra += peca.extra;
+    if (k === 'moldura')    custoPedra = _r(custoPedra + (peca.ml || 0) * (peca.vlrMl || 120));
+    else if (k === 'pingadeira') custoPedra = _r(custoPedra + (peca.ml || 0) * (peca.vlrMl || 80));
+    if (peca.extra)         custoPedra = _r(custoPedra + peca.extra);
   });
 
-  var vendaPedra = custoPedra; // pedra: preço já é de venda
+  var vendaPedra = custoPedra; // preço da pedra já é preço de venda (stPr = preço de venda)
 
   // ── Extras ──────────────────────────────────────────────────────
   var custoLapide = 0, vendaLapide = 0;
@@ -1524,9 +1530,16 @@ function _tumCalc() {
   }
 
   // ── Totais ───────────────────────────────────────────────────────
+  // Aplica markup sobre Estrutura + Materiais (configurável em Config → ⚰️ Túmulos)
+  var markupObra = (typeof CFG !== 'undefined' && CFG.tumPrecos && CFG.tumPrecos.markupObra != null)
+    ? CFG.tumPrecos.markupObra
+    : 35;
+  var vendaEstrutura = _r(custoEstrutura * (1 + markupObra / 100));
+  var vendaMat       = _r(custoMat       * (1 + markupObra / 100));
+
   var custoTotal = custoPedra + custoLapide + custoCruz + custoFoto + custoMdo + custoEstrutura + custoMat
                  + custoLapDupla + custoRebaixo + custoLajeInt;
-  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + custoEstrutura + custoMat
+  var vendaTotal = vendaPedra + vendaLapide + vendaCruz + vendaFoto + vendaMdo + vendaEstrutura + vendaMat
                  + vendaLapDupla + vendaRebaixo + vendaLajeInt;
   var lucroTotal = vendaTotal - custoTotal;
 
@@ -1541,7 +1554,9 @@ function _tumCalc() {
     custoCruz, vendaCruz,
     custoFoto, vendaFoto,
     custoMdo, vendaMdo,
-    custoEstrutura, custoMat,
+    custoEstrutura, vendaEstrutura,
+    custoMat, vendaMat,
+    custoObra: custoEstrutura + custoMat, // alias usado pelo painel de precificação
     custoLapDupla, vendaLapDupla,
     custoRebaixo, vendaRebaixo,
     custoLajeInt, vendaLajeInt,
@@ -1615,9 +1630,9 @@ function _tumAutoCalc() {
   if (p.rodape && !p.rodape._manual)
     p.rodape.m2 = altRod > 0 ? _r((c * 2 + l * 2) * altRod) : 0;
 
-  // Revestimento externo: dimensões externas × altura total
+  // Revestimento externo: perímetro EXTERNO × (rodapé + corpo), sem incluir a tampa
   if (p.revestExt && !p.revestExt._manual)
-    p.revestExt.m2 = _r((c * 2 + l * 2) * altTotal);
+    p.revestExt.m2 = _r((c * 2 + l * 2) * (altRod + altCorpo));
 
   // Lápide: padrão 0.60 × 0.40
   if (p.lapide && !p.lapide._manual)
@@ -1632,8 +1647,8 @@ function _tumAutoCalc() {
   // ── ESTRUTURA CIVIL ───────────────────────────────────────────
   var est = q.estrutura;
 
-  // Fundação usa área EXTERNA (inclui o rodapé)
-  if (est.fundacao && !est.fundacao._manual)  est.fundacao.m3 = _r(c * l * 0.20);
+  // Fundação usa área EXTERNA (inclui o rodapé) — profundidade fixa 15cm de lastro
+  if (est.fundacao && !est.fundacao._manual)  est.fundacao.m3 = _r(c * l * 0.15);
   // Paredes e laje usam dimensões ÚTEIS do corpo
   if (est.paredes  && !est.paredes._manual)   est.paredes.m2  = _r((cUtil * 2 + lUtil * 2) * altCorpo);
   if (est.laje     && !est.laje._manual)      est.laje.m2     = _r(cUtil * lUtil);
@@ -1643,35 +1658,45 @@ function _tumAutoCalc() {
   if (est.reforco && !est.reforco._manual)
     est.reforco.kg = _r(kgBase + gav * 15);
 
-  // Concreto armado (laje útil + volume das gavetas)
+  // Concreto armado — só existe se há gavetas (estrutura interna das tampas)
   if (est.concreto && !est.concreto._manual)
-    est.concreto.m3 = _r(cUtil * lUtil * el + gav * 0.12);
+    est.concreto.m3 = gav > 0 ? _r(cUtil * lUtil * el + gav * 0.12) : 0;
 
   // ── MATERIAIS ─────────────────────────────────────────────────
   var mat = q.mat;
-  var vol = cUtil * lUtil * altCorpo;  // volume do CORPO
+  // Volume de alvenaria = área das paredes × espessura da parede
+  var espParede = q.dims.espParede || 0.15;
+  var m2Paredes = _r((cUtil * 2 + lUtil * 2) * altCorpo);  // mesmo que est.paredes.m2
+  var volAlv    = _r(m2Paredes * espParede);                // volume real de tijolos/blocos+argamassa
 
-  if (mat.cimento   && !mat.cimento._manual)   mat.cimento.qty   = Math.ceil(vol * 6);
-  if (mat.areia     && !mat.areia._manual)     mat.areia.qty     = _r(vol * 0.06);
-  if (mat.brita     && !mat.brita._manual)     mat.brita.qty     = _r(vol * 0.04);
-  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil(
-    (cUtil * lUtil * 2 + cUtil * altCorpo * 2 + lUtil * altCorpo * 2) / 8
-  );
+  // Cimento: ~6 sacos/m³ de argamassa de assentamento (parede) + ~5 sacos/m³ de concreto (laje/fundação)
+  var volConcreto = _r((est.fundacao && est.fundacao.on ? est.fundacao.m3 : 0)
+                    + (est.laje     && est.laje.on     ? cUtil * lUtil * (q.dims.espLaje || 0.10) : 0)
+                    + (est.concreto && est.concreto.on ? est.concreto.m3 : 0));
+  if (mat.cimento   && !mat.cimento._manual)   mat.cimento.qty   = Math.ceil(volAlv * 6 + volConcreto * 5);
+  if (mat.areia     && !mat.areia._manual)     mat.areia.qty     = _r(volAlv * 0.55 + volConcreto * 0.50);
+  if (mat.brita     && !mat.brita._manual)     mat.brita.qty     = _r(volConcreto * 0.70);
+  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil(m2Paredes / 10);
   var m2Cola = (p.tampa    && p.tampa.on    ? p.tampa.m2    : 0) +
                (p.laterais && p.laterais.on ? p.laterais.m2 : 0) +
-               (p.frente   && p.frente.on   ? p.frente.m2   : 0);
+               (p.frente   && p.frente.on   ? p.frente.m2   : 0) +
+               (p.fundo    && p.fundo.on    ? p.fundo.m2    : 0);
   if (mat.cola    && !mat.cola._manual)    mat.cola.qty    = Math.ceil(m2Cola);
   if (mat.rejunte && !mat.rejunte._manual) mat.rejunte.qty = _r(
     ((p.tampa    && p.tampa.on    ? p.tampa.m2    : 0) +
-     (p.laterais && p.laterais.on ? p.laterais.m2 : 0)) * 0.5
+     (p.laterais && p.laterais.on ? p.laterais.m2 : 0) +
+     (p.fundo    && p.fundo.on    ? p.fundo.m2    : 0)) * 0.5
   );
   if (mat.ferro && !mat.ferro._manual) mat.ferro.qty = _r(kgBase + gav * 15);
 
   // ── DIAS DE MÃO DE OBRA ───────────────────────────────────────
   var preset = TUM.TIPOS[q.tipoBase];
   if (preset) {
-    var diasPed = (preset.diasPedreiro || 1) + gav;
-    var diasMar = preset.diasMarmorista || 1;
+    // Dias base do preset + 1 dia extra por gaveta além do previsto no preset
+    var presetGav   = preset.gavetas != null ? preset.gavetas : 0;
+    var gavetasExtra = Math.max(0, gav - presetGav);
+    var diasPed = (preset.diasPedreiro || 1) + gavetasExtra;
+    var diasMar = (preset.diasMarmorista || 1) + Math.floor(gavetasExtra / 2);
     if (!q.mdo.pedreiro._manual)   { q.mdo.pedreiro.dias   = diasPed; }
     if (!q.mdo.ajudante._manual)   { q.mdo.ajudante.dias   = diasPed; }
     if (!q.mdo.marmorista._manual) { q.mdo.marmorista.dias = diasMar; }
@@ -1839,7 +1864,7 @@ function tumFotoRemover() {
 // STONE PICKER
 // ══════════════════════════════════════════════════════════════════════
 function tumOpenStonePick() {
-  if (!typeof CFG !== 'undefined' || !CFG || !CFG.stones) { toast('Nenhuma pedra cadastrada'); return; }
+  if (typeof CFG === 'undefined' || !CFG || !CFG.stones || !CFG.stones.length) { toast('Nenhuma pedra cadastrada'); return; }
   var h = '<div class="tum-stone-pick">';
   CFG.stones.forEach(function(s) {
     h += '<div class="tum-sp-row' + (TUM.q.stoneId === s.id ? ' on' : '') + '" onclick="tumPickStone(\'' + s.id + '\')">' +

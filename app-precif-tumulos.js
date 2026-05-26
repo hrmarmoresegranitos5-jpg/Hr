@@ -113,46 +113,38 @@ function tumAplicarTabela(opts) {
     }
   });
 
-  // ── 3. Construção: diária do pedreiro em todas as atividades de obra
-  var diariaObra = (tp.estrutura.alvenaria_dia ? tp.estrutura.alvenaria_dia.preco : 350);
-  Object.keys(q.obra).forEach(function(k) {
-    if (q.obra[k] && 'diaria' in q.obra[k]) q.obra[k].diaria = diariaObra;
-  });
+  // ── 3. Construção: preços da estrutura civil via tabela configurável
+  // (q.obra não existe — campo correto é q.estrutura)
+  if (tp.estrutura.paredes && q.estrutura && q.estrutura.paredes)
+    q.estrutura.paredes.preco = tp.estrutura.alvenaria_dia ? tp.estrutura.alvenaria_dia.preco : 350;
+  if (tp.estrutura.fundacao && q.estrutura && q.estrutura.fundacao)
+    q.estrutura.fundacao.preco = tp.estrutura.fundacao ? tp.estrutura.fundacao.preco : 350;
+  if (tp.estrutura.concreto && q.estrutura && q.estrutura.concreto)
+    q.estrutura.concreto.preco = tp.estrutura.concreto ? tp.estrutura.concreto.preco : 420;
 
-  // ── 4. Concreto + ferragem: se gaveta_dupla ou mais, garante estrutura ativa
-  if (gavetas >= 2) {
-    if (q.obra.concreto) {
-      q.obra.concreto.on   = true;
-      q.obra.concreto.dias = Math.max(1, gavetas - 1);
-      if (tp.estrutura.concreto) q.obra.concreto.diaria = tp.estrutura.concreto.preco; // diária representa custo fixo nesse caso
-    }
-    if (q.obra.levantamento) q.obra.levantamento.on = true;
-    if (q.obra.gavetas)      q.obra.gavetas.on      = true;
+  // ── 4. Concreto + ferragem: se 2+ gavetas, garante estrutura ativa
+  if (gavetas >= 2 && q.estrutura) {
+    if (q.estrutura.concreto) q.estrutura.concreto.on = true;
+    if (q.estrutura.laje)     q.estrutura.laje.on     = true;
+    if (q.estrutura.reforco)  q.estrutura.reforco.on  = true;
   }
 
-  // ── 5. Gaveta extra: cobra diferença de cada gaveta além da primeira na peça
+  // ── 5. Gaveta extra: acréscimo no extra da peça de pedra (se campo existir)
   var precoGavExtra = tp.estrutura.gaveta_extra ? tp.estrutura.gaveta_extra.preco : 650;
-  if (gavetas > 1 && q.pedras.gavetas) {
-    q.pedras.gavetas.on    = true;
-    q.pedras.gavetas.extra = (gavetas - 1) * precoGavExtra;
+  if (gavetas > 1 && q.pedras && q.pedras.frente) {
+    // Acréscimo de gaveta extra no frontão (peça principal)
+    q.pedras.frente.extra = (gavetas - 1) * precoGavExtra;
   }
 
   // ── 6. Moldura e pingadeira: vlrMl vira preço da tabela
-  if (tp.acabamentos.moldura    && q.pedras.moldura)    q.pedras.moldura.vlrMl    = tp.acabamentos.moldura.preco;
-  if (tp.acabamentos.pingadeira && q.pedras.pingadeira) q.pedras.pingadeira.vlrMl = tp.acabamentos.pingadeira.preco;
+  if (tp.acabamentos.moldura    && q.pedras && q.pedras.moldura)    q.pedras.moldura.vlrMl    = tp.acabamentos.moldura.preco;
+  if (tp.acabamentos.pingadeira && q.pedras && q.pedras.pingadeira) q.pedras.pingadeira.vlrMl = tp.acabamentos.pingadeira.preco;
 
-  // ── 7. Acabamentos especiais: venda e custo
-  function _apAcab(acabKey, tpKey) {
-    if (!tp.acabamentos[tpKey] || !q.acab[acabKey]) return;
-    var item = tp.acabamentos[tpKey];
-    q.acab[acabKey].venda = item.preco;
-    if (!q.acab[acabKey].custo || opts.forceAcab)
-      q.acab[acabKey].custo = Math.round(item.preco * (item.custoPerc || 55) / 100);
+  // ── 7. Acabamentos: polimento e resinagem — aplicar no acréscimo extra da pedra
+  // (bisote/chanfro não têm campo próprio em TUM.q — são cobertos pela moldura/pingadeira)
+  if (q.lapide && q.lapide.on && tp.acabamentos.lapide) {
+    // atualizado em step 8 abaixo
   }
-  _apAcab('bisote',    'lateral');
-  _apAcab('polimento', 'polimento');
-  _apAcab('resinagem', 'resinagem');
-  _apAcab('chanfro',   'lateral');  // chanfro usa mesmo custo base que lateral
 
   // ── 8. Lápide, Cruz, Foto: atualiza se item está ativo
   var ta = tp.acabamentos;
@@ -187,9 +179,11 @@ function tumSimular(pedraKey, tipoKey) {
   var pedra  = tp.pedras[pedraKey] || tp.pedras['granito_simples'];
   var c = qd.comp || 2.20, l = qd.larg || 0.90, a = (preset.altEst || 0.70);
 
-  // Área com 15% de perda
-  var m2Liq   = c*l*2 + c*a*2 + l*a*2;
-  var m2Total = Math.round(m2Liq * 1.15 * 100) / 100;
+  // Área líquida das peças reais: tampo + 2 laterais + frente (sem base — fica no chão)
+  // Inclui 15% de perda de corte
+  var m2Liq   = _r(c * l + c * a * 2 + l * a);
+  var perdaSim = (typeof TUM !== 'undefined' && TUM.q && TUM.q.perda != null) ? TUM.q.perda : 15;
+  var m2Total = _r(m2Liq * (1 + perdaSim / 100));
 
   // Custo pedra
   var custoPedra = m2Total * pedra.preco;
@@ -215,7 +209,10 @@ function tumSimular(pedraKey, tipoKey) {
               + (mo.transporte ? mo.transporte.custo : 100);
 
   var custoTotal = custoPedra + custoEst + custoMo;
-  var vendaTotal = custoTotal * 1.40;
+  var margemSim  = (typeof TUM !== 'undefined' && TUM.q && TUM.q.margem != null)
+    ? (1 + TUM.q.margem / 100)
+    : 1.40;  // padrão 40% se não houver orçamento aberto
+  var vendaTotal = custoTotal * margemSim;
 
   return {
     tipo: preset.label, pedra: pedra.label,
@@ -375,7 +372,7 @@ function _tpSimBox(pedraKey, tipoKey) {
   h += '</div>';
   h += '<div class="tp-sim-totals">';
   h += '<div class="tp-sim-t-row"><span>Custo total</span><span style="color:var(--t2);">R$ '+ fm(sim.custoTotal) +'</span></div>';
-  h += '<div class="tp-sim-t-row"><span>Venda (40% margem)</span><span style="color:#4cda80;">R$ '+ fm(sim.vendaTotal) +'</span></div>';
+  h += '<div class="tp-sim-t-row"><span>Venda ('+ Math.round((sim.vendaTotal / sim.custoTotal - 1) * 100) +'% margem)</span><span style="color:#4cda80;">R$ '+ fm(sim.vendaTotal) +'</span></div>';
   h += '<div class="tp-sim-t-row" style="font-weight:700;"><span>Lucro estimado</span><span style="color:#C9A84C;">R$ '+ fm(sim.lucro) +'</span></div>';
   h += '</div>';
   h += '<div class="tp-sim-footer">'+ sim.tipo +' · '+ sim.pedra +' · '+ sim.m2 +' m²</div>';
