@@ -694,8 +694,8 @@ SV_DEFS.Banheiro=[
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol1',l:'1 lado',u:'ml'},{k:'sol2',l:'2 lados',u:'ml'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
@@ -1278,17 +1278,18 @@ function calcCapelaPecas(ce){
     pecas.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
   }
   add('Fundo (painel traseiro)',W,H,1);
-  add('Base / Tampo inferior',W,P,1);
-  add('Teto / Tampo superior',W,P,1);
   // Laterais somente se o modelo tiver (padrão = sem laterais)
   if(ce.capTemLat) add('Laterais',P,H,2);
+  // Base e Teto: quando há laterais, precisa cobrir a espessura delas nos lados
+  var baseW=ce.capTemLat?(W+2*E):W;
+  add('Base / Tampo inferior',baseW,P,1);
+  add('Teto / Tampo superior',baseW,P,1);
   if(nPil>0&&pilW>0){
     var pH=pilH||H;
     add('Pilar em chapa',pilW,pH,nPil);
     var esc1=pilW+4; var esc2=pilW+8;
-    var espEsc=E||3;
-    add('Escadinha pilar — interna ('+esc1+'cm)',esc1,espEsc,nPil*2);
-    add('Escadinha pilar — externa ('+esc2+'cm)',esc2,espEsc,nPil*2);
+    add('Escadinha pilar — interna ('+esc1+'cm)',esc1,esc1,nPil*2);
+    add('Escadinha pilar — externa ('+esc2+'cm)',esc2,esc2,nPil*2);
   }
   return pecas;
 }
@@ -1989,9 +1990,12 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
       h+='<div class="peca">';
       h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
-      h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="Ex: Bancada" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
-      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="300" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div>';
-      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="60" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
+      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':'Ex: Bancada';
+      h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
+      var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':'300';
+      var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':'60';
+      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div>';
+      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
       // Preview em tempo real de m² e preço estimado
       var _pvW=pc.w||0,_pvH=pc.h||0,_pvQ=pc.q||1;
@@ -2146,6 +2150,29 @@ function buildSVHtml(amb){
     // Para capelinha: ocultar grupos sf_auto (peças calculadas pelo configurador) e pilares em chapa
     var isSfAutoGrp=grp.its.length>0&&grp.its[0].u==='sf_auto';
     if(isSfAutoGrp&&amb.tipo==='⛪ Capela')return;
+    // acb_auto: render como radio buttons (Soleira/Peitoril acabamento automático)
+    var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
+    if(isAcbGrp){
+      var selAcb=null;
+      grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
+      if(!selAcb)selAcb=grp.its[0].k;
+      h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      grp.its.forEach(function(it){
+        var active=selAcb===it.k;
+        var acbMlA=0;(amb.pecas||[]).forEach(function(p){if(p.w)acbMlA+=(p.w/100)*(p.q||1);});
+        var autoMlAcb=acbMlA*(it.lados||0);
+        var prAcb=getPr(it.k);
+        var custo=autoMlAcb>0&&prAcb>0?(' · R$ '+fm(autoMlAcb*prAcb)):'';
+        var subtitle=it.lados>0&&autoMlAcb>0?(autoMlAcb.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+          +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
+          +'</div>';
+      });
+      h+='</div></div>';
+      return;
+    }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
@@ -2239,6 +2266,21 @@ function updSVAmb(ambId,k,prop,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb||!amb.svState||!amb.svState[k])return;
   amb.svState[k][prop]=val;
+}
+
+function togAcbAuto(ambId,k){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.svState)amb.svState={};
+  var sv=amb.svState;
+  var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
+  g.forEach(function(grp){
+    var match=grp.its.find(function(it){return it.k===k;});
+    if(!match||match.u!=='acb_auto')return;
+    grp.its.forEach(function(it){delete sv[it.k];});
+    sv[k]={lados:match.lados||0};
+  });
+  renderAmbientes();
 }
 
 function togAcAmb(ambId,acKey){
