@@ -2748,6 +2748,9 @@ function calcular(){
       pedTamb=amb.tumResult.custo_total||amb.tumResult.valor_vista;
       tumVistaOverride=amb.tumResult.valor_vista;
       m2=amb.tumResult.m2_total||0;
+      // Zerar acT do túmulo: o motor inline já inclui acabamentos no valor_vista
+      // somar acT aqui causaria dupla contagem
+      acT=0; acL=[]; acN=[];
     }
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
     if(tumVistaOverride>0) window._tumVistaOverride=(window._tumVistaOverride||0)+tumVistaOverride-pedTamb;
@@ -5322,7 +5325,8 @@ function gerarPDFTumulo(q){
     lateral_int:'Lateral Interna',peitoril:'Peitoril',coluna:'Coluna',arco:'Arco / Verga'
   };
   var pecasRows='';
-  var pecasList=res.pecas||(tum.pecas)||[];
+  // Prioridade: pecasCalc do motor inline > res.pecas > tum.pecas
+  var pecasList=res.pecasCalc||res.pecas||(tum.pecas)||[];
   if(!pecasList||!pecasList.length){
     var _d=tum.dims||{};
     var _comp=parseFloat(_d.comp)||0;
@@ -5344,16 +5348,28 @@ function gerarPDFTumulo(q){
   }
   if(pecasList&&pecasList.length){
     var _totalM2=0;
+    // Detectar unidade: se a primeira dimensao comp > 20 assume centimetros, senao metros
+    var _primeiraComp=parseFloat((pecasList[0]||{}).comp||(pecasList[0]||{}).comprimento)||0;
+    var _emCm=_primeiraComp>20;
     pecasList.forEach(function(p,i){
-      var nm=p.nome||(PECAS_LABEL[p.id]||p.id||('Peça '+(i+1)));
+      var nm=p.nome||(PECAS_LABEL[p.id]||p.id||('Peca '+(i+1)));
       var qtd=parseFloat(p.qtd)||1;
-      var c=parseFloat(p.comp||p.comprimento)||0;
-      var l=parseFloat(p.larg||p.largura)||0;
-      var e=parseFloat(p.esp||p.espessura)||0;
+      var cRaw=parseFloat(p.comp||p.comprimento)||0;
+      var lRaw=parseFloat(p.larg||p.largura)||0;
+      var eRaw=parseFloat(p.esp||p.espessura)||0;
+      // Normalizar para metros para calculo de m2
+      var c=_emCm?cRaw/100:cRaw;
+      var l=_emCm?lRaw/100:lRaw;
       var m2=parseFloat(p.m2)||(c&&l?(c*l*qtd):0);
       _totalM2+=m2;
       var dimStr='';
-      if(c&&l){dimStr=c.toFixed(2)+'m × '+l.toFixed(2)+'m';if(e)dimStr+=' × '+e.toFixed(2)+'m';}else if(p.dims){dimStr=p.dims;}
+      // Exibir sempre em centimetros (mais legivel para o cliente)
+      if(cRaw&&lRaw){
+        var cCm=_emCm?Math.round(cRaw):Math.round(cRaw*100);
+        var lCm=_emCm?Math.round(lRaw):Math.round(lRaw*100);
+        dimStr=cCm+' x '+lCm+' cm';
+        if(eRaw){var eCm=_emCm?Math.round(eRaw):Math.round(eRaw*100);dimStr+=' x '+eCm+' cm esp.';}
+      }else if(p.dims){dimStr=p.dims;}
       var bg=i%2===0?'#fff':'#faf6ef';
       pecasRows+='<tr>'
         +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(nm)+'</td>'
