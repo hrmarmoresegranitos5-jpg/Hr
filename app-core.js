@@ -2108,6 +2108,16 @@ function _calcBordaAcbMl(amb,lados){
   var nS=lados>=4?2:lados>=3?1:0;
   return mlL*nL+mlS*nS;
 }
+// Acabamento AUTO (Soleira / Peitoril / Rodapé de Box) — retorna metros lineares
+// total = soma dos comprimentos das peças × número de lados acabados
+function _calcAcbAutoMl(amb,lados){
+  if(!lados)return 0;
+  var totalMl=0;
+  (amb.pecas||[]).forEach(function(p){
+    if(p.w){totalMl+=(p.w/100)*(p.q||1);}
+  });
+  return totalMl*lados;
+}
 function updBordaAcb(ambId,prop,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
