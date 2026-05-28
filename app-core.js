@@ -2999,6 +2999,20 @@ function calcular(){
     if(a.tipo==='Túmulo'){
       if(a.tumResult)  snap.tumResult  = JSON.parse(JSON.stringify(a.tumResult));
       if(a.tumPendOrc) snap.tumPendOrc = JSON.parse(JSON.stringify(a.tumPendOrc));
+      // ── CORREÇÃO: usar peças do motor técnico (pecasCalc) para Túmulo ──
+      // Elas contêm todas as peças calculadas (tampas divididas, moldura, lápide,
+      // rodapé, divisória, etc.) que o formulário padrão não lista individualmente.
+      var _pc = (a.tumResult && a.tumResult.pecasCalc) ||
+                (a.tumPendOrc && a.tumPendOrc.r && a.tumPendOrc.r.pecasCalc);
+      if (_pc && _pc.length) {
+        snap.pecas = _pc.map(function(pc, i) {
+          var dim = pc.dim || '';
+          var match = dim.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+          var w = match ? Math.round(parseFloat(match[1])) : 0;
+          var h = match ? Math.round(parseFloat(match[2])) : 0;
+          return { id: Date.now()+i, desc: pc.nm||pc.nome||pc.desc||'Peça', w: w, h: h, q: pc.qt||pc.q||pc.qtd||1 };
+        }).filter(function(p){ return p.w > 0 && p.h > 0; });
+      }
     }
     return snap;
   });
