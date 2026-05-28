@@ -19,20 +19,27 @@ var DEF_TUM_PRECOS = {
     marmore:         { label:'Mármore',          preco:700, unid:'m²', icon:'🤍', desc:'Branco / Travertino' }
   },
 
-  // ── INSUMOS ESTRUTURAIS (preços unitários editáveis) ───────────────
+  // ── INSUMOS — ESTRUTURA CIVIL ──────────────────────────────────────
+  // Concreto, ferragem, alvenaria estrutural
   insumos: {
-    cimento:    { label:'Cimento',          preco: 38,   unid:'sc 50kg', icon:'🏚️' },
-    areia:      { label:'Areia média',      preco: 200,  unid:'m³',      icon:'🏖️' },
-    brita:      { label:'Brita 1',          preco: 220,  unid:'m³',      icon:'🪨' },
-    ferro_38:   { label:'Ferro 3/8"',       preco: 16,   unid:'kg',      icon:'🔩' },
-    ferro_516:  { label:'Ferro 5/16"',      preco: 15,   unid:'kg',      icon:'🔩' },
-    tela_sold:  { label:'Tela Soldada Q138',preco: 52,   unid:'m²',      icon:'🕸️' },
-    bloco:      { label:'Bloco 14×19×39',   preco: 4.50, unid:'un',      icon:'🧱' },
-    tijolo:     { label:'Tijolo 6 furos',   preco: 1.20, unid:'un',      icon:'🧱' },
-    argamassa:  { label:'Argamassa AC-II',  preco: 32,   unid:'sc 20kg', icon:'🪣' },
-    cola_epox:  { label:'Cola Epóxi (pedra)',preco: 48,  unid:'sc 5kg',  icon:'🧴' },
-    rejunte:    { label:'Rejunte',          preco: 14,   unid:'kg',      icon:'🪣' },
-    impermeab:  { label:'Impermeabilizante',preco: 85,   unid:'kg',      icon:'💧' }
+    cimento:         { label:'Cimento',           preco: 38,   unid:'sc 50kg', icon:'🏚️', grupo:'estrutura' },
+    areia:           { label:'Areia média',        preco: 200,  unid:'m³',      icon:'🏖️', grupo:'estrutura' },
+    brita:           { label:'Brita 1',            preco: 220,  unid:'m³',      icon:'🪨', grupo:'estrutura' },
+    ferro_38:        { label:'Ferro 3/8"',         preco: 16,   unid:'kg',      icon:'🔩', grupo:'estrutura' },
+    ferro_516:       { label:'Ferro 5/16"',        preco: 15,   unid:'kg',      icon:'🔩', grupo:'estrutura' },
+    tela_sold:       { label:'Tela Soldada Q138',  preco: 52,   unid:'m²',      icon:'🕸️', grupo:'estrutura' },
+    bloco:           { label:'Bloco 14×19×39',     preco: 4.50, unid:'un',      icon:'🧱', grupo:'estrutura' },
+    impermeab:       { label:'Impermeabilizante',  preco: 85,   unid:'kg',      icon:'💧', grupo:'estrutura' },
+    // ── ASSENTAMENTO CIVIL (alvenaria) — NÃO confundir com AC-II ──────
+    // Argamassa de assentamento de bloco (cimento + areia, traço simples)
+    massa_assentamento: { label:'Massa Assentamento Bloco', preco: 22,  unid:'sc 20kg', icon:'🪣', grupo:'alvenaria' },
+    // Cimento para chapisco + reboco interno/externo das paredes
+    cimento_reboco:  { label:'Cimento Reboco/Chapisco',     preco: 38,   unid:'sc 50kg', icon:'🏚️', grupo:'alvenaria' },
+    // ── PEDRAS E ACABAMENTO — AC-II somente aqui ──────────────────────
+    // AC-II: exclusiva para assentamento de granito, mármore, tampas, laterais, lápides
+    argamassa_acii:  { label:'Argamassa AC-II (pedra)',     preco: 32,   unid:'sc 20kg', icon:'🪣', grupo:'pedras' },
+    cola_epox:       { label:'Cola Epóxi (pedra)',          preco: 48,   unid:'sc 5kg',  icon:'🧴', grupo:'pedras' },
+    rejunte:         { label:'Rejunte',                     preco: 14,   unid:'kg',      icon:'🪣', grupo:'pedras' }
   },
 
   // ── EQUIPES DE EMPREITADA (substituem diária fixa) ─────────────────
@@ -110,7 +117,20 @@ function tumInitPrecos() {
       if (!tp[grp][k]) tp[grp][k] = JSON.parse(JSON.stringify(DEF_TUM_PRECOS[grp][k]));
     });
   });
-  // Retrocompatibilidade: instâncias antigas têm 'estrutura' — preserva
+  // Retrocompatibilidade: instâncias antigas podem ter 'argamassa' (label AC-II errada)
+  // ou 'tijolo' — migra para as novas chaves sem perder o preço configurado
+  if (tp.insumos.argamassa && !tp.insumos.argamassa_acii) {
+    tp.insumos.argamassa_acii = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.argamassa_acii));
+    tp.insumos.argamassa_acii.preco = tp.insumos.argamassa.preco; // preserva preço salvo
+    delete tp.insumos.argamassa;
+  }
+  if (tp.insumos.tijolo) { delete tp.insumos.tijolo; } // removido do modelo
+  if (!tp.insumos.massa_assentamento) {
+    tp.insumos.massa_assentamento = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.massa_assentamento));
+  }
+  if (!tp.insumos.cimento_reboco) {
+    tp.insumos.cimento_reboco = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.cimento_reboco));
+  }
   if (!tp.markupObra && tp.markupObra !== 0) tp.markupObra = 35;
 }
 
@@ -148,7 +168,11 @@ function _calcEstruturaFuneraria(opts) {
   var cUtil = Math.max(0.20, _r(c - 2 * avRod));
   var lUtil = Math.max(0.20, _r(l - 2 * avRod));
 
-  var altCorpo = _r(gav * ag + espLaje + espMolSup);
+  // altCorpo: altura real do corpo estrutural.
+  // Com 0 gavetas (laje simples/tampa) ainda precisa da espessura mínima da laje + moldura.
+  // Com gavetas, cada gaveta contribui com sua altura + 1 laje divisória.
+  var altMinCorpo = espLaje + espMolSup;           // mínimo absoluto (~0.15m)
+  var altCorpo = _r(Math.max(altMinCorpo, gav * (ag + espLaje) + espMolSup));
   var altTotal = _r(altRod + altCorpo + (d.espTampa || 0.03));
 
   // ── VOLUMES ESTRUTURAIS REAIS ────────────────────────────────────
@@ -164,56 +188,113 @@ function _calcEstruturaFuneraria(opts) {
   // 3. Laje de cobertura: cUtil × lUtil × espessura
   var volLaje   = _r(cUtil * lUtil * espLaje);
 
-  // 4. Concreto das gavetas: cada divisória interna
-  //    Volume = perímetro interno × espessura × altura por gaveta
-  var volConcGav = gav > 0 ? _r(gav * 0.12) : 0;
+  // 4. Concreto das gavetas: cada divisória interna (laje horizontal entre gavetas)
+  //    Área da laje interna × espessura × número de divisórias = (gav - 1) lajes internas + 1 laje base
+  //    Simplificado: cada gaveta exige 1 laje = cUtil × lUtil × espLaje
+  var nLajasInt  = gav > 0 ? gav : 1;   // base sempre tem 1 laje; gavetas adicionam mais
+  var volConcGav = _r(nLajasInt * cUtil * lUtil * espLaje);
 
   // Volume total de concreto = fundação + laje + gavetas
   var volConcreto = _r(volFund + volLaje + volConcGav);
 
+  // ── PERDAS POR CATEGORIA ─────────────────────────────────────────
+  // Cada material possui desperdício real distinto.
+  // Valores padrão baseados em obra cemiterial; calibráveis via CFG.tumCoeficientes no futuro.
+  //   Concreto:  8% (perda de betonagem e forma)
+  //   Alvenaria: 5% (quebra de bloco, rebarbas)
+  //   Ferragem:  10% (corte e dobra)
+  //   Pedra:     15% (corte, transporte, encaixe)
+  var perdaConcreto  = (q.perdaConcreto  != null ? q.perdaConcreto  : 8)  / 100;
+  var perdaAlvenaria = (q.perdaAlvenaria != null ? q.perdaAlvenaria : 5)  / 100;
+  var perdaFerragem  = (q.perdaFerragem  != null ? q.perdaFerragem  : 10) / 100;
+  var perdaPedra     = (q.perdaPedra != null ? q.perdaPedra
+                     : q.perda      != null ? q.perda
+                     : 15) / 100;
+
   // ── CONVERSÃO DE CONCRETO EM INSUMOS (traço 1:2:3, NBR 12655) ───
   // 1 m³ concreto = 7 sc cimento + 0.45 m³ areia + 0.65 m³ brita
-  var sc_cimento_conc = Math.ceil(volConcreto * 7);
-  var m3_areia_conc   = _r(volConcreto * 0.45);
-  var m3_brita        = _r(volConcreto * 0.65);
+  // Volumes já incluem fator de perda do concreto
+  var volConcComPerda = _r(volConcreto * (1 + perdaConcreto));
+  var sc_cimento_conc = Math.ceil(volConcComPerda * 7);
+  var m3_areia_conc   = _r(volConcComPerda * 0.45);          // areia exclusiva do concreto
+  // Melhoria 10: brita tem compra mínima de 0.5 m³ (carga mínima de caminhão)
+  var m3_brita_calc   = _r(volConcComPerda * 0.65);
+  var m3_brita        = Math.max(0.5, m3_brita_calc);
 
   // ── CONVERSÃO DE ALVENARIA EM INSUMOS ───────────────────────────
-  // 1 m³ alvenaria c/ bloco 14×19×39: ~12 blocos/m², ~4 sc argamassa/m³
-  var nBlocos       = Math.ceil(m2Paredes * 12.5);
-  var sc_arg_alv    = Math.ceil(volAlv * 4);
-  var sc_cimento_alv = Math.ceil(volAlv * 2.5);  // argamassa de assentamento
+  // Bloco 14×19×39: ~12.5 blocos/m² de parede + perda de alvenaria
+  // Massa de assentamento de BLOCO (argamassa cimento+areia, NÃO AC-II):
+  //   ~13 litros/m² = 0.013 m³/m² → 1 sc 20kg rende ~1.5 m²
+  // Cimento para reboco + chapisco das paredes (interno + externo):
+  //   ~0.8 sc 50kg/m² de parede
+  // Areia de reboco/chapisco: ~0.02 m³/m² de parede (separada da areia do concreto)
+  // Areia de assentamento de bloco: embutida na massa_assentamento (NÃO contabilizada em separado)
+  var m2ParedesComPerda  = _r(m2Paredes * (1 + perdaAlvenaria));
+  var nBlocos            = Math.ceil(m2ParedesComPerda * 12.5);
+  var sc_massa_asset     = Math.ceil(m2ParedesComPerda / 1.5);  // sacos massa assentamento bloco
+  var sc_cimento_reboco  = Math.ceil(m2ParedesComPerda * 0.8);  // sacos 50kg: chapisco + reboco
+  var m3_areia_reboco    = _r(m2ParedesComPerda * 0.02);        // areia exclusiva de reboco/chapisco
+  // NOTA: areia de assentamento está embutida nos sacos de massa_assentamento; não entra em m3_areia
 
-  // Cimento total
-  var sc_cimento_total = sc_cimento_conc + sc_cimento_alv;
-  var m3_areia_total   = _r(m3_areia_conc + volAlv * 0.55);
+  // Cimento total (referência apenas — custos usam sc_cimento_conc e sc_cimento_reboco separados)
+  var sc_cimento_total = sc_cimento_conc + sc_cimento_reboco;
+  // Areia total = concreto + reboco/chapisco (assentamento de bloco já embutido na massa)
+  var m3_areia_total   = _r(m3_areia_conc + m3_areia_reboco);
 
   // ── FERRAGEM ─────────────────────────────────────────────────────
-  // Ferro 3/8": vigas e pilares — base = área fundação × 8 kg/m²
+  // Ferro 3/8": vigas de cintura e pilares de fundação
+  //   Base: área de fundação × 8 kg/m² + por gaveta × 12 kg (vigas de bordadura)
+  //   Mínimo: 1 barra completa por obra = ~6.72 kg (12m × 0.56 kg/m)
   // Ferro 5/16": estribos + amarrações — 35% do peso do 3/8"
-  // Tela soldada Q138: laje de cobertura
-  var kg_ferro38  = _r(cUtil * lUtil * 8 + gav * 15);
-  var kg_ferro516 = _r(kg_ferro38 * 0.35);
-  var m2_tela     = _r(cUtil * lUtil);
+  // Tela soldada Q138: laje de cobertura — mínimo 1 m²
+  // Perda de ferragem aplicada sobre os volumes calculados
+  var kg_ferro38_base = _r((cUtil * lUtil * 8 + gav * 12) * (1 + perdaFerragem));
+  var kg_ferro38  = Math.max(6.72, kg_ferro38_base);         // mínimo: 1 barra 3/8" 12m
+  var kg_ferro516_base = _r(kg_ferro38 * 0.35);
+  var kg_ferro516 = Math.max(4.50, kg_ferro516_base);        // mínimo: ~1 barra 5/16" 12m
+  // Melhoria 1: tela soldada agora recebe perda de ferragem (transpasse + corte + sobra)
+  // Arredondamento operacional: tela é comprada por chapa inteira (Math.ceil)
+  var m2_tela_liq = _r(cUtil * lUtil);
+  var m2_tela     = Math.max(1, Math.ceil(_r(m2_tela_liq * (1 + perdaFerragem))));
 
-  // ── IMPERMEABILIZAÇÃO ────────────────────────────────────────────
-  // Área externa das paredes + laje = proteção contra umidade cemitério
+  // Melhoria 2: perda operacional do impermeabilizante (sobra de mistura, reaplicação, absorção, perda de balde)
+  var perdaImpermeab = (q.perdaImpermeab != null ? q.perdaImpermeab : 5) / 100;
   var m2_impermeab = _r((cUtil * 2 + lUtil * 2) * altCorpo + cUtil * lUtil);
+  // Melhoria 10: arredondamento operacional — impermeabilizante comprado por balde (≈18kg)
+  var BALDE_IMPERMEAB_KG = 18;
+  var kg_impermeab_liq = m2_impermeab * 1.5 * (1 + perdaImpermeab);
+  var kg_impermeab = Math.ceil(kg_impermeab_liq / BALDE_IMPERMEAB_KG) * BALDE_IMPERMEAB_KG; // arredonda p/ balde
 
-  // ── COLA / REJUNTE (pedra) ───────────────────────────────────────
+  // ── AC-II / COLA / REJUNTE (pedra) ──────────────────────────────
+  // AC-II é usada SOMENTE para assentamento de pedra natural:
+  //   tampas, laterais, frente, fundo — NUNCA para alvenaria ou reboco
+  // Se pedras já marcadas no orçamento: usa a área real de pedra
+  // Melhoria 7 (TODO futuro): pedra interna (tampa horizontal) e externa (lateral/frente/lápide)
+  //   possuem perdas, dificuldade de assentamento e consumo de cola/rejunte distintos.
+  //   Para projetos premium, jazigos altos e túmulos verticais, considerar pesos individuais por posição.
   var p = q.pedras || {};
-  var m2Cola = ((p.tampa    && p.tampa.on)    ? (p.tampa.m2    || 0) : 0)
-             + ((p.laterais && p.laterais.on)  ? (p.laterais.m2 || 0) : 0)
-             + ((p.frente   && p.frente.on)    ? (p.frente.m2   || 0) : 0)
-             + ((p.fundo    && p.fundo.on)     ? (p.fundo.m2    || 0) : 0);
-  var sc_cola  = Math.max(1, Math.ceil(m2Cola / 4));  // 1 sc 5kg cobre ~4m²
-  var kg_rejunte = _r(m2Cola * 0.5);
+  var m2Pedra = ((p.tampa    && p.tampa.on)    ? (p.tampa.m2    || 0) : 0)
+              + ((p.laterais && p.laterais.on)  ? (p.laterais.m2 || 0) : 0)
+              + ((p.frente   && p.frente.on)    ? (p.frente.m2   || 0) : 0)
+              + ((p.fundo    && p.fundo.on)     ? (p.fundo.m2    || 0) : 0);
+  // Melhoria 5: fallback inclui tampa + frente mínima (cUtil × 0.25) para não subestimar espelho frontal
+  if (m2Pedra <= 0) {
+    m2Pedra = _r(cUtil * lUtil + cUtil * 0.25);
+  }
+  // Aplica perda de pedra sobre a área real
+  var m2PedraComPerda = _r(m2Pedra * (1 + perdaPedra));
+  // AC-II: 1 sc 20kg cobre ~3 m² de pedra
+  var sc_acii     = Math.max(1, Math.ceil(m2PedraComPerda / 3));
+  var sc_cola     = Math.max(1, Math.ceil(m2PedraComPerda / 4));   // 1 sc 5kg cobre ~4m²
+  var kg_rejunte  = Math.max(0.5, _r(m2PedraComPerda * 0.5));     // mínimo 0.5 kg
 
   // ── SCORE DE COMPLEXIDADE OPERACIONAL (0–100) ────────────────────
-  // Base: dimensões e gavetas
+  // Melhoria 3: score usa volumes reais com perda (reflete esforço e logística real)
+  // Melhoria 4: tela soldada participa do scoreFerragem (armação + corte + transporte)
   var scoreGav    = Math.min(40, gav * 10);
   var scoreAlt    = Math.min(20, Math.max(0, (altTotal - 0.5) / 0.5) * 5);
-  var scoreVol    = Math.min(20, volConcreto * 15);
-  var scoreFerro  = Math.min(10, kg_ferro38 / 15);
+  var scoreVol    = Math.min(20, volConcComPerda * 15);                        // M3: usa com perda
+  var scoreFerro  = Math.min(10, (kg_ferro38 + m2_tela * 2.1) / 15);          // M4: tela (~2.1 kg/m² eq.)
   var scoreArea   = Math.min(10, (c * l - 1.5) * 4);
 
   // IEO do orçamento atual (se disponível) amplifica o score
@@ -224,7 +305,22 @@ function _calcEstruturaFuneraria(opts) {
     ieoFator = mr < 20 ? 1.25 : mr < 30 ? 1.10 : 1.0;
   }
 
-  var scoreRaw = (scoreGav + scoreAlt + scoreVol + scoreFerro + scoreArea) * ieoFator;
+  // Melhoria 8: scoreGeometria — coeficiente de complexidade geométrica
+  // Pondera molduras, recortes, acabamentos especiais presentes no orçamento
+  var scoreGeometria = 0;
+  var ac = q.acabamentos || {};
+  if (ac.moldura    && ac.moldura.on)    scoreGeometria += 4;
+  if (ac.pingadeira && ac.pingadeira.on) scoreGeometria += 2;
+  if (ac.lateral    && ac.lateral.on)   scoreGeometria += 2;
+  if (ac.polimento  && ac.polimento.on) scoreGeometria += 3;
+  if (ac.resinagem  && ac.resinagem.on) scoreGeometria += 2;
+  // Acabamentos via q.pedras (alternativa de acesso)
+  var pAcab = q.pedras || {};
+  if (pAcab.moldura    && pAcab.moldura.on)    scoreGeometria += 4;
+  if (pAcab.pingadeira && pAcab.pingadeira.on) scoreGeometria += 2;
+  scoreGeometria = Math.min(15, scoreGeometria); // cap em 15 pontos
+
+  var scoreRaw = (scoreGav + scoreAlt + scoreVol + scoreFerro + scoreArea + scoreGeometria) * ieoFator;
   var score    = Math.min(100, Math.round(scoreRaw));
 
   // ── CLASSIFICAÇÃO DE EQUIPE ───────────────────────────────────────
@@ -242,19 +338,30 @@ function _calcEstruturaFuneraria(opts) {
     return _r(qty * (ti[key] ? ti[key].preco : 0));
   }
 
-  var custoInsumos = _r(
-    _pc('cimento',   sc_cimento_total) +
-    _pc('areia',     m3_areia_total)   +
-    _pc('brita',     m3_brita)         +
-    _pc('ferro_38',  kg_ferro38)       +
-    _pc('ferro_516', kg_ferro516)      +
-    _pc('tela_sold', m2_tela)          +
-    _pc('bloco',     nBlocos)          +
-    _pc('argamassa', sc_arg_alv)       +
-    _pc('cola_epox', sc_cola)          +
-    _pc('rejunte',   kg_rejunte)       +
-    _pc('impermeab', m2_impermeab)
+  // Melhoria 9 + Fix 3: custos separados por setor — areia dividida por uso real
+  // custoEstrutura: só areia do concreto (m3_areia_conc)
+  // custoAlvenaria: areia de reboco/chapisco (m3_areia_reboco) + massa + cimento_reboco
+  var custoEstrutura = _r(
+    _pc('cimento',   sc_cimento_conc)     +
+    _pc('areia',     m3_areia_conc)       +
+    _pc('brita',     m3_brita)            +
+    _pc('ferro_38',  kg_ferro38)          +
+    _pc('ferro_516', kg_ferro516)         +
+    _pc('tela_sold', m2_tela)            +
+    _pc('bloco',     nBlocos)            +
+    _pc('impermeab', kg_impermeab)
   );
+  var custoAlvenaria = _r(
+    _pc('areia',              m3_areia_reboco)   +
+    _pc('massa_assentamento', sc_massa_asset)    +
+    _pc('cimento_reboco',     sc_cimento_reboco)
+  );
+  var custoPedra = _r(
+    _pc('argamassa_acii', sc_acii)       +
+    _pc('cola_epox',      sc_cola)       +
+    _pc('rejunte',        kg_rejunte)
+  );
+  var custoInsumos = _r(custoEstrutura + custoAlvenaria + custoPedra);
 
   var custoEquipe = equipe ? equipe.custo : 0;
   var vendaEquipe = equipe ? equipe.venda : 0;
@@ -269,29 +376,44 @@ function _calcEstruturaFuneraria(opts) {
     cUtil, lUtil, altCorpo, altTotal, altRod,
 
     // Volumes estruturais
-    volFund, volAlv, volLaje, volConcGav, volConcreto,
-    m2Paredes, m2Tela: m2_tela,
+    volFund, volAlv, volLaje, volConcGav, volConcreto, volConcComPerda,
+    m2Paredes, m2ParedesComPerda, m2Tela: m2_tela,
 
-    // Quantitativos de insumos
+    // Perdas aplicadas (%)
+    perdas: { concreto: perdaConcreto*100, alvenaria: perdaAlvenaria*100, ferragem: perdaFerragem*100, pedra: perdaPedra*100, impermeab: perdaImpermeab*100 },
+
+    // Área de pedra
+    m2Pedra, m2PedraComPerda,
+
+    // Quantitativos de insumos (separados por grupo semântico)
     insumos: {
-      cimento:   { qty: sc_cimento_total, unid: 'sc',  preco: ti.cimento  ? ti.cimento.preco  : 38   },
-      areia:     { qty: m3_areia_total,   unid: 'm³',  preco: ti.areia    ? ti.areia.preco    : 200  },
-      brita:     { qty: m3_brita,         unid: 'm³',  preco: ti.brita    ? ti.brita.preco    : 220  },
-      ferro_38:  { qty: kg_ferro38,       unid: 'kg',  preco: ti.ferro_38 ? ti.ferro_38.preco : 16   },
-      ferro_516: { qty: kg_ferro516,      unid: 'kg',  preco: ti.ferro_516? ti.ferro_516.preco: 15   },
-      tela_sold: { qty: m2_tela,          unid: 'm²',  preco: ti.tela_sold? ti.tela_sold.preco: 52   },
-      bloco:     { qty: nBlocos,          unid: 'un',  preco: ti.bloco    ? ti.bloco.preco    : 4.50 },
-      argamassa: { qty: sc_arg_alv,       unid: 'sc',  preco: ti.argamassa? ti.argamassa.preco: 32   },
-      cola_epox: { qty: sc_cola,          unid: 'sc',  preco: ti.cola_epox? ti.cola_epox.preco: 48   },
-      rejunte:   { qty: kg_rejunte,       unid: 'kg',  preco: ti.rejunte  ? ti.rejunte.preco  : 14   },
-      impermeab: { qty: m2_impermeab,     unid: 'kg',  preco: ti.impermeab? ti.impermeab.preco: 85   }
+      // Estrutura civil
+      cimento:            { qty: sc_cimento_conc,    unid: 'sc',  preco: ti.cimento           ? ti.cimento.preco           : 38,   grupo:'estrutura' },
+      areia:              { qty: m3_areia_total,     unid: 'm³',  preco: ti.areia             ? ti.areia.preco             : 200,  grupo:'estrutura',
+                            detalhe: { concreto: m3_areia_conc, reboco: m3_areia_reboco } },
+      brita:              { qty: m3_brita,           unid: 'm³',  preco: ti.brita             ? ti.brita.preco             : 220,  grupo:'estrutura' },
+      ferro_38:           { qty: kg_ferro38,         unid: 'kg',  preco: ti.ferro_38          ? ti.ferro_38.preco          : 16,   grupo:'estrutura' },
+      ferro_516:          { qty: kg_ferro516,        unid: 'kg',  preco: ti.ferro_516         ? ti.ferro_516.preco         : 15,   grupo:'estrutura' },
+      tela_sold:          { qty: m2_tela,            unid: 'm²',  preco: ti.tela_sold         ? ti.tela_sold.preco         : 52,   grupo:'estrutura', m2Liq: m2_tela_liq },
+      bloco:              { qty: nBlocos,            unid: 'un',  preco: ti.bloco             ? ti.bloco.preco             : 4.50, grupo:'estrutura' },
+      impermeab:          { qty: kg_impermeab,       unid: 'kg',  preco: ti.impermeab         ? ti.impermeab.preco         : 85,   grupo:'estrutura', m2Area: m2_impermeab, baldes: kg_impermeab / BALDE_IMPERMEAB_KG },
+      // Assentamento civil (NÃO AC-II)
+      massa_assentamento: { qty: sc_massa_asset,     unid: 'sc',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
+      cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
+      // Pedras e acabamento (AC-II somente aqui, baseado em área real de pedra + perda)
+      argamassa_acii:     { qty: sc_acii,            unid: 'sc',  preco: ti.argamassa_acii    ? ti.argamassa_acii.preco    : 32,   grupo:'pedras', m2Pedra, m2PedraComPerda },
+      cola_epox:          { qty: sc_cola,            unid: 'sc',  preco: ti.cola_epox         ? ti.cola_epox.preco         : 48,   grupo:'pedras' },
+      rejunte:            { qty: kg_rejunte,         unid: 'kg',  preco: ti.rejunte           ? ti.rejunte.preco           : 14,   grupo:'pedras' }
     },
 
     // Equipe
-    score, equipeKey,
+    score, scoreGav, scoreAlt, scoreVol, scoreFerro, scoreArea, scoreGeometria, equipeKey,
     equipeLabel: equipe ? equipe.label : '—',
     equipeDesc:  equipe ? equipe.desc  : '—',
     custoEquipe, vendaEquipe,
+
+    // Melhoria 9: custos separados por setor
+    custoEstrutura, custoAlvenaria, custoPedra,
 
     // Totais
     custoInsumos, vendaInsumos,
@@ -387,8 +509,13 @@ function tumSimular(pedraKey, tipoKey) {
   var c = qd.comp || 2.20, l = qd.larg || 0.90, a = (preset.altEst || 0.70);
 
   var m2Liq   = _r(c * l + c * a * 2 + l * a);
-  var perdaSim = (typeof TUM !== 'undefined' && TUM.q && TUM.q.perda != null) ? TUM.q.perda : 15;
-  var m2Total = _r(m2Liq * (1 + perdaSim / 100));
+  // Fix 1: simulador usa perdaPedra (não perdaFerragem — bug corrigido)
+  // Leitura: q.perdaPedra → q.perda (legado) → 15 (padrão)
+  var perdaPedraSim = (typeof TUM !== 'undefined' && TUM.q && TUM.q.perdaPedra != null)
+    ? TUM.q.perdaPedra
+    : (typeof TUM !== 'undefined' && TUM.q && TUM.q.perda != null)
+      ? TUM.q.perda : 15;
+  var m2Total = _r(m2Liq * (1 + perdaPedraSim / 100));
   var custoPedra = m2Total * pedra.preco;
 
   // Usa motor estrutural real se possível
@@ -457,23 +584,50 @@ function buildCfgTumPrecos() {
   });
   h += '</div>';
 
-  // ── INSUMOS ESTRUTURAIS ───────────────────────────────────────────
-  h += '<div class="tp-sec-hd" style="margin-top:20px;">🏗️ INSUMOS ESTRUTURAIS <span class="tp-unit-badge">preço unitário</span></div>';
-  h += '<div class="tp-sec-desc">O motor calcula as quantidades reais conforme as dimensões do túmulo. Aqui você define apenas o preço de cada insumo.</div>';
-  h += '<div class="tp-table-wrap">';
-  h += '<div class="tp-t-head-ins"><span>Insumo</span><span>Unidade</span><span>R$ Unitário</span></div>';
-  Object.keys(tp.insumos).forEach(function(k) {
-    var it = tp.insumos[k];
-    h += '<div class="tp-t-row-ins">';
-    h += '<span class="tp-t-nm"><span class="tp-ins-icon">'+ (it.icon||'📦') +'</span>'+ it.label +'</span>';
-    h += '<span class="tp-t-un">'+ it.unid +'</span>';
-    h += '<div class="tp-t-inp-wrap"><span class="tp-r-sm">R$</span>'
-       + '<input class="cfginp tp-sm-num" type="number" min="0" step="0.01" value="'+ it.preco +'" '
-       + 'onchange="CFG.tumPrecos.insumos[\''+ k +'\'].preco=+this.value;svCFG();">'
-       + '</div>';
+  // ── INSUMOS: 3 GRUPOS SEPARADOS ──────────────────────────────────
+  var gruposInsumos = [
+    {
+      key: 'estrutura',
+      icon: '🏗️',
+      titulo: 'ESTRUTURA CIVIL',
+      desc: 'Concreto, ferragem e alvenaria estrutural. Calculados a partir do volume e dimensões reais do túmulo.',
+      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab']
+    },
+    {
+      key: 'alvenaria',
+      icon: '🧱',
+      titulo: 'ASSENTAMENTO CIVIL',
+      desc: 'Massa para assentamento de bloco e cimento para chapisco/reboco das paredes. Não entra AC-II aqui.',
+      keys: ['massa_assentamento','cimento_reboco']
+    },
+    {
+      key: 'pedras',
+      icon: '💎',
+      titulo: 'PEDRAS E ACABAMENTO',
+      desc: 'AC-II usada exclusivamente para assentamento de granito, mármore, tampas, laterais e lápides. Calculada pela área de pedra — nunca pela área de parede.',
+      keys: ['argamassa_acii','cola_epox','rejunte']
+    }
+  ];
+
+  gruposInsumos.forEach(function(grp) {
+    h += '<div class="tp-sec-hd" style="margin-top:20px;">'+ grp.icon +' '+ grp.titulo +'</div>';
+    h += '<div class="tp-sec-desc">'+ grp.desc +'</div>';
+    h += '<div class="tp-table-wrap">';
+    h += '<div class="tp-t-head-ins"><span>Insumo</span><span>Unidade</span><span>R$ Unitário</span></div>';
+    grp.keys.forEach(function(k) {
+      var it = tp.insumos[k];
+      if (!it) return;
+      h += '<div class="tp-t-row-ins">';
+      h += '<span class="tp-t-nm"><span class="tp-ins-icon">'+ (it.icon||'📦') +'</span>'+ it.label +'</span>';
+      h += '<span class="tp-t-un">'+ it.unid +'</span>';
+      h += '<div class="tp-t-inp-wrap"><span class="tp-r-sm">R$</span>'
+         + '<input class="cfginp tp-sm-num" type="number" min="0" step="0.01" value="'+ it.preco +'" '
+         + 'onchange="CFG.tumPrecos.insumos[\''+ k +'\'].preco=+this.value;svCFG();">'
+         + '</div>';
+      h += '</div>';
+    });
     h += '</div>';
   });
-  h += '</div>';
 
   // ── EQUIPES DE EMPREITADA ─────────────────────────────────────────
   h += '<div class="tp-sec-hd" style="margin-top:20px;">👷 EQUIPES DE EMPREITADA</div>';
@@ -712,9 +866,14 @@ function _tumPrecPanel() {
     // Resumo de insumos
     h += '<div class="tpp-ins-list">';
     var insLabels = {
-      cimento:'Cimento', areia:'Areia', brita:'Brita',
+      // Estrutura civil
+      cimento:'Cimento (estrutura)', areia:'Areia', brita:'Brita',
       ferro_38:'Ferro 3/8"', ferro_516:'Ferro 5/16"', tela_sold:'Tela Q138',
-      bloco:'Blocos', argamassa:'Argamassa', cola_epox:'Cola', rejunte:'Rejunte', impermeab:'Impermeab.'
+      bloco:'Blocos', impermeab:'Impermeab.',
+      // Assentamento civil
+      massa_assentamento:'Massa Assentamento', cimento_reboco:'Cimento Reboco',
+      // Pedras e acabamento
+      argamassa_acii:'AC-II (pedra)', cola_epox:'Cola Epóxi', rejunte:'Rejunte'
     };
     Object.keys(est.insumos).forEach(function(k) {
       var ins = est.insumos[k];
