@@ -5732,137 +5732,544 @@ function gerarPDFTumulo(q){
 
   var obsBox=obsText?'<div style="background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#555;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#7a4e00;">Observações:</strong> '+escH(obsText)+'</div>':'';
 
-  var recHtml=''
-  +'<div id="pdfReceipt" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;">'
-  +'<div style="height:6px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);"></div>'
-  // Header
-  +'<div style="background:#0f0c00;padding:28px 38px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">'
-    +'<div style="display:flex;flex-direction:column;gap:6px;">'
-      +'<div style="font-size:26px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;line-height:1;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
-      +'<div style="font-size:8.5px;letter-spacing:3.5px;text-transform:uppercase;color:rgba(201,168,76,0.45);">M&Aacute;RMORE &middot; GRANITO &middot; QUARTZITO</div>'
-      +'<div style="font-size:10px;color:rgba(255,255,255,0.22);font-style:italic;margin-top:2px;">Qualidade, Precisao e Acabamento Profissional</div>'
-    +'</div>'
-    +'<div style="text-align:right;display:flex;flex-direction:column;gap:3px;">'
-      +(emp.end?'<div style="font-size:10.5px;color:rgba(201,168,76,0.9);font-weight:700;">'+escH(emp.end)+'</div>':'')
-      +(emp.cidade?'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+escH(emp.cidade)+'</div>':'')
-      +(emp.tel?'<div style="font-size:11px;color:rgba(201,168,76,0.9);font-weight:700;margin-top:3px;">'+escH(emp.tel)+'</div>':'')
-      +(emp.ig?'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+escH(emp.ig)+'</div>':'')
-      +(emp.cnpj?'<div style="font-size:8.5px;color:rgba(255,255,255,0.18);margin-top:3px;">CNPJ: '+escH(emp.cnpj)+'</div>':'')
-    +'</div>'
-  +'</div>'
-  // Badge bar
-  +'<div style="background:#f7f2e8;border-bottom:3px solid #C9A84C;padding:11px 38px;display:flex;justify-content:space-between;align-items:center;">'
-    +'<div style="display:flex;align-items:center;gap:12px;">'
-      +'<div style="background:#0f0c00;color:#C9A84C;font-size:8px;font-weight:900;padding:6px 16px;border-radius:30px;letter-spacing:3px;text-transform:uppercase;border:1px solid rgba(201,168,76,0.5);">⚱️ ORÇAMENTO</div>'
-      +'<div style="background:#C9A84C;color:#000;font-size:9px;font-weight:900;padding:4px 10px;border-radius:5px;letter-spacing:1px;">'+orcNum+'</div>'
-    +'</div>'
-    +'<div style="text-align:right;">'
-      +'<div style="font-size:10px;color:#888;"><strong style="color:#5a3800;">EMISSÃO:</strong> '+fd(q.dt||q.date)+'</div>'
-      +'<div style="font-size:9.5px;color:#aaa;">Validade: 7 dias</div>'
-    +'</div>'
-  +'</div>'
-  // Body
-  +'<div style="padding:24px 38px 20px;">'
-    // Cliente
-    +sh('Cliente')
-    +'<div style="display:flex;gap:12px;margin-bottom:20px;align-items:stretch;">'
-      +'<div style="flex:1;background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
-        +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NOME DO CLIENTE</div>'
-        +'<div style="font-size:21px;font-weight:900;color:#1a1a1a;line-height:1;margin-bottom:8px;">'+escH(q.cli||_pend.cli||'—')+'</div>'
-        +falHtml
-        +(cemiterio?'<div style="font-size:11px;color:#888;margin-top:2px;">📍 Cemitério: '+escH(cemiterio)+'</div>':'')
-        +(quadra?'<div style="font-size:11px;color:#888;margin-top:2px;">Quadra: '+escH(quadra)+(lote?' | Lote: '+escH(lote):'')+'</div>':'')
+
+  // ══════════════════════════════════════════════════════════════════
+  // DADOS COMPLEMENTARES — lidos do motor, sem recalcular nada
+  // ══════════════════════════════════════════════════════════════════
+  var _d     = (_pend && _pend.d) ? _pend.d : {};
+  var _gavs  = _d.gavetas || (r.ts && r.ts.gavetas) || 1;
+  var _altCm = _d.alt  ? (Math.round((_d.alt||0)*100)) : (r.d && r.d.H_cm ? r.d.H_cm : '—');
+  var _compCm= r.d && r.d.C_cm ? r.d.C_cm : (_d.comp ? Math.round((_d.comp||0)*100) : '—');
+  var _largCm= r.d && r.d.L_cm ? r.d.L_cm : (_d.larg ? Math.round((_d.larg||0)*100) : '—');
+
+  // Acabamentos / serviços extras (do motor svState)
+  var _svState = (_pend && _pend.svState) ? _pend.svState : {};
+  function _svOn(k){ return _svState[k] && _svState[k].on; }
+  function _svVal(k){ var v=_svState[k]; return v&&v.on?v:null; }
+
+  // ── Helpers de seção ──────────────────────────────────────────────
+  function shPg(t){
+    return '<div style="display:flex;align-items:center;gap:12px;margin:0 0 18px;">'
+      +'<div style="width:4px;height:22px;background:linear-gradient(180deg,#C9A84C,#8a5e0a);border-radius:2px;flex-shrink:0;"></div>'
+      +'<span style="font-size:9px;letter-spacing:4px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span>'
+      +'<div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.35),transparent);"></div>'
+      +'</div>';
+  }
+  function pgHeader(pageNum,pageTitle){
+    return '<div style="background:#0f0c00;padding:12px 38px;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #C9A84C;">'
+      +'<div style="display:flex;align-items:center;gap:14px;">'
+        +'<span style="font-size:13px;font-weight:900;color:#C9A84C;letter-spacing:-0.3px;">'+escH(emp.nome||'HR Mármores e Granitos')+'</span>'
+        +'<span style="width:1px;height:14px;background:rgba(201,168,76,0.3);display:inline-block;"></span>'
+        +'<span style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);font-weight:700;">'+pageTitle+'</span>'
       +'</div>'
-      +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:10px;padding:14px 18px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:120px;">'
-        +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:6px;font-weight:900;">PROJETO</div>'
-        +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+escH(tipoLabel)+'</div>'
-        +(r.d?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(r.d.C_cm||'—')+' × '+(r.d.L_cm||'—')+' cm</div>':'')
+      +'<div style="display:flex;align-items:center;gap:10px;">'
+        +'<span style="font-size:9px;color:rgba(201,168,76,0.4);font-weight:700;">'+orcNum+'</span>'
+        +'<span style="font-size:8px;color:rgba(255,255,255,0.18);">Pg '+pageNum+'</span>'
+      +'</div>'
+    +'</div>';
+  }
+  function goldBar(){
+    return '<div style="height:5px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);"></div>';
+  }
+
+  // ── Checkbox visual para itens de estrutura/acabamento ────────────
+  function ckItem(label, active){
+    active = active !== false;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0ebe0;">'
+      +'<div style="width:20px;height:20px;min-width:20px;border-radius:5px;background:'+(active?'#0f0c00':'#f5f0e8')+';border:1px solid '+(active?'rgba(201,168,76,0.6)':'#ddd5c0')+';display:flex;align-items:center;justify-content:center;">'
+        +(active?'<span style="color:#C9A84C;font-size:12px;font-weight:900;">✓</span>':'')
+      +'</div>'
+      +'<span style="font-size:11.5px;color:'+(active?'#1a1a1a':'#aaa')+';font-weight:'+(active?'600':'400')+';">'+label+'</span>'
+    +'</div>';
+  }
+
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 1 — APRESENTAÇÃO (CAPA)
+  // ════════════════════════════════════════════════════════
+  var pg1 = '<div id="pdfPage1" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    // Topo dourado
+    + goldBar()
+    // Cabeçalho principal escuro
+    +'<div style="background:#0f0c00;padding:34px 44px 28px;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">'
+        +'<div>'
+          +'<div style="font-size:9px;letter-spacing:4px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:10px;font-weight:700;">PROJETO FUNERÁRIO PREMIUM</div>'
+          +'<div style="font-size:30px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;line-height:1.05;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+          +'<div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.35);margin-top:7px;">MÁRMORE · GRANITO · QUARTZITO</div>'
+        +'</div>'
+        +'<div style="text-align:right;">'
+          +(emp.tel?'<div style="font-size:12px;color:#C9A84C;font-weight:700;margin-bottom:4px;">'+escH(emp.tel)+'</div>':'')
+          +(emp.ig?'<div style="font-size:10px;color:rgba(201,168,76,0.5);margin-bottom:4px;">'+escH(emp.ig)+'</div>':'')
+          +(emp.cidade?'<div style="font-size:10px;color:rgba(255,255,255,0.25);">'+escH(emp.cidade)+'</div>':'')
+        +'</div>'
+      +'</div>'
+      // Linha separadora dourada
+      +'<div style="height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.6),transparent);margin-top:22px;"></div>'
+      // Dados do orçamento na faixa escura
+      +'<div style="display:flex;gap:32px;margin-top:16px;">'
+        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">ORÇAMENTO</div><div style="font-size:12px;font-weight:900;color:#C9A84C;">'+orcNum+'</div></div>'
+        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">EMISSÃO</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.7);">'+fd(q.dt||q.date)+'</div></div>'
+        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">TIPO DE PROJETO</div><div style="font-size:12px;font-weight:900;color:#C9A84C;">'+escH(tipoLabel)+'</div></div>'
+        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">VALIDADE</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.4);">7 dias</div></div>'
       +'</div>'
     +'</div>'
-    +obsBox
-    // Material
-    +sh('Material Selecionado')
-    +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;box-shadow:0 4px 20px rgba(201,168,76,0.15);">'
-      +'<div style="height:90px;width:100%;position:relative;overflow:hidden;'+matBg+'">'
-        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.5) 50%,rgba(0,0,0,0.15) 100%);">'
-          +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
-            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:5px;">MATERIAL SELECIONADO</div>'
-            +'<div style="font-size:22px;font-weight:900;color:#C9A84C;line-height:1;">'+escH(mat.nm||q.mat||'—')+'</div>'
-            +(mat.cat?'<div style="font-size:9.5px;color:rgba(255,255,255,0.45);margin-top:4px;">'+escH(mat.cat)+(mat.fin?' · '+mat.fin:'')+'</div>':'')
+
+    // Banner cliente — nome em destaque
+    +'<div style="background:#f7f2e8;border-bottom:3px solid #C9A84C;padding:18px 44px;">'
+      +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#9a7840;margin-bottom:5px;font-weight:900;">ORÇAMENTO PREPARADO EXCLUSIVAMENTE PARA</div>'
+      +'<div style="font-size:26px;font-weight:900;color:#1a1a1a;line-height:1.1;">'+escH(q.cli||_pend.cli||'—')+'</div>'
+      +(q.tel?'<div style="font-size:11px;color:#888;margin-top:4px;">📱 '+escH(q.tel)+'</div>':'')
+      +(falHtml?'<div style="margin-top:8px;">'+falHtml+'</div>':'')
+      +((cemiterio||quadra)?'<div style="display:flex;gap:20px;margin-top:8px;">'
+        +(cemiterio?'<div style="font-size:11px;color:#888;">📍 <strong>Cemitério:</strong> '+escH(cemiterio)+'</div>':'')
+        +(quadra?'<div style="font-size:11px;color:#888;"><strong>Quadra:</strong> '+escH(quadra)+(lote?' | Lote: '+escH(lote):'')+'</div>':'')
+        +'</div>':'')
+    +'</div>'
+
+    // CARTÃO PRINCIPAL — o coração da capa
+    +'<div style="padding:28px 44px 24px;background:#fff;">'
+      +shPg('Resumo do Projeto')
+      // Grid de 3 cartões de destaque
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:20px;">'
+
+        // Cartão Material
+        +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:12px;padding:18px 16px;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;position:relative;overflow:hidden;':'')+';">'
+          +(mat.photo?'<div style="position:absolute;inset:0;background:rgba(0,0,0,0.78);border-radius:12px;"></div>':'')
+          +'<div style="position:relative;z-index:1;">'
+            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.6);margin-bottom:8px;font-weight:900;">MATERIAL</div>'
+            +'<div style="font-size:15px;font-weight:900;color:#C9A84C;line-height:1.2;">'+escH(mat.nm||q.mat||'—')+'</div>'
+            +(mat.cat?'<div style="font-size:9.5px;color:rgba(255,255,255,0.4);margin-top:5px;">'+escH(mat.cat)+(mat.fin?' · '+mat.fin:'')+'</div>':'')
           +'</div>'
-          +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
-            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">TOTAL DE PEDRA</div>'
-            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+matAreaTotal+'</div>'
+        +'</div>'
+
+        // Cartão Área + Gavetas
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 16px;">'
+          +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#9a7840;margin-bottom:8px;font-weight:900;">DIMENSIONAMENTO</div>'
+          +'<div style="font-size:22px;font-weight:900;color:#3a2000;line-height:1;">'+escH(String(matAreaTotal))+'</div>'
+          +'<div style="font-size:10px;color:#999;margin-top:4px;">área total de pedra</div>'
+          +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #ede8dc;">'
+            +'<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;margin-bottom:4px;font-weight:900;">COMPARTIMENTOS</div>'
+            +'<div style="font-size:18px;font-weight:900;color:#5a3800;">'+_gavs+' gaveta'+(parseInt(_gavs)>1?'s':'')+'</div>'
+          +'</div>'
+        +'</div>'
+
+        // Cartão Tipo de Jazigo
+        +'<div style="background:#0f0c00;border:2px solid rgba(201,168,76,0.55);border-radius:12px;padding:18px 16px;">'
+          +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:8px;font-weight:900;">TIPO DE JAZIGO</div>'
+          +'<div style="font-size:15px;font-weight:900;color:#C9A84C;line-height:1.25;">'+escH(tipoLabel)+'</div>'
+          +(_compCm!=='—'?'<div style="font-size:9.5px;color:rgba(255,255,255,0.3);margin-top:8px;">'+_compCm+' × '+_largCm+' cm</div>':'')
+        +'</div>'
+      +'</div>'
+
+      // Bloco de valores — destaque máximo
+      +'<div style="border:2px solid #C9A84C;border-radius:16px;overflow:hidden;box-shadow:0 6px 30px rgba(201,168,76,0.18);">'
+        // Header do bloco
+        +'<div style="background:#0f0c00;padding:14px 22px;display:flex;justify-content:space-between;align-items:center;">'
+          +'<span style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">INVESTIMENTO DO PROJETO</span>'
+          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 10px;border-radius:20px;letter-spacing:1px;">HR MÁRMORES</span>'
+        +'</div>'
+        // Corpo com dois valores lado a lado
+        +'<div style="display:grid;grid-template-columns:1fr 1px 1fr;">'
+          // À Vista
+          +'<div style="padding:22px 24px;background:#fff;">'
+            +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;margin-bottom:8px;">À VISTA</div>'
+            +'<div style="font-size:34px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:6px;">R$ '+fm(vista)+'</div>'
+            +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">▼ Economize R$ '+fm(economia)+'</div>'
+          +'</div>'
+          // Divisória
+          +'<div style="background:linear-gradient(180deg,transparent,rgba(201,168,76,0.3),transparent);"></div>'
+          // Parcelado
+          +'<div style="padding:22px 24px;background:#fdfaf3;">'
+            +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:8px;">PARCELADO EM ATÉ '+parcMax+'×</div>'
+            +'<div style="font-size:22px;font-weight:900;color:#555;line-height:1;margin-bottom:4px;">'+parcMax+'× R$ '+fm(p8)+'</div>'
+            +'<div style="font-size:10px;color:#999;margin-bottom:10px;">Total parcelado: R$ '+fm(parc)+'</div>'
+            +'<div style="font-size:7.5px;letter-spacing:1px;color:#bbb;">ENTRADA 50%: R$ '+fm(ent)+' + saldo na entrega</div>'
           +'</div>'
         +'</div>'
       +'</div>'
-      +'<div style="background:#fdfaf3;padding:10px 18px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
-        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">CATEGORIA</div><div style="font-size:11px;font-weight:700;color:#1a1a1a;">'+escH(mat.cat||'Granito/Mármore')+'</div></div>'
-        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">ACABAMENTO</div><div style="font-size:11px;font-weight:700;color:#1a1a1a;">'+escH((r.acab&&r.acab.nm)||mat.fin||'Polida')+'</div></div>'
-        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">CARACTERÍSTICAS</div><div style="font-size:11px;color:#555;">Material de alta qualidade para sua obra.</div></div>'
-      +'</div>'
+
+      +(obsBox?'<div style="margin-top:16px;">'+obsBox+'</div>':'')
     +'</div>'
-    // Peças e Dimensões
-    +secaoPecas
-    // Como Funciona
-    +sh('Como Funciona')
-    +comoFuncHtml
-    // Valores
-    +sh('Valores do Projeto')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
-      +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
-        +'<div style="background:#0f0c00;padding:10px 16px;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:900;margin-bottom:1px;">VALOR DO PROJETO</div>'
-          +'<div style="font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:700;">Parcelado em até '+parcMax+'×</div>'
-        +'</div>'
-        +'<div style="padding:14px 16px;background:#faf8f4;">'
-          +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:3px;">R$ '+fm(p8)+'</div>'
-          +'<div style="font-size:11px;color:#999;">por mês — '+parcMax+' parcelas</div>'
-        +'</div>'
-      +'</div>'
-      +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
-        +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">À VISTA</span>'
-          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">DESCONTO</span>'
-        +'</div>'
-        +'<div style="padding:14px 16px;background:#fff;">'
-          +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(vista)+'</div>'
-          +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Desconto especial pagamento à vista</div>'
-          +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
-        +'</div>'
-      +'</div>'
+
+    // Rodapé da página 1
+    +'<div style="background:#0f0c00;padding:14px 44px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:10px;color:rgba(201,168,76,0.5);">'+escH(emp.nome||'HR Mármores e Granitos')+' · '+escH(emp.end||'')+' '+escH(emp.cidade||'')+'</div>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.2);">'+orcNum+' · Pg 1/6</div>'
     +'</div>'
-    // Pagamento
-    +sh('Condição de Pagamento')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">'
-      +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
-        +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">ENTRADA — 50%</div>'
-        +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(ent)+'</div>'
-        +'<div style="font-size:11px;color:#999;">Na assinatura / medição</div>'
-      +'</div>'
-      +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
-        +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA — 50%</div>'
-        +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(ent)+'</div>'
-        +'<div style="font-size:11px;color:#999;">Na entrega e instalação</div>'
-      +'</div>'
-    +'</div>'
-  +'</div>'
-  // Footer
-  +'<div style="background:#0f0c00;padding:18px 38px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
-    +'<div>'
-      +'<div style="font-size:14px;font-weight:900;color:#C9A84C;line-height:1;margin-bottom:4px;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
-      +'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+escH(emp.end||'')+' — '+escH(emp.cidade||'')+'</div>'
-    +'</div>'
-    +'<div style="text-align:right;line-height:1.9;">'
-      +'<div style="font-size:10.5px;color:rgba(201,168,76,0.85);font-weight:700;">'+escH(emp.tel||'')+'</div>'
-      +(emp.ig?'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+escH(emp.ig)+'</div>':'')
-      +(emp.cnpj?'<div style="font-size:9px;color:rgba(255,255,255,0.15);">CNPJ: '+escH(emp.cnpj)+'</div>':'')
-    +'</div>'
-  +'</div>'
-  +'<div style="height:5px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);"></div>'
+    + goldBar()
   +'</div>';
 
-  // Overlay de preview
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 2 — PROJETO (DETALHES TÉCNICOS + PEÇAS)
+  // ════════════════════════════════════════════════════════
+  var _pecasGrid='';
+  if(pecasList&&pecasList.length){
+    pecasList.forEach(function(p,i){
+      var nm=p.nm||p.nome||p.desc||('Peça '+(i+1));
+      var dim=p.dim||'';
+      var dimDisp=dim.replace(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(cm)?/i,function(m,a,b){
+        var aV=parseFloat(a),bV=parseFloat(b);
+        if(aV<20)aV=Math.round(aV*100);
+        if(bV<20)bV=Math.round(bV*100);
+        return aV+' × '+bV+' cm';
+      });
+      if(!dimDisp&&p.comp&&p.larg){
+        var cc=p.comp>20?Math.round(p.comp):Math.round(p.comp*100);
+        var ll=p.larg>20?Math.round(p.larg):Math.round(p.larg*100);
+        dimDisp=cc+' × '+ll+' cm';
+      }
+      var m2=p.m2||0;
+      var isEven=i%2===0;
+      _pecasGrid+='<div style="display:flex;align-items:center;padding:10px 14px;background:'+(isEven?'#fff':'#faf6ef')+';border-bottom:1px solid #ede8dc;gap:12px;">'
+        +'<div style="width:24px;height:24px;min-width:24px;background:#0f0c00;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;color:#C9A84C;">'+(i+1)+'</div>'
+        +'<div style="flex:1;font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(nm)+'</div>'
+        +'<div style="font-size:11px;color:#777;white-space:nowrap;">'+escH(dimDisp||'—')+'</div>'
+        +'<div style="font-size:11.5px;font-weight:900;color:#5a3800;white-space:nowrap;min-width:60px;text-align:right;">'+(m2?m2.toFixed(3)+' m²':'—')+'</div>'
+      +'</div>';
+    });
+    _pecasGrid+='<div style="display:flex;align-items:center;padding:11px 14px;background:#0f0c00;gap:12px;">'
+      +'<div style="width:24px;height:24px;min-width:24px;"></div>'
+      +'<div style="flex:1;font-size:9px;letter-spacing:2px;font-weight:900;color:#C9A84C;text-transform:uppercase;">Total de Pedra</div>'
+      +'<div></div>'
+      +'<div style="font-size:13px;font-weight:900;color:#C9A84C;">'+(r.m2_total||_m2TotalPecas).toFixed(3)+' m²</div>'
+    +'</div>';
+  }
+
+  var pg2='<div id="pdfPage2" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    + goldBar()
+    + pgHeader(2,'Detalhes do Projeto')
+    +'<div style="padding:28px 44px 24px;">'
+      +shPg('Especificações do Jazigo')
+      // Grid de métricas do projeto
+      +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 14px;text-align:center;">'
+          +'<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;margin-bottom:6px;font-weight:900;">COMP.</div>'
+          +'<div style="font-size:20px;font-weight:900;color:#3a2000;">'+(_compCm!=='—'?_compCm:'—')+'</div>'
+          +'<div style="font-size:9px;color:#bbb;margin-top:2px;">cm</div>'
+        +'</div>'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 14px;text-align:center;">'
+          +'<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;margin-bottom:6px;font-weight:900;">LARG.</div>'
+          +'<div style="font-size:20px;font-weight:900;color:#3a2000;">'+(_largCm!=='—'?_largCm:'—')+'</div>'
+          +'<div style="font-size:9px;color:#bbb;margin-top:2px;">cm</div>'
+        +'</div>'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 14px;text-align:center;">'
+          +'<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;margin-bottom:6px;font-weight:900;">COMPART.</div>'
+          +'<div style="font-size:20px;font-weight:900;color:#3a2000;">'+_gavs+'</div>'
+          +'<div style="font-size:9px;color:#bbb;margin-top:2px;">gaveta'+(parseInt(_gavs)>1?'s':'')+'</div>'
+        +'</div>'
+        +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.4);border-radius:10px;padding:15px 14px;text-align:center;">'
+          +'<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);margin-bottom:6px;font-weight:900;">TOTAL PEDRA</div>'
+          +'<div style="font-size:16px;font-weight:900;color:#C9A84C;">'+escH(String(matAreaTotal))+'</div>'
+        +'</div>'
+      +'</div>'
+
+      // Material
+      +shPg('Material Selecionado')
+      +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:24px;box-shadow:0 4px 20px rgba(201,168,76,0.12);">'
+        +'<div style="height:72px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'background:#2a1a00;')+'">'
+          +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.88) 0%,rgba(0,0,0,0.5) 55%,rgba(0,0,0,0.1) 100%);">'
+            +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
+              +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.7);font-weight:900;margin-bottom:4px;">MATERIAL SELECIONADO</div>'
+              +'<div style="font-size:20px;font-weight:900;color:#C9A84C;line-height:1;">'+escH(mat.nm||q.mat||'—')+'</div>'
+            +'</div>'
+            +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
+              +(mat.cat?'<div style="font-size:10px;color:rgba(255,255,255,0.5);">'+escH(mat.cat)+(mat.fin?' · '+escH(mat.fin):'')+'</div>':'')
+              +'<div style="font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);margin-top:3px;">'+escH((r.acab&&r.acab.nm)||mat.fin||'Polida')+'</div>'
+            +'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+
+      // Lista de peças
+      +(pecasRows?shPg('Peças e Dimensões')
+        +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:16px;">'
+          +_pecasGrid
+        +'</div>':'')
+    +'</div>'
+    +'<div style="background:#0f0c00;padding:14px 44px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:10px;color:rgba(201,168,76,0.5);">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.2);">'+orcNum+' · Pg 2/6</div>'
+    +'</div>'
+    + goldBar()
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 3 — ESTRUTURA CIVIL INCLUSA
+  // ════════════════════════════════════════════════════════
+  // Itens estruturais: sempre inclusos no tipo túmulo
+  var _estrutItems=[
+    {l:'Fundação armada',         d:'Base estrutural em concreto armado, dimensionada para suportar o peso total do jazigo.'},
+    {l:'Concreto estrutural',     d:'Dosagem controlada para máxima resistência e durabilidade em ambiente cemiterial.'},
+    {l:'Ferragens',               d:'Aço CA-50 para reforço estrutural de toda a fundação e paredes.'},
+    {l:'Tela soldada',            d:'Malha de aço soldada para distribuição uniforme das cargas estruturais.'},
+    {l:'Blocos estruturais',      d:'Alvenaria de blocos de concreto com argamassa de alto desempenho.'},
+    {l:'Impermeabilização',       d:'Tratamento impermeabilizante em toda a estrutura interna e externa.'},
+    {l:'Piso perimetral',         d:'Acabamento do piso ao redor do jazigo com material de qualidade.'},
+    {l:'Treliças',                d:'Reforço metálico tipo treliça para estabilização das lajes e paredes.'},
+    {l:'Canaletas',               d:'Sistema de escoamento pluvial integrado à estrutura do jazigo.'}
+  ];
+  var _estrutHtml='';
+  _estrutItems.forEach(function(it,i){
+    var isEven=i%2===0;
+    _estrutHtml+='<div style="display:flex;align-items:flex-start;gap:14px;padding:12px 16px;background:'+(isEven?'#fff':'#fafaf8')+';border-bottom:1px solid #f0ece4;">'
+      +'<div style="width:26px;height:26px;min-width:26px;background:#0f0c00;border:1px solid rgba(201,168,76,0.5);border-radius:7px;display:flex;align-items:center;justify-content:center;">'
+        +'<span style="color:#C9A84C;font-size:12px;font-weight:900;">✓</span>'
+      +'</div>'
+      +'<div style="flex:1;">'
+        +'<div style="font-size:12px;font-weight:800;color:#1a1a1a;margin-bottom:2px;">'+escH(it.l)+'</div>'
+        +'<div style="font-size:10.5px;color:#888;line-height:1.5;">'+escH(it.d)+'</div>'
+      +'</div>'
+    +'</div>';
+  });
+
+  var pg3='<div id="pdfPage3" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    + goldBar()
+    + pgHeader(3,'Estrutura Civil Inclusa')
+    +'<div style="padding:28px 44px 24px;">'
+      +shPg('Estrutura Inclusa no Projeto')
+      // Chamada de valor
+      +'<div style="background:linear-gradient(135deg,#0f0c00,#1e1500);border:1px solid rgba(201,168,76,0.4);border-radius:12px;padding:18px 22px;margin-bottom:24px;">'
+        +'<div style="font-size:11px;color:rgba(201,168,76,0.7);line-height:1.7;">Todos os itens abaixo fazem parte da nossa proposta. Nenhum custo adicional de obra civil é cobrado separadamente. O projeto inclui fundação, estrutura, impermeabilização e instalação completa realizada pela equipe técnica da HR Mármores.</div>'
+      +'</div>'
+      // Lista de itens estruturais
+      +'<div style="border:1px solid #e8e0d0;border-radius:12px;overflow:hidden;margin-bottom:24px;">'
+        +_estrutHtml
+      +'</div>'
+      // Box de custo civil se disponível
+      +(r.civil&&r.civil.custo?
+        '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">'
+          +'<div>'
+            +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">CUSTO ESTIMADO DA ESTRUTURA CIVIL</div>'
+            +'<div style="font-size:11px;color:#888;">Incluso no valor total do projeto</div>'
+          +'</div>'
+          +'<div style="font-size:18px;font-weight:900;color:#5a3800;">R$ '+fm(r.civil.custo)+'</div>'
+        +'</div>':'')
+    +'</div>'
+    +'<div style="background:#0f0c00;padding:14px 44px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:10px;color:rgba(201,168,76,0.5);">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.2);">'+orcNum+' · Pg 3/6</div>'
+    +'</div>'
+    + goldBar()
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 4 — ACABAMENTOS PREMIUM
+  // ════════════════════════════════════════════════════════
+  var _acab = r.acab || {};
+  var _svKeys={
+    molduras:   {l:'Molduras decorativas',   d:'Perfis em granito polido para acabamento das bordas e remates do jazigo.'},
+    pingadeiras:{l:'Pingadeiras',             d:'Peças em pedra natural cortadas para escoamento de água da cobertura.'},
+    lapide:     {l:'Lápide personalizada',    d:'Placa em granito com gravação do nome, datas e homenagem ao falecido.'},
+    foto_porc:  {l:'Foto em porcelana',       d:'Foto do falecido gravada em porcelana de alta durabilidade, resistente ao clima.'},
+    cruz:       {l:'Cruz',                    d:'Cruz em granito ou mármore, instalada na parte superior do jazigo.'},
+    polimento:  {l:'Polimento profissional',  d:'Acabamento espelhado aplicado em toda a superfície da pedra natural.'},
+    resina:     {l:'Tratamento com resina',   d:'Proteção com resina epóxi para impermeabilização e brilho duradouro das peças.'},
+    jateamento: {l:'Jateamento',              d:'Textura jateada aplicada em áreas específicas para contraste estético.'},
+    gravacao:   {l:'Gravação a laser',        d:'Inscrições e ornamentos gravados a laser na pedra com alta precisão.'},
+    flor_bronze:{l:'Florão em bronze',        d:'Ornamento decorativo em bronze aplicado na lápide ou cobertura do jazigo.'}
+  };
+  // Itens do acabamento que estão ativos (svState) OU sempre mostrar todos como disponíveis
+  var _acabItems=[];
+  Object.keys(_svKeys).forEach(function(k){
+    var active=_svOn(k)||false;
+    _acabItems.push({k:k,l:_svKeys[k].l,d:_svKeys[k].d,active:active});
+  });
+  // Garantir que acabamento base (polimento) apareça ativo
+  _acabItems.forEach(function(i){if(i.k==='polimento')i.active=true;});
+
+  var _acabHtml='';
+  _acabItems.forEach(function(it,i){
+    var isEven=i%2===0;
+    _acabHtml+='<div style="display:flex;align-items:flex-start;gap:14px;padding:11px 16px;background:'+(isEven?'#fff':'#fafaf8')+';border-bottom:1px solid #f0ece4;">'
+      +'<div style="width:22px;height:22px;min-width:22px;border-radius:6px;background:'+(it.active?'#0f0c00':'#f5f0e8')+';border:1px solid '+(it.active?'rgba(201,168,76,0.6)':'#ddd5c0')+';display:flex;align-items:center;justify-content:center;">'
+        +(it.active?'<span style="color:#C9A84C;font-size:11px;font-weight:900;">✓</span>':'<span style="color:#ccc;font-size:8px;">○</span>')
+      +'</div>'
+      +'<div style="flex:1;">'
+        +'<div style="font-size:12px;font-weight:'+(it.active?'800':'600')+';color:'+(it.active?'#1a1a1a':'#aaa')+';margin-bottom:1px;">'+escH(it.l)+'</div>'
+        +'<div style="font-size:10px;color:'+(it.active?'#888':'#ccc')+';line-height:1.5;">'+escH(it.d)+'</div>'
+      +'</div>'
+      +(it.active?'<div style="font-size:9px;font-weight:900;color:#C9A84C;white-space:nowrap;padding-top:2px;letter-spacing:1px;">INCLUSO</div>':'')
+    +'</div>';
+  });
+
+  var pg4='<div id="pdfPage4" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    + goldBar()
+    + pgHeader(4,'Acabamentos')
+    +'<div style="padding:28px 44px 24px;">'
+      +shPg('Acabamentos e Serviços Especiais')
+      +'<div style="background:linear-gradient(135deg,#0f0c00,#1e1500);border:1px solid rgba(201,168,76,0.4);border-radius:12px;padding:16px 22px;margin-bottom:22px;">'
+        +'<div style="font-size:11px;color:rgba(201,168,76,0.7);line-height:1.7;">Os itens marcados com ✓ estão inclusos neste orçamento. Os demais podem ser adicionados conforme necessidade do cliente, mediante novo orçamento.</div>'
+      +'</div>'
+      +'<div style="border:1px solid #e8e0d0;border-radius:12px;overflow:hidden;margin-bottom:20px;">'
+        +_acabHtml
+      +'</div>'
+      // Box acabamento da pedra
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
+          +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#9a7840;margin-bottom:5px;font-weight:900;">ACABAMENTO DA PEDRA</div>'
+          +'<div style="font-size:14px;font-weight:800;color:#3a2000;">'+escH((_acab&&_acab.nm)||mat.fin||'Polida')+'</div>'
+          +'<div style="font-size:10px;color:#aaa;margin-top:3px;">padrão de toda a superfície</div>'
+        +'</div>'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
+          +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#9a7840;margin-bottom:5px;font-weight:900;">MATERIAL</div>'
+          +'<div style="font-size:14px;font-weight:800;color:#3a2000;">'+escH(mat.nm||q.mat||'—')+'</div>'
+          +(mat.cat?'<div style="font-size:10px;color:#aaa;margin-top:3px;">'+escH(mat.cat)+'</div>':'')
+        +'</div>'
+      +'</div>'
+    +'</div>'
+    +'<div style="background:#0f0c00;padding:14px 44px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:10px;color:rgba(201,168,76,0.5);">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.2);">'+orcNum+' · Pg 4/6</div>'
+    +'</div>'
+    + goldBar()
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 5 — INVESTIMENTO (FINANCEIRO EM DESTAQUE)
+  // ════════════════════════════════════════════════════════
+  var pg5='<div id="pdfPage5" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    + goldBar()
+    + pgHeader(5,'Proposta de Investimento')
+    // Área principal totalmente escura para máximo impacto
+    +'<div style="background:#0f0c00;padding:36px 44px 30px;">'
+      +'<div style="text-align:center;margin-bottom:30px;">'
+        +'<div style="font-size:8px;letter-spacing:5px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:10px;font-weight:900;">PROPOSTA EXCLUSIVA PARA</div>'
+        +'<div style="font-size:22px;font-weight:900;color:#C9A84C;line-height:1.1;">'+escH(q.cli||_pend.cli||'—')+'</div>'
+        +'<div style="font-size:11px;color:rgba(255,255,255,0.3);margin-top:5px;">'+orcNum+' · Emitido em '+fd(q.dt||q.date)+'</div>'
+      +'</div>'
+
+      // Valor à vista — destaque absoluto
+      +'<div style="border:2px solid #C9A84C;border-radius:18px;padding:30px 36px;margin-bottom:20px;text-align:center;box-shadow:0 0 40px rgba(201,168,76,0.15);">'
+        +'<div style="font-size:9px;letter-spacing:4px;text-transform:uppercase;color:rgba(201,168,76,0.6);margin-bottom:14px;font-weight:900;">À VISTA — MELHOR OPÇÃO</div>'
+        +'<div style="font-size:54px;font-weight:900;color:#C9A84C;letter-spacing:-1px;line-height:1;">R$ '+fm(vista)+'</div>'
+        +'<div style="margin-top:14px;display:inline-flex;align-items:center;gap:8px;background:rgba(122,196,122,0.15);border:1px solid rgba(122,196,122,0.4);border-radius:30px;padding:6px 18px;">'
+          +'<span style="color:#6cc96c;font-size:10px;font-weight:900;">▼</span>'
+          +'<span style="font-size:11px;font-weight:700;color:#6cc96c;">Você economiza R$ '+fm(economia)+' pagando à vista</span>'
+        +'</div>'
+      +'</div>'
+
+      // Grid parcelamento + entrada
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">'
+        +'<div style="background:rgba(255,255,255,0.06);border:1px solid rgba(201,168,76,0.25);border-radius:14px;padding:20px 20px;">'
+          +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:10px;font-weight:900;">PARCELADO</div>'
+          +'<div style="font-size:30px;font-weight:900;color:rgba(255,255,255,0.85);line-height:1;margin-bottom:5px;">'+parcMax+'× R$ '+fm(p8)+'</div>'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.3);">Total parcelado: R$ '+fm(parc)+'</div>'
+        +'</div>'
+        +'<div style="background:rgba(255,255,255,0.06);border:1px solid rgba(201,168,76,0.25);border-radius:14px;padding:20px 20px;">'
+          +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:10px;font-weight:900;">ENTRADA — 50%</div>'
+          +'<div style="font-size:30px;font-weight:900;color:rgba(255,255,255,0.85);line-height:1;margin-bottom:5px;">R$ '+fm(ent)+'</div>'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.3);">na assinatura / medição</div>'
+        +'</div>'
+      +'</div>'
+
+      // Linha economia
+      +'<div style="text-align:center;padding:14px 20px;background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.2);border-radius:10px;">'
+        +'<div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:5px;font-weight:900;">COMPARATIVO</div>'
+        +'<div style="font-size:12px;color:rgba(255,255,255,0.55);">À vista: <strong style="color:#C9A84C;">R$ '+fm(vista)+'</strong> &nbsp;·&nbsp; Parcelado: <strong style="color:rgba(255,255,255,0.6);">R$ '+fm(parc)+'</strong> &nbsp;·&nbsp; Economia: <strong style="color:#6cc96c;">R$ '+fm(economia)+'</strong></div>'
+      +'</div>'
+    +'</div>'
+
+    // Condições de pagamento — fundo claro abaixo
+    +'<div style="padding:22px 44px 24px;">'
+      +shPg('Condições de Pagamento')
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:16px 18px;">'
+          +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">1ª PARCELA — ENTRADA</div>'
+          +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(ent)+'</div>'
+          +'<div style="font-size:11px;color:#999;">Na assinatura do contrato e medição em campo</div>'
+        +'</div>'
+        +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:16px 18px;">'
+          +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">2ª PARCELA — ENTREGA</div>'
+          +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(ent)+'</div>'
+          +'<div style="font-size:11px;color:#999;">Na entrega e instalação completa no cemitério</div>'
+        +'</div>'
+      +'</div>'
+    +'</div>'
+
+    +'<div style="background:#0f0c00;padding:14px 44px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div style="font-size:10px;color:rgba(201,168,76,0.5);">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.2);">'+orcNum+' · Pg 5/6</div>'
+    +'</div>'
+    + goldBar()
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // PÁGINA 6 — INSTITUCIONAL / ENCERRAMENTO
+  // ════════════════════════════════════════════════════════
+  var _difs=[
+    {ic:'🏛️',t:'Tradição e Experiência',d:'Anos de dedicação ao mercado funerário, com centenas de projetos entregues com excelência.'},
+    {ic:'📐',t:'Medição em Campo',d:'Visita técnica inclusa para conferência e aprovação definitiva das medidas antes da fabricação.'},
+    {ic:'✂️',t:'Fabricação Própria',d:'Maquinário de precisão milimétrica para corte e usinagem das peças em granito e mármore.'},
+    {ic:'🚚',t:'Instalação Completa',d:'Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa sem custo adicional.'},
+    {ic:'🛡️',t:'Garantia Total',d:'Garantia contra defeitos de fabricação e instalação. Suporte pós-entrega para qualquer ajuste necessário.'},
+    {ic:'⭐',t:'Projeto Personalizado',d:'Cada jazigo é único. Desenvolvemos o projeto conforme as necessidades e desejos da família.'}
+  ];
+  var _difsHtml='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;">';
+  _difs.forEach(function(d){
+    _difsHtml+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 16px;display:flex;gap:12px;align-items:flex-start;">'
+      +'<div style="width:36px;height:36px;min-width:36px;background:#0f0c00;border:1px solid rgba(201,168,76,0.4);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;">'+d.ic+'</div>'
+      +'<div>'
+        +'<div style="font-size:11.5px;font-weight:800;color:#3a2000;margin-bottom:3px;">'+escH(d.t)+'</div>'
+        +'<div style="font-size:10px;color:#888;line-height:1.55;">'+escH(d.d)+'</div>'
+      +'</div>'
+    +'</div>';
+  });
+  _difsHtml+='</div>';
+
+  var pg6='<div id="pdfPage6" class="pdf-page" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;overflow:hidden;">'
+    + goldBar()
+    + pgHeader(6,'Nossa Empresa')
+    +'<div style="padding:28px 44px 24px;">'
+      +shPg('Por que escolher a HR Mármores?')
+      +_difsHtml
+      // Prazo + garantia
+      +shPg('Prazo e Garantia')
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;">'
+        +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.4);border-radius:10px;padding:18px 20px;text-align:center;">'
+          +'<div style="font-size:28px;margin-bottom:8px;">📅</div>'
+          +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.55);margin-bottom:6px;font-weight:900;">PRAZO DE EXECUÇÃO</div>'
+          +'<div style="font-size:16px;font-weight:900;color:#C9A84C;">Após aprovação e entrada</div>'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;">conforme escopo do projeto</div>'
+        +'</div>'
+        +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.4);border-radius:10px;padding:18px 20px;text-align:center;">'
+          +'<div style="font-size:28px;margin-bottom:8px;">🛡️</div>'
+          +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.55);margin-bottom:6px;font-weight:900;">GARANTIA</div>'
+          +'<div style="font-size:16px;font-weight:900;color:#C9A84C;">Fabricação e Instalação</div>'
+          +'<div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px;">suporte pós-entrega incluso</div>'
+        +'</div>'
+      +'</div>'
+    +'</div>'
+
+    // Rodapé institucional escuro — assinatura final
+    +'<div style="background:#0f0c00;padding:28px 44px;">'
+      +'<div style="text-align:center;margin-bottom:20px;">'
+        +'<div style="font-size:22px;font-weight:900;color:#C9A84C;margin-bottom:5px;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+        +'<div style="font-size:8.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.4);">MÁRMORE · GRANITO · QUARTZITO · PROJETOS FUNERÁRIOS</div>'
+      +'</div>'
+      +'<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(201,168,76,0.4),transparent);margin-bottom:18px;"></div>'
+      +'<div style="display:flex;justify-content:center;gap:36px;flex-wrap:wrap;">'
+        +(emp.tel?'<div style="text-align:center;"><div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-bottom:4px;">WHATSAPP</div><div style="font-size:13px;font-weight:700;color:#C9A84C;">'+escH(emp.tel)+'</div></div>':'')
+        +(emp.ig?'<div style="text-align:center;"><div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-bottom:4px;">INSTAGRAM</div><div style="font-size:13px;font-weight:700;color:#C9A84C;">'+escH(emp.ig)+'</div></div>':'')
+        +(emp.end?'<div style="text-align:center;"><div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-bottom:4px;">ENDEREÇO</div><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.6);">'+escH(emp.end)+(emp.cidade?', '+escH(emp.cidade):'')+'</div></div>':'')
+        +(emp.cnpj?'<div style="text-align:center;"><div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-bottom:4px;">CNPJ</div><div style="font-size:11px;color:rgba(255,255,255,0.3);">'+escH(emp.cnpj)+'</div></div>':'')
+      +'</div>'
+      +'<div style="text-align:center;margin-top:18px;">'
+        +'<div style="font-size:9px;color:rgba(255,255,255,0.15);">Este orçamento é válido por 7 dias a partir da data de emissão · '+orcNum+'</div>'
+      +'</div>'
+    +'</div>'
+    + goldBar()
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // recHtml = contêiner com todas as páginas
+  // ════════════════════════════════════════════════════════
+  var recHtml='<div id="pdfReceipt" style="width:700px;font-family:Arial,Helvetica,sans-serif;">'
+    +pg1+pg2+pg3+pg4+pg5+pg6
+  +'</div>';
+
+  // ════════════════════════════════════════════════════════
+  // Overlay de preview — mesma estrutura, novo renderer multi-página
+  // ════════════════════════════════════════════════════════
   var ov=document.createElement('div');
   ov.id='pdfOv';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;';
@@ -5875,34 +6282,60 @@ function gerarPDFTumulo(q){
     +(navigator.share?'<button id="pdfBtnShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'')
     +'<button id="pdfBtnPrint" style="background:#C9A84C;border:none;color:#000;padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:800;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">🖨 Imprimir</button>';
   var preview=document.createElement('div');
-  preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
-  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando PDF, aguarde...</div>';
+  preview.style.cssText='flex:1;overflow-y:auto;background:#333;display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 8px;';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando PDF premium (6 páginas), aguarde...</div>';
   ov.appendChild(barEl);ov.appendChild(preview);
   document.body.appendChild(ov);
   document.getElementById('pdfBtnClose').onclick=function(){ov.remove();};
   document.getElementById('pdfBtnPrint').onclick=function(){
     var w=window.open('','_blank');
-    if(w){w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');w.document.close();}
+    if(w){
+      var printCss='*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+        +'.pdf-page{page-break-after:always;break-after:page;}'
+        +'.pdf-page:last-child{page-break-after:avoid;break-after:avoid;}'
+        +'body{background:#fff;}';
+      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'+printCss+'</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
+      w.document.close();
+    }
   };
 
+  // ── Render multi-página: uma canvas por .pdf-page ───────────────
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
   offscreen.innerHTML=recHtml;
   document.body.appendChild(offscreen);
 
   setTimeout(function(){
-    html2canvas(offscreen.querySelector('#pdfReceipt'),{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
+    var pageEls=offscreen.querySelectorAll('.pdf-page');
+    var pageArr=Array.prototype.slice.call(pageEls);
+    var jsPDF=window.jspdf.jsPDF;
+    var pageW=595.28;
+    var promises=pageArr.map(function(el){
+      return html2canvas(el,{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700});
+    });
+    Promise.all(promises).then(function(canvases){
       document.body.removeChild(offscreen);
-      var jsPDF=window.jspdf.jsPDF;
-      var pageW=595.28;
-      var pageH=pageW*(canvas.height/canvas.width);
-      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
-      pdf.addImage(canvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,pageW,pageH);
-      var pdfBlob=pdf.output('blob');
-      var img=document.createElement('img');
-      img.src=canvas.toDataURL('image/jpeg',0.88);
-      img.style.cssText='width:100%;max-width:700px;display:block;box-shadow:0 4px 32px rgba(0,0,0,.6);';
-      preview.innerHTML='';preview.appendChild(img);
+      // Calcular altura total para PDF de página única concatenada (A4 width, altura variável por página)
+      var pdf=null;
+      var previewFrag=document.createDocumentFragment();
+      var pdfBlob=null;
+      canvases.forEach(function(canvas,idx){
+        var pgH=pageW*(canvas.height/canvas.width);
+        if(!pdf){
+          pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pgH]});
+        } else {
+          pdf.addPage([pageW,pgH],'portrait');
+        }
+        pdf.addImage(canvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,pageW,pgH);
+        // Preview: thumb de cada página
+        var img=document.createElement('img');
+        img.src=canvas.toDataURL('image/jpeg',0.82);
+        img.style.cssText='width:100%;max-width:680px;display:block;box-shadow:0 4px 24px rgba(0,0,0,.65);border-radius:3px;';
+        previewFrag.appendChild(img);
+      });
+      pdfBlob=pdf.output('blob');
+      preview.innerHTML='';
+      preview.appendChild(previewFrag);
       function enableBtn(id,label,cb){var b=document.getElementById(id);if(!b)return;b.innerHTML=label;b.disabled=false;b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';b.onclick=cb;}
       enableBtn('pdfBtnDown','⬇ Salvar PDF',function(){var url=URL.createObjectURL(pdfBlob);var a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url);},30000);toast('PDF salvo: '+fileName);});
       if(navigator.share){enableBtn('pdfBtnShare','↗ Compartilhar',function(){var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});var sd={title:'Orcamento '+orcNum+' — '+(q.cli||''),text:(emp.nome||'HR Mármores')+'\\nR$ '+fm(vista)+' a vista'};if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];navigator.share(sd).catch(function(){});});}
