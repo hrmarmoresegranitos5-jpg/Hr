@@ -7338,7 +7338,7 @@ function buildCfgTumPrecos() {
   h += '<button class="cfgbtn" style="width:100%;padding:11px;border-radius:10px;font-size:.75rem;" ';
   h += 'onclick="if(confirm(\'Restaurar todos os preços padrão de túmulos?\')){'
      + 'CFG.tumPrecos=JSON.parse(JSON.stringify(DEF_TUM_PRECOS));svCFG();'
-     + 'cfgTab=9;buildCfg();toast(\'✓ Preços restaurados!\');}">';
+     + 'cfgTab=10;buildCfg();toast(\'✓ Preços restaurados!\');}">';
   h += '↺ Restaurar Preços Padrão</button>';
   h += '</div>';
 
@@ -7644,10 +7644,10 @@ window.addEventListener('load', function _tumPrecBoot() {
 
   // 2. Injeta aba "⚰️ Túmulos" na barra de config (tab 9)
   var cfgTabs = document.getElementById('cfgTabs');
-  if (cfgTabs && !cfgTabs.querySelector('[data-cftab="9"]')) {
+  if (cfgTabs && !cfgTabs.querySelector('[data-cftab="10"]')) {
     var newTab = document.createElement('div');
     newTab.className = 'cfgtab';
-    newTab.setAttribute('data-cftab', '9');
+    newTab.setAttribute('data-cftab', '10');
     newTab.textContent = '⚰️ Túmulos';
     cfgTabs.appendChild(newTab);
   }
@@ -7656,7 +7656,7 @@ window.addEventListener('load', function _tumPrecBoot() {
   if (typeof buildCfg === 'function') {
     var _origBuildCfg = buildCfg;
     buildCfg = function() {
-      if (typeof cfgTab !== 'undefined' && cfgTab === 9) {
+      if (typeof cfgTab !== 'undefined' && cfgTab === 10) {
         tumInitPrecos();
         var body = document.getElementById('cfgBody');
         if (body) body.innerHTML = buildCfgTumPrecos();
