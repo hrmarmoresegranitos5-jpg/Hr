@@ -7,6 +7,9 @@
 // ─────────────────────────────────────────────────────────────────────
 // TABELA DE PREÇOS PADRÃO (valores editáveis em Config → ⚰️ Túmulos)
 // ─────────────────────────────────────────────────────────────────────
+// Fallback: _r pode não estar disponível se app-tumulos.js ainda não carregou
+if (typeof _r === 'undefined') { var _r = function(v) { return Math.round(v * 100) / 100; }; }
+
 var DEF_TUM_PRECOS = {
 
   // Preço por m² — usado quando nenhuma pedra está selecionada no catálogo
