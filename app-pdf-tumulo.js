@@ -62,6 +62,23 @@ function gerarPDFTumulo(q){
   var pecasRows='';
   var pecasList=res.pecas||(tum.pecas)||[];
 
+  // Priorizar pecasCalc do motor técnico quando disponível (mais completo e preciso)
+  if((!pecasList||!pecasList.length) && res.pecasCalc && res.pecasCalc.length){
+    pecasList = res.pecasCalc.map(function(pc){
+      var dim = pc.dim||'';
+      var match = dim.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+      var w = match ? parseFloat(match[1])/100 : 0;
+      var h = match ? parseFloat(match[2])/100 : 0;
+      return {
+        nome: pc.nm||pc.nome||pc.desc||'Peça',
+        qtd:  pc.qt||pc.q||pc.qtd||1,
+        comp: w, larg: h,
+        m2:   pc.m2||0,
+        dims: dim
+      };
+    });
+  }
+
   // Se não vier lista de peças, reconstruir a partir das dimensões do túmulo
   if(!pecasList||!pecasList.length){
     var d=tum.dims||{};
