@@ -3012,6 +3012,30 @@ function gerarPrintArea(o,r){
     ex.forEach(function(e2,i){var bg=i%2===0?'#fff':'#fdfaf3';p1+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;color:#1a1a1a">'+e2.i+' '+esc(e2.l)+'</span><span style="font-size:11px;color:#555">'+esc(e2.v)+'</span></div>';});
     p1+='</div>';
   }
+  // ── Tabela de Peças e Dimensões (página 1) ──────────────────────────────
+  if(r.pecasCalc && r.pecasCalc.length > 0){
+    p1+=sh('Peças e Dimensões');
+    p1+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:16px">';
+    p1+='<table style="width:100%;border-collapse:collapse">';
+    p1+='<thead><tr style="background:#0f0c00">';
+    p1+='<th style="padding:7px 12px;text-align:left;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">PEÇA / DESCRIÇÃO</th>';
+    p1+='<th style="padding:7px 12px;text-align:center;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">DIMENSÕES</th>';
+    p1+='<th style="padding:7px 12px;text-align:right;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">ÁREA m²</th>';
+    p1+='</tr></thead><tbody>';
+    r.pecasCalc.forEach(function(p3,i){
+      var bg=i%2===0?'#fff':'#faf6ef';
+      p1+='<tr>';
+      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;font-weight:700;color:#1a1a1a">'+esc(p3.nm)+'</td>';
+      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;color:#555;text-align:center">'+esc(p3.dim||'—')+'</td>';
+      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10.5px;text-align:right;font-weight:700;color:#5a3800">'+(p3.m2>0?p3.m2.toFixed(3)+' m²':'—')+'</td>';
+      p1+='</tr>';
+    });
+    p1+='<tr style="background:#0f0c00">';
+    p1+='<td colspan="2" style="padding:8px 12px;font-size:9px;font-weight:900;color:#C9A84C;letter-spacing:1px">TOTAL DE PEDRA</td>';
+    p1+='<td style="padding:8px 12px;text-align:right;font-size:11px;font-weight:900;color:#C9A84C">'+r.m2_total.toFixed(3)+' m²</td>';
+    p1+='</tr>';
+    p1+='</tbody></table></div>';
+  }
   // Pricing
   p1+=sh('Valores do Projeto');
   var vista=r.valor_vista,parc=vista*(1+(CFG.juros||12)/100),pMes=parc/(CFG.parcMax||8),eco=parc-vista,ent=vista*0.5;
