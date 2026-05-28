@@ -210,9 +210,23 @@ function _tumSyncResult(ambId) {
 
   // Acrescenta total de acessórios ao resultado
   var acTotal = tumGetAcTotal(ambId);
+
+  // CORRECAO ERRO 4: calcular e registrar custo real dos acessórios
+  var sel = _getTumAcSel(ambId);
+  var acCustoTotal = 0;
+  TUM_ACESSORIOS_DEF.forEach(function(ac) {
+    var s = sel[ac.id];
+    if (s && s.ativo) {
+      // custo = campo custo se existir, senão 55% do preço de venda (margem padrão)
+      var custoUn = ac.custo && ac.custo > 0 ? ac.custo : _r(ac.pr * 0.55);
+      acCustoTotal += custoUn * (s.qt || 1);
+    }
+  });
+
   if (amb.tumResult) {
-    amb.tumResult.ac_total = acTotal;
-    amb.tumResult.ac_list  = tumGetAcList(ambId);
+    amb.tumResult.ac_total       = acTotal;
+    amb.tumResult.ac_custo_total = acCustoTotal; // CORRECAO ERRO 4: custo real
+    amb.tumResult.ac_list        = tumGetAcList(ambId);
     // valor total com acessórios
     amb.tumResult.valor_com_ac = (amb.tumResult.valor_vista || 0) + acTotal;
   }
@@ -261,7 +275,7 @@ function tumSalvarNoHistoricoERP(pendOrc, ambId) {
     peso_total: r.peso_total || 0,
     prazo_total: r.prazo_total || 0,
     // financeiro
-    custo:   r.custo_total || 0,
+    custo:   (r.custo_total || 0) + (r.ac_custo_total || 0), // CORRECAO ERRO 4: inclui custo real dos acessórios
     vista:   (r.valor_vista || 0) + acTotal,
     ent:     ((r.valor_vista || 0) + acTotal) * 0.5,
     margem:  r.margem || 0,
