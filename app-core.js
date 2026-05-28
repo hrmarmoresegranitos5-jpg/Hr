@@ -5307,94 +5307,100 @@ function gerarPDFTumulo(q){
   }
 
   var emp=CFG.emp;
-  // tum pode ser um objeto completo (app-tumulos) ou apenas `true` (app-tum-integracao)
-  var tum=(q.tum&&typeof q.tum==='object')?q.tum:{};
-  if(!tum.dims||typeof tum.dims!=='object') tum.dims={};
-  var res=q.tumCalc||{};
+
+  // ── Buscar dados do motor técnico: tumPendOrc.r contém todos os resultados ──
+  var _pend = q.tumPendOrc
+    || (q.ambSnap && (function(){ var s=q.ambSnap.find(function(s){return s.tumPendOrc;}); return s?s.tumPendOrc:null; })())
+    || {};
+  var r = (_pend && _pend.r) ? _pend.r : (q.tumCalc || {});
+  var _sel = (_pend && _pend._sel) ? _pend._sel : {};
+
+  // Dados do cliente e do túmulo
+  var tum = (q.tum && typeof q.tum==='object') ? q.tum : {};
+  // Complementar com dados do pendOrc se disponível
+  if (_pend.cli && !q.cli) q.cli = _pend.cli;
+  var falecidos = _pend.fal || tum.falecido || '';
+  var cemiterio = _pend.cemi || tum.cemiterio || '';
+  var quadra = _pend.quad || tum.quadra || '';
+  var lote = _pend.lote || tum.lote || '';
+  var obsText = _pend.obs || tum.obs || q.obs || '';
+
+  // Material
+  var mat = {};
+  if (r.mat) { mat = r.mat; }
+  else {
+    var _matId = (_sel && _sel.matId) || (tum && tum.stoneId);
+    mat = (CFG.stones||[]).find(function(s){return s.id===_matId||s.nm===q.mat;})||{nm:q.mat||'',pr:q.matPr||0,cat:'',fin:''};
+  }
+
+  // Valores financeiros
+  var vista = r.valor_vista || q.vista || 0;
+  var juros = CFG.juros || 12;
+  var parcMax = CFG.parcMax || 8;
+  var parc = vista * (1 + juros/100);
+  var p8 = parc / parcMax;
+  var ent = vista * 0.5;
+  var economia = parc - vista;
+
+  // Tipo de projeto
+  var tipoLabel = (r.ts && r.ts.nm) || 'Túmulo';
+  if (_sel.preset) {
+    var _presets = {simples:'Túmulo Simples','1comp':'1 Compartimento',dupla:'2 Compartimentos',
+      premium:'Premium',capela:'Capela',moderno:'Moderno',parcial:'Rev. Parcial',completo:'Rev. Completo'};
+    tipoLabel = _presets[_sel.preset] || tipoLabel;
+  }
+
+  // Numeração
   var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
   var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
   localStorage.setItem('hr_pdf_count',pdfCount+1);
-  var fileName='Orcamento_'+orcNum+'_Tumulo_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
-
-  var TIPOS_LABEL={simples:'Túmulo Simples',gaveta_dupla:'Gaveta Dupla',gaveta_tripla:'Gaveta Tripla',
-    capela:'Capela / Monumento',revestimento:'Revestimento / Reforma',reforma:'Reforma Completa',jazigo:'Jazigo Completo'};
-  var tipoLabel=TIPOS_LABEL[tum.tipo]||tum.tipo||'Túmulo';
-  var mat=CFG.stones.find(function(s){return s.id===tum.stoneId;})||{nm:q.mat||'',tx:'',photo:''};
-  var vista=q.vista||res.venda||0;
-  var parc=vista*1.15;
-  var p8=parc/8;
-  var ent=vista*0.5;
-  var economia=parc-vista;
+  var fileName='Orcamento_'+orcNum+'_Tumulo_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
 
   function fd(d){if(!d)return new Date().toLocaleDateString('pt-BR');try{return new Date(d).toLocaleDateString('pt-BR');}catch(e){return d;}}
   function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
 
-  // ── Peças e Dimensões do Túmulo ──
-  var PECAS_LABEL={
-    tampo:'Tampo (Tampa Superior)',frente:'Frente (Frontal)',
-    lateral_d:'Lateral Direita',lateral_e:'Lateral Esquerda',
-    fundo:'Fundo (Traseira)',base:'Base / Soleira',cruz:'Cruz / Símbolo',
-    gaveta:'Gaveta',gaveta2:'2ª Gaveta',gaveta3:'3ª Gaveta',
-    painel:'Painel de Fundo',degrau:'Degrau / Piso',chapim:'Chapim / Arremate',
-    lateral_int:'Lateral Interna',peitoril:'Peitoril',coluna:'Coluna',arco:'Arco / Verga'
-  };
-  var pecasRows='';
-  // Prioridade: pecasCalc do motor inline > res.pecas > tum.pecas
-  var pecasList=res.pecasCalc||res.pecas||(tum.pecas)||[];
-  if(!pecasList||!pecasList.length){
-    var _d=tum.dims||{};
-    var _comp=parseFloat(_d.comp)||0;
-    var _larg=parseFloat(_d.larg)||0;
-    var _alt=parseFloat(_d.alt||_d.altEst)||0;
-    var _esp=parseFloat(_d.esp||_d.espTampa)||0.02;
-    var _tipo=tum.tipo||'simples';
-    var _pecasAuto=[];
-    if(_comp&&_larg){
-      _pecasAuto.push({id:'tampo',comp:_comp,larg:_larg,esp:_esp,qtd:1});
-      if(_alt) _pecasAuto.push({id:'frente',comp:_comp,larg:_alt,esp:_esp,qtd:1});
-      if(_alt&&_larg){_pecasAuto.push({id:'lateral_d',comp:_larg,larg:_alt,esp:_esp,qtd:1});_pecasAuto.push({id:'lateral_e',comp:_larg,larg:_alt,esp:_esp,qtd:1});}
-      if(_alt&&_comp) _pecasAuto.push({id:'fundo',comp:_comp,larg:_alt,esp:_esp,qtd:1});
-      _pecasAuto.push({id:'base',comp:_comp,larg:_larg,esp:_esp,qtd:1});
-      if(_tipo==='gaveta_dupla') _pecasAuto.push({id:'gaveta',comp:_comp,larg:_larg,esp:_esp,qtd:2});
-      if(_tipo==='gaveta_tripla') _pecasAuto.push({id:'gaveta',comp:_comp,larg:_larg,esp:_esp,qtd:3});
+  // ── Montar tabela de Peças e Dimensões ──
+  var pecasList = (r.pecasCalc && r.pecasCalc.length) ? r.pecasCalc : [];
+  // Fallback para peças do ambSnap se pecasCalc vazio
+  if (!pecasList.length && q.ambSnap) {
+    var _tumSnap = q.ambSnap.find(function(s){ return s.tipo==='Túmulo'; });
+    if (_tumSnap && _tumSnap.tumResult && _tumSnap.tumResult.pecasCalc) {
+      pecasList = _tumSnap.tumResult.pecasCalc;
     }
-    pecasList=_pecasAuto;
   }
-  if(pecasList&&pecasList.length){
-    var _totalM2=0;
-    // Detectar unidade: se a primeira dimensao comp > 20 assume centimetros, senao metros
-    var _primeiraComp=parseFloat((pecasList[0]||{}).comp||(pecasList[0]||{}).comprimento)||0;
-    var _emCm=_primeiraComp>20;
+
+  var pecasRows='';
+  var _m2TotalPecas=0;
+  if(pecasList && pecasList.length){
     pecasList.forEach(function(p,i){
-      var nm=p.nome||(PECAS_LABEL[p.id]||p.id||('Peca '+(i+1)));
-      var qtd=parseFloat(p.qtd)||1;
-      var cRaw=parseFloat(p.comp||p.comprimento)||0;
-      var lRaw=parseFloat(p.larg||p.largura)||0;
-      var eRaw=parseFloat(p.esp||p.espessura)||0;
-      // Normalizar para metros para calculo de m2
-      var c=_emCm?cRaw/100:cRaw;
-      var l=_emCm?lRaw/100:lRaw;
-      var m2=parseFloat(p.m2)||(c&&l?(c*l*qtd):0);
-      _totalM2+=m2;
-      var dimStr='';
-      // Exibir sempre em centimetros (mais legivel para o cliente)
-      if(cRaw&&lRaw){
-        var cCm=_emCm?Math.round(cRaw):Math.round(cRaw*100);
-        var lCm=_emCm?Math.round(lRaw):Math.round(lRaw*100);
-        dimStr=cCm+' x '+lCm+' cm';
-        if(eRaw){var eCm=_emCm?Math.round(eRaw):Math.round(eRaw*100);dimStr+=' x '+eCm+' cm esp.';}
-      }else if(p.dims){dimStr=p.dims;}
+      var nm = p.nm || p.nome || p.desc || ('Peça '+(i+1));
+      var dim = p.dim || '';
+      // Converter dim "109×100cm" ou "1.09×1.00m" para "109 × 100 cm"
+      var dimDisp = dim.replace(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(cm)?/i, function(m,a,b){
+        var aV=parseFloat(a), bV=parseFloat(b);
+        // Se valores < 20 assume metros → converter para cm
+        if(aV < 20) aV=Math.round(aV*100);
+        if(bV < 20) bV=Math.round(bV*100);
+        return aV+' × '+bV+' cm';
+      });
+      if(!dimDisp && p.comp && p.larg) {
+        var cc=p.comp>20?Math.round(p.comp):Math.round(p.comp*100);
+        var ll=p.larg>20?Math.round(p.larg):Math.round(p.larg*100);
+        dimDisp=cc+' × '+ll+' cm';
+      }
+      var m2 = p.m2 || 0;
+      _m2TotalPecas += m2;
       var bg=i%2===0?'#fff':'#faf6ef';
       pecasRows+='<tr>'
         +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(nm)+'</td>'
-        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#555;text-align:center;">'+escH(dimStr)+'</td>'
-        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#777;text-align:center;">'+(qtd>1?qtd+'x':'—')+'</td>'
+        +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#555;text-align:center;">'+escH(dimDisp)+'</td>'
         +'<td style="padding:9px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11.5px;text-align:right;font-weight:700;color:#5a3800;">'+(m2?m2.toFixed(3)+' m²':'—')+'</td>'
         +'</tr>';
     });
-    pecasRows+='<tr style="background:#f7f2e8;">'
-      +'<td colspan="3" style="padding:10px 14px;font-size:10px;font-weight:900;color:#7a4400;letter-spacing:1px;">ÁREA TOTAL DE PEDRA</td>'
-      +'<td style="padding:10px 14px;text-align:right;font-size:12px;font-weight:900;color:#7a4400;">'+_totalM2.toFixed(3)+' m²</td>'
+    var _m2Exib = r.m2_total || _m2TotalPecas;
+    pecasRows+='<tr style="background:#0f0c00;">'
+      +'<td colspan="2" style="padding:10px 14px;font-size:10px;font-weight:900;color:#C9A84C;letter-spacing:1px;">TOTAL DE PEDRA</td>'
+      +'<td style="padding:10px 14px;text-align:right;font-size:12px;font-weight:900;color:#C9A84C;">'+_m2Exib.toFixed(3)+' m²</td>'
       +'</tr>';
   }
   var secaoPecas='';
@@ -5405,7 +5411,6 @@ function gerarPDFTumulo(q){
           +'<thead><tr style="background:#0f0c00;">'
             +'<th style="padding:9px 14px;text-align:left;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
             +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
-            +'<th style="padding:9px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">QTD</th>'
             +'<th style="padding:9px 14px;text-align:right;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">M²</th>'
           +'</tr></thead>'
           +'<tbody>'+pecasRows+'</tbody>'
@@ -5413,31 +5418,29 @@ function gerarPDFTumulo(q){
       +'</div>';
   }
 
-  // Linhas de custo
-  var custoRows='';
-  var custoItems=[
-    {icon:'🪨',l:'Pedras',v:res.custoPedra||0,sub:mat.nm+(res.m2Total?' — '+(+res.m2Total).toFixed(3)+' m²':'')},
-    {icon:'🔨',l:'Mão de Obra Marmoraria',v:res.custoMdo||0,sub:''},
-    {icon:'🧱',l:'Pedreiro / Construção',v:res.custoObra||0,sub:''},
-    {icon:'🪣',l:'Materiais',v:res.custoMat||0,sub:''}
-  ];
-  custoItems.forEach(function(it,i){
-    if(!it.v&&it.v!==0)return;
-    var bg=i%2===0?'#fff':'#faf6ef';
-    custoRows+='<tr>'
-      +'<td style="padding:10px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;font-weight:600;color:#1a1a1a;">'+it.icon+' '+it.l+'</td>'
-      +'<td style="padding:10px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;color:#888;text-align:center;">'+it.sub+'</td>'
-      +'<td style="padding:10px 14px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;text-align:right;font-weight:700;color:#1a1a1a;">R$ '+fm(it.v)+'</td>'
-      +'</tr>';
-  });
-  // Total row
-  custoRows+='<tr style="background:#0f0c00;">'
-    +'<td colspan="2" style="padding:11px 14px;font-size:10px;font-weight:900;color:#C9A84C;letter-spacing:1px;">CUSTO TOTAL DO PROJETO</td>'
-    +'<td style="padding:11px 14px;text-align:right;font-size:12px;font-weight:900;color:#C9A84C;">R$ '+fm(res.custoTotal||0)+'</td>'
-    +'</tr>';
+  // ── Material ──
+  var matAreaTotal = r.m2_total ? r.m2_total.toFixed(3)+' m²' : (q.m2?q.m2.toFixed(3)+' m²':'—');
+  var matBg = mat.photo
+    ? 'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;'
+    : 'background:#2a1a00;';
 
-  // Observações
-  var obsBox=tum.obs?'<div style="background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#555;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#7a4e00;">Observações:</strong> '+escH(tum.obs)+'</div>':'';
+  // ── Linha "Como Funciona" ──
+  var steps=[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];
+  var comoFuncHtml='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';
+
+  // ── Falecido(s) ──
+  var falHtml='';
+  if(Array.isArray(falecidos)){
+    falecidos.forEach(function(f){
+      if(!f||!f.nome)return;
+      falHtml+='<div style="font-size:11px;color:#888;margin-top:4px;">⚰️ <strong>'+escH(f.nome)+'</strong>'+(f.nasc||f.obit?' ('+escH(f.nasc||'?')+' – '+escH(f.obit||'?')+')':'')+'</div>';
+      if(f.frase)falHtml+='<div style="font-size:9px;color:#aaa;font-style:italic;margin-top:1px;">&#8220;'+escH(f.frase)+'&#8221;</div>';
+    });
+  } else if(falecidos && typeof falecidos==='string') {
+    falHtml='<div style="font-size:11px;color:#888;margin-top:4px;">⚰️ '+escH(falecidos)+'</div>';
+  }
+
+  var obsBox=obsText?'<div style="background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#555;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#7a4e00;">Observações:</strong> '+escH(obsText)+'</div>':'';
 
   var recHtml=''
   +'<div id="pdfReceipt" style="width:700px;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;">'
@@ -5445,22 +5448,22 @@ function gerarPDFTumulo(q){
   // Header
   +'<div style="background:#0f0c00;padding:28px 38px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">'
     +'<div style="display:flex;flex-direction:column;gap:6px;">'
-      +'<div style="font-size:26px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;line-height:1;">'+emp.nome+'</div>'
+      +'<div style="font-size:26px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;line-height:1;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
       +'<div style="font-size:8.5px;letter-spacing:3.5px;text-transform:uppercase;color:rgba(201,168,76,0.45);">M&Aacute;RMORE &middot; GRANITO &middot; QUARTZITO</div>'
       +'<div style="font-size:10px;color:rgba(255,255,255,0.22);font-style:italic;margin-top:2px;">Qualidade, Precisao e Acabamento Profissional</div>'
     +'</div>'
     +'<div style="text-align:right;display:flex;flex-direction:column;gap:3px;">'
-      +'<div style="font-size:10.5px;color:rgba(201,168,76,0.9);font-weight:700;">'+emp.end+'</div>'
-      +'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+emp.cidade+'</div>'
-      +'<div style="font-size:11px;color:rgba(201,168,76,0.9);font-weight:700;margin-top:3px;">'+emp.tel+'</div>'
-      +(emp.ig?'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+emp.ig+'</div>':'')
-      +'<div style="font-size:8.5px;color:rgba(255,255,255,0.18);margin-top:3px;">CNPJ: '+emp.cnpj+'</div>'
+      +(emp.end?'<div style="font-size:10.5px;color:rgba(201,168,76,0.9);font-weight:700;">'+escH(emp.end)+'</div>':'')
+      +(emp.cidade?'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+escH(emp.cidade)+'</div>':'')
+      +(emp.tel?'<div style="font-size:11px;color:rgba(201,168,76,0.9);font-weight:700;margin-top:3px;">'+escH(emp.tel)+'</div>':'')
+      +(emp.ig?'<div style="font-size:10px;color:rgba(255,255,255,0.4);">'+escH(emp.ig)+'</div>':'')
+      +(emp.cnpj?'<div style="font-size:8.5px;color:rgba(255,255,255,0.18);margin-top:3px;">CNPJ: '+escH(emp.cnpj)+'</div>':'')
     +'</div>'
   +'</div>'
   // Badge bar
   +'<div style="background:#f7f2e8;border-bottom:3px solid #C9A84C;padding:11px 38px;display:flex;justify-content:space-between;align-items:center;">'
     +'<div style="display:flex;align-items:center;gap:12px;">'
-      +'<div style="background:#0f0c00;color:#C9A84C;font-size:8px;font-weight:900;padding:6px 16px;border-radius:30px;letter-spacing:3px;text-transform:uppercase;border:1px solid rgba(201,168,76,0.5);">⚱️ TÚMULO</div>'
+      +'<div style="background:#0f0c00;color:#C9A84C;font-size:8px;font-weight:900;padding:6px 16px;border-radius:30px;letter-spacing:3px;text-transform:uppercase;border:1px solid rgba(201,168,76,0.5);">⚱️ ORÇAMENTO</div>'
       +'<div style="background:#C9A84C;color:#000;font-size:9px;font-weight:900;padding:4px 10px;border-radius:5px;letter-spacing:1px;">'+orcNum+'</div>'
     +'</div>'
     +'<div style="text-align:right;">'
@@ -5475,65 +5478,73 @@ function gerarPDFTumulo(q){
     +'<div style="display:flex;gap:12px;margin-bottom:20px;align-items:stretch;">'
       +'<div style="flex:1;background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
         +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NOME DO CLIENTE</div>'
-        +'<div style="font-size:21px;font-weight:900;color:#1a1a1a;line-height:1;margin-bottom:8px;">'+escH(q.cli)+'</div>'
-        +(tum.falecido?'<div style="font-size:11px;color:#888;margin-top:4px;">⚱️ Falecido: <strong>'+escH(tum.falecido)+'</strong></div>':'')
-        +(tum.cemiterio?'<div style="font-size:11px;color:#888;margin-top:2px;">📍 Cemitério: '+escH(tum.cemiterio)+'</div>':'')
-        +(tum.quadra?'<div style="font-size:11px;color:#888;margin-top:2px;">Quadra: '+escH(tum.quadra)+(tum.lote?' | Lote: '+escH(tum.lote):'')+'</div>':'')
+        +'<div style="font-size:21px;font-weight:900;color:#1a1a1a;line-height:1;margin-bottom:8px;">'+escH(q.cli||_pend.cli||'—')+'</div>'
+        +falHtml
+        +(cemiterio?'<div style="font-size:11px;color:#888;margin-top:2px;">📍 Cemitério: '+escH(cemiterio)+'</div>':'')
+        +(quadra?'<div style="font-size:11px;color:#888;margin-top:2px;">Quadra: '+escH(quadra)+(lote?' | Lote: '+escH(lote):'')+'</div>':'')
       +'</div>'
       +'<div style="background:#0f0c00;border:1px solid rgba(201,168,76,0.45);border-radius:10px;padding:14px 18px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:120px;">'
         +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.5);margin-bottom:6px;font-weight:900;">PROJETO</div>'
-        +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+tipoLabel+'</div>'
-        +(tum.dims&&(tum.dims.comp||tum.dims.larg)?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(tum.dims.comp||'—')+'m × '+(tum.dims.larg||'—')+'m'+((tum.dims.alt||tum.dims.altEst)?' × '+(tum.dims.alt||tum.dims.altEst)+'m':'')+'</div>':'')
+        +'<div style="font-size:16px;font-weight:900;color:#C9A84C;line-height:1.2;">'+escH(tipoLabel)+'</div>'
+        +(r.d?'<div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:6px;">'+(r.d.C_cm||'—')+' × '+(r.d.L_cm||'—')+' cm</div>':'')
       +'</div>'
     +'</div>'
     +obsBox
     // Material
     +sh('Material Selecionado')
     +'<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;margin-bottom:20px;box-shadow:0 4px 20px rgba(201,168,76,0.15);">'
-      +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:90px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'">'
-        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0.45) 50%,rgba(0,0,0,0.12) 100%);">'
+      +'<div style="height:90px;width:100%;position:relative;overflow:hidden;'+matBg+'">'
+        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.5) 50%,rgba(0,0,0,0.15) 100%);">'
           +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
-            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:5px;">MATERIAL</div>'
-            +'<div style="font-size:22px;font-weight:900;color:#C9A84C;line-height:1;">'+(mat.nm||q.mat||'—')+'</div>'
-            +(mat.cat?'<div style="font-size:9.5px;color:rgba(255,255,255,0.45);margin-top:4px;">'+mat.cat+(mat.fin?' · '+mat.fin:'')+'</div>':'')
+            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:5px;">MATERIAL SELECIONADO</div>'
+            +'<div style="font-size:22px;font-weight:900;color:#C9A84C;line-height:1;">'+escH(mat.nm||q.mat||'—')+'</div>'
+            +(mat.cat?'<div style="font-size:9.5px;color:rgba(255,255,255,0.45);margin-top:4px;">'+escH(mat.cat)+(mat.fin?' · '+mat.fin:'')+'</div>':'')
           +'</div>'
           +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
-            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">ÁREA TOTAL</div>'
-            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+( res.m2Total?(+res.m2Total).toFixed(3)+' m²':'—')+'</div>'
-            +(tum.dims&&(tum.dims.esp||tum.dims.espTampa)?'<div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:3px;">Espessura: '+(tum.dims.esp||tum.dims.espTampa)+' cm</div>':'')
+            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:3px;">TOTAL DE PEDRA</div>'
+            +'<div style="font-size:20px;font-weight:900;color:#fff;">'+matAreaTotal+'</div>'
           +'</div>'
         +'</div>'
+      +'</div>'
+      +'<div style="background:#fdfaf3;padding:10px 18px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
+        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">CATEGORIA</div><div style="font-size:11px;font-weight:700;color:#1a1a1a;">'+escH(mat.cat||'Granito/Mármore')+'</div></div>'
+        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">ACABAMENTO</div><div style="font-size:11px;font-weight:700;color:#1a1a1a;">'+escH((r.acab&&r.acab.nm)||mat.fin||'Polida')+'</div></div>'
+        +'<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px;">CARACTERÍSTICAS</div><div style="font-size:11px;color:#555;">Material de alta qualidade para sua obra.</div></div>'
       +'</div>'
     +'</div>'
     // Peças e Dimensões
     +secaoPecas
-    // Custos
-    +sh('Composição do Projeto')
-    +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
-      +'<table style="width:100%;border-collapse:collapse;">'
-        +'<thead><tr style="background:#0f0c00;">'
-          +'<th style="padding:10px 14px;text-align:left;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">ITEM</th>'
-          +'<th style="padding:10px 14px;text-align:center;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DETALHE</th>'
-          +'<th style="padding:10px 14px;text-align:right;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">VALOR</th>'
-        +'</tr></thead>'
-        +'<tbody>'+custoRows+'</tbody>'
-      +'</table>'
-    +'</div>'
-    // Valor final
-    +'<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:10px;overflow:hidden;margin-bottom:20px;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
-      +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-        +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">A VISTA</span>'
-        +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">MELHOR OPÇÃO</span>'
+    // Como Funciona
+    +sh('Como Funciona')
+    +comoFuncHtml
+    // Valores
+    +sh('Valores do Projeto')
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
+      +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+        +'<div style="background:#0f0c00;padding:10px 16px;">'
+          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:900;margin-bottom:1px;">VALOR DO PROJETO</div>'
+          +'<div style="font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:700;">Parcelado em até '+parcMax+'×</div>'
+        +'</div>'
+        +'<div style="padding:14px 16px;background:#faf8f4;">'
+          +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:3px;">R$ '+fm(p8)+'</div>'
+          +'<div style="font-size:11px;color:#999;">por mês — '+parcMax+' parcelas</div>'
+        +'</div>'
       +'</div>'
-      +'<div style="padding:14px 16px;background:#fff;">'
-        +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(vista)+'</div>'
-        +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Valor final sem juros</div>'
-        +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economia de R$ '+fm(economia)+' em relação ao parcelado</div>'
+      +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
+        +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">À VISTA</span>'
+          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">DESCONTO</span>'
+        +'</div>'
+        +'<div style="padding:14px 16px;background:#fff;">'
+          +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(vista)+'</div>'
+          +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Desconto especial pagamento à vista</div>'
+          +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
+        +'</div>'
       +'</div>'
     +'</div>'
-    // Condição de Pagamento
+    // Pagamento
     +sh('Condição de Pagamento')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">'
       +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:15px 18px;">'
         +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">ENTRADA — 50%</div>'
         +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(ent)+'</div>'
@@ -5547,28 +5558,28 @@ function gerarPDFTumulo(q){
     +'</div>'
   +'</div>'
   // Footer
-  +'<div style="background:#0f0c00;padding:18px 38px;display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:4px;">'
+  +'<div style="background:#0f0c00;padding:18px 38px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
     +'<div>'
-      +'<div style="font-size:14px;font-weight:900;color:#C9A84C;line-height:1;margin-bottom:4px;">'+emp.nome+'</div>'
-      +'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+emp.end+' — '+emp.cidade+'</div>'
+      +'<div style="font-size:14px;font-weight:900;color:#C9A84C;line-height:1;margin-bottom:4px;">'+escH(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+escH(emp.end||'')+' — '+escH(emp.cidade||'')+'</div>'
     +'</div>'
     +'<div style="text-align:right;line-height:1.9;">'
-      +'<div style="font-size:10.5px;color:rgba(201,168,76,0.85);font-weight:700;">'+emp.tel+'</div>'
-      +(emp.ig?'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+emp.ig+'</div>':'')
-      +'<div style="font-size:9px;color:rgba(255,255,255,0.15);">CNPJ: '+emp.cnpj+'</div>'
+      +'<div style="font-size:10.5px;color:rgba(201,168,76,0.85);font-weight:700;">'+escH(emp.tel||'')+'</div>'
+      +(emp.ig?'<div style="font-size:9.5px;color:rgba(201,168,76,0.4);">'+escH(emp.ig)+'</div>':'')
+      +(emp.cnpj?'<div style="font-size:9px;color:rgba(255,255,255,0.15);">CNPJ: '+escH(emp.cnpj)+'</div>':'')
     +'</div>'
   +'</div>'
   +'<div style="height:5px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);"></div>'
   +'</div>';
 
-  // Overlay
+  // Overlay de preview
   var ov=document.createElement('div');
   ov.id='pdfOv';
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;';
   var barEl=document.createElement('div');
   barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid rgba(201,168,76,.55);flex-shrink:0;flex-wrap:wrap;';
   barEl.innerHTML=''
-    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">⚱️ '+orcNum+' — '+escH(q.cli)+'</span>'
+    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">⚱️ '+orcNum+' — '+escH(q.cli||'')+'</span>'
     +'<button id="pdfBtnClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
     +'<button id="pdfBtnDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
     +(navigator.share?'<button id="pdfBtnShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'')
@@ -5604,149 +5615,10 @@ function gerarPDFTumulo(q){
       preview.innerHTML='';preview.appendChild(img);
       function enableBtn(id,label,cb){var b=document.getElementById(id);if(!b)return;b.innerHTML=label;b.disabled=false;b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';b.onclick=cb;}
       enableBtn('pdfBtnDown','⬇ Salvar PDF',function(){var url=URL.createObjectURL(pdfBlob);var a=document.createElement('a');a.href=url;a.download=fileName;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url);},30000);toast('PDF salvo: '+fileName);});
-      if(navigator.share){enableBtn('pdfBtnShare','↗ Compartilhar',function(){var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\nR$ '+fm(vista)+' a vista'};if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];navigator.share(sd).catch(function(){});});}
+      if(navigator.share){enableBtn('pdfBtnShare','↗ Compartilhar',function(){var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});var sd={title:'Orcamento '+orcNum+' — '+(q.cli||''),text:(emp.nome||'HR Mármores')+'\\nR$ '+fm(vista)+' a vista'};if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];navigator.share(sd).catch(function(){});});}
     });
   },400);
 }
-
-// ORÇAMENTOS HISTÓRICO
-// ═══════════════════════════════════════════════
-
-var _orcFilter = '';
-
-function renderOrc() {
-  // Summary cards
-  var total = DB.q.length;
-  var totalVista = DB.q.reduce(function(s,q){return s+(q.vista||0);},0);
-  var thisMonth = (new Date()).toISOString().slice(0,7);
-  var mesCount = DB.q.filter(function(q){return (q.date||'').slice(0,7)===thisMonth;}).length;
-  var sumEl = document.getElementById('orcSummary');
-  if(sumEl) sumEl.innerHTML =
-    '<div class="orc-sum-card"><div class="orc-sum-v">'+total+'</div><div class="orc-sum-l">Total</div></div>' +
-    '<div class="orc-sum-card"><div class="orc-sum-v">'+mesCount+'</div><div class="orc-sum-l">Este mês</div></div>' +
-    '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>';
-  filterOrc();
-}
-
-function filterOrc() {
-  _orcFilter = (document.getElementById('orcSearch')||{value:''}).value.trim().toLowerCase();
-  var filtered = _orcFilter
-    ? DB.q.filter(function(q){
-        var haystack = [
-          q.cli  || '',
-          q.tipo || '',
-          q.mat  || '',
-          q.cidade || '',
-          q.obs  || ''
-        ].join(' ').toLowerCase();
-        return haystack.indexOf(_orcFilter) >= 0;
-      })
-    : DB.q;
-  buildOrcList(filtered);
-}
-
-function buildOrcList(list) {
-  var el = document.getElementById('orcList');
-  if(!el) return;
-  if(!list.length) {
-    el.innerHTML = '<div class="orc-empty"><div class="orc-empty-icon">📋</div>'+
-      (_orcFilter?'Nenhum resultado para "'+_orcFilter+'"':'Nenhum orçamento ainda.<br>Faça um orçamento para começar!')+'</div>';
-    return;
-  }
-  var IC={Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️','Túmulo':'⚰️','⛪ Capela':'⛪',Outro:'📦'};
-  var MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-  var now=new Date();
-  // Normaliza ISO (YYYY-MM-DD) para DD/MM/YYYY para agrupamento
-  function isoToDmy(d){
-    if(!d)return'';
-    if(d.indexOf('-')>-1){var p=d.split('-');return(p[2]||'')+'/'+(p[1]||'')+'/'+(p[0]||'');}
-    return d;
-  }
-  function dGrp(d){
-    if(!d)return'Sem data';
-    var dmy=isoToDmy(d);
-    var p=dmy.split('/');if(p.length<3)return dmy;
-    var dt=new Date(p[2]+'-'+p[1]+'-'+p[0]);
-    var df=Math.floor((now-dt)/86400000);
-    if(df===0)return'📅 Hoje';if(df===1)return'📅 Ontem';
-    if(df<7)return'📅 Esta semana';if(df<14)return'📅 Semana passada';
-    return'📅 '+MESES[dt.getMonth()]+' '+dt.getFullYear();
-  }
-  function dFmt(d){
-    if(!d)return'';
-    var dmy=isoToDmy(d);
-    var p=dmy.split('/');
-    return p.length<2?dmy:p[0]+' '+MESES[+p[1]-1];
-  }
-  var groups={},gOrder=[];
-  list.forEach(function(q){
-    var g=dGrp(q.date);
-    if(!groups[g]){groups[g]=[];gOrder.push(g);}
-    groups[g].push(q);
-  });
-  var h='';
-  gOrder.forEach(function(grp){
-    h+='<div class="qgrp-lbl">'+grp+'</div>';
-    groups[grp].forEach(function(q){
-      var val=q.vista||0;
-      var tier=val>=15000?'gold':val>=5000?'silver':'bronze';
-      var tipos=(q.tipo||'').split('+').map(function(t){return t.trim();});
-      var icon=IC[tipos[0]]||'📦';
-      var isTum=tipos.indexOf('Túmulo')>=0;
-      var cli=escH(q.cli||'Cliente');
-      var mat=escH(q.mat||'');
-      var dt=dFmt(q.date);
-      var sub1='',sub2='';
-      if(isTum&&q.tumPendOrc){
-        if(Array.isArray(q.tumPendOrc.fal))
-          sub1=q.tumPendOrc.fal.filter(function(f){return f.nome;}).map(function(f){return f.nome;}).join(', ');
-        sub2=q.tumPendOrc.cemi||q.tumPendOrc.cid||'';
-      }else if(q.cidade){sub2=q.cidade;}
-      h+='<div class="qcard2 tier-'+tier+'" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
-      h+='<div class="qc2-head">';
-      h+='<div class="qc2-av">'+cli.charAt(0).toUpperCase()+'</div>';
-      h+='<div class="qc2-info"><div class="qc2-cli">'+cli+'</div>';
-      if(sub1)h+='<div class="qc2-sub">👤 '+escH(sub1)+'</div>';
-      if(sub2)h+='<div class="qc2-sub">'+(isTum?'⚰ ':'📍 ')+escH(sub2)+'</div>';
-      h+='</div>';
-      h+='<div class="qc2-right"><div class="tier-c-'+tier+'">R$ '+fm(val)+'</div>';
-      h+='<div class="qc2-dt">'+dt+'</div><div class="qc2-chev">▾</div></div></div>';
-      h+='<div class="qc2-tags"><span class="qc2-tag ic">'+icon+' '+escH(tipos[0]||'')+'</span>';
-      if(mat)h+='<span class="qc2-tag">'+mat+'</span>';
-      if(q.m2&&q.m2>0)h+='<span class="qc2-tag">'+q.m2.toFixed(2)+' m²</span>';
-      h+='</div>';
-      h+='<div class="qcard-body">';
-      h+='<div class="qcard-detail">';
-      // Para túmulos: não mostrar peças técnicas (dados internos)
-      // Para outros: mostrar peças normalmente
-      if(!isTum && q.pds&&q.pds.length) q.pds.forEach(function(p){
-        h+='<div class="qdr"><span class="k">'+escH(p.desc||'Peça')+'</span><span class="v">'+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span></div>';
-      });
-      if(isTum && q.tumPendOrc && q.tumPendOrc.r){
-        var r=q.tumPendOrc.r;
-        if(r.ts && r.ts.nm) h+='<div class="qdr"><span class="k">Serviço</span><span class="v">'+escH(r.ts.nm)+'</span></div>';
-        if(r.d) {
-          var dC=r.d.C_cm||r.d.C||0, dL=r.d.L_cm||r.d.L||0;
-          if(dC&&dL) h+='<div class="qdr"><span class="k">Dimensões</span><span class="v">'+dC+'×'+dL+' cm</span></div>';
-        }
-        if(r.m2_total) h+='<div class="qdr"><span class="k">Área</span><span class="v">'+r.m2_total.toFixed(2)+' m²</span></div>';
-        if(Array.isArray(r.pecasCalc)) h+='<div class="qdr"><span class="k">Peças</span><span class="v">'+r.pecasCalc.length+' peças</span></div>';
-      }
-      if(q.cidade)h+='<div class="qdr"><span class="k">Cidade</span><span class="v">'+escH(q.cidade)+'</span></div>';
-      if(q.obs)h+='<div class="qdr"><span class="k">Obs.</span><span class="v grn">'+escH(q.obs)+'</span></div>';
-      h+='</div>';
-      h+='<div class="qcard-total"><span class="k">À Vista</span><span class="v">R$ '+fm(val)+'</span></div>';
-      h+='<div class="qcard-btns">';
-      h+='<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
-      h+='<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
-      h+='<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
-      h+='<button class="btn btn-del" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
-      h+='</div></div></div>';
-    });
-  });
-  el.innerHTML=h;
-}
-
 function togQCard(id) {
   var el = document.getElementById('qc-'+id);
   if(el) el.classList.toggle('open');
