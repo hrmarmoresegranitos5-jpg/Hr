@@ -76,6 +76,8 @@ var TUM = {
       ferro:    { on: true,  qty: 0, preco: 14,  unid: 'kg'  },
       tijolos:  { on: false, qty: 0, preco: 1.20,unid: 'un'  },
       frete:    { on: true,  vlr: 0 },
+      trelica_h8: { on: true, qty: 0, preco: 18,  unid: 'barra 6m' },
+      canaleta:   { on: true, qty: 0, preco: 22,  unid: 'ml'      },
     },
 
     // ── MÃO DE OBRA ───────────────────────────────────────────────
@@ -239,7 +241,9 @@ var TUM = {
     rejunte:   'Rejunte',
     ferro:     'Ferro (vergalhão)',
     tijolos:   'Tijolos / Blocos',
-    frete:     'Frete materiais',
+    frete:      'Frete materiais',
+    trelica_h8: 'Treliça H8',
+    canaleta:   'Canaleta Drenagem',
   },
 
   MDO_LABELS: {
@@ -924,7 +928,7 @@ function _tabMateriais() {
   h += '<div class="tum-sec-lbl">🪣 Materiais</div>';
   h += '<div class="tum-peca-list">';
 
-  ['cimento','areia','brita','argamassa','cola','rejunte','ferro','tijolos'].forEach(function(k) {
+  ['cimento','areia','brita','argamassa','cola','rejunte','ferro','tijolos','trelica_h8','canaleta'].forEach(function(k) {
     var it = mat[k]; if (!it) return;
     var vlr = (it.qty || 0) * (it.preco || 0);
     h += _pecaRow(k, TUM.MAT_LABELS[k], it.on,
@@ -1744,6 +1748,20 @@ function _tumAutoCalc() {
   );
   if (mat.ferro && !mat.ferro._manual) mat.ferro.qty = _r(kgBase + gav * 15);
 
+  // Treliça H8 e canaleta — calculados via app-precif-tumulos (_calcEstruturaFuneraria)
+  // Aqui fazemos cálculo simplificado direto para manter mat atualizado na UI
+  var avRod2   = d.avRodape || 0;
+  var cUtil2   = Math.max(0.01, _r(c - 2 * avRod2));
+  var lUtil2   = Math.max(0.01, _r(l - 2 * avRod2));
+  var mlTrelLiq  = _r(2 * (cUtil2 + lUtil2) + 2 * c);
+  var mlTrelComp = _r(mlTrelLiq * 1.10);  // 10% perda padrão
+  if (mat.trelica_h8 && !mat.trelica_h8._manual)
+    mat.trelica_h8.qty = Math.max(1, Math.ceil(mlTrelComp / 6));
+  // Canaleta: perímetro externo × (altCorpo + 0.10m base) + 10% perda
+  var mlCanalLiq  = _r((c * 2 + l * 2) * (altCorpo + 0.10));
+  if (mat.canaleta && !mat.canaleta._manual)
+    mat.canaleta.qty = _r(mlCanalLiq * 1.10);
+
   // ── DIAS DE MÃO DE OBRA ───────────────────────────────────────
   var preset = TUM.TIPOS[q.tipoBase];
   if (preset) {
@@ -1852,9 +1870,11 @@ function tumSetTipo(t) {
 
   // Liga materiais conforme necessidade do tipo
   var usaConcreto = preset.estrutura.indexOf('concreto') > -1;
-  TUM.q.mat.brita.on    = usaConcreto;
-  TUM.q.mat.ferro.on    = usaConcreto;
-  TUM.q.mat.tijolos.on  = usaConcreto;
+  TUM.q.mat.brita.on      = usaConcreto;
+  TUM.q.mat.ferro.on      = usaConcreto;
+  TUM.q.mat.tijolos.on    = usaConcreto;
+  if (TUM.q.mat.trelica_h8) TUM.q.mat.trelica_h8.on = usaConcreto;
+  if (TUM.q.mat.canaleta)   TUM.q.mat.canaleta.on   = usaConcreto;
 
   // Reseta flags manuais para recalcular
   _tumResetManual();
