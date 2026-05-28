@@ -31,7 +31,7 @@ var DEF_TUM_PRECOS = {
     bloco:           { label:'Bloco 14×19×39',     preco: 4.50, unid:'un',      icon:'🧱', grupo:'estrutura' },
     impermeab:       { label:'Impermeabilizante',  preco: 1530, unid:'balde 18kg', icon:'💧', grupo:'estrutura' },
     trelica_h8:      { label:'Treliça H8',          preco: 18,   unid:'barra 6m',icon:'🔧', grupo:'estrutura' },
-    canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'ml',      icon:'🌊', grupo:'estrutura' },
+    canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'un',      icon:'🌊', grupo:'alvenaria' },
     // ── ASSENTAMENTO CIVIL (alvenaria) — NÃO confundir com AC-II ──────
     // Argamassa de assentamento de bloco (cimento + areia, traço simples)
     massa_assentamento: { label:'Massa Assentamento Bloco', preco: 22,  unid:'sc 20kg', icon:'🪣', grupo:'alvenaria' },
@@ -511,7 +511,7 @@ function _calcEstruturaFuneraria(opts) {
     _pc('bloco',      nBlocos)            +
     _pc('impermeab',  Math.ceil(kg_impermeab / BALDE_IMPERMEAB_KG)) +
     _pc('trelica_h8', nBarrasTrelica)     +
-    _pc('canaleta',   mlCanaleta)
+    _pc('canaleta',   Math.ceil(mlCanaleta))
   );
   var custoAlvenaria = _r(
     _pc('areia',              m3_areia_reboco)   +
@@ -582,7 +582,7 @@ function _calcEstruturaFuneraria(opts) {
       // ETAPA 3 — novos insumos
       trelica_h8:         { qty: nBarrasTrelica,     unid: 'barra 6m', preco: ti.trelica_h8        ? ti.trelica_h8.preco        : 18,   grupo:'estrutura',
                             detalhe: { mlLiq: mlTrelicaLiq, mlComPerda: mlTrelicaComPerda } },
-      canaleta:           { qty: mlCanaleta,         unid: 'ml',      preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'estrutura' },
+      canaleta:           { qty: Math.ceil(mlCanaleta), unid: 'un',       preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'alvenaria' },
       // Assentamento civil (NÃO AC-II)
       massa_assentamento: { qty: sc_massa_asset,     unid: 'sc 20kg',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
       cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc 50kg',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
@@ -777,14 +777,14 @@ function buildCfgTumPrecos() {
       icon: '🏗️',
       titulo: 'ESTRUTURA CIVIL',
       desc: 'Concreto, ferragem e alvenaria estrutural. Calculados a partir do volume e dimensões reais do túmulo.',
-      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','trelica_h8','canaleta','bloco','impermeab']
+      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','trelica_h8','bloco','impermeab']
     },
     {
       key: 'alvenaria',
       icon: '🧱',
       titulo: 'ASSENTAMENTO CIVIL',
       desc: 'Massa para assentamento de bloco e cimento para chapisco/reboco das paredes. Não entra AC-II aqui.',
-      keys: ['massa_assentamento','cimento_reboco']
+      keys: ['massa_assentamento','cimento_reboco','canaleta']
     },
     {
       key: 'pedras',
