@@ -486,6 +486,7 @@ window.aplicarEstiloNi=function(){
   buildAcList();
   renderAg();
   renderFin();
+  renderDashboard();
   updEmp();
   updUrgDot();
   renderFixos();
@@ -4253,6 +4254,159 @@ function gerarComprovante(id){
   if(w){w.document.write(html);w.document.close();}
   else toast('Permita pop-ups para gerar o comprovante');
 }
+// ═══ DASHBOARD (INÍCIO — pg12) ═══
+function renderDashboard() {
+  var el = document.getElementById('pg12');
+  if (!el) return;
+
+  var agora   = new Date();
+  var mesAtual = agora.getFullYear() + '-' + String(agora.getMonth() + 1).padStart(2, '0');
+  var nomeMes  = agora.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  // ── Orçamentos ────────────────────────────────────────────────
+  var totalOrc  = DB.q.length;
+  var orcMes    = DB.q.filter(function(q) { return (q.date || q.dt || '').substring(0, 7) === mesAtual; });
+  var receitaOrc = orcMes.reduce(function(s, q) { return s + (q.vista || 0); }, 0);
+
+  // ── Serviços (agenda) ─────────────────────────────────────────
+  var jobsAtivos   = DB.j.filter(function(j) { return !j.done; });
+  var jobsAtrasados = jobsAtivos.filter(function(j) { return j.end && dDiff(j.end) < 0; });
+  var jobsHoje     = jobsAtivos.filter(function(j) { return j.end && dDiff(j.end) === 0; });
+  var jobsUrgentes = jobsAtivos.filter(function(j) { return j.end && dDiff(j.end) > 0 && dDiff(j.end) <= 3; });
+  var aReceberJobs = jobsAtivos.reduce(function(s, j) { return s + (j.value - (j.pago || 0)); }, 0);
+
+  // ── Finanças ──────────────────────────────────────────────────
+  var entradas = DB.t.filter(function(t) { return t.type === 'in'; }).reduce(function(s, t) { return s + t.value; }, 0);
+  var saidas   = DB.t.filter(function(t) { return t.type === 'out'; }).reduce(function(s, t) { return s + t.value; }, 0);
+  var saldo    = entradas - saidas;
+
+  // ── Últimos 3 orçamentos ──────────────────────────────────────
+  var ultOrc = DB.q.slice(0, 3);
+
+  // ── Próximos 3 serviços ───────────────────────────────────────
+  var proxJobs = jobsAtivos
+    .filter(function(j) { return j.end; })
+    .sort(function(a, b) { return dDiff(a.end) - dDiff(b.end); })
+    .slice(0, 3);
+
+  // ── Helpers visuais ───────────────────────────────────────────
+  function card(icon, label, value, sub, cor) {
+    return '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;">'
+      + '<div style="font-size:1.6rem;width:42px;text-align:center;">' + icon + '</div>'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;">' + label + '</div>'
+      + '<div style="font-size:1.15rem;font-weight:900;color:' + (cor || 'var(--tx)') + ';margin-top:1px;">' + value + '</div>'
+      + (sub ? '<div style="font-size:.68rem;color:var(--t3);margin-top:2px;">' + sub + '</div>' : '')
+      + '</div></div>';
+  }
+
+  function sec(title, icon) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin:20px 0 10px;">'
+      + '<span style="font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:900;">' + (icon ? icon + ' ' : '') + title + '</span>'
+      + '<div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,.35),transparent);"></div>'
+      + '</div>';
+  }
+
+  var h = '<div style="padding:16px 14px 80px;">';
+
+  // ── Saudação ──────────────────────────────────────────────────
+  var hora = agora.getHours();
+  var saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  h += '<div style="margin-bottom:18px;">'
+    + '<div style="font-size:1rem;color:var(--t3);">' + saud + ' 👋</div>'
+    + '<div style="font-size:1.3rem;font-weight:900;color:var(--gold);line-height:1.2;">' + (CFG.emp.nome || 'HR Mármores') + '</div>'
+    + '<div style="font-size:.7rem;color:var(--t4);margin-top:2px;">' + nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1) + '</div>'
+    + '</div>';
+
+  // ── Cards resumo ──────────────────────────────────────────────
+  h += sec('Resumo Financeiro', '💰');
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">'
+    + '<div>' + card('💵', 'Saldo', 'R$ ' + fm(saldo), entradas > 0 ? '+' + fm(entradas) + ' entradas' : '', saldo >= 0 ? 'var(--grn)' : '#e74c3c') + '</div>'
+    + '<div>' + card('⏳', 'A Receber', 'R$ ' + fm(aReceberJobs), jobsAtivos.length + ' serviço(s) ativo(s)', 'var(--gold)') + '</div>'
+    + '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+    + '<div>' + card('📋', 'Orçamentos', totalOrc + ' total', orcMes.length + ' neste mês', 'var(--tx)') + '</div>'
+    + '<div>' + card('📊', 'Faturado/Mês', 'R$ ' + fm(receitaOrc), 'Orçamentos de ' + nomeMes.split(' ')[0], 'var(--gold2)') + '</div>'
+    + '</div>';
+
+  // ── Alertas de serviços ───────────────────────────────────────
+  if (jobsAtrasados.length || jobsHoje.length || jobsUrgentes.length) {
+    h += sec('Atenção', '⚠️');
+    if (jobsAtrasados.length) {
+      h += '<div style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.4);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">'
+        + '<span style="font-size:1.3rem;">🔴</span>'
+        + '<div><div style="font-size:.78rem;font-weight:700;color:#e74c3c;">' + jobsAtrasados.length + ' serviço(s) atrasado(s)</div>'
+        + '<div style="font-size:.66rem;color:var(--t3);">' + jobsAtrasados.map(function(j){return j.cli;}).join(', ') + '</div></div>'
+        + '<button onclick="go(3)" style="margin-left:auto;background:transparent;border:1px solid rgba(231,76,60,.5);color:#e74c3c;border-radius:8px;padding:5px 10px;font-size:.68rem;font-family:Outfit,sans-serif;cursor:pointer;">Ver →</button>'
+        + '</div>';
+    }
+    if (jobsHoje.length) {
+      h += '<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">'
+        + '<span style="font-size:1.3rem;">🟡</span>'
+        + '<div><div style="font-size:.78rem;font-weight:700;color:var(--gold);">' + jobsHoje.length + ' entrega(s) hoje</div>'
+        + '<div style="font-size:.66rem;color:var(--t3);">' + jobsHoje.map(function(j){return j.cli;}).join(', ') + '</div></div>'
+        + '<button onclick="go(3)" style="margin-left:auto;background:transparent;border:1px solid rgba(201,168,76,.4);color:var(--gold);border-radius:8px;padding:5px 10px;font-size:.68rem;font-family:Outfit,sans-serif;cursor:pointer;">Ver →</button>'
+        + '</div>';
+    }
+    if (jobsUrgentes.length) {
+      h += '<div style="background:rgba(243,156,18,.08);border:1px solid rgba(243,156,18,.3);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">'
+        + '<span style="font-size:1.3rem;">🟠</span>'
+        + '<div><div style="font-size:.78rem;font-weight:700;color:#f39c12;">' + jobsUrgentes.length + ' serviço(s) nos próximos 3 dias</div>'
+        + '<div style="font-size:.66rem;color:var(--t3);">' + jobsUrgentes.map(function(j){return j.cli;}).join(', ') + '</div></div>'
+        + '<button onclick="go(3)" style="margin-left:auto;background:transparent;border:1px solid rgba(243,156,18,.4);color:#f39c12;border-radius:8px;padding:5px 10px;font-size:.68rem;font-family:Outfit,sans-serif;cursor:pointer;">Ver →</button>'
+        + '</div>';
+    }
+  }
+
+  // ── Próximos serviços ─────────────────────────────────────────
+  if (proxJobs.length) {
+    h += sec('Próximos Serviços', '🔧');
+    proxJobs.forEach(function(j) {
+      var d = dDiff(j.end);
+      var cor = d < 0 ? '#e74c3c' : d === 0 ? 'var(--gold)' : d <= 3 ? '#f39c12' : 'var(--t3)';
+      var dTxt = d < 0 ? Math.abs(d) + 'd atrasado' : d === 0 ? 'Hoje!' : d + 'd restantes';
+      h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
+        + '<div style="width:40px;height:40px;border-radius:10px;background:var(--s3);display:grid;place-items:center;font-size:1.1rem;flex-shrink:0;">🔧</div>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-size:.82rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + j.cli + '</div>'
+        + '<div style="font-size:.68rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (j.desc || '') + '</div>'
+        + '</div>'
+        + '<div style="text-align:right;flex-shrink:0;">'
+        + '<div style="font-size:.72rem;font-weight:700;color:' + cor + ';">' + dTxt + '</div>'
+        + (j.value ? '<div style="font-size:.66rem;color:var(--gold2);">R$ ' + fm(j.value) + '</div>' : '')
+        + '</div></div>';
+    });
+  }
+
+  // ── Últimos orçamentos ────────────────────────────────────────
+  if (ultOrc.length) {
+    h += sec('Últimos Orçamentos', '📄');
+    ultOrc.forEach(function(q) {
+      h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
+        + '<div style="width:40px;height:40px;border-radius:10px;background:var(--gdim);display:grid;place-items:center;font-size:1.1rem;flex-shrink:0;">' + (q.tum ? '⚱️' : '📐') + '</div>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-size:.82rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (q.cli || 'Cliente') + '</div>'
+        + '<div style="font-size:.66rem;color:var(--t3);">' + (q.tipo || '') + (q.mat ? ' · ' + q.mat : '') + '</div>'
+        + '</div>'
+        + '<div style="text-align:right;flex-shrink:0;">'
+        + '<div style="font-size:.78rem;font-weight:700;color:var(--gold);">R$ ' + fm(q.vista || 0) + '</div>'
+        + '<div style="font-size:.62rem;color:var(--t4);">' + (q.date ? fd(q.date) : '') + '</div>'
+        + '</div></div>';
+    });
+    h += '<button onclick="go(7)" style="width:100%;background:transparent;border:1px solid var(--bd);border-radius:10px;padding:10px;color:var(--t3);font-size:.72rem;font-family:Outfit,sans-serif;cursor:pointer;margin-top:2px;">Ver todos os orçamentos →</button>';
+  } else {
+    h += sec('Orçamentos', '📄');
+    h += '<div style="text-align:center;padding:28px 20px;color:var(--t3);font-size:.8rem;">'
+      + '<div style="font-size:2rem;margin-bottom:8px;">📋</div>'
+      + 'Nenhum orçamento ainda<br>'
+      + '<button onclick="go(0)" style="margin-top:12px;background:var(--gdim);border:1px solid var(--gold3);color:var(--gold);border-radius:10px;padding:9px 20px;font-size:.78rem;font-family:Outfit,sans-serif;cursor:pointer;font-weight:700;">Criar primeiro orçamento →</button>'
+      + '</div>';
+  }
+
+  h += '</div>';
+  el.innerHTML = h;
+}
+
 function renderFin(){
   var inT=DB.t.filter(function(t){return t.type==='in';}).reduce(function(s,t){return s+t.value;},0);
   var outT=DB.t.filter(function(t){return t.type==='out';}).reduce(function(s,t){return s+t.value;},0);
