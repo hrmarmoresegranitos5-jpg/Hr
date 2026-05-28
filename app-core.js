@@ -7296,10 +7296,46 @@ function buildCfgTumPrecos() {
   });
   h += '</div>';
 
-  // ── ESTRUTURA ─────────────────────────────────────────────────────
-  h += '<div class="tp-sec-hd" style="margin-top:20px;">🏗️ ESTRUTURA</div>';
-  h += '<div class="tp-sec-desc">Serviços de construção civil. "Gaveta Extra" é cobrada por cada gaveta além da primeira.</div>';
-  h += _tpTable('estrutura', tp.estrutura, ['label','preco','unid']);
+  // ── INSUMOS — ESTRUTURA CIVIL ─────────────────────────────────────
+  h += '<div class="tp-sec-hd" style="margin-top:20px;">🏗️ ESTRUTURA CIVIL</div>';
+  h += '<div class="tp-sec-desc">Concreto, ferragem e alvenaria. Preço unitário por unidade comercial (sc, m³, barra, balde, ml, un).</div>';
+  h += '<div class="tp-table-wrap">';
+  h += '<div class="tp-t-head"><span>Insumo</span><span>Preço</span><span>Un</span></div>';
+  ['estrutura','alvenaria','pedras'].forEach(function(grp) {
+    var grpLabel = { estrutura:'⚙️ Civil', alvenaria:'🧱 Alvenaria', pedras:'💎 Pedras' }[grp];
+    var hasSep = false;
+    Object.keys(tp.insumos).forEach(function(k) {
+      var it = tp.insumos[k];
+      if ((it.grupo || 'estrutura') !== grp) return;
+      if (!hasSep) {
+        h += '<div class="tp-t-row" style="background:rgba(201,168,76,.05);pointer-events:none;">'
+           + '<span class="tp-t-nm" style="font-size:.58rem;letter-spacing:1px;color:var(--gold3);text-transform:uppercase;">'+ grpLabel +'</span>'
+           + '<span></span><span></span></div>';
+        hasSep = true;
+      }
+      h += '<div class="tp-t-row">';
+      h += '<span class="tp-t-nm">'+ (it.icon ? it.icon + ' ' : '') + it.label +'</span>';
+      h += _tpInp('insumos', k, 'preco', it.preco);
+      h += '<span class="tp-t-un">'+ it.unid +'</span>';
+      h += '</div>';
+    });
+  });
+  h += '</div>';
+
+  // ── EQUIPES DE EMPREITADA ──────────────────────────────────────────
+  h += '<div class="tp-sec-hd" style="margin-top:20px;">👷 EQUIPES DE EMPREITADA</div>';
+  h += '<div class="tp-sec-desc">Custo e venda por equipe. O motor seleciona automaticamente com base na complexidade do túmulo.</div>';
+  h += '<div class="tp-table-wrap">';
+  h += '<div class="tp-t-head"><span>Equipe</span><span>Custo</span><span>Venda</span></div>';
+  Object.keys(tp.equipes).forEach(function(k) {
+    var eq = tp.equipes[k];
+    h += '<div class="tp-t-row">';
+    h += '<span class="tp-t-nm">'+ (eq.icon ? eq.icon + ' ' : '') + eq.label +'</span>';
+    h += _tpInp('equipes', k, 'custo', eq.custo);
+    h += _tpInp('equipes', k, 'venda', eq.venda);
+    h += '</div>';
+  });
+  h += '</div>';
 
   // ── ACABAMENTOS ───────────────────────────────────────────────────
   h += '<div class="tp-sec-hd" style="margin-top:20px;">✨ ACABAMENTOS</div>';
