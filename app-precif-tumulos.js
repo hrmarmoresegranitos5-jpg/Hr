@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════
-// ETAPA 2 — PRECIFICAÇÃO AUTOMÁTICA DE TÚMULOS
+// ETAPA 3 — FUNDAÇÃO REAL + PISO OPERACIONAL
 // HR Mármores e Granitos
 // Carregar APÓS app-tumulos.js e app-config.js no index.html
 // ══════════════════════════════════════════════════════════════════════
@@ -30,6 +30,8 @@ var DEF_TUM_PRECOS = {
     tela_sold:       { label:'Tela Soldada Q138',  preco: 52,   unid:'m²',      icon:'🕸️', grupo:'estrutura' },
     bloco:           { label:'Bloco 14×19×39',     preco: 4.50, unid:'un',      icon:'🧱', grupo:'estrutura' },
     impermeab:       { label:'Impermeabilizante',  preco: 85,   unid:'kg',      icon:'💧', grupo:'estrutura' },
+    trelica_h8:      { label:'Treliça H8',          preco: 18,   unid:'barra 6m',icon:'🔧', grupo:'estrutura' },
+    canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'ml',      icon:'🌊', grupo:'estrutura' },
     // ── ASSENTAMENTO CIVIL (alvenaria) — NÃO confundir com AC-II ──────
     // Argamassa de assentamento de bloco (cimento + areia, traço simples)
     massa_assentamento: { label:'Massa Assentamento Bloco', preco: 22,  unid:'sc 20kg', icon:'🪣', grupo:'alvenaria' },
@@ -131,6 +133,12 @@ function tumInitPrecos() {
   if (!tp.insumos.cimento_reboco) {
     tp.insumos.cimento_reboco = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.cimento_reboco));
   }
+  if (!tp.insumos.trelica_h8) {
+    tp.insumos.trelica_h8 = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.trelica_h8));
+  }
+  if (!tp.insumos.canaleta) {
+    tp.insumos.canaleta = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.canaleta));
+  }
   if (!tp.markupObra && tp.markupObra !== 0) tp.markupObra = 35;
 }
 
@@ -169,33 +177,158 @@ function _calcEstruturaFuneraria(opts) {
   var lUtil = Math.max(0.20, _r(l - 2 * avRod));
 
   // altCorpo: altura real do corpo estrutural.
-  // Com 0 gavetas (laje simples/tampa) ainda precisa da espessura mínima da laje + moldura.
-  // Com gavetas, cada gaveta contribui com sua altura + 1 laje divisória.
+  // Com 0 gavetas (laje simples/tampa): mínimo = espLaje + espMolSup.
+  // Com gavetas:
+  //   • cada gaveta contribui com ag (altura interna)
+  //   • apenas (gav - 1) lajes divisórias internas — a laje de cobertura NÃO entra aqui
+  //   • espMolSup: espessura da moldura superior
+  // Exemplos (ag=0.70, espLaje=0.10, espMolSup=0.05):
+  //   1 gav → 0.70 + 0×0.10 + 0.05 = 0.75m
+  //   2 gav → 1.40 + 1×0.10 + 0.05 = 1.55m
+  //   3 gav → 2.10 + 2×0.10 + 0.05 = 2.35m
   var altMinCorpo = espLaje + espMolSup;           // mínimo absoluto (~0.15m)
-  var altCorpo = _r(Math.max(altMinCorpo, gav * (ag + espLaje) + espMolSup));
+  var altCorpo = _r(Math.max(altMinCorpo,
+    (gav * ag) + (Math.max(0, gav - 1) * espLaje) + espMolSup
+  ));
   var altTotal = _r(altRod + altCorpo + (d.espTampa || 0.03));
 
   // ── VOLUMES ESTRUTURAIS REAIS ────────────────────────────────────
 
-  // 1. Fundação: laje de lastro externo, 15cm de espessura
-  var volFund   = _r(c * l * 0.15);
+  // ── ETAPA 3: PARÂMETROS DE PISO E DRENAGEM ───────────────────────
+  // faixaPiso: largura da faixa de piso perimetral ao redor do túmulo
+  //   padrão 0.50m — representa contrapiso de serviço em cemitério
+  var faixaPiso     = (d.faixaPiso != null ? d.faixaPiso : 0.50);
+  // espPiso: espessura do contrapiso perimetral (concreto magro)
+  //   padrão 0.08m (8cm)
+  var espPiso       = (d.espPiso   != null ? d.espPiso   : 0.08);
 
-  // 2. Paredes de alvenaria (bloco 14cm)
-  //    Perímetro útil × altura do corpo × espessura
+  // 1. Fundação — 3 componentes (ETAPA 2 mantida, sem alteração)
+  //
+  //   a) Base estrutural (laje de lastro): área total × espessura configurável (padrão 15cm)
+  //      Cobre toda a projeção horizontal do túmulo; espessura maior em jazigos.
+  var espFundBase   = d.espFundacao || 0.15;
+  var volFundLaje   = _r(c * l * espFundBase);
+  //
+  //   b) Vigas perimetrais: seção 20×20 cm ao longo do perímetro externo
+  //      Enrijecem o anel de fundação; essenciais em solo úmido.
+  var volFundVigas  = _r(2 * (c + l) * 0.20 * 0.20);
+  //
+  //   c) Reforço estrutural: acréscimo pontual por gaveta (sapatas/arranques verticais)
+  //      ~12 litros por gaveta — modela colarinhos de reforço sem exagerar em engenharia.
+  var volFundReforca = _r(gav * 0.012);
+  //
+  var volFund = _r(volFundLaje + volFundVigas + volFundReforca);
+
+  // ── ETAPA 3: PISO PERIMETRAL ──────────────────────────────────────
+  // Área do piso externo ao redor do túmulo (faixa perimetral).
+  // Fórmula: área total da caixa externa menos área da projeção do túmulo.
+  //   cExt = c + 2×faixaPiso; lExt = l + 2×faixaPiso
+  var cExt = _r(c + 2 * faixaPiso);
+  var lExt = _r(l + 2 * faixaPiso);
+  var m2PisoPerimetral = _r(cExt * lExt - c * l);   // somente a faixa externa
+  var volConcretoPiso  = _r(m2PisoPerimetral * espPiso);
+
+  // ── ETAPA 3: CANALETAS DE DRENAGEM ───────────────────────────────
+  // Canaleta lateral: perímetro parcial do piso externo (3 lados, excluindo frente de acesso).
+  // Modelagem operacional funerária: previne acúmulo de água ao redor do túmulo.
+  //   Usa 3/4 do perímetro externo como estimativa padrão.
+  var perExt   = _r(2 * (cExt + lExt));
+  var mlCanaleta = _r(perExt * 0.75);
+
+  // ── ETAPA 3: TRELIÇA H8 ──────────────────────────────────────────
+  // Treliça H8 usada em: fundação, vigas perimetrais, base.
+  // Cálculo por perímetro estrutural × 2 linhas de treliça + comprimento longitudinal.
+  //   Perímetro base: 2×(cUtil + lUtil) — borda interna da fundação
+  //   2 linhas ao longo do comprimento: 2×c
+  //   Total linear: perímetro + 2 linhas longitudinais
+  //   Perda de ferragem aplicada; compra em barras de 6m (Math.ceil).
+  var mlTrelicaLiq  = _r(2 * (cUtil + lUtil) + 2 * c);
+  var mlTrelicaComPerda = _r(mlTrelicaLiq * (1 + (q.perdaFerragem != null ? q.perdaFerragem : 10) / 100));
+  var nBarrasTrelica    = Math.max(1, Math.ceil(mlTrelicaComPerda / 6));
+
+  // fundacaoDetalhada: campo adicional — não altera campos existentes
+  // ETAPA 3: ampliado com piso, canaletas e treliça
+  var fundacaoDetalhada = {
+    laje:             volFundLaje,
+    vigas:            volFundVigas,
+    reforco:          volFundReforca,
+    total:            volFund,
+    espBase:          espFundBase,
+    // ETAPA 3 — novos campos (sem remover os anteriores)
+    piso: {
+      m2:             m2PisoPerimetral,
+      vol:            volConcretoPiso,
+      faixa:          faixaPiso,
+      esp:            espPiso
+    },
+    canaletas: {
+      ml:             mlCanaleta,
+      perExterno:     perExt
+    },
+    trelicas: {
+      mlLiq:          mlTrelicaLiq,
+      mlComPerda:     mlTrelicaComPerda,
+      nBarras:        nBarrasTrelica
+    }
+  };
+
+  // 2. Paredes de alvenaria (bloco 14cm) — m2Paredes é a base central
+  //    bloco, reboco e impermeabilização dependem desta área
   var m2Paredes = _r((cUtil * 2 + lUtil * 2) * altCorpo);
   var volAlv    = _r(m2Paredes * espParede);
 
-  // 3. Laje de cobertura: cUtil × lUtil × espessura
+  // 3. Laje de cobertura (tampa/topo): cUtil × lUtil × espessura
   var volLaje   = _r(cUtil * lUtil * espLaje);
 
-  // 4. Concreto das gavetas: cada divisória interna (laje horizontal entre gavetas)
-  //    Área da laje interna × espessura × número de divisórias = (gav - 1) lajes internas + 1 laje base
-  //    Simplificado: cada gaveta exige 1 laje = cUtil × lUtil × espLaje
-  var nLajasInt  = gav > 0 ? gav : 1;   // base sempre tem 1 laje; gavetas adicionam mais
+  // 4. Lajes divisórias internas (entre gavetas)
+  //    Lógica real de obra funerária:
+  //      1 gaveta → 0 divisórias (fundo = fundação, topo = cobertura)
+  //      2 gavetas → 1 divisória
+  //      3 gavetas → 2 divisórias
+  //    Cada divisória: cUtil × lUtil × espLaje
+  var nLajasInt  = Math.max(0, gav - 1);  // divisórias internas reais
   var volConcGav = _r(nLajasInt * cUtil * lUtil * espLaje);
 
-  // Volume total de concreto = fundação + laje + gavetas
+  // Volume total de concreto = fundação + cobertura + divisórias internas
   var volConcreto = _r(volFund + volLaje + volConcGav);
+
+  // ── ETAPA 3: CONCRETO SEPARADO POR CAMADA ────────────────────────
+  // volConcretoEstrutural: fundação + divisórias + cobertura (concreto estrutural)
+  // volConcretoPiso: contrapiso perimetral externo (concreto magro)
+  // volConcretoTotal: soma auditável
+  var volConcretoEstrutural = volConcreto;
+  // volConcretoPiso calculado acima na seção PISO PERIMETRAL
+  var volConcretoTotal = _r(volConcreto + volConcretoPiso);
+
+  // concretoDetalhado: campo adicional — não altera campos existentes
+  // ETAPA 3: ampliado com piso separado
+  var concretoDetalhado = {
+    fundacao:            volFund,
+    cobertura:           volLaje,
+    divisorias:          volConcGav,
+    nDivisorias:         nLajasInt,
+    total:               volConcreto,
+    // ETAPA 3 — novos campos
+    estrutural:          volConcretoEstrutural,
+    piso:                volConcretoPiso,
+    totalGeral:          volConcretoTotal
+  };
+
+  // estruturaDetalhada: referência geométrica — campo adicional
+  var estruturaDetalhada = {
+    altMinCorpo:   altMinCorpo,
+    nLajasInt:     nLajasInt,
+    espFundBase:   espFundBase,
+    volFundLaje:   volFundLaje,
+    volFundVigas:  volFundVigas,
+    volFundReforca: volFundReforca,
+    // ETAPA 3
+    cExt:          cExt,
+    lExt:          lExt,
+    faixaPiso:     faixaPiso,
+    espPiso:       espPiso,
+    perExt:        perExt
+  };
 
   // ── PERDAS POR CATEGORIA ─────────────────────────────────────────
   // Cada material possui desperdício real distinto.
@@ -213,8 +346,9 @@ function _calcEstruturaFuneraria(opts) {
 
   // ── CONVERSÃO DE CONCRETO EM INSUMOS (traço 1:2:3, NBR 12655) ───
   // 1 m³ concreto = 7 sc cimento + 0.45 m³ areia + 0.65 m³ brita
+  // ETAPA 3: usa volConcretoTotal (estrutural + piso perimetral)
   // Volumes já incluem fator de perda do concreto
-  var volConcComPerda = _r(volConcreto * (1 + perdaConcreto));
+  var volConcComPerda = _r(volConcretoTotal * (1 + perdaConcreto));
   var sc_cimento_conc = Math.ceil(volConcComPerda * 7);
   var m3_areia_conc   = _r(volConcComPerda * 0.45);          // areia exclusiva do concreto
   // Melhoria 10: brita tem compra mínima de 0.5 m³ (carga mínima de caminhão)
@@ -252,10 +386,14 @@ function _calcEstruturaFuneraria(opts) {
   var kg_ferro38  = Math.max(6.72, kg_ferro38_base);         // mínimo: 1 barra 3/8" 12m
   var kg_ferro516_base = _r(kg_ferro38 * 0.35);
   var kg_ferro516 = Math.max(4.50, kg_ferro516_base);        // mínimo: ~1 barra 5/16" 12m
-  // Melhoria 1: tela soldada agora recebe perda de ferragem (transpasse + corte + sobra)
-  // Arredondamento operacional: tela é comprada por chapa inteira (Math.ceil)
-  var m2_tela_liq = _r(cUtil * lUtil);
-  var m2_tela     = Math.max(1, Math.ceil(_r(m2_tela_liq * (1 + perdaFerragem))));
+  // ETAPA 3: tela soldada agora cobre base + piso perimetral
+  // m2_tela_liq_base:  laje de cobertura (cUtil × lUtil) — original
+  // m2_tela_liq_piso:  piso externo perimetral (m2PisoPerimetral)
+  // transpasse/perda de ferragem aplicado sobre o total
+  var m2_tela_liq_base = _r(cUtil * lUtil);
+  var m2_tela_liq_piso = m2PisoPerimetral;
+  var m2_tela_liq      = _r(m2_tela_liq_base + m2_tela_liq_piso);
+  var m2_tela          = Math.max(1, Math.ceil(_r(m2_tela_liq * (1 + perdaFerragem))));
 
   // Melhoria 2: perda operacional do impermeabilizante (sobra de mistura, reaplicação, absorção, perda de balde)
   var perdaImpermeab = (q.perdaImpermeab != null ? q.perdaImpermeab : 5) / 100;
@@ -342,14 +480,16 @@ function _calcEstruturaFuneraria(opts) {
   // custoEstrutura: só areia do concreto (m3_areia_conc)
   // custoAlvenaria: areia de reboco/chapisco (m3_areia_reboco) + massa + cimento_reboco
   var custoEstrutura = _r(
-    _pc('cimento',   sc_cimento_conc)     +
-    _pc('areia',     m3_areia_conc)       +
-    _pc('brita',     m3_brita)            +
-    _pc('ferro_38',  kg_ferro38)          +
-    _pc('ferro_516', kg_ferro516)         +
-    _pc('tela_sold', m2_tela)            +
-    _pc('bloco',     nBlocos)            +
-    _pc('impermeab', kg_impermeab)
+    _pc('cimento',    sc_cimento_conc)     +
+    _pc('areia',      m3_areia_conc)       +
+    _pc('brita',      m3_brita)            +
+    _pc('ferro_38',   kg_ferro38)          +
+    _pc('ferro_516',  kg_ferro516)         +
+    _pc('tela_sold',  m2_tela)            +
+    _pc('bloco',      nBlocos)            +
+    _pc('impermeab',  kg_impermeab)       +
+    _pc('trelica_h8', nBarrasTrelica)     +
+    _pc('canaleta',   mlCanaleta)
   );
   var custoAlvenaria = _r(
     _pc('areia',              m3_areia_reboco)   +
@@ -375,9 +515,22 @@ function _calcEstruturaFuneraria(opts) {
     // Dimensões calculadas
     cUtil, lUtil, altCorpo, altTotal, altRod,
 
-    // Volumes estruturais
+    // Volumes estruturais — ETAPA 2 (mantidos para compatibilidade)
     volFund, volAlv, volLaje, volConcGav, volConcreto, volConcComPerda,
     m2Paredes, m2ParedesComPerda, m2Tela: m2_tela,
+
+    // ── Etapa 3: piso, concreto separado, treliça, drenagem ──────────
+    // Piso perimetral
+    m2PisoPerimetral, volConcretoPiso,
+    // Concreto separado por camada (auditável)
+    volConcretoEstrutural, volConcretoTotal,
+    // Treliça H8
+    mlCanaleta, nBarrasTrelica,
+
+    // ── Etapa 2: detalhamentos adicionais (não quebram contrato existente) ──
+    fundacaoDetalhada,   // { laje, vigas, reforco, total, espBase, piso, canaletas, trelicas }
+    concretoDetalhado,   // { fundacao, cobertura, divisorias, nDivisorias, total, estrutural, piso, totalGeral }
+    estruturaDetalhada,  // { altMinCorpo, nLajasInt, espFundBase, ..., cExt, lExt, faixaPiso, espPiso, perExt }
 
     // Perdas aplicadas (%)
     perdas: { concreto: perdaConcreto*100, alvenaria: perdaAlvenaria*100, ferragem: perdaFerragem*100, pedra: perdaPedra*100, impermeab: perdaImpermeab*100 },
@@ -394,9 +547,14 @@ function _calcEstruturaFuneraria(opts) {
       brita:              { qty: m3_brita,           unid: 'm³',  preco: ti.brita             ? ti.brita.preco             : 220,  grupo:'estrutura' },
       ferro_38:           { qty: kg_ferro38,         unid: 'kg',  preco: ti.ferro_38          ? ti.ferro_38.preco          : 16,   grupo:'estrutura' },
       ferro_516:          { qty: kg_ferro516,        unid: 'kg',  preco: ti.ferro_516         ? ti.ferro_516.preco         : 15,   grupo:'estrutura' },
-      tela_sold:          { qty: m2_tela,            unid: 'm²',  preco: ti.tela_sold         ? ti.tela_sold.preco         : 52,   grupo:'estrutura', m2Liq: m2_tela_liq },
+      tela_sold:          { qty: m2_tela,            unid: 'm²',  preco: ti.tela_sold         ? ti.tela_sold.preco         : 52,   grupo:'estrutura',
+                            m2Liq: m2_tela_liq, detalhe: { base: m2_tela_liq_base, piso: m2_tela_liq_piso } },
       bloco:              { qty: nBlocos,            unid: 'un',  preco: ti.bloco             ? ti.bloco.preco             : 4.50, grupo:'estrutura' },
-      impermeab:          { qty: kg_impermeab,       unid: 'kg',  preco: ti.impermeab         ? ti.impermeab.preco         : 85,   grupo:'estrutura', m2Area: m2_impermeab, baldes: kg_impermeab / BALDE_IMPERMEAB_KG },
+      impermeab:          { qty: kg_impermeab,       unid: 'kg',      preco: ti.impermeab         ? ti.impermeab.preco         : 85,   grupo:'estrutura', m2Area: m2_impermeab, baldes: kg_impermeab / BALDE_IMPERMEAB_KG },
+      // ETAPA 3 — novos insumos
+      trelica_h8:         { qty: nBarrasTrelica,     unid: 'barra',   preco: ti.trelica_h8        ? ti.trelica_h8.preco        : 18,   grupo:'estrutura',
+                            detalhe: { mlLiq: mlTrelicaLiq, mlComPerda: mlTrelicaComPerda } },
+      canaleta:           { qty: mlCanaleta,         unid: 'ml',      preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'estrutura' },
       // Assentamento civil (NÃO AC-II)
       massa_assentamento: { qty: sc_massa_asset,     unid: 'sc',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
       cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
