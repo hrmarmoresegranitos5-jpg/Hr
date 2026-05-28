@@ -25,11 +25,11 @@ var DEF_TUM_PRECOS = {
     cimento:         { label:'Cimento',           preco: 38,   unid:'sc 50kg', icon:'🏚️', grupo:'estrutura' },
     areia:           { label:'Areia média',        preco: 200,  unid:'m³',      icon:'🏖️', grupo:'estrutura' },
     brita:           { label:'Brita 1',            preco: 220,  unid:'m³',      icon:'🪨', grupo:'estrutura' },
-    ferro_38:        { label:'Ferro 3/8"',         preco: 16,   unid:'kg',      icon:'🔩', grupo:'estrutura' },
-    ferro_516:       { label:'Ferro 5/16"',        preco: 15,   unid:'kg',      icon:'🔩', grupo:'estrutura' },
+    ferro_38:        { label:'Ferro 3/8"',         preco: 16,   unid:'barra 6m', icon:'🔩', grupo:'estrutura' },
+    ferro_516:       { label:'Ferro 5/16"',        preco: 15,   unid:'barra 6m', icon:'🔩', grupo:'estrutura' },
     tela_sold:       { label:'Tela Soldada Q138',  preco: 52,   unid:'m²',      icon:'🕸️', grupo:'estrutura' },
     bloco:           { label:'Bloco 14×19×39',     preco: 4.50, unid:'un',      icon:'🧱', grupo:'estrutura' },
-    impermeab:       { label:'Impermeabilizante',  preco: 85,   unid:'kg',      icon:'💧', grupo:'estrutura' },
+    impermeab:       { label:'Impermeabilizante',  preco: 1530, unid:'balde 18kg', icon:'💧', grupo:'estrutura' },
     trelica_h8:      { label:'Treliça H8',          preco: 18,   unid:'barra 6m',icon:'🔧', grupo:'estrutura' },
     canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'ml',      icon:'🌊', grupo:'estrutura' },
     // ── ASSENTAMENTO CIVIL (alvenaria) — NÃO confundir com AC-II ──────
@@ -139,7 +139,13 @@ function tumInitPrecos() {
   if (!tp.insumos.canaleta) {
     tp.insumos.canaleta = JSON.parse(JSON.stringify(DEF_TUM_PRECOS.insumos.canaleta));
   }
-  if (!tp.markupObra && tp.markupObra !== 0) tp.markupObra = 35;
+  // Retrocompatibilidade: impermeabilizante migrado de unid:'kg' (preco~85) para 'balde 18kg' (preco~1530)
+  // Se a instância salva ainda tem unid:'kg', converte o preço para balde
+  if (tp.insumos.impermeab && tp.insumos.impermeab.unid === 'kg') {
+    tp.insumos.impermeab.preco = Math.round(tp.insumos.impermeab.preco * 18);
+    tp.insumos.impermeab.unid  = 'balde 18kg';
+  }
+  if (tp.markupObra == null) tp.markupObra = 35;
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -382,10 +388,25 @@ function _calcEstruturaFuneraria(opts) {
   // Ferro 5/16": estribos + amarrações — 35% do peso do 3/8"
   // Tela soldada Q138: laje de cobertura — mínimo 1 m²
   // Perda de ferragem aplicada sobre os volumes calculados
+  // Constantes ABNT NBR 7480 — declaradas antes dos pisos mínimos
+  // para que os próprios pisos sejam expressos em unidade base real (barra 6m)
+  var KG_BARRA_38  = 3.35;  // 9,5mm  ≈ 3,35 kg/barra 6m (ABNT NBR 7480)
+  var KG_BARRA_516 = 2.37;  // 8,0mm  ≈ 2,37 kg/barra 6m (ABNT NBR 7480)
+  var KG_M2_TELA_Q138 = 2.1; // Tela Q138 ≈ 2,1 kg/m² (equivalência para score operacional)
+
   var kg_ferro38_base = _r((cUtil * lUtil * 8 + gav * 12) * (1 + perdaFerragem));
-  var kg_ferro38  = Math.max(6.72, kg_ferro38_base);         // mínimo: 1 barra 3/8" 12m
+  var kg_ferro38  = Math.max(KG_BARRA_38,  kg_ferro38_base);  // mínimo: 1 barra 3/8" 6m
   var kg_ferro516_base = _r(kg_ferro38 * 0.35);
-  var kg_ferro516 = Math.max(4.50, kg_ferro516_base);        // mínimo: ~1 barra 5/16" 12m
+  var kg_ferro516 = Math.max(KG_BARRA_516, kg_ferro516_base); // mínimo: 1 barra 5/16" 6m
+
+  // ── CONVERSÃO KG → BARRAS (camada financeira/comercial) ─────────
+  // Camada técnica (kg) preservada acima; camada comercial usa barras.
+  var nBarras38  = Math.max(1, Math.ceil(kg_ferro38  / KG_BARRA_38));
+  var nBarras516 = Math.max(1, Math.ceil(kg_ferro516 / KG_BARRA_516));
+  // kg equivalente comprado (auditoria: pode ser maior que kg calculado por arredondamento de barra)
+  var eqKg38  = _r(nBarras38  * KG_BARRA_38);
+  var eqKg516 = _r(nBarras516 * KG_BARRA_516);
+
   // ETAPA 3: tela soldada agora cobre base + piso perimetral
   // m2_tela_liq_base:  laje de cobertura (cUtil × lUtil) — original
   // m2_tela_liq_piso:  piso externo perimetral (m2PisoPerimetral)
@@ -432,7 +453,7 @@ function _calcEstruturaFuneraria(opts) {
   var scoreGav    = Math.min(40, gav * 10);
   var scoreAlt    = Math.min(20, Math.max(0, (altTotal - 0.5) / 0.5) * 5);
   var scoreVol    = Math.min(20, volConcComPerda * 15);                        // M3: usa com perda
-  var scoreFerro  = Math.min(10, (kg_ferro38 + m2_tela * 2.1) / 15);          // M4: tela (~2.1 kg/m² eq.)
+  var scoreFerro  = Math.min(10, (kg_ferro38 + m2_tela * KG_M2_TELA_Q138) / 15); // M4: tela (KG_M2_TELA_Q138 kg/m² eq.)
   var scoreArea   = Math.min(10, (c * l - 1.5) * 4);
 
   // IEO do orçamento atual (se disponível) amplifica o score
@@ -473,6 +494,7 @@ function _calcEstruturaFuneraria(opts) {
   // ── CUSTOS DE INSUMOS ─────────────────────────────────────────────
   var ti = tp.insumos;
   function _pc(key, qty) {
+    qty = Number(qty) || 0;
     return _r(qty * (ti[key] ? ti[key].preco : 0));
   }
 
@@ -483,11 +505,11 @@ function _calcEstruturaFuneraria(opts) {
     _pc('cimento',    sc_cimento_conc)     +
     _pc('areia',      m3_areia_conc)       +
     _pc('brita',      m3_brita)            +
-    _pc('ferro_38',   kg_ferro38)          +
-    _pc('ferro_516',  kg_ferro516)         +
+    _pc('ferro_38',   nBarras38)            +
+    _pc('ferro_516',  nBarras516)          +
     _pc('tela_sold',  m2_tela)            +
     _pc('bloco',      nBlocos)            +
-    _pc('impermeab',  kg_impermeab)       +
+    _pc('impermeab',  Math.ceil(kg_impermeab / BALDE_IMPERMEAB_KG)) +
     _pc('trelica_h8', nBarrasTrelica)     +
     _pc('canaleta',   mlCanaleta)
   );
@@ -541,26 +563,32 @@ function _calcEstruturaFuneraria(opts) {
     // Quantitativos de insumos (separados por grupo semântico)
     insumos: {
       // Estrutura civil
-      cimento:            { qty: sc_cimento_conc,    unid: 'sc',  preco: ti.cimento           ? ti.cimento.preco           : 38,   grupo:'estrutura' },
+      cimento:            { qty: sc_cimento_conc,    unid: 'sc 50kg',  preco: ti.cimento           ? ti.cimento.preco           : 38,   grupo:'estrutura' },
       areia:              { qty: m3_areia_total,     unid: 'm³',  preco: ti.areia             ? ti.areia.preco             : 200,  grupo:'estrutura',
                             detalhe: { concreto: m3_areia_conc, reboco: m3_areia_reboco } },
       brita:              { qty: m3_brita,           unid: 'm³',  preco: ti.brita             ? ti.brita.preco             : 220,  grupo:'estrutura' },
-      ferro_38:           { qty: kg_ferro38,         unid: 'kg',  preco: ti.ferro_38          ? ti.ferro_38.preco          : 16,   grupo:'estrutura' },
-      ferro_516:          { qty: kg_ferro516,        unid: 'kg',  preco: ti.ferro_516         ? ti.ferro_516.preco         : 15,   grupo:'estrutura' },
+      ferro_38:           { qty: nBarras38,          unid: 'barra 6m', preco: ti.ferro_38          ? ti.ferro_38.preco          : 16,   grupo:'estrutura',
+                            kg: kg_ferro38, barras: nBarras38, eqKg: eqKg38,
+                            detalhe: { kgTecnico: kg_ferro38, kgComprado: eqKg38, barras: nBarras38, kgPorBarra: KG_BARRA_38 } },
+      ferro_516:          { qty: nBarras516,         unid: 'barra 6m', preco: ti.ferro_516         ? ti.ferro_516.preco         : 15,   grupo:'estrutura',
+                            kg: kg_ferro516, barras: nBarras516, eqKg: eqKg516,
+                            detalhe: { kgTecnico: kg_ferro516, kgComprado: eqKg516, barras: nBarras516, kgPorBarra: KG_BARRA_516 } },
       tela_sold:          { qty: m2_tela,            unid: 'm²',  preco: ti.tela_sold         ? ti.tela_sold.preco         : 52,   grupo:'estrutura',
                             m2Liq: m2_tela_liq, detalhe: { base: m2_tela_liq_base, piso: m2_tela_liq_piso } },
       bloco:              { qty: nBlocos,            unid: 'un',  preco: ti.bloco             ? ti.bloco.preco             : 4.50, grupo:'estrutura' },
-      impermeab:          { qty: kg_impermeab,       unid: 'kg',      preco: ti.impermeab         ? ti.impermeab.preco         : 85,   grupo:'estrutura', m2Area: m2_impermeab, baldes: kg_impermeab / BALDE_IMPERMEAB_KG },
+      impermeab:          { qty: Math.ceil(kg_impermeab / BALDE_IMPERMEAB_KG), unid: 'balde 18kg', preco: ti.impermeab         ? ti.impermeab.preco         : 1530, grupo:'estrutura', m2Area: m2_impermeab,
+                            kgTecnico: _r(kg_impermeab_liq), kgComprado: kg_impermeab,
+                            baldes: Math.ceil(kg_impermeab / BALDE_IMPERMEAB_KG) },
       // ETAPA 3 — novos insumos
-      trelica_h8:         { qty: nBarrasTrelica,     unid: 'barra',   preco: ti.trelica_h8        ? ti.trelica_h8.preco        : 18,   grupo:'estrutura',
+      trelica_h8:         { qty: nBarrasTrelica,     unid: 'barra 6m', preco: ti.trelica_h8        ? ti.trelica_h8.preco        : 18,   grupo:'estrutura',
                             detalhe: { mlLiq: mlTrelicaLiq, mlComPerda: mlTrelicaComPerda } },
       canaleta:           { qty: mlCanaleta,         unid: 'ml',      preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'estrutura' },
       // Assentamento civil (NÃO AC-II)
-      massa_assentamento: { qty: sc_massa_asset,     unid: 'sc',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
-      cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
+      massa_assentamento: { qty: sc_massa_asset,     unid: 'sc 20kg',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
+      cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc 50kg',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
       // Pedras e acabamento (AC-II somente aqui, baseado em área real de pedra + perda)
-      argamassa_acii:     { qty: sc_acii,            unid: 'sc',  preco: ti.argamassa_acii    ? ti.argamassa_acii.preco    : 32,   grupo:'pedras', m2Pedra, m2PedraComPerda },
-      cola_epox:          { qty: sc_cola,            unid: 'sc',  preco: ti.cola_epox         ? ti.cola_epox.preco         : 48,   grupo:'pedras' },
+      argamassa_acii:     { qty: sc_acii,            unid: 'sc 20kg',  preco: ti.argamassa_acii    ? ti.argamassa_acii.preco    : 32,   grupo:'pedras', m2Pedra, m2PedraComPerda },
+      cola_epox:          { qty: sc_cola,            unid: 'sc 5kg',   preco: ti.cola_epox         ? ti.cola_epox.preco         : 48,   grupo:'pedras' },
       rejunte:            { qty: kg_rejunte,         unid: 'kg',  preco: ti.rejunte           ? ti.rejunte.preco           : 14,   grupo:'pedras' }
     },
 
@@ -1037,9 +1065,16 @@ function _tumPrecPanel() {
       var ins = est.insumos[k];
       if (!ins.qty || ins.qty <= 0) return;
       var custo = _r(ins.qty * ins.preco);
+      // Pluralização: "1 barra 6m" vs "2 barras 6m", "1 sc" vs "3 sc", etc.
+      var unidExib = ins.unid;
+      if (ins.qty !== 1) {
+        unidExib = unidExib
+          .replace(/^barra\b/, 'barras')
+          .replace(/^balde\b/, 'baldes');
+      }
       h += '<div class="tpp-ins-row">';
       h += '<span>'+ (insLabels[k]||k) +'</span>';
-      h += '<span class="tpp-ins-qty">'+ ins.qty +' '+ ins.unid +'</span>';
+      h += '<span class="tpp-ins-qty">'+ ins.qty +' '+ unidExib +'</span>';
       h += '<span class="tpp-ins-vlr">R$ '+ fm(custo) +'</span>';
       h += '</div>';
     });
