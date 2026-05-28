@@ -1257,6 +1257,109 @@ function _tabExtras() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// HELPERS DE RESUMO
+// ══════════════════════════════════════════════════════════════════════
+
+function _resumoBadge(label, val, cor) {
+  return '<div style="background:var(--s3);border:1px solid var(--bd2);border-radius:10px;padding:8px 10px;text-align:center;">' +
+    '<div style="font-size:.46rem;letter-spacing:1.2px;text-transform:uppercase;color:var(--t4);margin-bottom:3px;">' + label + '</div>' +
+    '<div style="font-size:.78rem;font-weight:800;color:' + (cor||'var(--t2)') + ';">' + val + '</div>' +
+    '</div>';
+}
+
+function _resumoRow(label, val, cor, bold) {
+  var s = bold ? 'font-weight:700;border-top:1px solid rgba(201,168,76,.18);padding-top:8px;' : '';
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);' + s + '">' +
+    '<span style="font-size:.66rem;color:var(--t3);">' + label + '</span>' +
+    '<span style="font-size:' + (bold?'.72':'0.68') + 'rem;color:' + (cor||'var(--t2)') + ';font-weight:' + (bold?'700':'500') + ';">' + val + '</span>' +
+    '</div>';
+}
+
+function _resumoSvgTumulo(q) {
+  var d = q.dims;
+  var avRod    = d.avRodape || 0;
+  var altRod   = d.altRodape || 0;
+  var espMolSup = d.espMolduraSup || 0;
+  var c = d.comp, l = d.larg;
+  var cUtil = Math.max(0.01, c - 2*avRod);
+  var lUtil = Math.max(0.01, l - 2*avRod);
+  var gav = q.gavetas;
+  var ag  = q.altPorGaveta;
+  var altGavs = gav * ag;
+  var altLaje = d.espLaje;
+  var altCorpo = altGavs + altLaje + espMolSup;
+  var altTampa = d.espTampa;
+  var altTotal = altRod + altCorpo + altTampa;
+
+  var W = 240, H = 140, padX = 22, padY = 14;
+  var escH = Math.min((H - 2*padY) / altTotal, 50);
+  var escW = Math.min((W - 2*padX - 50) / c, 60);
+
+  var tH  = Math.max(3, altTampa * escH);
+  var cH  = Math.max(4, altCorpo * escH);
+  var rH  = Math.max(4, altRod   * escH);
+  var totH = tH + cH + rH;
+  var startY = padY + (H - 2*padY - totH) / 2;
+
+  var bodyW = c * escW;
+  var utilW = cUtil * escW;
+  var roW   = avRod * escW;
+  var startX = padX + (W - padX*2 - 50 - bodyW) / 2;
+
+  var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:130px;display:block;">';
+
+  // Rodapé
+  s += '<rect x="'+(startX).toFixed(1)+'" y="'+(startY+tH+cH).toFixed(1)+'" width="'+bodyW.toFixed(1)+'" height="'+rH.toFixed(1)+'" fill="rgba(138,96,64,.25)" stroke="#8a6040" stroke-width="1.5" rx="2"/>';
+  // Corpo útil
+  if (roW > 0) {
+    s += '<rect x="'+(startX+roW).toFixed(1)+'" y="'+(startY+tH).toFixed(1)+'" width="'+utilW.toFixed(1)+'" height="'+cH.toFixed(1)+'" fill="rgba(74,128,181,.18)" stroke="#4a80b5" stroke-width="1.5" rx="1"/>';
+  } else {
+    s += '<rect x="'+startX.toFixed(1)+'" y="'+(startY+tH).toFixed(1)+'" width="'+bodyW.toFixed(1)+'" height="'+cH.toFixed(1)+'" fill="rgba(74,128,181,.18)" stroke="#4a80b5" stroke-width="1.5" rx="1"/>';
+  }
+  // Linhas de gaveta
+  if (gav > 1) {
+    for (var gi = 1; gi < gav; gi++) {
+      var gy = startY + tH + (ag * gi * escH);
+      s += '<line x1="'+(startX+roW).toFixed(1)+'" y1="'+gy.toFixed(1)+'" x2="'+(startX+roW+utilW).toFixed(1)+'" y2="'+gy.toFixed(1)+'" stroke="rgba(74,128,181,.5)" stroke-width="1" stroke-dasharray="3,2"/>';
+    }
+  }
+  // Tampa
+  s += '<rect x="'+startX.toFixed(1)+'" y="'+startY.toFixed(1)+'" width="'+bodyW.toFixed(1)+'" height="'+tH.toFixed(1)+'" fill="rgba(201,168,76,.3)" stroke="#C9A84C" stroke-width="1.5" rx="1"/>';
+
+  // Cota total (direita)
+  var cx = startX + bodyW + 8;
+  s += '<line x1="'+cx+'" y1="'+startY+'" x2="'+cx+'" y2="'+(startY+totH)+'" stroke="rgba(255,255,255,.2)" stroke-width=".8"/>';
+  s += '<line x1="'+(cx-3)+'" y1="'+startY+'" x2="'+(cx+3)+'" y2="'+startY+'" stroke="rgba(255,255,255,.3)" stroke-width=".8"/>';
+  s += '<line x1="'+(cx-3)+'" y1="'+(startY+totH)+'" x2="'+(cx+3)+'" y2="'+(startY+totH)+'" stroke="rgba(255,255,255,.3)" stroke-width=".8"/>';
+  s += '<text x="'+(cx+6)+'" y="'+(startY+totH/2+2)+'" font-size="5.5" fill="rgba(255,255,255,.45)" font-family="Outfit,sans-serif">'+altTotal.toFixed(2)+'m</text>';
+
+  // Cota largura (topo)
+  var cy = startY - 8;
+  s += '<line x1="'+startX+'" y1="'+cy+'" x2="'+(startX+bodyW)+'" y2="'+cy+'" stroke="rgba(201,168,76,.4)" stroke-width=".8"/>';
+  s += '<text x="'+(startX+bodyW/2)+'" y="'+(cy-2)+'" font-size="5.5" fill="rgba(201,168,76,.7)" text-anchor="middle" font-family="Outfit,sans-serif">'+c.toFixed(2)+'m</text>';
+
+  // Rótulo de gavetas
+  if (gav > 0 && cH > 12) {
+    for (var gi2 = 0; gi2 < gav; gi2++) {
+      var ty = startY + tH + (ag * gi2 * escH) + (ag * escH / 2) + 2;
+      s += '<text x="'+(startX+roW+utilW/2).toFixed(1)+'" y="'+ty.toFixed(1)+'" font-size="5.5" fill="rgba(74,128,181,.8)" text-anchor="middle" font-family="Outfit,sans-serif" font-weight="700">'+(gav > 1 ? (gi2+1)+'ª' : 'Gaveta')+'</text>';
+    }
+  }
+
+  // Legend
+  var lx = 6, ly = H - 28;
+  s += '<rect x="'+lx+'" y="'+ly+'" width="7" height="5" fill="rgba(201,168,76,.3)" stroke="#C9A84C" stroke-width=".8"/>';
+  s += '<text x="'+(lx+9)+'" y="'+(ly+4.5)+'" font-size="4.8" fill="rgba(255,255,255,.45)" font-family="Outfit,sans-serif">Tampa</text>';
+  s += '<rect x="'+lx+'" y="'+(ly+8)+'" width="7" height="5" fill="rgba(74,128,181,.18)" stroke="#4a80b5" stroke-width=".8"/>';
+  s += '<text x="'+(lx+9)+'" y="'+(ly+12.5)+'" font-size="4.8" fill="rgba(255,255,255,.45)" font-family="Outfit,sans-serif">Corpo</text>';
+  s += '<rect x="'+lx+'" y="'+(ly+16)+'" width="7" height="5" fill="rgba(138,96,64,.25)" stroke="#8a6040" stroke-width=".8"/>';
+  s += '<text x="'+(lx+9)+'" y="'+(ly+20.5)+'" font-size="4.8" fill="rgba(255,255,255,.45)" font-family="Outfit,sans-serif">Rodapé</text>';
+
+  s += '</svg>';
+  return s;
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // ABA RESUMO
 // ══════════════════════════════════════════════════════════════════════
 function _tabResumo() {
@@ -1264,11 +1367,179 @@ function _tabResumo() {
   var tipo = TUM.TIPOS[q.tipoBase] || {};
   var h = '<div class="tum-sec">';
 
-  // ── Tabela custo × venda × lucro ──────────────────────────────
-  h += '<div class="tum-sec-lbl">📊 Custo × Venda × Lucro</div>';
-  h += '<div class="tum-dre-table">';
-  h += '<div class="tum-dre-head"><span>Categoria</span><span>Custo</span><span>Venda</span><span>Lucro</span></div>';
+  // ── PAINEL DIMENSIONAL TÉCNICO ────────────────────────────────
+  var d = q.dims;
+  var avRod    = d.avRodape || 0;
+  var altRod   = d.altRodape || 0;
+  var espMolSup = d.espMolduraSup || 0;
+  var cUtil    = Math.max(0, d.comp - 2*avRod);
+  var lUtil    = Math.max(0, d.larg - 2*avRod);
+  var altCorpo = q.gavetas * q.altPorGaveta + d.espLaje + espMolSup;
+  var altTotal = altRod + altCorpo + d.espTampa;
+  var m2Ext    = d.comp * d.larg;
+  var m2Util   = cUtil * lUtil;
 
+  h += '<div style="background:var(--s2);border:1px solid rgba(201,168,76,.25);border-radius:14px;overflow:hidden;margin-bottom:12px;">';
+  h += '<div style="background:rgba(201,168,76,.07);padding:10px 14px;border-bottom:1px solid rgba(201,168,76,.12);">';
+  h += '<div style="font-size:.56rem;letter-spacing:1.8px;text-transform:uppercase;color:var(--gold3);font-weight:700;">📐 Ficha Dimensional</div>';
+  if (q.cli) h += '<div style="font-size:.7rem;font-weight:700;color:var(--t2);margin-top:2px;">' + q.cli + (q.falecido ? ' · ' + q.falecido : '') + '</div>';
+  h += '</div>';
+  h += '<div style="padding:12px 14px;">';
+  h += _resumoSvgTumulo(q);
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:10px;">';
+  h += _resumoBadge('Comp × Larg ext.', d.comp.toFixed(2) + ' × ' + d.larg.toFixed(2) + ' m', 'var(--gold2)');
+  h += _resumoBadge('Corpo útil', cUtil.toFixed(2) + ' × ' + lUtil.toFixed(2) + ' m', '#4a80b5');
+  h += _resumoBadge('Altura total', altTotal.toFixed(2) + ' m', 'var(--t2)');
+  h += _resumoBadge('Gavetas', q.gavetas + (q.gavetas === 0 ? ' (laje)' : ' comp.'), '#C9A84C');
+  h += _resumoBadge('m² externo', m2Ext.toFixed(3) + ' m²', 'var(--t3)');
+  h += _resumoBadge('Pedra c/ perda', (r.m2Total || 0).toFixed(3) + ' m²', 'var(--t2)');
+  h += '</div>';
+  // Camadas de altura
+  h += '<div style="margin-top:10px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">';
+  var camD = [
+    { l: 'Rodapé',    v: altRod.toFixed(2)+'m',        c:'#8a6040' },
+    { l: 'Gavetas',   v: (q.gavetas*q.altPorGaveta).toFixed(2)+'m', c:'#4a80b5' },
+    { l: 'Laje+Mol.', v: (d.espLaje+espMolSup).toFixed(2)+'m',     c:'#555' },
+    { l: 'Tampa',     v: d.espTampa.toFixed(2)+'m',     c:'#C9A84C' },
+  ];
+  camD.forEach(function(c2) {
+    h += '<div style="border-left:3px solid '+ c2.c +';padding:4px 6px;background:rgba(255,255,255,.02);border-radius:0 4px 4px 0;">' +
+      '<div style="font-size:.44rem;color:var(--t4);text-transform:uppercase;letter-spacing:1px;">' + c2.l + '</div>' +
+      '<div style="font-size:.64rem;font-weight:700;color:var(--t2);">' + c2.v + '</div></div>';
+  });
+  h += '</div></div></div>';
+
+  // ── PEÇAS DE PEDRA DETALHADO ──────────────────────────────────
+  var sel = q.stoneId && typeof CFG !== 'undefined' && CFG.stones ? CFG.stones.find(function(s) { return s.id === q.stoneId; }) : null;
+  var stPr = sel ? sel.pr : (q.stonePrice || 0);
+  var stNm = sel ? sel.nm : 'Pedra';
+
+  var pecasAtivas = [];
+  var PECA_DIMS = {
+    tampa:      function() { return d.comp*100+'×'+d.larg*100+'cm'; },
+    laterais:   function() { return cUtil.toFixed(2)+'m×'+altCorpo.toFixed(2)+'m (×2)'; },
+    frente:     function() { return lUtil.toFixed(2)+'m×'+altCorpo.toFixed(2)+'m'; },
+    fundo:      function() { return lUtil.toFixed(2)+'m×'+altCorpo.toFixed(2)+'m'; },
+    lapide:     function() { return '60×40cm'; },
+    revestExt:  function() { return 'perímetro ext.'; },
+    rodape:     function() { return 'rod. ext.'; },
+  };
+  Object.keys(q.pedras).forEach(function(k) {
+    var p2 = q.pedras[k];
+    if (!p2 || !p2.on) return;
+    if (k === 'moldura' || k === 'pingadeira') {
+      if ((p2.ml || 0) > 0) pecasAtivas.push({ k:k, label:TUM.PEDRA_LABELS[k]||k, ml: p2.ml, vlrMl: p2.vlrMl, tipo:'ml' });
+      return;
+    }
+    var dimStr = PECA_DIMS[k] ? PECA_DIMS[k]() : '—';
+    var custoUnit = _r((p2.m2||0) * (1 + (q.perda||15)/100) * stPr);
+    pecasAtivas.push({ k:k, label:TUM.PEDRA_LABELS[k]||k, m2: p2.m2||0, dim:dimStr, custo:custoUnit, tipo:'m2' });
+  });
+
+  if (pecasAtivas.length > 0) {
+    h += '<div class="tum-sec-lbl" style="margin-top:14px;">🪨 ' + stNm + ' — ' + (r.m2Total||0).toFixed(3) + ' m² · R$ ' + fm(stPr) + '/m²</div>';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:12px;overflow:hidden;margin-bottom:12px;">';
+    h += '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;padding:7px 12px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06);">';
+    h += '<span style="font-size:.5rem;letter-spacing:1px;text-transform:uppercase;color:var(--t4);">Peça</span>';
+    h += '<span style="font-size:.5rem;letter-spacing:1px;text-transform:uppercase;color:var(--t4);text-align:center;">Qtd.</span>';
+    h += '<span style="font-size:.5rem;letter-spacing:1px;text-transform:uppercase;color:var(--t4);text-align:right;">R$ Custo</span>';
+    h += '</div>';
+    pecasAtivas.forEach(function(p3) {
+      h += '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;align-items:center;padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.03);">';
+      h += '<div style="font-size:.64rem;color:var(--t2);">' + p3.label + (p3.dim ? '<div style="font-size:.54rem;color:var(--t4);margin-top:1px;">' + p3.dim + '</div>' : '') + '</div>';
+      if (p3.tipo === 'm2') {
+        h += '<div style="font-size:.62rem;color:var(--gold3);text-align:center;">' + (p3.m2||0).toFixed(3) + ' m²</div>';
+        h += '<div style="font-size:.66rem;color:var(--t2);font-weight:600;text-align:right;">R$ ' + fm(p3.custo) + '</div>';
+      } else {
+        h += '<div style="font-size:.62rem;color:var(--gold3);text-align:center;">' + (p3.ml||0).toFixed(2) + ' ml</div>';
+        h += '<div style="font-size:.66rem;color:var(--t2);font-weight:600;text-align:right;">R$ ' + fm(_r((p3.ml||0)*p3.vlrMl)) + '</div>';
+      }
+      h += '</div>';
+    });
+    h += '<div style="display:grid;grid-template-columns:2fr 1fr 1fr;padding:8px 12px;background:rgba(201,168,76,.05);">';
+    h += '<span style="font-size:.64rem;font-weight:700;color:var(--gold3);">Total pedra</span>';
+    h += '<span style="font-size:.62rem;color:var(--t3);text-align:center;">' + (r.m2Liq||0).toFixed(3) + ' m² liq.</span>';
+    h += '<span style="font-size:.68rem;font-weight:800;color:#4cda80;text-align:right;">R$ ' + fm(r.vendaPedra||0) + '</span>';
+    h += '</div></div>';
+  }
+
+  // ── ESTRUTURA CIVIL — INSUMOS REAIS ──────────────────────────
+  var estData = null;
+  if (typeof _calcEstruturaFuneraria === 'function' && q.dims) {
+    try { estData = _calcEstruturaFuneraria({ q: q }); } catch(e) { estData = null; }
+  }
+
+  if (estData && estData.insumos) {
+    var ins = estData.insumos;
+    var equipeKey = estData.equipeKey || 'media';
+    var badgeColor = {leve:'#4cda80',media:'#C9A84C',pesada:'#e08f3a',critica:'#e05a5a'}[equipeKey]||'var(--t2)';
+    var tp = (typeof CFG !== 'undefined' && CFG.tumPrecos) ? CFG.tumPrecos : null;
+
+    h += '<div class="tum-sec-lbl" style="margin-top:14px;">🏗️ Estrutura Civil — Insumos Calculados</div>';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;overflow:hidden;margin-bottom:12px;">';
+
+    // Equipe badge
+    h += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(0,0,0,.15);">';
+    h += '<div style="flex:1;">';
+    h += '<div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">Equipe classificada</div>';
+    h += '<div style="font-size:.72rem;font-weight:700;color:' + badgeColor + ';">' + estData.equipeLabel + '</div>';
+    h += '<div style="font-size:.56rem;color:var(--t4);">' + estData.equipeDesc + '</div>';
+    h += '</div>';
+    h += '<div style="text-align:right;">';
+    h += '<div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Complexidade</div>';
+    h += '<div style="font-size:.82rem;font-weight:800;color:' + badgeColor + ';">' + estData.score + '</div>';
+    h += '<div style="width:60px;height:4px;background:rgba(255,255,255,.1);border-radius:2px;margin-top:3px;">';
+    h += '<div style="width:' + Math.min(estData.score,100) + '%;height:4px;background:' + badgeColor + ';border-radius:2px;"></div></div>';
+    h += '</div></div>';
+
+    // Insumos table
+    var insOrdem = ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab','trelica_h8','canaleta','argamassa_acii','cola_epox','rejunte'];
+    var insIcons = { cimento:'🏚️', areia:'🏖️', brita:'🪨', ferro_38:'🔩', ferro_516:'🔩', tela_sold:'🕸️', bloco:'🧱', impermeab:'💧', trelica_h8:'🔧', canaleta:'🌊', argamassa_acii:'🪣', cola_epox:'🧴', rejunte:'🪣' };
+    var grupoSep = { argamassa_acii: '💎 Pedra e Acabamento' };
+    var lastGrp = 'estrutura';
+
+    h += '<div>';
+    insOrdem.forEach(function(k) {
+      var it = ins[k];
+      if (!it || it.qty <= 0) return;
+      if (grupoSep[k]) {
+        h += '<div style="padding:6px 12px;background:rgba(201,168,76,.05);border-top:1px solid rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.05);font-size:.48rem;letter-spacing:1.2px;text-transform:uppercase;color:var(--gold3);">' + grupoSep[k] + '</div>';
+      }
+      var preco = (tp && tp.insumos && tp.insumos[k]) ? tp.insumos[k].preco : (it.preco || 0);
+      var vlrTotal = _r(it.qty * preco);
+      h += '<div style="display:grid;grid-template-columns:22px 1fr auto auto;align-items:center;gap:4px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,.03);">';
+      h += '<span style="font-size:.85rem;">' + (insIcons[k]||'📦') + '</span>';
+      h += '<div><div style="font-size:.63rem;color:var(--t2);">' + it.label + '</div><div style="font-size:.54rem;color:var(--t4);">' + it.unid + '</div></div>';
+      h += '<div style="text-align:right;"><div style="font-size:.64rem;color:var(--gold3);font-weight:600;">' + (Number.isInteger(it.qty) ? it.qty : it.qty.toFixed(2)) + '</div><div style="font-size:.52rem;color:var(--t4);">unid.</div></div>';
+      h += '<div style="text-align:right;min-width:52px;"><div style="font-size:.64rem;color:var(--t2);font-weight:600;">R$ ' + fm(vlrTotal) + '</div><div style="font-size:.52rem;color:var(--t4);">R$ ' + preco + '/un</div></div>';
+      h += '</div>';
+    });
+    h += '</div>';
+
+    // Subtotais estrutura
+    h += '<div style="background:rgba(201,168,76,.05);border-top:1px solid rgba(255,255,255,.06);">';
+    h += '<div style="display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid rgba(255,255,255,.04);">';
+    h += '<span style="font-size:.62rem;color:var(--t3);">Custo Insumos</span><span style="font-size:.66rem;font-weight:600;color:var(--t2);">R$ ' + fm(estData.custoInsumos) + '</span></div>';
+    h += '<div style="display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid rgba(255,255,255,.04);">';
+    h += '<span style="font-size:.62rem;color:var(--t3);">Equipe — venda</span><span style="font-size:.66rem;font-weight:600;color:#4cda80;">R$ ' + fm(estData.vendaEquipe) + '</span></div>';
+    h += '<div style="display:flex;justify-content:space-between;padding:7px 14px;">';
+    h += '<span style="font-size:.64rem;font-weight:700;color:var(--gold3);">Total c/ markup</span><span style="font-size:.7rem;font-weight:800;color:#C9A84C;">R$ ' + fm(estData.vendaTotal) + '</span></div>';
+    h += '</div></div>';
+
+    // Volumes estruturais como badges
+    h += '<div style="background:var(--s3);border:1px solid var(--bd2);border-radius:12px;padding:10px 12px;margin-bottom:12px;">';
+    h += '<div style="font-size:.5rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);margin-bottom:8px;">📦 Volumes Estruturais</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;">';
+    h += _resumoBadge('Fundação', estData.volFund.toFixed(3)+' m³', '#8a6040');
+    h += _resumoBadge('Alvenaria', estData.volAlv.toFixed(3)+' m³', '#4a80b5');
+    h += _resumoBadge('Concreto total', estData.volConcretoTotal.toFixed(3)+' m³', '#555');
+    h += _resumoBadge('Paredes', estData.m2Paredes.toFixed(2)+' m²', 'var(--t2)');
+    h += _resumoBadge('Tela sold.', estData.m2Tela.toFixed(1)+' m²', 'var(--t3)');
+    h += _resumoBadge('Canaleta', estData.mlCanaleta.toFixed(1)+' ml', 'var(--t3)');
+    h += '</div></div>';
+  }
+
+  // ── TABELA CUSTO × VENDA × LUCRO ─────────────────────────────
   var cats = [
     { icon: '💎', label: 'Pedra',            custo: r.custoPedra,    venda: r.vendaPedra    },
     { icon: '🏛️', label: 'Lápide Dupla',     custo: r.custoLapDupla, venda: r.vendaLapDupla },
@@ -1282,6 +1553,8 @@ function _tabResumo() {
     { icon: '🪣', label: 'Materiais',        custo: r.custoMat,       venda: r.vendaMat       },
   ];
 
+  h += '<div class="tum-dre-table">';
+  h += '<div class="tum-dre-head"><span>Categoria</span><span>Custo</span><span>Venda</span><span>Lucro</span></div>';
   cats.forEach(function(cat) {
     if (!cat.custo && !cat.venda) return;
     var lucro = (cat.venda || 0) - (cat.custo || 0);
