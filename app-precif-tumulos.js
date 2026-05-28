@@ -382,7 +382,8 @@ function _calcEstruturaFuneraria(opts) {
   var m3_areia_reboco    = _r(m2ParedesComPerda * 0.02);        // areia exclusiva de reboco/chapisco
   // NOTA: areia de assentamento está embutida nos sacos de massa_assentamento; não entra em m3_areia
 
-  // Cimento total (referência apenas — custos usam sc_cimento_conc e sc_cimento_reboco separados)
+  // Cimento total = concreto + chapisco/reboco (chapisco/reboco usam preço do cimento da estrutura civil)
+  // Não há item separado de cimento_reboco no custo — tudo consolidado em 'cimento'.
   var sc_cimento_total = sc_cimento_conc + sc_cimento_reboco;
   // Areia total = concreto + reboco/chapisco (assentamento de bloco já embutido na massa)
   var m3_areia_total   = _r(m3_areia_conc + m3_areia_reboco);
@@ -505,14 +506,14 @@ function _calcEstruturaFuneraria(opts) {
     return _r(qty * (ti[key] ? ti[key].preco : 0));
   }
 
-  // Melhoria 9 + Fix 3: custos separados por setor — areia dividida por uso real
-  // custoEstrutura: só areia do concreto (m3_areia_conc)
-  // custoAlvenaria: areia de reboco/chapisco (m3_areia_reboco) + massa + cimento_reboco
+  // Chapisco e reboco usam cimento e areia da estrutura civil (não há seção alvenaria separada).
+  // custoEstrutura: cimento e areia totais (concreto + chapisco/reboco) + demais insumos estruturais.
+  // custoAlvenaria: zerado — absolvido pelo cimento e areia totais acima.
   var custoEstrutura = _r(
-    _pc('cimento',    sc_cimento_conc)     +
-    _pc('areia',      m3_areia_conc)       +
+    _pc('cimento',    sc_cimento_total)    +   // total: concreto + chapisco/reboco
+    _pc('areia',      m3_areia_total)      +   // total: concreto + chapisco/reboco
     _pc('brita',      m3_brita)            +
-    _pc('ferro_38',   nBarras38)            +
+    _pc('ferro_38',   nBarras38)           +
     _pc('ferro_516',  nBarras516)          +
     _pc('tela_sold',  m2_tela)            +
     _pc('bloco',      nBlocos)            +
@@ -520,11 +521,7 @@ function _calcEstruturaFuneraria(opts) {
     _pc('trelica_h8', nBarrasTrelica)     +
     _pc('canaleta',   mlCanaleta)
   );
-  var custoAlvenaria = _r(
-    _pc('areia',              m3_areia_reboco)   +
-    _pc('massa_assentamento', sc_massa_asset)    +
-    _pc('cimento_reboco',     sc_cimento_reboco)
-  );
+  var custoAlvenaria = 0;  // chapisco/reboco absorvidos em cimento e areia de estrutura
   var custoPedra = _r(
     _pc('argamassa_acii', sc_acii)       +
     _pc('cola_epox',      sc_cola)       +
@@ -569,8 +566,9 @@ function _calcEstruturaFuneraria(opts) {
 
     // Quantitativos de insumos (separados por grupo semântico)
     insumos: {
-      // Estrutura civil
-      cimento:            { qty: sc_cimento_conc,    unid: 'sc 50kg',  preco: ti.cimento           ? ti.cimento.preco           : 38,   grupo:'estrutura' },
+      // Estrutura civil (cimento e areia totais incluem chapisco/reboco)
+      cimento:            { qty: sc_cimento_total,   unid: 'sc 50kg',  preco: ti.cimento           ? ti.cimento.preco           : 38,   grupo:'estrutura',
+                            detalhe: { concreto: sc_cimento_conc, reboco: sc_cimento_reboco } },
       areia:              { qty: m3_areia_total,     unid: 'm³',  preco: ti.areia             ? ti.areia.preco             : 200,  grupo:'estrutura',
                             detalhe: { concreto: m3_areia_conc, reboco: m3_areia_reboco } },
       brita:              { qty: m3_brita,           unid: 'm³',  preco: ti.brita             ? ti.brita.preco             : 220,  grupo:'estrutura' },
@@ -783,15 +781,8 @@ function buildCfgTumPrecos() {
       key: 'estrutura',
       icon: '🏗️',
       titulo: 'ESTRUTURA CIVIL',
-      desc: 'Concreto, ferragem e alvenaria estrutural. Calculados a partir do volume e dimensões reais do túmulo.',
-      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab']
-    },
-    {
-      key: 'alvenaria',
-      icon: '🧱',
-      titulo: 'ASSENTAMENTO CIVIL',
-      desc: 'Massa para assentamento de bloco e cimento para chapisco/reboco das paredes. Não entra AC-II aqui.',
-      keys: ['massa_assentamento','cimento_reboco']
+      desc: 'Concreto, ferragem e alvenaria estrutural. Chapisco e reboco usam cimento e areia deste grupo. Calculados a partir do volume e dimensões reais do túmulo.',
+      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab','trelica_h8','canaleta']
     },
     {
       key: 'pedras',
