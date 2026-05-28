@@ -91,6 +91,20 @@ Object.keys(DEF_CFG.ind).forEach(function(k){ if(CFG.ind[k]===undefined)CFG.ind[
 if (!CFG.civil.trelica)        CFG.civil.trelica        = DEF_CFG.civil.trelica;
 if (!CFG.civil.massa_plastica) CFG.civil.massa_plastica = DEF_CFG.civil.massa_plastica;
 if (!CFG.civil.canaleta)       CFG.civil.canaleta       = DEF_CFG.civil.canaleta;
+
+// ── MIGRAÇÃO v64→v66: ferro38/ferro516 mudaram de R$/barra-12m para R$/metro-linear ──
+// Valores antigos: ferro38>=20 ou ferro516>=20 (por barra); novos: <15 (por metro)
+// Detectar localStorage antigo e resetar preços civis para evitar cálculos inflados.
+(function() {
+  var precisaMigrar = CFG.civil.ferro38 > 20 || CFG.civil.ferro516 > 20 ||
+    CFG.civil.cimento > 50 || CFG.civil.areia > 150 || CFG.civil.brita > 180;
+  if (precisaMigrar) {
+    CFG.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
+    localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+    console.info('[HR Túmulos] Preços civis migrados v64→v66 (ferro agora em R$/metro linear)');
+  }
+})();
+
 // Migração: garantir campo esp em pedras antigas
 CFG.pedras.forEach(function(p){ if (!p.esp) p.esp = 2; });
 
@@ -1787,10 +1801,16 @@ function calcularFull() {
   var fatorPerda = 1 + (perdaFinal / 100);
   var m2_total   = m2_bruto * fatorPerda;
 
-  // Custo da pedra: área × preço/m² × fator de espessura
-  // espFatores: multiplicador de preço por espessura (2cm=base, 3cm=+35%, 4cm=+70%, 5cm=+110%)
+  // Custo da pedra: área × preço/m² × fator de espessura RELATIVO ao esp padrão da pedra
+  // O preço 'pr' cadastrado é para a espessura padrão da pedra (mat.esp, normalmente 3cm).
+  // O fator é calculado RELATIVO ao esp da pedra, não ao 2cm absoluto:
+  //   d.E = esp escolhida no orçamento; mat.esp = esp para a qual pr foi cadastrado
+  //   espFator = tabela[d.E] / tabela[mat.esp]
+  //   Exemplo: pedra pr=500 cadastrada para 3cm, orçando em 3cm → fator = 1.35/1.35 = 1.00 ✓
+  //   Exemplo: pedra pr=500 cadastrada para 3cm, orçando em 4cm → fator = 1.70/1.35 = 1.26 ✓
   var espFatores = { 2:1.00, 3:1.35, 4:1.70, 5:2.10 };
-  var espFator = espFatores[d.E] || 1.35;
+  var espBase   = mat.esp || 3;   // espessura para a qual pr foi cadastrado (default 3cm)
+  var espFator  = (espFatores[d.E] || 1.35) / (espFatores[espBase] || 1.35);
   var custo_pedra = m2_total * mat.pr * espFator;
 
   // Peso real: m² × espessura (m) × densidade (kg/m³)
@@ -1847,7 +1867,10 @@ function calcularFull() {
 
   var e_bl    = 0.14;
   var Perim   = 2 * (d.C + d.L);
-  var N_lajes = Math.max(d.N, 1);
+  // N_lajes = número real de compartimentos (sem forçar mínimo 1).
+  // Túmulo simples (N=0) não tem laje separatória → N_lajes=0.
+  // A laje de tampa é a própria pedra, não uma laje de concreto.
+  var N_lajes = d.N;
   var Vol_fund = 0, Vol_lajes = 0, m2_blocos_liq = 0, n_cintas = 0;
   var nDias_fund = 0, nDias_alv = 0, nDias_laje = 0;
 
@@ -1858,14 +1881,16 @@ function calcularFull() {
     var larg_fund = e_bl + 0.20;
     Vol_fund = Perim * larg_fund * prof_fund;
 
-    // ─ 2. PISO (contrapiso 8cm sobre brita compactada) ─────────────────
-    var Vol_piso = d.C * d.L * 0.08;
+    // ─ 2. PISO (contrapiso 8cm — apenas quando há compartimento interno) ──
+    // Túmulo simples (N=0): sem câmara interna, sem necessidade de piso
+    var Vol_piso = (d.N >= 1) ? d.C * d.L * 0.08 : 0;
 
     // ─ 4. CINTAS DE AMARRAÇÃO (canaleta + treliça + concreto) ──────────
-    // Vertical:   1 baldrame + 1 cinta por nível de laje = 1 + N_lajes cintas
-    // Horizontal: apenas 1 baldrame + 1 cinta de topo     = 2 cintas (1 nível)
-    var N_lajes_est = (d.disp === 'horizontal') ? 1 : N_lajes; // lajes estruturais efetivas
-    n_cintas = 1 + N_lajes_est;
+    // Vertical:   1 baldrame + 1 cinta por laje separatória
+    // Horizontal: 1 baldrame + 1 cinta de topo (apenas 1 nível)
+    // Simples (N=0): apenas 1 baldrame (sem laje, sem cinta de laje)
+    var N_lajes_est = (d.disp === 'horizontal') ? (N_lajes > 0 ? 1 : 0) : N_lajes;
+    n_cintas = 1 + N_lajes_est; // 1 baldrame + cintas por laje
     var canaletas_por_cinta = Math.ceil(Perim / 0.40);
     civil.unid_canaletas = Math.ceil(n_cintas * canaletas_por_cinta * 1.10);
 
@@ -1884,11 +1909,13 @@ function calcularFull() {
     var Vol_arg_bloco = m2_blocos_liq * 0.012;
 
     // ─ 5. LAJE (treliça + malha + concreto) ────────────────────────────
-    // CORRECAO: horizontal tem apenas 1 laje de topo (não N); vertical tem N lajes
+    // N_lajes_est=0 (simples): sem laje de concreto → volumes e malha = 0
     var esp_laje_conc = Math.max(d.Hlaje - Esp_m, 0.06);
-    Vol_lajes = d.C * d.L * esp_laje_conc * N_lajes_est;
-    civil.m2_malha    = +((d.C * d.L * (1 + N_lajes_est)).toFixed(2));
-    // CORRECAO: horizontal não tem divisórias de concreto+ferro (são pedra); N_div_int=0
+    Vol_lajes = (N_lajes_est > 0) ? d.C * d.L * esp_laje_conc * N_lajes_est : 0;
+    // m2_malha: inclui 1 tela de fundo (base) + 1 por laje separatória
+    // Para N=0 (simples): apenas 1 tela de fundo se houver compartimento, senão 0
+    civil.m2_malha = (N_lajes_est > 0) ? +((d.C * d.L * (1 + N_lajes_est)).toFixed(2)) : 0;
+    // Divisórias internas (horizontal não tem ferro nas divisórias — são pedra)
     var N_div_int = (d.disp === 'horizontal') ? 0 : Math.max(d.N - 1, 0);
     // ─ FERRO — calculado em METROS LINEARES reais (não em "barras") ─────
     // Ferro 3/8" (10mm CA50): barras longitudinais nas divisórias + estribo perimetral
@@ -1897,10 +1924,11 @@ function calcularFull() {
     var n_long_f38  = Math.ceil(d.C / 0.25) * N_div_int;   // barras nas divisórias (comprimento C)
     var n_estr_f38  = Math.ceil(Avis / 0.30);               // estribos perimetrais (comprimento Perim)
     civil.m_ferro38 = +((n_long_f38 * d.C + n_estr_f38 * Perim) * 1.10).toFixed(1); // +10% emendas
-    // Ferro 5/16" (8mm CA50): malha de laje (C+L por laje) + tela de base + extras de altura
-    var n_barras_laje_C  = Math.ceil(d.L / 0.20) * N_lajes_est;  // barras no sentido C para cada laje
-    var n_barras_laje_L  = Math.ceil(d.C / 0.20) * N_lajes_est;  // barras no sentido L para cada laje
-    var extras_f516 = (A >= 1.5 ? Math.ceil(Perim / 0.40) : 0) + (N_lajes_est >= 3 ? 4 : 0); // CORRECAO: N_lajes_est
+    // Ferro 5/16" (8mm CA50): malha de laje — somente se houver lajes
+    var n_barras_laje_C  = Math.ceil(d.L / 0.20) * N_lajes_est;
+    var n_barras_laje_L  = Math.ceil(d.C / 0.20) * N_lajes_est;
+    // extras apenas com lajes (evita ferro fantasma no túmulo simples N=0)
+    var extras_f516 = (N_lajes_est > 0 && A >= 1.5 ? Math.ceil(Perim / 0.40) : 0) + (N_lajes_est >= 3 ? 4 : 0);
     civil.m_ferro516 = +((n_barras_laje_C * d.C + n_barras_laje_L * d.L + extras_f516 * d.L) * 1.10).toFixed(1);
 
     // ─ 6. REBOCO (cimento+areia traço 1:5 sobre as paredes) ────────────
@@ -1946,7 +1974,8 @@ function calcularFull() {
 
     nDias_fund = Math.max(1, Math.ceil(Vol_fund / 0.80));
     nDias_alv  = Math.max(1, Math.ceil((m2_blocos_liq + n_cintas * Perim * 0.20) / 8.0));
-    nDias_laje = Math.max(1, Math.ceil(N_lajes_est * 1.5)); // CORRECAO: usa N_lajes_est (horizontal=1 laje)
+    // N_lajes_est=0 (túmulo simples): sem laje → 0 dias de concretagem
+    nDias_laje = (N_lajes_est > 0) ? Math.max(1, Math.ceil(N_lajes_est * 1.5)) : 0;
   } else {
     // Somente revestimento ou reforma: apenas argamassa de assentamento
     civil.custo = civil.sacos_argam * CFG.civil.argamassa;
@@ -4113,6 +4142,8 @@ function showTab(id, btn) {
   if (id === 'planta') renderPlanta();
   if (id === 'producao') renderProducao();
   if (id === 'chapas') renderChapas();
+  // Ao abrir Config: recarregar campos com valores atuais (após migração ou reset)
+  if (id === 'config') { loadCfgUI(); buildPedrasCfg(); }
   // Limpar número do header ao abrir aba de novo orçamento sem pendente
   if (id === 'orcamento' && !pendOrc) {
     _gel('hdNum').textContent = '';
