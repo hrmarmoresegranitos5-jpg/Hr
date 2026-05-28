@@ -777,7 +777,7 @@ function buildCfgTumPrecos() {
       icon: '🏗️',
       titulo: 'ESTRUTURA CIVIL',
       desc: 'Concreto, ferragem e alvenaria estrutural. Calculados a partir do volume e dimensões reais do túmulo.',
-      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab']
+      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','trelica_h8','canaleta','bloco','impermeab']
     },
     {
       key: 'alvenaria',
