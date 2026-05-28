@@ -31,7 +31,7 @@ var DEF_TUM_PRECOS = {
     bloco:           { label:'Bloco 14×19×39',     preco: 4.50, unid:'un',      icon:'🧱', grupo:'estrutura' },
     impermeab:       { label:'Impermeabilizante',  preco: 1530, unid:'balde 18kg', icon:'💧', grupo:'estrutura' },
     trelica_h8:      { label:'Treliça H8',          preco: 18,   unid:'barra 6m',icon:'🔧', grupo:'estrutura' },
-    canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'un',      icon:'🌊', grupo:'alvenaria' },
+    canaleta:        { label:'Canaleta Drenagem',   preco: 22,   unid:'ml',      icon:'🌊', grupo:'estrutura' },
     // ── ASSENTAMENTO CIVIL (alvenaria) — NÃO confundir com AC-II ──────
     // Argamassa de assentamento de bloco (cimento + areia, traço simples)
     massa_assentamento: { label:'Massa Assentamento Bloco', preco: 22,  unid:'sc 20kg', icon:'🪣', grupo:'alvenaria' },
@@ -166,7 +166,8 @@ function _calcEstruturaFuneraria(opts) {
   if (!q || !q.dims) return null;
 
   var d   = q.dims;
-  var gav = q.gavetas != null ? q.gavetas : 0;
+  // FIX 1: gavetas armazenada em q.dims.gavetas (d.gavetas) pelo core — q.gavetas é fallback legado
+  var gav = d.gavetas != null ? d.gavetas : (q.gavetas != null ? q.gavetas : 0);
 
   // ── Dimensões reais ──────────────────────────────────────────────
   var avRod    = d.avRodape      || 0;
@@ -249,6 +250,8 @@ function _calcEstruturaFuneraria(opts) {
   //   Total linear: perímetro + 2 linhas longitudinais
   //   Perda de ferragem aplicada; compra em barras de 6m (Math.ceil).
   var mlTrelicaLiq  = _r(2 * (cUtil + lUtil) + 2 * c);
+  // FIX 5: usa mesma expressão da variável local perdaFerragem (declarada abaixo na linha ~348)
+  // Valor idêntico; mantido inline pois treliça é calculada antes do bloco de perdas
   var mlTrelicaComPerda = _r(mlTrelicaLiq * (1 + (q.perdaFerragem != null ? q.perdaFerragem : 10) / 100));
   var nBarrasTrelica    = Math.max(1, Math.ceil(mlTrelicaComPerda / 6));
 
@@ -358,11 +361,14 @@ function _calcEstruturaFuneraria(opts) {
   var sc_cimento_conc = Math.ceil(volConcComPerda * 7);
   var m3_areia_conc   = _r(volConcComPerda * 0.45);          // areia exclusiva do concreto
   // Melhoria 10: brita tem compra mínima de 0.5 m³ (carga mínima de caminhão)
+  // FIX 6 (doc): mínimo intencional — mesmo sem concreto, compra mínima é 0.5m³.
+  //   Na prática volConcComPerda > 0 sempre (fundação gera concreto), sem custo fantasma real.
   var m3_brita_calc   = _r(volConcComPerda * 0.65);
   var m3_brita        = Math.max(0.5, m3_brita_calc);
 
   // ── CONVERSÃO DE ALVENARIA EM INSUMOS ───────────────────────────
-  // Bloco 14×19×39: ~12.5 blocos/m² de parede + perda de alvenaria
+  // Bloco 14×19×39: 10.0 blocos/m² de parede (SINAPI 89455: 9.99 un/m² bloco estrutural 14cm)
+  //   perda de alvenaria (5%) aplicada via m2ParedesComPerda — não duplicar no índice
   // Massa de assentamento de BLOCO (argamassa cimento+areia, NÃO AC-II):
   //   ~13 litros/m² = 0.013 m³/m² → 1 sc 20kg rende ~1.5 m²
   // Cimento para reboco + chapisco das paredes (interno + externo):
@@ -370,7 +376,7 @@ function _calcEstruturaFuneraria(opts) {
   // Areia de reboco/chapisco: ~0.02 m³/m² de parede (separada da areia do concreto)
   // Areia de assentamento de bloco: embutida na massa_assentamento (NÃO contabilizada em separado)
   var m2ParedesComPerda  = _r(m2Paredes * (1 + perdaAlvenaria));
-  var nBlocos            = Math.ceil(m2ParedesComPerda * 12.5);
+  var nBlocos            = Math.ceil(m2ParedesComPerda * 10.0);
   var sc_massa_asset     = Math.ceil(m2ParedesComPerda / 1.5);  // sacos massa assentamento bloco
   var sc_cimento_reboco  = Math.ceil(m2ParedesComPerda * 0.8);  // sacos 50kg: chapisco + reboco
   var m3_areia_reboco    = _r(m2ParedesComPerda * 0.02);        // areia exclusiva de reboco/chapisco
@@ -419,9 +425,11 @@ function _calcEstruturaFuneraria(opts) {
   // Melhoria 2: perda operacional do impermeabilizante (sobra de mistura, reaplicação, absorção, perda de balde)
   var perdaImpermeab = (q.perdaImpermeab != null ? q.perdaImpermeab : 5) / 100;
   var m2_impermeab = _r((cUtil * 2 + lUtil * 2) * altCorpo + cUtil * lUtil);
+  // 3.0 kg/m²: 2 demãos mínimas (1.5 kg/m²/demão) — conforme Sika, Viapol, NBR 9574
+  //   área cemiterial úmida exige proteção completa em paredes + laje de cobertura
   // Melhoria 10: arredondamento operacional — impermeabilizante comprado por balde (≈18kg)
   var BALDE_IMPERMEAB_KG = 18;
-  var kg_impermeab_liq = m2_impermeab * 1.5 * (1 + perdaImpermeab);
+  var kg_impermeab_liq = m2_impermeab * 3.0 * (1 + perdaImpermeab);
   var kg_impermeab = Math.ceil(kg_impermeab_liq / BALDE_IMPERMEAB_KG) * BALDE_IMPERMEAB_KG; // arredonda p/ balde
 
   // ── AC-II / COLA / REJUNTE (pedra) ──────────────────────────────
@@ -454,7 +462,8 @@ function _calcEstruturaFuneraria(opts) {
   var scoreAlt    = Math.min(20, Math.max(0, (altTotal - 0.5) / 0.5) * 5);
   var scoreVol    = Math.min(20, volConcComPerda * 15);                        // M3: usa com perda
   var scoreFerro  = Math.min(10, (kg_ferro38 + m2_tela * KG_M2_TELA_Q138) / 15); // M4: tela (KG_M2_TELA_Q138 kg/m² eq.)
-  var scoreArea   = Math.min(10, (c * l - 1.5) * 4);
+  // FIX 3: Math.max(0,...) evita scoreArea negativo em plantas abaixo de 1.5m²
+  var scoreArea   = Math.min(10, Math.max(0, (c * l - 1.5) * 4));
 
   // IEO do orçamento atual (se disponível) amplifica o score
   var ieoFator = 1.0;
@@ -465,16 +474,14 @@ function _calcEstruturaFuneraria(opts) {
   }
 
   // Melhoria 8: scoreGeometria — coeficiente de complexidade geométrica
-  // Pondera molduras, recortes, acabamentos especiais presentes no orçamento
+  // FIX 2: acabamentos ficam em q.acab no TUM.q real (não q.acabamentos que sempre era {})
+  // Moldura e pingadeira ficam em q.pedras como peças de revestimento
   var scoreGeometria = 0;
-  var ac = q.acabamentos || {};
-  if (ac.moldura    && ac.moldura.on)    scoreGeometria += 4;
-  if (ac.pingadeira && ac.pingadeira.on) scoreGeometria += 2;
-  if (ac.lateral    && ac.lateral.on)   scoreGeometria += 2;
-  if (ac.polimento  && ac.polimento.on) scoreGeometria += 3;
-  if (ac.resinagem  && ac.resinagem.on) scoreGeometria += 2;
-  // Acabamentos via q.pedras (alternativa de acesso)
+  var ac    = q.acab   || {};
   var pAcab = q.pedras || {};
+  if (ac.polimento  && ac.polimento.on)        scoreGeometria += 3;
+  if (ac.resinagem  && ac.resinagem.on)        scoreGeometria += 2;
+  if (ac.bisote     && ac.bisote.on)           scoreGeometria += 2;
   if (pAcab.moldura    && pAcab.moldura.on)    scoreGeometria += 4;
   if (pAcab.pingadeira && pAcab.pingadeira.on) scoreGeometria += 2;
   scoreGeometria = Math.min(15, scoreGeometria); // cap em 15 pontos
@@ -511,7 +518,7 @@ function _calcEstruturaFuneraria(opts) {
     _pc('bloco',      nBlocos)            +
     _pc('impermeab',  Math.ceil(kg_impermeab / BALDE_IMPERMEAB_KG)) +
     _pc('trelica_h8', nBarrasTrelica)     +
-    _pc('canaleta',   Math.ceil(mlCanaleta))
+    _pc('canaleta',   mlCanaleta)
   );
   var custoAlvenaria = _r(
     _pc('areia',              m3_areia_reboco)   +
@@ -582,7 +589,7 @@ function _calcEstruturaFuneraria(opts) {
       // ETAPA 3 — novos insumos
       trelica_h8:         { qty: nBarrasTrelica,     unid: 'barra 6m', preco: ti.trelica_h8        ? ti.trelica_h8.preco        : 18,   grupo:'estrutura',
                             detalhe: { mlLiq: mlTrelicaLiq, mlComPerda: mlTrelicaComPerda } },
-      canaleta:           { qty: Math.ceil(mlCanaleta), unid: 'un',       preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'alvenaria' },
+      canaleta:           { qty: mlCanaleta,         unid: 'ml',      preco: ti.canaleta          ? ti.canaleta.preco          : 22,   grupo:'estrutura' },
       // Assentamento civil (NÃO AC-II)
       massa_assentamento: { qty: sc_massa_asset,     unid: 'sc 20kg',  preco: ti.massa_assentamento? ti.massa_assentamento.preco: 22,   grupo:'alvenaria' },
       cimento_reboco:     { qty: sc_cimento_reboco,  unid: 'sc 50kg',  preco: ti.cimento_reboco    ? ti.cimento_reboco.preco    : 38,   grupo:'alvenaria' },
@@ -777,14 +784,14 @@ function buildCfgTumPrecos() {
       icon: '🏗️',
       titulo: 'ESTRUTURA CIVIL',
       desc: 'Concreto, ferragem e alvenaria estrutural. Calculados a partir do volume e dimensões reais do túmulo.',
-      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','trelica_h8','bloco','impermeab']
+      keys: ['cimento','areia','brita','ferro_38','ferro_516','tela_sold','bloco','impermeab']
     },
     {
       key: 'alvenaria',
       icon: '🧱',
       titulo: 'ASSENTAMENTO CIVIL',
       desc: 'Massa para assentamento de bloco e cimento para chapisco/reboco das paredes. Não entra AC-II aqui.',
-      keys: ['massa_assentamento','cimento_reboco','canaleta']
+      keys: ['massa_assentamento','cimento_reboco']
     },
     {
       key: 'pedras',
@@ -966,7 +973,7 @@ function _tpSimBox(pedraKey, tipoKey) {
 
   h += '<div class="tp-sim-totals">';
   h += '<div class="tp-sim-t-row"><span>Custo total</span><span style="color:var(--t2);">R$ '+ fm(sim.custoTotal) +'</span></div>';
-  h += '<div class="tp-sim-t-row"><span>Venda ('+ Math.round((sim.vendaTotal / sim.custoTotal - 1) * 100) +'% margem)</span><span style="color:#4cda80;">R$ '+ fm(sim.vendaTotal) +'</span></div>';
+  h += '<div class="tp-sim-t-row"><span>Venda ('+ (sim.custoTotal > 0 ? Math.round((sim.vendaTotal / sim.custoTotal - 1) * 100) : 0) +'% margem)</span><span style="color:#4cda80;">R$ '+ fm(sim.vendaTotal) +'</span></div>';
   h += '<div class="tp-sim-t-row" style="font-weight:700;"><span>Lucro estimado</span><span style="color:#C9A84C;">R$ '+ fm(sim.lucro) +'</span></div>';
   h += '</div>';
   h += '<div class="tp-sim-footer">'+ sim.tipo +' · '+ sim.pedra +' · '+ sim.m2 +' m²</div>';
