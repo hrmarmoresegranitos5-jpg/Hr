@@ -336,6 +336,8 @@ function renderTum() {
   if (!pg) return;
   _tumAutoCalc();
   TUM.calc = _tumCalc();
+  // CORRECAO ERRO 5: _tumCalc pode retornar {} se pedra não selecionada
+  if (!TUM.calc || Object.keys(TUM.calc).length === 0) return;
   pg.innerHTML =
     _tumHero() +
     _tumTabs() +
@@ -1400,7 +1402,17 @@ function _tumCalc() {
   var sel = q.stoneId && typeof CFG !== 'undefined' && CFG.stones
     ? CFG.stones.find(function(s) { return s.id === q.stoneId; })
     : null;
-  var stPr = sel ? sel.pr : (q.stonePrice || 0);
+  // CORRECAO ERRO 2: separar custo real e preço de venda da pedra
+  // sel.custo = custo de compra; sel.pr = preço de venda
+  var stPr    = sel ? sel.pr    : (q.stonePrice || 0);
+  var stCusto = sel ? (sel.custo && sel.custo > 0 ? sel.custo : sel.pr) : stPr;
+
+  // CORRECAO ERRO 5: bloquear cálculo se preço da pedra for zero
+  if (stPr <= 0) {
+    var wrapEl = document.getElementById('tumBody') || document.getElementById('tum-result-wrap');
+    if (wrapEl) wrapEl.innerHTML = '<div style="color:#e05a5a;padding:20px 16px;font-size:.85rem;text-align:center;">⚠️ Selecione uma pedra no catálogo ou informe o preço por m² antes de calcular.</div>';
+    return {};
+  }
 
   // ── Pedras ──────────────────────────────────────────────────────
   var m2Liq = 0;
@@ -1418,19 +1430,32 @@ function _tumCalc() {
 
   // Aplica perda de corte sobre a área líquida
   var m2Total = _r(m2Liq * (1 + (q.perda || 15) / 100));
-  custoPedra  = _r(m2Total * stPr);
+  // CORRECAO ERRO 2: custo usa stCusto (custo real), venda usa stPr (preço de venda)
+  custoPedra  = _r(m2Total * stCusto);
+  var vendaPedra = _r(m2Total * stPr);
 
   // 2ª passagem: soma acréscimos fixos (extra por peça), moldura e pingadeira
   // — feita UMA só vez, após recalcular com perda
   Object.keys(q.pedras).forEach(function(k) {
     var peca = q.pedras[k];
     if (!peca || !peca.on) return;
-    if (k === 'moldura')    custoPedra = _r(custoPedra + (peca.ml || 0) * (peca.vlrMl || 120));
-    else if (k === 'pingadeira') custoPedra = _r(custoPedra + (peca.ml || 0) * (peca.vlrMl || 80));
-    if (peca.extra)         custoPedra = _r(custoPedra + peca.extra);
+    if (k === 'moldura') {
+      var mlMold = (peca.ml || 0);
+      var vlrMold = (peca.vlrMl || 120);
+      // custo de moldura = 55% do preço de venda (padrão marmoraria)
+      custoPedra  = _r(custoPedra  + mlMold * (vlrMold * 0.55));
+      vendaPedra  = _r(vendaPedra  + mlMold * vlrMold);
+    } else if (k === 'pingadeira') {
+      var mlPing = (peca.ml || 0);
+      var vlrPing = (peca.vlrMl || 80);
+      custoPedra  = _r(custoPedra  + mlPing * (vlrPing * 0.55));
+      vendaPedra  = _r(vendaPedra  + mlPing * vlrPing);
+    }
+    if (peca.extra) {
+      custoPedra = _r(custoPedra + peca.extra);
+      vendaPedra = _r(vendaPedra + peca.extra);
+    }
   });
-
-  var vendaPedra = custoPedra; // preço da pedra já é preço de venda (stPr = preço de venda)
 
   // ── Extras ──────────────────────────────────────────────────────
   var custoLapide = 0, vendaLapide = 0;
@@ -1479,8 +1504,12 @@ function _tumCalc() {
     if (it && it.on) { custoMdo += it.custo || 0; vendaMdo += it.venda || 0; }
   });
   if (q.mdo.riscoQuebra && q.mdo.riscoQuebra.on) {
+    // CORRECAO ERRO 3: risco de quebra tem markup na venda (igual estrutura e materiais)
+    var _markupRQ = (typeof CFG !== 'undefined' && CFG.tumPrecos && CFG.tumPrecos.markupObra != null)
+      ? CFG.tumPrecos.markupObra : 35;
     var rq = custoPedra * (q.mdo.riscoQuebra.perc || 0) / 100;
-    custoMdo += rq; vendaMdo += rq;
+    custoMdo += rq;
+    vendaMdo += _r(rq * (1 + _markupRQ / 100));
   }
 
   // ── Lápide Dupla Engrossada ──────────────────────────────────────
@@ -1658,9 +1687,9 @@ function _tumAutoCalc() {
   if (est.reforco && !est.reforco._manual)
     est.reforco.kg = _r(kgBase + gav * 15);
 
-  // Concreto armado — só existe se há gavetas (estrutura interna das tampas)
+  // Concreto armado das gavetas — CORRECAO: não inclui laje (já está em est.laje separado)
   if (est.concreto && !est.concreto._manual)
-    est.concreto.m3 = gav > 0 ? _r(cUtil * lUtil * el + gav * 0.12) : 0;
+    est.concreto.m3 = gav > 0 ? _r(gav * 0.12) : 0;
 
   // ── MATERIAIS ─────────────────────────────────────────────────
   var mat = q.mat;
@@ -1669,14 +1698,40 @@ function _tumAutoCalc() {
   var m2Paredes = _r((cUtil * 2 + lUtil * 2) * altCorpo);  // mesmo que est.paredes.m2
   var volAlv    = _r(m2Paredes * espParede);                // volume real de tijolos/blocos+argamassa
 
-  // Cimento: ~6 sacos/m³ de argamassa de assentamento (parede) + ~5 sacos/m³ de concreto (laje/fundação)
-  var volConcreto = _r((est.fundacao && est.fundacao.on ? est.fundacao.m3 : 0)
-                    + (est.laje     && est.laje.on     ? cUtil * lUtil * (q.dims.espLaje || 0.10) : 0)
-                    + (est.concreto && est.concreto.on ? est.concreto.m3 : 0));
-  if (mat.cimento   && !mat.cimento._manual)   mat.cimento.qty   = Math.ceil(volAlv * 6 + volConcreto * 5);
-  if (mat.areia     && !mat.areia._manual)     mat.areia.qty     = _r(volAlv * 0.55 + volConcreto * 0.50);
-  if (mat.brita     && !mat.brita._manual)     mat.brita.qty     = _r(volConcreto * 0.70);
-  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil(m2Paredes / 10);
+  // CORRECAO MATERIAIS CIVIS:
+  // est.concreto.m3 já inclui cUtil*lUtil*el (laje interna das gavetas) internamente.
+  // O campo est.laje representa a laje SEPARADA do corpo (m2, sem espessura aqui).
+  // Para evitar duplicação no cálculo de materiais, usamos apenas:
+  //   - fundação (se ativa e não coberta pelo preço unitário de estrutura)
+  //   - laje separada com espessura real
+  //   - concreto das gavetas (gav*0.12) SEM incluir laje novamente
+  //
+  // Além disso, quando est.concreto.preco > 0 (serviço cobrado por m³ pronto),
+  // os materiais de concreto (cimento/areia/brita) NÃO devem ser somados de novo
+  // pois causaria double-counting.
+  // Regra: se o item de estrutura está ativo E tem preco > 0, os materiais
+  // correspondentes já estão incluídos — calcula materiais só para alvenaria.
+
+  var concretoParaMat = 0;
+  // Inclui fundação apenas se ativa E preço unitário = 0 (materiais não estão embutidos)
+  if (est.fundacao && est.fundacao.on && !(est.fundacao.preco > 0))
+    concretoParaMat += est.fundacao.m3 || 0;
+  // Inclui laje separada apenas se ativa E preço = 0
+  if (est.laje && est.laje.on && !(est.laje.preco > 0))
+    concretoParaMat += _r((est.laje.m2 || 0) * (q.dims.espLaje || 0.10));
+  // Inclui concreto das gavetas apenas se ativo E preço = 0
+  // CORRECAO: usa apenas a parcela gav*0.12 (não repete laje interna)
+  if (est.concreto && est.concreto.on && !(est.concreto.preco > 0))
+    concretoParaMat += _r(gav * 0.12);
+
+  // Cimento: 7 sacos/m³ de concreto (traço 1:2:3, NBR) + 4 sacos/m³ argamassa alvenaria
+  if (mat.cimento   && !mat.cimento._manual)   mat.cimento.qty   = Math.ceil(volAlv * 4 + concretoParaMat * 7);
+  // Areia: 0.55m³/m³ alvenaria + 0.45m³/m³ concreto
+  if (mat.areia     && !mat.areia._manual)     mat.areia.qty     = _r(volAlv * 0.55 + concretoParaMat * 0.45);
+  // Brita: apenas para concreto — 0.65m³/m³
+  if (mat.brita     && !mat.brita._manual)     mat.brita.qty     = _r(concretoParaMat * 0.65);
+  // Argamassa industrializada: 1 saco/10m² de parede (assentamento de blocos/tijolos)
+  if (mat.argamassa && !mat.argamassa._manual) mat.argamassa.qty = Math.ceil(m2Paredes / 12);
   var m2Cola = (p.tampa    && p.tampa.on    ? p.tampa.m2    : 0) +
                (p.laterais && p.laterais.on ? p.laterais.m2 : 0) +
                (p.frente   && p.frente.on   ? p.frente.m2   : 0) +
@@ -1769,6 +1824,8 @@ function tumSet(key, val) { TUM.q[key] = val; }
 function tumRecalc() {
   _tumAutoCalc();
   TUM.calc = _tumCalc();
+  // CORRECAO ERRO 5: se pedra não selecionada, _tumCalc retorna {} — abortar render
+  if (!TUM.calc || Object.keys(TUM.calc).length === 0) return;
   _tumRenderTab();
   // Atualiza hero sem re-render completo
   var hv = document.querySelector('.tum-hero-val');

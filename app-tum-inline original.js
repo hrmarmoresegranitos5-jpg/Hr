@@ -2650,14 +2650,7 @@ function renderResultado(o) {
   if (r.custo_extras > 0)
     gridCusto.push({ lbl:'Extras', val:'R$ '+_fn(r.custo_extras), cl:'', sub:'Cruz, foto, jarro...' });
   gridCusto.push({ lbl:'Custo Total',         val:'R$ '+_fn(r.custo_total),    cl:'',    sub:'Sem margem de lucro' });
-  // ── Proteção: margem negativa = PREJUÍZO ─────────────────────────────────
-  var _margemNeg = r.margem_reais < 0;
-  gridCusto.push({
-    lbl: _margemNeg ? '🔴 PREJUÍZO — venda abaixo do custo' : 'Lucro ' + CFG.margem + '%',
-    val: 'R$ ' + _fn(r.margem_reais),
-    cl:  _margemNeg ? 'red' : 'grn',
-    sub: _margemNeg ? '⚠️ Ajuste preço ou margem antes de salvar' : 'Margem aplicada'
-  });
+  gridCusto.push({ lbl:'Lucro '+CFG.margem+'%', val:'R$ '+_fn(r.margem_reais), cl:'grn', sub:'Margem aplicada' });
 
   function _card(g) {
     return '<div class="res-card">'
@@ -2787,15 +2780,11 @@ function renderResultado(o) {
 
   dh += '<div style="border-top:1px solid var(--gold3);margin-top:8px;padding-top:8px">';
   dh += '<div class="det-line"><span class="det-k">Custo total (interno)</span><span class="det-v">R$ '+_TI_fm(r.custo_total)+'</span></div>';
-  dh += '<div class="det-line"><span class="det-k">'
-    + (r.margem_reais < 0 ? '🔴 PREJUÍZO (venda abaixo do custo)' : 'Margem ' + CFG.margem + '%')
-    + '</span><span class="det-v" style="color:' + (r.margem_reais < 0 ? '#e53e3e' : 'var(--grn)') + '">R$ '
-    + _TI_fm(r.margem_reais) + '</span></div>';
+  dh += '<div class="det-line"><span class="det-k">Margem '+CFG.margem+'%</span><span class="det-v" style="color:var(--grn)">R$ '+_TI_fm(r.margem_reais)+'</span></div>';
   dh += '</div>';
   _gel('rDetalhe').innerHTML = dh;
 
-  // ── Painel Operacional (camada aditiva — não afeta cálculo financeiro) ──
-  _renderPainelOperacional(r, o._sel || SEL);
+  // ── Caixa de preço final premium ───────────────────────────────
   var priceBoxEl = document.getElementById('rPriceBox');
   if (priceBoxEl) {
     priceBoxEl.innerHTML =
@@ -2874,64 +2863,27 @@ function gerarPrintArea(o,r){
   function fv(v){return 'R$\u00a0'+_TI_fm(v);}
   function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
   function sh(t){return '<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 8px;padding:0 0 5px;border-bottom:2px solid #C9A84C;">'+t+'</div>';}
-
-  // ── SNAPSHOT CONGELADO: usa o._sel salvo no momento do cálculo ────────────
-  // Garante que o PDF sempre reflete o estado original do orçamento,
-  // independente de alterações feitas depois na UI.
-  var SELR = (o._sel && typeof o._sel === 'object') ? o._sel : SEL;
-
-  // Recalcular td (tampas dims) a partir do snapshot SELR + r.d (já congelado)
-  var _tpS = SELR.tampas || {};
-  var _molId = _tpS.molduraId || '10';
-  var _molOp = (typeof MOLDURA_OPCOES !== 'undefined')
-    ? MOLDURA_OPCOES.find(function(m){ return m.id === _molId; })
-    : null;
-  var _molCm = (_molOp && _molOp.id !== 'custom') ? _molOp.cm : (_tpS.molduraCustom || 10);
-  var _mol = _molCm / 100;
-  var _CB = (d.AvRod > 0) ? d.CUtil : d.C;
-  var _LB = (d.AvRod > 0) ? d.LUtil : d.L;
-  var _cols = _tpS.colunas || 1, _lins = _tpS.linhas || 1;
-  var _fC = (_tpS.folgaC || 1) / 100, _fL = (_tpS.folgaL || 1) / 100;
-  var _Cutil = Math.max(_CB - 2 * _mol, 0.05), _Lutil = Math.max(_LB - 2 * _mol, 0.05);
-  var td = {
-    C_ext: _CB, L_ext: _LB, mol: _mol,
-    C_util: _Cutil, L_util: _Lutil,
-    cols: _cols, lins: _lins,
-    C_cada: Math.max((_Cutil - (_cols - 1) * _fC) / _cols, 0.01),
-    L_cada: Math.max((_Lutil - (_lins - 1) * _fL) / _lins, 0.01),
-    nTotal: _cols * _lins,
-    espT: _tpS.espTampa || 3
-  };
-
-  // Recalcular engCm a partir do snapshot SELR.lapide
-  var _lapS = SELR.lapide || {};
-  var _engOp = (typeof ENG_OPCOES !== 'undefined')
-    ? ENG_OPCOES.find(function(e){ return e.id === _lapS.engrossar; })
-    : null;
-  var engCm = _engOp
-    ? (_engOp.id === 'custom' ? (_lapS.engCustom || 7) : (_engOp.cm || 0))
-    : 0;
-  // ── fim do snapshot ────────────────────────────────────────────────────────
-
+  var td=getTampasDims();
+  var engCm=getEngCm();
   var CC=(d.AvRod>0)?d.CUtil:d.C, LC=(d.AvRod>0)?d.LUtil:d.L;
   // ── Extras ──────────────────────────────────────────────────────────────
   var ex=[];
-  if(SELR.pecas.tampa){
-    var pos=SELR.tampas.posicao||'superior';
+  if(SEL.pecas.tampa){
+    var pos=SEL.tampas.posicao||'superior';
     if(pos==='frontal'){
-      var _nC3=SELR.tampas.colunas||1,_E3=d.E/100,_olC3=(SELR.tampas.overlapFrontalC||5)/100,_olH3=(SELR.tampas.overlapFrontalH||5)/100;
+      var _nC3=SEL.tampas.colunas||1,_E3=d.E/100,_olC3=(SEL.tampas.overlapFrontalC||5)/100,_olH3=(SEL.tampas.overlapFrontalH||5)/100;
       var _aberW3=d.AberLarg>0?d.AberLarg:Math.max(LC-2*_E3,0.05),_aberH3=Math.max(d.Hcomp,0.30);
       var _tW3=(_aberW3+2*_olC3)/_nC3,_tH3=_aberH3+2*_olH3;
-      ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SELR.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
+      ex.push({i:'🚪',l:'Tampas Frontais ('+td.nTotal+'×)',v:Math.round(_tW3*100)+'×'+Math.round(_tH3*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});
     }
-    else{ex.push({i:'🪨',l:'Tampas Superiores ('+td.nTotal+'×)',v:Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+' cm, esp.'+td.espT+'cm'+(SELR.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
+    else{ex.push({i:'🪨',l:'Tampas Superiores ('+td.nTotal+'×)',v:Math.round(td.C_cada*100)+'×'+Math.round(td.L_cada*100)+' cm, esp.'+td.espT+'cm'+(SEL.tampas.argolas?' · '+(td.nTotal*2)+' argolas':'')});}
   }
-  if(SELR.pecas.lapide){var ld=d.LapW_cm+'×'+d.LapH_cm+' cm';if(engCm>0)ld+=' (dupla '+engCm+'cm)';ex.push({i:'📜',l:'Lápide',v:ld});}
-  if(SELR.opts.foto_porc&&r.nFotos>0)ex.push({i:'📷',l:'Foto em Porcelana',v:r.nFotos+' unid.'});
-  if(SELR.opts.cruzGranito&&r.nCruz>0)ex.push({i:'✝',l:'Cruz em Granito',v:r.nCruz+' unid.'});
-  if(SELR.opts.jarro&&r.nJarros>0)ex.push({i:'🏺',l:'Jarros',v:r.nJarros+' par(es)'});
-  if(SELR.rebaixo&&SELR.rebaixo.lajeVedante&&r.m2_laje_ved>0)ex.push({i:'🧱',l:'Laje Vedante',v:(SELR.rebaixo.lajeInteira?'1 laje inteira':td.nTotal+' lajes')+' — '+r.m2_laje_ved.toFixed(3)+' m²'});
-  if(SELR.rebaixo&&SELR.rebaixo.usinagem&&r.ml_rebaixo>0)ex.push({i:'🔧',l:'Usinagem Rebaixo',v:r.ml_rebaixo.toFixed(2)+' ml'});
+  if(SEL.pecas.lapide){var ld=d.LapW_cm+'×'+d.LapH_cm+' cm';if(engCm>0)ld+=' (dupla '+engCm+'cm)';ex.push({i:'📜',l:'Lápide',v:ld});}
+  if(SEL.opts.foto_porc&&r.nFotos>0)ex.push({i:'📷',l:'Foto em Porcelana',v:r.nFotos+' unid.'});
+  if(SEL.opts.cruzGranito&&r.nCruz>0)ex.push({i:'✝',l:'Cruz em Granito',v:r.nCruz+' unid.'});
+  if(SEL.opts.jarro&&r.nJarros>0)ex.push({i:'🏺',l:'Jarros',v:r.nJarros+' par(es)'});
+  if(SEL.rebaixo&&SEL.rebaixo.lajeVedante&&r.m2_laje_ved>0)ex.push({i:'🧱',l:'Laje Vedante',v:(SEL.rebaixo.lajeInteira?'1 laje inteira':td.nTotal+' lajes')+' — '+r.m2_laje_ved.toFixed(3)+' m²'});
+  if(SEL.rebaixo&&SEL.rebaixo.usinagem&&r.ml_rebaixo>0)ex.push({i:'🔧',l:'Usinagem Rebaixo',v:r.ml_rebaixo.toFixed(2)+' ml'});
   // ── PAGE 1 ──────────────────────────────────────────────────────────────
   var p1='';
   p1+='<div style="height:5px;background:linear-gradient(90deg,#3a2500,#C9A84C,#E8C96A,#C9A84C,#3a2500)"></div>';
@@ -3015,7 +2967,7 @@ function gerarPrintArea(o,r){
     var bg=i%2===0?'#fff':'#faf6ef';
     var peso=+(p3.m2*dens).toFixed(1);
     var obs='';var nm=(p3.nm||'').toLowerCase();
-    if(nm.indexOf('tampa')>=0&&SELR.tampas.argolas)obs=(td.nTotal*2)+' argolas';
+    if(nm.indexOf('tampa')>=0&&SEL.tampas.argolas)obs=(td.nTotal*2)+' argolas';
     if(nm.indexOf('divisória')>=0||nm.indexOf('divisoria')>=0)obs='Interna — sem acabamento';
     p2+='<tr><td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:9px;color:#888;text-align:center">'+(i+1)+'</td>';
     p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10.5px;font-weight:700;color:#1a1a1a">'+esc(p3.nm)+'</td>';
@@ -3031,11 +2983,11 @@ function gerarPrintArea(o,r){
   // Compartimentos
   if(d.N>0){
     p2+=sh('📐 Compartimentos');
-    var posL=(SELR.tampas.posicao||'superior')==='frontal'?'Frontal (tampa de pé)':'Superior (tampa deitada)';
+    var posL=(SEL.tampas.posicao||'superior')==='frontal'?'Frontal (tampa de pé)':'Superior (tampa deitada)';
     var dispL=d.disp==='horizontal'?'Lado a lado':'Empilhados';
     var dimComp=d.disp==='horizontal'?Math.round(CC*100/d.N)+'×'+Math.round(LC*100)+'×'+d.Hc_cm+' cm':Math.round(CC*100)+'×'+Math.round(LC*100)+'×'+d.Hc_cm+' cm';
     var civRows=[{l:'Compartimentos',v:d.N+' und.'},{l:'Disposição',v:dispL},{l:'Tipo de abertura',v:posL},{l:'Dim. interna (C×L×H)',v:dimComp},{l:'Altura livre caixão',v:d.Hc_cm+' cm'},{l:'Espessura laje',v:d.Hl_cm+' cm'}];
-    if(SELR.rebaixo&&SELR.rebaixo.lajeVedante)civRows.push({l:'Laje vedante',v:SELR.rebaixo.lajeInteira?'1 laje inteira '+Math.round(d.CUtil_cm)+'×'+Math.round(d.LUtil_cm)+' cm':td.nTotal+' lajes'});
+    if(SEL.rebaixo&&SEL.rebaixo.lajeVedante)civRows.push({l:'Laje vedante',v:SEL.rebaixo.lajeInteira?'1 laje inteira '+Math.round(d.CUtil_cm)+'×'+Math.round(d.LUtil_cm)+' cm':td.nTotal+' lajes'});
     p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
     civRows.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#555">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
     p2+='</div>';
@@ -3114,23 +3066,10 @@ function copiarWA() {
   }
 }
 
-function _checkMargemAntesDeAcao(acao) {
-  if (pendOrc && pendOrc.r && pendOrc.r.margem_reais < 0) {
-    var ok = confirm(
-      '⚠️ ATENÇÃO — Este orçamento tem PREJUÍZO de R$ ' +
-      Math.abs(pendOrc.r.margem_reais).toLocaleString('pt-BR', {minimumFractionDigits:2}) +
-      '.\n\nO preço de venda está abaixo do custo total.\n\nDeseja ' + acao + ' mesmo assim?'
-    );
-    return ok;
-  }
-  return true;
-}
-
 function imprimirPDF(){
   if(!pendOrc){toast('Gere um orçamento primeiro',true);return;}
   var pb=document.getElementById('pBody');
   if(!pb||!pb.innerHTML.trim()){toast('Recalcule antes de imprimir',true);return;}
-  if(!_checkMargemAntesDeAcao('imprimir')) return;
   _abrirJanelaPDF(pb.innerHTML);
 }
 
@@ -3138,7 +3077,6 @@ function baixarPDF(){
   if(!pendOrc){toast('Gere um orçamento primeiro',true);return;}
   var pb=document.getElementById('pBody');
   if(!pb||!pb.innerHTML.trim()){toast('Recalcule antes de baixar',true);return;}
-  if(!_checkMargemAntesDeAcao('baixar')) return;
   var emp=CFG&&CFG.emp?CFG.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orçamento — '+(emp.nome||'HR Mármores')+'</title>'
     +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1{page-break-after:always}#pdfPage2{page-break-after:auto}</style>'
@@ -3159,7 +3097,6 @@ function compartilharPDF(){
   if(!pendOrc){toast('Gere um orçamento primeiro',true);return;}
   var pb=document.getElementById('pBody');
   if(!pb||!pb.innerHTML.trim()){toast('Recalcule antes de compartilhar',true);return;}
-  if(!_checkMargemAntesDeAcao('compartilhar')) return;
   var emp=CFG&&CFG.emp?CFG.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Orçamento</title>'
     +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1{page-break-after:always}</style>'
@@ -4627,8 +4564,6 @@ function _tumInlineSaveAmb() {
   amb.tumFlds = flds;
   // Salvar resultado do cálculo para integração com orçamento
   if (pendOrc && pendOrc.r) {
-    // -- Operacional funerario: le do snapshot ja calculado --
-    var _op1 = pendOrc.r.operacional || _calcOperacional(pendOrc.r, pendOrc._sel || SEL);
     amb.tumResult = {
       valor_vista: pendOrc.r.valor_vista || 0,
       valor_parc: pendOrc.r.valor_parc || 0,
@@ -4641,20 +4576,11 @@ function _tumInlineSaveAmb() {
       preset: pendOrc.preset || SEL.preset,
       tipoServ: pendOrc.tipoServNm || '',
       cli: pendOrc.cli || '',
-      // -- IEO funerario -----------------------------------------
-      ieo:        _op1.ieo_total    || 0,
-      ieo_of:     _op1.ieo_oficina  || 0,
-      ieo_ca:     _op1.ieo_campo    || 0,
-      complexidade: _op1.complexidade || '',
-      complexBadge: _op1.complexBadge || '',
-      categoria:  'Funerario',
     };
   } else {
     // Calcular sem gerar pendOrc
     try {
       var rq = calcularFull();
-      // -- Operacional funerario: calcula a partir do resultado fresco --
-      var _op2 = _calcOperacional(rq, SEL);
       amb.tumResult = {
         valor_vista: rq.valor_vista || 0,
         valor_parc:  rq.valor_parc  || 0,
@@ -4666,14 +4592,7 @@ function _tumInlineSaveAmb() {
         mat_nm:      rq.mat ? rq.mat.nm : '',
         preset:      SEL.preset,
         tipoServ:    rq.ts ? rq.ts.nm : '',
-        cli: (document.getElementById('iCli') || {value:''}).value.trim(),
-        // -- IEO funerario ------------------------------------------
-        ieo:        _op2.ieo_total    || 0,
-        ieo_of:     _op2.ieo_oficina  || 0,
-        ieo_ca:     _op2.ieo_campo    || 0,
-        complexidade: _op2.complexidade || '',
-        complexBadge: _op2.complexBadge || '',
-        categoria:  'Funerario',
+        cli: (document.getElementById('iCli') || {value:''}).value.trim()
       };
     } catch(e) {}
   }
@@ -4761,390 +4680,6 @@ function tumInlineUnmount() {
 // ══════════════════════════════════════════════
 // CONFIG — ESTADO GLOBAL
 // ══════════════════════════════════════════════
-
-// ═══════════════════════════════════════════════════════
-// PAINEL OPERACIONAL FUNERÁRIO
-// Camada aditiva — não interfere em cálculo financeiro,
-// PDF, snapshots, integração ou validações existentes.
-// ═══════════════════════════════════════════════════════
-
-/**
- * Calcula o IEO (Índice de Esforço Operacional) e metadados de
- * complexidade a partir do resultado congelado `r` e do snapshot `sel`.
- * Retorna um objeto `operacional` pronto para ser salvo em tumResult.
- */
-function _calcOperacional(r, sel) {
-  var s = sel || {};
-  var d = r.d || {};
-  var pecas = r.pecasCalc || [];
-  var nPecas = pecas.length;
-
-  // ── 1. IEO OFICINA ─────────────────────────────────────────────────────
-  // Baseado em: m² total, ml de borda, peças complexas, usinagem, lápide dupla
-  var ieo_of = 0;
-
-  // Base: 1 ponto por m² de pedra
-  ieo_of += r.m2_total * 1.0;
-
-  // Acabamento: 0.5 ponto por ml de borda (polimento, chanfro)
-  ieo_of += (r.ml_total || 0) * 0.5;
-
-  // Usinagem/rebaixo: alto consumo de oficina
-  if (r.ml_rebaixo > 0) ieo_of += r.ml_rebaixo * 1.2;
-
-  // Lápide dupla engrossada: peça de encaixe de precisão
-  if (s.pecas && s.pecas.lapide && (s.lapide && s.lapide.engrossar && s.lapide.engrossar !== 'nao')) {
-    ieo_of += 4;
-  }
-
-  // Cruz de granito: corte especial
-  if (r.nCruz > 0) ieo_of += r.nCruz * 2.5;
-
-  // Fotos em porcelana: recorte e encaixe
-  if (r.nFotos > 0) ieo_of += r.nFotos * 1.0;
-
-  // Número de peças: cada peça extra = arestas + manuseio
-  ieo_of += Math.max(0, nPecas - 3) * 0.8;
-
-  // Espessura da pedra: > 3cm sobe dificuldade
-  if (d.E >= 4) ieo_of += 2;
-  else if (d.E === 3) ieo_of += 0.5;
-
-  ieo_of = +ieo_of.toFixed(1);
-
-  // ── 2. IEO CAMPO ───────────────────────────────────────────────────────
-  // Baseado em: dias de instalação, montagem, remoção, compartimentos, cemitério
-  var ieo_ca = 0;
-
-  // Dias de instalação e montagem (já calculados no r)
-  ieo_ca += (r.dias_inst || 0) * 2.0;
-  ieo_ca += (r.dias_mont || 0) * 1.5;
-  ieo_ca += (r.dias_ped  || 0) * 1.8; // pedreiro = obra civil pesada
-  ieo_ca += (r.dias_ajud || 0) * 0.8;
-  ieo_ca += (r.dias_remocao || 0) * 1.2;
-
-  // Cemitério: logística complicada (+bônus fixo)
-  if (s.opts && s.opts.cemiterio) ieo_ca += 3;
-
-  // Gravação em campo
-  if (s.opts && s.opts.gravacao) ieo_ca += 1.5;
-
-  // Compartimentos: içamento por gaveta
-  if (d.N >= 2) ieo_ca += d.N * 1.0;
-
-  // Altura > 1.8m: exige andaime
-  if (r.A >= 1.8) ieo_ca += 2;
-
-  // Laje vedante: trabalho de nivelamento preciso
-  if (r.m2_laje_ved > 0) ieo_ca += 2;
-
-  ieo_ca = +ieo_ca.toFixed(1);
-
-  var ieo_total = +(ieo_of + ieo_ca).toFixed(1);
-
-  // ── 3. BADGE DE COMPLEXIDADE ───────────────────────────────────────────
-  var complexidade, complexBadge, complexCor;
-  if (ieo_total <= 8) {
-    complexidade = 'Simples';    complexBadge = '🟢'; complexCor = '#3a9e6a';
-  } else if (ieo_total <= 18) {
-    complexidade = 'Médio';      complexBadge = '🟡'; complexCor = '#c9a84c';
-  } else if (ieo_total <= 30) {
-    complexidade = 'Complexo';   complexBadge = '🟠'; complexCor = '#d97706';
-  } else {
-    complexidade = 'Crítico';    complexBadge = '🔴'; complexCor = '#c94444';
-  }
-
-  // ── 4. DETECÇÃO DE RISCOS ──────────────────────────────────────────────
-  var riscos = [];
-
-  var margemPct = r.custo_total > 0
-    ? ((r.margem_reais / r.custo_total) * 100)
-    : 0;
-  if (r.margem_reais < 0) {
-    riscos.push({ nivel: 'critico', msg: '🔴 Prejuízo — venda abaixo do custo' });
-  } else if (margemPct < 15) {
-    riscos.push({ nivel: 'alto', msg: '⚠️ Margem apertada (' + margemPct.toFixed(1) + '%)' });
-  }
-
-  if (r.peso_total > 800) {
-    riscos.push({ nivel: 'alto', msg: '⚠️ Peso elevado (' + Math.round(r.peso_total) + ' kg) — içamento crítico' });
-  } else if (r.peso_total > 500) {
-    riscos.push({ nivel: 'medio', msg: '⚠️ Peso alto (' + Math.round(r.peso_total) + ' kg) — requer equipamento' });
-  }
-
-  if (r.ml_rebaixo > 4) {
-    riscos.push({ nivel: 'alto', msg: '⚠️ Excesso de usinagem (' + r.ml_rebaixo.toFixed(1) + ' ml)' });
-  }
-
-  if (s.opts && s.opts.cemiterio && d.N >= 2) {
-    riscos.push({ nivel: 'alto', msg: '⚠️ Instalação crítica — cemitério + múltiplos compartimentos' });
-  } else if (s.opts && s.opts.cemiterio) {
-    riscos.push({ nivel: 'medio', msg: '⚠️ Logística cemitério — acesso restrito' });
-  }
-
-  if (r.A >= 1.8) {
-    riscos.push({ nivel: 'medio', msg: '⚠️ Altura elevada (' + (r.A * 100).toFixed(0) + ' cm) — andaime necessário' });
-  }
-
-  if (ieo_ca > 18) {
-    riscos.push({ nivel: 'alto', msg: '⚠️ Alto consumo de campo — planejamento de equipe necessário' });
-  }
-
-  // ── 5. RESULTADO ───────────────────────────────────────────────────────
-  return {
-    ieo_total:    ieo_total,
-    ieo_oficina:  ieo_of,
-    ieo_campo:    ieo_ca,
-    complexidade: complexidade,
-    complexBadge: complexBadge,
-    complexCor:   complexCor,
-    riscos:       riscos,
-    peso_total:   r.peso_total || 0,
-    nPecas:       nPecas,
-    dias_total:   (r.dias_inst || 0) + (r.dias_mont || 0) + (r.dias_ped || 0)
-  };
-}
-
-/**
- * Renderiza o painel operacional no elemento `rOper`.
- * Cria o elemento dinamicamente se não existir (compatibilidade com HTML antigo).
- */
-function _renderPainelOperacional(r, sel) {
-  var op = _calcOperacional(r, sel);
-
-  // Salvar no tumResult para agenda/KPI/planejamento
-  r.operacional = op;
-
-  // Encontrar ou criar o elemento rOper
-  var el = document.getElementById('rOper');
-  if (!el) {
-    // Fallback: injetar após rGrid se o template não tem rOper
-    var rGrid = document.getElementById('rGrid');
-    if (!rGrid || !rGrid.parentNode) return;
-    el = document.createElement('div');
-    el.id = 'rOper';
-    el.style.marginBottom = '12px';
-    rGrid.parentNode.insertBefore(el, rGrid.nextSibling);
-  }
-  el.style.display = 'block';
-
-  // ── Barra de progresso ──────────────────────────────────────────────────
-  function _barra(val, max, cor) {
-    var pct = Math.min(100, Math.round((val / max) * 100));
-    return '<div style="background:var(--s3);border-radius:4px;height:7px;overflow:hidden;margin-top:4px">'
-      + '<div style="width:' + pct + '%;height:100%;background:' + cor + ';border-radius:4px;transition:width .4s"></div>'
-      + '</div>';
-  }
-
-  // ── Badge de complexidade ───────────────────────────────────────────────
-  var html = '<div class="card" style="margin-bottom:0">'
-    + '<div class="card-head" style="justify-content:space-between">'
-    + '<span class="card-title">⚙️ Painel Operacional</span>'
-    + '<span style="font-size:.75rem;font-weight:700;color:' + op.complexCor + '">'
-    + op.complexBadge + ' ' + op.complexidade
-    + '</span>'
-    + '</div>'
-    + '<div class="card-body">';
-
-  // ── IEO Grid ────────────────────────────────────────────────────────────
-  var IEO_MAX = 40;
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
-
-  // IEO Total
-  html += '<div style="background:var(--s3);border-radius:10px;padding:10px 12px">'
-    + '<div style="font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:2px">IEO Total</div>'
-    + '<div style="font-size:1.3rem;font-weight:900;color:' + op.complexCor + '">' + op.ieo_total + '</div>'
-    + '<div style="font-size:.62rem;color:var(--t4)">pontos</div>'
-    + _barra(op.ieo_total, IEO_MAX, op.complexCor)
-    + '</div>';
-
-  // IEO Oficina
-  html += '<div style="background:var(--s3);border-radius:10px;padding:10px 12px">'
-    + '<div style="font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:2px">Carga Oficina</div>'
-    + '<div style="font-size:1.3rem;font-weight:900;color:var(--gold)">' + op.ieo_oficina + '</div>'
-    + '<div style="font-size:.62rem;color:var(--t4)">' + op.nPecas + ' peças · ' + r.m2_total.toFixed(2) + ' m²</div>'
-    + _barra(op.ieo_oficina, IEO_MAX * 0.6, '#c9a84c')
-    + '</div>';
-
-  // IEO Campo
-  html += '<div style="background:var(--s3);border-radius:10px;padding:10px 12px">'
-    + '<div style="font-size:.55rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:2px">Carga Campo</div>'
-    + '<div style="font-size:1.3rem;font-weight:900;color:var(--blu)">' + op.ieo_campo + '</div>'
-    + '<div style="font-size:.62rem;color:var(--t4)">' + op.dias_total + ' dias úteis</div>'
-    + _barra(op.ieo_campo, IEO_MAX * 0.7, '#4a80b5')
-    + '</div>';
-
-  html += '</div>'; // fecha IEO grid
-
-  // ── Peso operacional e detalhes ─────────────────────────────────────────
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
-
-  html += '<div style="background:var(--s3);border-radius:8px;padding:7px 12px;font-size:.72rem;color:var(--t2)">'
-    + '⚖️ <strong style="color:var(--tx)">' + Math.round(op.peso_total) + ' kg</strong> peso pedra'
-    + '</div>';
-
-  html += '<div style="background:var(--s3);border-radius:8px;padding:7px 12px;font-size:.72rem;color:var(--t2)">'
-    + '🧱 <strong style="color:var(--tx)">' + op.nPecas + '</strong> peça' + (op.nPecas !== 1 ? 's' : '')
-    + '</div>';
-
-  if (r.ml_rebaixo > 0) {
-    html += '<div style="background:var(--s3);border-radius:8px;padding:7px 12px;font-size:.72rem;color:var(--t2)">'
-      + '🔧 <strong style="color:var(--gold)">' + r.ml_rebaixo.toFixed(1) + ' ml</strong> usinagem'
-      + '</div>';
-  }
-
-  if (r.dias_ped > 0) {
-    html += '<div style="background:var(--s3);border-radius:8px;padding:7px 12px;font-size:.72rem;color:var(--t2)">'
-      + '🏗️ <strong style="color:var(--tx)">' + r.dias_ped + 'd</strong> obra civil'
-      + '</div>';
-  }
-
-  html += '</div>'; // fecha pill row
-
-  // ── Alertas de risco ────────────────────────────────────────────────────
-  if (op.riscos.length > 0) {
-    html += '<div style="border-top:1px solid var(--bd);padding-top:10px">';
-    op.riscos.forEach(function(rc) {
-      var bg = rc.nivel === 'critico' ? 'rgba(201,68,68,.12)'
-             : rc.nivel === 'alto'    ? 'rgba(217,119,6,.1)'
-             : 'rgba(74,128,181,.1)';
-      var border = rc.nivel === 'critico' ? '#c94444'
-                 : rc.nivel === 'alto'    ? '#d97706'
-                 : '#4a80b5';
-      html += '<div style="background:' + bg + ';border-left:3px solid ' + border + ';'
-        + 'border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:6px;font-size:.72rem;color:var(--tx)">'
-        + rc.msg + '</div>';
-    });
-    html += '</div>';
-  }
-
-  html += '</div></div>'; // fecha card-body e card
-
-  el.innerHTML = html;
-}
-
-// Expor para uso externo (agenda, KPI, planejamento)
-window._calcOperacional = _calcOperacional;
-
-// =============================================================
-// _IEO_CAT -- Categoria operacional funeraria
-// Registra "Funerario" no catalogo de categorias do ERP
-// para dashboards, KPI e carga semanal.
-// =============================================================
-(function() {
-  if (!window._IEO_CAT) window._IEO_CAT = {};
-  window._IEO_CAT['Funerario'] = {
-    id:          'funerario',
-    label:       'Funer\u00e1rio',
-    icon:        '\u26b0',
-    cor:         '#7c5cbf',
-    cor_campo:   '#4a80b5',
-    cor_oficina: '#c9a84c',
-    alertas: {
-      ieo_ca_alto:       18,
-      ieo_of_alto:       16,
-      ieo_total_critico: 30
-    }
-  };
-})();
-
-// =============================================================
-// _tumFunerarioBadge(tumResult)
-// HTML do badge Funerario para agenda semanal.
-// =============================================================
-function _tumFunerarioBadge(tumResult) {
-  if (!tumResult) return '';
-  var tr      = tumResult;
-  var ieo     = +(tr.ieo    || 0);
-  var ieo_of  = +(tr.ieo_of || 0);
-  var ieo_ca  = +(tr.ieo_ca || 0);
-  var badge   = tr.complexBadge || '\u26b0';
-  var complex = tr.complexidade || '';
-  var cat     = window._IEO_CAT && window._IEO_CAT['Funerario'];
-  var corPrin = (cat && cat.cor) || '#7c5cbf';
-
-  var html = '<div style="display:inline-flex;align-items:center;gap:5px;'
-    + 'background:rgba(124,92,191,.1);border:1px solid rgba(124,92,191,.3);'
-    + 'border-radius:8px;padding:3px 8px;font-size:.68rem;margin-top:4px">'
-    + '<span style="font-size:.85rem">\u26b0</span>'
-    + '<span style="font-weight:700;color:' + corPrin + '">Funer\u00e1rio</span>'
-    + (badge   ? '<span style="font-size:.8rem">'  + badge   + '</span>' : '')
-    + (complex ? '<span style="color:var(--t3);">' + complex + '</span>' : '')
-    + '</div>';
-
-  if (ieo > 0) {
-    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:3px">';
-    html += '<span style="font-size:.62rem;background:rgba(201,168,76,.1);border-radius:5px;padding:2px 6px;color:#c9a84c">'
-      + '\ud83c\udfed Of ' + ieo_of.toFixed(1) + '</span>';
-    html += '<span style="font-size:.62rem;background:rgba(74,128,181,.1);border-radius:5px;padding:2px 6px;color:#4a80b5">'
-      + '\ud83d\ude9b Ca ' + ieo_ca.toFixed(1) + '</span>';
-    html += '<span style="font-size:.62rem;background:rgba(124,92,191,.1);border-radius:5px;padding:2px 6px;color:' + corPrin + '">'
-      + 'IEO ' + ieo.toFixed(1) + '</span>';
-    html += '</div>';
-  }
-  return html;
-}
-window._tumFunerarioBadge = _tumFunerarioBadge;
-
-// =============================================================
-// _tumFunerarioAlertas(tumResult)
-// Array de alertas operacionais para calcSemana() / renderAgenda().
-// =============================================================
-function _tumFunerarioAlertas(tumResult) {
-  if (!tumResult) return [];
-  var alertas = [];
-  var cat = (window._IEO_CAT && window._IEO_CAT['Funerario']) || {};
-  var lim = cat.alertas || { ieo_ca_alto:18, ieo_of_alto:16, ieo_total_critico:30 };
-  var ieo    = +(tumResult.ieo    || 0);
-  var ieo_ca = +(tumResult.ieo_ca || 0);
-  var ieo_of = +(tumResult.ieo_of || 0);
-
-  if (ieo_ca >= lim.ieo_ca_alto) {
-    alertas.push({
-      nivel:  'alto',
-      tipo:   'campo',
-      msg:    '\u26a0 Equipe de campo sobrecarregada (IEO Campo: ' + ieo_ca.toFixed(1) + ')',
-      ieo_ca: ieo_ca
-    });
-  }
-  if (ieo_of >= lim.ieo_of_alto) {
-    alertas.push({
-      nivel:  'alto',
-      tipo:   'oficina',
-      msg:    '\u26a0 Oficina sobrecarregada (IEO Oficina: ' + ieo_of.toFixed(1) + ')',
-      ieo_of: ieo_of
-    });
-  }
-  if (ieo >= lim.ieo_total_critico) {
-    alertas.push({
-      nivel: 'critico',
-      tipo:  'geral',
-      msg:   '\ud83d\udd34 Job funer\u00e1rio cr\u00edtico (IEO: ' + ieo.toFixed(1) + ')',
-      ieo:   ieo
-    });
-  }
-  return alertas;
-}
-window._tumFunerarioAlertas = _tumFunerarioAlertas;
-
-// =============================================================
-// _tumFunerarioContribSemana(tumResult)
-// Contribuicao do job para calcSemana():
-//   { ieo_of, ieo_ca, ieo_total, dias_total, categoria }
-// =============================================================
-function _tumFunerarioContribSemana(tumResult) {
-  if (!tumResult) return null;
-  return {
-    ieo_of:       +(tumResult.ieo_of  || 0),
-    ieo_ca:       +(tumResult.ieo_ca  || 0),
-    ieo_total:    +(tumResult.ieo     || 0),
-    dias_total:   +(tumResult.prazo_total || 0),
-    complexidade:  tumResult.complexidade || '',
-    categoria:    'Funer\u00e1rio'
-  };
-}
-window._tumFunerarioContribSemana = _tumFunerarioContribSemana;
-
 
 // ═══════════════════════════════════════════════════════
 // EXPOR API PÚBLICA

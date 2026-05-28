@@ -1435,6 +1435,8 @@ function calcular(){
         if(sfaM2>0){
           var sfaPr=getPr(it.k);
           var sfaMo=sfaM2*sfaPr;
+          // CORRECAO ERRO 1: acumula a area de pedra corretamente no total do ambiente
+          m2+=sfaM2;
           if(sfaMo>0){
             acT+=sfaMo;
             acL.push({l:it.l+' ('+sfaM2.toFixed(3)+'m²)',v:sfaMo});
@@ -1478,6 +1480,12 @@ function calcular(){
       if(val>0){acT+=val;acL.push({l:label,v:val});}
       acN.push(label);
     });
+
+    // CORRECAO ERRO 6: aplica perda de corte para Túmulo e Capela (igual ao módulo avançado)
+    if(tipo==='Túmulo'||tipo==='Tumulo'||tipo==='⛪ Capela'||tipo==='Capela'){
+      var _perdaPerc=(amb.perdaCorte!=null?amb.perdaCorte:15)/100;
+      m2=Math.round(m2*(1+_perdaPerc)*1000)/1000;
+    }
 
     var pedTamb=m2*ambMat.pr;
     // Custo da pedra: tenta ambMat.custo, depois DEF_STONES, depois 0
