@@ -110,7 +110,38 @@ function togQCard(id) {
   if(el) el.classList.toggle('open');
 }
 
-function orcEditar(id, e){orcRefazer(id,e);}
+function orcEditar(id, e){
+  e.stopPropagation();
+  var q = DB.q.find(function(x){return x.id==id;});
+  if(!q) return;
+
+  // Detectar se é túmulo: flag q.tum OU ambSnap com tipo Túmulo
+  var isTumulo = q.tum
+    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
+
+  if(isTumulo){
+    var pendOrcTum = q.tumPendOrc
+      || (q.ambSnap && (function(){
+           var s = q.ambSnap.find(function(s){return s.tipo==='Túmulo' && s.tumPendOrc;});
+           return s ? s.tumPendOrc : null;
+         })());
+
+    if(pendOrcTum && typeof window._TI_preencherCliente === 'function'){
+      orcRefazer(id, e);
+      setTimeout(function(){
+        window._TI_preencherCliente(pendOrcTum);
+        toast('✓ Túmulo carregado — ajuste e recalcule!');
+      }, 400);
+      return;
+    }
+
+    orcRefazer(id, e);
+    toast('⚠️ Orçamento antigo — configure as medidas e recalcule');
+    return;
+  }
+
+  orcRefazer(id, e);
+}
 
 function orcRefazer(id, e) {
   e.stopPropagation();
@@ -135,16 +166,23 @@ function orcRefazer(id, e) {
     // Orçamento novo: tem snapshot completo dos ambientes
     q.ambSnap.forEach(function(snap,idx){
       var ambId=Date.now()+idx;
-      ambientes.push({
+      var snapMat = snap.selMat || (mat ? mat.id : null) || selMat || null;
+      var amb = {
         id:ambId,
         tipo:snap.tipo||'Cozinha',
-        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1};}),
+        pecas:snap.pecas.map(function(p){return {id:Date.now()+Math.random(),desc:p.desc||'',w:p.w||0,h:p.h||0,q:p.q||1,bordas:JSON.parse(JSON.stringify(p.bordas||{}))};}),
         selCuba:snap.selCuba||null,
         svState:JSON.parse(JSON.stringify(snap.svState||{})),
         acState:JSON.parse(JSON.stringify(snap.acState||{})),
         tumExtra:snap.tumExtra?JSON.parse(JSON.stringify(snap.tumExtra)):null,
-        selMat:snap.selMat||mat.id||null
-      });
+        selMat:snapMat
+      };
+      // Restaurar dados do motor inline para Túmulos
+      if(snap.tipo==='Túmulo'){
+        if(snap.tumResult)  amb.tumResult  = JSON.parse(JSON.stringify(snap.tumResult));
+        if(snap.tumPendOrc) amb.tumPendOrc = JSON.parse(JSON.stringify(snap.tumPendOrc));
+      }
+      ambientes.push(amb);
     });
   } else {
     // Orçamento antigo: reconstruir do que temos
@@ -167,6 +205,26 @@ function orcRefazer(id, e) {
   if(!ambientes.length)addAmbiente();
 
   renderAmbientes();
+
+  // ── Restaurar motor inline de Túmulos após renderAmbientes ───────
+  setTimeout(function(){
+    ambientes.forEach(function(a){
+      if(a.tipo==='Túmulo' && a.tumPendOrc && typeof window._TI_preencherCliente==='function'){
+        window._TI_preencherCliente(a.tumPendOrc);
+      }
+    });
+  }, 300);
+
+  // ── Restaura taxa de urgência do orçamento salvo ─────────────────
+  var urgRestored = q.urgPct || 0;
+  window._urgPct = urgRestored;
+  document.querySelectorAll('[data-upct]').forEach(function(b){
+    b.classList.toggle('on', +b.dataset.upct === urgRestored);
+  });
+  var urgHintEl = document.getElementById('urgPctHint');
+  var _urgHintsLocal = {0:'Prazo padrão',10:'Prioridade moderada — entra antes de 1 serviço',20:'Alta prioridade — reorganização da fila',30:'Máxima urgência — início imediato'};
+  if(urgHintEl) urgHintEl.textContent = _urgHintsLocal[urgRestored] || '+' + urgRestored + '% sobre o valor';
+
   go(0);
   setTimeout(function(){document.getElementById('pg0').scrollTop=0;},100);
   toast('✓ Orçamento carregado! Edite e recalcule.');
@@ -191,6 +249,17 @@ function orcPDF(id, e) {
   e.stopPropagation();
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
+  // Detectar orçamento de túmulo: flag q.tum ou ambSnap com tipo Túmulo
+  var isTumulo = q.tum
+    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
+  if(isTumulo){
+    if(typeof gerarPDFTumulo === 'function'){
+      gerarPDFTumulo(q);
+    } else {
+      toast('⚠️ Função de PDF de túmulo não encontrada');
+    }
+    return;
+  }
   pendQ = q;
   gerarPDF();
 }

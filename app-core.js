@@ -6531,7 +6531,10 @@ function orcPDF(id, e) {
   e.stopPropagation();
   var q = DB.q.find(function(x) { return x.id == id; });
   if (!q) return;
-  if (q.tum) { gerarPDFTumulo(q); return; }
+  // Detectar orçamento de túmulo: flag q.tum OU ambSnap com tipo Túmulo
+  var isTumulo = q.tum
+    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
+  if (isTumulo) { gerarPDFTumulo(q); return; }
   pendQ = q;
   gerarPDF();
 }
