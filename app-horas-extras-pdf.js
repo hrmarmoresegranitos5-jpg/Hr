@@ -1,7 +1,16 @@
 // ═══════════════════════════════════════════════════════════════════
-//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS + PDF  v2.0
+//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS + PDF  v2.1 (CORRIGIDO)
 //  Arquivo: app-horas-extras-pdf.js
 //  Depende de: app-funcionarios.js (HR_FUNC), jsPDF (carregado via CDN)
+//
+//  CORREÇÕES v2.1:
+//  ✔ Bug 1: Horas com destinoExtra='banco' excluídas do total a pagar
+//  ✔ Bug 2: tipoExtra='domingo' agora usa multiplicador ×2.0 (HE100)
+//           em vez de cair no ×1.5 incorretamente
+//  ✔ Bug 3: Delega para HR_IMPORT.calcSaldoHE (motor unificado) quando
+//           disponível; fallback interno corrigido se não estiver
+//  ✔ Melhoria: banco de horas exibido separado (informativo) na tabela
+//              e no PDF, sem entrar no valor a pagar
 // ═══════════════════════════════════════════════════════════════════
 
 (function () {
@@ -15,6 +24,7 @@
   var T1     = 'var(--t1,#eee)';
   var T2     = 'var(--t2,#bbb)';
   var T3     = 'var(--t3,#888)';
+  var BLUE   = '#8ec8f0';
 
   // ── Helpers ─────────────────────────────────────────────────────
   function _toast(msg) {
@@ -66,11 +76,8 @@
     return ov;
   }
 
-  // ── Acesso aos dados via HR_FUNC ou localStorage direto ─────────
+  // ── Acesso aos dados ─────────────────────────────────────────────
   function _getFuncionarios() {
-    if (typeof HR_FUNC !== 'undefined') {
-      // Acessa via localStorage diretamente (HR_FUNC não expõe getter público)
-    }
     try { return JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); }
     catch (e) { return {}; }
   }
@@ -85,18 +92,66 @@
     catch (e) { return {}; }
   }
 
-  // ── Multiplicadores de hora extra (lê de CFG ou usa padrão) ────
+  // ── Multiplicadores de hora extra (lê de CFG ou usa padrão CLT) ──
   function _getMultiplicadores() {
-    var def = { normal: 1.5, feriado: 2.0, especial: 3.0 };
+    var def = { normal: 1.5, domingo: 2.0, feriado: 2.0, especial: 3.0 };
     try {
-      if (typeof CFG !== 'undefined' && CFG && CFG.he) return CFG.he;
+      if (typeof CFG !== 'undefined' && CFG && CFG.he) {
+        // Garante que o campo 'domingo' exista (pode faltar em CFGs antigas)
+        var he = CFG.he;
+        return {
+          normal:   parseFloat(he.normal)   || def.normal,
+          domingo:  parseFloat(he.domingo)  || def.domingo,
+          feriado:  parseFloat(he.feriado)  || def.feriado,
+          especial: parseFloat(he.especial) || def.especial
+        };
+      }
       var stored = JSON.parse(localStorage.getItem('cfg') || '{}');
-      if (stored.he) return stored.he;
+      if (stored.he) {
+        return {
+          normal:   parseFloat(stored.he.normal)   || def.normal,
+          domingo:  parseFloat(stored.he.domingo)  || def.domingo,
+          feriado:  parseFloat(stored.he.feriado)  || def.feriado,
+          especial: parseFloat(stored.he.especial) || def.especial
+        };
+      }
     } catch (e) {}
     return def;
   }
 
-  // ── Cálculo de horas extras por funcionário num período ─────────
+  // ── Rótulo legível do tipo de HE ─────────────────────────────────
+  function _labelTipoHE(tipo, destinoExtra) {
+    if (destinoExtra === 'banco') return '🏦 Banco';
+    switch ((tipo || 'normal').toLowerCase()) {
+      case 'feriado':  return '🗓️ Feriado (×2)';
+      case 'especial': return '⭐ Especial (×3)';
+      case 'domingo':  return '☀️ Domingo (×2)';
+      default:         return '⚡ Normal (×1,5)';
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  CÁLCULO PRINCIPAL — _calcularHorasExtras
+  //
+  //  Delega para HR_IMPORT.calcSaldoHE (motor unificado) quando
+  //  disponível. Caso contrário usa fallback interno CORRIGIDO.
+  //
+  //  Retorna:
+  //   {
+  //     func, salario, valorHoraBase, valorHoraNormal,
+  //     registrosPagar   — registros a pagar (destinoExtra !== 'banco')
+  //     registrosBanco   — registros do banco (apenas informativos)
+  //     totalHorasExtra  — horas a PAGAR (banco excluído)
+  //     totalHorasBanco  — horas no banco (informativo)
+  //     totalValorExtra  — valor total a pagar (banco excluído)
+  //     totalPago        — pagamentos já efetuados no período
+  //     saldo            — totalValorExtra − totalPago
+  //     // Breakdown por faixa (disponível quando HR_IMPORT presente)
+  //     totalHE50h, valorHE50,
+  //     totalHE100h, valorHE100,
+  //     totalHE200h, valorHE200
+  //   }
+  // ════════════════════════════════════════════════════════════════
   function _calcularHorasExtras(funcId, inicio, fim) {
     var funcs = _getFuncionarios();
     var regs  = _getRegistros();
@@ -105,34 +160,101 @@
 
     var f = funcs[funcId] || {};
     var salario = parseFloat(f.salario) || 0;
-    var valorHoraBase    =  salario / 220;                // R$/h sem adicional
-    var valorHoraNormal  = valorHoraBase * mult.normal;   // ex: ×1.5
-    var valorHoraFeriado = valorHoraBase * mult.feriado;  // ex: ×2.0
-    var valorHoraEspecial= valorHoraBase * mult.especial; // ex: ×3.0
 
-    var lista = Object.values(regs).filter(function (r) {
+    // Valor/hora real (considera jornada configurada do funcionário)
+    var refMes = (inicio || new Date().toISOString()).slice(0, 7);
+    var valorHoraBase;
+    if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function') {
+      valorHoraBase = HR_IMPORT.calcValorHoraReal(f, refMes);
+    } else {
+      valorHoraBase = salario / 220; // fallback CLT 220h
+    }
+
+    // ── Separar registros: a pagar × banco ──────────────────────
+    var todosComExtra = Object.values(regs).filter(function (r) {
       if (r.funcionarioId !== funcId) return false;
       if (inicio && r.data < inicio) return false;
       if (fim    && r.data > fim)    return false;
       return parseFloat(r.extra) > 0;
     }).sort(function (a, b) { return a.data.localeCompare(b.data); });
 
-    var totalHorasExtra = 0;
-    var totalValorExtra = 0;
-
-    lista.forEach(function (r) {
-      var hExtra = parseFloat(r.extra) || 0;
-      var tipo   = (r.tipoExtra || 'normal').toLowerCase();
-      var valorH = tipo === 'feriado'  ? valorHoraFeriado
-                 : tipo === 'especial' ? valorHoraEspecial
-                 : valorHoraNormal;
-      r._valorHoraUsado = valorH;
-      r._valorTotalExtra = hExtra * valorH;
-      totalHorasExtra += hExtra;
-      totalValorExtra += r._valorTotalExtra;
+    // BUG 1 CORRIGIDO: separa banco de horas antes de calcular valores
+    var registrosPagar = todosComExtra.filter(function (r) {
+      return r.destinoExtra !== 'banco';
+    });
+    var registrosBanco = todosComExtra.filter(function (r) {
+      return r.destinoExtra === 'banco';
     });
 
-    // Pagamentos já efetuados no período
+    var totalHorasBanco = registrosBanco.reduce(function (s, r) {
+      return s + (parseFloat(r.extra) || 0);
+    }, 0);
+
+    // ── Motor de cálculo financeiro ──────────────────────────────
+    var totalHorasExtra = 0;
+    var totalValorExtra = 0;
+    var totalHE50h = 0, valorHE50 = 0;
+    var totalHE100h = 0, valorHE100 = 0;
+    var totalHE200h = 0, valorHE200 = 0;
+
+    if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcSaldoHE === 'function') {
+      // ── Caminho principal: motor unificado (mais preciso) ──────
+      var heResult = HR_IMPORT.calcSaldoHE(registrosPagar, f, refMes);
+      totalHE50h  = heResult.totalExtra50Min  / 60;
+      totalHE100h = heResult.totalExtra100Min / 60;
+      totalHE200h = heResult.totalExtra200Min / 60;
+      valorHE50   = heResult.valorExtra50;
+      valorHE100  = heResult.valorExtra100;
+      valorHE200  = heResult.valorExtra200;
+      totalHorasExtra = heResult.totalExtraHoras;
+      totalValorExtra = heResult.valorTotalExtras;
+
+      // Anota em cada registro o valor calculado (para a tabela/PDF)
+      registrosPagar.forEach(function (r) {
+        var hExtra = parseFloat(r.extra) || 0;
+        var tipo   = (r.tipoExtra || 'normal').toLowerCase();
+        var multR  = tipo === 'especial'              ? mult.especial
+                   : (tipo === 'feriado' || tipo === 'domingo') ? mult.feriado
+                   : mult.normal;
+        r._valorHoraUsado    = valorHoraBase * multR;
+        r._valorTotalExtra   = hExtra * r._valorHoraUsado;
+      });
+
+    } else {
+      // ── Fallback interno CORRIGIDO ────────────────────────────
+      var valorHoraNormal   = valorHoraBase * mult.normal;   // ×1.5
+      var valorHoraDomingo  = valorHoraBase * mult.domingo;  // ×2.0
+      var valorHoraFeriado  = valorHoraBase * mult.feriado;  // ×2.0
+      var valorHoraEspecial = valorHoraBase * mult.especial; // ×3.0
+
+      registrosPagar.forEach(function (r) {
+        var hExtra = parseFloat(r.extra) || 0;
+        var tipo   = (r.tipoExtra || 'normal').toLowerCase();
+
+        // BUG 2 CORRIGIDO: 'domingo' usa ×2.0 (HE100), não ×1.5
+        var valorH;
+        if      (tipo === 'especial') valorH = valorHoraEspecial;
+        else if (tipo === 'feriado')  valorH = valorHoraFeriado;
+        else if (tipo === 'domingo')  valorH = valorHoraDomingo; // ← CORRIGIDO
+        else                          valorH = valorHoraNormal;
+
+        r._valorHoraUsado  = valorH;
+        r._valorTotalExtra = hExtra * valorH;
+        totalHorasExtra   += hExtra;
+        totalValorExtra   += r._valorTotalExtra;
+
+        // Acumula breakdown por faixa
+        if (tipo === 'especial') {
+          totalHE200h += hExtra; valorHE200 += r._valorTotalExtra;
+        } else if (tipo === 'feriado' || tipo === 'domingo') {
+          totalHE100h += hExtra; valorHE100 += r._valorTotalExtra;
+        } else {
+          totalHE50h  += hExtra; valorHE50  += r._valorTotalExtra;
+        }
+      });
+    }
+
+    // ── Pagamentos já efetuados no período ───────────────────────
     var totalPago = Object.values(pags).filter(function (p) {
       if (p.funcionarioId !== funcId) return false;
       if (inicio && p.data < inicio) return false;
@@ -141,14 +263,25 @@
     }).reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
 
     return {
-      func:            f,
-      salario:         salario,
-      valorHoraNormal: valorHoraNormal,
-      registros:       lista,
-      totalHorasExtra: totalHorasExtra,
-      totalValorExtra: totalValorExtra,
-      totalPago:       totalPago,
-      saldo:           totalValorExtra - totalPago
+      func:             f,
+      salario:          salario,
+      valorHoraBase:    valorHoraBase,
+      valorHoraNormal:  valorHoraBase * mult.normal,
+      // Registros separados por destino
+      registrosPagar:   registrosPagar,
+      registrosBanco:   registrosBanco,
+      // Totais a PAGAR (banco excluído — BUG 1 corrigido)
+      totalHorasExtra:  totalHorasExtra,
+      totalValorExtra:  totalValorExtra,
+      // Banco (apenas informativo)
+      totalHorasBanco:  totalHorasBanco,
+      // Breakdown por faixa
+      totalHE50h: totalHE50h, valorHE50: valorHE50,
+      totalHE100h: totalHE100h, valorHE100: valorHE100,
+      totalHE200h: totalHE200h, valorHE200: valorHE200,
+      // Pagamentos
+      totalPago:        totalPago,
+      saldo:            totalValorExtra - totalPago
     };
   }
 
@@ -158,7 +291,7 @@
     return Object.values(funcs)
       .filter(function (f) { return f.ativo !== false; })
       .map(function (f) { return _calcularHorasExtras(f.id, inicio, fim); })
-      .filter(function (r) { return r.totalHorasExtra > 0; })
+      .filter(function (r) { return r.totalHorasExtra > 0 || r.totalHorasBanco > 0; })
       .sort(function (a, b) { return a.func.nome.localeCompare(b.func.nome); });
   }
 
@@ -197,6 +330,7 @@
     var resultados = _calcularTodos(_estado.inicio, _estado.fim);
     var totalGeralHoras = resultados.reduce(function (s, r) { return s + r.totalHorasExtra; }, 0);
     var totalGeralValor = resultados.reduce(function (s, r) { return s + r.totalValorExtra; }, 0);
+    var totalGeralBanco = resultados.reduce(function (s, r) { return s + r.totalHorasBanco; }, 0);
 
     // Filtra por funcionário se selecionado
     var exibir = _estado.funcId
@@ -214,7 +348,8 @@
               '<th style="text-align:left;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Funcionário</th>' +
               '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Salário Base</th>' +
               '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Valor/h</th>' +
-              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">H. Extras</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">H. a Pagar</th>' +
+              '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">🏦 Banco</th>' +
               '<th style="text-align:right;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">Total Extra</th>' +
               '<th style="text-align:center;padding:7px 8px;border-bottom:1px solid rgba(201,168,76,.2);">PDF</th>' +
             '</tr>' +
@@ -229,6 +364,9 @@
             '</td>' +
             '<td style="padding:9px 8px;text-align:right;font-weight:700;color:' + GOLD + ';font-size:.9rem;">' +
               r.totalHorasExtra.toFixed(2) + 'h' +
+            '</td>' +
+            '<td style="padding:9px 8px;text-align:right;color:' + BLUE + ';font-size:.82rem;">' +
+              (r.totalHorasBanco > 0 ? r.totalHorasBanco.toFixed(2) + 'h' : '—') +
             '</td>' +
             '<td style="padding:9px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.92rem;">' +
               _fmtMoeda(r.totalValorExtra) +
@@ -245,6 +383,7 @@
             '<tr style="background:rgba(201,168,76,.06);">' +
               '<td colspan="3" style="padding:10px 8px;font-size:.72rem;color:' + T3 + ';font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Total Geral</td>' +
               '<td style="padding:10px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.95rem;">' + totalGeralHoras.toFixed(2) + 'h</td>' +
+              '<td style="padding:10px 8px;text-align:right;color:' + BLUE + ';font-size:.85rem;">' + (totalGeralBanco > 0 ? totalGeralBanco.toFixed(2) + 'h' : '—') + '</td>' +
               '<td style="padding:10px 8px;text-align:right;font-weight:800;color:' + GOLD + ';font-size:.95rem;">' + _fmtMoeda(totalGeralValor) + '</td>' +
               '<td></td>' +
             '</tr>' +
@@ -253,8 +392,17 @@
       '</div>';
     }
 
+    // Aviso sobre banco de horas (se houver)
+    var avisobancoHtml = totalGeralBanco > 0
+      ? '<div style="background:rgba(142,200,240,.06);border:1px solid rgba(142,200,240,.25);border-radius:9px;' +
+          'padding:10px 13px;margin-bottom:12px;font-size:.74rem;color:' + BLUE + ';">' +
+          '🏦 <strong>' + totalGeralBanco.toFixed(2) + 'h</strong> registradas no banco de horas ' +
+          '<span style="color:' + T3 + ';">— não entram no valor a pagar</span>' +
+        '</div>'
+      : '';
+
     var html =
-      '<div style="width:100%;max-width:600px;padding:0 16px;">' +
+      '<div style="width:100%;max-width:640px;padding:0 16px;">' +
         // Cabeçalho
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">' +
           '<div>' +
@@ -290,6 +438,9 @@
             'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">🔍 Filtrar</button>' +
         '</div>' +
 
+        // Aviso banco de horas
+        avisobancoHtml +
+
         // Tabela
         '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:14px;">' +
           '<div style="font-size:.62rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Resultado</div>' +
@@ -297,7 +448,7 @@
         '</div>' +
 
         // Botão gerar todos
-        (exibir.length > 1
+        (exibir.filter(function(r){ return r.totalHorasExtra > 0; }).length > 1
           ? '<button onclick="window._heGerarTodosPDFs(\'' + _estado.inicio + '\',\'' + _estado.fim + '\')" ' +
               'style="width:100%;padding:14px;background:rgba(201,168,76,.1);' +
               'border:1.5px solid rgba(201,168,76,.4);color:' + GOLD + ';' +
@@ -359,9 +510,9 @@
     var empNome = (typeof CFG !== 'undefined' && CFG && CFG.emp) ? (CFG.emp.nome || 'HR Mármores e Granitos') : 'HR Mármores e Granitos';
     var empTel  = (typeof CFG !== 'undefined' && CFG && CFG.emp) ? (CFG.emp.tel  || '') : '';
 
-    var pW = 210;  // largura A4
-    var mL = 14;   // margem esquerda
-    var mR = 14;   // margem direita
+    var pW = 210;
+    var mL = 14;
+    var mR = 14;
     var cW = pW - mL - mR;
     var y  = 18;
 
@@ -405,32 +556,30 @@
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(180, 170, 150);
-    var cargo = f.cargo || 'Funcionário';
-    doc.text(cargo, mL + 5, y + 14);
+    doc.text(f.cargo || 'Funcionário', mL + 5, y + 14);
 
-    doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(150, 140, 120);
+    doc.setFont('helvetica', 'bold');
     doc.text('Salário base: ' + _fmtMoeda(f.salario), mL + 5, y + 20);
-    doc.text('Valor/h extra: ' + _fmtMoeda(dados.valorHoraNormal), mL + cW / 2, y + 20);
+    doc.text('Valor/h extra (50%): ' + _fmtMoeda(dados.valorHoraNormal), mL + cW / 2, y + 20);
 
     y += 34;
 
-    // ─── Título da tabela ─────────────────────────────────────────
+    // ─── Tabela de registros a pagar ──────────────────────────────
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(201, 168, 76);
-    doc.text('REGISTROS DE HORAS EXTRAS', mL, y);
+    doc.text('HORAS EXTRAS A PAGAR', mL, y);
     y += 5;
 
-    // ─── Header da tabela ─────────────────────────────────────────
     var cols = [
-      { label: 'Data',       x: mL,      w: 28 },
-      { label: 'Entrada',    x: mL + 28, w: 22 },
-      { label: 'Saída',      x: mL + 50, w: 22 },
-      { label: 'H. Extra',   x: mL + 72, w: 22 },
-      { label: 'Tipo',       x: mL + 94, w: 28 },
-      { label: 'Valor Extra',x: mL + 122,w: 60 }
+      { label: 'Data',        x: mL,       w: 28 },
+      { label: 'Entrada',     x: mL + 28,  w: 22 },
+      { label: 'Saída',       x: mL + 50,  w: 22 },
+      { label: 'H. Extra',    x: mL + 72,  w: 22 },
+      { label: 'Tipo',        x: mL + 94,  w: 36 },
+      { label: 'Valor Extra', x: mL + 130, w: 52 }
     ];
 
     doc.setFillColor(25, 20, 3);
@@ -438,58 +587,50 @@
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
     doc.setTextColor(201, 168, 76);
-    cols.forEach(function (c) {
-      doc.text(c.label, c.x + 2, y + 5.5);
-    });
+    cols.forEach(function (c) { doc.text(c.label, c.x + 2, y + 5.5); });
     y += 8;
 
-    // ─── Linhas da tabela ─────────────────────────────────────────
-    if (dados.registros.length === 0) {
+    if (dados.registrosPagar.length === 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(8);
       doc.setTextColor(150, 140, 120);
-      doc.text('Nenhuma hora extra registrada no período.', mL + 5, y + 7);
+      doc.text('Nenhuma hora extra a pagar no período.', mL + 5, y + 7);
       y += 14;
     } else {
       var linhaAlt = false;
-      dados.registros.forEach(function (r) {
-        if (y > 255) {
-          doc.addPage();
-          y = 18;
-        }
+      dados.registrosPagar.forEach(function (r) {
+        if (y > 255) { doc.addPage(); y = 18; }
         if (linhaAlt) {
           doc.setFillColor(18, 15, 2);
           doc.rect(mL, y, cW, 7, 'F');
         }
         linhaAlt = !linhaAlt;
 
-        var hExtra = parseFloat(r.extra) || 0;
-        var tipo   = r.tipoExtra || 'Normal';
+        var hExtra     = parseFloat(r.extra) || 0;
+        var labelTipo  = _labelTipoHE(r.tipoExtra, r.destinoExtra);
         var valorLinha = r._valorTotalExtra || (hExtra * dados.valorHoraNormal);
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(220, 215, 200);
-
-        doc.text(_fmtData(r.data),           cols[0].x + 2, y + 5);
-        doc.text(r.entrada || '—',           cols[1].x + 2, y + 5);
-        doc.text(r.saida   || '—',           cols[2].x + 2, y + 5);
+        doc.text(_fmtData(r.data),    cols[0].x + 2, y + 5);
+        doc.text(r.entrada || '—',    cols[1].x + 2, y + 5);
+        doc.text(r.saida   || '—',    cols[2].x + 2, y + 5);
 
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(201, 168, 76);
-        doc.text(hExtra.toFixed(2) + 'h',   cols[3].x + 2, y + 5);
+        doc.text(hExtra.toFixed(2) + 'h', cols[3].x + 2, y + 5);
 
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(180, 170, 150);
-        doc.text(tipo,                        cols[4].x + 2, y + 5);
+        doc.text(labelTipo, cols[4].x + 2, y + 5);
 
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(201, 168, 76);
-        doc.text(_fmtMoeda(valorLinha),       cols[5].x + cols[5].w - 3, y + 5, { align: 'right' });
+        doc.text(_fmtMoeda(valorLinha), cols[5].x + cols[5].w - 3, y + 5, { align: 'right' });
 
         y += 7;
 
-        // Produção / obs como sub-linha
         if (r.producao || r.observacao) {
           var sub = (r.producao ? '📦 ' + r.producao : '') +
                     (r.producao && r.observacao ? '  ' : '') +
@@ -497,13 +638,49 @@
           doc.setFont('helvetica', 'italic');
           doc.setFontSize(6.5);
           doc.setTextColor(130, 120, 100);
-          var subLines = doc.splitTextToSize(sub, cW - 6);
-          subLines.slice(0, 2).forEach(function (line) {
+          doc.splitTextToSize(sub, cW - 6).slice(0, 2).forEach(function (line) {
             doc.text(line, mL + 4, y + 3);
             y += 4;
           });
         }
       });
+    }
+
+    // ─── Banco de horas (informativo) ────────────────────────────
+    if (dados.registrosBanco.length > 0) {
+      y += 4;
+      if (y > 250) { doc.addPage(); y = 18; }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(142, 200, 240);
+      doc.text('🏦 BANCO DE HORAS (INFORMATIVO — NÃO ENTRA NO PAGAMENTO)', mL, y);
+      y += 5;
+
+      doc.setFillColor(10, 20, 30);
+      doc.rect(mL, y, cW, 7, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(142, 200, 240);
+      doc.text('Data', mL + 2, y + 5);
+      doc.text('H. no Banco', mL + 60, y + 5);
+      y += 7;
+
+      dados.registrosBanco.forEach(function (r) {
+        if (y > 255) { doc.addPage(); y = 18; }
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(142, 200, 240, 0.7);
+        doc.text(_fmtData(r.data), mL + 2, y + 5);
+        doc.text((parseFloat(r.extra) || 0).toFixed(2) + 'h', mL + 60, y + 5);
+        y += 6;
+      });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(142, 200, 240);
+      doc.text('Total no banco: ' + dados.totalHorasBanco.toFixed(2) + 'h', mL + 2, y + 5);
+      y += 10;
     }
 
     // ─── Linha separadora ─────────────────────────────────────────
@@ -514,7 +691,7 @@
     y += 6;
 
     // ─── Resumo financeiro ────────────────────────────────────────
-    function _resumoLinha(label, valor, isTotal) {
+    function _resumoLinha(label, valor, isTotal, cor) {
       if (y > 265) { doc.addPage(); y = 18; }
       if (isTotal) {
         doc.setFillColor(30, 25, 3);
@@ -525,18 +702,27 @@
       } else {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
-        doc.setTextColor(170, 160, 140);
+        if (cor) {
+          var rgb = cor === 'blue' ? [142, 200, 240] : [170, 160, 140];
+          doc.setTextColor(rgb[0], rgb[1], rgb[2]);
+        } else {
+          doc.setTextColor(170, 160, 140);
+        }
       }
       doc.text(label, mL + 5, y + 2);
-      if (isTotal) {
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(201, 168, 76);
-      }
       doc.text(valor, pW - mR - 5, y + 2, { align: 'right' });
       y += isTotal ? 12 : 7;
     }
 
-    _resumoLinha('Total de Horas Extras', dados.totalHorasExtra.toFixed(2) + ' h');
+    // Breakdown por faixa (quando disponível)
+    if (dados.totalHE50h > 0)  _resumoLinha('HE Normal (×1,5) — ' + dados.totalHE50h.toFixed(2) + 'h',  _fmtMoeda(dados.valorHE50));
+    if (dados.totalHE100h > 0) _resumoLinha('HE Dom/Feriado (×2,0) — ' + dados.totalHE100h.toFixed(2) + 'h', _fmtMoeda(dados.valorHE100));
+    if (dados.totalHE200h > 0) _resumoLinha('HE Especial (×3,0) — ' + dados.totalHE200h.toFixed(2) + 'h',    _fmtMoeda(dados.valorHE200));
+
+    _resumoLinha('Total de Horas Extras a Pagar', dados.totalHorasExtra.toFixed(2) + ' h');
+    if (dados.totalHorasBanco > 0) {
+      _resumoLinha('🏦 Banco de Horas (não pago)', dados.totalHorasBanco.toFixed(2) + ' h', false, 'blue');
+    }
     _resumoLinha('Valor das Horas Extras', _fmtMoeda(dados.totalValorExtra));
     if (dados.totalPago > 0) {
       _resumoLinha('Já Pago', '− ' + _fmtMoeda(dados.totalPago));
@@ -566,9 +752,11 @@
   window._heGerarTodosPDFs = function (inicio, fim) {
     _toast('⏳ Gerando PDFs de todos os funcionários...');
     _carregarJsPDF(function (JsPDF) {
-      var resultados = _calcularTodos(inicio, fim);
+      var resultados = _calcularTodos(inicio, fim).filter(function(r){
+        return r.totalHorasExtra > 0;
+      });
       if (resultados.length === 0) {
-        _toast('Nenhum funcionário com horas extras no período.');
+        _toast('Nenhum funcionário com horas extras a pagar no período.');
         return;
       }
       var idx = 0;
@@ -590,6 +778,6 @@
   // ── Expõe a função principal globalmente ────────────────────────
   window.abrirRelatorioHorasExtras = abrirRelatorioHorasExtras;
 
-  console.log('[app-horas-extras-pdf.js v2] ✓ Relatório de Horas Extras carregado');
+  console.log('[app-horas-extras-pdf.js v2.1] ✓ Carregado — Bugs 1/2/3 corrigidos');
 
 })();
