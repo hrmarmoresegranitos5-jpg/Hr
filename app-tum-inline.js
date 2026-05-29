@@ -2961,192 +2961,313 @@ function gerarPrintArea(o,r){
   if(SELR.opts.jarro&&r.nJarros>0)ex.push({i:'🏺',l:'Jarros',v:r.nJarros+' par(es)'});
   if(SELR.rebaixo&&SELR.rebaixo.lajeVedante&&r.m2_laje_ved>0)ex.push({i:'🧱',l:'Laje Vedante',v:(SELR.rebaixo.lajeInteira?'1 laje inteira':td.nTotal+' lajes')+' — '+r.m2_laje_ved.toFixed(3)+' m²'});
   if(SELR.rebaixo&&SELR.rebaixo.usinagem&&r.ml_rebaixo>0)ex.push({i:'🔧',l:'Usinagem Rebaixo',v:r.ml_rebaixo.toFixed(2)+' ml'});
-  // ── PAGE 1 ──────────────────────────────────────────────────────────────
-  var p1='';
-  p1+='<div style="height:5px;background:linear-gradient(90deg,#3a2500,#C9A84C,#E8C96A,#C9A84C,#3a2500)"></div>';
-  p1+='<div style="background:#0f0c00;padding:20px 28px;display:flex;justify-content:space-between;align-items:flex-start">';
-  p1+='<div><div style="font-size:22px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'HR Mármores e Granitos')+'</div>';
-  p1+='<div style="font-size:7px;letter-spacing:3px;color:rgba(201,168,76,.4);margin-top:3px">MÁRMORE · GRANITO · QUARTZITO</div></div>';
-  p1+='<div style="text-align:right">';
-  if(emp.end)p1+='<div style="font-size:9.5px;color:rgba(201,168,76,.85);font-weight:700">'+esc(emp.end)+'</div>';
-  if(emp.cidade)p1+='<div style="font-size:9px;color:rgba(255,255,255,.3)">'+esc(emp.cidade)+'</div>';
-  if(emp.tel)p1+='<div style="font-size:10.5px;color:rgba(201,168,76,.9);font-weight:700;margin-top:3px">'+esc(emp.tel)+'</div>';
-  if(emp.cnpj)p1+='<div style="font-size:7.5px;color:rgba(255,255,255,.15);margin-top:2px">CNPJ: '+esc(emp.cnpj)+'</div>';
-  p1+='</div></div>';
-  // Badge
-  p1+='<div style="background:#f7f2e8;border-bottom:2.5px solid #C9A84C;padding:9px 28px;display:flex;justify-content:space-between;align-items:center">';
-  p1+='<div style="display:flex;align-items:center;gap:10px"><div style="background:#0f0c00;color:#C9A84C;font-size:7px;font-weight:900;padding:5px 14px;border-radius:20px;letter-spacing:2px;border:1px solid rgba(201,168,76,.4)">⚱️ ORÇAMENTO</div>';
-  p1+='<div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:4px 10px;border-radius:5px">'+esc(orcNum)+'</div></div>';
-  p1+='<div style="font-size:9.5px;color:#666"><strong style="color:#5a3800">EMISSÃO:</strong> '+esc(o.date||'')+'&nbsp;&nbsp;|&nbsp;&nbsp;Validade: 7 dias</div></div>';
-  // Body
-  p1+='<div style="padding:18px 28px 16px">';
-  // Cliente + foto
-  p1+=sh('Cliente');
-  p1+='<div style="display:flex;gap:12px;margin-bottom:16px;align-items:stretch">';
-  p1+='<div style="flex:1;background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 16px">';
-  p1+='<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#b09050;font-weight:900;margin-bottom:4px">NOME DO CLIENTE</div>';
-  p1+='<div style="font-size:19px;font-weight:900;color:#1a1a1a;margin-bottom:5px">'+esc(o.cli||'—')+'</div>';
-  if(Array.isArray(o.fal))o.fal.forEach(function(f){if(!f.nome)return;p1+='<div style="font-size:10px;color:#777;margin-top:3px">⚰️ <strong>'+esc(f.nome)+'</strong>'+(f.nasc||f.obit?' ('+esc(f.nasc||'?')+' – '+esc(f.obit||'?')+')':'')+'</div>';if(f.frase)p1+='<div style="font-size:9px;color:#999;font-style:italic">&#8220;'+esc(f.frase)+'&#8221;</div>';});
-  if(o.cemi)p1+='<div style="font-size:10px;color:#777;margin-top:3px">🏛 '+esc(o.cemi)+(o.cid?' — '+esc(o.cid):'')+'</div>';
-  if(o.quad||o.lote)p1+='<div style="font-size:10px;color:#777;margin-top:2px">📌 Quadra: '+esc(o.quad||'—')+' · Lote: '+esc(o.lote||'—')+'</div>';
-  p1+='</div>';
-  if(_tumFotoOrc){p1+='<div style="width:200px;flex-shrink:0;border-radius:10px;overflow:hidden;border:2px solid #C9A84C"><img src="'+_tumFotoOrc+'" style="width:100%;height:100%;object-fit:cover;display:block"></div>';}
-  else{p1+='<div style="background:#0f0c00;border:1px solid rgba(201,168,76,.4);border-radius:10px;padding:13px 16px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-width:130px"><div style="font-size:28px;margin-bottom:6px">⚰️</div><div style="font-size:14px;font-weight:900;color:#C9A84C">Túmulo</div><div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:5px">'+d.C_cm+' × '+d.L_cm+' × '+(r.A*100).toFixed(0)+' cm</div></div>';}
-  p1+='</div>';
-  // Specs
-  p1+=sh('Especificações Técnicas');
-  var specs=[{l:'DIMENSÃO EXTERNA',v:d.C_cm+' × '+d.L_cm+' cm'},{l:'ÁREA ÚTIL',v:d.CUtil_cm+' × '+d.LUtil_cm+' cm'},{l:'ALTURA TOTAL',v:(r.A*100).toFixed(0)+' cm'},{l:'COMPARTIMENTOS',v:d.N+(d.disp==='horizontal'?' (lado a lado)':d.N>0?' (empilhados)':'')},{l:'TIPO DE SERVIÇO',v:o.tipoServNm||'—'},{l:'ESPESSURA DA PEDRA',v:d.E+' cm'},{l:'ÁREA TOTAL PEDRA',v:r.m2_total.toFixed(3)+' m²'},{l:'PESO APROX.',v:Math.round(r.peso_total)+' kg'}];
-  p1+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:16px">';
-  specs.forEach(function(sp){p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:8px;padding:9px 11px"><div style="font-size:6px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:3px">'+sp.l+'</div><div style="font-size:12.5px;font-weight:700;color:#1a1a1a">'+sp.v+'</div></div>';});
-  p1+='</div>';
-  // Material
-  p1+=sh('Material Selecionado');
-  p1+='<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:10px;padding:13px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">';
-  p1+='<div><div style="font-size:7px;letter-spacing:2px;color:rgba(201,168,76,.5);font-weight:900;margin-bottom:4px">MATERIAL</div><div style="font-size:17px;font-weight:900;color:#C9A84C">'+esc(mat.nm||o.matNm||'—')+'</div>';
-  p1+='<div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:2px">'+(mat.cat||'')+((mat.cat&&(mat.fin||mat.pr))?' · ':'')+(mat.fin||'')+((mat.fin&&mat.pr)?' · ':'')+(mat.pr?'R$ '+mat.pr+'/m²':'')+'</div></div>';
-  p1+='<div style="text-align:right"><div style="font-size:7px;letter-spacing:1.5px;color:rgba(255,255,255,.3);font-weight:900;margin-bottom:3px">ACABAMENTO</div><div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.8)">'+esc(acab.nm||o.acabNm||'—')+'</div></div></div>';
-  // Extras
-  if(ex.length>0){
-    p1+=sh('Componentes e Acessórios');
-    p1+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:16px">';
-    ex.forEach(function(e2,i){var bg=i%2===0?'#fff':'#fdfaf3';p1+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;color:#1a1a1a">'+e2.i+' '+esc(e2.l)+'</span><span style="font-size:11px;color:#555">'+esc(e2.v)+'</span></div>';});
-    p1+='</div>';
+  // ── HELPERS ─────────────────────────────────────────────────────────────
+  function pg(id,content){return '<div id="'+id+'" style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;max-width:740px;margin:0 auto;page-break-after:always">'+content+'</div>';}
+  function hdr(title,orcN){
+    var h='';
+    h+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#E8C96A,#C9A84C,#3a2500)"></div>';
+    h+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center">';
+    h+='<div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'HR Mármores e Granitos')+'</div>';
+    h+='<div style="display:flex;gap:8px;align-items:center">';
+    if(title)h+='<div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px;text-transform:uppercase">'+title+'</div>';
+    h+='<div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcN)+'</div>';
+    h+='</div></div>';
+    return h;
   }
-  // ── Tabela de Peças e Dimensões (página 1) ──────────────────────────────
-  if(r.pecasCalc && r.pecasCalc.length > 0){
-    p1+=sh('Peças e Dimensões');
-    p1+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:16px">';
-    p1+='<table style="width:100%;border-collapse:collapse">';
-    p1+='<thead><tr style="background:#0f0c00">';
-    p1+='<th style="padding:7px 12px;text-align:left;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">PEÇA / DESCRIÇÃO</th>';
-    p1+='<th style="padding:7px 12px;text-align:center;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">DIMENSÕES</th>';
-    p1+='<th style="padding:7px 12px;text-align:right;font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">ÁREA m²</th>';
-    p1+='</tr></thead><tbody>';
-    r.pecasCalc.forEach(function(p3,i){
-      var bg=i%2===0?'#fff':'#faf6ef';
-      p1+='<tr>';
-      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11px;font-weight:700;color:#1a1a1a">'+esc(p3.nm)+'</td>';
-      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;color:#555;text-align:center">'+esc(p3.dim||'—')+'</td>';
-      p1+='<td style="padding:7px 12px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10.5px;text-align:right;font-weight:700;color:#5a3800">'+(p3.m2>0?p3.m2.toFixed(3)+' m²':'—')+'</td>';
-      p1+='</tr>';
-    });
-    p1+='<tr style="background:#0f0c00">';
-    p1+='<td colspan="2" style="padding:8px 12px;font-size:9px;font-weight:900;color:#C9A84C;letter-spacing:1px">TOTAL DE PEDRA</td>';
-    p1+='<td style="padding:8px 12px;text-align:right;font-size:11px;font-weight:900;color:#C9A84C">'+r.m2_total.toFixed(3)+' m²</td>';
-    p1+='</tr>';
-    p1+='</tbody></table></div>';
+  function subhdr(clienteNm,matNm,dt){
+    return '<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(clienteNm)+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+esc(matNm)+'</strong> &nbsp;·&nbsp; '+esc(dt)+'</span></div>';
   }
-  // Pricing
-  p1+=sh('Valores do Projeto');
-  var vista=r.valor_vista,parc=vista*(1+(CFG.juros||12)/100),pMes=parc/(CFG.parcMax||8),eco=parc-vista,ent=vista*0.5;
-  p1+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
-  p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 15px"><div style="font-size:6.5px;letter-spacing:1.5px;color:#9a7840;font-weight:900;text-transform:uppercase;margin-bottom:5px">PARCELADO</div><div style="font-size:18px;font-weight:900;color:#5a3a00">'+fv(parc)+'</div><div style="font-size:9.5px;color:#888;margin-top:2px">até '+(CFG.parcMax||8)+'× de '+fv(pMes)+'</div></div>';
-  p1+='<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:10px;padding:13px 15px;position:relative"><div style="position:absolute;top:8px;right:10px;background:#C9A84C;color:#000;font-size:6.5px;font-weight:900;padding:2px 8px;border-radius:3px">MELHOR OPÇÃO</div><div style="font-size:6.5px;letter-spacing:1.5px;color:rgba(201,168,76,.5);font-weight:900;text-transform:uppercase;margin-bottom:5px">A VISTA</div><div style="font-size:21px;font-weight:900;color:#C9A84C">'+fv(vista)+'</div><div style="font-size:9px;color:rgba(255,255,255,.3)">Valor final sem juros</div><div style="font-size:9px;color:#6aaa80;margin-top:2px">▼ Economia de '+fv(eco)+'</div></div>';
-  p1+='</div>';
-  p1+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
-  p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:11px 15px"><div style="font-size:6px;letter-spacing:1.5px;color:#9a7840;font-weight:900;text-transform:uppercase;margin-bottom:3px">ENTRADA — 50%</div><div style="font-size:17px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:2px">Na assinatura / medição</div></div>';
-  p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:11px 15px"><div style="font-size:6px;letter-spacing:1.5px;color:#9a7840;font-weight:900;text-transform:uppercase;margin-bottom:3px">NA ENTREGA — 50%</div><div style="font-size:17px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:2px">Na entrega / instalação</div></div>';
-  p1+='</div>';
-  // PRAZO REMOVIDO — não exibir dias no PDF
-  if(o.obs)p1+='<div style="background:#fffbf0;border-left:3px solid #C9A84C;padding:9px 13px;margin-bottom:12px;font-size:11px;color:#555;border-radius:0 8px 8px 0"><strong style="color:#7a4e00">Obs:</strong> '+esc(o.obs)+'</div>';
-  p1+='</div>';
-  p1+='<div style="background:#0f0c00;padding:9px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:9px;color:rgba(201,168,76,.55)">'+esc(emp.nome||'')+' · '+esc(emp.tel||'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.15)">CNPJ: '+esc(emp.cnpj||'—')+'</div></div>';
+  function ftr(pg_label){
+    return '<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)">'
+      +'<div style="font-size:9px;color:rgba(201,168,76,.55)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div>'
+      +'<div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · '+pg_label+'</div>'
+      +'</div>';
+  }
+  var vista=r.valor_vista, juros=CFG.juros||12, parcMax=CFG.parcMax||8;
+  var parc=vista*(1+juros/100), pMes=parc/parcMax, eco=parc-vista, ent=vista*0.5;
+  var matNmDisp=esc(mat.nm||o.matNm||'—');
+  var tipoJazNm=esc(o.tipoServNm||'—');
 
-  // ── PAGE 2 ──────────────────────────────────────────────────────────────
+  // ── PAGE 1 — CAPA ────────────────────────────────────────────────────────
+  var p1='';
+  // ── P1: CAPA PREMIUM
+  p1+='<div style="height:5px;background:linear-gradient(90deg,#3a2500,#C9A84C,#E8C96A,#C9A84C,#3a2500)"></div>';
+  p1+='<div style="background:#0f0c00;padding:22px 28px;display:flex;justify-content:space-between;align-items:flex-start">';
+  p1+='<div>';
+  p1+='<div style="font-size:8px;letter-spacing:3px;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:6px">PROJETO FUNERÁRIO PREMIUM</div>';
+  p1+='<div style="font-size:26px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'HR Mármores e Granitos')+'</div>';
+  p1+='<div style="font-size:7px;letter-spacing:3px;color:rgba(201,168,76,.3);margin-top:4px">MÁRMORE · GRANITO · QUARTZITO</div>';
+  p1+='</div>';
+  p1+='<div style="text-align:right">';
+  if(emp.tel)p1+='<div style="font-size:11px;color:rgba(201,168,76,.9);font-weight:700">'+esc(emp.tel)+'</div>';
+  if(emp.end)p1+='<div style="font-size:8.5px;color:rgba(201,168,76,.6);margin-top:3px">'+esc(emp.end)+'</div>';
+  if(emp.cidade)p1+='<div style="font-size:8px;color:rgba(255,255,255,.25);margin-top:2px">'+esc(emp.cidade)+'</div>';
+  p1+='</div></div>';
+  p1+='<div style="background:#1a1400;border-top:1px solid rgba(201,168,76,.2);border-bottom:1px solid rgba(201,168,76,.2);padding:10px 28px;display:flex;gap:28px">';
+  p1+='<div><div style="font-size:6.5px;letter-spacing:1.5px;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:2px">ORÇAMENTO</div><div style="font-size:12px;font-weight:900;color:#C9A84C">'+esc(orcNum)+'</div></div>';
+  p1+='<div><div style="font-size:6.5px;letter-spacing:1.5px;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:2px">EMISSÃO</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8)">'+esc(o.date||'')+'</div></div>';
+  p1+='<div><div style="font-size:6.5px;letter-spacing:1.5px;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:2px">TIPO DE PROJETO</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8)">'+tipoJazNm+'</div></div>';
+  p1+='<div><div style="font-size:6.5px;letter-spacing:1.5px;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:2px">VALIDADE</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.8)">7 dias</div></div>';
+  p1+='</div>';
+  p1+='<div style="background:#f7f3ec;border-bottom:3px solid #C9A84C;padding:14px 28px">';
+  p1+='<div style="font-size:7px;letter-spacing:2px;color:#9a7840;font-weight:900;margin-bottom:4px;text-transform:uppercase">Orçamento preparado exclusivamente para</div>';
+  p1+='<div style="font-size:22px;font-weight:900;color:#1a1a1a">'+esc(o.cli||'—')+'</div>';
+  if(Array.isArray(o.fal))o.fal.forEach(function(f){if(!f.nome)return;p1+='<div style="font-size:10px;color:#777;margin-top:3px">⚰️ <strong>'+esc(f.nome)+'</strong>'+(f.nasc||f.obit?' ('+esc(f.nasc||'?')+' – '+esc(f.obit||'?')+')':'')+'</div>';if(f.frase)p1+='<div style="font-size:9px;color:#999;font-style:italic">&#8220;'+esc(f.frase)+'&#8221;</div>';});
+  if(o.cemi)p1+='<div style="font-size:10px;color:#888;margin-top:4px">🏛 '+esc(o.cemi)+(o.cid?' — '+esc(o.cid):'')+(o.quad?' · Qd: '+esc(o.quad):'')+(o.lote?' · Lt: '+esc(o.lote):'')+'</div>';
+  p1+='</div>';
+  p1+='<div style="padding:20px 28px">';
+  p1+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">RESUMO DO PROJETO</div>';
+  p1+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px">';
+  p1+='<div style="background:#0f0c00;border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:14px 16px">';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.5);font-weight:900;margin-bottom:6px">MATERIAL</div>';
+  p1+='<div style="font-size:15px;font-weight:900;color:#C9A84C">'+matNmDisp+'</div>';
+  p1+='<div style="font-size:9px;color:rgba(255,255,255,.35);margin-top:3px">'+(mat.cat||'Pedra natural')+((mat.fin)?' · '+esc(mat.fin):'')+'</div>';
+  p1+='</div>';
+  p1+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 16px">';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:6px">DIMENSIONAMENTO</div>';
+  p1+='<div style="font-size:19px;font-weight:900;color:#1a1a1a">'+r.m2_total.toFixed(3)+' m²</div>';
+  p1+='<div style="font-size:9px;color:#777;margin-top:2px">área total de pedra</div>';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin:8px 0 3px">COMPARTIMENTOS</div>';
+  p1+='<div style="font-size:14px;font-weight:700;color:#333">'+d.N+' '+(d.N===1?'gaveta':'gavetas')+'</div>';
+  p1+='</div>';
+  p1+='<div style="background:#0f0c00;border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:14px 16px">';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.5);font-weight:900;margin-bottom:6px">TIPO DE JAZIGO</div>';
+  p1+='<div style="font-size:14px;font-weight:900;color:rgba(255,255,255,.9)">'+tipoJazNm+'</div>';
+  p1+='<div style="font-size:9.5px;color:rgba(201,168,76,.6);margin-top:5px">'+d.C_cm+' × '+d.L_cm+' cm</div>';
+  p1+='</div>';
+  p1+='</div>';
+  p1+='<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:12px;padding:18px 22px;margin-bottom:18px">';
+  p1+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">';
+  p1+='<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,.6);font-weight:900">INVESTIMENTO DO PROJETO</div>';
+  p1+='<div style="background:rgba(201,168,76,.15);color:#C9A84C;font-size:7px;font-weight:900;padding:3px 10px;border-radius:4px;border:1px solid rgba(201,168,76,.3);letter-spacing:1px">HR MÁRMORES</div>';
+  p1+='</div>';
+  p1+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
+  p1+='<div>';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:4px">À VISTA</div>';
+  p1+='<div style="font-size:26px;font-weight:900;color:#C9A84C">'+fv(vista)+'</div>';
+  p1+='<div style="display:inline-flex;align-items:center;gap:4px;background:rgba(100,180,100,.15);border:1px solid rgba(100,180,100,.3);border-radius:20px;padding:2px 10px;margin-top:5px">';
+  p1+='<span style="font-size:8px;color:#6aaa80">▼ Economize '+fv(eco)+'</span></div>';
+  p1+='</div>';
+  p1+='<div>';
+  p1+='<div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.3);font-weight:900;margin-bottom:4px">PARCELADO EM ATÉ '+parcMax+'×</div>';
+  p1+='<div style="font-size:18px;font-weight:900;color:rgba(255,255,255,.85)">'+parcMax+'× '+fv(pMes)+'</div>';
+  p1+='<div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:3px">Total parcelado: '+fv(parc)+'</div>';
+  p1+='<div style="font-size:8.5px;color:rgba(255,255,255,.2);margin-top:2px">ENTRADA 50%: '+fv(ent)+' + saldo na entrega</div>';
+  p1+='</div></div></div>';
+  if(o.obs)p1+='<div style="background:#fffbf0;border-left:3px solid #C9A84C;padding:9px 13px;margin-bottom:14px;font-size:10.5px;color:#555;border-radius:0 8px 8px 0"><strong style="color:#7a4e00">Obs:</strong> '+esc(o.obs)+'</div>';
+  p1+='</div>';
+  p1+='<div style="background:#0f0c00;padding:9px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:9px;color:rgba(201,168,76,.55)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 1</div></div>';
+
+  // ── PAGE 2 — ESPECIFICAÇÕES DO JAZIGO
   var p2='';
   p2+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
-  p2+='<div style="background:#0f0c00;padding:11px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:14px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">DETALHAMENTO TÉCNICO</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
-  p2+='<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(o.cli||'—')+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+esc(mat.nm||o.matNm||'—')+'</strong> &nbsp;·&nbsp; '+esc(o.date||'')+'</span></div>';
-  p2+='<div style="padding:14px 28px">';
-  // Piece table
-  p2+=sh('🪨 Lista de Peças em Pedra — Medidas Exatas');
-  var dens=2700*(d.E/100);
-  p2+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:14px"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#0f0c00">';
-  [['#','center'],['PEÇA','left'],['COMP × LARG (cm)','center'],['ESP.','center'],['ÁREA m²','right'],['PESO kg','right'],['OBS','left']].forEach(function(h){p2+='<th style="padding:7px 9px;text-align:'+h[1]+';font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">'+h[0]+'</th>';});
-  p2+='</tr></thead><tbody>';
-  r.pecasCalc.forEach(function(p3,i){
-    var bg=i%2===0?'#fff':'#faf6ef';
-    var peso=+(p3.m2*dens).toFixed(1);
-    var obs='';var nm=(p3.nm||'').toLowerCase();
-    if(nm.indexOf('tampa')>=0&&SELR.tampas.argolas)obs=(td.nTotal*2)+' argolas';
-    if(nm.indexOf('divisória')>=0||nm.indexOf('divisoria')>=0)obs='Interna — sem acabamento';
-    p2+='<tr><td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:9px;color:#888;text-align:center">'+(i+1)+'</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10.5px;font-weight:700;color:#1a1a1a">'+esc(p3.nm)+'</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;color:#555;text-align:center">'+esc(p3.dim||'—')+'</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;color:#777;text-align:center">'+d.E+' cm</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;text-align:right;font-weight:700;color:#5a3800">'+(p3.m2>0?p3.m2.toFixed(3)+' m²':'—')+'</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;text-align:right;color:#444">'+peso+'</td>';
-    p2+='<td style="padding:7px 8px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:8.5px;color:#888">'+esc(obs)+'</td></tr>';
+  p2+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">DETALHES DO PROJETO</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
+  p2+='<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(o.cli||'—')+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+matNmDisp+'</strong> &nbsp;·&nbsp; '+esc(o.date||'')+'</span></div>';
+  p2+='<div style="padding:16px 28px">';
+  p2+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">ESPECIFICAÇÕES DO JAZIGO</div>';
+  p2+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px">';
+  var specCards2=[
+    {l:'COMP.',v:d.C_cm,u:'cm',dark:false},
+    {l:'LARG.',v:d.L_cm,u:'cm',dark:false},
+    {l:'COMPART.',v:d.N,u:d.N===1?'gaveta':'gavetas',dark:false},
+    {l:'TOTAL PEDRA',v:r.m2_total.toFixed(3),u:'m²',dark:true}
+  ];
+  specCards2.forEach(function(sc){
+    var bg2=sc.dark?'background:#0f0c00;border:1px solid rgba(201,168,76,.3)':'background:#fdfaf3;border:1px solid #e8dfc4';
+    var vc2=sc.dark?'color:#C9A84C':'color:#1a1a1a';
+    var lc2=sc.dark?'color:rgba(201,168,76,.5)':'color:#9a7840';
+    var uc2=sc.dark?'color:rgba(201,168,76,.45)':'color:#888';
+    p2+='<div style="'+bg2+';border-radius:10px;padding:14px 16px">';
+    p2+='<div style="font-size:6.5px;letter-spacing:2px;text-transform:uppercase;'+lc2+';font-weight:900;margin-bottom:4px">'+sc.l+'</div>';
+    p2+='<div style="font-size:22px;font-weight:900;'+vc2+'">'+sc.v+'</div>';
+    p2+='<div style="font-size:8.5px;'+uc2+';margin-top:1px">'+sc.u+'</div>';
+    p2+='</div>';
   });
-  p2+='<tr style="background:#fdf5e0"><td colspan="4" style="padding:6px 9px;font-size:9px;color:#888;font-style:italic">+ Perda/Retalho ('+r.perdaFinal+'%)</td><td style="padding:6px 9px;text-align:right;font-size:10px;color:#888">+'+(r.m2_total-r.m2_bruto).toFixed(3)+' m²</td><td colspan="2"></td></tr>';
-  p2+='<tr style="background:#0f0c00"><td colspan="4" style="padding:8px 9px;font-size:9px;font-weight:900;color:#C9A84C;letter-spacing:1px">TOTAL (COM PERDA)</td><td style="padding:8px 9px;text-align:right;font-size:12px;font-weight:900;color:#C9A84C">'+r.m2_total.toFixed(3)+' m²</td><td style="padding:8px 9px;text-align:right;font-size:11px;font-weight:700;color:rgba(201,168,76,.7)">'+Math.round(r.peso_total)+' kg</td><td></td></tr>';
-  p2+='</tbody></table></div>';
-  // Compartimentos
-  if(d.N>0){
-    p2+=sh('📐 Compartimentos');
-    var posL=(SELR.tampas.posicao||'superior')==='frontal'?'Frontal (tampa de pé)':'Superior (tampa deitada)';
-    var dispL=d.disp==='horizontal'?'Lado a lado':'Empilhados';
-    var dimComp=d.disp==='horizontal'?Math.round(CC*100/d.N)+'×'+Math.round(LC*100)+'×'+d.Hc_cm+' cm':Math.round(CC*100)+'×'+Math.round(LC*100)+'×'+d.Hc_cm+' cm';
-    var civRows=[{l:'Compartimentos',v:d.N+' und.'},{l:'Disposição',v:dispL},{l:'Tipo de abertura',v:posL},{l:'Dim. interna (C×L×H)',v:dimComp},{l:'Altura livre caixão',v:d.Hc_cm+' cm'},{l:'Espessura laje',v:d.Hl_cm+' cm'}];
-    if(SELR.rebaixo&&SELR.rebaixo.lajeVedante)civRows.push({l:'Laje vedante',v:SELR.rebaixo.lajeInteira?'1 laje inteira '+Math.round(d.CUtil_cm)+'×'+Math.round(d.LUtil_cm)+' cm':td.nTotal+' lajes'});
-    p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
-    civRows.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#555">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
-    p2+='</div>';
-  }
-  // Civil — tabela completa: item | qtd × R$/unit | subtotal
-  if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0||r.civil.sacos_argam>0)){
-    p2+=sh('🏗️ Quantitativo Civil');
-    var cv=r.civil, pp=CFG.civil;
-    // Cabeçalho da tabela
-    p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
-    p2+='<div style="background:#faf6ec;padding:6px 13px;display:grid;grid-template-columns:1fr auto auto;gap:8px;border-bottom:2px solid #e0d4a8">'
-      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em">Material</span>'
-      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Qtd × Unit.</span>'
-      + '<span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Subtotal</span>'
-      + '</div>';
-    var civRows2=[];
-    if(r.ts&&r.ts.id==='estrutura'){
-      if(cv.unid_blocos>0)     civRows2.push({nm:'Blocos 14×19×39 cm — alvenaria',              qtd:cv.unid_blocos,              unit:'un',   pr:pp.blocos,             sub:cv.unid_blocos*(pp.blocos)});
-      if(cv.unid_canaletas>0)  civRows2.push({nm:'Canaletas 14×19×39 cm — baldrame/cintas',    qtd:cv.unid_canaletas,           unit:'un',   pr:pp.canaleta||pp.blocos, sub:cv.unid_canaletas*(pp.canaleta||pp.blocos)});
-      if(cv.sacos_cimento>0)   civRows2.push({nm:'Cimento CP-II (sacos 50 kg)',                 qtd:cv.sacos_cimento,            unit:'saco', pr:pp.cimento,            sub:cv.sacos_cimento*pp.cimento});
-      if(cv.m3_areia>0)        civRows2.push({nm:'Areia lavada',                                qtd:+cv.m3_areia.toFixed(2),     unit:'m³',  pr:pp.areia,              sub:cv.m3_areia*pp.areia});
-      if(cv.m3_brita>0)        civRows2.push({nm:'Brita 3/4"',                                  qtd:+cv.m3_brita.toFixed(2),     unit:'m³',  pr:pp.brita,              sub:cv.m3_brita*pp.brita});
-      if(cv.m_trelica>0)       civRows2.push({nm:'Treliça eletrossoldada TQ-25 — cintas/lajes', qtd:+cv.m_trelica.toFixed(1),    unit:'m',    pr:pp.trelica||20,        sub:cv.m_trelica*(pp.trelica||20)});
-      if(cv.m2_malha>0)        civRows2.push({nm:'Malha soldada Q-92 — lajes',                qtd:+cv.m2_malha.toFixed(2),     unit:'m²',  pr:pp.malha,              sub:cv.m2_malha*pp.malha});
-      if(cv.m_ferro38>0)       civRows2.push({nm:'Ferro CA50 3/8" (10mm) — alicerce/alvenaria', qtd:cv.m_ferro38,              unit:'m',    pr:pp.ferro38,            sub:cv.m_ferro38*pp.ferro38});
-      if(cv.m_ferro516>0)      civRows2.push({nm:'Ferro CA50 5/16" (8mm) — laje/distribuição',  qtd:cv.m_ferro516,           unit:'m',    pr:pp.ferro516,           sub:cv.m_ferro516*pp.ferro516});
-      if(cv.kg_massa_plastica>0)civRows2.push({nm:'Massa plástica — juntas entre pedras',   qtd:+cv.kg_massa_plastica.toFixed(2),unit:'kg', pr:pp.massa_plastica||35, sub:cv.kg_massa_plastica*(pp.massa_plastica||35)});
-    }
-    if(cv.sacos_argam>0) civRows2.push({nm:'Argamassa AC-III — assentamento (sacos 20 kg)', qtd:cv.sacos_argam, unit:'saco', pr:pp.argamassa, sub:cv.sacos_argam*pp.argamassa});
-    civRows2.forEach(function(it,i){
-      var bg=i%2===0?'#fff':'#fdfaf3';
-      p2+='<div style="background:'+bg+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center">'
-        + '<span style="font-size:10px;color:#333">'+it.nm+'</span>'
-        + '<span style="font-size:9.5px;color:#666;text-align:right;white-space:nowrap">'+it.qtd+' '+it.unit+' × R$&nbsp;'+_TI_fm(it.pr)+'</span>'
-        + '<span style="font-size:10.5px;font-weight:700;color:#1a1a1a;text-align:right;white-space:nowrap">R$&nbsp;'+_TI_fm(it.sub)+'</span>'
-        + '</div>';
+  p2+='</div>';
+  p2+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">MATERIAL SELECIONADO</div>';
+  p2+='<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center">';
+  p2+='<div><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:900;margin-bottom:4px">MATERIAL SELECIONADO</div><div style="font-size:18px;font-weight:900;color:#C9A84C">'+matNmDisp+'</div></div>';
+  p2+='<div style="text-align:right"><div style="font-size:8.5px;color:rgba(255,255,255,.4)">'+(mat.cat||'')+(mat.fin?' · '+esc(mat.fin):'')+'</div></div></div>';
+  if(r.pecasCalc && r.pecasCalc.length>0){
+    p2+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">PEÇAS E DIMENSÕES</div>';
+    p2+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:14px">';
+    r.pecasCalc.forEach(function(p3c,i){
+      var bg3=i%2===0?'#fff':'#faf6ef';
+      p2+='<div style="background:'+bg3+';padding:9px 14px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between;align-items:center">';
+      p2+='<div style="display:flex;align-items:center;gap:10px">';
+      p2+='<div style="width:20px;height:20px;background:#0f0c00;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:8px;color:#C9A84C;font-weight:900">'+(i+1)+'</div>';
+      p2+='<span style="font-size:11.5px;font-weight:700;color:#1a1a1a">'+esc(p3c.nm)+'</span>';
+      if(p3c.dim)p2+='<span style="font-size:9.5px;color:#888">'+esc(p3c.dim)+'</span>';
+      p2+='</div>';
+      p2+='<span style="font-size:11px;font-weight:700;color:#5a3800;flex-shrink:0">'+(p3c.m2>0?p3c.m2.toFixed(3)+' m²':'—')+'</span>';
+      p2+='</div>';
     });
-    // Linha de total
-    p2+='<div style="background:#f5edcc;padding:8px 13px;display:grid;grid-template-columns:1fr auto;gap:8px;border-top:2px solid #e0d4a8">'
-      + '<span style="font-size:10.5px;font-weight:700;color:#5a3800">TOTAL MATERIAL CIVIL</span>'
-      + '<span style="font-size:11px;font-weight:700;color:#1a1a1a;text-align:right">R$&nbsp;'+_TI_fm(r.civil.custo)+'</span>'
-      + '</div>';
-    p2+='</div>';
+    p2+='<div style="background:#0f0c00;padding:9px 14px;display:flex;justify-content:space-between;align-items:center">';
+    p2+='<div style="display:flex;align-items:center;gap:10px"><div style="width:20px;height:20px"></div>';
+    p2+='<span style="font-size:9px;font-weight:900;color:#C9A84C;letter-spacing:1px">TOTAL DE PEDRA</span></div>';
+    p2+='<span style="font-size:12px;font-weight:900;color:#C9A84C">'+r.m2_total.toFixed(3)+' m²</span>';
+    p2+='</div></div>';
   }
-  // Params
-  p2+=sh('⚙️ Parâmetros do Projeto');
-  var params=[{l:'Tipo de serviço',v:o.tipoServNm||'—'},{l:'Material',v:esc(mat.nm||o.matNm||'—')+(mat.pr?' — R$ '+mat.pr+'/m²':'')},{l:'Acabamento',v:esc(acab.nm||o.acabNm||'—')},{l:'Espessura da pedra',v:d.E+' cm'}];
-  if(ex.length)params.push({l:'Acessórios',v:ex.map(function(e2){return e2.i+' '+e2.l;}).join(', ')});
-  p2+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
-  params.forEach(function(it,i){var bg=i%2===0?'#fff':'#fdfaf3';p2+='<div style="background:'+bg+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10px;color:#555">'+it.l+'</span><span style="font-size:10px;font-weight:600;color:#1a1a1a">'+it.v+'</span></div>';});
-  p2+='</div></div>';
-  p2+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+' · '+esc(emp.tel||'')+' · '+esc(emp.end||'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.15)">Documento interno</div></div>';
+  p2+='</div>';
+  p2+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 2</div></div>';
 
+  // ── PAGE 3 — ACABAMENTOS
+  var p3='';
+  p3+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
+  p3+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">ACABAMENTOS</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
+  p3+='<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(o.cli||'—')+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+matNmDisp+'</strong> &nbsp;·&nbsp; '+esc(o.date||'')+'</span></div>';
+  p3+='<div style="padding:16px 28px">';
+  var allOpts=[
+    {chk:SELR.opts&&SELR.opts.foto_porc&&r.nFotos>0, l:'Foto em Porcelana', desc:'Foto do falecido gravada em porcelana de alta durabilidade, resistente ao clima.'},
+    {chk:SELR.opts&&SELR.opts.cruzGranito&&r.nCruz>0, l:'Cruz', desc:'Cruz em granito ou mármore, instalada na parte superior do jazigo.'},
+    {chk:true, l:'Polimento profissional', desc:'Acabamento espelhado aplicado em toda a superfície da pedra natural.', inc:true},
+    {chk:SELR.opts&&SELR.opts.resina, l:'Tratamento com resina', desc:'Proteção com resina epoxi para impermeabilização e brilho duradouro das peças.'},
+    {chk:SELR.opts&&SELR.opts.jateamento, l:'Jateamento', desc:'Textura jateada aplicada em áreas específicas para contraste estético.'},
+    {chk:SELR.opts&&SELR.opts.gravacaoLaser, l:'Gravação a laser', desc:'Inscrições e ornamentos gravados a laser na pedra com alta precisão.'},
+    {chk:SELR.opts&&SELR.opts.florao, l:'Florão em bronze', desc:'Ornamento decorativo em bronze aplicado na lápide ou cobertura do jazigo.'}
+  ];
+  p3+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">ACABAMENTOS E OPCIONAIS</div>';
+  p3+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:18px">';
+  allOpts.forEach(function(op,i){
+    var bg4=i%2===0?'#fff':'#faf6ef';
+    p3+='<div style="background:'+bg4+';padding:11px 14px;border-bottom:1px solid #ede8dc;display:flex;align-items:flex-start;gap:10px">';
+    if(op.chk){p3+='<div style="width:18px;height:18px;background:#0f0c00;border:2px solid #C9A84C;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px"><span style="color:#C9A84C;font-size:10px;font-weight:900">✓</span></div>';}
+    else{p3+='<div style="width:18px;height:18px;background:#f5f0e8;border:2px solid #d0c8b0;border-radius:4px;flex-shrink:0;margin-top:1px"></div>';}
+    p3+='<div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:11.5px;font-weight:700;color:#1a1a1a">'+esc(op.l)+'</span>';
+    if(op.inc)p3+='<span style="font-size:7.5px;font-weight:900;color:#C9A84C;letter-spacing:1px;background:rgba(201,168,76,.1);padding:2px 8px;border-radius:4px;border:1px solid rgba(201,168,76,.3)">INCLUSO</span>';
+    p3+='</div><div style="font-size:9px;color:#888;margin-top:2px">'+esc(op.desc)+'</div></div></div>';
+  });
+  p3+='</div>';
+  p3+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+  p3+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 15px"><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:4px">ACABAMENTO DA PEDRA</div><div style="font-size:15px;font-weight:700;color:#1a1a1a">'+esc(acab.nm||o.acabNm||'4 laterais')+'</div><div style="font-size:8.5px;color:#888;margin-top:2px">padrão de toda a superfície</div></div>';
+  p3+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 15px"><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:4px">MATERIAL</div><div style="font-size:15px;font-weight:700;color:#1a1a1a">'+matNmDisp+'</div><div style="font-size:8.5px;color:#888;margin-top:2px">'+(mat.cat||'Mármore')+'</div></div>';
+  p3+='</div></div>';
+  p3+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 3</div></div>';
+
+  // ── PAGE 4 — DETALHAMENTO TÉCNICO
+  var p4='';
+  p4+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
+  p4+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">DETALHAMENTO TÉCNICO</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
+  p4+='<div style="background:#faf6ee;border-bottom:2px solid rgba(201,168,76,.25);padding:7px 28px"><span style="font-size:9px;color:#888">Cliente: <strong style="color:#333">'+esc(o.cli||'—')+'</strong> &nbsp;·&nbsp; Material: <strong style="color:#333">'+matNmDisp+'</strong> &nbsp;·&nbsp; '+esc(o.date||'')+'</span></div>';
+  p4+='<div style="padding:16px 28px">';
+  if(r.pecasCalc && r.pecasCalc.length>0){
+    p4+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">🪨 LISTA DE PEÇAS EM PEDRA — MEDIDAS EXATAS</div>';
+    p4+='<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:16px"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#0f0c00">';
+    [['#','center'],['PEÇA','left'],['COMP × LARG (cm)','center'],['ESP.','center'],['ÁREA m²','right'],['PESO kg','right'],['OBS','left']].forEach(function(h){p4+='<th style="padding:7px 9px;text-align:'+h[1]+';font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900">'+h[0]+'</th>';});
+    p4+='</tr></thead><tbody>';
+    var dens2=2700*(d.E/100);
+    r.pecasCalc.forEach(function(p3c,i){
+      var bg5=i%2===0?'#fff':'#faf6ef';
+      var peso2=+(p3c.m2*dens2).toFixed(1);
+      var obs2=''; var nm2=(p3c.nm||'').toLowerCase();
+      if(nm2.indexOf('tampa')>=0&&SELR.tampas.argolas)obs2=(td.nTotal*2)+' argolas';
+      if(nm2.indexOf('divisória')>=0||nm2.indexOf('divisoria')>=0)obs2='Interna — sem acabamento';
+      p4+='<tr><td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:9px;color:#888;text-align:center">'+(i+1)+'</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:10.5px;font-weight:700;color:#1a1a1a">'+esc(p3c.nm)+'</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:10px;color:#555;text-align:center">'+esc(p3c.dim||'—')+'</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:10px;color:#777;text-align:center">'+d.E+' cm</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:10px;text-align:right;font-weight:700;color:#5a3800">'+(p3c.m2>0?p3c.m2.toFixed(3)+' m²':'—')+'</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:10px;text-align:right;color:#444">'+peso2+'</td>';
+      p4+='<td style="padding:7px 8px;background:'+bg5+';border-bottom:1px solid #ede8dc;font-size:8.5px;color:#888">'+esc(obs2)+'</td></tr>';
+    });
+    p4+='<tr style="background:#fdf5e0"><td colspan="4" style="padding:6px 9px;font-size:9px;color:#888;font-style:italic">+ Perda/Retalho ('+r.perdaFinal+'%)</td><td style="padding:6px 9px;text-align:right;font-size:10px;color:#888">+'+(r.m2_total-r.m2_bruto).toFixed(3)+' m²</td><td colspan="2"></td></tr>';
+    p4+='<tr style="background:#0f0c00"><td colspan="4" style="padding:8px 9px;font-size:9px;font-weight:900;color:#C9A84C;letter-spacing:1px">TOTAL (COM PERDA)</td><td style="padding:8px 9px;text-align:right;font-size:12px;font-weight:900;color:#C9A84C">'+r.m2_total.toFixed(3)+' m²</td><td style="padding:8px 9px;text-align:right;font-size:11px;font-weight:700;color:rgba(201,168,76,.7)">'+Math.round(r.peso_total)+' kg</td><td></td></tr>';
+    p4+='</tbody></table></div>';
+  }
+  if(d.N>0){
+    p4+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">📐 COMPARTIMENTOS</div>';
+    var posL2=(SELR.tampas.posicao||'superior')==='frontal'?'Frontal (tampa de pé)':'Superior (tampa deitada)';
+    var dispL2=d.disp==='horizontal'?'Lado a lado':'Empilhados';
+    var dimComp2=d.disp==='horizontal'?Math.round(d.CUtil*100/d.N)+'×'+Math.round(d.LUtil*100)+'×'+d.Hc_cm+' cm':Math.round(d.CUtil*100)+'×'+Math.round(d.LUtil*100)+'×'+d.Hc_cm+' cm';
+    var civRows3=[{l:'Compartimentos',v:d.N+' und.'},{l:'Disposição',v:dispL2},{l:'Tipo de abertura',v:posL2},{l:'Dim. interna (C×L×H)',v:dimComp2},{l:'Altura livre caixão',v:d.Hc_cm+' cm'},{l:'Espessura laje',v:d.Hl_cm+' cm'}];
+    if(SELR.rebaixo&&SELR.rebaixo.lajeVedante)civRows3.push({l:'Laje vedante',v:SELR.rebaixo.lajeInteira?'1 laje inteira '+Math.round(d.CUtil_cm)+'×'+Math.round(d.LUtil_cm)+' cm':td.nTotal+' lajes'});
+    p4+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
+    civRows3.forEach(function(it,i){var bg6=i%2===0?'#fff':'#fdfaf3';p4+='<div style="background:'+bg6+';padding:8px 13px;border-bottom:1px solid #ede8dc;display:flex;justify-content:space-between"><span style="font-size:10.5px;color:#555">'+it.l+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a">'+it.v+'</span></div>';});
+    p4+='</div>';
+  }
+  if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0||r.civil.sacos_argam>0)){
+    p4+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">🏗️ QUANTITATIVO CIVIL</div>';
+    var cv2=r.civil, pp2=CFG.civil;
+    p4+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
+    p4+='<div style="background:#faf6ec;padding:6px 13px;display:grid;grid-template-columns:1fr auto auto;gap:8px;border-bottom:2px solid #e0d4a8"><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em">Material</span><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Qtd × Unit.</span><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Subtotal</span></div>';
+    var civRows4=[];
+    if(r.ts&&r.ts.id==='estrutura'){
+      if(cv2.unid_blocos>0)civRows4.push({nm:'Blocos 14×19×39 cm',qtd:cv2.unid_blocos,unit:'un',pr:pp2.blocos,sub:cv2.unid_blocos*pp2.blocos});
+      if(cv2.sacos_cimento>0)civRows4.push({nm:'Cimento CP-II (sacos 50 kg)',qtd:cv2.sacos_cimento,unit:'saco',pr:pp2.cimento,sub:cv2.sacos_cimento*pp2.cimento});
+      if(cv2.m3_areia>0)civRows4.push({nm:'Areia lavada',qtd:+cv2.m3_areia.toFixed(2),unit:'m³',pr:pp2.areia,sub:cv2.m3_areia*pp2.areia});
+    }
+    if(cv2.sacos_argam>0)civRows4.push({nm:'Argamassa AC-III (sacos 20 kg)',qtd:cv2.sacos_argam,unit:'saco',pr:pp2.argamassa,sub:cv2.sacos_argam*pp2.argamassa});
+    civRows4.forEach(function(it,i){var bg7=i%2===0?'#fff':'#fdfaf3';p4+='<div style="background:'+bg7+';padding:7px 13px;border-bottom:1px solid #ede8dc;display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center"><span style="font-size:10px;color:#333">'+it.nm+'</span><span style="font-size:9.5px;color:#666;text-align:right;white-space:nowrap">'+it.qtd+' '+it.unit+' × R$ '+_TI_fm(it.pr)+'</span><span style="font-size:10.5px;font-weight:700;color:#1a1a1a;text-align:right;white-space:nowrap">R$ '+_TI_fm(it.sub)+'</span></div>';});
+    p4+='<div style="background:#f5edcc;padding:8px 13px;display:grid;grid-template-columns:1fr auto;gap:8px;border-top:2px solid #e0d4a8"><span style="font-size:10.5px;font-weight:700;color:#5a3800">TOTAL MATERIAL CIVIL</span><span style="font-size:11px;font-weight:700;color:#1a1a1a;text-align:right">R$ '+_TI_fm(r.civil.custo)+'</span></div>';
+    p4+='</div>';
+  }
+  p4+='</div>';
+  p4+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 4</div></div>';
+
+  // ── PAGE 5 — PROPOSTA DE INVESTIMENTO
+  var p5='';
+  p5+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
+  p5+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">PROPOSTA DE INVESTIMENTO</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
+  p5+='<div style="padding:22px 28px">';
+  p5+='<div style="text-align:center;padding:16px 0 20px">';
+  p5+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:8px">PROPOSTA EXCLUSIVA PARA</div>';
+  p5+='<div style="font-size:22px;font-weight:900;color:#1a1a1a">'+esc(o.cli||'—')+'</div>';
+  p5+='<div style="font-size:9.5px;color:#888;margin-top:4px">'+esc(orcNum)+' · Emitido em '+esc(o.date||'')+'</div>';
+  p5+='</div>';
+  p5+='<div style="background:#0f0c00;border:2px solid #C9A84C;border-radius:14px;padding:22px 26px;margin-bottom:16px;text-align:center">';
+  p5+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.5);font-weight:900;margin-bottom:10px">À VISTA — MELHOR OPÇÃO</div>';
+  p5+='<div style="font-size:38px;font-weight:900;color:#C9A84C">'+fv(vista)+'</div>';
+  p5+='<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(100,180,100,.15);border:1px solid rgba(100,180,100,.3);border-radius:20px;padding:4px 14px;margin-top:10px">';
+  p5+='<span style="font-size:9px;color:#6aaa80;font-weight:700">▼ Você economiza '+fv(eco)+' pagando à vista</span></div>';
+  p5+='</div>';
+  p5+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">';
+  p5+='<div style="background:#1a1400;border:1px solid rgba(201,168,76,.2);border-radius:12px;padding:16px"><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.3);font-weight:900;margin-bottom:6px">PARCELADO</div><div style="font-size:21px;font-weight:900;color:rgba(255,255,255,.85)">'+parcMax+'× '+fv(pMes)+'</div><div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:3px">Total parcelado: '+fv(parc)+'</div></div>';
+  p5+='<div style="background:#1a1400;border:1px solid rgba(201,168,76,.2);border-radius:12px;padding:16px"><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.3);font-weight:900;margin-bottom:6px">ENTRADA — 50%</div><div style="font-size:21px;font-weight:900;color:rgba(255,255,255,.85)">'+fv(ent)+'</div><div style="font-size:9px;color:rgba(255,255,255,.3);margin-top:3px">na assinatura / medição</div></div>';
+  p5+='</div>';
+  p5+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:11px 15px;margin-bottom:16px;text-align:center"><div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:6px">COMPARATIVO</div><div style="font-size:10.5px;color:#555">À vista: <strong style="color:#5a3800">'+fv(vista)+'</strong> &nbsp;·&nbsp; Parcelado: <strong style="color:#333">'+fv(parc)+'</strong> &nbsp;·&nbsp; Economia: <strong style="color:#3a8c55">'+fv(eco)+'</strong></div></div>';
+  p5+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">CONDIÇÕES DE PAGAMENTO</div>';
+  p5+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+  p5+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 15px"><div style="font-size:7px;letter-spacing:1px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:4px">1ª PARCELA — ENTRADA</div><div style="font-size:19px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:3px">Na assinatura do contrato e medição em campo</div></div>';
+  p5+='<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:13px 15px"><div style="font-size:7px;letter-spacing:1px;text-transform:uppercase;color:#9a7840;font-weight:900;margin-bottom:4px">2ª PARCELA — ENTREGA</div><div style="font-size:19px;font-weight:900;color:#5a3a00">'+fv(ent)+'</div><div style="font-size:9px;color:#888;margin-top:3px">Na entrega e instalação completa no cemitério</div></div>';
+  p5+='</div>';
+  if(o.obs)p5+='<div style="background:#fffbf0;border-left:3px solid #C9A84C;padding:9px 13px;margin-bottom:14px;font-size:10.5px;color:#555;border-radius:0 8px 8px 0"><strong style="color:#7a4e00">Obs:</strong> '+esc(o.obs)+'</div>';
+  p5+='</div>';
+  p5+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 5</div></div>';
+
+  // ── PAGE 6 — NOSSA EMPRESA
+  var p6='';
+  p6+='<div style="height:4px;background:linear-gradient(90deg,#3a2500,#C9A84C,#3a2500)"></div>';
+  p6+='<div style="background:#0f0c00;padding:10px 28px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;font-weight:900;color:#C9A84C">'+esc(emp.nome||'')+'</div><div style="display:flex;gap:8px;align-items:center"><div style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#C9A84C;font-size:7px;font-weight:900;padding:4px 10px;border-radius:4px;letter-spacing:1.5px">NOSSA EMPRESA</div><div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 8px;border-radius:4px">'+esc(orcNum)+'</div></div></div>';
+  p6+='<div style="padding:22px 28px">';
+  p6+='<div style="background:#0f0c00;border-radius:12px;padding:22px 24px;margin-bottom:18px">';
+  p6+='<div style="font-size:22px;font-weight:900;color:#C9A84C;margin-bottom:4px">'+esc(emp.nome||'HR Mármores e Granitos')+'</div>';
+  p6+='<div style="font-size:7.5px;letter-spacing:3px;color:rgba(201,168,76,.35);margin-bottom:14px">MÁRMORE · GRANITO · QUARTZITO</div>';
+  p6+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  if(emp.tel)p6+='<div><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.4);font-weight:900;margin-bottom:3px">TELEFONE / WHATSAPP</div><div style="font-size:13px;font-weight:700;color:rgba(255,255,255,.85)">'+esc(emp.tel)+'</div></div>';
+  if(emp.end)p6+='<div><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.4);font-weight:900;margin-bottom:3px">ENDEREÇO</div><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">'+esc(emp.end)+(emp.cidade?' · '+esc(emp.cidade):'')+'</div></div>';
+  if(emp.cnpj)p6+='<div><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.4);font-weight:900;margin-bottom:3px">CNPJ</div><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.5)">'+esc(emp.cnpj)+'</div></div>';
+  if(emp.ig)p6+='<div><div style="font-size:6.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.4);font-weight:900;margin-bottom:3px">INSTAGRAM</div><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">'+esc(emp.ig)+'</div></div>';
+  p6+='</div></div>';
+  p6+='<div style="border-top:2px solid #e8dfc4;padding-top:22px;margin-top:8px">';
+  p6+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">';
+  p6+='<div style="text-align:center"><div style="height:1px;background:#333;margin-bottom:8px"></div><div style="font-size:9.5px;color:#555">Assinatura do Cliente</div><div style="font-size:10px;color:#333;font-weight:700;margin-top:2px">'+esc(o.cli||'')+'</div></div>';
+  p6+='<div style="text-align:center"><div style="height:1px;background:#333;margin-bottom:8px"></div><div style="font-size:9.5px;color:#555">Responsável / Vendedor</div><div style="font-size:10px;color:#333;font-weight:700;margin-top:2px">'+esc(emp.nome||'HR Mármores e Granitos')+'</div></div>';
+  p6+='</div></div>';
+  p6+='</div>';
+  p6+='<div style="background:#0f0c00;padding:8px 28px;display:flex;justify-content:space-between;border-top:1px solid rgba(201,168,76,.15)"><div style="font-size:8px;color:rgba(201,168,76,.45)">'+esc(emp.nome||'')+(emp.tel?' · '+esc(emp.tel):'')+(emp.end?' · '+esc(emp.end):'')+'</div><div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · Pg 6</div></div>';
+
+  // ── Set print body ─────────────────────────────────────────────────────
   // ── Set print body ─────────────────────────────────────────────────────
   _gel('pTitle').textContent='';
   _gel('pMeta').textContent='';
-  _gel('pBody').innerHTML='<div id="pdfPage1" style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;max-width:740px;margin:0 auto">'+p1+'</div>'
-    +'<div id="pdfPage2" style="font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;max-width:740px;margin:0 auto">'+p2+'</div>';
+  var _pstyle='font-family:Arial,Helvetica,sans-serif;background:#fff;color:#1a1a1a;max-width:740px;margin:0 auto';
+  _gel('pBody').innerHTML=
+    '<div id="pdfPage1" style="'+_pstyle+'">'+p1+'</div>'
+   +'<div id="pdfPage2" style="'+_pstyle+'">'+p2+'</div>'
+   +'<div id="pdfPage3" style="'+_pstyle+'">'+p3+'</div>'
+   +'<div id="pdfPage4" style="'+_pstyle+'">'+p4+'</div>'
+   +'<div id="pdfPage5" style="'+_pstyle+'">'+p5+'</div>'
+   +'<div id="pdfPage6" style="'+_pstyle+'">'+p6+'</div>';
   _gel('pFooter').textContent='';
 }
 
@@ -3194,7 +3315,7 @@ function baixarPDF(){
   if(!_checkMargemAntesDeAcao('baixar')) return;
   var emp=CFG&&CFG.emp?CFG.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orçamento — '+(emp.nome||'HR Mármores')+'</title>'
-    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1{page-break-after:always}#pdfPage2{page-break-after:auto}</style>'
+    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+pb.innerHTML+'</body></html>';
   var nome=(pendOrc.cli||'orcamento').replace(/[^a-zA-Z0-9\s]/g,'').replace(/\s+/g,'_');
   try{
@@ -3215,7 +3336,7 @@ function compartilharPDF(){
   if(!_checkMargemAntesDeAcao('compartilhar')) return;
   var emp=CFG&&CFG.emp?CFG.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Orçamento</title>'
-    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1{page-break-after:always}</style>'
+    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+pb.innerHTML+'</body></html>';
   if(navigator.canShare&&navigator.share){
     var blob=new Blob([html],{type:'text/html'});
@@ -4531,7 +4652,7 @@ function renderChapas() {
 function _abrirJanelaPDF(bodyHtml){
   var emp=CFG&&CFG.emp?CFG.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orçamento — '+(emp.nome||'HR Mármores')+'</title>'
-    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1{page-break-after:always}#pdfPage2{page-break-after:auto}</style>'
+    +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+bodyHtml+'<script>window.onload=function(){window.print();}<\/script></body></html>';
   var w=window.open('','_blank');
   if(w){w.document.write(html);w.document.close();}
