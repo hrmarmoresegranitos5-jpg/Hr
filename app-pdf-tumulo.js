@@ -51,7 +51,7 @@ function gerarPDFTumulo(q){
   // ── Cabeçalho padrão (compacto, elegante) ──
   var headerHtml=''
     +'<div style="height:4px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);"></div>'
-    +'<div style="'+F+'background:#0f0c00;padding:14px 36px;display:flex;justify-content:space-between;align-items:center;gap:20px;">'
+    +'<div style="'+F+'background:#0f0c00;padding:14px 42px;display:flex;justify-content:space-between;align-items:center;gap:20px;">'
       +'<div>'
         +'<div style="font-size:20px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;line-height:1;">'+emp.nome+'</div>'
         +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-top:3px;">MÁRMORE · GRANITO · QUARTZITO · PROJETOS FUNERÁRIOS</div>'
@@ -62,7 +62,7 @@ function gerarPDFTumulo(q){
         +'<div style="font-size:7.5px;color:rgba(255,255,255,0.2);margin-top:2px;">'+emp.cidade+'</div>'
       +'</div>'
     +'</div>'
-    +'<div style="'+F+'background:#f7f2e8;border-bottom:2px solid #C9A84C;padding:7px 36px;display:flex;justify-content:space-between;align-items:center;">'
+    +'<div style="'+F+'background:#f7f2e8;border-bottom:2px solid #C9A84C;padding:7px 42px;display:flex;justify-content:space-between;align-items:center;">'
       +'<div style="display:flex;align-items:center;gap:8px;">'
         +'<div style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:3px 10px;border-radius:4px;letter-spacing:1.5px;">'+orcNum+'</div>'
         +'<div style="font-size:8px;color:#888;letter-spacing:1px;text-transform:uppercase;">Projeto Funerário</div>'
@@ -73,7 +73,7 @@ function gerarPDFTumulo(q){
   // ── Rodapé padrão (compacto) ──
   var footerHtml=''
     +'<div style="height:3px;background:linear-gradient(90deg,#5a3a06 0%,#C9A84C 35%,#E8C96A 50%,#C9A84C 65%,#5a3a06 100%);margin-top:auto;"></div>'
-    +'<div style="'+F+'background:#0f0c00;padding:10px 36px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
+    +'<div style="'+F+'background:#0f0c00;padding:10px 42px;display:flex;justify-content:space-between;align-items:center;gap:16px;">'
       +'<div>'
         +'<div style="font-size:10px;font-weight:900;color:#C9A84C;line-height:1;margin-bottom:2px;">'+emp.nome+'</div>'
         +'<div style="font-size:7.5px;color:rgba(201,168,76,0.35);">'+emp.end+' — '+emp.cidade+'</div>'
@@ -100,7 +100,7 @@ function gerarPDFTumulo(q){
 
   // Capa — bloco hero escuro
   var heroCapa=''
-    +'<div style="'+F+'background:linear-gradient(135deg,#0f0c00 0%,#1c1500 60%,#261c00 100%);padding:32px 36px 28px;position:relative;overflow:hidden;">'
+    +'<div style="'+F+'background:linear-gradient(135deg,#0f0c00 0%,#1c1500 60%,#261c00 100%);padding:28px 42px 24px;position:relative;overflow:hidden;">'
       // Marca d'água decorativa
       +'<div style="position:absolute;right:-10px;top:-10px;font-size:100px;opacity:0.04;line-height:1;">⚱</div>'
       +'<div style="font-size:7px;letter-spacing:4px;text-transform:uppercase;color:rgba(201,168,76,0.5);font-weight:900;margin-bottom:8px;">PROJETO FUNERÁRIO PREMIUM</div>'
@@ -136,7 +136,7 @@ function gerarPDFTumulo(q){
 
   // Capa — resumo do projeto
   var resumoCapa=''
-    +'<div style="'+F+'padding:22px 36px 0;">'
+    +'<div style="'+F+'padding:18px 42px 0;">'
       +sh('Resumo do Projeto')
       +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">'
         +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 16px;">'
@@ -195,7 +195,7 @@ function gerarPDFTumulo(q){
   if(tum.foto||q.fotoTumulo){
     var fotoSrc=tum.foto||q.fotoTumulo;
     fotoBloco=''
-      +'<div style="padding:0 36px;">'
+      +'<div style="padding:0 42px;">'
         +'<div style="border-radius:10px;overflow:hidden;border:1px solid #e8dfc4;margin-bottom:18px;">'
           +'<img src="'+fotoSrc+'" style="width:100%;max-height:260px;object-fit:cover;display:block;" crossorigin="anonymous"/>'
           +'<div style="background:#0f0c00;padding:7px 16px;display:flex;justify-content:space-between;align-items:center;">'
@@ -209,7 +209,7 @@ function gerarPDFTumulo(q){
   var obsBloco='';
   if(tum.obs){
     obsBloco=''
-      +'<div style="'+F+'padding:0 36px 18px;">'
+      +'<div style="'+F+'padding:0 42px 14px;">'
         +'<div style="background:#fffbf0;border-left:3px solid #C9A84C;padding:12px 16px;border-radius:0 8px 8px 0;">'
           +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#c0a860;margin-bottom:4px;font-weight:900;">OBSERVAÇÕES DO PROJETO</div>'
           +'<div style="font-size:10px;color:#555;line-height:1.65;">'+escH(tum.obs)+'</div>'
@@ -218,7 +218,7 @@ function gerarPDFTumulo(q){
   }
 
   var pag1=''
-    +'<div id="pdfPag1" style="width:700px;'+F+'background:#fff;color:#1a1a1a;page-break-after:always;display:flex;flex-direction:column;min-height:1050px;">'
+    +'<div id="pdfPag1" style="width:794px;height:1123px;'+F+'background:#fff;color:#1a1a1a;page-break-after:always;display:flex;flex-direction:column;overflow:hidden;">'
       +headerHtml
       +heroCapa
       +resumoCapa
@@ -334,8 +334,8 @@ function gerarPDFTumulo(q){
   // Bloco de material compacto
   var matHtml=sh('Material Selecionado')
     +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
-      +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:70px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'">'
-        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.82) 0%,rgba(0,0,0,0.5) 55%,rgba(0,0,0,0.15) 100%);">'
+      +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:90px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'">'
+        +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.68) 0%,rgba(0,0,0,0.35) 55%,rgba(0,0,0,0.05) 100%);">'
           +'<div style="position:absolute;left:18px;top:50%;transform:translateY(-50%);">'
             +'<div style="font-size:6px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.7);font-weight:900;margin-bottom:4px;">MATERIAL SELECIONADO</div>'
             +'<div style="font-size:18px;font-weight:900;color:#C9A84C;line-height:1;">'+(mat.nm||q.mat||'—')+'</div>'
@@ -411,9 +411,9 @@ function gerarPDFTumulo(q){
   }
 
   var pag2=''
-    +'<div id="pdfPag2" style="width:700px;'+F+'background:#fff;color:#1a1a1a;page-break-after:always;display:flex;flex-direction:column;min-height:1050px;">'
+    +'<div id="pdfPag2" style="width:794px;height:1123px;'+F+'background:#fff;color:#1a1a1a;page-break-after:always;display:flex;flex-direction:column;overflow:hidden;">'
       +headerHtml
-      +'<div style="padding:22px 36px 18px;flex:1;">'
+      +'<div style="padding:18px 42px 14px;flex:1;">'
         +secaoPecasHtml
         +matHtml
         +acabHtml
@@ -537,9 +537,9 @@ function gerarPDFTumulo(q){
     +'</div>';
 
   var pag3=''
-    +'<div id="pdfPag3" style="width:700px;'+F+'background:#fff;color:#1a1a1a;display:flex;flex-direction:column;min-height:1050px;">'
+    +'<div id="pdfPag3" style="width:794px;height:1123px;'+F+'background:#fff;color:#1a1a1a;display:flex;flex-direction:column;overflow:hidden;">'
       +headerHtml
-      +'<div style="padding:22px 36px 18px;flex:1;">'
+      +'<div style="padding:18px 42px 14px;flex:1;">'
         +propostaHtml
         +porqueHtml
         +prazoHtml
@@ -552,7 +552,7 @@ function gerarPDFTumulo(q){
   // CONTAINER COMPLETO (3 páginas)
   // ══════════════════════════════════════════════════════
   var recHtml=''
-    +'<div id="pdfReceipt" style="width:700px;'+F+'background:#e0ddd8;">'
+    +'<div id="pdfReceipt" style="width:794px;'+F+'background:#e0ddd8;">'
       +'<div style="background:#fff;margin-bottom:12px;">'+pag1.replace(/<div id="pdfPag1"[^>]*>/,'<div>').replace(/<\/div>\s*$/,'</div>')+'</div>'
       +'<div style="height:12px;background:#e0ddd8;"></div>'
       +'<div style="background:#fff;margin-bottom:12px;">'+pag2.replace(/<div id="pdfPag2"[^>]*>/,'<div>').replace(/<\/div>\s*$/,'</div>')+'</div>'
@@ -605,7 +605,7 @@ function gerarPDFTumulo(q){
   };
 
   var offscreen=document.createElement('div');
-  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#e0ddd8;z-index:-1;';
+  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:794px;background:#e0ddd8;z-index:-1;';
   offscreen.innerHTML=recHtml;
   document.body.appendChild(offscreen);
 
@@ -618,7 +618,7 @@ function gerarPDFTumulo(q){
     var pagEls=pagIds.map(function(id){return offscreen.querySelector('#'+id);}).filter(Boolean);
 
     if(!pagEls.length){
-      html2canvas(offscreen.querySelector('#pdfReceipt'),{scale:2,useCORS:true,backgroundColor:'#e0ddd8',logging:false,width:700,windowWidth:700}).then(function(canvas){
+      html2canvas(offscreen.querySelector('#pdfReceipt'),{scale:2,useCORS:true,backgroundColor:'#e0ddd8',logging:false,width:794,windowWidth:794}).then(function(canvas){
         document.body.removeChild(offscreen);
         var ratio=canvas.height/canvas.width;
         var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
@@ -646,7 +646,7 @@ function gerarPDFTumulo(q){
         finalizarPDF(pdf,capturas[0]);
         return;
       }
-      html2canvas(pagEls[idx],{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
+      html2canvas(pagEls[idx],{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:794,windowWidth:794}).then(function(canvas){
         capturas.push(canvas);
         capturarPagina(idx+1);
       });
