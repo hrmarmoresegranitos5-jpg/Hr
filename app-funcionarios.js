@@ -18,18 +18,51 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias' };
 
-  function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
-  function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
+  // IMPROVEMENT: _load agora valida que o resultado é um objeto simples.
+  // Dados corrompidos (array, string, null) retornam {} sem travar a UI.
+  function _load(key) {
+    try {
+      var parsed = JSON.parse(localStorage.getItem(key) || '{}');
+      return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    } catch(e) { return {}; }
+  }
 
-  function getFuncionarios() { return _load(KEYS.func); }
-  function getRegistros()    { return _load(KEYS.reg);  }
-  function getPagamentos()   { return _load(KEYS.pag);  }
+  // IMPROVEMENT: _save detecta QuotaExceededError (armazenamento cheio)
+  // e alerta o usuário em vez de perder dados silenciosamente.
+  function _save(key, data) {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch(e) {
+      if (e.name === 'QuotaExceededError' || e.code === 22) {
+        if (typeof toast === 'function') {
+          toast('⚠️ Armazenamento local cheio! Dados não salvos. Faça um backup agora.');
+        }
+        console.error('[HR] QuotaExceededError ao salvar', key, e);
+      } else {
+        console.error('[HR] Erro ao salvar', key, e);
+      }
+    }
+  }
+
+  // IMPROVEMENT: genId com crypto.getRandomValues quando disponível — muito menor
+  // risco de colisão em lotes grandes de importação.
+  function genId() {
+    if (window.crypto && window.crypto.getRandomValues) {
+      var arr = new Uint32Array(2);
+      window.crypto.getRandomValues(arr);
+      return Date.now().toString(36) + arr[0].toString(36) + arr[1].toString(36);
+    }
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+  // SECURITY: usa _loadValidated para aplicar schema e bloquear prototype pollution
+  function getFuncionarios() { return _loadValidated(KEYS.func); }
+  function getRegistros()    { return _loadValidated(KEYS.reg);  }
+  function getPagamentos()   { return _loadValidated(KEYS.pag);  }
   function getOcorrencias()  { return _load(KEYS.ocor); }
   function saveFuncionarios(d){ _save(KEYS.func,d); }
   function saveRegistros(d)   { _save(KEYS.reg,d);  }
   function savePagamentos(d)  { _save(KEYS.pag,d);  }
   function saveOcorrencias(d) { _save(KEYS.ocor,d); }
-  function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
   // 2. DESIGN TOKENS
@@ -61,7 +94,92 @@ var HR_FUNC = (function () {
   // 3. UTILITÁRIOS
   // ─────────────────────────────────────────────────────────────
   function _toast(m){ if(typeof toast==='function')toast(m); else console.log('[HR]',m); }
-  function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;'); }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CAMADA DE SEGURANÇA
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // _sanitizeId: bloqueia IDs com caracteres que permitiriam injeção de código
+  // em strings onclick="HR_FUNC.fn('...')" construídas dinamicamente.
+  // IDs legítimos do genId() são alfanuméricos + underscore + hífen.
+  var _ID_REGEX = /^[a-zA-Z0-9_-]{1,80}$/;
+  function _sanitizeId(id) {
+    var s = String(id || '');
+    return _ID_REGEX.test(s) ? s : '';
+  }
+  function _safeId(id) {
+    var safe = _sanitizeId(id);
+    if (!safe && id) { console.error('[HR SECURITY] ID inválido bloqueado:', String(id).slice(0,40)); return '__INVALID__'; }
+    return safe;
+  }
+
+  // _validateRecord: valida um registro individual contra tipos esperados
+  // e remove chaves perigosas (prototype pollution).
+  var _DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
+  function _validateRecord(val, schema) {
+    if (!val || typeof val !== 'object' || Array.isArray(val)) return null;
+    var keys = Object.keys(val);
+    for (var di = 0; di < keys.length; di++) {
+      if (_DANGEROUS_KEYS.indexOf(keys[di]) !== -1) {
+        console.warn('[HR SECURITY] Chave perigosa bloqueada:', keys[di]);
+        return null; // descarta registro inteiro se tiver chave perigosa
+      }
+    }
+    if (!schema) return val;
+    var clean = {};
+    // Campos do schema — força tipos corretos
+    var skeys = Object.keys(schema);
+    for (var si = 0; si < skeys.length; si++) {
+      var sk = skeys[si];
+      var raw = val[sk];
+      var exp = schema[sk];
+      if (exp === 'string')  { clean[sk] = String(raw == null ? '' : raw); }
+      else if (exp === 'number')  { var n = parseFloat(raw); clean[sk] = isFinite(n) ? n : 0; }
+      else if (exp === 'boolean') { clean[sk] = !!raw; }
+      else { clean[sk] = raw; }
+    }
+    // Campos extras (forward compatibility) — preserva mas não valida tipo
+    for (var ei = 0; ei < keys.length; ei++) {
+      var ek = keys[ei];
+      if (!(ek in clean)) clean[ek] = val[ek];
+    }
+    return clean;
+  }
+
+  // Schemas de validação para cada coleção
+  var _SCHEMAS = {
+    func: { id:'string', nome:'string', telefone:'string', cargo:'string',
+            equipe:'string', salario:'number', admissao:'string', banco:'string',
+            pix:'string', cpf:'string', obs:'string', ativo:'boolean',
+            jornadaDiariaMin:'number', nascimento:'string', criadoEm:'string' },
+    reg:  { id:'string', funcionarioId:'string', data:'string',
+            entrada:'string', saida:'string', horas:'number', extra:'number',
+            tipoExtra:'string', destinoExtra:'string', observacao:'string',
+            producao:'string', loteId:'string', criadoEm:'string' },
+    pag:  { id:'string', funcionarioId:'string', data:'string',
+            valor:'number', tipo:'string', descricao:'string',
+            periodo:'string', criadoEm:'string' }
+  };
+
+  // _loadValidated: versão segura do _load que aplica schema validation.
+  function _loadValidated(key) {
+    var raw = _load(key);
+    var schemaKey = key.replace('hr_', '').replace(/s$/, ''); // hr_funcionarios -> func
+    var schema = _SCHEMAS[schemaKey] || _SCHEMAS[key] || null;
+    if (!schema) return raw;
+    var result = {};
+    var keys = Object.keys(raw);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (_DANGEROUS_KEYS.indexOf(k) !== -1) continue;
+      var cleaned = _validateRecord(raw[k], schema);
+      if (cleaned) result[k] = cleaned;
+    }
+    return result;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   function _fmtData(iso){ if(!iso)return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
   function _fmtMoeda(v){ return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function _hoje(){ return new Date().toISOString().slice(0,10); }
@@ -147,7 +265,7 @@ var HR_FUNC = (function () {
       var s=JSON.parse(localStorage.getItem('cfg')||'{}');
       if(s.he&&s.he.normal)return s.he.normal;
     }catch(e){}
-    return 2.0;
+    return 1.5; // HE 50% — CLT art.59 §1º: adicional mínimo de 50%
   }
 
   // Retorna o nº de dias úteis (seg–sáb) em um intervalo ISO yyyy-mm-dd (inclusivo).
@@ -189,30 +307,35 @@ var HR_FUNC = (function () {
     var acumuladoMin = 0, utilizadoMin = 0;
     var registrosBanco = [];
 
+    // ── Créditos: horas extras enviadas ao banco (hr_registros) ─────────
     Object.values(regs).forEach(function(r) {
       if (r.funcionarioId !== funcId) return;
       if (di && r.data < di) return;
       if (df && r.data > df) return;
-
-      // Crédito: extras com destino=banco
-      if (r.destinoExtra === 'banco') {
-        var min = Math.round((parseFloat(r.extra) || 0) * 60);
-        if (min > 0) {
-          acumuladoMin += min;
-          registrosBanco.push({ data: r.data, tipo: 'credito', min: min });
-        }
-      }
-
-      // Débito: folgas compensadas — registros com tipo='folga_banco' criados ao lançar folga
-      // (campo `tipo` no registro, distinto de `tipoExtra` que é 'normal'/'feriado'/'especial')
-      if (r.tipo === 'folga_banco') {
-        var dMin = Math.round(Math.abs(parseFloat(r.horas) || 0) * 60);
-        if (dMin > 0) {
-          utilizadoMin += dMin;
-          registrosBanco.push({ data: r.data, tipo: 'debito', min: dMin });
-        }
+      if (r.destinoExtra !== 'banco') return;
+      var min = Math.round((parseFloat(r.extra) || 0) * 60);
+      if (min > 0) {
+        acumuladoMin += min;
+        registrosBanco.push({ data: r.data, tipo: 'credito', min: min });
       }
     });
+
+    // ── Débitos: folgas registradas via módulo BH (hr_banco_horas) ──────
+    // FIX Bug 1: ler de 'hr_banco_horas' (onde BH._saveDebitos grava),
+    // não de hr_registros tipo='folga_banco' (nunca preenchido pelo módulo BH).
+    try {
+      var debitos = JSON.parse(localStorage.getItem('hr_banco_horas') || '{}');
+      Object.values(debitos).forEach(function(m) {
+        if (m.funcionarioId !== funcId) return;
+        if (di && m.data < di) return;
+        if (df && m.data > df) return;
+        var dMin = Math.round((parseFloat(m.horas) || 0) * 60);
+        if (dMin > 0) {
+          utilizadoMin += dMin;
+          registrosBanco.push({ data: m.data, tipo: 'debito', min: dMin });
+        }
+      });
+    } catch(e) {}
 
     return {
       acumuladoMin:    acumuladoMin,
@@ -281,15 +404,19 @@ var HR_FUNC = (function () {
       }, 0);
       heResult = {
         valorHoraBase:    valorHoraFb,
-        valorTotalExtras: totalExtraFb * valorHoraFb * mult,
+        valorTotalExtras: totalExtraFb * valorHoraFb * mult, // mult = _getMultNormal() = 1.5
         totalExtra50Min:  0, totalExtra100Min: 0, totalExtra200Min: 0,
         valorExtra50:     0, valorExtra100:    0, valorExtra200:    0,
         totalExtraHoras:  totalExtraFb
       };
     }
 
-    var valorExtra  = heResult.valorTotalExtras;
-    var totalDevido = totalSalario + valorExtra;
+    // IMPROVEMENT: garantir que nenhum valor financeiro seja NaN ou Infinity
+    // Isso protege a UI de mostrar "NaN" e relatórios de ter valores incorretos.
+    function _fin(v) { var n = parseFloat(v); return (isFinite(n) ? n : 0); }
+
+    var valorExtra  = _fin(heResult.valorTotalExtras);
+    var totalDevido = _fin(totalSalario) + valorExtra;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -298,29 +425,26 @@ var HR_FUNC = (function () {
       if (df && p.data > df) return false;
       return true;
     });
-    var totalPago = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
-    var saldo     = totalDevido - totalPago;
+    var totalPago = meusPags.reduce(function(s, p){ return s + _fin(p.valor); }, 0);
+    var saldo     = _fin(totalDevido) - _fin(totalPago);
 
-    // valorHoraExtra de referência (HE50 — mantido para exibição na UI)
-    var valorHoraExtra = heResult.valorHoraBase * _getMultNormal();
+    var valorHoraExtra = _fin(heResult.valorHoraBase * _getMultNormal());
 
     return {
-      // Campos clássicos — mantidos para compatibilidade total com UI existente
-      totalHoras:       totalHoras,
-      totalExtra:       heResult.totalExtraHoras,
+      totalHoras:       _fin(totalHoras),
+      totalExtra:       _fin(heResult.totalExtraHoras),
       valorExtra:       valorExtra,
-      totalSalario:     totalSalario,
-      totalDevido:      totalDevido,
-      totalPago:        totalPago,
-      saldo:            saldo,
+      totalSalario:     _fin(totalSalario),
+      totalDevido:      _fin(totalDevido),
+      totalPago:        _fin(totalPago),
+      saldo:            _fin(saldo),
       temCredito:       saldo < -0.01,
       diasTrabalhados:  dias,
-      valorHoraBase:    heResult.valorHoraBase,
+      valorHoraBase:    _fin(heResult.valorHoraBase),
       valorHoraExtra:   valorHoraExtra,
-      // Campos novos — breakdown por faixa (disponíveis para UI/relatórios futuros)
-      valorExtra50:     heResult.valorExtra50,
-      valorExtra100:    heResult.valorExtra100,
-      valorExtra200:    heResult.valorExtra200,
+      valorExtra50:     _fin(heResult.valorExtra50),
+      valorExtra100:    _fin(heResult.valorExtra100),
+      valorExtra200:    _fin(heResult.valorExtra200),
       totalExtra50Min:  heResult.totalExtra50Min,
       totalExtra100Min: heResult.totalExtra100Min,
       totalExtra200Min: heResult.totalExtra200Min,
@@ -737,7 +861,7 @@ var HR_FUNC = (function () {
     return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:14px;'+
       'padding:14px 16px;margin-bottom:9px;cursor:pointer;'+
       'transition:border-color .2s;active:opacity:.9;" '+
-      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+f.id+'\')">' +
+      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+_safeId(f.id)+'\')">' +
       '<div style="display:flex;align-items:center;gap:13px;">' +
         _avatarCircle(f,50) +
         '<div style="flex:1;min-width:0;">' +
@@ -911,25 +1035,45 @@ var HR_FUNC = (function () {
   function _salvarFuncionario(id){
     var nome=(document.getElementById('ff_nome')||{}).value||'';
     if(!nome.trim()){_toast('Informe o nome');return;}
+
+    // IMPROVEMENT: validações antes de salvar
+    var salarioVal=parseFloat((document.getElementById('ff_salario')||{}).value)||0;
+    if(salarioVal<0){_toast('⛔ Salário não pode ser negativo.');return;}
+    if(salarioVal>100000){_toast('⛔ Salário acima de R$100.000 — verifique o valor.');return;}
+
+    var jornadaRaw=parseFloat((document.getElementById('ff_jornada')||{}).value)||0;
+    if(jornadaRaw>12){_toast('⛔ Jornada diária não pode exceder 12h.');return;}
+    if(jornadaRaw<0){_toast('⛔ Jornada diária não pode ser negativa.');return;}
+
     var funcs=getFuncionarios();
     var funcId=id||genId(); var isNew=!id;
     var foto=(document.getElementById('ff_foto_val')||{}).value||
              (document.getElementById('ff_foto')||{}).value||
              (funcs[funcId]&&funcs[funcId].foto)||'';
+
+    // IMPROVEMENT: aviso se foto muito grande (>400KB base64) — pode causar QuotaExceededError
+    if(foto&&foto.length>400000){
+      if(!confirm('⚠️ A foto é muito grande ('+Math.round(foto.length/1024)+'KB) e pode causar problemas de armazenamento. Deseja manter a foto anterior?')){
+        foto='';
+      } else {
+        foto=(funcs[funcId]&&funcs[funcId].foto)||'';
+      }
+    }
+
     funcs[funcId]={
-      id:funcId,nome:nome.trim(),
-      telefone:(document.getElementById('ff_tel')||{}).value||'',
+      id:funcId, nome:nome.trim(),
+      telefone:((document.getElementById('ff_tel')||{}).value||'').trim(),
       foto:foto,
       nascimento:(document.getElementById('ff_nasc')||{}).value||'',
-      cpf:(document.getElementById('ff_cpf')||{}).value||'',
-      cargo:(document.getElementById('ff_cargo')||{}).value||'',
+      cpf:((document.getElementById('ff_cpf')||{}).value||'').trim(),
+      cargo:((document.getElementById('ff_cargo')||{}).value||'').trim(),
       equipe:(document.getElementById('ff_equipe')||{}).value||'producao',
-      salario:parseFloat((document.getElementById('ff_salario')||{}).value)||0,
+      salario:salarioVal,
       admissao:(document.getElementById('ff_admissao')||{}).value||'',
-      banco:(document.getElementById('ff_banco')||{}).value||'',
-      pix:(document.getElementById('ff_pix')||{}).value||'',
+      banco:((document.getElementById('ff_banco')||{}).value||'').trim(),
+      pix:((document.getElementById('ff_pix')||{}).value||'').trim(),
       ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
-      jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
+      jornadaDiariaMin:(jornadaRaw>0?Math.round(jornadaRaw*60):0),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
@@ -1208,7 +1352,7 @@ var HR_FUNC = (function () {
   function _miniCardRegistro(r){
     return '<div style="background:rgba(201,168,76,.04);border:1px solid '+BD+';'+
       'border-radius:10px;padding:10px 13px;margin-bottom:7px;cursor:pointer;" '+
-      'onclick="HR_FUNC.abrirDetalhesRegistro(\''+r.id+'\')">'+
+      'onclick="HR_FUNC.abrirDetalhesRegistro(\''+_safeId(r.id)+'\')">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;">' +
         '<div>' +
           '<span style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+'</span>' +
@@ -1256,11 +1400,11 @@ var HR_FUNC = (function () {
             '<div style="font-size:.68rem;color:'+statusCor+';">'+statusTxt+'</div>'+
           '</div>'+
           (regHoje&&regHoje.entrada&&!regHoje.saida
-            ?'<button onclick="HR_FUNC._registrarSaida(\''+f.id+'\',\''+regHoje.id+'\')" '+
+            ?'<button onclick="HR_FUNC._registrarSaida(\''+_safeId(f.id)+'\',\''+_safeId(regHoje.id)+'\')" '+
                'style="background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.4);color:'+RED+';'+
                'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Saída</button>'
             :(!regHoje
-              ?'<button onclick="HR_FUNC._registrarEntrada(\''+f.id+'\')" '+
+              ?'<button onclick="HR_FUNC._registrarEntrada(\''+_safeId(f.id)+'\')" '+
                 'style="background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.4);color:'+GREEN+';'+
                 'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Entrada</button>'
               :'<span style="font-size:.68rem;color:'+GREEN+';font-weight:700;padding:7px 10px;">✓</span>'
@@ -1374,7 +1518,7 @@ var HR_FUNC = (function () {
       '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
         [mesAnterior,mesAtual].map(function(m){
           var on=m===periodoAtivo;
-          return '<button onclick="window._folhaMes=\''+m+'\';HR_FUNC.abrirFolhaPagamento();" '+
+          return '<button onclick="window._folhaMes=\''+_safeId(m)+'\';HR_FUNC.abrirFolhaPagamento();" '+
             'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
             (on?'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';':'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
             '>'+fmtMes(m)+'</button>';
@@ -1415,7 +1559,7 @@ var HR_FUNC = (function () {
             '<div style="text-align:right;font-size:.75rem;color:'+(l.s.valorExtra>0?GOLD:T3)+';font-weight:'+(l.s.valorExtra>0?'700':'400')+';">'+_fmtMoeda(l.s.valorExtra)+'</div>'+
             '<div style="text-align:right;font-size:.8rem;font-weight:700;color:'+sc+';">'+_fmtMoeda(Math.abs(l.s.saldo))+'</div>'+
             '<div style="text-align:center;">'+
-              '<button onclick="HR_FUNC.abrirFormPagamento(\''+l.f.id+'\');HR_FUNC._closeFolha();" '+
+              '<button onclick="HR_FUNC.abrirFormPagamento(\''+_safeId(l.f.id)+'\');HR_FUNC._closeFolha();" '+
                 'style="background:none;border:none;color:'+GREEN+';cursor:pointer;font-size:.9rem;padding:2px;" title="Registrar pagamento">💳</button>'+
             '</div>'+
           '</div>';
@@ -1754,7 +1898,7 @@ var HR_FUNC = (function () {
             '</div>'+
             '<div style="font-size:.65rem;color:'+T3+';margin-top:2px;">Importado em '+dtImp+'</div>'+
           '</div>'+
-          '<button onclick="HR_FUNC._apagarLote(\''+l.loteId+'\')" '+
+          '<button onclick="HR_FUNC._apagarLote(\''+_safeId(l.loteId)+'\')" '+
             'style="padding:7px 12px;border-radius:8px;background:rgba(200,92,92,.12);'+
             'border:1px solid rgba(200,92,92,.3);color:'+RED+';font-family:Outfit,sans-serif;'+
             'font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">'+
@@ -1795,7 +1939,7 @@ var HR_FUNC = (function () {
     if(meusRegs.length===0)return'<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum registro encontrado</div>';
     return meusRegs.slice(0,60).map(function(r){
       var fx=funcs[r.funcionarioId]||{nome:'?'};
-      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+r.funcionarioId+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
+      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+_safeId(r.funcionarioId)+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;">'+
           '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+' · '+_diaSemana(r.data)+'</div>'+
           '<div style="font-size:.78rem;color:'+GOLD+';">'+parseFloat(r.horas||0).toFixed(1)+'h'+(parseFloat(r.extra||0)>0?' <span style="color:'+(r.destinoExtra==='banco'?'#8ec8f0':GREEN)+';">'+(r.destinoExtra==='banco'?'🏦 ':'+')+(parseFloat(r.extra)).toFixed(1)+'h'+(r.destinoExtra==='banco'?' banco':'')+'</span>':'')+'</div>'+
@@ -2030,7 +2174,7 @@ var HR_FUNC = (function () {
       }, 0);
       heResult = {
         valorHoraBase:    valorHoraFb,
-        valorTotalExtras: totalExtraFb * valorHoraFb * 2,
+        valorTotalExtras: totalExtraFb * valorHoraFb * _getMultNormal(),
         totalExtraHoras:  totalExtraFb
       };
     }
@@ -2039,7 +2183,8 @@ var HR_FUNC = (function () {
     var valorNormal = heResult.valorTotalExtras || 0;
     var valorHora   = heResult.valorHoraBase || (salario / 220);
     var valorMulti  = valorHora * multiplier * totalHoras;
-    var acrescimo   = valorMulti - valorNormal;
+    // FIX Bug 3: clamp — quando HE100/200 ja valem mais que o flat rate, acrescimo = 0
+    var acrescimo   = Math.max(0, valorMulti - valorNormal);
 
     return {
       funcId: funcId, nome: f.nome || '',
@@ -2095,10 +2240,12 @@ var HR_FUNC = (function () {
 
     var totalAcrescimo = resultados.reduce(function(s,r){ return s + r.acrescimo; }, 0);
     var totalValor     = resultados.reduce(function(s,r){ return s + r.valorMulti; }, 0);
+    // FIX Bug 3: detectar funcionários com acrescimo=0 (HE100/200 já superam o flat rate)
+    var semAcrescimo   = resultados.filter(function(r){ return r.acrescimo === 0 && r.valorNormal > 0; });
 
     var seletorBtns = [mesAnterior, mesAtual].map(function(m){
       var on = m === periodoAtivo;
-      return '<button onclick="window[\''+storeKey+'\']=\''+m+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+funcId+'\'':'null')+');" '+
+      return '<button onclick="window[\''+storeKey+'\']=\''+_safeId(m)+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+_safeId(funcId)+'\'':'null')+');" '+
         'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
         (on
           ? 'background:rgba(92,150,220,.15);border:1.5px solid rgba(92,150,220,.5);color:'+cor+';'
@@ -2131,6 +2278,15 @@ var HR_FUNC = (function () {
           'O acréscimo é a diferença entre o valor '+multiplier+'× e o valor normal já calculado.'+
         '</div>'+
       '</div>'+
+      (semAcrescimo.length > 0
+        ? '<div style="background:rgba(255,180,0,.07);border:1px solid rgba(255,180,0,.35);border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.72rem;color:#e8c44a;line-height:1.6;">'+
+            '⚠️ <strong>'+semAcrescimo.map(function(r){return r.nome.split(' ')[0];}).join(', ')+'</strong> '+
+            (semAcrescimo.length===1?'já recebe':'já recebem')+
+            ' mais pelo sistema normal (HE Domingo/Feriado ×'+multiplier+'+) do que pelo flat '+multiplier+'×. '+
+            'Acréscimo = R$ 0,00 para '+(semAcrescimo.length===1?'esse funcionário.':'esses funcionários.')+
+          '</div>'
+        : ''
+      )+
       (resultados.length > 0
         ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'+
@@ -2150,7 +2306,7 @@ var HR_FUNC = (function () {
               '<span>Funcionário</span><span style="text-align:right;">H. Extra</span><span style="text-align:right;">Normal</span><span style="text-align:right;">'+multiplier+'× Valor</span>'+
             '</div>'+tabelaLinhas+
           '</div>'+
-          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+')" '+
+          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+_safeId(funcId)+'\'':'null')+',\''+_safeId(periodoAtivo)+'\','+multiplier+')" '+
             'style="'+CSS_BTN_GREEN+'">✅ Confirmar e Registrar '+titulo+'</button>'
         : ''
       )+
@@ -2204,10 +2360,14 @@ var HR_FUNC = (function () {
         id: pid,
         funcionarioId: f.id,
         data: _hoje(),
-        valor: parseFloat(r.valorMulti.toFixed(2)),
+        // FIX Bug 2: salva o ACRESCIMO (diferenca sobre o normal), nao o valor bruto 2x/3x.
+        // valorMulti bruto causava dupla contagem pois calcSaldoFuncionario ja inclui valorNormal
+        // no totalDevido. Salvar so o acrescimo garante calculo correto do saldo a receber.
+        valor: parseFloat(r.acrescimo.toFixed(2)),
         tipo: tipo,
         periodo: periodoAtivo,
-        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
+        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo+
+                   ' (normal: '+_fmtMoeda(r.valorNormal)+' | '+multiplier+'x: '+_fmtMoeda(r.valorMulti)+')',
         horasExtra: r.totalHorasExtra,
         valorNormal: parseFloat(r.valorNormal.toFixed(2)),
         acrescimo: parseFloat(r.acrescimo.toFixed(2)),

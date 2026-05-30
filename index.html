@@ -766,6 +766,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-pdf-tumulo.js?v=2"></script>
   <script src="app-funcionarios.js?v=3"></script>
   <script src="app-import-relatorio.js?v=1"></script>
+  <script src="app-banco-horas.js?v=1"></script>
 <div class="ov" id="adminPinMd" style="align-items:flex-end;">
   <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
     <div style="text-align:center;margin-bottom:16px;">
@@ -1636,7 +1637,7 @@ function _heSalvarCfg() {
     if (typeof toast === 'function') toast('CFG não carregado ainda.');
     return;
   }
-  CFG.he = { normal: vN, feriado: vF, especial: vE };
+  CFG.he = { normal: vN, feriado: vF, domingo: vF, especial: vE }; // domingo = mesmo multiplicador do feriado (CLT)
 
   // Persistir no localStorage junto com o restante do CFG
   try {
@@ -1665,7 +1666,21 @@ document.addEventListener('click', function(e) {
     if (typeof CFG === 'undefined' || !CFG) { setTimeout(_tryLoadHE, 400); return; }
     try {
       var stored = JSON.parse(localStorage.getItem('cfg') || '{}');
-      if (stored.he) CFG.he = stored.he;
+      // SECURITY: valida cada multiplicador antes de aplicar ao CFG.
+      // Impede que um valor corrompido ou malicioso (string com código,
+      // Infinity, NaN, ou valores fora do intervalo CLT) altere os cálculos.
+      if (stored.he && typeof stored.he === 'object') {
+        var _clampMult = function(v, def) {
+          var n = parseFloat(v);
+          return (isFinite(n) && n >= 1.0 && n <= 10.0) ? n : def;
+        };
+        CFG.he = {
+          normal:   _clampMult(stored.he.normal,   1.5),
+          feriado:  _clampMult(stored.he.feriado,  2.0),
+          domingo:  _clampMult(stored.he.domingo,  2.0),
+          especial: _clampMult(stored.he.especial, 3.0)
+        };
+      }
     } catch(e) {}
   }
   _tryLoadHE();
