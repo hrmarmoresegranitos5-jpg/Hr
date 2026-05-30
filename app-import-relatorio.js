@@ -37,10 +37,10 @@ var HR_IMPORT = (function () {
   var CFG = (typeof CFG !== 'undefined' && CFG) ? CFG : {};
   if (!CFG.he) {
     CFG.he = {
-      normal:   2.0,   // HE 100% — dias úteis normais (hora extra = 2× a hora normal)
-      domingo:  3.0,   // HE 200% — sábados, domingos e feriados (3× a hora normal)
-      feriado:  3.0,   // HE 200% — feriados
-      especial: 3.0    // HE 200% — dias especiais definidos externamente
+      normal:   1.5,   // HE 50%  — dias úteis/sábado (1,5× hora normal — CLT art.59 §1º)
+      domingo:  2.0,   // HE 100% — domingos e feriados (2× hora normal — CLT art.9 Lei 605/49)
+      feriado:  2.0,   // HE 100% — feriados
+      especial: 3.0    // HE 200% — dias especiais (convenção coletiva)
     };
   }
   // Lista de feriados e dias especiais (arrays de "yyyy-mm-dd")
@@ -277,10 +277,35 @@ var HR_IMPORT = (function () {
     }).sort(function(a, b){ return a.venceEm.localeCompare(b.venceEm); });
   }
 
-  function _getRegistros()   { try{ return JSON.parse(localStorage.getItem('hr_registros')||'{}'); }catch(e){ return {}; } }
+  // SECURITY: _safeLoad filtra chaves perigosas para evitar prototype pollution
+  var _DANGEROUS_KEYS_IMPORT = ['__proto__', 'constructor', 'prototype'];
+  function _safeLoad(key) {
+    try {
+      var raw = JSON.parse(localStorage.getItem(key) || '{}');
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      var safe = {};
+      var keys = Object.keys(raw);
+      for (var i = 0; i < keys.length; i++) {
+        if (_DANGEROUS_KEYS_IMPORT.indexOf(keys[i]) !== -1) {
+          console.warn('[HR_IMPORT SECURITY] Chave perigosa ignorada:', keys[i]);
+          continue;
+        }
+        safe[keys[i]] = raw[keys[i]];
+      }
+      return safe;
+    } catch(e) { return {}; }
+  }
+  function _getRegistros()   { return _safeLoad('hr_registros'); }
   function _saveRegistros(d) { try{ localStorage.setItem('hr_registros',JSON.stringify(d)); }catch(e){ console.error('[HR_IMPORT]',e); } }
-  function _getFuncionarios(){ try{ return JSON.parse(localStorage.getItem('hr_funcionarios')||'{}'); }catch(e){ return {}; } }
-  function _genId()          { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+  function _getFuncionarios(){ return _safeLoad('hr_funcionarios'); }
+  // SECURITY: genId com crypto.getRandomValues para maior entropia
+  function _genId() {
+    if (window.crypto && window.crypto.getRandomValues) {
+      var a = new Uint32Array(2); window.crypto.getRandomValues(a);
+      return Date.now().toString(36) + a[0].toString(36) + a[1].toString(36);
+    }
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
 
   // ── Utilitários de tempo ─────────────────────────────────────────────────
 
@@ -335,7 +360,7 @@ var HR_IMPORT = (function () {
     // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
     if (funcId) {
       try {
-        var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+        var funcs = _safeLoad('hr_funcionarios'); // SECURITY: usa _safeLoad
         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
         if (jMin > 0) return jMin;
       } catch(e) {}
@@ -421,13 +446,13 @@ var HR_IMPORT = (function () {
       return result;
     }
 
-    // Sábado → mesmo multiplicador que domingo/feriado (3×)
+    // Sábado → HE50 (1,5×) — dia útil de jornada reduzida, não equiparado a feriado
     if (dow === 6) {
-      result.extra100 = extraMin;
+      result.extra50 = extraMin;
       return result;
     }
 
-    // Dia útil normal (seg–sex, sem feriado, sem especial) → HE normal (2×)
+    // Dia útil normal (seg–sex) → HE 50% (1,5× — CLT art.59 §1º)
     result.extra50 = extraMin;
     return result;
   }
@@ -454,13 +479,16 @@ var HR_IMPORT = (function () {
    */
   function _calcValorHoraReal(func, mesISO) {
     var salario = parseFloat((func && func.salario) || 0);
-    if (!salario) return 0;
+    if (!salario || salario <= 0) return 0;
 
     var jornadaDiariaMin = (func && parseInt(func.jornadaDiariaMin)) || 0;
+    // IMPROVEMENT: jornadaDiariaMin inválida (negativa ou >720min=12h) é ignorada
+    if (jornadaDiariaMin <= 0 || jornadaDiariaMin > 720) jornadaDiariaMin = 0;
 
-    // Calcula dias úteis reais do mês de referência (sempre — jornada customizada ou padrão)
     var ym  = (mesISO ? mesISO : new Date().toISOString()).slice(0, 7);
     var ano = parseInt(ym.slice(0, 4)), mes = parseInt(ym.slice(5, 7));
+    if (isNaN(ano) || isNaN(mes)) return salario / 220; // fallback seguro
+
     var ultimoDia = new Date(ano, mes, 0).getDate();
     var diasSemanais = 0, diasSab = 0;
     var d = new Date(ym + '-01T12:00:00');
@@ -474,16 +502,16 @@ var HR_IMPORT = (function () {
 
     var horasMes;
     if (jornadaDiariaMin > 0) {
-      // Jornada customizada (ex: jovem aprendiz 4h/dia)
-      // Sábado sempre 4h independente da jornada customizada
+      // Jornada customizada (ex: jovem aprendiz 4h/dia) — sábado sempre 4h
       horasMes = (diasSemanais * jornadaDiariaMin + diasSab * 240) / 60;
     } else {
-      // Jornada padrão desta empresa: seg-sex = 8h, sáb = 4h
-      // Usa dias úteis REAIS do mês — mais justo que o divisor fixo CLT 220h
+      // Jornada padrão desta empresa: seg-sex=8h, sáb=4h, dias reais do mês
       horasMes = diasSemanais * 8 + diasSab * 4;
     }
 
-    return salario / (horasMes || 220);
+    var result = salario / (horasMes || 220);
+    // IMPROVEMENT: resultado nunca deve ser NaN ou Infinity
+    return (isFinite(result) && result > 0) ? result : salario / 220;
   }
 
   /**
@@ -537,7 +565,7 @@ var HR_IMPORT = (function () {
     });
 
     var valorExtra50  = _calcValorHE(totalExtra50Min,  CFG.he.normal,   valorHora);
-    var valorExtra100 = _calcValorHE(totalExtra100Min, CFG.he.domingo,  valorHora);
+    var valorExtra100 = _calcValorHE(totalExtra100Min, (CFG.he.domingo || CFG.he.feriado),  valorHora);
     var valorExtra200 = _calcValorHE(totalExtra200Min, CFG.he.especial, valorHora);
 
     return {
@@ -1300,13 +1328,27 @@ var HR_IMPORT = (function () {
     var file = input.files && input.files[0];
     if (!file) return;
 
+    // IMPROVEMENT: bloquear arquivos muito grandes (>10MB) antes de tentar parsear
+    var MAX_BYTES = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_BYTES) {
+      _uiResultado('<div style="color:#e07070;padding:14px;">⛔ Arquivo muito grande ('+Math.round(file.size/1048576)+'MB). Limite: 10MB.</div>');
+      return;
+    }
+
+    // IMPROVEMENT: extensão permitida explicitamente
+    var ext = (file.name.split('.').pop() || '').toLowerCase();
+    var extPermitidas = ['xls', 'xlsx', 'xlsm', 'csv', 'txt'];
+    if (extPermitidas.indexOf(ext) === -1) {
+      _uiResultado('<div style="color:#e07070;padding:14px;">⛔ Formato não suportado (.'+ext+'). Use XLS, XLSX, CSV ou TXT.</div>');
+      return;
+    }
+
     var nomeEl = document.getElementById('imp_file_nome');
     var hintEl = document.getElementById('imp_textarea_hint');
     var taEl   = document.getElementById('imp_texto');
 
     if (nomeEl) nomeEl.textContent = file.name;
 
-    var ext = (file.name.split('.').pop() || '').toLowerCase();
     var isExcel = (ext === 'xls' || ext === 'xlsx' || ext === 'xlsm');
 
     function _setResultado(csv) {
@@ -1743,7 +1785,7 @@ var HR_IMPORT = (function () {
 
     var totExtraMin   = totExtra50Min + totExtra100Min + totExtra200Min;
     var valorFin50    = _calcValorHE(totExtra50Min,  CFG.he.normal,   valorHora);
-    var valorFin100   = _calcValorHE(totExtra100Min, CFG.he.domingo,  valorHora);
+    var valorFin100   = _calcValorHE(totExtra100Min, (CFG.he.domingo || CFG.he.feriado),  valorHora);
     var valorFin200   = _calcValorHE(totExtra200Min, CFG.he.especial, valorHora);
     var valorFinTotal = valorFin50 + valorFin100 + valorFin200;
 
@@ -1802,8 +1844,8 @@ var HR_IMPORT = (function () {
             '<th style="padding:3px 10px 3px 4px;text-align:right;font-weight:600;">Valor</th>' +
           '</tr></thead>' +
           '<tbody>' +
-            linhaHE('HE 50% — Dias úteis',  totExtra50Min,  CFG.he.normal,   valorFin50,  GOLD) +
-            linhaHE('HE 100% — Dom/Feriado', totExtra100Min, CFG.he.domingo,  valorFin100, '#8ec8c8') +
+            linhaHE('HE 50% — Dias úteis/Sáb (×1,5)',  totExtra50Min,  CFG.he.normal,  valorFin50,  GOLD) +
+            linhaHE('HE 100% — Dom/Feriado (×2,0)', totExtra100Min, (CFG.he.domingo || CFG.he.feriado), valorFin100, '#8ec8c8') +
             linhaHE('HE 200% — Especial',   totExtra200Min, CFG.he.especial, valorFin200, '#c88e5c') +
             // Linha de total financeiro (só se há valor hora configurado)
             (valorHora > 0 && valorFinTotal > 0 ? (
@@ -1995,7 +2037,7 @@ var HR_IMPORT = (function () {
       '<table>' +
         '<tr><td>Total geral trabalhado</td><td class="val">' + _min2dur(gTotTrab) + '</td></tr>' +
         (gTot50Min  > 0 ? '<tr><td>HE 50% — Dias úteis</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, CFG.he.normal, valorHora)) : '') + '</td></tr>' : '') +
-        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, CFG.he.domingo, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, (CFG.he.domingo || CFG.he.feriado), valorHora)) : '') + '</td></tr>' : '') +
         (gTot200Min > 0 ? '<tr><td>HE 200% — Especial</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, CFG.he.especial, valorHora)) : '') + '</td></tr>' : '') +
         (gTotAtraso > 0 ? '<tr><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(gTotAtraso) + '</td></tr>' : '') +
         (valorHora > 0 && gValorFin > 0 ? '<tr><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(gValorFin) + '</b></td></tr>' : '') +
@@ -2202,7 +2244,7 @@ var HR_IMPORT = (function () {
     });
 
     var valorExtra50     = _calcValorHE(totalExtra50Min,  CFG.he.normal,   valorHoraBase);
-    var valorExtra100    = _calcValorHE(totalExtra100Min, CFG.he.domingo,  valorHoraBase);
+    var valorExtra100    = _calcValorHE(totalExtra100Min, (CFG.he.domingo || CFG.he.feriado),  valorHoraBase);
     var valorExtra200    = _calcValorHE(totalExtra200Min, CFG.he.especial, valorHoraBase);
     var valorTotalExtras = valorExtra50 + valorExtra100 + valorExtra200;
 
@@ -2357,7 +2399,7 @@ var HR_IMPORT = (function () {
       // Multiplicadores vigentes (snapshot de CFG.he)
       multiplicadores: {
         normal:   CFG.he.normal,
-        domingo:  CFG.he.domingo,
+        domingo:  CFG.he.domingo || CFG.he.feriado,
         feriado:  CFG.he.feriado,
         especial: CFG.he.especial
       },
