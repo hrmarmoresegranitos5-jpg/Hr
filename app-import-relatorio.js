@@ -1181,7 +1181,113 @@ var HR_IMPORT = (function () {
     return registros;
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // PARSER DE RELÓGIO BIOMÉTRICO
+  // Formato: blocos de 3 linhas por funcionário:
+  //   linha 0 — IDUsuário: XX  Nome: FULANO  ...
+  //   linha 1 — 1  2  3  4 … 31  (números dos dias do mês)
+  //   linha 2 — batidas por coluna (múltiplos horários separados por \n)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /** Detecta se a planilha é do relógio biométrico. */
+  function _isBiometricoXLS(rows) {
+    for (var i = 0; i < Math.min(30, rows.length); i++) {
+      var row = rows[i] || [];
+      var hasId   = row.some(function(c){ return String(c).trim() === 'IDUsuário:'; });
+      var hasNome = row.some(function(c){ return String(c).trim() === 'Nome:'; });
+      if (hasId && hasNome) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Extrai registros do relógio biométrico.
+   * Cada batida única = sem saída (erro para correção).
+   * 2+ batidas = entrada = primeira, saída = última.
+   * Dias sem batida não são incluídos.
+   */
+  function _parseBiometricoXLS(workbook) {
+    var ws   = workbook.Sheets[workbook.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+
+    // Detecta mês/ano nas primeiras linhas (ex: "01/05/2026")
+    var ano = new Date().getFullYear(), mes = new Date().getMonth() + 1;
+    for (var ri = 0; ri < Math.min(10, rows.length); ri++) {
+      var rowStr = (rows[ri] || []).join('|');
+      var mPer = rowStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (mPer) { ano = parseInt(mPer[3]); mes = parseInt(mPer[2]); break; }
+    }
+
+    var registros = [];
+    var i = 0;
+    while (i < rows.length) {
+      var row = rows[i];
+      var hasId   = row.some(function(c){ return String(c).trim() === 'IDUsuário:'; });
+      var hasNome = row.some(function(c){ return String(c).trim() === 'Nome:'; });
+
+      if (hasId && hasNome) {
+        // Extrai nome
+        var nome = '';
+        for (var j = 0; j < row.length; j++) {
+          if (String(row[j]).trim() === 'Nome:' && j + 1 < row.length) {
+            nome = String(row[j + 1]).trim();
+            break;
+          }
+        }
+
+        var daysRow  = rows[i + 1] || [];
+        var punchRow = rows[i + 2] || [];
+
+        for (var col = 0; col < daysRow.length; col++) {
+          var dayCell = String(daysRow[col]).trim();
+          if (!/^\d+$/.test(dayCell)) continue;
+          var dayNum = parseInt(dayCell);
+          if (dayNum < 1 || dayNum > 31) continue;
+
+          var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dayNum).padStart(2,'0');
+          var dt = new Date(dataISO + 'T12:00:00');
+          if (isNaN(dt.getTime()) || dt.getDay() === 0) continue; // inválida ou domingo
+
+          var cell    = String(punchRow[col] || '').trim();
+          var punches = cell
+            ? cell.split(/[\r\n]+/).map(function(t){ return t.trim(); }).filter(Boolean)
+            : [];
+
+          if (punches.length === 0) continue; // dia sem batida alguma — pula
+
+          registros.push({
+            nome:         nome,
+            data:         dataISO,
+            entrada:      punches[0] || '',
+            saida:        punches.length > 1 ? punches[punches.length - 1] : '',
+            almocoManual: null,
+            _doBiometrico: true,
+            _todasBatidas: punches
+          });
+        }
+
+        i += 3;
+      } else {
+        i++;
+      }
+    }
+    return registros;
+  }
+
   function _xlsParaTexto(workbook) {
+    // ── Tenta formato biométrico (IDUsuário: / Nome:) ───────────────────────
+    var ws0   = workbook.Sheets[workbook.SheetNames[0]];
+    var rows0 = XLSX.utils.sheet_to_json(ws0, { header: 1, raw: true, defval: '' });
+    if (_isBiometricoXLS(rows0)) {
+      var regsBio = _parseBiometricoXLS(workbook);
+      if (regsBio.length > 0) {
+        _state._registrosDiretos = regsBio;
+        return regsBio.map(function(r) {
+          return [r.nome, r.data, r.entrada || '', r.saida || ''].join(';');
+        }).join('\n');
+      }
+    }
+
     // ── Tenta formato "Cartão de Ponto" (abas com horários reais) ────────────
     // Varre TODAS as abas procurando "Cartão de ponto"
     var todosRegistros = [];
@@ -1449,6 +1555,431 @@ var HR_IMPORT = (function () {
 
     var todas = registros.map(function(r){ return r.data; }).sort();
     _state.periodo = { di: todas[0], df: todas[todas.length-1] };
+
+    // Se qualquer registro tem batida incompleta (só entrada ou só saída),
+    // abre tela de correção antes de prosseguir
+    var temErros = _state.grupos.some(function(gr) {
+      return gr.registros.some(function(r) { return !r.entrada || !r.saida; });
+    });
+    if (temErros) { _renderTelaCorrecao(); } else { _renderTelaVinculacao(); }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TELA DE CORREÇÃO DE PONTO
+  // Aberta automaticamente quando há registros com batida incompleta.
+  // Permite editar entrada/saída e adicionar dias manualmente.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  function _renderTelaCorrecao() {
+    var grupos = _state.grupos;
+    var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+    // Conta apenas grupos não ignorados
+    var gruposAtivos = grupos.filter(function(gr){ return !gr._ignorar; });
+    var totalErros = gruposAtivos.reduce(function(s, gr) {
+      return s + gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
+    }, 0);
+
+    var gruposHtml = grupos.map(function(gr, gi) {
+      // Grupo ignorado: exibe colapsado com opção de desfazer
+      if (gr._ignorar) {
+        return '<div style="' + CSS_CARD + 'margin-bottom:10px;opacity:.45;display:flex;align-items:center;gap:10px;">' +
+          '<div style="flex:1;font-size:.84rem;font-weight:700;color:' + T3 + ';text-transform:uppercase;letter-spacing:.05em;">' +
+            '🚫 ' + _esc(gr.nome) + '</div>' +
+          '<div style="font-size:.65rem;color:' + T3 + ';">ignorado</div>' +
+          '<button onclick="HR_IMPORT._ignorarGrupo(' + gi + ',false)" ' +
+            'style="background:none;border:1px solid #2a2a2a;border-radius:7px;color:#555;' +
+            'font-family:Outfit,sans-serif;font-size:.7rem;padding:4px 10px;cursor:pointer;">desfazer</button>' +
+        '</div>';
+      }
+
+      var errosGrupo = gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
+      var punicoesGrupo = gr.registros.filter(function(r){ return r._punicao; }).length;
+
+      var recsHtml = gr.registros.map(function(r, ri) {
+        var dow    = DOW_PT[new Date(r.data + 'T12:00:00').getDay()];
+        var dia    = r.data.split('-')[2];
+        var isSab  = new Date(r.data + 'T12:00:00').getDay() === 6;
+
+        // Registro com punição aplicada
+        if (r._punicao) {
+          return '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 7px 10px;' +
+            'border-left:3px solid #7a2020;border-radius:0 8px 8px 0;' +
+            'background:rgba(120,20,20,.12);margin-bottom:5px;opacity:.8;">' +
+            '<div style="min-width:32px;text-align:center;">' +
+              '<div style="font-size:.84rem;font-weight:800;color:#7a4040;font-family:monospace;">' + dia + '</div>' +
+              '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + '</div>' +
+            '</div>' +
+            '<div style="flex:1;padding:6px 8px;border-radius:8px;background:rgba(120,20,20,.2);border:1px solid rgba(180,40,40,.3);">' +
+              '<div style="font-size:.58rem;color:#c06060;font-weight:700;letter-spacing:1px;">🔴 PUNIÇÃO APLICADA</div>' +
+              '<div style="font-size:.7rem;color:#8a5050;margin-top:1px;">Dia descontado da folha</div>' +
+            '</div>' +
+            '<button onclick="HR_IMPORT._desfazerPunicao(' + gi + ',' + ri + ')" ' +
+              'style="background:none;border:1px solid #3a2020;border-radius:7px;color:#666;' +
+              'font-family:Outfit,sans-serif;font-size:.65rem;padding:4px 8px;cursor:pointer;white-space:nowrap;">desfazer</button>' +
+            '<div onclick="HR_IMPORT._excluirCorrecao(' + gi + ',' + ri + ')" ' +
+              'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;" ' +
+              'onmouseover="this.style.color=\'' + RED + '\'" ' +
+              'onmouseout="this.style.color=\'#2a2a2a\'">✕</div>' +
+          '</div>';
+        }
+
+        var temErr = !r.entrada || !r.saida;
+        var corBorda = temErr ? RED : (isSab ? '#8ec8c8' : GREEN);
+        var bgRow    = temErr ? 'rgba(200,92,92,.07)' : 'transparent';
+        var corDia   = temErr ? RED : (isSab ? '#8ec8c8' : T2);
+
+        var fEnt = r.entrada
+          ? '<span style="color:' + T1 + ';font-weight:700;font-family:monospace;">' + r.entrada + '</span>'
+          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">——:——</span>';
+        var fSai = r.saida
+          ? '<span style="color:' + T1 + ';font-weight:700;font-family:monospace;">' + r.saida + '</span>'
+          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">——:——</span>';
+
+        // Botão de punição: só aparece em registros com erro
+        var btnPunicao = temErr
+          ? '<button onclick="HR_IMPORT._aplicarPunicao(' + gi + ',' + ri + ')" ' +
+              'title="Aplicar punição: desconta o dia inteiro" ' +
+              'style="padding:5px 7px;background:rgba(120,20,20,.3);border:1px solid rgba(180,40,40,.4);' +
+              'border-radius:7px;color:#c06060;cursor:pointer;font-size:.6rem;font-weight:700;' +
+              'white-space:nowrap;font-family:Outfit,sans-serif;letter-spacing:.02em;" ' +
+              'onmouseover="this.style.background=\'rgba(180,20,20,.5)\'" ' +
+              'onmouseout="this.style.background=\'rgba(120,20,20,.3)\'">🔴 Punir</button>'
+          : '';
+
+        return '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 7px 10px;' +
+          'border-left:3px solid ' + corBorda + ';border-radius:0 8px 8px 0;' +
+          'background:' + bgRow + ';margin-bottom:5px;">' +
+
+          '<div style="min-width:32px;text-align:center;">' +
+            '<div style="font-size:.84rem;font-weight:800;color:' + corDia + ';font-family:monospace;">' + dia + '</div>' +
+            '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + (isSab ? ' ½' : '') + '</div>' +
+          '</div>' +
+
+          '<div onclick="HR_IMPORT._editCorrecao(' + gi + ',' + ri + ',\'entrada\')" ' +
+            'style="flex:1;background:' + (r.entrada ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
+            'border:1px solid ' + (r.entrada ? '#222' : 'rgba(200,92,92,.4)') + ';' +
+            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;">' +
+            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">ENTRADA</div>' +
+            '<div style="font-size:.84rem;">' + fEnt + '</div>' +
+          '</div>' +
+
+          '<div onclick="HR_IMPORT._editCorrecao(' + gi + ',' + ri + ',\'saida\')" ' +
+            'style="flex:1;background:' + (r.saida ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
+            'border:1px solid ' + (r.saida ? '#222' : 'rgba(200,92,92,.4)') + ';' +
+            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;">' +
+            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SAÍDA</div>' +
+            '<div style="font-size:.84rem;">' + fSai + '</div>' +
+          '</div>' +
+
+          (temErr ? btnPunicao : '') +
+
+          '<div onclick="HR_IMPORT._excluirCorrecao(' + gi + ',' + ri + ')" ' +
+            'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;" ' +
+            'onmouseover="this.style.color=\'' + RED + '\'" ' +
+            'onmouseout="this.style.color=\'#2a2a2a\'">✕</div>' +
+        '</div>';
+      }).join('');
+
+      var badgeHtml = '';
+      if (errosGrupo > 0)
+        badgeHtml = '<span style="font-size:.62rem;color:' + RED + ';font-weight:700;background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.3);border-radius:10px;padding:2px 9px;">⚠ ' + errosGrupo + ' erro(s)</span>';
+      else if (punicoesGrupo > 0)
+        badgeHtml = '<span style="font-size:.62rem;color:#c06060;font-weight:700;background:rgba(120,20,20,.15);border:1px solid rgba(180,40,40,.3);border-radius:10px;padding:2px 9px;">🔴 ' + punicoesGrupo + ' punição(ões)</span>';
+      else
+        badgeHtml = '<span style="font-size:.62rem;color:' + GREEN + ';font-weight:700;background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.3);border-radius:10px;padding:2px 9px;">✓ OK</span>';
+
+      return '<div style="' + CSS_CARD + 'margin-bottom:14px;">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
+          '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<div style="font-size:.88rem;font-weight:800;color:' + GOLD + ';letter-spacing:.05em;text-transform:uppercase;">' + _esc(gr.nome) + '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;">' +
+            badgeHtml +
+            '<button onclick="HR_IMPORT._ignorarGrupo(' + gi + ',true)" ' +
+              'title="Ignorar este funcionário (ex: dono sem ponto fixo)" ' +
+              'style="background:none;border:1px solid #2a2a2a;border-radius:7px;color:#444;' +
+              'font-family:Outfit,sans-serif;font-size:.62rem;padding:3px 8px;cursor:pointer;" ' +
+              'onmouseover="this.style.borderColor=\'#555\';this.style.color=\'#888\'" ' +
+              'onmouseout="this.style.borderColor=\'#2a2a2a\';this.style.color=\'#444\'">🚫 Ignorar</button>' +
+          '</div>' +
+        '</div>' +
+        recsHtml +
+        '<button onclick="HR_IMPORT._abrirAdicionarDia(' + gi + ')" ' +
+          'style="width:100%;padding:9px;margin-top:4px;background:none;' +
+          'border:1px dashed #222;border-radius:8px;color:#3a3a3a;cursor:pointer;' +
+          'font-family:Outfit,sans-serif;font-size:.75rem;" ' +
+          'onmouseover="this.style.borderColor=\'#444\';this.style.color=\'#888\'" ' +
+          'onmouseout="this.style.borderColor=\'#222\';this.style.color=\'#3a3a3a\'">+ Adicionar dia</button>' +
+      '</div>';
+    }).join('');
+
+    var corStatus = totalErros > 0 ? RED : GREEN;
+    var totalRegs = grupos.reduce(function(s, g){ return s + g.registros.length; }, 0);
+
+    var html = '<div style="width:100%;max-width:560px;padding:0 16px;">' +
+      _header('Correção de Ponto', 'Toque nos campos para editar') +
+
+      '<div style="background:rgba(255,255,255,.03);border:1px solid #1e1e1e;border-radius:12px;' +
+        'padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+        '<div style="font-size:.78rem;color:' + T2 + ';">' + totalRegs + ' registros · ' + grupos.length + ' funcionário(s)</div>' +
+        '<div style="font-size:.72rem;font-weight:700;color:' + corStatus + ';' +
+          'background:' + (totalErros > 0 ? 'rgba(200,92,92,.1)' : 'rgba(92,184,92,.1)') + ';' +
+          'border:1px solid ' + (totalErros > 0 ? 'rgba(200,92,92,.35)' : 'rgba(92,184,92,.35)') + ';' +
+          'border-radius:12px;padding:4px 12px;">' +
+          (totalErros > 0 ? '⚠ ' + totalErros + ' erro(s)' : '✓ Tudo OK') +
+        '</div>' +
+      '</div>' +
+
+      gruposHtml +
+
+      '<button onclick="HR_IMPORT._continuarParaVinculacao()" ' +
+        'style="width:100%;padding:14px;border-radius:11px;' +
+        'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
+        'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
+        'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;' +
+        'cursor:pointer;letter-spacing:.04em;margin-bottom:8px;">Continuar →</button>' +
+
+      '<button onclick="HR_IMPORT._fechar()" ' +
+        'style="width:100%;padding:12px;border-radius:11px;background:transparent;' +
+        'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
+        'font-size:.85rem;cursor:pointer;">Cancelar</button>' +
+    '</div>';
+
+    _overlay('hrImport', html);
+  }
+
+  /** Máscara de horário: 0700 → 07:00 */
+  function _maskHorario(val) {
+    var s = val.replace(/[^0-9]/g, '');
+    if (s.length > 4) s = s.slice(0, 4);
+    if (s.length >= 3) s = s.slice(0,2) + ':' + s.slice(2);
+    return s;
+  }
+
+  /** Abre modal para editar entrada ou saída de um registro. */
+  function _editCorrecao(grpIdx, recIdx, field) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr || !gr.registros[recIdx]) return;
+    var r      = gr.registros[recIdx];
+    var dia    = r.data.split('-')[2];
+    var valAtual = r[field] || '';
+    var ovId   = 'hrEditCorrecao';
+    var existente = document.getElementById(ovId);
+    if (existente) existente.remove();
+
+    var temposRapidos = ['07:00','07:30','08:00','11:00','12:00','13:00','14:00','16:00','17:00','17:30'];
+    var btnsRapidos = temposRapidos.map(function(t) {
+      return '<button onclick="document.getElementById(\'corr_h\').value=\'' + t + '\'" ' +
+        'style="background:' + C3 + ';border:none;border-radius:7px;color:#888;' +
+        'padding:5px 9px;font-size:.7rem;cursor:pointer;font-family:monospace;">' + t + '</button>';
+    }).join('');
+
+    var ovEl = document.createElement('div');
+    ovEl.id = ovId;
+    ovEl.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(8,7,4,.95);' +
+      'display:flex;align-items:center;justify-content:center;font-family:Outfit,sans-serif;padding:24px;';
+    ovEl.innerHTML =
+      '<div style="width:100%;max-width:320px;">' +
+        '<div style="' + CSS_CARD + 'padding:22px 20px;">' +
+          '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;margin-bottom:4px;">' +
+            _esc(gr.nome.toUpperCase()) + ' · DIA ' + dia +
+          '</div>' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + T1 + ';margin-bottom:16px;">' +
+            'Editar ' + (field === 'entrada' ? 'Entrada' : 'Saída') +
+          '</div>' +
+          '<input id="corr_h" type="text" maxlength="5" value="' + _esc(valAtual) + '" placeholder="07:00" ' +
+            'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
+            'onkeydown="if(event.key===\'Enter\')HR_IMPORT._salvarCorrecao(' + grpIdx + ',' + recIdx + ',\'' + field + '\')" ' +
+            'style="width:100%;box-sizing:border-box;padding:14px;border-radius:10px;' +
+            'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
+            'font-family:monospace;font-size:1.8rem;text-align:center;outline:none;' +
+            'letter-spacing:4px;margin-bottom:14px;">' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">' + btnsRapidos + '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button onclick="HR_IMPORT._salvarCorrecao(' + grpIdx + ',' + recIdx + ',\'' + field + '\')" ' +
+              'style="flex:2;padding:12px;border-radius:10px;' +
+              'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
+              'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
+              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">Confirmar</button>' +
+            '<button onclick="document.getElementById(\'' + ovId + '\').remove()" ' +
+              'style="flex:1;padding:12px;border-radius:10px;background:transparent;' +
+              'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
+              'font-size:.82rem;cursor:pointer;">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ovEl);
+    setTimeout(function(){ var el = document.getElementById('corr_h'); if (el) { el.focus(); el.select(); } }, 50);
+  }
+
+  /** Salva a edição e re-renderiza a tela de correção. */
+  function _salvarCorrecao(grpIdx, recIdx, field) {
+    var el = document.getElementById('corr_h');
+    if (!el) return;
+    var val = el.value.trim();
+    if (val && !val.match(/^\d{1,2}:\d{2}$/)) {
+      _toast('⚠️ Use o formato HH:MM'); return;
+    }
+    var gr = _state.grupos[grpIdx];
+    if (gr && gr.registros[recIdx]) gr.registros[recIdx][field] = val;
+    var ov = document.getElementById('hrEditCorrecao');
+    if (ov) ov.remove();
+    _renderTelaCorrecao();
+  }
+
+  /** Remove um registro e re-renderiza. */
+  function _excluirCorrecao(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (gr) gr.registros.splice(recIdx, 1);
+    _renderTelaCorrecao();
+  }
+
+  /** Abre modal para adicionar um dia manualmente a um funcionário. */
+  function _abrirAdicionarDia(grpIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr) return;
+
+    // Detecta mês/ano do período atual
+    var ano = new Date().getFullYear(), mes = new Date().getMonth() + 1;
+    if (_state.periodo && _state.periodo.di) {
+      ano = parseInt(_state.periodo.di.slice(0,4));
+      mes = parseInt(_state.periodo.di.slice(5,7));
+    } else if (gr.registros.length > 0) {
+      var pd = gr.registros[0].data || '';
+      if (pd) { ano = parseInt(pd.slice(0,4)); mes = parseInt(pd.slice(5,7)); }
+    }
+
+    var ovId = 'hrAddDia';
+    var ex = document.getElementById(ovId); if (ex) ex.remove();
+    var ovEl = document.createElement('div');
+    ovEl.id = ovId;
+    ovEl.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(8,7,4,.95);' +
+      'display:flex;align-items:center;justify-content:center;font-family:Outfit,sans-serif;padding:24px;';
+    ovEl.innerHTML =
+      '<div style="width:100%;max-width:340px;">' +
+        '<div style="' + CSS_CARD + 'padding:22px 20px;">' +
+          '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;margin-bottom:4px;">' +
+            _esc(gr.nome.toUpperCase()) +
+          '</div>' +
+          '<div style="font-size:1.1rem;font-weight:800;color:' + T1 + ';margin-bottom:16px;">+ Adicionar Dia</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+            '<div style="flex:.55;">' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">DIA</div>' +
+              '<input id="add_d" type="number" min="1" max="31" placeholder="17" ' +
+                'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
+                'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
+                'font-family:monospace;font-size:1rem;outline:none;">' +
+            '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">ENTRADA</div>' +
+              '<input id="add_e" type="text" maxlength="5" placeholder="07:00" ' +
+                'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
+                'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
+                'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
+                'font-family:monospace;font-size:1rem;outline:none;">' +
+            '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">SAÍDA</div>' +
+              '<input id="add_s" type="text" maxlength="5" placeholder="16:00" ' +
+                'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
+                'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
+                'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
+                'font-family:monospace;font-size:1rem;outline:none;">' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button onclick="HR_IMPORT._confirmarAddDia(' + grpIdx + ',' + ano + ',' + mes + ')" ' +
+              'style="flex:2;padding:12px;border-radius:10px;' +
+              'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
+              'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
+              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">Adicionar</button>' +
+            '<button onclick="document.getElementById(\'' + ovId + '\').remove()" ' +
+              'style="flex:1;padding:12px;border-radius:10px;background:transparent;' +
+              'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
+              'font-size:.82rem;cursor:pointer;">Cancelar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ovEl);
+    setTimeout(function(){ var el = document.getElementById('add_d'); if (el) el.focus(); }, 50);
+  }
+
+  /** Valida e insere o novo dia, ordena os registros e re-renderiza. */
+  function _confirmarAddDia(grpIdx, ano, mes) {
+    var dEl = document.getElementById('add_d');
+    var eEl = document.getElementById('add_e');
+    var sEl = document.getElementById('add_s');
+    if (!dEl || !eEl || !sEl) return;
+    var dia     = parseInt(dEl.value);
+    var entrada = eEl.value.trim();
+    var saida   = sEl.value.trim();
+    if (!dia || dia < 1 || dia > 31) { _toast('⚠️ Dia inválido.'); return; }
+    if (!entrada)                    { _toast('⚠️ Informe a entrada.'); return; }
+    var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dia).padStart(2,'0');
+    var dt = new Date(dataISO + 'T12:00:00');
+    if (isNaN(dt.getTime())) { _toast('⚠️ Data inválida.'); return; }
+    if (dt.getDay() === 0)   { _toast('⚠️ Domingo não conta.'); return; }
+    var gr = _state.grupos[grpIdx];
+    if (!gr) return;
+    if (gr.registros.some(function(r){ return r.data === dataISO; })) {
+      _toast('⚠️ Já existe registro para o dia ' + dia + '.'); return;
+    }
+    gr.registros.push({ nome: gr.nome, data: dataISO, entrada: entrada, saida: saida, almocoManual: null });
+    gr.registros.sort(function(a, b){ return a.data.localeCompare(b.data); });
+    // Atualiza período se necessário
+    var todas = [];
+    _state.grupos.forEach(function(g){ g.registros.forEach(function(r){ todas.push(r.data); }); });
+    todas.sort();
+    _state.periodo = { di: todas[0], df: todas[todas.length - 1] };
+    var ov = document.getElementById('hrAddDia'); if (ov) ov.remove();
+    _renderTelaCorrecao();
+  }
+
+  /** Marca/desmarca grupo para ser ignorado na importação. */
+  function _ignorarGrupo(grpIdx, ignorar) {
+    if (_state.grupos[grpIdx]) _state.grupos[grpIdx]._ignorar = ignorar;
+    _renderTelaCorrecao();
+  }
+
+  /** Marca um registro com punição (desconta o dia). */
+  function _aplicarPunicao(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (gr && gr.registros[recIdx]) {
+      gr.registros[recIdx]._punicao = true;
+      // Remove horários incompletos para não poluir o CSV
+      gr.registros[recIdx].entrada = gr.registros[recIdx].entrada || 'PUNIÇÃO';
+      gr.registros[recIdx].saida   = 'PUNIÇÃO';
+    }
+    _renderTelaCorrecao();
+  }
+
+  /** Desfaz punição de um registro. */
+  function _desfazerPunicao(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (gr && gr.registros[recIdx]) {
+      gr.registros[recIdx]._punicao = false;
+      if (gr.registros[recIdx].entrada === 'PUNIÇÃO') gr.registros[recIdx].entrada = '';
+      if (gr.registros[recIdx].saida   === 'PUNIÇÃO') gr.registros[recIdx].saida   = '';
+    }
+    _renderTelaCorrecao();
+  }
+
+  /** Descarta grupos ignorados + registros vazios, propaga punições e segue. */
+  function _continuarParaVinculacao() {
+    // Remove grupos marcados para ignorar
+    _state.grupos = _state.grupos.filter(function(gr){ return !gr._ignorar; });
+
+    _state.grupos.forEach(function(gr) {
+      // Remove registros totalmente vazios (sem entrada E sem saída E sem punição)
+      gr.registros = gr.registros.filter(function(r){
+        return r._punicao || r.entrada || r.saida;
+      });
+      // Registros com punição: garante flag para o sistema de folha
+      gr.registros.forEach(function(r){
+        if (r._punicao) r.observacao = 'PUNIÇÃO — batida faltante';
+      });
+    });
 
     _renderTelaVinculacao();
   }
@@ -2443,6 +2974,18 @@ var HR_IMPORT = (function () {
     _toggleTabela:       _toggleTabela,
     _confirmarImportacao:_confirmarImportacao,
     _fechar:             _fechar,
+    // Correção de ponto
+    _renderTelaCorrecao:    _renderTelaCorrecao,
+    _editCorrecao:          _editCorrecao,
+    _salvarCorrecao:        _salvarCorrecao,
+    _excluirCorrecao:       _excluirCorrecao,
+    _abrirAdicionarDia:     _abrirAdicionarDia,
+    _confirmarAddDia:       _confirmarAddDia,
+    _continuarParaVinculacao: _continuarParaVinculacao,
+    _maskHorario:           _maskHorario,
+    _ignorarGrupo:          _ignorarGrupo,
+    _aplicarPunicao:        _aplicarPunicao,
+    _desfazerPunicao:       _desfazerPunicao,
     // Relatório e UI
     _gerarRelatorioHE:   _gerarRelatorioHE,
     _abrirDialogRelatorioHE: _abrirDialogRelatorioHE,
