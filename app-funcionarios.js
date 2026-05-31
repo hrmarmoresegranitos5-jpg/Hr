@@ -16,53 +16,22 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias' };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes' };
 
-  // IMPROVEMENT: _load agora valida que o resultado é um objeto simples.
-  // Dados corrompidos (array, string, null) retornam {} sem travar a UI.
-  function _load(key) {
-    try {
-      var parsed = JSON.parse(localStorage.getItem(key) || '{}');
-      return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
-    } catch(e) { return {}; }
-  }
+  function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
+  function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
 
-  // IMPROVEMENT: _save detecta QuotaExceededError (armazenamento cheio)
-  // e alerta o usuário em vez de perder dados silenciosamente.
-  function _save(key, data) {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch(e) {
-      if (e.name === 'QuotaExceededError' || e.code === 22) {
-        if (typeof toast === 'function') {
-          toast('⚠️ Armazenamento local cheio! Dados não salvos. Faça um backup agora.');
-        }
-        console.error('[HR] QuotaExceededError ao salvar', key, e);
-      } else {
-        console.error('[HR] Erro ao salvar', key, e);
-      }
-    }
-  }
-
-  // IMPROVEMENT: genId com crypto.getRandomValues quando disponível — muito menor
-  // risco de colisão em lotes grandes de importação.
-  function genId() {
-    if (window.crypto && window.crypto.getRandomValues) {
-      var arr = new Uint32Array(2);
-      window.crypto.getRandomValues(arr);
-      return Date.now().toString(36) + arr[0].toString(36) + arr[1].toString(36);
-    }
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-  }
-  // SECURITY: usa _loadValidated para aplicar schema e bloquear prototype pollution
-  function getFuncionarios() { return _loadValidated(KEYS.func); }
-  function getRegistros()    { return _loadValidated(KEYS.reg);  }
-  function getPagamentos()   { return _loadValidated(KEYS.pag);  }
+  function getFuncionarios() { return _load(KEYS.func); }
+  function getRegistros()    { return _load(KEYS.reg);  }
+  function getPagamentos()   { return _load(KEYS.pag);  }
   function getOcorrencias()  { return _load(KEYS.ocor); }
   function saveFuncionarios(d){ _save(KEYS.func,d); }
   function saveRegistros(d)   { _save(KEYS.reg,d);  }
   function savePagamentos(d)  { _save(KEYS.pag,d);  }
   function saveOcorrencias(d) { _save(KEYS.ocor,d); }
+  function getExcecoes()  { return _load(KEYS.exc);  }
+  function saveExcecoes(d){ _save(KEYS.exc,d); }
+  function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
   // 2. DESIGN TOKENS
@@ -94,92 +63,7 @@ var HR_FUNC = (function () {
   // 3. UTILITÁRIOS
   // ─────────────────────────────────────────────────────────────
   function _toast(m){ if(typeof toast==='function')toast(m); else console.log('[HR]',m); }
-  function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;'); }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CAMADA DE SEGURANÇA
-  // ═══════════════════════════════════════════════════════════════════════
-
-  // _sanitizeId: bloqueia IDs com caracteres que permitiriam injeção de código
-  // em strings onclick="HR_FUNC.fn('...')" construídas dinamicamente.
-  // IDs legítimos do genId() são alfanuméricos + underscore + hífen.
-  var _ID_REGEX = /^[a-zA-Z0-9_-]{1,80}$/;
-  function _sanitizeId(id) {
-    var s = String(id || '');
-    return _ID_REGEX.test(s) ? s : '';
-  }
-  function _safeId(id) {
-    var safe = _sanitizeId(id);
-    if (!safe && id) { console.error('[HR SECURITY] ID inválido bloqueado:', String(id).slice(0,40)); return '__INVALID__'; }
-    return safe;
-  }
-
-  // _validateRecord: valida um registro individual contra tipos esperados
-  // e remove chaves perigosas (prototype pollution).
-  var _DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
-  function _validateRecord(val, schema) {
-    if (!val || typeof val !== 'object' || Array.isArray(val)) return null;
-    var keys = Object.keys(val);
-    for (var di = 0; di < keys.length; di++) {
-      if (_DANGEROUS_KEYS.indexOf(keys[di]) !== -1) {
-        console.warn('[HR SECURITY] Chave perigosa bloqueada:', keys[di]);
-        return null; // descarta registro inteiro se tiver chave perigosa
-      }
-    }
-    if (!schema) return val;
-    var clean = {};
-    // Campos do schema — força tipos corretos
-    var skeys = Object.keys(schema);
-    for (var si = 0; si < skeys.length; si++) {
-      var sk = skeys[si];
-      var raw = val[sk];
-      var exp = schema[sk];
-      if (exp === 'string')  { clean[sk] = String(raw == null ? '' : raw); }
-      else if (exp === 'number')  { var n = parseFloat(raw); clean[sk] = isFinite(n) ? n : 0; }
-      else if (exp === 'boolean') { clean[sk] = !!raw; }
-      else { clean[sk] = raw; }
-    }
-    // Campos extras (forward compatibility) — preserva mas não valida tipo
-    for (var ei = 0; ei < keys.length; ei++) {
-      var ek = keys[ei];
-      if (!(ek in clean)) clean[ek] = val[ek];
-    }
-    return clean;
-  }
-
-  // Schemas de validação para cada coleção
-  var _SCHEMAS = {
-    func: { id:'string', nome:'string', telefone:'string', cargo:'string',
-            equipe:'string', salario:'number', admissao:'string', banco:'string',
-            pix:'string', cpf:'string', obs:'string', ativo:'boolean',
-            jornadaDiariaMin:'number', nascimento:'string', criadoEm:'string' },
-    reg:  { id:'string', funcionarioId:'string', data:'string',
-            entrada:'string', saida:'string', horas:'number', extra:'number',
-            tipoExtra:'string', destinoExtra:'string', observacao:'string',
-            producao:'string', loteId:'string', criadoEm:'string' },
-    pag:  { id:'string', funcionarioId:'string', data:'string',
-            valor:'number', tipo:'string', descricao:'string',
-            periodo:'string', criadoEm:'string' }
-  };
-
-  // _loadValidated: versão segura do _load que aplica schema validation.
-  function _loadValidated(key) {
-    var raw = _load(key);
-    var schemaKey = key.replace('hr_', '').replace(/s$/, ''); // hr_funcionarios -> func
-    var schema = _SCHEMAS[schemaKey] || _SCHEMAS[key] || null;
-    if (!schema) return raw;
-    var result = {};
-    var keys = Object.keys(raw);
-    for (var i = 0; i < keys.length; i++) {
-      var k = keys[i];
-      if (_DANGEROUS_KEYS.indexOf(k) !== -1) continue;
-      var cleaned = _validateRecord(raw[k], schema);
-      if (cleaned) result[k] = cleaned;
-    }
-    return result;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
+  function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function _fmtData(iso){ if(!iso)return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
   function _fmtMoeda(v){ return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function _hoje(){ return new Date().toISOString().slice(0,10); }
@@ -307,35 +191,30 @@ var HR_FUNC = (function () {
     var acumuladoMin = 0, utilizadoMin = 0;
     var registrosBanco = [];
 
-    // ── Créditos: horas extras enviadas ao banco (hr_registros) ─────────
     Object.values(regs).forEach(function(r) {
       if (r.funcionarioId !== funcId) return;
       if (di && r.data < di) return;
       if (df && r.data > df) return;
-      if (r.destinoExtra !== 'banco') return;
-      var min = Math.round((parseFloat(r.extra) || 0) * 60);
-      if (min > 0) {
-        acumuladoMin += min;
-        registrosBanco.push({ data: r.data, tipo: 'credito', min: min });
-      }
-    });
 
-    // ── Débitos: folgas registradas via módulo BH (hr_banco_horas) ──────
-    // FIX Bug 1: ler de 'hr_banco_horas' (onde BH._saveDebitos grava),
-    // não de hr_registros tipo='folga_banco' (nunca preenchido pelo módulo BH).
-    try {
-      var debitos = JSON.parse(localStorage.getItem('hr_banco_horas') || '{}');
-      Object.values(debitos).forEach(function(m) {
-        if (m.funcionarioId !== funcId) return;
-        if (di && m.data < di) return;
-        if (df && m.data > df) return;
-        var dMin = Math.round((parseFloat(m.horas) || 0) * 60);
+      // Crédito: extras com destino=banco
+      if (r.destinoExtra === 'banco') {
+        var min = Math.round((parseFloat(r.extra) || 0) * 60);
+        if (min > 0) {
+          acumuladoMin += min;
+          registrosBanco.push({ data: r.data, tipo: 'credito', min: min });
+        }
+      }
+
+      // Débito: folgas compensadas — registros com tipo='folga_banco' criados ao lançar folga
+      // (campo `tipo` no registro, distinto de `tipoExtra` que é 'normal'/'feriado'/'especial')
+      if (r.tipo === 'folga_banco') {
+        var dMin = Math.round(Math.abs(parseFloat(r.horas) || 0) * 60);
         if (dMin > 0) {
           utilizadoMin += dMin;
-          registrosBanco.push({ data: m.data, tipo: 'debito', min: dMin });
+          registrosBanco.push({ data: r.data, tipo: 'debito', min: dMin });
         }
-      });
-    } catch(e) {}
+      }
+    });
 
     return {
       acumuladoMin:    acumuladoMin,
@@ -411,12 +290,8 @@ var HR_FUNC = (function () {
       };
     }
 
-    // IMPROVEMENT: garantir que nenhum valor financeiro seja NaN ou Infinity
-    // Isso protege a UI de mostrar "NaN" e relatórios de ter valores incorretos.
-    function _fin(v) { var n = parseFloat(v); return (isFinite(n) ? n : 0); }
-
-    var valorExtra  = _fin(heResult.valorTotalExtras);
-    var totalDevido = _fin(totalSalario) + valorExtra;
+    var valorExtra  = heResult.valorTotalExtras;
+    var totalDevido = totalSalario + valorExtra;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -425,26 +300,29 @@ var HR_FUNC = (function () {
       if (df && p.data > df) return false;
       return true;
     });
-    var totalPago = meusPags.reduce(function(s, p){ return s + _fin(p.valor); }, 0);
-    var saldo     = _fin(totalDevido) - _fin(totalPago);
+    var totalPago = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
+    var saldo     = totalDevido - totalPago;
 
-    var valorHoraExtra = _fin(heResult.valorHoraBase * _getMultNormal());
+    // valorHoraExtra de referência (HE50 — mantido para exibição na UI)
+    var valorHoraExtra = heResult.valorHoraBase * _getMultNormal();
 
     return {
-      totalHoras:       _fin(totalHoras),
-      totalExtra:       _fin(heResult.totalExtraHoras),
+      // Campos clássicos — mantidos para compatibilidade total com UI existente
+      totalHoras:       totalHoras,
+      totalExtra:       heResult.totalExtraHoras,
       valorExtra:       valorExtra,
-      totalSalario:     _fin(totalSalario),
-      totalDevido:      _fin(totalDevido),
-      totalPago:        _fin(totalPago),
-      saldo:            _fin(saldo),
+      totalSalario:     totalSalario,
+      totalDevido:      totalDevido,
+      totalPago:        totalPago,
+      saldo:            saldo,
       temCredito:       saldo < -0.01,
       diasTrabalhados:  dias,
-      valorHoraBase:    _fin(heResult.valorHoraBase),
+      valorHoraBase:    heResult.valorHoraBase,
       valorHoraExtra:   valorHoraExtra,
-      valorExtra50:     _fin(heResult.valorExtra50),
-      valorExtra100:    _fin(heResult.valorExtra100),
-      valorExtra200:    _fin(heResult.valorExtra200),
+      // Campos novos — breakdown por faixa (disponíveis para UI/relatórios futuros)
+      valorExtra50:     heResult.valorExtra50,
+      valorExtra100:    heResult.valorExtra100,
+      valorExtra200:    heResult.valorExtra200,
       totalExtra50Min:  heResult.totalExtra50Min,
       totalExtra100Min: heResult.totalExtra100Min,
       totalExtra200Min: heResult.totalExtra200Min,
@@ -529,6 +407,33 @@ var HR_FUNC = (function () {
     // Horários padrão (usam horario do cadastro se disponível)
     var hrEnt = f.horarioEntrada || '07:00';
     var hrSai = f.horarioSaida   || '17:00';
+
+    // ── Guarda o contexto ANTES de modificar ──────────────────────────────
+    // Salva o que existia para o gerente ver o que o sistema encontrou
+    reg.entradaOriginal = reg.entrada || null; // null = não existia
+    reg.saidaOriginal   = reg.saida   || null;
+
+    // Monta texto explicativo do contexto de batidas disponíveis
+    // Ex: "Havia saída almoço 12:14, volta almoço 14:14 e saída 17:00 — faltou a entrada"
+    var contexto = '';
+    if (faltaEntrada && faltaSaida) {
+      contexto = 'Nenhuma batida registrada no sistema para este dia.';
+    } else if (faltaEntrada) {
+      // Tem saída — pode ter almoço também (campos saidaAlmoco / voltaAlmoco)
+      var partes = [];
+      if (reg.saidaAlmoco)  partes.push('saída almoço ' + reg.saidaAlmoco);
+      if (reg.voltaAlmoco)  partes.push('volta almoço ' + reg.voltaAlmoco);
+      partes.push('saída ' + reg.saida);
+      contexto = 'Havia ' + partes.join(', ') + ' — faltou o registro de entrada.';
+    } else {
+      // Tem entrada — falta saída
+      var partes2 = ['entrada ' + reg.entrada];
+      if (reg.saidaAlmoco)  partes2.push('saída almoço ' + reg.saidaAlmoco);
+      if (reg.voltaAlmoco)  partes2.push('volta almoço ' + reg.voltaAlmoco);
+      contexto = 'Havia ' + partes2.join(', ') + ' — faltou o registro de saída.';
+    }
+
+    // Aplica horário padrão
     if (faltaEntrada) reg.entrada = hrEnt;
     if (faltaSaida)   reg.saida   = hrSai;
 
@@ -537,22 +442,32 @@ var HR_FUNC = (function () {
     var sp = reg.saida.split(':').map(Number);
     var diff = (sp[0]*60+sp[1]) - (ep[0]*60+ep[1]);
     if (diff < 0) diff += 1440;
-    // CORREÇÃO: não desconta almoço automaticamente no auto-completamento.
-    // O registro foi auto-completado com horário padrão — já é uma situação
-    // de exceção; subtrair mais 1h seria dupla penalidade injusta.
-    var horasBrutas = diff / 60;
-    reg.horas = parseFloat(horasBrutas.toFixed(2));
+
+    // Descontar almoço se havia batidas intermediárias (saidaAlmoco + voltaAlmoco)
+    // Sem batidas intermediárias = trabalho direto (Regra 2 do guia: não descontar)
+    var almocoReal = 0;
+    if (reg.saidaAlmoco && reg.voltaAlmoco) {
+      var sa = reg.saidaAlmoco.split(':').map(Number);
+      var va = reg.voltaAlmoco.split(':').map(Number);
+      almocoReal = (va[0]*60+va[1]) - (sa[0]*60+sa[1]);
+      if (almocoReal < 0) almocoReal = 0;
+    }
+    var trabMin = diff - almocoReal;
+    reg.horas = parseFloat(Math.max(0, trabMin / 60).toFixed(2));
 
     // Calcula penalidade progressiva
     var nConsec = _contarOcorrenciasConsecutivas(funcId, reg.data);
     var penMin  = (nConsec + 1) * 10;           // 10, 20, 30...
 
     // Aplica desconto nas horas
-    reg.horas        = Math.max(0, parseFloat((reg.horas - penMin / 60).toFixed(2)));
-    reg.penalidade   = penMin;                   // minutos descontados (para exibição)
+    reg.horas         = Math.max(0, parseFloat((reg.horas - penMin / 60).toFixed(2)));
+    reg.penalidade    = penMin;
     reg.autoCompletado = true;
-    reg.tipoFalha    = faltaEntrada ? 'sem_entrada' : (faltaSaida ? 'sem_saida' : 'ambos');
-    reg.atualizadoEm = new Date().toISOString();
+    reg.tipoFalha     = faltaEntrada ? 'sem_entrada' : (faltaSaida ? 'sem_saida' : 'ambos');
+    reg.penMotivo     = contexto; // explicação textual para exibição
+    reg.penHoraInferida = faltaEntrada ? hrEnt : hrSai; // horário que foi assumido
+    reg.penOcorrencia = nConsec + 1; // número da ocorrência consecutiva
+    reg.atualizadoEm  = new Date().toISOString();
 
     regs[reg.id] = reg;
     saveRegistros(regs);
@@ -567,13 +482,15 @@ var HR_FUNC = (function () {
       registroId: reg.id,
       tipoFalha: reg.tipoFalha,
       horaAutoCompletada: faltaEntrada ? hrEnt : hrSai,
+      horaOriginal: faltaEntrada ? reg.entradaOriginal : reg.saidaOriginal,
+      contexto: contexto,
       penalidade: penMin,
       ocorrenciaNumero: nConsec + 1,
       criadoEm: new Date().toISOString()
     };
     saveOcorrencias(ocors);
 
-    return { penMin: penMin, numero: nConsec + 1, data: reg.data };
+    return { penMin: penMin, numero: nConsec + 1, data: reg.data, tipoFalha: reg.tipoFalha, contexto: contexto };
   }
 
   // Varre registros incompletos de dias passados e aplica penalidades
@@ -610,24 +527,53 @@ var HR_FUNC = (function () {
     var ocors = getOcorrenciasFuncionario(funcId);
     if (!ocors.length) return '';
     var totalMin = ocors.reduce(function(s,o){ return s + (o.penalidade||0); }, 0);
-    var tipoLabel = { sem_entrada:'sem entrada', sem_saida:'sem saída', ambos:'sem entrada/saída' };
+
+    var TIPO_ICONE  = { sem_entrada:'🚪⬇️', sem_saida:'🚪⬆️', ambos:'🚪❌' };
+    var TIPO_TEXTO  = { sem_entrada:'entrada não registrada', sem_saida:'saída não registrada', ambos:'entrada e saída não registradas' };
+
     var itens = ocors.slice(0,5).map(function(o){
-      return '<div style="display:flex;justify-content:space-between;align-items:center;'+
-        'padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
-        '<div>' +
-          '<span style="font-size:.78rem;font-weight:700;color:'+T1+';">'+_fmtData(o.data)+'</span>' +
-          '<span style="font-size:.65rem;color:'+T3+';margin-left:7px;">'+_esc(tipoLabel[o.tipoFalha]||o.tipoFalha)+'</span>' +
-          '<span style="font-size:.62rem;color:'+T3+';margin-left:5px;">(#'+o.ocorrenciaNumero+')</span>'+
+      var icone = TIPO_ICONE[o.tipoFalha] || '⚠️';
+      var txtFalha = TIPO_TEXTO[o.tipoFalha] || o.tipoFalha;
+      var horInferido = o.horaAutoCompletada || '—';
+
+      return '<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
+        // Linha 1: data + tipo falha + penalidade
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<span style="font-size:.78rem;font-weight:700;color:'+T1+';">'+_fmtData(o.data)+'</span>' +
+            '<span style="font-size:.62rem;color:'+T3+';margin-left:6px;">'+icone+' '+_esc(txtFalha)+'</span>' +
+            '<span style="font-size:.6rem;color:'+T3+';margin-left:5px;">(ocorrência #'+o.ocorrenciaNumero+')</span>'+
+          '</div>' +
+          '<span style="font-size:.78rem;font-weight:800;color:'+RED+';white-space:nowrap;flex-shrink:0;">−'+o.penalidade+' min</span>' +
         '</div>' +
-        '<span style="font-size:.75rem;font-weight:700;color:'+RED+';white-space:nowrap;">−'+o.penalidade+' min</span>' +
+        // Linha 2: horário assumido
+        '<div style="margin-top:4px;background:rgba(200,92,92,.07);border-radius:7px;padding:6px 9px;">' +
+          '<div style="font-size:.68rem;color:'+RED+';font-weight:700;margin-bottom:2px;">⏰ Horário assumido: '+_esc(horInferido)+'</div>' +
+          (o.contexto
+            ? '<div style="font-size:.65rem;color:'+T3+';line-height:1.5;">'+_esc(o.contexto)+'</div>'
+            : ''
+          ) +
+          '<div style="font-size:.63rem;color:rgba(200,92,92,.7);margin-top:3px;">'+
+            'Penalidade de −'+o.penalidade+' min aplicada automaticamente por ausência de registro. '+
+            'Para corrigir, abra o registro e ajuste manualmente o horário real.'+
+          '</div>'+
+        '</div>' +
       '</div>';
     }).join('');
-    var mais = ocors.length > 5 ? '<div style="font-size:.65rem;color:'+T3+';text-align:center;padding:6px 0;">+' + (ocors.length-5) + ' ocorrência(s) anteriores</div>' : '';
-    return '<div style="background:rgba(200,92,92,.06);border:1px solid rgba(200,92,92,.2);'+
+
+    var mais = ocors.length > 5
+      ? '<div style="font-size:.65rem;color:'+T3+';text-align:center;padding:8px 0;">+' + (ocors.length-5) + ' ocorrência(s) anteriores</div>'
+      : '';
+
+    return '<div style="background:rgba(200,92,92,.06);border:1px solid rgba(200,92,92,.22);'+
       'border-radius:12px;padding:12px 14px;margin-bottom:12px;">' +
-      '<div style="font-size:.68rem;font-weight:700;color:'+RED+';margin-bottom:8px;display:flex;justify-content:space-between;">' +
+      '<div style="font-size:.68rem;font-weight:700;color:'+RED+';margin-bottom:4px;display:flex;justify-content:space-between;">' +
         '<span>⚠️ OCORRÊNCIAS DE PONTO</span>' +
-        '<span>Total: −'+totalMin+' min</span>' +
+        '<span>Total descontado: −'+totalMin+' min</span>' +
+      '</div>' +
+      '<div style="font-size:.63rem;color:rgba(200,92,92,.65);margin-bottom:10px;">'+
+        'Dias com ponto incompleto detectados automaticamente. '+
+        'Horário padrão assumido + penalidade de 10 min por ocorrência (+10 a cada reincidência consecutiva).'+
       '</div>' +
       itens + mais +
     '</div>';
@@ -791,6 +737,13 @@ var HR_FUNC = (function () {
           'display:flex;align-items:center;justify-content:center;gap:9px;">'+
           '<span>⚠️</span><span>Dashboard de Risco</span>'+
         '</button>' +
+        '<button onclick="HR_FUNC.abrirGestaoExcecoes()" '+
+          'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(92,150,220,.06);'+
+          'border:1.5px solid rgba(92,150,220,.28);border-radius:11px;color:'+BLUE+';'+
+          'font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;'+
+          'display:flex;align-items:center;justify-content:center;gap:9px;">'+
+          '<span>📅</span><span>Feriados, Folgas e Dias Declarados</span>'+
+        '</button>' +
       '</div>' +
 
       // ── Separador + Busca ──
@@ -861,7 +814,7 @@ var HR_FUNC = (function () {
     return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:14px;'+
       'padding:14px 16px;margin-bottom:9px;cursor:pointer;'+
       'transition:border-color .2s;active:opacity:.9;" '+
-      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+_safeId(f.id)+'\')">' +
+      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+f.id+'\')">' +
       '<div style="display:flex;align-items:center;gap:13px;">' +
         _avatarCircle(f,50) +
         '<div style="flex:1;min-width:0;">' +
@@ -1035,45 +988,25 @@ var HR_FUNC = (function () {
   function _salvarFuncionario(id){
     var nome=(document.getElementById('ff_nome')||{}).value||'';
     if(!nome.trim()){_toast('Informe o nome');return;}
-
-    // IMPROVEMENT: validações antes de salvar
-    var salarioVal=parseFloat((document.getElementById('ff_salario')||{}).value)||0;
-    if(salarioVal<0){_toast('⛔ Salário não pode ser negativo.');return;}
-    if(salarioVal>100000){_toast('⛔ Salário acima de R$100.000 — verifique o valor.');return;}
-
-    var jornadaRaw=parseFloat((document.getElementById('ff_jornada')||{}).value)||0;
-    if(jornadaRaw>12){_toast('⛔ Jornada diária não pode exceder 12h.');return;}
-    if(jornadaRaw<0){_toast('⛔ Jornada diária não pode ser negativa.');return;}
-
     var funcs=getFuncionarios();
     var funcId=id||genId(); var isNew=!id;
     var foto=(document.getElementById('ff_foto_val')||{}).value||
              (document.getElementById('ff_foto')||{}).value||
              (funcs[funcId]&&funcs[funcId].foto)||'';
-
-    // IMPROVEMENT: aviso se foto muito grande (>400KB base64) — pode causar QuotaExceededError
-    if(foto&&foto.length>400000){
-      if(!confirm('⚠️ A foto é muito grande ('+Math.round(foto.length/1024)+'KB) e pode causar problemas de armazenamento. Deseja manter a foto anterior?')){
-        foto='';
-      } else {
-        foto=(funcs[funcId]&&funcs[funcId].foto)||'';
-      }
-    }
-
     funcs[funcId]={
-      id:funcId, nome:nome.trim(),
-      telefone:((document.getElementById('ff_tel')||{}).value||'').trim(),
+      id:funcId,nome:nome.trim(),
+      telefone:(document.getElementById('ff_tel')||{}).value||'',
       foto:foto,
       nascimento:(document.getElementById('ff_nasc')||{}).value||'',
-      cpf:((document.getElementById('ff_cpf')||{}).value||'').trim(),
-      cargo:((document.getElementById('ff_cargo')||{}).value||'').trim(),
+      cpf:(document.getElementById('ff_cpf')||{}).value||'',
+      cargo:(document.getElementById('ff_cargo')||{}).value||'',
       equipe:(document.getElementById('ff_equipe')||{}).value||'producao',
-      salario:salarioVal,
+      salario:parseFloat((document.getElementById('ff_salario')||{}).value)||0,
       admissao:(document.getElementById('ff_admissao')||{}).value||'',
-      banco:((document.getElementById('ff_banco')||{}).value||'').trim(),
-      pix:((document.getElementById('ff_pix')||{}).value||'').trim(),
+      banco:(document.getElementById('ff_banco')||{}).value||'',
+      pix:(document.getElementById('ff_pix')||{}).value||'',
       ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
-      jornadaDiariaMin:(jornadaRaw>0?Math.round(jornadaRaw*60):0),
+      jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
@@ -1281,6 +1214,11 @@ var HR_FUNC = (function () {
     Object.values(regs).filter(function(r){return r.funcionarioId===funcId&&r.data.startsWith(mesStr);})
       .forEach(function(r){regsMes[r.data]=r;});
 
+    // Pega exceções globais do mês (feriado, acordo, declarado)
+    var excMes={};
+    Object.values(getExcecoes()).filter(function(e){return e.data.startsWith(mesStr);})
+      .forEach(function(e){excMes[e.data]=e;});
+
     var dias=['D','S','T','Q','Q','S','S'];
     var h='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">';
     // Cabeçalho
@@ -1293,33 +1231,46 @@ var HR_FUNC = (function () {
     for(var d=1;d<=diasNoMes;d++){
       var dStr=ano+'-'+String(mes).padStart(2,'0')+'-'+String(d).padStart(2,'0');
       var reg=regsMes[dStr];
+      var exc=excMes[dStr];
       var isHoje=dStr===hoje;
       var dow=new Date(dStr+'T12:00:00').getDay();
       var isFDS=dow===0||dow===6;
-      var bg='transparent', cor=T3, brd='transparent';
+      var bg='transparent', cor=T3, brd='transparent', title='';
       if(isHoje){bg='rgba(201,168,76,.2)';cor=GOLD;brd=GOLDB;}
+      // Exceção global tem prioridade visual se não houver ponto
+      if(exc&&!reg){
+        if(exc.tipo==='feriado'){bg='rgba(92,150,220,.2)';cor='#8ec8f0';brd='rgba(92,150,220,.3)';title=exc.descricao||'Feriado';}
+        else if(exc.tipo==='acordo'){bg='rgba(180,120,220,.2)';cor='#c88ef0';brd='rgba(180,120,220,.3)';title=exc.descricao||'Acordo/Folga';}
+        else if(exc.tipo==='declarado'){bg='rgba(60,180,120,.18)';cor='#6fcca0';brd='rgba(60,180,120,.3)';title=exc.descricao||'Declarado';}
+      }
       if(reg){
         if(reg.autoCompletado){bg='rgba(200,92,92,.18)';cor=RED;brd='rgba(200,92,92,.3)';}
         else if(parseFloat(reg.extra)>0){bg='rgba(201,168,76,.25)';cor=GOLD;brd='transparent';}
         else{bg='rgba(92,184,92,.2)';cor=GREEN;brd='transparent';}
+        title=reg.horas+'h'+(parseFloat(reg.extra)>0?' +'+reg.extra+'h extra':'')+(reg.autoCompletado?' ⚠️ −'+reg.penalidade+'min':'');
       }
-      if(isFDS&&!reg){cor='rgba(122,114,104,.4)';}
+      if(isFDS&&!reg&&!exc){cor='rgba(122,114,104,.4)';}
       h+='<div style="text-align:center;padding:4px 2px;border-radius:6px;border:1px solid '+brd+';background:'+bg+';'+
-        'font-size:.65rem;font-weight:'+(isHoje?'800':'600')+';color:'+cor+';cursor:'+(reg?'pointer':'default')+';" '+
-        (reg?'onclick="HR_FUNC.abrirDetalhesRegistro(\''+reg.id+'\')" title="'+reg.horas+'h'+(parseFloat(reg.extra)>0?' +'+reg.extra+'h extra':'')+(reg.autoCompletado?' ⚠️ −'+reg.penalidade+'min':'')+'">':'>')+
+        'font-size:.65rem;font-weight:'+(isHoje?'800':'600')+';color:'+cor+';cursor:'+(reg||exc?'pointer':'default')+';" '+
+        (reg?'onclick="HR_FUNC.abrirDetalhesRegistro(\''+reg.id+'\')"':'')+(exc&&!reg?'onclick="HR_FUNC.abrirGestaoExcecoes()"':'')+
+        (title?' title="'+title+'"':'')+'>'+
         d+'</div>';
     }
     h+='</div>';
     // Legenda
-    h+='<div style="display:flex;gap:12px;margin-top:8px;justify-content:center;">' +
+    h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;justify-content:center;">' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
-        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(92,184,92,.25);"></div>Ponto normal</div>' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(92,184,92,.25);"></div>Normal</div>' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
-        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(200,92,92,.2);border:1px solid rgba(200,92,92,.4);"></div>Auto-completado ⚠️</div>' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(200,92,92,.2);border:1px solid rgba(200,92,92,.4);"></div>Auto-compl.</div>' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
-        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.3);"></div>Com hora extra</div>' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.3);"></div>Extra</div>' +
       '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
-        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(201,168,76,.2);border:1px solid '+GOLDB+';"></div>Hoje</div>' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(92,150,220,.25);"></div>Feriado</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(180,120,220,.25);"></div>Acordo</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;font-size:.62rem;color:'+T3+';">' +
+        '<div style="width:10px;height:10px;border-radius:3px;background:rgba(60,180,120,.22);"></div>Declarado</div>' +
     '</div>';
     return h;
   }
@@ -1352,7 +1303,7 @@ var HR_FUNC = (function () {
   function _miniCardRegistro(r){
     return '<div style="background:rgba(201,168,76,.04);border:1px solid '+BD+';'+
       'border-radius:10px;padding:10px 13px;margin-bottom:7px;cursor:pointer;" '+
-      'onclick="HR_FUNC.abrirDetalhesRegistro(\''+_safeId(r.id)+'\')">'+
+      'onclick="HR_FUNC.abrirDetalhesRegistro(\''+r.id+'\')">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;">' +
         '<div>' +
           '<span style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+'</span>' +
@@ -1400,11 +1351,11 @@ var HR_FUNC = (function () {
             '<div style="font-size:.68rem;color:'+statusCor+';">'+statusTxt+'</div>'+
           '</div>'+
           (regHoje&&regHoje.entrada&&!regHoje.saida
-            ?'<button onclick="HR_FUNC._registrarSaida(\''+_safeId(f.id)+'\',\''+_safeId(regHoje.id)+'\')" '+
+            ?'<button onclick="HR_FUNC._registrarSaida(\''+f.id+'\',\''+regHoje.id+'\')" '+
                'style="background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.4);color:'+RED+';'+
                'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Saída</button>'
             :(!regHoje
-              ?'<button onclick="HR_FUNC._registrarEntrada(\''+_safeId(f.id)+'\')" '+
+              ?'<button onclick="HR_FUNC._registrarEntrada(\''+f.id+'\')" '+
                 'style="background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.4);color:'+GREEN+';'+
                 'border-radius:8px;padding:7px 13px;font-size:.75rem;font-family:Outfit,sans-serif;font-weight:700;cursor:pointer;">Entrada</button>'
               :'<span style="font-size:.68rem;color:'+GREEN+';font-weight:700;padding:7px 10px;">✓</span>'
@@ -1518,7 +1469,7 @@ var HR_FUNC = (function () {
       '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
         [mesAnterior,mesAtual].map(function(m){
           var on=m===periodoAtivo;
-          return '<button onclick="window._folhaMes=\''+_safeId(m)+'\';HR_FUNC.abrirFolhaPagamento();" '+
+          return '<button onclick="window._folhaMes=\''+m+'\';HR_FUNC.abrirFolhaPagamento();" '+
             'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
             (on?'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';':'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
             '>'+fmtMes(m)+'</button>';
@@ -1559,7 +1510,7 @@ var HR_FUNC = (function () {
             '<div style="text-align:right;font-size:.75rem;color:'+(l.s.valorExtra>0?GOLD:T3)+';font-weight:'+(l.s.valorExtra>0?'700':'400')+';">'+_fmtMoeda(l.s.valorExtra)+'</div>'+
             '<div style="text-align:right;font-size:.8rem;font-weight:700;color:'+sc+';">'+_fmtMoeda(Math.abs(l.s.saldo))+'</div>'+
             '<div style="text-align:center;">'+
-              '<button onclick="HR_FUNC.abrirFormPagamento(\''+_safeId(l.f.id)+'\');HR_FUNC._closeFolha();" '+
+              '<button onclick="HR_FUNC.abrirFormPagamento(\''+l.f.id+'\');HR_FUNC._closeFolha();" '+
                 'style="background:none;border:none;color:'+GREEN+';cursor:pointer;font-size:.9rem;padding:2px;" title="Registrar pagamento">💳</button>'+
             '</div>'+
           '</div>';
@@ -1588,9 +1539,50 @@ var HR_FUNC = (function () {
         alertas.map(function(a){return '<div style="font-size:.72rem;color:#e0b870;padding:2px 0;">'+_esc(a.descricao)+'</div>';}).join('')+
       '</div>':'';
 
+    // ── Banner de penalidade — visível ao abrir um registro auto-completado ──
+    var penBannerHtml = '';
+    if (r.autoCompletado && r.penalidade) {
+      var TIPO_TEXTO_BAN = { sem_entrada:'entrada não registrada', sem_saida:'saída não registrada', ambos:'entrada e saída não registradas' };
+      var txtFalha = TIPO_TEXTO_BAN[r.tipoFalha] || r.tipoFalha || 'ponto incompleto';
+      var hrInferido = r.penHoraInferida || (r.tipoFalha==='sem_entrada' ? r.entrada : r.saida) || '—';
+      penBannerHtml =
+        '<div style="background:rgba(200,92,92,.08);border:1.5px solid rgba(200,92,92,.35);'+
+        'border-radius:12px;padding:13px 15px;margin-bottom:14px;">' +
+          '<div style="font-size:.7rem;font-weight:800;color:'+RED+';margin-bottom:8px;display:flex;align-items:center;gap:7px;">'+
+            '<span>⚠️</span><span>PENALIDADE AUTOMÁTICA APLICADA</span>'+
+          '</div>'+
+          // Horário inferido em destaque
+          '<div style="background:rgba(200,92,92,.12);border-radius:8px;padding:9px 11px;margin-bottom:8px;'+
+          'display:flex;justify-content:space-between;align-items:center;">' +
+            '<div>' +
+              '<div style="font-size:.65rem;color:'+T3+';margin-bottom:2px;">Horário assumido pelo sistema</div>'+
+              '<div style="font-size:1rem;font-weight:800;color:'+RED+';">'+_esc(hrInferido)+'</div>'+
+              '<div style="font-size:.63rem;color:'+T3+';margin-top:1px;">'+_esc(txtFalha)+'</div>'+
+            '</div>'+
+            '<div style="text-align:right;">' +
+              '<div style="font-size:.65rem;color:'+T3+';margin-bottom:2px;">Desconto</div>'+
+              '<div style="font-size:1rem;font-weight:800;color:'+RED+';">−'+r.penalidade+' min</div>'+
+              '<div style="font-size:.6rem;color:'+T3+';margin-top:1px;">ocorrência #'+(r.penOcorrencia||'?')+'</div>'+
+            '</div>'+
+          '</div>'+
+          // Contexto de batidas
+          (r.penMotivo
+            ? '<div style="font-size:.68rem;color:rgba(220,160,160,.9);line-height:1.6;margin-bottom:6px;">'+
+                '📋 '+_esc(r.penMotivo)+
+              '</div>'
+            : ''
+          )+
+          '<div style="font-size:.63rem;color:'+T3+';border-top:1px solid rgba(200,92,92,.15);padding-top:6px;">'+
+            'Para corrigir, ajuste o horário de <strong style="color:'+T1+';">'+_esc(r.tipoFalha==='sem_entrada'?'Entrada':'Saída')+'</strong> '+
+            'acima com o horário real e salve. A penalidade será removida automaticamente.'+
+          '</div>'+
+        '</div>';
+    }
+
     var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
       _overlayHeader((registroId?'Editar':'Novo Registro')+' · '+_esc(f.nome.split(' ')[0]),'📝 Ponto do Dia','HR_FUNC._closeRegistro()')+
       alertasHtml+
+      penBannerHtml+
 
       _secao('Ponto',
         _campo('Data',_inp('fr_data','date','',r.data||hoje))+
@@ -1619,7 +1611,13 @@ var HR_FUNC = (function () {
       )+
 
       '<button onclick="HR_FUNC._salvarRegistro(\''+funcionarioId+'\',\''+(registroId||'')+'\')\" style="'+CSS_BTN_GOLD+'">💾 Salvar Registro</button>'+
-      (registroId?'<button onclick="HR_FUNC._excluirRegistro(\''+registroId+'\',\''+funcionarioId+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir</button>':'')+
+      (registroId
+        ? (r.autoCompletado
+            ? '<button onclick="HR_FUNC._removerPenalidade(\''+registroId+'\',\''+funcionarioId+'\')" style="'+CSS_BTN_GHOST+'color:#e08040;border-color:rgba(200,120,40,.3);">✏️ Remover penalidade (confirmar horário real)</button>'
+            : ''
+          )+
+          '<button onclick="HR_FUNC._excluirRegistro(\''+registroId+'\',\''+funcionarioId+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir</button>'
+        : '')+
       '<button onclick="HR_FUNC._closeRegistro()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
@@ -1636,9 +1634,6 @@ var HR_FUNC = (function () {
           }
           var e=ent.value.split(':').map(Number),s=sai.value.split(':').map(Number);
           var diffMin=(s[0]*60+s[1])-(e[0]*60+e[1]); if(diffMin<0)diffMin+=1440;
-          // CORREÇÃO: não desconta almoço automaticamente.
-          // O desconto só ocorre se houver intervalo registrado explicitamente.
-          // O usuário pode ajustar o campo "Horas trabalhadas" manualmente se houver pausa.
           var hr=document.getElementById('fr_horas');
           if(hr&&!hr._edited)hr.value=(diffMin/60).toFixed(2);
         }
@@ -1700,6 +1695,61 @@ var HR_FUNC = (function () {
     var novosAlertas=analisarGaps(funcionarioId);
     _toast(isNew?'✓ Registro salvo!'+(novosAlertas.length?' ⚠️ '+novosAlertas.length+' alerta(s)':''):'✓ Registro atualizado!');
     if(document.getElementById('hrFuncDetalhes'))abrirDetalhesFuncionario(funcionarioId);
+  }
+
+  // Remove penalidade de auto-completamento quando o gerente confirma o horário real
+  // Limpa os flags autoCompletado/penalidade do registro e remove a ocorrência associada
+  function _removerPenalidade(registroId, funcionarioId) {
+    var regs = getRegistros();
+    var r = regs[registroId];
+    if (!r) return;
+    if (!confirm(
+      'Confirmar que o horário registrado é o real?\n\n' +
+      'Isso remove a penalidade de −' + r.penalidade + ' min deste dia.\n' +
+      'Os campos de entrada/saída permanecem como estão agora.'
+    )) return;
+
+    // Recalcula horas SEM penalidade a partir dos horários atuais
+    var entStr = r.entrada || '';
+    var saiStr  = r.saida   || '';
+    if (entStr && saiStr) {
+      var ep = entStr.split(':').map(Number);
+      var sp = saiStr.split(':').map(Number);
+      var diff = (sp[0]*60+sp[1]) - (ep[0]*60+ep[1]);
+      if (diff < 0) diff += 1440;
+      var almocoMin = 0;
+      if (r.saidaAlmoco && r.voltaAlmoco) {
+        var sa = r.saidaAlmoco.split(':').map(Number);
+        var va = r.voltaAlmoco.split(':').map(Number);
+        almocoMin = (va[0]*60+va[1]) - (sa[0]*60+sa[1]);
+        if (almocoMin < 0) almocoMin = 0;
+      }
+      r.horas = parseFloat(Math.max(0, (diff - almocoMin) / 60).toFixed(2));
+    }
+
+    // Limpa flags de penalidade
+    delete r.autoCompletado;
+    delete r.penalidade;
+    delete r.tipoFalha;
+    delete r.penMotivo;
+    delete r.penHoraInferida;
+    delete r.penOcorrencia;
+    delete r.entradaOriginal;
+    delete r.saidaOriginal;
+    r.atualizadoEm = new Date().toISOString();
+    regs[registroId] = r;
+    saveRegistros(regs);
+
+    // Remove ocorrência associada
+    var ocors = getOcorrencias();
+    Object.keys(ocors).forEach(function(k){
+      if (ocors[k].registroId === registroId) delete ocors[k];
+    });
+    saveOcorrencias(ocors);
+
+    _toast('✓ Penalidade removida. Horas recalculadas: ' + r.horas + 'h');
+    _closeRegistro();
+    if (document.getElementById('hrFuncDetalhes')) abrirDetalhesFuncionario(funcionarioId);
   }
 
   function _excluirRegistro(registroId,funcionarioId){
@@ -1898,7 +1948,7 @@ var HR_FUNC = (function () {
             '</div>'+
             '<div style="font-size:.65rem;color:'+T3+';margin-top:2px;">Importado em '+dtImp+'</div>'+
           '</div>'+
-          '<button onclick="HR_FUNC._apagarLote(\''+_safeId(l.loteId)+'\')" '+
+          '<button onclick="HR_FUNC._apagarLote(\''+l.loteId+'\')" '+
             'style="padding:7px 12px;border-radius:8px;background:rgba(200,92,92,.12);'+
             'border:1px solid rgba(200,92,92,.3);color:'+RED+';font-family:Outfit,sans-serif;'+
             'font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">'+
@@ -1939,7 +1989,7 @@ var HR_FUNC = (function () {
     if(meusRegs.length===0)return'<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum registro encontrado</div>';
     return meusRegs.slice(0,60).map(function(r){
       var fx=funcs[r.funcionarioId]||{nome:'?'};
-      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+_safeId(r.funcionarioId)+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
+      return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;cursor:pointer;" onclick="HR_FUNC.abrirFormRegistro(\''+r.funcionarioId+'\',\''+r.id+'\');HR_FUNC._closeHistorico();">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;">'+
           '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+_fmtData(r.data)+' · '+_diaSemana(r.data)+'</div>'+
           '<div style="font-size:.78rem;color:'+GOLD+';">'+parseFloat(r.horas||0).toFixed(1)+'h'+(parseFloat(r.extra||0)>0?' <span style="color:'+(r.destinoExtra==='banco'?'#8ec8f0':GREEN)+';">'+(r.destinoExtra==='banco'?'🏦 ':'+')+(parseFloat(r.extra)).toFixed(1)+'h'+(r.destinoExtra==='banco'?' banco':'')+'</span>':'')+'</div>'+
@@ -2131,7 +2181,189 @@ var HR_FUNC = (function () {
   window._hrFecharRisco=function(){_closeOverlay('hrRisco');};
 
   // ══════════════════════════════════════════════════════════════
-  // HORAS EXTRAS DUPLICADAS (2×) E BONIFICAÇÃO (3×)
+  // GESTÃO DE EXCEÇÕES — Feriados, Acordos e Dias Declarados
+  // Exceções globais por data: afetam todos os funcionários.
+  // Tipos:
+  //   feriado  → dia não trabalhado, não conta como falta (saldo=0)
+  //   acordo   → folga coletiva acordada (saldo=0)
+  //   declarado → funcionário trabalhou sem bater ponto; usa horário padrão
+  // ══════════════════════════════════════════════════════════════
+
+  function abrirGestaoExcecoes(mesFiltro) {
+    var mesAtual = _mesAno(0);
+    var mesAnterior = _mesAno(-1);
+    mesFiltro = mesFiltro || window._excMesFiltro || mesAtual;
+    window._excMesFiltro = mesFiltro;
+
+    var excs = getExcecoes();
+    var lista = Object.values(excs)
+      .filter(function(e){ return e.data.startsWith(mesFiltro); })
+      .sort(function(a,b){ return a.data.localeCompare(b.data); });
+
+    var TIPO_COR   = { feriado:'#8ec8f0', acordo:'#c88ef0', declarado:'#6fcca0' };
+    var TIPO_BG    = { feriado:'rgba(92,150,220,.15)', acordo:'rgba(180,120,220,.15)', declarado:'rgba(60,180,120,.14)' };
+    var TIPO_BD    = { feriado:'rgba(92,150,220,.3)', acordo:'rgba(180,120,220,.3)', declarado:'rgba(60,180,120,.3)' };
+    var TIPO_LABEL = { feriado:'🔵 Feriado', acordo:'🟣 Acordo/Folga', declarado:'🟢 Declarado' };
+
+    var fmtMes = function(m){
+      var p=m.split('-'); var n=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      return n[parseInt(p[1])]+'/'+p[0];
+    };
+
+    var listaHtml = lista.length === 0
+      ? '<div style="text-align:center;padding:28px 0;font-size:.82rem;color:'+T3+';">Nenhuma exceção em '+fmtMes(mesFiltro)+'</div>'
+      : lista.map(function(e){
+          var cor = TIPO_COR[e.tipo] || GOLD;
+          var bg  = TIPO_BG[e.tipo]  || GOLD2;
+          var bd  = TIPO_BD[e.tipo]  || GOLDB;
+          return '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:11px;'+
+            'padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:10px;">'+
+            '<div style="flex:1;min-width:0;">'+
+              '<div style="font-size:.8rem;font-weight:700;color:'+T1+';">'+
+                _fmtData(e.data)+' · '+['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][new Date(e.data+'T12:00:00').getDay()]+
+              '</div>'+
+              '<div style="font-size:.7rem;color:'+cor+';margin-top:1px;">'+_esc(TIPO_LABEL[e.tipo]||e.tipo)+'</div>'+
+              (e.descricao?'<div style="font-size:.68rem;color:'+T3+';margin-top:2px;">'+_esc(e.descricao)+'</div>':'')+
+              (e.tipo==='declarado'&&e.horEntrada?'<div style="font-size:.65rem;color:'+T3+';margin-top:2px;">⏰ '+_esc(e.horEntrada)+' → '+_esc(e.horSaida||'—')+'</div>':'')+
+            '</div>'+
+            '<button onclick="HR_FUNC._excluirExcecao(\''+e.id+'\')" '+
+              'style="background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.3);color:'+RED+';'+
+              'border-radius:7px;padding:6px 10px;font-size:.72rem;font-family:Outfit,sans-serif;cursor:pointer;flex-shrink:0;">'+
+              '🗑</button>'+
+          '</div>';
+        }).join('');
+
+    var html = '<div style="width:100%;max-width:520px;padding:0 16px;">'+
+      _overlayHeader('Feriados & Exceções', '📅 Calendário de exceções — '+fmtMes(mesFiltro), 'HR_FUNC._closeExcecoes()')+
+
+      // Seletor de mês
+      '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
+        [mesAnterior, mesAtual].map(function(m){
+          var on = m === mesFiltro;
+          return '<button onclick="HR_FUNC.abrirGestaoExcecoes(\''+m+'\')" '+
+            'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
+            (on ? 'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';'
+                : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';')+
+            '">'+fmtMes(m)+'</button>';
+        }).join('')+
+      '</div>'+
+
+      // Legenda de tipos
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
+        '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Tipos de Exceção</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'+
+          '<div style="font-size:.72rem;color:#8ec8f0;text-align:center;padding:6px;background:rgba(92,150,220,.1);border-radius:8px;">🔵<br>Feriado<br><span style="font-size:.62rem;color:'+T3+';">Saldo = 0, não é falta</span></div>'+
+          '<div style="font-size:.72rem;color:#c88ef0;text-align:center;padding:6px;background:rgba(180,120,220,.1);border-radius:8px;">🟣<br>Acordo<br><span style="font-size:.62rem;color:'+T3+';">Folga coletiva</span></div>'+
+          '<div style="font-size:.72rem;color:#6fcca0;text-align:center;padding:6px;background:rgba(60,180,120,.1);border-radius:8px;">🟢<br>Declarado<br><span style="font-size:.62rem;color:'+T3+';">Trabalhou sem ponto</span></div>'+
+        '</div>'+
+      '</div>'+
+
+      // Lista
+      '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">'+lista.length+' Exceção(ões) em '+fmtMes(mesFiltro)+'</div>'+
+      listaHtml+
+
+      // Botão adicionar
+      '<button onclick="HR_FUNC._abrirFormExcecao()" '+
+        'style="width:100%;margin-top:8px;padding:13px;border-radius:11px;'+
+        'background:linear-gradient(135deg,#1c1600,#0d0b00);'+
+        'border:1.5px solid '+GOLDB+';color:'+GOLD+';'+
+        'font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;cursor:pointer;letter-spacing:.03em;">'+
+        '+ Adicionar Exceção'+
+      '</button>'+
+      '<button onclick="HR_FUNC._closeExcecoes()" style="'+CSS_BTN_GHOST+'margin-top:6px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrExcecoes', html);
+  }
+
+  window._hrFecharExcecoes = function(){ _closeOverlay('hrExcecoes'); };
+  function _closeExcecoes(){ _closeOverlay('hrExcecoes'); }
+
+  function _excluirExcecao(id){
+    var excs = getExcecoes();
+    var e = excs[id];
+    if(!e) return;
+    if(!confirm('Remover exceção de '+_fmtData(e.data)+'?')) return;
+    delete excs[id];
+    saveExcecoes(excs);
+    abrirGestaoExcecoes(window._excMesFiltro);
+    _toast('Exceção removida.');
+  }
+
+  function _abrirFormExcecao(data) {
+    var hoje = _hoje();
+    var html = '<div style="width:100%;max-width:480px;padding:0 16px;">'+
+      _overlayHeader('Nova Exceção', '📅 Feriado, Folga ou Declarado', 'HR_FUNC._closeFormExcecao()')+
+
+      _secao('Dia',
+        _campo('Data', _inp('exc_data','date','',data||hoje))+
+        _campo('Tipo',
+          _sel('exc_tipo',[
+            {v:'feriado',  l:'🔵 Feriado — não trabalhou, não é falta'},
+            {v:'acordo',   l:'🟣 Acordo/Folga — folga coletiva combinada'},
+            {v:'declarado',l:'🟢 Declarado — trabalhou sem bater ponto'}
+          ],'feriado')
+        )+
+        _campo('Descrição (opcional)', _inp('exc_desc','text','Ex: Tiradentes, acordo verbal...',''))+
+        '<div id="exc_horarios_wrap" style="display:none;">'+
+          _grid2(
+            _campo('Entrada', _inp('exc_hor_ent','time','07:00','07:00')),
+            _campo('Saída',   _inp('exc_hor_sai','time','17:00','17:00'))
+          )+
+        '</div>'
+      )+
+
+      '<button onclick="HR_FUNC._salvarExcecao()" style="'+CSS_BTN_GOLD+'">💾 Salvar Exceção</button>'+
+      '<button onclick="HR_FUNC._closeFormExcecao()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay('hrFormExcecao', html);
+
+    // Mostrar/ocultar campos de horário conforme tipo
+    setTimeout(function(){
+      var sel = document.getElementById('exc_tipo');
+      var wrap = document.getElementById('exc_horarios_wrap');
+      if(sel && wrap){
+        sel.addEventListener('change', function(){
+          wrap.style.display = sel.value === 'declarado' ? '' : 'none';
+        });
+      }
+    }, 80);
+  }
+
+  function _closeFormExcecao(){ _closeOverlay('hrFormExcecao'); }
+
+  function _salvarExcecao(){
+    var data  = (document.getElementById('exc_data')||{}).value||'';
+    var tipo  = (document.getElementById('exc_tipo')||{}).value||'feriado';
+    var desc  = (document.getElementById('exc_desc')||{}).value||'';
+    var horEnt = (document.getElementById('exc_hor_ent')||{}).value||'07:00';
+    var horSai = (document.getElementById('exc_hor_sai')||{}).value||'17:00';
+    if(!data){ _toast('Informe a data'); return; }
+
+    var excs = getExcecoes();
+
+    // Verifica duplicata
+    var dup = Object.values(excs).find(function(e){ return e.data===data && e.tipo===tipo; });
+    if(dup && !confirm('Já existe uma exceção do tipo "'+tipo+'" em '+_fmtData(data)+'. Sobrescrever?')){ return; }
+    if(dup) delete excs[dup.id];
+
+    var id = genId();
+    var exc = { id:id, data:data, tipo:tipo, descricao:desc, criadoEm:new Date().toISOString() };
+    if(tipo === 'declarado'){ exc.horEntrada = horEnt; exc.horSaida = horSai; }
+    excs[id] = exc;
+    saveExcecoes(excs);
+    _closeFormExcecao();
+
+    // Atualiza mês no filtro para o mês da exceção adicionada
+    window._excMesFiltro = data.slice(0,7);
+    abrirGestaoExcecoes(window._excMesFiltro);
+    _toast('✓ Exceção registrada: '+TIPO_LABEL_MINI[tipo]+' em '+_fmtData(data));
+  }
+
+  var TIPO_LABEL_MINI = { feriado:'Feriado', acordo:'Acordo', declarado:'Declarado' };
+
+  // ══════════════════════════════════════════════════════════════
   // Integrado ao HR_FUNC — não requer arquivo externo
   // ══════════════════════════════════════════════════════════════
 
@@ -2183,8 +2415,7 @@ var HR_FUNC = (function () {
     var valorNormal = heResult.valorTotalExtras || 0;
     var valorHora   = heResult.valorHoraBase || (salario / 220);
     var valorMulti  = valorHora * multiplier * totalHoras;
-    // FIX Bug 3: clamp — quando HE100/200 ja valem mais que o flat rate, acrescimo = 0
-    var acrescimo   = Math.max(0, valorMulti - valorNormal);
+    var acrescimo   = valorMulti - valorNormal;
 
     return {
       funcId: funcId, nome: f.nome || '',
@@ -2240,12 +2471,10 @@ var HR_FUNC = (function () {
 
     var totalAcrescimo = resultados.reduce(function(s,r){ return s + r.acrescimo; }, 0);
     var totalValor     = resultados.reduce(function(s,r){ return s + r.valorMulti; }, 0);
-    // FIX Bug 3: detectar funcionários com acrescimo=0 (HE100/200 já superam o flat rate)
-    var semAcrescimo   = resultados.filter(function(r){ return r.acrescimo === 0 && r.valorNormal > 0; });
 
     var seletorBtns = [mesAnterior, mesAtual].map(function(m){
       var on = m === periodoAtivo;
-      return '<button onclick="window[\''+storeKey+'\']=\''+_safeId(m)+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+_safeId(funcId)+'\'':'null')+');" '+
+      return '<button onclick="window[\''+storeKey+'\']=\''+m+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+funcId+'\'':'null')+');" '+
         'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
         (on
           ? 'background:rgba(92,150,220,.15);border:1.5px solid rgba(92,150,220,.5);color:'+cor+';'
@@ -2278,15 +2507,6 @@ var HR_FUNC = (function () {
           'O acréscimo é a diferença entre o valor '+multiplier+'× e o valor normal já calculado.'+
         '</div>'+
       '</div>'+
-      (semAcrescimo.length > 0
-        ? '<div style="background:rgba(255,180,0,.07);border:1px solid rgba(255,180,0,.35);border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.72rem;color:#e8c44a;line-height:1.6;">'+
-            '⚠️ <strong>'+semAcrescimo.map(function(r){return r.nome.split(' ')[0];}).join(', ')+'</strong> '+
-            (semAcrescimo.length===1?'já recebe':'já recebem')+
-            ' mais pelo sistema normal (HE Domingo/Feriado ×'+multiplier+'+) do que pelo flat '+multiplier+'×. '+
-            'Acréscimo = R$ 0,00 para '+(semAcrescimo.length===1?'esse funcionário.':'esses funcionários.')+
-          '</div>'
-        : ''
-      )+
       (resultados.length > 0
         ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'+
@@ -2306,7 +2526,7 @@ var HR_FUNC = (function () {
               '<span>Funcionário</span><span style="text-align:right;">H. Extra</span><span style="text-align:right;">Normal</span><span style="text-align:right;">'+multiplier+'× Valor</span>'+
             '</div>'+tabelaLinhas+
           '</div>'+
-          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+_safeId(funcId)+'\'':'null')+',\''+_safeId(periodoAtivo)+'\','+multiplier+')" '+
+          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+')" '+
             'style="'+CSS_BTN_GREEN+'">✅ Confirmar e Registrar '+titulo+'</button>'
         : ''
       )+
@@ -2360,14 +2580,10 @@ var HR_FUNC = (function () {
         id: pid,
         funcionarioId: f.id,
         data: _hoje(),
-        // FIX Bug 2: salva o ACRESCIMO (diferenca sobre o normal), nao o valor bruto 2x/3x.
-        // valorMulti bruto causava dupla contagem pois calcSaldoFuncionario ja inclui valorNormal
-        // no totalDevido. Salvar so o acrescimo garante calculo correto do saldo a receber.
-        valor: parseFloat(r.acrescimo.toFixed(2)),
+        valor: parseFloat(r.valorMulti.toFixed(2)),
         tipo: tipo,
         periodo: periodoAtivo,
-        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo+
-                   ' (normal: '+_fmtMoeda(r.valorNormal)+' | '+multiplier+'x: '+_fmtMoeda(r.valorMulti)+')',
+        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
         horasExtra: r.totalHorasExtra,
         valorNormal: parseFloat(r.valorNormal.toFixed(2)),
         acrescimo: parseFloat(r.acrescimo.toFixed(2)),
@@ -2429,9 +2645,18 @@ var HR_FUNC = (function () {
     // Sistema de penalidades
     getOcorrenciasFuncionario: getOcorrenciasFuncionario,
     _verificarRegistrosIncompletos: _verificarRegistrosIncompletos,
+    _removerPenalidade: _removerPenalidade,
     // Horas extras duplicadas (2×) e bonificação (3×)
     abrirHorasExtrasDuplicadas: abrirHorasExtrasDuplicadas,
     abrirBonificacaoHE3x:       abrirBonificacaoHE3x,
-    _confirmarHEMulti:          _confirmarHEMulti
+    _confirmarHEMulti:          _confirmarHEMulti,
+    // Gestão de exceções (feriados, acordos, declarados)
+    getExcecoes:           getExcecoes,
+    abrirGestaoExcecoes:   abrirGestaoExcecoes,
+    _closeExcecoes:        _closeExcecoes,
+    _abrirFormExcecao:     _abrirFormExcecao,
+    _closeFormExcecao:     _closeFormExcecao,
+    _salvarExcecao:        _salvarExcecao,
+    _excluirExcecao:       _excluirExcecao
   };
 })();
