@@ -1574,77 +1574,82 @@ var HR_IMPORT = (function () {
     var grupos = _state.grupos;
     var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-    // Conta apenas grupos não ignorados
     var gruposAtivos = grupos.filter(function(gr){ return !gr._ignorar; });
     var totalErros = gruposAtivos.reduce(function(s, gr) {
       return s + gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
     }, 0);
 
     var gruposHtml = grupos.map(function(gr, gi) {
-      // Grupo ignorado: exibe colapsado com opção de desfazer
       if (gr._ignorar) {
         return '<div style="' + CSS_CARD + 'margin-bottom:10px;opacity:.45;display:flex;align-items:center;gap:10px;">' +
           '<div style="flex:1;font-size:.84rem;font-weight:700;color:' + T3 + ';text-transform:uppercase;letter-spacing:.05em;">' +
-            '🚫 ' + _esc(gr.nome) + '</div>' +
+            '\u{1F6AB} ' + _esc(gr.nome) + '</div>' +
           '<div style="font-size:.65rem;color:' + T3 + ';">ignorado</div>' +
-          '<button onclick="HR_IMPORT._ignorarGrupo(' + gi + ',false)" ' +
+          '<button data-action="ignorar" data-gi="' + gi + '" data-val="0" ' +
             'style="background:none;border:1px solid #2a2a2a;border-radius:7px;color:#555;' +
-            'font-family:Outfit,sans-serif;font-size:.7rem;padding:4px 10px;cursor:pointer;">desfazer</button>' +
+            'font-family:Outfit,sans-serif;font-size:.7rem;padding:4px 10px;cursor:pointer;' +
+            'touch-action:manipulation;">desfazer</button>' +
         '</div>';
       }
 
-      var errosGrupo = gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
+      var errosGrupo    = gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
       var punicoesGrupo = gr.registros.filter(function(r){ return r._punicao; }).length;
 
       var recsHtml = gr.registros.map(function(r, ri) {
-        var dow    = DOW_PT[new Date(r.data + 'T12:00:00').getDay()];
-        var dia    = r.data.split('-')[2];
-        var isSab  = new Date(r.data + 'T12:00:00').getDay() === 6;
+        var dow   = DOW_PT[new Date(r.data + 'T12:00:00').getDay()];
+        var dia   = r.data.split('-')[2];
+        var isSab = new Date(r.data + 'T12:00:00').getDay() === 6;
 
-        // Registro com punição aplicada
         if (r._punicao) {
           return '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 7px 10px;' +
             'border-left:3px solid #7a2020;border-radius:0 8px 8px 0;' +
-            'background:rgba(120,20,20,.12);margin-bottom:5px;opacity:.8;">' +
+            'background:rgba(120,20,20,.12);margin-bottom:5px;">' +
             '<div style="min-width:32px;text-align:center;">' +
               '<div style="font-size:.84rem;font-weight:800;color:#7a4040;font-family:monospace;">' + dia + '</div>' +
               '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + '</div>' +
             '</div>' +
             '<div style="flex:1;padding:6px 8px;border-radius:8px;background:rgba(120,20,20,.2);border:1px solid rgba(180,40,40,.3);">' +
-              '<div style="font-size:.58rem;color:#c06060;font-weight:700;letter-spacing:1px;">🔴 PUNIÇÃO APLICADA</div>' +
+              '<div style="font-size:.58rem;color:#c06060;font-weight:700;letter-spacing:1px;">' +
+                '\u{1F534} PUNI\u00C7\u00C3O APLICADA</div>' +
               '<div style="font-size:.7rem;color:#8a5050;margin-top:1px;">Dia descontado da folha</div>' +
             '</div>' +
-            '<button onclick="HR_IMPORT._desfazerPunicao(' + gi + ',' + ri + ')" ' +
+            '<button data-action="desfazer-punicao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
               'style="background:none;border:1px solid #3a2020;border-radius:7px;color:#666;' +
-              'font-family:Outfit,sans-serif;font-size:.65rem;padding:4px 8px;cursor:pointer;white-space:nowrap;">desfazer</button>' +
-            '<div onclick="HR_IMPORT._excluirCorrecao(' + gi + ',' + ri + ')" ' +
-              'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;" ' +
-              'onmouseover="this.style.color=\'' + RED + '\'" ' +
-              'onmouseout="this.style.color=\'#2a2a2a\'">✕</div>' +
+              'font-family:Outfit,sans-serif;font-size:.65rem;padding:4px 8px;cursor:pointer;' +
+              'white-space:nowrap;touch-action:manipulation;">desfazer</button>' +
+            '<button data-action="excluir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'style="padding:6px 8px;cursor:pointer;color:#3a2a2a;font-size:1rem;background:none;' +
+              'border:none;touch-action:manipulation;">\u2715</button>' +
           '</div>';
         }
 
-        var temErr = !r.entrada || !r.saida;
-        var corBorda = temErr ? RED : (isSab ? '#8ec8c8' : GREEN);
-        var bgRow    = temErr ? 'rgba(200,92,92,.07)' : 'transparent';
-        var corDia   = temErr ? RED : (isSab ? '#8ec8c8' : T2);
+        var temErr    = !r.entrada || !r.saida;
+        var umaBatida = (r.nBatidas === 1 || (!r.entrada && r.saida) || (r.entrada && !r.saida));
+        var corBorda  = temErr ? RED : (isSab ? '#8ec8c8' : GREEN);
+        var bgRow     = temErr ? 'rgba(200,92,92,.07)' : 'transparent';
+        var corDia    = temErr ? RED : (isSab ? '#8ec8c8' : T2);
 
         var fEnt = r.entrada
           ? '<span style="color:' + T1 + ';font-weight:700;font-family:monospace;">' + r.entrada + '</span>'
-          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">——:——</span>';
+          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">&mdash;&mdash;:&mdash;&mdash;</span>';
         var fSai = r.saida
           ? '<span style="color:' + T1 + ';font-weight:700;font-family:monospace;">' + r.saida + '</span>'
-          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">——:——</span>';
+          : '<span style="color:' + RED + ';font-weight:700;font-family:monospace;">&mdash;&mdash;:&mdash;&mdash;</span>';
 
-        // Botão de punição: só aparece em registros com erro
-        var btnPunicao = temErr
-          ? '<button onclick="HR_IMPORT._aplicarPunicao(' + gi + ',' + ri + ')" ' +
-              'title="Aplicar punição: desconta o dia inteiro" ' +
+        var btnTrocar = umaBatida
+          ? '<button data-action="trocar" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'title="Trocar entrada \u2194 sa\u00EDda" ' +
+              'style="padding:5px 8px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.25);' +
+              'border-radius:7px;color:#8a6d30;cursor:pointer;font-size:.85rem;font-weight:700;' +
+              'touch-action:manipulation;">\u21C5</button>'
+          : '';
+
+        var btnPunir = temErr
+          ? '<button data-action="punir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
               'style="padding:5px 7px;background:rgba(120,20,20,.3);border:1px solid rgba(180,40,40,.4);' +
               'border-radius:7px;color:#c06060;cursor:pointer;font-size:.6rem;font-weight:700;' +
-              'white-space:nowrap;font-family:Outfit,sans-serif;letter-spacing:.02em;" ' +
-              'onmouseover="this.style.background=\'rgba(180,20,20,.5)\'" ' +
-              'onmouseout="this.style.background=\'rgba(120,20,20,.3)\'">🔴 Punir</button>'
+              'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
+              '\u{1F534} Punir</button>'
           : '';
 
         return '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 7px 10px;' +
@@ -1653,102 +1658,125 @@ var HR_IMPORT = (function () {
 
           '<div style="min-width:32px;text-align:center;">' +
             '<div style="font-size:.84rem;font-weight:800;color:' + corDia + ';font-family:monospace;">' + dia + '</div>' +
-            '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + (isSab ? ' ½' : '') + '</div>' +
+            '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + (isSab ? ' \u00BD' : '') + '</div>' +
           '</div>' +
 
-          '<div onclick="HR_IMPORT._editCorrecao(' + gi + ',' + ri + ',\'entrada\')" ' +
+          '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="entrada" ' +
             'style="flex:1;background:' + (r.entrada ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
             'border:1px solid ' + (r.entrada ? '#222' : 'rgba(200,92,92,.4)') + ';' +
-            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;">' +
+            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
+            'touch-action:manipulation;">' +
             '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">ENTRADA</div>' +
             '<div style="font-size:.84rem;">' + fEnt + '</div>' +
-          '</div>' +
+          '</button>' +
 
-          '<div onclick="HR_IMPORT._editCorrecao(' + gi + ',' + ri + ',\'saida\')" ' +
+          '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="saida" ' +
             'style="flex:1;background:' + (r.saida ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
             'border:1px solid ' + (r.saida ? '#222' : 'rgba(200,92,92,.4)') + ';' +
-            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;">' +
-            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SAÍDA</div>' +
+            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
+            'touch-action:manipulation;">' +
+            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SA\u00CDDA</div>' +
             '<div style="font-size:.84rem;">' + fSai + '</div>' +
-          '</div>' +
+          '</button>' +
 
-          (temErr ? btnPunicao : '') +
+          btnTrocar + btnPunir +
 
-          '<div onclick="HR_IMPORT._excluirCorrecao(' + gi + ',' + ri + ')" ' +
-            'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;" ' +
-            'onmouseover="this.style.color=\'' + RED + '\'" ' +
-            'onmouseout="this.style.color=\'#2a2a2a\'">✕</div>' +
+          '<button data-action="excluir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+            'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;background:none;' +
+            'border:none;touch-action:manipulation;">\u2715</button>' +
         '</div>';
       }).join('');
 
       var badgeHtml = '';
       if (errosGrupo > 0)
-        badgeHtml = '<span style="font-size:.62rem;color:' + RED + ';font-weight:700;background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.3);border-radius:10px;padding:2px 9px;">⚠ ' + errosGrupo + ' erro(s)</span>';
+        badgeHtml = '<span style="font-size:.62rem;color:' + RED + ';font-weight:700;background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.3);border-radius:10px;padding:2px 9px;">&#9888; ' + errosGrupo + ' erro(s)</span>';
       else if (punicoesGrupo > 0)
-        badgeHtml = '<span style="font-size:.62rem;color:#c06060;font-weight:700;background:rgba(120,20,20,.15);border:1px solid rgba(180,40,40,.3);border-radius:10px;padding:2px 9px;">🔴 ' + punicoesGrupo + ' punição(ões)</span>';
+        badgeHtml = '<span style="font-size:.62rem;color:#c06060;font-weight:700;background:rgba(120,20,20,.15);border:1px solid rgba(180,40,40,.3);border-radius:10px;padding:2px 9px;">&#128308; ' + punicoesGrupo + ' puni\u00E7\u00E3o(\u00F5es)</span>';
       else
-        badgeHtml = '<span style="font-size:.62rem;color:' + GREEN + ';font-weight:700;background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.3);border-radius:10px;padding:2px 9px;">✓ OK</span>';
+        badgeHtml = '<span style="font-size:.62rem;color:' + GREEN + ';font-weight:700;background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.3);border-radius:10px;padding:2px 9px;">&#10003; OK</span>';
 
       return '<div style="' + CSS_CARD + 'margin-bottom:14px;">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
-          '<div style="display:flex;align-items:center;gap:8px;">' +
-            '<div style="font-size:.88rem;font-weight:800;color:' + GOLD + ';letter-spacing:.05em;text-transform:uppercase;">' + _esc(gr.nome) + '</div>' +
-          '</div>' +
+          '<div style="font-size:.88rem;font-weight:800;color:' + GOLD + ';letter-spacing:.05em;text-transform:uppercase;">' + _esc(gr.nome) + '</div>' +
           '<div style="display:flex;align-items:center;gap:6px;">' +
             badgeHtml +
-            '<button onclick="HR_IMPORT._ignorarGrupo(' + gi + ',true)" ' +
-              'title="Ignorar este funcionário (ex: dono sem ponto fixo)" ' +
+            '<button data-action="ignorar" data-gi="' + gi + '" data-val="1" ' +
               'style="background:none;border:1px solid #2a2a2a;border-radius:7px;color:#444;' +
-              'font-family:Outfit,sans-serif;font-size:.62rem;padding:3px 8px;cursor:pointer;" ' +
-              'onmouseover="this.style.borderColor=\'#555\';this.style.color=\'#888\'" ' +
-              'onmouseout="this.style.borderColor=\'#2a2a2a\';this.style.color=\'#444\'">🚫 Ignorar</button>' +
+              'font-family:Outfit,sans-serif;font-size:.62rem;padding:3px 8px;cursor:pointer;' +
+              'touch-action:manipulation;">&#128683; Ignorar</button>' +
           '</div>' +
         '</div>' +
         recsHtml +
-        '<button onclick="HR_IMPORT._abrirAdicionarDia(' + gi + ')" ' +
+        '<button data-action="adicionar-dia" data-gi="' + gi + '" ' +
           'style="width:100%;padding:9px;margin-top:4px;background:none;' +
           'border:1px dashed #222;border-radius:8px;color:#3a3a3a;cursor:pointer;' +
-          'font-family:Outfit,sans-serif;font-size:.75rem;" ' +
-          'onmouseover="this.style.borderColor=\'#444\';this.style.color=\'#888\'" ' +
-          'onmouseout="this.style.borderColor=\'#222\';this.style.color=\'#3a3a3a\'">+ Adicionar dia</button>' +
+          'font-family:Outfit,sans-serif;font-size:.75rem;touch-action:manipulation;">' +
+          '+ Adicionar dia</button>' +
       '</div>';
     }).join('');
 
     var corStatus = totalErros > 0 ? RED : GREEN;
     var totalRegs = grupos.reduce(function(s, g){ return s + g.registros.length; }, 0);
 
-    var html = '<div style="width:100%;max-width:560px;padding:0 16px;">' +
-      _header('Correção de Ponto', 'Toque nos campos para editar') +
+    var html = '<div id="hrCorrecaoInner" style="width:100%;max-width:560px;padding:0 16px;">' +
+      _header('Corre\u00E7\u00E3o de Ponto', 'Toque nos campos para editar') +
 
       '<div style="background:rgba(255,255,255,.03);border:1px solid #1e1e1e;border-radius:12px;' +
         'padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
-        '<div style="font-size:.78rem;color:' + T2 + ';">' + totalRegs + ' registros · ' + grupos.length + ' funcionário(s)</div>' +
+        '<div style="font-size:.78rem;color:' + T2 + ';">' + totalRegs + ' registros \u00B7 ' + grupos.length + ' funcion\u00E1rio(s)</div>' +
         '<div style="font-size:.72rem;font-weight:700;color:' + corStatus + ';' +
           'background:' + (totalErros > 0 ? 'rgba(200,92,92,.1)' : 'rgba(92,184,92,.1)') + ';' +
           'border:1px solid ' + (totalErros > 0 ? 'rgba(200,92,92,.35)' : 'rgba(92,184,92,.35)') + ';' +
           'border-radius:12px;padding:4px 12px;">' +
-          (totalErros > 0 ? '⚠ ' + totalErros + ' erro(s)' : '✓ Tudo OK') +
+          (totalErros > 0 ? '&#9888; ' + totalErros + ' erro(s)' : '&#10003; Tudo OK') +
         '</div>' +
       '</div>' +
 
       gruposHtml +
 
-      '<button onclick="HR_IMPORT._continuarParaVinculacao()" ' +
+      '<button data-action="continuar" ' +
         'style="width:100%;padding:14px;border-radius:11px;' +
         'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
         'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
         'font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;' +
-        'cursor:pointer;letter-spacing:.04em;margin-bottom:8px;">Continuar →</button>' +
+        'cursor:pointer;letter-spacing:.04em;margin-bottom:8px;' +
+        'touch-action:manipulation;">Continuar \u2192</button>' +
 
-      '<button onclick="HR_IMPORT._fechar()" ' +
+      '<button data-action="fechar" ' +
         'style="width:100%;padding:12px;border-radius:11px;background:transparent;' +
         'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
-        'font-size:.85rem;cursor:pointer;">Cancelar</button>' +
+        'font-size:.85rem;cursor:pointer;touch-action:manipulation;">Cancelar</button>' +
     '</div>';
 
-    _overlay('hrImport', html);
-  }
+    var ov = _overlay('hrImport', html);
 
+    function _handleCorrecaoEvent(e) {
+      var el = e.target;
+      while (el && el !== ov && !el.dataset.action) el = el.parentElement;
+      if (!el || !el.dataset || !el.dataset.action) return;
+      var action = el.dataset.action;
+      var gi  = el.dataset.gi  !== undefined ? parseInt(el.dataset.gi)  : null;
+      var ri  = el.dataset.ri  !== undefined ? parseInt(el.dataset.ri)  : null;
+      var fld = el.dataset.field || null;
+      var val = el.dataset.val  !== undefined ? parseInt(el.dataset.val) : null;
+      if (action === 'editar'          && gi !== null && ri !== null && fld) { e.stopPropagation(); _editCorrecao(gi, ri, fld); }
+      else if (action === 'trocar'     && gi !== null && ri !== null)        { e.stopPropagation(); _trocarEntradaSaida(gi, ri); }
+      else if (action === 'punir'      && gi !== null && ri !== null)        { e.stopPropagation(); _aplicarPunicao(gi, ri); }
+      else if (action === 'desfazer-punicao' && gi !== null && ri !== null)  { e.stopPropagation(); _desfazerPunicao(gi, ri); }
+      else if (action === 'excluir'    && gi !== null && ri !== null)        { e.stopPropagation(); _excluirCorrecao(gi, ri); }
+      else if (action === 'ignorar'    && gi !== null && val !== null)       { e.stopPropagation(); _ignorarGrupo(gi, val === 1); }
+      else if (action === 'adicionar-dia' && gi !== null)                   { e.stopPropagation(); _abrirAdicionarDia(gi); }
+      else if (action === 'continuar')                                       { e.stopPropagation(); _continuarParaVinculacao(); }
+      else if (action === 'fechar')                                          { e.stopPropagation(); _fechar(); }
+    }
+
+    ov.addEventListener('click', _handleCorrecaoEvent, false);
+    ov.addEventListener('touchend', function(e) {
+      var el = e.target;
+      while (el && el !== ov && !el.dataset.action) el = el.parentElement;
+      if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent(e); }
+    }, { passive: false });
+  }
   /** Máscara de horário: 0700 → 07:00 */
   function _maskHorario(val) {
     var s = val.replace(/[^0-9]/g, '');
@@ -1965,7 +1993,18 @@ var HR_IMPORT = (function () {
     _renderTelaCorrecao();
   }
 
-  /** Descarta grupos ignorados + registros vazios, propaga punições e segue. */
+  /** Troca entrada ↔ saída (para batidas únicas colocadas no campo errado). */
+  function _trocarEntradaSaida(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr || !gr.registros[recIdx]) return;
+    var r   = gr.registros[recIdx];
+    var tmp = r.entrada;
+    r.entrada = r.saida;
+    r.saida   = tmp;
+    _renderTelaCorrecao();
+  }
+
+    /** Descarta grupos ignorados + registros vazios, propaga punições e segue. */
   function _continuarParaVinculacao() {
     // Remove grupos marcados para ignorar
     _state.grupos = _state.grupos.filter(function(gr){ return !gr._ignorar; });
@@ -2982,6 +3021,7 @@ var HR_IMPORT = (function () {
     _abrirAdicionarDia:     _abrirAdicionarDia,
     _confirmarAddDia:       _confirmarAddDia,
     _continuarParaVinculacao: _continuarParaVinculacao,
+    _trocarEntradaSaida:     _trocarEntradaSaida,
     _maskHorario:           _maskHorario,
     _ignorarGrupo:          _ignorarGrupo,
     _aplicarPunicao:        _aplicarPunicao,
