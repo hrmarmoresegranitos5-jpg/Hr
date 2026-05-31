@@ -1257,12 +1257,28 @@ var HR_IMPORT = (function () {
 
           if (punches.length === 0) continue; // dia sem batida alguma — pula
 
+          // Almoço: calculado apenas se houver 4+ batidas
+          // batidas[1] = saída para almoço, batidas[2] = retorno do almoço
+          var almocoMin = 0;
+          var almEntradaStr = null, almSaidaStr = null;
+          if (punches.length >= 4) {
+            var saAlmMin  = _hhmm2min(punches[1]);
+            var retAlmMin = _hhmm2min(punches[2]);
+            if (!isNaN(saAlmMin) && !isNaN(retAlmMin) && retAlmMin > saAlmMin) {
+              almocoMin    = retAlmMin - saAlmMin;
+              almEntradaStr = punches[1]; // saída para almoço
+              almSaidaStr   = punches[2]; // retorno do almoço
+            }
+          }
+
           registros.push({
             nome:         nome,
             data:         dataISO,
             entrada:      punches[0] || '',
             saida:        punches.length > 1 ? punches[punches.length - 1] : '',
-            almocoManual: null,
+            almEntrada:   almEntradaStr,
+            almSaida:     almSaidaStr,
+            almocoManual: almocoMin > 0 ? almocoMin : null,
             _doBiometrico: true,
             _todasBatidas: punches
           });
@@ -1782,7 +1798,12 @@ var HR_IMPORT = (function () {
         'font-size:.85rem;cursor:pointer;touch-action:manipulation;">Cancelar</button>' +
     '</div>';
 
+    // Preserva posição de scroll para não voltar ao topo ao re-renderizar
+    var _prevScroll = 0;
+    var _prevOv = document.getElementById('hrImport');
+    if (_prevOv) _prevScroll = _prevOv.scrollTop;
     var ov = _overlay('hrImport', html);
+    if (_prevScroll > 0) { setTimeout(function(){ ov.scrollTop = _prevScroll; }, 0); }
 
     function _handleCorrecaoEvent(e) {
       var el = e.target;
@@ -1805,7 +1826,16 @@ var HR_IMPORT = (function () {
     }
 
     ov.addEventListener('click', _handleCorrecaoEvent, false);
+    // Distingue tap de scroll: só aciona se o dedo não se moveu mais de 8px
+    var _tsY = 0, _tsX = 0;
+    ov.addEventListener('touchstart', function(e) {
+      _tsY = e.touches[0].clientY;
+      _tsX = e.touches[0].clientX;
+    }, { passive: true });
     ov.addEventListener('touchend', function(e) {
+      var dy = Math.abs(e.changedTouches[0].clientY - _tsY);
+      var dx = Math.abs(e.changedTouches[0].clientX - _tsX);
+      if (dy > 8 || dx > 8) return; // foi scroll/swipe — ignora
       var el = e.target;
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
       if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent(e); }
