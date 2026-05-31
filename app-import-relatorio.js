@@ -793,6 +793,8 @@ var HR_IMPORT = (function () {
         data: dataISO,
         entrada: entrada,
         saida: saida,
+        almEntrada: almIni  || null,
+        almSaida:   almFim  || null,
         almocoManual: almocoMin > 0 ? almocoMin : null
       });
     }
@@ -1652,38 +1654,70 @@ var HR_IMPORT = (function () {
               '\u{1F534} Punir</button>'
           : '';
 
-        return '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 7px 10px;' +
-          'border-left:3px solid ' + corBorda + ';border-radius:0 8px 8px 0;' +
-          'background:' + bgRow + ';margin-bottom:5px;">' +
+        // Almoço
+        var fAlmEnt = r.almEntrada
+          ? '<span style="color:' + T2 + ';font-weight:600;font-family:monospace;font-size:.76rem;">' + r.almEntrada + '</span>'
+          : '<span style="color:#333;font-family:monospace;font-size:.76rem;">\u2014:\u2014</span>';
+        var fAlmSai = r.almSaida
+          ? '<span style="color:' + T2 + ';font-weight:600;font-family:monospace;font-size:.76rem;">' + r.almSaida + '</span>'
+          : '<span style="color:#333;font-family:monospace;font-size:.76rem;">\u2014:\u2014</span>';
 
-          '<div style="min-width:32px;text-align:center;">' +
-            '<div style="font-size:.84rem;font-weight:800;color:' + corDia + ';font-family:monospace;">' + dia + '</div>' +
-            '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + (isSab ? ' \u00BD' : '') + '</div>' +
+        return '<div style="margin-bottom:5px;">' +
+
+          '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 4px 10px;' +
+          'border-left:3px solid ' + corBorda + ';border-top-right-radius:8px;' +
+          'background:' + bgRow + ';">' +
+
+            '<div style="min-width:32px;text-align:center;">' +
+              '<div style="font-size:.84rem;font-weight:800;color:' + corDia + ';font-family:monospace;">' + dia + '</div>' +
+              '<div style="font-size:.58rem;color:' + T3 + ';">' + dow + (isSab ? ' \u00BD' : '') + '</div>' +
+            '</div>' +
+
+            '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="entrada" ' +
+              'style="flex:1;background:' + (r.entrada ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
+              'border:1px solid ' + (r.entrada ? '#222' : 'rgba(200,92,92,.4)') + ';' +
+              'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
+              'touch-action:manipulation;">' +
+              '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">ENTRADA</div>' +
+              '<div style="font-size:.84rem;">' + fEnt + '</div>' +
+            '</button>' +
+
+            '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="saida" ' +
+              'style="flex:1;background:' + (r.saida ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
+              'border:1px solid ' + (r.saida ? '#222' : 'rgba(200,92,92,.4)') + ';' +
+              'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
+              'touch-action:manipulation;">' +
+              '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SA\u00CDDA</div>' +
+              '<div style="font-size:.84rem;">' + fSai + '</div>' +
+            '</button>' +
+
+            btnTrocar + btnPunir +
+
+            '<button data-action="excluir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;background:none;' +
+              'border:none;touch-action:manipulation;">\u2715</button>' +
           '</div>' +
 
-          '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="entrada" ' +
-            'style="flex:1;background:' + (r.entrada ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
-            'border:1px solid ' + (r.entrada ? '#222' : 'rgba(200,92,92,.4)') + ';' +
-            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
-            'touch-action:manipulation;">' +
-            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">ENTRADA</div>' +
-            '<div style="font-size:.84rem;">' + fEnt + '</div>' +
-          '</button>' +
+          '<div style="display:flex;align-items:center;gap:7px;padding:3px 0 5px 10px;' +
+          'border-left:3px solid ' + corBorda + ';border-bottom-right-radius:8px;' +
+          'background:' + bgRow + ';">' +
+            '<div style="min-width:32px;text-align:center;font-size:.5rem;color:' + T3 + ';">ALM</div>' +
+            '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="almEntrada" ' +
+              'style="flex:1;background:rgba(255,255,255,.02);border:1px solid #1c1c1c;' +
+              'border-radius:7px;padding:4px 6px;text-align:center;cursor:pointer;touch-action:manipulation;">' +
+              '<div style="font-size:.48rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SA\u00CD. ALM</div>' +
+              fAlmEnt +
+            '</button>' +
+            '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="almSaida" ' +
+              'style="flex:1;background:rgba(255,255,255,.02);border:1px solid #1c1c1c;' +
+              'border-radius:7px;padding:4px 6px;text-align:center;cursor:pointer;touch-action:manipulation;">' +
+              '<div style="font-size:.48rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">RETORNO</div>' +
+              fAlmSai +
+            '</button>' +
+            (umaBatida || temErr ? '<div style="min-width:58px;"></div>' : '') +
+            '<div style="min-width:30px;"></div>' +
+          '</div>' +
 
-          '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="saida" ' +
-            'style="flex:1;background:' + (r.saida ? 'rgba(255,255,255,.04)' : 'rgba(200,92,92,.1)') + ';' +
-            'border:1px solid ' + (r.saida ? '#222' : 'rgba(200,92,92,.4)') + ';' +
-            'border-radius:8px;padding:7px 6px;text-align:center;cursor:pointer;' +
-            'touch-action:manipulation;">' +
-            '<div style="font-size:.56rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SA\u00CDDA</div>' +
-            '<div style="font-size:.84rem;">' + fSai + '</div>' +
-          '</button>' +
-
-          btnTrocar + btnPunir +
-
-          '<button data-action="excluir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
-            'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;background:none;' +
-            'border:none;touch-action:manipulation;">\u2715</button>' +
         '</div>';
       }).join('');
 
@@ -1785,7 +1819,7 @@ var HR_IMPORT = (function () {
     return s;
   }
 
-  /** Abre modal para editar entrada ou saída de um registro. */
+  /** Abre modal para editar entrada, saída ou horários de almoço de um registro. */
   function _editCorrecao(grpIdx, recIdx, field) {
     var gr = _state.grupos[grpIdx];
     if (!gr || !gr.registros[recIdx]) return;
@@ -1796,11 +1830,17 @@ var HR_IMPORT = (function () {
     var existente = document.getElementById(ovId);
     if (existente) existente.remove();
 
-    var temposRapidos = ['07:00','07:30','08:00','11:00','12:00','13:00','14:00','16:00','17:00','17:30'];
-    var btnsRapidos = temposRapidos.map(function(t) {
-      return '<button onclick="document.getElementById(\'corr_h\').value=\'' + t + '\'" ' +
-        'style="background:' + C3 + ';border:none;border-radius:7px;color:#888;' +
-        'padding:5px 9px;font-size:.7rem;cursor:pointer;font-family:monospace;">' + t + '</button>';
+    var isAlm  = field === 'almEntrada' || field === 'almSaida';
+    var label  = { entrada: 'Entrada', saida: 'Sa\u00EDda',
+                   almEntrada: 'Sa\u00EDda p/ Almo\u00E7o', almSaida: 'Retorno do Almo\u00E7o' }[field] || field;
+    var temposRapidos = isAlm
+      ? ['11:00','11:30','12:00','12:30','13:00','13:30','14:00']
+      : ['07:00','07:30','08:00','11:00','12:00','13:00','14:00','16:00','17:00','17:30'];
+
+    var btnsHtml = temposRapidos.map(function(t) {
+      return '<button data-quick="' + t + '" ' +
+        'style="background:rgba(255,255,255,.04);border:1px solid #222;border-radius:7px;color:#888;' +
+        'padding:5px 9px;font-size:.7rem;cursor:pointer;font-family:monospace;touch-action:manipulation;">' + t + '</button>';
     }).join('');
 
     var ovEl = document.createElement('div');
@@ -1811,34 +1851,51 @@ var HR_IMPORT = (function () {
       '<div style="width:100%;max-width:320px;">' +
         '<div style="' + CSS_CARD + 'padding:22px 20px;">' +
           '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;margin-bottom:4px;">' +
-            _esc(gr.nome.toUpperCase()) + ' · DIA ' + dia +
+            _esc(gr.nome.toUpperCase()) + ' \u00B7 DIA ' + dia +
           '</div>' +
           '<div style="font-size:1.1rem;font-weight:800;color:' + T1 + ';margin-bottom:16px;">' +
-            'Editar ' + (field === 'entrada' ? 'Entrada' : 'Saída') +
+            'Editar ' + label +
           '</div>' +
           '<input id="corr_h" type="text" maxlength="5" value="' + _esc(valAtual) + '" placeholder="07:00" ' +
-            'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
-            'onkeydown="if(event.key===\'Enter\')HR_IMPORT._salvarCorrecao(' + grpIdx + ',' + recIdx + ',\'' + field + '\')" ' +
             'style="width:100%;box-sizing:border-box;padding:14px;border-radius:10px;' +
             'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
             'font-family:monospace;font-size:1.8rem;text-align:center;outline:none;' +
             'letter-spacing:4px;margin-bottom:14px;">' +
-          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">' + btnsRapidos + '</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">' + btnsHtml + '</div>' +
           '<div style="display:flex;gap:8px;">' +
-            '<button onclick="HR_IMPORT._salvarCorrecao(' + grpIdx + ',' + recIdx + ',\'' + field + '\')" ' +
+            '<button id="corr_ok" ' +
               'style="flex:2;padding:12px;border-radius:10px;' +
               'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
               'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
-              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">Confirmar</button>' +
-            '<button onclick="document.getElementById(\'' + ovId + '\').remove()" ' +
+              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;' +
+              'touch-action:manipulation;">Confirmar</button>' +
+            '<button id="corr_cancel" ' +
               'style="flex:1;padding:12px;border-radius:10px;background:transparent;' +
               'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
-              'font-size:.82rem;cursor:pointer;">Cancelar</button>' +
+              'font-size:.82rem;cursor:pointer;touch-action:manipulation;">Cancelar</button>' +
           '</div>' +
         '</div>' +
       '</div>';
+
     document.body.appendChild(ovEl);
-    setTimeout(function(){ var el = document.getElementById('corr_h'); if (el) { el.focus(); el.select(); } }, 50);
+
+    // Listeners via addEventListener (evita problemas de CSP com inline handlers)
+    var inp = document.getElementById('corr_h');
+    inp.addEventListener('input', function() { this.value = _maskHorario(this.value); });
+    inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') _salvarCorrecao(grpIdx, recIdx, field);
+    });
+    document.getElementById('corr_ok').addEventListener('click', function() {
+      _salvarCorrecao(grpIdx, recIdx, field);
+    });
+    document.getElementById('corr_cancel').addEventListener('click', function() { ovEl.remove(); });
+    ovEl.querySelectorAll('[data-quick]').forEach(function(b) {
+      b.addEventListener('click', function() {
+        document.getElementById('corr_h').value = b.getAttribute('data-quick');
+      });
+    });
+
+    setTimeout(function(){ if (inp) { inp.focus(); inp.select(); } }, 50);
   }
 
   /** Salva a edição e re-renderiza a tela de correção. */
@@ -1850,7 +1907,22 @@ var HR_IMPORT = (function () {
       _toast('⚠️ Use o formato HH:MM'); return;
     }
     var gr = _state.grupos[grpIdx];
-    if (gr && gr.registros[recIdx]) gr.registros[recIdx][field] = val;
+    if (gr && gr.registros[recIdx]) {
+      var rec = gr.registros[recIdx];
+      rec[field] = val;
+      // Recalcula almocoManual se ambos os horários de almoço estiverem preenchidos
+      if (field === 'almEntrada' || field === 'almSaida') {
+        var aIni = _hhmm2min(rec.almEntrada);
+        var aFim = _hhmm2min(rec.almSaida);
+        if (!isNaN(aIni) && !isNaN(aFim)) {
+          var dur = aFim - aIni;
+          if (dur < 0) dur += 1440;
+          rec.almocoManual = dur > 0 ? dur : null;
+        } else {
+          rec.almocoManual = null;
+        }
+      }
+    }
     var ov = document.getElementById('hrEditCorrecao');
     if (ov) ov.remove();
     _renderTelaCorrecao();
@@ -1902,46 +1974,76 @@ var HR_IMPORT = (function () {
             '<div style="flex:1;">' +
               '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">ENTRADA</div>' +
               '<input id="add_e" type="text" maxlength="5" placeholder="07:00" ' +
-                'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
                 'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
                 'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
                 'font-family:monospace;font-size:1rem;outline:none;">' +
             '</div>' +
             '<div style="flex:1;">' +
-              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">SAÍDA</div>' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">SA\u00CDDA</div>' +
               '<input id="add_s" type="text" maxlength="5" placeholder="16:00" ' +
-                'oninput="this.value=HR_IMPORT._maskHorario(this.value)" ' +
                 'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
                 'border:1px solid ' + BD + ';background:rgba(255,255,255,.03);color:' + T1 + ';' +
                 'font-family:monospace;font-size:1rem;outline:none;">' +
             '</div>' +
           '</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:14px;">' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">SA\u00CD. ALM</div>' +
+              '<input id="add_ae" type="text" maxlength="5" placeholder="12:00" ' +
+                'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
+                'border:1px solid #1c1c1c;background:rgba(255,255,255,.02);color:' + T2 + ';' +
+                'font-family:monospace;font-size:1rem;outline:none;">' +
+            '</div>' +
+            '<div style="flex:1;">' +
+              '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:4px;">RETORNO ALM</div>' +
+              '<input id="add_as" type="text" maxlength="5" placeholder="13:00" ' +
+                'style="width:100%;box-sizing:border-box;padding:10px;border-radius:8px;' +
+                'border:1px solid #1c1c1c;background:rgba(255,255,255,.02);color:' + T2 + ';' +
+                'font-family:monospace;font-size:1rem;outline:none;">' +
+            '</div>' +
+          '</div>' +
           '<div style="display:flex;gap:8px;">' +
-            '<button onclick="HR_IMPORT._confirmarAddDia(' + grpIdx + ',' + ano + ',' + mes + ')" ' +
+            '<button id="add_ok" ' +
               'style="flex:2;padding:12px;border-radius:10px;' +
               'background:linear-gradient(135deg,#1c1600,#0d0b00);' +
               'border:1.5px solid ' + GOLDB + ';color:' + GOLD + ';' +
-              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">Adicionar</button>' +
-            '<button onclick="document.getElementById(\'' + ovId + '\').remove()" ' +
+              'font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;' +
+              'touch-action:manipulation;">Adicionar</button>' +
+            '<button id="add_cancel" ' +
               'style="flex:1;padding:12px;border-radius:10px;background:transparent;' +
               'border:1px solid ' + BD2 + ';color:' + T2 + ';font-family:Outfit,sans-serif;' +
-              'font-size:.82rem;cursor:pointer;">Cancelar</button>' +
+              'font-size:.82rem;cursor:pointer;touch-action:manipulation;">Cancelar</button>' +
           '</div>' +
         '</div>' +
       '</div>';
     document.body.appendChild(ovEl);
+
+    // Máscara nos inputs de hora via addEventListener (evita inline handlers/CSP)
+    ['add_e','add_s','add_ae','add_as'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener('input', function() { this.value = _maskHorario(this.value); });
+    });
+    document.getElementById('add_ok').addEventListener('click', function() {
+      _confirmarAddDia(grpIdx, ano, mes);
+    });
+    document.getElementById('add_cancel').addEventListener('click', function() { ovEl.remove(); });
+
     setTimeout(function(){ var el = document.getElementById('add_d'); if (el) el.focus(); }, 50);
   }
 
   /** Valida e insere o novo dia, ordena os registros e re-renderiza. */
   function _confirmarAddDia(grpIdx, ano, mes) {
-    var dEl = document.getElementById('add_d');
-    var eEl = document.getElementById('add_e');
-    var sEl = document.getElementById('add_s');
+    var dEl  = document.getElementById('add_d');
+    var eEl  = document.getElementById('add_e');
+    var sEl  = document.getElementById('add_s');
+    var aeEl = document.getElementById('add_ae');
+    var asEl = document.getElementById('add_as');
     if (!dEl || !eEl || !sEl) return;
-    var dia     = parseInt(dEl.value);
-    var entrada = eEl.value.trim();
-    var saida   = sEl.value.trim();
+    var dia        = parseInt(dEl.value);
+    var entrada    = eEl.value.trim();
+    var saida      = sEl.value.trim();
+    var almEntrada = aeEl ? aeEl.value.trim() : '';
+    var almSaida   = asEl ? asEl.value.trim() : '';
     if (!dia || dia < 1 || dia > 31) { _toast('⚠️ Dia inválido.'); return; }
     if (!entrada)                    { _toast('⚠️ Informe a entrada.'); return; }
     var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dia).padStart(2,'0');
@@ -1953,7 +2055,21 @@ var HR_IMPORT = (function () {
     if (gr.registros.some(function(r){ return r.data === dataISO; })) {
       _toast('⚠️ Já existe registro para o dia ' + dia + '.'); return;
     }
-    gr.registros.push({ nome: gr.nome, data: dataISO, entrada: entrada, saida: saida, almocoManual: null });
+    // Calcula almocoManual se ambos informados
+    var almocoManual = null;
+    if (almEntrada && almSaida) {
+      var aI = _hhmm2min(almEntrada), aF = _hhmm2min(almSaida);
+      if (!isNaN(aI) && !isNaN(aF)) {
+        var dur = aF - aI; if (dur < 0) dur += 1440;
+        if (dur > 0) almocoManual = dur;
+      }
+    }
+    gr.registros.push({
+      nome: gr.nome, data: dataISO,
+      entrada: entrada, saida: saida,
+      almEntrada: almEntrada || null, almSaida: almSaida || null,
+      almocoManual: almocoManual
+    });
     gr.registros.sort(function(a, b){ return a.data.localeCompare(b.data); });
     // Atualiza período se necessário
     var todas = [];
