@@ -1447,6 +1447,14 @@ function calcCapelaPecas(ce){
       if(baseP2>0) add2('Base / plataforma — laterais ×2',baseP2,baseH2,2);
       add2('Base / plataforma — tampo',baseW2,baseP2,1);
     }
+    // Letras em alumínio no painel
+    var jpLetraQtd=+(ce.jpLetraQtd||0);
+    var jpLetraPrBase=+(ce.jpLetraPrBase||350);   // R$ até 35 letras
+    var jpLetraPrExtra=+(ce.jpLetraPrExtra||10);  // R$ por letra acima de 35
+    if(jpLetraQtd>0){
+      var valLetras=jpLetraPrBase+Math.max(0,jpLetraQtd-35)*jpLetraPrExtra;
+      pecas2.push({desc:'Letras em alumínio ('+jpLetraQtd+' letras)',dim:'—',w:0,h:0,q:1,m2:0,valor:valLetras,_isServico:true});
+    }
     return pecas2;
   }
 
@@ -1506,11 +1514,21 @@ function aplicarPecasCapela(ambId){
   var ce=amb.capExtra;
   var pecas=calcCapelaPecas(ce);
   if(!pecas.length){toast('Preencha largura, profundidade e altura');return;}
-  amb.pecas=pecas.map(function(p){
+  // Separar peças de pedra dos itens de serviço (ex: letras alumínio)
+  var pecasPedra=pecas.filter(function(p){return !p._isServico;});
+  var svExtras=pecas.filter(function(p){return p._isServico;});
+  amb.pecas=pecasPedra.map(function(p){
     return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
   });
+  // Salvar itens de serviço como observação no ambiente
+  if(svExtras.length){
+    var obsExtra=svExtras.map(function(p){return p.desc+': R$ '+p.valor.toFixed(2);}).join(' | ');
+    amb.obs=(amb.obs?amb.obs+' | ':'')+obsExtra;
+    if(!amb.capExtra._svExtrasLog)amb.capExtra._svExtrasLog=[];
+    amb.capExtra._svExtrasLog=svExtras.map(function(p){return {desc:p.desc,valor:p.valor};});
+  }
   renderAmbientes();
-  toast('✦ '+pecas.length+' peças aplicadas automaticamente!');
+  toast('✦ '+pecasPedra.length+' peças'+(svExtras.length?' + '+svExtras.length+' serviço(s)':'')+' aplicados!');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2135,6 +2153,22 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<div class="f"><label>Profundidade da base (cm)</label><input type="number" placeholder="40" step="1" style="background:var(--s3);" value="'+(ce.jpBaseP||40)+'" oninput="updCapMed('+amb.id+',\'jpBaseP\',+this.value)"></div>';
         h+='<div class="f"><label>Altura da base (cm)</label><input type="number" placeholder="20" step="1" style="background:var(--s3);" value="'+(ce.jpBaseH||20)+'" oninput="updCapMed('+amb.id+',\'jpBaseH\',+this.value)"></div>';
         h+='</div>';
+        // ── Letras em alumínio ──
+        h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:12px 0 10px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🔡 Letras em Alumínio (painel)</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Quantidade de letras</label><input type="number" placeholder="0" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpLetraQtd||'')+'" oninput="updCapMed('+amb.id+',\'jpLetraQtd\',+this.value)"></div>';
+        h+='<div class="f"><label>Preço base até 35 letras (R$)</label><input type="number" placeholder="350" step="1" style="background:var(--s3);" value="'+(ce.jpLetraPrBase||350)+'" oninput="updCapMed('+amb.id+',\'jpLetraPrBase\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div class="f"><label>Valor por letra adicional acima de 35 (R$)</label><input type="number" placeholder="10" step="1" style="background:var(--s3);" value="'+(ce.jpLetraPrExtra||10)+'" oninput="updCapMed('+amb.id+',\'jpLetraPrExtra\',+this.value)"></div>';
+        var _jpLetraQtd=+(ce.jpLetraQtd||0);
+        if(_jpLetraQtd>0){
+          var _jpValLetras=(+(ce.jpLetraPrBase||350))+Math.max(0,_jpLetraQtd-35)*(+(ce.jpLetraPrExtra||10));
+          h+='<div style="margin-top:6px;padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);line-height:1.8;">';
+          h+='🔡 <b>'+_jpLetraQtd+' letras</b>'+(_jpLetraQtd>35?' ('+(_jpLetraQtd-35)+' extras)':'')+'<br>';
+          h+='Valor: <b style="color:var(--gold2);">R$ '+fm(_jpValLetras)+'</b>';
+          h+='</div>';
+        }
       }
       // ── Campos extras para TAMPA DE JAZIGO ──────────────────────────────
       if(ce.subtipo==='Tampa de Jazigo'){
@@ -2160,8 +2194,20 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
         var totalM2capPrev=0;
         var totalValCapPrev=0;
+        var totalValServCapPrev=0;
         capCalcPrev.forEach(function(p){
           var m2p=p.m2;
+          if(p._isServico){
+            // Item de serviço com valor fixo (ex: letras em alumínio)
+            totalValServCapPrev+=p.valor||0;
+            h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+            h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+'</div>';
+            h+='<div style="font-size:.58rem;color:var(--t4);">Serviço</div></div>';
+            h+='<div style="text-align:right;">';
+            h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">R$ '+fm(p.valor||0)+'</div>';
+            h+='</div></div>';
+            return;
+          }
           totalM2capPrev+=m2p;
           var prPedraP=ambMatCapPrev&&ambMatCapPrev.pr>0?m2p*ambMatCapPrev.pr:0;
           var prMOP=m2p*prMO_cap;
@@ -2178,6 +2224,12 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra + M.O.</span>';
         h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2capPrev.toFixed(3)+' m²'+(totalValCapPrev>0?' · R$ '+fm(totalValCapPrev):'')+'</span>';
         h+='</div>';
+        if(totalValServCapPrev>0){
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
+          h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Serviços inclusos</span>';
+          h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServCapPrev)+'</span>';
+          h+='</div>';
+        }
         h+='<button onclick="aplicarPecasCapela('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
       }
       h+='</div>';
