@@ -1395,7 +1395,21 @@ function updCapMed(ambId,field,val){
     renderAmbientes();
   } else {
     clearTimeout(_capMedTimer);
-    _capMedTimer=setTimeout(function(){renderAmbientes();},650);
+    _capMedTimer=setTimeout(function(){
+      // Salva qual input está ativo antes de destruir o DOM
+      var activeId = document.activeElement ? document.activeElement.id : null;
+      var activeVal = document.activeElement ? document.activeElement.value : null;
+      renderAmbientes();
+      // Restaura foco no mesmo campo, mantendo o teclado aberto no Android
+      if(activeId){
+        var el=document.getElementById(activeId);
+        if(el){
+          el.focus();
+          // Posiciona cursor no final do valor
+          try{var len=el.value?el.value.length:0;el.setSelectionRange(len,len);}catch(e){}
+        }
+      }
+    },650);
   }
 }
 
@@ -1417,9 +1431,6 @@ function calcCapelaPecas(ce){
     var pilBaxH=+(ce.jpPilBaxH||150);  // altura pilar baixo (cm)
     var panelW =+(ce.jpPanelW||80);    // largura do painel central (cm)
     var panelH =+(ce.jpPanelH||180);   // altura do painel central (cm)
-    var baseW2 =+(ce.jpBaseW||pilAltW+panelW+pilBaxW); // largura total da base
-    var baseP2 =+(ce.jpBaseP||P||40);  // profundidade da base (cm)
-    var baseH2 =+(ce.jpBaseH||20);     // altura da base (cm)
     var espChapa=+(ce.capE||3);
     if(!pilAltH||!pilBaxH||!panelH)return [];
     var pecas2=[];
@@ -1437,11 +1448,17 @@ function calcCapelaPecas(ce){
     }
     // Painel central (a grande placa entre os dois pilares)
     add2('Painel central (entre pilares)',panelW,panelH,1);
-    // Base/plataforma
-    if(baseW2>0&&baseH2>0){
-      add2('Base / plataforma — frontal',baseW2,baseH2,1);
-      if(baseP2>0) add2('Base / plataforma — laterais ×2',baseP2,baseH2,2);
-      add2('Base / plataforma — tampo',baseW2,baseP2,1);
+    // Tubos de reforço (furação + material R$60/un) + concretagem (R$40/pilar)
+    var jpTuboQtd=+(ce.jpTuboQtd!==undefined?ce.jpTuboQtd:2);
+    var jpTuboPr=+(ce.jpTuboPr!==undefined?ce.jpTuboPr:60);
+    var jpConcrPr=+(ce.jpConcrPr!==undefined?ce.jpConcrPr:40);
+    if(jpTuboQtd>0&&jpTuboPr>0){
+      pecas2.push({desc:'Tubo de reforço c/ furação ('+jpTuboQtd+' un)',dim:'—',w:0,h:0,q:jpTuboQtd,m2:0,valor:jpTuboQtd*jpTuboPr,_isServico:true});
+    }
+    if(jpTuboQtd>0&&jpConcrPr>0){
+      // concretagem: 1 por pilar que tem tubo (até 2 pilares)
+      var nPilaresConcr=Math.min(jpTuboQtd,2);
+      pecas2.push({desc:'Concretagem dos pilares ('+nPilaresConcr+' pilares)',dim:'—',w:0,h:0,q:nPilaresConcr,m2:0,valor:nPilaresConcr*jpConcrPr,_isServico:true});
     }
     // Cruz — pedra em m² + mão de obra valor fixo
     var cruzW=+(ce.jpCruzW||0);   // largura da cruz (cm)
@@ -2116,8 +2133,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
       h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="2" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
       h+='</div>';
-      // Pilares (apenas para subtipos convencionais — Jazigo com Dois Pilares tem sua própria seção)
-      if(ce.subtipo!=='Jazigo com Dois Pilares'){
+      // Pilares
       h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:10px 0 10px;"></div>';
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🏛️ Pilares</div>';
       h+='<div class="r2">';
@@ -2140,7 +2156,6 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='• Externa: <b>'+esc2v+' × '+esc2v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid';
         h+='</div>';
       }
-      } // fim if subtipo !== Jazigo com Dois Pilares
       // ── Campos extras para JAZIGO COM DOIS PILARES ──────────────────────
       if(ce.subtipo==='Jazigo com Dois Pilares'){
         h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
@@ -2179,11 +2194,30 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<div class="f"><label>Painel — largura (cm)</label><input type="number" placeholder="80" step="1" style="background:var(--s3);" value="'+(ce.jpPanelW||80)+'" oninput="updCapMed('+amb.id+',\'jpPanelW\',+this.value)"></div>';
         h+='<div class="f"><label>Painel — altura (cm)</label><input type="number" placeholder="180" step="1" style="background:var(--s3);" value="'+(ce.jpPanelH||180)+'" oninput="updCapMed('+amb.id+',\'jpPanelH\',+this.value)"></div>';
         h+='</div>';
-        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">🪨 Base / Plataforma</div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">🔩 Tubos de Reforço</div>';
+        h+='<div style="padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);margin-bottom:10px;">Um tubo por pilar. Inclui furação + material (R$ 60/un) e concretagem interna (R$ 40/pilar).</div>';
         h+='<div class="r2">';
-        h+='<div class="f"><label>Profundidade da base (cm)</label><input type="number" placeholder="40" step="1" style="background:var(--s3);" value="'+(ce.jpBaseP||40)+'" oninput="updCapMed('+amb.id+',\'jpBaseP\',+this.value)"></div>';
-        h+='<div class="f"><label>Altura da base (cm)</label><input type="number" placeholder="20" step="1" style="background:var(--s3);" value="'+(ce.jpBaseH||20)+'" oninput="updCapMed('+amb.id+',\'jpBaseH\',+this.value)"></div>';
+        h+='<div class="f"><label>Qtd de tubos</label>';
+        h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd);border-radius:8px;overflow:hidden;height:42px;">';
+        h+='<button onclick="updCapMed('+amb.id+',\'jpTuboQtd\',Math.max(0,(+'+(ce.jpTuboQtd!==undefined?ce.jpTuboQtd:2)+')-1))" style="background:none;border:none;color:var(--t2);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+        h+='<span style="flex:1;text-align:center;font-size:.95rem;font-weight:700;color:var(--tx);">'+(ce.jpTuboQtd!==undefined?ce.jpTuboQtd:2)+'</span>';
+        h+='<button onclick="updCapMed('+amb.id+',\'jpTuboQtd\',(+'+(ce.jpTuboQtd!==undefined?ce.jpTuboQtd:2)+')+1)" style="background:none;border:none;color:var(--gold);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+        h+='</div></div>';
+        h+='<div class="f"><label>Preço tubo + furação (R$)</label><input type="number" placeholder="60" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpTuboPr!==undefined?ce.jpTuboPr:60)+'" oninput="updCapMed('+amb.id+',\'jpTuboPr\',+this.value)"></div>';
         h+='</div>';
+        h+='<div class="f"><label>Concretagem por pilar (R$)</label><input type="number" placeholder="40" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpConcrPr!==undefined?ce.jpConcrPr:40)+'" oninput="updCapMed('+amb.id+',\'jpConcrPr\',+this.value)"></div>';
+        var _jpTuboQtd=+(ce.jpTuboQtd!==undefined?ce.jpTuboQtd:2);
+        var _jpTuboPr=+(ce.jpTuboPr!==undefined?ce.jpTuboPr:60);
+        var _jpConcrPr=+(ce.jpConcrPr!==undefined?ce.jpConcrPr:40);
+        if(_jpTuboQtd>0){
+          var _nPilConcr=Math.min(_jpTuboQtd,2);
+          var _valTubos=_jpTuboQtd*_jpTuboPr;
+          var _valConcr=_nPilConcr*_jpConcrPr;
+          h+='<div style="margin-top:6px;padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);line-height:1.8;">';
+          h+='🔩 <b>'+_jpTuboQtd+' tubo'+(+_jpTuboQtd>1?'s':'')+' × R$ '+fm(_jpTuboPr)+'</b> = R$ '+fm(_valTubos)+'<br>';
+          h+='🪣 Concretagem <b>'+_nPilConcr+' pilar'+(+_nPilConcr>1?'es':'')+' × R$ '+fm(_jpConcrPr)+'</b> = R$ '+fm(_valConcr);
+          h+='</div>';
+        }
         // ── Letras em alumínio ──
         h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:12px 0 10px;"></div>';
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🔡 Letras em Alumínio (painel)</div>';
