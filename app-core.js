@@ -1427,25 +1427,34 @@ function calcCapelaPecas(ce){
       var m2=(w/100)*(h/100)*(q||1);
       pecas2.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
     }
+    // Pilar alto — 4 chapas iguais de largura × altura
+    if(pilAltW>0&&pilAltH>0){
+      add2('Pilar alto (4 chapas)',pilAltW,pilAltH,4);
+    }
+    // Pilar baixo — 4 chapas iguais de largura × altura
+    if(pilBaxW>0&&pilBaxH>0){
+      add2('Pilar baixo (4 chapas)',pilBaxW,pilBaxH,4);
+    }
     // Painel central (a grande placa entre os dois pilares)
     add2('Painel central (entre pilares)',panelW,panelH,1);
-    // Pilar alto — frente + laterais + topo
-    add2('Pilar alto — face frontal',pilAltW,pilAltH,1);
-    if(baseP2>0){
-      add2('Pilar alto — faces laterais ×2',baseP2,pilAltH,2);
-      add2('Pilar alto — topo',pilAltW,baseP2,1);
-    }
-    // Pilar baixo — frente + laterais + topo (+ cruz embutida, não calcula m²)
-    add2('Pilar baixo — face frontal',pilBaxW,pilBaxH,1);
-    if(baseP2>0){
-      add2('Pilar baixo — faces laterais ×2',baseP2,pilBaxH,2);
-      add2('Pilar baixo — topo',pilBaxW,baseP2,1);
-    }
     // Base/plataforma
     if(baseW2>0&&baseH2>0){
       add2('Base / plataforma — frontal',baseW2,baseH2,1);
       if(baseP2>0) add2('Base / plataforma — laterais ×2',baseP2,baseH2,2);
       add2('Base / plataforma — tampo',baseW2,baseP2,1);
+    }
+    // Cruz — pedra em m² + mão de obra valor fixo
+    var cruzW=+(ce.jpCruzW||0);   // largura da cruz (cm)
+    var cruzH=+(ce.jpCruzH||0);   // altura da cruz (cm)
+    var cruzE=+(ce.jpCruzE||3);   // espessura da cruz (cm)
+    var cruzMoVal=+(ce.jpCruzMo||0); // M.O. valor fixo (R$)
+    if(cruzW>0&&cruzH>0){
+      // Pedra: frente + verso (2 faces) + 4 bordas laterais simplificadas
+      var cruzM2=(cruzW/100)*(cruzH/100)*2; // frente e verso
+      pecas2.push({desc:'Cruz — frente e verso',dim:cruzW+'×'+cruzH+' cm ×2',w:cruzW,h:cruzH,q:2,m2:cruzM2});
+      if(cruzMoVal>0){
+        pecas2.push({desc:'Cruz — mão de obra',dim:'—',w:0,h:0,q:1,m2:0,valor:cruzMoVal,_isServico:true});
+      }
     }
     // Letras em alumínio no painel
     var jpLetraQtd=+(ce.jpLetraQtd||0);
@@ -2134,7 +2143,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       if(ce.subtipo==='Jazigo com Dois Pilares'){
         h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🏛️ Pilares Individuais</div>';
-        h+='<div style="padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);margin-bottom:10px;">Pilar alto (esq.) + pilar baixo (dir.) com painel central. Cruz fica no pilar baixo.</div>';
+        h+='<div style="padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);margin-bottom:10px;">Cada pilar = 4 chapas iguais de largura × altura. Informe as medidas de cada pilar.</div>';
         h+='<div class="r2">';
         h+='<div class="f"><label>Pilar alto — largura (cm)</label><input type="number" placeholder="30" step="1" style="background:var(--s3);" value="'+(ce.jpPilAltW||30)+'" oninput="updCapMed('+amb.id+',\'jpPilAltW\',+this.value)"></div>';
         h+='<div class="f"><label>Pilar alto — altura (cm)</label><input type="number" placeholder="200" step="1" style="background:var(--s3);" value="'+(ce.jpPilAltH||200)+'" oninput="updCapMed('+amb.id+',\'jpPilAltH\',+this.value)"></div>';
@@ -2143,6 +2152,26 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='<div class="f"><label>Pilar baixo — largura (cm)</label><input type="number" placeholder="30" step="1" style="background:var(--s3);" value="'+(ce.jpPilBaxW||30)+'" oninput="updCapMed('+amb.id+',\'jpPilBaxW\',+this.value)"></div>';
         h+='<div class="f"><label>Pilar baixo — altura (cm)</label><input type="number" placeholder="150" step="1" style="background:var(--s3);" value="'+(ce.jpPilBaxH||150)+'" oninput="updCapMed('+amb.id+',\'jpPilBaxH\',+this.value)"></div>';
         h+='</div>';
+        // ── Cruz ──
+        h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:12px 0 10px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">✝️ Cruz</div>';
+        h+='<div style="padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);margin-bottom:10px;">Pedra calculada em m² (frente + verso). Informe largura, altura e espessura.</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Cruz — largura (cm)</label><input type="number" placeholder="0" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpCruzW||'')+'" oninput="updCapMed('+amb.id+',\'jpCruzW\',+this.value)"></div>';
+        h+='<div class="f"><label>Cruz — altura (cm)</label><input type="number" placeholder="0" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpCruzH||'')+'" oninput="updCapMed('+amb.id+',\'jpCruzH\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Cruz — espessura (cm)</label><input type="number" placeholder="3" min="0" step="0.5" style="background:var(--s3);" value="'+(ce.jpCruzE||3)+'" oninput="updCapMed('+amb.id+',\'jpCruzE\',+this.value)"></div>';
+        h+='<div class="f"><label>M.O. cruz — valor fixo (R$)</label><input type="number" placeholder="0" min="0" step="1" style="background:var(--s3);" value="'+(ce.jpCruzMo||'')+'" oninput="updCapMed('+amb.id+',\'jpCruzMo\',+this.value)"></div>';
+        h+='</div>';
+        var _cruzW=+(ce.jpCruzW||0),_cruzH=+(ce.jpCruzH||0),_cruzE=+(ce.jpCruzE||3),_cruzMo=+(ce.jpCruzMo||0);
+        if(_cruzW>0&&_cruzH>0){
+          var _cruzM2=(_cruzW/100)*(_cruzH/100)*2;
+          h+='<div style="margin-top:6px;padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);line-height:1.8;">';
+          h+='✝️ Cruz <b>'+_cruzW+'×'+_cruzH+'cm</b> esp. '+_cruzE+'cm | Pedra: <b style="color:var(--gold2);">'+_cruzM2.toFixed(3)+' m²</b>';
+          if(_cruzMo>0) h+=' | M.O.: <b style="color:var(--gold2);">R$ '+fm(_cruzMo)+'</b>';
+          h+='</div>';
+        }
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">📋 Painel Central</div>';
         h+='<div class="r2">';
         h+='<div class="f"><label>Painel — largura (cm)</label><input type="number" placeholder="80" step="1" style="background:var(--s3);" value="'+(ce.jpPanelW||80)+'" oninput="updCapMed('+amb.id+',\'jpPanelW\',+this.value)"></div>';
