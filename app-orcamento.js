@@ -125,7 +125,7 @@ SV_DEFS.Banheiro=[
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_45',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -320,45 +320,26 @@ function buildSV(){
   selCuba=null;
   var g=getSVGrp(),h='';
   g.forEach(function(grp){
-    // acb_auto / acb_45: render as radio button group (Acabamento auto for Soleira/Peitoril)
-    var isAcbGrp=grp.its.length>0&&(grp.its[0].u==='acb_auto'||grp.its.some(function(i){return i.u==='acb_45';}));
+    // acb_auto: render as radio button group (Acabamento auto for Soleira/Peitoril)
+    var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
     if(isAcbGrp){
       var selAcb=null;
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      // Linha 1: os 3 primeiros botões (sem acb_45)
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 4px;flex-wrap:wrap;">';
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
       grp.its.forEach(function(it){
-        if(it.u==='acb_45')return; // renderizado separado abaixo
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
         var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:80px;text-align:center;padding:9px 6px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
-          +'<div style="font-size:.75rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
-          +(subtitle?'<div style="font-size:.58rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
-          +'</div>';
-      });
-      h+='</div>';
-      // Linha 2: botão sol_45 em largura total com destaque especial
-      grp.its.forEach(function(it){
-        if(it.u!=='acb_45')return;
-        var active=selAcb===it.k;
-        var autoMl=_calcAcbAutoMl(amb,it.lados||0);
-        var pr=getPr(it.k);
-        var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
-        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):'';
-        var borderCol=active?'var(--gold)':'rgba(139,92,246,.5)';
-        var bgCol=active?'rgba(201,168,76,.12)':'rgba(139,92,246,.07)';
-        var labelCol=active?'var(--gold)':'#a78bfa';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;width:calc(100% - 24px);margin:0 12px 10px;text-align:center;padding:10px 8px;border-radius:10px;border:1.5px solid '+borderCol+';background:'+bgCol+';transition:all .15s;">'
-          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'600')+';color:'+labelCol+'">⬡ '+it.l+'</div>'
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div>';
+      h+='</div></div>';
       return;
     }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
@@ -707,7 +688,7 @@ function updPcAmb(ambId,pcId,prop,val){
   // Re-render serviços automáticos quando peças mudam (sf_auto, acb_auto, ml_auto)
   var g=SV_DEFS[amb.tipo]||[];
   var hasSvAuto=g.some(function(grp){return grp.its.some(function(it){
-    return it.u==='sf_auto'||it.u==='acb_auto'||it.u==='acb_45'||it.u==='ml_auto';
+    return it.u==='sf_auto'||it.u==='acb_auto'||it.u==='ml_auto';
   });});
   if(hasSvAuto){
     var svEl=document.getElementById('svAuto-'+ambId);
@@ -946,17 +927,6 @@ function renderAmbientes(){
       h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
       h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
       h+='</div>';
-      // Campo sainha 45° — aparece somente quando sol_45 está ativo
-      var _isSol45=(amb.tipo==='Soleira'&&amb.svState&&amb.svState['sol_45']);
-      if(_isSol45){
-        var _sainh=amb.sainhaH||'';
-        h+='<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.25);border-radius:10px;padding:10px 12px;margin-bottom:10px;">';
-        h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">✦ Corte em 45° — Sainha</div>';
-        h+='<div style="font-size:.68rem;color:var(--t3);margin-bottom:8px;">A sainha será gerada automaticamente com o mesmo comprimento de cada peça.</div>';
-        h+='<div class="f"><label style="font-size:.62rem;">Largura da Sainha (cm)</label>';
-        h+='<input type="number" placeholder="Ex: 5" style="background:var(--s3);max-width:140px;" value="'+escH(String(_sainh))+'" oninput="updSainhaH('+amb.id+',+this.value)"></div>';
-        h+='</div>';
-      }
     } else {
       // Chapel: show read-only piece list after configurator applies them
       if(amb.pecas && amb.pecas.some(function(p){return p.w&&p.h;})){
@@ -1029,20 +999,12 @@ function togAcbAuto(ambId,k){
   g.forEach(function(grp){
     var match=grp.its.find(function(it){return it.k===k;});
     if(!match)return;
-    if(match.u!=='acb_auto'&&match.u!=='acb_45')return;
-    // Deactivate all in this acb_auto/acb_45 group
+    if(match.u!=='acb_auto')return;
+    // Deactivate all in this acb_auto group
     grp.its.forEach(function(it){delete sv[it.k];});
-    // Activate selected
+    // Activate selected (if not already the first/default = sem acabamento that means lados=0)
     sv[k]={lados:match.lados||0};
   });
-  renderAmbientes();
-}
-
-// Atualiza largura da sainha para corte em 45°
-function updSainhaH(ambId,v){
-  var amb=ambientes.find(function(a){return a.id==ambId;});
-  if(!amb)return;
-  amb.sainhaH=v||0;
   renderAmbientes();
 }
 
@@ -1050,43 +1012,26 @@ function buildSVHtml(amb){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
   var sv=amb.svState||{};  var h='';
   g.forEach(function(grp){
-    // acb_auto/acb_45: render como radio buttons (igual Soleira/Peitoril)
-    var isAcbGrp=grp.its.length>0&&(grp.its[0].u==='acb_auto'||grp.its.some(function(i){return i.u==='acb_45';}));
+    // acb_auto: render como radio buttons (igual Soleira/Peitoril)
+    var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
     if(isAcbGrp){
       var selAcb=null;
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 4px;flex-wrap:wrap;">';
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
       grp.its.forEach(function(it){
-        if(it.u==='acb_45')return;
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
         var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:80px;text-align:center;padding:9px 6px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
-          +'<div style="font-size:.75rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
-          +(subtitle?'<div style="font-size:.58rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
-          +'</div>';
-      });
-      h+='</div>';
-      grp.its.forEach(function(it){
-        if(it.u!=='acb_45')return;
-        var active=selAcb===it.k;
-        var autoMl=_calcAcbAutoMl(amb,it.lados||0);
-        var pr=getPr(it.k);
-        var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
-        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):'';
-        var borderCol=active?'var(--gold)':'rgba(139,92,246,.5)';
-        var bgCol=active?'rgba(201,168,76,.12)':'rgba(139,92,246,.07)';
-        var labelCol=active?'var(--gold)':'#a78bfa';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;width:calc(100% - 24px);margin:0 12px 10px;text-align:center;padding:10px 8px;border-radius:10px;border:1.5px solid '+borderCol+';background:'+bgCol+';transition:all .15s;">'
-          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'600')+';color:'+labelCol+'">⬡ '+it.l+'</div>'
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div>';
+      h+='</div></div>';
       return;
     }
     // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
@@ -1474,29 +1419,10 @@ function calcular(){
         if(acbLados>0){
           var acbMl=_calcAcbAutoMl(amb,acbLados);
           var acbPr=getPr(it.k);
-          if(acbMl>0&&acbPr>0){acT+=acbMl*acbPr;} // add to cost, invisible in output
+          if(acbMl>0&&acbPr>0){acT+=acbMl*acbPr;acL.push({l:it.l+' '+acbMl.toFixed(2)+'ml',v:acbMl*acbPr});acN.push(it.l+' ('+acbMl.toFixed(2)+'ml)');}
         }
-        return;
-      }
-      // acb_45: Soleira em 45° — cobra acabamento + área de pedra da sainha
-      if(it.u==='acb_45'){
-        var acb45Lados=it.lados||2;
-        var acb45Ml=_calcAcbAutoMl(amb,acb45Lados);
-        var acb45Pr=getPr(it.k);
-        if(acb45Ml>0&&acb45Pr>0){acT+=acb45Ml*acb45Pr;} // custo do acabamento 45°
-        // Calcular área de pedra da sainha (comprimento total × largura sainha)
-        var sainhaH=amb.sainhaH||0;
-        if(sainhaH>0){
-          var sainhaM2=0;
-          (amb.pecas||[]).forEach(function(p){
-            if(p.w){sainhaM2+=(p.w/100)*(sainhaH/100)*(p.q||1);}
-          });
-          if(sainhaM2>0){
-            m2+=sainhaM2; // adiciona área da sainha ao total de pedra
-            pds.push({desc:'Sainha 45°',w:null,h:sainhaH,q:1,m2:sainhaM2,_sainha:true});
-            allPds.push({desc:(tipo+': Sainha 45°'),w:null,h:sainhaH,q:1,m2:sainhaM2});
-          }
-        }
+        // Soleira 45°: soma área da sainha ao m² de pedra
+        if(it.is45&&svd.sainhaH>0){var _s45Ml=_calcAcbAutoMl(amb,1);var _s45M2=_s45Ml*(svd.sainhaH/100);m2+=_s45M2;pds.push({desc:'Sainha Soleira 45°',w:_s45Ml*100,h:svd.sainhaH,q:1,m2:_s45M2});}
         return;
       }
       // ml_auto: Peitoril tipo com ml calculado automaticamente das peças
