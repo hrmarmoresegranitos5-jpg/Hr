@@ -1408,6 +1408,74 @@ function calcCapelaPecas(ce){
   var nPil=+(ce.capNPil!==undefined?ce.capNPil:2);
   var pilW=+(ce.capPilW||0);
   var pilH=+(ce.capPilH||H);
+
+  // ── JAZIGO COM DOIS PILARES ──────────────────────────────────────
+  if(ce.subtipo==='Jazigo com Dois Pilares'){
+    var pilAltW=+(ce.jpPilAltW||30);   // largura pilar alto (cm)
+    var pilAltH=+(ce.jpPilAltH||200);  // altura pilar alto (cm)
+    var pilBaxW=+(ce.jpPilBaxW||30);   // largura pilar baixo (cm)
+    var pilBaxH=+(ce.jpPilBaxH||150);  // altura pilar baixo (cm)
+    var panelW =+(ce.jpPanelW||80);    // largura do painel central (cm)
+    var panelH =+(ce.jpPanelH||180);   // altura do painel central (cm)
+    var baseW2 =+(ce.jpBaseW||pilAltW+panelW+pilBaxW); // largura total da base
+    var baseP2 =+(ce.jpBaseP||P||40);  // profundidade da base (cm)
+    var baseH2 =+(ce.jpBaseH||20);     // altura da base (cm)
+    var espChapa=+(ce.capE||3);
+    if(!pilAltH||!pilBaxH||!panelH)return [];
+    var pecas2=[];
+    function add2(desc,w,h,q){
+      var m2=(w/100)*(h/100)*(q||1);
+      pecas2.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
+    }
+    // Painel central (a grande placa entre os dois pilares)
+    add2('Painel central (entre pilares)',panelW,panelH,1);
+    // Pilar alto — frente + laterais + topo
+    add2('Pilar alto — face frontal',pilAltW,pilAltH,1);
+    if(baseP2>0){
+      add2('Pilar alto — faces laterais ×2',baseP2,pilAltH,2);
+      add2('Pilar alto — topo',pilAltW,baseP2,1);
+    }
+    // Pilar baixo — frente + laterais + topo (+ cruz embutida, não calcula m²)
+    add2('Pilar baixo — face frontal',pilBaxW,pilBaxH,1);
+    if(baseP2>0){
+      add2('Pilar baixo — faces laterais ×2',baseP2,pilBaxH,2);
+      add2('Pilar baixo — topo',pilBaxW,baseP2,1);
+    }
+    // Base/plataforma
+    if(baseW2>0&&baseH2>0){
+      add2('Base / plataforma — frontal',baseW2,baseH2,1);
+      if(baseP2>0) add2('Base / plataforma — laterais ×2',baseP2,baseH2,2);
+      add2('Base / plataforma — tampo',baseW2,baseP2,1);
+    }
+    return pecas2;
+  }
+
+  // ── TAMPA DE JAZIGO ──────────────────────────────────────────────
+  if(ce.subtipo==='Tampa de Jazigo'){
+    var tpW=+(ce.tpW||60);   // largura da tampa (cm)
+    var tpH=+(ce.tpH||90);   // altura da tampa (cm)
+    var tpE=+(ce.tpE||3);    // espessura (cm) — para cálculo de m² da borda
+    var tpLapW=+(ce.tpLapW||30); // largura da lápide sobreposta (cm)
+    var tpLapH=+(ce.tpLapH||40); // altura da lápide sobreposta (cm)
+    if(!tpW||!tpH)return [];
+    var pecas3=[];
+    function add3(desc,w,h,q){
+      var m2=(w/100)*(h/100)*(q||1);
+      pecas3.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
+    }
+    add3('Placa frontal da tampa',tpW,tpH,1);
+    if(tpE>0){
+      // Bordas laterais e superior visíveis
+      add3('Borda lateral ×2',tpE,tpH,2);
+      add3('Borda superior',tpW+(tpE*2),tpE,1);
+    }
+    if(tpLapW>0&&tpLapH>0){
+      add3('Lápide sobreposta (plaquinha)',tpLapW,tpLapH,1);
+    }
+    return pecas3;
+  }
+
+  // ── CAPELAS CONVENCIONAIS (comportamento original) ───────────────
   if(!W||!P||!H)return [];
   var pecas=[];
   function add(desc,w,h,q){
@@ -2006,7 +2074,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='<div class="r2"><div class="f"><label>Quadra</label><input placeholder="Q-12" type="text" style="background:var(--s3);" value="'+escH(ce.quadra||'')+'" oninput="updCapExtra('+amb.id+',\'quadra\',this.value)"></div>';
       h+='<div class="f"><label>Nº / Lote</label><input placeholder="N-04" type="text" style="background:var(--s3);" value="'+escH(ce.lote||'')+'" oninput="updCapExtra('+amb.id+',\'lote\',this.value)"></div></div>';
       h+='<div class="f"><label>Tipo de Capela</label><select style="background:var(--s3);color:var(--tx);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;width:100%;font-size:.82rem;font-family:Outfit,sans-serif;" onchange="updCapExtra('+amb.id+',\'subtipo\',this.value)">';
-      ['Nicho Simples (frontal)','Nicho Duplo (2 gavetas)','Nicho Triplo (3 gavetas)','Capelinha com Pilares','Capelinha com Frontão','Capelinha Monumental','Reforma / Revestimento'].forEach(function(st){
+      ['Nicho Simples (frontal)','Nicho Duplo (2 gavetas)','Nicho Triplo (3 gavetas)','Capelinha com Pilares','Capelinha com Frontão','Capelinha Monumental','Jazigo com Dois Pilares','Tampa de Jazigo','Reforma / Revestimento'].forEach(function(st){
         h+='<option value="'+st+'"'+(ce.subtipo===st?' selected':'')+'>'+st+'</option>';
       });
       h+='</select></div>';
@@ -2042,6 +2110,45 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='🪨 <b>Escadinha do pilar (auto):</b><br>';
         h+='• Interna: <b>'+esc1v+' × '+esc1v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid<br>';
         h+='• Externa: <b>'+esc2v+' × '+esc2v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid';
+        h+='</div>';
+      }
+      // ── Campos extras para JAZIGO COM DOIS PILARES ──────────────────────
+      if(ce.subtipo==='Jazigo com Dois Pilares'){
+        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🏛️ Pilares Individuais</div>';
+        h+='<div style="padding:8px 10px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;font-size:.62rem;color:var(--t2);margin-bottom:10px;">Pilar alto (esq.) + pilar baixo (dir.) com painel central. Cruz fica no pilar baixo.</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Pilar alto — largura (cm)</label><input type="number" placeholder="30" step="1" style="background:var(--s3);" value="'+(ce.jpPilAltW||30)+'" oninput="updCapMed('+amb.id+',\'jpPilAltW\',+this.value)"></div>';
+        h+='<div class="f"><label>Pilar alto — altura (cm)</label><input type="number" placeholder="200" step="1" style="background:var(--s3);" value="'+(ce.jpPilAltH||200)+'" oninput="updCapMed('+amb.id+',\'jpPilAltH\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Pilar baixo — largura (cm)</label><input type="number" placeholder="30" step="1" style="background:var(--s3);" value="'+(ce.jpPilBaxW||30)+'" oninput="updCapMed('+amb.id+',\'jpPilBaxW\',+this.value)"></div>';
+        h+='<div class="f"><label>Pilar baixo — altura (cm)</label><input type="number" placeholder="150" step="1" style="background:var(--s3);" value="'+(ce.jpPilBaxH||150)+'" oninput="updCapMed('+amb.id+',\'jpPilBaxH\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">📋 Painel Central</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Painel — largura (cm)</label><input type="number" placeholder="80" step="1" style="background:var(--s3);" value="'+(ce.jpPanelW||80)+'" oninput="updCapMed('+amb.id+',\'jpPanelW\',+this.value)"></div>';
+        h+='<div class="f"><label>Painel — altura (cm)</label><input type="number" placeholder="180" step="1" style="background:var(--s3);" value="'+(ce.jpPanelH||180)+'" oninput="updCapMed('+amb.id+',\'jpPanelH\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">🪨 Base / Plataforma</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Profundidade da base (cm)</label><input type="number" placeholder="40" step="1" style="background:var(--s3);" value="'+(ce.jpBaseP||40)+'" oninput="updCapMed('+amb.id+',\'jpBaseP\',+this.value)"></div>';
+        h+='<div class="f"><label>Altura da base (cm)</label><input type="number" placeholder="20" step="1" style="background:var(--s3);" value="'+(ce.jpBaseH||20)+'" oninput="updCapMed('+amb.id+',\'jpBaseH\',+this.value)"></div>';
+        h+='</div>';
+      }
+      // ── Campos extras para TAMPA DE JAZIGO ──────────────────────────────
+      if(ce.subtipo==='Tampa de Jazigo'){
+        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🪦 Medidas da Tampa</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Largura da placa (cm)</label><input type="number" placeholder="60" step="1" style="background:var(--s3);" value="'+(ce.tpW||60)+'" oninput="updCapMed('+amb.id+',\'tpW\',+this.value)"></div>';
+        h+='<div class="f"><label>Altura da placa (cm)</label><input type="number" placeholder="90" step="1" style="background:var(--s3);" value="'+(ce.tpH||90)+'" oninput="updCapMed('+amb.id+',\'tpH\',+this.value)"></div>';
+        h+='</div>';
+        h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="3" step="0.5" style="background:var(--s3);" value="'+(ce.tpE||3)+'" oninput="updCapMed('+amb.id+',\'tpE\',+this.value)"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:10px 0 8px;">📌 Lápide Sobreposta</div>';
+        h+='<div class="r2">';
+        h+='<div class="f"><label>Lápide — largura (cm)</label><input type="number" placeholder="30" step="1" style="background:var(--s3);" value="'+(ce.tpLapW||30)+'" oninput="updCapMed('+amb.id+',\'tpLapW\',+this.value)"></div>';
+        h+='<div class="f"><label>Lápide — altura (cm)</label><input type="number" placeholder="40" step="1" style="background:var(--s3);" value="'+(ce.tpLapH||40)+'" oninput="updCapMed('+amb.id+',\'tpLapH\',+this.value)"></div>';
         h+='</div>';
       }
       // Preview de peças calculadas automaticamente

@@ -52,8 +52,11 @@ var TUM = {
       lapide:     { on: false, m2: 0, extra: 0, desc: 'Lápide gravada' },
       revestExt:  { on: false, m2: 0, extra: 0, desc: 'Revestimento externo' },
       rodape:     { on: false, m2: 0, extra: 0, desc: 'Rodapé externo (base)' },
-      moldura:    { on: false, ml: 0, vlrMl: 120, extra: 0, desc: 'Moldura (ml)' },
-      pingadeira: { on: false, ml: 0, vlrMl: 80,  extra: 0, desc: 'Pingadeira (ml)' },
+      moldura:         { on: false, ml: 0, vlrMl: 120, extra: 0, desc: 'Moldura (ml)' },
+      pingadeira:      { on: false, ml: 0, vlrMl: 80,  extra: 0, desc: 'Pingadeira (ml)' },
+      painelTraseiro:  { on: false, m2: 0, extra: 0, desc: 'Painel traseiro monumental (larg × alt painel)' },
+      colunasLaterais: { on: false, m2: 0, extra: 0, desc: 'Colunas/blocos laterais ×2' },
+      bancada:         { on: false, m2: 0, extra: 0, desc: 'Bancada/plataforma frontal' },
     },
 
     // ── ESTRUTURA CIVIL ───────────────────────────────────────────
@@ -210,6 +213,14 @@ var TUM = {
       estrutura:  ['paredes'],
       diasPedreiro: 1, diasMarmorista: 2,
     },
+    jazigo_perpetuo: {
+      label: 'Jazigo Perpétuo', icon: '🏛️',
+      desc:  'Monumento com painel traseiro alto, colunas laterais, bancada e gavetas. Modelo familiar perpétuo.',
+      gavetas: 2, altEst: 1.40,
+      pedras:     ['tampa','laterais','frente','fundo','lapide','revestExt','moldura','painelTraseiro','colunasLaterais','bancada'],
+      estrutura:  ['fundacao','paredes','laje','reforco','concreto'],
+      diasPedreiro: 8, diasMarmorista: 6,
+    },
   },
 
   PEDRA_LABELS: {
@@ -217,11 +228,14 @@ var TUM = {
     laterais:   'Laterais ×2 (comp × alt corpo)',
     frente:     'Frontão / Frente (larg × alt)',
     fundo:      'Parede de fundo (larg × alt)',
-    lapide:     'Lápide na pedra',
-    revestExt:  'Revestimento externo total',
-    rodape:     'Rodapé externo (base)',
-    moldura:    'Moldura (ml)',
-    pingadeira: 'Pingadeira (ml)',
+    lapide:          'Lápide na pedra',
+    revestExt:       'Revestimento externo total',
+    rodape:          'Rodapé externo (base)',
+    moldura:         'Moldura (ml)',
+    pingadeira:      'Pingadeira (ml)',
+    painelTraseiro:  'Painel traseiro monumental',
+    colunasLaterais: 'Colunas/blocos laterais ×2',
+    bancada:         'Bancada/plataforma frontal',
   },
 
   EST_LABELS: {
@@ -610,6 +624,30 @@ function _tabProjeto() {
   h += '<input class="tum-in" type="number" value="' + (q.perda || 15) + '" min="5" max="40" style="max-width:80px;" onchange="TUM.q.perda=+this.value;tumRecalc()">';
   h += '</div>';
 
+  // ── Configurações específicas: Jazigo Perpétuo ──────────────────
+  if (q.tipoBase === 'jazigo_perpetuo') {
+    var pTraseiro = q.pedras.painelTraseiro || {};
+    var pColunas  = q.pedras.colunasLaterais || {};
+    h += '<div class="tum-sec-lbl" style="margin-top:16px;">🏛️ Jazigo Perpétuo — Medidas dos Elementos</div>';
+    h += '<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:12px 14px;margin-bottom:8px;font-size:.62rem;color:var(--t3);line-height:1.6;">';
+    h += '📐 Defina as dimensões dos elementos monumentais. As áreas são calculadas automaticamente na aba Pedra.';
+    h += '</div>';
+    h += '<div class="tum-grid2">';
+    h += '<div class="tum-f"><label class="tum-lbl">Alt. painel traseiro (m)</label>';
+    h += '<input class="tum-in" type="number" step="0.05" min="0.80" max="3.00" value="' + (pTraseiro._altPainel || 1.60) + '" ';
+    h += 'onchange="if(!TUM.q.pedras.painelTraseiro)TUM.q.pedras.painelTraseiro={};TUM.q.pedras.painelTraseiro._altPainel=+this.value;delete TUM.q.pedras.painelTraseiro._manual;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Alt. colunas laterais (m)</label>';
+    h += '<input class="tum-in" type="number" step="0.05" min="0.40" max="2.50" value="' + (pColunas._altColuna || 1.00) + '" ';
+    h += 'onchange="if(!TUM.q.pedras.colunasLaterais)TUM.q.pedras.colunasLaterais={};TUM.q.pedras.colunasLaterais._altColuna=+this.value;delete TUM.q.pedras.colunasLaterais._manual;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Larg. colunas laterais (m)</label>';
+    h += '<input class="tum-in" type="number" step="0.05" min="0.20" max="1.00" value="' + (pColunas._largColuna || 0.50) + '" ';
+    h += 'onchange="if(!TUM.q.pedras.colunasLaterais)TUM.q.pedras.colunasLaterais={};TUM.q.pedras.colunasLaterais._largColuna=+this.value;delete TUM.q.pedras.colunasLaterais._manual;tumRecalc()"></div>';
+    h += '<div class="tum-f"><label class="tum-lbl">Esp. bancada frontal (m)</label>';
+    h += '<input class="tum-in" type="number" step="0.01" min="0.03" max="0.30" value="' + (q._espBancada || 0.10) + '" ';
+    h += 'onchange="TUM.q._espBancada=+this.value;delete TUM.q.pedras.bancada._manual;tumRecalc()"></div>';
+    h += '</div>';
+  }
+
   // Navegação
   h += '<div class="tum-nav-row">';
   h += '<button class="btn btn-g" onclick="tumTab(\'pedras\')">Próximo: Pedra →</button>';
@@ -790,6 +828,9 @@ function _tabPedras() {
         fundo:    d2._largUtil && d2._altCorpo ? '(' + d2._largUtil.toFixed(2) + '×' + d2._altCorpo.toFixed(2) + ' m)' : '',
         rodape:   d2.comp && d2.larg ? '(perímetro ext.)' : '',
         revestExt:'(perímetro ext.)' ,
+        painelTraseiro:  d2.larg ? '(' + d2.larg.toFixed(2) + ' × 1.60 m painel)' : '',
+        colunasLaterais: '(2 blocos laterais)',
+        bancada:         '(perímetro × esp. 10cm)',
       };
       dimHint = hints[k] ? ' <span style="font-size:.55rem;color:var(--t4);">' + hints[k] + '</span>' : '';
     }
@@ -1949,6 +1990,24 @@ function _tumAutoCalc() {
     p.moldura.ml = _r((cUtil + lUtil) * 2);
   if (p.pingadeira && !p.pingadeira._ml_manual)
     p.pingadeira.ml = _r((cUtil + lUtil) * 2);
+
+  // ── PEÇAS JAZIGO PERPÉTUO ─────────────────────────────────────
+  // Painel traseiro: larg externa × altura do painel (padrão 1.60m, ajustável manualmente)
+  if (p.painelTraseiro && !p.painelTraseiro._manual) {
+    var altPainel = p.painelTraseiro._altPainel || 1.60;
+    p.painelTraseiro.m2 = _r(l * altPainel);
+  }
+  // Colunas/blocos laterais: 2 blocos × larg × alt (ajustável via campos do projeto)
+  if (p.colunasLaterais && !p.colunasLaterais._manual) {
+    var altCol  = p.colunasLaterais._altColuna  || 1.00;
+    var largCol = p.colunasLaterais._largColuna || 0.50;
+    p.colunasLaterais.m2 = _r(2 * largCol * altCol);
+  }
+  // Bancada frontal: perímetro externo × espessura
+  if (p.bancada && !p.bancada._manual) {
+    var espBanc = q._espBancada || 0.10;
+    p.bancada.m2 = _r((c * 2 + l * 2) * espBanc);
+  }
 
   // ── ESTRUTURA CIVIL ───────────────────────────────────────────
   var est = q.estrutura;
