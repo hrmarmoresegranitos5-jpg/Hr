@@ -298,13 +298,13 @@ function initCFG(){
      'bp_boleada','bp_antiderap','bp_pingad','bp_mcana','bp_chanfro',
      'bp_c_arred','bp_c_curva','bp_c_infinita'
     ].forEach(function(k){ if(!CFG.sv[k]) CFG.sv[k]=DEF_SV[k]; });
-    if(!CFG.sv.sol_45)CFG.sv.sol_45=DEF_SV.sol_45||80;
     localStorage.setItem('hr_cfg_ver', CFG_VER);
   }
   // Sync SV labels/prices from svList if it exists
   // Patch v18: força preços novos no CFG existente
   // ── GUARD COMPLETO: recriar campos ausentes em CFGs antigos ──
   if (!CFG.sv)     CFG.sv     = JSON.parse(JSON.stringify(DEF_SV));
+  if (!CFG.sv.sol_45) CFG.sv.sol_45 = DEF_SV.sol_45||80; // Soleira 45° guard
   if (!CFG.stones) CFG.stones = JSON.parse(JSON.stringify(DEF_STONES));
   if (!CFG.coz)    CFG.coz    = JSON.parse(JSON.stringify(DEF_COZ));
   if (!CFG.lav)    CFG.lav    = JSON.parse(JSON.stringify(DEF_LAV));
