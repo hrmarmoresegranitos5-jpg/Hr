@@ -88,6 +88,7 @@ function buildCfg(){
         {k:'rodape',    l:'Rodapé de Pedra',        preco:CFG.sv.rodape||55,    grp:'Sainha/Frontão',u:'sf'},
         {k:'sol1',      l:'Soleira 1 lado',          preco:CFG.sv.sol1||35,      grp:'Soleira/Peitoril',u:'ml'},
         {k:'sol2',      l:'Soleira 2 lados',         preco:CFG.sv.sol2||60,      grp:'Soleira/Peitoril',u:'ml'},
+        {k:'sol_45',    l:'Soleira em 45° (2 peças)',preco:CFG.sv.sol_45||80,    grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_reto', l:'Peitoril Reto',          preco:CFG.sv.peit_reto||40, grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_ping', l:'c/ Pingadeira',          preco:CFG.sv.peit_ping||70, grp:'Soleira/Peitoril',u:'ml'},
         {k:'peit_col',  l:'c/ Pedra Colada+Pingadeira',preco:CFG.sv.peit_col||120,grp:'Soleira/Peitoril',u:'ml'},
