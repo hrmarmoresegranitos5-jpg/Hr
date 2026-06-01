@@ -327,25 +327,38 @@ function buildSV(){
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      // Linha 1: os 3 primeiros botões (sem acb_45)
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 4px;flex-wrap:wrap;">';
       grp.its.forEach(function(it){
+        if(it.u==='acb_45')return; // renderizado separado abaixo
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
-        var subtitle;
-        if(it.u==='acb_45'){
-          // sol_45: custo = acabamento (ml × pr) + sainha só pedra (calculada no total)
-          subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):it.lados===0?'sem custo':'';
-        } else {
-          subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        }
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
-          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:80px;text-align:center;padding:9px 6px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.75rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+          +(subtitle?'<div style="font-size:.58rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
+          +'</div>';
+      });
+      h+='</div>';
+      // Linha 2: botão sol_45 em largura total com destaque especial
+      grp.its.forEach(function(it){
+        if(it.u!=='acb_45')return;
+        var active=selAcb===it.k;
+        var autoMl=_calcAcbAutoMl(amb,it.lados||0);
+        var pr=getPr(it.k);
+        var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
+        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):'';
+        var borderCol=active?'var(--gold)':'rgba(139,92,246,.5)';
+        var bgCol=active?'rgba(201,168,76,.12)':'rgba(139,92,246,.07)';
+        var labelCol=active?'var(--gold)':'#a78bfa';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;width:calc(100% - 24px);margin:0 12px 10px;text-align:center;padding:10px 8px;border-radius:10px;border:1.5px solid '+borderCol+';background:'+bgCol+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'600')+';color:'+labelCol+'">⬡ '+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div></div>';
+      h+='</div>';
       return;
     }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
@@ -1044,24 +1057,36 @@ function buildSVHtml(amb){
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      h+='<div style="display:flex;gap:6px;padding:8px 12px 4px;flex-wrap:wrap;">';
       grp.its.forEach(function(it){
+        if(it.u==='acb_45')return;
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
-        var subtitle;
-        if(it.u==='acb_45'){
-          subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):it.lados===0?'sem custo':'';
-        } else {
-          subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        }
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
-          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:80px;text-align:center;padding:9px 6px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.75rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+          +(subtitle?'<div style="font-size:.58rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
+          +'</div>';
+      });
+      h+='</div>';
+      grp.its.forEach(function(it){
+        if(it.u!=='acb_45')return;
+        var active=selAcb===it.k;
+        var autoMl=_calcAcbAutoMl(amb,it.lados||0);
+        var pr=getPr(it.k);
+        var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
+        var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo+' + sainha'):'';
+        var borderCol=active?'var(--gold)':'rgba(139,92,246,.5)';
+        var bgCol=active?'rgba(201,168,76,.12)':'rgba(139,92,246,.07)';
+        var labelCol=active?'var(--gold)':'#a78bfa';
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;width:calc(100% - 24px);margin:0 12px 10px;text-align:center;padding:10px 8px;border-radius:10px;border:1.5px solid '+borderCol+';background:'+bgCol+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(active?'700':'600')+';color:'+labelCol+'">⬡ '+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div></div>';
+      h+='</div>';
       return;
     }
     // sf_auto: serviço calculado automaticamente pelas peças (Chapel/Tomb)
