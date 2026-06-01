@@ -2116,7 +2116,8 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
       h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="100" style="background:var(--s3);" value="'+(ce.capH||'')+'" oninput="updCapMed('+amb.id+',\'capH\',+this.value)"></div>';
       h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="2" step="0.5" style="background:var(--s3);" value="'+(ce.capE||'')+'" oninput="updCapMed('+amb.id+',\'capE\',+this.value)"></div>';
       h+='</div>';
-      // Pilares
+      // Pilares (apenas para subtipos convencionais — Jazigo com Dois Pilares tem sua própria seção)
+      if(ce.subtipo!=='Jazigo com Dois Pilares'){
       h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:10px 0 10px;"></div>';
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🏛️ Pilares</div>';
       h+='<div class="r2">';
@@ -2139,6 +2140,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
         h+='• Externa: <b>'+esc2v+' × '+esc2v+' cm</b> — ×'+((+(ce.capNPil||2))*2)+' unid';
         h+='</div>';
       }
+      } // fim if subtipo !== Jazigo com Dois Pilares
       // ── Campos extras para JAZIGO COM DOIS PILARES ──────────────────────
       if(ce.subtipo==='Jazigo com Dois Pilares'){
         h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
