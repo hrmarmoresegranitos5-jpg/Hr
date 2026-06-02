@@ -167,6 +167,9 @@ function renderDashboard() {
     h += '</div>';
   }
 
+  // ── GRÁFICO DE RECEITA MENSAL ──
+  h += _dashGraficoReceita(hoje);
+
   // ══ ATALHOS RÁPIDOS ══
   h += '<div class="dash-section-lbl">⚡ Atalhos</div>';
   h += '<div class="dash-atalhos">';
@@ -386,4 +389,5 @@ function _injectDashStyles() {
     }
   `;
   document.head.appendChild(s);
+  _injectDashChartStyles();
 }

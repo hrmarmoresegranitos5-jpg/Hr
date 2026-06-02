@@ -247,8 +247,6 @@ function _renderBotPanel() {
 // ─────────────────────────────────────────────
 // RENDER PRINCIPAL
 // ─────────────────────────────────────────────
-// RENDER PRINCIPAL — REDESIGN 3.0 PREMIUM
-// ─────────────────────────────────────────────
 function renderSecretaria() {
   var el = document.getElementById('secBody');
   if (!el) return;
@@ -266,9 +264,8 @@ function _renderSecretariaInner(el) {
   var hoje = td();
   var agora = new Date();
   var horaAtual = agora.getHours();
-  var minAtual  = agora.getMinutes();
-  var saudacao  = horaAtual < 12 ? 'Bom dia' : horaAtual < 18 ? 'Boa tarde' : 'Boa noite';
-  var nomeEmp   = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'chefe';
+  var saudacao = horaAtual < 12 ? 'Bom dia' : horaAtual < 18 ? 'Boa tarde' : 'Boa noite';
+  var nomeEmp = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'chefe';
 
   var atrasados   = (DB.j||[]).filter(function(j){return !j.done&&j.end&&dDiff(j.end)<0;});
   var urgentes    = (DB.j||[]).filter(function(j){return !j.done&&j.urgente;});
@@ -283,94 +280,73 @@ function _renderSecretariaInner(el) {
 
   var h = '';
 
-  // ── HERO PREMIUM ──
-  var humorGeral = totalTarefas === 0 ? 'otimo' : totalTarefas <= 2 ? 'bom' : atrasados.length > 0 ? 'critico' : 'atencao';
-  var humorColor = {otimo:'#4ade80',bom:'#60a5fa',atencao:'#f59e0b',critico:'#f87171'}[humorGeral];
-  var humorLabel = {otimo:'Tudo sob controle',bom:'Dia tranquilo',atencao:'Atenção necessária',critico:'Situação crítica'}[humorGeral];
-
-  h += '<div class="s3-hero">';
-  h += '<div class="s3-hero-bg"></div>';
-  h += '<div class="s3-hero-content">';
-  h += '<div class="s3-hero-top">';
-  h += '<div class="s3-hero-left">';
-  h += '<div class="s3-greeting">' + saudacao + '</div>';
-  h += '<div class="s3-name">' + escH(nomeEmp) + '</div>';
-  h += '</div>';
-  h += '<div class="s3-status-orb" style="--orb-color:' + humorColor + ';" title="' + humorLabel + '">';
-  h += '<div class="s3-orb-ring"></div>';
-  h += '<div class="s3-orb-pulse"></div>';
-  h += '</div>';
-  h += '</div>';
-  // Status line
+  // ── HERO ──
+  h += '<div class="sec2-hero">';
+  h += '<div class="sec2-hero-inner">';
+  h += '<div class="sec2-saud">' + saudacao + '! 👋</div>';
+  h += '<div class="sec2-nome">' + escH(nomeEmp) + '</div>';
   if (totalTarefas > 0) {
-    h += '<div class="s3-hero-status alert">';
-    h += '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#f87171" stroke-width="1.5"/><path d="M7 4v3.5" stroke="#f87171" stroke-width="1.5" stroke-linecap="round"/><circle cx="7" cy="10" r=".75" fill="#f87171"/></svg>';
-    h += '<span><strong>' + totalTarefas + '</strong> item' + (totalTarefas > 1 ? 's' : '') + ' precisam de atenção</span>';
-    h += '</div>';
+    h += '<div class="sec2-alert-badge"><span class="sec2-alert-num">' + totalTarefas + '</span> item' + (totalTarefas > 1 ? 's' : '') + ' precisam de atenção</div>';
   } else {
-    h += '<div class="s3-hero-status ok">';
-    h += '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#4ade80" stroke-width="1.5"/><path d="M4.5 7l2 2 3-3" stroke="#4ade80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    h += '<span>' + humorLabel + '</span>';
-    h += '</div>';
+    h += '<div class="sec2-ok-badge">✅ Tudo em ordem!</div>';
   }
   h += '</div>';
   h += '</div>';
 
-  // ── MÉTRICAS — GRID 2×2 PREMIUM ──
-  h += '<div class="s3-metrics">';
-  h += _s3Metric(emProd.length, 'Em Produção', 'hammer', '#f59e0b', emProd.length > 0 ? null : 'Livre');
-  h += _s3Metric(visitasHoje.length, 'Visitas Hoje', 'ruler', '#60a5fa', visitasHoje.length > 0 ? _fmTime(visitasHoje) : 'Nenhuma');
-  h += _s3Metric(totPend > 0 ? 'R$\u00a0' + _fmShort(totPend) : '—', 'A Receber', 'cash', '#4ade80', pendVenc.length > 0 ? pendVenc.length + ' vencido(s)' : 'Em dia');
-  h += _s3Metric(atrasados.length, 'Atrasados', 'warn', atrasados.length > 0 ? '#f87171' : '#4ade80', atrasados.length > 0 ? 'Crítico' : 'Sem atraso');
+  // ── CHIPS ──
+  h += '<div class="sec2-chips">';
+  h += _sec2Chip(emProd.length, '🔨', 'em produção', '#fb923c');
+  h += _sec2Chip(visitasHoje.length, '📐', 'visitas hoje', '#60a5fa');
+  h += _sec2Chip(totPend > 0 ? 'R$&nbsp;' + _fmShort(totPend) : '0', '💰', 'a receber', '#4ade80');
+  h += _sec2Chip(atrasados.length, '⚠️', 'atrasados', '#f87171');
   h += '</div>';
 
-  // ── CONTAINER IA ──
-  h += '<div class="s3-ai-wrap" id="secAIContainer">';
-  h += '<div class="s3-ai-loading"><div class="s3-dots"><span></span><span></span><span></span></div></div>';
+  // ── TIMELINE DO DIA ──
+  h += _secTimeline(hoje, agora);
+
+  // ── AI CONTAINER ──
+  h += '<div class="sec2-ai-container" id="secAIContainer">';
+  h += '<div style="color:rgba(255,255,255,.3);font-size:12px;text-align:center;padding:16px 0;">✨ Carregando análise IA...</div>';
   h += '</div>';
 
-  // ── CTA VISITA ──
-  h += '<button class="s3-cta-visit" onclick="openVisitaMd(null)">';
-  h += '<span class="s3-cta-icon">📐</span>';
-  h += '<span class="s3-cta-text"><strong>Agendar Visita</strong><small>Nova visita de medição</small></span>';
-  h += '<svg class="s3-cta-arrow" width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M7 10h6M10 7l3 3-3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  h += '</button>';
+  // ── BOTÃO NOVA VISITA ──
+  h += '<button class="sec2-nova-visita" onclick="openVisitaMd(null)">📐 Agendar Visita de Medição</button>';
 
-  // ── AÇÕES IMEDIATAS ──
+  // ── TAREFAS URGENTES ──
   if (atrasados.length || urgentes.length || pendVenc.length || followUps.length) {
-    h += _s3SectionHeader('Ação Imediata', 'critical', totalTarefas);
-    h += '<div class="s3-cards">';
-    atrasados.forEach(function(j) {
+    h += '<div class="sec2-section-header"><span class="sec2-section-dot red"></span>Ação imediata</div>';
+    h += '<div class="sec2-task-list">';
+    atrasados.forEach(function(j){
       var d = Math.abs(dDiff(j.end));
-      h += _s3Card('⚠️', escH(j.cli), escH(j.desc), d + (d===1?' dia':' dias') + ' em atraso', '#f87171', 'Ver serviço', 'data-editjob="'+j.id+'"');
+      h += _sec2Task('⚠️', escH(j.cli) + ' — ' + escH(j.desc), d + (d===1?' dia':' dias') + ' atrasado', '#f87171', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
-    pendVenc.forEach(function(t) {
-      h += _s3Card('💰', escH(t.desc), 'Venceu ' + fd(t.date), 'R$ ' + fm(t.value||0), '#fbbf24', 'Ir para Finanças', 'onclick="go(4);finTab(\'areceber\')"');
+    pendVenc.forEach(function(t){
+      h += _sec2Task('💰', escH(t.desc), 'R$ '+fm(t.value||0)+' · venceu '+fd(t.date), '#fbbf24', 'onclick="go(4);finTab(\'areceber\')"', 'Ir para Finanças');
     });
-    urgentes.filter(function(j){return !atrasados.find(function(a){return a.id===j.id;});}).forEach(function(j) {
-      h += _s3Card('🚨', escH(j.cli), escH(j.desc), j.urgMotivo||'Urgente', '#fb923c', 'Ver serviço', 'data-editjob="'+j.id+'"');
+    urgentes.filter(function(j){return !atrasados.find(function(a){return a.id===j.id;});}).forEach(function(j){
+      h += _sec2Task('🚨', escH(j.cli) + ' — ' + escH(j.desc), j.urgMotivo||'Urgente', '#fb923c', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
-    followUps.forEach(function(q) {
-      h += _s3Card('📞', 'Follow-up: ' + escH(q.cli), 'Orçamento ' + fd(q.date), 'R$ ' + fm(q.vista) + ' · sem retorno', '#a78bfa', 'Ver histórico', 'onclick="go(7)"');
+    followUps.forEach(function(q){
+      h += _sec2Task('📞', 'Follow-up: ' + escH(q.cli), 'Orçamento '+fd(q.date)+' — R$ '+fm(q.vista)+' — sem retorno', '#a78bfa', 'onclick="go(7)"', 'Ver histórico');
     });
     h += '</div>';
   }
 
   // ── VISITAS HOJE ──
   if (visitasHoje.length) {
-    h += _s3SectionHeader('Visitas de Hoje', 'today', visitasHoje.length);
-    h += '<div class="s3-visits">';
-    visitasHoje.sort(function(a,b){return (a.hora||'').localeCompare(b.hora||'');}).forEach(function(v) {
-      h += _s3VisitCard(v, hoje);
+    h += '<div class="sec2-section-header"><span class="sec2-section-dot blue"></span>Visitas de hoje</div>';
+    h += '<div class="sec2-task-list">';
+    visitasHoje.sort(function(a,b){return (a.hora||'').localeCompare(b.hora||'');}).forEach(function(v){
+      h += _sec2VisitaCard(v, hoje);
     });
     h += '</div>';
   }
 
   // ── VISITAS AMANHÃ ──
   if (visitasAmanha.length) {
-    h += _s3SectionHeader('Amanhã', 'tomorrow', visitasAmanha.length);
-    h += '<div class="s3-visits">';
-    visitasAmanha.forEach(function(v){ h += _s3VisitCard(v, hoje); });
+    h += '<div class="sec2-section-header"><span class="sec2-section-dot purple"></span>Amanhã</div>';
+    h += '<div class="sec2-task-list">';
+    visitasAmanha.forEach(function(v){ h += _sec2VisitaCard(v, hoje); });
     h += '</div>';
   }
 
@@ -380,119 +356,84 @@ function _renderSecretariaInner(el) {
     .sort(function(a,b){return a.date.localeCompare(b.date)||(a.hora||'').localeCompare(b.hora||'');})
     .slice(0, 5);
   if (proxVisitas.length) {
-    h += _s3SectionHeader('Próximas Visitas', 'upcoming', proxVisitas.length);
-    h += '<div class="s3-visits">';
-    proxVisitas.forEach(function(v){ h += _s3VisitCard(v, hoje); });
+    h += '<div class="sec2-section-header"><span class="sec2-section-dot green"></span>Próximas visitas</div>';
+    h += '<div class="sec2-task-list">';
+    proxVisitas.forEach(function(v){ h += _sec2VisitaCard(v, hoje); });
     h += '</div>';
   }
 
-  // ── REALIZADAS ──
+  // ── REALIZADAS RECENTES ──
   var realizadas = (_getV())
     .filter(function(v){return v.status==='realizada';})
     .sort(function(a,b){return b.date.localeCompare(a.date);})
     .slice(0, 3);
   if (realizadas.length) {
-    h += _s3SectionHeader('Realizadas Recentemente', 'done', realizadas.length);
-    h += '<div class="s3-visits">';
-    realizadas.forEach(function(v){ h += _s3VisitCard(v, hoje); });
+    h += '<div class="sec2-section-header"><span class="sec2-section-dot green"></span>Realizadas recentemente</div>';
+    h += '<div class="sec2-task-list">';
+    realizadas.forEach(function(v){ h += _sec2VisitaCard(v, hoje); });
     h += '</div>';
   }
 
   if (!totalTarefas && !visitasHoje.length && !proxVisitas.length) {
-    h += '<div class="s3-empty"><div class="s3-empty-icon">🤝</div><div>Nada urgente. Bom momento para novos orçamentos!</div></div>';
+    h += '<div class="sec2-empty"><div style="font-size:2.5rem;margin-bottom:10px;">🤝</div><div>Nada urgente. Aproveite para novos orçamentos!</div></div>';
   }
 
-  h += '<div style="height:32px;"></div>';
+  h += '<div style="height:24px;"></div>';
   el.innerHTML = h;
 }
 
 // ─────────────────────────────────────────────
-// HELPERS DE RENDER 3.0
+// HELPERS DE RENDER 2.0
 // ─────────────────────────────────────────────
-
-var _s3Icons = {
-  hammer: '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M11.5 3.5l5 5-8 8-5-5 8-8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 18l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M13 1l2 2-2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  ruler:  '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="9" width="16" height="4" rx="1" transform="rotate(-45 2 9)" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 10.5l1 1M8 8l1 1M10.5 5.5l1 1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
-  cash:   '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="5" width="16" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M6 5V4M14 5V4M6 16v-1M14 16v-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
-  warn:   '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M10 3l8 14H2L10 3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M10 9v3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="14.5" r=".75" fill="currentColor"/></svg>'
-};
-
-function _s3Metric(val, label, iconKey, color, sub) {
-  return '<div class="s3-metric" style="--mc:' + color + ';">'
-    + '<div class="s3-metric-icon" style="color:' + color + ';">' + (_s3Icons[iconKey]||'') + '</div>'
-    + '<div class="s3-metric-val" style="color:' + color + ';">' + val + '</div>'
-    + '<div class="s3-metric-label">' + label + '</div>'
-    + (sub ? '<div class="s3-metric-sub">' + sub + '</div>' : '')
+function _sec2Chip(val, icon, label, color) {
+  return '<div class="sec2-chip" style="border-color:' + color + '22;">'
+    + '<div class="sec2-chip-icon" style="color:' + color + ';">' + icon + '</div>'
+    + '<div class="sec2-chip-val" style="color:' + color + ';">' + val + '</div>'
+    + '<div class="sec2-chip-lbl">' + label + '</div>'
     + '</div>';
 }
 
-function _s3SectionHeader(title, type, count) {
-  var icons = {critical:'⚡',today:'📐',tomorrow:'📅',upcoming:'🗓',done:'✅'};
-  var colors = {critical:'#f87171',today:'#60a5fa',tomorrow:'#a78bfa',upcoming:'#34d399',done:'#6b7280'};
-  var c = colors[type] || '#fff';
-  return '<div class="s3-section-hdr">'
-    + '<div class="s3-section-line" style="background:' + c + ';"></div>'
-    + '<span class="s3-section-icon">' + (icons[type]||'•') + '</span>'
-    + '<span class="s3-section-title" style="color:' + c + ';">' + title + '</span>'
-    + (count > 0 ? '<span class="s3-section-badge" style="background:' + c + '20;color:' + c + ';">' + count + '</span>' : '')
-    + '</div>';
-}
-
-function _s3Card(icon, title, desc, meta, color, btnLabel, action) {
-  return '<div class="s3-card" style="--cc:' + color + ';">'
-    + '<div class="s3-card-accent"></div>'
-    + '<div class="s3-card-icon">' + icon + '</div>'
-    + '<div class="s3-card-body">'
-    + '<div class="s3-card-title">' + title + '</div>'
-    + '<div class="s3-card-desc">' + desc + '</div>'
-    + '<div class="s3-card-meta" style="color:' + color + ';">' + meta + '</div>'
+function _sec2Task(icon, title, sub, color, action, btnLbl) {
+  return '<div class="sec2-task" style="border-left-color:' + color + ';">'
+    + '<div class="sec2-task-icon" style="color:' + color + ';">' + icon + '</div>'
+    + '<div class="sec2-task-body">'
+    + '<div class="sec2-task-title">' + title + '</div>'
+    + '<div class="sec2-task-sub" style="color:' + color + ';">' + sub + '</div>'
     + '</div>'
-    + '<button class="s3-card-btn" style="color:' + color + ';border-color:' + color + '30;" ' + action + '>' + btnLabel + '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 6h4M6 4l2 2-2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></button>'
+    + '<button class="sec2-task-btn" style="color:' + color + ';border-color:' + color + '33;" ' + action + '>' + btnLbl + '</button>'
     + '</div>';
 }
 
-function _s3VisitCard(v, hoje) {
+function _sec2VisitaCard(v, hoje) {
+  var statusMap = {agendada:'📐',realizada:'✅',cancelada:'❌'};
+  var icon = statusMap[v.status] || '📐';
   var isHoje = v.date === hoje;
-  var isAmanha = v.date === addD(hoje, 1);
-  var dateLabel = isHoje ? 'Hoje' : isAmanha ? 'Amanhã' : fd(v.date);
-  var statusColors = {agendada:'#60a5fa', realizada:'#4ade80', cancelada:'#6b7280'};
-  var statusIcons  = {agendada:'📐', realizada:'✅', cancelada:'✕'};
-  var sc = statusColors[v.status] || '#60a5fa';
+  var dateLabel = isHoje ? 'Hoje' : (v.date === addD(hoje,1) ? 'Amanhã' : fd(v.date));
+  var hora = v.hora || '';
+  var statusLabel = v.status === 'agendada'
+    ? (isHoje ? '<span style="color:#60a5fa;font-weight:700;">HOJE</span>' : dateLabel)
+    : v.status.toUpperCase();
 
-  var h = '<div class="s3-visit" id="sv_' + v.id + '" style="--vc:' + sc + ';">';
-  h += '<div class="s3-visit-bar"></div>';
-  h += '<div class="s3-visit-content">';
-  h += '<div class="s3-visit-head">';
-  h += '<div class="s3-visit-left">';
-  h += '<div class="s3-visit-cli">' + escH(v.cli) + '</div>';
-  h += '<div class="s3-visit-meta">';
-  if (v.hora) h += '<span class="s3-visit-tag time">🕐 ' + v.hora + '</span>';
-  h += '<span class="s3-visit-tag date" style="color:' + sc + ';border-color:' + sc + '30;">' + dateLabel + '</span>';
-  if (v.end) h += '<span class="s3-visit-tag loc">📍 ' + escH(v.end) + '</span>';
-  h += '</div>';
-  if (v.obs) h += '<div class="s3-visit-obs">' + escH(v.obs) + '</div>';
-  h += '</div>';
-  h += '</div>';
-  h += '<div class="s3-visit-actions">';
-  if (v.status === 'agendada') {
-    h += '<button class="s3-vbtn ok" onclick="togVisitaStatus(' + v.id + ',\'realizada\')"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 6.5l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Realizada</button>';
-    h += '<button class="s3-vbtn edit" onclick="openVisitaMd(' + v.id + ')">✏️</button>';
-    h += '<button class="s3-vbtn del" onclick="togVisitaStatus(' + v.id + ',\'cancelada\')">✕</button>';
-    if (v.tel) h += '<a href="https://wa.me/55' + v.tel.replace(/\D/g,'') + '" target="_blank" class="s3-vbtn wa">📱</a>';
-  } else {
-    h += '<button class="s3-vbtn re" onclick="togVisitaStatus(' + v.id + ',\'agendada\')">↩ Reagendar</button>';
-    h += '<button class="s3-vbtn del" onclick="delVisita(' + v.id + ')">✕</button>';
-  }
-  h += '</div>';
-  h += '</div>';
-  h += '</div>';
-  return h;
-}
-
-function _fmTime(visitas) {
-  if (!visitas || !visitas.length) return '';
-  var sorted = visitas.slice().sort(function(a,b){return (a.hora||'').localeCompare(b.hora||'');});
-  return sorted[0].hora ? '1ª às ' + sorted[0].hora : visitas.length + ' agendada(s)';
+  return '<div class="sec2-visita" id="sv_' + v.id + '">'
+    + '<div class="sec2-vis-head">'
+    + '<div class="sec2-vis-icon">' + icon + '</div>'
+    + '<div class="sec2-vis-info">'
+    + '<div class="sec2-vis-cli">' + escH(v.cli) + '</div>'
+    + '<div class="sec2-vis-meta">' + (hora ? '🕐 ' + hora + ' · ' : '') + '📅 ' + statusLabel + (v.end ? ' · 📍 ' + escH(v.end) : '') + '</div>'
+    + (v.obs ? '<div class="sec2-vis-obs">' + escH(v.obs) + '</div>' : '')
+    + '</div></div>'
+    + (v.status === 'agendada'
+      ? '<div class="sec2-vis-btns">'
+        + '<button class="sec2-vis-btn grn" onclick="togVisitaStatus(' + v.id + ',\'realizada\')">✓ Realizada</button>'
+        + '<button class="sec2-vis-btn org" onclick="openVisitaMd(' + v.id + ')">✏️</button>'
+        + '<button class="sec2-vis-btn red" onclick="togVisitaStatus(' + v.id + ',\'cancelada\')">✕</button>'
+        + (v.tel ? '<button class="sec2-vis-btn wha" onclick="window.open(\'https://wa.me/55\'+\'' + v.tel.replace(/\D/g,'') + '\')">📱</button>' : '')
+        + '</div>'
+      : '<div class="sec2-vis-btns">'
+        + '<button class="sec2-vis-btn" onclick="togVisitaStatus(' + v.id + ',\'agendada\')">↩ Reagendar</button>'
+        + '<button class="sec2-vis-btn red" onclick="delVisita(' + v.id + ')">✕</button>'
+        + '</div>')
+    + '</div>';
 }
 
 function _secFollowUps(hoje) {
@@ -597,6 +538,7 @@ function secNotifDotUpdate() {
   var pendVenc = (DB.t||[]).filter(function(t){return t.type==='pend'&&t.date&&t.date<hoje;}).length;
   dot.classList.toggle('on', atrasados>0||visitasHoje>0||pendVenc>0);
 }
+
 // ══════════════════════════════════════════════════════════════
 // SECRETÁRIA INTELIGENTE — IA + SUGESTÕES CLICÁVEIS
 // ══════════════════════════════════════════════════════════════
@@ -675,6 +617,7 @@ function _secBuildBriefing(ctx) {
     + '"humorGeral":"otimo|bom|atencao|critico"}';
 }
 
+// ── Navega para a seção correta baseado na ação da IA ──
 function _secNavToAction(acao) {
   var map = {
     producao:   0,
@@ -686,8 +629,11 @@ function _secNavToAction(acao) {
     config:     6
   };
   var target = map[acao];
-  if (typeof target === 'function') target();
-  else if (typeof target === 'number') go(target);
+  if (typeof target === 'function') {
+    target();
+  } else if (typeof target === 'number') {
+    go(target);
+  }
 }
 
 function secFetchAI() {
@@ -753,11 +699,11 @@ function secFetchAI() {
 }
 
 function _secHumorColor(humor) {
-  return {otimo:'#4ade80', bom:'#60a5fa', atencao:'#f59e0b', critico:'#f87171'}[humor] || '#60a5fa';
+  return {otimo:'#4ade80', bom:'#60a5fa', atencao:'#fb923c', critico:'#f87171'}[humor] || '#60a5fa';
 }
 
 function _secGaugeSVG(val) {
-  var color = val < 60 ? '#4ade80' : val < 80 ? '#f59e0b' : '#f87171';
+  var color = val < 60 ? '#4ade80' : val < 80 ? '#fb923c' : '#f87171';
   var r = 32, circ = 2 * Math.PI * r;
   var dash = (val / 100) * circ;
   return '<svg width="80" height="80" viewBox="0 0 80 80">'
@@ -765,11 +711,11 @@ function _secGaugeSVG(val) {
     + '<circle cx="40" cy="40" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="7"'
     + ' stroke-dasharray="' + dash.toFixed(1) + ' ' + circ.toFixed(1) + '"'
     + ' stroke-linecap="round" transform="rotate(-90 40 40)"/>'
-    + '<text x="40" y="45" text-anchor="middle" fill="' + color + '" style="font:bold 15px \'DM Mono\',\'Courier New\',monospace;">' + val + '%</text>'
+    + '<text x="40" y="45" text-anchor="middle" fill="' + color + '" style="font:bold 15px \'Courier New\',monospace;">' + val + '%</text>'
     + '</svg>';
 }
 
-// ── AI Cards premium 3.0 ──
+// ── Cards da IA — CLICÁVEIS ──
 function _secAICards(data) {
   if (!data) return '';
   var cards = [
@@ -780,26 +726,26 @@ function _secAICards(data) {
     {icon:'💰', key:'conselhoFinanceiro',color:'#fbbf24', label:'Financeiro'},
   ];
   var actionLabels = {
-    producao:'Ver Produção', financas:'Finanças', agenda:'Agendar',
-    historico:'Histórico', orcamento:'Orçamento', config:'Config', contratos:'Contratos'
+    producao:'Ver Produção', financas:'Ir às Finanças', agenda:'Agendar Visita',
+    historico:'Ver Histórico', orcamento:'Fazer Orçamento', config:'Configurações', contratos:'Ver Contratos'
   };
-  var h = '<div class="s3-ai-cards">';
+  var h = '<div class="sec2-ai-cards">';
   cards.forEach(function(c) {
     var d = data[c.key];
     if (!d) return;
     var acao = d.acao || null;
-    var btnLabel = acao ? (actionLabels[acao] || 'Ver') : null;
-    var onclickAttr = acao ? ' onclick="_secNavToAction(\'' + acao + '\')"' : '';
-    h += '<div class="s3-ai-card' + (acao ? ' clickable' : '') + '"' + onclickAttr + ' style="--ac:' + c.color + ';">';
-    h += '<div class="s3-ai-card-stripe"></div>';
-    h += '<div class="s3-ai-card-inner">';
-    h += '<div class="s3-ai-card-head">';
-    h += '<span class="s3-ai-card-icon">' + c.icon + '</span>';
-    h += '<span class="s3-ai-card-title" style="color:' + c.color + ';">' + escH(d.titulo || c.label) + '</span>';
-    if (btnLabel) h += '<span class="s3-ai-card-cta" style="color:' + c.color + ';border-color:' + c.color + '25;">' + btnLabel + ' ›</span>';
+    var btnLabel = acao ? (actionLabels[acao] || 'Ver mais') : null;
+    var onclickAttr = acao ? ' onclick="_secNavToAction(\'' + acao + '\')" role="button"' : '';
+    var clickable = acao ? ' sec2-ai-card-clickable' : '';
+
+    h += '<div class="sec2-ai-card' + clickable + '"' + onclickAttr + ' style="border-left-color:' + c.color + ';background:' + c.color + '0d;">';
+    h += '<div class="sec2-ai-card-top">';
+    h += '<div class="sec2-ai-card-label"><span style="font-size:15px;">' + c.icon + '</span><span style="color:' + c.color + ';">' + escH(d.titulo || c.label) + '</span></div>';
+    if (btnLabel) {
+      h += '<div class="sec2-ai-card-action" style="color:' + c.color + ';border-color:' + c.color + '33;">' + btnLabel + ' →</div>';
+    }
     h += '</div>';
-    h += '<p class="s3-ai-card-text">' + escH(d.detalhe || '') + '</p>';
-    h += '</div>';
+    h += '<div class="sec2-ai-card-detail">' + escH(d.detalhe || '') + '</div>';
     h += '</div>';
   });
   h += '</div>';
@@ -822,19 +768,20 @@ function _secRenderTabs(container) {
     {id:'followups', label:'📞 Follow-ups (' + ctx.followUps.length + ')'}
   ];
 
-  var h = '<div class="s3-tabs">';
+  var h = '';
+
+  // Tab bar
+  h += '<div class="sec2-tab-bar">';
   tabs.forEach(function(t) {
     var on = _secActiveTab === t.id;
-    h += '<button onclick="secTab(\'' + t.id + '\')" class="s3-tab' + (on?' active':'') + '">' + t.label + '</button>';
+    h += '<button onclick="secTab(\'' + t.id + '\')" class="sec2-tab-btn' + (on?' active':'') + '">' + t.label + '</button>';
   });
   h += '</div>';
 
-  // ── TAB BRIEFING ──
+  // ── TAB: BRIEFING ──
   if (_secActiveTab === 'briefing') {
-    var btnTxt = _secAI.loading
-      ? '<span class="s3-spinner"></span> Analisando...'
-      : (_secAI.lastUpdate ? '↺ Atualizar  ·  ' + _secAI.lastUpdate : '✨ Gerar briefing do dia');
-    h += '<button onclick="secFetchAI()" ' + (_secAI.loading?'disabled':'') + ' class="s3-briefing-btn">' + btnTxt + '</button>';
+    var btnTxt = _secAI.loading ? '⟳ Analisando...' : (_secAI.lastUpdate ? '↺ Atualizar · ' + _secAI.lastUpdate : '✨ Gerar briefing do dia');
+    h += '<button onclick="secFetchAI()" ' + (_secAI.loading?'disabled':'') + ' class="sec2-briefing-btn">' + btnTxt + '</button>';
 
     if (_secAI.error) {
       var errMsgs = {
@@ -845,99 +792,100 @@ function _secRenderTabs(container) {
         'parse': '⚠️ Formato inesperado. Tente novamente.',
         'generic': '⚠️ Erro de conexão. Verifique sua internet e a chave API.'
       };
-      h += '<div class="s3-error">' + (errMsgs[_secAI.error] || '⚠️ ' + escH(_secAI.error)) + '</div>';
+      h += '<div class="sec2-error-box">' + (errMsgs[_secAI.error] || '⚠️ ' + escH(_secAI.error)) + '</div>';
     }
 
     if (_secAI.loading && !_secAI.data) {
-      h += '<div class="s3-skeletons">';
-      [1,.75,.9,.6].forEach(function(w){
-        h += '<div class="s3-skel" style="width:' + Math.round(w*100) + '%"></div>';
+      h += '<div class="sec2-skeletons">';
+      [1,.7,.85,.6].forEach(function(w){
+        h += '<div class="sec2-skeleton" style="width:' + Math.round(w*100) + '%;"></div>';
       });
       h += '</div>';
     } else if (_secAI.data) {
       var hum = _secAI.data.humorGeral;
       var humColor = _secHumorColor(hum);
       var humLabel = {otimo:'Ótimo dia!',bom:'Dia tranquilo',atencao:'Atenção necessária',critico:'Situação crítica'}[hum] || '';
-      h += '<div class="s3-humor" style="--hc:' + humColor + ';">';
-      h += '<div class="s3-humor-dot"></div>';
-      h += '<span>' + humLabel + '</span>';
+      h += '<div class="sec2-humor-badge" style="background:' + humColor + '15;border-color:' + humColor + '30;">';
+      h += '<div class="sec2-humor-dot" style="background:' + humColor + ';box-shadow:0 0 8px ' + humColor + ';"></div>';
+      h += '<span style="color:' + humColor + ';font-size:12px;font-weight:700;">' + humLabel + '</span>';
       h += '</div>';
       h += _secAICards(_secAI.data);
     } else {
-      h += '<div class="s3-placeholder">';
-      h += '<div class="s3-placeholder-icon">✨</div>';
-      h += '<div class="s3-placeholder-text">Toque em "Gerar briefing" para receber a análise inteligente do dia</div>';
-      h += '</div>';
+      h += '<div class="sec2-empty-briefing">Toque em "Gerar briefing" para receber o conselho do dia ✨</div>';
     }
   }
 
-  // ── TAB CONTEXTO ──
+  // ── TAB: CONTEXTO ──
   if (_secActiveTab === 'contexto') {
     var pressura = ctx.pressura;
-    h += '<div class="s3-ctx-top">';
-    h += '<div class="s3-gauge">' + _secGaugeSVG(pressura) + '<div class="s3-gauge-lbl">Pressão</div></div>';
-    h += '<div class="s3-ctx-grid">';
+    h += '<div class="sec2-ctx-top">';
+    h += '<div class="sec2-gauge-wrap">' + _secGaugeSVG(pressura) + '<div class="sec2-gauge-lbl">Pressão</div></div>';
+    h += '<div class="sec2-ctx-grid">';
     [
-      {icon:'🔨', val:ctx.emProd.length,      label:'Em produção', col:'#fb923c'},
-      {icon:'✅', val:'+' + ctx.podeAceit,    label:'Capacidade',  col:'#4ade80'},
-      {icon:'⚠️', val:ctx.atrasados.length,   label:'Atrasados',   col:'#f87171'},
-      {icon:'📐', val:ctx.visitasHoje.length,  label:'Hoje',        col:'#60a5fa'},
+      {icon:'🔨', val:ctx.emProd.length,     label:'Em produção', col:'#fb923c'},
+      {icon:'✅', val:'+' + ctx.podeAceit,   label:'Pode aceitar', col:'#4ade80'},
+      {icon:'⚠️', val:ctx.atrasados.length,  label:'Atrasados',   col:'#f87171'},
+      {icon:'📐', val:ctx.visitasHoje.length, label:'Visitas hoje', col:'#60a5fa'},
     ].forEach(function(item){
-      h += '<div class="s3-ctx-card" style="--ic:' + item.col + ';">';
-      h += '<div style="font-size:17px;">' + item.icon + '</div>';
-      h += '<div style="color:' + item.col + ';font-size:18px;font-weight:800;line-height:1;">' + item.val + '</div>';
-      h += '<div class="s3-ctx-lbl">' + item.label + '</div>';
+      h += '<div class="sec2-ctx-card" style="border-color:' + item.col + '22;">';
+      h += '<div style="font-size:18px;">' + item.icon + '</div>';
+      h += '<div style="color:' + item.col + ';font-size:16px;font-weight:800;line-height:1;">' + item.val + '</div>';
+      h += '<div class="sec2-ctx-card-lbl">' + item.label + '</div>';
       h += '</div>';
     });
     h += '</div></div>';
 
+    // Radar Financeiro
     var maxF = Math.max(ctx.totPend, ctx.totSaidas, 1);
-    h += '<div class="s3-fin-radar">';
-    h += '<div class="s3-fin-title">💵 Radar Financeiro</div>';
-    [{label:'A receber', val:ctx.totPend, color:'#4ade80'},{label:'Compromissos 30d', val:ctx.totSaidas, color:'#f87171'}].forEach(function(item){
-      h += '<div class="s3-fin-row">';
-      h += '<div class="s3-fin-meta"><span>' + item.label + '</span><span style="color:' + item.color + ';font-weight:700;">R$ ' + fm(item.val) + '</span></div>';
-      h += '<div class="s3-fin-bar"><div style="background:' + item.color + ';width:' + Math.round((item.val/maxF)*100) + '%;"></div></div>';
+    h += '<div class="sec2-radar">';
+    h += '<div class="sec2-radar-title">💵 Radar Financeiro</div>';
+    [{label:'A receber', val:ctx.totPend, color:'#4ade80'},{label:'Compromissos', val:ctx.totSaidas, color:'#f87171'}].forEach(function(item){
+      h += '<div class="sec2-radar-row">';
+      h += '<div class="sec2-radar-meta"><span class="sec2-radar-lbl">' + item.label + '</span><span style="color:' + item.color + ';font-weight:700;font-family:\'Courier New\',monospace;font-size:12px;">R$ ' + fm(item.val) + '</span></div>';
+      h += '<div class="sec2-radar-bar-bg"><div class="sec2-radar-bar-fill" style="background:' + item.color + ';width:' + Math.round((item.val/maxF)*100) + '%;"></div></div>';
       h += '</div>';
     });
-    var sc = ctx.saldo >= 0 ? '#4ade80' : '#f87171';
-    h += '<div class="s3-fin-saldo"><span>Saldo projetado</span><span style="color:' + sc + ';font-weight:800;">' + (ctx.saldo>=0?'+':'') + 'R$ ' + fm(ctx.saldo) + '</span></div>';
+    var saldoColor = ctx.saldo >= 0 ? '#4ade80' : '#f87171';
+    h += '<div class="sec2-radar-saldo"><span style="color:rgba(255,255,255,.5);font-size:11px;">Saldo projetado</span><span style="color:' + saldoColor + ';font-size:14px;font-weight:800;font-family:\'Courier New\',monospace;">' + (ctx.saldo>=0?'+':'') + 'R$ ' + fm(ctx.saldo) + '</span></div>';
     h += '</div>';
 
     if (ctx.entrega3d.length) {
-      h += '<div class="s3-critical-list">';
-      h += '<div class="s3-critical-title">⚡ Entregas críticas</div>';
+      h += '<div class="sec2-entregas">';
+      h += '<div class="sec2-entregas-title">⚡ Entregas críticas (3 dias)</div>';
       ctx.entrega3d.forEach(function(j) {
         var diff = dDiff(j.end);
         var dlbl = diff === 0 ? 'HOJE' : diff === 1 ? 'AMANHÃ' : 'em ' + diff + 'd';
         var dc = diff === 0 ? '#f87171' : diff === 1 ? '#fb923c' : '#fbbf24';
-        h += '<div class="s3-critical-row">';
-        h += '<div><div class="s3-critical-cli">' + escH(j.cli) + '</div><div class="s3-critical-desc">' + escH(j.desc) + '</div></div>';
-        h += '<div class="s3-critical-badge" style="background:' + dc + '18;color:' + dc + ';">' + dlbl + '</div>';
+        h += '<div class="sec2-entrega-row">';
+        h += '<div><div class="sec2-entrega-cli">' + escH(j.cli) + '</div><div class="sec2-entrega-desc">' + escH(j.desc) + '</div></div>';
+        h += '<div class="sec2-entrega-badge" style="background:' + dc + '18;color:' + dc + ';">' + dlbl + '</div>';
         h += '</div>';
       });
       h += '</div>';
     }
   }
 
-  // ── TAB FOLLOW-UPS ──
+  // ── TAB: FOLLOW-UPS ──
   if (_secActiveTab === 'followups') {
     if (!ctx.followUps.length) {
-      h += '<div class="s3-placeholder"><div class="s3-placeholder-icon">✅</div><div class="s3-placeholder-text">Nenhum orçamento pendente de retorno!</div></div>';
+      h += '<div class="sec2-empty-briefing">✅ Nenhum orçamento pendente de retorno!</div>';
     } else {
-      h += '<div class="s3-fu-header">' + ctx.followUps.length + ' orçamento(s) sem retorno há mais de 5 dias</div>';
+      h += '<div class="sec2-fu-count">' + ctx.followUps.length + ' orçamento(s) sem retorno há mais de 5 dias</div>';
       ctx.followUps.forEach(function(q) {
         var dias = Math.abs(dDiff(q.date));
         var waNum = q.tel ? q.tel.replace(/\D/g,'') : '';
-        h += '<div class="s3-fu-card">';
-        h += '<div class="s3-fu-info"><div class="s3-fu-cli">' + escH(q.cli) + '</div><div class="s3-fu-meta">R$ ' + fm(q.vista||0) + ' · há ' + dias + ' dias</div></div>';
-        h += '<div class="s3-fu-btns">';
-        h += '<button class="s3-fu-btn" onclick="go(7)">Histórico</button>';
-        if (waNum) h += '<a href="https://wa.me/55' + waNum + '" target="_blank" class="s3-fu-btn wa">📱 WA</a>';
+        h += '<div class="sec2-fu-card">';
+        h += '<div>';
+        h += '<div class="sec2-fu-cli">' + escH(q.cli) + '</div>';
+        h += '<div class="sec2-fu-meta">R$ ' + fm(q.vista||0) + ' · há ' + dias + ' dias sem retorno</div>';
+        h += '</div>';
+        h += '<div class="sec2-fu-actions">';
+        h += '<button class="sec2-fu-btn hist" onclick="go(7)">Ver histórico</button>';
+        if (waNum) h += '<a href="https://wa.me/55' + waNum + '" target="_blank" class="sec2-fu-btn wa">📱 WhatsApp</a>';
         h += '</div>';
         h += '</div>';
       });
-      h += '<div class="s3-fu-tip">💡 Melhor horário para follow-up: 9h–11h ou 15h–17h.</div>';
+      h += '<div class="sec2-fu-tip">💡 Melhor horário para follow-up: 9h–11h ou 15h–17h.</div>';
     }
   }
 
@@ -951,392 +899,286 @@ function _secRenderAI() {
 }
 
 // ─────────────────────────────────────────────
-// ESTILOS PREMIUM 3.0
+// ESTILOS — Injetados uma única vez
 // ─────────────────────────────────────────────
 function _injectSec2Styles() {
   if (document.getElementById('sec2Style')) return;
   var s = document.createElement('style');
   s.id = 'sec2Style';
   s.textContent = `
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500;600&display=swap');
+    @keyframes sec2Pulse { 0%,100%{opacity:.25} 50%{opacity:.6} }
+    @keyframes sec2FadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
 
-    @keyframes s3FadeUp    { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
-    @keyframes s3PulseRing { 0%,100%{transform:scale(1);opacity:.6} 50%{transform:scale(1.35);opacity:0} }
-    @keyframes s3Shimmer   { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-    @keyframes s3Spin      { to{transform:rotate(360deg)} }
-    @keyframes s3Blink     { 0%,100%{opacity:.3} 50%{opacity:1} }
-
-    /* ── BOT PANEL (preservado) ── */
+    /* ── BOT PANEL ── */
     .sec2-bot-panel {
-      background: linear-gradient(135deg, rgba(22,22,34,.97) 0%, rgba(14,14,22,.99) 100%);
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 20px; padding: 18px; margin-bottom: 16px;
-      box-shadow: 0 8px 32px rgba(0,0,0,.4);
-    }
-    .sec2-bot-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
-    .sec2-bot-icon-wrap { width:44px; height:44px; background:rgba(255,255,255,.06); border-radius:14px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-    .sec2-bot-info { flex:1; min-width:0; }
-    .sec2-bot-title { font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; color:rgba(255,255,255,.92); }
-    .sec2-bot-sub { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.38); margin-top:2px; }
-    .sec2-bot-status-pill { display:flex; align-items:center; gap:6px; border-radius:20px; padding:5px 11px; flex-shrink:0; }
-    .sec2-bot-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
-    .sec2-bot-fields { display:flex; flex-direction:column; gap:10px; margin-bottom:12px; }
-    .sec2-bot-field { display:flex; flex-direction:column; gap:4px; }
-    .sec2-bot-label { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:rgba(255,255,255,.35); }
-    .sec2-bot-input { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:10px 14px; color:rgba(255,255,255,.85); font-size:13px; font-family:'DM Sans',sans-serif; outline:none; transition:border .2s; }
-    .sec2-bot-input:focus { border-color:rgba(96,165,250,.5); background:rgba(96,165,250,.05); }
-    .sec2-bot-hint { font-size:10px; color:rgba(255,255,255,.28); }
-    .sec2-bot-connect-btn { width:100%; background:linear-gradient(135deg,#2563eb,#1d4ed8); border:none; border-radius:14px; padding:12px; color:#fff; font-size:13px; font-weight:700; font-family:'DM Sans',sans-serif; cursor:pointer; transition:opacity .2s; }
-    .sec2-bot-connect-btn:active { opacity:.8; }
-    .sec2-bot-code-wrap { background:rgba(255,255,255,.04); border-radius:14px; padding:16px; }
-    .sec2-bot-code-lbl { font-size:11px; color:rgba(255,255,255,.38); margin-bottom:10px; text-align:center; }
-    .sec2-bot-code { font-family:'DM Mono','Courier New',monospace; font-size:28px; font-weight:600; letter-spacing:8px; color:#60a5fa; text-align:center; padding:14px; background:rgba(96,165,250,.08); border-radius:12px; border:1px solid rgba(96,165,250,.2); margin-bottom:14px; }
-    .sec2-bot-steps { display:flex; flex-direction:column; gap:7px; margin-bottom:10px; }
-    .sec2-bot-step { display:flex; align-items:center; gap:9px; font-size:12px; color:rgba(255,255,255,.55); font-family:'DM Sans',sans-serif; }
-    .sec2-bot-step-n { width:20px; height:20px; border-radius:50%; background:rgba(96,165,250,.15); color:#60a5fa; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-    .sec2-bot-code-warn { font-size:10px; color:rgba(251,191,36,.5); text-align:center; }
-    .sec2-bot-connected { display:flex; align-items:center; justify-content:space-between; background:rgba(74,222,128,.06); border:1px solid rgba(74,222,128,.15); border-radius:14px; padding:14px 16px; }
-    .sec2-bot-disconnect { background:rgba(248,113,113,.1); border:1px solid rgba(248,113,113,.2); border-radius:9px; padding:6px 13px; color:#f87171; font-size:11px; font-weight:700; cursor:pointer; font-family:'DM Sans',sans-serif; }
-
-    /* ════════════════════════════════
-       HERO PREMIUM
-    ════════════════════════════════ */
-    .s3-hero {
-      position: relative; overflow: hidden;
-      background: linear-gradient(135deg, rgba(201,168,76,.1) 0%, rgba(201,168,76,.03) 60%, rgba(96,165,250,.04) 100%);
-      border: 1px solid rgba(201,168,76,.18);
-      border-radius: 22px; padding: 20px 18px 18px;
-      margin-bottom: 14px;
-      animation: s3FadeUp .45s cubic-bezier(.22,1,.36,1);
-    }
-    .s3-hero-bg {
-      position: absolute; inset: 0; pointer-events: none;
-      background: radial-gradient(ellipse 70% 60% at 80% 20%, rgba(201,168,76,.08) 0%, transparent 70%);
-    }
-    .s3-hero-content { position: relative; }
-    .s3-hero-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
-    .s3-hero-left { flex: 1; }
-    .s3-greeting {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 11px; font-weight: 600; letter-spacing: 2px;
-      text-transform: uppercase; color: rgba(201,168,76,.65); margin-bottom: 3px;
-    }
-    .s3-name {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 32px; font-weight: 900; letter-spacing: -1.5px;
-      line-height: 1; color: #c9a84c;
-    }
-    .s3-status-orb {
-      position: relative; width: 38px; height: 38px;
-      display: flex; align-items: center; justify-content: center;
-      flex-shrink: 0; margin-left: 12px; margin-top: 4px;
-    }
-    .s3-orb-ring {
-      position: absolute; inset: 0; border-radius: 50%;
-      border: 2px solid var(--orb-color, #4ade80);
-      opacity: .5;
-    }
-    .s3-orb-pulse {
-      position: absolute; inset: -4px; border-radius: 50%;
-      border: 1.5px solid var(--orb-color, #4ade80);
-      opacity: 0;
-      animation: s3PulseRing 2.5s ease-out infinite;
-    }
-    .s3-status-orb::after {
-      content: '';
-      width: 12px; height: 12px; border-radius: 50%;
-      background: var(--orb-color, #4ade80);
-      box-shadow: 0 0 10px var(--orb-color, #4ade80);
-    }
-    .s3-hero-status {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 12px; font-weight: 600;
-      border-radius: 20px; padding: 5px 12px;
-    }
-    .s3-hero-status.alert { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.2); color: #f87171; }
-    .s3-hero-status.ok    { background: rgba(74,222,128,.1);  border: 1px solid rgba(74,222,128,.2);  color: #4ade80;  }
-
-    /* ════════════════════════════════
-       MÉTRICAS
-    ════════════════════════════════ */
-    .s3-metrics {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-      margin-bottom: 14px;
-    }
-    .s3-metric {
-      background: rgba(255,255,255,.03);
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 18px; padding: 14px 16px;
-      display: flex; flex-direction: column; gap: 3px;
-      animation: s3FadeUp .5s cubic-bezier(.22,1,.36,1) both;
-      transition: transform .2s, border-color .2s;
-    }
-    .s3-metric:active { transform: scale(.97); }
-    .s3-metric-icon { margin-bottom: 4px; }
-    .s3-metric-val {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 22px; font-weight: 900; line-height: 1;
-      letter-spacing: -.5px;
-    }
-    .s3-metric-label {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 10px; font-weight: 600;
-      text-transform: uppercase; letter-spacing: .8px;
-      color: rgba(255,255,255,.38);
-    }
-    .s3-metric-sub {
-      font-family: 'DM Mono', monospace;
-      font-size: 10px; color: rgba(255,255,255,.28); margin-top: 1px;
-    }
-
-    /* ════════════════════════════════
-       AI WRAPPER
-    ════════════════════════════════ */
-    .s3-ai-wrap {
-      background: rgba(12,12,20,.6);
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 20px; padding: 14px 14px 16px;
-      margin-bottom: 14px;
-      backdrop-filter: blur(12px);
-      animation: s3FadeUp .55s cubic-bezier(.22,1,.36,1) both;
-    }
-    .s3-ai-loading { display:flex; align-items:center; justify-content:center; padding:20px; }
-    .s3-dots { display:flex; gap:5px; }
-    .s3-dots span { width:6px; height:6px; border-radius:50%; background:rgba(201,168,76,.5); animation:s3Blink 1.2s ease-in-out infinite; }
-    .s3-dots span:nth-child(2) { animation-delay:.2s; }
-    .s3-dots span:nth-child(3) { animation-delay:.4s; }
-
-    /* Tabs */
-    .s3-tabs {
-      display: flex; gap: 3px; margin-bottom: 14px;
-      background: rgba(255,255,255,.04);
-      border-radius: 12px; padding: 3px;
-    }
-    .s3-tab {
-      flex: 1; background: none; border: none; border-radius: 10px;
-      padding: 7px 4px; font-family: 'DM Sans',sans-serif;
-      font-size: 10px; font-weight: 600;
-      color: rgba(255,255,255,.3); cursor: pointer;
-      transition: all .2s;
-    }
-    .s3-tab.active {
-      background: rgba(201,168,76,.12);
-      color: #c9a84c;
-      border: 1px solid rgba(201,168,76,.2);
-    }
-
-    /* Briefing button */
-    .s3-briefing-btn {
-      width: 100%;
-      background: linear-gradient(135deg, rgba(201,168,76,.1), rgba(201,168,76,.05));
-      border: 1px solid rgba(201,168,76,.2);
-      border-radius: 14px; padding: 11px;
-      color: rgba(201,168,76,.8); font-family:'DM Sans',sans-serif;
-      font-size: 12px; font-weight: 700; cursor: pointer;
-      margin-bottom: 14px; display:flex; align-items:center; justify-content:center; gap:6px;
-      transition: background .2s, border-color .2s;
-    }
-    .s3-briefing-btn:hover { background:rgba(201,168,76,.16); border-color:rgba(201,168,76,.3); }
-    .s3-briefing-btn:disabled { opacity:.5; cursor:not-allowed; }
-    .s3-spinner { width:13px; height:13px; border:2px solid rgba(201,168,76,.3); border-top-color:#c9a84c; border-radius:50%; animation:s3Spin .8s linear infinite; flex-shrink:0; }
-
-    .s3-error { background:rgba(248,113,113,.08); border:1px solid rgba(248,113,113,.18); border-radius:12px; padding:12px 14px; color:#f87171; font-family:'DM Sans',sans-serif; font-size:12px; margin-bottom:12px; line-height:1.6; }
-    .s3-skeletons { display:flex; flex-direction:column; gap:8px; }
-    .s3-skel { height:52px; border-radius:12px; background:linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 75%); background-size:200% 100%; animation:s3Shimmer 1.8s infinite; }
-
-    /* Humor badge */
-    .s3-humor {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: color-mix(in srgb, var(--hc,#4ade80) 12%, transparent);
-      border: 1px solid color-mix(in srgb, var(--hc,#4ade80) 25%, transparent);
-      border-radius: 20px; padding: 5px 12px; margin-bottom: 14px;
-      font-family:'DM Sans',sans-serif; font-size:12px; font-weight:700;
-      color: var(--hc, #4ade80);
-    }
-    .s3-humor-dot { width:7px; height:7px; border-radius:50%; background:var(--hc,#4ade80); box-shadow:0 0 8px var(--hc,#4ade80); flex-shrink:0; }
-
-    /* AI Cards */
-    .s3-ai-cards { display:flex; flex-direction:column; gap:9px; }
-    .s3-ai-card {
-      position: relative; overflow: hidden;
-      border-radius: 14px;
-      background: color-mix(in srgb, var(--ac,#60a5fa) 6%, rgba(255,255,255,.02));
-      border: 1px solid color-mix(in srgb, var(--ac,#60a5fa) 15%, transparent);
-      animation: s3FadeUp .4s ease both;
-      transition: transform .15s;
-    }
-    .s3-ai-card.clickable { cursor:pointer; }
-    .s3-ai-card.clickable:active { transform:scale(.98); }
-    .s3-ai-card-stripe {
-      position: absolute; left:0; top:0; bottom:0; width:3px;
-      background: var(--ac,#60a5fa);
-      border-radius: 14px 0 0 14px;
-    }
-    .s3-ai-card-inner { padding:11px 13px 11px 16px; }
-    .s3-ai-card-head { display:flex; align-items:center; gap:7px; margin-bottom:6px; }
-    .s3-ai-card-icon { font-size:14px; flex-shrink:0; }
-    .s3-ai-card-title { font-family:'DM Sans',sans-serif; font-size:11px; font-weight:800; letter-spacing:.7px; text-transform:uppercase; flex:1; min-width:0; }
-    .s3-ai-card-cta { font-family:'DM Sans',sans-serif; font-size:10px; font-weight:700; letter-spacing:.3px; border:1px solid; border-radius:7px; padding:3px 8px; white-space:nowrap; flex-shrink:0; }
-    .s3-ai-card-text { font-family:'DM Sans',sans-serif; font-size:12px; line-height:1.6; color:rgba(255,255,255,.68); margin:0; }
-
-    /* Placeholder */
-    .s3-placeholder { text-align:center; padding:28px 20px; }
-    .s3-placeholder-icon { font-size:2.2rem; margin-bottom:10px; }
-    .s3-placeholder-text { font-family:'DM Sans',sans-serif; font-size:13px; color:rgba(255,255,255,.3); line-height:1.6; }
-
-    /* ════════════════════════════════
-       CTA VISITA
-    ════════════════════════════════ */
-    .s3-cta-visit {
-      width: 100%; display: flex; align-items: center; gap: 14px;
-      background: linear-gradient(135deg, rgba(96,165,250,.12), rgba(96,165,250,.06));
-      border: 1px solid rgba(96,165,250,.22);
-      border-radius: 18px; padding: 14px 16px;
-      color: #60a5fa; cursor: pointer;
-      margin-bottom: 16px;
-      font-family: inherit;
-      transition: background .2s, border-color .2s, transform .15s;
-      text-align: left;
-    }
-    .s3-cta-visit:active { transform:scale(.98); background:rgba(96,165,250,.18); }
-    .s3-cta-icon { font-size:22px; flex-shrink:0; }
-    .s3-cta-text { flex:1; display:flex; flex-direction:column; gap:1px; }
-    .s3-cta-text strong { font-family:'DM Sans',sans-serif; font-size:14px; font-weight:800; }
-    .s3-cta-text small { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(96,165,250,.6); }
-    .s3-cta-arrow { flex-shrink:0; }
-
-    /* ════════════════════════════════
-       SECTION HEADERS
-    ════════════════════════════════ */
-    .s3-section-hdr {
-      display: flex; align-items: center; gap: 9px;
-      margin: 18px 0 10px;
-    }
-    .s3-section-line { width:3px; height:16px; border-radius:2px; flex-shrink:0; }
-    .s3-section-icon { font-size:14px; }
-    .s3-section-title { font-family:'DM Sans',sans-serif; font-size:11px; font-weight:800; letter-spacing:1.2px; text-transform:uppercase; flex:1; }
-    .s3-section-badge { font-family:'DM Mono',monospace; font-size:10px; font-weight:600; border-radius:20px; padding:2px 8px; }
-
-    /* ════════════════════════════════
-       CARDS DE TAREFA
-    ════════════════════════════════ */
-    .s3-cards { display:flex; flex-direction:column; gap:9px; }
-    .s3-card {
-      display: flex; align-items: flex-start; gap: 12px;
-      background: color-mix(in srgb, var(--cc,#60a5fa) 5%, rgba(255,255,255,.02));
-      border: 1px solid color-mix(in srgb, var(--cc,#60a5fa) 12%, rgba(255,255,255,.05));
-      border-radius: 16px; padding: 13px 14px;
-      animation: s3FadeUp .4s ease both;
-      transition: transform .15s;
-    }
-    .s3-card:active { transform:scale(.98); }
-    .s3-card-accent { display:none; }
-    .s3-card-icon { font-size:22px; flex-shrink:0; margin-top:1px; }
-    .s3-card-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
-    .s3-card-title { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:700; color:rgba(255,255,255,.88); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .s3-card-desc { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.4); }
-    .s3-card-meta { font-family:'DM Mono',monospace; font-size:11px; font-weight:600; }
-    .s3-card-btn {
-      align-self: flex-start; flex-shrink:0;
-      display: flex; align-items: center; gap:4px;
-      background: none; border: 1px solid; border-radius: 9px;
-      padding: 6px 11px; font-family:'DM Sans',sans-serif;
-      font-size: 11px; font-weight: 700; cursor: pointer;
-      transition: background .15s;
-    }
-    .s3-card-btn:active { filter:brightness(1.2); }
-
-    /* ════════════════════════════════
-       VISIT CARDS
-    ════════════════════════════════ */
-    .s3-visits { display:flex; flex-direction:column; gap:9px; }
-    .s3-visit {
-      display: flex; overflow:hidden;
-      background: rgba(255,255,255,.03);
+      background: linear-gradient(135deg, rgba(30,30,40,.95) 0%, rgba(20,20,30,.98) 100%);
       border: 1px solid rgba(255,255,255,.08);
       border-radius: 18px;
-      animation: s3FadeUp .4s ease both;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.3);
     }
-    .s3-visit-bar { width:4px; flex-shrink:0; background:var(--vc,#60a5fa); border-radius:18px 0 0 18px; }
-    .s3-visit-content { flex:1; padding:13px 14px; min-width:0; }
-    .s3-visit-head { margin-bottom:10px; }
-    .s3-visit-left { flex:1; min-width:0; }
-    .s3-visit-cli { font-family:'DM Sans',sans-serif; font-size:14px; font-weight:700; color:rgba(255,255,255,.9); margin-bottom:6px; }
-    .s3-visit-meta { display:flex; flex-wrap:wrap; gap:5px; }
-    .s3-visit-tag { font-family:'DM Sans',sans-serif; font-size:11px; font-weight:500; border-radius:7px; padding:3px 8px; }
-    .s3-visit-tag.time { background:rgba(255,255,255,.07); color:rgba(255,255,255,.5); }
-    .s3-visit-tag.date { border:1px solid; }
-    .s3-visit-tag.loc { background:rgba(255,255,255,.05); color:rgba(255,255,255,.4); max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .s3-visit-obs { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.35); font-style:italic; margin-top:6px; }
-    .s3-visit-actions { display:flex; gap:6px; flex-wrap:wrap; }
-    .s3-vbtn {
-      border-radius:9px; padding:6px 11px;
-      font-family:'DM Sans',sans-serif; font-size:11px; font-weight:700;
-      cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px;
-      transition:filter .15s; background:none; font-family:inherit;
+    .sec2-bot-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
     }
-    .s3-vbtn:active { filter:brightness(1.2); }
-    .s3-vbtn.ok  { background:rgba(74,222,128,.1); border:1px solid rgba(74,222,128,.2); color:#4ade80; }
-    .s3-vbtn.edit { background:rgba(251,191,36,.1); border:1px solid rgba(251,191,36,.2); color:#fbbf24; }
-    .s3-vbtn.del { background:rgba(248,113,113,.08); border:1px solid rgba(248,113,113,.18); color:#f87171; }
-    .s3-vbtn.wa  { background:rgba(37,211,102,.1); border:1px solid rgba(37,211,102,.2); color:#25D366; }
-    .s3-vbtn.re  { background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.6); }
+    .sec2-bot-icon-wrap {
+      width: 42px; height: 42px;
+      background: rgba(255,255,255,.06);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .sec2-bot-info { flex: 1; min-width: 0; }
+    .sec2-bot-title { font-size: 14px; font-weight: 700; color: rgba(255,255,255,.92); }
+    .sec2-bot-sub { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 1px; }
+    .sec2-bot-status-pill {
+      display: flex; align-items: center; gap: 6px;
+      border-radius: 20px; padding: 5px 10px; flex-shrink: 0;
+    }
+    .sec2-bot-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .sec2-bot-fields { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+    .sec2-bot-field { display: flex; flex-direction: column; gap: 4px; }
+    .sec2-bot-label { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: rgba(255,255,255,.4); }
+    .sec2-bot-input {
+      background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 10px; padding: 9px 12px; color: rgba(255,255,255,.85);
+      font-size: 13px; font-family: inherit; outline: none; transition: border .2s;
+    }
+    .sec2-bot-input:focus { border-color: rgba(96,165,250,.5); background: rgba(96,165,250,.05); }
+    .sec2-bot-hint { font-size: 10px; color: rgba(255,255,255,.3); }
+    .sec2-bot-connect-btn {
+      width: 100%; background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border: none; border-radius: 12px; padding: 11px;
+      color: #fff; font-size: 13px; font-weight: 700; font-family: inherit;
+      cursor: pointer; transition: opacity .2s;
+    }
+    .sec2-bot-connect-btn:active { opacity: .8; }
+    .sec2-bot-code-wrap { background: rgba(255,255,255,.04); border-radius: 12px; padding: 14px; }
+    .sec2-bot-code-lbl { font-size: 11px; color: rgba(255,255,255,.4); margin-bottom: 8px; text-align: center; }
+    .sec2-bot-code {
+      font-family: 'Courier New', monospace; font-size: 28px; font-weight: 900;
+      letter-spacing: 8px; color: #60a5fa; text-align: center;
+      padding: 12px; background: rgba(96,165,250,.08); border-radius: 10px;
+      border: 1px solid rgba(96,165,250,.2); margin-bottom: 12px;
+    }
+    .sec2-bot-steps { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .sec2-bot-step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgba(255,255,255,.6); }
+    .sec2-bot-step-n {
+      width: 20px; height: 20px; border-radius: 50%; background: rgba(96,165,250,.15);
+      color: #60a5fa; font-size: 10px; font-weight: 700; display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .sec2-bot-code-warn { font-size: 10px; color: rgba(251,191,36,.6); text-align: center; }
+    .sec2-bot-connected {
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(74,222,128,.06); border: 1px solid rgba(74,222,128,.15);
+      border-radius: 12px; padding: 12px 14px;
+    }
+    .sec2-bot-disconnect {
+      background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.2);
+      border-radius: 8px; padding: 6px 12px; color: #f87171;
+      font-size: 11px; font-weight: 700; cursor: pointer;
+    }
 
-    /* ════════════════════════════════
-       EMPTY STATE
-    ════════════════════════════════ */
-    .s3-empty { text-align:center; padding:40px 20px; }
-    .s3-empty-icon { font-size:2.8rem; margin-bottom:12px; }
-    .s3-empty div { font-family:'DM Sans',sans-serif; font-size:14px; color:rgba(255,255,255,.35); line-height:1.6; }
-
-    /* ════════════════════════════════
-       CONTEXTO
-    ════════════════════════════════ */
-    .s3-ctx-top { display:flex; gap:12px; margin-bottom:14px; align-items:center; }
-    .s3-gauge { display:flex; flex-direction:column; align-items:center; gap:3px; }
-    .s3-gauge-lbl { font-family:'DM Sans',sans-serif; font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:rgba(255,255,255,.28); }
-    .s3-ctx-grid { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-    .s3-ctx-card {
-      background:rgba(255,255,255,.04);
-      border:1px solid color-mix(in srgb, var(--ic,#fff) 15%, transparent);
-      border-radius:12px; padding:10px 11px;
-      display:flex; flex-direction:column; gap:2px;
+    /* ── HERO ── */
+    .sec2-hero {
+      background: linear-gradient(135deg, rgba(201,168,76,.12) 0%, rgba(201,168,76,.04) 100%);
+      border: 1px solid rgba(201,168,76,.15);
+      border-radius: 18px; padding: 18px 16px; margin-bottom: 14px;
+      animation: sec2FadeIn .4s ease;
     }
-    .s3-ctx-lbl { font-family:'DM Sans',sans-serif; font-size:9px; text-transform:uppercase; letter-spacing:.5px; color:rgba(255,255,255,.3); }
-    .s3-fin-radar { background:rgba(255,255,255,.04); border-radius:14px; padding:14px; margin-bottom:12px; }
-    .s3-fin-title { font-family:'DM Sans',sans-serif; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:rgba(255,255,255,.38); margin-bottom:14px; }
-    .s3-fin-row { margin-bottom:10px; }
-    .s3-fin-meta { display:flex; justify-content:space-between; margin-bottom:5px; font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.42); }
-    .s3-fin-bar { height:5px; background:rgba(255,255,255,.06); border-radius:3px; overflow:hidden; }
-    .s3-fin-bar div { height:100%; border-radius:3px; transition:width .6s cubic-bezier(.22,1,.36,1); }
-    .s3-fin-saldo { display:flex; justify-content:space-between; align-items:center; padding-top:12px; border-top:1px solid rgba(255,255,255,.06); margin-top:4px; font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.42); }
-    .s3-critical-list { background:rgba(248,113,113,.04); border:1px solid rgba(248,113,113,.12); border-radius:14px; padding:14px; }
-    .s3-critical-title { font-family:'DM Sans',sans-serif; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:rgba(248,113,113,.6); margin-bottom:10px; }
-    .s3-critical-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.04); }
-    .s3-critical-row:last-child { border-bottom:none; }
-    .s3-critical-cli { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:600; color:rgba(255,255,255,.85); }
-    .s3-critical-desc { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.32); }
-    .s3-critical-badge { border-radius:8px; padding:4px 10px; font-family:'DM Mono',monospace; font-size:11px; font-weight:700; }
-
-    /* ════════════════════════════════
-       FOLLOW-UPS
-    ════════════════════════════════ */
-    .s3-fu-header { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.38); margin-bottom:12px; }
-    .s3-fu-card {
-      background:rgba(96,165,250,.05); border:1px solid rgba(96,165,250,.14);
-      border-radius:14px; padding:12px 14px; margin-bottom:8px;
-      display:flex; justify-content:space-between; align-items:center; gap:10px;
+    .sec2-saud { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(201,168,76,.7); margin-bottom: 2px; }
+    .sec2-nome { font-size: 28px; font-weight: 900; color: #c9a84c; letter-spacing: -1px; line-height: 1; margin-bottom: 8px; }
+    .sec2-alert-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.2);
+      border-radius: 20px; padding: 4px 10px; font-size: 12px; color: #f87171; font-weight: 600;
     }
-    .s3-fu-info { flex:1; min-width:0; }
-    .s3-fu-cli { font-family:'DM Sans',sans-serif; font-size:13px; font-weight:700; color:rgba(255,255,255,.85); }
-    .s3-fu-meta { font-family:'DM Sans',sans-serif; font-size:11px; color:rgba(255,255,255,.38); margin-top:2px; }
-    .s3-fu-btns { display:flex; gap:6px; flex-shrink:0; }
-    .s3-fu-btn { border-radius:9px; padding:6px 11px; font-family:'DM Sans',sans-serif; font-size:11px; font-weight:700; cursor:pointer; text-decoration:none; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); color:rgba(255,255,255,.55); }
-    .s3-fu-btn.wa { background:rgba(37,211,102,.1); border-color:rgba(37,211,102,.2); color:#25D366; }
-    .s3-fu-tip { background:rgba(201,168,76,.06); border:1px solid rgba(201,168,76,.15); border-radius:12px; padding:12px 14px; font-family:'DM Sans',sans-serif; font-size:12px; color:rgba(201,168,76,.6); line-height:1.6; }
+    .sec2-alert-num { font-weight: 900; font-size: 14px; }
+    .sec2-ok-badge {
+      display: inline-flex; background: rgba(74,222,128,.1); border: 1px solid rgba(74,222,128,.2);
+      border-radius: 20px; padding: 4px 10px; font-size: 12px; color: #4ade80; font-weight: 600;
+    }
+
+    /* ── CHIPS ── */
+    .sec2-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .sec2-chip {
+      background: rgba(255,255,255,.03); border: 1px solid;
+      border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px;
+      animation: sec2FadeIn .4s ease;
+    }
+    .sec2-chip-icon { font-size: 18px; margin-bottom: 2px; }
+    .sec2-chip-val { font-size: 20px; font-weight: 900; line-height: 1; }
+    .sec2-chip-lbl { font-size: 10px; color: rgba(255,255,255,.4); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── AI CONTAINER ── */
+    .sec2-ai-container {
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+      border-radius: 18px; padding: 14px 14px 16px; margin-bottom: 14px;
+      animation: sec2FadeIn .4s ease;
+    }
+    .sec2-tab-bar {
+      display: flex; gap: 4px; margin-bottom: 14px;
+      background: rgba(255,255,255,.04); border-radius: 10px; padding: 3px;
+    }
+    .sec2-tab-btn {
+      flex: 1; background: none; border: none; border-radius: 8px;
+      padding: 7px 4px; font-size: 10px; font-weight: 600; color: rgba(255,255,255,.35);
+      cursor: pointer; font-family: inherit; transition: all .2s;
+    }
+    .sec2-tab-btn.active { background: rgba(255,255,255,.1); color: #fff; }
+    .sec2-briefing-btn {
+      width: 100%; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+      border-radius: 12px; padding: 10px; color: rgba(255,255,255,.7);
+      font-size: 12px; font-family: inherit; cursor: pointer; margin-bottom: 12px;
+      transition: background .2s;
+    }
+    .sec2-briefing-btn:hover { background: rgba(255,255,255,.08); }
+    .sec2-briefing-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .sec2-error-box {
+      background: rgba(248,113,113,.08); border: 1px solid rgba(248,113,113,.2);
+      border-radius: 10px; padding: 12px 14px; color: #f87171;
+      font-size: 12px; margin-bottom: 10px; line-height: 1.6;
+    }
+    .sec2-skeletons { display: flex; flex-direction: column; gap: 8px; }
+    .sec2-skeleton { height: 50px; border-radius: 10px; background: rgba(255,255,255,.04); animation: sec2Pulse 1.5s ease-in-out infinite; }
+    .sec2-humor-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      border: 1px solid; border-radius: 20px; padding: 5px 11px;
+      margin-bottom: 12px;
+    }
+    .sec2-humor-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .sec2-empty-briefing { text-align: center; padding: 28px 20px; color: rgba(255,255,255,.3); font-size: 13px; }
+
+    /* ── AI CARDS (clicáveis) ── */
+    .sec2-ai-cards { display: flex; flex-direction: column; gap: 8px; }
+    .sec2-ai-card {
+      border-left: 3px solid; border-radius: 0 12px 12px 0;
+      padding: 11px 13px; transition: background .2s;
+    }
+    .sec2-ai-card-clickable { cursor: pointer; }
+    .sec2-ai-card-clickable:active { filter: brightness(1.1); }
+    .sec2-ai-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+    .sec2-ai-card-label { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; }
+    .sec2-ai-card-action {
+      font-size: 10px; font-weight: 700; letter-spacing: .5px;
+      border: 1px solid; border-radius: 6px; padding: 3px 8px;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .sec2-ai-card-detail { color: rgba(255,255,255,.72); font-size: 12px; line-height: 1.55; }
+
+    /* ── NOVA VISITA ── */
+    .sec2-nova-visita {
+      width: 100%; background: linear-gradient(135deg, rgba(96,165,250,.15), rgba(96,165,250,.08));
+      border: 1px solid rgba(96,165,250,.25); border-radius: 14px; padding: 13px;
+      color: #60a5fa; font-size: 14px; font-weight: 700; font-family: inherit;
+      cursor: pointer; margin-bottom: 14px; transition: background .2s;
+    }
+    .sec2-nova-visita:active { background: rgba(96,165,250,.2); }
+
+    /* ── SECTIONS ── */
+    .sec2-section-header {
+      display: flex; align-items: center; gap: 8px; font-size: 11px;
+      font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+      color: rgba(255,255,255,.5); margin: 16px 0 8px;
+    }
+    .sec2-section-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .sec2-section-dot.red { background: #f87171; box-shadow: 0 0 6px #f87171; }
+    .sec2-section-dot.blue { background: #60a5fa; box-shadow: 0 0 6px #60a5fa; }
+    .sec2-section-dot.purple { background: #a78bfa; box-shadow: 0 0 6px #a78bfa; }
+    .sec2-section-dot.green { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+
+    /* ── TASK LIST ── */
+    .sec2-task-list { display: flex; flex-direction: column; gap: 8px; }
+    .sec2-task {
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06);
+      border-left: 3px solid; border-radius: 0 12px 12px 0; padding: 11px 12px;
+    }
+    .sec2-task-icon { font-size: 18px; flex-shrink: 0; }
+    .sec2-task-body { flex: 1; min-width: 0; }
+    .sec2-task-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sec2-task-sub { font-size: 11px; margin-top: 2px; }
+    .sec2-task-btn {
+      background: none; border: 1px solid; border-radius: 8px;
+      padding: 5px 10px; font-size: 11px; font-weight: 700; font-family: inherit;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: background .15s;
+    }
+    .sec2-task-btn:active { filter: brightness(1.2); }
+
+    /* ── VISITA CARD ── */
+    .sec2-visita {
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+      border-radius: 14px; padding: 12px 14px; animation: sec2FadeIn .3s ease;
+    }
+    .sec2-vis-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+    .sec2-vis-icon { font-size: 22px; flex-shrink: 0; }
+    .sec2-vis-info { flex: 1; }
+    .sec2-vis-cli { font-size: 14px; font-weight: 700; color: rgba(255,255,255,.9); }
+    .sec2-vis-meta { font-size: 11px; color: rgba(255,255,255,.45); margin-top: 3px; }
+    .sec2-vis-obs { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 4px; font-style: italic; }
+    .sec2-vis-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .sec2-vis-btn {
+      border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
+      border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 600;
+      color: rgba(255,255,255,.7); cursor: pointer; font-family: inherit;
+    }
+    .sec2-vis-btn.grn { background: rgba(74,222,128,.1); border-color: rgba(74,222,128,.2); color: #4ade80; }
+    .sec2-vis-btn.org { background: rgba(251,146,60,.1); border-color: rgba(251,146,60,.2); color: #fb923c; }
+    .sec2-vis-btn.red { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.2); color: #f87171; }
+    .sec2-vis-btn.wha { background: rgba(37,211,102,.1); border-color: rgba(37,211,102,.2); color: #25D366; }
+
+    /* ── EMPTY ── */
+    .sec2-empty { text-align: center; padding: 32px 20px; color: rgba(255,255,255,.4); font-size: 13px; }
+
+    /* ── CONTEXTO ── */
+    .sec2-ctx-top { display: flex; gap: 12px; margin-bottom: 14px; }
+    .sec2-gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .sec2-gauge-lbl { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,.3); }
+    .sec2-ctx-grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .sec2-ctx-card {
+      background: rgba(255,255,255,.04); border: 1px solid;
+      border-radius: 10px; padding: 9px 10px; display: flex; flex-direction: column; gap: 2px;
+    }
+    .sec2-ctx-card-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: rgba(255,255,255,.35); }
+    .sec2-radar { background: rgba(255,255,255,.04); border-radius: 12px; padding: 13px 14px; margin-bottom: 12px; }
+    .sec2-radar-title { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.4); margin-bottom: 12px; }
+    .sec2-radar-row { margin-bottom: 8px; }
+    .sec2-radar-meta { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .sec2-radar-lbl { color: rgba(255,255,255,.45); font-size: 11px; }
+    .sec2-radar-bar-bg { height: 4px; background: rgba(255,255,255,.06); border-radius: 2px; overflow: hidden; }
+    .sec2-radar-bar-fill { height: 100%; border-radius: 2px; transition: width .5s ease; }
+    .sec2-radar-saldo { display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); margin-top: 4px; }
+    .sec2-entregas { background: rgba(248,113,113,.04); border: 1px solid rgba(248,113,113,.12); border-radius: 12px; padding: 12px 14px; }
+    .sec2-entregas-title { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.4); margin-bottom: 8px; }
+    .sec2-entrega-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .sec2-entrega-cli { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.85); }
+    .sec2-entrega-desc { font-size: 11px; color: rgba(255,255,255,.35); }
+    .sec2-entrega-badge { border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 700; font-family: 'Courier New', monospace; }
+
+    /* ── FOLLOW-UPS ── */
+    .sec2-fu-count { font-size: 11px; color: rgba(255,255,255,.4); margin-bottom: 10px; }
+    .sec2-fu-card {
+      background: rgba(96,165,250,.05); border: 1px solid rgba(96,165,250,.15);
+      border-radius: 12px; padding: 11px 13px; margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    }
+    .sec2-fu-cli { color: rgba(255,255,255,.85); font-size: 13px; font-weight: 700; }
+    .sec2-fu-meta { color: rgba(255,255,255,.4); font-size: 11px; margin-top: 2px; }
+    .sec2-fu-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .sec2-fu-btn {
+      border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 700;
+      cursor: pointer; text-decoration: none; font-family: inherit;
+    }
+    .sec2-fu-btn.hist { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: rgba(255,255,255,.6); }
+    .sec2-fu-btn.wa { background: rgba(37,211,102,.12); border: 1px solid rgba(37,211,102,.25); color: #25D366; }
+    .sec2-fu-tip { background: rgba(96,165,250,.06); border: 1px solid rgba(96,165,250,.12); border-radius: 10px; padding: 11px 13px; font-size: 12px; color: rgba(255,255,255,.5); line-height: 1.5; }
   `;
   document.head.appendChild(s);
+  _injectTimelineStyles();
 }
 
 // Auto-inject on load
