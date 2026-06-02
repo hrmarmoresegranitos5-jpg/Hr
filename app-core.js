@@ -240,7 +240,7 @@ var DEF_ACESS=[
   {id:'calha_umida',nm:'Calha Úmida',marca:'',dim:'Sob medida',pr:0,desc:'Calha escavada na pedra para escorrer água. Integrada ao tampo.',photo:''},
   {id:'escorredor',nm:'Escorredor de Louça',marca:'',dim:'Embutir',pr:0,desc:'Escorredor em inox ou pedra esculpida integrado à bancada.',photo:''}
 ];
-var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:80,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
+var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   // Túmulo
   tum_tampa:85, tum_lat:85, tum_front:85, tum_base:85, tum_det:85, tum_sainha:85,
@@ -304,7 +304,6 @@ function initCFG(){
   // Patch v18: força preços novos no CFG existente
   // ── GUARD COMPLETO: recriar campos ausentes em CFGs antigos ──
   if (!CFG.sv)     CFG.sv     = JSON.parse(JSON.stringify(DEF_SV));
-  if (!CFG.sv.sol_45) CFG.sv.sol_45 = DEF_SV.sol_45||80; // Soleira 45° guard
   if (!CFG.stones) CFG.stones = JSON.parse(JSON.stringify(DEF_STONES));
   if (!CFG.coz)    CFG.coz    = JSON.parse(JSON.stringify(DEF_COZ));
   if (!CFG.lav)    CFG.lav    = JSON.parse(JSON.stringify(DEF_LAV));
@@ -832,7 +831,7 @@ SV_DEFS.Banheiro=[
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -1788,9 +1787,6 @@ function updPcBordaAlt(ambId, pcId, lado, val) {
   _setBd(pc, lado, { alt: +val || 6 });
   if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
 }
-// compat alias
-function renderAmbientes(){
-
 function updPcBorda(ambId, pcId, lado, svc) {
   var amb = ambientes.find(function(a){ return a.id == ambId; });
   if (!amb) return;
@@ -2063,6 +2059,7 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
   return '<div style="background:var(--bg2);border:1px solid rgba(201,168,76,.25);border-radius:12px;padding:10px;margin-top:10px;">'+svg+'</div>';
 }
 
+function renderAmbientes(){
   try{
   var container=document.getElementById('ambientesList');
   if(!container)return;
@@ -2589,18 +2586,7 @@ function buildSVHtml(amb){
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div>';
-      // Se Soleira em 45° está selecionada, mostrar campo sainha
-      var selIt45=grp.its.find(function(it){return it.k===selAcb&&it.is45;});
-      if(selIt45){
-        var sv45=sv[selIt45.k]||{};
-        h+='<div style="display:flex;align-items:center;gap:6px;padding:8px 12px 10px;background:rgba(201,168,76,.07);border-top:1px solid rgba(201,168,76,.15);">';
-        h+='<span style="font-size:.65rem;color:var(--gold);white-space:nowrap;">⬡ Sainha:</span>';
-        h+='<input type="number" id="sainh-'+amb.id+'" placeholder="largura cm" step="0.5" value="'+(sv45.sainhaH||'')+'" oninput="updSVAmb('+amb.id+',\''+selIt45.k+'\',\'sainhaH\',+this.value)" onclick="event.stopPropagation()" style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.8rem;padding:7px 10px;">';
-        h+='<span style="font-size:.7rem;color:var(--t3);">cm</span>';
-        h+='</div>';
-      }
-      h+='</div>';
+      h+='</div></div>';
       return;
     }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
@@ -3016,9 +3002,7 @@ function calcular(){
       }
       if(it.u==='acb_auto'){
         var _acbLados2=svd.lados||0;
-        if(_acbLados2>0){var _acbMl2=_calcAcbAutoMl(amb,_acbLados2);var _acbPr2=getPr(it.k);if(_acbMl2>0&&_acbPr2>0){acT+=_acbMl2*_acbPr2;acL.push({l:it.l+' '+_acbMl2.toFixed(2)+'ml',v:_acbMl2*_acbPr2});acN.push(it.l+' ('+_acbMl2.toFixed(2)+'ml)');}}
-        // Soleira 45°: soma área da sainha ao m² de pedra
-        if(it.is45&&svd.sainhaH>0){var _s45Ml=_calcAcbAutoMl(amb,1);var _s45M2=_s45Ml*(svd.sainhaH/100);m2+=_s45M2;pds.push({desc:'Sainha Soleira 45°',w:_s45Ml*100,h:svd.sainhaH,q:1,m2:_s45M2});}
+        if(_acbLados2>0){var _acbMl2=_calcAcbAutoMl(amb,_acbLados2);var _acbPr2=getPr(it.k);if(_acbMl2>0&&_acbPr2>0){acT+=_acbMl2*_acbPr2;}}
         return;
       }
       if(it.u==='sf'){
