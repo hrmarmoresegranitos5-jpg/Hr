@@ -277,14 +277,59 @@ function _chatBuildContext() {
     return t.desc + ' | R$ ' + fm(t.value||0) + ' | vence: ' + (t.date||'?');
   });
 
-  // ── Clientes recentes ──
-  var ultClientes = {};
-  (DB.q||[]).slice(0,20).forEach(function(q){ if(q.cli) ultClientes[q.cli] = (q.date||''); });
-  var cliList = Object.keys(ultClientes).slice(0,15).join(', ');
-
   // ── Visitas ──
   var visitas = (_getV ? _getV() : []).filter(function(v){ return v.status==='agendada'; }).slice(0,5).map(function(v){
     return v.cli + ' | ' + v.date + (v.hora?' às '+v.hora:'') + (v.end?' | '+v.end:'');
+  });
+
+  // ── Motor de análise inteligente de clientes ──
+  var cliPerfilMap = {};
+
+  // Agrupa orçamentos por cliente
+  (DB.q||[]).forEach(function(q){
+    if(!q.cli) return;
+    var c = cliPerfilMap[q.cli] = cliPerfilMap[q.cli] || {nome:q.cli, orcamentos:0, jobs:0, totalVendas:0, totalCusto:0, totalM2:0, mats:{}};
+    c.orcamentos++;
+    c.totalVendas += (q.vista||0);
+    c.totalCusto  += (q._custoPainel||0);
+    c.totalM2     += (q.m2||0);
+    if(q.mat) c.mats[q.mat] = (c.mats[q.mat]||0) + 1;
+  });
+
+  // Agrupa jobs por cliente
+  (DB.j||[]).forEach(function(j){
+    if(!j.cli) return;
+    var c = cliPerfilMap[j.cli] = cliPerfilMap[j.cli] || {nome:j.cli, orcamentos:0, jobs:0, totalVendas:0, totalCusto:0, totalM2:0, mats:{}};
+    c.jobs++;
+    c.totalVendas += (j.value||0);
+  });
+
+  // Calcula margem e desconto máximo seguro para cada cliente
+  var cliPerfilList = Object.values(cliPerfilMap).sort(function(a,b){ return b.totalVendas - a.totalVendas; }).slice(0,20).map(function(c){
+    var transacoes  = c.orcamentos + c.jobs;
+    var margem      = c.totalCusto > 0 ? ((c.totalVendas - c.totalCusto) / c.totalVendas * 100) : null;
+    var matTop      = Object.keys(c.mats).sort(function(a,b){ return c.mats[b]-c.mats[a]; })[0] || '';
+
+    // Classificação de fidelidade
+    var fidelidade = transacoes >= 8 ? 'VIP' : transacoes >= 5 ? 'Fiel' : transacoes >= 3 ? 'Recorrente' : 'Novo';
+
+    // Desconto máximo seguro: margem precisa ficar acima de 25%
+    var descMaxPct = 0;
+    if(margem !== null && margem > 28) {
+      descMaxPct = Math.min(Math.floor(margem - 25), fidelidade==='VIP'?15:fidelidade==='Fiel'?10:fidelidade==='Recorrente'?5:3);
+    } else if(margem === null) {
+      // Sem dados de custo: usar apenas fidelidade
+      descMaxPct = fidelidade==='VIP'?8:fidelidade==='Fiel'?5:fidelidade==='Recorrente'?3:0;
+    }
+
+    var linha = c.nome + ' [' + fidelidade + ']';
+    linha += ' | ' + transacoes + ' pedido(s) | total R$ ' + fm(c.totalVendas);
+    if(c.totalM2 > 0) linha += ' | ' + c.totalM2.toFixed(1) + ' m²';
+    if(matTop) linha += ' | mat. fav: ' + matTop;
+    if(margem !== null) linha += ' | margem histórica: ' + margem.toFixed(1) + '%';
+    if(descMaxPct > 0) linha += ' | DESCONTO MÁXIMO SEGURO: ' + descMaxPct + '%';
+    else linha += ' | margem insuficiente p/ desconto';
+    return linha;
   });
 
   return 'DADOS HR MÁRMORES — hoje: ' + hoje + '\n' +
@@ -292,7 +337,7 @@ function _chatBuildContext() {
     'JOBS EM PRODUÇÃO (' + jobs.length + '):\n' + (jobs.join('\n') || 'Nenhum') + '\n\n' +
     'A RECEBER (' + pendentes.length + '):\n' + (pendentes.join('\n') || 'Nenhum') + '\n\n' +
     'VISITAS AGENDADAS:\n' + (visitas.join('\n') || 'Nenhuma') + '\n\n' +
-    'CLIENTES RECENTES: ' + (cliList || 'Nenhum') + '\n\n' +
+    'PERFIL DE CLIENTES (análise automática de margem e desconto):\n' + (cliPerfilList.join('\n') || 'Nenhum cliente com histórico') + '\n\n' +
     _chatBuildRHContext() + '\n\n' +
     _chatBuildDiagContext();
 }
@@ -413,7 +458,8 @@ function _chatBuildSystem() {
     '5. Visita:     {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}\n' +
     '6. Pagar func: {"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}\n' +
     '7. Navegar:    {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}\n' +
-    '8. Limpar logs:{"action":"limpar_diag"}\n\n' +
+    '8. Limpar logs:{"action":"limpar_diag"}\n' +
+    '9. Desconto:   {"action":"desconto_analise","cli":"nome do cliente"}\n\n' +
 
     '═══ DIAGNÓSTICO — COMO INTERPRETAR ═══\n' +
     'Quando o contexto mostrar erros no DIAGNÓSTICO DO SISTEMA:\n' +
@@ -424,6 +470,17 @@ function _chatBuildSystem() {
     '• "TypeError: Cannot read prop..." — objeto acessado antes de carregar\n' +
     '• "ReferenceError: X is not defined" — arquivo JS não carregou na ordem certa\n' +
     '• Erros de rede/fetch — verificar conexão ou API key\n\n' +
+
+    '═══ PERFIL DE CLIENTES — COMO USAR ═══\n' +
+    'O contexto inclui PERFIL DE CLIENTES com análise automática calculada pelo sistema:\n' +
+    '• [VIP] = 8+ pedidos | [Fiel] = 5-7 | [Recorrente] = 3-4 | [Novo] = 1-2\n' +
+    '• "DESCONTO MÁXIMO SEGURO: X%" = calculado para manter margem ≥ 25%\n' +
+    '• "margem insuficiente p/ desconto" = NÃO ofereça desconto nesse cliente\n' +
+    'Quando alguém perguntar sobre desconto para um cliente nomeado:\n' +
+    '  1. Localize o cliente no PERFIL DE CLIENTES (busca por nome parcial)\n' +
+    '  2. Informe a classificação, histórico e o desconto máximo seguro calculado\n' +
+    '  3. Sugira o desconto de forma proativa: "posso oferecer até X% com segurança"\n' +
+    '  4. Se o cliente não estiver no perfil = cliente novo = desconto apenas se margem do projeto atual permitir\n\n' +
 
     '═══ REGRAS DE RESPOSTA ═══\n' +
     '- Responda SEMPRE em português brasileiro, tom profissional mas amigável\n' +
@@ -673,6 +730,46 @@ function _chatExecuteAction(data) {
       if (typeof window._diagLimpar === 'function') {
         window._diagLimpar();
         result.extra = '🗑 Logs de diagnóstico limpos!';
+      }
+      break;
+
+    case 'desconto_analise':
+      if (data.cli) {
+        var busca = (data.cli || '').toLowerCase().trim();
+        var cliStatsDisc = {};
+        (DB.q||[]).forEach(function(q){
+          if(!q.cli) return;
+          var c = cliStatsDisc[q.cli] = cliStatsDisc[q.cli] || {nome:q.cli,orcamentos:0,jobs:0,totalVendas:0,totalCusto:0,totalM2:0};
+          c.orcamentos++; c.totalVendas+=(q.vista||0); c.totalCusto+=(q._custoPainel||0); c.totalM2+=(q.m2||0);
+        });
+        (DB.j||[]).forEach(function(j){
+          if(!j.cli) return;
+          var c = cliStatsDisc[j.cli] = cliStatsDisc[j.cli] || {nome:j.cli,orcamentos:0,jobs:0,totalVendas:0,totalCusto:0,totalM2:0};
+          c.jobs++; c.totalVendas+=(j.value||0);
+        });
+        var cliEnc = Object.values(cliStatsDisc).find(function(c){ return c.nome.toLowerCase().indexOf(busca)!==-1; });
+        if (!cliEnc) {
+          result.extra = '📊 Cliente **"'+data.cli+'"** não tem histórico ainda. Para clientes novos, o desconto depende da margem do projeto atual (recomendo abrir o orçamento na tela de Orçamento).';
+        } else {
+          var tr = cliEnc.orcamentos + cliEnc.jobs;
+          var fid = tr>=8?'VIP':tr>=5?'Fiel':tr>=3?'Recorrente':'Novo';
+          var mgPct = cliEnc.totalCusto>0 ? ((cliEnc.totalVendas-cliEnc.totalCusto)/cliEnc.totalVendas*100) : null;
+          var descMax = 0;
+          if(mgPct!==null && mgPct>28){
+            descMax=Math.min(Math.floor(mgPct-25),fid==='VIP'?15:fid==='Fiel'?10:fid==='Recorrente'?5:3);
+          } else if(mgPct===null){
+            descMax=fid==='VIP'?8:fid==='Fiel'?5:fid==='Recorrente'?3:0;
+          }
+          var txt = '📊 **Análise: '+cliEnc.nome+'** ['+fid+']\n';
+          txt += '• '+tr+' pedido(s) | Total histórico: R$ '+fm(cliEnc.totalVendas);
+          if(cliEnc.totalM2>0) txt += ' | '+cliEnc.totalM2.toFixed(1)+' m²';
+          txt += '\n';
+          if(mgPct!==null) txt += '• Margem histórica: '+mgPct.toFixed(1)+'%\n';
+          if(descMax>0) txt += '✅ **Desconto máximo seguro: '+descMax+'%** (margem fica ≥25%)';
+          else txt += '⚠️ Margem insuficiente para desconto neste cliente.';
+          result.extra = txt;
+          result.actions.push({label:'📋 Ver Orçamentos', fn:'go(7)'});
+        }
       }
       break;
   }
