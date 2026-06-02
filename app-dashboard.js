@@ -391,3 +391,299 @@ function _injectDashStyles() {
   document.head.appendChild(s);
   _injectDashChartStyles();
 }
+// ══════════════════════════════════════════════════════════════
+// MELHORIA #2 — GRÁFICO RECEITA MENSAL + TICKET MÉDIO no Dashboard
+// Adiciona seção com gráfico de barras dos últimos 6 meses,
+// ticket médio, total de orçamentos e taxa de conversão
+//
+// COMO INTEGRAR:
+//   Em renderDashboard(), antes de "// ══ ATALHOS RÁPIDOS ══":
+//
+//     h += _dashGraficoReceita(hoje);
+//
+//   E em _injectDashStyles(), antes do fechamento do template literal,
+//   adicione a chamada: (ou cole o CSS diretamente no _injectDashStyles)
+//
+//     _injectDashChartStyles();
+// ══════════════════════════════════════════════════════════════
+
+function _dashGraficoReceita(hoje) {
+  // ── Calcular últimos 6 meses ──
+  var meses = [];
+  for (var i = 5; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    var key = d.toISOString().slice(0, 7); // "2025-06"
+    var label = d.toLocaleDateString('pt-BR', { month: 'short' })
+                 .replace('.', '')
+                 .replace(/^\w/, function(c) { return c.toUpperCase(); });
+    meses.push({ key: key, label: label, rec: 0, desp: 0, nOrc: 0, nContr: 0 });
+  }
+
+  // Receita e despesa por mês
+  (DB.t || []).forEach(function(t) {
+    var m = (t.date || '').slice(0, 7);
+    var bucket = meses.find(function(x) { return x.key === m; });
+    if (!bucket) return;
+    if (t.type === 'in')  bucket.rec  += (t.value || 0);
+    if (t.type === 'out') bucket.desp += (t.value || 0);
+  });
+
+  // Orçamentos e conversões por mês
+  (DB.q || []).forEach(function(q) {
+    var m = (q.date || '').slice(0, 7);
+    var bucket = meses.find(function(x) { return x.key === m; });
+    if (!bucket) return;
+    bucket.nOrc++;
+    if (q.contrato) bucket.nContr++;
+  });
+
+  // ── Métricas globais (6 meses) ──
+  var totalRec   = meses.reduce(function(s, m) { return s + m.rec; }, 0);
+  var totalOrc   = meses.reduce(function(s, m) { return s + m.nOrc; }, 0);
+  var totalContr = meses.reduce(function(s, m) { return s + m.nContr; }, 0);
+  var ticketMed  = totalContr > 0 ? totalRec / totalContr : 0;
+  var taxaConv   = totalOrc > 0 ? Math.round((totalContr / totalOrc) * 100) : 0;
+
+  // ── Altura máxima das barras ──
+  var maxVal = meses.reduce(function(max, m) { return Math.max(max, m.rec, m.desp); }, 1);
+  var BAR_H  = 80; // px — altura máxima visual da barra
+
+  // ── Mês atual ──
+  var mesCurrent = hoje.slice(0, 7);
+
+  var h = '';
+
+  // ── Cards de métricas ──
+  h += '<div class="dash-section-lbl">📈 Desempenho — 6 meses</div>';
+  h += '<div class="dash-metrics-row">';
+  h += _dashMetricCard('🎯', 'Ticket médio', 'R$ ' + _dashFmShort(ticketMed), '#a78bfa');
+  h += _dashMetricCard('📊', 'Conversão', taxaConv + '%', taxaConv >= 50 ? 'var(--grn)' : taxaConv >= 30 ? '#d4a017' : 'var(--red)');
+  h += _dashMetricCard('📋', 'Orçamentos', totalOrc + ' emitidos', 'var(--gold2)');
+  h += _dashMetricCard('📜', 'Contratos', totalContr + ' fechados', '#60a5fa');
+  h += '</div>';
+
+  // ── Gráfico de barras ──
+  h += '<div class="dash-chart-wrap">';
+
+  // Legenda
+  h += '<div class="dash-chart-legend">';
+  h += '<div class="dash-chart-leg-item"><div class="dash-chart-leg-dot" style="background:var(--grn);"></div>Receita</div>';
+  h += '<div class="dash-chart-leg-item"><div class="dash-chart-leg-dot" style="background:var(--red);opacity:.6;"></div>Despesa</div>';
+  h += '</div>';
+
+  // Barras
+  h += '<div class="dash-chart-bars" style="--bar-max:' + BAR_H + 'px;">';
+  meses.forEach(function(m) {
+    var recH  = Math.round((m.rec  / maxVal) * BAR_H);
+    var despH = Math.round((m.desp / maxVal) * BAR_H);
+    var isAtual = m.key === mesCurrent;
+    var lucro = m.rec - m.desp;
+    var lucroStr = (lucro >= 0 ? '+' : '') + 'R$ ' + _dashFmShort(Math.abs(lucro));
+    var lucroCol  = lucro >= 0 ? 'var(--grn)' : 'var(--red)';
+
+    h += '<div class="dash-chart-col' + (isAtual ? ' atual' : '') + '">';
+
+    // Tooltip no hover (CSS puro via title)
+    h += '<div class="dash-chart-bars-group" title="' +
+      m.label + ': ' +
+      'Receita R$ ' + _dashFmShort(m.rec) + ' | ' +
+      'Despesa R$ ' + _dashFmShort(m.desp) + ' | ' +
+      'Resultado ' + lucroStr + '">';
+
+    // Receita
+    h += '<div class="dash-chart-bar rec" style="height:' + recH + 'px;"></div>';
+    // Despesa
+    h += '<div class="dash-chart-bar desp" style="height:' + despH + 'px;"></div>';
+    h += '</div>';
+
+    // Label do mês
+    h += '<div class="dash-chart-label" style="' + (isAtual ? 'color:var(--gold2);font-weight:800;' : '') + '">' + m.label + '</div>';
+
+    // Valor da receita (mês atual ou hover — sempre visível no mês atual)
+    if (isAtual && m.rec > 0) {
+      h += '<div class="dash-chart-val">' + _dashFmShort(m.rec) + '</div>';
+    }
+
+    h += '</div>';
+  });
+
+  h += '</div>'; // dash-chart-bars
+
+  // Eixo Y (3 linhas de referência)
+  var eixoY = [maxVal, maxVal * 0.5, 0];
+  h += '<div class="dash-chart-yaxis">';
+  eixoY.forEach(function(v, i) {
+    h += '<span>' + (v > 0 ? _dashFmShort(v) : '0') + '</span>';
+  });
+  h += '</div>';
+
+  h += '</div>'; // dash-chart-wrap
+
+  return h;
+}
+
+// ── Card de métrica compacto ──
+function _dashMetricCard(icon, label, val, cor) {
+  return '<div class="dash-metric-card" style="border-top: 2px solid ' + cor + '30;">' +
+    '<div class="dash-metric-icon" style="color:' + cor + ';">' + icon + '</div>' +
+    '<div class="dash-metric-val" style="color:' + cor + ';">' + val + '</div>' +
+    '<div class="dash-metric-label">' + label + '</div>' +
+    '</div>';
+}
+
+// ── CSS do gráfico ──
+function _injectDashChartStyles() {
+  if (document.getElementById('dashChartStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'dashChartStyle';
+  s.textContent = `
+    @keyframes barGrow {
+      from { transform: scaleY(0); transform-origin: bottom; }
+      to   { transform: scaleY(1); transform-origin: bottom; }
+    }
+
+    /* Métricas */
+    .dash-metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      padding: 0 12px;
+      margin-bottom: 12px;
+    }
+    .dash-metric-card {
+      background: var(--s2);
+      border: 1px solid var(--bd);
+      border-radius: 12px;
+      padding: 11px 12px 10px;
+      border-top: 2px solid;
+    }
+    .dash-metric-icon {
+      font-size: 1.1rem;
+      margin-bottom: 5px;
+    }
+    .dash-metric-val {
+      font-size: .95rem;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 3px;
+    }
+    .dash-metric-label {
+      font-size: .6rem;
+      color: var(--t4);
+    }
+
+    /* Gráfico */
+    .dash-chart-wrap {
+      margin: 0 12px;
+      background: var(--s2);
+      border: 1px solid var(--bd);
+      border-radius: 16px;
+      padding: 14px 14px 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .dash-chart-legend {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 12px;
+      justify-content: flex-end;
+    }
+    .dash-chart-leg-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: var(--t3);
+    }
+    .dash-chart-leg-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+
+    .dash-chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: calc(var(--bar-max, 80px) + 30px);
+      padding-bottom: 30px;
+      position: relative;
+    }
+
+    /* Linhas horizontais de referência */
+    .dash-chart-bars::before,
+    .dash-chart-bars::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0;
+      height: 1px;
+      background: rgba(255,255,255,.04);
+    }
+    .dash-chart-bars::before { bottom: 30px; }
+    .dash-chart-bars::after  { bottom: calc(30px + var(--bar-max, 80px) / 2); }
+
+    .dash-chart-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 3px;
+      position: relative;
+    }
+
+    .dash-chart-col.atual .dash-chart-bars-group {
+      filter: drop-shadow(0 0 6px rgba(201,168,76,.2));
+    }
+
+    .dash-chart-bars-group {
+      width: 100%;
+      display: flex;
+      gap: 2px;
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .dash-chart-bar {
+      flex: 1;
+      border-radius: 4px 4px 0 0;
+      animation: barGrow .5s ease backwards;
+      min-height: 2px;
+      transition: opacity .2s;
+    }
+    .dash-chart-bar:active { opacity: .7; }
+    .dash-chart-bar.rec  {
+      background: linear-gradient(to top, #16a34a, #4ade80);
+      animation-delay: .1s;
+    }
+    .dash-chart-bar.desp {
+      background: linear-gradient(to top, #991b1b80, #f8717160);
+      animation-delay: .15s;
+    }
+
+    .dash-chart-label {
+      position: absolute;
+      bottom: 6px;
+      font-size: 9px;
+      color: var(--t4);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .dash-chart-val {
+      position: absolute;
+      top: -18px;
+      font-size: 9px;
+      color: var(--grn);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .dash-chart-yaxis {
+      display: none; /* simplificado — valores via tooltip */
+    }
+  `;
+  document.head.appendChild(s);
+}
