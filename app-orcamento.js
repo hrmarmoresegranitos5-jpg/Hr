@@ -324,7 +324,7 @@ function buildSV(){
     var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
     if(isAcbGrp){
       var selAcb=null;
-      grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
+      grp.its.forEach(function(it){if(sv.hasOwnProperty(it.k))selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
       h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px 12px 10px;">';
@@ -999,8 +999,10 @@ function togAcbAuto(ambId,k){
     var match=grp.its.find(function(it){return it.k===k;});
     if(!match)return;
     if(match.u!=='acb_auto')return;
+    var prevSainhaH = (k === 'sol_45' && sv['sol_45']) ? sv['sol_45'].sainhaH : undefined;
     grp.its.forEach(function(it){delete sv[it.k];});
     sv[k]={lados:match.lados||0};
+    if(k === 'sol_45' && prevSainhaH) sv[k].sainhaH = prevSainhaH;
   });
   renderAmbientes();
 }
@@ -1038,7 +1040,7 @@ function buildSVHtml(amb){
     var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
     if(isAcbGrp){
       var selAcb=null;
-      grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
+      grp.its.forEach(function(it){if(sv.hasOwnProperty(it.k))selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
       h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px 12px 10px;">';
