@@ -2570,7 +2570,7 @@ function buildSVHtml(amb){
     var isAcbGrp=grp.its.length>0&&grp.its[0].u==='acb_auto';
     if(isAcbGrp){
       var selAcb=null;
-      grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
+      grp.its.forEach(function(it){if(sv.hasOwnProperty(it.k))selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
       h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;padding:8px 12px 10px;">';
@@ -2586,7 +2586,35 @@ function buildSVHtml(amb){
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
       });
-      h+='</div></div>';
+      h+='</div>';
+      // ── Input de altura da sainha para Soleira em 45° ──
+      var sel45=grp.its.find(function(it){return it.k==='sol_45';});
+      if(sel45&&selAcb==='sol_45'){
+        var sainhaHVal=(sv['sol_45']&&sv['sol_45'].sainhaH)||'';
+        var autoMl45=0;(amb.pecas||[]).forEach(function(p){if(p.w)autoMl45+=(p.w/100)*(p.q||1);});
+        var pr45=getPr('sol_45');
+        h+='<div style="padding:4px 12px 12px;">';
+        h+='<div style="font-size:.62rem;color:var(--t4);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">Altura da sainha (cm)</div>';
+        h+='<div style="display:flex;align-items:center;gap:8px;">';
+        h+='<input type="number" id="sainhaH_'+amb.id+'" placeholder="Ex: 6" min="1" max="30" step="0.5" value="'+sainhaHVal+'"'
+          +' oninput="setSainhaH('+amb.id+',this.value)"'
+          +' onclick="event.stopPropagation()"'
+          +' style="width:90px;background:var(--s2);border:1.5px solid var(--gold3);border-radius:9px;padding:8px 10px;'
+          +'color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;outline:none;text-align:center;">';
+        if(sainhaHVal&&autoMl45>0){
+          var m2sainha=autoMl45*(+sainhaHVal/100);
+          var matSel45=CFG.stones.find(function(s){return s.id===amb.selMat;})||CFG.stones[0];
+          var custoPedra45=matSel45?m2sainha*matSel45.pr:0;
+          var custoMO45=autoMl45*pr45;
+          h+='<div style="font-size:.68rem;color:var(--gold2);font-weight:600;">';
+          h+=autoMl45.toFixed(2)+'ml × '+sainhaHVal+'cm = '+m2sainha.toFixed(3)+'m²';
+          if(custoPedra45>0)h+=' · R$ '+fm(custoPedra45+custoMO45);
+          h+='</div>';
+        }
+        h+='</div>';
+        h+='</div>';
+      }
+      h+='</div>';
       return;
     }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
@@ -2692,11 +2720,38 @@ function togAcbAuto(ambId,k){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
   g.forEach(function(grp){
     var match=grp.its.find(function(it){return it.k===k;});
-    if(!match||match.u!=='acb_auto')return;
+    if(!match)return;
+    if(match.u!=='acb_auto')return;
+    var prevSainhaH=(k==='sol_45'&&sv['sol_45'])?sv['sol_45'].sainhaH:undefined;
     grp.its.forEach(function(it){delete sv[it.k];});
     sv[k]={lados:match.lados||0};
+    if(k==='sol_45'&&prevSainhaH)sv[k].sainhaH=prevSainhaH;
   });
   renderAmbientes();
+}
+
+function setSainhaH(ambId,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.svState)return;
+  var h=parseFloat(val)||0;
+  if(!amb.svState['sol_45'])amb.svState['sol_45']={lados:1};
+  amb.svState['sol_45'].sainhaH=h;
+  var pr=getPr('sol_45');
+  var autoMl=0;
+  (amb.pecas||[]).forEach(function(p){if(p.w)autoMl+=(p.w/100)*(p.q||1);});
+  var m2s=autoMl*(h/100);
+  var matSel=CFG.stones.find(function(s){return s.id===amb.selMat;})||CFG.stones[0];
+  var custoPedra=matSel?m2s*matSel.pr:0;
+  var custoMO=autoMl*pr;
+  var previewEl=document.getElementById('sainhaH_'+ambId);
+  if(previewEl){
+    var next=previewEl.nextElementSibling;
+    if(h>0&&autoMl>0){
+      var txt=autoMl.toFixed(2)+'ml × '+h+'cm = '+m2s.toFixed(3)+'m²'+(custoPedra>0?' · R$ '+fm(custoPedra+custoMO):'');
+      if(next&&next.tagName==='DIV'){next.textContent=txt;next.style.display='';}
+      else{var d=document.createElement('div');d.style.cssText='font-size:.68rem;color:var(--gold2);font-weight:600;';d.textContent=txt;previewEl.parentNode.appendChild(d);}
+    } else if(next&&next.tagName==='DIV'){next.style.display='none';}
+  }
 }
 
 function togAcAmb(ambId,acKey){
