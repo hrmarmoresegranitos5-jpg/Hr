@@ -613,4 +613,262 @@ function aiAplicar(){
   _aiAmbId=null;
   renderAmbientes();
   toast('✓ '+applied+' itens aplicados!');
+}// ══════════════════════════════════════════════════════════════
+// MELHORIA #3 — TOAST RICO: Orçamento → Contrato
+// Substitui o toast padrão (apenas texto) por um painel
+// celebratório com confetti CSS, valor do contrato e atalho
+// rápido para compartilhar via WhatsApp.
+//
+// COMO INTEGRAR:
+//   1. Adicionar este arquivo ao index.html
+//   2. Em app-contrato.js, na função confirmarContrato(),
+//      após a chamada de _gerarContratoHtml(), adicionar:
+//
+//        toastContrato(q);
+//
+//      (onde q é o objeto do orçamento/contrato)
+//
+//   3. O toast antigo (genérico) fica intacto para todo o resto.
+// ══════════════════════════════════════════════════════════════
+
+function toastContrato(q) {
+  _injectToastContratoStyles();
+
+  // Remove toast anterior se existir
+  var old = document.getElementById('toastContrato');
+  if (old) old.remove();
+
+  var cli    = escH(q.cli || 'Cliente');
+  var valor  = fm(q.vista || 0);
+  var tel    = (q.tel || '').replace(/\D/g, '');
+  var waUrl  = tel ? 'https://wa.me/55' + tel + '?text=' +
+    encodeURIComponent('Olá ' + (q.cli||'') + '! Segue o contrato conforme combinado. 📜✅') : '';
+
+  var el = document.createElement('div');
+  el.id = 'toastContrato';
+  el.className = 'tc-wrap';
+  el.innerHTML =
+    // Confetti CSS (partículas decorativas)
+    '<div class="tc-confetti" aria-hidden="true">' +
+      [1,2,3,4,5,6,7,8,9,10,11,12].map(function(i) {
+        return '<div class="tc-particle tc-p' + i + '"></div>';
+      }).join('') +
+    '</div>' +
+
+    // Conteúdo
+    '<div class="tc-inner">' +
+      '<div class="tc-icon">🎉</div>' +
+      '<div class="tc-body">' +
+        '<div class="tc-title">Contrato gerado!</div>' +
+        '<div class="tc-cli">' + cli + '</div>' +
+        '<div class="tc-valor">R$ ' + valor + '</div>' +
+      '</div>' +
+      '<div class="tc-actions">' +
+        (waUrl
+          ? '<a class="tc-btn tc-btn-wa" href="' + waUrl + '" target="_blank" rel="noopener">📱 WhatsApp</a>'
+          : '') +
+        '<button class="tc-btn tc-btn-fechar" onclick="document.getElementById(\'toastContrato\').remove()">✕</button>' +
+      '</div>' +
+    '</div>' +
+
+    // Barra de progresso auto-close
+    '<div class="tc-progress"><div class="tc-progress-fill"></div></div>';
+
+  document.body.appendChild(el);
+
+  // Trigger animation
+  requestAnimationFrame(function() {
+    el.classList.add('tc-show');
+  });
+
+  // Auto-remove após 6s
+  var timer = setTimeout(function() {
+    el.classList.remove('tc-show');
+    setTimeout(function() { el.remove(); }, 400);
+  }, 6000);
+
+  // Cancelar auto-remove se o usuário interagir
+  el.addEventListener('touchstart', function() { clearTimeout(timer); });
+  el.addEventListener('mouseenter', function() { clearTimeout(timer); });
+}
+
+function _injectToastContratoStyles() {
+  if (document.getElementById('toastContratoStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'toastContratoStyle';
+  s.textContent = `
+    /* ── Partículas de confetti ── */
+    @keyframes tcParticle {
+      0%   { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+      100% { transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(0); opacity: 0; }
+    }
+    @keyframes tcSlideUp {
+      from { opacity: 0; transform: translateY(40px) scale(.95); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes tcSlideDown {
+      from { opacity: 1; transform: translateY(0) scale(1); }
+      to   { opacity: 0; transform: translateY(40px) scale(.95); }
+    }
+    @keyframes tcProgress {
+      from { width: 100%; }
+      to   { width: 0%; }
+    }
+    @keyframes tcPop {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(1.3); }
+      70%  { transform: scale(.9); }
+      100% { transform: scale(1); }
+    }
+
+    /* ── Wrapper ── */
+    .tc-wrap {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(40px);
+      z-index: 9999;
+      width: calc(100% - 32px);
+      max-width: 420px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .35s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 8px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.08);
+    }
+    .tc-wrap.tc-show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: all;
+    }
+
+    /* ── Fundo principal ── */
+    .tc-inner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 14px 20px;
+      background: linear-gradient(135deg,
+        #0f2d0f 0%,
+        #0a1f0a 50%,
+        #0d2415 100%);
+      border: 1px solid rgba(74,222,128,.25);
+      border-bottom: none;
+      border-radius: 20px 20px 0 0;
+      position: relative;
+      z-index: 1;
+    }
+
+    .tc-icon {
+      font-size: 2rem;
+      flex-shrink: 0;
+      animation: tcPop .5s ease .1s both;
+      line-height: 1;
+    }
+
+    .tc-body { flex: 1; min-width: 0; }
+    .tc-title {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(74,222,128,.7);
+      margin-bottom: 2px;
+    }
+    .tc-cli {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .tc-valor {
+      font-size: 20px;
+      font-weight: 900;
+      color: #4ade80;
+      line-height: 1.1;
+      letter-spacing: -.5px;
+    }
+
+    .tc-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .tc-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity .15s;
+      white-space: nowrap;
+    }
+    .tc-btn:active { opacity: .7; }
+    .tc-btn-wa {
+      background: #25D366;
+      color: #fff;
+      border: none;
+    }
+    .tc-btn-fechar {
+      background: rgba(255,255,255,.08);
+      color: rgba(255,255,255,.5);
+      border: 1px solid rgba(255,255,255,.1);
+      padding: 8px;
+    }
+
+    /* ── Barra de progresso auto-close ── */
+    .tc-progress {
+      height: 3px;
+      background: rgba(255,255,255,.06);
+      border-radius: 0 0 20px 20px;
+      overflow: hidden;
+    }
+    .tc-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4ade80, #16a34a);
+      animation: tcProgress 6s linear forwards;
+    }
+
+    /* ── Confetti ── */
+    .tc-confetti {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+      overflow: hidden;
+      border-radius: 20px;
+    }
+    .tc-particle {
+      position: absolute;
+      width: 7px; height: 7px;
+      border-radius: 2px;
+      opacity: 0;
+    }
+    .tc-wrap.tc-show .tc-particle {
+      animation: tcParticle .9s ease forwards;
+    }
+
+    /* Partícula 1  */ .tc-p1  { top:20%; left:20%; background:#4ade80; --tx:-40px; --ty:-60px; --rot:180deg; animation-delay:.05s; }
+    /* Partícula 2  */ .tc-p2  { top:40%; left:15%; background:#fbbf24; width:5px; height:10px; --tx:-25px; --ty:-80px; --rot:120deg; animation-delay:.1s; }
+    /* Partícula 3  */ .tc-p3  { top:30%; left:40%; background:#60a5fa; border-radius:50%; --tx:15px; --ty:-70px; --rot:90deg; animation-delay:.07s; }
+    /* Partícula 4  */ .tc-p4  { top:25%; left:60%; background:#f87171; --tx:30px; --ty:-55px; --rot:200deg; animation-delay:.12s; }
+    /* Partícula 5  */ .tc-p5  { top:35%; left:80%; background:#a78bfa; width:5px; height:9px; --tx:40px; --ty:-65px; --rot:160deg; animation-delay:.08s; }
+    /* Partícula 6  */ .tc-p6  { top:50%; left:90%; background:#4ade80; border-radius:50%; --tx:35px; --ty:-40px; --rot:270deg; animation-delay:.15s; }
+    /* Partícula 7  */ .tc-p7  { top:60%; left:70%; background:#fbbf24; --tx:20px; --ty:-30px; --rot:100deg; animation-delay:.06s; }
+    /* Partícula 8  */ .tc-p8  { top:15%; left:50%; background:#60a5fa; width:4px; height:8px; --tx:-10px; --ty:-75px; --rot:45deg; animation-delay:.13s; }
+    /* Partícula 9  */ .tc-p9  { top:70%; left:30%; background:#f87171; border-radius:50%; --tx:-30px; --ty:-20px; --rot:320deg; animation-delay:.09s; }
+    /* Partícula 10 */ .tc-p10 { top:10%; left:30%; background:#4ade80; --tx:-20px; --ty:-90px; --rot:210deg; animation-delay:.14s; }
+    /* Partícula 11 */ .tc-p11 { top:45%; left:55%; background:#a78bfa; width:6px; height:6px; --tx:10px; --ty:-60px; --rot:130deg; animation-delay:.04s; }
+    /* Partícula 12 */ .tc-p12 { top:55%; left:10%; background:#fbbf24; --tx:-45px; --ty:-35px; --rot:250deg; animation-delay:.11s; }
+  `;
+  document.head.appendChild(s);
 }
