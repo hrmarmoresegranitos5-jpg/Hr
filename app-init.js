@@ -145,7 +145,7 @@ window.aplicarEstiloNi=function(){
   var _fileInp=document.getElementById('fileInp');if(_fileInp)_fileInp.addEventListener('change',onFile);
   document.querySelectorAll('.ov').forEach(function(o){o.addEventListener('click',function(e){if(e.target===o)closeAll();});});
   // Build
-  buildMat();addAmbiente();buildCatalog();buildCubaList();buildAcList();renderAg();renderFin();updEmp();updUrgDot();renderFixos();renderInfoList();renderOrc();bUpdDot();
+  buildMat();addAmbiente();buildCatalog();buildCubaList();buildAcList();renderAg();renderFin();updEmp();updUrgDot();renderFixos();renderInfoList();renderOrc();bUpdDot();if(typeof renderDashboard==='function')renderDashboard();
   // Init sync if previously configured
   var savedCode=localStorage.getItem('hr_sync_code');
   if(savedCode)setTimeout(function(){if(typeof firebase!=='undefined')SYNC.init(savedCode);},3000);
@@ -220,6 +220,8 @@ function go(n){
   if(n===10){if(typeof renderContratos==='function')renderContratos();}
   if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
   if(n===30){if(typeof HR_FUNC!=='undefined'&&typeof HR_FUNC.renderPaginaFuncionarios==='function')HR_FUNC.renderPaginaFuncionarios();}
+  if(n===11){if(typeof renderSecretaria==='function')renderSecretaria();}
+  if(n===12){if(typeof renderDashboard==='function')renderDashboard();}
 }
 
 // ═══ DISPATCH ═══
