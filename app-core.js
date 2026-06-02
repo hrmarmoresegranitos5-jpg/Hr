@@ -240,7 +240,7 @@ var DEF_ACESS=[
   {id:'calha_umida',nm:'Calha Úmida',marca:'',dim:'Sob medida',pr:0,desc:'Calha escavada na pedra para escorrer água. Integrada ao tampo.',photo:''},
   {id:'escorredor',nm:'Escorredor de Louça',marca:'',dim:'Embutir',pr:0,desc:'Escorredor em inox ou pedra esculpida integrado à bancada.',photo:''}
 ];
-var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
+var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,sol1:38,sol2:65,sol_45:65,peit_reto:45,peit_ping:78,peit_col:132,peit_portal:200,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0,
   ac_sifao:45,ac_flex:25,ac_veda:15,ac_sil:20,ac_paraf:30,ac_bucha:20,ac_sup:60,ac_outros:0,
   // Túmulo
   tum_tampa:85, tum_lat:85, tum_front:85, tum_base:85, tum_det:85, tum_sainha:85,
@@ -831,7 +831,7 @@ SV_DEFS.Banheiro=[
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -2573,7 +2573,7 @@ function buildSVHtml(amb){
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;padding:8px 12px 10px;">';
       grp.its.forEach(function(it){
         var active=selAcb===it.k;
         var acbMlA=0;(amb.pecas||[]).forEach(function(p){if(p.w)acbMlA+=(p.w/100)*(p.q||1);});
@@ -2581,7 +2581,7 @@ function buildSVHtml(amb){
         var prAcb=getPr(it.k);
         var custo=autoMlAcb>0&&prAcb>0?(' · R$ '+fm(autoMlAcb*prAcb)):'';
         var subtitle=it.lados>0&&autoMlAcb>0?(autoMlAcb.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
           +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';

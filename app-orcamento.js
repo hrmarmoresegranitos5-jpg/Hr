@@ -327,14 +327,14 @@ function buildSV(){
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px 12px 10px;">';
       grp.its.forEach(function(it){
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
         var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
           +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
@@ -1019,14 +1019,14 @@ function buildSVHtml(amb){
       grp.its.forEach(function(it){if(sv[it.k])selAcb=it.k;});
       if(!selAcb)selAcb=grp.its[0].k;
       h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 12px 10px;flex-wrap:wrap;">';
+      h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:8px 12px 10px;">';
       grp.its.forEach(function(it){
         var active=selAcb===it.k;
         var autoMl=_calcAcbAutoMl(amb,it.lados||0);
         var pr=getPr(it.k);
         var custo=autoMl>0&&pr>0?(' · R$ '+fm(autoMl*pr)):'';
         var subtitle=it.lados>0&&autoMl>0?(autoMl.toFixed(2)+'ml'+custo):it.lados===0?'sem custo':'';
-        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;flex:1;min-width:90px;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+        h+='<div onclick="togAcbAuto('+amb.id+',\''+it.k+'\')" style="cursor:pointer;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(active?'var(--gold)':'var(--bd2)')+';background:'+(active?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
           +'<div style="font-size:.78rem;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
           +(subtitle?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+subtitle+'</div>':'')
           +'</div>';
@@ -2938,3 +2938,633 @@ window.cliExcluir=cliExcluir;
 window.cliACSelecionar=cliACSelecionar;
 window.cliAplicarDesc=cliAplicarDesc;
 window.CLDB=CLDB;
+
+// ── Migração: importar clientes do histórico para CLDB ──
+// Roda uma vez automaticamente. Nunca pergunta — só importa silenciosamente.
+(function _cliMigrarHistorico() {
+  var FLAG = 'hr_cli_migrado_v1';
+  if (localStorage.getItem(FLAG)) return; // já rodou
+
+  function run() {
+    var orcs = DB && DB.q ? DB.q : [];
+    var jobs = DB && DB.j ? DB.j : [];
+    var importados = 0;
+
+    // Junta orçamentos e jobs, ordena por data (mais antigos primeiro)
+    var entradas = [];
+    orcs.forEach(function(q) {
+      if (q.cli) entradas.push({ nome: q.cli, tel: q.tel||'', cidade: q.cidade||'', end: q.end||'', data: q.date||'' });
+    });
+    jobs.forEach(function(j) {
+      if (j.cli) entradas.push({ nome: j.cli, tel: '', cidade: '', end: '', data: j.start||'' });
+    });
+    entradas.sort(function(a, b) { return a.data < b.data ? -1 : 1; });
+
+    entradas.forEach(function(e) {
+      if (!e.nome || e.nome.trim().length < 2) return;
+      var nome = e.nome.trim();
+      // Verificar se já existe (fuzzy ≥ 80%)
+      var exist = _cliBuscar(nome, 80);
+      if (exist.length > 0) {
+        // Atualizar campos em branco se tiver info nova
+        var c = exist[0].c, upd = {};
+        if (e.tel    && !c.tel)    upd.tel    = e.tel;
+        if (e.cidade && !c.cidade) upd.cidade = e.cidade;
+        if (e.end    && !c.end)    upd.end    = e.end;
+        if (Object.keys(upd).length) CLDB.upd(c.id, upd);
+        return;
+      }
+      // Novo cliente
+      CLDB.add({ nome: nome, tel: e.tel, cidade: e.cidade, end: e.end, obs: '' });
+      importados++;
+    });
+
+    localStorage.setItem(FLAG, '1');
+    if (importados > 0) {
+      toast('✓ ' + importados + ' clientes importados do histórico!');
+    }
+  }
+
+  // Aguardar DB estar disponível
+  if (typeof DB !== 'undefined' && DB.q) {
+    run();
+  } else {
+    var t = 0;
+    var iv = setInterval(function() {
+      if (typeof DB !== 'undefined' && DB.q) { clearInterval(iv); run(); }
+      if (++t > 20) clearInterval(iv);
+    }, 300);
+  }
+})();
+// ══════════════════════════════════════════════════════════════
+// MELHORIA #4 — REDESIGN VISUAL DO MÓDULO DE ORÇAMENTO
+// Transforma a tela de orçamento em uma experiência premium:
+// • Header dinâmico com nome do cliente em tempo real
+// • Indicador visual do material selecionado (com cor/gradiente)
+// • Status bar de progresso do orçamento (4 etapas)
+// • Resultado com card de valor premium e animação
+// • Botões de ação redesenhados
+//
+// COMO INTEGRAR:
+//   1. Adicionar este arquivo ao index.html
+//   2. Chamar _orcInitPremium() no app-init.js ou após renderAmbientes()
+//   3. O redesign é não-destrutivo — envolve os elementos existentes
+//      com wrappers premium sem alterar IDs ou lógica de cálculo
+// ══════════════════════════════════════════════════════════════
+
+// ── Estado local ──
+var _orcPremiumInit = false;
+
+function _orcInitPremium() {
+  if (_orcPremiumInit) return;
+  _orcPremiumInit = true;
+  _injectOrcPremiumStyles();
+  _orcBuildHeader();
+  _orcWrapResult();
+  _orcInitLiveListeners();
+}
+
+// ─────────────────────────────────────────────────────────────
+// HEADER PREMIUM
+// Injeta acima do #pg0 um header dinâmico que mostra:
+// - Nome do cliente (atualizado em tempo real)
+// - Material selecionado (cor/nome)
+// - Barra de progresso (4 etapas)
+// ─────────────────────────────────────────────────────────────
+function _orcBuildHeader() {
+  var pg = document.getElementById('pg0');
+  if (!pg) return;
+
+  // Não duplicar
+  if (document.getElementById('orcPremHdr')) return;
+
+  var hdr = document.createElement('div');
+  hdr.id = 'orcPremHdr';
+  hdr.className = 'orc-prem-hdr';
+  hdr.innerHTML =
+    '<div class="orc-prem-hdr-inner">' +
+      '<div class="orc-prem-cli-wrap">' +
+        '<div class="orc-prem-cli-label">CLIENTE</div>' +
+        '<div class="orc-prem-cli-nome" id="orcPremCliNome">—</div>' +
+      '</div>' +
+      '<div class="orc-prem-mat-pill" id="orcPremMatPill">' +
+        '<div class="orc-prem-mat-dot" id="orcPremMatDot"></div>' +
+        '<div class="orc-prem-mat-nome" id="orcPremMatNome">Sem pedra</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="orc-prem-steps" id="orcPremSteps">' +
+      _orcStepsHtml(1) +
+    '</div>';
+
+  // Inserir como primeiro filho do pg0
+  pg.insertBefore(hdr, pg.firstChild);
+}
+
+function _orcStepsHtml(step) {
+  var steps = ['Cliente', 'Pedra', 'Medidas', 'Calcular'];
+  var h = '';
+  steps.forEach(function(lbl, i) {
+    var n = i + 1;
+    var done = n < step;
+    var active = n === step;
+    h += '<div class="orc-step' + (done ? ' done' : active ? ' active' : '') + '">';
+    h += '<div class="orc-step-dot">' + (done ? '✓' : n) + '</div>';
+    h += '<div class="orc-step-lbl">' + lbl + '</div>';
+    h += '</div>';
+    if (i < steps.length - 1) h += '<div class="orc-step-line' + (done ? ' done' : '') + '"></div>';
+  });
+  return h;
+}
+
+// ─────────────────────────────────────────────────────────────
+// LISTENERS em tempo real
+// ─────────────────────────────────────────────────────────────
+function _orcInitLiveListeners() {
+  // Atualizar nome do cliente em tempo real
+  var cliEl = document.getElementById('oCliente');
+  if (cliEl) {
+    cliEl.addEventListener('input', _orcUpdateHeader);
+    cliEl.addEventListener('change', _orcUpdateHeader);
+  }
+
+  // Observer para mudança de material (classe .on em [data-mat])
+  var observer = new MutationObserver(function() {
+    _orcUpdateHeader();
+  });
+  var ambList = document.getElementById('ambientesList');
+  if (ambList) {
+    observer.observe(ambList, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  }
+
+  // Observar resArea para animar resultado
+  var resArea = document.getElementById('resArea');
+  if (resArea) {
+    var resObs = new MutationObserver(function() {
+      if (resArea.style.display !== 'none') {
+        _orcAnimateResult();
+        _orcUpdateHeader(); // step 4
+      }
+    });
+    resObs.observe(resArea, { attributes: true, attributeFilter: ['style'] });
+  }
+
+  // Update inicial
+  _orcUpdateHeader();
+
+  // Update periódico para capturar mudanças de material (que não disparam eventos)
+  setInterval(_orcUpdateHeader, 1500);
+}
+
+function _orcUpdateHeader() {
+  // Nome cliente
+  var cliEl = document.getElementById('oCliente');
+  var cli = cliEl ? cliEl.value.trim() : '';
+  var nomeEl = document.getElementById('orcPremCliNome');
+  if (nomeEl) nomeEl.textContent = cli || '—';
+
+  // Material selecionado
+  var matEl  = document.getElementById('orcPremMatNome');
+  var dotEl  = document.getElementById('orcPremMatDot');
+  var pillEl = document.getElementById('orcPremMatPill');
+  if (matEl && dotEl && pillEl) {
+    var stone = null;
+    if (typeof selMat !== 'undefined' && selMat && typeof CFG !== 'undefined' && CFG.stones) {
+      stone = CFG.stones.find(function(s) { return s.id === selMat; });
+    }
+    if (!stone && ambientes && ambientes[0]) {
+      var amb0 = ambientes[0];
+      if (amb0.selMat && typeof CFG !== 'undefined' && CFG.stones) {
+        stone = CFG.stones.find(function(s) { return s.id === amb0.selMat; });
+      }
+    }
+    if (stone) {
+      matEl.textContent = stone.nm || stone.id;
+      // Cor do dot (baseado no nome da pedra)
+      var cor = _orcStoneColor(stone);
+      dotEl.style.background = cor;
+      dotEl.style.boxShadow  = '0 0 6px ' + cor + '80';
+      pillEl.style.borderColor = cor + '40';
+    } else {
+      matEl.textContent = 'Sem pedra';
+      dotEl.style.background = 'var(--t4)';
+      dotEl.style.boxShadow = 'none';
+      pillEl.style.borderColor = 'rgba(255,255,255,.08)';
+    }
+  }
+
+  // Step da barra de progresso
+  var stepsEl = document.getElementById('orcPremSteps');
+  if (stepsEl) {
+    var resArea = document.getElementById('resArea');
+    var temResult = resArea && resArea.style.display !== 'none';
+    var temCli  = cli.length > 0;
+    var temMat  = !!(typeof selMat !== 'undefined' && selMat);
+    var temMed  = !!(ambientes && ambientes[0] && ambientes[0].pecas &&
+                     ambientes[0].pecas.some(function(p){ return p.w > 0 && p.h > 0; }));
+
+    var step = 1;
+    if (temCli) step = 2;
+    if (temCli && temMat) step = 3;
+    if (temCli && temMat && temMed) step = 4;
+    if (temResult) step = 5; // todos completos
+    stepsEl.innerHTML = _orcStepsHtml(step);
+  }
+}
+
+// Mapeia nome da pedra para uma cor representativa
+function _orcStoneColor(stone) {
+  var nm = (stone.nm || stone.id || '').toLowerCase();
+  if (nm.includes('preto') || nm.includes('black') || nm.includes('absolut')) return '#4a5568';
+  if (nm.includes('branco') || nm.includes('white') || nm.includes('polar')) return '#cbd5e0';
+  if (nm.includes('cinza') || nm.includes('gray') || nm.includes('grey')) return '#718096';
+  if (nm.includes('marrom') || nm.includes('brown') || nm.includes('imperial')) return '#8B5E3C';
+  if (nm.includes('verde') || nm.includes('green')) return '#276749';
+  if (nm.includes('azul') || nm.includes('blue') || nm.includes('bahia')) return '#2b6cb0';
+  if (nm.includes('amarelo') || nm.includes('yellow') || nm.includes('gold')) return '#b7791f';
+  if (nm.includes('rosa') || nm.includes('pink') || nm.includes('salmon')) return '#d53f8c';
+  if (nm.includes('bege') || nm.includes('beige') || nm.includes('cream')) return '#c8a97e';
+  if (nm.includes('via láctea') || nm.includes('milky')) return '#553c9a';
+  return stone.cor || '#C9A84C';
+}
+
+// ─────────────────────────────────────────────────────────────
+// WRAPPER DO RESULTADO
+// Envolve o #resArea com estilos premium e adiciona card
+// de valor grande com animação ao aparecer
+// ─────────────────────────────────────────────────────────────
+function _orcWrapResult() {
+  // Adicionar card de destaque ANTES do resDetail (será preenchido após calcular)
+  var resArea = document.getElementById('resArea');
+  if (!resArea) return;
+  if (document.getElementById('orcValorCard')) return;
+
+  // Card de valor — inserir antes da primeira .sec dentro do resArea
+  var firstSec = resArea.querySelector('.sec');
+  if (!firstSec) return;
+
+  var card = document.createElement('div');
+  card.id = 'orcValorCard';
+  card.className = 'orc-valor-card';
+  card.innerHTML =
+    '<div class="orc-valor-label">VALOR DO ORÇAMENTO</div>' +
+    '<div class="orc-valor-num" id="orcValorNum">R$ —</div>' +
+    '<div class="orc-valor-sub" id="orcValorSub"></div>' +
+    '<div class="orc-valor-sparkles" aria-hidden="true">' +
+      '<span class="orc-sp orc-sp1">✦</span>' +
+      '<span class="orc-sp orc-sp2">✦</span>' +
+      '<span class="orc-sp orc-sp3">✦</span>' +
+    '</div>';
+
+  resArea.insertBefore(card, firstSec);
+
+  // Observer para capturar o valor quando calcular() preencher resDetail
+  var resDetail = document.getElementById('resDetail');
+  if (resDetail) {
+    var obs = new MutationObserver(function() {
+      _orcSyncValorCard();
+    });
+    obs.observe(resDetail, { childList: true, subtree: true, characterData: true });
+  }
+}
+
+function _orcSyncValorCard() {
+  var numEl = document.getElementById('orcValorNum');
+  var subEl = document.getElementById('orcValorSub');
+  if (!numEl) return;
+
+  // Extrair valor à vista do resDetail ou do estado global
+  var vista = 0;
+  if (typeof DB !== 'undefined' && DB.q && DB.q.length) {
+    var last = DB.q[DB.q.length - 1];
+    if (last) vista = last.vista || 0;
+  }
+
+  // Fallback: procurar no texto do resDetail
+  if (!vista) {
+    var resDetail = document.getElementById('resDetail');
+    if (resDetail) {
+      var txt = resDetail.textContent || '';
+      var m = txt.match(/R\$\s*([\d.,]+)/);
+      if (m) {
+        vista = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+      }
+    }
+  }
+
+  if (vista > 0) {
+    numEl.textContent = 'R$ ' + fm(vista);
+    numEl.style.color = 'var(--gold2)';
+    if (subEl) {
+      // Parcelado estimado (12x, 2%)
+      var parcVal = vista * 1.02 / 12;
+      subEl.textContent = 'ou 12× de R$ ' + fm(parcVal) + ' (est.)';
+    }
+  }
+}
+
+function _orcAnimateResult() {
+  _orcSyncValorCard();
+  var card = document.getElementById('orcValorCard');
+  if (card) {
+    card.classList.remove('orc-valor-pop');
+    // Force reflow
+    void card.offsetWidth;
+    card.classList.add('orc-valor-pop');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// CSS PREMIUM
+// ─────────────────────────────────────────────────────────────
+function _injectOrcPremiumStyles() {
+  if (document.getElementById('orcPremStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'orcPremStyle';
+  s.textContent = `
+    @keyframes orcPremFadeIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes orcValorPop {
+      0%   { transform: scale(1); }
+      30%  { transform: scale(1.03); }
+      60%  { transform: scale(.98); }
+      100% { transform: scale(1); }
+    }
+    @keyframes orcSpFloat {
+      0%, 100% { opacity: .2; transform: translateY(0) scale(1); }
+      50%       { opacity: .6; transform: translateY(-6px) scale(1.2); }
+    }
+    @keyframes orcStepDone {
+      from { transform: scale(0); }
+      to   { transform: scale(1); }
+    }
+
+    /* ── HEADER PREMIUM ── */
+    .orc-prem-hdr {
+      background: linear-gradient(160deg,
+        rgba(201,168,76,.1) 0%,
+        rgba(201,168,76,.04) 60%,
+        transparent 100%);
+      border-bottom: 1px solid rgba(201,168,76,.15);
+      padding: 14px 16px 0;
+      animation: orcPremFadeIn .4s ease;
+    }
+
+    .orc-prem-hdr-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+
+    .orc-prem-cli-label {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: rgba(201,168,76,.5);
+      margin-bottom: 2px;
+    }
+    .orc-prem-cli-nome {
+      font-size: 16px;
+      font-weight: 900;
+      color: var(--t1);
+      letter-spacing: -.3px;
+      transition: color .2s;
+      max-width: 180px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .orc-prem-cli-nome:not(:empty):not(:contains('—')) {
+      color: var(--gold2);
+    }
+
+    /* Material pill */
+    .orc-prem-mat-pill {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 20px;
+      padding: 6px 12px 6px 8px;
+      flex-shrink: 0;
+      transition: border-color .3s;
+    }
+    .orc-prem-mat-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background .3s, box-shadow .3s;
+    }
+    .orc-prem-mat-nome {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--t2);
+      white-space: nowrap;
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Barra de steps */
+    .orc-prem-steps {
+      display: flex;
+      align-items: center;
+      padding: 0 0 12px;
+      gap: 0;
+    }
+
+    .orc-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .orc-step-dot {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.06);
+      border: 1.5px solid rgba(255,255,255,.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+      font-weight: 800;
+      color: var(--t4);
+      transition: all .25s;
+    }
+    .orc-step.done .orc-step-dot {
+      background: rgba(74,222,128,.15);
+      border-color: rgba(74,222,128,.4);
+      color: #4ade80;
+      font-size: 11px;
+    }
+    .orc-step.active .orc-step-dot {
+      background: rgba(201,168,76,.15);
+      border-color: var(--gold);
+      color: var(--gold2);
+      box-shadow: 0 0 10px rgba(201,168,76,.25);
+    }
+
+    .orc-step-lbl {
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      color: var(--t4);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .orc-step.done .orc-step-lbl { color: #4ade80; }
+    .orc-step.active .orc-step-lbl { color: var(--gold2); }
+
+    .orc-step-line {
+      flex: 1;
+      height: 1.5px;
+      background: rgba(255,255,255,.08);
+      margin: 0 4px;
+      margin-bottom: 14px;
+      transition: background .3s;
+    }
+    .orc-step-line.done { background: rgba(74,222,128,.3); }
+
+    /* ── CARD DE VALOR ── */
+    .orc-valor-card {
+      margin: 16px 12px 0;
+      background: linear-gradient(135deg,
+        rgba(201,168,76,.12) 0%,
+        rgba(201,168,76,.06) 50%,
+        rgba(0,0,0,0) 100%);
+      border: 1px solid rgba(201,168,76,.25);
+      border-radius: 20px;
+      padding: 20px 16px 18px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .orc-valor-card.orc-valor-pop {
+      animation: orcValorPop .5s ease;
+    }
+
+    /* Efeito de brilho no fundo */
+    .orc-valor-card::before {
+      content: '';
+      position: absolute;
+      top: -30px; left: 50%;
+      width: 200px; height: 200px;
+      background: radial-gradient(circle, rgba(201,168,76,.08) 0%, transparent 70%);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .orc-valor-label {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 2.5px;
+      color: rgba(201,168,76,.5);
+      margin-bottom: 6px;
+    }
+    .orc-valor-num {
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: var(--gold2);
+      letter-spacing: -1.5px;
+      line-height: 1;
+      margin-bottom: 6px;
+      transition: color .3s;
+    }
+    .orc-valor-sub {
+      font-size: 11px;
+      color: var(--t3);
+    }
+
+    /* Sparkles flutuantes */
+    .orc-valor-sparkles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .orc-sp {
+      position: absolute;
+      color: var(--gold);
+      font-size: 10px;
+      animation: orcSpFloat 3s ease-in-out infinite;
+    }
+    .orc-sp1 { top: 16px; left: 16px; animation-delay: 0s; opacity: .3; }
+    .orc-sp2 { top: 20px; right: 20px; animation-delay: 1s; opacity: .25; font-size: 7px; }
+    .orc-sp3 { bottom: 18px; left: 40%; animation-delay: 2s; opacity: .2; font-size: 8px; }
+
+    /* ── MELHORIAS NOS INPUTS ── */
+    #pg0 .sec .f input,
+    #pg0 .sec .f textarea {
+      transition: border-color .2s, box-shadow .2s;
+    }
+    #pg0 .sec .f input:focus {
+      border-color: rgba(201,168,76,.4) !important;
+      box-shadow: 0 0 0 3px rgba(201,168,76,.08);
+    }
+
+    /* ── BOTÃO CALCULAR ── */
+    #btnCalc {
+      position: relative;
+      overflow: hidden;
+    }
+    #btnCalc::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,255,255,.08) 50%,
+        transparent 100%);
+      transform: translateX(-100%);
+      transition: transform .4s ease;
+    }
+    #btnCalc:active::after {
+      transform: translateX(100%);
+    }
+
+    /* ── BOTÕES DE AÇÃO DO RESULTADO ── */
+    #btnCopy, #btnPDF {
+      border-radius: 14px !important;
+      font-weight: 700;
+      letter-spacing: .3px;
+      transition: transform .15s, box-shadow .15s !important;
+    }
+    #btnCopy:active, #btnPDF:active {
+      transform: scale(.96);
+    }
+    #btnPDF {
+      box-shadow: 0 0 16px rgba(201,168,76,.15);
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTO-INIT quando pg0 fica visível
+// ─────────────────────────────────────────────────────────────
+(function() {
+  // Tentar init imediato
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      setTimeout(_orcInitPremium, 500);
+    });
+  } else {
+    setTimeout(_orcInitPremium, 500);
+  }
+
+  // Também reinit quando navegar para a tela de orçamento
+  var _origGo = window.go;
+  if (_origGo) {
+    window.go = function(n) {
+      _origGo(n);
+      if (n === 0 || n === 1) {
+        setTimeout(_orcInitPremium, 100);
+        setTimeout(_orcUpdateHeader, 200);
+      }
+    };
+  }
+})();
