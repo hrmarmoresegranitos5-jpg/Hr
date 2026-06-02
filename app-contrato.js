@@ -90,6 +90,7 @@ function confirmarContrato(){
   if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'>',txt:'<strong>Previsao de entrega:</strong> '+de+' ('+prazo+' dias uteis)'});}
   if(obsContr)pgConds.push({icon:'*',txt:obsContr});
   _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa);
+  toastContrato(q);
   }catch(err){console.error('confirmarContrato:',err);toast('Erro: '+err.message);}
 }
 
