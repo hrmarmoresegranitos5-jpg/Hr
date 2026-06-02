@@ -1214,3 +1214,367 @@ function secSwitchTab(tab) {
     renderSecretaria();
   }
 }
+// ══════════════════════════════════════════════════════════════
+// MELHORIA #1 — TIMELINE DO DIA na Secretária
+// Adiciona widget de linha do tempo horizontal com visitas e
+// entregas do dia, com horários, status e indicador de "agora"
+//
+// COMO INTEGRAR:
+//   Em _renderSecretariaInner(), após o bloco dos chips (sec2-chips)
+//   e antes do AI container, adicione:
+//
+//     h += _secTimeline(hoje, agora);
+//
+//   Depois adicione este arquivo ao index.html junto com app-secretaria.js
+// ══════════════════════════════════════════════════════════════
+
+function _secTimeline(hoje, agora) {
+  // ── Coletar eventos do dia ──
+  var eventos = [];
+
+  // Visitas agendadas para hoje
+  (_getV() || []).filter(function(v) {
+    return v.status === 'agendada' && v.date === hoje && v.hora;
+  }).forEach(function(v) {
+    var p = v.hora.split(':');
+    var min = (+p[0]) * 60 + (+p[1]);
+    eventos.push({
+      min: min,
+      hora: v.hora,
+      tipo: 'visita',
+      label: v.cli,
+      sub: v.end || 'Visita de medição',
+      cor: '#60a5fa',
+      icon: '📐',
+      id: v.id
+    });
+  });
+
+  // Entregas de hoje
+  (DB.j || []).filter(function(j) {
+    return !j.done && j.end === hoje;
+  }).forEach(function(j) {
+    // Entregas sem hora fixa: marcar às 17h por convenção
+    eventos.push({
+      min: 17 * 60,
+      hora: '17:00',
+      tipo: 'entrega',
+      label: j.cli,
+      sub: j.desc || 'Entrega',
+      cor: '#fb923c',
+      icon: '🔨',
+      id: j.id
+    });
+  });
+
+  // Pagamentos pendentes vencendo hoje
+  (DB.t || []).filter(function(t) {
+    return t.type === 'pend' && t.date === hoje;
+  }).forEach(function(t) {
+    eventos.push({
+      min: 12 * 60,
+      hora: '12:00',
+      tipo: 'pagamento',
+      label: t.desc || 'Pagamento',
+      sub: 'R$ ' + fm(t.value || 0),
+      cor: '#4ade80',
+      icon: '💰',
+      id: t.id
+    });
+  });
+
+  if (!eventos.length) return '';
+
+  // Ordenar por horário
+  eventos.sort(function(a, b) { return a.min - b.min; });
+
+  // Horário atual em minutos
+  var agoraMin = agora.getHours() * 60 + agora.getMinutes();
+
+  // ── Calcular range da timeline ──
+  var minMin = Math.max(0,   Math.min(agoraMin - 60, eventos[0].min - 30));
+  var maxMin = Math.max(24 * 60, eventos[eventos.length - 1].min + 60);
+  // Simplificar: janela fixa das 7h às 20h
+  minMin = 7 * 60;
+  maxMin = 20 * 60;
+  var span = maxMin - minMin;
+
+  function pct(m) {
+    return Math.max(0, Math.min(100, ((m - minMin) / span) * 100));
+  }
+
+  var agoraPct = pct(agoraMin);
+
+  var h = '';
+  h += '<div class="sec2-tl-wrap" id="secTimeline">';
+  h += '<div class="sec2-tl-header">';
+  h += '<span class="sec2-tl-title">⏱ Hoje</span>';
+
+  // Labels de hora
+  var horas = [8, 10, 12, 14, 16, 18];
+  h += '<div class="sec2-tl-horas">';
+  horas.forEach(function(hr) {
+    h += '<span class="sec2-tl-hora" style="left:' + pct(hr * 60) + '%;">' + hr + 'h</span>';
+  });
+  h += '</div>';
+  h += '</div>';
+
+  // Track
+  h += '<div class="sec2-tl-track">';
+
+  // Faixa de "passado" (antes de agora)
+  h += '<div class="sec2-tl-past" style="width:' + agoraPct + '%;"></div>';
+
+  // Marcadores de hora
+  horas.forEach(function(hr) {
+    h += '<div class="sec2-tl-tick" style="left:' + pct(hr * 60) + '%;"></div>';
+  });
+
+  // Indicador de "agora"
+  if (agoraPct > 0 && agoraPct < 100) {
+    h += '<div class="sec2-tl-now" style="left:' + agoraPct + '%;">';
+    h += '<div class="sec2-tl-now-line"></div>';
+    h += '<div class="sec2-tl-now-dot"></div>';
+    h += '</div>';
+  }
+
+  // Eventos
+  eventos.forEach(function(ev, i) {
+    var p = pct(ev.min);
+    var passado = ev.min < agoraMin;
+    var atrasado = passado && ev.tipo !== 'pagamento';
+    h += '<div class="sec2-tl-ev" style="left:' + p + '%;" onclick="' +
+      (ev.tipo === 'visita' ? 'openVisitaMd(' + ev.id + ')' :
+       ev.tipo === 'entrega' ? 'go(3)' : 'go(4)') + '">';
+    h += '<div class="sec2-tl-ev-dot" style="background:' + (atrasado ? 'var(--red)' : ev.cor) + ';' +
+         'box-shadow:0 0 8px ' + (atrasado ? 'var(--red)' : ev.cor) + '60;"></div>';
+    h += '<div class="sec2-tl-ev-label" style="color:' + (atrasado ? 'var(--red)' : ev.cor) + ';">' +
+         ev.icon + ' ' + escH(ev.label) + '</div>';
+    h += '<div class="sec2-tl-ev-hora">' + ev.hora + '</div>';
+    h += '</div>';
+  });
+
+  h += '</div>';
+
+  // Cards resumo abaixo da track
+  h += '<div class="sec2-tl-cards">';
+  eventos.forEach(function(ev) {
+    var passado = ev.min < agoraMin;
+    h += '<div class="sec2-tl-card" style="border-left-color:' + (passado ? 'var(--bd)' : ev.cor) + ';opacity:' + (passado ? '.5' : '1') + ';">';
+    h += '<div class="sec2-tl-card-hora" style="color:' + (passado ? 'var(--t4)' : ev.cor) + ';">' + ev.hora + '</div>';
+    h += '<div class="sec2-tl-card-body">';
+    h += '<div class="sec2-tl-card-label">' + ev.icon + ' ' + escH(ev.label) + '</div>';
+    h += '<div class="sec2-tl-card-sub">' + escH(ev.sub) + '</div>';
+    h += '</div>';
+    if (passado) h += '<div class="sec2-tl-card-done">✓</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+
+  h += '</div>'; // sec2-tl-wrap
+
+  return h;
+}
+
+// ── Injetar estilos da timeline ──
+// Chamar uma vez, dentro de _injectSec2Styles() ou separado
+function _injectTimelineStyles() {
+  if (document.getElementById('secTLStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'secTLStyle';
+  s.textContent = `
+    @keyframes tlNowPulse {
+      0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+      50%       { opacity: .7; transform: translateX(-50%) scale(1.3); }
+    }
+    @keyframes tlFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: none; }
+    }
+
+    .sec2-tl-wrap {
+      margin: 0 0 14px;
+      background: linear-gradient(135deg, rgba(96,165,250,.07) 0%, rgba(96,165,250,.02) 100%);
+      border: 1px solid rgba(96,165,250,.18);
+      border-radius: 18px;
+      padding: 14px 14px 12px;
+      animation: tlFadeIn .4s ease;
+      overflow: hidden;
+    }
+
+    .sec2-tl-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+      position: relative;
+    }
+
+    .sec2-tl-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #60a5fa;
+    }
+
+    .sec2-tl-horas {
+      position: relative;
+      flex: 1;
+      margin-left: 16px;
+      height: 16px;
+    }
+
+    .sec2-tl-hora {
+      position: absolute;
+      transform: translateX(-50%);
+      font-size: 9px;
+      color: rgba(255,255,255,.25);
+      font-weight: 600;
+      white-space: nowrap;
+      bottom: 0;
+    }
+
+    /* Track */
+    .sec2-tl-track {
+      position: relative;
+      height: 4px;
+      background: rgba(255,255,255,.06);
+      border-radius: 4px;
+      margin: 0 0 16px;
+      overflow: visible;
+    }
+
+    .sec2-tl-past {
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      background: rgba(255,255,255,.08);
+      border-radius: 4px;
+      pointer-events: none;
+    }
+
+    .sec2-tl-tick {
+      position: absolute;
+      top: -3px;
+      width: 1px;
+      height: 10px;
+      background: rgba(255,255,255,.1);
+      transform: translateX(-50%);
+    }
+
+    /* Agora */
+    .sec2-tl-now {
+      position: absolute;
+      top: 50%;
+      transform: translateX(-50%) translateY(-50%);
+      z-index: 10;
+    }
+    .sec2-tl-now-line {
+      position: absolute;
+      left: 50%;
+      top: -24px;
+      width: 1.5px;
+      height: 48px;
+      background: linear-gradient(to bottom, transparent, rgba(248,113,113,.8), transparent);
+      transform: translateX(-50%);
+    }
+    .sec2-tl-now-dot {
+      width: 10px; height: 10px;
+      background: #f87171;
+      border-radius: 50%;
+      border: 2px solid rgba(248,113,113,.3);
+      transform: translateX(-50%);
+      animation: tlNowPulse 2s ease-in-out infinite;
+    }
+
+    /* Evento */
+    .sec2-tl-ev {
+      position: absolute;
+      top: 50%;
+      transform: translateX(-50%) translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      z-index: 5;
+    }
+    .sec2-tl-ev-dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      border: 2px solid rgba(0,0,0,.3);
+      flex-shrink: 0;
+      transition: transform .2s;
+    }
+    .sec2-tl-ev:active .sec2-tl-ev-dot { transform: scale(1.3); }
+    .sec2-tl-ev-label {
+      position: absolute;
+      top: 16px;
+      font-size: 9px;
+      font-weight: 700;
+      white-space: nowrap;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+    }
+    .sec2-tl-ev-hora {
+      position: absolute;
+      bottom: 16px;
+      font-size: 8px;
+      color: rgba(255,255,255,.3);
+      white-space: nowrap;
+    }
+
+    /* Cards abaixo da track */
+    .sec2-tl-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 24px;
+    }
+    .sec2-tl-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.06);
+      border-left: 3px solid;
+      border-radius: 0 10px 10px 0;
+      padding: 9px 12px;
+      transition: background .15s;
+      cursor: pointer;
+    }
+    .sec2-tl-card:active { background: rgba(255,255,255,.06); }
+    .sec2-tl-card-hora {
+      font-size: 13px;
+      font-weight: 900;
+      min-width: 40px;
+      font-variant-numeric: tabular-nums;
+    }
+    .sec2-tl-card-body { flex: 1; min-width: 0; }
+    .sec2-tl-card-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--t1);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sec2-tl-card-sub {
+      font-size: 11px;
+      color: var(--t4);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sec2-tl-card-done {
+      font-size: 14px;
+      color: var(--t4);
+      flex-shrink: 0;
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+// Chamar _injectTimelineStyles() dentro de _injectSec2Styles() ou no init
