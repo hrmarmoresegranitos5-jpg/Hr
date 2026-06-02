@@ -212,8 +212,14 @@ function openApp(pg){
       </div>
       <div class="cbwrap" id="cbWrap"><div class="cbq" id="cbQ"></div><div class="cbs"><button class="cby" id="cbY">Sim</button><button class="cbn" id="cbN">Não agora</button></div></div>
       <div class="sec">
-        <div class="sl">Dados do Cliente</div>
-        <div class="f"><input id="oCliente" placeholder="Nome completo do cliente" type="text"></div>
+        <div class="sl" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Dados do Cliente</span>
+          <button onclick="abrirGestaoClientes()" style="padding:5px 12px;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;color:var(--gold2);font-family:Outfit;font-size:.68rem;font-weight:600;cursor:pointer;flex-shrink:0;">👥 Clientes</button>
+        </div>
+        <div class="f" style="position:relative;">
+          <input id="oCliente" placeholder="Nome completo do cliente" type="text" autocomplete="off">
+          <div id="cliACDrop" style="position:absolute;top:100%;left:0;right:0;z-index:9999;background:var(--s1);border:1px solid var(--bd2);border-radius:0 0 12px 12px;box-shadow:0 8px 28px rgba(0,0,0,.45);display:none;max-height:260px;overflow-y:auto;"></div>
+        </div>
         <div class="r2">
           <div class="f"><input id="oTel" placeholder="WhatsApp / Telefone" type="tel"></div>
           <div class="f"><input id="oCidade" placeholder="Cidade" type="text"></div>
@@ -750,6 +756,7 @@ if (typeof TUM === 'undefined') {
   </script>
   <script src="app-core.js?v=15"></script>
   <script src="app-precif-tumulos.js?v=1"></script>
+  <script src="app-orcamento.js?v=1"></script>
   <script src="app-financas.js?v=2"></script>
   <script src="app-pdf-prazo.js?v=2"></script>
   <script src="app-secretaria.js?v=1"></script>
@@ -766,6 +773,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-funcionarios.js?v=3"></script>
   <script src="app-import-relatorio.js?v=1"></script>
   <script src="app-banco-horas.js?v=1"></script>
+  <script src="app-boletos.js?v=1"></script>
 <div class="ov" id="adminPinMd" style="align-items:flex-end;">
   <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
     <div style="text-align:center;margin-bottom:16px;">
@@ -1745,5 +1753,23 @@ document.addEventListener('click', function(e) {
   }
 })();
 </script>
+<!-- ══ MODAIS: BANCO DE CLIENTES ══ -->
+<div class="ov" id="cliGestaoMd" style="align-items:flex-end;">
+  <div style="background:var(--s1);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:88vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
+    <div style="padding:18px 18px 13px;border-bottom:1px solid var(--bd);flex-shrink:0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-size:1rem;font-weight:700;color:var(--gold2);">👥 Banco de Clientes</div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="cliAbrirNovo()" style="padding:7px 13px;background:var(--gold2);color:#000;border:none;border-radius:8px;font-family:Outfit;font-size:.74rem;font-weight:700;cursor:pointer;">+ Novo</button>
+          <button onclick="closeAll()" style="padding:7px 11px;background:var(--s3);color:var(--t2);border:none;border-radius:8px;font-family:Outfit;font-size:.74rem;cursor:pointer;">✕</button>
+        </div>
+      </div>
+      <input id="cliBuscaInp" placeholder="🔍 Buscar cliente..." oninput="renderListaClientes(this.value)"
+        style="width:100%;padding:9px 12px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;color:var(--tx);font-family:Outfit;font-size:.84rem;box-sizing:border-box;outline:none;">
+    </div>
+    <div id="cliLista" style="overflow-y:auto;flex:1;padding:8px 0;"></div>
+  </div>
+</div>
+<div class="ov" id="cliFormMd" style="align-items:flex-end;"></div>
 </body>
 </html>
