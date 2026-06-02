@@ -1712,6 +1712,8 @@ function calcular(){
   });
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,m2:totalM2,custoPedra:totalCustoPedra,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
   DB.q.unshift(q);DB.sv();pendQ=q;
+  // ── Consultor de Desconto + Auto-save cliente ──
+  setTimeout(function(){ _cliMostrarConsultor(q); _cliAutoSave(cli,tel,cidade,end); }, 500);
 }
 function selectQuote(){
   var el=document.getElementById('quoteBox');
@@ -2470,3 +2472,469 @@ function setJobStatus(id,status){
   j.done=(status==='finalizado');
   DB.sv();renderAg();updUrgDot();renderJobDetail();toast('✓ Status: '+JOB_STATUS[status].label);
 }
+// ══════════════════════════════════════════════════════════════
+// BANCO DE CLIENTES + CONSULTOR DE DESCONTO INTELIGENTE
+// ══════════════════════════════════════════════════════════════
+
+// ── Banco de dados (localStorage separado) ──
+var CLDB = {
+  _k: 'hr_clientes',
+  get: function(){ try{ return JSON.parse(localStorage.getItem(this._k)||'[]'); }catch(e){ return []; } },
+  sv: function(l){ localStorage.setItem(this._k, JSON.stringify(l)); },
+  add: function(c){ var l=this.get(); c.id=Date.now(); c.em=td(); l.unshift(c); this.sv(l); return c; },
+  upd: function(id,d){ var l=this.get(),i=l.findIndex(function(c){return c.id===id;}); if(i<0)return; Object.assign(l[i],d); l[i].em=td(); this.sv(l); },
+  del: function(id){ this.sv(this.get().filter(function(c){return c.id!==id;})); }
+};
+
+// ── Normalização e busca fuzzy ──
+function _cliNorm(s){
+  return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]/g,'').trim();
+}
+function _cliSim(a,b){
+  a=_cliNorm(a); b=_cliNorm(b);
+  if(!a||!b) return 0;
+  if(a===b) return 100;
+  if(b.indexOf(a)!==-1||a.indexOf(b)!==-1) return 90;
+  var wa=a.split(' ').filter(function(w){return w.length>2;}),wb=b.split(' ').filter(Boolean),m=0;
+  wa.forEach(function(w){ if(wb.some(function(x){return x.indexOf(w)!==-1||w.indexOf(x)!==-1;})) m++; });
+  if(m) return Math.min(85, 50+m*15);
+  return 0;
+}
+function _cliBuscar(q,thr){
+  thr=thr||38; if(!q||q.length<2) return [];
+  var r=[];
+  CLDB.get().forEach(function(c){ var s=_cliSim(q,c.nome); if(s>=thr) r.push({c:c,s:s}); });
+  return r.sort(function(a,b){return b.s-a.s;}).slice(0,5);
+}
+
+// ── Histórico do cliente ──
+function _cliHist(nome){
+  var orcs  = (DB.q||[]).filter(function(q){ return _cliSim(nome,q.cli)>=70; });
+  var jobs  = (DB.j||[]).filter(function(j){ return _cliSim(nome,j.cli)>=70; });
+  var rec   = (DB.t||[]).filter(function(t){ return t.type==='in'&&t.desc&&_cliNorm(t.desc).indexOf(_cliNorm(nome))!==-1; });
+  var fat   = Math.max(
+    rec.reduce(function(s,t){return s+(t.value||0);},0),
+    jobs.reduce(function(s,j){return s+(j.value||0);},0)
+  );
+  var conv  = orcs.length>0?Math.round((jobs.length/orcs.length)*100):0;
+  var cat,icon,cor,bonus;
+  if(jobs.length>=5||fat>=20000){cat='VIP';icon='⭐';cor='#C9A84C';bonus=4;}
+  else if(jobs.length>=2||fat>=5000){cat='Fiel';icon='🤝';cor='#5dbf7a';bonus=2;}
+  else if(orcs.length>=3&&jobs.length===0){cat='Prospect';icon='👀';cor='#d4a017';bonus=-1;}
+  else if(orcs.length===0){cat='Novo';icon='🆕';cor='#6ab0ff';bonus=0;}
+  else{cat='Regular';icon='👤';cor='#a0a0b0';bonus=1;}
+  return {orcs:orcs.length,jobs:jobs.length,fat:fat,conv:conv,cat:cat,icon:icon,cor:cor,bonus:bonus,ultOrc:orcs.length?orcs[0].date:null};
+}
+
+// ── Análise financeira ──
+function _cliFin(){
+  var m=window._finMetrics;
+  var hoje=td(), mes=hoje.slice(0,7);
+  var recMes=m?m.recebidoMes:((DB.t||[]).filter(function(t){return t.type==='in'&&(t.date||'').slice(0,7)===mes;}).reduce(function(s,t){return s+(t.value||0);},0));
+  var pend  =m?m.totalPendente:((DB.t||[]).filter(function(t){return t.type==='pend';}).reduce(function(s,t){return s+(t.value||0);},0));
+  var saldo =m?m.saldoReal:(recMes-((DB.t||[]).filter(function(t){return t.type==='out'&&(t.date||'').slice(0,7)===mes;}).reduce(function(s,t){return s+(t.value||0);},0)));
+  var fixos =((CFG&&CFG.fixos)||[]).reduce(function(s,f){return s+(f.v||0);},0);
+  var vars  =((CFG&&CFG.variaveis)||[]).reduce(function(s,f){return s+(f.v||0);},0);
+  var custos=fixos+vars;
+  var nivel,txt,cor,maxD;
+  if(custos===0){
+    if(saldo>5000){nivel=3;txt='Ótimo';cor='#5dbf7a';maxD=6;}
+    else if(saldo>0){nivel=2;txt='Estável';cor='#5dbf7a';maxD=4;}
+    else if(saldo>-2000){nivel=1;txt='Apertado';cor='#d4a017';maxD=1;}
+    else{nivel=0;txt='Crítico';cor='#c94444';maxD=0;}
+  } else {
+    var cob=(recMes+pend)/custos;
+    if(recMes>=custos*1.4){nivel=3;txt='Ótimo';cor='#5dbf7a';maxD=7;}
+    else if(recMes>=custos*1.1){nivel=2;txt='Estável';cor='#5dbf7a';maxD=4;}
+    else if(cob>=1){nivel=1;txt='Apertado';cor='#d4a017';maxD=2;}
+    else{nivel=0;txt='Crítico';cor='#c94444';maxD=0;}
+  }
+  return {nivel:nivel,txt:txt,cor:cor,maxD:maxD,recMes:recMes,saldo:saldo,custos:custos};
+}
+
+// ── Injetar + renderizar painel do consultor ──
+function _cliMostrarConsultor(q){
+  // Criar seção se não existir
+  if(!document.getElementById('cliDescontoPanel')){
+    var resArea=document.getElementById('resArea');
+    if(!resArea) return;
+    var ref=document.getElementById('painelInterno');
+    var secRef=ref?ref.closest('.sec'):null;
+    var sec=document.createElement('div');
+    sec.className='sec mt';
+    sec.innerHTML='<div class="sl" style="display:flex;justify-content:space-between;align-items:center;">'
+      +'<span>🧠 Consultor de Desconto</span>'
+      +'<span style="font-size:.6rem;color:var(--t4);font-weight:400;">Análise inteligente</span>'
+      +'</div>'
+      +'<div id="cliDescontoPanel" style="background:var(--s1);border:1px solid var(--bd);border-radius:14px;overflow:hidden;"></div>';
+    if(secRef&&secRef.nextSibling) resArea.insertBefore(sec,secRef.nextSibling);
+    else resArea.appendChild(sec);
+  }
+  _cliRenderConsultor(q);
+}
+
+// ── Consultor de Desconto — despacha para IA (Groq) ou fallback local ──
+function _cliRenderConsultor(q){
+  var key=CFG&&CFG.emp&&CFG.emp.apiKey;
+  if(key){
+    _cliConsultorLoading();
+    _cliFetchAIDesc(q);
+  } else {
+    _cliConsultorDraw(q,null);
+  }
+}
+
+function _cliConsultorLoading(){
+  var el=document.getElementById('cliDescontoPanel'); if(!el) return;
+  el.innerHTML='<div style="padding:22px 18px;display:flex;align-items:center;gap:12px;">'
+    +'<span style="font-size:1.4rem;animation:sec2Pulse 1.6s infinite;">🧠</span>'
+    +'<div>'
+    +'<div style="font-size:.82rem;font-weight:700;color:var(--gold2);">Consultando IA...</div>'
+    +'<div style="font-size:.62rem;color:var(--t4);margin-top:2px;">Groq · llama-3.3-70b-versatile</div>'
+    +'</div></div>';
+}
+
+function _cliFetchAIDesc(q){
+  var key=CFG&&CFG.emp&&CFG.emp.apiKey; if(!key) return;
+  var nome=q?q.cli:'';
+  var valor=q?q.vista:0;
+  var fin=_cliFin();
+  var hist=nome?_cliHist(nome):null;
+  var maxDlocal=Math.max(0,fin.maxD+(hist?hist.bonus:0));
+
+  var clienteInfo=hist&&nome
+    ?nome+' — '+hist.orcs+' orçamentos, '+hist.jobs+' serviços, R$ '+fm(hist.fat)+' faturados, conversão '+hist.conv+'%, perfil: '+hist.cat
+    :'Novo cliente sem histórico anterior';
+
+  var finInfo='Estado: '+fin.txt
+    +' | Faturado no mês: R$ '+fm(fin.recMes)
+    +(fin.custos>0?' | Custos fixos: R$ '+fm(fin.custos)+'/mês':'')
+    +' | Saldo projetado: R$ '+fm(fin.saldo);
+
+  var prompt='Você é consultor financeiro de uma marmoraria brasileira chamada HR Mármores.\n'
+    +'Orçamento a vista: R$ '+fm(valor)+'\n'
+    +'Cliente: '+clienteInfo+'\n'
+    +'Finanças do mês: '+finInfo+'\n'
+    +'Cálculo automático local sugeriu desconto máximo de '+maxDlocal+'%.\n\n'
+    +'Com base nesses dados reais, defina a estratégia de desconto mais inteligente.\n'
+    +'Responda SOMENTE JSON sem markdown:\n'
+    +'{"maxDesconto":number_0_a_15,"veredicto":"frase imperativa curta","motivo":"1-2 frases com números reais do contexto","tacticaNegociacao":"1 frase de tática de fechamento","nivel":"otimo|bom|atencao|critico"}';
+
+  var controller=window.AbortController?new AbortController():null;
+  var tid=controller?setTimeout(function(){controller.abort();},18000):null;
+
+  fetch('https://api.groq.com/openai/v1/chat/completions',{
+    method:'POST',
+    signal:controller?controller.signal:undefined,
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({
+      model:'llama-3.3-70b-versatile',
+      max_tokens:350,
+      messages:[
+        {role:'system',content:'Você é consultor financeiro de marmoraria. Responda SOMENTE JSON válido, sem markdown, sem texto fora do JSON.'},
+        {role:'user',content:prompt}
+      ]
+    })
+  })
+  .then(function(r){
+    if(tid) clearTimeout(tid);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  })
+  .then(function(d){
+    var text=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+    var clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
+    var match=clean.match(/\{[\s\S]*\}/);
+    if(!match) throw new Error('no_json');
+    var ai=JSON.parse(match[0]);
+    _cliConsultorDraw(q,ai);
+  })
+  .catch(function(e){
+    if(tid) clearTimeout(tid);
+    console.warn('_cliFetchAIDesc fallback local:',e.message);
+    _cliConsultorDraw(q,null);
+  });
+}
+
+function _cliConsultorDraw(q,ai){
+  var el=document.getElementById('cliDescontoPanel'); if(!el) return;
+  var nome=q?q.cli:(document.getElementById('oCliente')?document.getElementById('oCliente').value.trim():'');
+  var fin=_cliFin();
+  var hist=nome?_cliHist(nome):null;
+  var maxDlocal=Math.max(0,fin.maxD+(hist?hist.bonus:0));
+  var maxD=ai?Math.max(0,Math.round(+(ai.maxDesconto)||0)):maxDlocal;
+  var valor=q?q.vista:0;
+  var econ=valor>0?Math.round(valor*(maxD/100)):0;
+
+  var NIVEL_COR ={otimo:'#5dbf7a',bom:'#5dbf7a',atencao:'#d4a017',critico:'#c94444'};
+  var NIVEL_BG  ={otimo:'rgba(93,191,122,.10)',bom:'rgba(93,191,122,.07)',atencao:'rgba(212,160,23,.07)',critico:'rgba(201,68,68,.07)'};
+  var NIVEL_ICON={otimo:'🎁',bom:'✅',atencao:'⚠️',critico:'🚫'};
+  var nivel_key=ai&&ai.nivel&&NIVEL_COR[ai.nivel]?ai.nivel:(maxD===0?'critico':maxD<=2?'atencao':maxD<=5?'bom':'otimo');
+  var vercor=NIVEL_COR[nivel_key];
+  var verbg=NIVEL_BG[nivel_key];
+  var vericon=NIVEL_ICON[nivel_key];
+  var vertxt=ai?ai.veredicto:(maxD===0?'Não dê desconto agora':maxD<=2?'Desconto pequeno possível':maxD<=5?'Desconto moderado OK':'Pode oferecer bom desconto');
+  var fonte=ai?'IA · Groq':'cálculo local';
+
+  var h='<div style="padding:14px 14px 12px;">';
+
+  // Badge fonte
+  h+='<div style="text-align:right;margin-bottom:6px;">'
+    +'<span style="font-size:.56rem;background:'+(ai?'rgba(93,191,122,.12)':'rgba(255,255,255,.05)')+';border:1px solid '+(ai?'rgba(93,191,122,.3)':'var(--bd2)')+';border-radius:6px;padding:2px 7px;color:'+(ai?'#5dbf7a':'var(--t4)')+';font-weight:600;">'+fonte+'</span>'
+    +'</div>';
+
+  // Veredicto
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:'+(ai&&ai.motivo?'6':'12')+'px;">';
+  h+='<span style="font-size:1.4rem;">'+vericon+'</span>';
+  h+='<div><div style="font-size:.85rem;font-weight:700;color:'+vercor+';">'+vertxt+'</div>';
+  if(!ai) h+='<div style="font-size:.62rem;color:var(--t3);margin-top:2px;">Finanças do mês + histórico do cliente</div>';
+  h+='</div></div>';
+
+  // Motivo da IA
+  if(ai&&ai.motivo){
+    h+='<div style="font-size:.68rem;color:var(--t2);margin-bottom:12px;line-height:1.5;padding:8px 10px;background:rgba(255,255,255,.03);border-left:2px solid '+vercor+';border-radius:0 8px 8px 0;">'+ai.motivo+'</div>';
+  }
+
+  // Box desconto máximo
+  h+='<div style="background:'+verbg+';border:1px solid '+vercor+'33;border-radius:12px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">';
+  h+='<div><div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">MÁXIMO RECOMENDADO</div>';
+  h+='<div style="font-size:2rem;font-weight:800;color:'+vercor+';line-height:1;">'+maxD+'%</div>';
+  if(valor>0&&maxD>0) h+='<div style="font-size:.64rem;color:var(--t3);margin-top:4px;">Cliente paga R$ '+fm(valor-econ)+' (−R$ '+fm(econ)+')</div>';
+  else if(valor>0&&maxD===0) h+='<div style="font-size:.64rem;color:var(--t3);margin-top:4px;">Mantenha R$ '+fm(valor)+'</div>';
+  h+='</div>';
+  h+='<span style="font-size:2rem;">'+(nivel_key==='critico'?'🔴':nivel_key==='atencao'?'🟡':'🟢')+'</span></div>';
+
+  // Grid finanças + cliente
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">';
+  h+='<div style="background:var(--s2);border-radius:10px;padding:10px 11px;">';
+  h+='<div style="font-size:.58rem;color:var(--t3);font-weight:700;letter-spacing:.5px;margin-bottom:6px;">💰 FINANÇAS DO MÊS</div>';
+  h+='<div style="font-size:.75rem;font-weight:700;color:'+fin.cor+';\">'+(fin.nivel===3?'🟢':fin.nivel===2?'🟢':fin.nivel===1?'🟡':'🔴')+' '+fin.txt+'</div>';
+  if(fin.custos>0) h+='<div style="font-size:.62rem;color:var(--t3);margin-top:4px;">Faturado: R$ '+fm(fin.recMes)+'<br>Custos: R$ '+fm(fin.custos)+'/mês</div>';
+  else h+='<div style="font-size:.62rem;color:var(--t3);margin-top:4px;">Saldo: R$ '+fm(fin.saldo)+'<br><span style="color:var(--t4);">Cadastre custos p/ análise precisa</span></div>';
+  h+='<div style="font-size:.6rem;color:'+fin.cor+';margin-top:5px;font-weight:600;">Permite até '+fin.maxD+'%</div>';
+  h+='</div>';
+  h+='<div style="background:var(--s2);border-radius:10px;padding:10px 11px;">';
+  h+='<div style="font-size:.58rem;color:var(--t3);font-weight:700;letter-spacing:.5px;margin-bottom:6px;">👤 HISTÓRICO CLIENTE</div>';
+  if(hist&&nome){
+    h+='<div style="font-size:.75rem;font-weight:700;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+'</div>';
+    h+='<div style="font-size:.62rem;color:var(--t3);margin-top:4px;">'+hist.orcs+' orç · '+hist.jobs+' serviços';
+    if(hist.fat>0) h+=' · R$ '+fm(hist.fat);
+    h+='</div>';
+    if(hist.orcs>0) h+='<div style="font-size:.62rem;color:var(--t3);">Conversão: '+hist.conv+'%</div>';
+    var btxt=hist.bonus>0?'+'+hist.bonus+'% bônus':hist.bonus<0?hist.bonus+'% risco':'neutro';
+    h+='<div style="font-size:.6rem;color:'+(hist.bonus>0?'#5dbf7a':hist.bonus<0?'#c94444':'var(--t3)')+';margin-top:5px;font-weight:600;">'+btxt+'</div>';
+  } else {
+    h+='<div style="font-size:.75rem;font-weight:700;color:#6ab0ff;">🆕 Novo</div>';
+    h+='<div style="font-size:.62rem;color:var(--t3);margin-top:4px;">Sem histórico</div>';
+  }
+  h+='</div></div>';
+
+  // Botões de aplicação rápida
+  if(maxD>0&&valor>0){
+    var opts=[1,2,3,5,7,10].filter(function(p){return p<=maxD;});
+    h+='<div style="font-size:.62rem;color:var(--t3);margin-bottom:5px;">Aplicar desconto:</div>';
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+    opts.forEach(function(p){
+      var e=Math.round(valor*(p/100));
+      h+='<button onclick="cliAplicarDesc('+p+')" style="flex:1;min-width:52px;padding:8px 4px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;cursor:pointer;font-family:Outfit;">';
+      h+='<div style="font-size:.78rem;font-weight:700;color:#5dbf7a;">'+p+'%</div>';
+      h+='<div style="font-size:.58rem;color:var(--t3);">−R$ '+fm(e)+'</div></button>';
+    });
+    h+='</div>';
+    h+='<div style="font-size:.58rem;color:var(--t4);margin-top:5px;">Toque no % para aplicar no campo de desconto acima ↑</div>';
+  }
+
+  // Tática de negociação (exclusivo da IA)
+  if(ai&&ai.tacticaNegociacao){
+    h+='<div style="margin-top:10px;padding:9px 11px;background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.2);border-radius:10px;">';
+    h+='<div style="font-size:.58rem;color:#60a5fa;font-weight:700;letter-spacing:.5px;margin-bottom:3px;">💬 TÁTICA DE FECHAMENTO</div>';
+    h+='<div style="font-size:.69rem;color:var(--t2);line-height:1.4;">'+ai.tacticaNegociacao+'</div>';
+    h+='</div>';
+  }
+
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+
+function cliAplicarDesc(pct){
+  if(typeof setVistaMode==='function'){
+    setVistaMode('pct');
+    var el=document.getElementById('vistaDiscPct');
+    if(el){ el.value=pct; if(typeof aplicarVistaAdj==='function') aplicarVistaAdj(); }
+    var sec=document.getElementById('vistaAdjSec');
+    if(sec) sec.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  toast('✓ '+pct+'% de desconto aplicado');
+}
+
+// ── Auto-save cliente após gerar orçamento ──
+function _cliAutoSave(nome,tel,cidade,end){
+  if(!nome) return;
+  var existente=_cliBuscar(nome,80);
+  if(existente.length>0){
+    var c=existente[0].c, upd={};
+    if(tel&&!c.tel) upd.tel=tel;
+    if(cidade&&!c.cidade) upd.cidade=cidade;
+    if(end&&!c.end) upd.end=end;
+    if(Object.keys(upd).length) CLDB.upd(c.id,upd);
+    return;
+  }
+  setTimeout(function(){
+    showCB('Salvar "'+nome+'" no banco de clientes?',
+      function(){ CLDB.add({nome:nome,tel:tel||'',cidade:cidade||'',end:end||'',obs:''}); hideCB(); toast('✓ '+nome+' salvo!'); },
+      function(){ hideCB(); }
+    );
+  },1200);
+}
+
+// ── Autocomplete ──
+(function _cliInitAC(){
+  function init(){
+    var inp=document.getElementById('oCliente'); if(!inp) return;
+    var timer=null;
+    inp.addEventListener('input',function(){
+      clearTimeout(timer);
+      timer=setTimeout(function(){ _cliACRender(inp.value.trim()); },180);
+    });
+    inp.addEventListener('keydown',function(e){
+      if(e.key==='Escape') _cliACFechar();
+      if(e.key==='ArrowDown'){ e.preventDefault(); var f=document.querySelector('#cliACDrop .cliaci'); if(f) f.focus(); }
+    });
+    inp.addEventListener('blur',function(){ setTimeout(_cliACFechar,200); });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
+  else init();
+})();
+
+function _cliACRender(q){
+  var dd=document.getElementById('cliACDrop'); if(!dd) return;
+  if(!q||q.length<2){dd.style.display='none';return;}
+  var res=_cliBuscar(q,35); if(!res.length){dd.style.display='none';return;}
+  var h='';
+  res.forEach(function(r){
+    var c=r.c, hist=_cliHist(c.nome);
+    h+='<div class="cliaci" tabindex="0" onclick="cliACSelecionar('+c.id+')" onkeydown="if(event.key===\'Enter\')cliACSelecionar('+c.id+')" '
+      +'style="padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">';
+    h+='<div style="width:34px;height:34px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.92rem;font-weight:700;color:'+hist.cor+';">'+(c.nome?c.nome[0].toUpperCase():'?')+'</div>';
+    h+='<div style="flex:1;min-width:0;">';
+    h+='<div style="font-size:.82rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+c.nome+'</div>';
+    var sub=[]; if(c.tel) sub.push('📱 '+c.tel); if(c.cidade) sub.push('📍 '+c.cidade);
+    if(sub.length) h+='<div style="font-size:.65rem;color:var(--t3);">'+sub.join(' · ')+'</div>';
+    h+='<div style="font-size:.6rem;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+(hist.orcs?' · '+hist.orcs+' orç.':'')+(hist.jobs?' · '+hist.jobs+' serv.':'')+'</div>';
+    h+='</div></div>';
+  });
+  h+='<div onclick="cliAbrirNovo()" style="padding:9px 13px;cursor:pointer;font-size:.72rem;color:var(--gold2);display:flex;align-items:center;gap:7px;"><span>➕</span><span>Adicionar "'+q+'" como novo cliente</span></div>';
+  dd.innerHTML=h; dd.style.display='block';
+}
+function cliACSelecionar(id){
+  var c=CLDB.get().find(function(x){return x.id===id;}); if(!c) return;
+  var map={oCliente:c.nome,oTel:c.tel||'',oCidade:c.cidade||'',oEnd:c.end||''};
+  Object.keys(map).forEach(function(k){var el=document.getElementById(k);if(el)el.value=map[k];});
+  _cliACFechar();
+  var hist=_cliHist(c.nome);
+  toast(hist.icon+' '+c.nome+' — '+hist.cat);
+}
+function _cliACFechar(){var dd=document.getElementById('cliACDrop');if(dd)dd.style.display='none';}
+
+// ── Modal: gestão de clientes ──
+function abrirGestaoClientes(){
+  renderListaClientes('');
+  var inp=document.getElementById('cliBuscaInp'); if(inp) inp.value='';
+  showMd('cliGestaoMd');
+}
+function renderListaClientes(q){
+  var el=document.getElementById('cliLista'); if(!el) return;
+  var list=CLDB.get();
+  var fil=q?list.filter(function(c){return _cliSim(q,c.nome)>=30;}):list;
+  if(!fil.length){
+    el.innerHTML='<div style="text-align:center;padding:30px 20px;color:var(--t3);font-size:.78rem;">'+(q?'Nenhum cliente encontrado.':'Nenhum cliente cadastrado.<br>Clique em "+ Novo" para adicionar.')+'</div>';
+    return;
+  }
+  var h='';
+  fil.forEach(function(c){
+    var hist=_cliHist(c.nome);
+    h+='<div style="padding:11px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:12px;cursor:pointer;" onclick="cliAbrirEditar('+c.id+')">';
+    h+='<div style="width:38px;height:38px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1rem;font-weight:700;color:'+hist.cor+';">'+(c.nome?c.nome[0].toUpperCase():'?')+'</div>';
+    h+='<div style="flex:1;min-width:0;">';
+    h+='<div style="font-size:.83rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+c.nome+'</div>';
+    var sub=[]; if(c.tel) sub.push(c.tel); if(c.cidade) sub.push(c.cidade);
+    if(sub.length) h+='<div style="font-size:.68rem;color:var(--t3);">'+sub.join(' · ')+'</div>';
+    h+='</div>';
+    h+='<div style="text-align:right;flex-shrink:0;">';
+    h+='<div style="font-size:.7rem;font-weight:700;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+'</div>';
+    if(hist.fat>0) h+='<div style="font-size:.62rem;color:var(--t3);">R$ '+fm(hist.fat)+'</div>';
+    else if(hist.orcs>0) h+='<div style="font-size:.62rem;color:var(--t3);">'+hist.orcs+' orç.</div>';
+    h+='</div></div>';
+  });
+  el.innerHTML=h;
+}
+function cliAbrirNovo(){
+  var nome=document.getElementById('oCliente')?document.getElementById('oCliente').value.trim():'';
+  _cliAbrirForm(null,nome);
+}
+function cliAbrirEditar(id){
+  var c=CLDB.get().find(function(x){return x.id===id;}); if(!c) return;
+  _cliAbrirForm(c,'');
+}
+function _cliAbrirForm(cli,def){
+  var md=document.getElementById('cliFormMd'); if(!md) return;
+  var edit=!!cli, hist=edit?_cliHist(cli.nome):null;
+  var h='<div style="background:var(--s1);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 20px 40px;" onclick="event.stopPropagation()">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+  h+='<div style="font-size:1rem;font-weight:700;color:var(--gold2);">'+(edit?'Editar Cliente':'Novo Cliente')+'</div>';
+  h+='<button onclick="closeAll()" style="padding:6px 11px;background:var(--s3);color:var(--t2);border:none;border-radius:8px;font-family:Outfit;font-size:.74rem;cursor:pointer;">✕</button>';
+  h+='</div>';
+  if(edit&&hist){
+    h+='<div style="background:var(--s2);border-radius:10px;padding:10px 13px;margin-bottom:14px;display:flex;align-items:center;gap:10px;">';
+    h+='<div style="width:38px;height:38px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:700;color:'+hist.cor+';">'+(cli.nome?cli.nome[0].toUpperCase():'?')+'</div>';
+    h+='<div><div style="font-size:.78rem;font-weight:700;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+'</div>';
+    h+='<div style="font-size:.65rem;color:var(--t3);">'+hist.orcs+' orçamentos · '+hist.jobs+' serviços'+(hist.fat>0?' · R$ '+fm(hist.fat)+' faturados':'')+'</div>';
+    h+='</div></div>';
+  }
+  var campos=[
+    {id:'cfNome',l:'Nome completo *',v:cli?cli.nome:def,t:'text'},
+    {id:'cfTel', l:'WhatsApp / Telefone',v:cli?cli.tel:'',t:'tel'},
+    {id:'cfCid', l:'Cidade',v:cli?cli.cidade:'',t:'text'},
+    {id:'cfEnd', l:'Endereço / Bairro',v:cli?cli.end:'',t:'text'},
+    {id:'cfObs', l:'Observações',v:cli?cli.obs:'',t:'text'}
+  ];
+  campos.forEach(function(c){
+    h+='<div style="margin-bottom:10px;">';
+    h+='<div style="font-size:.65rem;color:var(--t3);margin-bottom:4px;">'+c.l+'</div>';
+    h+='<input id="'+c.id+'" type="'+c.t+'" value="'+(c.v||'').replace(/"/g,'&quot;')+'" style="width:100%;padding:10px 12px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;color:var(--tx);font-family:Outfit;font-size:.84rem;box-sizing:border-box;outline:none;">';
+    h+='</div>';
+  });
+  h+='<div style="display:flex;gap:8px;margin-top:18px;">';
+  h+='<button onclick="cliSalvarForm('+(edit?cli.id:'null')+')" style="flex:1;padding:12px;background:var(--gold2);color:#000;border:none;border-radius:10px;font-family:Outfit;font-size:.84rem;font-weight:700;cursor:pointer;">'+(edit?'Salvar':'Adicionar')+'</button>';
+  if(edit) h+='<button onclick="cliExcluir('+cli.id+')" style="padding:12px 14px;background:rgba(201,68,68,.15);color:#c94444;border:1px solid rgba(201,68,68,.3);border-radius:10px;font-family:Outfit;font-size:.84rem;cursor:pointer;">🗑️</button>';
+  h+='</div>';
+  h+='</div>';
+  md.innerHTML=h;
+  showMd('cliFormMd');
+}
+function cliSalvarForm(id){
+  var nome=document.getElementById('cfNome')?document.getElementById('cfNome').value.trim():'';
+  if(!nome){toast('Informe o nome do cliente');return;}
+  var d={nome:nome,tel:document.getElementById('cfTel').value.trim(),cidade:document.getElementById('cfCid').value.trim(),end:document.getElementById('cfEnd').value.trim(),obs:document.getElementById('cfObs').value.trim()};
+  if(id){CLDB.upd(id,d);toast('✓ Cliente atualizado!');}
+  else{CLDB.add(d);toast('✓ '+nome+' adicionado!');}
+  closeAll();
+  renderListaClientes(document.getElementById('cliBuscaInp')?document.getElementById('cliBuscaInp').value:'');
+}
+function cliExcluir(id){
+  var c=CLDB.get().find(function(x){return x.id===id;}); if(!c) return;
+  if(!confirm('Excluir "'+c.nome+'" do banco de clientes?')) return;
+  CLDB.del(id); closeAll(); toast('✓ Cliente excluído');
+  renderListaClientes('');
+}
+// Expor globais
+window.abrirGestaoClientes=abrirGestaoClientes;
+window.renderListaClientes=renderListaClientes;
+window.cliAbrirNovo=cliAbrirNovo;
+window.cliAbrirEditar=cliAbrirEditar;
+window.cliSalvarForm=cliSalvarForm;
+window.cliExcluir=cliExcluir;
+window.cliACSelecionar=cliACSelecionar;
+window.cliAplicarDesc=cliAplicarDesc;
+window.CLDB=CLDB;
