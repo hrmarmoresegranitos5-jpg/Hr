@@ -992,9 +992,59 @@ var DEF_TUM_SV={
   cap_mont:420,cap_montc:620,cap_recorte:50,
   bp_boleada:110,bp_antiderap:120,bp_pingad:90,bp_mcana:100,bp_chanfro:95,
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
-  div_recorte:80,div_inst:120
-};
+  div_recorte:80,div_inst:120,
+  // pe_ (pé estrutural orgânico — taxa extra de m.o. de corte)
+  pe_organico_mo: 60
+}
 function getPr(k){var v=CFG.sv[k];if(v!==undefined&&v!==null)return v;return DEF_TUM_SV[k]||0;}
+
+// ─── PÉ ESTRUTURAL ──────────────────────────────────────────────────────────
+// Detecta "pé" na descrição da peça (normalizado, sem acento)
+function _isPePc(desc){
+  var d=(desc||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return /\bpe\b/.test(d)||d.indexOf('pe estrut')>=0||d.indexOf('pe de balc')>=0||d.indexOf('pe organ')>=0;
+}
+// Calcula subpeças derivadas de um pé estrutural
+// pc: {w, h, q, peExtra:{espPar, sainhaH, organico}}
+// Retorna [{desc, w, h, q, m2}] + opcional {isMo:true, moVal}
+function _calcPeSubpecas(pc){
+  var pe=pc.peExtra||{};
+  var peW=+(pc.w||0), peH=+(pc.h||0), peQ=+(pc.q||1);
+  var espPar=+(pe.espPar||0), sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
+  var sub=[];
+  if(!peW||!peH) return sub;
+  var peE=2; // espessura chapa granito (cm)
+  // 1. Fechamento lateral: (peH − espPar) × peW
+  if(espPar>0){
+    var fH=peH-espPar;
+    if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  }
+  // 2. Sainha lateral 45°: sainhaH × peE (espessura), 2 por peça
+  if(sainhaH>0){
+    var m2S=(sainhaH/100)*(peE/100);
+    sub.push({desc:'Sainha Lateral 45° ('+sainhaH+'×'+peE+' cm)',w:peE,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
+  }
+  // 3. Taxa de m.o. orgânico — sobre m² total (pé + derivadas)
+  if(organico){
+    var m2Tot=(peH/100)*(peW/100)*peQ;
+    sub.forEach(function(s){m2Tot+=s.m2;});
+    var moRate=getPr('pe_organico_mo')||60;
+    var moVal=+(m2Tot*moRate).toFixed(2);
+    if(moVal>0) sub.push({desc:'M.O. Orgânico (R$ '+moRate+'/m²)',w:0,h:0,q:1,m2:0,isMo:true,moVal:moVal});
+  }
+  return sub;
+}
+// Atualiza peExtra de uma peça e re-renderiza
+function updPeExtra(ambId,pcId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb) return;
+  var pc=amb.pecas.find(function(p){return p.id==pcId;});
+  if(!pc) return;
+  if(!pc.peExtra) pc.peExtra={};
+  pc.peExtra[field]=val;
+  renderAmbientes();
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 function buildSV(){
   selCuba=null;
@@ -2429,6 +2479,46 @@ function renderAmbientes(){
       // SVG technical preview + per-side borda selector
       if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
         h+=buildPecaPreviewSVG(amb,pc,pi);
+        // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
+        if(_isPePc(pc.desc)){
+          var _pe=pc.peExtra||{};
+          var _peOrg=!!_pe.organico, _peQuad=!_peOrg;
+          var _ambMatPe=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+          h+='<div style="margin:8px 0 6px;background:rgba(201,168,76,.05);border:1.5px solid rgba(201,168,76,.22);border-radius:10px;padding:11px 12px;">';
+          h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:9px;">🦵 Pé Estrutural</div>';
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:9px;">';
+          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',false)" style="padding:8px 6px;border-radius:9px;border:1.5px solid '+(_peQuad?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peQuad?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peQuad?'var(--gold)':'var(--t3)')+';font-size:.75rem;font-weight:'+(_peQuad?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">⬛ Quadrado</button>';
+          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',true)" style="padding:8px 6px;border-radius:9px;border:1.5px solid '+(_peOrg?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peOrg?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peOrg?'var(--gold)':'var(--t3)')+';font-size:.75rem;font-weight:'+(_peOrg?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">🌊 Orgânico</button>';
+          h+='</div>';
+          if(_peOrg) h+='<div style="font-size:.6rem;color:rgba(201,168,76,.7);margin-bottom:8px;">+R$ '+(getPr('pe_organico_mo')||60)+'/m² taxa de corte orgânico</div>';
+          h+='<div class="r2">';
+          h+='<div class="f"><label>Esp. parede (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.espPar||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'espPar\',+this.value)"></div>';
+          h+='<div class="f"><label>Sainha lateral (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
+          h+='</div>';
+          var _subPes=_calcPeSubpecas(pc);
+          if(_subPes.length){
+            h+='<div style="margin-top:8px;border-top:1px solid rgba(201,168,76,.15);padding-top:8px;">';
+            h+='<div style="font-size:.57rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">Peças derivadas (incluídas no total)</div>';
+            _subPes.forEach(function(s){
+              if(s.isMo){
+                h+='<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+                h+='<span style="font-size:.68rem;color:rgba(201,168,76,.8);">'+s.desc+'</span>';
+                h+='<span style="font-size:.68rem;color:var(--gold);font-weight:600;">R$ '+fm(s.moVal)+'</span>';
+                h+='</div>';
+              } else {
+                var _prs=_ambMatPe?s.m2*_ambMatPe.pr:0;
+                h+='<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+                h+='<span style="font-size:.68rem;color:var(--t2);">'+s.desc+(s.q>1?' ×'+s.q:'')+'</span>';
+                h+='<span style="font-size:.68rem;color:var(--gold2);font-weight:600;">'+s.m2.toFixed(3)+' m²'+(_prs>0?' · R$ '+fm(_prs):'')+'</span>';
+                h+='</div>';
+              }
+            });
+            h+='</div>';
+          } else {
+            h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe espessura da parede para ver as peças derivadas</div>';
+          }
+          h+='</div>';
+        }
         h+=buildPecaBordaHtml(amb,pc);
       }
       if(amb.tipo==='🏊 Borda Piscina'){
@@ -3051,6 +3141,21 @@ function calcular(){
         m2+=a;
         pds.push({desc:p.desc||'Peça',w:p.w,h:p.h,q:p.q||1,m2:a});
         allPds.push({desc:(tipo+': '+(p.desc||'Peça')),w:p.w,h:p.h,q:p.q||1,m2:a});
+        // Subpeças de pé estrutural (fechamento lateral, sainha, m.o. orgânico)
+        if(_isPePc(p.desc)){
+          var _peSubs=_calcPeSubpecas(p);
+          _peSubs.forEach(function(s){
+            if(s.isMo){
+              acT+=s.moVal;
+              acL.push({l:s.desc,v:s.moVal});
+              acN.push(s.desc);
+            } else if(s.m2>0){
+              m2+=s.m2;
+              pds.push({desc:s.desc,w:s.w,h:s.h,q:s.q||1,m2:s.m2});
+              allPds.push({desc:(tipo+': '+s.desc),w:s.w,h:s.h,q:s.q||1,m2:s.m2});
+            }
+          });
+        }
       }
     });
 
