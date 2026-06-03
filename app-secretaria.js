@@ -479,10 +479,15 @@ function openVisitaMd(id) {
     document.getElementById('vData').value = td();
     document.getElementById('vHora').value = '';
     document.getElementById('vObs').value  = '';
-    if (pendQ && pendQ.cli) {
-      document.getElementById('vCli').value = pendQ.cli;
-      if (pendQ.tel) document.getElementById('vTel').value = pendQ.tel;
-      if (pendQ.end) document.getElementById('vEnd').value = pendQ.end;
+    // Usar _pendVisita (botão do resultado do orçamento) ou pendQ
+    var src = (typeof window._pendVisita !== 'undefined' && window._pendVisita)
+      ? window._pendVisita
+      : (typeof pendQ !== 'undefined' && pendQ ? pendQ : null);
+    if (src && src.cli) {
+      document.getElementById('vCli').value = src.cli;
+      if (src.tel) document.getElementById('vTel').value = src.tel;
+      if (src.end) document.getElementById('vEnd').value = src.end;
+      window._pendVisita = null; // limpar após uso
     }
   }
   showMd('visitaMd');

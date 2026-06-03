@@ -2553,10 +2553,29 @@ function _cliSim(a,b){
   return 0;
 }
 function _cliBuscar(q,thr){
-  thr=thr||38; if(!q||q.length<2) return [];
+  thr=thr||35; if(!q||q.length<2) return [];
   var r=[];
-  CLDB.get().forEach(function(c){ var s=_cliSim(q,c.nome); if(s>=thr) r.push({c:c,s:s}); });
-  return r.sort(function(a,b){return b.s-a.s;}).slice(0,5);
+  // Contagem de orçamentos por cliente para boost de frequência
+  var freqMap={};
+  (DB.q||[]).forEach(function(oq){if(oq.cli) freqMap[oq.cli]=(freqMap[oq.cli]||0)+1;});
+  CLDB.get().forEach(function(c){
+    var s=_cliSim(q,c.nome);
+    if(s>=thr){
+      // Boost: até +15 pontos por frequência de uso (max 10 orçamentos)
+      var freq=freqMap[c.nome]||0;
+      var boost=Math.min(15,freq*2);
+      r.push({c:c,s:Math.min(100,s+boost)});
+    }
+  });
+  // Também buscar por telefone se q parece número
+  if(/^\d{4,}/.test(q)){
+    CLDB.get().forEach(function(c){
+      if(c.tel&&c.tel.replace(/\D/g,'').indexOf(q.replace(/\D/g,''))!==-1){
+        if(!r.find(function(x){return x.c.id===c.id;})) r.push({c:c,s:85});
+      }
+    });
+  }
+  return r.sort(function(a,b){return b.s-a.s;}).slice(0,6);
 }
 
 // ── Histórico do cliente ──
@@ -2853,7 +2872,7 @@ function _cliAutoSave(nome,tel,cidade,end){
       if(e.key==='Escape') _cliACFechar();
       if(e.key==='ArrowDown'){ e.preventDefault(); var f=document.querySelector('#cliACDrop .cliaci'); if(f) f.focus(); }
     });
-    inp.addEventListener('blur',function(){ setTimeout(_cliACFechar,200); });
+    inp.addEventListener('blur',function(){ setTimeout(_cliACFechar,300); });
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init);
   else init();
@@ -2866,26 +2885,74 @@ function _cliACRender(q){
   var h='';
   res.forEach(function(r){
     var c=r.c, hist=_cliHist(c.nome);
+    // Último orçamento para pré-visualização de pedra
+    var ultOrc=(DB.q||[]).find(function(oq){return oq.cli&&oq.cli.toLowerCase()===c.nome.toLowerCase();});
+    var pedraThumb='';
+    if(ultOrc&&ultOrc.mat){
+      var pedra=(typeof CFG!=='undefined'&&CFG.stones)?CFG.stones.find(function(s){return s.nm===ultOrc.mat;}):null;
+      if(pedra&&pedra.photo){
+        pedraThumb='<img src="'+pedra.photo+'" style="width:34px;height:34px;border-radius:8px;object-fit:cover;flex-shrink:0;" onerror="this.style.display=\'none\'">';
+      }
+    }
     h+='<div class="cliaci" tabindex="0" onclick="cliACSelecionar('+c.id+')" onkeydown="if(event.key===\'Enter\')cliACSelecionar('+c.id+')" '
       +'style="padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">';
-    h+='<div style="width:34px;height:34px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.92rem;font-weight:700;color:'+hist.cor+';">'+(c.nome?c.nome[0].toUpperCase():'?')+'</div>';
+    // Avatar com inicial colorida
+    h+='<div style="width:34px;height:34px;border-radius:50%;background:'+hist.cor+'22;border:1.5px solid '+hist.cor+'44;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.9rem;font-weight:800;color:'+hist.cor+';">'+(c.nome?c.nome[0].toUpperCase():'?')+'</div>';
     h+='<div style="flex:1;min-width:0;">';
-    h+='<div style="font-size:.82rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+c.nome+'</div>';
+    h+='<div style="font-size:.83rem;font-weight:700;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+c.nome+'</div>';
     var sub=[]; if(c.tel) sub.push('📱 '+c.tel); if(c.cidade) sub.push('📍 '+c.cidade);
-    if(sub.length) h+='<div style="font-size:.65rem;color:var(--t3);">'+sub.join(' · ')+'</div>';
-    h+='<div style="font-size:.6rem;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+(hist.orcs?' · '+hist.orcs+' orç.':'')+(hist.jobs?' · '+hist.jobs+' serv.':'')+'</div>';
-    h+='</div></div>';
+    if(sub.length) h+='<div style="font-size:.65rem;color:var(--t3);margin-top:1px;">'+sub.join(' · ')+'</div>';
+    // Linha de status: categoria + histórico + última pedra
+    var statLine=hist.icon+' <b style="color:'+hist.cor+'">'+hist.cat+'</b>';
+    if(hist.orcs) statLine+=' · '+hist.orcs+' orç.';
+    if(hist.jobs) statLine+=' · '+hist.jobs+' serv.';
+    if(hist.fat>0) statLine+=' · R$ '+fm(hist.fat);
+    if(ultOrc&&ultOrc.mat) statLine+=' · 🪨 '+ultOrc.mat;
+    h+='<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+statLine+'</div>';
+    h+='</div>';
+    if(pedraThumb) h+=pedraThumb;
+    h+='</div>';
   });
+  // Recentes do localStorage
+  var _recentes=[];
+  try{_recentes=JSON.parse(localStorage.getItem('hr_cli_recentes')||'[]');}catch(e){}
+  if(_recentes.length&&!q){
+    h+='<div style="padding:5px 13px 3px;font-size:.6rem;color:var(--t4);letter-spacing:1px;text-transform:uppercase;">Recentes</div>';
+    _recentes.slice(0,3).forEach(function(nm){
+      h+='<div onclick="document.getElementById(\'oCliente\').value=\''+escH(nm)+'\';_cliACFechar();document.getElementById(\'oCliente\').dispatchEvent(new Event(\'input\',{bubbles:true}));" style="padding:7px 13px;cursor:pointer;border-bottom:1px solid var(--bd2);font-size:.76rem;color:var(--t2);">⏱ '+escH(nm)+'</div>';
+    });
+  }
   h+='<div onclick="cliAbrirNovo()" style="padding:9px 13px;cursor:pointer;font-size:.72rem;color:var(--gold2);display:flex;align-items:center;gap:7px;"><span>➕</span><span>Adicionar "'+q+'" como novo cliente</span></div>';
   dd.innerHTML=h; dd.style.display='block';
 }
 function cliACSelecionar(id){
   var c=CLDB.get().find(function(x){return x.id===id;}); if(!c) return;
   var map={oCliente:c.nome,oTel:c.tel||'',oCidade:c.cidade||'',oEnd:c.end||''};
-  Object.keys(map).forEach(function(k){var el=document.getElementById(k);if(el)el.value=map[k];});
+  Object.keys(map).forEach(function(k){var el=document.getElementById(k);if(el){el.value=map[k];el.dispatchEvent(new Event('input',{bubbles:true}));}});
   _cliACFechar();
+  // Salvar em recentes
+  try{
+    var rec=JSON.parse(localStorage.getItem('hr_cli_recentes')||'[]');
+    rec=rec.filter(function(n){return n!==c.nome;});
+    rec.unshift(c.nome);
+    localStorage.setItem('hr_cli_recentes',JSON.stringify(rec.slice(0,5)));
+  }catch(e){}
+  // Pré-selecionar a última pedra usada por este cliente
+  var ultOrc=(DB.q||[]).find(function(q){return q.cli&&q.cli.toLowerCase()===c.nome.toLowerCase()&&q.ambSnap;});
+  if(ultOrc&&ultOrc.ambSnap&&ultOrc.ambSnap[0]&&ultOrc.ambSnap[0].selMat){
+    var matId=ultOrc.ambSnap[0].selMat;
+    // Aplicar ao primeiro ambiente se o mat existir
+    if(ambientes&&ambientes.length&&typeof renderAmbientes==='function'){
+      ambientes[0].selMat=matId;
+      setTimeout(renderAmbientes,50);
+    }
+  }
   var hist=_cliHist(c.nome);
-  toast(hist.icon+' '+c.nome+' — '+hist.cat);
+  // Toast com histórico completo
+  var toastMsg=hist.icon+' '+c.nome+' — '+hist.cat;
+  if(hist.orcs>0) toastMsg+=' ('+hist.orcs+' orç.)';
+  if(hist.fat>0) toastMsg+=' · R$ '+fm(hist.fat);
+  toast(toastMsg);
 }
 function _cliACFechar(){var dd=document.getElementById('cliACDrop');if(dd)dd.style.display='none';}
 
@@ -3164,7 +3231,12 @@ function _orcInitLiveListeners() {
   _orcUpdateHeader();
 
   // Update periódico para capturar mudanças de material (que não disparam eventos)
-  setInterval(_orcUpdateHeader, 1500);
+  // Update preciso: ao focar em inputs de dimensão
+  ['ambientesList'].forEach(function(pid){
+    var el=document.getElementById(pid);
+    if(el) el.addEventListener('input',_orcUpdateHeader);
+  });
+  setInterval(_orcUpdateHeader, 2000);
 }
 
 function _orcUpdateHeader() {
