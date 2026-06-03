@@ -3112,7 +3112,7 @@ function gerarPDF(){
   document.getElementById('pdfBtnPrint').onclick=function(){
     var w=window.open('','_blank');
     if(w){
-      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
+      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}</style></head><body>'+recHtml+'<scr'+'ipt>window.onload=function(){window.print();};<'+'/script></body></html>');
       w.document.close();
     }
   };
@@ -3518,7 +3518,7 @@ function gerarCatalogoAcPDF(){
     +'<div class="tbar"><div class="tbar-title">🔩 Catálogo de Acessórios</div><div class="tbar-sub">Produtos disponíveis para bancadas</div></div>'
     +'<div class="grid">'+ac.map(card).join('')+'</div>'
     +'<div class="foot"><div class="foot-l">CNPJ: '+emp.cnpj+' · '+emp.ig+'</div><div class="foot-r">'+emp.end+'</div></div>'
-    +'</div><script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script></body></html>';
+    +'</div><scr'+'ipt>'+'window.onload=function(){setTimeout(function(){window.print();},400);}'+'<'+'/script>'+'</body></html>';
   var w=window.open('','_blank','width=900,height=700');
   if(w){w.document.write(html);w.document.close();toast('📄 Catálogo aberto — Imprimir → Salvar como PDF');}
   else{var b=new Blob([html],{type:'text/html'});var u=URL.createObjectURL(b);var a2=document.createElement('a');a2.href=u;a2.download='Catalogo_Acessorios_HR.html';a2.click();setTimeout(function(){URL.revokeObjectURL(u);},5000);}
@@ -3624,7 +3624,7 @@ function gerarCatalogoPDF(){
   +'</div>'
   +'</div>'
   // Auto print
-  +'<script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script>'
+  +'<scr'+'ipt>window.onload=function(){setTimeout(function(){window.print();},400);}'+'<'+'/script>'
   +'</body></html>';
 
   // Baixar como HTML (funciona no Android - open in new window é bloqueado)
@@ -4577,7 +4577,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
   +'</div>' // page
 
-  +'<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},500);});<\/script>'
+  +'<scr'+'ipt>window.addEventListener("load",function(){setTimeout(function(){window.print();},500);});<'+'/script>'
   +'</body></html>';
 
   // Download como HTML
