@@ -67,7 +67,7 @@ function renderJobDetail(){
   // Header
   var hdr=document.getElementById('jdHdr');
   if(hdr){
-    hdr.innerHTML='<div class="jd-cli">'+j.cli+'</div>'+
+    hdr.innerHTML='<div class="jd-cli">'+(typeof escH==='function'?escH(j.cli||''):j.cli||'')+'</div>'+
       '<span class="jc-badge jc-badge-'+s+'">'+si.emoji+' '+si.label+'</span>';
   }
 
@@ -824,7 +824,8 @@ function _orcUpdateHeader() {
       stone = CFG.stones.find(function(s) { return s.id === selMat; });
     }
     if (!stone && ambientes && ambientes[0]) {
-      var amb0 = ambientes[0];
+      if(!ambientes||!ambientes.length) { if(cb) cb(null); return; }
+  var amb0 = ambientes[0];
       if (amb0.selMat && typeof CFG !== 'undefined' && CFG.stones) {
         stone = CFG.stones.find(function(s) { return s.id === amb0.selMat; });
       }
@@ -852,7 +853,7 @@ function _orcUpdateHeader() {
     var temCli  = cli.length > 0;
     var temMat  = !!(typeof selMat !== 'undefined' && selMat);
     var temMed  = !!(ambientes && ambientes[0] && ambientes[0].pecas &&
-                     ambientes[0].pecas.some(function(p){ return p.w > 0 && p.h > 0; }));
+                     (ambientes&&ambientes[0]&&ambientes[0].pecas?ambientes[0].pecas.some(function(p){ return p.w > 0 && p.h > 0; }):false));
 
     var step = 1;
     if (temCli) step = 2;
@@ -927,7 +928,7 @@ function _orcSyncValorCard() {
   // Extrair valor à vista do resDetail ou do estado global
   var vista = 0;
   if (typeof DB !== 'undefined' && DB.q && DB.q.length) {
-    var last = DB.q[DB.q.length - 1];
+    var last = (DB.q&&DB.q.length) ? DB.q[DB.q.length - 1] : null;
     if (last) vista = last.vista || 0;
   }
 

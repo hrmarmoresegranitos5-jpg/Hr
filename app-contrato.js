@@ -413,7 +413,7 @@ function aiInterpretar(){
       ]
     })
   })
-  .then(function(r){return r.json();})
+  .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
   .then(function(data){
     btn.disabled=false;btn.textContent='✨ Interpretar com IA';
     if(data.error){
@@ -577,7 +577,7 @@ function aiAplicar(){
   if(!_aiResultData)return;
   var ambId=_aiAmbId;
   var amb=ambientes.find(function(a){return a.id===ambId;});
-  if(!amb)amb=ambientes[0];
+  if(!amb&&ambientes&&ambientes.length)amb=ambientes[0];
   if(!amb)return;
   var applied=0;
 
