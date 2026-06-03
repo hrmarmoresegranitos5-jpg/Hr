@@ -892,7 +892,7 @@ function _injectChatStyles() {
     @keyframes chatShimmer { 0%{background-position:200%} 100%{background-position:-200%} }
 
     /* ── Wrap ── */
-    .chat-wrap { display:flex;flex-direction:column;height:calc(100vh - 120px);background:var(--s1); }
+    .chat-wrap { display:flex;flex-direction:column;height:100%;min-height:0;background:var(--s1); }
 
     /* ── Header ── */
     .chat-header {
@@ -922,7 +922,7 @@ function _injectChatStyles() {
 
     /* ── Mensagens ── */
     .chat-messages {
-      flex:1;overflow-y:auto;padding:14px 14px 6px;
+      flex:1;min-height:0;overflow-y:auto;padding:14px 14px 6px;
       display:flex;flex-direction:column;gap:10px;
     }
     .chat-bubble {
