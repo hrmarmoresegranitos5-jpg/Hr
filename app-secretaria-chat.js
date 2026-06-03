@@ -19,7 +19,7 @@ function _chatLoad() {
   try { _chat.history = JSON.parse(localStorage.getItem('hr_chat') || '[]'); } catch(e) { _chat.history = []; }
 }
 function _chatSave() {
-  try { localStorage.setItem('hr_chat', JSON.stringify(_chat.history.slice(-60))); } catch(e) {}
+  try { localStorage.setItem('hr_chat', JSON.stringify(_chat.history.slice(-100))); } catch(e) {}
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -123,6 +123,29 @@ var _chatChips = [
   { label: '🔍 Erros no sistema',       text: 'Tem algum erro no sistema agora?' }
 ];
 
+
+// ── Chips contextuais baseados no estado atual ──────────────
+function _chatGetContextChips() {
+  try {
+    var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
+    var chips = [];
+    var jobsAtrasados = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+      .filter(function(j){ return !j.done && j.end && j.end < hoje; }).length;
+    var pendentes = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
+      .filter(function(t){ return t.type === 'pend'; }).length;
+    var jobsHoje = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+      .filter(function(j){ return !j.done && j.end === hoje; }).length;
+
+    if (jobsAtrasados > 0) chips.push({ label: '⚠️ ' + jobsAtrasados + ' atraso(s)', text: 'Liste os jobs atrasados com dias de atraso e valor de cada um.' });
+    if (pendentes > 0)     chips.push({ label: '💰 ' + pendentes + ' a receber', text: 'Liste tudo que tenho a receber com datas de vencimento.' });
+    if (jobsHoje > 0)      chips.push({ label: '🔨 entregas hoje', text: 'Quais entregas são para hoje? Estão prontas?' });
+    chips.push({ label: '📊 Finanças do mês', text: 'Como estão as finanças deste mês? Compare com o anterior.' });
+    chips.push({ label: '📈 Análise completa', text: 'Faça uma análise financeira detalhada deste mês com tendência, inadimplência e sugestões práticas.' });
+    chips.push({ label: '🔍 Erros no sistema', text: 'Tem algum erro no sistema agora?' });
+    return chips.slice(0, 6);
+  } catch(e) { return _chatChips; }
+}
+
 function renderChat() {
   var el = document.getElementById('chatBody');
   if (!el) return;
@@ -171,7 +194,7 @@ function renderChat() {
   // Chips de atalho
   if (!_chat.thinking) {
     h += '<div class="chat-chips" id="chatChips">';
-    _chatChips.forEach(function(c) {
+    _chatGetContextChips().forEach(function(c) {
       h += '<button class="chat-chip" onclick=\'chatChipSend(\'' + c.text.replace(/\'/g,"\\'") + '\')\' >' + c.label + '</button>';
     });
     h += '</div>';
@@ -391,6 +414,8 @@ function _chatBuildContext() {
     '',
     _chatBuildRHContext(),
     '',
+    _chatBuildOrcContext(),
+    '',
     _chatBuildDiagContext()
   ].join('
 ');
@@ -471,63 +496,78 @@ function _chatBuildDiagContext() {
 
     return 'DIAGNÓSTICO DO SISTEMA (' + erros.length + ' erro(s), ' + avisos.length + ' aviso(s)):\n' + resumo;
   } catch(e) {
-    return 'DIAGNÓSTICO: erro ao ler logs — ' + e.message;
+    return 'DIAGNÓSTICO: erro // ── Contexto de orçamentos recentes ───────────────────────
+function _chatBuildOrcContext() {
+  try {
+    var orcs = (typeof DB !== 'undefined' && DB.q) ? DB.q.slice(0, 10) : [];
+    if (!orcs.length) return 'ORÇAMENTOS RECENTES: Nenhum gerado.';
+    var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
+    var mes = hoje.slice(0,7);
+    var totalMes = 0;
+    var linhas = orcs.map(function(q) {
+      if ((q.date||'').slice(0,7) === mes) totalMes += (q.vista || 0);
+      return '• ' + (q.cli||'?') + ' — ' + (q.tipo||'?') +
+        ' | R$ ' + (q.vista||0).toFixed(2) +
+        ' | ' + (q.date||'?') +
+        ' | ' + (q.m2||0).toFixed(2) + 'm²';
+    }).join('\n');
+    return 'ORÇAMENTOS RECENTES (' + orcs.length + ') | total gerado no mês: R$ ' + totalMes.toFixed(2) + ':\n' + linhas;
+  } catch(e) { return 'ORÇAMENTOS: erro — ' + e.message; }
+}
+
+ao ler logs — ' + e.message;
   }
 }
 
 // ── Prompt do sistema completo ────────────────────────────
 function _chatBuildSystem() {
+  var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
   return [
     'Você é a Secretária IA da HR Mármores e Granitos — empresa de mármores, granitos e túmulos em Pilão Arcado-BA.',
-    'Você tem ACESSO TOTAL e CONHECIMENTO COMPLETO do sistema de gestão: finanças, agenda, RH, orçamentos, estoque e diagnóstico.',
+    'Você tem ACESSO TOTAL e CONHECIMENTO COMPLETO do sistema em tempo real.',
+    'Data de hoje: ' + hoje,
     '',
-    '═══ CAPACIDADES DE ANÁLISE FINANCEIRA ═══',
-    'Quando perguntarem sobre finanças, você DEVE:',
-    '• Calcular e comentar lucro real (faturado − despesas − fixos)',
-    '• Comparar com meses anteriores (tendência: subindo/caindo)',
-    '• Alertar se faturamento está abaixo do ponto de equilíbrio (custos fixos + variáveis)',
-    '• Comentar sobre inadimplência (a receber atrasado)',
-    '• Sugerir ações práticas: "considere cobrar X", "o ticket médio está baixo, revise preços"',
-    '• Identificar clientes mais rentáveis',
-    '• Estimar quanto falta para bater a meta do mês',
+    '═══ PERSONALIDADE ═══',
+    'Tom: profissional, direto. Como uma secretária experiente que conhece o negócio de cabeça.',
+    'Você NUNCA diz "não tenho acesso" ou "não posso verificar" — os dados estão no contexto abaixo.',
+    'Você proativamente aponta problemas críticos mesmo quando não perguntado.',
     '',
-    '═══ MÓDULOS DO SISTEMA ═══',
-    '• app-core.js — lógica principal: CFG, DB, orçamentos, catálogos',
-    '• app-financas.js — finanças, saúde financeira, metas',
-    '• app-funcionarios.js — RH: ponto, horas extras, pagamentos',
-    '• app-secretaria.js — visitas agendadas',
-    '• app-agenda.js — jobs em produção',
-    '• app-tumulos.js — módulo de túmulos e monumentos',
-    '• app-diagnostico.js — erros JS em tempo real',
+    '═══ ANÁLISE FINANCEIRA INTELIGENTE ═══',
+    'Para qualquer pergunta financeira SEMPRE:',
+    '1. Informe o número exato (faturado, despesas, lucro)',
+    '2. Compare com o mês anterior (subiu X% / caiu X%)',
+    '3. Calcule ponto de equilíbrio = fixos + variáveis',
+    '4. Se abaixo do ponto de equilíbrio: alerte com ⚠️',
+    '5. Dê 1 sugestão prática específica (nome de cliente ou ação)',
+    '6. Mostre % da meta atingida se configurada',
+    '',
+    '═══ INTERPRETAÇÃO DE LINGUAGEM NATURAL ═══',
+    'Valores: "trezentos" = 300, "1.5k" = 1500, "cinco mil" = 5000',
+    'Datas: "semana que vem" = +7 dias, "amanhã" = +1 dia',
+    'Nomes: aceite variações — "Robson" pode ser "Robson Santana"',
     '',
     '═══ AÇÕES DISPONÍVEIS ═══',
-    'Retorne JSON dentro de ```json ... ``` quando o usuário pedir uma ação:',
-    '1. Lançar despesa:   {"action":"despesa","desc":"...","valor":100}',
-    '2. Lançar entrada:   {"action":"entrada","desc":"...","valor":100}',
-    '3. A receber:        {"action":"areceber","desc":"...","valor":100,"data":"YYYY-MM-DD"}',
-    '4. Novo job:         {"action":"job","cli":"...","desc":"...","dias":10,"valor":500}',
-    '5. Agendar visita:   {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}',
-    '6. Pagar funcionário:{"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}',
-    '7. Marcar job pago:  {"action":"job_pago","cli":"...","valor":500}',
-    '8. Navegar:          {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
-    '9. Limpar logs:      {"action":"limpar_diag"}',
+    'Retorne JSON no bloco ```json``` quando o usuário pedir ação:',
+    '1. Despesa:    {"action":"despesa","desc":"...","valor":100}',
+    '2. Entrada:    {"action":"entrada","desc":"...","valor":100}',
+    '3. A receber:  {"action":"areceber","desc":"...","valor":100,"data":"YYYY-MM-DD"}',
+    '4. Novo job:   {"action":"job","cli":"...","desc":"...","dias":10,"valor":500}',
+    '5. Visita:     {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}',
+    '6. Pagar func: {"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}',
+    '7. Job pago:   {"action":"job_pago","cli":"...","valor":500}',
+    '8. Navegar:    {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
+    '9. Limpar:     {"action":"limpar_diag"}',
     '',
-    '═══ REGRAS DE RESPOSTA ═══',
-    '- SEMPRE em português brasileiro, tom profissional e direto',
-    '- Para análises financeiras: seja específico com números, compare com meses anteriores, dê sugestão prática',
-    '- Máximo 8 linhas por resposta (exceto análises completas solicitadas)',
-    '- Quando executar ação: confirme com nome e valor',
-    '- Extraia valores em linguagem natural: "trezentos reais" = 300, "1.5k" = 1500',
-    '- Use • para listas, **negrito** para destacar números e alertas importantes',
-    '- Se tiver jobs atrasados ou inadimplência, mencione proativamente mesmo que não perguntado',
+    'MÚLTIPLAS AÇÕES: use múltiplos blocos ```json``` separados na mesma resposta.',
     '',
-    'FORMATO de ação:',
-    'Resposta amigável',
-    '```json',
-    '{"action":"...","campo":"valor"}',
-    '```'
-  ].join('
-');
+    '═══ FORMATO ═══',
+    '- Máximo 10 linhas (exceto análises completas solicitadas)',
+    '- **negrito** para números críticos e nomes de clientes',
+    '- • para listas',
+    '- ✅ para confirmar ações executadas',
+    '- Se jobs atrasados ou inadimplência: sempre mencione ao final',
+    '- Para "como estou" ou "resumo": 5 pontos chave com dados reais',
+  ].join(\'\n\');
 }
 
 function _chatAsk(userText) {
@@ -544,7 +584,7 @@ function _chatAsk(userText) {
 
   // Histórico para a API (últimas 10 msgs, sem alertas automáticos repetidos)
   var apiMessages = [];
-  _chat.history.slice(-10).forEach(function(m) {
+  _chat.history.slice(-20).forEach(function(m) {
     if (m.role === 'user' || m.role === 'assistant') {
       apiMessages.push({role: m.role, content: m.content});
     }
@@ -559,8 +599,8 @@ function _chatAsk(userText) {
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5',
-      max_tokens: 1000,
+      model: 'claude-sonnet-4-5',
+      max_tokens: 2000,
       system: systemPrompt,
       messages: apiMessages.length ? apiMessages : [{role:'user', content: userText}]
     })
@@ -586,18 +626,29 @@ function _chatAsk(userText) {
 function _chatProcessReply(text) {
   var actions = [];
   var cleanText = text;
+  var extras = [];
 
-  var jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
+  // Suporte a MÚLTIPLOS blocos ```json``` na mesma resposta
+  var jsonMatches = [];
+  var jsonRe = /```json\s*([\s\S]*?)\s*```/g;
+  var m;
+  while ((m = jsonRe.exec(text)) !== null) {
+    jsonMatches.push(m[1]);
+  }
+
+  if (jsonMatches.length > 0) {
     cleanText = text.replace(/```json[\s\S]*?```/g, '').trim();
-    try {
-      var actionData = JSON.parse(jsonMatch[1]);
-      var result = _chatExecuteAction(actionData);
-      if (result.actions) actions = result.actions;
-      if (result.extra) cleanText = cleanText + (cleanText ? '\n' : '') + result.extra;
-    } catch(e) {
-      console.warn('chat action parse error:', e);
-    }
+    jsonMatches.forEach(function(jsonStr) {
+      try {
+        var actionData = JSON.parse(jsonStr);
+        var result = _chatExecuteAction(actionData);
+        if (result.actions) actions = actions.concat(result.actions);
+        if (result.extra) extras.push(result.extra);
+      } catch(e) {
+        console.warn('chat action parse error:', e, jsonStr.slice(0,100));
+      }
+    });
+    if (extras.length) cleanText = cleanText + (cleanText ? '\n' : '') + extras.join('\n');
   }
 
   _chatBotReply(cleanText || '✓ Feito!', actions.length ? actions : null);
@@ -785,10 +836,15 @@ function _chatExecuteAction(data) {
 function _chatBotReply(text, actions) {
   _chat.thinking = false;
   var ts = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-  _chat.history.push({ role: 'assistant', content: text, actions: actions || [], ts: ts });
+  _chat.history.push({ role: 'assistant', content: text, actions: actions || [], ts: ts, _streaming: true });
   _chatSave();
   renderChat();
   _chatScrollBottom();
+  // Remover flag de streaming após animação CSS (22ms × ~words delay)
+  setTimeout(function() {
+    var last = _chat.history[_chat.history.length - 1];
+    if (last) delete last._streaming;
+  }, 800);
 }
 
 // ══════════════════════════════════════════════════════════════
