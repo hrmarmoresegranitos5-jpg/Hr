@@ -480,7 +480,12 @@ window.setLayout=function(){
     // Pages ativas e inativas
     document.querySelectorAll('.pg').forEach(function(pg){
       if(pg.classList.contains('on')){
-        pg.style.cssText='display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+        // pg11 (Secretária/Chat) precisa de display:flex para o layout interno funcionar
+        var isFlexPage = pg.id === 'pg11';
+        pg.style.cssText=(isFlexPage
+          ? 'display:flex;flex-direction:column;'
+          : 'display:block;overflow-y:auto;-webkit-overflow-scrolling:touch;')
+          +'position:absolute;top:0;left:0;right:0;bottom:0;';
       } else {
         pg.style.cssText='display:none;';
       }
@@ -658,8 +663,13 @@ function go(n) {
   var pg = document.getElementById('pg' + actualId);
   if (pg) {
     pg.classList.add('on');
-    pg.style.cssText = 'display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
-    pg.scrollTop = 0;
+    // pg11 (Secretária/Chat) precisa de display:flex para o layout interno funcionar
+    var isFlexPage = (pg.id === 'pg11');
+    pg.style.cssText = (isFlexPage
+      ? 'display:flex;flex-direction:column;'
+      : 'display:block;overflow-y:auto;-webkit-overflow-scrolling:touch;')
+      + 'position:absolute;top:0;left:0;right:0;bottom:0;';
+    if (!isFlexPage) pg.scrollTop = 0;
   }
 
   aplicarEstiloNi();
