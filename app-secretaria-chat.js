@@ -114,6 +114,15 @@ window.addEventListener('load', function() {
 // ══════════════════════════════════════════════════════════════
 // RENDER DO CHAT
 // ══════════════════════════════════════════════════════════════
+var _chatChips = [
+  { label: '📊 Finanças do mês',       text: 'Como estão as finanças deste mês?' },
+  { label: '⚠️ Jobs atrasados',         text: 'Quais jobs estão atrasados?' },
+  { label: '💰 A receber',              text: 'Quanto tenho a receber?' },
+  { label: '👷 Saldo funcionários',     text: 'Qual o saldo devedor de cada funcionário?' },
+  { label: '📈 Análise completa',       text: 'Faça uma análise financeira detalhada deste mês com insights e sugestões.' },
+  { label: '🔍 Erros no sistema',       text: 'Tem algum erro no sistema agora?' }
+];
+
 function renderChat() {
   var el = document.getElementById('chatBody');
   if (!el) return;
@@ -125,9 +134,11 @@ function renderChat() {
 
   // Header
   h += '<div class="chat-header">';
-  h += '<div class="chat-avatar"><span>🤖</span><div class="chat-avatar-dot"></div></div>';
-  h += '<div class="chat-header-info"><div class="chat-header-name">Secretária HR</div>';
-  h += '<div class="chat-header-sub">Acesso total ao sistema · Monitorando erros</div></div>';
+  h += '<div class="chat-avatar"><span>✨</span><div class="chat-avatar-dot"></div></div>';
+  h += '<div class="chat-header-info">';
+  h += '<div class="chat-header-name">Secretária HR</div>';
+  h += '<div class="chat-header-sub">IA · Acesso total ao sistema</div>';
+  h += '</div>';
   h += '<button class="chat-clear-btn" onclick="chatClear()" title="Limpar conversa">🗑</button>';
   h += '</div>';
 
@@ -135,40 +146,45 @@ function renderChat() {
   h += '<div class="chat-messages" id="chatMessages">';
   if (!_chat.history.length) {
     h += _chatBubbleBot(
-      '👋 Olá! Sou a secretária da HR Mármores. Tenho **acesso completo** ao sistema:\n\n' +
-      '• 📋 Orçamentos, jobs e agenda\n' +
-      '• 💰 Finanças, despesas e recebimentos\n' +
-      '• 👷 Funcionários, horas extras e pagamentos\n' +
-      '• 🔍 **Diagnóstico de erros do sistema** — monitoro tudo em tempo real\n' +
-      '• 📊 Relatórios completos\n\n' +
-      'Pode perguntar qualquer coisa ou usar o microfone 🎙',
-      [{label:'🔍 Ver diagnóstico', fn:'go(6);setTimeout(function(){if(typeof cfgAba==="function")cfgAba(9);else{cfgTab=9;if(typeof buildCfg==="function")buildCfg();}},300)'}],
-      null
+      '👋 Olá! Sou a Secretária IA da HR Mármores.\n\n' +
+      'Tenho **acesso completo** ao sistema em tempo real — finanças, jobs, agenda, RH e diagnóstico.\n\n' +
+      'Posso registrar lançamentos, analisar sua saúde financeira, alertar sobre atrasos e muito mais. Use os atalhos abaixo ou escreva o que precisar 👇',
+      null, null, false, true
     );
   } else {
     _chat.history.forEach(function(msg) {
       if (msg.role === 'user') {
         h += _chatBubbleUser(msg.content, msg.ts);
       } else {
-        h += _chatBubbleBot(msg.content, msg.actions || null, msg.ts, msg.isAlerta);
+        h += _chatBubbleBot(msg.content, msg.actions || null, msg.ts, msg.isAlerta, false);
       }
     });
   }
   if (_chat.thinking) {
     h += '<div class="chat-bubble chat-bubble-bot chat-thinking" id="chatThinking">';
-    h += '<span></span><span></span><span></span>';
+    h += '<div class="chat-thinking-inner"><span></span><span></span><span></span></div>';
+    h += '<div class="chat-thinking-label">Analisando...</div>';
     h += '</div>';
   }
   h += '</div>';
 
+  // Chips de atalho
+  if (!_chat.thinking) {
+    h += '<div class="chat-chips" id="chatChips">';
+    _chatChips.forEach(function(c) {
+      h += '<button class="chat-chip" onclick=\'chatChipSend(\'' + c.text.replace(/\'/g,"\\'") + '\')\' >' + c.label + '</button>';
+    });
+    h += '</div>';
+  }
+
   // Input
   h += '<div class="chat-input-area">';
   h += '<div class="chat-input-row">';
-  h += '<textarea id="chatInput" class="chat-input" placeholder="Mensagem..." rows="1" ' +
+  h += '<textarea id="chatInput" class="chat-input" placeholder="Pergunte algo ou dê um comando..." rows="1" ' +
        'onkeydown="chatInputKey(event)" oninput="chatInputResize(this)"></textarea>';
   h += '<button class="chat-mic-btn" id="chatMicBtn" ontouchstart="chatMicStart(event)" ontouchend="chatMicStop(event)" ' +
        'onmousedown="chatMicStart(event)" onmouseup="chatMicStop(event)">🎙</button>';
-  h += '<button class="chat-send-btn" id="chatSendBtn" onclick="chatSend()">▶</button>';
+  h += '<button class="chat-send-btn" id="chatSendBtn" onclick="chatSend()">➤</button>';
   h += '</div>';
   h += '<div class="chat-mic-status" id="chatMicStatus"></div>';
   h += '</div>';
@@ -178,6 +194,12 @@ function renderChat() {
   _chatScrollBottom();
 }
 
+function chatChipSend(text) {
+  var chips = document.getElementById('chatChips');
+  if (chips) chips.style.display = 'none';
+  _chatUserMsg(text);
+}
+
 function _chatBubbleUser(text, ts) {
   return '<div class="chat-bubble chat-bubble-user">' +
     '<div class="chat-bubble-text">' + escH(text) + '</div>' +
@@ -185,9 +207,9 @@ function _chatBubbleUser(text, ts) {
     '</div>';
 }
 
-function _chatBubbleBot(text, actions, ts, isAlerta) {
-  var formatted = _chatFormatText(text);
-  var alertaCss = isAlerta ? 'border-left:3px solid #ef4444;' : '';
+function _chatBubbleBot(text, actions, ts, isAlerta, showChips) {
+  var formatted = _chatFormatMd(text);
+  var alertaCss = isAlerta ? 'border-left:3px solid #ef4444;background:rgba(239,68,68,.05);' : '';
   var h = '<div class="chat-bubble chat-bubble-bot" style="' + alertaCss + '">';
   h += '<div class="chat-bubble-text">' + formatted + '</div>';
   if (actions && actions.length) {
@@ -202,12 +224,23 @@ function _chatBubbleBot(text, actions, ts, isAlerta) {
   return h;
 }
 
-function _chatFormatText(text) {
+function _chatFormatMd(text) {
+  if (!text) return '';
   return escH(text)
     .replace(/\n/g, '<br>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`(.+?)`/g, '<code>$1</code>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // listas com bullet • ou -
+    .replace(/(<br>|^)([•\-] )(.+?)(?=<br>|$)/g, '$1<span class="chat-li">$3</span>')
+    // destaque numérico: R$ valor
+    .replace(/(R\$\s?[\d.,]+)/g, '<span class="chat-val">$1</span>')
+    // status emoji com cor
+    .replace(/(✅|✔)/g, '<span style="color:#4ade80">$1</span>')
+    .replace(/(⚠️|🔴)/g, '<span style="color:#f87171">$1</span>')
+    .replace(/(🟡|🟠)/g, '<span style="color:#f59e0b">$1</span>');
 }
+// Alias retrocompat
+function _chatFormatText(text) { return _chatFormatMd(text); }
 
 function _chatScrollBottom() {
   setTimeout(function() {
@@ -260,86 +293,107 @@ function chatClear() {
 function _chatBuildContext() {
   var hoje = td();
   var mes  = hoje.slice(0,7);
+  var anoAtual = hoje.slice(0,4);
 
-  // ── Finanças ──
-  var recMes  = (DB.t||[]).filter(function(t){ return t.type==='in'   && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-  var despMes = (DB.t||[]).filter(function(t){ return t.type==='out'  && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-  var fixos   = (CFG.fixos||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
+  var transacoes = DB.t || [];
+
+  // ── Finanças mês atual ──
+  var recMes   = transacoes.filter(function(t){ return t.type==='in'   && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
+  var despMes  = transacoes.filter(function(t){ return t.type==='out'  && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
+  var pendMes  = transacoes.filter(function(t){ return t.type==='pend'; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
+  var fixos    = (CFG.fixos||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
+  var vars     = (CFG.variaveis||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
+  var atrasados = transacoes.filter(function(t){ return t.type==='pend' && t.date && t.date < hoje; });
+  var lucroMes = recMes - despMes - fixos;
+
+  // ── Tendência: 3 meses anteriores ──
+  function mesAnterior(m, n) {
+    var d = new Date(m + '-01');
+    d.setMonth(d.getMonth() - n);
+    return d.toISOString().slice(0,7);
+  }
+  var tendencia = [];
+  for (var i = 3; i >= 1; i--) {
+    var m2 = mesAnterior(mes, i);
+    var r2 = transacoes.filter(function(t){ return t.type==='in'  && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
+    var d2 = transacoes.filter(function(t){ return t.type==='out' && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
+    tendencia.push(m2 + ': faturado R$ ' + r2.toFixed(2) + ' | despesas R$ ' + d2.toFixed(2) + ' | saldo R$ ' + (r2-d2).toFixed(2));
+  }
+
+  // ── Ticket médio e top clientes ──
+  var entradas = transacoes.filter(function(t){ return t.type==='in' && t.value > 0; });
+  var ticketMedio = entradas.length ? (entradas.reduce(function(s,t){ return s+t.value; }, 0) / entradas.length) : 0;
+  var porCliente = {};
+  (DB.q||[]).forEach(function(q){ if(q.cli && q.value) porCliente[q.cli] = (porCliente[q.cli]||0) + (q.value||0); });
+  var topCli = Object.entries(porCliente).sort(function(a,b){ return b[1]-a[1]; }).slice(0,5)
+    .map(function(e){ return e[0] + ' (R$ ' + e[1].toFixed(2) + ')'; });
 
   // ── Jobs ──
-  var jobs = (DB.j||[]).filter(function(j){ return !j.done; }).slice(0,15).map(function(j){
+  var jobsAtivos = (DB.j||[]).filter(function(j){ return !j.done; });
+  var jobsAtrasados = jobsAtivos.filter(function(j){ return j.end && j.end < hoje; });
+  var valorJobsAbertos = jobsAtivos.reduce(function(s,j){ return s+(j.value||0); }, 0);
+  var jobs = jobsAtivos.slice(0,15).map(function(j){
     var diff = dDiff(j.end);
-    return j.cli + ' | ' + j.desc + ' | prazo: ' + (j.end||'?') + (diff < 0 ? ' (ATRASADO '+Math.abs(diff)+'d)' : ' (em '+diff+'d)') + ' | R$ ' + fm(j.value||0);
+    var status = diff < 0 ? '🔴 ATRASADO ' + Math.abs(diff) + 'd' : '🟢 em ' + diff + 'd';
+    return j.cli + ' | ' + j.desc + ' | ' + (j.end||'?') + ' (' + status + ') | R$ ' + fm(j.value||0) + (j.pago ? ' | pago: R$ ' + fm(j.pago) : '');
   });
 
   // ── A receber ──
-  var pendentes = (DB.t||[]).filter(function(t){ return t.type==='pend'; }).slice(0,10).map(function(t){
-    return t.desc + ' | R$ ' + fm(t.value||0) + ' | vence: ' + (t.date||'?');
+  var pendentes = transacoes.filter(function(t){ return t.type==='pend'; }).slice(0,10).map(function(t){
+    var atrasado = t.date && t.date < hoje ? ' ⚠️ ATRASADO' : '';
+    return t.desc + ' | R$ ' + fm(t.value||0) + ' | vence: ' + (t.date||'?') + atrasado;
   });
 
   // ── Visitas ──
-  var visitas = (_getV ? _getV() : []).filter(function(v){ return v.status==='agendada'; }).slice(0,5).map(function(v){
-    return v.cli + ' | ' + v.date + (v.hora?' às '+v.hora:'') + (v.end?' | '+v.end:'');
-  });
+  var visitas = (typeof _getV === 'function' ? _getV() : [])
+    .filter(function(v){ return v.status==='agendada'; }).slice(0,5)
+    .map(function(v){ return v.cli + ' | ' + v.date + (v.hora?' às '+v.hora:'') + (v.end?' | '+v.end:''); });
 
-  // ── Motor de análise inteligente de clientes ──
-  var cliPerfilMap = {};
+  // ── Clientes recentes ──
+  var ultClientes = {};
+  (DB.q||[]).slice(0,30).forEach(function(q){ if(q.cli) ultClientes[q.cli] = (q.date||''); });
+  var cliList = Object.keys(ultClientes).slice(0,15).join(', ');
 
-  // Agrupa orçamentos por cliente
-  (DB.q||[]).forEach(function(q){
-    if(!q.cli) return;
-    var c = cliPerfilMap[q.cli] = cliPerfilMap[q.cli] || {nome:q.cli, orcamentos:0, jobs:0, totalVendas:0, totalCusto:0, totalM2:0, mats:{}};
-    c.orcamentos++;
-    c.totalVendas += (q.vista||0);
-    c.totalCusto  += (q._custoPainel||0);
-    c.totalM2     += (q.m2||0);
-    if(q.mat) c.mats[q.mat] = (c.mats[q.mat]||0) + 1;
-  });
+  // ── Meta ──
+  var meta = (CFG.saudeFinanceira && CFG.saudeFinanceira.metaFaturamento) || 0;
+  var pctMeta = meta > 0 ? Math.round((recMes/meta)*100) : null;
 
-  // Agrupa jobs por cliente
-  (DB.j||[]).forEach(function(j){
-    if(!j.cli) return;
-    var c = cliPerfilMap[j.cli] = cliPerfilMap[j.cli] || {nome:j.cli, orcamentos:0, jobs:0, totalVendas:0, totalCusto:0, totalM2:0, mats:{}};
-    c.jobs++;
-    c.totalVendas += (j.value||0);
-  });
-
-  // Calcula margem e desconto máximo seguro para cada cliente
-  var cliPerfilList = Object.values(cliPerfilMap).sort(function(a,b){ return b.totalVendas - a.totalVendas; }).slice(0,20).map(function(c){
-    var transacoes  = c.orcamentos + c.jobs;
-    var margem      = c.totalCusto > 0 ? ((c.totalVendas - c.totalCusto) / c.totalVendas * 100) : null;
-    var matTop      = Object.keys(c.mats).sort(function(a,b){ return c.mats[b]-c.mats[a]; })[0] || '';
-
-    // Classificação de fidelidade
-    var fidelidade = transacoes >= 8 ? 'VIP' : transacoes >= 5 ? 'Fiel' : transacoes >= 3 ? 'Recorrente' : 'Novo';
-
-    // Desconto máximo seguro: margem precisa ficar acima de 25%
-    var descMaxPct = 0;
-    if(margem !== null && margem > 28) {
-      descMaxPct = Math.min(Math.floor(margem - 25), fidelidade==='VIP'?15:fidelidade==='Fiel'?10:fidelidade==='Recorrente'?5:3);
-    } else if(margem === null) {
-      // Sem dados de custo: usar apenas fidelidade
-      descMaxPct = fidelidade==='VIP'?8:fidelidade==='Fiel'?5:fidelidade==='Recorrente'?3:0;
-    }
-
-    var linha = c.nome + ' [' + fidelidade + ']';
-    linha += ' | ' + transacoes + ' pedido(s) | total R$ ' + fm(c.totalVendas);
-    if(c.totalM2 > 0) linha += ' | ' + c.totalM2.toFixed(1) + ' m²';
-    if(matTop) linha += ' | mat. fav: ' + matTop;
-    if(margem !== null) linha += ' | margem histórica: ' + margem.toFixed(1) + '%';
-    if(descMaxPct > 0) linha += ' | DESCONTO MÁXIMO SEGURO: ' + descMaxPct + '%';
-    else linha += ' | margem insuficiente p/ desconto';
-    return linha;
-  });
-
-  return 'DADOS HR MÁRMORES — hoje: ' + hoje + '\n' +
-    'Faturado este mês: R$ ' + fm(recMes) + ' | Despesas: R$ ' + fm(despMes) + ' | Custos fixos: R$ ' + fm(fixos) + '\n\n' +
-    'JOBS EM PRODUÇÃO (' + jobs.length + '):\n' + (jobs.join('\n') || 'Nenhum') + '\n\n' +
-    'A RECEBER (' + pendentes.length + '):\n' + (pendentes.join('\n') || 'Nenhum') + '\n\n' +
-    'VISITAS AGENDADAS:\n' + (visitas.join('\n') || 'Nenhuma') + '\n\n' +
-    'PERFIL DE CLIENTES (análise automática de margem e desconto):\n' + (cliPerfilList.join('\n') || 'Nenhum cliente com histórico') + '\n\n' +
-    _chatBuildRHContext() + '\n\n' +
-    _chatBuildDiagContext();
+  return [
+    'DADOS HR MÁRMORES — hoje: ' + hoje,
+    '',
+    '══ FINANÇAS ══',
+    'Faturado (mês): R$ ' + recMes.toFixed(2) + (meta > 0 ? ' | Meta: R$ ' + meta.toFixed(2) + ' (' + pctMeta + '%)' : ''),
+    'Despesas (mês): R$ ' + despMes.toFixed(2) + ' | Custos fixos: R$ ' + fixos.toFixed(2) + ' | Custos variáveis: R$ ' + vars.toFixed(2),
+    'Lucro estimado: R$ ' + lucroMes.toFixed(2),
+    'A receber total: R$ ' + pendMes.toFixed(2) + (atrasados.length ? ' | ' + atrasados.length + ' parcelas ATRASADAS' : ''),
+    'Ticket médio (histórico): R$ ' + ticketMedio.toFixed(2),
+    '',
+    '══ TENDÊNCIA (3 MESES) ══',
+    tendencia.join('
+'),
+    '',
+    '══ TOP CLIENTES POR VOLUME ══',
+    topCli.length ? topCli.join(' | ') : 'Sem dados',
+    '',
+    'JOBS EM PRODUÇÃO (' + jobsAtivos.length + ' ativos, ' + jobsAtrasados.length + ' atrasados | valor aberto: R$ ' + valorJobsAbertos.toFixed(2) + '):',
+    jobs.join('
+') || 'Nenhum',
+    '',
+    'A RECEBER (' + pendentes.length + '):',
+    pendentes.join('
+') || 'Nenhum',
+    '',
+    'VISITAS AGENDADAS:',
+    visitas.join('
+') || 'Nenhuma',
+    '',
+    'CLIENTES RECENTES: ' + (cliList || 'Nenhum'),
+    '',
+    _chatBuildRHContext(),
+    '',
+    _chatBuildDiagContext()
+  ].join('
+');
 }
 
 // ── Contexto RH completo ────────────────────────────────────
@@ -423,76 +477,57 @@ function _chatBuildDiagContext() {
 
 // ── Prompt do sistema completo ────────────────────────────
 function _chatBuildSystem() {
-  return 'Você é a Secretária IA da HR Mármores e Granitos — empresa de mármores e granitos em Pilão Arcado-BA.\n' +
-    'Você tem ACESSO TOTAL e CONHECIMENTO COMPLETO do aplicativo de gestão, incluindo código-fonte, logs de erro e todos os módulos.\n\n' +
-
-    '═══ MÓDULOS QUE VOCÊ CONHECE ═══\n' +
-    '• app-core.js (680KB) — lógica principal: CFG, DB, orçamentos, catálogos, pedras\n' +
-    '• app-config.js — configurações da empresa, API Keys, equipe\n' +
-    '• app-funcionarios.js — módulo HR_FUNC: cadastro, registros de ponto, horas extras, pagamentos\n' +
-    '• app-horas-extras-pdf.js — relatório PDF de horas extras por funcionário\n' +
-    '• app-secretaria.js — agendamento de visitas, notificações push\n' +
-    '• app-autobackup.js — snapshots automáticos, sync Supabase\n' +
-    '• app-diagnostico.js — captura erros JS em tempo real, painel de diagnóstico\n' +
-    '• app-financas.js — finanças detalhadas\n' +
-    '• app-dashboard.js — resumo executivo\n' +
-    '• app-tumulos.js / app-tum-inline.js / app-tum-integracao.js — módulo túmulos\n' +
-    '• app-agenda.js — agenda completa\n' +
-    '• pwa.js + sw.js — service worker, funciona offline\n\n' +
-
-    '═══ CHAVES DE DADOS (localStorage) ═══\n' +
-    '• hr_cfg — configurações (CFG)\n' +
-    '• hr_funcionarios — cadastro de funcionários\n' +
-    '• hr_registros — registros de ponto e horas extras\n' +
-    '• hr_pagamentos — histórico de pagamentos\n' +
-    '• hr_v — visitas agendadas\n' +
-    '• hr_chat — histórico do chat\n' +
-    '• hr_ab_snaps — snapshots de backup\n\n' +
-
-    '═══ AÇÕES DISPONÍVEIS ═══\n' +
-    'Quando o usuário pedir, retorne JSON de ação dentro de ```json ... ```:\n' +
-    '1. Despesa:    {"action":"despesa","desc":"...","valor":100}\n' +
-    '2. Entrada:    {"action":"entrada","desc":"...","valor":100}\n' +
-    '3. A receber:  {"action":"areceber","desc":"...","valor":100,"data":"YYYY-MM-DD"}\n' +
-    '4. Job:        {"action":"job","cli":"...","desc":"...","dias":10,"valor":500}\n' +
-    '5. Visita:     {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}\n' +
-    '6. Pagar func: {"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}\n' +
-    '7. Navegar:    {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}\n' +
-    '8. Limpar logs:{"action":"limpar_diag"}\n' +
-    '9. Desconto:   {"action":"desconto_analise","cli":"nome do cliente"}\n\n' +
-
-    '═══ DIAGNÓSTICO — COMO INTERPRETAR ═══\n' +
-    'Quando o contexto mostrar erros no DIAGNÓSTICO DO SISTEMA:\n' +
-    '• Explique o erro em linguagem simples ao dono\n' +
-    '• Diga em qual arquivo e linha aconteceu\n' +
-    '• Sugira a solução prática\n' +
-    '• "SyntaxError: Unexpected end of input" — geralmente localStorage corrompido ou JS truncado\n' +
-    '• "TypeError: Cannot read prop..." — objeto acessado antes de carregar\n' +
-    '• "ReferenceError: X is not defined" — arquivo JS não carregou na ordem certa\n' +
-    '• Erros de rede/fetch — verificar conexão ou API key\n\n' +
-
-    '═══ PERFIL DE CLIENTES — COMO USAR ═══\n' +
-    'O contexto inclui PERFIL DE CLIENTES com análise automática calculada pelo sistema:\n' +
-    '• [VIP] = 8+ pedidos | [Fiel] = 5-7 | [Recorrente] = 3-4 | [Novo] = 1-2\n' +
-    '• "DESCONTO MÁXIMO SEGURO: X%" = calculado para manter margem ≥ 25%\n' +
-    '• "margem insuficiente p/ desconto" = NÃO ofereça desconto nesse cliente\n' +
-    'Quando alguém perguntar sobre desconto para um cliente nomeado:\n' +
-    '  1. Localize o cliente no PERFIL DE CLIENTES (busca por nome parcial)\n' +
-    '  2. Informe a classificação, histórico e o desconto máximo seguro calculado\n' +
-    '  3. Sugira o desconto de forma proativa: "posso oferecer até X% com segurança"\n' +
-    '  4. Se o cliente não estiver no perfil = cliente novo = desconto apenas se margem do projeto atual permitir\n\n' +
-
-    '═══ REGRAS DE RESPOSTA ═══\n' +
-    '- Responda SEMPRE em português brasileiro, tom profissional mas amigável\n' +
-    '- Máximo 5 linhas por resposta (exceto diagnósticos técnicos)\n' +
-    '- Quando executar ação, confirme com valores e nomes\n' +
-    '- Se detectar erros no contexto de diagnóstico, mencione proativamente\n' +
-    '- Extraia valores naturais: "trezentos reais" = 300, "1.500" = 1500\n' +
-    '- Para orçamentos detalhados, oriente a usar a tela de Orçamento\n\n' +
-
-    'FORMATO quando executar ação:\n' +
-    'Texto da resposta amigável\n' +
-    '```json\n{"action":"...","campo":"valor"}\n```';
+  return [
+    'Você é a Secretária IA da HR Mármores e Granitos — empresa de mármores, granitos e túmulos em Pilão Arcado-BA.',
+    'Você tem ACESSO TOTAL e CONHECIMENTO COMPLETO do sistema de gestão: finanças, agenda, RH, orçamentos, estoque e diagnóstico.',
+    '',
+    '═══ CAPACIDADES DE ANÁLISE FINANCEIRA ═══',
+    'Quando perguntarem sobre finanças, você DEVE:',
+    '• Calcular e comentar lucro real (faturado − despesas − fixos)',
+    '• Comparar com meses anteriores (tendência: subindo/caindo)',
+    '• Alertar se faturamento está abaixo do ponto de equilíbrio (custos fixos + variáveis)',
+    '• Comentar sobre inadimplência (a receber atrasado)',
+    '• Sugerir ações práticas: "considere cobrar X", "o ticket médio está baixo, revise preços"',
+    '• Identificar clientes mais rentáveis',
+    '• Estimar quanto falta para bater a meta do mês',
+    '',
+    '═══ MÓDULOS DO SISTEMA ═══',
+    '• app-core.js — lógica principal: CFG, DB, orçamentos, catálogos',
+    '• app-financas.js — finanças, saúde financeira, metas',
+    '• app-funcionarios.js — RH: ponto, horas extras, pagamentos',
+    '• app-secretaria.js — visitas agendadas',
+    '• app-agenda.js — jobs em produção',
+    '• app-tumulos.js — módulo de túmulos e monumentos',
+    '• app-diagnostico.js — erros JS em tempo real',
+    '',
+    '═══ AÇÕES DISPONÍVEIS ═══',
+    'Retorne JSON dentro de ```json ... ``` quando o usuário pedir uma ação:',
+    '1. Lançar despesa:   {"action":"despesa","desc":"...","valor":100}',
+    '2. Lançar entrada:   {"action":"entrada","desc":"...","valor":100}',
+    '3. A receber:        {"action":"areceber","desc":"...","valor":100,"data":"YYYY-MM-DD"}',
+    '4. Novo job:         {"action":"job","cli":"...","desc":"...","dias":10,"valor":500}',
+    '5. Agendar visita:   {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}',
+    '6. Pagar funcionário:{"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}',
+    '7. Marcar job pago:  {"action":"job_pago","cli":"...","valor":500}',
+    '8. Navegar:          {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
+    '9. Limpar logs:      {"action":"limpar_diag"}',
+    '',
+    '═══ REGRAS DE RESPOSTA ═══',
+    '- SEMPRE em português brasileiro, tom profissional e direto',
+    '- Para análises financeiras: seja específico com números, compare com meses anteriores, dê sugestão prática',
+    '- Máximo 8 linhas por resposta (exceto análises completas solicitadas)',
+    '- Quando executar ação: confirme com nome e valor',
+    '- Extraia valores em linguagem natural: "trezentos reais" = 300, "1.5k" = 1500',
+    '- Use • para listas, **negrito** para destacar números e alertas importantes',
+    '- Se tiver jobs atrasados ou inadimplência, mencione proativamente mesmo que não perguntado',
+    '',
+    'FORMATO de ação:',
+    'Resposta amigável',
+    '```json',
+    '{"action":"...","campo":"valor"}',
+    '```'
+  ].join('
+');
 }
 
 function _chatAsk(userText) {
@@ -517,9 +552,14 @@ function _chatAsk(userText) {
 
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-haiku-4-5',
       max_tokens: 1000,
       system: systemPrompt,
       messages: apiMessages.length ? apiMessages : [{role:'user', content: userText}]
@@ -532,32 +572,11 @@ function _chatAsk(userText) {
     if (!text && d.error) throw new Error(d.error.message || 'Erro da API');
     _chatProcessReply(text);
   })
-  .catch(function(e) {
-    // Fallback Groq
-    var groqKey = key;
-    fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + groqKey },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 800,
-        messages: [{role:'system', content: systemPrompt}].concat(
-          _chat.history.slice(-8).map(function(m){
-            return {role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content};
-          })
-        )
-      })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d) {
-      var text = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
-      if (!text) throw new Error('Sem resposta');
-      _chatProcessReply(text);
-    })
-    .catch(function(err) {
-      _chatBotReply('⚠️ Erro de conexão. Verifique sua internet e tente novamente.', null);
-      console.warn('chat API error:', err);
-    });
+  .catch(function(err) {
+    _chatBotReply('⚠️ Erro de conexão com a IA. Verifique sua chave Anthropic em Config → IA e tente novamente.', [
+      {label:'⚙️ Configurações', fn:'go(6)'}
+    ]);
+    console.warn('chat API error:', err);
   });
 }
 
@@ -726,50 +745,36 @@ function _chatExecuteAction(data) {
       }
       break;
 
+    case 'job_pago':
+      if (data.cli) {
+        var busca = (data.cli || '').toLowerCase();
+        var jobEncontrado = (DB.j || []).find(function(j) {
+          return !j.done && j.cli && j.cli.toLowerCase().indexOf(busca) !== -1;
+        });
+        if (!jobEncontrado) {
+          result.extra = '⚠️ Job de **' + data.cli + '** não encontrado em produção.';
+        } else {
+          var valPago = +(data.valor) || jobEncontrado.value || 0;
+          jobEncontrado.pago = (jobEncontrado.pago || 0) + valPago;
+          if (jobEncontrado.pago >= (jobEncontrado.value || 0)) {
+            jobEncontrado.done = true;
+            result.extra = '✅ Job de **' + jobEncontrado.cli + '** marcado como **concluído e pago**! R$ ' + fm(valPago) + ' registrado.';
+          } else {
+            result.extra = '✅ Pagamento parcial de **R$ ' + fm(valPago) + '** registrado no job de **' + jobEncontrado.cli + '**. Falta: R$ ' + fm((jobEncontrado.value||0) - jobEncontrado.pago);
+          }
+          addTr('in', 'Recebimento job — ' + jobEncontrado.cli + (jobEncontrado.desc ? ' | ' + jobEncontrado.desc.slice(0,30) : ''), valPago);
+          DB.sv();
+          if (typeof renderAg === 'function') renderAg();
+          result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
+          result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+        }
+      }
+      break;
+
     case 'limpar_diag':
       if (typeof window._diagLimpar === 'function') {
         window._diagLimpar();
         result.extra = '🗑 Logs de diagnóstico limpos!';
-      }
-      break;
-
-    case 'desconto_analise':
-      if (data.cli) {
-        var busca = (data.cli || '').toLowerCase().trim();
-        var cliStatsDisc = {};
-        (DB.q||[]).forEach(function(q){
-          if(!q.cli) return;
-          var c = cliStatsDisc[q.cli] = cliStatsDisc[q.cli] || {nome:q.cli,orcamentos:0,jobs:0,totalVendas:0,totalCusto:0,totalM2:0};
-          c.orcamentos++; c.totalVendas+=(q.vista||0); c.totalCusto+=(q._custoPainel||0); c.totalM2+=(q.m2||0);
-        });
-        (DB.j||[]).forEach(function(j){
-          if(!j.cli) return;
-          var c = cliStatsDisc[j.cli] = cliStatsDisc[j.cli] || {nome:j.cli,orcamentos:0,jobs:0,totalVendas:0,totalCusto:0,totalM2:0};
-          c.jobs++; c.totalVendas+=(j.value||0);
-        });
-        var cliEnc = Object.values(cliStatsDisc).find(function(c){ return c.nome.toLowerCase().indexOf(busca)!==-1; });
-        if (!cliEnc) {
-          result.extra = '📊 Cliente **"'+data.cli+'"** não tem histórico ainda. Para clientes novos, o desconto depende da margem do projeto atual (recomendo abrir o orçamento na tela de Orçamento).';
-        } else {
-          var tr = cliEnc.orcamentos + cliEnc.jobs;
-          var fid = tr>=8?'VIP':tr>=5?'Fiel':tr>=3?'Recorrente':'Novo';
-          var mgPct = cliEnc.totalCusto>0 ? ((cliEnc.totalVendas-cliEnc.totalCusto)/cliEnc.totalVendas*100) : null;
-          var descMax = 0;
-          if(mgPct!==null && mgPct>28){
-            descMax=Math.min(Math.floor(mgPct-25),fid==='VIP'?15:fid==='Fiel'?10:fid==='Recorrente'?5:3);
-          } else if(mgPct===null){
-            descMax=fid==='VIP'?8:fid==='Fiel'?5:fid==='Recorrente'?3:0;
-          }
-          var txt = '📊 **Análise: '+cliEnc.nome+'** ['+fid+']\n';
-          txt += '• '+tr+' pedido(s) | Total histórico: R$ '+fm(cliEnc.totalVendas);
-          if(cliEnc.totalM2>0) txt += ' | '+cliEnc.totalM2.toFixed(1)+' m²';
-          txt += '\n';
-          if(mgPct!==null) txt += '• Margem histórica: '+mgPct.toFixed(1)+'%\n';
-          if(descMax>0) txt += '✅ **Desconto máximo seguro: '+descMax+'%** (margem fica ≥25%)';
-          else txt += '⚠️ Margem insuficiente para desconto neste cliente.';
-          result.extra = txt;
-          result.actions.push({label:'📋 Ver Orçamentos', fn:'go(7)'});
-        }
       }
       break;
   }
@@ -880,47 +885,156 @@ function _injectChatStyles() {
   var s = document.createElement('style');
   s.id = 'chatStyle';
   s.textContent = `
-    @keyframes chatFadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
-    @keyframes chatDot { 0%,80%,100%{transform:scale(0);opacity:.3} 40%{transform:scale(1);opacity:1} }
-    @keyframes chatPulse { 0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.6)} 70%{box-shadow:0 0 0 8px rgba(248,113,113,0)} }
+    @keyframes chatFadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+    @keyframes chatDot     { 0%,80%,100%{transform:scale(0);opacity:.25} 40%{transform:scale(1);opacity:1} }
+    @keyframes chatPulse   { 0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.6)} 70%{box-shadow:0 0 0 8px rgba(248,113,113,0)} }
+    @keyframes chatSlideIn { from{opacity:0;transform:translateX(-6px)} to{opacity:1;transform:none} }
+    @keyframes chatShimmer { 0%{background-position:200%} 100%{background-position:-200%} }
 
+    /* ── Wrap ── */
     .chat-wrap { display:flex;flex-direction:column;height:calc(100vh - 120px);background:var(--s1); }
 
-    .chat-header { display:flex;align-items:center;gap:12px;padding:14px 16px 10px;border-bottom:1px solid var(--bd);background:var(--s2);flex-shrink:0; }
-    .chat-avatar { width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#c9a84c,#a07830);display:flex;align-items:center;justify-content:center;font-size:20px;position:relative;flex-shrink:0; }
-    .chat-avatar-dot { position:absolute;bottom:1px;right:1px;width:10px;height:10px;border-radius:50%;background:#4ade80;border:2px solid var(--s2); }
+    /* ── Header ── */
+    .chat-header {
+      display:flex;align-items:center;gap:12px;padding:12px 16px 10px;
+      border-bottom:1px solid var(--bd);background:var(--s2);flex-shrink:0;
+    }
+    .chat-avatar {
+      width:42px;height:42px;border-radius:50%;
+      background:linear-gradient(135deg,#c9a84c,#7a5c20);
+      display:flex;align-items:center;justify-content:center;
+      font-size:20px;position:relative;flex-shrink:0;
+      box-shadow:0 2px 8px rgba(201,168,76,.3);
+    }
+    .chat-avatar-dot {
+      position:absolute;bottom:1px;right:1px;width:11px;height:11px;
+      border-radius:50%;background:#4ade80;border:2px solid var(--s2);
+    }
     .chat-header-info { flex:1; }
     .chat-header-name { font-size:.9rem;font-weight:700;color:var(--t1); }
     .chat-header-sub  { font-size:.62rem;color:var(--t3);margin-top:1px; }
-    .chat-clear-btn { background:none;border:1px solid var(--bd);border-radius:8px;padding:5px 8px;color:var(--t4);font-size:.8rem;cursor:pointer; }
+    .chat-clear-btn {
+      background:none;border:1px solid var(--bd);border-radius:8px;
+      padding:5px 8px;color:var(--t4);font-size:.8rem;cursor:pointer;
+      transition:border-color .15s,color .15s;
+    }
+    .chat-clear-btn:hover { border-color:var(--bd2);color:var(--t2); }
 
-    .chat-messages { flex:1;overflow-y:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:10px; }
-    .chat-bubble { max-width:85%;border-radius:16px;padding:10px 13px;animation:chatFadeUp .25s ease;line-height:1.55;font-size:.82rem; }
-    .chat-bubble-user { align-self:flex-end;background:linear-gradient(135deg,#c9a84c22,#c9a84c18);border:1px solid #c9a84c33;color:var(--t1);border-bottom-right-radius:4px; }
-    .chat-bubble-bot  { align-self:flex-start;background:var(--s3);border:1px solid var(--bd);color:var(--t1);border-bottom-left-radius:4px; }
+    /* ── Mensagens ── */
+    .chat-messages {
+      flex:1;overflow-y:auto;padding:14px 14px 6px;
+      display:flex;flex-direction:column;gap:10px;
+    }
+    .chat-bubble {
+      max-width:88%;border-radius:18px;padding:11px 14px;
+      animation:chatFadeUp .22s ease;line-height:1.6;font-size:.83rem;
+    }
+    .chat-bubble-user {
+      align-self:flex-end;
+      background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.10));
+      border:1px solid rgba(201,168,76,.28);color:var(--t1);
+      border-bottom-right-radius:4px;
+    }
+    .chat-bubble-bot {
+      align-self:flex-start;background:var(--s3);
+      border:1px solid var(--bd);color:var(--t1);border-bottom-left-radius:4px;
+    }
     .chat-bubble-text strong { color:var(--gold2);font-weight:700; }
-    .chat-bubble-text code { background:rgba(255,255,255,.08);border-radius:4px;padding:1px 5px;font-family:'Courier New',monospace;font-size:.78rem; }
+    .chat-bubble-text code {
+      background:rgba(255,255,255,.08);border-radius:4px;
+      padding:1px 5px;font-family:'Courier New',monospace;font-size:.78rem;
+    }
     .chat-bubble-ts { font-size:.58rem;color:var(--t4);margin-top:5px;text-align:right; }
 
-    .chat-thinking { display:flex;align-items:center;gap:4px;padding:12px 16px; }
-    .chat-thinking span { width:7px;height:7px;border-radius:50%;background:var(--t3);display:inline-block; }
-    .chat-thinking span:nth-child(1){animation:chatDot 1.2s .0s infinite;}
-    .chat-thinking span:nth-child(2){animation:chatDot 1.2s .2s infinite;}
-    .chat-thinking span:nth-child(3){animation:chatDot 1.2s .4s infinite;}
+    /* Listas inline */
+    .chat-li {
+      display:block;padding-left:14px;position:relative;margin:2px 0;
+    }
+    .chat-li::before { content:'•';position:absolute;left:2px;color:var(--gold2); }
 
-    .chat-actions { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px; }
-    .chat-action-btn { background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);border-radius:20px;padding:5px 12px;color:var(--gold2);font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;transition:background .15s; }
-    .chat-action-btn:active { background:rgba(201,168,76,.25); }
+    /* Valores monetários */
+    .chat-val { color:var(--gold2);font-weight:600; }
 
-    .chat-input-area { padding:10px 14px 16px;border-top:1px solid var(--bd);background:var(--s2);flex-shrink:0; }
+    /* ── Thinking ── */
+    .chat-thinking {
+      display:flex;align-items:center;gap:8px;
+      padding:11px 14px;background:var(--s3);border:1px solid var(--bd);
+      border-radius:18px;border-bottom-left-radius:4px;align-self:flex-start;
+      max-width:88%;
+    }
+    .chat-thinking-inner { display:flex;gap:4px;align-items:center; }
+    .chat-thinking-inner span {
+      width:7px;height:7px;border-radius:50%;background:var(--gold2);display:inline-block;
+    }
+    .chat-thinking-inner span:nth-child(1){animation:chatDot 1.2s .0s infinite;}
+    .chat-thinking-inner span:nth-child(2){animation:chatDot 1.2s .2s infinite;}
+    .chat-thinking-inner span:nth-child(3){animation:chatDot 1.2s .4s infinite;}
+    .chat-thinking-label { font-size:.72rem;color:var(--t3);font-style:italic; }
+
+    /* ── Ações ── */
+    .chat-actions { display:flex;flex-wrap:wrap;gap:6px;margin-top:9px; }
+    .chat-action-btn {
+      background:rgba(201,168,76,.10);border:1px solid rgba(201,168,76,.28);
+      border-radius:20px;padding:5px 13px;color:var(--gold2);
+      font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;
+      transition:background .15s,border-color .15s;
+    }
+    .chat-action-btn:hover  { background:rgba(201,168,76,.2); }
+    .chat-action-btn:active { background:rgba(201,168,76,.3); }
+
+    /* ── Chips de atalho ── */
+    .chat-chips {
+      display:flex;gap:7px;overflow-x:auto;padding:8px 14px 6px;
+      flex-shrink:0;scrollbar-width:none;
+    }
+    .chat-chips::-webkit-scrollbar { display:none; }
+    .chat-chip {
+      flex-shrink:0;white-space:nowrap;
+      background:var(--s3);border:1px solid var(--bd);
+      border-radius:20px;padding:5px 12px;
+      color:var(--t2);font-size:.72rem;font-family:inherit;
+      cursor:pointer;transition:background .15s,border-color .15s,color .15s;
+      animation:chatSlideIn .2s ease;
+    }
+    .chat-chip:hover  { background:rgba(201,168,76,.12);border-color:rgba(201,168,76,.3);color:var(--gold2); }
+    .chat-chip:active { background:rgba(201,168,76,.22); }
+
+    /* ── Input ── */
+    .chat-input-area {
+      padding:10px 14px 16px;border-top:1px solid var(--bd);
+      background:var(--s2);flex-shrink:0;
+    }
     .chat-input-row { display:flex;align-items:flex-end;gap:8px; }
-    .chat-input { flex:1;background:var(--s3);border:1px solid var(--bd);border-radius:22px;padding:10px 16px;color:var(--t1);font-size:.83rem;font-family:inherit;resize:none;outline:none;line-height:1.4;max-height:120px;overflow-y:auto;transition:border .2s; }
-    .chat-input:focus { border-color:rgba(201,168,76,.4); }
+    .chat-input {
+      flex:1;background:var(--s3);border:1px solid var(--bd);border-radius:22px;
+      padding:10px 16px;color:var(--t1);font-size:.83rem;font-family:inherit;
+      resize:none;outline:none;line-height:1.4;max-height:120px;overflow-y:auto;
+      transition:border-color .2s,box-shadow .2s;
+    }
+    .chat-input:focus {
+      border-color:rgba(201,168,76,.45);
+      box-shadow:0 0 0 3px rgba(201,168,76,.08);
+    }
     .chat-input::placeholder { color:var(--t4); }
-    .chat-send-btn { width:40px;height:40px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#c9a84c,#a07830);border:none;color:#000;font-size:1rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:opacity .15s; }
-    .chat-send-btn:active { opacity:.8; }
-    .chat-mic-btn { width:40px;height:40px;border-radius:50%;flex-shrink:0;background:var(--s3);border:1px solid var(--bd);color:var(--t2);font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;user-select:none;-webkit-user-select:none; }
-    .chat-mic-btn.recording { background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);animation:chatPulse 1s infinite; }
+    .chat-send-btn {
+      width:40px;height:40px;border-radius:50%;flex-shrink:0;
+      background:linear-gradient(135deg,#c9a84c,#7a5c20);
+      border:none;color:#000;font-size:.9rem;font-weight:900;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;
+      transition:opacity .15s,transform .1s;box-shadow:0 2px 8px rgba(201,168,76,.3);
+    }
+    .chat-send-btn:active { opacity:.85;transform:scale(.94); }
+    .chat-mic-btn {
+      width:40px;height:40px;border-radius:50%;flex-shrink:0;
+      background:var(--s3);border:1px solid var(--bd);
+      color:var(--t2);font-size:1.1rem;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      transition:all .15s;user-select:none;-webkit-user-select:none;
+    }
+    .chat-mic-btn.recording {
+      background:rgba(248,113,113,.2);border-color:rgba(248,113,113,.5);
+      animation:chatPulse 1s infinite;
+    }
     .chat-mic-status { font-size:.68rem;color:#f87171;text-align:center;min-height:16px;margin-top:4px; }
   `;
   document.head.appendChild(s);

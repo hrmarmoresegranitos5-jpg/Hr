@@ -277,9 +277,9 @@ function buildCfg(){
 
     // IA
     h+='<div class="cfgsec"><div class="cfghd">🤖 Inteligência Artificial</div>';
-    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">A API Key da Secretária Inteligente (Claude). Obtenha em <span style="color:#C9A84C;">console.anthropic.com</span> → API Keys.</div>';
+    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">API Key da Secretária IA (Claude Anthropic). Obtenha em <span style="color:#C9A84C;">console.anthropic.com</span> → API Keys. Começa com sk-ant-</div>';
     h+='<div class="cfg-row"><span class="cfg-lbl">Pessoas na equipe</span><input class="cfginp" type="number" min="1" max="20" value="'+(e.equipe||3)+'" style="width:70px;text-align:right;" onchange="CFG.emp.equipe=+this.value;svCFG();toast(\'✓ Equipe atualizada!\');"></div>';
-    h+='<div class="cfg-row"><span class="cfg-lbl">API Key Groq (Gratuita)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="sk-proj-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">API Key Anthropic (Claude)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="sk-ant-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
     h+='<div style="padding:9px 13px;"><button onclick="testarAPIKey()" style="padding:7px 14px;background:var(--gdim);border:1px solid var(--gold3);border-radius:8px;color:var(--gold2);font-family:Outfit,sans-serif;font-size:.75rem;cursor:pointer;">Testar conexão</button><span id="apiTestResult" style="font-size:.72rem;color:var(--t3);margin-left:10px;"></span></div>';
     h+='</div>';
 
