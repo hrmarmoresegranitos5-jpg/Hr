@@ -130,6 +130,11 @@ SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
+SV_DEFS['🍽️ Balcão']=[
+  {g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira p/ Balcão',u:'un',fx:0}]},
+  {g:'Instalação',its:[{k:'inst',l:'Instalação c/ Argamassa AC-3',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},
+  {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
+];
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
 // ─── DIVISÓRIA WC ────────────────────────────────────────────────
@@ -526,7 +531,7 @@ function setCubaQtd(ambId, svKey, qtd){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','🍽️ Balcão','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -892,6 +897,79 @@ function renderAmbientes(){
       h+='</div>';
       h+='</div>';
     }
+    if(amb.tipo==='🍽️ Balcão'){
+      if(!amb.balcExtra)amb.balcExtra={};
+      var be=amb.balcExtra;
+      h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.22);border-radius:10px;padding:14px;margin:10px 0;">';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:12px;">🍽️ Configurador de Pés de Balcão</div>';
+      // Dica
+      h+='<div style="margin-bottom:11px;padding:8px 10px;background:rgba(201,168,76,.05);border-radius:8px;font-size:.6rem;color:var(--t3);line-height:1.65;">';
+      h+='💡 Informe as medidas de <b>um pé</b>. As peças de todos os pés e fechamentos serão calculadas automaticamente.';
+      h+='</div>';
+      // Medidas do pé
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📐 Medidas do Pé</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Altura do pé (cm)</label><input type="number" placeholder="Ex: 90" style="background:var(--s3);" value="'+(be.peH||'')+'" oninput="updBalcMed('+amb.id+',\'peH\',+this.value)"></div>';
+      h+='<div class="f"><label>Largura do pé (cm)</label><input type="number" placeholder="Ex: 60" style="background:var(--s3);" value="'+(be.peL||'')+'" oninput="updBalcMed('+amb.id+',\'peL\',+this.value)"></div>';
+      h+='</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Espessura da pedra (cm)</label><input type="number" placeholder="Ex: 3" step="0.5" style="background:var(--s3);" value="'+(be.peE||'')+'" oninput="updBalcMed('+amb.id+',\'peE\',+this.value)"></div>';
+      h+='<div class="f"><label>Espessura da parede (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(be.espPar||'')+'" oninput="updBalcMed('+amb.id+',\'espPar\',+this.value)"></div>';
+      h+='</div>';
+      // Altura da sainha
+      h+='<div class="f" style="max-width:200px;"><label>Altura da sainha lateral (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(be.sainhaH||'')+'" oninput="updBalcMed('+amb.id+',\'sainhaH\',+this.value)"></div>';
+      h+='<div style="border-top:1px solid rgba(201,168,76,.15);margin:12px 0 12px;"></div>';
+      // Quantidades
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🔢 Quantidades</div>';
+      h+='<div class="r2">';
+      // Nº de pés total
+      h+='<div class="f"><label>Nº de pés total</label>';
+      h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd);border-radius:8px;overflow:hidden;height:42px;">';
+      h+='<button onclick="updBalcMed('+amb.id+',\'nPes\',Math.max(1,(+('+(be.nPes||1)+')-1)))" style="background:none;border:none;color:var(--t2);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+      h+='<span style="flex:1;text-align:center;font-size:.95rem;font-weight:700;color:var(--tx);">'+(be.nPes||1)+'</span>';
+      h+='<button onclick="updBalcMed('+amb.id+',\'nPes\',(+('+(be.nPes||1)+')+1))" style="background:none;border:none;color:var(--gold);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+      h+='</div></div>';
+      // Nº de pés com fechamento
+      h+='<div class="f"><label>Pés com fechamento lateral</label>';
+      h+='<div style="display:flex;align-items:center;background:var(--s3);border:1px solid var(--bd);border-radius:8px;overflow:hidden;height:42px;">';
+      h+='<button onclick="updBalcMed('+amb.id+',\'nFech\',Math.max(0,(+('+(be.nFech||0)+')-1)))" style="background:none;border:none;color:var(--t2);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+      h+='<span style="flex:1;text-align:center;font-size:.95rem;font-weight:700;color:var(--tx);">'+(be.nFech||0)+'</span>';
+      h+='<button onclick="updBalcMed('+amb.id+',\'nFech\',Math.min(+('+(be.nPes||1)+'),+('+(be.nFech||0)+')+1))" style="background:none;border:none;color:var(--gold);font-size:1.2rem;width:40px;height:100%;cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+      h+='</div></div>';
+      h+='</div>';
+      // Preview calculado
+      var balcCalc=calcBalcaoPecas(be);
+      if(balcCalc && balcCalc.length>0){
+        var ambMatBalc=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 10px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
+        var totalM2balc=0;
+        balcCalc.forEach(function(p){
+          var m2=p.m2;
+          totalM2balc+=m2;
+          var prPedra=ambMatBalc?m2*ambMatBalc.pr:0;
+          var prMO=m2*85;
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(201,168,76,.08);">';
+          h+='<div>';
+          h+='<div style="font-size:.74rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
+          h+='<div style="font-size:.6rem;color:var(--t4);">'+p.dim+'</div>';
+          h+='</div>';
+          h+='<div style="text-align:right;">';
+          h+='<div style="font-size:.72rem;font-weight:700;color:var(--gold2);">'+m2.toFixed(3)+' m²</div>';
+          if(ambMatBalc&&prPedra>0) h+='<div style="font-size:.58rem;color:var(--t3);">R$ '+fm(prPedra+prMO)+'</div>';
+          h+='</div>';
+          h+='</div>';
+        });
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0 2px;">';
+        h+='<span style="font-size:.72rem;font-weight:700;color:var(--gold);">Total</span>';
+        h+='<span style="font-size:.8rem;font-weight:800;color:var(--gold2);">'+totalM2balc.toFixed(3)+' m²</span>';
+        h+='</div>';
+        h+='<button onclick="aplicarPecasBalcao('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
+      } else {
+        h+='<div style="margin-top:10px;padding:9px 11px;background:rgba(201,168,76,.04);border-radius:8px;font-size:.63rem;color:var(--t4);text-align:center;">Preencha as medidas acima para calcular as peças</div>';
+      }
+      h+='</div>';
+    }
     h+='<div style="margin:10px 0 12px;">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
     h+='<span style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
@@ -906,7 +984,7 @@ function renderAmbientes(){
     h+=buildMatCarouselHtml(amb);
     h+='</div>';
     // Pecas — para Capela, as peças são geradas pelo configurador (oculto aqui)
-    if(amb.tipo !== '⛪ Capela'){
+    if(amb.tipo !== '⛪ Capela' && amb.tipo !== '🍽️ Balcão'){
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 7px;">Peças</div>';
       h+='<div class="amb-pecas">';
       amb.pecas.forEach(function(pc,pi){
@@ -943,7 +1021,7 @@ function renderAmbientes(){
         h+='</div>';
       }
     }
-    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços'+(amb.tipo==='⛪ Capela'?' adicionais':'')+'</div>';
+    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços'+(amb.tipo==='⛪ Capela'||amb.tipo==='🍽️ Balcão'?' adicionais':'')+'</div>';
     h+='<div id="svAuto-'+amb.id+'">';
     h+=buildSVHtml(amb);
     h+='</div>';
@@ -1375,6 +1453,62 @@ function aplicarPecasCapela(ambId){
   if(!pecas.length){toast('Preencha largura, profundidade e altura');return;}
 
   // Substitui as peças do ambiente
+  amb.pecas=pecas.map(function(p){
+    return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+  });
+  renderAmbientes();
+  toast('✦ '+pecas.length+' peças aplicadas automaticamente!');
+}
+
+// ─── BALCÃO ──────────────────────────────────────────────────────
+function updBalcMed(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.balcExtra)amb.balcExtra={};
+  amb.balcExtra[field]=val;
+  renderAmbientes();
+}
+
+function calcBalcaoPecas(be){
+  var peH=+(be.peH||0);   // altura do pé
+  var peL=+(be.peL||0);   // largura do pé
+  var peE=+(be.peE||0);   // espessura da pedra
+  var espPar=+(be.espPar||0); // espessura da parede
+  var sainhaH=+(be.sainhaH||0); // altura da sainha lateral
+  var nPes=+(be.nPes||1);
+  var nFech=+(be.nFech||0);
+  if(!peH||!peL)return [];
+  var pecas=[];
+
+  // Peça principal do pé (frente): altura × largura
+  var m2Pe=(peH/100)*(peL/100);
+  pecas.push({desc:'Pé de Balcão',dim:peH+'×'+peL+' cm',w:peL,h:peH,q:nPes,m2:m2Pe*nPes});
+
+  // Sainha lateral em 45°: 2 por pé (face esquerda e face direita)
+  // Largura da sainha = espessura da pedra; altura = sainhaH
+  if(sainhaH>0 && peE>0){
+    var m2Sainha=(sainhaH/100)*(peE/100);
+    pecas.push({desc:'Sainha Lateral 45°',dim:sainhaH+'×'+peE+' cm (×2 por pé)',w:peE,h:sainhaH,q:nPes*2,m2:m2Sainha*nPes*2});
+  }
+
+  // Fechamento lateral (vai até a parede)
+  // Altura = peH − 2; Largura = peL − espPar
+  if(nFech>0 && espPar>0){
+    var fechH=peH-2;
+    var fechL=peL-espPar;
+    if(fechH>0 && fechL>0){
+      var m2Fech=(fechH/100)*(fechL/100);
+      pecas.push({desc:'Fechamento Lateral (até parede)',dim:fechH+'×'+fechL+' cm',w:fechL,h:fechH,q:nFech,m2:m2Fech*nFech});
+    }
+  }
+  return pecas;
+}
+
+function aplicarPecasBalcao(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.balcExtra)return;
+  var pecas=calcBalcaoPecas(amb.balcExtra);
+  if(!pecas.length){toast('Preencha altura e largura do pé');return;}
   amb.pecas=pecas.map(function(p){
     return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
   });
