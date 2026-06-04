@@ -3177,7 +3177,24 @@ function _applyVistaToUI() {
   var piV = document.getElementById('piVista');
   var piM = document.getElementById('piMargem');
   if (piV) piV.textContent = 'R$ ' + fm(pendQ.vista);
-  if (piM) piM.textContent = 'R$ ' + fm(pendQ.vista - (pendQ._custoPainel || 0));
+  if (piM) {
+    var _lmV = pendQ.vista - (pendQ._custoPainel || 0);
+    var _lmP = pendQ.vista > 0 ? Math.round(_lmV / pendQ.vista * 100) : 0;
+    var _lmC = _lmP >= 40 ? 'var(--grn)' : _lmP >= 25 ? '#f39c12' : '#e05151';
+    var _lmA = _lmP < 25 ? ' ⚠️ BAIXA' : _lmP < 40 ? ' ⚠️ Atenção' : '';
+    piM.style.color = _lmC;
+    piM.innerHTML = 'R$ ' + fm(_lmV) + ' <span style="font-size:.7rem;font-weight:600;">(' + _lmP + '%)' + _lmA + '</span>';
+    var _alEl = document.getElementById('piMargemAlerta');
+    if (_alEl) {
+      if (_lmP < 40) {
+        _alEl.style.display = '';
+        _alEl.style.color = _lmP < 25 ? '#e05151' : '#f39c12';
+        _alEl.style.borderColor = _lmP < 25 ? 'rgba(224,81,81,.35)' : 'rgba(243,156,18,.35)';
+        _alEl.style.background = _lmP < 25 ? 'rgba(224,81,81,.12)' : 'rgba(243,156,18,.10)';
+        _alEl.textContent = _lmP < 25 ? '🔴 Margem crítica — reveja o preço ou custo' : '🟡 Margem abaixo de 40% — considere ajustar';
+      } else { _alEl.style.display = 'none'; }
+    }
+  }
   var qb = document.getElementById('quoteBox');
   if (qb && pendQ._txtPre) {
     qb.textContent = pendQ._txtPre + _buildPriceText(pendQ) + pendQ._txtFooter;
@@ -3762,7 +3779,18 @@ function calcular(){
   }
   pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b id="piVista" style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
-  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;"><span style="font-size:.72rem;color:var(--t4);">Margem estimada</span><b id="piMargem" style="color:var(--grn);">R$ '+fm(vista-custoPainel)+'</b></div></div>';
+  var _margemVal=vista-custoPainel;
+  var _margemPct=vista>0?Math.round(_margemVal/vista*100):0;
+  var _margemCor=_margemPct>=40?'var(--grn)':_margemPct>=25?'#f39c12':'#e05151';
+  var _margemAlerta=_margemPct<25?' ⚠️ BAIXA':_margemPct<40?' ⚠️ Atenção':'';
+  pi+='<div style="display:flex;justify-content:space-between;margin-top:6px;align-items:center;">'
+    +'<span style="font-size:.72rem;color:var(--t4);">Margem estimada</span>'
+    +'<b id="piMargem" style="color:'+_margemCor+';">R$ '+fm(_margemVal)+' <span style="font-size:.7rem;font-weight:600;">('+_margemPct+'%)'+_margemAlerta+'</span></b>'
+    +'</div>'
+  +(_margemPct<40?'<div id="piMargemAlerta" style="font-size:.6rem;padding:4px 8px;border-radius:6px;margin-top:4px;text-align:center;background:'+(_margemPct<25?'rgba(224,81,81,.12)':'rgba(243,156,18,.10)')+';border:1px solid '+(_margemPct<25?'rgba(224,81,81,.35)':'rgba(243,156,18,.35)')+';color:'+(_margemPct<25?'#e05151':'#f39c12')+';">'
+    +(_margemPct<25?'🔴 Margem crítica — reveja o preço ou custo':'🟡 Margem abaixo de 40% — considere ajustar')
+    +'</div>':'')
+  +'</div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
   // Texto base para regeneração após ajuste de vista
@@ -4809,7 +4837,18 @@ function jCard(j){
   var meta=(j.start?'<span>Início: '+fd(j.start)+'</span> ':'')+(j.end?'<span>Entrega: '+fd(j.end)+'</span> ':'')+dTxt;
   var valMeta=j.value?'<div class="jmeta"><span class="gold">Total: R$ '+fm(j.value)+'</span><span class="grn">Pago: R$ '+fm(j.pago||0)+'</span>'+(rest>0?'<span class="red">A receber: R$ '+fm(rest)+'</span>':'')+'</div>':'';
   var btnPag=(!j.done&&rest>0)?'<button class="btn btn-sm" style="background:var(--gdim);color:var(--gold2);border:1px solid var(--gold3);" data-pagrest="'+j.id+'">Receber</button>':'';
-  return '<div class="jcard '+st+'"><div class="jnm">'+j.cli+'</div><div class="jdesc">'+j.desc+'</div><div class="jmeta">'+meta+'</div>'+valMeta+'<div class="jbtns"><button class="btn btn-sm '+(j.done?'btn-o':'btn-grn')+'" data-togjob="'+j.id+'">'+(j.done?'↩ Reabrir':'✓ Concluir')+'</button>'+btnPag+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div></div>';
+  // ── Alerta de prazo vencendo ──────────────────────────────────────────
+  var alertBanner='';
+  if(!j.done&&d!==null){
+    if(d<0){
+      alertBanner='<div style="background:rgba(224,81,81,.13);border:1px solid rgba(224,81,81,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#e05151;font-weight:700;">🔴 ATRASADO — '+Math.abs(d)+' dia(s) em atraso</div>';
+    }else if(d===0){
+      alertBanner='<div style="background:rgba(224,81,81,.13);border:1px solid rgba(224,81,81,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#e05151;font-weight:700;">🚨 ENTREGA HOJE!</div>';
+    }else if(d<=3){
+      alertBanner='<div style="background:rgba(243,156,18,.11);border:1px solid rgba(243,156,18,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#f39c12;font-weight:700;">⚠️ Entrega em '+d+' dia(s) — '+fd(j.end)+'</div>';
+    }
+  }
+  return '<div class="jcard '+st+'">'+alertBanner+'<div class="jnm">'+j.cli+'</div><div class="jdesc">'+j.desc+'</div><div class="jmeta">'+meta+'</div>'+valMeta+'<div class="jbtns"><button class="btn btn-sm '+(j.done?'btn-o':'btn-grn')+'" data-togjob="'+j.id+'">'+(j.done?'↩ Reabrir':'✓ Concluir')+'</button>'+btnPag+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div></div>';
 }
 
 // ═══ FINANÇAS ═══

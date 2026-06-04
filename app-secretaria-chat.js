@@ -392,23 +392,19 @@ function _chatBuildContext() {
     'Ticket médio (histórico): R$ ' + ticketMedio.toFixed(2),
     '',
     '══ TENDÊNCIA (3 MESES) ══',
-    tendencia.join('
-'),
+    tendencia.join('\n'),
     '',
     '══ TOP CLIENTES POR VOLUME ══',
     topCli.length ? topCli.join(' | ') : 'Sem dados',
     '',
     'JOBS EM PRODUÇÃO (' + jobsAtivos.length + ' ativos, ' + jobsAtrasados.length + ' atrasados | valor aberto: R$ ' + valorJobsAbertos.toFixed(2) + '):',
-    jobs.join('
-') || 'Nenhum',
+    jobs.join('\n') || 'Nenhum',
     '',
     'A RECEBER (' + pendentes.length + '):',
-    pendentes.join('
-') || 'Nenhum',
+    pendentes.join('\n') || 'Nenhum',
     '',
     'VISITAS AGENDADAS:',
-    visitas.join('
-') || 'Nenhuma',
+    visitas.join('\n') || 'Nenhuma',
     '',
     'CLIENTES RECENTES: ' + (cliList || 'Nenhum'),
     '',
@@ -417,8 +413,7 @@ function _chatBuildContext() {
     _chatBuildOrcContext(),
     '',
     _chatBuildDiagContext()
-  ].join('
-');
+  ].join('\n');
 }
 
 // ── Contexto RH completo ────────────────────────────────────
@@ -496,7 +491,11 @@ function _chatBuildDiagContext() {
 
     return 'DIAGNÓSTICO DO SISTEMA (' + erros.length + ' erro(s), ' + avisos.length + ' aviso(s)):\n' + resumo;
   } catch(e) {
-    return 'DIAGNÓSTICO: erro // ── Contexto de orçamentos recentes ───────────────────────
+    return 'DIAGNÓSTICO: erro — ' + e.message;
+  }
+}
+
+// ── Contexto de orçamentos recentes ───────────────────────
 function _chatBuildOrcContext() {
   try {
     var orcs = (typeof DB !== 'undefined' && DB.q) ? DB.q.slice(0, 10) : [];
@@ -513,10 +512,6 @@ function _chatBuildOrcContext() {
     }).join('\n');
     return 'ORÇAMENTOS RECENTES (' + orcs.length + ') | total gerado no mês: R$ ' + totalMes.toFixed(2) + ':\n' + linhas;
   } catch(e) { return 'ORÇAMENTOS: erro — ' + e.message; }
-}
-
-ao ler logs — ' + e.message;
-  }
 }
 
 // ── Prompt do sistema completo ────────────────────────────
@@ -567,7 +562,7 @@ function _chatBuildSystem() {
     '- ✅ para confirmar ações executadas',
     '- Se jobs atrasados ou inadimplência: sempre mencione ao final',
     '- Para "como estou" ou "resumo": 5 pontos chave com dados reais',
-  ].join(\'\n\');
+  ].join('\n');
 }
 
 function _chatAsk(userText) {
