@@ -28,13 +28,18 @@ function _chatSave() {
 var _errMonitor = {
   lastNotifTs: 0,
   errosJaNotificados: {},
-  COOLDOWN_MS: 60000  // no mínimo 1 min entre notificações
+  COOLDOWN_MS: 60000,       // no mínimo 1 min entre notificações
+  bootTs: Date.now(),       // só notifica erros que ocorrem APÓS o boot
+  BOOT_GRACE_MS: 8000       // ignora os primeiros 8s (erros do localStorage no load)
 };
 
 // Chamado pelo app-diagnostico.js via hook de erros
 function _secretariaReceberErro(msg, src, linha) {
   var agora = Date.now();
   var chave = (msg || '').slice(0, 80) + '|' + (src || '');
+
+  // Ignora erros dos primeiros segundos do boot (localStorage corrompido, etc.)
+  if (agora - _errMonitor.bootTs < _errMonitor.BOOT_GRACE_MS) return;
 
   // Evita notificar o mesmo erro repetido
   if (_errMonitor.errosJaNotificados[chave]) return;
@@ -101,8 +106,8 @@ window.addEventListener('load', function() {
       var msg = args.map(function(a) {
         return (a instanceof Error) ? a.message : (typeof a === 'object' ? JSON.stringify(a) : String(a));
       }).join(' ');
-      // Ignora erros triviais do sistema (rede, etc.)
-      if (!/NetworkError|net::ERR|AbortError|Failed to fetch/i.test(msg)) {
+    // Ignora erros triviais do sistema (rede, etc.) e erros de boot do localStorage
+      if (!/NetworkError|net::ERR|AbortError|Failed to fetch|Unexpected end of input|Unexpected token/i.test(msg)) {
         _secretariaReceberErro(msg, 'console.error', '');
       }
       _prevConsoleError.apply(console, arguments);
@@ -124,7 +129,6 @@ var _chatChips = [
 ];
 
 
-// ── Chips contextuais baseados no estado atual ──────────────
 function _chatGetContextChips() {
   try {
     var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
@@ -133,15 +137,22 @@ function _chatGetContextChips() {
       .filter(function(j){ return !j.done && j.end && j.end < hoje; }).length;
     var pendentes = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
       .filter(function(t){ return t.type === 'pend'; }).length;
+    var pendAtrasados = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
+      .filter(function(t){ return t.type === 'pend' && t.date && t.date < hoje; }).length;
     var jobsHoje = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
       .filter(function(j){ return !j.done && j.end === hoje; }).length;
+    var jobsAtivos = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+      .filter(function(j){ return !j.done; }).length;
 
-    if (jobsAtrasados > 0) chips.push({ label: '⚠️ ' + jobsAtrasados + ' atraso(s)', text: 'Liste os jobs atrasados com dias de atraso e valor de cada um.' });
-    if (pendentes > 0)     chips.push({ label: '💰 ' + pendentes + ' a receber', text: 'Liste tudo que tenho a receber com datas de vencimento.' });
-    if (jobsHoje > 0)      chips.push({ label: '🔨 entregas hoje', text: 'Quais entregas são para hoje? Estão prontas?' });
-    chips.push({ label: '📊 Finanças do mês', text: 'Como estão as finanças deste mês? Compare com o anterior.' });
-    chips.push({ label: '📈 Análise completa', text: 'Faça uma análise financeira detalhada deste mês com tendência, inadimplência e sugestões práticas.' });
-    chips.push({ label: '🔍 Erros no sistema', text: 'Tem algum erro no sistema agora?' });
+    // Prioridade: problemas primeiro
+    if (jobsAtrasados > 0)  chips.push({ label: '🔴 ' + jobsAtrasados + ' job(s) atrasado(s)', text: 'Liste os jobs atrasados com dias de atraso e valor pendente de cada um.' });
+    if (pendAtrasados > 0)  chips.push({ label: '🔴 ' + pendAtrasados + ' cobrança(s) vencida(s)', text: 'Liste os valores a receber que já venceram, com nome do cliente e valor.' });
+    if (jobsHoje > 0)       chips.push({ label: '🔨 ' + jobsHoje + ' entrega(s) hoje', text: 'Quais entregas são para hoje? Estão prontas?' });
+    if (pendentes > 0)      chips.push({ label: '💰 ' + pendentes + ' a receber', text: 'Liste tudo que tenho a receber com datas de vencimento, do mais urgente ao mais recente.' });
+    if (jobsAtivos > 0)     chips.push({ label: '📋 ' + jobsAtivos + ' em produção', text: 'Mostre todos os jobs em produção com status e prazo.' });
+    chips.push({ label: '📊 Finanças do mês', text: 'Como estão as finanças deste mês? Compare com o anterior e mostre tendência.' });
+    chips.push({ label: '📈 Análise completa', text: 'Faça uma análise financeira detalhada com tendência dos últimos 3 meses, inadimplência e 3 sugestões práticas.' });
+    chips.push({ label: '🔍 Erros no sistema', text: 'Tem algum erro ou problema no sistema agora?' });
     return chips.slice(0, 6);
   } catch(e) { return _chatChips; }
 }
@@ -523,46 +534,126 @@ function _chatBuildSystem() {
     'Data de hoje: ' + hoje,
     '',
     '═══ PERSONALIDADE ═══',
-    'Tom: profissional, direto. Como uma secretária experiente que conhece o negócio de cabeça.',
-    'Você NUNCA diz "não tenho acesso" ou "não posso verificar" — os dados estão no contexto abaixo.',
-    'Você proativamente aponta problemas críticos mesmo quando não perguntado.',
+    'Tom: profissional, direto, objetivo. Como uma secretária experiente que conhece o negócio de cabeça.',
+    'Você NUNCA diz "não tenho acesso" ou "não posso verificar" — os dados estão no contexto.',
+    'Responda sempre em português brasileiro. Seja conciso: máximo 8 linhas salvo análises completas.',
+    'Se jobs atrasados ou inadimplência existirem, mencione ao final mesmo sem ser perguntado.',
     '',
-    '═══ ANÁLISE FINANCEIRA INTELIGENTE ═══',
-    'Para qualquer pergunta financeira SEMPRE:',
-    '1. Informe o número exato (faturado, despesas, lucro)',
-    '2. Compare com o mês anterior (subiu X% / caiu X%)',
-    '3. Calcule ponto de equilíbrio = fixos + variáveis',
-    '4. Se abaixo do ponto de equilíbrio: alerte com ⚠️',
-    '5. Dê 1 sugestão prática específica (nome de cliente ou ação)',
-    '6. Mostre % da meta atingida se configurada',
+    '═══ ANÁLISE FINANCEIRA ═══',
+    'Para perguntas financeiras SEMPRE: número exato → compare mês anterior → ponto de equilíbrio → 1 sugestão prática.',
+    'Se abaixo do ponto de equilíbrio (fixos+variáveis): alerte com ⚠️ e sugira ação concreta.',
     '',
-    '═══ INTERPRETAÇÃO DE LINGUAGEM NATURAL ═══',
-    'Valores: "trezentos" = 300, "1.5k" = 1500, "cinco mil" = 5000',
-    'Datas: "semana que vem" = +7 dias, "amanhã" = +1 dia',
-    'Nomes: aceite variações — "Robson" pode ser "Robson Santana"',
+    '═══ INTERPRETAÇÃO NATURAL ═══',
+    '"trezentos"=300, "1.5k"=1500, "amanhã"=+1dia, "semana que vem"=+7dias.',
+    'Nomes parciais são aceitos: "João"→"João Silva", "Romário"→"Romário Santana".',
     '',
     '═══ AÇÕES DISPONÍVEIS ═══',
-    'Retorne JSON no bloco ```json``` quando o usuário pedir ação:',
-    '1. Despesa:    {"action":"despesa","desc":"...","valor":100}',
-    '2. Entrada:    {"action":"entrada","desc":"...","valor":100}',
-    '3. A receber:  {"action":"areceber","desc":"...","valor":100,"data":"YYYY-MM-DD"}',
-    '4. Novo job:   {"action":"job","cli":"...","desc":"...","dias":10,"valor":500}',
-    '5. Visita:     {"action":"visita","cli":"...","data":"YYYY-MM-DD","hora":"09:00","end":"..."}',
-    '6. Pagar func: {"action":"pagar_func","funcionario":"nome","valor":500,"forma":"dinheiro"}',
-    '7. Job pago:   {"action":"job_pago","cli":"...","valor":500}',
-    '8. Navegar:    {"action":"nav","tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
-    '9. Limpar:     {"action":"limpar_diag"}',
+    'Use blocos ```json``` para executar ações. Múltiplos blocos na mesma resposta são suportados.',
     '',
-    'MÚLTIPLAS AÇÕES: use múltiplos blocos ```json``` separados na mesma resposta.',
+    '1.  Despesa:       {"action":"despesa",      "desc":"...","valor":100}',
+    '2.  Entrada:       {"action":"entrada",       "desc":"...","valor":100}',
+    '3.  A receber:     {"action":"areceber",      "desc":"...","valor":100,"data":"YYYY-MM-DD"}',
+    '4.  Receber pend:  {"action":"receber_pend",  "desc":"parte do nome do lançamento"}',
+    '5.  Novo job:      {"action":"job",           "cli":"...","desc":"...","dias":10,"valor":500}',
+    '6.  Editar job:    {"action":"editar_job",    "cli":"...","prazo":"YYYY-MM-DD","valor":500}',
+    '7.  Concluir job:  {"action":"concluir_job",  "cli":"..."}',
+    '8.  Job pago:      {"action":"job_pago",      "cli":"...","valor":500}',
+    '9.  Visita:        {"action":"visita",        "cli":"...","data":"YYYY-MM-DD","hora":"09:00"}',
+    '10. Pagar func:    {"action":"pagar_func",    "funcionario":"nome","valor":500,"forma":"dinheiro"}',
+    '11. Navegar:       {"action":"nav",           "tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
+    '12. Orçamento:     {"action":"orcamento_rapido"}',
+    '13. Limpar diag:   {"action":"limpar_diag"}',
     '',
     '═══ FORMATO ═══',
-    '- Máximo 10 linhas (exceto análises completas solicitadas)',
-    '- **negrito** para números críticos e nomes de clientes',
+    '- **negrito** para números e nomes importantes',
     '- • para listas',
-    '- ✅ para confirmar ações executadas',
-    '- Se jobs atrasados ou inadimplência: sempre mencione ao final',
-    '- Para "como estou" ou "resumo": 5 pontos chave com dados reais',
+    '- ✅ ao confirmar ação executada, ⚠️ para alertas, 🔴 para crítico',
+    '- Para "como estou" / "resumo": 5 pontos-chave com dados reais do contexto',
   ].join('\n');
+}
+
+// ── Classificador de intenção — decide qual contexto carregar ─
+function _chatClassifyIntent(text) {
+  var t = text.toLowerCase();
+  var flags = {
+    financas:    /financ|faturad|despesa|lucro|receita|saldo|dinheiro|caixa|meta|ticket|entrada|saída|saida|pagar|paguei|recebi|lançar|lancar|mês|mes|semana|hoje|tendência|tendencia|análise|analise|resumo|como estou|balanço|balanco/.test(t),
+    jobs:        /job|obra|serviço|servico|producao|produção|atrasad|prazo|entrega|agenda|pedido|cliente|concluir|concluído|concluido/.test(t),
+    rh:          /funcionário|funcionario|func|salário|salario|hora.?extra|pagamento|pagar func|banco de horas|rh|colaborador/.test(t),
+    diagnostico: /erro|falha|bug|diagnóstico|diagnostico|problema|sistema|travou|log/.test(t),
+    orcamentos:  /orçamento|orcamento|proposta|pedra|granito|mármore|marmore|m²|m2|túmulo|tumulo/.test(t),
+    visitas:     /visita|medição|medicao|medir|agendad|marcar|agendar|cliente/.test(t)
+  };
+  // Se nada específico, manda contexto geral (finanças + jobs)
+  if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.visitas) {
+    flags.financas = true; flags.jobs = true;
+  }
+  return flags;
+}
+
+function _chatBuildContextSurgical(userText) {
+  var flags = _chatClassifyIntent(userText);
+  var hoje = td();
+  var mes  = hoje.slice(0,7);
+  var trans = DB.t || [];
+  var parts = ['DADOS HR MÁRMORES — hoje: ' + hoje];
+
+  if (flags.financas) {
+    var recMes  = trans.filter(function(t){ return t.type==='in'  && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); },0);
+    var despMes = trans.filter(function(t){ return t.type==='out' && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); },0);
+    var pendMes = trans.filter(function(t){ return t.type==='pend'; }).reduce(function(s,t){ return s+(t.value||0); },0);
+    var fixos   = (CFG.fixos||[]).reduce(function(s,f){ return s+(f.v||0); },0);
+    var atrasados = trans.filter(function(t){ return t.type==='pend' && t.date && t.date < hoje; });
+    function mesAnt(m,n){ var d=new Date(m+'-01'); d.setMonth(d.getMonth()-n); return d.toISOString().slice(0,7); }
+    var tend = [];
+    for(var i=3;i>=1;i--){
+      var m2=mesAnt(mes,i);
+      var r2=trans.filter(function(t){ return t.type==='in'  && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+t.value; },0);
+      var d2=trans.filter(function(t){ return t.type==='out' && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+t.value; },0);
+      tend.push(m2+': R$ '+r2.toFixed(2)+' rec | R$ '+d2.toFixed(2)+' desp | saldo R$ '+(r2-d2).toFixed(2));
+    }
+    var meta = (CFG.saudeFinanceira && CFG.saudeFinanceira.metaFaturamento) || 0;
+    var pctMeta = meta > 0 ? ' | Meta: R$ '+meta.toFixed(2)+' ('+Math.round((recMes/meta)*100)+'%)' : '';
+    parts.push('══ FINANÇAS ══');
+    parts.push('Faturado: R$ '+recMes.toFixed(2)+pctMeta);
+    parts.push('Despesas: R$ '+despMes.toFixed(2)+' | Fixos: R$ '+fixos.toFixed(2));
+    parts.push('Lucro estimado: R$ '+(recMes-despMes-fixos).toFixed(2));
+    parts.push('A receber: R$ '+pendMes.toFixed(2)+(atrasados.length?' | '+atrasados.length+' ATRASADOS':''));
+    parts.push('Tendência:\n'+tend.join('\n'));
+    var pendLista = trans.filter(function(t){ return t.type==='pend'; }).slice(0,8).map(function(t){
+      return t.desc+' | R$ '+fm(t.value||0)+' | vence: '+(t.date||'?')+(t.date&&t.date<hoje?' ⚠️ ATRASADO':'');
+    });
+    parts.push('A RECEBER:\n'+(pendLista.join('\n')||'Nenhum'));
+  }
+
+  if (flags.jobs) {
+    var jobsAtivos = (DB.j||[]).filter(function(j){ return !j.done; });
+    var jobsAtrasados = jobsAtivos.filter(function(j){ return j.end && j.end < hoje; });
+    var jobsList = jobsAtivos.slice(0,12).map(function(j){
+      var diff = dDiff(j.end); var st = diff<0?'🔴 ATRASADO '+Math.abs(diff)+'d':'🟢 em '+diff+'d';
+      return j.cli+' | '+j.desc+' | '+( j.end||'?')+' ('+st+') | R$ '+fm(j.value||0)+(j.pago?' | pago R$ '+fm(j.pago):'');
+    });
+    parts.push('══ JOBS ('+jobsAtivos.length+' ativos, '+jobsAtrasados.length+' atrasados) ══');
+    parts.push(jobsList.join('\n')||'Nenhum');
+  }
+
+  if (flags.visitas) {
+    var visitas = (typeof _getV === 'function' ? _getV() : [])
+      .filter(function(v){ return v.status==='agendada'; }).slice(0,5)
+      .map(function(v){ return v.cli+' | '+(v.date||'?')+(v.hora?' às '+v.hora:'')+(v.end?' | '+v.end:''); });
+    parts.push('══ VISITAS AGENDADAS ══');
+    parts.push(visitas.join('\n')||'Nenhuma');
+  }
+
+  if (flags.rh)          parts.push(_chatBuildRHContext());
+  if (flags.orcamentos)  parts.push(_chatBuildOrcContext());
+  if (flags.diagnostico) parts.push(_chatBuildDiagContext());
+
+  // Clientes recentes sempre (são leves)
+  var ultCli = {};
+  (DB.q||[]).slice(0,20).forEach(function(q){ if(q.cli) ultCli[q.cli]=(q.date||''); });
+  parts.push('CLIENTES RECENTES: '+Object.keys(ultCli).slice(0,12).join(', '));
+
+  return parts.join('\n');
 }
 
 function _chatAsk(userText) {
@@ -574,45 +665,59 @@ function _chatAsk(userText) {
     return;
   }
 
-  var ctx = _chatBuildContext();
+  var ctx = _chatBuildContextSurgical(userText);
   var systemPrompt = _chatBuildSystem() + '\n\nCONTEXTO ATUAL:\n' + ctx;
 
-  // Histórico para a API (últimas 10 msgs, sem alertas automáticos repetidos)
+  // Histórico para a API — últimas 12 mensagens, sem alertas automáticos
   var apiMessages = [];
-  _chat.history.slice(-20).forEach(function(m) {
-    if (m.role === 'user' || m.role === 'assistant') {
+  _chat.history.slice(-24).forEach(function(m) {
+    if ((m.role === 'user' || m.role === 'assistant') && !m.isAlerta) {
       apiMessages.push({role: m.role, content: m.content});
     }
   });
+  if (!apiMessages.length || apiMessages[apiMessages.length-1].role !== 'user') {
+    apiMessages.push({role:'user', content: userText});
+  }
 
-  fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: apiMessages.length ? apiMessages : [{role:'user', content: userText}]
+  function doFetch(retryCount) {
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: apiMessages
+      })
     })
-  })
-  .then(function(r){ return r.json(); })
-  .then(function(d) {
-    var text = '';
-    if (d.content && d.content[0]) text = d.content[0].text || '';
-    if (!text && d.error) throw new Error(d.error.message || 'Erro da API');
-    _chatProcessReply(text);
-  })
-  .catch(function(err) {
-    _chatBotReply('⚠️ Erro de conexão com a IA. Verifique sua chave Anthropic em Config → IA e tente novamente.', [
-      {label:'⚙️ Configurações', fn:'go(6)'}
-    ]);
-    console.warn('chat API error:', err);
-  });
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        // Rate limit — tenta novamente após 3s
+        if (d.error.type === 'rate_limit_error' && retryCount < 2) {
+          setTimeout(function(){ doFetch(retryCount + 1); }, 3000);
+          return;
+        }
+        throw new Error(d.error.message || 'Erro da API');
+      }
+      var text = (d.content && d.content[0] && d.content[0].text) || '';
+      if (!text) throw new Error('Resposta vazia');
+      _chatProcessReply(text);
+    })
+    .catch(function(err) {
+      _chat.thinking = false;
+      _chatBotReply('⚠️ Erro de conexão com a IA: ' + (err.message||'verifique sua chave em Config → Empresa.'), [
+        {label:'⚙️ Configurações', fn:'go(6)'}
+      ]);
+      console.warn('chat API error:', err);
+    });
+  }
+  doFetch(0);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -817,7 +922,73 @@ function _chatExecuteAction(data) {
       }
       break;
 
-    case 'limpar_diag':
+    case 'receber_pend':
+      // Marca um "a receber" como recebido, move para entrada
+      if (data.desc || data.id) {
+        var busca = (data.desc||'').toLowerCase();
+        var idx = DB.t.findIndex(function(t){
+          return t.type==='pend' && (
+            (data.id && t.id == data.id) ||
+            (busca && (t.desc||'').toLowerCase().indexOf(busca) !== -1)
+          );
+        });
+        if (idx === -1) {
+          result.extra = '⚠️ Lançamento a receber **"'+(data.desc||data.id)+'"** não encontrado.';
+        } else {
+          var pend = DB.t[idx];
+          DB.t.splice(idx, 1);
+          DB.t.unshift({id:Date.now(), type:'in', desc:(pend.desc||'Recebimento'), value:pend.value, date:hoje});
+          DB.sv(); renderFin();
+          result.extra = '✅ **R$ '+fm(pend.value)+'** de **'+(pend.desc||'?')+'** marcado como **recebido**!';
+          result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+        }
+      }
+      break;
+
+    case 'concluir_job':
+      if (data.cli) {
+        var busca2 = (data.cli||'').toLowerCase();
+        var jobC = (DB.j||[]).find(function(j){
+          return !j.done && j.cli && j.cli.toLowerCase().indexOf(busca2) !== -1;
+        });
+        if (!jobC) {
+          result.extra = '⚠️ Job de **'+data.cli+'** não encontrado em produção.';
+        } else {
+          jobC.done = true;
+          DB.sv(); if(typeof renderAg==='function') renderAg(); if(typeof updUrgDot==='function') updUrgDot();
+          result.extra = '✅ Job de **'+jobC.cli+'** marcado como **concluído**!';
+          result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
+        }
+      }
+      break;
+
+    case 'editar_job':
+      if (data.cli) {
+        var busca3 = (data.cli||'').toLowerCase();
+        var jobE = (DB.j||[]).find(function(j){
+          return !j.done && j.cli && j.cli.toLowerCase().indexOf(busca3) !== -1;
+        });
+        if (!jobE) {
+          result.extra = '⚠️ Job de **'+data.cli+'** não encontrado.';
+        } else {
+          if (data.prazo)  jobE.end   = data.prazo;
+          if (data.valor)  jobE.value = +data.valor;
+          if (data.desc)   jobE.desc  = data.desc;
+          if (data.obs)    jobE.obs   = data.obs;
+          DB.sv(); if(typeof renderAg==='function') renderAg();
+          result.extra = '✅ Job de **'+jobE.cli+'** atualizado!';
+          result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
+        }
+      }
+      break;
+
+    case 'orcamento_rapido':
+      // Navega para tela de orçamento com foco
+      result.actions.push({label:'📐 Novo Orçamento', fn:'go(1)'});
+      result.extra = '👉 Abrindo orçamento. Selecione o material e adicione as peças.';
+      break;
+
+
       if (typeof window._diagLimpar === 'function') {
         window._diagLimpar();
         result.extra = '🗑 Logs de diagnóstico limpos!';
