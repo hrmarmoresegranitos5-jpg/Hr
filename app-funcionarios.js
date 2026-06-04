@@ -101,6 +101,28 @@ var HR_FUNC = (function () {
     '</div>';
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // HELPERS DE DECENDIO
+  // ─────────────────────────────────────────────────────────────
+  function _proximoDecendio(){
+    var hoje = new Date();
+    var d    = hoje.getDate();
+    var ano  = hoje.getFullYear();
+    var mes  = hoje.getMonth();
+    var alvo, label;
+    if (d < 10)      { alvo = new Date(ano, mes,   10); label = '1º decendio'; }
+    else if (d < 20) { alvo = new Date(ano, mes,   20); label = '2º decendio'; }
+    else             { alvo = new Date(ano, mes+1,   0); label = '3º decendio'; }
+    var diff = Math.round((alvo - hoje) / (1000*60*60*24));
+    return { label: label, diasRestantes: diff };
+  }
+  function _labelDecendio(){
+    var nd = _proximoDecendio();
+    if (nd.diasRestantes === 0) return { txt:'📆 '+nd.label+' HOJE',    urgente:true };
+    if (nd.diasRestantes === 1) return { txt:'📆 '+nd.label+' amanhã',  urgente:true };
+    return                             { txt:'📆 '+nd.label+' em '+nd.diasRestantes+'d', urgente:false };
+  }
+
   // ── Construtores de formulário ──
   function _campo(label, inputHtml){
     return '<div style="margin-bottom:12px;">'+
@@ -624,6 +646,21 @@ var HR_FUNC = (function () {
 
     // ── Chips de alerta rápido ──
     var alertChips='';
+
+    // Chip decendio
+    var decInfo = _labelDecendio();
+    alertChips += '<div style="background:'+(decInfo.urgente?'rgba(201,168,76,.1)':'rgba(201,168,76,.04)')+
+      ';border:1px solid rgba(201,168,76,'+(decInfo.urgente?'.45':'.18')+');border-radius:8px;'+
+      'padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px;cursor:pointer;" '+
+      'onclick="HR_FUNC.abrirFolhaPagamento()">'+
+      '<span style="font-size:.9rem;">📆</span>'+
+      '<div style="flex:1;">'+
+        '<div style="font-size:.75rem;font-weight:700;color:'+GOLD+';">'+decInfo.txt+'</div>'+
+        '<div style="font-size:.63rem;color:'+T3+';">Toque para ver a folha</div>'+
+      '</div>'+
+      '<span style="font-size:.75rem;color:'+T3+';">→</span>'+
+    '</div>';
+
     if(semPontoHoje.length>0){
       alertChips+='<div style="background:#1a1200;border:1px solid rgba(201,168,76,.3);border-radius:8px;'+
         'padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;cursor:pointer;" '+
@@ -796,27 +833,49 @@ var HR_FUNC = (function () {
 
   // ── Card do funcionário ──
   function _cardFuncionario(f, pontoHoje){
-    var temPonto=pontoHoje&&pontoHoje.some(function(p){return p.id===f.id;});
-    var alertas=analisarGaps(f.id);
-    var saldo=calcSaldoFuncionario(f.id,null,null);
+    var temPonto = pontoHoje && pontoHoje.some(function(p){ return p.id === f.id; });
+    var alertas  = analisarGaps(f.id);
+    var saldo    = calcSaldoFuncionario(f.id, null, null);
+    var pags     = getPagamentos();
 
-    var badges='';
-    if(temPonto) badges+='<span style="font-size:.6rem;background:#0d1f0d;border:1px solid rgba(92,184,92,.5);color:'+GREEN+';border-radius:4px;padding:2px 7px;margin-right:4px;">✓ ponto</span>';
-    if(alertas.length>0) badges+='<span style="font-size:.6rem;background:#1f1500;border:1px solid rgba(201,168,76,.4);color:#c8a060;border-radius:4px;padding:2px 7px;margin-right:4px;">⚠ '+alertas.length+' alerta'+(alertas.length>1?'s':'')+'</span>';
+    // Último pagamento deste funcionário
+    var ultPags = Object.values(pags)
+      .filter(function(p){ return p.funcionarioId === f.id; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+    var ultPag   = ultPags[0];
+    var diasSemPag = ultPag
+      ? Math.round((new Date() - new Date(ultPag.data + 'T12:00:00')) / (1000*60*60*24))
+      : null;
 
-    var saldoBadge='';
-    if(saldo.saldo>0.5) saldoBadge='<span style="font-size:.62rem;color:'+GOLD+';">💰 a receber '+_fmtMoeda(saldo.saldo)+'</span>';
-    else if(saldo.temCredito) saldoBadge='<span style="font-size:.62rem;color:'+GREEN+';">💳 crédito '+_fmtMoeda(Math.abs(saldo.saldo))+'</span>';
+    var badges = '';
+    if (temPonto) badges += '<span style="font-size:.6rem;background:#0d1f0d;border:1px solid rgba(92,184,92,.5);'+
+      'color:'+GREEN+';border-radius:4px;padding:2px 7px;margin-right:4px;">✓ ponto</span>';
+    if (alertas.length > 0) badges += '<span style="font-size:.6rem;background:#1f1500;border:1px solid rgba(201,168,76,.4);'+
+      'color:#c8a060;border-radius:4px;padding:2px 7px;margin-right:4px;">⚠ '+alertas.length+' alerta'+(alertas.length>1?'s':'')+'</span>';
+    if (diasSemPag !== null && diasSemPag > 12) badges += '<span style="font-size:.6rem;background:rgba(200,92,92,.1);'+
+      'border:1px solid rgba(200,92,92,.35);color:'+RED+';border-radius:4px;padding:2px 7px;margin-right:4px;">'+
+      '⏳ '+diasSemPag+'d sem pagamento</span>';
 
-    // Linha de progresso tempo de empresa
-    var tempoStr=_tempoEmpresa(f.admissao);
+    var saldoBadge = '';
+    if (saldo.saldo > 0.5) saldoBadge = '<span style="font-size:.62rem;color:'+GOLD+';">💰 a receber '+_fmtMoeda(saldo.saldo)+'</span>';
+    else if (saldo.temCredito) saldoBadge = '<span style="font-size:.62rem;color:'+GREEN+';">💳 crédito '+_fmtMoeda(Math.abs(saldo.saldo))+'</span>';
+
+    var tempoStr = _tempoEmpresa(f.admissao);
+
+    // Linha de último pagamento
+    var ultPagLine = '';
+    if (ultPag) {
+      var t = _TIPOS_PAG[ultPag.tipo] || _TIPOS_PAG.outro;
+      ultPagLine = '<div style="font-size:.62rem;color:'+T3+';margin-top:2px;">'+
+        t.icon+' Último: '+_fmtMoeda(ultPag.valor)+' em '+_fmtData(ultPag.data)+
+      '</div>';
+    }
 
     return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:14px;'+
-      'padding:14px 16px;margin-bottom:9px;cursor:pointer;'+
-      'transition:border-color .2s;active:opacity:.9;" '+
-      'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+f.id+'\')">' +
+        'padding:14px 16px;margin-bottom:9px;cursor:pointer;transition:border-color .2s;" '+
+        'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+f.id+'\')">' +
       '<div style="display:flex;align-items:center;gap:13px;">' +
-        _avatarCircle(f,50) +
+        _avatarCircle(f, 50) +
         '<div style="flex:1;min-width:0;">' +
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
             '<div style="font-weight:700;color:'+T1+';font-size:.97rem;">'+_esc(f.nome)+'</div>' +
@@ -824,14 +883,16 @@ var HR_FUNC = (function () {
           '</div>' +
           '<div style="font-size:.73rem;color:'+T3+';margin-top:1px;">'+
             _esc(f.cargo||'—')+(f.equipe?' · '+_esc(f.equipe):'')+
-            (tempoStr?' · <span style="color:'+GOLD+'.7;">'+tempoStr+'</span>':'') +
+            (tempoStr?' · <span style="color:'+GOLD+'80">'+tempoStr+'</span>':'') +
           '</div>' +
-          (badges?'<div style="margin-top:5px;">'+badges+'</div>':'')+
-          (saldoBadge?'<div style="margin-top:3px;">'+saldoBadge+'</div>':'')+
+          (badges    ? '<div style="margin-top:5px;">'+badges+'</div>' : '')+
+          (saldoBadge? '<div style="margin-top:3px;">'+saldoBadge+'</div>' : '')+
+          ultPagLine+
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
-          '<div style="font-size:.62rem;color:'+T3+';margin-top:2px;">base mensal</div>' +
+          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">÷3 = '+_fmtMoeda(parseFloat(f.salario||0)/3)+'</div>' +
+          '<div style="font-size:.55rem;color:'+T3+';">por decendio</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1101,18 +1162,23 @@ var HR_FUNC = (function () {
 
       // Financeiro
       '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:12px;">💰 Financeiro</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
-          _miniKpi('Salário base',_fmtMoeda(f.salario),GOLD)+
-          _miniKpi('H. Extras R$',_fmtMoeda(saldo.valorExtra),saldo.valorExtra>0?GOLD:T3)+
-          _miniKpi('Já pago',_fmtMoeda(saldo.totalPago),GREEN)+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
+          '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;">💰 Financeiro</div>'+
+          '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" '+
+            'style="background:none;border:none;color:'+T3+';font-size:.68rem;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">'+
+            'ver extrato →</button>'+
         '</div>'+
-        // Banco de horas — exibe linha separada quando há horas no banco (não entram no financeiro pago)
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
+          _miniKpi('Salário base',   _fmtMoeda(f.salario),                          GOLD)+
+          _miniKpi('H. Extras R$',   _fmtMoeda(saldo.valorExtra),  saldo.valorExtra>0?GOLD:T3)+
+          _miniKpi('Já pago',        _fmtMoeda(saldo.totalPago),                    GREEN)+
+        '</div>'+
+        // Banco de horas
         (saldo.banco&&saldo.banco.acumuladoMin>0?
           '<div style="background:rgba(92,150,200,.08);border:1px solid rgba(92,150,200,.25);border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
             '<div>'+
               '<div style="font-size:.65rem;color:#8ec8f0;font-weight:700;margin-bottom:1px;">🏦 Banco de Horas</div>'+
-              '<div style="font-size:.62rem;color:'+T3+';">Extras direcionadas para folga futura — não entram no pagamento</div>'+
+              '<div style="font-size:.62rem;color:'+T3+';">Extras para folga futura — não entram no pag.</div>'+
             '</div>'+
             '<div style="text-align:right;white-space:nowrap;margin-left:12px;">'+
               '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+
@@ -1123,22 +1189,48 @@ var HR_FUNC = (function () {
                 (saldo.banco.utilizadoMin%60!==0?String(saldo.banco.utilizadoMin%60).padStart(2,'0')+'m':'')+'</div>':'')+
             '</div>'+
           '</div>':'')+
-        // Breakdown por faixa — exibe apenas quando há HE em múltiplas faixas
+        // Breakdown por faixa
         ((saldo.valorExtra100>0||saldo.valorExtra200>0)?
           '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
-            (saldo.valorExtra50 >0?_miniKpi('HE 50%', _fmtMoeda(saldo.valorExtra50), GOLD)       :'')+
-            (saldo.valorExtra100>0?_miniKpi('HE 100%',_fmtMoeda(saldo.valorExtra100),'#8ec8c8')  :'')+
-            (saldo.valorExtra200>0?_miniKpi('HE 200%',_fmtMoeda(saldo.valorExtra200),'#c88e5c')  :'')+
+            (saldo.valorExtra50 >0?_miniKpi('HE 50%', _fmtMoeda(saldo.valorExtra50), GOLD):'')  +
+            (saldo.valorExtra100>0?_miniKpi('HE 100%',_fmtMoeda(saldo.valorExtra100),'#8ec8c8'):'') +
+            (saldo.valorExtra200>0?_miniKpi('HE 200%',_fmtMoeda(saldo.valorExtra200),'#c88e5c'):'') +
           '</div>':'')+
         '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
           '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
           ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
+          ' · Decendio sugerido: '+_fmtMoeda(parseFloat(f.salario||0)/3)+
         '</div>'+
-        '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;">'+
+        '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">'+
           '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
           '<div style="font-size:1.4rem;font-weight:800;color:'+saldoColor+';">'+_fmtMoeda(Math.abs(saldo.saldo))+'</div>'+
           (saldo.temCredito?'<div style="font-size:.65rem;color:'+GREEN+';margin-top:2px;">Desconta no próximo pagamento</div>':'')+
         '</div>'+
+        // Últimos 3 pagamentos inline
+        (function(){
+          var pags = getPagamentos();
+          var ultPags = Object.values(pags)
+            .filter(function(p){ return p.funcionarioId === id; })
+            .sort(function(a,b){ return b.data.localeCompare(a.data); })
+            .slice(0, 3);
+          if (!ultPags.length) return '<div style="font-size:.68rem;color:'+T3+';text-align:center;padding:4px 0;">Nenhum pagamento registrado ainda</div>';
+          return '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Últimos pagamentos</div>'+
+            ultPags.map(function(p){
+              var t = _TIPOS_PAG[p.tipo] || _TIPOS_PAG.outro;
+              var icoF = {dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'}[p.forma]||'💳';
+              return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+                'padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+                '<div>'+
+                  '<span style="font-size:.7rem;color:'+t.cor+';font-weight:600;">'+t.icon+' '+t.label+'</span>'+
+                  '<span style="font-size:.65rem;color:'+T3+';margin-left:6px;">'+_fmtData(p.data)+' '+icoF+'</span>'+
+                  (p.obs ? '<div style="font-size:.62rem;color:'+T3+';font-style:italic;">'+_esc(p.obs)+'</div>' : '')+
+                '</div>'+
+                '<span style="font-size:.78rem;font-weight:700;color:'+t.cor+';white-space:nowrap;margin-left:10px;">'+
+                  _fmtMoeda(p.valor)+
+                '</span>'+
+              '</div>';
+            }).join('');
+        })()+
       '</div>'+
 
       penHtml+
@@ -1167,6 +1259,12 @@ var HR_FUNC = (function () {
         '<button onclick="HR_FUNC.abrirFormRegistro(\''+id+'\')" style="padding:13px;background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">📝 Novo Registro</button>'+
         '<button onclick="HR_FUNC.abrirFormPagamento(\''+id+'\')" style="padding:13px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">💳 Pagamento</button>'+
       '</div>'+
+      // Atalho decendial pré-preenchido
+      '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
+        'style="width:100%;padding:11px;background:rgba(201,168,76,.07);border:1.5px solid rgba(201,168,76,.28);'+
+        'color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;">'+
+        '<span>📆</span><span>Registrar Decendio ('+_fmtMoeda(parseFloat(f.salario||0)/3)+')</span>'+
+      '</button>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
         '<button onclick="HR_FUNC.abrirHistorico(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📋 Histórico</button>'+
         '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📊 Extrato</button>'+
@@ -1439,87 +1537,144 @@ var HR_FUNC = (function () {
   // 10. FOLHA DE PAGAMENTO CONSOLIDADA (nova feature)
   // ─────────────────────────────────────────────────────────────
   function abrirFolhaPagamento(){
-    var funcs=getFuncionarios();
-    var mesAtual=_mesAno(0);
-    var mesAnterior=_mesAno(-1);
-    var periodoAtivo=window._folhaMes||mesAtual;
+    var funcs       = getFuncionarios();
+    var pags        = getPagamentos();
+    var mesAtual    = _mesAno(0);
+    var mesAnterior = _mesAno(-1);
+    var periodoAtivo = window._folhaMes || mesAtual;
 
-    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;})
-      .sort(function(a,b){return a.nome.localeCompare(b.nome);});
+    var ativos = Object.values(funcs)
+      .filter(function(f){ return f.ativo !== false; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome); });
 
-    var di=periodoAtivo+'-01';
-    var ultimo=new Date(parseInt(periodoAtivo.slice(0,4)),parseInt(periodoAtivo.slice(5,7)),0);
-    var df=periodoAtivo+'-'+String(ultimo.getDate()).padStart(2,'0');
+    var di     = periodoAtivo + '-01';
+    var ultimo = new Date(parseInt(periodoAtivo.slice(0,4)), parseInt(periodoAtivo.slice(5,7)), 0);
+    var df     = periodoAtivo + '-' + String(ultimo.getDate()).padStart(2,'0');
 
-    var totalFolha=0, totalExtras=0, totalPago=0;
-    var linhas=ativos.map(function(f){
-      var s=calcSaldoFuncionario(f.id,di,df);
-      totalFolha+=s.totalSalario;
-      totalExtras+=s.valorExtra;
-      totalPago+=s.totalPago;
-      return {f:f,s:s};
+    var fmtMes = function(m){
+      var p = m.split('-');
+      var ns = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      return ns[parseInt(p[1])] + '/' + p[0];
+    };
+
+    // Agrega pagamentos do período por funcionário e tipo
+    var pagsPeriodo = Object.values(pags).filter(function(p){
+      return p.data >= di && p.data <= df;
     });
 
-    var fmtMes=function(m){var p=m.split('-');var nomes=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];return nomes[parseInt(p[1])]+'/'+p[0];};
+    var totalFolha=0, totalExtras=0, totalPago=0, totalVales=0, totalDec=0;
 
-    var html='<div style="width:100%;max-width:580px;padding:0 16px;">'+
+    var linhas = ativos.map(function(f){
+      var s = calcSaldoFuncionario(f.id, di, df);
+      totalFolha  += s.totalSalario;
+      totalExtras += s.valorExtra;
+      totalPago   += s.totalPago;
+
+      // Vales e adiantamentos deste funcionário no período
+      var meusPags = pagsPeriodo.filter(function(p){ return p.funcionarioId === f.id; });
+      var vales    = meusPags
+        .filter(function(p){ return p.tipo === 'vale' || p.tipo === 'adiantamento'; })
+        .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+      var decend   = meusPags
+        .filter(function(p){ return p.tipo === 'decendio'; })
+        .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+      totalVales += vales;
+      totalDec   += decend;
+
+      return {f:f, s:s, vales:vales, decend:decend};
+    });
+
+    var html =
+      '<div style="width:100%;max-width:620px;padding:0 16px;">'+
       _overlayHeader('Folha de Pagamento','📑 '+fmtMes(periodoAtivo),'HR_FUNC._closeFolha()')+
 
       // Seletor de mês
       '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
-        [mesAnterior,mesAtual].map(function(m){
-          var on=m===periodoAtivo;
+        [mesAnterior, mesAtual].map(function(m){
+          var on = m === periodoAtivo;
           return '<button onclick="window._folhaMes=\''+m+'\';HR_FUNC.abrirFolhaPagamento();" '+
             'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
-            (on?'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';':'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
+            (on
+              ? 'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';'
+              : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
             '>'+fmtMes(m)+'</button>';
         }).join('')+
       '</div>'+
 
-      // Resumo
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">'+
-          _miniKpi('Salários',_fmtMoeda(totalFolha),GOLD)+
-          _miniKpi('Extras',_fmtMoeda(totalExtras),GOLD)+
-          _miniKpi('Pago',_fmtMoeda(totalPago),GREEN)+
+      // KPIs resumo
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">'+
+        _miniKpi('💰 Salários',  _fmtMoeda(totalFolha),  GOLD)+
+        _miniKpi('⚡ Extras',    _fmtMoeda(totalExtras), GOLD)+
+        _miniKpi('🎫 Vales',     _fmtMoeda(totalVales),  '#e0954a')+
+        _miniKpi('📆 Decendios', _fmtMoeda(totalDec),    '#8ec8f0')+
+      '</div>'+
+
+      // Barra total a pagar
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;'+
+        'padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">'+
+        '<div>'+
+          '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;">Saldo total a pagar</div>'+
+          '<div style="font-size:.68rem;color:'+T3+';">Já pago: '+_fmtMoeda(totalPago)+'</div>'+
         '</div>'+
-        '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span style="font-size:.75rem;color:'+T3+';">Total a pagar</span>'+
-          '<span style="font-size:1rem;font-weight:800;color:'+GOLD+';">'+_fmtMoeda(Math.max(0,totalFolha+totalExtras-totalPago))+'</span>'+
+        '<div style="font-size:1.15rem;font-weight:800;color:'+GOLD+';">'+
+          _fmtMoeda(Math.max(0, totalFolha + totalExtras - totalPago))+
         '</div>'+
       '</div>'+
 
-      // Tabela
+      // Tabela por funcionário
       '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">'+
-        '<div style="display:grid;grid-template-columns:1fr 80px 80px 90px 40px;gap:0;'+
+        // Header
+        '<div style="display:grid;grid-template-columns:1fr 72px 68px 72px 80px 36px;gap:0;'+
           'padding:8px 14px;background:rgba(201,168,76,.06);'+
-          'font-size:.6rem;color:'+GOLD+';letter-spacing:.08em;text-transform:uppercase;">'+
-          '<span>Funcionário</span><span style="text-align:right;">Salário</span>'+
-          '<span style="text-align:right;">Extras</span><span style="text-align:right;">Saldo</span><span></span>'+
+          'font-size:.58rem;color:'+GOLD+';letter-spacing:.07em;text-transform:uppercase;">'+
+          '<span>Funcionário</span>'+
+          '<span style="text-align:right;">Salário</span>'+
+          '<span style="text-align:right;">Extras</span>'+
+          '<span style="text-align:right;">🎫 Vales</span>'+
+          '<span style="text-align:right;">Saldo</span>'+
+          '<span></span>'+
         '</div>'+
-        linhas.map(function(l,idx){
-          var sc=l.s.temCredito?GREEN:(l.s.saldo>0.01?RED:T3);
-          return '<div style="display:grid;grid-template-columns:1fr 80px 80px 90px 40px;gap:0;'+
-            'padding:10px 14px;border-top:1px solid '+BD+';'+
-            (idx%2===1?'background:rgba(255,255,255,.015);':'')+'align-items:center;">'+
+        linhas.map(function(l, idx){
+          var sc   = l.s.temCredito ? GREEN : (l.s.saldo > 0.01 ? RED : T3);
+          var slbl = l.s.temCredito ? '✓ crédito' : (l.s.saldo > 0.01 ? 'a pagar' : 'quitado');
+          return '<div style="display:grid;grid-template-columns:1fr 72px 68px 72px 80px 36px;gap:0;'+
+              'padding:10px 14px;border-top:1px solid '+BD+';'+
+              (idx%2===1 ? 'background:rgba(255,255,255,.015);' : '')+'align-items:center;">'+
             '<div>'+
               '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(l.f.nome.split(' ')[0])+'</div>'+
-              '<div style="font-size:.65rem;color:'+T3+';">'+l.s.diasTrabalhados+'d · '+l.s.totalHoras.toFixed(0)+'h</div>'+
+              '<div style="font-size:.62rem;color:'+T3+';">'+l.s.diasTrabalhados+'d · '+l.s.totalHoras.toFixed(0)+'h</div>'+
             '</div>'+
             '<div style="text-align:right;font-size:.75rem;color:'+T2+';">'+_fmtMoeda(l.s.totalSalario)+'</div>'+
-            '<div style="text-align:right;font-size:.75rem;color:'+(l.s.valorExtra>0?GOLD:T3)+';font-weight:'+(l.s.valorExtra>0?'700':'400')+';">'+_fmtMoeda(l.s.valorExtra)+'</div>'+
-            '<div style="text-align:right;font-size:.8rem;font-weight:700;color:'+sc+';">'+_fmtMoeda(Math.abs(l.s.saldo))+'</div>'+
+            '<div style="text-align:right;font-size:.75rem;color:'+(l.s.valorExtra>0?GOLD:T3)+';font-weight:'+(l.s.valorExtra>0?'700':'400')+';">'+
+              (l.s.valorExtra > 0 ? _fmtMoeda(l.s.valorExtra) : '—')+
+            '</div>'+
+            '<div style="text-align:right;font-size:.75rem;color:'+(l.vales>0?'#e0954a':T3)+';">'+
+              (l.vales > 0 ? _fmtMoeda(l.vales) : '—')+
+            '</div>'+
+            '<div style="text-align:right;">'+
+              '<div style="font-size:.8rem;font-weight:700;color:'+sc+';">'+_fmtMoeda(Math.abs(l.s.saldo))+'</div>'+
+              '<div style="font-size:.58rem;color:'+T3+';">'+slbl+'</div>'+
+            '</div>'+
             '<div style="text-align:center;">'+
               '<button onclick="HR_FUNC.abrirFormPagamento(\''+l.f.id+'\');HR_FUNC._closeFolha();" '+
-                'style="background:none;border:none;color:'+GREEN+';cursor:pointer;font-size:.9rem;padding:2px;" title="Registrar pagamento">💳</button>'+
+                'style="background:none;border:none;color:'+GREEN+';cursor:pointer;font-size:.95rem;padding:2px;" '+
+                'title="Registrar pagamento">💳</button>'+
             '</div>'+
           '</div>';
         }).join('')+
       '</div>'+
+
+      // Dica decendial
+      '<div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);'+
+        'border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:.7rem;color:'+T3+';line-height:1.7;">'+
+        '📆 <strong style="color:'+GOLD+';">Pagamento de 10 em 10 dias:</strong> '+
+        '1º decendio (dia 10) · 2º decendio (dia 20) · 3º decendio (último dia do mês).'+
+      '</div>'+
+
       '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
     '</div>';
 
-    _overlay('hrFolha',html);
+    _overlay('hrFolha', html);
   }
   function _closeFolha(){ _closeOverlay('hrFolha'); }
 
@@ -1767,63 +1922,139 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 12. PAGAMENTOS
   // ─────────────────────────────────────────────────────────────
-  function abrirFormPagamento(funcIdInicial){
-    var funcs=getFuncionarios();
-    var lista=Object.values(funcs).filter(function(f){return f.ativo!==false;}).sort(function(a,b){return a.nome.localeCompare(b.nome);});
-    var opsFuncs=[{v:'',l:'— Selecione —'}].concat(lista.map(function(f){return{v:f.id,l:f.nome};}));
-    var hoje=_hoje();
-    var saldo=funcIdInicial?calcSaldoFuncionario(funcIdInicial,null,null):null;
-    var f=funcIdInicial?(funcs[funcIdInicial]||{}):{};
+  // ─────────────────────────────────────────────────────────────
+  // Mapa de tipos de pagamento — label, ícone, cor
+  // ─────────────────────────────────────────────────────────────
+  var _TIPOS_PAG = {
+    decendio:    { label:'Pagamento Decendial', icon:'📆', cor:GOLD  },
+    vale:        { label:'Vale',                icon:'🎫', cor:'#e0954a' },
+    adiantamento:{ label:'Adiantamento',        icon:'💸', cor:'#8ec8f0' },
+    salario:     { label:'Salário',             icon:'💰', cor:GREEN  },
+    bonus:       { label:'Bônus / Comissão',    icon:'🏆', cor:GREEN  },
+    he:          { label:'Horas Extras',        icon:'⚡', cor:GOLD   },
+    outro:       { label:'Outro',               icon:'💳', cor:T2     }
+  };
+  var _FORMAS_PAG = [
+    {v:'dinheiro',l:'💵 Dinheiro'},
+    {v:'pix',     l:'📱 Pix'},
+    {v:'ted',     l:'🏦 TED / DOC'},
+    {v:'cheque',  l:'📋 Cheque'},
+    {v:'outro',   l:'Outro'}
+  ];
 
-    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
+  function abrirFormPagamento(funcIdInicial){
+    var funcs = getFuncionarios();
+    var lista = Object.values(funcs)
+      .filter(function(f){ return f.ativo !== false; })
+      .sort(function(a,b){ return a.nome.localeCompare(b.nome); });
+    var opsFuncs = [{v:'',l:'— Selecione —'}].concat(
+      lista.map(function(f){ return {v:f.id, l:f.nome}; })
+    );
+    var hoje = _hoje();
+    var saldo = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, null, null) : null;
+    var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
+
+    // Sugestão de valor para decendial: salário ÷ 3
+    var sugestao = (f.salario && parseFloat(f.salario) > 0)
+      ? (parseFloat(f.salario) / 3).toFixed(2) : '';
+
+    var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
+      var t = _TIPOS_PAG[k];
+      return {v:k, l:t.icon+' '+t.label};
+    });
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">'+
       _overlayHeader('Registrar Pagamento','💳 RH · Financeiro','HR_FUNC._closePagamento()')+
 
-      _secao('',
-        _campo('Funcionário',_sel('pag_func',opsFuncs,funcIdInicial||''))+
+      // Bloco saldo (atualizado via JS)
+      '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f) : '')+'</div>'+
+
+      _secao('Dados do Pagamento',
+        _campo('Funcionário', _sel('pag_func', opsFuncs, funcIdInicial || ''))+
+        _campo('Tipo', _sel('pag_tipo', opsTipo, 'decendio'))+
         _grid2(
-          _campo('Data',_inp('pag_data','date','',hoje)),
-          _campo('Valor (R$)',_inp('pag_valor','number','0,00','','min="0.01" step="0.01"'))
+          _campo('Data', _inp('pag_data','date','', hoje)),
+          _campo('Valor (R$)', _inp('pag_valor','number','0,00', sugestao,'min="0.01" step="0.01"'))
         )+
-        _campo('Forma',_sel('pag_forma',[{v:'dinheiro',l:'💵 Dinheiro'},{v:'pix',l:'📱 Pix'},{v:'ted',l:'🏦 TED/DOC'},{v:'cheque',l:'📋 Cheque'},{v:'outro',l:'Outro'}],'dinheiro'))+
-        _campo('Observação (opcional)',_inp('pag_obs','text','adiantamento, salário...',''))
+        _campo('Forma de Pagamento', _sel('pag_forma', _FORMAS_PAG, 'pix'))+
+        _campo('Observação (opcional)', _inp('pag_obs','text','Ex: 1º decendio junho, vale farmácia...',''))
       )+
 
-      '<div id="pag_saldo_info">'+(funcIdInicial&&saldo?_blocoSaldo(saldo,f):'')+'</div>'+
+      // Dica decendial
+      '<div id="pag_dica_dec" style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);'+
+        'border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.72rem;color:'+T2+';line-height:1.6;">'+
+        '📆 <strong style="color:'+GOLD+';">Pagamento Decendial</strong> — a cada 10 dias. '+
+        'Sugestão: salário ÷ 3 por decendio.'+
+        (sugestao ? ' <strong style="color:'+GOLD+';">≈ '+_fmtMoeda(parseFloat(sugestao))+'</strong> p/ funcionário selecionado.' : '')+
+      '</div>'+
 
-      '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">💳 Confirmar Pagamento</button>'+
+      '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
       '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
-    _overlay('hrPagamento',html);
+    _overlay('hrPagamento', html);
 
     setTimeout(function(){
-      var sel=document.getElementById('pag_func'); if(!sel)return;
-      sel.addEventListener('change',function(){
-        var fid=sel.value; var info=document.getElementById('pag_saldo_info');
-        if(!info)return;
-        if(!fid){info.innerHTML='';return;}
-        var f2=getFuncionarios()[fid]||{};
-        info.innerHTML=_blocoSaldo(calcSaldoFuncionario(fid,null,null),f2);
-      });
-    },80);
+      // Atualiza saldo e sugestão ao trocar funcionário
+      var selFunc = document.getElementById('pag_func');
+      var selTipo = document.getElementById('pag_tipo');
+      if (!selFunc) return;
+
+      function _atualizarPainel(){
+        var fid   = selFunc.value;
+        var tipo  = (selTipo && selTipo.value) || 'decendio';
+        var info  = document.getElementById('pag_saldo_info');
+        var dica  = document.getElementById('pag_dica_dec');
+        var inpV  = document.getElementById('pag_valor');
+        if (!info) return;
+        if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
+        var f2   = getFuncionarios()[fid] || {};
+        var s2   = calcSaldoFuncionario(fid, null, null);
+        info.innerHTML = _blocoSaldo(s2, f2);
+        // Sugestão automática para decendio
+        if (inpV && tipo === 'decendio' && f2.salario && parseFloat(f2.salario) > 0) {
+          inpV.value = (parseFloat(f2.salario) / 3).toFixed(2);
+        }
+        // Mostra/oculta dica
+        if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
+      }
+
+      selFunc.addEventListener('change', _atualizarPainel);
+      if (selTipo) selTipo.addEventListener('change', _atualizarPainel);
+    }, 80);
   }
 
-  function _blocoSaldo(s,f){
-    if(!s)return'';
-    var sc=s.temCredito?GREEN:(s.saldo>0.01?RED:GOLD);
-    var sl=s.temCredito?'💳 Crédito de '+_fmtMoeda(Math.abs(s.saldo)):(s.saldo>0.01?'💰 A Receber '+_fmtMoeda(s.saldo):'✓ Quitado');
-    return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:13px;margin-bottom:12px;">'+
-      '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">💰 Saldo do Funcionário</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">'+
-        _miniKpi('Salário',_fmtMoeda(f&&f.salario?f.salario:0),GOLD)+
-        _miniKpi('H. Extras',_fmtMoeda(s.valorExtra),GOLD)+
-        _miniKpi('Já pago',_fmtMoeda(s.totalPago),GREEN)+
+  function _blocoSaldo(s, f){
+    if (!s) return '';
+    var sc  = s.temCredito ? GREEN : (s.saldo > 0.01 ? RED : GOLD);
+    var sl  = s.temCredito
+      ? '💳 Crédito ' + _fmtMoeda(Math.abs(s.saldo))
+      : (s.saldo > 0.01 ? '💰 A receber ' + _fmtMoeda(s.saldo) : '✓ Quitado');
+    var sal = f && f.salario ? parseFloat(f.salario) : 0;
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;'+
+        'padding:13px;margin-bottom:12px;">'+
+      '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;'+
+        'margin-bottom:10px;">📊 Posição Financeira</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
+        _miniKpi('Salário',       _fmtMoeda(sal),           GOLD)+
+        _miniKpi('H. Extras',     _fmtMoeda(s.valorExtra),  GOLD)+
+        _miniKpi('Já Pago',       _fmtMoeda(s.totalPago),   GREEN)+
       '</div>'+
-      '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;text-align:center;">'+
-        '<div style="font-size:.67rem;color:'+T3+';margin-bottom:3px;">'+sl+'</div>'+
-        '<div style="font-size:1.3rem;font-weight:800;color:'+sc+';">'+_fmtMoeda(Math.abs(s.saldo))+'</div>'+
-        (s.temCredito?'<div style="font-size:.63rem;color:'+GREEN+';margin-top:3px;">Desconta no próximo pagamento</div>':'')+
+      '<div style="background:rgba(0,0,0,.35);border-radius:9px;padding:10px 14px;'+
+        'display:flex;justify-content:space-between;align-items:center;">'+
+        '<div>'+
+          '<div style="font-size:.62rem;color:'+T3+';margin-bottom:2px;">Saldo</div>'+
+          '<div style="font-size:.72rem;font-weight:600;color:'+sc+';">'+sl+'</div>'+
+        '</div>'+
+        '<div style="font-size:1.25rem;font-weight:800;color:'+sc+';">'+
+          _fmtMoeda(Math.abs(s.saldo))+
+        '</div>'+
       '</div>'+
+      (s.temCredito
+        ? '<div style="font-size:.62rem;color:'+GREEN+';margin-top:7px;text-align:center;">'+
+            'Crédito desconta no próximo pagamento</div>'
+        : '')+
     '</div>';
   }
 
@@ -1833,21 +2064,36 @@ var HR_FUNC = (function () {
   function _closePagamento(){ _closeOverlay('hrPagamento'); }
 
   function _salvarPagamento(){
-    var funcId=(document.getElementById('pag_func')||{}).value;
-    var data=(document.getElementById('pag_data')||{}).value;
-    var valor=parseFloat((document.getElementById('pag_valor')||{}).value);
-    var forma=(document.getElementById('pag_forma')||{}).value||'dinheiro';
-    var obs=(document.getElementById('pag_obs')||{}).value||'';
-    if(!funcId){_toast('Selecione um funcionário');return;}
-    if(!data){_toast('Informe a data');return;}
-    if(!valor||valor<=0){_toast('Valor inválido');return;}
-    var funcs=getFuncionarios();
-    if(!funcs[funcId]){_toast('Funcionário não encontrado');return;}
-    var pags=getPagamentos();
-    var id=genId();
-    pags[id]={id:id,funcionarioId:funcId,data:data,valor:valor,forma:forma,obs:obs,criadoEm:new Date().toISOString()};
+    var funcId = (document.getElementById('pag_func')  || {}).value;
+    var data   = (document.getElementById('pag_data')  || {}).value;
+    var valor  = parseFloat((document.getElementById('pag_valor') || {}).value);
+    var tipo   = (document.getElementById('pag_tipo')  || {}).value || 'decendio';
+    var forma  = (document.getElementById('pag_forma') || {}).value || 'pix';
+    var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+
+    if (!funcId) { _toast('Selecione um funcionário'); return; }
+    if (!data)   { _toast('Informe a data');           return; }
+    if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
+
+    var funcs = getFuncionarios();
+    if (!funcs[funcId]) { _toast('Funcionário não encontrado'); return; }
+
+    var t    = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
+    var pags = getPagamentos();
+    var id   = genId();
+
+    pags[id] = {
+      id:            id,
+      funcionarioId: funcId,
+      data:          data,
+      valor:         valor,
+      tipo:          tipo,
+      forma:         forma,
+      obs:           obs,
+      criadoEm:      new Date().toISOString()
+    };
     savePagamentos(pags);
-    _toast('Pagamento de '+_fmtMoeda(valor)+' registrado!');
+    _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!');
     _closePagamento();
     renderPaginaFuncionarios();
   }
@@ -2013,37 +2259,87 @@ var HR_FUNC = (function () {
   // 15. EXTRATO DE PAGAMENTOS
   // ─────────────────────────────────────────────────────────────
   function abrirExtratoPagamentos(funcId){
-    var funcs=getFuncionarios();
-    var f=funcs[funcId]||{nome:'?'};
-    var pags=getPagamentos();
-    var meusPags=Object.values(pags).filter(function(p){return p.funcionarioId===funcId;}).sort(function(a,b){return b.data.localeCompare(a.data);});
-    var total=meusPags.reduce(function(s,p){return s+(parseFloat(p.valor)||0);},0);
-    var iconForma={dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'};
+    var funcs    = getFuncionarios();
+    var f        = funcs[funcId] || {nome:'?'};
+    var pags     = getPagamentos();
+    var meusPags = Object.values(pags)
+      .filter(function(p){ return p.funcionarioId === funcId; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+    var total = meusPags.reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
 
-    var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
-      _overlayHeader('Extrato de Pagamentos','📊 '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeExtrato()')+
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px;margin-bottom:14px;text-align:center;">'+
-        '<div style="font-size:.62rem;color:'+T3+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Total pago</div>'+
-        '<div style="font-size:1.4rem;font-weight:800;color:'+GREEN+';">'+_fmtMoeda(total)+'</div>'+
-        '<div style="font-size:.7rem;color:'+T3+';margin-top:2px;">'+meusPags.length+' pagamento'+(meusPags.length!==1?'s':'')+'</div>'+
-      '</div>'+
-      (meusPags.length===0?
-        '<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum pagamento registrado</div>':
-        meusPags.map(function(p){
-          return'<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;margin-bottom:8px;">'+
-            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'+
+    // Totais por tipo
+    var porTipo = {};
+    meusPags.forEach(function(p){
+      var k = p.tipo || 'outro';
+      porTipo[k] = (porTipo[k] || 0) + (parseFloat(p.valor) || 0);
+    });
+
+    var badgesTipo = Object.keys(porTipo).map(function(k){
+      var t   = _TIPOS_PAG[k] || _TIPOS_PAG.outro;
+      var val = porTipo[k];
+      return '<div style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.07);'+
+        'border-radius:9px;padding:8px 12px;text-align:center;">'+
+        '<div style="font-size:.88rem;margin-bottom:2px;">'+t.icon+'</div>'+
+        '<div style="font-size:.7rem;font-weight:700;color:'+t.cor+';">'+_fmtMoeda(val)+'</div>'+
+        '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+t.label+'</div>'+
+      '</div>';
+    }).join('');
+
+    var listaHtml = meusPags.length === 0
+      ? '<div style="text-align:center;color:'+T3+';padding:32px 0;font-size:.82rem;">Nenhum pagamento registrado</div>'
+      : meusPags.map(function(p){
+          var t    = _TIPOS_PAG[p.tipo] || _TIPOS_PAG.outro;
+          var icoF = {dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'}[p.forma] || '💳';
+          return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;'+
+              'padding:12px 14px;margin-bottom:8px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
               '<div style="flex:1;min-width:0;">'+
-                '<div style="font-size:.82rem;font-weight:700;color:'+T1+';">'+(iconForma[p.forma]||'💳')+' '+_fmtData(p.data)+'</div>'+
-                (p.obs?'<div style="font-size:.72rem;color:'+T3+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(p.obs)+'</div>':'')+
+                '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">'+
+                  '<span style="font-size:.75rem;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.07);'+
+                    'border-radius:5px;padding:1px 7px;color:'+t.cor+';font-weight:700;">'+
+                    t.icon+' '+t.label+
+                  '</span>'+
+                  '<span style="font-size:.68rem;color:'+T3+';">'+icoF+' '+((p.forma||'').charAt(0).toUpperCase()+(p.forma||'').slice(1))+'</span>'+
+                '</div>'+
+                '<div style="font-size:.8rem;font-weight:600;color:'+T2+';">'+_fmtData(p.data)+'</div>'+
+                (p.obs ? '<div style="font-size:.7rem;color:'+T3+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
+                  _esc(p.obs)+'</div>' : '')+
               '</div>'+
-              '<div style="font-size:.9rem;font-weight:700;color:'+GREEN+';white-space:nowrap;">'+_fmtMoeda(p.valor)+'</div>'+
+              '<div style="font-size:.95rem;font-weight:800;color:'+t.cor+';white-space:nowrap;">'+
+                _fmtMoeda(p.valor)+
+              '</div>'+
             '</div>'+
           '</div>';
-        }).join(''))+
+        }).join('');
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Extrato de Pagamentos','📊 '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeExtrato()')+
+
+      // KPI total
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;'+
+        'padding:14px;margin-bottom:12px;text-align:center;">'+
+        '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">Total pago</div>'+
+        '<div style="font-size:1.5rem;font-weight:800;color:'+GREEN+';">'+_fmtMoeda(total)+'</div>'+
+        '<div style="font-size:.68rem;color:'+T3+';margin-top:2px;">'+
+          meusPags.length+' lançamento'+(meusPags.length !== 1 ? 's' : '')+
+        '</div>'+
+      '</div>'+
+
+      // Breakdown por tipo
+      (Object.keys(porTipo).length > 1
+        ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;margin-bottom:14px;">'+
+            badgesTipo+
+          '</div>'
+        : '')+
+
+      // Lista de lançamentos
+      listaHtml+
+
       '<button onclick="HR_FUNC._closeExtrato()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
     '</div>';
 
-    _overlay('hrExtrato',html);
+    _overlay('hrExtrato', html);
   }
 
   function _closeExtrato(){ _closeOverlay('hrExtrato'); }
@@ -2384,11 +2680,13 @@ var HR_FUNC = (function () {
     var f       = funcs[funcId] || {};
     var salario = parseFloat(f.salario) || 0;
 
+    // Fix: filtra apenas registros com HE a pagar (exclui banco e registros sem hora extra)
     var meusRegs = Object.values(regs).filter(function(r) {
       if (r.funcionarioId !== funcId) return false;
       if (di && r.data < di) return false;
       if (df && r.data > df) return false;
-      return true;
+      if (r.destinoExtra === 'banco') return false;       // banco não entra no cálculo financeiro
+      return parseFloat(r.extra) > 0;                    // só registros com HE real
     });
 
     var refMes = (di || (meusRegs.length > 0
@@ -2402,7 +2700,7 @@ var HR_FUNC = (function () {
     } else {
       var valorHoraFb  = salario / 220;
       var totalExtraFb = meusRegs.reduce(function(s, r) {
-        return s + (r.destinoExtra === 'banco' ? 0 : (parseFloat(r.extra) || 0));
+        return s + (parseFloat(r.extra) || 0); // banco já excluído no filtro acima
       }, 0);
       heResult = {
         valorHoraBase:    valorHoraFb,
@@ -2411,9 +2709,10 @@ var HR_FUNC = (function () {
       };
     }
 
-    var totalHoras  = heResult.totalExtraHoras || 0;
-    var valorNormal = heResult.valorTotalExtras || 0;
-    var valorHora   = heResult.valorHoraBase || (salario / 220);
+    // Fix: normaliza campos do heResult — compatível com contratos de retorno variados
+    var totalHoras  = heResult.totalExtraHoras || heResult.totalHorasExtra || 0;
+    var valorNormal = heResult.valorTotalExtras || heResult.valorTotalExtra || 0;
+    var valorHora   = heResult.valorHoraBase    || (salario / 220);
     var valorMulti  = valorHora * multiplier * totalHoras;
     var acrescimo   = valorMulti - valorNormal;
 
