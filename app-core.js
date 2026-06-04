@@ -1019,10 +1019,10 @@ function _calcPeSubpecas(pc){
     var fH=peH-espPar;
     if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
   }
-  // 2. Sainha lateral 45°: sainhaH × peE (espessura), 2 por peça
+  // 2. Sainha lateral 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
   if(sainhaH>0){
-    var m2S=(sainhaH/100)*(peE/100);
-    sub.push({desc:'Sainha Lateral 45° ('+sainhaH+'×'+peE+' cm)',w:peE,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
+    var m2S=(sainhaH/100)*(sainhaH/100)/2; // área do triângulo = base×altura/2
+    sub.push({desc:'Sainha Lateral 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
   }
   // 3. Taxa de m.o. orgânico — sobre m² total (pé + derivadas)
   if(organico){
@@ -1770,12 +1770,12 @@ function _setBd(pc, lado, patch) {
   if (!pc.bordas) pc.bordas = {};
   if (!patch) { pc.bordas[lado] = null; return; }
   // Defaults por tipo
-  var defAlt = patch.tipo === 'frontao' ? 20 : 6;
+  var defAlt = patch.tipo === 'frontao' ? 10 : 6;
   if (!pc.bordas[lado]) pc.bordas[lado] = { tipo: null, sub: null, ml: null, alt: defAlt };
   Object.assign(pc.bordas[lado], patch);
   // Se tipo mudou, atualiza alt para o default do novo tipo
   if (patch.tipo && !patch.alt) {
-    pc.bordas[lado].alt = patch.tipo === 'frontao' ? 20 : 6;
+    pc.bordas[lado].alt = patch.tipo === 'frontao' ? 10 : 6;
   }
 }
 
@@ -1909,7 +1909,7 @@ function buildPecaBordaHtml(amb, pc) {
     var tipoOpt = TIPO_LIST.find(function(t){return t.k===tipo;})||TIPO_LIST[0];
     var curML = bd && bd.ml != null ? bd.ml : null;
     var autoML = side.dim ? (side.dim/100).toFixed(2) : '?';
-    var alt = bd ? (bd.alt || (tipo==='frontao' ? 20 : 6)) : (tipo==='frontao' ? 20 : 6);
+    var alt = bd ? (bd.alt || (tipo==='frontao' ? 10 : 6)) : (tipo==='frontao' ? 10 : 6);
     h += '<div style=\"background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;\">';
     h += '<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';\">'; 
     h += '<span style=\"font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;\">'+side.icon+' '+side.l+'</span>';
