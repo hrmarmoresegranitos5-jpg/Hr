@@ -15,11 +15,167 @@ var _chat = {
 };
 
 // ── Salva/carrega histórico ──────────────────────────────────
+
+// ── ID único anti-colisão ─────────────────────────────────────
+
+// ── _dbSv() seguro — avisa se localStorage estiver cheio ──────
+function _dbSv() {
+  try {
+    _dbSv();
+  } catch(e) {
+    if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
+      if (typeof toast === 'function') {
+        toast('⚠️ Armazenamento cheio! Faça um backup agora.', 'error');
+      } else {
+        alert('⚠️ Armazenamento cheio! Vá em Configurações e exporte um backup.');
+      }
+      console.error('localStorage quota exceeded:', e);
+    } else {
+      console.error('_dbSv() error:', e);
+    }
+  }
+}
+
+function _genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
 function _chatLoad() {
   try { _chat.history = JSON.parse(localStorage.getItem('hr_chat') || '[]'); } catch(e) { _chat.history = []; }
+  // Remove mensagens proativas órfãs (app fechou antes da resposta chegar)
+  _chat.history = _chat.history.filter(function(m) { return !m._pending; });
 }
 function _chatSave() {
   try { localStorage.setItem('hr_chat', JSON.stringify(_chat.history.slice(-100))); } catch(e) {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// SECRETÁRIA PROATIVA — mensagem automática ao abrir
+// ══════════════════════════════════════════════════════════════
+var _secProativ = {
+  COOLDOWN_MS: 4 * 60 * 60 * 1000  // 4 horas entre mensagens proativas
+};
+
+function _secProativCheck() {
+  // Só dispara se tiver chave configurada
+  var key = CFG && CFG.emp && CFG.emp.apiKey;
+  if (!key) return;
+
+  // Verifica cooldown — evita disparar toda vez que o usuário navega
+  var ultimaTs = 0;
+  try { ultimaTs = parseInt(localStorage.getItem('hr_sec_proativ_ts') || '0'); } catch(e) {}
+  var agora = Date.now();
+  if (agora - ultimaTs < _secProativ.COOLDOWN_MS) return;
+
+  // Coleta dados reais do sistema
+  var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0, 10);
+  var jobsAtrasados = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+    .filter(function(j) { return !j.done && j.end && j.end < hoje; });
+  var entregasHoje = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+    .filter(function(j) { return !j.done && j.end === hoje; });
+  var pendVenc = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
+    .filter(function(t) { return t.type === 'pend' && t.date && t.date < hoje; });
+  var pendTotal = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
+    .filter(function(t) { return t.type === 'pend'; });
+  var visitasHoje = (typeof _getV === 'function' ? _getV() : [])
+    .filter(function(v) { return v.status === 'agendada' && v.date === hoje; });
+  var jobsUrgentes = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
+    .filter(function(j) { return !j.done && j.urgente; });
+
+  // Só dispara se houver algo relevante a comunicar
+  var temAlgo = jobsAtrasados.length || entregasHoje.length || pendVenc.length || visitasHoje.length || jobsUrgentes.length;
+  if (!temAlgo) return;
+
+  // Monta prompt focado e cirúrgico
+  var hora = new Date().getHours();
+  var saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+
+  var situacao = [];
+  if (jobsAtrasados.length) {
+    situacao.push(jobsAtrasados.length + ' job(s) em atraso: ' +
+      jobsAtrasados.slice(0, 3).map(function(j) {
+        var dias = Math.abs((typeof dDiff === 'function') ? dDiff(j.end) : 0);
+        return j.cli + ' (' + dias + 'd)';
+      }).join(', '));
+  }
+  if (entregasHoje.length) {
+    situacao.push(entregasHoje.length + ' entrega(s) para hoje: ' +
+      entregasHoje.map(function(j) { return j.cli; }).join(', '));
+  }
+  if (pendVenc.length) {
+    var totVenc = pendVenc.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+    situacao.push(pendVenc.length + ' cobrança(s) vencida(s) — R$ ' +
+      (typeof fm === 'function' ? fm(totVenc) : totVenc.toFixed(2)));
+  }
+  if (visitasHoje.length) {
+    situacao.push(visitasHoje.length + ' visita(s) agendada(s) hoje');
+  }
+  if (jobsUrgentes.length) {
+    situacao.push(jobsUrgentes.length + ' job(s) marcado(s) como urgente');
+  }
+
+  var totPend = pendTotal.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+  var ctxFinanceiro = 'Total a receber: R$ ' + (typeof fm === 'function' ? fm(totPend) : totPend.toFixed(2)) +
+    ' (' + pendTotal.length + ' lançamentos pendentes)';
+
+  var prompt = saudacao + '! Situação atual ao abrir o app:\n' +
+    situacao.join('\n') + '\n' + ctxFinanceiro + '\n\n' +
+    'Faça uma saudação de ' + saudacao.toLowerCase() + ' e um resumo executivo em até 6 linhas com os pontos mais críticos. ' +
+    'Destaque o que exige ação imediata hoje. Seja direto e use emojis moderadamente.';
+
+  // Marca timestamp ANTES de buscar (evita duplo disparo)
+  try { localStorage.setItem('hr_sec_proativ_ts', agora.toString()); } catch(e) {}
+
+  // Injeta "pensando..." no histórico
+  var ts = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  _chat.history.push({role: 'assistant', content: '...', ts: ts, isProativ: true, _pending: true});
+  _chatSave();
+
+  // Chama API com o prompt proativo
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: _chatBuildSystem(),
+      messages: [{role: 'user', content: prompt}]
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var text = (d.content && d.content[0] && d.content[0].text) || '';
+    if (!text) return;
+
+    // Substitui o placeholder pela resposta real
+    var idx = _chat.history.length - 1;
+    while (idx >= 0 && !_chat.history[idx]._pending) idx--;
+    if (idx >= 0) {
+      _chat.history[idx].content = text;
+      delete _chat.history[idx]._pending;
+
+      // Adiciona ações contextuais conforme o que foi detectado
+      var actions = [];
+      if (jobsAtrasados.length)  actions.push({label: '⚠️ Ver atrasados',  fn: 'go(3)'});
+      if (pendVenc.length)       actions.push({label: '💰 Cobranças',       fn: 'go(4);finTab(\'areceber\')'});
+      if (entregasHoje.length)   actions.push({label: '📦 Entregas hoje',   fn: 'go(3)'});
+      if (visitasHoje.length)    actions.push({label: '📐 Visitas hoje',    fn: 'go(0)'});
+      if (actions.length) _chat.history[idx].actions = actions;
+
+      _chatSave();
+      renderChat();
+    }
+  })
+  .catch(function() {
+    // Falha silenciosa — remove placeholder
+    _chat.history = _chat.history.filter(function(m) { return !m._pending; });
+    _chatSave();
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -132,27 +288,56 @@ var _chatChips = [
 function _chatGetContextChips() {
   try {
     var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
+    var hh   = new Date().getHours();
     var chips = [];
-    var jobsAtrasados = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
-      .filter(function(j){ return !j.done && j.end && j.end < hoje; }).length;
-    var pendentes = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
-      .filter(function(t){ return t.type === 'pend'; }).length;
-    var pendAtrasados = ((typeof DB !== 'undefined' && DB.t) ? DB.t : [])
-      .filter(function(t){ return t.type === 'pend' && t.date && t.date < hoje; }).length;
-    var jobsHoje = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
-      .filter(function(j){ return !j.done && j.end === hoje; }).length;
-    var jobsAtivos = ((typeof DB !== 'undefined' && DB.j) ? DB.j : [])
-      .filter(function(j){ return !j.done; }).length;
 
-    // Prioridade: problemas primeiro
-    if (jobsAtrasados > 0)  chips.push({ label: '🔴 ' + jobsAtrasados + ' job(s) atrasado(s)', text: 'Liste os jobs atrasados com dias de atraso e valor pendente de cada um.' });
-    if (pendAtrasados > 0)  chips.push({ label: '🔴 ' + pendAtrasados + ' cobrança(s) vencida(s)', text: 'Liste os valores a receber que já venceram, com nome do cliente e valor.' });
-    if (jobsHoje > 0)       chips.push({ label: '🔨 ' + jobsHoje + ' entrega(s) hoje', text: 'Quais entregas são para hoje? Estão prontas?' });
-    if (pendentes > 0)      chips.push({ label: '💰 ' + pendentes + ' a receber', text: 'Liste tudo que tenho a receber com datas de vencimento, do mais urgente ao mais recente.' });
-    if (jobsAtivos > 0)     chips.push({ label: '📋 ' + jobsAtivos + ' em produção', text: 'Mostre todos os jobs em produção com status e prazo.' });
-    chips.push({ label: '📊 Finanças do mês', text: 'Como estão as finanças deste mês? Compare com o anterior e mostre tendência.' });
-    chips.push({ label: '📈 Análise completa', text: 'Faça uma análise financeira detalhada com tendência dos últimos 3 meses, inadimplência e 3 sugestões práticas.' });
+    // Dados do sistema
+    var jobs         = (typeof DB !== 'undefined' && DB.j) ? DB.j : [];
+    var trans        = (typeof DB !== 'undefined' && DB.t) ? DB.t : [];
+    var jobsAtrasados = jobs.filter(function(j){ return !j.done && j.end && j.end < hoje; }).length;
+    var pendAtrasados = trans.filter(function(t){ return t.type==='pend' && t.date && t.date < hoje; }).length;
+    var jobsHoje      = jobs.filter(function(j){ return !j.done && j.end === hoje; }).length;
+    var jobsAtivos    = jobs.filter(function(j){ return !j.done; }).length;
+    var pendentes     = trans.filter(function(t){ return t.type==='pend'; }).length;
+    var visitasHoje   = (typeof _getV === 'function' ? _getV() : [])
+                          .filter(function(v){ return v.status==='agendada' && v.date===hoje; }).length;
+
+    // ── Alertas críticos — sempre aparecem primeiro ────────────
+    if (jobsAtrasados > 0) chips.push({ label: '🔴 ' + jobsAtrasados + ' atrasado(s)', text: 'Liste os jobs atrasados com dias de atraso e valor pendente de cada um.' });
+    if (pendAtrasados > 0) chips.push({ label: '🔴 ' + pendAtrasados + ' cobrança(s) vencida(s)', text: 'Liste os valores a receber que já venceram, com nome do cliente e valor.' });
+
+    // ── Chips contextuais por período do dia ──────────────────
+    if (hh >= 6 && hh < 12) {
+      // Manhã — foco no dia que começa
+      chips.push({ label: '☀️ Resumo do dia', text: 'Bom dia! Me dê um resumo executivo do dia: entregas previstas, visitas agendadas, cobranças vencidas e qualquer alerta importante.' });
+      if (visitasHoje > 0) chips.push({ label: '📐 ' + visitasHoje + ' visita(s) hoje', text: 'Quais visitas tenho hoje? Me dê os detalhes de cada uma com endereço e observações.' });
+      if (jobsHoje > 0)    chips.push({ label: '📦 ' + jobsHoje + ' entrega(s) hoje', text: 'Quais jobs precisam ser entregues hoje? Estão prontos?' });
+      chips.push({ label: '📊 Finanças do mês', text: 'Como estão as finanças deste mês até agora? Compare com o mês anterior.' });
+
+    } else if (hh >= 12 && hh < 17) {
+      // Tarde — foco em produção e cobranças
+      chips.push({ label: '🔨 ' + jobsAtivos + ' em produção', text: 'Mostre todos os jobs em produção com status, prazo e valor. Destaque os mais urgentes.' });
+      if (pendentes > 0) chips.push({ label: '💰 ' + pendentes + ' a receber', text: 'Liste tudo que tenho a receber com datas de vencimento, do mais urgente ao mais recente.' });
+      chips.push({ label: '📈 Análise da semana', text: 'Como estou esta semana? Receitas, despesas, jobs entregues e qualquer ponto de atenção.' });
+      chips.push({ label: '👷 Saldo funcionários', text: 'Qual o saldo devedor de cada funcionário? Quem está com mais horas extras acumuladas?' });
+
+    } else if (hh >= 17 && hh < 20) {
+      // Final de tarde — fechamento do dia
+      chips.push({ label: '🌅 Fechar o dia', text: 'Me ajude a fechar o dia: o que foi feito, o que ficou pendente e o que precisa de atenção amanhã.' });
+      chips.push({ label: '💰 Caixa de hoje', text: 'Quanto entrou e saiu hoje? Qual o saldo do dia?' });
+      if (jobsHoje > 0) chips.push({ label: '✅ Confirmar entregas', text: 'Os jobs previstos para hoje foram entregues? Me mostre o status de cada um.' });
+      chips.push({ label: '📞 Follow-ups', text: 'Tem algum cliente com orçamento sem resposta há mais de 5 dias? Me dê a lista para eu ligar amanhã.' });
+
+    } else {
+      // Noite / madrugada — visão geral
+      chips.push({ label: '🌙 Visão geral', text: 'Me dê uma visão geral do negócio: finanças do mês, jobs em andamento, cobranças pendentes e principais alertas.' });
+      chips.push({ label: '📈 Análise completa', text: 'Faça uma análise financeira detalhada com tendência dos últimos 3 meses, inadimplência e 3 sugestões práticas.' });
+      chips.push({ label: '💰 A receber', text: 'Liste tudo que tenho a receber com datas de vencimento.' });
+    }
+
+    // Diagnóstico — sempre disponível como último recurso
     chips.push({ label: '🔍 Erros no sistema', text: 'Tem algum erro ou problema no sistema agora?' });
+
     return chips.slice(0, 6);
   } catch(e) { return _chatChips; }
 }
@@ -161,6 +346,8 @@ function renderChat() {
   var el = document.getElementById('chatBody');
   if (!el) return;
   _chatLoad();
+  _chatVozLoad();
+  _secProativCheck();
   _injectChatStyles();
 
   var h = '';
@@ -174,6 +361,7 @@ function renderChat() {
   h += '<div class="chat-header-sub">IA · Acesso total ao sistema</div>';
   h += '</div>';
   h += '<button class="chat-clear-btn" onclick="chatClear()" title="Limpar conversa">🗑</button>';
+  h += '<button class="chat-voz-btn" id="chatVozBtn" onclick="chatVozToggle()" title="' + (_chatVoz.ativo ? 'Voz ativa — clique para desativar' : 'Ativar voz de saída') + '" style="' + (_chatVoz.ativo ? 'border-color:rgba(201,168,76,.5);color:#c9a84c;' : '') + '">' + (_chatVoz.ativo ? '🔊' : '🔇') + '</button>';
   h += '</div>';
 
   // Mensagens
@@ -189,6 +377,12 @@ function renderChat() {
     _chat.history.forEach(function(msg) {
       if (msg.role === 'user') {
         h += _chatBubbleUser(msg.content, msg.ts);
+      } else if (msg._pending) {
+        // Mensagem proativa carregando — mostra animação
+        h += '<div class="chat-bubble chat-bubble-bot chat-thinking">'
+          + '<div class="chat-thinking-inner"><span></span><span></span><span></span></div>'
+          + '<div class="chat-thinking-label">Preparando resumo do dia...</div>'
+          + '</div>';
       } else {
         h += _chatBubbleBot(msg.content, msg.actions || null, msg.ts, msg.isAlerta, false);
       }
@@ -321,111 +515,6 @@ function chatClear() {
   renderChat();
 }
 
-// ══════════════════════════════════════════════════════════════
-// CONTEXTO COMPLETO DO SISTEMA
-// ══════════════════════════════════════════════════════════════
-function _chatBuildContext() {
-  var hoje = td();
-  var mes  = hoje.slice(0,7);
-  var anoAtual = hoje.slice(0,4);
-
-  var transacoes = DB.t || [];
-
-  // ── Finanças mês atual ──
-  var recMes   = transacoes.filter(function(t){ return t.type==='in'   && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-  var despMes  = transacoes.filter(function(t){ return t.type==='out'  && (t.date||'').slice(0,7)===mes; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-  var pendMes  = transacoes.filter(function(t){ return t.type==='pend'; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-  var fixos    = (CFG.fixos||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
-  var vars     = (CFG.variaveis||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
-  var atrasados = transacoes.filter(function(t){ return t.type==='pend' && t.date && t.date < hoje; });
-  var lucroMes = recMes - despMes - fixos;
-
-  // ── Tendência: 3 meses anteriores ──
-  function mesAnterior(m, n) {
-    var d = new Date(m + '-01');
-    d.setMonth(d.getMonth() - n);
-    return d.toISOString().slice(0,7);
-  }
-  var tendencia = [];
-  for (var i = 3; i >= 1; i--) {
-    var m2 = mesAnterior(mes, i);
-    var r2 = transacoes.filter(function(t){ return t.type==='in'  && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-    var d2 = transacoes.filter(function(t){ return t.type==='out' && (t.date||'').slice(0,7)===m2; }).reduce(function(s,t){ return s+(t.value||0); }, 0);
-    tendencia.push(m2 + ': faturado R$ ' + r2.toFixed(2) + ' | despesas R$ ' + d2.toFixed(2) + ' | saldo R$ ' + (r2-d2).toFixed(2));
-  }
-
-  // ── Ticket médio e top clientes ──
-  var entradas = transacoes.filter(function(t){ return t.type==='in' && t.value > 0; });
-  var ticketMedio = entradas.length ? (entradas.reduce(function(s,t){ return s+t.value; }, 0) / entradas.length) : 0;
-  var porCliente = {};
-  (DB.q||[]).forEach(function(q){ if(q.cli && q.value) porCliente[q.cli] = (porCliente[q.cli]||0) + (q.value||0); });
-  var topCli = Object.entries(porCliente).sort(function(a,b){ return b[1]-a[1]; }).slice(0,5)
-    .map(function(e){ return e[0] + ' (R$ ' + e[1].toFixed(2) + ')'; });
-
-  // ── Jobs ──
-  var jobsAtivos = (DB.j||[]).filter(function(j){ return !j.done; });
-  var jobsAtrasados = jobsAtivos.filter(function(j){ return j.end && j.end < hoje; });
-  var valorJobsAbertos = jobsAtivos.reduce(function(s,j){ return s+(j.value||0); }, 0);
-  var jobs = jobsAtivos.slice(0,15).map(function(j){
-    var diff = dDiff(j.end);
-    var status = diff < 0 ? '🔴 ATRASADO ' + Math.abs(diff) + 'd' : '🟢 em ' + diff + 'd';
-    return j.cli + ' | ' + j.desc + ' | ' + (j.end||'?') + ' (' + status + ') | R$ ' + fm(j.value||0) + (j.pago ? ' | pago: R$ ' + fm(j.pago) : '');
-  });
-
-  // ── A receber ──
-  var pendentes = transacoes.filter(function(t){ return t.type==='pend'; }).slice(0,10).map(function(t){
-    var atrasado = t.date && t.date < hoje ? ' ⚠️ ATRASADO' : '';
-    return t.desc + ' | R$ ' + fm(t.value||0) + ' | vence: ' + (t.date||'?') + atrasado;
-  });
-
-  // ── Visitas ──
-  var visitas = (typeof _getV === 'function' ? _getV() : [])
-    .filter(function(v){ return v.status==='agendada'; }).slice(0,5)
-    .map(function(v){ return v.cli + ' | ' + v.date + (v.hora?' às '+v.hora:'') + (v.end?' | '+v.end:''); });
-
-  // ── Clientes recentes ──
-  var ultClientes = {};
-  (DB.q||[]).slice(0,30).forEach(function(q){ if(q.cli) ultClientes[q.cli] = (q.date||''); });
-  var cliList = Object.keys(ultClientes).slice(0,15).join(', ');
-
-  // ── Meta ──
-  var meta = (CFG.saudeFinanceira && CFG.saudeFinanceira.metaFaturamento) || 0;
-  var pctMeta = meta > 0 ? Math.round((recMes/meta)*100) : null;
-
-  return [
-    'DADOS HR MÁRMORES — hoje: ' + hoje,
-    '',
-    '══ FINANÇAS ══',
-    'Faturado (mês): R$ ' + recMes.toFixed(2) + (meta > 0 ? ' | Meta: R$ ' + meta.toFixed(2) + ' (' + pctMeta + '%)' : ''),
-    'Despesas (mês): R$ ' + despMes.toFixed(2) + ' | Custos fixos: R$ ' + fixos.toFixed(2) + ' | Custos variáveis: R$ ' + vars.toFixed(2),
-    'Lucro estimado: R$ ' + lucroMes.toFixed(2),
-    'A receber total: R$ ' + pendMes.toFixed(2) + (atrasados.length ? ' | ' + atrasados.length + ' parcelas ATRASADAS' : ''),
-    'Ticket médio (histórico): R$ ' + ticketMedio.toFixed(2),
-    '',
-    '══ TENDÊNCIA (3 MESES) ══',
-    tendencia.join('\n'),
-    '',
-    '══ TOP CLIENTES POR VOLUME ══',
-    topCli.length ? topCli.join(' | ') : 'Sem dados',
-    '',
-    'JOBS EM PRODUÇÃO (' + jobsAtivos.length + ' ativos, ' + jobsAtrasados.length + ' atrasados | valor aberto: R$ ' + valorJobsAbertos.toFixed(2) + '):',
-    jobs.join('\n') || 'Nenhum',
-    '',
-    'A RECEBER (' + pendentes.length + '):',
-    pendentes.join('\n') || 'Nenhum',
-    '',
-    'VISITAS AGENDADAS:',
-    visitas.join('\n') || 'Nenhuma',
-    '',
-    'CLIENTES RECENTES: ' + (cliList || 'Nenhum'),
-    '',
-    _chatBuildRHContext(),
-    '',
-    _chatBuildOrcContext(),
-    '',
-    _chatBuildDiagContext()
-  ].join('\n');
-}
 
 // ── Contexto RH completo ────────────────────────────────────
 function _chatBuildRHContext() {
@@ -526,6 +615,32 @@ function _chatBuildOrcContext() {
 }
 
 // ── Prompt do sistema completo ────────────────────────────
+// ── Contexto de orçamentos de túmulos ───────────────────────
+function _chatBuildTumContext() {
+  try {
+    var todos = (typeof DB !== 'undefined' && DB.q) ? DB.q : [];
+    var tums = todos.filter(function(q) {
+      return q.tipo && q.tipo.toLowerCase().indexOf('túmulo') !== -1;
+    }).slice(0, 8);
+    if (!tums.length) return 'TÚMULOS: Nenhum orçamento de túmulo gerado.';
+    var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
+    var mes = hoje.slice(0,7);
+    var totalMes = 0;
+    var linhas = tums.map(function(q) {
+      if ((q.dt||q.date||'').slice(0,7) === mes) totalMes += (q.vista || 0);
+      var gavetas = (q.tum && q.tum.dims && q.tum.dims.gavetas) ? q.tum.dims.gavetas + 'G' : '';
+      var tipo = q.tipo || 'Túmulo';
+      return '• ' + (q.cli||'?') + ' — ' + tipo +
+        (gavetas ? ' ' + gavetas : '') +
+        ' | R$ ' + (q.vista||0).toFixed(2) +
+        ' | ' + (q.dt||q.date||'?') +
+        (q.tumCalc ? ' | margem: ' + (q.tumCalc.margemReal||0).toFixed(1) + '%' : '');
+    }).join(' | ');
+    return 'TÚMULOS — ORÇAMENTOS RECENTES (' + tums.length + ') | gerado no mês: R$ ' + totalMes.toFixed(2) + ': ' + linhas;
+  } catch(e) { return 'TÚMULOS: erro — ' + e.message; }
+}
+
+
 function _chatBuildSystem() {
   var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
   return [
@@ -562,7 +677,10 @@ function _chatBuildSystem() {
     '10. Pagar func:    {"action":"pagar_func",    "funcionario":"nome","valor":500,"forma":"dinheiro"}',
     '11. Navegar:       {"action":"nav",           "tela":"financas|agenda|historico|contratos|orcamento|rh|diagnostico"}',
     '12. Orçamento:     {"action":"orcamento_rapido"}',
-    '13. Limpar diag:   {"action":"limpar_diag"}',
+    '13. Orç. Túmulo:   {"action":"orcamento_tumulo","cli":"NOME","falecido":"NOME FALECIDO","cemiterio":"NOME","tipo":"simples"}',
+    '14. Limpar diag:   {"action":"limpar_diag"}',
+    '15. Ficha cliente:   {"action":"ver_cliente","cli":"NOME"} — agrega orçamentos, jobs, visitas, cobranças e histórico do cliente',
+    '16. Histórico job:   {"action":"ver_historico_job","cli":"NOME"} — mostra linha do tempo de edições de um job',
     '',
     '═══ FORMATO ═══',
     '- **negrito** para números e nomes importantes',
@@ -580,11 +698,12 @@ function _chatClassifyIntent(text) {
     jobs:        /job|obra|serviço|servico|producao|produção|atrasad|prazo|entrega|agenda|pedido|cliente|concluir|concluído|concluido/.test(t),
     rh:          /funcionário|funcionario|func|salário|salario|hora.?extra|pagamento|pagar func|banco de horas|rh|colaborador/.test(t),
     diagnostico: /erro|falha|bug|diagnóstico|diagnostico|problema|sistema|travou|log/.test(t),
-    orcamentos:  /orçamento|orcamento|proposta|pedra|granito|mármore|marmore|m²|m2|túmulo|tumulo/.test(t),
+    orcamentos:  /orçamento|orcamento|proposta|pedra|granito|mármore|marmore|m²|m2/.test(t),
+    tumulos:     /túmulo|tumulo|jazigo|sepultura|gaveta|monumento|cemitério|cemiterio|falecido|obra funerária|funer/.test(t),
     visitas:     /visita|medição|medicao|medir|agendad|marcar|agendar|cliente/.test(t)
   };
   // Se nada específico, manda contexto geral (finanças + jobs)
-  if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.visitas) {
+  if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.tumulos && !flags.visitas) {
     flags.financas = true; flags.jobs = true;
   }
   return flags;
@@ -646,6 +765,7 @@ function _chatBuildContextSurgical(userText) {
 
   if (flags.rh)          parts.push(_chatBuildRHContext());
   if (flags.orcamentos)  parts.push(_chatBuildOrcContext());
+  if (flags.tumulos)     parts.push(_chatBuildTumContext());
   if (flags.diagnostico) parts.push(_chatBuildDiagContext());
 
   // Clientes recentes sempre (são leves)
@@ -758,6 +878,41 @@ function _chatExecuteAction(data) {
   var result = { actions: [], extra: '' };
   var hoje = td();
 
+    // ── Confirmação para ações financeiras acima de R$ 500 ──────
+  var LIMITE_CONFIRM = 500;
+  var acoesFinanceiras = ['despesa', 'entrada', 'areceber', 'pagar_func', 'job_pago'];
+  if (acoesFinanceiras.indexOf(data.action) !== -1 && +data.valor > LIMITE_CONFIRM && !data._confirmado) {
+    var vlFmt = 'R$ ' + parseFloat(data.valor).toFixed(2).replace('.', ',');
+    var tipoLabel = {
+      despesa:    '\ud83d\udcb8 despesa',
+      entrada:    '\ud83d\udcb0 entrada',
+      areceber:   '\ud83d\udccb a receber',
+      pagar_func: '\ud83d\udc77 pagamento',
+      job_pago:   '\u2705 recebimento de job'
+    }[data.action] || data.action;
+    result.extra = '\u26a0\ufe0f Confirmar ' + tipoLabel + ' de **' + vlFmt + '**' +
+      (data.desc ? ' \u2014 *' + data.desc + '*' : '') + '?';
+    var confirmData = JSON.stringify(Object.assign({}, data, {_confirmado: true}));
+    result.actions.push({
+      label: '\u2705 Confirmar ' + vlFmt,
+      fn: '_chatExecuteActionDirect(' + confirmData + ')'
+    });
+    result.actions.push({label: '\u274c Cancelar', fn: 'void(0)'});
+    return result;
+  }
+
+
+// ── Log de edições em jobs ────────────────────────────────────
+function _jobLog(job, campo, de, para) {
+  if (!job) return;
+  if (!job.log) job.log = [];
+  var quem = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'Secretária IA';
+  var ts = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  job.log.push({ campo: campo, de: de, para: para, quem: quem, quando: ts });
+  // Mantém no máximo 50 entradas por job
+  if (job.log.length > 50) job.log = job.log.slice(-50);
+}
+
   switch(data.action) {
 
     case 'despesa':
@@ -779,8 +934,8 @@ function _chatExecuteAction(data) {
     case 'areceber':
       if (data.desc && data.valor > 0) {
         var dt = data.data || hoje;
-        DB.t.unshift({id:Date.now(), type:'pend', desc:data.desc, value:+data.valor, date:dt});
-        DB.sv(); renderFin();
+        DB.t.unshift({id:_genId(), type:'pend', desc:data.desc, value:+data.valor, date:dt});
+        _dbSv(); renderFin();
         result.extra = '✅ A receber de **R$ ' + fm(data.valor) + '** para ' + fd(dt) + ' registrado!';
         result.actions.push({label:'💰 Ver A Receber', fn:"go(4);setTimeout(function(){finTab('areceber')},200)"});
       }
@@ -791,8 +946,8 @@ function _chatExecuteAction(data) {
         var dias = +(data.dias) || 7;
         var end  = addD(hoje, dias);
         var val  = +(data.valor) || 0;
-        DB.j.unshift({id:Date.now(), cli:data.cli, desc:data.desc, start:hoje, end:end, value:val, pago:0, obs:data.obs||'', done:false});
-        DB.sv(); renderAg(); updUrgDot();
+        DB.j.unshift({id:_genId(), cli:data.cli, desc:data.desc, start:hoje, end:end, value:val, pago:0, obs:data.obs||'', done:false});
+        _dbSv(); renderAg(); updUrgDot();
         result.extra = '✅ Job **' + data.cli + '** adicionado! Prazo: ' + fd(end);
         result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
       }
@@ -800,7 +955,7 @@ function _chatExecuteAction(data) {
 
     case 'visita':
       if (data.cli && data.data) {
-        _getV().unshift({id:Date.now(), cli:data.cli, tel:data.tel||'', end:data.end||'', date:data.data, hora:data.hora||'', obs:data.obs||'', status:'agendada'});
+        _getV().unshift({id:_genId(), cli:data.cli, tel:data.tel||'', end:data.end||'', date:data.data, hora:data.hora||'', obs:data.obs||'', status:'agendada'});
         _saveV(); renderSecretaria(); secNotifDotUpdate();
         result.extra = '✅ Visita com **' + data.cli + '** em ' + fd(data.data) + (data.hora?' às '+data.hora:'') + '!';
         result.actions.push({label:'📐 Ver Secretária', fn:'go(11)'});
@@ -906,15 +1061,18 @@ function _chatExecuteAction(data) {
           result.extra = '⚠️ Job de **' + data.cli + '** não encontrado em produção.';
         } else {
           var valPago = +(data.valor) || jobEncontrado.value || 0;
-          jobEncontrado.pago = (jobEncontrado.pago || 0) + valPago;
+          var pagoAntes = jobEncontrado.pago || 0;
+          jobEncontrado.pago = pagoAntes + valPago;
+          _jobLog(jobEncontrado, 'pago', 'R$ ' + fm(pagoAntes), 'R$ ' + fm(jobEncontrado.pago));
           if (jobEncontrado.pago >= (jobEncontrado.value || 0)) {
+            _jobLog(jobEncontrado, 'status', 'em produção', 'concluído e pago');
             jobEncontrado.done = true;
             result.extra = '✅ Job de **' + jobEncontrado.cli + '** marcado como **concluído e pago**! R$ ' + fm(valPago) + ' registrado.';
           } else {
             result.extra = '✅ Pagamento parcial de **R$ ' + fm(valPago) + '** registrado no job de **' + jobEncontrado.cli + '**. Falta: R$ ' + fm((jobEncontrado.value||0) - jobEncontrado.pago);
           }
           addTr('in', 'Recebimento job — ' + jobEncontrado.cli + (jobEncontrado.desc ? ' | ' + jobEncontrado.desc.slice(0,30) : ''), valPago);
-          DB.sv();
+          _dbSv();
           if (typeof renderAg === 'function') renderAg();
           result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
           result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
@@ -937,8 +1095,8 @@ function _chatExecuteAction(data) {
         } else {
           var pend = DB.t[idx];
           DB.t.splice(idx, 1);
-          DB.t.unshift({id:Date.now(), type:'in', desc:(pend.desc||'Recebimento'), value:pend.value, date:hoje});
-          DB.sv(); renderFin();
+          DB.t.unshift({id:_genId(), type:'in', desc:(pend.desc||'Recebimento'), value:pend.value, date:hoje});
+          _dbSv(); renderFin();
           result.extra = '✅ **R$ '+fm(pend.value)+'** de **'+(pend.desc||'?')+'** marcado como **recebido**!';
           result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
         }
@@ -954,8 +1112,9 @@ function _chatExecuteAction(data) {
         if (!jobC) {
           result.extra = '⚠️ Job de **'+data.cli+'** não encontrado em produção.';
         } else {
+          _jobLog(jobC, 'status', 'em produção', 'concluído');
           jobC.done = true;
-          DB.sv(); if(typeof renderAg==='function') renderAg(); if(typeof updUrgDot==='function') updUrgDot();
+          _dbSv(); if(typeof renderAg==='function') renderAg(); if(typeof updUrgDot==='function') updUrgDot();
           result.extra = '✅ Job de **'+jobC.cli+'** marcado como **concluído**!';
           result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
         }
@@ -971,11 +1130,11 @@ function _chatExecuteAction(data) {
         if (!jobE) {
           result.extra = '⚠️ Job de **'+data.cli+'** não encontrado.';
         } else {
-          if (data.prazo)  jobE.end   = data.prazo;
-          if (data.valor)  jobE.value = +data.valor;
-          if (data.desc)   jobE.desc  = data.desc;
-          if (data.obs)    jobE.obs   = data.obs;
-          DB.sv(); if(typeof renderAg==='function') renderAg();
+          if (data.prazo && data.prazo !== jobE.end)   { _jobLog(jobE, 'prazo', jobE.end, data.prazo);          jobE.end   = data.prazo; }
+          if (data.valor && +data.valor !== jobE.value) { _jobLog(jobE, 'valor', 'R$ '+fm(jobE.value||0), 'R$ '+fm(+data.valor)); jobE.value = +data.valor; }
+          if (data.desc  && data.desc  !== jobE.desc)   { _jobLog(jobE, 'desc',  jobE.desc||'',  data.desc);   jobE.desc  = data.desc; }
+          if (data.obs   && data.obs   !== jobE.obs)    { _jobLog(jobE, 'obs',   jobE.obs||'',   data.obs);    jobE.obs   = data.obs; }
+          _dbSv(); if(typeof renderAg==='function') renderAg();
           result.extra = '✅ Job de **'+jobE.cli+'** atualizado!';
           result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
         }
@@ -988,16 +1147,204 @@ function _chatExecuteAction(data) {
       result.extra = '👉 Abrindo orçamento. Selecione o material e adicione as peças.';
       break;
 
+    case 'orcamento_tumulo':
+      // Navega para o módulo de túmulos, opcionalmente pré-preenchendo o cliente
+      if (data.cli && typeof TUM !== 'undefined') {
+        TUM.q.cli = data.cli;
+        if (data.falecido) TUM.q.falecido = data.falecido;
+        if (data.cemiterio) TUM.q.cemiterio = data.cemiterio;
+        if (data.tipo && TUM.TIPOS && TUM.TIPOS[data.tipo]) TUM.q.tipoBase = data.tipo;
+      }
+      result.actions.push({label:'⚰️ Abrir Orçamento de Túmulo', fn:'if(typeof go==="function")go(5)'});
+      result.extra = '🪦 Abrindo módulo de túmulos' +
+        (data.cli ? ' para **' + data.cli + '**' : '') +
+        '. Confira as dimensões e o tipo de estrutura.';
+      break;
 
+    case 'ver_cliente':
+      if (data.cli) {
+        var cliNome = data.cli;
+        var cliBusca = cliNome.toLowerCase().trim();
+
+        // Busca por match parcial em todas as coleções
+        function _cliMatch(nome) {
+          if (!nome) return false;
+          var n = nome.toLowerCase();
+          return n.indexOf(cliBusca) !== -1 || cliBusca.indexOf(n.split(' ')[0]) !== -1;
+        }
+
+        // ── Jobs ──────────────────────────────────────────────
+        var cliJobs      = (DB.j||[]).filter(function(j){ return _cliMatch(j.cli); });
+        var cliJobsAtiv  = cliJobs.filter(function(j){ return !j.done; });
+        var cliJobsConc  = cliJobs.filter(function(j){ return j.done; });
+        var totalJobs    = cliJobs.reduce(function(s,j){ return s+(j.value||0); }, 0);
+        var totalPago    = cliJobs.reduce(function(s,j){ return s+(j.pago||0); }, 0);
+
+        // ── Orçamentos ────────────────────────────────────────
+        var cliOrcs = (DB.q||[]).filter(function(q){ return _cliMatch(q.cli); });
+        var totalOrc = cliOrcs.reduce(function(s,q){ return s+(q.vista||q.total||0); }, 0);
+
+        // ── Cobranças (a receber) ─────────────────────────────
+        var cliPend = (DB.t||[]).filter(function(t){
+          return t.type === 'pend' && _cliMatch(t.desc);
+        });
+        var totalPend = cliPend.reduce(function(s,t){ return s+(t.value||0); }, 0);
+
+        // ── Recebimentos históricos ───────────────────────────
+        var cliRec = (DB.t||[]).filter(function(t){
+          return t.type === 'in' && _cliMatch(t.desc);
+        });
+        var totalRec = cliRec.reduce(function(s,t){ return s+(t.value||0); }, 0);
+
+        // ── Visitas ───────────────────────────────────────────
+        var cliVisitas = (typeof _getV === 'function' ? _getV() : [])
+          .filter(function(v){ return _cliMatch(v.cli); });
+        var cliVisAgend  = cliVisitas.filter(function(v){ return v.status === 'agendada'; });
+        var cliVisReal   = cliVisitas.filter(function(v){ return v.status === 'realizada'; });
+
+        // ── Túmulos ───────────────────────────────────────────
+        var cliTum = [];
+        try {
+          var tumData = JSON.parse(localStorage.getItem('hr_tumulos') || '[]');
+          cliTum = tumData.filter(function(t){ return _cliMatch(t.cli||t.cliente); });
+        } catch(eTum) {}
+
+        // ── Verificação — cliente existe? ─────────────────────
+        var totalRegistros = cliJobs.length + cliOrcs.length + cliVisitas.length + cliTum.length + cliPend.length + cliRec.length;
+        if (totalRegistros === 0) {
+          result.extra = '🔍 Nenhum registro encontrado para **"' + cliNome + '"**. Verifique o nome ou use parte dele (ex: só o primeiro nome).';
+          break;
+        }
+
+        // ── Detecta nome real (mais usado nos registros) ──────
+        var nomesEncontrados = {};
+        cliJobs.forEach(function(j){ if(j.cli) nomesEncontrados[j.cli] = (nomesEncontrados[j.cli]||0)+1; });
+        cliOrcs.forEach(function(q){ if(q.cli) nomesEncontrados[q.cli] = (nomesEncontrados[q.cli]||0)+1; });
+        var nomeReal = Object.keys(nomesEncontrados).sort(function(a,b){ return nomesEncontrados[b]-nomesEncontrados[a]; })[0] || cliNome;
+
+        // ── Primeira/última interação ─────────────────────────
+        var todasDatas = [];
+        cliJobs.forEach(function(j){ if(j.start) todasDatas.push(j.start); });
+        cliOrcs.forEach(function(q){ if(q.date) todasDatas.push(q.date); });
+        cliVisitas.forEach(function(v){ if(v.date) todasDatas.push(v.date); });
+        todasDatas.sort();
+        var primeiraData = todasDatas[0];
+        var ultimaData   = todasDatas[todasDatas.length-1];
+
+        // ── Monta ficha ───────────────────────────────────────
+        var linhas = [];
+        linhas.push('👤 **Ficha — ' + nomeReal + '**');
+        if (primeiraData) linhas.push('📅 Cliente desde **' + fd(primeiraData) + '**' + (ultimaData !== primeiraData ? ' · última interação: ' + fd(ultimaData) : ''));
+
+        // Resumo financeiro
+        var gasto = totalPago + totalRec;
+        linhas.push('');
+        linhas.push('💰 **Financeiro**');
+        linhas.push('• Gasto histórico: **R$ ' + fm(gasto) + '**');
+        if (totalPend > 0) linhas.push('• A receber: **R$ ' + fm(totalPend) + '**' + (cliPend.some(function(t){ return t.date && t.date < hoje; }) ? ' ⚠️ tem vencidos' : ''));
+        if (cliOrcs.length) linhas.push('• Orçamentos: ' + cliOrcs.length + ' (R$ ' + fm(totalOrc) + ' total)');
+
+        // Jobs
+        if (cliJobs.length) {
+          linhas.push('');
+          linhas.push('🔨 **Jobs (' + cliJobs.length + ' total)**');
+          if (cliJobsAtiv.length) {
+            cliJobsAtiv.slice(0,3).forEach(function(j){
+              var diff = typeof dDiff === 'function' ? dDiff(j.end) : 0;
+              var st = diff < 0 ? '🔴 ' + Math.abs(diff) + 'd atrasado' : '🟢 prazo ' + fd(j.end);
+              linhas.push('• ' + j.desc.slice(0,40) + ' — ' + st + ' — R$ ' + fm(j.value||0));
+            });
+          }
+          if (cliJobsConc.length) linhas.push('• ' + cliJobsConc.length + ' concluído(s)');
+        }
+
+        // Visitas
+        if (cliVisitas.length) {
+          linhas.push('');
+          linhas.push('📐 **Visitas (' + cliVisitas.length + ')**');
+          if (cliVisAgend.length) {
+            cliVisAgend.slice(0,2).forEach(function(v){
+              linhas.push('• Agendada: ' + fd(v.date) + (v.hora ? ' às ' + v.hora : ''));
+            });
+          }
+          if (cliVisReal.length) linhas.push('• ' + cliVisReal.length + ' realizada(s)');
+        }
+
+        // Túmulos
+        if (cliTum.length) {
+          linhas.push('');
+          linhas.push('🪦 **Túmulos (' + cliTum.length + ')**');
+          cliTum.slice(0,2).forEach(function(t){
+            linhas.push('• ' + (t.falecido||t.desc||'—') + (t.cemiterio ? ' · ' + t.cemiterio : '') + (t.total ? ' · R$ ' + fm(t.total) : ''));
+          });
+        }
+
+        // Cobranças pendentes detalhadas
+        if (cliPend.length) {
+          linhas.push('');
+          linhas.push('🧾 **A receber**');
+          cliPend.slice(0,3).forEach(function(t){
+            var atrasado = t.date && t.date < hoje ? ' ⚠️' : '';
+            linhas.push('• ' + (t.desc||'—').slice(0,35) + ' — R$ ' + fm(t.value||0) + ' · vence ' + fd(t.date) + atrasado);
+          });
+        }
+
+        result.extra = linhas.join('\n');
+
+        // Botões contextuais
+        if (cliJobsAtiv.length)  result.actions.push({label:'📅 Ver Agenda',   fn:'go(0)'});
+        if (cliPend.length)      result.actions.push({label:'💰 A receber',    fn:"go(4);setTimeout(function(){finTab('areceber')},200)"});
+        if (cliVisAgend.length)  result.actions.push({label:'📐 Ver Visitas',  fn:'go(11)'});
+      } else {
+        result.extra = '⚠️ Informe o nome do cliente. Ex: "ver ficha do João"';
+      }
+      break;
+
+    case 'ver_historico_job':
+      if (data.cli) {
+        var busca4 = (data.cli || '').toLowerCase();
+        var jobH = (DB.j || []).find(function(j) {
+          return j.cli && j.cli.toLowerCase().indexOf(busca4) !== -1;
+        });
+        if (!jobH) {
+          result.extra = '🔍 Job de **"' + data.cli + '"** não encontrado.';
+        } else if (!jobH.log || !jobH.log.length) {
+          result.extra = '📋 Job de **' + jobH.cli + '** (' + (jobH.desc||'?').slice(0,30) + ') não tem edições registradas ainda.';
+        } else {
+          var linhasH = ['📋 **Histórico — ' + jobH.cli + '** (' + (jobH.desc||'?').slice(0,30) + ')'];
+          linhasH.push('');
+          jobH.log.slice().reverse().forEach(function(l) {
+            var campo = { prazo:'📅 Prazo', valor:'💰 Valor', desc:'📝 Descrição', obs:'🗒 Obs', status:'🔄 Status', pago:'💵 Pago' }[l.campo] || l.campo;
+            linhasH.push(campo + ': **' + (l.de||'—') + '** → **' + (l.para||'—') + '**');
+            linhasH.push('  _' + (l.quando||'?') + ' · ' + (l.quem||'?') + '_');
+          });
+          result.extra = linhasH.join('\n');
+        }
+      } else {
+        result.extra = '⚠️ Informe o nome do cliente. Ex: "histórico do job do João"';
+      }
+      break;
+
+    case 'limpar_diag':
       if (typeof window._diagLimpar === 'function') {
         window._diagLimpar();
         result.extra = '🗑 Logs de diagnóstico limpos!';
+      } else {
+        result.extra = '⚠️ Função _diagLimpar não encontrada.';
       }
       break;
   }
 
   return result;
 }
+
+// Executa ação direto (chamado pelo botão Confirmar — já passou pela guarda de R$500)
+function _chatExecuteActionDirect(data) {
+  var result = _chatExecuteAction(data); // _confirmado=true pula a guarda
+  var msg = result.extra || '\u2705 Feito!';
+  _chatBotReply(msg, result.actions.length ? result.actions : null);
+}
+
 
 function _chatBotReply(text, actions) {
   _chat.thinking = false;
@@ -1006,11 +1353,86 @@ function _chatBotReply(text, actions) {
   _chatSave();
   renderChat();
   _chatScrollBottom();
+  _chatVozFalar(text);
   // Remover flag de streaming após animação CSS (22ms × ~words delay)
   setTimeout(function() {
     var last = _chat.history[_chat.history.length - 1];
     if (last) delete last._streaming;
   }, 800);
+}
+
+// ══════════════════════════════════════════════════════════════
+// VOZ DE SAÍDA — speechSynthesis (modo mãos-livres)
+// ══════════════════════════════════════════════════════════════
+var _chatVoz = {
+  ativo: false
+};
+
+function _chatVozLoad() {
+  try { _chatVoz.ativo = localStorage.getItem('hr_chat_voz') === '1'; } catch(e) {}
+}
+
+function chatVozToggle() {
+  _chatVoz.ativo = !_chatVoz.ativo;
+  try { localStorage.setItem('hr_chat_voz', _chatVoz.ativo ? '1' : '0'); } catch(e) {}
+  // Cancela fala em andamento se desativou
+  if (!_chatVoz.ativo && window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+  // Atualiza apenas o botão sem re-renderizar tudo
+  var btn = document.getElementById('chatVozBtn');
+  if (btn) {
+    btn.textContent = _chatVoz.ativo ? '🔊' : '🔇';
+    btn.title = _chatVoz.ativo ? 'Voz ativa — clique para desativar' : 'Ativar voz de saída';
+    btn.style.borderColor = _chatVoz.ativo ? 'rgba(201,168,76,.5)' : '';
+    btn.style.color = _chatVoz.ativo ? '#c9a84c' : '';
+  }
+  if (_chatVoz.ativo) {
+    _chatVozFalar('Modo de voz ativado.');
+  }
+}
+
+function _chatVozFalar(texto) {
+  if (!_chatVoz.ativo) return;
+  if (!window.speechSynthesis) return;
+
+  // Limpa markdown antes de falar
+  var limpo = texto
+    .replace(/```[\s\S]*?```/g, 'bloco de código omitido.')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/#{1,3}\s/g, '')
+    .replace(/•\s/g, '')
+    .replace(/══+[^═]*══+/g, '')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\n/g, '. ')
+    .replace(/R\$\s*([\d.,]+)/g, function(_, v) { return 'R$ ' + v; })
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  // Trunca respostas longas para não ficar interminável
+  if (limpo.length > 400) {
+    limpo = limpo.slice(0, 400) + '... mensagem longa, veja o texto completo.';
+  }
+
+  window.speechSynthesis.cancel();
+  var utt = new SpeechSynthesisUtterance(limpo);
+  utt.lang = 'pt-BR';
+  utt.rate = 1.05;
+  utt.pitch = 1.0;
+
+  // Prefere voz feminina em pt-BR se disponível
+  var vozes = window.speechSynthesis.getVoices();
+  var vozPT = vozes.find(function(v) {
+    return v.lang.indexOf('pt') !== -1 && v.name.toLowerCase().indexOf('female') !== -1;
+  }) || vozes.find(function(v) {
+    return v.lang.indexOf('pt-BR') !== -1;
+  }) || vozes.find(function(v) {
+    return v.lang.indexOf('pt') !== -1;
+  });
+  if (vozPT) utt.voice = vozPT;
+
+  window.speechSynthesis.speak(utt);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1063,8 +1485,20 @@ function chatMicStop(e) {
 function _chatProcessAudio() {
   if (!_chat.audioChunks.length) return;
   var blob = new Blob(_chat.audioChunks, {type:'audio/webm'});
-  var key = CFG && CFG.emp && CFG.emp.apiKey;
-  if (!key) { toast('Configure a chave API para usar transcrição.'); return; }
+
+  // Whisper exige chave OpenAI (sk-...) — NÃO usa a chave Anthropic (sk-ant-...)
+  var openaiKey = (CFG && CFG.emp && CFG.emp.openaiKey) || '';
+  var anthropicKey = (CFG && CFG.emp && CFG.emp.apiKey) || '';
+
+  // Se tiver campo separado openaiKey usa ele; senão tenta apiKey apenas se for OpenAI
+  var key = openaiKey || (anthropicKey.indexOf('sk-ant-') !== 0 ? anthropicKey : '');
+
+  if (!key) {
+    toast('⚠️ Transcrição requer chave OpenAI. Adicione em Config → Empresa → Chave OpenAI (Whisper).');
+    var statusEl = document.getElementById('chatMicStatus');
+    if (statusEl) statusEl.textContent = '';
+    return;
+  }
 
   var statusEl = document.getElementById('chatMicStatus');
   if (statusEl) statusEl.textContent = '🎙 Transcrevendo...';
@@ -1141,6 +1575,12 @@ function _injectChatStyles() {
       transition:border-color .15s,color .15s;
     }
     .chat-clear-btn:hover { border-color:var(--bd2);color:var(--t2); }
+    .chat-voz-btn {
+      background:none;border:1px solid var(--bd);border-radius:8px;
+      padding:5px 8px;color:var(--t4);font-size:.8rem;cursor:pointer;
+      transition:border-color .15s,color .15s;
+    }
+    .chat-voz-btn:hover { border-color:rgba(201,168,76,.4);color:#c9a84c; }
 
     /* ── Mensagens ── */
     .chat-messages {

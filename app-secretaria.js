@@ -23,66 +23,218 @@ function _saveV() {
 // ─────────────────────────────────────────────
 var _notifLastCheck = null;
 
+// ══════════════════════════════════════════════════════════════
+// NOTIFICAÇÕES RICAS — HR Mármores
+// ══════════════════════════════════════════════════════════════
+
 function secInitNotif() {
   if (!('Notification' in window)) return;
   if (Notification.permission === 'default') {
-    Notification.requestPermission();
+    Notification.requestPermission().then(function(perm) {
+      if (perm === 'granted') secNotifDiaria();
+    });
   }
-  setInterval(secNotifCheck, 60000);
-  setTimeout(secNotifCheck, 3000);
+  // Verifica visitas próximas a cada minuto
+  setInterval(secNotifVisitasProximas, 60000);
+  setTimeout(secNotifVisitasProximas, 3000);
+  // Dispara resumo diário se ainda não disparou hoje
+  setTimeout(secNotifDiaria, 5000);
 }
 
-function secNotifCheck() {
+// ── Resumo diário — dispara 1x por dia ─────────────────────
+function secNotifDiaria() {
+  if (Notification.permission !== 'granted') return;
+  var hoje = td();
+  var chave = 'hr_notif_dia_' + hoje;
+  if (localStorage.getItem(chave)) return;
+
+  // Marca imediatamente para não disparar duplicado
+  localStorage.setItem(chave, Date.now().toString());
+
+  var agora = new Date();
+  var hh = agora.getHours();
+
+  // Só entre 7h e 9h — depois disso não faz mais sentido como "bom dia"
+  // Se o app for aberto fora desse horário, ainda dispara (usuário abriu manualmente)
+  var saudacao = hh < 12 ? 'Bom dia' : hh < 18 ? 'Boa tarde' : 'Boa noite';
+
+  var jobs      = DB.j || [];
+  var trans     = DB.t || [];
+  var visitas   = (typeof _getV === 'function') ? _getV() : [];
+
+  // 1. Jobs atrasados
+  var atrasados = jobs.filter(function(j) { return !j.done && j.end && dDiff(j.end) < 0; });
+  if (atrasados.length) {
+    var nomes = atrasados.slice(0, 3).map(function(j) {
+      return j.cli + ' (' + Math.abs(dDiff(j.end)) + 'd)';
+    });
+    if (atrasados.length > 3) nomes.push('e mais ' + (atrasados.length - 3) + '...');
+    _sendNotifRica({
+      titulo:  '⚠️ ' + atrasados.length + ' job' + (atrasados.length > 1 ? 's atrasados' : ' atrasado'),
+      corpo:   nomes.join(' • '),
+      detalhe: 'Toque para ver a agenda',
+      tag:     'hr_atrasados_' + hoje,
+      urgente: true,
+      vibrar:  [200, 100, 200, 100, 400]
+    });
+  }
+
+  // 2. Entregas de hoje
+  var entregasHoje = jobs.filter(function(j) { return !j.done && j.end === hoje; });
+  if (entregasHoje.length) {
+    _sendNotifRica({
+      titulo:  '📦 ' + entregasHoje.length + ' entrega' + (entregasHoje.length > 1 ? 's' : '') + ' para hoje',
+      corpo:   entregasHoje.slice(0, 3).map(function(j) { return j.cli; }).join(' • '),
+      detalhe: 'Confirme os jobs concluídos',
+      tag:     'hr_entregas_' + hoje,
+      urgente: false,
+      vibrar:  [100, 50, 100]
+    });
+  }
+
+  // 3. Cobranças vencidas
+  var pendVenc = trans.filter(function(t) { return t.type === 'pend' && t.date && t.date < hoje; });
+  if (pendVenc.length) {
+    var totVenc = pendVenc.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+    var detalhes = pendVenc.slice(0, 3).map(function(t) {
+      return (t.desc || '?').slice(0, 25) + ' · R$ ' + fm(t.value || 0);
+    });
+    _sendNotifRica({
+      titulo:  '💰 R$ ' + fm(totVenc) + ' vencido' + (pendVenc.length > 1 ? 's' : ''),
+      corpo:   detalhes.join(' • '),
+      detalhe: pendVenc.length + ' cobrança' + (pendVenc.length > 1 ? 's' : '') + ' em atraso',
+      tag:     'hr_pend_' + hoje,
+      urgente: true,
+      vibrar:  [300, 100, 300]
+    });
+  }
+
+  // 4. Visitas de hoje
+  var visitasHoje = visitas.filter(function(v) { return v.status === 'agendada' && v.date === hoje; });
+  if (visitasHoje.length) {
+    var listaV = visitasHoje
+      .sort(function(a, b) { return (a.hora || '').localeCompare(b.hora || ''); })
+      .slice(0, 3)
+      .map(function(v) { return (v.hora ? v.hora + ' — ' : '') + v.cli; });
+    _sendNotifRica({
+      titulo:  '📐 ' + visitasHoje.length + ' visita' + (visitasHoje.length > 1 ? 's' : '') + ' agendada' + (visitasHoje.length > 1 ? 's' : '') + ' hoje',
+      corpo:   listaV.join(' • '),
+      detalhe: saudacao + '! Prepare suas ferramentas.',
+      tag:     'hr_visitas_' + hoje,
+      urgente: false,
+      vibrar:  [100, 50, 100]
+    });
+  }
+
+  // 5. Follow-ups — orçamentos sem resposta há 7+ dias
+  var seteDias = addD(hoje, -7);
+  var followUps = (DB.q || []).filter(function(q) {
+    if (!q.date || q.date > seteDias) return false;
+    var temContrato = (DB.t || []).some(function(t) {
+      return t.type === 'in' && t.desc && q.cli && t.desc.toLowerCase().indexOf(q.cli.toLowerCase()) !== -1;
+    });
+    return !temContrato && q.cli;
+  });
+  if (followUps.length) {
+    _sendNotifRica({
+      titulo:  '📞 ' + followUps.length + ' cliente' + (followUps.length > 1 ? 's' : '') + ' sem retorno',
+      corpo:   followUps.slice(0, 3).map(function(q) {
+        var dias = Math.abs(dDiff(q.date));
+        return q.cli + ' · há ' + dias + 'd';
+      }).join(' • '),
+      detalhe: 'Orçamentos aguardando resposta',
+      tag:     'hr_followup_' + hoje,
+      urgente: false,
+      vibrar:  [100]
+    });
+  }
+}
+
+// ── Visitas próximas — checagem por minuto ──────────────────
+function secNotifVisitasProximas() {
   if (Notification.permission !== 'granted') return;
   var hoje = td();
   var agora = new Date();
-  var hh = agora.getHours();
-  var mm = agora.getMinutes();
-  var agoraMin = hh * 60 + mm;
+  var agoraMin = agora.getHours() * 60 + agora.getMinutes();
 
-  (_getV()).forEach(function(v){
-    if(v.status !== 'agendada' || v.date !== hoje) return;
-    if(!v.hora) return;
+  (_getV()).forEach(function(v) {
+    if (v.status !== 'agendada' || v.date !== hoje || !v.hora) return;
     var p = v.hora.split(':');
-    var visitaMin = (+p[0])*60 + (+p[1]);
+    var visitaMin = (+p[0]) * 60 + (+p[1]);
     var diff = visitaMin - agoraMin;
-    if(diff >= 28 && diff <= 32){
-      _sendNotif('📐 Visita em 30 minutos!', v.cli + ' — ' + (v.end||'') + ' às ' + v.hora, 'visita_' + v.id);
+
+    if (diff >= 28 && diff <= 32) {
+      _sendNotifRica({
+        titulo:  '📐 Visita em 30 minutos!',
+        corpo:   v.cli + (v.end ? ' — ' + v.end : ''),
+        detalhe: 'às ' + v.hora + ' — prepare o equipamento',
+        tag:     'hr_vis30_' + v.id,
+        urgente: true,
+        vibrar:  [200, 100, 200, 100, 200]
+      });
     }
-    if(diff >= -2 && diff <= 2){
-      _sendNotif('📐 Hora da visita agora!', v.cli + ' — ' + (v.end||v.hora), 'visita_now_' + v.id);
+    if (diff >= -2 && diff <= 2) {
+      _sendNotifRica({
+        titulo:  '🚨 Hora da visita agora!',
+        corpo:   v.cli + (v.end ? ' — ' + v.end : ''),
+        detalhe: v.hora + ' · toque para abrir o app',
+        tag:     'hr_visnow_' + v.id,
+        urgente: true,
+        vibrar:  [400, 200, 400, 200, 400]
+      });
     }
   });
+}
 
-  if(hh === 8 && mm < 5){
-    var chaveHoje = 'notif_daily_' + hoje;
-    if(localStorage.getItem(chaveHoje)) return;
-    localStorage.setItem(chaveHoje, '1');
-    var atrasados = (DB.j||[]).filter(function(j){return !j.done && j.end && dDiff(j.end)<0;});
-    if(atrasados.length){
-      _sendNotif('⚠️ ' + atrasados.length + ' entrega(s) atrasada(s)', atrasados.map(function(j){return j.cli;}).join(', '), 'atrasados_' + hoje);
+// ── Notificação rica ────────────────────────────────────────
+var _notifEnviadas = {};
+
+function _sendNotifRica(opts) {
+  var tag = opts.tag || ('hr_' + Date.now());
+  if (_notifEnviadas[tag]) return;
+  _notifEnviadas[tag] = true;
+
+  var options = {
+    body:              opts.corpo + (opts.detalhe ? ' ' + opts.detalhe : ''),
+    icon:              'icon-192.png',
+    badge:             'icon-192.png',
+    tag:               tag,
+    renotify:          false,
+    requireInteraction: opts.urgente || false,
+    silent:            false,
+    timestamp:         Date.now()
+  };
+
+  // Vibração (Android/PWA)
+  if (opts.vibrar && 'vibrate' in navigator) {
+    try { navigator.vibrate(opts.vibrar); } catch(e) {}
+  }
+
+  // Ações rápidas (onde suportado)
+  try {
+    options.actions = [
+      { action: 'abrir', title: '📱 Abrir app' },
+      { action: 'dispensar', title: '✕ Dispensar' }
+    ];
+  } catch(e) {}
+
+  try {
+    var n = new Notification(opts.titulo, options);
+    n.onclick = function() { window.focus(); n.close(); };
+    // Notificações urgentes ficam até o usuário fechar, demais somem em 12s
+    if (!opts.urgente) {
+      setTimeout(function() { try { n.close(); } catch(e) {} }, 12000);
     }
-    var visitasHoje = (_getV()).filter(function(v){return v.status==='agendada'&&v.date===hoje;});
-    if(visitasHoje.length){
-      _sendNotif('📅 Você tem ' + visitasHoje.length + ' visita(s) hoje', visitasHoje.map(function(v){return v.hora + ' — ' + v.cli;}).join(' | '), 'visitas_' + hoje);
-    }
-    var pendentes = (DB.t||[]).filter(function(t){return t.type==='pend' && t.date && t.date < hoje;});
-    if(pendentes.length){
-      var totPend = pendentes.reduce(function(s,t){return s+(t.value||0);},0);
-      _sendNotif('💰 R$ ' + fm(totPend) + ' a receber em atraso', pendentes.length + ' pagamento(s) pendente(s) vencido(s)', 'pend_' + hoje);
-    }
+  } catch(e) {
+    // Fallback silencioso
+    console.warn('Notificação bloqueada:', e);
   }
 }
 
+// Mantém compatibilidade com código legado que chama _sendNotif
 var _notifSent = {};
 function _sendNotif(title, body, key) {
-  if (_notifSent[key]) return;
-  _notifSent[key] = true;
-  try {
-    var n = new Notification(title, { body: body, icon: 'icon-192.png', badge: 'icon-192.png', tag: key });
-    n.onclick = function(){ window.focus(); n.close(); };
-    setTimeout(function(){ n.close(); }, 8000);
-  } catch(e){}
+  _sendNotifRica({ titulo: title, corpo: body, tag: key, urgente: false, vibrar: [100] });
 }
 
 // ── Config do Bot ──
@@ -253,11 +405,27 @@ function renderSecretaria() {
   try {
     _injectSec2Styles();
     _renderSecretariaInner(el);
-    setTimeout(function() { _secRenderAI(); }, 0);
+    setTimeout(function() {
+      _secRenderAI();
+      // Auto-fetch do briefing IA se ainda nao gerado ou cache expirou (30min)
+      _secAutoFetchBriefing();
+    }, 0);
   } catch(err) {
     el.innerHTML = '<div style="padding:30px 18px;color:var(--t3);font-size:.78rem;">⚠️ Erro ao carregar secretária.<br><small>' + escH(String(err)) + '</small></div>';
     console.error('renderSecretaria:', err);
   }
+}
+
+function _secAutoFetchBriefing() {
+  // Nao auto-busca se: ja esta carregando, dados frescos (< 30min), ou sem chave
+  if (_secAI.loading) return;
+  if (!CFG || !CFG.emp || !CFG.emp.apiKey) return;
+  if (_secAI.data && _secAI._fetchedAt) {
+    var agora = Date.now();
+    var trintaMin = 30 * 60 * 1000;
+    if (agora - _secAI._fetchedAt < trintaMin) return;
+  }
+  secFetchAI();
 }
 
 function _renderSecretariaInner(el) {
@@ -507,7 +675,7 @@ function saveVisita() {
     if (v) { v.cli=cli; v.tel=tel; v.end=end; v.date=date; v.hora=hora; v.obs=obs; _saveV(); }
   } else {
     _getV();
-    _getV().unshift({id:Date.now(),cli:cli,tel:tel,end:end,date:date,hora:hora,obs:obs,status:'agendada'});
+    _getV().unshift({id:_genId(),cli:cli,tel:tel,end:end,date:date,hora:hora,obs:obs,status:'agendada'});
     _saveV();
   }
   closeAll();
@@ -644,6 +812,36 @@ function _secNavToAction(acao) {
 function secFetchAI() {
   var key = CFG && CFG.emp && CFG.emp.apiKey;
   if (!key) { _secAI.error = 'no_key'; _secRenderAI(); return; }
+
+  // ── Autodetectar tipo de chave e rotear para a API correta ──
+  var isAnthropic = key.indexOf('sk-ant-') === 0;
+  var apiUrl, apiHeaders, apiBody;
+
+  if (isAnthropic) {
+    // Claude Haiku via Anthropic
+    apiUrl = 'https://api.anthropic.com/v1/messages';
+    apiHeaders = {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    };
+    apiBody = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      system: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.',
+      messages: [{ role: 'user', content: '' }] // preenchido abaixo
+    });
+  } else {
+    // Groq llama (chave gsk_... ou qualquer outra)
+    apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
+    apiHeaders = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + key
+    };
+    apiBody = null; // preenchido abaixo
+  }
+
   _secAI.loading = true;
   _secAI.error = null;
   _secRenderAI();
@@ -651,18 +849,28 @@ function secFetchAI() {
   var briefing = _secBuildBriefing(ctx);
   var controller = window.AbortController ? new AbortController() : null;
   var timeoutId = controller ? setTimeout(function() { controller.abort(); }, 20000) : null;
-  fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    signal: controller ? controller.signal : undefined,
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({
+
+  var body;
+  if (isAnthropic) {
+    var parsed = JSON.parse(apiBody);
+    parsed.messages = [{ role: 'user', content: briefing }];
+    body = JSON.stringify(parsed);
+  } else {
+    body = JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       max_tokens: 800,
       messages: [
         { role: 'system', content: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.' },
         { role: 'user', content: briefing }
       ]
-    })
+    });
+  }
+
+  fetch(apiUrl, {
+    method: 'POST',
+    signal: controller ? controller.signal : undefined,
+    headers: apiHeaders,
+    body: body
   })
   .then(function(r) {
     if (timeoutId) clearTimeout(timeoutId);
@@ -678,13 +886,20 @@ function secFetchAI() {
   })
   .then(function(d) {
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    var text = (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+    // Suporte a formato Anthropic e OpenAI/Groq
+    var text = '';
+    if (isAnthropic) {
+      text = (d.content && d.content[0] && d.content[0].text) || '';
+    } else {
+      text = (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
+    }
     var clean = text.replace(/```json[\s\S]*?```|```/g, '').trim();
     var match = clean.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('parse: resposta não contém JSON');
     _secAI.data = JSON.parse(match[0]);
     _secAI.loading = false;
     _secAI.lastUpdate = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    _secAI._fetchedAt = Date.now(); // para cache de 30min no auto-fetch
     _secAI.error = null;
     _secRenderAI();
     toast('✨ Briefing da IA atualizado!');
