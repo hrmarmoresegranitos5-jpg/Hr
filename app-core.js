@@ -1673,9 +1673,11 @@ function aplicarPecasCapela(ambId){
 // { fr: {tipo:'sainha'|'frontao'|null, sub:'s_reta'|'s_45'|..., ml:null|float, alt:6}, ... }
 
 var BORDA_TIPOS = [
-  { k: null,      l: '—',      cor: 'rgba(255,255,255,.15)', bg: 'transparent' },
-  { k: 'sainha',  l: 'Sainha', cor: '#4fa86b',               bg: 'rgba(79,168,107,.18)' },
-  { k: 'frontao', l: 'Frontão',cor: '#5a7fc4',               bg: 'rgba(90,127,196,.18)' },
+  { k: null,        l: '—',          cor: 'rgba(255,255,255,.15)', bg: 'transparent' },
+  { k: 'sainha',    l: 'Sainha',     cor: '#4fa86b',               bg: 'rgba(79,168,107,.18)' },
+  { k: 'frontao',   l: 'Frontão',    cor: '#5a7fc4',               bg: 'rgba(90,127,196,.18)' },
+  { k: 'acabamento',l: 'Acabamento', cor: '#C9A84C',               bg: 'rgba(201,168,76,.18)' },
+  { k: 'recorte45', l: 'Recorte 45°',cor: '#a8e063',               bg: 'rgba(168,224,99,.18)' },
 ];
 // SAINHA_SUBS / FRONTAO_SUBS / BORDA_SVCS are built dynamically from CFG.svList
 // so that custom services added in Config show up in the borda picker
@@ -1840,11 +1842,20 @@ function updPcBordaTipo(ambId, pcId, lado, tipo) {
     _setBd(pc, lado, null);
   } else {
     var isDivTipo = BORDA_TIPOS_DIV.some(function(t){return t.k===tipo && t.k!==null;});
-    var _subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
-    // Defaults: sainha → s_45 (45°), frontão → frontao (Reto)
-    var defSubKey = tipo==='sainha' ? 's_45' : 'frontao';
-    var defSubExists = _subs.some(function(s){return s.k===defSubKey;});
-    var defSub = isDivTipo ? null : (defSubExists ? defSubKey : (_subs.length ? _subs[0].k : defSubKey));
+    // Tipos simples sem submenu: sub é fixo
+    var _simpleSubMap = { acabamento: 's_reta', recorte45: 's_45' };
+    var defSub;
+    if (_simpleSubMap[tipo] !== undefined) {
+      defSub = _simpleSubMap[tipo];
+    } else if (isDivTipo) {
+      defSub = null;
+    } else {
+      var _subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
+      // Defaults: sainha → s_45 (45°), frontão → frontao (Reto)
+      var defSubKey = tipo==='sainha' ? 's_45' : 'frontao';
+      var defSubExists = _subs.some(function(s){return s.k===defSubKey;});
+      defSub = defSubExists ? defSubKey : (_subs.length ? _subs[0].k : defSubKey);
+    }
     _setBd(pc, lado, { tipo: tipo, sub: defSub });
   }
   if(typeof _syncBordaSvState==="function")_syncBordaSvState(amb);
@@ -1928,18 +1939,21 @@ function buildPecaBordaHtml(amb, pc) {
     });
     h += '</div></div>';
     if (tipo && !isDiv) {
-      var subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
-      var curSub = bd ? bd.sub : null;
-      h += '<div style=\"display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;\">';
-      subs.forEach(function(sub) {
-        var on = curSub===sub.k;
-        h += '<div onclick=\"updPcBordaSub('+amb.id+','+pc.id+',\''+side.k+'\',\''+sub.k+'\')\" ';
-        h += 'style=\"cursor:pointer;padding:5px 12px;border-radius:7px;border:1px solid ';
-        h += (on?tipoOpt.cor:'rgba(255,255,255,.12)')+';background:'+(on?tipoOpt.bg:'transparent')+';';
-        h += 'font-size:.62rem;font-weight:'+(on?700:400)+';color:'+(on?tipoOpt.cor:'var(--t3)')+';\">';
-        h += sub.l+'</div>';
-      });
-      h += '</div>';
+      var _isSimpleTipo = (tipo === 'acabamento' || tipo === 'recorte45');
+      if (!_isSimpleTipo) {
+        var subs = tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
+        var curSub = bd ? bd.sub : null;
+        h += '<div style=\"display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;\">';
+        subs.forEach(function(sub) {
+          var on = curSub===sub.k;
+          h += '<div onclick=\"updPcBordaSub('+amb.id+','+pc.id+',\''+side.k+'\',\''+sub.k+'\')\" ';
+          h += 'style=\"cursor:pointer;padding:5px 12px;border-radius:7px;border:1px solid ';
+          h += (on?tipoOpt.cor:'rgba(255,255,255,.12)')+';background:'+(on?tipoOpt.bg:'transparent')+';';
+          h += 'font-size:.62rem;font-weight:'+(on?700:400)+';color:'+(on?tipoOpt.cor:'var(--t3)')+';\">';
+          h += sub.l+'</div>';
+        });
+        h += '</div>';
+      }
       h += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;\">';
       h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">ML (cm) — vazio = '+autoML+'m auto</div>';
       h += '<input type=\"number\" min=\"0\" max=\"9999\" step=\"1\" value=\"'+(curML!=null?curML:'')+'\" placeholder=\"Auto\" ';
