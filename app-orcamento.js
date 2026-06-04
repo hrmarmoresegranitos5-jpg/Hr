@@ -1007,9 +1007,27 @@ function renderAmbientes(){
         h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
         var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':'300';
         var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':'60';
-        h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value)"></div>';
-        h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value)"></div></div>';
-        h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1)"></div></div>';
+        h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);if(typeof _updPcPreview===\'function\')_updPcPreview('+amb.id+','+pc.id+')"></div>';
+        h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);if(typeof _updPcPreview===\'function\')_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
+        h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);if(typeof _updPcPreview===\'function\')_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
+        // Preview m²
+        var _pvW=pc.w||0,_pvH=pc.h||0,_pvQ=pc.q||1;
+        var _pvM2=_pvW&&_pvH?((_pvW/100)*(_pvH/100)*_pvQ):0;
+        var _pvMat=CFG.stones.find(function(s){return s.id===amb.selMat;});
+        var _pvPr=_pvMat&&_pvM2>0?_pvM2*_pvMat.pr:0;
+        if(_pvM2>0){
+          h+='<div id="pv-'+pc.id+'" style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.18);border-radius:8px;padding:6px 10px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">';
+          h+='<span style="font-size:.65rem;color:var(--gold2);font-weight:700;">'+_pvM2.toFixed(3)+' m²'+(pc.q>1?' (×'+pc.q+')':'')+'</span>';
+          if(_pvPr>0)h+='<span style="font-size:.65rem;color:var(--t2);">≈ R$ '+fm(_pvPr)+'</span>';
+          h+='</div>';
+        } else {
+          h+='<div id="pv-'+pc.id+'"></div>';
+        }
+        // SVG técnico + acabamento por lado (mantém telhado mesmo ao digitar peExtra)
+        if(amb.tipo!=='🏊 Borda Piscina'&&amb.tipo!=='Rodapé de Box'&&amb.tipo!=='Peitoril'&&amb.tipo!=='Soleira'){
+          if(typeof buildPecaPreviewSVG==='function')h+=buildPecaPreviewSVG(amb,pc,pi);
+          if(typeof buildPecaBordaHtml==='function')h+=buildPecaBordaHtml(amb,pc);
+        }
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
           var pe=pc.peExtra||{};
