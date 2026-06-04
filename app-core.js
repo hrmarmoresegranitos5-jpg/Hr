@@ -80,6 +80,11 @@ function buildOrcList(list) {
     if(q.cidade) h += '<div class="qdr"><span class="k">Cidade</span><span class="v">'+escH(q.cidade)+'</span></div>';
     if(q.end) h += '<div class="qdr"><span class="k">Endereço</span><span class="v" style="font-size:.72rem;text-align:right;max-width:180px;">'+escH(q.end)+'</span></div>';
     if(q.obs) h += '<div class="qdr"><span class="k">Obs.</span><span class="v grn" style="font-size:.72rem;max-width:180px;text-align:right;">'+escH(q.obs)+'</span></div>';
+    if(q.desconto>0){
+      var _dLabel='🏷 Desconto: -R$ '+fm(q.desconto)+(q.descontoPct>0?' ('+q.descontoPct.toFixed(1)+'%)':'');
+      if(q.descontoMotivo)_dLabel+=' · '+escH(q.descontoMotivo);
+      h += '<div class="qdr"><span class="k" style="color:var(--gold2);">Desconto</span><span class="v" style="font-size:.68rem;color:var(--gold2);text-align:right;max-width:200px;">'+_dLabel+'</span></div>';
+    }
     h += '</div>';
     h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
     h += '<div class="qcard-btns">';
@@ -193,28 +198,28 @@ var SYNC={
 
 // ═══ DEFAULTS ═══
 var DEF_STONES=[
-  {id:'andorinha',nm:'Cinza Andorinha/Corumbá',cat:'Granito Cinza',fin:'Polida',pr:320,tx:'tx-andorinha',photo:'',desc:'Granito nacional cinza com cristais brancos. Alta dureza e resistência — não risca, não mancha com facilidade e suporta calor. Excelente custo-benefício para cozinhas e bancadas de uso intenso.'},
-  {id:'verde_ub',nm:'Verde Ubatuba',cat:'Granito Verde',fin:'Polida',pr:340,tx:'tx-verde-ub',photo:'',desc:'Granito verde escuro extraído em Ubatuba-SP. Pontos dourados naturais criam efeito exclusivo em cada chapa. Muito resistente e durável — perfeito para projetos sofisticados que exigem personalidade.'},
-  {id:'verde_perla',nm:'Verde Pérola',cat:'Granito Verde',fin:'Polida',pr:340,tx:'tx-verde-perla',photo:'',desc:'Granito verde com tons pérola e reflexos prateados. Mais claro que o Verde Ubatuba, com movimento elegante. Polimento de alto brilho. Para quem quer um verde refinado e sofisticado.'},
-  {id:'bege',nm:'Bege Bahia',cat:'Travertino',fin:'Polida',pr:380,tx:'tx-bege',photo:'',desc:'Travertino bege natural com veios suaves e calorosos. Combina com ambientes rústicos, móveis amadeirados e cerâmicas neutras. Muito usado em bancadas e pisos que valorizam o estilo natural.'},
-  {id:'p_indiano',nm:'Preto Indiano',cat:'Granito Preto',fin:'Polida',pr:450,tx:'tx-p-indiano',photo:'',desc:'Granito importado da Índia. Preto absoluto e uniforme com polimento espelhado de altíssima qualidade — reflete como espelho. Um dos granitos mais sofisticados do mercado para cozinhas de alto padrão.'},
-  {id:'p_gabriel',nm:'Preto São Gabriel',cat:'Granito Preto',fin:'Polida',pr:500,tx:'tx-sao-gabriel',photo:'',desc:'Granito brasileiro de São Gabriel-RS. Preto profundo com micropigmentos brancos e prateados que criam efeito galáctico único. Considerado um dos granitos nacionais mais nobres — cada chapa tem movimento próprio.'},
-  {id:'p_gabriel_e',nm:'Preto São Gabriel Escovado',cat:'Granito Preto',fin:'Escovada',pr:540,tx:'tx-p-indiano',photo:'',desc:'Preto São Gabriel com acabamento escovado. Superfície aveludada e fosca esconde riscos e marcas do uso diário. Visual contemporâneo muito usado em projetos de design moderno.'},
-  {id:'via_lactea',nm:'Preto Via Láctea',cat:'Granito Preto',fin:'Polida',pr:750,tx:'tx-via-lactea',photo:'',desc:'Granito preto com constelações de cristais brancos e cinza — imita a Via Láctea. Material exótico e exclusivo: cada chapa tem padrão único e irrepetível. Destaque absoluto em qualquer ambiente.'},
-  {id:'dallas',nm:'Branco Dallas/Fortaleza',cat:'Granito Branco',fin:'Polida',pr:400,tx:'tx-dallas',photo:'',desc:'Granito branco nacional com movimento suave em tons cinza e creme. Amplifica a luminosidade do ambiente. Ótimo custo-benefício para quem quer o clássico branco com alta durabilidade e sem selagem.'},
-  {id:'itaunas',nm:'Branco Itaúnas',cat:'Granito Branco',fin:'Polida',pr:510,tx:'tx-itaunas',photo:'',desc:'Granito branco premium do Espírito Santo. Veios delicados em dourado e cinza criam movimento elegante. Mais sofisticado que o Dallas — ideal para projetos que querem branco com personalidade.'},
-  {id:'nepal',nm:'Branco Nepal',cat:'Granito Branco',fin:'Polida',pr:540,tx:'tx-nepal',photo:'',desc:'Granito branco com veios em creme e bege quente. Diferente dos brancos frios, tem calor natural que harmoniza com madeiras e cerâmicas claras. Atemporal e muito valorizado em residências de alto padrão.'},
-  {id:'prime',nm:'Branco Prime',cat:'Granito Branco',fin:'Polida',pr:730,tx:'tx-prime',photo:'',desc:'Granito branco de altíssimo padrão com veios dourados naturais. Polimento espelhado intenso e movimento dramático. Para projetos que exigem o máximo em sofisticação — um dos mais valorizados do mercado nacional.'},
-  {id:'mrm_branco',nm:'Mármore Branco Comercial',cat:'Mármore',fin:'Polida',pr:300,tx:'tx-mrm-branco',photo:'',desc:'Mármore calcítico clássico — branco com veios cinza naturais. Material poroso que exige selagem periódica. Pela beleza única dos veios naturais, é muito utilizado em banheiros, lavabos e projetos decorativos de luxo.'},
-  {id:'siena',nm:'Branco Siena',cat:'Granito Branco',fin:'Polida',pr:580,tx:'tx-siena',photo:'',desc:'Granito branco com veios dourados e bege marcantes. Alta resistência e durabilidade. Polimento espelhado intenso. Uma das pedras mais elegantes do mercado — não requer selagem como o mármore.'},
-  {id:'siena_e',nm:'Branco Siena Escovado',cat:'Granito Branco',fin:'Escovada',pr:620,tx:'tx-siena',photo:'',desc:'Branco Siena com acabamento escovado. Textura aveludada e contemporânea esconde riscos e marcas de uso diário. Excelente para famílias com uso intenso da cozinha.'},
-  {id:'parana',nm:'Branco Paraná',cat:'Mármore',fin:'Polida',pr:1490,tx:'tx-parana',photo:'',desc:'Mármore Branco Paraná — um dos materiais mais exclusivos disponíveis. Fundo branco puro com veios dramáticos em cinza e dourado. Cada chapa é única e irrepetível. Exige cuidados especiais, mas entrega altíssimo luxo.'},
-  {id:'nano',nm:'Branco Nano',cat:'Ultra Compacto',fin:'Polida',pr:930,tx:'tx-nano',photo:'',desc:'Superfície ultra compacta de última geração produzida com alta pressão e temperatura. Zero porosidade — não absorve líquidos, não mancha, não risca. Resistente a ácidos, calor e impacto. Ideal para cozinhas de uso intenso.'},
-  {id:'super_nano',nm:'Branco Super Nano',cat:'Ultra Compacto',fin:'Polida',pr:980,tx:'tx-nano',photo:'',desc:'Versão premium do Branco Nano com dureza máxima. Praticamente impossível de riscar. Ideal para cozinhas profissionais e famílias com alto uso diário. Sem necessidade de qualquer manutenção ou selagem.'},
-  {id:'perla',nm:'Perla Santana',cat:'Quartzito',fin:'Polida',pr:1640,tx:'tx-perla',photo:'',desc:'Quartzito natural do Ceará com textura cristalina única. Visual próximo ao mármore de luxo com veios suaves — porém com dureza e resistência superiores ao próprio granito. Baixíssima porosidade natural. Alta exclusividade.'},
-  {id:'carrara',nm:'Ultra Compacto Carrara',cat:'Ultra Compacto',fin:'Polida',pr:1640,tx:'tx-carrara',photo:'',desc:'Superfície ultra compacta inspirada no Mármore Carrara italiano. Fundo branco com veios cinza delicados, produzida com tecnologia europeia. Zero porosidade absoluta — nunca mancha, nunca risca, nunca precisa de selagem. A beleza do mármore com a resistência superior.'},
-  {id:'trav_classic',nm:'Travertino Clássico',cat:'Travertino',fin:'Polida',pr:400,tx:'tx-bege',photo:'',desc:'Travertino clássico em tons bege e marrom quente. Pedra sedimentar com poros naturais que dão textura e identidade única. Muito usado em fachadas, pisos externos, revestimentos e bancadas rústicas. Ideal para ambientes naturais.'},
-  {id:'trav_noce',nm:'Travertino Noce',cat:'Travertino',fin:'Polida',pr:440,tx:'tx-bege',photo:'',desc:'Travertino Noce em tons tabaco escuro e marrom profundo. Mais escuro que o Clássico, com poros que realçam os veios naturais. Muito usado em fachadas comerciais, pisos de grande formato e ambientes de alto padrão que buscam personalidade rústica.'}
+  {id:'andorinha',nm:'Cinza Andorinha/Corumbá',cat:'Granito Cinza',fin:'Polida',pr:320,custo:195,tx:'tx-andorinha',photo:'',desc:'Granito nacional cinza com cristais brancos. Alta dureza e resistência — não risca, não mancha com facilidade e suporta calor. Excelente custo-benefício para cozinhas e bancadas de uso intenso.',perda:10},
+  {id:'verde_ub',nm:'Verde Ubatuba',cat:'Granito Verde',fin:'Polida',pr:340,custo:210,tx:'tx-verde-ub',photo:'',desc:'Granito verde escuro extraído em Ubatuba-SP. Pontos dourados naturais criam efeito exclusivo em cada chapa. Muito resistente e durável — perfeito para projetos sofisticados que exigem personalidade.',perda:10},
+  {id:'verde_perla',nm:'Verde Pérola',cat:'Granito Verde',fin:'Polida',pr:340,custo:210,tx:'tx-verde-perla',photo:'',desc:'Granito verde com tons pérola e reflexos prateados. Mais claro que o Verde Ubatuba, com movimento elegante. Polimento de alto brilho. Para quem quer um verde refinado e sofisticado.',perda:10},
+  {id:'bege',nm:'Bege Bahia',cat:'Travertino',fin:'Polida',pr:380,custo:230,tx:'tx-bege',photo:'',desc:'Travertino bege natural com veios suaves e calorosos. Combina com ambientes rústicos, móveis amadeirados e cerâmicas neutras. Muito usado em bancadas e pisos que valorizam o estilo natural.',perda:10},
+  {id:'p_indiano',nm:'Preto Indiano',cat:'Granito Preto',fin:'Polida',pr:450,custo:280,tx:'tx-p-indiano',photo:'',desc:'Granito importado da Índia. Preto absoluto e uniforme com polimento espelhado de altíssima qualidade — reflete como espelho. Um dos granitos mais sofisticados do mercado para cozinhas de alto padrão.',perda:10},
+  {id:'p_gabriel',nm:'Preto São Gabriel',cat:'Granito Preto',fin:'Polida',pr:500,custo:310,tx:'tx-sao-gabriel',photo:'',desc:'Granito brasileiro de São Gabriel-RS. Preto profundo com micropigmentos brancos e prateados que criam efeito galáctico único. Considerado um dos granitos nacionais mais nobres — cada chapa tem movimento próprio.',perda:10},
+  {id:'p_gabriel_e',nm:'Preto São Gabriel Escovado',cat:'Granito Preto',fin:'Escovada',pr:540,custo:330,tx:'tx-p-indiano',photo:'',desc:'Preto São Gabriel com acabamento escovado. Superfície aveludada e fosca esconde riscos e marcas do uso diário. Visual contemporâneo muito usado em projetos de design moderno.',perda:10},
+  {id:'via_lactea',nm:'Preto Via Láctea',cat:'Granito Preto',fin:'Polida',pr:750,custo:460,tx:'tx-via-lactea',photo:'',desc:'Granito preto com constelações de cristais brancos e cinza — imita a Via Láctea. Material exótico e exclusivo: cada chapa tem padrão único e irrepetível. Destaque absoluto em qualquer ambiente.',perda:10},
+  {id:'dallas',nm:'Branco Dallas/Fortaleza',cat:'Granito Branco',fin:'Polida',pr:400,custo:245,tx:'tx-dallas',photo:'',desc:'Granito branco nacional com movimento suave em tons cinza e creme. Amplifica a luminosidade do ambiente. Ótimo custo-benefício para quem quer o clássico branco com alta durabilidade e sem selagem.',perda:10},
+  {id:'itaunas',nm:'Branco Itaúnas',cat:'Granito Branco',fin:'Polida',pr:510,custo:315,tx:'tx-itaunas',photo:'',desc:'Granito branco premium do Espírito Santo. Veios delicados em dourado e cinza criam movimento elegante. Mais sofisticado que o Dallas — ideal para projetos que querem branco com personalidade.',perda:10},
+  {id:'nepal',nm:'Branco Nepal',cat:'Granito Branco',fin:'Polida',pr:540,custo:330,tx:'tx-nepal',photo:'',desc:'Granito branco com veios em creme e bege quente. Diferente dos brancos frios, tem calor natural que harmoniza com madeiras e cerâmicas claras. Atemporal e muito valorizado em residências de alto padrão.',perda:10},
+  {id:'prime',nm:'Branco Prime',cat:'Granito Branco',fin:'Polida',pr:730,custo:450,tx:'tx-prime',photo:'',desc:'Granito branco de altíssimo padrão com veios dourados naturais. Polimento espelhado intenso e movimento dramático. Para projetos que exigem o máximo em sofisticação — um dos mais valorizados do mercado nacional.',perda:10},
+  {id:'mrm_branco',nm:'Mármore Branco Comercial',cat:'Mármore',fin:'Polida',pr:300,custo:185,tx:'tx-mrm-branco',photo:'',desc:'Mármore calcítico clássico — branco com veios cinza naturais. Material poroso que exige selagem periódica. Pela beleza única dos veios naturais, é muito utilizado em banheiros, lavabos e projetos decorativos de luxo.',perda:10},
+  {id:'siena',nm:'Branco Siena',cat:'Granito Branco',fin:'Polida',pr:580,custo:380,tx:'tx-siena',photo:'',desc:'Granito branco com veios dourados e bege marcantes. Alta resistência e durabilidade. Polimento espelhado intenso. Uma das pedras mais elegantes do mercado — não requer selagem como o mármore.',perda:10},
+  {id:'siena_e',nm:'Branco Siena Escovado',cat:'Granito Branco',fin:'Escovada',pr:620,custo:400,tx:'tx-siena',photo:'',desc:'Branco Siena com acabamento escovado. Textura aveludada e contemporânea esconde riscos e marcas de uso diário. Excelente para famílias com uso intenso da cozinha.',perda:10},
+  {id:'parana',nm:'Branco Paraná',cat:'Mármore',fin:'Polida',pr:1490,custo:950,tx:'tx-parana',photo:'',desc:'Mármore Branco Paraná — um dos materiais mais exclusivos disponíveis. Fundo branco puro com veios dramáticos em cinza e dourado. Cada chapa é única e irrepetível. Exige cuidados especiais, mas entrega altíssimo luxo.',perda:10},
+  {id:'nano',nm:'Branco Nano',cat:'Ultra Compacto',fin:'Polida',pr:930,custo:600,tx:'tx-nano',photo:'',desc:'Superfície ultra compacta de última geração produzida com alta pressão e temperatura. Zero porosidade — não absorve líquidos, não mancha, não risca. Resistente a ácidos, calor e impacto. Ideal para cozinhas de uso intenso.',perda:10},
+  {id:'super_nano',nm:'Branco Super Nano',cat:'Ultra Compacto',fin:'Polida',pr:980,custo:640,tx:'tx-nano',photo:'',desc:'Versão premium do Branco Nano com dureza máxima. Praticamente impossível de riscar. Ideal para cozinhas profissionais e famílias com alto uso diário. Sem necessidade de qualquer manutenção ou selagem.',perda:10},
+  {id:'perla',nm:'Perla Santana',cat:'Quartzito',fin:'Polida',pr:1640,custo:1050,tx:'tx-perla',photo:'',desc:'Quartzito natural do Ceará com textura cristalina única. Visual próximo ao mármore de luxo com veios suaves — porém com dureza e resistência superiores ao próprio granito. Baixíssima porosidade natural. Alta exclusividade.',perda:10},
+  {id:'carrara',nm:'Ultra Compacto Carrara',cat:'Ultra Compacto',fin:'Polida',pr:1640,custo:1050,tx:'tx-carrara',photo:'',desc:'Superfície ultra compacta inspirada no Mármore Carrara italiano. Fundo branco com veios cinza delicados, produzida com tecnologia europeia. Zero porosidade absoluta — nunca mancha, nunca risca, nunca precisa de selagem. A beleza do mármore com a resistência superior.',perda:10},
+  {id:'trav_classic',nm:'Travertino Clássico',cat:'Travertino',fin:'Polida',pr:400,custo:245,tx:'tx-bege',photo:'',desc:'Travertino clássico em tons bege e marrom quente. Pedra sedimentar com poros naturais que dão textura e identidade única. Muito usado em fachadas, pisos externos, revestimentos e bancadas rústicas. Ideal para ambientes naturais.',perda:10},
+  {id:'trav_noce',nm:'Travertino Noce',cat:'Travertino',fin:'Polida',pr:440,tx:'tx-bege',custo:270,photo:'',desc:'Travertino Noce em tons tabaco escuro e marrom profundo. Mais escuro que o Clássico, com poros que realçam os veios naturais. Muito usado em fachadas comerciais, pisos de grande formato e ambientes de alto padrão que buscam personalidade rústica.',perda:10}
 ];
 var DEF_COZ=[
   {id:'tramontina_prime',nm:'Tramontina Inox Prime',brand:'Tramontina',dim:'56×34×17cm',custo:313,pr:345,inst:110,instCli:160,photo:''},
@@ -333,6 +338,17 @@ function initCFG(){
   CFG.lav.forEach(function(c){if(CUBA_IMGS[c.id])c.photo=CUBA_IMGS[c.id];});
   // Garantir que ac existe (usuários com cfg antiga)
   if(!CFG.ac)CFG.ac=JSON.parse(JSON.stringify(DEF_ACESS));
+  // ── Patch: garantir campos perda e custo em pedras existentes ──
+  CFG.stones.forEach(function(s){
+    if(s.perda===undefined||s.perda===null){
+      var _def=DEF_STONES.find(function(d){return d.id===s.id;});
+      s.perda=(_def&&_def.perda!=null)?_def.perda:10;
+    }
+    if(s.custo===undefined||s.custo===null){
+      var _def2=DEF_STONES.find(function(d){return d.id===s.id;});
+      s.custo=(_def2&&_def2.custo!=null)?_def2.custo:0;
+    }
+  });
   svCFG();
 }
 function syncSVDefsFromList(){
@@ -1460,8 +1476,106 @@ function _updPcPreview(ambId, pcId) {
   }
 }
 
+// ── Alerta inline de medida incomum (item 9) ──────────────────────────────────
+function _alertMedida(inp, val, campo){
+  if(!val || val <= 0) return;
+  var alerta = '';
+  if (val < 10) {
+    alerta = '⚠️ Muito pequeno — '+val+'cm. Digitou em mm?';
+  } else if (val > 500) {
+    alerta = '⚠️ Muito grande — '+val+'cm. Esqueceu um zero?';
+  }
+  var alertId = 'alrt-' + inp.id;
+  var existing = document.getElementById(alertId);
+  if (alerta) {
+    if (!existing) {
+      existing = document.createElement('div');
+      existing.id = alertId;
+      existing.style.cssText = 'font-size:.62rem;color:#f39c12;background:rgba(243,156,18,.1);border:1px solid rgba(243,156,18,.4);border-radius:6px;padding:4px 8px;margin-top:3px;line-height:1.4;';
+      inp.parentNode.appendChild(existing);
+    }
+    existing.textContent = alerta;
+  } else if (existing) {
+    existing.remove();
+  }
+}
+
 // Legacy
 function addPeca(){if(ambientes.length>0)addPecaAmb(ambientes[0].id);}
+
+// ── Templates de Ambiente ─────────────────────────────────────────────────────
+function _getTpls(){
+  if(!CFG.ambTemplates)CFG.ambTemplates=[];
+  return CFG.ambTemplates;
+}
+
+function ambSalvarTemplate(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  var pcsFilled=amb.pecas.filter(function(p){return p.w||p.h;});
+  if(!pcsFilled.length){toast('Adicione pelo menos uma peça antes de salvar');return;}
+  var nm=prompt('Nome do template (ex: Cozinha L 300×60):','');
+  if(!nm||!nm.trim())return;
+  _getTpls().push({
+    id:Date.now(),
+    nm:nm.trim(),
+    tipo:amb.tipo,
+    selMat:amb.selMat||null,
+    pecas:JSON.parse(JSON.stringify(pcsFilled)),
+    svState:JSON.parse(JSON.stringify(amb.svState||{}))
+  });
+  svCFG();
+  toast('✓ Template "'+nm.trim()+'" salvo!');
+}
+
+function ambCarregarTemplate(ambId){
+  var tpls=_getTpls();
+  if(!tpls.length){toast('Nenhum template salvo ainda. Crie um com 💾 Template.');return;}
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  var _modal=document.createElement('div');
+  _modal.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+  var _inner='<div style="background:var(--bg);border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:80vh;overflow-y:auto;padding:20px 18px 32px;">';
+  _inner+='<div style="font-size:.6rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:14px;">📋 Carregar Template</div>';
+  tpls.forEach(function(t,i){
+    var pcSummary=t.pecas.slice(0,3).map(function(p){return p.w+'×'+p.h;}).join(', ')+(t.pecas.length>3?'…':'');
+    _inner+='<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:11px;padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">';
+    _inner+='<div><div style="font-size:.85rem;font-weight:700;color:var(--tx);">'+escH(t.nm)+'</div>';
+    _inner+='<div style="font-size:.65rem;color:var(--t3);margin-top:2px;">'+escH(t.tipo)+' · '+escH(pcSummary)+'</div></div>';
+    _inner+='<div style="display:flex;gap:6px;">';
+    _inner+='<button style="background:var(--gold3);border:none;border-radius:8px;padding:7px 13px;font-size:.75rem;font-weight:700;color:#000;font-family:Outfit,sans-serif;cursor:pointer;" onclick="window._ambTplApply('+ambId+','+i+')">Carregar</button>';
+    _inner+='<button style="background:rgba(231,76,60,.15);border:1px solid rgba(231,76,60,.4);border-radius:8px;padding:7px 10px;font-size:.72rem;color:var(--red);font-family:Outfit,sans-serif;cursor:pointer;" onclick="window._ambTplDel('+i+')">✕</button>';
+    _inner+='</div></div>';
+  });
+  _inner+='<button onclick="this.closest(\'[data-tpl-modal]\').remove();" style="width:100%;margin-top:6px;padding:12px;background:transparent;border:1px solid var(--bd2);border-radius:11px;color:var(--t3);font-family:Outfit,sans-serif;font-size:.82rem;cursor:pointer;">Fechar</button>';
+  _inner+='</div>';
+  _modal.setAttribute('data-tpl-modal','1');
+  _modal.innerHTML=_inner;
+  _modal.addEventListener('click',function(e){if(e.target===_modal)_modal.remove();});
+  document.body.appendChild(_modal);
+  window._ambTplApply=function(aid,ti){
+    var t=_getTpls()[ti];
+    if(!t)return;
+    var a=ambientes.find(function(x){return x.id==aid;});
+    if(!a)return;
+    a.tipo=t.tipo;
+    a.pecas=JSON.parse(JSON.stringify(t.pecas)).map(function(p){p.id=Date.now()+Math.random();return p;});
+    a.svState=JSON.parse(JSON.stringify(t.svState||{}));
+    if(t.selMat)a.selMat=t.selMat;
+    _modal.remove();
+    renderAmbientes();
+    toast('✓ Template "'+t.nm+'" carregado!');
+  };
+  window._ambTplDel=function(ti){
+    var t=_getTpls()[ti];
+    if(!t||!confirm('Remover template "'+t.nm+'"?'))return;
+    CFG.ambTemplates.splice(ti,1);
+    svCFG();
+    _modal.remove();
+    if(_getTpls().length)ambCarregarTemplate(ambId);
+    else toast('Template removido.');
+  };
+}
 function updPc(id,prop,val){ambientes.forEach(function(a){var p=a.pecas.find(function(x){return x.id===id;});if(p)p[prop]=val;});}
 function remPeca(id){ambientes.forEach(function(a){if(a.pecas.length>1){a.pecas=a.pecas.filter(function(p){return p.id!==id;});}});renderAmbientes();}
 
@@ -2521,8 +2635,8 @@ function renderAmbientes(){
       h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
       var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':'300';
       var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':'60';
-      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div>';
-      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
+      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'comp\')"></div>';
+      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'larg\')"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
       // Preview em tempo real de m² e preço estimado
       var _pvW=pc.w||0,_pvH=pc.h||0,_pvQ=pc.q||1;
@@ -2613,6 +2727,8 @@ function renderAmbientes(){
     h+='<div class="row" style="gap:7px;margin-bottom:10px;">';
     h+='<button class="btn btn-o" style="font-size:.73rem;padding:8px;flex:1;" data-add-peca="'+amb.id+'">+ Peça</button>';
     h+='<button class="btn-ai-sm" data-ai-amb="'+amb.id+'">✨ Descrever</button>';
+    h+='<button style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);border-radius:8px;padding:6px 10px;font-size:.68rem;color:var(--gold2);font-family:Outfit,sans-serif;cursor:pointer;white-space:nowrap;" onclick="ambCarregarTemplate('+amb.id+')">📋</button>';
+    h+='<button style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);border-radius:8px;padding:6px 10px;font-size:.68rem;color:var(--gold2);font-family:Outfit,sans-serif;cursor:pointer;white-space:nowrap;" onclick="ambSalvarTemplate('+amb.id+')">💾 Template</button>';
     h+='</div>';
     } // fim else peças normais (não-capelinha)
     if(amb.tipo==='Rodapé de Box'){
@@ -3036,6 +3152,15 @@ function aplicarVistaAdj() {
   pendQ.ent   = Math.round(newVista / 2 * 100) / 100;
   pendQ.parc  = Math.round(newVista * 1.15 * 100) / 100;
   pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
+  // ── Rastreabilidade do desconto ──
+  var _base = pendQ._vistaCalc || base;
+  var _diff = Math.round((_base - newVista) * 100) / 100;
+  var _pct  = _base > 0 ? Math.round(_diff / _base * 10000) / 100 : 0;
+  pendQ.desconto       = _diff > 0 ? _diff : 0;
+  pendQ.descontoPct    = _diff > 0 ? _pct  : 0;
+  var _motivoEl = document.getElementById('vistaDiscMotivo');
+  pendQ.descontoMotivo = _motivoEl ? _motivoEl.value.trim() : '';
+  pendQ.descontoUser   = (CFG.emp && CFG.emp.nome) ? CFG.emp.nome : '';
   _applyVistaToUI();
   var res = document.getElementById('vistaAdjResult');
   var fin = document.getElementById('vistaFinalShow');
@@ -3182,6 +3307,7 @@ function calcular(){
   var mat=(_firstMatAmb&&CFG.stones.find(function(s){return s.id===_firstMatAmb.selMat;}))||CFG.stones[0]||{pr:0,nm:'Serviço',fin:'',id:''}; 
 
   var totalM2=0,totalAcT=0,totalPedT=0;
+  var _m2CompraPorPedra={}; // Item 10: acumula m² de compra por stone id
   var detHtml='';
   var txtAmbientes='';
   var allAcN=[];
@@ -3378,7 +3504,11 @@ function calcular(){
     }
 
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
-    var pedTamb=m2*ambMat2.pr;
+    // Fator de perda: aplicado ao m² de COMPRA (cortes, refiles, quebras)
+    // O m² exibido ao cliente permanece líquido (medidas reais)
+    var _perda=ambMat2.perda!=null?ambMat2.perda:10;
+    var _m2Compra=m2*(1+_perda/100);
+    var pedTamb=_m2Compra*ambMat2.pr;
     // Para túmulo: custo real vem do motor inline (custo_total = sem margem)
     // O valor_vista do motor já inclui a margem configurada no motor —
     // guardamos separadamente para usar como preço de venda direto
@@ -3392,6 +3522,10 @@ function calcular(){
       acT=0; acL=[]; acN=[];
     }
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
+    // Item 10: acumular m² de compra por pedra (para estimativa de chapas)
+    if(amb.tipo!=='Túmulo' && ambMat2 && ambMat2.id){
+      _m2CompraPorPedra[ambMat2.id]=(_m2CompraPorPedra[ambMat2.id]||0)+_m2Compra;
+    }
     if(tumVistaOverride>0) window._tumVistaOverride=(window._tumVistaOverride||0)+tumVistaOverride-pedTamb;
     allAcN=allAcN.concat(acN);
     var ambLabel=(idx+1)+'º Ambiente — '+tipo;
@@ -3404,7 +3538,7 @@ function calcular(){
     if(sfPcs.length){sfPcs.forEach(function(p){
       detHtml+='<div class="rrow"><span class="rk">'+p.l+' '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+'</span><span class="rv">'+p.m2.toFixed(3)+'m²</span></div>';
     });}
-    if(m2>0) detHtml+='<div class="rrow"><span class="rk">'+ambMat2.nm+' — '+m2.toFixed(3)+'m²</span><span class="rv" style="color:var(--gold2)">R$ '+fm(pedTamb)+'</span></div>';
+    if(m2>0){var _perdaStr=_perda>0?(' +'+_perda+'% → '+_m2Compra.toFixed(3)+'m² c/ perda'):'';detHtml+='<div class="rrow"><span class="rk">'+ambMat2.nm+' — '+m2.toFixed(3)+'m²'+_perdaStr+'</span><span class="rv" style="color:var(--gold2)">R$ '+fm(pedTamb)+'</span></div>';}
     acL.forEach(function(a){detHtml+='<div class="rrow"><span class="rk">'+a.l+'</span><span class="rv">R$ '+fm(a.v)+'</span></div>';});
     if(acL.length===0&&m2===0)detHtml+='<div style="font-size:.72rem;color:var(--t4);padding:2px 0;">Nenhuma peça ou serviço neste ambiente</div>';
     // Dados do túmulo no bloco de detalhe
@@ -3502,6 +3636,13 @@ function calcular(){
     pi+='<b style="font-size:.85rem;color:var(--tx);">'+matDisplay.nm+' — '+matDisplay.fin+'</b>';
     pi+='<b style="color:var(--gold2);">R$ '+fm(matDisplay.pr)+'/m²</b></div>';
     pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
+    // Item 10: estimativa de chapas
+    var _m2cUnica=_m2CompraPorPedra[pedrasUnicas[0]]||0;
+    if(_m2cUnica>0){
+      var _chp300=Math.ceil(_m2cUnica/(3.00*1.60));
+      var _chp240=Math.ceil(_m2cUnica/(2.40*1.20));
+      pi+='<div style="font-size:.65rem;color:var(--t4);margin-top:2px;">📦 Chapas estimadas: <b style="color:var(--gold2);">'+_chp300+'</b> de 300×160cm ou <b style="color:var(--gold2);">'+_chp240+'</b> de 240×120cm (c/ perda)</div>';
+    }
   } else {
     pedrasUnicas.forEach(function(mid){
       var ms=CFG.stones.find(function(s){return s.id===mid;});
@@ -3515,6 +3656,18 @@ function calcular(){
       pi+='<span style="color:var(--gold2);font-weight:700;">R$ '+fm(ms.pr)+'/m²</span></div>';
     });
     pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área total: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
+    // Item 10: estimativa de chapas por pedra
+    var _chapHtml='';
+    pedrasUnicas.forEach(function(mid){
+      var _mc=_m2CompraPorPedra[mid]||0;
+      if(_mc>0){
+        var _ms=CFG.stones.find(function(s){return s.id===mid;});
+        var _c300=Math.ceil(_mc/(3.00*1.60));
+        var _c240=Math.ceil(_mc/(2.40*1.20));
+        _chapHtml+='<div style="font-size:.63rem;color:var(--t4);">'+(_ms?escH(_ms.nm):'Pedra')+': <b style="color:var(--gold2);">'+_c300+'</b>ch 300×160 / <b style="color:var(--gold2);">'+_c240+'</b>ch 240×120</div>';
+      }
+    });
+    if(_chapHtml) pi+='<div style="margin-top:3px;">📦 '+_chapHtml+'</div>';
   }
   pi+='</div>';
   var acbNmP={borda_reta:'Borda Reta',borda_45:'Borda 45°',borda_boleada:'Borda Boleada',borda_chf:'Borda Chanfrada',cant:'Cantoneira',rodape:'Rodapé'};
@@ -3575,8 +3728,10 @@ function calcular(){
     var _def=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(x){return x.id===ambMat.id;}):null;
     var custoUnit=ambMat.custo||(_def?_def.custo:0)||0;
     var m2Amb=(a.pecas||[]).reduce(function(sm,p){return p.w&&p.h?sm+(p.w/100)*(p.h/100)*(p.q||1):sm;},0);
+    var _perdaAmb=ambMat.perda!=null?ambMat.perda:10;
+    var m2AmbCompra=m2Amb*(1+_perdaAmb/100); // m² real de compra (com perda)
     var unitEfetivo=custoUnit>0?custoUnit:ambMat.pr||0;
-    return s+(m2Amb*unitEfetivo);
+    return s+(m2AmbCompra*unitEfetivo);
   },0);
   var custoPedraExibir=totalCustoPedraReal>0?totalCustoPedraReal:pedT;
   // ── Custo REAL da MO: fallback 55% (apenas para ambientes não-Túmulo) ──
@@ -3626,6 +3781,18 @@ function calcular(){
   if(vbEl)vbEl.textContent='R$ '+fm(vista);
   var adjRes=document.getElementById('vistaAdjResult');
   if(adjRes)adjRes.style.display='none';
+  // ── Injetar campo Motivo do Desconto se ainda não existe ──
+  if(adjSec && !document.getElementById('vistaDiscMotivo')){
+    var _mDiv=document.createElement('div');
+    _mDiv.style.cssText='padding:0 0 10px;';
+    _mDiv.innerHTML='<label style="font-size:.65rem;color:var(--t3);font-weight:600;display:block;margin-bottom:4px;">Motivo do desconto (opcional)</label>'
+      +'<input id="vistaDiscMotivo" type="text" maxlength="80" placeholder="Ex: Cliente indicação, compra maior, promoção…" '
+      +'style="width:100%;box-sizing:border-box;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 12px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.8rem;">';
+    adjSec.appendChild(_mDiv);
+  }
+  // Limpar motivo ao reabrir
+  var _mEl=document.getElementById('vistaDiscMotivo');
+  if(_mEl)_mEl.value='';
   // Resetar modo para "sem ajuste"
   window._vistaAdjMode='none';
   document.querySelectorAll('[data-vmode]').forEach(function(b){b.classList.toggle('on',b.dataset.vmode==='none');});
@@ -3658,7 +3825,7 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){
@@ -4012,7 +4179,7 @@ function gerarPDF(){
     +'</div>'
     +'<div style="text-align:right;">'
       +'<div style="font-size:10px;color:#888;"><strong style="color:#5a3800;">EMISSAO:</strong> '+fd(q.date)+'</div>'
-      +'<div style="font-size:9.5px;color:#aaa;">Validade: 7 dias</div>'
+      +'<div style="font-size:9.5px;color:#aaa;">Validade: '+(q.validade||CFG.emp&&CFG.emp.diasValidade||7)+' dias</div>'
     +'</div>'
   +'</div>'
 
@@ -5687,6 +5854,8 @@ function buildCfg(){
       ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Travertino','Quartzito','Ultra Compacto'].forEach(function(cat){h+='<option '+(s.cat===cat?'selected':'')+'>'+cat+'</option>';});
       h+='</select></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+s.pr+'" onchange="CFG.stones['+i+'].pr=+this.value;buildMat();buildCatalog();buildPT();svCFG();"></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Custo R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+(s.custo||0)+'" title="Seu custo de compra — usado para calcular margem real no painel interno" onchange="CFG.stones['+i+'].custo=+this.value;svCFG();toast(\'✓ Custo salvo\');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">seu custo</span></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">% Perda/Corte</span><input class="cfginp cfginp-w" type="number" min="0" max="50" step="1" value="'+(s.perda!=null?s.perda:10)+'" title="Fator de corte e refile — aplicado ao custo da pedra. Padrão: 10%" onchange="CFG.stones['+i+'].perda=+this.value;svCFG();toast(\'✓ Perda salva\');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">% (custo)</span></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Acabamento</span><select class="cfginp" style="width:120px;" onchange="CFG.stones['+i+'].fin=this.value;svCFG();"><option '+(s.fin==='Polida'?'selected':'')+'>Polida</option><option '+(s.fin==='Escovada'?'selected':'')+'>Escovada</option></select></div>';
       h+='<div style="padding:9px 13px;border-top:1px solid #0c0c10;display:flex;justify-content:space-between;align-items:center;">';
       h+='<div style="display:flex;gap:6px;">';
@@ -5943,6 +6112,17 @@ function buildCfg(){
     h+='<div class="cfgsec"><div class="cfghd">🕐 Horário de Funcionamento</div>';
     h+='<div style="padding:10px 13px;">';
     h+='<input class="cfginp" type="text" value="'+(e.horario||'Seg–Sex: 8h às 18h | Sáb: 8h às 13h')+'" placeholder="Ex: Seg–Sex: 8h às 18h" style="width:100%;" onchange="CFG.emp.horario=this.value;svCFG();">';
+    h+='</div></div>';
+
+    // Precificação
+    h+='<div class="cfgsec"><div class="cfghd">⚙️ Precificação</div><div style="padding:6px 13px 10px;">';
+    h+='<div class="cfg-row"><span class="cfg-lbl">Validade do orçamento</span>';
+    h+='<input class="cfginp cfginp-w" type="number" min="1" max="90" step="1" value="'+(e.diasValidade||7)+'" onchange="CFG.emp.diasValidade=+this.value;svCFG();toast(\'✓ Validade salva\');">';
+    h+='<span style="font-size:.6rem;color:var(--t4);margin-left:6px;">dias</span></div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">Fator Custo MO</span>';
+    h+='<input class="cfginp cfginp-w" type="number" min="0" max="1" step="0.01" value="'+(CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55)+'" onchange="if(!CFG.sv)CFG.sv={};CFG.sv.fatorCustoMO=+this.value;svCFG();toast(\'✓ Fator MO salvo\');">';
+    h+='<span style="font-size:.6rem;color:var(--t4);margin-left:6px;">% da venda (padrão 0.55)</span></div>';
+    h+='<div style="font-size:.62rem;color:var(--t4);padding:2px 0 8px;line-height:1.6;">Fator de custo estimado de mão de obra sobre o preço de venda dos serviços. Afeta a margem exibida no painel interno.</div>';
     h+='</div></div>';
 
     // IA
@@ -6312,7 +6492,7 @@ function gerarPDFTumulo(q){
         +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">ORÇAMENTO</div><div style="font-size:12px;font-weight:900;color:#C9A84C;">'+orcNum+'</div></div>'
         +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">EMISSÃO</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.7);">'+fd(q.dt||q.date)+'</div></div>'
         +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">TIPO DE PROJETO</div><div style="font-size:12px;font-weight:900;color:#C9A84C;">'+escH(tipoLabel)+'</div></div>'
-        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">VALIDADE</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.4);">7 dias</div></div>'
+        +'<div><div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.45);margin-bottom:3px;">VALIDADE</div><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,0.4);">'+(q.validade||CFG.emp&&CFG.emp.diasValidade||7)+' dias</div></div>'
       +'</div>'
     +'</div>'
 
@@ -6756,7 +6936,7 @@ function gerarPDFTumulo(q){
         +(emp.cnpj?'<div style="text-align:center;"><div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.4);margin-bottom:4px;">CNPJ</div><div style="font-size:11px;color:rgba(255,255,255,0.3);">'+escH(emp.cnpj)+'</div></div>':'')
       +'</div>'
       +'<div style="text-align:center;margin-top:18px;">'
-        +'<div style="font-size:9px;color:rgba(255,255,255,0.15);">Este orçamento é válido por 7 dias a partir da data de emissão · '+orcNum+'</div>'
+        +'<div style="font-size:9px;color:rgba(255,255,255,0.15);">Este orçamento é válido por '+(q.validade||CFG.emp&&CFG.emp.diasValidade||7)+' dias a partir da data de emissão · '+orcNum+'</div>'
       +'</div>'
     +'</div>'
     + goldBar()
