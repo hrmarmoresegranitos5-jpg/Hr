@@ -1922,11 +1922,13 @@ function buildPecaBordaHtml(amb, pc) {
     var autoML = side.dim ? (side.dim/100).toFixed(2) : '?';
     var alt = bd ? (bd.alt || (tipo==='frontao' ? 10 : 6)) : (tipo==='frontao' ? 10 : 6);
     h += '<div style=\"background:var(--bg3);border:1.5px solid '+(tipo?tipoOpt.cor:'var(--bd2)')+';border-radius:10px;padding:10px 12px;margin-bottom:7px;\">';
-    h += '<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:'+(tipo?'10px':'0')+';\">'; 
+    h += '<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:8px;\">'; 
     h += '<span style=\"font-size:.68rem;font-weight:700;color:'+(tipo?tipoOpt.cor:'var(--t3)')+';min-width:50px;\">'+side.icon+' '+side.l+'</span>';
     h += '<span style=\"font-size:.6rem;color:var(--t4);min-width:36px;\">'+(side.dim?side.dim+'cm':'—')+'</span>';
-    h += '<div style=\"display:flex;gap:4px;flex:1;flex-wrap:wrap;\">';
-    TIPO_LIST.forEach(function(t) {
+    h += '<div style=\"display:flex;flex-direction:column;gap:4px;flex:1;\">';
+    // Linha 1: — Sainha Frontão
+    h += '<div style=\"display:flex;gap:4px;\">';
+    (isDiv ? TIPO_LIST : TIPO_LIST.slice(0,3)).forEach(function(t) {
       var on = tipo === t.k;
       var tArg = t.k ? ("'" + t.k + "'") : 'null';
       h += '<div onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
@@ -1937,6 +1939,21 @@ function buildPecaBordaHtml(amb, pc) {
       if (isDiv && t.k && t.pr > 0) h += '<br><span style=\"font-size:.52rem;opacity:.7;\">+R$'+t.pr+'/m</span>';
       h += '</div>';
     });
+    h += '</div>';
+    // Linha 2: Acabamento Recorte 45° (apenas não-Div)
+    if (!isDiv && TIPO_LIST.length > 3) {
+      h += '<div style=\"display:flex;gap:4px;\">';
+      TIPO_LIST.slice(3).forEach(function(t) {
+        var on = tipo === t.k;
+        var tArg = t.k ? ("'" + t.k + "'") : 'null';
+        h += '<div onclick=\"updPcBordaTipo('+amb.id+','+pc.id+',\''+side.k+'\','+tArg+')\" ';
+        h += 'style=\"cursor:pointer;flex:1;text-align:center;padding:6px 3px;border-radius:7px;border:1.5px solid ';
+        h += (on?t.cor:'rgba(255,255,255,.1)')+';background:'+(on?t.bg:'transparent')+';';
+        h += 'font-size:.65rem;font-weight:'+(on?700:400)+';color:'+(on?t.cor:'var(--t4)')+';\">';
+        h += t.l+'</div>';
+      });
+      h += '</div>';
+    }
     h += '</div></div>';
     if (tipo && !isDiv) {
       var _isSimpleTipo = (tipo === 'acabamento' || tipo === 'recorte45');
