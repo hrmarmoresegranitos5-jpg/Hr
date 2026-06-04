@@ -2345,53 +2345,70 @@ function gerarPDF(){
       +'<div style="background:#FAFAF8;padding:16px 22px;border-top:2px solid #C9A84C;">'        +(mat.fin?'<div style="display:flex;gap:0;margin-bottom:14px;">'          +'<div style="flex:1;padding-right:16px;border-right:1px solid #EDE5CC;">'            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:4px;">Acabamento</div>'            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;">'+mat.fin+'</div>'          +'</div>'          +'<div style="flex:1;padding-left:16px;">'            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:4px;">Categoria</div>'            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;">'+(mat.cat||'Granito')+'</div>'          +'</div>'        +'</div>'+'<div style="height:1px;background:#EDE5CC;margin-bottom:14px;"></div>':'')        +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">Incluso nesta proposta</div>'        +'<div style="display:flex;flex-wrap:wrap;gap:6px 0;font-family:\'Helvetica Neue\',Arial,sans-serif;">'+inclusosHtml+'</div>'      +'</div>'
     +'</div>'
     // ── VALOR FINAL ──
-    +'<div style="background:#0C0900;border-radius:10px;padding:26px 28px;margin-bottom:16px;position:relative;overflow:hidden;">'
+    // Bloco à vista — destaque máximo
+    +'<div style="background:#0C0900;border-radius:10px;padding:28px 32px 24px;margin-bottom:12px;position:relative;overflow:hidden;">'
+      +'<div style="position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;border:1px solid rgba(201,168,76,0.07);"></div>'
 
-      // Detalhe decorativo
-      +'<div style="position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;border:1px solid rgba(201,168,76,0.08);"></div>'
-      +'<div style="position:absolute;right:-10px;top:-10px;width:80px;height:80px;border-radius:50%;border:1px solid rgba(201,168,76,0.06);"></div>'
+      // Label
+      +'<div style="font-size:7px;letter-spacing:3.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">Valor do Projeto &mdash; Pagamento &Agrave; Vista</div>'
 
-      +'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">'
-
-        // À vista
+      // Valor à vista — número principal, enorme
+      +'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;">'
         +'<div>'
-          +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:8px;">&Agrave; Vista &mdash; Sem Juros</div>'
-          +'<div style="font-size:42px;font-weight:700;color:#C9A84C;line-height:1;letter-spacing:-1px;">R$ '+fm(q.vista)+'</div>'
-          +'<div style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:10.5px;color:rgba(255,255,255,0.3);margin-top:6px;">Economia de <span style="color:rgba(201,168,76,0.6);font-weight:600;">R$ '+fm(economia)+'</span> em rela&ccedil;&atilde;o ao parcelado</div>'
+          +'<div style="font-size:52px;font-weight:700;color:#C9A84C;line-height:1;letter-spacing:-1.5px;">R$&nbsp;'+fm(q.vista)+'</div>'
+          +'<div style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:11px;color:rgba(255,255,255,0.35);margin-top:7px;letter-spacing:0.2px;">Pagamento em 2× sem juros &mdash; entrada + entrega</div>'
         +'</div>'
-
-        // Badge e parcelado
-        +'<div style="text-align:right;">'
-          +'<div style="background:#C9A84C;color:#0C0900;font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:8px;font-weight:900;padding:5px 14px;border-radius:4px;letter-spacing:2px;text-transform:uppercase;display:inline-block;margin-bottom:12px;">Melhor Opção</div>'
-          +'<div style="font-family:\'Helvetica Neue\',Arial,sans-serif;">'
-            +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.2);font-weight:600;margin-bottom:3px;">Ou parcelado</div>'
-            +'<div style="font-size:15px;font-weight:700;color:rgba(255,255,255,0.25);">R$ '+fm(q.parc)+'</div>'
-            +'<div style="font-size:9.5px;color:rgba(255,255,255,0.15);">at&eacute; 8× de R$ '+fm(q.p8)+'</div>'
-          +'</div>'
+        +'<div style="background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.25);border-radius:8px;padding:10px 16px;text-align:center;font-family:\'Helvetica Neue\',Arial,sans-serif;">'
+          +'<div style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:700;margin-bottom:3px;">Ou parcele</div>'
+          +'<div style="font-size:14px;font-weight:700;color:rgba(255,255,255,0.3);">8× de R$&nbsp;'+fm(q.p8)+'</div>'
+          +'<div style="font-size:9px;color:rgba(255,255,255,0.18);margin-top:2px;">Total R$&nbsp;'+fm(q.parc)+' c/ juros</div>'
         +'</div>'
-
       +'</div>'
+
     +'</div>'
 
-    // ── CONDIÇÃO DE PAGAMENTO ──
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+    // ── COMO FUNCIONA O PAGAMENTO — super claro ──
+    +'<div style="background:#fff;border:2px solid #E8E0CC;border-radius:10px;padding:20px 24px;margin-bottom:0;">'
+      +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:14px;">Como fica o pagamento</div>'
 
-      +'<div style="background:#fff;border:1px solid #E8E0CC;border-radius:8px;padding:16px 20px;">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
-          +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;">Entrada</div>'
-          +'<div style="font-size:8.5px;color:#bbb;font-family:\'Helvetica Neue\',Arial,sans-serif;">50%</div>'
+      // Linha 1: entrada
+      +'<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #EDE5CC;">'
+        +'<div style="display:flex;align-items:center;gap:12px;">'
+          +'<div style="width:30px;height:30px;border-radius:50%;background:#0C0900;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
+            +'<span style="color:#C9A84C;font-size:12px;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;">1</span>'
+          +'</div>'
+          +'<div>'
+            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2;">Na assinatura do contrato</div>'
+            +'<div style="font-size:10px;color:#999;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-top:2px;">Entrada para iniciar a produ&ccedil;&atilde;o</div>'
+          +'</div>'
         +'</div>'
-        +'<div style="font-size:22px;font-weight:700;color:#1a1a1a;line-height:1;margin-bottom:4px;">R$ '+fm(q.ent)+'</div>'
-        +'<div style="font-size:10.5px;color:#aaa;font-family:\'Helvetica Neue\',Arial,sans-serif;">Na assinatura &mdash; ap&oacute;s medi&ccedil;&atilde;o</div>'
+        +'<div style="text-align:right;">'
+          +'<div style="font-size:22px;font-weight:700;color:#0C0900;line-height:1;">R$&nbsp;'+fm(q.ent)+'</div>'
+          +'<div style="font-size:9px;color:#C9A84C;font-family:\'Helvetica Neue\',Arial,sans-serif;font-weight:600;">50% do total</div>'
+        +'</div>'
       +'</div>'
 
-      +'<div style="background:#fff;border:1px solid #E8E0CC;border-radius:8px;padding:16px 20px;">'
-        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
-          +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;">Na Entrega</div>'
-          +'<div style="font-size:8.5px;color:#bbb;font-family:\'Helvetica Neue\',Arial,sans-serif;">50%</div>'
+      // Linha 2: entrega
+      +'<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #EDE5CC;">'
+        +'<div style="display:flex;align-items:center;gap:12px;">'
+          +'<div style="width:30px;height:30px;border-radius:50%;background:#0C0900;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'
+            +'<span style="color:#C9A84C;font-size:12px;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;">2</span>'
+          +'</div>'
+          +'<div>'
+            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2;">Na entrega e instala&ccedil;&atilde;o</div>'
+            +'<div style="font-size:10px;color:#999;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-top:2px;">Ap&oacute;s conclu&iacute;do e instalado</div>'
+          +'</div>'
         +'</div>'
-        +'<div style="font-size:22px;font-weight:700;color:#1a1a1a;line-height:1;margin-bottom:4px;">R$ '+fm(q.ent)+'</div>'
-        +'<div style="font-size:10.5px;color:#aaa;font-family:\'Helvetica Neue\',Arial,sans-serif;">Na entrega e instala&ccedil;&atilde;o</div>'
+        +'<div style="text-align:right;">'
+          +'<div style="font-size:22px;font-weight:700;color:#0C0900;line-height:1;">R$&nbsp;'+fm(q.ent)+'</div>'
+          +'<div style="font-size:9px;color:#C9A84C;font-family:\'Helvetica Neue\',Arial,sans-serif;font-weight:600;">50% do total</div>'
+        +'</div>'
+      +'</div>'
+
+      // Linha total — resumo final
+      +'<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0 0;">'
+        +'<div style="font-size:11px;font-weight:700;color:#888;font-family:\'Helvetica Neue\',Arial,sans-serif;letter-spacing:0.5px;text-transform:uppercase;">Total &agrave; vista</div>'
+        +'<div style="font-size:26px;font-weight:700;color:#C9A84C;line-height:1;">R$&nbsp;'+fm(q.vista)+'</div>'
       +'</div>'
 
     +'</div>'

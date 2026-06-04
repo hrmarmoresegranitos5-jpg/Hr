@@ -26,7 +26,7 @@ function _gel(id) {
   };
 }
 
-var CFG = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_cfg')||'null'); }catch(e){ return null; } })();
+var CFG_TUM = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_cfg')||'null'); }catch(e){ return null; } })();
 var HIST = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_hist')||'[]')||[]; }catch(e){ return []; } })();
 
 var DEF_CFG = {
@@ -71,42 +71,42 @@ var DEF_CFG = {
   ]
 };
 
-if (!CFG) CFG = JSON.parse(JSON.stringify(DEF_CFG));
-if (!CFG.emp)   CFG.emp   = JSON.parse(JSON.stringify(DEF_CFG.emp));
-if (!CFG.emp.nome) CFG.emp.nome = DEF_CFG.emp.nome;
-if (!CFG.mob)   CFG.mob   = JSON.parse(JSON.stringify(DEF_CFG.mob));
-if (!CFG.civil) CFG.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
-if (!CFG.pedras)CFG.pedras= JSON.parse(JSON.stringify(DEF_CFG.pedras));
-if (typeof CFG.groqKey === 'undefined') CFG.groqKey = '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';
+if (!CFG_TUM) CFG_TUM = JSON.parse(JSON.stringify(DEF_CFG));
+if (!CFG_TUM.emp)   CFG_TUM.emp   = JSON.parse(JSON.stringify(DEF_CFG.emp));
+if (!CFG_TUM.emp.nome) CFG_TUM.emp.nome = DEF_CFG.emp.nome;
+if (!CFG_TUM.mob)   CFG_TUM.mob   = JSON.parse(JSON.stringify(DEF_CFG.mob));
+if (!CFG_TUM.civil) CFG_TUM.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
+if (!CFG_TUM.pedras)CFG_TUM.pedras= JSON.parse(JSON.stringify(DEF_CFG.pedras));
+if (typeof CFG_TUM.groqKey === 'undefined') CFG_TUM.groqKey = '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';
 // ── Garantir esp=3 em todas as pedras (túmulo usa 3cm como padrão) ──
-CFG.pedras.forEach(function(p){ if (!p.esp || p.esp < 2) p.esp = 3; });
+CFG_TUM.pedras.forEach(function(p){ if (!p.esp || p.esp < 2) p.esp = 3; });
 // Garantir campos escalares — podem estar ausentes se hr_tum_cfg foi gravado
 // parcialmente por tumSincPedrasGlobais() antes da primeira carga completa
-if (CFG.margem  === undefined || CFG.margem  === null) CFG.margem  = DEF_CFG.margem;
-if (CFG.parcMax === undefined || CFG.parcMax === null) CFG.parcMax = DEF_CFG.parcMax;
-if (CFG.juros   === undefined || CFG.juros   === null) CFG.juros   = DEF_CFG.juros;
-if (!CFG.ind) CFG.ind = JSON.parse(JSON.stringify(DEF_CFG.ind));
+if (CFG_TUM.margem  === undefined || CFG_TUM.margem  === null) CFG_TUM.margem  = DEF_CFG.margem;
+if (CFG_TUM.parcMax === undefined || CFG_TUM.parcMax === null) CFG_TUM.parcMax = DEF_CFG.parcMax;
+if (CFG_TUM.juros   === undefined || CFG_TUM.juros   === null) CFG_TUM.juros   = DEF_CFG.juros;
+if (!CFG_TUM.ind) CFG_TUM.ind = JSON.parse(JSON.stringify(DEF_CFG.ind));
 // Garantir que todos os campos de ind existam
-Object.keys(DEF_CFG.ind).forEach(function(k){ if(CFG.ind[k]===undefined)CFG.ind[k]=DEF_CFG.ind[k]; });
-if (!CFG.civil.trelica)        CFG.civil.trelica        = DEF_CFG.civil.trelica;
-if (!CFG.civil.massa_plastica) CFG.civil.massa_plastica = DEF_CFG.civil.massa_plastica;
-if (!CFG.civil.canaleta)       CFG.civil.canaleta       = DEF_CFG.civil.canaleta;
+Object.keys(DEF_CFG.ind).forEach(function(k){ if(CFG_TUM.ind[k]===undefined)CFG_TUM.ind[k]=DEF_CFG.ind[k]; });
+if (!CFG_TUM.civil.trelica)        CFG_TUM.civil.trelica        = DEF_CFG.civil.trelica;
+if (!CFG_TUM.civil.massa_plastica) CFG_TUM.civil.massa_plastica = DEF_CFG.civil.massa_plastica;
+if (!CFG_TUM.civil.canaleta)       CFG_TUM.civil.canaleta       = DEF_CFG.civil.canaleta;
 
 // ── MIGRAÇÃO v64→v66: ferro38/ferro516 mudaram de R$/barra-12m para R$/metro-linear ──
 // Valores antigos: ferro38>=20 ou ferro516>=20 (por barra); novos: <15 (por metro)
 // Detectar localStorage antigo e resetar preços civis para evitar cálculos inflados.
 (function() {
-  var precisaMigrar = CFG.civil.ferro38 > 20 || CFG.civil.ferro516 > 20 ||
-    CFG.civil.cimento > 50 || CFG.civil.areia > 150 || CFG.civil.brita > 180;
+  var precisaMigrar = CFG_TUM.civil.ferro38 > 20 || CFG_TUM.civil.ferro516 > 20 ||
+    CFG_TUM.civil.cimento > 50 || CFG_TUM.civil.areia > 150 || CFG_TUM.civil.brita > 180;
   if (precisaMigrar) {
-    CFG.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
-    localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+    CFG_TUM.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
+    localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
     console.info('[HR Túmulos] Preços civis migrados v64→v66 (ferro agora em R$/metro linear)');
   }
 })();
 
 // Migração: garantir campo esp em pedras antigas
-CFG.pedras.forEach(function(p){ if (!p.esp) p.esp = 2; });
+CFG_TUM.pedras.forEach(function(p){ if (!p.esp) p.esp = 2; });
 
 // ══════════════════════════════════════════════
 // ESTADO DO ORÇAMENTO
@@ -128,7 +128,7 @@ var SEL = {
     operacional: true,       // Energia, combustível, manutenção
     perdas: true,            // Quebra de pedra, sobra, desperdício
     risco: true,             // Içamento, retrabalho, garantia
-    // Overrides manuais — 0 = usar cálculo automático dos CFG
+    // Overrides manuais — 0 = usar cálculo automático dos CFG_TUM
     consumivel_manual: 0,
     operacional_manual: 0,
     perdas_manual: 0,
@@ -301,7 +301,7 @@ function iaAnalisar() {
   var descricao = (document.getElementById('iaDesc').value || '').trim();
 
   // Monta lista de pedras disponíveis para o prompt
-  var pedrasDisponiveis = CFG.pedras.map(function(p) {
+  var pedrasDisponiveis = CFG_TUM.pedras.map(function(p) {
     return '"' + p.nm + '" (id:' + p.id + ', R$' + p.pr + '/m², cat:' + p.cat + ')';
   }).join(', ');
 
@@ -348,7 +348,7 @@ function iaAnalisar() {
     'Retorne apenas o JSON. Exemplo parcial: {"preset":"dupla","C":200,"L":70,"N":2,"disp":"vertical","acabamento":"POL","material":"Preto São Gabriel","pecas":{"tampa":true,"lat_esq":true,"lat_dir":false,"frente":true,"fundo":false,"lapide":false,"rodape":false},"opts":{"cruzGranito":false,"foto_porc":false,"jarro":true,"lapide45":false,"gravacao":true},"obs":"Túmulo duplo vertical em granito preto polido, par de jarros, gravação jateada na frente"}'
   ].filter(Boolean).join('\n');
 
-  var groqKey = CFG.groqKey || '';
+  var groqKey = CFG_TUM.groqKey || '';
   if (!groqKey) {
     status.textContent = '⚠ Chave do Groq não configurada. Vá em Configurações → IA.';
     status.style.background = 'rgba(192,90,74,.1)';
@@ -447,7 +447,7 @@ function iaAplicarResultado(p) {
   // ── NOVO MATERIAL (IA identificou pedra fora do estoque) ──
   if (p.novoMaterial && p.novoMaterial.nm) {
     var nm = p.novoMaterial;
-    var jaExiste = CFG.pedras.find(function(x) {
+    var jaExiste = CFG_TUM.pedras.find(function(x) {
       return x.nm.toLowerCase() === nm.nm.toLowerCase();
     });
     if (!jaExiste) {
@@ -459,8 +459,8 @@ function iaAplicarResultado(p) {
         peso: nm.peso || 75,
         esp: nm.esp || 3
       };
-      CFG.pedras.push(novaPedra);
-      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+      CFG_TUM.pedras.push(novaPedra);
+      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
       buildPedrasCfg();
       buildMatCats();
       buildMatList();
@@ -503,7 +503,7 @@ function iaAplicarResultado(p) {
   // Material — tenta casar pelo nome exato, parcial ou novo criado pela IA
   if (p.material) {
     var matNm = p.material.toLowerCase();
-    var found = CFG.pedras.find(function(ped){
+    var found = CFG_TUM.pedras.find(function(ped){
       return ped.nm.toLowerCase().indexOf(matNm) >= 0 ||
              matNm.indexOf(ped.nm.toLowerCase().split(' ')[0]) >= 0;
     });
@@ -768,7 +768,7 @@ function atualizarTampasUI() {
   buildGradePresets();
 
   var td = getTampasDims();
-  var mat = CFG.pedras.find(function(x){return x.id===SEL.matId;}) || CFG.pedras[0];
+  var mat = CFG_TUM.pedras.find(function(x){return x.id===SEL.matId;}) || CFG_TUM.pedras[0];
   var m2_cada = td.C_cada * td.L_cada;
   var peso_cada = m2_cada * (td.espT / 100) * mat.peso;
 
@@ -1047,7 +1047,7 @@ function aplicarPreset(p, silent) {
 
 function buildMatCats() {
   var cats = ['Todos'];
-  CFG.pedras.forEach(function(p) {
+  CFG_TUM.pedras.forEach(function(p) {
     if (cats.indexOf(p.cat) < 0) cats.push(p.cat);
   });
   var el = document.getElementById('matCats');
@@ -1078,8 +1078,8 @@ function buildMatList() {
   // Ordem preferida para túmulo (granitos escuros primeiro)
   var PREF = ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'];
   var base = SEL.matCat === 'Todos'
-    ? CFG.pedras.slice()
-    : CFG.pedras.filter(function(p){ return p.cat === SEL.matCat; });
+    ? CFG_TUM.pedras.slice()
+    : CFG_TUM.pedras.filter(function(p){ return p.cat === SEL.matCat; });
 
   var todas = base;
   if (SEL.matCat === 'Todos') {
@@ -1123,7 +1123,7 @@ function buildMatList() {
 
   el.innerHTML = h || '<span style="font-size:.75rem;color:var(--t4)">Nenhuma pedra nesta categoria</span>';
 
-  var mat = CFG.pedras.find(function(x){return x.id===SEL.matId;});
+  var mat = CFG_TUM.pedras.find(function(x){return x.id===SEL.matId;});
   var elSel = document.getElementById('matSel');
   var elInfo = document.getElementById('matInfo');
   if (elSel) elSel.textContent = mat ? (mat.nm + ' · R$ '+mat.pr+'/m²') : '';
@@ -1137,7 +1137,7 @@ function selMat(id){
 }
 
 function atualizarEspessuraDaPedra() {
-  var mat = CFG.pedras.find(function(x){ return x.id === SEL.matId; });
+  var mat = CFG_TUM.pedras.find(function(x){ return x.id === SEL.matId; });
   if (mat && mat.esp) {
     var sel = document.getElementById('mE');
     if (sel) {
@@ -1616,7 +1616,7 @@ function calcularFull() {
   // Horizontal: 0 lajes internas (as divisórias são verticais, paredes de pedra) + 1 tampa
   var N_lajes_div = d.disp === 'horizontal' ? 0 : Math.max(0, d.N - 1);
 
-  var mat  = CFG.pedras.find(function(x){return x.id===SEL.matId;}) || CFG.pedras[0];
+  var mat  = CFG_TUM.pedras.find(function(x){return x.id===SEL.matId;}) || CFG_TUM.pedras[0];
   var acab = ACABAMENTOS.find(function(x){return x.id===SEL.acabamento;}) || ACABAMENTOS[0];
   var ts   = TIPOS_SERV.find(function(x){return x.id===SEL.tipoServ;}) || TIPOS_SERV[0];
 
@@ -1956,7 +1956,7 @@ function calcularFull() {
     civil.m3_brita = +((Vol_concreto * 0.65).toFixed(2));
 
     // ─ CUSTO TOTAL CIVIL ───────────────────────────────────────────────
-    var cv = CFG.civil;
+    var cv = CFG_TUM.civil;
     civil.custo =
       civil.sacos_cimento    * cv.cimento   +
       civil.m3_areia         * cv.areia     +
@@ -1978,7 +1978,7 @@ function calcularFull() {
     nDias_laje = (N_lajes_est > 0) ? Math.max(1, Math.ceil(N_lajes_est * 1.5)) : 0;
   } else {
     // Somente revestimento ou reforma: apenas argamassa de assentamento
-    civil.custo = civil.sacos_argam * CFG.civil.argamassa;
+    civil.custo = civil.sacos_argam * CFG_TUM.civil.argamassa;
     if (SEL.opts.cemiterio) civil.custo *= (1 + SEL.adv.fatorCem / 100);
   }
 
@@ -1989,7 +1989,7 @@ function calcularFull() {
   //   Laje:        ~1 laje/dia (concretagem + forma simples)
   //   Revestimento:~3 m²/dia (1 marmoreiro + 1 ajudante)
   //   Acabamento:  ~0,5 dia base + complexidade
-  var mob = CFG.mob;
+  var mob = CFG_TUM.mob;
   var custo_mob = 0;
   var nDias_ped = 0, nDias_ajud = 0;
   var custo_ped = 0, custo_ajud = 0;
@@ -2099,7 +2099,7 @@ function calcularFull() {
   // ─── 7. TOTAIS ───────────────────────────────────────────────────
   // ── CUSTOS INDIRETOS ──────────────────────────────────────────────────────
   var ind = SEL.ind || {};
-  var ci = CFG.ind || DEF_CFG.ind;
+  var ci = CFG_TUM.ind || DEF_CFG.ind;
   var custo_direto_base = custo_pedra + custo_acabamento + civil.custo + custo_mob + custo_extras;
 
   // 1. Consumíveis: discos, brocas, cola, silicone, EPIs
@@ -2139,9 +2139,9 @@ function calcularFull() {
   var custo_ind_total = +(custo_consumivel + custo_operacional + custo_perdas + custo_risco).toFixed(2);
 
   var custo_total=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras)+cr+clv+custo_ind_total;
-  var valor_vista=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras+custo_ind_total)*(1+CFG.margem/100)+vr+vlv;
-  var valor_parc   = valor_vista * (1 + CFG.juros  / 100);
-  var parc_mensal  = valor_parc  / CFG.parcMax;
+  var valor_vista=(custo_pedra+custo_acabamento+civil.custo+custo_mob+custo_extras+custo_ind_total)*(1+CFG_TUM.margem/100)+vr+vlv;
+  var valor_parc   = valor_vista * (1 + CFG_TUM.juros  / 100);
+  var parc_mensal  = valor_parc  / CFG_TUM.parcMax;
   var margem_reais = valor_vista - custo_total;
 
   return {
@@ -2174,7 +2174,7 @@ function calcularFull() {
 function buildCustosIndiretos(r) {
   var card = document.getElementById('cardCustosInd');
   if (!card) return;
-  var ci = CFG.ind || DEF_CFG.ind;
+  var ci = CFG_TUM.ind || DEF_CFG.ind;
   var ind = SEL.ind || {};
   var m2 = (r && r.m2_total) ? r.m2_total : 0;
   var direto = r ? (r.custo_pedra||0)+(r.custo_acabamento||0)+(r.civil?r.civil.custo:0)+(r.custo_mob||0)+(r.custo_extras||0) : 0;
@@ -2682,7 +2682,7 @@ function renderResultado(o) {
   // ── Proteção: margem negativa = PREJUÍZO ─────────────────────────────────
   var _margemNeg = r.margem_reais < 0;
   gridCusto.push({
-    lbl: _margemNeg ? '🔴 PREJUÍZO — venda abaixo do custo' : 'Lucro ' + CFG.margem + '%',
+    lbl: _margemNeg ? '🔴 PREJUÍZO — venda abaixo do custo' : 'Lucro ' + CFG_TUM.margem + '%',
     val: 'R$ ' + _fn(r.margem_reais),
     cl:  _margemNeg ? 'red' : 'grn',
     sub: _margemNeg ? '⚠️ Ajuste preço ou margem antes de salvar' : 'Margem aplicada'
@@ -2750,7 +2750,7 @@ function renderResultado(o) {
   dh += '<div class="det-sec">🧱 Material Civil</div>';
   (function() {
     var cv = r.civil;
-    var p  = CFG.civil;
+    var p  = CFG_TUM.civil;
     // helper: linha com quantidade, unidade, preço unitário e subtotal
     function civLn(label, qtd, unit, prUnit, sub) {
       if (!qtd || qtd <= 0) return;
@@ -2787,17 +2787,17 @@ function renderResultado(o) {
   dh += '<div class="det-sec">🔨 Mão de Obra</div>';
   if (r.ts.id === 'estrutura') {
     if (r.nDias_ped > 0) {
-      dh += '<div class="det-line"><span class="det-k">1 Pedreiro × '+r.nDias_ped+' dia'+(r.nDias_ped>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG.mob.pedreiro)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ped)+'</span></div>';
+      dh += '<div class="det-line"><span class="det-k">1 Pedreiro × '+r.nDias_ped+' dia'+(r.nDias_ped>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.pedreiro)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ped)+'</span></div>';
     }
     if (r.nDias_ajud > 0) {
-      dh += '<div class="det-line"><span class="det-k">1 Ajudante × '+r.nDias_ajud+' dia'+(r.nDias_ajud>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG.mob.ajudante)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ajud)+'</span></div>';
+      dh += '<div class="det-line"><span class="det-k">1 Ajudante × '+r.nDias_ajud+' dia'+(r.nDias_ajud>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.ajudante)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ajud)+'</span></div>';
     }
   }
   if (r.ts.id === 'reforma' && r.custo_remocao > 0) {
     dh += '<div class="det-line"><span class="det-k">Remoção / desmonte</span><span class="det-v">R$ '+_TI_fm(r.custo_remocao)+'</span></div>';
   }
-  if (r.custo_inst > 0) dh += '<div class="det-line"><span class="det-k">Instalação pedra — '+r.nDiasInst+' dia'+(r.nDiasInst>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG.mob.instalacao)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_inst)+'</span></div>';
-  if (r.custo_mont > 0) dh += '<div class="det-line"><span class="det-k">Montagem / acabamento — '+r.nDiasMont+' dia'+(r.nDiasMont>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG.mob.montagem)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_mont)+'</span></div>';
+  if (r.custo_inst > 0) dh += '<div class="det-line"><span class="det-k">Instalação pedra — '+r.nDiasInst+' dia'+(r.nDiasInst>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.instalacao)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_inst)+'</span></div>';
+  if (r.custo_mont > 0) dh += '<div class="det-line"><span class="det-k">Montagem / acabamento — '+r.nDiasMont+' dia'+(r.nDiasMont>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.montagem)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_mont)+'</span></div>';
   dh += '<div class="det-line"><span class="det-k">Transporte</span><span class="det-v">R$ '+_TI_fm(r.frete)+'</span></div>';
   dh += '<div class="det-line"><span class="det-k">Total M.O.</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_mob)+'</span></div>';
 
@@ -2817,7 +2817,7 @@ function renderResultado(o) {
   dh += '<div style="border-top:1px solid var(--gold3);margin-top:8px;padding-top:8px">';
   dh += '<div class="det-line"><span class="det-k">Custo total (interno)</span><span class="det-v">R$ '+_TI_fm(r.custo_total)+'</span></div>';
   dh += '<div class="det-line"><span class="det-k">'
-    + (r.margem_reais < 0 ? '🔴 PREJUÍZO (venda abaixo do custo)' : 'Margem ' + CFG.margem + '%')
+    + (r.margem_reais < 0 ? '🔴 PREJUÍZO (venda abaixo do custo)' : 'Margem ' + CFG_TUM.margem + '%')
     + '</span><span class="det-v" style="color:' + (r.margem_reais < 0 ? '#e53e3e' : 'var(--grn)') + '">R$ '
     + _TI_fm(r.margem_reais) + '</span></div>';
   dh += '</div>';
@@ -2831,12 +2831,12 @@ function renderResultado(o) {
       '<div class="price-box-lbl">💎 VALOR DO ORÇAMENTO</div>'
       +'<div id="rVista" class="price-box-val">R$ '+_TI_fm(r.valor_vista)+'</div>'
       +'<div class="price-box-parc">'
-        +'💳 Parcelado em até '+CFG.parcMax+'× de <strong>R$ '+_TI_fm(r.parc_mensal)+'</strong>'
+        +'💳 Parcelado em até '+CFG_TUM.parcMax+'× de <strong>R$ '+_TI_fm(r.parc_mensal)+'</strong>'
         +'<br><span style="color:var(--t4)">Total parcelado: R$ '+_TI_fm(r.valor_parc)+'</span>'
       +'</div>';
   } else {
     _gel('rVista').textContent = 'R$ '+_TI_fm(r.valor_vista);
-    _gel('rParc').textContent = 'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
+    _gel('rParc').textContent = 'Parcelado: R$ '+_TI_fm(r.valor_parc)+' — até '+CFG_TUM.parcMax+'× de R$ '+_TI_fm(r.parc_mensal);
   }
 
   // Texto WA
@@ -2851,7 +2851,7 @@ function renderResultado(o) {
 
 function gerarTextoWA(o, r) {
   var wa = '━━━━━━━━━━━━━━━━━━━━━\n';
-  wa += '🏛 *'+CFG.emp.nome+'*\n';
+  wa += '🏛 *'+CFG_TUM.emp.nome+'*\n';
   wa += '📋 *ORÇAMENTO ' + (o.num||'') + '*\n';
   wa += '━━━━━━━━━━━━━━━━━━━━━\n\n';
   wa += '👤 *Cliente:* '+o.cli+'\n';
@@ -2882,11 +2882,11 @@ function gerarTextoWA(o, r) {
   wa += '📦 *Área:* '+r.m2_total.toFixed(2)+' m² · '+Math.round(r.peso_total)+' kg\n';
   wa += '\n━━━━━━━━━━━━━━━━━━━━━\n';
   wa += '💰 *À VISTA: R$ '+_TI_fm(r.valor_vista)+'*\n';
-  wa += '💳 Parcelado: até '+CFG.parcMax+'× de R$ '+_TI_fm(r.parc_mensal)+'\n';
+  wa += '💳 Parcelado: até '+CFG_TUM.parcMax+'× de R$ '+_TI_fm(r.parc_mensal)+'\n';
   // PRAZO REMOVIDO — não incluir dias no WhatsApp
   wa += '━━━━━━━━━━━━━━━━━━━━━\n';
   if (o.obs) wa += '📝 Obs: '+o.obs+'\n━━━━━━━━━━━━━━━━━━━━━\n';
-  wa += CFG.emp.nome+'\n'+CFG.emp.tel+'\n'+CFG.emp.end;
+  wa += CFG_TUM.emp.nome+'\n'+CFG_TUM.emp.tel+'\n'+CFG_TUM.emp.end;
   _gel('txtWA').value = wa;
 }
 
@@ -2895,7 +2895,7 @@ function gerarTextoWA(o, r) {
 // ══════════════════════════════════════════════
 
 function gerarPrintArea(o,r){
-  var emp=CFG.emp||{};
+  var emp=CFG_TUM.emp||{};
   var d=r.d, mat=r.mat||{}, acab=r.acab||{};
   var cnt=parseInt(localStorage.getItem('hr_pdf_cnt_t')||'0',10);
   var orcNum=o.num||('ORC-'+String(cnt).padStart(4,'0'));
@@ -2983,7 +2983,7 @@ function gerarPrintArea(o,r){
       +'<div style="font-size:8px;color:rgba(255,255,255,.3)">'+esc(orcNum)+' · '+pg_label+'</div>'
       +'</div>';
   }
-  var vista=r.valor_vista, juros=CFG.juros||12, parcMax=CFG.parcMax||8;
+  var vista=r.valor_vista, juros=CFG_TUM.juros||12, parcMax=CFG_TUM.parcMax||8;
   var parc=vista*(1+juros/100), pMes=parc/parcMax, eco=parc-vista, ent=vista*0.5;
   var matNmDisp=esc(mat.nm||o.matNm||'—');
   var tipoJazNm=esc(o.tipoServNm||'—');
@@ -3187,7 +3187,7 @@ function gerarPrintArea(o,r){
   }
   if(r.civil&&(r.civil.sacos_cimento>0||r.civil.unid_blocos>0||r.civil.sacos_argam>0)){
     p4+='<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#7a4e00;font-weight:900;margin:0 0 10px;padding:0 0 5px;border-bottom:2px solid #C9A84C">🏗️ QUANTITATIVO CIVIL</div>';
-    var cv2=r.civil, pp2=CFG.civil;
+    var cv2=r.civil, pp2=CFG_TUM.civil;
     p4+='<div style="border:1px solid #e8dfc4;border-radius:10px;overflow:hidden;margin-bottom:14px">';
     p4+='<div style="background:#faf6ec;padding:6px 13px;display:grid;grid-template-columns:1fr auto auto;gap:8px;border-bottom:2px solid #e0d4a8"><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em">Material</span><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Qtd × Unit.</span><span style="font-size:9px;font-weight:700;color:#7a6030;text-transform:uppercase;letter-spacing:.06em;text-align:right">Subtotal</span></div>';
     var civRows4=[];
@@ -3313,7 +3313,7 @@ function baixarPDF(){
   var pb=document.getElementById('pBody');
   if(!pb||!pb.innerHTML.trim()){toast('Recalcule antes de baixar',true);return;}
   if(!_checkMargemAntesDeAcao('baixar')) return;
-  var emp=CFG&&CFG.emp?CFG.emp:{};
+  var emp=CFG_TUM&&CFG_TUM.emp?CFG_TUM.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orçamento — '+(emp.nome||'HR Mármores')+'</title>'
     +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+pb.innerHTML+'</body></html>';
@@ -3334,7 +3334,7 @@ function compartilharPDF(){
   var pb=document.getElementById('pBody');
   if(!pb||!pb.innerHTML.trim()){toast('Recalcule antes de compartilhar',true);return;}
   if(!_checkMargemAntesDeAcao('compartilhar')) return;
-  var emp=CFG&&CFG.emp?CFG.emp:{};
+  var emp=CFG_TUM&&CFG_TUM.emp?CFG_TUM.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Orçamento</title>'
     +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+pb.innerHTML+'</body></html>';
@@ -3692,7 +3692,7 @@ function exportarHistorico() {
 }
 
 function exportarCfg() {
-  var blob = new Blob([JSON.stringify(CFG, null, 2)], {type:'application/json'});
+  var blob = new Blob([JSON.stringify(CFG_TUM, null, 2)], {type:'application/json'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
@@ -3724,8 +3724,8 @@ function testarGroq() {
     } else {
       res.textContent = '✓ Groq conectado!';
       res.style.color = 'var(--grn)';
-      CFG.groqKey = key;
-      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+      CFG_TUM.groqKey = key;
+      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
       toast('✓ Chave Groq salva!');
     }
   })
@@ -3733,58 +3733,58 @@ function testarGroq() {
 }
 
 function loadCfgUI() {
-  _gel('cGroqKey').value = CFG.groqKey || '';
-  _gel('cEmpNome').value = CFG.emp.nome;
-  _gel('cEmpTel').value  = CFG.emp.tel;
-  _gel('cEmpEnd').value  = CFG.emp.end;
-  _gel('cEmpCid').value  = CFG.emp.cidade;
-  _gel('cMargem').value  = CFG.margem;
-  _gel('cParc').value    = CFG.parcMax;
-  _gel('cJuros').value   = CFG.juros;
-  _gel('cPedreiro').value   = CFG.mob.pedreiro;
-  _gel('cAjudante').value   = CFG.mob.ajudante;
-  _gel('cInstalacao').value = CFG.mob.instalacao;
-  _gel('cMontagem').value   = CFG.mob.montagem;
-  _gel('cTransporte').value = CFG.mob.transporte;
-  _gel('cCimento').value    = CFG.civil.cimento;
-  _gel('cAreia').value      = CFG.civil.areia;
-  _gel('cBrita').value      = CFG.civil.brita;
-  _gel('cArgamassa').value  = CFG.civil.argamassa;
-  _gel('cFerro38').value    = CFG.civil.ferro38;
-  _gel('cFerro516').value   = CFG.civil.ferro516;
-  _gel('cMalha').value      = CFG.civil.malha;
-  _gel('cBlocos').value     = CFG.civil.blocos;
-  _gel('cCanaleta').value       = CFG.civil.canaleta;
-  _gel('cTrelica').value        = CFG.civil.trelica;
-  _gel('cMassaPlastica').value  = CFG.civil.massa_plastica;
+  _gel('cGroqKey').value = CFG_TUM.groqKey || '';
+  _gel('cEmpNome').value = CFG_TUM.emp.nome;
+  _gel('cEmpTel').value  = CFG_TUM.emp.tel;
+  _gel('cEmpEnd').value  = CFG_TUM.emp.end;
+  _gel('cEmpCid').value  = CFG_TUM.emp.cidade;
+  _gel('cMargem').value  = CFG_TUM.margem;
+  _gel('cParc').value    = CFG_TUM.parcMax;
+  _gel('cJuros').value   = CFG_TUM.juros;
+  _gel('cPedreiro').value   = CFG_TUM.mob.pedreiro;
+  _gel('cAjudante').value   = CFG_TUM.mob.ajudante;
+  _gel('cInstalacao').value = CFG_TUM.mob.instalacao;
+  _gel('cMontagem').value   = CFG_TUM.mob.montagem;
+  _gel('cTransporte').value = CFG_TUM.mob.transporte;
+  _gel('cCimento').value    = CFG_TUM.civil.cimento;
+  _gel('cAreia').value      = CFG_TUM.civil.areia;
+  _gel('cBrita').value      = CFG_TUM.civil.brita;
+  _gel('cArgamassa').value  = CFG_TUM.civil.argamassa;
+  _gel('cFerro38').value    = CFG_TUM.civil.ferro38;
+  _gel('cFerro516').value   = CFG_TUM.civil.ferro516;
+  _gel('cMalha').value      = CFG_TUM.civil.malha;
+  _gel('cBlocos').value     = CFG_TUM.civil.blocos;
+  _gel('cCanaleta').value       = CFG_TUM.civil.canaleta;
+  _gel('cTrelica').value        = CFG_TUM.civil.trelica;
+  _gel('cMassaPlastica').value  = CFG_TUM.civil.massa_plastica;
 }
 
 function svCfg() {
-  CFG.groqKey  = _gel('cGroqKey').value.trim();
-  CFG.emp.nome   = _gel('cEmpNome').value;
-  CFG.emp.tel    = _gel('cEmpTel').value;
-  CFG.emp.end    = _gel('cEmpEnd').value;
-  CFG.emp.cidade = _gel('cEmpCid').value;
-  CFG.margem  = +(_gel('cMargem').value)  || 35;
-  CFG.parcMax = +(_gel('cParc').value)    || 8;
-  CFG.juros   = +(_gel('cJuros').value)   || 12;
-  CFG.mob.pedreiro   = +(_gel('cPedreiro').value);
-  CFG.mob.ajudante   = +(_gel('cAjudante').value);
-  CFG.mob.instalacao = +(_gel('cInstalacao').value);
-  CFG.mob.montagem   = +(_gel('cMontagem').value);
-  CFG.mob.transporte = +(_gel('cTransporte').value);
-  CFG.civil.cimento   = +(_gel('cCimento').value);
-  CFG.civil.areia     = +(_gel('cAreia').value);
-  CFG.civil.brita     = +(_gel('cBrita').value);
-  CFG.civil.argamassa = +(_gel('cArgamassa').value);
-  CFG.civil.ferro38   = +(_gel('cFerro38').value);
-  CFG.civil.ferro516  = +(_gel('cFerro516').value);
-  CFG.civil.malha     = +(_gel('cMalha').value);
-  CFG.civil.blocos    = +(_gel('cBlocos').value);
-  CFG.civil.canaleta       = +(_gel('cCanaleta').value);
-  CFG.civil.trelica        = +(_gel('cTrelica').value);
-  CFG.civil.massa_plastica = +(_gel('cMassaPlastica').value);
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+  CFG_TUM.groqKey  = _gel('cGroqKey').value.trim();
+  CFG_TUM.emp.nome   = _gel('cEmpNome').value;
+  CFG_TUM.emp.tel    = _gel('cEmpTel').value;
+  CFG_TUM.emp.end    = _gel('cEmpEnd').value;
+  CFG_TUM.emp.cidade = _gel('cEmpCid').value;
+  CFG_TUM.margem  = +(_gel('cMargem').value)  || 35;
+  CFG_TUM.parcMax = +(_gel('cParc').value)    || 8;
+  CFG_TUM.juros   = +(_gel('cJuros').value)   || 12;
+  CFG_TUM.mob.pedreiro   = +(_gel('cPedreiro').value);
+  CFG_TUM.mob.ajudante   = +(_gel('cAjudante').value);
+  CFG_TUM.mob.instalacao = +(_gel('cInstalacao').value);
+  CFG_TUM.mob.montagem   = +(_gel('cMontagem').value);
+  CFG_TUM.mob.transporte = +(_gel('cTransporte').value);
+  CFG_TUM.civil.cimento   = +(_gel('cCimento').value);
+  CFG_TUM.civil.areia     = +(_gel('cAreia').value);
+  CFG_TUM.civil.brita     = +(_gel('cBrita').value);
+  CFG_TUM.civil.argamassa = +(_gel('cArgamassa').value);
+  CFG_TUM.civil.ferro38   = +(_gel('cFerro38').value);
+  CFG_TUM.civil.ferro516  = +(_gel('cFerro516').value);
+  CFG_TUM.civil.malha     = +(_gel('cMalha').value);
+  CFG_TUM.civil.blocos    = +(_gel('cBlocos').value);
+  CFG_TUM.civil.canaleta       = +(_gel('cCanaleta').value);
+  CFG_TUM.civil.trelica        = +(_gel('cTrelica').value);
+  CFG_TUM.civil.massa_plastica = +(_gel('cMassaPlastica').value);
+  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
   buildMatList();
   _TI_calcular();
 }
@@ -3793,7 +3793,7 @@ function buildPedrasCfg() {
   var el = _gel('cPedrasList');
   if (!el) return;
   var h = '';
-  CFG.pedras.forEach(function(p, i) {
+  CFG_TUM.pedras.forEach(function(p, i) {
     h += '<div class="cfg-row">'
        + '<div>'
        +   '<div class="cfg-k">'+p.nm+'</div>'
@@ -3803,11 +3803,11 @@ function buildPedrasCfg() {
        + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">'
        + '<div style="display:flex;gap:4px;align-items:center">'
        + '<span style="font-size:.58rem;color:var(--t4)">R$/m²</span>'
-       + '<input class="cfg-inp" type="number" value="'+p.pr+'" style="width:72px" oninput="CFG.pedras['+i+'].pr=+this.value;svCfg2()">'
+       + '<input class="cfg-inp" type="number" value="'+p.pr+'" style="width:72px" oninput="CFG_TUM.pedras['+i+'].pr=+this.value;svCfg2()">'
        + '</div>'
        + '<div style="display:flex;gap:4px;align-items:center">'
        + '<span style="font-size:.58rem;color:var(--t4)">Esp.(cm)</span>'
-       + '<input class="cfg-inp" type="number" value="'+(p.esp||2)+'" min="1" max="5" style="width:52px" oninput="CFG.pedras['+i+'].esp=+this.value;svCfg2();atualizarEspessuraDaPedra()">'
+       + '<input class="cfg-inp" type="number" value="'+(p.esp||2)+'" min="1" max="5" style="width:52px" oninput="CFG_TUM.pedras['+i+'].esp=+this.value;svCfg2();atualizarEspessuraDaPedra()">'
        + '</div>'
        + '</div>'
        + '<button class="btn btn-sm btn-red" style="padding:5px 8px" onclick="remPedra('+i+')">✕</button>'
@@ -3818,7 +3818,7 @@ function buildPedrasCfg() {
 }
 
 function svCfg2() {
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
   buildMatList();
 }
 
@@ -3840,8 +3840,8 @@ function confirmarAddPedra() {
   if (!pr || pr < 10) { toast('Preço inválido', true); return; }
 
   var novaPedra = { id:'p_'+Date.now(), nm:nm, cat:cat, pr:pr, peso:peso, esp:esp };
-  CFG.pedras.push(novaPedra);
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+  CFG_TUM.pedras.push(novaPedra);
+  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
 
   // Selecionar automaticamente a pedra recém-criada no SEL
   SEL.matId = novaPedra.id;
@@ -3861,11 +3861,11 @@ function confirmarAddPedra() {
 }
 
 function remPedra(i) {
-  if (CFG.pedras.length <= 1) { toast('Mínimo 1 pedra necessária', true); return; }
-  var nm = CFG.pedras[i].nm;
-  CFG.pedras.splice(i, 1);
-  if (!CFG.pedras.find(function(p){return p.id===SEL.matId;})) SEL.matId = CFG.pedras[0].id;
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+  if (CFG_TUM.pedras.length <= 1) { toast('Mínimo 1 pedra necessária', true); return; }
+  var nm = CFG_TUM.pedras[i].nm;
+  CFG_TUM.pedras.splice(i, 1);
+  if (!CFG_TUM.pedras.find(function(p){return p.id===SEL.matId;})) SEL.matId = CFG_TUM.pedras[0].id;
+  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
   buildPedrasCfg();
   buildMatCats();
   buildMatList();
@@ -3874,8 +3874,8 @@ function remPedra(i) {
 
 function resetCfg() {
   if (!confirm('Restaurar todas as configurações padrão?')) return;
-  CFG = JSON.parse(JSON.stringify(DEF_CFG));
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+  CFG_TUM = JSON.parse(JSON.stringify(DEF_CFG));
+  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
   loadCfgUI();
   buildPedrasCfg();
   buildMatCats();
@@ -3895,8 +3895,8 @@ function importarCfg() {
       try {
         var cfg = JSON.parse(ev.target.result);
         if (!cfg.emp || !cfg.pedras) throw new Error('Formato inválido');
-        CFG = cfg;
-        localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG));
+        CFG_TUM = cfg;
+        localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
         loadCfgUI();
         buildPedrasCfg();
         buildMatCats();
@@ -4315,7 +4315,7 @@ function renderProducao() {
   var A  = r.A;
   var mat = r.mat;
   var Esp_m = r.Esp_m;
-  var mob = CFG.mob;
+  var mob = CFG_TUM.mob;
 
   // ── Lista técnica de peças ──
   var totalQT   = 0;
@@ -4650,7 +4650,7 @@ function renderChapas() {
 }
 
 function _abrirJanelaPDF(bodyHtml){
-  var emp=CFG&&CFG.emp?CFG.emp:{};
+  var emp=CFG_TUM&&CFG_TUM.emp?CFG_TUM.emp:{};
   var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orçamento — '+(emp.nome||'HR Mármores')+'</title>'
     +'<style>@page{size:A4;margin:0}body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}#pdfPage1,#pdfPage2,#pdfPage3,#pdfPage4,#pdfPage5{page-break-after:always}#pdfPage6{page-break-after:auto}</style>'
     +'</head><body>'+bodyHtml+'<script>window.onload=function(){window.print();}<\/script></body></html>';
@@ -4672,7 +4672,7 @@ HR.modules             = HR.modules             || {};
 HR.modules.tumulos     = HR.modules.tumulos     || {};
 
 // ── Espaços reservados para a próxima etapa ──
-// state: receberá SEL, CFG, HIST, pendOrc
+// state: receberá SEL, CFG_TUM, HIST, pendOrc
 // cache: receberá resultados de render já computados
 HR.modules.tumulos.state = {};
 HR.modules.tumulos.cache = {};
@@ -4892,17 +4892,17 @@ function tumInlineMount(ambId) {
     if (!SEL.tampas) SEL.tampas = JSON.parse(JSON.stringify(_TI_SEL_DEF.tampas));
     if (!SEL.tampas.posicao) SEL.tampas.posicao = 'superior';
     // Validar matId restaurado — se não existe no catálogo atual, usar fallback inteligente
-    if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
-      var gabriel = CFG.pedras.find(function(p){ return p.id === 'p_gabriel' || (p.nm && p.nm.toLowerCase().indexOf('gabriel') >= 0); });
-      var preto   = CFG.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
-      SEL.matId = (gabriel || preto || CFG.pedras[0]).id;
+    if (!CFG_TUM.pedras.find(function(p){ return p.id === SEL.matId; })) {
+      var gabriel = CFG_TUM.pedras.find(function(p){ return p.id === 'p_gabriel' || (p.nm && p.nm.toLowerCase().indexOf('gabriel') >= 0); });
+      var preto   = CFG_TUM.pedras.find(function(p){ return (p.cat || '').toLowerCase().indexOf('preto') >= 0; });
+      SEL.matId = (gabriel || preto || CFG_TUM.pedras[0]).id;
     }
   } else {
     // Reset para estado padrão
     SEL = JSON.parse(JSON.stringify(_TI_SEL_DEF));
     // Garantir matId válido ao inicializar do zero
-    if (!CFG.pedras.find(function(p){ return p.id === SEL.matId; })) {
-      SEL.matId = CFG.pedras[0].id;
+    if (!CFG_TUM.pedras.find(function(p){ return p.id === SEL.matId; })) {
+      SEL.matId = CFG_TUM.pedras[0].id;
     }
   }
   // Sincronizar window.SEL após reatribuição (garante que onclicks inline vejam o objeto correto)
@@ -4921,7 +4921,7 @@ function tumInlineMount(ambId) {
   init();
 
   // Sincronizar catálogo de pedras do app principal APÓS init()
-  // (init() chama buildPedrasCfg com CFG.pedras interno — precisamos substituir)
+  // (init() chama buildPedrasCfg com CFG_TUM.pedras interno — precisamos substituir)
   if (typeof window.tumSincPedrasGlobais === 'function') {
     window.tumSincPedrasGlobais();
     buildPedrasCfg(); // re-renderiza a lista já com as pedras corretas
@@ -5574,6 +5574,6 @@ window.buildCustosIndiretos  = buildCustosIndiretos;
 window.atualizarAreaUtil     = atualizarAreaUtil;
 // window.SEL exposed for onclick handlers in HTML template
 window.SEL = SEL;
-window.CFG = CFG;
+window.CFG_TUM = CFG_TUM;
 
 })();
