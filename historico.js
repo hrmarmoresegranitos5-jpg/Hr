@@ -9,45 +9,160 @@ function lastEnd(){var a=DB.j.filter(function(j){return !j.done&&j.end;}).sort(f
 // ORÇAMENTOS HISTÓRICO
 // ═══════════════════════════════════════════════
 
+// ── Funil de status ──────────────────────────────────────────────────────────
+var STATUS_COR = {
+  aberto:         '#888888',
+  em_negociacao:  '#f39c12',
+  aprovado:       '#3498db',
+  fechado:        '#27ae60',
+  perdido:        '#e74c3c',
+  expirado:       '#999999'
+};
+var STATUS_LABEL = {
+  aberto:'Aberto', em_negociacao:'Em negociação', aprovado:'Aprovado',
+  fechado:'Fechado', perdido:'Perdido', expirado:'Expirado'
+};
+
 var _orcFilter = '';
+var _orcFiltMes = '';
+var _orcFiltStatus = '';
+var _orcFiltTipo = '';
+
+// ── Verificar orçamentos expirados automaticamente ───────────────────────────
+function _orcChecarExpirados() {
+  var hoje = td();
+  var alterou = false;
+  (DB.q||[]).forEach(function(q) {
+    if ((q.status === 'aberto' || q.status === 'em_negociacao') && q.validade && q.validade < hoje) {
+      q.status = 'expirado';
+      q.statusAt = hoje;
+      alterou = true;
+    }
+  });
+  if (alterou) DB.sv();
+}
 
 function renderOrc() {
-  // Summary cards
+  _orcChecarExpirados();
+
   var total = DB.q.length;
   var totalVista = DB.q.reduce(function(s,q){return s+(q.vista||0);},0);
   var thisMonth = (new Date()).toISOString().slice(0,7);
   var mesCount = DB.q.filter(function(q){return (q.date||'').slice(0,7)===thisMonth;}).length;
+
+  // Métricas de funil
+  var aprovados = DB.q.filter(function(q){return q.status==='aprovado'||q.status==='fechado';}).length;
+  var perdidos   = DB.q.filter(function(q){return q.status==='perdido';}).length;
+  var txConv     = total > 0 ? Math.round(aprovados/total*100) : 0;
+
   var sumEl = document.getElementById('orcSummary');
   if(sumEl) sumEl.innerHTML =
     '<div class="orc-sum-card"><div class="orc-sum-v">'+total+'</div><div class="orc-sum-l">Total</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">'+mesCount+'</div><div class="orc-sum-l">Este mês</div></div>' +
-    '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>';
+    '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>' +
+    '<div class="orc-sum-card"><div class="orc-sum-v" style="color:#27ae60;">'+txConv+'%</div><div class="orc-sum-l">Conversão</div></div>';
+
+  // Gerar opções de mês dinamicamente
+  var meses = {};
+  (DB.q||[]).forEach(function(q){ if(q.date) meses[q.date.slice(0,7)] = true; });
+  var mesesArr = Object.keys(meses).sort().reverse();
+  var filtMesEl = document.getElementById('orcFiltMes');
+  if(filtMesEl && filtMesEl.options.length <= 1) {
+    mesesArr.forEach(function(m) {
+      var opt = document.createElement('option');
+      opt.value = m;
+      var p = m.split('-');
+      var mNomes = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      opt.textContent = mNomes[parseInt(p[1],10)] + '/' + p[0];
+      filtMesEl.appendChild(opt);
+    });
+  }
+
   filterOrc();
 }
 
 function filterOrc() {
-  _orcFilter = (document.getElementById('orcSearch')||{value:''}).value.trim().toLowerCase();
-  var filtered = _orcFilter
-    ? DB.q.filter(function(q){ return (q.cli||'').toLowerCase().indexOf(_orcFilter) >= 0; })
-    : DB.q;
+  _orcFilter    = (document.getElementById('orcSearch')   ||{value:''}).value.trim().toLowerCase();
+  _orcFiltMes   = (document.getElementById('orcFiltMes')  ||{value:''}).value;
+  _orcFiltStatus= (document.getElementById('orcFiltStatus')||{value:''}).value;
+  _orcFiltTipo  = (document.getElementById('orcFiltTipo') ||{value:''}).value;
+
+  var filtered = (DB.q||[]).filter(function(q) {
+    if(_orcFilter    && (q.cli||'').toLowerCase().indexOf(_orcFilter) < 0) return false;
+    if(_orcFiltMes   && (q.date||'').slice(0,7) !== _orcFiltMes) return false;
+    if(_orcFiltStatus && (q.status||'aberto') !== _orcFiltStatus) return false;
+    if(_orcFiltTipo  && (q.tipo||'').indexOf(_orcFiltTipo) < 0) return false;
+    return true;
+  });
   buildOrcList(filtered);
+}
+
+function _orcFiltrosHTML() {
+  return '<div id="orcFiltros" style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 4px;">' +
+    '<select id="orcFiltMes" onchange="filterOrc()" style="flex:1;min-width:100px;padding:5px 7px;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:.72rem;">' +
+      '<option value="">Todos os meses</option>' +
+    '</select>' +
+    '<select id="orcFiltStatus" onchange="filterOrc()" style="flex:1;min-width:100px;padding:5px 7px;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:.72rem;">' +
+      '<option value="">Todos os status</option>' +
+      '<option value="aberto">Aberto</option>' +
+      '<option value="em_negociacao">Em negociação</option>' +
+      '<option value="aprovado">Aprovado</option>' +
+      '<option value="fechado">Fechado</option>' +
+      '<option value="perdido">Perdido</option>' +
+      '<option value="expirado">Expirado</option>' +
+    '</select>' +
+    '<select id="orcFiltTipo" onchange="filterOrc()" style="flex:1;min-width:100px;padding:5px 7px;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:.72rem;">' +
+      '<option value="">Todos os tipos</option>' +
+      '<option value="Cozinha">Cozinha</option>' +
+      '<option value="Banheiro">Banheiro</option>' +
+      '<option value="Lavabo">Lavabo</option>' +
+      '<option value="Soleira">Soleira</option>' +
+      '<option value="Peitoril">Peitoril</option>' +
+      '<option value="Escada">Escada</option>' +
+      '<option value="Fachada">Fachada</option>' +
+      '<option value="Túmulo">Túmulo</option>' +
+      '<option value="Outro">Outro</option>' +
+    '</select>' +
+  '</div>';
 }
 
 function buildOrcList(list) {
   var el = document.getElementById('orcList');
   if(!el) return;
-  if(!list.length) {
+
+  // Injetar barra de filtros se ainda não existe
+  var filtBar = document.getElementById('orcFiltros');
+  if(!filtBar) {
+    var searchEl = document.getElementById('orcSearch');
+    if(searchEl && searchEl.parentNode) {
+      var div = document.createElement('div');
+      div.innerHTML = _orcFiltrosHTML();
+      searchEl.parentNode.insertBefore(div.firstChild, searchEl.nextSibling);
+    }
+  }
+
+  if(!list || !list.length) {
     el.innerHTML = '<div class="orc-empty"><div class="orc-empty-icon">📋</div>' +
-      (_orcFilter ? 'Nenhum orçamento para "'+_orcFilter+'"' : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
+      (_orcFilter || _orcFiltMes || _orcFiltStatus || _orcFiltTipo
+        ? 'Nenhum orçamento com esses filtros.'
+        : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
     return;
   }
-  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
+
+  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️','Túmulo':'🪦',Outro:'📦'};
   var h = '';
-  list.forEach(function(q,idx) {
-    var icon = tipo_icons[q.tipo]||'📦';
+  list.forEach(function(q) {
+    var icon = tipo_icons[q.tipo] || '📦';
     var dateStr = q.date ? fd(q.date) : '';
     var pdsCount = (q.pds||[]).length + (q.sfPcs||[]).length;
-    h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
+
+    // Status atual
+    var st = q.status || 'aberto';
+    // Auto-badge expirado visual (pode já ter sido setado em _orcChecarExpirados)
+    var stCor   = STATUS_COR[st]   || '#888';
+    var stLabel = STATUS_LABEL[st] || st;
+
+    h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">'; 
     // Head
     h += '<div class="qcard-head">';
     h +=   '<div class="qcard-badge">'+icon+'</div>';
@@ -55,11 +170,36 @@ function buildOrcList(list) {
     h +=     '<div class="qcard-cli" onclick="orcIrFinancas('+q.id+',event)" style="cursor:pointer;" title="Ver nas Finanças">'+escH(q.cli)+'<span style="font-size:.52rem;color:var(--gold);opacity:.7;margin-left:5px;">💰</span></div>';
     h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+'</div>';
     h +=   '</div>';
-    h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
+    h +=   '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">';
+    h +=     '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
+    // Badge de status
+    h +=     '<span style="font-size:.56rem;padding:2px 8px;border-radius:20px;background:'+stCor+'22;color:'+stCor+';font-weight:700;border:1px solid '+stCor+'44;white-space:nowrap;">'+stLabel+'</span>';
+    h +=   '</div>';
     h +=   '<span class="qcard-chev">▼</span>';
     h += '</div>';
-    // Body (hidden until expanded)
+
+    // Body
     h += '<div class="qcard-body">';
+
+    // ── Botões de funil de status ────────────────────────────────────────────
+    h += '<div style="margin:6px 0 8px;">';
+    h += '<div style="font-size:.6rem;color:var(--t4);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px;">Atualizar status:</div>';
+    h += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+    ['em_negociacao','aprovado','fechado','perdido'].forEach(function(s) {
+      var ativo = st === s;
+      h += '<button onclick="orcSetStatus(\''+q.id+'\',\''+s+'\',event)" style="font-size:.58rem;padding:3px 9px;border-radius:14px;border:1px solid '+STATUS_COR[s]+(ativo?'':' 66')+';background:'+(ativo ? STATUS_COR[s]+'33' : 'transparent')+';color:'+STATUS_COR[s]+';cursor:pointer;font-weight:'+(ativo?'700':'400')+';">'+STATUS_LABEL[s]+'</button>';
+    });
+    h += '</div></div>';
+
+    // Info de auditoria (se editado)
+    if(q.editCount > 0) {
+      h += '<div class="qdr"><span class="k">Editado</span><span class="v" style="font-size:.65rem;color:#aaa;">'+q.editCount+'x · última vez '+fd(q.updatedAt||q.date)+'</span></div>';
+    }
+    // Motivo da perda
+    if(q.status==='perdido' && q.motivoPerda) {
+      h += '<div class="qdr"><span class="k" style="color:#e74c3c;">Motivo perda</span><span class="v" style="font-size:.7rem;color:#e74c3c;">'+escH(q.motivoPerda)+'</span></div>';
+    }
+
     // Pills
     h += '<div class="qcard-pills">';
     if(q.m2) h += '<div class="qpill gold">'+q.m2.toFixed(3)+' m²</div>';
@@ -67,6 +207,7 @@ function buildOrcList(list) {
     if(q.mat) h += '<div class="qpill">'+escH(q.mat)+'</div>';
     if(q.tel) h += '<div class="qpill">'+escH(q.tel)+'</div>';
     h += '</div>';
+
     // Detail table
     h += '<div class="qcard-detail">';
     if(q.pds&&q.pds.length) {
@@ -86,24 +227,90 @@ function buildOrcList(list) {
     if(q.end) h += '<div class="qdr"><span class="k">Endereço</span><span class="v" style="font-size:.72rem;text-align:right;max-width:180px;">'+escH(q.end)+'</span></div>';
     if(q.obs) h += '<div class="qdr"><span class="k">Obs.</span><span class="v grn" style="font-size:.72rem;max-width:180px;text-align:right;">'+escH(q.obs)+'</span></div>';
     h += '</div>';
+
     // Totals
     h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
+
     // Buttons
     h += '<div class="qcard-btns">';
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
     h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
     h += '<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
     h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
-    if(q.status==='fechado'){
-      h += '<span style="font-size:.7rem;color:#4caf70;font-weight:700;padding:9px 8px;border:1px solid #1a5030;border-radius:10px;background:rgba(76,175,112,.08);white-space:nowrap;">✔ Fechado</span>';
-    }
     h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
+    if (DB.qLixo && DB.qLixo.length) {
+      h += '<button class="btn" style="font-size:.6rem;opacity:.6;" onclick="orcMostrarLixeira(event)">🗑 Lixeira ('+DB.qLixo.length+')</button>';
+    }
     h += '</div>';
+
     h += '</div>'; // qcard-body
     h += '</div>'; // qcard
   });
   el.innerHTML = h;
 }
+
+// ── Alterar status do funil ──────────────────────────────────────────────────
+function orcSetStatus(id, status, e) {
+  if(e) e.stopPropagation();
+  var q = (DB.q||[]).find(function(x){return x.id==id;});
+  if(!q) return;
+  if(status === 'perdido') {
+    var motivo = prompt('Motivo da perda (opcional):') || '';
+    q.motivoPerda = motivo;
+  }
+  q.status   = status;
+  q.statusAt = td();
+  DB.sv();
+  renderOrc();
+  toast('✓ Status: ' + (STATUS_LABEL[status]||status));
+}
+
+// ── Soft-delete com lixeira ──────────────────────────────────────────────────
+function orcDel(id, e) {
+  if(e){e.stopPropagation();e.preventDefault();}
+  var q = (DB.q||[]).find(function(x){return x.id==id;});
+  if(!q) return;
+  if(!DB.qLixo) DB.qLixo = [];
+  q._deletedAt = td();
+  DB.qLixo.push(JSON.parse(JSON.stringify(q)));
+  DB.q = DB.q.filter(function(x){return x.id!=id;});
+  DB.sv(); renderOrc();
+  toast('🗑 Excluído — <u onclick="orcRestore('+id+')" style="cursor:pointer;text-decoration:underline;">Desfazer</u>');
+}
+
+function orcRestore(id) {
+  if(!DB.qLixo) return;
+  var q = DB.qLixo.find(function(x){return x.id==id;});
+  if(!q) return;
+  delete q._deletedAt;
+  if(!DB.q) DB.q = [];
+  DB.q.unshift(q);
+  DB.qLixo = DB.qLixo.filter(function(x){return x.id!=id;});
+  DB.sv(); renderOrc();
+  toast('✓ Orçamento restaurado!');
+}
+
+function orcMostrarLixeira(e) {
+  if(e) e.stopPropagation();
+  if(!DB.qLixo || !DB.qLixo.length) { toast('Lixeira vazia.'); return; }
+  var h = '<div style="padding:12px;"><b>🗑 Lixeira ('+DB.qLixo.length+')</b><br><br>';
+  DB.qLixo.forEach(function(q){
+    h += '<div style="margin-bottom:8px;padding:8px;background:#1a1a1a;border-radius:8px;display:flex;justify-content:space-between;align-items:center;">';
+    h += '<span style="font-size:.75rem;">'+escH(q.cli||'')+'<br><span style="font-size:.65rem;color:#888;">'+fd(q.date||'')+'</span></span>';
+    h += '<button onclick="orcRestore('+q.id+');_fecharModalLixeira();" class="btn btn-g" style="font-size:.65rem;">Restaurar</button>';
+    h += '</div>';
+  });
+  h += '</div>';
+  // Modal simples
+  var m = document.createElement('div');
+  m.id = '_modalLixeira';
+  m.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:9999;overflow-y:auto;';
+  m.innerHTML = '<div style="max-width:420px;margin:40px auto;background:#111;border-radius:14px;border:1px solid #333;">'+h+'<div style="padding:0 12px 12px;"><button class="btn btn-red" onclick="_fecharModalLixeira()">Fechar</button></div></div>';
+  document.body.appendChild(m);
+}
+function _fecharModalLixeira(){var m=document.getElementById('_modalLixeira');if(m)m.remove();}
+
+// ── Demais funções (sem alteração de comportamento) ──────────────────────────
 
 function togQCard(id) {
   var el = document.getElementById('qc-'+id);
@@ -115,7 +322,6 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Detectar se é túmulo: flag q.tum OU ambSnap com tipo Túmulo
   var isTumulo = q.tum
     || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
 
@@ -148,22 +354,21 @@ function orcRefazer(id, e) {
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Preencher dados do cliente
+  // Marcar que este orçamento está sendo editado (para preservar auditoria ao salvar)
+  window._orcEditandoId = q.id;
+
   var cliEl=document.getElementById('oCliente'); if(cliEl)cliEl.value=q.cli||'';
   var telEl=document.getElementById('oTel'); if(telEl)telEl.value=q.tel||'';
   var cidEl=document.getElementById('oCidade'); if(cidEl)cidEl.value=q.cidade||'';
   var endEl=document.getElementById('oEnd'); if(endEl)endEl.value=q.end||'';
   var obsEl=document.getElementById('oObs'); if(obsEl)obsEl.value=q.obs||'';
 
-  // Selecionar material
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;});
   if(mat){selMat=mat.id;buildMat();}
 
-  // Reconstruir ambientes
   ambientes=[];
 
   if(q.ambSnap&&q.ambSnap.length){
-    // Orçamento novo: tem snapshot completo dos ambientes
     q.ambSnap.forEach(function(snap,idx){
       var ambId=Date.now()+idx;
       var snapMat = snap.selMat || (mat ? mat.id : null) || selMat || null;
@@ -177,7 +382,6 @@ function orcRefazer(id, e) {
         tumExtra:snap.tumExtra?JSON.parse(JSON.stringify(snap.tumExtra)):null,
         selMat:snapMat
       };
-      // Restaurar dados do motor inline para Túmulos
       if(snap.tipo==='Túmulo'){
         if(snap.tumResult)  amb.tumResult  = JSON.parse(JSON.stringify(snap.tumResult));
         if(snap.tumPendOrc) amb.tumPendOrc = JSON.parse(JSON.stringify(snap.tumPendOrc));
@@ -185,7 +389,6 @@ function orcRefazer(id, e) {
       ambientes.push(amb);
     });
   } else {
-    // Orçamento antigo: reconstruir do que temos
     var tipos=(q.tipo||'Cozinha').split('+');
     tipos.forEach(function(tipo,idx){
       tipo=tipo.trim();
@@ -206,7 +409,6 @@ function orcRefazer(id, e) {
 
   renderAmbientes();
 
-  // ── Restaurar motor inline de Túmulos após renderAmbientes ───────
   setTimeout(function(){
     ambientes.forEach(function(a){
       if(a.tipo==='Túmulo' && a.tumPendOrc && typeof window._TI_preencherCliente==='function'){
@@ -215,7 +417,6 @@ function orcRefazer(id, e) {
     });
   }, 300);
 
-  // ── Restaura taxa de urgência do orçamento salvo ─────────────────
   var urgRestored = q.urgPct || 0;
   window._urgPct = urgRestored;
   document.querySelectorAll('[data-upct]').forEach(function(b){
@@ -242,14 +443,10 @@ function orcCopiar(id, e) {
   _copiarFallback(txt);
 }
 
-
-
-
 function orcPDF(id, e) {
   e.stopPropagation();
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
-  // Detectar orçamento de túmulo: flag q.tum ou ambSnap com tipo Túmulo
   var isTumulo = q.tum
     || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
   if(isTumulo){
@@ -263,15 +460,3 @@ function orcPDF(id, e) {
   pendQ = q;
   gerarPDF();
 }
-
-function orcDel(id, e) {
-  if(e){e.stopPropagation();e.preventDefault();}
-  var q = DB.q.find(function(x){return x.id==id;});
-  if(!q) return;
-  // confirm() não funciona em PWA — executa direto com desfazer via toast
-  var bk=JSON.stringify(DB.q);
-  DB.q = DB.q.filter(function(x){return x.id!=id;});
-  DB.sv(); renderOrc();
-  toast('🗑 Excluído — '+escH(q.cli||''));
-}
-
