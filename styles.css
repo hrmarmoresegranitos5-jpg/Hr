@@ -262,6 +262,7 @@ textarea{resize:none;}
 .btn-o:active{background:var(--s3);}
 .btn-grn{background:#0a1f12;color:var(--grn);border:1px solid #1a4030;}
 .btn-red{background:#1f0a0a;color:var(--red);border:1px solid #4a1a1a;}
+.btn-wpp{background:#0a1f0f;color:#25d366;border:1px solid #1a4a25;}
 .btn-contrato{background:linear-gradient(135deg,#0a1520,#0d2035);color:#60a0e0;border:1px solid #1a4070;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:600;padding:9px 13px;border-radius:10px;cursor:pointer;}
 .contr-pg-btn{background:var(--s2);border:1.5px solid var(--bd2);border-radius:9px;padding:9px 6px;color:var(--t2);font-family:Outfit,sans-serif;font-size:.7rem;cursor:pointer;text-align:center;line-height:1.4;transition:all .15s;}
 .contr-pg-btn.on{background:linear-gradient(135deg,#0a1520,#0d2035);border-color:#1a4070;color:#60a0e0;font-weight:700;}

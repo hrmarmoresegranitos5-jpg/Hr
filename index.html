@@ -324,8 +324,9 @@ function openApp(pg){
       </div>
       <div class="orc-search">
         <span style="font-size:1rem;color:var(--t4);">🔍</span>
-        <input id="orcSearch" placeholder="Buscar por nome do cliente..." type="text" oninput="filterOrc()">
+        <input id="orcSearch" placeholder="Buscar por cliente, material ou cidade..." type="text" oninput="filterOrc()">
         <button onclick="document.getElementById('orcSearch').value='';filterOrc();" style="background:none;border:none;color:var(--t4);font-size:.8rem;cursor:pointer;padding:0;">✕</button>
+        <button id="orcLixeiraBtn" onclick="orcMostrarLixeira(event)" title="Lixeira">🗑</button>
       </div>
       <div class="orc-summary" id="orcSummary"></div>
       <div id="orcList" style="padding-bottom:20px;"></div>
