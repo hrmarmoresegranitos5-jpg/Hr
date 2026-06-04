@@ -27,6 +27,7 @@ var _orcFilter = '';
 var _orcFiltMes = '';
 var _orcFiltStatus = '';
 var _orcFiltTipo = '';
+var _orcOrdem = 'data_desc'; // padrão: mais recente primeiro
 
 // ── Verificar orçamentos expirados automaticamente ───────────────────────────
 function _orcChecarExpirados() {
@@ -86,14 +87,40 @@ function filterOrc() {
   _orcFiltMes   = (document.getElementById('orcFiltMes')  ||{value:''}).value;
   _orcFiltStatus= (document.getElementById('orcFiltStatus')||{value:''}).value;
   _orcFiltTipo  = (document.getElementById('orcFiltTipo') ||{value:''}).value;
+  _orcOrdem     = (document.getElementById('orcOrdem')    ||{value:'data_desc'}).value || 'data_desc';
 
   var filtered = (DB.q||[]).filter(function(q) {
-    if(_orcFilter    && (q.cli||'').toLowerCase().indexOf(_orcFilter) < 0) return false;
+    if(_orcFilter) {
+      var haystack = [(q.cli||''), (q.mat||''), (q.cidade||'')].join(' ').toLowerCase();
+      if(haystack.indexOf(_orcFilter) < 0) return false;
+    }
     if(_orcFiltMes   && (q.date||'').slice(0,7) !== _orcFiltMes) return false;
     if(_orcFiltStatus && (q.status||'aberto') !== _orcFiltStatus) return false;
     if(_orcFiltTipo  && (q.tipo||'').indexOf(_orcFiltTipo) < 0) return false;
     return true;
   });
+
+  // ── Ordenação ──────────────────────────────────────────────────────────────
+  filtered.sort(function(a, b) {
+    switch(_orcOrdem) {
+      case 'data_asc':
+        return (a.date||'') < (b.date||'') ? -1 : 1;
+      case 'valor_desc':
+        return (b.vista||0) - (a.vista||0);
+      case 'valor_asc':
+        return (a.vista||0) - (b.vista||0);
+      case 'nome_az':
+        return (a.cli||'').localeCompare(b.cli||'', 'pt-BR');
+      case 'nome_za':
+        return (b.cli||'').localeCompare(a.cli||'', 'pt-BR');
+      case 'status':
+        var _sOrd = {em_negociacao:0, aprovado:1, aberto:2, fechado:3, expirado:4, perdido:5};
+        return (_sOrd[a.status||'aberto']||2) - (_sOrd[b.status||'aberto']||2);
+      default: // data_desc
+        return (a.date||'') < (b.date||'') ? 1 : -1;
+    }
+  });
+
   buildOrcList(filtered);
 }
 
@@ -123,6 +150,15 @@ function _orcFiltrosHTML() {
       '<option value="Túmulo">Túmulo</option>' +
       '<option value="Outro">Outro</option>' +
     '</select>' +
+    '<select id="orcOrdem" onchange="filterOrc()" style="flex:1;min-width:120px;padding:5px 7px;border-radius:8px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:.72rem;" title="Ordenar por">' +
+      '<option value="data_desc">📅 Mais recente</option>' +
+      '<option value="data_asc">📅 Mais antigo</option>' +
+      '<option value="valor_desc">💰 Maior valor</option>' +
+      '<option value="valor_asc">💰 Menor valor</option>' +
+      '<option value="nome_az">🔤 Nome A→Z</option>' +
+      '<option value="nome_za">🔤 Nome Z→A</option>' +
+      '<option value="status">🔵 Por status</option>' +
+    '</select>' +
   '</div>';
 }
 
@@ -139,6 +175,15 @@ function buildOrcList(list) {
       div.innerHTML = _orcFiltrosHTML();
       searchEl.parentNode.insertBefore(div.firstChild, searchEl.nextSibling);
     }
+  }
+
+  // Atualizar botão de lixeira no cabeçalho (sempre visível, com contador)
+  var lixBtn = document.getElementById('orcLixeiraBtn');
+  if(lixBtn) {
+    var lixN = (DB.qLixo && DB.qLixo.length) || 0;
+    lixBtn.textContent = '🗑' + (lixN ? ' '+lixN : '');
+    lixBtn.style.opacity = lixN ? '1' : '0.35';
+    lixBtn.title = lixN ? 'Lixeira ('+lixN+' orçamento'+(lixN>1?'s':'')+')' : 'Lixeira vazia';
   }
 
   if(!list || !list.length) {
@@ -200,6 +245,23 @@ function buildOrcList(list) {
       h += '<div class="qdr"><span class="k" style="color:#e74c3c;">Motivo perda</span><span class="v" style="font-size:.7rem;color:#e74c3c;">'+escH(q.motivoPerda)+'</span></div>';
     }
 
+    // ── Validade com alerta de cor ───────────────────────────────────────────
+    if(q.validade) {
+      var vDiff = dDiff(q.validade);
+      var vCor, vIcon, vLabel;
+      if(vDiff < 0) {
+        vCor = '#e74c3c'; vIcon = '🔴'; vLabel = 'Expirou há '+Math.abs(vDiff)+' dia'+(Math.abs(vDiff)>1?'s':'');
+      } else if(vDiff <= 3) {
+        vCor = '#f39c12'; vIcon = '🟡'; vLabel = 'Expira em '+vDiff+' dia'+(vDiff!==1?'s':'');
+      } else {
+        vCor = '#27ae60'; vIcon = '🟢'; vLabel = 'Válido até '+fd(q.validade)+' ('+vDiff+' dias)';
+      }
+      h += '<div class="qdr" style="background:'+vCor+'11;border-radius:7px;padding:5px 8px;margin-bottom:4px;">';
+      h +=   '<span class="k" style="color:'+vCor+';">'+vIcon+' Validade</span>';
+      h +=   '<span class="v" style="font-size:.7rem;color:'+vCor+';">'+vLabel+'</span>';
+      h += '</div>';
+    }
+
     // Pills
     h += '<div class="qcard-pills">';
     if(q.m2) h += '<div class="qpill gold">'+q.m2.toFixed(3)+' m²</div>';
@@ -234,13 +296,12 @@ function buildOrcList(list) {
     // Buttons
     h += '<div class="qcard-btns">';
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
-    h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
+    h += '<button class="btn btn-wpp" onclick="orcWhatsApp(\''+q.id+'\',event)">💬 WhatsApp</button>';
+    h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar texto</button>';
+    h += '<button class="btn btn-agenda" onclick="orcAgendar(\''+q.id+'\',event)">📅 Agendar</button>';
     h += '<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
     h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
     h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
-    if (DB.qLixo && DB.qLixo.length) {
-      h += '<button class="btn" style="font-size:.6rem;opacity:.6;" onclick="orcMostrarLixeira(event)">🗑 Lixeira ('+DB.qLixo.length+')</button>';
-    }
     h += '</div>';
 
     h += '</div>'; // qcard-body
@@ -471,4 +532,52 @@ function orcPDF(id, e) {
   }
   pendQ = q;
   gerarPDF();
+}
+
+function orcWhatsApp(id, e) {
+  e.stopPropagation();
+  var q = DB.q.find(function(x){return x.id==id;});
+  if(!q) return;
+  var pTxt = (q.pds||[]).map(function(p){return '• '+(p.desc||'Peça')+' — '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
+  if(q.sfPcs&&q.sfPcs.length) pTxt += '\n'+(q.sfPcs||[]).map(function(p){return '• '+p.l+' — '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
+  var aTxt = (q.acN&&q.acN.length) ? (q.acN||[]).map(function(a){return '• '+a;}).join('\n') : '• Acabamento profissional';
+  var txt = 'HR MARMORES E GRANITOS\nORCAMENTO — '+(q.cli||'Cliente')+'\n\nMaterial: '+(q.mat||'')+'\n\n'+(q.tipo||'Projeto')+':\n'+pTxt+'\n\nIncluso:\n'+aTxt+'\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(q.parc)+' — ate 8x de R$ '+fm(q.p8||0)+'\n\nA VISTA\nR$ '+fm(q.vista)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
+  var tel = (q.tel||'').replace(/\D/g,'');
+  if(tel.length >= 10 && tel.indexOf('55') !== 0) tel = '55' + tel;
+  var url = 'https://wa.me/' + (tel||'') + '?text=' + encodeURIComponent(txt);
+  window.open(url, '_blank');
+}
+
+// ── Agendar a partir do histórico (Melhoria 4) ──────────────────────────────
+function orcAgendar(id, e) {
+  if(e) e.stopPropagation();
+  var q = DB.q.find(function(x){return x.id==id;});
+  if(!q) return;
+
+  // Navegar para Agenda (pg3) e abrir modal de novo serviço
+  if(typeof go === 'function') go(3);
+
+  setTimeout(function() {
+    // Abrir modal de novo serviço
+    if(typeof openJobModal === 'function') openJobModal(null);
+
+    setTimeout(function() {
+      var desc = (q.tipo||'Projeto') + ' — ' + (q.mat||'');
+      var obs  = [q.obs, q.cidade ? 'Cidade: '+q.cidade : '', q.end ? 'End: '+q.end : ''].filter(Boolean).join(' | ');
+
+      var mapa = { jCli: q.cli||'', jDesc: desc.trim(), jObs: obs };
+      Object.keys(mapa).forEach(function(fid) {
+        var el = document.getElementById(fid);
+        if(el && mapa[fid]) {
+          el.value = mapa[fid];
+          el.dispatchEvent(new Event('input', {bubbles:true}));
+        }
+      });
+
+      // Focar no campo de data
+      var agData = document.getElementById('jStart');
+      if(agData) agData.focus();
+      toast('📅 Dados pré-preenchidos — escolha a data!');
+    }, 200);
+  }, 350);
 }
