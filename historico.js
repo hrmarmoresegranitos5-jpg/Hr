@@ -312,6 +312,18 @@ function _fecharModalLixeira(){var m=document.getElementById('_modalLixeira');if
 
 // ── Demais funções (sem alteração de comportamento) ──────────────────────────
 
+function orcIrFinancas(id, e) {
+  if(e) e.stopPropagation();
+  var q = (DB.q||[]).find(function(x){return x.id==id;});
+  if(!q) return;
+  // Navegar para aba de Finanças e pré-filtrar pelo nome do cliente
+  if(typeof go === 'function') go(6); // índice da aba Finanças
+  setTimeout(function(){
+    var srch = document.getElementById('finSearch') || document.getElementById('trSearch');
+    if(srch){ srch.value = q.cli||''; srch.dispatchEvent(new Event('input',{bubbles:true})); }
+  }, 250);
+}
+
 function togQCard(id) {
   var el = document.getElementById('qc-'+id);
   if(el) el.classList.toggle('open');

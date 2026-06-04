@@ -2054,30 +2054,20 @@ function calcular(){
   var ambSnap=ambientes.map(function(a){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),tumExtra:a.tumExtra?JSON.parse(JSON.stringify(a.tumExtra)):null,selMat:a.selMat||null};
   });
-  var _agora = td();
+  var _agora=td();
   var q={id:Date.now(),date:_agora,createdAt:_agora,updatedAt:_agora,editCount:0,status:'aberto',cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,m2:totalM2,custoPedra:totalCustoPedra,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
-  // Preservar auditoria se for edição de orçamento existente
-  if(window._orcEditandoId) {
-    var _eIdx = DB.q.findIndex(function(x){return x.id == window._orcEditandoId;});
-    if(_eIdx >= 0) {
-      var _orig = DB.q[_eIdx];
-      q.id         = _orig.id;
-      q.date       = _orig.date;       // preserva data original
-      q.createdAt  = _orig.createdAt || _orig.date;
-      q.editCount  = (_orig.editCount || 0) + 1;
-      q.status     = _orig.status || 'aberto'; // preserva status do funil
-      q.statusAt   = _orig.statusAt || null;
-      q.motivoPerda= _orig.motivoPerda || null;
-      DB.q[_eIdx]  = q;
-      window._orcEditandoId = null;
-      DB.sv(); pendQ = q;
-    } else {
-      window._orcEditandoId = null;
-      DB.q.unshift(q); DB.sv(); pendQ = q;
-    }
-  } else {
-    DB.q.unshift(q); DB.sv(); pendQ = q;
-  }
+  if(window._orcEditandoId){
+    var _eIdx=DB.q.findIndex(function(x){return x.id==window._orcEditandoId;});
+    if(_eIdx>=0){
+      var _orig=DB.q[_eIdx];
+      q.id=_orig.id; q.date=_orig.date;
+      q.createdAt=_orig.createdAt||_orig.date;
+      q.updatedAt=_agora; q.editCount=(_orig.editCount||0)+1;
+      q.status=_orig.status||'aberto'; q.statusAt=_orig.statusAt||null;
+      if(_orig.motivoPerda) q.motivoPerda=_orig.motivoPerda;
+      DB.q[_eIdx]=q; window._orcEditandoId=null; DB.sv(); pendQ=q;
+    } else { window._orcEditandoId=null; DB.q.unshift(q); DB.sv(); pendQ=q; }
+  } else { DB.q.unshift(q); DB.sv(); pendQ=q; }
   // ── Consultor de Desconto + Auto-save cliente ──
   setTimeout(function(){ _cliMostrarConsultor(q); _cliAutoSave(cli,tel,cidade,end); }, 500);
 }
