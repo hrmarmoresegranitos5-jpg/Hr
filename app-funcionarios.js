@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════
-// APP-FUNCIONARIOS v4 — HR Mármores e Granitos
+// APP-FUNCIONARIOS v4.1 — HR Mármores e Granitos
 // Design Premium + Novas Funcionalidades:
 //   • Dashboard com gráfico de produtividade mensal
 //   • Aniversariantes e datas comemorativas
@@ -9,6 +9,10 @@
 //   • Busca rápida de funcionários
 //   • Calendário de ponto visual
 //   • Aviso de férias / vencimento de contrato
+// ── v4.1 ──────────────────────────────────────────────────────
+//   • _pagarDecendioRapido implementado (atalho pré-preenchido)
+//   • _TIPOS_PAG: bonificacao_he3x e he_duplicada_2x adicionados
+//   • Folha: saldo total usa soma de s.saldo individuais (mais preciso)
 // ══════════════════════════════════════════════════════════════
 
 var HR_FUNC = (function () {
@@ -1562,13 +1566,15 @@ var HR_FUNC = (function () {
       return p.data >= di && p.data <= df;
     });
 
-    var totalFolha=0, totalExtras=0, totalPago=0, totalVales=0, totalDec=0;
+    var totalFolha=0, totalExtras=0, totalPago=0, totalVales=0, totalDec=0, totalSaldo=0;
 
     var linhas = ativos.map(function(f){
       var s = calcSaldoFuncionario(f.id, di, df);
       totalFolha  += s.totalSalario;
       totalExtras += s.valorExtra;
       totalPago   += s.totalPago;
+      // Acumula saldo real (pode ser negativo = crédito): soma s.saldo positivos apenas
+      if (s.saldo > 0.01) totalSaldo += s.saldo;
 
       // Vales e adiantamentos deste funcionário no período
       var meusPags = pagsPeriodo.filter(function(p){ return p.funcionarioId === f.id; });
@@ -1617,7 +1623,7 @@ var HR_FUNC = (function () {
           '<div style="font-size:.68rem;color:'+T3+';">Já pago: '+_fmtMoeda(totalPago)+'</div>'+
         '</div>'+
         '<div style="font-size:1.15rem;font-weight:800;color:'+GOLD+';">'+
-          _fmtMoeda(Math.max(0, totalFolha + totalExtras - totalPago))+
+          _fmtMoeda(totalSaldo)+
         '</div>'+
       '</div>'+
 
@@ -1926,13 +1932,15 @@ var HR_FUNC = (function () {
   // Mapa de tipos de pagamento — label, ícone, cor
   // ─────────────────────────────────────────────────────────────
   var _TIPOS_PAG = {
-    decendio:    { label:'Pagamento Decendial', icon:'📆', cor:GOLD  },
-    vale:        { label:'Vale',                icon:'🎫', cor:'#e0954a' },
-    adiantamento:{ label:'Adiantamento',        icon:'💸', cor:'#8ec8f0' },
-    salario:     { label:'Salário',             icon:'💰', cor:GREEN  },
-    bonus:       { label:'Bônus / Comissão',    icon:'🏆', cor:GREEN  },
-    he:          { label:'Horas Extras',        icon:'⚡', cor:GOLD   },
-    outro:       { label:'Outro',               icon:'💳', cor:T2     }
+    decendio:         { label:'Pagamento Decendial', icon:'📆', cor:GOLD      },
+    vale:             { label:'Vale',                icon:'🎫', cor:'#e0954a' },
+    adiantamento:     { label:'Adiantamento',        icon:'💸', cor:'#8ec8f0' },
+    salario:          { label:'Salário',             icon:'💰', cor:GREEN     },
+    bonus:            { label:'Bônus / Comissão',    icon:'🏆', cor:GREEN     },
+    he:               { label:'Horas Extras',        icon:'⚡', cor:GOLD      },
+    bonificacao_he3x: { label:'Bonificação HE 3×',   icon:'🏆', cor:GREEN     },
+    he_duplicada_2x:  { label:'H. Extras 2×',        icon:'⚡⚡', cor:BLUE    },
+    outro:            { label:'Outro',               icon:'💳', cor:T2        }
   };
   var _FORMAS_PAG = [
     {v:'dinheiro',l:'💵 Dinheiro'},
@@ -2062,6 +2070,43 @@ var HR_FUNC = (function () {
   // 13. SALVAR / FECHAR PAGAMENTO
   // ─────────────────────────────────────────────────────────────
   function _closePagamento(){ _closeOverlay('hrPagamento'); }
+
+  // ─────────────────────────────────────────────────────────────
+  // Atalho: abre formulário de pagamento já com tipo=decendio,
+  // data do próximo vencimento decendial e valor sugerido (sal÷3).
+  // ─────────────────────────────────────────────────────────────
+  function _pagarDecendioRapido(funcId){
+    // Calcula a data-alvo do decendio atual (10, 20 ou último dia)
+    var hoje = new Date();
+    var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
+    var dataAlvo;
+    if      (d < 10) dataAlvo = new Date(ano, mes,    10);
+    else if (d < 20) dataAlvo = new Date(ano, mes,    20);
+    else             dataAlvo = new Date(ano, mes + 1,  0); // último dia do mês
+    var isoAlvo = dataAlvo.toISOString().slice(0, 10);
+
+    // Abre o formulário padrão
+    abrirFormPagamento(funcId);
+
+    // Preenche tipo + data + valor após o overlay renderizar
+    setTimeout(function(){
+      var selTipo = document.getElementById('pag_tipo');
+      var inpData = document.getElementById('pag_data');
+      var inpValor = document.getElementById('pag_valor');
+      var dica = document.getElementById('pag_dica_dec');
+
+      if (selTipo) selTipo.value = 'decendio';
+      if (inpData) inpData.value = isoAlvo;
+
+      // Valor sugerido: salário ÷ 3
+      var funcs = getFuncionarios();
+      var f = funcs[funcId] || {};
+      if (inpValor && f.salario && parseFloat(f.salario) > 0) {
+        inpValor.value = (parseFloat(f.salario) / 3).toFixed(2);
+      }
+      if (dica) dica.style.display = '';
+    }, 120);
+  }
 
   function _salvarPagamento(){
     var funcId = (document.getElementById('pag_func')  || {}).value;
@@ -2930,6 +2975,7 @@ var HR_FUNC = (function () {
     _registrarSaida:          _registrarSaida,
     _closeFolha:              _closeFolha,
     _closePagamento:          _closePagamento,
+    _pagarDecendioRapido:     _pagarDecendioRapido,
     _salvarPagamento:         _salvarPagamento,
     _closeHistorico:          _closeHistorico,
     _filtrarHistorico:        _filtrarHistorico,

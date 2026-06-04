@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS + PDF  v3.0
+//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS + PDF  v3.1
 //  Arquivo: app-horas-extras-pdf.js
 //
 //  MELHORIAS v3.0 (vs v2.1):
@@ -15,6 +15,10 @@
 //  ✔ Exportação CSV para integração com sistemas de folha
 //  ✔ Botão "Marcar como Pago" registra pagamento no período
 //  ✔ Histórico de pagamentos por funcionário por período
+//
+//  MELHORIAS v3.1:
+//  ✔ _heMarcarPago: confirm() substituído por modal nativo (sem popup)
+//  ✔ _heGerarTodosPDFs: progresso em tempo real + botão cancelar
 // ═══════════════════════════════════════════════════════════════════
 
 (function () {
@@ -787,21 +791,54 @@
   window._heMarcarPago = function(funcId, saldo) {
     var f = _getFuncs()[funcId] || {};
     var nome = (f.nome||'funcionário').split(' ')[0];
-    if (!confirm('Registrar pagamento de '+_fmtMoeda(saldo)+' para '+nome+'?\n\nEsta ação marca as HE do período como pagas.')) return;
+    var modalId = 'heConfirmPago_'+funcId;
+    _closeOverlay(modalId);
 
-    var pagoHE = _getPagoHE();
-    var id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-    pagoHE[id] = {
-      id: id,
-      funcionarioId: funcId,
-      valor: saldo,
-      periodo: _st.inicio,
-      data: new Date().toISOString().slice(0,10),
-      criadoEm: new Date().toISOString()
+    var ov = document.createElement('div');
+    ov.id  = modalId;
+    ov.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.75);'+
+      'display:flex;align-items:center;justify-content:center;padding:24px;font-family:Outfit,sans-serif;';
+    ov.innerHTML =
+      '<div style="width:100%;max-width:360px;background:#161410;border:1px solid rgba(201,168,76,.25);'+
+        'border-radius:16px;padding:24px 20px;text-align:center;">'+
+        '<div style="font-size:1.6rem;margin-bottom:10px;">✅</div>'+
+        '<div style="font-size:.95rem;font-weight:700;color:#f0ece4;margin-bottom:6px;">Confirmar Pagamento</div>'+
+        '<div style="font-size:.82rem;color:#b8b0a0;margin-bottom:16px;line-height:1.5;">'+
+          'Registrar pagamento de <strong style="color:#C9A84C;">'+_fmtMoeda(saldo)+'</strong> para <strong style="color:#f0ece4;">'+_esc(nome)+'</strong>?'+
+          '<br><span style="font-size:.72rem;color:#7a7268;">As HE do período serão marcadas como pagas.</span>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'+
+          '<button id="hePagoCancel_'+funcId+'" style="padding:11px;border-radius:10px;background:transparent;'+
+            'border:1px solid rgba(255,255,255,.1);color:#7a7268;font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">'+
+            'Cancelar'+
+          '</button>'+
+          '<button id="hePagoOk_'+funcId+'" style="padding:11px;border-radius:10px;'+
+            'background:linear-gradient(135deg,#08100a,#040a05);'+
+            'border:1.5px solid rgba(92,184,92,.4);color:#5cb85c;'+
+            'font-family:Outfit,sans-serif;font-size:.85rem;font-weight:700;cursor:pointer;">'+
+            '✓ Confirmar'+
+          '</button>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(ov);
+
+    document.getElementById('hePagoCancel_'+funcId).onclick = function(){ _closeOverlay(modalId); };
+    document.getElementById('hePagoOk_'+funcId).onclick = function(){
+      _closeOverlay(modalId);
+      var pagoHE = _getPagoHE();
+      var id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+      pagoHE[id] = {
+        id: id,
+        funcionarioId: funcId,
+        valor: saldo,
+        periodo: _st.inicio,
+        data: new Date().toISOString().slice(0,10),
+        criadoEm: new Date().toISOString()
+      };
+      _savePagoHE(pagoHE);
+      _toast('✓ Pagamento de '+_fmtMoeda(saldo)+' registrado para '+nome);
+      window._heAbrirDetalhe(funcId);
     };
-    _savePagoHE(pagoHE);
-    _toast('✓ Pagamento de '+_fmtMoeda(saldo)+' registrado para '+nome);
-    window._heAbrirDetalhe(funcId);
   };
 
   // ── Aplicar filtro ───────────────────────────────────────────────
@@ -869,11 +906,35 @@
     _carregarJsPDF(function(JsPDF) {
       var lista = _calcularTodos(inicio, fim).filter(function(r){ return r.totalHorasExtra>0; });
       if (!lista.length){ _toast('Nenhuma HE a pagar no período.'); return; }
-      var idx=0;
+
+      var abortado = false;
+      var progId = 'hePdfProg';
+      _closeOverlay(progId);
+      var progEl = document.createElement('div');
+      progEl.id  = progId;
+      progEl.style.cssText = 'position:fixed;bottom:24px;right:20px;z-index:999999;'+
+        'background:#161410;border:1px solid rgba(201,168,76,.3);border-radius:12px;'+
+        'padding:14px 18px;font-family:Outfit,sans-serif;min-width:220px;box-shadow:0 4px 20px rgba(0,0,0,.6);';
+      progEl.innerHTML =
+        '<div style="font-size:.65rem;color:#C9A84C;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Gerando PDFs</div>'+
+        '<div id="hePdfProgTxt" style="font-size:.82rem;color:#f0ece4;margin-bottom:10px;">0 / '+lista.length+'</div>'+
+        '<button id="hePdfAbort" style="width:100%;padding:8px;border-radius:8px;background:transparent;'+
+          'border:1px solid rgba(200,92,92,.4);color:#c85c5c;font-family:Outfit,sans-serif;'+
+          'font-size:.78rem;cursor:pointer;">✕ Cancelar</button>';
+      document.body.appendChild(progEl);
+      document.getElementById('hePdfAbort').onclick = function(){ abortado = true; _closeOverlay(progId); _toast('⚠️ Geração cancelada'); };
+
+      var idx = 0;
       function _prox() {
-        if (idx>=lista.length){ _toast('✓ '+lista.length+' PDF(s) gerado(s)!'); return; }
-        var r=lista[idx++];
-        setTimeout(function(){ _gerarPDF(JsPDF, r, inicio, fim); _prox(); }, 650);
+        if (abortado || idx >= lista.length) {
+          _closeOverlay(progId);
+          if (!abortado) _toast('✓ '+lista.length+' PDF(s) gerado(s)!');
+          return;
+        }
+        var r = lista[idx++];
+        var txt = document.getElementById('hePdfProgTxt');
+        if (txt) txt.textContent = idx+' / '+lista.length+' — '+((r.func&&r.func.nome)||'');
+        setTimeout(function(){ _gerarPDF(JsPDF, r, inicio, fim); _prox(); }, 700);
       }
       _prox();
     });
