@@ -86,6 +86,82 @@ function renderDashboard() {
 
   // ══ ALERTAS ══
   var alertas = [];
+
+  // ── Alerta de vencimento de decêndio (pagamentos pendentes) ──
+  (function() {
+    try {
+      var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+      var pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}');
+      var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+      if (!ativos.length) return;
+
+      // Próximo vencimento de decêndio
+      var agD  = parseInt(hoje.slice(8, 10));
+      var agAno = parseInt(hoje.slice(0, 4));
+      var agMes = parseInt(hoje.slice(5, 7)) - 1; // 0-indexed para Date
+      var proxVenc, diasAte, labelVenc;
+      if (agD < 10) {
+        proxVenc = new Date(agAno, agMes, 10);
+        labelVenc = '1º decêndio (dia 10)';
+      } else if (agD < 20) {
+        proxVenc = new Date(agAno, agMes, 20);
+        labelVenc = '2º decêndio (dia 20)';
+      } else {
+        proxVenc = new Date(agAno, agMes + 1, 0); // último dia do mês
+        labelVenc = '3º decêndio (dia ' + proxVenc.getDate() + ')';
+      }
+      diasAte = Math.round((proxVenc - new Date()) / 86400000);
+
+      // Período do decêndio atual (início até proxVenc)
+      var periodoInicio;
+      if (agD < 10)       periodoInicio = hoje.slice(0, 7) + '-01';
+      else if (agD < 20)  periodoInicio = hoje.slice(0, 7) + '-11';
+      else                periodoInicio = hoje.slice(0, 7) + '-21';
+      var periodoFim = proxVenc.toISOString().slice(0, 10);
+
+      // Funcionários com saldo > R$0,50 no período atual
+      var funcsPendentes = ativos.filter(function(f) {
+        var meusPags = Object.values(pags).filter(function(p) {
+          return p.funcionarioId === f.id &&
+                 p.data >= periodoInicio &&
+                 p.data <= periodoFim;
+        });
+        var totalPagoDecendio = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
+        // Estimativa: salário ÷ 3 por decêndio
+        var devido = (parseFloat(f.salario) || 0) / 3;
+        return devido > 0 && totalPagoDecendio < devido - 0.50;
+      });
+
+      if (funcsPendentes.length === 0) return;
+
+      var totalPendente = funcsPendentes.reduce(function(s, f){ return s + (parseFloat(f.salario)||0)/3; }, 0);
+      var nomes = funcsPendentes.slice(0, 3).map(function(f){ return f.nome.split(' ')[0]; }).join(', ');
+      if (funcsPendentes.length > 3) nomes += ' e mais ' + (funcsPendentes.length - 3);
+
+      var cor, icon;
+      if (diasAte <= 0) {
+        cor = 'var(--red)'; icon = '🔴';
+      } else if (diasAte <= 2) {
+        cor = '#e07820'; icon = '🟠';
+      } else {
+        cor = '#d4a017'; icon = '🟡';
+      }
+
+      var msgDias = diasAte <= 0
+        ? 'Hoje é dia de pagamento!'
+        : diasAte === 1 ? 'Amanhã vence o ' + labelVenc
+        : 'Faltam ' + diasAte + ' dias — ' + labelVenc;
+
+      alertas.push({
+        cor:  cor,
+        icon: icon,
+        msg:  msgDias + ' · ' + funcsPendentes.length + ' func. pendente' + (funcsPendentes.length > 1 ? 's' : '') +
+              ': ' + nomes + ' · Total: R$\u00a0' + parseFloat(totalPendente).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}),
+        fn:   'go(30)'
+      });
+    } catch(e) { /* silencioso */ }
+  })();
+
   if (atrasados.length) alertas.push({ cor:'var(--red)', icon:'⚠️', msg: atrasados.length + ' entrega(s) atrasada(s): ' + atrasados.slice(0,2).map(function(j){ return j.cli; }).join(', '), fn:'go(3)' });
   if (pendVenc.length)  alertas.push({ cor:'#e07820', icon:'💸', msg: 'R$ ' + _dashFmShort(pendVenc.reduce(function(s,t){ return s+(t.value||0); },0)) + ' vencidos a receber', fn:'go(4)' });
   if (urgentes.length)  alertas.push({ cor:'#fb923c', icon:'🚨', msg: urgentes.length + ' job(s) urgente(s): ' + urgentes.slice(0,2).map(function(j){ return j.cli; }).join(', '), fn:'go(3)' });
@@ -169,6 +245,9 @@ function renderDashboard() {
 
   // ── GRÁFICO DE RECEITA MENSAL ──
   h += _dashGraficoReceita(hoje);
+
+  // ── GRÁFICO DE CUSTO DA EQUIPE ──
+  h += _dashGraficoCustoEquipe(hoje);
 
   // ══ ATALHOS RÁPIDOS ══
   h += '<div class="dash-section-lbl">⚡ Atalhos</div>';
@@ -686,4 +765,118 @@ function _injectDashChartStyles() {
     }
   `;
   document.head.appendChild(s);
+}
+
+// ── GRÁFICO DE CUSTO TOTAL DA EQUIPE POR MÊS ──────────────────
+function _dashGraficoCustoEquipe(hoje) {
+  var funcs, pags, regs;
+  try {
+    funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+    pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}');
+    regs  = JSON.parse(localStorage.getItem('hr_registros')   || '{}');
+  } catch(e) { return ''; }
+
+  var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+  if (!ativos.length) return '';
+
+  // ── Últimos 6 meses ──
+  var meses = [];
+  for (var i = 5; i >= 0; i--) {
+    var d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    var key = d.toISOString().slice(0, 7);
+    var label = d.toLocaleDateString('pt-BR', { month: 'short' })
+                  .replace('.', '')
+                  .replace(/^\w/, function(c){ return c.toUpperCase(); });
+    meses.push({ key: key, label: label, total: 0, porFunc: {} });
+  }
+
+  // ── Agrupa pagamentos por mês e por funcionário ──
+  Object.values(pags).forEach(function(p) {
+    var m = (p.data || '').slice(0, 7);
+    var bucket = meses.find(function(x){ return x.key === m; });
+    if (!bucket) return;
+    var fid = p.funcionarioId;
+    if (!bucket.porFunc[fid]) bucket.porFunc[fid] = 0;
+    bucket.porFunc[fid] += parseFloat(p.valor) || 0;
+    bucket.total        += parseFloat(p.valor) || 0;
+  });
+
+  var maxVal = meses.reduce(function(mx, m){ return Math.max(mx, m.total); }, 1);
+  var BAR_H  = 80;
+  var mesCurrent = hoje.slice(0, 7);
+
+  // Cores para empilhamento por funcionário (até 6 cores)
+  var COR_FUNC = ['#C9A84C','#5cb85c','#5c8ec8','#e0954a','#a78bfa','#60a5fa'];
+  var funcIds  = ativos.slice(0, 6).map(function(f){ return f.id; });
+
+  var h = '';
+  h += '<div class="dash-section-lbl">👷 Custo da Equipe — 6 meses</div>';
+
+  // Legenda por funcionário
+  h += '<div class="dash-chart-legend" style="flex-wrap:wrap;gap:6px 12px;">';
+  funcIds.forEach(function(fid, i) {
+    var nome = (funcs[fid] || {}).nome || '?';
+    h += '<div class="dash-chart-leg-item">' +
+           '<div class="dash-chart-leg-dot" style="background:' + COR_FUNC[i] + ';"></div>' +
+           nome.split(' ')[0] +
+         '</div>';
+  });
+  h += '</div>';
+
+  // Barras empilhadas
+  h += '<div class="dash-chart-wrap">';
+  h += '<div class="dash-chart-bars" style="--bar-max:' + BAR_H + 'px;">';
+
+  meses.forEach(function(m) {
+    var totalH  = Math.round((m.total / maxVal) * BAR_H);
+    var isAtual = m.key === mesCurrent;
+
+    // Tooltip
+    var tipLines = [m.label + ' — Total: R$' + parseFloat(m.total).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})];
+    funcIds.forEach(function(fid) {
+      var v = m.porFunc[fid] || 0;
+      if (v > 0) tipLines.push((funcs[fid]||{}).nome.split(' ')[0] + ': R$' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}));
+    });
+
+    h += '<div class="dash-chart-col' + (isAtual ? ' atual' : '') + '">';
+    h += '<div class="dash-chart-bars-group" title="' + tipLines.join(' | ') + '" style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:' + BAR_H + 'px;gap:1px;">';
+
+    // Fatias empilhadas de baixo para cima
+    var somado = 0;
+    funcIds.forEach(function(fid, i) {
+      var v = m.porFunc[fid] || 0;
+      if (!v) return;
+      var fH = Math.max(1, Math.round((v / maxVal) * BAR_H));
+      somado += fH;
+      h += '<div style="width:100%;height:' + fH + 'px;background:' + COR_FUNC[i] + ';border-radius:' + (i===0?'3px 3px 0 0':'0') + ';opacity:.85;"></div>';
+    });
+
+    h += '</div>';
+    h += '<div class="dash-chart-label"' + (isAtual ? ' style="color:var(--gold2);font-weight:800;"' : '') + '>' + m.label + '</div>';
+    if (isAtual && m.total > 0) {
+      h += '<div class="dash-chart-val">R$' + (m.total >= 1000 ? (m.total/1000).toFixed(1)+'k' : m.total.toFixed(0)) + '</div>';
+    }
+    h += '</div>';
+  });
+
+  h += '</div>'; // dash-chart-bars
+  h += '</div>'; // dash-chart-wrap
+
+  // Total acumulado dos 6 meses
+  var totalGeral = meses.reduce(function(s, m){ return s + m.total; }, 0);
+  var mediaMes   = totalGeral / 6;
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">';
+  h += '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px;text-align:center;">' +
+         '<div style="font-size:.58rem;color:var(--t3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px;">Total 6 meses</div>' +
+         '<div style="font-size:.95rem;font-weight:800;color:var(--red);">R$ ' + (totalGeral/1000).toFixed(1) + 'k</div>' +
+       '</div>';
+  h += '<div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px;text-align:center;">' +
+         '<div style="font-size:.58rem;color:var(--t3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px;">Média/mês</div>' +
+         '<div style="font-size:.95rem;font-weight:800;color:var(--gold2);">R$ ' + parseFloat(mediaMes).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}) + '</div>' +
+       '</div>';
+  h += '</div>';
+
+  return h;
 }
