@@ -20,7 +20,7 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes' };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes', adv:'hr_advertencias' };
 
   function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
   function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
@@ -35,6 +35,8 @@ var HR_FUNC = (function () {
   function saveOcorrencias(d) { _save(KEYS.ocor,d); }
   function getExcecoes()  { return _load(KEYS.exc);  }
   function saveExcecoes(d){ _save(KEYS.exc,d); }
+  function getAdvertencias()  { return _load(KEYS.adv); }
+  function saveAdvertencias(d){ _save(KEYS.adv,d); }
   function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
@@ -1273,6 +1275,10 @@ var HR_FUNC = (function () {
         '<button onclick="HR_FUNC.abrirHistorico(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📋 Histórico</button>'+
         '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📊 Extrato</button>'+
       '</div>'+
+      '<button onclick="HR_FUNC.abrirAdvertencias(\''+id+'\')" '+
+        'style="width:100%;padding:11px;background:rgba(200,92,92,.07);border:1px solid rgba(200,92,92,.25);'+
+        'color:'+RED+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:600;'+
+        'cursor:pointer;margin-bottom:8px;">⚠️ Faltas &amp; Advertências</button>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
         '<button onclick="HR_FUNC.abrirFormFuncionario(\''+id+'\');HR_FUNC._closeDetalhes();" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✏️ Editar</button>'+
         '<button onclick="HR_FUNC._whatsappFunc(\''+id+'\')" style="padding:11px;background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.3);color:#25d366;border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">💬 WhatsApp</button>'+
@@ -1594,18 +1600,28 @@ var HR_FUNC = (function () {
       '<div style="width:100%;max-width:620px;padding:0 16px;">'+
       _overlayHeader('Folha de Pagamento','📑 '+fmtMes(periodoAtivo),'HR_FUNC._closeFolha()')+
 
-      // Seletor de mês
+      // Seletor de mês + aba projeção
       '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
         [mesAnterior, mesAtual].map(function(m){
-          var on = m === periodoAtivo;
-          return '<button onclick="window._folhaMes=\''+m+'\';HR_FUNC.abrirFolhaPagamento();" '+
+          var on = m === periodoAtivo && !window._folhaProjecao;
+          return '<button onclick="window._folhaMes=\''+m+'\';window._folhaProjecao=false;HR_FUNC.abrirFolhaPagamento();" '+
             'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
             (on
               ? 'background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';'
               : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
             '>'+fmtMes(m)+'</button>';
         }).join('')+
+        '<button onclick="window._folhaProjecao=true;HR_FUNC.abrirFolhaPagamento();" '+
+          'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
+          (window._folhaProjecao
+            ? 'background:rgba(167,139,250,.15);border:1.5px solid rgba(167,139,250,.4);color:#a78bfa;'
+            : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';"')+
+          '>🔮 Projeção</button>'+
       '</div>'+
+
+      // Se aba projeção ativa — mostra bloco de projeção e encerra cedo
+      (window._folhaProjecao ? HR_FUNC._htmlProjecaoFolha(ativos, pags, fmtMes) + '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button></div>' : '') +
+      (window._folhaProjecao ? '' :
 
       // KPIs resumo
       '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">'+
@@ -1678,11 +1694,140 @@ var HR_FUNC = (function () {
       '</div>'+
 
       '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
-    '</div>';
+    '</div>');
 
     _overlay('hrFolha', html);
   }
   function _closeFolha(){ _closeOverlay('hrFolha'); }
+
+  // ─────────────────────────────────────────────────────────────
+  // PROJEÇÃO DE FOLHA
+  // Estima o custo do mês atual com base na média dos 3 meses anteriores
+  // ─────────────────────────────────────────────────────────────
+  function _htmlProjecaoFolha(ativos, pags, fmtMes) {
+    // Meses de referência: últimos 3 meses fechados
+    var refMeses = [];
+    for (var i = 3; i >= 1; i--) {
+      var d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - i);
+      refMeses.push(d.toISOString().slice(0, 7));
+    }
+
+    // Agrega pagamentos por funcionário por mês de referência
+    var pagsArr = Object.values(pags);
+
+    var linhas = ativos.map(function(f) {
+      var mediasMes = refMeses.map(function(m) {
+        var di = m + '-01';
+        var ult = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0);
+        var df  = m + '-' + String(ult.getDate()).padStart(2,'0');
+        var total = pagsArr
+          .filter(function(p){ return p.funcionarioId===f.id && p.data>=di && p.data<=df; })
+          .reduce(function(s,p){ return s+(parseFloat(p.valor)||0); }, 0);
+        return total;
+      });
+
+      // Quantos dos 3 meses têm dado real
+      var comDado = mediasMes.filter(function(v){ return v > 0; });
+      var media   = comDado.length > 0
+        ? comDado.reduce(function(s,v){ return s+v; }, 0) / comDado.length
+        : (parseFloat(f.salario)||0); // fallback: salário cadastrado
+
+      // Vales frequentes: média dos vales nos 3 meses
+      var mediaVales = (function() {
+        var somaV = refMeses.reduce(function(s, m) {
+          var di = m+'-01';
+          var ult = new Date(parseInt(m.slice(0,4)), parseInt(m.slice(5,7)), 0);
+          var df  = m+'-'+String(ult.getDate()).padStart(2,'0');
+          return s + pagsArr
+            .filter(function(p){ return p.funcionarioId===f.id && p.data>=di && p.data<=df && (p.tipo==='vale'||p.tipo==='adiantamento'); })
+            .reduce(function(sv,p){ return sv+(parseFloat(p.valor)||0); }, 0);
+        }, 0);
+        return somaV / 3;
+      })();
+
+      return { f: f, media: media, mediaVales: mediaVales, meses: mediasMes, comDado: comDado.length };
+    });
+
+    var totalProj = linhas.reduce(function(s,l){ return s+l.media; }, 0);
+    var totalValesProj = linhas.reduce(function(s,l){ return s+l.mediaVales; }, 0);
+
+    var meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                 'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    var mesAtualLabel = meses[new Date().getMonth()] + '/' + new Date().getFullYear();
+
+    var h = '';
+
+    // Header projeção
+    h += '<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);'+
+      'border-radius:12px;padding:13px 16px;margin-bottom:14px;">'+
+      '<div style="font-size:.6rem;color:rgba(167,139,250,.7);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px;">'+
+        '🔮 Projeção — '+mesAtualLabel+
+      '</div>'+
+      '<div style="font-size:.7rem;color:'+T3+';line-height:1.5;">'+
+        'Estimativa baseada na média dos pagamentos dos últimos 3 meses: '+
+        refMeses.map(fmtMes).join(', ')+'.'+
+      '</div>'+
+    '</div>';
+
+    // KPIs
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'+
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;text-align:center;">'+
+        '<div style="font-size:.58rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Folha projetada</div>'+
+        '<div style="font-size:1.25rem;font-weight:800;color:#a78bfa;">'+_fmtMoeda(totalProj)+'</div>'+
+      '</div>'+
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;text-align:center;">'+
+        '<div style="font-size:.58rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">Vales projetados</div>'+
+        '<div style="font-size:1.25rem;font-weight:800;color:#e0954a;">'+_fmtMoeda(totalValesProj)+'</div>'+
+      '</div>'+
+    '</div>';
+
+    // Tabela por funcionário
+    h += '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">';
+    h += '<div style="display:grid;grid-template-columns:1fr repeat(3,60px) 80px;gap:0;'+
+      'padding:8px 14px;background:rgba(167,139,250,.06);'+
+      'font-size:.55rem;color:#a78bfa;letter-spacing:.07em;text-transform:uppercase;">'+
+      '<span>Funcionário</span>'+
+      refMeses.map(function(m){ return '<span style="text-align:right;">'+fmtMes(m)+'</span>'; }).join('')+
+      '<span style="text-align:right;">Projeção</span>'+
+    '</div>';
+
+    linhas.forEach(function(l, idx) {
+      var confianca = l.comDado === 3 ? '●●●' : l.comDado === 2 ? '●●○' : l.comDado === 1 ? '●○○' : '○○○';
+      var confiancaCor = l.comDado === 3 ? GREEN : l.comDado >= 1 ? GOLD : RED;
+      h += '<div style="display:grid;grid-template-columns:1fr repeat(3,60px) 80px;gap:0;'+
+        'padding:10px 14px;border-top:1px solid '+BD+';'+
+        (idx%2===1?'background:rgba(255,255,255,.015);':'')+'align-items:center;">';
+      h += '<div>'+
+        '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(l.f.nome.split(' ')[0])+'</div>'+
+        '<div style="font-size:.6rem;color:'+confiancaCor+';letter-spacing:.05em;">'+confianca+'</div>'+
+      '</div>';
+      l.meses.forEach(function(v) {
+        h += '<div style="text-align:right;font-size:.72rem;color:'+(v>0?T2:T3)+';">'+
+          (v>0?_fmtMoeda(v):'—')+
+        '</div>';
+      });
+      h += '<div style="text-align:right;">'+
+        '<div style="font-size:.82rem;font-weight:800;color:#a78bfa;">'+_fmtMoeda(l.media)+'</div>'+
+      '</div>';
+      h += '</div>';
+    });
+
+    h += '</div>';
+
+    // Legenda confiança
+    h += '<div style="background:rgba(255,255,255,.02);border:1px solid '+BD2+';border-radius:10px;'+
+      'padding:10px 14px;margin-bottom:12px;font-size:.7rem;color:'+T3+';line-height:1.8;">'+
+      '<strong style="color:'+T2+';">Confiança da projeção:</strong> '+
+      '<span style="color:'+GREEN+';">●●●</span> 3 meses de dado real · '+
+      '<span style="color:'+GOLD+';">●●○</span> 2 meses · '+
+      '<span style="color:'+RED+';">●○○</span> 1 mês · '+
+      '<span style="color:'+T3+';">○○○</span> sem histórico (usa salário cadastrado)'+
+    '</div>';
+
+    return h;
+  }
 
   // ─────────────────────────────────────────────────────────────
   // 11. FORMULÁRIO REGISTRO OPERACIONAL
@@ -2141,6 +2286,87 @@ var HR_FUNC = (function () {
     _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!');
     _closePagamento();
     renderPaginaFuncionarios();
+
+    // Oferecer notificação WhatsApp ao funcionário
+    _ofereceNotificacaoPagamento(funcId, valor, tipo, data, obs);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NOTIFICAÇÃO DE PAGAMENTO VIA WHATSAPP
+  // ─────────────────────────────────────────────────────────────
+  function _ofereceNotificacaoPagamento(funcId, valor, tipo, data, obs) {
+    var funcs = getFuncionarios();
+    var f = funcs[funcId];
+    if (!f || !f.telefone) return; // Sem telefone, silencioso
+
+    var tel = f.telefone.replace(/\D/g, '');
+    if (tel.length < 10) return;
+
+    var primeiroNome = f.nome.split(' ')[0];
+    var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
+
+    // Calcula saldo após o pagamento (já inclui o pagamento que acabou de ser salvo)
+    var saldo = calcSaldoFuncionario(funcId, null, null);
+    var saldoTexto;
+    if (saldo.temCredito) {
+      saldoTexto = '✅ Quitado (crédito de ' + _fmtMoeda(Math.abs(saldo.saldo)) + ' no próximo)';
+    } else if (saldo.saldo < 0.50) {
+      saldoTexto = '✅ Quitado';
+    } else {
+      saldoTexto = '⏳ Saldo restante: ' + _fmtMoeda(saldo.saldo);
+    }
+
+    // Período de referência legível
+    var dataFmt = _fmtData(data);
+    var hoje = new Date();
+    var mesRef = data.slice(0, 7);
+    var meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+    var periodoRef = meses[parseInt(mesRef.slice(5, 7)) - 1] + '/' + mesRef.slice(0, 4);
+
+    // Monta mensagem
+    var msg =
+      'Olá ' + primeiroNome + '! 👋\n\n' +
+      '💳 *Pagamento registrado — HR Mármores*\n\n' +
+      '📌 Tipo: ' + t.label + '\n' +
+      '💰 Valor: *' + _fmtMoeda(valor) + '*\n' +
+      '📅 Data: ' + dataFmt + '\n' +
+      '📆 Período: ' + periodoRef + '\n' +
+      (obs ? '📝 Obs: ' + obs + '\n' : '') +
+      '\n' + saldoTexto + '\n\n' +
+      '_HR Mármores e Granitos — Pilão Arcado_';
+
+    // Toast com botão de ação (aparece 400ms após o toast principal)
+    setTimeout(function() {
+      var elId = 'toast_wp_' + Date.now();
+      var div = document.createElement('div');
+      div.id = elId;
+      div.style.cssText = [
+        'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+        'background:#0d1a0f', 'border:1.5px solid rgba(37,211,102,.4)',
+        'color:#e8f5e9', 'border-radius:14px', 'padding:13px 16px',
+        'font-family:Outfit,sans-serif', 'font-size:.83rem',
+        'box-shadow:0 4px 24px rgba(0,0,0,.55)', 'z-index:99999',
+        'display:flex', 'align-items:center', 'gap:12px',
+        'max-width:calc(100vw - 32px)', 'animation:_fadeIn .25s ease'
+      ].join(';');
+      div.innerHTML =
+        '<span style="flex:1;line-height:1.35;">📲 Notificar <b>' + primeiroNome + '</b> sobre o pagamento?</span>' +
+        '<button onclick="(function(){' +
+          'window.open(\'https://wa.me/55' + tel + '?text=\'+encodeURIComponent(' + JSON.stringify(msg) + '),\'_blank\');' +
+          'document.getElementById(\'' + elId + '\').remove();' +
+        '})()" style="padding:8px 14px;background:#25d366;border:none;border-radius:9px;' +
+          'color:#fff;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;white-space:nowrap;">' +
+          '💬 Enviar' +
+        '</button>' +
+        '<button onclick="document.getElementById(\'' + elId + '\').remove()" ' +
+          'style="padding:8px 10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);' +
+          'border-radius:9px;color:rgba(255,255,255,.5);font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">' +
+          '✕' +
+        '</button>';
+      document.body.appendChild(div);
+      // Auto-remove após 12s
+      setTimeout(function(){ if(div.parentNode) div.remove(); }, 12000);
+    }, 400);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -2350,8 +2576,16 @@ var HR_FUNC = (function () {
                 (p.obs ? '<div style="font-size:.7rem;color:'+T3+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
                   _esc(p.obs)+'</div>' : '')+
               '</div>'+
-              '<div style="font-size:.95rem;font-weight:800;color:'+t.cor+';white-space:nowrap;">'+
-                _fmtMoeda(p.valor)+
+              '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">'+
+                '<div style="font-size:.95rem;font-weight:800;color:'+t.cor+';white-space:nowrap;">'+
+                  _fmtMoeda(p.valor)+
+                '</div>'+
+                '<button onclick="HR_FUNC._gerarComprovantePagamento(\''+p.id+'\')" '+
+                  'style="padding:5px 10px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);'+
+                  'border-radius:8px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.68rem;'+
+                  'font-weight:600;cursor:pointer;white-space:nowrap;">'+
+                  '📄 PDF'+
+                '</button>'+
               '</div>'+
             '</div>'+
           '</div>';
@@ -2947,6 +3181,364 @@ var HR_FUNC = (function () {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // COMPROVANTE DE PAGAMENTO — PDF
+  // ─────────────────────────────────────────────────────────────
+  function _carregarJsPDF(cb) {
+    if (window.jspdf && window.jspdf.jsPDF) { cb(window.jspdf.jsPDF); return; }
+    if (window.jsPDF) { cb(window.jsPDF); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = function() { cb((window.jspdf && window.jspdf.jsPDF) || window.jsPDF); };
+    s.onerror = function() { _toast('❌ Erro ao carregar jsPDF. Verifique a internet.'); };
+    document.head.appendChild(s);
+  }
+
+  function _gerarComprovantePagamento(pagId) {
+    var pags  = getPagamentos();
+    var p     = pags[pagId];
+    if (!p) { _toast('Pagamento não encontrado.'); return; }
+
+    var funcs = getFuncionarios();
+    var f     = funcs[p.funcionarioId] || {};
+    if (!f.nome) { _toast('Funcionário não encontrado.'); return; }
+
+    _toast('⏳ Gerando comprovante...');
+    _carregarJsPDF(function(JsPDF) {
+      var doc   = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      var pW = 210, mL = 14, mR = 14, cW = pW - mL - mR;
+      var y  = 18;
+
+      // Dados da empresa
+      var empNome  = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.nome)  || 'HR Mármores e Granitos';
+      var empTel   = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.tel)   || '';
+      var empCNPJ  = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.cnpj)  || '';
+      var empCid   = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.cidade)|| 'Pilão Arcado — BA';
+
+      // Tipo de pagamento
+      var t    = _TIPOS_PAG[p.tipo] || _TIPOS_PAG.outro;
+      var icoF = { dinheiro: 'Dinheiro', pix: 'PIX', ted: 'TED', cheque: 'Cheque', outro: 'Outro' }[p.forma] || 'Outro';
+
+      // Mês de referência legível
+      var mesRef   = (p.data || '').slice(0, 7);
+      var meses    = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      var periodoLabel = mesRef
+        ? meses[(parseInt(mesRef.slice(5,7)) - 1)] + ' / ' + mesRef.slice(0,4)
+        : '—';
+
+      // Saldo atual do funcionário (geral)
+      var saldo = calcSaldoFuncionario(p.funcionarioId, null, null);
+      var saldoLabel, saldoCor;
+      if (saldo.temCredito) {
+        saldoLabel = 'Credito de ' + _fmtMoeda(Math.abs(saldo.saldo)) + ' (desconta no proximo)';
+        saldoCor   = [92,184,92];
+      } else if (saldo.saldo < 0.50) {
+        saldoLabel = 'Quitado';
+        saldoCor   = [92,184,92];
+      } else {
+        saldoLabel = 'Saldo restante: ' + _fmtMoeda(saldo.saldo);
+        saldoCor   = [201,168,76];
+      }
+
+      // ── Cabeçalho ──────────────────────────────────────────────
+      doc.setFillColor(12, 10, 3);
+      doc.rect(0, 0, pW, 38, 'F');
+      doc.setFillColor(201, 168, 76);
+      doc.rect(0, 0, pW, 1.5, 'F');
+
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(14); doc.setTextColor(201, 168, 76);
+      doc.text(empNome, mL, y);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 150, 130);
+      var infoEmp = [empCNPJ, empTel, empCid].filter(Boolean).join('  ·  ');
+      if (infoEmp) doc.text(infoEmp, mL, y + 5);
+
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(11); doc.setTextColor(220, 210, 190);
+      doc.text('COMPROVANTE DE PAGAMENTO', pW - mR, y, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);  doc.setTextColor(140, 130, 110);
+      doc.text('Emitido em: ' + _fmtData(new Date().toISOString().slice(0,10)), pW - mR, y + 5, { align: 'right' });
+      doc.text('Ref.: ' + periodoLabel, pW - mR, y + 11, { align: 'right' });
+      y = 46;
+
+      // ── Card funcionário ───────────────────────────────────────
+      doc.setFillColor(28, 24, 6);
+      doc.roundedRect(mL, y, cW, 26, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(12); doc.setTextColor(201, 168, 76);
+      doc.text(f.nome || '—', mL + 5, y + 9);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);  doc.setTextColor(170, 160, 140);
+      doc.text((f.cargo || 'Funcionário'), mL + 5, y + 16);
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(8);  doc.setTextColor(150, 140, 120);
+      doc.text('Salario base: ' + _fmtMoeda(f.salario || 0), mL + 5, y + 22);
+      if (f.telefone) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120, 110, 90);
+        doc.text('Tel: ' + f.telefone, mL + cW / 2, y + 22);
+      }
+      y += 34;
+
+      // ── Bloco principal — valor pago ───────────────────────────
+      doc.setFillColor(16, 22, 8);
+      doc.roundedRect(mL, y, cW, 34, 2, 2, 'F');
+      doc.setDrawColor(92, 184, 92); doc.setLineWidth(0.4);
+      doc.roundedRect(mL, y, cW, 34, 2, 2, 'S');
+
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(8);  doc.setTextColor(120, 130, 120);
+      doc.text('VALOR PAGO', mL + cW / 2, y + 8, { align: 'center' });
+      doc.setFont('helvetica', 'bold');   doc.setFontSize(22); doc.setTextColor(92, 184, 92);
+      doc.text(_fmtMoeda(p.valor), mL + cW / 2, y + 21, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(100, 110, 100);
+      doc.text('via ' + icoF + '  ·  ' + t.label, mL + cW / 2, y + 28, { align: 'center' });
+      y += 42;
+
+      // ── Tabela de discriminação ────────────────────────────────
+      var linhas = [
+        ['Tipo de pagamento', t.label],
+        ['Data do pagamento', _fmtData(p.data)],
+        ['Periodo de referencia', periodoLabel],
+        ['Forma de pagamento', icoF],
+        ['Salario base mensal', _fmtMoeda(f.salario || 0)],
+        ['Total trabalhado (periodo)', _fmtMoeda(saldo.totalSalario)],
+        ['Horas extras', _fmtMoeda(saldo.valorExtra)],
+        ['Total bruto devido', _fmtMoeda(saldo.totalDevido)],
+        ['Total ja pago (historico)', _fmtMoeda(saldo.totalPago)],
+      ];
+      if (p.obs) linhas.push(['Observacao', p.obs]);
+
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(201, 168, 76);
+      doc.text('DISCRIMINACAO DO PAGAMENTO', mL, y); y += 5;
+
+      linhas.forEach(function(row, i) {
+        if (i % 2 === 0) { doc.setFillColor(20, 17, 5); doc.rect(mL, y, cW, 7, 'F'); }
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(130, 120, 100);
+        doc.text(row[0], mL + 3, y + 5);
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(200, 190, 170);
+        doc.text(String(row[1]), pW - mR - 3, y + 5, { align: 'right' });
+        y += 7;
+      });
+      y += 6;
+
+      // ── Status do saldo ────────────────────────────────────────
+      doc.setFillColor(18, 18, 10);
+      doc.roundedRect(mL, y, cW, 14, 2, 2, 'F');
+      doc.setDrawColor(saldoCor[0], saldoCor[1], saldoCor[2]); doc.setLineWidth(0.35);
+      doc.roundedRect(mL, y, cW, 14, 2, 2, 'S');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(saldoCor[0], saldoCor[1], saldoCor[2]);
+      doc.text('STATUS: ' + saldoLabel, mL + cW / 2, y + 9, { align: 'center' });
+      y += 22;
+
+      // ── Rodapé ─────────────────────────────────────────────────
+      doc.setDrawColor(201, 168, 76); doc.setLineWidth(0.3);
+      doc.line(mL, y, pW - mR, y); y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(100, 90, 70);
+      doc.text('Documento gerado automaticamente pelo sistema HR Marmores e Granitos.', mL, y);
+      doc.text('Este comprovante nao substitui recibo com assinatura quando exigido por lei.', mL, y + 4);
+      doc.setFont('helvetica', 'bold'); doc.setTextColor(130, 120, 90);
+      doc.text(empNome + '  ·  ' + empCid, pW - mR, y, { align: 'right' });
+
+      // ── Salva ──────────────────────────────────────────────────
+      var nomeArq = 'comprovante_' + (f.nome || 'func').split(' ')[0].toLowerCase() +
+                    '_' + (p.data || '').replace(/-/g,'') + '.pdf';
+      doc.save(nomeArq);
+      _toast('✅ Comprovante gerado!');
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // FALTAS E ADVERTÊNCIAS
+  // ─────────────────────────────────────────────────────────────
+
+  var _TIPOS_ADV = {
+    falta_injust:  { label:'Falta injustificada',  icon:'🔴', cor:RED,    desconto:true  },
+    falta_just:    { label:'Falta justificada',     icon:'🟡', cor:GOLD,   desconto:false },
+    adv_verbal:    { label:'Advertência verbal',    icon:'🟠', cor:'#e07820', desconto:false },
+    adv_escrita:   { label:'Advertência escrita',   icon:'📄', cor:'#e07820', desconto:false },
+    suspensao:     { label:'Suspensão',             icon:'🚫', cor:RED,    desconto:true  },
+    atraso:        { label:'Atraso',                icon:'⏱',  cor:GOLD,   desconto:false },
+  };
+
+  function abrirAdvertencias(funcId) {
+    var funcs = getFuncionarios();
+    var f     = funcs[funcId];
+    if (!f) return;
+
+    var advs  = getAdvertencias();
+    var lista = Object.values(advs)
+      .filter(function(a){ return a.funcionarioId === funcId; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+
+    var totalDesconto = lista.reduce(function(s, a) {
+      return s + (parseFloat(a.impacto) || 0);
+    }, 0);
+
+    var listaHtml = lista.length === 0
+      ? '<div style="text-align:center;color:'+T3+';padding:28px 0;font-size:.82rem;">Nenhum registro ainda</div>'
+      : lista.map(function(a) {
+          var tp = _TIPOS_ADV[a.tipo] || { label:a.tipo, icon:'📌', cor:T2 };
+          return '<div style="background:'+S2+';border:1px solid rgba(200,92,92,.15);border-radius:11px;padding:12px 14px;margin-bottom:8px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
+              '<div style="flex:1;min-width:0;">'+
+                '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'+
+                  '<span style="font-size:.75rem;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.07);'+
+                    'border-radius:5px;padding:1px 7px;color:'+tp.cor+';font-weight:700;">'+
+                    tp.icon+' '+tp.label+
+                  '</span>'+
+                  '<span style="font-size:.7rem;color:'+T3+';">'+_fmtData(a.data)+'</span>'+
+                '</div>'+
+                '<div style="font-size:.8rem;color:'+T2+';margin-bottom:2px;">'+_esc(a.motivo||'—')+'</div>'+
+                (a.testemunha ? '<div style="font-size:.7rem;color:'+T3+';">👤 Testemunha: '+_esc(a.testemunha)+'</div>' : '')+
+                (parseFloat(a.impacto) > 0 ? '<div style="font-size:.7rem;color:'+RED+';margin-top:2px;">💸 Desconto: '+_fmtMoeda(a.impacto)+'</div>' : '')+
+              '</div>'+
+              '<button onclick="HR_FUNC._excluirAdvertencia(\''+a.id+'\',\''+funcId+'\')" '+
+                'style="padding:6px 10px;background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.25);'+
+                'border-radius:8px;color:'+RED+';font-size:.7rem;cursor:pointer;flex-shrink:0;">🗑</button>'+
+            '</div>'+
+          '</div>';
+        }).join('');
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Faltas & Advertências','⚠️ '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeAdvertencias()')+
+
+      // KPI
+      (lista.length > 0
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
+            '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;text-align:center;">'+
+              '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px;">Ocorrências</div>'+
+              '<div style="font-size:1.4rem;font-weight:800;color:'+RED+';">'+lista.length+'</div>'+
+            '</div>'+
+            '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:11px;padding:12px;text-align:center;">'+
+              '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px;">Desconto total</div>'+
+              '<div style="font-size:1.1rem;font-weight:800;color:'+(totalDesconto>0?RED:GREEN)+';">'+_fmtMoeda(totalDesconto)+'</div>'+
+            '</div>'+
+          '</div>'
+        : '')+
+
+      // Botão novo registro
+      '<button onclick="HR_FUNC.abrirFormAdvertencia(\''+funcId+'\')" style="'+CSS_BTN_GOLD+'margin-bottom:12px;">'+
+        '+ Registrar Falta ou Advertência'+
+      '</button>'+
+
+      // Lista
+      listaHtml+
+
+      '<button onclick="HR_FUNC._closeAdvertencias()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
+    '</div>';
+
+    _overlay('hrAdvertencias', html);
+  }
+
+  function _closeAdvertencias() { _closeOverlay('hrAdvertencias'); }
+
+  function abrirFormAdvertencia(funcId) {
+    var funcs = getFuncionarios();
+    var f     = funcs[funcId];
+    if (!f) return;
+
+    var hoje = _hoje();
+    var salarioDia = (parseFloat(f.salario) || 0) / 30;
+
+    var opsTipo = Object.keys(_TIPOS_ADV).map(function(k) {
+      var t = _TIPOS_ADV[k];
+      return '<option value="'+k+'">'+t.icon+' '+t.label+'</option>';
+    }).join('');
+
+    var html =
+      '<div style="width:100%;max-width:460px;padding:0 16px;">'+
+      _overlayHeader('Nova Ocorrência','⚠️ '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeFormAdvertencia()')+
+
+      _campo('Tipo', '<select id="adv_tipo" onchange="HR_FUNC._advAtualizaImpacto()" style="'+CSS_INP+'">'+opsTipo+'</select>')+
+      _campo('Data', '<input id="adv_data" type="date" value="'+hoje+'" style="'+CSS_INP+'">')+
+      _campo('Motivo / Descrição', '<textarea id="adv_motivo" rows="3" placeholder="Descreva o ocorrido..." style="'+CSS_INP+'resize:vertical;"></textarea>')+
+      _campo('Testemunha (opcional)', '<input id="adv_test" type="text" placeholder="Nome da testemunha" style="'+CSS_INP+'">')+
+      '<div id="adv_bloco_impacto" style="margin-bottom:12px;">'+
+        _campo('Impacto financeiro (R$)',
+          '<input id="adv_impacto" type="number" step="0.01" min="0" placeholder="0,00" style="'+CSS_INP+'">'+
+          '<div id="adv_dica_impacto" style="font-size:.7rem;color:'+T3+';margin-top:4px;">'+
+            'Sugestão para 1 dia: '+_fmtMoeda(salarioDia)+
+          '</div>')+
+      '</div>'+
+
+      '<button onclick="HR_FUNC._salvarAdvertencia(\''+funcId+'\')" style="'+CSS_BTN_GOLD+'">✅ Registrar</button>'+
+      '<button onclick="HR_FUNC._closeFormAdvertencia()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay('hrFormAdv', html);
+
+    // Define impacto inicial conforme tipo padrão
+    setTimeout(function(){ HR_FUNC._advAtualizaImpacto(); }, 100);
+  }
+
+  function _advAtualizaImpacto() {
+    var selTipo   = document.getElementById('adv_tipo');
+    var inpImpacto = document.getElementById('adv_impacto');
+    var bloco     = document.getElementById('adv_bloco_impacto');
+    if (!selTipo) return;
+    var tipo = selTipo.value;
+    var t    = _TIPOS_ADV[tipo] || {};
+    if (bloco) bloco.style.display = t.desconto ? '' : 'none';
+    // Se for falta injustificada, preenche com valor de 1 dia
+    if (tipo === 'falta_injust' && inpImpacto && !parseFloat(inpImpacto.value)) {
+      var funcs = getFuncionarios();
+      // Tenta pegar funcId do form atual via overlay
+      var overlayEl = document.getElementById('hrFormAdv');
+      if (overlayEl) {
+        var btn = overlayEl.querySelector('button[onclick*="_salvarAdvertencia"]');
+        if (btn) {
+          var m = btn.getAttribute('onclick').match(/'([^']+)'/);
+          if (m) {
+            var fId = m[1];
+            var sal = parseFloat((funcs[fId]||{}).salario || 0);
+            if (sal > 0) inpImpacto.value = (sal / 30).toFixed(2);
+          }
+        }
+      }
+    }
+    if (tipo === 'suspensao' && inpImpacto && !parseFloat(inpImpacto.value)) {
+      inpImpacto.value = '';
+    }
+  }
+
+  function _salvarAdvertencia(funcId) {
+    var tipo    = (document.getElementById('adv_tipo')    || {}).value;
+    var data    = (document.getElementById('adv_data')    || {}).value;
+    var motivo  = (document.getElementById('adv_motivo')  || {}).value || '';
+    var test    = (document.getElementById('adv_test')    || {}).value || '';
+    var impacto = parseFloat((document.getElementById('adv_impacto') || {}).value) || 0;
+
+    if (!tipo)   { _toast('Selecione o tipo'); return; }
+    if (!data)   { _toast('Informe a data');   return; }
+    if (!motivo.trim()) { _toast('Descreva o motivo'); return; }
+
+    var t    = _TIPOS_ADV[tipo] || _TIPOS_ADV.adv_verbal;
+    var advs = getAdvertencias();
+    var id   = genId();
+
+    advs[id] = {
+      id:            id,
+      funcionarioId: funcId,
+      tipo:          tipo,
+      data:          data,
+      motivo:        motivo.trim(),
+      testemunha:    test.trim(),
+      impacto:       t.desconto ? impacto : 0,
+      criadoEm:      new Date().toISOString()
+    };
+    saveAdvertencias(advs);
+    _toast(t.icon + ' ' + t.label + ' registrada!');
+    _closeFormAdvertencia();
+    abrirAdvertencias(funcId);
+  }
+
+  function _closeFormAdvertencia() { _closeOverlay('hrFormAdv'); }
+
+  function _excluirAdvertencia(advId, funcId) {
+    if (!confirm('Excluir este registro? A ação não pode ser desfeita.')) return;
+    var advs = getAdvertencias();
+    delete advs[advId];
+    saveAdvertencias(advs);
+    _toast('🗑 Registro removido.');
+    abrirAdvertencias(funcId);
+  }
+
   // ══════════════════════════════════════════════════════════════
 
   return{
@@ -2974,9 +3566,20 @@ var HR_FUNC = (function () {
     _registrarEntrada:        _registrarEntrada,
     _registrarSaida:          _registrarSaida,
     _closeFolha:              _closeFolha,
+    _htmlProjecaoFolha:       _htmlProjecaoFolha,
     _closePagamento:          _closePagamento,
     _pagarDecendioRapido:     _pagarDecendioRapido,
     _salvarPagamento:         _salvarPagamento,
+    _ofereceNotificacaoPagamento: _ofereceNotificacaoPagamento,
+    _gerarComprovantePagamento:   _gerarComprovantePagamento,
+    // Faltas e Advertências
+    abrirAdvertencias:            abrirAdvertencias,
+    abrirFormAdvertencia:         abrirFormAdvertencia,
+    _advAtualizaImpacto:          _advAtualizaImpacto,
+    _salvarAdvertencia:           _salvarAdvertencia,
+    _closeAdvertencias:           _closeAdvertencias,
+    _closeFormAdvertencia:        _closeFormAdvertencia,
+    _excluirAdvertencia:          _excluirAdvertencia,
     _closeHistorico:          _closeHistorico,
     _filtrarHistorico:        _filtrarHistorico,
     _histTab:                 _histTab,
