@@ -741,10 +741,20 @@ function _secBuildCtx() {
   var cutoff      = addD(hoje, -5);
   var cutoff2     = addD(hoje, -30);
   var followUps   = (DB.q||[]).filter(function(q){
+    if (q.status === 'aprovado' || q.status === 'perdido') return false;
     if (!q.date || q.date > cutoff || q.date < cutoff2) return false;
     return !(DB.t||[]).some(function(t){
       return t.desc && t.desc.indexOf(q.cli||'') >= 0 && t.type === 'in' && t.date >= q.date;
     });
+  });
+  var todosOrcs    = DB.q || [];
+  var orcAprovados = todosOrcs.filter(function(q){ return q.status === 'aprovado'; }).length;
+  var taxaConv     = todosOrcs.length > 0 ? Math.round((orcAprovados / todosOrcs.length) * 100) : 0;
+  var orcVencidos  = todosOrcs.filter(function(q){
+    if (q.status && q.status !== 'pendente') return false;
+    var dias = q.validade || 7;
+    var venc = (typeof addD === 'function') ? addD(q.date || hoje, dias) : '';
+    return venc && venc < hoje;
   });
   var visitasHoje = (_getV()).filter(function(v){return v.status === 'agendada' && v.date === hoje;});
   var nome = (CFG && CFG.emp && CFG.emp.nome) ? CFG.emp.nome.split(' ')[0] : 'chefe';
@@ -753,7 +763,7 @@ function _secBuildCtx() {
     hoje, hh, nome, saudacao, equipe, capacidade, pressura, podeAceit,
     atrasados, urgentes, emProd, entrega3d, pendentes, pendVenc, pendSem,
     totPend, totPendVenc, totSemana, totSaidas, saldo: totPend - totSaidas,
-    followUps, visitasHoje
+    followUps, visitasHoje, orcAprovados, taxaConv, orcVencidos
   };
 }
 
@@ -779,7 +789,7 @@ function _secBuildBriefing(ctx) {
     + '- A receber: R$ ' + fm(ctx.totPend) + ' (vencido: R$ ' + fm(ctx.totPendVenc) + ')\n'
     + '- Semana: R$ ' + fm(ctx.totSemana) + ' | Compromissos 30d: R$ ' + fm(ctx.totSaidas) + '\n'
     + '- Saldo projetado: R$ ' + fm(ctx.saldo) + ' ' + (ctx.saldo >= 0 ? '(positivo)' : '(NEGATIVO)') + '\n\n'
-    + 'FOLLOW-UPS (' + ctx.followUps.length + '):\n' + linhasFollowUp + '\n\n'
+    + 'ORÇAMENTOS VENCIDOS (' + (ctx.orcVencidos||[]).length + '): ' + ((ctx.orcVencidos||[]).map(function(q){return q.cli+' ('+q.date+')';}).join(', ') || 'Nenhum') + '\n'+ '    Taxa de conversão geral: ' + (ctx.taxaConv||0) + '% (' + (ctx.orcAprovados||0) + ' aprovados de ' + (DB.q||[]).length + ' orçamentos)\n\n'    + 'FOLLOW-UPS (' + ctx.followUps.length + '):\n' + linhasFollowUp + '\n\n'
     + 'VISITAS HOJE (' + ctx.visitasHoje.length + '):\n' + linhasVisitas + '\n\n'
     + 'Responda SOMENTE JSON sem markdown:\n'
     + '{"fazerAgora":{"titulo":"string","detalhe":"1-2 frases diretas com nomes/valores reais","acao":"producao|financas|agenda|historico|orcamento|config|contratos"},'
