@@ -3853,7 +3853,7 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente'};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){

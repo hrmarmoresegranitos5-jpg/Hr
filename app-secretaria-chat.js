@@ -598,19 +598,35 @@ function _chatBuildDiagContext() {
 // ── Contexto de orçamentos recentes ───────────────────────
 function _chatBuildOrcContext() {
   try {
-    var orcs = (typeof DB !== 'undefined' && DB.q) ? DB.q.slice(0, 10) : [];
+    var todos = (typeof DB !== 'undefined' && DB.q) ? DB.q : [];
+    var orcs = todos.slice(0, 10);
     if (!orcs.length) return 'ORÇAMENTOS RECENTES: Nenhum gerado.';
     var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
     var mes = hoje.slice(0,7);
-    var totalMes = 0;
+    var totalMes = 0, aprovados = 0, perdidos = 0, pendentes = 0;
+    todos.forEach(function(q) {
+      var st = q.status || 'pendente';
+      if (st === 'aprovado') aprovados++;
+      else if (st === 'perdido') perdidos++;
+      else pendentes++;
+    });
+    var totalOrc = todos.length;
+    var taxaConv = totalOrc > 0 ? ((aprovados / totalOrc) * 100).toFixed(0) : '0';
+    var statusLabel = {'aprovado':'✅ aprovado','perdido':'❌ perdido','pendente':'⏳ pendente'};
     var linhas = orcs.map(function(q) {
       if ((q.date||'').slice(0,7) === mes) totalMes += (q.vista || 0);
+      var st = q.status || 'pendente';
+      var diasValidade = q.validade || 7;
+      var dataVenc = (typeof addD === 'function') ? addD(q.date || hoje, diasValidade) : '';
+      var vencido = dataVenc && dataVenc < hoje && st === 'pendente' ? ' ⚠️VENCIDO' : '';
       return '• ' + (q.cli||'?') + ' — ' + (q.tipo||'?') +
         ' | R$ ' + (q.vista||0).toFixed(2) +
         ' | ' + (q.date||'?') +
-        ' | ' + (q.m2||0).toFixed(2) + 'm²';
+        ' | ' + (statusLabel[st]||st) + vencido;
     }).join('\n');
-    return 'ORÇAMENTOS RECENTES (' + orcs.length + ') | total gerado no mês: R$ ' + totalMes.toFixed(2) + ':\n' + linhas;
+    return 'ORÇAMENTOS RECENTES (' + orcs.length + ') | total gerado no mês: R$ ' + totalMes.toFixed(2) +
+      '\nConversão geral: ' + aprovados + '/' + totalOrc + ' aprovados (' + taxaConv + '%) | perdidos: ' + perdidos + ' | aguardando: ' + pendentes +
+      '\n' + linhas;
   } catch(e) { return 'ORÇAMENTOS: erro — ' + e.message; }
 }
 
@@ -681,6 +697,8 @@ function _chatBuildSystem() {
     '14. Limpar diag:   {"action":"limpar_diag"}',
     '15. Ficha cliente:   {"action":"ver_cliente","cli":"NOME"} — agrega orçamentos, jobs, visitas, cobranças e histórico do cliente',
     '16. Histórico job:   {"action":"ver_historico_job","cli":"NOME"} — mostra linha do tempo de edições de um job',
+    '17. Aprovar orç.:    {"action":"aprovar_orcamento","cli":"NOME"} — marca orçamento como aprovado (status→aprovado)',
+    '18. Perder orç.:     {"action":"marcar_perdido","cli":"NOME","motivo":"opcional"} — marca orçamento como perdido/não fechado',
     '',
     '═══ FORMATO ═══',
     '- **negrito** para números e nomes importantes',
@@ -1322,6 +1340,43 @@ function _jobLog(job, campo, de, para) {
         }
       } else {
         result.extra = '⚠️ Informe o nome do cliente. Ex: "histórico do job do João"';
+      }
+      break;
+
+    case 'aprovar_orcamento':
+      if (data.cli) {
+        var buscaOrc = (data.cli || '').toLowerCase();
+        var orcAprov = (DB.q || []).find(function(q) {
+          return q.cli && q.cli.toLowerCase().indexOf(buscaOrc) !== -1 && q.status !== 'aprovado';
+        });
+        if (!orcAprov) {
+          result.extra = '⚠️ Orçamento pendente de **' + data.cli + '** não encontrado.';
+        } else {
+          orcAprov.status = 'aprovado';
+          orcAprov._statusDate = hoje;
+          _dbSv();
+          result.extra = '✅ Orçamento de **' + orcAprov.cli + '** (R$ ' + fm(orcAprov.vista||0) + ') marcado como **aprovado**!';
+          result.actions.push({label:'📋 Ver Orçamentos', fn:'go(1)'});
+        }
+      }
+      break;
+
+    case 'marcar_perdido':
+      if (data.cli) {
+        var buscaPerd = (data.cli || '').toLowerCase();
+        var orcPerd = (DB.q || []).find(function(q) {
+          return q.cli && q.cli.toLowerCase().indexOf(buscaPerd) !== -1 && q.status !== 'perdido';
+        });
+        if (!orcPerd) {
+          result.extra = '⚠️ Orçamento de **' + data.cli + '** não encontrado ou já encerrado.';
+        } else {
+          orcPerd.status = 'perdido';
+          orcPerd._statusDate = hoje;
+          if (data.motivo) orcPerd._statusMotivo = data.motivo;
+          _dbSv();
+          result.extra = '📋 Orçamento de **' + orcPerd.cli + '** (R$ ' + fm(orcPerd.vista||0) + ') marcado como **perdido**' + (data.motivo ? ' — motivo: ' + data.motivo : '') + '.';
+          result.actions.push({label:'📋 Ver Orçamentos', fn:'go(1)'});
+        }
       }
       break;
 
