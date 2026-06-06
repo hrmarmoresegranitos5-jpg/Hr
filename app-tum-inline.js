@@ -1857,9 +1857,9 @@ function calcularFull() {
   };
 
   // AC3: APENAS para colar pedra natural (não usada em bloco ou reboco)
-  // Consumo: 1 saco 20kg por ~2,5 m² de pedra a 5mm, fator desperdício 1,15
-  // CORRECAO: usa m2_total (com perda) — a argamassa é comprada para toda a pedra cortada, inclusive retalhos
-  civil.sacos_argam = Math.ceil((m2_total * 1.15) / 2.5);
+  // Consumo: 1 saco 20kg por ~2,5 m² de pedra a 5mm, fator desperdício 1,10
+  // USA m2_bruto: argamassa vai apenas onde a pedra é assentada, não no retalho descartado
+  civil.sacos_argam = Math.ceil((m2_bruto * 1.10) / 2.5);
 
   // Massa plástica (resina+talco): para todas as juntas entre peças de pedra
   // Consumo: ~0,12 kg por metro linear de junta (junta 3mm)
@@ -1886,9 +1886,12 @@ function calcularFull() {
     var Vol_piso = (d.N >= 1) ? d.C * d.L * 0.08 : 0;
 
     // ─ 4. CINTAS DE AMARRAÇÃO (canaleta + treliça + concreto) ──────────
-    // Vertical:   1 baldrame + 1 cinta por laje separatória
-    // Horizontal: 1 baldrame + 1 cinta de topo (apenas 1 nível)
-    // Simples (N=0): apenas 1 baldrame (sem laje, sem cinta de laje)
+    // Vertical:   1 baldrame + (N-1) divisórias internas + 1 topo = N lajes concreto
+    //   → N_lajes_est = N   (correto: cada compartimento gera sua laje)
+    // Horizontal: compartimentos lado a lado → 1 laje de topo apenas
+    //   → N_lajes_est = 1 quando N >= 1
+    // Simples (N=0): sem laje de concreto
+    //   → N_lajes_est = 0
     var N_lajes_est = (d.disp === 'horizontal') ? (N_lajes > 0 ? 1 : 0) : N_lajes;
     n_cintas = 1 + N_lajes_est; // 1 baldrame + cintas por laje
     var canaletas_por_cinta = Math.ceil(Perim / 0.40);
@@ -1935,7 +1938,7 @@ function calcularFull() {
     civil.m2_reboco = +((Perim * Avis).toFixed(2));
     var Vol_reboco = civil.m2_reboco * 0.015; // 1,5cm de espessura
 
-    // ─ CIMENTO TOTAL (todas as fases) ──────────────────────────────────
+    // ─ CIMENTO TOTAL (todas as fases — auditável por fase) ─────────────
     // Concreto (traço 1:2:3): 7 sacos/m³
     var Vol_concreto = Vol_fund + Vol_piso + Vol_lajes + Vol_cintas;
     var sacos_concreto = Vol_concreto * 7;
@@ -1944,13 +1947,31 @@ function calcularFull() {
     // Reboco (traço 1:5): 4 sacos/m³
     var sacos_reboco = Vol_reboco * 4;
     civil.sacos_cimento = Math.ceil((sacos_concreto + sacos_bloco + sacos_reboco) * 1.08);
+    // Campos de auditoria por fase (expostos no painel interno)
+    civil._sacos_concreto = Math.round(sacos_concreto * 100) / 100;
+    civil._sacos_bloco    = Math.round(sacos_bloco * 100) / 100;
+    civil._sacos_reboco   = Math.round(sacos_reboco * 100) / 100;
+    civil._vol_fund       = Math.round(Vol_fund * 1000) / 1000;
+    civil._vol_piso       = Math.round(Vol_piso * 1000) / 1000;
+    civil._vol_lajes      = Math.round(Vol_lajes * 1000) / 1000;
+    civil._vol_cintas     = Math.round(Vol_cintas * 1000) / 1000;
+    civil._vol_concreto   = Math.round(Vol_concreto * 1000) / 1000;
+    civil._m2_blocos      = Math.round(m2_blocos_liq * 100) / 100;
+    civil._m2_reboco      = Math.round(civil.m2_reboco * 100) / 100;
+    civil._n_cintas       = n_cintas;
+    civil._n_lajes_est    = N_lajes_est;
+    civil._nDias_fund     = nDias_fund;  // preenchido após (linhas abaixo)
+    civil._nDias_alv      = 0;
+    civil._nDias_laje     = 0;
 
     // ─ AREIA TOTAL ────────────────────────────────────────────────────
-    civil.m3_areia = +(
-      (Vol_concreto   * 0.55) +   // areia no concreto
-      (Vol_arg_bloco  * 0.80) +   // argamassa de bloco 1:4
-      (Vol_reboco     * 0.85)     // argamassa de reboco 1:5
-    ).toFixed(2);
+    var m3_areia_concreto = Vol_concreto * 0.55;
+    var m3_areia_bloco    = Vol_arg_bloco * 0.80;
+    var m3_areia_reboco   = Vol_reboco * 0.85;
+    civil.m3_areia = +(m3_areia_concreto + m3_areia_bloco + m3_areia_reboco).toFixed(2);
+    civil._m3_areia_concreto = Math.round(m3_areia_concreto * 100) / 100;
+    civil._m3_areia_bloco    = Math.round(m3_areia_bloco * 100) / 100;
+    civil._m3_areia_reboco   = Math.round(m3_areia_reboco * 100) / 100;
 
     // ─ BRITA (só para concreto) ────────────────────────────────────────
     civil.m3_brita = +((Vol_concreto * 0.65).toFixed(2));
@@ -1976,6 +1997,10 @@ function calcularFull() {
     nDias_alv  = Math.max(1, Math.ceil((m2_blocos_liq + n_cintas * Perim * 0.20) / 8.0));
     // N_lajes_est=0 (túmulo simples): sem laje → 0 dias de concretagem
     nDias_laje = (N_lajes_est > 0) ? Math.max(1, Math.ceil(N_lajes_est * 1.5)) : 0;
+    // Preencher campos de auditoria de dias (agora que foram calculados)
+    civil._nDias_fund = nDias_fund;
+    civil._nDias_alv  = nDias_alv;
+    civil._nDias_laje = nDias_laje;
   } else {
     // Somente revestimento ou reforma: apenas argamassa de assentamento
     civil.custo = civil.sacos_argam * CFG_TUM.civil.argamassa;
@@ -2732,74 +2757,169 @@ function renderResultado(o) {
   dh += '<div class="det-line"><span class="det-k">Espessura da pedra</span><span class="det-v">'+r.d.E+' cm</span></div>';
 
   dh += '<div class="det-sec">🪨 Peças de Pedra</div>';
+  // Tabela detalhada: cada peça com sua área, peso, acabamento e custo individual
+  var _espFatoresR = { 2:1.00, 3:1.35, 4:1.70, 5:2.10 };
+  var _espFatorR   = (_espFatoresR[r.d.E] || 1.35) / (_espFatoresR[r.mat.esp || 3] || 1.35);
   r.pecasCalc.forEach(function(p) {
-    var acabInfo = '';
+    var pesoP = p.m2 * r.Esp_m * r.mat.peso;
+    var custoP = p.m2 * r.mat.pr * _espFatorR;
+    // Identificar o acabamento real desta peça
+    var acabPeca = ACABAMENTOS.find(function(a){ return a.prML === p.prML; }) || r.acab;
+    var acabNmP  = (p.prML === 0) ? 'sem borda' : (acabPeca ? acabPeca.nm : r.acab.nm);
+    var custoAcabP = p.ml * (typeof p.prML === 'number' ? p.prML : r.acab.prML);
+    var totalP = custoP + custoAcabP;
+    dh += '<div class="det-line" style="flex-direction:column;align-items:flex-start;gap:3px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">';
+    dh += '<div style="display:flex;justify-content:space-between;width:100%">';
+    dh += '<span style="font-size:.78rem;font-weight:600;color:var(--tx)">'+p.nm+'</span>';
+    dh += '<span style="font-family:\'DM Mono\',monospace;font-size:.78rem;font-weight:700;color:var(--gold2)">'+p.m2.toFixed(3)+' m²</span>';
+    dh += '</div>';
+    dh += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:1px">';
+    dh += '<span style="font-size:.62rem;color:var(--t4)">📐 '+p.dim+'</span>';
+    dh += '<span style="font-size:.62rem;color:var(--t4)">⚖️ ~'+Math.round(pesoP)+' kg</span>';
     if (p.ml > 0) {
-      var prMLDisp = (typeof p.prML === 'number') ? p.prML : r.acab.prML;
-      acabInfo = ' <span style="color:var(--t4);font-size:.62rem">'+p.ml.toFixed(2)+'ml borda</span>';
+      dh += '<span style="font-size:.62rem;color:var(--gold3)">✨ '+acabNmP+' · '+p.ml.toFixed(1)+' ml → R$ '+_TI_fm(custoAcabP)+'</span>';
+    } else {
+      dh += '<span style="font-size:.62rem;color:var(--t4)">✨ '+acabNmP+'</span>';
     }
-    dh += '<div class="det-line"><span class="det-k">'+p.nm+' <span style="color:var(--t4)">'+p.dim+'</span>'+acabInfo+'</span><span class="det-v">'+p.m2.toFixed(3)+' m²</span></div>';
+    dh += '<span style="font-size:.62rem;color:var(--t3)">💰 pedra R$ '+_TI_fm(custoP)+'</span>';
+    if (totalP > custoP) dh += '<span style="font-size:.62rem;font-weight:600;color:var(--gold2)">= R$ '+_TI_fm(totalP)+'</span>';
+    dh += '</div></div>';
   });
-  dh += '<div class="det-line"><span class="det-k">Perda real ('+r.perdaFinal+'% — acabamento + recortes)</span><span class="det-v">'+r.m2_total.toFixed(3)+' m² final</span></div>';
-  dh += '<div class="det-line"><span class="det-k">'+r.mat.nm+' (esp. '+r.d.E+'cm · R$ '+r.mat.pr.toLocaleString('pt-BR')+'/m² × '+r.m2_total.toFixed(3)+'m²)</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_pedra)+'</span></div>';
+  dh += '<div class="det-line" style="margin-top:4px"><span class="det-k">Subtotal bruto ('+r.pecasCalc.length+' peças · '+r.m2_bruto.toFixed(3)+' m²)</span><span class="det-v">'+r.m2_bruto.toFixed(3)+' m²</span></div>';
+  dh += '<div class="det-line"><span class="det-k">Perda de corte/recorte ('+r.perdaFinal+'%) → área final</span><span class="det-v">'+r.m2_total.toFixed(3)+' m²</span></div>';
+  dh += '<div class="det-line"><span class="det-k">'+r.mat.nm+' esp. '+r.d.E+'cm · R$ '+r.mat.pr.toLocaleString('pt-BR')+'/m² × '+r.m2_total.toFixed(3)+'m²</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_pedra)+'</span></div>';
 
-  dh += '<div class="det-sec">📐 Acabamentos</div>';
-  dh += '<div class="det-line"><span class="det-k">'+r.acab.nm+' — '+r.ml_total.toFixed(2)+' ml de borda</span><span class="det-v">R$ '+_TI_fm(r.custo_acabamento)+'</span></div>';
+  dh += '<div class="det-sec">✨ Acabamentos por Peça</div>';
+  // Agrupar acabamentos por tipo (peças podem ter acabamentos diferentes)
+  var acabGrupos = {};
+  r.pecasCalc.forEach(function(p) {
+    if (p.ml <= 0) return;
+    var prMLKey = typeof p.prML === 'number' ? p.prML : r.acab.prML;
+    var acabObj  = ACABAMENTOS.find(function(a){ return a.prML === prMLKey; }) || r.acab;
+    var key = acabObj ? acabObj.id : 'default';
+    if (!acabGrupos[key]) acabGrupos[key] = { nm: acabObj ? acabObj.nm : r.acab.nm, prML: prMLKey, ml: 0, pecas: [] };
+    acabGrupos[key].ml += p.ml;
+    acabGrupos[key].pecas.push(p.nm);
+  });
+  var hasAcab = false;
+  Object.keys(acabGrupos).forEach(function(k) {
+    var g = acabGrupos[k];
+    hasAcab = true;
+    var sub = g.ml * g.prML;
+    dh += '<div class="det-line"><span class="det-k">'+g.nm+' <span style="color:var(--t4);font-size:.62rem">'+g.ml.toFixed(1)+' ml · '+g.pecas.join(', ')+'</span></span><span class="det-v">R$ '+_TI_fm(sub)+'</span></div>';
+  });
+  if (!hasAcab) {
+    dh += '<div class="det-line"><span class="det-k">'+r.acab.nm+'</span><span class="det-v" style="color:var(--t4)">sem ml de borda</span></div>';
+  }
+  dh += '<div class="det-line"><span class="det-k"><strong>Total acabamentos</strong> — '+r.ml_total.toFixed(1)+' ml</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_acabamento)+'</span></div>';
 
-  // ── Material Civil — qtd × R$ unit = subtotal ───────────────────
+  // ── Material Civil — detalhe por fase ───────────────────────────
   dh += '<div class="det-sec">🧱 Material Civil</div>';
   (function() {
     var cv = r.civil;
     var p  = CFG_TUM.civil;
-    // helper: linha com quantidade, unidade, preço unitário e subtotal
-    function civLn(label, qtd, unit, prUnit, sub) {
+    function civLn(label, qtd, unit, prUnit, sub, hint) {
       if (!qtd || qtd <= 0) return;
       dh += '<div class="det-line">'
           + '<span class="det-k">' + label
           + ' <span style="color:var(--t4);font-size:.62rem">'
           + qtd + ' ' + unit + ' × R$ ' + _TI_fm(prUnit) + '/' + unit
+          + (hint ? ' · ' + hint : '')
           + '</span></span>'
           + '<span class="det-v">R$ ' + _TI_fm(sub) + '</span>'
           + '</div>';
     }
+    function civSub(label) {
+      dh += '<div style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:700;padding:6px 0 4px;margin-top:2px">'+label+'</div>';
+    }
     if (r.ts.id === 'estrutura') {
-      civLn('Blocos 14×19×39 cm — alvenaria',               cv.unid_blocos,    'un', p.blocos,              cv.unid_blocos    * p.blocos);
-      civLn('Canaletas 14×19×39 cm — baldrame/cintas',     cv.unid_canaletas, 'un', p.canaleta || p.blocos, cv.unid_canaletas * (p.canaleta || p.blocos));
-      civLn('Cimento CP-II (sacos 50 kg)',              cv.sacos_cimento,'saco', p.cimento,  cv.sacos_cimento * p.cimento);
-      civLn('Areia lavada',                             cv.m3_areia,     'm³',  p.areia,    cv.m3_areia * p.areia);
-      civLn('Brita 3/4"',                               cv.m3_brita,     'm³',  p.brita,    cv.m3_brita * p.brita);
-      civLn('Treliça eletrossoldada TQ-25 — cintas/lajes', cv.m_trelica,  'm',  p.trelica || 20,  cv.m_trelica  * (p.trelica || 20));
-      civLn('Malha soldada Q-92 — lajes',                  cv.m2_malha,   'm²', p.malha,          cv.m2_malha   * p.malha);
-      civLn('Ferro CA50 3/8" (10mm) — alicerce/alvenaria', cv.m_ferro38,  'm',   p.ferro38,  cv.m_ferro38  * p.ferro38);
-      civLn('Ferro CA50 5/16" (8mm) — laje/distribuição',  cv.m_ferro516, 'm',   p.ferro516, cv.m_ferro516 * p.ferro516);
-      civLn('Massa plástica — juntas entre pedras',          cv.kg_massa_plastica, 'kg', p.massa_plastica || 35, cv.kg_massa_plastica * (p.massa_plastica || 35));
-    }
-    // Argamassa de assentamento: sempre presente
-    civLn('Argamassa AC-III (sacos 20 kg) — assentamento', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa);
+      // ─ Fase 1: Alicerce ─
+      civSub('📍 Fase 1 — Alicerce' + (cv._nDias_fund ? ' ('+cv._nDias_fund+' dia'+(cv._nDias_fund>1?'s':'')+')' : ''));
+      if (cv._vol_fund) dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Volume concreto fundação: '+cv._vol_fund.toFixed(3)+' m³</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      civLn('Canaletas 14×19×39 — baldrame/cintas', cv.unid_canaletas, 'un', p.canaleta || p.blocos, cv.unid_canaletas * (p.canaleta || p.blocos),
+        (cv._n_cintas ? cv._n_cintas + ' cintas × perímetro' : ''));
+      civLn('Treliça TQ-25 — cintas e lajes', cv.m_trelica, 'm', p.trelica || 11, cv.m_trelica * (p.trelica || 11));
 
-    if (r.ts.id !== 'estrutura') {
-      dh += '<div class="det-line" style="font-size:.72rem;color:var(--t4)"><span class="det-k">Cimento, brita, blocos, ferro</span><span class="det-v">— não incluso</span></div>';
+      // ─ Fase 2: Alvenaria ─
+      civSub('🧱 Fase 2 — Alvenaria' + (cv._nDias_alv ? ' ('+cv._nDias_alv+' dia'+(cv._nDias_alv>1?'s':'')+')' : ''));
+      if (cv._m2_blocos) dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Parede líquida: '+cv._m2_blocos.toFixed(2)+' m² de alvenaria</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      civLn('Blocos 14×19×39 cm', cv.unid_blocos, 'un', p.blocos, cv.unid_blocos * p.blocos, '~12,5 un/m²');
+      civLn('Ferro CA50 3/8\" (10mm) — estribos/divisórias', cv.m_ferro38, 'm', p.ferro38, cv.m_ferro38 * p.ferro38);
+
+      // ─ Fase 3: Lajes ─
+      civSub('🏗️ Fase 3 — Lajes de Concreto' + (cv._nDias_laje ? ' ('+cv._nDias_laje+' dia'+(cv._nDias_laje>1?'s':'')+')' : ''));
+      if (cv._vol_lajes !== undefined) dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">'+
+        (cv._n_lajes_est||0)+' laje'+(cv._n_lajes_est!==1?'s':'')+': '+cv._vol_lajes.toFixed(3)+' m³ · piso: '+cv._vol_piso.toFixed(3)+' m³ · cintas: '+cv._vol_cintas.toFixed(3)+' m³'
+        +'</span><span class="det-v" style="color:var(--t4)">'+cv._vol_concreto.toFixed(3)+' m³ total</span></div>';
+      civLn('Malha soldada Q-92 — lajes', cv.m2_malha, 'm²', p.malha, cv.m2_malha * p.malha);
+      civLn('Ferro CA50 5/16\" (8mm) — malha laje', cv.m_ferro516, 'm', p.ferro516, cv.m_ferro516 * p.ferro516);
+
+      // ─ Fase 4: Reboco e Cimento Total ─
+      civSub('🪣 Fase 4 — Cimento, Areia e Brita (todas as fases)');
+      // Mostrar decomposição do cimento
+      if (cv._sacos_concreto !== undefined) {
+        dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Cimento: '
+          + Math.round(cv._sacos_concreto)+' sacos concreto'
+          + (cv._sacos_bloco > 0 ? ' + '+Math.round(cv._sacos_bloco)+' argamassa bloco' : '')
+          + (cv._sacos_reboco > 0 ? ' + '+Math.round(cv._sacos_reboco)+' reboco' : '')
+          + ' (+8% perda) = '+cv.sacos_cimento+' sacos'
+          + '</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      }
+      civLn('Cimento CP-II (sacos 50 kg) — total', cv.sacos_cimento, 'saco', p.cimento, cv.sacos_cimento * p.cimento);
+      // Decomposição areia
+      if (cv._m3_areia_concreto !== undefined) {
+        dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Areia: '
+          + cv._m3_areia_concreto.toFixed(2)+'m³ concreto'
+          + (cv._m3_areia_bloco > 0 ? ' + '+cv._m3_areia_bloco.toFixed(2)+'m³ bloco' : '')
+          + (cv._m3_areia_reboco > 0 ? ' + '+cv._m3_areia_reboco.toFixed(2)+'m³ reboco' : '')
+          + '</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      }
+      civLn('Areia lavada', cv.m3_areia, 'm³', p.areia, cv.m3_areia * p.areia);
+      civLn('Brita 3/4\" — concreto estrutural', cv.m3_brita, 'm³', p.brita, cv.m3_brita * p.brita);
+
+      // ─ Fase 5: Assentamento da pedra ─
+      civSub('💎 Fase 5 — Assentamento da Pedra');
+      dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Base: '+r.m2_bruto.toFixed(3)+' m² bruto × 1,10 fator = '+Math.ceil(r.m2_bruto*1.10).toFixed(2)+' m² AC-III</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      civLn('Argamassa AC-III (sacos 20 kg) — assentamento pedra', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa, 'base: área bruta');
+      civLn('Massa plástica — rejunte/juntas entre pedras', cv.kg_massa_plastica, 'kg', p.massa_plastica || 16, cv.kg_massa_plastica * (p.massa_plastica || 16), r.ml_total.toFixed(1)+' ml × 0,12 kg/ml');
+    } else {
+      // Somente revestimento ou reforma
+      civSub('💎 Assentamento da Pedra');
+      dh += '<div class="det-line" style="font-size:.65rem"><span class="det-k" style="color:var(--t4)">Base: '+r.m2_bruto.toFixed(3)+' m² bruto × 1,10 fator</span><span class="det-v" style="color:var(--t4)"></span></div>';
+      civLn('Argamassa AC-III (sacos 20 kg) — assentamento pedra', cv.sacos_argam, 'saco', p.argamassa, cv.sacos_argam * p.argamassa, 'base: área bruta');
+      civLn('Massa plástica — rejunte/juntas', cv.kg_massa_plastica, 'kg', p.massa_plastica || 16, cv.kg_massa_plastica * (p.massa_plastica || 16));
+      dh += '<div class="det-line" style="font-size:.72rem;color:var(--t4)"><span class="det-k">Cimento, brita, blocos, ferro</span><span class="det-v">— não incluso (cliente faz estrutura)</span></div>';
     }
-    if (SEL.opts.cemiterio) dh += '<div class="det-line"><span class="det-k">Frete cemitério (+' + SEL.adv.fatorCem + '%)</span><span class="det-v" style="color:var(--amber)">aplicado</span></div>';
-    dh += '<div class="det-line" style="font-weight:700"><span class="det-k"><strong>Total material civil</strong></span><span class="det-v" style="color:var(--gold2)">R$ ' + _TI_fm(r.civil.custo) + '</span></div>';
+    if (SEL.opts.cemiterio) dh += '<div class="det-line"><span class="det-k">Frete cemitério (+' + SEL.adv.fatorCem + '%)</span><span class="det-v" style="color:var(--amber)">aplicado sobre materiais</span></div>';
+    dh += '<div class="det-line" style="font-weight:700;margin-top:4px"><span class="det-k"><strong>Total material civil</strong></span><span class="det-v" style="color:var(--gold2)">R$ ' + _TI_fm(r.civil.custo) + '</span></div>';
   })();
 
-  dh += '<div class="det-sec">🔨 Mão de Obra</div>';
+  dh += '<div class="det-sec">🔨 Mão de Obra por Fase</div>';
   if (r.ts.id === 'estrutura') {
-    if (r.nDias_ped > 0) {
-      dh += '<div class="det-line"><span class="det-k">1 Pedreiro × '+r.nDias_ped+' dia'+(r.nDias_ped>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.pedreiro)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ped)+'</span></div>';
+    // Fase 1 — Fundação
+    if (r.nDias_ped > 0 || r.nDias_ajud > 0) {
+      var diasFund = r.civil._nDias_fund || 0;
+      var diasAlv  = r.civil._nDias_alv  || 0;
+      var diasLaje = r.civil._nDias_laje  || 0;
+      dh += '<div style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:700;padding:6px 0 4px">🏗️ Obra Civil</div>';
+      if (diasFund > 0) dh += '<div class="det-line"><span class="det-k">Fundação/Alicerce — '+diasFund+' dia'+(diasFund>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">(Vol. fund.: '+(r.civil._vol_fund||0).toFixed(3)+' m³)</span></span><span class="det-v" style="color:var(--t4)">—</span></div>';
+      if (diasAlv  > 0) dh += '<div class="det-line"><span class="det-k">Alvenaria/Cintas — '+diasAlv+' dia'+(diasAlv>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">('+(r.civil._m2_blocos||0).toFixed(0)+' m² parede · '+(r.civil._n_cintas||0)+' cintas)</span></span><span class="det-v" style="color:var(--t4)">—</span></div>';
+      if (diasLaje > 0) dh += '<div class="det-line"><span class="det-k">Lajes de concreto — '+diasLaje+' dia'+(diasLaje>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">('+(r.civil._n_lajes_est||0)+' laje'+(r.civil._n_lajes_est!==1?'s':'')+' · cura mín. 7 dias após)</span></span><span class="det-v" style="color:var(--t4)">—</span></div>';
+      dh += '<div class="det-line"><span class="det-k">1 Pedreiro × '+r.nDias_ped+' dia'+(r.nDias_ped>1?'s':'')+' total <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.pedreiro)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ped)+'</span></div>';
+      dh += '<div class="det-line"><span class="det-k">1 Ajudante × '+r.nDias_ajud+' dia'+(r.nDias_ajud>1?'s':'')+' total <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.ajudante)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ajud)+'</span></div>';
     }
-    if (r.nDias_ajud > 0) {
-      dh += '<div class="det-line"><span class="det-k">1 Ajudante × '+r.nDias_ajud+' dia'+(r.nDias_ajud>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.ajudante)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_ajud)+'</span></div>';
-    }
+    dh += '<div style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:700;padding:6px 0 4px">💎 Marmoraria</div>';
   }
   if (r.ts.id === 'reforma' && r.custo_remocao > 0) {
-    dh += '<div class="det-line"><span class="det-k">Remoção / desmonte</span><span class="det-v">R$ '+_TI_fm(r.custo_remocao)+'</span></div>';
+    dh += '<div style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:700;padding:6px 0 4px">🔨 Remoção</div>';
+    var diasRem2 = r.dias_remocao || Math.ceil(r.custo_remocao / CFG_TUM.mob.ajudante);
+    dh += '<div class="det-line"><span class="det-k">Desmonte pedra antiga — '+diasRem2+' dia'+(diasRem2>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.ajudante)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_remocao)+'</span></div>';
+    dh += '<div style="font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:rgba(201,168,76,.45);font-weight:700;padding:6px 0 4px">💎 Reinstalação</div>';
   }
-  if (r.custo_inst > 0) dh += '<div class="det-line"><span class="det-k">Instalação pedra — '+r.nDiasInst+' dia'+(r.nDiasInst>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.instalacao)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_inst)+'</span></div>';
-  if (r.custo_mont > 0) dh += '<div class="det-line"><span class="det-k">Montagem / acabamento — '+r.nDiasMont+' dia'+(r.nDiasMont>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.montagem)+'/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_mont)+'</span></div>';
-  dh += '<div class="det-line"><span class="det-k">Transporte</span><span class="det-v">R$ '+_TI_fm(r.frete)+'</span></div>';
-  dh += '<div class="det-line"><span class="det-k">Total M.O.</span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_mob)+'</span></div>';
+  if (r.custo_inst > 0) dh += '<div class="det-line"><span class="det-k">Instalação pedra — '+r.nDiasInst+' dia'+(r.nDiasInst>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.instalacao)+'/dia · '+r.m2_bruto.toFixed(2)+' m² ÷ 3 m²/dia</span></span><span class="det-v">R$ '+_TI_fm(r.custo_inst)+'</span></div>';
+  if (r.custo_mont > 0) dh += '<div class="det-line"><span class="det-k">Montagem/acabamento final — '+r.nDiasMont+' dia'+(r.nDiasMont>1?'s':'')+' <span style="color:var(--t4);font-size:.62rem">R$ '+_TI_fm(CFG_TUM.mob.montagem)+'/dia · rejunte, limpeza, silicone</span></span><span class="det-v">R$ '+_TI_fm(r.custo_mont)+'</span></div>';
+  dh += '<div class="det-line"><span class="det-k">Transporte <span style="color:var(--t4);font-size:.62rem">'+(SEL.opts.cemiterio?'(+R$80 cemitério)':'')+'</span></span><span class="det-v">R$ '+_TI_fm(r.frete)+'</span></div>';
+  dh += '<div class="det-line" style="font-weight:700"><span class="det-k"><strong>Total mão de obra</strong></span><span class="det-v" style="color:var(--gold2)">R$ '+_TI_fm(r.custo_mob)+'</span></div>';
 
   if (r.custo_extras > 0) {
     dh += '<div class="det-sec">✨ Extras</div>';
