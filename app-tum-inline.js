@@ -1493,7 +1493,7 @@ function getDims() {
   return {
     C:    C_cm  / 100,   // comprimento em m
     L:    L_cm  / 100,   // largura em m
-    E:    +(document.getElementById('mE').value) || 2,  // espessura pedra em cm
+    E:    +(document.getElementById('mE') && document.getElementById('mE').value) || (function(){ var _m=CFG_TUM.pedras.find(function(x){return x.id===SEL.matId;}); return (_m&&_m.esp)||3; })(),  // espessura pedra em cm — fallback usa mat.esp (evita espFator errado)
     N:    +(document.getElementById('mGav').value) || 0,
     Ae:   Ae_cm / 100,   // base em m
     Ab:   Ab_cm,         // rodapé em cm (mantido para cálculo de área)
@@ -2696,7 +2696,7 @@ function renderResultado(o) {
   ];
 
   var gridCusto = [
-    { lbl:'Pedra',         val:'R$ '+_fn(r.custo_pedra),         cl:'gold', sub: r.m2_total.toFixed(3)+'m² × R$'+r.mat.pr+'/m²' },
+    { lbl:'Pedra',         val:'R$ '+_fn(r.custo_pedra),         cl:'gold', sub: r.m2_bruto.toFixed(3)+'m² bruto → '+r.m2_total.toFixed(3)+'m² c/ perda × R$'+r.mat.pr+'/m²' },
     { lbl:'Acabamento',    val:'R$ '+_fn(r.custo_acabamento),    cl:'',     sub: r.ml_total.toFixed(1)+' ml de borda' },
     { lbl:'Civil',         val:'R$ '+_fn(r.civil.custo),         cl:'',     sub: 'Material de construção' },
     { lbl:'Mão de Obra',   val:'R$ '+_fn(r.custo_mob),           cl:'',     sub: r.prazo_total+' dias úteis' },
