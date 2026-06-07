@@ -1905,31 +1905,43 @@ function calcular(){
 
   detHtml+='<div style="border-top:1px solid var(--bd);margin:10px 0 6px;"></div>';
   detHtml+='<div class="rrow"><span class="rk">Total m² de pedra</span><span class="rv">'+totalM2.toFixed(3)+'m²</span></div>';
-  detHtml+='<div class="rrow"><span class="rk">Parcelado 8×</span><span class="rv" style="color:var(--t3)">R$ '+fm(parc)+' — 8× R$ '+fm(p8)+'</span></div>';
-  detHtml+='<div class="rtot"><span class="k">À Vista</span><span class="v">R$ '+fm(vista)+'</span></div>';
+  if(!(_cearaAtivo&&_cearaValor>0)){
+    detHtml+='<div class="rrow"><span class="rk">Parcelado 8×</span><span class="rv" style="color:var(--t3)">R$ '+fm(parc)+' — 8× R$ '+fm(p8)+'</span></div>';
+    detHtml+='<div class="rtot"><span class="k">À Vista</span><span class="v">R$ '+fm(vista)+'</span></div>';
+  } else {
+    detHtml+='<div class="rrow"><span class="rk">Bancada (à vista)</span><span class="rv" style="color:var(--gold2)">R$ '+fm(vista)+'</span></div>';
+    detHtml+='<div class="rrow"><span class="rk">Móvel Planejado'+(_cearaDesc?' — '+_cearaDesc:'')+'</span><span class="rv" style="color:#a78bfa">R$ '+fm(_cearaValor)+'</span></div>';
+    detHtml+='<div class="rtot" style="border-color:#a78bfa"><span class="k" style="color:#a78bfa">Total Conjunto</span><span class="v" style="color:#a78bfa">R$ '+fm(vista+_cearaValor)+'</span></div>';
+  }
   document.getElementById('resDetail').innerHTML=detHtml;
 
   // PAINEL INTERNO
   var pi='';
   var dtHP=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
-  pi+='<div style="background:linear-gradient(135deg,#0d0d18,#12100a);padding:14px 16px;border-bottom:1px solid var(--bd);">';
-  pi+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold3);font-weight:700;">Resumo do Orçamento</div>';
-  pi+='<div style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);font-weight:700;margin-top:2px;">'+escH(cli)+'</div>';
-  pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:2px;">'+dtHP+'</div></div>';
-  pi+='<div style="padding:12px 16px;border-bottom:1px solid var(--bd);">';
+  // ── Header cliente ──
+  pi+='<div class="pi-header">';
+  pi+='<div class="pi-cli-lbl">Orçamento</div>';
+  pi+='<div class="pi-cli-nome">'+escH(cli)+'</div>';
+  pi+='<div class="pi-date">'+dtHP+'</div>';
+  pi+='</div>';
+  // ── Material ──
+  pi+='<div class="pi-mat-block">';
   pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:6px;">Material</div>';
-  pi+='<div style="display:flex;justify-content:space-between;">';
-  pi+='<b style="font-size:.85rem;color:var(--tx);">'+mat.nm+' — '+mat.fin+'</b>';
-  pi+='<b style="color:var(--gold2);">R$ '+fm(mat.pr)+'/m²</b></div>';
-  pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div></div>';
+  pi+='<div class="pi-sec-title">Material</div>';
+  pi+='<div class="pi-mat-row">';
+  pi+='<span class="pi-mat-nome">'+mat.nm+' — '+mat.fin+'</span>';
+  pi+='<span class="pi-mat-pr">R$ '+fm(mat.pr)+'/m²</span></div>';
+  pi+='<div class="pi-mat-sub">Área: '+fm(totalM2)+' m² · Pedra: R$ '+fm(pedT)+'</div>';
+  pi+='</div>';
   var acbNmP={borda_reta:'Borda Reta',borda_45:'Borda 45°',borda_boleada:'Borda Boleada',borda_chf:'Borda Chanfrada',cant:'Cantoneira',rodape:'Rodapé'};
+  var _ambIcons={Cozinha:'🍳',Banheiro:'🛁',Área:'🏠',Varanda:'🌿',Lavabo:'💧',Sala:'🛋️',Escritório:'💼',Churrasqueira:'🔥'};
   ambientes.forEach(function(ambP){
     var gP=SV_DEFS[ambP.tipo]||SV_DEFS.Cozinha;
     var svP=ambP.svState||{};
     var rowsP='';
     gP.forEach(function(grpP){grpP.its.forEach(function(itP){
       if(!svP[itP.k])return;
-      if(itP.u==='acb_auto')return; // absorbed in total, don't show separately
+      if(itP.u==='acb_auto')return;
       var sdP=svP[itP.k];
       var mlP=sdP.ml||sdP.w||0,hP=sdP.altCm||sdP.h||0,qP=sdP.q||1;
       var vP=0,dP=itP.l;
@@ -1938,26 +1950,29 @@ function calcular(){
       else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd=ambP.selCuba.qtd||1;vP=ambP.selCuba.total*_pQtd;dP+=': '+ambP.selCuba.nm.trim()+(_pQtd>1?' ×'+_pQtd:'');}}
       else if(!itP.fx){vP=(sdP.w||0)*getPr(itP.k);if(sdP.w)dP+=' '+sdP.w+(itP.u==='un'?'un':'ml');}
       else{vP=getPr(itP.k);}
-      if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
+      if(vP>0){rowsP+='<div class="pi-row"><span class="pi-row-lbl">'+dP+'</span><span class="pi-row-val">R$ '+fm(vP)+'</span></div>';}
     });});
     ambP.pecas.forEach(function(pP){
       if(!pP.acb)return;
       Object.keys(pP.acb).forEach(function(akP){
         var mlA=pP.acb[akP].ml||0;if(!mlA)return;
         var vA=mlA*getPr(akP);
-        rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+(acbNmP[akP]||akP)+' '+mlA+'ml ('+escH(pP.desc||'')+')</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vA)+'</span></div>';
+        rowsP+='<div class="pi-row"><span class="pi-row-lbl">'+(acbNmP[akP]||akP)+' '+mlA+'ml ('+escH(pP.desc||'')+')</span><span class="pi-row-val">R$ '+fm(vA)+'</span></div>';
       });
     });
     if(rowsP){
-      pi+='<div style="padding:10px 16px;border-bottom:1px solid var(--bd);">';
-      pi+='<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);opacity:.7;margin-bottom:6px;">'+ambP.tipo+'</div>'+rowsP+'</div>';
+      var _ico=_ambIcons[ambP.tipo]||'📐';
+      pi+='<div class="pi-amb-block">';
+      pi+='<div class="pi-amb-title">'+_ico+' '+ambP.tipo+'</div>'+rowsP+'</div>';
     }
   });
-  pi+='<div style="padding:14px 16px;background:var(--s2);">';
+  pi+='<div class="pi-sep"></div>';
+  pi+='<div class="pi-totais-block">';
+  pi+='<div class="pi-sec-title">Composição de custos</div>';
   var temCustoReal=totalCustoPedra>0;
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Preço Venda</span><b style="color:var(--gold2);">R$ '+fm(pedT)+'</b></div>';
-  if(temCustoReal){pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Pedra — Custo Real</span><b style="color:var(--grn);">R$ '+fm(totalCustoPedra)+'</b></div>';}
-  else{pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;font-style:italic;"><span style="font-size:.68rem;color:var(--t4);">Custo real não cadastrado</span><span style="font-size:.68rem;color:var(--t4);">—</span></div>';}
+  pi+='<div class="pi-tot-row"><span class="pi-tot-lbl">Pedra — Preço Venda</span><b class="pi-tot-val" style="color:var(--gold2);">R$ '+fm(pedT)+'</b></div>';
+  if(temCustoReal){pi+='<div class="pi-tot-row"><span class="pi-tot-lbl">Pedra — Custo Real</span><b class="pi-tot-val" style="color:var(--grn);">R$ '+fm(totalCustoPedra)+'</b></div>';}
+  else{pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo real não cadastrado</span><span class="pi-tot-custo-lbl">—</span></div>';}
   // ══ CÁLCULO INTELIGENTE DE CUSTO MO ══
   // Folha mensal configurável (salários + pró-labores HR)
   var folhaMensal = CFG&&CFG.sv&&CFG.sv.folhaMensal!=null ? CFG.sv.folhaMensal : 9900;
@@ -2000,76 +2015,92 @@ function calcular(){
   var moInteligente = custoMOm2 > 0;
 
   // MO cobrada vs custo real
-  pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
-  pi+='<span style="font-size:.72rem;color:var(--t3);">Mão de Obra (cobrado)</span>';
-  pi+='<b style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
+  pi+='<div class="pi-tot-row"><span class="pi-tot-lbl">Mão de Obra (cobrado)</span>';
+  pi+='<b class="pi-tot-val" style="color:var(--gold2);">R$ '+fm(totalAcT)+'</b></div>';
 
   if(moInteligente){
-    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;">';
-    pi+='<span style="font-size:.67rem;color:var(--t4);">Custo MO ('+m2MedioMes.toFixed(1)+'m²/mês · R$'+fm(custoMOm2.toFixed(0))+'/m²)</span>';
-    pi+='<b style="color:#6ea4ff;">R$ '+fm(custoRealMO)+'</b></div>';
+    pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo MO ('+m2MedioMes.toFixed(1)+'m²/mês · R$'+fm(custoMOm2.toFixed(0))+'/m²)</span>';
+    pi+='<b class="pi-tot-custo-val">R$ '+fm(custoRealMO)+'</b></div>';
   } else {
-    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;font-style:italic;">';
-    pi+='<span style="font-size:.65rem;color:var(--t4);">Custo MO (histórico curto — 55% estimado)</span>';
-    pi+='<b style="color:#6ea4ff;">R$ '+fm(custoRealMO)+'</b></div>';
+    pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo MO (histórico curto — 55% est.)</span>';
+    pi+='<b class="pi-tot-custo-val">R$ '+fm(custoRealMO)+'</b></div>';
   }
 
   var totalCustoReal=(temCustoReal?totalCustoPedra:pedT)+custoRealMO;
 
-  pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;">';
-  pi+='<span style="font-size:.78rem;font-weight:700;">Total Custo Real</span>';
-  pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
+  pi+='<div class="pi-tot-divider"></div>';
+  pi+='<div class="pi-tot-row"><span style="font-size:12px;font-weight:700;">Total Custo Real</span>';
+  pi+='<b style="font-family:\'Cormorant Garamond\',serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
+  pi+='</div>';// fecha pi-totais-block
 
   // ── PARCERIA CEARÁ PLANEJADOS ──
   if(_cearaAtivo&&_cearaValor>0){
-    pi+='<div style="border-top:1px dashed rgba(201,168,76,.25);padding-top:8px;margin-top:4px;">';
-    pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:#a78bfa;opacity:.8;margin-bottom:6px;">🤝 Inclui Móvel Planejado</div>';
-    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
-    pi+='<span style="font-size:.72rem;color:var(--t3);">Bancada HR (à vista)</span>';
-    pi+='<b style="color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
-    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
-    pi+='<span style="font-size:.72rem;color:var(--t3);">Móvel Planejado'+((_cearaDesc)?' — '+escH(_cearaDesc):'')+'</span>';
-    pi+='<b style="color:#a78bfa;">R$ '+fm(_cearaValor)+'</b></div>';
-    pi+='<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid rgba(167,139,250,.2);margin-top:4px;">';
-    pi+='<span style="font-size:.75rem;font-weight:700;color:#a78bfa;">Total Combinado</span>';
-    pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.15rem;color:#a78bfa;">R$ '+fm(vista+_cearaValor)+'</b></div>';
+    pi+='<div class="pi-ceara-block">';
+    pi+='<div class="pi-ceara-title">🤝 Inclui Móvel Planejado</div>';
+    pi+='<div class="pi-ceara-row"><span class="pi-ceara-row-lbl">Bancada HR (à vista)</span>';
+    pi+='<b class="pi-ceara-row-val" style="color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+    pi+='<div class="pi-ceara-row"><span class="pi-ceara-row-lbl">Móvel Planejado'+((_cearaDesc)?' — '+escH(_cearaDesc):'')+'</span>';
+    pi+='<b class="pi-ceara-row-val" style="color:#a78bfa;">R$ '+fm(_cearaValor)+'</b></div>';
+    pi+='<div class="pi-ceara-total">';
+    pi+='<span class="pi-ceara-total-lbl">Total Combinado</span>';
+    pi+='<span class="pi-ceara-total-val">R$ '+fm(vista+_cearaValor)+'</span></div>';
     pi+='</div>';
   }
 
-  pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;">';
-  pi+='<span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span>';
-  pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+  // ── VALOR FINAL ──
+  var _temCeara=_cearaAtivo&&_cearaValor>0;
+  var _valorFinalCliente=_temCeara?(vista+_cearaValor):vista;
+  var _labelFinal=_temCeara?'Total Conjunto (cliente)':'Valor à Vista (cliente)';
+  var _corFinal=_temCeara?'#a78bfa':'var(--gold2)';
 
+  if(!_temCeara){
+    // badge parcelado só quando não é conjunto
+    pi+='<div style="padding:6px 16px 0;text-align:center;">';
+    pi+='<span class="pi-parc-badge">📅 Parcelado 8× — R$ '+fm(p8)+'/mês (total R$ '+fm(parc)+')</span>';
+    pi+='</div>';
+  }
+
+  pi+='<div class="pi-valor-final-block">';
+  pi+='<div class="pi-valor-final-row">';
+  pi+='<span class="pi-valor-final-lbl">'+_labelFinal+'</span>';
+  pi+='<span class="pi-valor-final-num" style="color:'+_corFinal+';">R$ '+fm(_valorFinalCliente)+'</span>';
+  pi+='</div>';
+  if(_temCeara){
+    pi+='<div class="pi-valor-sub-row" style="color:var(--t4);">↳ Bancada R$ '+fm(vista)+' + Planejado R$ '+fm(_cearaValor)+'</div>';
+  }
+  pi+='</div>';
+
+  // ── LUCRO REAL ──
   var margemReal=vista-totalCustoReal;
   var margemPct=totalCustoReal>0?Math.round(margemReal/totalCustoReal*100):0;
   var margemSobreVenda=vista>0?Math.round(margemReal/vista*100):0;
   var margemColor=margemPct>=40?'var(--grn)':margemPct>=20?'#f0a500':'#e05a5a';
 
-  pi+='<div style="margin-top:8px;padding:10px 12px;background:rgba(0,0,0,.2);border-radius:10px;">';
-  pi+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">';
-  pi+='<span style="font-size:.82rem;font-weight:700;">💰 Lucro Real</span>';
-  pi+='<b style="color:'+margemColor+';font-size:1.05rem;">R$ '+fm(margemReal)+'</b></div>';
-  pi+='<div style="display:flex;gap:8px;">';
-  pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
-  pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">sobre custo</div>';
-  pi+='<div style="font-size:.92rem;font-weight:700;color:'+margemColor+';">'+margemPct+'%</div></div>';
-  pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
-  pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">sobre venda</div>';
-  pi+='<div style="font-size:.92rem;font-weight:700;color:'+margemColor+';">'+margemSobreVenda+'%</div></div>';
+  pi+='<div class="pi-lucro-block">';
+  pi+='<div class="pi-lucro-top">';
+  pi+='<span class="pi-lucro-lbl">💰 Lucro Real'+(_temCeara?' <span style="font-size:9px;color:var(--t4);font-weight:400;">(só bancada)</span>':'')+'</span>';
+  pi+='<span class="pi-lucro-val" style="color:'+margemColor+';">R$ '+fm(margemReal)+'</span>';
+  pi+='</div>';
+  pi+='<div class="pi-lucro-pills">';
+  pi+='<div class="pi-lucro-pill"><div class="pi-lucro-pill-lbl">sobre custo</div><div class="pi-lucro-pill-val" style="color:'+margemColor+';">'+margemPct+'%</div></div>';
+  pi+='<div class="pi-lucro-pill"><div class="pi-lucro-pill-lbl">sobre venda</div><div class="pi-lucro-pill-val" style="color:'+margemColor+';">'+margemSobreVenda+'%</div></div>';
   if(moInteligente){
-    pi+='<div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,255,255,.04);border-radius:7px;">';
-    pi+='<div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">folha mensal</div>';
-    pi+='<div style="font-size:.72rem;font-weight:700;color:var(--gold3);">R$'+fm(Math.round(folhaMensal))+'</div></div>';
+    pi+='<div class="pi-lucro-pill"><div class="pi-lucro-pill-lbl">folha/mês</div><div class="pi-lucro-pill-val" style="color:var(--gold3);font-size:11px;">R$'+fm(Math.round(folhaMensal))+'</div></div>';
   }
-  pi+='</div></div></div>';
+  pi+='</div></div>';
+
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
-  var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
+  var txt;
   if(_cearaAtivo&&_cearaValor>0){
-    txt+='\n\n==================\n🤝 ORCAMENTO CONJUNTO\n==================\n';
-    txt+='Bancada em pedra (HR Marmores): R$ '+fm(vista)+'\n';
-    txt+='Movel planejado'+(_cearaDesc?' ('+_cearaDesc+')':'')+(': R$ '+fm(_cearaValor))+'\n';
-    txt+='------------------\nTOTAL GERAL: R$ '+fm(vista+_cearaValor);
+    txt='HR MARMORES E GRANITOS\nORCAMENTO CONJUNTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\n🤝 ORCAMENTO CONJUNTO\n==================\nBancada em pedra (HR Marmores)\n';
+    txt+='  Parcelado 8x: R$ '+fm(p8)+'/parc (total R$ '+fm(parc)+')\n';
+    txt+='  A vista:      R$ '+fm(vista)+'\n\n';
+    txt+='Movel Planejado'+(_cearaDesc?' — '+_cearaDesc:'')+'\n';
+    txt+='  R$ '+fm(_cearaValor)+'\n\n';
+    txt+='------------------\nTOTAL CONJUNTO: R$ '+fm(vista+_cearaValor)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
+  } else {
+    txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
   }
   if(cidade)txt+='\n'+cidade;
   document.getElementById('quoteBox').textContent=txt;
@@ -3677,13 +3708,15 @@ function _orcWrapResult() {
   card.id = 'orcValorCard';
   card.className = 'orc-valor-card';
   card.innerHTML =
-    '<div class="orc-valor-label">VALOR DO ORÇAMENTO</div>' +
+    '<div class="orc-valor-label" id="orcValorLabel">VALOR DO ORÇAMENTO</div>' +
     '<div class="orc-valor-num" id="orcValorNum">R$ —</div>' +
+    '<div class="orc-valor-divider"></div>' +
     '<div class="orc-valor-sub" id="orcValorSub"></div>' +
     '<div class="orc-valor-sparkles" aria-hidden="true">' +
       '<span class="orc-sp orc-sp1">✦</span>' +
       '<span class="orc-sp orc-sp2">✦</span>' +
       '<span class="orc-sp orc-sp3">✦</span>' +
+      '<span class="orc-sp orc-sp4">✦</span>' +
     '</div>';
 
   resArea.insertBefore(card, firstSec);
@@ -3723,12 +3756,33 @@ function _orcSyncValorCard() {
   }
 
   if (vista > 0) {
-    numEl.textContent = 'R$ ' + fm(vista);
-    numEl.style.color = 'var(--gold2)';
+    // Se Ceará ativo, mostrar total conjunto no card de destaque
+    var _cearaV = (window._cearaAtivo && document.getElementById('cearaValor')) ? (parseFloat(document.getElementById('cearaValor').value)||0) : 0;
+    var _valorCard = (_cearaV > 0) ? (vista + _cearaV) : vista;
+    var _isConj = _cearaV > 0;
+    numEl.textContent = 'R$ ' + fm(_valorCard);
+    // Gradiente: dourado normal, roxo quando conjunto
+    numEl.style.background = _isConj
+      ? 'linear-gradient(135deg,#c4b5fd 0%,#a78bfa 50%,#ddd6fe 100%)'
+      : 'linear-gradient(135deg,#e8c96a 0%,#c9a84c 50%,#f0d882 100%)';
+    numEl.style.backgroundSize = '200% auto';
+    numEl.style.webkitBackgroundClip = 'text';
+    numEl.style.webkitTextFillColor = 'transparent';
+    numEl.style.backgroundClip = 'text';
+    // Label
+    var lblEl = document.getElementById('orcValorLabel');
+    if (lblEl) lblEl.textContent = _isConj ? 'ORÇAMENTO CONJUNTO' : 'VALOR DO ORÇAMENTO';
+    // Borda do card
+    var cardEl = document.getElementById('orcValorCard');
+    if (cardEl) cardEl.style.borderColor = _isConj ? 'rgba(167,139,250,.3)' : 'rgba(201,168,76,.22)';
     if (subEl) {
-      // Parcelado estimado (12x, 2%)
-      var parcVal = vista * 1.02 / 12;
-      subEl.textContent = 'ou 12× de R$ ' + fm(parcVal) + ' (est.)';
+      if (_isConj) {
+        subEl.textContent = 'Bancada R$ ' + fm(vista) + ' + Planejado R$ ' + fm(_cearaV);
+      } else {
+        // Parcelado estimado (12x, 2%)
+        var parcVal = vista * 1.02 / 12;
+        subEl.textContent = 'ou 12× de R$ ' + fm(parcVal) + ' (est.)';
+      }
     }
   }
 }
@@ -3752,26 +3806,51 @@ function _injectOrcPremiumStyles() {
   var s = document.createElement('style');
   s.id = 'orcPremStyle';
   s.textContent = `
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;600;700&display=swap');
+
     @keyframes orcPremFadeIn {
-      from { opacity: 0; transform: translateY(-8px); }
+      from { opacity: 0; transform: translateY(-10px); }
+      to   { opacity: 1; transform: none; }
+    }
+    @keyframes orcSlideUp {
+      from { opacity: 0; transform: translateY(16px); }
       to   { opacity: 1; transform: none; }
     }
     @keyframes orcValorPop {
       0%   { transform: scale(1); }
-      30%  { transform: scale(1.03); }
-      60%  { transform: scale(.98); }
+      30%  { transform: scale(1.04); }
+      60%  { transform: scale(.985); }
       100% { transform: scale(1); }
     }
+    @keyframes orcShimmer {
+      0%   { background-position: -200% center; }
+      100% { background-position: 200% center; }
+    }
+    @keyframes orcGlow {
+      0%, 100% { opacity: .4; }
+      50%       { opacity: .9; }
+    }
     @keyframes orcSpFloat {
-      0%, 100% { opacity: .2; transform: translateY(0) scale(1); }
-      50%       { opacity: .6; transform: translateY(-6px) scale(1.2); }
+      0%, 100% { opacity: .15; transform: translateY(0) scale(1); }
+      50%       { opacity: .5; transform: translateY(-8px) scale(1.3); }
     }
     @keyframes orcStepDone {
-      from { transform: scale(0); }
-      to   { transform: scale(1); }
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    @keyframes orcLineDraw {
+      from { width: 0; }
+      to   { width: 100%; }
+    }
+    @keyframes orcBadgePop {
+      0%   { transform: scale(.8); opacity: 0; }
+      70%  { transform: scale(1.06); }
+      100% { transform: scale(1); opacity: 1; }
     }
 
-    /* ── HEADER PREMIUM ── */
+    /* ════════════════════════════════════════
+       HEADER PREMIUM
+    ════════════════════════════════════════ */
     .orc-prem-hdr {
       background: linear-gradient(160deg,
         rgba(201,168,76,.1) 0%,
@@ -3798,21 +3877,17 @@ function _injectOrcPremiumStyles() {
       margin-bottom: 2px;
     }
     .orc-prem-cli-nome {
+      font-family: 'DM Sans', sans-serif;
       font-size: 16px;
-      font-weight: 900;
+      font-weight: 700;
       color: var(--t1);
       letter-spacing: -.3px;
-      transition: color .2s;
       max-width: 180px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .orc-prem-cli-nome:not(:empty):not(:contains('—')) {
-      color: var(--gold2);
-    }
 
-    /* Material pill */
     .orc-prem-mat-pill {
       display: flex;
       align-items: center;
@@ -3822,13 +3897,11 @@ function _injectOrcPremiumStyles() {
       border-radius: 20px;
       padding: 6px 12px 6px 8px;
       flex-shrink: 0;
-      transition: border-color .3s;
     }
     .orc-prem-mat-dot {
       width: 10px; height: 10px;
       border-radius: 50%;
       flex-shrink: 0;
-      transition: background .3s, box-shadow .3s;
     }
     .orc-prem-mat-nome {
       font-size: 11px;
@@ -3840,176 +3913,383 @@ function _injectOrcPremiumStyles() {
       text-overflow: ellipsis;
     }
 
-    /* Barra de steps */
+    /* ── Steps bar ── */
     .orc-prem-steps {
       display: flex;
       align-items: center;
       padding: 0 0 12px;
-      gap: 0;
     }
-
     .orc-step {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-      flex-shrink: 0;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 4px; flex-shrink: 0;
     }
-
     .orc-step-dot {
-      width: 24px; height: 24px;
-      border-radius: 50%;
+      width: 24px; height: 24px; border-radius: 50%;
       background: rgba(255,255,255,.06);
       border: 1.5px solid rgba(255,255,255,.1);
       display: flex; align-items: center; justify-content: center;
-      font-size: 10px;
-      font-weight: 800;
-      color: var(--t4);
+      font-size: 10px; font-weight: 800; color: var(--t4);
       transition: all .25s;
     }
     .orc-step.done .orc-step-dot {
       background: rgba(74,222,128,.15);
-      border-color: rgba(74,222,128,.4);
-      color: #4ade80;
-      font-size: 11px;
+      border-color: rgba(74,222,128,.4); color: #4ade80; font-size: 11px;
+      animation: orcStepDone .35s cubic-bezier(.34,1.56,.64,1);
     }
     .orc-step.active .orc-step-dot {
-      background: rgba(201,168,76,.15);
-      border-color: var(--gold);
-      color: var(--gold2);
-      box-shadow: 0 0 10px rgba(201,168,76,.25);
+      background: rgba(201,168,76,.15); border-color: var(--gold);
+      color: var(--gold2); box-shadow: 0 0 10px rgba(201,168,76,.3);
     }
-
     .orc-step-lbl {
-      font-size: 8px;
-      font-weight: 600;
-      letter-spacing: .5px;
-      color: var(--t4);
-      text-align: center;
-      white-space: nowrap;
+      font-size: 8px; font-weight: 600; letter-spacing: .5px;
+      color: var(--t4); text-align: center; white-space: nowrap;
     }
     .orc-step.done .orc-step-lbl { color: #4ade80; }
     .orc-step.active .orc-step-lbl { color: var(--gold2); }
-
     .orc-step-line {
-      flex: 1;
-      height: 1.5px;
-      background: rgba(255,255,255,.08);
-      margin: 0 4px;
-      margin-bottom: 14px;
-      transition: background .3s;
+      flex: 1; height: 1.5px; background: rgba(255,255,255,.08);
+      margin: 0 4px; margin-bottom: 14px; transition: background .3s;
     }
     .orc-step-line.done { background: rgba(74,222,128,.3); }
 
-    /* ── CARD DE VALOR ── */
+    /* ════════════════════════════════════════
+       CARD DE VALOR — REDESIGN
+    ════════════════════════════════════════ */
     .orc-valor-card {
-      margin: 16px 12px 0;
-      background: linear-gradient(135deg,
-        rgba(201,168,76,.12) 0%,
-        rgba(201,168,76,.06) 50%,
-        rgba(0,0,0,0) 100%);
-      border: 1px solid rgba(201,168,76,.25);
-      border-radius: 20px;
-      padding: 20px 16px 18px;
+      margin: 14px 12px 4px;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(201,168,76,.13) 0%, transparent 70%),
+        linear-gradient(180deg, rgba(201,168,76,.07) 0%, rgba(12,10,6,.0) 100%);
+      border: 1px solid rgba(201,168,76,.22);
+      border-radius: 22px;
+      padding: 22px 18px 18px;
       text-align: center;
       position: relative;
       overflow: hidden;
+      animation: orcSlideUp .45s cubic-bezier(.22,1,.36,1);
     }
     .orc-valor-card.orc-valor-pop {
       animation: orcValorPop .5s ease;
     }
-
-    /* Efeito de brilho no fundo */
+    /* Linha decorativa dourada no topo */
     .orc-valor-card::before {
       content: '';
       position: absolute;
-      top: -30px; left: 50%;
-      width: 200px; height: 200px;
-      background: radial-gradient(circle, rgba(201,168,76,.08) 0%, transparent 70%);
+      top: 0; left: 15%; right: 15%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold2), transparent);
+      border-radius: 2px;
+      opacity: .7;
+    }
+    /* Brilho radial de fundo */
+    .orc-valor-card::after {
+      content: '';
+      position: absolute;
+      bottom: -20px; left: 50%;
+      width: 160px; height: 80px;
+      background: radial-gradient(ellipse, rgba(201,168,76,.07) 0%, transparent 70%);
       transform: translateX(-50%);
       pointer-events: none;
     }
-
     .orc-valor-label {
-      font-size: 9px;
-      font-weight: 800;
-      letter-spacing: 2.5px;
-      color: rgba(201,168,76,.5);
-      margin-bottom: 6px;
+      font-size: 9px; font-weight: 800;
+      letter-spacing: 3px; text-transform: uppercase;
+      color: rgba(201,168,76,.55);
+      margin-bottom: 8px;
     }
     .orc-valor-num {
-      font-size: 2.2rem;
-      font-weight: 900;
-      color: var(--gold2);
-      letter-spacing: -1.5px;
-      line-height: 1;
-      margin-bottom: 6px;
-      transition: color .3s;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2.8rem; font-weight: 700;
+      color: var(--gold2); letter-spacing: -1px; line-height: 1;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, #e8c96a 0%, #c9a84c 50%, #f0d882 100%);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: orcShimmer 4s linear infinite;
+      transition: all .3s;
     }
     .orc-valor-sub {
-      font-size: 11px;
-      color: var(--t3);
+      font-size: 11px; color: var(--t3);
+      font-family: 'DM Sans', sans-serif;
     }
-
-    /* Sparkles flutuantes */
-    .orc-valor-sparkles {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
+    .orc-valor-divider {
+      width: 40px; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(201,168,76,.4), transparent);
+      margin: 10px auto 8px;
     }
+    .orc-valor-sparkles { position: absolute; inset: 0; pointer-events: none; }
     .orc-sp {
-      position: absolute;
-      color: var(--gold);
-      font-size: 10px;
+      position: absolute; color: var(--gold);
       animation: orcSpFloat 3s ease-in-out infinite;
     }
-    .orc-sp1 { top: 16px; left: 16px; animation-delay: 0s; opacity: .3; }
-    .orc-sp2 { top: 20px; right: 20px; animation-delay: 1s; opacity: .25; font-size: 7px; }
-    .orc-sp3 { bottom: 18px; left: 40%; animation-delay: 2s; opacity: .2; font-size: 8px; }
+    .orc-sp1 { top: 14px; left: 18px; font-size: 9px; animation-delay: 0s; opacity: .25; }
+    .orc-sp2 { top: 18px; right: 22px; font-size: 7px; animation-delay: 1.2s; opacity: .2; }
+    .orc-sp3 { bottom: 16px; left: 38%; font-size: 8px; animation-delay: 2.1s; opacity: .18; }
+    .orc-sp4 { bottom: 20px; right: 18px; font-size: 6px; animation-delay: .6s; opacity: .15; }
 
-    /* ── MELHORIAS NOS INPUTS ── */
-    #pg0 .sec .f input,
-    #pg0 .sec .f textarea {
-      transition: border-color .2s, box-shadow .2s;
-    }
-    #pg0 .sec .f input:focus {
-      border-color: rgba(201,168,76,.4) !important;
-      box-shadow: 0 0 0 3px rgba(201,168,76,.08);
+    /* ════════════════════════════════════════
+       PAINEL INTERNO — SEÇÕES
+    ════════════════════════════════════════ */
+
+    /* Header do painel */
+    #painelInterno {
+      font-family: 'DM Sans', sans-serif;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(201,168,76,.1);
+      background: linear-gradient(180deg, rgba(20,16,8,.8) 0%, rgba(10,9,6,.95) 100%);
+      animation: orcPremFadeIn .5s ease .1s both;
     }
 
-    /* ── BOTÃO CALCULAR ── */
-    #btnCalc {
+    /* Cabeçalho do cliente no painel */
+    .pi-header {
+      background: linear-gradient(135deg, rgba(201,168,76,.09) 0%, rgba(0,0,0,0) 100%);
+      padding: 16px;
+      border-bottom: 1px solid rgba(201,168,76,.12);
+      position: relative;
+    }
+    .pi-header::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 16px; right: 16px;
+      height: 1px;
+      background: linear-gradient(90deg, var(--gold2), transparent);
+      opacity: .3;
+    }
+    .pi-cli-lbl {
+      font-size: 8.5px; font-weight: 700; letter-spacing: 2.5px;
+      text-transform: uppercase; color: rgba(201,168,76,.5);
+      margin-bottom: 3px;
+    }
+    .pi-cli-nome {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.45rem; font-weight: 700;
+      color: var(--gold2); line-height: 1.15;
+    }
+    .pi-date {
+      font-size: 11px; color: var(--t4); margin-top: 4px;
+    }
+
+    /* Bloco de material */
+    .pi-mat-block {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      background: rgba(255,255,255,.015);
+    }
+    .pi-sec-title {
+      font-size: 8px; font-weight: 800; letter-spacing: 2.5px;
+      text-transform: uppercase; color: var(--t4);
+      margin-bottom: 7px;
+    }
+    .pi-mat-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+    }
+    .pi-mat-nome {
+      font-weight: 700; font-size: 13.5px; color: var(--t1);
+    }
+    .pi-mat-pr {
+      font-weight: 700; font-size: 13px; color: var(--gold2);
+      font-family: 'Cormorant Garamond', serif;
+    }
+    .pi-mat-sub {
+      font-size: 11px; color: var(--t4); margin-top: 3px;
+    }
+    .pi-mat-chapas {
+      display: inline-block; margin-top: 5px;
+      font-size: 10px; color: var(--t3);
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 8px; padding: 3px 8px;
+    }
+
+    /* Ambiente */
+    .pi-amb-block {
+      padding: 10px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,.04);
+    }
+    .pi-amb-title {
+      font-size: 9px; font-weight: 800; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--gold3); opacity: .8;
+      margin-bottom: 7px; display: flex; align-items: center; gap: 5px;
+    }
+    .pi-amb-title::after {
+      content: ''; flex: 1; height: 1px;
+      background: linear-gradient(90deg, rgba(201,168,76,.2), transparent);
+    }
+    .pi-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 4.5px 0; border-bottom: 1px solid rgba(255,255,255,.03);
+    }
+    .pi-row:last-child { border-bottom: none; }
+    .pi-row-lbl {
+      font-size: 12px; color: var(--t2);
+      max-width: 62%; line-height: 1.3;
+    }
+    .pi-row-val {
+      font-size: 12px; color: var(--gold2); font-weight: 600;
+    }
+
+    /* Bloco de totais / custos */
+    .pi-totais-block {
+      padding: 14px 16px;
+      background: rgba(0,0,0,.2);
+    }
+    .pi-tot-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 5px;
+    }
+    .pi-tot-lbl { font-size: 11.5px; color: var(--t3); }
+    .pi-tot-val { font-size: 12px; font-weight: 700; }
+    .pi-tot-divider {
+      height: 1px; margin: 8px 0;
+      background: linear-gradient(90deg, rgba(201,168,76,.2), transparent);
+    }
+    .pi-tot-custo-lbl {
+      font-size: 10px; color: var(--t4); font-style: italic;
+    }
+    .pi-tot-custo-val {
+      font-size: 11.5px; font-weight: 700; color: #6ea4ff;
+    }
+
+    /* ── LINHA DECORATIVA SEPARADORA ── */
+    .pi-sep {
+      height: 1px; margin: 0 16px;
+      background: linear-gradient(90deg, transparent, rgba(201,168,76,.15), transparent);
+    }
+
+    /* ── BLOCO VALOR FINAL ── */
+    .pi-valor-final-block {
+      padding: 14px 16px 10px;
+      background: linear-gradient(180deg, rgba(201,168,76,.04) 0%, transparent 100%);
+    }
+    .pi-valor-final-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      border-top: 2px solid rgba(201,168,76,.25);
+      padding-top: 12px; margin-bottom: 4px;
+    }
+    .pi-valor-final-lbl {
+      font-size: 11px; color: var(--gold3); font-weight: 600;
+    }
+    .pi-valor-final-num {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.5rem; font-weight: 700; line-height: 1;
+    }
+    .pi-valor-sub-row {
+      font-size: 10px; color: var(--t4);
+      text-align: right; margin-top: 2px;
+    }
+
+    /* ── BLOCO LUCRO ── */
+    .pi-lucro-block {
+      margin: 10px 16px 14px;
+      background: rgba(0,0,0,.25);
+      border-radius: 14px; padding: 12px 14px;
+      border: 1px solid rgba(255,255,255,.04);
+    }
+    .pi-lucro-top {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 10px;
+    }
+    .pi-lucro-lbl { font-size: 13px; font-weight: 700; }
+    .pi-lucro-val { font-size: 15px; font-weight: 800; }
+    .pi-lucro-pills {
+      display: flex; gap: 7px;
+    }
+    .pi-lucro-pill {
+      flex: 1; text-align: center;
+      padding: 7px 4px;
+      background: rgba(255,255,255,.04);
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .pi-lucro-pill-lbl {
+      font-size: 8.5px; color: var(--t4); margin-bottom: 3px;
+    }
+    .pi-lucro-pill-val {
+      font-size: 14px; font-weight: 800;
+    }
+
+    /* ── BLOCO CEARÁ (conjunto) ── */
+    .pi-ceara-block {
+      margin: 10px 16px 14px;
+      background: linear-gradient(135deg,
+        rgba(167,139,250,.1) 0%,
+        rgba(139,92,246,.05) 100%);
+      border: 1px solid rgba(167,139,250,.25);
+      border-radius: 16px;
+      padding: 14px;
       position: relative;
       overflow: hidden;
     }
-    #btnCalc::after {
+    .pi-ceara-block::before {
       content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(90deg,
-        transparent 0%,
-        rgba(255,255,255,.08) 50%,
-        transparent 100%);
-      transform: translateX(-100%);
-      transition: transform .4s ease;
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #a78bfa, transparent);
+      opacity: .7;
     }
-    #btnCalc:active::after {
-      transform: translateX(100%);
+    .pi-ceara-title {
+      font-size: 8.5px; font-weight: 800; letter-spacing: 2px;
+      text-transform: uppercase; color: rgba(167,139,250,.7);
+      margin-bottom: 10px; display: flex; align-items: center; gap: 5px;
+    }
+    .pi-ceara-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 5px 0; border-bottom: 1px solid rgba(167,139,250,.1);
+    }
+    .pi-ceara-row:last-of-type { border-bottom: none; }
+    .pi-ceara-row-lbl { font-size: 11.5px; color: rgba(255,255,255,.6); }
+    .pi-ceara-row-val { font-size: 12px; font-weight: 700; }
+    .pi-ceara-total {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding-top: 10px; margin-top: 4px;
+      border-top: 1px solid rgba(167,139,250,.2);
+    }
+    .pi-ceara-total-lbl { font-size: 13px; font-weight: 700; color: #a78bfa; }
+    .pi-ceara-total-val {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.35rem; font-weight: 700; color: #a78bfa;
     }
 
-    /* ── BOTÕES DE AÇÃO DO RESULTADO ── */
+    /* ── BADGE de parcelamento ── */
+    .pi-parc-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(201,168,76,.08);
+      border: 1px solid rgba(201,168,76,.2);
+      border-radius: 20px; padding: 5px 12px;
+      font-size: 11px; color: var(--gold3);
+      animation: orcBadgePop .4s cubic-bezier(.34,1.56,.64,1) .2s both;
+    }
+
+    /* ════════════════════════════════════════
+       INPUTS & BOTÕES
+    ════════════════════════════════════════ */
+    #pg0 .sec .f input:focus,
+    #pg0 .sec .f textarea:focus {
+      border-color: rgba(201,168,76,.4) !important;
+      box-shadow: 0 0 0 3px rgba(201,168,76,.08);
+      transition: all .2s;
+    }
+
+    #btnCalc {
+      position: relative; overflow: hidden;
+    }
+    #btnCalc::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.1), transparent);
+      transform: translateX(-100%); transition: transform .5s ease;
+    }
+    #btnCalc:active::after { transform: translateX(100%); }
+
     #btnCopy, #btnPDF {
-      border-radius: 14px !important;
-      font-weight: 700;
+      border-radius: 14px !important; font-weight: 700;
       letter-spacing: .3px;
       transition: transform .15s, box-shadow .15s !important;
     }
-    #btnCopy:active, #btnPDF:active {
-      transform: scale(.96);
-    }
-    #btnPDF {
-      box-shadow: 0 0 16px rgba(201,168,76,.15);
-    }
+    #btnCopy:active, #btnPDF:active { transform: scale(.96); }
+    #btnPDF { box-shadow: 0 0 20px rgba(201,168,76,.18); }
   `;
   document.head.appendChild(s);
 }
