@@ -3385,6 +3385,10 @@ function calcular(){
   var cidade=document.getElementById('oCidade').value.trim()||'';
   var end=document.getElementById('oEnd').value.trim()||'';
   var obs=document.getElementById('oObs').value.trim()||'';
+  // Móvel planejado (parceria)
+  var _cearaAtivo=window._cearaAtivo||false;
+  var _cearaDesc=(_cearaAtivo&&document.getElementById('cearaDesc'))?document.getElementById('cearaDesc').value.trim():'';
+  var _cearaValor=(_cearaAtivo&&document.getElementById('cearaValor'))?parseFloat(document.getElementById('cearaValor').value)||0:0;
   if(!ambientes.length){toast('Adicione pelo menos um ambiente');return;}
 
   // ── Validação de medidas: C ou L zerados geram resultado silenciosamente errado ──
@@ -3867,6 +3871,15 @@ function calcular(){
     pi+='<div style="display:flex;justify-content:space-between;margin-bottom:7px;"><span style="font-size:.72rem;color:var(--t3);">Mão de Obra</span><b style="color:var(--gold2);">R$ '+fm(custoMOReal)+'</b></div>';
   }
   pi+='<div style="border-top:1px solid var(--bd);padding-top:8px;margin-bottom:7px;display:flex;justify-content:space-between;"><span style="font-size:.78rem;font-weight:700;">Total Custo</span><b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(custoPainel)+'</b></div>';
+  // ── Bloco móvel planejado ──
+  if(_cearaAtivo&&_cearaValor>0){
+    pi+='<div style="border-top:1px dashed rgba(201,168,76,.25);padding-top:8px;margin-top:2px;">';
+    pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:#a78bfa;opacity:.8;margin-bottom:6px;">🤝 Inclui Móvel Planejado</div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="font-size:.72rem;color:var(--t3);">Bancada em pedra (HR)</span><b style="color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;"><span style="font-size:.72rem;color:var(--t3);">Móvel planejado'+(_cearaDesc?' — '+_cearaDesc.replace(/</g,'&lt;'):'')+'</span><b style="color:#a78bfa;">R$ '+fm(_cearaValor)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid rgba(167,139,250,.2);margin-top:4px;"><span style="font-size:.75rem;font-weight:700;color:#a78bfa;">Total Combinado</span><b style="font-family:Cormorant Garamond,serif;font-size:1.15rem;color:#a78bfa;">R$ '+fm(vista+_cearaValor)+'</b></div>';
+    pi+='</div>';
+  }
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span><b id="piVista" style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
   var _margemVal=vista-custoPainel;
   var _margemPct=vista>0?Math.round(_margemVal/vista*100):0;
@@ -3887,6 +3900,12 @@ function calcular(){
   var _txtFooter='==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel+(cidade?'\n'+cidade:'');
 
   var txt=_txtPre+_buildPriceText({vista:vista,parc:parc,p8:p8,ent:ent,urgPct:urgPct,urgVal:urgVal})+_txtFooter;
+  if(_cearaAtivo&&_cearaValor>0){
+    txt+='\n\n==================\n🤝 ORCAMENTO CONJUNTO\n==================\n';
+    txt+='Bancada em pedra (HR Marmores): R$ '+fm(vista)+'\n';
+    txt+='Movel planejado'+(_cearaDesc?' ('+_cearaDesc+')':'')+(': R$ '+fm(_cearaValor))+'\n';
+    txt+='------------------\nTOTAL GERAL: R$ '+fm(vista+_cearaValor);
+  }
   document.getElementById('quoteBox').textContent=txt;
   document.getElementById('resArea').style.display='block';
   document.getElementById('resArea').scrollIntoView({behavior:'smooth',block:'start'});
@@ -3942,7 +3961,7 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente'};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){

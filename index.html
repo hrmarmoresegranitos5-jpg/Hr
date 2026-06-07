@@ -1769,5 +1769,32 @@ document.addEventListener('click', function(e) {
   }
 })();
 </script>
+<script>
+// ── Móvel Planejado toggle ──
+window._cearaAtivo = false;
+function toggleCeara(){
+  window._cearaAtivo = !window._cearaAtivo;
+  var fields = document.getElementById('cearaFields');
+  var btn    = document.getElementById('cearaToggleBtn');
+  var dot    = document.getElementById('cearaToggleDot');
+  if(!fields||!btn||!dot) return;
+  if(window._cearaAtivo){
+    fields.style.display = 'block';
+    btn.style.background  = '#C9A84C';
+    dot.style.left        = '20px';
+    dot.style.background  = '#fff';
+  } else {
+    fields.style.display = 'none';
+    btn.style.background  = '';
+    dot.style.left        = '2px';
+    dot.style.background  = '';
+    var dEl = document.getElementById('cearaDesc');
+    var vEl = document.getElementById('cearaValor');
+    if(dEl) dEl.value = '';
+    if(vEl) vEl.value = '';
+  }
+}
+window.toggleCeara = toggleCeara;
+</script>
 </body>
 </html>
