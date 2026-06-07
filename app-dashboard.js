@@ -38,6 +38,20 @@ function renderDashboard() {
     return j.done && j.start && j.start.slice(0,7) === mes;
   });
 
+  // ── Inadimplência ──
+  // Jobs NÃO concluídos com saldo > 0 e entrega atrasada há mais de 7 dias
+  var inadimpAtivos = emProd.filter(function(j){
+    var resto = (j.value||0) - (j.pago||0);
+    return resto > 0 && j.end && dDiff(j.end) < -7;
+  });
+  // Jobs concluídos mas com saldo restante (entregou, não recebeu)
+  var inadimpConcluidos = jobs.filter(function(j){
+    var resto = (j.value||0) - (j.pago||0);
+    return j.done && resto > 0.01;
+  });
+  var totalInadimplentes = inadimpAtivos.concat(inadimpConcluidos);
+  var totalInadimpValor  = totalInadimplentes.reduce(function(s,j){ return s + ((j.value||0)-(j.pago||0)); }, 0);
+
   // ── Visitas ──
   var visitas = (_getV && _getV()) || [];
   var visitasHoje   = visitas.filter(function(v){ return v.status==='agendada' && v.date===hoje; });
@@ -166,6 +180,7 @@ function renderDashboard() {
   if (pendVenc.length)  alertas.push({ cor:'#e07820', icon:'💸', msg: 'R$ ' + _dashFmShort(pendVenc.reduce(function(s,t){ return s+(t.value||0); },0)) + ' vencidos a receber', fn:'go(4)' });
   if (urgentes.length)  alertas.push({ cor:'#fb923c', icon:'🚨', msg: urgentes.length + ' job(s) urgente(s): ' + urgentes.slice(0,2).map(function(j){ return j.cli; }).join(', '), fn:'go(3)' });
   if (visitasHoje.length) alertas.push({ cor:'#60a5fa', icon:'📐', msg: visitasHoje.length + ' visita(s) hoje — ' + visitasHoje.map(function(v){ return v.cli+(v.hora?' às '+v.hora:''); }).join(', '), fn:'go(11)' });
+  if (totalInadimplentes.length) alertas.push({ cor:'#e05151', icon:'🚨', msg: totalInadimplentes.length + ' cliente(s) com saldo em aberto — R$ ' + _dashFmShort(totalInadimpValor), fn:'_showInadimpModal()' });
 
   if (alertas.length) {
     h += '<div class="dash-section-lbl">⚡ Ação imediata</div>';
@@ -248,6 +263,36 @@ function renderDashboard() {
 
   // ── GRÁFICO DE CUSTO DA EQUIPE ──
   h += _dashGraficoCustoEquipe(hoje);
+
+  // ══ INADIMPLÊNCIA ══
+  if (totalInadimplentes.length) {
+    h += '<div class="dash-section-lbl" style="color:#e05151;">🚨 Inadimplência</div>';
+    h += '<div class="dash-inadimp card" style="border-left:3px solid #e05151;">';
+    // Cabeçalho resumo
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+    h += '<span style="font-size:.7rem;color:var(--t3);">' + totalInadimplentes.length + ' cliente(s) com saldo em aberto</span>';
+    h += '<b style="color:#e05151;font-size:.9rem;">R$ ' + _dashFmShort(totalInadimpValor) + '</b>';
+    h += '</div>';
+    // Lista (máx 4)
+    totalInadimplentes.slice(0, 4).forEach(function(j) {
+      var resto   = (j.value||0) - (j.pago||0);
+      var diasAt  = j.end ? Math.abs(Math.min(0, dDiff(j.end))) : null;
+      var situacao = j.done
+        ? '<span style="color:#f0a500;font-size:.6rem;font-weight:700;">ENTREGUE</span>'
+        : '<span style="color:#e05151;font-size:.6rem;font-weight:700;">' + (diasAt ? diasAt+'d atraso' : 'EM ABERTO') + '</span>';
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(224,81,81,.1);">';
+      h += '<div><div style="font-size:.78rem;font-weight:600;color:var(--tx);">' + escH(j.cli) + '</div>';
+      h += '<div style="font-size:.63rem;color:var(--t3);">' + escH(j.desc||'') + ' · ' + situacao + '</div></div>';
+      h += '<div style="text-align:right;">';
+      h += '<div style="font-size:.82rem;font-weight:700;color:#e05151;">R$ ' + _dashFmShort(resto) + '</div>';
+      h += '<button onclick="event.stopPropagation();_inadimpReceberJob(' + j.id + ')" style="font-size:.58rem;padding:3px 8px;background:rgba(224,81,81,.12);border:1px solid rgba(224,81,81,.35);color:#e05151;border-radius:6px;cursor:pointer;margin-top:3px;">Receber</button>';
+      h += '</div></div>';
+    });
+    if (totalInadimplentes.length > 4) {
+      h += '<div style="text-align:center;padding-top:8px;font-size:.65rem;color:var(--t4);cursor:pointer;" onclick="_showInadimpModal()">+ ver todos os ' + totalInadimplentes.length + ' casos →</div>';
+    }
+    h += '</div>';
+  }
 
   // ══ ATALHOS RÁPIDOS ══
   h += '<div class="dash-section-lbl">⚡ Atalhos</div>';
@@ -880,3 +925,92 @@ function _dashGraficoCustoEquipe(hoje) {
 
   return h;
 }
+
+// ══════════════════════════════════════════════
+// INADIMPLÊNCIA — Modal completo e recebimento
+// ══════════════════════════════════════════════
+function _showInadimpModal() {
+  var jobs = DB.j || [];
+  var emProd = jobs.filter(function(j){ return !j.done; });
+
+  var inadimpAtivos = emProd.filter(function(j){
+    var resto = (j.value||0) - (j.pago||0);
+    return resto > 0 && j.end && dDiff(j.end) < -7;
+  });
+  var inadimpConcluidos = jobs.filter(function(j){
+    var resto = (j.value||0) - (j.pago||0);
+    return j.done && resto > 0.01;
+  });
+  var lista = inadimpAtivos.concat(inadimpConcluidos);
+  var totalValor = lista.reduce(function(s,j){ return s+((j.value||0)-(j.pago||0)); }, 0);
+
+  var h = '<div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 16px 36px;max-height:88vh;overflow-y:auto;">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+  h += '<div style="font-size:1rem;font-weight:700;color:#e05151;">🚨 Inadimplência</div>';
+  h += '<button onclick="document.getElementById(\'inadimpOv\').remove()" style="background:none;border:none;color:var(--t3);font-size:1.2rem;cursor:pointer;">✕</button>';
+  h += '</div>';
+  h += '<div style="font-size:.68rem;color:var(--t3);margin-bottom:14px;">' + lista.length + ' caso(s) · Total em aberto: <b style="color:#e05151;">R$ ' + fm(totalValor) + '</b></div>';
+
+  if (!lista.length) {
+    h += '<div style="text-align:center;padding:30px;color:var(--t3);font-size:.8rem;">✅ Nenhuma inadimplência no momento</div>';
+  }
+
+  lista.forEach(function(j) {
+    var resto   = (j.value||0) - (j.pago||0);
+    var diasAt  = j.end ? Math.abs(Math.min(0, dDiff(j.end))) : null;
+    var situBadge = j.done
+      ? '<span style="background:rgba(240,165,0,.12);color:#f0a500;border:1px solid rgba(240,165,0,.3);border-radius:5px;font-size:.58rem;font-weight:700;padding:2px 6px;">ENTREGUE</span>'
+      : '<span style="background:rgba(224,81,81,.12);color:#e05151;border:1px solid rgba(224,81,81,.3);border-radius:5px;font-size:.58rem;font-weight:700;padding:2px 6px;">' + (diasAt ? diasAt+'d ATRASO' : 'EM ABERTO') + '</span>';
+
+    h += '<div style="background:var(--s3);border:1px solid rgba(224,81,81,.2);border-radius:12px;padding:12px 14px;margin-bottom:10px;">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">';
+    h += '<div><div style="font-size:.85rem;font-weight:700;color:var(--tx);">' + escH(j.cli) + '</div>';
+    h += '<div style="font-size:.65rem;color:var(--t3);margin-top:2px;">' + escH(j.desc||'') + '</div></div>';
+    h += situBadge + '</div>';
+    h += '<div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--t3);margin-bottom:8px;">';
+    h += '<span>Total: R$ ' + fm(j.value||0) + '</span>';
+    h += '<span>Pago: R$ ' + fm(j.pago||0) + '</span>';
+    h += '<span style="color:#e05151;font-weight:700;">Falta: R$ ' + fm(resto) + '</span>';
+    h += '</div>';
+    if (j.end) {
+      h += '<div style="font-size:.62rem;color:var(--t4);margin-bottom:8px;">Entrega prevista: ' + fd(j.end) + '</div>';
+    }
+    h += '<button onclick="_inadimpReceberJob(' + j.id + ')" style="width:100%;padding:9px;background:rgba(224,81,81,.15);border:1px solid rgba(224,81,81,.4);color:#e05151;border-radius:9px;font-size:.78rem;font-weight:700;cursor:pointer;">💰 Registrar recebimento de R$ ' + fm(resto) + '</button>';
+    h += '</div>';
+  });
+
+  h += '</div>';
+
+  var ov = document.createElement('div');
+  ov.id  = 'inadimpOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9000;display:flex;align-items:flex-end;justify-content:center;';
+  ov.innerHTML = h;
+  ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+}
+
+function _inadimpReceberJob(jobId) {
+  var j = (DB.j||[]).find(function(x){ return x.id === jobId; });
+  if (!j) return;
+  var resto = (j.value||0) - (j.pago||0);
+  if (resto <= 0) { toast('Job já está quitado'); return; }
+  showCB(
+    'Registrar R$ ' + fm(resto) + ' recebido de ' + j.cli + '?',
+    function() {
+      if (typeof addTr === 'function') addTr('in', 'Recebimento — ' + j.cli, resto);
+      j.pago = j.value;
+      DB.sv();
+      hideCB();
+      toast('✓ R$ ' + fm(resto) + ' registrado!');
+      // Fecha modal se aberto
+      var ov = document.getElementById('inadimpOv');
+      if (ov) ov.remove();
+      // Atualiza dashboard
+      if (typeof renderDashboard === 'function') renderDashboard();
+    },
+    function() { hideCB(); }
+  );
+}
+
+window._showInadimpModal   = _showInadimpModal;
+window._inadimpReceberJob  = _inadimpReceberJob;
