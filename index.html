@@ -223,6 +223,24 @@ function openApp(pg){
         <div class="f"><input id="oObs" placeholder="Observações do projeto (opcional)" type="text"></div>
       </div>
 
+      <!-- PARCERIA MÓVEL PLANEJADO -->
+      <div class="sec mt" id="secCeara">
+        <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;" onclick="toggleCeara()">
+          <div>
+            <div class="sl" style="margin-bottom:2px;">🤝 Incluir Móvel Planejado</div>
+            <div style="font-size:.65rem;color:var(--t3);">Orçamento conjunto: bancada HR + móvel parceiro</div>
+          </div>
+          <div id="cearaToggleBtn" style="width:42px;height:24px;background:var(--s3);border:1px solid var(--bd);border-radius:12px;position:relative;transition:background .2s;">
+            <div id="cearaToggleDot" style="width:18px;height:18px;background:var(--t3);border-radius:50%;position:absolute;top:2px;left:2px;transition:left .2s,background .2s;"></div>
+          </div>
+        </div>
+        <div id="cearaFields" style="display:none;margin-top:12px;border-top:1px solid var(--bd);padding-top:12px;">
+          <div class="f"><input id="cearaDesc" placeholder="Descrição do móvel (ex: Armário de cozinha superior e inferior)" type="text"></div>
+          <div class="f"><input id="cearaValor" placeholder="Valor do móvel (R$)" type="number" min="0" step="0.01" oninput="if(typeof calcular==='function'&&document.getElementById('resArea')&&document.getElementById('resArea').style.display!=='none')calcular()"></div>
+          <div style="font-size:.62rem;color:var(--t4);margin-top:4px;padding:0 2px;">O orçamento mostrará: bancada HR + móvel separados e o total combinado.</div>
+        </div>
+      </div>
+
       <!-- AMBIENTES: cada um tem tipo + peças + serviços -->
       <div class="sec mt">
         <div class="sl">Ambientes</div>
