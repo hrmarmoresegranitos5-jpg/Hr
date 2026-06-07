@@ -5,7 +5,7 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
 #shell{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;overflow:hidden;}@media(min-width:540px){.sp-grid{max-width:440px;grid-template-columns:1fr 1fr 1fr;}}
 .scr{position:fixed;top:0;left:0;right:0;bottom:0;display:none;}
 .scr.on{display:flex;}
-#sSplash.on{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+#sSplash.on{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;}
 #sApp.on{display:block;}
 #sApp{position:absolute;top:0;left:0;right:0;bottom:0;}
 
@@ -22,18 +22,18 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
 
 #sSplash {
   background: radial-gradient(ellipse at 50% -10%, #1c1200 0%, #080806 45%, #05050a 100%);
-  overflow-y: auto; overflow-x: hidden; z-index: 100;
-  align-items: center; justify-content: flex-start;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden; z-index: 100;
+  flex-direction: column;
+  align-items: stretch; justify-content: flex-start;
 }
 
 /* ── STICKY CATALOG BAR — always at bottom ── */
 .sp-cat-bar {
-  position: sticky; bottom: 0; left: 0; right: 0;
-  background: rgba(7,7,9,.96);
+  flex-shrink: 0;
+  background: rgba(7,7,9,.97);
   border-top: 1px solid rgba(201,168,76,.2);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   z-index: 10;
 }
@@ -61,26 +61,30 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
   display: flex; flex-direction: column;
   align-items: stretch;
   position: relative; z-index: 1;
-  min-height: 100%;
+  flex: 1;
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── HEADER BAR ── */
 .sp2-hdr {
   display: flex; align-items: center; gap: 10px;
-  padding: 48px 16px 14px;
+  padding: env(safe-area-inset-top, 44px) 14px 12px;
+  padding-top: max(env(safe-area-inset-top), 44px);
   border-bottom: 1px solid rgba(201,168,76,.1);
   animation: sp2FadeIn .5s ease both;
+  flex-shrink: 0;
 }
 .sp2-logo {
-  width: 46px; height: 46px; border-radius: 12px;
+  width: 40px; height: 40px; border-radius: 10px;
   overflow: hidden; flex-shrink: 0;
-  box-shadow: 0 0 0 1.5px rgba(201,168,76,.4), 0 8px 24px rgba(0,0,0,.5);
+  box-shadow: 0 0 0 1.5px rgba(201,168,76,.4), 0 4px 16px rgba(0,0,0,.5);
 }
 .sp2-logo img { width: 100%; height: 100%; object-fit: cover; }
 .sp2-hdr-text { flex: 1; min-width: 0; }
 .sp2-name {
   font-family: "Cormorant Garamond", serif;
-  font-size: 1.1rem; font-weight: 700; line-height: 1.15;
+  font-size: 1rem; font-weight: 700; line-height: 1.2;
   background: linear-gradient(120deg, #e8c96a, #c9a84c 50%, #f0d882);
   background-size: 200% auto;
   -webkit-background-clip: text; background-clip: text;
@@ -89,15 +93,15 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .sp2-tagline {
-  font-size: .58rem; letter-spacing: 2.5px; text-transform: uppercase;
-  color: rgba(201,168,76,.45); margin-top: 2px;
+  font-size: .54rem; letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(201,168,76,.45); margin-top: 1px;
 }
 .sp2-hdr-tel {
-  display: flex; align-items: center; gap: 5px;
+  display: flex; align-items: center; gap: 4px;
   background: rgba(201,168,76,.08); border: 1px solid rgba(201,168,76,.18);
-  border-radius: 20px; padding: 6px 10px;
-  font-size: .62rem; color: rgba(201,168,76,.75); flex-shrink: 0;
-  text-decoration: none;
+  border-radius: 18px; padding: 5px 9px;
+  font-size: .6rem; color: rgba(201,168,76,.75); flex-shrink: 0;
+  text-decoration: none; font-family: inherit;
 }
 
 /* ── KPI CARDS ── */
@@ -121,31 +125,31 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
 
 /* ── MINI CHART ── */
 .sp2-chart-wrap {
-  margin: 10px 12px 0;
+  margin: 8px 12px 0;
   background: linear-gradient(145deg, rgba(201,168,76,.04), rgba(10,8,2,.5));
   border: 1px solid rgba(201,168,76,.12); border-radius: 14px;
-  padding: 12px 12px 10px;
+  padding: 10px 10px 8px;
   animation: sp2FadeIn .5s .15s ease both;
 }
-.sp2-chart-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.sp2-chart-title { font-size: .6rem; letter-spacing: 2px; text-transform: uppercase; color: var(--t3); font-weight: 700; }
-.sp2-chart-legend { display: flex; gap: 8px; }
+.sp2-chart-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sp2-chart-title { font-size: .56rem; letter-spacing: 2px; text-transform: uppercase; color: var(--t3); font-weight: 700; }
+.sp2-chart-legend { display: flex; gap: 6px; }
 .sp2-chart-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 3px; vertical-align: middle; }
-.sp2-chart-leg-item { font-size: .5rem; color: var(--t4); display: flex; align-items: center; }
+.sp2-chart-leg-item { font-size: .48rem; color: var(--t4); display: flex; align-items: center; }
 .sp2-bars {
-  display: flex; align-items: flex-end; gap: 4px;
-  height: 56px; padding: 0 2px;
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 48px;
 }
-.sp2-bar-group { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
-.sp2-bar-pair { display: flex; align-items: flex-end; gap: 2px; height: 50px; width: 100%; }
+.sp2-bar-group { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+.sp2-bar-pair { display: flex; align-items: flex-end; gap: 2px; height: 40px; width: 100%; }
 .sp2-bar {
-  flex: 1; border-radius: 3px 3px 0 0;
-  transform-origin: bottom; animation: sp2BarGrow .6s .3s cubic-bezier(.34,1.56,.64,1) both;
-  min-height: 2px;
+  flex: 1; border-radius: 2px 2px 0 0;
+  transform-origin: bottom;
+  min-height: 3px;
 }
 .sp2-bar.entrada { background: linear-gradient(180deg, #5dc48a, #3a9e6a); }
 .sp2-bar.saida   { background: linear-gradient(180deg, #e07070, #c94444); }
-.sp2-bar-lbl { font-size: .46rem; color: var(--t4); text-align: center; white-space: nowrap; }
+.sp2-bar-lbl { font-size: .44rem; color: var(--t4); text-align: center; white-space: nowrap; }
 
 /* ── SECTION LABEL ── */
 .sp2-sec-lbl {
