@@ -89,96 +89,116 @@ function openApp(pg){
 </script>
 <div id="shell">
 
-<!-- ══ SPLASH ══ -->
+<!-- ══ SPLASH / HOME DASHBOARD ══ -->
 <div class="scr on" id="sSplash">
-
-  <!-- Canvas para partículas -->
-  <canvas id="splashCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;"></canvas>
+  <canvas id="splashCanvas" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.4;"></canvas>
 
   <div class="sp2-wrap">
 
-    <!-- ── LOGO SECTION ── -->
-    <div class="sp2-top">
-      <div class="sp2-logo-ring">
-        <div class="sp2-logo-glow"></div>
-        <div class="sp2-logo" id="spLogo">
-          <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAEsASwDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
-        </div>
+    <!-- ── HEADER BAR ── -->
+    <div class="sp2-hdr">
+      <div class="sp2-logo" id="spLogo">
+        <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAEsASwDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
       </div>
-
-      <div class="sp2-brand">
+      <div class="sp2-hdr-text">
         <div class="sp2-name" id="spName">HR Mármores e Granitos</div>
-        <div class="sp2-divider"><span></span><span class="sp2-diamond">◆</span><span></span></div>
-        <div class="sp2-tagline" id="spTagline">Marmoraria · Pilão Arcado — BA</div>
+        <div class="sp2-tagline" id="spTagline">Pilão Arcado · BA</div>
       </div>
+      <a class="sp2-hdr-tel" href="tel:+5574991484460" id="spTel">📞 4460</a>
+    </div>
 
-      <div class="sp2-info">
-        <div class="sp2-info-chip">
-          <span>📞</span><span id="spTel">(74) 99148-4460</span>
+    <!-- ── KPI CARDS ── -->
+    <div class="sp2-kpis" id="spKpis">
+      <div class="sp2-kpi kpi-green">
+        <div class="sp2-kpi-lbl">Entradas</div>
+        <div class="sp2-kpi-val" id="kpiEntradas">—</div>
+        <div class="sp2-kpi-sub">este mês</div>
+      </div>
+      <div class="sp2-kpi kpi-red">
+        <div class="sp2-kpi-lbl">Saídas</div>
+        <div class="sp2-kpi-val" id="kpiSaidas">—</div>
+        <div class="sp2-kpi-sub">este mês</div>
+      </div>
+      <div class="sp2-kpi">
+        <div class="sp2-kpi-lbl">Saldo</div>
+        <div class="sp2-kpi-val" id="kpiSaldo">—</div>
+        <div class="sp2-kpi-sub">líquido</div>
+      </div>
+    </div>
+
+    <!-- ── MINI BAR CHART ── -->
+    <div class="sp2-chart-wrap">
+      <div class="sp2-chart-hdr">
+        <span class="sp2-chart-title">⚡ Financeiro — 6 meses</span>
+        <div class="sp2-chart-legend">
+          <span class="sp2-chart-leg-item"><span class="sp2-chart-dot" style="background:#3a9e6a;"></span>Entrada</span>
+          <span class="sp2-chart-leg-item" style="margin-left:6px;"><span class="sp2-chart-dot" style="background:#c94444;"></span>Saída</span>
         </div>
-        <div class="sp2-info-chip">
-          <span>📍</span><span id="spAddr">Av. Dep. Rodolfo Queiroz, 653</span>
-        </div>
+      </div>
+      <div class="sp2-bars" id="spChartBars">
+        <!-- preenchido por JS -->
+        <div style="width:100%;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--t4);">Carregando dados...</div>
       </div>
     </div>
 
     <!-- ── ACESSO RÁPIDO ── -->
-    <div class="sp2-actions">
-      <div class="sp2-section-lbl">⚡ Acesso Rápido</div>
+    <div class="sp2-sec-lbl"><span>⚡</span>Acesso Rápido</div>
+    <div class="sp2-quick">
+      <button class="sp2-q-btn" onclick="openApp(12)">
+        <span class="sp2-q-ic">🏠</span>
+        <div>
+          <div class="sp2-q-title">Painel</div>
+          <div class="sp2-q-sub">Visão geral</div>
+        </div>
+      </button>
+      <button class="sp2-q-btn" onclick="openApp(0)">
+        <span class="sp2-q-ic">💰</span>
+        <div>
+          <div class="sp2-q-title">Orçamento</div>
+          <div class="sp2-q-sub">Calcular projeto</div>
+        </div>
+      </button>
+      <button class="sp2-q-btn" onclick="openApp(4)">
+        <span class="sp2-q-ic">💵</span>
+        <div>
+          <div class="sp2-q-title">Finanças</div>
+          <div class="sp2-q-sub">Entradas e gastos</div>
+        </div>
+      </button>
+      <button class="sp2-q-btn" onclick="openApp(5)">
+        <span class="sp2-q-ic">👷</span>
+        <div>
+          <div class="sp2-q-title">Funcionários</div>
+          <div class="sp2-q-sub">Equipe e ponto</div>
+        </div>
+      </button>
+    </div>
 
-      <div class="sp2-grid-main">
-        <button class="sp2-btn-primary" onclick="openApp(12)">
-          <span class="sp2-btn-icon">🏠</span>
-          <div>
-            <div class="sp2-btn-title">Painel</div>
-            <div class="sp2-btn-sub">Visão geral do negócio</div>
-          </div>
-          <span class="sp2-btn-arr">→</span>
-        </button>
-        <button class="sp2-btn-primary" onclick="openApp(0)">
-          <span class="sp2-btn-icon">💰</span>
-          <div>
-            <div class="sp2-btn-title">Orçamento</div>
-            <div class="sp2-btn-sub">Calcular projeto</div>
-          </div>
-          <span class="sp2-btn-arr">→</span>
-        </button>
-        <button class="sp2-btn-primary" onclick="openApp(3)">
-          <span class="sp2-btn-icon">📅</span>
-          <div>
-            <div class="sp2-btn-title">Agenda</div>
-            <div class="sp2-btn-sub">Serviços e entregas</div>
-          </div>
-          <span class="sp2-btn-arr">→</span>
-        </button>
-        <button class="sp2-btn-primary" onclick="openApp(4)">
-          <span class="sp2-btn-icon">💵</span>
-          <div>
-            <div class="sp2-btn-title">Finanças</div>
-            <div class="sp2-btn-sub">Entradas e gastos</div>
-          </div>
-          <span class="sp2-btn-arr">→</span>
-        </button>
+    <!-- ── AGENDA PREVIEW ── -->
+    <div class="sp2-sec-lbl"><span>📅</span>Próximos Serviços</div>
+    <div class="sp2-agenda-wrap" id="spAgendaWrap">
+      <div class="sp2-agenda-hdr" onclick="openApp(3)">
+        <span class="sp2-agenda-hdr-l">Agenda</span>
+        <span class="sp2-agenda-hdr-r">Ver tudo →</span>
       </div>
-
-      <div class="sp2-section-lbl" style="margin-top:14px;">🪨 Catálogos</div>
-      <div class="sp2-grid-cats">
-        <button class="sp2-btn-cat" onclick="openApp(1)">
-          <span>🪨</span><span>Pedras</span>
-        </button>
-        <button class="sp2-btn-cat" onclick="openApp(2)">
-          <span>🚰</span><span>Cubas</span>
-        </button>
-        <button class="sp2-btn-cat" onclick="openApp(8)">
-          <span>🔩</span><span>Acessórios</span>
-        </button>
-        <button class="sp2-btn-cat" onclick="openApp(6)">
-          <span>⚙️</span><span>Config</span>
-        </button>
+      <div id="spAgendaItems">
+        <div class="sp2-agenda-empty" id="spAgendaLoading">Carregando agenda...</div>
       </div>
     </div>
 
-    <div class="sp2-footer" id="spCnpj">CNPJ 64.639.182/0001-28</div>
+    <div class="sp2-footer" id="spCnpj" style="margin-top:14px;">CNPJ 64.639.182/0001-28</div>
+    <div class="sp2-bottom-pad"></div>
+  </div>
+
+  <!-- ── STICKY CATALOG BAR ── -->
+  <div class="sp-cat-bar">
+    <div class="sp-cat-bar-lbl">🪨 Catálogos</div>
+    <div class="sp-cat-row">
+      <button class="sp-cat-btn" onclick="openApp(1)"><span>🪨</span><span>Pedras</span></button>
+      <button class="sp-cat-btn" onclick="openApp(2)"><span>🚰</span><span>Cubas</span></button>
+      <button class="sp-cat-btn" onclick="openApp(8)"><span>🔩</span><span>Acessórios</span></button>
+      <button class="sp-cat-btn" onclick="openApp(6)"><span>⚙️</span><span>Config</span></button>
+    </div>
   </div>
 
 </div>
@@ -1716,7 +1736,133 @@ document.addEventListener('click', function(e) {
 
 
 <script>
-// ── Splash particles ──
+// ── Dashboard Home: KPIs + Chart ──
+(function() {
+  function fmtK(v) {
+    if (Math.abs(v) >= 1000) return 'R$' + (v/1000).toFixed(1).replace('.',',') + 'k';
+    return 'R$' + v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g,'.').replace('.',',');
+  }
+
+  function renderSplashDash() {
+    // ── KPIs from localStorage finanças ──
+    try {
+      var fin = JSON.parse(localStorage.getItem('financas') || localStorage.getItem('fin') || '[]');
+      if (!Array.isArray(fin)) fin = [];
+      var now = new Date();
+      var yy = now.getFullYear(); var mm = now.getMonth();
+      var entMes = 0, saiMes = 0;
+      fin.forEach(function(t) {
+        if (!t || !t.data) return;
+        var d = new Date(t.data);
+        if (d.getFullYear()===yy && d.getMonth()===mm) {
+          var v = parseFloat(t.valor||t.value||0);
+          if ((t.tipo||t.type||'').toLowerCase().indexOf('sai')>=0 || v<0) saiMes += Math.abs(v);
+          else entMes += Math.abs(v);
+        }
+      });
+      var elE = document.getElementById('kpiEntradas');
+      var elS = document.getElementById('kpiSaidas');
+      var elB = document.getElementById('kpiSaldo');
+      if (elE) elE.textContent = fmtK(entMes);
+      if (elS) elS.textContent = fmtK(saiMes);
+      if (elB) {
+        var saldo = entMes - saiMes;
+        elB.textContent = fmtK(saldo);
+        elB.style.color = saldo >= 0 ? '#5dc48a' : '#e07070';
+      }
+
+      // ── Build 6-month chart ──
+      var months = [];
+      for (var i=5; i>=0; i--) {
+        var d2 = new Date(yy, mm-i, 1);
+        months.push({ y: d2.getFullYear(), m: d2.getMonth(),
+          lbl: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d2.getMonth()],
+          ent: 0, sai: 0 });
+      }
+      fin.forEach(function(t) {
+        if (!t || !t.data) return;
+        var d3 = new Date(t.data);
+        var bucket = months.find(function(b){ return b.y===d3.getFullYear()&&b.m===d3.getMonth(); });
+        if (!bucket) return;
+        var v2 = parseFloat(t.valor||t.value||0);
+        if ((t.tipo||t.type||'').toLowerCase().indexOf('sai')>=0 || v2<0) bucket.sai += Math.abs(v2);
+        else bucket.ent += Math.abs(v2);
+      });
+      var maxVal = Math.max.apply(null, months.map(function(b){ return Math.max(b.ent,b.sai,1); }));
+      var barsEl = document.getElementById('spChartBars');
+      if (barsEl) {
+        barsEl.innerHTML = months.map(function(b) {
+          var he = Math.max(2, Math.round((b.ent/maxVal)*50));
+          var hs = Math.max(2, Math.round((b.sai/maxVal)*50));
+          return '<div class="sp2-bar-group">' +
+            '<div class="sp2-bar-pair">' +
+            '<div class="sp2-bar entrada" style="height:' + he + 'px;animation-delay:' + (Math.random()*.3) + 's"></div>' +
+            '<div class="sp2-bar saida"   style="height:' + hs + 'px;animation-delay:' + (Math.random()*.3) + 's"></div>' +
+            '</div>' +
+            '<div class="sp2-bar-lbl">' + b.lbl + '</div>' +
+            '</div>';
+        }).join('');
+      }
+    } catch(e) {
+      var elE2 = document.getElementById('kpiEntradas');
+      var elS2 = document.getElementById('kpiSaidas');
+      var elB2 = document.getElementById('kpiSaldo');
+      if(elE2) elE2.textContent = 'N/D';
+      if(elS2) elS2.textContent = 'N/D';
+      if(elB2) elB2.textContent = 'N/D';
+    }
+
+    // ── Agenda preview ──
+    try {
+      var ag = JSON.parse(localStorage.getItem('agenda') || localStorage.getItem('jobs') || '[]');
+      if (!Array.isArray(ag)) ag = [];
+      var hoje = new Date(); hoje.setHours(0,0,0,0);
+      var prox = ag.filter(function(j){
+        var dj = new Date(j.data||j.date||'');
+        return dj >= hoje;
+      }).sort(function(a,b){
+        return new Date(a.data||a.date) - new Date(b.data||b.date);
+      }).slice(0,4);
+      var cont = document.getElementById('spAgendaItems');
+      if (!cont) return;
+      if (prox.length === 0) {
+        cont.innerHTML = '<div class="sp2-agenda-empty">Nenhum serviço agendado</div>';
+        return;
+      }
+      var colors = ['ag-grn','ag-blu','','ag-red'];
+      cont.innerHTML = prox.map(function(j,i) {
+        var d4 = new Date(j.data||j.date||'');
+        var dtxt = isNaN(d4) ? '—' : d4.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+        var cli = j.cliente||j.cli||j.nome||'Cliente';
+        var srv = j.servico||j.srv||j.tipo||j.desc||'Serviço';
+        return '<div class="sp2-agenda-item" onclick="openApp(3)">' +
+          '<div class="sp2-agenda-dot ' + (colors[i%4]||'') + '"></div>' +
+          '<div class="sp2-agenda-text">' +
+          '<div class="sp2-agenda-cli">' + cli + '</div>' +
+          '<div class="sp2-agenda-srv">' + srv + '</div>' +
+          '</div>' +
+          '<div class="sp2-agenda-date">' + dtxt + '</div>' +
+          '</div>';
+      }).join('');
+    } catch(e2) {
+      var c2 = document.getElementById('spAgendaItems');
+      if(c2) c2.innerHTML = '<div class="sp2-agenda-empty">Agenda indisponível</div>';
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderSplashDash);
+  } else {
+    renderSplashDash();
+  }
+  // Re-render when splash becomes visible again
+  document.addEventListener('visibilitychange', function() {
+    var sp = document.getElementById('sSplash');
+    if (sp && sp.classList.contains('on')) renderSplashDash();
+  });
+})();
+</script>
+
 (function() {
   function initParticles() {
     var canvas = document.getElementById('splashCanvas');
