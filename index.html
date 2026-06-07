@@ -17,7 +17,7 @@
 <title>HR Mármores e Granitos</title>
 <!-- external scripts loaded on-demand -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=16">
 
 <style id="capCSS">
 /* ══ CAPELAS & DETALHES AVULSOS ══ */
@@ -107,8 +107,7 @@ function openApp(pg){
       </div>
 
       <div class="sp2-brand">
-        <div class="sp2-name" id="spName">HR Mármores</div>
-        <div class="sp2-name sp2-name2">e Granitos</div>
+        <div class="sp2-name" id="spName">HR Mármores e Granitos</div>
         <div class="sp2-divider"><span></span><span class="sp2-diamond">◆</span><span></span></div>
         <div class="sp2-tagline" id="spTagline">Marmoraria · Pilão Arcado — BA</div>
       </div>
@@ -692,6 +691,36 @@ function openApp(pg){
   </div>
 </div>
 
+<div class="ov" id="adminPinMd" style="align-items:flex-end;">
+  <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
+    <div style="text-align:center;margin-bottom:16px;">
+      <div style="font-size:1.1rem;font-weight:700;color:var(--gold2);margin-bottom:3px;">Acesso Proprietario</div>
+      <div style="font-size:.72rem;color:var(--t3);">Digite a senha (padrao: 1818)</div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-bottom:18px;">
+      <div id="ad0" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
+      <div id="ad1" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
+      <div id="ad2" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
+      <div id="ad3" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:260px;margin:0 auto 10px;">
+      <button onclick="adPin('1')" class="pin-key">1</button>
+      <button onclick="adPin('2')" class="pin-key">2</button>
+      <button onclick="adPin('3')" class="pin-key">3</button>
+      <button onclick="adPin('4')" class="pin-key">4</button>
+      <button onclick="adPin('5')" class="pin-key">5</button>
+      <button onclick="adPin('6')" class="pin-key">6</button>
+      <button onclick="adPin('7')" class="pin-key">7</button>
+      <button onclick="adPin('8')" class="pin-key">8</button>
+      <button onclick="adPin('9')" class="pin-key">9</button>
+      <button onclick="closeAll()" class="pin-key" style="color:var(--t3);font-size:.68rem;">Cancelar</button>
+      <button onclick="adPin('0')" class="pin-key">0</button>
+      <button onclick="adPinDel()" class="pin-key" style="color:var(--red);">Del</button>
+    </div>
+    <div id="adMsg" style="text-align:center;color:var(--red);font-size:.72rem;min-height:18px;font-weight:600;"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
   <script>
@@ -790,35 +819,6 @@ if (typeof TUM === 'undefined') {
   <script src="app-funcionarios.js?v=3"></script>
   <script src="app-import-relatorio.js?v=1"></script>
   <script src="app-banco-horas.js?v=1"></script>
-<div class="ov" id="adminPinMd" style="align-items:flex-end;">
-  <div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;animation:slideUp .3s ease;">
-    <div style="text-align:center;margin-bottom:16px;">
-      <div style="font-size:1.1rem;font-weight:700;color:var(--gold2);margin-bottom:3px;">Acesso Proprietario</div>
-      <div style="font-size:.72rem;color:var(--t3);">Digite a senha (padrao: 1818)</div>
-    </div>
-    <div style="display:flex;gap:12px;justify-content:center;margin-bottom:18px;">
-      <div id="ad0" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
-      <div id="ad1" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
-      <div id="ad2" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
-      <div id="ad3" style="width:14px;height:14px;border-radius:50%;border:2px solid var(--bd2);transition:.15s;"></div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:260px;margin:0 auto 10px;">
-      <button onclick="adPin('1')" class="pin-key">1</button>
-      <button onclick="adPin('2')" class="pin-key">2</button>
-      <button onclick="adPin('3')" class="pin-key">3</button>
-      <button onclick="adPin('4')" class="pin-key">4</button>
-      <button onclick="adPin('5')" class="pin-key">5</button>
-      <button onclick="adPin('6')" class="pin-key">6</button>
-      <button onclick="adPin('7')" class="pin-key">7</button>
-      <button onclick="adPin('8')" class="pin-key">8</button>
-      <button onclick="adPin('9')" class="pin-key">9</button>
-      <button onclick="closeAll()" class="pin-key" style="color:var(--t3);font-size:.68rem;">Cancelar</button>
-      <button onclick="adPin('0')" class="pin-key">0</button>
-      <button onclick="adPinDel()" class="pin-key" style="color:var(--red);">Del</button>
-    </div>
-    <div id="adMsg" style="text-align:center;color:var(--red);font-size:.72rem;min-height:18px;font-weight:600;"></div>
-  </div>
-</div>
   <script src="app-autobackup.js?v=3"></script>
   <script src="pwa.js"></script>
 <script>
