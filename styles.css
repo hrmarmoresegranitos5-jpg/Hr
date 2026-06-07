@@ -2959,3 +2959,1453 @@ button:focus-visible {
   border-color: rgba(201,168,76,.3) !important;
   background: rgba(201,168,76,.05) !important;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   HR MÁRMORES — UPGRADE VISUAL v3.0
+   Foco: KPI cards, splash, painel, radar financeiro
+═══════════════════════════════════════════════════════════════ */
+
+/* ── ANIMAÇÕES GLOBAIS ── */
+@keyframes shimmerSlide {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201,168,76,0); }
+  50% { box-shadow: 0 0 18px 2px rgba(201,168,76,.15); }
+}
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes barGrow {
+  from { width: 0; }
+}
+
+/* ── SPLASH: corrige nome duplicado ── */
+.sp2-name2 { display: none !important; }
+/* Mostra apenas a primeira linha; JS já injeta o nome completo */
+
+/* ── SPLASH TOP: fundo mais dramático ── */
+.sp2-top {
+  background: linear-gradient(180deg,
+    rgba(201,168,76,.10) 0%,
+    rgba(201,168,76,.03) 45%,
+    transparent 100%) !important;
+  border-bottom: 1px solid rgba(201,168,76,.18) !important;
+}
+
+/* Nome da splash com shimmer mais visível */
+.sp2-name {
+  font-size: 2rem !important;
+  background: linear-gradient(90deg,
+    #b8860b 0%, #e8c96a 30%, #fff5c0 50%, #e8c96a 70%, #b8860b 100%) !important;
+  background-size: 250% auto !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  animation: shimmerSlide 4s linear infinite !important;
+  letter-spacing: -0.5px !important;
+}
+
+/* ── PAINEL KPI CARDS (gerados pelo app-core.js) ── */
+/* Cards 2x2 do painel — classes .fc do fingrid */
+.fc {
+  background: linear-gradient(145deg, #1a1a20 0%, #0e0e14 100%) !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  border-radius: 16px !important;
+  padding: 14px 13px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.04) inset,
+    0 -1px 0 rgba(0,0,0,.5) inset,
+    0 6px 24px rgba(0,0,0,.5) !important;
+  transition: transform .18s !important;
+  animation: fadeSlideUp .35s ease both !important;
+  position: relative;
+  overflow: hidden;
+}
+.fc::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
+}
+.fc:active { transform: scale(.96) !important; }
+
+.fcl {
+  font-size: .55rem !important;
+  letter-spacing: 1.8px !important;
+  text-transform: uppercase;
+  color: rgba(201,168,76,.4) !important;
+  font-weight: 700 !important;
+  margin-bottom: 5px !important;
+}
+
+.fcv {
+  font-size: .95rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -.5px;
+  line-height: 1.1;
+}
+.fcv.g {
+  background: linear-gradient(135deg, #4cda80, #2da860);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: none !important;
+}
+.fcv.r {
+  background: linear-gradient(135deg, #ff7070, #cc3030);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: none !important;
+}
+.fcv.b {
+  background: linear-gradient(135deg, #80b8ff, #4a80b5);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: none !important;
+}
+/* Valor dourado (genérico) */
+.fcv:not(.g):not(.r):not(.b) {
+  background: linear-gradient(135deg, #e8c96a, #c9a84c);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Grid financeiro maior */
+.fingrid {
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 10px !important;
+  padding: 14px 17px 0 !important;
+}
+
+/* ── QUICK ACTIONS (botões 2x2 do painel) ── */
+.qagrid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+  padding: 14px 17px 0 !important;
+}
+
+.qa {
+  background: linear-gradient(145deg, #181820 0%, #101014 100%) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+  padding: 14px 12px !important;
+  min-height: 80px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.04) inset,
+    0 6px 20px rgba(0,0,0,.4) !important;
+  transition: all .18s !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 6px !important;
+}
+.qa:active {
+  transform: scale(.93) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4) !important;
+}
+
+.qaI {
+  font-size: 1.6rem !important;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,.6)) !important;
+}
+
+.qanm {
+  font-size: .82rem !important;
+  font-weight: 800 !important;
+  color: var(--tx) !important;
+  line-height: 1.2;
+}
+
+.qasub {
+  font-size: .62rem !important;
+  color: var(--t3) !important;
+  line-height: 1.3;
+}
+
+/* ── "AÇÃO IMEDIATA" CARDS — urgência visual forte ── */
+/* Os cards de ação imediata aparecem com borda esquerda laranja */
+/* Detectados como elementos com borda left gold/red no painel */
+[style*="border-left"][style*="gold"],
+[style*="border-left"][style*="C9A84C"],
+[style*="border-left"][style*="c9a84c"],
+[style*="borderLeft"] {
+  background: linear-gradient(135deg,
+    rgba(201,168,76,.07) 0%,
+    rgba(10,8,2,.5) 100%) !important;
+}
+
+/* Força estilo nos sec-task (cards de ação da secretária/painel) */
+.sec-task {
+  background: linear-gradient(135deg, #131208 0%, #0e0e14 100%) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.4) !important;
+  transition: transform .15s !important;
+}
+.sec-task:active { transform: scale(.98) !important; }
+
+/* ── RADAR FINANCEIRO — barras animadas ── */
+/* Barra verde (faturado) */
+.sf-bar-fill, [style*="background:var(--grn)"],
+[style*="background:#3a9e6a"], [style*="background: #3a9e6a"],
+[style*="backgroundColor:'#3a9e6a'"] {
+  animation: barGrow .6s ease both !important;
+  border-radius: 4px !important;
+}
+
+/* Labels do radar */
+.sf-eq-val {
+  font-family: 'Cormorant Garamond', serif !important;
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+}
+
+/* ── HEADER: logo com imagem real ── */
+.hlogo {
+  background: none !important;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 9px !important;
+  box-shadow: 0 0 0 1.5px rgba(201,168,76,.3), 0 3px 10px rgba(0,0,0,.4) !important;
+}
+.hlogo img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+
+/* ── NAV: ícone ativo com fundo pill mais definido ── */
+.ni.on {
+  background: linear-gradient(180deg,
+    rgba(201,168,76,.14) 0%,
+    rgba(201,168,76,.06) 100%) !important;
+  border-radius: 12px !important;
+  animation: pulseGlow 3s ease infinite !important;
+}
+
+/* ── SAUDAÇÃO NO PAINEL (greeting hero) ── */
+/* O painel injeta um hero com saudação — melhorando o container */
+#pg12 {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(201,168,76,.07) 0%, transparent 50%),
+    var(--bg) !important;
+}
+
+/* ── FINANCEIRO HERO: saldo principal ── */
+.finhero {
+  background: linear-gradient(160deg,
+    #0d0900 0%,
+    #0a0a0e 60%,
+    #070709 100%) !important;
+  position: relative;
+  overflow: hidden;
+}
+.finhero::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(201,168,76,.08), transparent 70%);
+  pointer-events: none;
+}
+
+/* ── ORÇAMENTO RESULT CARDS — mais impacto ── */
+.rbk {
+  background: linear-gradient(160deg, #16161c, #0f0f14) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 18px rgba(0,0,0,.4) !important;
+}
+.rbl {
+  background: linear-gradient(135deg,
+    rgba(201,168,76,.1) 0%,
+    rgba(201,168,76,.04) 100%) !important;
+  border: 1px solid rgba(201,168,76,.2) !important;
+  border-radius: 12px !important;
+}
+.rtot {
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, #100e00, #0d0c00) !important;
+  border: 1.5px solid rgba(201,168,76,.25) !important;
+  box-shadow: 0 6px 28px rgba(201,168,76,.1), inset 0 1px 0 rgba(201,168,76,.1) !important;
+}
+
+/* ── CATÁLOGO PEDRAS — cards mais ricos ── */
+.mc {
+  border-radius: 14px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45) !important;
+  transition: transform .18s, border-color .18s, box-shadow .18s !important;
+}
+.mc:active { transform: scale(.94) !important; }
+.mc.on {
+  border-color: var(--gold) !important;
+  box-shadow: 0 4px 20px rgba(201,168,76,.2) !important;
+}
+.mnm { font-size: .75rem !important; }
+.mfin { font-weight: 700 !important; }
+
+/* ── HISTÓRICO CARDS — mais separação ── */
+.qcard {
+  border-radius: 18px !important;
+  box-shadow: 0 3px 16px rgba(0,0,0,.4) !important;
+  transition: box-shadow .2s !important;
+}
+.qcard.open {
+  box-shadow: 0 6px 28px rgba(201,168,76,.12), 0 2px 0 rgba(201,168,76,.06) inset !important;
+}
+.qcard-badge {
+  background: linear-gradient(145deg, rgba(201,168,76,.12), rgba(139,96,20,.08)) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3) !important;
+}
+
+/* ── EMPRESA COVER — mais premium ── */
+.empcov {
+  height: 180px !important;
+  background: linear-gradient(135deg, #1a1300 0%, #2a1f00 40%, #0d0a00 100%) !important;
+  position: relative;
+}
+.empcov::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 80% 30%, rgba(201,168,76,.15), transparent 60%),
+    radial-gradient(ellipse at 20% 80%, rgba(201,168,76,.06), transparent 50%);
+  pointer-events: none;
+}
+.elogo {
+  background: linear-gradient(135deg, #f0c840, #c9a84c, #a07810) !important;
+  box-shadow: 0 4px 16px rgba(201,168,76,.3) !important;
+}
+
+/* ── CONTATOS / INFO LIST ── */
+.inflist {
+  border-radius: 16px !important;
+  overflow: hidden;
+  box-shadow: 0 3px 14px rgba(0,0,0,.35) !important;
+}
+.infrow {
+  transition: background .15s !important;
+}
+.infrow:hover { background: rgba(201,168,76,.03) !important; }
+.infic {
+  background: rgba(201,168,76,.07) !important;
+  border-color: rgba(201,168,76,.12) !important;
+}
+
+/* ── AGENDA CARDS ── */
+.jcard2 {
+  background: linear-gradient(160deg, #141418 0%, #0f0f13 100%) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,.025) inset,
+    0 5px 20px rgba(0,0,0,.4) !important;
+}
+
+/* ── SPLASH: botões do ACESSO RÁPIDO — mais premium ── */
+.sp2-btn-primary {
+  background: linear-gradient(135deg,
+    rgba(201,168,76,.09) 0%,
+    rgba(14,10,2,.6) 100%) !important;
+  backdrop-filter: blur(4px);
+}
+/* Logo ring: mais brilho */
+.sp2-logo-ring::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    #f0c840 20%,
+    #c9a84c 40%,
+    transparent 50%,
+    #e8c96a 70%,
+    transparent 100%) !important;
+  opacity: .7 !important;
+}
+
+/* ── CONTRATOS PAGE ── */
+.contr-pg-btn {
+  border-radius: 10px !important;
+  transition: all .15s !important;
+}
+.contr-pg-btn.on {
+  background: linear-gradient(135deg, #0a1828, #0d2040) !important;
+  box-shadow: 0 2px 10px rgba(96,160,224,.12) !important;
+}
+
+/* ── TOAST mais visível ── */
+#toast {
+  font-size: .82rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .2px !important;
+}
+
+/* ── SECTION DIVIDERS ── */
+.sl::after {
+  background: linear-gradient(90deg,
+    rgba(201,168,76,.2),
+    transparent) !important;
+  height: 1px !important;
+}
+
+/* ── PAGE TRANSITION ── */
+.pg.on {
+  animation: fadeSlideUp .2s cubic-bezier(.4,0,.2,1) !important;
+}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 2px; height: 2px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(201,168,76,.25) !important;
+  border-radius: 2px;
+}
+
+/* ── MICRO-DETAIL: sombra dourada nas barras de progresso ── */
+.sf-bar-wrap {
+  height: 8px !important;
+  background: rgba(255,255,255,.04) !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+}
+.sf-bar-fill {
+  height: 100% !important;
+  border-radius: 6px !important;
+  transition: width .5s cubic-bezier(.4,0,.2,1) !important;
+}
+
+/* ── Config Tabs: mais legíveis ── */
+.cfgtab {
+  font-size: .72rem !important;
+  white-space: nowrap;
+  transition: all .2s !important;
+}
+.cfgtab.on {
+  background: rgba(201,168,76,.1) !important;
+  border-bottom-color: var(--gold2) !important;
+  color: var(--gold2) !important;
+}
+
+/* ── FIN TABS: pills arredondados ── */
+.fin-tab {
+  border-radius: 20px !important;
+  font-size: .7rem !important;
+  padding: 7px 14px !important;
+}
+
+/* ── BOTÃO INSTALAR PWA — mais atraente ── */
+#btnInstalarPWA {
+  background: linear-gradient(135deg, #0a200a, #0d2810) !important;
+  border-color: rgba(76,200,100,.3) !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4) !important;
+  border-radius: 16px !important;
+}
+
+
+
+/* ═══════════════════════════════════════════════════════════════
+   HR MÁRMORES — REDESIGN VISUAL v4.0  ★ UPGRADE MÁXIMO ★
+   Foco: Splash premium, KPI cards com ícones, Painel hierárquico,
+         Cards de ação urgente, Radar financeiro animado,
+         Nav bar refinada, Tipografia escalada, micro-interações
+═══════════════════════════════════════════════════════════════ */
+
+/* ────────────────────────────────────────────────────────
+   ANIMAÇÕES
+──────────────────────────────────────────────────────── */
+@keyframes v4FadeUp    { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+@keyframes v4ScaleIn   { from{opacity:0;transform:scale(.92)} to{opacity:1;transform:scale(1)} }
+@keyframes v4GoldPulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+@keyframes v4BarSlide  { from{width:0!important} }
+@keyframes v4Shimmer   { from{background-position:-300% center} to{background-position:300% center} }
+@keyframes v4FloatBob  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+@keyframes v4SpinRing  { to{transform:rotate(360deg)} }
+@keyframes v4BlinkDot  { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+/* ────────────────────────────────────────────────────────
+   BODY / FUNDO
+──────────────────────────────────────────────────────── */
+body {
+  background:
+    radial-gradient(ellipse at 20% 0%,   rgba(201,168,76,.05) 0%, transparent 45%),
+    radial-gradient(ellipse at 80% 100%, rgba(201,168,76,.04) 0%, transparent 45%),
+    #060608 !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   SPLASH — redesign completo
+──────────────────────────────────────────────────────── */
+#sSplash {
+  background:
+    radial-gradient(ellipse at 50% -5%, rgba(201,168,76,.22) 0%, transparent 50%),
+    radial-gradient(ellipse at 15% 80%, rgba(201,168,76,.07) 0%, transparent 40%),
+    radial-gradient(ellipse at 85% 90%, rgba(201,168,76,.06) 0%, transparent 40%),
+    #05050a !important;
+}
+
+.sp2-top {
+  padding: 56px 24px 32px !important;
+  background: linear-gradient(180deg,
+    rgba(201,168,76,.12) 0%,
+    rgba(201,168,76,.03) 50%,
+    transparent 100%) !important;
+  border-bottom: 1px solid rgba(201,168,76,.2) !important;
+  position: relative;
+}
+.sp2-top::after {
+  content: '';
+  position: absolute; bottom: 0; left: 10%; right: 10%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201,168,76,.6), transparent);
+}
+
+/* Logo ring com brilho triplo */
+.sp2-logo-ring {
+  width: 120px !important;
+  height: 120px !important;
+  margin-bottom: 26px !important;
+}
+.sp2-logo-ring::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    #f0d060 20%,
+    #c9a84c 35%,
+    transparent 50%,
+    #e8c96a 65%,
+    #c9a84c 80%,
+    transparent 100%) !important;
+  opacity: .8 !important;
+  inset: -8px !important;
+  animation: v4SpinRing 5s linear infinite !important;
+}
+.sp2-logo-ring::after {
+  opacity: .4 !important;
+  animation: v4SpinRing 3.5s linear infinite reverse !important;
+}
+.sp2-logo-glow {
+  inset: -28px !important;
+  background: radial-gradient(circle, rgba(201,168,76,.3) 0%, transparent 70%) !important;
+  animation: v4GoldPulse 2.5s ease-in-out infinite !important;
+}
+.sp2-logo {
+  width: 120px !important;
+  height: 120px !important;
+  border-radius: 30px !important;
+  box-shadow:
+    0 0 0 2px rgba(201,168,76,.5),
+    0 20px 60px rgba(0,0,0,.7),
+    0 0 50px rgba(201,168,76,.2) !important;
+  animation: v4FloatBob 4s ease-in-out infinite !important;
+}
+
+/* Nome da splash — mais impactante */
+.sp2-name {
+  font-size: 1.95rem !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+  letter-spacing: -0.5px !important;
+  white-space: normal !important;
+  text-align: center;
+  background: linear-gradient(90deg,
+    #8b6014 0%, #e8c96a 25%, #fff8d0 45%,
+    #f0d060 55%, #e8c96a 75%, #8b6014 100%) !important;
+  background-size: 300% auto !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  animation: v4Shimmer 5s linear infinite !important;
+}
+
+.sp2-divider { margin: 14px 0 12px !important; }
+.sp2-divider span:not(.sp2-diamond) {
+  background: linear-gradient(90deg, transparent, rgba(201,168,76,.5), transparent) !important;
+}
+.sp2-diamond { color: var(--gold2) !important; font-size: .6rem !important; }
+.sp2-tagline {
+  font-size: .7rem !important;
+  letter-spacing: 4px !important;
+  color: rgba(201,168,76,.55) !important;
+  text-transform: uppercase;
+}
+
+/* Info chips da splash */
+.sp2-info { gap: 10px !important; margin-top: 4px; }
+.sp2-info-chip {
+  background: rgba(201,168,76,.08) !important;
+  border: 1px solid rgba(201,168,76,.2) !important;
+  border-radius: 24px !important;
+  padding: 7px 14px !important;
+  font-size: .72rem !important;
+  color: rgba(201,168,76,.8) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
+}
+
+/* Seção de ações */
+.sp2-actions { padding: 24px 18px 0 !important; }
+.sp2-section-lbl {
+  font-size: .6rem !important;
+  letter-spacing: 3px !important;
+  color: rgba(201,168,76,.4) !important;
+  font-weight: 700 !important;
+  margin-bottom: 12px !important;
+  display: flex; align-items: center; gap: 8px;
+}
+.sp2-section-lbl::after {
+  content: '';
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, rgba(201,168,76,.2), transparent);
+}
+
+/* Botões primários da splash */
+.sp2-btn-primary {
+  background: linear-gradient(135deg,
+    rgba(201,168,76,.1) 0%,
+    rgba(10,8,1,.7) 100%) !important;
+  border: 1px solid rgba(201,168,76,.2) !important;
+  border-radius: 18px !important;
+  padding: 16px 18px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.04) inset,
+    0 6px 20px rgba(0,0,0,.35) !important;
+  transition: all .2s !important;
+  gap: 14px !important;
+}
+.sp2-btn-primary:active {
+  transform: scale(.97) !important;
+  border-color: rgba(201,168,76,.45) !important;
+  box-shadow: 0 2px 8px rgba(201,168,76,.15) !important;
+}
+
+.sp2-btn-icon {
+  width: 50px !important; height: 50px !important;
+  border-radius: 14px !important;
+  font-size: 1.5rem !important;
+  background: rgba(201,168,76,.12) !important;
+  border: 1px solid rgba(201,168,76,.2) !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.4) !important;
+}
+.sp2-btn-title {
+  font-size: .88rem !important;
+  font-weight: 800 !important;
+  color: rgba(240,220,130,.9) !important;
+  letter-spacing: -.2px;
+}
+.sp2-btn-sub { font-size: .64rem !important; color: var(--t3) !important; }
+.sp2-btn-arr { color: rgba(201,168,76,.5) !important; font-size: 1rem !important; }
+
+/* Catálogo buttons */
+.sp2-grid-cats { gap: 10px !important; }
+.sp2-btn-cat {
+  border-radius: 20px !important;
+  padding: 20px 6px 16px !important;
+  background: linear-gradient(160deg,
+    rgba(201,168,76,.1) 0%,
+    rgba(20,14,2,.6) 100%) !important;
+  border: 1px solid rgba(201,168,76,.22) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.05) inset,
+    0 4px 14px rgba(0,0,0,.35) !important;
+  gap: 10px !important;
+  transition: all .18s !important;
+}
+.sp2-btn-cat span:first-child { font-size: 2rem !important; }
+.sp2-btn-cat span:last-child {
+  font-size: .7rem !important;
+  font-weight: 700 !important;
+  color: rgba(201,168,76,.85) !important;
+}
+.sp2-btn-cat:active {
+  transform: scale(.92) !important;
+  border-color: rgba(201,168,76,.55) !important;
+}
+
+/* Footer da splash */
+.sp2-footer {
+  color: rgba(201,168,76,.2) !important;
+  font-size: .56rem !important;
+  letter-spacing: 1px !important;
+  margin-top: 28px !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   HEADER — barra top premium
+──────────────────────────────────────────────────────── */
+#hdr {
+  background: linear-gradient(180deg,
+    rgba(12,9,1,.98) 0%,
+    rgba(8,8,12,.98) 100%) !important;
+  border-bottom: 1px solid rgba(201,168,76,.2) !important;
+  box-shadow:
+    0 1px 0 rgba(201,168,76,.06),
+    0 4px 28px rgba(0,0,0,.8) !important;
+  padding: 11px 15px !important;
+  gap: 10px !important;
+}
+
+.hlogo {
+  width: 36px !important; height: 36px !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1.5px rgba(201,168,76,.35),
+    0 4px 12px rgba(0,0,0,.5) !important;
+  background: linear-gradient(135deg, var(--gold), var(--gold3)) !important;
+  flex-shrink: 0;
+}
+.hlogo img {
+  width: 100% !important; height: 100% !important;
+  object-fit: cover !important; display: block !important;
+  border-radius: 0 !important;
+}
+
+.hnm {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  line-height: 1.1;
+  background: linear-gradient(135deg,
+    #f5e090 0%, #c9a84c 50%, #e8c96a 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.hsub {
+  font-size: .52rem !important;
+  letter-spacing: 2px !important;
+  color: rgba(201,168,76,.3) !important;
+  display: block; margin-top: 1px;
+}
+.hdt { font-size: .6rem !important; color: rgba(201,168,76,.3) !important; }
+
+/* Botão Admin no header */
+#btnAdm {
+  background: rgba(201,168,76,.07) !important;
+  border: 1px solid rgba(201,168,76,.18) !important;
+  border-radius: 10px !important;
+  padding: 7px 10px !important;
+  transition: all .2s !important;
+}
+#btnAdm:active {
+  background: rgba(201,168,76,.15) !important;
+  border-color: rgba(201,168,76,.4) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   NAV BAR — pill dourado no ativo, scroll suave
+──────────────────────────────────────────────────────── */
+#nav {
+  background: linear-gradient(0deg,
+    rgba(4,3,1,.99) 0%,
+    rgba(10,9,13,.98) 100%) !important;
+  border-top: 1px solid rgba(201,168,76,.14) !important;
+  box-shadow: 0 -6px 40px rgba(0,0,0,.9) !important;
+  padding: 4px 6px calc(4px + env(safe-area-inset-bottom,0px)) !important;
+  gap: 2px !important;
+}
+
+.ni {
+  min-width: 46px !important;
+  padding: 7px 2px 6px !important;
+  border-radius: 12px !important;
+  gap: 3px !important;
+  flex-shrink: 0 !important;
+  transition: background .2s, transform .15s !important;
+}
+.ni-i { font-size: 1.05rem !important; transition: all .25s !important; }
+.ni-l {
+  font-size: .5rem !important;
+  letter-spacing: .2px !important;
+  color: var(--t4) !important;
+  font-weight: 600 !important;
+  transition: color .2s !important;
+}
+
+/* Ativo — pill com brilho dourado */
+.ni.on {
+  background: linear-gradient(180deg,
+    rgba(201,168,76,.16) 0%,
+    rgba(201,168,76,.07) 100%) !important;
+  position: relative !important;
+}
+.ni.on::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important; left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 28px !important; height: 2px !important;
+  background: linear-gradient(90deg, transparent, #e8c96a, transparent) !important;
+  border-radius: 0 0 3px 3px !important;
+}
+.ni.on::after { display: none !important; }
+.ni.on .ni-i {
+  filter: drop-shadow(0 0 8px rgba(201,168,76,.7)) !important;
+  transform: translateY(-2px) scale(1.12) !important;
+}
+.ni.on .ni-l { color: var(--gold2) !important; font-weight: 800 !important; }
+.ni:active {
+  transform: scale(.86) !important;
+  background: rgba(201,168,76,.08) !important;
+}
+
+/* Separador na nav */
+.ni-sep {
+  width: 1px !important;
+  background: rgba(255,255,255,.06) !important;
+  margin: 8px 3px !important;
+  flex-shrink: 0 !important;
+  border-radius: 1px !important;
+}
+
+/* Dot de notificação */
+.ndot {
+  width: 6px !important; height: 6px !important;
+  top: 4px !important;
+  right: calc(50% - 16px) !important;
+  background: #e05050 !important;
+  box-shadow: 0 0 8px rgba(224,80,80,.7) !important;
+  animation: v4BlinkDot 2s ease-in-out infinite !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   PAINEL pg12 — KPI cards 2×2
+──────────────────────────────────────────────────────── */
+#pg12 {
+  background:
+    radial-gradient(ellipse at 50% 0%,
+      rgba(201,168,76,.08) 0%, transparent 45%),
+    #060608 !important;
+}
+
+/* Grid dos mini-cards financeiros */
+.fingrid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 11px !important;
+  padding: 16px 15px 0 !important;
+}
+
+/* Cada card KPI */
+.fc {
+  background: linear-gradient(150deg, #1c1c22 0%, #111116 100%) !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  border-radius: 18px !important;
+  padding: 16px 14px 14px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.05) inset,
+    0 -1px 0 rgba(0,0,0,.6) inset,
+    0 8px 28px rgba(0,0,0,.5) !important;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: v4FadeUp .3s ease both !important;
+  position: relative; overflow: hidden;
+  transition: transform .18s !important;
+}
+.fc::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(255,255,255,.07), transparent);
+}
+.fc:active { transform: scale(.95) !important; }
+
+/* Emoji/ícone no KPI */
+.fc > span:first-child,
+.fc-icon { font-size: 1.4rem !important; line-height: 1; margin-bottom: 2px; }
+
+.fcl {
+  font-size: .55rem !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase;
+  color: rgba(201,168,76,.38) !important;
+  font-weight: 700 !important;
+  line-height: 1;
+}
+
+.fcv {
+  font-size: 1.05rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -.4px;
+  line-height: 1.1;
+}
+
+/* Cores com gradiente nos valores */
+.fcv.g {
+  background: linear-gradient(135deg, #5cdf88, #2da860) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.fcv.r {
+  background: linear-gradient(135deg, #ff7878, #cc3030) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.fcv.b {
+  background: linear-gradient(135deg, #88c0ff, #4a80cc) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+.fcv:not(.g):not(.r):not(.b) {
+  background: linear-gradient(135deg, #f0d060, #c9a84c) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   QUICK ACTIONS — botões 2×2 no painel
+──────────────────────────────────────────────────────── */
+.qagrid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 11px !important;
+  padding: 14px 15px 0 !important;
+}
+
+.qa {
+  background: linear-gradient(150deg, #191920 0%, #101014 100%) !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  border-radius: 18px !important;
+  padding: 16px 13px 14px !important;
+  min-height: 88px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 6px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.04) inset,
+    0 8px 24px rgba(0,0,0,.45) !important;
+  transition: all .18s !important;
+  cursor: pointer;
+  position: relative; overflow: hidden;
+}
+.qa::after {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(255,255,255,.06), transparent);
+}
+.qa:active {
+  transform: scale(.92) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4) !important;
+}
+
+.qaI {
+  font-size: 1.7rem !important;
+  line-height: 1;
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,.6)) !important;
+}
+.qanm {
+  font-size: .83rem !important;
+  font-weight: 800 !important;
+  color: rgba(240,230,200,.9) !important;
+  line-height: 1.2;
+}
+.qasub {
+  font-size: .62rem !important;
+  color: var(--t3) !important;
+  line-height: 1.3;
+}
+
+/* ────────────────────────────────────────────────────────
+   HERO do PAINEL — saudação
+──────────────────────────────────────────────────────── */
+/* Estilo do hero do painel (gerado pelo app-dashboard.js) */
+.sec-hero,
+.dash-hero {
+  background: linear-gradient(160deg,
+    #0e0a00 0%, #0a0a0f 55%, #070709 100%) !important;
+  padding: 26px 17px 22px !important;
+  border-bottom: 1px solid rgba(201,168,76,.12) !important;
+  position: relative; overflow: hidden;
+}
+.sec-hero::before,
+.dash-hero::before {
+  content: '';
+  position: absolute;
+  top: -40px; right: -40px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle,
+    rgba(201,168,76,.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Saudação */
+.sec-saud { font-size: .6rem !important; letter-spacing: 2.5px !important; }
+.sec-nome {
+  font-size: 2rem !important;
+  line-height: 1.05 !important;
+  background: linear-gradient(135deg, #f0d060, var(--gold2)) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   CARDS DE AÇÃO IMEDIATA / URGÊNCIA
+──────────────────────────────────────────────────────── */
+.sec-task {
+  background: linear-gradient(135deg,
+    #141200 0%, #0e0e16 100%) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.03) inset,
+    0 4px 16px rgba(0,0,0,.4) !important;
+  transition: transform .15s !important;
+  border: 1px solid rgba(255,255,255,.05) !important;
+}
+.sec-task:active { transform: scale(.97) !important; }
+.sec-task-title { font-size: .82rem !important; font-weight: 700 !important; }
+.sec-task-sub { font-size: .68rem !important; line-height: 1.5 !important; }
+
+/* ────────────────────────────────────────────────────────
+   RADAR FINANCEIRO — barras animadas
+──────────────────────────────────────────────────────── */
+.sf-bar-wrap {
+  height: 8px !important;
+  background: rgba(255,255,255,.05) !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.4) !important;
+}
+.sf-bar-fill {
+  height: 100% !important;
+  border-radius: 6px !important;
+  animation: v4BarSlide .7s cubic-bezier(.4,0,.2,1) both !important;
+  box-shadow: 0 0 6px rgba(0,0,0,.3) !important;
+}
+.sf-eq-val {
+  font-family: 'Cormorant Garamond', serif !important;
+  font-size: 1.1rem !important;
+  font-weight: 700 !important;
+}
+.sf-eq-lbl { font-size: .6rem !important; color: var(--t3) !important; }
+
+/* ────────────────────────────────────────────────────────
+   CARDS DE ITEM (agenda, histórico, etc.)
+──────────────────────────────────────────────────────── */
+.card {
+  background: linear-gradient(155deg, #1a1a20 0%, #111116 100%) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.04) inset,
+    0 -1px 0 rgba(0,0,0,.5) inset,
+    0 6px 22px rgba(0,0,0,.45) !important;
+}
+
+.jcard2 {
+  background: linear-gradient(155deg, #161620 0%, #0f0f14 100%) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 17px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.03) inset,
+    0 6px 22px rgba(0,0,0,.4) !important;
+  transition: transform .15s, box-shadow .15s !important;
+}
+.jcard2:active { transform: scale(.985) !important; }
+
+/* Histórico */
+.qcard {
+  border-radius: 20px !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.03) inset,
+    0 4px 16px rgba(0,0,0,.4) !important;
+}
+.qcard.open {
+  box-shadow:
+    0 0 0 1px rgba(201,168,76,.15),
+    0 8px 30px rgba(201,168,76,.1) !important;
+  border-color: rgba(201,168,76,.2) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   FINANÇAS — hero e tabs
+──────────────────────────────────────────────────────── */
+.finhero {
+  background: linear-gradient(160deg,
+    #0e0900 0%, #09090e 55%, #070709 100%) !important;
+  padding-bottom: 20px !important;
+  position: relative; overflow: hidden;
+}
+.finhero::after {
+  content: '';
+  position: absolute; top: -60px; right: -60px;
+  width: 220px; height: 220px;
+  background: radial-gradient(circle,
+    rgba(201,168,76,.09) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.finval {
+  font-size: 2.6rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -1.5px !important;
+  line-height: 1 !important;
+}
+.finval.pos {
+  background: linear-gradient(135deg, #f5e060, #c9a84c) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: none !important;
+}
+.finval.neg {
+  background: linear-gradient(135deg, #ff7070, #cc3030) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: none !important;
+}
+
+/* Tabs como pills */
+.fin-tab {
+  border-radius: 22px !important;
+  padding: 7px 14px !important;
+  font-size: .7rem !important;
+  font-weight: 600 !important;
+  transition: all .2s !important;
+}
+.fin-tab.on {
+  background: rgba(201,168,76,.13) !important;
+  color: var(--gold2) !important;
+  box-shadow: inset 0 0 0 1px rgba(201,168,76,.28), 0 2px 10px rgba(201,168,76,.1) !important;
+  border-color: rgba(201,168,76,.25) !important;
+  font-weight: 700 !important;
+}
+.fin-tab:active { transform: scale(.94) !important; }
+
+/* ────────────────────────────────────────────────────────
+   HERO DOS MÓDULOS (Agenda, Histórico, etc.)
+──────────────────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(180deg,
+    rgba(201,168,76,.08) 0%, transparent 100%) !important;
+  border-bottom: 1px solid rgba(201,168,76,.1) !important;
+  padding: 24px 17px 18px !important;
+  position: relative; overflow: hidden;
+}
+.hero::after {
+  content: '' !important;
+  position: absolute !important;
+  bottom: 0 !important; left: 0 !important; right: 0 !important; height: 1px !important;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(201,168,76,.5) 35%,
+    rgba(201,168,76,.7) 50%,
+    rgba(201,168,76,.5) 65%,
+    transparent 100%) !important;
+}
+.htitle {
+  font-size: 1.7rem !important;
+  background: linear-gradient(135deg, #f0d88a, var(--gold)) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  letter-spacing: -.5px !important;
+  font-weight: 700 !important;
+}
+.hsub2 {
+  font-size: .65rem !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  color: rgba(201,168,76,.3) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   BOTÕES — refinados
+──────────────────────────────────────────────────────── */
+.btn {
+  min-height: 48px !important;
+  border-radius: 14px !important;
+  font-size: .86rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .3px !important;
+  transition: all .2s !important;
+}
+.btn-g {
+  background: linear-gradient(135deg,
+    #f0c838 0%, #c9a84c 40%, #d4a830 65%, #a07510 100%) !important;
+  color: #08060a !important;
+  font-weight: 800 !important;
+  border: none !important;
+  box-shadow:
+    0 5px 26px rgba(201,168,76,.35),
+    0 1px 0 rgba(255,255,255,.28) inset,
+    0 -2px 0 rgba(0,0,0,.25) inset !important;
+  text-shadow: 0 1px 1px rgba(255,255,255,.1);
+}
+.btn-g:active {
+  transform: translateY(2px) scale(.97) !important;
+  box-shadow: 0 2px 8px rgba(201,168,76,.2) !important;
+}
+.btn-o {
+  background: rgba(255,255,255,.05) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  color: var(--t2) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03) !important;
+}
+.btn-o:active { transform: scale(.97) !important; }
+.btn-sm {
+  min-height: 36px !important;
+  border-radius: 10px !important;
+  font-size: .76rem !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   INPUTS / FORMS
+──────────────────────────────────────────────────────── */
+input, textarea, select {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.09) !important;
+  border-radius: 11px !important;
+  color: var(--tx) !important;
+  font-size: .85rem !important;
+  padding: 11px 13px !important;
+  transition: all .2s !important;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: rgba(201,168,76,.4) !important;
+  background: rgba(201,168,76,.04) !important;
+  box-shadow:
+    0 0 0 3px rgba(201,168,76,.08),
+    0 2px 10px rgba(0,0,0,.3) !important;
+  outline: none !important;
+}
+label {
+  font-size: .6rem !important;
+  letter-spacing: 1.4px !important;
+  color: rgba(201,168,76,.45) !important;
+  text-transform: uppercase !important;
+  font-weight: 700 !important;
+  margin-bottom: 5px !important;
+  display: block !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   MODAIS — sheet bottom premium
+──────────────────────────────────────────────────────── */
+.ov {
+  background: rgba(0,0,0,.8) !important;
+  backdrop-filter: blur(8px) saturate(80%) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(80%) !important;
+}
+.modal {
+  background: linear-gradient(180deg, #1c1c24 0%, #141418 100%) !important;
+  border-top: 2px solid rgba(201,168,76,.22) !important;
+  border-radius: 24px 24px 0 0 !important;
+  box-shadow:
+    0 -10px 50px rgba(0,0,0,.8),
+    0 -1px 0 rgba(255,255,255,.04),
+    inset 0 1px 0 rgba(201,168,76,.06) !important;
+}
+.modal::before {
+  background: rgba(201,168,76,.2) !important;
+  width: 36px !important; height: 4px !important;
+  border-radius: 4px !important;
+  margin-bottom: 16px !important;
+}
+.mtitle {
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, #f0d880, var(--gold)) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  margin-bottom: 14px !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   SECTION LABELS
+──────────────────────────────────────────────────────── */
+.sl {
+  font-size: .58rem !important;
+  letter-spacing: 2.5px !important;
+  color: rgba(201,168,76,.4) !important;
+  font-weight: 700 !important;
+  border-left: 2px solid rgba(201,168,76,.3) !important;
+  padding-left: 8px !important;
+}
+.sl::after {
+  background: linear-gradient(90deg,
+    rgba(201,168,76,.18), transparent) !important;
+  height: 1px !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   TOAST
+──────────────────────────────────────────────────────── */
+#toast {
+  border-radius: 50px !important;
+  padding: 11px 26px !important;
+  font-size: .82rem !important;
+  font-weight: 700 !important;
+  letter-spacing: .2px !important;
+  background: rgba(26,26,34,.97) !important;
+  border: 1px solid rgba(255,255,255,.1) !important;
+  box-shadow:
+    0 8px 36px rgba(0,0,0,.7),
+    inset 0 1px 0 rgba(255,255,255,.06) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   CONFIG TABS
+──────────────────────────────────────────────────────── */
+.cfgtab {
+  font-size: .72rem !important;
+  white-space: nowrap;
+  transition: all .2s !important;
+  padding: 10px 14px !important;
+}
+.cfgtab.on {
+  background: rgba(201,168,76,.1) !important;
+  border-bottom-color: var(--gold2) !important;
+  color: var(--gold2) !important;
+  font-weight: 700 !important;
+}
+.cfgtab:active { transform: scale(.95) !important; }
+
+/* ────────────────────────────────────────────────────────
+   EMPRESA
+──────────────────────────────────────────────────────── */
+.empcov {
+  height: 180px !important;
+  background: linear-gradient(135deg,
+    #1a1300 0%, #2a1f00 40%, #0d0a00 100%) !important;
+}
+.empcov::after {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 80% 25%,
+      rgba(201,168,76,.16), transparent 55%),
+    radial-gradient(ellipse at 15% 80%,
+      rgba(201,168,76,.07), transparent 45%);
+  pointer-events: none;
+}
+.elogo {
+  background: linear-gradient(135deg, #f0c840, #c9a84c, #9a7010) !important;
+  box-shadow:
+    0 0 0 2px rgba(201,168,76,.3),
+    0 6px 20px rgba(201,168,76,.3) !important;
+}
+.enm {
+  font-size: 1.3rem !important;
+  background: linear-gradient(135deg, #f0d880, #c9a84c) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   SECRETÁRIA CHIPS
+──────────────────────────────────────────────────────── */
+.sec-chip {
+  border-radius: 14px !important;
+  background: linear-gradient(145deg,
+    rgba(255,255,255,.04), rgba(0,0,0,.3)) !important;
+  border: 1px solid rgba(255,255,255,.07) !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.3) !important;
+}
+.sec-chip-v { font-size: .95rem !important; font-weight: 800 !important; }
+
+/* ────────────────────────────────────────────────────────
+   CATÁLOGO PEDRAS
+──────────────────────────────────────────────────────── */
+.mc {
+  border-radius: 16px !important;
+  box-shadow: 0 5px 18px rgba(0,0,0,.5) !important;
+  transition: transform .18s, border-color .18s, box-shadow .18s !important;
+  overflow: hidden;
+}
+.mc:active { transform: scale(.93) !important; }
+.mc.on {
+  border-color: var(--gold) !important;
+  box-shadow:
+    0 0 0 1px rgba(201,168,76,.5),
+    0 6px 24px rgba(201,168,76,.18) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   ORÇAMENTO — blocos de resultado
+──────────────────────────────────────────────────────── */
+.rbk {
+  background: linear-gradient(155deg, #18181e, #111116) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 5px 20px rgba(0,0,0,.4) !important;
+}
+.rtot {
+  background: linear-gradient(135deg, #100f00, #0d0c00) !important;
+  border: 1.5px solid rgba(201,168,76,.28) !important;
+  border-radius: 18px !important;
+  box-shadow:
+    0 8px 32px rgba(201,168,76,.1),
+    inset 0 1px 0 rgba(201,168,76,.1) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   PAGE TRANSITION
+──────────────────────────────────────────────────────── */
+.pg.on {
+  animation: v4FadeUp .22s cubic-bezier(.4,0,.2,1) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   SCROLLBAR
+──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 2px; height: 2px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(201,168,76,.22) !important;
+  border-radius: 2px;
+}
+
+/* ────────────────────────────────────────────────────────
+   FOCUS OUTLINE ACESSÍVEL
+──────────────────────────────────────────────────────── */
+button:focus-visible {
+  outline: 2px solid rgba(201,168,76,.45) !important;
+  outline-offset: 2px !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   BOLETO / A PAGAR rows
+──────────────────────────────────────────────────────── */
+.b-row {
+  background: linear-gradient(150deg, #141418 0%, #0f0f14 100%) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 3px 12px rgba(0,0,0,.35) !important;
+  transition: transform .14s !important;
+}
+.b-row:active { transform: scale(.985) !important; }
+.b-row.bs-venc {
+  border-left: 3px solid rgba(255,85,85,.8) !important;
+  box-shadow: 0 3px 16px rgba(255,85,85,.08) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   PIN KEYBOARD
+──────────────────────────────────────────────────────── */
+.pin-key {
+  background: linear-gradient(145deg, #1e1e28, #141418) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  border-radius: 14px !important;
+  box-shadow:
+    0 3px 10px rgba(0,0,0,.4),
+    inset 0 1px 0 rgba(255,255,255,.05) !important;
+  transition: all .15s !important;
+  font-size: 1.3rem !important;
+}
+.pin-key:active {
+  background: rgba(201,168,76,.12) !important;
+  transform: scale(.90) !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4) !important;
+}
+
+/* ────────────────────────────────────────────────────────
+   INSTALL PWA BUTTON
+──────────────────────────────────────────────────────── */
+#btnInstalarPWA {
+  border-radius: 18px !important;
+  background: linear-gradient(135deg, #071a07, #0d250d) !important;
+  border: 1.5px solid rgba(76,200,100,.25) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4) !important;
+  padding: 15px 14px !important;
+  gap: 13px !important;
+}
+
