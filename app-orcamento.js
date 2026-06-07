@@ -1705,6 +1705,10 @@ function calcular(){
   var cidade=document.getElementById('oCidade').value.trim()||'';
   var end=document.getElementById('oEnd').value.trim()||'';
   var obs=document.getElementById('oObs').value.trim()||'';
+  // Parceria Ceará Planejados
+  var _cearaAtivo=window._cearaAtivo||false;
+  var _cearaDesc=(_cearaAtivo&&document.getElementById('cearaDesc'))?document.getElementById('cearaDesc').value.trim():'';
+  var _cearaValor=(_cearaAtivo&&document.getElementById('cearaValor'))?parseFloat(document.getElementById('cearaValor').value)||0:0;
   if(!ambientes.length){toast('Adicione pelo menos um ambiente');return;}
   var missingMat=ambientes.find(function(a){return !a.selMat;});
   if(missingMat){toast('Selecione a pedra de todos os ambientes');renderAmbientes();return;}
@@ -2016,6 +2020,22 @@ function calcular(){
   pi+='<span style="font-size:.78rem;font-weight:700;">Total Custo Real</span>';
   pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.1rem;">R$ '+fm(totalCustoReal)+'</b></div>';
 
+  // ── PARCERIA CEARÁ PLANEJADOS ──
+  if(_cearaAtivo&&_cearaValor>0){
+    pi+='<div style="border-top:1px dashed rgba(201,168,76,.25);padding-top:8px;margin-top:4px;">';
+    pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:#a78bfa;opacity:.8;margin-bottom:6px;">🤝 Inclui Móvel Planejado</div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
+    pi+='<span style="font-size:.72rem;color:var(--t3);">Bancada HR (à vista)</span>';
+    pi+='<b style="color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;margin-bottom:3px;">';
+    pi+='<span style="font-size:.72rem;color:var(--t3);">Móvel Planejado'+((_cearaDesc)?' — '+escH(_cearaDesc):'')+'</span>';
+    pi+='<b style="color:#a78bfa;">R$ '+fm(_cearaValor)+'</b></div>';
+    pi+='<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid rgba(167,139,250,.2);margin-top:4px;">';
+    pi+='<span style="font-size:.75rem;font-weight:700;color:#a78bfa;">Total Combinado</span>';
+    pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.15rem;color:#a78bfa;">R$ '+fm(vista+_cearaValor)+'</b></div>';
+    pi+='</div>';
+  }
+
   pi+='<div style="border-top:2px solid rgba(201,168,76,.3);padding-top:10px;display:flex;justify-content:space-between;align-items:baseline;">';
   pi+='<span style="font-size:.72rem;color:var(--gold3);">Valor à Vista (cliente)</span>';
   pi+='<b style="font-family:Cormorant Garamond,serif;font-size:1.4rem;color:var(--gold2);">R$ '+fm(vista)+'</b></div>';
@@ -2045,6 +2065,12 @@ function calcular(){
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
 
   var txt='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n==================\nPARCELADO\nR$ '+fm(parc)+' — ate 8x de R$ '+fm(p8)+'\n\nA VISTA\nR$ '+fm(vista)+'\n\nEntrada 50%: R$ '+fm(ent)+'\nEntrega 50%: R$ '+fm(ent)+'\n==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel;
+  if(_cearaAtivo&&_cearaValor>0){
+    txt+='\n\n==================\n🤝 ORCAMENTO CONJUNTO\n==================\n';
+    txt+='Bancada em pedra (HR Marmores): R$ '+fm(vista)+'\n';
+    txt+='Movel planejado'+(_cearaDesc?' ('+_cearaDesc+')':'')+(': R$ '+fm(_cearaValor))+'\n';
+    txt+='------------------\nTOTAL GERAL: R$ '+fm(vista+_cearaValor);
+  }
   if(cidade)txt+='\n'+cidade;
   document.getElementById('quoteBox').textContent=txt;
   document.getElementById('resArea').style.display='block';
@@ -2055,7 +2081,7 @@ function calcular(){
     return {tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),tumExtra:a.tumExtra?JSON.parse(JSON.stringify(a.tumExtra)):null,selMat:a.selMat||null};
   });
   var _agora=td();
-  var q={id:Date.now(),date:_agora,createdAt:_agora,updatedAt:_agora,editCount:0,status:'aberto',cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,m2:totalM2,custoPedra:totalCustoPedra,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap};
+  var q={id:Date.now(),date:_agora,createdAt:_agora,updatedAt:_agora,editCount:0,status:'aberto',cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,m2:totalM2,custoPedra:totalCustoPedra,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   if(window._orcEditandoId){
     var _eIdx=DB.q.findIndex(function(x){return x.id==window._orcEditandoId;});
     if(_eIdx>=0){
@@ -4013,3 +4039,30 @@ function _injectOrcPremiumStyles() {
     };
   }
 })();
+
+// ── Móvel Planejado (toggle) ──
+window._cearaAtivo = false;
+function toggleCeara(){
+  window._cearaAtivo = !window._cearaAtivo;
+  var fields = document.getElementById('cearaFields');
+  var btn    = document.getElementById('cearaToggleBtn');
+  var dot    = document.getElementById('cearaToggleDot');
+  if(!fields||!btn||!dot) return;
+  if(window._cearaAtivo){
+    fields.style.display = 'block';
+    btn.style.background  = 'var(--gold2)';
+    dot.style.left        = '20px';
+    dot.style.background  = '#fff';
+  } else {
+    fields.style.display = 'none';
+    btn.style.background  = 'var(--s3)';
+    dot.style.left        = '2px';
+    dot.style.background  = 'var(--t3)';
+    // Limpa campos ao desativar
+    var dEl = document.getElementById('cearaDesc');
+    var vEl = document.getElementById('cearaValor');
+    if(dEl) dEl.value = '';
+    if(vEl) vEl.value = '';
+  }
+}
+window.toggleCeara = toggleCeara;
