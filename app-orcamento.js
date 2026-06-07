@@ -2221,9 +2221,12 @@ function gerarPDF(){
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
   // Móvel planejado (Ceará Planejados)
-  var _pdfCeara=q.ceara&&q.ceara.ativo&&q.ceara.valor>0;
-  var _pdfCearaValor=_pdfCeara?q.ceara.valor:0;
-  var _pdfCearaDesc=_pdfCeara?(q.ceara.desc||''):'';
+  // Lê do q.ceara (orçamentos novos) OU da tela se ainda ativa (orçamentos legados)
+  var _scrCearaV=(window._cearaAtivo&&document.getElementById('cearaValor'))?parseFloat(document.getElementById('cearaValor').value)||0:0;
+  var _scrCearaD=(window._cearaAtivo&&document.getElementById('cearaDesc'))?document.getElementById('cearaDesc').value.trim():'';
+  var _pdfCeara=(q.ceara&&q.ceara.ativo&&q.ceara.valor>0)||(_scrCearaV>0);
+  var _pdfCearaValor=_pdfCeara?((q.ceara&&q.ceara.valor>0)?q.ceara.valor:_scrCearaV):0;
+  var _pdfCearaDesc=_pdfCeara?((q.ceara&&q.ceara.desc)?q.ceara.desc:_scrCearaD):'';
   var _pdfTotal=_pdfCeara?(q.vista+_pdfCearaValor):q.vista;
   var _pdfEnt=_pdfCeara?((_pdfTotal/2)):q.ent;
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;})||{pr:q.matPr||0,nm:q.mat||'',fin:''};
