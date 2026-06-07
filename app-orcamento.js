@@ -2220,6 +2220,12 @@ function gerarPDF(){
 
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
+  // Móvel planejado (Ceará Planejados)
+  var _pdfCeara=q.ceara&&q.ceara.ativo&&q.ceara.valor>0;
+  var _pdfCearaValor=_pdfCeara?q.ceara.valor:0;
+  var _pdfCearaDesc=_pdfCeara?(q.ceara.desc||''):'';
+  var _pdfTotal=_pdfCeara?(q.vista+_pdfCearaValor):q.vista;
+  var _pdfEnt=_pdfCeara?((_pdfTotal/2)):q.ent;
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;})||{pr:q.matPr||0,nm:q.mat||'',fin:''};
 
   // ── Linhas da tabela ──
@@ -2414,12 +2420,28 @@ function gerarPDF(){
       +'<div style="background:#FAFAF8;padding:16px 22px;border-top:2px solid #C9A84C;">'        +(mat.fin?'<div style="display:flex;gap:0;margin-bottom:14px;">'          +'<div style="flex:1;padding-right:16px;border-right:1px solid #EDE5CC;">'            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:4px;">Acabamento</div>'            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;">'+mat.fin+'</div>'          +'</div>'          +'<div style="flex:1;padding-left:16px;">'            +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:4px;">Categoria</div>'            +'<div style="font-size:13px;font-weight:700;color:#1a1a1a;">'+(mat.cat||'Granito')+'</div>'          +'</div>'        +'</div>'+'<div style="height:1px;background:#EDE5CC;margin-bottom:14px;"></div>':'')        +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">Incluso nesta proposta</div>'        +'<div style="display:flex;flex-wrap:wrap;gap:6px 0;font-family:\'Helvetica Neue\',Arial,sans-serif;">'+inclusosHtml+'</div>'      +'</div>'
     +'</div>'
     // ── VALOR FINAL ──
+    // Bloco móvel planejado (se ativo)
+    +(_pdfCeara?('<div style="background:#1a0f2e;border:1px solid rgba(167,139,250,0.3);border-radius:10px;padding:16px 24px;margin-bottom:10px;">'
+      +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(167,139,250,0.7);font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">&#129309; Inclui M&oacute;vel Planejado</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(167,139,250,0.15);">'
+        +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:rgba(255,255,255,0.55);">Bancada em pedra (HR)</span>'
+        +'<span style="font-size:14px;font-weight:700;color:#C9A84C;">R$&nbsp;'+fm(q.vista)+'</span>'
+      +'</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(167,139,250,0.15);">'
+        +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:12px;color:rgba(255,255,255,0.55);">M&oacute;vel Planejado'+(_pdfCearaDesc?' &mdash; '+_pdfCearaDesc:'')+'</span>'
+        +'<span style="font-size:14px;font-weight:700;color:#a78bfa;">R$&nbsp;'+fm(_pdfCearaValor)+'</span>'
+      +'</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 0;">'
+        +'<span style="font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:13px;font-weight:700;color:#a78bfa;">Total Combinado</span>'
+        +'<span style="font-size:18px;font-weight:700;color:#a78bfa;">R$&nbsp;'+fm(_pdfTotal)+'</span>'
+      +'</div>'
+    +'</div>'):'') 
     // Bloco à vista — destaque máximo
     +'<div style="background:#0C0900;border-radius:10px;padding:28px 32px 24px;margin-bottom:12px;position:relative;overflow:hidden;">'
       +'<div style="position:absolute;right:-30px;top:-30px;width:120px;height:120px;border-radius:50%;border:1px solid rgba(201,168,76,0.07);"></div>'
 
       // Label
-      +'<div style="font-size:7px;letter-spacing:3.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">Valor do Projeto &mdash; Pagamento &Agrave; Vista</div>'
+      +'<div style="font-size:7px;letter-spacing:3.5px;text-transform:uppercase;color:rgba(201,168,76,0.5);font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:10px;">'+(_pdfCeara?'Bancada HR &mdash; Valor &Agrave; Vista':'Valor do Projeto &mdash; Pagamento &Agrave; Vista')+'</div>'
 
       // Valor à vista — número principal, enorme
       +'<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;">'
@@ -2476,7 +2498,7 @@ function gerarPDF(){
 
       // Linha total — resumo final
       +'<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0 0;">'
-        +'<div style="font-size:11px;font-weight:700;color:#888;font-family:\'Helvetica Neue\',Arial,sans-serif;letter-spacing:0.5px;text-transform:uppercase;">Total &agrave; vista</div>'
+        +'<div style="font-size:11px;font-weight:700;color:#888;font-family:\'Helvetica Neue\',Arial,sans-serif;letter-spacing:0.5px;text-transform:uppercase;">'+(_pdfCeara?'Bancada HR &agrave; vista':'Total &agrave; vista')+'</div>'
         +'<div style="font-size:26px;font-weight:700;color:#C9A84C;line-height:1;">R$&nbsp;'+fm(q.vista)+'</div>'
       +'</div>'
 
