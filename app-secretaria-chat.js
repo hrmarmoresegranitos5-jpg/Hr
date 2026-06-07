@@ -964,9 +964,18 @@ function _jobLog(job, campo, de, para) {
         var dias = +(data.dias) || 7;
         var end  = addD(hoje, dias);
         var val  = +(data.valor) || 0;
+        // D2: Verificar capacidade antes de criar
+        var _jobsAtivos = (DB.j||[]).filter(function(j){ return !j.done; });
+        var _cap = (typeof CFG !== 'undefined' && CFG.capacidade && CFG.capacidade.total) ? CFG.capacidade.total : 5;
+        var _aviso = '';
+        if (_jobsAtivos.length >= _cap) {
+          _aviso = '\n⚠️ **Atenção:** equipe com ' + _jobsAtivos.length + ' job(s) ativo(s) — capacidade máxima (' + _cap + ') atingida. Job adicionado mesmo assim.';
+        } else if (_jobsAtivos.length >= _cap - 1) {
+          _aviso = '\n🟡 **Aviso:** equipe ficará na capacidade máxima (' + _cap + ' jobs) com este serviço.';
+        }
         DB.j.unshift({id:_genId(), cli:data.cli, desc:data.desc, start:hoje, end:end, value:val, pago:0, obs:data.obs||'', done:false});
         _dbSv(); renderAg(); updUrgDot();
-        result.extra = '✅ Job **' + data.cli + '** adicionado! Prazo: ' + fd(end);
+        result.extra = '✅ Job **' + data.cli + '** adicionado! Prazo: ' + fd(end) + _aviso;
         result.actions.push({label:'📅 Ver Agenda', fn:'go(0)'});
       }
       break;

@@ -10,25 +10,57 @@ window.onerror = function(msg, src, line, col, err) {
 
 // ── Histórico de Orçamentos ─────────────────────────────────────────────────
 var _orcFilter = '';
+var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aprovado' | 'perdido'
 
 function renderOrc() {
   var total = DB.q.length;
   var totalVista = DB.q.reduce(function(s,q){return s+(q.vista||0);},0);
   var thisMonth = (new Date()).toISOString().slice(0,7);
   var mesCount = DB.q.filter(function(q){return (q.date||'').slice(0,7)===thisMonth;}).length;
+
+  // Contagens por status (A2)
+  var cPend = DB.q.filter(function(q){return (q.status||'pendente')==='pendente';}).length;
+  var cAprov = DB.q.filter(function(q){return q.status==='aprovado';}).length;
+  var cPerd  = DB.q.filter(function(q){return q.status==='perdido';}).length;
+
   var sumEl = document.getElementById('orcSummary');
   if(sumEl) sumEl.innerHTML =
     '<div class="orc-sum-card"><div class="orc-sum-v">'+total+'</div><div class="orc-sum-l">Total</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">'+mesCount+'</div><div class="orc-sum-l">Este mês</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>';
+
+  // Botões de filtro por status (A2)
+  var fEl = document.getElementById('orcStatusFilter');
+  if(fEl) {
+    var tabs = [
+      {k:'todos',   l:'Todos',    n:total,  col:'var(--t3)'},
+      {k:'pendente',l:'⏳ Aguard.',n:cPend, col:'#f59e0b'},
+      {k:'aprovado',l:'✅ Aprov.', n:cAprov, col:'#4ade80'},
+      {k:'perdido', l:'❌ Perd.',  n:cPerd,  col:'#f87171'}
+    ];
+    fEl.innerHTML = tabs.map(function(t){
+      var on = _orcStatusFilter === t.k;
+      return '<button onclick="_orcStatusFilter=\''+t.k+'\';renderOrc();" style="'
+        +'flex:1;padding:7px 4px;border:1px solid '+(on?t.col:'var(--bd)')+';'
+        +'border-radius:9px;background:'+(on?'rgba(255,255,255,.06)':'transparent')+';'
+        +'color:'+(on?t.col:'var(--t3)')+';font-size:.66rem;font-weight:'+(on?'800':'500')+';'
+        +'font-family:Outfit,sans-serif;cursor:pointer;white-space:nowrap;transition:.15s;">'
+        +t.l+' <span style="opacity:.75;">('+t.n+')</span></button>';
+    }).join('');
+  }
+
   filterOrc();
 }
 
 function filterOrc() {
   _orcFilter = (document.getElementById('orcSearch')||{value:''}).value.trim().toLowerCase();
-  var filtered = _orcFilter
-    ? DB.q.filter(function(q){ return (q.cli||'').toLowerCase().indexOf(_orcFilter) >= 0; })
-    : DB.q;
+  var filtered = DB.q;
+  // Filtro de texto
+  if(_orcFilter) filtered = filtered.filter(function(q){ return (q.cli||'').toLowerCase().indexOf(_orcFilter) >= 0; });
+  // Filtro de status (A2)
+  if(_orcStatusFilter && _orcStatusFilter !== 'todos') {
+    filtered = filtered.filter(function(q){ return (q.status||'pendente') === _orcStatusFilter; });
+  }
   buildOrcList(filtered);
 }
 
@@ -41,11 +73,19 @@ function buildOrcList(list) {
     return;
   }
   var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
+  // Configuração de badges de status (A1)
+  var _stMap = {
+    pendente: {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)', lbl:'Aguardando'},
+    aprovado: {ic:'✅', cor:'#4ade80', bg:'rgba(74,222,128,.12)', lbl:'Aprovado'},
+    perdido:  {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
+  };
   var h = '';
   list.forEach(function(q) {
     var icon = tipo_icons[q.tipo]||'📦';
     var dateStr = q.date ? fd(q.date) : '';
     var pdsCount = (q.pds||[]).length + (q.sfPcs||[]).length;
+    var st = q.status || 'pendente';
+    var stCfg = _stMap[st] || _stMap.pendente;
     h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
     h += '<div class="qcard-head">';
     h +=   '<div class="qcard-badge">'+icon+'</div>';
@@ -53,6 +93,12 @@ function buildOrcList(list) {
     h +=     '<div class="qcard-cli">'+escH(q.cli)+'</div>';
     h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+'</div>';
     h +=   '</div>';
+    // Badge de status (A1)
+    h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para alterar status" style="'
+      +'display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:20px;'
+      +'background:'+stCfg.bg+';border:1px solid '+stCfg.cor+'40;'
+      +'font-size:.6rem;font-weight:700;color:'+stCfg.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
+      +stCfg.ic+' '+stCfg.lbl+'</span>';
     h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
     h +=   '<span class="qcard-chev">▼</span>';
     h += '</div>';
@@ -91,6 +137,7 @@ function buildOrcList(list) {
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
     h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
     h += '<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
+    h += '<button class="btn" style="background:#075e54;color:#fff;border:1px solid #128c7e;" onclick="orcWhatsApp(\''+q.id+'\',event)">📲 WhatsApp</button>';
     h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
     h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
     h += '</div>';
@@ -98,6 +145,44 @@ function buildOrcList(list) {
     h += '</div>'; // qcard
   });
   el.innerHTML = h;
+}
+// Abre WhatsApp com o texto completo do orçamento (K2)
+function orcWhatsApp(id, e) {
+  if(e) e.stopPropagation();
+  var q = DB.q.find(function(x){return String(x.id)===String(id);});
+  if(!q) return;
+  var txt = '';
+  if(q._txtPre && typeof _buildPriceText === 'function') {
+    txt = q._txtPre + _buildPriceText(q) + (q._txtFooter||'');
+  } else {
+    // Fallback compacto se o texto longo não estiver salvo
+    var emp = CFG.emp || {};
+    txt = (emp.nome||'HR Mármores') + '\n'
+      + 'Orçamento — ' + (q.cli||'') + '\n'
+      + (q.tipo||'') + (q.mat ? ' · ' + q.mat : '') + '\n\n'
+      + 'À vista: R$ ' + fm(q.vista) + '\n'
+      + (q.parc ? 'Parcelado 2×: R$ ' + fm(q.parc) + '\n' : '')
+      + (q.p8   ? 'Em até 8×: R$ ' + fm(q.p8) + '\n' : '')
+      + '\n' + (emp.tel||'');
+  }
+  var num = (q.tel||'').replace(/\D/g,'');
+  var url = num
+    ? 'https://wa.me/55' + num + '?text=' + encodeURIComponent(txt)
+    : 'https://wa.me/?text=' + encodeURIComponent(txt);
+  window.open(url, '_blank');
+}
+function orcCicloStatus(id, e) {
+  if(e) e.stopPropagation();
+  var q = DB.q.find(function(x){return String(x.id)===String(id);});
+  if(!q) return;
+  var ciclo = ['pendente','aprovado','perdido'];
+  var cur = ciclo.indexOf(q.status||'pendente');
+  q.status = ciclo[(cur+1) % ciclo.length];
+  q._statusDate = (new Date()).toISOString().slice(0,10);
+  DB.sv();
+  renderOrc();
+  var labels = {pendente:'⏳ Aguardando',aprovado:'✅ Aprovado',perdido:'❌ Perdido'};
+  toast((labels[q.status]||q.status)+' — '+escH(q.cli));
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -257,6 +342,10 @@ var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:1
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
   rdbox_sem:0,rdbox_sup:38,rdbox_cola:20};
+// Categorias de contas a pagar
+var CAT_CONTAS = ['fornecedor','funcionario','servico','imposto','outro'];
+var CAT_CONTAS_LABEL = {fornecedor:'📦 Fornecedor',funcionario:'👷 Funcionário',servico:'📡 Serviço',imposto:'🏛️ Imposto',outro:'📝 Outro'};
+
 var DEF_FIXOS=[{n:'Aluguel',v:1000},{n:'Funcionários',v:5500},{n:'Energia',v:150},{n:'Água',v:40},{n:'Internet',v:100},{n:'Alimentação',v:200},{n:'Limpeza',v:200}];
 
 function initCFG(){
@@ -4837,6 +4926,11 @@ function jCard(j){
   var meta=(j.start?'<span>Início: '+fd(j.start)+'</span> ':'')+(j.end?'<span>Entrega: '+fd(j.end)+'</span> ':'')+dTxt;
   var valMeta=j.value?'<div class="jmeta"><span class="gold">Total: R$ '+fm(j.value)+'</span><span class="grn">Pago: R$ '+fm(j.pago||0)+'</span>'+(rest>0?'<span class="red">A receber: R$ '+fm(rest)+'</span>':'')+'</div>':'';
   var btnPag=(!j.done&&rest>0)?'<button class="btn btn-sm" style="background:var(--gdim);color:var(--gold2);border:1px solid var(--gold3);" data-pagrest="'+j.id+'">Receber</button>':'';
+  // ── H2: Badge de saldo em aberto em job concluído ─────────────────────
+  var saldobanner='';
+  if(j.done&&rest>0){
+    saldobanner='<div style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#f87171;font-weight:700;display:flex;align-items:center;justify-content:space-between;">💸 R$ '+fm(rest)+' ainda em aberto<button onclick="pagRest('+j.id+')" style="background:rgba(248,113,113,.2);border:1px solid rgba(248,113,113,.5);border-radius:5px;color:#f87171;font-size:.6rem;padding:2px 7px;font-family:Outfit,sans-serif;cursor:pointer;font-weight:700;">Receber →</button></div>';
+  }
   // ── Alerta de prazo vencendo ──────────────────────────────────────────
   var alertBanner='';
   if(!j.done&&d!==null){
@@ -4848,7 +4942,7 @@ function jCard(j){
       alertBanner='<div style="background:rgba(243,156,18,.11);border:1px solid rgba(243,156,18,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#f39c12;font-weight:700;">⚠️ Entrega em '+d+' dia(s) — '+fd(j.end)+'</div>';
     }
   }
-  return '<div class="jcard '+st+'">'+alertBanner+'<div class="jnm">'+j.cli+'</div><div class="jdesc">'+j.desc+'</div><div class="jmeta">'+meta+'</div>'+valMeta+'<div class="jbtns"><button class="btn btn-sm '+(j.done?'btn-o':'btn-grn')+'" data-togjob="'+j.id+'">'+(j.done?'↩ Reabrir':'✓ Concluir')+'</button>'+btnPag+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div></div>';
+  return '<div class="jcard '+st+'">'+saldobanner+alertBanner+'<div class="jnm">'+j.cli+'</div><div class="jdesc">'+j.desc+'</div><div class="jmeta">'+meta+'</div>'+valMeta+'<div class="jbtns"><button class="btn btn-sm '+(j.done?'btn-o':'btn-grn')+'" data-togjob="'+j.id+'">'+(j.done?'↩ Reabrir':'✓ Concluir')+'</button>'+btnPag+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div></div>';
 }
 
 // ═══ FINANÇAS ═══
@@ -5065,6 +5159,17 @@ function renderDashboard() {
   var orcMes    = DB.q.filter(function(q) { return (q.date || q.dt || '').substring(0, 7) === mesAtual; });
   var receitaOrc = orcMes.reduce(function(s, q) { return s + (q.vista || 0); }, 0);
 
+  // ── Conversão (A3) ────────────────────────────────────────────
+  var orcAprov  = DB.q.filter(function(q){ return q.status === 'aprovado'; }).length;
+  var orcPerd   = DB.q.filter(function(q){ return q.status === 'perdido';  }).length;
+  var orcPend   = totalOrc - orcAprov - orcPerd;
+  var taxaConv  = totalOrc > 0 ? Math.round((orcAprov / totalOrc) * 100) : 0;
+  var orcAprovMes = orcMes.filter(function(q){ return q.status === 'aprovado'; }).length;
+
+  // ── Meta mensal (B2) ─────────────────────────────────────────
+  var metaMes   = (CFG.emp && CFG.emp.metaMes) ? +CFG.emp.metaMes : 0;
+  var metaPct   = (metaMes > 0) ? Math.min(100, Math.round((receitaOrc / metaMes) * 100)) : 0;
+
   // ── Serviços (agenda) ─────────────────────────────────────────
   var jobsAtivos   = DB.j.filter(function(j) { return !j.done; });
   var jobsAtrasados = jobsAtivos.filter(function(j) { return j.end && dDiff(j.end) < 0; });
@@ -5121,10 +5226,65 @@ function renderDashboard() {
     + '<div>' + card('💵', 'Saldo', 'R$ ' + fm(saldo), entradas > 0 ? '+' + fm(entradas) + ' entradas' : '', saldo >= 0 ? 'var(--grn)' : '#e74c3c') + '</div>'
     + '<div>' + card('⏳', 'A Receber', 'R$ ' + fm(aReceberJobs), jobsAtivos.length + ' serviço(s) ativo(s)', 'var(--gold)') + '</div>'
     + '</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+  // ── Contas a Pagar: alertas no dashboard ─────────────────────────────
+  var _hoje = td();
+  var _amanhaDt = (function(){var d=new Date();d.setDate(d.getDate()+1);return d.toISOString().slice(0,10);})();
+  var _contasVenc = (DB.b||[]).filter(function(b){
+    if(b.pago) return false;
+    var venc = b.vencData || (mesAtual+'-'+(String(b.vencDia||1).padStart(2,'0')));
+    return venc <= _hoje;
+  });
+  var _contasAmanha = (DB.b||[]).filter(function(b){
+    if(b.pago) return false;
+    var venc = b.vencData || (mesAtual+'-'+(String(b.vencDia||1).padStart(2,'0')));
+    return venc === _amanhaDt;
+  });
+  if(_contasVenc.length) {
+    h += '<div onclick="go(4);finTab(\'contas\')" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.5);border-radius:12px;padding:10px 14px;margin-top:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+       + '<span style="font-size:.65rem;font-weight:700;color:#f87171;">🚨 '+_contasVenc.length+' conta(s) vencida(s) — R$ '+fm(_contasVenc.reduce(function(s,b){return s+(b.valor||0);},0))+'</span>'
+       + '<span style="font-size:.6rem;color:#f87171;">Ver →</span>'
+       + '</div>';
+  } else if(_contasAmanha.length) {
+    h += '<div onclick="go(4);finTab(\'contas\')" style="background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);border-radius:12px;padding:10px 14px;margin-top:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+       + '<span style="font-size:.65rem;font-weight:700;color:#f59e0b;">⚠️ '+_contasAmanha.length+' conta(s) vencem amanhã — R$ '+fm(_contasAmanha.reduce(function(s,b){return s+(b.valor||0);},0))+'</span>'
+       + '<span style="font-size:.6rem;color:#f59e0b;">Ver →</span>'
+       + '</div>';
+  }
+
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">'
     + '<div>' + card('📋', 'Orçamentos', totalOrc + ' total', orcMes.length + ' neste mês', 'var(--tx)') + '</div>'
     + '<div>' + card('📊', 'Faturado/Mês', 'R$ ' + fm(receitaOrc), 'Orçamentos de ' + nomeMes.split(' ')[0], 'var(--gold2)') + '</div>'
     + '</div>';
+
+  // ── Barra de meta mensal (B2) ─────────────────────────────────
+  if (metaMes > 0) {
+    var metaCor = metaPct >= 100 ? '#4ade80' : metaPct >= 60 ? 'var(--gold)' : '#f87171';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;margin-top:8px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
+      + '<span style="font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;">🎯 Meta do mês</span>'
+      + '<span style="font-size:.72rem;font-weight:700;color:'+metaCor+';">R$ '+fm(receitaOrc)+' / R$ '+fm(metaMes)+'</span>'
+      + '</div>'
+      + '<div style="height:8px;border-radius:4px;background:var(--s4);overflow:hidden;">'
+      + '<div style="height:100%;width:'+metaPct+'%;background:linear-gradient(90deg,'+metaCor+','+metaCor+'bb);border-radius:4px;transition:width .4s;"></div>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;margin-top:5px;">'
+      + '<span style="font-size:.62rem;color:var(--t3);">' + metaPct + '% atingido</span>'
+      + (metaPct < 100 ? '<span style="font-size:.62rem;color:var(--t4);">faltam R$ '+fm(metaMes-receitaOrc)+'</span>' : '<span style="font-size:.62rem;color:#4ade80;">✓ Meta atingida!</span>')
+      + '</div>'
+      + '<div style="margin-top:4px;font-size:.6rem;color:var(--t4);">* baseado em orçamentos emitidos neste mês · <span onclick="go(6)" style="color:var(--gold3);cursor:pointer;text-decoration:underline;">alterar meta →</span></div>'
+      + '</div>';
+  }
+
+  // ── Card de conversão (A3) ─────────────────────────────────────
+  if (totalOrc > 0) {
+    var convCor = taxaConv >= 50 ? '#4ade80' : taxaConv >= 25 ? 'var(--gold)' : '#f87171';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;margin-top:8px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;text-align:center;">';
+    h += '<div><div style="font-size:1.1rem;font-weight:900;color:'+convCor+';">'+taxaConv+'%</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Conversão</div></div>';
+    h += '<div><div style="font-size:1.1rem;font-weight:900;color:#4ade80;">'+orcAprov+'</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Aprovados</div></div>';
+    h += '<div><div style="font-size:1.1rem;font-weight:900;color:var(--gold);">'+orcPend+'</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Aguardando</div></div>';
+    h += '<div><div style="font-size:1.1rem;font-weight:900;color:#f87171;">'+orcPerd+'</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Perdidos</div></div>';
+    h += '</div>';
+  }
 
   // ── Alertas de serviços ───────────────────────────────────────
   if (jobsAtrasados.length || jobsHoje.length || jobsUrgentes.length) {
@@ -5204,20 +5364,361 @@ function renderDashboard() {
   el.innerHTML = h;
 }
 
+// ── Aba ativa da pg4 ──────────────────────────────────────────────────────
+var _finAba = 'extrato'; // 'extrato' | 'contas' | 'resumo'
+
+function finTab(aba) {
+  _finAba = aba || 'extrato';
+  renderFin();
+}
+
 function renderFin(){
-  var inT=DB.t.filter(function(t){return t.type==='in';}).reduce(function(s,t){return s+t.value;},0);
-  var outT=DB.t.filter(function(t){return t.type==='out';}).reduce(function(s,t){return s+t.value;},0);
-  var bal=inT-outT;
-  var pend=DB.j.filter(function(j){return !j.done;}).reduce(function(s,j){return s+(j.value-(j.pago||0));},0);
-  var fs=document.getElementById('finSaldo');
-  fs.textContent='R$ '+fm(bal);fs.className='finval '+(bal>=0?'pos':'neg');
-  document.getElementById('finSub').textContent='R$ '+fm(pend)+' a receber dos serviços';
-  document.getElementById('finCards').innerHTML='<div class="fc"><div class="fcl">Entradas</div><div class="fcv g">R$ '+fm(inT)+'</div></div><div class="fc"><div class="fcl">Saídas</div><div class="fcv r">R$ '+fm(outT)+'</div></div><div class="fc"><div class="fcl">A Receber</div><div class="fcv b">R$ '+fm(pend)+'</div></div>';
-  var items=DB.t.slice(0,50),h='';
-  if(items.length){items.forEach(function(t){var ic=t.type==='in'?'📈':t.type==='out'?'📉':t.type==='note'?'📝':'⏳';var sign=t.type==='in'?'+':t.type==='out'?'-':'';var valStr=t.value?'R$ '+fm(t.value):'';h+='<div class="trrow"><div class="trdot '+t.type+'">'+ic+'</div><div style="flex:1;min-width:0;"><div class="trnm">'+t.desc+'</div><div class="trdt">'+(t.date?fd(t.date):'')+'</div></div><div class="trv '+t.type+'">'+sign+valStr+'</div><button class="tredt" data-edittr="'+t.id+'">✏️</button></div>';});}
-  else{h='<div style="padding:18px;text-align:center;color:var(--t3);font-size:.8rem;">Nenhuma movimentação</div>';}
-  document.getElementById('trList').innerHTML=h;
+  var agora      = new Date();
+  var mesAtual   = agora.getFullYear()+'-'+(String(agora.getMonth()+1).padStart(2,'0'));
+  var diaAtual   = agora.getDate();
+
+  // ── Totais gerais ──────────────────────────────────────────────────────
+  var inT  = DB.t.filter(function(t){return t.type==='in'; }).reduce(function(s,t){return s+t.value;},0);
+  var outT = DB.t.filter(function(t){return t.type==='out';}).reduce(function(s,t){return s+t.value;},0);
+  var bal  = inT - outT;
+  var pend = DB.j.filter(function(j){return !j.done;}).reduce(function(s,j){return s+(j.value-(j.pago||0));},0);
+
+  // ── Contas a pagar: total pendente este mês ────────────────────────────
+  var contasPendMes = (DB.b||[]).filter(function(b){
+    if(b.pago) return false;
+    if(b.recorrente) return true;
+    if(b.vencData) return b.vencData.slice(0,7) === mesAtual;
+    return false;
+  }).reduce(function(s,b){return s+(b.valor||0);},0);
+
+  // ── Saldo do mês atual ─────────────────────────────────────────────────
+  var inMes  = DB.t.filter(function(t){return t.type==='in'  && (t.date||'').slice(0,7)===mesAtual;}).reduce(function(s,t){return s+t.value;},0);
+  var outMes = DB.t.filter(function(t){return t.type==='out' && (t.date||'').slice(0,7)===mesAtual;}).reduce(function(s,t){return s+t.value;},0);
+  var saldoMes = inMes - outMes;
+
+  // ── Cabeçalho: saldo ──────────────────────────────────────────────────
+  var fs = document.getElementById('finSaldo');
+  fs.textContent = 'R$ '+fm(bal);
+  fs.className   = 'finval '+(bal>=0?'pos':'neg');
+  document.getElementById('finSub').textContent = 'R$ '+fm(pend)+' a receber dos serviços';
+
+  // ── Cards de resumo ────────────────────────────────────────────────────
+  document.getElementById('finCards').innerHTML =
+    '<div class="fc"><div class="fcl">Entradas</div><div class="fcv g">R$ '+fm(inT)+'</div></div>'
+   +'<div class="fc"><div class="fcl">Saídas</div><div class="fcv r">R$ '+fm(outT)+'</div></div>'
+   +'<div class="fc"><div class="fcl">A Receber</div><div class="fcv b">R$ '+fm(pend)+'</div></div>'
+   +(contasPendMes>0?'<div class="fc"><div class="fcl">Contas/Mês</div><div class="fcv r">R$ '+fm(contasPendMes)+'</div></div>':'');
+
+  // ── Botões de aba ──────────────────────────────────────────────────────
+  var abas = [
+    {k:'extrato', l:'📋 Extrato'},
+    {k:'contas',  l:'💸 A Pagar'},
+    {k:'resumo',  l:'📊 Resumo'}
+  ];
+  var tabsHtml = '<div style="display:flex;gap:6px;margin:10px 0 14px;">'
+    + abas.map(function(a){
+        var on = _finAba === a.k;
+        return '<button onclick="finTab(\''+a.k+'\')" style="'
+          +'flex:1;padding:8px 4px;border:1px solid '+(on?'var(--gold)':'var(--bd)')+';'
+          +'border-radius:10px;background:'+(on?'rgba(255,255,255,.06)':'transparent')+';'
+          +'color:'+(on?'var(--gold)':'var(--t3)')+';font-size:.65rem;font-weight:'+(on?'800':'500')+';'
+          +'font-family:Outfit,sans-serif;cursor:pointer;transition:.15s;">'+a.l+'</button>';
+      }).join('')
+    + '</div>';
+
+  // ── Conteúdo da aba ────────────────────────────────────────────────────
+  var conteudo = '';
+  if(_finAba === 'extrato') {
+    conteudo = _renderExtrato();
+  } else if(_finAba === 'contas') {
+    conteudo = _renderContasPagar(agora, mesAtual, diaAtual);
+  } else {
+    conteudo = _renderResumoFin(inMes, outMes, saldoMes, contasPendMes, mesAtual);
+  }
+
+  document.getElementById('trList').innerHTML = tabsHtml + conteudo;
   renderKPI();
+}
+
+// ── Aba Extrato ──────────────────────────────────────────────────────────
+function _renderExtrato() {
+  var items = DB.t.slice(0,50), h = '';
+  if(items.length){
+    items.forEach(function(t){
+      var ic   = t.type==='in'?'📈':t.type==='out'?'📉':t.type==='note'?'📝':'⏳';
+      var sign = t.type==='in'?'+':t.type==='out'?'-':'';
+      var valStr = t.value ? 'R$ '+fm(t.value) : '';
+      h += '<div class="trrow">'
+        + '<div class="trdot '+t.type+'">'+ic+'</div>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div class="trnm">'+t.desc+'</div>'
+        + '<div class="trdt">'+(t.date?fd(t.date):'')+'</div>'
+        + '</div>'
+        + '<div class="trv '+t.type+'">'+sign+valStr+'</div>'
+        + '<button class="tredt" data-edittr="'+t.id+'">✏️</button>'
+        + '</div>';
+    });
+  } else {
+    h = '<div style="padding:18px;text-align:center;color:var(--t3);font-size:.8rem;">Nenhuma movimentação</div>';
+  }
+  return h;
+}
+
+// ── Aba Contas a Pagar ───────────────────────────────────────────────────
+function _renderContasPagar(agora, mesAtual, diaAtual) {
+  var contas = DB.b || [];
+  var h = '';
+
+  // Botão nova conta
+  h += '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'
+     + '<button onclick="abrirNovaContaMd()" style="background:var(--gdim);color:var(--gold2);border:1px solid var(--gold3);border-radius:10px;padding:7px 14px;font-size:.68rem;font-weight:700;font-family:Outfit,sans-serif;cursor:pointer;">+ Nova Conta</button>'
+     + '</div>';
+
+  // Filtrar contas do mês
+  var contasMes = contas.filter(function(b){
+    if(b.recorrente) return true;
+    if(b.vencData)   return b.vencData.slice(0,7) === mesAtual;
+    return false;
+  });
+
+  if(!contasMes.length){
+    h += '<div style="padding:24px;text-align:center;color:var(--t3);font-size:.8rem;">Nenhuma conta cadastrada para este mês.<br><span style="color:var(--t4);font-size:.7rem;">Adicione boletos, mensalidades e fornecedores.</span></div>';
+    return h;
+  }
+
+  // Agrupar por status
+  var vencHoje   = [];
+  var vencAmanha = [];
+  var pendentes  = [];
+  var pagas      = [];
+
+  var amanha = new Date(agora); amanha.setDate(amanha.getDate()+1);
+  var amanhaStr = amanha.toISOString().slice(0,10);
+  var hojeStr   = agora.toISOString().slice(0,10);
+
+  contasMes.forEach(function(b){
+    if(b.pago){ pagas.push(b); return; }
+    var venc = b.vencData || (mesAtual+'-'+(String(b.vencDia||1).padStart(2,'0')));
+    if(venc === hojeStr)          vencHoje.push(b);
+    else if(venc === amanhaStr)   vencAmanha.push(b);
+    else                          pendentes.push(b);
+  });
+
+  // Banners de urgência
+  if(vencHoje.length){
+    h += '<div style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.5);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:.65rem;color:#f87171;font-weight:700;">🚨 '+vencHoje.length+' conta(s) vence(m) HOJE — R$ '+fm(vencHoje.reduce(function(s,b){return s+(b.valor||0);},0))+'</div>';
+  }
+  if(vencAmanha.length){
+    h += '<div style="background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.5);border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:.65rem;color:#f59e0b;font-weight:700;">⚠️ '+vencAmanha.length+' conta(s) vence(m) amanhã — R$ '+fm(vencAmanha.reduce(function(s,b){return s+(b.valor||0);},0))+'</div>';
+  }
+
+  // Renderizar grupos
+  function _cardConta(b){
+    var venc = b.vencData || (mesAtual+'-'+(String(b.vencDia||1).padStart(2,'0')));
+    var cor  = b.pago ? '#4ade80' : (venc <= hojeStr ? '#f87171' : 'var(--t3)');
+    var cat  = CAT_CONTAS_LABEL[b.categoria] || '📝 Outro';
+    return '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-bottom:6px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:.75rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(b.desc)+'</div>'
+      + '<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">'+cat+' · vence '+fd(venc)+(b.recorrente?' · 🔁 recorrente':'')+'</div>'
+      + '</div>'
+      + '<div style="text-align:right;flex-shrink:0;">'
+      + '<div style="font-size:.82rem;font-weight:800;color:'+cor+';">R$ '+fm(b.valor||0)+'</div>'
+      + (b.pago
+          ? '<div style="font-size:.58rem;color:#4ade80;">✓ pago '+fd(b.pagoEm||venc)+'</div>'
+          : '<button onclick="pagarConta(\''+b.id+'\')" style="margin-top:3px;background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.4);border-radius:6px;color:#4ade80;font-size:.58rem;padding:2px 7px;font-family:Outfit,sans-serif;cursor:pointer;font-weight:700;">Pagar ✓</button>')
+      + '</div>'
+      + '<button onclick="editarConta(\''+b.id+'\')" style="background:transparent;border:none;color:var(--t4);font-size:.75rem;cursor:pointer;flex-shrink:0;">✏️</button>'
+      + '<button onclick="excluirConta(\''+b.id+'\')" style="background:transparent;border:none;color:var(--t4);font-size:.75rem;cursor:pointer;flex-shrink:0;">🗑</button>'
+      + '</div></div>';
+  }
+
+  var grupos = [
+    {titulo:'🚨 Vence hoje',   lista:vencHoje},
+    {titulo:'⚠️ Vence amanhã', lista:vencAmanha},
+    {titulo:'⏳ Pendentes',     lista:pendentes},
+    {titulo:'✅ Pagas',         lista:pagas}
+  ];
+
+  grupos.forEach(function(g){
+    if(!g.lista.length) return;
+    h += '<div style="font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;margin:10px 0 5px;">'+g.titulo+' ('+g.lista.length+')</div>';
+    g.lista.forEach(function(b){ h += _cardConta(b); });
+  });
+
+  // Totalizador
+  var totPend = contasMes.filter(function(b){return !b.pago;}).reduce(function(s,b){return s+(b.valor||0);},0);
+  var totPago = contasMes.filter(function(b){return  b.pago;}).reduce(function(s,b){return s+(b.valor||0);},0);
+  h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;text-align:center;">'
+     + '<div><div style="font-size:.9rem;font-weight:900;color:#f87171;">R$ '+fm(totPend)+'</div><div style="font-size:.6rem;color:var(--t4);">Pendente</div></div>'
+     + '<div><div style="font-size:.9rem;font-weight:900;color:#4ade80;">R$ '+fm(totPago)+'</div><div style="font-size:.6rem;color:var(--t4);">Pago</div></div>'
+     + '</div>';
+
+  return h;
+}
+
+// ── Aba Resumo Financeiro ────────────────────────────────────────────────
+function _renderResumoFin(inMes, outMes, saldoMes, contasPendMes, mesAtual) {
+  var nomeMes = new Date(mesAtual+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  var salCor  = saldoMes >= 0 ? '#4ade80' : '#f87171';
+  var h = '';
+
+  h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:14px 16px;margin-bottom:10px;">'
+     + '<div style="font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;margin-bottom:10px;">📅 '+nomeMes.charAt(0).toUpperCase()+nomeMes.slice(1)+'</div>'
+     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+     + '<div style="text-align:center;"><div style="font-size:1rem;font-weight:900;color:#4ade80;">R$ '+fm(inMes)+'</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Entradas</div></div>'
+     + '<div style="text-align:center;"><div style="font-size:1rem;font-weight:900;color:#f87171;">R$ '+fm(outMes)+'</div><div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Saídas</div></div>'
+     + '</div>'
+     + '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;">'
+     + '<span style="font-size:.7rem;font-weight:700;color:var(--t3);">Saldo do mês</span>'
+     + '<span style="font-size:1.1rem;font-weight:900;color:'+salCor+';">R$ '+fm(saldoMes)+'</span>'
+     + '</div>'
+     + (contasPendMes > 0 ? '<div style="margin-top:6px;font-size:.62rem;color:#f59e0b;">⚠️ R$ '+fm(contasPendMes)+' em contas pendentes não registradas acima</div>' : '')
+     + '</div>';
+
+  // Custos fixos por categoria
+  var totFixos = CFG.fixos.reduce(function(s,f){return s+f.v;},0);
+  h += '<div style="font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;margin:10px 0 5px;">⚙️ Custos Fixos Cadastrados</div>';
+  CFG.fixos.forEach(function(f){
+    var pct = totFixos > 0 ? Math.round((f.v/totFixos)*100) : 0;
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">'
+       + '<div style="font-size:.7rem;color:var(--t3);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(f.n)+'</div>'
+       + '<div style="font-size:.65rem;color:var(--t4);width:30px;text-align:right;">'+pct+'%</div>'
+       + '<div style="width:80px;height:5px;border-radius:3px;background:var(--s4);overflow:hidden;">'
+       + '<div style="height:100%;width:'+pct+'%;background:var(--gold);border-radius:3px;"></div>'
+       + '</div>'
+       + '<div style="font-size:.7rem;font-weight:700;color:var(--tx);width:60px;text-align:right;">R$ '+fm(f.v)+'</div>'
+       + '</div>';
+  });
+  h += '<div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--bd);margin-top:4px;">'
+     + '<span style="font-size:.72rem;font-weight:700;">Total Fixos</span>'
+     + '<span style="font-size:.9rem;font-weight:900;color:var(--gold2);">R$ '+fm(totFixos)+'</span>'
+     + '</div>';
+
+  return h;
+}
+
+// ── Funções de CRUD de Contas ─────────────────────────────────────────────
+function abrirNovaContaMd() {
+  var hoje = td();
+  var md = document.getElementById('contaMd');
+  if(!md){
+    md = document.createElement('div');
+    md.id = 'contaMd';
+    md.className = 'md-overlay';
+    document.body.appendChild(md);
+  }
+  md.innerHTML = '<div class="md-box" style="max-width:400px;">'
+    + '<div class="md-head"><span>💸 Nova Conta a Pagar</span><button class="md-x" onclick="closeMd(\'contaMd\')">✕</button></div>'
+    + '<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px;">'
+    + '<input id="cDesc"   class="finp" placeholder="Descrição (ex: Conta de Água)" style="width:100%;box-sizing:border-box;">'
+    + '<input id="cValor"  class="finp" type="number" min="0" step="0.01" placeholder="Valor R$" style="width:100%;box-sizing:border-box;">'
+    + '<select id="cCat" class="finp" style="width:100%;box-sizing:border-box;">'
+    + CAT_CONTAS.map(function(c){return '<option value="'+c+'">'+CAT_CONTAS_LABEL[c]+'</option>';}).join('')
+    + '</select>'
+    + '<label style="font-size:.68rem;color:var(--t3);display:flex;align-items:center;gap:6px;">'
+    + '<input type="checkbox" id="cRecorr"> Recorrente (todo mês)</label>'
+    + '<div id="cVencDiv"><label style="font-size:.68rem;color:var(--t4);">Dia de vencimento</label>'
+    + '<input id="cVencDia" class="finp" type="number" min="1" max="31" value="10" style="width:100%;box-sizing:border-box;"></div>'
+    + '<div id="cDataDiv" style="display:none;"><label style="font-size:.68rem;color:var(--t4);">Data de vencimento</label>'
+    + '<input id="cVencData" class="finp" type="date" value="'+hoje+'" style="width:100%;box-sizing:border-box;"></div>'
+    + '<input id="cObs" class="finp" placeholder="Observação (opcional)" style="width:100%;box-sizing:border-box;">'
+    + '<button onclick="salvarNovaConta()" style="background:var(--gdim);color:var(--gold2);border:1px solid var(--gold3);border-radius:10px;padding:10px;font-size:.75rem;font-weight:700;font-family:Outfit,sans-serif;cursor:pointer;width:100%;">💾 Salvar Conta</button>'
+    + '</div></div>';
+  md.style.display = 'flex';
+  document.getElementById('cRecorr').onchange = function(){
+    document.getElementById('cVencDiv').style.display  = this.checked ? '' : 'none';
+    document.getElementById('cDataDiv').style.display  = this.checked ? 'none' : '';
+  };
+}
+
+function salvarNovaConta() {
+  var desc = (document.getElementById('cDesc').value||'').trim();
+  var valor = +(document.getElementById('cValor').value||0);
+  if(!desc || valor <= 0){ toast('⚠️ Preencha descrição e valor'); return; }
+  var recorr  = document.getElementById('cRecorr').checked;
+  var cat     = document.getElementById('cCat').value;
+  var obs     = (document.getElementById('cObs').value||'').trim();
+  var nova = {
+    id: _genId(), desc: desc, valor: valor, categoria: cat,
+    recorrente: recorr, pago: false, obs: obs
+  };
+  if(recorr) {
+    nova.vencDia  = +(document.getElementById('cVencDia').value||10);
+  } else {
+    nova.vencData = document.getElementById('cVencData').value || td();
+  }
+  if(!DB.b) DB.b = [];
+  DB.b.unshift(nova);
+  DB.sv();
+  closeMd('contaMd');
+  _finAba = 'contas';
+  renderFin();
+  toast('✅ Conta cadastrada: '+desc);
+}
+
+function pagarConta(id) {
+  var b = (DB.b||[]).find(function(x){return String(x.id)===String(id);});
+  if(!b) return;
+  b.pago    = true;
+  b.pagoEm  = td();
+  // Registrar automaticamente como saída em DB.t
+  DB.t.unshift({id:_genId(), type:'out', desc:'Conta paga: '+b.desc, value:b.valor||0, date:td()});
+  DB.sv();
+  renderFin();
+  toast('✅ Conta paga: '+escH(b.desc)+' — R$ '+fm(b.valor||0)+' registrado nas saídas');
+}
+
+function editarConta(id) {
+  var b = (DB.b||[]).find(function(x){return String(x.id)===String(id);});
+  if(!b) return;
+  abrirNovaContaMd();
+  document.getElementById('cDesc').value    = b.desc  || '';
+  document.getElementById('cValor').value   = b.valor || '';
+  document.getElementById('cCat').value     = b.categoria || 'outro';
+  document.getElementById('cObs').value     = b.obs   || '';
+  document.getElementById('cRecorr').checked = !!b.recorrente;
+  if(b.recorrente){
+    document.getElementById('cVencDia').value = b.vencDia || 10;
+    document.getElementById('cDataDiv').style.display = 'none';
+  } else {
+    document.getElementById('cVencData').value = b.vencData || td();
+    document.getElementById('cVencDiv').style.display = 'none';
+    document.getElementById('cDataDiv').style.display = '';
+  }
+  // Trocar botão para salvar edição
+  document.querySelector('#contaMd button[onclick="salvarNovaConta()"]').setAttribute('onclick','salvarEdicaoConta(\''+id+'\')');
+  document.querySelector('#contaMd .md-head span').textContent = '✏️ Editar Conta';
+}
+
+function salvarEdicaoConta(id) {
+  var b = (DB.b||[]).find(function(x){return String(x.id)===String(id);});
+  if(!b) return;
+  b.desc       = (document.getElementById('cDesc').value||'').trim();
+  b.valor      = +(document.getElementById('cValor').value||0);
+  b.categoria  = document.getElementById('cCat').value;
+  b.obs        = (document.getElementById('cObs').value||'').trim();
+  b.recorrente = document.getElementById('cRecorr').checked;
+  if(b.recorrente) b.vencDia  = +(document.getElementById('cVencDia').value||10);
+  else             b.vencData = document.getElementById('cVencData').value || td();
+  DB.sv();
+  closeMd('contaMd');
+  renderFin();
+  toast('✅ Conta atualizada');
+}
+
+function excluirConta(id) {
+  if(!confirm('Excluir esta conta?')) return;
+  DB.b = (DB.b||[]).filter(function(x){return String(x.id)!==String(id);});
+  DB.sv();
+  renderFin();
+  toast('🗑 Conta excluída');
+}
+
+function closeMd(id) {
+  var el = document.getElementById(id);
+  if(el) el.style.display = 'none';
 }
 
 function renderKPI(){
@@ -6158,6 +6659,9 @@ function buildCfg(){
     h+='<div class="cfg-row"><span class="cfg-lbl">Validade do orçamento</span>';
     h+='<input class="cfginp cfginp-w" type="number" min="1" max="90" step="1" value="'+(e.diasValidade||7)+'" onchange="CFG.emp.diasValidade=+this.value;svCFG();toast(\'✓ Validade salva\');">';
     h+='<span style="font-size:.6rem;color:var(--t4);margin-left:6px;">dias</span></div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">Meta mensal R$</span>';
+    h+='<input class="cfginp cfginp-w" type="number" min="0" step="100" value="'+(e.metaMes||0)+'" placeholder="0" onchange="CFG.emp.metaMes=+this.value;svCFG();if(typeof renderDashboard===\'function\')renderDashboard();toast(\'✓ Meta salva\');">';
+    h+='<span style="font-size:.6rem;color:var(--t4);margin-left:6px;">orçamentos/mês</span></div>';
     h+='<div class="cfg-row"><span class="cfg-lbl">Fator Custo MO</span>';
     h+='<input class="cfginp cfginp-w" type="number" min="0" max="1" step="0.01" value="'+(CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.55)+'" onchange="if(!CFG.sv)CFG.sv={};CFG.sv.fatorCustoMO=+this.value;svCFG();toast(\'✓ Fator MO salvo\');">';
     h+='<span style="font-size:.6rem;color:var(--t4);margin-left:6px;">% da venda (padrão 0.55)</span></div>';
