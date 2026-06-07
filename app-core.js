@@ -4070,6 +4070,13 @@ function gerarPDF(){
 
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
+  // Móvel planejado (ceara) — lê q.ceara (novo) ou tela (legado)
+  var _pdfScrV=(window._cearaAtivo&&document.getElementById('cearaValor'))?parseFloat(document.getElementById('cearaValor').value)||0:0;
+  var _pdfScrD=(window._cearaAtivo&&document.getElementById('cearaDesc'))?document.getElementById('cearaDesc').value.trim():'';
+  var _pdfCeara=(q.ceara&&q.ceara.ativo&&q.ceara.valor>0)||(_pdfScrV>0);
+  var _pdfCearaValor=_pdfCeara?((q.ceara&&q.ceara.valor>0)?q.ceara.valor:_pdfScrV):0;
+  var _pdfCearaDesc=_pdfCeara?((q.ceara&&q.ceara.desc)?q.ceara.desc:_pdfScrD):'';
+  var _pdfTotal=_pdfCeara?(q.vista+_pdfCearaValor):q.vista;
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;})||{pr:q.matPr||0,nm:q.mat||'',fin:''};
 
   // ── Linhas da tabela ──
@@ -4380,6 +4387,22 @@ function gerarPDF(){
     +sh('Como Funciona')
     +(function(){var steps=[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
+    // Bloco móvel planejado (se ativo)
+    +(_pdfCeara?('<div style="background:#1a0f2e;border:1px solid rgba(167,139,250,0.3);border-radius:10px;padding:16px 22px;margin-bottom:18px;">'
+      +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(167,139,250,0.7);font-weight:900;margin-bottom:10px;">&#129309; Inclui M&oacute;vel Planejado</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(167,139,250,0.15);">'
+        +'<span style="font-size:12px;color:rgba(255,255,255,0.55);">Bancada em pedra (HR)</span>'
+        +'<span style="font-size:14px;font-weight:900;color:#C9A84C;">R$&nbsp;'+fm(q.vista)+'</span>'
+      +'</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px solid rgba(167,139,250,0.15);">'
+        +'<span style="font-size:12px;color:rgba(255,255,255,0.55);">M&oacute;vel Planejado'+(_pdfCearaDesc?' &mdash; '+_pdfCearaDesc:'')+'</span>'
+        +'<span style="font-size:14px;font-weight:900;color:#a78bfa;">R$&nbsp;'+fm(_pdfCearaValor)+'</span>'
+      +'</div>'
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 2px;">'
+        +'<span style="font-size:13px;font-weight:900;color:#a78bfa;">Total Combinado</span>'
+        +'<span style="font-size:20px;font-weight:900;color:#a78bfa;">R$&nbsp;'+fm(_pdfTotal)+'</span>'
+      +'</div>'
+    +'</div>'):'') 
     // VALORES
     +sh('Valores do Projeto')
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
@@ -4397,7 +4420,7 @@ function gerarPDF(){
       // a vista — desconto especial
       +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
         +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">À VISTA</span>'
+          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'BANCADA HR':'À VISTA')+'</span>'
           +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">DESCONTO</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
