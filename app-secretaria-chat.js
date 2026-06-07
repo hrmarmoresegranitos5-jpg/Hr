@@ -10,6 +10,7 @@ var _chat = {
   recording: false,
   mediaRecorder: null,
   audioChunks: [],
+  pendingImage: null,   // { base64, mediaType, previewUrl, name }
   thinking: false,
   recognition: null
 };
@@ -21,7 +22,7 @@ var _chat = {
 // ── _dbSv() seguro — avisa se localStorage estiver cheio ──────
 function _dbSv() {
   try {
-    _dbSv();
+    localStorage.setItem('hr_db', JSON.stringify(DB));
   } catch(e) {
     if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
       if (typeof toast === 'function') {
@@ -142,7 +143,7 @@ function _secProativCheck() {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 400,
+      max_tokens: 600,
       system: _chatBuildSystem(),
       messages: [{role: 'user', content: prompt}]
     })
@@ -376,7 +377,7 @@ function renderChat() {
   } else {
     _chat.history.forEach(function(msg) {
       if (msg.role === 'user') {
-        h += _chatBubbleUser(msg.content, msg.ts);
+        h += _chatBubbleUser(msg.content, msg.ts, msg.imgData || null);
       } else if (msg._pending) {
         // Mensagem proativa carregando — mostra animação
         h += '<div class="chat-bubble chat-bubble-bot chat-thinking">'
@@ -407,7 +408,15 @@ function renderChat() {
 
   // Input
   h += '<div class="chat-input-area">';
+  h += '<input type="file" id="chatImgInput" accept="image/*" style="display:none" onchange="chatImgSelected(event)">';
+  h += '<div id="chatImgPreviewBar" style="display:none;padding:6px 4px 4px;">' +
+       '<div style="display:inline-flex;align-items:center;gap:8px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:5px 10px;">' +
+       '<img id="chatImgThumb" src="" style="height:36px;width:36px;object-fit:cover;border-radius:6px;border:1px solid rgba(201,168,76,.3);">' +
+       '<span id="chatImgName" style="font-size:.7rem;color:var(--t3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>' +
+       '<button onclick="chatImgClear()" style="background:none;border:none;color:var(--t4);font-size:1rem;cursor:pointer;padding:0 2px;line-height:1;">✕</button>' +
+       '</div></div>';
   h += '<div class="chat-input-row">';
+  h += '<button class="chat-img-btn" onclick="document.getElementById(\'chatImgInput\').click()" title="Enviar imagem">📎</button>';
   h += '<textarea id="chatInput" class="chat-input" placeholder="Pergunte algo ou dê um comando..." rows="1" ' +
        'onkeydown="chatInputKey(event)" oninput="chatInputResize(this)"></textarea>';
   h += '<button class="chat-mic-btn" id="chatMicBtn" ontouchstart="chatMicStart(event)" ontouchend="chatMicStop(event)" ' +
@@ -428,11 +437,15 @@ function chatChipSend(text) {
   _chatUserMsg(text);
 }
 
-function _chatBubbleUser(text, ts) {
-  return '<div class="chat-bubble chat-bubble-user">' +
-    '<div class="chat-bubble-text">' + escH(text) + '</div>' +
-    (ts ? '<div class="chat-bubble-ts">' + ts + '</div>' : '') +
-    '</div>';
+function _chatBubbleUser(text, ts, imgData) {
+  var h = '<div class="chat-bubble chat-bubble-user">';
+  if (imgData) {
+    h += '<img src="' + imgData + '" style="max-width:180px;max-height:180px;border-radius:10px;display:block;margin-bottom:' + (text ? '6px' : '0') + ';border:1px solid rgba(201,168,76,.3);">';
+  }
+  if (text) h += '<div class="chat-bubble-text">' + escH(text) + '</div>';
+  if (ts) h += '<div class="chat-bubble-ts">' + ts + '</div>';
+  h += '</div>';
+  return h;
 }
 
 function _chatBubbleBot(text, actions, ts, isAlerta, showChips) {
@@ -492,20 +505,52 @@ function chatSend() {
   var inp = document.getElementById('chatInput');
   if (!inp) return;
   var text = inp.value.trim();
-  if (!text || _chat.thinking) return;
+  var hasImg = !!_chat.pendingImage;
+  if ((!text && !hasImg) || _chat.thinking) return;
   inp.value = '';
   inp.style.height = 'auto';
-  _chatUserMsg(text);
+  _chatUserMsg(text || (hasImg ? '📎 Imagem enviada' : ''), _chat.pendingImage);
+  chatImgClear();
 }
 
-function _chatUserMsg(text) {
+function chatImgSelected(evt) {
+  var file = evt.target.files && evt.target.files[0];
+  if (!file) return;
+  var allowed = ['image/jpeg','image/png','image/gif','image/webp'];
+  if (!allowed.includes(file.type)) { toast('Formato não suportado. Use JPG, PNG ou WEBP.'); return; }
+  if (file.size > 5 * 1024 * 1024) { toast('Imagem muito grande (máx 5MB).'); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+    var base64 = dataUrl.split(',')[1];
+    _chat.pendingImage = { base64: base64, mediaType: file.type, previewUrl: dataUrl, name: file.name };
+    var bar = document.getElementById('chatImgPreviewBar');
+    var thumb = document.getElementById('chatImgThumb');
+    var nameEl = document.getElementById('chatImgName');
+    if (bar) bar.style.display = 'block';
+    if (thumb) thumb.src = dataUrl;
+    if (nameEl) nameEl.textContent = file.name;
+  };
+  reader.readAsDataURL(file);
+  evt.target.value = '';
+}
+
+function chatImgClear() {
+  _chat.pendingImage = null;
+  var bar = document.getElementById('chatImgPreviewBar');
+  if (bar) bar.style.display = 'none';
+}
+
+function _chatUserMsg(text, imgObj) {
   var ts = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-  _chat.history.push({ role: 'user', content: text, ts: ts });
+  var entry = { role: 'user', content: text, ts: ts };
+  if (imgObj) entry.imgData = imgObj.previewUrl;
+  _chat.history.push(entry);
   _chatSave();
   _chat.thinking = true;
   renderChat();
   _chatScrollBottom();
-  _chatAsk(text);
+  _chatAsk(text, imgObj);
 }
 
 function chatClear() {
@@ -699,6 +744,9 @@ function _chatBuildSystem() {
     '16. Histórico job:   {"action":"ver_historico_job","cli":"NOME"} — mostra linha do tempo de edições de um job',
     '17. Aprovar orç.:    {"action":"aprovar_orcamento","cli":"NOME"} — marca orçamento como aprovado (status→aprovado)',
     '18. Perder orç.:     {"action":"marcar_perdido","cli":"NOME","motivo":"opcional"} — marca orçamento como perdido/não fechado',
+    '19. Atualizar pedra: {"action":"atualizar_pedra","id":"ID_PEDRA","custo":236.65,"pr":500} — atualiza custo e/ou preço de venda de uma pedra no catálogo. Use quando o usuário enviar NF ou etiqueta de pedra.',
+    '20. Lançar boleto:   {"action":"lancar_boleto","fornecedor":"NOME","valor":4200,"vencimento":"YYYY-MM-DD"} — cria despesa e entrada a pagar a partir de boleto fotografado.',
+    '21. Lembrete:        {"action":"lembrete","texto":"TEXTO DO LEMBRETE","data":"YYYY-MM-DD"} — salva um lembrete interno para a data informada.',
     '',
     '═══ FORMATO ═══',
     '- **negrito** para números e nomes importantes',
@@ -720,6 +768,8 @@ function _chatClassifyIntent(text) {
     tumulos:     /túmulo|tumulo|jazigo|sepultura|gaveta|monumento|cemitério|cemiterio|falecido|obra funerária|funer/.test(t),
     visitas:     /visita|medição|medicao|medir|agendad|marcar|agendar|cliente/.test(t)
   };
+  // Imagem sem texto → carrega contexto de pedras + finanças
+  flags.temImagem = false; // será setado pelo chamador se necessário
   // Se nada específico, manda contexto geral (finanças + jobs)
   if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.tumulos && !flags.visitas) {
     flags.financas = true; flags.jobs = true;
@@ -727,8 +777,8 @@ function _chatClassifyIntent(text) {
   return flags;
 }
 
-function _chatBuildContextSurgical(userText) {
-  var flags = _chatClassifyIntent(userText);
+function _chatBuildContextSurgical(userText, flags) {
+  if (!flags) flags = _chatClassifyIntent(userText);
   var hoje = td();
   var mes  = hoje.slice(0,7);
   var trans = DB.t || [];
@@ -786,6 +836,17 @@ function _chatBuildContextSurgical(userText) {
   if (flags.tumulos)     parts.push(_chatBuildTumContext());
   if (flags.diagnostico) parts.push(_chatBuildDiagContext());
 
+  // Contexto de pedras quando há imagem (NF, etiqueta de preço)
+  if (flags.temImagem) {
+    var stonesCtx = 'CATÁLOGO DE PEDRAS (para identificar NF/etiqueta):\n';
+    var stones = (typeof CFG !== 'undefined' && CFG.stones) ? CFG.stones : [];
+    if (!stones.length && typeof DEF_STONES !== 'undefined') stones = DEF_STONES;
+    stones.slice(0, 20).forEach(function(s) {
+      stonesCtx += s.nm + ' | venda: R$ ' + (s.pr||0) + '/m² | custo: R$ ' + (s.custo||0) + '/m²\n';
+    });
+    parts.push(stonesCtx);
+  }
+
   // Clientes recentes sempre (são leves)
   var ultCli = {};
   (DB.q||[]).slice(0,20).forEach(function(q){ if(q.cli) ultCli[q.cli]=(q.date||''); });
@@ -794,7 +855,7 @@ function _chatBuildContextSurgical(userText) {
   return parts.join('\n');
 }
 
-function _chatAsk(userText) {
+function _chatAsk(userText, imgObj) {
   var key = CFG && CFG.emp && CFG.emp.apiKey;
   if (!key) {
     _chatBotReply('🔑 Chave de API não configurada. Vá em Config → Empresa para adicionar sua chave.', [
@@ -803,19 +864,58 @@ function _chatAsk(userText) {
     return;
   }
 
-  var ctx = _chatBuildContextSurgical(userText);
+  var _intentFlags = _chatClassifyIntent(userText || '');
+  if (imgObj) {
+    _intentFlags.temImagem = true;
+    // Imagem sem texto: força contexto de pedras + finanças
+    if (!userText || userText === '📎 Imagem enviada') {
+      _intentFlags.orcamentos = true;
+      _intentFlags.financas = true;
+    }
+  }
+  var ctx = _chatBuildContextSurgical(userText, _intentFlags);
   var systemPrompt = _chatBuildSystem() + '\n\nCONTEXTO ATUAL:\n' + ctx;
 
-  // Histórico para a API — últimas 12 mensagens, sem alertas automáticos
+  // Se houver imagem, adiciona instrução ao system para analisar
+  if (imgObj) {
+    systemPrompt += '\n\nO usuário enviou uma imagem. Analise-a com atenção. ' +
+      'Se for uma nota fiscal, boleto ou cupom: extraia fornecedor, valor total e vencimento (se houver). ' +
+      'Se for etiqueta/tabela de preço de pedra: extraia nome da pedra, valor por m² e categoria. ' +
+      'Se for medição ou croqui: extraia as dimensões visíveis. ' +
+      'Ao final, ofereça ações práticas como lançar em Finanças ou atualizar catálogo. ' +
+      'Responda em português, seja direto e use ```json``` para ações quando aplicável.';
+  }
+
+  // Histórico para a API — últimas 24 trocas, sem alertas automáticos
+  // Exclui a última mensagem do usuário (será adicionada abaixo com imagem se houver)
   var apiMessages = [];
-  _chat.history.slice(-24).forEach(function(m) {
+  var histSlice = _chat.history.slice(-25);
+  // Remove a última entrada do usuário do slice (será re-adicionada com conteúdo correto)
+  var lastUserIdx = -1;
+  for (var _hi = histSlice.length - 1; _hi >= 0; _hi--) {
+    if (histSlice[_hi].role === 'user') { lastUserIdx = _hi; break; }
+  }
+  var histForApi = lastUserIdx >= 0 ? histSlice.slice(0, lastUserIdx) : histSlice;
+  histForApi.forEach(function(m) {
     if ((m.role === 'user' || m.role === 'assistant') && !m.isAlerta) {
-      apiMessages.push({role: m.role, content: m.content});
+      apiMessages.push({role: m.role, content: typeof m.content === 'string' ? m.content : (userText || '')});
     }
   });
-  if (!apiMessages.length || apiMessages[apiMessages.length-1].role !== 'user') {
-    apiMessages.push({role:'user', content: userText});
+
+  // Monta a mensagem atual do usuário — com ou sem imagem
+  var currentUserContent;
+  if (imgObj) {
+    currentUserContent = [
+      { type: 'image', source: { type: 'base64', media_type: imgObj.mediaType, data: imgObj.base64 } },
+      { type: 'text', text: userText || 'Analise esta imagem e me diga o que encontrou.' }
+    ];
+  } else {
+    currentUserContent = userText;
   }
+  apiMessages.push({role: 'user', content: currentUserContent});
+
+  // Usa Sonnet quando há imagem (visão), Haiku para texto puro
+  var model = imgObj ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
 
   function doFetch(retryCount) {
     fetch('https://api.anthropic.com/v1/messages', {
@@ -827,8 +927,8 @@ function _chatAsk(userText) {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
+        model: model,
+        max_tokens: 2500,
         system: systemPrompt,
         messages: apiMessages
       })
@@ -1397,6 +1497,64 @@ function _jobLog(job, campo, de, para) {
         result.extra = '⚠️ Função _diagLimpar não encontrada.';
       }
       break;
+
+    case 'atualizar_pedra':
+      if (data.id && (data.custo != null || data.pr != null)) {
+        var stones = (typeof CFG !== 'undefined' && CFG.stones) ? CFG.stones : [];
+        var pedra = stones.find(function(s) { return s.id === data.id; });
+        // Fallback: busca por nome parcial
+        if (!pedra && data.nm) {
+          var nmBusca = (data.nm || '').toLowerCase();
+          pedra = stones.find(function(s) { return s.nm && s.nm.toLowerCase().indexOf(nmBusca) !== -1; });
+        }
+        if (!pedra) {
+          var lista = stones.map(function(s) { return s.id + ' (' + s.nm + ')'; }).join(', ');
+          result.extra = '⚠️ Pedra com id **"' + data.id + '"** não encontrada no catálogo.\nDisponíveis: ' + lista;
+        } else {
+          var mudancas = [];
+          if (data.custo != null) { mudancas.push('custo: R$ ' + fm(pedra.custo||0) + ' → R$ ' + fm(data.custo)); pedra.custo = +data.custo; }
+          if (data.pr != null)    { mudancas.push('venda: R$ ' + fm(pedra.pr||0)    + ' → R$ ' + fm(data.pr));    pedra.pr    = +data.pr; }
+          // Persiste CFG
+          try { localStorage.setItem('hr_cfg', JSON.stringify(CFG)); } catch(eCfg) {}
+          if (typeof renderConfig === 'function') renderConfig();
+          result.extra = '✅ **' + pedra.nm + '** atualizada!\n• ' + mudancas.join('\n• ');
+          result.actions.push({label:'⚙️ Ver Catálogo', fn:'go(6)'});
+        }
+      } else {
+        result.extra = '⚠️ Informe o id da pedra e ao menos custo ou pr. Ex: {action:"atualizar_pedra",id:"p_gabriel",custo:250}';
+      }
+      break;
+
+    case 'lancar_boleto':
+      if (data.fornecedor && data.valor > 0) {
+        var dtBoleto = data.vencimento || hoje;
+        var descBoleto = 'Boleto — ' + data.fornecedor;
+        // Cria despesa futura (a pagar) como lançamento pendente de saída
+        DB.t.unshift({id:_genId(), type:'pend', desc:descBoleto, value:+data.valor, date:dtBoleto, _boleto:true});
+        _dbSv(); if (typeof renderFin === 'function') renderFin();
+        result.extra = '✅ Boleto de **R$ ' + fm(data.valor) + '** para **' + data.fornecedor + '** lançado!' +
+          '\nVencimento: **' + fd(dtBoleto) + '**. Aparecerá em A Receber como despesa pendente.';
+        result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+      } else {
+        result.extra = '⚠️ Informe o fornecedor e o valor do boleto.';
+      }
+      break;
+
+    case 'lembrete':
+      if (data.texto) {
+        var lembretes = [];
+        try { lembretes = JSON.parse(localStorage.getItem('hr_lembretes') || '[]'); } catch(eL) {}
+        var novoLemb = {id:_genId(), texto:data.texto, data:data.data||hoje, criado:hoje, lido:false};
+        lembretes.unshift(novoLemb);
+        // Mantém últimos 50
+        if (lembretes.length > 50) lembretes = lembretes.slice(0, 50);
+        try { localStorage.setItem('hr_lembretes', JSON.stringify(lembretes)); } catch(eL2) {}
+        result.extra = '📌 Lembrete salvo: **"' + data.texto + '"**' +
+          (data.data && data.data !== hoje ? ' para **' + fd(data.data) + '**' : ' para **hoje**') + '.';
+      } else {
+        result.extra = '⚠️ Informe o texto do lembrete.';
+      }
+      break;
   }
 
   return result;
@@ -1418,11 +1576,22 @@ function _chatBotReply(text, actions) {
   renderChat();
   _chatScrollBottom();
   _chatVozFalar(text);
-  // Remover flag de streaming após animação CSS (22ms × ~words delay)
+  // Remover flag de streaming após animação CSS
   setTimeout(function() {
     var last = _chat.history[_chat.history.length - 1];
     if (last) delete last._streaming;
   }, 800);
+  // Refresh dos chips após ação (contagens podem ter mudado)
+  setTimeout(function() {
+    var chipsEl = document.getElementById('chatChips');
+    if (!chipsEl) return;
+    var chips = _chatGetContextChips();
+    var h = '';
+    chips.forEach(function(c) {
+      h += '<button class="chat-chip" onclick="_chatUserMsg(' + JSON.stringify(c.text) + ')">' + c.label + '</button>';
+    });
+    chipsEl.innerHTML = h;
+  }, 400);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1762,6 +1931,15 @@ function _injectChatStyles() {
       animation:chatPulse 1s infinite;
     }
     .chat-mic-status { font-size:.68rem;color:#f87171;text-align:center;min-height:16px;margin-top:4px; }
-  `;
+    .chat-img-btn {
+      width:40px;height:40px;border-radius:50%;flex-shrink:0;
+      background:var(--s3);border:1px solid var(--bd);
+      color:var(--t2);font-size:1.1rem;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      transition:all .15s;
+    }
+    .chat-img-btn:hover { background:rgba(201,168,76,.12);border-color:rgba(201,168,76,.3);color:var(--gold2); }
+    .chat-img-btn:active { transform:scale(.92); }
+  \`;
   document.head.appendChild(s);
 }
