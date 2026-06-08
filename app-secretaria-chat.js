@@ -1781,7 +1781,7 @@ function _injectChatStyles() {
     @keyframes chatShimmer { 0%{background-position:200%} 100%{background-position:-200%} }
 
     /* ── Wrap ── */
-    .chat-wrap { display:flex;flex-direction:column;height:100%;min-height:0;background:var(--s1); }
+    .chat-wrap { display:flex;flex-direction:column;position:absolute;top:0;left:0;right:0;bottom:0;min-height:0;background:var(--s1); }
 
     /* ── Header ── */
     .chat-header {
