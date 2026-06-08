@@ -1427,16 +1427,12 @@ function secSwitchTab(tab) {
   var chatPanel     = document.getElementById('chatBody');
   var btnBriefing   = document.getElementById('secTabBriefing');
   var btnChat       = document.getElementById('secTabChat');
-
-  // Resetar estilos inline dos botões antes de aplicar o estado
   var baseBtn = 'flex:1;padding:12px 6px;background:none;border:none;font-size:.78rem;font-weight:700;font-family:inherit;cursor:pointer;';
   var activeStyle   = baseBtn + 'border-bottom:2px solid var(--gold2);color:var(--gold2);';
   var inactiveStyle = baseBtn + 'border-bottom:2px solid transparent;color:var(--t3);';
 
   if (tab === 'chat') {
-    // 1) Esconder briefing
     if (briefingPanel) briefingPanel.style.display = 'none';
-    // 2) Mostrar chatPanel ANTES de renderizar (evita height:0 por display:none)
     if (chatPanel) {
       chatPanel.style.display = 'flex';
       chatPanel.style.flexDirection = 'column';
@@ -1447,18 +1443,16 @@ function secSwitchTab(tab) {
     }
     if (btnBriefing) btnBriefing.style.cssText = inactiveStyle;
     if (btnChat)     btnChat.style.cssText     = activeStyle;
-    // 3) Renderizar após exibir (garante que o DOM tem dimensões reais)
     if (typeof renderChat === 'function') {
       requestAnimationFrame(function() {
         renderChat();
-        // Forçar reflow e scroll para o fim
         var msgs = document.getElementById('chatMessages');
         if (msgs) msgs.scrollTop = msgs.scrollHeight;
       });
     }
   } else {
     if (briefingPanel) {
-      briefingPanel.style.display = '';
+      briefingPanel.style.display = 'block';
       briefingPanel.style.overflowY = 'auto';
       briefingPanel.style.flex = '1';
     }

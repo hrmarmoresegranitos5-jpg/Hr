@@ -86,7 +86,11 @@ window.setLayout=function(){
     // Pages ativas e inativas
     document.querySelectorAll('.pg').forEach(function(pg){
       if(pg.classList.contains('on')){
-        pg.style.cssText='display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+        // pg11 (Secretária/Chat) precisa de display:flex para o layout de tabs
+        var _fp = pg.id === 'pg11';
+        pg.style.cssText = _fp
+          ? 'display:flex;flex-direction:column;position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;'
+          : 'display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
       } else {
         pg.style.cssText='display:none;';
       }
@@ -205,8 +209,11 @@ function go(n){
   var pg=document.getElementById('pg'+actualId);
   if(pg){
     pg.classList.add('on');
-    pg.style.cssText='display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
-    pg.scrollTop=0;
+    var _fp11 = pg.id === 'pg11';
+    pg.style.cssText = _fp11
+      ? 'display:flex;flex-direction:column;position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;'
+      : 'display:block;position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;';
+    if(!_fp11) pg.scrollTop=0;
   }
   aplicarEstiloNi();
   if(n===2)buildCubaList();
@@ -220,7 +227,14 @@ function go(n){
   if(n===10){if(typeof renderContratos==='function')renderContratos();}
   if(n===20){if(typeof buildCapelas==='function')buildCapelas();}
   if(n===30){if(typeof HR_FUNC!=='undefined'&&typeof HR_FUNC.renderPaginaFuncionarios==='function')HR_FUNC.renderPaginaFuncionarios();}
-  if(n===11){if(typeof renderSecretaria==='function')renderSecretaria();}
+  if(n===11){
+    var _sb=document.getElementById('secBody');
+    var _cb=document.getElementById('chatBody');
+    if(_sb){_sb.style.display='block';_sb.style.flex='1';_sb.style.overflowY='auto';}
+    if(_cb){_cb.style.display='none';}
+    if(typeof secSwitchTab==='function') secSwitchTab('briefing');
+    else if(typeof renderSecretaria==='function') renderSecretaria();
+  }
   if(n===12){if(typeof renderDashboard==='function')renderDashboard();}
 }
 
