@@ -103,3 +103,17 @@ document.addEventListener('DOMContentLoaded', function(){
 
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(function(){t.classList.remove('on');},2500);}
 
+// ── Forçar portrait quando instalado como PWA ──
+(function() {
+  var isInPWA = window.matchMedia('(display-mode: standalone)').matches
+             || window.navigator.standalone === true;
+  if (isInPWA && screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('portrait-primary').catch(function(){});
+  }
+  // Monitorar mudança para display-mode standalone (ex: ao instalar)
+  window.matchMedia('(display-mode: standalone)').addEventListener('change', function(e) {
+    if (e.matches && screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('portrait-primary').catch(function(){});
+    }
+  });
+})();
