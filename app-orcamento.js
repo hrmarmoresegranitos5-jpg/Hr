@@ -1695,6 +1695,9 @@ function abrirAIMd(ambId){
   if(_aiStatus){_aiStatus.textContent='Ambiente: '+(amb?amb.tipo:'');_aiStatus.className='ai-status';}
   if(_aiResultBox)_aiResultBox.style.display='none';
   if(_btnAIAplicar)_btnAIAplicar.style.display='none';
+  // Resetar para aba de texto e limpar foto
+  if(typeof aiSwitchTab==='function')aiSwitchTab('texto');
+  if(typeof aiFotoLimpar==='function')aiFotoLimpar();
   showMd('aiMd');
 }
 

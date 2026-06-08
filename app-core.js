@@ -8550,74 +8550,110 @@ function aiInterpretar(){
   document.getElementById('aiResultBox').style.display='none';
   document.getElementById('btnAIAplicar').style.display='none';
 
-  var prompt = 'Você é um assistente especializado em orçamentos de mármore e granito.\n'
-    +'O cliente descreveu o projeto:\n"'+desc+'"\n\n'
-    +'Extraia os itens e retorne APENAS JSON válido, sem markdown:\n'
+  var _ambTipos = typeof TIPOS_AMBIENTE !== 'undefined' ? TIPOS_AMBIENTE.join(', ') : 'Cozinha, Banheiro, Lavabo, Soleira, Peitoril, Escada, Fachada, Túmulo, Borda Piscina, Rodapé de Box, Balcão, Outro';
+  var prompt =
+    'Você é um assistente especializado em orçamentos de mármore e granito brasileiro.\n'
+    +'Descrição do projeto: "'+desc+'"\n\n'
+    +'Retorne APENAS JSON válido, sem markdown:\n'
     +'{\n'
-    +'  "pecas":[\n'
-    +'    {"desc":"Bancada principal","w":350,"h":60,"q":1}\n'
-    +'  ],\n'
-    +'  "servicos":[\n'
-    +'    {"k":"s_reta","label":"Sainha Reta","ml":4.2,"altCm":6},\n'
-    +'    {"k":"forn","label":"Furo Torneira","un":1},\n'
-    +'    {"k":"inst","label":"Instalação Padrão"},\n'
-    +'    {"k":"ac_sifao","label":"Sifão","un":1}\n'
+    +'  "cliente": "nome do cliente se mencionado, ou null",\n'
+    +'  "material": "pedra/material se mencionado, ou null",\n'
+    +'  "ambientes": [\n'
+    +'    {\n'
+    +'      "tipo": "Cozinha",\n'
+    +'      "pecas": [{"desc":"Bancada principal","w":350,"h":60,"q":1}],\n'
+    +'      "servicos": [\n'
+    +'        {"k":"s_reta","label":"Sainha Reta","ml":4.2,"altCm":6},\n'
+    +'        {"k":"inst","label":"Instalação Padrão"}\n'
+    +'      ]\n'
+    +'    }\n'
     +'  ]\n'
     +'}\n\n'
+    +'Tipos de ambiente válidos: '+_ambTipos+'\n\n'
     +'Keys de serviços válidas:\n'
-    +'Sainha: s_reta, s_45, s_boleada, s_slim\n'
+    +'Sainha: s_reta, s_45, s_boleada, s_slim (inclua ml e altCm, padrão 6cm)\n'
     +'Frontão: frontao (inclua ml e altCm)\n'
-    +'Soleira: sol1, sol2 (inclua ml)\n'
-    +'Peitoril: peit_reto, peit_ping, peit_col, peit_portal (inclua ml)\n'
-    +'Furos/recortes: forn, fralo, cook (inclua un)\n'
-    +'Rebaixo: reb_n, reb_a\n'
-    +'Fixação: tubo, cant (inclua un)\n'
-    +'Instalação: inst, inst_c\n'
-    +'Acessórios: ac_sifao, ac_flex, ac_veda, ac_sil, ac_paraf, ac_sup (inclua un)\n'
-    +'Deslocamento: desl_for (inclua km como un)\n\n'
-    +'Regras: w e h em cm; sainha/frontão sempre com ml e altCm (padrão 6cm); retorne SÓ o JSON.';
+    +'Soleira: sol1 (1 lado), sol2 (2 lados) — inclua ml = q × (w/100)\n'
+    +'Peitoril: peit_reto (sem pingadeira), peit_ping (com pingadeira), peit_col, peit_portal — inclua ml\n'
+    +'Furos/recortes: forn (torneira), fralo (ralo), cook (cooktop) — inclua un\n'
+    +'Rebaixo: reb_n (normal), reb_a (americano)\n'
+    +'Fixação: tubo, cant — inclua un\n'
+    +'Instalação: inst (padrão), inst_c (complexa)\n'
+    +'Acessórios: ac_sifao, ac_flex, ac_veda, ac_sil, ac_paraf, ac_sup — inclua un\n'
+    +'Deslocamento: desl_for — inclua km como un\n\n'
+    +'REGRAS:\n'
+    +'- Crie um ambiente por tipo (Soleira num, Peitoril noutro, etc.)\n'
+    +'- w e h em cm; ml = q × (w/100)\n'
+    +'- Peças do mesmo tipo: agrupe em q\n'
+    +'- Retorne SÓ o JSON.';
 
-  fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    headers:{
-      'Content-Type':'application/json',
-      'Authorization':'Bearer '+((CFG.emp&&CFG.emp.apiKey)||'')
-    },
-    body:JSON.stringify({
-      model:'llama-3.1-8b-instant',
-      max_tokens:1500,
-      messages:[
-        {role:'system',content:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.'},
-        {role:'user',content:prompt}
-      ]
-    })
-  })
-  .then(function(r){return r.json();})
-  .then(function(data){
-    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
-    if(data.error){
-      st.className='ai-status err';
-      st.textContent='❌ '+data.error.message+'\n\nDica: configure sua API Key Groq em Config → Empresa.';
-      return;
-    }
-    var txt=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
-    txt=txt.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+  var _aiKey = (CFG.emp&&CFG.emp.apiKey)||'';
+  var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
+
+  var fetchPromise;
+  if (_aiIsAnthropic) {
+    // Claude Haiku via Anthropic — mais preciso
+    fetchPromise = fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': _aiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        system: 'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+    }).then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.error) throw new Error(data.error.message || 'Erro Anthropic');
+      return (data.content && data.content[0] && data.content[0].text) || '';
+    });
+  } else {
+    // Groq — fallback gratuito
+    fetchPromise = fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + _aiKey
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1500,
+        messages: [
+          { role: 'system', content: 'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.' },
+          { role: 'user', content: prompt }
+        ]
+      })
+    }).then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.error) throw new Error(data.error.message || 'Erro Groq');
+      return (data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||'';
+    });
+  }
+
+  fetchPromise
+  .then(function(txt){
+    btn.disabled=false; btn.textContent='✨ Interpretar com IA';
+    txt = txt.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
     var parsed;
-    try{parsed=JSON.parse(txt);}
-    catch(e){
+    try { parsed = JSON.parse(txt); }
+    catch(e) {
       st.className='ai-status err';
       st.textContent='❌ Não consegui interpretar. Descreva com mais detalhes.';
       return;
     }
-    _aiResultData=parsed;
+    _aiResultData = parsed;
     aiMostrarResultado(parsed);
     st.className='ai-status ok';
     st.textContent='✓ Projeto interpretado! Revise e aplique.';
   })
-  .catch(function(){
-    btn.disabled=false;btn.textContent='✨ Interpretar com IA';
-    // Try local rule-based fallback
-    aiFallbackLocal(desc,st);
+  .catch(function(e){
+    btn.disabled=false; btn.textContent='✨ Interpretar com IA';
+    aiFallbackLocal(desc, st);
   });
 }
 
@@ -8684,114 +8720,489 @@ function aiFallbackLocal(desc,st){
     st.textContent='❌ Sem internet e não consegui interpretar. Descreva com dimensões como "350×60cm".';
     return;
   }
+  // Normalizar para formato ambientes[]
+  parsed.ambientes = [{
+    tipo: 'Projeto',
+    pecas: parsed.pecas || [],
+    servicos: parsed.servicos || []
+  }];
+  parsed._normalizado = true;
   _aiResultData=parsed;
   aiMostrarResultado(parsed);
   st.className='ai-status ok';
   st.textContent='✓ Interpretado localmente (sem internet). Revise os itens!';
 }
 
-function aiMostrarResultado(parsed){
-  var h='';
-  // Peças
-  if(parsed.pecas&&parsed.pecas.length){
-    h+='<div style="font-size:.6rem;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">📐 Peças</div>';
-    parsed.pecas.forEach(function(p,i){
-      var mat=CFG.stones.find(function(s){return s.id===selMat;});
-      var m2=p.w&&p.h?(p.w/100)*(p.h/100)*(p.q||1):0;
-      var prev=mat&&m2?'≈ R$ '+fm(m2*mat.pr):'';
-      h+='<div class="ai-piece">'
-       +'<div class="ai-piece-chk on" data-aipc="'+i+'">✓</div>'
-       +'<div class="ai-piece-info">'
-       +'<div class="ai-piece-name">'+(p.desc||'Peça')+'</div>'
-       +'<div class="ai-piece-dim">'+p.w+'×'+p.h+'cm'+(p.q>1?' × '+p.q:'')+(prev?' · <span style="color:var(--grn)">'+prev+'</span>':'')+'</div>'
-       +'</div></div>';
+function _aiRenderPecasServicos(pecas, servicos, ambIdx) {
+  var h = '';
+  var mat = CFG && CFG.stones && CFG.stones.find(function(s){ return s.id === selMat; });
+  if (pecas && pecas.length) {
+    pecas.forEach(function(p, i) {
+      var m2 = p.w && p.h ? (p.w/100)*(p.h/100)*(p.q||1) : 0;
+      var prev = mat && m2 ? ' \u00b7 <span style="color:var(--grn)">\u2248 R$ '+fm(m2*mat.pr)+'</span>' : '';
+      var key = 'pc:'+ambIdx+':'+i;
+      h += '<div class="ai-piece">'
+        + '<div class="ai-piece-chk on" data-aikey="'+key+'">\u2713</div>'
+        + '<div class="ai-piece-info">'
+        + '<div class="ai-piece-name">'+(p.desc||'Pe\u00e7a')+'</div>'
+        + '<div class="ai-piece-dim">'+p.w+'\u00d7'+p.h+'cm'+(p.q>1?' \u00d7 '+p.q:'')+prev+'</div>'
+        + '</div></div>';
     });
   }
-  // Serviços e Acessórios separados
-  var svs=(parsed.servicos||[]).filter(function(s){return !s.k.startsWith('ac_');});
-  var acs=(parsed.servicos||[]).filter(function(s){return s.k.startsWith('ac_');});
-  if(svs.length){
-    h+='<div style="font-size:.6rem;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin:10px 0 6px;">🔧 Serviços</div>';
-    svs.forEach(function(s,i){
-      var idx=(parsed.pecas||[]).length+i;
-      var detalhe='';
-      if(s.ml)detalhe=' — '+s.ml+'ml'+(s.altCm?' × '+s.altCm+'cm':'');
-      else if(s.un&&s.un>1)detalhe=' — '+s.un+'×';
-      var pr=getPr(s.k);
-      h+='<div class="ai-piece">'
-       +'<div class="ai-piece-chk on" data-aisv="'+(parsed.servicos.indexOf(s))+'">✓</div>'
-       +'<div class="ai-piece-info">'
-       +'<div class="ai-piece-name">'+(s.label||s.k)+'</div>'
-       +'<div class="ai-piece-dim">'+(pr?'R$ '+pr:'')+''+detalhe+'</div>'
-       +'</div></div>';
-    });
+  var svs = (servicos||[]).filter(function(s){ return s.k.indexOf('ac_') !== 0; });
+  var acs = (servicos||[]).filter(function(s){ return s.k.indexOf('ac_') === 0; });
+  function renderSv(s, idx) {
+    var det = '';
+    if (s.ml) det = ' \u2014 '+s.ml+'ml'+(s.altCm?' \u00d7 '+s.altCm+'cm':'');
+    else if (s.un && s.un > 1) det = ' \u2014 '+s.un+'\u00d7';
+    var pr = getPr(s.k);
+    var key = 'sv:'+ambIdx+':'+idx;
+    return '<div class="ai-piece">'
+      + '<div class="ai-piece-chk on" data-aikey="'+key+'">\u2713</div>'
+      + '<div class="ai-piece-info">'
+      + '<div class="ai-piece-name">'+(s.label||s.k)+'</div>'
+      + '<div class="ai-piece-dim">'+(pr?'R$ '+fm(pr):'')+(det||'')+'</div>'
+      + '</div></div>';
   }
-  if(acs.length){
-    h+='<div style="font-size:.6rem;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin:10px 0 6px;">🔩 Acessórios</div>';
-    acs.forEach(function(s){
-      var detalhe=s.un?(' — '+s.un+'×'):'';
-      var pr=getPr(s.k);
-      h+='<div class="ai-piece">'
-       +'<div class="ai-piece-chk on" data-aisv="'+(parsed.servicos.indexOf(s))+'">✓</div>'
-       +'<div class="ai-piece-info">'
-       +'<div class="ai-piece-name">'+(s.label||s.k)+'</div>'
-       +'<div class="ai-piece-dim">'+(pr?'R$ '+pr:'')+''+detalhe+'</div>'
-       +'</div></div>';
-    });
+  if (svs.length) {
+    h += '<div style="font-size:.6rem;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin:8px 0 5px;">\ud83d\udd27 Servi\u00e7os</div>';
+    svs.forEach(function(s,i){ h += renderSv(s, (pecas||[]).length+i); });
   }
-  if(!parsed.pecas.length&&!parsed.servicos.length){
-    h='<div style="color:var(--t3);font-size:.8rem;text-align:center;padding:16px;">Nenhum item identificado. Tente descrever com mais detalhes.</div>';
+  if (acs.length) {
+    h += '<div style="font-size:.6rem;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;margin:8px 0 5px;">\ud83d\udd29 Acess\u00f3rios</div>';
+    acs.forEach(function(s,i){ h += renderSv(s, (pecas||[]).length+svs.length+i); });
   }
-  document.getElementById('aiResultList').innerHTML=h;
-  document.getElementById('aiResultBox').style.display='block';
-  document.getElementById('btnAIAplicar').style.display='block';
-  // Toggle checkmarks
-  document.getElementById('aiResultList').addEventListener('click',function(e){
-    var chk=e.target.closest('[data-aipc],[data-aisv]');
-    if(chk)chk.classList.toggle('on');
-  });
+  return h;
 }
 
-function aiAplicar(){
-  if(!_aiResultData)return;
-  var ambId=_aiAmbId;
-  var amb=ambientes.find(function(a){return a.id===ambId;});
-  if(!amb)amb=ambientes[0];
-  if(!amb)return;
-  var applied=0;
-
-  // Apply peças
-  (_aiResultData.pecas||[]).forEach(function(p,i){
-    var chk=document.querySelector('[data-aipc="'+i+'"]');
-    if(!chk||!chk.classList.contains('on'))return;
-    var existing=amb.pecas[0];
-    if(existing&&!existing.w&&!existing.h&&!existing.desc){
-      // Fill the empty first peca
-      existing.desc=p.desc||'Peça';
-      existing.w=+p.w||0;
-      existing.h=+p.h||0;
-      existing.q=+p.q||1;
-    } else {
-      amb.pecas.push({id:Date.now()+i,desc:p.desc||'Peça',w:+p.w||0,h:+p.h||0,q:+p.q||1});
+function aiMostrarResultado(parsed) {
+  // Normalizar: suporte ao formato novo {ambientes:[]} e legado {pecas:[],servicos:[]}
+  if (!parsed._normalizado) {
+    if (!parsed.ambientes || !parsed.ambientes.length) {
+      parsed.ambientes = [{
+        tipo: parsed.tipo || 'Projeto',
+        pecas: parsed.pecas || [],
+        servicos: parsed.servicos || []
+      }];
     }
-    applied++;
+    parsed._normalizado = true;
+  }
+
+  var h = '';
+  var totalItens = 0;
+
+  // Banner cliente/material se identificados
+  var infoTags = '';
+  if (parsed.cliente) infoTags += '<span style="background:var(--s3);border:1px solid var(--bd2);border-radius:6px;padding:3px 8px;font-size:.7rem;color:var(--gold2);margin-right:6px;">\ud83d\udc64 '+escH(parsed.cliente)+'</span>';
+  if (parsed.material) infoTags += '<span style="background:var(--s3);border:1px solid var(--bd2);border-radius:6px;padding:3px 8px;font-size:.7rem;color:var(--gold2);">\ud83e\udea8 '+escH(parsed.material)+'</span>';
+  if (infoTags) h += '<div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:4px;">'+infoTags+'</div>';
+
+  (parsed.ambientes||[]).forEach(function(amb, ai) {
+    var totalAmb = (amb.pecas||[]).length + (amb.servicos||[]).length;
+    if (!totalAmb) return;
+    totalItens += totalAmb;
+    h += '<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;">';
+    h += '<div style="font-size:.65rem;color:var(--gold2);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;margin-bottom:8px;">\ud83d\udce6 '+(amb.tipo||'Ambiente '+(ai+1))+'</div>';
+    h += _aiRenderPecasServicos(amb.pecas, amb.servicos, ai);
+    h += '</div>';
   });
 
-  // Apply serviços
-  if(!amb.svState)amb.svState={};
-  (_aiResultData.servicos||[]).forEach(function(s,i){
-    var chk=document.querySelector('[data-aisv="'+i+'"]');
-    if(!chk||!chk.classList.contains('on'))return;
-    var sv={ml:s.ml||0,altCm:s.altCm||6,q:s.q||1,qty:s.un||1};
-    amb.svState[s.k]=sv;
-    applied++;
+  if (!totalItens) {
+    h = '<div style="color:var(--t3);font-size:.8rem;text-align:center;padding:16px;">Nenhum item identificado. Tente descrever com mais detalhes.</div>';
+  }
+
+  var list = document.getElementById('aiResultList');
+  var box  = document.getElementById('aiResultBox');
+  var baa  = document.getElementById('btnAIAplicar');
+  if (!list || !box || !baa) return;
+  list.innerHTML = h;
+  box.style.display = 'block';
+  baa.style.display = 'block';
+
+  // Substituir nó para evitar listeners duplicados
+  var newList = list.cloneNode(true);
+  list.parentNode.replaceChild(newList, list);
+  newList.addEventListener('click', function(e) {
+    var chk = e.target.closest('[data-aikey]');
+    if (chk) chk.classList.toggle('on');
+  });
+}
+function aiAplicar(){
+  if(!_aiResultData) return;
+  var parsed = _aiResultData;
+  var applied = 0;
+
+  // Normalizar formato legado
+  if (!parsed._normalizado) {
+    if (!parsed.ambientes || !parsed.ambientes.length) {
+      parsed.ambientes = [{
+        tipo: parsed.tipo || 'Projeto',
+        pecas: parsed.pecas || [],
+        servicos: parsed.servicos || []
+      }];
+    }
+    parsed._normalizado = true;
+  }
+
+  // Preencher cliente se identificado
+  if (parsed.cliente) {
+    var elCli = document.getElementById('oCliente');
+    if (elCli && !elCli.value.trim()) {
+      elCli.value = parsed.cliente;
+      elCli.dispatchEvent(new Event('input', {bubbles:true}));
+    }
+  }
+
+  // Selecionar material se identificado
+  if (parsed.material && CFG && CFG.stones) {
+    var matNorm = parsed.material.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    var matchMat = CFG.stones.find(function(s){
+      var sn = s.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return sn.indexOf(matNorm) >= 0 || matNorm.indexOf(sn) >= 0;
+    });
+    if (matchMat) {
+      // Aplicar a todos os ambientes sem material definido
+      ambientes.forEach(function(a){ if(!a.selMat) a.selMat = matchMat.id; });
+    }
+  }
+
+  // Obter o ambiente atual (âncora para posição na lista)
+  var anchorAmb = ambientes.find(function(a){ return a.id === _aiAmbId; }) || ambientes[0];
+  var anchorIdx = anchorAmb ? ambientes.indexOf(anchorAmb) : ambientes.length - 1;
+
+  var TIPOS_VALIDOS = typeof TIPOS_AMBIENTE !== 'undefined' ? TIPOS_AMBIENTE : [];
+
+  (parsed.ambientes||[]).forEach(function(ambData, ai) {
+    // Verificar se há itens marcados neste grupo
+    var hasChecked = false;
+    (ambData.pecas||[]).forEach(function(_,i){
+      var el = document.querySelector('[data-aikey="pc:'+ai+':'+i+'"]');
+      if (el && el.classList.contains('on')) hasChecked = true;
+    });
+    (ambData.servicos||[]).forEach(function(_,i){
+      var el = document.querySelector('[data-aikey="sv:'+ai+':'+i+'"]');
+      if (el && el.classList.contains('on')) hasChecked = true;
+    });
+    if (!hasChecked) return;
+
+    // Encontrar ou criar ambiente do tipo correto
+    var tipoAlvo = TIPOS_VALIDOS.indexOf(ambData.tipo) >= 0 ? ambData.tipo : 'Outro';
+    var targetAmb = null;
+
+    // Se só tem 1 ambiente e é novo/vazio, reusar
+    if (ambientes.length === 1 && !ambientes[0].selMat && !(ambientes[0].pecas||[]).some(function(p){return p.w||p.h;})) {
+      targetAmb = ambientes[0];
+      targetAmb.tipo = tipoAlvo;
+      if (parsed.material && CFG && CFG.stones) {
+        var mn2 = parsed.material.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        var mm2 = CFG.stones.find(function(s){
+          var sn = s.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+          return sn.indexOf(mn2)>=0||mn2.indexOf(sn)>=0;
+        });
+        if (mm2) targetAmb.selMat = mm2.id;
+      }
+    } else {
+      // Criar novo ambiente inserido após o âncora
+      var newId = Date.now() + ai;
+      var defMat = anchorAmb ? anchorAmb.selMat : (ambientes[0] && ambientes[0].selMat);
+      targetAmb = {id:newId, tipo:tipoAlvo, pecas:[], selCuba:null, svState:{}, acState:{}, selMat:defMat||null};
+      ambientes.splice(anchorIdx + 1 + ai, 0, targetAmb);
+    }
+
+    // Aplicar peças
+    (ambData.pecas||[]).forEach(function(p, i) {
+      var el = document.querySelector('[data-aikey="pc:'+ai+':'+i+'"]');
+      if (!el || !el.classList.contains('on')) return;
+      var existing = targetAmb.pecas[0];
+      if (existing && !existing.w && !existing.h && !existing.desc) {
+        existing.desc = p.desc||'Peça'; existing.w = +p.w||0; existing.h = +p.h||0; existing.q = +p.q||1;
+      } else {
+        targetAmb.pecas.push({id:Date.now()+i, desc:p.desc||'Peça', w:+p.w||0, h:+p.h||0, q:+p.q||1});
+      }
+      applied++;
+    });
+
+    // Aplicar serviços
+    if (!targetAmb.svState) targetAmb.svState = {};
+    (ambData.servicos||[]).forEach(function(s, i) {
+      var el = document.querySelector('[data-aikey="sv:'+ai+':'+i+'"]');
+      if (!el || !el.classList.contains('on')) return;
+      targetAmb.svState[s.k] = {ml:s.ml||0, altCm:s.altCm||6, q:s.q||1, qty:s.un||1};
+      applied++;
+    });
   });
 
   closeAll();
-  _aiResultData=null;
-  _aiAmbId=null;
+  _aiResultData = null;
+  _aiAmbId = null;
   renderAmbientes();
-  toast('✓ '+applied+' itens aplicados!');
+  toast('\u2713 '+applied+' itens aplicados!');
+}
+// ════════════════════════════════════════════════
+// IA POR FOTO — interpreta imagem de pedido/anotação
+// ════════════════════════════════════════════════
+
+// Estado atual da aba do modal de IA
+var _aiCurrentTab = 'texto';
+var _aiFotoBase64 = null;
+var _aiFotoMime = 'image/jpeg';
+
+function aiSwitchTab(tab) {
+  _aiCurrentTab = tab;
+  var painelTexto = document.getElementById('aiPainelTexto');
+  var painelFoto  = document.getElementById('aiPainelFoto');
+  var btnTexto    = document.getElementById('aiTabTexto');
+  var btnFoto     = document.getElementById('aiTabFoto');
+  var btnEnviar   = document.getElementById('btnAIEnviar');
+
+  if (tab === 'foto') {
+    if (painelTexto) painelTexto.style.display = 'none';
+    if (painelFoto)  painelFoto.style.display  = 'block';
+    if (btnTexto) { btnTexto.style.background = 'none'; btnTexto.style.color = 'var(--t3)'; }
+    if (btnFoto)  { btnFoto.style.background  = 'var(--gold)'; btnFoto.style.color = '#000'; }
+    if (btnEnviar) btnEnviar.textContent = '📷 Interpretar Foto com IA';
+  } else {
+    if (painelTexto) painelTexto.style.display = 'block';
+    if (painelFoto)  painelFoto.style.display  = 'none';
+    if (btnTexto) { btnTexto.style.background = 'var(--gold)'; btnTexto.style.color = '#000'; }
+    if (btnFoto)  { btnFoto.style.background  = 'none'; btnFoto.style.color = 'var(--t3)'; }
+    if (btnEnviar) btnEnviar.textContent = '✨ Interpretar com IA';
+  }
+  // Limpar status/resultado ao trocar aba
+  var st = document.getElementById('aiStatus');
+  var rb = document.getElementById('aiResultBox');
+  var ba = document.getElementById('btnAIAplicar');
+  if (st) { st.textContent = ''; st.className = 'ai-status'; }
+  if (rb) rb.style.display = 'none';
+  if (ba) ba.style.display = 'none';
+}
+
+function aiFotoPreview(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  if (file.size > 15 * 1024 * 1024) {
+    toast('Foto muito grande — máximo 15MB');
+    return;
+  }
+  _aiFotoMime = 'image/jpeg'; // sempre JPEG após compressão
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var originalUrl = e.target.result;
+    // Comprimir para máx 1200px e qualidade 0.82
+    var tmpImg = new Image();
+    tmpImg.onload = function() {
+      var canvas = document.createElement('canvas');
+      var MAX = 1200;
+      var w = tmpImg.width, h = tmpImg.height;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else       { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(tmpImg, 0, 0, w, h);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      _aiFotoBase64 = dataUrl.split(',')[1];
+
+      var imgEl = document.getElementById('aiFotoPreviewImg');
+      var wrap  = document.getElementById('aiFotoPreviewWrap');
+      var area  = document.getElementById('aiFotoArea');
+      if (imgEl) imgEl.src = dataUrl;
+      if (wrap)  wrap.style.display = 'block';
+      if (area)  area.style.display = 'none';
+    };
+    tmpImg.src = originalUrl;
+  };
+  reader.readAsDataURL(file);
+}
+
+function aiFotoLimpar() {
+  _aiFotoBase64 = null;
+  var input = document.getElementById('aiFotoInput');
+  var img   = document.getElementById('aiFotoPreviewImg');
+  var wrap  = document.getElementById('aiFotoPreviewWrap');
+  var area  = document.getElementById('aiFotoArea');
+  if (input) input.value = '';
+  if (img)   img.src = '';
+  if (wrap)  wrap.style.display = 'none';
+  if (area)  area.style.display = 'block';
+}
+
+function aiInterpretarFoto() {
+  var key = CFG && CFG.emp && CFG.emp.apiKey;
+  if (!key) {
+    toast('Configure a API Key em Config → Empresa');
+    return;
+  }
+  var isAnthropic = key.indexOf('sk-ant-') === 0;
+  if (!isAnthropic) {
+    toast('⚠️ Foto requer chave Anthropic (sk-ant-...). Groq não suporta visão.');
+    return;
+  }
+  if (!_aiFotoBase64) {
+    toast('Selecione uma foto primeiro');
+    return;
+  }
+
+  var extra = (document.getElementById('aiFotoExtra') || {}).value || '';
+
+  var st  = document.getElementById('aiStatus');
+  var btn = document.getElementById('btnAIEnviar');
+  st.className = 'ai-status loading';
+  st.textContent = '⏳ Analisando foto...';
+  btn.disabled = true;
+  btn.textContent = '⏳ Aguarde...';
+  document.getElementById('aiResultBox').style.display = 'none';
+  document.getElementById('btnAIAplicar').style.display = 'none';
+
+  var TIPOS_SV_KEYS = [
+    'Sainha: s_reta, s_45, s_boleada, s_slim',
+    'Frontão: frontao (inclua ml e altCm)',
+    'Soleira: sol1 (1 lado), sol2 (2 lados) — inclua ml',
+    'Peitoril: peit_reto (reto/sem pingadeira), peit_ping (com pingadeira), peit_col (coluna), peit_portal (portal) — inclua ml',
+    'Furos/recortes: forn (torneira), fralo (ralo), cook (cooktop) — inclua un',
+    'Rebaixo: reb_n (normal), reb_a (americano)',
+    'Fixação: tubo, cant — inclua un',
+    'Instalação: inst (padrão), inst_c (complexa)',
+    'Acessórios: ac_sifao, ac_flex, ac_veda, ac_sil, ac_paraf, ac_sup — inclua un',
+    'Deslocamento: desl_for — inclua km como un'
+  ].join('
+');
+
+  var promptTexto =
+    'Você é um assistente especializado em orçamentos de mármore e granito brasileiro.\n' +
+    'Analise esta imagem — pode ser foto de anotação, pedido manuscrito, print de conversa ou texto digitado.\n\n' +
+    'Extraia TODOS os dados visíveis e retorne APENAS JSON válido, sem markdown:\n' +
+    '{\n' +
+    '  "cliente": "nome do cliente se visível, ou null",\n' +
+    '  "material": "nome da pedra/material se mencionado, ou null",\n' +
+    '  "ambientes": [\n' +
+    '    {\n' +
+    '      "tipo": "Soleira",\n' +
+    '      "pecas": [{"desc":"Soleira","w":142,"h":12,"q":1}],\n' +
+    '      "servicos": [{"k":"sol1","label":"Soleira 1 lado","ml":1.42}]\n' +
+    '    },\n' +
+    '    {\n' +
+    '      "tipo": "Peitoril",\n' +
+    '      "pecas": [{"desc":"Peitoril 132x17","w":132,"h":17,"q":4}],\n' +
+    '      "servicos": [{"k":"peit_reto","label":"Peitoril reto s/ pingadeira","ml":5.28}]\n' +
+    '    }\n' +
+    '  ]\n' +
+    '}\n\n' +
+    'REGRAS IMPORTANTES:\n' +
+    '- w e h sempre em cm; ml = q × (w/100)\n' +
+    '- Para peças com quantidade (ex: "04 132x17"), use q=4\n' +
+    '- "Com acabamento" ou "1 lado" → sol1 / peit_reto\n' +
+    '- "Sem acabamento" → crie só a peça, SEM serviço de acabamento\n' +
+    '- "2 lados" → sol2 / peit_ping\n' +
+    '- Agrupe peças do MESMO tipo em q; crie ambientes separados para tipos diferentes\n' +
+    '- Tipos válidos: Cozinha, Banheiro, Lavabo, Soleira, Peitoril, Escada, Fachada, Túmulo, Borda Piscina, Outro\n' +
+    'Keys de serviços:\n' +
+    TIPOS_SV_KEYS +
+    (extra ? '
+
+Informação adicional do usuário: ' + extra : '') +
+    '
+
+Retorne SÓ o JSON, sem nenhum texto fora dele.';
+
+  var body = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: _aiFotoMime,
+            data: _aiFotoBase64
+          }
+        },
+        {
+          type: 'text',
+          text: promptTexto
+        }
+      ]
+    }]
+  });
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: body
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    btn.textContent = '📷 Interpretar Foto com IA';
+
+    if (data.error) {
+      st.className = 'ai-status err';
+      st.textContent = '❌ ' + (data.error.message || 'Erro na API') + '
+Verifique sua chave Anthropic em Config → Empresa.';
+      return;
+    }
+
+    var txt = (data.content && data.content[0] && data.content[0].text) || '';
+    txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    var parsed;
+    try { parsed = JSON.parse(txt); }
+    catch(e) {
+      st.className = 'ai-status err';
+      st.textContent = '❌ Não consegui ler a imagem. Tente uma foto mais nítida.';
+      return;
+    }
+
+    // Preencher cliente automaticamente se identificado
+    if (parsed.cliente) {
+      var elCli = document.getElementById('oCliente');
+      if (elCli && !elCli.value.trim()) {
+        elCli.value = parsed.cliente;
+        elCli.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+
+    // Selecionar material automaticamente se identificado
+    if (parsed.material && CFG && CFG.stones) {
+      var matNorm = parsed.material.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      var match = CFG.stones.find(function(s) {
+        var sn = s.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return sn.indexOf(matNorm) >= 0 || matNorm.indexOf(sn) >= 0;
+      });
+      if (match) {
+        var amb = ambientes && ambientes.find(function(a) { return a.id === _aiAmbId; });
+        if (!amb && ambientes && ambientes.length) amb = ambientes[0];
+        if (amb && !amb.selMat) {
+          amb.selMat = match.id;
+        }
+      }
+    }
+
+    _aiResultData = parsed;
+    aiMostrarResultado(parsed);
+
+    var infoExtra = [];
+    if (parsed.cliente) infoExtra.push('cliente: ' + parsed.cliente);
+    if (parsed.material) infoExtra.push('material: ' + parsed.material);
+    st.className = 'ai-status ok';
+    st.textContent = '✓ Foto interpretada!' + (infoExtra.length ? ' (' + infoExtra.join(', ') + ')' : '') + ' Revise e aplique.';
+  })
+  .catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = '📷 Interpretar Foto com IA';
+    st.className = 'ai-status err';
+    st.textContent = '❌ Sem conexão ou erro de rede.';
+    console.error('aiInterpretarFoto:', e);
+  });
 }
 
 // ═══ TESTAR API KEY ═══

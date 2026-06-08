@@ -580,24 +580,64 @@ function openApp(pg){
 <div class="ov" id="aiMd">
   <div class="modal" style="padding-bottom:36px;">
     <div class="mtitle">✨ Descrever Projeto</div>
-    <p style="font-size:.76rem;color:var(--t3);line-height:1.65;margin-bottom:13px;">
-      Descreva o projeto em linguagem natural. O Claude identifica as peças, medidas, sainha, frontão, furos e serviços automaticamente.
-    </p>
-    <div style="font-size:.62rem;color:var(--t4);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">Exemplos:</div>
-    <div style="background:var(--s3);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.73rem;color:var(--t2);line-height:1.75;">
-      <span style="color:var(--gold);">→</span> "bancada em L: 350×60cm e 120×60cm, sainha reta nos dois lados, frontão 120×30cm, furo torneira e furo ralo, instalação padrão"<br>
-      <span style="color:var(--gold);">→</span> "bancada 280×60, sainha boleada, rebaixo normal, cuba inox, cantoneira"<br>
-      <span style="color:var(--gold);">→</span> "peitoril 3 janelas de 140cm cada, 2 lados acabamento, instalação padrão"
+
+    <!-- Abas Texto / Foto -->
+    <div style="display:flex;gap:0;background:var(--s3);border-radius:10px;padding:3px;margin-bottom:14px;">
+      <button id="aiTabTexto" onclick="aiSwitchTab('texto')" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:.78rem;font-weight:700;font-family:inherit;background:var(--gold);color:#000;cursor:pointer;">✏️ Texto</button>
+      <button id="aiTabFoto" onclick="aiSwitchTab('foto')" style="flex:1;padding:8px 4px;border:none;border-radius:8px;font-size:.78rem;font-weight:700;font-family:inherit;background:none;color:var(--t3);cursor:pointer;">📷 Foto</button>
     </div>
-    <div class="f">
-      <label>Descreva o projeto</label>
-      <textarea id="aiDesc" rows="5" placeholder="Ex: bancada em L com 350x60cm na parte longa e 120x60cm na parte curta. Sainha reta nos dois lados com 6cm de altura. Frontão de 120x30cm. Furo de torneira, rebaixo normal para cuba, cantoneira e instalação padrão..." style="font-size:.83rem;line-height:1.6;"></textarea>
+
+    <!-- Painel Texto -->
+    <div id="aiPainelTexto">
+      <p style="font-size:.76rem;color:var(--t3);line-height:1.65;margin-bottom:13px;">
+        Descreva o projeto em linguagem natural. A IA identifica peças, medidas, sainha, frontão, furos e serviços.
+      </p>
+      <div style="font-size:.62rem;color:var(--t4);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">Exemplos:</div>
+      <div style="background:var(--s3);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.73rem;color:var(--t2);line-height:1.75;">
+        <span style="color:var(--gold);">→</span> "bancada em L: 350×60cm e 120×60cm, sainha reta, frontão 120×30cm, furo torneira"<br>
+        <span style="color:var(--gold);">→</span> "peitoril 3 janelas de 140cm cada, 2 lados acabamento"
+      </div>
+      <div class="f">
+        <label>Descreva o projeto</label>
+        <textarea id="aiDesc" rows="5" placeholder="Ex: bancada em L com 350x60cm na parte longa e 120x60cm na parte curta. Sainha reta nos dois lados com 6cm de altura. Frontão de 120x30cm. Furo de torneira, rebaixo normal para cuba, cantoneira e instalação padrão..." style="font-size:.83rem;line-height:1.6;"></textarea>
+      </div>
     </div>
+
+    <!-- Painel Foto -->
+    <div id="aiPainelFoto" style="display:none;">
+      <p style="font-size:.76rem;color:var(--t3);line-height:1.65;margin-bottom:13px;">
+        Tire uma foto ou escolha da galeria. A IA lê o nome do cliente, material, peças e medidas automaticamente.<br>
+        <span style="color:var(--gold2);font-weight:600;">Requer chave Anthropic (sk-ant-...) em Config → Empresa.</span>
+      </p>
+
+      <!-- Área de upload -->
+      <input type="file" id="aiFotoInput" accept="image/*" style="display:none;" onchange="aiFotoPreview(this)">
+      <div id="aiFotoArea" onclick="document.getElementById('aiFotoInput').click()"
+        style="border:2px dashed var(--bd2);border-radius:12px;padding:28px 16px;text-align:center;cursor:pointer;margin-bottom:12px;transition:border-color .2s;">
+        <div style="font-size:2rem;margin-bottom:8px;">📷</div>
+        <div style="font-size:.82rem;color:var(--t2);font-weight:600;">Toque para tirar foto ou escolher da galeria</div>
+        <div style="font-size:.7rem;color:var(--t4);margin-top:4px;">JPG, PNG — até 5MB</div>
+      </div>
+
+      <!-- Preview da foto selecionada -->
+      <div id="aiFotoPreviewWrap" style="display:none;margin-bottom:12px;position:relative;">
+        <img id="aiFotoPreviewImg" style="width:100%;border-radius:10px;max-height:200px;object-fit:cover;">
+        <button onclick="aiFotoLimpar()" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);border:none;color:#fff;border-radius:50%;width:28px;height:28px;font-size:1rem;cursor:pointer;line-height:1;">✕</button>
+      </div>
+
+      <!-- Campo opcional para info extra -->
+      <div class="f" style="margin-bottom:0;">
+        <label style="font-size:.7rem;">Informação adicional <span style="color:var(--t4);font-weight:400;">(opcional)</span></label>
+        <input id="aiFotoExtra" type="text" placeholder="Ex: incluir instalação padrão, furo de torneira" style="font-size:.8rem;">
+      </div>
+    </div>
+
     <div id="aiStatus" class="ai-status"></div>
     <div id="aiResultBox" class="ai-result">
       <div class="ai-result-title">Itens identificados — marque os que quer adicionar</div>
       <div id="aiResultList"></div>
     </div>
+
     <button class="btn btn-ai" id="btnAIEnviar" style="width:100%;padding:13px;font-size:.86rem;margin-bottom:9px;">✨ Interpretar com IA</button>
     <button class="btn btn-g" id="btnAIAplicar" style="display:none;margin-bottom:9px;">✓ Aplicar no Orçamento</button>
     <button class="btn btn-o" data-close>Cancelar</button>
