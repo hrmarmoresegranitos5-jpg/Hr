@@ -104,8 +104,9 @@ function renderDashboard() {
   // ── Alerta de vencimento de decêndio (pagamentos pendentes) ──
   (function() {
     try {
-      var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
-      var pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}');
+      var funcs, pags;
+      try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) { funcs = {}; }
+      try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}'); } catch(e) { pags  = {}; }
       var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
       if (!ativos.length) return;
 
@@ -816,9 +817,9 @@ function _injectDashChartStyles() {
 function _dashGraficoCustoEquipe(hoje) {
   var funcs, pags, regs;
   try {
-    funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
-    pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}');
-    regs  = JSON.parse(localStorage.getItem('hr_registros')   || '{}');
+    try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) { funcs = {}; }
+    try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}'); } catch(e) { pags  = {}; }
+    try { regs  = JSON.parse(localStorage.getItem('hr_registros')   || '{}'); } catch(e) { regs  = {}; }
   } catch(e) { return ''; }
 
   var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });

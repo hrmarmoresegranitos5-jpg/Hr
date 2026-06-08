@@ -338,7 +338,8 @@ function _cliFetchAIDesc(q){
     var clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
     var match=clean.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('no_json');
-    var ai=JSON.parse(match[0]);
+    var ai; try { ai=JSON.parse(match[0]); } catch(e) { ai=null; }
+    if(!ai) return null;
     _cliConsultorDraw(q,ai);
   })
   .catch(function(e){
