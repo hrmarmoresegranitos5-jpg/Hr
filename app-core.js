@@ -9067,8 +9067,7 @@ function aiInterpretarFoto() {
     'Instalação: inst (padrão), inst_c (complexa)',
     'Acessórios: ac_sifao, ac_flex, ac_veda, ac_sil, ac_paraf, ac_sup — inclua un',
     'Deslocamento: desl_for — inclua km como un'
-  ].join('
-');
+  ].join('\n');
 
   var promptTexto =
     'Você é um assistente especializado em orçamentos de mármore e granito brasileiro.\n' +
@@ -9100,12 +9099,8 @@ function aiInterpretarFoto() {
     '- Tipos válidos: Cozinha, Banheiro, Lavabo, Soleira, Peitoril, Escada, Fachada, Túmulo, Borda Piscina, Outro\n' +
     'Keys de serviços:\n' +
     TIPOS_SV_KEYS +
-    (extra ? '
-
-Informação adicional do usuário: ' + extra : '') +
-    '
-
-Retorne SÓ o JSON, sem nenhum texto fora dele.';
+    (extra ? '\n\nInformação adicional do usuário: ' + extra : '') +
+    '\n\nRetorne SÓ o JSON, sem nenhum texto fora dele.';
 
   var body = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
@@ -9146,8 +9141,7 @@ Retorne SÓ o JSON, sem nenhum texto fora dele.';
 
     if (data.error) {
       st.className = 'ai-status err';
-      st.textContent = '❌ ' + (data.error.message || 'Erro na API') + '
-Verifique sua chave Anthropic em Config → Empresa.';
+      st.textContent = '❌ ' + (data.error.message || 'Erro na API') + '\nVerifique sua chave Anthropic em Config → Empresa.';
       return;
     }
 
