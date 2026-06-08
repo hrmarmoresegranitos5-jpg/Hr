@@ -1,4 +1,31 @@
 
+
+/* ══ MELHORIAS MOBILE PROFISSIONAL ══ */
+html, body {
+  overscroll-behavior: none;          /* Remove bounce/elastic scroll */
+  -webkit-overflow-scrolling: auto;   /* Desativa inércia que causa bounce */
+  touch-action: pan-y;                /* Só scroll vertical, bloqueia zoom */
+  -ms-touch-action: pan-y;
+  user-select: none;                  /* Sem seleção de texto acidental */
+  -webkit-user-select: none;
+}
+/* Permitir seleção apenas em inputs */
+input, textarea, select, [contenteditable] {
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+/* Áreas de scroll internas: bounce bloqueado */
+.scr, .pg, .sp2-wrap, .ov-body, .ovs {
+  overscroll-behavior: contain;
+}
+/* Cursor padrão sem callout no iOS */
+* {
+  -webkit-touch-callout: none;
+}
+input, textarea, a, img {
+  -webkit-touch-callout: default;
+}
 :root{--gold:#C9A84C;--gold2:#E8C96A;--gold3:#8B6014;--gdim:#2e2208;--bg:#070709;--s1:#0e0e12;--s2:#141418;--s3:#1a1a20;--s4:#22222a;--s5:#2c2c36;--bd:#1e1e26;--bd2:#28282f;--tx:#F4EFE8;--t2:#bfb9b0;--t3:#7a7570;--t4:#4a4540;--grn:#3a9e6a;--red:#c94444;--blu:#4a80b5;--r:14px;}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased;}button,a,[onclick],[data-pg],[data-sv],[data-mat],[data-stone],[data-qa],[data-ftp],[data-tet],[data-ftab],[data-togjob],[data-editjob],[data-pagrest],[data-deljob],[data-rmpc],[data-edittr],[data-pp],[data-catf],[data-ccat],[data-cftab],[data-close],[data-pcuba]{touch-action:manipulation;cursor:pointer;}
 html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-fill-available;min-height:-webkit-fill-available;overflow:hidden;background:var(--bg);color:var(--tx);font-family:Outfit,sans-serif;}
