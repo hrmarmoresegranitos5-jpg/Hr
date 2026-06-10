@@ -1673,6 +1673,8 @@ function updCapExtra(ambId,field,val){
   if(!amb)return;
   if(!amb.capExtra)amb.capExtra={};
   amb.capExtra[field]=val;
+  // subtipo muda o formulário inteiro — re-renderiza imediatamente
+  if(field==='subtipo'){renderAmbientes();}
 }
 
 // ─── CONFIGURADOR DE CAPELINHA ────────────────────────────────────
