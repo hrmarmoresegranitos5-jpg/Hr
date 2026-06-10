@@ -1706,6 +1706,35 @@ function updCapMed(ambId,field,val){
   }
 }
 
+// Atualiza campo de um vaso específico dentro de capExtra.vasos
+function updCapVaso(ambId,vi,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.capExtra)amb.capExtra={};
+  if(!amb.capExtra.vasos)amb.capExtra.vasos=[];
+  if(!amb.capExtra.vasos[vi])amb.capExtra.vasos[vi]={lb:30,lt:20,alt:35,pb:30,ap:5,esp:2,qtd:1};
+  amb.capExtra.vasos[vi][field]=parseFloat(val)||0;
+  clearTimeout(_capMedTimer);
+  _capMedTimer=setTimeout(function(){ renderAmbientes(); },650);
+}
+
+// Adiciona ou remove vaso da lista
+function capAddVaso(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.capExtra)amb.capExtra={};
+  if(!amb.capExtra.vasos)amb.capExtra.vasos=[];
+  var ultimo=amb.capExtra.vasos[amb.capExtra.vasos.length-1];
+  amb.capExtra.vasos.push(ultimo?{lb:ultimo.lb,lt:ultimo.lt,alt:ultimo.alt,pb:ultimo.pb,ap:ultimo.ap,esp:ultimo.esp,qtd:1}:{lb:30,lt:20,alt:35,pb:30,ap:5,esp:2,qtd:1});
+  renderAmbientes();
+}
+function capRemVaso(ambId,vi){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.capExtra||!amb.capExtra.vasos)return;
+  amb.capExtra.vasos.splice(vi,1);
+  renderAmbientes();
+}
+
 // Calcula todas as peças da capelinha a partir das medidas
 function calcCapelaPecas(ce){
   var W=+(ce.capW||0);   // largura interna cm
@@ -1842,6 +1871,29 @@ function calcCapelaPecas(ce){
     add('Escadinha pilar — interna ('+esc1+'cm)',esc1,esc1,nPil*2);
     add('Escadinha pilar — externa ('+esc2+'cm)',esc2,esc2,nPil*2);
   }
+  // ── VASOS ──────────────────────────────────────────────────────
+  var vasos=ce.vasos||[];
+  vasos.forEach(function(v,vi){
+    var vLb=+(v.lb||0),vLt=+(v.lt||0),vAlt=+(v.alt||0);
+    var vPb=+(v.pb||vLb),vAp=+(v.ap||0),vEsp=+(v.esp||2),vQtd=+(v.qtd||1);
+    if(!vLb||!vLt||!vAlt)return;
+    var vPt=vLt*(vPb/vLb);
+    var diffL=(vLb-vLt)/2; var slantL=Math.sqrt(vAlt*vAlt+diffL*diffL);
+    var diffP=(vPb-vPt)/2; var slantP=Math.sqrt(vAlt*vAlt+diffP*diffP);
+    var aLat=((vLb+vLt)/2*slantL)/10000;
+    var aFB=((vPb+vPt)/2*slantP)/10000;
+    var aFundo=(vLb*vPb)/10000;
+    var nm='Vaso '+(vi+1);
+    add(nm+' — face lateral ×2',Math.round((vLb+vLt)/2),Math.round(slantL),vQtd*2);
+    add(nm+' — face frente/trás ×2',Math.round((vPb+vPt)/2),Math.round(slantP),vQtd*2);
+    add(nm+' — fundo',vLb,vPb,vQtd);
+    if(vAp>0){
+      var pL=vLb+vEsp*2; var pP=vPb+vEsp*2;
+      add(nm+' — plinto tampo',pL,pP,vQtd);
+      add(nm+' — plinto faces ×2 long',pL,vAp,vQtd*2);
+      add(nm+' — plinto faces ×2 curt',pP,vAp,vQtd*2);
+    }
+  });
   return pecas;
 }
 
@@ -2666,6 +2718,71 @@ function renderAmbientes(){
         }
         h+='<button onclick="aplicarPecasCapela('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
       }
+      // ── SEÇÃO VASOS ──────────────────────────────────────────────────────
+      h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🏺 Vasos em Granito</div>';
+      var _vasos=ce.vasos||[];
+      if(_vasos.length===0){
+        h+='<div style="font-size:.72rem;color:var(--t4);margin-bottom:8px;">Nenhum vaso configurado.</div>';
+      } else {
+        var _prPedraVasos=0;
+        var _ambMatVasos=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        if(_ambMatVasos)_prPedraVasos=_ambMatVasos.pr||0;
+        _vasos.forEach(function(v,vi){
+          var _vLb=+(v.lb||0),_vLt=+(v.lt||0),_vAlt=+(v.alt||0);
+          var _vPb=+(v.pb||_vLb),_vAp=+(v.ap||0),_vEsp=+(v.esp||2),_vQtd=+(v.qtd||1);
+          // Cálculo geométrico
+          var _aTotal=0;
+          if(_vLb&&_vLt&&_vAlt){
+            var _vPt=_vLt*(_vPb/_vLb);
+            var _dL=(_vLb-_vLt)/2; var _sL=Math.sqrt(_vAlt*_vAlt+_dL*_dL);
+            var _dP=(_vPb-_vPt)/2; var _sP=Math.sqrt(_vAlt*_vAlt+_dP*_dP);
+            _aTotal+=((_vLb+_vLt)/2*_sL/10000)*2;
+            _aTotal+=((_vPb+_vPt)/2*_sP/10000)*2;
+            _aTotal+=(_vLb*_vPb/10000);
+            if(_vAp>0){ var _pL=_vLb+_vEsp*2,_pP=_vPb+_vEsp*2; _aTotal+=(_pL*_pP/10000)+(_pL*_vAp/10000)*2+(_pP*_vAp/10000)*2; }
+            _aTotal*=_vQtd;
+          }
+          var _vValor=_aTotal*_prPedraVasos;
+          h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;overflow:hidden;margin-bottom:8px;">';
+          h+='<div style="background:rgba(201,168,76,.1);padding:7px 12px;display:flex;align-items:center;justify-content:space-between;">';
+          h+='<span style="font-size:.75rem;font-weight:700;color:var(--gold2);">🏺 Vaso '+(vi+1)+'</span>';
+          h+='<div style="display:flex;align-items:center;gap:8px;">';
+          if(_aTotal>0) h+='<span style="font-size:.68rem;color:var(--t3);">'+_aTotal.toFixed(4)+' m²'+(+_vValor>0?' · R$ '+fm(_vValor):'')+'</span>';
+          h+='<button onclick="capRemVaso('+amb.id+','+vi+')" style="background:rgba(220,50,50,.15);border:1px solid rgba(220,50,50,.25);border-radius:5px;padding:3px 8px;color:#e06060;font-size:.7rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>';
+          h+='</div></div>';
+          h+='<div style="padding:10px 12px;">';
+          // Grid de inputs 3 colunas
+          h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px;">';
+          var _vcampos=[
+            {k:'lb',lbl:'Base (cm)'},
+            {k:'lt',lbl:'Topo (cm)'},
+            {k:'alt',lbl:'Altura (cm)'},
+            {k:'pb',lbl:'Prof. (cm)'},
+            {k:'ap',lbl:'Plinto (cm)'},
+            {k:'esp',lbl:'Esp. chapa'}
+          ];
+          _vcampos.forEach(function(c){
+            var _vval=v[c.k]!=null?v[c.k]:(c.k==='esp'?2:c.k==='ap'?5:c.k==='lt'?20:c.k==='alt'?35:30);
+            h+='<div>';
+            h+='<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">'+c.lbl+'</div>';
+            h+='<input type="number" value="'+_vval+'" min="0" step="1"';
+            h+=' style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:6px 7px;color:var(--tx);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;"';
+            h+=' oninput="updCapVaso('+amb.id+','+vi+',\''+c.k+'\''+',this.value)">';
+            h+='</div>';
+          });
+          h+='</div>';
+          // Linha de quantidade
+          h+='<div style="display:flex;align-items:center;gap:8px;">';
+          h+='<span style="font-size:.68rem;color:var(--t4);">Quantidade:</span>';
+          h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',Math.max(1,(+'+(_vQtd)+'-1)))" style="background:none;border:1px solid var(--bd);border-radius:5px;width:24px;height:24px;color:var(--t2);cursor:pointer;font-family:Outfit,sans-serif;">−</button>';
+          h+='<span style="font-size:.82rem;font-weight:700;color:var(--gold2);min-width:16px;text-align:center;">'+_vQtd+'</span>';
+          h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',' +(+_vQtd+1)+ ')" style="background:none;border:1px solid var(--bd);border-radius:5px;width:24px;height:24px;color:var(--gold);cursor:pointer;font-family:Outfit,sans-serif;">+</button>';
+          h+='</div>';
+          h+='</div></div>';
+        });
+      }
+      h+='<button onclick="capAddVaso('+amb.id+')" style="width:100%;margin-top:6px;padding:9px;background:none;border:1.5px dashed rgba(201,168,76,.3);border-radius:9px;color:var(--t4);font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">+ Adicionar Vaso</button>';
       h+='</div>';
     }
     // ── TÚMULO: calculadora v14 embutida inline ──
