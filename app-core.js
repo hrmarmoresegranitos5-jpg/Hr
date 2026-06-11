@@ -1694,6 +1694,15 @@ function updCapMed(ambId,field,val){
       // Salva qual input está ativo antes de destruir o DOM
       var activeId = document.activeElement ? document.activeElement.id : null;
       var activeVal = document.activeElement ? document.activeElement.value : null;
+      // Auto-aplicar peças se a capelinha tiver dimensões válidas
+      if(amb.capExtra){
+        var _autoP=calcCapelaPecas(amb.capExtra);
+        if(_autoP.length){
+          amb.pecas=_autoP.filter(function(p){return !p._isServico;}).map(function(p){
+            return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+          });
+        }
+      }
       renderAmbientes();
       // Restaura foco no mesmo campo, mantendo o teclado aberto no Android
       if(activeId){
@@ -1718,7 +1727,15 @@ function updCapVaso(ambId,vi,field,val){
   if(field==='comBase') amb.capExtra.vasos[vi][field]=(val===true||val==='true');
   else amb.capExtra.vasos[vi][field]=parseFloat(val)||0;
   clearTimeout(_capMedTimer);
-  _capMedTimer=setTimeout(function(){ renderAmbientes(); },650);
+  _capMedTimer=setTimeout(function(){
+    var _autoP=calcCapelaPecas(amb.capExtra);
+    if(_autoP.length){
+      amb.pecas=_autoP.filter(function(p){return !p._isServico;}).map(function(p){
+        return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+      });
+    }
+    renderAmbientes();
+  },650);
 }
 function capAddVaso(ambId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
