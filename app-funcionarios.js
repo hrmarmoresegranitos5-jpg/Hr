@@ -122,6 +122,18 @@ var HR_FUNC = (function () {
     var diff = Math.round((alvo - hoje) / (1000*60*60*24));
     return { label: label, diasRestantes: diff };
   }
+  // Retorna o valor fixo do decendio atual (1º/2º/3º) para um funcionário.
+  // Se não configurado, retorna salario÷3 como fallback.
+  function _valorDecendioAtual(f){
+    var d = new Date().getDate();
+    var dec;
+    if      (d < 10) dec = parseFloat(f.dec1) || 0;
+    else if (d < 20) dec = parseFloat(f.dec2) || 0;
+    else             dec = parseFloat(f.dec3) || 0;
+    if (dec > 0) return dec;
+    // fallback: salario÷3
+    return (parseFloat(f.salario) || 0) / 3;
+  }
   function _labelDecendio(){
     var nd = _proximoDecendio();
     if (nd.diasRestantes === 0) return { txt:'📆 '+nd.label+' HOJE',    urgente:true };
@@ -270,9 +282,31 @@ var HR_FUNC = (function () {
     var totalHoras = meusRegs.reduce(function(s, r){ return s + (parseFloat(r.horas) || 0); }, 0);
     var dias       = meusRegs.length;
 
-    // ── Cálculo de salário proporcional (inalterado) ────────────────────
+    // ── Cálculo de salário: usa decêndios fixos se configurados ────────────
+    // Regra: soma os valores fixos dos decêndios cujo vencimento já passou
+    // dentro do período di–df. Se não houver dec1/dec2/dec3 configurados,
+    // cai no proporcional (comportamento anterior).
     var totalSalario = 0;
-    if (di && df) {
+    var temDec = (parseFloat(f.dec1)||0) > 0 || (parseFloat(f.dec2)||0) > 0 || (parseFloat(f.dec3)||0) > 0;
+
+    if (temDec && di && df) {
+      // Identifica quais decêndios vencem dentro do período di–df
+      var ano  = parseInt(di.slice(0,4));
+      var mesN = parseInt(di.slice(5,7));
+      // último dia do mês do período
+      var ultimoDia = new Date(ano, mesN, 0).getDate();
+      var d10  = di.slice(0,8) + '10';
+      var d20  = di.slice(0,8) + '20';
+      var dFim = di.slice(0,8) + String(ultimoDia).padStart(2,'0');
+
+      if (d10 >= di && d10 <= df)  totalSalario += parseFloat(f.dec1) || 0;
+      if (d20 >= di && d20 <= df)  totalSalario += parseFloat(f.dec2) || 0;
+      if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec3) || 0;
+
+      // Se nenhum decêndio venceu ainda no período (mês em curso, antes do dia 10),
+      // usa zero — o saldo será zerado e o pagamento ainda não é devido.
+    } else if (di && df) {
+      // Proporcional (comportamento anterior — sem dec configurado)
       var duPeriodo = _diasUteisNoIntervalo(di, df);
       totalSalario  = (salario / (duPeriodo || 1)) * dias;
     } else {
@@ -897,7 +931,7 @@ var HR_FUNC = (function () {
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
-          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">÷3 = '+_fmtMoeda(parseFloat(f.salario||0)/3)+'</div>' +
+          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">÷3 = '+_fmtMoeda(_valorDecendioAtual(f))+'</div>' +
           '<div style="font-size:.55rem;color:'+T3+';">por decendio</div>' +
         '</div>' +
       '</div>' +
@@ -1025,6 +1059,18 @@ var HR_FUNC = (function () {
         )
       )+
 
+      _secao('Decêndios (valores fixos a pagar)',
+        '<div style="font-size:.68rem;color:'+T3+';margin-bottom:10px;line-height:1.5;">'+
+          'Informe o valor fixo de cada parcela de 10 dias. '+
+          'Só desconta se o funcionário tiver déficit de horas.'+
+        '</div>'+
+        _grid2(
+          _campo('1º Decêndio — dia 10 (R$)',_inp('ff_dec1','number','0,00',f.dec1!=null?f.dec1:'','min="0" step="0.01"')),
+          _campo('2º Decêndio — dia 20 (R$)',_inp('ff_dec2','number','0,00',f.dec2!=null?f.dec2:'','min="0" step="0.01"'))
+        )+
+        _campo('3º Decêndio — último dia (R$)',_inp('ff_dec3','number','0,00',f.dec3!=null?f.dec3:'','min="0" step="0.01"'))
+      )+
+
       _secao('Observações',
         _campo('Obs. interna (opcional)',_ta('ff_obs','Informações adicionais, restrições, metas...',f.obs,3))
       )+
@@ -1074,6 +1120,9 @@ var HR_FUNC = (function () {
       pix:(document.getElementById('ff_pix')||{}).value||'',
       ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
       jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
+      dec1:(function(){var v=parseFloat((document.getElementById('ff_dec1')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      dec2:(function(){var v=parseFloat((document.getElementById('ff_dec2')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      dec3:(function(){var v=parseFloat((document.getElementById('ff_dec3')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
@@ -1205,7 +1254,7 @@ var HR_FUNC = (function () {
         '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
           '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
           ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
-          ' · Decendio sugerido: '+_fmtMoeda(parseFloat(f.salario||0)/3)+
+          ' · Decendio sugerido: '+_fmtMoeda(_valorDecendioAtual(f))+
         '</div>'+
         '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">'+
           '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
@@ -1269,7 +1318,7 @@ var HR_FUNC = (function () {
       '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
         'style="width:100%;padding:11px;background:rgba(201,168,76,.07);border:1.5px solid rgba(201,168,76,.28);'+
         'color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;">'+
-        '<span>📆</span><span>Registrar Decendio ('+_fmtMoeda(parseFloat(f.salario||0)/3)+')</span>'+
+        '<span>📆</span><span>Registrar Decendio ('+_fmtMoeda(_valorDecendioAtual(f))+')</span>'+
       '</button>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
         '<button onclick="HR_FUNC.abrirHistorico(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📋 Histórico</button>'+
@@ -2166,8 +2215,9 @@ var HR_FUNC = (function () {
         var s2   = calcSaldoFuncionario(fid, null, null);
         info.innerHTML = _blocoSaldo(s2, f2);
         // Sugestão automática para decendio
-        if (inpV && tipo === 'decendio' && f2.salario && parseFloat(f2.salario) > 0) {
-          inpV.value = (parseFloat(f2.salario) / 3).toFixed(2);
+        if (inpV && tipo === 'decendio') {
+          var valDec2 = _valorDecendioAtual(f2);
+          if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
         }
         // Mostra/oculta dica
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
@@ -2243,11 +2293,12 @@ var HR_FUNC = (function () {
       if (selTipo) selTipo.value = 'decendio';
       if (inpData) inpData.value = isoAlvo;
 
-      // Valor sugerido: salário ÷ 3
+      // Valor sugerido: decêndio fixo configurado ou salário ÷ 3
       var funcs = getFuncionarios();
       var f = funcs[funcId] || {};
-      if (inpValor && f.salario && parseFloat(f.salario) > 0) {
-        inpValor.value = (parseFloat(f.salario) / 3).toFixed(2);
+      if (inpValor) {
+        var valDec = _valorDecendioAtual(f);
+        if (valDec > 0) inpValor.value = valDec.toFixed(2);
       }
       if (dica) dica.style.display = '';
     }, 120);

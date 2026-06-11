@@ -2627,6 +2627,14 @@ var HR_IMPORT = (function () {
   function _gerarRelatorioHE(valorHora) {
     valorHora = valorHora || 0;
 
+    // Guard: captura multiplicadores antes de qualquer acesso a CFG.he
+    // (evita TypeError se CFG ou CFG.he for undefined no momento da execução)
+    var _he = (typeof CFG !== 'undefined' && CFG && CFG.he) || {};
+    var _multNormal   = parseFloat(_he.normal)   || 1.5;
+    var _multDomingo  = parseFloat(_he.domingo)  || 2.0;
+    var _multFeriado  = parseFloat(_he.feriado)  || 2.0;
+    var _multEspecial = parseFloat(_he.especial) || 3.0;
+
     var di = _state.periodo.di || '';
     var df = _state.periodo.df || '';
     var fmtPer = function(iso) {
@@ -2755,9 +2763,9 @@ var HR_IMPORT = (function () {
       '<h2>Resumo Consolidado</h2>' +
       '<table>' +
         '<tr><td>Total geral trabalhado</td><td class="val">' + _min2dur(gTotTrab) + '</td></tr>' +
-        (gTot50Min  > 0 ? '<tr><td>HE 50% — Dias úteis</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, CFG.he.normal, valorHora)) : '') + '</td></tr>' : '') +
-        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, CFG.he.domingo, valorHora)) : '') + '</td></tr>' : '') +
-        (gTot200Min > 0 ? '<tr><td>HE 200% — Especial</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, CFG.he.especial, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot50Min  > 0 ? '<tr><td>HE 50% — Dias úteis</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, _multNormal, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, _multDomingo, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot200Min > 0 ? '<tr><td>HE 200% — Especial</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, _multEspecial, valorHora)) : '') + '</td></tr>' : '') +
         (gTotAtraso > 0 ? '<tr><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(gTotAtraso) + '</td></tr>' : '') +
         (valorHora > 0 && gValorFin > 0 ? '<tr><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(gValorFin) + '</b></td></tr>' : '') +
       '</table>' +
@@ -2767,19 +2775,39 @@ var HR_IMPORT = (function () {
 
     '</body></html>';
 
+    // Tenta abrir pop-up; se bloqueado usa Blob URL (funciona em PWA/mobile)
     var win = window.open('', '_blank', 'width=900,height=700');
     if (!win) {
-      _toast('⚠️ Pop-up bloqueado. Permita pop-ups para gerar o relatório.');
+      // Fallback Blob: cria URL local e abre numa nova aba sem depender de pop-up
+      try {
+        var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        var blobUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.click();
+        setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 10000);
+        _toast('📄 Relatório aberto. Use Ctrl+P / Compartilhar para imprimir.');
+      } catch(e) {
+        _toast('⚠️ Não foi possível abrir o relatório. Permita pop-ups no navegador.');
+      }
       return;
     }
     win.document.write(html);
     win.document.close();
-    // Aguarda carregamento antes de imprimir
-    win.onload = function() { win.print(); };
-    // Fallback para browsers que disparam onload antes do write terminar
-    setTimeout(function() {
-      try { if (!win.closed) win.print(); } catch(e) {}
-    }, 800);
+    // Bug 2 fix: usa readyState polling — mais confiável que onload em PWA/mobile
+    var _tentativas = 0;
+    var _aguardar = setInterval(function() {
+      _tentativas++;
+      try {
+        if (win.closed) { clearInterval(_aguardar); return; }
+        if (win.document.readyState === 'complete' || _tentativas >= 20) {
+          clearInterval(_aguardar);
+          win.print();
+        }
+      } catch(e) { clearInterval(_aguardar); }
+    }, 150);
   }
 
   /**
