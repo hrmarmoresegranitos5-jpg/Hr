@@ -20,7 +20,7 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes', adv:'hr_advertencias' };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes', adv:'hr_advertencias', acr:'hr_he_acrescimos' };
 
   function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
   function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
@@ -37,6 +37,8 @@ var HR_FUNC = (function () {
   function saveExcecoes(d){ _save(KEYS.exc,d); }
   function getAdvertencias()  { return _load(KEYS.adv); }
   function saveAdvertencias(d){ _save(KEYS.adv,d); }
+  function getAcrescimos()    { return _load(KEYS.acr); }
+  function saveAcrescimos(d)  { _save(KEYS.acr,d); }
   function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
@@ -124,15 +126,24 @@ var HR_FUNC = (function () {
   }
   // Retorna o valor fixo do decendio atual (1º/2º/3º) para um funcionário.
   // Se não configurado, retorna salario÷3 como fallback.
+  // Retorna o valor fixo do decendio atual (1º/2º/3º) para um funcionário,
+  // já somando os acréscimos HE pendentes (2× e 3×).
+  // Se não configurado, retorna salario÷3 como fallback.
   function _valorDecendioAtual(f){
     var d = new Date().getDate();
     var dec;
     if      (d < 10) dec = parseFloat(f.dec1) || 0;
     else if (d < 20) dec = parseFloat(f.dec2) || 0;
     else             dec = parseFloat(f.dec3) || 0;
-    if (dec > 0) return dec;
-    // fallback: salario÷3
-    return (parseFloat(f.salario) || 0) / 3;
+    if (!dec) dec = (parseFloat(f.salario) || 0) / 3;
+
+    // Soma acréscimos HE pendentes deste funcionário
+    var acrsMap = getAcrescimos();
+    var pendentes = Object.values(acrsMap).filter(function(a){
+      return a.funcionarioId === f.id && a.status === 'pendente';
+    }).reduce(function(s,a){ return s + (parseFloat(a.valor)||0); }, 0);
+
+    return dec + pendentes;
   }
   function _labelDecendio(){
     var nd = _proximoDecendio();
@@ -353,7 +364,19 @@ var HR_FUNC = (function () {
     }
 
     var valorExtra  = heResult.valorTotalExtras;
-    var totalDevido = totalSalario + valorExtra;
+
+    // ── Acréscimos HE pendentes (2× e 3×) ───────────────────────────────
+    // Ficam em hr_he_acrescimos com status='pendente' até o decêndio ser pago.
+    var acrsMap = getAcrescimos();
+    var totalAcrescimos = Object.values(acrsMap).filter(function(a){
+      if (a.funcionarioId !== funcId) return false;
+      if (a.status !== 'pendente') return false;
+      if (di && a.data < di) return false;
+      if (df && a.data > df) return false;
+      return true;
+    }).reduce(function(s,a){ return s + (parseFloat(a.valor)||0); }, 0);
+
+    var totalDevido = totalSalario + valorExtra + totalAcrescimos;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -2334,6 +2357,21 @@ var HR_FUNC = (function () {
       criadoEm:      new Date().toISOString()
     };
     savePagamentos(pags);
+
+    // Ao registrar decêndio, quita os acréscimos HE pendentes do funcionário
+    if (tipo === 'decendio') {
+      var acrs = getAcrescimos();
+      var quitados = 0;
+      Object.keys(acrs).forEach(function(k){
+        if (acrs[k].funcionarioId === funcId && acrs[k].status === 'pendente') {
+          acrs[k].status = 'pago';
+          acrs[k].pagoEm = data;
+          quitados++;
+        }
+      });
+      if (quitados > 0) saveAcrescimos(acrs);
+    }
+
     _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!');
     _closePagamento();
     renderPaginaFuncionarios();
@@ -2589,6 +2627,13 @@ var HR_FUNC = (function () {
       .sort(function(a,b){ return b.data.localeCompare(a.data); });
     var total = meusPags.reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
 
+    // Acréscimos pendentes (HE 2× e 3× ainda não pagos)
+    var acrsMap = getAcrescimos();
+    var meusAcrs = Object.values(acrsMap)
+      .filter(function(a){ return a.funcionarioId === funcId && a.status === 'pendente'; })
+      .sort(function(a,b){ return b.data.localeCompare(a.data); });
+    var totalPendente = meusAcrs.reduce(function(s,a){ return s+(parseFloat(a.valor)||0); },0);
+
     // Totais por tipo
     var porTipo = {};
     meusPags.forEach(function(p){
@@ -2665,6 +2710,30 @@ var HR_FUNC = (function () {
 
       // Lista de lançamentos
       listaHtml+
+
+      // Acréscimos pendentes — serão pagos no próximo decêndio
+      (meusAcrs.length > 0
+        ? '<div style="background:rgba(142,200,240,.06);border:1px solid rgba(142,200,240,.2);'+
+            'border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
+            '<div style="font-size:.6rem;color:#8ec8f0;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">'+
+              '📌 Pendente — será pago no próximo decêndio'+
+            '</div>'+
+            meusAcrs.map(function(a){
+              return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+                  'padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+                '<div>'+
+                  '<div style="font-size:.78rem;font-weight:700;color:#8ec8f0;">'+_esc(a.label||a.tipo)+'</div>'+
+                  '<div style="font-size:.68rem;color:'+T3+';">'+_fmtData(a.data)+' · '+_esc(a.periodo||'')+'</div>'+
+                '</div>'+
+                '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+_fmtMoeda(a.valor)+'</div>'+
+              '</div>';
+            }).join('')+
+            '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;">'+
+              '<div style="font-size:.7rem;color:'+T3+';">Total pendente</div>'+
+              '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+_fmtMoeda(totalPendente)+'</div>'+
+            '</div>'+
+          '</div>'
+        : '')+
 
       '<button onclick="HR_FUNC._closeExtrato()" style="'+CSS_BTN_GHOST+'margin-top:4px;">Fechar</button>'+
     '</div>';
@@ -3181,7 +3250,7 @@ var HR_FUNC = (function () {
     var label    = isTriplo ? 'Bonificação 3×' : 'H. Extras 2×';
 
     var funcs = getFuncionarios();
-    var pags  = getPagamentos();
+    var acrs  = getAcrescimos();  // ← salva como acréscimo pendente, não como pagamento
 
     var alvos;
     if (funcId) {
@@ -3196,36 +3265,40 @@ var HR_FUNC = (function () {
       var r = _calcHEMulti(f.id, di, df, multiplier);
       if (r.totalHorasExtra <= 0) return;
 
-      var jaTem = Object.values(pags).some(function(p){
-        return p.funcionarioId === f.id && p.tipo === tipo && p.periodo === periodoAtivo;
+      // Impede duplicata pendente no mesmo período
+      var jaTem = Object.values(acrs).some(function(a){
+        return a.funcionarioId === f.id && a.tipo === tipo &&
+               a.periodo === periodoAtivo && a.status === 'pendente';
       });
       if (jaTem) {
-        _toast('⚠️ '+f.nome.split(' ')[0]+' já tem '+label+' registrado para '+periodoAtivo);
+        _toast('⚠️ '+f.nome.split(' ')[0]+' já tem '+label+' pendente para '+periodoAtivo);
         return;
       }
 
-      var pid = genId();
-      pags[pid] = {
-        id: pid,
+      var aid = genId();
+      acrs[aid] = {
+        id:            aid,
         funcionarioId: f.id,
-        data: _hoje(),
-        valor: parseFloat(r.valorMulti.toFixed(2)),
-        tipo: tipo,
-        periodo: periodoAtivo,
-        descricao: label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
-        horasExtra: r.totalHorasExtra,
-        valorNormal: parseFloat(r.valorNormal.toFixed(2)),
-        acrescimo: parseFloat(r.acrescimo.toFixed(2)),
-        criadoEm: new Date().toISOString()
+        data:          _hoje(),
+        valor:         parseFloat(r.valorMulti.toFixed(2)),
+        tipo:          tipo,
+        periodo:       periodoAtivo,
+        label:         label,
+        descricao:     label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
+        horasExtra:    r.totalHorasExtra,
+        valorNormal:   parseFloat(r.valorNormal.toFixed(2)),
+        acrescimo:     parseFloat(r.acrescimo.toFixed(2)),
+        status:        'pendente',   // vira 'pago' quando decêndio for registrado
+        criadoEm:      new Date().toISOString()
       };
       gravados++;
     });
 
-    savePagamentos(pags);
+    saveAcrescimos(acrs);
     _closeOverlay(isTriplo ? 'hrBonificacao3x' : 'hrDuplicada2x');
 
     if (gravados > 0) {
-      _toast((isTriplo?'🏆':'⚡⚡')+' '+label+' registrada para '+gravados+' funcionário'+(gravados>1?'s':'')+'!');
+      _toast((isTriplo?'🏆':'⚡⚡')+' '+label+' de '+gravados+' funcionário'+(gravados>1?'s':'')+' — será pago no próximo decêndio!');
       if (typeof renderPaginaFuncionarios === 'function') renderPaginaFuncionarios();
     } else {
       _toast('Nenhum registro gravado (verifique duplicidades ou HE zerada).');
