@@ -1714,8 +1714,9 @@ function updCapVaso(ambId,vi,field,val){
   if(!amb)return;
   if(!amb.capExtra)amb.capExtra={};
   if(!amb.capExtra.vasos)amb.capExtra.vasos=[];
-  if(!amb.capExtra.vasos[vi])amb.capExtra.vasos[vi]={lb:30,lt:20,alt:35,pb:30,ap:5,esp:2,qtd:1};
-  amb.capExtra.vasos[vi][field]=parseFloat(val)||0;
+  if(!amb.capExtra.vasos[vi])amb.capExtra.vasos[vi]={bl:20,bp:15,fl:10,esp:2,comBase:false,espBase:3,alt:35,qtd:1};
+  if(field==='comBase') amb.capExtra.vasos[vi][field]=(val===true||val==='true');
+  else amb.capExtra.vasos[vi][field]=parseFloat(val)||0;
   clearTimeout(_capMedTimer);
   _capMedTimer=setTimeout(function(){ renderAmbientes(); },650);
 }
@@ -1725,7 +1726,7 @@ function capAddVaso(ambId){
   if(!amb.capExtra)amb.capExtra={};
   if(!amb.capExtra.vasos)amb.capExtra.vasos=[];
   var u=amb.capExtra.vasos[amb.capExtra.vasos.length-1];
-  amb.capExtra.vasos.push(u?{lb:u.lb,lt:u.lt,alt:u.alt,pb:u.pb,ap:u.ap,esp:u.esp,qtd:1}:{lb:30,lt:20,alt:35,pb:30,ap:5,esp:2,qtd:1});
+  amb.capExtra.vasos.push(u?{bl:u.bl,bp:u.bp,fl:u.fl,esp:u.esp,comBase:u.comBase||false,espBase:u.espBase||3,alt:u.alt,qtd:1}:{bl:20,bp:15,fl:10,esp:2,comBase:false,espBase:3,alt:35,qtd:1});
   renderAmbientes();
 }
 function capRemVaso(ambId,vi){
@@ -1850,38 +1851,7 @@ function calcCapelaPecas(ce){
     return pecas3;
   }
 
-  // ── VASOS EM GRANITO ────────────────────────────────────────────
-  if(ce.subtipo==='Vasos em Granito'){
-    var pecasV=[];
-    function addV(desc,w,h,q){
-      var m2=(w/100)*(h/100)*(q||1);
-      pecasV.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
-    }
-    var vasosList=ce.vasos||[];
-    if(!vasosList.length) return [];
-    vasosList.forEach(function(v,vi){
-      var vLb=+(v.lb||0),vLt=+(v.lt||0),vAlt=+(v.alt||0);
-      var vPb=+(v.pb||vLb),vAp=+(v.ap||0),vEsp=+(v.esp||2),vQtd=+(v.qtd||1);
-      if(!vLb||!vLt||!vAlt)return;
-      var vPt=vLt*(vPb/vLb);
-      var diffL=(vLb-vLt)/2; var slantL=Math.sqrt(vAlt*vAlt+diffL*diffL);
-      var diffP=(vPb-vPt)/2; var slantP=Math.sqrt(vAlt*vAlt+diffP*diffP);
-      var nm='Vaso '+(vi+1);
-      // arredonda dimensões para inteiros (w,h são usados como cm inteiros)
-      addV(nm+' — face lateral ×2', Math.round((vLb+vLt)/2), Math.round(slantL), vQtd*2);
-      addV(nm+' — face frente/trás ×2', Math.round((vPb+vPt)/2), Math.round(slantP), vQtd*2);
-      addV(nm+' — fundo', vLb, vPb, vQtd);
-      if(vAp>0){
-        var pL=vLb+vEsp*2; var pP=vPb+vEsp*2;
-        addV(nm+' — plinto tampo', pL, pP, vQtd);
-        addV(nm+' — plinto lateral longa ×2', pL, vAp, vQtd*2);
-        addV(nm+' — plinto lateral curta ×2', pP, vAp, vQtd*2);
-      }
-    });
-    return pecasV;
-  }
-
-  // ── CAPELAS CONVENCIONAIS (comportamento original) ───────────────
+  // ── CAPELAS CONVENCIONAIS ────────────────────────────────────────
   if(!W||!P||!H)return [];
   var pecas=[];
   function add(desc,w,h,q){
@@ -1905,24 +1875,24 @@ function calcCapelaPecas(ce){
   // ── VASOS ──────────────────────────────────────────────────────
   var vasos=ce.vasos||[];
   vasos.forEach(function(v,vi){
-    var vLb=+(v.lb||0),vLt=+(v.lt||0),vAlt=+(v.alt||0);
-    var vPb=+(v.pb||vLb),vAp=+(v.ap||0),vEsp=+(v.esp||2),vQtd=+(v.qtd||1);
-    if(!vLb||!vLt||!vAlt)return;
-    var vPt=vLt*(vPb/vLb);
-    var diffL=(vLb-vLt)/2; var slantL=Math.sqrt(vAlt*vAlt+diffL*diffL);
-    var diffP=(vPb-vPt)/2; var slantP=Math.sqrt(vAlt*vAlt+diffP*diffP);
-    var aLat=((vLb+vLt)/2*slantL)/10000;
-    var aFB=((vPb+vPt)/2*slantP)/10000;
-    var aFundo=(vLb*vPb)/10000;
+    var vBl=+(v.bl||0),vBp=+(v.bp||0),vFl=+(v.fl||0),vAlt=+(v.alt||0);
+    var vEsp=+(v.esp||2),vQtd=+(v.qtd||1);
+    var comBase=!!(v.comBase),vEspBase=+(v.espBase||3);
+    if(!vBl||!vBp||!vFl||!vAlt)return;
+    // Profundidade do fundo proporcional
+    var vFp=vFl*vBp/vBl;
+    // Slant heights das faces laterais e frente/trás
+    var diffL=(vBl-vFl)/2; var slantL=Math.sqrt(vAlt*vAlt+diffL*diffL);
+    var diffP=(vBp-vFp)/2; var slantP=Math.sqrt(vAlt*vAlt+diffP*diffP);
     var nm='Vaso '+(vi+1);
-    add(nm+' — face lateral ×2',Math.round((vLb+vLt)/2),Math.round(slantL),vQtd*2);
-    add(nm+' — face frente/trás ×2',Math.round((vPb+vPt)/2),Math.round(slantP),vQtd*2);
-    add(nm+' — fundo',vLb,vPb,vQtd);
-    if(vAp>0){
-      var pL=vLb+vEsp*2; var pP=vPb+vEsp*2;
-      add(nm+' — plinto tampo',pL,pP,vQtd);
-      add(nm+' — plinto faces ×2 long',pL,vAp,vQtd*2);
-      add(nm+' — plinto faces ×2 curt',pP,vAp,vQtd*2);
+    add(nm+' — face lateral ×2',Math.round((vBl+vFl)/2),Math.round(slantL),vQtd*2);
+    add(nm+' — face frente/trás ×2',Math.round((vBp+vFp)/2),Math.round(slantP),vQtd*2);
+    add(nm+' — fundo',vBl,vBp,vQtd);
+    if(comBase){
+      var pL=vBl+vEsp*2; var pP=vBp+vEsp*2;
+      add(nm+' — base tampo',pL,pP,vQtd);
+      add(nm+' — base faces ×2 long',pL,vEspBase,vQtd*2);
+      add(nm+' — base faces ×2 curt',pP,vEspBase,vQtd*2);
     }
   });
   return pecas;
@@ -2542,7 +2512,7 @@ function renderAmbientes(){
       h+='<div class="r2"><div class="f"><label>Quadra</label><input placeholder="Q-12" type="text" style="background:var(--s3);" value="'+escH(ce.quadra||'')+'" oninput="updCapExtra('+amb.id+',\'quadra\',this.value)"></div>';
       h+='<div class="f"><label>Nº / Lote</label><input placeholder="N-04" type="text" style="background:var(--s3);" value="'+escH(ce.lote||'')+'" oninput="updCapExtra('+amb.id+',\'lote\',this.value)"></div></div>';
       h+='<div class="f"><label>Tipo de Capela</label><select style="background:var(--s3);color:var(--tx);border:1px solid var(--bd);border-radius:7px;padding:8px 10px;width:100%;font-size:.82rem;font-family:Outfit,sans-serif;" onchange="updCapExtra('+amb.id+',\'subtipo\',this.value)">';
-      ['Nicho Simples (frontal)','Nicho Duplo (2 gavetas)','Nicho Triplo (3 gavetas)','Capelinha com Pilares','Capelinha com Frontão','Capelinha Monumental','Jazigo com Dois Pilares','Tampa de Jazigo','Vasos em Granito','Reforma / Revestimento'].forEach(function(st){
+      ['Nicho Simples (frontal)','Nicho Duplo (2 gavetas)','Nicho Triplo (3 gavetas)','Capelinha com Pilares','Capelinha com Frontão','Capelinha Monumental','Jazigo com Dois Pilares','Tampa de Jazigo','Reforma / Revestimento'].forEach(function(st){
         h+='<option value="'+st+'"'+(ce.subtipo===st?' selected':'')+'>'+st+'</option>';
       });
       h+='</select></div>';
@@ -2703,7 +2673,8 @@ function renderAmbientes(){
         h+='</div>';
       }
       // ── UI: VASOS EM GRANITO ──────────────────────────────────────────────
-      if(ce.subtipo==='Vasos em Granito'){
+      // ── UI: VASOS (disponível para todos os subtipos) ────────────────────
+      {
         h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🏺 Vasos em Granito</div>';
         var _prPedraV=0;
@@ -2714,40 +2685,56 @@ function renderAmbientes(){
           h+='<div style="font-size:.72rem;color:var(--t4);padding:6px 0 10px;">Nenhum vaso configurado. Clique em "+ Adicionar Vaso" abaixo.</div>';
         } else {
           _vasosList.forEach(function(v,vi){
-            var _vLb=+(v.lb||0),_vLt=+(v.lt||0),_vAlt=+(v.alt||0);
-            var _vPb=+(v.pb||_vLb),_vAp=+(v.ap||0),_vEsp=+(v.esp||2),_vQtd=+(v.qtd||1);
+            var _vBl=+(v.bl||0),_vBp=+(v.bp||0),_vFl=+(v.fl||0),_vAlt=+(v.alt||0);
+            var _vEsp=+(v.esp||2),_vQtd=+(v.qtd||1);
+            var _vComBase=!!(v.comBase),_vEspBase=+(v.espBase||3);
             var _aUnit=0;
-            if(_vLb&&_vLt&&_vAlt){
-              var _vPt=_vLt*(_vPb/_vLb);
-              var _dL=(_vLb-_vLt)/2; var _sL=Math.sqrt(_vAlt*_vAlt+_dL*_dL);
-              var _dP=(_vPb-_vPt)/2; var _sP=Math.sqrt(_vAlt*_vAlt+_dP*_dP);
-              _aUnit+=((_vLb+_vLt)/2*_sL/10000)*2+((_vPb+_vPt)/2*_sP/10000)*2+(_vLb*_vPb/10000);
-              if(_vAp>0){ var _pL=_vLb+_vEsp*2,_pP=_vPb+_vEsp*2; _aUnit+=(_pL*_pP/10000)+(_pL*_vAp/10000)*2+(_pP*_vAp/10000)*2; }
+            if(_vBl&&_vBp&&_vFl&&_vAlt){
+              var _vFp=_vFl*_vBp/_vBl;
+              var _dL=(_vBl-_vFl)/2; var _sL=Math.sqrt(_vAlt*_vAlt+_dL*_dL);
+              var _dP=(_vBp-_vFp)/2; var _sP=Math.sqrt(_vAlt*_vAlt+_dP*_dP);
+              _aUnit+=((_vBl+_vFl)/2*_sL/10000)*2+((_vBp+_vFp)/2*_sP/10000)*2+(_vBl*_vBp/10000);
+              if(_vComBase){ var _pL=_vBl+_vEsp*2,_pP=_vBp+_vEsp*2; _aUnit+=(_pL*_pP/10000)+(_pL*_vEspBase/10000)*2+(_pP*_vEspBase/10000)*2; }
             }
             var _aTot=_aUnit*_vQtd;
             var _vVal=_aTot*_prPedraV;
             h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;overflow:hidden;margin-bottom:8px;">';
-            // Cabeçalho do card
             h+='<div style="background:rgba(201,168,76,.1);padding:7px 12px;display:flex;align-items:center;justify-content:space-between;">';
-            h+='<span style="font-size:.75rem;font-weight:700;color:var(--gold2);">🏺 Vaso '+(vi+1)+'</span>';
+            // Card header: Boca BL×BP → Fundo FL×FP | Alt ALT
+            var _vFpPrev=(_vBl&&_vBp&&_vFl)?(_vFl*_vBp/_vBl).toFixed(1):'?';
+            h+='<span style="font-size:.72rem;font-weight:700;color:var(--gold2);">🏺 Vaso '+(vi+1)+' — Boca '+_vBl+'×'+_vBp+' → Fundo '+_vFl+'×'+_vFpPrev+' | Alt '+_vAlt+'cm</span>';
             h+='<div style="display:flex;align-items:center;gap:8px;">';
             if(_aTot>0)h+='<span style="font-size:.68rem;color:var(--t3);">'+_aTot.toFixed(3)+' m²'+(+_vVal>0?' · R$ '+fm(_vVal):'')+'</span>';
             h+='<button onclick="capRemVaso('+amb.id+','+vi+')" style="background:rgba(220,50,50,.15);border:1px solid rgba(220,50,50,.25);border-radius:5px;padding:3px 9px;color:#e06060;font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>';
             h+='</div></div>';
-            // Inputs
             h+='<div style="padding:10px 12px;">';
             h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px;">';
-            var _vflds=[{k:'lb',lbl:'Base (cm)'},{k:'lt',lbl:'Topo (cm)'},{k:'alt',lbl:'Altura (cm)'},{k:'pb',lbl:'Prof. (cm)'},{k:'ap',lbl:'Plinto (cm)'},{k:'esp',lbl:'Esp. chapa'}];
+            var _vflds=[{k:'bl',lbl:'Boca larg. (cm)'},{k:'bp',lbl:'Boca prof. (cm)'},{k:'fl',lbl:'Fundo larg. (cm)'},{k:'alt',lbl:'Altura (cm)'},{k:'esp',lbl:'Esp. chapa (cm)'}];
             _vflds.forEach(function(cf){
-              var _def={lb:30,lt:20,alt:35,pb:30,ap:5,esp:2};
+              var _def={bl:20,bp:15,fl:10,alt:35,esp:2};
               var _vv=v[cf.k]!=null?v[cf.k]:_def[cf.k];
               h+='<div>';
               h+='<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">'+cf.lbl+'</div>';
               h+='<input type="number" value="'+_vv+'" min="0" step="1" style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:6px 7px;color:var(--tx);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;" oninput="updCapVaso('+amb.id+','+vi+',\''+cf.k+'\',this.value)">';
               h+='</div>';
             });
+            // Fundo prof (read-only, calculado automaticamente)
+            h+='<div>';
+            h+='<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Fundo prof. (auto)</div>';
+            h+='<div style="width:100%;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);border-radius:6px;padding:6px 7px;color:var(--t3);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;">'+_vFpPrev+'cm</div>';
             h+='</div>';
-            // Qtd
+            h+='</div>';
+            // Toggle Com base?
+            h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">';
+            h+='<span style="font-size:.68rem;color:var(--t4);">Com base?</span>';
+            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'comBase\','+(!_vComBase)+')" style="background:'+(_vComBase?'rgba(201,168,76,.25)':'none')+';border:1px solid var(--bd);border-radius:6px;padding:4px 12px;color:'+(_vComBase?'var(--gold2)':'var(--t3)')+';font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">'+(_vComBase?'✓ Sim':'Não')+'</button>';
+            if(_vComBase){
+              h+='<div style="display:flex;align-items:center;gap:6px;margin-left:4px;">';
+              h+='<span style="font-size:.62rem;color:var(--t4);">Esp. base (cm):</span>';
+              h+='<input type="number" value="'+_vEspBase+'" min="1" step="1" style="width:54px;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:4px 7px;color:var(--tx);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;" oninput="updCapVaso('+amb.id+','+vi+',\'espBase\',this.value)">';
+              h+='</div>';
+            }
+            h+='</div>';
             h+='<div style="display:flex;align-items:center;gap:8px;">';
             h+='<span style="font-size:.68rem;color:var(--t4);">Quantidade:</span>';
             h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',Math.max(1,('+_vQtd+'-1)))" style="background:none;border:1px solid var(--bd);border-radius:5px;width:26px;height:26px;color:var(--t2);cursor:pointer;font-family:Outfit,sans-serif;font-size:.9rem;">−</button>';
