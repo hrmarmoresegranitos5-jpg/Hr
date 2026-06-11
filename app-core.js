@@ -2672,17 +2672,31 @@ function renderAmbientes(){
         h+='<div class="f"><label>Lápide — altura (cm)</label><input type="number" placeholder="40" step="1" style="background:var(--s3);" value="'+(ce.tpLapH||40)+'" oninput="updCapMed('+amb.id+',\'tpLapH\',+this.value)"></div>';
         h+='</div>';
       }
-      // ── UI: VASOS EM GRANITO ──────────────────────────────────────────────
       // ── UI: VASOS (disponível para todos os subtipos) ────────────────────
       {
-        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:14px 0 10px;"></div>';
-        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🏺 Vasos em Granito</div>';
+        h+='<div style="border-top:1px solid rgba(201,168,76,.18);margin:16px 0 12px;"></div>';
+        // Cabeçalho da seção
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
+        h+='<div style="display:flex;align-items:center;gap:8px;">';
+        h+='<div style="width:28px;height:28px;border-radius:8px;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);display:flex;align-items:center;justify-content:center;font-size:.9rem;">🏺</div>';
+        h+='<div>';
+        h+='<div style="font-size:.72rem;font-weight:700;color:var(--gold2);letter-spacing:.3px;">Vasos em Granito</div>';
+        h+='<div style="font-size:.58rem;color:var(--t4);margin-top:1px;">Cone truncado · cálculo automático de área</div>';
+        h+='</div></div>';
         var _prPedraV=0;
         var _ambMatV=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
         if(_ambMatV)_prPedraV=_ambMatV.pr||0;
         var _vasosList=ce.vasos||[];
+        if(_vasosList.length>0){
+          h+='<div style="font-size:.62rem;font-weight:700;color:var(--t3);background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.2);border-radius:20px;padding:2px 10px;">'+_vasosList.length+' vaso'+(_vasosList.length>1?'s':'')+'</div>';
+        }
+        h+='</div>';
         if(!_vasosList.length){
-          h+='<div style="font-size:.72rem;color:var(--t4);padding:6px 0 10px;">Nenhum vaso configurado. Clique em "+ Adicionar Vaso" abaixo.</div>';
+          h+='<div style="border:1.5px dashed rgba(201,168,76,.18);border-radius:12px;padding:22px 16px;text-align:center;margin-bottom:8px;">';
+          h+='<div style="font-size:1.8rem;margin-bottom:6px;opacity:.3;">🏺</div>';
+          h+='<div style="font-size:.72rem;font-weight:600;color:var(--t4);">Nenhum vaso configurado</div>';
+          h+='<div style="font-size:.6rem;color:var(--t4);margin-top:3px;opacity:.65;">Clique em "+ Adicionar Vaso" abaixo</div>';
+          h+='</div>';
         } else {
           _vasosList.forEach(function(v,vi){
             var _vBl=+(v.bl||0),_vBp=+(v.bp||0),_vFl=+(v.fl||0),_vAlt=+(v.alt||0);
@@ -2698,53 +2712,120 @@ function renderAmbientes(){
             }
             var _aTot=_aUnit*_vQtd;
             var _vVal=_aTot*_prPedraV;
-            h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:9px;overflow:hidden;margin-bottom:8px;">';
-            h+='<div style="background:rgba(201,168,76,.1);padding:7px 12px;display:flex;align-items:center;justify-content:space-between;">';
-            // Card header: Boca BL×BP → Fundo FL×FP | Alt ALT
-            var _vFpPrev=(_vBl&&_vBp&&_vFl)?(_vFl*_vBp/_vBl).toFixed(1):'?';
-            h+='<span style="font-size:.72rem;font-weight:700;color:var(--gold2);">🏺 Vaso '+(vi+1)+' — Boca '+_vBl+'×'+_vBp+' → Fundo '+_vFl+'×'+_vFpPrev+' | Alt '+_vAlt+'cm</span>';
+            var _vFpPrev=(_vBl&&_vBp&&_vFl)?(_vFl*_vBp/_vBl).toFixed(1):'—';
+            // ── Card ──
+            h+='<div style="border:1px solid rgba(201,168,76,.2);border-radius:12px;overflow:hidden;margin-bottom:10px;">';
+            // Cabeçalho do card
+            h+='<div style="background:linear-gradient(135deg,rgba(201,168,76,.16) 0%,rgba(201,168,76,.07) 100%);padding:8px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(201,168,76,.13);">';
             h+='<div style="display:flex;align-items:center;gap:8px;">';
-            if(_aTot>0)h+='<span style="font-size:.68rem;color:var(--t3);">'+_aTot.toFixed(3)+' m²'+(+_vVal>0?' · R$ '+fm(_vVal):'')+'</span>';
-            h+='<button onclick="capRemVaso('+amb.id+','+vi+')" style="background:rgba(220,50,50,.15);border:1px solid rgba(220,50,50,.25);border-radius:5px;padding:3px 9px;color:#e06060;font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>';
-            h+='</div></div>';
-            h+='<div style="padding:10px 12px;">';
-            h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px;">';
-            var _vflds=[{k:'bl',lbl:'Boca larg. (cm)'},{k:'bp',lbl:'Boca prof. (cm)'},{k:'fl',lbl:'Fundo larg. (cm)'},{k:'alt',lbl:'Altura (cm)'},{k:'esp',lbl:'Esp. chapa (cm)'}];
-            _vflds.forEach(function(cf){
-              var _def={bl:20,bp:15,fl:10,alt:35,esp:2};
-              var _vv=v[cf.k]!=null?v[cf.k]:_def[cf.k];
-              h+='<div>';
-              h+='<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">'+cf.lbl+'</div>';
-              h+='<input type="number" value="'+_vv+'" min="0" step="1" style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:6px 7px;color:var(--tx);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;" oninput="updCapVaso('+amb.id+','+vi+',\''+cf.k+'\',this.value)">';
-              h+='</div>';
-            });
-            // Fundo prof (read-only, calculado automaticamente)
+            h+='<div style="width:22px;height:22px;border-radius:6px;background:rgba(201,168,76,.25);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;color:var(--gold2);flex-shrink:0;">'+(vi+1)+'</div>';
             h+='<div>';
-            h+='<div style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">Fundo prof. (auto)</div>';
-            h+='<div style="width:100%;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);border-radius:6px;padding:6px 7px;color:var(--t3);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;">'+_vFpPrev+'cm</div>';
-            h+='</div>';
-            h+='</div>';
-            // Toggle Com base?
-            h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">';
-            h+='<span style="font-size:.68rem;color:var(--t4);">Com base?</span>';
-            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'comBase\','+(!_vComBase)+')" style="background:'+(_vComBase?'rgba(201,168,76,.25)':'none')+';border:1px solid var(--bd);border-radius:6px;padding:4px 12px;color:'+(_vComBase?'var(--gold2)':'var(--t3)')+';font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">'+(_vComBase?'✓ Sim':'Não')+'</button>';
-            if(_vComBase){
-              h+='<div style="display:flex;align-items:center;gap:6px;margin-left:4px;">';
-              h+='<span style="font-size:.62rem;color:var(--t4);">Esp. base (cm):</span>';
-              h+='<input type="number" value="'+_vEspBase+'" min="1" step="1" style="width:54px;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:4px 7px;color:var(--tx);font-size:.82rem;text-align:center;font-family:Outfit,sans-serif;" oninput="updCapVaso('+amb.id+','+vi+',\'espBase\',this.value)">';
+            h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">Vaso '+(vi+1)+'</div>';
+            if(_vBl&&_vFl&&_vAlt){
+              h+='<div style="font-size:.58rem;color:var(--t3);margin-top:1px;">⬆ '+_vBl+'×'+_vBp+' → '+_vFl+'×'+_vFpPrev+' · ↕ '+_vAlt+' cm</div>';
+            } else {
+              h+='<div style="font-size:.58rem;color:var(--t4);margin-top:1px;">Preencha as dimensões</div>';
+            }
+            h+='</div></div>';
+            h+='<div style="display:flex;align-items:center;gap:6px;">';
+            if(_aTot>0){
+              h+='<div style="text-align:right;">';
+              h+='<div style="font-size:.68rem;font-weight:700;color:var(--gold2);">'+_aTot.toFixed(3)+' m²</div>';
+              if(+_vVal>0)h+='<div style="font-size:.58rem;color:var(--t3);">R$ '+fm(_vVal)+'</div>';
               h+='</div>';
             }
-            h+='</div>';
-            h+='<div style="display:flex;align-items:center;gap:8px;">';
-            h+='<span style="font-size:.68rem;color:var(--t4);">Quantidade:</span>';
-            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',Math.max(1,('+_vQtd+'-1)))" style="background:none;border:1px solid var(--bd);border-radius:5px;width:26px;height:26px;color:var(--t2);cursor:pointer;font-family:Outfit,sans-serif;font-size:.9rem;">−</button>';
-            h+='<span style="font-size:.85rem;font-weight:700;color:var(--gold2);min-width:18px;text-align:center;">'+_vQtd+'</span>';
-            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',' +(+_vQtd+1)+ ')" style="background:none;border:1px solid var(--bd);border-radius:5px;width:26px;height:26px;color:var(--gold);cursor:pointer;font-family:Outfit,sans-serif;font-size:.9rem;">+</button>';
-            h+='</div>';
+            h+='<button onclick="capRemVaso('+amb.id+','+vi+')" style="width:26px;height:26px;background:rgba(220,50,50,.1);border:1px solid rgba(220,50,50,.18);border-radius:7px;color:#c06060;font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>';
             h+='</div></div>';
+            // Corpo
+            h+='<div style="padding:10px 12px;">';
+            // Linha diagrama + campos
+            h+='<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;">';
+            // SVG cone
+            var _svgW=62,_svgH=68;
+            var _bTop=40,_bBot=18;
+            var _padX=(_svgW-_bTop)/2,_altV=40,_yT=10,_yB=_yT+_altV;
+            var _xTL=_padX,_xTR=_svgW-_padX;
+            var _xBL=(_svgW-_bBot)/2,_xBR=_svgW-_xBL;
+            h+='<div style="flex-shrink:0;">';
+            h+='<svg width="'+_svgW+'" height="'+_svgH+'" viewBox="0 0 '+_svgW+' '+_svgH+'" style="display:block;">';
+            // base opcional
+            if(_vComBase){
+              var _bH=Math.min(_vEspBase*1.5,9);
+              h+='<rect x="'+(_xBL-3)+'" y="'+(_yB+1)+'" width="'+(_bBot+6)+'" height="'+_bH+'" rx="2" fill="rgba(201,168,76,.2)" stroke="rgba(201,168,76,.45)" stroke-width="1"/>';
+            }
+            // trapézio (preenchimento suave)
+            h+='<polygon points="'+_xTL+','+_yT+' '+_xTR+','+_yT+' '+_xBR+','+_yB+' '+_xBL+','+_yB+'" fill="rgba(201,168,76,.06)" stroke="none"/>';
+            // bordas laterais
+            h+='<line x1="'+_xTL+'" y1="'+_yT+'" x2="'+_xBL+'" y2="'+_yB+'" stroke="rgba(201,168,76,.6)" stroke-width="1.5" stroke-linecap="round"/>';
+            h+='<line x1="'+_xTR+'" y1="'+_yT+'" x2="'+_xBR+'" y2="'+_yB+'" stroke="rgba(201,168,76,.6)" stroke-width="1.5" stroke-linecap="round"/>';
+            // boca
+            h+='<line x1="'+_xTL+'" y1="'+_yT+'" x2="'+_xTR+'" y2="'+_yT+'" stroke="rgba(201,168,76,.9)" stroke-width="2" stroke-linecap="round"/>';
+            // fundo
+            h+='<line x1="'+_xBL+'" y1="'+_yB+'" x2="'+_xBR+'" y2="'+_yB+'" stroke="rgba(201,168,76,.55)" stroke-width="1.5" stroke-linecap="round"/>';
+            // seta alt
+            var _ax=_xTR+5;
+            h+='<line x1="'+_ax+'" y1="'+(_yT+3)+'" x2="'+_ax+'" y2="'+(_yB-3)+'" stroke="rgba(201,168,76,.3)" stroke-width="1" stroke-dasharray="2,2"/>';
+            // labels
+            h+='<text x="'+(_svgW/2)+'" y="'+(_yT-2)+'" font-size="5.5" fill="rgba(201,168,76,.75)" text-anchor="middle" font-family="Outfit,sans-serif">Boca</text>';
+            h+='<text x="'+(_svgW/2)+'" y="'+(_svgH-1)+'" font-size="5.5" fill="rgba(201,168,76,.55)" text-anchor="middle" font-family="Outfit,sans-serif">Fundo</text>';
+            h+='</svg></div>';
+            // campos 3+3
+            h+='<div style="flex:1;min-width:0;">';
+            h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:5px;">';
+            [{k:'bl',lbl:'Boca L',def:20},{k:'bp',lbl:'Boca P',def:15},{k:'fl',lbl:'Fundo L',def:10}].forEach(function(cf){
+              var _vv=v[cf.k]!=null?v[cf.k]:cf.def;
+              h+='<div>';
+              h+='<div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">'+cf.lbl+'</div>';
+              h+='<div style="position:relative;">';
+              h+='<input type="number" value="'+_vv+'" min="1" step="1" style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:4px 16px 4px 5px;color:var(--tx);font-size:.78rem;text-align:center;font-family:Outfit,sans-serif;box-sizing:border-box;" oninput="updCapVaso('+amb.id+','+vi+',\''+cf.k+'\',this.value)">';
+              h+='<span style="position:absolute;right:3px;top:50%;transform:translateY(-50%);font-size:.48rem;color:var(--t4);pointer-events:none;">cm</span>';
+              h+='</div></div>';
+            });
+            h+='</div>';
+            h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;">';
+            // Fundo P auto
+            h+='<div>';
+            h+='<div style="font-size:.52rem;color:rgba(201,168,76,.6);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">Fundo P ✦</div>';
+            h+='<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:6px;padding:4px 5px;color:var(--t3);font-size:.76rem;text-align:center;font-family:Outfit,sans-serif;">'+_vFpPrev+' cm</div>';
+            h+='</div>';
+            [{k:'alt',lbl:'Altura',def:35},{k:'esp',lbl:'Esp.',def:2}].forEach(function(cf){
+              var _vv=v[cf.k]!=null?v[cf.k]:cf.def;
+              h+='<div>';
+              h+='<div style="font-size:.52rem;color:var(--t4);text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">'+cf.lbl+'</div>';
+              h+='<div style="position:relative;">';
+              h+='<input type="number" value="'+_vv+'" min="1" step="1" style="width:100%;background:var(--s3);border:1px solid var(--bd);border-radius:6px;padding:4px 16px 4px 5px;color:var(--tx);font-size:.78rem;text-align:center;font-family:Outfit,sans-serif;box-sizing:border-box;" oninput="updCapVaso('+amb.id+','+vi+',\''+cf.k+'\',this.value)">';
+              h+='<span style="position:absolute;right:3px;top:50%;transform:translateY(-50%);font-size:.48rem;color:var(--t4);pointer-events:none;">cm</span>';
+              h+='</div></div>';
+            });
+            h+='</div>';
+            h+='</div></div>'; // fim flex diagrama+campos
+            // Divisor
+            h+='<div style="border-top:1px solid rgba(201,168,76,.09);margin:7px 0;"></div>';
+            // Linha base + qtd
+            h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+            // Toggle base
+            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'comBase\','+(!_vComBase)+')" style="'+(_vComBase?'background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.45);color:var(--gold2);font-weight:700;':'background:var(--s3);border-color:var(--bd);color:var(--t4);')+'border:1px solid;border-radius:7px;padding:4px 11px;font-size:.65rem;cursor:pointer;font-family:Outfit,sans-serif;">'+(_vComBase?'▣ Com base':'□ Sem base')+'</button>';
+            if(_vComBase){
+              h+='<div style="display:flex;align-items:center;gap:4px;">';
+              h+='<span style="font-size:.58rem;color:var(--t4);">esp. base:</span>';
+              h+='<div style="position:relative;">';
+              h+='<input type="number" value="'+_vEspBase+'" min="1" step="1" style="width:44px;background:var(--s3);border:1px solid rgba(201,168,76,.3);border-radius:6px;padding:3px 14px 3px 5px;color:var(--tx);font-size:.76rem;text-align:center;font-family:Outfit,sans-serif;" oninput="updCapVaso('+amb.id+','+vi+',\'espBase\',this.value)">';
+              h+='<span style="position:absolute;right:2px;top:50%;transform:translateY(-50%);font-size:.46rem;color:var(--t4);pointer-events:none;">cm</span>';
+              h+='</div></div>';
+            }
+            h+='<div style="flex:1;"></div>';
+            // Qtd
+            h+='<div style="display:flex;align-items:center;gap:5px;">';
+            h+='<span style="font-size:.6rem;color:var(--t4);">Qtd</span>';
+            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',Math.max(1,('+_vQtd+'-1)))" style="width:24px;height:24px;background:var(--s3);border:1px solid var(--bd);border-radius:5px;color:var(--t2);cursor:pointer;font-family:Outfit,sans-serif;font-size:.85rem;display:flex;align-items:center;justify-content:center;">−</button>';
+            h+='<div style="min-width:20px;text-align:center;font-size:.88rem;font-weight:800;color:var(--gold2);">'+_vQtd+'</div>';
+            h+='<button onclick="updCapVaso('+amb.id+','+vi+',\'qtd\',' +(+_vQtd+1)+ ')" style="width:24px;height:24px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.25);border-radius:5px;color:var(--gold);cursor:pointer;font-family:Outfit,sans-serif;font-size:.85rem;display:flex;align-items:center;justify-content:center;">+</button>';
+            h+='</div>';
+            h+='</div>'; // fim linha base+qtd
+            h+='</div></div>'; // fim corpo + card
           });
         }
-        h+='<button onclick="capAddVaso('+amb.id+')" style="width:100%;margin-top:6px;padding:10px;background:none;border:1.5px dashed rgba(201,168,76,.3);border-radius:9px;color:var(--t4);font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.3px;">+ Adicionar Vaso</button>';
+        h+='<button onclick="capAddVaso('+amb.id+')" style="width:100%;margin-top:4px;padding:10px;background:none;border:1.5px dashed rgba(201,168,76,.22);border-radius:10px;color:rgba(201,168,76,.55);font-size:.7rem;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.4px;display:flex;align-items:center;justify-content:center;gap:5px;"><span style="font-size:.9rem;line-height:1;">＋</span> Adicionar Vaso</button>';
       }
 
       // Preview de peças calculadas automaticamente
