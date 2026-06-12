@@ -1164,11 +1164,10 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 8. PERFIL COMPLETO DO FUNCIONÁRIO — NOVO DESIGN
+  // 8. PERFIL DO FUNCIONÁRIO — VERSÃO SIMPLIFICADA
   // ─────────────────────────────────────────────────────────────
   function abrirDetalhesFuncionario(id){
     var funcs=getFuncionarios(); var f=funcs[id]; if(!f)return;
-    // Verifica e auto-completa registros incompletos de dias passados antes de calcular
     _verificarRegistrosIncompletos(id);
     var regs=getRegistros();
     var meusRegs=Object.values(regs).filter(function(r){return r.funcionarioId===id;})
@@ -1176,168 +1175,105 @@ var HR_FUNC = (function () {
     var hoje=_hoje();
     var mesAtual=_mesAno(0);
     var regsMes=meusRegs.filter(function(r){return r.data.startsWith(mesAtual);});
-
-    var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // totalExtra: apenas extras a pagar (alinhado com calcSaldoFuncionario → calcSaldoHE)
-    var totalExtra=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
-    var totalExtraBanco=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var horasMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
     var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var saldo=calcSaldoFuncionario(id,null,null);
-    var alertas=analisarGaps(id);
-    var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
-
-    var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?GOLD:GREEN);
-    var saldoLabel=saldo.temCredito?'💳 Crédito (overpago)':(saldo.saldo>0.01?'💰 A Receber':'✓ Quitado');
-
-    // Calendário do mês atual (últimos 28 dias como grid)
     var calHtml=_calendarioMini(id,regs);
+    var penHtml=_blocoPenalidades(id);
 
-    // Alertas
-    var alertasHtml='';
-    if(alertas.length>0){
-      alertasHtml='<div style="background:#16100a;border:1px solid rgba(201,168,76,.3);border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
-        '<div style="font-size:.62rem;color:#c8a060;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">⚠️ Alertas</div>'+
-        alertas.map(function(a){
-          return '<div style="font-size:.75rem;color:#e0b870;padding:4px 0;border-bottom:1px solid rgba(200,160,60,.1);">'+_esc(a.descricao)+'</div>';
-        }).join('')+
+    // ── alertas de decêndio ──
+    var nd=_proximoDecendio();
+    var alertaDecHtml='';
+    if(nd.diasRestantes<=2){
+      alertaDecHtml='<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);'+
+        'border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:.75rem;color:'+GOLD+';">'+
+        '⚠️ '+nd.label+(nd.diasRestantes===0?' — HOJE':nd.diasRestantes===1?' — amanhã':' — em 2 dias')+
       '</div>';
     }
-    // Bloco de ocorrências de falha de registro (penalidades)
-    var penHtml=_blocoPenalidades(id);
+
+    // ── banco de horas ──
+    var bancoHtml='';
+    if(saldo.banco&&saldo.banco.acumuladoMin>0){
+      var bSaldo=saldo.banco.saldoMin;
+      bancoHtml='<div style="background:rgba(92,150,200,.08);border:1px solid rgba(92,150,200,.25);'+
+        'border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
+        '<div style="font-size:.72rem;color:#8ec8f0;font-weight:700;">🏦 Banco de Horas</div>'+
+        '<div style="font-size:.92rem;font-weight:800;color:#8ec8f0;">'+
+          (bSaldo>=0?'+':'')+Math.floor(Math.abs(bSaldo)/60)+'h'+
+          (bSaldo%60!==0?String(Math.abs(bSaldo%60)).padStart(2,'0')+'m':'')+
+        '</div>'+
+      '</div>';
+    }
+
+    // ── HE acumulada ──
+    var heAcumHtml='';
+    if(saldo.heAcumulado>0){
+      heAcumHtml='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.3);'+
+        'border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
+        '<div>'+
+          '<div style="font-size:.72rem;color:'+GOLD+';font-weight:700;">💰 HE Acumulada</div>'+
+          '<div style="font-size:.62rem;color:'+T3+';">Não entra no decêndio automático</div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:8px;">'+
+          '<div style="font-size:.92rem;font-weight:800;color:'+GOLD+';">'+_fmtMoeda(saldo.heAcumulado)+'</div>'+
+          '<button onclick="HR_FUNC._resgatarHEAcumulada(\''+id+'\')" '+
+            'style="padding:5px 10px;border-radius:7px;background:rgba(201,168,76,.15);'+
+            'border:1px solid rgba(201,168,76,.4);color:'+GOLD+';font-family:Outfit,sans-serif;'+
+            'font-size:.68rem;font-weight:700;cursor:pointer;white-space:nowrap;">💸 Resgatar</button>'+
+        '</div>'+
+      '</div>';
+    }
 
     var html='<div style="width:100%;max-width:520px;padding:0 16px;">'+
 
-      // Hero card
-      '<div style="background:linear-gradient(135deg,'+S2+' 0%,rgba(201,168,76,.06) 100%);'+
-        'border:1px solid '+BD+';border-radius:16px;padding:20px;margin-bottom:14px;'+
-        'display:flex;align-items:center;gap:16px;">' +
-        _avatarCircle(f,62)+
-        '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:1.1rem;font-weight:800;color:'+T1+';letter-spacing:-.01em;">'+_esc(f.nome)+'</div>' +
-          '<div style="font-size:.75rem;color:'+T3+';margin-top:2px;">'+_esc(f.cargo||'—')+'</div>' +
-          '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">'+
+      // ── Cabeçalho: nome + status ──
+      '<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">'+
+        _avatarCircle(f,54)+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:1.05rem;font-weight:800;color:'+T1+';">'+_esc(f.nome)+'</div>'+
+          '<div style="font-size:.72rem;color:'+T3+';margin-top:1px;">'+_esc(f.cargo||'—')+'</div>'+
+          '<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">'+
             _statusPill(f.ativo)+
             (f.equipe?'<span style="font-size:.6rem;background:'+GOLD2+';border:1px solid '+GOLDB+';color:'+GOLD+';border-radius:20px;padding:2px 8px;">'+_esc(f.equipe)+'</span>':'')+
-            (temPontoHoje?'<span style="font-size:.6rem;background:#0d2010;border:1px solid rgba(92,184,92,.5);color:'+GREEN+';border-radius:20px;padding:2px 8px;">✓ ponto hoje</span>':'')+
-            (typeof window.BH!=='undefined'?window.BH.badgeSaldo(id):'')+
           '</div>'+
-          (_tempoEmpresa(f.admissao)?'<div style="font-size:.67rem;color:'+T3+';margin-top:4px;">⏳ '+_tempoEmpresa(f.admissao)+' na empresa</div>':'')+
         '</div>'+
-        '<button onclick="HR_FUNC._closeDetalhes()" style="background:none;border:none;color:'+T3+';cursor:pointer;font-size:1.1rem;align-self:flex-start;padding:0;">✕</button>'+
+        '<button onclick="HR_FUNC._closeDetalhes()" style="background:none;border:none;color:'+T3+';cursor:pointer;font-size:1.1rem;padding:0;align-self:flex-start;">✕</button>'+
       '</div>'+
 
-      // Stats do mês vs geral
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">'+
-        _statCard2('📅 Este mês','Dias: '+regsMes.length+' · '+horasMes.toFixed(0)+'h'+
-          (extraMes>0?' · <span style="color:'+GOLD+';">+'+extraMes.toFixed(1)+'h extra</span>':'')+
-          (extraMesBanco>0?' · <span style="color:#8ec8f0;">🏦 '+extraMesBanco.toFixed(1)+'h banco</span>':''))+
-        _statCard2('📊 Total geral',totalHoras.toFixed(0)+'h trabalhadas · '+totalExtra.toFixed(1)+'h extra'+
-          (totalExtraBanco>0?' · <span style="color:#8ec8f0;">🏦 '+totalExtraBanco.toFixed(1)+'h banco</span>':''))+
+      // ── Horas do mês ──
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;">'+
+          '<div>'+
+            '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;">📅 Este mês · '+regsMes.length+' dias</div>'+
+            '<div style="font-size:1.1rem;font-weight:800;color:'+T1+';">'+horasMes.toFixed(1)+'h trabalhadas</div>'+
+          '</div>'+
+          '<div style="text-align:right;">'+
+            (extraMes>0?'<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">+'+extraMes.toFixed(2)+'h extra</div>':'')+
+            (extraMesBanco>0?'<div style="font-size:.72rem;color:#8ec8f0;">🏦 '+extraMesBanco.toFixed(2)+'h banco</div>':'')+
+          '</div>'+
+        '</div>'+
       '</div>'+
 
-      // Financeiro
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
-          '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;">💰 Financeiro</div>'+
-          '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" '+
-            'style="background:none;border:none;color:'+T3+';font-size:.68rem;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">'+
-            'ver extrato →</button>'+
-        '</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
-          _miniKpi('Salário base',   _fmtMoeda(f.salario),                          GOLD)+
-          _miniKpi('H. Extras R$',   _fmtMoeda(saldo.valorExtra),  saldo.valorExtra>0?GOLD:T3)+
-          _miniKpi('Já pago',        _fmtMoeda(saldo.totalPago),                    GREEN)+
-        '</div>'+
-        // Banco de horas
-        (saldo.banco&&saldo.banco.acumuladoMin>0?
-          '<div style="background:rgba(92,150,200,.08);border:1px solid rgba(92,150,200,.25);border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
-            '<div>'+
-              '<div style="font-size:.65rem;color:#8ec8f0;font-weight:700;margin-bottom:1px;">🏦 Banco de Horas</div>'+
-              '<div style="font-size:.62rem;color:'+T3+';">Extras para folga futura — não entram no pag.</div>'+
-            '</div>'+
-            '<div style="text-align:right;white-space:nowrap;margin-left:12px;">'+
-              '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+
-                (saldo.banco.saldoMin>=0?'+':'')+Math.floor(Math.abs(saldo.banco.saldoMin)/60)+'h'+
-                (saldo.banco.saldoMin%60!==0?String(Math.abs(saldo.banco.saldoMin%60)).padStart(2,'0')+'m':'')+
-              '</div>'+
-              (saldo.banco.utilizadoMin>0?'<div style="font-size:.6rem;color:'+T3+';">usado: '+Math.floor(saldo.banco.utilizadoMin/60)+'h'+
-                (saldo.banco.utilizadoMin%60!==0?String(saldo.banco.utilizadoMin%60).padStart(2,'0')+'m':'')+'</div>':'')+
-            '</div>'+
-          '</div>':'')+
-        // Breakdown por faixa
-        ((saldo.valorExtra100>0||saldo.valorExtra200>0)?
-          '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
-            (saldo.valorExtra50 >0?_miniKpi('HE 50%', _fmtMoeda(saldo.valorExtra50), GOLD):'')  +
-            (saldo.valorExtra100>0?_miniKpi('HE 100%',_fmtMoeda(saldo.valorExtra100),'#8ec8c8'):'') +
-            (saldo.valorExtra200>0?_miniKpi('HE 200%',_fmtMoeda(saldo.valorExtra200),'#c88e5c'):'') +
-          '</div>':'')+
-        '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
-          '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
-          ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
-          ' · Decendio sugerido: '+_fmtMoeda(_valorDecendioAtual(f))+
-        '</div>'+
-        '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">'+
-          '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
-          '<div style="font-size:1.4rem;font-weight:800;color:'+saldoColor+';">'+_fmtMoeda(Math.abs(saldo.saldo))+'</div>'+
-          (saldo.temCredito?'<div style="font-size:.65rem;color:'+GREEN+';margin-top:2px;">Desconta no próximo pagamento</div>':'')+
-        '</div>'+
-        // Últimos 3 pagamentos inline
-        (function(){
-          var pags = getPagamentos();
-          var ultPags = Object.values(pags)
-            .filter(function(p){ return p.funcionarioId === id; })
-            .sort(function(a,b){ return b.data.localeCompare(a.data); })
-            .slice(0, 3);
-          if (!ultPags.length) return '<div style="font-size:.68rem;color:'+T3+';text-align:center;padding:4px 0;">Nenhum pagamento registrado ainda</div>';
-          return '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Últimos pagamentos</div>'+
-            ultPags.map(function(p){
-              var t = _TIPOS_PAG[p.tipo] || _TIPOS_PAG.outro;
-              var icoF = {dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'}[p.forma]||'💳';
-              return '<div style="display:flex;justify-content:space-between;align-items:center;'+
-                'padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
-                '<div>'+
-                  '<span style="font-size:.7rem;color:'+t.cor+';font-weight:600;">'+t.icon+' '+t.label+'</span>'+
-                  '<span style="font-size:.65rem;color:'+T3+';margin-left:6px;">'+_fmtData(p.data)+' '+icoF+'</span>'+
-                  (p.obs ? '<div style="font-size:.62rem;color:'+T3+';font-style:italic;">'+_esc(p.obs)+'</div>' : '')+
-                '</div>'+
-                '<span style="font-size:.78rem;font-weight:700;color:'+t.cor+';white-space:nowrap;margin-left:10px;">'+
-                  _fmtMoeda(p.valor)+
-                '</span>'+
-              '</div>';
-            }).join('');
-        })()+
-      '</div>'+
+      // ── Banco / HE Acumulada (só se existir) ──
+      bancoHtml+
+      heAcumHtml+
 
+      // ── Alerta decêndio ──
+      alertaDecHtml+
       penHtml+
-      alertasHtml+
 
-      // Calendário mini
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">📅 Ponto — Mês Atual</div>'+
+      // ── Calendário ──
+      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
+        '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">📅 Ponto — Mês Atual</div>'+
         calHtml+
       '</div>'+
 
-      // Informações adicionais
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;">📋 Informações</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:.78rem;">'+
-          _infoRow2('Admissão',_fmtData(f.admissao))+
-          _infoRow2('Telefone',f.telefone||'—')+
-          _infoRow2('CPF',f.cpf||'—')+
-          _infoRow2('Banco/PIX',f.banco?f.banco+(f.pix?' · '+f.pix:''):(f.pix||'—'))+
-        '</div>'+
-        (f.obs?'<div style="margin-top:10px;font-size:.73rem;color:'+T3+';border-top:1px solid '+BD+';padding-top:10px;">'+_esc(f.obs)+'</div>':'')+
-      '</div>'+
-
-      // Ações
+      // ── Botões de ação ──
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
         '<button onclick="HR_FUNC.abrirFormRegistro(\''+id+'\')" style="padding:13px;background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">📝 Novo Registro</button>'+
         '<button onclick="HR_FUNC.abrirFormPagamento(\''+id+'\')" style="padding:13px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">💳 Pagamento</button>'+
       '</div>'+
-      // Atalho decendial pré-preenchido
       '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
         'style="width:100%;padding:11px;background:rgba(201,168,76,.07);border:1.5px solid rgba(201,168,76,.28);'+
         'color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;">'+
@@ -1349,16 +1285,15 @@ var HR_FUNC = (function () {
       '</div>'+
       '<button onclick="HR_FUNC.abrirAdvertencias(\''+id+'\')" '+
         'style="width:100%;padding:11px;background:rgba(200,92,92,.07);border:1px solid rgba(200,92,92,.25);'+
-        'color:'+RED+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:600;'+
-        'cursor:pointer;margin-bottom:8px;">⚠️ Faltas &amp; Advertências</button>'+
+        'color:'+RED+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:600;cursor:pointer;margin-bottom:8px;">⚠️ Faltas &amp; Advertências</button>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
         '<button onclick="HR_FUNC.abrirFormFuncionario(\''+id+'\');HR_FUNC._closeDetalhes();" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">✏️ Editar</button>'+
         '<button onclick="HR_FUNC._whatsappFunc(\''+id+'\')" style="padding:11px;background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.3);color:#25d366;border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">💬 WhatsApp</button>'+
       '</div>'+
 
-      // Últimos registros
+      // ── Últimos registros ──
       (meusRegs.length>0?
-        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;">Últimos Registros</div>'+
+        '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;">Últimos Registros</div>'+
         meusRegs.slice(0,5).map(function(r){return _miniCardRegistro(r);}).join('')+
         (meusRegs.length>5?'<div style="text-align:center;padding:6px 0;font-size:.72rem;color:'+T3+';">+ '+(meusRegs.length-5)+' no histórico completo</div>':'')
       :'')+
@@ -1370,6 +1305,7 @@ var HR_FUNC = (function () {
   }
 
   function _closeDetalhes(){ _closeOverlay('hrFuncDetalhes'); }
+
 
   // WhatsApp link
   function _whatsappFunc(id){
@@ -3129,10 +3065,10 @@ var HR_FUNC = (function () {
 
   // ── Tela genérica (2× ou 3×) ──
   function _abrirTelaHEMulti(funcId, multiplier) {
-    var funcs      = getFuncionarios();
-    var mesAtual   = _mesAno(0);
+    var funcs       = getFuncionarios();
+    var mesAtual    = _mesAno(0);
     var mesAnterior = _mesAno(-1);
-    var storeKey   = '_bonifMes' + multiplier;
+    var storeKey    = '_bonifMes' + multiplier;
     var periodoAtivo = window[storeKey] || mesAtual;
 
     var di = periodoAtivo + '-01';
@@ -3145,11 +3081,10 @@ var HR_FUNC = (function () {
       return nomes[parseInt(p[1])] + '/' + p[0];
     };
 
-    var isTriplo = multiplier === 3;
-    var titulo   = isTriplo ? 'Bonificação HE 3×' : 'Horas Extras Duplicadas 2×';
-    var emoji    = isTriplo ? '🏆' : '⚡⚡';
-    var cor      = isTriplo ? GREEN : BLUE;
-    var tipo     = isTriplo ? 'bonificacao_he3x' : 'he_duplicada_2x';
+    var isTriplo  = multiplier === 3;
+    var titulo    = isTriplo ? 'Bonificação 3×' : 'H. Extras 2×';
+    var emoji     = isTriplo ? '🏆' : '⚡⚡';
+    var cor       = isTriplo ? GREEN : BLUE;
     var overlayId = isTriplo ? 'hrBonificacao3x' : 'hrDuplicada2x';
     var fecharFn  = isTriplo ? '_hrFecharBonif3x' : '_hrFecharDupl2x';
 
@@ -3170,63 +3105,66 @@ var HR_FUNC = (function () {
     var totalAcrescimo = resultados.reduce(function(s,r){ return s + r.acrescimo; }, 0);
     var totalValor     = resultados.reduce(function(s,r){ return s + r.valorMulti; }, 0);
 
+    // ── Seletor de mês ──
     var seletorBtns = [mesAnterior, mesAtual].map(function(m){
       var on = m === periodoAtivo;
       return '<button onclick="window[\''+storeKey+'\']=\''+m+'\';HR_FUNC.'+(isTriplo?'abrirBonificacaoHE3x':'abrirHorasExtrasDuplicadas')+'('+(funcId?'\''+funcId+'\'':'null')+');" '+
-        'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;'+
-        (on
-          ? 'background:rgba(92,150,220,.15);border:1.5px solid rgba(92,150,220,.5);color:'+cor+';'
-          : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';')+
+        'style="flex:1;padding:9px;border-radius:9px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;'+
+        (on ? 'background:rgba(92,150,220,.15);border:1.5px solid rgba(92,150,220,.5);color:'+cor+';'
+            : 'background:'+S2+';border:1px solid '+BD+';color:'+T3+';')+
         '">'+fmtMes(m)+'</button>';
     }).join('');
 
+    // ── Tabela de funcionários ──
     var tabelaLinhas = resultados.map(function(r, idx){
-      return '<div style="display:grid;grid-template-columns:1fr 60px 80px 80px;gap:0;'+
+      return '<div style="display:grid;grid-template-columns:1fr 55px 75px 75px;gap:0;'+
         'padding:10px 14px;border-top:1px solid '+BD+';'+
         (idx%2===1?'background:rgba(255,255,255,.015);':'')+
         'align-items:center;">'+
-        '<div>'+
-          '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(r.nome.split(' ').slice(0,2).join(' '))+'</div>'+
-          '<div style="font-size:.63rem;color:'+T3+';">hora base: '+_fmtMoeda(r.valorHoraBase)+'</div>'+
-        '</div>'+
-        '<div style="text-align:right;font-size:.78rem;font-weight:700;color:'+GOLD+';">'+r.totalHorasExtra.toFixed(2)+'h</div>'+
+        '<div style="font-size:.82rem;font-weight:600;color:'+T1+';">'+_esc(r.nome.split(' ')[0])+'</div>'+
+        '<div style="text-align:right;font-size:.78rem;font-weight:700;color:'+GOLD+';">'+r.totalHorasExtra.toFixed(1)+'h</div>'+
         '<div style="text-align:right;font-size:.75rem;color:'+T2+';">'+_fmtMoeda(r.valorNormal)+'</div>'+
         '<div style="text-align:right;font-size:.82rem;font-weight:700;color:'+cor+';">'+_fmtMoeda(r.valorMulti)+'</div>'+
       '</div>';
     }).join('');
 
-    var html = '<div style="width:100%;max-width:560px;padding:0 16px;">'+
+    var html = '<div style="width:100%;max-width:540px;padding:0 16px;">'+
       _overlayHeader(titulo, emoji+' '+titulo+' · '+fmtMes(periodoAtivo), 'window.'+fecharFn+'()')+
+
+      // Seletor de mês
       '<div style="display:flex;gap:8px;margin-bottom:14px;">'+seletorBtns+'</div>'+
-      '<div style="background:rgba(92,150,220,.06);border:1px solid rgba(92,150,220,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;">'+
-        '<div style="font-size:.68rem;font-weight:700;color:'+cor+';margin-bottom:5px;">📋 REGRA</div>'+
-        '<div style="font-size:.75rem;color:'+T2+';line-height:1.6;">'+
-          'Todas as horas extras do período são pagas a <strong style="color:'+cor+';">'+multiplier+'× o valor da hora base</strong>.<br>'+
-          'O acréscimo é a diferença entre o valor '+multiplier+'× e o valor normal já calculado.'+
-        '</div>'+
+
+      // Regra
+      '<div style="background:rgba(92,150,220,.05);border:1px solid rgba(92,150,220,.2);border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.75rem;color:'+T2+';line-height:1.5;">'+
+        emoji+' Todas as HE do período pagas a <strong style="color:'+cor+';">'+multiplier+'× a hora base</strong>. '+
+        'O acréscimo é a diferença entre '+multiplier+'× e o valor normal já calculado.'+
       '</div>'+
+
       (resultados.length > 0
-        ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'+
-              _miniKpi('Funcionários', resultados.length+' com HE', GOLD)+
-              _miniKpi('Total Acréscimo', _fmtMoeda(totalAcrescimo), cor)+
-            '</div>'+
-            '<div style="background:rgba(0,0,0,.3);border-radius:9px;padding:10px;display:flex;justify-content:space-between;align-items:center;">'+
-              '<span style="font-size:.75rem;color:'+T3+';">Total ('+multiplier+'×)</span>'+
-              '<span style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(totalValor)+'</span>'+
-            '</div>'+
-          '</div>'
-        : '<div style="text-align:center;padding:28px;color:'+T3+';font-size:.84rem;">😕 Nenhum funcionário com horas extras no período.</div>'
-      )+
-      (resultados.length > 0
-        ? '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">'+
-            '<div style="padding:8px 14px;background:rgba(92,150,220,.06);font-size:.6rem;color:'+cor+';letter-spacing:.08em;text-transform:uppercase;display:grid;grid-template-columns:1fr 60px 80px 80px;gap:0;">'+
-              '<span>Funcionário</span><span style="text-align:right;">H. Extra</span><span style="text-align:right;">Normal</span><span style="text-align:right;">'+multiplier+'× Valor</span>'+
-            '</div>'+tabelaLinhas+
+        // Resumo total
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">'+
+            _miniKpi(resultados.length+' func. com HE', fmtMes(periodoAtivo), T3)+
+            _miniKpi('Total '+multiplier+'× — acréscimo', _fmtMoeda(totalAcrescimo), cor)+
           '</div>'+
-          '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+')" '+
-            'style="'+CSS_BTN_GREEN+'">✅ Confirmar e Registrar '+titulo+'</button>'
-        : ''
+          // Tabela
+          '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;overflow:hidden;margin-bottom:12px;">'+
+            '<div style="display:grid;grid-template-columns:1fr 55px 75px 75px;gap:0;padding:7px 14px;'+
+              'background:rgba(92,150,220,.06);font-size:.58rem;color:'+cor+';letter-spacing:.07em;text-transform:uppercase;">'+
+              '<span>Nome</span>'+
+              '<span style="text-align:right;">H.Extra</span>'+
+              '<span style="text-align:right;">Normal</span>'+
+              '<span style="text-align:right;">'+multiplier+'× Valor</span>'+
+            '</div>'+
+            tabelaLinhas+
+          '</div>'+
+          // Botões
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
+            '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+',\'pagar\')" '+
+              'style="padding:14px;border-radius:11px;background:linear-gradient(135deg,#091a09,#040d04);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">⚡ Pagar no decêndio</button>'+
+            '<button onclick="HR_FUNC._confirmarHEMulti('+(funcId?'\''+funcId+'\'':'null')+',\''+periodoAtivo+'\','+multiplier+',\'acumular\')" '+
+              'style="padding:14px;border-radius:11px;background:linear-gradient(135deg,#0a1020,#060a14);border:1.5px solid rgba(92,150,220,.45);color:#8ec8f0;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">🏦 Acumular saldo</button>'+
+          '</div>'
+        : '<div style="text-align:center;padding:32px 0;color:'+T3+';font-size:.84rem;">Nenhum funcionário com horas extras em '+fmtMes(periodoAtivo)+'.</div>'
       )+
       '<button onclick="window.'+fecharFn+'()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
@@ -3239,6 +3177,7 @@ var HR_FUNC = (function () {
 
   function abrirBonificacaoHE3x(funcId)       { _abrirTelaHEMulti(funcId, 3); }
   function abrirHorasExtrasDuplicadas(funcId)  { _abrirTelaHEMulti(funcId, 2); }
+
 
   // ── Confirmar e gravar ──
   function _confirmarHEMulti(funcId, periodoAtivo, multiplier) {
