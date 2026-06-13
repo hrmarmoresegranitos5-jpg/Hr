@@ -1848,6 +1848,8 @@ var HR_IMPORT = (function () {
     if (_prevScroll > 0) { setTimeout(function(){ ov.scrollTop = _prevScroll; }, 0); }
 
     function _handleCorrecaoEvent(e) {
+      // Se o modal de exceção estiver aberto, ignora eventos do hrImport
+      if (document.getElementById('hrExcecaoModal')) return;
       var el = e.target;
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
       if (!el || !el.dataset || !el.dataset.action) return;
@@ -1883,7 +1885,14 @@ var HR_IMPORT = (function () {
       // Usa elementFromPoint para pegar o elemento exato sob o dedo (evita problema com filhos de texto)
       var el = document.elementFromPoint(t.clientX, t.clientY);
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
-      if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent({ target: el, stopPropagation: function(){} }); }
+      if (el && el.dataset && el.dataset.action) {
+        e.preventDefault(); // sempre previne click sintético quando há action
+        _handleCorrecaoEvent({ target: el, stopPropagation: function(){} });
+      } else {
+        // Mesmo sem action identificada, previne o click sintético do mobile
+        // para evitar que o hrImport.click dispare depois do modal de exceção abrir
+        e.preventDefault();
+      }
     }, { passive: false });
   }
   /** Máscara de horário: 0700 → 07:00 */
@@ -2275,6 +2284,11 @@ var HR_IMPORT = (function () {
     document.body.insertAdjacentHTML('beforeend', html);
 
     var ov = document.getElementById(ovId);
+
+    // Bloqueia propagação para o overlay hrImport não capturar eventos do modal
+    ov.addEventListener('click',      function(e){ e.stopPropagation(); }, true);
+    ov.addEventListener('touchstart', function(e){ e.stopPropagation(); }, { capture: true, passive: true });
+    ov.addEventListener('touchend',   function(e){ e.stopPropagation(); }, { capture: true, passive: false });
 
     // Tipo selecionado atual
     var tipoAtual = excExist ? excExist.tipo : 'feriado';
