@@ -1876,12 +1876,14 @@ var HR_IMPORT = (function () {
       _tsX = e.touches[0].clientX;
     }, { passive: true });
     ov.addEventListener('touchend', function(e) {
-      var dy = Math.abs(e.changedTouches[0].clientY - _tsY);
-      var dx = Math.abs(e.changedTouches[0].clientX - _tsX);
+      var t = e.changedTouches[0];
+      var dy = Math.abs(t.clientY - _tsY);
+      var dx = Math.abs(t.clientX - _tsX);
       if (dy > 8 || dx > 8) return; // foi scroll/swipe — ignora
-      var el = e.target;
+      // Usa elementFromPoint para pegar o elemento exato sob o dedo (evita problema com filhos de texto)
+      var el = document.elementFromPoint(t.clientX, t.clientY);
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
-      if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent(e); }
+      if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent({ target: el, stopPropagation: function(){} }); }
     }, { passive: false });
   }
   /** Máscara de horário: 0700 → 07:00 */
