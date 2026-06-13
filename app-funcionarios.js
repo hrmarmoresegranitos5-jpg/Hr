@@ -982,6 +982,9 @@ var HR_FUNC = (function () {
   }
 
   function _statusPill(ativo){
+    if (ativo === 'ferias')
+      return '<span style="font-size:.6rem;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.4);color:#34d399;'+
+        'border-radius:20px;padding:2px 8px;">🌴 Férias</span>';
     return ativo!==false
       ?'<span style="font-size:.6rem;background:#0d2010;border:1px solid rgba(92,184,92,.45);color:'+GREEN+';'+
         'border-radius:20px;padding:2px 8px;">● Ativo</span>'
@@ -1070,7 +1073,15 @@ var HR_FUNC = (function () {
             {v:'producao',l:'🏭 Produção'},{v:'instalacao',l:'🔧 Instalação'},
             {v:'escritorio',l:'🖥 Escritório'},{v:'geral',l:'🏢 Geral'}
           ],f.equipe||'producao')),
-          _campo('Status',_sel('ff_ativo',[{v:'true',l:'✓ Ativo'},{v:'false',l:'✗ Inativo'}],f.ativo===false?'false':'true'))
+        _campo('Status',_sel('ff_ativo',[
+          {v:'true',  l:'✓ Ativo'},
+          {v:'ferias',l:'🌴 Férias'},
+          {v:'false', l:'✗ Inativo'}
+        ],f.ativo===false?'false':(f.ativo==='ferias'?'ferias':'true')))+
+        _grid2(
+          _campo('Início das Férias',_inp('ff_ferias_ini','date','',f.feriasInicio||'')),
+          _campo('Fim das Férias',   _inp('ff_ferias_fim','date','',f.feriasFim||''))
+        )
         )+
         _grid2(
           _campo('Salário Mensal (R$)',_inp('ff_salario','number','0,00',f.salario,'min="0" step="0.01"')),
@@ -1146,7 +1157,9 @@ var HR_FUNC = (function () {
       admissao:(document.getElementById('ff_admissao')||{}).value||'',
       banco:(document.getElementById('ff_banco')||{}).value||'',
       pix:(document.getElementById('ff_pix')||{}).value||'',
-      ativo:(document.getElementById('ff_ativo')||{}).value!=='false',
+      ativo:(function(){var v=(document.getElementById('ff_ativo')||{}).value;return v==='false'?false:(v==='ferias'?'ferias':true);}()),
+      feriasInicio:(document.getElementById('ff_ferias_ini')||{}).value||'',
+      feriasFim:   (document.getElementById('ff_ferias_fim')||{}).value||'',
       jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
       dec1:(function(){var v=parseFloat((document.getElementById('ff_dec1')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
       dec2:(function(){var v=parseFloat((document.getElementById('ff_dec2')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
