@@ -579,13 +579,15 @@ function _chatBuildRHContext() {
 
     var linhas = lista.map(function(f) {
       var meusRegs = Object.values(regs).filter(function(r){ return r.funcionarioId === f.id; });
-      var horasMes = meusRegs
-        .filter(function(r){ return (r.data||'').slice(0,7) === mes; })
-        .reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
-      var horasTotal = meusRegs.reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
+      var extraMes = meusRegs
+        .filter(function(r){ return (r.data||'').slice(0,7) === mes && r.destinoExtra !== 'banco'; })
+        .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+      var extraTotal = meusRegs
+        .filter(function(r){ return r.destinoExtra !== 'banco'; })
+        .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
 
       var taxaExtra = parseFloat(f.taxaHoraExtra) || (parseFloat(f.salario)||0) / 220;
-      var valorExtra = horasTotal * taxaExtra;
+      var valorExtra = extraTotal * taxaExtra;
       var totalDevido = (parseFloat(f.salario)||0) + valorExtra;
       var totalPago = Object.values(pags)
         .filter(function(p){ return p.funcionarioId === f.id; })
@@ -595,8 +597,8 @@ function _chatBuildRHContext() {
       return f.nome +
         ' | setor: ' + (f.setor||'?') +
         ' | salário: R$ ' + (parseFloat(f.salario)||0).toFixed(2) +
-        ' | horas extras (mês): ' + horasMes.toFixed(1) + 'h' +
-        ' | horas extras (total): ' + horasTotal.toFixed(1) + 'h' +
+        ' | horas extras (mês): ' + extraMes.toFixed(1) + 'h' +
+        ' | horas extras (total): ' + extraTotal.toFixed(1) + 'h' +
         ' | valor extras: R$ ' + valorExtra.toFixed(2) +
         ' | total pago: R$ ' + totalPago.toFixed(2) +
         ' | saldo devedor: R$ ' + saldo.toFixed(2) + (saldo < 0 ? ' (crédito)' : '') +
@@ -1124,8 +1126,8 @@ function _jobLog(job, campo, de, para) {
           var salarioBase = parseFloat(funcEncontrado.salario) || 0;
           var taxaExtraF = parseFloat(funcEncontrado.taxaHoraExtra) || salarioBase / 220;
           var horasExtra = Object.values(regsRH)
-            .filter(function(r){ return r.funcionarioId === funcEncontrado.id; })
-            .reduce(function(s,r){ return s + (parseFloat(r.horas)||0); }, 0);
+            .filter(function(r){ return r.funcionarioId === funcEncontrado.id && r.destinoExtra !== 'banco'; })
+            .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
           var totalDevido = salarioBase + (horasExtra * taxaExtraF);
           var totalPagoAntes = Object.values(pagsRH)
             .filter(function(p){ return p.funcionarioId === funcEncontrado.id; })
