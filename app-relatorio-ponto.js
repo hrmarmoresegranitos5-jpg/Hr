@@ -33,21 +33,8 @@ var HR_RELATORIO_PONTO = (function () {
     return (neg ? '-' : '') + String(h).padStart(2, '0') + 'h' + String(m).padStart(2, '0') + 'm';
   }
 
-  function _fmtHoras(h) {
-    var min = Math.round(Math.abs(parseFloat(h) || 0) * 60);
-    var hh = Math.floor(min / 60);
-    var mm = min % 60;
-    return String(hh).padStart(2, '0') + 'h' + String(mm).padStart(2, '0') + 'm';
-  }
-
-  var DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-  var DIAS_NUM    = ['1ª',  '2ª',  '3ª',  '4ª',  '5ª',  '6ª',  'Sáb'];
   var MESES_PT    = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-
-  function _dow(dataISO) {
-    return new Date(dataISO + 'T12:00:00').getDay(); // 0=dom
-  }
 
   function _labelDia(dow) {
     // Retorna "2ª", "Sáb", "Dom" etc
@@ -59,6 +46,21 @@ var HR_RELATORIO_PONTO = (function () {
   function _mesExtenso(di, df) {
     var d = new Date(di + 'T12:00:00');
     return MESES_PT[d.getMonth()] + ' / ' + d.getFullYear();
+  }
+
+  // Detecta se o período é menor que o mês inteiro (relatório decendial/parcial)
+  function _isPeriodoParcial(di, df) {
+    var dI = new Date(di + 'T12:00:00');
+    var dF = new Date(df + 'T12:00:00');
+    var diffDias = Math.round((dF - dI) / 86400000) + 1;
+    return diffDias < 28; // menos de 4 semanas → parcial
+  }
+
+  function _labelPeriodo(di, df) {
+    if (_isPeriodoParcial(di, df)) {
+      return 'Período: ' + _fmtData(di) + '/' + di.slice(0,4) + ' a ' + _fmtData(df) + '/' + df.slice(0,4);
+    }
+    return 'Mês de Referência: ' + _mesExtenso(di, df);
   }
 
   function _fmtData(iso) {
@@ -96,8 +98,12 @@ var HR_RELATORIO_PONTO = (function () {
 
       // Jornada esperada para esse dia
       var esperadoMin;
+      var _regTipo = (regPorData[iso] || {}).tipo || '';
       if (dow === 0) {
         esperadoMin = 0; // domingo = folga
+      } else if (_regTipo === 'feriado_meio_periodo') {
+        // Feriado de meio período: só conta metade da jornada normal
+        esperadoMin = dow === 6 ? Math.round(jornSab / 2) : Math.round(jornDia / 2);
       } else if (dow === 6) {
         esperadoMin = jornSab;
       } else {
@@ -105,14 +111,32 @@ var HR_RELATORIO_PONTO = (function () {
       }
 
       if (r) {
-        var trabMin     = Math.round((parseFloat(r.horas) || 0) * 60);
-        var extraMin    = Math.round((parseFloat(r.extra) || 0) * 60);
+        // Recalcula trabMin direto da batida quando não há registro de almoço
+        // (evita subtrair horário de almoço que nunca foi batido)
+        var _entMin   = _hhmm2min(r.entrada);
+        var _saiMin   = _hhmm2min(r.saida);
+        var _saiAlm   = _hhmm2min(r.saidaAlmoco);
+        var _volAlm   = _hhmm2min(r.voltaAlmoco);
+        var trabMinCalc;
+        if (_entMin !== null && _saiMin !== null) {
+          if (_saiAlm !== null && _volAlm !== null) {
+            // com almoço registrado: (saída − entrada) − pausa
+            trabMinCalc = (_saiMin - _entMin) - (_volAlm - _saiAlm);
+          } else {
+            // sem almoço: entrada → saída direto
+            trabMinCalc = _saiMin - _entMin;
+          }
+          trabMinCalc = Math.max(0, trabMinCalc);
+        } else {
+          trabMinCalc = Math.round((parseFloat(r.horas) || 0) * 60);
+        }
+        var trabMin     = trabMinCalc;
+        var extraMin    = Math.max(0, trabMin - esperadoMin);
         var saldoMin    = trabMin - esperadoMin;
 
         // Valor extra financeiro do dia
-        var salario     = parseFloat(f.salario) || 0;
-        var hMes        = 192; // padrão
-        var valorHora   = salario / hMes;
+        var _salario    = parseFloat(f.salario) || 0;
+        var _valorHora  = _salario / 192;
 
         var valorExtra  = 0;
         if (extraMin > 0 && r.destinoExtra !== 'banco') {
@@ -120,15 +144,16 @@ var HR_RELATORIO_PONTO = (function () {
           var tipoHE = r.tipoExtra || 'normal';
           var mult   = (tipoHE === 'especial' || tipoHE === 'feriado' || tipoHE === 'domingo')
                        ? 3.0 : 2.0;
-          valorExtra = (extraMin / 60) * mult * valorHora;
+          valorExtra = (extraMin / 60) * mult * _valorHora;
         }
 
         // Observação do dia
         var obs = '';
-        if (r.tipo === 'feriado')      obs = 'feriado';
-        else if (r.tipo === 'acordo')  obs = 'acordo';
-        else if (r.autoCompletado)     obs = 'incompleto';
-        else if (r.tipo === 'folga_banco') obs = 'folga banco';
+        if (r.tipo === 'feriado')               obs = 'feriado';
+        else if (r.tipo === 'feriado_meio_periodo') obs = 'feriado ½ dia';
+        else if (r.tipo === 'acordo')           obs = 'acordo';
+        else if (r.autoCompletado)              obs = 'incompleto';
+        else if (r.tipo === 'folga_banco')      obs = 'folga banco';
 
         linhas.push({
           data:       iso,
@@ -236,10 +261,19 @@ var HR_RELATORIO_PONTO = (function () {
       }
     });
 
-    var totalExtraMin  = totalExtraMin50 + totalExtraMin200;
     var totalPago      = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor)||0); }, 0);
     var saldoLiqExtra  = totalValorExtra; // extras do período
-    var totalAPagar    = salario + saldoLiqExtra - totalPago;
+
+    // Salário proporcional ao período (para relatório decendial / parcial)
+    var dI = new Date(di + 'T12:00:00');
+    var dF = new Date(df + 'T12:00:00');
+    var diasPeriodo = Math.round((dF - dI) / 86400000) + 1;
+    var diasMes = new Date(dI.getFullYear(), dI.getMonth() + 1, 0).getDate();
+    var salarioPeriodo = _isPeriodoParcial(di, df)
+      ? parseFloat((salario * diasPeriodo / diasMes).toFixed(2))
+      : salario;
+
+    var totalAPagar    = salarioPeriodo + saldoLiqExtra - totalPago;
 
     // ── jsPDF (já injetado via lazy-load em gerarPDF) ──
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -249,9 +283,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     // ── Fontes e cores ──
     var COR_HEADER   = [26, 54, 93];    // azul escuro
-    var COR_GOLD     = [185, 140, 50];
     var COR_VERDE    = [50, 140, 80];
-    var COR_VERM     = [180, 60, 60];
     var COR_CINZA    = [180, 180, 180];
     var COR_TH_BG    = [235, 240, 248];
     var COR_LINHA_AL = [240, 248, 240]; // verde claro — horas extras
@@ -273,7 +305,7 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(200, 215, 240);
-    doc.text('Mês de Referência: ' + _mesExtenso(di, df), pW / 2, 16, { align: 'center' });
+    doc.text(_labelPeriodo(di, df), pW / 2, 16, { align: 'center' });
 
     y = 22;
 
@@ -456,17 +488,22 @@ var HR_RELATORIO_PONTO = (function () {
     y += 2;
     var obsLinhas = [];
     linhas.forEach(function(l) {
-      if (l.tipo === 'feriado')          obsLinhas.push('•' + _fmtData(l.data) + ': feriado');
-      else if (l.tipo === 'acordo')      obsLinhas.push('•' + _fmtData(l.data) + ': acordo — não trabalhado');
-      else if (l.autoComp)               obsLinhas.push('•' + _fmtData(l.data) + ': horário incompleto (autocomplete)');
+      if (l.tipo === 'feriado')                obsLinhas.push('•' + _fmtData(l.data) + ': feriado');
+      else if (l.tipo === 'feriado_meio_periodo') obsLinhas.push('•' + _fmtData(l.data) + ': feriado de meio período (jornada reduzida)');
+      else if (l.tipo === 'acordo')            obsLinhas.push('•' + _fmtData(l.data) + ': acordo — não trabalhado');
+      else if (l.autoComp)                     obsLinhas.push('•' + _fmtData(l.data) + ': horário incompleto (autocomplete)');
     });
 
     if (obsLinhas.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(6.5);
       doc.setTextColor(80, 80, 80);
-      doc.text('Observações: ' + obsLinhas.join(' | '), mL, y);
-      y += 4;
+      // Cada observação em linha própria para evitar transbordamento lateral
+      obsLinhas.forEach(function(obs, oi) {
+        if (oi === 0) doc.text('Observações:', mL, y);
+        doc.text(obs, mL + 2, y + (oi + 1) * 3.5);
+      });
+      y += (obsLinhas.length + 1) * 3.5 + 1;
     }
 
     // ── RODAPÉ FINANCEIRO ────────────────────────────────────────────────────
@@ -494,6 +531,10 @@ var HR_RELATORIO_PONTO = (function () {
     }
     _rfLinha('Valor hora normal:',
       _fmtMoeda(valorHora) + '/hora', [60, 60, 60]);
+    if (totalExtraMin50 > 0) {
+      _rfLinha('Valor hora extra (2x):',
+        _fmtMoeda(valorHora * 2) + '/hora (2x)', [60, 60, 60]);
+    }
     if (totalExtraMin200 > 0) {
       _rfLinha('Valor hora extra (3x):',
         _fmtMoeda(valorHora * 3) + '/hora (3x)', [60, 60, 60]);
@@ -538,10 +579,16 @@ var HR_RELATORIO_PONTO = (function () {
       y += bH + 1;
     }
 
-    _blocoFim('Salário (' + _fmtData(df) + '):', _fmtMoeda(salario),
+    var labelSalario = _isPeriodoParcial(di, df)
+      ? 'Salário proporcional (' + diasPeriodo + ' dias / ' + diasMes + '):'
+      : 'Salário (' + _fmtData(df) + '):';
+    _blocoFim(labelSalario, _fmtMoeda(salarioPeriodo),
       [245, 248, 250], [30, 30, 30], false);
     if (saldoLiqExtra > 0) {
-      _blocoFim('Saldo líquido extras (' + _mesExtenso(di, df).split('/')[0].trim() + '):', _fmtMoeda(saldoLiqExtra),
+      var _labelExtra = _isPeriodoParcial(di, df)
+        ? 'Saldo líquido extras (' + _fmtData(di) + ' a ' + _fmtData(df) + '):'
+        : 'Saldo líquido extras (' + _mesExtenso(di, df).split('/')[0].trim() + '):';
+      _blocoFim(_labelExtra, _fmtMoeda(saldoLiqExtra),
         [240, 250, 240], [30, 100, 50], false);
     }
     if (totalPago > 0) {
@@ -562,12 +609,11 @@ var HR_RELATORIO_PONTO = (function () {
     y += tH + 5;
 
     // Legenda de cores
-    function _legItem(cor, txt) { return { cor: cor, txt: txt }; }
     var legItems = [
       { cor: COR_HEADER,   txt: 'Fundo azul = período do pagamento atual' },
       { cor: [200, 180, 80], txt: 'Amarelo = ponto incompleto' },
       { cor: [50, 150, 70],  txt: 'Verde = horas extras' },
-      { cor: [180, 60, 60],  txt: 'Vermelho = déficit (nao descontado)' },
+      { cor: [180, 60, 60],  txt: 'Vermelho = déficit (não descontado)' },
     ];
     doc.setFontSize(6);
     doc.setFont('helvetica', 'normal');
@@ -591,9 +637,12 @@ var HR_RELATORIO_PONTO = (function () {
       pW / 2, y, { align: 'center' });
 
     // ── Download ──────────────────────────────────────────────────────────────
-    var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
-    var mesFmt  = di.slice(0, 7).replace('-', '');
-    doc.save('relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf');
+    var nomeFmt  = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
+    var mesFmt   = di.slice(0, 7).replace('-', '');
+    var periodoSufixo = _isPeriodoParcial(di, df)
+      ? '_' + di.slice(8, 10) + 'a' + df.slice(8, 10)
+      : '';
+    doc.save('relatorio_ponto_' + nomeFmt + '_' + mesFmt + periodoSufixo + '.pdf');
   } // fim _doGerarPDF
 
   // ─── API pública ─────────────────────────────────────────────────────────────
