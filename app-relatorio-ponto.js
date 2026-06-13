@@ -228,9 +228,143 @@ var HR_RELATORIO_PONTO = (function () {
     return linhas;
   }
 
+  // ─── Carregamento dinâmico do jsPDF ─────────────────────────────────────────
+
+  function _loadJsPDF(cb) {
+    var jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (jsPDF) { cb(jsPDF); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = function () {
+      var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (J) cb(J);
+      else { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); }
+    };
+    s.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); };
+    document.head.appendChild(s);
+  }
+
+  // ─── Overlay de preview ───────────────────────────────────────────────────────
+
+  function _abrirOverlayPonto(pdfBlob, fileName, nomeFunc, mesRef, telFunc) {
+    var GOLD = '#C9A84C', GOLDB = 'rgba(201,168,76,.55)';
+
+    // Remove overlay anterior se houver
+    var old = document.getElementById('hrPontoPDFOverlay');
+    if (old) old.remove();
+
+    var ov = document.createElement('div');
+    ov.id = 'hrPontoPDFOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;display:flex;flex-direction:column;';
+
+    // Barra de ações
+    var bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid ' + GOLDB + ';flex-shrink:0;flex-wrap:wrap;';
+
+    var temShare = !!navigator.share;
+    bar.innerHTML =
+      '<span style="flex:1;font-size:.75rem;color:' + GOLD + ';font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📋 Ponto — ' + nomeFunc + ' · ' + mesRef + '</span>' +
+      '<button id="hrPontoClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>' +
+      '<button id="hrPontoDown" style="background:#1e1800;border:1px solid ' + GOLDB + ';color:' + GOLD + ';padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⬇ Salvar</button>' +
+      (temShare ? '<button id="hrPontoShare" style="background:#1e1800;border:1px solid ' + GOLDB + ';color:' + GOLD + ';padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ WhatsApp</button>' : '') +
+      '<button id="hrPontoWpp" style="background:#1a3320;border:1px solid rgba(37,211,102,.45);color:#25d366;padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">💬 Enviar WPP</button>';
+
+    // Área de preview (embed PDF)
+    var preview = document.createElement('div');
+    preview.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;';
+
+    // Tenta embed nativo (funciona na maioria dos Android com Chrome/Samsung)
+    var blobUrl = URL.createObjectURL(pdfBlob);
+    var embed = document.createElement('embed');
+    embed.src = blobUrl;
+    embed.type = 'application/pdf';
+    embed.style.cssText = 'width:100%;height:100%;border:none;flex:1;';
+
+    // Fallback: iframe
+    var iframe = document.createElement('iframe');
+    iframe.src = blobUrl;
+    iframe.style.cssText = 'width:100%;height:100%;border:none;flex:1;';
+    iframe.title = 'Relatório de Ponto';
+
+    // Tenta embed; se falhar mostra mensagem com botão de abrir
+    embed.onerror = function () {
+      preview.innerHTML = '';
+      var msg = document.createElement('div');
+      msg.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#b8b0a0;font-family:Outfit,sans-serif;font-size:.85rem;text-align:center;padding:32px;';
+      msg.innerHTML =
+        '<div style="font-size:2.5rem;">📄</div>' +
+        '<div>Visualização não disponível neste navegador.</div>' +
+        '<button onclick="window.open(\'' + blobUrl + '\',\'_blank\')" style="padding:12px 24px;background:#1e1800;border:1.5px solid rgba(201,168,76,.55);color:#C9A84C;border-radius:10px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">🔍 Abrir PDF</button>';
+      preview.appendChild(msg);
+    };
+
+    preview.appendChild(embed);
+    ov.appendChild(bar);
+    ov.appendChild(preview);
+    document.body.appendChild(ov);
+
+    // ── Ações dos botões ─────────────────────────────────────────────────────
+    document.getElementById('hrPontoClose').onclick = function () {
+      ov.remove();
+      URL.revokeObjectURL(blobUrl);
+    };
+
+    document.getElementById('hrPontoDown').onclick = function () {
+      var a = document.createElement('a');
+      a.href = blobUrl; a.download = fileName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      if (typeof toast === 'function') toast('✓ PDF salvo: ' + fileName);
+    };
+
+    // Compartilhar via Web Share API (abre WhatsApp, Drive, etc.)
+    if (temShare) {
+      document.getElementById('hrPontoShare').onclick = function () {
+        var pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+        var sd = { title: 'Relatório de Ponto — ' + nomeFunc, text: 'Relatório de ponto — ' + mesRef };
+        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) sd.files = [pdfFile];
+        navigator.share(sd).catch(function (e) {
+          if (e && e.name !== 'AbortError') _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
+        });
+      };
+    }
+
+    // Botão WhatsApp direto
+    document.getElementById('hrPontoWpp').onclick = function () {
+      // No mobile com Share API: compartilha o arquivo direto
+      if (navigator.share) {
+        var pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+        var sd = { title: 'Relatório de Ponto — ' + nomeFunc, text: 'Relatório de ponto — ' + mesRef };
+        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) sd.files = [pdfFile];
+        navigator.share(sd).catch(function (e) {
+          if (e && e.name !== 'AbortError') _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
+        });
+      } else {
+        _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
+      }
+    };
+  }
+
+  function _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc) {
+    // Baixa o PDF e abre WhatsApp com mensagem
+    var a = document.createElement('a');
+    a.href = blobUrl; a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    var tel = (telFunc || '').replace(/\D/g, '');
+    var msg = 'Olá ' + nomeFunc + ',\n\nSegue o relatório de ponto referente a ' + mesRef + '.\n\n_HR Mármores e Granitos_';
+    setTimeout(function () {
+      window.open('https://wa.me/' + (tel ? '55' + tel : '') + '?text=' + encodeURIComponent(msg), '_blank');
+    }, 700);
+  }
+
   // ─── Gerador PDF principal ───────────────────────────────────────────────────
 
   function gerarPDF(funcId, di, df) {
+    _loadJsPDF(function (jsPDFClass) {
+      _buildPDF(jsPDFClass, funcId, di, df);
+    });
+  }
+
+  function _buildPDF(jsPDFClass, funcId, di, df) {
     // Coleta dados
     var funcs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
     var regs   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
@@ -279,11 +413,7 @@ var HR_RELATORIO_PONTO = (function () {
     var saldoLiqExtra  = totalValorExtra; // extras do período
     var totalAPagar    = salario + saldoLiqExtra - totalPago;
 
-    // ── jsPDF ──
-    var jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-    if (!jsPDF) { alert('jsPDF não carregado. Verifique se a biblioteca está incluída.'); return; }
-
-    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var doc = new jsPDFClass({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pW = 210, pH = 297;
     var mL = 12, mR = 12;
     var cW = pW - mL - mR; // 186mm
@@ -643,10 +773,17 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos',
       pW / 2, y, { align: 'center' });
 
-    // ── Download ──────────────────────────────────────────────────────────────
+    // ── Gera blob e abre overlay ──────────────────────────────────────────────
     var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
     var mesFmt  = di.slice(0, 7).replace('-', '');
-    doc.save('relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf');
+    var fileName = 'relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf';
+    var mesRef   = _mesExtenso(di, df);
+    var telFunc  = f.telefone || f.tel || '';
+
+    var pdfBlob = doc.output('blob');
+    _abrirOverlayPonto(pdfBlob, fileName, f.nome || 'Funcionário', mesRef, telFunc);
+
+    if (typeof toast === 'function') toast('✓ Relatório pronto — ' + (f.nome || '') + ' · ' + mesRef);
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────────
