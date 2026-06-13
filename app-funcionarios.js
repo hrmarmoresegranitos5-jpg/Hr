@@ -1398,6 +1398,8 @@ var HR_FUNC = (function () {
     var f=(getFuncionarios()[id]||{});
     if(!f.telefone){_toast('Funcionário sem telefone cadastrado.');return;}
     var tel=f.telefone.replace(/\D/g,'');
+    // Remove o 55 se já começar com ele (evita duplicação)
+    if(tel.startsWith('55') && tel.length > 11) tel = tel.slice(2);
     if(tel.length<10){_toast('Número de telefone inválido.');return;}
     var url='https://wa.me/55'+tel+'?text='+encodeURIComponent('Olá '+f.nome.split(' ')[0]+', aqui é HR Mármores.');
     window.open(url,'_blank');
@@ -3186,7 +3188,7 @@ var HR_FUNC = (function () {
       var wrap = document.getElementById('exc_horarios_wrap');
       if(sel && wrap){
         sel.addEventListener('change', function(){
-          wrap.style.display = sel.value === 'declarado' ? '' : 'none';
+          wrap.style.display = (sel.value === 'declarado' || sel.value === 'acordo') ? '' : 'none';
         });
       }
     }, 80);
@@ -3211,7 +3213,7 @@ var HR_FUNC = (function () {
 
     var id = genId();
     var exc = { id:id, data:data, tipo:tipo, descricao:desc, criadoEm:new Date().toISOString() };
-    if(tipo === 'declarado'){ exc.horEntrada = horEnt; exc.horSaida = horSai; }
+    if(tipo === 'declarado' || tipo === 'acordo'){ exc.horEntrada = horEnt; exc.horSaida = horSai; }
     excs[id] = exc;
     saveExcecoes(excs);
     _closeFormExcecao();

@@ -1639,6 +1639,14 @@ var HR_IMPORT = (function () {
 
       var errosGrupo    = gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
       var punicoesGrupo = gr.registros.filter(function(r){ return r._punicao; }).length;
+      var excecoesGrupo = (function(){
+        try {
+          var excsAll = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+          return gr.registros.filter(function(r){
+            return Object.values(excsAll).some(function(e){ return e.data === r.data; });
+          }).length;
+        } catch(e){ return 0; }
+      })();
 
       var recsHtml = gr.registros.map(function(r, ri) {
         var dow   = DOW_PT[new Date(r.data + 'T12:00:00').getDay()];
@@ -1784,6 +1792,8 @@ var HR_IMPORT = (function () {
         badgeHtml = '<span style="font-size:.62rem;color:' + RED + ';font-weight:700;background:rgba(200,92,92,.1);border:1px solid rgba(200,92,92,.3);border-radius:10px;padding:2px 9px;">&#9888; ' + errosGrupo + ' erro(s)</span>';
       else if (punicoesGrupo > 0)
         badgeHtml = '<span style="font-size:.62rem;color:#c06060;font-weight:700;background:rgba(120,20,20,.15);border:1px solid rgba(180,40,40,.3);border-radius:10px;padding:2px 9px;">&#128308; ' + punicoesGrupo + ' puni\u00E7\u00E3o(\u00F5es)</span>';
+      else if (excecoesGrupo > 0)
+        badgeHtml = '<span style="font-size:.62rem;color:#c4b5fd;font-weight:700;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:10px;padding:2px 9px;">&#9733; ' + excecoesGrupo + ' exce\u00E7\u00E3o(\u00F5es)</span>';
       else
         badgeHtml = '<span style="font-size:.62rem;color:' + GREEN + ';font-weight:700;background:rgba(92,184,92,.1);border:1px solid rgba(92,184,92,.3);border-radius:10px;padding:2px 9px;">&#10003; OK</span>';
 
@@ -1848,8 +1858,6 @@ var HR_IMPORT = (function () {
     if (_prevScroll > 0) { setTimeout(function(){ ov.scrollTop = _prevScroll; }, 0); }
 
     function _handleCorrecaoEvent(e) {
-      // Se o modal de exceção estiver aberto, ignora eventos do hrImport
-      if (document.getElementById('hrExcecaoModal')) return;
       var el = e.target;
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
       if (!el || !el.dataset || !el.dataset.action) return;
@@ -1885,14 +1893,7 @@ var HR_IMPORT = (function () {
       // Usa elementFromPoint para pegar o elemento exato sob o dedo (evita problema com filhos de texto)
       var el = document.elementFromPoint(t.clientX, t.clientY);
       while (el && el !== ov && !el.dataset.action) el = el.parentElement;
-      if (el && el.dataset && el.dataset.action) {
-        e.preventDefault(); // sempre previne click sintético quando há action
-        _handleCorrecaoEvent({ target: el, stopPropagation: function(){} });
-      } else {
-        // Mesmo sem action identificada, previne o click sintético do mobile
-        // para evitar que o hrImport.click dispare depois do modal de exceção abrir
-        e.preventDefault();
-      }
+      if (el && el.dataset && el.dataset.action) { e.preventDefault(); _handleCorrecaoEvent({ target: el, stopPropagation: function(){} }); }
     }, { passive: false });
   }
   /** Máscara de horário: 0700 → 07:00 */
@@ -1919,11 +1920,14 @@ var HR_IMPORT = (function () {
                    almEntrada: 'Sa\u00EDda p/ Almo\u00E7o', almSaida: 'Retorno do Almo\u00E7o' }[field] || field;
     var temposRapidos = isAlm
       ? ['11:00','11:30','12:00','12:30','13:00','13:30','14:00']
-      : ['07:00','07:30','08:00','11:00','12:00','13:00','14:00','16:00','17:00','17:30'];
+      : ['07:00','07:10','07:15','07:20','07:30','08:00','11:00','12:00','13:00','16:00','16:52','17:00','17:04','17:30','18:00'];
 
     var btnsHtml = temposRapidos.map(function(t) {
+      var isAtual = t === valAtual;
       return '<button data-quick="' + t + '" ' +
-        'style="background:rgba(255,255,255,.04);border:1px solid #222;border-radius:7px;color:#888;' +
+        'style="background:' + (isAtual ? 'rgba(201,168,76,.25)' : 'rgba(255,255,255,.04)') + ';' +
+        'border:1px solid ' + (isAtual ? 'rgba(201,168,76,.6)' : '#222') + ';' +
+        'border-radius:7px;color:' + (isAtual ? GOLD : '#888') + ';' +
         'padding:5px 9px;font-size:.7rem;cursor:pointer;font-family:monospace;touch-action:manipulation;">' + t + '</button>';
     }).join('');
 
@@ -1974,8 +1978,17 @@ var HR_IMPORT = (function () {
     });
     document.getElementById('corr_cancel').addEventListener('click', function() { ovEl.remove(); });
     ovEl.querySelectorAll('[data-quick]').forEach(function(b) {
+      var _lastTap = 0;
       b.addEventListener('click', function() {
-        document.getElementById('corr_h').value = b.getAttribute('data-quick');
+        var val = b.getAttribute('data-quick');
+        var inp2 = document.getElementById('corr_h');
+        if (inp2) inp2.value = val;
+        // Duplo-toque ou clique quando o valor já está no campo → salva direto
+        var now = Date.now();
+        if (now - _lastTap < 400 || inp2.value === val) {
+          _salvarCorrecao(grpIdx, recIdx, field);
+        }
+        _lastTap = now;
       });
     });
 
@@ -1987,6 +2000,9 @@ var HR_IMPORT = (function () {
     var el = document.getElementById('corr_h');
     if (!el) return;
     var val = el.value.trim();
+    var isAlmField = (field === 'almEntrada' || field === 'almSaida');
+    // Entrada/saída: obrigatórios e devem ter formato HH:MM
+    if (!isAlmField && !val) { _toast('⚠️ Entrada e Saída são obrigatórias.'); return; }
     if (val && !val.match(/^\d{1,2}:\d{2}$/)) {
       _toast('⚠️ Use o formato HH:MM'); return;
     }
@@ -2130,10 +2146,17 @@ var HR_IMPORT = (function () {
     var almSaida   = asEl ? asEl.value.trim() : '';
     if (!dia || dia < 1 || dia > 31) { _toast('⚠️ Dia inválido.'); return; }
     if (!entrada)                    { _toast('⚠️ Informe a entrada.'); return; }
+    // Valida horários se ambos informados
+    if (entrada && saida) {
+      var eMin = _hhmm2min(entrada), sMin = _hhmm2min(saida);
+      if (!isNaN(eMin) && !isNaN(sMin) && sMin <= eMin && !(CFG.allowOvernight)) {
+        _toast('⚠️ Saída deve ser depois da entrada.'); return;
+      }
+    }
     var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dia).padStart(2,'0');
     var dt = new Date(dataISO + 'T12:00:00');
-    if (isNaN(dt.getTime())) { _toast('⚠️ Data inválida.'); return; }
-    if (dt.getDay() === 0)   { _toast('⚠️ Domingo não conta.'); return; }
+    if (isNaN(dt.getTime()) || dt.getDate() !== dia) { _toast('⚠️ Data inválida para este mês.'); return; }
+    if (dt.getDay() === 0)   { _toast('⚠️ Domingo não é dia útil — use Exceção para registrar trabalho no domingo.'); return; }
     var gr = _state.grupos[grpIdx];
     if (!gr) return;
     if (gr.registros.some(function(r){ return r.data === dataISO; })) {
@@ -2226,7 +2249,7 @@ var HR_IMPORT = (function () {
 
     // ── Constrói HTML do modal ──
     var html =
-      '<div id="' + ovId + '" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;' +
+      '<div id="' + ovId + '" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999999;' +
         'display:flex;align-items:flex-end;justify-content:center;padding:0;">' +
         '<div style="width:100%;max-width:520px;background:#0f0f0f;border-radius:18px 18px 0 0;' +
           'border:1px solid #2a2020;padding:20px 18px 32px;max-height:85vh;overflow-y:auto;">' +
@@ -2284,11 +2307,6 @@ var HR_IMPORT = (function () {
     document.body.insertAdjacentHTML('beforeend', html);
 
     var ov = document.getElementById(ovId);
-
-    // Bloqueia propagação para o overlay hrImport não capturar eventos do modal
-    ov.addEventListener('click',      function(e){ e.stopPropagation(); }, true);
-    ov.addEventListener('touchstart', function(e){ e.stopPropagation(); }, { capture: true, passive: true });
-    ov.addEventListener('touchend',   function(e){ e.stopPropagation(); }, { capture: true, passive: false });
 
     // Tipo selecionado atual
     var tipoAtual = excExist ? excExist.tipo : 'feriado';
@@ -2535,6 +2553,15 @@ var HR_IMPORT = (function () {
 
     /** Descarta grupos ignorados + registros vazios, propaga punições e segue. */
   function _continuarParaVinculacao() {
+    // Verifica erros pendentes antes de prosseguir
+    var gruposAtivosChk = _state.grupos.filter(function(gr){ return !gr._ignorar; });
+    var errosPend = gruposAtivosChk.reduce(function(s, gr){
+      return s + gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
+    }, 0);
+    if (errosPend > 0) {
+      if (!confirm(errosPend + ' registro(s) ainda com erro (batida incompleta).\n\nEles serão ignorados na importação.\n\nDeseja continuar mesmo assim?')) return;
+    }
+
     // Remove grupos marcados para ignorar
     _state.grupos = _state.grupos.filter(function(gr){ return !gr._ignorar; });
 
@@ -3201,13 +3228,14 @@ var HR_IMPORT = (function () {
     // Tenta obter valor/hora do primeiro funcionário vinculado (se houver)
     var funcs = _getFuncionarios();
     var valorHoraDefault = 0;
-    _state.grupos.some(function(gr) {
-      if (gr.funcId && funcs[gr.funcId] && funcs[gr.funcId].valorHora) {
-        valorHoraDefault = parseFloat(funcs[gr.funcId].valorHora) || 0;
-        return true;
+    var totalVH = 0, countVH = 0;
+    _state.grupos.forEach(function(gr) {
+      if (gr.funcId && funcs[gr.funcId]) {
+        var vh = parseFloat(funcs[gr.funcId].valorHora) || 0;
+        if (vh > 0) { totalVH += vh; countVH++; }
       }
-      return false;
     });
+    if (countVH > 0) valorHoraDefault = totalVH / countVH;
 
     var overlayId = 'hrImportRelHE';
     var ovEl = document.createElement('div');
