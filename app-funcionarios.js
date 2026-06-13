@@ -371,8 +371,19 @@ var HR_FUNC = (function () {
     var totalAcrescimos = Object.values(acrsMap).filter(function(a){
       if (a.funcionarioId !== funcId) return false;
       if (a.status !== 'pendente') return false;
-      if (di && a.data < di) return false;
-      if (df && a.data > df) return false;
+      // Filtra pelo período de referência do acréscimo (a.periodo = "yyyy-mm"),
+      // não pela data de criação. Isso evita que acréscimos de meses anteriores
+      // apareçam no mês atual e que acréscimos do mês correto sejam excluídos
+      // por terem sido confirmados fora do intervalo di–df.
+      if (a.periodo) {
+        var periodoAcr = a.periodo; // "yyyy-mm"
+        if (di && periodoAcr < di.slice(0, 7)) return false;
+        if (df && periodoAcr > df.slice(0, 7)) return false;
+      } else {
+        // fallback para acréscimos sem campo periodo (legado)
+        if (di && a.data < di) return false;
+        if (df && a.data > df) return false;
+      }
       return true;
     }).reduce(function(s,a){ return s + (parseFloat(a.valor)||0); }, 0);
 
@@ -1261,77 +1272,113 @@ var HR_FUNC = (function () {
           (totalExtraBanco>0?' · <span style="color:#8ec8f0;">🏦 '+totalExtraBanco.toFixed(1)+'h banco</span>':''))+
       '</div>'+
 
-      // Financeiro
-      '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:14px;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
-          '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;">💰 Financeiro</div>'+
-          '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" '+
-            'style="background:none;border:none;color:'+T3+';font-size:.68rem;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">'+
-            'ver extrato →</button>'+
-        '</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
-          _miniKpi('Salário devido',  _fmtMoeda(saldo.totalSalario),                 GOLD)+
-          _miniKpi('HE devida R$',    _fmtMoeda(saldo.valorExtra),  saldo.valorExtra>0?GOLD:T3)+
-          _miniKpi('Já pago (mês)',   _fmtMoeda(saldo.totalPago),                    GREEN)+
-        '</div>'+
-        // Banco de horas
-        (saldo.banco&&saldo.banco.acumuladoMin>0?
-          '<div style="background:rgba(92,150,200,.08);border:1px solid rgba(92,150,200,.25);border-radius:9px;padding:9px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">'+
+      // ── Financeiro: conta-corrente visual ───────────────────────────────────
+      (function(){
+        var sal2    = saldo.totalSalario || 0;
+        var he2     = saldo.valorExtra   || 0;
+        var acr2    = (saldo.totalDevido - sal2 - he2) || 0;
+        var pago2   = saldo.totalPago    || 0;
+        var saldoV  = saldo.saldo;
+        var saldoCo = saldo.temCredito ? GREEN : (saldoV > 0.01 ? GOLD : GREEN);
+        var saldoLb = saldo.temCredito ? '💳 Crédito — desconta no próximo' : (saldoV > 0.01 ? '💰 A pagar este mês' : '✅ Quitado');
+
+        // Helper: linha da conta
+        function lc(label, valor, cor, sub) {
+          return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+            'padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04);">'+
             '<div>'+
-              '<div style="font-size:.65rem;color:#8ec8f0;font-weight:700;margin-bottom:1px;">🏦 Banco de Horas</div>'+
-              '<div style="font-size:.62rem;color:'+T3+';">Extras para folga futura — não entram no pag.</div>'+
+              '<div style="font-size:.78rem;color:'+T2+';">'+label+'</div>'+
+              (sub?'<div style="font-size:.6rem;color:'+T3+';margin-top:1px;">'+sub+'</div>':'')+
             '</div>'+
-            '<div style="text-align:right;white-space:nowrap;margin-left:12px;">'+
-              '<div style="font-size:.88rem;font-weight:800;color:#8ec8f0;">'+
-                (saldo.banco.saldoMin>=0?'+':'')+Math.floor(Math.abs(saldo.banco.saldoMin)/60)+'h'+
-                (saldo.banco.saldoMin%60!==0?String(Math.abs(saldo.banco.saldoMin%60)).padStart(2,'0')+'m':'')+
-              '</div>'+
-              (saldo.banco.utilizadoMin>0?'<div style="font-size:.6rem;color:'+T3+';">usado: '+Math.floor(saldo.banco.utilizadoMin/60)+'h'+
-                (saldo.banco.utilizadoMin%60!==0?String(saldo.banco.utilizadoMin%60).padStart(2,'0')+'m':'')+'</div>':'')+
+            '<div style="font-size:.85rem;font-weight:700;color:'+(cor||T1)+';white-space:nowrap;">'+
+              _fmtMoeda(valor)+
             '</div>'+
-          '</div>':'')+
-        // Breakdown por faixa
-        ((saldo.valorExtra100>0||saldo.valorExtra200>0)?
-          '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
-            (saldo.valorExtra50 >0?_miniKpi('HE 50%', _fmtMoeda(saldo.valorExtra50), GOLD):'')  +
-            (saldo.valorExtra100>0?_miniKpi('HE 100%',_fmtMoeda(saldo.valorExtra100),'#8ec8c8'):'') +
-            (saldo.valorExtra200>0?_miniKpi('HE 200%',_fmtMoeda(saldo.valorExtra200),'#c88e5c'):'') +
-          '</div>':'')+
-        '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
-          '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
-          ' · Valor/h extra (50%): '+_fmtMoeda(saldo.valorHoraExtra)+
-        '</div>'+
-        '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">'+
-          '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
-          '<div style="font-size:1.4rem;font-weight:800;color:'+saldoColor+';">'+_fmtMoeda(Math.abs(saldo.saldo))+'</div>'+
-          (saldo.temCredito?'<div style="font-size:.65rem;color:'+GREEN+';margin-top:2px;">Desconta no próximo pagamento</div>':'')+
-        '</div>'+
-        // Últimos 3 pagamentos inline
-        (function(){
-          var pags = getPagamentos();
-          var ultPags = Object.values(pags)
-            .filter(function(p){ return p.funcionarioId === id; })
-            .sort(function(a,b){ return b.data.localeCompare(a.data); })
-            .slice(0, 3);
-          if (!ultPags.length) return '<div style="font-size:.68rem;color:'+T3+';text-align:center;padding:4px 0;">Nenhum pagamento registrado ainda</div>';
-          return '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Últimos pagamentos</div>'+
-            ultPags.map(function(p){
+          '</div>';
+        }
+        function lcSubt(label, valor) {
+          return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+            'padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04);">'+
+            '<div style="font-size:.78rem;color:'+T2+';">'+label+'</div>'+
+            '<div style="font-size:.85rem;font-weight:700;color:'+GREEN+';white-space:nowrap;">− '+_fmtMoeda(valor)+'</div>'+
+          '</div>';
+        }
+
+        // Detalhe HE por faixa (só se houver HE100 ou HE200)
+        var heDetalhe = '';
+        if (saldo.valorExtra50  > 0) heDetalhe += '50%: '+_fmtMoeda(saldo.valorExtra50);
+        if (saldo.valorExtra100 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'100%: '+_fmtMoeda(saldo.valorExtra100);
+        if (saldo.valorExtra200 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'200%: '+_fmtMoeda(saldo.valorExtra200);
+        var heSub = heDetalhe || ('R$ '+(saldo.valorHoraBase||0).toFixed(2)+'/h base · ×1.5 = R$ '+(saldo.valorHoraExtra||0).toFixed(2)+'/h extra');
+
+        // Banco de horas (linha separada, não financeiro)
+        var bancoLinha = '';
+        if (saldo.banco && saldo.banco.acumuladoMin > 0) {
+          var bMin = saldo.banco.saldoMin;
+          var bStr = (bMin >= 0 ? '+' : '') + Math.floor(Math.abs(bMin)/60) + 'h' +
+                     (bMin % 60 !== 0 ? String(Math.abs(bMin%60)).padStart(2,'0')+'m' : '');
+          bancoLinha = '<div style="display:flex;justify-content:space-between;align-items:center;'+
+            'padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04);">'+
+            '<div>'+
+              '<div style="font-size:.78rem;color:#8ec8f0;">🏦 Banco de horas</div>'+
+              '<div style="font-size:.6rem;color:'+T3+';margin-top:1px;">Extras guardadas para folga — não entram no pagamento</div>'+
+            '</div>'+
+            '<div style="font-size:.85rem;font-weight:700;color:#8ec8f0;">' + bStr + '</div>'+
+          '</div>';
+        }
+
+        // Últimos pagamentos — lista compacta
+        var pags2 = getPagamentos();
+        var ultPags2 = Object.values(pags2)
+          .filter(function(p){ return p.funcionarioId === id; })
+          .sort(function(a,b){ return b.data.localeCompare(a.data); })
+          .slice(0, 3);
+
+        var listaUltPags = ultPags2.length === 0
+          ? '<div style="padding:10px 12px;font-size:.72rem;color:'+T3+';text-align:center;">Nenhum pagamento registrado ainda</div>'
+          : ultPags2.map(function(p){
               var t = _TIPOS_PAG[p.tipo] || _TIPOS_PAG.outro;
               var icoF = {dinheiro:'💵',pix:'📱',ted:'🏦',cheque:'📋',outro:'💳'}[p.forma]||'💳';
               return '<div style="display:flex;justify-content:space-between;align-items:center;'+
-                'padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+                'padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.03);">'+
                 '<div>'+
-                  '<span style="font-size:.7rem;color:'+t.cor+';font-weight:600;">'+t.icon+' '+t.label+'</span>'+
-                  '<span style="font-size:.65rem;color:'+T3+';margin-left:6px;">'+_fmtData(p.data)+' '+icoF+'</span>'+
-                  (p.obs ? '<div style="font-size:.62rem;color:'+T3+';font-style:italic;">'+_esc(p.obs)+'</div>' : '')+
+                  '<div style="font-size:.75rem;color:'+t.cor+';font-weight:600;">'+t.icon+' '+t.label+'</div>'+
+                  '<div style="font-size:.63rem;color:'+T3+';margin-top:1px;">'+_fmtData(p.data)+' '+icoF+(p.obs?' · '+_esc(p.obs):'')+'</div>'+
                 '</div>'+
-                '<span style="font-size:.78rem;font-weight:700;color:'+t.cor+';white-space:nowrap;margin-left:10px;">'+
-                  _fmtMoeda(p.valor)+
-                '</span>'+
+                '<div style="font-size:.82rem;font-weight:700;color:'+t.cor+';white-space:nowrap;margin-left:10px;">'+_fmtMoeda(p.valor)+'</div>'+
               '</div>';
             }).join('');
-        })()+
-      '</div>'+
+
+        return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;overflow:hidden;margin-bottom:14px;">'+
+          // Cabeçalho da seção
+          '<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;'+
+            'background:rgba(201,168,76,.05);border-bottom:1px solid '+BD+';">'+
+            '<div style="font-size:.63rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">💰 Financeiro — mês atual</div>'+
+            '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" '+
+              'style="background:none;border:none;color:'+T3+';font-size:.68rem;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">'+
+              'ver extrato →</button>'+
+          '</div>'+
+          // Linhas da conta
+          lc('Salário decendial', sal2, GOLD,
+             'mês inteiro: '+_fmtMoeda(parseFloat(f.salario)||0)+' · R$ '+_fmtMoeda(_valorDecendioAtual(f))+' próximo decêndio') +
+          (he2 > 0   ? lc('Horas extras a pagar', he2, '#e0b870', heSub) : '') +
+          (acr2 > 0.01? lc('Acréscimo HE 2× / 3×', acr2, '#8ec8c8', 'diferença sobre a hora normal') : '') +
+          bancoLinha +
+          (pago2 > 0 ? lcSubt('Já pago este mês', pago2) : '') +
+          // Total
+          '<div style="display:flex;justify-content:space-between;align-items:center;'+
+            'padding:12px 14px;background:rgba(0,0,0,.25);">'+
+            '<div>'+
+              '<div style="font-size:.72rem;font-weight:700;color:'+saldoCo+';">'+saldoLb+'</div>'+
+            '</div>'+
+            '<div style="font-size:1.35rem;font-weight:800;color:'+saldoCo+';">'+_fmtMoeda(Math.abs(saldoV))+'</div>'+
+          '</div>'+
+          // Separador + histórico de pagamentos
+          '<div style="padding:8px 14px 4px;'+
+            'font-size:.58rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;'+
+            'border-top:1px solid '+BD+';">Últimos pagamentos</div>'+
+          listaUltPags+
+        '</div>';
+      })()+
 
       penHtml+
       alertasHtml+
@@ -1359,12 +1406,31 @@ var HR_FUNC = (function () {
         '<button onclick="HR_FUNC.abrirFormRegistro(\''+id+'\')" style="padding:13px;background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">📝 Novo Registro</button>'+
         '<button onclick="HR_FUNC.abrirFormPagamento(\''+id+'\')" style="padding:13px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">💳 Pagamento</button>'+
       '</div>'+
-      // Atalho decendial pré-preenchido
-      '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
-        'style="width:100%;padding:11px;background:rgba(201,168,76,.07);border:1.5px solid rgba(201,168,76,.28);'+
-        'color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;">'+
-        '<span>📆</span><span>Registrar Decendio ('+_fmtMoeda(_valorDecendioAtual(f))+')</span>'+
-      '</button>'+
+      // Atalho decendial — botão expandido com contexto
+      (function(){
+        var vDec    = _valorDecendioAtual(f);
+        var ndInfo  = _proximoDecendio();
+        var urgente = ndInfo.diasRestantes <= 1;
+        var cor     = urgente ? RED : GOLD;
+        var bg      = urgente ? 'rgba(200,92,92,.08)' : 'rgba(201,168,76,.07)';
+        var bd      = urgente ? 'rgba(200,92,92,.3)' : 'rgba(201,168,76,.28)';
+        var prazo   = ndInfo.diasRestantes === 0 ? 'HOJE' : ndInfo.diasRestantes === 1 ? 'amanhã' : 'em '+ndInfo.diasRestantes+'d';
+        return '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
+          'style="width:100%;padding:12px 14px;background:'+bg+';border:1.5px solid '+bd+';'+
+          'border-radius:11px;font-family:Outfit,sans-serif;cursor:pointer;margin-bottom:8px;'+
+          'display:flex;justify-content:space-between;align-items:center;">'+
+          '<div style="text-align:left;">'+
+            '<div style="font-size:.82rem;font-weight:700;color:'+cor+';margin-bottom:2px;">'+
+              '📆 Pagar '+(ndInfo.label||'decêndio')+
+            '</div>'+
+            '<div style="font-size:.65rem;color:'+T3+';">Vence '+prazo+'</div>'+
+          '</div>'+
+          '<div style="text-align:right;">'+
+            '<div style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(vDec)+'</div>'+
+            '<div style="font-size:.6rem;color:'+T3+';">valor sugerido</div>'+
+          '</div>'+
+        '</button>';
+      })()+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'+
         '<button onclick="HR_FUNC.abrirHistorico(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📋 Histórico</button>'+
         '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" style="padding:11px;background:'+S3+';border:1px solid '+BD2+';color:'+T2+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.78rem;cursor:pointer;">📊 Extrato</button>'+
@@ -2206,7 +2272,12 @@ var HR_FUNC = (function () {
       lista.map(function(f){ return {v:f.id, l:f.nome}; })
     );
     var hoje = _hoje();
-    var saldo = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, null, null) : null;
+    // Usa o mês atual como período para o saldo no modal de pagamento
+    var _pagMesRef = _mesAno(0);
+    var _pagDi = _pagMesRef + '-01';
+    var _pagDfUlt = new Date(parseInt(_pagMesRef.slice(0,4)), parseInt(_pagMesRef.slice(5,7)), 0);
+    var _pagDf = _pagMesRef + '-' + String(_pagDfUlt.getDate()).padStart(2,'0');
+    var saldo = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, _pagDi, _pagDf) : null;
     var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
 
     // Sugestão de valor para decendial: salário ÷ 3
@@ -2236,12 +2307,33 @@ var HR_FUNC = (function () {
         _campo('Observação (opcional)', _inp('pag_obs','text','Ex: 1º decendio junho, vale farmácia...',''))
       )+
 
-      // Dica decendial
-      '<div id="pag_dica_dec" style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);'+
-        'border-radius:10px;padding:10px 13px;margin-bottom:12px;font-size:.72rem;color:'+T2+';line-height:1.6;">'+
-        '📆 <strong style="color:'+GOLD+';">Pagamento Decendial</strong> — a cada 10 dias. '+
-        'Sugestão: salário ÷ 3 por decendio.'+
-        (sugestao ? ' <strong style="color:'+GOLD+';">≈ '+_fmtMoeda(parseFloat(sugestao))+'</strong> p/ funcionário selecionado.' : '')+
+      // Dica decendial — mais explicativa
+      '<div id="pag_dica_dec" style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.2);'+
+        'border-radius:11px;padding:12px 14px;margin-bottom:12px;">'+
+        '<div style="font-size:.65rem;color:'+GOLD+';font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">'+
+          '📆 Como funciona o pagamento decendial'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">'+
+          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
+            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">1º pagamento</div>'+
+            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">dia 10</div>'+
+          '</div>'+
+          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
+            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">2º pagamento</div>'+
+            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">dia 20</div>'+
+          '</div>'+
+          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
+            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">3º pagamento</div>'+
+            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">fim do mês</div>'+
+          '</div>'+
+        '</div>'+
+        (sugestao
+          ? '<div style="font-size:.72rem;color:'+T2+';line-height:1.5;">'+
+              'Sugestão para o funcionário selecionado: '+
+              '<strong style="color:'+GOLD+';">'+_fmtMoeda(parseFloat(sugestao))+'</strong>'+
+              ' por parcela <span style="color:'+T3+';">( salário ÷ 3 )</span>'+
+            '</div>'
+          : '')+
       '</div>'+
 
       '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
@@ -2265,7 +2357,11 @@ var HR_FUNC = (function () {
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
-        var s2   = calcSaldoFuncionario(fid, null, null);
+        var _mr2 = _mesAno(0);
+        var _di2 = _mr2 + '-01';
+        var _ult2 = new Date(parseInt(_mr2.slice(0,4)), parseInt(_mr2.slice(5,7)), 0);
+        var _df2 = _mr2 + '-' + String(_ult2.getDate()).padStart(2,'0');
+        var s2   = calcSaldoFuncionario(fid, _di2, _df2);
         info.innerHTML = _blocoSaldo(s2, f2);
         // Sugestão automática para decendio
         if (inpV && tipo === 'decendio') {
@@ -2281,36 +2377,70 @@ var HR_FUNC = (function () {
     }, 80);
   }
 
+  // ─── Bloco financeiro reutilizável: conta-corrente visual ─────────────────
+  // Aparece no modal de pagamento e pode ser chamado de outros contextos.
+  // Mostra as linhas de composição do valor a pagar de forma transparente.
   function _blocoSaldo(s, f){
     if (!s) return '';
-    var sc  = s.temCredito ? GREEN : (s.saldo > 0.01 ? RED : GOLD);
-    var sl  = s.temCredito
-      ? '💳 Crédito ' + _fmtMoeda(Math.abs(s.saldo))
-      : (s.saldo > 0.01 ? '💰 A receber ' + _fmtMoeda(s.saldo) : '✓ Quitado');
-    var sal = f && f.salario ? parseFloat(f.salario) : 0;
-    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;'+
-        'padding:13px;margin-bottom:12px;">'+
-      '<div style="font-size:.6rem;color:'+GOLD+';letter-spacing:.12em;text-transform:uppercase;'+
-        'margin-bottom:10px;">📊 Posição Financeira</div>'+
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;">'+
-        _miniKpi('Salário',       _fmtMoeda(sal),           GOLD)+
-        _miniKpi('H. Extras',     _fmtMoeda(s.valorExtra),  GOLD)+
-        _miniKpi('Já Pago',       _fmtMoeda(s.totalPago),   GREEN)+
+    var sal     = (s && s.totalSalario != null) ? s.totalSalario : (f && f.salario ? parseFloat(f.salario) : 0);
+    var he      = s.valorExtra || 0;
+    var acr     = (s.totalDevido - sal - he) || 0; // acréscimos 2×/3× pendentes
+    var pago    = s.totalPago   || 0;
+    var saldo   = s.saldo;
+    var devido  = s.totalDevido || 0;
+
+    // Linha de composição: só mostra itens com valor > 0
+    function _linha(label, valor, cor, destaque) {
+      if (valor <= 0.005 && !destaque) return '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+        'padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+        '<span style="font-size:.75rem;color:'+T2+';">'+label+'</span>'+
+        '<span style="font-size:.82rem;font-weight:'+(destaque?'800':'600')+';color:'+(cor||T1)+';">'+
+          _fmtMoeda(valor)+
+        '</span>'+
+      '</div>';
+    }
+    function _linhaSubt(label, valor, cor) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;'+
+        'padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+        '<span style="font-size:.75rem;color:'+T2+';">'+label+'</span>'+
+        '<span style="font-size:.82rem;font-weight:600;color:'+(cor||RED)+';">− '+_fmtMoeda(valor)+'</span>'+
+      '</div>';
+    }
+
+    var saldoCor   = s.temCredito ? GREEN : (saldo > 0.01 ? GOLD : GREEN);
+    var saldoLabel = s.temCredito ? 'Crédito (overpago)' : (saldo > 0.01 ? 'A pagar hoje' : 'Quitado ✓');
+    var saldoIco   = s.temCredito ? '💳' : (saldo > 0.01 ? '💰' : '✅');
+
+    // Mês de referência legível
+    var hoje = new Date();
+    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var mesLabel = meses[hoje.getMonth()] + '/' + hoje.getFullYear();
+
+    return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:12px;">'+
+      // Cabeçalho
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'+
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">📋 Conta do mês — '+mesLabel+'</div>'+
+        (f && f.salario ? '<div style="font-size:.6rem;color:'+T3+';">salário: '+_fmtMoeda(parseFloat(f.salario))+'</div>' : '')+
       '</div>'+
-      '<div style="background:rgba(0,0,0,.35);border-radius:9px;padding:10px 14px;'+
+      // Linhas de composição
+      '<div style="margin-bottom:8px;">'+
+        _linha('Salário decendial devido', sal, GOLD) +
+        (he > 0    ? _linha('Horas extras (' + (s.totalExtra||0).toFixed(1) + 'h)', he, '#e0b870') : '') +
+        (acr > 0.01? _linha('Acréscimo HE 2× / 3×', acr, '#8ec8c8') : '') +
+        (pago > 0  ? _linhaSubt('Já pago neste mês', pago, RED) : '') +
+      '</div>'+
+      // Total em destaque
+      '<div style="background:rgba(0,0,0,.35);border-radius:10px;padding:11px 14px;'+
         'display:flex;justify-content:space-between;align-items:center;">'+
         '<div>'+
-          '<div style="font-size:.62rem;color:'+T3+';margin-bottom:2px;">Saldo</div>'+
-          '<div style="font-size:.72rem;font-weight:600;color:'+sc+';">'+sl+'</div>'+
+          '<div style="font-size:.62rem;color:'+T3+';margin-bottom:1px;">'+saldoIco+' '+saldoLabel+'</div>'+
+          (s.temCredito ? '<div style="font-size:.6rem;color:'+GREEN+';">Desconta no próximo pagamento</div>' : '')+
         '</div>'+
-        '<div style="font-size:1.25rem;font-weight:800;color:'+sc+';">'+
-          _fmtMoeda(Math.abs(s.saldo))+
+        '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
+          _fmtMoeda(Math.abs(saldo))+
         '</div>'+
       '</div>'+
-      (s.temCredito
-        ? '<div style="font-size:.62rem;color:'+GREEN+';margin-top:7px;text-align:center;">'+
-            'Crédito desconta no próximo pagamento</div>'
-        : '')+
     '</div>';
   }
 
@@ -2424,8 +2554,12 @@ var HR_FUNC = (function () {
     var primeiroNome = f.nome.split(' ')[0];
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
 
-    // Calcula saldo após o pagamento (já inclui o pagamento que acabou de ser salvo)
-    var saldo = calcSaldoFuncionario(funcId, null, null);
+    // Calcula saldo após o pagamento — usa mês atual (já inclui pagamento recém salvo)
+    var _nMesRef = _mesAno(0);
+    var _nDi = _nMesRef + '-01';
+    var _nUlt = new Date(parseInt(_nMesRef.slice(0,4)), parseInt(_nMesRef.slice(5,7)), 0);
+    var _nDf = _nMesRef + '-' + String(_nUlt.getDate()).padStart(2,'0');
+    var saldo = calcSaldoFuncionario(funcId, _nDi, _nDf);
     var saldoTexto;
     if (saldo.temCredito) {
       saldoTexto = '✅ Quitado (crédito de ' + _fmtMoeda(Math.abs(saldo.saldo)) + ' no próximo)';
@@ -3448,13 +3582,17 @@ var HR_FUNC = (function () {
         id:            aid,
         funcionarioId: f.id,
         data:          _hoje(),
-        valor:         parseFloat(r.valorMulti.toFixed(2)),
+        // IMPORTANTE: valor = apenas o ACRÉSCIMO (diferença entre multiplier× e 1.5× normal).
+        // O valorNormal (HE 1.5×) já está incluso em calcSaldoFuncionario via valorExtra.
+        // Salvar valorMulti completo causaria dupla contagem na tela financeira.
+        valor:         parseFloat(r.acrescimo.toFixed(2)),
         tipo:          tipo,
         periodo:       periodoAtivo,
         label:         label,
-        descricao:     label+' — '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
+        descricao:     label+' — acréscimo de '+r.totalHorasExtra.toFixed(2)+'h extra · '+periodoAtivo,
         horasExtra:    r.totalHorasExtra,
         valorNormal:   parseFloat(r.valorNormal.toFixed(2)),
+        valorMulti:    parseFloat(r.valorMulti.toFixed(2)),
         acrescimo:     parseFloat(r.acrescimo.toFixed(2)),
         status:        'pendente',   // vira 'pago' quando decêndio for registrado
         criadoEm:      new Date().toISOString()
