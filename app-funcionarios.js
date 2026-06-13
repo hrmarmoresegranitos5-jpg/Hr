@@ -3991,6 +3991,9 @@ var HR_FUNC = (function () {
   // ══════════════════════════════════════════════════════════════
 
   return{
+    getFuncionarios:          getFuncionarios,
+    getRegistros:             getRegistros,
+    getPagamentos:            getPagamentos,
     renderPaginaFuncionarios: renderPaginaFuncionarios,
     abrirFormFuncionario:     abrirFormFuncionario,
     abrirDetalhesFuncionario: abrirDetalhesFuncionario,
