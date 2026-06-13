@@ -338,8 +338,10 @@ var HR_IMPORT = (function () {
       var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
       var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
       if (exc) {
-        if (exc.tipo === 'feriado' || exc.tipo === 'acordo') return 0; // não é dia trabalhado
-        // tipo 'declarado': usa jornada normal (calculada abaixo), ponto será gerado em _calcGrupo
+        // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
+        if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
+        if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
+        // Feriado meio período ou declarado → usa jornada normal (calculada abaixo)
       }
     } catch(e) {}
 
@@ -1670,6 +1672,21 @@ var HR_IMPORT = (function () {
               '\u{1F534} Punir</button>'
           : '';
 
+        // Verifica se já existe exceção salva para essa data
+        var _excAtual = (function(){
+          try {
+            var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+            return Object.values(excs).find(function(e){ return e.data === r.data; }) || null;
+          } catch(e){ return null; }
+        })();
+        var btnExcecao = '<button data-action="excecao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+          'style="padding:5px 7px;background:' + (_excAtual ? 'rgba(167,139,250,.2)' : 'rgba(100,80,180,.15)') + ';' +
+          'border:1px solid ' + (_excAtual ? 'rgba(167,139,250,.6)' : 'rgba(120,100,200,.35)') + ';' +
+          'border-radius:7px;color:' + (_excAtual ? '#c4b5fd' : '#7c6db8') + ';cursor:pointer;font-size:.6rem;font-weight:700;' +
+          'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
+          (_excAtual ? '\u2605 ' + (_excAtual.tipo === 'feriado' ? 'Feriado' : _excAtual.tipo === 'acordo' ? 'Acordo' : 'Declarado') : '\u{1F4CB} Exceção') +
+          '</button>';
+
         // Almoço
         var fAlmEnt = r.almEntrada
           ? '<span style="color:' + T2 + ';font-weight:600;font-family:monospace;font-size:.76rem;">' + r.almEntrada + '</span>'
@@ -1707,7 +1724,7 @@ var HR_IMPORT = (function () {
               '<div style="font-size:.84rem;">' + fSai + '</div>' +
             '</button>' +
 
-            btnTrocar + btnPunir +
+            btnTrocar + btnPunir + btnExcecao +
 
             '<button data-action="excluir" data-gi="' + gi + '" data-ri="' + ri + '" ' +
               'style="padding:6px 8px;cursor:pointer;color:#2a2a2a;font-size:1rem;background:none;' +
@@ -1820,6 +1837,7 @@ var HR_IMPORT = (function () {
       else if (action === 'desfazer-punicao' && gi !== null && ri !== null)  { e.stopPropagation(); _desfazerPunicao(gi, ri); }
       else if (action === 'excluir'    && gi !== null && ri !== null)        { e.stopPropagation(); _excluirCorrecao(gi, ri); }
       else if (action === 'ignorar'    && gi !== null && val !== null)       { e.stopPropagation(); _ignorarGrupo(gi, val === 1); }
+      else if (action === 'excecao'    && gi !== null && ri !== null)        { e.stopPropagation(); _abrirModalExcecao(gi, ri); }
       else if (action === 'adicionar-dia' && gi !== null)                   { e.stopPropagation(); _abrirAdicionarDia(gi); }
       else if (action === 'continuar')                                       { e.stopPropagation(); _continuarParaVinculacao(); }
       else if (action === 'fechar')                                          { e.stopPropagation(); _fechar(); }
@@ -2137,6 +2155,317 @@ var HR_IMPORT = (function () {
       if (gr.registros[recIdx].saida   === 'PUNIÇÃO') gr.registros[recIdx].saida   = '';
     }
     _renderTelaCorrecao();
+  }
+
+  /**
+   * Abre modal para registrar uma exceção para o dia (feriado, acordo ou declarado).
+   * Tipos:
+   *   feriado  — dia não trabalhado (feriado oficial ou combinado). Pode ser dia todo ou meio período.
+   *   acordo   — trabalhou período reduzido por acordo (ex: meio dia + compensação de HE de outros dias).
+   *   declarado — jornada aceita mesmo sem ponto completo (empregador confirma a presença).
+   * A exceção é salva em hr_excecoes e afeta _jornadaEsperada e o cálculo de HE.
+   */
+  function _abrirModalExcecao(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr || !gr.registros[recIdx]) return;
+    var r      = gr.registros[recIdx];
+    var data   = r.data;
+    var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var dow    = DOW_PT[new Date(data + 'T12:00:00').getDay()];
+    var dia    = data.split('-')[2];
+    var mesNum = parseInt(data.split('-')[1]);
+    var MESES  = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var dataFmt = dow + ' ' + dia + '/' + MESES[mesNum];
+
+    // Carrega exceção existente para pré-preencher
+    var excExist = null;
+    try {
+      var excsAll = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      excExist = Object.values(excsAll).find(function(e){ return e.data === data; }) || null;
+    } catch(e) {}
+
+    var ovId = 'hrExcecaoModal';
+    var prev = document.getElementById(ovId);
+    if (prev) prev.remove();
+
+    // ── Constrói HTML do modal ──
+    var html =
+      '<div id="' + ovId + '" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;' +
+        'display:flex;align-items:flex-end;justify-content:center;padding:0;">' +
+        '<div style="width:100%;max-width:520px;background:#0f0f0f;border-radius:18px 18px 0 0;' +
+          'border:1px solid #2a2020;padding:20px 18px 32px;max-height:85vh;overflow-y:auto;">' +
+
+          // Header
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+            '<div>' +
+              '<div style="font-size:1rem;font-weight:800;color:#c4b5fd;font-family:Outfit,sans-serif;">📋 Exceção do Dia</div>' +
+              '<div style="font-size:.72rem;color:#888;margin-top:2px;">' + dataFmt + '</div>' +
+            '</div>' +
+            '<button id="excecao_fechar" style="background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;padding:4px;">✕</button>' +
+          '</div>' +
+
+          // Seletor de tipo
+          '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Tipo de exceção</div>' +
+          '<div id="excecao_tipos" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px;">' +
+            _btnTipoExcecao('feriado',   '🎌', 'Feriado',   'Dia não trabalhado (feriado ou folga combinada)',  excExist) +
+            _btnTipoExcecao('acordo',    '🤝', 'Acordo',    'Trabalharam período reduzido por acordo prévio',  excExist) +
+            _btnTipoExcecao('declarado', '✅', 'Declarado', 'Presença confirmada pelo empregador',             excExist) +
+          '</div>' +
+
+          // Área de opções do tipo (renderizada dinamicamente)
+          '<div id="excecao_opcoes"></div>' +
+
+          // Campo descrição
+          '<div style="margin-bottom:14px;">' +
+            '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px;">Descrição / Observação</div>' +
+            '<textarea id="excecao_desc" rows="2" placeholder="Ex: Corpus Christi · Acordo de compensação de horas · etc." ' +
+              'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+              'color:#ddd;font-family:Outfit,sans-serif;font-size:.82rem;padding:9px 11px;resize:none;outline:none;">' +
+              (excExist && excExist.descricao ? excExist.descricao : '') + '</textarea>' +
+          '</div>' +
+
+          // Botões de ação
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+            '<button id="excecao_salvar" ' +
+              'style="padding:13px;background:rgba(167,139,250,.15);border:1.5px solid rgba(167,139,250,.5);' +
+              'color:#c4b5fd;border-radius:11px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">' +
+              '✓ Salvar Exceção</button>' +
+            (excExist
+              ? '<button id="excecao_remover" ' +
+                  'style="padding:13px;background:rgba(120,20,20,.25);border:1px solid rgba(180,40,40,.4);' +
+                  'color:#c06060;border-radius:11px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">' +
+                  '🗑 Remover</button>'
+              : '<button id="excecao_cancelar" ' +
+                  'style="padding:13px;background:transparent;border:1px solid #2a2a2a;' +
+                  'color:#555;border-radius:11px;font-family:Outfit,sans-serif;font-size:.88rem;cursor:pointer;">' +
+                  'Cancelar</button>'
+            ) +
+          '</div>' +
+
+        '</div>' +
+      '</div>';
+
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    var ov = document.getElementById(ovId);
+
+    // Tipo selecionado atual
+    var tipoAtual = excExist ? excExist.tipo : 'feriado';
+
+    function _renderOpcoes(tipo) {
+      var el = document.getElementById('excecao_opcoes');
+      if (!el) return;
+      var html2 = '';
+
+      if (tipo === 'feriado') {
+        // Feriado: dia todo (sem trabalho) ou meio período (informar horários)
+        var isMeio = excExist && excExist.meioperiodo;
+        html2 =
+          '<div style="margin-bottom:14px;">' +
+            '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Período trabalhado</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">' +
+              '<button id="opt_diatodo" onclick="document.getElementById(\'opt_diatodo\').style.background=\'rgba(167,139,250,.25)\';document.getElementById(\'opt_diatodo\').style.borderColor=\'rgba(167,139,250,.7)\';document.getElementById(\'opt_meio\').style.background=\'#1a1a1a\';document.getElementById(\'opt_meio\').style.borderColor=\'#2a2a2a\';document.getElementById(\'feriado_horas\').style.display=\'none\';" ' +
+                'style="padding:10px 8px;background:' + (!isMeio ? 'rgba(167,139,250,.25)' : '#1a1a1a') + ';' +
+                'border:1px solid ' + (!isMeio ? 'rgba(167,139,250,.7)' : '#2a2a2a') + ';' +
+                'border-radius:9px;color:#ddd;font-family:Outfit,sans-serif;font-size:.75rem;font-weight:600;cursor:pointer;">' +
+                '🔴 Dia todo<br><span style="font-size:.6rem;color:#888;">Não trabalhou</span></button>' +
+              '<button id="opt_meio" onclick="document.getElementById(\'opt_meio\').style.background=\'rgba(167,139,250,.25)\';document.getElementById(\'opt_meio\').style.borderColor=\'rgba(167,139,250,.7)\';document.getElementById(\'opt_diatodo\').style.background=\'#1a1a1a\';document.getElementById(\'opt_diatodo\').style.borderColor=\'#2a2a2a\';document.getElementById(\'feriado_horas\').style.display=\'block\';" ' +
+                'style="padding:10px 8px;background:' + (isMeio ? 'rgba(167,139,250,.25)' : '#1a1a1a') + ';' +
+                'border:1px solid ' + (isMeio ? 'rgba(167,139,250,.7)' : '#2a2a2a') + ';' +
+                'border-radius:9px;color:#ddd;font-family:Outfit,sans-serif;font-size:.75rem;font-weight:600;cursor:pointer;">' +
+                '🟡 Meio período<br><span style="font-size:.6rem;color:#888;">Trabalhou até o meio-dia</span></button>' +
+            '</div>' +
+            '<div id="feriado_horas" style="display:' + (isMeio ? 'block' : 'none') + ';">' +
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">' +
+                _inputHora('fer_ent', 'Entrada', excExist && excExist.horEntrada ? excExist.horEntrada : r.entrada || '07:00') +
+                _inputHora('fer_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '12:00') +
+              '</div>' +
+              '<div style="font-size:.62rem;color:#7a6;background:rgba(92,150,80,.08);border:1px solid rgba(92,150,80,.25);border-radius:7px;padding:7px 10px;margin-top:8px;">' +
+                'ℹ️ No meio período o sistema calculará as horas trabalhadas e o saldo normalmente.' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+
+      } else if (tipo === 'acordo') {
+        // Acordo: período trabalhado + compensação de horas extras de outros dias
+        var compHora = excExist && excExist.compensacaoHoras ? excExist.compensacaoHoras : '2';
+        var compDias = excExist && excExist.compensacaoDias  ? excExist.compensacaoDias  : '';
+        html2 =
+          '<div style="margin-bottom:10px;">' +
+            '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Horário trabalhado</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">' +
+              _inputHora('ac_ent', 'Entrada', excExist && excExist.horEntrada ? excExist.horEntrada : r.entrada || '07:00') +
+              _inputHora('ac_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '12:00') +
+            '</div>' +
+            '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Compensação (descontar HE de outros dias)</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+              '<div>' +
+                '<div style="font-size:.6rem;color:#888;margin-bottom:4px;">Horas a descontar</div>' +
+                '<input id="ac_comp_horas" type="number" min="0" max="24" step="0.5" value="' + compHora + '" ' +
+                  'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+                  'color:#ddd;font-family:Outfit,sans-serif;font-size:.88rem;padding:9px 11px;outline:none;" ' +
+                  'placeholder="Ex: 2">' +
+              '</div>' +
+              '<div>' +
+                '<div style="font-size:.6rem;color:#888;margin-bottom:4px;">Distribuir em (dias)</div>' +
+                '<input id="ac_comp_dias" type="text" value="' + compDias + '" ' +
+                  'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+                  'color:#ddd;font-family:Outfit,sans-serif;font-size:.88rem;padding:9px 11px;outline:none;" ' +
+                  'placeholder="Ex: Qui, Sex">' +
+              '</div>' +
+            '</div>' +
+            '<div style="font-size:.62rem;color:#8ec8c8;background:rgba(92,180,180,.06);border:1px solid rgba(92,180,180,.2);border-radius:7px;padding:8px 10px;">' +
+              '💡 As horas de compensação serão registradas como <strong>observação</strong> no registro do dia. ' +
+              'O desconto efetivo deve ser feito no extrato de banco de horas ou via ajuste na folha.' +
+            '</div>' +
+          '</div>';
+
+      } else if (tipo === 'declarado') {
+        // Declarado: confirma presença com horários
+        html2 =
+          '<div style="margin-bottom:10px;">' +
+            '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Horário declarado</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+              _inputHora('dec_ent', 'Entrada', excExist && excExist.horEntrada ? excExist.horEntrada : r.entrada || '07:00') +
+              _inputHora('dec_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '17:00') +
+            '</div>' +
+            '<div style="font-size:.62rem;color:#a0b87a;background:rgba(120,160,80,.07);border:1px solid rgba(120,160,80,.25);border-radius:7px;padding:7px 10px;">' +
+              'ℹ️ O dia será computado normalmente com os horários declarados, mesmo sem ponto no relógio.' +
+            '</div>' +
+          '</div>';
+      }
+
+      el.innerHTML = html2;
+    }
+
+    // Seta tipo ativo visualmente
+    function _setTipo(tipo) {
+      tipoAtual = tipo;
+      ['feriado','acordo','declarado'].forEach(function(t) {
+        var btn = document.getElementById('excecao_tipo_' + t);
+        if (!btn) return;
+        var ativo = t === tipo;
+        btn.style.background    = ativo ? 'rgba(167,139,250,.22)' : '#1a1a1a';
+        btn.style.borderColor   = ativo ? 'rgba(167,139,250,.65)' : '#2a2a2a';
+        btn.style.color         = ativo ? '#c4b5fd' : '#666';
+      });
+      _renderOpcoes(tipo);
+    }
+
+    // Inicializa
+    _setTipo(tipoAtual);
+
+    // Eventos dos botões de tipo
+    ['feriado','acordo','declarado'].forEach(function(t) {
+      var btn = document.getElementById('excecao_tipo_' + t);
+      if (btn) btn.addEventListener('click', function(){ _setTipo(t); });
+    });
+
+    // Fechar
+    function _fecharModal() { var o = document.getElementById(ovId); if (o) o.remove(); }
+    var btnF = document.getElementById('excecao_fechar');
+    var btnC = document.getElementById('excecao_cancelar');
+    if (btnF) btnF.addEventListener('click', _fecharModal);
+    if (btnC) btnC.addEventListener('click', _fecharModal);
+
+    // Remover exceção existente
+    var btnRem = document.getElementById('excecao_remover');
+    if (btnRem) btnRem.addEventListener('click', function(){
+      try {
+        var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+        Object.keys(excs).forEach(function(k){ if (excs[k].data === data) delete excs[k]; });
+        localStorage.setItem('hr_excecoes', JSON.stringify(excs));
+      } catch(e) {}
+      _fecharModal();
+      _renderTelaCorrecao();
+      _toast('Exceção removida.');
+    });
+
+    // Salvar
+    document.getElementById('excecao_salvar').addEventListener('click', function(){
+      var desc = (document.getElementById('excecao_desc') || {}).value || '';
+      var exc = { data: data, tipo: tipoAtual, descricao: desc };
+
+      if (tipoAtual === 'feriado') {
+        var isMeio = document.getElementById('feriado_horas') &&
+                     document.getElementById('feriado_horas').style.display !== 'none';
+        exc.meioperiodo = isMeio;
+        if (isMeio) {
+          exc.horEntrada = (document.getElementById('fer_ent') || {}).value || r.entrada || '07:00';
+          exc.horSaida   = (document.getElementById('fer_sai') || {}).value || r.saida   || '12:00';
+          // Atualiza o registro para refletir o meio período
+          r.entrada = exc.horEntrada;
+          r.saida   = exc.horSaida;
+        } else {
+          // Dia todo: zera ponto (não é dia trabalhado — jornada = 0)
+          exc.horEntrada = null;
+          exc.horSaida   = null;
+        }
+
+      } else if (tipoAtual === 'acordo') {
+        exc.horEntrada        = (document.getElementById('ac_ent')        || {}).value || r.entrada || '07:00';
+        exc.horSaida          = (document.getElementById('ac_sai')        || {}).value || r.saida   || '12:00';
+        exc.compensacaoHoras  = parseFloat((document.getElementById('ac_comp_horas') || {}).value) || 0;
+        exc.compensacaoDias   = (document.getElementById('ac_comp_dias')  || {}).value || '';
+        // Atualiza registro com os horários do acordo
+        r.entrada = exc.horEntrada;
+        r.saida   = exc.horSaida;
+        // Adiciona observação no registro
+        var obsComp = 'Acordo: meio período. Compensar ' + exc.compensacaoHoras + 'h' +
+                      (exc.compensacaoDias ? ' distribuído em ' + exc.compensacaoDias : '') + '.';
+        r.observacao = obsComp;
+
+      } else if (tipoAtual === 'declarado') {
+        exc.horEntrada = (document.getElementById('dec_ent') || {}).value || r.entrada || '07:00';
+        exc.horSaida   = (document.getElementById('dec_sai') || {}).value || r.saida   || '17:00';
+        r.entrada = exc.horEntrada;
+        r.saida   = exc.horSaida;
+      }
+
+      // Persiste em hr_excecoes
+      try {
+        var excs2 = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+        // Remove entrada anterior para a mesma data
+        Object.keys(excs2).forEach(function(k){ if (excs2[k].data === data) delete excs2[k]; });
+        var novaKey = 'exc_' + data.replace(/-/g,'_');
+        excs2[novaKey] = exc;
+        localStorage.setItem('hr_excecoes', JSON.stringify(excs2));
+      } catch(e) {}
+
+      _fecharModal();
+      _renderTelaCorrecao();
+
+      var msgs = { feriado: '🎌 Feriado registrado.', acordo: '🤝 Acordo salvo.', declarado: '✅ Presença declarada.' };
+      _toast(msgs[tipoAtual] || 'Exceção salva.');
+    });
+
+    // Toque fora fecha
+    ov.addEventListener('click', function(e){ if (e.target === ov) _fecharModal(); });
+  }
+
+  /** Botão de seleção de tipo de exceção (helper visual). */
+  function _btnTipoExcecao(tipo, icone, label, sub, excExist) {
+    var ativo = excExist && excExist.tipo === tipo;
+    return '<button id="excecao_tipo_' + tipo + '" ' +
+      'style="padding:11px 6px;background:' + (ativo ? 'rgba(167,139,250,.22)' : '#1a1a1a') + ';' +
+      'border:1px solid ' + (ativo ? 'rgba(167,139,250,.65)' : '#2a2a2a') + ';' +
+      'border-radius:10px;color:' + (ativo ? '#c4b5fd' : '#666') + ';cursor:pointer;' +
+      'font-family:Outfit,sans-serif;text-align:center;transition:all .15s;">' +
+      '<div style="font-size:1.1rem;margin-bottom:3px;">' + icone + '</div>' +
+      '<div style="font-size:.72rem;font-weight:700;">' + label + '</div>' +
+      '<div style="font-size:.55rem;color:#555;margin-top:2px;line-height:1.3;">' + sub + '</div>' +
+    '</button>';
+  }
+
+  /** Input de horário estilizado para o modal de exceção. */
+  function _inputHora(id, label, val) {
+    return '<div>' +
+      '<div style="font-size:.6rem;color:#888;margin-bottom:4px;">' + label + '</div>' +
+      '<input id="' + id + '" type="text" value="' + (val || '') + '" maxlength="5" ' +
+        'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+        'color:#ddd;font-family:monospace;font-size:1.05rem;font-weight:700;padding:9px 11px;outline:none;text-align:center;" ' +
+        'placeholder="HH:MM">' +
+    '</div>';
   }
 
   /** Troca entrada ↔ saída (para batidas únicas colocadas no campo errado). */
@@ -3192,6 +3521,7 @@ var HR_IMPORT = (function () {
     _editCorrecao:          _editCorrecao,
     _salvarCorrecao:        _salvarCorrecao,
     _excluirCorrecao:       _excluirCorrecao,
+    _abrirModalExcecao:     _abrirModalExcecao,
     _abrirAdicionarDia:     _abrirAdicionarDia,
     _confirmarAddDia:       _confirmarAddDia,
     _continuarParaVinculacao: _continuarParaVinculacao,
