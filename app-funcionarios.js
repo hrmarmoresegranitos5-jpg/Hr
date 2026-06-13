@@ -2505,11 +2505,18 @@ var HR_FUNC = (function () {
     var funcId  = selFunc ? selFunc.value : null;
     if (!funcId) { _toast('⚠ Selecione um funcionário primeiro.'); return; }
 
-    // Período: mês atual (igual ao cálculo do modal)
-    var mr   = _mesAno(0);
-    var di   = mr + '-01';
-    var ult  = new Date(parseInt(mr.slice(0,4)), parseInt(mr.slice(5,7)), 0);
-    var df   = mr + '-' + String(ult.getDate()).padStart(2,'0');
+    // Período: decêndio atual (1-10, 11-20, 21-fim)
+    var hoje = new Date();
+    var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
+    var diDt, dfDt;
+    if      (d <= 10) { diDt = new Date(ano, mes,  1); dfDt = new Date(ano, mes, 10); }
+    else if (d <= 20) { diDt = new Date(ano, mes, 11); dfDt = new Date(ano, mes, 20); }
+    else              { diDt = new Date(ano, mes, 21); dfDt = new Date(ano, mes + 1, 0); }
+
+    var _fmt = function(dt) {
+      return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+    };
+    var di = _fmt(diDt), df = _fmt(dfDt);
 
     if (typeof HR_RELATORIO_PONTO === 'undefined' || !HR_RELATORIO_PONTO.gerarPDF) {
       _toast('⚠ Módulo de relatório não carregado (app-relatorio-ponto.js).'); return;
