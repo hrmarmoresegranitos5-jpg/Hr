@@ -228,28 +228,45 @@ var HR_RELATORIO_PONTO = (function () {
     return linhas;
   }
 
-  // ─── Carregamento dinâmico do jsPDF ─────────────────────────────────────────
+  // ─── Carregamento dinâmico das libs ─────────────────────────────────────────
+
+  function _loadLibs(cb) {
+    // Garante html2canvas + jsPDF
+    function loadJsPDF(next) {
+      if ((window.jspdf && window.jspdf.jsPDF) || window.jsPDF) { next(); return; }
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = next;
+      s.onerror = function(){ if(typeof toast==='function') toast('Erro ao carregar jsPDF'); };
+      document.head.appendChild(s);
+    }
+    if (typeof html2canvas !== 'undefined') { loadJsPDF(cb); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = function(){ loadJsPDF(cb); };
+    s.onerror = function(){ if(typeof toast==='function') toast('Erro ao carregar html2canvas'); };
+    document.head.appendChild(s);
+  }
 
   function _loadJsPDF(cb) {
-    var jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-    if (jsPDF) { cb(jsPDF); return; }
+    var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (J) { cb(J); return; }
     var s = document.createElement('script');
     s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
     s.onload = function () {
-      var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-      if (J) cb(J);
+      var J2 = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (J2) cb(J2);
       else { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); }
     };
     s.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); };
     document.head.appendChild(s);
   }
 
-  // ─── Overlay de preview ───────────────────────────────────────────────────────
+  // ─── Overlay de preview (html2canvas → imagem, igual ao contrato) ────────────
 
-  function _abrirOverlayPonto(pdfBlob, fileName, nomeFunc, mesRef, telFunc) {
+  function _abrirOverlayPonto(htmlRelatorio, pdfBlobFn, fileName, nomeFunc, mesRef, telFunc) {
     var GOLD = '#C9A84C', GOLDB = 'rgba(201,168,76,.55)';
 
-    // Remove overlay anterior se houver
     var old = document.getElementById('hrPontoPDFOverlay');
     if (old) old.remove();
 
@@ -257,114 +274,118 @@ var HR_RELATORIO_PONTO = (function () {
     ov.id = 'hrPontoPDFOverlay';
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;display:flex;flex-direction:column;';
 
-    // Barra de ações
-    var bar = document.createElement('div');
-    bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid ' + GOLDB + ';flex-shrink:0;flex-wrap:wrap;';
-
     var temShare = !!navigator.share;
+    var bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid '+GOLDB+';flex-shrink:0;flex-wrap:wrap;';
     bar.innerHTML =
-      '<span style="flex:1;font-size:.75rem;color:' + GOLD + ';font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📋 Ponto — ' + nomeFunc + ' · ' + mesRef + '</span>' +
-      '<button id="hrPontoClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>' +
-      '<button id="hrPontoDown" style="background:#1e1800;border:1px solid ' + GOLDB + ';color:' + GOLD + ';padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⬇ Salvar</button>' +
-      (temShare ? '<button id="hrPontoShare" style="background:#1e1800;border:1px solid ' + GOLDB + ';color:' + GOLD + ';padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ WhatsApp</button>' : '') +
-      '<button id="hrPontoWpp" style="background:#1a3320;border:1px solid rgba(37,211,102,.45);color:#25d366;padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">💬 Enviar WPP</button>';
+      '<span style="flex:1;font-size:.73rem;color:'+GOLD+';font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📋 '+nomeFunc+' · '+mesRef+'</span>'+
+      '<button id="hrPontoClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'+
+      '<button id="hrPontoDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ PDF...</button>'+
+      (temShare ? '<button id="hrPontoWpp" disabled style="background:#0d1f12;border:1px solid rgba(37,211,102,.25);color:rgba(37,211,102,.4);padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">💬 WhatsApp</button>' : '');
 
-    // Área de preview (embed PDF)
     var preview = document.createElement('div');
-    preview.style.cssText = 'flex:1;overflow:hidden;display:flex;flex-direction:column;';
+    preview.style.cssText = 'flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+    preview.innerHTML = '<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando visualização, aguarde...</div>';
 
-    // Tenta embed nativo (funciona na maioria dos Android com Chrome/Samsung)
-    var blobUrl = URL.createObjectURL(pdfBlob);
-    var embed = document.createElement('embed');
-    embed.src = blobUrl;
-    embed.type = 'application/pdf';
-    embed.style.cssText = 'width:100%;height:100%;border:none;flex:1;';
-
-    // Fallback: iframe
-    var iframe = document.createElement('iframe');
-    iframe.src = blobUrl;
-    iframe.style.cssText = 'width:100%;height:100%;border:none;flex:1;';
-    iframe.title = 'Relatório de Ponto';
-
-    // Tenta embed; se falhar mostra mensagem com botão de abrir
-    embed.onerror = function () {
-      preview.innerHTML = '';
-      var msg = document.createElement('div');
-      msg.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#b8b0a0;font-family:Outfit,sans-serif;font-size:.85rem;text-align:center;padding:32px;';
-      msg.innerHTML =
-        '<div style="font-size:2.5rem;">📄</div>' +
-        '<div>Visualização não disponível neste navegador.</div>' +
-        '<button onclick="window.open(\'' + blobUrl + '\',\'_blank\')" style="padding:12px 24px;background:#1e1800;border:1.5px solid rgba(201,168,76,.55);color:#C9A84C;border-radius:10px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;cursor:pointer;">🔍 Abrir PDF</button>';
-      preview.appendChild(msg);
-    };
-
-    preview.appendChild(embed);
     ov.appendChild(bar);
     ov.appendChild(preview);
     document.body.appendChild(ov);
 
-    // ── Ações dos botões ─────────────────────────────────────────────────────
-    document.getElementById('hrPontoClose').onclick = function () {
-      ov.remove();
-      URL.revokeObjectURL(blobUrl);
-    };
+    document.getElementById('hrPontoClose').onclick = function(){ ov.remove(); };
 
-    document.getElementById('hrPontoDown').onclick = function () {
-      var a = document.createElement('a');
-      a.href = blobUrl; a.download = fileName;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      if (typeof toast === 'function') toast('✓ PDF salvo: ' + fileName);
-    };
+    // Render off-screen HTML → canvas → imagem
+    var offscreen = document.createElement('div');
+    offscreen.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;';
+    offscreen.innerHTML = htmlRelatorio;
+    document.body.appendChild(offscreen);
 
-    // Compartilhar via Web Share API (abre WhatsApp, Drive, etc.)
-    if (temShare) {
-      document.getElementById('hrPontoShare').onclick = function () {
-        var pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
-        var sd = { title: 'Relatório de Ponto — ' + nomeFunc, text: 'Relatório de ponto — ' + mesRef };
-        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) sd.files = [pdfFile];
-        navigator.share(sd).catch(function (e) {
-          if (e && e.name !== 'AbortError') _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
-        });
-      };
+    var pdfBlobRef = null;
+
+    function _enableButtons() {
+      var btnDown = document.getElementById('hrPontoDown');
+      var btnWpp  = document.getElementById('hrPontoWpp');
+      if (btnDown) {
+        btnDown.innerHTML = '⬇ Salvar PDF';
+        btnDown.disabled = false;
+        btnDown.style.color = GOLD;
+        btnDown.style.borderColor = GOLDB;
+        btnDown.onclick = function(){
+          if (!pdfBlobRef) { if(typeof toast==='function') toast('PDF ainda gerando...'); return; }
+          var url = URL.createObjectURL(pdfBlobRef);
+          var a = document.createElement('a'); a.href = url; a.download = fileName;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+          if(typeof toast==='function') toast('✓ PDF salvo: '+fileName);
+        };
+      }
+      if (btnWpp && temShare) {
+        btnWpp.innerHTML = '💬 WhatsApp';
+        btnWpp.disabled = false;
+        btnWpp.style.color = '#25d366';
+        btnWpp.style.borderColor = 'rgba(37,211,102,.5)';
+        btnWpp.onclick = function(){
+          if (!pdfBlobRef) { if(typeof toast==='function') toast('PDF ainda gerando...'); return; }
+          var pdfFile = new File([pdfBlobRef], fileName, {type:'application/pdf'});
+          var sd = { title:'Relatório de Ponto — '+nomeFunc, text:'Relatório de ponto — '+mesRef+'\n_HR Mármores e Granitos_' };
+          if (navigator.canShare && navigator.canShare({files:[pdfFile]})) sd.files = [pdfFile];
+          navigator.share(sd).catch(function(e){
+            if (e && e.name !== 'AbortError') _fallbackWpp(pdfBlobRef, fileName, nomeFunc, mesRef, telFunc);
+          });
+        };
+      }
     }
 
-    // Botão WhatsApp direto
-    document.getElementById('hrPontoWpp').onclick = function () {
-      // No mobile com Share API: compartilha o arquivo direto
-      if (navigator.share) {
-        var pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
-        var sd = { title: 'Relatório de Ponto — ' + nomeFunc, text: 'Relatório de ponto — ' + mesRef };
-        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) sd.files = [pdfFile];
-        navigator.share(sd).catch(function (e) {
-          if (e && e.name !== 'AbortError') _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
-        });
-      } else {
-        _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc);
-      }
-    };
+    setTimeout(function(){
+      html2canvas(offscreen, { scale:2, useCORS:true, backgroundColor:'#ffffff', logging:false, width:794, windowWidth:794 })
+      .then(function(canvas){
+        document.body.removeChild(offscreen);
+
+        // Mostra preview como imagem
+        preview.innerHTML = '';
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:794px;';
+        var img = document.createElement('img');
+        img.src = canvas.toDataURL('image/jpeg', 0.90);
+        img.style.cssText = 'width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
+        wrap.appendChild(img);
+        preview.appendChild(wrap);
+
+        // Gera PDF em background
+        pdfBlobRef = pdfBlobFn();
+        _enableButtons();
+        if(typeof toast==='function') toast('✓ Relatório pronto — '+nomeFunc+' · '+mesRef);
+      })
+      .catch(function(){
+        if(document.body.contains(offscreen)) document.body.removeChild(offscreen);
+        preview.innerHTML = '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#b8b0a0;font-family:Outfit,sans-serif;font-size:.85rem;text-align:center;padding:32px;"><div style="font-size:2.5rem;">📄</div><div>Erro ao gerar preview.</div></div>';
+        // Tenta gerar PDF mesmo assim
+        try { pdfBlobRef = pdfBlobFn(); _enableButtons(); } catch(e2){}
+      });
+    }, 200);
   }
 
-  function _fallbackWpp(blobUrl, fileName, nomeFunc, mesRef, telFunc) {
-    // Baixa o PDF e abre WhatsApp com mensagem
-    var a = document.createElement('a');
-    a.href = blobUrl; a.download = fileName;
+  function _fallbackWpp(blob, fileName, nomeFunc, mesRef, telFunc) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = fileName;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     var tel = (telFunc || '').replace(/\D/g, '');
-    var msg = 'Olá ' + nomeFunc + ',\n\nSegue o relatório de ponto referente a ' + mesRef + '.\n\n_HR Mármores e Granitos_';
-    setTimeout(function () {
-      window.open('https://wa.me/' + (tel ? '55' + tel : '') + '?text=' + encodeURIComponent(msg), '_blank');
+    var msg = 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\n\n_HR Mármores e Granitos_';
+    setTimeout(function(){
+      window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
     }, 700);
   }
 
   // ─── Gerador PDF principal ───────────────────────────────────────────────────
 
   function gerarPDF(funcId, di, df) {
-    _loadJsPDF(function (jsPDFClass) {
-      _buildPDF(jsPDFClass, funcId, di, df);
+    _loadLibs(function() {
+      var jsPDFClass = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (!jsPDFClass) { if(typeof toast==='function') toast('jsPDF não carregado'); return; }
+      _executarGeracao(jsPDFClass, funcId, di, df);
     });
   }
 
-  function _buildPDF(jsPDFClass, funcId, di, df) {
+  function _executarGeracao(jsPDFClass, funcId, di, df) {
     // Coleta dados
     var funcs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
     var regs   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
@@ -773,17 +794,172 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos',
       pW / 2, y, { align: 'center' });
 
-    // ── Gera blob e abre overlay ──────────────────────────────────────────────
+    // ── Prepara dados de saída ────────────────────────────────────────────────
     var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
-    var mesFmt  = di.slice(0, 7).replace('-', '');
+    var mesFmt  = di.slice(0, 7).replace('-', '') +
+                  '_' + di.slice(8,10) + '_' + df.slice(8,10);
     var fileName = 'relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf';
-    var mesRef   = _mesExtenso(di, df);
+    var mesRef   = _mesExtenso(di, df) + ' (' + di.slice(8,10) + '-' + df.slice(8,10) + ')';
     var telFunc  = f.telefone || f.tel || '';
 
-    var pdfBlob = doc.output('blob');
-    _abrirOverlayPonto(pdfBlob, fileName, f.nome || 'Funcionário', mesRef, telFunc);
+    // Gera o HTML do relatório para preview (html2canvas)
+    var htmlPreview = _gerarHtmlRelatorio(f, linhas, di, df, totalTrabMin, totalDeficitMin,
+      totalExtraMin50, totalExtraMin200, totalValorExtra, saldoLiqExtra, totalAPagar,
+      totalPago, meusPags, salario, valorHora);
 
-    if (typeof toast === 'function') toast('✓ Relatório pronto — ' + (f.nome || '') + ' · ' + mesRef);
+    // Função lazy que retorna o blob PDF (doc já está finalizado)
+    var pdfBlobFn = function() {
+      return doc.output('blob');
+    };
+
+    _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc);
+  }
+
+  // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
+
+  function _gerarHtmlRelatorio(f, linhas, di, df, totalTrabMin, totalDeficitMin,
+    totalExtraMin50, totalExtraMin200, totalValorExtra, saldoLiqExtra, totalAPagar,
+    totalPago, meusPags, salario, valorHora) {
+
+    var mesRef = _mesExtenso(di, df);
+    var depto  = f.departamento || f.setor || '—';
+    var hrEnt  = f.horarioEntrada || '07:00';
+    var hrSai  = f.horarioSaida   || '17:00';
+    var pagForma = (meusPags && meusPags.length > 0 && meusPags[0].forma) ? meusPags[0].forma : 'semanal';
+    var totalExtraHMin = totalExtraMin50 + totalExtraMin200;
+
+    function fmtMin(min) {
+      var neg = min < 0, abs = Math.abs(Math.round(min));
+      return (neg?'-':'')+String(Math.floor(abs/60)).padStart(2,'0')+'h'+String(abs%60).padStart(2,'0')+'m';
+    }
+    function fmtData(iso) { return iso.slice(8,10)+'/'+iso.slice(5,7); }
+    function fmtMoeda(v) { return 'R$ '+parseFloat(v||0).toFixed(2).replace('.',','); }
+
+    var rowsHtml = '';
+    linhas.forEach(function(l, idx) {
+      var bg = idx%2===0?'#fff':'#fafafa';
+      if (l.tipo==='feriado'||l.tipo==='acordo') bg='#e6f2ff';
+      else if (l.extraMin>0&&!l.destinoBanco)    bg='#f0fff0';
+      else if (l.saldoMin<-5)                    bg='#fff2f2';
+      else if (l.autoComp)                       bg='#fffce6';
+
+      var corSaldo = l.saldoMin>0?'#2a8a46':l.saldoMin<0?'#b43c3c':'#888';
+      var corExtra = l.valorExtra>0?'#2a8a46':'#888';
+      var valorExtraCell = l.valorExtra>0 ? fmtMoeda(l.valorExtra) :
+        (l.saldoMin<0 ? 'R$ '+Math.abs(l.saldoMin/60*valorHora).toFixed(2).replace('.',',')+'*' : '—');
+
+      rowsHtml +=
+        '<tr style="background:'+bg+';">'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+fmtData(l.data)+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+l.diaTxt+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+l.entrada+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+l.saidaAlm+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+l.voltaAlm+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+l.saida+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+fmtMin(l.trabMin)+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;">'+(l.esperadoMin>0?fmtMin(l.esperadoMin):'—')+'</td>'+
+        '<td style="text-align:center;padding:3px 4px;font-size:10px;color:'+corSaldo+';font-weight:600;">'+(l.saldoMin!==0?fmtMin(l.saldoMin):'00h00m')+'</td>'+
+        '<td style="text-align:right;padding:3px 8px 3px 4px;font-size:10px;color:'+corExtra+';">'+valorExtraCell+'</td>'+
+        '</tr>';
+    });
+
+    // Observações
+    var obsHtml = '';
+    linhas.forEach(function(l){
+      if (l.tipo==='feriado') {
+        var isMeio = l.obs&&l.obs.indexOf('meio')!==-1;
+        obsHtml += '•'+fmtData(l.data)+': feriado'+(isMeio?' meio período':'')+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
+      } else if (l.tipo==='acordo') {
+        obsHtml += '•'+fmtData(l.data)+': acordo'+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
+      } else if (l.autoComp) {
+        obsHtml += '•'+fmtData(l.data)+': horário incompleto ';
+      }
+    });
+
+    var agora = new Date();
+    var dtGer = agora.toLocaleDateString('pt-BR')+' '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+
+    return '<div style="font-family:Arial,sans-serif;background:#fff;padding:16px 20px;color:#111;width:754px;box-sizing:border-box;">'+
+
+      // Cabeçalho
+      '<div style="background:#1a3660;color:#fff;text-align:center;padding:10px 0 6px;border-radius:4px 4px 0 0;">'+
+        '<div style="font-size:15px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
+        '<div style="font-size:10px;opacity:.8;margin-top:2px;">Mês de Referência: '+mesRef+'</div>'+
+      '</div>'+
+
+      // Info funcionário
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 4px;border-bottom:1px solid #ddd;font-size:10px;">'+
+        '<div><b>Funcionário: '+f.nome+'</b></div>'+
+        '<div>Departamento: '+depto+'</div>'+
+        '<div>Salário: '+fmtMoeda(salario)+' mensais</div>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;padding:4px 4px 8px;border-bottom:2px solid #1a3660;font-size:9px;color:#555;">'+
+        '<div>Escala: Seg-Sex '+hrEnt+'-12:00 / 14:00-'+hrSai+' | Sáb 07:00-11:00</div>'+
+        '<div>Pagamentos: '+pagForma+' — pagamento toda sexta</div>'+
+      '</div>'+
+
+      // Tabela
+      '<table style="width:100%;border-collapse:collapse;margin-top:8px;">'+
+        '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Data</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Dia</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Entrada</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Saída<br>Almoço</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Esperado</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:center;border:1px solid #ccd6e0;">Saldo</th>'+
+          '<th style="padding:5px 4px;font-size:9.5px;text-align:right;border:1px solid #ccd6e0;">Valor Extra</th>'+
+        '</tr></thead>'+
+        '<tbody>'+rowsHtml+'</tbody>'+
+      '</table>'+
+
+      // Observações
+      (obsHtml ? '<div style="font-size:9px;color:#555;font-style:italic;margin-top:6px;">Observações: '+obsHtml+'</div>' : '')+
+
+      // Linha separadora
+      '<hr style="border:none;border-top:1px solid #ccc;margin:10px 0 6px;">'+
+
+      // Rodapé financeiro
+      '<div style="display:flex;justify-content:space-between;font-size:10px;padding:0 4px;">'+
+        '<div>'+
+          '<div><b>Valor hora normal:</b> '+fmtMoeda(valorHora)+'/hora</div>'+
+          (totalExtraMin200>0?'<div><b>Valor hora extra (3x):</b> '+fmtMoeda(valorHora*3)+'/hora</div>':'')+
+          '<div style="color:#b43c3c;"><b>Total déficit:</b> '+(totalDeficitMin<0?fmtMin(totalDeficitMin):'—')+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;">'+
+          '<div><b>Total horas extras:</b> '+fmtMin(totalExtraHMin)+'</div>'+
+          '<div style="color:#2a8a46;"><b>Valor total extras:</b> '+fmtMoeda(totalValorExtra)+'</div>'+
+          '<div style="color:#2a8a46;"><b>Saldo líquido extras:</b> '+fmtMoeda(saldoLiqExtra)+'</div>'+
+        '</div>'+
+      '</div>'+
+
+      '<hr style="border:none;border-top:1px solid #eee;margin:10px 0 6px;">'+
+
+      // Blocos salário/total
+      '<div style="display:flex;flex-direction:column;gap:3px;padding:0 4px;font-size:11px;">'+
+        '<div style="display:flex;justify-content:space-between;"><span>Salário ('+df.slice(8,10)+'/'+df.slice(5,7)+'):</span><span>'+fmtMoeda(salario)+'</span></div>'+
+        (saldoLiqExtra>0?'<div style="display:flex;justify-content:space-between;color:#2a8a46;"><span>Saldo líquido extras ('+mesRef.split('/')[0].trim()+'):</span><span>'+fmtMoeda(saldoLiqExtra)+'</span></div>':'')+
+      '</div>'+
+
+      // Total a pagar
+      '<div style="background:#1a3660;color:#fff;display:flex;justify-content:space-between;padding:10px 12px;margin-top:8px;border-radius:4px;font-size:13px;font-weight:700;">'+
+        '<span>TOTAL A PAGAR HOJE — '+df.slice(8,10)+'/'+df.slice(5,7)+'/'+df.slice(0,4)+'</span>'+
+        '<span>'+fmtMoeda(Math.max(0,totalAPagar))+'</span>'+
+      '</div>'+
+
+      // Legenda
+      '<div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap;font-size:8px;color:#555;padding:0 4px;">'+
+        '<span><span style="display:inline-block;width:10px;height:10px;background:#1a3660;margin-right:3px;vertical-align:middle;"></span>Fundo azul = período atual</span>'+
+        '<span><span style="display:inline-block;width:10px;height:10px;background:#fffce6;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Amarelo = incompleto</span>'+
+        '<span><span style="display:inline-block;width:10px;height:10px;background:#f0fff0;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Verde = horas extras</span>'+
+        '<span><span style="display:inline-block;width:10px;height:10px;background:#fff2f2;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Vermelho = déficit</span>'+
+        '<span><span style="display:inline-block;width:10px;height:10px;background:#e6f2ff;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Azul claro = feriado/acordo</span>'+
+      '</div>'+
+
+      '<div style="text-align:center;font-size:8px;color:#aaa;margin-top:10px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
+    '</div>';
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────────
