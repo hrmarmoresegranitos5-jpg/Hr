@@ -2337,6 +2337,7 @@ var HR_FUNC = (function () {
       '</div>'+
 
       '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
+      '<button onclick="HR_FUNC._gerarRelatorioPonto()" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
       '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
@@ -2448,6 +2449,24 @@ var HR_FUNC = (function () {
   // 13. SALVAR / FECHAR PAGAMENTO
   // ─────────────────────────────────────────────────────────────
   function _closePagamento(){ _closeOverlay('hrPagamento'); }
+
+  // Gera o relatório de ponto PDF para o funcionário e período atual do modal
+  function _gerarRelatorioPonto() {
+    var selFunc = document.getElementById('pag_func');
+    var funcId  = selFunc ? selFunc.value : null;
+    if (!funcId) { _toast('⚠ Selecione um funcionário primeiro.'); return; }
+
+    // Período: mês atual (igual ao cálculo do modal)
+    var mr   = _mesAno(0);
+    var di   = mr + '-01';
+    var ult  = new Date(parseInt(mr.slice(0,4)), parseInt(mr.slice(5,7)), 0);
+    var df   = mr + '-' + String(ult.getDate()).padStart(2,'0');
+
+    if (typeof HR_RELATORIO_PONTO === 'undefined' || !HR_RELATORIO_PONTO.gerarPDF) {
+      _toast('⚠ Módulo de relatório não carregado (app-relatorio-ponto.js).'); return;
+    }
+    HR_RELATORIO_PONTO.gerarPDF(funcId, di, df);
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Atalho: abre formulário de pagamento já com tipo=decendio,
@@ -3998,6 +4017,7 @@ var HR_FUNC = (function () {
     _closeFolha:              _closeFolha,
     _htmlProjecaoFolha:       _htmlProjecaoFolha,
     _closePagamento:          _closePagamento,
+    _gerarRelatorioPonto:     _gerarRelatorioPonto,
     _pagarDecendioRapido:     _pagarDecendioRapido,
     _salvarPagamento:         _salvarPagamento,
     _ofereceNotificacaoPagamento: _ofereceNotificacaoPagamento,
