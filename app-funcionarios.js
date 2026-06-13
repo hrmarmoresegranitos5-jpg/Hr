@@ -200,7 +200,7 @@ var HR_FUNC = (function () {
       var s=JSON.parse(localStorage.getItem('cfg')||'{}');
       if(s.he&&s.he.normal)return s.he.normal;
     }catch(e){}
-    return 1.5; // HE 50% — CLT art.59 §1º: adicional mínimo de 50%
+    return 2.0; // HE dobrada — mínimo da empresa (todo minuto além da jornada = 2×)
   }
 
   // Retorna o nº de dias úteis (seg–sáb) em um intervalo ISO yyyy-mm-dd (inclusivo).
@@ -356,7 +356,7 @@ var HR_FUNC = (function () {
       }, 0);
       heResult = {
         valorHoraBase:    valorHoraFb,
-        valorTotalExtras: totalExtraFb * valorHoraFb * mult, // mult = _getMultNormal() = 1.5
+        valorTotalExtras: totalExtraFb * valorHoraFb * mult, // mult = _getMultNormal() = 2.0 (dobrada)
         totalExtra50Min:  0, totalExtra100Min: 0, totalExtra200Min: 0,
         valorExtra50:     0, valorExtra100:    0, valorExtra200:    0,
         totalExtraHoras:  totalExtraFb
@@ -399,7 +399,7 @@ var HR_FUNC = (function () {
     var totalPago = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
     var saldo     = totalDevido - totalPago;
 
-    // valorHoraExtra de referência (HE50 — mantido para exibição na UI)
+    // valorHoraExtra de referência (dobrada ×2 — mantido para exibição na UI)
     var valorHoraExtra = heResult.valorHoraBase * _getMultNormal();
 
     return {
@@ -1305,10 +1305,10 @@ var HR_FUNC = (function () {
 
         // Detalhe HE por faixa (só se houver HE100 ou HE200)
         var heDetalhe = '';
-        if (saldo.valorExtra50  > 0) heDetalhe += '50%: '+_fmtMoeda(saldo.valorExtra50);
-        if (saldo.valorExtra100 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'100%: '+_fmtMoeda(saldo.valorExtra100);
-        if (saldo.valorExtra200 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'200%: '+_fmtMoeda(saldo.valorExtra200);
-        var heSub = heDetalhe || ('R$ '+(saldo.valorHoraBase||0).toFixed(2)+'/h base · ×1.5 = R$ '+(saldo.valorHoraExtra||0).toFixed(2)+'/h extra');
+        if (saldo.valorExtra50  > 0) heDetalhe += '×2 dobrada: '+_fmtMoeda(saldo.valorExtra50);
+        if (saldo.valorExtra100 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'×2 dobrada: '+_fmtMoeda(saldo.valorExtra100);
+        if (saldo.valorExtra200 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'×3 triplicada: '+_fmtMoeda(saldo.valorExtra200);
+        var heSub = heDetalhe || ('R$ '+(saldo.valorHoraBase||0).toFixed(2)+'/h base · ×2 = R$ '+((saldo.valorHoraBase||0)*2).toFixed(2)+'/h extra');
 
         // Banco de horas (linha separada, não financeiro)
         var bancoLinha = '';
@@ -2069,7 +2069,7 @@ var HR_FUNC = (function () {
           _campo('Horas extras',_inp('fr_extra','number','0',r.extra,'min="0" step="0.25"'))
         )+
         _campo('Tipo de hora extra',_sel('fr_tipoExtra',[
-          {v:'normal',l:'Normal (×1.5)'},{v:'feriado',l:'Feriado (×2.0)'},{v:'especial',l:'Especial (×3.0)'}
+          {v:'normal',l:'Dobrada ×2 (dia útil / sáb manhã)'},{v:'feriado',l:'Triplicada ×3 (feriado)'},{v:'especial',l:'Triplicada ×3 (dom / sáb tarde / muito cedo ou tarde)'}
         ],r.tipoExtra||'normal'))+
         _campo('Destino das H. Extras',_sel('fr_destinoExtra',[
           {v:'pagar',l:'💵 Pagar em dinheiro'},
@@ -3076,9 +3076,9 @@ var HR_FUNC = (function () {
         }
       });
 
-      // HE100 total (minutos)
+      // HE triplicada total (minutos) — dom/feriado/sáb tarde/ext (×3)
       var totalHE100Min=meusRegs.reduce(function(s,r){
-        return s+(r.tipoExtra==='domingo'||r.tipoExtra==='feriado'?Math.round((parseFloat(r.extra)||0)*60):0);
+        return s+(r.tipoExtra==='especial'||r.tipoExtra==='domingo'||r.tipoExtra==='feriado'?Math.round((parseFloat(r.extra)||0)*60):0);
       },0);
 
       // Banco de horas (saldo)
@@ -3160,12 +3160,12 @@ var HR_FUNC = (function () {
       // KPI resumo
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">'+
         _statKpi('⏰','Atrasados',indicadores.filter(function(i){return i.totalAtrasoMin>0;}).length,'func.')+
-        _statKpi('⚡','Com HE100',indicadores.filter(function(i){return i.totalHE100Min>0;}).length,'func.')+
+        _statKpi('⚡','Com HE ×3',indicadores.filter(function(i){return i.totalHE100Min>0;}).length,'func.')+
         _statKpi('🏦','Banco ativo',indicadores.filter(function(i){return i.saldoBancoMin>0;}).length,'func.')+
       '</div>'+
 
       _rankCard('Mais Atrasos Acumulados',RED,topAtraso,'totalAtrasoMin',_fmtMin,'⏰')+
-      _rankCard('Mais HE100 (Dom/Feriado)',BLUE,topHE100,'totalHE100Min',_fmtMin,'⚡')+
+      _rankCard('Mais HE Triplicada (Dom/Fer/Sáb tarde)',BLUE,topHE100,'totalHE100Min',_fmtMin,'⚡')+
       _rankCard('Maior Saldo Banco de Horas',GOLD,topBanco,'saldoBancoMin',_fmtMin,'🏦')+
       _rankCard('Mais Inconsistências (Gaps)',RED,topInconsistencias,'alertas',function(v){return v+' alerta'+(v!==1?'s':'');},  '⚠️')+
       (topSuspeitas.length>0?_rankCard('Jornadas Suspeitas Recorrentes',RED,topSuspeitas,'jornadasSuspeitas',function(v){return v+'×';}, '🚨'):'<div style="text-align:center;color:'+T3+';font-size:.78rem;padding:12px;">✅ Nenhuma jornada suspeita recorrente</div>')+

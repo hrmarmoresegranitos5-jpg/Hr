@@ -98,15 +98,16 @@
 
   // ── Multiplicadores (lê CFG ou usa padrão) ───────────────────────
   function _getMult() {
-    var def = { normal: 2.0, sabado: 2.0, domingo: 3.0, feriado: 3.0 };
+    var def = { normal: 2.0, sabado: 2.0, domingo: 3.0, feriado: 3.0, especial: 3.0 };
     try {
       var src = (typeof CFG !== 'undefined' && CFG && CFG.he) ? CFG.he
         : JSON.parse(localStorage.getItem('cfg') || '{}').he;
       if (src) return {
-        normal:  parseFloat(src.normal)  || def.normal,
-        sabado:  parseFloat(src.sabado)  || def.sabado,
-        domingo: parseFloat(src.domingo) || def.domingo,
-        feriado: parseFloat(src.feriado) || def.feriado
+        normal:   parseFloat(src.normal)   || def.normal,
+        sabado:   parseFloat(src.sabado)   || def.sabado,
+        domingo:  parseFloat(src.domingo)  || def.domingo,
+        feriado:  parseFloat(src.feriado)  || def.feriado,
+        especial: parseFloat(src.especial) || def.especial
       };
     } catch (e) {}
     return def;
@@ -189,12 +190,14 @@
       // Resolve multiplicador: bonificação por func > bonificação geral > tipo do dia
       var res = _resolverMultiplicador(r.data, funcId, mult);
 
-      // Se o registro tem tipoExtra manual definido E não há bonificação ativa, usa o manual
-      if (res.origem === 'normal' && r.tipoExtra && r.tipoExtra !== 'normal') {
+      // Se o registro tem tipoExtra='especial' E não há bonificação ativa, usa o especial
+      // (cobre: sáb tarde, horário extremo, dias marcados manualmente como especial)
+      // Também aplica para origem='sabado' pois o sábado tarde deve ser ×3 (especial)
+      if ((res.origem === 'normal' || res.origem === 'sabado') && r.tipoExtra && r.tipoExtra !== 'normal') {
         var tipoM = (r.tipoExtra || '').toLowerCase();
         if (tipoM === 'feriado')  res = { mult: mult.feriado, origem: 'feriado',  label: 'Feriado ×' + mult.feriado.toFixed(1)  };
         if (tipoM === 'domingo')  res = { mult: mult.domingo, origem: 'domingo',  label: 'Domingo ×' + mult.domingo.toFixed(1)  };
-        if (tipoM === 'especial') res = { mult: 3.0,          origem: 'especial', label: 'Especial ×3,0' };
+        if (tipoM === 'especial') res = { mult: mult.especial || 3.0, origem: 'especial', label: 'Triplicada ×' + (mult.especial || 3.0).toFixed(1).replace('.',',') };
       }
 
       r._multUsado       = res.mult;
@@ -423,10 +426,8 @@
 
       // Legenda multiplicadores automáticos
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
-        _badge(T3,     '×' + _getMult().normal.toFixed(1).replace('.',','),  'Dia útil') +
-        _badge(ORANGE, '×' + _getMult().sabado.toFixed(1).replace('.',','),  'Sábado') +
-        _badge(RED,    '×' + _getMult().domingo.toFixed(1).replace('.',','), 'Domingo') +
-        _badge(ORANGE, '×' + _getMult().feriado.toFixed(1).replace('.',','), 'Feriado') +
+        _badge(T3,     '×' + _getMult().normal.toFixed(1).replace('.',','),  'Dia útil / Sáb manhã (dobrada)') +
+        _badge(RED,    '×' + _getMult().domingo.toFixed(1).replace('.',','), 'Dom / Feriado / Sáb tarde / Ext (triplicada)') +
         _badge(GREEN,  '× Bonif.', 'Período de Bonificação') +
         (totBanco > 0 ? _badge(BLUE, '🏦 '+totBanco.toFixed(2)+'h', 'No banco de horas') : '') +
       '</div>' +
@@ -641,10 +642,10 @@
     var t = (tipo || 'normal').toLowerCase();
     var m = mult ? ' ×' + mult.toFixed(1).replace('.', ',') : '';
     switch (t) {
-      case 'feriado':  return '🗓️ Feriado' + m;
-      case 'especial': return '⭐ Especial' + m;
-      case 'domingo':  return '☀️ Domingo' + m;
-      default:         return '⚡ Normal' + m;
+      case 'feriado':  return '🗓️ Feriado (×3)' + m;
+      case 'especial': return '⭐ Triplicada (dom/sáb tarde/ext)' + m;
+      case 'domingo':  return '☀️ Domingo (×3)' + m;
+      default:         return '⚡ Dobrada (dia útil)' + m;
     }
   }
 

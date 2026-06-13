@@ -37,12 +37,18 @@ var HR_IMPORT = (function () {
   var CFG = (typeof CFG !== 'undefined' && CFG) ? CFG : {};
   if (!CFG.he) {
     CFG.he = {
-      normal:   1.5,   // HE 50%  — dias úteis/sábado (1,5× hora normal — CLT art.59 §1º)
-      domingo:  2.0,   // HE 100% — domingos e feriados (2× hora normal — CLT art.9 Lei 605/49)
-      feriado:  2.0,   // HE 100% — feriados
-      especial: 3.0    // HE 200% — dias especiais (convenção coletiva)
+      normal:   2.0,   // HE dobrada — qualquer minuto além da jornada em dia útil
+      domingo:  3.0,   // HE triplicada — domingo inteiro
+      feriado:  3.0,   // HE triplicada — feriados
+      especial: 3.0    // HE triplicada — sábado tarde / muito cedo / muito tarde / dias especiais
     };
   }
+  // Limites de horário para HE triplicada (muito cedo / muito tarde)
+  // Antes de 06:00 ou depois de 20:00 → HE triplicada (especial)
+  if (CFG.limiteHorarioCedo  === undefined) CFG.limiteHorarioCedo  = 6 * 60;   // 06:00 → 360min
+  if (CFG.limiteHorarioTarde === undefined) CFG.limiteHorarioTarde = 20 * 60;  // 20:00 → 1200min
+  // Sábado tarde: partir de que hora vira triplicada (padrão 12:00)
+  if (CFG.limiteSabadoTarde  === undefined) CFG.limiteSabadoTarde  = 12 * 60;  // 12:00 → 720min
   // Lista de feriados e dias especiais (arrays de "yyyy-mm-dd")
   // Preenchidos externamente se necessário; padrão vazio = apenas regras de dia da semana
   if (!CFG.feriados) CFG.feriados = [];
@@ -129,8 +135,8 @@ var HR_IMPORT = (function () {
       var r   = lc.r;
       var res = lc.res;
       var dow = _dowNome(r.data);
-      var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : null;
-      var faixa = cls ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : '—') : '—';
+      var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null, entrada: r.entrada || '', saida: r.saida || '' }) : null;
+      var faixa = cls ? (cls.extra200 > 0 ? 'HE200 ×3' : cls.extra100 > 0 ? 'HE100 ×2' : cls.extra50 > 0 ? 'HE ×2' : '—') : '—';
       var badges = _auditoriaBadges(lc);
 
       var linha = {
@@ -169,9 +175,9 @@ var HR_IMPORT = (function () {
       calc.linhasCalc.forEach(function(lc) {
         var r   = lc.r;
         var res = lc.res;
-        var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : null;
+        var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null, entrada: r.entrada || '', saida: r.saida || '' }) : null;
         var faixa = cls
-          ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : 'normal')
+          ? (cls.extra200 > 0 ? 'HE200 ×3' : cls.extra100 > 0 ? 'HE100 ×2' : cls.extra50 > 0 ? 'HE ×2' : 'normal')
           : 'inválido';
         var anomalias = _auditoriaBadges(lc).map(function(b){ return b.label; });
 
@@ -407,14 +413,24 @@ var HR_IMPORT = (function () {
   /**
    * Classifica os minutos de hora extra de um registro em faixas de HE.
    *
-   * @param {Object} registro - objeto com { data: "yyyy-mm-dd", extra: Number (minutos) }
+   * @param {Object} registro - objeto com:
+   *   { data: "yyyy-mm-dd", extra: Number (minutos),
+   *     entrada?: "HH:MM", saida?: "HH:MM", funcId?: String }
    * @returns {{ extra50: Number, extra100: Number, extra200: Number }} — minutos por faixa
    *
-   * Regras:
-   *   - dia especial (CFG.diasEspeciais)  → HE200
-   *   - feriado     (CFG.feriados)        → HE100
-   *   - domingo                           → HE100
-   *   - demais dias úteis                 → HE50
+   * Regras da empresa (ordem de prioridade):
+   *   1. Dia especial (CFG.diasEspeciais)            → HE200 (3×) triplicada
+   *   2. Domingo inteiro                             → HE200 (3×) triplicada
+   *   3. Feriado                                     → HE200 (3×) triplicada
+   *   4. Sábado tarde (saída após CFG.limiteSabadoTarde, padrão 12:00) → HE200 (3×)
+   *   5. Horário muito cedo (entrada antes de 06:00) → HE200 (3×) triplicada
+   *   6. Horário muito tarde (saída após 20:00)      → HE200 (3×) triplicada
+   *   7. Trabalho durante férias                     → HE200 (3×)
+   *   8. Sábado manhã normal                         → HE100 (2×) dobrada
+   *   9. Dia útil normal (seg–sex)                   → HE100 (2×) dobrada
+   *
+   * Obs: extra50 não é mais usado (mínimo agora é 2×), mantido no objeto
+   * para retrocompatibilidade com código que lê o campo.
    */
   function _classificarHE(registro) {
     var result = { extra50: 0, extra100: 0, extra200: 0 };
@@ -426,46 +442,66 @@ var HR_IMPORT = (function () {
     var data   = registro.data   || '';
     var funcId = registro.funcId || null;
 
-    // Verifica dia especial primeiro (maior prioridade)
+    // Limites de horário configuráveis
+    var LIMITE_CEDO  = (CFG.limiteHorarioCedo  !== undefined) ? CFG.limiteHorarioCedo  : 360;  // 06:00
+    var LIMITE_TARDE = (CFG.limiteHorarioTarde !== undefined) ? CFG.limiteHorarioTarde : 1200; // 20:00
+    var LIMITE_SAB   = (CFG.limiteSabadoTarde  !== undefined) ? CFG.limiteSabadoTarde  : 720;  // 12:00
+
+    // Horários do registro (se disponíveis) para checar muito cedo / muito tarde
+    var entMin = _hhmm2min(registro.entrada || '');
+    var saiMin = _hhmm2min(registro.saida   || '');
+    var horarioExtremo = (!isNaN(entMin) && entMin < LIMITE_CEDO) ||
+                         (!isNaN(saiMin) && saiMin > LIMITE_TARDE);
+
+    // ── 1. Dia especial (maior prioridade) ──────────────────────────────────
     if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(data) >= 0) {
       result.extra200 = extraMin;
       return result;
     }
 
-    // Trabalho durante férias → HE 100% (dobro) — CLT art.143
+    var dow = data ? new Date(data + 'T12:00:00').getDay() : -1;
+
+    // ── 2. Domingo inteiro → triplicada ─────────────────────────────────────
+    if (dow === 0) {
+      result.extra200 = extraMin;
+      return result;
+    }
+
+    // ── 3. Feriado → triplicada ─────────────────────────────────────────────
+    if (CFG.feriados && CFG.feriados.indexOf(data) >= 0) {
+      result.extra200 = extraMin;
+      return result;
+    }
+
+    // ── 4. Sábado tarde (saída depois de 12:00 por padrão) → triplicada ─────
+    if (dow === 6 && !isNaN(saiMin) && saiMin > LIMITE_SAB) {
+      result.extra200 = extraMin;
+      return result;
+    }
+
+    // ── 5 e 6. Horário extremo (muito cedo ou muito tarde) → triplicada ─────
+    if (horarioExtremo) {
+      result.extra200 = extraMin;
+      return result;
+    }
+
+    // ── 7. Trabalho durante férias → triplicada ──────────────────────────────
     if (funcId) {
       try {
         var funcsF = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
         var fF = funcsF[funcId];
         if (fF && fF.ativo === 'ferias' && fF.feriasInicio && fF.feriasFim) {
           if (data >= fF.feriasInicio && data <= fF.feriasFim) {
-            result.extra100 = extraMin;
+            result.extra200 = extraMin;
             return result;
           }
         }
       } catch(e) {}
     }
 
-    // Verifica feriado
-    if (CFG.feriados && CFG.feriados.indexOf(data) >= 0) {
-      result.extra100 = extraMin;
-      return result;
-    }
-
-    // Verifica domingo (dow === 0)
-    var dow = data ? new Date(data + 'T12:00:00').getDay() : -1;
-    if (dow === 0) {
-      result.extra100 = extraMin;
-      return result;
-    }
-
-    // Sábado → HE50 (1,5×) — dia útil de jornada reduzida, não equiparado a feriado
-    if (dow === 6) {
-      result.extra50 = extraMin;
-      return result;
-    }
-
-    // Dia útil normal (seg–sex) → HE 50% (1,5× — CLT art.59 §1º)
+    // ── 8. Sábado manhã e ── 9. Dia útil → dobrada (×2) ────────────────────
+    // Usa extra50 que é multiplicado por CFG.he.normal (2.0)
+    // extra100 ficaria associado a CFG.he.domingo (3.0) — incorreto para dia útil
     result.extra50 = extraMin;
     return result;
   }
@@ -528,7 +564,7 @@ var HR_IMPORT = (function () {
    * Calcula o valor financeiro de horas extras.
    *
    * @param {Number} minutos      — minutos de hora extra na faixa
-   * @param {Number} multiplicador — 1.5 (HE50) / 2.0 (HE100) / 3.0 (HE200)
+   * @param {Number} multiplicador — 2.0 (HE dobrada, dia útil) / 3.0 (HE triplicada, dom/sáb tarde/ext)
    * @param {Number} valorHora    — valor base da hora em R$
    * @returns {Number} valor em R$
    *
@@ -565,8 +601,9 @@ var HR_IMPORT = (function () {
     (calcGrupo.linhasCalc || []).forEach(function(lc) {
       if (!lc.valido || !lc.res || lc.res.extra <= 0) return;
 
-      // Monta objeto mínimo para o classificador
-      var reg = { data: lc.r.data, extra: lc.res.extra };
+      // Monta objeto mínimo para o classificador — inclui horário para detectar extremos
+      var reg = { data: lc.r.data, extra: lc.res.extra,
+                  entrada: lc.r.entrada || '', saida: lc.r.saida || '' };
       var classe = _classificarHE(reg);
 
       totalExtra50Min  += classe.extra50;
@@ -2831,10 +2868,16 @@ var HR_IMPORT = (function () {
           horas: parseFloat((calc.trab / 60).toFixed(4)),
           extra: parseFloat((calc.extra / 60).toFixed(4)),
           tipoExtra: (function(){
-            // Classifica pelo dia para gravar o tipo correto no registro
-            var cls = _classificarHE({ data: r.data, extra: calc.extra, funcId: gr.funcId || null });
-            if (cls.extra200 > 0) return 'especial';
-            if (cls.extra100 > 0) return (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) ? 'feriado' : 'domingo';
+            // Classifica pelo dia + horário para gravar o tipo correto no registro
+            var cls = _classificarHE({ data: r.data, extra: calc.extra, funcId: gr.funcId || null,
+                                       entrada: r.entrada || '', saida: r.saida || '' });
+            if (cls.extra200 > 0) {
+              // Triplicada: distingue feriado / domingo / sáb tarde / horário extremo / especial
+              if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(r.data) >= 0) return 'especial';
+              if (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) return 'feriado';
+              return 'especial'; // domingo, sáb tarde, horário extremo → 'especial' (×3)
+            }
+            // extra100 → dobrada → dia útil normal / sáb manhã → 'normal' (×2)
             return 'normal';
           }()),
           destinoExtra: 'pagar',
@@ -2973,9 +3016,9 @@ var HR_IMPORT = (function () {
             '<th style="padding:3px 10px 3px 4px;text-align:right;font-weight:600;">Valor</th>' +
           '</tr></thead>' +
           '<tbody>' +
-            linhaHE('HE 50% — Dias úteis/Sáb (×1,5)',  totExtra50Min,  CFG.he.normal,  valorFin50,  GOLD) +
-            linhaHE('HE 100% — Dom/Feriado (×2,0)', totExtra100Min, CFG.he.domingo, valorFin100, '#8ec8c8') +
-            linhaHE('HE 200% — Especial',   totExtra200Min, CFG.he.especial, valorFin200, '#c88e5c') +
+            linhaHE('HE ×2 dobrada — Dias úteis/Sáb manhã', totExtra50Min, CFG.he.normal, valorFin50, GOLD) +
+            linhaHE('HE ×2 dobrada', totExtra100Min, CFG.he.domingo, valorFin100, '#8ec8c8') +
+            linhaHE('HE ×3 triplicada — Dom/Fer/Sáb tarde/Ext', totExtra200Min, CFG.he.especial, valorFin200, '#c88e5c') +
             // Linha de total financeiro (só se há valor hora configurado)
             (valorHora > 0 && valorFinTotal > 0 ? (
               '<tr style="border-top:1px solid ' + BD + ';">' +
@@ -3040,9 +3083,9 @@ var HR_IMPORT = (function () {
     // Guard: captura multiplicadores antes de qualquer acesso a CFG.he
     // (evita TypeError se CFG ou CFG.he for undefined no momento da execução)
     var _he = (typeof CFG !== 'undefined' && CFG && CFG.he) || {};
-    var _multNormal   = parseFloat(_he.normal)   || 1.5;
-    var _multDomingo  = parseFloat(_he.domingo)  || 2.0;
-    var _multFeriado  = parseFloat(_he.feriado)  || 2.0;
+    var _multNormal   = parseFloat(_he.normal)   || 2.0;
+    var _multDomingo  = parseFloat(_he.domingo)  || 3.0;
+    var _multFeriado  = parseFloat(_he.feriado)  || 3.0;
     var _multEspecial = parseFloat(_he.especial) || 3.0;
 
     var di = _state.periodo.di || '';
@@ -3066,12 +3109,12 @@ var HR_IMPORT = (function () {
         var isSab = _dow(r.data) === 6;
 
         // Classifica HE do dia
-        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : { extra50:0, extra100:0, extra200:0 };
+        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null, entrada: r.entrada || '', saida: r.saida || '' }) : { extra50:0, extra100:0, extra200:0 };
 
         var heLabel = '';
-        if (classeHE.extra50  > 0) heLabel = 'HE 50%';
-        if (classeHE.extra100 > 0) heLabel = 'HE 100%';
-        if (classeHE.extra200 > 0) heLabel = 'HE 200%';
+        if (classeHE.extra50  > 0) heLabel = 'HE ×2';
+        if (classeHE.extra100 > 0) heLabel = 'HE ×2 dobrada';
+        if (classeHE.extra200 > 0) heLabel = 'HE ×3 triplicada';
 
         return '<tr>' +
           '<td>' + _esc(dow) + '</td>' +
@@ -3102,9 +3145,9 @@ var HR_IMPORT = (function () {
           '<table class="tabela-totais">' +
             '<tr><td>Total trabalhado</td><td class="val">' + _min2dur(calc.totalTrabMin) + '</td></tr>' +
             '<tr><td>Horas normais (jornada)</td><td class="val">' + _min2dur(Math.max(0, jornadaNorm)) + '</td></tr>' +
-            (fin.totalExtra50Min  > 0 ? '<tr class="he50"><td>Horas extras 50% (HE50)</td><td class="val">' + _min2dur(fin.totalExtra50Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra50) : '') + '</td></tr>' : '') +
-            (fin.totalExtra100Min > 0 ? '<tr class="he100"><td>Horas extras 100% (HE100)</td><td class="val">' + _min2dur(fin.totalExtra100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra100) : '') + '</td></tr>' : '') +
-            (fin.totalExtra200Min > 0 ? '<tr class="he200"><td>Horas extras 200% (HE200)</td><td class="val">' + _min2dur(fin.totalExtra200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra200) : '') + '</td></tr>' : '') +
+            (fin.totalExtra50Min  > 0 ? '<tr class="he50"><td>Horas extras ×2 dobradas (dia útil)</td><td class="val">' + _min2dur(fin.totalExtra50Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra50) : '') + '</td></tr>' : '') +
+            (fin.totalExtra100Min > 0 ? '<tr class="he100"><td>Horas extras ×2 dobradas</td><td class="val">' + _min2dur(fin.totalExtra100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra100) : '') + '</td></tr>' : '') +
+            (fin.totalExtra200Min > 0 ? '<tr class="he200"><td>Horas extras ×3 triplicadas (dom/sáb tarde/ext)</td><td class="val">' + _min2dur(fin.totalExtra200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(fin.valorExtra200) : '') + '</td></tr>' : '') +
             (calc.totalAtrasoMin  > 0 ? '<tr class="atraso"><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(calc.totalAtrasoMin) + '</td></tr>' : '') +
             '<tr class="saldo"><td>Saldo líquido</td><td class="val">' + (calc.saldoLiquidoMin >= 0 ? '+' : '') + _min2dur(Math.abs(calc.saldoLiquidoMin)) + '</td></tr>' +
             (valorHora > 0 && fin.valorTotalExtras > 0 ? '<tr class="fin-total"><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(fin.valorTotalExtras) + '</b></td></tr>' : '') +
@@ -3173,9 +3216,9 @@ var HR_IMPORT = (function () {
       '<h2>Resumo Consolidado</h2>' +
       '<table>' +
         '<tr><td>Total geral trabalhado</td><td class="val">' + _min2dur(gTotTrab) + '</td></tr>' +
-        (gTot50Min  > 0 ? '<tr><td>HE 50% — Dias úteis</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, _multNormal, valorHora)) : '') + '</td></tr>' : '') +
-        (gTot100Min > 0 ? '<tr><td>HE 100% — Dom/Feriado</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, _multDomingo, valorHora)) : '') + '</td></tr>' : '') +
-        (gTot200Min > 0 ? '<tr><td>HE 200% — Especial</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, _multEspecial, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot50Min  > 0 ? '<tr><td>HE ×2 dobrada — Dias úteis/Sáb manhã</td><td class="val">' + _min2dur(gTot50Min)  + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot50Min, _multNormal, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot100Min > 0 ? '<tr><td>HE ×2 dobrada</td><td class="val">' + _min2dur(gTot100Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot100Min, _multDomingo, valorHora)) : '') + '</td></tr>' : '') +
+        (gTot200Min > 0 ? '<tr><td>HE ×3 triplicada — Dom/Fer/Sáb tarde/Ext</td><td class="val">' + _min2dur(gTot200Min) + (valorHora > 0 ? ' — ' + _fmtMoeda(_calcValorHE(gTot200Min, _multEspecial, valorHora)) : '') + '</td></tr>' : '') +
         (gTotAtraso > 0 ? '<tr><td>Total atrasos/faltas</td><td class="val">-' + _min2dur(gTotAtraso) + '</td></tr>' : '') +
         (valorHora > 0 && gValorFin > 0 ? '<tr><td><b>Total financeiro extras</b></td><td class="val"><b>' + _fmtMoeda(gValorFin) + '</b></td></tr>' : '') +
       '</table>' +
@@ -3382,15 +3425,19 @@ var HR_IMPORT = (function () {
       var tipo = r.tipoExtra || 'normal';
       var faixaUsada;
 
-      if (tipo === 'especial') {
+      if (tipo === 'especial' || tipo === 'feriado' || tipo === 'domingo') {
+        // Triplicada ×3: especial, feriado, domingo, sábado tarde, horário extremo
         totalExtra200Min += extraMin;
         faixaUsada = 'HE200';
-      } else if (tipo === 'feriado' || tipo === 'domingo') {
-        totalExtra100Min += extraMin;
-        faixaUsada = 'HE100';
       } else {
-        // 'normal' ou ausente: reclassifica pela data (retrocompatível)
-        var cls = _classificarHE({ data: r.data, extra: extraMin, funcId: func && func.id || null });
+        // 'normal' ou ausente: reclassifica pela data + horário (retrocompatível)
+        var cls = _classificarHE({
+          data:    r.data,
+          extra:   extraMin,
+          funcId:  func && func.id || null,
+          entrada: r.entrada || '',   // necessário para checar horário muito cedo
+          saida:   r.saida   || ''    // necessário para checar horário muito tarde / sábado tarde
+        });
         totalExtra50Min  += cls.extra50;
         totalExtra100Min += cls.extra100;
         totalExtra200Min += cls.extra200;
