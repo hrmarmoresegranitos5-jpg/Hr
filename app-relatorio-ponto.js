@@ -178,7 +178,21 @@ var HR_RELATORIO_PONTO = (function () {
 
   // ─── Gerador PDF principal ───────────────────────────────────────────────────
 
+  function _loadJsPDF(cb) {
+    var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (J) { cb(J); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = function() { cb((window.jspdf && window.jspdf.jsPDF) || window.jsPDF); };
+    s.onerror = function() { alert('Erro ao carregar biblioteca de PDF. Verifique sua conexão.'); };
+    document.head.appendChild(s);
+  }
+
   function gerarPDF(funcId, di, df) {
+    _loadJsPDF(function(jsPDF) { _doGerarPDF(jsPDF, funcId, di, df); });
+  }
+
+  function _doGerarPDF(jsPDF, funcId, di, df) {
     // Coleta dados
     var funcs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
     var regs   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
@@ -227,10 +241,7 @@ var HR_RELATORIO_PONTO = (function () {
     var saldoLiqExtra  = totalValorExtra; // extras do período
     var totalAPagar    = salario + saldoLiqExtra - totalPago;
 
-    // ── jsPDF ──
-    var jsPDF = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-    if (!jsPDF) { alert('jsPDF não carregado. Verifique se a biblioteca está incluída.'); return; }
-
+    // ── jsPDF (já injetado via lazy-load em gerarPDF) ──
     var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pW = 210, pH = 297;
     var mL = 12, mR = 12;
@@ -583,7 +594,7 @@ var HR_RELATORIO_PONTO = (function () {
     var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
     var mesFmt  = di.slice(0, 7).replace('-', '');
     doc.save('relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf');
-  }
+  } // fim _doGerarPDF
 
   // ─── API pública ─────────────────────────────────────────────────────────────
 
