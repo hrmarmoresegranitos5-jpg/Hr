@@ -1,15 +1,15 @@
 // ═══════════════════════════════════════════════════════════════════
-//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS  v4.0 (simplificado)
+//  HR MÁRMORES — RELATÓRIO DE HORAS EXTRAS  v5.0
 //  Arquivo: app-horas-extras-pdf.js
 //
-//  LÓGICA:
-//  • Cálculo direto: horas extras × (salário/220 × multiplicador)
-//  • Multiplicadores configuráveis em CFG.he (normal, domingo, feriado, especial)
-//  • SEM INSS, SEM FGTS, SEM DSR, SEM adicional noturno
-//  • Painel: lista de funcionários com total de HE e valor a pagar
-//  • Detalhe: registros do período com aprovação individual
-//  • PDF limpo e direto
-//  • Marcar como Pago registra em hr_he_pagos
+//  LÓGICA DE MULTIPLICADORES (prioridade em cascata):
+//  1. Período de Bonificação por funcionário (maior prioridade)
+//  2. Período de Bonificação geral (todos os funcionários)
+//  3. Tipo do dia automático: sábado/domingo/feriado = 2×, resto = 2×
+//     (configurável em CFG.he)
+//  • Períodos de bonificação salvos em hr_he_bonificacoes
+//  • SEM INSS, SEM FGTS, SEM DSR
+//  • PDF detalhado com coluna "Motivo" mostrando origem do multiplicador
 // ═══════════════════════════════════════════════════════════════════
 
 (function () {
@@ -67,32 +67,95 @@
   }
 
   // ── Storage ──────────────────────────────────────────────────────
-  function _getFuncs()   { try { return JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch (e) { return {}; } }
-  function _getRegs()    { try { return JSON.parse(localStorage.getItem('hr_registros') || '{}'); } catch (e) { return {}; } }
-  function _getAprova()  { try { return JSON.parse(localStorage.getItem('hr_he_aprovacoes') || '{}'); } catch (e) { return {}; } }
-  function _saveAprova(d){ try { localStorage.setItem('hr_he_aprovacoes', JSON.stringify(d)); } catch (e) {} }
-  function _getPagoHE()  { try { return JSON.parse(localStorage.getItem('hr_he_pagos') || '{}'); } catch (e) { return {}; } }
-  function _savePagoHE(d){ try { localStorage.setItem('hr_he_pagos', JSON.stringify(d)); } catch (e) {} }
+  function _getFuncs()      { try { return JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch (e) { return {}; } }
+  function _getRegs()       { try { return JSON.parse(localStorage.getItem('hr_registros') || '{}'); } catch (e) { return {}; } }
+  function _getAprova()     { try { return JSON.parse(localStorage.getItem('hr_he_aprovacoes') || '{}'); } catch (e) { return {}; } }
+  function _saveAprova(d)   { try { localStorage.setItem('hr_he_aprovacoes', JSON.stringify(d)); } catch (e) {} }
+  function _getPagoHE()     { try { return JSON.parse(localStorage.getItem('hr_he_pagos') || '{}'); } catch (e) { return {}; } }
+  function _savePagoHE(d)   { try { localStorage.setItem('hr_he_pagos', JSON.stringify(d)); } catch (e) {} }
+  function _getBonifs()     { try { return JSON.parse(localStorage.getItem('hr_he_bonificacoes') || '[]'); } catch (e) { return []; } }
+  function _saveBonifs(d)   { try { localStorage.setItem('hr_he_bonificacoes', JSON.stringify(d)); } catch (e) {} }
+
+  // ── Feriados nacionais fixos (YYYY-MM-DD) ────────────────────────
+  var _FERIADOS_FIXOS = [
+    '01-01','04-21','05-01','09-07','10-12','11-02','11-15','11-20','12-25'
+  ]; // formato MM-DD (vale qualquer ano)
+
+  function _isFeriado(dataISO) {
+    // Checa feriados nacionais fixos + feriados cadastrados no sistema (hr_excecoes tipo feriado)
+    var mmdd = dataISO.slice(5);
+    if (_FERIADOS_FIXOS.indexOf(mmdd) !== -1) return true;
+    try {
+      var exc = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      return Object.values(exc).some(function(e){ return e.data === dataISO && e.tipo === 'feriado'; });
+    } catch(e) { return false; }
+  }
+
+  function _diaSemana(dataISO) {
+    // 0=Dom,1=Seg,...,6=Sáb
+    return new Date(dataISO + 'T12:00:00').getDay();
+  }
 
   // ── Multiplicadores (lê CFG ou usa padrão) ───────────────────────
   function _getMult() {
-    var def = { normal: 1.5, domingo: 2.0, feriado: 2.0, especial: 3.0 };
+    var def = { normal: 2.0, sabado: 2.0, domingo: 3.0, feriado: 3.0 };
     try {
       var src = (typeof CFG !== 'undefined' && CFG && CFG.he) ? CFG.he
         : JSON.parse(localStorage.getItem('cfg') || '{}').he;
       if (src) return {
-        normal:   parseFloat(src.normal)   || def.normal,
-        domingo:  parseFloat(src.domingo)  || def.domingo,
-        feriado:  parseFloat(src.feriado)  || def.feriado,
-        especial: parseFloat(src.especial) || def.especial
+        normal:  parseFloat(src.normal)  || def.normal,
+        sabado:  parseFloat(src.sabado)  || def.sabado,
+        domingo: parseFloat(src.domingo) || def.domingo,
+        feriado: parseFloat(src.feriado) || def.feriado
       };
     } catch (e) {}
     return def;
   }
 
+  // ── Motor de multiplicador com cascata de prioridades ────────────
+  //  Prioridade: bonificação por funcionário > bonificação geral > tipo do dia
+  function _resolverMultiplicador(dataISO, funcId, mult) {
+    var bonifs = _getBonifs();
+    var hoje = dataISO;
+
+    // 1) Busca bonificação específica para este funcionário nesta data
+    var bonifFunc = null;
+    bonifs.forEach(function(b) {
+      if (!b.ativo) return;
+      if (b.funcId && b.funcId !== funcId) return; // é de outro funcionário
+      if (!b.funcId) return; // é geral, pula nesse loop
+      if (hoje >= b.inicio && hoje <= b.fim) {
+        if (!bonifFunc || parseFloat(b.multiplicador) > parseFloat(bonifFunc.multiplicador)) {
+          bonifFunc = b;
+        }
+      }
+    });
+    if (bonifFunc) return { mult: parseFloat(bonifFunc.multiplicador), origem: 'bonif_func', label: bonifFunc.nome };
+
+    // 2) Busca bonificação geral (sem funcId específico) nesta data
+    var bonifGeral = null;
+    bonifs.forEach(function(b) {
+      if (!b.ativo) return;
+      if (b.funcId) return; // é específico de funcionário, pula
+      if (hoje >= b.inicio && hoje <= b.fim) {
+        if (!bonifGeral || parseFloat(b.multiplicador) > parseFloat(bonifGeral.multiplicador)) {
+          bonifGeral = b;
+        }
+      }
+    });
+    if (bonifGeral) return { mult: parseFloat(bonifGeral.multiplicador), origem: 'bonif_geral', label: bonifGeral.nome };
+
+    // 3) Tipo do dia automático
+    if (_isFeriado(dataISO)) return { mult: mult.feriado, origem: 'feriado', label: 'Feriado ×' + mult.feriado.toFixed(1) };
+    var ds = _diaSemana(dataISO);
+    if (ds === 0) return { mult: mult.domingo, origem: 'domingo', label: 'Domingo ×' + mult.domingo.toFixed(1) };
+    if (ds === 6) return { mult: mult.sabado,  origem: 'sabado',  label: 'Sábado ×'  + mult.sabado.toFixed(1)  };
+    return { mult: mult.normal, origem: 'normal', label: 'Normal ×' + mult.normal.toFixed(1) };
+  }
+
   // ─────────────────────────────────────────────────────────────────
-  //  MOTOR DE CÁLCULO — simples e direto
-  //  Valor HE = hExtra × (salário/220) × multiplicador
+  //  MOTOR DE CÁLCULO
+  //  Valor HE = hExtra × (salário/220) × multiplicador resolvido
   // ─────────────────────────────────────────────────────────────────
   function _calcularHE(funcId, inicio, fim) {
     var funcs = _getFuncs(), regs = _getRegs();
@@ -116,24 +179,30 @@
     var registrosBanco = todosComExtra.filter(function (r) { return r.destinoExtra === 'banco'; });
     var totalHorasBanco = registrosBanco.reduce(function (s, r) { return s + (parseFloat(r.extra) || 0); }, 0);
 
-    // Calcular cada registro
+    // Calcular cada registro com multiplicador resolvido por cascata
     var totalHorasExtra = 0;
     var totalValorExtra = 0;
 
     registrosPagar.forEach(function (r) {
       var hExtra = parseFloat(r.extra) || 0;
-      var tipo = (r.tipoExtra || 'normal').toLowerCase();
 
-      var multR;
-      if (tipo === 'especial')               multR = mult.especial;
-      else if (tipo === 'feriado')           multR = mult.feriado;
-      else if (tipo === 'domingo')           multR = mult.domingo;
-      else                                   multR = mult.normal;
+      // Resolve multiplicador: bonificação por func > bonificação geral > tipo do dia
+      var res = _resolverMultiplicador(r.data, funcId, mult);
 
-      r._multUsado       = multR;
-      r._valorHoraExtra  = valorHoraBase * multR;
+      // Se o registro tem tipoExtra manual definido E não há bonificação ativa, usa o manual
+      if (res.origem === 'normal' && r.tipoExtra && r.tipoExtra !== 'normal') {
+        var tipoM = (r.tipoExtra || '').toLowerCase();
+        if (tipoM === 'feriado')  res = { mult: mult.feriado, origem: 'feriado',  label: 'Feriado ×' + mult.feriado.toFixed(1)  };
+        if (tipoM === 'domingo')  res = { mult: mult.domingo, origem: 'domingo',  label: 'Domingo ×' + mult.domingo.toFixed(1)  };
+        if (tipoM === 'especial') res = { mult: 3.0,          origem: 'especial', label: 'Especial ×3,0' };
+      }
+
+      r._multUsado       = res.mult;
+      r._multOrigem      = res.origem;
+      r._multLabel       = res.label;
+      r._valorHoraExtra  = valorHoraBase * res.mult;
       r._valorTotalExtra = hExtra * r._valorHoraExtra;
-      r._aprovado        = aprova[r.id] !== false; // default: aprovado
+      r._aprovado        = aprova[r.id] !== false;
 
       totalHorasExtra += hExtra;
       totalValorExtra += r._aprovado ? r._valorTotalExtra : 0;
@@ -177,7 +246,8 @@
   var _st = {
     inicio: _mesAtual() + '-01',
     fim:    new Date().toISOString().slice(0, 10),
-    funcId: null
+    funcId: null,
+    aba:    'he' // 'he' | 'bonif'
   };
 
   // ════════════════════════════════════════════════════════════════
@@ -185,7 +255,8 @@
   // ════════════════════════════════════════════════════════════════
   function abrirRelatorioHorasExtras(funcIdDireto) {
     if (funcIdDireto) _st.funcId = funcIdDireto;
-    _renderPainel();
+    if (_st.aba === 'bonif') _renderBonificacoes();
+    else _renderPainel();
   }
 
   function _renderPainel() {
@@ -295,12 +366,40 @@
         '<button onclick="window._heFechar()" style="background:none;border:none;color:' + T3 + ';cursor:pointer;font-size:1.3rem;padding:4px;">✕</button>' +
       '</div>' +
 
+      // Abas
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px;">' +
+        '<button onclick="window._heAba(\'he\')" style="padding:10px;border-radius:10px;font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;' + (_st.aba==='he' ? 'background:linear-gradient(135deg,#1e1800,#0f0c00);border:1.5px solid rgba(201,168,76,.5);color:'+GOLD+';' : 'background:transparent;border:1px solid rgba(201,168,76,.15);color:'+T3+';') + '">⚡ Horas Extras</button>' +
+        '<button onclick="window._heAba(\'bonif\')" style="padding:10px;border-radius:10px;font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;' + (_st.aba==='bonif' ? 'background:linear-gradient(135deg,#051805,#030e03);border:1.5px solid rgba(92,184,92,.5);color:'+GREEN+';' : 'background:transparent;border:1px solid rgba(92,184,92,.15);color:'+T3+';') + '">🏆 Bonificações</button>' +
+      '</div>' +
+
       // KPIs
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">' +
         _kpi('⏱', 'Total Horas', totHoras.toFixed(2) + 'h', 'no período') +
         _kpi('💰', 'Total HE', _fmtMoeda(totValor), 'a pagar') +
         _kpi('✅', 'Saldo Aberto', _fmtMoeda(totSaldo), 'ainda não pago') +
       '</div>' +
+
+      // Bonificações ativas agora
+      (function() {
+        var hoje = new Date().toISOString().slice(0,10);
+        var ativas = _getBonifs().filter(function(b){ return b.ativo && hoje >= b.inicio && hoje <= b.fim; });
+        if (!ativas.length) return '';
+        var funcs2 = _getFuncs();
+        return '<div style="background:rgba(92,184,92,.05);border:1.5px solid rgba(92,184,92,.3);border-radius:12px;padding:12px 14px;margin-bottom:14px;">' +
+          '<div style="font-size:.6rem;color:' + GREEN + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">🏆 Bonificações Ativas Agora</div>' +
+          ativas.map(function(b) {
+            var fn = b.funcId ? ((funcs2[b.funcId]||{}).nome||b.funcId) : 'Todos';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(92,184,92,.08);">' +
+              '<div><span style="font-size:.82rem;font-weight:700;color:' + T1 + ';">' + _esc(b.nome) + '</span>' +
+              '<span style="font-size:.7rem;color:' + T3 + ';margin-left:8px;">' + _esc(fn) + '</span></div>' +
+              '<div style="display:flex;align-items:center;gap:8px;">' +
+                '<span style="font-size:.72rem;color:' + T3 + ';">' + _fmtData(b.inicio) + ' – ' + _fmtData(b.fim) + '</span>' +
+                '<span style="font-size:.9rem;font-weight:800;color:' + GREEN + ';">×' + parseFloat(b.multiplicador).toFixed(1).replace('.',',') + '</span>' +
+              '</div>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+      })() +
 
       // Filtros
       '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:14px;margin-bottom:14px;">' +
@@ -312,23 +411,24 @@
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">De</label>' +
-            '<input id="heRelInicio" type="date" value="' + (_st.inicio || '') + '" style="' + INP + '">' +
+            '<input id="heRelInicio" type="date" value="' + (_st.inicio||'') + '" style="' + INP + '">' +
           '</div>' +
           '<div>' +
             '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Até</label>' +
-            '<input id="heRelFim" type="date" value="' + (_st.fim || '') + '" style="' + INP + '">' +
+            '<input id="heRelFim" type="date" value="' + (_st.fim||'') + '" style="' + INP + '">' +
           '</div>' +
         '</div>' +
         '<button onclick="window._heAplicarFiltro()" style="' + _btnPrincipal() + ' margin-top:10px;">🔍 Filtrar</button>' +
       '</div>' +
 
-      // Legenda multiplicadores
+      // Legenda multiplicadores automáticos
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
-        _badge(GOLD,   '×' + _getMult().normal.toFixed(1).replace('.', ','), 'HE Normal (dia útil / sábado)') +
-        _badge(ORANGE, '×' + _getMult().domingo.toFixed(1).replace('.', ','), 'HE Domingo') +
-        _badge(RED,    '×' + _getMult().feriado.toFixed(1).replace('.', ','), 'HE Feriado') +
-        _badge(BLUE,   '×' + _getMult().especial.toFixed(1).replace('.', ','), 'HE Especial') +
-        (totBanco > 0 ? _badge(BLUE, '🏦 ' + totBanco.toFixed(2) + 'h', 'No banco de horas') : '') +
+        _badge(T3,     '×' + _getMult().normal.toFixed(1).replace('.',','),  'Dia útil') +
+        _badge(ORANGE, '×' + _getMult().sabado.toFixed(1).replace('.',','),  'Sábado') +
+        _badge(RED,    '×' + _getMult().domingo.toFixed(1).replace('.',','), 'Domingo') +
+        _badge(ORANGE, '×' + _getMult().feriado.toFixed(1).replace('.',','), 'Feriado') +
+        _badge(GREEN,  '× Bonif.', 'Período de Bonificação') +
+        (totBanco > 0 ? _badge(BLUE, '🏦 '+totBanco.toFixed(2)+'h', 'No banco de horas') : '') +
       '</div>' +
 
       // Tabela
@@ -336,8 +436,7 @@
         tabelaHtml +
       '</div>' +
 
-      // Gerar todos PDFs
-      (exibir.filter(function (r) { return r.totalHorasExtra > 0; }).length > 1
+      (exibir.filter(function(r){ return r.totalHorasExtra > 0; }).length > 1
         ? '<button onclick="window._heGerarTodosPDFs(\'' + _st.inicio + '\',\'' + _st.fim + '\')" style="' + _btnSecundario() + ' margin-bottom:8px;">📋 Gerar PDFs de Todos</button>'
         : '') +
 
@@ -391,14 +490,19 @@
       var hExtra = parseFloat(r.extra) || 0;
       var aprovado = r._aprovado !== false;
       var corStatus = aprovado ? GREEN : RED;
-      var labelTipo = _labelTipo(r.tipoExtra, r._multUsado);
+      var labelTipo = r._multLabel || _labelTipo(r.tipoExtra, r._multUsado);
+      var corLabel  = (r._multOrigem === 'bonif_func' || r._multOrigem === 'bonif_geral') ? GREEN
+                    : (r._multOrigem === 'feriado')  ? RED
+                    : (r._multOrigem === 'domingo')  ? RED
+                    : (r._multOrigem === 'sabado')   ? ORANGE
+                    : T3;
 
       return '<tr style="border-bottom:1px solid rgba(255,255,255,.04);">' +
         '<td style="padding:8px;color:' + T1 + ';font-size:.78rem;">' + _fmtData(r.data) + '</td>' +
         '<td style="padding:8px;color:' + T2 + ';font-size:.75rem;">' + (r.entrada || '—') + '</td>' +
         '<td style="padding:8px;color:' + T2 + ';font-size:.75rem;">' + (r.saida || '—') + '</td>' +
         '<td style="padding:8px;text-align:right;color:' + GOLD + ';font-weight:700;font-size:.82rem;">' + hExtra.toFixed(2) + 'h</td>' +
-        '<td style="padding:8px;color:' + T3 + ';font-size:.72rem;">' + labelTipo + '</td>' +
+        '<td style="padding:8px;color:' + corLabel + ';font-size:.72rem;font-weight:600;">' + labelTipo + '</td>' +
         '<td style="padding:8px;text-align:right;color:' + GOLD + ';font-weight:700;font-size:.82rem;">' +
           _fmtMoeda(aprovado ? (r._valorTotalExtra || 0) : 0) +
         '</td>' +
@@ -433,28 +537,25 @@
 
         '<div style="border-top:1px solid rgba(201,168,76,.15);margin:10px 0;"></div>' +
 
-        (dados.registrosPagar.filter(function(r){ return (r.tipoExtra||'normal').toLowerCase() === 'normal' || !(r.tipoExtra); }).length > 0
-          ? _linhaResumo(
-              'HE Normal ×' + dados.mult.normal.toFixed(1).replace('.', ','),
-              dados.registrosPagar.filter(function(r){ return r._aprovado !== false && (r.tipoExtra||'normal').toLowerCase()==='normal'; })
-                .reduce(function(s,r){ return s+(r._valorTotalExtra||0); },0),
-              GOLD)
-          : '') +
-        (dados.registrosPagar.filter(function(r){ return (r.tipoExtra||'').toLowerCase() === 'domingo'; }).length > 0
-          ? _linhaResumo('HE Domingo ×' + dados.mult.domingo.toFixed(1).replace('.', ','),
-              dados.registrosPagar.filter(function(r){ return r._aprovado !== false && (r.tipoExtra||'').toLowerCase()==='domingo'; })
-                .reduce(function(s,r){ return s+(r._valorTotalExtra||0); },0), ORANGE)
-          : '') +
-        (dados.registrosPagar.filter(function(r){ return (r.tipoExtra||'').toLowerCase() === 'feriado'; }).length > 0
-          ? _linhaResumo('HE Feriado ×' + dados.mult.feriado.toFixed(1).replace('.', ','),
-              dados.registrosPagar.filter(function(r){ return r._aprovado !== false && (r.tipoExtra||'').toLowerCase()==='feriado'; })
-                .reduce(function(s,r){ return s+(r._valorTotalExtra||0); },0), RED)
-          : '') +
-        (dados.registrosPagar.filter(function(r){ return (r.tipoExtra||'').toLowerCase() === 'especial'; }).length > 0
-          ? _linhaResumo('HE Especial ×' + dados.mult.especial.toFixed(1).replace('.', ','),
-              dados.registrosPagar.filter(function(r){ return r._aprovado !== false && (r.tipoExtra||'').toLowerCase()==='especial'; })
-                .reduce(function(s,r){ return s+(r._valorTotalExtra||0); },0), BLUE)
-          : '') +
+        // Resumo dinâmico: agrupa registros por _multLabel (inclui bonificações)
+        (function() {
+          var grupos = {};
+          dados.registrosPagar.forEach(function(r) {
+            var lbl = r._multLabel || ('×' + (r._multUsado||1).toFixed(1));
+            var ori = r._multOrigem || 'normal';
+            if (!grupos[lbl]) grupos[lbl] = { total: 0, origem: ori };
+            if (r._aprovado !== false) grupos[lbl].total += (r._valorTotalExtra||0);
+          });
+          return Object.keys(grupos).map(function(lbl) {
+            var g = grupos[lbl];
+            var cor = (g.origem==='bonif_func'||g.origem==='bonif_geral') ? GREEN
+                    : (g.origem==='feriado')  ? RED
+                    : (g.origem==='domingo')  ? RED
+                    : (g.origem==='sabado')   ? ORANGE
+                    : GOLD;
+            return g.total > 0 ? _linhaResumo(lbl, g.total, cor) : '';
+          }).join('');
+        })() +
 
         '<div style="border-top:2px solid rgba(201,168,76,.25);margin:12px 0 8px;"></div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">' +
@@ -616,6 +717,202 @@
 
   window._heFechar = function () { _closeOverlay('heRelatorio'); };
 
+  window._heAba = function(aba) {
+    _st.aba = aba;
+    if (aba === 'bonif') _renderBonificacoes();
+    else _renderPainel();
+  };
+
+  // ════════════════════════════════════════════════════════════════
+  //  TELA DE BONIFICAÇÕES
+  // ════════════════════════════════════════════════════════════════
+  function _renderBonificacoes() {
+    var bonifs  = _getBonifs();
+    var funcs   = _getFuncs();
+    var ativos  = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+    var hoje    = new Date().toISOString().slice(0,10);
+
+    var INP = 'width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;' +
+      'border:1px solid rgba(201,168,76,.2);background:rgba(255,255,255,.03);' +
+      'color:' + T1 + ';font-size:.85rem;font-family:Outfit,sans-serif;outline:none;';
+
+    // Lista de bonificações ordenada por data desc
+    var listaBonif = bonifs.slice().sort(function(a,b){ return b.inicio.localeCompare(a.inicio); });
+
+    var listaHtml = listaBonif.length === 0
+      ? '<div style="text-align:center;padding:28px 0;color:' + T3 + ';font-size:.85rem;">Nenhuma bonificação cadastrada ainda.</div>'
+      : listaBonif.map(function(b, idx) {
+          var ativa = b.ativo && hoje >= b.inicio && hoje <= b.fim;
+          var passada = b.fim < hoje;
+          var funcNome = b.funcId ? ((funcs[b.funcId]||{}).nome || b.funcId) : '👥 Todos';
+          var cor = ativa ? GREEN : (passada ? T3 : GOLD);
+          var status = ativa ? '● Ativa' : (passada ? '○ Encerrada' : '◷ Futura');
+          return '<div style="background:' + S2 + ';border:1px solid ' + (ativa ? 'rgba(92,184,92,.3)' : BD) + ';' +
+            'border-radius:12px;padding:14px;margin-bottom:10px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+              '<div style="flex:1;">' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+                  '<span style="font-size:.85rem;font-weight:700;color:' + T1 + ';">' + _esc(b.nome) + '</span>' +
+                  '<span style="font-size:.65rem;font-weight:700;color:' + cor + ';padding:2px 7px;border-radius:20px;' +
+                    'background:' + cor + '22;border:1px solid ' + cor + '55;">' + status + '</span>' +
+                '</div>' +
+                '<div style="display:flex;gap:12px;flex-wrap:wrap;">' +
+                  '<span style="font-size:.75rem;color:' + T3 + ';">📅 ' + _fmtData(b.inicio) + ' – ' + _fmtData(b.fim) + '</span>' +
+                  '<span style="font-size:.75rem;color:' + T3 + ';">👤 ' + _esc(funcNome) + '</span>' +
+                '</div>' +
+                (b.obs ? '<div style="font-size:.72rem;color:' + T3 + ';margin-top:4px;font-style:italic;">' + _esc(b.obs) + '</div>' : '') +
+              '</div>' +
+              '<div style="display:flex;align-items:center;gap:8px;">' +
+                '<div style="font-size:1.3rem;font-weight:800;color:' + GREEN + ';min-width:44px;text-align:right;">×' +
+                  parseFloat(b.multiplicador).toFixed(1).replace('.',',') +
+                '</div>' +
+                '<div style="display:flex;flex-direction:column;gap:4px;">' +
+                  '<button onclick="window._heBonifToggle(' + idx + ')" style="' + _btnMini(b.ativo ? RED : GREEN) + '">' +
+                    (b.ativo ? '⏸ Pausar' : '▶ Ativar') +
+                  '</button>' +
+                  '<button onclick="window._heBonifExcluir(' + idx + ')" style="' + _btnMini(RED) + '">🗑</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+
+    // Form de nova bonificação
+    var opsFuncs = [{ v: '', l: '👥 Todos os funcionários' }].concat(
+      ativos.sort(function(a,b){ return (a.nome||'').localeCompare(b.nome||''); })
+        .map(function(f){ return { v: f.id, l: f.nome }; })
+    );
+    var optsHtml = opsFuncs.map(function(o){
+      return '<option value="' + o.v + '">' + _esc(o.l) + '</option>';
+    }).join('');
+
+    var html =
+      '<div style="width:100%;max-width:600px;padding:0 16px;">' +
+
+      // Cabeçalho
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">' +
+        '<div>' +
+          '<div style="font-size:.52rem;color:' + GOLD + ';letter-spacing:.18em;text-transform:uppercase;margin-bottom:3px;">HR MÁRMORES</div>' +
+          '<div style="font-size:1.4rem;font-weight:800;color:' + T1 + ';letter-spacing:-.02em;">🏆 Bonificações de HE</div>' +
+          '<div style="font-size:.72rem;color:' + T3 + ';margin-top:3px;">Multiplicadores por período</div>' +
+        '</div>' +
+        '<button onclick="window._heFechar()" style="background:none;border:none;color:' + T3 + ';cursor:pointer;font-size:1.3rem;padding:4px;">✕</button>' +
+      '</div>' +
+
+      // Abas
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:16px;">' +
+        '<button onclick="window._heAba(\'he\')" style="padding:10px;border-radius:10px;font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;background:transparent;border:1px solid rgba(201,168,76,.15);color:' + T3 + ';">⚡ Horas Extras</button>' +
+        '<button onclick="window._heAba(\'bonif\')" style="padding:10px;border-radius:10px;font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,#051805,#030e03);border:1.5px solid rgba(92,184,92,.5);color:' + GREEN + ';">🏆 Bonificações</button>' +
+      '</div>' +
+
+      // Explicação
+      '<div style="background:rgba(92,184,92,.04);border:1px solid rgba(92,184,92,.2);border-radius:10px;padding:12px 14px;margin-bottom:16px;">' +
+        '<div style="font-size:.78rem;color:' + T2 + ';line-height:1.6;">' +
+          '🏆 <strong style="color:' + GREEN + ';">Bonificação</strong> = período onde as HE valem mais. ' +
+          'Prioridade: <strong>por funcionário</strong> > <strong>geral</strong> > <strong>tipo do dia</strong> (sáb/dom/feriado). ' +
+          'Se uma data cair dentro de uma bonificação, ela usa o multiplicador da bonificação.' +
+        '</div>' +
+      '</div>' +
+
+      // Form nova bonificação
+      '<div style="background:' + S2 + ';border:1px solid ' + BD + ';border-radius:12px;padding:16px;margin-bottom:16px;">' +
+        '<div style="font-size:.6rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px;">+ Nova Bonificação</div>' +
+        '<div style="display:grid;gap:10px;">' +
+          '<div>' +
+            '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Nome / Motivo</label>' +
+            '<input id="heBonNome" type="text" placeholder="Ex: Serviço corrido junho, Obra urgente..." style="' + INP + '">' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+            '<div>' +
+              '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">De</label>' +
+              '<input id="heBonInicio" type="date" value="' + hoje + '" style="' + INP + '">' +
+            '</div>' +
+            '<div>' +
+              '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Até</label>' +
+              '<input id="heBonFim" type="date" value="' + hoje + '" style="' + INP + '">' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+            '<div>' +
+              '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Multiplicador</label>' +
+              '<select id="heBonMult" style="' + INP + '">' +
+                '<option value="2.0">×2,0 — Duplicado</option>' +
+                '<option value="2.5">×2,5 — Especial</option>' +
+                '<option value="3.0" selected>×3,0 — Triplicado</option>' +
+                '<option value="4.0">×4,0 — Quadruplicado</option>' +
+              '</select>' +
+            '</div>' +
+            '<div>' +
+              '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Funcionário</label>' +
+              '<select id="heBonFunc" style="' + INP + '">' + optsHtml + '</select>' +
+            '</div>' +
+          '</div>' +
+          '<div>' +
+            '<label style="display:block;font-size:.65rem;color:' + T3 + ';text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Observação (opcional)</label>' +
+            '<input id="heBonObs" type="text" placeholder="Detalhe ou motivo..." style="' + INP + '">' +
+          '</div>' +
+        '</div>' +
+        '<button onclick="window._heBonifSalvar()" style="' + _btnPrincipal().replace('width:100%','width:100%') + ' margin-top:12px;">✅ Salvar Bonificação</button>' +
+      '</div>' +
+
+      // Lista
+      '<div style="font-size:.6rem;color:' + GOLD + ';letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">Bonificações Cadastradas</div>' +
+      listaHtml +
+
+      '<button onclick="window._heFechar()" style="' + _btnGhost() + ' margin-top:8px;">Fechar</button>' +
+    '</div>';
+
+    _overlay('heRelatorio', html);
+  }
+
+  window._heBonifSalvar = function() {
+    var nome  = (document.getElementById('heBonNome')   || {}).value || '';
+    var ini   = (document.getElementById('heBonInicio') || {}).value || '';
+    var fim   = (document.getElementById('heBonFim')    || {}).value || '';
+    var mult  = (document.getElementById('heBonMult')   || {}).value || '2.0';
+    var funcId= (document.getElementById('heBonFunc')   || {}).value || '';
+    var obs   = (document.getElementById('heBonObs')    || {}).value || '';
+
+    if (!nome.trim()) { _toast('⚠️ Informe o nome da bonificação'); return; }
+    if (!ini || !fim)  { _toast('⚠️ Informe as datas'); return; }
+    if (ini > fim)     { _toast('⚠️ Data inicial deve ser antes da final'); return; }
+
+    var bonifs = _getBonifs();
+    bonifs.push({
+      id:           Date.now().toString(36) + Math.random().toString(36).slice(2,5),
+      nome:         nome.trim(),
+      inicio:       ini,
+      fim:          fim,
+      multiplicador: parseFloat(mult),
+      funcId:       funcId || null,
+      obs:          obs.trim(),
+      ativo:        true,
+      criadoEm:     new Date().toISOString()
+    });
+    _saveBonifs(bonifs);
+    _toast('🏆 Bonificação salva: ' + nome);
+    _renderBonificacoes();
+  };
+
+  window._heBonifToggle = function(idx) {
+    var bonifs = _getBonifs();
+    if (!bonifs[idx]) return;
+    bonifs[idx].ativo = !bonifs[idx].ativo;
+    _saveBonifs(bonifs);
+    _toast(bonifs[idx].ativo ? '▶ Bonificação ativada' : '⏸ Bonificação pausada');
+    _renderBonificacoes();
+  };
+
+  window._heBonifExcluir = function(idx) {
+    var bonifs = _getBonifs();
+    if (!bonifs[idx]) return;
+    var nome = bonifs[idx].nome;
+    bonifs.splice(idx, 1);
+    _saveBonifs(bonifs);
+    _toast('🗑 Removida: ' + nome);
+    _renderBonificacoes();
+  };
+
   // ════════════════════════════════════════════════════════════════
   //  GERAR PDF  (jsPDF)
   // ════════════════════════════════════════════════════════════════
@@ -754,7 +1051,7 @@
         doc.setFont('helvetica', 'bold'); doc.setTextColor(aprovado ? [201, 168, 76] : [160, 80, 80]);
         doc.text(hExtra.toFixed(2) + 'h', cols[3].x + 2, y + 5);
         doc.setFont('helvetica', 'normal'); doc.setTextColor(170, 160, 140);
-        doc.text(_labelTipo(r.tipoExtra, r._multUsado).replace(/[⚡🗓️⭐☀️]/gu, ''), cols[4].x + 2, y + 5);
+        doc.text((r._multLabel || _labelTipo(r.tipoExtra, r._multUsado)).replace(/[⚡🗓️⭐☀️🏆]/gu, '').trim(), cols[4].x + 2, y + 5);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(aprovado ? [201, 168, 76] : [160, 80, 80]);
         doc.text(_fmtMoeda(aprovado ? (r._valorTotalExtra || 0) : 0).replace('R$\u00a0', 'R$ '),

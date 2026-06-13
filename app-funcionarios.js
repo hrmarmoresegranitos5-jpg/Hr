@@ -898,7 +898,12 @@ var HR_FUNC = (function () {
   function _cardFuncionario(f, pontoHoje){
     var temPonto = pontoHoje && pontoHoje.some(function(p){ return p.id === f.id; });
     var alertas  = analisarGaps(f.id);
-    var saldo    = calcSaldoFuncionario(f.id, null, null);
+    // Saldo do mês atual — não acumulado geral
+    var _mr  = _mesAno(0);
+    var _di  = _mr + '-01';
+    var _ult = new Date(parseInt(_mr.slice(0,4)), parseInt(_mr.slice(5,7)), 0);
+    var _df  = _mr + '-' + String(_ult.getDate()).padStart(2,'0');
+    var saldo    = calcSaldoFuncionario(f.id, _di, _df);
     var pags     = getPagamentos();
 
     // Último pagamento deste funcionário
@@ -954,8 +959,8 @@ var HR_FUNC = (function () {
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
-          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">÷3 = '+_fmtMoeda(_valorDecendioAtual(f))+'</div>' +
-          '<div style="font-size:.55rem;color:'+T3+';">por decendio</div>' +
+          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_valorDecendioAtual(f))+'</div>' +
+          '<div style="font-size:.55rem;color:'+T3+';">por decêndio</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1185,12 +1190,17 @@ var HR_FUNC = (function () {
     // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
     var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
-    var saldo=calcSaldoFuncionario(id,null,null);
+    // Saldo do mês atual — não acumulado geral
+    var _mesRef = _mesAno(0);
+    var _diMes  = _mesRef + '-01';
+    var _ultDia = new Date(parseInt(_mesRef.slice(0,4)), parseInt(_mesRef.slice(5,7)), 0);
+    var _dfMes  = _mesRef + '-' + String(_ultDia.getDate()).padStart(2,'0');
+    var saldo=calcSaldoFuncionario(id, _diMes, _dfMes);
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
 
     var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?GOLD:GREEN);
-    var saldoLabel=saldo.temCredito?'💳 Crédito (overpago)':(saldo.saldo>0.01?'💰 A Receber':'✓ Quitado');
+    var saldoLabel=saldo.temCredito?'💳 Crédito (overpago este mês)':(saldo.saldo>0.01?'💰 A Receber (mês atual)':'✓ Quitado (mês atual)');
 
     // Calendário do mês atual (últimos 28 dias como grid)
     var calHtml=_calendarioMini(id,regs);
@@ -1247,9 +1257,9 @@ var HR_FUNC = (function () {
             'ver extrato →</button>'+
         '</div>'+
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">'+
-          _miniKpi('Salário base',   _fmtMoeda(f.salario),                          GOLD)+
-          _miniKpi('H. Extras R$',   _fmtMoeda(saldo.valorExtra),  saldo.valorExtra>0?GOLD:T3)+
-          _miniKpi('Já pago',        _fmtMoeda(saldo.totalPago),                    GREEN)+
+          _miniKpi('Salário devido',  _fmtMoeda(saldo.totalSalario),                 GOLD)+
+          _miniKpi('HE devida R$',    _fmtMoeda(saldo.valorExtra),  saldo.valorExtra>0?GOLD:T3)+
+          _miniKpi('Já pago (mês)',   _fmtMoeda(saldo.totalPago),                    GREEN)+
         '</div>'+
         // Banco de horas
         (saldo.banco&&saldo.banco.acumuladoMin>0?
@@ -1276,8 +1286,7 @@ var HR_FUNC = (function () {
           '</div>':'')+
         '<div style="font-size:.65rem;color:'+T3+';margin-bottom:10px;padding:6px 10px;background:rgba(0,0,0,.2);border-radius:8px;">'+
           '📐 Valor/h base: '+_fmtMoeda(saldo.valorHoraBase)+
-          ' · Valor/h extra: '+_fmtMoeda(saldo.valorHoraExtra)+
-          ' · Decendio sugerido: '+_fmtMoeda(_valorDecendioAtual(f))+
+          ' · Valor/h extra (50%): '+_fmtMoeda(saldo.valorHoraExtra)+
         '</div>'+
         '<div style="background:rgba(0,0,0,.3);border-radius:10px;padding:12px;text-align:center;margin-bottom:10px;">'+
           '<div style="font-size:.67rem;color:'+T3+';margin-bottom:4px;">'+saldoLabel+'</div>'+
@@ -1695,23 +1704,29 @@ var HR_FUNC = (function () {
       (window._folhaProjecao ? HR_FUNC._htmlProjecaoFolha(ativos, pags, fmtMes) + '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button></div>' : '') +
       (window._folhaProjecao ? '' :
 
-      // KPIs resumo
-      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;">'+
-        _miniKpi('💰 Salários',  _fmtMoeda(totalFolha),  GOLD)+
-        _miniKpi('⚡ Extras',    _fmtMoeda(totalExtras), GOLD)+
-        _miniKpi('🎫 Vales',     _fmtMoeda(totalVales),  '#e0954a')+
-        _miniKpi('📆 Decendios', _fmtMoeda(totalDec),    '#8ec8f0')+
+      // KPIs resumo: Salário Devido | HE Devida | Total Devido | Já Pago
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">'+
+        _miniKpi('💰 Sal. Devido',    _fmtMoeda(totalFolha),                  GOLD)+
+        _miniKpi('⚡ HE Devida',      _fmtMoeda(totalExtras),  totalExtras>0?GOLD:T3)+
+        _miniKpi('✅ Já Pago',        _fmtMoeda(totalPago),                   GREEN)+
+        _miniKpi('📌 Saldo a Pagar',  _fmtMoeda(totalSaldo),   totalSaldo>0.01?RED:GREEN)+
       '</div>'+
 
-      // Barra total a pagar
+      // Barra de resumo detalhada
       '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:12px;'+
-        'padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">'+
-        '<div>'+
-          '<div style="font-size:.6rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px;">Saldo total a pagar</div>'+
-          '<div style="font-size:.68rem;color:'+T3+';">Já pago: '+_fmtMoeda(totalPago)+'</div>'+
+        'padding:12px 16px;margin-bottom:14px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+          '<div style="font-size:.62rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;">Total devido (salário + HE)</div>'+
+          '<div style="font-size:.88rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(totalFolha+totalExtras)+'</div>'+
         '</div>'+
-        '<div style="font-size:1.15rem;font-weight:800;color:'+GOLD+';">'+
-          _fmtMoeda(totalSaldo)+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+          '<div style="font-size:.62rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;">Já pago no período</div>'+
+          '<div style="font-size:.88rem;font-weight:700;color:'+GREEN+';">− '+_fmtMoeda(totalPago)+'</div>'+
+        '</div>'+
+        '<div style="border-top:1px solid '+BD+';margin:6px 0;"></div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+          '<div style="font-size:.65rem;color:'+T3+';font-weight:700;text-transform:uppercase;letter-spacing:.08em;">Saldo a pagar</div>'+
+          '<div style="font-size:1.1rem;font-weight:800;color:'+(totalSaldo>0.01?RED:GREEN)+';">'+_fmtMoeda(totalSaldo)+'</div>'+
         '</div>'+
       '</div>'+
 
@@ -1762,7 +1777,7 @@ var HR_FUNC = (function () {
       '<div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.15);'+
         'border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:.7rem;color:'+T3+';line-height:1.7;">'+
         '📆 <strong style="color:'+GOLD+';">Pagamento de 10 em 10 dias:</strong> '+
-        '1º decendio (dia 10) · 2º decendio (dia 20) · 3º decendio (último dia do mês).'+
+        '1º decêndio — dia 10 · 2º decêndio — dia 20.'+
       '</div>'+
 
       '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
