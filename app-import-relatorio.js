@@ -129,7 +129,7 @@ var HR_IMPORT = (function () {
       var r   = lc.r;
       var res = lc.res;
       var dow = _dowNome(r.data);
-      var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : null;
+      var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : null;
       var faixa = cls ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : '—') : '—';
       var badges = _auditoriaBadges(lc);
 
@@ -169,7 +169,7 @@ var HR_IMPORT = (function () {
       calc.linhasCalc.forEach(function(lc) {
         var r   = lc.r;
         var res = lc.res;
-        var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : null;
+        var cls = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : null;
         var faixa = cls
           ? (cls.extra200 > 0 ? 'HE200' : cls.extra100 > 0 ? 'HE100' : cls.extra50 > 0 ? 'HE50' : 'normal')
           : 'inválido';
@@ -345,6 +345,18 @@ var HR_IMPORT = (function () {
       }
     } catch(e) {}
 
+    // Verifica se o funcionário está de férias nesta data → jornada = 0
+    // Qualquer minuto trabalhado durante férias é hora extra 100%
+    if (funcId) {
+      try {
+        var funcs2 = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+        var fFunc = funcs2[funcId];
+        if (fFunc && fFunc.ativo === 'ferias' && fFunc.feriasInicio && fFunc.feriasFim) {
+          if (isoDate >= fFunc.feriasInicio && isoDate <= fFunc.feriasFim) return 0;
+        }
+      } catch(e) {}
+    }
+
     // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
     if (funcId) {
       try {
@@ -411,12 +423,27 @@ var HR_IMPORT = (function () {
     var extraMin = (registro && registro.extra) ? registro.extra : 0;
     if (extraMin <= 0) return result;
 
-    var data = registro.data || '';
+    var data   = registro.data   || '';
+    var funcId = registro.funcId || null;
 
     // Verifica dia especial primeiro (maior prioridade)
     if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(data) >= 0) {
       result.extra200 = extraMin;
       return result;
+    }
+
+    // Trabalho durante férias → HE 100% (dobro) — CLT art.143
+    if (funcId) {
+      try {
+        var funcsF = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+        var fF = funcsF[funcId];
+        if (fF && fF.ativo === 'ferias' && fF.feriasInicio && fF.feriasFim) {
+          if (data >= fF.feriasInicio && data <= fF.feriasFim) {
+            result.extra100 = extraMin;
+            return result;
+          }
+        }
+      } catch(e) {}
     }
 
     // Verifica feriado
@@ -426,8 +453,6 @@ var HR_IMPORT = (function () {
     }
 
     // Verifica domingo (dow === 0)
-    // Nota: domingos normalmente são ignorados pelo parser, mas podem
-    // existir em importações manuais ou feriados em domingo
     var dow = data ? new Date(data + 'T12:00:00').getDay() : -1;
     if (dow === 0) {
       result.extra100 = extraMin;
@@ -2258,18 +2283,17 @@ var HR_IMPORT = (function () {
       var html2 = '';
 
       if (tipo === 'feriado') {
-        // Feriado: dia todo (sem trabalho) ou meio período (informar horários)
         var isMeio = excExist && excExist.meioperiodo;
         html2 =
           '<div style="margin-bottom:14px;">' +
             '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Período trabalhado</div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">' +
-              '<button id="opt_diatodo" onclick="document.getElementById(\'opt_diatodo\').style.background=\'rgba(167,139,250,.25)\';document.getElementById(\'opt_diatodo\').style.borderColor=\'rgba(167,139,250,.7)\';document.getElementById(\'opt_meio\').style.background=\'#1a1a1a\';document.getElementById(\'opt_meio\').style.borderColor=\'#2a2a2a\';document.getElementById(\'feriado_horas\').style.display=\'none\';" ' +
+              '<button id="opt_diatodo" ' +
                 'style="padding:10px 8px;background:' + (!isMeio ? 'rgba(167,139,250,.25)' : '#1a1a1a') + ';' +
                 'border:1px solid ' + (!isMeio ? 'rgba(167,139,250,.7)' : '#2a2a2a') + ';' +
                 'border-radius:9px;color:#ddd;font-family:Outfit,sans-serif;font-size:.75rem;font-weight:600;cursor:pointer;">' +
                 '🔴 Dia todo<br><span style="font-size:.6rem;color:#888;">Não trabalhou</span></button>' +
-              '<button id="opt_meio" onclick="document.getElementById(\'opt_meio\').style.background=\'rgba(167,139,250,.25)\';document.getElementById(\'opt_meio\').style.borderColor=\'rgba(167,139,250,.7)\';document.getElementById(\'opt_diatodo\').style.background=\'#1a1a1a\';document.getElementById(\'opt_diatodo\').style.borderColor=\'#2a2a2a\';document.getElementById(\'feriado_horas\').style.display=\'block\';" ' +
+              '<button id="opt_meio" ' +
                 'style="padding:10px 8px;background:' + (isMeio ? 'rgba(167,139,250,.25)' : '#1a1a1a') + ';' +
                 'border:1px solid ' + (isMeio ? 'rgba(167,139,250,.7)' : '#2a2a2a') + ';' +
                 'border-radius:9px;color:#ddd;font-family:Outfit,sans-serif;font-size:.75rem;font-weight:600;cursor:pointer;">' +
@@ -2281,13 +2305,12 @@ var HR_IMPORT = (function () {
                 _inputHora('fer_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '12:00') +
               '</div>' +
               '<div style="font-size:.62rem;color:#7a6;background:rgba(92,150,80,.08);border:1px solid rgba(92,150,80,.25);border-radius:7px;padding:7px 10px;margin-top:8px;">' +
-                'ℹ️ No meio período o sistema calculará as horas trabalhadas e o saldo normalmente.' +
+                'ℹ️ No meio período o sistema calculará as horas trabalhadas normalmente.' +
               '</div>' +
             '</div>' +
           '</div>';
 
       } else if (tipo === 'acordo') {
-        // Acordo: período trabalhado + compensação de horas extras de outros dias
         var compHora = excExist && excExist.compensacaoHoras ? excExist.compensacaoHoras : '2';
         var compDias = excExist && excExist.compensacaoDias  ? excExist.compensacaoDias  : '';
         html2 =
@@ -2315,13 +2338,11 @@ var HR_IMPORT = (function () {
               '</div>' +
             '</div>' +
             '<div style="font-size:.62rem;color:#8ec8c8;background:rgba(92,180,180,.06);border:1px solid rgba(92,180,180,.2);border-radius:7px;padding:8px 10px;">' +
-              '💡 As horas de compensação serão registradas como <strong>observação</strong> no registro do dia. ' +
-              'O desconto efetivo deve ser feito no extrato de banco de horas ou via ajuste na folha.' +
+              '💡 As horas de compensação ficam registradas como observação no ponto do dia.' +
             '</div>' +
           '</div>';
 
       } else if (tipo === 'declarado') {
-        // Declarado: confirma presença com horários
         html2 =
           '<div style="margin-bottom:10px;">' +
             '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Horário declarado</div>' +
@@ -2330,12 +2351,29 @@ var HR_IMPORT = (function () {
               _inputHora('dec_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '17:00') +
             '</div>' +
             '<div style="font-size:.62rem;color:#a0b87a;background:rgba(120,160,80,.07);border:1px solid rgba(120,160,80,.25);border-radius:7px;padding:7px 10px;">' +
-              'ℹ️ O dia será computado normalmente com os horários declarados, mesmo sem ponto no relógio.' +
+              'ℹ️ O dia será computado com os horários declarados, mesmo sem ponto no relógio.' +
             '</div>' +
           '</div>';
       }
 
       el.innerHTML = html2;
+
+      // Registra eventos DEPOIS do innerHTML (CSP-safe — sem onclick inline)
+      if (tipo === 'feriado') {
+        var btnDia  = document.getElementById('opt_diatodo');
+        var btnMeio = document.getElementById('opt_meio');
+        var divHoras = document.getElementById('feriado_horas');
+        if (btnDia) btnDia.addEventListener('click', function(){
+          btnDia.style.background   = 'rgba(167,139,250,.25)'; btnDia.style.borderColor  = 'rgba(167,139,250,.7)';
+          btnMeio.style.background  = '#1a1a1a';               btnMeio.style.borderColor = '#2a2a2a';
+          if (divHoras) divHoras.style.display = 'none';
+        });
+        if (btnMeio) btnMeio.addEventListener('click', function(){
+          btnMeio.style.background = 'rgba(167,139,250,.25)'; btnMeio.style.borderColor  = 'rgba(167,139,250,.7)';
+          btnDia.style.background  = '#1a1a1a';               btnDia.style.borderColor   = '#2a2a2a';
+          if (divHoras) divHoras.style.display = 'block';
+        });
+      }
     }
 
     // Seta tipo ativo visualmente
@@ -2751,7 +2789,7 @@ var HR_IMPORT = (function () {
           extra: parseFloat((calc.extra / 60).toFixed(4)),
           tipoExtra: (function(){
             // Classifica pelo dia para gravar o tipo correto no registro
-            var cls = _classificarHE({ data: r.data, extra: calc.extra });
+            var cls = _classificarHE({ data: r.data, extra: calc.extra, funcId: gr.funcId || null });
             if (cls.extra200 > 0) return 'especial';
             if (cls.extra100 > 0) return (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) ? 'feriado' : 'domingo';
             return 'normal';
@@ -2985,7 +3023,7 @@ var HR_IMPORT = (function () {
         var isSab = _dow(r.data) === 6;
 
         // Classifica HE do dia
-        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra }) : { extra50:0, extra100:0, extra200:0 };
+        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null }) : { extra50:0, extra100:0, extra200:0 };
 
         var heLabel = '';
         if (classeHE.extra50  > 0) heLabel = 'HE 50%';
@@ -3308,7 +3346,7 @@ var HR_IMPORT = (function () {
         faixaUsada = 'HE100';
       } else {
         // 'normal' ou ausente: reclassifica pela data (retrocompatível)
-        var cls = _classificarHE({ data: r.data, extra: extraMin });
+        var cls = _classificarHE({ data: r.data, extra: extraMin, funcId: func && func.id || null });
         totalExtra50Min  += cls.extra50;
         totalExtra100Min += cls.extra100;
         totalExtra200Min += cls.extra200;
