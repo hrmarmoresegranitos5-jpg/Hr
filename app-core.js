@@ -588,7 +588,7 @@ window.setLayout=function(){
         // pg11 (Secretária/Chat) precisa de display:flex para o layout interno funcionar
         var isFlexPage = pg.id === 'pg11';
         pg.style.cssText=(isFlexPage
-          ? 'display:flex;flex-direction:column;'
+          ? 'display:flex;flex-direction:column;overflow:hidden;'
           : 'display:block;overflow-y:auto;-webkit-overflow-scrolling:touch;')
           +'position:absolute;top:0;left:0;right:0;bottom:0;';
       } else {
@@ -771,7 +771,7 @@ function go(n) {
     // pg11 (Secretária/Chat) precisa de display:flex para o layout interno funcionar
     var isFlexPage = (pg.id === 'pg11');
     pg.style.cssText = (isFlexPage
-      ? 'display:flex;flex-direction:column;'
+      ? 'display:flex;flex-direction:column;overflow:hidden;'
       : 'display:block;overflow-y:auto;-webkit-overflow-scrolling:touch;')
       + 'position:absolute;top:0;left:0;right:0;bottom:0;';
     if (!isFlexPage) pg.scrollTop = 0;
