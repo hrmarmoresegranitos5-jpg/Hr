@@ -1434,20 +1434,18 @@ function secSwitchTab(tab) {
   if (tab === 'chat') {
     if (briefingPanel) briefingPanel.style.display = 'none';
     if (chatPanel) {
-      chatPanel.style.display = 'flex';
-      chatPanel.style.flexDirection = 'column';
-      chatPanel.style.flex = '1';
-      chatPanel.style.minHeight = '0';
-      chatPanel.style.overflow = 'hidden';
-      chatPanel.style.position = 'relative';
+      chatPanel.style.cssText = 'display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;position:relative;';
     }
     if (btnBriefing) btnBriefing.style.cssText = inactiveStyle;
     if (btnChat)     btnChat.style.cssText     = activeStyle;
     if (typeof renderChat === 'function') {
+      // Dois frames: 1º deixa o layout resolver; 2º renderiza e scrolla
       requestAnimationFrame(function() {
-        renderChat();
-        var msgs = document.getElementById('chatMessages');
-        if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        requestAnimationFrame(function() {
+          renderChat();
+          var msgs = document.getElementById('chatMessages');
+          if (msgs) msgs.scrollTop = msgs.scrollHeight;
+        });
       });
     }
   } else {
