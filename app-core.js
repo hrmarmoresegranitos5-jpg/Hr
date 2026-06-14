@@ -795,8 +795,14 @@ function go(n) {
   if (n === 7 && typeof renderOrc === 'function')       renderOrc();
   if (n === 8)  buildAcList();
   if (n === 10 && typeof renderContratos   === 'function') renderContratos();
-  if (n === 11 && typeof renderSecretaria  === 'function') {
-    renderSecretaria();
+  if (n === 11) {
+    // Restaura a aba que estava ativa (briefing ou chat)
+    var _tab = (typeof _secCurrentTab !== 'undefined') ? _secCurrentTab : 'briefing';
+    if (typeof secSwitchTab === 'function') {
+      secSwitchTab(_tab);
+    } else if (typeof renderSecretaria === 'function') {
+      renderSecretaria();
+    }
     if (typeof secNotifDotUpdate === 'function') secNotifDotUpdate();
   }
   if (n === 12 && typeof renderDashboard   === 'function') renderDashboard();
