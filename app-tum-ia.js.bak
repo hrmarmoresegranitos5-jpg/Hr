@@ -1,0 +1,550 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// TÚMULO IA — Chat especialista em orçamentos de túmulos
+// Substitui o formulário padrão quando tipo === 'Túmulo' é selecionado
+// ══════════════════════════════════════════════════════════════════════════════
+
+var _tumIA = {
+  history: [],     // histórico de mensagens do chat
+  thinking: false, // evita duplo envio
+  ambId: null      // id do ambiente Túmulo ativo
+};
+
+// ── Estilos injetados uma única vez ──────────────────────────────────────────
+var _tumIAStylesOk = false;
+function _tumIAInjectStyles() {
+  if (_tumIAStylesOk) return;
+  _tumIAStylesOk = true;
+  var css = `
+  .tumia-wrap {
+    background: linear-gradient(160deg,#0d0d18,#0f0e09);
+    border: 1px solid rgba(201,168,76,.18);
+    border-radius: 14px;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    height: 520px;
+    overflow: hidden;
+    font-family: Outfit, sans-serif;
+  }
+  .tumia-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(201,168,76,.07);
+    border-bottom: 1px solid rgba(201,168,76,.15);
+  }
+  .tumia-header-icon {
+    font-size: 1.4rem;
+  }
+  .tumia-header-text {}
+  .tumia-header-title {
+    font-size: .78rem;
+    font-weight: 700;
+    color: var(--gold, #c9a84c);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .tumia-header-sub {
+    font-size: .62rem;
+    color: rgba(255,255,255,.35);
+    margin-top: 1px;
+  }
+  .tumia-clear {
+    margin-left: auto;
+    background: none;
+    border: 1px solid rgba(201,168,76,.2);
+    border-radius: 6px;
+    color: rgba(201,168,76,.5);
+    font-size: .62rem;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .tumia-clear:hover { color: var(--gold, #c9a84c); border-color: var(--gold, #c9a84c); }
+
+  .tumia-msgs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 14px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .tumia-msgs::-webkit-scrollbar { width: 4px; }
+  .tumia-msgs::-webkit-scrollbar-thumb { background: rgba(201,168,76,.2); border-radius: 4px; }
+
+  .tumia-msg {
+    max-width: 88%;
+    font-size: .77rem;
+    line-height: 1.55;
+    padding: 9px 13px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .tumia-msg.user {
+    align-self: flex-end;
+    background: rgba(201,168,76,.13);
+    border: 1px solid rgba(201,168,76,.2);
+    color: #f0e8d0;
+  }
+  .tumia-msg.bot {
+    align-self: flex-start;
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.08);
+    color: rgba(255,255,255,.85);
+  }
+  .tumia-msg.bot b { color: var(--gold, #c9a84c); }
+  .tumia-msg.thinking {
+    color: rgba(255,255,255,.3);
+    font-style: italic;
+    font-size: .72rem;
+    background: none;
+    border: none;
+    padding: 4px 6px;
+  }
+
+  .tumia-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 14px;
+  }
+  .tumia-chip {
+    font-size: .65rem;
+    padding: 5px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(201,168,76,.25);
+    color: rgba(201,168,76,.7);
+    background: rgba(201,168,76,.05);
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .tumia-chip:hover {
+    background: rgba(201,168,76,.12);
+    color: var(--gold, #c9a84c);
+    border-color: rgba(201,168,76,.5);
+  }
+
+  .tumia-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid rgba(255,255,255,.06);
+  }
+  .tumia-input {
+    flex: 1;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px;
+    color: #fff;
+    font-size: .78rem;
+    font-family: Outfit, sans-serif;
+    padding: 9px 12px;
+    resize: none;
+    height: 40px;
+    outline: none;
+    transition: border .2s;
+  }
+  .tumia-input:focus { border-color: rgba(201,168,76,.4); }
+  .tumia-input::placeholder { color: rgba(255,255,255,.25); }
+  .tumia-send {
+    background: var(--gold, #c9a84c);
+    border: none;
+    border-radius: 10px;
+    color: #0d0d18;
+    font-size: 1.1rem;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: opacity .15s;
+  }
+  .tumia-send:hover { opacity: .85; }
+  .tumia-send:disabled { opacity: .35; cursor: not-allowed; }
+
+  .tumia-orc-card {
+    background: rgba(201,168,76,.07);
+    border: 1px solid rgba(201,168,76,.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-top: 6px;
+    font-size: .72rem;
+    color: rgba(255,255,255,.75);
+  }
+  .tumia-orc-card .orc-total {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--gold, #c9a84c);
+    margin: 4px 0;
+  }
+  .tumia-orc-btn {
+    display: inline-block;
+    margin-top: 8px;
+    background: var(--gold, #c9a84c);
+    color: #0d0d18;
+    font-size: .68rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    letter-spacing: .5px;
+  }
+  `;
+  var s = document.createElement('style');
+  s.id = 'tumia-styles';
+  document.head.appendChild(s);
+  s.textContent = css;
+}
+
+// ── Prompt do sistema — especialista em túmulos HR ────────────────────────────
+function _tumIASystemPrompt() {
+  var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0,10);
+  var preco_pedra = 350; // R$/m² padrão
+  if (typeof CFG !== 'undefined' && CFG.stones) {
+    var branco = CFG.stones.find(function(s){ return /branco.*pinta|pinta.*verde/i.test(s.nm); });
+    if (branco && branco.pr) preco_pedra = branco.pr;
+  }
+
+  return [
+    'Você é a especialista em orçamentos de TÚMULOS da HR Mármores e Granitos — Pilão Arcado-BA.',
+    'Data de hoje: ' + hoje,
+    'Preço padrão da pedra: R$ ' + preco_pedra + '/m²',
+    '',
+    '═══ SUA FUNÇÃO ═══',
+    'Você conduz uma conversa natural para coletar os dados necessários e gerar orçamentos completos de túmulos.',
+    'Faça UMA pergunta por vez. Não sobrecarregue o usuário.',
+    'Assim que tiver dados suficientes, calcule e apresente o orçamento completo.',
+    '',
+    '═══ DADOS QUE VOCÊ PRECISA COLETAR ═══',
+    '1. Nome do cliente',
+    '2. Tipo de túmulo (simples, com gaveta, jazigo, capelinha/monumento, reforma)',
+    '3. Dimensões principais: Comprimento × Largura × Altura (ex: 230×130×190 cm)',
+    '4. Material (padrão: Branco Pinta Verde — Mármore Polida)',
+    '5. Inclusos: Cruz? Lápide com foto? Vasos? Degraus (quantos)?',
+    '6. Estrutura: tem rodapé? Pilares? Cobertura/laje?',
+    '7. Acréscimos especiais (ex: argolas na gaveta, brinde, etc.)',
+    '',
+    '═══ COMO CALCULAR ═══',
+    'Some a área (m²) de TODAS as peças de pedra:',
+    '• Tampa horizontal = C × L (em metros)',
+    '• Lateral/Frontal vertical = C × H (em metros)',
+    '• Multiplique pela quantidade de cada peça',
+    '• Total m² → × R$' + preco_pedra + '/m²',
+    '• Some os custos adicionais que o cliente informar (material civil, mão de obra, frete)',
+    '• Regra de parcelamento: parcelado em 8× com 12% de acréscimo sobre o valor à vista',
+    '• Entrada = 50% do valor à vista. Restante na entrega.',
+    '• Prazo padrão: 20 dias úteis após assinatura',
+    '',
+    '═══ ESTRUTURAS TÍPICAS ═══',
+    '',
+    'TÚMULO SIMPLES (2-3 degraus + tampa + laterais):',
+    '  Degrau 1: tampa (C×L) + laterais (×2: C×H) + testeiras (×2: L×H)',
+    '  Tampa superior: C×L',
+    '  Frontal/Laterais do corpo: C×H e L×H',
+    '',
+    'TÚMULO COM GAVETA:',
+    '  Tampa da gaveta com argolas (C-4cm × L-4cm)',
+    '  Laterais e testeiras da gaveta (×2 cada)',
+    '  Mais a estrutura base (degraus, rodapé, corpo)',
+    '',
+    'CAPELINHA / MONUMENTO COM PILARES:',
+    '  4 pilares quadrados (espessura × espessura × H)',
+    '  Laje de cobertura: face inferior + face superior + bordas (×4)',
+    '  Testa/Friso perimetral',
+    '  Cruz no topo + vasos laterais',
+    '',
+    'JAZIGO FAMILIAR (múltiplas gavetas):',
+    '  Multiplica gavetas pelo número de nichos',
+    '',
+    '═══ PEÇAS PADRÃO POR ESTRUTURA ═══',
+    '',
+    'RODAPÉ (sem fundo): frontal (C×h_rod) + 2 laterais (L×h_rod)',
+    'DEGRAU: tampa (C×L) + 2 laterais (C×h_deg) + 2 testeiras (L×h_deg)',
+    'CORPO: frontal (C×H) + 2 laterais (L×H) + tampa sup (C×L) + fundo (C-4×L-4)',
+    'GAVETA: tampa c/argolas (C-4×L-4) + 2 lat (C-4×h) + 2 testeiras (L-4×h)',
+    'PILARES: 4 × (25cm × 25cm × H_pilar) — calcule como 4 × 0.25 × H_pilar × 4 faces = 4×(0.25×H)',
+    'LAJE: face inf (C×L) + face sup (C×L) + 2 bordas longas (C×esp) + 2 bordas curtas (L×esp)',
+    '',
+    '═══ ITENS COM VALORES FIXOS ═══',
+    '• Lápide com foto gravada: inclusa no projeto (sem m² adicional)',
+    '• Cruz sob medida: inclusa no projeto',
+    '• Vasos laterais (par): inclusa no projeto',
+    '• Material civil: informar separado (ex: R$ 1.300,00)',
+    '• Mão de obra + frete: informar separado (ex: R$ 1.300,00)',
+    '',
+    '═══ FORMATO DO ORÇAMENTO FINAL ═══',
+    'Quando tiver todos os dados, responda com:',
+    '**ORÇAMENTO — [NOME DO CLIENTE]**',
+    '',
+    '📐 **Peças calculadas:**',
+    '• [nome da peça] (qtd×): [dim] = [área] m²',
+    '... (listar todas)',
+    '**Total pedra: XX,XXX m²**',
+    '',
+    '💰 **Valores:**',
+    '• Pedra: XX,XXX m² × R$ ' + preco_pedra + ' = R$ X.XXX,XX',
+    '• [outros itens se houver]',
+    '• **Total à vista: R$ X.XXX,XX**',
+    '• Parcelado 8× (+12%): R$ X.XXX,XX/mês',
+    '• Entrada (50%): R$ X.XXX,XX | Na entrega: R$ X.XXX,XX',
+    '',
+    '📦 Prazo estimado: 20 dias úteis após assinatura',
+    '',
+    'Após o orçamento, pergunte se deseja gerar o PDF ou ajustar algum valor.',
+    '',
+    '═══ AÇÃO PARA GERAR PDF ═══',
+    'Quando o usuário confirmar, inclua ao final da resposta um bloco JSON:',
+    '```json',
+    '{"action":"tumulo_orc_pronto","cli":"NOME","m2":XX.XXX,"preco_m2":' + preco_pedra + ',"extras":0,"total_vista":XXXX.XX,"tipo":"Simples"}',
+    '```',
+    '',
+    '═══ PERSONALIDADE ═══',
+    'Tom: cálida, profissional, empática. Entende que é um momento delicado (perda familiar).',
+    'Responda sempre em português brasileiro.',
+    'Seja objetiva mas humana. Máximo 10 linhas por resposta salvo o orçamento completo.',
+    'Use **negrito** para números e nomes. Use • para listas.',
+  ].join('\n');
+}
+
+// ── Mensagem de boas-vindas ───────────────────────────────────────────────────
+var _tumIA_WELCOME = '⚰️ Olá! Sou a assistente especialista em orçamentos de túmulos da HR Mármores e Granitos.\n\nVou te ajudar a montar o orçamento completo de forma simples e rápida.\n\n**Pode começar me dizendo:** qual é o nome do cliente e que tipo de túmulo ele precisa?';
+
+var _tumIA_CHIPS = [
+  '🪦 Túmulo simples',
+  '🗄️ Túmulo com gaveta',
+  '⛪ Capelinha com pilares',
+  '👨‍👩‍👧 Jazigo familiar',
+  '🔨 Reforma / revestimento',
+];
+
+// ── Renderiza o chat de IA dentro do ambiente Túmulo ─────────────────────────
+function tumIARender(ambId) {
+  _tumIAInjectStyles();
+  _tumIA.ambId = ambId;
+
+  // Se não tem histórico, injeta boas-vindas
+  if (_tumIA.history.length === 0) {
+    _tumIA.history.push({ role: 'assistant', content: _tumIA_WELCOME });
+  }
+
+  var msgs = _tumIA.history.map(function(m) {
+    var cls = m.role === 'user' ? 'user' : 'bot';
+    var txt = _tumIAFormatMsg(m.content);
+    return '<div class="tumia-msg ' + cls + '">' + txt + '</div>';
+  }).join('');
+
+  var chips = _tumIA.history.length <= 1
+    ? '<div class="tumia-chips">' + _tumIA_CHIPS.map(function(c) {
+        return '<button class="tumia-chip" onclick="tumIAChip(' + JSON.stringify(c) + ')">' + c + '</button>';
+      }).join('') + '</div>'
+    : '';
+
+  return (
+    '<div class="tumia-wrap" id="tumiaWrap_' + ambId + '">' +
+      '<div class="tumia-header">' +
+        '<div class="tumia-header-icon">⚰️</div>' +
+        '<div class="tumia-header-text">' +
+          '<div class="tumia-header-title">Assistente de Orçamento — Túmulo</div>' +
+          '<div class="tumia-header-sub">IA especializada · HR Mármores e Granitos</div>' +
+        '</div>' +
+        '<button class="tumia-clear" onclick="tumIAClear(' + ambId + ')">↺ Reiniciar</button>' +
+      '</div>' +
+      '<div class="tumia-msgs" id="tumiaMsgs_' + ambId + '">' + msgs + '</div>' +
+      chips +
+      '<div class="tumia-input-row">' +
+        '<textarea class="tumia-input" id="tumiaInput_' + ambId + '" placeholder="Digite sua mensagem..." ' +
+          'onkeydown="tumIAKeyDown(event,' + ambId + ')"></textarea>' +
+        '<button class="tumia-send" id="tumiaSend_' + ambId + '" onclick="tumIASend(' + ambId + ')">➤</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// ── Formata mensagem: **bold**, • listas ─────────────────────────────────────
+function _tumIAFormatMsg(txt) {
+  return txt
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/^• /gm, '&bull; ');
+}
+
+// ── Scroll ao fim das mensagens ───────────────────────────────────────────────
+function _tumIAScroll(ambId) {
+  var el = document.getElementById('tumiaMsgs_' + ambId);
+  if (el) setTimeout(function(){ el.scrollTop = el.scrollHeight; }, 50);
+}
+
+// ── Adiciona mensagem na tela ─────────────────────────────────────────────────
+function _tumIAAddMsg(ambId, role, content) {
+  var el = document.getElementById('tumiaMsgs_' + ambId);
+  if (!el) return;
+  var div = document.createElement('div');
+  div.className = 'tumia-msg ' + (role === 'user' ? 'user' : 'bot');
+  div.innerHTML = _tumIAFormatMsg(content);
+  // Remove "pensando..." se existir
+  var thinking = el.querySelector('.thinking');
+  if (thinking) thinking.remove();
+  el.appendChild(div);
+  _tumIAScroll(ambId);
+}
+
+// ── Mostra indicador de "pensando" ───────────────────────────────────────────
+function _tumIAShowThinking(ambId) {
+  var el = document.getElementById('tumiaMsgs_' + ambId);
+  if (!el) return;
+  var div = document.createElement('div');
+  div.className = 'tumia-msg thinking';
+  div.textContent = '✦ Calculando...';
+  el.appendChild(div);
+  _tumIAScroll(ambId);
+}
+
+// ── Chip de sugestão clicado ─────────────────────────────────────────────────
+function tumIAChip(txt) {
+  var ambId = _tumIA.ambId;
+  var inp = document.getElementById('tumiaInput_' + ambId);
+  if (inp) { inp.value = txt; tumIASend(ambId); }
+}
+
+// ── Enter envia ──────────────────────────────────────────────────────────────
+function tumIAKeyDown(e, ambId) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); tumIASend(ambId); }
+}
+
+// ── Limpa histórico ───────────────────────────────────────────────────────────
+function tumIAClear(ambId) {
+  _tumIA.history = [{ role: 'assistant', content: _tumIA_WELCOME }];
+  _tumIA.thinking = false;
+  renderAmbientes(); // re-renderiza o ambiente
+}
+
+// ── Envia mensagem ────────────────────────────────────────────────────────────
+function tumIASend(ambId) {
+  if (_tumIA.thinking) return;
+  var inp = document.getElementById('tumiaInput_' + ambId);
+  if (!inp) return;
+  var txt = inp.value.trim();
+  if (!txt) return;
+  inp.value = '';
+
+  // Checa chave da API
+  var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
+  if (!key) {
+    _tumIAAddMsg(ambId, 'bot', '🔑 Chave de API não configurada.\nVá em ⚙️ Config → Empresa e adicione sua chave Anthropic.');
+    return;
+  }
+
+  // Adiciona na tela e no histórico
+  _tumIAAddMsg(ambId, 'user', txt);
+  _tumIA.history.push({ role: 'user', content: txt });
+  _tumIA.thinking = true;
+
+  var sendBtn = document.getElementById('tumiaSend_' + ambId);
+  if (sendBtn) sendBtn.disabled = true;
+  _tumIAShowThinking(ambId);
+
+  // Monta messages sem o campo role da boas-vindas se necessário
+  var messages = _tumIA.history
+    .filter(function(m){ return m.content && m.content !== _tumIA_WELCOME || m.role !== 'assistant'; })
+    .map(function(m){ return { role: m.role, content: m.content }; });
+
+  // Garante que começa com user (API exige)
+  if (messages.length && messages[0].role === 'assistant') {
+    messages = messages.slice(1);
+  }
+
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      system: _tumIASystemPrompt(),
+      messages: messages
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data) {
+    _tumIA.thinking = false;
+    if (sendBtn) sendBtn.disabled = false;
+
+    var reply = (data.content && data.content[0] && data.content[0].text) || '❌ Sem resposta.';
+
+    // Detecta bloco JSON de orçamento pronto
+    var jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
+    var cleanReply = reply.replace(/```json[\s\S]*?```/g, '').trim();
+
+    _tumIA.history.push({ role: 'assistant', content: cleanReply });
+    _tumIAAddMsg(ambId, 'bot', cleanReply);
+
+    // Se tem ação de orçamento pronto, exibe card
+    if (jsonMatch) {
+      try {
+        var orcData = JSON.parse(jsonMatch[1].trim());
+        if (orcData.action === 'tumulo_orc_pronto') {
+          _tumIAShowOrcCard(ambId, orcData);
+        }
+      } catch(e) {}
+    }
+  })
+  .catch(function(err) {
+    _tumIA.thinking = false;
+    if (sendBtn) sendBtn.disabled = false;
+    _tumIAAddMsg(ambId, 'bot', '❌ Erro na conexão: ' + err.message);
+  });
+}
+
+// ── Card de orçamento pronto com botão gerar PDF ──────────────────────────────
+function _tumIAShowOrcCard(ambId, d) {
+  var el = document.getElementById('tumiaMsgs_' + ambId);
+  if (!el) return;
+
+  var vista   = d.total_vista || 0;
+  var parc    = vista * 1.12;
+  var p8      = parc / 8;
+  var entrada = vista / 2;
+
+  function fm(v){ return v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  var card = document.createElement('div');
+  card.className = 'tumia-orc-card';
+  card.innerHTML = (
+    '<div style="font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,.6);margin-bottom:4px;">💰 Resumo do Orçamento</div>' +
+    '<div><b>' + (d.cli||'Cliente') + '</b> — ' + (d.tipo||'Túmulo') + '</div>' +
+    '<div>' + (d.m2||0).toFixed(3) + ' m² × R$ ' + (d.preco_m2||350) + '/m²' + (d.extras?' + extras R$ '+fm(d.extras):'') + '</div>' +
+    '<div class="orc-total">À vista: R$ ' + fm(vista) + '</div>' +
+    '<div style="color:rgba(255,255,255,.45);font-size:.68rem;">Parcelado 8×: R$ ' + fm(p8) + '/mês · Entrada: R$ ' + fm(entrada) + '</div>' +
+    '<button class="tumia-orc-btn" onclick="tumIAGerarPDF(' + JSON.stringify(d).replace(/"/g,'&quot;') + ')">📄 Gerar PDF do Orçamento</button>'
+  );
+  el.appendChild(card);
+  _tumIAScroll(ambId);
+}
+
+// ── Gera PDF via a tela de orçamento (navega e preenche) ─────────────────────
+function tumIAGerarPDF(d) {
+  if (typeof toast === 'function') toast('📄 Abrindo orçamento para gerar PDF...', 'info');
+
+  // Navega para tela de orçamento
+  if (typeof go === 'function') go(7);
+
+  setTimeout(function() {
+    // Preenche cliente se campo existir
+    var cliInp = document.getElementById('orcCli') || document.querySelector('input[placeholder*="cliente"]');
+    if (cliInp && d.cli) cliInp.value = d.cli;
+
+    // Seta tipo Túmulo no ambiente se possível
+    if (typeof ambientes !== 'undefined' && ambientes.length > 0) {
+      if (typeof setAmbTipo === 'function') setAmbTipo(ambientes[0].id, 'Túmulo');
+      if (typeof updTumExtra === 'function' && d.tipo) updTumExtra(ambientes[0].id, 'subtipo', d.tipo);
+    }
+
+    if (typeof toast === 'function') toast('✅ Dados do túmulo carregados! Revise e clique em Gerar PDF.', 'ok');
+  }, 600);
+}
