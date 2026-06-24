@@ -148,6 +148,9 @@ window.aplicarEstiloNi=function(){
   var _jDias=document.getElementById('jDias');if(_jDias)_jDias.addEventListener('input',prevJobDias);
   var _fileInp=document.getElementById('fileInp');if(_fileInp)_fileInp.addEventListener('change',onFile);
   document.querySelectorAll('.ov').forEach(function(o){o.addEventListener('click',function(e){if(e.target===o)closeAll();});});
+  // Esconde TODAS as páginas antes de qualquer render — evita sobreposição visual durante init
+  document.querySelectorAll('.pg').forEach(function(p){ p.style.cssText='display:none;'; });
+
   // Build
   buildMat();addAmbiente();buildCatalog();buildCubaList();buildAcList();renderAg();renderFin();updEmp();updUrgDot();renderFixos();renderInfoList();renderOrc();bUpdDot();if(typeof renderDashboard==='function')renderDashboard();
   // Init sync if previously configured

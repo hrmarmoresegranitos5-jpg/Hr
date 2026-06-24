@@ -791,7 +791,6 @@ function go(n) {
     });
     buildCfg();
   }
-  if (n === 7 && typeof tumInlineMount === 'function')  tumInlineMount(null);
   if (n === 7 && typeof renderOrc === 'function')       renderOrc();
   if (n === 8)  buildAcList();
   if (n === 10 && typeof renderContratos   === 'function') renderContratos();
@@ -2902,12 +2901,8 @@ function renderAmbientes(){
     }
     // ── TÚMULO: calculadora v14 embutida inline ──
     if(amb.tipo==='Túmulo'){
-      // Resumo do orçamento de túmulo (se já calculado)
-      var tumSummary = typeof tumGetAmbSummary==='function' ? tumGetAmbSummary(amb) : '';
-      if(tumSummary){
-        h+='<div style="font-size:.68rem;color:var(--gold2);background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.15);border-radius:8px;padding:7px 11px;margin-bottom:8px;">⚰️ '+tumSummary+'</div>';
-      }
-      h+='<div id="tumInline_'+amb.id+'" class="tum-inline-wrap"></div>';
+      // IA Léo — chat conversacional para orçamento de túmulos
+      h+='<div id="tumIA_'+amb.id+'" class="tum-ia-host" style="margin:8px 0;"></div>';
       h+='</div></div>';
     } else {
     // STEP 2: Selecao de Pedra — apenas para ambientes não-Túmulo
@@ -3074,10 +3069,13 @@ function renderAmbientes(){
     } // fim else (não-Túmulo)
   });
   container.innerHTML=h;
-  // Montar calculadora inline para cada ambiente Túmulo
+  // Montar IA Léo para cada ambiente Túmulo
   ambientes.forEach(function(a){
-    if(a.tipo==='Túmulo' && typeof tumInlineMount==='function'){
-      tumInlineMount(a.id);
+    if(a.tipo==='Túmulo'){
+      var _host = document.getElementById('tumIA_'+a.id);
+      if(_host && typeof tumIARender==='function'){
+        _host.innerHTML = tumIARender(a.id);
+      }
     }
   });
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
