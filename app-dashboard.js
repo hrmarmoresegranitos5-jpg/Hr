@@ -142,14 +142,39 @@ function renderDashboard() {
                  p.data <= periodoFim;
         });
         var totalPagoDecendio = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
-        // Estimativa: salário ÷ 3 por decêndio
-        var devido = (parseFloat(f.salario) || 0) / 3;
+        // Usa dec1/dec2/dec3 configurado; fallback: salário ÷ 3
+        var dec1 = parseFloat(f.dec1) || 0;
+        var dec2 = parseFloat(f.dec2) || 0;
+        var dec3 = parseFloat(f.dec3) || 0;
+        var temDec = dec1 > 0 || dec2 > 0 || dec3 > 0;
+        var devido;
+        if (temDec) {
+          if (agD < 10)      devido = dec1;
+          else if (agD < 20) devido = dec2;
+          else               devido = dec3;
+        } else {
+          devido = (parseFloat(f.salario) || 0) / 3;
+        }
         return devido > 0 && totalPagoDecendio < devido - 0.50;
       });
 
       if (funcsPendentes.length === 0) return;
 
-      var totalPendente = funcsPendentes.reduce(function(s, f){ return s + (parseFloat(f.salario)||0)/3; }, 0);
+      var totalPendente = funcsPendentes.reduce(function(s, f) {
+        var dec1 = parseFloat(f.dec1) || 0;
+        var dec2 = parseFloat(f.dec2) || 0;
+        var dec3 = parseFloat(f.dec3) || 0;
+        var temDec = dec1 > 0 || dec2 > 0 || dec3 > 0;
+        var devido;
+        if (temDec) {
+          if (agD < 10)      devido = dec1;
+          else if (agD < 20) devido = dec2;
+          else               devido = dec3;
+        } else {
+          devido = (parseFloat(f.salario) || 0) / 3;
+        }
+        return s + devido;
+      }, 0);
       var nomes = funcsPendentes.slice(0, 3).map(function(f){ return f.nome.split(' ')[0]; }).join(', ');
       if (funcsPendentes.length > 3) nomes += ' e mais ' + (funcsPendentes.length - 3);
 

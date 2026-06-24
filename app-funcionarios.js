@@ -2272,18 +2272,31 @@ var HR_FUNC = (function () {
       lista.map(function(f){ return {v:f.id, l:f.nome}; })
     );
     var hoje = _hoje();
-    // Usa o mês atual como período para o saldo no modal de pagamento
+    // Período do decêndio atual (não o mês inteiro)
     var _pagMesRef = _mesAno(0);
-    var _pagDi = _pagMesRef + '-01';
-    var _pagDfUlt = new Date(parseInt(_pagMesRef.slice(0,4)), parseInt(_pagMesRef.slice(5,7)), 0);
-    var _pagDf = _pagMesRef + '-' + String(_pagDfUlt.getDate()).padStart(2,'0');
+    var _pagHoje   = hoje; // 'YYYY-MM-DD'
+    var _pagDiaHoje = parseInt(_pagHoje.slice(8, 10));
+    var _pagAno    = parseInt(_pagMesRef.slice(0, 4));
+    var _pagMes    = parseInt(_pagMesRef.slice(5, 7)); // 1-indexed
+    var _pagDi, _pagDf;
+    if (_pagDiaHoje < 10) {
+      _pagDi = _pagMesRef + '-01';
+      _pagDf = _pagMesRef + '-10';
+    } else if (_pagDiaHoje < 20) {
+      _pagDi = _pagMesRef + '-11';
+      _pagDf = _pagMesRef + '-20';
+    } else {
+      _pagDi = _pagMesRef + '-21';
+      var _pagUltDia = new Date(_pagAno, _pagMes, 0).getDate();
+      _pagDf = _pagMesRef + '-' + String(_pagUltDia).padStart(2, '0');
+    }
     var _extraPagIncluir = true; // estado do toggle: true=pagar HE, false=acumular
     var saldo = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, _pagDi, _pagDf) : null;
     var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
 
-    // Sugestão de valor para decendial: salário ÷ 3
-    var sugestao = (f.salario && parseFloat(f.salario) > 0)
-      ? (parseFloat(f.salario) / 3).toFixed(2) : '';
+    // Sugestão de valor: usa dec1/dec2/dec3 configurado, fallback salário ÷ 3
+    var _sugestaoNum = funcIdInicial ? _valorDecendioAtual(f) : 0;
+    var sugestao = _sugestaoNum > 0 ? _sugestaoNum.toFixed(2) : '';
 
     var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
       var t = _TIPOS_PAG[k];
@@ -2332,7 +2345,7 @@ var HR_FUNC = (function () {
           ? '<div style="font-size:.72rem;color:'+T2+';line-height:1.5;">'+
               'Sugestão para o funcionário selecionado: '+
               '<strong style="color:'+GOLD+';">'+_fmtMoeda(parseFloat(sugestao))+'</strong>'+
-              ' por parcela <span style="color:'+T3+';">( salário ÷ 3 )</span>'+
+              ' por parcela <span style="color:'+T3+';">( decêndio configurado )</span>'+
             '</div>'
           : '')+
       '</div>'+
@@ -2359,10 +2372,15 @@ var HR_FUNC = (function () {
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
+        // Período do decêndio atual (não o mês inteiro)
         var _mr2 = _mesAno(0);
-        var _di2 = _mr2 + '-01';
-        var _ult2 = new Date(parseInt(_mr2.slice(0,4)), parseInt(_mr2.slice(5,7)), 0);
-        var _df2 = _mr2 + '-' + String(_ult2.getDate()).padStart(2,'0');
+        var _d2  = parseInt(hoje.slice(8, 10));
+        var _a2  = parseInt(_mr2.slice(0, 4));
+        var _m2  = parseInt(_mr2.slice(5, 7));
+        var _di2, _df2;
+        if (_d2 < 10)      { _di2 = _mr2+'-01'; _df2 = _mr2+'-10'; }
+        else if (_d2 < 20) { _di2 = _mr2+'-11'; _df2 = _mr2+'-20'; }
+        else               { _di2 = _mr2+'-21'; _df2 = _mr2+'-'+String(new Date(_a2,_m2,0).getDate()).padStart(2,'0'); }
         var s2   = calcSaldoFuncionario(fid, _di2, _df2);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Sugestão automática para decendio
@@ -2382,10 +2400,15 @@ var HR_FUNC = (function () {
         var inpV = document.getElementById('pag_valor');
         if (!fid || !info) return;
         var f2  = getFuncionarios()[fid] || {};
+        // Período do decêndio atual
         var mr2 = _mesAno(0);
-        var di2 = mr2 + '-01';
-        var ult2 = new Date(parseInt(mr2.slice(0,4)), parseInt(mr2.slice(5,7)), 0);
-        var df2  = mr2 + '-' + String(ult2.getDate()).padStart(2,'0');
+        var dh2 = parseInt(hoje.slice(8, 10));
+        var an2 = parseInt(mr2.slice(0, 4));
+        var me2 = parseInt(mr2.slice(5, 7));
+        var di2, df2;
+        if (dh2 < 10)      { di2 = mr2+'-01'; df2 = mr2+'-10'; }
+        else if (dh2 < 20) { di2 = mr2+'-11'; df2 = mr2+'-20'; }
+        else               { di2 = mr2+'-21'; df2 = mr2+'-'+String(new Date(an2,me2,0).getDate()).padStart(2,'0'); }
         var s2   = calcSaldoFuncionario(fid, di2, df2);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Atualiza valor sugerido: se acumular, não inclui HE
