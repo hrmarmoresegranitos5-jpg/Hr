@@ -2679,11 +2679,21 @@ var HR_IMPORT = (function () {
           ? 'border-top:1px solid ' + BD + ';background:rgba(200,92,92,.05);'
           : 'border-top:1px solid ' + BD + ';';
 
+        var recIdx = calc.linhasCalc.indexOf(lc);
+        var btnSty = 'background:none;border:none;cursor:pointer;font-family:monospace;font-size:.72rem;font-weight:700;color:' + T1 + ';padding:0;text-decoration:underline dotted;touch-action:manipulation;';
+        var btnRed = btnSty + 'color:#c85c5c;';
+        var entBtn = r.entrada
+          ? '<button onclick="HR_IMPORT._editCorrecao(' + idx + ',' + recIdx + ',\'entrada\')" style="' + btnSty + '">' + _esc(r.entrada) + '</button>'
+          : '<button onclick="HR_IMPORT._editCorrecao(' + idx + ',' + recIdx + ',\'entrada\')" style="' + btnRed + '">--:--</button>';
+        var saiBtn = r.saida
+          ? '<button onclick="HR_IMPORT._editCorrecao(' + idx + ',' + recIdx + ',\'saida\')" style="' + btnSty + '">' + _esc(r.saida) + '</button>'
+          : '<button onclick="HR_IMPORT._editCorrecao(' + idx + ',' + recIdx + ',\'saida\')" style="' + btnRed + '">--:--</button>';
+
         return '<tr style="' + rowStyle + '">' +
           '<td style="padding:7px 10px;font-size:.72rem;font-weight:700;color:' + corDow + ';white-space:nowrap;">' + _esc(dow) + '</td>' +
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T1 + ';white-space:nowrap;font-weight:600;">' + fmtPer(r.data) + '</td>' +
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T1 + ';white-space:nowrap;">' +
-            (r.entrada && r.saida ? '<b>' + _esc(r.entrada) + '</b>→<b>' + _esc(r.saida) + '</b>' : '<span style="color:' + T3 + ';">sem horário</span>') +
+            entBtn + '<span style="color:#555;">→</span>' + saiBtn +
           '</td>' +
           '<td style="padding:7px 4px;font-size:.72rem;color:' + T2 + ';white-space:nowrap;">' +
             (lc.valido ? _min2dur(res.trab) : '<span style="color:' + T3 + ';">—</span>') +
