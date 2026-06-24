@@ -156,6 +156,34 @@ function _tumIAInjectStyles() {
   }
   .tumia-send:hover{opacity:.85}
   .tumia-send:disabled{opacity:.3;cursor:not-allowed}
+  .tumia-inp-row{align-items:flex-end}
+  .tumia-photo-btn{
+    background:none;border:1px solid rgba(201,168,76,.28);border-radius:10px;
+    color:rgba(201,168,76,.6);font-size:1.05rem;width:38px;height:38px;
+    cursor:pointer;transition:all .15s;display:flex;align-items:center;
+    justify-content:center;flex-shrink:0;
+  }
+  .tumia-photo-btn:hover{background:rgba(201,168,76,.1);color:#c9a84c;border-color:#c9a84c}
+  .tumia-photo-preview{
+    display:flex;align-items:center;gap:8px;
+    padding:6px 12px;background:rgba(201,168,76,.05);
+    border-top:1px solid rgba(201,168,76,.12);flex-shrink:0;
+  }
+  .tumia-photo-preview img{
+    width:46px;height:46px;object-fit:cover;border-radius:7px;
+    border:1px solid rgba(201,168,76,.3);
+  }
+  .tumia-photo-preview-info{flex:1;font-size:.62rem;color:rgba(255,255,255,.45)}
+  .tumia-photo-preview-info b{color:#c9a84c;font-size:.68rem;display:block;margin-bottom:1px}
+  .tumia-photo-remove{
+    background:none;border:none;color:rgba(255,80,80,.55);font-size:.8rem;
+    cursor:pointer;padding:2px 5px;border-radius:5px;transition:color .15s;
+  }
+  .tumia-photo-remove:hover{color:#f55}
+  .tumia-msg-photo{
+    max-width:100%;border-radius:8px;margin-bottom:5px;display:block;
+    border:1px solid rgba(201,168,76,.2);
+  }
 
   /* ── card de orçamento ── */
   .tumia-orc-card{
@@ -271,7 +299,23 @@ function _tumIASystemPrompt() {
     'Se o usuário responder de forma incompleta, peça gentilmente o dado faltante.',
     'Não peça informações que não são necessárias (ex: cemitério não é obrigatório para o orçamento).',
     '',
-    '═══ FLUXO IDEAL ═══',
+    '═══ ANÁLISE DE FOTO (VISÃO) ═══',
+    'Quando o histórico contiver [FOTO ENVIADA], o usuário enviou uma imagem do túmulo para análise visual.',
+    'Ao receber uma foto:',
+    '1. Identifique o modelo/tipo do túmulo (simples, gaveta, capelinha c/ pilares, jazigo, etc.)',
+    '2. Descreva brevemente a estrutura que você vê (ex: "Vejo uma capelinha com 4 pilares, base com degrau...")',
+    '3. Inicie o levantamento das medidas NA SEQUÊNCIA ABAIXO, uma pergunta por vez:',
+    '   a) Largura total (L) e Comprimento total (C) da base em cm',
+    '   b) Altura total (H) da estrutura em cm',
+    '   c) SE tiver capelinha/pilares: largura e comprimento dos pilares (padrão 25×25cm)',
+    '   d) SE tiver capelinha: largura da laje/teto da capelinha e altura dos pilares',
+    '   e) SE tiver degraus: quantos degraus e altura de cada (padrão 10cm)',
+    '   f) SE tiver gaveta: confirmar dimensões da gaveta',
+    '4. Após coletar TODAS as medidas, calcule as peças e mostre o m² de cada peça',
+    '5. Pergunte se os cálculos estão corretos antes de prosseguir para material/valores',
+    'IMPORTANTE: Seja específico ao descrever o que vê. Se a foto for de baixa qualidade, informe e peça confirmação das medidas.',
+    '',
+    '═══ FLUXO IDEAL (SEM FOTO) ═══',
     '1. Nome do cliente',
     '2. Tipo (simples / gaveta / capelinha / jazigo / reforma)',
     '3. Dimensões C×L×H em cm (ex: 230×130×190)',
@@ -280,6 +324,14 @@ function _tumIASystemPrompt() {
     '6. Acréscimos: valor extra (ex: +R$1.570 de mão de obra/material)',
     '7. Apresenta orçamento completo com todas as peças e valores',
     '8. Pergunta se gera PDF',
+    '',
+    '═══ FLUXO IDEAL (COM FOTO) ═══',
+    '1. Analisa a foto → descreve o modelo identificado',
+    '2. Nome do cliente',
+    '3. Coleta medidas uma a uma (largura, comprimento, altura, pilares, capelinha...)',
+    '4. Mostra cálculo de cada peça → pergunta se está correto',
+    '5. Confirma e ajusta medidas se necessário',
+    '6. Material → Itens → Acréscimos → PDF',
     '',
     '═══ CÁLCULO DE PEÇAS ═══',
     '',
@@ -420,9 +472,14 @@ function tumIARender(ambId) {
       '<div class="tumia-msgs" id="tumiaMsgs_' + ambId + '">' + msgsHtml + '</div>' +
       chipsHtml +
       stonesHtml +
+      '<div id="tumiaPhotoPreview_' + ambId + '" class="tumia-photo-preview" style="display:none"></div>' +
       '<div class="tumia-inp-row">' +
+        '<input type="file" id="tumiaPhotoInput_' + ambId + '" accept="image/*" capture="environment" ' +
+          'style="display:none" onchange="tumIAPhotoSelected(event,' + ambId + ')">' +
+        '<button class="tumia-photo-btn" title="Enviar foto" ' +
+          'onclick="document.getElementById('tumiaPhotoInput_'+' + ambId + ').click()">📷</button>' +
         '<textarea class="tumia-inp" id="tumiaInp_' + ambId + '" ' +
-          'placeholder="Escreva aqui... (Enter para enviar)" ' +
+          'placeholder="Escreva aqui ou envie uma foto... (Enter para enviar)" ' +
           'onkeydown="tumIAKey(event,' + ambId + ')"></textarea>' +
         '<button class="tumia-send" id="tumiaSend_' + ambId + '" ' +
           'onclick="tumIASend(' + ambId + ')">➤</button>' +
@@ -550,6 +607,65 @@ function tumIASalvarRascunho(ambId) {
   }
 }
 
+// ── Foto: handler quando arquivo é selecionado ───────────────────────────────
+function tumIAPhotoSelected(e, ambId) {
+  var file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    if (typeof toast === 'function') toast('Somente imagens são suportadas.', 'warn');
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    var dataUrl = ev.target.result;
+    // base64 puro sem prefixo
+    var b64 = dataUrl.split(',')[1];
+    var mediaType = file.type || 'image/jpeg';
+    var sess = _tumIASession(ambId);
+    sess.pendingPhoto = { b64: b64, mediaType: mediaType, dataUrl: dataUrl, name: file.name };
+    // Mostra preview
+    var prev = document.getElementById('tumiaPhotoPreview_' + ambId);
+    if (prev) {
+      prev.style.display = 'flex';
+      prev.innerHTML =
+        '<img src="' + dataUrl + '" alt="foto">' +
+        '<div class="tumia-photo-preview-info">' +
+          '<b>📷 Foto anexada</b>' +
+          'A IA irá analisar o túmulo e perguntar as medidas' +
+        '</div>' +
+        '<button class="tumia-photo-remove" title="Remover foto" ' +
+          'onclick="tumIARemovePhoto(' + ambId + ')">✕</button>';
+    }
+    // Limpa o input file para permitir novo envio da mesma foto
+    e.target.value = '';
+    // Foca no textarea
+    var inp = document.getElementById('tumiaInp_' + ambId);
+    if (inp) inp.focus();
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Remove foto pendente ──────────────────────────────────────────────────────
+function tumIARemovePhoto(ambId) {
+  var sess = _tumIASession(ambId);
+  sess.pendingPhoto = null;
+  var prev = document.getElementById('tumiaPhotoPreview_' + ambId);
+  if (prev) prev.style.display = 'none';
+}
+
+// ── Adiciona mensagem com foto no DOM ─────────────────────────────────────────
+function _tumIAAppendPhoto(ambId, dataUrl, caption) {
+  var el = document.getElementById('tumiaMsgs_' + ambId);
+  if (!el) return;
+  var d = document.createElement('div');
+  d.className = 'tumia-msg user';
+  d.innerHTML =
+    '<img class="tumia-msg-photo" src="' + dataUrl + '" alt="foto túmulo">' +
+    (caption ? '<div>' + escH(caption) + '</div>' : '');
+  el.appendChild(d);
+  _tumIAScroll(ambId);
+}
+
 // ── Enviar mensagem ───────────────────────────────────────────────────────────
 function tumIASend(ambId) {
   var sess = _tumIASession(ambId);
@@ -558,56 +674,139 @@ function tumIASend(ambId) {
   var inp = document.getElementById('tumiaInp_' + ambId);
   if (!inp) return;
   var txt = inp.value.trim();
-  if (!txt) return;
+  var photo = sess.pendingPhoto || null;
+
+  // Precisa de texto OU foto
+  if (!txt && !photo) return;
   inp.value = '';
 
   // Verifica API key
   var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
   if (!key) {
     _tumIAAppend(ambId, 'bot',
-      '🔑 **Chave de API não configurada.**\nVá em ⚙️ Config → Empresa e adicione sua chave Anthropic para usar a IA.');
+      '🔑 **Chave de API não configurada.**\nVá em ⚙️ Config → Empresa e adicione sua chave Groq (gratuita) ou Anthropic.');
+    return;
+  }
+  var _isAnthropic = key.indexOf('sk-ant-') === 0;
+  if (photo && !_isAnthropic) {
+    _tumIAAppend(ambId, 'bot', '⚠️ Análise de **foto** requer chave Anthropic (sk-ant-...). A Groq não suporta visão.\nEnvie uma descrição por texto.');
     return;
   }
 
-  // Adiciona mensagem do usuário
-  _tumIAAppend(ambId, 'user', txt);
-  sess.history.push({ role: 'user', content: txt });
-  sess.thinking = true;
+  // Monta conteúdo da mensagem do usuário (pode ser multimodal)
+  var userContent;
+  if (photo) {
+    // Limpa preview
+    sess.pendingPhoto = null;
+    var prev = document.getElementById('tumiaPhotoPreview_' + ambId);
+    if (prev) prev.style.display = 'none';
 
+    // Mostra foto no chat
+    _tumIAAppendPhoto(ambId, photo.dataUrl, txt || null);
+
+    // Monta array de conteúdo multimodal para a API
+    userContent = [
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: photo.mediaType, data: photo.b64 }
+      }
+    ];
+    if (txt) {
+      userContent.push({ type: 'text', text: txt });
+    } else {
+      userContent.push({
+        type: 'text',
+        text: 'Aqui está a foto do túmulo para análise. Por favor, analise a estrutura, identifique o modelo e inicie o processo de levantamento das medidas necessárias para o orçamento.'
+      });
+    }
+
+    // Salva no histórico como texto descritivo (API não aceita imagens no histórico de turnos anteriores)
+    var histText = txt
+      ? '[FOTO ENVIADA] ' + txt
+      : '[FOTO ENVIADA] Análise visual do túmulo para orçamento.';
+    sess.history.push({ role: 'user', content: histText });
+
+  } else {
+    // Mensagem só texto
+    _tumIAAppend(ambId, 'user', txt);
+    sess.history.push({ role: 'user', content: txt });
+    userContent = txt;
+  }
+
+  sess.thinking = true;
   var btn = document.getElementById('tumiaSend_' + ambId);
   if (btn) btn.disabled = true;
   _tumIAThinking(ambId);
 
-  // Monta histórico válido para a API (deve começar com user)
-  var messages = sess.history.map(function(m){ return { role: m.role, content: m.content }; });
+  // Monta histórico para a API — mensagens anteriores (apenas texto, sem imagens antigas)
+  var messages = [];
+  // Histórico passado: apenas as msgs antes da última
+  var histSemUltima = sess.history.slice(0, -1);
+  histSemUltima.forEach(function(m) {
+    if (messages.length === 0 && m.role === 'assistant') return; // pula assistants iniciais
+    messages.push({ role: m.role, content: m.content });
+  });
+  // Adiciona mensagem atual (pode ter imagem)
+  messages.push({ role: 'user', content: userContent });
+
+  // Garante que começa com user
   while (messages.length && messages[0].role === 'assistant') messages.shift();
 
-  fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: _tumIASystemPrompt(),
-      messages: messages
+  var _fetchIA;
+  if (_isAnthropic) {
+    // Claude via Anthropic — suporta visão e texto
+    _fetchIA = fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: _tumIASystemPrompt(),
+        messages: messages
+      })
     })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      return (data.content && data.content[0] && data.content[0].text) || '❌ Sem resposta.';
+    });
+  } else {
+    // Groq — gratuita, somente texto
+    var groqMessages = [{ role: 'system', content: _tumIASystemPrompt() }];
+    messages.forEach(function(m) {
+      groqMessages.push({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+      });
+    });
+    _fetchIA = fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + key
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 2000,
+        messages: groqMessages
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '❌ Sem resposta.';
+    });
+  }
+
+  _fetchIA
+  .then(function(reply) {
     sess.thinking = false;
     if (btn) btn.disabled = false;
-
-    if (data.error) {
-      _tumIAAppend(ambId, 'bot', '❌ Erro da API: ' + (data.error.message || JSON.stringify(data.error)));
-      return;
-    }
-
-    var reply = (data.content && data.content[0] && data.content[0].text) || '❌ Sem resposta.';
 
     // Extrai JSON de ação se presente
     var jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
@@ -633,7 +832,7 @@ function tumIASend(ambId) {
   .catch(function(err) {
     sess.thinking = false;
     if (btn) btn.disabled = false;
-    _tumIAAppend(ambId, 'bot', '❌ Erro de conexão: ' + (err.message || err));
+    _tumIAAppend(ambId, 'bot', '❌ Erro da API: ' + (err.message || err));
   });
 }
 
