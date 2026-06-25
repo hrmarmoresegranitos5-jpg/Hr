@@ -130,12 +130,16 @@ var HR_FUNC = (function () {
   // já somando os acréscimos HE pendentes (2× e 3×).
   // Se não configurado, retorna salario÷3 como fallback.
   function _decendioBase(f){
-    // Retorna apenas o valor fixo configurado (dec1/dec2/dec3), sem acréscimos HE
     var d = new Date().getDate();
+    var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
+    return _decendioValorNum(f, num);
+  }
+  // Retorna o valor fixo do decêndio num (1/2/3) para um funcionário.
+  function _decendioValorNum(f, num){
     var dec;
-    if      (d < 10) dec = parseFloat(f.dec1) || 0;
-    else if (d < 20) dec = parseFloat(f.dec2) || 0;
-    else             dec = parseFloat(f.dec3) || 0;
+    if      (num === 1) dec = parseFloat(f.dec1) || 0;
+    else if (num === 2) dec = parseFloat(f.dec2) || 0;
+    else                dec = parseFloat(f.dec3) || 0;
     if (!dec) dec = (parseFloat(f.salario) || 0) / 3;
     return dec;
   }
@@ -160,13 +164,20 @@ var HR_FUNC = (function () {
   // 1º dec: dias 1–10 | 2º dec: dias 11–20 | 3º dec: dias 21–fim do mês
   function _periodoDecendioAtual(){
     var hoje = new Date();
-    var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
+    var d = hoje.getDate();
+    var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
+    return _periodoDecendio(num);
+  }
+  // Retorna {di, df, label, num} para o decêndio num (1, 2 ou 3) do mês atual.
+  function _periodoDecendio(num){
+    var hoje = new Date();
+    var ano = hoje.getFullYear(), mes = hoje.getMonth();
     var pad = function(n){ return String(n).padStart(2,'0'); };
-    var mesStr = hoje.getFullYear()+'-'+pad(mes+1);
+    var mesStr = ano+'-'+pad(mes+1);
     var ultimoDia = new Date(ano, mes+1, 0).getDate();
-    if      (d <= 10) return { di: mesStr+'-01', df: mesStr+'-10', label: '1º decêndio' };
-    else if (d <= 20) return { di: mesStr+'-11', df: mesStr+'-20', label: '2º decêndio' };
-    else              return { di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
+    if (num === 1) return { num:1, di: mesStr+'-01', df: mesStr+'-10', label: '1º decêndio' };
+    if (num === 2) return { num:2, di: mesStr+'-11', df: mesStr+'-20', label: '2º decêndio' };
+                   return { num:3, di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
   }
 
   // ── Construtores de formulário ──
@@ -1447,12 +1458,13 @@ var HR_FUNC = (function () {
 
         // Descobre qual decêndio já venceu e ainda não foi pago
         var emAberto = null;
+        var numAberto = null;
         if (dHoje >= 10 && pagoPorDec.d1 < dec1 - 0.5) {
-          emAberto = { label: '1º decêndio', valor: dec1, sub: 'Venceu dia 10' };
+          emAberto = { label: '1º decêndio', valor: dec1, sub: 'Venceu dia 10' }; numAberto = 1;
         } else if (dHoje >= 20 && pagoPorDec.d2 < dec2 - 0.5) {
-          emAberto = { label: '2º decêndio', valor: dec2, sub: 'Venceu dia 20' };
+          emAberto = { label: '2º decêndio', valor: dec2, sub: 'Venceu dia 20' }; numAberto = 2;
         } else if (dHoje > 20 && pagoPorDec.d3 < dec3 - 0.5) {
-          emAberto = { label: '3º decêndio', valor: dec3, sub: 'Vence fim do mês' };
+          emAberto = { label: '3º decêndio', valor: dec3, sub: 'Vence fim do mês' }; numAberto = 3;
         }
 
         // Se nada em aberto, mostra o próximo a vencer
@@ -1460,6 +1472,7 @@ var HR_FUNC = (function () {
           var nd = _proximoDecendio();
           var vDec = _decendioBase(f);
           var prazo = nd.diasRestantes === 0 ? 'HOJE' : nd.diasRestantes === 1 ? 'amanhã' : 'em '+nd.diasRestantes+'d';
+          numAberto = dHoje <= 10 ? 1 : dHoje <= 20 ? 2 : 3;
           emAberto = { label: nd.label, valor: vDec, sub: 'Vence '+prazo };
         }
 
@@ -1467,7 +1480,7 @@ var HR_FUNC = (function () {
         var cor = urgente ? RED : GOLD;
         var bg  = urgente ? 'rgba(200,92,92,.08)' : 'rgba(201,168,76,.07)';
         var bd  = urgente ? 'rgba(200,92,92,.3)'  : 'rgba(201,168,76,.28)';
-        return '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
+        return '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\','+numAberto+')" '+
           'style="width:100%;padding:12px 14px;background:'+bg+';border:1.5px solid '+bd+';'+
           'border-radius:11px;font-family:Outfit,sans-serif;cursor:pointer;margin-bottom:8px;'+
           'display:flex;justify-content:space-between;align-items:center;">'+
@@ -2326,7 +2339,14 @@ var HR_FUNC = (function () {
     var hoje = _hoje();
     // Período do saldo: decêndio atual (1–10, 11–20, 21–fim)
     // Exibe apenas HE do período que está sendo pago agora.
-    var _decPer = _periodoDecendioAtual();
+    // Descobre qual decêndio pré-selecionar: o decêndio mais recente que passou
+    // (ex: se hoje é dia 25, o 2º decêndio (11-20) já fechou e é o que deve ser pago)
+    var _hoje2 = new Date();
+    var _dHoje = _hoje2.getDate();
+    var _decInicial = _dHoje <= 10 ? 1 : _dHoje <= 20 ? 2 : 2; // dia 21-30: último pago foi o 2º
+    // Se hoje > 20, o 3º ainda não fechou — padrão é 2º. Mas se funcionar via atalho, pode ser sobrescrito.
+    var _decSelecionado = _decInicial;
+    var _decPer = _periodoDecendio(_decSelecionado);
     var _pagDi  = _decPer.di;
     var _pagDf  = _decPer.df;
     var _extraPagIncluir = true; // estado do toggle: true=pagar HE, false=acumular
@@ -2363,6 +2383,20 @@ var HR_FUNC = (function () {
       '<div style="width:100%;max-width:500px;padding:0 16px;">'+
       _overlayHeader('Registrar Pagamento','💳 RH · Financeiro','HR_FUNC._closePagamento()')+
 
+      // Seletor de decêndio
+      '<div style="display:flex;gap:6px;margin-bottom:10px;">'+
+        [1,2,3].map(function(n){
+          var dp = _periodoDecendio(n);
+          var ativo = n === _decSelecionado;
+          return '<button onclick="HR_FUNC._selecionarDecendio('+n+')" id="btn_dec_'+n+'" '+
+            'style="flex:1;padding:8px 4px;border-radius:9px;border:1.5px solid '+(ativo?GOLD:'rgba(255,255,255,.12)')+';'+
+            'background:'+(ativo?'rgba(201,168,76,.15)':'rgba(255,255,255,.04)')+';'+
+            'color:'+(ativo?GOLD:T3)+';font-family:Outfit,sans-serif;font-size:.7rem;font-weight:700;cursor:pointer;">'+
+            '<div>'+n+'º dec</div>'+
+            '<div style="font-size:.58rem;font-weight:400;">'+dp.di.slice(8)+' a '+dp.df.slice(8)+'</div>'+
+          '</button>';
+        }).join('')+
+      '</div>'+
       // Bloco saldo (atualizado via JS)
       '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir) : '')+'</div>'+
 
@@ -2428,19 +2462,29 @@ var HR_FUNC = (function () {
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
-        // Saldo: decêndio atual
-        var _dp2 = _periodoDecendioAtual();
-        var _di2 = _dp2.di;
-        var _df2 = _dp2.df;
-        var s2   = calcSaldoFuncionario(fid, _di2, _df2);
+        var _dp2 = _periodoDecendio(_decSelecionado);
+        var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
-        // Sugestão automática para decendio
         if (inpV && tipo === 'decendio') {
-          var valDec2 = _decendioBase(f2);
+          var valDec2 = _decendioValorNum(f2, _decSelecionado);
           if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
         }
-        // Mostra/oculta dica
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
+      }
+
+      // Chamada ao clicar num botão de decêndio
+      function _selecionarDecendio(num) {
+        _decSelecionado = num;
+        // Atualiza visual dos botões
+        [1,2,3].forEach(function(n){
+          var btn = document.getElementById('btn_dec_'+n);
+          if (!btn) return;
+          var ativo = n === num;
+          btn.style.borderColor  = ativo ? '#C9A84C' : 'rgba(255,255,255,.12)';
+          btn.style.background   = ativo ? 'rgba(201,168,76,.15)' : 'rgba(255,255,255,.04)';
+          btn.style.color        = ativo ? '#C9A84C' : '#888';
+        });
+        _atualizarPainel();
       }
 
       // Função chamada pelos botões do toggle de HE
@@ -2451,15 +2495,11 @@ var HR_FUNC = (function () {
         var inpV = document.getElementById('pag_valor');
         if (!fid || !info) return;
         var f2  = getFuncionarios()[fid] || {};
-        // Saldo: decêndio atual
-        var dp2 = _periodoDecendioAtual();
-        var di2 = dp2.di;
-        var df2 = dp2.df;
-        var s2   = calcSaldoFuncionario(fid, di2, df2);
+        var dp2 = _periodoDecendio(_decSelecionado);
+        var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
-        // Atualiza valor sugerido: se acumular, não inclui HE
         if (inpV) {
-          var valDec = _decendioBase(f2);
+          var valDec = _decendioValorNum(f2, _decSelecionado);
           if (!_extraPagIncluir) {
             inpV.value = valDec > 0 ? valDec.toFixed(2) : (parseFloat(f2.salario)||0).toFixed(2);
           } else {
@@ -2468,8 +2508,9 @@ var HR_FUNC = (function () {
           }
         }
       }
-      // Expor toggle para os botões inline do HTML
-      HR_FUNC._toggleExtraPag = _atualizarToggle;
+      // Expor funções para botões inline do HTML
+      HR_FUNC._toggleExtraPag    = _atualizarToggle;
+      HR_FUNC._selecionarDecendio = _selecionarDecendio;
 
       selFunc.addEventListener('change', _atualizarPainel);
       if (selTipo) selTipo.addEventListener('change', _atualizarPainel);
@@ -2598,38 +2639,63 @@ var HR_FUNC = (function () {
   // Atalho: abre formulário de pagamento já com tipo=decendio,
   // data do próximo vencimento decendial e valor sugerido (sal÷3).
   // ─────────────────────────────────────────────────────────────
-  function _pagarDecendioRapido(funcId){
-    // Calcula a data-alvo do decendio atual (10, 20 ou último dia)
+  function _pagarDecendioRapido(funcId, numDecHint){
+    // numDecHint: se informado, força o decêndio selecionado (ex: vindo do card)
+    // Se não informado, detecta o decêndio mais recente não pago do funcionário
     var hoje = new Date();
     var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
+
+    // Descobre qual decêndio está em aberto (não pago) - verifica do mais recente
+    var pags = getPagamentos();
+    var funcs = getFuncionarios();
+    var f = funcs[funcId] || {};
+    var mesRef = _mesAno(0);
+    var meusP = Object.values(pags).filter(function(p){
+      return p.funcionarioId === funcId && p.data && p.data.slice(0,7) === mesRef;
+    });
+    var pagoPorDec = { 1:0, 2:0, 3:0 };
+    meusP.forEach(function(p){
+      var dp = parseInt(p.data.slice(8,10));
+      if (dp <= 10)      pagoPorDec[1] += parseFloat(p.valor)||0;
+      else if (dp <= 20) pagoPorDec[2] += parseFloat(p.valor)||0;
+      else               pagoPorDec[3] += parseFloat(p.valor)||0;
+    });
+    var decValores = {
+      1: parseFloat(f.dec1)||(parseFloat(f.salario)||0)/3,
+      2: parseFloat(f.dec2)||(parseFloat(f.salario)||0)/3,
+      3: parseFloat(f.dec3)||(parseFloat(f.salario)||0)/3
+    };
+    // Encontra decêndios vencidos e não pagos
+    var decAberto = null;
+    if (d >= 20 && pagoPorDec[2] < decValores[2] - 0.5) decAberto = 2;
+    if (d >= 10 && pagoPorDec[1] < decValores[1] - 0.5) decAberto = decAberto || 1;
+    // fallback: decêndio atual pelo dia
+    var decNum = numDecHint || decAberto || (d <= 10 ? 1 : d <= 20 ? 2 : 3);
+
+    // Data de vencimento do decêndio escolhido
     var dataAlvo;
-    if      (d < 10) dataAlvo = new Date(ano, mes,    10);
-    else if (d < 20) dataAlvo = new Date(ano, mes,    20);
-    else             dataAlvo = new Date(ano, mes + 1,  0); // último dia do mês
+    if      (decNum === 1) dataAlvo = new Date(ano, mes, 10);
+    else if (decNum === 2) dataAlvo = new Date(ano, mes, 20);
+    else                   dataAlvo = new Date(ano, mes + 1, 0);
     var isoAlvo = dataAlvo.toISOString().slice(0, 10);
 
-    // Abre o formulário padrão
+    // Abre o formulário padrão (vai pré-selecionar _decInicial=2 se hoje>20)
     abrirFormPagamento(funcId);
 
-    // Preenche tipo + data + valor após o overlay renderizar
+    // Preenche e força o decêndio correto após renderizar
     setTimeout(function(){
-      var selTipo = document.getElementById('pag_tipo');
-      var inpData = document.getElementById('pag_data');
+      var selTipo  = document.getElementById('pag_tipo');
+      var inpData  = document.getElementById('pag_data');
       var inpValor = document.getElementById('pag_valor');
-      var dica = document.getElementById('pag_dica_dec');
+      var dica     = document.getElementById('pag_dica_dec');
 
       if (selTipo) selTipo.value = 'decendio';
       if (inpData) inpData.value = isoAlvo;
-
-      // Valor sugerido: decêndio fixo configurado ou salário ÷ 3
-      var funcs = getFuncionarios();
-      var f = funcs[funcId] || {};
-      if (inpValor) {
-        var valDec = _valorDecendioAtual(f);
-        if (valDec > 0) inpValor.value = valDec.toFixed(2);
-      }
       if (dica) dica.style.display = '';
-    }, 120);
+
+      // Força seleção do decêndio correto
+      if (HR_FUNC._selecionarDecendio) HR_FUNC._selecionarDecendio(decNum);
+    }, 150);
   }
 
   function _salvarPagamento(){
