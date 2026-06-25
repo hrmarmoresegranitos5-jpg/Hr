@@ -1638,12 +1638,8 @@ var HR_IMPORT = (function () {
     var todas = registros.map(function(r){ return r.data; }).sort();
     _state.periodo = { di: todas[0], df: todas[todas.length-1] };
 
-    // Se qualquer registro tem batida incompleta (só entrada ou só saída),
-    // abre tela de correção antes de prosseguir
-    var temErros = _state.grupos.some(function(gr) {
-      return gr.registros.some(function(r) { return !r.entrada || !r.saida; });
-    });
-    if (temErros) { _renderTelaCorrecao(); } else { _renderTelaVinculacao(); }
+    // Sempre abre tela de correção para permitir revisar/editar os registros
+    _renderTelaCorrecao();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
