@@ -2484,6 +2484,17 @@ var HR_FUNC = (function () {
           btn.style.background   = ativo ? 'rgba(201,168,76,.15)' : 'rgba(255,255,255,.04)';
           btn.style.color        = ativo ? '#C9A84C' : '#888';
         });
+        // Atualiza a data de vencimento conforme o decêndio selecionado
+        var inpD = document.getElementById('pag_data');
+        if (inpD) {
+          var _h = new Date();
+          var _a = _h.getFullYear(), _m = _h.getMonth();
+          var _dt;
+          if      (num === 1) _dt = new Date(_a, _m, 10);
+          else if (num === 2) _dt = new Date(_a, _m, 20);
+          else                _dt = new Date(_a, _m + 1, 0);
+          inpD.value = _dt.toISOString().slice(0, 10);
+        }
         _atualizarPainel();
       }
 
