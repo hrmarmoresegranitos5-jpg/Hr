@@ -153,11 +153,12 @@ var HR_RELATORIO_PONTO = (function () {
         var valorHora   = salario / hMes;
 
         var valorExtra  = 0;
+        // Detecta automaticamente o multiplicador:
+        // ×3 → sábado, domingo ou feriado  |  ×2 → dia útil normal
+        var _ehTriplado = (dow === 0 || dow === 6) || (exc && exc.tipo === 'feriado');
+        var tipoHE = _ehTriplado ? 'especial' : 'normal';
         if (extraMin > 0 && r.destinoExtra !== 'banco') {
-          // Tipo: dobrada (×2) ou triplicada (×3)
-          var tipoHE = r.tipoExtra || 'normal';
-          var mult   = (tipoHE === 'especial' || tipoHE === 'feriado' || tipoHE === 'domingo')
-                       ? 3.0 : 2.0;
+          var mult = _ehTriplado ? 3.0 : 2.0;
           valorExtra = (extraMin / 60) * mult * valorHora;
         }
 
@@ -182,7 +183,7 @@ var HR_RELATORIO_PONTO = (function () {
           saldoMin:   saldoMin,
           valorExtra: valorExtra,
           extraMin:   extraMin,
-          tipoHE:     r.tipoExtra  || 'normal',
+          tipoHE:     tipoHE,
           obs:        obs,
           tipo:       tipoLinha,
           autoComp:   !!r.autoCompletado,
