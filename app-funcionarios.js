@@ -1415,27 +1415,60 @@ var HR_FUNC = (function () {
         '<button onclick="HR_FUNC.abrirFormRegistro(\''+id+'\')" style="padding:13px;background:'+GOLD2+';border:1.5px solid '+GOLDB+';color:'+GOLD+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">📝 Novo Registro</button>'+
         '<button onclick="HR_FUNC.abrirFormPagamento(\''+id+'\')" style="padding:13px;background:rgba(92,184,92,.07);border:1.5px solid rgba(92,184,92,.4);color:'+GREEN+';border-radius:11px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">💳 Pagamento</button>'+
       '</div>'+
-      // Atalho decendial — botão expandido com contexto
+      // Atalho decendial — mostra o decêndio em aberto mais antigo, não o próximo a vencer
       (function(){
-        var vDec    = _valorDecendioAtual(f);
-        var ndInfo  = _proximoDecendio();
-        var urgente = ndInfo.diasRestantes <= 1;
-        var cor     = urgente ? RED : GOLD;
-        var bg      = urgente ? 'rgba(200,92,92,.08)' : 'rgba(201,168,76,.07)';
-        var bd      = urgente ? 'rgba(200,92,92,.3)' : 'rgba(201,168,76,.28)';
-        var prazo   = ndInfo.diasRestantes === 0 ? 'HOJE' : ndInfo.diasRestantes === 1 ? 'amanhã' : 'em '+ndInfo.diasRestantes+'d';
+        var hoje   = _hoje();
+        var dHoje  = parseInt(hoje.slice(8, 10));
+        var mesRef = _mesAno(0);
+        var pags   = getPagamentos();
+        var meusP  = Object.values(pags).filter(function(p){
+          return p.funcionarioId === f.id && p.data && p.data.slice(0,7) === mesRef;
+        });
+        var pagoPorDec = { d1: 0, d2: 0, d3: 0 };
+        meusP.forEach(function(p){
+          var dp = parseInt(p.data.slice(8,10));
+          if (dp <= 10)      pagoPorDec.d1 += parseFloat(p.valor)||0;
+          else if (dp <= 20) pagoPorDec.d2 += parseFloat(p.valor)||0;
+          else               pagoPorDec.d3 += parseFloat(p.valor)||0;
+        });
+        var dec1 = parseFloat(f.dec1)||(parseFloat(f.salario)||0)/3;
+        var dec2 = parseFloat(f.dec2)||(parseFloat(f.salario)||0)/3;
+        var dec3 = parseFloat(f.dec3)||(parseFloat(f.salario)||0)/3;
+
+        // Descobre qual decêndio já venceu e ainda não foi pago
+        var emAberto = null;
+        if (dHoje >= 10 && pagoPorDec.d1 < dec1 - 0.5) {
+          emAberto = { label: '1º decêndio', valor: dec1, sub: 'Venceu dia 10' };
+        } else if (dHoje >= 20 && pagoPorDec.d2 < dec2 - 0.5) {
+          emAberto = { label: '2º decêndio', valor: dec2, sub: 'Venceu dia 20' };
+        } else if (dHoje > 20 && pagoPorDec.d3 < dec3 - 0.5) {
+          emAberto = { label: '3º decêndio', valor: dec3, sub: 'Vence fim do mês' };
+        }
+
+        // Se nada em aberto, mostra o próximo a vencer
+        if (!emAberto) {
+          var nd = _proximoDecendio();
+          var vDec = _decendioBase(f);
+          var prazo = nd.diasRestantes === 0 ? 'HOJE' : nd.diasRestantes === 1 ? 'amanhã' : 'em '+nd.diasRestantes+'d';
+          emAberto = { label: nd.label, valor: vDec, sub: 'Vence '+prazo };
+        }
+
+        var urgente = emAberto.sub.indexOf('Venceu') >= 0;
+        var cor = urgente ? RED : GOLD;
+        var bg  = urgente ? 'rgba(200,92,92,.08)' : 'rgba(201,168,76,.07)';
+        var bd  = urgente ? 'rgba(200,92,92,.3)'  : 'rgba(201,168,76,.28)';
         return '<button onclick="HR_FUNC._pagarDecendioRapido(\''+id+'\')" '+
           'style="width:100%;padding:12px 14px;background:'+bg+';border:1.5px solid '+bd+';'+
           'border-radius:11px;font-family:Outfit,sans-serif;cursor:pointer;margin-bottom:8px;'+
           'display:flex;justify-content:space-between;align-items:center;">'+
           '<div style="text-align:left;">'+
             '<div style="font-size:.82rem;font-weight:700;color:'+cor+';margin-bottom:2px;">'+
-              '📆 Pagar '+(ndInfo.label||'decêndio')+
+              '📆 Pagar '+emAberto.label+
             '</div>'+
-            '<div style="font-size:.65rem;color:'+T3+';">Vence '+prazo+'</div>'+
+            '<div style="font-size:.65rem;color:'+T3+';">'+emAberto.sub+'</div>'+
           '</div>'+
           '<div style="text-align:right;">'+
-            '<div style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(vDec)+'</div>'+
+            '<div style="font-size:1rem;font-weight:800;color:'+cor+';">'+_fmtMoeda(emAberto.valor)+'</div>'+
             '<div style="font-size:.6rem;color:'+T3+';">valor sugerido</div>'+
           '</div>'+
         '</button>';
