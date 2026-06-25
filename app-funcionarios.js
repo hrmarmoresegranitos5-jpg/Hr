@@ -909,11 +909,10 @@ var HR_FUNC = (function () {
   function _cardFuncionario(f, pontoHoje){
     var temPonto = pontoHoje && pontoHoje.some(function(p){ return p.id === f.id; });
     var alertas  = analisarGaps(f.id);
-    // Saldo do mês atual — não acumulado geral
+    // Saldo do mês atual — do dia 1 até hoje (captura decêndios vencidos não pagos)
     var _mr  = _mesAno(0);
     var _di  = _mr + '-01';
-    var _ult = new Date(parseInt(_mr.slice(0,4)), parseInt(_mr.slice(5,7)), 0);
-    var _df  = _mr + '-' + String(_ult.getDate()).padStart(2,'0');
+    var _df  = _hoje();
     var saldo    = calcSaldoFuncionario(f.id, _di, _df);
     var pags     = getPagamentos();
 
@@ -926,12 +925,16 @@ var HR_FUNC = (function () {
       ? Math.round((new Date() - new Date(ultPag.data + 'T12:00:00')) / (1000*60*60*24))
       : null;
 
+    // Funcionário em férias: não exibe alerta de pagamento
+    var emFerias = f.feriasInicio && f.feriasFim &&
+      _hoje() >= f.feriasInicio && _hoje() <= f.feriasFim;
+
     var badges = '';
     if (temPonto) badges += '<span style="font-size:.6rem;background:#0d1f0d;border:1px solid rgba(92,184,92,.5);'+
       'color:'+GREEN+';border-radius:4px;padding:2px 7px;margin-right:4px;">✓ ponto</span>';
     if (alertas.length > 0) badges += '<span style="font-size:.6rem;background:#1f1500;border:1px solid rgba(201,168,76,.4);'+
       'color:#c8a060;border-radius:4px;padding:2px 7px;margin-right:4px;">⚠ '+alertas.length+' alerta'+(alertas.length>1?'s':'')+'</span>';
-    if (diasSemPag !== null && diasSemPag > 12) badges += '<span style="font-size:.6rem;background:rgba(200,92,92,.1);'+
+    if (!emFerias && diasSemPag !== null && diasSemPag > 12) badges += '<span style="font-size:.6rem;background:rgba(200,92,92,.1);'+
       'border:1px solid rgba(200,92,92,.35);color:'+RED+';border-radius:4px;padding:2px 7px;margin-right:4px;">'+
       '⏳ '+diasSemPag+'d sem pagamento</span>';
 
@@ -1214,11 +1217,10 @@ var HR_FUNC = (function () {
     // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
     var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
-    // Saldo do mês atual — não acumulado geral
+    // Saldo do mês atual — do dia 1 até hoje (captura decêndios vencidos não pagos)
     var _mesRef = _mesAno(0);
     var _diMes  = _mesRef + '-01';
-    var _ultDia = new Date(parseInt(_mesRef.slice(0,4)), parseInt(_mesRef.slice(5,7)), 0);
-    var _dfMes  = _mesRef + '-' + String(_ultDia.getDate()).padStart(2,'0');
+    var _dfMes  = hoje;
     var saldo=calcSaldoFuncionario(id, _diMes, _dfMes);
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
@@ -1359,7 +1361,9 @@ var HR_FUNC = (function () {
           '</div>'+
           // Linhas da conta
           lc('Salário decendial', sal2, GOLD,
-             'mês inteiro: '+_fmtMoeda(parseFloat(f.salario)||0)+' · R$ '+_fmtMoeda(_valorDecendioAtual(f))+' próximo decêndio') +
+             _valorDecendioAtual(f) > 0
+               ? 'decêndio atual: '+_fmtMoeda(_valorDecendioAtual(f))+' · salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)
+               : 'salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)) +
           (he2 > 0   ? lc('Horas extras a pagar', he2, '#e0b870', heSub) : '') +
           (acr2 > 0.01? lc('Acréscimo HE 2× / 3×', acr2, '#8ec8c8', 'diferença sobre a hora normal') : '') +
           bancoLinha +
