@@ -156,6 +156,18 @@ var HR_FUNC = (function () {
     if (nd.diasRestantes === 1) return { txt:'📆 '+nd.label+' amanhã',  urgente:true };
     return                             { txt:'📆 '+nd.label+' em '+nd.diasRestantes+'d', urgente:false };
   }
+  // Retorna {di, df, label} do decêndio em que "hoje" se encontra.
+  // 1º dec: dias 1–10 | 2º dec: dias 11–20 | 3º dec: dias 21–fim do mês
+  function _periodoDecendioAtual(){
+    var hoje = new Date();
+    var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
+    var pad = function(n){ return String(n).padStart(2,'0'); };
+    var mesStr = hoje.getFullYear()+'-'+pad(mes+1);
+    var ultimoDia = new Date(ano, mes+1, 0).getDate();
+    if      (d <= 10) return { di: mesStr+'-01', df: mesStr+'-10', label: '1º decêndio' };
+    else if (d <= 20) return { di: mesStr+'-11', df: mesStr+'-20', label: '2º decêndio' };
+    else              return { di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
+  }
 
   // ── Construtores de formulário ──
   function _campo(label, inputHtml){
@@ -1222,10 +1234,10 @@ var HR_FUNC = (function () {
     // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
     var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
-    // Saldo do mês atual — do dia 1 até hoje (captura decêndios vencidos não pagos)
-    var _mesRef = _mesAno(0);
-    var _diMes  = _mesRef + '-01';
-    var _dfMes  = hoje;
+    // Saldo do decêndio atual (1–10, 11–20, 21–fim)
+    var _dpModal = _periodoDecendioAtual();
+    var _diMes   = _dpModal.di;
+    var _dfMes   = _dpModal.df;
     var saldo=calcSaldoFuncionario(id, _diMes, _dfMes);
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
@@ -1287,7 +1299,7 @@ var HR_FUNC = (function () {
         var pago2   = saldo.totalPago    || 0;
         var saldoV  = saldo.saldo;
         var saldoCo = saldo.temCredito ? GREEN : (saldoV > 0.01 ? GOLD : GREEN);
-        var saldoLb = saldo.temCredito ? '💳 Crédito — desconta no próximo' : (saldoV > 0.01 ? '💰 A pagar este mês' : '✅ Quitado');
+        var saldoLb = saldo.temCredito ? '💳 Crédito — desconta no próximo' : (saldoV > 0.01 ? '💰 A pagar neste decêndio' : '✅ Quitado');
 
         // Helper: linha da conta
         function lc(label, valor, cor, sub) {
@@ -1359,20 +1371,18 @@ var HR_FUNC = (function () {
           // Cabeçalho da seção
           '<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;'+
             'background:rgba(201,168,76,.05);border-bottom:1px solid '+BD+';">'+
-            '<div style="font-size:.63rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">💰 Financeiro — mês atual</div>'+
+            '<div style="font-size:.63rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">💰 '+_dpModal.label+' — '+_dpModal.di.slice(8)+' a '+_dpModal.df.slice(8)+'/'+_dpModal.di.slice(5,7)+'</div>'+
             '<button onclick="HR_FUNC.abrirExtratoPagamentos(\''+id+'\')" '+
               'style="background:none;border:none;color:'+T3+';font-size:.68rem;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">'+
               'ver extrato →</button>'+
           '</div>'+
           // Linhas da conta
-          lc('Salário decendial', sal2, GOLD,
-             _valorDecendioAtual(f) > 0
-               ? 'decêndio atual: '+_fmtMoeda(_decendioBase(f))+' · salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)
-               : 'salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)) +
-          (he2 > 0   ? lc('Horas extras a pagar', he2, '#e0b870', heSub) : '') +
+          lc(_dpModal.label+' (fixo)', sal2, GOLD,
+             'mensal: '+_fmtMoeda(parseFloat(f.salario)||0)+' · parcela: '+_fmtMoeda(_decendioBase(f))) +
+          (he2 > 0   ? lc('H. extras ('+_dpModal.di.slice(8)+' a '+_dpModal.df.slice(8)+')', he2, '#e0b870', heSub) : '') +
           (acr2 > 0.01? lc('Acréscimo HE 2× / 3×', acr2, '#8ec8c8', 'diferença sobre a hora normal') : '') +
           bancoLinha +
-          (pago2 > 0 ? lcSubt('Já pago este mês', pago2) : '') +
+          (pago2 > 0 ? lcSubt('Já pago neste período', pago2) : '') +
           // Total
           '<div style="display:flex;justify-content:space-between;align-items:center;'+
             'padding:12px 14px;background:rgba(0,0,0,.25);">'+
@@ -2314,11 +2324,11 @@ var HR_FUNC = (function () {
       lista.map(function(f){ return {v:f.id, l:f.nome}; })
     );
     var hoje = _hoje();
-    // Período do saldo: do dia 1 do mês até hoje
-    // Captura todos os decêndios já vencidos, inclusive não pagos de decêndios anteriores
-    var _pagMesRef = _mesAno(0);
-    var _pagDi = _pagMesRef + '-01';
-    var _pagDf = hoje;
+    // Período do saldo: decêndio atual (1–10, 11–20, 21–fim)
+    // Exibe apenas HE do período que está sendo pago agora.
+    var _decPer = _periodoDecendioAtual();
+    var _pagDi  = _decPer.di;
+    var _pagDf  = _decPer.df;
     var _extraPagIncluir = true; // estado do toggle: true=pagar HE, false=acumular
     var saldo = funcIdInicial ? calcSaldoFuncionario(funcIdInicial, _pagDi, _pagDf) : null;
 
@@ -2418,10 +2428,10 @@ var HR_FUNC = (function () {
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
-        // Saldo: do dia 1 do mês até hoje (captura decêndios não pagos)
-        var _mr2 = _mesAno(0);
-        var _di2 = _mr2 + '-01';
-        var _df2 = hoje;
+        // Saldo: decêndio atual
+        var _dp2 = _periodoDecendioAtual();
+        var _di2 = _dp2.di;
+        var _df2 = _dp2.df;
         var s2   = calcSaldoFuncionario(fid, _di2, _df2);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Sugestão automática para decendio
@@ -2441,10 +2451,10 @@ var HR_FUNC = (function () {
         var inpV = document.getElementById('pag_valor');
         if (!fid || !info) return;
         var f2  = getFuncionarios()[fid] || {};
-        // Saldo: do dia 1 do mês até hoje
-        var mr2 = _mesAno(0);
-        var di2 = mr2 + '-01';
-        var df2 = hoje;
+        // Saldo: decêndio atual
+        var dp2 = _periodoDecendioAtual();
+        var di2 = dp2.di;
+        var df2 = dp2.df;
         var s2   = calcSaldoFuncionario(fid, di2, df2);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Atualiza valor sugerido: se acumular, não inclui HE
@@ -2504,10 +2514,11 @@ var HR_FUNC = (function () {
     var saldoLabel = saldo < -0.01 ? 'Crédito (overpago)' : (saldo > 0.01 ? 'A pagar hoje' : 'Quitado ✓');
     var saldoIco   = saldo < -0.01 ? '💳' : (saldo > 0.01 ? '💰' : '✅');
 
-    // Mês de referência legível
-    var hoje = new Date();
-    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    var mesLabel = meses[hoje.getMonth()] + '/' + hoje.getFullYear();
+    // Decêndio e período legível
+    var _dp = _periodoDecendioAtual();
+    var _meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var _mesLabel = _meses[new Date().getMonth()] + '/' + new Date().getFullYear();
+    var periodoLabel = _dp.label + ' — ' + _dp.di.slice(8) + ' a ' + _dp.df.slice(8) + '/' + _mesLabel;
 
     // Toggle de horas extras — só aparece quando há HE
     var toggleHE = '';
@@ -2528,16 +2539,16 @@ var HR_FUNC = (function () {
 
     return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:12px;">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
-        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">📋 Conta do mês — '+mesLabel+'</div>'+
-        (f && f.salario ? '<div style="font-size:.6rem;color:'+T3+';">salário: '+_fmtMoeda(parseFloat(f.salario))+'</div>' : '')+
+        '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">📋 '+periodoLabel+'</div>'+
+        (f && f.salario ? '<div style="font-size:.6rem;color:'+T3+';">mensal: '+_fmtMoeda(parseFloat(f.salario))+'</div>' : '')+
       '</div>'+
       toggleHE +
       '<div style="margin-bottom:8px;margin-top:4px;">'+
-        _linha('Salário decendial devido', sal, GOLD) +
-        (he > 0 && incluirExtra  ? _linha('Horas extras (' + (s.totalExtra||0).toFixed(1) + 'h)', he, '#e0b870') : '') +
+        _linha(_dp.label+' (fixo)', sal, GOLD) +
+        (he > 0 && incluirExtra  ? _linha('H. extras ('+_dp.di.slice(8)+' a '+_dp.df.slice(8)+') · '+(s.totalExtra||0).toFixed(1)+'h', he, '#e0b870') : '') +
         (he > 0 && !incluirExtra ? '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:.75rem;color:'+T3+';font-style:italic;">Extras ('+(s.totalExtra||0).toFixed(1)+'h) → banco 🏦</span><span style="font-size:.75rem;color:#8ec8f0;">'+_fmtMoeda(he)+'</span></div>' : '') +
         (acrEfetivo > 0.01 ? _linha('Acréscimo HE 2× / 3×', acrEfetivo, '#8ec8c8') : '') +
-        (pago > 0  ? _linhaSubt('Já pago neste mês', pago, RED) : '') +
+        (pago > 0  ? _linhaSubt('Já pago neste período', pago, RED) : '') +
       '</div>'+
       '<div style="background:rgba(0,0,0,.35);border-radius:10px;padding:11px 14px;'+
         'display:flex;justify-content:space-between;align-items:center;">'+
