@@ -2441,7 +2441,7 @@ var HR_FUNC = (function () {
       '</div>'+
 
       '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
-      '<button onclick="HR_FUNC._gerarRelatorioPonto()" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
+      '<button onclick="HR_FUNC._gerarRelatorioPonto('+_decSelecionado+')" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
       '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
@@ -2622,28 +2622,22 @@ var HR_FUNC = (function () {
   function _closePagamento(){ _closeOverlay('hrPagamento'); }
 
   // Gera o relatório de ponto PDF para o funcionário e período atual do modal
-  function _gerarRelatorioPonto() {
+  function _gerarRelatorioPonto(numDec) {
     var selFunc = document.getElementById('pag_func');
     var funcId  = selFunc ? selFunc.value : null;
     if (!funcId) { _toast('⚠ Selecione um funcionário primeiro.'); return; }
 
-    // Período: decêndio atual (1-10, 11-20, 21-fim)
-    var hoje = new Date();
-    var d = hoje.getDate(), ano = hoje.getFullYear(), mes = hoje.getMonth();
-    var diDt, dfDt;
-    if      (d <= 10) { diDt = new Date(ano, mes,  1); dfDt = new Date(ano, mes, 10); }
-    else if (d <= 20) { diDt = new Date(ano, mes, 11); dfDt = new Date(ano, mes, 20); }
-    else              { diDt = new Date(ano, mes, 21); dfDt = new Date(ano, mes + 1, 0); }
-
-    var _fmt = function(dt) {
-      return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
-    };
-    var di = _fmt(diDt), df = _fmt(dfDt);
+    // Usa o decêndio selecionado na tela; se não informado, detecta pelo dia de hoje
+    var decNum = numDec || (function(){
+      var d = new Date().getDate();
+      return d <= 10 ? 1 : d <= 20 ? 2 : 3;
+    })();
+    var per = _periodoDecendio(decNum);
 
     if (typeof HR_RELATORIO_PONTO === 'undefined' || !HR_RELATORIO_PONTO.gerarPDF) {
       _toast('⚠ Módulo de relatório não carregado (app-relatorio-ponto.js).'); return;
     }
-    HR_RELATORIO_PONTO.gerarPDF(funcId, di, df);
+    HR_RELATORIO_PONTO.gerarPDF(funcId, per.di, per.df);
   }
 
   // ─────────────────────────────────────────────────────────────
