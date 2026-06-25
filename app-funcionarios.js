@@ -2398,7 +2398,7 @@ var HR_FUNC = (function () {
         }).join('')+
       '</div>'+
       // Bloco saldo (atualizado via JS)
-      '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir) : '')+'</div>'+
+      '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir, _decSelecionado) : '')+'</div>'+
 
       _secao('Dados do Pagamento',
         _campo('Funcionário', _sel('pag_func', opsFuncs, funcIdInicial || ''))+
@@ -2464,7 +2464,7 @@ var HR_FUNC = (function () {
         var f2   = getFuncionarios()[fid] || {};
         var _dp2 = _periodoDecendio(_decSelecionado);
         var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
-        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
+        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado);
         if (inpV && tipo === 'decendio') {
           var valDec2 = _decendioValorNum(f2, _decSelecionado);
           if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
@@ -2497,7 +2497,7 @@ var HR_FUNC = (function () {
         var f2  = getFuncionarios()[fid] || {};
         var dp2 = _periodoDecendio(_decSelecionado);
         var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
-        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
+        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado);
         if (inpV) {
           var valDec = _decendioValorNum(f2, _decSelecionado);
           if (!_extraPagIncluir) {
@@ -2520,7 +2520,7 @@ var HR_FUNC = (function () {
   // ─── Bloco financeiro reutilizável: conta-corrente visual ─────────────────
   // Aparece no modal de pagamento e pode ser chamado de outros contextos.
   // Mostra as linhas de composição do valor a pagar de forma transparente.
-  function _blocoSaldo(s, f, incluirExtra){
+  function _blocoSaldo(s, f, incluirExtra, decNum){
     if (!s) return '';
     // incluirExtra: undefined/true = incluir HE no total; false = acumular no banco
     if (incluirExtra === undefined) incluirExtra = true;
@@ -2556,7 +2556,7 @@ var HR_FUNC = (function () {
     var saldoIco   = saldo < -0.01 ? '💳' : (saldo > 0.01 ? '💰' : '✅');
 
     // Decêndio e período legível
-    var _dp = _periodoDecendioAtual();
+    var _dp = decNum ? _periodoDecendio(decNum) : _periodoDecendioAtual();
     var _meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     var _mesLabel = _meses[new Date().getMonth()] + '/' + new Date().getFullYear();
     var periodoLabel = _dp.label + ' — ' + _dp.di.slice(8) + ' a ' + _dp.df.slice(8) + '/' + _mesLabel;
