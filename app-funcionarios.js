@@ -129,13 +129,18 @@ var HR_FUNC = (function () {
   // Retorna o valor fixo do decendio atual (1º/2º/3º) para um funcionário,
   // já somando os acréscimos HE pendentes (2× e 3×).
   // Se não configurado, retorna salario÷3 como fallback.
-  function _valorDecendioAtual(f){
+  function _decendioBase(f){
+    // Retorna apenas o valor fixo configurado (dec1/dec2/dec3), sem acréscimos HE
     var d = new Date().getDate();
     var dec;
     if      (d < 10) dec = parseFloat(f.dec1) || 0;
     else if (d < 20) dec = parseFloat(f.dec2) || 0;
     else             dec = parseFloat(f.dec3) || 0;
     if (!dec) dec = (parseFloat(f.salario) || 0) / 3;
+    return dec;
+  }
+  function _valorDecendioAtual(f){
+    var dec = _decendioBase(f);
 
     // Soma acréscimos HE pendentes deste funcionário
     var acrsMap = getAcrescimos();
@@ -973,7 +978,7 @@ var HR_FUNC = (function () {
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
-          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_valorDecendioAtual(f))+'</div>' +
+          '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_decendioBase(f))+'</div>' +
           '<div style="font-size:.55rem;color:'+T3+';">por decêndio</div>' +
         '</div>' +
       '</div>' +
@@ -1362,7 +1367,7 @@ var HR_FUNC = (function () {
           // Linhas da conta
           lc('Salário decendial', sal2, GOLD,
              _valorDecendioAtual(f) > 0
-               ? 'decêndio atual: '+_fmtMoeda(_valorDecendioAtual(f))+' · salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)
+               ? 'decêndio atual: '+_fmtMoeda(_decendioBase(f))+' · salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)
                : 'salário mensal: '+_fmtMoeda(parseFloat(f.salario)||0)) +
           (he2 > 0   ? lc('Horas extras a pagar', he2, '#e0b870', heSub) : '') +
           (acr2 > 0.01? lc('Acréscimo HE 2× / 3×', acr2, '#8ec8c8', 'diferença sobre a hora normal') : '') +
@@ -2303,7 +2308,7 @@ var HR_FUNC = (function () {
     var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
 
     // Sugestão de valor: usa dec1/dec2/dec3 configurado, fallback salário ÷ 3
-    var _sugestaoNum = funcIdInicial ? _valorDecendioAtual(f) : 0;
+    var _sugestaoNum = funcIdInicial ? _decendioBase(f) : 0;
     var sugestao = _sugestaoNum > 0 ? _sugestaoNum.toFixed(2) : '';
 
     var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
@@ -2388,7 +2393,7 @@ var HR_FUNC = (function () {
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Sugestão automática para decendio
         if (inpV && tipo === 'decendio') {
-          var valDec2 = _valorDecendioAtual(f2);
+          var valDec2 = _decendioBase(f2);
           if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
         }
         // Mostra/oculta dica
@@ -2411,7 +2416,7 @@ var HR_FUNC = (function () {
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir);
         // Atualiza valor sugerido: se acumular, não inclui HE
         if (inpV) {
-          var valDec = _valorDecendioAtual(f2);
+          var valDec = _decendioBase(f2);
           if (!_extraPagIncluir) {
             inpV.value = valDec > 0 ? valDec.toFixed(2) : (parseFloat(f2.salario)||0).toFixed(2);
           } else {
