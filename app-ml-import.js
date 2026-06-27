@@ -63,66 +63,85 @@
   }
 
   // ─── API do ML ─────────────────────────────────────────────
-  var _ML_PROXIES = [
-    'https://api.mercadolibre.com/items/',
-    'https://corsproxy.io/?url=https://api.mercadolibre.com/items/',
-    'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/')
-  ];
-
-  function _fetchComProxy(proxies, id, cb) {
-    if (!proxies.length) { cb('HTTP 403 — ML bloqueou todas as tentativas', null); return; }
-    var base = proxies[0];
-    var rest = proxies.slice(1);
-    var url = base.indexOf('allorigins') !== -1
-      ? 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id)
-      : base + id;
+  // Estratégias de fetch em cascata
+  function _tentarUrls(urls, opcoes, cb) {
+    if (!urls.length) { cb('Falha em todas as tentativas', null); return; }
+    var url = urls[0];
+    var resto = urls.slice(1);
     var done = false;
     var timer = setTimeout(function() {
-      if (!done) { done = true; _fetchComProxy(rest, id, cb); }
-    }, 8000);
-    fetch(url)
-      .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+      if (!done) { done = true; _tentarUrls(resto, opcoes, cb); }
+    }, 10000);
+    fetch(url, opcoes)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function(d) {
         if (!done) { done = true; clearTimeout(timer); cb(null, d); }
       })
       .catch(function() {
-        if (!done) { done = true; clearTimeout(timer); _fetchComProxy(rest, id, cb); }
+        if (!done) { done = true; clearTimeout(timer); _tentarUrls(resto, opcoes, cb); }
       });
   }
 
   function _fetchItem(id, cb) {
-    _fetchComProxy(_ML_PROXIES.slice(), id, cb);
+    var base = 'https://api.mercadolibre.com/items/';
+    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
+                 headers: { 'Accept': 'application/json' } };
+    var urls = [
+      base + id,
+      'https://corsproxy.io/?url=' + encodeURIComponent(base + id),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base + id),
+      'https://thingproxy.freeboard.io/fetch/' + base + id,
+      'https://proxy.cors.sh/' + base + id
+    ];
+    _tentarUrls(urls, opts, function(err, d) {
+      if (err) { cb(err, null); return; }
+      // allorigins às vezes retorna {contents:"..."} em vez do JSON direto
+      if (d && d.contents) {
+        try { d = JSON.parse(d.contents); } catch(e) {}
+      }
+      cb(null, d);
+    });
   }
 
   function _fetchDesc(id, cb) {
-    var proxies = [
-      'https://api.mercadolibre.com/items/' + id + '/description',
-      'https://corsproxy.io/?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id + '/description'),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id + '/description')
+    var base = 'https://api.mercadolibre.com/items/' + id + '/description';
+    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
+                 headers: { 'Accept': 'application/json' } };
+    var urls = [
+      base,
+      'https://corsproxy.io/?url=' + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
+      'https://thingproxy.freeboard.io/fetch/' + base
     ];
-    function tentar(lista) {
-      if (!lista.length) { cb(null, ''); return; }
-      fetch(lista[0])
-        .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
-        .then(function(d){ cb(null, d.plain_text || ''); })
-        .catch(function(){ tentar(lista.slice(1)); });
-    }
-    tentar(proxies);
+    _tentarUrls(urls, opts, function(err, d) {
+      if (err || !d) { cb(null, ''); return; }
+      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+      cb(null, d.plain_text || '');
+    });
   }
 
   // Resolve catálogo → item principal
   function _fetchCatalog(id, cb) {
-    var url = 'https://api.mercadolibre.com/products/' + id;
-    fetch(url)
-      .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-      .then(function(d){
-        // pega o primeiro item_id do catálogo
-        var items = (d.buy_box_winner && d.buy_box_winner.item_id) ||
-                    (d.items && d.items[0] && d.items[0].id);
-        if (items) { cb(null, items); }
-        else { cb('Catálogo sem item vinculado', null); }
-      })
-      .catch(function(e){ cb(e, null); });
+    var base = 'https://api.mercadolibre.com/products/' + id;
+    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
+                 headers: { 'Accept': 'application/json' } };
+    var urls = [
+      base,
+      'https://corsproxy.io/?url=' + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
+      'https://thingproxy.freeboard.io/fetch/' + base
+    ];
+    _tentarUrls(urls, opts, function(err, d) {
+      if (err || !d) { cb(err || 'sem resposta', null); return; }
+      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+      var itemId = (d.buy_box_winner && d.buy_box_winner.item_id) ||
+                   (d.items && d.items[0] && d.items[0].id);
+      if (itemId) { cb(null, itemId); }
+      else { cb('Catálogo sem item vinculado', null); }
+    });
   }
 
   // ─── Busca completa ────────────────────────────────────────
