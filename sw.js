@@ -46,7 +46,9 @@ self.addEventListener('fetch', function(e) {
   var isExternal = url.indexOf('googleapis.com') !== -1 ||
                    url.indexOf('anthropic.com') !== -1 ||
                    url.indexOf('groq.com') !== -1 ||
-                   url.indexOf('supabase.co') !== -1;
+                   url.indexOf('supabase.co') !== -1 ||
+                   url.indexOf('mercadolibre.com') !== -1 ||
+                   url.indexOf('mercadolivre.com') !== -1;
   if (isExternal) return; // deixa o browser lidar normalmente
 
   e.respondWith(
