@@ -22,9 +22,7 @@
   'use strict';
 
   // ─── Proxy CORS próprio (Cloudflare Worker) ───────────────
-  // Troque pela URL real do seu Worker depois de publicá-lo.
-  // Ex: 'https://hr-ml-proxy.SEUUSUARIO.workers.dev'
-  var WORKER_URL = 'https://hr-ml-proxy.SEUUSUARIO.workers.dev';
+  var WORKER_URL = 'https://hr-ml-proxy.hrproplay.workers.dev';
 
   function _viaWorker(targetUrl) {
     if (!WORKER_URL || WORKER_URL.indexOf('SEUUSUARIO') !== -1) return null;
@@ -53,36 +51,27 @@
   }
 
   // Extrai MLB... de qualquer link do ML
-  // Regra: wid= e item_id: são sempre o item real; /p/MLB sem wid= é catálogo
   function _extractId(url) {
     url = url.trim();
-    var m, wid, catalogId;
-    // Extrai wid= (item real compartilhado) — maior prioridade
+    var m, wid;
     m = url.match(/[?&#]wid=(MLB\d+)/i);
     if (m) wid = m[1].toUpperCase();
-    // Extrai item_id: (pdp_filters)
     if (!wid) {
       m = url.match(/item_id:(MLB\d+)/i);
       if (m) wid = m[1].toUpperCase();
     }
-    // Se tem wid/item_id, é o item real — usa direto, ignora /p/
     if (wid) return {id: wid, isCatalog: false};
-    // /p/MLB... sem wid = página de catálogo para resolver
     m = url.match(/\/p\/(MLB\d+)/i);
     if (m) return {id: m[1].toUpperCase(), isCatalog: true};
-    // /MLB... direto no path
     m = url.match(/\/(MLB\d+)/i);
     if (m) return {id: m[1].toUpperCase(), isCatalog: false};
-    // formato hifenizado /MLB-123456789
     m = url.match(/\/(MLB)-(\d+)/i);
     if (m) return {id: 'MLB' + m[2], isCatalog: false};
-    // apenas o id digitado
     m = url.match(/^(MLB\d+)$/i);
     if (m) return {id: m[1].toUpperCase(), isCatalog: false};
     return null;
   }
 
-  // Tenta uma lista de URLs em sequência com timeout reduzido
   function _tentarUrls(urls, opts, cb) {
     if (!urls.length) { cb('Todas as tentativas falharam', null); return; }
     var url  = urls[0];
@@ -104,7 +93,6 @@
       });
   }
 
-  // Tenta várias URLs em paralelo — vence a mais rápida que retornar dado válido
   function _tentarParalelo(urls, validar, cb) {
     var done   = false;
     var erros  = 0;
@@ -115,7 +103,6 @@
                    headers: { 'Accept': 'application/json' } })
         .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
         .then(function(d) {
-          // desencapsula allorigins
           if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
           if (!done && validar(d)) {
             done = true;
@@ -130,21 +117,16 @@
           if (!done && erros === total) cb('Todas falharam', null);
         });
     });
-    // Timeout geral de 8s
     setTimeout(function() {
       if (!done) { done = true; cb('Timeout', null); }
     }, 11000);
   }
 
   // ══════════════════════════════════════════════════════════
-  // CAMADA 1 — API pública do Mercado Livre (sem auth, paralelo)
+  // CAMADA 1 — API pública do Mercado Livre
   // ══════════════════════════════════════════════════════════
   function _fetchApiML(id, cb) {
     var base = 'https://api.mercadolibre.com/items/' + id;
-
-    // Tenta SEMPRE a chamada direta primeiro (a API do ML suporta CORS
-    // oficialmente). Só recorre a proxies se a direta falhar — evita que
-    // proxies instáveis/lentos derrubem uma chamada que funcionaria sozinha.
     fetch(base, { method: 'GET', mode: 'cors', credentials: 'omit',
                   headers: { 'Accept': 'application/json' } })
       .then(function(r) {
@@ -165,7 +147,7 @@
   function _fetchApiMLViaProxy(base, cb) {
     var urls = [];
     var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker); // proxy próprio (Cloudflare Worker) — se configurado
+    if (viaWorker) urls.push(viaWorker);
     urls.push(
       'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
       'https://corsproxy.io/?url='        + encodeURIComponent(base),
@@ -182,7 +164,6 @@
     });
   }
 
-  // Descrição do item (complemento opcional — não bloqueia)
   function _fetchDesc(id, cb) {
     var base = 'https://api.mercadolibre.com/items/' + id + '/description';
     var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
@@ -203,7 +184,6 @@
     });
   }
 
-  // Resolve catálogo → item principal
   function _fetchCatalog(id, cb) {
     var base = 'https://api.mercadolibre.com/products/' + id;
     var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
@@ -234,7 +214,7 @@
     var urlProd = 'https://www.mercadolivre.com.br/' + itemId.replace(/^MLB/i,'MLB-') + '-x.html';
     var proxies = [];
     var viaWorker = _viaWorker(urlProd);
-    if (viaWorker) proxies.push(viaWorker); // proxy próprio — prioridade
+    if (viaWorker) proxies.push(viaWorker);
     proxies.push(
       'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(urlProd),
       'https://api.allorigins.win/raw?url=' + encodeURIComponent(urlProd),
@@ -271,7 +251,6 @@
   }
 
   function _parsearHTML(html, id) {
-    // 1. JSON-LD (schema.org/Product)
     var jldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
     var produto   = null;
     for (var i = 0; i < jldMatch.length; i++) {
@@ -282,7 +261,6 @@
       } catch(e) {}
     }
 
-    // 2. Meta tags OG
     function meta(prop) {
       var re1 = new RegExp('<meta[^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27]', 'i');
       var re2 = new RegExp('<meta[^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27][^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27]', 'i');
@@ -344,15 +322,12 @@
   // ORQUESTRADOR — tenta as 2 camadas em cascata
   // ══════════════════════════════════════════════════════════
   function _fetchItem(id, cb) {
-    // Camada 1: API pública do ML
     _showStatus('⏳ Buscando na API do Mercado Livre...', 'info');
     _fetchApiML(id, function(err1, item1) {
       if (!err1 && item1 && item1.title) {
         cb(null, item1);
         return;
       }
-
-      // Camada 2: Scraping HTML
       _showStatus('⏳ Tentando via página do produto...', 'info');
       _fetchPaginaML(id, function(err2, html) {
         var item2 = html ? _parsearHTML(html, id) : null;
@@ -360,14 +335,12 @@
           cb(null, item2);
           return;
         }
-
         console.warn('[ML-import] Camada 1 e 2 falharam para', id, '| erro1:', err1, '| erro2:', err2);
         cb('Produto não encontrado. Verifique o link ou tente novamente em alguns segundos.', null);
       });
     });
   }
 
-  // ─── Busca completa (entrada principal) ───────────────────
   function _buscar(rawUrl) {
     var info = _extractId(rawUrl);
     if (!info) {
@@ -388,7 +361,6 @@
           _showStatus('❌ ' + (err || 'Produto não encontrado'), 'error');
           return;
         }
-        // Tenta buscar descrição em paralelo (não bloqueia)
         _fetchDesc(itemId, function(_, desc) {
           _ml.data         = item;
           _ml.data._desc   = desc || '';
@@ -409,7 +381,6 @@
     }
   }
 
-  // ─── Foto principal ────────────────────────────────────────
   function _bestPhoto(item) {
     var pics = item.pictures || [];
     if (!pics.length) return null;
@@ -426,7 +397,6 @@
     }).filter(Boolean).slice(0, 8);
   }
 
-  // ─── Inferências ───────────────────────────────────────────
   function _inferDim(item) {
     var atrs = item.attributes || [];
     var dims = [];
@@ -474,7 +444,6 @@
     return custo * (1 + margem / 100);
   }
 
-  // ─── Baixar foto para base64 ─────────────────────────────
   function _downloadFotoB64(url, cb) {
     var img = new Image();
     img.crossOrigin = 'anonymous';
@@ -491,7 +460,6 @@
     img.src = url;
   }
 
-  // ─── Salvar cuba no CFG ───────────────────────────────────
   function _salvar() {
     var d = _ml.data;
     if (!d) return;
@@ -643,7 +611,6 @@
     var d = _ml.data;
     var h = '';
 
-    // ── Cabeçalho ──────────────────────────────────────────
     h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">';
     h += '<div style="font-size:1.6rem;">🛒</div>';
     h += '<div style="flex:1;">';
@@ -654,7 +621,6 @@
        + 'font-size:1.3rem;cursor:pointer;line-height:1;padding:4px 8px;">✕</button>';
     h += '</div>';
 
-    // ── Categoria ─────────────────────────────────────────
     h += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
     ['coz','lav'].forEach(function(c) {
       var ativ = _ml.cat === c;
@@ -668,7 +634,6 @@
     });
     h += '</div>';
 
-    // ── Campo URL ─────────────────────────────────────────
     h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
     h += '<input id="ml-url-inp" type="text" placeholder="https://www.mercadolivre.com.br/... ou MLB123456789" '
        + 'style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;'
@@ -683,11 +648,9 @@
        + (_ml.loading ? '⏳' : '🔍 Buscar') + '</button>';
     h += '</div>';
 
-    // ── Status ────────────────────────────────────────────
     h += '<div id="ml-status" style="min-height:18px;font-size:.72rem;'
        + 'color:var(--t3);margin-bottom:8px;"></div>';
 
-    // ── Loading spinner ───────────────────────────────────
     if (_ml.loading) {
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
@@ -696,7 +659,6 @@
          + '</div>';
     }
 
-    // ── Preview do produto ────────────────────────────────
     if (d && !_ml.loading) {
       var fotos  = _allPhotos(d);
       var custo  = d.price || 0;
@@ -708,7 +670,6 @@
 
       h += '<div style="background:var(--s3);border-radius:14px;padding:14px;border:1px solid var(--bd2);">';
 
-      // Galeria
       if (fotos.length > 1) {
         h += '<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:4px;">';
         fotos.forEach(function(url, i) {
@@ -722,7 +683,6 @@
         h += '</div>';
       }
 
-      // Foto grande
       if (_ml.selPhoto) {
         h += '<div style="background:var(--s2);border-radius:12px;overflow:hidden;'
            + 'aspect-ratio:4/3;margin-bottom:12px;">';
@@ -732,14 +692,12 @@
         h += '</div>';
       }
 
-      // Nome editável
       h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Nome (editável)</div>';
       h += '<input id="ml-nome" type="text" value="' + _esc(d.title) + '" '
          + 'style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;'
          + 'padding:9px 11px;color:var(--tx);font-size:.8rem;font-weight:600;'
          + 'box-sizing:border-box;outline:none;margin-bottom:10px;">';
 
-      // Linha: marca + dimensões
       h += '<div style="display:flex;gap:8px;margin-bottom:10px;">';
       if (brand) {
         h += '<div style="flex:1;">';
@@ -755,7 +713,6 @@
       h += '</div>';
       h += '</div>';
 
-      // Preços
       h += '<div style="background:var(--gdim);border:1px solid var(--gold3);border-radius:11px;'
          + 'padding:12px 14px;margin-bottom:10px;">';
 
@@ -781,32 +738,28 @@
       h += '</div>';
       h += '</div>';
 
-      // Aviso custo interno
       h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:12px;'
          + 'padding:7px 10px;background:rgba(0,0,0,.2);border-radius:8px;'
          + 'border-left:2px solid var(--t4);">'
          + '🔒 Preço de custo é dado interno — não aparece para clientes.</div>';
 
-      // Fonte dos dados
       if (d._scraped) {
         h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">📄 Dados obtidos via página do produto</div>';
       } else {
         h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">✅ Dados obtidos via API oficial ML</div>';
       }
 
-      // Botão salvar
       h += '<button onclick="_mlSalvar()" '
          + 'style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;'
          + 'background:linear-gradient(135deg,#a07828,var(--gold2));'
          + 'color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">'
          + '✓ Salvar cuba importada</button>';
 
-      h += '</div>'; // fim preview
+      h += '</div>';
     }
 
     wrap.innerHTML = h;
 
-    // Restaura o valor do input de URL
     var inp = document.getElementById('ml-url-inp');
     if (inp && _ml.urlAtual) inp.value = _ml.urlAtual;
     if (inp && !d && !_ml.loading) setTimeout(function() { inp.focus(); }, 80);
@@ -854,7 +807,6 @@
 
   window._mlSalvar = _salvar;
 
-  // Expõe setter de URL (evita ReferenceError: _ml is not defined nos inline handlers)
   window._mlSetUrl = function(val) { _ml.urlAtual = val || ""; };
 
 })();
