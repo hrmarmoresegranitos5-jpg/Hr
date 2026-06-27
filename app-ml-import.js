@@ -63,6 +63,49 @@
   }
 
   // ─── API do ML ─────────────────────────────────────────────
+  // Busca via Anthropic API com web_search — bypassa todos os bloqueios
+  function _fetchViaAnthropic(id, cb) {
+    var prompt = 'Busque no Mercado Livre Brasil o produto com ID ' + id + '. '
+      + 'Retorne APENAS um JSON válido (sem markdown, sem texto extra) com os campos: '
+      + '{"title":"nome do produto","price":999.99,"pictures":[{"url":"https://...jpg"}],'
+      + '"attributes":[{"id":"DIM","name":"Dimensões","value_name":"47x30x17cm"}],'
+      + '"permalink":"url do produto"}. '
+      + 'Se não encontrar, retorne {"error":"nao encontrado"}.';
+
+    _showStatus('⏳ Buscando via IA...', 'info');
+
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+    .then(function(resp) {
+      // Extrair texto da resposta
+      var texto = (resp.content || [])
+        .filter(function(b) { return b.type === 'text'; })
+        .map(function(b) { return b.text; })
+        .join('');
+      // Limpar markdown se vier
+      if (texto.indexOf('```') !== -1) { texto = texto.split('```').filter(function(p){ return p && p.indexOf('{') !== -1; })[0] || texto; } texto = texto.trim();
+      var dados;
+      try { dados = JSON.parse(texto); } catch(e) {
+        cb('Resposta inválida da IA: ' + texto.slice(0,100), null); return;
+      }
+      if (dados.error) { cb(dados.error, null); return; }
+      // Normalizar formato
+      dados.id = id;
+      dados._via_anthropic = true;
+      cb(null, dados);
+    })
+    .catch(function(e) { cb(String(e), null); });
+  }
+
   // Scraping da página HTML do produto ML via proxy de texto
   function _fetchPaginaML(itemId, cb) {
     var urlProd = 'https://www.mercadolivre.com.br/' + itemId.replace(/^MLB/i,'MLB-') + '-x.html';
@@ -175,14 +218,14 @@
   }
 
   function _fetchItem(id, cb) {
+    // Tenta scraping HTML primeiro, depois Anthropic como fallback
     _fetchPaginaML(id, function(err, html) {
-      if (err || !html) { cb(err || 'sem resposta', null); return; }
-      var dados = _parsearHTML(html, id);
-      if (!dados.title || dados.title === ('Produto ' + id)) {
-        cb('Não foi possível extrair dados do produto. Tente copiar o código MLB direto.', null);
-        return;
+      var dados = html ? _parsearHTML(html, id) : null;
+      if (dados && dados.title && dados.title !== ('Produto ' + id)) {
+        cb(null, dados); return;
       }
-      cb(null, dados);
+      // Fallback: busca via Anthropic com web_search
+      _fetchViaAnthropic(id, cb);
     });
   }
 
