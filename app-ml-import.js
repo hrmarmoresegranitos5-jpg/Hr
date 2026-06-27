@@ -63,46 +63,126 @@
   }
 
   // ─── API do ML ─────────────────────────────────────────────
-  // Estratégias de fetch em cascata
-  function _tentarUrls(urls, opcoes, cb) {
-    if (!urls.length) { cb('Falha em todas as tentativas', null); return; }
-    var url = urls[0];
-    var resto = urls.slice(1);
-    var done = false;
-    var timer = setTimeout(function() {
-      if (!done) { done = true; _tentarUrls(resto, opcoes, cb); }
-    }, 10000);
-    fetch(url, opcoes)
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        if (!done) { done = true; clearTimeout(timer); cb(null, d); }
-      })
-      .catch(function() {
-        if (!done) { done = true; clearTimeout(timer); _tentarUrls(resto, opcoes, cb); }
-      });
+  // Scraping da página HTML do produto ML via proxy de texto
+  function _fetchPaginaML(itemId, cb) {
+    var urlProd = 'https://www.mercadolivre.com.br/' + itemId.replace(/^MLB/i,'MLB-') + '-x.html';
+    // Proxies que retornam HTML como texto
+    var proxies = [
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(urlProd),
+      'https://corsproxy.io/?url=' + encodeURIComponent(urlProd),
+      'https://api.allorigins.win/get?url=' + encodeURIComponent(urlProd)
+    ];
+    function tentar(lista) {
+      if (!lista.length) { cb('Falha ao acessar página do produto', null); return; }
+      var proxyUrl = lista[0];
+      var isGet = proxyUrl.indexOf('/get?') !== -1;
+      var done = false;
+      var timer = setTimeout(function() {
+        if (!done) { done = true; tentar(lista.slice(1)); }
+      }, 12000);
+      fetch(proxyUrl)
+        .then(function(r) { return r.ok ? (isGet ? r.json() : r.text()) : Promise.reject('HTTP ' + r.status); })
+        .then(function(resp) {
+          if (!done) {
+            done = true;
+            clearTimeout(timer);
+            var html = isGet ? (resp.contents || '') : resp;
+            cb(null, html);
+          }
+        })
+        .catch(function() {
+          if (!done) { done = true; clearTimeout(timer); tentar(lista.slice(1)); }
+        });
+    }
+    tentar(proxies);
+  }
+
+  // Extrai dados estruturados do HTML da página do ML
+  function _parsearHTML(html, id) {
+    // 1. JSON-LD (schema.org/Product) — mais rico
+    var jldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
+    var produto = null;
+    for (var i = 0; i < jldMatch.length; i++) {
+      try {
+        var txt = jldMatch[i].replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
+        var obj = JSON.parse(txt);
+        if (obj['@type'] === 'Product' || (obj.name && obj.offers)) { produto = obj; break; }
+      } catch(e) {}
+    }
+    // 2. __INITIAL_STATE__ / window.__PRELOADED_STATE__ do React/Next
+    var stateMatch = html.match(/window\.__INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
+    var stateObj = null;
+    if (stateMatch) { try { stateObj = JSON.parse(stateMatch[1]); } catch(e) {} }
+
+    // 3. Meta tags OG
+    function meta(prop) {
+      var re1 = new RegExp('<meta[^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27]', 'i');
+      var re2 = new RegExp('<meta[^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27][^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27]', 'i');
+      var m = html.match(re1) || html.match(re2);
+      return m ? m[1] : '';
+    }
+
+    var titulo = '';
+    var preco  = 0;
+    var fotos  = [];
+    var attrs  = [];
+
+    if (produto) {
+      titulo = produto.name || '';
+      if (produto.offers) {
+        var oferta = Array.isArray(produto.offers) ? produto.offers[0] : produto.offers;
+        preco = parseFloat(oferta.price || oferta.lowPrice || 0);
+      }
+      // Imagens do JSON-LD
+      if (produto.image) {
+        var imgs = Array.isArray(produto.image) ? produto.image : [produto.image];
+        fotos = imgs.map(function(img) { return typeof img === 'string' ? img : (img.url || img.contentUrl || ''); }).filter(Boolean);
+      }
+      if (produto.description) attrs.push({id:'DESC',name:'Descrição',value_name:produto.description.slice(0,200)});
+    }
+
+    // Fallback para meta tags
+    if (!titulo) titulo = meta('og:title') || meta('twitter:title') || '';
+    if (!fotos.length) {
+      var ogImg = meta('og:image');
+      if (ogImg) fotos = [ogImg];
+    }
+
+    // Procurar preço no HTML se não achamos
+    if (!preco) {
+      var precoMatch = html.match(/class="[^"]*price[^"]*"[^>]*>\s*R\$\s*([\d.,]+)/i)
+                    || html.match(/"price"\s*:\s*([\d.]+)/);
+      if (precoMatch) preco = parseFloat(precoMatch[1].replace(',','.'));
+    }
+
+    // Procurar mais imagens no HTML
+    if (fotos.length < 2) {
+      var imgMatches = html.match(/https?:\/\/http2\.mlstatic\.com\/[^"'\s]+\.jpg/g) || [];
+      imgMatches = imgMatches.filter(function(u) { return u.indexOf('-O.jpg') !== -1 || u.indexOf('_O.jpg') !== -1 || fotos.length < 2; });
+      fotos = fotos.concat(imgMatches).filter(function(u,i,a){ return a.indexOf(u) === i; });
+    }
+
+    // Sintetizar objeto compatível com o formato da API real
+    return {
+      id:         id,
+      title:      titulo || ('Produto ' + id),
+      price:      preco,
+      pictures:   fotos.slice(0,8).map(function(u) { return {url: u}; }),
+      attributes: attrs,
+      permalink:  'https://www.mercadolivre.com.br/' + id.replace(/^MLB/i,'MLB-') + '-x.html',
+      _scraped:   true
+    };
   }
 
   function _fetchItem(id, cb) {
-    var base = 'https://api.mercadolibre.com/items/';
-    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
-                 headers: { 'Accept': 'application/json' } };
-    var urls = [
-      base + id,
-      'https://corsproxy.io/?url=' + encodeURIComponent(base + id),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base + id),
-      'https://thingproxy.freeboard.io/fetch/' + base + id,
-      'https://proxy.cors.sh/' + base + id
-    ];
-    _tentarUrls(urls, opts, function(err, d) {
-      if (err) { cb(err, null); return; }
-      // allorigins às vezes retorna {contents:"..."} em vez do JSON direto
-      if (d && d.contents) {
-        try { d = JSON.parse(d.contents); } catch(e) {}
+    _fetchPaginaML(id, function(err, html) {
+      if (err || !html) { cb(err || 'sem resposta', null); return; }
+      var dados = _parsearHTML(html, id);
+      if (!dados.title || dados.title === ('Produto ' + id)) {
+        cb('Não foi possível extrair dados do produto. Tente copiar o código MLB direto.', null);
+        return;
       }
-      cb(null, d);
+      cb(null, dados);
     });
   }
 
