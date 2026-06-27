@@ -127,7 +127,7 @@
     });
     setTimeout(function() {
       if (!done) { done = true; cb('Timeout', null); }
-    }, 11000);
+    }, 6000);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -263,7 +263,7 @@
       var done     = false;
       var timer    = setTimeout(function() {
         if (!done) { done = true; console.warn('[ML-import] Camada 2: timeout em', proxyUrl); tentar(lista.slice(1)); }
-      }, 12000);
+      }, 5000);
       fetch(proxyUrl)
         .then(function(r) { return r.ok ? (isGet ? r.json() : r.text()) : Promise.reject('HTTP ' + r.status); })
         .then(function(resp) {
@@ -349,24 +349,71 @@
   }
 
   // ══════════════════════════════════════════════════════════
-  // ORQUESTRADOR — tenta as 2 camadas em cascata
+  // CAMADA 3 — Busca por texto na API pública do ML
+  // Usada quando item_id está inativo e scraping falhou
   // ══════════════════════════════════════════════════════════
-  function _fetchItem(id, cb) {
+  function _fetchPorTexto(query, cb) {
+    if (!query || query.length < 4) { cb('Query muito curta', null); return; }
+    var base = 'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(query) + '&limit=1';
+    var urls = [];
+    var viaWorker = _viaWorker(base);
+    if (viaWorker) urls.push(viaWorker);
+    urls.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
+      'https://corsproxy.io/?url=' + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base)
+    );
+    _tentarParalelo(urls, function(d) {
+      return d && d.results && d.results.length > 0;
+    }, function(err, d) {
+      if (err || !d || !d.results || !d.results[0]) { cb(err || 'sem resultados', null); return; }
+      // Pega o primeiro resultado e busca detalhes completos do item
+      var itemId = d.results[0].id;
+      _fetchApiML(itemId, function(err2, item) {
+        if (!err2 && item && item.title) { cb(null, item); return; }
+        // Retorna o resultado da search mesmo sem detalhes completos
+        cb(null, d.results[0]);
+      });
+    });
+  }
+
+  // Extrai query de texto de uma URL do ML (para usar na camada 3)
+  function _queryDaUrl(rawUrl) {
+    // tenta extrair do path: /cuba-inox-dupla-55x34-torneira-prata/p/...
+    var m = rawUrl.match(/mercadolivre\.com\.br\/([^/?#]+)/i);
+    if (!m) return '';
+    var slug = m[1].replace(/-/g, ' ').replace(/\bmlb\b/gi, '').trim();
+    // Remove palavras muito curtas e limita a 6 palavras
+    var palavras = slug.split(' ').filter(function(p) { return p.length > 2; }).slice(0, 6);
+    return palavras.join(' ');
+  }
+  // ══════════════════════════════════════════════════════════
+  // ORQUESTRADOR — 3 camadas em cascata
+  // ══════════════════════════════════════════════════════════
+  function _fetchItem(id, rawUrl, cb) {
+    // Suporte a chamada legada sem rawUrl: _fetchItem(id, cb)
+    if (typeof rawUrl === 'function') { cb = rawUrl; rawUrl = ''; }
+
+    // Camada 1: API pública do ML
     _showStatus('⏳ Buscando na API do Mercado Livre...', 'info');
     _fetchApiML(id, function(err1, item1) {
-      if (!err1 && item1 && item1.title) {
-        cb(null, item1);
-        return;
-      }
+      if (!err1 && item1 && item1.title) { cb(null, item1); return; }
+
+      // Camada 2: Scraping HTML
       _showStatus('⏳ Tentando via página do produto...', 'info');
       _fetchPaginaML(id, function(err2, html) {
         var item2 = html ? _parsearHTML(html, id) : null;
-        if (item2 && item2.title) {
-          cb(null, item2);
-          return;
-        }
-        console.warn('[ML-import] Camada 1 e 2 falharam para', id, '| erro1:', err1, '| erro2:', err2);
-        cb('Produto não encontrado. Verifique o link ou tente novamente em alguns segundos.', null);
+        if (item2 && item2.title) { cb(null, item2); return; }
+
+        // Camada 3: Busca por texto (slug da URL ou id)
+        _showStatus('⏳ Buscando por texto...', 'info');
+        var query = (rawUrl && _queryDaUrl(rawUrl)) || '';
+        if (!query) { cb('Produto não encontrado. Verifique o link ou tente novamente.', null); return; }
+        _fetchPorTexto(query, function(err3, item3) {
+          if (!err3 && item3 && item3.title) { cb(null, item3); return; }
+          console.warn('[ML-import] Todas as camadas falharam para', id);
+          cb('Produto não encontrado. Verifique o link ou tente novamente.', null);
+        });
       });
     });
   }
@@ -384,7 +431,7 @@
     _showStatus('⏳ Buscando produto...', 'info');
 
     function carregar(itemId) {
-      _fetchItem(itemId, function(err, item) {
+      _fetchItem(itemId, rawUrl, function(err, item) {
         if (err || !item) {
           _ml.loading = false;
           _renderModal();
@@ -403,15 +450,12 @@
     }
 
     if (info.isCatalog) {
-      // Link de catálogo puro → resolve item ativo
       _fetchCatalog(info.id, function(err, itemId) {
-        if (!err && itemId) { carregar(itemId); return; }
-        // Catálogo não resolveu — tenta buscar o catálogo direto como item
-        carregar(info.id);
+        carregar(!err && itemId ? itemId : info.id);
       });
     } else {
-      // Tem item_id direto; tenta ele primeiro — se pausado, usa catálogo fallback
-      _fetchItem(info.id, function(err, item) {
+      // Tenta item direto; se falhar e houver catálogo fallback, usa ele
+      _fetchItem(info.id, rawUrl, function(err, item) {
         if (!err && item && item.title) {
           _fetchDesc(info.id, function(_, desc) {
             _ml.data       = item;
@@ -426,12 +470,12 @@
         if (info.fallbackCatalogId) {
           _showStatus('⏳ Item pausado, buscando via catálogo...', 'info');
           _fetchCatalog(info.fallbackCatalogId, function(err2, itemId) {
-            carregar(err2 ? info.fallbackCatalogId : itemId);
+            carregar(!err2 && itemId ? itemId : info.fallbackCatalogId);
           });
         } else {
           _ml.loading = false;
           _renderModal();
-          _showStatus('❌ Produto não encontrado. Verifique o link ou tente novamente em alguns segundos.', 'error');
+          _showStatus('❌ Produto não encontrado. Verifique o link ou tente novamente.', 'error');
         }
       });
     }
