@@ -24,6 +24,7 @@
     selPhoto: null,   // url da foto escolhida
     margem:   30,     // % de margem padrão
     cat:      'coz',  // 'coz' | 'lav'
+    urlAtual: '',     // preserva o input entre renders
   };
 
   // ─── Utilitários ───────────────────────────────────────────
@@ -43,19 +44,10 @@
     // /p/MLB... (catálogo)
     var m = url.match(/\/p\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: true};
-    // parâmetro wid=MLB... (links /up/ de compartilhamento)
-    m = url.match(/[?&]wid=(MLB\d+)/i);
-    if (m) return {id: m[1], isCatalog: false};
-    // parâmetro pdp_filters=item_id:MLB...
-    m = url.match(/item_id:(MLB\d+)/i);
-    if (m) return {id: m[1], isCatalog: false};
-    // /MLB... direto no path
+    // /MLB... direto
     m = url.match(/\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: false};
-    // formato hifenizado /MLB-123456789-titulo
-    m = url.match(/\/(MLB)-?(\d+)/i);
-    if (m) return {id: m[1].toUpperCase() + m[2], isCatalog: false};
-    // apenas o id digitado
+    // apenas o id
     m = url.match(/^(MLB\d+)$/i);
     if (m) return {id: m[1], isCatalog: false};
     return null;
@@ -315,6 +307,10 @@
     var wrap = document.getElementById('mlImportModal');
     if (!wrap) return;
 
+    // preserva o valor do input antes de reescrever o DOM
+    var inpAntes = document.getElementById('ml-url-inp');
+    if (inpAntes && inpAntes.value) _ml.urlAtual = inpAntes.value;
+
     var d = _ml.data;
     var h = '';
 
@@ -469,8 +465,9 @@
 
     wrap.innerHTML = h;
 
-    // Foca o campo de URL
+    // Restaura o valor do input de URL após reescrever o DOM
     var inp = document.getElementById('ml-url-inp');
+    if (inp && _ml.urlAtual) inp.value = _ml.urlAtual;
     if (inp && !d) setTimeout(function(){ inp.focus(); }, 80);
   }
 
@@ -489,10 +486,11 @@
   // OVERLAY / MODAL  (reutiliza o estilo .ov do sistema)
   // ══════════════════════════════════════════════════════════
   function _abrirModal(cat) {
-    _ml.cat     = cat || 'coz';
-    _ml.data    = null;
-    _ml.loading = false;
+    _ml.cat      = cat || 'coz';
+    _ml.data     = null;
+    _ml.loading  = false;
     _ml.selPhoto = null;
+    _ml.urlAtual = '';
 
     // Cria overlay se ainda não existe
     if (!document.getElementById('mlImportOv')) {
@@ -548,9 +546,12 @@
   window._mlBuscar = function() {
     var inp = document.getElementById('ml-url-inp');
     if (!inp) return;
-    _ml.data    = null;
+    var url = inp.value.trim();
+    if (!url) return;
+    _ml.urlAtual = url;   // salva antes de qualquer _renderModal
+    _ml.data     = null;
     _ml.selPhoto = null;
-    _buscar(inp.value);
+    _buscar(url);
   };
 
   window._mlSelecionarFoto = function(idx) {
