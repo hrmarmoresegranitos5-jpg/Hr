@@ -54,32 +54,42 @@
   // Retorna {id, isCatalog, fallbackCatalogId?}
   function _extractId(url) {
     url = url.trim();
-    // Remove fragmento (#...) — links compartilhados do ML têm #origin=share&...
+    // Remove fragmento (#...) — links compartilhados do ML trazem #origin=share&...
     var hashIdx = url.indexOf('#');
     if (hashIdx !== -1) url = url.substring(0, hashIdx);
+    url = url.trim();
+
     var m, wid, catalogId;
-    // wid= (item real)
+
+    // wid= (item real em URLs de busca/pdp)
     m = url.match(/[?&#]wid=(MLB\d+)/i);
     if (m) wid = m[1].toUpperCase();
-    // item_id: dentro de pdp_filters
+
+    // item_id dentro de pdp_filters
     if (!wid) {
       m = url.match(/item_id:(MLB\d+)/i);
       if (m) wid = m[1].toUpperCase();
     }
-    // /p/MLBxxxxxxx = catálogo (guarda como fallback se já temos wid)
+
+    // /p/MLBxxxxxxx = catálogo
     m = url.match(/\/p\/(MLB\d+)/i);
     if (m) catalogId = m[1].toUpperCase();
+
     if (wid) return { id: wid, isCatalog: false, fallbackCatalogId: catalogId || null };
     if (catalogId) return { id: catalogId, isCatalog: true };
-    // /MLB... direto no path
-    m = url.match(/\/(MLB\d+)/i);
-    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
-    // formato hifenizado /MLB-123456789
-    m = url.match(/\/(MLB)-(\d+)/i);
-    if (m) return { id: 'MLB' + m[2], isCatalog: false };
-    // apenas o id digitado
-    m = url.match(/^(MLB\d+)$/i);
-    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
+
+    // MLB-XXXXXXXXX hifenizado (com ou sem barra antes)
+    m = url.match(/MLB-(\d{7,})/i);
+    if (m) return { id: 'MLB' + m[1], isCatalog: false };
+
+    // MLBXXXXXXXXX sem hifem (com ou sem barra antes)
+    m = url.match(/MLB(\d{7,})/i);
+    if (m) return { id: 'MLB' + m[1], isCatalog: false };
+
+    // Apenas o id digitado diretamente (MLB... qualquer tamanho)
+    m = url.match(/^(MLB[\d-]+)$/i);
+    if (m) return { id: m[1].replace(/-/g,'').toUpperCase(), isCatalog: false };
+
     return null;
   }
 
@@ -793,8 +803,21 @@
     });
     h += '</div>';
 
+    // Dica de uso
+    h += '<div style="font-size:.68rem;color:var(--t3);margin-bottom:8px;padding:7px 10px;'
+       + 'background:rgba(255,255,255,.04);border-radius:8px;border-left:2px solid var(--gold3);">'
+       + '💡 Cole o link do ML abaixo, ou clique no botão para colar automático</div>';
+
+    // Botão COLAR dedicado
+    h += '<button onclick="_mlColarEBuscar(this)" '
+       + 'style="width:100%;padding:13px;border-radius:10px;border:1px dashed var(--gold3);'
+       + 'background:var(--gdim);color:var(--gold2);font-size:.9rem;font-weight:700;'
+       + 'cursor:pointer;margin-bottom:10px;">'
+       + '📋 Colar link e buscar</button>';
+
+    // Campo manual + buscar
     h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
-    h += '<input id="ml-url-inp" type="text" placeholder="https://www.mercadolivre.com.br/... ou MLB123456789" '
+    h += '<input id="ml-url-inp" type="text" placeholder="Ou cole/digite: MLB4787845933" '
        + 'style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;'
        + 'padding:10px 12px;color:var(--tx);font-size:.78rem;outline:none;" '
        + 'oninput="_mlSetUrl(this.value)" '
@@ -946,6 +969,36 @@
 
   // Paste handler: tenta Clipboard API (pega URL completa no Android),
   // senao usa clipboardData do evento
+  // Botão "Colar e Buscar": lê clipboard e dispara busca automaticamente
+  window._mlColarEBuscar = function(btn) {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      // Sem Clipboard API: foca o input para o usuário colar manualmente
+      var inp = document.getElementById('ml-url-inp');
+      if (inp) { inp.focus(); inp.select(); }
+      _showStatus('⚠️ Cole o link no campo abaixo e clique Buscar.', 'warn');
+      return;
+    }
+    if (btn) { btn.textContent = '⏳ Lendo clipboard...'; btn.disabled = true; }
+    navigator.clipboard.readText().then(function(text) {
+      var url = _limparUrl(text);
+      var inp = document.getElementById('ml-url-inp');
+      if (inp) inp.value = url;
+      _ml.urlAtual = url;
+      if (!url || !_extractId(url)) {
+        if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+        _showStatus('❌ Clipboard não contém link do ML. Cole manualmente no campo.', 'error');
+        return;
+      }
+      _ml.data = null; _ml.selPhoto = null;
+      _buscar(url);
+    }).catch(function() {
+      if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+      var inp = document.getElementById('ml-url-inp');
+      if (inp) { inp.focus(); }
+      _showStatus('⚠️ Permissão negada. Cole o link no campo e clique Buscar.', 'warn');
+    });
+  };
+
   window._mlHandlePaste = function(evt, inp) {
     evt.preventDefault();
     function _aplicar(text) {
