@@ -148,6 +148,27 @@
   // ══════════════════════════════════════════════════════════
   function _fetchApiML(id, cb) {
     var base = 'https://api.mercadolibre.com/items/' + id;
+
+    // Tenta 1: Cloudflare Worker próprio (mais confiável)
+    var workerUrl = _viaWorker(base);
+    if (workerUrl) {
+      fetch(workerUrl, { method: 'GET' })
+        .then(function(r) { return r.ok ? r.json() : Promise.reject('Worker HTTP ' + r.status); })
+        .then(function(d) {
+          if (d && d.title) { cb(null, d); return; }
+          _fetchApiMLDireta(base, id, cb);
+        })
+        .catch(function(e) {
+          console.warn('[ML-import] Worker falhou:', e.message || e);
+          _fetchApiMLDireta(base, id, cb);
+        });
+      return;
+    }
+    _fetchApiMLDireta(base, id, cb);
+  }
+
+  function _fetchApiMLDireta(base, id, cb) {
+    // Tenta 2: chamada direta (funciona se a API do ML não bloquear CORS)
     fetch(base, { method: 'GET', mode: 'cors', credentials: 'omit',
                   headers: { 'Accept': 'application/json' } })
       .then(function(r) {
@@ -156,28 +177,30 @@
       })
       .then(function(d) {
         if (d && d.title) { cb(null, d); return; }
-        console.warn('[ML-import] direta sem título, tentando proxies', d);
         _fetchApiMLViaProxy(base, cb);
       })
       .catch(function(e) {
-        console.warn('[ML-import] chamada direta falhou:', e.message || e, '— tentando proxies');
+        console.warn('[ML-import] Direta falhou (' + e.message + '), tentando proxies...');
         _fetchApiMLViaProxy(base, cb);
       });
   }
 
   function _fetchApiMLViaProxy(base, cb) {
-    var urls = [];
-    var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker);
-    urls.push(
+    // Proxies públicos CORS — sem o worker (já foi tentado antes)
+    var urls = [
+      'https://corsproxy.io/?url='         + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
       'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://corsproxy.io/?url='        + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url='+ encodeURIComponent(base),
+      'https://api.allorigins.win/get?url=' + encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
-    );
-    _tentarParalelo(urls, function(d) { return d && d.title; }, function(err, d) {
+    ];
+    _tentarParalelo(urls, function(d) {
+      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+      return d && d.title;
+    }, function(err, d) {
+      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
       if (err || !d || !d.title) {
-        console.warn('[ML-import] todos os proxies falharam:', err);
+        console.warn('[ML-import] todos os proxies API falharam:', err);
         cb(err || 'sem dados', null);
         return;
       }
@@ -831,7 +854,15 @@
     h += '</div>';
 
     h += '<div id="ml-status" style="min-height:18px;font-size:.72rem;'
-       + 'color:var(--t3);margin-bottom:8px;"></div>';
+       + 'color:var(--t3);margin-bottom:4px;"></div>';
+
+    // Botão diagnóstico aparece após erro
+    if (_ml.status && _ml.status.tipo === 'error') {
+      h += '<button onclick="_mlDiagnostico()" style="font-size:.65rem;color:var(--t3);'
+         + 'background:transparent;border:1px solid var(--bd2);border-radius:6px;'
+         + 'padding:3px 9px;cursor:pointer;margin-bottom:8px;">'
+         + '📡 Testar proxies</button>';
+    }
 
     if (_ml.loading) {
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
@@ -971,31 +1002,44 @@
   // senao usa clipboardData do evento
   // Botão "Colar e Buscar": lê clipboard e dispara busca automaticamente
   window._mlColarEBuscar = function(btn) {
+    function _executar(text) {
+      var url = _limparUrl(text);
+      var inp = document.getElementById('ml-url-inp');
+      if (inp) inp.value = url || text;
+      _ml.urlAtual = url;
+      var info = url ? _extractId(url) : null;
+      if (!info) {
+        if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+        _showStatus('❌ Não encontrei um link do ML. Cole no campo e clique Buscar.', 'error');
+        return;
+      }
+      _ml.data = null; _ml.selPhoto = null;
+      _buscar(url);
+    }
+
     if (!navigator.clipboard || !navigator.clipboard.readText) {
-      // Sem Clipboard API: foca o input para o usuário colar manualmente
       var inp = document.getElementById('ml-url-inp');
       if (inp) { inp.focus(); inp.select(); }
       _showStatus('⚠️ Cole o link no campo abaixo e clique Buscar.', 'warn');
       return;
     }
-    if (btn) { btn.textContent = '⏳ Lendo clipboard...'; btn.disabled = true; }
+
+    if (btn) { btn.textContent = '⏳ Lendo...'; btn.disabled = true; }
+
     navigator.clipboard.readText().then(function(text) {
-      var url = _limparUrl(text);
-      var inp = document.getElementById('ml-url-inp');
-      if (inp) inp.value = url;
-      _ml.urlAtual = url;
-      if (!url || !_extractId(url)) {
-        if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
-        _showStatus('❌ Clipboard não contém link do ML. Cole manualmente no campo.', 'error');
-        return;
-      }
-      _ml.data = null; _ml.selPhoto = null;
-      _buscar(url);
-    }).catch(function() {
       if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+      _executar(text);
+    }).catch(function(e) {
+      if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+      // Fallback: tenta pegar do input se já tiver algo colado
       var inp = document.getElementById('ml-url-inp');
-      if (inp) { inp.focus(); }
-      _showStatus('⚠️ Permissão negada. Cole o link no campo e clique Buscar.', 'warn');
+      var val = inp ? inp.value.trim() : '';
+      if (val && _extractId(_limparUrl(val))) {
+        _executar(val);
+      } else {
+        if (inp) inp.focus();
+        _showStatus('⚠️ Permissão negada ao clipboard. Cole o link no campo e clique Buscar.', 'warn');
+      }
     });
   };
 
@@ -1029,6 +1073,39 @@
   };
 
   window._mlSetUrl = function(val) { _ml.urlAtual = _limparUrl(val); };
+
+  // Diagnóstico: testa todos os proxies e mostra resultado
+  window._mlDiagnostico = function() {
+    var id = 'MLB4787845933';
+    var base = 'https://api.mercadolibre.com/items/' + id;
+    var testes = [
+      { nome: 'API direta',      url: base },
+      { nome: 'Worker',          url: _viaWorker(base) || '' },
+      { nome: 'corsproxy.io',    url: 'https://corsproxy.io/?url=' + encodeURIComponent(base) },
+      { nome: 'allorigins raw',  url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(base) },
+      { nome: 'codetabs',        url: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base) },
+    ].filter(function(t){ return t.url; });
+
+    _showStatus('⏳ Testando conectividade (' + testes.length + ' proxies)...', 'info');
+    var resultados = [];
+    var restantes  = testes.length;
+
+    testes.forEach(function(t) {
+      var inicio = Date.now();
+      fetch(t.url, { method: 'GET', mode: 'cors', credentials: 'omit' })
+        .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+        .then(function(d) {
+          if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+          var ok = d && d.title;
+          resultados.push((ok ? '✅' : '⚠️') + ' ' + t.nome + ' ' + (Date.now()-inicio) + 'ms' + (ok ? '' : ' (sem título)'));
+          if (--restantes === 0) _showStatus(resultados.join(' | '), 'info');
+        })
+        .catch(function(e) {
+          resultados.push('❌ ' + t.nome + ' (' + (e.message || e) + ')');
+          if (--restantes === 0) _showStatus(resultados.join(' | '), 'info');
+        });
+    });
+  };
 
   window._mlSelecionarFoto = function(idx) {
     var d = _ml.data;
