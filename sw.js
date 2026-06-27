@@ -48,7 +48,10 @@ self.addEventListener('fetch', function(e) {
                    url.indexOf('groq.com') !== -1 ||
                    url.indexOf('supabase.co') !== -1 ||
                    url.indexOf('mercadolibre.com') !== -1 ||
-                   url.indexOf('mercadolivre.com') !== -1;
+                   url.indexOf('mercadolivre.com') !== -1 ||
+                   url.indexOf('allorigins.win') !== -1 ||
+                   url.indexOf('corsproxy.io') !== -1 ||
+                   url.indexOf('mlstatic.com') !== -1;
   if (isExternal) return; // deixa o browser lidar normalmente
 
   e.respondWith(
