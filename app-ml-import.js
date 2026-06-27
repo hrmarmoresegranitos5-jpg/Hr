@@ -63,20 +63,28 @@
   }
 
   // ─── API do ML ─────────────────────────────────────────────
-  // Busca via Anthropic API com web_search — bypassa todos os bloqueios
+  // Busca via Anthropic API com web_search — usa a mesma chave do app
   function _fetchViaAnthropic(id, cb) {
+    var apiKey = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) || '';
+    if (!apiKey) { cb('Configure a API Key da Anthropic nas configurações do app.', null); return; }
+
     var prompt = 'Busque no Mercado Livre Brasil o produto com ID ' + id + '. '
       + 'Retorne APENAS um JSON válido (sem markdown, sem texto extra) com os campos: '
-      + '{"title":"nome do produto","price":999.99,"pictures":[{"url":"https://...jpg"}],'
-      + '"attributes":[{"id":"DIM","name":"Dimensões","value_name":"47x30x17cm"}],'
-      + '"permalink":"url do produto"}. '
-      + 'Se não encontrar, retorne {"error":"nao encontrado"}.';
+      + '{"title":"nome do produto","price":999.99,"pictures":[{"url":"https://http2.mlstatic.com/...jpg"}],'
+      + '"attributes":[{"id":"DIM","name":"Dimensoes","value_name":"47x30x17cm"}],'
+      + '"permalink":"https://produto.mercadolivre.com.br/MLB-' + id.replace(/^MLB/i,'') + '-x"}. '
+      + 'Se nao encontrar, retorne {"error":"nao encontrado"}.';
 
     _showStatus('⏳ Buscando via IA...', 'info');
 
     fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
