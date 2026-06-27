@@ -798,7 +798,7 @@
        + 'style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;'
        + 'padding:10px 12px;color:var(--tx);font-size:.78rem;outline:none;" '
        + 'oninput="_mlSetUrl(this.value)" '
-       + 'onpaste="var s=this;setTimeout(function(){_mlSetUrl(s.value);},10)" '
+       + 'onpaste="_mlHandlePaste(event,this)" '
        + 'onkeydown="if(event.key===\'Enter\')_mlBuscar()">';
     h += '<button onclick="_mlBuscar()" '
        + 'style="padding:10px 16px;border-radius:10px;border:none;cursor:pointer;'
@@ -936,15 +936,46 @@
     _renderModal();
   };
 
+  // Limpa URL: remove fragmento #... e espacos
+  function _limparUrl(url) {
+    url = (url || '').trim();
+    var h = url.indexOf('#');
+    if (h !== -1) url = url.substring(0, h);
+    return url.trim();
+  }
+
+  // Paste handler: tenta Clipboard API (pega URL completa no Android),
+  // senao usa clipboardData do evento
+  window._mlHandlePaste = function(evt, inp) {
+    evt.preventDefault();
+    function _aplicar(text) {
+      var url = _limparUrl(text);
+      inp.value = url;
+      _ml.urlAtual = url;
+      if (url) { _ml.data = null; _ml.selPhoto = null; _buscar(url); }
+    }
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(_aplicar).catch(function() {
+        _aplicar(evt.clipboardData ? evt.clipboardData.getData('text') : '');
+      });
+    } else {
+      _aplicar(evt.clipboardData ? evt.clipboardData.getData('text') : '');
+    }
+  };
+
   window._mlBuscar = function() {
     var inp = document.getElementById('ml-url-inp');
-    var url = (inp ? inp.value.trim() : '') || _ml.urlAtual || '';
+    var raw = (inp ? inp.value.trim() : '') || _ml.urlAtual || '';
+    var url = _limparUrl(raw);
+    if (inp && url !== raw) inp.value = url;
     if (!url) { _showStatus('⚠️ Cole o link antes de buscar.', 'warn'); return; }
     _ml.urlAtual = url;
     _ml.data     = null;
     _ml.selPhoto = null;
     _buscar(url);
   };
+
+  window._mlSetUrl = function(val) { _ml.urlAtual = _limparUrl(val); };
 
   window._mlSelecionarFoto = function(idx) {
     var d = _ml.data;
@@ -965,7 +996,5 @@
   };
 
   window._mlSalvar = _salvar;
-
-  window._mlSetUrl = function(val) { _ml.urlAtual = val || ""; };
 
 })();
