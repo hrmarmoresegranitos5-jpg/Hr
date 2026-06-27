@@ -51,24 +51,32 @@
   }
 
   // Extrai MLB... de qualquer link do ML
+  // Retorna {id, isCatalog, fallbackCatalogId?}
   function _extractId(url) {
     url = url.trim();
-    var m, wid;
+    var m, wid, catalogId;
+    // wid= (item real)
     m = url.match(/[?&#]wid=(MLB\d+)/i);
     if (m) wid = m[1].toUpperCase();
+    // item_id: dentro de pdp_filters
     if (!wid) {
       m = url.match(/item_id:(MLB\d+)/i);
       if (m) wid = m[1].toUpperCase();
     }
-    if (wid) return {id: wid, isCatalog: false};
+    // /p/MLBxxxxxxx = catálogo (guarda como fallback se já temos wid)
     m = url.match(/\/p\/(MLB\d+)/i);
-    if (m) return {id: m[1].toUpperCase(), isCatalog: true};
+    if (m) catalogId = m[1].toUpperCase();
+    if (wid) return { id: wid, isCatalog: false, fallbackCatalogId: catalogId || null };
+    if (catalogId) return { id: catalogId, isCatalog: true };
+    // /MLB... direto no path
     m = url.match(/\/(MLB\d+)/i);
-    if (m) return {id: m[1].toUpperCase(), isCatalog: false};
+    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
+    // formato hifenizado /MLB-123456789
     m = url.match(/\/(MLB)-(\d+)/i);
-    if (m) return {id: 'MLB' + m[2], isCatalog: false};
+    if (m) return { id: 'MLB' + m[2], isCatalog: false };
+    // apenas o id digitado
     m = url.match(/^(MLB\d+)$/i);
-    if (m) return {id: m[1].toUpperCase(), isCatalog: false};
+    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
     return null;
   }
 
@@ -185,25 +193,47 @@
   }
 
   function _fetchCatalog(id, cb) {
-    var base = 'https://api.mercadolibre.com/products/' + id;
-    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
-                 headers: { 'Accept': 'application/json' } };
-    var urls = [base];
-    var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker);
-    urls.push(
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://corsproxy.io/?url=' + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
-      'https://thingproxy.freeboard.io/fetch/' + base
-    );
-    _tentarUrls(urls, opts, function(err, d) {
-      if (err || !d) { cb(err || 'sem resposta', null); return; }
+    // Estratégia 1: /products/{id} (às vezes funciona sem auth em catálogos públicos)
+    var base1 = 'https://api.mercadolibre.com/products/' + id;
+    // Estratégia 2: search por catalog_product_id (API pública, sem auth)
+    var base2 = 'https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=' + id + '&limit=1';
+
+    function _extrairItemId(d) {
+      if (!d) return null;
       if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+      // Resposta de /products/
       var itemId = (d.buy_box_winner && d.buy_box_winner.item_id) ||
                    (d.items && d.items[0] && d.items[0].id);
-      if (itemId) { cb(null, itemId); }
-      else { cb('Catálogo sem item vinculado', null); }
+      if (itemId) return itemId;
+      // Resposta de /search
+      if (d.results && d.results[0] && d.results[0].id) return d.results[0].id;
+      return null;
+    }
+
+    function _tentarCom(base, next) {
+      var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
+                   headers: { 'Accept': 'application/json' } };
+      var urls = [base];
+      var viaWorker = _viaWorker(base);
+      if (viaWorker) urls.unshift(viaWorker); // worker primeiro
+      urls.push(
+        'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
+        'https://corsproxy.io/?url=' + encodeURIComponent(base),
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
+        'https://thingproxy.freeboard.io/fetch/' + base
+      );
+      _tentarUrls(urls, opts, function(err, d) {
+        var itemId = _extrairItemId(d);
+        if (!err && itemId) { cb(null, itemId); return; }
+        next();
+      });
+    }
+
+    // Tenta estratégia 1, depois 2, depois desiste
+    _tentarCom(base1, function() {
+      _tentarCom(base2, function() {
+        cb('Não foi possível resolver o catálogo ' + id, null);
+      });
     });
   }
 
@@ -373,11 +403,37 @@
     }
 
     if (info.isCatalog) {
+      // Link de catálogo puro → resolve item ativo
       _fetchCatalog(info.id, function(err, itemId) {
-        carregar(err ? info.id : itemId);
+        if (!err && itemId) { carregar(itemId); return; }
+        // Catálogo não resolveu — tenta buscar o catálogo direto como item
+        carregar(info.id);
       });
     } else {
-      carregar(info.id);
+      // Tem item_id direto; tenta ele primeiro — se pausado, usa catálogo fallback
+      _fetchItem(info.id, function(err, item) {
+        if (!err && item && item.title) {
+          _fetchDesc(info.id, function(_, desc) {
+            _ml.data       = item;
+            _ml.data._desc = desc || '';
+            _ml.selPhoto   = _bestPhoto(item);
+            _ml.loading    = false;
+            _renderModal();
+            _showStatus('✅ Produto encontrado!', 'ok');
+          });
+          return;
+        }
+        if (info.fallbackCatalogId) {
+          _showStatus('⏳ Item pausado, buscando via catálogo...', 'info');
+          _fetchCatalog(info.fallbackCatalogId, function(err2, itemId) {
+            carregar(err2 ? info.fallbackCatalogId : itemId);
+          });
+        } else {
+          _ml.loading = false;
+          _renderModal();
+          _showStatus('❌ Produto não encontrado. Verifique o link ou tente novamente em alguns segundos.', 'error');
+        }
+      });
     }
   }
 
