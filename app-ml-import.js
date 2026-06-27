@@ -8,7 +8,6 @@
 // Estratégia de busca (em cascata):
 //  1. API pública do ML  (api.mercadolibre.com — sem autenticação)
 //  2. Scraping HTML via proxies CORS (allorigins → corsproxy → thingproxy)
-//  3. Anthropic Claude com web_search (usa CFG.emp.apiKey, multi-turn correto)
 //
 // O que faz:
 //  • Injeta botão "🛒 Importar do ML" nas abas de cubas (cfg tab 1 e 2)
@@ -132,14 +131,39 @@
   // ══════════════════════════════════════════════════════════
   function _fetchApiML(id, cb) {
     var base = 'https://api.mercadolibre.com/items/' + id;
+
+    // Tenta SEMPRE a chamada direta primeiro (a API do ML suporta CORS
+    // oficialmente). Só recorre a proxies se a direta falhar — evita que
+    // proxies instáveis/lentos derrubem uma chamada que funcionaria sozinha.
+    fetch(base, { method: 'GET', mode: 'cors', credentials: 'omit',
+                  headers: { 'Accept': 'application/json' } })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(d) {
+        if (d && d.title) { cb(null, d); return; }
+        console.warn('[ML-import] direta sem título, tentando proxies', d);
+        _fetchApiMLViaProxy(base, cb);
+      })
+      .catch(function(e) {
+        console.warn('[ML-import] chamada direta falhou:', e.message || e, '— tentando proxies');
+        _fetchApiMLViaProxy(base, cb);
+      });
+  }
+
+  function _fetchApiMLViaProxy(base, cb) {
     var urls = [
-      base,
       'https://corsproxy.io/?url='        + encodeURIComponent(base),
       'https://api.allorigins.win/raw?url='+ encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
     ];
     _tentarParalelo(urls, function(d) { return d && d.title; }, function(err, d) {
-      if (err || !d || !d.title) { cb(err || 'sem dados', null); return; }
+      if (err || !d || !d.title) {
+        console.warn('[ML-import] todos os proxies falharam:', err);
+        cb(err || 'sem dados', null);
+        return;
+      }
       cb(null, d);
     });
   }
@@ -195,12 +219,16 @@
       'https://thingproxy.freeboard.io/fetch/' + urlProd
     ];
     function tentar(lista) {
-      if (!lista.length) { cb('Falha ao acessar página do produto', null); return; }
+      if (!lista.length) {
+        console.warn('[ML-import] Camada 2: todos os proxies de scraping falharam');
+        cb('Falha ao acessar página do produto', null);
+        return;
+      }
       var proxyUrl = lista[0];
       var isGet    = proxyUrl.indexOf('/get?') !== -1;
       var done     = false;
       var timer    = setTimeout(function() {
-        if (!done) { done = true; tentar(lista.slice(1)); }
+        if (!done) { done = true; console.warn('[ML-import] Camada 2: timeout em', proxyUrl); tentar(lista.slice(1)); }
       }, 12000);
       fetch(proxyUrl)
         .then(function(r) { return r.ok ? (isGet ? r.json() : r.text()) : Promise.reject('HTTP ' + r.status); })
@@ -211,8 +239,8 @@
             cb(null, html);
           }
         })
-        .catch(function() {
-          if (!done) { done = true; clearTimeout(timer); tentar(lista.slice(1)); }
+        .catch(function(e) {
+          if (!done) { done = true; clearTimeout(timer); console.warn('[ML-import] Camada 2 falhou em', proxyUrl, e.message || e); tentar(lista.slice(1)); }
         });
     }
     tentar(proxies);
@@ -289,120 +317,7 @@
   }
 
   // ══════════════════════════════════════════════════════════
-  // CAMADA 3 — Anthropic Claude com web_search (multi-turn)
-  // ══════════════════════════════════════════════════════════
-  function _fetchViaAnthropic(id, cb) {
-    var apiKey = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) || '';
-    if (!apiKey) {
-      cb('Produto não encontrado via proxies. Configure a API Key Anthropic em Configurações para habilitar busca por IA.', null);
-      return;
-    }
-
-    _showStatus('⏳ Buscando via IA (Claude)...', 'info');
-
-    var prompt = 'Pesquise no Mercado Livre Brasil o produto com código ' + id + '. '
-      + 'Retorne APENAS um objeto JSON válido, sem markdown, sem texto extra, com esta estrutura: '
-      + '{"title":"nome completo do produto","price":999.99,'
-      + '"pictures":[{"url":"https://http2.mlstatic.com/...jpg"}],'
-      + '"attributes":[{"id":"BRAND","name":"Marca","value_name":"NomeMarca"},{"id":"DIM","name":"Dimensões","value_name":"60x40cm"}],'
-      + '"permalink":"https://www.mercadolivre.com.br/MLB-XXXXX-x.html"}. '
-      + 'Se não encontrar o produto, retorne: {"error":"não encontrado"}.';
-
-    var messages = [{ role: 'user', content: prompt }];
-
-    // Executa até 3 turnos para processar tool_use → tool_result
-    function _turno(msgs, tentativas) {
-      if (tentativas <= 0) { cb('Limite de turnos IA atingido', null); return; }
-
-      fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1024,
-          tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-          messages: msgs
-        })
-      })
-      .then(function(r) {
-        if (!r.ok) {
-          return r.text().then(function(body) {
-            var msg = 'HTTP ' + r.status;
-            if (r.status === 401) msg = 'API Key inválida (401). Verifique em Configurações → API Key Anthropic.';
-            else if (r.status === 403) msg = 'Acesso negado (403). Verifique permissões da API Key.';
-            else if (r.status === 429) msg = 'Limite de requisições atingido (429). Aguarde e tente novamente.';
-            throw new Error(msg);
-          });
-        }
-        return r.json();
-      })
-      .then(function(resp) {
-        var stopReason  = resp.stop_reason;
-        var contentBlks = resp.content || [];
-
-        // Coleta todos os blocos de texto para tentar extrair JSON
-        var textoFinal = contentBlks
-          .filter(function(b) { return b.type === 'text'; })
-          .map(function(b)    { return b.text; })
-          .join('');
-
-        // Se há tool_use, precisamos fazer outro turno com tool_result
-        var toolUseBlocks = contentBlks.filter(function(b) { return b.type === 'tool_use'; });
-
-        if (toolUseBlocks.length > 0 && stopReason === 'tool_use') {
-          // Monta tool_result para cada tool_use
-          var toolResults = toolUseBlocks.map(function(tb) {
-            return {
-              type:        'tool_result',
-              tool_use_id: tb.id,
-              content:     'Busca realizada. Por favor retorne agora APENAS o JSON do produto ' + id + '.'
-            };
-          });
-
-          // Adiciona a resposta do assistente e os tool_results na conversa
-          var novaMsgs = msgs.concat([
-            { role: 'assistant', content: contentBlks },
-            { role: 'user',      content: toolResults }
-          ]);
-          _turno(novaMsgs, tentativas - 1);
-          return;
-        }
-
-        // Tenta extrair JSON da resposta final
-        var texto = textoFinal.trim();
-        // Remove markdown ```json ... ```
-        texto = texto.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-        // Extrai o primeiro objeto JSON encontrado
-        var jsonMatch = texto.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) { cb('IA não retornou JSON válido: ' + texto.slice(0,120), null); return; }
-
-        var dados;
-        try { dados = JSON.parse(jsonMatch[0]); }
-        catch(e) { cb('JSON inválido da IA: ' + texto.slice(0,120), null); return; }
-
-        if (dados.error) { cb('IA: ' + dados.error, null); return; }
-        if (!dados.title) { cb('IA retornou dados incompletos', null); return; }
-
-        dados.id              = id;
-        dados._via_anthropic  = true;
-        dados.pictures        = dados.pictures || [];
-        dados.attributes      = dados.attributes || [];
-        dados.permalink       = dados.permalink || ('https://www.mercadolivre.com.br/' + id.replace(/^MLB/i,'MLB-') + '-x.html');
-        cb(null, dados);
-      })
-      .catch(function(e) { cb(String(e.message || e), null); });
-    }
-
-    _turno(messages, 4);
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // ORQUESTRADOR — tenta as 3 camadas em cascata
+  // ORQUESTRADOR — tenta as 2 camadas em cascata
   // ══════════════════════════════════════════════════════════
   function _fetchItem(id, cb) {
     // Camada 1: API pública do ML
@@ -422,8 +337,8 @@
           return;
         }
 
-        // Camada 3: Anthropic com web_search
-        _fetchViaAnthropic(id, cb);
+        console.warn('[ML-import] Camada 1 e 2 falharam para', id, '| erro1:', err1, '| erro2:', err2);
+        cb('Produto não encontrado. Verifique o link ou tente novamente em alguns segundos.', null);
       });
     });
   }
@@ -753,7 +668,7 @@
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">Tentando API → proxies → IA</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">Tentando API → página do produto</span>'
          + '</div>';
     }
 
@@ -851,8 +766,6 @@
       // Fonte dos dados
       if (d._scraped) {
         h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">📄 Dados obtidos via página do produto</div>';
-      } else if (d._via_anthropic) {
-        h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">🤖 Dados obtidos via IA</div>';
       } else {
         h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">✅ Dados obtidos via API oficial ML</div>';
       }
