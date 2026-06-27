@@ -6698,6 +6698,7 @@ function buildCfg(){
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="CFG.coz.push({id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,inst:110,instCli:160,photo:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _mlAbrirModal===\'function\'){_mlAbrirModal(\'coz\');}else{alert(\'Módulo ML não carregado. Adicione app-ml-import.js ao index.html.\');}" style="background:#0a1f0f;color:#4ade80;border:1px solid #1a4a2a;margin-top:6px;">🛒 Importar do Mercado Livre</button>';
   }
   else if(cfgTab===2){
     // CUBAS BANHEIRO
@@ -6719,6 +6720,7 @@ function buildCfg(){
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="CFG.lav.push({id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,inst:220,instCli:280,photo:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _mlAbrirModal===\'function\'){_mlAbrirModal(\'lav\');}else{alert(\'Módulo ML não carregado. Adicione app-ml-import.js ao index.html.\');}" style="background:#0a1f0f;color:#4ade80;border:1px solid #1a4a2a;margin-top:6px;">🛒 Importar do Mercado Livre</button>';
   }
   else if(cfgTab===3){
     // SERVIÇOS — editável: nome, preço, adicionar, remover, reordenar
