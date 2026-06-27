@@ -44,10 +44,19 @@
     // /p/MLB... (catálogo)
     var m = url.match(/\/p\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: true};
-    // /MLB... direto
+    // parâmetro wid=MLB... (links /up/ de compartilhamento — wid pode vir após ? ou & ou #)
+    m = url.match(/[?&#]wid=(MLB\d+)/i);
+    if (m) return {id: m[1], isCatalog: false};
+    // parâmetro pdp_filters=item_id:MLB...
+    m = url.match(/item_id:(MLB\d+)/i);
+    if (m) return {id: m[1], isCatalog: false};
+    // /MLB... direto no path
     m = url.match(/\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: false};
-    // apenas o id
+    // formato hifenizado /MLB-123456789-titulo
+    m = url.match(/\/(MLB)-(\d+)/i);
+    if (m) return {id: m[1].toUpperCase() + m[2], isCatalog: false};
+    // apenas o id digitado
     m = url.match(/^(MLB\d+)$/i);
     if (m) return {id: m[1], isCatalog: false};
     return null;
@@ -575,76 +584,9 @@
 
   window._mlSalvar = _salvar;
 
-  // ══════════════════════════════════════════════════════════
-  // INJEÇÃO DOS BOTÕES NAS ABAS DE CONFIGURAÇÃO
-  // ══════════════════════════════════════════════════════════
-  // Estratégia: monkey-patch buildCfg para adicionar o botão
-  // logo após "cfgadd" de + Nova Cuba nas abas 1 (coz) e 2 (lav)
-  var _origBuildCfg = window.buildCfg;
+  // Os botões "🛒 Importar do Mercado Livre" são injetados
+  // diretamente pelo app-core.js via buildCfg() — não precisa de monkey-patch aqui.
 
-  function _injetarBotoesCfg() {
-    // Aba 1 (cfgTab===1) — Cubas Cozinha
-    // Aba 2 (cfgTab===2) — Cubas Banheiro
-    // Insere botão depois do "+ Nova Cuba" existente
-    var cat = (typeof cfgTab !== 'undefined' && cfgTab === 2) ? 'lav' : 'coz';
-    // A função buildCfg usa a variável cfgTab globalmente
-    // Injeta após o render existente
-    setTimeout(function () {
-      var containers = document.querySelectorAll('.cfgadd');
-      containers.forEach(function(btn) {
-        // Verifica se é o botão de nova cuba (não de acessório, etc.)
-        if ((btn.textContent||'').indexOf('Nova Cuba') < 0) return;
-        // Evita duplicação
-        if (btn.nextSibling && btn.nextSibling.id === 'ml-import-btn') return;
-        var mlBtn = document.createElement('button');
-        mlBtn.id   = 'ml-import-btn';
-        mlBtn.className = 'cfgadd';
-        // determina categoria pelo contexto do botão
-        var isCoz = true;
-        var p = btn.parentElement;
-        while (p) {
-          if (p.dataset && p.dataset.cat === 'lav') { isCoz = false; break; }
-          p = p.parentElement;
-        }
-        // fallback: usa cfgTab
-        if (typeof cfgTab !== 'undefined') {
-          isCoz = (cfgTab !== 2);
-        }
-        mlBtn.innerHTML  = '🛒 Importar do Mercado Livre';
-        mlBtn.style.background = '#0a1f0f';
-        mlBtn.style.color      = '#4ade80';
-        mlBtn.style.border     = '1px solid #1a4a2a';
-        mlBtn.style.marginTop  = '6px';
-        mlBtn.onclick = function() {
-          _abrirModal(isCoz ? 'coz' : 'lav');
-        };
-        btn.parentNode.insertBefore(mlBtn, btn.nextSibling);
-      });
-    }, 0);
-  }
-
-  if (typeof _origBuildCfg === 'function') {
-    window.buildCfg = function() {
-      _origBuildCfg.apply(this, arguments);
-      _injetarBotoesCfg();
-    };
-  } else {
-    // buildCfg ainda não carregou — espera
-    var _waitCfg = setInterval(function() {
-      if (typeof buildCfg === 'function') {
-        clearInterval(_waitCfg);
-        var _orig = window.buildCfg;
-        window.buildCfg = function() {
-          _orig.apply(this, arguments);
-          _injetarBotoesCfg();
-        };
-      }
-    }, 150);
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // Também expõe função direta para chamada avulsa
-  // ══════════════════════════════════════════════════════════
   window.abrirMLImport = _abrirModal;
 
 })();
