@@ -702,8 +702,8 @@
     h += '<input id="ml-url-inp" type="text" placeholder="https://www.mercadolivre.com.br/... ou MLB123456789" '
        + 'style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;'
        + 'padding:10px 12px;color:var(--tx);font-size:.78rem;outline:none;" '
-       + 'oninput="_ml.urlAtual=this.value" '
-       + 'onpaste="var s=this;setTimeout(function(){_ml.urlAtual=s.value;},10)" '
+       + 'oninput="_mlSetUrl(this.value)" '
+       + 'onpaste="var s=this;setTimeout(function(){_mlSetUrl(s.value);},10)" '
        + 'onkeydown="if(event.key===\'Enter\')_mlBuscar()">';
     h += '<button onclick="_mlBuscar()" '
        + 'style="padding:10px 16px;border-radius:10px;border:none;cursor:pointer;'
@@ -884,5 +884,8 @@
   };
 
   window._mlSalvar = _salvar;
+
+  // Expõe setter de URL (evita ReferenceError: _ml is not defined nos inline handlers)
+  window._mlSetUrl = function(val) { _ml.urlAtual = val || ""; };
 
 })();
