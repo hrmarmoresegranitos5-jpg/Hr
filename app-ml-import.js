@@ -54,6 +54,9 @@
   // Retorna {id, isCatalog, fallbackCatalogId?}
   function _extractId(url) {
     url = url.trim();
+    // Remove fragmento (#...) — links compartilhados do ML têm #origin=share&...
+    var hashIdx = url.indexOf('#');
+    if (hashIdx !== -1) url = url.substring(0, hashIdx);
     var m, wid, catalogId;
     // wid= (item real)
     m = url.match(/[?&#]wid=(MLB\d+)/i);
@@ -229,9 +232,10 @@
       });
     }
 
-    // Tenta estratégia 1, depois 2, depois desiste
+    // Tenta estratégia 1 (/products/), depois 2 (search?catalog_product_id=), depois desiste
     _tentarCom(base1, function() {
-      _tentarCom(base2, function() {
+      _fetchCatalogSearch(id, function(err2, itemId) {
+        if (!err2 && itemId) { cb(null, itemId); return; }
         cb('Não foi possível resolver o catálogo ' + id, null);
       });
     });
@@ -377,22 +381,44 @@
     });
   }
 
+  // Busca itens de um catálogo via search API (sem auth)
+  function _fetchCatalogSearch(catalogId, cb) {
+    var base = 'https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=' + catalogId + '&limit=1';
+    var urls = [];
+    var viaWorker = _viaWorker(base);
+    if (viaWorker) urls.push(viaWorker);
+    urls.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
+      'https://corsproxy.io/?url=' + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base)
+    );
+    _tentarParalelo(urls, function(d) {
+      return d && d.results && d.results.length > 0;
+    }, function(err, d) {
+      if (err || !d || !d.results || !d.results[0]) { cb(err || 'sem resultados', null); return; }
+      cb(null, d.results[0].id);
+    });
+  }
+
   // Extrai query de texto de uma URL do ML (para usar na camada 3)
   function _queryDaUrl(rawUrl) {
     // tenta extrair do path: /cuba-inox-dupla-55x34-torneira-prata/p/...
     var m = rawUrl.match(/mercadolivre\.com\.br\/([^/?#]+)/i);
     if (!m) return '';
-    var slug = m[1].replace(/-/g, ' ').replace(/\bmlb\b/gi, '').trim();
-    // Remove palavras muito curtas e limita a 6 palavras
-    var palavras = slug.split(' ').filter(function(p) { return p.length > 2; }).slice(0, 6);
+    var slug = m[1];
+    if (/^(p\/)?MLB\d+/i.test(slug)) return ''; // só id de catálogo, sem texto
+    var palavras = slug.replace(/-/g, ' ').split(' ')
+      .filter(function(p) { return p.length > 2 && !/^MLB\d*$/i.test(p); })
+      .slice(0, 6);
     return palavras.join(' ');
   }
   // ══════════════════════════════════════════════════════════
   // ORQUESTRADOR — 3 camadas em cascata
   // ══════════════════════════════════════════════════════════
-  function _fetchItem(id, rawUrl, cb) {
-    // Suporte a chamada legada sem rawUrl: _fetchItem(id, cb)
-    if (typeof rawUrl === 'function') { cb = rawUrl; rawUrl = ''; }
+  function _fetchItem(id, rawUrl, catalogId, cb) {
+    // Suporte a chamadas sem todos os parâmetros
+    if (typeof rawUrl === 'function')   { cb = rawUrl; rawUrl = ''; catalogId = ''; }
+    if (typeof catalogId === 'function'){ cb = catalogId; catalogId = ''; }
 
     // Camada 1: API pública do ML
     _showStatus('⏳ Buscando na API do Mercado Livre...', 'info');
@@ -405,16 +431,49 @@
         var item2 = html ? _parsearHTML(html, id) : null;
         if (item2 && item2.title) { cb(null, item2); return; }
 
-        // Camada 3: Busca por texto (slug da URL ou id)
-        _showStatus('⏳ Buscando por texto...', 'info');
-        var query = (rawUrl && _queryDaUrl(rawUrl)) || '';
-        if (!query) { cb('Produto não encontrado. Verifique o link ou tente novamente.', null); return; }
-        _fetchPorTexto(query, function(err3, item3) {
-          if (!err3 && item3 && item3.title) { cb(null, item3); return; }
-          console.warn('[ML-import] Todas as camadas falharam para', id);
-          cb('Produto não encontrado. Verifique o link ou tente novamente.', null);
-        });
+        // Camada 3a: search por catalog_product_id (se disponível)
+        if (catalogId) {
+          _showStatus('⏳ Buscando via catálogo...', 'info');
+          _fetchCatalogSearch(catalogId, function(err3, altItemId) {
+            if (!err3 && altItemId && altItemId !== id) {
+              _fetchApiML(altItemId, function(err4, item4) {
+                if (!err4 && item4 && item4.title) { cb(null, item4); return; }
+                _camada3texto(rawUrl, cb);
+              });
+              return;
+            }
+            _camada3texto(rawUrl, cb);
+          });
+          return;
+        }
+
+        _camada3texto(rawUrl, cb);
       });
+    });
+  }
+
+  function _camada3texto(rawUrl, cb) {
+    var query = rawUrl ? _queryDaUrl(rawUrl) : '';
+    if (!query) {
+      // Sem slug de texto (ex: produto.mercadolivre.com.br/MLB-4787845933)
+      // Tenta busca pelo MLB ID como query (camada 3b)
+      var mId = rawUrl ? rawUrl.match(/\/(MLB)-(\d+)/i) : null;
+      var mlbQuery = mId ? ('MLB' + mId[2]) : '';
+      if (mlbQuery) {
+        _showStatus('\u23f3 Buscando por c\u00f3digo MLB...', 'info');
+        _fetchPorTexto(mlbQuery, function(err, item) {
+          if (!err && item && item.title) { cb(null, item); return; }
+          cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
+        });
+        return;
+      }
+      cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
+      return;
+    }
+    _showStatus('\u23f3 Buscando por texto...', 'info');
+    _fetchPorTexto(query, function(err, item) {
+      if (!err && item && item.title) { cb(null, item); return; }
+      cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
     });
   }
 
@@ -455,7 +514,7 @@
       });
     } else {
       // Tenta item direto; se falhar e houver catálogo fallback, usa ele
-      _fetchItem(info.id, rawUrl, function(err, item) {
+      _fetchItem(info.id, rawUrl, info.fallbackCatalogId || '', function(err, item) {
         if (!err && item && item.title) {
           _fetchDesc(info.id, function(_, desc) {
             _ml.data       = item;
