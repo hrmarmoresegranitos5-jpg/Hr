@@ -21,6 +21,16 @@
 (function () {
   'use strict';
 
+  // ─── Proxy CORS próprio (Cloudflare Worker) ───────────────
+  // Troque pela URL real do seu Worker depois de publicá-lo.
+  // Ex: 'https://hr-ml-proxy.SEUUSUARIO.workers.dev'
+  var WORKER_URL = 'https://hr-ml-proxy.SEUUSUARIO.workers.dev';
+
+  function _viaWorker(targetUrl) {
+    if (!WORKER_URL || WORKER_URL.indexOf('SEUUSUARIO') !== -1) return null;
+    return WORKER_URL + '?url=' + encodeURIComponent(targetUrl);
+  }
+
   // ─── Estado interno ────────────────────────────────────────
   var _ml = {
     loading:  false,
@@ -123,7 +133,7 @@
     // Timeout geral de 8s
     setTimeout(function() {
       if (!done) { done = true; cb('Timeout', null); }
-    }, 8000);
+    }, 11000);
   }
 
   // ══════════════════════════════════════════════════════════
@@ -153,11 +163,15 @@
   }
 
   function _fetchApiMLViaProxy(base, cb) {
-    var urls = [
+    var urls = [];
+    var viaWorker = _viaWorker(base);
+    if (viaWorker) urls.push(viaWorker); // proxy próprio (Cloudflare Worker) — se configurado
+    urls.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
       'https://corsproxy.io/?url='        + encodeURIComponent(base),
       'https://api.allorigins.win/raw?url='+ encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
-    ];
+    );
     _tentarParalelo(urls, function(d) { return d && d.title; }, function(err, d) {
       if (err || !d || !d.title) {
         console.warn('[ML-import] todos os proxies falharam:', err);
@@ -173,12 +187,15 @@
     var base = 'https://api.mercadolibre.com/items/' + id + '/description';
     var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
                  headers: { 'Accept': 'application/json' } };
-    var urls = [
-      base,
+    var urls = [base];
+    var viaWorker = _viaWorker(base);
+    if (viaWorker) urls.push(viaWorker);
+    urls.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
       'https://corsproxy.io/?url=' + encodeURIComponent(base),
       'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
-    ];
+    );
     _tentarUrls(urls, opts, function(err, d) {
       if (err || !d) { cb(null, ''); return; }
       if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
@@ -191,12 +208,15 @@
     var base = 'https://api.mercadolibre.com/products/' + id;
     var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
                  headers: { 'Accept': 'application/json' } };
-    var urls = [
-      base,
+    var urls = [base];
+    var viaWorker = _viaWorker(base);
+    if (viaWorker) urls.push(viaWorker);
+    urls.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
       'https://corsproxy.io/?url=' + encodeURIComponent(base),
       'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
-    ];
+    );
     _tentarUrls(urls, opts, function(err, d) {
       if (err || !d) { cb(err || 'sem resposta', null); return; }
       if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
@@ -212,12 +232,16 @@
   // ══════════════════════════════════════════════════════════
   function _fetchPaginaML(itemId, cb) {
     var urlProd = 'https://www.mercadolivre.com.br/' + itemId.replace(/^MLB/i,'MLB-') + '-x.html';
-    var proxies = [
+    var proxies = [];
+    var viaWorker = _viaWorker(urlProd);
+    if (viaWorker) proxies.push(viaWorker); // proxy próprio — prioridade
+    proxies.push(
+      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(urlProd),
       'https://api.allorigins.win/raw?url=' + encodeURIComponent(urlProd),
       'https://corsproxy.io/?url=' + encodeURIComponent(urlProd),
       'https://api.allorigins.win/get?url='  + encodeURIComponent(urlProd),
       'https://thingproxy.freeboard.io/fetch/' + urlProd
-    ];
+    );
     function tentar(lista) {
       if (!lista.length) {
         console.warn('[ML-import] Camada 2: todos os proxies de scraping falharam');
