@@ -65,10 +65,14 @@
   // ─── API do ML ─────────────────────────────────────────────
   function _fetchItem(id, cb) {
     var url = 'https://api.mercadolibre.com/items/' + id;
+    var done = false;
+    var timer = setTimeout(function() {
+      if (!done) { done = true; cb('Timeout — sem resposta da API do ML', null); }
+    }, 12000);
     fetch(url)
       .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-      .then(function(d){ cb(null, d); })
-      .catch(function(e){ cb(e, null); });
+      .then(function(d){ if (!done) { done = true; clearTimeout(timer); cb(null, d); } })
+      .catch(function(e){ if (!done) { done = true; clearTimeout(timer); cb(String(e), null); } });
   }
 
   function _fetchDesc(id, cb) {
@@ -104,14 +108,15 @@
     _ml.loading = true;
     _ml.data    = null;
     _renderModal();
-    _showStatus('⏳ Buscando...', 'info');
+    _showStatus('⏳ Buscando produto no Mercado Livre...', 'info');
 
     function carregar(itemId) {
       _fetchItem(itemId, function(err, item) {
         if (err || !item) {
-          _showStatus('❌ Não foi possível buscar o produto. Verifique o link.', 'error');
           _ml.loading = false;
           _renderModal();
+          var msg = String(err || 'sem resposta');
+          _showStatus('❌ Erro: ' + msg, 'error');
           return;
         }
         _fetchDesc(itemId, function(_, desc) {
