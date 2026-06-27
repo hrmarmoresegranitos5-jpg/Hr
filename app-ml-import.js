@@ -63,24 +63,51 @@
   }
 
   // ─── API do ML ─────────────────────────────────────────────
-  function _fetchItem(id, cb) {
-    var url = 'https://api.mercadolibre.com/items/' + id;
+  var _ML_PROXIES = [
+    'https://api.mercadolibre.com/items/',
+    'https://corsproxy.io/?url=https://api.mercadolibre.com/items/',
+    'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/')
+  ];
+
+  function _fetchComProxy(proxies, id, cb) {
+    if (!proxies.length) { cb('HTTP 403 — ML bloqueou todas as tentativas', null); return; }
+    var base = proxies[0];
+    var rest = proxies.slice(1);
+    var url = base.indexOf('allorigins') !== -1
+      ? 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id)
+      : base + id;
     var done = false;
     var timer = setTimeout(function() {
-      if (!done) { done = true; cb('Timeout — sem resposta da API do ML', null); }
-    }, 12000);
+      if (!done) { done = true; _fetchComProxy(rest, id, cb); }
+    }, 8000);
     fetch(url)
-      .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-      .then(function(d){ if (!done) { done = true; clearTimeout(timer); cb(null, d); } })
-      .catch(function(e){ if (!done) { done = true; clearTimeout(timer); cb(String(e), null); } });
+      .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+      .then(function(d) {
+        if (!done) { done = true; clearTimeout(timer); cb(null, d); }
+      })
+      .catch(function() {
+        if (!done) { done = true; clearTimeout(timer); _fetchComProxy(rest, id, cb); }
+      });
+  }
+
+  function _fetchItem(id, cb) {
+    _fetchComProxy(_ML_PROXIES.slice(), id, cb);
   }
 
   function _fetchDesc(id, cb) {
-    var url = 'https://api.mercadolibre.com/items/' + id + '/description';
-    fetch(url)
-      .then(function(r){ return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-      .then(function(d){ cb(null, d.plain_text || ''); })
-      .catch(function(){ cb(null, ''); }); // descrição é opcional
+    var proxies = [
+      'https://api.mercadolibre.com/items/' + id + '/description',
+      'https://corsproxy.io/?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id + '/description'),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.mercadolibre.com/items/' + id + '/description')
+    ];
+    function tentar(lista) {
+      if (!lista.length) { cb(null, ''); return; }
+      fetch(lista[0])
+        .then(function(r){ return r.ok ? r.json() : Promise.reject(); })
+        .then(function(d){ cb(null, d.plain_text || ''); })
+        .catch(function(){ tentar(lista.slice(1)); });
+    }
+    tentar(proxies);
   }
 
   // Resolve catálogo → item principal
