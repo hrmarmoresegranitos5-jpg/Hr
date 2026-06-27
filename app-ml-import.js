@@ -44,18 +44,23 @@
   }
 
   // Extrai MLB... de qualquer link do ML
+  // Regra: wid= e item_id: são sempre o item real; /p/MLB sem wid= é catálogo
   function _extractId(url) {
     url = url.trim();
-    var m;
-    // /p/MLB... (catálogo)
+    var m, wid, catalogId;
+    // Extrai wid= (item real compartilhado) — maior prioridade
+    m = url.match(/[?&#]wid=(MLB\d+)/i);
+    if (m) wid = m[1].toUpperCase();
+    // Extrai item_id: (pdp_filters)
+    if (!wid) {
+      m = url.match(/item_id:(MLB\d+)/i);
+      if (m) wid = m[1].toUpperCase();
+    }
+    // Se tem wid/item_id, é o item real — usa direto, ignora /p/
+    if (wid) return {id: wid, isCatalog: false};
+    // /p/MLB... sem wid = página de catálogo para resolver
     m = url.match(/\/p\/(MLB\d+)/i);
     if (m) return {id: m[1].toUpperCase(), isCatalog: true};
-    // parâmetro wid=MLB...
-    m = url.match(/[?&#]wid=(MLB\d+)/i);
-    if (m) return {id: m[1].toUpperCase(), isCatalog: false};
-    // pdp_filters=item_id:MLB...
-    m = url.match(/item_id:(MLB\d+)/i);
-    if (m) return {id: m[1].toUpperCase(), isCatalog: false};
     // /MLB... direto no path
     m = url.match(/\/(MLB\d+)/i);
     if (m) return {id: m[1].toUpperCase(), isCatalog: false};
@@ -68,7 +73,7 @@
     return null;
   }
 
-  // Tenta uma lista de URLs em sequência até uma responder OK
+  // Tenta uma lista de URLs em sequência com timeout reduzido
   function _tentarUrls(urls, opts, cb) {
     if (!urls.length) { cb('Todas as tentativas falharam', null); return; }
     var url  = urls[0];
@@ -76,7 +81,7 @@
     var done = false;
     var timer = setTimeout(function() {
       if (!done) { done = true; _tentarUrls(rest, opts, cb); }
-    }, 10000);
+    }, 6000);
     fetch(url, opts)
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -90,24 +95,51 @@
       });
   }
 
+  // Tenta várias URLs em paralelo — vence a mais rápida que retornar dado válido
+  function _tentarParalelo(urls, validar, cb) {
+    var done   = false;
+    var erros  = 0;
+    var total  = urls.length;
+    if (!total) { cb('Sem URLs', null); return; }
+    urls.forEach(function(url) {
+      fetch(url, { method: 'GET', mode: 'cors', credentials: 'omit',
+                   headers: { 'Accept': 'application/json' } })
+        .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+        .then(function(d) {
+          // desencapsula allorigins
+          if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
+          if (!done && validar(d)) {
+            done = true;
+            cb(null, d);
+          } else {
+            erros++;
+            if (!done && erros === total) cb('Todas falharam', null);
+          }
+        })
+        .catch(function() {
+          erros++;
+          if (!done && erros === total) cb('Todas falharam', null);
+        });
+    });
+    // Timeout geral de 8s
+    setTimeout(function() {
+      if (!done) { done = true; cb('Timeout', null); }
+    }, 8000);
+  }
+
   // ══════════════════════════════════════════════════════════
-  // CAMADA 1 — API pública do Mercado Livre (sem auth)
+  // CAMADA 1 — API pública do Mercado Livre (sem auth, paralelo)
   // ══════════════════════════════════════════════════════════
   function _fetchApiML(id, cb) {
     var base = 'https://api.mercadolibre.com/items/' + id;
-    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
-                 headers: { 'Accept': 'application/json' } };
-    // Tentativas: direto + via proxies CORS
     var urls = [
       base,
-      'https://corsproxy.io/?url=' + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
+      'https://corsproxy.io/?url='        + encodeURIComponent(base),
+      'https://api.allorigins.win/raw?url='+ encodeURIComponent(base),
       'https://thingproxy.freeboard.io/fetch/' + base
     ];
-    _tentarUrls(urls, opts, function(err, d) {
+    _tentarParalelo(urls, function(d) { return d && d.title; }, function(err, d) {
       if (err || !d || !d.title) { cb(err || 'sem dados', null); return; }
-      // allorigins /get encapsula em .contents
-      if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
       cb(null, d);
     });
   }
