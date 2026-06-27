@@ -43,10 +43,19 @@
     // /p/MLB... (catálogo)
     var m = url.match(/\/p\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: true};
-    // /MLB... direto
+    // parâmetro wid=MLB... (links /up/ de compartilhamento)
+    m = url.match(/[?&]wid=(MLB\d+)/i);
+    if (m) return {id: m[1], isCatalog: false};
+    // parâmetro pdp_filters=item_id:MLB...
+    m = url.match(/item_id:(MLB\d+)/i);
+    if (m) return {id: m[1], isCatalog: false};
+    // /MLB... direto no path
     m = url.match(/\/(MLB\d+)/i);
     if (m) return {id: m[1], isCatalog: false};
-    // apenas o id
+    // formato hifenizado /MLB-123456789-titulo
+    m = url.match(/\/(MLB)-?(\d+)/i);
+    if (m) return {id: m[1].toUpperCase() + m[2], isCatalog: false};
+    // apenas o id digitado
     m = url.match(/^(MLB\d+)$/i);
     if (m) return {id: m[1], isCatalog: false};
     return null;
