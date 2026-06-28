@@ -8962,6 +8962,7 @@ function publicarCatalogo(){
     cubas_coz:_normFotosPublic(CFG.coz),
     cubas_lav:_normFotosPublic(CFG.lav),
     acessorios:_normFotosPublic(CFG.ac),
+    pedras:_normStonesPublic(CFG.stones),
     updatedAt:new Date().toISOString()
   };
   var jsonStr=JSON.stringify(dados);
@@ -9003,6 +9004,15 @@ function _normFotosPublic(lista){
     var o=Object.assign({},c);o.fotos=f;o.photo=f[0]||c.photo||'';return o;
   });
 }
+// Pedras (granito/mármore/quartzito/ultra compacto/travertino) para o catálogo público.
+// Só publica pedras que já têm foto real cadastrada — sem foto fica de fora do site.
+function _normStonesPublic(lista){
+  return (lista||[]).filter(function(s){return s&&s.photo;}).map(function(s){
+    var f=s.fotos?s.fotos.slice():[];
+    if(s.photo&&f.indexOf(s.photo)<0)f.unshift(s.photo);
+    return {id:s.id,nm:s.nm,cat:s.cat,fin:s.fin,pr:s.pr,desc:s.desc||'',photo:f[0]||s.photo,fotos:f};
+  });
+}
 function baixarCatalogoJson(){
   var dados={
     emp:{
@@ -9021,6 +9031,7 @@ function baixarCatalogoJson(){
     cubas_coz:_normFotosPublic(CFG.coz),
     cubas_lav:_normFotosPublic(CFG.lav),
     acessorios:_normFotosPublic(CFG.ac),
+    pedras:_normStonesPublic(CFG.stones),
     updatedAt:new Date().toISOString()
   };
   _baixarViaLink(JSON.stringify(dados,null,2),'catalogo.json');
