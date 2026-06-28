@@ -773,19 +773,6 @@ function openItem(cat,idx,fromDeepLink){
     ?'<div class="mdpr"><span class="v">R$ '+fm(pr)+(cat==='pedra'?'<small style="font-size:.6em;font-weight:600;">/m²</small>':'')+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
     :'<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
 
-  /* campo de metragem — só para pedras, calcula o total automaticamente */
-  var m2Block='';
-  if(cat==='pedra'&&pr>0){
-    m2Block='<div class="md-m2box">'
-      +'<label class="md-m2lbl">Quantos m² você precisa?</label>'
-      +'<div class="md-m2row">'
-      +'<input type="number" id="mdM2Input" class="md-m2inp" min="0" step="0.1" placeholder="Ex: 3.5" value="'+(STONE_M2||'')+'" oninput="_updM2Total('+pr+')">'
-      +'<span class="md-m2unit">m²</span>'
-      +'</div>'
-      +'<div class="md-m2total" id="mdM2Total">Informe a metragem para calcular o total</div>'
-      +'</div>';
-  }
-
   document.getElementById('md').innerHTML=
     galHtml
     +'<div class="mdbody">'
@@ -794,7 +781,6 @@ function openItem(cat,idx,fromDeepLink){
     +(subtitle?'<div class="mddim">'+esc(subtitle)+'</div>':'')
     +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
     +priceBlock
-    +m2Block
     +'<div class="md-actions">'
     +'<button class="btn-add-cart" onclick="addToCart(\''+cat+'\','+idx+')">🛒 Adicionar ao pedido</button>'
     +'<button class="btnwa" onclick="pedirWhatsApp()">'
@@ -805,7 +791,6 @@ function openItem(cat,idx,fromDeepLink){
     +'</div>';
 
   document.getElementById('ov').classList.add('on');
-  if(cat==='pedra'&&pr>0)_updM2Total(pr);
 }
 
 /* atualiza o total exibido no modal conforme o usuário digita a metragem */
@@ -990,18 +975,6 @@ function addToCart(cat,idx){
 
   var entry={cat:cat,idx:idx,it:it};
 
-  if(cat==='pedra'&&it.pr>0){
-    var inp=document.getElementById('mdM2Input');
-    var m2=inp?parseFloat((inp.value||'').replace(',','.')):0;
-    if(!m2||m2<=0){
-      showToast('⚠ Informe a metragem (m²) antes de adicionar');
-      if(inp)inp.focus();
-      return;
-    }
-    entry.m2=m2;
-    entry.totalCalc=m2*it.pr;
-  }
-
   CART.push(entry);
   atualizarFab();
   showToast('✅ Adicionado ao pedido!');
@@ -1104,12 +1077,14 @@ function renderResumo(){
     var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
     var foto=fotos[0]||'';
     var pr=it.pr||0;
-    var lineTotal=isPedra?(e.totalCalc||0):pr;
+    var lineTotal=isPedra&&e.m2>0?(e.totalCalc||0):(!isPedra?pr:0);
     if(lineTotal>0)total+=lineTotal;
     var subtitle=it.dim||(isPedra?[it.cat,it.fin?'Acabamento '+it.fin:''].filter(Boolean).join(' · '):'');
     var priceHtml;
     if(isPedra&&e.m2>0){
       priceHtml='<div class="rpr">R$ '+fm(lineTotal)+'</div><div style="font-size:.62rem;color:var(--ink-mute);margin-top:2px;">'+fmM2(e.m2)+' m² × R$ '+fm(pr)+'/m²</div>';
+    } else if(isPedra&&pr>0){
+      priceHtml='<div class="rpr">R$ '+fm(pr)+'<small style="font-size:.6em;font-weight:500;">/m²</small></div>';
     } else if(pr>0){
       priceHtml='<div class="rpr">R$ '+fm(pr)+'</div>';
     } else {
@@ -1145,7 +1120,7 @@ function _montarTextoWa(){
     var it=e.it;
     var pr=it.pr||0;
     var isPedra=e.cat==='pedra';
-    var lineTotal=isPedra?(e.totalCalc||0):pr;
+    var lineTotal=isPedra&&e.m2>0?(e.totalCalc||0):(!isPedra?pr:0);
     if(lineTotal>0)total+=lineTotal;
     txt+=(i+1)+'️⃣ *'+(it.nm||'Item')+'*';
     if(it.brand)txt+=' ('+it.brand+')';
@@ -1155,6 +1130,8 @@ function _montarTextoWa(){
     if(isPedra&&e.m2>0){
       txt+='   📏 '+fmM2(e.m2)+' m² × R$ '+fm(pr)+'/m²\n';
       txt+='   💰 *R$ '+fm(lineTotal)+'*\n';
+    } else if(isPedra&&pr>0){
+      txt+='   💰 R$ '+fm(pr)+'/m² (metragem a definir)\n';
     } else if(pr>0){
       txt+='   💰 R$ '+fm(pr)+'\n';
     } else {
