@@ -2050,7 +2050,59 @@ function onFile(e){
   e.target.value='';
 }
 
-// ═══ MATERIAL ═══
+// ═══ GESTÃO DE MÚLTIPLAS FOTOS DA CUBA ═══
+function _cfgCubaLista(cat,idx){
+  var c=(cat==='coz'?CFG.coz:CFG.lav)[idx];
+  if(!c)return[];
+  if(c.fotos&&c.fotos.length)return c.fotos;
+  if(c.photo)return[c.photo];
+  return[];
+}
+function _cfgCubaSalvarFotos(cat,idx,arr){
+  var lista=cat==='coz'?CFG.coz:CFG.lav;
+  lista[idx].fotos=arr;
+  lista[idx].photo=arr[0]||'';
+  svCFG();buildCubaList();buildCfg();
+}
+function _cfgCubaFotoDestaque(cat,idx,fi){
+  var arr=_cfgCubaLista(cat,idx);
+  if(fi<=0||fi>=arr.length)return;
+  var destaque=arr.splice(fi,1)[0];
+  arr.unshift(destaque);
+  _cfgCubaSalvarFotos(cat,idx,arr);
+}
+function _cfgCubaFotoRemover(cat,idx,fi){
+  var arr=_cfgCubaLista(cat,idx);
+  if(!arr.length)return;
+  arr.splice(fi,1);
+  _cfgCubaSalvarFotos(cat,idx,arr);
+}
+function _cfgCubaAddFotos(cat,idx,input){
+  var files=Array.prototype.slice.call(input.files||[]);
+  if(!files.length)return;
+  var arr=_cfgCubaLista(cat,idx);
+  var pendentes=files.length;
+  files.forEach(function(file){
+    var r=new FileReader();
+    r.onload=function(ev){
+      var img=new Image();
+      img.onload=function(){
+        var canvas=document.createElement('canvas');
+        var maxW=900;
+        var scale=Math.min(1,maxW/img.width);
+        canvas.width=Math.round(img.width*scale);
+        canvas.height=Math.round(img.height*scale);
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        arr.push(canvas.toDataURL('image/jpeg',0.8));
+        pendentes--;
+        if(pendentes===0){input.value='';_cfgCubaSalvarFotos(cat,idx,arr);}
+      };
+      img.onerror=function(){arr.push(ev.target.result);pendentes--;if(pendentes===0){input.value='';_cfgCubaSalvarFotos(cat,idx,arr);}};
+      img.src=ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
 function buildMat(){
   var GRUPOS=[
     {cat:'Granito Cinza',icon:'🩶'},
@@ -3720,15 +3772,53 @@ function buildCfg(){
   }
   else if(cfgTab===1){
     // CUBAS COZINHA
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Toque em <b>📷</b> na foto para trocar pela imagem da sua galeria.</div>';
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione várias fotos por cuba. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
     CFG.coz.forEach(function(c,i){
+      // normaliza: garante campo fotos[] sempre consistente com photo
+      var fotos=c.fotos&&c.fotos.length?c.fotos:(c.photo?[c.photo]:[]);
+      var thumbSrc=fotos[0]||'';
       h+='<div class="cfgsec">';
-      h+='<div class="cfg-cuba-row"><div class="cfg-cuba-thumb">'+(c.photo?'<img src="'+c.photo+'" alt="">':'<div style="font-size:1.4rem;color:var(--t3);display:grid;place-items:center;width:100%;height:100%;">🔧</div>')+'<button class="cfg-cuba-thumb-btn" data-pp="coz" data-idx="'+i+'">📷</button></div>';
+      // linha topo: thumb principal + info + preços
+      h+='<div class="cfg-cuba-row"><div class="cfg-cuba-thumb">'+(thumbSrc?'<img src="'+thumbSrc+'" alt="">':'<div style="font-size:1.4rem;color:var(--t3);display:grid;place-items:center;width:100%;height:100%;">🔧</div>')+'</div>';
       h+='<div class="cfg-cuba-info"><div class="cfg-cuba-nm">'+c.brand+' — '+c.nm+'</div><div class="cfg-cuba-dim">'+c.dim+'</div>';
-      h+='<div style="display:flex;gap:8px;margin-top:5px;"><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.coz['+i+'].pr=+this.value;buildCubaList();svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.coz['+i+'].inst=+this.value;buildCubaList();svCFG();"></div></div>';
+      h+='<div style="display:flex;gap:8px;margin-top:5px;"><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.coz['+i+'].pr=+this.value;buildCubaList();svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;" onchange="CFG.coz['+i+'].pr_orig=+this.value;svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.coz['+i+'].inst=+this.value;buildCubaList();svCFG();"></div></div>';
       h+='</div></div>';
+      // galeria de fotos
+      h+='<div style="padding:10px 13px 4px;border-top:1px solid #0c0c10;">';
+      h+='<div style="font-size:.6rem;color:var(--gold3);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:7px;">📸 Fotos da Cuba</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;">';
+      fotos.forEach(function(f,fi){
+        var isMain=fi===0;
+        h+='<div style="position:relative;flex-shrink:0;">';
+        h+='<img src="'+f+'" style="width:68px;height:68px;object-fit:cover;border-radius:9px;border:2px solid '+(isMain?'var(--gold2)':'rgba(255,255,255,.12)')+';box-sizing:border-box;">';
+        // estrela destaque
+        h+='<button onclick="_cfgCubaFotoDestaque(\'coz\','+i+','+fi+')" title="Definir como destaque" '
+         +'style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;'
+         +'background:'+(isMain?'var(--gold2)':'rgba(0,0,0,.6)')+';border:none;color:'+(isMain?'#0f0c00':'#fff')+';'
+         +'font-size:.55rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">'+(isMain?'★':'☆')+'</button>';
+        // lixeira remover
+        h+='<button onclick="_cfgCubaFotoRemover(\'coz\','+i+','+fi+')" title="Remover foto" '
+         +'style="position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;'
+         +'background:rgba(192,57,43,.85);border:none;color:#fff;font-size:.6rem;cursor:pointer;'
+         +'display:flex;align-items:center;justify-content:center;">✕</button>';
+        h+='</div>';
+      });
+      // botão adicionar foto
+      h+='<label style="display:flex;align-items:center;justify-content:center;width:68px;height:68px;'
+       +'border-radius:9px;border:1px dashed var(--gold3);background:var(--gdim);'
+       +'color:var(--gold2);font-size:.65rem;font-weight:700;cursor:pointer;text-align:center;'
+       +'flex-direction:column;gap:3px;flex-shrink:0;">'
+       +'<span style="font-size:1.2rem;">+</span>foto'
+       +'<input type="file" accept="image/*" multiple style="display:none;" '
+       +'onchange="_cfgCubaAddFotos(\'coz\','+i+',this)"></label>';
+      h+='</div>';
+      h+='<div style="font-size:.55rem;color:var(--t4);">★ = foto destaque mostrada no catálogo público</div>';
+      h+='</div>';
+      // campos texto
       h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp cfginp-w" value="'+c.nm+'" onchange="CFG.coz['+i+'].nm=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-w" value="'+(c.brand||'')+'" onchange="CFG.coz['+i+'].brand=this.value;svCFG();"></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Dimensões</span><input class="cfginp cfginp-w" value="'+c.dim+'" onchange="CFG.coz['+i+'].dim=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Descrição</span><textarea class="cfginp cfginp-w" rows="2" style="resize:vertical;padding-top:6px;" onchange="CFG.coz['+i+'].desc=this.value;svCFG();">'+(c.desc||'')+'</textarea></div>';
       h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
       h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.coz.length){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
@@ -3736,20 +3826,53 @@ function buildCfg(){
       h+='</div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.coz.push({id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,inst:110,instCli:160,photo:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" style="border-color:var(--gold3);color:var(--gold2);font-size:.8rem;padding:12px;" onclick="_imAbrirModal(\'coz\')">✍️ Adicionar cuba via Importação Manual</button>';
   }
   else if(cfgTab===2){
     // CUBAS BANHEIRO
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Toque em <b>📷</b> na foto para trocar pela imagem da sua galeria.</div>';
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione várias fotos por cuba. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
     CFG.lav.forEach(function(c,i){
       var isEsc=c.tipo==='Esculpida';
+      var fotos=c.fotos&&c.fotos.length?c.fotos:(c.photo?[c.photo]:[]);
+      var thumbSrc=fotos[0]||'';
       h+='<div class="cfgsec">';
-      h+='<div class="cfg-cuba-row"><div class="cfg-cuba-thumb">'+(c.photo?'<img src="'+c.photo+'" alt="">':'<div style="font-size:1.4rem;color:var(--t3);display:grid;place-items:center;width:100%;height:100%;">'+(isEsc?'🪨':'🚿')+'</div>')+'<button class="cfg-cuba-thumb-btn" data-pp="lav" data-idx="'+i+'">📷</button></div>';
+      h+='<div class="cfg-cuba-row"><div class="cfg-cuba-thumb">'+(thumbSrc?'<img src="'+thumbSrc+'" alt="">':'<div style="font-size:1.4rem;color:var(--t3);display:grid;place-items:center;width:100%;height:100%;">'+(isEsc?'🪨':'🚿')+'</div>')+'</div>';
       h+='<div class="cfg-cuba-info"><div class="cfg-cuba-nm">'+(c.brand?c.brand+' — ':'')+c.nm+'</div><div class="cfg-cuba-dim">'+c.dim+(c.tipo?' · '+c.tipo:'')+'</div>';
-      if(!isEsc){h+='<div style="display:flex;gap:8px;margin-top:5px;"><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.lav['+i+'].pr=+this.value;buildCubaList();svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div></div>';}
+      if(!isEsc){h+='<div style="display:flex;gap:8px;margin-top:5px;"><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.lav['+i+'].pr=+this.value;buildCubaList();svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;" onchange="CFG.lav['+i+'].pr_orig=+this.value;svCFG();"></div><div style="flex:1;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div></div>';}
       else{h+='<div style="margin-top:5px;"><div style="font-size:.55rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';}
       h+='</div></div>';
+      // galeria de fotos
+      h+='<div style="padding:10px 13px 4px;border-top:1px solid #0c0c10;">';
+      h+='<div style="font-size:.6rem;color:var(--gold3);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:7px;">📸 Fotos da Cuba</div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;">';
+      fotos.forEach(function(f,fi){
+        var isMain=fi===0;
+        h+='<div style="position:relative;flex-shrink:0;">';
+        h+='<img src="'+f+'" style="width:68px;height:68px;object-fit:cover;border-radius:9px;border:2px solid '+(isMain?'var(--gold2)':'rgba(255,255,255,.12)')+';box-sizing:border-box;">';
+        h+='<button onclick="_cfgCubaFotoDestaque(\'lav\','+i+','+fi+')" title="Definir como destaque" '
+         +'style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;'
+         +'background:'+(isMain?'var(--gold2)':'rgba(0,0,0,.6)')+';border:none;color:'+(isMain?'#0f0c00':'#fff')+';'
+         +'font-size:.55rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">'+(isMain?'★':'☆')+'</button>';
+        h+='<button onclick="_cfgCubaFotoRemover(\'lav\','+i+','+fi+')" title="Remover foto" '
+         +'style="position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;'
+         +'background:rgba(192,57,43,.85);border:none;color:#fff;font-size:.6rem;cursor:pointer;'
+         +'display:flex;align-items:center;justify-content:center;">✕</button>';
+        h+='</div>';
+      });
+      h+='<label style="display:flex;align-items:center;justify-content:center;width:68px;height:68px;'
+       +'border-radius:9px;border:1px dashed var(--gold3);background:var(--gdim);'
+       +'color:var(--gold2);font-size:.65rem;font-weight:700;cursor:pointer;text-align:center;'
+       +'flex-direction:column;gap:3px;flex-shrink:0;">'
+       +'<span style="font-size:1.2rem;">+</span>foto'
+       +'<input type="file" accept="image/*" multiple style="display:none;" '
+       +'onchange="_cfgCubaAddFotos(\'lav\','+i+',this)"></label>';
+      h+='</div>';
+      h+='<div style="font-size:.55rem;color:var(--t4);">★ = foto destaque mostrada no catálogo público</div>';
+      h+='</div>';
+      // campos texto
       h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp cfginp-w" value="'+c.nm+'" onchange="CFG.lav['+i+'].nm=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-w" value="'+(c.brand||'')+'" onchange="CFG.lav['+i+'].brand=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Descrição</span><textarea class="cfginp cfginp-w" rows="2" style="resize:vertical;padding-top:6px;" onchange="CFG.lav['+i+'].desc=this.value;svCFG();">'+(c.desc||'')+'</textarea></div>';
       h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
       h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.lav.length){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
@@ -3757,7 +3880,7 @@ function buildCfg(){
       h+='</div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.lav.push({id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,inst:220,instCli:280,photo:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" style="border-color:var(--gold3);color:var(--gold2);font-size:.8rem;padding:12px;" onclick="_imAbrirModal(\'lav\')">✍️ Adicionar cuba via Importação Manual</button>';
   }
   else if(cfgTab===3){
     // SERVIÇOS — editável: nome, preço, adicionar, remover, reordenar
