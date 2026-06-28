@@ -270,14 +270,35 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
 .install-sm{font-size:.57rem;color:var(--t3);line-height:1.3;}
 
 /* CUBA FULLSCREEN */
-#cubaFsMd{position:fixed;inset:0;background:#000;z-index:500;display:none;flex-direction:column;align-items:center;justify-content:center;}
+#cubaFsMd{position:fixed;inset:0;background:#f5f5f5;z-index:500;display:none;flex-direction:column;overflow:hidden;}
 #cubaFsMd.on{display:flex;}
-#cubaFsImg{max-width:100%;max-height:calc(100% - 70px);object-fit:contain;display:block;}
-#cubaFsClose{position:absolute;top:14px;right:14px;width:40px;height:40px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.2);border-radius:50%;color:#fff;font-size:1.1rem;cursor:pointer;display:grid;place-items:center;font-family:Outfit,sans-serif;}
-#cubaFsCaption{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(0,0,0,.92),transparent);padding:28px 18px 16px;color:#fff;}
-#cubaFsCaption .fn{font-size:.88rem;font-weight:700;margin-bottom:2px;}
-#cubaFsCaption .fd{font-size:.7rem;color:rgba(255,255,255,.6);}
-#cubaFsCaption .fp{font-family:"Cormorant Garamond",serif;font-size:1.3rem;font-weight:700;color:var(--gold2);margin-top:4px;}
+#cubaFsHeader{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #eee;flex-shrink:0;}
+#cubaFsClose{width:36px;height:36px;background:none;border:none;font-size:1.3rem;cursor:pointer;color:#333;display:grid;place-items:center;border-radius:50%;flex-shrink:0;}
+#cubaFsBrand{font-size:.75rem;font-weight:700;color:#888;letter-spacing:1px;text-transform:uppercase;}
+#cubaFsGallery{background:#fff;flex-shrink:0;position:relative;}
+#cubaFsImgs{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-ms-overflow-style:none;}
+#cubaFsImgs::-webkit-scrollbar{display:none;}
+#cubaFsImgs img{flex-shrink:0;width:100%;height:280px;object-fit:contain;scroll-snap-align:start;padding:12px;background:#fff;}
+#cubaFsDots{display:flex;justify-content:center;gap:5px;padding:8px 0 10px;background:#fff;}
+.cfs-dot{width:7px;height:7px;border-radius:50%;background:#ddd;transition:background .2s;}
+.cfs-dot.on{background:#3483fa;}
+#cubaFsBody{flex:1;overflow-y:auto;padding:16px;}
+.cfs-nm{font-size:1rem;font-weight:700;color:#111;line-height:1.35;margin-bottom:4px;}
+.cfs-dim{font-size:.78rem;color:#888;margin-bottom:14px;}
+#cubaFsPriceBlock{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+.cfs-pr-orig{font-size:.82rem;color:#999;text-decoration:line-through;margin-bottom:2px;}
+.cfs-pr-row{display:flex;align-items:center;gap:10px;}
+.cfs-pr-val{font-size:1.6rem;font-weight:900;color:#111;}
+.cfs-pr-off{background:#00a650;color:#fff;font-size:.7rem;font-weight:800;padding:3px 8px;border-radius:5px;}
+.cfs-pr-inst{font-size:.75rem;color:#00a650;margin-top:4px;font-weight:600;}
+.cfs-desc{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+.cfs-desc-title{font-size:.8rem;font-weight:800;color:#333;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;}
+.cfs-desc-text{font-size:.82rem;color:#555;line-height:1.6;}
+.cfs-inst-block{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:20px;}
+.cfs-inst-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:.82rem;}
+.cfs-inst-row:last-child{border-bottom:none;}
+.cfs-inst-label{color:#888;}
+.cfs-inst-val{font-weight:700;color:#111;}
 
 /* APP SHELL */
 #sApp{position:absolute;top:0;left:0;right:0;bottom:0;}

@@ -565,12 +565,22 @@ function openApp(pg){
 
 <!-- CUBA FULLSCREEN -->
 <div id="cubaFsMd">
-  <button id="cubaFsClose" onclick="document.getElementById('cubaFsMd').classList.remove('on')">✕</button>
-  <img id="cubaFsImg" src="" alt="">
-  <div id="cubaFsCaption">
-    <div class="fn" id="cubaFsNm"></div>
-    <div class="fd" id="cubaFsDim"></div>
-    <div class="fp" id="cubaFsPr"></div>
+  <div id="cubaFsHeader">
+    <button id="cubaFsClose" onclick="document.getElementById('cubaFsMd').classList.remove('on')">←</button>
+    <span id="cubaFsBrand"></span>
+  </div>
+  <!-- Galeria de fotos -->
+  <div id="cubaFsGallery">
+    <div id="cubaFsImgs"></div>
+    <div id="cubaFsDots"></div>
+  </div>
+  <!-- Conteúdo scrollável -->
+  <div id="cubaFsBody">
+    <div id="cubaFsNm" class="cfs-nm"></div>
+    <div id="cubaFsDim" class="cfs-dim"></div>
+    <div id="cubaFsPriceBlock"></div>
+    <div id="cubaFsDesc" class="cfs-desc"></div>
+    <div id="cubaFsInstBlock" class="cfs-inst-block"></div>
   </div>
 </div>
 

@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Catálogo — HR Mármores e Granitos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#C9A84C;--gold2:#E8C96A;--gold3:#8B6014;--gdim:#2e2208;--bg:#070709;--s1:#0e0e12;--s2:#141418;--s3:#1a1a20;--s4:#22222a;--bd:#1e1e26;--bd2:#28282f;--tx:#F4EFE8;--t2:#bfb9b0;--t3:#7a7570;--t4:#4a4540;--grn:#3a9e6a;--r:14px;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);font-family:Outfit,sans-serif;min-height:100%;}
+#hdr{position:sticky;top:0;z-index:10;background:var(--s1);border-bottom:1px solid var(--bd);padding:14px 17px;display:flex;align-items:center;gap:10px;}
+#hdr::after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--gold3),transparent);}
+.hlogo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold3));display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-size:1.05rem;font-weight:700;color:#1a0e00;flex-shrink:0;overflow:hidden;}
+.hlogo img{width:100%;height:100%;object-fit:cover;}
+.htxt{flex:1;min-width:0;}
+.hnm{font-family:"Cormorant Garamond",serif;font-size:1.15rem;font-weight:700;color:var(--gold);line-height:1.1;}
+.hsub{font-size:.66rem;color:var(--t3);margin-top:1px;}
+.tabs{display:flex;gap:6px;padding:12px 14px 4px;overflow-x:auto;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{flex-shrink:0;padding:8px 16px;border-radius:20px;border:1px solid var(--bd2);background:transparent;color:var(--t3);font-family:Outfit,sans-serif;font-size:.74rem;font-weight:600;cursor:pointer;white-space:nowrap;}
+.tab.on{border-color:var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:14px;}
+.card{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column;transition:transform .12s;}
+.card:active{transform:scale(.97);}
+.cthumb{width:100%;height:118px;background:var(--s3);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.cthumb img{width:100%;height:100%;object-fit:cover;}
+.cthumb .ph{font-size:2.2rem;color:var(--t4);}
+.cbody{padding:10px 11px 12px;flex:1;display:flex;flex-direction:column;}
+.cbrand{font-size:.58rem;letter-spacing:1px;text-transform:uppercase;color:var(--t3);font-weight:600;}
+.cnm{font-size:.86rem;font-weight:700;color:var(--tx);margin:2px 0 4px;line-height:1.25;}
+.cdim{font-size:.66rem;color:var(--t3);margin-bottom:8px;}
+.cpr{margin-top:auto;font-size:.92rem;font-weight:800;color:var(--gold2);}
+.cpr small{font-size:.6rem;color:var(--t3);font-weight:500;}
+.empty{padding:60px 20px;text-align:center;color:var(--t3);font-size:.85rem;}
+.empty .ic{font-size:2.4rem;margin-bottom:10px;display:block;}
+/* modal */
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:flex-end;justify-content:center;}
+#ov.on{display:flex;}
+#md{background:var(--s1);border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;border:1px solid var(--bd);animation:up .2s ease;}
+@keyframes up{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.mdgal{width:100%;height:240px;background:var(--s3);position:relative;overflow:hidden;}
+.mdgal img{width:100%;height:100%;object-fit:cover;display:block;}
+.mdgal .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3.4rem;color:var(--t4);}
+.mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.gdots{position:absolute;bottom:9px;left:0;right:0;display:flex;justify-content:center;gap:5px;}
+.gdot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.35);}
+.gdot.on{background:var(--gold);}
+.mdbody{padding:18px 18px 22px;}
+.mdbrand{font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:4px;}
+.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--tx);line-height:1.15;margin-bottom:6px;}
+.mddim{font-size:.74rem;color:var(--t3);margin-bottom:12px;}
+.mddesc{font-size:.8rem;color:var(--t2);line-height:1.6;margin-bottom:16px;}
+.mdpr{display:flex;align-items:baseline;gap:8px;margin-bottom:18px;}
+.mdpr .v{font-size:1.5rem;font-weight:800;color:var(--gold2);}
+.mdpr .o{font-size:.85rem;color:var(--t4);text-decoration:line-through;}
+.btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;cursor:pointer;}
+.btnwa svg{width:20px;height:20px;flex-shrink:0;}
+#loading{padding:80px 20px;text-align:center;color:var(--t3);}
+.spin{width:30px;height:30px;border:3px solid var(--bd2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 14px;animation:sp 0.8s linear infinite;}
+@keyframes sp{to{transform:rotate(360deg);}}
+footer{text-align:center;padding:24px 20px 40px;font-size:.66rem;color:var(--t4);}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div class="hlogo" id="hLogo">HR</div>
+  <div class="htxt">
+    <div class="hnm" id="hNome">HR Mármores e Granitos</div>
+    <div class="hsub">Catálogo de Cubas e Acessórios</div>
+  </div>
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div id="grid" class="grid"></div>
+<div id="loading">
+  <div class="spin"></div>
+  Carregando catálogo...
+</div>
+<footer>Atualizado automaticamente · Preços sujeitos a confirmação</footer>
+
+<div id="ov" onclick="if(event.target===this)closeMd()">
+  <div id="md"></div>
+</div>
+
+<script>
+var DATA=null, ITEMS=[], CAT='coz', WAPHONE='', GALIDX=0, CURITEM=null;
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+function load(){
+  fetch('./catalogo.json?t='+Date.now(),{cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('not found'); return r.json(); })
+    .then(function(d){ DATA=d; boot(); })
+    .catch(function(){
+      document.getElementById('loading').innerHTML='<div style="font-size:2rem;margin-bottom:10px;">⚠️</div>Catálogo ainda não publicado.<br>Volte em breve.';
+    });
+}
+
+function boot(){
+  document.getElementById('loading').style.display='none';
+  if(DATA.emp){
+    if(DATA.emp.nome) document.getElementById('hNome').textContent=DATA.emp.nome;
+    if(DATA.emp.tel) WAPHONE=DATA.emp.tel.replace(/\D/g,'');
+    if(DATA.emp.logoUrl){
+      document.getElementById('hLogo').innerHTML='<img src="'+DATA.emp.logoUrl+'">';
+    }
+  }
+  buildTabs();
+  renderGrid();
+}
+
+function buildTabs(){
+  var tabs=[
+    {k:'coz', l:'🍳 Cubas Cozinha', n:(DATA.cubas_coz||[]).length},
+    {k:'lav', l:'🚿 Cubas Banheiro', n:(DATA.cubas_lav||[]).length},
+    {k:'ac',  l:'🔩 Acessórios',     n:(DATA.acessorios||[]).length}
+  ];
+  var t=document.getElementById('tabs');
+  t.innerHTML=tabs.map(function(x){
+    return '<button class="tab'+(CAT===x.k?' on':'')+'" data-cat="'+x.k+'" onclick="setCat(\''+x.k+'\')">'+x.l+' ('+x.n+')</button>';
+  }).join('');
+}
+
+function setCat(k){
+  CAT=k;
+  document.querySelectorAll('.tab').forEach(function(el){el.classList.toggle('on',el.dataset.cat===k);});
+  renderGrid();
+}
+
+function listFor(k){
+  if(k==='coz') return DATA.cubas_coz||[];
+  if(k==='lav') return DATA.cubas_lav||[];
+  return DATA.acessorios||[];
+}
+
+function renderGrid(){
+  var list=listFor(CAT).filter(function(it){ return it && (it.nm||it.id); });
+  var g=document.getElementById('grid');
+  if(!list.length){
+    g.innerHTML='';
+    g.insertAdjacentHTML('afterend','');
+    g.innerHTML='<div class="empty" style="grid-column:1/-1;"><span class="ic">📦</span>Nenhum item nesta categoria ainda.</div>';
+    return;
+  }
+  g.innerHTML=list.map(function(it,i){
+    var photo=it.photo||((it.fotos||[])[0]);
+    var pr=it.pr||0;
+    var priceHtml = pr>0
+      ? 'R$ '+fm(pr)
+      : '<small>Consultar</small>';
+    return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
+      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy">':'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>')+'</div>'
+      +'<div class="cbody">'
+      +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
+      +'<div class="cnm">'+esc(it.nm||'Item')+'</div>'
+      +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
+      +'<div class="cpr">'+priceHtml+'</div>'
+      +'</div></div>';
+  }).join('');
+}
+
+function openItem(cat,idx){
+  var it=listFor(cat)[idx];
+  if(!it) return;
+  CURITEM=it; GALIDX=0;
+  var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
+  var pr=it.pr||0;
+  var galHtml = fotos.length
+    ? '<img id="mdGalImg" src="'+fotos[0]+'">'
+    : '<div class="ph">'+(cat==='ac'?'🔩':'🚰')+'</div>';
+  var dots = fotos.length>1
+    ? '<div class="gdots">'+fotos.map(function(_,i){return '<div class="gdot'+(i===0?' on':'')+'"></div>';}).join('')+'</div>'
+    : '';
+  var priceBlock = pr>0
+    ? '<div class="mdpr"><span class="v">R$ '+fm(pr)+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
+    : '<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
+  document.getElementById('md').innerHTML =
+    '<div class="mdgal" id="mdGal">'+galHtml+'<div class="mdclose" onclick="closeMd()">✕</div>'+dots+'</div>'
+    +'<div class="mdbody">'
+    +(it.brand?'<div class="mdbrand">'+esc(it.brand)+'</div>':'')
+    +'<div class="mdnm">'+esc(it.nm||'Item')+'</div>'
+    +(it.dim?'<div class="mddim">'+esc(it.dim)+'</div>':'')
+    +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
+    +priceBlock
+    +'<button class="btnwa" onclick="pedirWhatsApp()">'
+    +'<svg viewBox="0 0 32 32" fill="currentColor"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.232-1.46-1.892a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.745.315-.745.7-1.117 1.43-1.146 2.46v.115c-.014.99.472 1.963 1.06 2.78 1.318 1.85 2.86 3.343 4.928 4.246.616.272 1.66.7 2.342.7.99 0 2.183-1.252 2.183-2.193 0-.13-.014-.157-.243-.243-.358-.13-2.045-.86-2.347-.86z"/><path d="M16.067 27.806c-2.5 0-4.97-.65-7.146-1.878l-.487-.272-5.4 1.404 1.448-5.213-.315-.53A11.6 11.6 0 0 1 .833 12.18C.833 5.93 5.832.95 12.066.95c3.012 0 5.84 1.175 7.97 3.314a11.146 11.146 0 0 1 3.3 7.93c-.014 6.25-5.013 11.232-11.246 11.232m9.395-20.6A13.27 13.27 0 0 0 16.067.04C8.39.04 2.144 6.27 2.13 13.943c0 2.46.644 4.847 1.878 6.95L.21 31.96l11.318-2.96c2.03 1.1 4.31 1.677 6.626 1.677h.014c7.663 0 13.91-6.245 13.924-13.918a13.83 13.83 0 0 0-4.03-9.553"/></svg>'
+    +'Pedir pelo WhatsApp</button>'
+    +'</div>';
+  document.getElementById('ov').classList.add('on');
+}
+
+function closeMd(){
+  document.getElementById('ov').classList.remove('on');
+}
+
+function pedirWhatsApp(){
+  if(!CURITEM) return;
+  var nm=CURITEM.nm||'item';
+  var pr=CURITEM.pr||0;
+  var txt='Olá! Gostaria de pedir orçamento para: *'+nm+'*'
+    +(CURITEM.brand?' ('+CURITEM.brand+')':'')
+    +(CURITEM.dim?' — '+CURITEM.dim:'')
+    +(pr>0?' — Preço tabela: R$ '+fm(pr):'')
+    +'. Vi no catálogo online.';
+  var url='https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt);
+  window.open(url,'_blank');
+}
+
+load();
+</script>
+</body>
+</html>
