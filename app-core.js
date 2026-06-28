@@ -6887,10 +6887,11 @@ function buildCfg(){
       h+=_buildCubaFotoEditor('coz', i);
       // Campos de texto
       h+='<div style="padding:0 13px;">';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp cfginp-w" value="'+escH(c.nm)+'" onchange="CFG.coz['+i+'].nm=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.coz['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-w" value="'+escH(c.nm)+'" onchange="CFG.coz['+i+'].nm=this.value;svCFG();"></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-w" value="'+escH(c.brand||'')+'" onchange="CFG.coz['+i+'].brand=this.value;svCFG();"></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Dimensões</span><input class="cfginp cfginp-w" value="'+escH(c.dim)+'" onchange="CFG.coz['+i+'].dim=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.78rem;" onchange="CFG.coz['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
+      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.coz['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
       h+='</div>';
       h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
@@ -6931,8 +6932,9 @@ function buildCfg(){
       h+=_buildCubaFotoEditor('lav', i);
       // Campos de texto
       h+='<div style="padding:0 13px;">';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp cfginp-w" value="'+escH(c.nm)+'" onchange="CFG.lav['+i+'].nm=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.78rem;" onchange="CFG.lav['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
+      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.lav['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-w" value="'+escH(c.nm)+'" onchange="CFG.lav['+i+'].nm=this.value;svCFG();"></div>';
+      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.lav['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
       h+='</div>';
       h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
