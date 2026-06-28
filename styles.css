@@ -269,36 +269,47 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
 .install-nm{font-size:.78rem;font-weight:700;color:#7ad47a;line-height:1.2;}
 .install-sm{font-size:.57rem;color:var(--t3);line-height:1.3;}
 
-/* CUBA FULLSCREEN */
-#cubaFsMd{position:fixed;inset:0;background:#f5f5f5;z-index:500;display:none;flex-direction:column;overflow:hidden;}
+/* CUBA FULLSCREEN — estilo inspirado na página de produto do Mercado Livre */
+#cubaFsMd{position:fixed;inset:0;background:#ededed;z-index:500;display:none;flex-direction:column;overflow:hidden;}
 #cubaFsMd.on{display:flex;}
-#cubaFsHeader{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #eee;flex-shrink:0;}
-#cubaFsClose{width:36px;height:36px;background:none;border:none;font-size:1.3rem;cursor:pointer;color:#333;display:grid;place-items:center;border-radius:50%;flex-shrink:0;}
-#cubaFsBrand{font-size:.75rem;font-weight:700;color:#888;letter-spacing:1px;text-transform:uppercase;}
+#cubaFsHeader{display:flex;align-items:center;gap:6px;padding:9px 8px;background:#fff;border-bottom:1px solid #eee;flex-shrink:0;}
+#cubaFsClose,#cubaFsShareBtn{width:36px;height:36px;background:none;border:none;font-size:1.25rem;cursor:pointer;color:#333;display:grid;place-items:center;border-radius:50%;flex-shrink:0;}
+#cubaFsClose:active,#cubaFsShareBtn:active{background:#f0f0f0;}
+#cubaFsBrand{flex:1;font-size:.7rem;font-weight:700;color:#999;letter-spacing:1px;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 #cubaFsGallery{background:#fff;flex-shrink:0;position:relative;}
 #cubaFsImgs{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-ms-overflow-style:none;}
 #cubaFsImgs::-webkit-scrollbar{display:none;}
-#cubaFsImgs img{flex-shrink:0;width:100%;height:280px;object-fit:contain;scroll-snap-align:start;padding:12px;background:#fff;}
-#cubaFsDots{display:flex;justify-content:center;gap:5px;padding:8px 0 10px;background:#fff;}
-.cfs-dot{width:7px;height:7px;border-radius:50%;background:#ddd;transition:background .2s;}
-.cfs-dot.on{background:#3483fa;}
-#cubaFsBody{flex:1;overflow-y:auto;padding:16px;}
-.cfs-nm{font-size:1rem;font-weight:700;color:#111;line-height:1.35;margin-bottom:4px;}
-.cfs-dim{font-size:.78rem;color:#888;margin-bottom:14px;}
-#cubaFsPriceBlock{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+#cubaFsImgs img{flex-shrink:0;width:100%;height:300px;object-fit:contain;scroll-snap-align:start;padding:14px;background:#fff;}
+#cubaFsCounter{position:absolute;top:10px;right:12px;background:rgba(0,0,0,.55);color:#fff;font-size:.66rem;font-weight:700;padding:3px 9px;border-radius:20px;pointer-events:none;display:none;}
+#cubaFsDots{display:flex;justify-content:center;gap:5px;padding:8px 0 12px;background:#fff;}
+.cfs-dot{width:6px;height:6px;border-radius:50%;background:#ddd;transition:background .2s,transform .2s;}
+.cfs-dot.on{background:#3483fa;transform:scale(1.3);}
+
+#cubaFsBody{flex:1;overflow-y:auto;padding:14px 14px 0;}
+.cfs-nm{font-size:1.02rem;font-weight:600;color:#1a1a1a;line-height:1.4;margin-bottom:6px;}
+.cfs-dim{font-size:.78rem;color:#888;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #e6e6e6;}
+
+#cubaFsPriceBlock{background:#fff;border-radius:10px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.07);}
 .cfs-pr-orig{font-size:.82rem;color:#999;text-decoration:line-through;margin-bottom:2px;}
-.cfs-pr-row{display:flex;align-items:center;gap:10px;}
-.cfs-pr-val{font-size:1.6rem;font-weight:900;color:#111;}
+.cfs-pr-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.cfs-pr-val{font-size:1.75rem;font-weight:800;color:#1a1a1a;letter-spacing:-.3px;}
 .cfs-pr-off{background:#00a650;color:#fff;font-size:.7rem;font-weight:800;padding:3px 8px;border-radius:5px;}
-.cfs-pr-inst{font-size:.75rem;color:#00a650;margin-top:4px;font-weight:600;}
-.cfs-desc{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;}
-.cfs-desc-title{font-size:.8rem;font-weight:800;color:#333;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;}
-.cfs-desc-text{font-size:.82rem;color:#555;line-height:1.6;}
-.cfs-inst-block{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:20px;}
-.cfs-inst-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:.82rem;}
+.cfs-pr-inst{display:inline-flex;align-items:center;gap:6px;margin-top:10px;background:#e7f8ee;color:#00a650;font-size:.78rem;font-weight:700;padding:6px 11px;border-radius:8px;}
+
+.cfs-desc,.cfs-inst-block{background:#fff;border-radius:10px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.07);}
+.cfs-desc-title{font-size:.76rem;font-weight:800;color:#333;margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px;}
+.cfs-desc-text{font-size:.85rem;color:#4a4a4a;line-height:1.65;white-space:pre-line;}
+.cfs-desc-text.clamp4{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;}
+.cfs-desc-more{display:inline-block;margin-top:10px;color:#3483fa;font-size:.8rem;font-weight:700;cursor:pointer;background:none;border:none;padding:0;font-family:inherit;}
+.cfs-inst-row{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #f0f0f0;font-size:.82rem;}
 .cfs-inst-row:last-child{border-bottom:none;}
-.cfs-inst-label{color:#888;}
-.cfs-inst-val{font-weight:700;color:#111;}
+.cfs-inst-label{color:#888;flex-shrink:0;}
+.cfs-inst-val{font-weight:700;color:#1a1a1a;text-align:right;}
+
+#cubaFsActionBar{flex-shrink:0;background:#fff;border-top:1px solid #eee;padding:12px 14px;padding-bottom:calc(12px + env(safe-area-inset-bottom));box-shadow:0 -2px 10px rgba(0,0,0,.07);}
+#cubaFsActionBtn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:14px;border:none;border-radius:11px;background:#1ea952;color:#fff;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;cursor:pointer;}
+#cubaFsActionBtn:active{opacity:.85;}
 
 /* APP SHELL */
 #sApp{position:absolute;top:0;left:0;right:0;bottom:0;}

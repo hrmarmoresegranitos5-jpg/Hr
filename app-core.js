@@ -6462,21 +6462,83 @@ function buildAcList(){
   if(el)el.innerHTML=h;
 }
 
+// ═══ CUBA FULLSCREEN — helpers (estilo Mercado Livre) ═══
+var _cubaFsCur=null; // item atualmente exibido na tela cheia, usado para compartilhar
+
+function _cubaFsSetCounter(cur,total){
+  var el=document.getElementById('cubaFsCounter');
+  if(!el)return;
+  if(total>1){el.textContent=cur+' / '+total;el.style.display='';}
+  else{el.style.display='none';}
+}
+
+function _cubaFsSetDesc(desc){
+  var descEl=document.getElementById('cubaFsDesc');
+  if(!descEl)return;
+  if(desc){
+    var longo=desc.length>220;
+    descEl.innerHTML='<div class="cfs-desc-title">Descrição</div>'
+      +'<div class="cfs-desc-text'+(longo?' clamp4':'')+'" id="cubaFsDescTxt">'+escH(desc)+'</div>'
+      +(longo?'<button class="cfs-desc-more" id="cubaFsDescMore" onclick="_cubaFsToggleDesc()">Ver mais ▾</button>':'');
+    descEl.style.display='';
+  } else {
+    descEl.innerHTML='';
+    descEl.style.display='none';
+  }
+}
+
+function _cubaFsToggleDesc(){
+  var txt=document.getElementById('cubaFsDescTxt');
+  var btn=document.getElementById('cubaFsDescMore');
+  if(!txt||!btn)return;
+  var estaClampado=txt.classList.contains('clamp4');
+  txt.classList.toggle('clamp4');
+  btn.textContent=estaClampado?'Ver menos ▴':'Ver mais ▾';
+}
+
+// Compartilha o item atualmente aberto na tela cheia com um cliente via WhatsApp
+function compartilharCubaFs(){
+  if(!_cubaFsCur)return;
+  var it=_cubaFsCur;
+  var nome=it.titulo||((it.brand?it.brand+' ':'')+(it.nm||''))||'Item';
+  var txt='Olha esse item: *'+nome+'*'
+    +(it.dim?' — '+it.dim:'')
+    +(it.pr>0?' — R$ '+fm(it.pr):'')
+    +(it.instCli>0?'\n✓ Instalação por R$ '+fm(it.instCli):'')
+    +'\n\nVi no catálogo da '+((CFG.emp&&CFG.emp.nome)||'loja')+'. 🙏';
+  var tel=(CFG.emp&&CFG.emp.tel)?CFG.emp.tel.replace(/\D/g,''):'';
+  if(tel.length>0&&tel.length<=11)tel='55'+tel;
+  var waUrl='https://wa.me/'+tel+'?text='+encodeURIComponent(txt);
+
+  function abrirWa(){window.open(waUrl,'_blank');}
+
+  if(it.photo&&navigator.share&&navigator.canShare){
+    fetch(it.photo).then(function(r){return r.blob();}).then(function(blob){
+      var ext=(blob.type&&blob.type.indexOf('png')>-1)?'png':'jpg';
+      var file=new File([blob],'item.'+ext,{type:blob.type||'image/jpeg'});
+      var shareData={files:[file],text:txt};
+      if(navigator.canShare(shareData)){
+        return navigator.share(shareData).catch(function(){abrirWa();});
+      } else {abrirWa();}
+    }).catch(function(){abrirWa();});
+  } else {abrirWa();}
+}
+
 function abrirAcFs(i){
   var a=(CFG.ac||[])[i];
   if(!a||!a.photo)return;
+  _cubaFsCur={photo:a.photo,nm:a.nm,titulo:'',brand:a.marca||'',dim:a.dim||'',pr:a.pr||0,instCli:0};
   document.getElementById('cubaFsBrand').textContent=a.marca||'';
   var imgsEl=document.getElementById('cubaFsImgs');
   var dotsEl=document.getElementById('cubaFsDots');
-  imgsEl.innerHTML='<img src="'+a.photo+'" alt="'+a.nm+'">';
+  imgsEl.innerHTML='<img src="'+a.photo+'" alt="'+escH(a.nm||'')+'">';
   dotsEl.innerHTML='';
+  _cubaFsSetCounter(1,1);
   document.getElementById('cubaFsNm').textContent=a.nm;
   document.getElementById('cubaFsDim').textContent=(a.dim||'');
   var prHtml=a.pr>0?'<div class="cfs-pr-row"><div class="cfs-pr-val">R$ '+a.pr.toLocaleString('pt-BR')+'</div></div>':'';
   document.getElementById('cubaFsPriceBlock').innerHTML=prHtml;
-  var descEl=document.getElementById('cubaFsDesc');
-  if(a.desc){descEl.innerHTML='<div class="cfs-desc-title">Descrição</div><div class="cfs-desc-text">'+a.desc+'</div>';descEl.style.display='';}
-  else{descEl.style.display='none';}
+  _cubaFsSetDesc(a.desc);
   document.getElementById('cubaFsInstBlock').innerHTML='';
   document.getElementById('cubaFsBody').scrollTop=0;
   imgsEl.scrollLeft=0;
@@ -6551,26 +6613,31 @@ function abrirCubaFs(id, tipo){
   var imgsEl=document.getElementById('cubaFsImgs');
   var dotsEl=document.getElementById('cubaFsDots');
   imgsEl.innerHTML=allFotos.map(function(f){
-    return '<img src="'+f+'" alt="'+c.nm+'">';
+    return '<img src="'+f+'" alt="'+escH(c.nm||'')+'">';
   }).join('');
   dotsEl.innerHTML=allFotos.length>1?allFotos.map(function(_,i){
     return '<div class="cfs-dot'+(i===0?' on':'')+'" data-i="'+i+'"></div>';
   }).join(''):'';
-  // Sincronizar dots ao rolar
+  _cubaFsSetCounter(1,allFotos.length);
+  // Sincronizar dots e contador ao rolar
   if(allFotos.length>1){
     imgsEl.onscroll=function(){
       var idx=Math.round(imgsEl.scrollLeft/imgsEl.offsetWidth);
       dotsEl.querySelectorAll('.cfs-dot').forEach(function(d,i){d.classList.toggle('on',i===idx);});
+      _cubaFsSetCounter(idx+1,allFotos.length);
     };
     dotsEl.querySelectorAll('.cfs-dot').forEach(function(d){
       d.onclick=function(){
         var i=+this.dataset.i;
         imgsEl.scrollTo({left:i*imgsEl.offsetWidth,behavior:'smooth'});
+        _cubaFsSetCounter(i+1,allFotos.length);
       };
     });
   }
-  // Nome e dimensões
-  document.getElementById('cubaFsNm').textContent=c.nm;
+  // Nome — usa o título completo do anúncio quando cadastrado (como num anúncio de marketplace);
+  // cai para marca + nome curto se ainda não houver título preenchido
+  var nomeExibido=c.titulo||((c.brand?c.brand+' ':'')+c.nm);
+  document.getElementById('cubaFsNm').textContent=nomeExibido;
   document.getElementById('cubaFsDim').textContent=c.dim+(c.tipo&&c.tipo!=='HR'?' · '+c.tipo:'');
   // Bloco de preço
   var temDesc=c.pr_orig&&c.pr_orig>c.pr;
@@ -6585,14 +6652,10 @@ function abrirCubaFs(id, tipo){
     if(c.instCli>0)prHtml+='<div class="cfs-pr-inst">✓ Instalação por R$ '+c.instCli.toLocaleString('pt-BR')+'</div>';
   }
   document.getElementById('cubaFsPriceBlock').innerHTML=prHtml;
-  // Descrição
-  var descEl=document.getElementById('cubaFsDesc');
-  if(c.desc){
-    descEl.innerHTML='<div class="cfs-desc-title">Descrição</div><div class="cfs-desc-text">'+c.desc+'</div>';
-    descEl.style.display='';
-  } else {
-    descEl.style.display='none';
-  }
+  // Descrição (com "Ver mais" quando for longa)
+  _cubaFsSetDesc(c.desc);
+  // Estado para o botão de compartilhar
+  _cubaFsCur={photo:allFotos[0],nm:c.nm,titulo:c.titulo||'',brand:c.brand||'',dim:c.dim||'',pr:c.pr||0,instCli:c.instCli||0};
   // Tabela de informações
   var rows=[
     ['Marca',c.brand],
