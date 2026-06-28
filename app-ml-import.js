@@ -87,6 +87,43 @@
     return null;
   }
 
+  // ─── Detecta link curto/de compartilhamento sem MLB visível ─
+  // Ex: mercadolivre.com/sec/XXXXX, mercadolivre.com/social/...,
+  // ou qualquer link do domínio ML que não bateu em nenhum padrão acima.
+  function _isLinkCurtoML(raw) {
+    var url = (raw || '').trim();
+    if (!url) return false;
+    if (/MLB\d{7,}/i.test(url)) return false; // já tem MLB explícito, não precisa resolver
+    return /mercadolivre\.com|mercadolibre\.com|mercadoli\.\w+|\/sec\//i.test(url);
+  }
+
+  // Segue o link curto via proxy (que segue redirects por padrão) e
+  // extrai a URL final pelo header/HTML, de onde então extraímos o MLB.
+  function _resolverLinkCurto(raw) {
+    var url = (raw || '').trim();
+    console.info('[ML-import] link sem MLB visível, tentando resolver redirecionamento:', url);
+    return _fetchComProxies(url, false).then(function(html) {
+      // Procura primeiro um MLB em qualquer formato dentro do HTML resultante
+      var m = html.match(/MLB-?\d{8,}/);
+      if (m) {
+        var id = m[0].replace('-', '').toUpperCase();
+        var isCatalog = /\/p\/MLB/i.test(html) && html.indexOf('/p/' + id) !== -1;
+        console.info('[ML-import] link curto resolvido →', id);
+        return { id: id, isCatalog: isCatalog };
+      }
+      // Procura uma URL canônica completa (<link rel="canonical"> ou og:url)
+      var canon = html.match(/(?:rel=["']canonical["'][^>]*href|property=["']og:url["'][^>]*content)=["']([^"']+)["']/i);
+      if (canon) {
+        var info = _extractId(canon[1]);
+        if (info) {
+          console.info('[ML-import] link curto resolvido via canonical →', info.id);
+          return info;
+        }
+      }
+      throw new Error('link curto não revelou um MLB (' + html.length + ' chars recebidos)');
+    });
+  }
+
   // ─── Fetch único com timeout ────────────────────────────────
   function _fetchOnce(url, ms, asJson) {
     ms = ms == null ? 7000 : ms;
@@ -167,18 +204,28 @@
         throw new Error('busca por catalog_product_id veio vazia');
       })
       .catch(function(e1) {
-        console.warn('[ML-import] catálogo rota 1 falhou:', e1.message || e1);
-        // Rota 2: /products/{catalogId}
+        console.warn('[ML-import] catálogo rota 1 (search) falhou:', e1.message || e1);
+        // Rota 2: /products/{catalogId} → buy_box_winner.item_id
         return _get('/products/' + catalogId).then(function(d) {
           var id = (d && d.buy_box_winner && d.buy_box_winner.item_id) ||
                    (d && d.items && d.items[0] && d.items[0].id);
           if (id) return id;
-          throw new Error('/products/{id} sem item vinculado');
+          throw new Error('/products/{id} sem buy_box_winner (provável bloqueio sem token)');
         });
       })
       .catch(function(e2) {
-        console.warn('[ML-import] catálogo rota 2 falhou:', e2.message || e2);
-        // Rota 3: scraping HTML da página do catálogo
+        console.warn('[ML-import] catálogo rota 2 (/products) falhou:', e2.message || e2);
+        // Rota 3: /products/{catalogId}/items → lista de itens concorrentes
+        return _get('/products/' + catalogId + '/items').then(function(d) {
+          var lista = Array.isArray(d) ? d : (d && d.results) || [];
+          var id = lista[0] && (lista[0].item_id || lista[0].id);
+          if (id) return id;
+          throw new Error('/products/{id}/items veio vazio');
+        });
+      })
+      .catch(function(e3) {
+        console.warn('[ML-import] catálogo rota 3 (/products/items) falhou:', e3.message || e3);
+        // Rota 4: scraping HTML da página do catálogo (último recurso)
         return _scrapeCatalogPage(catalogId);
       });
   }
@@ -187,15 +234,24 @@
   function _scrapeCatalogPage(catalogId) {
     var pageUrl = 'https://www.mercadolivre.com.br/p/' + catalogId;
     return _fetchComProxies(pageUrl, false).then(function(html) {
-      var matches = html.match(/MLB\d{8,}/g) || [];
       var uniq = [];
-      matches.forEach(function(x) {
-        var up = x.toUpperCase();
-        if (up !== catalogId && uniq.indexOf(up) === -1) uniq.push(up);
-      });
+      function coletar(regex) {
+        var matches = html.match(regex) || [];
+        matches.forEach(function(x) {
+          var up = x.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+          var m  = up.match(/MLB\d{8,}/);
+          if (m) { up = m[0]; }
+          if (up !== catalogId && up.indexOf('MLB') === 0 && uniq.indexOf(up) === -1) uniq.push(up);
+        });
+      }
+      // 1. Padrão direto MLB seguido de dígitos (HTML puro)
+      coletar(/MLB-?\d{8,}/g);
+      // 2. Dentro de blocos JSON embutidos (__PRELOADED_STATE__, JSON-LD etc),
+      //    onde o item costuma vir como "item_id":"MLBxxxxxxxx" ou "id":"MLBxxxxxxxx"
+      coletar(/"(?:item_id|id)"\s*:\s*"(MLB\d{8,})"/g);
       if (uniq.length) return uniq[0];
-      console.error('[ML-import] HTML do catálogo veio, mas sem nenhum MLB diferente do próprio catálogo');
-      throw new Error('página do catálogo não revelou o item vinculado');
+      console.error('[ML-import] HTML do catálogo veio (' + html.length + ' chars), mas nenhum MLB diferente do catálogo foi encontrado — a página provavelmente monta o item via JS depois do carregamento');
+      throw new Error('página do catálogo não revelou o item vinculado (conteúdo dinâmico via JS)');
     });
   }
 
@@ -212,11 +268,34 @@
   // ─── Orquestrador principal ─────────────────────────────────
   function _buscar(rawUrl) {
     var info = _extractId(rawUrl);
+
     if (!info) {
+      if (_isLinkCurtoML(rawUrl)) {
+        _ml.loading  = true;
+        _ml.data     = null;
+        _ml.selPhoto = null;
+        _renderModal();
+        _showStatus('⏳ Resolvendo link de compartilhamento…', 'info');
+        _resolverLinkCurto(rawUrl)
+          .then(function(infoResolvido) {
+            _buscarComInfo(rawUrl, infoResolvido);
+          })
+          .catch(function(e) {
+            _ml.loading = false;
+            _renderModal();
+            console.error('[ML-import] não foi possível resolver o link curto:', e.message || e);
+            _showStatus('❌ Não consegui identificar o produto a partir desse link. Abra o anúncio no navegador, copie a URL completa da barra de endereço (ou o código MLB) e cole aqui.', 'error');
+          });
+        return;
+      }
       _showStatus('⚠️ Link inválido. Cole a URL do produto ou o código MLB…', 'warn');
       return;
     }
 
+    _buscarComInfo(rawUrl, info);
+  }
+
+  function _buscarComInfo(rawUrl, info) {
     console.info('[ML-import] iniciando busca:', rawUrl, '→', info);
 
     _ml.loading  = true;
