@@ -3,12 +3,24 @@
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
 // Estratégia de busca (cascata, com log detalhado no console):
-//  1. API pública do ML direto  (api.mercadolibre.com)
-//  2. allorigins.win  (proxy 1)
-//  3. corsproxy.io    (proxy 2 — só funciona de localhost/GitHub.io/etc)
-//  4. thingproxy      (proxy 3)
+//  1. API pública do ML direto    (api.mercadolibre.com)
+//  2. CodeTabs       (proxy 1 — GET, 5 req/s)
+//  3. cors.x2u.in     (proxy 2 — 100 req/h por domínio)
+//  4. killcors.com    (proxy 3 — sem rate limit divulgado)
+//  5. allorigins.win  (proxy 4)
+//  6. corsproxy.io    (proxy 5 — hoje só funciona de localhost/GitHub.io/etc)
+//  7. thingproxy      (proxy 6)
 //
-// Suporte a links de item direto (MLB...) e catálogo (/p/MLB...)
+// ⚠️ TODOS os proxies acima são serviços públicos gratuitos de
+// terceiros, fora do nosso controle. Eles aparecem e desaparecem,
+// mudam limites e bloqueiam países/IPs sem aviso. Esta lista é um
+// remendo: aumenta a chance de ALGUM funcionar num dado momento,
+// mas não garante 100% de disponibilidade. Se isso voltar a falhar
+// no futuro, é provável que seja necessário um proxy próprio
+// (ex.: Cloudflare Worker) em vez de só trocar a lista de novo.
+//
+// Suporte a links de item direto (MLB...), catálogo (/p/MLB...) e
+// links curtos de compartilhamento (mercadolivre.com/sec/...).
 //
 // DIAGNÓSTICO: abra o DevTools (console) ao testar — cada falha de
 // rede agora imprime [ML-import] com a causa real, em vez de só
@@ -23,6 +35,9 @@
   // Lista de proxies CORS, em ordem de tentativa. Cada um recebe a
   // URL alvo já com encodeURIComponent aplicado pelo chamador.
   var PROXIES = [
+    function(u) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u); },
+    function(u) { return 'https://cors.x2u.in/' + u; },
+    function(u) { return 'https://proxy.killcors.com/?url=' + encodeURIComponent(u); },
     function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
     function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
     function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; },
@@ -125,6 +140,9 @@
   }
 
   // ─── Fetch único com timeout ────────────────────────────────
+  // Sempre lê como texto e faz o parse manualmente quando asJson=true.
+  // Isso evita falhas quando um proxy devolve Content-Type errado
+  // (ex.: text/html para um corpo que na verdade é JSON válido).
   function _fetchOnce(url, ms, asJson) {
     ms = ms == null ? 7000 : ms;
     return new Promise(function(resolve, reject) {
@@ -135,11 +153,20 @@
       fetch(url, { method:'GET', mode:'cors', credentials:'omit',
                    headers:{ 'Accept':'application/json' } })
         .then(function(r) {
+          if (done) return null;
+          if (!r.ok) { clearTimeout(timer); done = true; reject(new Error('HTTP ' + r.status)); return null; }
+          return r.text();
+        })
+        .then(function(text) {
+          if (done || text == null) return;
           clearTimeout(timer);
-          if (done) return;
           done = true;
-          if (!r.ok) { reject(new Error('HTTP ' + r.status)); return; }
-          resolve(asJson ? r.json() : r.text());
+          if (!asJson) { resolve(text); return; }
+          try {
+            resolve(JSON.parse(text));
+          } catch (e) {
+            reject(new Error('resposta não é JSON válido (' + text.slice(0, 60).replace(/\s+/g,' ') + '…)'));
+          }
         })
         .catch(function(e) {
           clearTimeout(timer);
