@@ -224,10 +224,10 @@
     // Dica
     h += '<div style="font-size:.68rem;color:var(--t3);margin-bottom:10px;padding:7px 10px;'
        + 'background:rgba(255,255,255,.04);border-radius:8px;border-left:2px solid var(--gold3);">'
-       + '💡 Abra o anúncio no ML, copie o título e preço, cole abaixo. Depois envie as fotos (print ou arquivo).</div>';
+       + '💡 Digite o nome, dimensões e preço. Depois selecione as fotos da cuba na sua galeria (pode escolher várias de uma vez).</div>';
 
-    // Campo de colagem livre (título + preço de uma vez)
-    h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Título do anúncio (cole aqui)</div>';
+    // Campo texto de colagem livre / nome
+    h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Título / nome do produto (cole do anúncio ou digite)</div>';
     h += '<textarea id="im-cola" rows="2" placeholder="Ex: Cuba de Apoio Redonda Inox 35cm - R$ 189,90" '
        + 'oninput="_imHandleCola(this)" '
        + 'style="width:100%;background:var(--s3);border:1px solid var(--bd2);border-radius:10px;'
@@ -241,7 +241,7 @@
        + 'font-size:.85rem;font-weight:700;text-align:center;cursor:pointer;margin-bottom:10px;'
        + 'box-sizing:border-box;">'
        + '📷 Enviar fotos / prints (pode escolher várias)'
-       + '<input type="file" accept="image/*" multiple capture="environment" '
+       + '<input type="file" accept="image/*" multiple '
        + 'onchange="_imHandleFotos(this)" style="display:none;">'
        + '</label>';
 
@@ -354,16 +354,23 @@
     var novaCuba = {
       id:      'manual_' + Date.now(),
       nm:      nome,
-      brand:   'Importado',
+      brand:   '',
       dim:     dim,
       pr:      Math.round(venda),
       inst:    cat === 'coz' ? 110 : 220,
       instCli: cat === 'coz' ? 160 : 280,
-      photo:   foto,
-      _fotos_extra: _im.fotos.length > 1 ? _im.fotos.slice(1) : undefined,
+      photo:   _im.fotos.length ? _im.fotos[_im.selIdx] : '',
+      fotos:   _im.fotos.slice(),   // array completo — selIdx vai na frente
       _manual_custo:  custo,
       _manual_margem: margem,
     };
+
+    // garante que a foto destaque seja a primeira do array
+    if(_im.fotos.length > 1 && _im.selIdx > 0){
+      var dest = novaCuba.fotos.splice(_im.selIdx, 1)[0];
+      novaCuba.fotos.unshift(dest);
+      novaCuba.photo = dest;
+    }
 
     var lista = cat === 'coz' ? CFG.coz : CFG.lav;
     lista.push(novaCuba);
