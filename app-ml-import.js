@@ -3,21 +3,26 @@
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
 // Estratégia de busca (cascata, com log detalhado no console):
-//  1. API pública do ML direto    (api.mercadolibre.com)
-//  2. CodeTabs       (proxy 1 — GET, 5 req/s)
-//  3. cors.x2u.in     (proxy 2 — 100 req/h por domínio)
-//  4. killcors.com    (proxy 3 — sem rate limit divulgado)
-//  5. allorigins.win  (proxy 4)
-//  6. corsproxy.io    (proxy 5 — hoje só funciona de localhost/GitHub.io/etc)
-//  7. thingproxy      (proxy 6)
+//  1. API pública do ML direto  (api.mercadolibre.com)
+//  2. allorigins.win  (proxy 1)
+//  3. corsproxy.io    (proxy 2 — hoje só funciona de localhost/GitHub.io/etc)
+//  4. thingproxy      (proxy 3)
 //
-// ⚠️ TODOS os proxies acima são serviços públicos gratuitos de
+// ⚠️ HISTÓRICO DE TENTATIVAS (27/06/2026):
+//  - CodeTabs:  desativado pelo próprio serviço por abuso de terceiros.
+//  - cors.x2u.in: hoje exige email + API key cadastrados (não dá pra
+//    usar sem cadastro prévio — por isso foi removido daqui).
+//  - killcors.com: serviço não existe mais (confirmado fora do ar).
+//  Removidos da lista para não desperdiçar tempo de timeout com eles.
+//
+// ⚠️ TODOS os proxies abaixo são serviços públicos gratuitos de
 // terceiros, fora do nosso controle. Eles aparecem e desaparecem,
-// mudam limites e bloqueiam países/IPs sem aviso. Esta lista é um
-// remendo: aumenta a chance de ALGUM funcionar num dado momento,
-// mas não garante 100% de disponibilidade. Se isso voltar a falhar
-// no futuro, é provável que seja necessário um proxy próprio
-// (ex.: Cloudflare Worker) em vez de só trocar a lista de novo.
+// mudam limites e bloqueiam países/IPs sem aviso — não há garantia
+// de funcionamento contínuo. Se isso continuar falhando com
+// frequência, a solução estrutural é um proxy próprio (Cloudflare
+// Worker grátis, ~100k requisições/dia de cortesia) em vez de
+// depender da sorte de terceiros. Avise se quiser seguir esse
+// caminho — é uma configuração única fora deste arquivo.
 //
 // Suporte a links de item direto (MLB...), catálogo (/p/MLB...) e
 // links curtos de compartilhamento (mercadolivre.com/sec/...).
@@ -35,9 +40,6 @@
   // Lista de proxies CORS, em ordem de tentativa. Cada um recebe a
   // URL alvo já com encodeURIComponent aplicado pelo chamador.
   var PROXIES = [
-    function(u) { return 'https://api.codetabs.com/v1/proxy/?quest=' + encodeURIComponent(u); },
-    function(u) { return 'https://cors.x2u.in/' + u; },
-    function(u) { return 'https://proxy.killcors.com/?url=' + encodeURIComponent(u); },
     function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
     function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
     function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; },
