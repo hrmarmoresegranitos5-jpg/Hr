@@ -6357,37 +6357,27 @@ function buildCubaList(){
       return;
     }
     h+='<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 9px;">'+(cubaCat==='coz'?'Cubas Inox HR':'Cubas '+gname)+'</div>';
-    var cols=window.innerWidth>=900?3:window.innerWidth>=600?2:1;
-    h+='<div style="display:grid;grid-template-columns:repeat('+cols+',1fr);gap:12px;margin-bottom:4px;">';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;">';
     items.filter(function(c){return c.pr>0;}).forEach(function(c){
-      var imgH=c.photo
-        ?('<img src="'+c.photo+'" alt="'+c.nm+'" onclick="abrirCubaFs(\''+c.id+'\',\''+cubaCat+'\')" style="cursor:zoom-in;width:100%;height:100%;object-fit:cover;display:block;">')
-        :'<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;"><div style="font-size:2.8rem;opacity:.25;">🚰</div><div style="font-size:.6rem;color:var(--t4);letter-spacing:1px;text-transform:uppercase;">Sem foto</div></div>';
       var temDesc=c.pr_orig&&c.pr_orig>c.pr;
       var pctOff=temDesc?Math.round((1-c.pr/c.pr_orig)*100):0;
-      var priceBlock='<div style="margin-top:10px;background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.03));border:1px solid var(--gold3);border-radius:10px;padding:11px 13px;">';
+      var imgH=c.photo
+        ?('<img src="'+c.photo+'" alt="'+c.nm+'" onclick="abrirCubaFs(\''+c.id+'\',\''+cubaCat+'\')" style="cursor:zoom-in;width:100%;height:100%;object-fit:contain;display:block;padding:8px;">')
+        :'<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;"><div style="font-size:2.5rem;opacity:.2;">🚰</div></div>';
+      h+='<div class="cubacard">';
+      // Foto com fundo branco + badge OFF no canto
+      h+='<div class="ccimg" style="background:#fff;position:relative;">';
+      if(temDesc) h+='<div style="position:absolute;top:8px;left:8px;background:#00a650;color:#fff;font-size:.62rem;font-weight:800;padding:3px 7px;border-radius:4px;z-index:1;">'+pctOff+'% OFF</div>';
+      h+=imgH+'</div>';
+      // Corpo
+      h+='<div class="ccbody" style="padding:10px 11px 13px;">';
+      h+='<div style="font-size:.78rem;color:var(--t2);line-height:1.35;margin-bottom:8px;font-weight:500;">'+c.brand+' '+c.nm+'</div>';
       if(temDesc){
-        priceBlock+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
-          +'<span style="font-size:.58rem;color:var(--gold3);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">Preço</span>'
-          +'<span style="background:linear-gradient(135deg,#c0392b,#e74c3c);color:#fff;font-size:.6rem;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.5px;">-'+pctOff+'% OFF</span>'
-          +'</div>'
-          +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-          +'<span style="font-size:.75rem;color:var(--t4);text-decoration:line-through;font-weight:500;">R$ '+c.pr_orig.toLocaleString('pt-BR')+'</span>'
-          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.45rem;font-weight:700;color:var(--gold2);letter-spacing:-.5px;">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
-          +'</div>';
-      } else {
-        priceBlock+='<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-          +'<span style="font-size:.58rem;color:var(--gold3);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">Preço</span>'
-          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.45rem;font-weight:700;color:var(--gold2);letter-spacing:-.5px;">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
-          +'</div>';
+        h+='<div style="font-size:.72rem;color:var(--t4);text-decoration:line-through;margin-bottom:1px;">R$ '+c.pr_orig.toLocaleString('pt-BR')+'</div>';
       }
-      priceBlock+='</div>';
-      h+='<div class="cubacard"><div class="ccimg">'+imgH+'</div><div class="ccbody">'
-        +'<div class="ccbrand">'+c.brand+'</div>'
-        +'<div class="ccnm">'+c.nm+'</div>'
-        +'<div class="ccdim">'+c.dim+'</div>'
-        +priceBlock
-        +'</div></div>';
+      h+='<div style="font-size:1.28rem;font-weight:900;color:var(--tx);line-height:1.1;">R$ <span style="font-size:1.45rem;">'+Math.floor(c.pr).toLocaleString('pt-BR')+'</span></div>';
+      h+='<div style="font-size:.65rem;color:var(--t3);margin-top:3px;">'+c.dim+'</div>';
+      h+='</div></div>';
     });
   });
     h+='</div>';
