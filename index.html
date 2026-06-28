@@ -568,10 +568,12 @@ function openApp(pg){
   <div id="cubaFsHeader">
     <button id="cubaFsClose" onclick="document.getElementById('cubaFsMd').classList.remove('on')">←</button>
     <span id="cubaFsBrand"></span>
+    <button id="cubaFsShareBtn" onclick="compartilharCubaFs()" title="Compartilhar">↗</button>
   </div>
   <!-- Galeria de fotos -->
   <div id="cubaFsGallery">
     <div id="cubaFsImgs"></div>
+    <div id="cubaFsCounter"></div>
     <div id="cubaFsDots"></div>
   </div>
   <!-- Conteúdo scrollável -->
@@ -581,6 +583,11 @@ function openApp(pg){
     <div id="cubaFsPriceBlock"></div>
     <div id="cubaFsDesc" class="cfs-desc"></div>
     <div id="cubaFsInstBlock" class="cfs-inst-block"></div>
+    <div style="height:6px;"></div>
+  </div>
+  <!-- Barra de ação fixa -->
+  <div id="cubaFsActionBar">
+    <button id="cubaFsActionBtn" onclick="compartilharCubaFs()">📲 Compartilhar com cliente</button>
   </div>
 </div>
 
