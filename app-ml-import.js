@@ -2,27 +2,41 @@
 // APP-ML-IMPORT.JS  — Importador do Mercado Livre
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
-// Estratégia de busca (2 canais em paralelo):
+// Estratégia de busca (cascata, com log detalhado no console):
 //  1. API pública do ML direto  (api.mercadolibre.com)
-//  2. corsproxy.io como fallback CORS
+//  2. allorigins.win  (proxy 1)
+//  3. corsproxy.io    (proxy 2 — só funciona de localhost/GitHub.io/etc)
+//  4. thingproxy      (proxy 3)
 //
 // Suporte a links de item direto (MLB...) e catálogo (/p/MLB...)
+//
+// DIAGNÓSTICO: abra o DevTools (console) ao testar — cada falha de
+// rede agora imprime [ML-import] com a causa real, em vez de só
+// mostrar "scraping falhou" para o usuário.
 // ══════════════════════════════════════════════════════════════
 
 (function () {
   'use strict';
 
-  var CORS = 'https://corsproxy.io/?url=';
-  var ML   = 'https://api.mercadolibre.com';
+  var ML = 'https://api.mercadolibre.com';
+
+  // Lista de proxies CORS, em ordem de tentativa. Cada um recebe a
+  // URL alvo já com encodeURIComponent aplicado pelo chamador.
+  var PROXIES = [
+    function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+    function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
+    function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; },
+  ];
 
   // ─── Estado ────────────────────────────────────────────────
   var _ml = {
-    loading:  false,
-    data:     null,
-    selPhoto: null,
-    margem:   30,
-    cat:      'coz',
-    urlAtual: '',
+    loading:    false,
+    loadingMsg: '',
+    data:       null,
+    selPhoto:   null,
+    margem:     30,
+    cat:        'coz',
+    urlAtual:   '',
   };
 
   // ─── Utilitários ───────────────────────────────────────────
@@ -73,13 +87,13 @@
     return null;
   }
 
-  // ─── Fetch com timeout ─────────────────────────────────────
-  function _fetch(url, ms) {
-    ms = ms || 8000;
+  // ─── Fetch único com timeout ────────────────────────────────
+  function _fetchOnce(url, ms, asJson) {
+    ms = ms == null ? 7000 : ms;
     return new Promise(function(resolve, reject) {
       var done  = false;
       var timer = setTimeout(function() {
-        if (!done) { done = true; reject(new Error('timeout')); }
+        if (!done) { done = true; reject(new Error('timeout (' + ms + 'ms)')); }
       }, ms);
       fetch(url, { method:'GET', mode:'cors', credentials:'omit',
                    headers:{ 'Accept':'application/json' } })
@@ -87,8 +101,8 @@
           clearTimeout(timer);
           if (done) return;
           done = true;
-          if (!r.ok) return reject(new Error('HTTP ' + r.status));
-          resolve(r.json());
+          if (!r.ok) { reject(new Error('HTTP ' + r.status)); return; }
+          resolve(asJson ? r.json() : r.text());
         })
         .catch(function(e) {
           clearTimeout(timer);
@@ -97,18 +111,48 @@
     });
   }
 
-  // ─── Tenta direto e, se falhar, via corsproxy ───────────────
+  // Tenta uma URL direta e, se falhar, cada proxy da lista em sequência.
+  // Loga cada tentativa e o motivo da falha no console para diagnóstico.
+  function _fetchComProxies(targetUrl, asJson) {
+    var tentativas = [{ label: 'direto', url: targetUrl }]
+      .concat(PROXIES.map(function(fn, i) {
+        return { label: 'proxy' + (i + 1), url: fn(targetUrl) };
+      }));
+
+    function tentar(i) {
+      if (i >= tentativas.length) {
+        console.error('[ML-import] todas as tentativas falharam para', targetUrl);
+        return Promise.reject(new Error('Não foi possível acessar "' + targetUrl + '" (direto + ' + PROXIES.length + ' proxies falharam — veja o console para detalhes)'));
+      }
+      var t = tentativas[i];
+      return _fetchOnce(t.url, 7000, asJson)
+        .then(function(data) {
+          // allorigins /raw já devolve o corpo puro; mas se vier um
+          // wrapper { contents: "..." } (variante /get), desembrulha.
+          if (asJson && data && typeof data.contents === 'string') {
+            try { data = JSON.parse(data.contents); } catch (e) { /* não era JSON, mantém string fora do caminho normal */ }
+          }
+          console.info('[ML-import] OK via', t.label, '→', targetUrl);
+          return data;
+        })
+        .catch(function(e) {
+          console.warn('[ML-import] falhou via', t.label, '(' + targetUrl + '):', e.message || e);
+          return tentar(i + 1);
+        });
+    }
+
+    return tentar(0);
+  }
+
+  // ─── Busca um endpoint da API do ML, com cascata de proxies ─
   function _get(path) {
-    var direct = ML + path;
-    return _fetch(direct).catch(function() {
-      return _fetch(CORS + encodeURIComponent(direct));
-    });
+    return _fetchComProxies(ML + path, true);
   }
 
   // ─── Busca item por ID ─────────────────────────────────────
   function _getItem(id) {
     return _get('/items/' + id).then(function(d) {
-      if (!d || !d.title) throw new Error('sem titulo');
+      if (!d || !d.title) throw new Error('resposta sem título (item inexistente, pausado ou removido)');
       return d;
     });
   }
@@ -120,18 +164,20 @@
       .then(function(d) {
         var id = d && d.results && d.results[0] && d.results[0].id;
         if (id) return id;
-        throw new Error('vazio');
+        throw new Error('busca por catalog_product_id veio vazia');
       })
-      .catch(function() {
+      .catch(function(e1) {
+        console.warn('[ML-import] catálogo rota 1 falhou:', e1.message || e1);
         // Rota 2: /products/{catalogId}
         return _get('/products/' + catalogId).then(function(d) {
           var id = (d && d.buy_box_winner && d.buy_box_winner.item_id) ||
                    (d && d.items && d.items[0] && d.items[0].id);
           if (id) return id;
-          throw new Error('vazio');
+          throw new Error('/products/{id} sem item vinculado');
         });
       })
-      .catch(function() {
+      .catch(function(e2) {
+        console.warn('[ML-import] catálogo rota 2 falhou:', e2.message || e2);
         // Rota 3: scraping HTML da página do catálogo
         return _scrapeCatalogPage(catalogId);
       });
@@ -140,36 +186,27 @@
   // ─── Scraping HTML como último recurso ─────────────────────
   function _scrapeCatalogPage(catalogId) {
     var pageUrl = 'https://www.mercadolivre.com.br/p/' + catalogId;
-    var proxies = [
-      CORS + encodeURIComponent(pageUrl),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(pageUrl),
-    ];
-
-    function tentar(lista) {
-      if (!lista.length) return Promise.reject(new Error('scraping falhou'));
-      return fetch(lista[0], { method:'GET', mode:'cors', credentials:'omit' })
-        .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
-        .then(function(html) {
-          var matches = html.match(/MLB\d{8,}/g) || [];
-          var uniq = [];
-          matches.forEach(function(x) {
-            var up = x.toUpperCase();
-            if (up !== catalogId && uniq.indexOf(up) === -1) uniq.push(up);
-          });
-          if (uniq.length) return uniq[0];
-          throw new Error('nenhum MLB no HTML');
-        })
-        .catch(function() { return tentar(lista.slice(1)); });
-    }
-
-    return tentar(proxies);
+    return _fetchComProxies(pageUrl, false).then(function(html) {
+      var matches = html.match(/MLB\d{8,}/g) || [];
+      var uniq = [];
+      matches.forEach(function(x) {
+        var up = x.toUpperCase();
+        if (up !== catalogId && uniq.indexOf(up) === -1) uniq.push(up);
+      });
+      if (uniq.length) return uniq[0];
+      console.error('[ML-import] HTML do catálogo veio, mas sem nenhum MLB diferente do próprio catálogo');
+      throw new Error('página do catálogo não revelou o item vinculado');
+    });
   }
 
-  // ─── Busca descrição (não crítico) ─────────────────────────
+  // ─── Busca descrição (não crítico, falha silenciosa) ───────
   function _getDesc(id) {
     return _get('/items/' + id + '/description')
       .then(function(d) { return (d && d.plain_text) || ''; })
-      .catch(function() { return ''; });
+      .catch(function(e) {
+        console.warn('[ML-import] descrição indisponível (não bloqueia):', e.message || e);
+        return '';
+      });
   }
 
   // ─── Orquestrador principal ─────────────────────────────────
@@ -180,36 +217,40 @@
       return;
     }
 
+    console.info('[ML-import] iniciando busca:', rawUrl, '→', info);
+
     _ml.loading  = true;
     _ml.data     = null;
     _ml.selPhoto = null;
     _renderModal();
-    _showStatus('⏳ Buscando produto…', 'info');
+    _showStatus('⏳ Buscando produto na API do ML…', 'info');
 
     var promise;
 
     if (info.isCatalog) {
-      _showStatus('⏳ Resolvendo catálogo…', 'info');
+      _showStatus('⏳ Resolvendo catálogo ' + info.id + '…', 'info');
       promise = _resolveCatalog(info.id).then(function(itemId) {
-        _showStatus('⏳ Buscando item ' + itemId + '…', 'info');
+        _showStatus('⏳ Catálogo resolvido → ' + itemId + ', buscando item…', 'info');
         return _getItem(itemId);
       });
     } else {
-      promise = _getItem(info.id).catch(function() {
+      promise = _getItem(info.id).catch(function(eDireto) {
+        console.warn('[ML-import] item direto falhou:', eDireto.message || eDireto);
         // Item direto falhou — tenta via catálogo se o link tiver /p/
         var catalogM = rawUrl.match(/\/p\/(MLB\d+)/i);
         if (catalogM) {
-          _showStatus('⏳ Item pausado, tentando catálogo…', 'info');
+          _showStatus('⏳ Item indisponível, tentando via catálogo…', 'info');
           return _resolveCatalog(catalogM[1].toUpperCase()).then(function(altId) {
             return _getItem(altId);
           });
         }
-        throw new Error('Produto não encontrado');
+        throw eDireto;
       });
     }
 
     promise
       .then(function(item) {
+        _showStatus('⏳ Buscando descrição…', 'info');
         return _getDesc(item.id).then(function(desc) {
           item._desc = desc;
           return item;
@@ -226,8 +267,11 @@
         _ml.loading = false;
         _renderModal();
         var msg = (e && e.message) || 'Erro desconhecido';
-        if (msg === 'Produto não encontrado' || msg.indexOf('sem titulo') !== -1) {
-          msg = 'Produto não encontrado. Verifique o link ou tente novamente.';
+        console.error('[ML-import] busca falhou definitivamente:', msg);
+        if (msg.indexOf('sem título') !== -1 || msg.indexOf('título') !== -1) {
+          msg = 'Produto não encontrado (pode estar pausado, removido ou o link é inválido).';
+        } else if (msg.indexOf('falharam') !== -1) {
+          msg = 'Não consegui acessar o Mercado Livre agora (rede/proxy bloqueado). Veja o console (F12) para detalhes, ou tente novamente em alguns segundos.';
         }
         _showStatus('❌ ' + msg, 'error');
       });
@@ -294,21 +338,42 @@
 
   function _precoVenda(custo, margem) { return custo * (1 + margem / 100); }
 
-  // ─── Download foto base64 ──────────────────────────────────
+  // ─── Download foto base64 (com fallback de proxy de imagem) ─
   function _downloadFotoB64(url, cb) {
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function() {
-      var canvas = document.createElement('canvas');
-      var maxW   = 500;
-      var scale  = Math.min(1, maxW / img.width);
-      canvas.width  = Math.round(img.width  * scale);
-      canvas.height = Math.round(img.height * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      cb(canvas.toDataURL('image/jpeg', 0.78));
-    };
-    img.onerror = function() { cb(null); };
-    img.src = url;
+    function tentarCarregar(src, viaProxy) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function() {
+        try {
+          var canvas = document.createElement('canvas');
+          var maxW   = 500;
+          var scale  = Math.min(1, maxW / img.width);
+          canvas.width  = Math.round(img.width  * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          var dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+          cb(dataUrl);
+        } catch (e) {
+          // Canvas "tainted" por falta de CORS na imagem original.
+          console.warn('[ML-import] canvas tainted ao processar foto, tentando proxy:', e.message || e);
+          if (!viaProxy) {
+            tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(src), true);
+          } else {
+            cb(null);
+          }
+        }
+      };
+      img.onerror = function() {
+        console.warn('[ML-import] falha ao carregar foto:', src);
+        if (!viaProxy) {
+          tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(src), true);
+        } else {
+          cb(null);
+        }
+      };
+      img.src = src;
+    }
+    tentarCarregar(url, false);
   }
 
   // ─── Salvar ────────────────────────────────────────────────
@@ -502,7 +567,7 @@
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">API do ML → corsproxy.io</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">API do ML → allorigins → corsproxy → thingproxy</span>'
          + '</div>';
     }
 
