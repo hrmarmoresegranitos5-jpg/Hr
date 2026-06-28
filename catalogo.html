@@ -409,7 +409,27 @@ function pedirWhatsApp(){
     +(CURITEM.dim?' — '+CURITEM.dim:'')
     +(pr>0?' — Preço tabela: R$ '+fm(pr):'')
     +'. Vi no catálogo online.';
-  window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+  var fotos=(CURITEM.fotos&&CURITEM.fotos.length)?CURITEM.fotos:(CURITEM.photo?[CURITEM.photo]:[]);
+  var foto=fotos[0];
+
+  function abrirLinkTexto(){
+    window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+  }
+
+  // Tenta compartilhar a foto junto com o texto (abre a folha de compartilhamento do Android — o cliente escolhe WhatsApp)
+  if(foto && navigator.share && navigator.canShare){
+    fetch(foto).then(function(r){ return r.blob(); }).then(function(blob){
+      var ext=(blob.type&&blob.type.indexOf('png')>-1)?'png':'jpg';
+      var file=new File([blob],'foto.'+ext,{type:blob.type||'image/jpeg'});
+      if(navigator.canShare({files:[file]})){
+        return navigator.share({files:[file],text:txt}).catch(function(){ abrirLinkTexto(); });
+      } else {
+        abrirLinkTexto();
+      }
+    }).catch(function(){ abrirLinkTexto(); });
+  } else {
+    abrirLinkTexto();
+  }
 }
 
 function abrirWaGeral(){
