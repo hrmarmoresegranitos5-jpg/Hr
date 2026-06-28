@@ -200,6 +200,17 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdpr .v{font-size:1.5rem;font-weight:800;color:var(--gold-soft);}
 .mdpr .o{font-size:.85rem;color:var(--ink-mute);text-decoration:line-through;}
 
+/* calculadora de metragem da pedra (m²) no modal */
+.md-m2box{background:var(--panel2);border:1px solid var(--line2);border-radius:13px;padding:14px 16px;margin-bottom:18px;}
+.md-m2lbl{display:block;font-size:.74rem;color:var(--ink-soft);font-weight:600;margin-bottom:9px;}
+.md-m2row{display:flex;align-items:center;gap:8px;}
+.md-m2inp{flex:1;background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:10px 12px;color:var(--cream);font-family:Outfit,sans-serif;font-size:.92rem;font-weight:700;}
+.md-m2inp:focus{outline:none;border-color:var(--gold);}
+.md-m2unit{font-size:.78rem;color:var(--ink-mute);font-weight:600;flex-shrink:0;}
+.md-m2total{margin-top:10px;font-size:.78rem;color:var(--ink-mute);}
+.md-m2total.on{color:var(--gold-soft);font-size:.86rem;}
+.md-m2total b{font-family:"Cormorant Garamond",serif;font-size:1.2rem;}
+
 /* Botões de ação no modal */
 .md-actions{display:flex;flex-direction:column;gap:10px;}
 .btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;}
@@ -451,11 +462,12 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 <div class="toast" id="toast"></div>
 
 <script>
-var DATA=null, CAT='coz', STONECAT='Todos', WAPHONE='', CURITEM=null, CURFOTOS=[], CURFOTO_IDX=0;
+var DATA=null, CAT='coz', STONECAT='Todos', STONE_M2=null, WAPHONE='', CURITEM=null, CURFOTOS=[], CURFOTO_IDX=0;
 
 /* ── utilitários ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function fmM2(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:2});}
 
 var _toastT;
 function showToast(msg){
@@ -737,6 +749,7 @@ function openItem(cat,idx,fromDeepLink){
   CURITEM=it;
   CURFOTOS=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
   CURFOTO_IDX=0;
+  STONE_M2=null;
 
   /* SEO — atualiza metatags para este produto (para compartilhamento de link) */
   var itemLink=itemUrl(cat,idx);
@@ -760,6 +773,19 @@ function openItem(cat,idx,fromDeepLink){
     ?'<div class="mdpr"><span class="v">R$ '+fm(pr)+(cat==='pedra'?'<small style="font-size:.6em;font-weight:600;">/m²</small>':'')+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
     :'<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
 
+  /* campo de metragem — só para pedras, calcula o total automaticamente */
+  var m2Block='';
+  if(cat==='pedra'&&pr>0){
+    m2Block='<div class="md-m2box">'
+      +'<label class="md-m2lbl">Quantos m² você precisa?</label>'
+      +'<div class="md-m2row">'
+      +'<input type="number" id="mdM2Input" class="md-m2inp" min="0" step="0.1" placeholder="Ex: 3.5" value="'+(STONE_M2||'')+'" oninput="_updM2Total('+pr+')">'
+      +'<span class="md-m2unit">m²</span>'
+      +'</div>'
+      +'<div class="md-m2total" id="mdM2Total">Informe a metragem para calcular o total</div>'
+      +'</div>';
+  }
+
   document.getElementById('md').innerHTML=
     galHtml
     +'<div class="mdbody">'
@@ -768,6 +794,7 @@ function openItem(cat,idx,fromDeepLink){
     +(subtitle?'<div class="mddim">'+esc(subtitle)+'</div>':'')
     +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
     +priceBlock
+    +m2Block
     +'<div class="md-actions">'
     +'<button class="btn-add-cart" onclick="addToCart(\''+cat+'\','+idx+')">🛒 Adicionar ao pedido</button>'
     +'<button class="btnwa" onclick="pedirWhatsApp()">'
@@ -778,6 +805,19 @@ function openItem(cat,idx,fromDeepLink){
     +'</div>';
 
   document.getElementById('ov').classList.add('on');
+  if(cat==='pedra'&&pr>0)_updM2Total(pr);
+}
+
+/* atualiza o total exibido no modal conforme o usuário digita a metragem */
+function _updM2Total(prM2){
+  var inp=document.getElementById('mdM2Input');
+  var out=document.getElementById('mdM2Total');
+  if(!inp||!out)return;
+  var v=parseFloat((inp.value||'').replace(',','.'));
+  STONE_M2=inp.value;
+  if(!v||v<=0){out.textContent='Informe a metragem para calcular o total';out.classList.remove('on');return;}
+  out.innerHTML='Total estimado: <b>R$ '+fm(v*prM2)+'</b>';
+  out.classList.add('on');
 }
 
 function _buildGal(){
@@ -833,12 +873,18 @@ function _msgWa(it,incluirLink,cat,idx){
   var pr=it.pr||0;
   var isPedra=(cat||CAT)==='pedra';
   var subtitle=it.dim||(isPedra?[it.cat,it.fin?'Acabamento '+it.fin:''].filter(Boolean).join(' · '):'');
+  var m2=isPedra?parseFloat((STONE_M2||'').toString().replace(',','.')):0;
   var txt='Olá! Gostaria de orçamento para:\n'
     +'*'+nm+'*'
     +(it.brand?' ('+it.brand+')':'')
-    +(subtitle?'\n'+subtitle:'')
-    +(pr>0?'\nPreço tabela: *R$ '+fm(pr)+(isPedra?'/m²':'')+'*':'')
-    +'\n\nVi no catálogo online. 🏠';
+    +(subtitle?'\n'+subtitle:'');
+  if(pr>0&&isPedra){
+    txt+='\nPreço tabela: *R$ '+fm(pr)+'/m²*';
+    if(m2>0)txt+='\nMetragem: *'+fmM2(m2)+' m²* — Total estimado: *R$ '+fm(m2*pr)+'*';
+  } else if(pr>0){
+    txt+='\nPreço tabela: *R$ '+fm(pr)+'*';
+  }
+  txt+='\n\nVi no catálogo online. 🏠';
   if(incluirLink&&cat!==null&&idx!==null){
     txt+='\n'+itemUrl(cat,idx);
   }
@@ -941,12 +987,27 @@ function addToCart(cat,idx){
   if(cartInclui(cat,idx)){showToast('Já está no pedido!');return;}
   var it=listFor(cat)[idx];
   if(!it)return;
-  CART.push({cat:cat,idx:idx,it:it});
+
+  var entry={cat:cat,idx:idx,it:it};
+
+  if(cat==='pedra'&&it.pr>0){
+    var inp=document.getElementById('mdM2Input');
+    var m2=inp?parseFloat((inp.value||'').replace(',','.')):0;
+    if(!m2||m2<=0){
+      showToast('⚠ Informe a metragem (m²) antes de adicionar');
+      if(inp)inp.focus();
+      return;
+    }
+    entry.m2=m2;
+    entry.totalCalc=m2*it.pr;
+  }
+
+  CART.push(entry);
   atualizarFab();
   showToast('✅ Adicionado ao pedido!');
   closeMd();
-  /* sugere acessórios se item não for acessório e existirem acessórios */
-  if(cat!=='ac'&&(DATA.acessorios||[]).length>0){
+  /* sugere acessórios apenas para cubas (não faz sentido para pedras ou acessórios) */
+  if(cat!=='ac'&&cat!=='pedra'&&(DATA.acessorios||[]).length>0){
     setTimeout(abrirSuggest,350);
   }
 }
@@ -1043,15 +1104,24 @@ function renderResumo(){
     var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
     var foto=fotos[0]||'';
     var pr=it.pr||0;
-    if(pr>0&&!isPedra)total+=pr;
+    var lineTotal=isPedra?(e.totalCalc||0):pr;
+    if(lineTotal>0)total+=lineTotal;
     var subtitle=it.dim||(isPedra?[it.cat,it.fin?'Acabamento '+it.fin:''].filter(Boolean).join(' · '):'');
+    var priceHtml;
+    if(isPedra&&e.m2>0){
+      priceHtml='<div class="rpr">R$ '+fm(lineTotal)+'</div><div style="font-size:.62rem;color:var(--ink-mute);margin-top:2px;">'+fmM2(e.m2)+' m² × R$ '+fm(pr)+'/m²</div>';
+    } else if(pr>0){
+      priceHtml='<div class="rpr">R$ '+fm(pr)+'</div>';
+    } else {
+      priceHtml='<div class="rpr" style="font-size:.78rem;color:var(--ink-mute);">Sob consulta</div>';
+    }
     return '<div class="resume-item">'
       +'<div class="rthumb">'+(foto?'<img src="'+foto+'" alt="'+esc(it.nm||'')+'">':'<div class="rph">'+(e.cat==='ac'?'🔩':(isPedra?'🪨':'🚰'))+'</div>')+'</div>'
       +'<div class="rbody">'
       +(it.brand?'<div class="rbrand">'+esc(it.brand)+'</div>':'')
       +'<div class="rnm">'+esc(it.nm||'Item')+'</div>'
       +(subtitle?'<div class="rdim">'+esc(subtitle)+'</div>':'')
-      +(pr>0?'<div class="rpr">R$ '+fm(pr)+(isPedra?'<small style="font-weight:600;">/m²</small>':'')+'</div>':'<div class="rpr" style="font-size:.78rem;color:var(--ink-mute);">Sob consulta</div>')
+      +priceHtml
       +'<button class="rdel" onclick="removerDoCart(\''+e.cat+'\','+e.idx+')">✕ Remover</button>'
       +'</div></div>';
   }).join('');
@@ -1075,18 +1145,25 @@ function _montarTextoWa(){
     var it=e.it;
     var pr=it.pr||0;
     var isPedra=e.cat==='pedra';
-    if(pr>0&&!isPedra)total+=pr;
+    var lineTotal=isPedra?(e.totalCalc||0):pr;
+    if(lineTotal>0)total+=lineTotal;
     txt+=(i+1)+'️⃣ *'+(it.nm||'Item')+'*';
     if(it.brand)txt+=' ('+it.brand+')';
     txt+='\n';
     var subtitle=it.dim||(isPedra?[it.cat,it.fin?'Acabamento '+it.fin:''].filter(Boolean).join(' · '):'');
     if(subtitle)txt+='   📐 '+subtitle+'\n';
-    if(pr>0)txt+='   💰 R$ '+fm(pr)+(isPedra?'/m²\n':'\n');
-    else txt+='   💰 Sob consulta\n';
+    if(isPedra&&e.m2>0){
+      txt+='   📏 '+fmM2(e.m2)+' m² × R$ '+fm(pr)+'/m²\n';
+      txt+='   💰 *R$ '+fm(lineTotal)+'*\n';
+    } else if(pr>0){
+      txt+='   💰 R$ '+fm(pr)+'\n';
+    } else {
+      txt+='   💰 Sob consulta\n';
+    }
     txt+='\n';
   });
   txt+='━━━━━━━━━━━━━━━━━━━━\n';
-  if(total>0)txt+='📦 *Total estimado (itens c/ preço fixo): R$ '+fm(total)+'*\n━━━━━━━━━━━━━━━━━━━━\n';
+  if(total>0)txt+='📦 *Total estimado: R$ '+fm(total)+'*\n━━━━━━━━━━━━━━━━━━━━\n';
   txt+='\nOlá! Escolhi esses itens no catálogo e gostaria de confirmar disponibilidade. 🙏';
   return txt;
 }
