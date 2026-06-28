@@ -265,11 +265,28 @@
       });
     }
 
-    // Tenta estratégia 1 (/products/), depois 2 (search?catalog_product_id=), depois desiste
+    // Tenta estratégia 1 (/products/), depois 2 (search?catalog_product_id=),
+    // depois 3 (scraping HTML da página do catálogo para extrair um MLB real)
     _tentarCom(base1, function() {
       _fetchCatalogSearch(id, function(err2, itemId) {
         if (!err2 && itemId) { cb(null, itemId); return; }
-        cb('Não foi possível resolver o catálogo ' + id, null);
+
+        // Estratégia 3: scraping da página do catálogo
+        _fetchPaginaML(id, function(err3, html) {
+          if (html) {
+            // Procura MLBs no HTML que não sejam o próprio id do catálogo
+            var m = html.match(/MLB\d{7,}/g);
+            var candidatos = (m || []).filter(function(x) { return x.toUpperCase() !== id.toUpperCase(); });
+            // Remove duplicatas
+            candidatos = candidatos.filter(function(x, i, a) { return a.indexOf(x) === i; });
+            if (candidatos.length) {
+              console.log('[ML-import] Catálogo resolvido via scraping:', candidatos[0]);
+              cb(null, candidatos[0]);
+              return;
+            }
+          }
+          cb('Não foi possível resolver o catálogo ' + id, null);
+        });
       });
     });
   }
@@ -562,7 +579,15 @@
         if (info.fallbackCatalogId) {
           _showStatus('⏳ Item pausado, buscando via catálogo...', 'info');
           _fetchCatalog(info.fallbackCatalogId, function(err2, itemId) {
-            carregar(!err2 && itemId ? itemId : info.fallbackCatalogId);
+            if (!err2 && itemId && itemId !== info.fallbackCatalogId) {
+              // Resolveu um MLB real via catálogo — busca o item
+              carregar(itemId);
+            } else {
+              // Catálogo não resolveu nenhum item real
+              _ml.loading = false;
+              _renderModal();
+              _showStatus('❌ Produto não encontrado. O anúncio pode estar pausado ou removido.', 'error');
+            }
           });
         } else {
           _ml.loading = false;
