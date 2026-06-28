@@ -8827,7 +8827,15 @@ function publicarCatalogo(){
   var dados={
     emp:{
       nome:(CFG.emp&&CFG.emp.nome)||'HR Mármores e Granitos',
+      tipo:(CFG.emp&&CFG.emp.tipo)||'Marmoraria',
       tel:(CFG.emp&&CFG.emp.tel)||'',
+      email:(CFG.emp&&CFG.emp.email)||'',
+      ig:(CFG.emp&&CFG.emp.ig)||'',
+      site:(CFG.emp&&CFG.emp.site)||'',
+      end:(CFG.emp&&CFG.emp.end)||'',
+      bairro:(CFG.emp&&CFG.emp.bairro)||'',
+      cidade:(CFG.emp&&CFG.emp.cidade)||'',
+      horario:(CFG.emp&&CFG.emp.horario)||'',
       logoUrl:(CFG.emp&&CFG.emp.logoUrl)||''
     },
     cubas_coz:CFG.coz||[],

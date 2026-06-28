@@ -2,91 +2,280 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Catálogo — HR Mármores e Granitos</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HR Mármores e Granitos — Catálogo</title>
+<meta name="description" content="Catálogo oficial de cubas e acessórios — HR Mármores e Granitos.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--gold:#C9A84C;--gold2:#E8C96A;--gold3:#8B6014;--gdim:#2e2208;--bg:#070709;--s1:#0e0e12;--s2:#141418;--s3:#1a1a20;--s4:#22222a;--bd:#1e1e26;--bd2:#28282f;--tx:#F4EFE8;--t2:#bfb9b0;--t3:#7a7570;--t4:#4a4540;--grn:#3a9e6a;--r:14px;}
+:root{
+  --bg:#0a0a0c; --bg2:#111114; --panel:#15151a; --panel2:#1a1a20;
+  --line:#242429; --line2:#2c2c33;
+  --gold:#c9a44c; --gold-soft:#e3c578; --gold-deep:#7a5c20;
+  --cream:#f3eee4; --ink:#cfc9bf; --ink-soft:#9b958c; --ink-mute:#5c5850;
+  --r:16px; --r-sm:10px;
+  --maxw:1180px;
+}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);font-family:Outfit,sans-serif;min-height:100%;}
-#hdr{position:sticky;top:0;z-index:10;background:var(--s1);border-bottom:1px solid var(--bd);padding:14px 17px;display:flex;align-items:center;gap:10px;}
-#hdr::after{content:"";position:absolute;bottom:-1px;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--gold3),transparent);}
-.hlogo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold3));display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-size:1.05rem;font-weight:700;color:#1a0e00;flex-shrink:0;overflow:hidden;}
-.hlogo img{width:100%;height:100%;object-fit:cover;}
-.htxt{flex:1;min-width:0;}
-.hnm{font-family:"Cormorant Garamond",serif;font-size:1.15rem;font-weight:700;color:var(--gold);line-height:1.1;}
-.hsub{font-size:.66rem;color:var(--t3);margin-top:1px;}
-.tabs{display:flex;gap:6px;padding:12px 14px 4px;overflow-x:auto;scrollbar-width:none;}
+html{scroll-behavior:smooth;}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto;}*{animation-duration:.001ms !important;transition-duration:.001ms !important;}}
+body{margin:0;background:var(--bg);color:var(--cream);font-family:Outfit,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+img{max-width:100%;display:block;}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;}
+.eyebrow{font-size:.66rem;letter-spacing:2.6px;text-transform:uppercase;color:var(--gold);font-weight:700;}
+.serif{font-family:"Cormorant Garamond",serif;}
+
+/* ---------- marble slab signature ---------- */
+.slab{
+  position:relative; border-radius:18px; overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 15% 10%, rgba(255,255,255,.05), transparent 45%),
+    radial-gradient(90% 70% at 85% 80%, rgba(201,164,76,.10), transparent 50%),
+    linear-gradient(125deg, #17171c 0%, #0d0d10 45%, #1c1c22 70%, #0c0c0f 100%);
+  border:1px solid var(--line2);
+}
+.slab::before{
+  content:"";position:absolute;inset:0;opacity:.5;mix-blend-mode:screen;pointer-events:none;
+  background:
+    repeating-linear-gradient(118deg, transparent 0 18px, rgba(255,255,255,.025) 18px 19px, transparent 19px 46px),
+    repeating-linear-gradient(35deg, transparent 0 26px, rgba(201,164,76,.04) 26px 27px, transparent 27px 64px);
+}
+.slab::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), inset 0 1px 0 rgba(255,255,255,.05);
+}
+
+/* ---------- nav ---------- */
+#nav{position:sticky;top:0;z-index:50;background:rgba(10,10,12,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+#nav .row{display:flex;align-items:center;gap:14px;height:64px;}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.blogo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1rem;color:#1a0e00;overflow:hidden;flex-shrink:0;}
+.blogo img{width:100%;height:100%;object-fit:cover;}
+.bname{font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1.05rem;color:var(--gold-soft);line-height:1.1;white-space:nowrap;}
+.btype{font-size:.62rem;color:var(--ink-mute);letter-spacing:.5px;}
+#nav nav{display:flex;gap:26px;margin-left:auto;}
+#nav nav a{font-size:.78rem;font-weight:600;color:var(--ink-soft);padding:6px 0;border-bottom:2px solid transparent;}
+#nav nav a:hover{color:var(--cream);border-color:var(--gold);}
+.navwa{display:none;}
+@media(min-width:760px){.navwa{display:inline-flex;}}
+.btn-wa-sm{align-items:center;gap:7px;background:#1ea952;color:#fff;font-size:.74rem;font-weight:700;padding:9px 16px;border-radius:30px;flex-shrink:0;}
+.btn-wa-sm svg{width:14px;height:14px;}
+
+/* ---------- hero ---------- */
+#hero{position:relative;padding:64px 0 56px;overflow:hidden;}
+#hero .bgslab{position:absolute;inset:-1px;z-index:-1;border-radius:0;border:none;}
+.herogrid{display:grid;gap:34px;align-items:center;}
+@media(min-width:860px){.herogrid{grid-template-columns:1.1fr .9fr;}}
+.herotitle{font-size:2.5rem;font-weight:700;line-height:1.04;margin:10px 0 16px;color:var(--cream);}
+.herotitle em{font-style:normal;color:var(--gold-soft);}
+@media(min-width:600px){.herotitle{font-size:3.2rem;}}
+.herosub{font-size:.95rem;color:var(--ink-soft);max-width:480px;margin-bottom:26px;line-height:1.65;}
+.heroctas{display:flex;flex-wrap:wrap;gap:12px;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:11px;font-size:.82rem;font-weight:700;cursor:pointer;border:none;}
+.btn-gold{background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#1a0e00;}
+.btn-line{border:1px solid var(--line2);color:var(--ink);background:transparent;}
+.heropanel{aspect-ratio:4/3;display:flex;flex-direction:column;justify-content:flex-end;padding:22px;}
+.heropanel .tag{font-size:.6rem;letter-spacing:2px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px;}
+.heropanel .big{font-family:"Cormorant Garamond",serif;font-size:1.6rem;color:var(--gold-soft);line-height:1.15;}
+
+/* ---------- section heads ---------- */
+.sechead{margin-bottom:24px;}
+.sechead h2{font-family:"Cormorant Garamond",serif;font-size:1.9rem;font-weight:700;margin:6px 0 0;color:var(--cream);}
+section{padding:56px 0;}
+.divider{height:1px;background:linear-gradient(90deg,transparent,var(--line2),transparent);}
+
+/* ---------- tabs + grid ---------- */
+.tabs{display:flex;gap:8px;margin:22px 0 26px;overflow-x:auto;scrollbar-width:none;}
 .tabs::-webkit-scrollbar{display:none;}
-.tab{flex-shrink:0;padding:8px 16px;border-radius:20px;border:1px solid var(--bd2);background:transparent;color:var(--t3);font-family:Outfit,sans-serif;font-size:.74rem;font-weight:600;cursor:pointer;white-space:nowrap;}
-.tab.on{border-color:var(--gold);background:rgba(201,168,76,.12);color:var(--gold2);}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:14px;}
-.card{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column;transition:transform .12s;}
-.card:active{transform:scale(.97);}
-.cthumb{width:100%;height:118px;background:var(--s3);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
+.tab.on{border-color:var(--gold);background:rgba(201,164,76,.1);color:var(--gold-soft);}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr);}}
+@media(min-width:960px){.grid{grid-template-columns:repeat(4,1fr);}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;cursor:pointer;transition:transform .15s,border-color .15s;}
+.card:hover{border-color:var(--line2);transform:translateY(-2px);}
+.cthumb{width:100%;aspect-ratio:4/3;background:var(--panel2);display:flex;align-items:center;justify-content:center;overflow:hidden;}
 .cthumb img{width:100%;height:100%;object-fit:cover;}
-.cthumb .ph{font-size:2.2rem;color:var(--t4);}
-.cbody{padding:10px 11px 12px;flex:1;display:flex;flex-direction:column;}
-.cbrand{font-size:.58rem;letter-spacing:1px;text-transform:uppercase;color:var(--t3);font-weight:600;}
-.cnm{font-size:.86rem;font-weight:700;color:var(--tx);margin:2px 0 4px;line-height:1.25;}
-.cdim{font-size:.66rem;color:var(--t3);margin-bottom:8px;}
-.cpr{margin-top:auto;font-size:.92rem;font-weight:800;color:var(--gold2);}
-.cpr small{font-size:.6rem;color:var(--t3);font-weight:500;}
-.empty{padding:60px 20px;text-align:center;color:var(--t3);font-size:.85rem;}
-.empty .ic{font-size:2.4rem;margin-bottom:10px;display:block;}
-/* modal */
-#ov{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:flex-end;justify-content:center;}
+.cthumb .ph{font-size:2rem;color:var(--ink-mute);}
+.cbody{padding:13px 14px 15px;}
+.cbrand{font-size:.58rem;letter-spacing:1px;text-transform:uppercase;color:var(--ink-mute);font-weight:700;}
+.cnm{font-size:.86rem;font-weight:700;color:var(--cream);margin:3px 0 4px;line-height:1.25;}
+.cdim{font-size:.66rem;color:var(--ink-mute);margin-bottom:9px;}
+.cpr{font-size:.92rem;font-weight:800;color:var(--gold-soft);}
+.cpr small{font-size:.6rem;color:var(--ink-mute);font-weight:500;}
+.empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
+.empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
+
+/* ---------- about ---------- */
+.aboutgrid{display:grid;gap:30px;}
+@media(min-width:860px){.aboutgrid{grid-template-columns:1fr 1fr;align-items:center;}}
+.aboutgrid p{color:var(--ink-soft);font-size:.88rem;line-height:1.75;margin:14px 0;}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px;}
+.fact b{display:block;font-family:"Cormorant Garamond",serif;font-size:1.5rem;color:var(--gold-soft);}
+.fact span{font-size:.62rem;color:var(--ink-mute);letter-spacing:.5px;text-transform:uppercase;}
+.aboutslab{padding:26px;min-height:220px;display:flex;flex-direction:column;justify-content:center;gap:12px;}
+.aboutslab .q{font-family:"Cormorant Garamond",serif;font-size:1.3rem;color:var(--cream);line-height:1.4;}
+.aboutslab .who{font-size:.7rem;color:var(--ink-mute);}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2);}
+.footgrid{display:grid;gap:28px;}
+@media(min-width:760px){.footgrid{grid-template-columns:1.2fr 1fr 1fr;}}
+.footbrand .bname{font-size:1.2rem;}
+.footcol h4{font-size:.65rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-mute);margin:0 0 12px;}
+.footcol div, .footcol a{display:block;font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
+.footcol a:hover{color:var(--gold-soft);}
+.footbottom{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:.68rem;color:var(--ink-mute);}
+
+/* ---------- floating WA ---------- */
+#fab{position:fixed;bottom:20px;right:20px;z-index:60;width:54px;height:54px;border-radius:50%;background:#1ea952;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4);cursor:pointer;}
+#fab svg{width:26px;height:26px;}
+
+/* ---------- modal ---------- */
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:none;align-items:center;justify-content:center;padding:16px;}
 #ov.on{display:flex;}
-#md{background:var(--s1);border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;border:1px solid var(--bd);animation:up .2s ease;}
-@keyframes up{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-.mdgal{width:100%;height:240px;background:var(--s3);position:relative;overflow:hidden;}
+#md{background:var(--bg2);border-radius:18px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;border:1px solid var(--line2);animation:pop .18s ease;}
+@keyframes pop{from{transform:translateY(16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.mdgal{width:100%;aspect-ratio:4/3;background:var(--panel2);position:relative;overflow:hidden;border-radius:18px 18px 0 0;}
 .mdgal img{width:100%;height:100%;object-fit:cover;display:block;}
-.mdgal .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3.4rem;color:var(--t4);}
-.mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;}
-.gdots{position:absolute;bottom:9px;left:0;right:0;display:flex;justify-content:center;gap:5px;}
-.gdot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.35);}
-.gdot.on{background:var(--gold);}
-.mdbody{padding:18px 18px 22px;}
+.mdgal .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;color:var(--ink-mute);}
+.mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.mdbody{padding:20px 20px 24px;}
 .mdbrand{font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:4px;}
-.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--tx);line-height:1.15;margin-bottom:6px;}
-.mddim{font-size:.74rem;color:var(--t3);margin-bottom:12px;}
-.mddesc{font-size:.8rem;color:var(--t2);line-height:1.6;margin-bottom:16px;}
+.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.5rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:6px;}
+.mddim{font-size:.74rem;color:var(--ink-mute);margin-bottom:12px;}
+.mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:18px;}
 .mdpr{display:flex;align-items:baseline;gap:8px;margin-bottom:18px;}
-.mdpr .v{font-size:1.5rem;font-weight:800;color:var(--gold2);}
-.mdpr .o{font-size:.85rem;color:var(--t4);text-decoration:line-through;}
-.btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;cursor:pointer;}
-.btnwa svg{width:20px;height:20px;flex-shrink:0;}
-#loading{padding:80px 20px;text-align:center;color:var(--t3);}
-.spin{width:30px;height:30px;border:3px solid var(--bd2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 14px;animation:sp 0.8s linear infinite;}
+.mdpr .v{font-size:1.5rem;font-weight:800;color:var(--gold-soft);}
+.mdpr .o{font-size:.85rem;color:var(--ink-mute);text-decoration:line-through;}
+.btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;}
+.btnwa svg{width:19px;height:19px;flex-shrink:0;}
+
+#loading{padding:120px 20px;text-align:center;color:var(--ink-mute);}
+.spin{width:28px;height:28px;border:3px solid var(--line2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 14px;animation:sp .8s linear infinite;}
 @keyframes sp{to{transform:rotate(360deg);}}
-footer{text-align:center;padding:24px 20px 40px;font-size:.66rem;color:var(--t4);}
+.hide{display:none !important;}
 </style>
 </head>
 <body>
 
-<div id="hdr">
-  <div class="hlogo" id="hLogo">HR</div>
-  <div class="htxt">
-    <div class="hnm" id="hNome">HR Mármores e Granitos</div>
-    <div class="hsub">Catálogo de Cubas e Acessórios</div>
+<header id="nav">
+  <div class="wrap row">
+    <div class="brand">
+      <div class="blogo" id="hLogo">HR</div>
+      <div>
+        <div class="bname serif" id="navNome">HR Mármores e Granitos</div>
+        <div class="btype" id="navTipo">Marmoraria</div>
+      </div>
+    </div>
+    <nav>
+      <a href="#catalogo">Catálogo</a>
+      <a href="#sobre">Sobre</a>
+      <a href="#contato">Contato</a>
+    </nav>
+    <a class="btn-wa-sm navwa" id="navWaBtn" target="_blank">
+      <svg viewBox="0 0 32 32" fill="currentColor"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.232-1.46-1.892a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.745.315-.745.7-1.117 1.43-1.146 2.46v.115c-.014.99.472 1.963 1.06 2.78 1.318 1.85 2.86 3.343 4.928 4.246.616.272 1.66.7 2.342.7.99 0 2.183-1.252 2.183-2.193 0-.13-.014-.157-.243-.243-.358-.13-2.045-.86-2.347-.86z"/><path d="M16.067 27.806c-2.5 0-4.97-.65-7.146-1.878l-.487-.272-5.4 1.404 1.448-5.213-.315-.53A11.6 11.6 0 0 1 .833 12.18C.833 5.93 5.832.95 12.066.95c3.012 0 5.84 1.175 7.97 3.314a11.146 11.146 0 0 1 3.3 7.93c-.014 6.25-5.013 11.232-11.246 11.232m9.395-20.6A13.27 13.27 0 0 0 16.067.04C8.39.04 2.144 6.27 2.13 13.943c0 2.46.644 4.847 1.878 6.95L.21 31.96l11.318-2.96c2.03 1.1 4.31 1.677 6.626 1.677h.014c7.663 0 13.91-6.245 13.924-13.918a13.83 13.83 0 0 0-4.03-9.553"/></svg>
+      Falar agora
+    </a>
   </div>
-</div>
+</header>
 
-<div class="tabs" id="tabs"></div>
-<div id="grid" class="grid"></div>
-<div id="loading">
-  <div class="spin"></div>
-  Carregando catálogo...
+<section id="hero">
+  <div class="wrap herogrid">
+    <div>
+      <div class="eyebrow">CUBAS &amp; ACESSÓRIOS · SOB ENCOMENDA</div>
+      <h1 class="herotitle serif">Pedra certa,<br><em>cuba perfeita.</em></h1>
+      <p class="herosub" id="heroSub">Catálogo oficial com preços e disponibilidade atualizados em tempo real. Escolha o modelo, confira o acabamento e peça direto pelo WhatsApp.</p>
+      <div class="heroctas">
+        <a href="#catalogo" class="btn btn-gold">Ver catálogo</a>
+        <a href="#contato" class="btn btn-line">Falar com a loja</a>
+      </div>
+    </div>
+    <div class="slab heropanel">
+      <div class="tag">Trabalho sob medida</div>
+      <div class="big serif" id="heroPanelTxt">Granito · Mármore · Inox</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider wrap" style="max-width:var(--maxw);"></div>
+
+<section id="catalogo">
+  <div class="wrap">
+    <div class="sechead">
+      <div class="eyebrow">Linha completa</div>
+      <h2 class="serif">Cubas e acessórios</h2>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div id="grid" class="grid"></div>
+    <div id="loading">
+      <div class="spin"></div>
+      Carregando catálogo...
+    </div>
+  </div>
+</section>
+
+<div class="divider wrap" style="max-width:var(--maxw);"></div>
+
+<section id="sobre">
+  <div class="wrap aboutgrid">
+    <div>
+      <div class="eyebrow">Sobre a loja</div>
+      <h2 class="serif" style="font-size:1.7rem;margin:6px 0 0;">Quem corta a sua pedra</h2>
+      <p>Cada cuba deste catálogo passa pela mesma marmoraria que executa as bancadas, pias e acabamentos da sua obra — sem intermediários, sem surpresa no orçamento.</p>
+      <p>Fornecemos a peça e a instalação, ou só a mão de obra se você já tiver a cuba em mãos. Fotos, medidas e preços ficam sempre atualizados aqui.</p>
+      <div class="facts" id="facts">
+        <div class="fact"><b id="fCoz">–</b><span>Cubas cozinha</span></div>
+        <div class="fact"><b id="fLav">–</b><span>Cubas banheiro</span></div>
+        <div class="fact"><b id="fAc">–</b><span>Acessórios</span></div>
+      </div>
+    </div>
+    <div class="slab aboutslab">
+      <div class="q serif">"Manda a medida do vão que a gente te diz o que cabe — e o que vale a pena."</div>
+      <div class="who">— Atendimento HR, via WhatsApp</div>
+    </div>
+  </div>
+</section>
+
+<footer id="contato">
+  <div class="wrap">
+    <div class="footgrid">
+      <div class="footbrand footcol">
+        <div class="brand" style="margin-bottom:14px;">
+          <div class="blogo" id="footLogo">HR</div>
+          <div class="bname serif" id="footNome">HR Mármores e Granitos</div>
+        </div>
+        <div id="footEndereco" style="color:var(--ink-mute);font-size:.78rem;line-height:1.6;"></div>
+      </div>
+      <div class="footcol">
+        <h4>Contato</h4>
+        <a id="footWa" target="_blank">WhatsApp</a>
+        <a id="footEmail"></a>
+        <a id="footIg" target="_blank"></a>
+      </div>
+      <div class="footcol">
+        <h4>Horário</h4>
+        <div id="footHorario">—</div>
+      </div>
+    </div>
+    <div class="footbottom">
+      <div id="footCopy">© HR Mármores e Granitos</div>
+      <div>Catálogo atualizado automaticamente</div>
+    </div>
+  </div>
+</footer>
+
+<div id="fab" onclick="abrirWaGeral()">
+  <svg viewBox="0 0 32 32" fill="#fff"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.232-1.46-1.892a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.745.315-.745.7-1.117 1.43-1.146 2.46v.115c-.014.99.472 1.963 1.06 2.78 1.318 1.85 2.86 3.343 4.928 4.246.616.272 1.66.7 2.342.7.99 0 2.183-1.252 2.183-2.193 0-.13-.014-.157-.243-.243-.358-.13-2.045-.86-2.347-.86z"/><path d="M16.067 27.806c-2.5 0-4.97-.65-7.146-1.878l-.487-.272-5.4 1.404 1.448-5.213-.315-.53A11.6 11.6 0 0 1 .833 12.18C.833 5.93 5.832.95 12.066.95c3.012 0 5.84 1.175 7.97 3.314a11.146 11.146 0 0 1 3.3 7.93c-.014 6.25-5.013 11.232-11.246 11.232m9.395-20.6A13.27 13.27 0 0 0 16.067.04C8.39.04 2.144 6.27 2.13 13.943c0 2.46.644 4.847 1.878 6.95L.21 31.96l11.318-2.96c2.03 1.1 4.31 1.677 6.626 1.677h.014c7.663 0 13.91-6.245 13.924-13.918a13.83 13.83 0 0 0-4.03-9.553"/></svg>
 </div>
-<footer>Atualizado automaticamente · Preços sujeitos a confirmação</footer>
 
 <div id="ov" onclick="if(event.target===this)closeMd()">
   <div id="md"></div>
 </div>
 
 <script>
-var DATA=null, ITEMS=[], CAT='coz', WAPHONE='', GALIDX=0, CURITEM=null;
+var DATA=null, CAT='coz', WAPHONE='', CURITEM=null;
 
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -101,26 +290,51 @@ function load(){
 }
 
 function boot(){
-  document.getElementById('loading').style.display='none';
-  if(DATA.emp){
-    if(DATA.emp.nome) document.getElementById('hNome').textContent=DATA.emp.nome;
-    if(DATA.emp.tel) WAPHONE=DATA.emp.tel.replace(/\D/g,'');
-    if(DATA.emp.logoUrl){
-      document.getElementById('hLogo').innerHTML='<img src="'+DATA.emp.logoUrl+'">';
-    }
+  document.getElementById('loading').classList.add('hide');
+  var e=DATA.emp||{};
+  var nome=e.nome||'HR Mármores e Granitos';
+  var tipo=e.tipo||'Marmoraria';
+  document.title=nome+' — Catálogo';
+  ['navNome','footNome'].forEach(function(id){document.getElementById(id).textContent=nome;});
+  document.getElementById('navTipo').textContent=tipo;
+  document.getElementById('footCopy').textContent='© '+new Date().getFullYear()+' '+nome;
+
+  if(e.tel) WAPHONE=e.tel.replace(/\D/g,'');
+  if(WAPHONE.length>0 && WAPHONE.length<=11) WAPHONE='55'+WAPHONE;
+
+  if(e.logoUrl){
+    ['hLogo','footLogo'].forEach(function(id){document.getElementById(id).innerHTML='<img src="'+e.logoUrl+'">';});
   }
+
+  var endParts=[e.end,e.bairro,e.cidade].filter(Boolean);
+  document.getElementById('footEndereco').textContent=endParts.length?endParts.join(' · '):'Endereço a confirmar';
+  document.getElementById('footHorario').textContent=e.horario||'Seg–Sáb · consulte horários';
+
+  var waLink='https://wa.me/'+WAPHONE;
+  var waBtn=document.getElementById('navWaBtn'); waBtn.href=waLink;
+  document.getElementById('footWa').href=waLink;
+
+  if(e.email){var fe=document.getElementById('footEmail');fe.textContent=e.email;fe.href='mailto:'+e.email;}
+  else document.getElementById('footEmail').remove();
+
+  if(e.ig){var fi=document.getElementById('footIg');var handle=e.ig.replace('@','').trim();fi.textContent='@'+handle;fi.href='https://instagram.com/'+handle.replace(/\s+/g,'');}
+  else document.getElementById('footIg').remove();
+
+  document.getElementById('fCoz').textContent=(DATA.cubas_coz||[]).length;
+  document.getElementById('fLav').textContent=(DATA.cubas_lav||[]).length;
+  document.getElementById('fAc').textContent=(DATA.acessorios||[]).length;
+
   buildTabs();
   renderGrid();
 }
 
 function buildTabs(){
   var tabs=[
-    {k:'coz', l:'🍳 Cubas Cozinha', n:(DATA.cubas_coz||[]).length},
-    {k:'lav', l:'🚿 Cubas Banheiro', n:(DATA.cubas_lav||[]).length},
-    {k:'ac',  l:'🔩 Acessórios',     n:(DATA.acessorios||[]).length}
+    {k:'coz', l:'Cubas Cozinha', n:(DATA.cubas_coz||[]).length},
+    {k:'lav', l:'Cubas Banheiro', n:(DATA.cubas_lav||[]).length},
+    {k:'ac',  l:'Acessórios',     n:(DATA.acessorios||[]).length}
   ];
-  var t=document.getElementById('tabs');
-  t.innerHTML=tabs.map(function(x){
+  document.getElementById('tabs').innerHTML=tabs.map(function(x){
     return '<button class="tab'+(CAT===x.k?' on':'')+'" data-cat="'+x.k+'" onclick="setCat(\''+x.k+'\')">'+x.l+' ('+x.n+')</button>';
   }).join('');
 }
@@ -141,17 +355,13 @@ function renderGrid(){
   var list=listFor(CAT).filter(function(it){ return it && (it.nm||it.id); });
   var g=document.getElementById('grid');
   if(!list.length){
-    g.innerHTML='';
-    g.insertAdjacentHTML('afterend','');
-    g.innerHTML='<div class="empty" style="grid-column:1/-1;"><span class="ic">📦</span>Nenhum item nesta categoria ainda.</div>';
+    g.innerHTML='<div class="empty"><span class="ic">📦</span>Nenhum item nesta categoria ainda.</div>';
     return;
   }
   g.innerHTML=list.map(function(it,i){
     var photo=it.photo||((it.fotos||[])[0]);
     var pr=it.pr||0;
-    var priceHtml = pr>0
-      ? 'R$ '+fm(pr)
-      : '<small>Consultar</small>';
+    var priceHtml = pr>0 ? 'R$ '+fm(pr) : '<small>Consultar</small>';
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
       +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy">':'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>')+'</div>'
       +'<div class="cbody">'
@@ -166,23 +376,18 @@ function renderGrid(){
 function openItem(cat,idx){
   var it=listFor(cat)[idx];
   if(!it) return;
-  CURITEM=it; GALIDX=0;
+  CURITEM=it;
   var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
   var pr=it.pr||0;
-  var galHtml = fotos.length
-    ? '<img id="mdGalImg" src="'+fotos[0]+'">'
-    : '<div class="ph">'+(cat==='ac'?'🔩':'🚰')+'</div>';
-  var dots = fotos.length>1
-    ? '<div class="gdots">'+fotos.map(function(_,i){return '<div class="gdot'+(i===0?' on':'')+'"></div>';}).join('')+'</div>'
-    : '';
+  var galHtml = fotos.length ? '<img src="'+fotos[0]+'">' : '<div class="ph">'+(cat==='ac'?'🔩':'🚰')+'</div>';
   var priceBlock = pr>0
     ? '<div class="mdpr"><span class="v">R$ '+fm(pr)+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
     : '<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
   document.getElementById('md').innerHTML =
-    '<div class="mdgal" id="mdGal">'+galHtml+'<div class="mdclose" onclick="closeMd()">✕</div>'+dots+'</div>'
+    '<div class="mdgal">'+galHtml+'<div class="mdclose" onclick="closeMd()">✕</div></div>'
     +'<div class="mdbody">'
     +(it.brand?'<div class="mdbrand">'+esc(it.brand)+'</div>':'')
-    +'<div class="mdnm">'+esc(it.nm||'Item')+'</div>'
+    +'<div class="mdnm serif">'+esc(it.nm||'Item')+'</div>'
     +(it.dim?'<div class="mddim">'+esc(it.dim)+'</div>':'')
     +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
     +priceBlock
@@ -193,9 +398,7 @@ function openItem(cat,idx){
   document.getElementById('ov').classList.add('on');
 }
 
-function closeMd(){
-  document.getElementById('ov').classList.remove('on');
-}
+function closeMd(){ document.getElementById('ov').classList.remove('on'); }
 
 function pedirWhatsApp(){
   if(!CURITEM) return;
@@ -206,8 +409,13 @@ function pedirWhatsApp(){
     +(CURITEM.dim?' — '+CURITEM.dim:'')
     +(pr>0?' — Preço tabela: R$ '+fm(pr):'')
     +'. Vi no catálogo online.';
-  var url='https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt);
-  window.open(url,'_blank');
+  window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+}
+
+function abrirWaGeral(){
+  if(!WAPHONE){ document.getElementById('catalogo').scrollIntoView({behavior:'smooth'}); return; }
+  var txt='Olá! Vi o catálogo online e gostaria de mais informações.';
+  window.open('https://wa.me/'+WAPHONE+'?text='+encodeURIComponent(txt),'_blank');
 }
 
 load();
