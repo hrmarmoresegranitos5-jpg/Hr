@@ -1,35 +1,21 @@
 // ══════════════════════════════════════════════════════════════
-// APP-ML-IMPORT.JS  — Importador de Cubas do Mercado Livre
+// APP-ML-IMPORT.JS  — Importador do Mercado Livre
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
-// Drop-in: adicione no index.html APÓS app-config.js
-//   <script src="app-ml-import.js"></script>
+// Estratégia de busca (2 canais em paralelo):
+//  1. API pública do ML direto  (api.mercadolibre.com)
+//  2. corsproxy.io como fallback CORS
 //
-// Estratégia de busca (em cascata):
-//  1. API pública do ML  (api.mercadolibre.com — sem autenticação)
-//  2. Scraping HTML via proxies CORS (allorigins → corsproxy → thingproxy)
-//
-// O que faz:
-//  • Injeta botão "🛒 Importar do ML" nas abas de cubas (cfg tab 1 e 2)
-//  • Modal com campo de URL + busca em cascata
-//  • Preview: foto, nome editável, dimensões, preço custo + venda c/ margem
-//  • Galeria de miniaturas clicáveis (fotos do anúncio)
-//  • Salva em CFG.coz ou CFG.lav com _ml_id para deduplicação
-//  • Popula CUBA_META automaticamente (se o objeto existir)
+// Suporte a links de item direto (MLB...) e catálogo (/p/MLB...)
 // ══════════════════════════════════════════════════════════════
 
 (function () {
   'use strict';
 
-  // ─── Proxy CORS próprio (Cloudflare Worker) ───────────────
-  var WORKER_URL = 'https://hr-ml-proxy.hrproplay.workers.dev';
+  var CORS = 'https://corsproxy.io/?url=';
+  var ML   = 'https://api.mercadolibre.com';
 
-  function _viaWorker(targetUrl) {
-    if (!WORKER_URL || WORKER_URL.indexOf('SEUUSUARIO') !== -1) return null;
-    return WORKER_URL + '?url=' + encodeURIComponent(targetUrl);
-  }
-
-  // ─── Estado interno ────────────────────────────────────────
+  // ─── Estado ────────────────────────────────────────────────
   var _ml = {
     loading:  false,
     data:     null,
@@ -47,557 +33,207 @@
   }
 
   function _fmt(n) {
-    return 'R$\u00a0' + Number(n).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return 'R$\u00a0' + Number(n).toLocaleString('pt-BR',
+      {minimumFractionDigits:2, maximumFractionDigits:2});
   }
 
-  // Extrai MLB... de qualquer link do ML
-  // Retorna {id, isCatalog, fallbackCatalogId?}
-  function _extractId(url) {
-    url = url.trim();
-    // Remove fragmento (#...) — links compartilhados do ML trazem #origin=share&...
-    var hashIdx = url.indexOf('#');
-    if (hashIdx !== -1) url = url.substring(0, hashIdx);
+  // ─── Extrai ID do ML de qualquer link ──────────────────────
+  function _extractId(raw) {
+    var url = (raw || '').trim();
+    var h = url.indexOf('#');
+    if (h !== -1) url = url.substring(0, h);
     url = url.trim();
 
-    var m, wid, catalogId;
+    var m;
 
-    // wid= (item real em URLs de busca/pdp)
-    m = url.match(/[?&#]wid=(MLB\d+)/i);
-    if (m) wid = m[1].toUpperCase();
+    // wid= (item real em URLs de compartilhamento)
+    m = url.match(/[?&]wid=(MLB\d+)/i);
+    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
 
     // item_id dentro de pdp_filters
-    if (!wid) {
-      m = url.match(/item_id:(MLB\d+)/i);
-      if (m) wid = m[1].toUpperCase();
-    }
+    m = url.match(/item_id:(MLB\d+)/i);
+    if (m) return { id: m[1].toUpperCase(), isCatalog: false };
 
     // /p/MLBxxxxxxx = catálogo
     m = url.match(/\/p\/(MLB\d+)/i);
-    if (m) catalogId = m[1].toUpperCase();
+    if (m) return { id: m[1].toUpperCase(), isCatalog: true };
 
-    if (wid) return { id: wid, isCatalog: false, fallbackCatalogId: catalogId || null };
-    if (catalogId) return { id: catalogId, isCatalog: true };
-
-    // MLB-XXXXXXXXX hifenizado (com ou sem barra antes)
+    // MLB-XXXXXXXX hifenizado na URL
     m = url.match(/MLB-(\d{7,})/i);
     if (m) return { id: 'MLB' + m[1], isCatalog: false };
 
-    // MLBXXXXXXXXX sem hifem (com ou sem barra antes)
+    // MLBXXXXXXXX sem hífen
     m = url.match(/MLB(\d{7,})/i);
     if (m) return { id: 'MLB' + m[1], isCatalog: false };
 
-    // Apenas o id digitado diretamente (MLB... qualquer tamanho)
+    // Digitado diretamente como MLB...
     m = url.match(/^(MLB[\d-]+)$/i);
     if (m) return { id: m[1].replace(/-/g,'').toUpperCase(), isCatalog: false };
 
     return null;
   }
 
-  function _tentarUrls(urls, opts, cb) {
-    if (!urls.length) { cb('Todas as tentativas falharam', null); return; }
-    var url  = urls[0];
-    var rest = urls.slice(1);
-    var done = false;
-    var timer = setTimeout(function() {
-      if (!done) { done = true; _tentarUrls(rest, opts, cb); }
-    }, 6000);
-    fetch(url, opts)
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
+  // ─── Fetch com timeout ─────────────────────────────────────
+  function _fetch(url, ms) {
+    ms = ms || 8000;
+    return new Promise(function(resolve, reject) {
+      var done  = false;
+      var timer = setTimeout(function() {
+        if (!done) { done = true; reject(new Error('timeout')); }
+      }, ms);
+      fetch(url, { method:'GET', mode:'cors', credentials:'omit',
+                   headers:{ 'Accept':'application/json' } })
+        .then(function(r) {
+          clearTimeout(timer);
+          if (done) return;
+          done = true;
+          if (!r.ok) return reject(new Error('HTTP ' + r.status));
+          resolve(r.json());
+        })
+        .catch(function(e) {
+          clearTimeout(timer);
+          if (!done) { done = true; reject(e); }
+        });
+    });
+  }
+
+  // ─── Tenta direto e, se falhar, via corsproxy ───────────────
+  function _get(path) {
+    var direct = ML + path;
+    return _fetch(direct).catch(function() {
+      return _fetch(CORS + encodeURIComponent(direct));
+    });
+  }
+
+  // ─── Busca item por ID ─────────────────────────────────────
+  function _getItem(id) {
+    return _get('/items/' + id).then(function(d) {
+      if (!d || !d.title) throw new Error('sem titulo');
+      return d;
+    });
+  }
+
+  // ─── Resolve catálogo → item real ──────────────────────────
+  function _resolveCatalog(catalogId) {
+    // Rota 1: search por catalog_product_id
+    return _get('/sites/MLB/search?catalog_product_id=' + catalogId + '&limit=3')
       .then(function(d) {
-        if (!done) { done = true; clearTimeout(timer); cb(null, d); }
+        var id = d && d.results && d.results[0] && d.results[0].id;
+        if (id) return id;
+        throw new Error('vazio');
       })
       .catch(function() {
-        if (!done) { done = true; clearTimeout(timer); _tentarUrls(rest, opts, cb); }
+        // Rota 2: /products/{catalogId}
+        return _get('/products/' + catalogId).then(function(d) {
+          var id = (d && d.buy_box_winner && d.buy_box_winner.item_id) ||
+                   (d && d.items && d.items[0] && d.items[0].id);
+          if (id) return id;
+          throw new Error('vazio');
+        });
+      })
+      .catch(function() {
+        // Rota 3: scraping HTML da página do catálogo
+        return _scrapeCatalogPage(catalogId);
       });
   }
 
-  function _tentarParalelo(urls, validar, cb) {
-    var done   = false;
-    var erros  = 0;
-    var total  = urls.length;
-    if (!total) { cb('Sem URLs', null); return; }
-    urls.forEach(function(url) {
-      fetch(url, { method: 'GET', mode: 'cors', credentials: 'omit',
-                   headers: { 'Accept': 'application/json' } })
-        .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-        .then(function(d) {
-          if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-          if (!done && validar(d)) {
-            done = true;
-            cb(null, d);
-          } else {
-            erros++;
-            if (!done && erros === total) cb('Todas falharam', null);
-          }
-        })
-        .catch(function() {
-          erros++;
-          if (!done && erros === total) cb('Todas falharam', null);
-        });
-    });
-    setTimeout(function() {
-      if (!done) { done = true; cb('Timeout', null); }
-    }, 6000);
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // CAMADA 1 — API pública do Mercado Livre
-  // ══════════════════════════════════════════════════════════
-  function _fetchApiML(id, cb) {
-    var base = 'https://api.mercadolibre.com/items/' + id;
-
-    // Tenta 1: Cloudflare Worker próprio (mais confiável)
-    var workerUrl = _viaWorker(base);
-    if (workerUrl) {
-      fetch(workerUrl, { method: 'GET' })
-        .then(function(r) { return r.ok ? r.json() : Promise.reject('Worker HTTP ' + r.status); })
-        .then(function(d) {
-          if (d && d.title) { cb(null, d); return; }
-          _fetchApiMLDireta(base, id, cb);
-        })
-        .catch(function(e) {
-          console.warn('[ML-import] Worker falhou:', e.message || e);
-          _fetchApiMLDireta(base, id, cb);
-        });
-      return;
-    }
-    _fetchApiMLDireta(base, id, cb);
-  }
-
-  function _fetchApiMLDireta(base, id, cb) {
-    // Tenta 2: chamada direta (funciona se a API do ML não bloquear CORS)
-    fetch(base, { method: 'GET', mode: 'cors', credentials: 'omit',
-                  headers: { 'Accept': 'application/json' } })
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        if (d && d.title) { cb(null, d); return; }
-        _fetchApiMLViaProxy(base, cb);
-      })
-      .catch(function(e) {
-        console.warn('[ML-import] Direta falhou (' + e.message + '), tentando proxies...');
-        _fetchApiMLViaProxy(base, cb);
-      });
-  }
-
-  function _fetchApiMLViaProxy(base, cb) {
-    // Proxies públicos CORS — sem o worker (já foi tentado antes)
-    var urls = [
-      'https://corsproxy.io/?url='         + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://api.allorigins.win/get?url=' + encodeURIComponent(base),
-      'https://thingproxy.freeboard.io/fetch/' + base
+  // ─── Scraping HTML como último recurso ─────────────────────
+  function _scrapeCatalogPage(catalogId) {
+    var pageUrl = 'https://www.mercadolivre.com.br/p/' + catalogId;
+    var proxies = [
+      CORS + encodeURIComponent(pageUrl),
+      'https://api.allorigins.win/raw?url=' + encodeURIComponent(pageUrl),
     ];
-    _tentarParalelo(urls, function(d) {
-      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-      return d && d.title;
-    }, function(err, d) {
-      if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-      if (err || !d || !d.title) {
-        console.warn('[ML-import] todos os proxies API falharam:', err);
-        cb(err || 'sem dados', null);
-        return;
-      }
-      cb(null, d);
-    });
-  }
 
-  function _fetchDesc(id, cb) {
-    var base = 'https://api.mercadolibre.com/items/' + id + '/description';
-    var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
-                 headers: { 'Accept': 'application/json' } };
-    var urls = [base];
-    var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker);
-    urls.push(
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://corsproxy.io/?url=' + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
-      'https://thingproxy.freeboard.io/fetch/' + base
-    );
-    _tentarUrls(urls, opts, function(err, d) {
-      if (err || !d) { cb(null, ''); return; }
-      if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-      cb(null, d.plain_text || '');
-    });
-  }
-
-  function _fetchCatalog(id, cb) {
-    // Estratégia 1: /products/{id} (às vezes funciona sem auth em catálogos públicos)
-    var base1 = 'https://api.mercadolibre.com/products/' + id;
-    // Estratégia 2: search por catalog_product_id (API pública, sem auth)
-    var base2 = 'https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=' + id + '&limit=1';
-
-    function _extrairItemId(d) {
-      if (!d) return null;
-      if (d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-      // Resposta de /products/
-      var itemId = (d.buy_box_winner && d.buy_box_winner.item_id) ||
-                   (d.items && d.items[0] && d.items[0].id);
-      if (itemId) return itemId;
-      // Resposta de /search
-      if (d.results && d.results[0] && d.results[0].id) return d.results[0].id;
-      return null;
-    }
-
-    function _tentarCom(base, next) {
-      var opts = { method: 'GET', mode: 'cors', credentials: 'omit',
-                   headers: { 'Accept': 'application/json' } };
-      var urls = [base];
-      var viaWorker = _viaWorker(base);
-      if (viaWorker) urls.unshift(viaWorker); // worker primeiro
-      urls.push(
-        'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-        'https://corsproxy.io/?url=' + encodeURIComponent(base),
-        'https://api.allorigins.win/raw?url=' + encodeURIComponent(base),
-        'https://thingproxy.freeboard.io/fetch/' + base
-      );
-      _tentarUrls(urls, opts, function(err, d) {
-        var itemId = _extrairItemId(d);
-        if (!err && itemId) { cb(null, itemId); return; }
-        next();
-      });
-    }
-
-    // Tenta estratégia 1 (/products/), depois 2 (search?catalog_product_id=),
-    // depois 3 (scraping HTML da página do catálogo para extrair um MLB real)
-    _tentarCom(base1, function() {
-      _fetchCatalogSearch(id, function(err2, itemId) {
-        if (!err2 && itemId) { cb(null, itemId); return; }
-
-        // Estratégia 3: scraping da página do catálogo
-        _fetchPaginaML(id, function(err3, html) {
-          if (html) {
-            // Procura MLBs no HTML que não sejam o próprio id do catálogo
-            var m = html.match(/MLB\d{7,}/g);
-            var candidatos = (m || []).filter(function(x) { return x.toUpperCase() !== id.toUpperCase(); });
-            // Remove duplicatas
-            candidatos = candidatos.filter(function(x, i, a) { return a.indexOf(x) === i; });
-            if (candidatos.length) {
-              console.log('[ML-import] Catálogo resolvido via scraping:', candidatos[0]);
-              cb(null, candidatos[0]);
-              return;
-            }
-          }
-          cb('Não foi possível resolver o catálogo ' + id, null);
-        });
-      });
-    });
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // CAMADA 2 — Scraping HTML via proxies CORS
-  // ══════════════════════════════════════════════════════════
-  function _fetchPaginaML(itemId, cb) {
-    var urlProd = 'https://www.mercadolivre.com.br/' + itemId.replace(/^MLB/i,'MLB-') + '-x.html';
-    var proxies = [];
-    var viaWorker = _viaWorker(urlProd);
-    if (viaWorker) proxies.push(viaWorker);
-    proxies.push(
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(urlProd),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(urlProd),
-      'https://corsproxy.io/?url=' + encodeURIComponent(urlProd),
-      'https://api.allorigins.win/get?url='  + encodeURIComponent(urlProd),
-      'https://thingproxy.freeboard.io/fetch/' + urlProd
-    );
     function tentar(lista) {
-      if (!lista.length) {
-        console.warn('[ML-import] Camada 2: todos os proxies de scraping falharam');
-        cb('Falha ao acessar página do produto', null);
-        return;
-      }
-      var proxyUrl = lista[0];
-      var isGet    = proxyUrl.indexOf('/get?') !== -1;
-      var done     = false;
-      var timer    = setTimeout(function() {
-        if (!done) { done = true; console.warn('[ML-import] Camada 2: timeout em', proxyUrl); tentar(lista.slice(1)); }
-      }, 5000);
-      fetch(proxyUrl)
-        .then(function(r) { return r.ok ? (isGet ? r.json() : r.text()) : Promise.reject('HTTP ' + r.status); })
-        .then(function(resp) {
-          if (!done) {
-            done = true; clearTimeout(timer);
-            var html = isGet ? (resp.contents || '') : resp;
-            cb(null, html);
-          }
-        })
-        .catch(function(e) {
-          if (!done) { done = true; clearTimeout(timer); console.warn('[ML-import] Camada 2 falhou em', proxyUrl, e.message || e); tentar(lista.slice(1)); }
-        });
-    }
-    tentar(proxies);
-  }
-
-  function _parsearHTML(html, id) {
-    var jldMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi) || [];
-    var produto   = null;
-    for (var i = 0; i < jldMatch.length; i++) {
-      try {
-        var txt = jldMatch[i].replace(/<script[^>]*>/, '').replace(/<\/script>/, '');
-        var obj = JSON.parse(txt);
-        if (obj['@type'] === 'Product' || (obj.name && obj.offers)) { produto = obj; break; }
-      } catch(e) {}
-    }
-
-    function meta(prop) {
-      var re1 = new RegExp('<meta[^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27]', 'i');
-      var re2 = new RegExp('<meta[^>]*content=[\\x22\\x27]([^\\x22\\x27]+)[\\x22\\x27][^>]*(?:property|name)=[\\x22\\x27]' + prop + '[\\x22\\x27]', 'i');
-      var m = html.match(re1) || html.match(re2);
-      return m ? m[1] : '';
-    }
-
-    var titulo = '';
-    var preco  = 0;
-    var fotos  = [];
-    var attrs  = [];
-
-    if (produto) {
-      titulo = produto.name || '';
-      if (produto.offers) {
-        var oferta = Array.isArray(produto.offers) ? produto.offers[0] : produto.offers;
-        preco = parseFloat(oferta.price || oferta.lowPrice || 0);
-      }
-      if (produto.image) {
-        var imgs = Array.isArray(produto.image) ? produto.image : [produto.image];
-        fotos = imgs.map(function(img) {
-          return typeof img === 'string' ? img : (img.url || img.contentUrl || '');
-        }).filter(Boolean);
-      }
-      if (produto.description) attrs.push({id:'DESC',name:'Descrição',value_name:produto.description.slice(0,200)});
-    }
-
-    if (!titulo) titulo = meta('og:title') || meta('twitter:title') || '';
-    if (!fotos.length) {
-      var ogImg = meta('og:image');
-      if (ogImg) fotos = [ogImg];
-    }
-
-    if (!preco) {
-      var precoMatch = html.match(/class="[^"]*price[^"]*"[^>]*>\s*R\$\s*([\d.,]+)/i)
-                    || html.match(/"price"\s*:\s*([\d.]+)/);
-      if (precoMatch) preco = parseFloat(precoMatch[1].replace(',','.'));
-    }
-
-    if (fotos.length < 2) {
-      var imgMatches = html.match(/https?:\/\/http2\.mlstatic\.com\/[^"'\s]+\.jpg/g) || [];
-      fotos = fotos.concat(imgMatches).filter(function(u,i,a){ return a.indexOf(u) === i; }).slice(0,8);
-    }
-
-    if (!titulo || titulo === ('Produto ' + id)) return null;
-
-    return {
-      id:         id,
-      title:      titulo,
-      price:      preco,
-      pictures:   fotos.slice(0,8).map(function(u) { return {url: u}; }),
-      attributes: attrs,
-      permalink:  'https://www.mercadolivre.com.br/' + id.replace(/^MLB/i,'MLB-') + '-x.html',
-      _scraped:   true
-    };
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // CAMADA 3 — Busca por texto na API pública do ML
-  // Usada quando item_id está inativo e scraping falhou
-  // ══════════════════════════════════════════════════════════
-  function _fetchPorTexto(query, cb) {
-    if (!query || query.length < 4) { cb('Query muito curta', null); return; }
-    var base = 'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(query) + '&limit=1';
-    var urls = [];
-    var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker);
-    urls.push(
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://corsproxy.io/?url=' + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base)
-    );
-    _tentarParalelo(urls, function(d) {
-      return d && d.results && d.results.length > 0;
-    }, function(err, d) {
-      if (err || !d || !d.results || !d.results[0]) { cb(err || 'sem resultados', null); return; }
-      // Pega o primeiro resultado e busca detalhes completos do item
-      var itemId = d.results[0].id;
-      _fetchApiML(itemId, function(err2, item) {
-        if (!err2 && item && item.title) { cb(null, item); return; }
-        // Retorna o resultado da search mesmo sem detalhes completos
-        cb(null, d.results[0]);
-      });
-    });
-  }
-
-  // Busca itens de um catálogo via search API (sem auth)
-  function _fetchCatalogSearch(catalogId, cb) {
-    var base = 'https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=' + catalogId + '&limit=1';
-    var urls = [];
-    var viaWorker = _viaWorker(base);
-    if (viaWorker) urls.push(viaWorker);
-    urls.push(
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base),
-      'https://corsproxy.io/?url=' + encodeURIComponent(base),
-      'https://api.allorigins.win/raw?url=' + encodeURIComponent(base)
-    );
-    _tentarParalelo(urls, function(d) {
-      return d && d.results && d.results.length > 0;
-    }, function(err, d) {
-      if (err || !d || !d.results || !d.results[0]) { cb(err || 'sem resultados', null); return; }
-      cb(null, d.results[0].id);
-    });
-  }
-
-  // Extrai query de texto de uma URL do ML (para usar na camada 3)
-  function _queryDaUrl(rawUrl) {
-    // tenta extrair do path: /cuba-inox-dupla-55x34-torneira-prata/p/...
-    var m = rawUrl.match(/mercadolivre\.com\.br\/([^/?#]+)/i);
-    if (!m) return '';
-    var slug = m[1];
-    if (/^(p\/)?MLB\d+/i.test(slug)) return ''; // só id de catálogo, sem texto
-    var palavras = slug.replace(/-/g, ' ').split(' ')
-      .filter(function(p) { return p.length > 2 && !/^MLB\d*$/i.test(p); })
-      .slice(0, 6);
-    return palavras.join(' ');
-  }
-  // ══════════════════════════════════════════════════════════
-  // ORQUESTRADOR — 3 camadas em cascata
-  // ══════════════════════════════════════════════════════════
-  function _fetchItem(id, rawUrl, catalogId, cb) {
-    // Suporte a chamadas sem todos os parâmetros
-    if (typeof rawUrl === 'function')   { cb = rawUrl; rawUrl = ''; catalogId = ''; }
-    if (typeof catalogId === 'function'){ cb = catalogId; catalogId = ''; }
-
-    // Camada 1: API pública do ML
-    _showStatus('⏳ Buscando na API do Mercado Livre...', 'info');
-    _fetchApiML(id, function(err1, item1) {
-      if (!err1 && item1 && item1.title) { cb(null, item1); return; }
-
-      // Camada 2: Scraping HTML
-      _showStatus('⏳ Tentando via página do produto...', 'info');
-      _fetchPaginaML(id, function(err2, html) {
-        var item2 = html ? _parsearHTML(html, id) : null;
-        if (item2 && item2.title) { cb(null, item2); return; }
-
-        // Camada 3a: search por catalog_product_id (se disponível)
-        if (catalogId) {
-          _showStatus('⏳ Buscando via catálogo...', 'info');
-          _fetchCatalogSearch(catalogId, function(err3, altItemId) {
-            if (!err3 && altItemId && altItemId !== id) {
-              _fetchApiML(altItemId, function(err4, item4) {
-                if (!err4 && item4 && item4.title) { cb(null, item4); return; }
-                _camada3texto(rawUrl, cb);
-              });
-              return;
-            }
-            _camada3texto(rawUrl, cb);
+      if (!lista.length) return Promise.reject(new Error('scraping falhou'));
+      return fetch(lista[0], { method:'GET', mode:'cors', credentials:'omit' })
+        .then(function(r) { return r.ok ? r.text() : Promise.reject('HTTP ' + r.status); })
+        .then(function(html) {
+          var matches = html.match(/MLB\d{8,}/g) || [];
+          var uniq = [];
+          matches.forEach(function(x) {
+            var up = x.toUpperCase();
+            if (up !== catalogId && uniq.indexOf(up) === -1) uniq.push(up);
           });
-          return;
-        }
-
-        _camada3texto(rawUrl, cb);
-      });
-    });
-  }
-
-  function _camada3texto(rawUrl, cb) {
-    var query = rawUrl ? _queryDaUrl(rawUrl) : '';
-    if (!query) {
-      // Sem slug de texto (ex: produto.mercadolivre.com.br/MLB-4787845933)
-      // Tenta busca pelo MLB ID como query (camada 3b)
-      var mId = rawUrl ? rawUrl.match(/\/(MLB)-(\d+)/i) : null;
-      var mlbQuery = mId ? ('MLB' + mId[2]) : '';
-      if (mlbQuery) {
-        _showStatus('\u23f3 Buscando por c\u00f3digo MLB...', 'info');
-        _fetchPorTexto(mlbQuery, function(err, item) {
-          if (!err && item && item.title) { cb(null, item); return; }
-          cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
-        });
-        return;
-      }
-      cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
-      return;
+          if (uniq.length) return uniq[0];
+          throw new Error('nenhum MLB no HTML');
+        })
+        .catch(function() { return tentar(lista.slice(1)); });
     }
-    _showStatus('\u23f3 Buscando por texto...', 'info');
-    _fetchPorTexto(query, function(err, item) {
-      if (!err && item && item.title) { cb(null, item); return; }
-      cb('Produto n\u00e3o encontrado. Verifique o link ou tente novamente.', null);
-    });
+
+    return tentar(proxies);
   }
 
+  // ─── Busca descrição (não crítico) ─────────────────────────
+  function _getDesc(id) {
+    return _get('/items/' + id + '/description')
+      .then(function(d) { return (d && d.plain_text) || ''; })
+      .catch(function() { return ''; });
+  }
+
+  // ─── Orquestrador principal ─────────────────────────────────
   function _buscar(rawUrl) {
     var info = _extractId(rawUrl);
     if (!info) {
-      _showStatus('⚠️ Link inválido. Cole a URL do produto ou o código MLB...', 'warn');
+      _showStatus('⚠️ Link inválido. Cole a URL do produto ou o código MLB…', 'warn');
       return;
     }
-    _ml.loading = true;
-    _ml.data    = null;
+
+    _ml.loading  = true;
+    _ml.data     = null;
     _ml.selPhoto = null;
     _renderModal();
-    _showStatus('⏳ Buscando produto...', 'info');
+    _showStatus('⏳ Buscando produto…', 'info');
 
-    function carregar(itemId) {
-      _fetchItem(itemId, rawUrl, function(err, item) {
-        if (err || !item) {
-          _ml.loading = false;
-          _renderModal();
-          _showStatus('❌ ' + (err || 'Produto não encontrado'), 'error');
-          return;
-        }
-        _fetchDesc(itemId, function(_, desc) {
-          _ml.data         = item;
-          _ml.data._desc   = desc || '';
-          _ml.selPhoto     = _bestPhoto(item);
-          _ml.loading      = false;
-          _renderModal();
-          _showStatus('✅ Produto encontrado!', 'ok');
-        });
-      });
-    }
+    var promise;
 
     if (info.isCatalog) {
-      _fetchCatalog(info.id, function(err, itemId) {
-        carregar(!err && itemId ? itemId : info.id);
+      _showStatus('⏳ Resolvendo catálogo…', 'info');
+      promise = _resolveCatalog(info.id).then(function(itemId) {
+        _showStatus('⏳ Buscando item ' + itemId + '…', 'info');
+        return _getItem(itemId);
       });
     } else {
-      // Tenta item direto; se falhar e houver catálogo fallback, usa ele
-      _fetchItem(info.id, rawUrl, info.fallbackCatalogId || '', function(err, item) {
-        if (!err && item && item.title) {
-          _fetchDesc(info.id, function(_, desc) {
-            _ml.data       = item;
-            _ml.data._desc = desc || '';
-            _ml.selPhoto   = _bestPhoto(item);
-            _ml.loading    = false;
-            _renderModal();
-            _showStatus('✅ Produto encontrado!', 'ok');
+      promise = _getItem(info.id).catch(function() {
+        // Item direto falhou — tenta via catálogo se o link tiver /p/
+        var catalogM = rawUrl.match(/\/p\/(MLB\d+)/i);
+        if (catalogM) {
+          _showStatus('⏳ Item pausado, tentando catálogo…', 'info');
+          return _resolveCatalog(catalogM[1].toUpperCase()).then(function(altId) {
+            return _getItem(altId);
           });
-          return;
         }
-        if (info.fallbackCatalogId) {
-          _showStatus('⏳ Item pausado, buscando via catálogo...', 'info');
-          _fetchCatalog(info.fallbackCatalogId, function(err2, itemId) {
-            if (!err2 && itemId && itemId !== info.fallbackCatalogId) {
-              // Resolveu um MLB real via catálogo — busca o item
-              carregar(itemId);
-            } else {
-              // Catálogo não resolveu nenhum item real
-              _ml.loading = false;
-              _renderModal();
-              _showStatus('❌ Produto não encontrado. O anúncio pode estar pausado ou removido.', 'error');
-            }
-          });
-        } else {
-          _ml.loading = false;
-          _renderModal();
-          _showStatus('❌ Produto não encontrado. Verifique o link ou tente novamente.', 'error');
-        }
+        throw new Error('Produto não encontrado');
       });
     }
+
+    promise
+      .then(function(item) {
+        return _getDesc(item.id).then(function(desc) {
+          item._desc = desc;
+          return item;
+        });
+      })
+      .then(function(item) {
+        _ml.data     = item;
+        _ml.selPhoto = _bestPhoto(item);
+        _ml.loading  = false;
+        _renderModal();
+        _showStatus('✅ Produto encontrado!', 'ok');
+      })
+      .catch(function(e) {
+        _ml.loading = false;
+        _renderModal();
+        var msg = (e && e.message) || 'Erro desconhecido';
+        if (msg === 'Produto não encontrado' || msg.indexOf('sem titulo') !== -1) {
+          msg = 'Produto não encontrado. Verifique o link ou tente novamente.';
+        }
+        _showStatus('❌ ' + msg, 'error');
+      });
   }
 
+  // ─── Helpers de dados ──────────────────────────────────────
   function _bestPhoto(item) {
     var pics = item.pictures || [];
     if (!pics.length) return null;
@@ -619,28 +255,26 @@
     var dims = [];
     atrs.forEach(function(a) {
       var id = (a.id || '').toLowerCase();
-      if (id.indexOf('length') !== -1 || id.indexOf('width') !== -1 || id.indexOf('height') !== -1 ||
-          id.indexOf('comprimento') !== -1 || id.indexOf('largura') !== -1 || id.indexOf('altura') !== -1 ||
+      if (id.indexOf('length')       !== -1 || id.indexOf('width')      !== -1 ||
+          id.indexOf('height')       !== -1 || id.indexOf('comprimento') !== -1 ||
+          id.indexOf('largura')      !== -1 || id.indexOf('altura')      !== -1 ||
           id.indexOf('profundidade') !== -1) {
         var v = a.value_name || '';
         if (v) dims.push(v);
       }
     });
     if (dims.length >= 2) return dims.slice(0, 3).join(' × ');
-    var m = (item.title || '').match(/(\d{2,3})\s*[xXx×]\s*(\d{2,3})/);
+    var m = (item.title || '').match(/(\d{2,3})\s*[xX×]\s*(\d{2,3})/);
     if (m) return m[1] + '×' + m[2] + 'cm';
     return '';
   }
 
   function _inferFeatures(item) {
-    var atrs  = item.attributes || [];
-    var feats = [];
-    var skip  = ['ITEM_CONDITION','GTIN','BRAND','EAN','MODEL','COLOR'];
-    atrs.forEach(function(a) {
-      if (skip.indexOf(a.id) >= 0) return;
-      if (a.value_name && a.name) feats.push(a.name + ': ' + a.value_name);
-    });
-    return feats.slice(0, 6);
+    var skip = ['ITEM_CONDITION','GTIN','BRAND','EAN','MODEL','COLOR'];
+    return (item.attributes || [])
+      .filter(function(a) { return skip.indexOf(a.id) < 0 && a.value_name && a.name; })
+      .map(function(a) { return a.name + ': ' + a.value_name; })
+      .slice(0, 6);
   }
 
   function _inferBadge(item) {
@@ -651,16 +285,16 @@
 
   function _inferTipoMat(item) {
     var txt = ((item.title || '') + ' ' + (item._desc || '')).toLowerCase();
-    if (txt.indexOf('louça') !== -1 || txt.indexOf('cerâmica') !== -1 || txt.indexOf('porcelana') !== -1) return 'Louça';
+    if (txt.indexOf('louça') !== -1 || txt.indexOf('cerâmica') !== -1 ||
+        txt.indexOf('porcelana') !== -1) return 'Louça';
     if (txt.indexOf('granito') !== -1 || txt.indexOf('mármore') !== -1) return 'Pedra';
-    if (txt.indexOf('inox') !== -1 || txt.indexOf('aço') !== -1)        return 'Inox';
+    if (txt.indexOf('inox') !== -1 || txt.indexOf('aço') !== -1) return 'Inox';
     return 'Inox';
   }
 
-  function _precoVenda(custo, margem) {
-    return custo * (1 + margem / 100);
-  }
+  function _precoVenda(custo, margem) { return custo * (1 + margem / 100); }
 
+  // ─── Download foto base64 ──────────────────────────────────
   function _downloadFotoB64(url, cb) {
     var img = new Image();
     img.crossOrigin = 'anonymous';
@@ -677,6 +311,7 @@
     img.src = url;
   }
 
+  // ─── Salvar ────────────────────────────────────────────────
   function _salvar() {
     var d = _ml.data;
     if (!d) return;
@@ -686,61 +321,57 @@
     var elMg  = document.getElementById('ml-margem');
     var elPr  = document.getElementById('ml-pr-venda');
 
-    var nome   = (el    ? el.value.trim()   : d.title) || d.title;
+    var nome   = (el    ? el.value.trim()    : d.title) || d.title;
     var dim    = (elDim ? elDim.value.trim() : '') || _inferDim(d);
     var margem = elMg   ? (parseFloat(elMg.value) || 0) : _ml.margem;
     var custo  = d.price || 0;
-    var venda  = elPr   ? (parseFloat((elPr.textContent || '').replace(/[^\d,]/g,'').replace(',','.')) || 0)
-                        : _precoVenda(custo, margem);
+    var venda  = elPr
+      ? (parseFloat((elPr.textContent || '').replace(/[^\d,]/g,'').replace(',','.')) || 0)
+      : _precoVenda(custo, margem);
     if (!venda) venda = _precoVenda(custo, margem);
 
     var brand = (d.attributes || []).reduce(function(acc, a) {
       return a.id === 'BRAND' ? (a.value_name || acc) : acc;
     }, '');
 
-    var tipoMat  = _inferTipoMat(d);
-    var features = _inferFeatures(d);
-    var badge    = _inferBadge(d);
-    var cat      = _ml.cat;
-
-    _showStatus('⏳ Baixando foto...', 'info');
+    _showStatus('⏳ Baixando foto…', 'info');
 
     function _salvarComFoto(b64) {
+      var cat = _ml.cat;
       var novaCuba = {
-        id:       'ml_' + d.id + '_' + Date.now(),
-        nm:       nome,
-        brand:    brand || 'ML Import',
-        dim:      dim,
-        pr:       Math.round(venda),
-        inst:     cat === 'coz' ? 110 : 220,
-        instCli:  cat === 'coz' ? 160 : 280,
-        photo:    b64 || '',
-        _ml_id:         d.id,
+        id:              'ml_' + d.id + '_' + Date.now(),
+        nm:              nome,
+        brand:           brand || 'ML Import',
+        dim:             dim,
+        pr:              Math.round(venda),
+        inst:            cat === 'coz' ? 110 : 220,
+        instCli:         cat === 'coz' ? 160 : 280,
+        photo:           b64 || '',
+        _ml_id:          d.id,
         _ml_preco_custo: custo,
-        _ml_margem:     margem,
-        _ml_url:        d.permalink || '',
+        _ml_margem:      margem,
+        _ml_url:         d.permalink || '',
       };
 
       var lista = cat === 'coz' ? CFG.coz : CFG.lav;
       var idx   = lista.findIndex(function(c) { return c._ml_id === d.id; });
-      if (idx >= 0) { lista[idx] = novaCuba; }
-      else          { lista.push(novaCuba); }
+      if (idx >= 0) { lista[idx] = novaCuba; } else { lista.push(novaCuba); }
 
       if (typeof CUBA_META !== 'undefined') {
         CUBA_META['ml_' + d.id] = {
-          badge:      badge,
+          badge:      _inferBadge(d),
           desc:       d._desc || '',
-          features:   features,
+          features:   _inferFeatures(d),
           garantia:   '',
-          tipo_mat:   tipoMat,
+          tipo_mat:   _inferTipoMat(d),
           marca_logo: (brand || 'ML').toUpperCase(),
         };
       }
 
-      if (typeof svCFG        === 'function') svCFG();
+      if (typeof svCFG         === 'function') svCFG();
       if (typeof buildCubaList === 'function') buildCubaList();
-      if (typeof buildCfg     === 'function') buildCfg();
-      if (typeof toast        === 'function') toast('✅ Cuba importada do ML e salva!');
+      if (typeof buildCfg      === 'function') buildCfg();
+      if (typeof toast         === 'function') toast('✅ Produto importado do ML e salvo!');
 
       _fecharModal();
     }
@@ -752,23 +383,18 @@
     }
   }
 
-  // ══════════════════════════════════════════════════════════
-  // STATUS
-  // ══════════════════════════════════════════════════════════
+  // ─── Status ────────────────────────────────────────────────
   function _showStatus(msg, tipo) {
     var el = document.getElementById('ml-status');
     if (!el) return;
-    var cor = tipo === 'error' ? '#e05555'
-            : tipo === 'warn'  ? '#c9a840'
-            : tipo === 'ok'    ? '#4ade80'
-            : 'var(--t3)';
-    el.style.color  = cor;
-    el.textContent  = msg;
+    el.style.color = tipo === 'error' ? '#e05555'
+                   : tipo === 'warn'  ? '#c9a840'
+                   : tipo === 'ok'    ? '#4ade80'
+                   : 'var(--t3)';
+    el.textContent = msg;
   }
 
-  // ══════════════════════════════════════════════════════════
-  // OVERLAY / MODAL
-  // ══════════════════════════════════════════════════════════
+  // ─── Modal ─────────────────────────────────────────────────
   function _abrirModal(cat) {
     _ml.cat      = cat || 'coz';
     _ml.data     = null;
@@ -779,25 +405,16 @@
     if (!document.getElementById('mlImportOv')) {
       var ov = document.createElement('div');
       ov.id  = 'mlImportOv';
-      ov.style.cssText = [
-        'position:fixed','top:0','left:0','right:0','bottom:0',
-        'z-index:9999',
-        'background:rgba(0,0,0,.72)',
-        'display:flex','align-items:flex-end','justify-content:center',
-        'backdrop-filter:blur(4px)','-webkit-backdrop-filter:blur(4px)',
-      ].join(';');
+      ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;'
+        + 'background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;'
+        + 'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);';
       ov.onclick = function(e) { if (e.target === ov) _fecharModal(); };
 
       var box = document.createElement('div');
       box.id  = 'mlImportBox';
-      box.style.cssText = [
-        'background:var(--s1,#131217)',
-        'border-radius:20px 20px 0 0',
-        'width:100%','max-width:520px',
-        'max-height:90dvh','overflow-y:auto',
-        'padding:20px 16px 32px',
-        'box-sizing:border-box',
-      ].join(';');
+      box.style.cssText = 'background:var(--s1,#131217);border-radius:20px 20px 0 0;'
+        + 'width:100%;max-width:520px;max-height:90dvh;overflow-y:auto;'
+        + 'padding:20px 16px 32px;box-sizing:border-box;';
 
       var inner = document.createElement('div');
       inner.id  = 'mlImportModal';
@@ -815,9 +432,7 @@
     if (ov) ov.style.display = 'none';
   }
 
-  // ══════════════════════════════════════════════════════════
-  // RENDER DO MODAL
-  // ══════════════════════════════════════════════════════════
+  // ─── Render modal ──────────────────────────────────────────
   function _renderModal() {
     var wrap = document.getElementById('mlImportModal');
     if (!wrap) return;
@@ -828,6 +443,7 @@
     var d = _ml.data;
     var h = '';
 
+    // Cabeçalho
     h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">';
     h += '<div style="font-size:1.6rem;">🛒</div>';
     h += '<div style="flex:1;">';
@@ -838,6 +454,7 @@
        + 'font-size:1.3rem;cursor:pointer;line-height:1;padding:4px 8px;">✕</button>';
     h += '</div>';
 
+    // Seletor de categoria
     h += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
     ['coz','lav'].forEach(function(c) {
       var ativ = _ml.cat === c;
@@ -846,22 +463,20 @@
          + 'style="flex:1;padding:9px;border-radius:10px;font-size:.75rem;font-weight:600;cursor:pointer;'
          + 'border:1px solid ' + (ativ ? 'var(--gold2)' : 'var(--bd2)') + ';'
          + 'background:' + (ativ ? 'var(--gdim)' : 'var(--s3)') + ';'
-         + 'color:' + (ativ ? 'var(--gold2)' : 'var(--t2)') + ';">'
-         + lab + '</button>';
+         + 'color:' + (ativ ? 'var(--gold2)' : 'var(--t2)') + ';">' + lab + '</button>';
     });
     h += '</div>';
 
-    // Dica de uso
+    // Dica
     h += '<div style="font-size:.68rem;color:var(--t3);margin-bottom:8px;padding:7px 10px;'
        + 'background:rgba(255,255,255,.04);border-radius:8px;border-left:2px solid var(--gold3);">'
        + '💡 Cole o link do ML abaixo, ou clique no botão para colar automático</div>';
 
-    // Botão COLAR dedicado
+    // Botão colar
     h += '<button onclick="_mlColarEBuscar(this)" '
        + 'style="width:100%;padding:13px;border-radius:10px;border:1px dashed var(--gold3);'
        + 'background:var(--gdim);color:var(--gold2);font-size:.9rem;font-weight:700;'
-       + 'cursor:pointer;margin-bottom:10px;">'
-       + '📋 Colar link e buscar</button>';
+       + 'cursor:pointer;margin-bottom:10px;">📋 Colar link e buscar</button>';
 
     // Campo manual + buscar
     h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
@@ -878,31 +493,26 @@
        + (_ml.loading ? '⏳' : '🔍 Buscar') + '</button>';
     h += '</div>';
 
+    // Status
     h += '<div id="ml-status" style="min-height:18px;font-size:.72rem;'
-       + 'color:var(--t3);margin-bottom:4px;"></div>';
+       + 'color:var(--t3);margin-bottom:8px;"></div>';
 
-    // Botão diagnóstico aparece após erro
-    if (_ml.status && _ml.status.tipo === 'error') {
-      h += '<button onclick="_mlDiagnostico()" style="font-size:.65rem;color:var(--t3);'
-         + 'background:transparent;border:1px solid var(--bd2);border-radius:6px;'
-         + 'padding:3px 9px;cursor:pointer;margin-bottom:8px;">'
-         + '📡 Testar proxies</button>';
-    }
-
+    // Loading
     if (_ml.loading) {
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">Tentando API → página do produto</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">API do ML → corsproxy.io</span>'
          + '</div>';
     }
 
+    // Resultado
     if (d && !_ml.loading) {
-      var fotos  = _allPhotos(d);
-      var custo  = d.price || 0;
-      var venda  = _precoVenda(custo, _ml.margem);
-      var dim    = _inferDim(d);
-      var brand  = (d.attributes || []).reduce(function(acc, a) {
+      var fotos = _allPhotos(d);
+      var custo = d.price || 0;
+      var venda = _precoVenda(custo, _ml.margem);
+      var dim   = _inferDim(d);
+      var brand = (d.attributes || []).reduce(function(acc, a) {
         return a.id === 'BRAND' ? (a.value_name || acc) : acc;
       }, '');
 
@@ -912,8 +522,7 @@
         h += '<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:4px;">';
         fotos.forEach(function(url, i) {
           var sel = _ml.selPhoto === url;
-          h += '<img src="' + _esc(url) + '" '
-             + 'onclick="_mlSelecionarFoto(' + i + ')" '
+          h += '<img src="' + _esc(url) + '" onclick="_mlSelecionarFoto(' + i + ')" '
              + 'style="width:58px;height:58px;object-fit:cover;border-radius:8px;cursor:pointer;'
              + 'flex-shrink:0;border:2px solid ' + (sel ? 'var(--gold2)' : 'transparent') + ';'
              + 'box-sizing:border-box;" loading="lazy">';
@@ -923,11 +532,10 @@
 
       if (_ml.selPhoto) {
         h += '<div style="background:var(--s2);border-radius:12px;overflow:hidden;'
-           + 'aspect-ratio:4/3;margin-bottom:12px;">';
-        h += '<img src="' + _esc(_ml.selPhoto) + '" '
+           + 'aspect-ratio:4/3;margin-bottom:12px;">'
+           + '<img src="' + _esc(_ml.selPhoto) + '" '
            + 'style="width:100%;height:100%;object-fit:contain;padding:16px;box-sizing:border-box;" '
-           + 'loading="lazy">';
-        h += '</div>';
+           + 'loading="lazy"></div>';
       }
 
       h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Nome (editável)</div>';
@@ -938,42 +546,40 @@
 
       h += '<div style="display:flex;gap:8px;margin-bottom:10px;">';
       if (brand) {
-        h += '<div style="flex:1;">';
-        h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Marca</div>';
-        h += '<div style="font-size:.78rem;color:var(--t2);">' + _esc(brand) + '</div>';
-        h += '</div>';
+        h += '<div style="flex:1;">'
+           + '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Marca</div>'
+           + '<div style="font-size:.78rem;color:var(--t2);">' + _esc(brand) + '</div>'
+           + '</div>';
       }
-      h += '<div style="flex:1;">';
-      h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Dimensões</div>';
-      h += '<input id="ml-dim" type="text" value="' + _esc(dim) + '" placeholder="ex: 60×40cm" '
+      h += '<div style="flex:1;">'
+         + '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Dimensões</div>'
+         + '<input id="ml-dim" type="text" value="' + _esc(dim) + '" placeholder="ex: 60×40cm" '
          + 'style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;'
-         + 'padding:7px 9px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;">';
-      h += '</div>';
+         + 'padding:7px 9px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;">'
+         + '</div>';
       h += '</div>';
 
       h += '<div style="background:var(--gdim);border:1px solid var(--gold3);border-radius:11px;'
          + 'padding:12px 14px;margin-bottom:10px;">';
-
       h += '<div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:8px;">';
-      h += '<div style="flex:1;">';
-      h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:3px;">Preço de custo (ML)</div>';
-      h += '<div style="font-size:1.1rem;font-weight:700;color:var(--t2);">' + _fmt(custo) + '</div>';
-      h += '</div>';
-      h += '<div style="width:80px;">';
-      h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:3px;">Margem %</div>';
-      h += '<input id="ml-margem" type="number" min="0" max="300" step="1" value="' + _ml.margem + '" '
+      h += '<div style="flex:1;">'
+         + '<div style="font-size:.58rem;color:var(--t3);margin-bottom:3px;">Preço de custo (ML)</div>'
+         + '<div style="font-size:1.1rem;font-weight:700;color:var(--t2);">' + _fmt(custo) + '</div>'
+         + '</div>';
+      h += '<div style="width:80px;">'
+         + '<div style="font-size:.58rem;color:var(--t3);margin-bottom:3px;">Margem %</div>'
+         + '<input id="ml-margem" type="number" min="0" max="300" step="1" value="' + _ml.margem + '" '
          + 'oninput="_mlAtualizarPreco(this.value)" '
          + 'style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:8px;'
          + 'padding:6px 8px;color:var(--tx);font-size:.85rem;font-weight:700;'
-         + 'box-sizing:border-box;outline:none;text-align:center;">';
+         + 'box-sizing:border-box;outline:none;text-align:center;">'
+         + '</div>';
       h += '</div>';
-      h += '</div>';
-
-      h += '<div style="display:flex;justify-content:space-between;align-items:baseline;">';
-      h += '<div style="font-size:.6rem;color:var(--gold3);text-transform:uppercase;letter-spacing:1px;">Preço de venda calculado</div>';
-      h += '<div id="ml-pr-venda" style="font-family:\'Cormorant Garamond\',serif;'
-         + 'font-size:1.6rem;font-weight:700;color:var(--gold2);">' + _fmt(venda) + '</div>';
-      h += '</div>';
+      h += '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+         + '<div style="font-size:.6rem;color:var(--gold3);text-transform:uppercase;letter-spacing:1px;">Preço de venda calculado</div>'
+         + '<div id="ml-pr-venda" style="font-family:\'Cormorant Garamond\',serif;'
+         + 'font-size:1.6rem;font-weight:700;color:var(--gold2);">' + _fmt(venda) + '</div>'
+         + '</div>';
       h += '</div>';
 
       h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:12px;'
@@ -981,17 +587,15 @@
          + 'border-left:2px solid var(--t4);">'
          + '🔒 Preço de custo é dado interno — não aparece para clientes.</div>';
 
-      if (d._scraped) {
-        h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">📄 Dados obtidos via página do produto</div>';
-      } else {
-        h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">✅ Dados obtidos via API oficial ML</div>';
-      }
+      h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">'
+         + (d._scraped ? '📄 Dados obtidos via página do produto' : '✅ Dados obtidos via API oficial ML')
+         + '</div>';
 
       h += '<button onclick="_mlSalvar()" '
          + 'style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;'
          + 'background:linear-gradient(135deg,#a07828,var(--gold2));'
          + 'color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">'
-         + '✓ Salvar cuba importada</button>';
+         + '✓ Salvar produto importado</button>';
 
       h += '</div>';
     }
@@ -1006,6 +610,7 @@
   // ══════════════════════════════════════════════════════════
   // FUNÇÕES GLOBAIS
   // ══════════════════════════════════════════════════════════
+
   window._mlAbrirModal  = _abrirModal;
   window._mlFecharModal = _fecharModal;
   window.abrirMLImport  = _abrirModal;
@@ -1015,26 +620,18 @@
     _renderModal();
   };
 
-  // Limpa URL: remove fragmento #... e espacos
-  function _limparUrl(url) {
-    url = (url || '').trim();
-    var h = url.indexOf('#');
-    if (h !== -1) url = url.substring(0, h);
-    return url.trim();
-  }
+  window._mlSetUrl = function(val) {
+    _ml.urlAtual = (val || '').trim().split('#')[0].trim();
+  };
 
-  // Paste handler: tenta Clipboard API (pega URL completa no Android),
-  // senao usa clipboardData do evento
-  // Botão "Colar e Buscar": lê clipboard e dispara busca automaticamente
   window._mlColarEBuscar = function(btn) {
     function _executar(text) {
-      var url = _limparUrl(text);
+      var url = (text || '').trim().split('#')[0].trim();
       var inp = document.getElementById('ml-url-inp');
       if (inp) inp.value = url || text;
       _ml.urlAtual = url;
-      var info = url ? _extractId(url) : null;
-      if (!info) {
-        if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+      if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
+      if (!_extractId(url)) {
         _showStatus('❌ Não encontrei um link do ML. Cole no campo e clique Buscar.', 'error');
         return;
       }
@@ -1049,19 +646,16 @@
       return;
     }
 
-    if (btn) { btn.textContent = '⏳ Lendo...'; btn.disabled = true; }
+    if (btn) { btn.textContent = '⏳ Lendo…'; btn.disabled = true; }
 
     navigator.clipboard.readText().then(function(text) {
-      if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
       _executar(text);
-    }).catch(function(e) {
+    }).catch(function() {
       if (btn) { btn.textContent = '📋 Colar link e buscar'; btn.disabled = false; }
-      // Fallback: tenta pegar do input se já tiver algo colado
       var inp = document.getElementById('ml-url-inp');
       var val = inp ? inp.value.trim() : '';
-      if (val && _extractId(_limparUrl(val))) {
-        _executar(val);
-      } else {
+      if (val) { _executar(val); }
+      else {
         if (inp) inp.focus();
         _showStatus('⚠️ Permissão negada ao clipboard. Cole o link no campo e clique Buscar.', 'warn');
       }
@@ -1071,8 +665,8 @@
   window._mlHandlePaste = function(evt, inp) {
     evt.preventDefault();
     function _aplicar(text) {
-      var url = _limparUrl(text);
-      inp.value = url;
+      var url = (text || '').trim().split('#')[0].trim();
+      inp.value    = url;
       _ml.urlAtual = url;
       if (url) { _ml.data = null; _ml.selPhoto = null; _buscar(url); }
     }
@@ -1088,7 +682,7 @@
   window._mlBuscar = function() {
     var inp = document.getElementById('ml-url-inp');
     var raw = (inp ? inp.value.trim() : '') || _ml.urlAtual || '';
-    var url = _limparUrl(raw);
+    var url = raw.split('#')[0].trim();
     if (inp && url !== raw) inp.value = url;
     if (!url) { _showStatus('⚠️ Cole o link antes de buscar.', 'warn'); return; }
     _ml.urlAtual = url;
@@ -1097,45 +691,8 @@
     _buscar(url);
   };
 
-  window._mlSetUrl = function(val) { _ml.urlAtual = _limparUrl(val); };
-
-  // Diagnóstico: testa todos os proxies e mostra resultado
-  window._mlDiagnostico = function() {
-    var id = 'MLB4787845933';
-    var base = 'https://api.mercadolibre.com/items/' + id;
-    var testes = [
-      { nome: 'API direta',      url: base },
-      { nome: 'Worker',          url: _viaWorker(base) || '' },
-      { nome: 'corsproxy.io',    url: 'https://corsproxy.io/?url=' + encodeURIComponent(base) },
-      { nome: 'allorigins raw',  url: 'https://api.allorigins.win/raw?url=' + encodeURIComponent(base) },
-      { nome: 'codetabs',        url: 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(base) },
-    ].filter(function(t){ return t.url; });
-
-    _showStatus('⏳ Testando conectividade (' + testes.length + ' proxies)...', 'info');
-    var resultados = [];
-    var restantes  = testes.length;
-
-    testes.forEach(function(t) {
-      var inicio = Date.now();
-      fetch(t.url, { method: 'GET', mode: 'cors', credentials: 'omit' })
-        .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
-        .then(function(d) {
-          if (d && d.contents) { try { d = JSON.parse(d.contents); } catch(e) {} }
-          var ok = d && d.title;
-          resultados.push((ok ? '✅' : '⚠️') + ' ' + t.nome + ' ' + (Date.now()-inicio) + 'ms' + (ok ? '' : ' (sem título)'));
-          if (--restantes === 0) _showStatus(resultados.join(' | '), 'info');
-        })
-        .catch(function(e) {
-          resultados.push('❌ ' + t.nome + ' (' + (e.message || e) + ')');
-          if (--restantes === 0) _showStatus(resultados.join(' | '), 'info');
-        });
-    });
-  };
-
   window._mlSelecionarFoto = function(idx) {
-    var d = _ml.data;
-    if (!d) return;
-    var fotos    = _allPhotos(d);
+    var fotos    = _allPhotos(_ml.data || {});
     _ml.selPhoto = fotos[idx] || null;
     _renderModal();
     var inp = document.getElementById('ml-url-inp');
@@ -1144,10 +701,8 @@
 
   window._mlAtualizarPreco = function(val) {
     _ml.margem = parseFloat(val) || 0;
-    var d = _ml.data;
-    if (!d) return;
     var el = document.getElementById('ml-pr-venda');
-    if (el) el.textContent = _fmt(_precoVenda(d.price || 0, _ml.margem));
+    if (el && _ml.data) el.textContent = _fmt(_precoVenda(_ml.data.price || 0, _ml.margem));
   };
 
   window._mlSalvar = _salvar;
