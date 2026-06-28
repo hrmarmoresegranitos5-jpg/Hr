@@ -4,7 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HR Mármores e Granitos — Catálogo</title>
-<meta name="description" content="Catálogo oficial de cubas e acessórios — HR Mármores e Granitos.">
+
+<!-- ═══ SEO / Open Graph — atualizado dinamicamente pelo JS ═══ -->
+<meta name="description" id="metaDesc" content="Catálogo oficial de cubas e acessórios — HR Mármores e Granitos.">
+<meta property="og:type"        content="website" id="ogType">
+<meta property="og:site_name"   content="HR Mármores e Granitos" id="ogSite">
+<meta property="og:title"       id="ogTitle"  content="HR Mármores e Granitos — Catálogo de Cubas">
+<meta property="og:description" id="ogDesc"   content="Catálogo oficial com preços e disponibilidade atualizados. Cubas de cozinha, banheiro e acessórios sob encomenda.">
+<meta property="og:image"       id="ogImage"  content="">
+<meta property="og:url"         id="ogUrl"    content="">
+<meta name="twitter:card"       content="summary_large_image">
+<meta name="twitter:title"      id="twTitle"  content="HR Mármores e Granitos — Catálogo">
+<meta name="twitter:description"id="twDesc"   content="Catálogo oficial com preços e disponibilidade atualizados.">
+<meta name="twitter:image"      id="twImage"  content="">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -18,7 +31,7 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html{scroll-behavior:smooth;}
-@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto;}*{animation-duration:.001ms !important;transition-duration:.001ms !important;}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto;}*{animation-duration:.001ms!important;transition-duration:.001ms!important;}}
 body{margin:0;background:var(--bg);color:var(--cream);font-family:Outfit,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;}
 a{color:inherit;text-decoration:none;}
 img{max-width:100%;display:block;}
@@ -26,27 +39,12 @@ img{max-width:100%;display:block;}
 .eyebrow{font-size:.66rem;letter-spacing:2.6px;text-transform:uppercase;color:var(--gold);font-weight:700;}
 .serif{font-family:"Cormorant Garamond",serif;}
 
-/* ---------- marble slab signature ---------- */
-.slab{
-  position:relative; border-radius:18px; overflow:hidden;
-  background:
-    radial-gradient(120% 90% at 15% 10%, rgba(255,255,255,.05), transparent 45%),
-    radial-gradient(90% 70% at 85% 80%, rgba(201,164,76,.10), transparent 50%),
-    linear-gradient(125deg, #17171c 0%, #0d0d10 45%, #1c1c22 70%, #0c0c0f 100%);
-  border:1px solid var(--line2);
-}
-.slab::before{
-  content:"";position:absolute;inset:0;opacity:.5;mix-blend-mode:screen;pointer-events:none;
-  background:
-    repeating-linear-gradient(118deg, transparent 0 18px, rgba(255,255,255,.025) 18px 19px, transparent 19px 46px),
-    repeating-linear-gradient(35deg, transparent 0 26px, rgba(201,164,76,.04) 26px 27px, transparent 27px 64px);
-}
-.slab::after{
-  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.04), inset 0 1px 0 rgba(255,255,255,.05);
-}
+/* marble slab */
+.slab{position:relative;border-radius:18px;overflow:hidden;background:radial-gradient(120% 90% at 15% 10%,rgba(255,255,255,.05),transparent 45%),radial-gradient(90% 70% at 85% 80%,rgba(201,164,76,.10),transparent 50%),linear-gradient(125deg,#17171c 0%,#0d0d10 45%,#1c1c22 70%,#0c0c0f 100%);border:1px solid var(--line2);}
+.slab::before{content:"";position:absolute;inset:0;opacity:.5;mix-blend-mode:screen;pointer-events:none;background:repeating-linear-gradient(118deg,transparent 0 18px,rgba(255,255,255,.025) 18px 19px,transparent 19px 46px),repeating-linear-gradient(35deg,transparent 0 26px,rgba(201,164,76,.04) 26px 27px,transparent 27px 64px);}
+.slab::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),inset 0 1px 0 rgba(255,255,255,.05);}
 
-/* ---------- nav ---------- */
+/* nav */
 #nav{position:sticky;top:0;z-index:50;background:rgba(10,10,12,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
 #nav .row{display:flex;align-items:center;gap:14px;height:64px;}
 .brand{display:flex;align-items:center;gap:10px;flex-shrink:0;}
@@ -62,7 +60,7 @@ img{max-width:100%;display:block;}
 .btn-wa-sm{align-items:center;gap:7px;background:#1ea952;color:#fff;font-size:.74rem;font-weight:700;padding:9px 16px;border-radius:30px;flex-shrink:0;}
 .btn-wa-sm svg{width:14px;height:14px;}
 
-/* ---------- hero ---------- */
+/* hero */
 #hero{position:relative;padding:64px 0 56px;overflow:hidden;}
 #hero .bgslab{position:absolute;inset:-1px;z-index:-1;border-radius:0;border:none;}
 .herogrid{display:grid;gap:34px;align-items:center;}
@@ -79,13 +77,13 @@ img{max-width:100%;display:block;}
 .heropanel .tag{font-size:.6rem;letter-spacing:2px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px;}
 .heropanel .big{font-family:"Cormorant Garamond",serif;font-size:1.6rem;color:var(--gold-soft);line-height:1.15;}
 
-/* ---------- section heads ---------- */
+/* section heads */
 .sechead{margin-bottom:24px;}
 .sechead h2{font-family:"Cormorant Garamond",serif;font-size:1.9rem;font-weight:700;margin:6px 0 0;color:var(--cream);}
 section{padding:56px 0;}
 .divider{height:1px;background:linear-gradient(90deg,transparent,var(--line2),transparent);}
 
-/* ---------- tabs + grid ---------- */
+/* tabs + grid */
 .tabs{display:flex;gap:8px;margin:22px 0 26px;overflow-x:auto;scrollbar-width:none;}
 .tabs::-webkit-scrollbar{display:none;}
 .tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
@@ -104,10 +102,16 @@ section{padding:56px 0;}
 .cdim{font-size:.66rem;color:var(--ink-mute);margin-bottom:9px;}
 .cpr{font-size:.92rem;font-weight:800;color:var(--gold-soft);}
 .cpr small{font-size:.6rem;color:var(--ink-mute);font-weight:500;}
+
+/* share button on card */
+.cshare{position:absolute;top:7px;right:7px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:.75rem;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2;}
+.card:hover .cshare,.card:focus .cshare{opacity:1;}
+@media(pointer:coarse){.cshare{opacity:1;}}
+
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
 
-/* ---------- about ---------- */
+/* about */
 .aboutgrid{display:grid;gap:30px;}
 @media(min-width:860px){.aboutgrid{grid-template-columns:1fr 1fr;align-items:center;}}
 .aboutgrid p{color:var(--ink-soft);font-size:.88rem;line-height:1.75;margin:14px 0;}
@@ -118,29 +122,43 @@ section{padding:56px 0;}
 .aboutslab .q{font-family:"Cormorant Garamond",serif;font-size:1.3rem;color:var(--cream);line-height:1.4;}
 .aboutslab .who{font-size:.7rem;color:var(--ink-mute);}
 
-/* ---------- footer ---------- */
+/* footer */
 footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2);}
 .footgrid{display:grid;gap:28px;}
 @media(min-width:760px){.footgrid{grid-template-columns:1.2fr 1fr 1fr;}}
 .footbrand .bname{font-size:1.2rem;}
 .footcol h4{font-size:.65rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-mute);margin:0 0 12px;}
-.footcol div, .footcol a{display:block;font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
+.footcol div,.footcol a{display:block;font-size:.82rem;color:var(--ink-soft);margin-bottom:8px;}
 .footcol a:hover{color:var(--gold-soft);}
 .footbottom{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;font-size:.68rem;color:var(--ink-mute);}
 
-/* ---------- floating WA ---------- */
+/* floating WA */
 #fab{position:fixed;bottom:20px;right:20px;z-index:60;width:54px;height:54px;border-radius:50%;background:#1ea952;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4);cursor:pointer;}
 #fab svg{width:26px;height:26px;}
 
-/* ---------- modal ---------- */
-#ov{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:none;align-items:center;justify-content:center;padding:16px;}
+/* ═══ MODAL APRIMORADO ═══ */
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0;}
 #ov.on{display:flex;}
-#md{background:var(--bg2);border-radius:18px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;border:1px solid var(--line2);animation:pop .18s ease;}
+@media(min-width:600px){#ov{align-items:center;padding:16px;}}
+#md{background:var(--bg2);border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:92vh;overflow-y:auto;border:1px solid var(--line2);animation:slideup .22s ease;}
+@media(min-width:600px){#md{border-radius:18px;animation:pop .18s ease;}}
+@keyframes slideup{from{transform:translateY(60px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 @keyframes pop{from{transform:translateY(16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-.mdgal{width:100%;aspect-ratio:4/3;background:var(--panel2);position:relative;overflow:hidden;border-radius:18px 18px 0 0;}
-.mdgal img{width:100%;height:100%;object-fit:cover;display:block;}
-.mdgal .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;color:var(--ink-mute);}
-.mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+
+/* galeria no modal */
+.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:22px 22px 0 0;overflow:hidden;}
+@media(min-width:600px){.mdgal{border-radius:14px 14px 0 0;}}
+.mdgal-main{width:100%;aspect-ratio:4/3;overflow:hidden;position:relative;}
+.mdgal-main img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .2s;}
+.mdgal-main .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;color:var(--ink-mute);}
+.mdgal-dots{display:flex;justify-content:center;gap:6px;padding:10px 0 6px;position:absolute;bottom:0;left:0;right:0;}
+.mdgal-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.35);cursor:pointer;transition:.15s;}
+.mdgal-dot.on{background:var(--gold-soft);transform:scale(1.3);}
+.mdgal-arr{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:.85rem;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;}
+.mdgal-arr.prev{left:10px;}
+.mdgal-arr.next{right:10px;}
+
+.mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;}
 .mdbody{padding:20px 20px 24px;}
 .mdbrand{font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:4px;}
 .mdnm{font-family:"Cormorant Garamond",serif;font-size:1.5rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:6px;}
@@ -149,13 +167,22 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdpr{display:flex;align-items:baseline;gap:8px;margin-bottom:18px;}
 .mdpr .v{font-size:1.5rem;font-weight:800;color:var(--gold-soft);}
 .mdpr .o{font-size:.85rem;color:var(--ink-mute);text-decoration:line-through;}
+
+/* Botões de ação no modal */
+.md-actions{display:flex;flex-direction:column;gap:10px;}
 .btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;}
 .btnwa svg{width:19px;height:19px;flex-shrink:0;}
+.btn-share{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:13px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-size:.8rem;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;}
+.btn-share:hover{border-color:var(--gold);color:var(--gold-soft);}
+
+/* toast */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(30,30,36,.96);color:var(--cream);font-size:.8rem;font-weight:600;padding:10px 18px;border-radius:30px;border:1px solid var(--line2);z-index:200;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;}
+.toast.on{opacity:1;}
 
 #loading{padding:120px 20px;text-align:center;color:var(--ink-mute);}
 .spin{width:28px;height:28px;border:3px solid var(--line2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 14px;animation:sp .8s linear infinite;}
 @keyframes sp{to{transform:rotate(360deg);}}
-.hide{display:none !important;}
+.hide{display:none!important;}
 </style>
 </head>
 <body>
@@ -274,16 +301,61 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
   <div id="md"></div>
 </div>
 
-<script>
-var DATA=null, CAT='coz', WAPHONE='', CURITEM=null;
+<div class="toast" id="toast"></div>
 
+<script>
+var DATA=null, CAT='coz', WAPHONE='', CURITEM=null, CURFOTOS=[], CURFOTO_IDX=0;
+
+/* ── utilitários ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
+var _toastT;
+function showToast(msg){
+  var el=document.getElementById('toast');
+  if(!el)return;
+  el.textContent=msg;
+  el.classList.add('on');
+  clearTimeout(_toastT);
+  _toastT=setTimeout(function(){el.classList.remove('on');},2400);
+}
+
+/* ════════════════════════════════════
+   SEO — Open Graph dinâmico
+   ════════════════════════════════════ */
+function updateMeta(title,desc,image,url){
+  var setMeta=function(id,val){var el=document.getElementById(id);if(el&&val)el.setAttribute('content',val);};
+  if(title){document.title=title;setMeta('ogTitle',title);setMeta('twTitle',title);}
+  if(desc){setMeta('metaDesc',desc);setMeta('ogDesc',desc);setMeta('twDesc',desc);}
+  if(image){setMeta('ogImage',image);setMeta('twImage',image);}
+  if(url){setMeta('ogUrl',url);}
+}
+
+/* link compartilhável para produto: ?item=coz-0 */
+function itemUrl(cat,idx){
+  var base=window.location.href.split('?')[0];
+  return base+'?item='+cat+'-'+idx;
+}
+
+/* ao abrir página, verifica ?item= e abre o modal direto */
+function checkDeepLink(){
+  var params=new URLSearchParams(window.location.search);
+  var item=params.get('item');
+  if(!item||!DATA)return;
+  var parts=item.split('-');
+  var cat=parts[0];
+  var idx=parseInt(parts[1]||'0',10);
+  var list=listFor(cat);
+  if(list&&list[idx]) openItem(cat,idx,true);
+}
+
+/* ════════════════════════════════════
+   CARGA DO JSON
+   ════════════════════════════════════ */
 function load(){
   fetch('./catalogo.json?t='+Date.now(),{cache:'no-store'})
-    .then(function(r){ if(!r.ok) throw new Error('not found'); return r.json(); })
-    .then(function(d){ DATA=d; boot(); })
+    .then(function(r){if(!r.ok)throw new Error('not found');return r.json();})
+    .then(function(d){DATA=d;boot();})
     .catch(function(){
       document.getElementById('loading').innerHTML='<div style="font-size:2rem;margin-bottom:10px;">⚠️</div>Catálogo ainda não publicado.<br>Volte em breve.';
     });
@@ -299,43 +371,59 @@ function boot(){
   document.getElementById('navTipo').textContent=tipo;
   document.getElementById('footCopy').textContent='© '+new Date().getFullYear()+' '+nome;
 
-  if(e.tel) WAPHONE=e.tel.replace(/\D/g,'');
-  if(WAPHONE.length>0 && WAPHONE.length<=11) WAPHONE='55'+WAPHONE;
+  /* WhatsApp */
+  if(e.tel)WAPHONE=e.tel.replace(/\D/g,'');
+  if(WAPHONE.length>0&&WAPHONE.length<=11)WAPHONE='55'+WAPHONE;
 
+  /* contatos */
+  var waLink='https://wa.me/'+WAPHONE;
+  var waBtn=document.getElementById('navWaBtn');waBtn.href=waLink;
+  document.getElementById('footWa').href=waLink;
+  if(e.email){var fe=document.getElementById('footEmail');fe.textContent=e.email;fe.href='mailto:'+e.email;}
+  else document.getElementById('footEmail').remove();
+  if(e.ig){var fi=document.getElementById('footIg');var handle=e.ig.replace('@','').trim();fi.textContent='@'+handle;fi.href='https://instagram.com/'+handle.replace(/\s+/g,'');}
+  else document.getElementById('footIg').remove();
+
+  /* logo */
   if(e.logoUrl){
-    ['hLogo','footLogo'].forEach(function(id){document.getElementById(id).innerHTML='<img src="'+e.logoUrl+'">';});
+    ['hLogo','footLogo'].forEach(function(id){document.getElementById(id).innerHTML='<img src="'+e.logoUrl+'" alt="logo">';});
   }
 
+  /* endereço */
   var endParts=[e.end,e.bairro,e.cidade].filter(Boolean);
   document.getElementById('footEndereco').textContent=endParts.length?endParts.join(' · '):'Endereço a confirmar';
   document.getElementById('footHorario').textContent=e.horario||'Seg–Sáb · consulte horários';
 
-  var waLink='https://wa.me/'+WAPHONE;
-  var waBtn=document.getElementById('navWaBtn'); waBtn.href=waLink;
-  document.getElementById('footWa').href=waLink;
-
-  if(e.email){var fe=document.getElementById('footEmail');fe.textContent=e.email;fe.href='mailto:'+e.email;}
-  else document.getElementById('footEmail').remove();
-
-  if(e.ig){var fi=document.getElementById('footIg');var handle=e.ig.replace('@','').trim();fi.textContent='@'+handle;fi.href='https://instagram.com/'+handle.replace(/\s+/g,'');}
-  else document.getElementById('footIg').remove();
-
+  /* contagens */
   document.getElementById('fCoz').textContent=(DATA.cubas_coz||[]).length;
   document.getElementById('fLav').textContent=(DATA.cubas_lav||[]).length;
   document.getElementById('fAc').textContent=(DATA.acessorios||[]).length;
 
+  /* SEO base do site */
+  updateMeta(
+    nome+' — Catálogo de Cubas e Acessórios',
+    'Catálogo oficial de cubas de cozinha, banheiro e acessórios. Preços atualizados, peça pelo WhatsApp.',
+    null,
+    window.location.href.split('?')[0]
+  );
+
   buildTabs();
   renderGrid();
+  checkDeepLink();
 }
 
+/* ════════════════════════════════════
+   TABS + GRID
+   ════════════════════════════════════ */
 function buildTabs(){
   var tabs=[
-    {k:'coz', l:'Cubas Cozinha', n:(DATA.cubas_coz||[]).length},
-    {k:'lav', l:'Cubas Banheiro', n:(DATA.cubas_lav||[]).length},
-    {k:'ac',  l:'Acessórios',     n:(DATA.acessorios||[]).length}
+    {k:'coz',l:'Cozinha',         n:(DATA.cubas_coz||[]).length},
+    {k:'lav',l:'Cubas Banheiro',  n:(DATA.cubas_lav||[]).length},
+    {k:'ac', l:'Acessórios',      n:(DATA.acessorios||[]).length}
   ];
   document.getElementById('tabs').innerHTML=tabs.map(function(x){
-    return '<button class="tab'+(CAT===x.k?' on':'')+'" data-cat="'+x.k+'" onclick="setCat(\''+x.k+'\')">'+x.l+' ('+x.n+')</button>';
+    return '<button class="tab'+(CAT===x.k?' on':'')+'" data-cat="'+x.k+'" onclick="setCat(\''+x.k+'\')">'
+      +x.l+' ('+x.n+')</button>';
   }).join('');
 }
 
@@ -346,24 +434,26 @@ function setCat(k){
 }
 
 function listFor(k){
-  if(k==='coz') return DATA.cubas_coz||[];
-  if(k==='lav') return DATA.cubas_lav||[];
+  if(k==='coz')return DATA.cubas_coz||[];
+  if(k==='lav')return DATA.cubas_lav||[];
   return DATA.acessorios||[];
 }
 
 function renderGrid(){
-  var list=listFor(CAT).filter(function(it){ return it && (it.nm||it.id); });
+  var list=listFor(CAT).filter(function(it){return it&&(it.nm||it.id);});
   var g=document.getElementById('grid');
   if(!list.length){
     g.innerHTML='<div class="empty"><span class="ic">📦</span>Nenhum item nesta categoria ainda.</div>';
     return;
   }
   g.innerHTML=list.map(function(it,i){
-    var photo=it.photo||((it.fotos||[])[0]);
+    var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
+    var photo=fotos[0]||'';
     var pr=it.pr||0;
-    var priceHtml = pr>0 ? 'R$ '+fm(pr) : '<small>Consultar</small>';
-    return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
-      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy">':'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>')+'</div>'
+    var priceHtml=pr>0?'R$ '+fm(pr):'<small>Consultar</small>';
+    return '<div class="card" style="position:relative;" onclick="openItem(\''+CAT+'\','+i+')">'
+      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">':'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>')+'</div>'
+      +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
       +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
       +'<div class="cnm">'+esc(it.nm||'Item')+'</div>'
@@ -373,67 +463,178 @@ function renderGrid(){
   }).join('');
 }
 
-function openItem(cat,idx){
+/* ════════════════════════════════════
+   MODAL COM GALERIA
+   ════════════════════════════════════ */
+function openItem(cat,idx,fromDeepLink){
   var it=listFor(cat)[idx];
-  if(!it) return;
+  if(!it)return;
   CURITEM=it;
-  var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
+  CURFOTOS=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
+  CURFOTO_IDX=0;
+
+  /* SEO — atualiza metatags para este produto (para compartilhamento de link) */
+  var itemLink=itemUrl(cat,idx);
+  var desc=it.desc||(it.nm+(it.dim?' — '+it.dim:'')+(it.pr?' — R$ '+fm(it.pr):''));
+  updateMeta(
+    esc(it.nm||'Item')+' — '+(DATA.emp&&DATA.emp.nome?DATA.emp.nome:'HR Mármores e Granitos'),
+    desc,
+    CURFOTOS[0]||'',
+    itemLink
+  );
+
+  /* URL no histórico (sem reload) */
+  if(!fromDeepLink){
+    try{history.pushState(null,'',itemLink);}catch(e){}
+  }
+
   var pr=it.pr||0;
-  var galHtml = fotos.length ? '<img src="'+fotos[0]+'">' : '<div class="ph">'+(cat==='ac'?'🔩':'🚰')+'</div>';
-  var priceBlock = pr>0
-    ? '<div class="mdpr"><span class="v">R$ '+fm(pr)+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
-    : '<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
-  document.getElementById('md').innerHTML =
-    '<div class="mdgal">'+galHtml+'<div class="mdclose" onclick="closeMd()">✕</div></div>'
+  var galHtml=_buildGal();
+  var priceBlock=pr>0
+    ?'<div class="mdpr"><span class="v">R$ '+fm(pr)+'</span>'+(it.pr_orig>0?'<span class="o">R$ '+fm(it.pr_orig)+'</span>':'')+'</div>'
+    :'<div class="mdpr"><span class="v" style="font-size:1.05rem;">Sob consulta</span></div>';
+
+  document.getElementById('md').innerHTML=
+    galHtml
     +'<div class="mdbody">'
     +(it.brand?'<div class="mdbrand">'+esc(it.brand)+'</div>':'')
     +'<div class="mdnm serif">'+esc(it.nm||'Item')+'</div>'
     +(it.dim?'<div class="mddim">'+esc(it.dim)+'</div>':'')
     +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
     +priceBlock
+    +'<div class="md-actions">'
     +'<button class="btnwa" onclick="pedirWhatsApp()">'
     +'<svg viewBox="0 0 32 32" fill="currentColor"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.232-1.46-1.892a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.745.315-.745.7-1.117 1.43-1.146 2.46v.115c-.014.99.472 1.963 1.06 2.78 1.318 1.85 2.86 3.343 4.928 4.246.616.272 1.66.7 2.342.7.99 0 2.183-1.252 2.183-2.193 0-.13-.014-.157-.243-.243-.358-.13-2.045-.86-2.347-.86z"/><path d="M16.067 27.806c-2.5 0-4.97-.65-7.146-1.878l-.487-.272-5.4 1.404 1.448-5.213-.315-.53A11.6 11.6 0 0 1 .833 12.18C.833 5.93 5.832.95 12.066.95c3.012 0 5.84 1.175 7.97 3.314a11.146 11.146 0 0 1 3.3 7.93c-.014 6.25-5.013 11.232-11.246 11.232m9.395-20.6A13.27 13.27 0 0 0 16.067.04C8.39.04 2.144 6.27 2.13 13.943c0 2.46.644 4.847 1.878 6.95L.21 31.96l11.318-2.96c2.03 1.1 4.31 1.677 6.626 1.677h.014c7.663 0 13.91-6.245 13.924-13.918a13.83 13.83 0 0 0-4.03-9.553"/></svg>'
     +'Pedir pelo WhatsApp</button>'
+    +'<button class="btn-share" onclick="compartilharItem(null,null,true)">🔗 Compartilhar este produto</button>'
+    +'</div>'
     +'</div>';
+
   document.getElementById('ov').classList.add('on');
 }
 
-function closeMd(){ document.getElementById('ov').classList.remove('on'); }
-
-function pedirWhatsApp(){
-  if(!CURITEM) return;
-  var nm=CURITEM.nm||'item';
-  var pr=CURITEM.pr||0;
-  var txt='Olá! Gostaria de pedir orçamento para: *'+nm+'*'
-    +(CURITEM.brand?' ('+CURITEM.brand+')':'')
-    +(CURITEM.dim?' — '+CURITEM.dim:'')
-    +(pr>0?' — Preço tabela: R$ '+fm(pr):'')
-    +'. Vi no catálogo online.';
-  var fotos=(CURITEM.fotos&&CURITEM.fotos.length)?CURITEM.fotos:(CURITEM.photo?[CURITEM.photo]:[]);
-  var foto=fotos[0];
-
-  function abrirLinkTexto(){
-    window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+function _buildGal(){
+  var n=CURFOTOS.length;
+  if(!n){
+    return '<div class="mdgal"><div class="mdgal-main"><div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div></div>'
+      +'<div class="mdclose" onclick="closeMd()">✕</div></div>';
   }
+  var imgHtml='<img id="galImg" src="'+CURFOTOS[0]+'" alt="">';
+  var dots=n>1?'<div class="mdgal-dots">'+CURFOTOS.map(function(_,i){
+    return '<div class="mdgal-dot'+(i===0?' on':'')+'" onclick="setFoto('+i+')"></div>';
+  }).join('')+'</div>':'';
+  var arrows=n>1
+    ?'<div class="mdgal-arr prev" onclick="navFoto(-1)">‹</div><div class="mdgal-arr next" onclick="navFoto(1)">›</div>'
+    :'';
+  return '<div class="mdgal"><div class="mdgal-main">'+imgHtml+arrows+'</div>'+dots
+    +'<div class="mdclose" onclick="closeMd()">✕</div></div>';
+}
 
-  // Tenta compartilhar a foto junto com o texto (abre a folha de compartilhamento do Android — o cliente escolhe WhatsApp)
-  if(foto && navigator.share && navigator.canShare){
-    fetch(foto).then(function(r){ return r.blob(); }).then(function(blob){
-      var ext=(blob.type&&blob.type.indexOf('png')>-1)?'png':'jpg';
-      var file=new File([blob],'foto.'+ext,{type:blob.type||'image/jpeg'});
-      if(navigator.canShare({files:[file]})){
-        return navigator.share({files:[file],text:txt}).catch(function(){ abrirLinkTexto(); });
-      } else {
-        abrirLinkTexto();
-      }
-    }).catch(function(){ abrirLinkTexto(); });
-  } else {
-    abrirLinkTexto();
+function setFoto(idx){
+  if(!CURFOTOS[idx])return;
+  CURFOTO_IDX=idx;
+  var img=document.getElementById('galImg');
+  if(img)img.src=CURFOTOS[idx];
+  document.querySelectorAll('.mdgal-dot').forEach(function(d,i){d.classList.toggle('on',i===idx);});
+}
+
+function navFoto(dir){
+  var n=CURFOTOS.length;
+  if(!n)return;
+  setFoto((CURFOTO_IDX+dir+n)%n);
+}
+
+function closeMd(){
+  document.getElementById('ov').classList.remove('on');
+  try{history.pushState(null,'',window.location.pathname);}catch(e){}
+  /* restaura metatags para o catálogo geral */
+  if(DATA){
+    var nome=(DATA.emp&&DATA.emp.nome)||'HR Mármores e Granitos';
+    updateMeta(nome+' — Catálogo de Cubas',null,null,window.location.href.split('?')[0]);
   }
 }
 
+/* ESC fecha modal */
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeMd();});
+
+/* ════════════════════════════════════
+   WHATSAPP — mensagem enriquecida
+   ════════════════════════════════════ */
+function _msgWa(it,incluirLink,cat,idx){
+  var nm=it.nm||'item';
+  var pr=it.pr||0;
+  var txt='Olá! Gostaria de orçamento para:\n'
+    +'*'+nm+'*'
+    +(it.brand?' ('+it.brand+')':'')
+    +'\n'+(it.dim||'')
+    +(pr>0?'\nPreço tabela: *R$ '+fm(pr)+'*':'')
+    +'\n\nVi no catálogo online. 🏠';
+  if(incluirLink&&cat!==null&&idx!==null){
+    txt+='\n'+itemUrl(cat,idx);
+  }
+  return txt;
+}
+
+function pedirWhatsApp(){
+  if(!CURITEM)return;
+  /* descobre cat/idx do item atual */
+  var cat=CAT, idx=-1;
+  listFor(cat).forEach(function(it,i){if(it===CURITEM)idx=i;});
+  var txt=_msgWa(CURITEM,false);
+  var fotos=CURFOTOS;
+  var foto=fotos[CURFOTO_IDX]||fotos[0]||'';
+
+  function abrirTexto(){
+    window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+  }
+
+  /* tenta compartilhar foto + texto via Web Share API */
+  if(foto&&navigator.share&&navigator.canShare){
+    fetch(foto).then(function(r){return r.blob();}).then(function(blob){
+      var ext=(blob.type&&blob.type.indexOf('png')>-1)?'png':'jpg';
+      var file=new File([blob],'foto.'+ext,{type:blob.type||'image/jpeg'});
+      if(navigator.canShare({files:[file]})){
+        return navigator.share({files:[file],text:txt}).catch(function(){abrirTexto();});
+      } else {abrirTexto();}
+    }).catch(function(){abrirTexto();});
+  } else {abrirTexto();}
+}
+
+/* ════════════════════════════════════
+   COMPARTILHAR LINK DO PRODUTO
+   ════════════════════════════════════ */
+function compartilharItem(cat,idx,fromModal){
+  var it, c, i;
+  if(fromModal){
+    it=CURITEM; c=CAT;
+    listFor(c).forEach(function(x,j){if(x===it)i=j;});
+  } else {
+    c=cat; i=idx;
+    it=listFor(c)[i];
+  }
+  if(!it)return;
+  var url=itemUrl(c,i);
+  var nm=it.nm||'item';
+  var txt='Olha essa cuba: *'+nm+'*'+(it.dim?' — '+it.dim:'')+(it.pr>0?' — R$ '+fm(it.pr):'')+'.\n'+url;
+
+  if(navigator.share){
+    navigator.share({title:nm,text:txt,url:url}).catch(function(){_copiarLink(url);});
+  } else {
+    _copiarLink(url);
+  }
+}
+
+function _copiarLink(url){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){showToast('🔗 Link copiado!');}).catch(function(){showToast(url);});
+  } else {showToast(url);}
+}
+
+/* ════════════════════════════════════
+   WA GERAL
+   ════════════════════════════════════ */
 function abrirWaGeral(){
-  if(!WAPHONE){ document.getElementById('catalogo').scrollIntoView({behavior:'smooth'}); return; }
+  if(!WAPHONE){document.getElementById('catalogo').scrollIntoView({behavior:'smooth'});return;}
   var txt='Olá! Vi o catálogo online e gostaria de mais informações.';
   window.open('https://wa.me/'+WAPHONE+'?text='+encodeURIComponent(txt),'_blank');
 }
