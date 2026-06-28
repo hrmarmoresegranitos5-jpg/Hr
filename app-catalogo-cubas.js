@@ -15,6 +15,7 @@ var CUBA_META = {
   tramontina_prime: {
     destaque: true, mais_vendido: true,
     badge: 'MAIS VENDIDO',
+    pr_orig: 430, // preço original (antes do desconto)
     desc: 'Cuba inox de alta qualidade com acabamento acetinado. Fundo rebaixado anti-ruído, kit completo incluso. Ideal para cozinhas modernas e de alto padrão.',
     features: ['Aço inox 304 — 0,6mm','Acabamento acetinado premium','Fundo rebaixado anti-ruído','Kit válvula + sifão inclusos','Torneira inclusa no kit'],
     specs: {Material:'Aço Inox 304',Espessura:'0,6 mm',Acabamento:'Acetinado',Profundidade:'20 cm',Instalação:'Embutir'},
@@ -23,6 +24,7 @@ var CUBA_META = {
   },
   meganox_gourmet: {
     badge: 'GOURMET',
+    pr_orig: 420,
     desc: 'Cuba com tábua de corte integrada em bambu tratado. Dupla função: lavar e preparar alimentos no mesmo espaço.',
     features: ['Aço inox escovado premium','Tábua de bambu certificado','Grade escorredor inox','Torneira inclusa','60×42 cm'],
     specs: {Material:'Aço Inox',Acabamento:'Escovado',Dimensões:'60×42 cm',Profundidade:'22 cm',Instalação:'Embutir'},
@@ -31,6 +33,7 @@ var CUBA_META = {
   },
   premium_304_6040: {
     destaque: true, badge: 'PREMIUM',
+    pr_orig: 490,
     desc: 'Cuba quadrada de embutir em aço inox 304 grau alimentício. Cantos arredondados facilitam a limpeza. Acabamento espelhado de alto brilho.',
     features: ['Aço 304 grau alimentício','60×40 cm','Profundidade 17 cm','Acabamento espelhado','Silicone vedante incluso'],
     specs: {Material:'Aço Inox 304',Grau:'Alimentício',Acabamento:'Espelhado',Dimensões:'60×40 cm',Profundidade:'17 cm'},
@@ -74,6 +77,7 @@ var CUBA_META = {
   },
   lorenz_oval_emb: {
     destaque: true, badge: 'LUXO',
+    pr_orig: 520,
     desc: 'Cuba oval de embutir premium com acabamento texturizado. Design exclusivo europeu.',
     features: ['Porcelana premium importada','Oval 56×38 cm','Bordas ultra-finas','Branco e off-white','ISO 9001'],
     specs: {Material:'Porcelana importada',Formato:'Oval',Dimensões:'56×38 cm',Bordas:'Ultra-finas'},
@@ -122,6 +126,13 @@ function _escHtml(s) {
 function _precoFmt(item) {
   return (item.pr||0) > 0 ? 'R$\u00a0' + item.pr.toLocaleString('pt-BR') : 'Sob consulta';
 }
+function _descPct(item, meta) {
+  // Calcula % de desconto entre pr_orig (meta) e pr (item)
+  var orig = meta && meta.pr_orig ? meta.pr_orig : 0;
+  var atual = item.pr || 0;
+  if (!orig || !atual || orig <= atual) return 0;
+  return Math.round((1 - atual / orig) * 100);
+}
 function _stars(nota) {
   var n = Math.round(nota||5);
   var h = '';
@@ -169,6 +180,10 @@ function buildCubaListRico() {
   if (_catDetalhe) {
     wrap.innerHTML = _renderDetalhe(_catDetalhe.item, _catDetalhe.tipo, _catDetalhe.idx);
     _bindSwipe(wrap);
+    // Inicializar carrossel de fotos
+    var carId = '_car_' + (_catDetalhe.item.id||'x').replace(/[^a-z0-9]/gi,'_');
+    var nFotos = _getFotos(_catDetalhe.item).length;
+    _carBindSwipe(carId, nFotos);
     return;
   }
 
@@ -317,8 +332,15 @@ function _renderCard(item, tipo, idx) {
   if (vend) h += '<span style="font-size:.6rem;color:#999;margin-left:2px;">| '+vend+'</span>';
   h += '</div>';
 
-  // Preço — destaque igual ML
+  // Preço — preço riscado + badge desconto estilo ML
   if ((item.pr||0) > 0) {
+    var pct = _descPct(item, meta);
+    if (pct > 0) {
+      h += '<div style="display:flex;align-items:center;gap:5px;margin-bottom:1px;">'
+        + '<span style="font-size:.62rem;color:#999;text-decoration:line-through;">R$\u00a0'+meta.pr_orig.toLocaleString('pt-BR')+'</span>'
+        + '<span style="font-size:.6rem;font-weight:700;background:#C9A84C;color:#fff;padding:1px 5px;border-radius:3px;">'+pct+'% OFF</span>'
+        + '</div>';
+    }
     h += '<div style="font-size:1.15rem;font-weight:700;color:#333;line-height:1;">'
       + 'R$\u00a0<span style="font-size:1.3rem;">' + item.pr.toLocaleString('pt-BR') + '</span></div>';
     h += '<div style="font-size:.62rem;color:#00a650;margin-top:2px;font-weight:600;">c/ instalação inclusa</div>';
@@ -397,37 +419,55 @@ function _renderDetalhe(item, tipo, idx) {
     + 'background:#fff;color:#555;font-size:.9rem;cursor:pointer;'+(temProx?'':'opacity:.2;pointer-events:none;')+'">›</button>';
   h += '</div></div>';
 
-  // ── Layout galeria — thumbs esquerda + foto grande ─────────
-  h += '<div style="display:flex;gap:8px;margin:12px 0 14px;">';
+  // ── CARROSSEL DE FOTOS — swipe touch estilo ML ────────────
+  var carId = '_car_' + (item.id||'x').replace(/[^a-z0-9]/gi,'_');
+  h += '<div style="position:relative;margin:12px 0 10px;">';
 
-  // Miniaturas laterais (igual ML)
+  if (fotos.length > 0) {
+    // Trilho deslizante
+    h += '<div id="'+carId+'_trilho" style="display:flex;overflow:hidden;border-radius:12px;'
+      + 'background:#f9f9f9;aspect-ratio:1;touch-action:pan-y;">';
+    fotos.forEach(function(f, i){
+      h += '<div style="flex:0 0 100%;width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;">'
+        + '<img src="'+f+'" style="width:100%;height:100%;object-fit:contain;padding:14px;box-sizing:border-box;" loading="'+(i===0?'eager':'lazy')+'">'
+        + '</div>';
+    });
+    h += '</div>'; // fim trilho
+
+    if (fotos.length > 1) {
+      // Contador de foto (canto direito)
+      h += '<div id="'+carId+'_cnt" style="position:absolute;bottom:10px;right:10px;'
+        + 'background:rgba(0,0,0,.5);border-radius:20px;padding:2px 9px;'
+        + 'font-size:.6rem;color:#fff;pointer-events:none;">1/'+fotos.length+'</div>';
+
+      // Bolinhas indicadoras
+      h += '<div id="'+carId+'_dots" style="display:flex;justify-content:center;gap:5px;padding:8px 0 2px;">';
+      fotos.forEach(function(f, i){
+        h += '<div style="width:'+(i===0?'18':'7')+'px;height:7px;border-radius:4px;transition:all .2s;'
+          + 'background:'+(i===0?'#C9A84C':'#ddd')+';"></div>';
+      });
+      h += '</div>';
+    }
+  } else {
+    h += '<div style="aspect-ratio:1;background:#f9f9f9;border-radius:12px;'
+      + 'display:flex;align-items:center;justify-content:center;font-size:4rem;opacity:.15;">'
+      + (tipo==='ac'?'🔩':'🚰') + '</div>';
+  }
+  h += '</div>'; // fim wrapper carrossel
+
+  // Thumbs clicáveis abaixo (se > 1 foto)
   if (fotos.length > 1) {
-    h += '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">';
-    fotos.forEach(function(f,i){
-      var ativo = i===_detFotoIdx;
-      h += '<div class="_thumb" onclick="_trocarFoto('+i+');" '
-        + 'style="width:52px;height:52px;border-radius:6px;border:2px solid '+(ativo?'#3483fa':'#eee')+';'
-        + 'background:#f9f9f9;overflow:hidden;cursor:pointer;flex-shrink:0;transition:border-color .15s;">'
-        + '<img src="'+f+'" style="width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box;"></div>';
+    h += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;margin-bottom:10px;">';
+    fotos.forEach(function(f, i){
+      h += '<div onclick="_carIrFoto(\''+carId+'\','+i+','+fotos.length+');" '
+        + 'style="flex-shrink:0;width:50px;height:50px;border-radius:7px;cursor:pointer;overflow:hidden;'
+        + 'border:2px solid '+(i===0?'#C9A84C':'#eee')+';background:#f9f9f9;transition:border-color .15s;'
+        + '" id="'+carId+'_th'+i+'">'
+        + '<img src="'+f+'" style="width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box;">'
+        + '</div>';
     });
     h += '</div>';
   }
-
-  // Foto principal
-  h += '<div style="flex:1;background:#f9f9f9;border-radius:10px;overflow:hidden;aspect-ratio:1;position:relative;">';
-  if (fotos.length) {
-    h += '<img id="_detMain" src="'+fotos[_detFotoIdx]+'" alt="'+_escHtml(item.nm)+'" '
-      + 'style="width:100%;height:100%;object-fit:contain;padding:16px;box-sizing:border-box;" loading="lazy">';
-    // Contador
-    if (fotos.length > 1) {
-      h += '<div style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.45);'
-        + 'border-radius:20px;padding:2px 8px;font-size:.6rem;color:#fff;">'+(_detFotoIdx+1)+'/'+fotos.length+'</div>';
-    }
-  } else {
-    h += '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:4rem;opacity:.15;">'
-      + (tipo==='ac'?'🔩':'🚰') + '</div>';
-  }
-  h += '</div></div>'; // fim galeria
 
   // ── Info produto ───────────────────────────────────────────
   // Badge
@@ -458,9 +498,16 @@ function _renderDetalhe(item, tipo, idx) {
     h += '<div style="font-size:.72rem;color:#555;margin-bottom:10px;">📏 '+_escHtml(item.dim)+'</div>';
   }
 
-  // ── PREÇO — destaque ML ────────────────────────────────────
+  // ── PREÇO — destaque ML com preço riscado ─────────────────
   h += '<div style="background:#fff;border:1.5px solid #eee;border-radius:10px;padding:14px 16px;margin-bottom:14px;">';
   if ((item.pr||0) > 0) {
+    var pctD = _descPct(item, meta);
+    if (pctD > 0) {
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
+        + '<span style="font-size:.75rem;color:#999;text-decoration:line-through;">R$\u00a0'+meta.pr_orig.toLocaleString('pt-BR')+'</span>'
+        + '<span style="font-size:.72rem;font-weight:800;background:#C9A84C;color:#fff;padding:2px 8px;border-radius:4px;">'+pctD+'% OFF</span>'
+        + '</div>';
+    }
     h += '<div style="font-size:1.8rem;font-weight:700;color:#333;line-height:1;margin-bottom:3px;">'
       + 'R$\u00a0' + item.pr.toLocaleString('pt-BR') + '</div>';
     h += '<div style="font-size:.72rem;color:#00a650;font-weight:600;margin-bottom:2px;">✓ Com instalação profissional inclusa</div>';
@@ -473,12 +520,20 @@ function _renderDetalhe(item, tipo, idx) {
   h += '</div>';
 
   // ── Botões ─────────────────────────────────────────────────
+  // Botão principal: Comprar agora (dourado, destaque total)
+  h += '<button onclick="_selecionarDetalhe(\''+_escHtml(item.id)+'\',\''+tipo+'\');" '
+    + 'style="width:100%;padding:15px;border-radius:10px;border:none;cursor:pointer;margin-bottom:8px;'
+    + 'background:linear-gradient(135deg,#C9A84C,#8b6014);color:#fff;'
+    + 'font-family:Outfit,sans-serif;font-size:.95rem;font-weight:800;letter-spacing:.3px;'
+    + 'box-shadow:0 3px 12px rgba(201,168,76,.45);">🛒 Comprar agora</button>';
+  // Linha secundária: Adicionar ao orçamento + WhatsApp
   h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
   h += '<button onclick="_selecionarDetalhe(\''+_escHtml(item.id)+'\',\''+tipo+'\');" '
-    + 'style="flex:1;padding:14px;border-radius:8px;border:none;cursor:pointer;'
-    + 'background:#3483fa;color:#fff;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:700;">Adicionar ao orçamento</button>';
+    + 'style="flex:1;padding:12px;border-radius:8px;cursor:pointer;'
+    + 'border:1.5px solid #C9A84C;background:#fff;color:#8b6014;'
+    + 'font-family:Outfit,sans-serif;font-size:.8rem;font-weight:700;">+ Adicionar ao orçamento</button>';
   h += '<button onclick="_compartilharDetalhe(\''+_escHtml(item.id)+'\',\''+tipo+'\');" '
-    + 'style="padding:14px 16px;border-radius:8px;border:1px solid #ddd;'
+    + 'style="padding:12px 16px;border-radius:8px;border:none;'
     + 'background:#25d366;color:#fff;font-family:Outfit,sans-serif;font-size:.88rem;cursor:pointer;">📤</button>';
   h += '</div>';
 
@@ -539,14 +594,68 @@ function _renderDetalhe(item, tipo, idx) {
   return h;
 }
 
-// ─── Swipe touch ──────────────────────────────────────────────
+// ─── Carrossel de fotos ───────────────────────────────────────
+function _carIrFoto(carId, idx, total) {
+  var trilho = document.getElementById(carId+'_trilho');
+  if (!trilho) return;
+  trilho.scrollTo({left: idx * trilho.offsetWidth, behavior:'smooth'});
+  _carAtualizarUI(carId, idx, total);
+}
+
+function _carAtualizarUI(carId, idx, total) {
+  var cnt = document.getElementById(carId+'_cnt');
+  if (cnt) cnt.textContent = (idx+1)+'/'+total;
+  var dots = document.getElementById(carId+'_dots');
+  if (dots) {
+    dots.querySelectorAll('div').forEach(function(d, i){
+      d.style.background = i===idx ? '#C9A84C' : '#ddd';
+      d.style.width      = i===idx ? '18px'   : '7px';
+    });
+  }
+  for (var i=0; i<total; i++) {
+    var th = document.getElementById(carId+'_th'+i);
+    if (th) th.style.borderColor = i===idx ? '#C9A84C' : '#eee';
+  }
+}
+
+function _carBindSwipe(carId, total) {
+  var trilho = document.getElementById(carId+'_trilho');
+  if (!trilho || total <= 1) return;
+  var startX = 0, startY = 0;
+  trilho.addEventListener('touchstart', function(e){
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, {passive:true});
+  trilho.addEventListener('touchend', function(e){
+    var dx = e.changedTouches[0].clientX - startX;
+    var dy = Math.abs(e.changedTouches[0].clientY - startY);
+    if (dy > 40 || Math.abs(dx) < 40) return;
+    var w = trilho.offsetWidth || 1;
+    var cur = Math.round(trilho.scrollLeft / w);
+    var prox = dx < 0 ? Math.min(cur+1, total-1) : Math.max(cur-1, 0);
+    _carIrFoto(carId, prox, total);
+  }, {passive:true});
+  trilho.addEventListener('scroll', function(){
+    var w = trilho.offsetWidth || 1;
+    var cur = Math.round(trilho.scrollLeft / w);
+    _carAtualizarUI(carId, cur, total);
+  }, {passive:true});
+}
+
+// ─── Swipe entre produtos (tela detalhe) ─────────────────────
 function _bindSwipe(wrap) {
   var startX=0, startY=0;
   wrap.addEventListener('touchstart',function(e){ startX=e.touches[0].clientX; startY=e.touches[0].clientY; },{passive:true});
   wrap.addEventListener('touchend',function(e){
     var dx=e.changedTouches[0].clientX-startX;
     var dy=Math.abs(e.changedTouches[0].clientY-startY);
-    if (dy>40||Math.abs(dx)<50) return; // ignora scroll vertical
+    if (dy>40||Math.abs(dx)<50) return;
+    // Não navega entre produtos se o swipe veio de dentro do carrossel
+    var alvo = e.target;
+    while (alvo && alvo !== wrap) {
+      if (alvo.id && alvo.id.endsWith('_trilho')) return;
+      alvo = alvo.parentElement;
+    }
     if (dx<0) _navegarDetalhe(1); else _navegarDetalhe(-1);
   },{passive:true});
 }
