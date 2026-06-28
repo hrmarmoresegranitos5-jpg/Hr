@@ -6357,26 +6357,28 @@ function buildCubaList(){
       return;
     }
     h+='<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:14px 0 9px;">'+(cubaCat==='coz'?'Cubas Inox HR':'Cubas '+gname)+'</div>';
-    var cols=window.innerWidth>=900?4:window.innerWidth>=700?3:2;
-    h+='<div style="display:grid;grid-template-columns:repeat('+cols+',1fr);gap:10px;margin-bottom:4px;">';
+    var cols=window.innerWidth>=900?3:window.innerWidth>=600?2:1;
+    h+='<div style="display:grid;grid-template-columns:repeat('+cols+',1fr);gap:12px;margin-bottom:4px;">';
     items.filter(function(c){return c.pr>0;}).forEach(function(c){
-      var imgH=c.photo?('<img src="'+c.photo+'" alt="'+c.nm+'" onclick="abrirCubaFs(\''+c.id+'\',\''+cubaCat+'\')" style="cursor:zoom-in;">'):'<div style="font-size:2rem;color:var(--t3);">🚰</div>';
+      var imgH=c.photo
+        ?('<img src="'+c.photo+'" alt="'+c.nm+'" onclick="abrirCubaFs(\''+c.id+'\',\''+cubaCat+'\')" style="cursor:zoom-in;width:100%;height:100%;object-fit:cover;display:block;">')
+        :'<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;"><div style="font-size:2.8rem;opacity:.25;">🚰</div><div style="font-size:.6rem;color:var(--t4);letter-spacing:1px;text-transform:uppercase;">Sem foto</div></div>';
       var temDesc=c.pr_orig&&c.pr_orig>c.pr;
       var pctOff=temDesc?Math.round((1-c.pr/c.pr_orig)*100):0;
-      var priceBlock='<div style="margin-top:9px;background:var(--gdim);border:1px solid var(--gold3);border-radius:9px;padding:10px 13px;">';
+      var priceBlock='<div style="margin-top:10px;background:linear-gradient(135deg,rgba(201,168,76,.08),rgba(201,168,76,.03));border:1px solid var(--gold3);border-radius:10px;padding:11px 13px;">';
       if(temDesc){
-        priceBlock+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">'
-          +'<span style="font-size:.62rem;color:var(--gold3);letter-spacing:1px;text-transform:uppercase;">Preço</span>'
-          +'<span style="background:#c0392b;color:#fff;font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:5px;">-'+pctOff+'% OFF</span>'
+        priceBlock+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
+          +'<span style="font-size:.58rem;color:var(--gold3);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">Preço</span>'
+          +'<span style="background:linear-gradient(135deg,#c0392b,#e74c3c);color:#fff;font-size:.6rem;font-weight:800;padding:3px 8px;border-radius:6px;letter-spacing:.5px;">-'+pctOff+'% OFF</span>'
           +'</div>'
           +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-          +'<span style="font-size:.72rem;color:var(--t3);text-decoration:line-through;">R$ '+c.pr_orig.toLocaleString('pt-BR')+'</span>'
-          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.35rem;font-weight:700;color:var(--gold2);">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
+          +'<span style="font-size:.75rem;color:var(--t4);text-decoration:line-through;font-weight:500;">R$ '+c.pr_orig.toLocaleString('pt-BR')+'</span>'
+          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.45rem;font-weight:700;color:var(--gold2);letter-spacing:-.5px;">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
           +'</div>';
       } else {
         priceBlock+='<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-          +'<span style="font-size:.62rem;color:var(--gold3);letter-spacing:1px;text-transform:uppercase;">Preço</span>'
-          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.35rem;font-weight:700;color:var(--gold2);">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
+          +'<span style="font-size:.58rem;color:var(--gold3);letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">Preço</span>'
+          +'<span style="font-family:\'Cormorant Garamond\',serif;font-size:1.45rem;font-weight:700;color:var(--gold2);letter-spacing:-.5px;">R$ '+c.pr.toLocaleString('pt-BR')+'</span>'
           +'</div>';
       }
       priceBlock+='</div>';
