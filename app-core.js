@@ -882,48 +882,61 @@ function showMd(id){closeAll();document.getElementById(id).classList.add('on');}
 // ═══ PHOTO PICKER ═══
 function pickPhoto(target,idx){fileTarget={t:target,i:idx};document.getElementById('fileInp').click();}
 function onFile(e){
-  var file=e.target.files[0];if(!file||!fileTarget)return;
-  var r=new FileReader();
-  r.onload=function(ev){
-    // Resize image before saving to avoid localStorage overflow
-    var img=new Image();
-    img.onload=function(){
-      var canvas=document.createElement('canvas');
-      var maxW=500;
-      var scale=Math.min(1,maxW/img.width);
-      canvas.width=Math.round(img.width*scale);
-      canvas.height=Math.round(img.height*scale);
-      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-      var d=canvas.toDataURL('image/jpeg',0.78);
-      var t=fileTarget.t,i=fileTarget.i;
-      if(t==='stone'){CFG.stones[i].photo=d;}
-      else if(t==='coz'){CFG.coz[i].photo=d;}
-      else if(t==='lav'){CFG.lav[i].photo=d;}
-      else if(t==='ac'){CFG.ac[i].photo=d;}
-      // Adicionar foto extra ao array fotos[] da cuba
+  var files=Array.prototype.slice.call(e.target.files||[]);
+  if(!files.length||!fileTarget)return;
+  var t=fileTarget.t,idx=fileTarget.i;
+  var isExtra=(t==='coz_extra'||t==='lav_extra'||t==='ac_extra');
+  // Para tipos extra, aceita múltiplas fotos; para outros, usa só a primeira
+  var toProcess=isExtra?files:[files[0]];
+  var pending=toProcess.length;
+
+  function _resize(file,cb){
+    var r=new FileReader();
+    r.onload=function(ev){
+      var img=new Image();
+      img.onload=function(){
+        var canvas=document.createElement('canvas');
+        var maxW=isExtra?900:500;
+        var scale=Math.min(1,maxW/img.width);
+        canvas.width=Math.round(img.width*scale);
+        canvas.height=Math.round(img.height*scale);
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        cb(canvas.toDataURL('image/jpeg',0.78));
+      };
+      img.src=ev.target.result;
+    };
+    r.readAsDataURL(file);
+  }
+
+  toProcess.forEach(function(file){
+    _resize(file,function(d){
+      if(t==='stone'){CFG.stones[idx].photo=d;}
+      else if(t==='coz'){CFG.coz[idx].photo=d;}
+      else if(t==='lav'){CFG.lav[idx].photo=d;}
+      else if(t==='ac'){CFG.ac[idx].photo=d;}
       else if(t==='coz_extra'){
-        if(!CFG.coz[i].fotos)CFG.coz[i].fotos=[];
-        CFG.coz[i].fotos.push(d);
-        // Primeira foto vira photo principal automaticamente
-        if(!CFG.coz[i].photo)CFG.coz[i].photo=d;
+        if(!CFG.coz[idx].fotos)CFG.coz[idx].fotos=[];
+        CFG.coz[idx].fotos.push(d);
+        if(!CFG.coz[idx].photo)CFG.coz[idx].photo=d;
       }
       else if(t==='lav_extra'){
-        if(!CFG.lav[i].fotos)CFG.lav[i].fotos=[];
-        CFG.lav[i].fotos.push(d);
-        if(!CFG.lav[i].photo)CFG.lav[i].photo=d;
+        if(!CFG.lav[idx].fotos)CFG.lav[idx].fotos=[];
+        CFG.lav[idx].fotos.push(d);
+        if(!CFG.lav[idx].photo)CFG.lav[idx].photo=d;
       }
       else if(t==='ac_extra'){
-        if(!CFG.ac[i].fotos)CFG.ac[i].fotos=[];
-        CFG.ac[i].fotos.push(d);
-        if(!CFG.ac[i].photo)CFG.ac[i].photo=d;
+        if(!CFG.ac[idx].fotos)CFG.ac[idx].fotos=[];
+        CFG.ac[idx].fotos.push(d);
+        if(!CFG.ac[idx].photo)CFG.ac[idx].photo=d;
       }
-      svCFG();
-      buildMat();buildCatalog();buildCubaList();buildCfg();
-      toast('✓ Foto adicionada!');
-    };
-    img.src=ev.target.result;
-  };
-  r.readAsDataURL(file);
+      pending--;
+      if(pending===0){
+        svCFG();
+        buildMat();buildCatalog();buildCubaList();buildCfg();
+        toast('✓ '+(toProcess.length>1?toProcess.length+' fotos adicionadas!':'Foto adicionada!'));
+      }
+    });
+  });
   e.target.value='';
 }
 
@@ -6886,7 +6899,7 @@ function buildCfg(){
       h+='</div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.coz.push({id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,pr_orig:0,inst:110,instCli:160,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{CFG.coz.push({id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,pr_orig:0,inst:110,instCli:160,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();}">+ Nova Cuba</button>';
     h+='<button class="cfgadd" onclick="if(typeof _mlAbrirModal===\'function\'){_mlAbrirModal(\'coz\');}else{alert(\'Módulo ML não carregado. Adicione app-ml-import.js ao index.html.\');}" style="background:#0a1f0f;color:#4ade80;border:1px solid #1a4a2a;margin-top:6px;">🛒 Importar do Mercado Livre</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{alert(\'Módulo de Importação Manual não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:#1a1a0a;color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Importação Manual</button>';
   }
@@ -6928,7 +6941,7 @@ function buildCfg(){
       h+='</div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.lav.push({id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{CFG.lav.push({id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();}">+ Nova Cuba</button>';
     h+='<button class="cfgadd" onclick="if(typeof _mlAbrirModal===\'function\'){_mlAbrirModal(\'lav\');}else{alert(\'Módulo ML não carregado. Adicione app-ml-import.js ao index.html.\');}" style="background:#0a1f0f;color:#4ade80;border:1px solid #1a4a2a;margin-top:6px;">🛒 Importar do Mercado Livre</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{alert(\'Módulo de Importação Manual não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:#1a1a0a;color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Importação Manual</button>';
   }

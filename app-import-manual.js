@@ -21,7 +21,7 @@
 
   var _im = {
     cat:    'coz',
-    margem: 30,
+    margem: 10,
     fotos:  [],   // array de dataURLs (base64)
     selIdx: 0,    // índice da foto principal selecionada
   };
@@ -401,5 +401,68 @@
   window._imRecalcular    = _recalcular;
   window._imHandleCola    = _handleColaTitulo;
   window._imSalvar        = _salvar;
+
+  // ══ Gerenciamento de galeria nas cubas existentes (card do buildCfg) ══
+
+  // Redimensiona (reutiliza a mesma função interna)
+  function _redimParaCuba(dataUrl, cb) { _redimensionar(dataUrl, cb); }
+
+  // Adiciona fotos a uma cuba já salva
+  window._cubaAddFotos = function(tipo, idx, input) {
+    var files = Array.prototype.slice.call(input.files || []);
+    if (!files.length) return;
+    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var cuba  = lista[idx];
+    if (!cuba) return;
+    if (!cuba.fotos) cuba.fotos = [];
+    if (cuba.photo && cuba.fotos.indexOf(cuba.photo) === -1) cuba.fotos.unshift(cuba.photo);
+
+    var pendentes = files.length;
+    files.forEach(function(file) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        _redimParaCuba(e.target.result, function(url) {
+          cuba.fotos.push(url);
+          if (!cuba.photo) { cuba.photo = url; }
+          pendentes--;
+          if (pendentes === 0) {
+            input.value = '';
+            svCFG();
+            buildCubaList();
+            buildCfg();
+            if (typeof toast === 'function') toast('📷 Fotos adicionadas!');
+          }
+        });
+      };
+      reader.onerror = function() { pendentes--; if (pendentes === 0) { svCFG(); buildCfg(); } };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Define foto destaque (estrela)
+  window._cubaSetDestaque = function(tipo, idx, fotoIdx) {
+    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var cuba  = lista[idx];
+    if (!cuba || !cuba.fotos || !cuba.fotos[fotoIdx]) return;
+    // Move a foto destaque para posição 0
+    var dest = cuba.fotos.splice(fotoIdx, 1)[0];
+    cuba.fotos.unshift(dest);
+    cuba.photo = dest;
+    svCFG();
+    buildCubaList();
+    buildCfg();
+  };
+
+  // Remove foto de uma cuba
+  window._cubaRemFoto = function(tipo, idx, fotoIdx) {
+    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var cuba  = lista[idx];
+    if (!cuba || !cuba.fotos) return;
+    cuba.fotos.splice(fotoIdx, 1);
+    cuba.photo = cuba.fotos.length ? cuba.fotos[0] : '';
+    svCFG();
+    buildCubaList();
+    buildCfg();
+  };
 
 })();
