@@ -268,24 +268,28 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 @media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
 
 /* carrossel horizontal — controlado por touch manual */
+.mdgal-wrap{
+  width:100%;
+  overflow:hidden;
+  position:relative;
+  background:#0d0d10;
+}
 .mdgal-strip{
   display:flex;
-  overflow:hidden;
   touch-action:pan-y;
   cursor:grab;
   user-select:none;
   will-change:transform;
-  width:100%;
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
 }
 .mdgal-strip:active{cursor:grabbing;}
 .mdgal-slide{
-  flex:0 0 100%;
+  flex:0 0 100vw;
+  max-width:480px;
   aspect-ratio:4/3;
-  scroll-snap-align:start;
   overflow:hidden;
   position:relative;
   background:#0d0d10;
-  line-height:0;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -1103,14 +1107,6 @@ function openItem(cat,idx,fromDeepLink){
   var pct=0;
   if(pr>0&&prOrig>pr)pct=Math.round((1-pr/prOrig)*100);
 
-  /* ── parcelamento (12x sem juros se ≥ R$60) ── */
-  var parceHtml='';
-  if(pr>=60){
-    var parc=Math.max(2,Math.min(12,Math.floor(pr/30)));
-    var vParc=pr/parc;
-    parceHtml='<div class="mdpr-parce">ou <strong>'+parc+'x de R$ '+fm(vParc)+'</strong> sem juros</div>';
-  }
-
   /* ── bloco de preço ── */
   var priceBlock;
   if(pr>0){
@@ -1119,7 +1115,6 @@ function openItem(cat,idx,fromDeepLink){
         ?'<div class="mdpr-top"><span class="mdpr-pct">'+pct+'% OFF</span><span class="mdpr-orig">R$ '+fm(prOrig)+'</span></div>'
         :(prOrig>0?'<div class="mdpr-top"><span class="mdpr-orig">De R$ '+fm(prOrig)+'</span></div>':''))
       +'<div class="mdpr-val">R$ '+fm(pr)+(cat==='pedra'?'<small>/m²</small>':'')+'</div>'
-      +parceHtml
       +(it.mo>0?'<div class="mdpr-mo">🔧 Mão de obra: <strong>R$ '+fm(it.mo)+'</strong></div>':'')
       +'<div class="mdpr-estoque">Disponível para pedido</div>'
       +'</div>';
@@ -1202,7 +1197,7 @@ function _buildGal(){
   var phIcon=CAT==='ac'?'🔩':(CAT==='pedra'?'🪨':'🚰');
   if(!n){
     return '<div class="mdgal">'
-      +'<div class="mdgal-strip"><div class="mdgal-slide"><div class="ph">'+phIcon+'</div></div></div>'
+      +'<div class="mdgal-wrap"><div class="mdgal-strip"><div class="mdgal-slide"><div class="ph">'+phIcon+'</div></div></div></div>'
       +'<div class="mdclose" onclick="closeMd()">✕</div></div>';
   }
   var slides=CURFOTOS.map(function(src,i){
@@ -1215,31 +1210,35 @@ function _buildGal(){
       +'<img src="'+src+'" alt="" loading="lazy">'
       +'</div>';
   }).join('')+'</div>':'';
-  var lojaHtml='';
-  if(CURITEM&&CURITEM.brand){
-    lojaHtml='<div class="mdgal-loja">Loja oficial <strong>'+esc(CURITEM.brand)+'</strong> <span class="check">✓</span></div>';
-  }
+  var lojaHtml=CURITEM&&CURITEM.brand
+    ?'<div class="mdgal-loja">Loja oficial <strong>'+esc(CURITEM.brand)+'</strong> <span class="check">✓</span></div>':'';
   return '<div class="mdgal">'
+    +'<div class="mdgal-wrap">'
     +'<div class="mdgal-strip" id="galStrip">'+slides+'</div>'
     +(n>1?'<div class="mdgal-counter" id="galCounter">1 / '+n+'</div>':'')
+    +'</div>'
     +thumbs
     +lojaHtml
     +'<div class="mdclose" onclick="closeMd()">✕</div>'
     +'</div>';
 }
+    +'<div class="mdclose" onclick="closeMd()">✕</div>'
+    +'</div>';
+}
+
+function _slideW(){
+  var s=document.getElementById('slide-0');
+  return s?s.offsetWidth:(document.getElementById('galStrip')||{offsetWidth:0}).offsetWidth;
+}
 
 function setFoto(idx){
   if(!CURFOTOS[idx])return;
   CURFOTO_IDX=idx;
-  /* move strip via transform — sem scroll */
   var strip=document.getElementById('galStrip');
-  if(strip) strip.style.transform='translateX(-'+idx+'00%)';
-  /* destaca miniatura */
+  if(strip) strip.style.transform='translateX(-'+(idx*_slideW())+'px)';
   document.querySelectorAll('.mdgal-thumb').forEach(function(d,i){d.classList.toggle('on',i===idx);});
-  /* scroll thumb visível */
   var t=document.getElementById('thumb-'+idx);
   if(t){var tb=document.getElementById('galThumbs');if(tb)tb.scrollTo({left:t.offsetLeft-40,behavior:'smooth'});}
-  /* atualiza contador */
   var cnt=document.getElementById('galCounter');
   if(cnt)cnt.textContent=(idx+1)+' / '+CURFOTOS.length;
 }
@@ -1250,57 +1249,47 @@ function navFoto(dir){
   setFoto((CURFOTO_IDX+dir+n)%n);
 }
 
-/* Touch manual — arrasto preciso, 1 foto por gesto */
 function _initGalScroll(){
   var strip=document.getElementById('galStrip');
   if(!strip||CURFOTOS.length<2)return;
-  /* garantir que o strip use transform como base */
   strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
-  strip.style.transform='translateX(0%)';
+  strip.style.transform='translateX(0px)';
 
-  var startX=0,startY=0,dragging=false,moved=false;
-  var THRESHOLD=40; /* px mínimo para mudar foto */
+  var startX=0,startY=0,dragging=false,moved=false,baseX=0;
+  var THRESHOLD=40;
 
-  function onStart(x,y){startX=x;startY=y;dragging=true;moved=false;}
+  function onStart(x,y){
+    startX=x;startY=y;dragging=true;moved=false;
+    baseX=-(CURFOTO_IDX*_slideW());
+    strip.style.transition='none';
+  }
   function onMove(x,y){
     if(!dragging)return;
     var dx=x-startX,dy=y-startY;
-    if(!moved&&Math.abs(dy)>Math.abs(dx)){dragging=false;return;} /* scroll vertical */
-    moved=true;
-    /* feedback visual suave durante arrasto */
-    var base=-CURFOTO_IDX*100;
-    var pct=base+(dx/strip.offsetWidth)*100;
-    strip.style.transition='none';
-    strip.style.transform='translateX('+pct+'%)';
+    if(!moved){
+      if(Math.abs(dy)>Math.abs(dx)){dragging=false;strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';return;}
+      if(Math.abs(dx)<5)return;
+      moved=true;
+    }
+    strip.style.transform='translateX('+(baseX+dx)+'px)';
   }
   function onEnd(x){
     if(!dragging)return;
     dragging=false;
-    var dx=x-startX;
     strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
-    if(Math.abs(dx)>THRESHOLD){
+    var dx=x-startX;
+    if(moved&&Math.abs(dx)>THRESHOLD){
       setFoto(dx<0
         ?Math.min(CURFOTO_IDX+1,CURFOTOS.length-1)
         :Math.max(CURFOTO_IDX-1,0));
     } else {
-      /* volta para foto atual */
-      strip.style.transform='translateX(-'+CURFOTO_IDX+'00%)';
+      strip.style.transform='translateX(-'+(CURFOTO_IDX*_slideW())+'px)';
     }
   }
 
-  /* Touch */
-  strip.addEventListener('touchstart',function(e){
-    var t=e.touches[0];onStart(t.clientX,t.clientY);
-  },{passive:true});
-  strip.addEventListener('touchmove',function(e){
-    var t=e.touches[0];onMove(t.clientX,t.clientY);
-    if(moved)e.preventDefault();
-  },{passive:false});
-  strip.addEventListener('touchend',function(e){
-    onEnd(e.changedTouches[0].clientX);
-  },{passive:true});
-
-  /* Mouse (desktop) */
+  strip.addEventListener('touchstart',function(e){var t=e.touches[0];onStart(t.clientX,t.clientY);},{passive:true});
+  strip.addEventListener('touchmove',function(e){var t=e.touches[0];onMove(t.clientX,t.clientY);if(moved)e.preventDefault();},{passive:false});
+  strip.addEventListener('touchend',function(e){onEnd(e.changedTouches[0].clientX);},{passive:true});
   strip.addEventListener('mousedown',function(e){onStart(e.clientX,e.clientY);});
   strip.addEventListener('mousemove',function(e){if(dragging)onMove(e.clientX,e.clientY);});
   strip.addEventListener('mouseup',function(e){onEnd(e.clientX);});
