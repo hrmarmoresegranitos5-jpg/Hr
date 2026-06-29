@@ -269,13 +269,25 @@
 
     h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:14px;padding:7px 10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:2px solid var(--t4);">🔒 Preço de custo é dado interno — não aparece para clientes.</div>';
 
-    h += '<button onclick="_imSalvar()" style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;background:linear-gradient(135deg,#a07828,var(--gold2));color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">✓ Salvar produto</button>';
+    h += '<button id="imBtnSalvar" style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;background:linear-gradient(135deg,#a07828,var(--gold2));color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">✓ Salvar produto</button>';
 
     wrap.innerHTML = h;
+
+    // Bind do botão salvar via addEventListener — mais confiável que onclick inline
+    var btnSalvar = document.getElementById('imBtnSalvar');
+    if (btnSalvar) {
+      btnSalvar.addEventListener('click', function(e) {
+        e.stopPropagation();
+        _salvar();
+      });
+    }
   }
 
   // ─── Salvar ─────────────────────────────────────────────────
   function _salvar() {
+    // DEBUG TEMPORÁRIO — remover após confirmar que funciona
+    console.log('[import-manual] _salvar chamado. CFG:', typeof CFG, 'cat:', _im.cat);
+
     var elTitulo = document.getElementById('im-titulo');
     var elNome   = document.getElementById('im-nome');
     var elDim    = document.getElementById('im-dim');
