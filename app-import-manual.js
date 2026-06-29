@@ -169,6 +169,12 @@
         + 'width:100%;max-width:520px;max-height:90dvh;overflow-y:auto;'
         + 'padding:20px 16px 32px;box-sizing:border-box;';
 
+      // Delegação de evento no box — persiste mesmo quando innerHTML é reescrito
+      box.addEventListener('click', function(e) {
+        var btn = e.target.closest('#imBtnSalvar');
+        if (btn) { e.stopPropagation(); _salvar(); }
+      });
+
       var inner = document.createElement('div');
       inner.id  = 'imManualModal';
       box.appendChild(inner);
