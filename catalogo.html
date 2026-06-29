@@ -125,20 +125,18 @@ section{padding:56px 0;}
 .card{
   background:var(--panel);
   border:1px solid var(--line);
-  border-radius:14px;
+  border-radius:12px;
   overflow:hidden;
   cursor:pointer;
   display:flex;
   flex-direction:column;
-  transition:border-color .2s,box-shadow .2s,transform .15s;
+  transition:border-color .2s,box-shadow .2s;
   position:relative;
 }
 .card:hover{
-  border-color:rgba(201,164,76,.4);
-  box-shadow:0 8px 28px rgba(0,0,0,.35);
-  transform:translateY(-1px);
+  border-color:rgba(201,164,76,.35);
+  box-shadow:0 6px 24px rgba(0,0,0,.3);
 }
-.card:active{transform:translateY(0);}
 
 /* foto — sempre quadrada, só a foto principal (sem collage) */
 .cthumb{
@@ -162,6 +160,15 @@ section{padding:56px 0;}
   font-size:2.2rem;color:var(--ink-mute);
 }
 
+/* badge */
+.cbadge{
+  position:absolute;top:7px;left:7px;
+  background:#1ea952;color:#fff;
+  font-size:.55rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+  padding:3px 7px;border-radius:4px;
+  line-height:1.4;
+}
+.cbadge.consulta{background:rgba(201,164,76,.9);color:#1a0e00;}
 
 /* share icon */
 .cshare{
@@ -186,26 +193,24 @@ section{padding:56px 0;}
 .cpr-orig{font-size:.6rem;color:var(--ink-mute);text-decoration:line-through;display:block;line-height:1.2;}
 .cpr{font-size:1rem;font-weight:800;color:var(--gold-soft);display:block;line-height:1.15;}
 .cpr small{font-size:.58rem;font-weight:500;color:var(--ink-mute);}
-.cpr-parce{font-size:.6rem;color:var(--ink-mute);font-weight:500;display:block;margin-top:2px;}
+.cpr-parce{font-size:.6rem;color:#4dc87a;font-weight:600;display:block;margin-top:1px;}
 
 /* botão no fundo do card — sutil */
 .cbtn{
   width:100%;
-  padding:10px;
+  padding:9px;
   border:none;
   border-top:1px solid var(--line);
   background:transparent;
   color:var(--gold-soft);
-  font-size:.72rem;font-weight:700;
+  font-size:.71rem;font-weight:700;
   font-family:Outfit,sans-serif;
   cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:6px;
-  transition:background .15s,color .15s;
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  transition:background .15s;
   flex-shrink:0;
-  letter-spacing:.2px;
 }
-.cbtn:hover{background:rgba(201,164,76,.1);color:var(--gold-soft);}
-.cbtn:active{background:rgba(201,164,76,.18);}
+.cbtn:hover{background:rgba(201,164,76,.08);}
 
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
@@ -238,7 +243,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 /* ═══ MODAL APRIMORADO ═══ */
 #ov{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0;}
 #ov.on{display:flex;}
-@media(min-width:600px){#ov{align-items:center;padding:20px;}}
+@media(min-width:600px){#ov{align-items:center;padding:16px;}}
 #md{
   background:var(--bg2);
   border-radius:20px 20px 0 0;
@@ -255,14 +260,14 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 @media(min-width:600px){
   #md{border-radius:18px;border-bottom:1px solid var(--line2);max-height:88vh;animation:pop .18s ease;}
 }
-@keyframes slideup{from{transform:translateY(70px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-@keyframes pop{from{transform:translateY(20px) scale(.98);opacity:0;}to{transform:translateY(0) scale(1);opacity:1;}}
+@keyframes slideup{from{transform:translateY(60px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes pop{from{transform:translateY(16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
 
 /* galeria no modal */
-.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;}
+.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;line-height:0;}
 @media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
-.mdgal-main{width:100%;aspect-ratio:1/1;overflow:hidden;position:relative;background:#000;cursor:zoom-in;}
-.mdgal-main img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .2s;}
+.mdgal-main{width:100%;aspect-ratio:1/1;overflow:hidden;position:relative;background:var(--panel2);cursor:zoom-in;display:block;line-height:0;}
+.mdgal-main img{width:100%;height:100%;object-fit:cover;display:block;transition:opacity .2s;}
 .mdgal-main .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;color:var(--ink-mute);}
 /* lightbox zoom */
 #imgZoom{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.96);display:none;align-items:center;justify-content:center;touch-action:pinch-zoom;}
@@ -277,19 +282,18 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdgal-arr.next{right:10px;}
 
 .mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;}
-.mdbody{padding:20px 22px 10px;}
+.mdbody{padding:18px 20px 10px;}
 .mdbrand{font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:3px;}
-.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.65rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
+.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
 .mddim{font-size:.72rem;color:var(--ink-mute);margin-bottom:10px;}
 .mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:14px;}
 
 /* bloco de preço estilo ML no modal */
-.mdpr{display:flex;flex-direction:column;gap:4px;margin-bottom:16px;padding:16px 18px;background:var(--panel);border:1px solid var(--line2);border-radius:14px;}
-.mdpr .orig{font-size:.75rem;color:var(--ink-mute);text-decoration:line-through;}
-.mdpr .v{font-size:2rem;font-weight:800;color:var(--gold-soft);line-height:1.05;letter-spacing:-.02em;}
-.mdpr .v small{font-size:.7rem;font-weight:600;color:var(--ink-mute);letter-spacing:0;}
+.mdpr{display:flex;flex-direction:column;gap:3px;margin-bottom:16px;padding:14px 16px;background:var(--panel);border:1px solid var(--line2);border-radius:13px;}
+.mdpr .orig{font-size:.72rem;color:var(--ink-mute);text-decoration:line-through;}
+.mdpr .v{font-size:1.8rem;font-weight:800;color:var(--gold-soft);line-height:1;}
+.mdpr .v small{font-size:.65rem;font-weight:600;color:var(--ink-mute);}
 .mdpr .o{font-size:.85rem;color:var(--ink-mute);text-decoration:line-through;}
-.mdpr .dispo{font-size:.75rem;color:#4dc87a;font-weight:600;margin-top:2px;}
 .mdpr .badge-dis{display:inline-flex;align-items:center;gap:5px;background:rgba(30,169,82,.15);color:#4dc87a;font-size:.65rem;font-weight:700;padding:4px 9px;border-radius:5px;border:1px solid rgba(30,169,82,.3);margin-top:4px;width:fit-content;}
 
 /* calculadora de metragem da pedra (m²) no modal */
@@ -304,7 +308,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .md-m2total b{font-family:"Cormorant Garamond",serif;font-size:1.2rem;}
 
 /* Botões de ação no modal */
-.md-actions{display:flex;flex-direction:column;gap:10px;padding:4px 20px 32px;}
+.md-actions{display:flex;flex-direction:column;gap:10px;padding:4px 20px 24px;}
 .btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;}
 .btnwa svg{width:19px;height:19px;flex-shrink:0;}
 .btn-share{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:13px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-size:.8rem;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;}
@@ -330,23 +334,95 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .btn-add-cart.added{background:var(--panel2);color:var(--gold-soft);border:2px solid var(--gold);box-shadow:none;}
 
 /* ═══ POPUP SUGESTÃO ACESSÓRIOS ═══ */
-#suggestOv{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:110;display:none;align-items:flex-end;justify-content:center;}
+#suggestOv{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.72);
+  z-index:110;
+  display:none;
+  align-items:flex-end;
+  justify-content:center;
+}
 #suggestOv.on{display:flex;}
-#suggestBox{background:var(--bg2);border-radius:22px 22px 0 0;width:100%;max-width:520px;max-height:80vh;overflow-y:auto;border:1px solid var(--line2);padding:24px 20px 32px;animation:slideup .22s ease;}
-#suggestBox h3{font-family:"Cormorant Garamond",serif;font-size:1.3rem;color:var(--cream);margin:0 0 4px;}
-#suggestBox .sub{font-size:.78rem;color:var(--ink-mute);margin-bottom:18px;}
-.suggest-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:18px;}
-.suggest-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;cursor:pointer;transition:.15s;}
-.suggest-card.added{border-color:var(--gold);background:rgba(201,164,76,.07);}
-.suggest-card .sthumb{width:100%;aspect-ratio:4/3;background:var(--panel2);overflow:hidden;}
-.suggest-card .sthumb img{width:100%;height:100%;object-fit:cover;}
-.suggest-card .sbody{padding:10px 11px 12px;}
-.suggest-card .snm{font-size:.8rem;font-weight:700;color:var(--cream);margin-bottom:2px;line-height:1.2;}
-.suggest-card .spr{font-size:.8rem;font-weight:800;color:var(--gold-soft);}
-.suggest-card .sadd{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;transition:.15s;}
+#suggestBox{
+  background:var(--bg2);
+  border-radius:22px 22px 0 0;
+  width:100%;
+  max-width:480px;
+  max-height:82vh;
+  overflow-y:auto;
+  overflow-x:hidden;
+  border:1px solid var(--line2);
+  border-bottom:none;
+  animation:slideup .22s ease;
+  -webkit-overflow-scrolling:touch;
+}
+.suggest-header{
+  position:sticky;top:0;
+  background:var(--bg2);
+  z-index:2;
+  padding:20px 20px 0;
+  border-bottom:1px solid var(--line);
+  padding-bottom:14px;
+}
+#suggestBox h3{font-family:"Cormorant Garamond",serif;font-size:1.2rem;color:var(--cream);margin:0 0 3px;}
+#suggestBox .sub{font-size:.74rem;color:var(--ink-mute);margin:0;}
+.suggest-grid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:10px;
+  padding:16px 16px 0;
+}
+.suggest-card{
+  background:var(--panel);
+  border:1.5px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+  cursor:pointer;
+  transition:border-color .15s;
+  display:flex;
+  flex-direction:column;
+}
+.suggest-card.added{border-color:var(--gold);background:rgba(201,164,76,.06);}
+.suggest-card .sthumb{
+  width:100%;
+  aspect-ratio:1/1;
+  background:var(--panel2);
+  overflow:hidden;
+  flex-shrink:0;
+}
+.suggest-card .sthumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.suggest-card .sbody{padding:9px 10px 10px;display:flex;flex-direction:column;flex:1;}
+.suggest-card .snm{font-size:.76rem;font-weight:700;color:var(--cream);margin-bottom:3px;line-height:1.25;}
+.suggest-card .spr{font-size:.78rem;font-weight:800;color:var(--gold-soft);margin-bottom:6px;}
+.suggest-card .sadd{
+  margin-top:auto;
+  width:100%;
+  padding:8px 0;
+  border-radius:8px;
+  border:1px solid var(--line2);
+  background:transparent;
+  color:var(--ink-soft);
+  font-size:.7rem;font-weight:700;
+  cursor:pointer;
+  font-family:Outfit,sans-serif;
+  transition:.15s;
+  display:flex;align-items:center;justify-content:center;gap:5px;
+}
+.suggest-card .sadd:hover{border-color:var(--gold);color:var(--gold-soft);}
 .suggest-card.added .sadd{border-color:var(--gold);color:var(--gold-soft);background:rgba(201,164,76,.1);}
-.btn-suggest-skip{width:100%;padding:13px;border-radius:13px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-size:.82rem;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;}
-.btn-suggest-confirm{width:100%;padding:15px;border-radius:13px;border:none;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#1a0e00;font-size:.88rem;font-weight:800;cursor:pointer;font-family:Outfit,sans-serif;margin-bottom:10px;}
+.suggest-footer{padding:14px 16px 32px;display:flex;flex-direction:column;gap:10px;}
+.btn-suggest-confirm{
+  width:100%;padding:15px;border-radius:13px;border:none;
+  background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));
+  color:#1a0e00;font-size:.88rem;font-weight:800;
+  cursor:pointer;font-family:Outfit,sans-serif;
+}
+.btn-suggest-skip{
+  width:100%;padding:13px;border-radius:13px;
+  border:1px solid var(--line2);background:transparent;
+  color:var(--ink-soft);font-size:.8rem;font-weight:600;
+  cursor:pointer;font-family:Outfit,sans-serif;
+}
 
 /* ═══ TELA DE RESUMO DO PEDIDO ═══ */
 #resumeOv{position:fixed;inset:0;background:var(--bg);z-index:120;display:none;flex-direction:column;overflow-y:auto;}
@@ -515,13 +591,17 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 </button>
 
 <!-- Popup sugestão de acessórios -->
-<div id="suggestOv">
+<div id="suggestOv" onclick="if(event.target===this)closeSuggest()">
   <div id="suggestBox">
-    <h3>Quer incluir algum acessório?</h3>
-    <div class="sub">Sifões, válvulas e outros itens disponíveis na loja.</div>
+    <div class="suggest-header">
+      <h3>Adicionar acessórios?</h3>
+      <div class="sub">Sifões, válvulas e itens disponíveis na loja.</div>
+    </div>
     <div class="suggest-grid" id="suggestGrid"></div>
-    <button class="btn-suggest-confirm" onclick="closeSuggest()">✓ Confirmar seleção</button>
-    <button class="btn-suggest-skip" onclick="closeSuggest()">Não, continuar sem acessórios</button>
+    <div class="suggest-footer">
+      <button class="btn-suggest-confirm" onclick="closeSuggest()">✓ Confirmar seleção</button>
+      <button class="btn-suggest-skip" onclick="closeSuggest()">Continuar sem acessórios</button>
+    </div>
   </div>
 </div>
 
@@ -768,18 +848,21 @@ function renderStoneGrid(){
     var idx=all.indexOf(s);
     var photo=s.photo||(s.fotos&&s.fotos[0])||'';
     var hasPrice=s.pr>0;
+    var badge=hasPrice
+      ?'<span class="cbadge">Disponível</span>'
+      :'<span class="cbadge consulta">Consultar</span>';
     var priceHtml=hasPrice
       ?'<div class="cpr-block"><span class="cpr">R$ '+fm(s.pr)+'<small>/m²</small></span><span class="cpr-parce">✔ Peça pelo WhatsApp</span></div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
     return '<div class="card" onclick="openItem(\'pedra\','+idx+')">'
-      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+'</div>'
+      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+badge+'</div>'
       +'<div class="cbody">'
         +'<div class="cbrand">'+esc(s.cat||'')+'</div>'
         +'<div class="cnm">'+esc(s.nm||'')+'</div>'
         +(s.fin?'<div class="cdim">Acabamento '+esc(s.fin)+'</div>':'')
         +priceHtml
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">Ver detalhes →</button>'
+      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">📐 Ver e orçar</button>'
       +'</div>';
   }).join('');
 }
@@ -826,6 +909,10 @@ function renderGrid(){
     var pr=it.pr||0;
     var hasPrice=pr>0;
 
+    var badge=hasPrice
+      ?'<span class="cbadge">Disponível</span>'
+      :'<span class="cbadge consulta">Consultar</span>';
+
     var imgHtml=photo
       ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
       :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
@@ -839,7 +926,7 @@ function renderGrid(){
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
 
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
-      +'<div class="cthumb">'+imgHtml+'</div>'
+      +'<div class="cthumb">'+imgHtml+badge+'</div>'
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
         +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
@@ -847,7 +934,7 @@ function renderGrid(){
         +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
         +priceHtml
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">+ Adicionar ao pedido</button>'
+      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">🛒 Adicionar ao pedido</button>'
       +'</div>';
   }).join('');
 }
@@ -887,8 +974,7 @@ function openItem(cat,idx,fromDeepLink){
     priceBlock='<div class="mdpr">'
       +(it.pr_orig>0?'<span class="orig">De R$ '+fm(it.pr_orig)+'</span>':'')
       +'<span class="v">R$ '+fm(pr)+(cat==='pedra'?'<small>/m²</small>':'')+'</span>'
-      +'<span class="dispo">✔ Disponível para pedido</span>'
-      +(cat==='pedra'?'<span style="font-size:.7rem;color:var(--ink-mute);margin-top:2px;">Consulte disponibilidade e metragem pelo WhatsApp</span>':'')
+      +'<span class="badge-dis">✔ Disponível para pedido</span>'
       +'</div>';
   } else {
     priceBlock='<div class="mdpr"><span class="v" style="font-size:1.1rem;color:var(--ink-soft);">Sob consulta — entre em contato</span></div>';
@@ -904,7 +990,7 @@ function openItem(cat,idx,fromDeepLink){
     +priceBlock
     +'</div>'
     +'<div class="md-actions">'
-    +(cat!=='pedra'?'<button class="btn-add-cart" onclick="addToCart(\''+cat+'\','+idx+')">🛒 Adicionar ao pedido</button>':'')
+    +'<button class="btn-add-cart" id="mdBtnCart" onclick="addToCart(\''+cat+'\','+idx+')">'+(cartInclui(cat,idx)?'✓ No pedido':'+ Adicionar ao pedido')+'</button>'
     +'<button class="btnwa" onclick="pedirWhatsApp()">'
     +'<svg viewBox="0 0 32 32" fill="currentColor"><path d="M19.11 17.205c-.372 0-1.088 1.39-1.518 1.39a.63.63 0 0 1-.315-.1c-.802-.402-1.504-.817-2.163-1.447-.545-.516-1.146-1.232-1.46-1.892a.426.426 0 0 1-.073-.215c0-.33.99-.945.99-1.49 0-.143-.73-2.09-.832-2.335-.143-.372-.214-.487-.6-.487-.187 0-.36-.043-.53-.043-.302 0-.53.115-.745.315-.745.7-1.117 1.43-1.146 2.46v.115c-.014.99.472 1.963 1.06 2.78 1.318 1.85 2.86 3.343 4.928 4.246.616.272 1.66.7 2.342.7.99 0 2.183-1.252 2.183-2.193 0-.13-.014-.157-.243-.243-.358-.13-2.045-.86-2.347-.86z"/><path d="M16.067 27.806c-2.5 0-4.97-.65-7.146-1.878l-.487-.272-5.4 1.404 1.448-5.213-.315-.53A11.6 11.6 0 0 1 .833 12.18C.833 5.93 5.832.95 12.066.95c3.012 0 5.84 1.175 7.97 3.314a11.146 11.146 0 0 1 3.3 7.93c-.014 6.25-5.013 11.232-11.246 11.232m9.395-20.6A13.27 13.27 0 0 0 16.067.04C8.39.04 2.144 6.27 2.13 13.943c0 2.46.644 4.847 1.878 6.95L.21 31.96l11.318-2.96c2.03 1.1 4.31 1.677 6.626 1.677h.014c7.663 0 13.91-6.245 13.924-13.918a13.83 13.83 0 0 0-4.03-9.553"/></svg>'
     +'Pedir só este pelo WhatsApp</button>'
@@ -1090,17 +1176,27 @@ function cartInclui(cat,idx){
 }
 
 function addToCart(cat,idx){
-  if(cartInclui(cat,idx)){showToast('Já está no pedido!');return;}
+  var btn=document.getElementById('mdBtnCart');
+  if(cartInclui(cat,idx)){
+    showToast('Já está no pedido!');
+    return;
+  }
   var it=listFor(cat)[idx];
   if(!it)return;
 
   var entry={cat:cat,idx:idx,it:it};
+  /* para pedras, preserva m² digitado se houver */
+  if(cat==='pedra'){
+    var inp=document.getElementById('mdM2Input');
+    var m2=inp?parseFloat((inp.value||'').replace(',','.')):0;
+    if(m2>0){entry.m2=m2;entry.totalCalc=m2*(it.pr||0);}
+  }
 
   CART.push(entry);
   atualizarFab();
+  if(btn){btn.textContent='✓ No pedido';btn.classList.add('added');}
   showToast('✅ Adicionado ao pedido!');
-  closeMd();
-  /* sugere acessórios apenas para cubas (não faz sentido para pedras ou acessórios) */
+  /* sugere acessórios apenas para cubas */
   if(cat!=='ac'&&cat!=='pedra'&&(DATA.acessorios||[]).length>0){
     setTimeout(abrirSuggest,350);
   }
@@ -1151,12 +1247,18 @@ function abrirSuggest(){
     var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
     var foto=fotos[0]||'';
     var added=cartInclui('ac',i);
+    var prHtml=it.pr>0
+      ?'<div class="spr">R$ '+fm(it.pr)+'</div>'
+      :'<div class="spr" style="font-size:.7rem;color:var(--gold);font-weight:600;">Consultar</div>';
     return '<div class="suggest-card'+(added?' added':'') +'" id="scard-'+i+'">'
-      +'<div class="sthumb">'+(foto?'<img src="'+foto+'" loading="lazy" alt="'+esc(it.nm||'')+'">':'<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:1.8rem;color:var(--ink-mute);">🔩</div>')+'</div>'
+      +'<div class="sthumb">'+(foto
+        ?'<img src="'+foto+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
+        :'<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem;color:var(--ink-mute);">🔩</div>')
+      +'</div>'
       +'<div class="sbody">'
       +'<div class="snm">'+esc(it.nm||'Acessório')+'</div>'
-      +(it.pr>0?'<div class="spr">R$ '+fm(it.pr)+'</div>':'<div class="spr" style="font-size:.72rem;">Consultar</div>')
-      +'<button class="sadd" onclick="toggleSuggestItem(\'ac\','+i+',this)">'+(added?'✓ Adicionado':'+ Adicionar')+'</button>'
+      +prHtml
+      +'<button class="sadd" onclick="event.stopPropagation();toggleSuggestItem(\'ac\','+i+',this)">'+(added?'✓ Adicionado':'+ Adicionar')+'</button>'
       +'</div></div>';
   }).join('');
   document.getElementById('suggestOv').classList.add('on');
