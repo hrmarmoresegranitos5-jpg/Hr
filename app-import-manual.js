@@ -370,26 +370,16 @@
       var lista = cat === 'coz' ? CFG.coz : CFG.lav;
       lista.push(novaCuba);
 
-      // ── Salva fotos separado para não estourar o hr_cfg ─────────────
-      if (novaCuba.fotos && novaCuba.fotos.length) {
-        try {
-          var raw = localStorage.getItem('hr_cuba_fotos');
-          var fotosMap = raw ? JSON.parse(raw) : {};
-          fotosMap[novaCuba.id] = novaCuba.fotos.slice();
-          localStorage.setItem('hr_cuba_fotos', JSON.stringify(fotosMap));
-        } catch(fe) {
-          // Se mesmo o mapa de fotos estourar, avisa mas continua salvando o produto sem fotos
-          console.warn('[import-manual] Não foi possível salvar fotos (armazenamento cheio):', fe.message || fe);
-          if (typeof toast === 'function') toast('⚠️ Fotos não salvas — armazenamento cheio. O produto foi salvo sem fotos.');
-          novaCuba.fotos = [];
-          novaCuba.photo = '';
-        }
-      }
+      // svCFG() já extrai e salva fotos[] em hr_cuba_fotos automaticamente.
+      // Não precisamos salvar manualmente aqui — evita duplo-write e conflito.
 
-      if (typeof svCFG         === 'function') svCFG();
-      if (typeof buildCubaList === 'function') buildCubaList();
-      if (typeof buildCfg      === 'function') buildCfg();
-      if (typeof toast         === 'function') toast('✅ Produto salvo: ' + nome);
+      if (typeof svCFG               === 'function') svCFG();
+      // Reinjetar fotos do localStorage no CFG em memória antes de renderizar,
+      // pois svCFG() salva as fotos separado e pode ter recarregado o mapa.
+      if (typeof _restoreCubaFotos   === 'function') _restoreCubaFotos();
+      if (typeof buildCubaList       === 'function') buildCubaList();
+      if (typeof buildCfg            === 'function') buildCfg();
+      if (typeof toast               === 'function') toast('✅ Produto salvo: ' + nome);
 
       _fecharModal();
     } catch(e) {
@@ -450,6 +440,7 @@
           if (pendentes === 0) {
             input.value = '';
             svCFG();
+            if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
             buildCubaList();
             buildCfg();
             if (typeof toast === 'function') toast('📷 Fotos adicionadas!');
@@ -469,6 +460,7 @@
     cuba.fotos.unshift(dest);
     cuba.photo = dest;
     svCFG();
+    if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
     buildCubaList();
     buildCfg();
   };
@@ -480,6 +472,7 @@
     cuba.fotos.splice(fotoIdx, 1);
     cuba.photo = cuba.fotos.length ? cuba.fotos[0] : '';
     svCFG();
+    if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
     buildCubaList();
     buildCfg();
   };
