@@ -267,14 +267,20 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;line-height:0;}
 @media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
 
-/* carrossel horizontal — controlado por touch manual */
+/* carrossel horizontal — slides posicionados por JS */
 .mdgal-wrap{
   width:100%;
+  height:56vw;
+  max-height:320px;
+  min-height:200px;
   overflow:hidden;
   position:relative;
   background:#0d0d10;
 }
 .mdgal-strip{
+  position:absolute;
+  top:0;left:0;
+  height:100%;
   display:flex;
   touch-action:pan-y;
   cursor:grab;
@@ -284,18 +290,18 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 }
 .mdgal-strip:active{cursor:grabbing;}
 .mdgal-slide{
-  flex:0 0 100vw;
-  max-width:480px;
-  aspect-ratio:4/3;
+  height:100%;
   overflow:hidden;
   position:relative;
   background:#0d0d10;
   display:flex;
   align-items:center;
   justify-content:center;
+  flex-shrink:0;
 }
 .mdgal-slide img{
-  width:100%;height:100%;
+  width:100%;
+  height:100%;
   object-fit:contain;
   display:block;
   cursor:zoom-in;
@@ -1224,8 +1230,17 @@ function _buildGal(){
 }
 
 function _slideW(){
-  var s=document.getElementById('slide-0');
-  return s?s.offsetWidth:(document.getElementById('galStrip')||{offsetWidth:0}).offsetWidth;
+  var wrap=document.querySelector('.mdgal-wrap');
+  return wrap?wrap.offsetWidth:320;
+}
+
+function _setSlideSizes(){
+  var w=_slideW();
+  var strip=document.getElementById('galStrip');
+  if(!strip)return;
+  var slides=strip.querySelectorAll('.mdgal-slide');
+  slides.forEach(function(s){s.style.width=w+'px';});
+  strip.style.width=(w*slides.length)+'px';
 }
 
 function setFoto(idx){
@@ -1249,6 +1264,7 @@ function navFoto(dir){
 function _initGalScroll(){
   var strip=document.getElementById('galStrip');
   if(!strip||CURFOTOS.length<2)return;
+  _setSlideSizes();
   strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
   strip.style.transform='translateX(0px)';
 

@@ -291,6 +291,14 @@
       return;
     }
 
+    // Garante que CFG existe e tem as listas necessárias
+    if (typeof CFG === 'undefined' || !CFG) {
+      _imAlerta('❌ Erro: configuração do sistema não carregada. Recarregue o app.');
+      return;
+    }
+    if (!CFG.coz) CFG.coz = [];
+    if (!CFG.lav) CFG.lav = [];
+
     var titulo = (elTitulo && elTitulo.value.trim()) || nome;
     var dim    = (elDim    && elDim.value.trim())    || '';
     var desc   = (elDesc   && elDesc.value.trim())   || '';
@@ -307,7 +315,8 @@
       brand:   '',
       dim:     dim,
       desc:    desc,
-      pr:      Math.round(venda),
+      pr:      Math.round(venda * 100) / 100,
+      pr_orig: custo > 0 ? Math.round(custo * 100) / 100 : 0,
       inst:    cat === 'coz' ? 110 : 220,
       instCli: cat === 'coz' ? 160 : 280,
       photo:   _im.fotos.length ? _im.fotos[_im.selIdx] : '',
@@ -323,15 +332,20 @@
       novaCuba.photo = dest;
     }
 
-    var lista = cat === 'coz' ? CFG.coz : CFG.lav;
-    lista.push(novaCuba);
+    try {
+      var lista = cat === 'coz' ? CFG.coz : CFG.lav;
+      lista.push(novaCuba);
 
-    if (typeof svCFG         === 'function') svCFG();
-    if (typeof buildCubaList === 'function') buildCubaList();
-    if (typeof buildCfg      === 'function') buildCfg();
-    if (typeof toast         === 'function') toast('✅ Produto salvo manualmente!');
+      if (typeof svCFG         === 'function') svCFG();
+      if (typeof buildCubaList === 'function') buildCubaList();
+      if (typeof buildCfg      === 'function') buildCfg();
+      if (typeof toast         === 'function') toast('✅ Produto salvo: ' + nome);
 
-    _fecharModal();
+      _fecharModal();
+    } catch(e) {
+      _imAlerta('❌ Erro ao salvar: ' + e.message);
+      console.error('[import-manual] _salvar erro:', e);
+    }
   }
 
   function _imAlerta(msg) {
