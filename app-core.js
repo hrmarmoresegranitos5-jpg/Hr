@@ -422,6 +422,8 @@ function initCFG(){
   // Patch: garantir campo pr_orig em cubas existentes sem ele
   CFG.coz.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';});
   CFG.lav.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';}); 
+  // Reinjeta fotos[] salvas em hr_cuba_fotos (separadas do hr_cfg para não estourar quota)
+  _restoreCubaFotos();
   // Apply photos from CUBA_IMGS for any cuba without a custom photo
   CFG.coz.forEach(function(c){if(!c.photo&&CUBA_IMGS[c.id])c.photo=CUBA_IMGS[c.id];});
   CFG.lav.forEach(function(c){if(!c.photo&&CUBA_IMGS[c.id])c.photo=CUBA_IMGS[c.id];});
@@ -495,7 +497,66 @@ function syncSVDefsFromList(){
   _refreshBordaArrays();
 }
 
-function svCFG(){localStorage.setItem('hr_cfg',JSON.stringify(CFG));if(SYNC.on)SYNC.push();}
+function svCFG(){
+  // ── Separa fotos[] das cubas antes de serializar o CFG ──────────────────
+  // Fotos base64 podem pesar vários MB; guardar em chave própria evita que
+  // hr_cfg estoure o limite de ~5 MB do localStorage.
+  try {
+    var fotosMap = {};
+    function _extrairFotos(lista) {
+      (lista || []).forEach(function(c) {
+        if (c && c.id && c.fotos && c.fotos.length) {
+          fotosMap[c.id] = c.fotos.slice();
+        }
+      });
+    }
+    _extrairFotos(CFG.coz);
+    _extrairFotos(CFG.lav);
+
+    // Clone raso do CFG sem fotos[] para não mutar o objeto em memória
+    var cfgLeve = JSON.parse(JSON.stringify(CFG));
+    (cfgLeve.coz || []).forEach(function(c) { delete c.fotos; });
+    (cfgLeve.lav || []).forEach(function(c) { delete c.fotos; });
+
+    localStorage.setItem('hr_cfg',       JSON.stringify(cfgLeve));
+    localStorage.setItem('hr_cuba_fotos', JSON.stringify(fotosMap));
+  } catch(e) {
+    // Fallback: tenta salvar sem as fotos para não perder dados críticos
+    console.warn('[svCFG] Erro ao salvar (possível quota excedida):', e.message || e);
+    try {
+      var cfgSemFotos = JSON.parse(JSON.stringify(CFG));
+      (cfgSemFotos.coz || []).forEach(function(c) { delete c.fotos; delete c.photo; });
+      (cfgSemFotos.lav || []).forEach(function(c) { delete c.fotos; delete c.photo; });
+      localStorage.setItem('hr_cfg', JSON.stringify(cfgSemFotos));
+      if (typeof toast === 'function') toast('⚠️ Fotos não salvas — armazenamento cheio. Remova fotos antigas.');
+    } catch(e2) {
+      if (typeof toast === 'function') toast('❌ Erro crítico ao salvar configuração.');
+      console.error('[svCFG] Falha total:', e2);
+    }
+  }
+  if(SYNC.on) SYNC.push();
+}
+
+// ── Reinjeta fotos[] nas cubas após carregar o CFG do localStorage ────────
+function _restoreCubaFotos() {
+  try {
+    var raw = localStorage.getItem('hr_cuba_fotos');
+    if (!raw) return;
+    var fotosMap = JSON.parse(raw);
+    function _injetar(lista) {
+      (lista || []).forEach(function(c) {
+        if (c && c.id && fotosMap[c.id]) {
+          c.fotos = fotosMap[c.id];
+          if (!c.photo && c.fotos.length) c.photo = c.fotos[0];
+        }
+      });
+    }
+    _injetar(CFG.coz);
+    _injetar(CFG.lav);
+  } catch(e) {
+    console.warn('[_restoreCubaFotos]', e.message || e);
+  }
+}
 
 // ═══ STATE ═══
 var selMat=null,pendQ=null,fType='in',catF='Todos',cubaCat='coz',cfgTab=0,editTrId=null,editJobId=null,fileTarget=null,cbYcb=null,cbNcb=null;

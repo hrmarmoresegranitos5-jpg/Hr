@@ -154,6 +154,12 @@
     _im.cat    = cat || 'coz';
     _im.fotos  = [];
     _im.selIdx = 0;
+    // Limpa campos de texto para não vazar dados de um produto para o próximo
+    _im.titulo = '';
+    _im.nome   = '';
+    _im.dim    = '';
+    _im.custo  = '';
+    _im.desc   = '';
 
     if (!document.getElementById('imManualOv')) {
       var ov = document.createElement('div');
@@ -183,6 +189,9 @@
     }
 
     document.getElementById('imManualOv').style.display = 'flex';
+    // Limpa o conteúdo interno para que _renderModal não leia valores antigos do DOM
+    var inner = document.getElementById('imManualModal');
+    if (inner) inner.innerHTML = '';
     _renderModal();
   }
 
@@ -195,12 +204,19 @@
     var wrap = document.getElementById('imManualModal');
     if (!wrap) return;
 
-    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza)
-    var prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
-    var prevNome   = (document.getElementById('im-nome')   || {}).value || '';
-    var prevDim    = (document.getElementById('im-dim')    || {}).value || '';
-    var prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
-    var prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
+    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza).
+    // Na primeira abertura do modal os campos do DOM ainda têm dados do produto anterior,
+    // por isso usamos _im.* (já limpos em _abrirModal) como fonte de verdade.
+    var domTitulo = document.getElementById('im-titulo');
+    var prevTitulo = domTitulo ? domTitulo.value : _im.titulo;
+    var domNome   = document.getElementById('im-nome');
+    var prevNome   = domNome   ? domNome.value   : _im.nome;
+    var domDim    = document.getElementById('im-dim');
+    var prevDim    = domDim    ? domDim.value    : _im.dim;
+    var domCusto  = document.getElementById('im-custo');
+    var prevCusto  = domCusto  ? domCusto.value  : _im.custo;
+    var domDesc   = document.getElementById('im-desc');
+    var prevDesc   = domDesc   ? domDesc.value   : _im.desc;
 
     var h = '';
 
@@ -353,6 +369,22 @@
     try {
       var lista = cat === 'coz' ? CFG.coz : CFG.lav;
       lista.push(novaCuba);
+
+      // ── Salva fotos separado para não estourar o hr_cfg ─────────────
+      if (novaCuba.fotos && novaCuba.fotos.length) {
+        try {
+          var raw = localStorage.getItem('hr_cuba_fotos');
+          var fotosMap = raw ? JSON.parse(raw) : {};
+          fotosMap[novaCuba.id] = novaCuba.fotos.slice();
+          localStorage.setItem('hr_cuba_fotos', JSON.stringify(fotosMap));
+        } catch(fe) {
+          // Se mesmo o mapa de fotos estourar, avisa mas continua salvando o produto sem fotos
+          console.warn('[import-manual] Não foi possível salvar fotos (armazenamento cheio):', fe.message || fe);
+          if (typeof toast === 'function') toast('⚠️ Fotos não salvas — armazenamento cheio. O produto foi salvo sem fotos.');
+          novaCuba.fotos = [];
+          novaCuba.photo = '';
+        }
+      }
 
       if (typeof svCFG         === 'function') svCFG();
       if (typeof buildCubaList === 'function') buildCubaList();
