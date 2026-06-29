@@ -116,33 +116,33 @@ section{padding:56px 0;}
 .tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
 .tab.on{border-color:var(--gold);background:rgba(201,164,76,.1);color:var(--gold-soft);}
 
-/* ═══ GRID ═══ */
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
-@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr);gap:14px;}}
+/* ═══ GRID — 2 colunas mobile, 3 tablet, 4 desktop ═══ */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
+@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr);gap:16px;}}
 @media(min-width:960px){.grid{grid-template-columns:repeat(4,1fr);}}
 
-/* ─── CARD ─── */
+/* ─── CARD estilo Mercado Livre ─── */
 .card{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:12px;
+  background:#fff;
+  border:1px solid #e8e8e8;
+  border-radius:6px;
   overflow:hidden;
   cursor:pointer;
   display:flex;
   flex-direction:column;
-  transition:border-color .2s,box-shadow .2s;
+  transition:box-shadow .18s;
   position:relative;
 }
 .card:hover{
-  border-color:rgba(201,164,76,.35);
-  box-shadow:0 6px 24px rgba(0,0,0,.3);
+  box-shadow:0 4px 20px rgba(0,0,0,.18);
+  border-color:#ccc;
 }
 
-/* foto — sempre quadrada, só a foto principal (sem collage) */
+/* foto — fundo branco, contém a imagem inteira (sem cortar) */
 .cthumb{
   width:100%;
   aspect-ratio:1/1;
-  background:var(--panel2);
+  background:#fff;
   overflow:hidden;
   position:relative;
   flex-shrink:0;
@@ -150,67 +150,82 @@ section{padding:56px 0;}
 .cthumb img{
   width:100%;
   height:100%;
-  object-fit:cover;
-  object-position:center top;
+  object-fit:contain;
+  object-position:center;
   display:block;
+  padding:6px;
 }
 .cthumb .ph{
   width:100%;height:100%;
   display:flex;align-items:center;justify-content:center;
-  font-size:2.2rem;color:var(--ink-mute);
+  font-size:2.2rem;color:#bbb;
 }
 
-/* badge */
+/* badge (MAIS VENDIDO / DISPONÍVEL) */
 .cbadge{
-  position:absolute;top:7px;left:7px;
-  background:#1ea952;color:#fff;
-  font-size:.55rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
-  padding:3px 7px;border-radius:4px;
-  line-height:1.4;
+  position:absolute;top:0;left:0;
+  background:#f73717;color:#fff;
+  font-size:.52rem;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
+  padding:3px 7px;border-radius:0 0 4px 0;
+  line-height:1.5;
 }
-.cbadge.consulta{background:rgba(201,164,76,.9);color:#1a0e00;}
+.cbadge.disp{background:#39b54a;}
+.cbadge.consulta{background:#f0a500;color:#fff;}
 
 /* share icon */
 .cshare{
   position:absolute;top:7px;right:7px;
-  width:26px;height:26px;border-radius:50%;
-  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);
+  width:28px;height:28px;border-radius:50%;
+  background:rgba(255,255,255,.9);border:1px solid #e0e0e0;
   display:flex;align-items:center;justify-content:center;
   font-size:.7rem;cursor:pointer;
   opacity:0;transition:opacity .15s;z-index:2;
+  box-shadow:0 1px 4px rgba(0,0,0,.12);
 }
 .card:hover .cshare{opacity:1;}
-@media(pointer:coarse){.cshare{opacity:.85;}}
+@media(pointer:coarse){.cshare{opacity:.9;}}
 
-/* corpo */
-.cbody{padding:10px 11px 12px;display:flex;flex-direction:column;flex:1;}
-.cbrand{font-size:.55rem;letter-spacing:1px;text-transform:uppercase;color:var(--ink-mute);font-weight:700;margin-bottom:2px;}
-.cnm{font-size:.83rem;font-weight:700;color:var(--cream);line-height:1.25;margin-bottom:2px;}
-.cdim{font-size:.63rem;color:var(--ink-mute);}
+/* corpo — fundo levemente acinzentado como ML */
+.cbody{padding:8px 10px 10px;display:flex;flex-direction:column;flex:1;background:#fff;}
+
+/* título longo, 2 linhas, cor escura */
+.cnm{
+  font-size:.78rem;font-weight:400;color:#333;
+  line-height:1.3;margin-bottom:4px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+
+/* marca abaixo do nome, menor */
+.cbrand{font-size:.65rem;color:#00a650;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
+
+/* dimensões */
+.cdim{font-size:.6rem;color:#999;margin-bottom:4px;}
 
 /* bloco de preço */
-.cpr-block{margin-top:auto;padding-top:9px;}
-.cpr-orig{font-size:.6rem;color:var(--ink-mute);text-decoration:line-through;display:block;line-height:1.2;}
-.cpr{font-size:1rem;font-weight:800;color:var(--gold-soft);display:block;line-height:1.15;}
-.cpr small{font-size:.58rem;font-weight:500;color:var(--ink-mute);}
-.cpr-parce{font-size:.6rem;color:#4dc87a;font-weight:600;display:block;margin-top:1px;}
+.cpr-block{margin-top:auto;}
+.cpr-orig{font-size:.65rem;color:#999;text-decoration:line-through;display:block;line-height:1.3;}
+.cpr{font-size:1.1rem;font-weight:700;color:#333;display:block;line-height:1.15;}
+.cpr-off{font-size:.65rem;font-weight:700;color:#00a650;margin-left:4px;}
+.cpr-parce{font-size:.62rem;color:#666;display:block;margin-top:2px;}
 
-/* botão no fundo do card — sutil */
+/* botão "Adicionar" — verde ML */
 .cbtn{
   width:100%;
-  padding:9px;
+  padding:9px 8px;
   border:none;
-  border-top:1px solid var(--line);
-  background:transparent;
-  color:var(--gold-soft);
-  font-size:.71rem;font-weight:700;
+  background:#3483fa;
+  color:#fff;
+  font-size:.72rem;font-weight:700;
   font-family:Outfit,sans-serif;
   cursor:pointer;
   display:flex;align-items:center;justify-content:center;gap:5px;
   transition:background .15s;
   flex-shrink:0;
+  margin-top:8px;
+  border-radius:4px;
+  letter-spacing:.2px;
 }
-.cbtn:hover{background:rgba(201,164,76,.08);}
+.cbtn:hover{background:#2968c8;}
 
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
@@ -1046,33 +1061,42 @@ function renderGrid(){
     var hasPrice=pr>0;
     var pct=(hasPrice&&prOrig>pr)?Math.round((1-pr/prOrig)*100):0;
 
-    var badge=hasPrice
-      ?(it.mais_vendido||it.bestseller
-        ?'<span class="cbadge" style="background:#f73;">Mais vendido</span>'
-        :'<span class="cbadge">Disponível</span>')
-      :'<span class="cbadge consulta">Consultar</span>';
+    /* título: usa o título longo do anúncio se existir, senão nome curto */
+    var titulo=it.titulo||((it.brand?it.brand+' ':'')+it.nm+(it.dim?' '+it.dim:''));
+
+    /* badge estilo ML */
+    var badge=it.mais_vendido||it.bestseller
+      ?'<span class="cbadge">Mais vendido</span>'
+      :(hasPrice
+        ?'<span class="cbadge disp">Disponível</span>'
+        :'<span class="cbadge consulta">Consultar</span>');
 
     var imgHtml=photo
       ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
       :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
 
+    /* parcelas: 12x sem juros */
+    var parcHtml=hasPrice
+      ?'<span class="cpr-parce">12x R$ '+fm(pr/12)+' sem juros</span>'
+      :'';
+
     var priceHtml=hasPrice
       ?'<div class="cpr-block">'
         +(pct>0?'<span class="cpr-orig">R$ '+fm(prOrig)+'</span>':'')
-        +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<small style="font-size:.55rem;color:#00a650;font-weight:800;margin-left:4px;"> '+pct+'%OFF</small>':'')+'</span>'
+        +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<span class="cpr-off">'+pct+'% OFF</span>':'')+'</span>'
+        +parcHtml
         +'</div>'
-      :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
+      :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:#999;">Sob consulta</span></div>';
 
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
       +'<div class="cthumb">'+imgHtml+badge+'</div>'
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
+        +'<div class="cnm">'+esc(titulo)+'</div>'
         +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
-        +'<div class="cnm">'+esc(it.nm||'Item')+'</div>'
-        +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
         +priceHtml
+        +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">🛒 Adicionar ao pedido</button>'
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">🛒 Adicionar ao pedido</button>'
       +'</div>';
   }).join('');
 }
