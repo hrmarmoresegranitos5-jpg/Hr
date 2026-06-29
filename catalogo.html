@@ -125,18 +125,20 @@ section{padding:56px 0;}
 .card{
   background:var(--panel);
   border:1px solid var(--line);
-  border-radius:12px;
+  border-radius:14px;
   overflow:hidden;
   cursor:pointer;
   display:flex;
   flex-direction:column;
-  transition:border-color .2s,box-shadow .2s;
+  transition:border-color .2s,box-shadow .2s,transform .15s;
   position:relative;
 }
 .card:hover{
-  border-color:rgba(201,164,76,.35);
-  box-shadow:0 6px 24px rgba(0,0,0,.3);
+  border-color:rgba(201,164,76,.4);
+  box-shadow:0 8px 28px rgba(0,0,0,.35);
+  transform:translateY(-1px);
 }
+.card:active{transform:translateY(0);}
 
 /* foto — sempre quadrada, só a foto principal (sem collage) */
 .cthumb{
@@ -160,15 +162,6 @@ section{padding:56px 0;}
   font-size:2.2rem;color:var(--ink-mute);
 }
 
-/* badge */
-.cbadge{
-  position:absolute;top:7px;left:7px;
-  background:#1ea952;color:#fff;
-  font-size:.55rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
-  padding:3px 7px;border-radius:4px;
-  line-height:1.4;
-}
-.cbadge.consulta{background:rgba(201,164,76,.9);color:#1a0e00;}
 
 /* share icon */
 .cshare{
@@ -193,24 +186,26 @@ section{padding:56px 0;}
 .cpr-orig{font-size:.6rem;color:var(--ink-mute);text-decoration:line-through;display:block;line-height:1.2;}
 .cpr{font-size:1rem;font-weight:800;color:var(--gold-soft);display:block;line-height:1.15;}
 .cpr small{font-size:.58rem;font-weight:500;color:var(--ink-mute);}
-.cpr-parce{font-size:.6rem;color:#4dc87a;font-weight:600;display:block;margin-top:1px;}
+.cpr-parce{font-size:.6rem;color:var(--ink-mute);font-weight:500;display:block;margin-top:2px;}
 
 /* botão no fundo do card — sutil */
 .cbtn{
   width:100%;
-  padding:9px;
+  padding:10px;
   border:none;
   border-top:1px solid var(--line);
   background:transparent;
   color:var(--gold-soft);
-  font-size:.71rem;font-weight:700;
+  font-size:.72rem;font-weight:700;
   font-family:Outfit,sans-serif;
   cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:5px;
-  transition:background .15s;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:background .15s,color .15s;
   flex-shrink:0;
+  letter-spacing:.2px;
 }
-.cbtn:hover{background:rgba(201,164,76,.08);}
+.cbtn:hover{background:rgba(201,164,76,.1);color:var(--gold-soft);}
+.cbtn:active{background:rgba(201,164,76,.18);}
 
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
@@ -241,17 +236,31 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 #fab svg{width:26px;height:26px;}
 
 /* ═══ MODAL APRIMORADO ═══ */
-#ov{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0;}
+#ov{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0;}
 #ov.on{display:flex;}
-@media(min-width:600px){#ov{align-items:center;padding:16px;}}
-#md{background:var(--bg2);border-radius:22px 22px 0 0;width:100%;max-width:460px;max-height:92vh;overflow-y:auto;border:1px solid var(--line2);animation:slideup .22s ease;}
-@media(min-width:600px){#md{border-radius:18px;animation:pop .18s ease;}}
-@keyframes slideup{from{transform:translateY(60px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-@keyframes pop{from{transform:translateY(16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@media(min-width:600px){#ov{align-items:center;padding:20px;}}
+#md{
+  background:var(--bg2);
+  border-radius:20px 20px 0 0;
+  width:100%;
+  max-width:480px;
+  max-height:90vh;
+  overflow-y:auto;
+  overflow-x:hidden;
+  border:1px solid var(--line2);
+  border-bottom:none;
+  animation:slideup .22s ease;
+  -webkit-overflow-scrolling:touch;
+}
+@media(min-width:600px){
+  #md{border-radius:18px;border-bottom:1px solid var(--line2);max-height:88vh;animation:pop .18s ease;}
+}
+@keyframes slideup{from{transform:translateY(70px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes pop{from{transform:translateY(20px) scale(.98);opacity:0;}to{transform:translateY(0) scale(1);opacity:1;}}
 
 /* galeria no modal */
-.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:22px 22px 0 0;overflow:hidden;}
-@media(min-width:600px){.mdgal{border-radius:14px 14px 0 0;}}
+.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;}
+@media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
 .mdgal-main{width:100%;aspect-ratio:1/1;overflow:hidden;position:relative;background:#000;cursor:zoom-in;}
 .mdgal-main img{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .2s;}
 .mdgal-main .ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;color:var(--ink-mute);}
@@ -268,18 +277,19 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdgal-arr.next{right:10px;}
 
 .mdclose{position:absolute;top:10px;right:10px;width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);color:#fff;font-size:1rem;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;}
-.mdbody{padding:18px 20px 10px;}
+.mdbody{padding:20px 22px 10px;}
 .mdbrand{font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:3px;}
-.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
+.mdnm{font-family:"Cormorant Garamond",serif;font-size:1.65rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
 .mddim{font-size:.72rem;color:var(--ink-mute);margin-bottom:10px;}
 .mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:14px;}
 
 /* bloco de preço estilo ML no modal */
-.mdpr{display:flex;flex-direction:column;gap:3px;margin-bottom:16px;padding:14px 16px;background:var(--panel);border:1px solid var(--line2);border-radius:13px;}
-.mdpr .orig{font-size:.72rem;color:var(--ink-mute);text-decoration:line-through;}
-.mdpr .v{font-size:1.8rem;font-weight:800;color:var(--gold-soft);line-height:1;}
-.mdpr .v small{font-size:.65rem;font-weight:600;color:var(--ink-mute);}
+.mdpr{display:flex;flex-direction:column;gap:4px;margin-bottom:16px;padding:16px 18px;background:var(--panel);border:1px solid var(--line2);border-radius:14px;}
+.mdpr .orig{font-size:.75rem;color:var(--ink-mute);text-decoration:line-through;}
+.mdpr .v{font-size:2rem;font-weight:800;color:var(--gold-soft);line-height:1.05;letter-spacing:-.02em;}
+.mdpr .v small{font-size:.7rem;font-weight:600;color:var(--ink-mute);letter-spacing:0;}
 .mdpr .o{font-size:.85rem;color:var(--ink-mute);text-decoration:line-through;}
+.mdpr .dispo{font-size:.75rem;color:#4dc87a;font-weight:600;margin-top:2px;}
 .mdpr .badge-dis{display:inline-flex;align-items:center;gap:5px;background:rgba(30,169,82,.15);color:#4dc87a;font-size:.65rem;font-weight:700;padding:4px 9px;border-radius:5px;border:1px solid rgba(30,169,82,.3);margin-top:4px;width:fit-content;}
 
 /* calculadora de metragem da pedra (m²) no modal */
@@ -294,7 +304,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .md-m2total b{font-family:"Cormorant Garamond",serif;font-size:1.2rem;}
 
 /* Botões de ação no modal */
-.md-actions{display:flex;flex-direction:column;gap:10px;padding:4px 20px 24px;}
+.md-actions{display:flex;flex-direction:column;gap:10px;padding:4px 20px 32px;}
 .btnwa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:#1ea952;color:#fff;font-size:.88rem;font-weight:700;cursor:pointer;}
 .btnwa svg{width:19px;height:19px;flex-shrink:0;}
 .btn-share{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;border-radius:13px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-size:.8rem;font-weight:600;cursor:pointer;font-family:Outfit,sans-serif;}
@@ -758,21 +768,18 @@ function renderStoneGrid(){
     var idx=all.indexOf(s);
     var photo=s.photo||(s.fotos&&s.fotos[0])||'';
     var hasPrice=s.pr>0;
-    var badge=hasPrice
-      ?'<span class="cbadge">Disponível</span>'
-      :'<span class="cbadge consulta">Consultar</span>';
     var priceHtml=hasPrice
       ?'<div class="cpr-block"><span class="cpr">R$ '+fm(s.pr)+'<small>/m²</small></span><span class="cpr-parce">✔ Peça pelo WhatsApp</span></div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
     return '<div class="card" onclick="openItem(\'pedra\','+idx+')">'
-      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+badge+'</div>'
+      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+'</div>'
       +'<div class="cbody">'
         +'<div class="cbrand">'+esc(s.cat||'')+'</div>'
         +'<div class="cnm">'+esc(s.nm||'')+'</div>'
         +(s.fin?'<div class="cdim">Acabamento '+esc(s.fin)+'</div>':'')
         +priceHtml
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">📐 Ver e orçar</button>'
+      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">Ver detalhes →</button>'
       +'</div>';
   }).join('');
 }
@@ -819,10 +826,6 @@ function renderGrid(){
     var pr=it.pr||0;
     var hasPrice=pr>0;
 
-    var badge=hasPrice
-      ?'<span class="cbadge">Disponível</span>'
-      :'<span class="cbadge consulta">Consultar</span>';
-
     var imgHtml=photo
       ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
       :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
@@ -836,7 +839,7 @@ function renderGrid(){
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
 
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
-      +'<div class="cthumb">'+imgHtml+badge+'</div>'
+      +'<div class="cthumb">'+imgHtml+'</div>'
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
         +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
@@ -844,7 +847,7 @@ function renderGrid(){
         +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
         +priceHtml
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">🛒 Adicionar ao pedido</button>'
+      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">+ Adicionar ao pedido</button>'
       +'</div>';
   }).join('');
 }
@@ -884,7 +887,8 @@ function openItem(cat,idx,fromDeepLink){
     priceBlock='<div class="mdpr">'
       +(it.pr_orig>0?'<span class="orig">De R$ '+fm(it.pr_orig)+'</span>':'')
       +'<span class="v">R$ '+fm(pr)+(cat==='pedra'?'<small>/m²</small>':'')+'</span>'
-      +'<span class="badge-dis">✔ Disponível para pedido</span>'
+      +'<span class="dispo">✔ Disponível para pedido</span>'
+      +(cat==='pedra'?'<span style="font-size:.7rem;color:var(--ink-mute);margin-top:2px;">Consulte disponibilidade e metragem pelo WhatsApp</span>':'')
       +'</div>';
   } else {
     priceBlock='<div class="mdpr"><span class="v" style="font-size:1.1rem;color:var(--ink-soft);">Sob consulta — entre em contato</span></div>';
@@ -898,7 +902,6 @@ function openItem(cat,idx,fromDeepLink){
     +(subtitle?'<div class="mddim">'+esc(subtitle)+'</div>':'')
     +(it.desc?'<div class="mddesc">'+esc(it.desc)+'</div>':'')
     +priceBlock
-    +(cat==='pedra'&&pr>0?'<div class="md-m2box"><label class="md-m2lbl">📐 Calcule por metragem</label><div class="md-m2row"><input class="md-m2inp" id="mdM2Input" type="number" min="0" step="0.01" placeholder="Ex: 2,5" oninput="_updM2Total('+pr+')"><span class="md-m2unit">m²</span></div><div class="md-m2total" id="mdM2Total">Informe a metragem para calcular</div></div>':'')
     +'</div>'
     +'<div class="md-actions">'
     +(cat!=='pedra'?'<button class="btn-add-cart" onclick="addToCart(\''+cat+'\','+idx+')">🛒 Adicionar ao pedido</button>':'')
