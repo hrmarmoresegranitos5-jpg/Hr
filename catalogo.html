@@ -267,34 +267,35 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;line-height:0;}
 @media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
 
-/* carrossel horizontal — desliza fotos como no ML */
+/* carrossel horizontal — controlado por touch manual */
 .mdgal-strip{
   display:flex;
-  overflow-x:auto;
-  scroll-snap-type:x mandatory;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:none;
+  overflow:hidden;
+  touch-action:pan-y;
   cursor:grab;
+  user-select:none;
+  will-change:transform;
+  width:100%;
 }
-.mdgal-strip::-webkit-scrollbar{display:none;}
 .mdgal-strip:active{cursor:grabbing;}
 .mdgal-slide{
   flex:0 0 100%;
-  aspect-ratio:1/1;
+  aspect-ratio:4/3;
   scroll-snap-align:start;
   overflow:hidden;
   position:relative;
-  background:var(--panel2);
+  background:#0d0d10;
   line-height:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
 }
 .mdgal-slide img{
   width:100%;height:100%;
-  object-fit:cover;
+  object-fit:contain;
   display:block;
   cursor:zoom-in;
-  transition:transform .2s;
 }
-.mdgal-slide img:active{transform:scale(1.02);}
 .mdgal-slide .ph{
   width:100%;height:100%;
   display:flex;align-items:center;justify-content:center;
@@ -1048,8 +1049,7 @@ function renderGrid(){
     var priceHtml=hasPrice
       ?'<div class="cpr-block">'
         +(pct>0?'<span class="cpr-orig">R$ '+fm(prOrig)+'</span>':'')
-        +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<small style="font-size:.55rem;color:#00a650;font-weight:800;margin-left:4px;">'+pct+'%OFF</small>':'')+'</span>'
-        +(it.vendidos>0?'<span class="cpr-parce" style="color:var(--ink-mute);">+'+parseInt(it.vendidos).toLocaleString('pt-BR')+' vendidos</span>':'<span class="cpr-parce">✔ Peça pelo WhatsApp</span>')
+        +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<small style="font-size:.55rem;color:#00a650;font-weight:800;margin-left:4px;"> '+pct+'%OFF</small>':'')+'</span>'
         +'</div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
 
@@ -1231,14 +1231,14 @@ function _buildGal(){
 function setFoto(idx){
   if(!CURFOTOS[idx])return;
   CURFOTO_IDX=idx;
-  /* scroll do strip para o slide certo */
+  /* move strip via transform — sem scroll */
   var strip=document.getElementById('galStrip');
-  if(strip){
-    var slide=document.getElementById('slide-'+idx);
-    if(slide)strip.scrollTo({left:slide.offsetLeft,behavior:'smooth'});
-  }
+  if(strip) strip.style.transform='translateX(-'+idx+'00%)';
   /* destaca miniatura */
   document.querySelectorAll('.mdgal-thumb').forEach(function(d,i){d.classList.toggle('on',i===idx);});
+  /* scroll thumb visível */
+  var t=document.getElementById('thumb-'+idx);
+  if(t){var tb=document.getElementById('galThumbs');if(tb)tb.scrollTo({left:t.offsetLeft-40,behavior:'smooth'});}
   /* atualiza contador */
   var cnt=document.getElementById('galCounter');
   if(cnt)cnt.textContent=(idx+1)+' / '+CURFOTOS.length;
@@ -1250,28 +1250,61 @@ function navFoto(dir){
   setFoto((CURFOTO_IDX+dir+n)%n);
 }
 
-/* Sincroniza scroll do strip → atualiza miniaturas e contador */
+/* Touch manual — arrasto preciso, 1 foto por gesto */
 function _initGalScroll(){
   var strip=document.getElementById('galStrip');
   if(!strip||CURFOTOS.length<2)return;
-  var ticking=false;
-  strip.addEventListener('scroll',function(){
-    if(ticking)return;
-    ticking=true;
-    requestAnimationFrame(function(){
-      var idx=Math.round(strip.scrollLeft/strip.offsetWidth);
-      if(idx!==CURFOTO_IDX){
-        CURFOTO_IDX=idx;
-        document.querySelectorAll('.mdgal-thumb').forEach(function(d,i){d.classList.toggle('on',i===idx);});
-        var cnt=document.getElementById('galCounter');
-        if(cnt)cnt.textContent=(idx+1)+' / '+CURFOTOS.length;
-        /* scroll das miniaturas para o thumb visível */
-        var t=document.getElementById('thumb-'+idx);
-        if(t){var tb=document.getElementById('galThumbs');if(tb)tb.scrollTo({left:t.offsetLeft-40,behavior:'smooth'});}
-      }
-      ticking=false;
-    });
+  /* garantir que o strip use transform como base */
+  strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
+  strip.style.transform='translateX(0%)';
+
+  var startX=0,startY=0,dragging=false,moved=false;
+  var THRESHOLD=40; /* px mínimo para mudar foto */
+
+  function onStart(x,y){startX=x;startY=y;dragging=true;moved=false;}
+  function onMove(x,y){
+    if(!dragging)return;
+    var dx=x-startX,dy=y-startY;
+    if(!moved&&Math.abs(dy)>Math.abs(dx)){dragging=false;return;} /* scroll vertical */
+    moved=true;
+    /* feedback visual suave durante arrasto */
+    var base=-CURFOTO_IDX*100;
+    var pct=base+(dx/strip.offsetWidth)*100;
+    strip.style.transition='none';
+    strip.style.transform='translateX('+pct+'%)';
+  }
+  function onEnd(x){
+    if(!dragging)return;
+    dragging=false;
+    var dx=x-startX;
+    strip.style.transition='transform .28s cubic-bezier(.4,0,.2,1)';
+    if(Math.abs(dx)>THRESHOLD){
+      setFoto(dx<0
+        ?Math.min(CURFOTO_IDX+1,CURFOTOS.length-1)
+        :Math.max(CURFOTO_IDX-1,0));
+    } else {
+      /* volta para foto atual */
+      strip.style.transform='translateX(-'+CURFOTO_IDX+'00%)';
+    }
+  }
+
+  /* Touch */
+  strip.addEventListener('touchstart',function(e){
+    var t=e.touches[0];onStart(t.clientX,t.clientY);
   },{passive:true});
+  strip.addEventListener('touchmove',function(e){
+    var t=e.touches[0];onMove(t.clientX,t.clientY);
+    if(moved)e.preventDefault();
+  },{passive:false});
+  strip.addEventListener('touchend',function(e){
+    onEnd(e.changedTouches[0].clientX);
+  },{passive:true});
+
+  /* Mouse (desktop) */
+  strip.addEventListener('mousedown',function(e){onStart(e.clientX,e.clientY);});
+  strip.addEventListener('mousemove',function(e){if(dragging)onMove(e.clientX,e.clientY);});
+  strip.addEventListener('mouseup',function(e){onEnd(e.clientX);});
+  strip.addEventListener('mouseleave',function(e){if(dragging)onEnd(e.clientX);});
 }
 
 function closeMd(){
