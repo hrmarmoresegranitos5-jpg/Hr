@@ -116,47 +116,101 @@ section{padding:56px 0;}
 .tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
 .tab.on{border-color:var(--gold);background:rgba(201,164,76,.1);color:var(--gold-soft);}
 
-/* ═══ GRID MARKETPLACE ═══ */
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
-@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr);gap:16px;}}
+/* ═══ GRID ═══ */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr);gap:14px;}}
 @media(min-width:960px){.grid{grid-template-columns:repeat(4,1fr);}}
 
-/* card estilo marketplace */
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s;display:flex;flex-direction:column;}
-.card:hover{border-color:rgba(201,164,76,.4);transform:translateY(-3px);box-shadow:0 8px 28px rgba(0,0,0,.35);}
-.card:active{transform:translateY(0);}
+/* ─── CARD ─── */
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:12px;
+  overflow:hidden;
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  transition:border-color .2s,box-shadow .2s;
+  position:relative;
+}
+.card:hover{
+  border-color:rgba(201,164,76,.35);
+  box-shadow:0 6px 24px rgba(0,0,0,.3);
+}
 
-/* imagem com badge */
-.cthumb{width:100%;aspect-ratio:1/1;background:var(--panel2);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
-.cthumb img{width:100%;height:100%;object-fit:cover;transition:transform .3s;}
-.card:hover .cthumb img{transform:scale(1.04);}
-.cthumb .ph{font-size:2.4rem;color:var(--ink-mute);}
+/* foto — sempre quadrada, só a foto principal (sem collage) */
+.cthumb{
+  width:100%;
+  aspect-ratio:1/1;
+  background:var(--panel2);
+  overflow:hidden;
+  position:relative;
+  flex-shrink:0;
+}
+.cthumb img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center top;
+  display:block;
+}
+.cthumb .ph{
+  width:100%;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:2.2rem;color:var(--ink-mute);
+}
 
-/* badge disponível */
-.cbadge{position:absolute;top:8px;left:8px;background:rgba(30,169,82,.9);color:#fff;font-size:.56rem;font-weight:800;letter-spacing:.8px;text-transform:uppercase;padding:3px 7px;border-radius:4px;backdrop-filter:blur(4px);}
-.cbadge.consulta{background:rgba(201,164,76,.85);color:#1a0e00;}
+/* badge */
+.cbadge{
+  position:absolute;top:7px;left:7px;
+  background:#1ea952;color:#fff;
+  font-size:.55rem;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+  padding:3px 7px;border-radius:4px;
+  line-height:1.4;
+}
+.cbadge.consulta{background:rgba(201,164,76,.9);color:#1a0e00;}
 
-/* corpo do card */
-.cbody{padding:11px 12px 13px;display:flex;flex-direction:column;flex:1;gap:4px;}
-.cbrand{font-size:.56rem;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-mute);font-weight:700;}
-.cnm{font-size:.82rem;font-weight:700;color:var(--cream);line-height:1.25;margin:1px 0;}
-.cdim{font-size:.64rem;color:var(--ink-mute);line-height:1.3;}
+/* share icon */
+.cshare{
+  position:absolute;top:7px;right:7px;
+  width:26px;height:26px;border-radius:50%;
+  background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.7rem;cursor:pointer;
+  opacity:0;transition:opacity .15s;z-index:2;
+}
+.card:hover .cshare{opacity:1;}
+@media(pointer:coarse){.cshare{opacity:.85;}}
 
-/* preço em destaque estilo ML */
-.cpr-block{margin-top:auto;padding-top:8px;}
-.cpr-orig{font-size:.62rem;color:var(--ink-mute);text-decoration:line-through;display:block;line-height:1;}
-.cpr{font-size:1.05rem;font-weight:800;color:var(--gold-soft);line-height:1.1;display:block;}
-.cpr small{font-size:.62rem;color:var(--ink-mute);font-weight:500;}
-.cpr-parce{font-size:.64rem;color:#4dc87a;font-weight:600;margin-top:1px;display:block;}
+/* corpo */
+.cbody{padding:10px 11px 12px;display:flex;flex-direction:column;flex:1;}
+.cbrand{font-size:.55rem;letter-spacing:1px;text-transform:uppercase;color:var(--ink-mute);font-weight:700;margin-bottom:2px;}
+.cnm{font-size:.83rem;font-weight:700;color:var(--cream);line-height:1.25;margin-bottom:2px;}
+.cdim{font-size:.63rem;color:var(--ink-mute);}
 
-/* botão de ação direto no card */
-.cbtn{display:flex;align-items:center;justify-content:center;gap:6px;width:calc(100% + 24px);margin:-0px -12px -13px;padding:9px 12px;background:rgba(201,164,76,.1);border:none;border-top:1px solid var(--line);color:var(--gold-soft);font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;transition:background .15s;margin-top:10px;border-radius:0 0 13px 13px;}
-.cbtn:hover{background:rgba(201,164,76,.2);}
+/* bloco de preço */
+.cpr-block{margin-top:auto;padding-top:9px;}
+.cpr-orig{font-size:.6rem;color:var(--ink-mute);text-decoration:line-through;display:block;line-height:1.2;}
+.cpr{font-size:1rem;font-weight:800;color:var(--gold-soft);display:block;line-height:1.15;}
+.cpr small{font-size:.58rem;font-weight:500;color:var(--ink-mute);}
+.cpr-parce{font-size:.6rem;color:#4dc87a;font-weight:600;display:block;margin-top:1px;}
 
-/* share button on card */
-.cshare{position:absolute;top:7px;right:7px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.75rem;cursor:pointer;opacity:0;transition:opacity .15s;z-index:2;}
-.card:hover .cshare,.card:focus .cshare{opacity:1;}
-@media(pointer:coarse){.cshare{opacity:1;}}
+/* botão no fundo do card — sutil */
+.cbtn{
+  width:100%;
+  padding:9px;
+  border:none;
+  border-top:1px solid var(--line);
+  background:transparent;
+  color:var(--gold-soft);
+  font-size:.71rem;font-weight:700;
+  font-family:Outfit,sans-serif;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  transition:background .15s;
+  flex-shrink:0;
+}
+.cbtn:hover{background:rgba(201,164,76,.08);}
 
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
@@ -709,16 +763,16 @@ function renderStoneGrid(){
       :'<span class="cbadge consulta">Consultar</span>';
     var priceHtml=hasPrice
       ?'<div class="cpr-block"><span class="cpr">R$ '+fm(s.pr)+'<small>/m²</small></span><span class="cpr-parce">✔ Peça pelo WhatsApp</span></div>'
-      :'<div class="cpr-block"><span class="cpr" style="font-size:.82rem;color:var(--ink-mute);">Sob consulta</span></div>';
+      :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
     return '<div class="card" onclick="openItem(\'pedra\','+idx+')">'
       +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+badge+'</div>'
       +'<div class="cbody">'
-      +'<div class="cbrand">'+esc(s.cat||'')+'</div>'
-      +'<div class="cnm">'+esc(s.nm||'')+'</div>'
-      +(s.fin?'<div class="cdim">Acabamento '+esc(s.fin)+'</div>':'')
-      +priceHtml
+        +'<div class="cbrand">'+esc(s.cat||'')+'</div>'
+        +'<div class="cnm">'+esc(s.nm||'')+'</div>'
+        +(s.fin?'<div class="cdim">Acabamento '+esc(s.fin)+'</div>':'')
+        +priceHtml
       +'</div>'
-      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">📐 Ver detalhes e orçar</button>'
+      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">📐 Ver e orçar</button>'
       +'</div>';
   }).join('');
 }
@@ -759,31 +813,36 @@ function renderGrid(){
     return;
   }
   g.innerHTML=list.map(function(it,i){
+    /* pega só a PRIMEIRA foto */
     var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
     var photo=fotos[0]||'';
     var pr=it.pr||0;
     var hasPrice=pr>0;
+
     var badge=hasPrice
       ?'<span class="cbadge">Disponível</span>'
       :'<span class="cbadge consulta">Consultar</span>';
-    var priceHtml;
-    if(hasPrice){
-      priceHtml='<div class="cpr-block">'
+
+    var imgHtml=photo
+      ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
+      :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
+
+    var priceHtml=hasPrice
+      ?'<div class="cpr-block">'
         +(it.pr_orig>0?'<span class="cpr-orig">R$ '+fm(it.pr_orig)+'</span>':'')
         +'<span class="cpr">R$ '+fm(pr)+'</span>'
         +'<span class="cpr-parce">✔ Peça pelo WhatsApp</span>'
-        +'</div>';
-    } else {
-      priceHtml='<div class="cpr-block"><span class="cpr" style="font-size:.82rem;color:var(--ink-mute);">Sob consulta</span></div>';
-    }
-    return '<div class="card" style="position:relative;" onclick="openItem(\''+CAT+'\','+i+')">'
-      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">':'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>')+badge+'</div>'
+        +'</div>'
+      :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
+
+    return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
+      +'<div class="cthumb">'+imgHtml+badge+'</div>'
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
-      +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
-      +'<div class="cnm">'+esc(it.nm||'Item')+'</div>'
-      +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
-      +priceHtml
+        +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
+        +'<div class="cnm">'+esc(it.nm||'Item')+'</div>'
+        +(it.dim?'<div class="cdim">'+esc(it.dim)+'</div>':'')
+        +priceHtml
       +'</div>'
       +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+CAT+'\','+i+')">🛒 Adicionar ao pedido</button>'
       +'</div>';
