@@ -9080,6 +9080,7 @@ function _ghRepoPath(){
   return (CFG.emp&&CFG.emp.ghRepo)?CFG.emp.ghRepo.trim().replace(/^\/|\/$/g,''):'';
 }
 function publicarCatalogo(){
+  _restoreCubaFotos(); // garante fotos[] em memória antes de publicar
   var token=(CFG.emp&&CFG.emp.ghToken||'').trim();
   var repo=_ghRepoPath();
   if(!token){toast('⚠ Configure o GitHub Token em Empresa');return;}
@@ -9153,6 +9154,7 @@ function _normStonesPublic(lista){
   });
 }
 function baixarCatalogoJson(){
+  _restoreCubaFotos(); // garante fotos[] em memória antes de baixar
   var dados={
     emp:{
       nome:(CFG.emp&&CFG.emp.nome)||'HR Mármores e Granitos',
