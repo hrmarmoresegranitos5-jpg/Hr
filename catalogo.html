@@ -138,7 +138,7 @@ section{padding:56px 0;}
   border-color:#ccc;
 }
 
-/* foto — fundo branco, contém a imagem inteira (sem cortar) */
+/* foto — fundo branco, contém a imagem inteira */
 .cthumb{
   width:100%;
   aspect-ratio:1/1;
@@ -161,7 +161,7 @@ section{padding:56px 0;}
   font-size:2.2rem;color:#bbb;
 }
 
-/* badge (MAIS VENDIDO / DISPONÍVEL) */
+/* badge */
 .cbadge{
   position:absolute;top:0;left:0;
   background:#f73717;color:#fff;
@@ -185,30 +185,20 @@ section{padding:56px 0;}
 .card:hover .cshare{opacity:1;}
 @media(pointer:coarse){.cshare{opacity:.9;}}
 
-/* corpo — fundo levemente acinzentado como ML */
+/* corpo */
 .cbody{padding:8px 10px 10px;display:flex;flex-direction:column;flex:1;background:#fff;}
-
-/* título longo, 2 linhas, cor escura */
 .cnm{
   font-size:.78rem;font-weight:400;color:#333;
   line-height:1.3;margin-bottom:4px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
-
-/* marca abaixo do nome, menor */
 .cbrand{font-size:.65rem;color:#00a650;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
-
-/* dimensões */
 .cdim{font-size:.6rem;color:#999;margin-bottom:4px;}
-
-/* bloco de preço */
 .cpr-block{margin-top:auto;}
 .cpr-orig{font-size:.65rem;color:#999;text-decoration:line-through;display:block;line-height:1.3;}
 .cpr{font-size:1.1rem;font-weight:700;color:#333;display:block;line-height:1.15;}
 .cpr-off{font-size:.65rem;font-weight:700;color:#00a650;margin-left:4px;}
 .cpr-parce{font-size:.62rem;color:#666;display:block;margin-top:2px;}
-
-/* botão "Adicionar" — verde ML */
 .cbtn{
   width:100%;
   padding:9px 8px;
@@ -223,7 +213,6 @@ section{padding:56px 0;}
   flex-shrink:0;
   margin-top:8px;
   border-radius:4px;
-  letter-spacing:.2px;
 }
 .cbtn:hover{background:#2968c8;}
 
@@ -255,43 +244,60 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 #fab{position:fixed;bottom:20px;right:20px;z-index:60;width:54px;height:54px;border-radius:50%;background:#1ea952;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.4);cursor:pointer;}
 #fab svg{width:26px;height:26px;}
 
-/* ═══ MODAL APRIMORADO ═══ */
-#ov{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;display:none;align-items:flex-end;justify-content:center;padding:0;}
-#ov.on{display:flex;}
-@media(min-width:600px){#ov{align-items:center;padding:16px;}}
-#md{
+/* ═══ TELA DE PRODUTO — FULLSCREEN (como ML) ═══ */
+#ov{
+  position:fixed;inset:0;
+  z-index:100;
+  display:none;
+  flex-direction:column;
   background:var(--bg2);
-  border-radius:20px 20px 0 0;
-  width:100%;
-  max-width:480px;
-  max-height:90vh;
+  overflow:hidden;
+}
+#ov.on{display:flex;}
+/* barra de voltar */
+#md-topbar{
+  display:flex;align-items:center;gap:12px;
+  padding:0 14px;
+  height:52px;
+  flex-shrink:0;
+  background:var(--bg2);
+  border-bottom:1px solid var(--line);
+  position:relative;
+  z-index:2;
+}
+#md-back{
+  width:36px;height:36px;border-radius:50%;
+  border:1px solid var(--line2);background:transparent;
+  color:var(--cream);font-size:1.1rem;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;flex-shrink:0;
+}
+#md-topbar-title{
+  font-size:.82rem;font-weight:600;color:var(--ink-soft);
+  flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#md{
+  flex:1;
   overflow-y:auto;
   overflow-x:hidden;
-  border:1px solid var(--line2);
-  border-bottom:none;
-  animation:slideup .22s ease;
   -webkit-overflow-scrolling:touch;
 }
-@media(min-width:600px){
-  #md{border-radius:18px;border-bottom:1px solid var(--line2);max-height:88vh;animation:pop .18s ease;}
-}
-@keyframes slideup{from{transform:translateY(60px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-@keyframes pop{from{transform:translateY(16px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes slidein{from{transform:translateX(40px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+#md.anm{animation:slidein .2s ease;}
 
-/* ═══ GALERIA ESTILO MERCADO LIVRE ═══ */
-.mdgal{width:100%;position:relative;background:var(--panel2);border-radius:20px 20px 0 0;overflow:hidden;line-height:0;}
-@media(min-width:600px){.mdgal{border-radius:18px 18px 0 0;}}
+/* ═══ GALERIA FULLSCREEN ═══ */
+.mdgal{width:100%;position:relative;background:#000;line-height:0;}
 
-/* carrossel horizontal — slides posicionados por JS */
+/* foto principal — quadrada, ocupa toda a largura */
 .mdgal-wrap{
   width:100%;
-  height:56vw;
-  max-height:320px;
-  min-height:200px;
+  aspect-ratio:1/1;
+  max-height:70vw;
   overflow:hidden;
   position:relative;
-  background:#0d0d10;
+  background:#000;
 }
+@media(min-width:600px){.mdgal-wrap{max-height:420px;}}
 .mdgal-strip{
   position:absolute;
   top:0;left:0;
@@ -777,7 +783,11 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
   </div>
 </div>
 
-<div id="ov" onclick="if(event.target===this)closeMd()">
+<div id="ov">
+  <div id="md-topbar">
+    <button id="md-back" onclick="closeMd()">←</button>
+    <span id="md-topbar-title">Produto</span>
+  </div>
   <div id="md"></div>
 </div>
 
@@ -1053,41 +1063,27 @@ function renderGrid(){
     return;
   }
   g.innerHTML=list.map(function(it,i){
-    /* pega só a PRIMEIRA foto */
     var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
     var photo=fotos[0]||'';
     var pr=it.pr||0;
     var prOrig=it.pr_orig||it.pr_de||0;
     var hasPrice=pr>0;
     var pct=(hasPrice&&prOrig>pr)?Math.round((1-pr/prOrig)*100):0;
-
-    /* título: usa o título longo do anúncio se existir, senão nome curto */
     var titulo=it.titulo||((it.brand?it.brand+' ':'')+it.nm+(it.dim?' '+it.dim:''));
-
-    /* badge estilo ML */
     var badge=it.mais_vendido||it.bestseller
       ?'<span class="cbadge">Mais vendido</span>'
-      :(hasPrice
-        ?'<span class="cbadge disp">Disponível</span>'
+      :(hasPrice?'<span class="cbadge disp">Disponível</span>'
         :'<span class="cbadge consulta">Consultar</span>');
-
     var imgHtml=photo
       ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
       :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
-
-    /* parcelas: 12x sem juros */
-    var parcHtml=hasPrice
-      ?'<span class="cpr-parce">12x R$ '+fm(pr/12)+' sem juros</span>'
-      :'';
-
+    var parcHtml=hasPrice?'<span class="cpr-parce">12x R$ '+fm(pr/12)+' sem juros</span>':'';
     var priceHtml=hasPrice
       ?'<div class="cpr-block">'
         +(pct>0?'<span class="cpr-orig">R$ '+fm(prOrig)+'</span>':'')
         +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<span class="cpr-off">'+pct+'% OFF</span>':'')+'</span>'
-        +parcHtml
-        +'</div>'
+        +parcHtml+'</div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:#999;">Sob consulta</span></div>';
-
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
       +'<div class="cthumb">'+imgHtml+badge+'</div>'
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
@@ -1190,6 +1186,15 @@ function openItem(cat,idx,fromDeepLink){
     +'</div>';
 
   document.getElementById('ov').classList.add('on');
+  document.body.style.overflow='hidden';
+  var tb=document.getElementById('md-topbar-title');
+  if(tb)tb.textContent=it.nm||'Produto';
+  /* animação de entrada */
+  var mdEl=document.getElementById('md');
+  mdEl.classList.remove('anm');
+  void mdEl.offsetWidth;
+  mdEl.classList.add('anm');
+  mdEl.scrollTop=0;
   setTimeout(_initGalScroll, 80);
 }
 
@@ -1228,7 +1233,7 @@ function _buildGal(){
   if(!n){
     return '<div class="mdgal">'
       +'<div class="mdgal-wrap"><div class="mdgal-strip"><div class="mdgal-slide"><div class="ph">'+phIcon+'</div></div></div></div>'
-      +'<div class="mdclose" onclick="closeMd()">✕</div></div>';
+      +'</div>';
   }
   var slides=CURFOTOS.map(function(src,i){
     return '<div class="mdgal-slide" id="slide-'+i+'">'
@@ -1249,7 +1254,6 @@ function _buildGal(){
     +'</div>'
     +thumbs
     +lojaHtml
-    +'<div class="mdclose" onclick="closeMd()">✕</div>'
     +'</div>';
 }
 
@@ -1335,6 +1339,7 @@ function _initGalScroll(){
 
 function closeMd(){
   document.getElementById('ov').classList.remove('on');
+  document.body.style.overflow='';
   try{history.pushState(null,'',window.location.pathname);}catch(e){}
   /* restaura metatags para o catálogo geral */
   if(DATA){
