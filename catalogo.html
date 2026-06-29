@@ -22,10 +22,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0a0a0c; --bg2:#111114; --panel:#15151a; --panel2:#1a1a20;
-  --line:#242429; --line2:#2c2c33;
-  --gold:#c9a44c; --gold-soft:#e3c578; --gold-deep:#7a5c20;
-  --cream:#f3eee4; --ink:#cfc9bf; --ink-soft:#9b958c; --ink-mute:#5c5850;
+  --bg:#eeeeee; --bg2:#ffffff; --panel:#ffffff; --panel2:#f5f5f5;
+  --line:#e3e3e3; --line2:#d8d8d8;
+  --gold:#b8893a; --gold-soft:#a9692a; --gold-deep:#8a5c1e;
+  --cream:#1a1a1a; --ink:#333333; --ink-soft:#666666; --ink-mute:#8c8c8c;
+  --blue:#3483fa; --blue-dark:#2968c8; --green:#00a650;
   --r:16px; --r-sm:10px;
   --maxw:1180px;
 }
@@ -45,12 +46,12 @@ img{max-width:100%;display:block;}
 .slab::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),inset 0 1px 0 rgba(255,255,255,.05);}
 
 /* nav */
-#nav{position:sticky;top:0;z-index:50;background:rgba(10,10,12,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+#nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);box-shadow:0 1px 4px rgba(0,0,0,.04);}
 #nav .row{display:flex;align-items:center;gap:14px;height:64px;max-width:100%;}
 .brand{display:flex;align-items:center;gap:10px;flex-shrink:0;min-width:0;}
-.blogo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1rem;color:#1a0e00;overflow:hidden;flex-shrink:0;}
+.blogo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));display:grid;place-items:center;font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1rem;color:#fff;overflow:hidden;flex-shrink:0;}
 .blogo img{width:100%;height:100%;object-fit:cover;}
-.bname{font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1.05rem;color:var(--gold-soft);line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw;}
+.bname{font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1.05rem;color:var(--gold-soft);line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw;}
 .btype{font-size:.62rem;color:var(--ink-mute);letter-spacing:.5px;}
 #nav nav{display:none;gap:26px;margin-left:auto;flex-shrink:0;}
 @media(min-width:760px){#nav nav{display:flex;}}
@@ -60,6 +61,41 @@ img{max-width:100%;display:block;}
 @media(min-width:760px){.navwa{display:inline-flex;margin-left:0;}}
 .btn-wa-sm{align-items:center;gap:7px;background:#1ea952;color:#fff;font-size:.74rem;font-weight:700;padding:9px 16px;border-radius:30px;flex-shrink:0;}
 .btn-wa-sm svg{width:14px;height:14px;}
+
+/* busca — estilo ML, barra larga abaixo da marca */
+.searchrow{padding:0 22px 12px;}
+.searchbox{
+  display:flex;align-items:center;gap:8px;
+  background:#fff;border:1.5px solid var(--line2);border-radius:8px;
+  padding:0 14px;height:42px;
+  transition:border-color .15s;
+}
+.searchbox:focus-within{border-color:var(--blue);}
+.searchbox svg{width:18px;height:18px;color:var(--ink-mute);flex-shrink:0;}
+.searchbox input{
+  flex:1;border:none;outline:none;background:transparent;
+  font-family:Outfit,sans-serif;font-size:.86rem;color:var(--ink);
+  min-width:0;height:100%;
+}
+.searchbox input::placeholder{color:var(--ink-mute);}
+.searchclear{
+  border:none;background:var(--panel2);color:var(--ink-mute);
+  width:22px;height:22px;border-radius:50%;font-size:.7rem;
+  cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+}
+
+/* painel de resultados da busca — sobrepõe a página */
+.searchresults{
+  position:fixed;inset:0 0 0 0;top:113px;
+  z-index:55;background:var(--bg);
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:18px 0 40px;
+}
+@media(min-width:760px){.searchresults{top:64px;}}
+.searchresults .wrap{padding:0 22px;}
+.search-empty{padding:60px 20px;text-align:center;color:var(--ink-mute);}
+.search-empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
+.search-count{font-size:.78rem;color:var(--ink-mute);margin-bottom:14px;}
 
 /* hero */
 #hero{position:relative;padding:64px 0 56px;overflow:hidden;}
@@ -72,9 +108,9 @@ img{max-width:100%;display:block;}
 .herosub{font-size:.95rem;color:var(--ink-soft);max-width:480px;margin-bottom:26px;line-height:1.65;}
 .heroctas{display:flex;flex-wrap:wrap;gap:12px;}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 22px;border-radius:11px;font-size:.82rem;font-weight:700;cursor:pointer;border:none;}
-.btn-gold{background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#1a0e00;}
-.btn-line{border:1px solid var(--line2);color:var(--ink);background:transparent;}
-.heropanel{aspect-ratio:3/4;position:relative;overflow:hidden;border-radius:18px;border:1px solid var(--line2);background:var(--panel2);}
+.btn-gold{background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#fff;}
+.btn-line{border:1.5px solid var(--line2);color:var(--ink);background:#fff;}
+.heropanel{aspect-ratio:3/4;position:relative;overflow:hidden;border-radius:18px;border:1px solid var(--line2);background:#1a1a1a;}
 /* slides de material — foto real de pedra do catálogo, com fallback de textura CSS */
 .hpslide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease;}
 .hpslide.on{opacity:1;}
@@ -114,8 +150,8 @@ section{padding:56px 0;}
 /* tabs + grid */
 .tabs{display:flex;gap:8px;margin:22px 0 26px;overflow-x:auto;scrollbar-width:none;}
 .tabs::-webkit-scrollbar{display:none;}
-.tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1px solid var(--line2);background:transparent;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
-.tab.on{border-color:var(--gold);background:rgba(201,164,76,.1);color:var(--gold-soft);}
+.tab{flex-shrink:0;padding:9px 18px;border-radius:30px;border:1.5px solid var(--line2);background:#fff;color:var(--ink-soft);font-family:Outfit,sans-serif;font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;}
+.tab.on{border-color:var(--blue);background:var(--blue);color:#fff;}
 
 /* ═══ GRID — 2 colunas mobile, 3 tablet, 4 desktop ═══ */
 .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;}
@@ -165,7 +201,7 @@ section{padding:56px 0;}
 
 /* share icon */
 .cshare{
-  position:absolute;top:7px;right:7px;
+  position:absolute;top:7px;right:43px;
   width:28px;height:28px;border-radius:50%;
   background:rgba(255,255,255,.9);border:1px solid #e0e0e0;
   display:flex;align-items:center;justify-content:center;
@@ -210,8 +246,38 @@ section{padding:56px 0;}
 }
 .cbtn:hover{background:#2968c8;}
 
+/* favoritos — coração no canto do card, estilo ML */
+.cfav{
+  position:absolute;top:7px;right:7px;
+  width:30px;height:30px;border-radius:50%;
+  background:rgba(255,255,255,.92);border:1px solid #e0e0e0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:.85rem;cursor:pointer;z-index:2;
+  box-shadow:0 1px 4px rgba(0,0,0,.12);
+  transition:transform .12s;
+}
+.cfav:active{transform:scale(.9);}
+.cfav.on{color:#f73717;}
+.cfav:not(.on){color:#bbb;}
+
+/* skeleton loading — placeholder animado enquanto a foto carrega */
+@keyframes shimmer{0%{background-position:-300px 0;}100%{background-position:300px 0;}}
+.cthumb img.lazy-load{opacity:0;transition:opacity .25s;}
+.cthumb img.lazy-loaded{opacity:1;}
+.cthumb.skel{background:linear-gradient(90deg,#eee 25%,#f6f6f6 37%,#eee 63%);background-size:400px 100%;animation:shimmer 1.3s ease-in-out infinite;}
+
 .empty{padding:60px 20px;text-align:center;color:var(--ink-mute);font-size:.85rem;grid-column:1/-1;}
 .empty .ic{font-size:2.2rem;margin-bottom:10px;display:block;}
+
+/* botão "ver mais" — estilo ML, contorno azul */
+.btn-loadmore{
+  display:block;width:100%;max-width:280px;margin:22px auto 0;
+  padding:12px 20px;border-radius:6px;
+  border:1.5px solid var(--blue);background:#fff;color:var(--blue);
+  font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;
+  cursor:pointer;transition:background .15s;
+}
+.btn-loadmore:hover{background:#eef4ff;}
 
 /* about */
 .aboutgrid{display:grid;gap:30px;}
@@ -340,13 +406,13 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
   pointer-events:none;
 }
 
-/* miniaturas abaixo da foto principal */
+/* miniaturas abaixo da foto principal — mantidas escuras para combinar com o carrossel */
 .mdgal-thumbs{
   display:flex;
   gap:6px;
   overflow-x:auto;
   padding:8px 12px;
-  background:var(--panel2);
+  background:#111;
   scrollbar-width:none;
   line-height:0;
 }
@@ -358,7 +424,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
   cursor:pointer;
   border:2px solid transparent;
   transition:border-color .15s;
-  background:var(--panel);
+  background:#1c1c1c;
 }
 .mdgal-thumb.on{border-color:var(--gold-soft);}
 .mdgal-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
@@ -373,6 +439,9 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 
 /* corpo do modal */
 .mdbody{padding:16px 18px 10px;}
+.mdcrumb{font-size:.7rem;color:var(--ink-mute);margin-bottom:10px;display:flex;flex-wrap:wrap;align-items:center;gap:0;}
+.mdcrumb a{color:var(--blue);}
+.mdcrumb .sep{margin:0 5px;color:var(--ink-mute);}
 .mdbrand{font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:4px;}
 .mdtitle{font-size:.92rem;font-weight:700;color:var(--cream);line-height:1.4;margin-bottom:6px;}
 /* avaliação + vendidos estilo ML */
@@ -450,6 +519,14 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 }
 .mdpr-mo strong{color:var(--cream);}
 
+/* políticas estilo ML: garantia / troca / prazo */
+.mdpolicies{margin-top:16px;display:flex;flex-direction:column;gap:12px;}
+.mdpolicy{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line);}
+.mdpolicy:first-child{border-top:none;padding-top:4px;}
+.mdpolicy .ic{font-size:1.1rem;flex-shrink:0;line-height:1.3;}
+.mdpolicy strong{display:block;font-size:.78rem;color:var(--ink);font-weight:700;margin-bottom:2px;}
+.mdpolicy span{display:block;font-size:.74rem;color:var(--ink-mute);line-height:1.4;}
+
 /* calculadora de metragem da pedra (m²) no modal */
 .md-m2box{background:var(--panel2);border:1px solid var(--line2);border-radius:13px;padding:14px 16px;margin-bottom:18px;}
 .md-m2lbl{display:block;font-size:.74rem;color:var(--ink-soft);font-weight:600;margin-bottom:9px;}
@@ -478,12 +555,12 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .hide{display:none!important;}
 
 /* ═══ CARRINHO FAB ═══ */
-#cartFab{position:fixed;bottom:20px;right:20px;z-index:60;display:none;align-items:center;gap:10px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#1a0e00;padding:14px 20px;border-radius:50px;box-shadow:0 8px 28px rgba(0,0,0,.5);cursor:pointer;font-weight:800;font-size:.88rem;border:none;font-family:Outfit,sans-serif;}
+#cartFab{position:fixed;bottom:20px;right:20px;z-index:60;display:none;align-items:center;gap:10px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#fff;padding:14px 20px;border-radius:50px;box-shadow:0 8px 28px rgba(0,0,0,.5);cursor:pointer;font-weight:800;font-size:.88rem;border:none;font-family:Outfit,sans-serif;}
 #cartFab.show{display:flex;}
-#cartFab .cart-count{background:#1a0e00;color:var(--gold-soft);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;}
+#cartFab .cart-count{background:rgba(255,255,255,.25);color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;}
 
 /* ═══ BOTÃO ADICIONAR AO CARRINHO NO MODAL ═══ */
-.btn-add-cart{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#1a0e00;font-size:.9rem;font-weight:800;cursor:pointer;font-family:Outfit,sans-serif;transition:.15s;box-shadow:0 4px 16px rgba(201,164,76,.25);}
+.btn-add-cart{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px;border-radius:13px;border:none;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));color:#fff;font-size:.9rem;font-weight:800;cursor:pointer;font-family:Outfit,sans-serif;transition:.15s;box-shadow:0 4px 16px rgba(201,164,76,.25);}
 .btn-add-cart:hover{filter:brightness(1.07);}
 .btn-add-cart.added{background:var(--panel2);color:var(--gold-soft);border:2px solid var(--gold);box-shadow:none;}
 
@@ -568,7 +645,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .btn-suggest-confirm{
   width:100%;padding:15px;border-radius:13px;border:none;
   background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));
-  color:#1a0e00;font-size:.88rem;font-weight:800;
+  color:#fff;font-size:.88rem;font-weight:800;
   cursor:pointer;font-family:Outfit,sans-serif;
 }
 .btn-suggest-skip{
@@ -631,7 +708,15 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
       Falar agora
     </a>
   </div>
+  <div class="wrap searchrow">
+    <div class="searchbox">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="searchInput" placeholder="Buscar pedras, cubas, acessórios…" oninput="onSearchInput(this.value)" onkeydown="if(event.key==='Enter')this.blur()">
+      <button id="searchClear" class="searchclear hide" onclick="clearSearch()">✕</button>
+    </div>
+  </div>
 </header>
+<div id="searchResults" class="searchresults hide"></div>
 
 <section id="hero">
   <div class="wrap herogrid">
@@ -676,6 +761,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
     </div>
     <div class="tabs" id="tabs"></div>
     <div id="grid" class="grid"></div>
+    <button id="gridLoadMore" class="btn-loadmore hide" onclick="loadMoreGrid()">Ver mais</button>
     <div id="loading">
       <div class="spin"></div>
       Carregando catálogo...
@@ -793,6 +879,41 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 
 <script>
 var DATA=null, CAT='coz', STONECAT='Todos', STONE_M2=null, WAPHONE='', CURITEM=null, CURFOTOS=[], CURFOTO_IDX=0;
+
+/* ════════════════════════════════════
+   FAVORITOS — coração no card, persistido localmente
+   ════════════════════════════════════ */
+var FAVORITES=(function(){
+  try{return JSON.parse(localStorage.getItem('hr_favoritos')||'[]');}catch(e){return [];}
+})();
+function _favKey(cat,idx){return cat+':'+idx;}
+function isFav(cat,idx){return FAVORITES.indexOf(_favKey(cat,idx))!==-1;}
+function toggleFav(cat,idx,el){
+  var key=_favKey(cat,idx);
+  var pos=FAVORITES.indexOf(key);
+  if(pos===-1){FAVORITES.push(key);}
+  else{FAVORITES.splice(pos,1);}
+  try{localStorage.setItem('hr_favoritos',JSON.stringify(FAVORITES));}catch(e){}
+  if(el){
+    el.classList.toggle('on',pos===-1);
+    el.textContent=pos===-1?'❤':'♡';
+  }
+  showToast(pos===-1?'Adicionado aos favoritos':'Removido dos favoritos');
+}
+function _favBtnHtml(cat,idx){
+  var on=isFav(cat,idx);
+  return '<span class="cfav'+(on?' on':'')+'" onclick="event.stopPropagation();toggleFav(\''+cat+'\','+idx+',this)">'+(on?'❤':'♡')+'</span>';
+}
+/* thumb com skeleton — mostra placeholder cinza animado até a foto carregar */
+function _thumbHtml(photo,alt,phIcon){
+  if(!photo)return '<div class="cthumb"><div class="ph">'+phIcon+'</div></div>';
+  return '<div class="cthumb skel" id="th'+(_THUMB_ID++)+'">'
+    +'<img src="'+photo+'" loading="lazy" alt="'+esc(alt||'')+'" class="lazy-load" '
+    +'onload="this.classList.add(\'lazy-loaded\');this.parentElement.classList.remove(\'skel\')" '
+    +'onerror="this.parentElement.classList.remove(\'skel\');this.style.display=\'none\';this.parentElement.innerHTML=\'<div class=&quot;ph&quot;>'+phIcon+'</div>\'">'
+    +'</div>';
+}
+var _THUMB_ID=1;
 
 /* ── utilitários ── */
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1010,7 +1131,8 @@ function renderStoneGrid(){
       ?'<div class="cpr-block"><span class="cpr">R$ '+fm(s.pr)+'<small>/m²</small></span><span class="cpr-parce">✔ Peça pelo WhatsApp</span></div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
     return '<div class="card" onclick="openItem(\'pedra\','+idx+')">'
-      +'<div class="cthumb">'+(photo?'<img src="'+photo+'" loading="lazy" alt="'+esc(s.nm||'')+'">':'<div class="ph">🪨</div>')+'</div>'
+      +_thumbHtml(photo,s.nm,'🪨')
+      +_favBtnHtml('pedra',idx)
       +'<div class="cbody">'
         +'<div class="cbrand">'+esc(s.cat||'')+'</div>'
         +'<div class="cnm">'+esc(s.nm||'')+'</div>'
@@ -1037,8 +1159,11 @@ function buildTabs(){
   }).join('');
 }
 
+var GRID_PAGE_SIZE=12;
+var GRID_SHOWN=GRID_PAGE_SIZE;
 function setCat(k){
   CAT=k;
+  GRID_SHOWN=GRID_PAGE_SIZE;
   document.querySelectorAll('.tab').forEach(function(el){el.classList.toggle('on',el.dataset.cat===k);});
   renderGrid();
 }
@@ -1050,11 +1175,120 @@ function listFor(k){
   return DATA.acessorios||[];
 }
 
+function loadMoreGrid(){
+  GRID_SHOWN+=GRID_PAGE_SIZE;
+  renderGrid();
+}
+
+/* ════════════════════════════════════
+   BUSCA GLOBAL — estilo ML
+   ════════════════════════════════════ */
+var SEARCH_DEBOUNCE=null;
+function onSearchInput(v){
+  document.getElementById('searchClear').classList.toggle('hide',!v);
+  clearTimeout(SEARCH_DEBOUNCE);
+  SEARCH_DEBOUNCE=setTimeout(function(){runSearch(v);},180);
+}
+function clearSearch(){
+  document.getElementById('searchInput').value='';
+  document.getElementById('searchClear').classList.add('hide');
+  closeSearchResults();
+}
+function closeSearchResults(){
+  document.getElementById('searchResults').classList.add('hide');
+  document.body.style.overflow='';
+}
+function _norm(s){
+  return (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function runSearch(q){
+  q=(q||'').trim();
+  var box=document.getElementById('searchResults');
+  if(!q){closeSearchResults();return;}
+  box.classList.remove('hide');
+  document.body.style.overflow='hidden';
+  var nq=_norm(q);
+  var sources=[
+    {cat:'pedra',list:DATA.pedras||[]},
+    {cat:'coz',list:DATA.cubas_coz||[]},
+    {cat:'lav',list:DATA.cubas_lav||[]},
+    {cat:'ac',list:DATA.acessorios||[]}
+  ];
+  var results=[];
+  sources.forEach(function(src){
+    src.list.forEach(function(it,idx){
+      var hay=_norm((it.nm||'')+' '+(it.titulo||'')+' '+(it.cat||'')+' '+(it.brand||''));
+      if(hay.indexOf(nq)!==-1)results.push({cat:src.cat,idx:idx,it:it});
+    });
+  });
+  renderSearchResults(q,results);
+}
+function renderSearchResults(q,results){
+  var box=document.getElementById('searchResults');
+  if(!results.length){
+    box.innerHTML='<div class="wrap"><div class="search-empty"><span class="ic">🔎</span>Nada encontrado para "'+esc(q)+'".<br>Tente outro termo, ou fale direto pelo WhatsApp.</div></div>';
+    return;
+  }
+  var cardsHtml=results.map(function(r){
+    return _cardHtml(r.cat,r.idx,r.it);
+  }).join('');
+  box.innerHTML='<div class="wrap"><div class="search-count">'+results.length+' resultado'+(results.length>1?'s':'')+' para "'+esc(q)+'"</div><div class="grid">'+cardsHtml+'</div></div>';
+}
+/* card genérico reutilizável (busca) — mesma estrutura visual do grid principal */
+function _cardHtml(cat,idx,it){
+  if(cat==='pedra'){
+    var hasPriceS=it.pr>0;
+    var priceHtmlS=hasPriceS
+      ?'<div class="cpr-block"><span class="cpr">R$ '+fm(it.pr)+'<small>/m²</small></span><span class="cpr-parce">✔ Peça pelo WhatsApp</span></div>'
+      :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:var(--ink-mute);">Sob consulta</span></div>';
+    var photoS=it.photo||(it.fotos&&it.fotos[0])||'';
+    return '<div class="card" onclick="openItem(\'pedra\','+idx+')">'
+      +_thumbHtml(photoS,it.nm,'🪨')
+      +_favBtnHtml('pedra',idx)
+      +'<div class="cbody">'
+        +'<div class="cbrand">'+esc(it.cat||'')+'</div>'
+        +'<div class="cnm">'+esc(it.nm||'')+'</div>'
+        +(it.fin?'<div class="cdim">Acabamento '+esc(it.fin)+'</div>':'')
+        +priceHtmlS
+      +'</div>'
+      +'<button class="cbtn" onclick="event.stopPropagation();openItem(\'pedra\','+idx+')">📐 Ver e orçar</button>'
+      +'</div>';
+  }
+  var fotos=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
+  var photo=fotos[0]||'';
+  var pr=it.pr||0;
+  var prOrig=it.pr_orig||it.pr_de||0;
+  var hasPrice=pr>0;
+  var pct=(hasPrice&&prOrig>pr)?Math.round((1-pr/prOrig)*100):0;
+  var titulo=it.titulo||((it.brand?it.brand+' ':'')+it.nm+(it.dim?' '+it.dim:''));
+  var imgHtml=_thumbHtml(photo,it.nm,cat==='ac'?'🔩':'🚰');
+  var parcHtml=hasPrice?'<span class="cpr-parce">12x R$ '+fm(pr/12)+' sem juros</span>':'';
+  var priceHtml=hasPrice
+    ?'<div class="cpr-block">'
+      +(pct>0?'<span class="cpr-orig">R$ '+fm(prOrig)+'</span>':'')
+      +'<span class="cpr">R$ '+fm(pr)+(pct>0?'<span class="cpr-off">'+pct+'% OFF</span>':'')+'</span>'
+      +parcHtml+'</div>'
+    :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:#999;">Sob consulta</span></div>';
+  return '<div class="card" onclick="openItem(\''+cat+'\','+idx+')">'
+    +imgHtml
+    +_favBtnHtml(cat,idx)
+    +'<div class="cbody">'
+      +'<div class="cnm">'+esc(titulo)+'</div>'
+      +(it.brand?'<div class="cbrand">'+esc(it.brand)+'</div>':'')
+      +priceHtml
+      +'<button class="cbtn" onclick="event.stopPropagation();addToCartDireto(\''+cat+'\','+idx+')">🛒 Adicionar ao pedido</button>'
+    +'</div>'
+    +'</div>';
+}
+
 function renderGrid(){
-  var list=listFor(CAT).filter(function(it){return it&&(it.nm||it.id);});
+  var fullList=listFor(CAT).filter(function(it){return it&&(it.nm||it.id);});
+  var list=fullList.slice(0,GRID_SHOWN);
   var g=document.getElementById('grid');
-  if(!list.length){
+  if(!fullList.length){
     g.innerHTML='<div class="empty"><span class="ic">📦</span>Nenhum item nesta categoria ainda.</div>';
+    var lm=document.getElementById('gridLoadMore');
+    if(lm)lm.classList.add('hide');
     return;
   }
   g.innerHTML=list.map(function(it,i){
@@ -1065,9 +1299,7 @@ function renderGrid(){
     var hasPrice=pr>0;
     var pct=(hasPrice&&prOrig>pr)?Math.round((1-pr/prOrig)*100):0;
     var titulo=it.titulo||((it.brand?it.brand+' ':'')+it.nm+(it.dim?' '+it.dim:''));
-    var imgHtml=photo
-      ?'<img src="'+photo+'" loading="lazy" alt="'+esc(it.nm||'')+'">'
-      :'<div class="ph">'+(CAT==='ac'?'🔩':'🚰')+'</div>';
+    var imgHtml=_thumbHtml(photo,it.nm,CAT==='ac'?'🔩':'🚰');
     var parcHtml=hasPrice?'<span class="cpr-parce">12x R$ '+fm(pr/12)+' sem juros</span>':'';
     var priceHtml=hasPrice
       ?'<div class="cpr-block">'
@@ -1076,7 +1308,8 @@ function renderGrid(){
         +parcHtml+'</div>'
       :'<div class="cpr-block"><span class="cpr" style="font-size:.8rem;color:#999;">Sob consulta</span></div>';
     return '<div class="card" onclick="openItem(\''+CAT+'\','+i+')">'
-      +'<div class="cthumb">'+imgHtml+'</div>'
+      +imgHtml
+      +_favBtnHtml(CAT,i)
       +'<span class="cshare" onclick="event.stopPropagation();compartilharItem(\''+CAT+'\','+i+')" title="Compartilhar">🔗</span>'
       +'<div class="cbody">'
         +'<div class="cnm">'+esc(titulo)+'</div>'
@@ -1086,6 +1319,15 @@ function renderGrid(){
       +'</div>'
       +'</div>';
   }).join('');
+  var lmBtn=document.getElementById('gridLoadMore');
+  if(lmBtn){
+    if(GRID_SHOWN<fullList.length){
+      lmBtn.classList.remove('hide');
+      lmBtn.textContent='Ver mais ('+(fullList.length-GRID_SHOWN)+' itens)';
+    } else {
+      lmBtn.classList.add('hide');
+    }
+  }
 }
 
 /* ════════════════════════════════════
@@ -1094,6 +1336,7 @@ function renderGrid(){
 function openItem(cat,idx,fromDeepLink){
   var it=listFor(cat)[idx];
   if(!it)return;
+  closeSearchResults();
   CAT=cat;
   CURITEM=it;
   CURFOTOS=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
@@ -1159,10 +1402,12 @@ function openItem(cat,idx,fromDeepLink){
 
   var lojaNome=(DATA.emp&&DATA.emp.nome)||'HR Mármores e Granitos';
   var lojaHtml='<div class="mdloja">Loja oficial <strong>'+esc(lojaNome)+'</strong> <span class="check">✓</span></div>';
+  var crumbHtml=_buildBreadcrumb(cat,it);
 
   document.getElementById('md').innerHTML=
     galHtml
     +'<div class="mdbody">'
+    +crumbHtml
     +badgesHtml
     +lojaHtml
     +(it.brand?'<div class="mdbrand">'+esc(it.brand)+'</div>':'')
@@ -1173,6 +1418,7 @@ function openItem(cat,idx,fromDeepLink){
     +(subtitle?'<div class="mddim">'+esc(subtitle)+'</div>':'')
     +priceBlock
     +(it.desc?'<div class="mddesc" style="margin-top:14px;">'+esc(it.desc)+'</div>':'')
+    +_buildPolicies(cat)
     +'</div>'
     +'<div class="md-actions">'
     +'<button class="btn-add-cart" id="mdBtnCart" onclick="addToCart(\''+cat+'\','+idx+')">'+(cartInclui(cat,idx)?'✓ No pedido':'+ Adicionar ao pedido')+'</button>'
@@ -1208,6 +1454,32 @@ function _updM2Total(prM2){
 }
 
 /* ══ avaliação + vendidos estilo ML ══ */
+/* ══ breadcrumb estilo ML: Início > Categoria > Subcategoria ══ */
+function _buildBreadcrumb(cat,it){
+  var parts=[{l:'Início',h:'#hero'}];
+  if(cat==='pedra'){
+    parts.push({l:'Pedras',h:'#pedras'});
+    if(it.cat)parts.push({l:it.cat,h:'#pedras'});
+  } else {
+    parts.push({l:'Cubas e acessórios',h:'#catalogo'});
+    var sub=cat==='coz'?'Cozinha':(cat==='lav'?'Cubas Banheiro':'Acessórios');
+    parts.push({l:sub,h:'#catalogo'});
+  }
+  return '<div class="mdcrumb">'+parts.map(function(p,i){
+    return (i>0?'<span class="sep">›</span>':'')+'<a href="'+p.h+'" onclick="closeMd()">'+esc(p.l)+'</a>';
+  }).join('')+'</div>';
+}
+
+/* ══ políticas: troca/garantia + prazo de produção, estilo ML ══ */
+function _buildPolicies(cat){
+  var prazo=cat==='pedra'?'Prazo de fabricação combinado conforme a metragem e o corte do projeto.':'Prazo de fabricação: combinado no momento do pedido, conforme disponibilidade.';
+  return '<div class="mdpolicies">'
+    +'<div class="mdpolicy"><span class="ic">🛡️</span><div><strong>Garantia HR</strong><span>Material e instalação garantidos pela marmoraria.</span></div></div>'
+    +'<div class="mdpolicy"><span class="ic">🔁</span><div><strong>Troca em caso de defeito</strong><span>Avaliamos e resolvemos direto com você, sem burocracia.</span></div></div>'
+    +'<div class="mdpolicy"><span class="ic">🚚</span><div><strong>Produção e entrega</strong><span>'+prazo+'</span></div></div>'
+    +'</div>';
+}
+
 function _buildRating(it){
   var r=parseFloat(it.rating||it.avaliacao||0);
   var v=parseInt(it.vendidos||it.qtd_vendidos||0,10);
