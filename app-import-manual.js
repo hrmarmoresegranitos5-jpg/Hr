@@ -3,14 +3,20 @@
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
 // Alternativa 100% estável ao app-ml-import.js: zero chamadas de
-// rede, zero proxy, zero dependência do Mercado Livre. Você digita
-// os dados (copiados do anúncio) e faz upload de prints/fotos.
+// rede pro Mercado Livre, zero proxy, zero dependência de scraping.
+// Você faz upload de prints/fotos do anúncio e a IA (Claude com
+// visão, mesma chave configurada em ⚙️ Config → Empresa) lê as
+// imagens e preenche título, nome curto, dimensões e descrição
+// sozinha — só confirme e ajuste preço/margem antes de salvar.
 //
 // Fluxo:
 //  1. Abre o anúncio no app/site do ML
-//  2. Copia título + preço (cola tudo de uma vez no campo de texto)
-//  3. Tira print ou salva as fotos do produto na galeria
-//  4. Faz upload das imagens aqui (várias de uma vez)
+//  2. Tira prints da tela (título + fotos do produto) ou salva as
+//     fotos do produto na galeria
+//  3. Faz upload das imagens aqui (várias de uma vez)
+//  4. Toca em "🤖 Preencher com IA" — título, nome curto, dimensões
+//     e descrição são preenchidos automaticamente (confira antes
+//     de salvar; preço só é preenchido se vier visível no print)
 //  5. Ajusta margem → preço de venda calculado automaticamente
 //  6. Salva — vai pro mesmo catálogo (CFG.coz / CFG.lav) que o
 //     importador do ML usa, com a mesma estrutura de dados.
@@ -20,10 +26,12 @@
   'use strict';
 
   var _im = {
-    cat:    'coz',
-    margem: 10,
-    fotos:  [],   // array de dataURLs (base64)
-    selIdx: 0,    // índice da foto principal selecionada
+    cat:        'coz',
+    margem:     10,
+    fotos:      [],   // array de dataURLs (base64) — vão pro catálogo
+    refs:       [],   // array de dataURLs (base64) — prints só pra IA ler, NÃO vão pro catálogo
+    selIdx:     0,     // índice da foto principal selecionada
+    iaCarregando: false,
   };
 
   // ─── Utilitários (mesmos do app-ml-import.js) ──────────────
@@ -113,10 +121,153 @@
     img.src = dataUrl;
   }
 
+  // ─── Upload de prints de referência (só pra IA ler, não vira foto do catálogo) ─
+  function _handleRefs(input) {
+    var files = Array.prototype.slice.call(input.files || []);
+    if (!files.length) return;
+
+    var pendentes = files.length;
+    files.forEach(function(file) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        _redimensionar(e.target.result, function(dataUrlFinal) {
+          _im.refs.push(dataUrlFinal);
+          pendentes--;
+          if (pendentes === 0) {
+            input.value = '';
+            _renderModal();
+          }
+        });
+      };
+      reader.onerror = function() {
+        console.warn('[Import-Manual] falha ao ler print:', file.name);
+        pendentes--;
+        if (pendentes === 0) _renderModal();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function _removerRef(idx) {
+    _im.refs.splice(idx, 1);
+    _renderModal();
+  }
+
   function _removerFoto(idx) {
     _im.fotos.splice(idx, 1);
     if (_im.selIdx >= _im.fotos.length) _im.selIdx = Math.max(0, _im.fotos.length - 1);
     _renderModal();
+  }
+
+  // ─── Preenchimento automático via IA (visão) ────────────────
+  // Manda os prints/fotos do produto pra Claude (mesma chave salva
+  // em CFG.emp.apiKey usada pelo app-tum-ia.js) e pede de volta um
+  // JSON com título, nome curto, dimensões, descrição e preço (se
+  // visível na imagem). Zero rede pro Mercado Livre — só processa
+  // imagens que o usuário mesmo já capturou, então não depende de
+  // proxy/CORS/bloqueio de scraping.
+  function _imPromptSistema() {
+    return 'Você analisa fotos/prints de anúncios de cubas de cozinha ou banheiro (pias em aço inox, granito, louça etc.) '
+      + 'de um catálogo de uma marmoraria. A partir das imagens fornecidas (que podem ser fotos do produto e/ou prints da '
+      + 'página de um anúncio de e-commerce), extraia as informações do produto.\n\n'
+      + 'Responda APENAS com um objeto JSON válido, sem markdown, sem ```json, sem texto antes ou depois. Formato exato:\n'
+      + '{"titulo":"...","nome_curto":"...","dimensoes":"...","descricao":"...","preco":0}\n\n'
+      + 'Regras:\n'
+      + '- "titulo": título completo e comercial do produto (estilo anúncio), inclua material, modelo, dimensões e ítens inclusos se visíveis.\n'
+      + '- "nome_curto": nome curto pra exibir num card de catálogo (máx. 40 caracteres), ex: "Cuba Gourmet Inox 56x34".\n'
+      + '- "dimensoes": dimensões no formato "LxAxP" ou similar (ex: "56x34x17cm"), só o que conseguir identificar com confiança. Se não der pra ver, deixe "".\n'
+      + '- "descricao": 2-4 frases descrevendo material, acabamento, formato e diferenciais — sem inventar especificações que não estão visíveis nem mencionar marca/loja de origem.\n'
+      + '- "preco": valor numérico em reais visível no print (sem R$, sem separador de milhar, use ponto decimal). Se não houver preço visível, use 0.\n'
+      + 'Se alguma imagem não ajudar a identificar nada, ignore-a. Se não conseguir extrair nada útil de nenhuma imagem, ainda assim responda com o JSON, com campos vazios/0 onde não souber.';
+  }
+
+  function _imPreencherIA() {
+    if (_im.iaCarregando) return;
+
+    if (!_im.fotos.length && !_im.refs.length) {
+      _imAlerta('⚠️ Selecione pelo menos uma foto do produto ou um print de referência antes de usar a IA.');
+      return;
+    }
+
+    var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
+    if (!key) {
+      _imAlerta('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Anthropic (sk-ant-...).');
+      return;
+    }
+    if (key.indexOf('sk-ant-') !== 0) {
+      _imAlerta('⚠️ Preenchimento por IA precisa de uma chave Anthropic (sk-ant-...). A Groq não suporta visão.');
+      return;
+    }
+
+    // Limita o total de imagens enviadas pra não estourar payload/custo.
+    // Prioriza os prints de referência (geralmente têm título/descrição/
+    // especificações em texto, mais úteis pra extrair dados) e completa
+    // com as fotos do produto (foto destaque primeiro).
+    var ordemFotos = [_im.selIdx].concat(_im.fotos.map(function(_, i) { return i; }).filter(function(i) { return i !== _im.selIdx; }));
+    var fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; });
+    var refsEscolhidas  = _im.refs.slice();
+    var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, 6);
+
+    var content = escolhidas.map(function(dataUrl) {
+      var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : dataUrl }
+      };
+    });
+    content.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+    _im.iaCarregando = true;
+    _renderModal();
+
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        system: _imPromptSistema(),
+        messages: [{ role: 'user', content: content }]
+      })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+        var texto = (data.content && data.content[0] && data.content[0].text) || '';
+        var limpo = texto.replace(/```json|```/g, '').trim();
+        var json;
+        try { json = JSON.parse(limpo); }
+        catch (e) { throw new Error('a IA não devolveu um JSON válido'); }
+
+        _im.iaCarregando = false;
+        _renderModal();
+
+        var elTitulo = document.getElementById('im-titulo');
+        var elNome   = document.getElementById('im-nome');
+        var elDim    = document.getElementById('im-dim');
+        var elDesc   = document.getElementById('im-desc');
+        var elCusto  = document.getElementById('im-custo');
+
+        if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
+        if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
+        if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
+        if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
+        if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
+        _recalcular();
+
+        if (typeof toast === 'function') toast('🤖 Campos preenchidos pela IA! Confira antes de salvar.', 'ok');
+      })
+      .catch(function(e) {
+        _im.iaCarregando = false;
+        _renderModal();
+        console.error('[Import-Manual] IA falhou:', e.message || e);
+        _imAlerta('❌ Não consegui preencher automaticamente: ' + (e.message || e));
+      });
   }
 
   function _selecionarFoto(idx) {
@@ -153,13 +304,8 @@
   function _abrirModal(cat) {
     _im.cat    = cat || 'coz';
     _im.fotos  = [];
+    _im.refs   = [];
     _im.selIdx = 0;
-    // Limpa campos de texto para não vazar dados de um produto para o próximo
-    _im.titulo = '';
-    _im.nome   = '';
-    _im.dim    = '';
-    _im.custo  = '';
-    _im.desc   = '';
 
     if (!document.getElementById('imManualOv')) {
       var ov = document.createElement('div');
@@ -175,12 +321,6 @@
         + 'width:100%;max-width:520px;max-height:90dvh;overflow-y:auto;'
         + 'padding:20px 16px 32px;box-sizing:border-box;';
 
-      // Delegação de evento no box — persiste mesmo quando innerHTML é reescrito
-      box.addEventListener('click', function(e) {
-        var btn = e.target.closest('#imBtnSalvar');
-        if (btn) { e.stopPropagation(); _salvar(); }
-      });
-
       var inner = document.createElement('div');
       inner.id  = 'imManualModal';
       box.appendChild(inner);
@@ -189,9 +329,6 @@
     }
 
     document.getElementById('imManualOv').style.display = 'flex';
-    // Limpa o conteúdo interno para que _renderModal não leia valores antigos do DOM
-    var inner = document.getElementById('imManualModal');
-    if (inner) inner.innerHTML = '';
     _renderModal();
   }
 
@@ -204,19 +341,12 @@
     var wrap = document.getElementById('imManualModal');
     if (!wrap) return;
 
-    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza).
-    // Na primeira abertura do modal os campos do DOM ainda têm dados do produto anterior,
-    // por isso usamos _im.* (já limpos em _abrirModal) como fonte de verdade.
-    var domTitulo = document.getElementById('im-titulo');
-    var prevTitulo = domTitulo ? domTitulo.value : _im.titulo;
-    var domNome   = document.getElementById('im-nome');
-    var prevNome   = domNome   ? domNome.value   : _im.nome;
-    var domDim    = document.getElementById('im-dim');
-    var prevDim    = domDim    ? domDim.value    : _im.dim;
-    var domCusto  = document.getElementById('im-custo');
-    var prevCusto  = domCusto  ? domCusto.value  : _im.custo;
-    var domDesc   = document.getElementById('im-desc');
-    var prevDesc   = domDesc   ? domDesc.value   : _im.desc;
+    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza)
+    var prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
+    var prevNome   = (document.getElementById('im-nome')   || {}).value || '';
+    var prevDim    = (document.getElementById('im-dim')    || {}).value || '';
+    var prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
+    var prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
 
     var h = '';
 
@@ -243,8 +373,8 @@
     h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;">Título do anúncio</div>';
     h += '<textarea id="im-titulo" rows="3" placeholder="Ex: Cuba Gourmet Cozinha Inox 56x34x17cm Embutir Aço Inox Escovado 56L com Válvula e Sifão Antirruído" oninput="_imHandleTitulo(this)" style="width:100%;background:var(--s3);border:1px solid var(--gold3);border-radius:10px;padding:9px 11px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;resize:vertical;margin-bottom:12px;font-family:inherit;">' + _esc(prevTitulo) + '</textarea>';
 
-    // ─── Upload de fotos ──────────────────────────────────────
-    h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Fotos do produto</div>';
+    // ─── Upload de fotos do produto (essas vão pro catálogo) ──
+    h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Fotos do produto <span style="color:var(--t4);text-transform:none;letter-spacing:0;">(aparecem pro cliente no catálogo)</span></div>';
     h += '<label style="display:block;width:100%;padding:13px;border-radius:10px;border:1px dashed var(--gold3);background:var(--gdim);color:var(--gold2);font-size:.85rem;font-weight:700;text-align:center;cursor:pointer;margin-bottom:10px;box-sizing:border-box;">📷 Selecionar fotos da galeria (pode escolher várias)<input type="file" accept="image/*" multiple onchange="_imHandleFotos(this)" style="display:none;"></label>';
 
     if (_im.fotos.length) {
@@ -264,9 +394,35 @@
         h += '</div>';
       });
       h += '</div>';
-      h += '<div style="font-size:.55rem;color:var(--t4);margin-bottom:12px;">★ = foto destaque no catálogo. Toque na foto para marcar como destaque.</div>';
+      h += '<div style="font-size:.55rem;color:var(--t4);margin-bottom:14px;">★ = foto destaque no catálogo. Toque na foto para marcar como destaque.</div>';
     } else {
-      h += '<div style="text-align:center;padding:16px 0;color:var(--t3);font-size:.72rem;margin-bottom:12px;opacity:.7;">Nenhuma foto selecionada ainda</div>';
+      h += '<div style="text-align:center;padding:16px 0;color:var(--t3);font-size:.72rem;margin-bottom:14px;opacity:.7;">Nenhuma foto selecionada ainda</div>';
+    }
+
+    // ─── Upload de prints de referência (só pra IA ler — NÃO vão pro catálogo) ─
+    h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Prints de referência <span style="color:var(--t4);text-transform:none;letter-spacing:0;">(opcional — só pra IA ler, não aparecem no catálogo)</span></div>';
+    h += '<label style="display:block;width:100%;padding:13px;border-radius:10px;border:1px dashed var(--bd2);background:var(--s3);color:var(--t2);font-size:.85rem;font-weight:700;text-align:center;cursor:pointer;margin-bottom:10px;box-sizing:border-box;">📝 Selecionar prints do anúncio (título, descrição, especificações)<input type="file" accept="image/*" multiple onchange="_imHandleRefs(this)" style="display:none;"></label>';
+
+    if (_im.refs.length) {
+      h += '<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:6px;padding-bottom:4px;">';
+      _im.refs.forEach(function(ref, i) {
+        h += '<div style="position:relative;flex-shrink:0;">';
+        h += '<img src="' + ref + '" style="width:62px;height:62px;object-fit:cover;border-radius:8px;border:1px solid var(--bd2);box-sizing:border-box;display:block;">';
+        h += '<button onclick="_imRemoverRef(' + i + ')" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c0392b;color:#fff;border:none;font-size:.65rem;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>';
+        h += '</div>';
+      });
+      h += '</div>';
+      h += '<div style="font-size:.55rem;color:var(--t4);margin-bottom:6px;">Esses prints só ajudam a IA a preencher os campos — não viram foto do produto.</div>';
+    }
+
+    // ─── Botão de preenchimento por IA (aparece com qualquer imagem carregada) ─
+    if (_im.fotos.length || _im.refs.length) {
+      if (_im.iaCarregando) {
+        h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
+      } else {
+        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
+      }
+      h += '<div style="font-size:.55rem;color:var(--t4);margin-top:-9px;margin-bottom:14px;">Sempre confira o que a IA preencheu antes de salvar.</div>';
     }
 
     // ─── Nome curto ───────────────────────────────────────────
@@ -291,25 +447,13 @@
 
     h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:14px;padding:7px 10px;background:rgba(0,0,0,.2);border-radius:8px;border-left:2px solid var(--t4);">🔒 Preço de custo é dado interno — não aparece para clientes.</div>';
 
-    h += '<button id="imBtnSalvar" style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;background:linear-gradient(135deg,#a07828,var(--gold2));color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">✓ Salvar produto</button>';
+    h += '<button onclick="_imSalvar()" style="width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;background:linear-gradient(135deg,#a07828,var(--gold2));color:#0f0c00;font-family:Outfit,sans-serif;font-size:.9rem;font-weight:700;">✓ Salvar produto</button>';
 
     wrap.innerHTML = h;
-
-    // Bind do botão salvar via addEventListener — mais confiável que onclick inline
-    var btnSalvar = document.getElementById('imBtnSalvar');
-    if (btnSalvar) {
-      btnSalvar.addEventListener('click', function(e) {
-        e.stopPropagation();
-        _salvar();
-      });
-    }
   }
 
   // ─── Salvar ─────────────────────────────────────────────────
   function _salvar() {
-    // DEBUG TEMPORÁRIO — remover após confirmar que funciona
-    console.log('[import-manual] _salvar chamado. CFG:', typeof CFG, 'cat:', _im.cat);
-
     var elTitulo = document.getElementById('im-titulo');
     var elNome   = document.getElementById('im-nome');
     var elDim    = document.getElementById('im-dim');
@@ -324,14 +468,6 @@
       if (elTitulo) elTitulo.focus();
       return;
     }
-
-    // Garante que CFG existe e tem as listas necessárias
-    if (typeof CFG === 'undefined' || !CFG) {
-      _imAlerta('❌ Erro: configuração do sistema não carregada. Recarregue o app.');
-      return;
-    }
-    if (!CFG.coz) CFG.coz = [];
-    if (!CFG.lav) CFG.lav = [];
 
     var titulo = (elTitulo && elTitulo.value.trim()) || nome;
     var dim    = (elDim    && elDim.value.trim())    || '';
@@ -349,8 +485,7 @@
       brand:   '',
       dim:     dim,
       desc:    desc,
-      pr:      Math.round(venda * 100) / 100,
-      pr_orig: custo > 0 ? Math.round(custo * 100) / 100 : 0,
+      pr:      Math.round(venda),
       inst:    cat === 'coz' ? 110 : 220,
       instCli: cat === 'coz' ? 160 : 280,
       photo:   _im.fotos.length ? _im.fotos[_im.selIdx] : '',
@@ -366,26 +501,15 @@
       novaCuba.photo = dest;
     }
 
-    try {
-      var lista = cat === 'coz' ? CFG.coz : CFG.lav;
-      lista.push(novaCuba);
+    var lista = cat === 'coz' ? CFG.coz : CFG.lav;
+    lista.push(novaCuba);
 
-      // svCFG() já extrai e salva fotos[] em hr_cuba_fotos automaticamente.
-      // Não precisamos salvar manualmente aqui — evita duplo-write e conflito.
+    if (typeof svCFG         === 'function') svCFG();
+    if (typeof buildCubaList === 'function') buildCubaList();
+    if (typeof buildCfg      === 'function') buildCfg();
+    if (typeof toast         === 'function') toast('✅ Produto salvo manualmente!');
 
-      if (typeof svCFG               === 'function') svCFG();
-      // Reinjetar fotos do localStorage no CFG em memória antes de renderizar,
-      // pois svCFG() salva as fotos separado e pode ter recarregado o mapa.
-      if (typeof _restoreCubaFotos   === 'function') _restoreCubaFotos();
-      if (typeof buildCubaList       === 'function') buildCubaList();
-      if (typeof buildCfg            === 'function') buildCfg();
-      if (typeof toast               === 'function') toast('✅ Produto salvo: ' + nome);
-
-      _fecharModal();
-    } catch(e) {
-      _imAlerta('❌ Erro ao salvar: ' + e.message);
-      console.error('[import-manual] _salvar erro:', e);
-    }
+    _fecharModal();
   }
 
   function _imAlerta(msg) {
@@ -402,8 +526,11 @@
   window._imSetCat         = function(cat) { _im.cat = cat; _renderModal(); };
   window._imHandleFotos    = _handleFotos;
   window._imRemoverFoto    = _removerFoto;
+  window._imHandleRefs     = _handleRefs;
+  window._imRemoverRef     = _removerRef;
   window._imSelecionarFoto = _selecionarFoto;
   window._imRecalcular     = _recalcular;
+  window._imPreencherIA    = _imPreencherIA;
   window._imHandleTitulo   = function(ta) {
     // Tenta extrair preço do título colado
     var elCusto = document.getElementById('im-custo');
@@ -440,7 +567,6 @@
           if (pendentes === 0) {
             input.value = '';
             svCFG();
-            if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
             buildCubaList();
             buildCfg();
             if (typeof toast === 'function') toast('📷 Fotos adicionadas!');
@@ -460,7 +586,6 @@
     cuba.fotos.unshift(dest);
     cuba.photo = dest;
     svCFG();
-    if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
     buildCubaList();
     buildCfg();
   };
@@ -472,7 +597,6 @@
     cuba.fotos.splice(fotoIdx, 1);
     cuba.photo = cuba.fotos.length ? cuba.fotos[0] : '';
     svCFG();
-    if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
     buildCubaList();
     buildCfg();
   };
