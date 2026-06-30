@@ -414,10 +414,12 @@
       });
   }
 
-  // ─── Caminho alternativo: extração via IA (Claude) ──────────
+  // ─── Caminho alternativo: extração via IA (Groq) ─────────────
   // Não depende da API/catálogo do ML. Pega o conteúdo já renderizado
   // da página (r.jina.ai executa o JS) + as URLs de imagem do HTML
   // bruto, e pede pra IA estruturar título/preço/marca/dimensões.
+  // Usa a mesma API Key Groq já configurada em Config → Inteligência
+  // Artificial (CFG.emp.apiKey), formato OpenAI-compatible (gsk_...).
   function _getApiKey() {
     return (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey.trim() : '';
   }
@@ -436,8 +438,8 @@
 
   function _buscarComIA(rawUrl) {
     var key = _getApiKey();
-    if (!key || key.indexOf('sk-ant-') !== 0) {
-      _showStatus('⚠️ Configure a API Key da Anthropic (Config → API Key, começa com sk-ant-) pra usar a busca por IA.', 'warn');
+    if (!key) {
+      _showStatus('⚠️ Configure a API Key Groq (Config → Inteligência Artificial) pra usar a busca por IA.', 'warn');
       return;
     }
 
@@ -477,25 +479,26 @@
           + 'description = 1 a 2 frases descrevendo o produto. material = Inox, Louça ou Pedra '
           + '(chute o mais provável pelo texto). Se não achar o preço, use 0.';
 
-        return fetch('https://api.anthropic.com/v1/messages', {
+        return fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': key,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
+            'Authorization': 'Bearer ' + key
           },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
+            model: 'llama-3.3-70b-versatile',
             max_tokens: 600,
-            system: sys,
-            messages: [{ role: 'user', content: 'Conteúdo da página:\n\n' + texto }]
+            response_format: { type: 'json_object' },
+            messages: [
+              { role: 'system', content: sys },
+              { role: 'user', content: 'Conteúdo da página:\n\n' + texto }
+            ]
           })
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-          var txt = (data.content && data.content[0] && data.content[0].text) || '';
+          var txt = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
           var jm  = txt.match(/\{[\s\S]*\}/);
           if (!jm) throw new Error('IA não devolveu JSON válido');
           var info;
