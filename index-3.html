@@ -5333,19 +5333,21 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
 
   // ─── Extrai ID do ML de qualquer link ──────────────────────
   function _extractId(raw) {
-    var url = (raw || '').trim();
-    var h = url.indexOf('#');
-    if (h !== -1) url = url.substring(0, h);
+    var full = (raw || '').trim(); // URL completa, com fragmento (#...)
+    var url  = full;
+    var h    = full.indexOf('#');
+    if (h !== -1) url = full.substring(0, h);
     url = url.trim();
 
     var m;
 
-    // wid= (item real em URLs de compartilhamento)
-    m = url.match(/[?&]wid=(MLB\d+)/i);
+    // wid= aparece APÓS o # em links de compartilhamento do ML —
+    // deve ser buscado na URL completa (antes de cortar o fragmento)
+    m = full.match(/[?&#]wid=(MLB\d+)/i);
     if (m) return { id: m[1].toUpperCase(), isCatalog: false };
 
-    // item_id dentro de pdp_filters
-    m = url.match(/item_id:(MLB\d+)/i);
+    // item_id dentro de pdp_filters (também pode vir antes do #)
+    m = full.match(/item_id:(MLB\d+)/i);
     if (m) return { id: m[1].toUpperCase(), isCatalog: false };
 
     // /p/MLBxxxxxxx = catálogo
@@ -6057,12 +6059,12 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
   };
 
   window._mlSetUrl = function(val) {
-    _ml.urlAtual = (val || '').trim().split('#')[0].trim();
+    _ml.urlAtual = (val || '').trim(); // preserva fragmento (#wid=...) para extração de ID
   };
 
   window._mlColarEBuscar = function(btn) {
     function _executar(text) {
-      var url = (text || '').trim().split('#')[0].trim();
+      var url = (text || '').trim(); // preserva fragmento (#wid=...) para extração de ID
       var inp = document.getElementById('ml-url-inp');
       if (inp) inp.value = url || text;
       _ml.urlAtual = url;
@@ -6101,7 +6103,7 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
   window._mlHandlePaste = function(evt, inp) {
     evt.preventDefault();
     function _aplicar(text) {
-      var url = (text || '').trim().split('#')[0].trim();
+      var url = (text || '').trim(); // preserva fragmento (#wid=...) para extração de ID
       inp.value    = url;
       _ml.urlAtual = url;
       if (url) { _ml.data = null; _ml.selPhoto = null; _buscar(url); }
@@ -6117,9 +6119,7 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
 
   window._mlBuscar = function() {
     var inp = document.getElementById('ml-url-inp');
-    var raw = (inp ? inp.value.trim() : '') || _ml.urlAtual || '';
-    var url = raw.split('#')[0].trim();
-    if (inp && url !== raw) inp.value = url;
+    var url = (inp ? inp.value.trim() : '') || _ml.urlAtual || ''; // preserva fragmento
     if (!url) { _showStatus('⚠️ Cole o link antes de buscar.', 'warn'); return; }
     _ml.urlAtual = url;
     _ml.data     = null;
