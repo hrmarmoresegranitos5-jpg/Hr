@@ -3,26 +3,22 @@
 // HR Mármores e Granitos
 // ──────────────────────────────────────────────────────────────
 // Estratégia de busca (cascata, com log detalhado no console):
-//  1. API pública do ML direto  (api.mercadolibre.com)
+//  1. Proxy próprio (Cloudflare Worker hr-ml-proxy) — primeira opção,
+//     mais estável por não depender de serviços públicos de terceiros.
 //  2. allorigins.win  (proxy 1)
 //  3. corsproxy.io    (proxy 2 — hoje só funciona de localhost/GitHub.io/etc)
 //  4. thingproxy      (proxy 3)
 //
-// ⚠️ HISTÓRICO DE TENTATIVAS (27/06/2026):
+// ⚠️ HISTÓRICO DE TENTATIVAS:
 //  - CodeTabs:  desativado pelo próprio serviço por abuso de terceiros.
 //  - cors.x2u.in: hoje exige email + API key cadastrados (não dá pra
 //    usar sem cadastro prévio — por isso foi removido daqui).
 //  - killcors.com: serviço não existe mais (confirmado fora do ar).
 //  Removidos da lista para não desperdiçar tempo de timeout com eles.
-//
-// ⚠️ TODOS os proxies abaixo são serviços públicos gratuitos de
-// terceiros, fora do nosso controle. Eles aparecem e desaparecem,
-// mudam limites e bloqueiam países/IPs sem aviso — não há garantia
-// de funcionamento contínuo. Se isso continuar falhando com
-// frequência, a solução estrutural é um proxy próprio (Cloudflare
-// Worker grátis, ~100k requisições/dia de cortesia) em vez de
-// depender da sorte de terceiros. Avise se quiser seguir esse
-// caminho — é uma configuração única fora deste arquivo.
+//  - 30/06/2026: adicionado proxy próprio via Cloudflare Worker
+//    (hr-ml-proxy.hrproplay.workers.dev) como primeira tentativa,
+//    pois os proxies públicos vinham falhando com frequência.
+//    Os proxies públicos seguem como fallback de segurança.
 //
 // Suporte a links de item direto (MLB...), catálogo (/p/MLB...) e
 // links curtos de compartilhamento (mercadolivre.com/sec/...).
@@ -37,9 +33,14 @@
 
   var ML = 'https://api.mercadolibre.com';
 
+  // Proxy próprio (Cloudflare Worker) — tentado ANTES dos públicos,
+  // por ser mais estável e não depender de serviços de terceiros.
+  var WORKER_PROXY = 'https://hr-ml-proxy.hrproplay.workers.dev/';
+
   // Lista de proxies CORS, em ordem de tentativa. Cada um recebe a
   // URL alvo já com encodeURIComponent aplicado pelo chamador.
   var PROXIES = [
+    function(u) { return WORKER_PROXY + '?url=' + encodeURIComponent(u); },
     function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
     function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
     function(u) { return 'https://thingproxy.freeboard.io/fetch/' + u; },
@@ -629,9 +630,9 @@
 
     function _proximaTentativa(srcOriginal) {
       if (tentativas === 1) {
-        tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(srcOriginal), true);
+        tentarCarregar(WORKER_PROXY + '?url=' + encodeURIComponent(srcOriginal), true);
       } else if (tentativas === 2) {
-        tentarCarregar('https://corsproxy.io/?url=' + encodeURIComponent(srcOriginal), true);
+        tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(srcOriginal), true);
       } else {
         console.error('[ML-import] todas as ' + maxTentativas + ' tentativas de baixar a foto falharam. URL:', srcOriginal);
         cb(null);
@@ -844,7 +845,7 @@
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">API do ML → allorigins → corsproxy → thingproxy</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">API do ML → proxy próprio → allorigins → corsproxy → thingproxy</span>'
          + '</div>';
     }
 
