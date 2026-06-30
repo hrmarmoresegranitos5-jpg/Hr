@@ -338,11 +338,22 @@
     var promise;
 
     if (info.isCatalog) {
-      _showStatus('⏳ Resolvendo catálogo ' + info.id + '…', 'info');
-      promise = _resolveCatalog(info.id).then(function(itemId) {
-        _showStatus('⏳ Catálogo resolvido → ' + itemId + ', buscando item…', 'info');
-        return _getItem(itemId);
-      });
+      // Atalho: se a URL ja contem o item real (pdp_filters=item_id:MLB... ou wid=MLB...)
+      // usamos direto sem precisar resolver catalogo via proxy
+      var mItem = rawUrl.match(/item_id:(MLB\d+)/i) || rawUrl.match(/[?&#]wid=(MLB\d+)/i);
+      var itemDireto = mItem ? mItem[1].toUpperCase() : null;
+
+      if (itemDireto) {
+        console.info('[ML-import] item_id extraido da URL, pulando catalogo:', itemDireto);
+        _showStatus('⏳ Item encontrado na URL, buscando produto…', 'info');
+        promise = _getItem(itemDireto);
+      } else {
+        _showStatus('⏳ Resolvendo catálogo ' + info.id + '…', 'info');
+        promise = _resolveCatalog(info.id).then(function(itemId) {
+          _showStatus('⏳ Catálogo resolvido → ' + itemId + ', buscando item…', 'info');
+          return _getItem(itemId);
+        });
+      }
     } else {
       promise = _getItem(info.id).catch(function(eDireto) {
         console.warn('[ML-import] item direto falhou:', eDireto.message || eDireto);
@@ -450,39 +461,48 @@
 
   // ─── Download foto base64 (com fallback de proxy de imagem) ─
   function _downloadFotoB64(url, cb) {
+    if (!url) { cb(null); return; }
+    var tentativas = 0;
+    var maxTentativas = 3;
+
     function tentarCarregar(src, viaProxy) {
+      tentativas++;
       var img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = function() {
         try {
           var canvas = document.createElement('canvas');
-          var maxW   = 500;
+          var maxW   = 600;
           var scale  = Math.min(1, maxW / img.width);
           canvas.width  = Math.round(img.width  * scale);
           canvas.height = Math.round(img.height * scale);
           canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          var dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+          var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          console.info('[ML-import] foto baixada com sucesso (tentativa ' + tentativas + ')');
           cb(dataUrl);
         } catch (e) {
-          // Canvas "tainted" por falta de CORS na imagem original.
-          console.warn('[ML-import] canvas tainted ao processar foto, tentando proxy:', e.message || e);
-          if (!viaProxy) {
-            tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(src), true);
-          } else {
-            cb(null);
-          }
+          console.warn('[ML-import] canvas tainted (tentativa ' + tentativas + '):', e.message || e);
+          _proximaTentativa(src);
         }
       };
       img.onerror = function() {
-        console.warn('[ML-import] falha ao carregar foto:', src);
-        if (!viaProxy) {
-          tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(src), true);
-        } else {
-          cb(null);
-        }
+        console.warn('[ML-import] falha ao carregar foto (tentativa ' + tentativas + '):', src);
+        _proximaTentativa(src);
       };
       img.src = src;
     }
+
+    function _proximaTentativa(srcOriginal) {
+      if (tentativas === 1) {
+        tentarCarregar('https://api.allorigins.win/raw?url=' + encodeURIComponent(srcOriginal), true);
+      } else if (tentativas === 2) {
+        tentarCarregar('https://corsproxy.io/?url=' + encodeURIComponent(srcOriginal), true);
+      } else {
+        console.error('[ML-import] todas as ' + maxTentativas + ' tentativas de baixar a foto falharam. URL:', srcOriginal);
+        cb(null);
+      }
+    }
+
     tentarCarregar(url, false);
   }
 
@@ -546,7 +566,12 @@
       if (typeof svCFG         === 'function') svCFG();
       if (typeof buildCubaList === 'function') buildCubaList();
       if (typeof buildCfg      === 'function') buildCfg();
-      if (typeof toast         === 'function') toast('✅ Produto importado do ML e salvo!');
+
+      if (_ml.selPhoto && !b64) {
+        if (typeof toast === 'function') toast('⚠️ Produto salvo, mas a foto não pôde ser baixada. Adicione manualmente.');
+      } else {
+        if (typeof toast === 'function') toast('✅ Produto importado do ML e salvo!');
+      }
 
       _fecharModal();
     }
