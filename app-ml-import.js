@@ -1026,6 +1026,19 @@
   window._mlFecharModal = _fecharModal;
   window.abrirMLImport  = _abrirModal;
 
+  // Abre o formulário de edição vazio, sem precisar buscar nada.
+  // O usuário preenche nome, preço e dimensões manualmente.
+  window._mlInserirManual = function() {
+    _ml.loading  = false;
+    _ml.data     = {
+      title: '', price: 0, currency_id: 'BRL',
+      pictures: [], attributes: [], _manual: true
+    };
+    _ml.selPhoto = null;
+    _renderModal();
+    _showStatus('✏️ Preencha os dados do produto abaixo e salve.', 'info');
+  };
+
   window._mlSetCat = function(cat) {
     _ml.cat = cat;
     _renderModal();
