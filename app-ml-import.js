@@ -144,6 +144,56 @@
     });
   }
 
+  // ─── Fetch específico via Jina Reader, forçando engine de navegador ─
+  // O engine "auto" padrão do Jina às vezes usa um curl leve que o ML
+  // bloqueia/redireciona pra página de erro. Forçar x-engine:browser
+  // faz o Jina renderizar com um Chrome headless de verdade, igual o
+  // que um usuário real veria.
+  function _fetchJina(pageUrl, ms) {
+    ms = ms == null ? 18000 : ms;
+    var url = 'https://r.jina.ai/' + pageUrl;
+    return new Promise(function(resolve, reject) {
+      var done  = false;
+      var timer = setTimeout(function() {
+        if (!done) { done = true; reject(new Error('timeout jina (' + ms + 'ms)')); }
+      }, ms);
+      fetch(url, {
+        method: 'GET', mode: 'cors', credentials: 'omit',
+        headers: {
+          'x-engine': 'browser',
+          'x-timeout': '15',
+          'x-no-cache': 'true'
+        }
+      })
+        .then(function(r) {
+          if (done) return null;
+          if (!r.ok) { clearTimeout(timer); done = true; reject(new Error('HTTP ' + r.status)); return null; }
+          return r.text();
+        })
+        .then(function(text) {
+          if (done || text == null) return;
+          clearTimeout(timer);
+          done = true;
+          if (!text) { reject(new Error('jina devolveu vazio')); return; }
+          // Detecta página de erro/anti-bot do próprio ML (não é um
+          // erro de rede — o Jina respondeu OK, mas o conteúdo é
+          // a tela de erro do ML, não o anúncio real).
+          var baixo = text.toLowerCase();
+          if (baixo.indexOf('página de erro') !== -1 ||
+              baixo.indexOf('pagina de erro') !== -1 ||
+              (baixo.indexOf('ocorreu um erro') !== -1 && text.length < 2000)) {
+            reject(new Error('ML devolveu página de erro/anti-bot (bloqueio do site, não da nossa rede)'));
+            return;
+          }
+          resolve(text);
+        })
+        .catch(function(e) {
+          clearTimeout(timer);
+          if (!done) { done = true; reject(e); }
+        });
+    });
+  }
+
   // ─── Fetch único com timeout ────────────────────────────────
   // Sempre lê como texto e faz o parse manualmente quando asJson=true.
   // Isso evita falhas quando um proxy devolve Content-Type errado
@@ -451,10 +501,14 @@
 
     var pageUrl = rawUrl.split('#')[0].trim();
 
-    // Busca em paralelo: texto renderizado (jina, prioritário) e HTML
-    // bruto (pra extrair URLs de imagem por regex).
-    var pTexto = _fetchOnce('https://r.jina.ai/' + pageUrl, 12000, false)
-      .catch(function() { return _fetchComProxies(pageUrl, false); });
+    // Busca em paralelo: texto renderizado (jina com engine browser,
+    // prioritário) e HTML bruto (pra extrair URLs de imagem por regex).
+    var pTexto = _fetchJina(pageUrl, 18000)
+      .catch(function(eJina) {
+        console.warn('[ML-import-IA] jina (browser engine) falhou:', eJina.message || eJina);
+        _showStatus('🤖 Tentando rota alternativa de leitura…', 'info');
+        return _fetchComProxies(pageUrl, false);
+      });
     var pHtml = _fetchComProxies(pageUrl, false).catch(function() { return ''; });
 
     Promise.all([pTexto, pHtml])
@@ -462,6 +516,14 @@
         var texto = (res[0] || '').slice(0, 14000);
         var html  = res[1] || '';
         if (!texto) throw new Error('não consegui ler o conteúdo da página');
+
+        // Mesma checagem de página de erro, agora também no resultado
+        // final (cobre o caso em que o fallback via proxy também
+        // trouxe a tela de erro do ML em vez do anúncio real).
+        var baixo = texto.toLowerCase();
+        if ((baixo.indexOf('página de erro') !== -1 || baixo.indexOf('pagina de erro') !== -1) && texto.length < 3000) {
+          throw new Error('o Mercado Livre bloqueou a leitura dessa página (anti-bot). Tente abrir o link no navegador, aguardar carregar completamente, e copiar de novo — ou aguarde alguns minutos e tente outra vez.');
+        }
 
         var imagens = _extrairImagensDoHtml(html);
         if (!imagens.length) imagens = _extrairImagensDoHtml(texto);
@@ -504,6 +566,9 @@
           var info;
           try { info = JSON.parse(jm[0]); } catch (e) { throw new Error('JSON da IA inválido: ' + e.message); }
           if (!info.title) throw new Error('IA não conseguiu identificar o título do produto');
+          if (/p[áa]gina de erro|n[ãa]o encontrad[ao]|anúncio (pausado|removido)/i.test(info.title)) {
+            throw new Error('a IA leu uma página de erro do ML, não um produto real. Tente novamente em alguns instantes ou use outro link.');
+          }
           return { info: info, imagens: imagens };
         });
       })
