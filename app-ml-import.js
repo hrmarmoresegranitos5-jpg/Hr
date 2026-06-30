@@ -356,19 +356,29 @@
         });
       }
     } else {
-      promise = _getItem(info.id).catch(function(eDireto) {
-        console.warn('[ML-import] item direto falhou na 1ª passada:', eDireto.message || eDireto);
-        // NÃO trocar de ID aqui: se chegamos nesse "else" é porque já
-        // temos o ID REAL do item (via wid=/item_id= ou MLB na URL).
-        // Antes esse catch caía pra resolver o ID do /p/MLBxxxx (o
-        // catálogo, que é um produto DIFERENTE) — isso fazia a busca
-        // terminar com "página do catálogo não revelou o item" mesmo
-        // quando o item certo já era conhecido. Em vez disso, tenta de
-        // novo o MESMO id, agora também via r.jina.ai (renderiza a
-        // página, último recurso quando os proxies CORS falham).
-        _showStatus('⏳ Tentativa 1 falhou, tentando de novo (rede lenta)…', 'info');
-        return _getItem(info.id);
-      });
+      promise = _getItem(info.id)
+        .catch(function(eDireto) {
+          console.warn('[ML-import] item direto falhou na 1ª passada:', eDireto.message || eDireto);
+          _showStatus('⏳ Tentativa 1 falhou, tentando de novo (rede lenta)…', 'info');
+          return _getItem(info.id);
+        })
+        .catch(function(eDireto2) {
+          console.warn('[ML-import] item direto falhou na 2ª passada:', eDireto2.message || eDireto2);
+          // O id que temos (wid=/item_id=/MLB da URL) pode não ser um
+          // anúncio vendável de verdade — alguns links do ML trazem o
+          // id da VARIAÇÃO do catálogo, que não existe em /items/.
+          // Se a URL também tiver um /p/MLBxxxx (id do catálogo em si),
+          // tenta resolver esse catálogo pra achar um anúncio real.
+          var catalogM = rawUrl.match(/\/p\/(MLB\d+)/i);
+          if (catalogM && catalogM[1].toUpperCase() !== info.id) {
+            _showStatus('⏳ "' + info.id + '" não é um anúncio direto, resolvendo catálogo…', 'info');
+            return _resolveCatalog(catalogM[1].toUpperCase()).then(function(itemId) {
+              _showStatus('⏳ Catálogo resolvido → ' + itemId + ', buscando item…', 'info');
+              return _getItem(itemId);
+            });
+          }
+          throw eDireto2;
+        });
     }
 
     promise
@@ -391,16 +401,137 @@
         _renderModal();
         var msg = (e && e.message) || 'Erro desconhecido';
         console.error('[ML-import] busca falhou definitivamente:', msg);
-        if (msg.indexOf('sem título') !== -1 || msg.indexOf('título') !== -1) {
-          msg = 'Produto não encontrado (pode estar pausado, removido ou o link é inválido).';
+        if (msg.indexOf('catalog_product_id') !== -1 || msg.indexOf('buy_box_winner') !== -1 ||
+            msg.indexOf('/items veio vazio') !== -1 || msg.indexOf('não revelou o item') !== -1) {
+          msg = 'Não encontrei nenhum anúncio ativo vinculado a esse produto do catálogo (pode estar sem vendedor no momento, ou o produto saiu de linha). Tente abrir o anúncio específico (não a página de catálogo "Comprar") e copiar esse link.';
+        } else if (msg.indexOf('sem título') !== -1 || msg.indexOf('título') !== -1) {
+          msg = 'Anúncio não encontrado (pausado, removido, ou o ID do link não é um anúncio vendável).';
         } else if (msg.indexOf('falharam') !== -1) {
-          msg = 'Não consegui acessar o Mercado Livre agora (rede/proxy bloqueado). Veja o console (F12) para detalhes, ou tente novamente em alguns segundos.';
+          msg = 'Não consegui acessar o Mercado Livre agora (rede/proxy bloqueado). Tente de novo em alguns segundos.';
         }
         _showStatus('❌ ' + msg, 'error');
       });
   }
 
-  // ─── Helpers de dados ──────────────────────────────────────
+  // ─── Caminho alternativo: extração via IA (Claude) ──────────
+  // Não depende da API/catálogo do ML. Pega o conteúdo já renderizado
+  // da página (r.jina.ai executa o JS) + as URLs de imagem do HTML
+  // bruto, e pede pra IA estruturar título/preço/marca/dimensões.
+  function _getApiKey() {
+    return (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey.trim() : '';
+  }
+
+  function _extrairImagensDoHtml(html) {
+    var urls = [];
+    var re = /https?:\/\/[^\s"'\\]+?\.mlstatic\.com\/[^\s"'\\)]+?\.(?:jpg|jpeg|png|webp)/gi;
+    var m;
+    while ((m = re.exec(html)) !== null) {
+      // normaliza pra versão grande quando possível (-O.jpg / -F.jpg = full/orig)
+      var u = m[0].replace(/-[A-Z]\.(jpg|jpeg|png|webp)$/i, '-O.$1');
+      if (urls.indexOf(u) === -1) urls.push(u);
+    }
+    return urls.slice(0, 8);
+  }
+
+  function _buscarComIA(rawUrl) {
+    var key = _getApiKey();
+    if (!key || key.indexOf('sk-ant-') !== 0) {
+      _showStatus('⚠️ Configure a API Key da Anthropic (Config → API Key, começa com sk-ant-) pra usar a busca por IA.', 'warn');
+      return;
+    }
+
+    _ml.loading  = true;
+    _ml.data     = null;
+    _ml.selPhoto = null;
+    _renderModal();
+    _showStatus('🤖 Lendo a página do anúncio…', 'info');
+
+    var pageUrl = rawUrl.split('#')[0].trim();
+
+    // Busca em paralelo: texto renderizado (jina, prioritário) e HTML
+    // bruto (pra extrair URLs de imagem por regex).
+    var pTexto = _fetchOnce('https://r.jina.ai/' + pageUrl, 12000, false)
+      .catch(function() { return _fetchComProxies(pageUrl, false); });
+    var pHtml = _fetchComProxies(pageUrl, false).catch(function() { return ''; });
+
+    Promise.all([pTexto, pHtml])
+      .then(function(res) {
+        var texto = (res[0] || '').slice(0, 14000);
+        var html  = res[1] || '';
+        if (!texto) throw new Error('não consegui ler o conteúdo da página');
+
+        var imagens = _extrairImagensDoHtml(html);
+        if (!imagens.length) imagens = _extrairImagensDoHtml(texto);
+
+        _showStatus('🤖 IA analisando título, preço e descrição…', 'info');
+
+        var sys = 'Você extrai dados de uma página de produto do Mercado Livre (cuba/pia de cozinha '
+          + 'ou banheiro). Responda APENAS com um JSON válido, sem markdown, sem texto antes ou depois, '
+          + 'no formato exato: {"title":"...","price":0,"brand":"...","dim":"...","description":"...",'
+          + '"material":"Inox|Louça|Pedra"}. '
+          + 'title = nome do produto (limpo, sem emojis/promoção). price = preço atual em reais, '
+          + 'número puro (ex: 271.00, sem "R$" e sem separador de milhar, use ponto decimal). '
+          + 'brand = marca/fabricante se houver, senão "". dim = dimensões no formato '
+          + '"LARGURAxPROFUNDIDADExALTURAcm" ou o que estiver disponível, senão "". '
+          + 'description = 1 a 2 frases descrevendo o produto. material = Inox, Louça ou Pedra '
+          + '(chute o mais provável pelo texto). Se não achar o preço, use 0.';
+
+        return fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 600,
+            system: sys,
+            messages: [{ role: 'user', content: 'Conteúdo da página:\n\n' + texto }]
+          })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          var txt = (data.content && data.content[0] && data.content[0].text) || '';
+          var jm  = txt.match(/\{[\s\S]*\}/);
+          if (!jm) throw new Error('IA não devolveu JSON válido');
+          var info;
+          try { info = JSON.parse(jm[0]); } catch (e) { throw new Error('JSON da IA inválido: ' + e.message); }
+          if (!info.title) throw new Error('IA não conseguiu identificar o título do produto');
+          return { info: info, imagens: imagens };
+        });
+      })
+      .then(function(r) {
+        var info = r.info;
+        var item = {
+          id:         'ia_' + Date.now(),
+          title:      info.title || '',
+          price:      Number(info.price) || 0,
+          pictures:   r.imagens.map(function(u) { return { url: u, size: 'O' }; }),
+          attributes: info.brand ? [{ id: 'BRAND', name: 'Marca', value_name: info.brand }] : [],
+          permalink:  pageUrl,
+          _desc:      info.description || '',
+          _dimIA:     info.dim || '',
+          _matIA:     info.material || '',
+          _ia:        true,
+        };
+        _ml.data     = item;
+        _ml.selPhoto = _bestPhoto(item);
+        _ml.loading  = false;
+        _renderModal();
+        _showStatus('✅ Produto extraído por IA! Confira os dados antes de salvar.', 'ok');
+      })
+      .catch(function(e) {
+        _ml.loading = false;
+        _renderModal();
+        console.error('[ML-import-IA] falhou:', e.message || e);
+        _showStatus('❌ IA não conseguiu extrair os dados: ' + ((e && e.message) || e), 'error');
+      });
+  }
+
+
   function _bestPhoto(item) {
     var pics = item.pictures || [];
     if (!pics.length) return null;
@@ -418,6 +549,7 @@
   }
 
   function _inferDim(item) {
+    if (item._dimIA) return item._dimIA;
     var atrs = item.attributes || [];
     var dims = [];
     atrs.forEach(function(a) {
@@ -451,6 +583,7 @@
   }
 
   function _inferTipoMat(item) {
+    if (item._matIA) return item._matIA;
     var txt = ((item.title || '') + ' ' + (item._desc || '')).toLowerCase();
     if (txt.indexOf('louça') !== -1 || txt.indexOf('cerâmica') !== -1 ||
         txt.indexOf('porcelana') !== -1) return 'Louça';
@@ -695,6 +828,13 @@
        + (_ml.loading ? '⏳' : '🔍 Buscar') + '</button>';
     h += '</div>';
 
+    // Botão alternativo: extração via IA (não depende da API/catálogo do ML)
+    h += '<button onclick="_mlBuscarIA()" '
+       + 'style="width:100%;padding:11px;border-radius:10px;border:1px solid var(--bd2);'
+       + 'background:var(--s3);color:var(--t2);font-size:.78rem;font-weight:600;'
+       + 'cursor:pointer;margin-bottom:10px;">'
+       + (_ml.loading ? '⏳ Buscando…' : '🤖 Tentar com IA (alternativa, se a busca normal falhar)') + '</button>';
+
     // Status
     h += '<div id="ml-status" style="min-height:18px;font-size:.72rem;'
        + 'color:var(--t3);margin-bottom:8px;"></div>';
@@ -790,7 +930,7 @@
          + '🔒 Preço de custo é dado interno — não aparece para clientes.</div>';
 
       h += '<div style="font-size:.58rem;color:var(--t3);margin-bottom:10px;opacity:.7;">'
-         + (d._scraped ? '📄 Dados obtidos via página do produto' : '✅ Dados obtidos via API oficial ML')
+         + (d._ia ? '🤖 Dados extraídos por IA — confira preço e título antes de salvar' : d._scraped ? '📄 Dados obtidos via página do produto' : '✅ Dados obtidos via API oficial ML')
          + '</div>';
 
       h += '<button onclick="_mlSalvar()" '
@@ -889,6 +1029,14 @@
     _ml.data     = null;
     _ml.selPhoto = null;
     _buscar(url);
+  };
+
+  window._mlBuscarIA = function() {
+    var inp = document.getElementById('ml-url-inp');
+    var url = (inp ? inp.value.trim() : '') || _ml.urlAtual || '';
+    if (!url) { _showStatus('⚠️ Cole o link antes de buscar.', 'warn'); return; }
+    _ml.urlAtual = url;
+    _buscarComIA(url);
   };
 
   window._mlSelecionarFoto = function(idx) {
