@@ -185,15 +185,16 @@
     var tentativas = [{ label: 'direto', url: targetUrl }]
       .concat(PROXIES.map(function(fn, i) {
         return { label: 'proxy' + (i + 1), url: fn(targetUrl) };
-      }));
+      }))
+      .concat([{ label: 'jina', url: 'https://r.jina.ai/' + targetUrl }]);
 
     function tentar(i) {
       if (i >= tentativas.length) {
         console.error('[ML-import] todas as tentativas falharam para', targetUrl);
-        return Promise.reject(new Error('Não foi possível acessar "' + targetUrl + '" (direto + ' + PROXIES.length + ' proxies falharam — veja o console para detalhes)'));
+        return Promise.reject(new Error('Não foi possível acessar "' + targetUrl + '" (direto + ' + (tentativas.length - 1) + ' proxies falharam — veja o console para detalhes)'));
       }
       var t = tentativas[i];
-      return _fetchOnce(t.url, 7000, asJson)
+      return _fetchOnce(t.url, 9000, asJson)
         .then(function(data) {
           // allorigins /raw já devolve o corpo puro; mas se vier um
           // wrapper { contents: "..." } (variante /get), desembrulha.
@@ -356,16 +357,17 @@
       }
     } else {
       promise = _getItem(info.id).catch(function(eDireto) {
-        console.warn('[ML-import] item direto falhou:', eDireto.message || eDireto);
-        // Item direto falhou — tenta via catálogo se o link tiver /p/
-        var catalogM = rawUrl.match(/\/p\/(MLB\d+)/i);
-        if (catalogM) {
-          _showStatus('⏳ Item indisponível, tentando via catálogo…', 'info');
-          return _resolveCatalog(catalogM[1].toUpperCase()).then(function(altId) {
-            return _getItem(altId);
-          });
-        }
-        throw eDireto;
+        console.warn('[ML-import] item direto falhou na 1ª passada:', eDireto.message || eDireto);
+        // NÃO trocar de ID aqui: se chegamos nesse "else" é porque já
+        // temos o ID REAL do item (via wid=/item_id= ou MLB na URL).
+        // Antes esse catch caía pra resolver o ID do /p/MLBxxxx (o
+        // catálogo, que é um produto DIFERENTE) — isso fazia a busca
+        // terminar com "página do catálogo não revelou o item" mesmo
+        // quando o item certo já era conhecido. Em vez disso, tenta de
+        // novo o MESMO id, agora também via r.jina.ai (renderiza a
+        // página, último recurso quando os proxies CORS falham).
+        _showStatus('⏳ Tentativa 1 falhou, tentando de novo (rede lenta)…', 'info');
+        return _getItem(info.id);
       });
     }
 
