@@ -25,13 +25,16 @@
 (function () {
   'use strict';
 
+  var MARGEM_PADRAO = 40;
+
   var _im = {
     cat:        'coz',
-    margem:     10,
+    margem:     MARGEM_PADRAO,
     fotos:      [],   // array de dataURLs (base64) — vão pro catálogo
     refs:       [],   // array de dataURLs (base64) — prints só pra IA ler, NÃO vão pro catálogo
     selIdx:     0,     // índice da foto principal selecionada
     iaCarregando: false,
+    _fresh:     false, // true logo após abrir o modal — força os campos de texto a começarem vazios (evita herdar dados da cuba anterior)
   };
 
   // ─── Utilitários (mesmos do app-ml-import.js) ──────────────
@@ -171,108 +174,179 @@
       + 'de um catálogo de uma marmoraria. A partir das imagens fornecidas (que podem ser fotos do produto e/ou prints da '
       + 'página de um anúncio de e-commerce), extraia as informações do produto.\n\n'
       + 'Responda APENAS com um objeto JSON válido, sem markdown, sem ```json, sem texto antes ou depois. Formato exato:\n'
-      + '{"titulo":"...","nome_curto":"...","dimensoes":"...","descricao":"...","preco":0}\n\n'
+      + '{"titulo":"...","nome_curto":"...","marca":"...","dimensoes":"...","descricao":"...","preco":0}\n\n'
       + 'Regras:\n'
       + '- "titulo": título completo e comercial do produto (estilo anúncio), inclua material, modelo, dimensões e ítens inclusos se visíveis.\n'
       + '- "nome_curto": nome curto pra exibir num card de catálogo (máx. 40 caracteres), ex: "Cuba Gourmet Inox 56x34".\n'
+      + '- "marca": marca/fabricante do produto (ex: "Tramontina", "Franke", "Deca"), só se estiver explicitamente visível no título, na descrição ou na especificação do print. NUNCA invente ou deduza uma marca — se não estiver escrita em algum lugar visível, deixe "".\n'
       + '- "dimensoes": dimensões no formato "LxAxP" ou similar (ex: "56x34x17cm"), só o que conseguir identificar com confiança. Se não der pra ver, deixe "".\n'
-      + '- "descricao": texto estruturado em seções, NUNCA um parágrafo único. Formato exato (use \\n entre as linhas):\n'
-      + '  1) Um parágrafo de abertura (2-3 frases) com material, acabamento e diferenciais.\n'
-      + '  2) Uma linha em branco, depois "Características:" seguido de uma linha por item, cada uma começando com "- " (ex: "- Material: Aço inoxidável premium.").\n'
-      + '  3) Se houver dimensões visíveis, uma linha em branco, depois "Dimensões:" com uma linha "- " por medida (Comprimento, Largura, Profundidade, Espessura).\n'
-      + '  4) Se houver itens/acessórios inclusos visíveis, uma linha em branco, depois "Itens Inclusos:" com uma linha "- " por item.\n'
-      + '  Inclua só as seções para as quais há informação visível nas imagens. Não invente especificações que não estão visíveis nem mencione marca/loja de origem.\n'
+      + '- "descricao": 2-4 frases descrevendo material, acabamento, formato e diferenciais — sem inventar especificações que não estão visíveis nem mencionar marca/loja de origem.\n'
       + '- "preco": valor numérico em reais visível no print (sem R$, sem separador de milhar, use ponto decimal). Se não houver preço visível, use 0.\n'
       + 'Se alguma imagem não ajudar a identificar nada, ignore-a. Se não conseguir extrair nada útil de nenhuma imagem, ainda assim responda com o JSON, com campos vazios/0 onde não souber.';
   }
 
+  // Mostra uma mensagem de status DENTRO do próprio modal (banner fixo
+  // acima do botão de IA). Não depende de #toast existir no DOM nem de
+  // alert()/confirm() estarem liberados pelo navegador — por isso é o
+  // canal principal de erro/sucesso da IA. tipo: 'info' | 'ok' | 'err'.
+  function _imStatusIA(msg, tipo) {
+    _im.iaMsg     = msg || '';
+    _im.iaMsgTipo = tipo || 'info';
+    var el = document.getElementById('im-ia-status');
+    if (el) {
+      el.textContent = _im.iaMsg;
+      el.style.display = _im.iaMsg ? 'block' : 'none';
+      el.style.color = tipo === 'err' ? '#e07860' : (tipo === 'ok' ? '#7cc088' : 'var(--t3)');
+      el.style.borderColor = tipo === 'err' ? '#7a3020' : (tipo === 'ok' ? '#2a5030' : 'var(--bd2)');
+    } else {
+      // Banner ainda não está no DOM (ex.: erro ocorreu antes do 1º
+      // render) — força um re-render pra garantir que ele apareça.
+      _renderModal();
+    }
+  }
+
   function _imPreencherIA() {
-    if (_im.iaCarregando) return;
+    try {
+      if (_im.iaCarregando) return;
 
-    if (!_im.fotos.length && !_im.refs.length) {
-      _imAlerta('⚠️ Selecione pelo menos uma foto do produto ou um print de referência antes de usar a IA.');
-      return;
+      if (!_im.fotos.length && !_im.refs.length) {
+        _imStatusIA('⚠️ Selecione pelo menos uma foto do produto ou um print de referência antes de usar a IA.', 'err');
+        return;
+      }
+
+      var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
+      if (!key) {
+        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...) ou Anthropic (sk-ant-...).', 'err');
+        return;
+      }
+
+      // Suporta tanto Groq (gratuita, usada no resto do app) quanto
+      // Anthropic — detecta pelo prefixo da chave já salva em
+      // CFG.emp.apiKey e monta a requisição no formato certo pra cada uma.
+      var ehAnthropic = key.indexOf('sk-ant-') === 0;
+      var LIMITE_IMGS = ehAnthropic ? 6 : 5; // Groq: máx. 5 imagens por requisição
+
+      // Limita o total de imagens enviadas pra não estourar payload/custo.
+      // Prioriza os prints de referência (geralmente têm título/descrição/
+      // especificações em texto, mais úteis pra extrair dados) e completa
+      // com as fotos do produto (foto destaque primeiro).
+      var fotosEscolhidas = [];
+      if (_im.fotos.length) {
+        var ordemFotos = [_im.selIdx].concat(_im.fotos.map(function(_, i) { return i; }).filter(function(i) { return i !== _im.selIdx; }));
+        fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; }).filter(Boolean);
+      }
+      var refsEscolhidas = _im.refs.slice();
+      var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, LIMITE_IMGS);
+
+      if (!escolhidas.length) {
+        _imStatusIA('⚠️ Nenhuma imagem válida pra analisar.', 'err');
+        return;
+      }
+
+      var url, headers, body;
+
+      if (ehAnthropic) {
+        var contentAnthropic = escolhidas.map(function(dataUrl) {
+          var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+          return {
+            type: 'image',
+            source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') }
+          };
+        });
+        contentAnthropic.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+        url = 'https://api.anthropic.com/v1/messages';
+        headers = {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        };
+        body = JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: _imPromptSistema(),
+          messages: [{ role: 'user', content: contentAnthropic }]
+        });
+      } else {
+        // Groq — gratuita, modelo com visão (formato compatível OpenAI).
+        var contentGroq = escolhidas.map(function(dataUrl) {
+          return { type: 'image_url', image_url: { url: dataUrl } };
+        });
+        contentGroq.unshift({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+        url = 'https://api.groq.com/openai/v1/chat/completions';
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + key
+        };
+        body = JSON.stringify({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [
+            { role: 'system', content: _imPromptSistema() },
+            { role: 'user', content: contentGroq }
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' }
+        });
+      }
+
+      _im.iaCarregando = true;
+      _imStatusIA('⏳ Consultando a IA…', 'info');
+      _renderModal();
+
+      fetch(url, { method: 'POST', headers: headers, body: body })
+        .then(function(r) {
+          return r.json().catch(function() {
+            throw new Error('resposta inválida da API (HTTP ' + r.status + ')');
+          });
+        })
+        .then(function(data) {
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          var texto = ehAnthropic
+            ? ((data.content && data.content[0] && data.content[0].text) || '')
+            : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
+          var limpo = texto.replace(/```json|```/g, '').trim();
+          var json;
+          try { json = JSON.parse(limpo); }
+          catch (e) { throw new Error('a IA não devolveu um JSON válido: ' + limpo.slice(0, 120)); }
+
+          _im.iaCarregando = false;
+
+          var elTitulo = document.getElementById('im-titulo');
+          var elNome   = document.getElementById('im-nome');
+          var elMarca  = document.getElementById('im-marca');
+          var elDim    = document.getElementById('im-dim');
+          var elDesc   = document.getElementById('im-desc');
+          var elCusto  = document.getElementById('im-custo');
+
+          if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
+          if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
+          if (elMarca  && json.marca)      elMarca.value  = json.marca;
+          if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
+          if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
+          if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
+
+          _renderModal();
+          _recalcular();
+          _imStatusIA('🤖 Campos preenchidos pela IA! Confira antes de salvar.', 'ok');
+          if (typeof toast === 'function') { try { toast('🤖 Campos preenchidos pela IA!'); } catch (e) {} }
+        })
+        .catch(function(e) {
+          _im.iaCarregando = false;
+          console.error('[Import-Manual] IA falhou:', e);
+          _imStatusIA('❌ Não consegui preencher automaticamente: ' + (e && e.message ? e.message : e), 'err');
+          _renderModal();
+        });
+    } catch (eSync) {
+      // Rede de segurança final: qualquer erro síncrono inesperado
+      // (ex.: elemento não encontrado) cai aqui em vez de morrer
+      // silenciosamente sem feedback nenhum pro usuário.
+      _im.iaCarregando = false;
+      console.error('[Import-Manual] erro síncrono em _imPreencherIA:', eSync);
+      _imStatusIA('❌ Erro inesperado: ' + (eSync && eSync.message ? eSync.message : eSync), 'err');
+      _renderModal();
     }
-
-    var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
-    if (!key) {
-      _imAlerta('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Anthropic (sk-ant-...).');
-      return;
-    }
-    if (key.indexOf('sk-ant-') !== 0) {
-      _imAlerta('⚠️ Preenchimento por IA precisa de uma chave Anthropic (sk-ant-...). A Groq não suporta visão.');
-      return;
-    }
-
-    // Limita o total de imagens enviadas pra não estourar payload/custo.
-    // Prioriza os prints de referência (geralmente têm título/descrição/
-    // especificações em texto, mais úteis pra extrair dados) e completa
-    // com as fotos do produto (foto destaque primeiro).
-    var ordemFotos = [_im.selIdx].concat(_im.fotos.map(function(_, i) { return i; }).filter(function(i) { return i !== _im.selIdx; }));
-    var fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; });
-    var refsEscolhidas  = _im.refs.slice();
-    var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, 6);
-
-    var content = escolhidas.map(function(dataUrl) {
-      var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
-      return {
-        type: 'image',
-        source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : dataUrl }
-      };
-    });
-    content.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
-
-    _im.iaCarregando = true;
-    _renderModal();
-
-    fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: _imPromptSistema(),
-        messages: [{ role: 'user', content: content }]
-      })
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-        var texto = (data.content && data.content[0] && data.content[0].text) || '';
-        var limpo = texto.replace(/```json|```/g, '').trim();
-        var json;
-        try { json = JSON.parse(limpo); }
-        catch (e) { throw new Error('a IA não devolveu um JSON válido'); }
-
-        _im.iaCarregando = false;
-        _renderModal();
-
-        var elTitulo = document.getElementById('im-titulo');
-        var elNome   = document.getElementById('im-nome');
-        var elDim    = document.getElementById('im-dim');
-        var elDesc   = document.getElementById('im-desc');
-        var elCusto  = document.getElementById('im-custo');
-
-        if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
-        if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
-        if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
-        if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
-        if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
-        _recalcular();
-
-        if (typeof toast === 'function') toast('🤖 Campos preenchidos pela IA! Confira antes de salvar.', 'ok');
-      })
-      .catch(function(e) {
-        _im.iaCarregando = false;
-        _renderModal();
-        console.error('[Import-Manual] IA falhou:', e.message || e);
-        _imAlerta('❌ Não consegui preencher automaticamente: ' + (e.message || e));
-      });
   }
 
   function _selecionarFoto(idx) {
@@ -308,9 +382,13 @@
   // ─── Modal ──────────────────────────────────────────────────
   function _abrirModal(cat) {
     _im.cat    = cat || 'coz';
+    _im.margem = MARGEM_PADRAO;
     _im.fotos  = [];
     _im.refs   = [];
     _im.selIdx = 0;
+    _im._fresh = true; // próximo _renderModal() não deve herdar valores da cuba anterior
+    _im.iaMsg     = '';
+    _im.iaMsgTipo = 'info';
 
     if (!document.getElementById('imManualOv')) {
       var ov = document.createElement('div');
@@ -346,12 +424,23 @@
     var wrap = document.getElementById('imManualModal');
     if (!wrap) return;
 
-    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza)
-    var prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
-    var prevNome   = (document.getElementById('im-nome')   || {}).value || '';
-    var prevDim    = (document.getElementById('im-dim')    || {}).value || '';
-    var prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
-    var prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
+    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza).
+    // Exceção: logo após abrir o modal (_fresh), os inputs em tela ainda são os da
+    // cuba anterior (o box do modal é reaproveitado, só escondido) — nesse caso os
+    // campos DEVEM começar vazios, senão a cuba nova herda título/nome/marca/etc.
+    // da última cuba salva.
+    var prevTitulo, prevNome, prevMarca, prevDim, prevCusto, prevDesc;
+    if (_im._fresh) {
+      prevTitulo = prevNome = prevMarca = prevDim = prevCusto = prevDesc = '';
+      _im._fresh = false;
+    } else {
+      prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
+      prevNome   = (document.getElementById('im-nome')   || {}).value || '';
+      prevMarca  = (document.getElementById('im-marca')  || {}).value || '';
+      prevDim    = (document.getElementById('im-dim')    || {}).value || '';
+      prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
+      prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
+    }
 
     var h = '';
 
@@ -423,16 +512,22 @@
     // ─── Botão de preenchimento por IA (aparece com qualquer imagem carregada) ─
     if (_im.fotos.length || _im.refs.length) {
       if (_im.iaCarregando) {
-        h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
+        h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
       } else {
-        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
+        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
       }
-      h += '<div style="font-size:.55rem;color:var(--t4);margin-top:-9px;margin-bottom:14px;">Sempre confira o que a IA preencheu antes de salvar.</div>';
+      // Banner de status — canal principal de feedback (erro/sucesso), não
+      // depende de #toast nem de alert() pra ser visível.
+      h += '<div id="im-ia-status" style="display:' + (_im.iaMsg ? 'block' : 'none') + ';font-size:.68rem;font-weight:600;line-height:1.4;padding:8px 10px;border-radius:8px;border:1px solid ' + (_im.iaMsgTipo === 'err' ? '#7a3020' : (_im.iaMsgTipo === 'ok' ? '#2a5030' : 'var(--bd2)')) + ';color:' + (_im.iaMsgTipo === 'err' ? '#e07860' : (_im.iaMsgTipo === 'ok' ? '#7cc088' : 'var(--t3)')) + ';margin-bottom:8px;">' + _esc(_im.iaMsg || '') + '</div>';
+      h += '<div style="font-size:.55rem;color:var(--t4);margin-bottom:14px;">Sempre confira o que a IA preencheu antes de salvar.</div>';
     }
 
     // ─── Nome curto ───────────────────────────────────────────
     h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Nome curto <span style="color:var(--t4);">(exibido no card do catálogo)</span></div>';
     h += '<input id="im-nome" type="text" value="' + _esc(prevNome) + '" placeholder="ex: Cuba Gourmet Inox 56x34" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.8rem;font-weight:600;box-sizing:border-box;outline:none;margin-bottom:10px;">';
+
+    h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Marca</div>';
+    h += '<input id="im-marca" type="text" value="' + _esc(prevMarca) + '" placeholder="ex: Tramontina, Franke, Deca..." style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.8rem;box-sizing:border-box;outline:none;margin-bottom:10px;">';
 
     h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Dimensões</div>';
     h += '<input id="im-dim" type="text" value="' + _esc(prevDim) + '" placeholder="ex: 56×34×17cm" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;margin-bottom:10px;">';
@@ -461,6 +556,7 @@
   function _salvar() {
     var elTitulo = document.getElementById('im-titulo');
     var elNome   = document.getElementById('im-nome');
+    var elMarca  = document.getElementById('im-marca');
     var elDim    = document.getElementById('im-dim');
     var elCusto  = document.getElementById('im-custo');
     var elMg     = document.getElementById('im-margem');
@@ -475,6 +571,7 @@
     }
 
     var titulo = (elTitulo && elTitulo.value.trim()) || nome;
+    var marca  = (elMarca  && elMarca.value.trim())  || '';
     var dim    = (elDim    && elDim.value.trim())    || '';
     var desc   = (elDesc   && elDesc.value.trim())   || '';
     var custo  = parseFloat(((elCusto && elCusto.value) || '0').replace(',', '.')) || 0;
@@ -487,7 +584,7 @@
       id:      'manual_' + Date.now(),
       nm:      nome,
       titulo:  titulo,
-      brand:   '',
+      brand:   marca,
       dim:     dim,
       desc:    desc,
       pr:      Math.round(venda),
