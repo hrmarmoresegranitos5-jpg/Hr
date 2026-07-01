@@ -147,6 +147,28 @@ function _escHtml(s) {
     .replace(/"/g,'&quot;');
 }
 
+// Mesma lógica de app-core... catalogo.html: preserva os blocos de descrição
+// (parágrafo, "Especificações Técnicas:", "Acessórios inclusos:" etc.) que a IA
+// separa com \n\n, em vez de jogar tudo numa linha só como _escHtml faz sozinho.
+var _CUBA_DESC_HEADER_RE = /^([A-ZÀ-Ú][^\n:]{2,40}:)\s*$/;
+function _fmtCubaDesc(s) {
+  var blocos = String(s || '').split(/\n\s*\n/).filter(function(b) { return b.trim(); });
+  return blocos.map(function(bloco) {
+    var linhas = bloco.split('\n').filter(function(l) { return l.trim(); });
+    if (!linhas.length) return '';
+    var primeira = linhas[0].trim();
+    var m = _CUBA_DESC_HEADER_RE.exec(primeira);
+    var corpo;
+    if (m) {
+      corpo = '<div style="font-weight:700;color:var(--tx);margin-bottom:3px;">' + _escHtml(primeira) + '</div>'
+        + linhas.slice(1).map(function(l) { return _escHtml(l.replace(/^[-•]\s*/, '')); }).join('<br>');
+    } else {
+      corpo = linhas.map(_escHtml).join('<br>');
+    }
+    return '<div style="margin-bottom:10px;">' + corpo + '</div>';
+  }).join('');
+}
+
 function _cubaPrecoFmt(cuba) {
   return cuba.pr > 0 ? 'R$\u00a0' + cuba.pr.toLocaleString('pt-BR') : 'Sob consulta';
 }
@@ -611,7 +633,7 @@ function _renderDetalhe(cuba, tipo, idx) {
     h += '<div style="font-size:.78rem;color:var(--t2);line-height:1.65;margin-bottom:14px;'
       + 'padding:12px 14px;background:var(--s3);border-radius:12px;'
       + 'border-left:3px solid var(--gold3);">'
-      + _escHtml(meta.desc) + '</div>';
+      + _fmtCubaDesc(meta.desc) + '</div>';
   }
 
   // ── Características ──────────────────────────────────────

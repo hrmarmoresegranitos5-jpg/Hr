@@ -453,6 +453,9 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
 .mddim{font-size:.72rem;color:var(--ink-mute);margin-bottom:10px;}
 .mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:14px;}
+.mddesc-blk{margin-bottom:14px;}
+.mddesc-blk:last-child{margin-bottom:0;}
+.mddesc-h{font-family:"Cormorant Garamond",serif;font-size:.95rem;font-weight:700;color:var(--cream);margin-bottom:4px;}
 
 /* ══ BADGES TOPO: MAIS VENDIDO / OFERTA ══ */
 .md-badges{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:8px;}
@@ -919,6 +922,29 @@ var _THUMB_ID=1;
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmM2(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:2});}
+
+// Formata a descrição do produto preservando os blocos (parágrafo, "Especificações
+// Técnicas:", "Características:", "Acessórios inclusos:", "Instruções de Cuidado:"
+// etc.) que a IA separa com \n\n. Sem isso, esc() sozinho jogava tudo numa linha só
+// (o texto virava uma parede de texto, sem nenhuma estrutura tipo Mercado Livre).
+var _DESC_HEADER_RE=/^([A-ZÀ-Ú][^\n:]{2,40}:)\s*$/;
+function fmtDesc(s){
+  var blocos=String(s||'').split(/\n\s*\n/).filter(function(b){return b.trim();});
+  return blocos.map(function(bloco){
+    var linhas=bloco.split('\n').filter(function(l){return l.trim();});
+    if(!linhas.length) return '';
+    var primeira=linhas[0].trim();
+    var m=_DESC_HEADER_RE.exec(primeira);
+    var corpo;
+    if(m){
+      corpo='<div class="mddesc-h">'+esc(primeira)+'</div>'
+        +linhas.slice(1).map(function(l){return esc(l.replace(/^[-•]\s*/,''));}).join('<br>');
+    } else {
+      corpo=linhas.map(esc).join('<br>');
+    }
+    return '<div class="mddesc-blk">'+corpo+'</div>';
+  }).join('');
+}
 
 var _toastT;
 function showToast(msg){
@@ -1417,7 +1443,7 @@ function openItem(cat,idx,fromDeepLink){
     +(it.nm&&it.titulo&&it.nm!==it.titulo?'<div class="mdnm serif">'+esc(it.nm)+'</div>':'')
     +(subtitle?'<div class="mddim">'+esc(subtitle)+'</div>':'')
     +priceBlock
-    +(it.desc?'<div class="mddesc" style="margin-top:14px;">'+esc(it.desc)+'</div>':'')
+    +(it.desc?'<div class="mddesc" style="margin-top:14px;">'+fmtDesc(it.desc)+'</div>':'')
     +_buildPolicies(cat)
     +'</div>'
     +'<div class="md-actions">'
