@@ -453,9 +453,30 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
 .mddim{font-size:.72rem;color:var(--ink-mute);margin-bottom:10px;}
 .mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:14px;}
-.mddesc-blk{margin-bottom:14px;}
-.mddesc-blk:last-child{margin-bottom:0;}
-.mddesc-h{font-family:"Cormorant Garamond",serif;font-size:.95rem;font-weight:700;color:var(--cream);margin-bottom:4px;}
+.dsc-p{margin:0 0 10px;}
+.dsc-p:last-child{margin-bottom:0;}
+.dsc-sec{
+  background:var(--panel2);
+  border:1px solid var(--line);
+  border-radius:var(--r-sm);
+  padding:12px 14px;
+  margin-bottom:10px;
+}
+.dsc-sec-h{
+  font-size:.72rem;font-weight:800;letter-spacing:.3px;
+  text-transform:uppercase;color:var(--gold-soft);
+  margin-bottom:8px;display:flex;align-items:center;gap:4px;
+}
+.dsc-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+.dsc-list li{
+  position:relative;padding-left:16px;font-size:.8rem;
+  color:var(--ink-soft);line-height:1.5;
+}
+.dsc-list li::before{
+  content:'';position:absolute;left:0;top:.55em;
+  width:5px;height:5px;border-radius:50%;
+  background:var(--gold-soft);
+}
 
 /* ══ BADGES TOPO: MAIS VENDIDO / OFERTA ══ */
 .md-badges{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:8px;}
@@ -923,27 +944,59 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function fm(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmM2(n){return (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:2});}
 
-// Formata a descrição do produto preservando os blocos (parágrafo, "Especificações
-// Técnicas:", "Características:", "Acessórios inclusos:", "Instruções de Cuidado:"
-// etc.) que a IA separa com \n\n. Sem isso, esc() sozinho jogava tudo numa linha só
-// (o texto virava uma parede de texto, sem nenhuma estrutura tipo Mercado Livre).
-var _DESC_HEADER_RE=/^([A-ZÀ-Ú][^\n:]{2,40}:)\s*$/;
-function fmtDesc(s){
-  var blocos=String(s||'').split(/\n\s*\n/).filter(function(b){return b.trim();});
-  return blocos.map(function(bloco){
-    var linhas=bloco.split('\n').filter(function(l){return l.trim();});
-    if(!linhas.length) return '';
-    var primeira=linhas[0].trim();
-    var m=_DESC_HEADER_RE.exec(primeira);
-    var corpo;
-    if(m){
-      corpo='<div class="mddesc-h">'+esc(primeira)+'</div>'
-        +linhas.slice(1).map(function(l){return esc(l.replace(/^[-•]\s*/,''));}).join('<br>');
-    } else {
-      corpo=linhas.map(esc).join('<br>');
+/* ── ícone por seção da descrição ── */
+function _dscIcon(label){
+  var l=label.toLowerCase();
+  if(l.indexOf('dimens')>=0)return '📐 ';
+  if(l.indexOf('iten')>=0||l.indexOf('acess')>=0||l.indexOf('inclus')>=0)return '📦 ';
+  if(l.indexOf('cuidado')>=0)return '🧽 ';
+  if(l.indexOf('especifica')>=0)return '🔧 ';
+  return '✔️ ';
+}
+
+/* ── formata a descrição do produto em seções legíveis ──
+   Funciona tanto com texto novo (já vem com \n da IA) quanto
+   com descrições antigas salvas como um único parágrafo corrido,
+   detectando cabeçalhos do tipo "Características: - Material: ..." */
+function fmtDesc(desc){
+  if(!desc)return '';
+  var raw=String(desc).replace(/\r/g,'').trim();
+  // normaliza: trata tudo (com ou sem quebras de linha prévias) como
+  // texto corrido + marcadores, pra usar a mesma lógica de detecção
+  var flat=raw.replace(/\n+/g,' ').replace(/\s+/g,' ').trim();
+
+  var headerRe=/([A-ZÀ-Ý][a-zà-ÿ]+(?:\s[A-ZÀ-Ý][a-zà-ÿ]+){0,3}):\s*-\s*/g;
+  var matches=[],m;
+  while((m=headerRe.exec(flat))){matches.push({label:m[1],start:m.index,contentStart:headerRe.lastIndex});}
+
+  if(!matches.length){
+    // sem seções detectáveis — parágrafo(s) simples, preservando quebras existentes
+    return raw.split(/\n{1,}/).filter(Boolean).map(function(p){return '<p class="dsc-p">'+esc(p.trim())+'</p>';}).join('');
+  }
+
+  var intro=flat.slice(0,matches[0].start).trim();
+  var out=intro?'<p class="dsc-p">'+esc(intro)+'</p>':'';
+  var closing='';
+
+  for(var i=0;i<matches.length;i++){
+    var end=(i+1<matches.length)?matches[i+1].start:flat.length;
+    var body=flat.slice(matches[i].contentStart,end).trim();
+    var items=body.split(/\s+-\s+(?=[A-ZÀ-Ý0-9])/).map(function(s){return s.trim();}).filter(Boolean);
+
+    // a última seção às vezes termina com uma frase de fechamento sem "- "
+    // (ex: "...Kit de instalação. Perfeita para cozinhas residenciais...")
+    if(i===matches.length-1&&items.length){
+      var last=items[items.length-1];
+      var cm=/^(.{3,60}?\.)\s+([A-ZÀ-Ý].{25,})$/.exec(last);
+      if(cm){items[items.length-1]=cm[1];closing=cm[2];}
     }
-    return '<div class="mddesc-blk">'+corpo+'</div>';
-  }).join('');
+
+    out+='<div class="dsc-sec"><div class="dsc-sec-h">'+_dscIcon(matches[i].label)+esc(matches[i].label)+'</div>'
+      +'<ul class="dsc-list">'+items.map(function(it){return '<li>'+esc(it)+'</li>';}).join('')+'</ul></div>';
+  }
+
+  if(closing)out+='<p class="dsc-p">'+esc(closing)+'</p>';
+  return out;
 }
 
 var _toastT;
