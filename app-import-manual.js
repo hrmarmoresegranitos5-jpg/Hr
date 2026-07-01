@@ -206,6 +206,7 @@
   }
 
   function _imPreencherIA() {
+    console.log('[Import-Manual] _imPreencherIA() chamada — versão v2 do arquivo carregada.');
     try {
       if (_im.iaCarregando) return;
 
@@ -514,7 +515,7 @@
       if (_im.iaCarregando) {
         h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
       } else {
-        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
+        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA (v2)</button>';
       }
       // Banner de status — canal principal de feedback (erro/sucesso), não
       // depende de #toast nem de alert() pra ser visível.
