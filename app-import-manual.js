@@ -181,93 +181,137 @@
       + 'Se alguma imagem não ajudar a identificar nada, ignore-a. Se não conseguir extrair nada útil de nenhuma imagem, ainda assim responda com o JSON, com campos vazios/0 onde não souber.';
   }
 
+  // Mostra uma mensagem de status DENTRO do próprio modal (banner fixo
+  // acima do botão de IA). Não depende de #toast existir no DOM nem de
+  // alert()/confirm() estarem liberados pelo navegador — por isso é o
+  // canal principal de erro/sucesso da IA. tipo: 'info' | 'ok' | 'err'.
+  function _imStatusIA(msg, tipo) {
+    _im.iaMsg     = msg || '';
+    _im.iaMsgTipo = tipo || 'info';
+    var el = document.getElementById('im-ia-status');
+    if (el) {
+      el.textContent = _im.iaMsg;
+      el.style.display = _im.iaMsg ? 'block' : 'none';
+      el.style.color = tipo === 'err' ? '#e07860' : (tipo === 'ok' ? '#7cc088' : 'var(--t3)');
+      el.style.borderColor = tipo === 'err' ? '#7a3020' : (tipo === 'ok' ? '#2a5030' : 'var(--bd2)');
+    } else {
+      // Banner ainda não está no DOM (ex.: erro ocorreu antes do 1º
+      // render) — força um re-render pra garantir que ele apareça.
+      _renderModal();
+    }
+  }
+
   function _imPreencherIA() {
-    if (_im.iaCarregando) return;
+    try {
+      if (_im.iaCarregando) return;
 
-    if (!_im.fotos.length && !_im.refs.length) {
-      _imAlerta('⚠️ Selecione pelo menos uma foto do produto ou um print de referência antes de usar a IA.');
-      return;
-    }
+      if (!_im.fotos.length && !_im.refs.length) {
+        _imStatusIA('⚠️ Selecione pelo menos uma foto do produto ou um print de referência antes de usar a IA.', 'err');
+        return;
+      }
 
-    var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
-    if (!key) {
-      _imAlerta('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Anthropic (sk-ant-...).');
-      return;
-    }
-    if (key.indexOf('sk-ant-') !== 0) {
-      _imAlerta('⚠️ Preenchimento por IA precisa de uma chave Anthropic (sk-ant-...). A Groq não suporta visão.');
-      return;
-    }
+      var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
+      if (!key) {
+        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Anthropic (sk-ant-...).', 'err');
+        return;
+      }
+      if (key.indexOf('sk-ant-') !== 0) {
+        _imStatusIA('⚠️ Preenchimento por IA precisa de uma chave Anthropic (sk-ant-...). A Groq não suporta visão.', 'err');
+        return;
+      }
 
-    // Limita o total de imagens enviadas pra não estourar payload/custo.
-    // Prioriza os prints de referência (geralmente têm título/descrição/
-    // especificações em texto, mais úteis pra extrair dados) e completa
-    // com as fotos do produto (foto destaque primeiro).
-    var ordemFotos = [_im.selIdx].concat(_im.fotos.map(function(_, i) { return i; }).filter(function(i) { return i !== _im.selIdx; }));
-    var fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; });
-    var refsEscolhidas  = _im.refs.slice();
-    var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, 6);
+      // Limita o total de imagens enviadas pra não estourar payload/custo.
+      // Prioriza os prints de referência (geralmente têm título/descrição/
+      // especificações em texto, mais úteis pra extrair dados) e completa
+      // com as fotos do produto (foto destaque primeiro).
+      var fotosEscolhidas = [];
+      if (_im.fotos.length) {
+        var ordemFotos = [_im.selIdx].concat(_im.fotos.map(function(_, i) { return i; }).filter(function(i) { return i !== _im.selIdx; }));
+        fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; }).filter(Boolean);
+      }
+      var refsEscolhidas = _im.refs.slice();
+      var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, 6);
 
-    var content = escolhidas.map(function(dataUrl) {
-      var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
-      return {
-        type: 'image',
-        source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : dataUrl }
-      };
-    });
-    content.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+      if (!escolhidas.length) {
+        _imStatusIA('⚠️ Nenhuma imagem válida pra analisar.', 'err');
+        return;
+      }
 
-    _im.iaCarregando = true;
-    _renderModal();
-
-    fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: _imPromptSistema(),
-        messages: [{ role: 'user', content: content }]
-      })
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-        var texto = (data.content && data.content[0] && data.content[0].text) || '';
-        var limpo = texto.replace(/```json|```/g, '').trim();
-        var json;
-        try { json = JSON.parse(limpo); }
-        catch (e) { throw new Error('a IA não devolveu um JSON válido'); }
-
-        _im.iaCarregando = false;
-        _renderModal();
-
-        var elTitulo = document.getElementById('im-titulo');
-        var elNome   = document.getElementById('im-nome');
-        var elDim    = document.getElementById('im-dim');
-        var elDesc   = document.getElementById('im-desc');
-        var elCusto  = document.getElementById('im-custo');
-
-        if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
-        if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
-        if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
-        if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
-        if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
-        _recalcular();
-
-        if (typeof toast === 'function') toast('🤖 Campos preenchidos pela IA! Confira antes de salvar.', 'ok');
-      })
-      .catch(function(e) {
-        _im.iaCarregando = false;
-        _renderModal();
-        console.error('[Import-Manual] IA falhou:', e.message || e);
-        _imAlerta('❌ Não consegui preencher automaticamente: ' + (e.message || e));
+      var content = escolhidas.map(function(dataUrl) {
+        var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+        return {
+          type: 'image',
+          source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') }
+        };
       });
+      content.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+      _im.iaCarregando = true;
+      _imStatusIA('⏳ Consultando a IA…', 'info');
+      _renderModal();
+
+      fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: _imPromptSistema(),
+          messages: [{ role: 'user', content: content }]
+        })
+      })
+        .then(function(r) {
+          return r.json().catch(function() {
+            throw new Error('resposta inválida da API (HTTP ' + r.status + ')');
+          });
+        })
+        .then(function(data) {
+          if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+          var texto = (data.content && data.content[0] && data.content[0].text) || '';
+          var limpo = texto.replace(/```json|```/g, '').trim();
+          var json;
+          try { json = JSON.parse(limpo); }
+          catch (e) { throw new Error('a IA não devolveu um JSON válido: ' + limpo.slice(0, 120)); }
+
+          _im.iaCarregando = false;
+
+          var elTitulo = document.getElementById('im-titulo');
+          var elNome   = document.getElementById('im-nome');
+          var elDim    = document.getElementById('im-dim');
+          var elDesc   = document.getElementById('im-desc');
+          var elCusto  = document.getElementById('im-custo');
+
+          if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
+          if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
+          if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
+          if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
+          if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
+
+          _renderModal();
+          _recalcular();
+          _imStatusIA('🤖 Campos preenchidos pela IA! Confira antes de salvar.', 'ok');
+          if (typeof toast === 'function') { try { toast('🤖 Campos preenchidos pela IA!'); } catch (e) {} }
+        })
+        .catch(function(e) {
+          _im.iaCarregando = false;
+          console.error('[Import-Manual] IA falhou:', e);
+          _imStatusIA('❌ Não consegui preencher automaticamente: ' + (e && e.message ? e.message : e), 'err');
+          _renderModal();
+        });
+    } catch (eSync) {
+      // Rede de segurança final: qualquer erro síncrono inesperado
+      // (ex.: elemento não encontrado) cai aqui em vez de morrer
+      // silenciosamente sem feedback nenhum pro usuário.
+      _im.iaCarregando = false;
+      console.error('[Import-Manual] erro síncrono em _imPreencherIA:', eSync);
+      _imStatusIA('❌ Erro inesperado: ' + (eSync && eSync.message ? eSync.message : eSync), 'err');
+      _renderModal();
+    }
   }
 
   function _selecionarFoto(idx) {
@@ -306,6 +350,8 @@
     _im.fotos  = [];
     _im.refs   = [];
     _im.selIdx = 0;
+    _im.iaMsg     = '';
+    _im.iaMsgTipo = 'info';
 
     if (!document.getElementById('imManualOv')) {
       var ov = document.createElement('div');
@@ -418,11 +464,14 @@
     // ─── Botão de preenchimento por IA (aparece com qualquer imagem carregada) ─
     if (_im.fotos.length || _im.refs.length) {
       if (_im.iaCarregando) {
-        h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
+        h += '<button disabled style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:var(--s3);color:var(--t3);font-size:.8rem;font-weight:700;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">⏳ Analisando com IA…</button>';
       } else {
-        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
+        h += '<button onclick="_imPreencherIA()" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--gold3);background:linear-gradient(135deg,rgba(160,120,40,.18),rgba(201,168,76,.1));color:var(--gold2);font-size:.8rem;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:7px;">🤖 Preencher título, dimensões e descrição com IA</button>';
       }
-      h += '<div style="font-size:.55rem;color:var(--t4);margin-top:-9px;margin-bottom:14px;">Sempre confira o que a IA preencheu antes de salvar.</div>';
+      // Banner de status — canal principal de feedback (erro/sucesso), não
+      // depende de #toast nem de alert() pra ser visível.
+      h += '<div id="im-ia-status" style="display:' + (_im.iaMsg ? 'block' : 'none') + ';font-size:.68rem;font-weight:600;line-height:1.4;padding:8px 10px;border-radius:8px;border:1px solid ' + (_im.iaMsgTipo === 'err' ? '#7a3020' : (_im.iaMsgTipo === 'ok' ? '#2a5030' : 'var(--bd2)')) + ';color:' + (_im.iaMsgTipo === 'err' ? '#e07860' : (_im.iaMsgTipo === 'ok' ? '#7cc088' : 'var(--t3)')) + ';margin-bottom:8px;">' + _esc(_im.iaMsg || '') + '</div>';
+      h += '<div style="font-size:.55rem;color:var(--t4);margin-bottom:14px;">Sempre confira o que a IA preencheu antes de salvar.</div>';
     }
 
     // ─── Nome curto ───────────────────────────────────────────
