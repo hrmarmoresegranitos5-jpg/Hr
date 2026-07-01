@@ -25,13 +25,16 @@
 (function () {
   'use strict';
 
+  var MARGEM_PADRAO = 40;
+
   var _im = {
     cat:        'coz',
-    margem:     10,
+    margem:     MARGEM_PADRAO,
     fotos:      [],   // array de dataURLs (base64) — vão pro catálogo
     refs:       [],   // array de dataURLs (base64) — prints só pra IA ler, NÃO vão pro catálogo
     selIdx:     0,     // índice da foto principal selecionada
     iaCarregando: false,
+    _fresh:     false, // true logo após abrir o modal — força os campos de texto a começarem vazios (evita herdar dados da cuba anterior)
   };
 
   // ─── Utilitários (mesmos do app-ml-import.js) ──────────────
@@ -171,10 +174,11 @@
       + 'de um catálogo de uma marmoraria. A partir das imagens fornecidas (que podem ser fotos do produto e/ou prints da '
       + 'página de um anúncio de e-commerce), extraia as informações do produto.\n\n'
       + 'Responda APENAS com um objeto JSON válido, sem markdown, sem ```json, sem texto antes ou depois. Formato exato:\n'
-      + '{"titulo":"...","nome_curto":"...","dimensoes":"...","descricao":"...","preco":0}\n\n'
+      + '{"titulo":"...","nome_curto":"...","marca":"...","dimensoes":"...","descricao":"...","preco":0}\n\n'
       + 'Regras:\n'
       + '- "titulo": título completo e comercial do produto (estilo anúncio), inclua material, modelo, dimensões e ítens inclusos se visíveis.\n'
       + '- "nome_curto": nome curto pra exibir num card de catálogo (máx. 40 caracteres), ex: "Cuba Gourmet Inox 56x34".\n'
+      + '- "marca": marca/fabricante do produto (ex: "Tramontina", "Franke", "Deca"), só se estiver explicitamente visível no título, na descrição ou na especificação do print. NUNCA invente ou deduza uma marca — se não estiver escrita em algum lugar visível, deixe "".\n'
       + '- "dimensoes": dimensões no formato "LxAxP" ou similar (ex: "56x34x17cm"), só o que conseguir identificar com confiança. Se não der pra ver, deixe "".\n'
       + '- "descricao": 2-4 frases descrevendo material, acabamento, formato e diferenciais — sem inventar especificações que não estão visíveis nem mencionar marca/loja de origem.\n'
       + '- "preco": valor numérico em reais visível no print (sem R$, sem separador de milhar, use ponto decimal). Se não houver preço visível, use 0.\n'
@@ -311,12 +315,14 @@
 
           var elTitulo = document.getElementById('im-titulo');
           var elNome   = document.getElementById('im-nome');
+          var elMarca  = document.getElementById('im-marca');
           var elDim    = document.getElementById('im-dim');
           var elDesc   = document.getElementById('im-desc');
           var elCusto  = document.getElementById('im-custo');
 
           if (elTitulo && json.titulo)     elTitulo.value = json.titulo;
           if (elNome   && json.nome_curto) elNome.value   = json.nome_curto;
+          if (elMarca  && json.marca)      elMarca.value  = json.marca;
           if (elDim    && json.dimensoes)  elDim.value    = json.dimensoes;
           if (elDesc   && json.descricao)  elDesc.value   = json.descricao;
           if (elCusto  && !elCusto.value && json.preco)   elCusto.value = String(json.preco).replace('.', ',');
@@ -376,9 +382,11 @@
   // ─── Modal ──────────────────────────────────────────────────
   function _abrirModal(cat) {
     _im.cat    = cat || 'coz';
+    _im.margem = MARGEM_PADRAO;
     _im.fotos  = [];
     _im.refs   = [];
     _im.selIdx = 0;
+    _im._fresh = true; // próximo _renderModal() não deve herdar valores da cuba anterior
     _im.iaMsg     = '';
     _im.iaMsgTipo = 'info';
 
@@ -416,12 +424,23 @@
     var wrap = document.getElementById('imManualModal');
     if (!wrap) return;
 
-    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza)
-    var prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
-    var prevNome   = (document.getElementById('im-nome')   || {}).value || '';
-    var prevDim    = (document.getElementById('im-dim')    || {}).value || '';
-    var prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
-    var prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
+    // Preserva valores digitados antes de re-renderizar (upload de foto re-renderiza).
+    // Exceção: logo após abrir o modal (_fresh), os inputs em tela ainda são os da
+    // cuba anterior (o box do modal é reaproveitado, só escondido) — nesse caso os
+    // campos DEVEM começar vazios, senão a cuba nova herda título/nome/marca/etc.
+    // da última cuba salva.
+    var prevTitulo, prevNome, prevMarca, prevDim, prevCusto, prevDesc;
+    if (_im._fresh) {
+      prevTitulo = prevNome = prevMarca = prevDim = prevCusto = prevDesc = '';
+      _im._fresh = false;
+    } else {
+      prevTitulo = (document.getElementById('im-titulo') || {}).value || '';
+      prevNome   = (document.getElementById('im-nome')   || {}).value || '';
+      prevMarca  = (document.getElementById('im-marca')  || {}).value || '';
+      prevDim    = (document.getElementById('im-dim')    || {}).value || '';
+      prevCusto  = (document.getElementById('im-custo')  || {}).value || '';
+      prevDesc   = (document.getElementById('im-desc')   || {}).value || '';
+    }
 
     var h = '';
 
@@ -507,6 +526,9 @@
     h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Nome curto <span style="color:var(--t4);">(exibido no card do catálogo)</span></div>';
     h += '<input id="im-nome" type="text" value="' + _esc(prevNome) + '" placeholder="ex: Cuba Gourmet Inox 56x34" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.8rem;font-weight:600;box-sizing:border-box;outline:none;margin-bottom:10px;">';
 
+    h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Marca</div>';
+    h += '<input id="im-marca" type="text" value="' + _esc(prevMarca) + '" placeholder="ex: Tramontina, Franke, Deca..." style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.8rem;box-sizing:border-box;outline:none;margin-bottom:10px;">';
+
     h += '<div style="font-size:.6rem;color:var(--t3);margin-bottom:3px;">Dimensões</div>';
     h += '<input id="im-dim" type="text" value="' + _esc(prevDim) + '" placeholder="ex: 56×34×17cm" style="width:100%;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;padding:9px 11px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;margin-bottom:10px;">';
 
@@ -534,6 +556,7 @@
   function _salvar() {
     var elTitulo = document.getElementById('im-titulo');
     var elNome   = document.getElementById('im-nome');
+    var elMarca  = document.getElementById('im-marca');
     var elDim    = document.getElementById('im-dim');
     var elCusto  = document.getElementById('im-custo');
     var elMg     = document.getElementById('im-margem');
@@ -548,6 +571,7 @@
     }
 
     var titulo = (elTitulo && elTitulo.value.trim()) || nome;
+    var marca  = (elMarca  && elMarca.value.trim())  || '';
     var dim    = (elDim    && elDim.value.trim())    || '';
     var desc   = (elDesc   && elDesc.value.trim())   || '';
     var custo  = parseFloat(((elCusto && elCusto.value) || '0').replace(',', '.')) || 0;
@@ -560,7 +584,7 @@
       id:      'manual_' + Date.now(),
       nm:      nome,
       titulo:  titulo,
-      brand:   '',
+      brand:   marca,
       dim:     dim,
       desc:    desc,
       pr:      Math.round(venda),
