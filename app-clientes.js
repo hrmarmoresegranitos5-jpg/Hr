@@ -462,8 +462,22 @@ function cliAplicarDesc(pct){
 }
 
 // ── Auto-save cliente após gerar orçamento ──
+function _cliTelNorm(t){ return (t||'').replace(/\D/g,''); }
 function _cliAutoSave(nome,tel,cidade,end){
   if(!nome) return;
+  // Telefone é uma chave de identidade mais forte que nome — evita duplicar
+  // o mesmo cliente quando o nome é digitado com pequenas variações.
+  var telN=_cliTelNorm(tel);
+  if(telN){
+    var porTel=CLDB.get().find(function(c){return _cliTelNorm(c.tel)&&_cliTelNorm(c.tel)===telN;});
+    if(porTel){
+      var updT={};
+      if(cidade&&!porTel.cidade) updT.cidade=cidade;
+      if(end&&!porTel.end) updT.end=end;
+      if(Object.keys(updT).length) CLDB.upd(porTel.id,updT);
+      return;
+    }
+  }
   var existente=_cliBuscar(nome,80);
   if(existente.length>0){
     var c=existente[0].c, upd={};
@@ -504,10 +518,14 @@ function _cliACRender(q){
   var dd=document.getElementById('cliACDrop'); if(!dd) return;
   if(!q||q.length<2){dd.style.display='none';return;}
   var res=_cliBuscar(q,35); if(!res.length){dd.style.display='none';return;}
+  // Reposiciona ANTES de mostrar — corrige o caso em que o teclado virtual
+  // ou um scroll deslocou o campo desde a última vez que a posição foi calculada,
+  // que causava clique acertando um cliente diferente do que aparecia na tela.
+  if(typeof window._posicionarACDrop==='function')window._posicionarACDrop();
   var h='';
   res.forEach(function(r){
     var c=r.c, hist=_cliHist(c.nome);
-    h+='<div class="cliaci" tabindex="0" onclick="cliACSelecionar('+c.id+')" onkeydown="if(event.key===\'Enter\')cliACSelecionar('+c.id+')" '
+    h+='<div class="cliaci" tabindex="0" onmousedown="event.preventDefault();cliACSelecionar('+c.id+')" onkeydown="if(event.key===\'Enter\')cliACSelecionar('+c.id+')" '
       +'style="padding:10px 13px;cursor:pointer;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px;">';
     h+='<div style="width:34px;height:34px;border-radius:50%;background:var(--s3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.92rem;font-weight:700;color:'+hist.cor+';">'+(c.nome?c.nome[0].toUpperCase():'?')+'</div>';
     h+='<div style="flex:1;min-width:0;">';
@@ -517,7 +535,7 @@ function _cliACRender(q){
     h+='<div style="font-size:.6rem;color:'+hist.cor+';">'+hist.icon+' '+hist.cat+(hist.orcs?' · '+hist.orcs+' orç.':'')+(hist.jobs?' · '+hist.jobs+' serv.':'')+'</div>';
     h+='</div></div>';
   });
-  h+='<div onclick="cliAbrirNovo()" style="padding:9px 13px;cursor:pointer;font-size:.72rem;color:var(--gold2);display:flex;align-items:center;gap:7px;"><span>➕</span><span>Adicionar "'+q+'" como novo cliente</span></div>';
+  h+='<div onmousedown="event.preventDefault();cliAbrirNovo()" style="padding:9px 13px;cursor:pointer;font-size:.72rem;color:var(--gold2);display:flex;align-items:center;gap:7px;"><span>➕</span><span>Adicionar "'+q+'" como novo cliente</span></div>';
   dd.innerHTML=h; dd.style.display='block';
 }
 function cliACSelecionar(id){
@@ -933,7 +951,20 @@ function _orcSyncValorCard() {
     if (last) vista = last.vista || 0;
   }
 
-  // Fallback: procurar no texto do resDetail
+  // Fallback confiável: ler o valor já calculado no painel interno (#piVista),
+  // que é preenchido pela mesma função calcular() que gera o resDetail.
+  if (!vista) {
+    var piVistaEl = document.getElementById('piVista');
+    if (piVistaEl) {
+      var txtPi = piVistaEl.textContent || '';
+      var mPi = txtPi.match(/R\$\s*([\d.,]+)/);
+      if (mPi) vista = parseFloat(mPi[1].replace(/\./g, '').replace(',', '.'));
+    }
+  }
+
+  // Último fallback: procurar no texto do resDetail (menos confiável — pode
+  // capturar o primeiro valor de peça/serviço em vez do total; usar só se
+  // as opções acima não estiverem disponíveis)
   if (!vista) {
     var resDetail = document.getElementById('resDetail');
     if (resDetail) {

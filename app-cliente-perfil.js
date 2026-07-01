@@ -97,6 +97,16 @@ function _posicionarACDrop() {
 
 window.addEventListener('scroll', _posicionarACDrop, true);
 window.addEventListener('resize', _posicionarACDrop);
+// visualViewport captura corretamente o deslocamento causado pelo teclado
+// virtual no Android/iOS, que nem sempre dispara 'resize' na window.
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', _posicionarACDrop);
+  window.visualViewport.addEventListener('scroll', _posicionarACDrop);
+}
+// Expor globalmente — app-clientes.js precisa chamar isso na hora exata
+// em que o dropdown é exibido (_cliACRender), não só em scroll/resize/focus,
+// senão a lista pode aparecer desalinhada com o texto exibido.
+window._posicionarACDrop = _posicionarACDrop;
 
 // ─── CSS do módulo ───────────────────────────────────────────
 function _injetarCSS() {
