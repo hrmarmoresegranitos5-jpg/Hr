@@ -212,13 +212,15 @@
 
       var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
       if (!key) {
-        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Anthropic (sk-ant-...).', 'err');
+        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...) ou Anthropic (sk-ant-...).', 'err');
         return;
       }
-      if (key.indexOf('sk-ant-') !== 0) {
-        _imStatusIA('⚠️ Preenchimento por IA precisa de uma chave Anthropic (sk-ant-...). A Groq não suporta visão.', 'err');
-        return;
-      }
+
+      // Suporta tanto Groq (gratuita, usada no resto do app) quanto
+      // Anthropic — detecta pelo prefixo da chave já salva em
+      // CFG.emp.apiKey e monta a requisição no formato certo pra cada uma.
+      var ehAnthropic = key.indexOf('sk-ant-') === 0;
+      var LIMITE_IMGS = ehAnthropic ? 6 : 5; // Groq: máx. 5 imagens por requisição
 
       // Limita o total de imagens enviadas pra não estourar payload/custo.
       // Prioriza os prints de referência (geralmente têm título/descrição/
@@ -230,41 +232,66 @@
         fotosEscolhidas = ordemFotos.map(function(i) { return _im.fotos[i]; }).filter(Boolean);
       }
       var refsEscolhidas = _im.refs.slice();
-      var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, 6);
+      var escolhidas = refsEscolhidas.concat(fotosEscolhidas).slice(0, LIMITE_IMGS);
 
       if (!escolhidas.length) {
         _imStatusIA('⚠️ Nenhuma imagem válida pra analisar.', 'err');
         return;
       }
 
-      var content = escolhidas.map(function(dataUrl) {
-        var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
-        return {
-          type: 'image',
-          source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') }
+      var url, headers, body;
+
+      if (ehAnthropic) {
+        var contentAnthropic = escolhidas.map(function(dataUrl) {
+          var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+          return {
+            type: 'image',
+            source: { type: 'base64', media_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') }
+          };
+        });
+        contentAnthropic.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+        url = 'https://api.anthropic.com/v1/messages';
+        headers = {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
         };
-      });
-      content.push({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+        body = JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1000,
+          system: _imPromptSistema(),
+          messages: [{ role: 'user', content: contentAnthropic }]
+        });
+      } else {
+        // Groq — gratuita, modelo com visão (formato compatível OpenAI).
+        var contentGroq = escolhidas.map(function(dataUrl) {
+          return { type: 'image_url', image_url: { url: dataUrl } };
+        });
+        contentGroq.unshift({ type: 'text', text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+        url = 'https://api.groq.com/openai/v1/chat/completions';
+        headers = {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + key
+        };
+        body = JSON.stringify({
+          model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages: [
+            { role: 'system', content: _imPromptSistema() },
+            { role: 'user', content: contentGroq }
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' }
+        });
+      }
 
       _im.iaCarregando = true;
       _imStatusIA('⏳ Consultando a IA…', 'info');
       _renderModal();
 
-      fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: _imPromptSistema(),
-          messages: [{ role: 'user', content: content }]
-        })
-      })
+      fetch(url, { method: 'POST', headers: headers, body: body })
         .then(function(r) {
           return r.json().catch(function() {
             throw new Error('resposta inválida da API (HTTP ' + r.status + ')');
@@ -272,7 +299,9 @@
         })
         .then(function(data) {
           if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-          var texto = (data.content && data.content[0] && data.content[0].text) || '';
+          var texto = ehAnthropic
+            ? ((data.content && data.content[0] && data.content[0].text) || '')
+            : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
           var limpo = texto.replace(/```json|```/g, '').trim();
           var json;
           try { json = JSON.parse(limpo); }
