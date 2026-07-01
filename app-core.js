@@ -1210,7 +1210,7 @@ var DEF_TUM_SV={
   // capelinha — mão de obra
   cap_mont:420,cap_montc:620,cap_recorte:50,
   // nicho — mão de obra + fundo (vedação)
-  nic_mont:180,nic_recorte:50,
+  nic_mont:180,nic_recorte:50,nic_mo:110,
   nicho_massa:12,nicho_mofundo:90,
   bp_boleada:110,bp_antiderap:120,bp_pingad:90,bp_mcana:100,bp_chanfro:95,
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
@@ -2125,7 +2125,8 @@ function calcNichoPecas(ne){
   }
   // ── CAIXA (interior do nicho, encaixe a 45° na quina frontal) ──
   // Base e topo passam "E" cm para as laterais, cobrindo a espessura das peças laterais
-  var baseTopoW=Li+E;
+  // Base e topo passam "E" cm PARA CADA LADO (2 lados), cobrindo a espessura das laterais
+  var baseTopoW=Li+2*E;
   add('Base (caixa)',baseTopoW,P,1);
   add('Topo (caixa)',baseTopoW,P,1);
   add('Laterais (caixa) ×2',Ai,P,2);
@@ -3157,6 +3158,7 @@ function renderAmbientes(){
       var nicCalcPrev=calcNichoPecas(ne);
       if(nicCalcPrev&&nicCalcPrev.length>0){
         var ambMatNicPrev=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        var prMO_nic=getPr('nic_mo')||110;
         h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
         h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
         var totalM2nicPrev=0;
@@ -3174,25 +3176,27 @@ function renderAmbientes(){
           }
           totalM2nicPrev+=m2p;
           var prPedraP=ambMatNicPrev&&ambMatNicPrev.pr>0?m2p*ambMatNicPrev.pr:0;
-          totalValNicPrev+=prPedraP;
+          var prMOP=m2p*prMO_nic;
+          totalValNicPrev+=prPedraP+prMOP;
           h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
           h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
           h+='<div style="font-size:.58rem;color:var(--t4);">'+p.dim+'</div></div>';
           h+='<div style="text-align:right;">';
           h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2p.toFixed(3)+' m²</div>';
-          if(prPedraP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP)+'</div>';
+          if(prPedraP+prMOP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP+prMOP)+'</div>';
           h+='</div></div>';
         });
         h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;">';
-        h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra</span>';
+        h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra + M.O.</span>';
         h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2nicPrev.toFixed(3)+' m²'+(totalValNicPrev>0?' · R$ '+fm(totalValNicPrev):'')+'</span>';
         h+='</div>';
         if(totalValServNicPrev>0){
           h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
-          h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O.)</span>';
+          h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O. fixação)</span>';
           h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServNicPrev)+'</span>';
           h+='</div>';
         }
+        h+='<div style="font-size:.55rem;color:var(--t4);margin-top:4px;">M.O. de corte/instalação: R$ '+fm(prMO_nic)+'/m² (ajustável em Config → Serviços)</div>';
         h+='<button onclick="aplicarPecasNicho('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
       }
       h+='</div>';
@@ -3241,6 +3245,7 @@ function renderAmbientes(){
     } else if(amb.tipo==='🖼️ Nicho'){
       if(amb.pecas&&amb.pecas.some(function(p){return p.w&&p.h;})){
         var ambMatNicRO=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        var _nicMoPrRO=getPr('nic_mo')||110;
         h+='<div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.12);border-radius:10px;padding:10px 12px;margin:8px 0 10px;">';
         h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">✦ Peças aplicadas — calculadas automaticamente</div>';
         var _nicTotalM2ro=0;
@@ -3250,10 +3255,11 @@ function renderAmbientes(){
           var m2pc=(pc.w/100)*(pc.h/100)*(pc.q||1);
           _nicTotalM2ro+=m2pc;
           var prPedRO=ambMatNicRO?m2pc*ambMatNicRO.pr:0;
-          _nicTotalValRO+=prPedRO;
+          var prMORO=m2pc*_nicMoPrRO;
+          _nicTotalValRO+=prPedRO+prMORO;
           h+='<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
           h+='<span style="font-size:.69rem;color:var(--t2);">'+escH(pc.desc||'Peça')+(pc.q>1?' ×'+pc.q:'')+'</span>';
-          h+='<span style="font-size:.67rem;color:var(--gold2);font-weight:600;">'+m2pc.toFixed(3)+' m²'+(prPedRO>0?' · R$ '+fm(prPedRO):'')+'</span>';
+          h+='<span style="font-size:.67rem;color:var(--gold2);font-weight:600;">'+m2pc.toFixed(3)+' m²'+(prPedRO+prMORO>0?' · R$ '+fm(prPedRO+prMORO):'')+'</span>';
           h+='</div>';
         });
         h+='<div style="display:flex;justify-content:space-between;padding:6px 0 2px;"><span style="font-size:.68rem;font-weight:700;color:var(--gold);">Total</span>';
@@ -4158,6 +4164,21 @@ function calcular(){
         if(_capMo>0){
           acT+=_capMo;
           acL.push({l:'M.O. '+escH(p.desc||'Peça')+' ('+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+') '+_capM2.toFixed(3)+'m²',v:_capMo});
+          acN.push('M.O. '+(p.desc||'Peça'));
+        }
+      });
+    }
+
+    // 🖼️ NICHO: MO automática de corte/instalação sobre todas as peças (R$110/m² padrão)
+    if(tipo==='🖼️ Nicho'){
+      var _nicMoPr=getPr('nic_mo')||110;
+      amb.pecas.forEach(function(p){
+        if(!p.w||!p.h)return;
+        var _nicM2=(p.w/100)*(p.h/100)*(p.q||1);
+        var _nicMo=_nicM2*_nicMoPr;
+        if(_nicMo>0){
+          acT+=_nicMo;
+          acL.push({l:'M.O. '+escH(p.desc||'Peça')+' ('+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'')+') '+_nicM2.toFixed(3)+'m²',v:_nicMo});
           acN.push('M.O. '+(p.desc||'Peça'));
         }
       });
