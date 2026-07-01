@@ -1175,6 +1175,21 @@ SV_DEFS.Capela=[
 ];
 SV_DEFS['⛪ Capela']=SV_DEFS.Capela;
 
+// ── SERVIÇOS ESPECÍFICOS PARA NICHOS ───────────────────────────────────
+// Caixa, moldura e fundo são calculados automaticamente pelo configurador de medidas.
+// Aqui ficam apenas os serviços adicionais (instalação, deslocamento).
+SV_DEFS.Nicho=[
+  {g:'🔨 Mão de Obra',its:[
+    {k:'nic_mont',    l:'Montagem / Instalação',       u:'un',fx:1},
+    {k:'nic_recorte', l:'Recorte / Furo extra',        u:'un',fx:0}
+  ]},
+  {g:'Deslocamento',its:[
+    {k:'desl_cid',    l:'Na cidade',                   u:'livre'},
+    {k:'desl_for',    l:'Fora da cidade',              u:'km',fx:0}
+  ]}
+];
+SV_DEFS['🖼️ Nicho']=SV_DEFS.Nicho;
+
 // Acessórios — adicionado em todos os tipos
 // Acessórios ficam no catálogo próprio, não nos serviços do orçamento
 
@@ -1194,6 +1209,9 @@ var DEF_TUM_SV={
   cap_cruz_gr:340,cap_cruz_mr:280,cap_vaso:380,cap_pol:160,
   // capelinha — mão de obra
   cap_mont:420,cap_montc:620,cap_recorte:50,
+  // nicho — mão de obra + fundo (vedação)
+  nic_mont:180,nic_recorte:50,
+  nicho_massa:12,nicho_mofundo:90,
   bp_boleada:110,bp_antiderap:120,bp_pingad:90,bp_mcana:100,bp_chanfro:95,
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
   div_recorte:80,div_inst:120,
@@ -1495,7 +1513,7 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -1527,6 +1545,7 @@ function buildMatCarouselHtml(amb){
     'Fachada':  ['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Túmulo':   ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     '⛪ Capela': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
+    '🖼️ Nicho': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
     'Outro':    ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
     '🏊 Borda Piscina':['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Rodapé de Box':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
@@ -2033,6 +2052,125 @@ function aplicarPecasCapela(ambId){
     amb.obs=(amb.obs?amb.obs+' | ':'')+obsExtra;
     if(!amb.capExtra._svExtrasLog)amb.capExtra._svExtrasLog=[];
     amb.capExtra._svExtrasLog=svExtras.map(function(p){return {desc:p.desc,valor:p.valor};});
+  }
+  renderAmbientes();
+  toast('✦ '+pecasPedra.length+' peças'+(svExtras.length?' + '+svExtras.length+' serviço(s)':'')+' aplicados!');
+}
+
+// ─── CONFIGURADOR DE NICHO ─────────────────────────────────────────
+// Medidas informadas são sempre de dentro a dentro (vão livre do nicho).
+function updNichoExtra(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.nichoExtra)amb.nichoExtra={};
+  amb.nichoExtra[field]=val;
+  if(field==='subtipo'){renderAmbientes();}
+}
+
+var _nicMedTimer=null;
+function updNichoMed(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.nichoExtra)amb.nichoExtra={};
+  amb.nichoExtra[field]=val;
+  if(typeof val==='boolean'){
+    // Toggle (ex: com/sem fundo) — auto-aplica e renderiza na hora
+    var _autoP0=calcNichoPecas(amb.nichoExtra);
+    if(_autoP0.length){
+      amb.pecas=_autoP0.filter(function(p){return !p._isServico;}).map(function(p){
+        return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+      });
+    }
+    renderAmbientes();
+  } else {
+    clearTimeout(_nicMedTimer);
+    _nicMedTimer=setTimeout(function(){
+      var activeId = document.activeElement ? document.activeElement.id : null;
+      var activeVal = document.activeElement ? document.activeElement.value : null;
+      if(amb.nichoExtra){
+        var _autoP=calcNichoPecas(amb.nichoExtra);
+        if(_autoP.length){
+          amb.pecas=_autoP.filter(function(p){return !p._isServico;}).map(function(p){
+            return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+          });
+        }
+      }
+      renderAmbientes();
+      if(activeId){
+        var el=document.getElementById(activeId);
+        if(el){
+          el.focus();
+          try{var len=el.value?el.value.length:0;el.setSelectionRange(len,len);}catch(e){}
+        }
+      }
+    },650);
+  }
+}
+
+// Calcula todas as peças do nicho a partir das medidas internas (dentro a dentro)
+// Li = largura interna | Ai = altura interna | P = profundidade | E = espessura da chapa
+// M = largura da moldura (0 = sem moldura) | comFundo = fecha o fundo do nicho
+function calcNichoPecas(ne){
+  var Li=+(ne.nW||0);
+  var Ai=+(ne.nH||0);
+  var P=+(ne.nP||0);
+  var E=+(ne.nE||2);
+  var M=+(ne.nM||0);
+  if(!Li||!Ai||!P)return [];
+  var pecas=[];
+  function add(desc,w,h,q){
+    w=Math.round(w*100)/100; h=Math.round(h*100)/100;
+    var m2=(w/100)*(h/100)*(q||1);
+    pecas.push({desc:desc,dim:w+'×'+h+' cm'+(q>1?' ×'+q:''),w:w,h:h,q:q||1,m2:m2});
+  }
+  // ── CAIXA (interior do nicho, encaixe a 45° na quina frontal) ──
+  // Base e topo passam "E" cm para as laterais, cobrindo a espessura das peças laterais
+  var baseTopoW=Li+E;
+  add('Base (caixa)',baseTopoW,P,1);
+  add('Topo (caixa)',baseTopoW,P,1);
+  add('Laterais (caixa) ×2',Ai,P,2);
+  // ── MOLDURA (acabamento externo, quatro peças coradas a 45°) ──
+  if(M>0){
+    var molTopoBase=Li+2*M;
+    var molLaterais=Ai+2*M;
+    add('Moldura — topo/base (corte 45°) ×2',molTopoBase,M,2);
+    add('Moldura — laterais (corte 45°) ×2',molLaterais,M,2);
+  }
+  // ── FUNDO (opcional) ──
+  var servicos=[];
+  if(ne.comFundo){
+    var fW=Li+2*E, fH=Ai+2*E;
+    add('Fundo (fecha o nicho)',fW,fH,1);
+    var perimM=2*(fW+fH)/100;
+    var prMassa=getPr('nicho_massa');
+    var prMoFundo=getPr('nicho_mofundo');
+    if(prMassa>0){
+      servicos.push({desc:'Massa plástica — vedação do fundo ('+perimM.toFixed(2)+'ml)',dim:'—',w:0,h:0,q:1,m2:0,valor:perimM*prMassa,_isServico:true});
+    }
+    if(prMoFundo>0){
+      servicos.push({desc:'Mão de obra — fixação do fundo',dim:'—',w:0,h:0,q:1,m2:0,valor:prMoFundo,_isServico:true});
+    }
+  }
+  return pecas.concat(servicos);
+}
+
+// Aplica as peças calculadas ao ambiente (substitui as peças manuais)
+function aplicarPecasNicho(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb||!amb.nichoExtra)return;
+  var ne=amb.nichoExtra;
+  var pecas=calcNichoPecas(ne);
+  if(!pecas.length){toast('Preencha largura, altura e profundidade internas');return;}
+  var pecasPedra=pecas.filter(function(p){return !p._isServico;});
+  var svExtras=pecas.filter(function(p){return p._isServico;});
+  amb.pecas=pecasPedra.map(function(p){
+    return {id:Date.now()+Math.random(),desc:p.desc,w:p.w,h:p.h,q:p.q};
+  });
+  if(svExtras.length){
+    var obsExtra=svExtras.map(function(p){return p.desc+': R$ '+p.valor.toFixed(2);}).join(' | ');
+    amb.obs=(amb.obs?amb.obs+' | ':'')+obsExtra;
+    if(!amb.nichoExtra._svExtrasLog)amb.nichoExtra._svExtrasLog=[];
+    amb.nichoExtra._svExtrasLog=svExtras.map(function(p){return {desc:p.desc,valor:p.valor};});
   }
   renderAmbientes();
   toast('✦ '+pecasPedra.length+' peças'+(svExtras.length?' + '+svExtras.length+' serviço(s)':'')+' aplicados!');
@@ -2993,6 +3131,72 @@ function renderAmbientes(){
       }
       h+='</div>';
     }
+    // ── NICHO: configurador de medidas internas (dentro a dentro) ──
+    if(amb.tipo==='🖼️ Nicho'){
+      if(!amb.nichoExtra)amb.nichoExtra={};
+      var ne=amb.nichoExtra;
+      h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:12px;margin:10px 0;">';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🖼️ Dados do Nicho</div>';
+      h+='<div class="f"><label>Cliente / Descrição</label><input placeholder="Ex: Nicho para churrasqueira" type="text" style="background:var(--s3);" value="'+escH(ne.desc||'')+'" oninput="updNichoExtra('+amb.id+',\'desc\',this.value)"></div>';
+      h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 10px;"></div>';
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">📐 Medidas internas (dentro a dentro)</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Largura interna (cm)</label><input type="number" placeholder="64" style="background:var(--s3);" value="'+(ne.nW||'')+'" oninput="updNichoMed('+amb.id+',\'nW\',+this.value)"></div>';
+      h+='<div class="f"><label>Altura interna (cm)</label><input type="number" placeholder="49" style="background:var(--s3);" value="'+(ne.nH||'')+'" oninput="updNichoMed('+amb.id+',\'nH\',+this.value)"></div>';
+      h+='</div>';
+      h+='<div class="r2">';
+      h+='<div class="f"><label>Profundidade (cm)</label><input type="number" placeholder="15" style="background:var(--s3);" value="'+(ne.nP||'')+'" oninput="updNichoMed('+amb.id+',\'nP\',+this.value)"></div>';
+      h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="2" step="0.5" style="background:var(--s3);" value="'+(ne.nE||'')+'" oninput="updNichoMed('+amb.id+',\'nE\',+this.value)"></div>';
+      h+='</div>';
+      h+='<div class="f"><label>Moldura — largura (cm) <span style="color:var(--t4);">· 0 = sem moldura</span></label><input type="number" placeholder="0" min="0" style="background:var(--s3);" value="'+(ne.nM||'')+'" oninput="updNichoMed('+amb.id+',\'nM\',+this.value)"></div>';
+      // Toggle com/sem fundo
+      var _comFundo=!!ne.comFundo;
+      h+='<div style="margin-top:8px;"><button onclick="updNichoMed('+amb.id+',\'comFundo\','+(!_comFundo)+')" style="'+(_comFundo?'background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.45);color:var(--gold2);font-weight:700;':'background:var(--s3);border-color:var(--bd);color:var(--t4);')+'border:1px solid;border-radius:8px;padding:8px 14px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;width:100%;">'+(_comFundo?'▣ Com fundo':'□ Sem fundo')+'</button></div>';
+      h+='<div style="font-size:.57rem;color:var(--t4);margin-top:8px;line-height:1.5;">💡 Medidas de <b>dentro a dentro</b>. Base/topo e moldura são calculados automaticamente com encaixe a 45° nas quinas.</div>';
+      // Preview de peças calculadas automaticamente
+      var nicCalcPrev=calcNichoPecas(ne);
+      if(nicCalcPrev&&nicCalcPrev.length>0){
+        var ambMatNicPrev=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
+        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
+        var totalM2nicPrev=0;
+        var totalValNicPrev=0;
+        var totalValServNicPrev=0;
+        nicCalcPrev.forEach(function(p){
+          var m2p=p.m2;
+          if(p._isServico){
+            totalValServNicPrev+=p.valor||0;
+            h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+            h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+'</div>';
+            h+='<div style="font-size:.58rem;color:var(--t4);">Serviço</div></div>';
+            h+='<div style="text-align:right;"><div style="font-size:.7rem;font-weight:700;color:var(--gold2);">R$ '+fm(p.valor||0)+'</div></div></div>';
+            return;
+          }
+          totalM2nicPrev+=m2p;
+          var prPedraP=ambMatNicPrev&&ambMatNicPrev.pr>0?m2p*ambMatNicPrev.pr:0;
+          totalValNicPrev+=prPedraP;
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+          h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
+          h+='<div style="font-size:.58rem;color:var(--t4);">'+p.dim+'</div></div>';
+          h+='<div style="text-align:right;">';
+          h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2p.toFixed(3)+' m²</div>';
+          if(prPedraP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP)+'</div>';
+          h+='</div></div>';
+        });
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;">';
+        h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra</span>';
+        h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2nicPrev.toFixed(3)+' m²'+(totalValNicPrev>0?' · R$ '+fm(totalValNicPrev):'')+'</span>';
+        h+='</div>';
+        if(totalValServNicPrev>0){
+          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
+          h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O.)</span>';
+          h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServNicPrev)+'</span>';
+          h+='</div>';
+        }
+        h+='<button onclick="aplicarPecasNicho('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
+      }
+      h+='</div>';
+    }
     // ── TÚMULO: calculadora v14 embutida inline ──
     if(amb.tipo==='Túmulo'){
       // IA Léo — chat conversacional para orçamento de túmulos
@@ -3032,6 +3236,28 @@ function renderAmbientes(){
         });
         h+='<div style="display:flex;justify-content:space-between;padding:6px 0 2px;"><span style="font-size:.68rem;font-weight:700;color:var(--gold);">Total</span>';
         h+='<span style="font-size:.72rem;font-weight:800;color:var(--gold2);">'+_capTotalM2ro.toFixed(3)+' m²'+(ambMatCapRO&&_capTotalValRO>0?' · R$ '+fm(_capTotalValRO):'')+'</span></div>';
+        h+='</div>';
+      }
+    } else if(amb.tipo==='🖼️ Nicho'){
+      if(amb.pecas&&amb.pecas.some(function(p){return p.w&&p.h;})){
+        var ambMatNicRO=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+        h+='<div style="background:rgba(201,168,76,.04);border:1px solid rgba(201,168,76,.12);border-radius:10px;padding:10px 12px;margin:8px 0 10px;">';
+        h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">✦ Peças aplicadas — calculadas automaticamente</div>';
+        var _nicTotalM2ro=0;
+        var _nicTotalValRO=0;
+        amb.pecas.forEach(function(pc){
+          if(!pc.w||!pc.h)return;
+          var m2pc=(pc.w/100)*(pc.h/100)*(pc.q||1);
+          _nicTotalM2ro+=m2pc;
+          var prPedRO=ambMatNicRO?m2pc*ambMatNicRO.pr:0;
+          _nicTotalValRO+=prPedRO;
+          h+='<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+          h+='<span style="font-size:.69rem;color:var(--t2);">'+escH(pc.desc||'Peça')+(pc.q>1?' ×'+pc.q:'')+'</span>';
+          h+='<span style="font-size:.67rem;color:var(--gold2);font-weight:600;">'+m2pc.toFixed(3)+' m²'+(prPedRO>0?' · R$ '+fm(prPedRO):'')+'</span>';
+          h+='</div>';
+        });
+        h+='<div style="display:flex;justify-content:space-between;padding:6px 0 2px;"><span style="font-size:.68rem;font-weight:700;color:var(--gold);">Total</span>';
+        h+='<span style="font-size:.72rem;font-weight:800;color:var(--gold2);">'+_nicTotalM2ro.toFixed(3)+' m²'+(ambMatNicRO&&_nicTotalValRO>0?' · R$ '+fm(_nicTotalValRO):'')+'</span></div>';
         h+='</div>';
       }
     } else {
@@ -4002,6 +4228,15 @@ function calcular(){
       if(ce2.subtipo)capInfo.push('Tipo: '+ce2.subtipo);
       if(capInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+capInfo.join(' · ')+'</div>';
     }
+    if(amb.tipo==='🖼️ Nicho' && amb.nichoExtra){
+      var nicInfo=[];
+      var ne2=amb.nichoExtra;
+      if(ne2.desc)nicInfo.push(escH(ne2.desc));
+      if(ne2.nW&&ne2.nH&&ne2.nP)nicInfo.push('Vão interno: <b>'+ne2.nW+'×'+ne2.nH+'cm</b> · Prof. '+ne2.nP+'cm');
+      if(ne2.nM)nicInfo.push('Moldura '+ne2.nM+'cm');
+      nicInfo.push(ne2.comFundo?'Com fundo':'Sem fundo');
+      if(nicInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+nicInfo.join(' · ')+'</div>';
+    }
 
     // Texto WA por ambiente
     var pTxt=pds.map(function(p){return '• '+(p.desc||'Peça')+' — '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
@@ -4014,6 +4249,13 @@ function calcular(){
       if(cex.cemiterio)extraTxt+='Cemitério: '+cex.cemiterio+'\n';
       if(cex.quadra||cex.lote)extraTxt+='Local: Quadra '+(cex.quadra||'—')+' Nº '+(cex.lote||'—')+'\n';
       if(cex.subtipo)extraTxt+='Tipo: '+cex.subtipo+'\n';
+    }
+    if(amb.tipo==='🖼️ Nicho'&&amb.nichoExtra){
+      var nex=amb.nichoExtra;
+      if(nex.desc)extraTxt+=nex.desc+'\n';
+      if(nex.nW&&nex.nH&&nex.nP)extraTxt+='Vão interno: '+nex.nW+'×'+nex.nH+'cm — Profundidade '+nex.nP+'cm\n';
+      if(nex.nM)extraTxt+='Moldura: '+nex.nM+'cm\n';
+      extraTxt+=(nex.comFundo?'Com fundo':'Sem fundo')+'\n';
     }
     txtAmbientes+='\n─── '+ambLabel+' ───\n'+extraTxt+(pTxt||'(sem peças)')+(aTxt?'\nInclusos:\n'+aTxt:'');
   });
