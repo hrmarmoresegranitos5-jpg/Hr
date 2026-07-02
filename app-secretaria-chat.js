@@ -1931,6 +1931,6 @@ function _injectChatStyles() {
     }
     .chat-img-btn:hover { background:rgba(201,168,76,.12);border-color:rgba(201,168,76,.3);color:var(--gold2); }
     .chat-img-btn:active { transform:scale(.92); }
-  \`;
+  `;
   document.head.appendChild(s);
 }
