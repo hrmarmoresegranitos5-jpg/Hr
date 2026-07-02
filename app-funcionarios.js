@@ -2584,6 +2584,36 @@ var HR_FUNC = (function () {
 
       selFunc.addEventListener('change', _atualizarPainel);
       if (selTipo) selTipo.addEventListener('change', _atualizarPainel);
+
+      // Ao editar a Data manualmente (ex: trocar pra um dia de junho), o mês/decêndio
+      // de referência do formulário inteiro (botões 1º/2º/3º dec, saldo, sugestão de
+      // valor) passa a seguir a data digitada — não fica mais preso ao mês em que o
+      // modal foi aberto.
+      var inpDataRef = document.getElementById('pag_data');
+      if (inpDataRef) {
+        inpDataRef.addEventListener('change', function(){
+          var val = inpDataRef.value; // yyyy-mm-dd
+          if (!val || val.length < 10) return;
+          _mesPeriodo     = val.slice(0, 7);
+          var dia         = parseInt(val.slice(8, 10), 10);
+          _decSelecionado = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+
+          // Atualiza os 3 botões de decêndio: destaque + faixa de dias do novo mês
+          [1,2,3].forEach(function(n){
+            var btn = document.getElementById('btn_dec_'+n);
+            if (!btn) return;
+            var dp    = _periodoDecendio(n, _mesPeriodo);
+            var ativo = n === _decSelecionado;
+            btn.style.borderColor = ativo ? '#C9A84C' : 'rgba(255,255,255,.12)';
+            btn.style.background  = ativo ? 'rgba(201,168,76,.15)' : 'rgba(255,255,255,.04)';
+            btn.style.color       = ativo ? '#C9A84C' : '#888';
+            var labelDiv = btn.querySelector('div:last-child');
+            if (labelDiv) labelDiv.textContent = dp.di.slice(8) + ' a ' + dp.df.slice(8);
+          });
+
+          _atualizarPainel();
+        });
+      }
     }, 80);
   }
 
