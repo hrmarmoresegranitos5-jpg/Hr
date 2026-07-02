@@ -132,8 +132,9 @@ function _secProativCheck() {
   _chat.history.push({role: 'assistant', content: '...', ts: ts, isProativ: true, _pending: true});
   _chatSave();
 
-  // Chama API com o prompt proativo — detecta Anthropic (sk-ant-) vs Groq (gsk_)
+  // Chama API com o prompt proativo — detecta Anthropic (sk-ant-), Gemini (AIza) ou Groq (fallback)
   var _isAnthropicProativ = key.indexOf('sk-ant-') === 0;
+  var _isGeminiProativ = key.indexOf('AIza') === 0;
   var _fetchProativ = _isAnthropicProativ
     ? fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -148,6 +149,16 @@ function _secProativCheck() {
           max_tokens: 600,
           system: _chatBuildSystem(),
           messages: [{role: 'user', content: prompt}]
+        })
+      })
+    : _isGeminiProativ
+    ? fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: _chatBuildSystem() }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 600 }
         })
       })
     : fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -171,6 +182,8 @@ function _secProativCheck() {
   .then(function(d) {
     var text = _isAnthropicProativ
       ? ((d.content && d.content[0] && d.content[0].text) || '')
+      : _isGeminiProativ
+      ? ((d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts[0] && d.candidates[0].content.parts[0].text) || '')
       : ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '');
     if (!text) return;
 
@@ -888,8 +901,9 @@ function _chatAsk(userText, imgObj) {
   }
 
   var _isAnthropicAsk = key.indexOf('sk-ant-') === 0;
-  if (imgObj && !_isAnthropicAsk) {
-    _chatBotReply('⚠️ Análise de **imagem** requer chave Anthropic (sk-ant-...). A Groq não suporta visão.\nEnvie sua pergunta por texto.', [
+  var _isGeminiAsk = key.indexOf('AIza') === 0;
+  if (imgObj && !_isAnthropicAsk && !_isGeminiAsk) {
+    _chatBotReply('⚠️ Análise de **imagem** requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). A Groq não suporta visão.\nEnvie sua pergunta por texto.', [
       {label:'⚙️ Ir às Configurações', fn:'go(6)'}
     ]);
     return;
@@ -948,6 +962,24 @@ function _chatAsk(userText, imgObj) {
   // Usa Sonnet quando há imagem (visão), Haiku para texto puro (Anthropic)
   var model = imgObj ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
 
+    // Converte apiMessages (formato Anthropic) para o formato Gemini
+    function _toGeminiContents(msgs) {
+      return msgs.map(function(m) {
+        var parts;
+        if (typeof m.content === 'string') {
+          parts = [{ text: m.content }];
+        } else {
+          parts = m.content.map(function(c) {
+            if (c.type === 'image') {
+              return { inline_data: { mime_type: c.source.media_type, data: c.source.data } };
+            }
+            return { text: c.text || '' };
+          });
+        }
+        return { role: m.role === 'assistant' ? 'model' : 'user', parts: parts };
+      });
+    }
+
   function doFetch(retryCount) {
     var _fetchAsk = _isAnthropicAsk
       ? fetch('https://api.anthropic.com/v1/messages', {
@@ -963,6 +995,16 @@ function _chatAsk(userText, imgObj) {
             max_tokens: 2500,
             system: systemPrompt,
             messages: apiMessages
+          })
+        })
+      : _isGeminiAsk
+      ? fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: _toGeminiContents(apiMessages),
+            generationConfig: { maxOutputTokens: 2500 }
           })
         })
       : fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -998,6 +1040,8 @@ function _chatAsk(userText, imgObj) {
       }
       var text = _isAnthropicAsk
         ? ((d.content && d.content[0] && d.content[0].text) || '')
+        : _isGeminiAsk
+        ? ((d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts[0] && d.candidates[0].content.parts[0].text) || '')
         : ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '');
       if (!text) throw new Error('Resposta vazia');
       _chatProcessReply(text);
