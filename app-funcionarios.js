@@ -166,19 +166,24 @@ var HR_FUNC = (function () {
     var hoje = new Date();
     var d = hoje.getDate();
     var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
-    return _periodoDecendio(num);
+    return _periodoDecendio(num, _mesAno(0)); // sempre o mês real de hoje, ignora window._folhaMes
   }
-  // Retorna {di, df, label, num} para o decêndio num (1, 2 ou 3) do mês atual.
-  function _periodoDecendio(num){
-    var hoje = new Date();
-    var ano = hoje.getFullYear(), mes = hoje.getMonth();
+  // Retorna {di, df, label, num} para o decêndio num (1, 2 ou 3).
+  // mesISO (opcional): mês de referência no formato 'YYYY-MM'. Se omitido,
+  // usa window._folhaMes (mês da folha aberta na tela) ou, na falta dele,
+  // o mês real de hoje. Isso evita calcular o período no mês corrente
+  // quando o usuário está navegando/pagando um mês anterior.
+  function _periodoDecendio(num, mesISO){
+    var ref = mesISO || window._folhaMes || _mesAno(0);
+    var ano = parseInt(ref.slice(0,4), 10), mes = parseInt(ref.slice(5,7), 10) - 1;
     var pad = function(n){ return String(n).padStart(2,'0'); };
-    var mesStr = ano+'-'+pad(mes+1);
+    var mesStr = ref;
     var ultimoDia = new Date(ano, mes+1, 0).getDate();
     if (num === 1) return { num:1, di: mesStr+'-01', df: mesStr+'-10', label: '1º decêndio' };
     if (num === 2) return { num:2, di: mesStr+'-11', df: mesStr+'-20', label: '2º decêndio' };
                    return { num:3, di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
   }
+
 
   // ── Construtores de formulário ──
   function _campo(label, inputHtml){
@@ -2337,16 +2342,27 @@ var HR_FUNC = (function () {
       lista.map(function(f){ return {v:f.id, l:f.nome}; })
     );
     var hoje = _hoje();
+    // Mês de referência: respeita o mês da folha aberta na tela (window._folhaMes).
+    // Sem isso, o período do decêndio era sempre calculado no mês real de hoje,
+    // mesmo quando o usuário estava pagando/consultando um mês anterior.
+    var _mesPeriodo = window._folhaMes || _mesAno(0);
     // Período do saldo: decêndio atual (1–10, 11–20, 21–fim)
     // Exibe apenas HE do período que está sendo pago agora.
     // Descobre qual decêndio pré-selecionar: o decêndio mais recente que passou
     // (ex: se hoje é dia 25, o 2º decêndio (11-20) já fechou e é o que deve ser pago)
-    var _hoje2 = new Date();
-    var _dHoje = _hoje2.getDate();
-    var _decInicial = _dHoje <= 10 ? 1 : _dHoje <= 20 ? 2 : 2; // dia 21-30: último pago foi o 2º
-    // Se hoje > 20, o 3º ainda não fechou — padrão é 2º. Mas se funcionar via atalho, pode ser sobrescrito.
+    var _decInicial;
+    if (_mesPeriodo !== _mesAno(0)) {
+      // Mês diferente do mês real de hoje (ex: folha de mês anterior) → o mês
+      // inteiro já fechou, então o padrão é o 3º decêndio (o último dele).
+      _decInicial = 3;
+    } else {
+      var _hoje2 = new Date();
+      var _dHoje = _hoje2.getDate();
+      _decInicial = _dHoje <= 10 ? 1 : _dHoje <= 20 ? 2 : 2; // dia 21-30: último pago foi o 2º
+      // Se hoje > 20, o 3º ainda não fechou — padrão é 2º. Mas se funcionar via atalho, pode ser sobrescrito.
+    }
     var _decSelecionado = _decInicial;
-    var _decPer = _periodoDecendio(_decSelecionado);
+    var _decPer = _periodoDecendio(_decSelecionado, _mesPeriodo);
     var _pagDi  = _decPer.di;
     var _pagDf  = _decPer.df;
     var _extraPagIncluir = true; // estado do toggle: true=pagar HE, false=acumular
@@ -2386,7 +2402,7 @@ var HR_FUNC = (function () {
       // Seletor de decêndio
       '<div style="display:flex;gap:6px;margin-bottom:10px;">'+
         [1,2,3].map(function(n){
-          var dp = _periodoDecendio(n);
+          var dp = _periodoDecendio(n, _mesPeriodo);
           var ativo = n === _decSelecionado;
           return '<button onclick="HR_FUNC._selecionarDecendio('+n+')" id="btn_dec_'+n+'" '+
             'style="flex:1;padding:8px 4px;border-radius:9px;border:1.5px solid '+(ativo?GOLD:'rgba(255,255,255,.12)')+';'+
@@ -2398,7 +2414,7 @@ var HR_FUNC = (function () {
         }).join('')+
       '</div>'+
       // Bloco saldo (atualizado via JS)
-      '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir, _decSelecionado) : '')+'</div>'+
+      '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir, _decSelecionado, _mesPeriodo) : '')+'</div>'+
 
       _secao('Dados do Pagamento',
         _campo('Funcionário', _sel('pag_func', opsFuncs, funcIdInicial || ''))+
@@ -2462,9 +2478,9 @@ var HR_FUNC = (function () {
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
-        var _dp2 = _periodoDecendio(_decSelecionado);
+        var _dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo);
         var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
-        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado);
+        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV && tipo === 'decendio') {
           var valDec2 = _decendioValorNum(f2, _decSelecionado);
           if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
@@ -2487,8 +2503,7 @@ var HR_FUNC = (function () {
         // Atualiza a data de vencimento conforme o decêndio selecionado
         var inpD = document.getElementById('pag_data');
         if (inpD) {
-          var _h = new Date();
-          var _a = _h.getFullYear(), _m = _h.getMonth();
+          var _a = parseInt(_mesPeriodo.slice(0,4), 10), _m = parseInt(_mesPeriodo.slice(5,7), 10) - 1;
           var _dt;
           if      (num === 1) _dt = new Date(_a, _m, 10);
           else if (num === 2) _dt = new Date(_a, _m, 20);
@@ -2506,9 +2521,9 @@ var HR_FUNC = (function () {
         var inpV = document.getElementById('pag_valor');
         if (!fid || !info) return;
         var f2  = getFuncionarios()[fid] || {};
-        var dp2 = _periodoDecendio(_decSelecionado);
+        var dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo);
         var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
-        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado);
+        info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV) {
           var valDec = _decendioValorNum(f2, _decSelecionado);
           if (!_extraPagIncluir) {
@@ -2531,7 +2546,7 @@ var HR_FUNC = (function () {
   // ─── Bloco financeiro reutilizável: conta-corrente visual ─────────────────
   // Aparece no modal de pagamento e pode ser chamado de outros contextos.
   // Mostra as linhas de composição do valor a pagar de forma transparente.
-  function _blocoSaldo(s, f, incluirExtra, decNum){
+  function _blocoSaldo(s, f, incluirExtra, decNum, mesISO){
     if (!s) return '';
     // incluirExtra: undefined/true = incluir HE no total; false = acumular no banco
     if (incluirExtra === undefined) incluirExtra = true;
@@ -2567,9 +2582,10 @@ var HR_FUNC = (function () {
     var saldoIco   = saldo < -0.01 ? '💳' : (saldo > 0.01 ? '💰' : '✅');
 
     // Decêndio e período legível
-    var _dp = decNum ? _periodoDecendio(decNum) : _periodoDecendioAtual();
+    var _refMes = mesISO || window._folhaMes || _mesAno(0);
+    var _dp = decNum ? _periodoDecendio(decNum, _refMes) : _periodoDecendioAtual();
     var _meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-    var _mesLabel = _meses[new Date().getMonth()] + '/' + new Date().getFullYear();
+    var _mesLabel = _meses[parseInt(_refMes.slice(5,7),10)-1] + '/' + _refMes.slice(0,4);
     var periodoLabel = _dp.label + ' — ' + _dp.di.slice(8) + ' a ' + _dp.df.slice(8) + '/' + _mesLabel;
 
     // Toggle de horas extras — só aparece quando há HE
