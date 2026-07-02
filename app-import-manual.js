@@ -180,7 +180,12 @@
       + '- "nome_curto": nome curto pra exibir num card de catálogo (máx. 40 caracteres), ex: "Cuba Gourmet Inox 56x34".\n'
       + '- "marca": marca/fabricante do produto (ex: "Tramontina", "Franke", "Deca"), só se estiver explicitamente visível no título, na descrição ou na especificação do print. NUNCA invente ou deduza uma marca — se não estiver escrita em algum lugar visível, deixe "".\n'
       + '- "dimensoes": dimensões no formato "LxAxP" ou similar (ex: "56x34x17cm"), só o que conseguir identificar com confiança. Se não der pra ver, deixe "".\n'
-      + '- "descricao": 2-4 frases descrevendo material, acabamento, formato e diferenciais — sem inventar especificações que não estão visíveis nem mencionar marca/loja de origem.\n'
+      + '- "descricao": texto estruturado em seções, NUNCA um parágrafo curto e solto. Formato exato (use \\n entre as linhas):\n'
+      + '  1) Parágrafo de abertura com 3-4 frases, tom comercial e persuasivo, descrevendo material, acabamento, formato, tipo de instalação e principais diferenciais.\n'
+      + '  2) Linha em branco, depois "Características:" e uma linha por item, cada uma começando com "- " (ex: "- Material: Aço inoxidável escovado.", "- Formato: Retangular de embutir.", "- Capacidade: 56 litros."). Inclua o que der pra identificar: material, acabamento/cor, formato, tipo de instalação (embutir/sobrepor/apoio), capacidade/volume.\n'
+      + '  3) Se houver dimensões visíveis, linha em branco, depois "Dimensões:" com uma linha "- " por medida (Comprimento, Largura, Profundidade).\n'
+      + '  4) Se houver itens/acessórios inclusos visíveis (torneira, válvula, sifão, grelha, tampa etc.), linha em branco, depois "Itens Inclusos:" com uma linha "- " por item.\n'
+      + '  Inclua só as seções para as quais há informação visível nas imagens — não invente especificações nem repita a marca (ela já vai no campo separado "marca").\n'
       + '- "preco": valor numérico em reais visível no print (sem R$, sem separador de milhar, use ponto decimal). Se não houver preço visível, use 0.\n'
       + 'Se alguma imagem não ajudar a identificar nada, ignore-a. Se não conseguir extrair nada útil de nenhuma imagem, ainda assim responda com o JSON, com campos vazios/0 onde não souber.';
   }
