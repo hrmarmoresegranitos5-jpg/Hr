@@ -477,7 +477,7 @@ function tumIARender(ambId) {
         '<input type="file" id="tumiaPhotoInput_' + ambId + '" accept="image/*" capture="environment" ' +
           'style="display:none" onchange="tumIAPhotoSelected(event,' + ambId + ')">' +
         '<button class="tumia-photo-btn" title="Enviar foto" ' +
-          'onclick="document.getElementById('tumiaPhotoInput_'+' + ambId + ').click()">📷</button>' +
+          'onclick="document.getElementById(\'tumiaPhotoInput_' + ambId + '\').click()">📷</button>' +
         '<textarea class="tumia-inp" id="tumiaInp_' + ambId + '" ' +
           'placeholder="Escreva aqui ou envie uma foto... (Enter para enviar)" ' +
           'onkeydown="tumIAKey(event,' + ambId + ')"></textarea>' +

@@ -566,37 +566,46 @@ function _chatBuildRHContext() {
   try {
     var funcs = {};
     try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) {}
+    var regs  = {};
+    try { regs  = JSON.parse(localStorage.getItem('hr_registros')   || '{}'); } catch(e) {}
+    var pags  = {};
+    try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}'); } catch(e) {}
 
     var lista = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
     if (!lista.length) return 'FUNCIONÁRIOS: Nenhum cadastrado.';
 
-    var temMotor = (typeof HR_FUNC !== 'undefined' &&
-      typeof HR_FUNC.calcSaldoFuncionario === 'function' &&
-      typeof HR_FUNC._periodoDecendioAtual === 'function');
-
-    if (!temMotor) {
-      // Sem o motor único carregado, não arrisca reinventar o cálculo.
-      return 'FUNCIONÁRIOS: módulo de folha (HR_FUNC) não carregado — cálculo de saldo indisponível nesta sessão.';
-    }
-
-    var dec = HR_FUNC._periodoDecendioAtual(); // {di, df, label}
+    var hoje = td();
+    var mes  = hoje.slice(0,7);
 
     var linhas = lista.map(function(f) {
-      var s = HR_FUNC.calcSaldoFuncionario(f.id, dec.di, dec.df);
-      var acrescimos = (s.totalDevido||0) - (s.totalSalario||0) - (s.valorExtra||0);
+      var meusRegs = Object.values(regs).filter(function(r){ return r.funcionarioId === f.id; });
+      var extraMes = meusRegs
+        .filter(function(r){ return (r.data||'').slice(0,7) === mes && r.destinoExtra !== 'banco'; })
+        .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+      var extraTotal = meusRegs
+        .filter(function(r){ return r.destinoExtra !== 'banco'; })
+        .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+
+      var taxaExtra = parseFloat(f.taxaHoraExtra) || (parseFloat(f.salario)||0) / 220;
+      var valorExtra = extraTotal * taxaExtra;
+      var totalDevido = (parseFloat(f.salario)||0) + valorExtra;
+      var totalPago = Object.values(pags)
+        .filter(function(p){ return p.funcionarioId === f.id; })
+        .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+      var saldo = totalDevido - totalPago;
+
       return f.nome +
         ' | setor: ' + (f.setor||'?') +
-        ' | ' + dec.label + ' (' + dec.di + ' a ' + dec.df + ')' +
-        ' | valor do decêndio: R$ ' + (s.totalSalario||0).toFixed(2) +
-        ' | extras: R$ ' + (s.valorExtra||0).toFixed(2) +
-        ' | acréscimos pendentes: R$ ' + acrescimos.toFixed(2) +
-        ' | total devido no decêndio: R$ ' + (s.totalDevido||0).toFixed(2) +
-        ' | já pago no decêndio: R$ ' + (s.totalPago||0).toFixed(2) +
-        ' | saldo devedor: R$ ' + (s.saldo||0).toFixed(2) + ((s.saldo||0) < 0 ? ' (crédito)' : '') +
+        ' | salário: R$ ' + (parseFloat(f.salario)||0).toFixed(2) +
+        ' | horas extras (mês): ' + extraMes.toFixed(1) + 'h' +
+        ' | horas extras (total): ' + extraTotal.toFixed(1) + 'h' +
+        ' | valor extras: R$ ' + valorExtra.toFixed(2) +
+        ' | total pago: R$ ' + totalPago.toFixed(2) +
+        ' | saldo devedor: R$ ' + saldo.toFixed(2) + (saldo < 0 ? ' (crédito)' : '') +
         ' | id: ' + f.id;
     });
 
-    return 'FUNCIONÁRIOS RH — ' + dec.label + ' (' + dec.di + ' a ' + dec.df + '), ' + lista.length + ' ativo(s):\n' + linhas.join('\n');
+    return 'FUNCIONÁRIOS RH (' + lista.length + '):\n' + linhas.join('\n');
   } catch(e) { return 'FUNCIONÁRIOS: erro ao carregar — ' + e.message; }
 }
 
@@ -1104,23 +1113,25 @@ function _jobLog(job, campo, de, para) {
         if (!funcEncontrado) {
           var nomes = listaRH.map(function(f){ return f.nome; }).join(', ');
           result.extra = '⚠️ Funcionário **"' + data.funcionario + '"** não encontrado. Cadastrados: ' + (nomes || 'nenhum') + '.';
-        } else if (typeof HR_FUNC === 'undefined' ||
-                   typeof HR_FUNC.calcSaldoFuncionario !== 'function' ||
-                   typeof HR_FUNC._periodoDecendioAtual !== 'function') {
-          result.extra = '⚠️ Módulo de folha (HR_FUNC) não carregado — não é possível calcular o saldo com segurança. Pagamento não lançado.';
         } else {
           var pagsRH = {};
           try { pagsRH = JSON.parse(localStorage.getItem('hr_pagamentos') || '{}'); } catch(ePag) {}
+          var regsRH = {};
+          try { regsRH = JSON.parse(localStorage.getItem('hr_registros') || '{}'); } catch(eR) {}
 
           var pagId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
           var pagForma = data.forma || 'dinheiro';
           var pagValor = +data.valor;
 
-          // Mesmo motor de cálculo usado pela Folha e pelo card "Pagar decêndio"
-          var decAtual = HR_FUNC._periodoDecendioAtual(); // {di, df, label}
-          var saldoCalc = HR_FUNC.calcSaldoFuncionario(funcEncontrado.id, decAtual.di, decAtual.df);
-          var totalDevido = saldoCalc.totalDevido;
-          var totalPagoAntes = saldoCalc.totalPago;
+          var salarioBase = parseFloat(funcEncontrado.salario) || 0;
+          var taxaExtraF = parseFloat(funcEncontrado.taxaHoraExtra) || salarioBase / 220;
+          var horasExtra = Object.values(regsRH)
+            .filter(function(r){ return r.funcionarioId === funcEncontrado.id && r.destinoExtra !== 'banco'; })
+            .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
+          var totalDevido = salarioBase + (horasExtra * taxaExtraF);
+          var totalPagoAntes = Object.values(pagsRH)
+            .filter(function(p){ return p.funcionarioId === funcEncontrado.id; })
+            .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
 
           pagsRH[pagId] = {
             id:              pagId,
