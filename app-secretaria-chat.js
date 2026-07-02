@@ -134,7 +134,7 @@ function _secProativCheck() {
 
   // Chama API com o prompt proativo — detecta Anthropic (sk-ant-), Gemini (AIza) ou Groq (fallback)
   var _isAnthropicProativ = key.indexOf('sk-ant-') === 0;
-  var _isGeminiProativ = key.indexOf('AIza') === 0;
+  var _isGeminiProativ = (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
   var _fetchProativ = _isAnthropicProativ
     ? fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -901,9 +901,9 @@ function _chatAsk(userText, imgObj) {
   }
 
   var _isAnthropicAsk = key.indexOf('sk-ant-') === 0;
-  var _isGeminiAsk = key.indexOf('AIza') === 0;
+  var _isGeminiAsk = (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
   if (imgObj && !_isAnthropicAsk && !_isGeminiAsk) {
-    _chatBotReply('⚠️ Análise de **imagem** requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). A Groq não suporta visão.\nEnvie sua pergunta por texto.', [
+    _chatBotReply('⚠️ Análise de **imagem** requer chave Anthropic (sk-ant-...) ou Gemini (AIza... ou AQ...). A Groq não suporta visão.\nEnvie sua pergunta por texto.', [
       {label:'⚙️ Ir às Configurações', fn:'go(6)'}
     ]);
     return;
