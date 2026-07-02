@@ -7786,8 +7786,8 @@ function buildCfg(){
 
     // IA
     h+='<div class="cfgsec"><div class="cfghd">🤖 Inteligência Artificial</div>';
-    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave de API para interpretar projetos com IA (texto e foto). Groq (<span style="color:#C9A84C;">console.groq.com</span>, gratuita, só texto), Gemini (<span style="color:#C9A84C;">aistudio.google.com/app/apikey</span>, texto+foto, começa com AIza) ou Anthropic (<span style="color:#C9A84C;">console.anthropic.com</span>, texto+foto, começa com sk-ant-).</div>';
-    h+='<div class="cfg-row"><span class="cfg-lbl">API Key (Groq, Gemini ou Anthropic)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_... / AIza... / sk-ant-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
+    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave de API para interpretar projetos com IA (texto e foto). Groq (<span style="color:#C9A84C;">console.groq.com</span>, gratuita, só texto), Gemini (<span style="color:#C9A84C;">aistudio.google.com/app/apikey</span>, texto+foto, começa com AIza ou AQ.) ou Anthropic (<span style="color:#C9A84C;">console.anthropic.com</span>, texto+foto, começa com sk-ant-).</div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">API Key (Groq, Gemini ou Anthropic)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_... / AIza... ou AQ... / sk-ant-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
     h+='<div style="padding:9px 13px;"><button onclick="testarAPIKey()" style="padding:7px 14px;background:var(--gdim);border:1px solid var(--gold3);border-radius:8px;color:var(--gold2);font-family:Outfit,sans-serif;font-size:.75rem;cursor:pointer;">Testar conexão</button><span id="apiTestResult" style="font-size:.72rem;color:var(--t3);margin-left:10px;"></span></div>';
     h+='</div>';
 
@@ -9793,7 +9793,7 @@ function aiInterpretar(){
 
   var _aiKey = (CFG.emp&&CFG.emp.apiKey)||'';
   var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
-  var _aiIsGemini = _aiKey.indexOf('AIza') === 0;
+  var _aiIsGemini = (_aiKey.indexOf('AIza') === 0 || _aiKey.indexOf('AQ.') === 0);
 
   var fetchPromise;
   if (_aiIsAnthropic) {
@@ -10256,9 +10256,9 @@ function aiInterpretarFoto() {
     return;
   }
   var isAnthropic = key.indexOf('sk-ant-') === 0;
-  var isGemini = key.indexOf('AIza') === 0;
+  var isGemini = (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
   if (!isAnthropic && !isGemini) {
-    toast('⚠️ Foto requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). Groq não suporta visão.');
+    toast('⚠️ Foto requer chave Anthropic (sk-ant-...) ou Gemini (AIza... ou AQ...). Groq não suporta visão.');
     return;
   }
   if (!_aiFotoBase64) {
@@ -10467,7 +10467,7 @@ function testarAPIKey(){
       if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
       else{if(el)el.textContent='✅ Anthropic conectado! IA + visão prontas.';}
     }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
-  } else if(key.indexOf('AIza')===0){
+  } else if((key.indexOf('AIza')===0||key.indexOf('AQ.')===0)){
     fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+key,{
       method:'GET'
     }).then(function(r){return r.json();}).then(function(d){

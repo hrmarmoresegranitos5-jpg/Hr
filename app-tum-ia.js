@@ -688,9 +688,9 @@ function tumIASend(ambId) {
     return;
   }
   var _isAnthropic = key.indexOf('sk-ant-') === 0;
-  var _isGemini = key.indexOf('AIza') === 0;
+  var _isGemini = (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
   if (photo && !_isAnthropic && !_isGemini) {
-    _tumIAAppend(ambId, 'bot', '⚠️ Análise de **foto** requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). A Groq não suporta visão.\nEnvie uma descrição por texto.');
+    _tumIAAppend(ambId, 'bot', '⚠️ Análise de **foto** requer chave Anthropic (sk-ant-...) ou Gemini (AIza... ou AQ...). A Groq não suporta visão.\nEnvie uma descrição por texto.');
     return;
   }
 
