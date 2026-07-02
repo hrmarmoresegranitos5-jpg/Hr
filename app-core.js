@@ -10468,11 +10468,13 @@ function testarAPIKey(){
       else{if(el)el.textContent='✅ Anthropic conectado! IA + visão prontas.';}
     }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
   } else if((key.indexOf('AIza')===0||key.indexOf('AQ.')===0)){
-    fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+key,{
-      method:'GET'
+    fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key='+key,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{role:'user',parts:[{text:'oi'}]}],generationConfig:{maxOutputTokens:5}})
     }).then(function(r){return r.json();}).then(function(d){
       if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
-      else if(d.models){if(el)el.textContent='✅ Gemini conectado! IA + visão prontas.';}
+      else if(d.candidates){if(el)el.textContent='✅ Gemini conectado! IA + visão prontas.';}
       else{if(el)el.textContent='❌ Resposta inesperada';}
     }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
   } else {
