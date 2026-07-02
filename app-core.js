@@ -255,7 +255,17 @@ var SYNC={
       var localTs=+localStorage.getItem('hr_sync_ts')||0;
       if(d._ts>localTs+2000){
         // Remote is newer — pull
-        if(d.cfg){CFG=d.cfg;localStorage.setItem('hr_cfg',JSON.stringify(CFG));}
+        // apiKey é config LOCAL de cada aparelho (celular/tablet podem usar
+        // chaves diferentes) — nunca deixamos o pull remoto sobrescrever a
+        // chave salva neste dispositivo. Preserva o valor atual antes de
+        // aplicar o CFG remoto, e restaura em seguida.
+        var _apiKeyLocal = (CFG && CFG.emp) ? CFG.emp.apiKey : '';
+        if(d.cfg){
+          CFG=d.cfg;
+          if(!CFG.emp) CFG.emp={};
+          CFG.emp.apiKey = _apiKeyLocal || '';
+          localStorage.setItem('hr_cfg',JSON.stringify(CFG));
+        }
         if(d.q)DB.q=d.q;
         if(d.j)DB.j=d.j;
         if(d.t)DB.t=d.t;
@@ -270,7 +280,13 @@ var SYNC={
     if(!this.db||!this.code)return;
     var ts=Date.now();
     localStorage.setItem('hr_sync_ts',ts);
-    this.db.ref('hr/'+this.code).set({cfg:CFG,q:DB.q,j:DB.j,t:DB.t,_ts:ts});
+    // apiKey nunca é enviada pro Firebase: é config local de cada aparelho.
+    // Se fosse enviada, qualquer dispositivo com a chave antiga em memória
+    // (ex: tablet aberto desde antes da troca) reenviaria e sobrescreveria
+    // a chave nova nos outros dispositivos na próxima sincronização.
+    var cfgSemChave = JSON.parse(JSON.stringify(CFG));
+    if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
+    this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,_ts:ts});
   },
   stop:function(){
     if(this.db&&this.code)this.db.ref('hr/'+this.code).off();
