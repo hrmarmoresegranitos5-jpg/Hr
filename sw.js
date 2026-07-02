@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════
-// HR Mármores e Granitos — Service Worker v4
+// HR Mármores e Granitos — Service Worker v5
 // Network-first com fallback offline para index.html
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v9';
+var CACHE_NAME = 'hr-shell-v11';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
