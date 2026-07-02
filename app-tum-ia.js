@@ -684,12 +684,13 @@ function tumIASend(ambId) {
   var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
   if (!key) {
     _tumIAAppend(ambId, 'bot',
-      '🔑 **Chave de API não configurada.**\nVá em ⚙️ Config → Empresa e adicione sua chave Groq (gratuita) ou Anthropic.');
+      '🔑 **Chave de API não configurada.**\nVá em ⚙️ Config → Empresa e adicione sua chave Groq (gratuita), Gemini ou Anthropic.');
     return;
   }
   var _isAnthropic = key.indexOf('sk-ant-') === 0;
-  if (photo && !_isAnthropic) {
-    _tumIAAppend(ambId, 'bot', '⚠️ Análise de **foto** requer chave Anthropic (sk-ant-...). A Groq não suporta visão.\nEnvie uma descrição por texto.');
+  var _isGemini = key.indexOf('AIza') === 0;
+  if (photo && !_isAnthropic && !_isGemini) {
+    _tumIAAppend(ambId, 'bot', '⚠️ Análise de **foto** requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). A Groq não suporta visão.\nEnvie uma descrição por texto.');
     return;
   }
 
@@ -774,6 +775,36 @@ function tumIASend(ambId) {
     .then(function(data) {
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
       return (data.content && data.content[0] && data.content[0].text) || '❌ Sem resposta.';
+    });
+  } else if (_isGemini) {
+    // Gemini Flash Lite — suporta visão e texto, mais barato
+    var geminiContents = messages.map(function(m) {
+      var parts;
+      if (typeof m.content === 'string') {
+        parts = [{ text: m.content }];
+      } else {
+        parts = m.content.map(function(c) {
+          if (c.type === 'image') {
+            return { inline_data: { mime_type: c.source.media_type, data: c.source.data } };
+          }
+          return { text: c.text || '' };
+        });
+      }
+      return { role: m.role === 'assistant' ? 'model' : 'user', parts: parts };
+    });
+    _fetchIA = fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: _tumIASystemPrompt() }] },
+        contents: geminiContents,
+        generationConfig: { maxOutputTokens: 2000 }
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      return (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '❌ Sem resposta.';
     });
   } else {
     // Groq — gratuita, somente texto

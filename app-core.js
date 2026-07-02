@@ -7786,8 +7786,8 @@ function buildCfg(){
 
     // IA
     h+='<div class="cfgsec"><div class="cfghd">🤖 Inteligência Artificial</div>';
-    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave Groq gratuita para interpretar projetos com IA. Obtenha em <span style="color:#C9A84C;">console.groq.com</span> → API Keys.</div>';
-    h+='<div class="cfg-row"><span class="cfg-lbl">API Key Groq (Gratuita)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
+    h+='<div style="padding:10px 13px;font-size:.72rem;color:var(--t3);line-height:1.7;margin-bottom:6px;">Chave de API para interpretar projetos com IA (texto e foto). Groq (<span style="color:#C9A84C;">console.groq.com</span>, gratuita, só texto), Gemini (<span style="color:#C9A84C;">aistudio.google.com/app/apikey</span>, texto+foto, começa com AIza) ou Anthropic (<span style="color:#C9A84C;">console.anthropic.com</span>, texto+foto, começa com sk-ant-).</div>';
+    h+='<div class="cfg-row"><span class="cfg-lbl">API Key (Groq, Gemini ou Anthropic)</span><input class="cfginp" type="password" value="'+(e.apiKey||'')+'" placeholder="gsk_... / AIza... / sk-ant-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.apiKey=this.value;svCFG();toast(\'✓ API Key salva!\');"></div>';
     h+='<div style="padding:9px 13px;"><button onclick="testarAPIKey()" style="padding:7px 14px;background:var(--gdim);border:1px solid var(--gold3);border-radius:8px;color:var(--gold2);font-family:Outfit,sans-serif;font-size:.75rem;cursor:pointer;">Testar conexão</button><span id="apiTestResult" style="font-size:.72rem;color:var(--t3);margin-left:10px;"></span></div>';
     h+='</div>';
 
@@ -9793,6 +9793,7 @@ function aiInterpretar(){
 
   var _aiKey = (CFG.emp&&CFG.emp.apiKey)||'';
   var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
+  var _aiIsGemini = _aiKey.indexOf('AIza') === 0;
 
   var fetchPromise;
   if (_aiIsAnthropic) {
@@ -9815,6 +9816,21 @@ function aiInterpretar(){
     .then(function(data){
       if (data.error) throw new Error(data.error.message || 'Erro Anthropic');
       return (data.content && data.content[0] && data.content[0].text) || '';
+    });
+  } else if (_aiIsGemini) {
+    // Gemini Flash Lite — texto e visão, mais barato
+    fetchPromise = fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + _aiKey, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: 'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.' }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 1500 }
+      })
+    }).then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.error) throw new Error(data.error.message || 'Erro Gemini');
+      return (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
     });
   } else {
     // Groq — fallback gratuito
@@ -10240,8 +10256,9 @@ function aiInterpretarFoto() {
     return;
   }
   var isAnthropic = key.indexOf('sk-ant-') === 0;
-  if (!isAnthropic) {
-    toast('⚠️ Foto requer chave Anthropic (sk-ant-...). Groq não suporta visão.');
+  var isGemini = key.indexOf('AIza') === 0;
+  if (!isAnthropic && !isGemini) {
+    toast('⚠️ Foto requer chave Anthropic (sk-ant-...) ou Gemini (AIza...). Groq não suporta visão.');
     return;
   }
   if (!_aiFotoBase64) {
@@ -10306,50 +10323,73 @@ function aiInterpretarFoto() {
     (extra ? '\n\nInformação adicional do usuário: ' + extra : '') +
     '\n\nRetorne SÓ o JSON, sem nenhum texto fora dele.';
 
-  var body = JSON.stringify({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1500,
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: _aiFotoMime,
-            data: _aiFotoBase64
+  var fotoFetchPromise;
+  if (isGemini) {
+    var geminiBody = JSON.stringify({
+      contents: [{
+        role: 'user',
+        parts: [
+          { inline_data: { mime_type: _aiFotoMime, data: _aiFotoBase64 } },
+          { text: promptTexto }
+        ]
+      }],
+      generationConfig: { maxOutputTokens: 1500 }
+    });
+    fotoFetchPromise = fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: geminiBody
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw { _apiErr: data.error.message || 'Erro na API', _provider: 'Gemini' };
+      return (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
+    });
+  } else {
+    var body = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: _aiFotoMime,
+              data: _aiFotoBase64
+            }
+          },
+          {
+            type: 'text',
+            text: promptTexto
           }
-        },
-        {
-          type: 'text',
-          text: promptTexto
-        }
-      ]
-    }]
-  });
+        ]
+      }]
+    });
 
-  fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: body
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
+    fotoFetchPromise = fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: body
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw { _apiErr: data.error.message || 'Erro na API', _provider: 'Anthropic' };
+      return (data.content && data.content[0] && data.content[0].text) || '';
+    });
+  }
+
+  fotoFetchPromise
+  .then(function(txt) {
     btn.disabled = false;
     btn.textContent = '📷 Interpretar Foto com IA';
 
-    if (data.error) {
-      st.className = 'ai-status err';
-      st.textContent = '❌ ' + (data.error.message || 'Erro na API') + '\nVerifique sua chave Anthropic em Config → Empresa.';
-      return;
-    }
-
-    var txt = (data.content && data.content[0] && data.content[0].text) || '';
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
     var parsed;
@@ -10398,7 +10438,11 @@ function aiInterpretarFoto() {
     btn.disabled = false;
     btn.textContent = '📷 Interpretar Foto com IA';
     st.className = 'ai-status err';
-    st.textContent = '❌ Sem conexão ou erro de rede.';
+    if (e && e._apiErr) {
+      st.textContent = '❌ ' + e._apiErr + '\nVerifique sua chave ' + e._provider + ' em Config → Empresa.';
+    } else {
+      st.textContent = '❌ Sem conexão ou erro de rede.';
+    }
     console.error('aiInterpretarFoto:', e);
   });
 }
@@ -10409,14 +10453,38 @@ function testarAPIKey(){
   var el=document.getElementById('apiTestResult');
   if(!key){if(el)el.textContent='⚠️ Nenhuma chave configurada';return;}
   if(el)el.textContent='⏳ Testando...';
-  fetch('https://api.groq.com/openai/v1/models',{
-    method:'GET',
-    headers:{'Authorization':'Bearer '+key}
-  }).then(function(r){return r.json();}).then(function(d){
-    if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
-    else if(d.data){if(el)el.textContent='✅ Groq conectado! IA pronta.';}
-    else{if(el)el.textContent='❌ Resposta inesperada';}
-  }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
+  if(key.indexOf('sk-ant-')===0){
+    fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key':key,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:1,messages:[{role:'user',content:'oi'}]})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
+      else{if(el)el.textContent='✅ Anthropic conectado! IA + visão prontas.';}
+    }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
+  } else if(key.indexOf('AIza')===0){
+    fetch('https://generativelanguage.googleapis.com/v1beta/models?key='+key,{
+      method:'GET'
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
+      else if(d.models){if(el)el.textContent='✅ Gemini conectado! IA + visão prontas.';}
+      else{if(el)el.textContent='❌ Resposta inesperada';}
+    }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
+  } else {
+    fetch('https://api.groq.com/openai/v1/models',{
+      method:'GET',
+      headers:{'Authorization':'Bearer '+key}
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.error){if(el)el.textContent='❌ '+(d.error.message||'Chave inválida');}
+      else if(d.data){if(el)el.textContent='✅ Groq conectado! IA pronta (sem visão).';}
+      else{if(el)el.textContent='❌ Resposta inesperada';}
+    }).catch(function(e){if(el)el.textContent='❌ Sem conexão';});
+  }
 }
 
 function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
