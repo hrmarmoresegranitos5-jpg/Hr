@@ -942,9 +942,11 @@ var HR_FUNC = (function () {
   function _cardFuncionario(f, pontoHoje){
     var temPonto = pontoHoje && pontoHoje.some(function(p){ return p.id === f.id; });
     var alertas  = analisarGaps(f.id);
-    // Saldo do mês atual — do dia 1 até hoje (captura decêndios vencidos não pagos)
+    // Saldo do mês atual + anterior — do dia 1 do mês anterior até hoje
+    // (captura decêndios vencidos não pagos que ficaram "presos" no mês passado)
     var _mr  = _mesAno(0);
-    var _di  = _mr + '-01';
+    var _mrAnt = _mesAno(-1);
+    var _di  = _mrAnt + '-01';
     var _df  = _hoje();
     var saldo    = calcSaldoFuncionario(f.id, _di, _df);
     var pags     = getPagamentos();
@@ -1258,6 +1260,17 @@ var HR_FUNC = (function () {
     var alertas=analisarGaps(id);
     var temPontoHoje=meusRegs.some(function(r){return r.data===hoje;});
 
+    // Saldo pendente de mês(es) anterior(es) — não deixa dívida "sumir" quando
+    // o decêndio/mês vira e a tela passa a mostrar só o período corrente.
+    var _mesAntModal = _mesAno(-1);
+    var _diAntModal  = _mesAntModal + '-01';
+    var _ultAntModal = new Date(parseInt(_mesAntModal.slice(0,4)), parseInt(_mesAntModal.slice(5,7)), 0);
+    var _dfAntModal  = _mesAntModal + '-' + String(_ultAntModal.getDate()).padStart(2,'0');
+    var saldoAnteriorModal = calcSaldoFuncionario(id, _diAntModal, _dfAntModal);
+    var pendenteAnteriorModal = (!saldoAnteriorModal.temCredito && saldoAnteriorModal.saldo > 0.01) ? saldoAnteriorModal.saldo : 0;
+    var _mesesPt = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var _lblMesAntModal = _mesesPt[parseInt(_mesAntModal.slice(5,7))] + '/' + _mesAntModal.slice(0,4);
+
     var saldoColor=saldo.temCredito?GREEN:(saldo.saldo>0.01?GOLD:GREEN);
     var saldoLabel=saldo.temCredito?'💳 Crédito (overpago este mês)':(saldo.saldo>0.01?'💰 A Receber (mês atual)':'✓ Quitado (mês atual)');
 
@@ -1407,6 +1420,14 @@ var HR_FUNC = (function () {
             '</div>'+
             '<div style="font-size:1.35rem;font-weight:800;color:'+saldoCo+';">'+_fmtMoeda(Math.abs(saldoV))+'</div>'+
           '</div>'+
+          (pendenteAnteriorModal > 0.01 ?
+            '<div style="padding:9px 14px;background:rgba(200,92,92,.09);border-top:1px solid rgba(200,92,92,.25);'+
+              'display:flex;justify-content:space-between;align-items:center;">'+
+              '<div style="font-size:.68rem;color:'+RED+';">⚠️ + '+_fmtMoeda(pendenteAnteriorModal)+' pendente de '+_lblMesAntModal+'</div>'+
+              '<button onclick="window._folhaMes=\''+_mesAntModal+'\';window._folhaProjecao=false;HR_FUNC.abrirFolhaPagamento();" '+
+                'style="background:none;border:none;color:'+RED+';font-size:.68rem;font-weight:700;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">ver →</button>'+
+            '</div>'
+          : '')+
           // Separador + histórico de pagamentos
           '<div style="padding:8px 14px 4px;'+
             'font-size:.58rem;color:'+T3+';text-transform:uppercase;letter-spacing:.08em;'+
@@ -1804,6 +1825,19 @@ var HR_FUNC = (function () {
       return p.data >= di && p.data <= df;
     });
 
+    // Alerta de saldo pendente do mês anterior — evita que hora extra "suma"
+    // quando o calendário vira o mês e a folha passa a abrir no mês novo.
+    var diAnt = mesAnterior + '-01';
+    var ultimoAnt = new Date(parseInt(mesAnterior.slice(0,4)), parseInt(mesAnterior.slice(5,7)), 0);
+    var dfAnt = mesAnterior + '-' + String(ultimoAnt.getDate()).padStart(2,'0');
+    var saldoPendenteAnterior = 0;
+    if (periodoAtivo !== mesAnterior && !window._folhaProjecao) {
+      ativos.forEach(function(f){
+        var sAnt = calcSaldoFuncionario(f.id, diAnt, dfAnt);
+        if (sAnt.saldo > 0.01) saldoPendenteAnterior += sAnt.saldo;
+      });
+    }
+
     var totalFolha=0, totalExtras=0, totalPago=0, totalVales=0, totalDec=0, totalSaldo=0;
 
     var linhas = ativos.map(function(f){
@@ -1854,6 +1888,16 @@ var HR_FUNC = (function () {
       // Se aba projeção ativa — mostra bloco de projeção e encerra cedo
       (window._folhaProjecao ? HR_FUNC._htmlProjecaoFolha(ativos, pags, fmtMes) + '<button onclick="HR_FUNC._closeFolha()" style="'+CSS_BTN_GHOST+'">Fechar</button></div>' : '') +
       (window._folhaProjecao ? '' :
+
+      // Alerta: saldo pendente no mês anterior (não deixa a HE "sumir" ao virar o mês)
+      (saldoPendenteAnterior > 0.01 ?
+        '<div onclick="window._folhaMes=\''+mesAnterior+'\';window._folhaProjecao=false;HR_FUNC.abrirFolhaPagamento();" '+
+          'style="cursor:pointer;background:rgba(200,92,92,.10);border:1px solid rgba(200,92,92,.35);'+
+          'border-radius:11px;padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;">'+
+          '<div style="font-size:.78rem;color:'+T1+';line-height:1.35;">⚠️ Ainda há <b style="color:'+RED+';">'+_fmtMoeda(saldoPendenteAnterior)+'</b> pendente em '+fmtMes(mesAnterior)+'</div>'+
+          '<span style="color:'+RED+';font-size:.78rem;font-weight:700;white-space:nowrap;">Ver →</span>'+
+        '</div>'
+      : '')+
 
       // KPIs resumo: Salário Devido | HE Devida | Total Devido | Já Pago
       '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;">'+
@@ -2786,9 +2830,12 @@ var HR_FUNC = (function () {
     var primeiroNome = f.nome.split(' ')[0];
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
 
-    // Calcula saldo após o pagamento — usa mês atual (já inclui pagamento recém salvo)
+    // Calcula saldo após o pagamento — usa mês atual + anterior (já inclui o
+    // pagamento recém-salvo). Janela de 2 meses evita dizer "quitado" pro
+    // funcionário quando ainda há saldo pendente de um mês anterior.
     var _nMesRef = _mesAno(0);
-    var _nDi = _nMesRef + '-01';
+    var _nMesAntRef = _mesAno(-1);
+    var _nDi = _nMesAntRef + '-01';
     var _nUlt = new Date(parseInt(_nMesRef.slice(0,4)), parseInt(_nMesRef.slice(5,7)), 0);
     var _nDf = _nMesRef + '-' + String(_nUlt.getDate()).padStart(2,'0');
     var saldo = calcSaldoFuncionario(funcId, _nDi, _nDf);
