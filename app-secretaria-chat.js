@@ -132,25 +132,46 @@ function _secProativCheck() {
   _chat.history.push({role: 'assistant', content: '...', ts: ts, isProativ: true, _pending: true});
   _chatSave();
 
-  // Chama API com o prompt proativo
-  fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 600,
-      system: _chatBuildSystem(),
-      messages: [{role: 'user', content: prompt}]
-    })
-  })
+  // Chama API com o prompt proativo — detecta Anthropic (sk-ant-) vs Groq (gsk_)
+  var _isAnthropicProativ = key.indexOf('sk-ant-') === 0;
+  var _fetchProativ = _isAnthropicProativ
+    ? fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          system: _chatBuildSystem(),
+          messages: [{role: 'user', content: prompt}]
+        })
+      })
+    : fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + key
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 600,
+          messages: [
+            {role: 'system', content: _chatBuildSystem()},
+            {role: 'user', content: prompt}
+          ]
+        })
+      });
+
+  _fetchProativ
   .then(function(r) { return r.json(); })
   .then(function(d) {
-    var text = (d.content && d.content[0] && d.content[0].text) || '';
+    var text = _isAnthropicProativ
+      ? ((d.content && d.content[0] && d.content[0].text) || '')
+      : ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '');
     if (!text) return;
 
     // Substitui o placeholder pela resposta real
@@ -866,6 +887,14 @@ function _chatAsk(userText, imgObj) {
     return;
   }
 
+  var _isAnthropicAsk = key.indexOf('sk-ant-') === 0;
+  if (imgObj && !_isAnthropicAsk) {
+    _chatBotReply('⚠️ Análise de **imagem** requer chave Anthropic (sk-ant-...). A Groq não suporta visão.\nEnvie sua pergunta por texto.', [
+      {label:'⚙️ Ir às Configurações', fn:'go(6)'}
+    ]);
+    return;
+  }
+
   var _intentFlags = _chatClassifyIntent(userText || '');
   if (imgObj) {
     _intentFlags.temImagem = true;
@@ -916,25 +945,47 @@ function _chatAsk(userText, imgObj) {
   }
   apiMessages.push({role: 'user', content: currentUserContent});
 
-  // Usa Sonnet quando há imagem (visão), Haiku para texto puro
+  // Usa Sonnet quando há imagem (visão), Haiku para texto puro (Anthropic)
   var model = imgObj ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
 
   function doFetch(retryCount) {
-    fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
-      body: JSON.stringify({
-        model: model,
-        max_tokens: 2500,
-        system: systemPrompt,
-        messages: apiMessages
-      })
-    })
+    var _fetchAsk = _isAnthropicAsk
+      ? fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: model,
+            max_tokens: 2500,
+            system: systemPrompt,
+            messages: apiMessages
+          })
+        })
+      : fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + key
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            max_tokens: 2500,
+            messages: [{role: 'system', content: systemPrompt}].concat(
+              apiMessages.map(function(m) {
+                return {
+                  role: m.role,
+                  content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                };
+              })
+            )
+          })
+        });
+
+    _fetchAsk
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (d.error) {
@@ -945,7 +996,9 @@ function _chatAsk(userText, imgObj) {
         }
         throw new Error(d.error.message || 'Erro da API');
       }
-      var text = (d.content && d.content[0] && d.content[0].text) || '';
+      var text = _isAnthropicAsk
+        ? ((d.content && d.content[0] && d.content[0].text) || '')
+        : ((d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '');
       if (!text) throw new Error('Resposta vazia');
       _chatProcessReply(text);
     })
