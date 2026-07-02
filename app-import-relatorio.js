@@ -2906,10 +2906,148 @@ var HR_IMPORT = (function () {
     if (semFunc > 0) msg += ' ℹ️ ' + semFunc + ' sem vínculo.';
     _toast(msg);
 
-    _fechar();
+    // Captura os funcIds vinculados nesta importação ANTES de fechar/limpar o estado
+    var funcIdsDoLote = _state.grupos
+      .filter(function(gr){ return gr.funcId && funcs[gr.funcId]; })
+      .map(function(gr){ return gr.funcId; });
+
     if (typeof HR_FUNC !== 'undefined' && HR_FUNC.renderPaginaFuncionarios) {
       HR_FUNC.renderPaginaFuncionarios();
     }
+
+    if (importados > 0 && funcIdsDoLote.length > 0) {
+      _mostrarResumoHE(funcIdsDoLote);
+    } else {
+      _fechar();
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TELA DE RESUMO PÓS-IMPORTAÇÃO — Horas Extras por Funcionário
+  // Aparece automaticamente após confirmar a importação. Mostra, de forma
+  // enxuta, o total de horas extras + valor estimado de cada funcionário do
+  // lote, com um botão de WhatsApp já pronto para envio individual.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  function _msgResumoHE(func, calc, fin, periodoTexto) {
+    var primeiroNome = (func.nome || '').split(' ')[0];
+    var horasExtraFmt = _min2dur(calc.totalExtraMin || 0);
+    var linhas = [];
+    if (fin.totalExtra50Min > 0)  linhas.push('• Dobrada (dia útil): ' + _min2dur(fin.totalExtra50Min));
+    if (fin.totalExtra100Min > 0) linhas.push('• Dobrada: ' + _min2dur(fin.totalExtra100Min));
+    if (fin.totalExtra200Min > 0) linhas.push('• Triplicada (dom/feriado/sáb tarde): ' + _min2dur(fin.totalExtra200Min));
+
+    return 'Olá ' + primeiroNome + '! 👋\n\n' +
+      '⏰ *Horas extras registradas — HR Mármores*\n\n' +
+      '📅 Período: ' + periodoTexto + '\n' +
+      '🕐 Total de horas extras: *' + horasExtraFmt + '*\n' +
+      (linhas.length ? linhas.join('\n') + '\n' : '') +
+      (fin.valorTotalExtras > 0 ? '\n💰 Valor estimado: *' + _fmtMoeda(fin.valorTotalExtras) + '*\n' : '') +
+      '\n_HR Mármores e Granitos — Pilão Arcado_';
+  }
+
+  function _enviarResumoWhatsApp(funcId) {
+    var funcs = _getFuncionarios();
+    var f = funcs[funcId];
+    if (!f) return;
+    var gr = _state.grupos.filter(function(g){ return g.funcId === funcId; })[0];
+    if (!gr) return;
+
+    var tel = (f.telefone || '').replace(/\D/g, '');
+    if (tel.length < 10) { _toast('⚠️ ' + f.nome.split(' ')[0] + ' sem telefone cadastrado.'); return; }
+
+    var calc = _calcGrupo(gr);
+    var mesRef = (_state.periodo.di || '').slice(0, 7);
+    var valorHora = _calcValorHoraReal(f, mesRef);
+    var fin = _calcFinanceiroGrupo(calc, valorHora);
+    var periodoTexto = _fmtPeriodoCurto(_state.periodo.di, _state.periodo.df);
+    var msg = _msgResumoHE(f, calc, fin, periodoTexto);
+
+    window.open('https://wa.me/55' + tel + '?text=' + encodeURIComponent(msg), '_blank');
+  }
+
+  function _fmtPeriodoCurto(di, df) {
+    var f = function(iso) {
+      if (!iso) return '—';
+      var p = iso.split('-');
+      return p[2] + '/' + p[1];
+    };
+    return f(di) + ' a ' + f(df);
+  }
+
+  function _mostrarResumoHE(funcIds) {
+    var funcs = _getFuncionarios();
+    var mesRef = (_state.periodo.di || '').slice(0, 7);
+    var periodoTexto = _fmtPeriodoCurto(_state.periodo.di, _state.periodo.df);
+
+    var linhas = funcIds.map(function(funcId) {
+      var f = funcs[funcId];
+      if (!f) return null;
+      var gr = _state.grupos.filter(function(g){ return g.funcId === funcId; })[0];
+      if (!gr) return null;
+      var calc = _calcGrupo(gr);
+      var valorHora = _calcValorHoraReal(f, mesRef);
+      var fin = _calcFinanceiroGrupo(calc, valorHora);
+      return { func: f, calc: calc, fin: fin };
+    }).filter(Boolean);
+
+    // Ordena: quem tem mais horas extra aparece primeiro
+    linhas.sort(function(a, b) { return (b.calc.totalExtraMin || 0) - (a.calc.totalExtraMin || 0); });
+
+    var totalExtraMin = linhas.reduce(function(s, l){ return s + (l.calc.totalExtraMin || 0); }, 0);
+    var totalValor = linhas.reduce(function(s, l){ return s + (l.fin.valorTotalExtras || 0); }, 0);
+    var comExtra = linhas.filter(function(l){ return l.calc.totalExtraMin > 0; }).length;
+
+    var cards = linhas.map(function(l) {
+      var f = l.func, calc = l.calc, fin = l.fin;
+      var temExtra = calc.totalExtraMin > 0;
+      var iniciais = (f.nome || '?').trim().charAt(0).toUpperCase();
+      var temTel = (f.telefone || '').replace(/\D/g, '').length >= 10;
+
+      return '<div style="' + CSS_CARD + 'display:flex;align-items:center;gap:13px;">' +
+        '<div style="width:42px;height:42px;border-radius:50%;background:' + (temExtra ? GOLD2 : 'rgba(255,255,255,.05)') + ';' +
+          'border:1px solid ' + (temExtra ? GOLDB : BD2) + ';display:flex;align-items:center;justify-content:center;' +
+          'font-weight:800;color:' + (temExtra ? GOLD : T3) + ';flex-shrink:0;">' + _esc(iniciais) + '</div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-weight:700;color:' + T1 + ';font-size:.92rem;">' + _esc(f.nome) + '</div>' +
+          (temExtra
+            ? '<div style="font-size:.78rem;color:' + T2 + ';margin-top:2px;">' + _min2dur(calc.totalExtraMin) + ' de hora extra' +
+              (fin.valorTotalExtras > 0 ? ' · <b style="color:' + GOLD + ';">' + _fmtMoeda(fin.valorTotalExtras) + '</b>' : '') + '</div>'
+            : '<div style="font-size:.78rem;color:' + T3 + ';margin-top:2px;">Sem horas extras no período</div>') +
+        '</div>' +
+        (temExtra
+          ? (temTel
+              ? '<button onclick="HR_IMPORT._enviarResumoWhatsApp(\'' + f.id + '\')" style="background:#25d366;border:none;border-radius:10px;' +
+                'color:#fff;padding:9px 13px;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">' +
+                '💬 Enviar' +
+              '</button>'
+              : '<div style="font-size:.68rem;color:' + T3 + ';text-align:center;max-width:70px;">sem telefone</div>')
+          : '') +
+      '</div>';
+    });
+
+    var html = _header('Resumo de Horas Extras', 'Período: ' + periodoTexto) +
+
+      '<div style="width:calc(100% - 32px);max-width:520px;' + CSS_CARD + 'background:' + GOLD2 + ';border-color:' + GOLDB + ';display:flex;justify-content:space-between;align-items:center;">' +
+        '<div>' +
+          '<div style="font-size:.68rem;color:' + T2 + ';text-transform:uppercase;letter-spacing:.05em;">' + comExtra + ' com hora extra</div>' +
+          '<div style="font-size:1.15rem;font-weight:800;color:' + GOLD + ';margin-top:2px;">' + _min2dur(totalExtraMin) + '</div>' +
+        '</div>' +
+        (totalValor > 0 ? '<div style="text-align:right;"><div style="font-size:.68rem;color:' + T2 + ';">valor estimado</div>' +
+          '<div style="font-size:1.15rem;font-weight:800;color:' + T1 + ';margin-top:2px;">' + _fmtMoeda(totalValor) + '</div></div>' : '') +
+      '</div>' +
+
+      '<div style="width:calc(100% - 32px);max-width:520px;">' +
+        (cards.length ? cards.join('') : '<div style="' + CSS_CARD + 'text-align:center;color:' + T3 + ';">Nenhum funcionário vinculado neste lote.</div>') +
+      '</div>' +
+
+      '<div style="width:calc(100% - 32px);max-width:520px;margin-top:8px;">' +
+        '<button onclick="HR_IMPORT._fechar()" style="width:100%;padding:14px;background:rgba(255,255,255,.05);' +
+          'border:1px solid ' + BD2 + ';border-radius:12px;color:' + T2 + ';font-family:Outfit,sans-serif;' +
+          'font-size:.88rem;font-weight:600;cursor:pointer;">Fechar</button>' +
+      '</div>';
+
+    _overlay('hrImport', html);
   }
 
   // ── Helpers UI ───────────────────────────────────────────────────────────
@@ -3651,6 +3789,9 @@ var HR_IMPORT = (function () {
     _toggleTabela:       _toggleTabela,
     _confirmarImportacao:_confirmarImportacao,
     _fechar:             _fechar,
+    // Tela de resumo de HE pós-importação
+    _mostrarResumoHE:     _mostrarResumoHE,
+    _enviarResumoWhatsApp: _enviarResumoWhatsApp,
     // Correção de ponto
     _renderTelaCorrecao:    _renderTelaCorrecao,
     _editCorrecao:          _editCorrecao,
