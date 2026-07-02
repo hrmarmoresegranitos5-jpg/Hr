@@ -4274,6 +4274,9 @@ var HR_FUNC = (function () {
     _abrirFormExcecao:     _abrirFormExcecao,
     _closeFormExcecao:     _closeFormExcecao,
     _salvarExcecao:        _salvarExcecao,
-    _excluirExcecao:       _excluirExcecao
+    _excluirExcecao:       _excluirExcecao,
+    // Motor único de cálculo de saldo (usado por Folha, Card e Secretária IA)
+    calcSaldoFuncionario:   calcSaldoFuncionario,
+    _periodoDecendioAtual:  _periodoDecendioAtual
   };
 })();
