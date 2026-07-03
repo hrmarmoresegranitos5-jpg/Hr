@@ -145,6 +145,11 @@ var HR_IA = (function () {
               setTimeout(function () { _doFetch(retryCount + 1); }, 3000);
               return;
             }
+            // Sobrecarga temporária da IA (picos de demanda) — tenta de novo com backoff
+            if (tipoErro === 'overloaded_error' && retryCount < 2) {
+              setTimeout(function () { _doFetch(retryCount + 1); }, 2000 * (retryCount + 1));
+              return;
+            }
             cb('⚠️ Erro da IA: ' + (data.error.message || tipoErro || 'falha desconhecida') +
               (tipoErro ? ' (' + tipoErro + ')' : ''));
             return;
