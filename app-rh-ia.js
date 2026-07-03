@@ -131,24 +131,43 @@ var HR_IA = (function () {
       });
     }
 
-    fetch(url, { method: 'POST', headers: headers, body: body })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var texto = '';
-        try {
-          if (isGemini) {
-            var parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
-            texto = parts.map(function (p) { return p.text || ''; }).join('');
-          } else if (isGroq) {
-            texto = (((data.choices || [])[0] || {}).message || {}).content || '';
-          } else {
-            texto = (data.content || []).map(function (c) { return c.text || ''; }).join('');
+    function _doFetch(retryCount) {
+      fetch(url, { method: 'POST', headers: headers, body: body })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // A API respondeu, mas com erro — nesse caso não existe data.content/
+          // candidates/choices, então extrair texto direto dava sempre '' e
+          // mascarava a causa real (chave inválida, sem crédito, rate limit,
+          // sobrecarga...). Trata isso primeiro, igual à Secretária.
+          if (data && data.error) {
+            var tipoErro = data.error.type || '';
+            if (tipoErro === 'rate_limit_error' && retryCount < 2) {
+              setTimeout(function () { _doFetch(retryCount + 1); }, 3000);
+              return;
+            }
+            cb('⚠️ Erro da IA: ' + (data.error.message || tipoErro || 'falha desconhecida') +
+              (tipoErro ? ' (' + tipoErro + ')' : ''));
+            return;
           }
-        } catch (e) {}
-        if (!texto) texto = '⚠️ Não consegui gerar resposta agora. Tente de novo em instantes.';
-        cb(texto);
-      })
-      .catch(function (err) { cb('⚠️ Erro ao consultar IA: ' + err.message); });
+
+          var texto = '';
+          try {
+            if (isGemini) {
+              var parts = (((data.candidates || [])[0] || {}).content || {}).parts || [];
+              texto = parts.map(function (p) { return p.text || ''; }).join('');
+            } else if (isGroq) {
+              texto = (((data.choices || [])[0] || {}).message || {}).content || '';
+            } else {
+              texto = (data.content || []).map(function (c) { return c.text || ''; }).join('');
+            }
+          } catch (e) {}
+          if (!texto) texto = '⚠️ A IA respondeu vazio (sem erro explícito). Tente de novo em instantes.';
+          cb(texto);
+        })
+        .catch(function (err) { cb('⚠️ Erro ao consultar IA: ' + err.message); });
+    }
+
+    _doFetch(0);
   }
 
   // ── Prepara a ação de pagamento vinda da IA — NÃO executa ainda.
