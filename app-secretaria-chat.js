@@ -1036,6 +1036,11 @@ function _chatAsk(userText, imgObj) {
           setTimeout(function(){ doFetch(retryCount + 1); }, 3000);
           return;
         }
+        // Sobrecarga temporária da IA (picos de demanda) — tenta de novo com backoff
+        if (d.error.type === 'overloaded_error' && retryCount < 2) {
+          setTimeout(function(){ doFetch(retryCount + 1); }, 2000 * (retryCount + 1));
+          return;
+        }
         throw new Error(d.error.message || 'Erro da API');
       }
       var text = _isAnthropicAsk
