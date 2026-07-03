@@ -807,9 +807,14 @@ var HR_FUNC = (function () {
             '<div style="font-size:1.4rem;font-weight:800;color:'+T1+';line-height:1;letter-spacing:-.02em;">Recursos Humanos</div>' +
             '<div style="font-size:.72rem;color:'+T3+';margin-top:4px;">'+_fmtData(hoje)+' · '+ativos.length+' ativo'+(ativos.length!==1?'s':'')+'</div>' +
           '</div>' +
+          '<div style="display:flex;gap:8px;">' +
+          '<button onclick="typeof HR_IA!==\'undefined\'&&HR_IA.abrir()" title="RH IA — saldo, extrato e pagamento de decêndio" '+
+            'style="background:rgba(201,168,76,.12);border:1px solid '+GOLD+';border-radius:10px;padding:10px 14px;'+
+            'color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">🤖 IA</button>' +
           '<button onclick="HR_FUNC.abrirFormFuncionario(null)" '+
             'style="background:'+GOLD+';border:none;border-radius:10px;padding:10px 16px;'+
             'color:#000;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">+ Cadastrar</button>' +
+          '</div>' +
         '</div>' +
 
         // Stats row
@@ -2793,20 +2798,26 @@ var HR_FUNC = (function () {
     }, 150);
   }
 
-  function _salvarPagamento(){
-    var funcId = (document.getElementById('pag_func')  || {}).value;
-    var data   = (document.getElementById('pag_data')  || {}).value;
-    var valor  = parseFloat((document.getElementById('pag_valor') || {}).value);
-    var tipo   = (document.getElementById('pag_tipo')  || {}).value || 'decendio';
-    var forma  = (document.getElementById('pag_forma') || {}).value || 'pix';
-    var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+  // ─────────────────────────────────────────────────────────────
+  // MOTOR ÚNICO DE PAGAMENTO — sem dependência de DOM.
+  // Usado pelo formulário (_salvarPagamento) e pelo RH IA (app-rh-ia.js).
+  // Centralizar aqui evita reimplementações divergentes da mesma regra
+  // (ex: quitação de acréscimos HE ao pagar decêndio).
+  // ─────────────────────────────────────────────────────────────
+  function registrarPagamento(opts){
+    opts = opts || {};
+    var funcId = opts.funcionarioId;
+    var data   = opts.data;
+    var valor  = parseFloat(opts.valor);
+    var tipo   = opts.tipo  || 'decendio';
+    var forma  = opts.forma || 'pix';
+    var obs    = opts.obs   || '';
 
-    if (!funcId) { _toast('Selecione um funcionário'); return; }
-    if (!data)   { _toast('Informe a data');           return; }
-    if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
-
+    if (!funcId)               return { ok:false, erro:'Funcionário não informado' };
     var funcs = getFuncionarios();
-    if (!funcs[funcId]) { _toast('Funcionário não encontrado'); return; }
+    if (!funcs[funcId])        return { ok:false, erro:'Funcionário não encontrado' };
+    if (!data)                 return { ok:false, erro:'Data não informada' };
+    if (!valor || valor <= 0)  return { ok:false, erro:'Valor inválido' };
 
     var t    = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
     var pags = getPagamentos();
@@ -2838,6 +2849,34 @@ var HR_FUNC = (function () {
       if (quitados > 0) saveAcrescimos(acrs);
     }
 
+    if (opts.notificar !== false) {
+      try { _ofereceNotificacaoPagamento(funcId, valor, tipo, data, obs); } catch(e){}
+    }
+
+    return { ok:true, id:id, pagamento:pags[id], tipoInfo:t };
+  }
+
+  function _salvarPagamento(){
+    var funcId = (document.getElementById('pag_func')  || {}).value;
+    var data   = (document.getElementById('pag_data')  || {}).value;
+    var valor  = parseFloat((document.getElementById('pag_valor') || {}).value);
+    var tipo   = (document.getElementById('pag_tipo')  || {}).value || 'decendio';
+    var forma  = (document.getElementById('pag_forma') || {}).value || 'pix';
+    var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+
+    if (!funcId) { _toast('Selecione um funcionário'); return; }
+    if (!data)   { _toast('Informe a data');           return; }
+    if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
+
+    // notificar:false porque a notificação já é disparada explicitamente
+    // abaixo (mantém 100% o comportamento original desta tela)
+    var res = registrarPagamento({
+      funcionarioId: funcId, data: data, valor: valor,
+      tipo: tipo, forma: forma, obs: obs, notificar: false
+    });
+    if (!res.ok) { _toast(res.erro); return; }
+
+    var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
     _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!');
     _closePagamento();
     renderPaginaFuncionarios();
@@ -4354,6 +4393,8 @@ var HR_FUNC = (function () {
     _excluirExcecao:       _excluirExcecao,
     // Motor único de cálculo de saldo (usado por Folha, Card e Secretária IA)
     calcSaldoFuncionario:   calcSaldoFuncionario,
-    _periodoDecendioAtual:  _periodoDecendioAtual
+    _periodoDecendioAtual:  _periodoDecendioAtual,
+    // Motor único de pagamento (usado pelo formulário e pelo RH IA)
+    registrarPagamento:     registrarPagamento
   };
 })();
