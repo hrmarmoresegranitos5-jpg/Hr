@@ -1210,56 +1210,49 @@ function _jobLog(job, campo, de, para) {
         if (!funcEncontrado) {
           var nomes = listaRH.map(function(f){ return f.nome; }).join(', ');
           result.extra = '⚠️ Funcionário **"' + data.funcionario + '"** não encontrado. Cadastrados: ' + (nomes || 'nenhum') + '.';
+        } else if (typeof HR_FUNC === 'undefined' || typeof HR_FUNC.registrarPagamento !== 'function') {
+          result.extra = '⚠️ Módulo de RH indisponível para registrar o pagamento.';
         } else {
-          var pagsRH = {};
-          try { pagsRH = JSON.parse(localStorage.getItem('hr_pagamentos') || '{}'); } catch(ePag) {}
-          var regsRH = {};
-          try { regsRH = JSON.parse(localStorage.getItem('hr_registros') || '{}'); } catch(eR) {}
-
-          var pagId = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
           var pagForma = data.forma || 'dinheiro';
           var pagValor = +data.valor;
 
-          var salarioBase = parseFloat(funcEncontrado.salario) || 0;
-          var taxaExtraF = parseFloat(funcEncontrado.taxaHoraExtra) || salarioBase / 220;
-          var horasExtra = Object.values(regsRH)
-            .filter(function(r){ return r.funcionarioId === funcEncontrado.id && r.destinoExtra !== 'banco'; })
-            .reduce(function(s,r){ return s + (parseFloat(r.extra)||0); }, 0);
-          var totalDevido = salarioBase + (horasExtra * taxaExtraF);
-          var totalPagoAntes = Object.values(pagsRH)
-            .filter(function(p){ return p.funcionarioId === funcEncontrado.id; })
-            .reduce(function(s,p){ return s + (parseFloat(p.valor)||0); }, 0);
+          // Motor único de pagamento (mesmo usado pelo formulário de RH e pelo RH IA) —
+          // evita reimplementar aqui o cálculo de saldo e a quitação de acréscimos.
+          var resPag = HR_FUNC.registrarPagamento({
+            funcionarioId: funcEncontrado.id,
+            data:  hoje,
+            valor: pagValor,
+            tipo:  'decendio',
+            forma: pagForma,
+            obs:   data.obs || 'Lançado via Secretária IA',
+            notificar: false // mantém o comportamento original desta ação
+          });
 
-          pagsRH[pagId] = {
-            id:              pagId,
-            funcionarioId:   funcEncontrado.id,
-            funcionarioNome: funcEncontrado.nome,
-            data:            hoje,
-            valor:           pagValor,
-            forma:           pagForma,
-            obs:             data.obs || 'Lançado via Secretária IA',
-            saldoAntes:      totalDevido - totalPagoAntes,
-            criadoEm:        new Date().toISOString()
-          };
-          localStorage.setItem('hr_pagamentos', JSON.stringify(pagsRH));
+          if (!resPag.ok) {
+            result.extra = '⚠️ ' + resPag.erro;
+          } else {
+            var descFin = 'Pagamento ' + funcEncontrado.nome + (pagForma !== 'dinheiro' ? ' (' + pagForma + ')' : '');
+            if (typeof addTr === 'function') addTr('out', descFin, pagValor);
 
-          var descFin = 'Pagamento ' + funcEncontrado.nome + (pagForma !== 'dinheiro' ? ' (' + pagForma + ')' : '');
-          if (typeof addTr === 'function') addTr('out', descFin, pagValor);
+            if (typeof HR_FUNC.renderPaginaFuncionarios === 'function') {
+              HR_FUNC.renderPaginaFuncionarios();
+            }
 
-          if (typeof HR_FUNC !== 'undefined' && typeof HR_FUNC.renderPaginaFuncionarios === 'function') {
-            HR_FUNC.renderPaginaFuncionarios();
+            var saldoTxt = '';
+            try {
+              var mesRefPag = hoje.slice(0,7);
+              var sDepois = HR_FUNC.calcSaldoFuncionario(funcEncontrado.id, mesRefPag + '-01', hoje);
+              saldoTxt = sDepois.saldo > 0.01
+                ? ' Ainda deve: **R$ ' + sDepois.saldo.toFixed(2).replace('.',',') + '**.'
+                : sDepois.saldo < -0.01
+                  ? ' Crédito de **R$ ' + Math.abs(sDepois.saldo).toFixed(2).replace('.',',') + '** a favor.'
+                  : ' Conta **quitada**! ✅';
+            } catch(eSaldo) {}
+
+            result.extra = '✅ Pagamento de **R$ ' + pagValor.toFixed(2).replace('.',',') + '** para **' + funcEncontrado.nome + '** registrado.' + saldoTxt;
+            result.actions.push({label:'👷 Ver RH', fn:'if(typeof go==="function")go(30)'});
+            result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
           }
-
-          var saldoDepois = totalDevido - totalPagoAntes - pagValor;
-          var saldoTxt = saldoDepois > 0.01
-            ? ' Ainda deve: **R$ ' + saldoDepois.toFixed(2).replace('.',',') + '**.'
-            : saldoDepois < -0.01
-              ? ' Crédito de **R$ ' + Math.abs(saldoDepois).toFixed(2).replace('.',',') + '** a favor.'
-              : ' Conta **quitada**! ✅';
-
-          result.extra = '✅ Pagamento de **R$ ' + pagValor.toFixed(2).replace('.',',') + '** para **' + funcEncontrado.nome + '** registrado.' + saldoTxt;
-          result.actions.push({label:'👷 Ver RH', fn:'if(typeof go==="function")go(30)'});
-          result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
         }
       } else {
         result.extra = '⚠️ Informe o nome do funcionário e o valor do pagamento.';
