@@ -438,6 +438,7 @@ function initCFG(){
   // Patch: garantir campo pr_orig em cubas existentes sem ele
   CFG.coz.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';});
   CFG.lav.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';}); 
+  CFG.stones.forEach(function(s){if(!s.fotos)s.fotos=[];if(s.desc===undefined)s.desc='';});
   // Reinjeta fotos[] salvas em hr_cuba_fotos (separadas do hr_cfg para não estourar quota)
   _restoreCubaFotos();
   // Apply photos from CUBA_IMGS for any cuba without a custom photo
@@ -528,11 +529,13 @@ function svCFG(){
     }
     _extrairFotos(CFG.coz);
     _extrairFotos(CFG.lav);
+    _extrairFotos(CFG.stones);
 
     // Clone raso do CFG sem fotos[] para não mutar o objeto em memória
     var cfgLeve = JSON.parse(JSON.stringify(CFG));
     (cfgLeve.coz || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.lav || []).forEach(function(c) { delete c.fotos; });
+    (cfgLeve.stones || []).forEach(function(c) { delete c.fotos; });
 
     localStorage.setItem('hr_cfg',       JSON.stringify(cfgLeve));
     localStorage.setItem('hr_cuba_fotos', JSON.stringify(fotosMap));
@@ -543,6 +546,7 @@ function svCFG(){
       var cfgSemFotos = JSON.parse(JSON.stringify(CFG));
       (cfgSemFotos.coz || []).forEach(function(c) { delete c.fotos; delete c.photo; });
       (cfgSemFotos.lav || []).forEach(function(c) { delete c.fotos; delete c.photo; });
+      (cfgSemFotos.stones || []).forEach(function(c) { delete c.fotos; });
       localStorage.setItem('hr_cfg', JSON.stringify(cfgSemFotos));
       if (typeof toast === 'function') toast('⚠️ Fotos não salvas — armazenamento cheio. Remova fotos antigas.');
     } catch(e2) {
@@ -569,6 +573,7 @@ function _restoreCubaFotos() {
     }
     _injetar(CFG.coz);
     _injetar(CFG.lav);
+    _injetar(CFG.stones);
   } catch(e) {
     console.warn('[_restoreCubaFotos]', e.message || e);
   }
@@ -962,7 +967,7 @@ function onFile(e){
   var files=Array.prototype.slice.call(e.target.files||[]);
   if(!files.length||!fileTarget)return;
   var t=fileTarget.t,idx=fileTarget.i;
-  var isExtra=(t==='coz_extra'||t==='lav_extra'||t==='ac_extra');
+  var isExtra=(t==='coz_extra'||t==='lav_extra'||t==='ac_extra'||t==='stone_extra');
   // Para tipos extra, aceita múltiplas fotos; para outros, usa só a primeira
   var toProcess=isExtra?files:[files[0]];
   var pending=toProcess.length;
@@ -1005,6 +1010,11 @@ function onFile(e){
         if(!CFG.ac[idx].fotos)CFG.ac[idx].fotos=[];
         CFG.ac[idx].fotos.push(d);
         if(!CFG.ac[idx].photo)CFG.ac[idx].photo=d;
+      }
+      else if(t==='stone_extra'){
+        if(!CFG.stones[idx].fotos)CFG.stones[idx].fotos=[];
+        CFG.stones[idx].fotos.push(d);
+        if(!CFG.stones[idx].photo)CFG.stones[idx].photo=d;
       }
       pending--;
       if(pending===0){
@@ -6889,10 +6899,26 @@ function buildCatGrid(){
   catGrid.innerHTML = h;
 }
 
+var _stoneMdIdx=0;
 function openStone(id){
   var s=CFG.stones.find(function(x){return x.id===id;});if(!s)return;
-  var bg=s.photo?'<img src="'+s.photo+'" style="width:100%;height:140px;object-fit:cover;border-radius:12px;margin-bottom:13px;" alt="">':'<div class="'+s.tx+'" style="width:100%;height:140px;border-radius:12px;margin-bottom:13px;position:relative;overflow:hidden;"><div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent 50%);"></div></div>';
-  document.getElementById('stoneMdC').innerHTML=bg+'<div style="font-family:Cormorant Garamond,serif;font-size:1.3rem;font-weight:700;margin-bottom:3px;">'+s.nm+'</div><div style="font-size:.62rem;color:var(--t3);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;">'+s.cat+' · '+s.fin+'</div><div style="font-size:.82rem;color:var(--t2);line-height:1.65;margin-bottom:11px;">'+s.desc+'</div><div style="background:var(--gdim);border:1px solid var(--gold3);border-radius:10px;padding:11px 14px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.78rem;color:var(--gold3);">Preço</span><span style="font-family:Cormorant Garamond,serif;font-size:1.4rem;font-weight:700;color:var(--gold2);">R$ '+s.pr.toLocaleString('pt-BR')+'<span style="font-size:.7rem;color:var(--t3);">/m²</span></span></div>';
+  var fotos=(s.fotos&&s.fotos.length)?s.fotos:(s.photo?[s.photo]:[]);
+  _stoneMdIdx=0;
+  var bg;
+  if(fotos.length){
+    bg='<div style="position:relative;margin-bottom:'+(fotos.length>1?'8px':'13px')+';">'
+      +'<img id="stoneMdImg" src="'+fotos[0]+'" style="width:100%;height:140px;object-fit:cover;border-radius:12px;display:block;" alt="">'
+      +(fotos.length>1?'<div style="position:absolute;bottom:6px;right:8px;background:rgba(0,0,0,.6);border-radius:6px;color:#fff;font-size:.6rem;padding:2px 7px;" id="stoneMdCount">1/'+fotos.length+'</div>':'')
+      +'</div>';
+    if(fotos.length>1){
+      bg+='<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:13px;">'
+        +fotos.map(function(url,fi){return '<img src="'+url+'" onclick="_stoneMdIdx='+fi+';document.getElementById(\'stoneMdImg\').src=\''+url+'\';document.getElementById(\'stoneMdCount\').textContent=\''+(fi+1)+'/'+fotos.length+'\';" style="width:52px;height:42px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer;border:2px solid '+(fi===0?'var(--gold)':'transparent')+';">';}).join('')
+        +'</div>';
+    }
+  } else {
+    bg='<div class="'+s.tx+'" style="width:100%;height:140px;border-radius:12px;margin-bottom:13px;position:relative;overflow:hidden;"><div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.12),transparent 50%);"></div></div>';
+  }
+  document.getElementById('stoneMdC').innerHTML=bg+'<div style="font-family:Cormorant Garamond,serif;font-size:1.3rem;font-weight:700;margin-bottom:3px;">'+s.nm+'</div><div style="font-size:.62rem;color:var(--t3);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;">'+s.cat+' · '+s.fin+'</div><div style="font-size:.82rem;color:var(--t2);line-height:1.65;margin-bottom:11px;">'+(s.desc||_gerarDescPedra(s))+'</div><div style="background:var(--gdim);border:1px solid var(--gold3);border-radius:10px;padding:11px 14px;display:flex;justify-content:space-between;align-items:baseline;"><span style="font-size:.78rem;color:var(--gold3);">Preço</span><span style="font-family:Cormorant Garamond,serif;font-size:1.4rem;font-weight:700;color:var(--gold2);">R$ '+s.pr.toLocaleString('pt-BR')+'<span style="font-size:.7rem;color:var(--t3);">/m²</span></span></div>';
   showMd('stoneMd');
 }
 
@@ -7375,7 +7401,7 @@ function buildPT(){
 // ═══ EDITOR DE FOTOS DE CUBA ═══
 // Retorna HTML do painel de galeria para uma cuba (tipo: 'coz'|'lav'|'ac', idx: número)
 function _buildCubaFotoEditor(tipo, idx){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : CFG.ac);
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
   var c = arr[idx];
   if(!c) return '';
   // Normaliza: garante que fotos[] existe e contém photo se houver
@@ -7384,7 +7410,7 @@ function _buildCubaFotoEditor(tipo, idx){
 
   var h = '';
   h += '<div style="padding:10px 13px 4px;">';
-  h += '<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:8px;">📷 Fotos da Cuba</div>';
+  h += '<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:8px;">📷 '+(tipo==='stone'?'Fotos da Pedra':'Fotos da Cuba')+'</div>';
 
   if(c.fotos.length > 0){
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;" id="fotogrid_'+tipo+'_'+idx+'">';
@@ -7417,56 +7443,135 @@ function _buildCubaFotoEditor(tipo, idx){
 
 // Marca uma foto como destaque (move para índice 0 e atualiza photo)
 function _cubaSetDestaque(tipo, idx, fi){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : CFG.ac);
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
   var c = arr[idx];
   if(!c||!c.fotos||!c.fotos[fi]) return;
   var url = c.fotos.splice(fi, 1)[0];
   c.fotos.unshift(url);
   c.photo = url;
-  svCFG(); buildCubaList(); buildCfg();
+  svCFG(); if(tipo==='stone'){buildMat();buildCatalog();} else {buildCubaList();}
+  buildCfg();
   toast('★ Foto destaque definida!');
 }
 window._cubaSetDestaque = _cubaSetDestaque;
 
 // Remove uma foto do array
 function _cubaRmFoto(tipo, idx, fi){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : CFG.ac);
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
   var c = arr[idx];
   if(!c||!c.fotos) return;
   c.fotos.splice(fi, 1);
   c.photo = c.fotos[0] || '';
-  svCFG(); buildCubaList(); buildCfg();
+  svCFG(); if(tipo==='stone'){buildMat();buildCatalog();} else {buildCubaList();}
+  buildCfg();
   toast('✓ Foto removida');
 }
 window._cubaRmFoto = _cubaRmFoto;
+
+// Calcula o preço de venda sugerido de uma pedra a partir de:
+// custo da pedra + frete (ambos R$/m²), aplicando o % de perda/corte
+// sobre esse custo total, e depois a margem de lucro desejada sobre o preço final.
+function _calcPrecoPedra(s){
+  var custo  = +(s.custo||0);
+  var frete  = +(s.frete||0);
+  var perda  = +(s.perda!=null ? s.perda : 10);
+  var margem = +(s.margem!=null ? s.margem : 30);
+  var custoComPerda = (custo + frete) * (1 + perda/100);
+  if (margem >= 95) margem = 95; // trava de segurança pra não dividir por ~0
+  var preco = margem > 0 ? custoComPerda / (1 - margem/100) : custoComPerda;
+  return Math.round(preco * 100) / 100;
+}
+window._calcPrecoPedra = _calcPrecoPedra;
+
+// Gera automaticamente uma descrição de venda para a pedra, com base em categoria e acabamento.
+// Usado no catálogo público (openStone) para o cliente ler algo sobre a pedra mesmo sem digitar nada.
+function _gerarDescPedra(s){
+  var cat = s.cat || 'Granito';
+  var fin = s.fin || 'Polida';
+  var BASES = {
+    'Granito Cinza':   'Granito nacional de alta dureza e resistência — não risca nem mancha com facilidade e suporta bem o calor do dia a dia.',
+    'Granito Preto':   'Granito de tom preto profundo e elegante, muito valorizado pela sofisticação e pelo polimento intenso.',
+    'Granito Branco':  'Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração.',
+    'Granito Verde':   'Granito com tons únicos e reflexos naturais, ideal para projetos que buscam personalidade e exclusividade.',
+    'Mármore':         'Mármore clássico e atemporal, com veios naturais únicos em cada chapa — recomenda-se selagem periódica para preservar a beleza.',
+    'Travertino':      'Pedra sedimentar com poros naturais que trazem textura e identidade rústica ao ambiente.',
+    'Quartzito':       'Quartzito natural com dureza superior à do granito e visual que remete ao mármore de luxo, com baixa porosidade.',
+    'Ultra Compacto':  'Superfície ultra compacta de última geração, com porosidade praticamente zero — não risca, não mancha e dispensa selagem.'
+  };
+  var FIN_TXT = {
+    'Polida':   'O acabamento polido realça o brilho natural da pedra.',
+    'Escovada': 'O acabamento escovado traz uma textura aveludada que disfarça marcas de uso diário.'
+  };
+  var base = BASES[cat] || 'Pedra natural de alta qualidade, selecionada para bancadas e revestimentos de alto padrão.';
+  var finTxt = FIN_TXT[fin] || '';
+  return base + (finTxt ? ' ' + finTxt : '') + ' Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.';
+}
+window._gerarDescPedra = _gerarDescPedra;
+
+// Preenche o campo desc da pedra com o texto gerado automaticamente e salva.
+function _aplicarDescAuto(i){
+  var s = CFG.stones[i];
+  if(!s) return;
+  s.desc = _gerarDescPedra(s);
+  svCFG(); buildCatalog(); buildCfg();
+  toast('✓ Descrição gerada automaticamente!');
+}
+window._aplicarDescAuto = _aplicarDescAuto;
+
+// Recalcula e aplica o preço automático de uma pedra do CFG.stones[i]
+function _recalcPrecoPedra(i){
+  var s = CFG.stones[i];
+  if(!s) return;
+  s.pr = _calcPrecoPedra(s);
+  svCFG(); buildMat(); buildCatalog(); buildPT();
+  buildCfg();
+  toast('✓ Preço recalculado: R$ ' + s.pr.toFixed(2) + '/m²');
+}
+window._recalcPrecoPedra = _recalcPrecoPedra;
 
 // ═══ CONFIG ═══
 function buildCfg(){
   var h='';
   if(cfgTab===0){
     // PEDRAS
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione várias fotos por pedra e gere a descrição automaticamente. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
     CFG.stones.forEach(function(s,i){
-      var bg=s.photo?('<img class="csw-bg" src="'+s.photo+'" alt="'+s.nm+'" style="width:100%;height:100%;object-fit:cover;display:block;">'):'';
       h+='<div class="cfgsec">';
-      h+='<div class="cfgphoto"><div class="'+(s.photo?'':'cfgphoto-bg '+s.tx)+'">'+(s.photo?bg:'')+'</div>';
-      h+='<div class="cfgphoto-overlay"><div class="cfgphoto-info"><div class="cfgphoto-nm">'+s.nm+'</div><div class="cfgphoto-cat">'+s.cat+' · '+s.fin+'</div></div><div class="cfgphoto-price">R$ '+s.pr+'</div>';
-      h+='<button class="cfgphoto-btn" data-pp="stone" data-idx="'+i+'">📷 '+(s.photo?'Trocar':'Adicionar')+'</button></div></div>';
+      h+='<div style="display:flex;gap:10px;padding:10px 13px 0;align-items:flex-start;">';
+      h+='<div style="width:56px;height:56px;border-radius:8px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(s.photo?'<img src="'+s.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.4rem;">🪨</span>');
+      h+='</div>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);margin-bottom:2px;">'+escH(s.nm)+'</div>';
+      h+='<div style="font-size:.66rem;color:var(--t3);margin-bottom:2px;">'+escH(s.cat)+' · '+escH(s.fin)+'</div>';
+      h+='<div style="font-size:.78rem;color:var(--gold2);font-weight:700;">R$ '+s.pr+'/m²</div>';
+      h+='</div></div>';
+      h+=_buildCubaFotoEditor('stone', i);
       h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp" style="width:150px;text-align:right;" value="'+s.nm+'" onchange="CFG.stones['+i+'].nm=this.value;buildMat();buildCatalog();svCFG();"></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Categoria</span><select class="cfginp" style="width:140px;" onchange="CFG.stones['+i+'].cat=this.value;buildMat();buildCatalog();buildPT();svCFG();">';
       ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Travertino','Quartzito','Ultra Compacto'].forEach(function(cat){h+='<option '+(s.cat===cat?'selected':'')+'>'+cat+'</option>';});
       h+='</select></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+s.pr+'" onchange="CFG.stones['+i+'].pr=+this.value;buildMat();buildCatalog();buildPT();svCFG();buildCfg();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Custo R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+(s.custo||0)+'" title="Seu custo de compra — usado para calcular margem real no painel interno" onchange="CFG.stones['+i+'].custo=+this.value;svCFG();toast(\'✓ Custo salvo\');buildCfg();"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">seu custo</span></div>';
-      // Indicador de margem (venda vs custo) — ajuda a conferir rapidamente todas as pedras
+      h+='<div class="cfg-row"><span class="cfg-lbl">Custo da pedra R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+(s.custo||0)+'" title="Quanto você paga pela pedra, por m²" onchange="CFG.stones['+i+'].custo=+this.value;_recalcPrecoPedra('+i+');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">vc paga</span></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Frete R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+(s.frete||0)+'" title="Quanto você paga de frete/entrega, por m²" onchange="CFG.stones['+i+'].frete=+this.value;_recalcPrecoPedra('+i+');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">vc paga</span></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">% Perda/Corte</span><input class="cfginp cfginp-w" type="number" min="0" max="50" step="1" value="'+(s.perda!=null?s.perda:10)+'" title="Fator de corte e refile — aplicado sobre custo+frete. Padrão: 10%" onchange="CFG.stones['+i+'].perda=+this.value;_recalcPrecoPedra('+i+');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">% (custo)</span></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Margem desejada</span><input class="cfginp cfginp-w" type="number" min="0" max="90" step="1" value="'+(s.margem!=null?s.margem:30)+'" title="Margem de lucro desejada sobre o preço de venda" onchange="CFG.stones['+i+'].margem=+this.value;_recalcPrecoPedra('+i+');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">%</span></div>';
+      h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$/m²</span><input class="cfginp cfginp-w" type="number" value="'+s.pr+'" title="Calculado automaticamente a partir de custo+frete+perda+margem. Pode ajustar manualmente." onchange="CFG.stones['+i+'].pr=+this.value;buildMat();buildCatalog();buildPT();svCFG();buildCfg();"></div>';
+      h+='<div class="cfg-row" style="padding-top:0;"><span class="cfg-lbl"></span><span style="font-size:.6rem;color:var(--t4);">🔄 preço acima é sugerido automático — ajuste se quiser</span></div>';
+      // Indicador de margem real (venda vs custo+frete+perda) — ajuda a conferir rapidamente todas as pedras
       (function(){
-        var _pr=+s.pr||0, _ct=+(s.custo||0);
-        var _margPct=_pr>0?Math.round((_pr-_ct)/_pr*100):0;
+        var _pr=+s.pr||0, _ct=+(s.custo||0), _fr=+(s.frete||0), _pd=+(s.perda!=null?s.perda:10);
+        var _ctTotal=(_ct+_fr)*(1+_pd/100);
+        var _margPct=_pr>0?Math.round((_pr-_ctTotal)/_pr*100):0;
         var _margCor=_ct<=0?'#e05151':(_margPct>=35?'var(--grn)':_margPct>=20?'#f39c12':'#e05151');
-        var _margTxt=_ct<=0?'⚠️ Sem custo cadastrado — margem calculada como 0%':'Margem: R$ '+(_pr-_ct).toFixed(2)+'/m² ('+_margPct+'%)';
+        var _margTxt=_ct<=0?'⚠️ Sem custo cadastrado — margem calculada como 0%':'Margem real: R$ '+(_pr-_ctTotal).toFixed(2)+'/m² ('+_margPct+'%)';
         h+='<div class="cfg-row" style="padding-top:0;"><span class="cfg-lbl"></span><span style="font-size:.62rem;color:'+_margCor+';font-weight:600;">'+_margTxt+'</span></div>';
       })();
-      h+='<div class="cfg-row"><span class="cfg-lbl">% Perda/Corte</span><input class="cfginp cfginp-w" type="number" min="0" max="50" step="1" value="'+(s.perda!=null?s.perda:10)+'" title="Fator de corte e refile — aplicado ao custo da pedra. Padrão: 10%" onchange="CFG.stones['+i+'].perda=+this.value;svCFG();toast(\'✓ Perda salva\');"><span style="font-size:.6rem;color:var(--t4);margin-left:6px;">% (custo)</span></div>';
       h+='<div class="cfg-row"><span class="cfg-lbl">Acabamento</span><select class="cfginp" style="width:120px;" onchange="CFG.stones['+i+'].fin=this.value;svCFG();"><option '+(s.fin==='Polida'?'selected':'')+'>Polida</option><option '+(s.fin==='Escovada'?'selected':'')+'>Escovada</option></select></div>';
+      h+='<div style="padding:0 13px;">';
+      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;">';
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;width:100%;"><span class="cfg-lbl">Descrição (aparece no catálogo)</span><button class="cfgbtn" style="font-size:.62rem;padding:4px 8px;" onclick="_aplicarDescAuto('+i+')">🪄 Gerar automático</button></div>';
+      h+='<textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" placeholder="Clique em Gerar automático ou escreva a sua" onchange="CFG.stones['+i+'].desc=this.value;svCFG();buildCatalog();">'+escH(s.desc||'')+'</textarea>';
+      h+='</div></div>';
       h+='<div style="padding:9px 13px;border-top:1px solid #0c0c10;display:flex;justify-content:space-between;align-items:center;">';
       h+='<div style="display:flex;gap:6px;">';
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var a=CFG.stones.splice('+i+',1)[0];CFG.stones.splice('+(i-1)+',0,a);svCFG();buildCatalog();buildCfg();}" style="font-size:.8rem;padding:5px 10px;">↑</button>';
@@ -7475,7 +7580,7 @@ function buildCfg(){
       h+='<button class="cfgdel" onclick="if(confirm(\'Remover '+s.nm+'?\')){CFG.stones.splice('+i+',1);buildMat();buildCatalog();buildPT();svCFG();buildCfg();}">✕ Remover</button></div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.stones.push({id:\'s_\'+Date.now(),nm:\'Nova Pedra\',cat:\'Granito\',fin:\'Polida\',pr:300,tx:\'tx-andorinha\',photo:\'\',desc:\'\'});buildMat();buildCatalog();buildPT();svCFG();buildCfg();">+ Nova Pedra</button>';
+    h+='<button class="cfgadd" onclick="var _ns={id:\'s_\'+Date.now(),nm:\'Nova Pedra\',cat:\'Granito Cinza\',fin:\'Polida\',pr:300,custo:0,frete:0,perda:10,margem:30,tx:\'tx-andorinha\',photo:\'\',fotos:[],desc:\'\'};_ns.desc=_gerarDescPedra(_ns);CFG.stones.push(_ns);buildMat();buildCatalog();buildPT();svCFG();buildCfg();">+ Nova Pedra</button>';
   }
   else if(cfgTab===1){
     // CUBAS COZINHA
