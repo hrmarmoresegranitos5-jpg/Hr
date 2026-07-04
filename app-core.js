@@ -4300,7 +4300,7 @@ function calcular(){
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
       if(it.fx===1){var p2=getPr(it.k);if(p2>0){acT+=p2;acL.push({l:it.l,v:p2});acN.push(it.l);}return;}
       var qty=svd.qty||1;
-      var vv=getPr(it.k)*qty;acT+=vv;acL.push({l:it.l+(qty>1?' ('+qty+it.u+')':''),v:vv});acN.push(it.l);
+      var vv=getPr(it.k)*qty;acT+=vv;var lblQty=it.l+(qty>1?' ('+qty+it.u+')':'');acL.push({l:lblQty,v:vv});acN.push(lblQty);
     });});
     // Bordas por lado (_fb): calcular deduplificado
     if(typeof _ambHasBordas==='function'&&_ambHasBordas(amb)){
@@ -4632,7 +4632,11 @@ function calcular(){
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
       else if(itP.u==='sf_slim'||itP.u==='ml_only'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml (só MO)';}
       else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd2=ambP.selCuba.qtd||1;vP=(ambP.selCuba.total||0)*_pQtd2;dP+=': '+(ambP.selCuba.nm||'Cuba').trim()+(_pQtd2>1?' ×'+_pQtd2:'');}}
-      else if(!itP.fx){vP=(sdP.w||0)*getPr(itP.k);if(sdP.w)dP+=' '+sdP.w+(itP.u==='un'?'un':'ml');}
+      else if(!itP.fx){
+        var qtyP=sdP.qty||1;
+        vP=qtyP*getPr(itP.k);
+        if(qtyP>1)dP+=' ('+qtyP+itP.u+')';
+      }
       else{vP=getPr(itP.k);}
       if(vP>0){rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';}
     });});
