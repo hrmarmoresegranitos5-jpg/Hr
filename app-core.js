@@ -3729,7 +3729,10 @@ function buildSVHtml(amb){
     // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
     if(hasBordas&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
     // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
-    if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro'))return;
+    if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro')){
+      if(grp.g==='Fixação'&&typeof window._fixInlineHtml==='function') h+=window._fixInlineHtml(amb);
+      return;
+    }
     // Para capelinha: ocultar grupos sf_auto (peças calculadas pelo configurador) e pilares em chapa
     var isSfAutoGrp=grp.its.length>0&&grp.its[0].u==='sf_auto';
     if(isSfAutoGrp&&amb.tipo==='⛪ Capela')return;
