@@ -1343,7 +1343,10 @@ function updPeExtra(ambId,pcId,field,val){
 function buildSV(){
   selCuba=null;
   var g=getSVGrp(),h='';
+  var _tipoSel=document.getElementById('oTipo')?document.getElementById('oTipo').value:'';
   g.forEach(function(grp){
+    // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
+    if((grp.g==='Fixação'||grp.g==='Instalação')&&(_tipoSel==='Cozinha'||_tipoSel==='Banheiro'))return;
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
@@ -3725,6 +3728,8 @@ function buildSVHtml(amb){
   g.forEach(function(grp){
     // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
     if(hasBordas&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
+    // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
+    if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro'))return;
     // Para capelinha: ocultar grupos sf_auto (peças calculadas pelo configurador) e pilares em chapa
     var isSfAutoGrp=grp.its.length>0&&grp.its[0].u==='sf_auto';
     if(isSfAutoGrp&&amb.tipo==='⛪ Capela')return;
