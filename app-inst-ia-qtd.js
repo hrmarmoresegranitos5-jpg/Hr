@@ -95,9 +95,12 @@
 
   function _contextosPorAmbiente() {
     if (typeof pendQ === 'undefined' || !pendQ || !pendQ.ambSnap) return [];
-    return pendQ.ambSnap.map(function(amb) {
-      return { ambId: amb.id, tipo: amb.tipo, pecas: amb.pecas || [] };
-    });
+    // Cozinha/Banheiro já têm a quantidade de tubos/perfis perguntada no Consultor de Fixação — não duplica aqui
+    return pendQ.ambSnap
+      .filter(function(amb) { return amb.tipo !== 'Cozinha' && amb.tipo !== 'Banheiro'; })
+      .map(function(amb) {
+        return { ambId: amb.id, tipo: amb.tipo, pecas: amb.pecas || [] };
+      });
   }
 
   function _chaveTuboPorTipo(tipo) {
