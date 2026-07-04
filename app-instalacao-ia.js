@@ -159,24 +159,28 @@ function _instContextosPorAmbiente() {
   var q = pendQ;
 
   if (q.ambSnap && q.ambSnap.length) {
-    return q.ambSnap.map(function(amb) {
-      var m2 = (amb.pecas || []).reduce(function(s, p) {
-        var w = +p.w || 0, h = +p.h || 0, qt = +p.q || 1;
-        return s + (w / 100) * (h / 100) * qt;
-      }, 0);
-      var numDetalhes = Object.keys(amb.svState || {}).length + Object.keys(amb.acState || {}).length;
-      return {
-        tipo: amb.tipo || 'Cozinha',
-        m2: m2,
-        numPecas: (amb.pecas || []).length || 1,
-        numDetalhes: numDetalhes
-      };
-    }).filter(function(c) { return c.m2 > 0; });
+    return q.ambSnap
+      // Cozinha/Banheiro já têm a instalação (por tubo/conexão) resolvida no Consultor de Fixação — não duplica aqui
+      .filter(function(amb) { return amb.tipo !== 'Cozinha' && amb.tipo !== 'Banheiro'; })
+      .map(function(amb) {
+        var m2 = (amb.pecas || []).reduce(function(s, p) {
+          var w = +p.w || 0, h = +p.h || 0, qt = +p.q || 1;
+          return s + (w / 100) * (h / 100) * qt;
+        }, 0);
+        var numDetalhes = Object.keys(amb.svState || {}).length + Object.keys(amb.acState || {}).length;
+        return {
+          tipo: amb.tipo || 'Cozinha',
+          m2: m2,
+          numPecas: (amb.pecas || []).length || 1,
+          numDetalhes: numDetalhes
+        };
+      }).filter(function(c) { return c.m2 > 0; });
   }
 
   // fallback: sem ambSnap, usa os totais do orçamento (comportamento antigo)
   var numDetalhes = (q.acN || []).length + (q.pds || []).length;
   var tipoUnico = q.tipo && q.tipo.indexOf('+') === -1 ? q.tipo : 'Cozinha';
+  if (tipoUnico === 'Cozinha' || tipoUnico === 'Banheiro') return [];
   return [{ tipo: tipoUnico, m2: q.m2 || 0, numPecas: (q.pds || []).length || 1, numDetalhes: numDetalhes }];
 }
 
