@@ -1,19 +1,34 @@
 // ══════════════════════════════════════════════════════════
 // 🩹 CORREÇÃO — Autocomplete de Cliente (seleção errada / trava)
 //
-// Problema relatado: ao tocar num nome sugerido no campo Cliente,
+// Problema relatado 1: ao tocar num nome sugerido no campo Cliente,
 // às vezes preenche um cliente DIFERENTE do que aparecia na tela.
 //
-// Causa: o dropdown (#cliACDrop) se reposiciona sozinho quando o
+// Problema relatado 2 (NOVO): a tela "trava" ao digitar/selecionar
+// um nome no campo Cliente.
+//
+// Causa 1: o dropdown (#cliACDrop) se reposiciona sozinho quando o
 // teclado virtual começa a fechar (usando visualViewport.resize).
 // Isso pode acontecer bem entre o "mousedown" e o "click" do seu
 // toque — a lista desliza pra um novo lugar e seu dedo, que estava
 // certo no momento do toque, acaba "acertando" outra linha quando
 // o navegador finalmente calcula o clique.
 //
-// Correção: capturar o toque o mais cedo possível (fase de captura,
-// antes de blur/scroll/resize rodarem) e travar o reposicionamento
-// da lista por um instante durante o toque.
+// Causa 2 (a da trava): durante a animação de abrir/fechar o
+// teclado, os eventos de scroll/resize/visualViewport disparam
+// MUITAS vezes por segundo. Cada disparo chamava
+// getBoundingClientRect() + alterava estilo — isso força o
+// navegador a recalcular o layout da página inteira a cada vez.
+// Em aparelhos mais simples, isso é pesado o suficiente para
+// travar a tela por um instante.
+//
+// Correção:
+//  1) capturar o toque o mais cedo possível (fase de captura,
+//     antes de blur/scroll/resize rodarem) e travar o
+//     reposicionamento da lista por um instante durante o toque.
+//  2) limitar o reposicionamento a, no máximo, 1x por frame de
+//     tela (requestAnimationFrame), em vez de rodar a cada evento
+//     de scroll/resize/visualViewport — elimina o travamento.
 //
 // Carregar DEPOIS de app-cliente-perfil.js.
 // ══════════════════════════════════════════════════════════
@@ -22,6 +37,7 @@
   'use strict';
 
   var _acTravado = false;
+  var _rafPendente = false;
 
   function _extrairId(el) {
     // O id do cliente está embutido no atributo onmousedown="...cliACSelecionar(123)"
@@ -30,15 +46,20 @@
     return m ? +m[1] : null;
   }
 
-  // ── Congela o reposicionamento da lista durante um toque ──
-  // (a função original continua existindo; aqui só filtramos as chamadas
-  // automáticas de scroll/resize/visualViewport enquanto _acTravado=true)
+  // ── Congela o reposicionamento da lista durante um toque, e
+  //    limita a no máximo 1 execução por frame de tela ──
   function _instalarTrava() {
     if (typeof window._posicionarACDrop !== 'function') return;
     var original = window._posicionarACDrop;
     window._posicionarACDrop = function() {
       if (_acTravado) return;
-      return original.apply(this, arguments);
+      if (_rafPendente) return; // já tem uma execução agendada pra este frame
+      _rafPendente = true;
+      requestAnimationFrame(function() {
+        _rafPendente = false;
+        if (_acTravado) return;
+        original.apply(this, arguments);
+      });
     };
   }
 
