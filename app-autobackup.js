@@ -170,7 +170,10 @@ var AUTOBACKUP = {
     } catch(e) {}
 
     var extra = {};
-    var ignorar = {hr_q:1,hr_j:1,hr_t:1,hr_b:1,hr_cfg:1,hr_sync_code:1,hr_sync_ts:1,hr_adm:1};
+    // hr_cuba_fotos fica de fora: já é persistido de forma independente e
+    // durável; incluí-lo aqui significava guardar até 7 cópias (MAX_SNAPSHOTS)
+    // das mesmas fotos em base64, o que estourava a cota do localStorage.
+    var ignorar = {hr_q:1,hr_j:1,hr_t:1,hr_b:1,hr_cfg:1,hr_sync_code:1,hr_sync_ts:1,hr_adm:1,hr_cuba_fotos:1};
     try {
       for (var j = 0; j < localStorage.length; j++) {
         var kk = localStorage.key(j);
@@ -180,10 +183,23 @@ var AUTOBACKUP = {
       }
     } catch(e) {}
 
+    // Fotos base64 já ficam salvas separadamente em hr_cuba_fotos — reincluí-las
+    // aqui multiplicava o tamanho de CADA snapshot (x7 = MAX_SNAPSHOTS) e era a
+    // principal causa de estouro de cota do localStorage.
+    var cfgLeve = null;
+    try {
+      if (typeof CFG !== 'undefined' && CFG) {
+        cfgLeve = JSON.parse(JSON.stringify(CFG));
+        (cfgLeve.coz || []).forEach(function(c){ delete c.fotos; });
+        (cfgLeve.lav || []).forEach(function(c){ delete c.fotos; });
+        (cfgLeve.stones || []).forEach(function(c){ delete c.fotos; });
+      }
+    } catch(e) { cfgLeve = (typeof CFG !== 'undefined') ? CFG : null; }
+
     return {
       _v: 2,
       _ts: Date.now(),
-      cfg: typeof CFG !== 'undefined' ? CFG : null,
+      cfg: cfgLeve,
       q: (typeof DB !== 'undefined' && DB.q) ? DB.q : [],
       j: (typeof DB !== 'undefined' && DB.j) ? DB.j : [],
       t: (typeof DB !== 'undefined' && DB.t) ? DB.t : [],
