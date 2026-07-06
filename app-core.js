@@ -544,13 +544,80 @@ function syncSVDefsFromList(){
   _refreshBordaArrays();
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// ARMAZENAMENTO DE FOTOS EM INDEXEDDB
+// localStorage tem limite baixo (~5-10MB) e era isso que causava fotos e até
+// cubas inteiras "sumindo" — o salvamento falhava silenciosamente por falta
+// de espaço. IndexedDB aguenta centenas de MB, então as fotos ficam seguras
+// de verdade. Migra automaticamente o que estiver em hr_cuba_fotos (legado).
+// ══════════════════════════════════════════════════════════════════════════
+var _hrFotoDBP = null;
+function _hrFotoDBOpen() {
+  if (_hrFotoDBP) return _hrFotoDBP;
+  _hrFotoDBP = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
+    var req = indexedDB.open('hr_fotos_db', 1);
+    req.onupgradeneeded = function() {
+      var db = req.result;
+      if (!db.objectStoreNames.contains('fotos')) db.createObjectStore('fotos', { keyPath: 'id' });
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror   = function() { reject(req.error); };
+  });
+  return _hrFotoDBP;
+}
+function _hrFotoDBSaveAll(fotosMap) {
+  return _hrFotoDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('fotos', 'readwrite');
+      var store = tx.objectStore('fotos');
+      Object.keys(fotosMap).forEach(function(id) {
+        store.put({ id: id, fotos: fotosMap[id] });
+      });
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+function _hrFotoDBGetAll() {
+  return _hrFotoDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('fotos', 'readonly');
+      var req = tx.objectStore('fotos').getAll();
+      req.onsuccess = function() {
+        var map = {};
+        (req.result || []).forEach(function(r) { map[r.id] = r.fotos; });
+        resolve(map);
+      };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
+}
+// Migração única: copia hr_cuba_fotos do localStorage pro IndexedDB e libera
+// aquele espaço imediatamente (alívio direto pra quem já está com cota cheia).
+function _hrFotoDBMigrarLegado() {
+  try {
+    var raw = localStorage.getItem('hr_cuba_fotos');
+    if (!raw) return Promise.resolve();
+    var fotosMap = JSON.parse(raw);
+    if (!fotosMap || !Object.keys(fotosMap).length) {
+      try { localStorage.removeItem('hr_cuba_fotos'); } catch(e) {}
+      return Promise.resolve();
+    }
+    return _hrFotoDBSaveAll(fotosMap).then(function() {
+      try { localStorage.removeItem('hr_cuba_fotos'); } catch(e) {}
+      console.log('[_hrFotoDBMigrarLegado] Fotos migradas para IndexedDB, localStorage liberado.');
+    });
+  } catch(e) {
+    console.warn('[_hrFotoDBMigrarLegado]', e.message || e);
+    return Promise.resolve();
+  }
+}
+
 function svCFG(){
   // ── Separa fotos[] das cubas antes de serializar o CFG ──────────────────
-  // Fotos base64 podem pesar vários MB; guardar em chave própria evita que
-  // hr_cfg estoure o limite de ~5 MB do localStorage.
-  // As duas gravações são INDEPENDENTES: uma falha de cota nas fotos nunca
-  // pode impedir ou corromper a gravação de hr_cfg (API key, catálogo,
-  // dados da empresa) — isso já causou "chave de API perdida" em produção.
+  // Fotos ficam no IndexedDB (ver acima), não em hr_cfg — hr_cfg guarda só
+  // estrutura/preços/textos, que é leve e nunca deve falhar por cota.
   var cfgLeve = null;
   try {
     cfgLeve = JSON.parse(JSON.stringify(CFG));
@@ -580,36 +647,37 @@ function svCFG(){
     }
   }
 
-  try {
-    var fotosMap = {};
-    function _extrairFotos(lista) {
-      (lista || []).forEach(function(c) {
-        if (c && c.id && c.fotos && c.fotos.length) {
-          fotosMap[c.id] = c.fotos.slice();
-        }
-      });
-    }
-    _extrairFotos(CFG.coz);
-    _extrairFotos(CFG.lav);
-    _extrairFotos(CFG.stones);
-    localStorage.setItem('hr_cuba_fotos', JSON.stringify(fotosMap));
-  } catch(e3) {
-    console.warn('[svCFG] hr_cuba_fotos falhou (possível quota excedida):', e3.message || e3);
-    if (typeof toast === 'function') toast('⚠️ Fotos do catálogo não salvas — armazenamento cheio. Remova fotos antigas em Catálogo.');
+  // ── Fotos → IndexedDB (não localStorage) — resolve o problema de raiz ──
+  var fotosMap = {};
+  function _extrairFotos(lista) {
+    (lista || []).forEach(function(c) {
+      if (c && c.id && c.fotos && c.fotos.length) {
+        fotosMap[c.id] = c.fotos.slice();
+      }
+    });
   }
+  _extrairFotos(CFG.coz);
+  _extrairFotos(CFG.lav);
+  _extrairFotos(CFG.stones);
+  window._svCFGFotosPromise = _hrFotoDBSaveAll(fotosMap).catch(function(e3) {
+    console.warn('[svCFG] Falha ao salvar fotos no IndexedDB:', e3.message || e3);
+    if (typeof toast === 'function') toast('⚠️ Fotos do catálogo não foram salvas — tente novamente.');
+    throw e3;
+  });
 
   if(SYNC.on) SYNC.push();
 }
 
-// ── Reinjeta fotos[] nas cubas após carregar o CFG do localStorage ────────
+// ── Reinjeta fotos[] nas cubas a partir do IndexedDB ──────────────────────
+// Assíncrono: a tela pode renderizar antes das fotos chegarem; por isso
+// re-renderiza o catálogo quando a promise resolve.
 function _restoreCubaFotos() {
-  try {
-    var raw = localStorage.getItem('hr_cuba_fotos');
-    if (!raw) return;
-    var fotosMap = JSON.parse(raw);
+  return _hrFotoDBMigrarLegado().then(function() {
+    return _hrFotoDBGetAll();
+  }).then(function(fotosMap) {
     function _injetar(lista) {
       (lista || []).forEach(function(c) {
-        if (c && c.id && fotosMap[c.id]) {
+        if (c && c.id && fotosMap[c.id] && fotosMap[c.id].length) {
           c.fotos = fotosMap[c.id];
           if (!c.photo && c.fotos.length) c.photo = c.fotos[0];
         }
@@ -618,9 +686,13 @@ function _restoreCubaFotos() {
     _injetar(CFG.coz);
     _injetar(CFG.lav);
     _injetar(CFG.stones);
-  } catch(e) {
+    // Re-renderiza telas que já podem ter sido montadas sem as fotos
+    if (typeof buildCubaList === 'function') buildCubaList();
+    if (typeof buildCatalog   === 'function') buildCatalog();
+    if (typeof buildCfg       === 'function') buildCfg();
+  }).catch(function(e) {
     console.warn('[_restoreCubaFotos]', e.message || e);
-  }
+  });
 }
 
 // ═══ STATE ═══
@@ -1064,7 +1136,12 @@ function onFile(e){
       if(pending===0){
         svCFG();
         buildMat();buildCatalog();buildCubaList();buildCfg();
-        toast('✓ '+(toProcess.length>1?toProcess.length+' fotos adicionadas!':'Foto adicionada!'));
+        var _qtdFotos = toProcess.length;
+        (window._svCFGFotosPromise || Promise.resolve()).then(function(){
+          toast('✓ '+(_qtdFotos>1?_qtdFotos+' fotos adicionadas!':'Foto adicionada!'));
+        }).catch(function(){
+          toast('❌ Não deu pra salvar a foto — tente novamente ou libere espaço.');
+        });
       }
     });
   });
@@ -9755,7 +9832,9 @@ function _ghRepoPath(){
   return (CFG.emp&&CFG.emp.ghRepo)?CFG.emp.ghRepo.trim().replace(/^\/|\/$/g,''):'';
 }
 function publicarCatalogo(){
-  _restoreCubaFotos(); // garante fotos[] em memória antes de publicar
+  _restoreCubaFotos().then(function(){ _publicarCatalogoImpl(); }); // espera fotos do IndexedDB antes de publicar
+}
+function _publicarCatalogoImpl(){
   var token=(CFG.emp&&CFG.emp.ghToken||'').trim();
   var repo=_ghRepoPath();
   if(!token){toast('⚠ Configure o GitHub Token em Empresa');return;}
@@ -9829,7 +9908,9 @@ function _normStonesPublic(lista){
   });
 }
 function baixarCatalogoJson(){
-  _restoreCubaFotos(); // garante fotos[] em memória antes de baixar
+  _restoreCubaFotos().then(function(){ _baixarCatalogoJsonImpl(); }); // espera fotos do IndexedDB antes de baixar
+}
+function _baixarCatalogoJsonImpl(){
   var dados={
     emp:{
       nome:(CFG.emp&&CFG.emp.nome)||'HR Mármores e Granitos',
