@@ -5177,6 +5177,19 @@ function gerarPDF(){
     },0);
   }
 
+  // ── Aviso preventivo: soleira/peitoril não são vendidos por m² de pedra ──
+  // (baixo aproveitamento de chapa + corte/acabamento manual por peça dominam o custo real)
+  var _temSolPeit = (q.tipo && (q.tipo.indexOf('Soleira')>-1 || q.tipo.indexOf('Peitoril')>-1))
+    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Soleira'||s.tipo==='Peitoril';}));
+  var avisoSolPeitHtml = !_temSolPeit ? '' :
+    '<div style="border:2px solid #a83232;background:#fff6f0;border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;">'
+      +'<span style="font-size:20px;line-height:1;flex-shrink:0;">⚠️</span>'
+      +'<div>'
+        +'<div style="font-size:11.5px;font-weight:900;color:#a83232;letter-spacing:0.3px;margin-bottom:4px;">SOLEIRA E PEITORIL NÃO SÃO VENDIDOS POR M² DE PEDRA</div>'
+        +'<div style="font-size:11px;color:#5a3a2a;line-height:1.55;">O valor de R$/m² acima é apenas referência do custo da matéria-prima. Soleira e peitoril têm baixíssimo aproveitamento de chapa (peças estreitas, muitos cortes) e o corte e acabamento manual por peça representam a maior parte do custo real. O valor final deste orçamento já inclui corte, acabamento, fabricação e instalação — não é (e nunca foi) só o preço da pedra.</div>'
+      +'</div>'
+    +'</div>';
+
   // Seção de material: única ou múltipla
   var matSecHtml;
   if(!_multiMat){
@@ -5210,7 +5223,8 @@ function gerarPDF(){
             +'<div style="font-size:10.5px;color:#555;line-height:1.5;">'+(mat.desc?mat.desc.substring(0,120)+(mat.desc.length>120?'…':''):'Material de alta qualidade para sua obra.')+'</div>'
           +'</div>'
         +'</div>'
-      +'</div>';
+      +'</div>'
+      +avisoSolPeitHtml;
   } else {
     // múltiplos materiais — uma linha por pedra
     var _mRows='';
@@ -5244,7 +5258,8 @@ function gerarPDF(){
           +'<span style="font-size:13px;font-weight:900;color:#fff;">'+q.m2.toFixed(3)+' m&sup2; total</span>'
         +'</div>'
         +_mRows
-      +'</div>';
+      +'</div>'
+      +avisoSolPeitHtml;
   }
 
   var recHtml=''
