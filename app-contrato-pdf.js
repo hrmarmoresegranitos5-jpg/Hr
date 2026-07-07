@@ -140,8 +140,8 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   +'<div style="padding:24px 36px;">'
 
   // PARTES
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Partes Contratantes</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Partes Contratantes</div>'
   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
     +'<div>'
       +'<div style="margin-bottom:8px;"><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Contratada</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(emp.nome)+'</span></div>'
@@ -159,8 +159,8 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
 
   // OBJETO
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Objeto do Contrato</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Objeto do Contrato</div>'
   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">'
     +'<div><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Tipo de Serviço</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(tipo)+'</span></div>'
     +'<div><label style="display:block;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#999;margin-bottom:2px;">Material</label><span style="font-size:12px;font-weight:700;color:#1a1a1a;">'+escH(q.mat||'Pedra Natural')+(q.matPr?' — R$ '+(parseFloat(q.matPr)).toLocaleString('pt-BR',{minimumFractionDigits:2})+'/m²':'')+'</span></div>'
@@ -181,15 +181,15 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
 
   // SERVIÇOS INCLUSOS
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Serviços Inclusos</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Serviços Inclusos</div>'
   +'<ul style="padding-left:16px;">'+svHtml+'<li>Fabricação e acabamento completo</li></ul>'
   +(q.obs?'<div style="margin-top:10px;background:#fffbf0;border-left:3px solid #C9A84C;padding:10px 16px;font-size:11px;color:#555;border-radius:0 8px 8px 0;"><strong style="color:#7a4e00;">Observações:</strong> '+escH(q.obs)+'</div>':'')
   +'</div>'
 
   // VALORES E PAGAMENTO
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Valores e Pagamento</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Valores e Pagamento</div>'
   +'<div style="background:#0f0c00;border-radius:10px;padding:16px 20px;margin-bottom:16px;">'
     +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
       +'<span style="font-size:10px;color:rgba(255,255,255,.5);letter-spacing:1px;text-transform:uppercase;">Valor à vista</span>'
@@ -207,21 +207,21 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   +'</div>'
 
   // CONDIÇÕES GERAIS
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Condições Gerais</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Condições Gerais</div>'
   +condsGeraisHtml
   +alertaInst
   +'</div>'
 
   // GARANTIA
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Garantia</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Garantia</div>'
   +garantiaHtml
   +'</div>'
 
   // ASSINATURAS
-  +'<div style="margin-bottom:22px;">'
-  +'<div style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Assinaturas</div>'
+  +'<div class="sec" style="margin-bottom:30px;">'
+  +'<div class="sec-h" style="font-size:10px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;border-bottom:1px solid #e8d89c;padding-bottom:5px;margin-bottom:12px;">Assinaturas</div>'
   +'<div style="text-align:center;font-size:11px;color:#666;margin-bottom:24px;">'+escH(emp.cidade||q.cidade||'')+', '+dataStr+'</div>'
   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;">'
     +'<div><div style="border-top:1px solid #333;padding-top:8px;">'
@@ -274,7 +274,7 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   document.getElementById('cPdfPrint').onclick=function(){
     var w=window.open('','_blank');
     if(w){
-      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
+      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}.sec-h{page-break-after:avoid;break-after:avoid;}.cond-item,.guarantee,tr,li{page-break-inside:avoid;break-inside:avoid;}table{page-break-inside:auto;}@media print{.sec{orphans:3;widows:3;}}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
       w.document.close();
     }
   };
@@ -303,39 +303,79 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
       var pxPerPage=Math.round(canvas.height/(canvas.height*(pageW/canvas.width)/pageH));
       var nPagesEst=Math.ceil(canvas.height/pxPerPage);
 
-      // ── Corte inteligente: busca linha branca próxima ao ponto ideal ──
-      // Em vez de cortar mecanicamente, vasculha o canvas buscando
-      // uma linha majoritariamente branca (espaço entre seções) para cortar ali.
+      // ── Corte inteligente: busca uma FAIXA de linhas em branco ──
+      // Antes bastava 1 linha "quase branca" pra cortar ali — se essa linha
+      // caísse por acaso no meio de uma letra (antialiasing) ou numa borda
+      // colorida, o corte cruzava o texto. Agora exige uma banda contígua
+      // de linhas realmente em branco, senão expande a busca até achar.
       var ctxScan=canvas.getContext('2d');
-      function findSmartCut(idealPx){
-        var search=Math.round(pxPerPage*0.13); // busca em ±13% da página
-        var from=Math.max(1,idealPx-search);
-        var to=Math.min(canvas.height-2,idealPx+Math.round(search*0.25));
-        // Lê todas as linhas da área de busca de uma vez (eficiente)
+
+      function scanRows(from,to){
         var rows=to-from+1;
         var imgData=ctxScan.getImageData(0,from,canvas.width,rows).data;
-        var bestY=idealPx;
-        var bestScore=-1;
-        // Percorre de baixo para cima (prefere cortar antes, não depois)
-        for(var r=rows-1;r>=0;r--){
+        var scores=new Array(rows);
+        for(var r=0;r<rows;r++){
           var w=0;
           var base=r*canvas.width*4;
-          for(var x=0;x<canvas.width;x++){
+          for(var x=0;x<canvas.width;x+=2){ // amostra a cada 2px — mais rápido
             var i=base+x*4;
-            if(imgData[i]>228&&imgData[i+1]>228&&imgData[i+2]>228)w++;
+            if(imgData[i]>232&&imgData[i+1]>232&&imgData[i+2]>232)w++;
           }
-          var score=w/canvas.width;
-          if(score>bestScore){bestScore=score;bestY=from+r;}
-          if(bestScore>0.96)break; // linha quase toda branca — perfeito
+          scores[r]=w/(canvas.width/2);
         }
-        return bestY;
+        return scores;
       }
 
-      // Monta pontos de corte reais
+      var BAND=6;        // altura mínima (px do canvas) da faixa em branco exigida
+      var MIN_SCORE=0.985;
+
+      function findSmartCut(idealPx,minY,maxY){
+        var radiusSteps=[0.16,0.24,0.32,0.42]; // expande a busca progressivamente
+        var bestY=null;
+        for(var s=0;s<radiusSteps.length;s++){
+          var radius=Math.round(pxPerPage*radiusSteps[s]);
+          var from=Math.max(minY,idealPx-radius);
+          var to=Math.min(maxY,idealPx+Math.round(radius*0.35));
+          if(to-from<BAND)continue;
+          var scores=scanRows(from,to);
+          var n=scores.length;
+          for(var r=0;r<=n-BAND;r++){
+            var minInBand=1;
+            for(var b=0;b<BAND;b++){if(scores[r+b]<minInBand)minInBand=scores[r+b];}
+            if(minInBand>=MIN_SCORE){
+              var candidateY=from+r+Math.round(BAND/2);
+              if(bestY===null||Math.abs(candidateY-idealPx)<Math.abs(bestY-idealPx)){
+                bestY=candidateY;
+              }
+            }
+          }
+          if(bestY!==null)break; // achou faixa segura — não precisa expandir mais
+        }
+        if(bestY!==null)return bestY;
+        // Fallback (raríssimo): não achou faixa 100% limpa — pega a melhor
+        // linha individual disponível na maior janela pesquisada.
+        var radiusFinal=Math.round(pxPerPage*0.42);
+        var fFrom=Math.max(minY,idealPx-radiusFinal);
+        var fTo=Math.min(maxY,idealPx+Math.round(radiusFinal*0.35));
+        var fScores=scanRows(fFrom,fTo);
+        var fBestY=idealPx,fBestScore=-1;
+        for(var rr=fScores.length-1;rr>=0;rr--){
+          if(fScores[rr]>fBestScore){fBestScore=fScores[rr];fBestY=fFrom+rr;}
+        }
+        return fBestY;
+      }
+
+      // Monta pontos de corte reais, sempre estritamente crescentes
+      // (nunca gera página vazia/invertida) e com espaço mínimo entre eles.
       var cuts=[0];
+      var minGap=Math.round(pxPerPage*0.25);
       for(var k=1;k<nPagesEst;k++){
         var ideal=Math.round(k*pxPerPage);
-        if(ideal<canvas.height) cuts.push(findSmartCut(ideal));
+        if(ideal>=canvas.height)break;
+        var prevCut=cuts[cuts.length-1];
+        var cutY=findSmartCut(ideal,prevCut+minGap,canvas.height-2);
+        if(cutY<=prevCut)cutY=Math.min(ideal,canvas.height-2);
+        cuts.push(cutY);
       }
       cuts.push(canvas.height);
       var nPages=cuts.length-1;
