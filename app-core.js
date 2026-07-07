@@ -5029,6 +5029,9 @@ function gerarPDF(){
 
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
+  // Para orçamentos pequenos (poucas peças de soleira/peitoril), não faz sentido
+  // exigir entrada + entrega — deixa o cliente livre pra decidir quando paga.
+  var _valorBaixo = q.vista < (CFG.limiarPagamentoSimples||600);
   // Móvel planejado (ceara) — lê q.ceara (novo) ou tela (legado)
   var _pdfScrV=(window._cearaAtivo&&document.getElementById('cearaValor'))?parseFloat(document.getElementById('cearaValor').value)||0:0;
   var _pdfScrD=(window._cearaAtivo&&document.getElementById('cearaDesc'))?document.getElementById('cearaDesc').value.trim():'';
@@ -5045,8 +5048,8 @@ function gerarPDF(){
     q.ambSnap.forEach(function(snap,idx){
       var tipo=snap.tipo||'Ambiente';
       if(q.ambSnap.length>1){
-        allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:8px 14px;font-size:8px;'
-          +'letter-spacing:2px;text-transform:uppercase;color:#8a6020;font-weight:900;'
+        allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:9px 14px;font-size:9.5px;'
+          +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
           +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
       }
       var isBP=snap.tipo==='🏊 Borda Piscina';
@@ -5066,7 +5069,7 @@ function gerarPDF(){
         var bpLdLabelsPDF=['','1 lateral aparente','2 laterais aparentes','3 lados','todos os lados'];
         var bpAcabDescPDF=isBP&&bpAcabLdsPDF>0?bpSnapFirst&&bpSnapFirst.bordaAcb?'Acabamento '+bpAcabTipoPDF+' — '+bpLdLabelsPDF[bpAcabLdsPDF]:'':'';
         var bpAcabMLPDF=isBP&&bpAcabLdsPDF>0&&p.w?_calcBordaPcML(p,bpAcabLdsPDF):0;
-        allRowsHtml+='<tr>'          +'<td style="padding:8px 14px 4px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:12px;font-weight:600;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:8px 14px 4px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:11.5px;color:#888;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
+        allRowsHtml+='<tr>'          +'<td style="padding:10px 14px 6px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:14.5px;font-weight:700;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:10px 14px 6px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:13px;font-weight:600;color:#777;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
         if(isBP&&bpAcabLdsPDF>0){
           allRowsHtml+='<tr>'            +'<td style="padding:3px 14px 9px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10.5px;color:#6688bb;font-style:italic;">'+bpAcabDescPDF+(bpAcabMLPDF>0?' · <b>'+bpAcabMLPDF.toFixed(2)+'m</b>':'')+'</td>'            +'<td style="padding:3px 14px 9px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:10px;color:#9bb;text-align:right;">'+bpAcabMLPDF.toFixed(2)+'m linear</td>'            +'</tr>';
         }
@@ -5327,8 +5330,8 @@ function gerarPDF(){
       +'<table style="width:100%;border-collapse:collapse;">'
         +'<thead>'
           +'<tr style="background:#0f0c00;">'
-            +'<th style="padding:10px 14px;text-align:left;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
-            +'<th style="padding:10px 14px;text-align:right;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:10px 14px;text-align:left;font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
+            +'<th style="padding:10px 14px;text-align:right;font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
           +'</tr>'
         +'</thead>'
         +'<tbody>'
@@ -5407,24 +5410,32 @@ function gerarPDF(){
 
     // CONDIÇÃO DE PAGAMENTO
     +sh('Como Fica o Pagamento')
-    +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:16px 18px;margin-bottom:6px;">'
+    +(_valorBaixo
+      // Orçamento pequeno: sem exigir entrada/entrega, cliente decide quando paga
+      ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PAGAMENTO LIVRE</div>'
+          +'<div style="font-size:26px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:8px;">R$ '+fm(q.vista)+'</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.6;">Por ser um valor menor, não exigimos entrada. Você pode pagar tudo à vista ou combinar diretamente com a gente a melhor forma — antes ou depois do serviço.</div>'
+        +'</div>'
+      // Orçamento maior: mantém a divisão entrada/entrega
+      : '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:16px 18px;margin-bottom:6px;">'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
         +'<div>'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ASSINATURA</div>'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ASSINATURA</div>'
           +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
-          +'<div style="font-size:10.5px;color:#999;">Entrada para iniciar a produção</div>'
+          +'<div style="font-size:11px;color:#999;">Entrada para iniciar a produção</div>'
         +'</div>'
         +'<div style="border-left:1px solid #e8dfc4;padding-left:16px;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
           +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
-          +'<div style="font-size:10.5px;color:#999;">Pagamento na entrega e instalação</div>'
+          +'<div style="font-size:11px;color:#999;">Pagamento na entrega e instalação</div>'
         +'</div>'
       +'</div>'
-      +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8dfc4;font-size:10.5px;color:#888;display:flex;align-items:center;gap:6px;">'
+      +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8dfc4;font-size:11px;color:#888;display:flex;align-items:center;gap:6px;">'
         +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
         +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
       +'</div>'
-    +'</div>'
+    +'</div>')
 
     // PRAZO ESTIMADO (injetado pelo app-pdf-prazo.js)
     +(window._pdfPrazoData ? (function(){
