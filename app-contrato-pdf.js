@@ -326,7 +326,12 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
         return scores;
       }
 
-      var BAND=6;        // altura mínima (px do canvas) da faixa em branco exigida
+      // O vão entre um título de seção e seu conteúdo (~22px no canvas) é
+      // pequeno demais e não deve ser usado pra corte — senão o título fica
+      // "órfão" sozinho no fim da página. Só o vão ENTRE seções (~60px) deve
+      // servir de ponto de corte. Por isso BAND é maior que o primeiro e
+      // menor que o segundo.
+      var BAND=34;       // altura mínima (px do canvas) da faixa em branco exigida
       var MIN_SCORE=0.985;
 
       function findSmartCut(idealPx,minY,maxY){
