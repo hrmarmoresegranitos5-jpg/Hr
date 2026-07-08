@@ -170,7 +170,10 @@
   // imagens que o usuário mesmo já capturou, então não depende de
   // proxy/CORS/bloqueio de scraping.
   function _imPromptSistema() {
-    return 'Você analisa fotos/prints de anúncios de cubas de cozinha ou banheiro (pias em aço inox, granito, louça etc.) '
+    var sujeito = _im.cat === 'ac'
+      ? 'acessórios de marmoraria (dispensers de detergente, calhas úmidas, escorredores de louça, torneiras, válvulas, sifões, saboneteiras, tampas e afins)'
+      : 'cubas de cozinha ou banheiro (pias em aço inox, granito, louça etc.)';
+    return 'Você analisa fotos/prints de anúncios de ' + sujeito + ' '
       + 'de um catálogo de uma marmoraria. A partir das imagens fornecidas (que podem ser fotos do produto e/ou prints da '
       + 'página de um anúncio de e-commerce), extraia as informações do produto.\n\n'
       + 'Responda APENAS com um objeto JSON válido, sem markdown, sem ```json, sem texto antes ou depois. Formato exato:\n'
@@ -222,16 +225,15 @@
 
       var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
       if (!key) {
-        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...), Gemini (AIza...) ou Anthropic (sk-ant-...).', 'err');
+        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...) ou Anthropic (sk-ant-...).', 'err');
         return;
       }
 
-      // Suporta Groq (gratuita, usada no resto do app), Anthropic e
-      // Gemini — detecta pelo prefixo da chave já salva em
+      // Suporta tanto Groq (gratuita, usada no resto do app) quanto
+      // Anthropic — detecta pelo prefixo da chave já salva em
       // CFG.emp.apiKey e monta a requisição no formato certo pra cada uma.
       var ehAnthropic = key.indexOf('sk-ant-') === 0;
-      var ehGemini    = (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
-      var LIMITE_IMGS = (ehAnthropic || ehGemini) ? 6 : 5; // Groq: máx. 5 imagens por requisição
+      var LIMITE_IMGS = ehAnthropic ? 6 : 5; // Groq: máx. 5 imagens por requisição
 
       // Limita o total de imagens enviadas pra não estourar payload/custo.
       // Prioriza os prints de referência (geralmente têm título/descrição/
@@ -275,21 +277,6 @@
           system: _imPromptSistema(),
           messages: [{ role: 'user', content: contentAnthropic }]
         });
-      } else if (ehGemini) {
-        // Gemini Flash Lite — suporta visão, mais barato.
-        var partsGemini = escolhidas.map(function(dataUrl) {
-          var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
-          return { inline_data: { mime_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') } };
-        });
-        partsGemini.push({ text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
-
-        url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key;
-        headers = { 'Content-Type': 'application/json' };
-        body = JSON.stringify({
-          system_instruction: { parts: [{ text: _imPromptSistema() }] },
-          contents: [{ role: 'user', parts: partsGemini }],
-          generationConfig: { maxOutputTokens: 1000 }
-        });
       } else {
         // Groq — gratuita, modelo com visão (formato compatível OpenAI).
         var contentGroq = escolhidas.map(function(dataUrl) {
@@ -313,26 +300,11 @@
         });
       }
 
-      // Alguns modelos (principalmente Gemini em horários de pico) retornam
-      // 503/429 quando estão sobrecarregados — isso é passageiro, então
-      // tenta de novo automaticamente antes de desistir e mostrar erro.
-      function _imFetchComRetry(tentativa, maxTentativas, delayMs) {
-        return fetch(url, { method: 'POST', headers: headers, body: body })
-          .then(function(r) {
-            if ((r.status === 503 || r.status === 429) && tentativa < maxTentativas) {
-              _imStatusIA('⏳ Modelo ocupado, tentando de novo (' + (tentativa + 1) + '/' + maxTentativas + ')…', 'info');
-              return new Promise(function(resolve) { setTimeout(resolve, delayMs); })
-                .then(function() { return _imFetchComRetry(tentativa + 1, maxTentativas, delayMs * 2); });
-            }
-            return r;
-          });
-      }
-
       _im.iaCarregando = true;
       _imStatusIA('⏳ Consultando a IA…', 'info');
       _renderModal();
 
-      _imFetchComRetry(1, 3, 1500)
+      fetch(url, { method: 'POST', headers: headers, body: body })
         .then(function(r) {
           return r.json().catch(function() {
             throw new Error('resposta inválida da API (HTTP ' + r.status + ')');
@@ -342,9 +314,7 @@
           if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
           var texto = ehAnthropic
             ? ((data.content && data.content[0] && data.content[0].text) || '')
-            : ehGemini
-              ? ((data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '')
-              : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
+            : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
           var limpo = texto.replace(/```json|```/g, '').trim();
           var json;
           try { json = JSON.parse(limpo); }
@@ -374,13 +344,7 @@
         .catch(function(e) {
           _im.iaCarregando = false;
           console.error('[Import-Manual] IA falhou:', e);
-          var msg = (e && e.message) ? e.message : String(e);
-          var sobrecarregado = /high demand|overloaded|UNAVAILABLE|503/i.test(msg);
-          if (sobrecarregado) {
-            _imStatusIA('⏳ O modelo de IA está sobrecarregado no momento (já tentei 3x). Aguarde um minuto e tente de novo.', 'err');
-          } else {
-            _imStatusIA('❌ Não consegui preencher automaticamente: ' + msg, 'err');
-          }
+          _imStatusIA('❌ Não consegui preencher automaticamente: ' + (e && e.message ? e.message : e), 'err');
           _renderModal();
         });
     } catch (eSync) {
@@ -500,17 +464,20 @@
     h += '</div>';
 
     // Seletor de categoria
-    h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
-    ['coz','lav'].forEach(function(c) {
+    h += '<div style="display:flex;gap:6px;margin-bottom:14px;">';
+    ['coz','lav','ac'].forEach(function(c) {
       var ativ = _im.cat === c;
-      var lab  = c === 'coz' ? '🍳 Cozinha' : '🚿 Banhe./Lavabo';
-      h += '<button onclick="_imSetCat(\'' + c + '\')" style="flex:1;padding:9px;border-radius:10px;font-size:.75rem;font-weight:600;cursor:pointer;border:1px solid ' + (ativ ? 'var(--gold2)' : 'var(--bd2)') + ';background:' + (ativ ? 'var(--gdim)' : 'var(--s3)') + ';color:' + (ativ ? 'var(--gold2)' : 'var(--t2)') + ';">' + lab + '</button>';
+      var lab  = c === 'coz' ? '🍳 Cozinha' : (c === 'lav' ? '🚿 Banhe./Lavabo' : '🔩 Acessório');
+      h += '<button onclick="_imSetCat(\'' + c + '\')" style="flex:1;padding:9px 4px;border-radius:10px;font-size:.7rem;font-weight:600;cursor:pointer;border:1px solid ' + (ativ ? 'var(--gold2)' : 'var(--bd2)') + ';background:' + (ativ ? 'var(--gdim)' : 'var(--s3)') + ';color:' + (ativ ? 'var(--gold2)' : 'var(--t2)') + ';">' + lab + '</button>';
     });
     h += '</div>';
 
     // ─── Título do anúncio ────────────────────────────────────
+    var placeholderTitulo = _im.cat === 'ac'
+      ? 'Ex: Dispenser de Detergente Embutir Aço Inox Escovado p/ Bancada'
+      : 'Ex: Cuba Gourmet Cozinha Inox 56x34x17cm Embutir Aço Inox Escovado 56L com Válvula e Sifão Antirruído';
     h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px;">Título do anúncio</div>';
-    h += '<textarea id="im-titulo" rows="3" placeholder="Ex: Cuba Gourmet Cozinha Inox 56x34x17cm Embutir Aço Inox Escovado 56L com Válvula e Sifão Antirruído" oninput="_imHandleTitulo(this)" style="width:100%;background:var(--s3);border:1px solid var(--gold3);border-radius:10px;padding:9px 11px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;resize:vertical;margin-bottom:12px;font-family:inherit;">' + _esc(prevTitulo) + '</textarea>';
+    h += '<textarea id="im-titulo" rows="3" placeholder="' + placeholderTitulo + '" oninput="_imHandleTitulo(this)" style="width:100%;background:var(--s3);border:1px solid var(--gold3);border-radius:10px;padding:9px 11px;color:var(--tx);font-size:.78rem;box-sizing:border-box;outline:none;resize:vertical;margin-bottom:12px;font-family:inherit;">' + _esc(prevTitulo) + '</textarea>';
 
     // ─── Upload de fotos do produto (essas vão pro catálogo) ──
     h += '<div style="font-size:.6rem;color:var(--gold3);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px;">Fotos do produto <span style="color:var(--t4);text-transform:none;letter-spacing:0;">(aparecem pro cliente no catálogo)</span></div>';
@@ -625,34 +592,54 @@
 
     var cat = _im.cat;
 
-    var novaCuba = {
-      id:      'manual_' + Date.now(),
-      nm:      nome,
-      titulo:  titulo,
-      brand:   marca,
-      dim:     dim,
-      desc:    desc,
-      pr:      Math.round(venda),
-      inst:    cat === 'coz' ? 110 : 220,
-      instCli: cat === 'coz' ? 160 : 280,
-      photo:   _im.fotos.length ? _im.fotos[_im.selIdx] : '',
-      fotos:   _im.fotos.slice(),
-      _manual_custo:  custo,
-      _manual_margem: margem,
-    };
+    var novoProduto;
+    if (cat === 'ac') {
+      // Acessórios: mesma ideia (nome, marca, dimensões, descrição, fotos), sem
+      // campos de instalação (M.O.), que não se aplicam a esse catálogo.
+      novoProduto = {
+        id:    'manual_' + Date.now(),
+        nm:    nome,
+        titulo: titulo,
+        marca: marca,
+        dim:   dim,
+        desc:  desc,
+        pr:    Math.round(venda),
+        photo: _im.fotos.length ? _im.fotos[_im.selIdx] : '',
+        fotos: _im.fotos.slice(),
+        _manual_custo:  custo,
+        _manual_margem: margem,
+      };
+    } else {
+      novoProduto = {
+        id:      'manual_' + Date.now(),
+        nm:      nome,
+        titulo:  titulo,
+        brand:   marca,
+        dim:     dim,
+        desc:    desc,
+        pr:      Math.round(venda),
+        inst:    cat === 'coz' ? 110 : 220,
+        instCli: cat === 'coz' ? 160 : 280,
+        photo:   _im.fotos.length ? _im.fotos[_im.selIdx] : '',
+        fotos:   _im.fotos.slice(),
+        _manual_custo:  custo,
+        _manual_margem: margem,
+      };
+    }
 
     // garante que a foto destaque seja a primeira do array
     if (_im.fotos.length > 1 && _im.selIdx > 0) {
-      var dest = novaCuba.fotos.splice(_im.selIdx, 1)[0];
-      novaCuba.fotos.unshift(dest);
-      novaCuba.photo = dest;
+      var dest = novoProduto.fotos.splice(_im.selIdx, 1)[0];
+      novoProduto.fotos.unshift(dest);
+      novoProduto.photo = dest;
     }
 
-    var lista = cat === 'coz' ? CFG.coz : CFG.lav;
-    lista.push(novaCuba);
+    var lista = cat === 'coz' ? CFG.coz : (cat === 'lav' ? CFG.lav : (CFG.ac || (CFG.ac = [])));
+    lista.push(novoProduto);
 
     if (typeof svCFG         === 'function') svCFG();
     if (typeof buildCubaList === 'function') buildCubaList();
+    if (typeof buildAcList   === 'function') buildAcList();
     if (typeof buildCfg      === 'function') buildCfg();
     if (typeof toast         === 'function') toast('✅ Produto salvo manualmente!');
 
@@ -694,10 +681,14 @@
 
   function _redimParaCuba(dataUrl, cb) { _redimensionar(dataUrl, cb); }
 
+  function _listaPorTipo(tipo) {
+    return tipo === 'coz' ? CFG.coz : (tipo === 'lav' ? CFG.lav : (tipo === 'stone' ? CFG.stones : CFG.ac));
+  }
+
   window._cubaAddFotos = function(tipo, idx, input) {
     var files = Array.prototype.slice.call(input.files || []);
     if (!files.length) return;
-    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var lista = _listaPorTipo(tipo);
     var cuba  = lista[idx];
     if (!cuba) return;
     if (!cuba.fotos) cuba.fotos = [];
@@ -726,7 +717,7 @@
   };
 
   window._cubaSetDestaque = function(tipo, idx, fotoIdx) {
-    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var lista = _listaPorTipo(tipo);
     var cuba  = lista[idx];
     if (!cuba || !cuba.fotos || !cuba.fotos[fotoIdx]) return;
     var dest = cuba.fotos.splice(fotoIdx, 1)[0];
@@ -738,7 +729,7 @@
   };
 
   window._cubaRemFoto = function(tipo, idx, fotoIdx) {
-    var lista = tipo === 'coz' ? CFG.coz : CFG.lav;
+    var lista = _listaPorTipo(tipo);
     var cuba  = lista[idx];
     if (!cuba || !cuba.fotos) return;
     cuba.fotos.splice(fotoIdx, 1);

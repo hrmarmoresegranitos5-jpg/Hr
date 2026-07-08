@@ -260,39 +260,10 @@ var SYNC={
         // chave salva neste dispositivo. Preserva o valor atual antes de
         // aplicar o CFG remoto, e restaura em seguida.
         var _apiKeyLocal = (CFG && CFG.emp) ? CFG.emp.apiKey : '';
-        // Fotos das cubas/pedras NUNCA vêm do Firebase (push já as remove —
-        // ver abaixo), mas snapshots antigos gravados antes desta correção
-        // podem ainda ter .fotos (completas, vazias ou parciais). Pra evitar
-        // que um snapshot desatualizado apague fotos que este aparelho já
-        // tem localmente, preserva o CFG.coz/lav/stones ATUAL antes de
-        // trocar pra remoto — as fotos corretas são restauradas do
-        // IndexedDB local logo em seguida, que é a fonte de verdade real.
-        var _cozLocal    = (CFG && CFG.coz)    ? CFG.coz    : [];
-        var _lavLocal    = (CFG && CFG.lav)    ? CFG.lav    : [];
-        var _stonesLocal = (CFG && CFG.stones) ? CFG.stones : [];
         if(d.cfg){
           CFG=d.cfg;
           if(!CFG.emp) CFG.emp={};
           CFG.emp.apiKey = _apiKeyLocal || '';
-          // Descarta qualquer .fotos vindo do remoto (pode estar incompleto)
-          // e recoloca provisoriamente o que já estava em memória, até o
-          // IndexedDB local confirmar o estado real logo abaixo.
-          function _preservarFotos(listaRemota, listaLocal) {
-            var porId = {};
-            (listaLocal || []).forEach(function(c){ if (c && c.id) porId[c.id] = c; });
-            (listaRemota || []).forEach(function(c){
-              if (!c || !c.id) return;
-              delete c.fotos;
-              var antigo = porId[c.id];
-              if (antigo && antigo.fotos && antigo.fotos.length) {
-                c.fotos = antigo.fotos;
-                if (!c.photo) c.photo = c.fotos[0];
-              }
-            });
-          }
-          _preservarFotos(CFG.coz, _cozLocal);
-          _preservarFotos(CFG.lav, _lavLocal);
-          _preservarFotos(CFG.stones, _stonesLocal);
           localStorage.setItem('hr_cfg',JSON.stringify(CFG));
         }
         if(d.q)DB.q=d.q;
@@ -301,10 +272,6 @@ var SYNC={
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
-        // Reidrata as fotos a partir do IndexedDB local (fonte de verdade
-        // real por aparelho) — cobre também itens novos que só este
-        // aparelho tinha fotografado.
-        if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
         toast('↓ Dados sincronizados!');
       }
     });
@@ -319,15 +286,6 @@ var SYNC={
     // a chave nova nos outros dispositivos na próxima sincronização.
     var cfgSemChave = JSON.parse(JSON.stringify(CFG));
     if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
-    // Fotos das cubas/pedras NUNCA vão pro Firebase — mesma lógica do
-    // svCFG() pro localStorage: são pesadas (base64) e cada aparelho já
-    // guarda as suas próprias no IndexedDB local. Enviá-las aqui é o que
-    // permitia um snapshot capturado num momento sem fotos carregadas
-    // (ex.: logo após abrir o app, antes do IndexedDB responder) apagar as
-    // fotos de OUTRO aparelho ao chegar via pull em _listen().
-    (cfgSemChave.coz    || []).forEach(function(c){ delete c.fotos; });
-    (cfgSemChave.lav    || []).forEach(function(c){ delete c.fotos; });
-    (cfgSemChave.stones || []).forEach(function(c){ delete c.fotos; });
     this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,_ts:ts});
   },
   stop:function(){
@@ -596,14 +554,7 @@ function syncSVDefsFromList(){
 var _hrFotoDBP = null;
 function _hrFotoDBOpen() {
   if (_hrFotoDBP) return _hrFotoDBP;
-  // IMPORTANTE: nunca deixamos uma tentativa FALHA ficar em cache. Se a
-  // promise fosse guardada mesmo quando rejeitada, uma falha passageira de
-  // IndexedDB (comum em WebView, aba em segundo plano, service worker
-  // atualizando etc.) travaria TODAS as fotos — restaurar e salvar — pelo
-  // resto da sessão, mesmo que o IndexedDB volte a funcionar segundos
-  // depois. Por isso só guardamos em _hrFotoDBP quando o open tem sucesso;
-  // em caso de erro, limpamos a variável pra próxima chamada tentar de novo.
-  var p = new Promise(function(resolve, reject) {
+  _hrFotoDBP = new Promise(function(resolve, reject) {
     if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
     var req = indexedDB.open('hr_fotos_db', 1);
     req.onupgradeneeded = function() {
@@ -613,11 +564,7 @@ function _hrFotoDBOpen() {
     req.onsuccess = function() { resolve(req.result); };
     req.onerror   = function() { reject(req.error); };
   });
-  _hrFotoDBP = p;
-  p.catch(function() {
-    if (_hrFotoDBP === p) _hrFotoDBP = null; // libera pra tentar de novo na próxima chamada
-  });
-  return p;
+  return _hrFotoDBP;
 }
 function _hrFotoDBSaveAll(fotosMap) {
   return _hrFotoDBOpen().then(function(db) {
@@ -665,20 +612,6 @@ function _hrFotoDBMigrarLegado() {
     console.warn('[_hrFotoDBMigrarLegado]', e.message || e);
     return Promise.resolve();
   }
-}
-// Tenta restaurar as fotos algumas vezes antes de desistir — cobre o caso de
-// IndexedDB estar temporariamente ocupado/bloqueado bem no boot do app (ex.:
-// service worker instalando). Só avisa o usuário se TODAS as tentativas
-// falharem, pra nunca ficar silenciosamente sem fotos sem o usuário saber.
-function _hrFotoDBGetAllComRetry(tentativas) {
-  tentativas = tentativas || 3;
-  return _hrFotoDBGetAll().catch(function(e) {
-    if (tentativas > 1) {
-      return new Promise(function(resolve) { setTimeout(resolve, 800); })
-        .then(function() { return _hrFotoDBGetAllComRetry(tentativas - 1); });
-    }
-    throw e;
-  });
 }
 
 function svCFG(){
@@ -740,7 +673,7 @@ function svCFG(){
 // re-renderiza o catálogo quando a promise resolve.
 function _restoreCubaFotos() {
   return _hrFotoDBMigrarLegado().then(function() {
-    return _hrFotoDBGetAllComRetry(3);
+    return _hrFotoDBGetAll();
   }).then(function(fotosMap) {
     function _injetar(lista) {
       (lista || []).forEach(function(c) {
@@ -758,14 +691,7 @@ function _restoreCubaFotos() {
     if (typeof buildCatalog   === 'function') buildCatalog();
     if (typeof buildCfg       === 'function') buildCfg();
   }).catch(function(e) {
-    // Depois de 3 tentativas, isso não é mais passageiro — avisa o usuário
-    // em vez de deixar o catálogo silenciosamente sem fotos. Não sobrescreve
-    // nada em CFG (fotos que já estavam em memória continuam intactas);
-    // só alerta que a restauração a partir do armazenamento falhou.
     console.warn('[_restoreCubaFotos]', e.message || e);
-    if (typeof toast === 'function') {
-      toast('⚠️ Não consegui carregar as fotos salvas do catálogo. Feche e abra o app de novo — se persistir, verifique o espaço de armazenamento do celular.');
-    }
   });
 }
 
@@ -7772,6 +7698,51 @@ function _recalcPrecoPedra(i){
 }
 window._recalcPrecoPedra = _recalcPrecoPedra;
 
+// ═══ CONFIG — cards de produto (cubas/acessórios): expandir/recolher + busca ═══
+// Por padrão os cards ficam recolhidos (só uma linha-resumo) pra a tela não virar
+// uma parede de formulários quando há muitos itens cadastrados. Toca no card pra
+// abrir e editar. Guardamos o estado por id do item (sobrevive a reordenação).
+var _cfgOpen = window._cfgOpen || {};
+window._cfgOpen = _cfgOpen;
+var _cfgQ = window._cfgQ || {coz:'',lav:'',ac:''};
+window._cfgQ = _cfgQ;
+
+function _cfgToggle(key){
+  _cfgOpen[key] = !_cfgOpen[key];
+  buildCfg();
+}
+window._cfgToggle = _cfgToggle;
+
+function _cfgSetQ(tipo, val){
+  _cfgQ[tipo] = val;
+  buildCfg();
+  // devolve o foco pro campo de busca após o re-render (perdido pelo innerHTML=h)
+  setTimeout(function(){
+    var el = document.getElementById('cfgq_' + tipo);
+    if(el){ el.focus(); var v = el.value; el.value=''; el.value=v; }
+  }, 0);
+}
+window._cfgSetQ = _cfgSetQ;
+
+// Barra de busca + contador, usada no topo das abas Cubas Coz/Ban/Acessórios
+function _cfgBarraBusca(tipo, total, visiveis, placeholder){
+  var h = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">';
+  h += '<input id="cfgq_' + tipo + '" class="cfginp" style="flex:1;text-align:left;" placeholder="' + placeholder + '" value="' + escH(_cfgQ[tipo] || '') + '" oninput="_cfgSetQ(\'' + tipo + '\',this.value)">';
+  h += '<span style="flex-shrink:0;font-size:.66rem;color:var(--t3);background:var(--s3);border:1px solid var(--bd2);border-radius:20px;padding:5px 10px;font-weight:700;white-space:nowrap;">' + visiveis + (visiveis!==total ? ' de ' + total : '') + '</span>';
+  h += '</div>';
+  return h;
+}
+
+// Filtra um array de produtos (coz/lav/ac) pelo termo de busca daquela aba
+function _cfgFiltrar(tipo, arr){
+  var q = (_cfgQ[tipo] || '').trim().toLowerCase();
+  if(!q) return arr;
+  return arr.filter(function(c){
+    var alvo = [c.nm, c.brand, c.marca, c.dim, c.desc].filter(Boolean).join(' ').toLowerCase();
+    return alvo.indexOf(q) >= 0;
+  });
+}
+
 // ═══ CONFIG ═══
 function buildCfg(){
   var h='';
@@ -7827,98 +7798,134 @@ function buildCfg(){
   }
   else if(cfgTab===1){
     // CUBAS COZINHA
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:14px;line-height:1.6;">Adicione várias fotos por cuba. A foto com <b style="color:var(--gold2);">★</b> aparece em destaque no catálogo online.</div>';
-    CFG.coz.forEach(function(c,i){
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Toque num card pra abrir e editar. A foto com <b style="color:var(--gold2);">★</b> aparece em destaque no catálogo online.</div>';
+    h+=_cfgBarraBusca('coz', CFG.coz.length, _cfgFiltrar('coz',CFG.coz).length, '🔍 Buscar por nome, marca ou dimensão...');
+    var _cozVis = _cfgFiltrar('coz', CFG.coz);
+    if(!_cozVis.length){
+      h+='<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhuma cuba encontrada para "'+escH(_cfgQ.coz)+'".</div>';
+    }
+    _cozVis.forEach(function(c){
+      var i = CFG.coz.indexOf(c);
+      var key = 'coz_'+(c.id||i);
+      var open = !!_cfgOpen[key];
       var nFotos = (c.fotos||[]).length || (c.photo?1:0);
       h+='<div class="cfgsec" style="border-top:2px solid var(--gold3);box-shadow:0 4px 14px rgba(0,0,0,.18);">';
-      // Linha de cabeçalho (thumb + nome + preços em chips)
-      h+='<div style="display:flex;gap:12px;padding:14px 14px 12px;align-items:flex-start;">';
-      // Thumb destaque
-      h+='<div style="width:64px;height:64px;border-radius:12px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.3);">';
-      h+=(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.6rem;opacity:.35;">🔧</span>');
+      // Linha de cabeçalho compacta — sempre visível, toca pra abrir/fechar
+      h+='<div onclick="_cfgToggle(\''+key+'\')" style="display:flex;gap:12px;padding:12px 14px;align-items:center;cursor:pointer;">';
+      h+='<div style="width:52px;height:52px;border-radius:11px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.4rem;opacity:.35;">🔧</span>');
       h+='</div>';
-      // Info e preços
       h+='<div style="flex:1;min-width:0;">';
-      h+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;">';
-      h+='<span style="font-size:.84rem;font-weight:800;color:var(--tx);">'+escH(c.nm)+'</span>';
-      if(c.brand)h+='<span style="font-size:.64rem;color:var(--t3);font-weight:500;">'+escH(c.brand)+'</span>';
+      h+='<div style="font-size:.82rem;font-weight:800;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(c.nm)+'</div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
+      if(c.brand)h+='<span style="font-size:.62rem;color:var(--t3);">'+escH(c.brand)+'</span>';
+      if(c.dim)h+='<span style="font-size:.62rem;color:var(--t3);">· '+escH(c.dim)+'</span>';
+      h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+='</div></div>';
+      h+='<div style="text-align:right;flex-shrink:0;">';
+      h+='<div style="font-size:.86rem;font-weight:800;color:var(--gold2);">R$ '+c.pr+'</div>';
+      h+='<div style="font-size:.58rem;color:var(--t4);">M.O. R$ '+c.inst+'</div>';
       h+='</div>';
-      h+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">';
-      h+='<span style="font-size:.64rem;color:var(--t3);">'+escH(c.dim)+'</span>';
-      h+='<span style="font-size:.58rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:2px 8px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
       h+='</div>';
-      h+='<div style="display:flex;gap:6px;">';
-      h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--gold3);"><div style="font-size:.5rem;color:var(--gold3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;background:transparent;border:none;padding:0;font-weight:800;color:var(--gold2);font-size:.85rem;" onchange="CFG.coz['+i+'].pr=+this.value;buildCubaList();svCFG();"></div>';
-      h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);"><div style="font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;" placeholder="0" onchange="CFG.coz['+i+'].pr_orig=+this.value;buildCubaList();svCFG();"></div>';
-      h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);"><div style="font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;" onchange="CFG.coz['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
-      h+='</div></div></div>';
-      h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 14px;"></div>';
-      // Editor de fotos
-      h+=_buildCubaFotoEditor('coz', i);
-      // Campos de texto
-      h+='<div style="padding:2px 14px 0;">';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">✦ Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.coz['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
-      h+='<div style="display:flex;gap:8px;">';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-xl" value="'+escH(c.nm)+'" onchange="CFG.coz['+i+'].nm=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-xl" placeholder="—" value="'+escH(c.brand||'')+'" onchange="CFG.coz['+i+'].brand=this.value;svCFG();"></div>';
-      h+='</div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl">Dimensões</span><input class="cfginp cfginp-xl" value="'+escH(c.dim)+'" onchange="CFG.coz['+i+'].dim=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:12px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.coz['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
-      h+='</div>';
-      h+='<div style="display:flex;gap:8px;padding:10px 14px;border-top:1px solid #0c0c10;align-items:center;">';
-      h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
-      h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.coz.length){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
-      h+='<span style="flex:1;"></span>';
-      h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="if(confirm(\'Remover esta cuba?\')){CFG.coz.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
-      h+='</div>';
+      if(open){
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 14px;"></div>';
+        // Preços editáveis
+        h+='<div style="display:flex;gap:6px;padding:12px 14px 0;">';
+        h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--gold3);"><div style="font-size:.5rem;color:var(--gold3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;background:transparent;border:none;padding:0;font-weight:800;color:var(--gold2);font-size:.85rem;" onchange="CFG.coz['+i+'].pr=+this.value;buildCubaList();svCFG();"></div>';
+        h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);"><div style="font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;" placeholder="0" onchange="CFG.coz['+i+'].pr_orig=+this.value;buildCubaList();svCFG();"></div>';
+        h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);"><div style="font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;" onchange="CFG.coz['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
+        h+='</div>';
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:12px 14px 0;"></div>';
+        // Editor de fotos
+        h+=_buildCubaFotoEditor('coz', i);
+        // Campos de texto
+        h+='<div style="padding:2px 14px 0;">';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">✦ Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.coz['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
+        h+='<div style="display:flex;gap:8px;">';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-xl" value="'+escH(c.nm)+'" onchange="CFG.coz['+i+'].nm=this.value;svCFG();"></div>';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-xl" placeholder="—" value="'+escH(c.brand||'')+'" onchange="CFG.coz['+i+'].brand=this.value;svCFG();"></div>';
+        h+='</div>';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl">Dimensões</span><input class="cfginp cfginp-xl" value="'+escH(c.dim)+'" onchange="CFG.coz['+i+'].dim=this.value;svCFG();"></div>';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:12px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.coz['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
+        h+='</div>';
+        h+='<div style="display:flex;gap:8px;padding:10px 14px;border-top:1px solid #0c0c10;align-items:center;">';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+i+'>0){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.coz.length){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
+        h+='<span style="flex:1;"></span>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
+        h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="event.stopPropagation();if(confirm(\'Remover esta cuba?\')){CFG.coz.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
+        h+='</div>';
+      }
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{CFG.coz.push({id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,pr_orig:0,inst:110,instCli:160,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();}">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{var _nc={id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,pr_orig:0,inst:110,instCli:160,photo:\'\',fotos:[],desc:\'\'};CFG.coz.push(_nc);_cfgOpen[\'coz_\'+_nc.id]=true;svCFG();buildCfg();}">+ Nova Cuba</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:linear-gradient(135deg,#1a1a0a,#241d0a);color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Cuba (Fotos + IA)</button>';
   }
   else if(cfgTab===2){
     // CUBAS BANHEIRO
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione várias fotos por cuba. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
-    CFG.lav.forEach(function(c,i){
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Toque num card pra abrir e editar. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
+    h+=_cfgBarraBusca('lav', CFG.lav.length, _cfgFiltrar('lav',CFG.lav).length, '🔍 Buscar por nome, marca ou dimensão...');
+    var _lavVis = _cfgFiltrar('lav', CFG.lav);
+    if(!_lavVis.length){
+      h+='<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhuma cuba encontrada para "'+escH(_cfgQ.lav)+'".</div>';
+    }
+    _lavVis.forEach(function(c){
+      var i = CFG.lav.indexOf(c);
+      var key = 'lav_'+(c.id||i);
+      var open = !!_cfgOpen[key];
       var isEsc=c.tipo==='Esculpida';
+      var nFotos = (c.fotos||[]).length || (c.photo?1:0);
       h+='<div class="cfgsec">';
-      // Cabeçalho compacto
-      h+='<div style="display:flex;gap:10px;padding:10px 13px 0;align-items:flex-start;">';
-      h+='<div style="width:56px;height:56px;border-radius:8px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
-      h+=(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.4rem;">'+(isEsc?'🪨':'🚿')+'</span>');
+      // Cabeçalho compacto — sempre visível, toca pra abrir/fechar
+      h+='<div onclick="_cfgToggle(\''+key+'\')" style="display:flex;gap:10px;padding:11px 13px;align-items:center;cursor:pointer;">';
+      h+='<div style="width:52px;height:52px;border-radius:9px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(c.photo?'<img src="'+c.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.3rem;">'+(isEsc?'🪨':'🚿')+'</span>');
       h+='</div>';
       h+='<div style="flex:1;min-width:0;">';
-      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);margin-bottom:2px;">'+(c.brand?escH(c.brand)+' — ':'')+escH(c.nm)+'</div>';
-      h+='<div style="font-size:.66rem;color:var(--t3);margin-bottom:6px;">'+escH(c.dim)+(c.tipo?' · '+c.tipo:'')+'</div>';
-      if(!isEsc){
-        h+='<div style="display:flex;gap:6px;">';
-        h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.lav['+i+'].pr=+this.value;buildCubaList();svCFG();"></div>';
-        h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;" placeholder="0" onchange="CFG.lav['+i+'].pr_orig=+this.value;buildCubaList();svCFG();"></div>';
-        h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
-        h+='</div>';
-      } else {
-        h+='<div style="margin-top:2px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
-      }
+      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+(c.brand?escH(c.brand)+' — ':'')+escH(c.nm)+'</div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
+      h+='<span style="font-size:.62rem;color:var(--t3);">'+escH(c.dim)+(c.tipo?' · '+c.tipo:'')+'</span>';
+      h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
       h+='</div></div>';
-      // Editor de fotos
-      h+=_buildCubaFotoEditor('lav', i);
-      // Campos de texto
-      h+='<div style="padding:0 13px;">';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.lav['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
-      h+='<div style="display:flex;gap:8px;">';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-xl" value="'+escH(c.nm)+'" onchange="CFG.lav['+i+'].nm=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-xl" placeholder="—" value="'+escH(c.brand||'')+'" onchange="CFG.lav['+i+'].brand=this.value;svCFG();"></div>';
+      h+='<div style="text-align:right;flex-shrink:0;"><div style="font-size:.84rem;font-weight:800;color:var(--gold2);">'+(isEsc?'—':'R$ '+c.pr)+'</div><div style="font-size:.58rem;color:var(--t4);">M.O. R$ '+c.inst+'</div></div>';
+      h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
       h+='</div>';
-      h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.lav['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
-      h+='</div>';
-      h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
-      h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
-      h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.lav.length){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
-      h+='<button class="cfgdel" onclick="if(confirm(\'Remover esta cuba?\')){CFG.lav.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
-      h+='</div>';
+      if(open){
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 13px;"></div>';
+        h+='<div style="padding:10px 13px 0;">';
+        if(!isEsc){
+          h+='<div style="display:flex;gap:6px;">';
+          h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Venda R$</div><input class="cfginp" type="number" value="'+c.pr+'" style="width:100%;" onchange="CFG.lav['+i+'].pr=+this.value;buildCubaList();svCFG();"></div>';
+          h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;" placeholder="0" onchange="CFG.lav['+i+'].pr_orig=+this.value;buildCubaList();svCFG();"></div>';
+          h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
+          h+='</div>';
+        } else {
+          h+='<div style="margin-top:2px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
+        }
+        h+='</div>';
+        // Editor de fotos
+        h+=_buildCubaFotoEditor('lav', i);
+        // Campos de texto
+        h+='<div style="padding:0 13px;">';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;"><span class="cfg-lbl" style="color:var(--gold3);">Título do anúncio</span><textarea class="cfginp" rows="2" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;border-color:var(--gold3);" onchange="CFG.lav['+i+'].titulo=this.value;svCFG();">'+escH(c.titulo||'')+'</textarea></div>';
+        h+='<div style="display:flex;gap:8px;">';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Nome curto</span><input class="cfginp cfginp-xl" value="'+escH(c.nm)+'" onchange="CFG.lav['+i+'].nm=this.value;svCFG();"></div>';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;flex:1;min-width:0;"><span class="cfg-lbl">Marca</span><input class="cfginp cfginp-xl" placeholder="—" value="'+escH(c.brand||'')+'" onchange="CFG.lav['+i+'].brand=this.value;svCFG();"></div>';
+        h+='</div>';
+        h+='<div class="cfg-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding-bottom:10px;"><span class="cfg-lbl">Descrição</span><textarea class="cfginp" rows="3" style="width:100%;resize:vertical;font-family:Outfit,sans-serif;font-size:.75rem;" onchange="CFG.lav['+i+'].desc=this.value;svCFG();">'+escH(c.desc||'')+'</textarea></div>';
+        h+='</div>';
+        h+='<div style="display:flex;gap:6px;padding:8px 13px;border-top:1px solid #0c0c10;">';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+i+'>0){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i-1)+',0,x);svCFG();buildCubaList();buildCfg();}">↑</button>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.lav.length){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
+        h+='<span style="flex:1;"></span>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover esta cuba?\')){CFG.lav.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
+        h+='</div>';
+      }
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{CFG.lav.push({id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'});svCFG();buildCfg();}">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{var _nl={id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'};CFG.lav.push(_nl);_cfgOpen[\'lav_\'+_nl.id]=true;svCFG();buildCfg();}">+ Nova Cuba</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:#1a1a0a;color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Cuba (Fotos + IA)</button>';
   }
   else if(cfgTab===3){
@@ -8021,32 +8028,55 @@ function buildCfg(){
   }
   else if(cfgTab===6){
     // ACESSÓRIOS
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione seus acessórios. Toque em 📷 para adicionar foto da galeria.</div>';
-    (CFG.ac||[]).forEach(function(a,i){
+    if(!CFG.ac) CFG.ac = [];
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Dispensers, calhas, escorredores e outros itens — importe do mesmo jeito das cubas, com fotos e preenchimento por IA. Toque num card pra abrir e editar.</div>';
+    h+=_cfgBarraBusca('ac', CFG.ac.length, _cfgFiltrar('ac',CFG.ac).length, '🔍 Buscar por nome, marca ou dimensão...');
+    var _acVis = _cfgFiltrar('ac', CFG.ac);
+    if(!_acVis.length){
+      h+='<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhum acessório encontrado para "'+escH(_cfgQ.ac)+'".</div>';
+    }
+    _acVis.forEach(function(a){
+      var i = CFG.ac.indexOf(a);
+      var key = 'ac_'+(a.id||i);
+      var open = !!_cfgOpen[key];
+      var nFotos = (a.fotos||[]).length || (a.photo?1:0);
       h+='<div class="cfgsec">';
-      // Foto
-      h+='<div style="width:100%;height:120px;position:relative;overflow:hidden;background:var(--s3);border-bottom:1px solid var(--bd);">';
-      if(a.photo){
-        h+='<img src="'+a.photo+'" style="width:100%;height:100%;object-fit:cover;display:block;">';
-      } else {
-        h+='<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2.5rem;color:var(--t4);">🔩</div>';
+      // Cabeçalho compacto — sempre visível, toca pra abrir/fechar
+      h+='<div onclick="_cfgToggle(\''+key+'\')" style="display:flex;gap:10px;padding:11px 13px;align-items:center;cursor:pointer;">';
+      h+='<div style="width:52px;height:52px;border-radius:9px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(a.photo?'<img src="'+a.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.3rem;opacity:.4;">🔩</span>');
+      h+='</div>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+(a.marca?escH(a.marca)+' — ':'')+escH(a.nm)+'</div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
+      if(a.dim)h+='<span style="font-size:.62rem;color:var(--t3);">'+escH(a.dim)+'</span>';
+      h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+='</div></div>';
+      h+='<div style="text-align:right;flex-shrink:0;"><div style="font-size:.84rem;font-weight:800;color:var(--gold2);">'+(a.pr>0?'R$ '+a.pr:'Consultar')+'</div></div>';
+      h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
+      h+='</div>';
+      if(open){
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 13px;"></div>';
+        // Editor de fotos (galeria multi-foto, igual às cubas)
+        h+=_buildCubaFotoEditor('ac', i);
+        // Campos
+        h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp" value="'+escH(a.nm)+'" style="width:160px;text-align:right;" onchange="CFG.ac['+i+'].nm=this.value;svCFG();buildAcList();"></div>';
+        h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp" value="'+escH(a.marca||'')+'" style="width:160px;text-align:right;" placeholder="opcional" onchange="CFG.ac['+i+'].marca=this.value;svCFG();"></div>';
+        h+='<div class="cfg-row"><span class="cfg-lbl">Dimensões</span><input class="cfginp" value="'+escH(a.dim||'')+'" style="width:160px;text-align:right;" placeholder="Ex: 60cm" onchange="CFG.ac['+i+'].dim=this.value;svCFG();"></div>';
+        h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$</span><input class="cfginp cfginp-w" type="number" value="'+(a.pr||0)+'" placeholder="0 = Consultar" onchange="CFG.ac['+i+'].pr=+this.value;svCFG();buildAcList();"></div>';
+        h+='<div style="padding:9px 13px 4px;"><label style="font-size:.62rem;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px;display:block;">Descrição</label><textarea class="cfginp" rows="2" style="width:100%;text-align:left;resize:none;" onchange="CFG.ac['+i+'].desc=this.value;svCFG();">'+escH(a.desc||'')+'</textarea></div>';
+        h+='<div style="padding:9px 13px;display:flex;gap:6px;">';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+i+'>0){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i-1)+',0,x);svCFG();buildAcList();buildCfg();}">↑ Subir</button>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.ac.length){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i+1)+',0,x);svCFG();buildAcList();buildCfg();}">↓ Descer</button>';
+        h+='<span style="flex:1;"></span>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover '+escH(a.nm)+'?\')){CFG.ac.splice('+i+',1);svCFG();buildAcList();buildCfg();}">✕</button>';
+        h+='</div>';
       }
-      h+='<button data-pp="ac" data-idx="'+i+'" style="position:absolute;bottom:7px;right:7px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.25);border-radius:8px;color:#fff;font-size:.7rem;padding:5px 10px;cursor:pointer;font-family:Outfit,sans-serif;">📷 '+(a.photo?'Trocar':'Adicionar')+'</button>';
-      h+='</div>';
-      // Campos
-      h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp" value="'+escH(a.nm)+'" style="width:160px;text-align:right;" onchange="CFG.ac['+i+'].nm=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp" value="'+escH(a.marca||'')+'" style="width:160px;text-align:right;" placeholder="opcional" onchange="CFG.ac['+i+'].marca=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Dimensões</span><input class="cfginp" value="'+escH(a.dim||'')+'" style="width:160px;text-align:right;" placeholder="Ex: 60cm" onchange="CFG.ac['+i+'].dim=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$</span><input class="cfginp cfginp-w" type="number" value="'+(a.pr||0)+'" onchange="CFG.ac['+i+'].pr=+this.value;svCFG();"></div>';
-      h+='<div style="padding:9px 13px 4px;"><label style="font-size:.62rem;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px;display:block;">Descrição</label><textarea class="cfginp" rows="2" style="width:100%;text-align:left;resize:none;" onchange="CFG.ac['+i+'].desc=this.value;svCFG();">'+escH(a.desc||'')+'</textarea></div>';
-      h+='<div style="padding:9px 13px;display:flex;gap:6px;">';
-      h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i-1)+',0,x);svCFG();buildAcList();buildCfg();}">↑ Subir</button>';
-      h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.ac.length){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i+1)+',0,x);svCFG();buildAcList();buildCfg();}">↓ Descer</button>';
-      h+='<button class="cfgdel" onclick="if(confirm(\'Remover '+escH(a.nm)+'?\')){CFG.ac.splice('+i+',1);svCFG();buildCfg();}">✕</button>';
-      h+='</div>';
       h+='</div>';
     });
-    h+='<button class="cfgadd" onclick="CFG.ac.push({id:\'ac_\'+Date.now(),nm:\'Novo Acessório\',marca:\'\',dim:\'\',pr:0,desc:\'\',photo:\'\'});svCFG();buildCfg();">+ Adicionar Acessório</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'ac\');}else{var _na={id:\'ac_\'+Date.now(),nm:\'Novo Acessório\',marca:\'\',dim:\'\',pr:0,desc:\'\',photo:\'\',fotos:[]};CFG.ac.push(_na);_cfgOpen[\'ac_\'+_na.id]=true;svCFG();buildCfg();}">+ Novo Acessório</button>';
+    h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'ac\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:linear-gradient(135deg,#1a1a0a,#241d0a);color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Acessório (Fotos + IA)</button>';
   }
   else if(cfgTab===4){
     // EMPRESA — completo e organizado
@@ -8235,35 +8265,7 @@ function buildCfg(){
     h+='<div><div style="font-weight:700;font-size:.84rem;">Cuba do Cliente</div><div style="font-size:.7rem;color:var(--t3);margin-top:2px;">Cliente compra, HR instala · Cozinha: R$ 160 · Banheiro: R$ 280</div></div>';
     h+='</div>';
   }
-  else if(cfgTab===6){
-    // ACESSÓRIOS
-    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione seus acessórios — dispensers, calhas, escorredores, etc. Toque em 📷 para adicionar foto da galeria.</div>';
-    (CFG.ac||[]).forEach(function(a,i){
-      h+='<div class="cfgsec">';
-      // Foto
-      h+='<div style="position:relative;height:110px;background:var(--s3);overflow:hidden;">';
-      if(a.photo){
-        h+='<img src="'+a.photo+'" style="width:100%;height:100%;object-fit:cover;">';
-      } else {
-        h+='<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:2.5rem;color:var(--t3);">🔩</div>';
-      }
-      h+='<button data-pp="ac" data-idx="'+i+'" style="position:absolute;bottom:7px;right:7px;background:rgba(0,0,0,.75);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#fff;font-size:.68rem;padding:5px 10px;cursor:pointer;font-family:Outfit,sans-serif;">📷 '+(a.photo?'Trocar':'Adicionar foto')+'</button>';
-      h+='</div>';
-      // Campos
-      h+='<div class="cfg-row"><span class="cfg-lbl">Nome</span><input class="cfginp" style="width:160px;text-align:right;" value="'+escH(a.nm)+'" onchange="CFG.ac['+i+'].nm=this.value;svCFG();buildAcList();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Marca</span><input class="cfginp" style="width:140px;text-align:right;" value="'+escH(a.marca||'')+'" placeholder="Opcional" onchange="CFG.ac['+i+'].marca=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Dimensões</span><input class="cfginp" style="width:140px;text-align:right;" value="'+escH(a.dim||'')+'" placeholder="Ex: 30cm, Sob medida" onchange="CFG.ac['+i+'].dim=this.value;svCFG();"></div>';
-      h+='<div class="cfg-row"><span class="cfg-lbl">Preço R$</span><input class="cfginp cfginp-w" type="number" value="'+(a.pr||0)+'" placeholder="0 = Consultar" onchange="CFG.ac['+i+'].pr=+this.value;svCFG();buildAcList();"></div>';
-      h+='<div style="padding:8px 13px;border-top:1px solid #0c0c10;"><label style="font-size:.62rem;color:var(--t3);">Descrição</label><textarea style="width:100%;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;color:var(--tx);padding:8px 10px;font-size:.78rem;font-family:Outfit,sans-serif;outline:none;resize:none;margin-top:4px;" rows="2" onchange="CFG.ac['+i+'].desc=this.value;svCFG();">'+escH(a.desc||'')+'</textarea></div>';
-      h+='<div style="padding:9px 13px;display:flex;gap:6px;">';
-      h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i-1)+',0,x);svCFG();buildAcList();buildCfg();}">↑ Subir</button>';
-      h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.ac.length){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i+1)+',0,x);svCFG();buildAcList();buildCfg();}">↓ Descer</button>';
-      h+='<button class="cfgdel" onclick="if(confirm(\'Remover '+escH(a.nm)+'?\')){CFG.ac.splice('+i+',1);svCFG();buildAcList();buildCfg();}">✕</button>';
-      h+='</div>';
-      h+='</div>';
-    });
-    h+='<button class="cfgadd" onclick="CFG.ac.push({id:\'ac_\'+Date.now(),nm:\'Novo Acessório\',marca:\'\',dim:\'\',pr:0,desc:\'\',photo:\'\'});svCFG();buildCfg();">+ Adicionar Acessório</button>';
-  }
+
   // Add save confirmation button at bottom
   h+='<div style="padding:16px 17px 32px;"><button onclick="svCFG();toast(\'✓ Configurações salvas!\');syncSVDefsFromList();buildCatalog();renderAmbientes();" style="width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar Configurações</button></div>';
   document.getElementById('cfgBody').innerHTML=h;
