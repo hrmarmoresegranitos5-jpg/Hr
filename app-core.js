@@ -260,10 +260,39 @@ var SYNC={
         // chave salva neste dispositivo. Preserva o valor atual antes de
         // aplicar o CFG remoto, e restaura em seguida.
         var _apiKeyLocal = (CFG && CFG.emp) ? CFG.emp.apiKey : '';
+        // Fotos das cubas/pedras NUNCA vêm do Firebase (push já as remove —
+        // ver abaixo), mas snapshots antigos gravados antes desta correção
+        // podem ainda ter .fotos (completas, vazias ou parciais). Pra evitar
+        // que um snapshot desatualizado apague fotos que este aparelho já
+        // tem localmente, preserva o CFG.coz/lav/stones ATUAL antes de
+        // trocar pra remoto — as fotos corretas são restauradas do
+        // IndexedDB local logo em seguida, que é a fonte de verdade real.
+        var _cozLocal    = (CFG && CFG.coz)    ? CFG.coz    : [];
+        var _lavLocal    = (CFG && CFG.lav)    ? CFG.lav    : [];
+        var _stonesLocal = (CFG && CFG.stones) ? CFG.stones : [];
         if(d.cfg){
           CFG=d.cfg;
           if(!CFG.emp) CFG.emp={};
           CFG.emp.apiKey = _apiKeyLocal || '';
+          // Descarta qualquer .fotos vindo do remoto (pode estar incompleto)
+          // e recoloca provisoriamente o que já estava em memória, até o
+          // IndexedDB local confirmar o estado real logo abaixo.
+          function _preservarFotos(listaRemota, listaLocal) {
+            var porId = {};
+            (listaLocal || []).forEach(function(c){ if (c && c.id) porId[c.id] = c; });
+            (listaRemota || []).forEach(function(c){
+              if (!c || !c.id) return;
+              delete c.fotos;
+              var antigo = porId[c.id];
+              if (antigo && antigo.fotos && antigo.fotos.length) {
+                c.fotos = antigo.fotos;
+                if (!c.photo) c.photo = c.fotos[0];
+              }
+            });
+          }
+          _preservarFotos(CFG.coz, _cozLocal);
+          _preservarFotos(CFG.lav, _lavLocal);
+          _preservarFotos(CFG.stones, _stonesLocal);
           localStorage.setItem('hr_cfg',JSON.stringify(CFG));
         }
         if(d.q)DB.q=d.q;
@@ -272,6 +301,10 @@ var SYNC={
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
+        // Reidrata as fotos a partir do IndexedDB local (fonte de verdade
+        // real por aparelho) — cobre também itens novos que só este
+        // aparelho tinha fotografado.
+        if (typeof _restoreCubaFotos === 'function') _restoreCubaFotos();
         toast('↓ Dados sincronizados!');
       }
     });
@@ -286,6 +319,15 @@ var SYNC={
     // a chave nova nos outros dispositivos na próxima sincronização.
     var cfgSemChave = JSON.parse(JSON.stringify(CFG));
     if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
+    // Fotos das cubas/pedras NUNCA vão pro Firebase — mesma lógica do
+    // svCFG() pro localStorage: são pesadas (base64) e cada aparelho já
+    // guarda as suas próprias no IndexedDB local. Enviá-las aqui é o que
+    // permitia um snapshot capturado num momento sem fotos carregadas
+    // (ex.: logo após abrir o app, antes do IndexedDB responder) apagar as
+    // fotos de OUTRO aparelho ao chegar via pull em _listen().
+    (cfgSemChave.coz    || []).forEach(function(c){ delete c.fotos; });
+    (cfgSemChave.lav    || []).forEach(function(c){ delete c.fotos; });
+    (cfgSemChave.stones || []).forEach(function(c){ delete c.fotos; });
     this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,_ts:ts});
   },
   stop:function(){
@@ -554,7 +596,14 @@ function syncSVDefsFromList(){
 var _hrFotoDBP = null;
 function _hrFotoDBOpen() {
   if (_hrFotoDBP) return _hrFotoDBP;
-  _hrFotoDBP = new Promise(function(resolve, reject) {
+  // IMPORTANTE: nunca deixamos uma tentativa FALHA ficar em cache. Se a
+  // promise fosse guardada mesmo quando rejeitada, uma falha passageira de
+  // IndexedDB (comum em WebView, aba em segundo plano, service worker
+  // atualizando etc.) travaria TODAS as fotos — restaurar e salvar — pelo
+  // resto da sessão, mesmo que o IndexedDB volte a funcionar segundos
+  // depois. Por isso só guardamos em _hrFotoDBP quando o open tem sucesso;
+  // em caso de erro, limpamos a variável pra próxima chamada tentar de novo.
+  var p = new Promise(function(resolve, reject) {
     if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
     var req = indexedDB.open('hr_fotos_db', 1);
     req.onupgradeneeded = function() {
@@ -564,7 +613,11 @@ function _hrFotoDBOpen() {
     req.onsuccess = function() { resolve(req.result); };
     req.onerror   = function() { reject(req.error); };
   });
-  return _hrFotoDBP;
+  _hrFotoDBP = p;
+  p.catch(function() {
+    if (_hrFotoDBP === p) _hrFotoDBP = null; // libera pra tentar de novo na próxima chamada
+  });
+  return p;
 }
 function _hrFotoDBSaveAll(fotosMap) {
   return _hrFotoDBOpen().then(function(db) {
@@ -612,6 +665,20 @@ function _hrFotoDBMigrarLegado() {
     console.warn('[_hrFotoDBMigrarLegado]', e.message || e);
     return Promise.resolve();
   }
+}
+// Tenta restaurar as fotos algumas vezes antes de desistir — cobre o caso de
+// IndexedDB estar temporariamente ocupado/bloqueado bem no boot do app (ex.:
+// service worker instalando). Só avisa o usuário se TODAS as tentativas
+// falharem, pra nunca ficar silenciosamente sem fotos sem o usuário saber.
+function _hrFotoDBGetAllComRetry(tentativas) {
+  tentativas = tentativas || 3;
+  return _hrFotoDBGetAll().catch(function(e) {
+    if (tentativas > 1) {
+      return new Promise(function(resolve) { setTimeout(resolve, 800); })
+        .then(function() { return _hrFotoDBGetAllComRetry(tentativas - 1); });
+    }
+    throw e;
+  });
 }
 
 function svCFG(){
@@ -673,7 +740,7 @@ function svCFG(){
 // re-renderiza o catálogo quando a promise resolve.
 function _restoreCubaFotos() {
   return _hrFotoDBMigrarLegado().then(function() {
-    return _hrFotoDBGetAll();
+    return _hrFotoDBGetAllComRetry(3);
   }).then(function(fotosMap) {
     function _injetar(lista) {
       (lista || []).forEach(function(c) {
@@ -691,7 +758,14 @@ function _restoreCubaFotos() {
     if (typeof buildCatalog   === 'function') buildCatalog();
     if (typeof buildCfg       === 'function') buildCfg();
   }).catch(function(e) {
+    // Depois de 3 tentativas, isso não é mais passageiro — avisa o usuário
+    // em vez de deixar o catálogo silenciosamente sem fotos. Não sobrescreve
+    // nada em CFG (fotos que já estavam em memória continuam intactas);
+    // só alerta que a restauração a partir do armazenamento falhou.
     console.warn('[_restoreCubaFotos]', e.message || e);
+    if (typeof toast === 'function') {
+      toast('⚠️ Não consegui carregar as fotos salvas do catálogo. Feche e abra o app de novo — se persistir, verifique o espaço de armazenamento do celular.');
+    }
   });
 }
 
