@@ -313,11 +313,26 @@
         });
       }
 
+      // Alguns modelos (principalmente Gemini em horários de pico) retornam
+      // 503/429 quando estão sobrecarregados — isso é passageiro, então
+      // tenta de novo automaticamente antes de desistir e mostrar erro.
+      function _imFetchComRetry(tentativa, maxTentativas, delayMs) {
+        return fetch(url, { method: 'POST', headers: headers, body: body })
+          .then(function(r) {
+            if ((r.status === 503 || r.status === 429) && tentativa < maxTentativas) {
+              _imStatusIA('⏳ Modelo ocupado, tentando de novo (' + (tentativa + 1) + '/' + maxTentativas + ')…', 'info');
+              return new Promise(function(resolve) { setTimeout(resolve, delayMs); })
+                .then(function() { return _imFetchComRetry(tentativa + 1, maxTentativas, delayMs * 2); });
+            }
+            return r;
+          });
+      }
+
       _im.iaCarregando = true;
       _imStatusIA('⏳ Consultando a IA…', 'info');
       _renderModal();
 
-      fetch(url, { method: 'POST', headers: headers, body: body })
+      _imFetchComRetry(1, 3, 1500)
         .then(function(r) {
           return r.json().catch(function() {
             throw new Error('resposta inválida da API (HTTP ' + r.status + ')');
@@ -359,7 +374,13 @@
         .catch(function(e) {
           _im.iaCarregando = false;
           console.error('[Import-Manual] IA falhou:', e);
-          _imStatusIA('❌ Não consegui preencher automaticamente: ' + (e && e.message ? e.message : e), 'err');
+          var msg = (e && e.message) ? e.message : String(e);
+          var sobrecarregado = /high demand|overloaded|UNAVAILABLE|503/i.test(msg);
+          if (sobrecarregado) {
+            _imStatusIA('⏳ O modelo de IA está sobrecarregado no momento (já tentei 3x). Aguarde um minuto e tente de novo.', 'err');
+          } else {
+            _imStatusIA('❌ Não consegui preencher automaticamente: ' + msg, 'err');
+          }
           _renderModal();
         });
     } catch (eSync) {
