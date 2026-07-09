@@ -59,7 +59,9 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
 
   // ── Condições de pagamento dinâmicas (de pgConds) ──
   var pgCondsHtml=pgConds.map(function(c){
-    var icon=c.icon==='$'?'💰':c.icon==='i'?'💡':c.icon==='>'?'📅':c.icon==='*'?'📝':'•';
+    // Suporta tanto códigos antigos de uma letra ($/i/>/*) quanto emojis já prontos (💰/🔨/🚚/📝)
+    var _iconMap={'$':'💰','i':'💡','>':'📅','*':'📝'};
+    var icon=_iconMap[c.icon]||c.icon||'•';
     return '<div class="cond-item"><div class="cond-num">'+icon+'</div><div class="cond-text">'+c.txt+'</div></div>';
   }).join('');
 
