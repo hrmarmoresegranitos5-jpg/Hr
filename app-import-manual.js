@@ -225,15 +225,16 @@
 
       var key = (typeof CFG !== 'undefined' && CFG.emp && CFG.emp.apiKey) ? CFG.emp.apiKey : null;
       if (!key) {
-        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...) ou Anthropic (sk-ant-...).', 'err');
+        _imStatusIA('🔑 Chave de API não configurada. Vá em ⚙️ Config → Empresa e adicione sua chave Groq (gsk_...), Gemini (AIza...) ou Anthropic (sk-ant-...).', 'err');
         return;
       }
 
-      // Suporta tanto Groq (gratuita, usada no resto do app) quanto
-      // Anthropic — detecta pelo prefixo da chave já salva em
-      // CFG.emp.apiKey e monta a requisição no formato certo pra cada uma.
+      // Suporta Groq (gratuita), Gemini e Anthropic — detecta pelo
+      // prefixo da chave já salva em CFG.emp.apiKey e monta a requisição
+      // no formato certo pra cada uma (mesma lógica usada no resto do app).
       var ehAnthropic = key.indexOf('sk-ant-') === 0;
-      var LIMITE_IMGS = ehAnthropic ? 6 : 5; // Groq: máx. 5 imagens por requisição
+      var ehGemini = !ehAnthropic && (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
+      var LIMITE_IMGS = (ehAnthropic || ehGemini) ? 6 : 5; // Groq: máx. 5 imagens por requisição
 
       // Limita o total de imagens enviadas pra não estourar payload/custo.
       // Prioriza os prints de referência (geralmente têm título/descrição/
@@ -277,6 +278,23 @@
           system: _imPromptSistema(),
           messages: [{ role: 'user', content: contentAnthropic }]
         });
+      } else if (ehGemini) {
+        // Gemini Flash Lite — texto e visão, mais barato.
+        var contentGemini = escolhidas.map(function(dataUrl) {
+          var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+          return {
+            inline_data: { mime_type: m ? m[1] : 'image/jpeg', data: m ? m[2] : (dataUrl || '') }
+          };
+        });
+        contentGemini.push({ text: 'Analise as imagens acima e responda com o JSON do produto, conforme as instruções.' });
+
+        url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key;
+        headers = { 'Content-Type': 'application/json' };
+        body = JSON.stringify({
+          system_instruction: { parts: [{ text: _imPromptSistema() }] },
+          contents: [{ role: 'user', parts: contentGemini }],
+          generationConfig: { maxOutputTokens: 1000 }
+        });
       } else {
         // Groq — gratuita, modelo com visão (formato compatível OpenAI).
         var contentGroq = escolhidas.map(function(dataUrl) {
@@ -314,7 +332,9 @@
           if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
           var texto = ehAnthropic
             ? ((data.content && data.content[0] && data.content[0].text) || '')
-            : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '');
+            : (ehGemini
+              ? ((data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '')
+              : ((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || ''));
           var limpo = texto.replace(/```json|```/g, '').trim();
           var json;
           try { json = JSON.parse(limpo); }
