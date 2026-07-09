@@ -825,6 +825,7 @@ function secFetchAI() {
 
   // ── Autodetectar tipo de chave e rotear para a API correta ──
   var isAnthropic = key.indexOf('sk-ant-') === 0;
+  var isGemini = !isAnthropic && (key.indexOf('AIza') === 0 || key.indexOf('AQ.') === 0);
   var apiUrl, apiHeaders, apiBody;
 
   if (isAnthropic) {
@@ -842,6 +843,11 @@ function secFetchAI() {
       system: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.',
       messages: [{ role: 'user', content: '' }] // preenchido abaixo
     });
+  } else if (isGemini) {
+    // Gemini Flash Lite
+    apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + key;
+    apiHeaders = { 'Content-Type': 'application/json' };
+    apiBody = null; // preenchido abaixo
   } else {
     // Groq llama (chave gsk_... ou qualquer outra)
     apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
@@ -865,6 +871,12 @@ function secFetchAI() {
     var parsed = JSON.parse(apiBody);
     parsed.messages = [{ role: 'user', content: briefing }];
     body = JSON.stringify(parsed);
+  } else if (isGemini) {
+    body = JSON.stringify({
+      system_instruction: { parts: [{ text: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.' }] },
+      contents: [{ role: 'user', parts: [{ text: briefing }] }],
+      generationConfig: { maxOutputTokens: 800 }
+    });
   } else {
     body = JSON.stringify({
       model: 'llama-3.3-70b-versatile',
@@ -896,10 +908,12 @@ function secFetchAI() {
   })
   .then(function(d) {
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    // Suporte a formato Anthropic e OpenAI/Groq
+    // Suporte a formato Anthropic, Gemini e OpenAI/Groq
     var text = '';
     if (isAnthropic) {
       text = (d.content && d.content[0] && d.content[0].text) || '';
+    } else if (isGemini) {
+      text = (d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts && d.candidates[0].content.parts[0] && d.candidates[0].content.parts[0].text) || '';
     } else {
       text = (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
     }
