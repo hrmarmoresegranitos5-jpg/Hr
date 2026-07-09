@@ -448,6 +448,8 @@ function initCFG(){
   if (!CFG.coz)    CFG.coz    = JSON.parse(JSON.stringify(DEF_COZ));
   if (!CFG.lav)    CFG.lav    = JSON.parse(JSON.stringify(DEF_LAV));
   if (!CFG.ac)     CFG.ac     = JSON.parse(JSON.stringify(DEF_ACESS));
+  if (!CFG.trabalhos) CFG.trabalhos = [];
+  if (!CFG.referencias) CFG.referencias = [];
   if (!CFG.emp)    CFG.emp    = JSON.parse(JSON.stringify(DEF_EMP));
   if (!CFG.fixos)  CFG.fixos  = JSON.parse(JSON.stringify(DEF_FIXOS));
   if (!CFG.capacidade) CFG.capacidade = {
@@ -624,6 +626,8 @@ function svCFG(){
     (cfgLeve.coz || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.lav || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.stones || []).forEach(function(c) { delete c.fotos; });
+    (cfgLeve.trabalhos || []).forEach(function(c) { delete c.fotos; });
+    (cfgLeve.referencias || []).forEach(function(c) { delete c.fotos; });
   } catch(e0) {
     console.error('[svCFG] Falha ao clonar CFG:', e0);
     cfgLeve = CFG; // último recurso — melhor tentar salvar algo do que nada
@@ -659,6 +663,8 @@ function svCFG(){
   _extrairFotos(CFG.coz);
   _extrairFotos(CFG.lav);
   _extrairFotos(CFG.stones);
+  _extrairFotos(CFG.trabalhos);
+  _extrairFotos(CFG.referencias);
   window._svCFGFotosPromise = _hrFotoDBSaveAll(fotosMap).catch(function(e3) {
     console.warn('[svCFG] Falha ao salvar fotos no IndexedDB:', e3.message || e3);
     if (typeof toast === 'function') toast('⚠️ Fotos do catálogo não foram salvas — tente novamente.');
@@ -686,6 +692,8 @@ function _restoreCubaFotos() {
     _injetar(CFG.coz);
     _injetar(CFG.lav);
     _injetar(CFG.stones);
+    _injetar(CFG.trabalhos);
+    _injetar(CFG.referencias);
     // Re-renderiza telas que já podem ter sido montadas sem as fotos
     if (typeof buildCubaList === 'function') buildCubaList();
     if (typeof buildCatalog   === 'function') buildCatalog();
@@ -1083,7 +1091,7 @@ function onFile(e){
   var files=Array.prototype.slice.call(e.target.files||[]);
   if(!files.length||!fileTarget)return;
   var t=fileTarget.t,idx=fileTarget.i;
-  var isExtra=(t==='coz_extra'||t==='lav_extra'||t==='ac_extra'||t==='stone_extra');
+  var isExtra=(t==='coz_extra'||t==='lav_extra'||t==='ac_extra'||t==='stone_extra'||t==='trab_extra'||t==='ref_extra');
   // Para tipos extra, aceita múltiplas fotos; para outros, usa só a primeira
   var toProcess=isExtra?files:[files[0]];
   var pending=toProcess.length;
@@ -1131,6 +1139,18 @@ function onFile(e){
         if(!CFG.stones[idx].fotos)CFG.stones[idx].fotos=[];
         CFG.stones[idx].fotos.push(d);
         if(!CFG.stones[idx].photo)CFG.stones[idx].photo=d;
+      }
+      else if(t==='trab'){CFG.trabalhos[idx].photo=d;}
+      else if(t==='trab_extra'){
+        if(!CFG.trabalhos[idx].fotos)CFG.trabalhos[idx].fotos=[];
+        CFG.trabalhos[idx].fotos.push(d);
+        if(!CFG.trabalhos[idx].photo)CFG.trabalhos[idx].photo=d;
+      }
+      else if(t==='ref'){CFG.referencias[idx].photo=d;}
+      else if(t==='ref_extra'){
+        if(!CFG.referencias[idx].fotos)CFG.referencias[idx].fotos=[];
+        CFG.referencias[idx].fotos.push(d);
+        if(!CFG.referencias[idx].photo)CFG.referencias[idx].photo=d;
       }
       pending--;
       if(pending===0){
@@ -7570,7 +7590,7 @@ function buildPT(){
 // ═══ EDITOR DE FOTOS DE CUBA ═══
 // Retorna HTML do painel de galeria para uma cuba (tipo: 'coz'|'lav'|'ac', idx: número)
 function _buildCubaFotoEditor(tipo, idx){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : (tipo==='trab' ? CFG.trabalhos : (tipo==='ref' ? CFG.referencias : CFG.ac))));
   var c = arr[idx];
   if(!c) return '';
   // Normaliza: garante que fotos[] existe e contém photo se houver
@@ -7579,7 +7599,7 @@ function _buildCubaFotoEditor(tipo, idx){
 
   var h = '';
   h += '<div style="padding:10px 13px 4px;">';
-  h += '<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:8px;">📷 '+(tipo==='stone'?'Fotos da Pedra':'Fotos da Cuba')+'</div>';
+  h += '<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:8px;">📷 '+(tipo==='stone'?'Fotos da Pedra':(tipo==='trab'?'Fotos do Trabalho':(tipo==='ref'?'Fotos da Referência':'Fotos da Cuba')))+'</div>';
 
   if(c.fotos.length > 0){
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;" id="fotogrid_'+tipo+'_'+idx+'">';
@@ -7612,7 +7632,7 @@ function _buildCubaFotoEditor(tipo, idx){
 
 // Marca uma foto como destaque (move para índice 0 e atualiza photo)
 function _cubaSetDestaque(tipo, idx, fi){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : (tipo==='trab' ? CFG.trabalhos : (tipo==='ref' ? CFG.referencias : CFG.ac))));
   var c = arr[idx];
   if(!c||!c.fotos||!c.fotos[fi]) return;
   var url = c.fotos.splice(fi, 1)[0];
@@ -7626,7 +7646,7 @@ window._cubaSetDestaque = _cubaSetDestaque;
 
 // Remove uma foto do array
 function _cubaRmFoto(tipo, idx, fi){
-  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : CFG.ac));
+  var arr = tipo==='coz' ? CFG.coz : (tipo==='lav' ? CFG.lav : (tipo==='stone' ? CFG.stones : (tipo==='trab' ? CFG.trabalhos : (tipo==='ref' ? CFG.referencias : CFG.ac))));
   var c = arr[idx];
   if(!c||!c.fotos) return;
   c.fotos.splice(fi, 1);
@@ -8077,6 +8097,92 @@ function buildCfg(){
     });
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'ac\');}else{var _na={id:\'ac_\'+Date.now(),nm:\'Novo Acessório\',marca:\'\',dim:\'\',pr:0,desc:\'\',photo:\'\',fotos:[]};CFG.ac.push(_na);_cfgOpen[\'ac_\'+_na.id]=true;svCFG();buildCfg();}">+ Novo Acessório</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'ac\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:linear-gradient(135deg,#1a1a0a,#241d0a);color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Acessório (Fotos + IA)</button>';
+  }
+  else if(cfgTab===9){
+    // TRABALHOS REALIZADOS (portfólio "Inspire-se" do catálogo público)
+    if(!CFG.trabalhos) CFG.trabalhos = [];
+    var AMBIENTES_TRAB=['Cozinha','Banheiro','Área de serviço','Fachada','Túmulo','Capela','Escada','Outro'];
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Fotos de obras já entregues, organizadas por ambiente. Aparecem na aba "Inspire-se" do catálogo público, pra o cliente se inspirar antes de pedir orçamento.</div>';
+    if(!CFG.trabalhos.length){
+      h+='<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhum trabalho cadastrado ainda.</div>';
+    }
+    CFG.trabalhos.forEach(function(t,i){
+      var key='trab_'+(t.id||i);
+      var open=!!_cfgOpen[key];
+      var nFotos=(t.fotos||[]).length||(t.photo?1:0);
+      h+='<div class="cfgsec">';
+      h+='<div onclick="_cfgToggle(\''+key+'\')" style="display:flex;gap:10px;padding:11px 13px;align-items:center;cursor:pointer;">';
+      h+='<div style="width:52px;height:52px;border-radius:9px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(t.photo?'<img src="'+t.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.3rem;opacity:.4;">📸</span>');
+      h+='</div>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(t.ambiente||'Sem ambiente')+'</div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
+      h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+='</div></div>';
+      h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
+      h+='</div>';
+      if(open){
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 13px;"></div>';
+        h+=_buildCubaFotoEditor('trab', i);
+        h+='<div class="cfg-row"><span class="cfg-lbl">Ambiente</span><select class="cfginp" style="width:160px;" onchange="CFG.trabalhos['+i+'].ambiente=this.value;svCFG();buildCfg();">';
+        AMBIENTES_TRAB.forEach(function(am){h+='<option '+(t.ambiente===am?'selected':'')+'>'+am+'</option>';});
+        h+='</select></div>';
+        h+='<div style="padding:9px 13px 4px;"><label style="font-size:.62rem;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px;display:block;">Descrição (opcional)</label><textarea class="cfginp" rows="2" style="width:100%;text-align:left;resize:none;" placeholder="Ex: Bancada em quartzito com cuba esculpida" onchange="CFG.trabalhos['+i+'].desc=this.value;svCFG();">'+escH(t.desc||'')+'</textarea></div>';
+        h+='<div style="padding:9px 13px;display:flex;gap:6px;">';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+i+'>0){var x=CFG.trabalhos.splice('+i+',1)[0];CFG.trabalhos.splice('+(i-1)+',0,x);svCFG();buildCfg();}">↑ Subir</button>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.trabalhos.length){var x=CFG.trabalhos.splice('+i+',1)[0];CFG.trabalhos.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
+        h+='<span style="flex:1;"></span>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover este trabalho?\')){CFG.trabalhos.splice('+i+',1);svCFG();buildCfg();}">✕</button>';
+        h+='</div>';
+      }
+      h+='</div>';
+    });
+    h+='<button class="cfgadd" onclick="var _nt={id:\'trab_\'+Date.now(),ambiente:\'Cozinha\',desc:\'\',photo:\'\',fotos:[]};CFG.trabalhos.push(_nt);_cfgOpen[\'trab_\'+_nt.id]=true;svCFG();buildCfg();">+ Novo Trabalho</button>';
+  }
+  else if(cfgTab===10){
+    // REFERÊNCIAS DE MERCADO (galeria "Ideias e possibilidades" do catálogo público — NÃO são trabalhos da HR)
+    if(!CFG.referencias) CFG.referencias = [];
+    var AMBIENTES_REF=['Cozinha','Banheiro','Área de serviço','Fachada','Túmulo','Capela','Escada','Sala','Área externa','Outro'];
+    h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Fotos de inspiração de mercado (não são obras da HR) organizadas por ambiente. Aparecem na aba "Referências" do catálogo público, com aviso de que são apenas ideias.</div>';
+    if(!CFG.referencias.length){
+      h+='<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhuma referência cadastrada ainda.</div>';
+    }
+    CFG.referencias.forEach(function(t,i){
+      var key='ref_'+(t.id||i);
+      var open=!!_cfgOpen[key];
+      var nFotos=(t.fotos||[]).length||(t.photo?1:0);
+      h+='<div class="cfgsec">';
+      h+='<div onclick="_cfgToggle(\''+key+'\')" style="display:flex;gap:10px;padding:11px 13px;align-items:center;cursor:pointer;">';
+      h+='<div style="width:52px;height:52px;border-radius:9px;overflow:hidden;flex-shrink:0;border:2px solid var(--gold3);background:var(--s3);display:grid;place-items:center;">';
+      h+=(t.photo?'<img src="'+t.photo+'" style="width:100%;height:100%;object-fit:cover;">':'<span style="font-size:1.3rem;opacity:.4;">🖼️</span>');
+      h+='</div>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="font-size:.8rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(t.ambiente||'Sem ambiente')+'</div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
+      h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+='</div></div>';
+      h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
+      h+='</div>';
+      if(open){
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 13px;"></div>';
+        h+=_buildCubaFotoEditor('ref', i);
+        h+='<div class="cfg-row"><span class="cfg-lbl">Ambiente</span><select class="cfginp" style="width:160px;" onchange="CFG.referencias['+i+'].ambiente=this.value;svCFG();buildCfg();">';
+        AMBIENTES_REF.forEach(function(am){h+='<option '+(t.ambiente===am?'selected':'')+'>'+am+'</option>';});
+        h+='</select></div>';
+        h+='<div style="padding:9px 13px 4px;"><label style="font-size:.62rem;color:var(--t3);letter-spacing:.8px;text-transform:uppercase;margin-bottom:4px;display:block;">Descrição (opcional)</label><textarea class="cfginp" rows="2" style="width:100%;text-align:left;resize:none;" placeholder="Ex: Ideia de bancada em ilha para cozinha ampla" onchange="CFG.referencias['+i+'].desc=this.value;svCFG();">'+escH(t.desc||'')+'</textarea></div>';
+        h+='<div style="padding:9px 13px;display:flex;gap:6px;">';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+i+'>0){var x=CFG.referencias.splice('+i+',1)[0];CFG.referencias.splice('+(i-1)+',0,x);svCFG();buildCfg();}">↑ Subir</button>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.referencias.length){var x=CFG.referencias.splice('+i+',1)[0];CFG.referencias.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
+        h+='<span style="flex:1;"></span>';
+        h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover esta referência?\')){CFG.referencias.splice('+i+',1);svCFG();buildCfg();}">✕</button>';
+        h+='</div>';
+      }
+      h+='</div>';
+    });
+    h+='<button class="cfgadd" onclick="var _nr={id:\'ref_\'+Date.now(),ambiente:\'Cozinha\',desc:\'\',photo:\'\',fotos:[]};CFG.referencias.push(_nr);_cfgOpen[\'ref_\'+_nr.id]=true;svCFG();buildCfg();">+ Nova Referência</button>';
   }
   else if(cfgTab===4){
     // EMPRESA — completo e organizado
@@ -9959,6 +10065,8 @@ function _publicarCatalogoImpl(){
     cubas_lav:_normFotosPublic(CFG.lav),
     acessorios:_normFotosPublic(CFG.ac),
     pedras:_normStonesPublic(CFG.stones),
+    trabalhos:_normTrabalhosPublic(CFG.trabalhos),
+    referencias:_normReferenciasPublic(CFG.referencias),
     updatedAt:new Date().toISOString()
   };
   var jsonStr=JSON.stringify(dados);
@@ -10009,6 +10117,24 @@ function _normStonesPublic(lista){
     return {id:s.id,nm:s.nm,cat:s.cat,fin:s.fin,pr:s.pr,desc:s.desc||'',photo:f[0]||s.photo,fotos:f};
   });
 }
+// Trabalhos realizados (portfólio "Inspire-se") para o catálogo público.
+// Só publica os que já têm foto real cadastrada.
+function _normTrabalhosPublic(lista){
+  return (lista||[]).filter(function(t){return t&&t.photo;}).map(function(t){
+    var f=t.fotos?t.fotos.slice():[];
+    if(t.photo&&f.indexOf(t.photo)<0)f.unshift(t.photo);
+    return {id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',photo:f[0]||t.photo,fotos:f};
+  });
+}
+// Referências de mercado (galeria "Ideias e possibilidades") para o catálogo público.
+// Não são trabalhos da HR — só publica as que já têm foto real cadastrada.
+function _normReferenciasPublic(lista){
+  return (lista||[]).filter(function(t){return t&&t.photo;}).map(function(t){
+    var f=t.fotos?t.fotos.slice():[];
+    if(t.photo&&f.indexOf(t.photo)<0)f.unshift(t.photo);
+    return {id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',photo:f[0]||t.photo,fotos:f};
+  });
+}
 function baixarCatalogoJson(){
   _restoreCubaFotos().then(function(){ _baixarCatalogoJsonImpl(); }); // espera fotos do IndexedDB antes de baixar
 }
@@ -10031,6 +10157,8 @@ function _baixarCatalogoJsonImpl(){
     cubas_lav:_normFotosPublic(CFG.lav),
     acessorios:_normFotosPublic(CFG.ac),
     pedras:_normStonesPublic(CFG.stones),
+    trabalhos:_normTrabalhosPublic(CFG.trabalhos),
+    referencias:_normReferenciasPublic(CFG.referencias),
     updatedAt:new Date().toISOString()
   };
   _baixarViaLink(JSON.stringify(dados,null,2),'catalogo.json');
