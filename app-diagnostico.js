@@ -120,7 +120,7 @@
     _diagAtualizarBadge();
 
     // Se o painel estiver aberto na aba 9 (diagnóstico), atualiza
-    if (typeof cfgTab !== 'undefined' && cfgTab === 9) {
+    if (typeof cfgTab !== 'undefined' && cfgTab === 11) {
       var body = document.getElementById('cfgBody');
       if (body) body.innerHTML = _buildDiagHTML();
     }
@@ -130,7 +130,7 @@
 
   // ── Atualiza badge de contagem na aba ────────────────────────────
   function _diagAtualizarBadge() {
-    var tab = document.querySelector('[data-cftab="9"]');
+    var tab = document.querySelector('[data-cftab="11"]');
     if (!tab) return;
     var erros = DIAG.logs.filter(function(l) { return l.tipo === 'error'; }).length;
     var txt = '🔍 Diagnóstico';
@@ -314,7 +314,7 @@
   window._diagLimpar = function() {
     DIAG.logs = [];
     _diagAtualizarBadge();
-    if (typeof cfgTab !== 'undefined' && cfgTab === 9) {
+    if (typeof cfgTab !== 'undefined' && cfgTab === 11) {
       var body = document.getElementById('cfgBody');
       if (body) body.innerHTML = _buildDiagHTML();
     }
@@ -486,10 +486,10 @@
 
     // 1. Injeta aba "🔍 Diagnóstico" (tab 9) na barra de config
     var cfgTabs = document.getElementById('cfgTabs');
-    if (cfgTabs && !cfgTabs.querySelector('[data-cftab="9"]')) {
+    if (cfgTabs && !cfgTabs.querySelector('[data-cftab="11"]')) {
       var newTab = document.createElement('div');
       newTab.className = 'cfgtab';
-      newTab.setAttribute('data-cftab', '9');
+      newTab.setAttribute('data-cftab', '11');
       newTab.textContent = '🔍 Diagnóstico';
       cfgTabs.appendChild(newTab);
     }
@@ -498,7 +498,7 @@
     if (typeof buildCfg === 'function') {
       var _origBuildCfg = buildCfg;
       buildCfg = function() {
-        if (typeof cfgTab !== 'undefined' && cfgTab === 9) {
+        if (typeof cfgTab !== 'undefined' && cfgTab === 11) {
           var body = document.getElementById('cfgBody');
           if (body) body.innerHTML = _buildDiagHTML();
         } else {

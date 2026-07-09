@@ -8190,6 +8190,30 @@ function buildCfg(){
   else if(cfgTab===4){
     // EMPRESA — completo e organizado
     var e=CFG.emp;
+    // ── Indicador de uso do localStorage (quota costuma ser ~5-10MB) ──
+    (function(){
+      var _bytes=0;
+      try{
+        for(var _k in localStorage){
+          if(!localStorage.hasOwnProperty(_k))continue;
+          _bytes+=(_k.length+(localStorage.getItem(_k)||'').length)*2;
+        }
+      }catch(_e){}
+      var _limiteMB=5; // limite conservador — navegadores variam entre 5 e 10MB
+      var _usadoMB=_bytes/1024/1024;
+      var _pct=Math.min(100,Math.round((_usadoMB/_limiteMB)*100));
+      var _cor=_pct>85?'#e05151':_pct>60?'#e8b84c':'#4db87a';
+      h+='<div class="cfgsec"><div class="cfghd">💾 Armazenamento Local</div>';
+      h+='<div style="padding:12px 13px;">';
+      h+='<div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--t3);margin-bottom:6px;"><span>'+_usadoMB.toFixed(2)+' MB usados</span><span>~'+_limiteMB+' MB disponíveis*</span></div>';
+      h+='<div style="height:8px;background:var(--s3);border-radius:5px;overflow:hidden;"><div style="height:100%;width:'+_pct+'%;background:'+_cor+';border-radius:5px;"></div></div>';
+      if(_pct>75){
+        h+='<div style="font-size:.66rem;color:'+_cor+';margin-top:8px;line-height:1.5;">⚠️ Espaço ficando cheio. Fotos grandes já vão pro IndexedDB automaticamente — se continuar subindo, considere apagar cubas/trabalhos antigos que não usa mais.</div>';
+      } else {
+        h+='<div style="font-size:.6rem;color:var(--t4);margin-top:8px;">*Estimativa — o limite real varia por navegador/aparelho.</div>';
+      }
+      h+='</div></div>';
+    })();
     h+='<div class="cfgsec">';
     h+='<div class="cfghd">🏢 Identidade da Empresa</div>';
     h+='<div style="padding:12px 13px 6px;">';
@@ -8311,6 +8335,12 @@ function buildCfg(){
     // Catálogo Público
     h+='<div class="cfgsec"><div class="cfghd">🌐 Catálogo Público (Cubas/Acessórios)</div>';
     h+='<div style="padding:12px 13px;">';
+    if(e.ultimaPublicacao){
+      var _dtPub=new Date(e.ultimaPublicacao);
+      h+='<div style="font-size:.68rem;color:var(--t3);background:var(--s3);border-radius:8px;padding:8px 11px;margin-bottom:10px;">📡 Última publicação: <b style="color:var(--gold2);">'+_dtPub.toLocaleDateString('pt-BR')+' às '+_dtPub.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</b></div>';
+    } else {
+      h+='<div style="font-size:.68rem;color:var(--t4);background:var(--s3);border-radius:8px;padding:8px 11px;margin-bottom:10px;">⚠️ Catálogo ainda não foi publicado nesse navegador.</div>';
+    }
     h+='<div style="font-size:.72rem;color:var(--t2);line-height:1.7;margin-bottom:12px;">Publique um catálogo online (catalogo.html) com suas cubas e acessórios. O cliente vê preços e fotos atualizados e pede pelo WhatsApp.</div>';
     h+='<div class="cfg-row" style="padding:7px 0;border-bottom:1px solid var(--bd);"><span class="cfg-lbl">Repositório GitHub</span><input id="cfgGhRepo" class="cfginp" type="text" value="'+(e.ghRepo||'')+'" placeholder="usuario/Hr" style="flex:1;text-align:right;" onchange="CFG.emp.ghRepo=this.value;svCFG();"></div>';
     h+='<div class="cfg-row" style="padding:7px 0;border-bottom:1px solid var(--bd);"><span class="cfg-lbl">GitHub Token</span><input id="cfgGhToken" class="cfginp" type="password" value="'+(e.ghToken||'')+'" placeholder="ghp_..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.ghToken=this.value;svCFG();toast(\'✓ Token salvo\');"></div>';
@@ -8376,7 +8406,7 @@ function buildCfg(){
   }
 
   // Add save confirmation button at bottom
-  h+='<div style="padding:16px 17px 32px;"><button onclick="svCFG();toast(\'✓ Configurações salvas!\');syncSVDefsFromList();buildCatalog();renderAmbientes();" style="width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar Configurações</button></div>';
+  h+='<div style="padding:16px 17px 32px;"><button onclick="svCFG();syncSVDefsFromList();buildCatalog();renderAmbientes();var _ghTk=(CFG.emp&&CFG.emp.ghToken||\'\').trim(),_ghRp=(CFG.emp&&CFG.emp.ghRepo||\'\').trim();if(_ghTk&&_ghRp){toast(\'✓ Salvo — publicando no site...\');publicarCatalogo();}else{toast(\'✓ Salvo localmente. Configure o GitHub em 🏢 Empresa pra publicar no site.\');}" style="width:100%;padding:14px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar Configurações</button></div>';
   document.getElementById('cfgBody').innerHTML=h;
 }
 function importarDados(){
@@ -9516,13 +9546,31 @@ function confirmarContrato(){
   var dataEntrega=document.getElementById('contrDataEntrega').value||'';
   var vista=q.vista||0;
   var pgConds=[];
-  var entPct=50,entgPct=50;
+  var entPct=50,entgPct=50,entVal,entgVal;
   var pgMap={'50_50':[50,50],'vista':[100,0],'30_70':[30,70],'40_60':[40,60],'60_40':[60,40],'3x':[33,67]};
-  if(pgMap[pgTipo]){entPct=pgMap[pgTipo][0];entgPct=pgMap[pgTipo][1];}
-  else if(pgTipo==='personalizado'){entPct=+document.getElementById('contrEntPct').value||50;entgPct=+document.getElementById('contrEntgPct').value||50;}
-  var entVal=vista*(entPct/100);
-  var entgVal=vista*(entgPct/100);
-  if(entPct>0)pgConds.push({icon:'💰',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
+  if(pgMap[pgTipo]){
+    entPct=pgMap[pgTipo][0];entgPct=pgMap[pgTipo][1];
+    entVal=vista*(entPct/100);
+    entgVal=vista*(entgPct/100);
+  } else if(pgTipo==='personalizado'){
+    if(window._contrModo==='pct'){
+      // Modo %: usuário digitou a porcentagem, calcula o R$ a partir dela
+      entPct=+document.getElementById('contrEntPct').value||50;
+      entgPct=+document.getElementById('contrEntgPct').value||50;
+      entVal=vista*(entPct/100);
+      entgVal=vista*(entgPct/100);
+    } else {
+      // Modo R$ (padrão): usa o valor exato digitado, sem passar pelo arredondamento da %
+      entVal=+document.getElementById('contrEntVal').value||0;
+      entgVal=+document.getElementById('contrEntgVal').value||0;
+      entPct=vista>0?Math.round((entVal/vista)*100):0;
+      entgPct=vista>0?Math.round((entgVal/vista)*100):0;
+    }
+  } else {
+    entVal=vista*(entPct/100);
+    entgVal=vista*(entgPct/100);
+  }
+  if(entPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
   if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalação'});
   if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª:</strong> R$ '+fm(v3)+' na metade'},{icon:'💰',txt:'<strong>3ª:</strong> R$ '+fm(v3)+' na entrega'});}
   // parcelamento mostrado na price-box, não duplicar em pgConds
@@ -10093,7 +10141,9 @@ function _publicarCatalogoImpl(){
     })
     .then(function(putResp){
       if(putResp.ok){
+        CFG.emp=CFG.emp||{};CFG.emp.ultimaPublicacao=new Date().toISOString();svCFG();
         toast('✓ Catálogo publicado com sucesso!');
+        if(typeof buildCfg==='function')buildCfg();
       } else {
         return putResp.json().then(function(e){
           toast('✗ Erro: '+(e&&e.message?e.message:putResp.status));
