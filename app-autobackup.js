@@ -193,6 +193,9 @@ var AUTOBACKUP = {
         (cfgLeve.coz || []).forEach(function(c){ delete c.fotos; });
         (cfgLeve.lav || []).forEach(function(c){ delete c.fotos; });
         (cfgLeve.stones || []).forEach(function(c){ delete c.fotos; });
+        (cfgLeve.ac || []).forEach(function(c){ delete c.fotos; });
+        (cfgLeve.trabalhos || []).forEach(function(c){ delete c.fotos; });
+        (cfgLeve.referencias || []).forEach(function(c){ delete c.fotos; });
       }
     } catch(e) { cfgLeve = (typeof CFG !== 'undefined') ? CFG : null; }
 

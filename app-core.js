@@ -626,6 +626,7 @@ function svCFG(){
     (cfgLeve.coz || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.lav || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.stones || []).forEach(function(c) { delete c.fotos; });
+    (cfgLeve.ac || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.trabalhos || []).forEach(function(c) { delete c.fotos; });
     (cfgLeve.referencias || []).forEach(function(c) { delete c.fotos; });
   } catch(e0) {
@@ -663,6 +664,7 @@ function svCFG(){
   _extrairFotos(CFG.coz);
   _extrairFotos(CFG.lav);
   _extrairFotos(CFG.stones);
+  _extrairFotos(CFG.ac);
   _extrairFotos(CFG.trabalhos);
   _extrairFotos(CFG.referencias);
   window._svCFGFotosPromise = _hrFotoDBSaveAll(fotosMap).catch(function(e3) {
@@ -692,6 +694,7 @@ function _restoreCubaFotos() {
     _injetar(CFG.coz);
     _injetar(CFG.lav);
     _injetar(CFG.stones);
+    _injetar(CFG.ac);
     _injetar(CFG.trabalhos);
     _injetar(CFG.referencias);
     // Re-renderiza telas que já podem ter sido montadas sem as fotos
