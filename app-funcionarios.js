@@ -1227,12 +1227,24 @@ var HR_FUNC = (function () {
   }
 
   function _excluirFuncionario(id){
-    var funcs=getFuncionarios(); var nome=(funcs[id]||{}).nome||'funcionário';
-    if(!confirm('Excluir '+nome+'? Registros e pagamentos também serão apagados.'))return;
+    var funcs=getFuncionarios(); var func=funcs[id]; var nome=(func||{}).nome||'funcionário';
+    if(!func)return;
+    var regsSnap=getRegistros(); var regsRemovidos={};
+    Object.keys(regsSnap).forEach(function(k){if(regsSnap[k].funcionarioId===id)regsRemovidos[k]=regsSnap[k];});
+    var pagsSnap=getPagamentos(); var pagsRemovidos={};
+    Object.keys(pagsSnap).forEach(function(k){if(pagsSnap[k].funcionarioId===id)pagsRemovidos[k]=pagsSnap[k];});
+
     delete funcs[id]; saveFuncionarios(funcs);
-    var regs=getRegistros(); Object.keys(regs).forEach(function(k){if(regs[k].funcionarioId===id)delete regs[k];}); saveRegistros(regs);
-    var pags=getPagamentos(); Object.keys(pags).forEach(function(k){if(pags[k].funcionarioId===id)delete pags[k];}); savePagamentos(pags);
-    _closeForm(); renderPaginaFuncionarios(); _toast('Funcionário excluído.');
+    Object.keys(regsRemovidos).forEach(function(k){delete regsSnap[k];}); saveRegistros(regsSnap);
+    Object.keys(pagsRemovidos).forEach(function(k){delete pagsSnap[k];}); savePagamentos(pagsSnap);
+    _closeForm(); renderPaginaFuncionarios();
+
+    _undoAction(nome+' excluído (com registros e pagamentos)', function(){
+      var f2=getFuncionarios(); f2[id]=func; saveFuncionarios(f2);
+      var r2=getRegistros(); Object.keys(regsRemovidos).forEach(function(k){r2[k]=regsRemovidos[k];}); saveRegistros(r2);
+      var p2=getPagamentos(); Object.keys(pagsRemovidos).forEach(function(k){p2[k]=pagsRemovidos[k];}); savePagamentos(p2);
+      renderPaginaFuncionarios();
+    });
   }
 
   // ─────────────────────────────────────────────────────────────

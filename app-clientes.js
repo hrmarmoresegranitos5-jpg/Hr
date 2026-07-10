@@ -634,10 +634,15 @@ function cliSalvarForm(id){
   renderListaClientes(document.getElementById('cliBuscaInp')?document.getElementById('cliBuscaInp').value:'');
 }
 function cliExcluir(id){
-  var c=CLDB.get().find(function(x){return x.id===id;}); if(!c) return;
-  if(!confirm('Excluir "'+c.nome+'" do banco de clientes?')) return;
-  CLDB.del(id); closeAll(); toast('✓ Cliente excluído');
-  renderListaClientes('');
+  var list=CLDB.get();
+  var idx=list.findIndex(function(x){return x.id===id;});
+  if(idx<0) return;
+  var nome=list[idx].nome;
+  closeAll();
+  _undoDelete(list, idx, 'Cliente "'+nome+'" excluído', function(){
+    CLDB.sv(list);
+    renderListaClientes('');
+  });
 }
 // Expor globais
 window.abrirGestaoClientes=abrirGestaoClientes;

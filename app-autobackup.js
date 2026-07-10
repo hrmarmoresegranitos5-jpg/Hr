@@ -28,6 +28,13 @@ var AUTOBACKUP = {
   _timer: null,
   _pushDebounce: null,
 
+  // ── Checksum simples (não-criptográfico, só pra detectar corrupção/truncamento) ──
+  _checksum: function(str) {
+    var h = 5381;
+    for (var i = 0; i < str.length; i++) { h = ((h * 33) ^ str.charCodeAt(i)) >>> 0; }
+    return h.toString(16);
+  },
+
   // ── Inicializa ──
   init: function() {
     var self = this;
@@ -142,7 +149,7 @@ var AUTOBACKUP = {
         var isMaisRecente = i === 0;
         h += '<div class="ab-snap-row' + (isMaisRecente ? ' recente' : '') + '">';
         h += '<div class="ab-snap-info">';
-        h += '<div class="ab-snap-data">' + s.data + (isMaisRecente ? ' <span class="ab-snap-badge">Mais recente</span>' : '') + '</div>';
+        h += '<div class="ab-snap-data">' + s.data + (isMaisRecente ? ' <span class="ab-snap-badge">Mais recente</span>' : '') + (s.okInt === false ? ' <span style="background:#ef444422;color:#ef4444;border-radius:6px;padding:1px 6px;font-size:.62rem;font-weight:700;">⚠️ incompleto</span>' : '') + '</div>';
         h += '<div class="ab-snap-kb">' + (s.kb || '?') + ' KB' + (s.deNuvem ? ' · ☁️ nuvem' : '') + '</div>';
         h += '</div>';
         h += '<button class="ab-snap-btn" onclick="AUTOBACKUP.restaurarSnapshot(' + (lista.length - 1 - i) + ')">↩ Restaurar</button>';
@@ -219,6 +226,11 @@ var AUTOBACKUP = {
       if (typeof CFG === 'undefined' || typeof DB === 'undefined') return;
       var dados = this._coletarDados();
       var json  = JSON.stringify(dados);
+      var soma  = this._checksum(json);
+      var contagens = {
+        q: (dados.q||[]).length, j: (dados.j||[]).length,
+        t: (dados.t||[]).length, b: (dados.b||[]).length
+      };
 
       var lista = [];
       try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
@@ -227,7 +239,9 @@ var AUTOBACKUP = {
         ts:   dados._ts,
         data: new Date(dados._ts).toLocaleString('pt-BR'),
         kb:   Math.round(json.length / 1024),
-        json: json
+        json: json,
+        sum:  soma,
+        cont: contagens
       });
 
       if (lista.length > this.MAX_SNAPSHOTS) {
@@ -237,11 +251,60 @@ var AUTOBACKUP = {
       localStorage.setItem(this.KEY_SNAPSHOTS, JSON.stringify(lista));
       localStorage.setItem(this.KEY_ULTIMO_SV, String(dados._ts));
 
+      // #73 — Verificação de integridade: relê do localStorage e confere
+      // checksum + contagem de registros, pra detectar truncamento (ex: quota
+      // do localStorage estourando no meio da gravação) ou corrupção silenciosa.
+      this._verificarIntegridade(dados._ts, soma, contagens);
+
       // Envia para nuvem (debounce 5s)
       this._pushNuvem(dados);
 
     } catch(e) {
       console.warn('[AutoBackup] Erro ao salvar snapshot:', e);
+    }
+  },
+
+  // ── Confere se o snapshot recém-salvo bate com o que devia ter sido salvo ──
+  _verificarIntegridade: function(ts, somaEsperada, contEsperada) {
+    var ok = true;
+    try {
+      var lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]');
+      var idx = lista.findIndex(function(s){ return s.ts === ts; });
+      if (idx < 0) {
+        console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' não encontrado após salvar — possível estouro de cota do localStorage.');
+        return false;
+      }
+      var snap = lista[idx];
+      var dadosRelidos;
+      try { dadosRelidos = JSON.parse(snap.json); } catch(e) {
+        console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' ficou com JSON corrompido/truncado (não é possível reabrir).');
+        ok = false;
+      }
+      if (ok) {
+        var somaRelida = this._checksum(snap.json);
+        if (somaRelida !== somaEsperada) {
+          console.warn('[AutoBackup] ⚠️ Checksum do snapshot ' + ts + ' não confere (esperado ' + somaEsperada + ', encontrado ' + somaRelida + ') — dado pode ter sido truncado ao salvar.');
+          ok = false;
+        }
+      }
+      if (ok) {
+        var contRelida = {
+          q: (dadosRelidos.q||[]).length, j: (dadosRelidos.j||[]).length,
+          t: (dadosRelidos.t||[]).length, b: (dadosRelidos.b||[]).length
+        };
+        var okContagem = contRelida.q===contEsperada.q && contRelida.j===contEsperada.j &&
+                          contRelida.t===contEsperada.t && contRelida.b===contEsperada.b;
+        if (!okContagem) {
+          console.warn('[AutoBackup] ⚠️ Contagem de registros do snapshot ' + ts + ' não bate (esperado ' + JSON.stringify(contEsperada) + ', encontrado ' + JSON.stringify(contRelida) + ').');
+          ok = false;
+        }
+      }
+      lista[idx].okInt = ok;
+      localStorage.setItem(this.KEY_SNAPSHOTS, JSON.stringify(lista));
+      return ok;
+    } catch(e) {
+      console.warn('[AutoBackup] Erro ao verificar integridade do snapshot:', e);
+      return false;
     }
   },
 
