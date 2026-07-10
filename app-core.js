@@ -374,7 +374,7 @@ var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:1
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
   rdbox_sem:0,rdbox_sup:38,rdbox_cola:20,
-  rda_sem:0,rda_front:38,rda_sup:38,rda_inst:380};
+  rda_inst:380};
 // Categorias de contas a pagar
 var CAT_CONTAS = ['fornecedor','funcionario','servico','imposto','outro'];
 var CAT_CONTAS_LABEL = {fornecedor:'📦 Fornecedor',funcionario:'👷 Funcionário',servico:'📡 Serviço',imposto:'🏛️ Imposto',outro:'📝 Outro'};
@@ -1228,7 +1228,7 @@ SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
-SV_DEFS['Rodapé de Armário']=[{g:'Acabamento',its:[{k:'rda_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rda_front',l:'Polido Frontal',u:'acb_auto',lados:1},{k:'rda_sup',l:'Polido Superior (em cima)',u:'acb_auto',lados:1}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'rda_inst',l:'Instalação c/ Silicone + Ajuste (Makita/Macaco)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['Rodapé de Armário']=[{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'rda_inst',l:'Instalação c/ Silicone + Ajuste (Makita/Macaco)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
 // ─── DIVISÓRIA WC ─────────────────────────────────────────────
 SV_DEFS['🚽 Divisória WC']=[
@@ -1393,6 +1393,7 @@ var DEF_TUM_SV={
   bp_boleada:110,bp_antiderap:120,bp_pingad:90,bp_mcana:100,bp_chanfro:95,
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
   div_recorte:80,div_inst:120,
+  rda_inst:380,
   // pe_ (pé estrutural orgânico — taxa extra de m.o. de corte)
   pe_organico_mo: 60
 }
@@ -2790,10 +2791,11 @@ function updPcBorda(ambId, pcId, lado, svc) {
 function buildPecaBordaHtml(amb, pc) {
   if (!pc.bordas) pc.bordas = {};
   var isDiv = amb.tipo === '🚽 Divisória WC';
-  var TIPO_LIST = isDiv ? BORDA_TIPOS_DIV : BORDA_TIPOS;
+  var isRda = amb.tipo === 'Rodapé de Armário';
+  var TIPO_LIST = isDiv ? BORDA_TIPOS_DIV : (isRda ? BORDA_TIPOS.filter(function(t){return t.k===null||t.k==='acabamento';}) : BORDA_TIPOS);
   var SIDES = [
     { k:'fr',  l:'Frente', dim: pc.w, icon:'▼' },
-    { k:'fd',  l:'Fundo',  dim: pc.w, icon:'▲' },
+    { k:'fd',  l: isRda ? 'Superior' : 'Fundo',  dim: pc.w, icon: isRda ? '▲' : '▲' },
     { k:'esq', l:'Esq.',   dim: pc.h, icon:'◄' },
     { k:'dir', l:'Dir.',   dim: pc.h, icon:'►' },
   ];
@@ -3681,7 +3683,7 @@ function renderAmbientes(){
         h+='<div id="pv-'+pc.id+'"></div>';
       }
       // SVG technical preview + per-side borda selector
-      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Rodapé de Armário' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
+      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
         h+=buildPecaPreviewSVG(amb,pc,pi);
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
@@ -8020,17 +8022,7 @@ function buildCfg(){
       if(!CFG.sv['rdbox_cola'])CFG.sv['rdbox_cola']=20;
       svCFG();
     }
-    // Migração: adicionar preços do Rodapé de Armário se não existirem
-    if(!CFG.svList.find(function(x){return x.k==='rda_front';})){
-      CFG.svList.push({k:'rda_front',l:'Rodapé de Armário — Polido Frontal',preco:CFG.sv.rda_front||38,grp:'Rodapé de Armário',u:'ml'});
-      if(!CFG.sv['rda_front'])CFG.sv['rda_front']=38;
-      svCFG();
-    }
-    if(!CFG.svList.find(function(x){return x.k==='rda_sup';})){
-      CFG.svList.push({k:'rda_sup',l:'Rodapé de Armário — Polido Superior',preco:CFG.sv.rda_sup||38,grp:'Rodapé de Armário',u:'ml'});
-      if(!CFG.sv['rda_sup'])CFG.sv['rda_sup']=38;
-      svCFG();
-    }
+    // Migração: adicionar preço da instalação especial do Rodapé de Armário se não existir
     if(!CFG.svList.find(function(x){return x.k==='rda_inst';})){
       CFG.svList.push({k:'rda_inst',l:'Instalação Rodapé de Armário (silicone + ajuste Makita/macaco)',preco:CFG.sv.rda_inst||380,grp:'Rodapé de Armário',u:'un'});
       if(!CFG.sv['rda_inst'])CFG.sv['rda_inst']=380;
