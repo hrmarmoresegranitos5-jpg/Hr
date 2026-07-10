@@ -5859,7 +5859,7 @@ function saveJob(){
 function editJob(id){openJobModal(id);}
 function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){addTr('in','Entrega — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');},function(){hideCB();});},400);}}
 function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){addTr('in','Pagamento — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');},function(){hideCB();});}
-function delJob(id){if(!confirm('Remover serviço?'))return;DB.j=DB.j.filter(function(j){return j.id!==id;});DB.sv();renderAg();updUrgDot();}
+function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();});}
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
 
 function renderAg(){
@@ -6019,7 +6019,7 @@ function saveTrEdit(){
   t.date=document.getElementById('teData').value||t.date;
   DB.sv();renderFin();closeAll();toast('✓ Atualizado!');
 }
-function delTr(){if(!confirm('Excluir lançamento?'))return;DB.t=DB.t.filter(function(x){return x.id!==editTrId;});DB.sv();renderFin();closeAll();toast('✓ Excluído!');}
+function delTr(){var idx=DB.t.findIndex(function(x){return x.id===editTrId;});if(idx<0)return;closeAll();_undoDelete(DB.t,idx,'Lançamento excluído',function(){DB.sv();renderFin();});}
 
 function gerarComprovante(id){
   var t=DB.t.find(function(x){return x.id===(id||editTrId)});
@@ -6759,11 +6759,9 @@ function salvarEdicaoConta(id) {
 }
 
 function excluirConta(id) {
-  if(!confirm('Excluir esta conta?')) return;
-  DB.b = (DB.b||[]).filter(function(x){return String(x.id)!==String(id);});
-  DB.sv();
-  renderFin();
-  toast('🗑 Conta excluída');
+  var idx = (DB.b||[]).findIndex(function(x){return String(x.id)===String(id);});
+  if(idx<0) return;
+  _undoDelete(DB.b, idx, 'Conta excluída', function(){ DB.sv(); renderFin(); });
 }
 
 function closeMd(id) {
@@ -7769,6 +7767,10 @@ function _cfgFiltrar(tipo, arr){
 // ═══ CONFIG ═══
 function buildCfg(){
   var h='';
+  // #3 — atalho "Publicar agora" nas abas de conteúdo do catálogo (Pedras, Cubas Coz/Ban, Acessórios, Trabalhos)
+  if([0,1,2,6,9].indexOf(cfgTab)!==-1){
+    h+='<button class="btn btn-g" style="font-size:.78rem;padding:11px;margin-bottom:12px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;" onclick="publicarCatalogo()"><span>📤</span> Publicar agora</button>';
+  }
   if(cfgTab===0){
     // PEDRAS
     h+='<div style="font-size:.75rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Adicione várias fotos por pedra e gere a descrição automaticamente. A foto com <b>★</b> aparece em destaque no catálogo online.</div>';
@@ -7814,7 +7816,7 @@ function buildCfg(){
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var a=CFG.stones.splice('+i+',1)[0];CFG.stones.splice('+(i-1)+',0,a);svCFG();buildCatalog();buildCfg();}" style="font-size:.8rem;padding:5px 10px;">↑</button>';
       h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.stones.length){var a=CFG.stones.splice('+i+',1)[0];CFG.stones.splice('+(i+1)+',0,a);svCFG();buildCatalog();buildCfg();}" style="font-size:.8rem;padding:5px 10px;">↓</button>';
       h+="</div>";
-      h+='<button class="cfgdel" onclick="if(confirm(\'Remover '+s.nm+'?\')){CFG.stones.splice('+i+',1);buildMat();buildCatalog();buildPT();svCFG();buildCfg();}">✕ Remover</button></div>';
+      h+='<button class="cfgdel" onclick="_undoDelete(CFG.stones,'+i+',\'Pedra removida\',function(){buildMat();buildCatalog();buildPT();svCFG();buildCfg();})">✕ Remover</button></div>';
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="var _ns={id:\'s_\'+Date.now(),nm:\'Nova Pedra\',cat:\'Granito Cinza\',fin:\'Polida\',pr:300,custo:0,frete:0,perda:10,margem:30,tx:\'tx-andorinha\',photo:\'\',fotos:[],desc:\'\'};_ns.desc=_gerarDescPedra(_ns);CFG.stones.push(_ns);buildMat();buildCatalog();buildPT();svCFG();buildCfg();">+ Nova Pedra</button>';
@@ -7877,7 +7879,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.coz.length){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="event.stopPropagation();if(confirm(\'Remover esta cuba?\')){CFG.coz.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
+        h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="event.stopPropagation();_undoDelete(CFG.coz,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();})">✕ Remover</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -7943,7 +7945,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.lav.length){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover esta cuba?\')){CFG.lav.splice('+i+',1);svCFG();buildCubaList();buildCfg();}">✕ Remover</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.lav,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();})">✕ Remover</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -8093,7 +8095,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.ac.length){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i+1)+',0,x);svCFG();buildAcList();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover '+escH(a.nm)+'?\')){CFG.ac.splice('+i+',1);svCFG();buildAcList();buildCfg();}">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.ac,'+i+',\'Acessório removido\',function(){svCFG();buildAcList();buildCfg();})">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -8137,7 +8139,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.trabalhos.length){var x=CFG.trabalhos.splice('+i+',1)[0];CFG.trabalhos.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover este trabalho?\')){CFG.trabalhos.splice('+i+',1);svCFG();buildCfg();}">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.trabalhos,'+i+',\'Trabalho removido\',function(){svCFG();buildCfg();})">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -8180,7 +8182,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.referencias.length){var x=CFG.referencias.splice('+i+',1)[0];CFG.referencias.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();if(confirm(\'Remover esta referência?\')){CFG.referencias.splice('+i+',1);svCFG();buildCfg();}">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.referencias,'+i+',\'Referência removida\',function(){svCFG();buildCfg();})">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -9394,13 +9396,13 @@ function orcPDF(id, e) {
 
 function orcDel(id, e) {
   e.stopPropagation();
-  var q = DB.q.find(function(x) { return x.id == id; });
-  if (!q) return;
-  if (!confirm('Excluir orçamento de ' + q.cli + '?')) return;
-  DB.q = DB.q.filter(function(x) { return x.id != id; });
-  DB.sv();
-  if (typeof renderHistorico === 'function') renderHistorico();
-  toast('✓ Excluído');
+  var idx = DB.q.findIndex(function(x) { return x.id == id; });
+  if (idx < 0) return;
+  var q = DB.q[idx];
+  _undoDelete(DB.q, idx, 'Orçamento de ' + q.cli + ' excluído', function(){
+    DB.sv();
+    if (typeof renderHistorico === 'function') renderHistorico();
+  });
 }
 
 // ═══ GERAR CONTRATO ═══
@@ -11189,6 +11191,54 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('on');setTimeout(function(){t.classList.remove('on');},2500);}
+// #90 — Exclusão com "Desfazer" por 5s. Remove o item de `arr` na posição `idx` imediatamente,
+// mostra um toast com botão de desfazer; se tocado, reinsere o item na mesma posição.
+// `onChange` roda tanto após excluir quanto após desfazer (salvar + re-renderizar telas).
+function _undoDelete(arr, idx, msg, onChange){
+  if(!arr || idx<0 || idx>=arr.length) return null;
+  var removed = arr.splice(idx,1)[0];
+  if(typeof onChange==='function') onChange();
+  var old = document.getElementById('undoToast');
+  if(old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'undoToast';
+  div.style.cssText = 'position:fixed;left:14px;right:14px;bottom:88px;z-index:99999;background:#17171b;border:1px solid var(--gold3,#c9a84c);border-radius:13px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Outfit,sans-serif;';
+  div.innerHTML = '<span style="font-size:.8rem;color:#fff;flex:1;">'+msg+'</span><button style="background:linear-gradient(135deg,var(--gold,#c9a84c),var(--gold3,#a8853a));color:#000;border:none;border-radius:9px;padding:8px 15px;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;flex-shrink:0;">↩ Desfazer</button>';
+  document.body.appendChild(div);
+  var done = false;
+  var timer = setTimeout(function(){ if(!done){ done=true; div.remove(); } }, 5000);
+  div.querySelector('button').onclick = function(){
+    if(done) return;
+    done = true;
+    clearTimeout(timer);
+    arr.splice(idx, 0, removed);
+    if(typeof onChange==='function') onChange();
+    div.remove();
+    toast('✓ Restaurado');
+  };
+  return removed;
+}
+// Variante de _undoDelete para exclusões mais complexas (cascata em múltiplos objetos/coleções),
+// onde quem chama já executou a exclusão e sabe como desfazê-la. `undoFn` deve devolver tudo ao estado anterior.
+function _undoAction(msg, undoFn){
+  var old = document.getElementById('undoToast');
+  if(old) old.remove();
+  var div = document.createElement('div');
+  div.id = 'undoToast';
+  div.style.cssText = 'position:fixed;left:14px;right:14px;bottom:88px;z-index:99999;background:#17171b;border:1px solid var(--gold3,#c9a84c);border-radius:13px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Outfit,sans-serif;';
+  div.innerHTML = '<span style="font-size:.8rem;color:#fff;flex:1;">'+msg+'</span><button style="background:linear-gradient(135deg,var(--gold,#c9a84c),var(--gold3,#a8853a));color:#000;border:none;border-radius:9px;padding:8px 15px;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;flex-shrink:0;">↩ Desfazer</button>';
+  document.body.appendChild(div);
+  var done = false;
+  var timer = setTimeout(function(){ if(!done){ done=true; div.remove(); } }, 5000);
+  div.querySelector('button').onclick = function(){
+    if(done) return;
+    done = true;
+    clearTimeout(timer);
+    div.remove();
+    if(typeof undoFn==='function') undoFn();
+    toast('✓ Restaurado');
+  };
+}
 
 
 // ═══════════════════════════════════════════════════════════════════════
