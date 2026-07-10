@@ -373,7 +373,8 @@ var DEF_SV={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:1
   // Borda Piscina
   bp_boleada:110, bp_antiderap:120, bp_pingad:90, bp_mcana:100, bp_chanfro:95,
   bp_c_arred:180, bp_c_curva:220, bp_c_infinita:350,
-  rdbox_sem:0,rdbox_sup:38,rdbox_cola:20};
+  rdbox_sem:0,rdbox_sup:38,rdbox_cola:20,
+  rda_sem:0,rda_front:38,rda_sup:38,rda_inst:380};
 // Categorias de contas a pagar
 var CAT_CONTAS = ['fornecedor','funcionario','servico','imposto','outro'];
 var CAT_CONTAS_LABEL = {fornecedor:'📦 Fornecedor',funcionario:'👷 Funcionário',servico:'📡 Serviço',imposto:'🏛️ Imposto',outro:'📝 Outro'};
@@ -1227,6 +1228,7 @@ SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['Rodapé de Armário']=[{g:'Acabamento',its:[{k:'rda_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rda_front',l:'Polido Frontal',u:'acb_auto',lados:1},{k:'rda_sup',l:'Polido Superior (em cima)',u:'acb_auto',lados:1}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'rda_inst',l:'Instalação c/ Silicone + Ajuste (Makita/Macaco)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
 // ─── DIVISÓRIA WC ─────────────────────────────────────────────
 SV_DEFS['🚽 Divisória WC']=[
@@ -1692,7 +1694,7 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -1728,6 +1730,7 @@ function buildMatCarouselHtml(amb){
     'Outro':    ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
     '🏊 Borda Piscina':['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Rodapé de Box':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
+    'Rodapé de Armário':['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
     '🚽 Divisória WC':['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto']
   };
   var ordem=PREF[amb.tipo]||PREF['Outro'];
@@ -1815,13 +1818,22 @@ function setAmbTipo(id,tipo){
       amb.svState[grp.its[0].k]={lados:grp.its[0].lados||0};
     }
   });
+  // Rodapé de Armário: preencher medida padrão (60x15cm) nas peças ainda sem medida
+  if(tipo==='Rodapé de Armário'){
+    amb.pecas.forEach(function(p){
+      if(!p.w&&!p.h){p.w=60;p.h=15;}
+    });
+  }
   renderAmbientes();
 }
 
 function addPecaAmb(ambId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
-  amb.pecas.push({id:Date.now(),desc:'',w:0,h:0,q:1});
+  // Rodapé de Armário: padrão de mercado é 60cm de comprimento por 15cm de altura
+  var _defW=amb.tipo==='Rodapé de Armário'?60:0;
+  var _defH=amb.tipo==='Rodapé de Armário'?15:0;
+  amb.pecas.push({id:Date.now(),desc:'',w:_defW,h:_defH,q:1});
   renderAmbientes();
 }
 
@@ -3648,10 +3660,10 @@ function renderAmbientes(){
       var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
       h+='<div class="peca">';
       h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
-      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':'Ex: Bancada';
+      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':amb.tipo==='Rodapé de Armário'?'Ex: Armário cozinha, Balcão banheiro':'Ex: Bancada';
       h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
-      var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':'300';
-      var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':'60';
+      var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':amb.tipo==='Rodapé de Armário'?'Ex: 60':'300';
+      var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':amb.tipo==='Rodapé de Armário'?'Ex: 15':'60';
       h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'comp\')"></div>';
       h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'larg\')"></div></div>';
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
@@ -3669,7 +3681,7 @@ function renderAmbientes(){
         h+='<div id="pv-'+pc.id+'"></div>';
       }
       // SVG technical preview + per-side borda selector
-      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
+      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Rodapé de Armário' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
         h+=buildPecaPreviewSVG(amb,pc,pi);
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
@@ -8006,6 +8018,22 @@ function buildCfg(){
     if(!CFG.svList.find(function(x){return x.k==='rdbox_cola';})){
       CFG.svList.push({k:'rdbox_cola',l:'Cola p/ Colagem',preco:CFG.sv.rdbox_cola||20,grp:'Rodapé de Box',u:'un'});
       if(!CFG.sv['rdbox_cola'])CFG.sv['rdbox_cola']=20;
+      svCFG();
+    }
+    // Migração: adicionar preços do Rodapé de Armário se não existirem
+    if(!CFG.svList.find(function(x){return x.k==='rda_front';})){
+      CFG.svList.push({k:'rda_front',l:'Rodapé de Armário — Polido Frontal',preco:CFG.sv.rda_front||38,grp:'Rodapé de Armário',u:'ml'});
+      if(!CFG.sv['rda_front'])CFG.sv['rda_front']=38;
+      svCFG();
+    }
+    if(!CFG.svList.find(function(x){return x.k==='rda_sup';})){
+      CFG.svList.push({k:'rda_sup',l:'Rodapé de Armário — Polido Superior',preco:CFG.sv.rda_sup||38,grp:'Rodapé de Armário',u:'ml'});
+      if(!CFG.sv['rda_sup'])CFG.sv['rda_sup']=38;
+      svCFG();
+    }
+    if(!CFG.svList.find(function(x){return x.k==='rda_inst';})){
+      CFG.svList.push({k:'rda_inst',l:'Instalação Rodapé de Armário (silicone + ajuste Makita/macaco)',preco:CFG.sv.rda_inst||380,grp:'Rodapé de Armário',u:'un'});
+      if(!CFG.sv['rda_inst'])CFG.sv['rda_inst']=380;
       svCFG();
     }
 
