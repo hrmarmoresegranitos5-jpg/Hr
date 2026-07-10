@@ -1875,7 +1875,23 @@ function _updPcPreview(ambId, pcId) {
   }
 }
 
-// ── Alerta inline de medida incomum (item 9) ──────────────────────────────────
+// Atualiza ao vivo o desenho técnico (SVG) e o seletor de acabamento por lado
+// quando o comprimento/largura da peça muda, sem precisar recarregar a tela toda
+function _updPcBorda(ambId, pcId) {
+  var amb = ambientes.find(function(a){ return a.id == ambId; });
+  if (!amb) return;
+  var pc = amb.pecas.find(function(p){ return p.id == pcId; });
+  if (!pc) return;
+  var pi = amb.pecas.indexOf(pc);
+  // Recalcula o metro linear real (usado no preço) com as novas medidas
+  if (typeof _syncBordaSvState === 'function') _syncBordaSvState(amb);
+  var svgEl = document.getElementById('svgw-' + pcId);
+  if (svgEl) svgEl.innerHTML = buildPecaPreviewSVG(amb, pc, pi);
+  var bdaEl = document.getElementById('bda-' + pcId);
+  if (bdaEl) bdaEl.innerHTML = buildPecaBordaHtml(amb, pc);
+}
+
+
 function _alertMedida(inp, val, campo){
   if(!val || val <= 0) return;
   var alerta = '';
@@ -2861,16 +2877,24 @@ function buildPecaBordaHtml(amb, pc) {
         });
         h += '</div>';
       }
-      h += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;\">';
-      h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">ML (cm) — vazio = '+autoML+'m auto</div>';
-      h += '<input type=\"number\" min=\"0\" max=\"9999\" step=\"1\" value=\"'+(curML!=null?curML:'')+'\" placeholder=\"Auto\" ';
-      h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
-      h += 'oninput=\"updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
-      h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">Altura (cm)</div>';
-      h += '<input type=\"number\" min=\"1\" max=\"30\" step=\".5\" value=\"'+alt+'\" ';
-      h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
-      h += 'oninput=\"updPcBordaAlt('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
-      h += '</div>';
+      if (_isSimpleTipo) {
+        // Acabamento simples (só polimento): sem campo de altura, apenas ML
+        h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">ML (cm) — vazio = '+autoML+'m auto</div>';
+        h += '<input type=\"number\" min=\"0\" max=\"9999\" step=\"1\" value=\"'+(curML!=null?curML:'')+'\" placeholder=\"Auto\" ';
+        h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
+        h += 'oninput=\"updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
+      } else {
+        h += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;\">';
+        h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">ML (cm) — vazio = '+autoML+'m auto</div>';
+        h += '<input type=\"number\" min=\"0\" max=\"9999\" step=\"1\" value=\"'+(curML!=null?curML:'')+'\" placeholder=\"Auto\" ';
+        h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
+        h += 'oninput=\"updPcBordaML('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
+        h += '<div><div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">Altura (cm)</div>';
+        h += '<input type=\"number\" min=\"1\" max=\"30\" step=\".5\" value=\"'+alt+'\" ';
+        h += 'style=\"width:100%;padding:6px 8px;font-size:.7rem;background:var(--bg4);border:1px solid var(--bd2);border-radius:7px;color:var(--tx);box-sizing:border-box;\" ';
+        h += 'oninput=\"updPcBordaAlt('+amb.id+','+pc.id+',\''+side.k+'\',this.value)\"></div>';
+        h += '</div>';
+      }
       var finalML = curML!=null ? (curML/100)*(pc.q||1) : (side.dim?(side.dim/100)*(pc.q||1):0);
       if (finalML>0) h += '<div style=\"margin-top:6px;font-size:.62rem;color:'+tipoOpt.cor+';font-weight:600;\">→ '+finalML.toFixed(2)+'m linear</div>';
     } else if (tipo && isDiv) {
@@ -3008,6 +3032,10 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
     var lbl;
     if (divTipoFnd) {
       lbl = divTipoFnd.l;
+    } else if (bd.tipo === 'acabamento') {
+      lbl = 'Acabamento';
+    } else if (bd.tipo === 'recorte45') {
+      lbl = 'Recorte 45°';
     } else {
       var subs = bd.tipo==='sainha' ? getSainhaSubs() : getFrontaoSubs();
       var sub = subs.find(function(s){return s.k===bd.sub;})||subs[0];
@@ -3039,8 +3067,9 @@ function buildPecaPreviewSVG(amb, pc, pcIdx) {
 
   // Rótulos de orientação
   var orFs = Math.max(5.5, Math.min(7.5, rw/30));
+  var _isRdaSvg = amb.tipo === 'Rodapé de Armário';
   svg += '<text x="'+(ox+rw/2)+'" y="'+(oy+rh+16)+'" text-anchor="middle" font-size="'+(orFs+1)+'" fill="rgba(255,255,255,.3)">▲ FRENTE (parede)</text>';
-  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-2)+'" text-anchor="middle" font-size="'+orFs+'" fill="rgba(255,255,255,.2)">FUNDO</text>';
+  svg += '<text x="'+(ox+rw/2)+'" y="'+(oy-2)+'" text-anchor="middle" font-size="'+orFs+'" fill="rgba(255,255,255,.2)">'+(_isRdaSvg?'SUPERIOR':'FUNDO')+'</text>';
 
   // ── Recorte de Abertura Inferior (Divisória WC) ──
   if (amb.tipo === '🚽 Divisória WC') {
@@ -3666,9 +3695,9 @@ function renderAmbientes(){
       h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
       var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':amb.tipo==='Rodapé de Armário'?'Ex: 60':'300';
       var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':amb.tipo==='Rodapé de Armário'?'Ex: 15':'60';
-      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'comp\')"></div>';
-      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'larg\')"></div></div>';
-      h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+')"></div></div>';
+      h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'comp\')"></div>';
+      h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'larg\')"></div></div>';
+      h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+')"></div></div>';
       // Preview em tempo real de m² e preço estimado
       var _pvW=pc.w||0,_pvH=pc.h||0,_pvQ=pc.q||1;
       var _pvM2=_pvW&&_pvH?((_pvW/100)*(_pvH/100)*_pvQ):0;
@@ -3684,7 +3713,7 @@ function renderAmbientes(){
       }
       // SVG technical preview + per-side borda selector
       if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
-        h+=buildPecaPreviewSVG(amb,pc,pi);
+        h+='<div id="svgw-'+pc.id+'">'+buildPecaPreviewSVG(amb,pc,pi)+'</div>';
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
           var _pe=pc.peExtra||{};
@@ -3727,7 +3756,7 @@ function renderAmbientes(){
           h+='</div>';
           h+='</div>';
         }
-        h+=buildPecaBordaHtml(amb,pc);
+        h+='<div id="bda-'+pc.id+'">'+buildPecaBordaHtml(amb,pc)+'</div>';
       }
       if(amb.tipo==='🏊 Borda Piscina'){
         var pcLados=pc.acabLados||0;
