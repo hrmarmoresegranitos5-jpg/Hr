@@ -460,7 +460,11 @@ function initCFG(){
     alerta: { leve: 0.60, normal: 0.85, pesada: 1.00 }
   };
   // Forçar preços padrão somente se NÃO acabou de restaurar um backup do usuário
-  if(!justRestored){
+  // E somente durante a migração pontual para CFG_VER 19 (Patch v18/v19).
+  // Sem o "storedVer < 19" aqui, este bloco reaplicava os preços de 2024
+  // TODA VEZ que o app carregava, apagando silenciosamente qualquer preço
+  // (custo/frete/margem da JC Brito) configurado depois.
+  if(!justRestored && storedVer < 19){
     var _p={s_reta:80,s_45:150,s_boleada:190,s_slim:56,frontao:102,frontao_chf:120,rodape:60,forn:50,fralo:50,cook:160,reb_n:200,reb_a:430,tubo:70,cant:115,inst:320,inst_c:500,desl_for:4.0};
     Object.keys(_p).forEach(function(k){CFG.sv[k]=_p[k];});
     var _pr={andorinha:320,verde_ub:340,verde_perla:340,bege:380,p_indiano:450,p_gabriel:500,p_gabriel_e:540,via_lactea:750,dallas:400,itaunas:510,nepal:540,prime:730,mrm_branco:300,siena:580,siena_e:620,parana:1490,nano:930,super_nano:980,perla:1640,carrara:1640,trav_classic:400,trav_noce:440};
@@ -945,6 +949,8 @@ function voltarSplash() {
   if (intro)  intro.style.display = 'none';
   if (splash) { splash.classList.add('on'); splash.style.display = 'flex'; }
   if (app)    app.classList.remove('on');
+  // Atualiza KPIs/agenda do painel inicial com os dados mais recentes
+  if (typeof window.renderSplashDash === 'function') window.renderSplashDash();
 }
 
 // ═══ NAV ═══
@@ -7769,7 +7775,10 @@ function buildCfg(){
   var h='';
   // #3 — atalho "Publicar agora" nas abas de conteúdo do catálogo (Pedras, Cubas Coz/Ban, Acessórios, Trabalhos)
   if([0,1,2,6,9].indexOf(cfgTab)!==-1){
-    h+='<button class="btn btn-g" style="font-size:.78rem;padding:11px;margin-bottom:12px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;" onclick="publicarCatalogo()"><span>📤</span> Publicar agora</button>';
+    h+='<div style="display:flex;gap:8px;margin-bottom:12px;">';
+    h+='<button class="btn btn-g" style="font-size:.78rem;padding:11px;flex:1;display:flex;align-items:center;justify-content:center;gap:7px;" onclick="publicarCatalogo()"><span>📤</span> Publicar agora</button>';
+    h+='<button class="btn btn-o" style="font-size:.78rem;padding:11px;flex:1;display:flex;align-items:center;justify-content:center;gap:7px;" onclick="previewCatalogo()"><span>👁</span> Ver como vai ficar</button>';
+    h+='</div>';
   }
   if(cfgTab===0){
     // PEDRAS
@@ -8348,6 +8357,7 @@ function buildCfg(){
     h+='<div class="cfg-row" style="padding:7px 0;border-bottom:1px solid var(--bd);"><span class="cfg-lbl">GitHub Token</span><input id="cfgGhToken" class="cfginp" type="password" value="'+(e.ghToken||'')+'" placeholder="ghp_..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.ghToken=this.value;svCFG();toast(\'✓ Token salvo\');"></div>';
     h+='<div style="font-size:.6rem;color:var(--t4);line-height:1.6;padding:6px 0 12px;">Gere um token em GitHub → Settings → Developer settings → Personal access tokens (permissão "Contents: Read and write" no repositório).</div>';
     h+='<button class="btn btn-g" style="font-size:.82rem;padding:12px;margin-bottom:8px;width:100%;" onclick="publicarCatalogo()">📤 Publicar no GitHub Pages</button>';
+    h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;width:100%;" onclick="previewCatalogo()">👁 Ver como vai ficar (sem publicar)</button>';
     h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;width:100%;" onclick="baixarCatalogoJson()">📥 Baixar catalogo.json (local)</button>';
     h+='<button class="btn" style="font-size:.78rem;padding:10px;width:100%;border:1px solid var(--bd);background:transparent;color:var(--t2);font-family:Outfit,sans-serif;" onclick="copiarLinkCatalogo()">🔗 Copiar Link do Catálogo</button>';
     h+='</div></div>';
@@ -10095,12 +10105,10 @@ function _ghRepoPath(){
 function publicarCatalogo(){
   _restoreCubaFotos().then(function(){ _publicarCatalogoImpl(); }); // espera fotos do IndexedDB antes de publicar
 }
-function _publicarCatalogoImpl(){
-  var token=(CFG.emp&&CFG.emp.ghToken||'').trim();
-  var repo=_ghRepoPath();
-  if(!token){toast('⚠ Configure o GitHub Token em Empresa');return;}
-  if(!repo){toast('⚠ Configure o Repositório (ex: usuario/Hr)');return;}
-  var dados={
+// Monta o objeto de dados do catálogo público a partir do CFG atual.
+// Usado por publicar, baixar .json e pré-visualizar — uma única fonte de verdade.
+function _buildCatalogoDados(){
+  return {
     emp:{
       nome:(CFG.emp&&CFG.emp.nome)||'HR Mármores e Granitos',
       tipo:(CFG.emp&&CFG.emp.tipo)||'Marmoraria',
@@ -10122,39 +10130,121 @@ function _publicarCatalogoImpl(){
     referencias:_normReferenciasPublic(CFG.referencias),
     updatedAt:new Date().toISOString()
   };
-  var jsonStr=JSON.stringify(dados);
-  var content;
-  try{ content=btoa(unescape(encodeURIComponent(jsonStr))); }
-  catch(e){ toast('Erro ao codificar catálogo'); return; }
+}
+// Redimensiona/comprime uma foto (data URL) antes de publicar — reduz o tamanho
+// do catalogo.json e acelera o carregamento do site pro cliente final.
+// Fotos que não são data:image (ex: já são URL externa) passam direto, sem custo.
+function _compressImageDataUrl(dataUrl,maxW,quality){
+  return new Promise(function(resolve){
+    if(!dataUrl||dataUrl.indexOf('data:image')!==0){resolve(dataUrl);return;}
+    var img=new Image();
+    img.onload=function(){
+      var w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+      if(!w||!h){resolve(dataUrl);return;}
+      if(w>maxW){ h=Math.round(h*(maxW/w)); w=maxW; }
+      try{
+        var canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        var ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        var out=canvas.toDataURL('image/jpeg',quality||0.8);
+        // só usa a versão comprimida se ela realmente for menor
+        resolve(out.length<dataUrl.length?out:dataUrl);
+      }catch(e){ resolve(dataUrl); } // canvas "tainted" ou erro — mantém original, nunca quebra a publicação
+    };
+    img.onerror=function(){ resolve(dataUrl); };
+    img.src=dataUrl;
+  });
+}
+// Aplica a compressão em todas as fotos do objeto de catálogo (em paralelo)
+function _compressCatalogoDados(dados){
+  var listas=[dados.cubas_coz,dados.cubas_lav,dados.acessorios,dados.pedras,dados.trabalhos,dados.referencias];
+  var tasks=[];
+  listas.forEach(function(lista){
+    (lista||[]).forEach(function(item){
+      if(item.photo){ tasks.push(_compressImageDataUrl(item.photo,1200,0.8).then(function(c){item.photo=c;})); }
+      if(item.fotos&&item.fotos.length){
+        item.fotos.forEach(function(f,i){
+          tasks.push(_compressImageDataUrl(f,1200,0.8).then(function(c){item.fotos[i]=c;}));
+        });
+      }
+    });
+  });
+  return Promise.all(tasks).then(function(){ return dados; });
+}
+function _publicarCatalogoImpl(){
+  var token=(CFG.emp&&CFG.emp.ghToken||'').trim();
+  var repo=_ghRepoPath();
+  if(!token){toast('⚠ Configure o GitHub Token em Empresa');return;}
+  if(!repo){toast('⚠ Configure o Repositório (ex: usuario/Hr)');return;}
   var apiUrl='https://api.github.com/repos/'+repo+'/contents/catalogo.json';
+  var backupUrl='https://api.github.com/repos/'+repo+'/contents/catalogo.backup.json';
   var headers={
     'Authorization':'token '+token,
     'Accept':'application/vnd.github+json',
     'Content-Type':'application/json'
   };
-  toast('📡 Publicando catálogo...');
-  fetch(apiUrl,{headers:{'Authorization':headers.Authorization,'Accept':headers.Accept}})
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .catch(function(){ return null; })
-    .then(function(existing){
-      var body={ message:'Atualiza catálogo público — '+new Date().toLocaleString('pt-BR'), content:content };
-      if(existing&&existing.sha) body.sha=existing.sha;
-      return fetch(apiUrl,{method:'PUT',headers:headers,body:JSON.stringify(body)});
-    })
-    .then(function(putResp){
-      if(putResp.ok){
-        CFG.emp=CFG.emp||{};CFG.emp.ultimaPublicacao=new Date().toISOString();svCFG();
-        toast('✓ Catálogo publicado com sucesso!');
-        if(typeof buildCfg==='function')buildCfg();
-      } else {
-        return putResp.json().then(function(e){
-          toast('✗ Erro: '+(e&&e.message?e.message:putResp.status));
-        }).catch(function(){ toast('✗ Erro ao publicar (HTTP '+putResp.status+')'); });
-      }
-    })
-    .catch(function(err){
-      toast('✗ Falha de conexão: '+err.message);
-    });
+  toast('🗜️ Comprimindo fotos...');
+  _compressCatalogoDados(_buildCatalogoDados()).then(function(dados){
+    var jsonStr=JSON.stringify(dados);
+    var content;
+    try{ content=btoa(unescape(encodeURIComponent(jsonStr))); }
+    catch(e){ toast('Erro ao codificar catálogo'); return; }
+    toast('📡 Publicando catálogo...');
+    fetch(apiUrl,{headers:{'Authorization':headers.Authorization,'Accept':headers.Accept}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; })
+      .then(function(existing){
+        // Guarda a versão anterior do catálogo em catalogo.backup.json ANTES de
+        // sobrescrever — permite reverter no GitHub caso algo saia errado na publicação.
+        // Falha ao salvar backup nunca impede a publicação normal (best-effort).
+        if(existing&&existing.content){
+          return fetch(backupUrl,{headers:{'Authorization':headers.Authorization,'Accept':headers.Accept}})
+            .then(function(r){ return r.ok ? r.json() : null; })
+            .catch(function(){ return null; })
+            .then(function(existingBackup){
+              var backupBody={ message:'Backup automático pré-publicação — '+new Date().toLocaleString('pt-BR'), content:existing.content };
+              if(existingBackup&&existingBackup.sha) backupBody.sha=existingBackup.sha;
+              return fetch(backupUrl,{method:'PUT',headers:headers,body:JSON.stringify(backupBody)}).catch(function(){});
+            })
+            .then(function(){ return existing; });
+        }
+        return existing;
+      })
+      .then(function(existing){
+        var body={ message:'Atualiza catálogo público — '+new Date().toLocaleString('pt-BR'), content:content };
+        if(existing&&existing.sha) body.sha=existing.sha;
+        return fetch(apiUrl,{method:'PUT',headers:headers,body:JSON.stringify(body)});
+      })
+      .then(function(putResp){
+        if(putResp.ok){
+          CFG.emp=CFG.emp||{};CFG.emp.ultimaPublicacao=new Date().toISOString();svCFG();
+          toast('✓ Catálogo publicado com sucesso!');
+          if(typeof buildCfg==='function')buildCfg();
+        } else {
+          return putResp.json().then(function(e){
+            toast('✗ Erro: '+(e&&e.message?e.message:putResp.status));
+          }).catch(function(){ toast('✗ Erro ao publicar (HTTP '+putResp.status+')'); });
+        }
+      })
+      .catch(function(err){
+        toast('✗ Falha de conexão: '+err.message);
+      });
+  });
+}
+// Pré-visualização: abre catalogo.html com os dados ATUAIS do CFG, sem publicar
+// nada de verdade no GitHub. Útil pra conferir como vai ficar antes de publicar.
+function previewCatalogo(){
+  _restoreCubaFotos().then(function(){ _previewCatalogoImpl(); });
+}
+function _previewCatalogoImpl(){
+  try{
+    var dados=_buildCatalogoDados();
+    sessionStorage.setItem('hr_catalogo_preview',JSON.stringify(dados));
+    window.open('catalogo.html?preview=1','_blank');
+  }catch(e){
+    toast('✗ Erro ao gerar pré-visualização: '+(e&&e.message||e));
+  }
 }
 function _normFotosPublic(lista){
   return (lista||[]).map(function(c){
@@ -10194,28 +10284,7 @@ function baixarCatalogoJson(){
   _restoreCubaFotos().then(function(){ _baixarCatalogoJsonImpl(); }); // espera fotos do IndexedDB antes de baixar
 }
 function _baixarCatalogoJsonImpl(){
-  var dados={
-    emp:{
-      nome:(CFG.emp&&CFG.emp.nome)||'HR Mármores e Granitos',
-      tipo:(CFG.emp&&CFG.emp.tipo)||'Marmoraria',
-      tel:(CFG.emp&&CFG.emp.tel)||'',
-      email:(CFG.emp&&CFG.emp.email)||'',
-      ig:(CFG.emp&&CFG.emp.ig)||'',
-      site:(CFG.emp&&CFG.emp.site)||'',
-      end:(CFG.emp&&CFG.emp.end)||'',
-      bairro:(CFG.emp&&CFG.emp.bairro)||'',
-      cidade:(CFG.emp&&CFG.emp.cidade)||'',
-      horario:(CFG.emp&&CFG.emp.horario)||'',
-      logoUrl:(CFG.emp&&CFG.emp.logoUrl)||''
-    },
-    cubas_coz:_normFotosPublic(CFG.coz),
-    cubas_lav:_normFotosPublic(CFG.lav),
-    acessorios:_normFotosPublic(CFG.ac),
-    pedras:_normStonesPublic(CFG.stones),
-    trabalhos:_normTrabalhosPublic(CFG.trabalhos),
-    referencias:_normReferenciasPublic(CFG.referencias),
-    updatedAt:new Date().toISOString()
-  };
+  var dados=_buildCatalogoDados();
   _baixarViaLink(JSON.stringify(dados,null,2),'catalogo.json');
   toast('📥 catalogo.json baixado!');
 }

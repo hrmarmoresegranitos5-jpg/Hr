@@ -877,7 +877,7 @@ if (typeof TUM === 'undefined') {
   };
 }
   </script>
-  <script src="app-core.js?v=20"></script>
+  <script src="app-core.js?v=22"></script>
   <script src="app-inst-tubo-fix.js?v=1"></script>
   <script src="hr-db-core.js?v=1"></script>
   <script src="app-clientes.js?v=2"></script>
@@ -1814,18 +1814,24 @@ document.addEventListener('click', function(e) {
 
   function renderSplashDash() {
     // ── KPIs from localStorage finanças ──
+    // BUG CRÍTICO: este bloco lia de localStorage.getItem('financas'/'fin') e
+    // 'agenda'/'jobs' — chaves que o app NUNCA usa. Os dados reais de
+    // transações e serviços ficam em 'hr_t' e 'hr_j' (ver DB.sv() em
+    // app-core.js), com campos type/value/date (não tipo/valor/data) e
+    // cli/desc/end (não cliente/servico/data). Por isso o painel inicial
+    // sempre mostrava R$0 e "Nenhum serviço agendado", mesmo com dados reais.
     try {
-      var fin = JSON.parse(localStorage.getItem('financas') || localStorage.getItem('fin') || '[]');
+      var fin = JSON.parse(localStorage.getItem('hr_t') || '[]');
       if (!Array.isArray(fin)) fin = [];
       var now = new Date();
       var yy = now.getFullYear(); var mm = now.getMonth();
       var entMes = 0, saiMes = 0;
       fin.forEach(function(t) {
-        if (!t || !t.data) return;
-        var d = new Date(t.data);
+        if (!t || !t.date) return;
+        var d = new Date(t.date);
         if (d.getFullYear()===yy && d.getMonth()===mm) {
-          var v = parseFloat(t.valor||t.value||0);
-          if ((t.tipo||t.type||'').toLowerCase().indexOf('sai')>=0 || v<0) saiMes += Math.abs(v);
+          var v = parseFloat(t.value||0);
+          if (t.type === 'out' || v<0) saiMes += Math.abs(v);
           else entMes += Math.abs(v);
         }
       });
@@ -1849,12 +1855,12 @@ document.addEventListener('click', function(e) {
           ent: 0, sai: 0 });
       }
       fin.forEach(function(t) {
-        if (!t || !t.data) return;
-        var d3 = new Date(t.data);
+        if (!t || !t.date) return;
+        var d3 = new Date(t.date);
         var bucket = months.find(function(b){ return b.y===d3.getFullYear()&&b.m===d3.getMonth(); });
         if (!bucket) return;
-        var v2 = parseFloat(t.valor||t.value||0);
-        if ((t.tipo||t.type||'').toLowerCase().indexOf('sai')>=0 || v2<0) bucket.sai += Math.abs(v2);
+        var v2 = parseFloat(t.value||0);
+        if (t.type === 'out' || v2<0) bucket.sai += Math.abs(v2);
         else bucket.ent += Math.abs(v2);
       });
       var maxVal = Math.max.apply(null, months.map(function(b){ return Math.max(b.ent,b.sai); }));
@@ -1892,14 +1898,15 @@ document.addEventListener('click', function(e) {
 
     // ── Agenda preview ──
     try {
-      var ag = JSON.parse(localStorage.getItem('agenda') || localStorage.getItem('jobs') || '[]');
+      var ag = JSON.parse(localStorage.getItem('hr_j') || '[]');
       if (!Array.isArray(ag)) ag = [];
       var hoje = new Date(); hoje.setHours(0,0,0,0);
       var prox = ag.filter(function(j){
-        var dj = new Date(j.data||j.date||'');
+        if (!j || j.done || !j.end) return false;
+        var dj = new Date(j.end);
         return dj >= hoje;
       }).sort(function(a,b){
-        return new Date(a.data||a.date) - new Date(b.data||b.date);
+        return new Date(a.end) - new Date(b.end);
       }).slice(0,4);
       var cont = document.getElementById('spAgendaItems');
       if (!cont) return;
@@ -1909,10 +1916,10 @@ document.addEventListener('click', function(e) {
       }
       var colors = ['ag-grn','ag-blu','','ag-red'];
       cont.innerHTML = prox.map(function(j,i) {
-        var d4 = new Date(j.data||j.date||'');
+        var d4 = new Date(j.end);
         var dtxt = isNaN(d4) ? '—' : d4.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-        var cli = j.cliente||j.cli||j.nome||'Cliente';
-        var srv = j.servico||j.srv||j.tipo||j.desc||'Serviço';
+        var cli = j.cli||'Cliente';
+        var srv = j.desc||'Serviço';
         return '<div class="sp2-agenda-item" onclick="openApp(3)">' +
           '<div class="sp2-agenda-dot ' + (colors[i%4]||'') + '"></div>' +
           '<div class="sp2-agenda-text">' +
@@ -1933,6 +1940,9 @@ document.addEventListener('click', function(e) {
   } else {
     renderSplashDash();
   }
+  // Exposta globalmente para poder ser chamada ao voltar da Home (voltarSplash())
+  // — sem isso, os KPIs só atualizavam no carregamento da página ou troca de aba.
+  window.renderSplashDash = renderSplashDash;
   // Re-render when splash becomes visible again
   document.addEventListener('visibilitychange', function() {
     var sp = document.getElementById('sSplash');
