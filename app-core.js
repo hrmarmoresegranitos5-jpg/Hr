@@ -473,8 +473,8 @@ function initCFG(){
   }
   syncSVDefsFromList();
   // Patch: garantir campo pr_orig em cubas existentes sem ele
-  CFG.coz.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';});
-  CFG.lav.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';}); 
+  CFG.coz.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';if(!c.instTipos)c.instTipos={};});
+  CFG.lav.forEach(function(c){if(c.pr_orig===undefined)c.pr_orig=0;if(!c.fotos)c.fotos=[];if(c.desc===undefined)c.desc='';if(!c.instTipos)c.instTipos={};});
   CFG.stones.forEach(function(s){if(!s.fotos)s.fotos=[];if(s.desc===undefined)s.desc='';});
   // Reinjeta fotos[] salvas em hr_cuba_fotos (separadas do hr_cfg para não estourar quota)
   _restoreCubaFotos();
@@ -1532,8 +1532,16 @@ function openCubaPick(tipo,svKey){
   h+='<div class="cpcard" data-pcuba="__cli__" data-ctype="'+tipo+'"><div class="cpthumb" style="background:var(--s3);font-size:1.4rem;color:var(--t3);display:grid;place-items:center;">📦</div><div><div class="cpbrand">Cliente Fornece</div><div class="cpnm">Só Mão de Obra</div><div class="cpdim">Cliente compra, HR instala</div><div class="cppr">M.O.: <b>R$ '+instCli+'</b></div></div></div>';
   h+='<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin:13px 0 8px;">Cubas HR — fornecemos e instalamos</div>';
   lista.filter(function(c){return c.pr>0;}).forEach(function(c){
-    var tot=c.pr+c.inst;
-    var _prStr=c.pr>0?'Cuba <b>R$ '+c.pr+'</b> + M.O. R$ '+c.inst+' = <b>R$ '+tot+'</b>':'M.O. <b>R$ '+c.inst+'</b> (produto a consultar)';
+    var _ativosPrev=(c.instTipos)?CUBA_INST_TIPOS.filter(function(t){return c.instTipos[t.k]&&c.instTipos[t.k].on;}):[];
+    var _moTxt,_moRef;
+    if(_ativosPrev.length){
+      var _mos=_ativosPrev.map(function(t){return c.instTipos[t.k].mo!=null?c.instTipos[t.k].mo:_cubaInstDefault(t.k);});
+      var _moMin=Math.min.apply(null,_mos),_moMax=Math.max.apply(null,_mos);
+      _moTxt=(_moMin===_moMax)?('R$ '+_moMin):('R$ '+_moMin+'–'+_moMax);
+      _moRef=_moMin;
+    } else { _moTxt='R$ '+c.inst; _moRef=c.inst; }
+    var tot=c.pr+_moRef;
+    var _prStr=c.pr>0?'Cuba <b>R$ '+c.pr+'</b> + M.O. '+_moTxt+(_ativosPrev.length>1?'':' = <b>R$ '+tot+'</b>'):'M.O. <b>'+_moTxt+'</b> (produto a consultar)';
     h+='<div class="cpcard" data-pcuba="'+c.id+'" data-ctype="'+tipo+'"><div class="cpthumb">'+(c.photo?'<img src="'+c.photo+'" alt="">':(c.tipo?'🚿':'🔧'))+'</div><div><div class="cpbrand">'+c.brand+'</div><div class="cpnm">'+c.nm+'</div><div class="cpdim">'+c.dim+'</div><div class="cppr">'+_prStr+'</div></div></div>';
   });
   // Esculpidas — disponível para cozinha e banheiro/lavabo
@@ -1640,16 +1648,55 @@ function openCubaQtdPrompt(id, tipo){
     nm = c ? ((c.brand?' '+c.brand:'')+(c.nm?' '+c.nm:'')) : id;
   }
 
-  // Get current qty from ambiente if already set
+  // Get current qty (e forma de instalação, se já escolhida antes) do ambiente
   var curQtd = 1;
+  window._pendCubaInstTipo = null;
   if(_cubaPickAmbId !== null){
     var amb = ambientes.find(function(a){return a.id==_cubaPickAmbId;});
-    if(amb && amb.selCuba) curQtd = amb.selCuba.qtd || 1;
+    if(amb && amb.selCuba){
+      curQtd = amb.selCuba.qtd || 1;
+      if(amb.selCuba.id===id && amb.selCuba.instTipo) window._pendCubaInstTipo = amb.selCuba.instTipo;
+    }
   }
 
   document.getElementById('cubaQtdNm').textContent = nm.trim();
   document.getElementById('cubaQtdInp').value = curQtd;
+  _renderCubaQtdInstButtons();
   showMd('cubaQtdMd');
+}
+
+// Botões de "Forma de instalação" (Sobrepor/Embutir/Flush) dentro do modal de quantidade —
+// só aparecem se a cuba escolhida tiver 2+ formas ativas configuradas no catálogo.
+function _renderCubaQtdInstButtons(){
+  var instWrap = document.getElementById('cubaQtdInstWrap');
+  if(!instWrap) return;
+  var id = window._pendCubaId, tipo = window._pendCubaTipo;
+  if(!id || id==='__cli__'){ instWrap.style.display='none'; instWrap.innerHTML=''; return; }
+  var lista = tipo==='coz'?CFG.coz:CFG.lav;
+  var c = lista.find(function(x){return x.id===id;});
+  var ativos = (c && c.instTipos) ? CUBA_INST_TIPOS.filter(function(t){return c.instTipos[t.k]&&c.instTipos[t.k].on;}) : [];
+  if(!ativos.length){ instWrap.style.display='none'; instWrap.innerHTML=''; return; }
+  if(!window._pendCubaInstTipo || !ativos.some(function(t){return t.k===window._pendCubaInstTipo;})){
+    window._pendCubaInstTipo = ativos[0].k;
+  }
+  var h='<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:8px;">Forma de instalação</div>';
+  h+='<div style="display:flex;gap:6px;margin-bottom:16px;">';
+  ativos.forEach(function(t){
+    var st=c.instTipos[t.k];
+    var mo=st.mo!=null?st.mo:_cubaInstDefault(t.k);
+    var on=window._pendCubaInstTipo===t.k;
+    h+='<div onclick="_selCubaQtdInstTipo(\''+t.k+'\')" style="cursor:pointer;flex:1;text-align:center;padding:9px 4px;border-radius:10px;border:1.5px solid '+(on?t.cor:'rgba(255,255,255,.12)')+';background:'+(on?t.cor+'22':'transparent')+';">';
+    h+='<div style="font-size:.7rem;font-weight:700;color:'+(on?t.cor:'var(--t3)')+';">'+t.l+'</div>';
+    h+='<div style="font-size:.55rem;color:'+(on?t.cor:'var(--t4)')+';">'+t.dif+' · R$'+mo+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  instWrap.innerHTML=h;
+  instWrap.style.display='block';
+}
+function _selCubaQtdInstTipo(k){
+  window._pendCubaInstTipo = k;
+  _renderCubaQtdInstButtons();
 }
 
 function confirmCubaQtd(){
@@ -1669,8 +1716,18 @@ function pickCuba(id,tipo){
     var c=lista.find(function(x){return x.id===id;});
     if(!c)return;
     var isEsc=c.tipo==='Esculpida';
-    cubaObj={id:c.id,nm:(c.brand?' '+c.brand:'')+(c.nm?(' '+c.nm):''),total:isEsc?c.inst:(c.pr+c.inst),tipo:tipo};
+    var moUsar=c.inst; // fallback: comportamento antigo (cuba sem forma de instalação configurada)
+    var instTipoSel=null, instTipoLbl=null;
+    if(!isEsc && window._pendCubaInstTipo && c.instTipos && c.instTipos[window._pendCubaInstTipo] && c.instTipos[window._pendCubaInstTipo].on){
+      instTipoSel=window._pendCubaInstTipo;
+      var _tDef=CUBA_INST_TIPOS.find(function(t){return t.k===instTipoSel;});
+      moUsar=(c.instTipos[instTipoSel].mo!=null)?c.instTipos[instTipoSel].mo:_cubaInstDefault(instTipoSel);
+      instTipoLbl=_tDef?_tDef.l:instTipoSel;
+    }
+    cubaObj={id:c.id,nm:(c.brand?' '+c.brand:'')+(c.nm?(' '+c.nm):''),total:isEsc?c.inst:(c.pr+moUsar),tipo:tipo};
+    if(instTipoSel){cubaObj.instTipo=instTipoSel;cubaObj.instTipoLabel=instTipoLbl;cubaObj.mo=moUsar;}
   }
+  window._pendCubaInstTipo=null;
   // Apply to correct ambiente
   if(_cubaPickAmbId!==null){
     var amb=ambientes.find(function(a){return a.id==_cubaPickAmbId;});
@@ -3996,7 +4053,8 @@ function buildSVHtml(amb){
       } else if(it.u==='cuba'&&isOn){
         var _cq=amb.selCuba?(amb.selCuba.qtd||1):1;
         var _ct=amb.selCuba?((amb.selCuba.total||0)*_cq):0;
-        var cubaInfo=amb.selCuba?('✓ '+(amb.selCuba.nm||'Cuba').trim()+(_cq>1?' ×'+_cq:'')+' — R$ '+fm(_ct)):'Toque para escolher';
+        var _instLbl=amb.selCuba&&amb.selCuba.instTipoLabel?(' ('+amb.selCuba.instTipoLabel+')'):'';
+        var cubaInfo=amb.selCuba?('✓ '+(amb.selCuba.nm||'Cuba').trim()+_instLbl+(_cq>1?' ×'+_cq:'')+' — R$ '+fm(_ct)):'Toque para escolher';
         h+='<div class="svcuba on" id="sq-'+amb.id+'-'+it.k+'" onclick="openCubaPickAmb('+amb.id+',\''+it.ctp+'\')" style="cursor:pointer;">'+cubaInfo+'</div>';
       } else if((it.u==='ml'||it.u==='km'||it.u==='un')&&!it.fx&&isOn){
         var sv2=sv[it.k]||{};
@@ -4469,7 +4527,7 @@ function calcular(){
         return;
       }
       if(it.u==='cuba'){
-        if(amb.selCuba){var _cQtd2=amb.selCuba.qtd||1;var _cTot2=(amb.selCuba.total||0)*_cQtd2;acT+=_cTot2;var _cLbl='Cuba: '+(amb.selCuba.nm||'Cuba').trim()+(_cQtd2>1?' ×'+_cQtd2:'');acL.push({l:_cLbl,v:_cTot2});acN.push(_cLbl);}
+        if(amb.selCuba){var _cQtd2=amb.selCuba.qtd||1;var _cTot2=(amb.selCuba.total||0)*_cQtd2;acT+=_cTot2;var _cLbl='Cuba: '+(amb.selCuba.nm||'Cuba').trim()+(amb.selCuba.instTipoLabel?' ('+amb.selCuba.instTipoLabel+')':'')+(_cQtd2>1?' ×'+_cQtd2:'');acL.push({l:_cLbl,v:_cTot2});acN.push(_cLbl);}
         return;
       }
       if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
@@ -4808,7 +4866,7 @@ function calcular(){
       var vP=0,dP=itP.l;
       if(itP.u==='sf'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:'');}
       else if(itP.u==='sf_slim'||itP.u==='ml_only'){vP=mlP*qP*getPr(itP.k);dP+=' '+mlP+'ml (só MO)';}
-      else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd2=ambP.selCuba.qtd||1;vP=(ambP.selCuba.total||0)*_pQtd2;dP+=': '+(ambP.selCuba.nm||'Cuba').trim()+(_pQtd2>1?' ×'+_pQtd2:'');}}
+      else if(itP.u==='cuba'){if(ambP.selCuba){var _pQtd2=ambP.selCuba.qtd||1;vP=(ambP.selCuba.total||0)*_pQtd2;dP+=': '+(ambP.selCuba.nm||'Cuba').trim()+(ambP.selCuba.instTipoLabel?' ('+ambP.selCuba.instTipoLabel+')':'')+(_pQtd2>1?' ×'+_pQtd2:'');}}
       else if(!itP.fx){
         var qtyP=sdP.qty||1;
         vP=qtyP*getPr(itP.k);
@@ -7637,6 +7695,67 @@ function buildPT(){
   document.getElementById('ptWrap').innerHTML=h;
 }
 
+// ═══ FORMA DE INSTALAÇÃO DA CUBA (Sobrepor / Embutir / Flush) ═══
+// Cada cuba pode aceitar mais de uma forma de instalação, cada uma com sua
+// própria M.O. — a dificuldade sobe de Sobrepor (mais simples) até Flush
+// (recorte de precisão, acabamento nivelado com a bancada).
+var CUBA_INST_TIPOS=[
+  {k:'sobrepor',l:'Sobrepor',dif:'Fácil',cor:'#4fa86b',moDef:80},
+  {k:'embutir', l:'Embutir', dif:'Médio', cor:'#C9A84C',moDef:130},
+  {k:'flush',   l:'Flush',   dif:'Difícil',cor:'#d3607a',moDef:190}
+];
+function _cubaInstDefault(k){
+  var t=CUBA_INST_TIPOS.find(function(x){return x.k===k;});
+  return t?t.moDef:0;
+}
+function toggleCubaInstTipo(catTipo,idx,k){
+  var arr=catTipo==='coz'?CFG.coz:CFG.lav;
+  var c=arr[idx]; if(!c) return;
+  if(!c.instTipos) c.instTipos={};
+  if(!c.instTipos[k]) c.instTipos[k]={on:false,mo:_cubaInstDefault(k)};
+  c.instTipos[k].on=!c.instTipos[k].on;
+  svCFG(); buildCfg();
+}
+function updCubaInstMo(catTipo,idx,k,val){
+  var arr=catTipo==='coz'?CFG.coz:CFG.lav;
+  var c=arr[idx]; if(!c) return;
+  if(!c.instTipos) c.instTipos={};
+  if(!c.instTipos[k]) c.instTipos[k]={on:true,mo:0};
+  c.instTipos[k].mo=+val||0;
+  svCFG();
+}
+function _buildCubaInstTiposHtml(catTipo,idx,c){
+  if(!c.instTipos) c.instTipos={};
+  var h='<div style="padding:10px 14px 0;">';
+  h+='<div style="font-size:.55rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:8px;">🔧 Forma de instalação</div>';
+  h+='<div style="display:flex;gap:6px;">';
+  CUBA_INST_TIPOS.forEach(function(t){
+    var st=c.instTipos[t.k]||{};
+    var on=!!st.on;
+    h+='<div onclick="toggleCubaInstTipo(\''+catTipo+'\','+idx+',\''+t.k+'\')" style="cursor:pointer;flex:1;text-align:center;padding:8px 4px;border-radius:9px;border:1.5px solid '+(on?t.cor:'rgba(255,255,255,.12)')+';background:'+(on?t.cor+'22':'transparent')+';">';
+    h+='<div style="font-size:.68rem;font-weight:700;color:'+(on?t.cor:'var(--t4)')+';">'+t.l+'</div>';
+    h+='<div style="font-size:.55rem;color:'+(on?t.cor:'var(--t4)')+';opacity:.85;">'+t.dif+'</div>';
+    h+='</div>';
+  });
+  h+='</div>';
+  var anyOn=CUBA_INST_TIPOS.some(function(t){return c.instTipos[t.k]&&c.instTipos[t.k].on;});
+  if(anyOn){
+    h+='<div style="display:flex;gap:6px;margin-top:8px;">';
+    CUBA_INST_TIPOS.forEach(function(t){
+      var st=c.instTipos[t.k];
+      if(!st||!st.on) return;
+      h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid '+t.cor+';">';
+      h+='<div style="font-size:.5rem;color:'+t.cor+';text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">M.O. '+t.l+'</div>';
+      h+='<input class="cfginp" type="number" value="'+(st.mo!=null?st.mo:_cubaInstDefault(t.k))+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;color:'+t.cor+';font-weight:700;" onchange="updCubaInstMo(\''+catTipo+'\','+idx+',\''+t.k+'\',this.value)"></div>';
+    });
+    h+='</div>';
+  } else {
+    h+='<div style="font-size:.58rem;color:var(--t4);margin-top:6px;">Toque numa forma pra ativar e definir a M.O. dela</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
 // ═══ EDITOR DE FOTOS DE CUBA ═══
 // Retorna HTML do painel de galeria para uma cuba (tipo: 'coz'|'lav'|'ac', idx: número)
 function _buildCubaFotoEditor(tipo, idx){
@@ -7914,6 +8033,9 @@ function buildCfg(){
         h+='<div style="flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);"><div style="font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;background:transparent;border:none;padding:0;font-size:.8rem;" onchange="CFG.coz['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
         h+='</div>';
         h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:12px 14px 0;"></div>';
+        // Forma de instalação (Sobrepor/Embutir/Flush)
+        h+=_buildCubaInstTiposHtml('coz', i, c);
+        h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 14px;"></div>';
         // Editor de fotos
         h+=_buildCubaFotoEditor('coz', i);
         // Campos de texto
@@ -7981,6 +8103,11 @@ function buildCfg(){
           h+='<div style="margin-top:2px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
         }
         h+='</div>';
+        if(!isEsc){
+          h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:10px 13px 0;"></div>';
+          // Forma de instalação (Sobrepor/Embutir/Flush)
+          h+=_buildCubaInstTiposHtml('lav', i, c);
+        }
         // Editor de fotos
         h+=_buildCubaFotoEditor('lav', i);
         // Campos de texto
