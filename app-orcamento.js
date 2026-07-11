@@ -2025,7 +2025,8 @@ function calcular(){
     pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo MO ('+m2MedioMes.toFixed(1)+'m²/mês · R$'+fm(custoMOm2.toFixed(0))+'/m²)</span>';
     pi+='<b class="pi-tot-custo-val">R$ '+fm(custoRealMO)+'</b></div>';
   } else {
-    pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo MO (histórico curto — 55% est.)</span>';
+    var fatorMOlbl = Math.round((CFG&&CFG.sv&&CFG.sv.fatorCustoMO!=null?CFG.sv.fatorCustoMO:0.22)*100);
+    pi+='<div class="pi-tot-row"><span class="pi-tot-custo-lbl">Custo MO (histórico curto — '+fatorMOlbl+'% est.)</span>';
     pi+='<b class="pi-tot-custo-val">R$ '+fm(custoRealMO)+'</b></div>';
   }
 
