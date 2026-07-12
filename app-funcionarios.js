@@ -3039,6 +3039,97 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // EDITAR / EXCLUIR um pagamento já lançado — corrige valor, data,
+  // forma ou observação digitados errado (ex: lançou R$ 800 mas o
+  // pago de fato foi R$ 700). Não afeta os cálculos de acréscimos/
+  // descontos já quitados por esse pagamento; só corrige os campos.
+  // ─────────────────────────────────────────────────────────────
+  function abrirEditarPagamento(pagId){
+    var pags = getPagamentos();
+    var p    = pags[pagId];
+    if (!p) { _toast('Pagamento não encontrado.'); return; }
+    var funcs = getFuncionarios();
+    var f     = funcs[p.funcionarioId] || {nome:'?'};
+
+    var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
+      var t = _TIPOS_PAG[k];
+      return {v:k, l:t.icon+' '+t.label};
+    });
+
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Editar Pagamento','✏️ '+_esc(f.nome.split(' ')[0]),'HR_FUNC._closeEditarPag()')+
+
+      '<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);'+
+        'border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.7rem;color:'+T3+';line-height:1.5;">'+
+        '💡 Use isso quando o valor, a data ou a forma foram digitados errado na hora '+
+        'de registrar. Corrigir aqui não desfaz descontos ou quitações já aplicadas — '+
+        'só ajusta os dados do lançamento.'+
+      '</div>'+
+
+      _secao('Dados do Pagamento',
+        _campo('Tipo', _sel('edpag_tipo', opsTipo, p.tipo || 'outro'))+
+        _grid2(
+          _campo('Data', _inp('edpag_data','date','', p.data)),
+          _campo('Valor (R$)', _inp('edpag_valor','number','0,00', parseFloat(p.valor||0).toFixed(2),'min="0.01" step="0.01"'))
+        )+
+        _campo('Forma de Pagamento', _sel('edpag_forma', _FORMAS_PAG, p.forma || 'pix'))+
+        _campo('Observação (opcional)', _inp('edpag_obs','text','Ex: 1º decêndio junho, vale farmácia...', p.obs || ''))
+      )+
+
+      '<button onclick="HR_FUNC._salvarEdicaoPagamento(\''+pagId+'\')" style="'+CSS_BTN_GREEN+'">💾 Salvar Correção</button>'+
+      '<button onclick="HR_FUNC._excluirPagamento(\''+pagId+'\')" style="'+CSS_BTN_GHOST+'color:'+RED+';border-color:rgba(200,92,92,.25);">🗑 Excluir Lançamento</button>'+
+      '<button onclick="HR_FUNC._closeEditarPag()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
+    '</div>';
+
+    _overlay('hrEditarPag', html);
+  }
+
+  function _closeEditarPag(){ _closeOverlay('hrEditarPag'); }
+
+  function _salvarEdicaoPagamento(pagId){
+    var pags = getPagamentos();
+    var p    = pags[pagId];
+    if (!p) { _toast('Pagamento não encontrado.'); return; }
+
+    var data  = (document.getElementById('edpag_data')  || {}).value;
+    var valor = parseFloat((document.getElementById('edpag_valor') || {}).value);
+    var tipo  = (document.getElementById('edpag_tipo')  || {}).value || p.tipo;
+    var forma = (document.getElementById('edpag_forma') || {}).value || p.forma;
+    var obs   = (document.getElementById('edpag_obs')   || {}).value || '';
+
+    if (!data)                { _toast('Informe a data');   return; }
+    if (!valor || valor <= 0) { _toast('Valor inválido');   return; }
+
+    p.data  = data;
+    p.valor = valor;
+    p.tipo  = tipo;
+    p.forma = forma;
+    p.obs   = obs;
+    p.editadoEm = new Date().toISOString();
+    savePagamentos(pags);
+
+    _toast('✏️ Pagamento corrigido: ' + _fmtMoeda(valor));
+    _closeEditarPag();
+    if (document.getElementById('hrExtrato')) abrirExtratoPagamentos(p.funcionarioId);
+    renderPaginaFuncionarios();
+  }
+
+  function _excluirPagamento(pagId){
+    var pags = getPagamentos();
+    var p    = pags[pagId];
+    if (!p) { _toast('Pagamento não encontrado.'); return; }
+    if (!confirm('Excluir este pagamento de ' + _fmtMoeda(p.valor) + '? Essa ação não pode ser desfeita.')) return;
+    var funcId = p.funcionarioId;
+    delete pags[pagId];
+    savePagamentos(pags);
+    _toast('🗑 Pagamento excluído.');
+    _closeEditarPag();
+    if (document.getElementById('hrExtrato')) abrirExtratoPagamentos(funcId);
+    renderPaginaFuncionarios();
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // NOTIFICAÇÃO DE PAGAMENTO VIA WHATSAPP
   // ─────────────────────────────────────────────────────────────
   function _ofereceNotificacaoPagamento(funcId, valor, tipo, data, obs) {
@@ -3333,7 +3424,9 @@ var HR_FUNC = (function () {
                   '</span>'+
                   '<span style="font-size:.68rem;color:'+T3+';">'+icoF+' '+((p.forma||'').charAt(0).toUpperCase()+(p.forma||'').slice(1))+'</span>'+
                 '</div>'+
-                '<div style="font-size:.8rem;font-weight:600;color:'+T2+';">'+_fmtData(p.data)+'</div>'+
+                '<div style="font-size:.8rem;font-weight:600;color:'+T2+';">'+_fmtData(p.data)+
+                  (p.editadoEm ? ' <span style="font-size:.6rem;color:'+T3+';font-weight:400;">(editado)</span>' : '')+
+                '</div>'+
                 (p.obs ? '<div style="font-size:.7rem;color:'+T3+';margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+
                   _esc(p.obs)+'</div>' : '')+
               '</div>'+
@@ -3341,12 +3434,20 @@ var HR_FUNC = (function () {
                 '<div style="font-size:.95rem;font-weight:800;color:'+t.cor+';white-space:nowrap;">'+
                   _fmtMoeda(p.valor)+
                 '</div>'+
-                '<button onclick="HR_FUNC._gerarComprovantePagamento(\''+p.id+'\')" '+
-                  'style="padding:5px 10px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);'+
-                  'border-radius:8px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.68rem;'+
-                  'font-weight:600;cursor:pointer;white-space:nowrap;">'+
-                  '📄 PDF'+
-                '</button>'+
+                '<div style="display:flex;gap:6px;">'+
+                  '<button onclick="HR_FUNC.abrirEditarPagamento(\''+p.id+'\')" '+
+                    'style="padding:5px 9px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);'+
+                    'border-radius:8px;color:'+T2+';font-family:Outfit,sans-serif;font-size:.68rem;'+
+                    'font-weight:600;cursor:pointer;white-space:nowrap;">'+
+                    '✏️'+
+                  '</button>'+
+                  '<button onclick="HR_FUNC._gerarComprovantePagamento(\''+p.id+'\')" '+
+                    'style="padding:5px 10px;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);'+
+                    'border-radius:8px;color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.68rem;'+
+                    'font-weight:600;cursor:pointer;white-space:nowrap;">'+
+                    '📄 PDF'+
+                  '</button>'+
+                '</div>'+
               '</div>'+
             '</div>'+
           '</div>';
@@ -4505,6 +4606,10 @@ var HR_FUNC = (function () {
     _gerarRelatorioPonto:     _gerarRelatorioPonto,
     _pagarDecendioRapido:     _pagarDecendioRapido,
     _salvarPagamento:         _salvarPagamento,
+    abrirEditarPagamento:     abrirEditarPagamento,
+    _closeEditarPag:          _closeEditarPag,
+    _salvarEdicaoPagamento:   _salvarEdicaoPagamento,
+    _excluirPagamento:        _excluirPagamento,
     _ofereceNotificacaoPagamento: _ofereceNotificacaoPagamento,
     _gerarComprovantePagamento:   _gerarComprovantePagamento,
     // Faltas e Advertências
