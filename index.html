@@ -1102,26 +1102,12 @@ input[type=date] { color-scheme:dark; }
 }
 
 
-.orc-edit-banner { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--gold4); border:1px solid rgba(201,168,76,.35); color:var(--gold2); font-size:.78rem; font-weight:600; padding:10px 14px; border-radius:10px; margin-bottom:14px; }
-.orc-edit-cancel { background:none; border:1px solid rgba(201,168,76,.4); color:var(--gold); border-radius:20px; padding:4px 12px; font-size:.68rem; font-weight:600; cursor:pointer; font-family:inherit; white-space:nowrap; }
-.orc-edit-cancel:active { background:rgba(201,168,76,.15); }
 .orc-itens-lista { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:14px; margin-bottom:14px; }
-.orc-itens-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
-.orc-itens-header > span { font-size:.85rem; font-weight:700; color:var(--tx); }
-.orc-limpar-btn { background:none; border:1px solid rgba(224,85,85,.35); color:var(--red); border-radius:20px; padding:5px 12px; font-size:.68rem; font-weight:600; cursor:pointer; font-family:inherit; flex-shrink:0; white-space:nowrap; }
-.orc-limpar-btn:active { background:var(--red2); }
-.orc-item-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.07); }
-.orc-item-row.editing { background:var(--gold4); margin:0 -8px; padding:10px 8px; border-radius:8px; border-bottom-color:transparent; }
-.orc-item-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
-.orc-item-nome { font-size:.82rem; color:var(--t2); line-height:1.3; overflow-wrap:break-word; }
-.orc-item-val { font-size:.92rem; font-weight:700; color:var(--gold); }
-.orc-item-btns { display:flex; align-items:center; gap:6px; flex-shrink:0; }
-.orc-item-edit, .orc-item-del { background:none; border-radius:6px; width:28px; height:28px; font-size:.78rem; cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; }
-.orc-item-edit { border:1px solid rgba(201,168,76,.4); color:var(--gold); }
-.orc-item-edit:active { background:var(--gold4); }
-.orc-item-del { border:1px solid rgba(224,85,85,.4); color:var(--red); }
-.orc-item-del:active { background:var(--red2); }
-.orc-itens-total { display:flex; justify-content:space-between; padding-top:10px; font-weight:800; font-size:1rem; color:var(--tx); }
+.orc-item-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.07); }
+.orc-item-desc { flex:1; font-size:.85rem; color:var(--t1); }
+.orc-item-preco { font-size:.9rem; font-weight:700; color:var(--gold); white-space:nowrap; }
+.orc-item-del { background:none; border:1px solid rgba(255,60,60,.4); color:rgba(255,100,100,.8); border-radius:6px; width:26px; height:26px; font-size:.75rem; cursor:pointer; flex-shrink:0; }
+.orc-itens-total { display:flex; justify-content:space-between; padding-top:10px; font-weight:800; font-size:1rem; color:var(--t1); }
 
 /* ── Avatar cliente ── */
 .cli-avatar { width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:800;color:var(--tx);flex-shrink:0; }
@@ -1137,8 +1123,8 @@ input[type=date] { color-scheme:dark; }
 .hm-stats-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:8px; }
 .hm-stat-card { background:var(--s2);border:var(--border);border-radius:var(--r-md);padding:12px 10px;text-align:center;cursor:pointer;transition:opacity .15s; }
 .hm-stat-card:active { opacity:.7; }
-.hm-stat-val { font-size:.95rem;font-weight:800;color:var(--gold2);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
-.hm-stat-lbl { font-size:.6rem;color:var(--t3);font-weight:600;text-transform:uppercase;letter-spacing:.04em; }
+.hm-stat-val { font-size:.95rem;font-weight:800;color:var(--gold1);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.hm-stat-lbl { font-size:.6rem;color:var(--t4);font-weight:600;text-transform:uppercase;letter-spacing:.04em; }
 .hm-stat-warn .hm-stat-val { color:#e8a04a; }
 .hm-stat-loading { min-height:54px;position:relative;overflow:hidden; }
 .hm-stat-shimmer { position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.06) 50%,transparent 100%);background-size:200% 100%;animation:shimmer 1.4s infinite; }
@@ -1152,7 +1138,8 @@ input[type=date] { color-scheme:dark; }
 /* ── Erro dimensão no orçamento ── */
 .orc-erro-dim { background:rgba(220,80,80,.1);border:1px solid rgba(220,80,80,.25);border-radius:var(--r-md);padding:12px 14px;color:rgba(220,100,100,1);font-size:.78rem;font-weight:700;text-align:center;margin-top:8px; }
 
-
+</style>
+</head>
 <body>
 
 <div id="sApp">
@@ -1192,19 +1179,19 @@ input[type=date] { color-scheme:dark; }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <!-- ── Scripts — mesma ordem que o HR Mármores ── -->
-<script src="cear-logo.js?v=1"></script>
-<script src="cear-dados.js?v=2"></script>
-<script src="cear-db.js?v=2"></script>
-<script src="cear-helpers.js?v=2"></script>
-<script src="cear-home.js?v=2"></script>
-<script src="cear-cad.js?v=2"></script>
-<script src="cear-orc.js?v=2"></script>
-<script src="cear-financeiro.js?v=2"></script>
-<script src="cear-historico.js?v=2"></script>
-<script src="cear-clientes.js?v=2"></script>
-<script src="cear-config.js?v=2"></script>
-<script src="cear-modais.js?v=2"></script>
-<script src="cear-app.js?v=2"></script>
+<script src="cear-logo.js?v=3"></script>
+<script src="cear-dados.js?v=3"></script>
+<script src="cear-db.js?v=3"></script>
+<script src="cear-helpers.js?v=3"></script>
+<script src="cear-home.js?v=3"></script>
+<script src="cear-cad.js?v=3"></script>
+<script src="cear-orc.js?v=3"></script>
+<script src="cear-financeiro.js?v=3"></script>
+<script src="cear-historico.js?v=3"></script>
+<script src="cear-clientes.js?v=3"></script>
+<script src="cear-config.js?v=3"></script>
+<script src="cear-modais.js?v=3"></script>
+<script src="cear-app.js?v=3"></script>
 
 </body>
 </html>
