@@ -2518,7 +2518,7 @@ var HR_FUNC = (function () {
       '</div>'+
 
       '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
-      '<button onclick="HR_FUNC._gerarRelatorioPonto('+_decSelecionado+')" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
+      '<button onclick="HR_FUNC._gerarRelatorioPonto()" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
       '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
@@ -2728,23 +2728,70 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   function _closePagamento(){ _closeOverlay('hrPagamento'); }
 
-  // Gera o relatório de ponto PDF para o funcionário e período atual do modal
-  function _gerarRelatorioPonto(numDec) {
+  // Gera o relatório de ponto PDF para o funcionário e período REALMENTE
+  // visíveis no modal. Deriva mês+decêndio sempre a partir do campo de
+  // Data (#pag_data) — é o único valor que os botões de decêndio e a edição
+  // manual da data mantêm sincronizado na tela. Não recebe mais argumento
+  // (que ficava congelado no HTML desde a abertura do modal e não
+  // acompanhava o usuário trocando de aba) nem depende de window._folhaMes
+  // (variável global que só é setada ao navegar pela tela de Folha, e podia
+  // ficar desatualizada em relação ao que estava aberto no modal).
+  function _gerarRelatorioPonto() {
     var selFunc = document.getElementById('pag_func');
     var funcId  = selFunc ? selFunc.value : null;
     if (!funcId) { _toast('⚠ Selecione um funcionário primeiro.'); return; }
 
-    // Usa o decêndio selecionado na tela; se não informado, detecta pelo dia de hoje
-    var decNum = numDec || (function(){
-      var d = new Date().getDate();
-      return d <= 10 ? 1 : d <= 20 ? 2 : 3;
-    })();
-    var per = _periodoDecendio(decNum);
+    var inpData    = document.getElementById('pag_data');
+    var dataVal    = (inpData && inpData.value) ? inpData.value : _hoje(); // yyyy-mm-dd
+    var mesPeriodo = dataVal.slice(0, 7);
+    var dia        = parseInt(dataVal.slice(8, 10), 10);
+    var decNum     = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+    var per        = _periodoDecendio(decNum, mesPeriodo);
+
+    // Se não houver ponto importado nesse período exato, recua decêndio a
+    // decêndio (até ~2 meses) procurando o mais recente com registros —
+    // evita devolver um relatório vazio sem explicar o motivo.
+    var achado = _buscarPeriodoComDados(funcId, decNum, mesPeriodo);
+    var diStr = achado ? achado.di : per.di;
+    var dfStr = achado ? achado.df : per.df;
+
+    if (achado && achado.di !== per.di) {
+      _toast('📄 Sem registros no período selecionado — mostrando o mais recente com dados ('+
+        achado.di.slice(8)+'/'+achado.di.slice(5,7)+' a '+achado.df.slice(8)+'/'+achado.df.slice(5,7)+').');
+    } else if (!achado) {
+      _toast('ℹ Nenhum registro de ponto encontrado perto de '+per.di.slice(8)+'/'+per.di.slice(5,7)+
+        ' — mostrando o período selecionado mesmo assim.');
+    }
 
     if (typeof HR_RELATORIO_PONTO === 'undefined' || !HR_RELATORIO_PONTO.gerarPDF) {
       _toast('⚠ Módulo de relatório não carregado (app-relatorio-ponto.js).'); return;
     }
-    HR_RELATORIO_PONTO.gerarPDF(funcId, per.di, per.df);
+    HR_RELATORIO_PONTO.gerarPDF(funcId, diStr, dfStr);
+  }
+
+  // Procura, a partir do decêndio/mês informado, o mais recente (igual ou
+  // anterior) que tenha algum registro de ponto do funcionário. Recua até
+  // 6 decêndios (~2 meses). Retorna {di, df} ou null se nada foi encontrado.
+  function _buscarPeriodoComDados(funcId, decNumInicial, mesInicial) {
+    var regs = getRegistros();
+    var num = decNumInicial, mes = mesInicial;
+    for (var i = 0; i < 6; i++) {
+      var per = _periodoDecendio(num, mes);
+      var temDados = Object.values(regs).some(function(r){
+        return r && r.funcionarioId != null && r.funcionarioId == funcId &&
+          r.data >= per.di && r.data <= per.df;
+      });
+      if (temDados) return per;
+      if (num > 1) {
+        num -= 1;
+      } else {
+        num = 3;
+        var p = mes.split('-'), a = parseInt(p[0],10), m = parseInt(p[1],10) - 1 - 1;
+        if (m < 0) { m = 11; a -= 1; }
+        mes = a + '-' + String(m + 1).padStart(2,'0');
+      }
+    }
+    return null;
   }
 
   // ─────────────────────────────────────────────────────────────
