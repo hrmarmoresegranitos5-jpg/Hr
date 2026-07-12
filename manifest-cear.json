@@ -1,0 +1,27 @@
+{
+    "name": "Ceará Planejados",
+    "short_name": "Ceará",
+    "description": "Vidraçaria · Marcenaria · Serralheria — Sistema de gestão Ceará Planejados",
+    "start_url": ".",
+    "scope": "./",
+    "display": "standalone",
+    "display_override": ["standalone", "minimal-ui"],
+    "orientation": "portrait",
+    "background_color": "#0E0E1A",
+    "theme_color": "#0E0E1A",
+    "lang": "pt-BR",
+    "icons": [
+        {
+            "src": "icon-192-cear.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "icon-512-cear.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
