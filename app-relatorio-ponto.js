@@ -151,6 +151,16 @@ var HR_RELATORIO_PONTO = (function () {
         var extraMin    = Math.round((parseFloat(r.extra) || 0) * 60);
         var saldoMin    = trabMin - esperadoMin;
 
+        // Feriado/meio período: se trabalhou além do esperado (reduzido) e
+        // ninguém lançou hora extra manualmente no registro, calcula a extra
+        // automaticamente a partir do excedente — não pode ficar em branco
+        // só porque o campo "extra" do ponto não foi preenchido.
+        var autoExtra = false;
+        if (tipoLinha === 'feriado' && extraMin === 0 && saldoMin > 0) {
+          extraMin  = saldoMin;
+          autoExtra = true;
+        }
+
         // Valor extra financeiro do dia
         // (usa o motor unificado HR_IMPORT.calcValorHoraReal — mesma jornada
         // real usada em calcSaldoFuncionario/app-funcionarios.js — em vez de
@@ -179,6 +189,7 @@ var HR_RELATORIO_PONTO = (function () {
           else if (r.autoCompletado)        obs = 'incompleto';
           else if (r.tipo === 'folga_banco') obs = 'folga banco';
         }
+        if (autoExtra) obs += ' (extra calculada automaticamente)';
 
         linhas.push({
           data:       iso,
@@ -196,6 +207,7 @@ var HR_RELATORIO_PONTO = (function () {
           obs:        obs,
           tipo:       tipoLinha,
           autoComp:   !!r.autoCompletado,
+          autoExtra:  autoExtra,
           destinoBanco: r.destinoExtra === 'banco',
           excDescricao: exc ? (exc.descricao || '') : '',
         });
@@ -553,7 +565,7 @@ var HR_RELATORIO_PONTO = (function () {
     // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
     var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
-               (fin.totalPago > 0 ? 6 : 0) + 12;
+               (fin.totalPago > 0 ? 6 : 0) + 12 + 6.5;
 
     var corStatus = fin.status === 'pago' ? COR_VERDE : COR_GOLD;
     doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
@@ -614,6 +626,15 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text(fin.status === 'pago' ? '✅ QUITADO' : '💰 TOTAL LÍQUIDO A PAGAR', mL + 6, fy + 1);
     doc.setFontSize(11);
     doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 6, fy + 1.2, { align: 'right' });
+
+    fy += 6.5;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6.3);
+    doc.setTextColor(150, 150, 150);
+    doc.text('* Valores com centavos são normais: ocorrem quando um pagamento anterior foi um pouco maior ou menor',
+      mL + 3, fy, { maxWidth: cW - 6 });
+    fy += 3;
+    doc.text('  que o devido, e a diferença é ajustada automaticamente aqui.', mL + 3, fy, { maxWidth: cW - 6 });
 
     y += boxH + 4;
 
@@ -969,6 +990,10 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="background:'+faixaCor+';border-radius:6px;padding:9px 14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">'+
           '<span style="color:#fff;font-size:12px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
           '<span style="color:#fff;font-size:16px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
+        '</div>'+
+        '<div style="font-size:9px;color:#999;font-style:italic;margin-top:6px;line-height:1.4;">'+
+          '* Valores com centavos são normais: acontecem quando o pagamento de um período '+
+          'anterior foi um pouco maior ou menor que o devido, e a diferença é ajustada aqui.'+
         '</div>'+
         outrosDecendiosHtml+
         outrosAdiantamentosHtml+
