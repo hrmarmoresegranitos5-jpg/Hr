@@ -326,7 +326,6 @@ function initApp() {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js').catch(()=>{});
       });
-    }
 
     // Destino inicial: respeita atalho PWA (?pg=...) mas nunca no carregamento normal
     const urlParams = new URLSearchParams(window.location.search);

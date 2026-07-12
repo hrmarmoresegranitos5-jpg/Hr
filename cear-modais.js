@@ -92,8 +92,74 @@ function showModalEditar(orc, onSalvar) {
 
 
 // ════════════════════════════════════════════════════════════
-// MODAL COMPARTILHAR — escolha entre PDF e WhatsApp
+// MODAL DATA DE INSTALAÇÃO — com checagem de conflito de agenda
 // ════════════════════════════════════════════════════════════
+
+function showModalDataInstalacao(state, onConfirmar) {
+  var hojeISO = new Date().toISOString().slice(0, 10);
+  var dataAtual = state.dataInstalacao || '';
+  var diasSel = state.diasInstalacao || 1;
+  var ignorarId = state.id || null; // se estiver editando um orçamento já salvo
+
+  var diasBtns = [1,2,3,4,5].map(function(n){
+    return '<button type="button" class="di-dias-btn'+(n===diasSel?' active':'')+'" data-n="'+n+'">'+n+(n===1?' dia':' dias')+'</button>';
+  }).join('');
+
+  showModal(
+    '<div class="modal-titulo">📅 Data de instalação</div>'+
+    '<div style="font-size:.78rem;color:var(--t3);margin-bottom:14px">Essa data vai aparecer no PDF/mensagem como previsão de entrega. Você pode pular se ainda não souber.</div>'+
+    '<div class="field"><label>Data de início</label><input id="diData" type="date" value="'+dataAtual+'" min="'+hojeISO+'"></div>'+
+    '<div class="field" style="margin-top:12px"><label>Quantos dias vai levar a instalação?</label>'+
+    '<div id="diDiasRow" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+diasBtns+'</div></div>'+
+    '<div id="diConflitoBox" style="margin-top:12px"></div>'+
+    '<div class="modal-row" style="margin-top:16px">'+
+    '<button class="btn btn-ghost btn-full" id="diPularBtn">Pular</button>'+
+    '<button class="btn btn-gold btn-full" id="diConfirmarBtn">Continuar</button>'+
+    '</div>'
+  );
+
+  var inputData = document.getElementById('diData');
+  var box = document.getElementById('diConflitoBox');
+
+  document.querySelectorAll('.di-dias-btn').forEach(function(btn){
+    btn.onclick = function(){
+      diasSel = Number(btn.dataset.n);
+      document.querySelectorAll('.di-dias-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+      _diChecar();
+    };
+  });
+  inputData.addEventListener('change', _diChecar);
+
+  async function _diChecar() {
+    var val = inputData.value;
+    if (!val) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div style="font-size:.72rem;color:var(--t3)">Verificando agenda…</div>';
+    var r = await orcVerificarConflitoData(val, diasSel, ignorarId);
+    if (!r.conflitos.length) {
+      box.innerHTML = '<div style="font-size:.76rem;color:var(--grn);background:var(--grn2);border:1px solid rgba(58,158,106,.3);border-radius:10px;padding:10px 12px">✓ Data livre na agenda.</div>';
+      return;
+    }
+    var nomes = Array.from(new Set(r.conflitos.map(function(c){ return c.cliente; }))).join(', ');
+    var datasConf = Array.from(new Set(r.conflitos.map(function(c){ return _fmtDataBR(c.data); })));
+    var msg = '⚠️ Você já tem instalação marcada pra ' + datasConf.join(', ') + ' (' + esc(nomes) + ').';
+    if (r.proximaLivre) msg += ' Próxima data livre pra essa duração: <b>' + _fmtDataBR(r.proximaLivre) + '</b>.';
+    msg += ' Se der pra encaixar as duas nesse dia, pode continuar mesmo assim.';
+    box.innerHTML = '<div style="font-size:.76rem;color:#e8a04a;background:rgba(232,160,74,.1);border:1px solid rgba(232,160,74,.3);border-radius:10px;padding:10px 12px;line-height:1.5">'+msg+'</div>';
+  }
+  if (dataAtual) _diChecar();
+
+  document.getElementById('diPularBtn').onclick = function(){
+    state.dataInstalacao = '';
+    closeModal();
+    onConfirmar();
+  };
+  document.getElementById('diConfirmarBtn').onclick = function(){
+    state.dataInstalacao = inputData.value || '';
+    state.diasInstalacao = diasSel;
+    closeModal();
+    onConfirmar();
+  };
+}
 
 function showModalCompartilhar(state) {
   const res = state.resultado;
@@ -198,6 +264,7 @@ async function gerarPDFOrcamento(state) {
         ${cliente !== '—' ? `<div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">NOME</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${cliente}</div></div>` : ''}
         ${fone !== '—' ? `<div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">TELEFONE</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${fone}</div></div>` : ''}
         <div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">DATA</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${dataNum}</div></div>
+        ${state.dataInstalacao ? `<div><div style="font-size:10px;color:#a08030;font-weight:600;margin-bottom:3px">PREVISÃO DE ENTREGA</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${_fmtDataBR(state.dataInstalacao)}${(state.diasInstalacao||1)>1?' a '+_fmtDataBR(_orcDiasOcupados(state.dataInstalacao,state.diasInstalacao).slice(-1)[0]):''}</div></div>` : ''}
       </div>
     ` : '';
 
@@ -422,6 +489,7 @@ async function gerarPDFMulti(state) {
         ${cliente!=='—'?`<div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">NOME</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${cliente}</div></div>`:''}
         ${fone!=='—'?`<div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">TELEFONE</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${fone}</div></div>`:''}
         <div><div style="font-size:10px;color:#999;font-weight:600;margin-bottom:3px">DATA</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${dataNum}</div></div>
+        ${state.dataInstalacao ? `<div><div style="font-size:10px;color:#a08030;font-weight:600;margin-bottom:3px">PREVISÃO DE ENTREGA</div><div style="font-size:14px;font-weight:700;color:#1a1a2e">${_fmtDataBR(state.dataInstalacao)}${(state.diasInstalacao||1)>1?' a '+_fmtDataBR(_orcDiasOcupados(state.dataInstalacao,state.diasInstalacao).slice(-1)[0]):''}</div></div>` : ''}
       </div>` : '';
 
     const htmlContent = `

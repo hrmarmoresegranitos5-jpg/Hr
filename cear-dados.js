@@ -192,6 +192,7 @@ let orcState = {
   resultado:null, folhasCorrer:2, janelaFolhas:2, puxadorCorrer:false, puxadoresQtd:1,
   kitPivotante:'comum', molaQtd:0, kitCor:'branco',
   boxTipo:'conv', largB:80, altB:80, puxadoresCorrerQtd:1,
+  dataInstalacao:'', diasInstalacao:1,
 };
 
 // Declara os globais que loadCFG vai preencher
