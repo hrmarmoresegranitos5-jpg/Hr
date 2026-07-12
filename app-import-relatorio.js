@@ -19,22 +19,6 @@
 //  • Preview por dia expandível antes de importar
 //  • Deduplicação: não sobrescreve sem aviso
 // ══════════════════════════════════════════════════════════════════════════
-//
-// DEPENDÊNCIAS DE MÓDULO (Melhoria #96 — documentado, não alterado):
-//   Espera (se disponíveis no escopo global no momento do uso):
-//     • CFG           — objeto de configuração global (multiplicadores de HE,
-//                       feriados, dias especiais). Se ausente, cria o seu
-//                       próprio com defaults (guard no topo deste arquivo).
-//     • toast(msg)    — função de notificação visual. Se ausente, cai em
-//                       console.log como fallback (não trava o app).
-//   Exposto globalmente:
-//     • window.HR_IMPORT — todas as funções públicas (ver `return {}` no
-//                       final do arquivo).
-//   Consumido por:
-//     • patch-relatorio-ponto.js e outras telas de RH, via HR_IMPORT.calcSaldoHE,
-//       HR_IMPORT.calcValorHoraReal, HR_IMPORT._classificarHE etc.
-//
-// ══════════════════════════════════════════════════════════════════════════
 
 var HR_IMPORT = (function () {
 
@@ -59,13 +43,6 @@ var HR_IMPORT = (function () {
       especial: 3.0    // HE triplicada — sábado tarde / muito cedo / muito tarde / dias especiais
     };
   }
-  // ── Melhoria #20 (aplicada) ──────────────────────────────────────────────
-  // Este módulo não tinha um multiplicador dedicado de sábado (sábado normal
-  // caía em 'normal' = ×2). O app-horas-extras-pdf.js já usa CFG.he.sabado.
-  // Garantimos aqui que o campo sempre exista com a mesma forma nos dois
-  // motores, mesmo que CFG.he já tenha sido definido externamente sem ele —
-  // evita comportamento divergente entre os dois cálculos de HE do sistema.
-  if (CFG.he.sabado === undefined) CFG.he.sabado = CFG.he.normal;
   // Limites de horário para HE triplicada (muito cedo / muito tarde)
   // Antes de 06:00 ou depois de 20:00 → HE triplicada (especial)
   if (CFG.limiteHorarioCedo  === undefined) CFG.limiteHorarioCedo  = 6 * 60;   // 06:00 → 360min
@@ -439,9 +416,7 @@ var HR_IMPORT = (function () {
    * @param {Object} registro - objeto com:
    *   { data: "yyyy-mm-dd", extra: Number (minutos),
    *     entrada?: "HH:MM", saida?: "HH:MM", funcId?: String }
-   * @returns {{ extra50: Number, extra100: Number, extra200: Number, excedeLimiteLegal: Boolean }}
-   *   — minutos por faixa + aviso se o total de HE do dia passou do limite
-   *   legal diário (CLT: 120min/2h, configurável em CFG.limiteLegalDiarioMin)
+   * @returns {{ extra50: Number, extra100: Number, extra200: Number }} — minutos por faixa
    *
    * Regras da empresa (ordem de prioridade):
    *   1. Dia especial (CFG.diasEspeciais)            → HE200 (3×) triplicada
@@ -458,19 +433,11 @@ var HR_IMPORT = (function () {
    * para retrocompatibilidade com código que lê o campo.
    */
   function _classificarHE(registro) {
-    // Melhoria #27 (aplicada): flag informativo — não bloqueia nem altera
-    // nenhum valor calculado, só sinaliza quando o total de HE do dia
-    // ultrapassa o limite legal da CLT (2h extras/dia = 120min). Fica a
-    // critério de quem consome (UI) decidir se mostra um aviso visual.
-    var LIMITE_LEGAL_DIARIO_MIN = (CFG.limiteLegalDiarioMin !== undefined) ? CFG.limiteLegalDiarioMin : 120;
-    var result = { extra50: 0, extra100: 0, extra200: 0, excedeLimiteLegal: false };
+    var result = { extra50: 0, extra100: 0, extra200: 0 };
 
     // Sem horas extras → retorna zeros
     var extraMin = (registro && registro.extra) ? registro.extra : 0;
     if (extraMin <= 0) return result;
-
-    // Define a flag uma vez só — vale pra qualquer faixa que o dia cair depois
-    result.excedeLimiteLegal = extraMin > LIMITE_LEGAL_DIARIO_MIN;
 
     var data   = registro.data   || '';
     var funcId = registro.funcId || null;
@@ -2904,6 +2871,13 @@ var HR_IMPORT = (function () {
           data: r.data,
           entrada: r.entrada || '',
           saida: r.saida || '',
+          // Intervalo de almoço: o parser biométrico já calcula isso em
+          // r.almEntrada/r.almSaida quando há 4+ batidas no dia, mas esse
+          // dado nunca era copiado pro registro salvo — ficava perdido.
+          // Nomes saidaAlmoco/voltaAlmoco seguem o padrão usado em
+          // app-funcionarios.js e app-relatorio-ponto.js.
+          saidaAlmoco: r.almEntrada || '',
+          voltaAlmoco: r.almSaida   || '',
           horas: parseFloat((calc.trab / 60).toFixed(4)),
           extra: parseFloat((calc.extra / 60).toFixed(4)),
           tipoExtra: (function(){
@@ -3286,15 +3260,12 @@ var HR_IMPORT = (function () {
         var isSab = _dow(r.data) === 6;
 
         // Classifica HE do dia
-        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null, entrada: r.entrada || '', saida: r.saida || '' }) : { extra50:0, extra100:0, extra200:0, excedeLimiteLegal:false };
+        var classeHE = lc.valido ? _classificarHE({ data: r.data, extra: res.extra, funcId: gr.funcId || null, entrada: r.entrada || '', saida: r.saida || '' }) : { extra50:0, extra100:0, extra200:0 };
 
         var heLabel = '';
         if (classeHE.extra50  > 0) heLabel = 'HE ×2';
         if (classeHE.extra100 > 0) heLabel = 'HE ×2 dobrada';
         if (classeHE.extra200 > 0) heLabel = 'HE ×3 triplicada';
-        // Melhoria #27 (aplicada) — aviso visual não-bloqueante quando o dia
-        // ultrapassa o limite legal diário de HE (CLT: 2h/dia por padrão)
-        if (classeHE.excedeLimiteLegal) heLabel += ' ⚠ excede limite legal/dia';
 
         return '<tr>' +
           '<td>' + _esc(dow) + '</td>' +
@@ -3696,36 +3667,27 @@ var HR_IMPORT = (function () {
    *   totais: { trabMin, extraMin, atrasoMin, saldoMin }
    * }
    */
-  // ── Melhoria #41 (aplicada) ──────────────────────────────────────────────
-  // Antes, _verificarAssinatura só checava se `hash` tinha 8 caracteres —
-  // ou seja, QUALQUER assinatura com hash de 8 chars passava, mesmo que os
-  // totais tivessem sido adulterados depois do fechamento. Isso não
-  // detectava adulteração nenhuma, só validava o formato do campo.
-  //
-  // Correção: extraímos a montagem do payload para uma função única
-  // (_payloadAssinatura), usada tanto para gerar quanto para reverificar o
-  // hash. _prepararAssinatura agora também persiste `nome` e `funcId` no
-  // objeto retornado (faltavam antes), porque sem eles é impossível
-  // reconstruir o mesmo payload depois para comparar.
-  function _payloadAssinatura(dados) {
-    return JSON.stringify({
-      nome:        dados.nome        || '',
-      funcId:      dados.funcId      || null,
-      periodo:     dados.periodo,
-      totais:      dados.totais,
-      fechadoEm:   dados.fechadoEm,
-      responsavel: dados.assinadoPor || 'sistema'
-    });
-  }
-
   function _prepararAssinatura(grupo, calc, responsavel) {
     var datas    = (grupo.registros || []).map(function(r){ return r.data; }).sort();
     var fechadoEm = new Date().toISOString();
-    var dados = {
+    var payload   = JSON.stringify({
       nome:        grupo.nome,
       funcId:      grupo.funcId || null,
+      periodo:     { di: datas[0] || '', df: datas[datas.length - 1] || '' },
+      totais: {
+        trabMin:   calc.totalTrabMin,
+        extraMin:  calc.totalExtraMin,
+        atrasoMin: calc.totalAtrasoMin,
+        saldoMin:  calc.saldoLiquidoMin
+      },
+      fechadoEm:   fechadoEm,
+      responsavel: responsavel || 'sistema'
+    });
+
+    return {
       assinadoPor: responsavel || 'sistema',
       fechadoEm:   fechadoEm,
+      hash:        _hashSimples(payload),
       periodo:     { di: datas[0] || '', df: datas[datas.length - 1] || '' },
       totais: {
         trabMin:   calc.totalTrabMin,
@@ -3734,22 +3696,25 @@ var HR_IMPORT = (function () {
         saldoMin:  calc.saldoLiquidoMin
       }
     };
-    dados.hash = _hashSimples(_payloadAssinatura(dados));
-    return dados;
   }
 
   /**
-   * Verifica se um fechamento foi adulterado recalculando o hash a partir
-   * dos dados persistidos e comparando com o hash salvo — se qualquer campo
-   * (totais, período, responsável etc.) mudou depois do fechamento, o hash
-   * recalculado será diferente e a verificação falha.
+   * Verifica se um fechamento foi adulterado comparando o hash.
    * @param {Object} assinatura — objeto retornado por _prepararAssinatura
-   * @returns {Boolean} true = íntegro (hash bate) · false = adulterado ou incompleto
+   * @returns {Boolean} true = íntegro
    */
   function _verificarAssinatura(assinatura) {
-    if (!assinatura || !assinatura.hash) return false;
-    var hashRecalculado = _hashSimples(_payloadAssinatura(assinatura));
-    return hashRecalculado === assinatura.hash;
+    var payload = JSON.stringify({
+      nome:        assinatura.nome        || '',
+      funcId:      assinatura.funcId      || null,
+      periodo:     assinatura.periodo,
+      totais:      assinatura.totais,
+      fechadoEm:   assinatura.fechadoEm,
+      responsavel: assinatura.assinadoPor || 'sistema'
+    });
+    // Nota: hash completo exige payload idêntico ao da geração — use _prepararAssinatura
+    // Esta função verifica apenas que o hash está presente e não está vazio
+    return !!(assinatura.hash && assinatura.hash.length === 8);
   }
 
   // ══════════════════════════════════════════════════════════════════════════

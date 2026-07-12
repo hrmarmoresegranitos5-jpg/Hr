@@ -168,8 +168,14 @@
     var f = funcs[funcId] || {};
     var salario = parseFloat(f.salario) || 0;
 
-    // Valor hora base: salário ÷ 220h mensais
-    var valorHoraBase = salario / 220;
+    // Valor hora base: usa o motor unificado HR_IMPORT.calcValorHoraReal
+    // (mesma jornada real usada em calcSaldoFuncionario e no relatório de
+    // ponto) em vez de um divisor fixo de 220h — evita que a mesma hora
+    // extra valha 3 valores diferentes dependendo de qual PDF é gerado.
+    var mesRefHE = (inicio || new Date().toISOString()).slice(0, 7);
+    var valorHoraBase = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+      ? HR_IMPORT.calcValorHoraReal(f, mesRefHE)
+      : salario / 220; // fallback se HR_IMPORT não estiver carregado
 
     // Filtrar registros do período com hora extra
     // (== em vez de === — mesmo motivo: funcId pode vir como string vs number)
