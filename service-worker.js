@@ -1,32 +1,28 @@
 // service-worker.js — Ceará Planejados
-const CACHE_NAME = 'cear-v57';
-// IMPORTANTE: c.addAll() falha por inteiro se QUALQUER item aqui der 404 —
-// isso fazia o SW nunca instalar/ativar e o app ficar servindo cache velho
-// (inclusive assets do HR Mármores, quando os dois apps dividiam pasta).
-// Assim que os módulos abaixo marcados forem restaurados, adicione-os de volta.
+const CACHE_NAME = 'cear-v55';
 const ASSETS = [
   './',
   './index.html',
-  './manifest-cear.json',
-  './icon-192-cear.png',
-  './icon-512-cear.png',
-  './apple-touch-icon-cear.png',
-  './favicon-32x32-cear.png',
-  './favicon-16x16-cear.png',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
+  './favicon-32x32.png',
+  './favicon-16x16.png',
   './cear-logo.js',
+  './logo.png',
   './cear-dados.js',
+  './cear-db.js',
   './cear-helpers.js',
+  './cear-home.js',
+  './cear-cad.js',
   './cear-orc.js',
+  './cear-financeiro.js',
   './cear-historico.js',
+  './cear-clientes.js',
+  './cear-config.js',
   './cear-modais.js',
   './cear-app.js',
-  // ainda faltando no repo — re-adicionar aqui quando existirem:
-  // './cear-db.js',
-  // './cear-home.js',
-  // './cear-cad.js',
-  // './cear-financeiro.js',
-  // './cear-clientes.js',
-  // './cear-config.js',
 ];
 
 self.addEventListener('install', e => {

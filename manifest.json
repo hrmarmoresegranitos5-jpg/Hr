@@ -1,27 +1,28 @@
 {
-    "name": "HR Mármores e Granitos",
-    "short_name": "HR Mármores",
-    "description": "Sistema de gestão HR Mármores e Granitos",
-    "start_url": ".",
-    "scope": "./",
-    "display": "standalone",
-    "display_override": ["standalone", "minimal-ui"],
-    "orientation": "portrait",
-    "background_color": "#070709",
-    "theme_color": "#C9A84C",
-    "lang": "pt-BR",
-    "icons": [
-        {
-            "src": "icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
-        }
-    ]
+  "name": "Ceará Planejados",
+  "short_name": "Ceará",
+  "description": "Vidraçaria · Marcenaria · Serralheria — Calcule orçamentos e gerencie clientes",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E0E1A",
+  "theme_color": "#0E0E1A",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "utilities"],
+  "screenshots": []
 }

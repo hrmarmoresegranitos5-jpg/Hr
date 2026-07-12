@@ -149,10 +149,8 @@ function renderOrc(wrap) {
   if (isPiv) {
     var svgC='<svg id="mkitComum" viewBox="0 0 50 50" width="44" height="44"></svg>';
     var svgJ='<svg id="mkitJumbo" viewBox="0 0 50 50" width="44" height="44"></svg>';
-    var precoKitComum = CFG.acessorios.kit_pivotante, precoKitJumbo = CFG.acessorios.kit_jumbo;
-    var precoMola = CFG.comercial.mola_hidraulica;
-    var kitSub_c=formatBRL(nFP===2?precoKitComum*2:precoKitComum);
-    var kitSub_j=formatBRL(nFP===2?precoKitJumbo*2:precoKitJumbo);
+    var kitSub_c='R$ '+(nFP===2?'300':'150');
+    var kitSub_j='R$ '+(nFP===2?'700':'350');
     kitBlock = '<div class="field"><label>Kit pivotante'+(nFP===2?' (2 kits)':'')+'</label>'
       +'<div class="kit-opts kit-opts-kits">'
       +'<button class="kit-btn'+(s.kitPivotante==='comum'?' active':'')+'" onclick="_setKit(0)">'+svgC
@@ -164,12 +162,12 @@ function renderOrc(wrap) {
       +(nFP===2
         ?'<div class="kit-opts">'
           +'<button class="kit-btn'+(s.molaQtd===0?' active':'')+'" onclick="_setMola(0)" style="flex:1"><span class="kit-nm">Sem mola</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">'+formatBRL(precoMola)+'</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">'+formatBRL(precoMola*2)+'</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">R$ 500</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">R$ 1.000</span></button>'
           +'</div>'
         :'<button class="mola-toggle'+(s.molaQtd>0?' active':'')+'" onclick="orcToggleMola()">'
           +'<span class="mola-ic">⚙️</span><div class="mola-info"><span class="mola-nm">Mola Hidráulica</span>'
-          +'<span class="mola-sub">'+formatBRL(precoMola)+' · fecha automático</span></div>'
+          +'<span class="mola-sub">R$ 500 · fecha automático</span></div>'
           +'<span class="mola-chk">'+(s.molaQtd>0?'✓':'')+'</span></button>'
       )+'</div>';
   }
@@ -178,10 +176,9 @@ function renderOrc(wrap) {
   var kitCorBlock = '';
   if (isCorrer||isJanela||isBox) {
     var kc=s.kitCor||'branco';
-    var kEngB = CFG.comercial.kit_eng_branco, kEngP = CFG.comercial.kit_eng_preto;
     kitCorBlock = '<div class="field"><label>Kit engenharia</label><div class="kit-opts">'
-      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">'+formatBRL(kEngB)+'/m²</span></button>'
-      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">'+formatBRL(kEngP)+'/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">R$ 120/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">R$ 130/m²</span></button>'
       +'</div></div>';
   }
 
@@ -198,8 +195,8 @@ function renderOrc(wrap) {
       +'<div class="orc-accs"><button class="orc-acc-btn'+(puxOn?' on':'')+'" onclick="_togAcc(\'puxador\')">'+(puxOn?'✓':'+')+' Puxador</button></div>';
     if (puxOn) {
       accsBlock += '<div class="pux-qty-row"><span class="pux-qty-lbl">Quantidade:</span>'
-        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
-        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · R$ 100</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · R$ 200</button>'
         +'</div>';
     }
     accsBlock += '</div>';
@@ -213,8 +210,8 @@ function renderOrc(wrap) {
     ah += '</div>';
     if (is2F&&puxOn) {
       ah += '<div class="pux-qty-row"><span class="pux-qty-lbl">Puxadores:</span>'
-        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
-        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · R$ 100</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · R$ 200</button>'
         +'</div>';
     }
     accsBlock = ah+'</div>';
@@ -456,7 +453,7 @@ function _getVisAcc() {
     ];
     if((s.pivFolhas||1)===2){
       list.push({id:'contra',   nome:'Contra fechadura', preco:a.contra_fechadura||50, obrig:true});
-      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:(a.contra_fechadura||50)*2, obrig:true});
+      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:a.ferrolho||120,       obrig:true});
     }
     return list;
   }
@@ -568,10 +565,9 @@ async function _orcVincularCliente(dados) {
 async function orcSalvarTodos() {
   if(!orcItens.length) return;
   var totalGeral=orcItens.reduce(function(a,it){return a+(it.resultado.total||0)*(it.qty||1);},0);
-  var totalAvistaGeral=orcItens.reduce(function(a,it){return a+((it.resultado.totalAvista??it.resultado.total)||0)*(it.qty||1);},0);
   showModalConfirm('💾 Salvar orçamento completo?',orcItens.length+' iten'+(orcItens.length>1?'s':'')+' · '+formatBRL(totalGeral)+(orcState.cliente?' · '+orcState.cliente:''),'Salvar',async function(){
     try {
-      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalAvistaGeral,linhas:[]},km:0});
+      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalGeral,linhas:[]},km:0});
       closeModal();
     } catch(e){alert('Erro: '+e.message);}
   });
@@ -615,7 +611,6 @@ function orcEnviarEmail() {
   closeModal();
 }
 
-function orcGerarPDF() {
   closeModal();
   // Se houver itens no orçamento multi, usa o gerador multi
   if (orcItens && orcItens.length > 0) {
