@@ -149,8 +149,10 @@ function renderOrc(wrap) {
   if (isPiv) {
     var svgC='<svg id="mkitComum" viewBox="0 0 50 50" width="44" height="44"></svg>';
     var svgJ='<svg id="mkitJumbo" viewBox="0 0 50 50" width="44" height="44"></svg>';
-    var kitSub_c='R$ '+(nFP===2?'300':'150');
-    var kitSub_j='R$ '+(nFP===2?'700':'350');
+    var precoKitComum = CFG.acessorios.kit_pivotante, precoKitJumbo = CFG.acessorios.kit_jumbo;
+    var precoMola = CFG.comercial.mola_hidraulica;
+    var kitSub_c=formatBRL(nFP===2?precoKitComum*2:precoKitComum);
+    var kitSub_j=formatBRL(nFP===2?precoKitJumbo*2:precoKitJumbo);
     kitBlock = '<div class="field"><label>Kit pivotante'+(nFP===2?' (2 kits)':'')+'</label>'
       +'<div class="kit-opts kit-opts-kits">'
       +'<button class="kit-btn'+(s.kitPivotante==='comum'?' active':'')+'" onclick="_setKit(0)">'+svgC
@@ -162,12 +164,12 @@ function renderOrc(wrap) {
       +(nFP===2
         ?'<div class="kit-opts">'
           +'<button class="kit-btn'+(s.molaQtd===0?' active':'')+'" onclick="_setMola(0)" style="flex:1"><span class="kit-nm">Sem mola</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">R$ 500</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">R$ 1.000</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">'+formatBRL(precoMola)+'</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">'+formatBRL(precoMola*2)+'</span></button>'
           +'</div>'
         :'<button class="mola-toggle'+(s.molaQtd>0?' active':'')+'" onclick="orcToggleMola()">'
           +'<span class="mola-ic">⚙️</span><div class="mola-info"><span class="mola-nm">Mola Hidráulica</span>'
-          +'<span class="mola-sub">R$ 500 · fecha automático</span></div>'
+          +'<span class="mola-sub">'+formatBRL(precoMola)+' · fecha automático</span></div>'
           +'<span class="mola-chk">'+(s.molaQtd>0?'✓':'')+'</span></button>'
       )+'</div>';
   }
@@ -176,9 +178,10 @@ function renderOrc(wrap) {
   var kitCorBlock = '';
   if (isCorrer||isJanela||isBox) {
     var kc=s.kitCor||'branco';
+    var kEngB = CFG.comercial.kit_eng_branco, kEngP = CFG.comercial.kit_eng_preto;
     kitCorBlock = '<div class="field"><label>Kit engenharia</label><div class="kit-opts">'
-      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">R$ 120/m²</span></button>'
-      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">R$ 130/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">'+formatBRL(kEngB)+'/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">'+formatBRL(kEngP)+'/m²</span></button>'
       +'</div></div>';
   }
 
@@ -195,8 +198,8 @@ function renderOrc(wrap) {
       +'<div class="orc-accs"><button class="orc-acc-btn'+(puxOn?' on':'')+'" onclick="_togAcc(\'puxador\')">'+(puxOn?'✓':'+')+' Puxador</button></div>';
     if (puxOn) {
       accsBlock += '<div class="pux-qty-row"><span class="pux-qty-lbl">Quantidade:</span>'
-        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · R$ 100</button>'
-        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · R$ 200</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
         +'</div>';
     }
     accsBlock += '</div>';
@@ -210,8 +213,8 @@ function renderOrc(wrap) {
     ah += '</div>';
     if (is2F&&puxOn) {
       ah += '<div class="pux-qty-row"><span class="pux-qty-lbl">Puxadores:</span>'
-        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · R$ 100</button>'
-        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · R$ 200</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
         +'</div>';
     }
     accsBlock = ah+'</div>';
@@ -287,8 +290,7 @@ function _renderItens() {
   if (totalAv < total) {
     html += '<div class="orc-avista" style="margin-top:4px">💚 À vista: '+formatBRL(totalAv)+'</div>';
   }
-  html += '<div id="orcDataChipItens" style="margin-top:12px">'+_orcDataChipHTML()+'</div>';
-  html += '<div style="display:flex;gap:8px;margin-top:10px">'
+  html += '<div style="display:flex;gap:8px;margin-top:12px">'
     +'<button class="btn btn-ghost btn-full" onclick="orcSalvarTodos()">💾 Salvar orçamento</button>'
     +'<button class="btn btn-grn btn-full" onclick="orcEnviarTodos()">📤 Enviar</button>'
     +'</div></div>';
@@ -417,8 +419,7 @@ function orcCalcAndRender() {
     html+='</div></div>';
     rb.innerHTML=html;
     var btnLabel = orcEditIdx>=0 ? '✔ Atualizar item '+(orcEditIdx+1) : '➕ Adicionar ao orçamento';
-    if (ra) ra.innerHTML='<div id="orcDataChip" style="margin-bottom:8px">'+_orcDataChipHTML()+'</div>'
-      +'<button class="btn btn-gold btn-full" style="margin-bottom:8px" onclick="orcAdicionarItem()">'+btnLabel+'</button>'
+    if (ra) ra.innerHTML='<button class="btn btn-gold btn-full" style="margin-bottom:8px" onclick="orcAdicionarItem()">'+btnLabel+'</button>'
       +'<div style="display:flex;gap:8px">'
       +'<button class="btn btn-ghost" style="flex:1" onclick="orcSalvar()">💾 Salvar</button>'
       +'<button class="btn btn-grn" style="flex:1" onclick="orcCompartilhar()">📤 Enviar</button>'
@@ -455,7 +456,7 @@ function _getVisAcc() {
     ];
     if((s.pivFolhas||1)===2){
       list.push({id:'contra',   nome:'Contra fechadura', preco:a.contra_fechadura||50, obrig:true});
-      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:a.ferrolho||120,       obrig:true});
+      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:(a.contra_fechadura||50)*2, obrig:true});
     }
     return list;
   }
@@ -505,70 +506,6 @@ function orcSetBoxTipo(i)      { orcState.boxTipo=_ORC.boxTipos[i]; renderOrc(do
 function orcToggleAcc(id,obrig){ if(obrig) return; orcState.accs[id]=!(orcState.accs[id]||false); renderOrc(document.getElementById('pgWrap')); }
 
 // ── Salvar / enviar ───────────────────────────────────────────
-// ── Agenda de instalações ───────────────────────────────────────
-// (_fmtDataBR e _orcDiasOcupados ficam em cear-helpers.js)
-
-// Monta o conjunto de todas as datas já ocupadas por outros orçamentos (exceto cancelados
-// e, opcionalmente, exceto o próprio orçamento que está sendo editado).
-async function _orcDatasOcupadasGlobais(ignorarId) {
-  var ocupadas = {}; // dataISO -> [{cliente, id}]
-  var todos = [];
-  try { todos = await listarOrcamentos(); } catch (e) { return ocupadas; }
-  todos.forEach(function (o) {
-    if (!o.dataInstalacao) return;
-    if ((o.status || 'pendente') === 'cancelado') return;
-    if (ignorarId && o.id === ignorarId) return;
-    _orcDiasOcupados(o.dataInstalacao, o.diasInstalacao || 1).forEach(function (dISO) {
-      (ocupadas[dISO] = ocupadas[dISO] || []).push({ cliente: o.clienteNome || 'sem nome', id: o.id });
-    });
-  });
-  return ocupadas;
-}
-
-// Verifica se a data/duração escolhida bate com algum orçamento já agendado.
-async function orcVerificarConflitoData(inicioISO, dias, ignorarId) {
-  if (!inicioISO) return { conflitos: [], proximaLivre: null };
-  var ocupadas = await _orcDatasOcupadasGlobais(ignorarId);
-  var minhas = _orcDiasOcupados(inicioISO, dias);
-  var conflitos = [];
-  minhas.forEach(function (dISO) {
-    (ocupadas[dISO] || []).forEach(function (c) {
-      conflitos.push({ data: dISO, cliente: c.cliente });
-    });
-  });
-  // Procura a próxima data de início livre para a mesma duração (até 60 dias à frente)
-  var proximaLivre = null;
-  var base = new Date(inicioISO + 'T00:00:00');
-  for (var i = 0; i < 60; i++) {
-    var tentativa = new Date(base.getTime());
-    tentativa.setDate(base.getDate() + i);
-    var tentativaISO = tentativa.toISOString().slice(0, 10);
-    var diasTentativa = _orcDiasOcupados(tentativaISO, dias);
-    var livre = diasTentativa.every(function (dISO) { return !ocupadas[dISO]; });
-    if (livre) { proximaLivre = tentativaISO; break; }
-  }
-  return { conflitos: conflitos, proximaLivre: proximaLivre };
-}
-
-// ── Chip de data de instalação (visível no orçamento) ──────────
-function _orcDataChipHTML() {
-  var s = orcState;
-  if (!s.dataInstalacao) {
-    return '<button type="button" class="orc-data-chip orc-data-chip-vazio" onclick="orcAbrirDataStandalone()">📅 Definir data de instalação</button>';
-  }
-  var dias = s.diasInstalacao || 1;
-  var fim = dias > 1 ? _fmtDataBR(_orcDiasOcupados(s.dataInstalacao, dias).slice(-1)[0]) : null;
-  return '<button type="button" class="orc-data-chip" onclick="orcAbrirDataStandalone()">📅 Instalação: '+_fmtDataBR(s.dataInstalacao)+(fim?' a '+fim:'')+' <span style="opacity:.6">· editar</span></button>';
-}
-function orcAbrirDataStandalone() {
-  showModalDataInstalacao(orcState, function () {
-    var elA = document.getElementById('orcDataChip');
-    if (elA) elA.innerHTML = _orcDataChipHTML();
-    var elB = document.getElementById('orcDataChipItens');
-    if (elB) elB.innerHTML = _orcDataChipHTML();
-  });
-}
-
 async function orcSalvar() {
   if(!orcState.resultado) return;
   showModalConfirm('💾 Salvar orçamento?','Salvar '+formatBRL(orcState.resultado.total)+(orcState.cliente?' para '+orcState.cliente:'')+'?','Salvar',async function(){
@@ -579,8 +516,7 @@ async function orcSalvar() {
         clienteFone:orcState.fone.trim(), resultado:orcState.resultado,
         folhasCorrer:orcState.folhasCorrer, pivFolhas:orcState.pivFolhas||1,
         kitPivotante:orcState.kitPivotante||'comum', temFixo:orcState.temFixo,
-        fixoLarg:orcState.fixoLarg||0, temBandeirola:orcState.temBandeirola, bandH:orcState.bandH||0,
-        dataInstalacao:orcState.dataInstalacao||'', diasInstalacao:orcState.diasInstalacao||1,
+        fixoLarg:orcState.fixoLarg||0, temBandeirola:orcState.temBandeirola, bandH:orcState.bandH||0
       };
       closeModal();
       await _orcVincularCliente(dadosBase);
@@ -632,29 +568,25 @@ async function _orcVincularCliente(dados) {
 async function orcSalvarTodos() {
   if(!orcItens.length) return;
   var totalGeral=orcItens.reduce(function(a,it){return a+(it.resultado.total||0)*(it.qty||1);},0);
+  var totalAvistaGeral=orcItens.reduce(function(a,it){return a+((it.resultado.totalAvista??it.resultado.total)||0)*(it.qty||1);},0);
   showModalConfirm('💾 Salvar orçamento completo?',orcItens.length+' iten'+(orcItens.length>1?'s':'')+' · '+formatBRL(totalGeral)+(orcState.cliente?' · '+orcState.cliente:''),'Salvar',async function(){
     try {
-      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalGeral,linhas:[]},km:0,dataInstalacao:orcState.dataInstalacao||'',diasInstalacao:orcState.diasInstalacao||1});
+      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalAvistaGeral,linhas:[]},km:0});
       closeModal();
     } catch(e){alert('Erro: '+e.message);}
   });
 }
-function orcCompartilhar() {
-  if(!orcState.resultado) return;
-  showModalDataInstalacao(orcState, function(){ showModalCompartilhar(orcState); });
-}
-function orcEnviarTodos() {
-  showModalDataInstalacao(orcState, function(){ showModalCompartilhar({...orcState, itens:orcItens}); });
-}
+function orcCompartilhar() { if(!orcState.resultado) return; showModalCompartilhar(orcState); }
+function orcEnviarTodos()  { showModalCompartilhar({...orcState, itens:orcItens}); }
 function orcWppDireto() {
   var num=(orcState.fone||'').replace(/\D/g,'');
   var txt;
   if (orcItens && orcItens.length > 0) {
     // Orçamento multi-item
-    txt = gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao });
+    txt = gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens });
   } else {
     // Item único
-    txt = gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer,dataInstalacao:orcState.dataInstalacao,diasInstalacao:orcState.diasInstalacao});
+    txt = gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer});
   }
   if (!num) {
     histMostrarToast('⚠️ Informe o telefone do cliente antes de enviar');
@@ -669,10 +601,10 @@ function orcWppDireto() {
 function orcEnviarEmail() {
   var itens = orcItens && orcItens.length > 0;
   var txt = itens
-    ? gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao })
+    ? gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens })
     : gerarTextoWpp({ cliente:orcState.cliente, tipo:orcState.tipo, larg:orcState.larg,
         alt:orcState.alt, vidro:orcState.vidroKey, resultado:orcState.resultado,
-        folhasCorrer:orcState.folhasCorrer, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao });
+        folhasCorrer:orcState.folhasCorrer });
   var nome  = CFG.empresa?.nome || 'Ceará Planejados';
   var total = itens
     ? orcItens.reduce(function(s,it){return s+(it.resultado?.total||0)*(it.qty||1);},0)
@@ -687,7 +619,7 @@ function orcGerarPDF() {
   closeModal();
   // Se houver itens no orçamento multi, usa o gerador multi
   if (orcItens && orcItens.length > 0) {
-    gerarPDFMulti({ itens: orcItens, cliente: orcState.cliente, fone: orcState.fone, dataInstalacao: orcState.dataInstalacao, diasInstalacao: orcState.diasInstalacao });
+    gerarPDFMulti({ itens: orcItens, cliente: orcState.cliente, fone: orcState.fone });
   } else {
     gerarPDFOrcamento(orcState);
   }
