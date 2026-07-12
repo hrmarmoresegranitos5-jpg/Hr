@@ -2,7 +2,7 @@
 // PATCH: corrige _gerarRelatorioPonto para período decendial
 // Aplicar DEPOIS de app-funcionarios.js no index.html
 //
-// v3 — CORREÇÃO + CONFIGURABILIDADE + TRANSPARÊNCIA
+// v4 — RESPEITA O DECÊNDIO/MÊS SELECIONADO NA TELA
 //
 // Problema original: se hoje é dia 12, o sistema sempre sugeria
 // o 2º decêndio (11-20), mesmo que só existissem registros
@@ -25,6 +25,21 @@
 //   • Comparação de funcionarioId tolerante a string vs number.
 //   • Toast SEMPRE informa qual período foi escolhido e por quê
 //     (não só no fallback) — elimina a sensação de "sumiço de dado".
+//
+// v4 — BUG CRÍTICO CORRIGIDO: a v3 sempre partia de new Date()
+//   (hoje) pra buscar o período com dado, ignorando completamente:
+//     a) o decêndio que o usuário tinha selecionado na tela
+//        (parâmetro numDec, que o botão já enviava e a v3 descartava);
+//     b) o mês da folha aberta (window._folhaMes) — se o usuário
+//        estava vendo o pagamento de um mês anterior (ex: junho,
+//        por causa de saldo pendente) e clicava em "Relatório de
+//        Ponto", o relatório vinha do mês ATUAL (julho) em vez de
+//        junho. Resultado: usuário vendo pagamento de 21-30/jun,
+//        mas o relatório mostrando dados de 01-10/jul — dados de
+//        funcionário certo, período totalmente errado.
+//   Agora o ponto de partida da busca é o decêndio+mês realmente
+//   selecionado na tela (numDec + window._folhaMes). Só cai para
+//   "decêndio de hoje" se nada disso estiver disponível.
 // ══════════════════════════════════════════════════════════════
 
 (function() {
@@ -82,6 +97,24 @@
       return _decendioDe(diAnterior);
     }
 
+    /**
+     * Constrói o período de um decêndio (1, 2 ou 3) diretamente a partir
+     * do número do decêndio + mês (formato 'YYYY-MM'), sem depender da
+     * data de hoje. Usado para respeitar o que está selecionado na tela
+     * (numDec do botão + window._folhaMes), em vez de sempre assumir hoje.
+     */
+    function _decendioDireto(numDec, mesISO) {
+      var partes = (mesISO || '').split('-');
+      var ano = parseInt(partes[0], 10);
+      var mes = parseInt(partes[1], 10) - 1;
+      if (isNaN(ano) || isNaN(mes)) return _decendioDe(new Date()); // fallback seguro
+      var c1 = HR_RELATORIO_PONTO_CFG.corteDecendio1;
+      var c2 = HR_RELATORIO_PONTO_CFG.corteDecendio2;
+      if (numDec === 1) return { di: new Date(ano, mes, 1),      df: new Date(ano, mes, c1),    num: 1 };
+      if (numDec === 2) return { di: new Date(ano, mes, c1 + 1), df: new Date(ano, mes, c2),    num: 2 };
+      return                   { di: new Date(ano, mes, c2 + 1), df: new Date(ano, mes + 1, 0), num: 3 };
+    }
+
     /** Lê hr_registros do localStorage uma única vez (evita reparse repetido no loop). */
     function _lerRegistros() {
       try { return JSON.parse(localStorage.getItem('hr_registros') || '{}'); }
@@ -101,14 +134,15 @@
     }
 
     /**
-     * Procura, a partir de hoje, o decêndio mais recente com dados importados.
-     * Recua até HR_RELATORIO_PONTO_CFG.maxDecendiosRecuar decêndios.
+     * Procura, a partir de um período inicial (per), o decêndio mais recente
+     * (igual ou anterior a per) com dados importados. Recua até
+     * HR_RELATORIO_PONTO_CFG.maxDecendiosRecuar decêndios.
      * Retorna { di, df, num } (strings ISO + número do decêndio) ou null
-     * se nenhum período recente tiver dado.
+     * se nenhum período tiver dado.
      */
-    function _sugerirPeriodoComDados(funcId) {
+    function _sugerirPeriodoComDados(funcId, perInicial) {
       var regsObj = _lerRegistros();
-      var per = _decendioDe(new Date());
+      var per = perInicial;
       for (var i = 0; i < HR_RELATORIO_PONTO_CFG.maxDecendiosRecuar; i++) {
         var diStr = _fmt(per.di), dfStr = _fmt(per.df);
         if (_temDadosNoPeriodo(regsObj, funcId, diStr, dfStr)) {
@@ -119,7 +153,7 @@
       return null;
     }
 
-    HR_FUNC._gerarRelatorioPonto = function() {
+    HR_FUNC._gerarRelatorioPonto = function(numDec) {
       var selFunc = document.getElementById('pag_func');
       var funcId  = selFunc ? selFunc.value : null;
       if (!funcId) {
@@ -127,18 +161,29 @@
         return;
       }
 
-      // 1) Tenta achar o decêndio mais recente que realmente tem dado importado
-      var achado = _sugerirPeriodoComDados(funcId);
+      // Ponto de partida: respeita o que está selecionado na tela —
+      // o decêndio do botão (numDec) + o mês da folha aberta (window._folhaMes).
+      // Sem isso, o relatório sempre partia do mês/decêndio de HOJE, ignorando
+      // se o usuário estava vendo o pagamento de um mês anterior (ex: saldo
+      // pendente de junho) — mostrando dados do período errado.
+      var mesPeriodo   = window._folhaMes || _fmt(new Date()).slice(0, 7);
+      var perInicial   = numDec
+        ? _decendioDireto(numDec, mesPeriodo)
+        : _decendioDe(new Date());
+
+      // 1) Tenta achar o decêndio mais recente (a partir do selecionado, recuando
+      //    se preciso) que realmente tem dado importado
+      var achado = _sugerirPeriodoComDados(funcId, perInicial);
 
       var diStr, dfStr, numDecendio, usouFallback;
       if (achado) {
         diStr = achado.di; dfStr = achado.df; numDecendio = achado.num; usouFallback = false;
       } else {
-        // 2) Fallback: nenhum decêndio recente tem dado — usa o decêndio de hoje
-        //    (comportamento antigo), só pra garantir que a função nunca trave.
-        var perHoje = _decendioDe(new Date());
-        diStr = _fmt(perHoje.di); dfStr = _fmt(perHoje.df);
-        numDecendio = perHoje.num; usouFallback = true;
+        // 2) Fallback: nada encontrado recuando a partir do selecionado —
+        //    usa o próprio período selecionado (ou hoje, se nada foi selecionado),
+        //    só pra garantir que a função nunca trave.
+        diStr = _fmt(perInicial.di); dfStr = _fmt(perInicial.df);
+        numDecendio = perInicial.num; usouFallback = true;
       }
 
       // Transparência: sempre avisa qual período está sendo mostrado e por quê
@@ -159,7 +204,7 @@
       HR_RELATORIO_PONTO.gerarPDF(funcId, diStr, dfStr);
     };
 
-    console.log('[PATCH v3] _gerarRelatorioPonto: decêndio configurável, transparente e com fallback seguro.');
+    console.log('[PATCH v4] _gerarRelatorioPonto: respeita decêndio/mês selecionado na tela, com fallback seguro.');
   }
 
   _aplicar();

@@ -148,9 +148,14 @@ var HR_RELATORIO_PONTO = (function () {
         var saldoMin    = trabMin - esperadoMin;
 
         // Valor extra financeiro do dia
+        // (usa o motor unificado HR_IMPORT.calcValorHoraReal — mesma jornada
+        // real usada em calcSaldoFuncionario/app-funcionarios.js — em vez de
+        // um divisor fixo de 192h que dava valor de hora diferente daqui
+        // pra lá dependendo de qual relatório era gerado)
         var salario     = parseFloat(f.salario) || 0;
-        var hMes        = 192; // padrão
-        var valorHora   = salario / hMes;
+        var valorHora   = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+          ? HR_IMPORT.calcValorHoraReal(f, iso.slice(0, 7))
+          : salario / 192; // fallback se HR_IMPORT não estiver carregado
 
         var valorExtra  = 0;
         // Detecta automaticamente o multiplicador:
@@ -396,8 +401,11 @@ var HR_RELATORIO_PONTO = (function () {
     if (!f.nome) { alert('Funcionário não encontrado.'); return; }
 
     var salario    = parseFloat(f.salario) || 0;
-    var hMes       = 192;
-    var valorHora  = salario / hMes;
+    // Mesmo motor unificado usado em _montarLinhas — mês de referência é o
+    // início do período (di) sendo exibido no relatório.
+    var valorHora  = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+      ? HR_IMPORT.calcValorHoraReal(f, di.slice(0, 7))
+      : salario / 192; // fallback se HR_IMPORT não estiver carregado
 
     // Registros do período
     // (== em vez de === — funcId de <select> vem como string; funcionarioId
