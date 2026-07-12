@@ -2488,6 +2488,24 @@ var HR_FUNC = (function () {
         _campo('Observação (opcional)', _inp('pag_obs','text','Ex: 1º decendio junho, vale farmácia...',''))
       )+
 
+      // Campo "descontar em qual decêndio" — só aparece para Vale/Adiantamento
+      '<div id="pag_desconto_wrap" style="display:none;">'+
+        _secao('',
+          _campo('💸 Descontar do funcionário em qual decêndio?',
+            _sel('pag_desconto_dec', [
+              {v:'',  l:'Não descontar automaticamente (avulso)'},
+              {v:'1', l:'1º decêndio — dia 10'},
+              {v:'2', l:'2º decêndio — dia 20'},
+              {v:'3', l:'3º decêndio — fim do mês'}
+            ], String(_decSelecionado))
+          )+
+          '<div style="font-size:.68rem;color:'+T3+';line-height:1.5;">'+
+            'O valor fica marcado como pendente até o decêndio escolhido ser pago — '+
+            'aí ele é abatido automaticamente e some do saldo restante.'+
+          '</div>'
+        )+
+      '</div>'+
+
       // Dica decendial — mais explicativa
       '<div id="pag_dica_dec" style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.2);'+
         'border-radius:11px;padding:12px 14px;margin-bottom:12px;">'+
@@ -2536,6 +2554,8 @@ var HR_FUNC = (function () {
         var info  = document.getElementById('pag_saldo_info');
         var dica  = document.getElementById('pag_dica_dec');
         var inpV  = document.getElementById('pag_valor');
+        var descW = document.getElementById('pag_desconto_wrap');
+        if (descW) descW.style.display = (tipo === 'vale' || tipo === 'adiantamento') ? '' : 'none';
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
@@ -2548,6 +2568,7 @@ var HR_FUNC = (function () {
         }
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
       }
+      _atualizarPainel(); // aplica visibilidade inicial do campo de desconto
 
       // Chamada ao clicar num botão de decêndio
       function _selecionarDecendio(num) {
@@ -2647,7 +2668,15 @@ var HR_FUNC = (function () {
     var acr     = (s.totalDevido - sal - he) || 0; // acréscimos 2×/3× pendentes
     var acrEfetivo = incluirExtra ? acr : 0;
     var pago    = s.totalPago   || 0;
-    var saldo   = sal + heEfetivo + acrEfetivo - pago;
+
+    // Adiantamentos/vales apontados especificamente para este decêndio —
+    // abatem do valor a pagar mesmo tendo sido tomados em outra data.
+    var _refMesAdi = mesISO || window._folhaMes || _mesAno(0);
+    var adiantamentosAlvo = (decNum && typeof _adiantamentosAlvoDecendio === 'function')
+      ? _adiantamentosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
+    var totalAdiantamentos = adiantamentosAlvo.reduce(function(s2,a){ return s2 + (parseFloat(a.valor)||0); }, 0);
+
+    var saldo   = sal + heEfetivo + acrEfetivo - pago - totalAdiantamentos;
 
     // Linha de composição: só mostra itens com valor > 0
     function _linha(label, valor, cor, destaque) {
@@ -2708,6 +2737,10 @@ var HR_FUNC = (function () {
         (he > 0 && !incluirExtra ? '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:.75rem;color:'+T3+';font-style:italic;">Extras ('+(s.totalExtra||0).toFixed(1)+'h) → banco 🏦</span><span style="font-size:.75rem;color:#8ec8f0;">'+_fmtMoeda(he)+'</span></div>' : '') +
         (acrEfetivo > 0.01 ? _linha('Acréscimo HE 2× / 3×', acrEfetivo, '#8ec8c8') : '') +
         (pago > 0  ? _linhaSubt('Já pago neste período', pago, RED) : '') +
+        adiantamentosAlvo.map(function(a){
+          var dLbl = a.data ? _fmtData(a.data) : '';
+          return _linhaSubt('💸 Adiantamento '+dLbl+(a.obs?' ('+_esc(a.obs)+')':''), parseFloat(a.valor)||0, '#e0954a');
+        }).join('') +
       '</div>'+
       '<div style="background:rgba(0,0,0,.35);border-radius:10px;padding:11px 14px;'+
         'display:flex;justify-content:space-between;align-items:center;">'+
@@ -2715,6 +2748,7 @@ var HR_FUNC = (function () {
           '<div style="font-size:.62rem;color:'+T3+';margin-bottom:1px;">'+saldoIco+' '+saldoLabel+'</div>'+
           (saldo < -0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">Desconta no próximo pagamento</div>' : '')+
           (!incluirExtra && he > 0 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(he)+' acumulado no banco</div>' : '')+
+          (totalAdiantamentos > 0.01 ? '<div style="font-size:.6rem;color:#e0954a;">−'+_fmtMoeda(totalAdiantamentos)+' já descontado em adiantamentos</div>' : '')+
         '</div>'+
         '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
           _fmtMoeda(Math.abs(saldo))+
@@ -2858,6 +2892,35 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // ADIANTAMENTOS/VALES COM DECÊNDIO-ALVO
+  // Um vale/adiantamento pode ser registrado em qualquer data (ex: dia 3)
+  // mas apontado para ser descontado em um decêndio específico (10/20/30),
+  // independente da data em que foi tomado. Fica pendente até o decêndio
+  // alvo ser efetivamente pago (registrarPagamento marca descontoQuitado).
+  // ─────────────────────────────────────────────────────────────
+  function _adiantamentosAlvoDecendio(funcId, decNum, mesISO){
+    var pags = getPagamentos();
+    return Object.values(pags).filter(function(p){
+      return p.funcionarioId === funcId &&
+        (p.tipo === 'vale' || p.tipo === 'adiantamento') &&
+        p.descontarDecendio === decNum &&
+        p.descontarMes === mesISO &&
+        !p.descontoQuitado;
+    }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+  }
+
+  // Todos os adiantamentos/vales em aberto do funcionário (qualquer decêndio-alvo),
+  // usado para dar visibilidade geral no relatório/tela de pagamento.
+  function _adiantamentosEmAberto(funcId){
+    var pags = getPagamentos();
+    return Object.values(pags).filter(function(p){
+      return p.funcionarioId === funcId &&
+        (p.tipo === 'vale' || p.tipo === 'adiantamento') &&
+        !p.descontoQuitado;
+    }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // MOTOR ÚNICO DE PAGAMENTO — sem dependência de DOM.
   // Usado pelo formulário (_salvarPagamento) e pelo RH IA (app-rh-ia.js).
   // Centralizar aqui evita reimplementações divergentes da mesma regra
@@ -2882,6 +2945,14 @@ var HR_FUNC = (function () {
     var pags = getPagamentos();
     var id   = genId();
 
+    // descontarDecendio/descontarMes: só fazem sentido para vale/adiantamento —
+    // indicam em qual decêndio (1/2/3) daquele mês o valor deve ser abatido,
+    // independente da data em que o adiantamento foi de fato tomado.
+    var descontarDecendio = (tipo === 'vale' || tipo === 'adiantamento')
+      ? (opts.descontarDecendio || null) : null;
+    var descontarMes = descontarDecendio
+      ? (opts.descontarMes || data.slice(0,7)) : null;
+
     pags[id] = {
       id:            id,
       funcionarioId: funcId,
@@ -2890,11 +2961,15 @@ var HR_FUNC = (function () {
       tipo:          tipo,
       forma:         forma,
       obs:           obs,
+      descontarDecendio: descontarDecendio,
+      descontarMes:      descontarMes,
+      descontoQuitado:   false,
       criadoEm:      new Date().toISOString()
     };
     savePagamentos(pags);
 
     // Ao registrar decêndio, quita os acréscimos HE pendentes do funcionário
+    // e também os adiantamentos/vales apontados para este decêndio específico.
     if (tipo === 'decendio') {
       var acrs = getAcrescimos();
       var quitados = 0;
@@ -2906,6 +2981,19 @@ var HR_FUNC = (function () {
         }
       });
       if (quitados > 0) saveAcrescimos(acrs);
+
+      // Detecta qual decêndio (1/2/3) este pagamento está quitando, a partir do dia
+      var diaPag  = parseInt(data.slice(8,10), 10);
+      var decPago = diaPag <= 10 ? 1 : diaPag <= 20 ? 2 : 3;
+      var mesPago = data.slice(0,7);
+      var alvos = _adiantamentosAlvoDecendio(funcId, decPago, mesPago);
+      if (alvos.length > 0) {
+        alvos.forEach(function(a){
+          pags[a.id].descontoQuitado  = true;
+          pags[a.id].descontoQuitadoEm = data;
+        });
+        savePagamentos(pags);
+      }
     }
 
     if (opts.notificar !== false) {
@@ -2922,21 +3010,27 @@ var HR_FUNC = (function () {
     var tipo   = (document.getElementById('pag_tipo')  || {}).value || 'decendio';
     var forma  = (document.getElementById('pag_forma') || {}).value || 'pix';
     var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+    var descSel = (document.getElementById('pag_desconto_dec') || {}).value || '';
 
     if (!funcId) { _toast('Selecione um funcionário'); return; }
     if (!data)   { _toast('Informe a data');           return; }
     if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
 
+    var descontarDecendio = descSel ? parseInt(descSel, 10) : null;
+    var descontarMes      = descontarDecendio ? data.slice(0,7) : null;
+
     // notificar:false porque a notificação já é disparada explicitamente
     // abaixo (mantém 100% o comportamento original desta tela)
     var res = registrarPagamento({
       funcionarioId: funcId, data: data, valor: valor,
-      tipo: tipo, forma: forma, obs: obs, notificar: false
+      tipo: tipo, forma: forma, obs: obs, notificar: false,
+      descontarDecendio: descontarDecendio, descontarMes: descontarMes
     });
     if (!res.ok) { _toast(res.erro); return; }
 
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
-    _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!');
+    var descTxt = descontarDecendio ? (' — desconto no '+descontarDecendio+'º decêndio') : '';
+    _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!' + descTxt);
     _closePagamento();
     renderPaginaFuncionarios();
 
@@ -4454,6 +4548,10 @@ var HR_FUNC = (function () {
     calcSaldoFuncionario:   calcSaldoFuncionario,
     _periodoDecendioAtual:  _periodoDecendioAtual,
     // Motor único de pagamento (usado pelo formulário e pelo RH IA)
-    registrarPagamento:     registrarPagamento
+    registrarPagamento:     registrarPagamento,
+    // Adiantamentos/vales com decêndio-alvo (usado pelo Relatório de Ponto)
+    _adiantamentosAlvoDecendio: _adiantamentosAlvoDecendio,
+    _adiantamentosEmAberto:     _adiantamentosEmAberto,
+    _periodoDecendio:           _periodoDecendio
   };
 })();
