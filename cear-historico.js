@@ -96,6 +96,7 @@ function _orcVencido(orc) {
 }
 
 
+function histRenderCard(orc) {
   const c = corTipo(orc.tipo);
   const expanded = histState.expandido === orc.id;
   const isMulti = orc.tipo === 'multi' || Array.isArray(orc.itens);
