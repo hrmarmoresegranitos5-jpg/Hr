@@ -2282,7 +2282,11 @@ var HR_FUNC = (function () {
     var regs=getRegistros(); var regId=registroId||genId(); var isNew=!registroId;
     var dup=Object.values(regs).find(function(r){return r.funcionarioId===funcionarioId&&r.data===data&&r.id!==regId;});
     if(dup&&!confirm('⚠️ Já existe registro em '+_fmtData(data)+'. Continuar?'))return;
-    regs[regId]={id:regId,funcionarioId,data,
+    // Preserva campos que não têm campo no formulário (ex: saidaAlmoco/voltaAlmoco
+    // vindos de importação biométrica, loteId, autoCompletado/penalidade) — antes
+    // este objeto era substituído inteiro e esses dados se perdiam ao editar.
+    var existente=regs[regId]||{};
+    regs[regId]=Object.assign({},existente,{id:regId,funcionarioId,data,
       entrada:(document.getElementById('fr_entrada')||{}).value||'',
       saida:(document.getElementById('fr_saida')||{}).value||'',
       horas:parseFloat((document.getElementById('fr_horas')||{}).value)||0,
@@ -2293,9 +2297,9 @@ var HR_FUNC = (function () {
       instalacao:(document.getElementById('fr_instalacao')||{}).value||'',
       ieo:(document.getElementById('fr_ieo')||{}).value||'',
       observacao:(document.getElementById('fr_obs')||{}).value||'',
-      criadoEm:(regs[regId]&&regs[regId].criadoEm)||new Date().toISOString(),
+      criadoEm:existente.criadoEm||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
-    };
+    });
     saveRegistros(regs); _closeRegistro();
     var novosAlertas=analisarGaps(funcionarioId);
     _toast(isNew?'✓ Registro salvo!'+(novosAlertas.length?' ⚠️ '+novosAlertas.length+' alerta(s)':''):'✓ Registro atualizado!');
