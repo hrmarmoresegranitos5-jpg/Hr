@@ -272,7 +272,7 @@ function calcularOrcamento({ tipo, larg, alt, vidro, accs, km, folhasCorrer, piv
   return { linhas, total, totalAvista: total - descontoBase };
 }
 
-function gerarTextoWpp({ cliente, tipo, larg, alt, vidro, resultado, folhasCorrer, dataInstalacao, diasInstalacao }) {
+function gerarTextoWpp({ cliente, tipo, larg, alt, vidro, resultado, folhasCorrer }) {
   if (!resultado) return '';
   const vidroObj = VIDROS[vidro];
   const dataStr = new Date().toLocaleDateString('pt-BR');
@@ -289,17 +289,13 @@ function gerarTextoWpp({ cliente, tipo, larg, alt, vidro, resultado, folhasCorre
     txt += `*\n`;
   }
   if (vidroObj) txt += `🔷 Vidro: ${vidroObj.nome}\n`;
-  if (dataInstalacao) {
-    const dias = diasInstalacao || 1;
-    txt += `\n🛠️ Previsão de instalação: *${_fmtDataBR(dataInstalacao)}*${dias>1?` a *${_fmtDataBR(_orcDiasOcupados(dataInstalacao,dias).slice(-1)[0])}*`:''}\n`;
-  }
   txt += `\n*Composição:*\n`;
   resultado.linhas.forEach(l => txt += `• ${l.nome}: ${formatBRL(l.valor)}\n`);
   txt += `\n💰 *Total: ${formatBRL(resultado.total)}*\n💚 À vista (10% off): *${formatBRL(resultado.totalAvista)}*\n\n_Orçamento gerado pelo app Ceará Planejados_`;
   return txt;
 }
 
-function gerarTextoWppMulti({ cliente, fone, itens, dataInstalacao, diasInstalacao }) {
+function gerarTextoWppMulti({ cliente, fone, itens }) {
   if (!itens || !itens.length) return '';
   const dataStr = new Date().toLocaleDateString('pt-BR');
   const totalGeral = itens.reduce((s, it) => s + (it.resultado?.total || 0) * (it.qty || 1), 0);
@@ -307,10 +303,6 @@ function gerarTextoWppMulti({ cliente, fone, itens, dataInstalacao, diasInstalac
 
   let txt = `*Orçamento — Ceará Planejados*\n📅 ${dataStr}\n`;
   if (cliente) txt += `👤 Cliente: ${cliente}\n`;
-  if (dataInstalacao) {
-    const dias = diasInstalacao || 1;
-    txt += `🛠️ Previsão de instalação: *${_fmtDataBR(dataInstalacao)}*${dias>1?` a *${_fmtDataBR(_orcDiasOcupados(dataInstalacao,dias).slice(-1)[0])}*`:''}\n`;
-  }
   txt += `\n*${itens.length} item${itens.length !== 1 ? 'ns' : ''}:*\n`;
 
   itens.forEach((it, i) => {
@@ -328,27 +320,6 @@ function gerarTextoWppMulti({ cliente, fone, itens, dataInstalacao, diasInstalac
   if (totalAvista < totalGeral) txt += `\n💚 À vista (10% off): *${formatBRL(totalAvista)}*`;
   txt += `\n\n_Orçamento gerado pelo app Ceará Planejados_`;
   return txt;
-}
-
-// Formata uma data ISO (YYYY-MM-DD) para dd/mm/aaaa sem passar por Date/UTC
-// (evita o bug clássico de "voltar um dia" causado pelo fuso do Brasil).
-function _fmtDataBR(iso) {
-  if (!iso) return '';
-  var p = iso.split('-');
-  return p[2] + '/' + p[1] + '/' + p[0];
-}
-
-// Lista as datas (ISO) ocupadas por uma instalação de N dias a partir de uma data início.
-function _orcDiasOcupados(inicioISO, dias) {
-  var out = [];
-  if (!inicioISO) return out;
-  var d = new Date(inicioISO + 'T00:00:00');
-  for (var i = 0; i < (dias || 1); i++) {
-    var dd = new Date(d.getTime());
-    dd.setDate(d.getDate() + i);
-    out.push(dd.toISOString().slice(0, 10));
-  }
-  return out;
 }
 
 function formatData(iso) {
