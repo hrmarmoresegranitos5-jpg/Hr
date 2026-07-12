@@ -2323,6 +2323,79 @@ function aplicarPecasCapela(ambId){
 }
 
 // ─── CONFIGURADOR DE NICHO ─────────────────────────────────────────
+// Monta o desenho técnico (projeto 2D) + peças calculadas do nicho.
+// Isolado numa função própria para poder ser atualizado sozinho (só esse
+// pedaço do HTML), sem recriar os campos de medida — o que fechava o
+// teclado do celular a cada letra digitada.
+function buildNichoDynamicHTML(amb){
+  var ne=amb.nichoExtra||{};
+  var h='';
+  var _nicSvgPrev=buildNichoProjetoSVG(ne,{light:false,maxW:280,maxH:220});
+  if(_nicSvgPrev){
+    h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">📐 Projeto 2D</div>';
+    h+='<button onclick="gerarNichoProjetoPDF('+amb.id+')" style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);color:var(--gold2);font-size:.62rem;font-weight:700;padding:5px 10px;border-radius:7px;cursor:pointer;font-family:Outfit,sans-serif;">📷 Gerar Foto</button>';
+    h+='</div>';
+    h+='<div style="background:rgba(0,0,0,.25);border:1px solid rgba(201,168,76,.15);border-radius:10px;padding:10px;">'+_nicSvgPrev+'</div>';
+  }
+  // Preview de peças calculadas automaticamente
+  var nicCalcPrev=calcNichoPecas(ne);
+  if(nicCalcPrev&&nicCalcPrev.length>0){
+    var ambMatNicPrev=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
+    var prMO_nic=getPr('nic_mo')||110;
+    h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
+    h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
+    var totalM2nicPrev=0;
+    var totalValNicPrev=0;
+    var totalValServNicPrev=0;
+    nicCalcPrev.forEach(function(p){
+      var m2p=p.m2;
+      if(p._isServico){
+        totalValServNicPrev+=p.valor||0;
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+        h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+'</div>';
+        h+='<div style="font-size:.58rem;color:var(--t4);">Serviço</div></div>';
+        h+='<div style="text-align:right;"><div style="font-size:.7rem;font-weight:700;color:var(--gold2);">R$ '+fm(p.valor||0)+'</div></div></div>';
+        return;
+      }
+      totalM2nicPrev+=m2p;
+      var prPedraP=ambMatNicPrev&&ambMatNicPrev.pr>0?m2p*ambMatNicPrev.pr:0;
+      var prMOP=m2p*prMO_nic;
+      totalValNicPrev+=prPedraP+prMOP;
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
+      h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
+      h+='<div style="font-size:.58rem;color:var(--t4);">'+p.dim+'</div></div>';
+      h+='<div style="text-align:right;">';
+      h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2p.toFixed(3)+' m²</div>';
+      if(prPedraP+prMOP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP+prMOP)+'</div>';
+      h+='</div></div>';
+    });
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;">';
+    h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra + M.O.</span>';
+    h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2nicPrev.toFixed(3)+' m²'+(totalValNicPrev>0?' · R$ '+fm(totalValNicPrev):'')+'</span>';
+    h+='</div>';
+    if(totalValServNicPrev>0){
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
+      h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O. fixação)</span>';
+      h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServNicPrev)+'</span>';
+      h+='</div>';
+    }
+    h+='<div style="font-size:.55rem;color:var(--t4);margin-top:4px;">M.O. de corte/instalação: R$ '+fm(prMO_nic)+'/m² (ajustável em Config → Serviços)</div>';
+    h+='<button onclick="aplicarPecasNicho('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
+  }
+  return h;
+}
+// Atualiza só o desenho 2D + peças do nicho (sem recriar os campos de input) —
+// evita que o teclado do celular feche enquanto o usuário digita uma medida.
+function refreshNichoDynamic(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return false;
+  var wrap=document.getElementById('nicDyn'+ambId);
+  if(!wrap)return false;
+  wrap.innerHTML=buildNichoDynamicHTML(amb);
+  return true;
+}
 // Medidas informadas são sempre de dentro a dentro (vão livre do nicho).
 function updNichoExtra(ambId,field,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -2350,8 +2423,6 @@ function updNichoMed(ambId,field,val){
   } else {
     clearTimeout(_nicMedTimer);
     _nicMedTimer=setTimeout(function(){
-      var activeId = document.activeElement ? document.activeElement.id : null;
-      var activeVal = document.activeElement ? document.activeElement.value : null;
       if(amb.nichoExtra){
         var _autoP=calcNichoPecas(amb.nichoExtra);
         if(_autoP.length){
@@ -2360,14 +2431,9 @@ function updNichoMed(ambId,field,val){
           });
         }
       }
-      renderAmbientes();
-      if(activeId){
-        var el=document.getElementById(activeId);
-        if(el){
-          el.focus();
-          try{var len=el.value?el.value.length:0;el.setSelectionRange(len,len);}catch(e){}
-        }
-      }
+      // Atualiza só o desenho 2D + lista de peças (sem recriar os inputs),
+      // pra não fechar o teclado do celular enquanto o usuário digita.
+      refreshNichoDynamic(ambId);
     },650);
   }
 }
@@ -2443,57 +2509,100 @@ function aplicarPecasNicho(ambId){
 }
 
 // ─── DESENHO TÉCNICO (PROJETO 2D) DO NICHO ─────────────────────────
-// Vista frontal com quinas mitradas a 45° na moldura, cotas de vão interno e moldura.
+// Vista frontal com quinas mitradas a 45° na moldura, cotas de vão interno e moldura,
+// mais um "retorno" em perspectiva no canto inferior-direito mostrando a profundidade
+// (as peças de base/topo/laterais que voltam pra dentro do nicho).
+// Estilo "planificado" (peça desdobrada), igual ao desenho de fabricação:
+// vista frontal do vão interno + moldura mitrada a 45° (se houver), com a aba
+// de profundidade desenhada dobrada para baixo — não é perspectiva, é a peça
+// real "aberta" mostrando o quanto ela volta pra dentro do nicho.
 function buildNichoProjetoSVG(ne,opts){
   opts=opts||{};
   var light=!!opts.light;
-  var Li=+(ne.nW||0), Ai=+(ne.nH||0), M=+(ne.nM||0);
+  var Li=+(ne.nW||0), Ai=+(ne.nH||0), M=+(ne.nM||0), P=+(ne.nP||0);
   if(!Li||!Ai)return '';
   var outerW=Li+2*M, outerH=Ai+2*M;
-  var MARGIN=opts.margin||48;
   var MAXW=opts.maxW||300, MAXH=opts.maxH||200;
-  var scale=Math.min(MAXW/outerW,MAXH/outerH,3.2);
+  var scale=Math.min(MAXW/outerW,MAXH/outerH*0.72,3.2);
   var ow=outerW*scale, oh=outerH*scale;
-  var vw=ow+MARGIN*2, vh=oh+MARGIN*2+16;
-  var ox=(vw-ow)/2, oy=MARGIN-8;
+
+  // Aba de profundidade — dobrada para baixo, tamanho proporcional (não em
+  // escala real, pra não estourar o layout), mas o valor real de P aparece
+  // sempre no rótulo dentro dela.
+  var flapH=0, gapFlap=0;
+  if(P>0){
+    flapH=Math.min(P*scale,Math.max(oh*0.55,34),90);
+    gapFlap=12;
+  }
 
   var strokeCol = light?'#2a2a2a':'rgba(201,168,76,.9)';
   var strokeCol2= light?'#777':'rgba(201,168,76,.55)';
+  var strokeCol3= light?'#bbb':'rgba(201,168,76,.3)';
   var textCol   = light?'#222':'rgba(235,215,160,.95)';
   var textCol2  = light?'#888':'rgba(201,168,76,.6)';
+  var flapFill  = light?'#f4f0e4':'rgba(201,168,76,.06)';
 
-  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:280px;font-family:Arial,sans-serif;">';
+  var padL=46, padR=(M>0?42:18), padT=20;
+  var bottomCotaH=34;
+  var vw=padL+ow+padR;
+  var vh=padT+oh+(P>0?gapFlap+flapH:0)+bottomCotaH;
+  var ox=padL, oy=padT;
+
+  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:300px;font-family:Arial,sans-serif;">';
 
   var ix,iy,iw,ih;
   if(M>0){
     ix=ox+M*scale; iy=oy+M*scale; iw=(outerW-2*M)*scale; ih=(outerH-2*M)*scale;
     // moldura externa
     svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="none" stroke="'+strokeCol+'" stroke-width="2"/>';
-    // vão interno
-    svg+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="none" stroke="'+strokeCol+'" stroke-width="1.6"/>';
+    // vão interno (fundo do nicho, visível por dentro da moldura)
+    svg+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="1.8"/>';
     // quinas mitradas a 45°
     svg+='<line x1="'+ox+'" y1="'+oy+'" x2="'+ix+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+(ox+ow)+'" y1="'+oy+'" x2="'+(ix+iw)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+ix+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+(ox+ow)+'" y1="'+(oy+oh)+'" x2="'+(ix+iw)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    // cota da moldura (lado direito)
-    var mcx=ox+ow+16;
+    // cota da moldura (lado direito, entre a borda externa e o vão)
+    var mcx=ox+ow+14;
     svg+='<line x1="'+mcx+'" y1="'+oy+'" x2="'+mcx+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
     svg+='<line x1="'+(mcx-3)+'" y1="'+oy+'" x2="'+(mcx+3)+'" y2="'+oy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
     svg+='<line x1="'+(mcx-3)+'" y1="'+iy+'" x2="'+(mcx+3)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<text x="'+(mcx+6)+'" y="'+((oy+iy)/2+3)+'" font-size="10" fill="'+textCol2+'">'+M+'</text>';
+    svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+3)+'" font-size="10.5" font-weight="700" fill="'+textCol2+'">'+M+'</text>';
+    svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+13)+'" font-size="6.5" fill="'+textCol2+'">moldura</text>';
   } else {
     ix=ox; iy=oy; iw=ow; ih=oh;
-    svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="none" stroke="'+strokeCol+'" stroke-width="2"/>';
+    svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="2"/>';
   }
-  // cota altura interna (esquerda, vertical)
+
+  // ── Aba de profundidade, dobrada para baixo (peça planificada) ──
+  if(P>0&&flapH>0){
+    var fy0=oy+oh+gapFlap, fy1=fy0+flapH;
+    // linha de dobra na base da caixa (tracejado-ponto = indica dobra, não corte)
+    svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+(ox+ow)+'" y2="'+(oy+oh)+'" stroke="'+strokeCol+'" stroke-width="1" stroke-dasharray="5,2,1,2"/>';
+    // conectores tracejados ligando a caixa à aba (mostra que é a mesma peça "aberta")
+    svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+ox+'" y2="'+fy0+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
+    svg+='<line x1="'+(ox+ow)+'" y1="'+(oy+oh)+'" x2="'+(ox+ow)+'" y2="'+fy0+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
+    // retângulo da aba de profundidade
+    svg+='<rect x="'+ox+'" y="'+fy0+'" width="'+ow+'" height="'+flapH+'" fill="'+flapFill+'" stroke="'+strokeCol+'" stroke-width="1.6"/>';
+    // cotas verticais nas laterais da aba
+    svg+='<line x1="'+(ox-8)+'" y1="'+fy0+'" x2="'+(ox-8)+'" y2="'+fy1+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
+    svg+='<line x1="'+(ox-11)+'" y1="'+fy0+'" x2="'+(ox-5)+'" y2="'+fy0+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
+    svg+='<line x1="'+(ox-11)+'" y1="'+fy1+'" x2="'+(ox-5)+'" y2="'+fy1+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
+    // rótulo da profundidade, centralizado dentro da aba
+    var fmidy=(fy0+fy1)/2;
+    svg+='<text x="'+(ox+ow/2)+'" y="'+(fmidy+3)+'" font-size="14" font-weight="700" fill="'+textCol+'" text-anchor="middle">'+P+' cm</text>';
+    svg+='<text x="'+(ox+ow/2)+'" y="'+(fmidy+15)+'" font-size="7.5" fill="'+textCol2+'" text-anchor="middle">profundidade (dobra)</text>';
+  }
+
+  // cota altura interna (esquerda, vertical, relativa ao vão)
   var lcx=ox-18;
   svg+='<line x1="'+lcx+'" y1="'+iy+'" x2="'+lcx+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+(lcx-3)+'" y1="'+iy+'" x2="'+(lcx+3)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+(lcx-3)+'" y1="'+(iy+ih)+'" x2="'+(lcx+3)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<text x="'+(lcx-6)+'" y="'+(iy+ih/2+4)+'" font-size="15" fill="'+textCol+'" font-weight="700" text-anchor="middle" transform="rotate(-90 '+(lcx-6)+' '+(iy+ih/2+4)+')">'+Ai+'</text>';
-  // cota largura interna (embaixo, horizontal)
-  var bcy=iy+ih+22;
+
+  // cota largura interna (embaixo de tudo — abaixo da aba, se houver)
+  var bcy=(P>0&&flapH>0?fy1:iy+ih)+22;
   svg+='<line x1="'+ix+'" y1="'+bcy+'" x2="'+(ix+iw)+'" y2="'+bcy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+ix+'" y1="'+(bcy-3)+'" x2="'+ix+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+(ix+iw)+'" y1="'+(bcy-3)+'" x2="'+(ix+iw)+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
@@ -2502,20 +2611,14 @@ function buildNichoProjetoSVG(ne,opts){
   return svg;
 }
 
-// ─── GERAR PDF "PROJETO 2D SOB MEDIDA" DO NICHO ─────────────────────
-function _loadNicPDFLibs(cb){
-  if(typeof html2canvas!=='undefined'&&typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){cb();return;}
+// ─── GERAR IMAGEM "PROJETO 2D SOB MEDIDA" DO NICHO ─────────────────────
+// (antes gerava PDF; agora gera foto/JPEG direto — mais rápido pra mandar no WhatsApp)
+function _loadNicImgLibs(cb){
+  if(typeof html2canvas!=='undefined'){cb();return;}
   var s1=document.createElement('script');
   s1.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-  s1.onload=function(){
-    if(typeof window.jspdf!=='undefined'&&window.jspdf.jsPDF){cb();return;}
-    var s2=document.createElement('script');
-    s2.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-    s2.onload=function(){cb();};
-    s2.onerror=function(){toast('Erro ao carregar biblioteca PDF');};
-    document.head.appendChild(s2);
-  };
-  s1.onerror=function(){toast('Erro ao carregar html2canvas');};
+  s1.onload=function(){cb();};
+  s1.onerror=function(){toast('Erro ao carregar biblioteca de imagem');};
   document.head.appendChild(s1);
 }
 function gerarNichoProjetoPDF(ambId){
@@ -2524,12 +2627,12 @@ function gerarNichoProjetoPDF(ambId){
   var ne=amb.nichoExtra;
   if(!ne.nW||!ne.nH||!ne.nP){toast('Preencha largura, altura e profundidade internas');return;}
   toast('⏳ Gerando projeto 2D...');
-  _loadNicPDFLibs(function(){
-    try{_buildNichoProjetoPDF(amb,ne);}
-    catch(e){console.error('nichoPDF:',e);toast('Erro PDF: '+e.message);}
+  _loadNicImgLibs(function(){
+    try{_buildNichoProjetoImg(amb,ne);}
+    catch(e){console.error('nichoImg:',e);toast('Erro ao gerar imagem: '+e.message);}
   });
 }
-function _buildNichoProjetoPDF(amb,ne){
+function _buildNichoProjetoImg(amb,ne){
   var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
   var cliEl=document.getElementById('oCliente');
   var cliNome=cliEl?cliEl.value.trim():'';
@@ -2561,7 +2664,7 @@ function _buildNichoProjetoPDF(amb,ne){
     +'</div>'
   +'</div>';
 
-  var fileName='Projeto2D_Nicho_'+(cliNome||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var fileName='Projeto2D_Nicho_'+(cliNome||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
 
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
@@ -2577,10 +2680,10 @@ function _buildNichoProjetoPDF(amb,ne){
     +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;">📐 Projeto 2D — Nicho</span>'
     +'<button id="nicPdfClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
     +'<button id="nicPdfDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
-    +(navigator.share?'<button id="nicPdfShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'');
+    +(navigator.share?'<button id="nicPdfShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar foto</button>':'');
   var preview=document.createElement('div');
   preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
-  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">⏳ Gerando PDF, aguarde...</div>';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">⏳ Gerando imagem, aguarde...</div>';
   ov.appendChild(barEl); ov.appendChild(preview);
   document.body.appendChild(ov);
   document.getElementById('nicPdfClose').onclick=function(){ov.remove();};
@@ -2588,16 +2691,11 @@ function _buildNichoProjetoPDF(amb,ne){
   setTimeout(function(){
     html2canvas(offscreen.querySelector('#pdfNichoReceipt'),{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
       document.body.removeChild(offscreen);
-      var jsPDF=window.jspdf.jsPDF;
-      var pageW=595.28, pageH=841.89;
-      var imgH=canvas.height*(pageW/canvas.width);
-      var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
-      pdf.addImage(canvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,pageW,Math.min(imgH,pageH));
-      var pdfBlob=pdf.output('blob');
+      var imgDataUrl=canvas.toDataURL('image/jpeg',0.92);
 
       preview.innerHTML='';
       var img=document.createElement('img');
-      img.src=canvas.toDataURL('image/jpeg',0.9);
+      img.src=imgDataUrl;
       img.style.cssText='max-width:700px;width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
       preview.appendChild(img);
 
@@ -2607,25 +2705,27 @@ function _buildNichoProjetoPDF(amb,ne){
         b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';
         b.onclick=cb;
       }
-      enableBtn('nicPdfDown','⬇ Salvar PDF',function(){
-        var url=URL.createObjectURL(pdfBlob);
-        var a=document.createElement('a');a.href=url;a.download=fileName;
-        document.body.appendChild(a);a.click();document.body.removeChild(a);
-        setTimeout(function(){URL.revokeObjectURL(url);},30000);
-        toast('PDF salvo: '+fileName);
-      });
-      if(navigator.share){
-        enableBtn('nicPdfShare','↗ Compartilhar',function(){
-          var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-          var sd={title:'Projeto 2D — Nicho',text:(emp.nome||'HR')+' — Projeto 2D sob medida'};
-          if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
-          navigator.share(sd).catch(function(){});
+      canvas.toBlob(function(imgBlob){
+        enableBtn('nicPdfDown','⬇ Salvar foto',function(){
+          var url=URL.createObjectURL(imgBlob);
+          var a=document.createElement('a');a.href=url;a.download=fileName;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},30000);
+          toast('Foto salva: '+fileName);
         });
-      }
-      toast('✓ Projeto 2D pronto');
+        if(navigator.share){
+          enableBtn('nicPdfShare','↗ Compartilhar foto',function(){
+            var imgFile=new File([imgBlob],fileName,{type:'image/jpeg'});
+            var sd={title:'Projeto 2D — Nicho',text:(emp.nome||'HR')+' — Projeto 2D sob medida'};
+            if(navigator.canShare&&navigator.canShare({files:[imgFile]}))sd.files=[imgFile];
+            navigator.share(sd).catch(function(){});
+          });
+        }
+      },'image/jpeg',0.92);
+      toast('✓ Foto do projeto 2D pronta');
     }).catch(function(){
       if(document.body.contains(offscreen))document.body.removeChild(offscreen);
-      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar PDF.</div>';
+      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar imagem.</div>';
     });
   },200);
 }
@@ -3619,61 +3719,9 @@ function renderAmbientes(){
       var _comFundo=!!ne.comFundo;
       h+='<div style="margin-top:8px;"><button onclick="updNichoMed('+amb.id+',\'comFundo\','+(!_comFundo)+')" style="'+(_comFundo?'background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.45);color:var(--gold2);font-weight:700;':'background:var(--s3);border-color:var(--bd);color:var(--t4);')+'border:1px solid;border-radius:8px;padding:8px 14px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;width:100%;">'+(_comFundo?'▣ Com fundo':'□ Sem fundo')+'</button></div>';
       h+='<div style="font-size:.57rem;color:var(--t4);margin-top:8px;line-height:1.5;">💡 Medidas de <b>dentro a dentro</b>. Base/topo e moldura são calculados automaticamente com encaixe a 45° nas quinas.</div>';
-      // Desenho técnico (projeto 2D) — atualiza ao vivo com as medidas
-      var _nicSvgPrev=buildNichoProjetoSVG(ne,{light:false,maxW:280,maxH:200});
-      if(_nicSvgPrev){
-        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
-        h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
-        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">📐 Projeto 2D</div>';
-        h+='<button onclick="gerarNichoProjetoPDF('+amb.id+')" style="background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);color:var(--gold2);font-size:.62rem;font-weight:700;padding:5px 10px;border-radius:7px;cursor:pointer;font-family:Outfit,sans-serif;">📄 Gerar PDF</button>';
-        h+='</div>';
-        h+='<div style="background:rgba(0,0,0,.25);border:1px solid rgba(201,168,76,.15);border-radius:10px;padding:10px;">'+_nicSvgPrev+'</div>';
-      }
-      // Preview de peças calculadas automaticamente
-      var nicCalcPrev=calcNichoPecas(ne);
-      if(nicCalcPrev&&nicCalcPrev.length>0){
-        var ambMatNicPrev=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
-        var prMO_nic=getPr('nic_mo')||110;
-        h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
-        h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">📋 Peças calculadas automaticamente</div>';
-        var totalM2nicPrev=0;
-        var totalValNicPrev=0;
-        var totalValServNicPrev=0;
-        nicCalcPrev.forEach(function(p){
-          var m2p=p.m2;
-          if(p._isServico){
-            totalValServNicPrev+=p.valor||0;
-            h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
-            h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+'</div>';
-            h+='<div style="font-size:.58rem;color:var(--t4);">Serviço</div></div>';
-            h+='<div style="text-align:right;"><div style="font-size:.7rem;font-weight:700;color:var(--gold2);">R$ '+fm(p.valor||0)+'</div></div></div>';
-            return;
-          }
-          totalM2nicPrev+=m2p;
-          var prPedraP=ambMatNicPrev&&ambMatNicPrev.pr>0?m2p*ambMatNicPrev.pr:0;
-          var prMOP=m2p*prMO_nic;
-          totalValNicPrev+=prPedraP+prMOP;
-          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(201,168,76,.07);">';
-          h+='<div><div style="font-size:.73rem;font-weight:600;color:var(--tx);">'+p.desc+(p.q>1?' <span style="color:var(--gold3);">×'+p.q+'</span>':'')+'</div>';
-          h+='<div style="font-size:.58rem;color:var(--t4);">'+p.dim+'</div></div>';
-          h+='<div style="text-align:right;">';
-          h+='<div style="font-size:.7rem;font-weight:700;color:var(--gold2);">'+m2p.toFixed(3)+' m²</div>';
-          if(prPedraP+prMOP>0) h+='<div style="font-size:.57rem;color:var(--t3);">R$ '+fm(prPedraP+prMOP)+'</div>';
-          h+='</div></div>';
-        });
-        h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0 2px;">';
-        h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">Total pedra + M.O.</span>';
-        h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">'+totalM2nicPrev.toFixed(3)+' m²'+(totalValNicPrev>0?' · R$ '+fm(totalValNicPrev):'')+'</span>';
-        h+='</div>';
-        if(totalValServNicPrev>0){
-          h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
-          h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O. fixação)</span>';
-          h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServNicPrev)+'</span>';
-          h+='</div>';
-        }
-        h+='<div style="font-size:.55rem;color:var(--t4);margin-top:4px;">M.O. de corte/instalação: R$ '+fm(prMO_nic)+'/m² (ajustável em Config → Serviços)</div>';
-        h+='<button onclick="aplicarPecasNicho('+amb.id+')" style="width:100%;margin-top:10px;padding:11px;background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(201,168,76,.08));border:1.5px solid var(--gold);border-radius:10px;color:var(--gold);font-size:.8rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;letter-spacing:.5px;">✦ Aplicar peças ao orçamento</button>';
-      }
+      // Desenho técnico (projeto 2D) + peças — em container próprio, atualizado
+      // parcialmente (sem recriar os campos acima) para não fechar o teclado do celular.
+      h+='<div id="nicDyn'+amb.id+'">'+buildNichoDynamicHTML(amb)+'</div>';
       h+='</div>';
     }
     // ── TÚMULO: calculadora v14 embutida inline ──
@@ -5020,6 +5068,9 @@ function calcular(){
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
     var snap={tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
+    if(a.tipo==='🖼️ Nicho'&&a.nichoExtra){
+      snap.nichoExtra=JSON.parse(JSON.stringify(a.nichoExtra));
+    }
     if(a.tipo==='Túmulo'){
       if(a.tumResult)  snap.tumResult  = JSON.parse(JSON.stringify(a.tumResult));
       if(a.tumPendOrc) snap.tumPendOrc = JSON.parse(JSON.stringify(a.tumPendOrc));
@@ -5181,6 +5232,10 @@ function gerarPDF(){
         allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:9px 14px;font-size:9.5px;'
           +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
           +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
+      }
+      if(snap.tipo==='🖼️ Nicho'&&snap.nichoExtra&&snap.nichoExtra.desc){
+        allRowsHtml+='<tr><td colspan="2" style="background:#faf6ef;padding:7px 14px;font-size:11.5px;'
+          +'font-style:italic;color:#7a5a20;border-bottom:1px solid #ede8dc;">📐 '+escH(snap.nichoExtra.desc)+'</td></tr>';
       }
       var isBP=snap.tipo==='🏊 Borda Piscina';
       var bpNomes=['Borda lateral A','Borda frontal B','Borda lateral C','Borda frontal D','Borda curva E','Canto boleado F','Trecho especial G','Borda interna H'];
@@ -9457,6 +9512,10 @@ function orcRefazer(id, e) {
         acState:JSON.parse(JSON.stringify(snap.acState||{})),
         selMat:snapMat
       };
+      // Restaurar medidas do Nicho (largura/altura/profundidade/moldura/descrição)
+      if(snap.tipo==='🖼️ Nicho'&&snap.nichoExtra){
+        amb.nichoExtra=JSON.parse(JSON.stringify(snap.nichoExtra));
+      }
       // Restaurar dados do motor inline para Túmulos
       if(snap.tipo==='Túmulo'){
         if(snap.tumResult)  amb.tumResult  = JSON.parse(JSON.stringify(snap.tumResult));
