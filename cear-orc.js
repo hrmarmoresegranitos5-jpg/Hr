@@ -149,10 +149,8 @@ function renderOrc(wrap) {
   if (isPiv) {
     var svgC='<svg id="mkitComum" viewBox="0 0 50 50" width="44" height="44"></svg>';
     var svgJ='<svg id="mkitJumbo" viewBox="0 0 50 50" width="44" height="44"></svg>';
-    var precoKitComum = CFG.acessorios.kit_pivotante, precoKitJumbo = CFG.acessorios.kit_jumbo;
-    var precoMola = CFG.comercial.mola_hidraulica;
-    var kitSub_c=formatBRL(nFP===2?precoKitComum*2:precoKitComum);
-    var kitSub_j=formatBRL(nFP===2?precoKitJumbo*2:precoKitJumbo);
+    var kitSub_c='R$ '+(nFP===2?'300':'150');
+    var kitSub_j='R$ '+(nFP===2?'700':'350');
     kitBlock = '<div class="field"><label>Kit pivotante'+(nFP===2?' (2 kits)':'')+'</label>'
       +'<div class="kit-opts kit-opts-kits">'
       +'<button class="kit-btn'+(s.kitPivotante==='comum'?' active':'')+'" onclick="_setKit(0)">'+svgC
@@ -164,12 +162,12 @@ function renderOrc(wrap) {
       +(nFP===2
         ?'<div class="kit-opts">'
           +'<button class="kit-btn'+(s.molaQtd===0?' active':'')+'" onclick="_setMola(0)" style="flex:1"><span class="kit-nm">Sem mola</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">'+formatBRL(precoMola)+'</span></button>'
-          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">'+formatBRL(precoMola*2)+'</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===1?' active':'')+'" onclick="_setMola(1)" style="flex:1"><span class="kit-nm">1 mola</span><span class="kit-sub">R$ 500</span></button>'
+          +'<button class="kit-btn'+(s.molaQtd===2?' active':'')+'" onclick="_setMola(2)" style="flex:1"><span class="kit-nm">2 molas</span><span class="kit-sub">R$ 1.000</span></button>'
           +'</div>'
         :'<button class="mola-toggle'+(s.molaQtd>0?' active':'')+'" onclick="orcToggleMola()">'
           +'<span class="mola-ic">⚙️</span><div class="mola-info"><span class="mola-nm">Mola Hidráulica</span>'
-          +'<span class="mola-sub">'+formatBRL(precoMola)+' · fecha automático</span></div>'
+          +'<span class="mola-sub">R$ 500 · fecha automático</span></div>'
           +'<span class="mola-chk">'+(s.molaQtd>0?'✓':'')+'</span></button>'
       )+'</div>';
   }
@@ -178,10 +176,9 @@ function renderOrc(wrap) {
   var kitCorBlock = '';
   if (isCorrer||isJanela||isBox) {
     var kc=s.kitCor||'branco';
-    var kEngB = CFG.comercial.kit_eng_branco, kEngP = CFG.comercial.kit_eng_preto;
     kitCorBlock = '<div class="field"><label>Kit engenharia</label><div class="kit-opts">'
-      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">'+formatBRL(kEngB)+'/m²</span></button>'
-      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">'+formatBRL(kEngP)+'/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='branco'?' active':'')+'" onclick="_setKitCor(0)"><span class="kit-nm">Branco</span><span class="kit-sub">R$ 120/m²</span></button>'
+      +'<button class="kit-btn'+(kc==='preto'?' active':'')+'" onclick="_setKitCor(1)"><span class="kit-nm">Preto</span><span class="kit-sub">R$ 130/m²</span></button>'
       +'</div></div>';
   }
 
@@ -198,8 +195,8 @@ function renderOrc(wrap) {
       +'<div class="orc-accs"><button class="orc-acc-btn'+(puxOn?' on':'')+'" onclick="_togAcc(\'puxador\')">'+(puxOn?'✓':'+')+' Puxador</button></div>';
     if (puxOn) {
       accsBlock += '<div class="pux-qty-row"><span class="pux-qty-lbl">Quantidade:</span>'
-        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
-        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===1?' active':'')+'" onclick="orcSetPuxCorrer(1)">1 · R$ 100</button>'
+        +'<button class="pux-qty-btn'+(puxQtdC===2?' active':'')+'" onclick="orcSetPuxCorrer(2)">2 · R$ 200</button>'
         +'</div>';
     }
     accsBlock += '</div>';
@@ -213,8 +210,8 @@ function renderOrc(wrap) {
     ah += '</div>';
     if (is2F&&puxOn) {
       ah += '<div class="pux-qty-row"><span class="pux-qty-lbl">Puxadores:</span>'
-        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · '+formatBRL(CFG.acessorios.puxador)+'</button>'
-        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · '+formatBRL(CFG.acessorios.puxador*2)+'</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===1?' active':'')+'" onclick="_setPuxQtd(0)">1 · R$ 100</button>'
+        +'<button class="pux-qty-btn'+(puxQtd===2?' active':'')+'" onclick="_setPuxQtd(1)">2 · R$ 200</button>'
         +'</div>';
     }
     accsBlock = ah+'</div>';
@@ -397,25 +394,13 @@ function orcCalcAndRender() {
   orcState.resultado=res;
   var rb=document.getElementById('orcResultBox'), ra=document.getElementById('orcAcoes');
   if (!rb) return;
-
-  // Erro de validação (dimensão mínima)
-  if (res && res.erro) {
-    rb.innerHTML='<div class="orc-erro-dim">⚠️ '+res.erro+'</div>';
-    if(ra) ra.innerHTML='';
-    return;
-  }
-
   if (res&&res.total>0) {
     var qty=s.qty||1, totalQ=res.total*qty, avistaQ=res.totalAvista*qty;
     var html='<div class="orc-result">'
       +'<div class="orc-total">'+formatBRL(totalQ)+(qty>1?' ('+qty+'× '+formatBRL(res.total)+')':'')+'</div>';
     if (avistaQ<totalQ) html+='<div class="orc-avista">💚 À vista: '+formatBRL(avistaQ)+'</div>';
     html+='<div class="orc-linhas">';
-    res.linhas.forEach(function(l){
-      var isFrete=l.nome.startsWith('Frete');
-      var valorStr=(l.valor===0&&isFrete)?'<span style="color:var(--grn)">Grátis ✓</span>':formatBRL(l.valor);
-      html+='<div class="orc-linha"><span>'+l.nome+'</span><span>'+valorStr+'</span></div>';
-    });
+    res.linhas.forEach(function(l){if(l.valor>0)html+='<div class="orc-linha"><span>'+l.nome+'</span><span>'+formatBRL(l.valor)+'</span></div>';});
     html+='</div></div>';
     rb.innerHTML=html;
     var btnLabel = orcEditIdx>=0 ? '✔ Atualizar item '+(orcEditIdx+1) : '➕ Adicionar ao orçamento';
@@ -448,16 +433,9 @@ function orcUpdate() {
 // ── Helpers ───────────────────────────────────────────────────
 function _getVisAcc() {
   var s=orcState, isPiv=s.tipo==='pivotante';
-  var a=CFG.acessorios||{};
   if (isPiv) {
-    var list=[
-      {id:'puxador', nome:'Puxador',          preco:a.puxador||100,          obrig:false},
-      {id:'fixador', nome:'Fixador',           preco:a.fixador||60,           obrig:false},
-    ];
-    if((s.pivFolhas||1)===2){
-      list.push({id:'contra',   nome:'Contra fechadura', preco:a.contra_fechadura||50, obrig:true});
-      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:(a.contra_fechadura||50)*2, obrig:true});
-    }
+    var list=[{id:'puxador',nome:'Puxador',preco:100,obrig:false},{id:'fixador',nome:'Fixador',preco:60,obrig:false}];
+    if((s.pivFolhas||1)===2){list.push({id:'contra',nome:'Contra fechadura',preco:50,obrig:true});list.push({id:'ferrolho',nome:'Ferrolho 2×',preco:120,obrig:true});}
     return list;
   }
   if (s.tipo==='correr') return [];
@@ -510,68 +488,19 @@ async function orcSalvar() {
   if(!orcState.resultado) return;
   showModalConfirm('💾 Salvar orçamento?','Salvar '+formatBRL(orcState.resultado.total)+(orcState.cliente?' para '+orcState.cliente:'')+'?','Salvar',async function(){
     try {
-      var dadosBase = {
-        tipo:orcState.tipo, larg:orcState.larg, alt:orcState.alt, vidro:orcState.vidroKey,
-        accs:orcState.accs, km:orcState.km, clienteNome:orcState.cliente.trim(),
-        clienteFone:orcState.fone.trim(), resultado:orcState.resultado,
-        folhasCorrer:orcState.folhasCorrer, pivFolhas:orcState.pivFolhas||1,
-        kitPivotante:orcState.kitPivotante||'comum', temFixo:orcState.temFixo,
-        fixoLarg:orcState.fixoLarg||0, temBandeirola:orcState.temBandeirola, bandH:orcState.bandH||0
-      };
+      await salvarOrcamento({tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,accs:orcState.accs,km:orcState.km,clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer,pivFolhas:orcState.pivFolhas||1,kitPivotante:orcState.kitPivotante||'comum',temFixo:orcState.temFixo,fixoLarg:orcState.fixoLarg||0,temBandeirola:orcState.temBandeirola,bandH:orcState.bandH||0});
       closeModal();
-      await _orcVincularCliente(dadosBase);
       var sm=document.getElementById('orcSavedMsg');
       if(sm){sm.innerHTML='<div class="orc-saved">✓ Salvo!</div>';setTimeout(function(){sm.innerHTML='';},2500);}
     } catch(e){alert('Erro: '+e.message);}
   });
 }
-
-async function _orcVincularCliente(dados) {
-  var nomeOrc = (dados.clienteNome||''). trim();
-  if (!nomeOrc) { await salvarOrcamento(dados); return; }
-  var clientes = [];
-  try { clientes = await listarClientes(); } catch(e){}
-  var match = clientes.find(c => c.nome.toLowerCase() === nomeOrc.toLowerCase());
-  if (!match) match = clientes.find(c =>
-    c.nome.toLowerCase().includes(nomeOrc.toLowerCase()) ||
-    nomeOrc.toLowerCase().includes(c.nome.toLowerCase())
-  );
-  if (match) {
-    showModal('<div class="modal-titulo">🔗 Vincular ao cadastro?</div>'+
-      '<div style="font-size:.82rem;color:var(--t3);margin-bottom:14px">Encontramos <b>'+esc(match.nome)+'</b> no cadastro.<br>Vincular este orçamento ao perfil?</div>'+
-      '<div class="modal-row"><button class="btn btn-ghost btn-full" id="vincNaoBtn">Não vincular</button>'+
-      '<button class="btn btn-gold btn-full" id="vincSimBtn">🔗 Vincular</button></div>');
-    document.getElementById('vincSimBtn').onclick = async function(){
-      await salvarOrcamento({...dados,clienteId:match.id,clienteNome:match.nome,clienteFone:match.fone||dados.clienteFone});
-      closeModal(); histMostrarToast('✅ Salvo e vinculado a '+match.nome);
-    };
-    document.getElementById('vincNaoBtn').onclick = async function(){
-      await salvarOrcamento(dados); closeModal(); histMostrarToast('✅ Orçamento salvo');
-    };
-  } else {
-    showModal('<div class="modal-titulo">👤 Cadastrar cliente?</div>'+
-      '<div style="font-size:.82rem;color:var(--t3);margin-bottom:14px"><b>'+esc(nomeOrc)+'</b> não está no cadastro.<br>Deseja criar um cadastro rápido?</div>'+
-      '<div class="modal-row"><button class="btn btn-ghost btn-full" id="cadNaoBtn">Não agora</button>'+
-      '<button class="btn btn-gold btn-full" id="cadSimBtn">➕ Cadastrar</button></div>');
-    document.getElementById('cadSimBtn').onclick = async function(){
-      try {
-        var novoId = await salvarCliente({nome:nomeOrc,fone:dados.clienteFone||''});
-        await salvarOrcamento({...dados,clienteId:novoId});
-        closeModal(); histMostrarToast('✅ Salvo + cliente cadastrado!');
-      } catch(e){ closeModal(); histMostrarToast('✅ Orçamento salvo'); }
-    };
-    document.getElementById('cadNaoBtn').onclick = async function(){
-      await salvarOrcamento(dados); closeModal(); histMostrarToast('✅ Orçamento salvo');
-    };
-  }
-}
 async function orcSalvarTodos() {
   if(!orcItens.length) return;
   var totalGeral=orcItens.reduce(function(a,it){return a+(it.resultado.total||0)*(it.qty||1);},0);
-  var totalAvistaGeral=orcItens.reduce(function(a,it){return a+((it.resultado.totalAvista??it.resultado.total)||0)*(it.qty||1);},0);
   showModalConfirm('💾 Salvar orçamento completo?',orcItens.length+' iten'+(orcItens.length>1?'s':'')+' · '+formatBRL(totalGeral)+(orcState.cliente?' · '+orcState.cliente:''),'Salvar',async function(){
     try {
-      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalAvistaGeral,linhas:[]},km:0});
+      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalGeral,linhas:[]},km:0});
       closeModal();
     } catch(e){alert('Erro: '+e.message);}
   });
@@ -579,48 +508,9 @@ async function orcSalvarTodos() {
 function orcCompartilhar() { if(!orcState.resultado) return; showModalCompartilhar(orcState); }
 function orcEnviarTodos()  { showModalCompartilhar({...orcState, itens:orcItens}); }
 function orcWppDireto() {
+  var txt=gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer});
   var num=(orcState.fone||'').replace(/\D/g,'');
-  var txt;
-  if (orcItens && orcItens.length > 0) {
-    // Orçamento multi-item
-    txt = gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens });
-  } else {
-    // Item único
-    txt = gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer});
-  }
-  if (!num) {
-    histMostrarToast('⚠️ Informe o telefone do cliente antes de enviar');
-    closeModal();
-    // Foca no campo fone
-    setTimeout(() => { var el=document.getElementById('orcFone'); if(el){el.focus();el.scrollIntoView({behavior:'smooth',block:'center'});} }, 300);
-    return;
-  }
-  window.open('https://wa.me/55'+num+'?text='+encodeURIComponent(txt),'_blank');
+  window.open((num?'https://wa.me/55'+num:'https://wa.me/')+'?text='+encodeURIComponent(txt),'_blank');
   closeModal();
 }
-function orcEnviarEmail() {
-  var itens = orcItens && orcItens.length > 0;
-  var txt = itens
-    ? gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens })
-    : gerarTextoWpp({ cliente:orcState.cliente, tipo:orcState.tipo, larg:orcState.larg,
-        alt:orcState.alt, vidro:orcState.vidroKey, resultado:orcState.resultado,
-        folhasCorrer:orcState.folhasCorrer });
-  var nome  = CFG.empresa?.nome || 'Ceará Planejados';
-  var total = itens
-    ? orcItens.reduce(function(s,it){return s+(it.resultado?.total||0)*(it.qty||1);},0)
-    : (orcState.resultado?.total||0);
-  var assunto = encodeURIComponent('Orçamento — ' + nome + (orcState.cliente ? ' para ' + orcState.cliente : '') + ' — ' + formatBRL(total));
-  var corpo   = encodeURIComponent(txt);
-  window.open('mailto:?subject=' + assunto + '&body=' + corpo, '_blank');
-  closeModal();
-}
-
-function orcGerarPDF() {
-  closeModal();
-  // Se houver itens no orçamento multi, usa o gerador multi
-  if (orcItens && orcItens.length > 0) {
-    gerarPDFMulti({ itens: orcItens, cliente: orcState.cliente, fone: orcState.fone });
-  } else {
-    gerarPDFOrcamento(orcState);
-  }
-}
+function orcGerarPDF() { closeModal(); gerarPDFOrcamento(orcState); }

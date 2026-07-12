@@ -42,20 +42,28 @@ const COMERCIAL_DEF = {
   roldana:              10,  // R$ cada roldana
 };
 
-const ACESSORIOS_DEF = {
-  kit_pivotante:     150,
-  kit_jumbo:         350,
-  kit_janela_2:      100,
-  kit_janela_4:      110,
-  kit_basculante:    150,
-  puxador:           100,
-  fixador:            60,
-  fechadura_vp:      150,
-  fechadura_vv:      180,
-  fechadura_macaret: 180,
-  contra_fechadura:   50,
-  bate_vp:            50,
-  bate_vv:            80,
+// Materiais de túmulo (preço/m²)
+const TUMULO_MATERIAIS_DEF = {
+  granito_preto:   { nome:'Granito Preto',      preco:480 },
+  granito_cinza:   { nome:'Granito Cinza',       preco:350 },
+  granito_verde:   { nome:'Granito Verde Ubatuba',preco:420 },
+  granito_rosa:    { nome:'Granito Rosa Iracema', preco:380 },
+  granito_branco:  { nome:'Granito Branco Siena', preco:400 },
+  marmore_branco:  { nome:'Mármore Branco',       preco:520 },
+  marmore_bege:    { nome:'Mármore Bege',         preco:480 },
+};
+
+// Acessórios de túmulo
+const TUMULO_ACSS_DEF = {
+  placa_aluminio: { nome:'Placa Alumínio (nome/datas)',    preco: 80 },
+  placa_inox:     { nome:'Placa Inox (nome/datas)',        preco:120 },
+  placa_bronze:   { nome:'Placa Bronze (nome/datas)',      preco:200 },
+  foto_porcelana: { nome:'Foto em Porcelana',              preco:150 },
+  fotogravacao:   { nome:'Fotogravação no Granito',        preco:120 },
+  cruz_inox:      { nome:'Cruz em Inox',                   preco: 90 },
+  vaso_inox:      { nome:'Vaso Inox',                      preco: 60 },
+  veleiro_inox:   { nome:'Veleiro Inox',                   preco: 70 },
+  instalacao_m2:  { nome:'Instalação no cemitério',        preco: 80 },
 };
 
 const EMPRESA_DEF = {
@@ -96,13 +104,6 @@ function loadCFG() {
   CFG.comercial = {};
   for (const k in COMERCIAL_DEF) {
     CFG.comercial[k] = co[k] ?? COMERCIAL_DEF[k];
-  }
-
-  // Acessórios e ferragens
-  const ac = saved.acessorios || {};
-  CFG.acessorios = {};
-  for (const k in ACESSORIOS_DEF) {
-    CFG.acessorios[k] = ac[k] ?? ACESSORIOS_DEF[k];
   }
 
   // Empresa
@@ -157,6 +158,7 @@ const VIDROS_POR_TIPO = {
   basculante: ['com_4','com_6','temp_trans'],
   guarda:     ['temp_trans','temp_fume','temp_serig'],
   comum:      ['com_4','com_6','com_fume3','com_fume4','esp_3','esp_4'],
+  tumulo:     [],
 };
 
 const DEFAULTS = {
@@ -168,6 +170,7 @@ const DEFAULTS = {
   basculante: { larg:60,  alt:40  },
   guarda:     { larg:120, alt:110 },
   comum:      { larg:60,  alt:60  },
+  tumulo:     { larg:90,  alt:60  },
 };
 
 const TIPOS = [
@@ -179,10 +182,11 @@ const TIPOS = [
   { id:'basculante', label:'Basculante',      icon:'⬆️' },
   { id:'guarda',     label:'Guarda Corpo',    icon:'🏗️' },
   { id:'comum',      label:'Vidro Comum',     icon:'🔷' },
+  { id:'tumulo',     label:'Túmulo/Jazigo',   icon:'⛪' },
 ];
 
-const TIPO_LABEL = { pivotante:'Porta Pivotante',correr:'Porta de Correr',janela:'Janela',box:'Box de Banheiro',espelho:'Espelho',guarda:'Guarda Corpo',basculante:'Basculante',comum:'Vidro Comum' };
-const TIPO_ICON  = { pivotante:'🚪',correr:'🔲',janela:'🪟',box:'🛁',espelho:'🪞',guarda:'🏗️',basculante:'⬆️',comum:'🔷' };
+const TIPO_LABEL = { tumulo:'Túmulo/Jazigo', pivotante:'Porta Pivotante',correr:'Porta de Correr',janela:'Janela',box:'Box de Banheiro',espelho:'Espelho',guarda:'Guarda Corpo',basculante:'Basculante',comum:'Vidro Comum' };
+const TIPO_ICON  = { tumulo:'⛪', pivotante:'🚪',correr:'🔲',janela:'🪟',box:'🛁',espelho:'🪞',guarda:'🏗️',basculante:'⬆️',comum:'🔷' };
 
 // ── Estado do orçamento ───────────────────────────────────────
 let orcState = {
@@ -192,7 +196,6 @@ let orcState = {
   resultado:null, folhasCorrer:2, janelaFolhas:2, puxadorCorrer:false, puxadoresQtd:1,
   kitPivotante:'comum', molaQtd:0, kitCor:'branco',
   boxTipo:'conv', largB:80, altB:80, puxadoresCorrerQtd:1,
-  dataInstalacao:'', diasInstalacao:1,
 };
 
 // Declara os globais que loadCFG vai preencher
