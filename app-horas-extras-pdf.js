@@ -120,10 +120,13 @@
     var hoje = dataISO;
 
     // 1) Busca bonificação específica para este funcionário nesta data
+    // (comparação com == em vez de === — mesma correção aplicada em
+    // patch-relatorio-ponto.js v3: funcId pode vir como string do <select>
+    // e number no registro salvo, e com === a bonificação nunca "casava")
     var bonifFunc = null;
     bonifs.forEach(function(b) {
       if (!b.ativo) return;
-      if (b.funcId && b.funcId !== funcId) return; // é de outro funcionário
+      if (b.funcId && b.funcId != funcId) return; // é de outro funcionário
       if (!b.funcId) return; // é geral, pula nesse loop
       if (hoje >= b.inicio && hoje <= b.fim) {
         if (!bonifFunc || parseFloat(b.multiplicador) > parseFloat(bonifFunc.multiplicador)) {
@@ -169,8 +172,9 @@
     var valorHoraBase = salario / 220;
 
     // Filtrar registros do período com hora extra
+    // (== em vez de === — mesmo motivo: funcId pode vir como string vs number)
     var todosComExtra = Object.values(regs).filter(function (r) {
-      if (r.funcionarioId !== funcId) return false;
+      if (r.funcionarioId != funcId) return false;
       if (inicio && r.data < inicio) return false;
       if (fim && r.data > fim) return false;
       return parseFloat(r.extra) > 0;
@@ -215,8 +219,9 @@
     var totalValorAprovado = totalValorExtra;
 
     // Pagamentos já registrados no período
+    // (== em vez de === — mesmo motivo das outras comparações de ID neste arquivo)
     var totalPago = Object.values(_getPagoHE()).filter(function (p) {
-      return p.funcionarioId === funcId &&
+      return p.funcionarioId == funcId &&
         (!inicio || p.periodo >= inicio) &&
         (!fim    || p.periodo <= fim);
     }).reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
@@ -274,7 +279,7 @@
     var totSaldo  = resultados.reduce(function (s, r) { return s + r.saldo; }, 0);
 
     var exibir = _st.funcId
-      ? resultados.filter(function (r) { return r.func.id === _st.funcId; })
+      ? resultados.filter(function (r) { return r.func.id == _st.funcId; })
       : resultados;
 
     var INP = 'width:100%;box-sizing:border-box;padding:10px 12px;border-radius:9px;' +
