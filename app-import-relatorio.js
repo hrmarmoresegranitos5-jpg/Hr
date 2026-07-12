@@ -340,14 +340,16 @@ var HR_IMPORT = (function () {
     if (d === 0) return 0; // domingo = folga sempre
 
     // Consulta exceções globais (hr_excecoes)
+    var exc = null;
     try {
       var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
-      var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
+      exc = Object.values(excs).find(function(e){ return e.data === isoDate; }) || null;
       if (exc) {
         // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
         if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
         if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
-        // Feriado meio período ou declarado → usa jornada normal (calculada abaixo)
+        // Feriado meio período ou declarado → cai no cálculo normal abaixo,
+        // meio período é reduzido à metade no final desta função.
       }
     } catch(e) {}
 
@@ -364,14 +366,24 @@ var HR_IMPORT = (function () {
     }
 
     // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
+    var jornadaBase = JORNADA[DOW_KEYS[d]] || 480;
     if (funcId) {
       try {
         var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
-        if (jMin > 0) return jMin;
+        if (jMin > 0) jornadaBase = jMin;
       } catch(e) {}
     }
-    return JORNADA[DOW_KEYS[d]] || 480;
+
+    // Feriado meio período: desconta metade da jornada esperada — mesma
+    // regra usada no relatório de ponto (app-relatorio-ponto.js), pra as
+    // duas telas (relatório e tela de pagamento) baterem. Antes, essa
+    // exceção caía direto no "return jornadaBase" (dia inteiro), fazendo
+    // o motor de pagamento tratar o excedente como déficit em vez de extra.
+    if (exc && exc.tipo === 'feriado' && exc.meioperiodo) {
+      return Math.round(jornadaBase / 2);
+    }
+    return jornadaBase;
   }
 
   /**
@@ -3566,6 +3578,30 @@ var HR_IMPORT = (function () {
       }
 
       if (extraHoras <= 0) {
+        // ── Extra automática em feriado/meio período ─────────────────────
+        // Se ninguém lançou extra manualmente no registro, mas o funcionário
+        // trabalhou além do esperado (já reduzido pela exceção de feriado),
+        // o excedente vira HE triplicada automaticamente — mesma regra usada
+        // no relatório de ponto (app-relatorio-ponto.js), pra as duas telas
+        // (relatório e tela de Registrar Pagamento) baterem sempre.
+        var autoExtraMin = 0;
+        try {
+          var excsAuto = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+          var excAuto  = Object.values(excsAuto).find(function(e){ return e.data === r.data && e.tipo === 'feriado'; });
+          if (excAuto) {
+            var jornadaAuto = _jornadaEsperada(r.data, func && func.id || null);
+            var trabAuto    = Math.round((parseFloat(r.horas) || 0) * 60);
+            if (trabAuto > jornadaAuto) autoExtraMin = trabAuto - jornadaAuto;
+          }
+        } catch(e) {}
+
+        if (autoExtraMin > 0) {
+          totalExtra200Min += autoExtraMin;
+          if (audit) console.log('%c[AUTO-FERIADO] ' + r.data + ' → ' + autoExtraMin + 'min excedente sem extra lançada → HE200',
+            'color:#e0954a', { id: r.id });
+          return;
+        }
+
         if (audit && r.extra !== undefined && r.extra !== null && r.extra !== 0 && r.extra !== '')
           console.log('%c[ZERO]   ' + r.data + ' → extra=' + r.extra + ' → ignorado (≤0)',
             'color:#888', { id: r.id });
