@@ -287,7 +287,8 @@ function _renderItens() {
   if (totalAv < total) {
     html += '<div class="orc-avista" style="margin-top:4px">💚 À vista: '+formatBRL(totalAv)+'</div>';
   }
-  html += '<div style="display:flex;gap:8px;margin-top:12px">'
+  html += '<div id="orcDataChipItens" style="margin-top:12px">'+_orcDataChipHTML()+'</div>';
+  html += '<div style="display:flex;gap:8px;margin-top:10px">'
     +'<button class="btn btn-ghost btn-full" onclick="orcSalvarTodos()">💾 Salvar orçamento</button>'
     +'<button class="btn btn-grn btn-full" onclick="orcEnviarTodos()">📤 Enviar</button>'
     +'</div></div>';
@@ -394,17 +395,30 @@ function orcCalcAndRender() {
   orcState.resultado=res;
   var rb=document.getElementById('orcResultBox'), ra=document.getElementById('orcAcoes');
   if (!rb) return;
+
+  // Erro de validação (dimensão mínima)
+  if (res && res.erro) {
+    rb.innerHTML='<div class="orc-erro-dim">⚠️ '+res.erro+'</div>';
+    if(ra) ra.innerHTML='';
+    return;
+  }
+
   if (res&&res.total>0) {
     var qty=s.qty||1, totalQ=res.total*qty, avistaQ=res.totalAvista*qty;
     var html='<div class="orc-result">'
       +'<div class="orc-total">'+formatBRL(totalQ)+(qty>1?' ('+qty+'× '+formatBRL(res.total)+')':'')+'</div>';
     if (avistaQ<totalQ) html+='<div class="orc-avista">💚 À vista: '+formatBRL(avistaQ)+'</div>';
     html+='<div class="orc-linhas">';
-    res.linhas.forEach(function(l){if(l.valor>0)html+='<div class="orc-linha"><span>'+l.nome+'</span><span>'+formatBRL(l.valor)+'</span></div>';});
+    res.linhas.forEach(function(l){
+      var isFrete=l.nome.startsWith('Frete');
+      var valorStr=(l.valor===0&&isFrete)?'<span style="color:var(--grn)">Grátis ✓</span>':formatBRL(l.valor);
+      html+='<div class="orc-linha"><span>'+l.nome+'</span><span>'+valorStr+'</span></div>';
+    });
     html+='</div></div>';
     rb.innerHTML=html;
     var btnLabel = orcEditIdx>=0 ? '✔ Atualizar item '+(orcEditIdx+1) : '➕ Adicionar ao orçamento';
-    if (ra) ra.innerHTML='<button class="btn btn-gold btn-full" style="margin-bottom:8px" onclick="orcAdicionarItem()">'+btnLabel+'</button>'
+    if (ra) ra.innerHTML='<div id="orcDataChip" style="margin-bottom:8px">'+_orcDataChipHTML()+'</div>'
+      +'<button class="btn btn-gold btn-full" style="margin-bottom:8px" onclick="orcAdicionarItem()">'+btnLabel+'</button>'
       +'<div style="display:flex;gap:8px">'
       +'<button class="btn btn-ghost" style="flex:1" onclick="orcSalvar()">💾 Salvar</button>'
       +'<button class="btn btn-grn" style="flex:1" onclick="orcCompartilhar()">📤 Enviar</button>'
@@ -433,9 +447,16 @@ function orcUpdate() {
 // ── Helpers ───────────────────────────────────────────────────
 function _getVisAcc() {
   var s=orcState, isPiv=s.tipo==='pivotante';
+  var a=CFG.acessorios||{};
   if (isPiv) {
-    var list=[{id:'puxador',nome:'Puxador',preco:100,obrig:false},{id:'fixador',nome:'Fixador',preco:60,obrig:false}];
-    if((s.pivFolhas||1)===2){list.push({id:'contra',nome:'Contra fechadura',preco:50,obrig:true});list.push({id:'ferrolho',nome:'Ferrolho 2×',preco:120,obrig:true});}
+    var list=[
+      {id:'puxador', nome:'Puxador',          preco:a.puxador||100,          obrig:false},
+      {id:'fixador', nome:'Fixador',           preco:a.fixador||60,           obrig:false},
+    ];
+    if((s.pivFolhas||1)===2){
+      list.push({id:'contra',   nome:'Contra fechadura', preco:a.contra_fechadura||50, obrig:true});
+      list.push({id:'ferrolho', nome:'Ferrolho 2×',      preco:a.ferrolho||120,       obrig:true});
+    }
     return list;
   }
   if (s.tipo==='correr') return [];
@@ -484,33 +505,190 @@ function orcSetBoxTipo(i)      { orcState.boxTipo=_ORC.boxTipos[i]; renderOrc(do
 function orcToggleAcc(id,obrig){ if(obrig) return; orcState.accs[id]=!(orcState.accs[id]||false); renderOrc(document.getElementById('pgWrap')); }
 
 // ── Salvar / enviar ───────────────────────────────────────────
+// ── Agenda de instalações ───────────────────────────────────────
+// (_fmtDataBR e _orcDiasOcupados ficam em cear-helpers.js)
+
+// Monta o conjunto de todas as datas já ocupadas por outros orçamentos (exceto cancelados
+// e, opcionalmente, exceto o próprio orçamento que está sendo editado).
+async function _orcDatasOcupadasGlobais(ignorarId) {
+  var ocupadas = {}; // dataISO -> [{cliente, id}]
+  var todos = [];
+  try { todos = await listarOrcamentos(); } catch (e) { return ocupadas; }
+  todos.forEach(function (o) {
+    if (!o.dataInstalacao) return;
+    if ((o.status || 'pendente') === 'cancelado') return;
+    if (ignorarId && o.id === ignorarId) return;
+    _orcDiasOcupados(o.dataInstalacao, o.diasInstalacao || 1).forEach(function (dISO) {
+      (ocupadas[dISO] = ocupadas[dISO] || []).push({ cliente: o.clienteNome || 'sem nome', id: o.id });
+    });
+  });
+  return ocupadas;
+}
+
+// Verifica se a data/duração escolhida bate com algum orçamento já agendado.
+async function orcVerificarConflitoData(inicioISO, dias, ignorarId) {
+  if (!inicioISO) return { conflitos: [], proximaLivre: null };
+  var ocupadas = await _orcDatasOcupadasGlobais(ignorarId);
+  var minhas = _orcDiasOcupados(inicioISO, dias);
+  var conflitos = [];
+  minhas.forEach(function (dISO) {
+    (ocupadas[dISO] || []).forEach(function (c) {
+      conflitos.push({ data: dISO, cliente: c.cliente });
+    });
+  });
+  // Procura a próxima data de início livre para a mesma duração (até 60 dias à frente)
+  var proximaLivre = null;
+  var base = new Date(inicioISO + 'T00:00:00');
+  for (var i = 0; i < 60; i++) {
+    var tentativa = new Date(base.getTime());
+    tentativa.setDate(base.getDate() + i);
+    var tentativaISO = tentativa.toISOString().slice(0, 10);
+    var diasTentativa = _orcDiasOcupados(tentativaISO, dias);
+    var livre = diasTentativa.every(function (dISO) { return !ocupadas[dISO]; });
+    if (livre) { proximaLivre = tentativaISO; break; }
+  }
+  return { conflitos: conflitos, proximaLivre: proximaLivre };
+}
+
+// ── Chip de data de instalação (visível no orçamento) ──────────
+function _orcDataChipHTML() {
+  var s = orcState;
+  if (!s.dataInstalacao) {
+    return '<button type="button" class="orc-data-chip orc-data-chip-vazio" onclick="orcAbrirDataStandalone()">📅 Definir data de instalação</button>';
+  }
+  var dias = s.diasInstalacao || 1;
+  var fim = dias > 1 ? _fmtDataBR(_orcDiasOcupados(s.dataInstalacao, dias).slice(-1)[0]) : null;
+  return '<button type="button" class="orc-data-chip" onclick="orcAbrirDataStandalone()">📅 Instalação: '+_fmtDataBR(s.dataInstalacao)+(fim?' a '+fim:'')+' <span style="opacity:.6">· editar</span></button>';
+}
+function orcAbrirDataStandalone() {
+  showModalDataInstalacao(orcState, function () {
+    var elA = document.getElementById('orcDataChip');
+    if (elA) elA.innerHTML = _orcDataChipHTML();
+    var elB = document.getElementById('orcDataChipItens');
+    if (elB) elB.innerHTML = _orcDataChipHTML();
+  });
+}
+
 async function orcSalvar() {
   if(!orcState.resultado) return;
   showModalConfirm('💾 Salvar orçamento?','Salvar '+formatBRL(orcState.resultado.total)+(orcState.cliente?' para '+orcState.cliente:'')+'?','Salvar',async function(){
     try {
-      await salvarOrcamento({tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,accs:orcState.accs,km:orcState.km,clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer,pivFolhas:orcState.pivFolhas||1,kitPivotante:orcState.kitPivotante||'comum',temFixo:orcState.temFixo,fixoLarg:orcState.fixoLarg||0,temBandeirola:orcState.temBandeirola,bandH:orcState.bandH||0});
+      var dadosBase = {
+        tipo:orcState.tipo, larg:orcState.larg, alt:orcState.alt, vidro:orcState.vidroKey,
+        accs:orcState.accs, km:orcState.km, clienteNome:orcState.cliente.trim(),
+        clienteFone:orcState.fone.trim(), resultado:orcState.resultado,
+        folhasCorrer:orcState.folhasCorrer, pivFolhas:orcState.pivFolhas||1,
+        kitPivotante:orcState.kitPivotante||'comum', temFixo:orcState.temFixo,
+        fixoLarg:orcState.fixoLarg||0, temBandeirola:orcState.temBandeirola, bandH:orcState.bandH||0,
+        dataInstalacao:orcState.dataInstalacao||'', diasInstalacao:orcState.diasInstalacao||1,
+      };
       closeModal();
+      await _orcVincularCliente(dadosBase);
       var sm=document.getElementById('orcSavedMsg');
       if(sm){sm.innerHTML='<div class="orc-saved">✓ Salvo!</div>';setTimeout(function(){sm.innerHTML='';},2500);}
     } catch(e){alert('Erro: '+e.message);}
   });
+}
+
+async function _orcVincularCliente(dados) {
+  var nomeOrc = (dados.clienteNome||''). trim();
+  if (!nomeOrc) { await salvarOrcamento(dados); return; }
+  var clientes = [];
+  try { clientes = await listarClientes(); } catch(e){}
+  var match = clientes.find(c => c.nome.toLowerCase() === nomeOrc.toLowerCase());
+  if (!match) match = clientes.find(c =>
+    c.nome.toLowerCase().includes(nomeOrc.toLowerCase()) ||
+    nomeOrc.toLowerCase().includes(c.nome.toLowerCase())
+  );
+  if (match) {
+    showModal('<div class="modal-titulo">🔗 Vincular ao cadastro?</div>'+
+      '<div style="font-size:.82rem;color:var(--t3);margin-bottom:14px">Encontramos <b>'+esc(match.nome)+'</b> no cadastro.<br>Vincular este orçamento ao perfil?</div>'+
+      '<div class="modal-row"><button class="btn btn-ghost btn-full" id="vincNaoBtn">Não vincular</button>'+
+      '<button class="btn btn-gold btn-full" id="vincSimBtn">🔗 Vincular</button></div>');
+    document.getElementById('vincSimBtn').onclick = async function(){
+      await salvarOrcamento({...dados,clienteId:match.id,clienteNome:match.nome,clienteFone:match.fone||dados.clienteFone});
+      closeModal(); histMostrarToast('✅ Salvo e vinculado a '+match.nome);
+    };
+    document.getElementById('vincNaoBtn').onclick = async function(){
+      await salvarOrcamento(dados); closeModal(); histMostrarToast('✅ Orçamento salvo');
+    };
+  } else {
+    showModal('<div class="modal-titulo">👤 Cadastrar cliente?</div>'+
+      '<div style="font-size:.82rem;color:var(--t3);margin-bottom:14px"><b>'+esc(nomeOrc)+'</b> não está no cadastro.<br>Deseja criar um cadastro rápido?</div>'+
+      '<div class="modal-row"><button class="btn btn-ghost btn-full" id="cadNaoBtn">Não agora</button>'+
+      '<button class="btn btn-gold btn-full" id="cadSimBtn">➕ Cadastrar</button></div>');
+    document.getElementById('cadSimBtn').onclick = async function(){
+      try {
+        var novoId = await salvarCliente({nome:nomeOrc,fone:dados.clienteFone||''});
+        await salvarOrcamento({...dados,clienteId:novoId});
+        closeModal(); histMostrarToast('✅ Salvo + cliente cadastrado!');
+      } catch(e){ closeModal(); histMostrarToast('✅ Orçamento salvo'); }
+    };
+    document.getElementById('cadNaoBtn').onclick = async function(){
+      await salvarOrcamento(dados); closeModal(); histMostrarToast('✅ Orçamento salvo');
+    };
+  }
 }
 async function orcSalvarTodos() {
   if(!orcItens.length) return;
   var totalGeral=orcItens.reduce(function(a,it){return a+(it.resultado.total||0)*(it.qty||1);},0);
   showModalConfirm('💾 Salvar orçamento completo?',orcItens.length+' iten'+(orcItens.length>1?'s':'')+' · '+formatBRL(totalGeral)+(orcState.cliente?' · '+orcState.cliente:''),'Salvar',async function(){
     try {
-      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalGeral,linhas:[]},km:0});
+      await salvarOrcamento({tipo:'multi',clienteNome:orcState.cliente.trim(),clienteFone:orcState.fone.trim(),itens:orcItens,resultado:{total:totalGeral,totalAvista:totalGeral,linhas:[]},km:0,dataInstalacao:orcState.dataInstalacao||'',diasInstalacao:orcState.diasInstalacao||1});
       closeModal();
     } catch(e){alert('Erro: '+e.message);}
   });
 }
-function orcCompartilhar() { if(!orcState.resultado) return; showModalCompartilhar(orcState); }
-function orcEnviarTodos()  { showModalCompartilhar({...orcState, itens:orcItens}); }
+function orcCompartilhar() {
+  if(!orcState.resultado) return;
+  showModalDataInstalacao(orcState, function(){ showModalCompartilhar(orcState); });
+}
+function orcEnviarTodos() {
+  showModalDataInstalacao(orcState, function(){ showModalCompartilhar({...orcState, itens:orcItens}); });
+}
 function orcWppDireto() {
-  var txt=gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer});
   var num=(orcState.fone||'').replace(/\D/g,'');
-  window.open((num?'https://wa.me/55'+num:'https://wa.me/')+'?text='+encodeURIComponent(txt),'_blank');
+  var txt;
+  if (orcItens && orcItens.length > 0) {
+    // Orçamento multi-item
+    txt = gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao });
+  } else {
+    // Item único
+    txt = gerarTextoWpp({cliente:orcState.cliente,tipo:orcState.tipo,larg:orcState.larg,alt:orcState.alt,vidro:orcState.vidroKey,resultado:orcState.resultado,folhasCorrer:orcState.folhasCorrer,dataInstalacao:orcState.dataInstalacao,diasInstalacao:orcState.diasInstalacao});
+  }
+  if (!num) {
+    histMostrarToast('⚠️ Informe o telefone do cliente antes de enviar');
+    closeModal();
+    // Foca no campo fone
+    setTimeout(() => { var el=document.getElementById('orcFone'); if(el){el.focus();el.scrollIntoView({behavior:'smooth',block:'center'});} }, 300);
+    return;
+  }
+  window.open('https://wa.me/55'+num+'?text='+encodeURIComponent(txt),'_blank');
   closeModal();
 }
-function orcGerarPDF() { closeModal(); gerarPDFOrcamento(orcState); }
+function orcEnviarEmail() {
+  var itens = orcItens && orcItens.length > 0;
+  var txt = itens
+    ? gerarTextoWppMulti({ cliente:orcState.cliente, fone:orcState.fone, itens:orcItens, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao })
+    : gerarTextoWpp({ cliente:orcState.cliente, tipo:orcState.tipo, larg:orcState.larg,
+        alt:orcState.alt, vidro:orcState.vidroKey, resultado:orcState.resultado,
+        folhasCorrer:orcState.folhasCorrer, dataInstalacao:orcState.dataInstalacao, diasInstalacao:orcState.diasInstalacao });
+  var nome  = CFG.empresa?.nome || 'Ceará Planejados';
+  var total = itens
+    ? orcItens.reduce(function(s,it){return s+(it.resultado?.total||0)*(it.qty||1);},0)
+    : (orcState.resultado?.total||0);
+  var assunto = encodeURIComponent('Orçamento — ' + nome + (orcState.cliente ? ' para ' + orcState.cliente : '') + ' — ' + formatBRL(total));
+  var corpo   = encodeURIComponent(txt);
+  window.open('mailto:?subject=' + assunto + '&body=' + corpo, '_blank');
+  closeModal();
+}
+
+function orcGerarPDF() {
+  closeModal();
+  // Se houver itens no orçamento multi, usa o gerador multi
+  if (orcItens && orcItens.length > 0) {
+    gerarPDFMulti({ itens: orcItens, cliente: orcState.cliente, fone: orcState.fone, dataInstalacao: orcState.dataInstalacao, diasInstalacao: orcState.diasInstalacao });
+  } else {
+    gerarPDFOrcamento(orcState);
+  }
+}
