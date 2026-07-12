@@ -2871,6 +2871,8 @@ var HR_IMPORT = (function () {
           data: r.data,
           entrada: r.entrada || '',
           saida: r.saida || '',
+          saidaAlmoco: r.almEntrada || '',
+          voltaAlmoco: r.almSaida || '',
           horas: parseFloat((calc.trab / 60).toFixed(4)),
           extra: parseFloat((calc.extra / 60).toFixed(4)),
           tipoExtra: (function(){
