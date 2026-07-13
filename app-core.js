@@ -2513,129 +2513,100 @@ function aplicarPecasNicho(ambId){
 }
 
 // ─── DESENHO TÉCNICO (PROJETO 2D) DO NICHO ─────────────────────────
-// Vista frontal com quinas mitradas a 45° na moldura, cotas de vão interno e moldura,
-// mais um "retorno" em perspectiva no canto inferior-direito mostrando a profundidade
-// (as peças de base/topo/laterais que voltam pra dentro do nicho).
-// Estilo "planificado" (peça desdobrada), igual ao desenho de fabricação:
-// vista frontal do vão interno + moldura mitrada a 45° (se houver), com a aba
-// de profundidade desenhada dobrada para baixo — não é perspectiva, é a peça
-// real "aberta" mostrando o quanto ela volta pra dentro do nicho.
+// Contorno ÚNICO (um polígono só) — igual ao desenho de fabricação de referência:
+// o vão fica encostado no canto superior-esquerdo (sem moldura em cima/esquerda),
+// a moldura (largura M) corre só pelo lado direito, a tira da base (altura Pb)
+// corre só por baixo, e as duas se encontram no canto inferior-direito através
+// de um único corte a 45° (chanfro), sem nenhuma caixa/retângulo pendurado à parte.
 function buildNichoProjetoSVG(ne,opts){
   opts=opts||{};
   var light=!!opts.light;
   var Li=+(ne.nW||0), Ai=+(ne.nH||0), M=+(ne.nM||0), P=+(ne.nP||0);
-  var Pb=+(ne.nPBase||0)||P; // profundidade da base (se vazio, igual à de topo/laterais)
+  var Pb=+(ne.nPBase||0)||P; // profundidade/altura da tira da base (se vazio, igual à de topo/laterais)
+  var diag=+(ne.nDiag||0);  // comprimento do corte a 45° (rótulo, informado manualmente)
   if(!Li||!Ai)return '';
-  var outerW=Li+2*M, outerH=Ai+2*M;
+
+  // tamanho do chanfro (canto cortado a 45°) — só existe onde há moldura E tira de base
+  var chanfro=0;
+  if(M>0 && Pb>0){
+    chanfro = +(ne.nChanfro||0) || Math.min(M,Pb,15) || 10;
+    chanfro = Math.max(0, Math.min(chanfro, M, Pb));
+  }
+
+  var outerW=Li+M;   // vão + moldura (só do lado direito)
+  var outerH=Ai+Pb;  // vão + tira da base (só embaixo)
   var MAXW=opts.maxW||300, MAXH=opts.maxH||220;
-  // reserva ~40% da altura pra caixa de profundidade "subir" em projeção oblíqua
-  var scale=Math.min(MAXW/outerW*0.82,MAXH/outerH*0.62,3.2);
+  var scale=Math.min(MAXW/outerW, MAXH/outerH, 6.5);
+
   var ow=outerW*scale, oh=outerH*scale;
+  var vaoW=Li*scale, vaoH=Ai*scale;
+  var molPx=M*scale;
+  var baseH=Pb*scale;
+  var chPx=chanfro*scale;
 
-  // Profundidade desenhada em projeção oblíqua (estilo "caixa 3D"): sobe e
-  // vai pra direita a partir do vão frontal, dando a leitura de "olhando
-  // pra dentro do nicho". Topo/laterais e base podem ter profundidades
-  // diferentes (a base às vezes vai mais funda, até o fim do tijolo refratário).
-  function depthOfs(val){
-    if(!val)return {px:0,dx:0,dy:0};
-    var px=Math.min(val*scale*0.62,Math.max(oh*0.5,32),80);
-    return {px:px,dx:px*0.86,dy:px*0.52};
-  }
-  var dT=depthOfs(P);           // topo / laterais
-  var dB=depthOfs(Pb);          // base (pode ser mais funda)
-  var temBaseFunda=Pb>P+0.4;
-  var dxMax=Math.max(dT.dx,dB.dx), dyMax=Math.max(dT.dy,dB.dy);
+  var strokeCol = light?'#1a1a1a':'rgba(201,168,76,.95)';
+  var textCol   = light?'#1a1a1a':'rgba(235,215,160,.95)';
+  var textCol2  = light?'#7a4d10':'rgba(230,180,90,.95)';
+  var faceStrip = light?'#d8c088':'rgba(201,168,76,.32)'; // moldura/base com contraste forte, bem visível
+  var fillVao   = light?'#fff':'rgba(0,0,0,.15)';
 
-  var strokeCol = light?'#2a2a2a':'rgba(201,168,76,.9)';
-  var strokeCol2= light?'#777':'rgba(201,168,76,.55)';
-  var strokeCol3= light?'#bbb':'rgba(201,168,76,.3)';
-  var strokeCol4= light?'#8a5a20':'rgba(230,180,90,.85)';
-  var textCol   = light?'#222':'rgba(235,215,160,.95)';
-  var textCol2  = light?'#888':'rgba(201,168,76,.6)';
-  var textCol3  = light?'#8a5a20':'rgba(230,180,90,.9)';
-  var faceTop   = light?'#efe8d4':'rgba(201,168,76,.16)';
-  var faceSide  = light?'#e0d7bd':'rgba(201,168,76,.24)';
+  var pad=14;
+  var showFrame = opts.frame!==false; // moldura/margem externa fina, igual ao modelo de referência
+  var framePad  = showFrame ? Math.max(22, pad*1.7) : 0;
+  var vw=ow+pad*2+framePad*2, vh=oh+pad*2+framePad*2;
+  var ox=pad+framePad, oy=pad+framePad; // canto superior-esquerdo de TODA a peça (vão encosta aqui, sem moldura)
 
-  var padL=46, padT=20+dyMax;
-  var padR=dxMax+(M>0?58:18);
-  var bottomCotaH=34;
-  var vw=padL+ow+padR;
-  var vh=padT+oh+bottomCotaH;
-  var ox=padL, oy=padT;
+  var frameCol = light?'#2a2a2a':'rgba(201,168,76,.55)';
 
-  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:320px;font-family:Arial,sans-serif;">';
+  // ── contorno único da peça, sentido horário, chanfro só no canto inferior-direito ──
+  var p1=ox+','+oy;                                   // superior-esquerda
+  var p2=(ox+ow)+','+oy;                               // superior-direita
+  var p3=(ox+ow)+','+(oy+oh-chPx);                     // desce a direita até antes do chanfro
+  var p4=(ox+ow-chPx)+','+(oy+oh);                      // ponto do chanfro, já na base
+  var p5=ox+','+(oy+oh);                               // inferior-esquerda
+  var pts=[p1,p2,p3,p4,p5].join(' ');
 
-  var ix,iy,iw,ih;
-  if(M>0){
-    ix=ox+M*scale; iy=oy+M*scale; iw=(outerW-2*M)*scale; ih=(outerH-2*M)*scale;
-  } else {
-    ix=ox; iy=oy; iw=ow; ih=oh;
+  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:340px;font-family:Arial,sans-serif;">';
+
+  // ── margem/moldura externa fina (retângulo de referência do modelo, sem preenchimento) ──
+  if(showFrame){
+    svg+='<rect x="'+(framePad*0.5)+'" y="'+(framePad*0.5)+'" width="'+(vw-framePad)+'" height="'+(vh-framePad)+'" fill="none" stroke="'+frameCol+'" stroke-width="1.4"/>';
   }
 
-  // ── Caixa em projeção oblíqua (mostra a profundidade entrando no nicho) ──
-  var rightReach=ox+ow;
-  if(P>0&&dT.px>0){
-    var bx0=ix+dT.dx,        by0=iy-dT.dy;         // topo-esquerda do fundo (topo/laterais)
-    var bx1=ix+iw+dT.dx,     by1=iy-dT.dy;          // topo-direita do fundo (topo/laterais)
-    var bx2=ix+iw+dB.dx,     by2=iy+ih-dB.dy;       // base-direita do fundo (profundidade da base)
-    var bxMid=ix+iw+dT.dx,   byMid=iy+ih-dT.dy;     // onde a lateral pararia, na mesma profundidade do topo
-    rightReach=Math.max(rightReach,bx1,bx2);
-    // face de cima (teto do nicho, visto de cima) — profundidade do topo
-    svg+='<polygon points="'+ix+','+iy+' '+(ix+iw)+','+iy+' '+bx1+','+by1+' '+bx0+','+by0+'" fill="'+faceTop+'" stroke="'+strokeCol+'" stroke-width="1.4" stroke-linejoin="round"/>';
-    // face lateral direita — trapézio: em cima vai até a profundidade do topo/lateral,
-    // embaixo (junto da base) vai até a profundidade da base (pode ser mais funda)
-    svg+='<polygon points="'+(ix+iw)+','+iy+' '+(ix+iw)+','+(iy+ih)+' '+bx2+','+by2+' '+bx1+','+by1+'" fill="'+faceSide+'" stroke="'+strokeCol+'" stroke-width="1.4" stroke-linejoin="round"/>';
-    // fundo do nicho, no nível do topo/laterais (aresta de volta — tracejada, não é corte)
-    svg+='<line x1="'+bx0+'" y1="'+by0+'" x2="'+bxMid+'" y2="'+byMid+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
-    if(temBaseFunda){
-      // trecho extra que só a base percorre, até o fim do tijolo refratário
-      svg+='<line x1="'+bxMid+'" y1="'+byMid+'" x2="'+bx2+'" y2="'+by2+'" stroke="'+strokeCol4+'" stroke-width="1.6" stroke-dasharray="4,2"/>';
-      // rótulo da profundidade do topo/laterais (no fim do trecho comum)
-      svg+='<text x="'+(bxMid+7)+'" y="'+(byMid-2)+'" font-size="10" font-weight="700" fill="'+textCol+'" text-anchor="start">'+P+'</text>';
-      // rótulo da profundidade da base (mais funda — até o tijolo)
-      svg+='<text x="'+(bx2+7)+'" y="'+(by2+2)+'" font-size="11.5" font-weight="800" fill="'+textCol3+'" text-anchor="start">'+Pb+'</text>';
-      svg+='<text x="'+(bx2+7)+'" y="'+(by2+12)+'" font-size="6" fill="'+textCol3+'" text-anchor="start">base · tijolo</text>';
-    } else {
-      // profundidade única — rótulo centralizado na face lateral
-      var pmx=((ix+iw)+bx1+(ix+iw)+bx2)/4, pmy=(iy+by1+(iy+ih)+by2)/4;
-      svg+='<text x="'+pmx+'" y="'+(pmy-2)+'" font-size="12" font-weight="700" fill="'+textCol+'" text-anchor="middle">'+P+'</text>';
-      svg+='<text x="'+pmx+'" y="'+(pmy+9)+'" font-size="6.3" fill="'+textCol2+'" text-anchor="middle">prof. cm</text>';
-    }
+  // ── peça inteira: UM contorno só (moldura direita + base embaixo + chanfro) ──
+  svg+='<polygon points="'+pts+'" fill="'+faceStrip+'" stroke="'+strokeCol+'" stroke-width="2.6" stroke-linejoin="round"/>';
+
+  // ── vão (recorte), encostado no canto superior-esquerdo da peça ──
+  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+vaoW+'" height="'+vaoH+'" fill="'+fillVao+'" stroke="'+strokeCol+'" stroke-width="2.2"/>';
+
+  // ── cota da largura da moldura (M), seta dupla (↔), na faixa direita ──
+  if(molPx>6){
+    var ay1=oy+Math.min(molPx*1.3, oh*0.28);
+    svg+='<line x1="'+(ox+vaoW)+'" y1="'+ay1+'" x2="'+(ox+ow)+'" y2="'+ay1+'" stroke="'+textCol2+'" stroke-width="1"/>';
+    svg+='<polygon points="'+(ox+vaoW)+','+ay1+' '+(ox+vaoW+5)+','+(ay1-3)+' '+(ox+vaoW+5)+','+(ay1+3)+'" fill="'+textCol2+'"/>';
+    svg+='<polygon points="'+(ox+ow)+','+ay1+' '+(ox+ow-5)+','+(ay1-3)+' '+(ox+ow-5)+','+(ay1+3)+'" fill="'+textCol2+'"/>';
+    svg+='<text x="'+((ox+vaoW+ox+ow)/2)+'" y="'+(ay1-6)+'" font-size="12.5" font-weight="800" fill="'+textCol+'" text-anchor="middle">'+M+'</text>';
   }
 
-  // vão interno (frente do nicho, por onde se vê o fundo)
-  svg+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="1.8"/>';
-
-  if(M>0){
-    // moldura externa
-    svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="none" stroke="'+strokeCol+'" stroke-width="2"/>';
-    // quinas mitradas a 45°
-    svg+='<line x1="'+ox+'" y1="'+oy+'" x2="'+ix+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    svg+='<line x1="'+(ox+ow)+'" y1="'+oy+'" x2="'+(ix+iw)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+ix+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    svg+='<line x1="'+(ox+ow)+'" y1="'+(oy+oh)+'" x2="'+(ix+iw)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    // cota da moldura (à direita de tudo, além da caixa de profundidade)
-    var mcx=rightReach+16;
-    svg+='<line x1="'+mcx+'" y1="'+oy+'" x2="'+mcx+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<line x1="'+(mcx-3)+'" y1="'+oy+'" x2="'+(mcx+3)+'" y2="'+oy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<line x1="'+(mcx-3)+'" y1="'+iy+'" x2="'+(mcx+3)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+3)+'" font-size="10.5" font-weight="700" fill="'+textCol2+'">'+M+'</text>';
-    svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+13)+'" font-size="6.5" fill="'+textCol2+'">moldura</text>';
+  // ── cota da altura da tira da base (Pb), escrita dentro da própria tira ──
+  if(baseH>6){
+    svg+='<text x="'+(ox+8)+'" y="'+(oy+vaoH+baseH/2+5)+'" font-size="14" font-weight="800" fill="'+textCol+'" text-anchor="start">'+Pb+'</text>';
+    if(baseH>16)svg+='<text x="'+(ox+8)+'" y="'+(oy+vaoH+baseH/2+16)+'" font-size="6.3" fill="'+textCol2+'" text-anchor="start">profund. base</text>';
   }
 
-  // cota altura interna (esquerda, vertical, relativa ao vão)
-  var lcx=ox-18;
-  svg+='<line x1="'+lcx+'" y1="'+iy+'" x2="'+lcx+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<line x1="'+(lcx-3)+'" y1="'+iy+'" x2="'+(lcx+3)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<line x1="'+(lcx-3)+'" y1="'+(iy+ih)+'" x2="'+(lcx+3)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<text x="'+(lcx-6)+'" y="'+(iy+ih/2+4)+'" font-size="15" fill="'+textCol+'" font-weight="700" text-anchor="middle" transform="rotate(-90 '+(lcx-6)+' '+(iy+ih/2+4)+')">'+Ai+'</text>';
+  // ── rótulo do corte a 45° (diagonal do chanfro) ──
+  if(chPx>2 && diag>0){
+    var midx=(ox+ow-chPx/2)+9, midy=(oy+oh-chPx/2);
+    svg+='<text x="'+midx+'" y="'+midy+'" font-size="10.5" font-weight="800" fill="'+textCol2+'" text-anchor="start">'+diag+'</text>';
+  }
 
-  // cota largura interna (embaixo do vão)
-  var bcy=iy+ih+22;
-  svg+='<line x1="'+ix+'" y1="'+bcy+'" x2="'+(ix+iw)+'" y2="'+bcy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<line x1="'+ix+'" y1="'+(bcy-3)+'" x2="'+ix+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<line x1="'+(ix+iw)+'" y1="'+(bcy-3)+'" x2="'+(ix+iw)+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-  svg+='<text x="'+(ix+iw/2)+'" y="'+(bcy+15)+'" font-size="15" fill="'+textCol+'" font-weight="700" text-anchor="middle">'+Li+'</text>';
+  // ── cota altura interna do vão (esquerda, na vertical) ──
+  var lty=oy+vaoH/2;
+  svg+='<text x="'+(ox+15)+'" y="'+(lty+5)+'" font-size="16" font-weight="800" fill="'+textCol+'" text-anchor="middle" transform="rotate(-90 '+(ox+15)+' '+lty+')">'+Ai+'</text>';
+
+  // ── cota largura interna do vão (embaixo, dentro do vão) ──
+  svg+='<text x="'+(ox+vaoW/2)+'" y="'+(oy+vaoH-11)+'" font-size="16" font-weight="800" fill="'+textCol+'" text-anchor="middle">'+Li+'</text>';
+
   svg+='</svg>';
   return svg;
 }
@@ -2669,6 +2640,22 @@ function _buildNichoProjetoImg(amb,ne){
   var svgDraw=buildNichoProjetoSVG(ne,{light:true,maxW:420,maxH:300,margin:60});
   var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 
+  // ── lista de peças explicadinha pra equipe fabricar (medidas já calculadas) ──
+  var pecasFab=calcNichoPecas(ne).filter(function(p){return !p._isServico;});
+  var pecasHtml='';
+  if(pecasFab.length){
+    pecasHtml+='<div style="padding:4px 40px 24px;">'
+      +'<div style="font-size:13px;font-weight:800;color:#2a2a2a;letter-spacing:.5px;border-top:2px solid #333;padding-top:14px;margin-bottom:10px;">✂️ Peças para fabricação</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12.5px;">';
+    pecasFab.forEach(function(p){
+      pecasHtml+='<tr>'
+        +'<td style="padding:6px 0;border-bottom:1px solid #eee;color:#333;">'+p.desc+'</td>'
+        +'<td style="padding:6px 0;border-bottom:1px solid #eee;color:#555;font-weight:700;text-align:right;white-space:nowrap;">'+p.dim+'</td>'
+      +'</tr>';
+    });
+    pecasHtml+='</table></div>';
+  }
+
   var recHtml=''
   +'<div id="pdfNichoReceipt" style="width:700px;background:#fff;font-family:Arial,sans-serif;color:#222;">'
     +'<div style="padding:36px 40px 18px;text-align:center;border-bottom:3px solid #333;">'
@@ -2689,6 +2676,7 @@ function _buildNichoProjetoImg(amb,ne){
       +(ne.nM?' · Moldura: '+ne.nM+'cm':' · Sem moldura')
       +' · '+(ne.comFundo?'Com fundo':'Sem fundo')
     +'</div>'
+    +pecasHtml
     +'<div style="background:#f5f5f5;padding:10px 40px;display:flex;justify-content:space-between;font-size:10px;color:#888;border-top:1px solid #ddd;">'
       +'<span>'+(emp.nome||'')+'</span><span>Gerado em '+hoje+'</span>'
     +'</div>'
@@ -3748,6 +3736,8 @@ function renderAmbientes(){
       h+='</div>';
       h+='<div class="f"><label>Profundidade da base (opcional)</label><input type="number" placeholder="deixe vazio se igual à profundidade acima" style="background:var(--s3);" value="'+(ne.nPBase||'')+'" oninput="updNichoMed('+amb.id+',\'nPBase\',+this.value)"></div>';
       h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">💡 Preencha só se a <b>base</b> precisa ir mais funda que topo/laterais — pra chegar até o fim do tijolo refratário.</div>';
+      h+='<div class="f"><label>Corte diagonal do canto (opcional)</label><input type="number" placeholder="ex: 15,5 — deixe vazio pra não mostrar" style="background:var(--s3);" value="'+(ne.nDiag||'')+'" oninput="updNichoMed('+amb.id+',\'nDiag\',+this.value)"></div>';
+      h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">💡 Medida da diagonal no canto onde a moldura encontra a base (aparece no desenho só se preenchida).</div>';
       h+='<div class="f"><label>Moldura</label><div style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:.78rem;color:var(--t3);">8cm de largura <span style="color:var(--t4);font-size:.65rem;">(padrão — quase todo nicho usa essa moldura)</span></div></div>';
       // Toggle com/sem fundo
       var _comFundo=!!ne.comFundo;
