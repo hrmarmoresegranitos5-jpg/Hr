@@ -340,16 +340,14 @@ var HR_IMPORT = (function () {
     if (d === 0) return 0; // domingo = folga sempre
 
     // Consulta exceções globais (hr_excecoes)
-    var exc = null;
     try {
       var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
-      exc = Object.values(excs).find(function(e){ return e.data === isoDate; }) || null;
+      var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
       if (exc) {
         // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
         if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
         if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
-        // Feriado meio período ou declarado → cai no cálculo normal abaixo,
-        // meio período é reduzido à metade no final desta função.
+        // Feriado meio período ou declarado → usa jornada normal (calculada abaixo)
       }
     } catch(e) {}
 
@@ -366,24 +364,14 @@ var HR_IMPORT = (function () {
     }
 
     // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
-    var jornadaBase = JORNADA[DOW_KEYS[d]] || 480;
     if (funcId) {
       try {
         var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
-        if (jMin > 0) jornadaBase = jMin;
+        if (jMin > 0) return jMin;
       } catch(e) {}
     }
-
-    // Feriado meio período: desconta metade da jornada esperada — mesma
-    // regra usada no relatório de ponto (app-relatorio-ponto.js), pra as
-    // duas telas (relatório e tela de pagamento) baterem. Antes, essa
-    // exceção caía direto no "return jornadaBase" (dia inteiro), fazendo
-    // o motor de pagamento tratar o excedente como déficit em vez de extra.
-    if (exc && exc.tipo === 'feriado' && exc.meioperiodo) {
-      return Math.round(jornadaBase / 2);
-    }
-    return jornadaBase;
+    return JORNADA[DOW_KEYS[d]] || 480;
   }
 
   /**
@@ -917,11 +905,19 @@ var HR_IMPORT = (function () {
         var nF = _normalNome(f.nome);
         var fTokens = nF.split(' ').filter(Boolean);
         var pts = 0;
-        // Token a token: match exato vale 3, prefixo vale 1
+        // Token a token: match exato vale 3. Prefixo (apelido/abreviação, ex:
+        // "Gibs"→"Gibson") vale de acordo com o tamanho da sobreposição —
+        // 4+ letras em comum é forte o bastante pra vincular sozinho; 3 letras
+        // é fraco (evita falso-positivo tipo "Ana"→"Anderson") e conta só
+        // como ponto de apoio.
         tokens.forEach(function(t) {
           fTokens.forEach(function(ft) {
-            if (t === ft) pts += 3;
-            else if (ft.startsWith(t) || t.startsWith(ft)) pts += 1;
+            if (t === ft) { pts += 3; return; }
+            var curto = t.length <= ft.length ? t : ft;
+            var longo = t.length <= ft.length ? ft : t;
+            if (curto.length >= 3 && longo.indexOf(curto) === 0) {
+              pts += curto.length >= 4 ? 3 : 1;
+            }
           });
         });
         if (pts > melhorPts) { melhorPts = pts; melhor = f; }
@@ -1757,13 +1753,25 @@ var HR_IMPORT = (function () {
             return Object.values(excs).find(function(e){ return e.data === r.data; }) || null;
           } catch(e){ return null; }
         })();
-        var btnExcecao = '<button data-action="excecao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
-          'style="padding:5px 7px;background:' + (_excAtual ? 'rgba(167,139,250,.2)' : 'rgba(100,80,180,.15)') + ';' +
-          'border:1px solid ' + (_excAtual ? 'rgba(167,139,250,.6)' : 'rgba(120,100,200,.35)') + ';' +
-          'border-radius:7px;color:' + (_excAtual ? '#c4b5fd' : '#7c6db8') + ';cursor:pointer;font-size:.6rem;font-weight:700;' +
-          'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
-          (_excAtual ? '\u2605 ' + (_excAtual.tipo === 'feriado' ? 'Feriado' : _excAtual.tipo === 'acordo' ? 'Acordo' : 'Declarado') : '\u{1F4CB} Exceção') +
-          '</button>';
+        // Reconhecimento automático de feriado nacional — se a data bate com
+        // um feriado conhecido e ainda não há exceção registrada, chama
+        // atenção pro botão de Exceção em vez de deixar passar batido.
+        var _nomeFeriadoDia = !_excAtual ? _feriadoNacional(r.data) : null;
+        var btnExcecao = _nomeFeriadoDia
+          ? '<button data-action="excecao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'title="' + _esc(_nomeFeriadoDia) + '" ' +
+              'style="padding:5px 7px;background:rgba(201,168,76,.18);' +
+              'border:1px solid rgba(201,168,76,.6);' +
+              'border-radius:7px;color:' + GOLD + ';cursor:pointer;font-size:.6rem;font-weight:700;' +
+              'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
+              '🎌 Feriado?</button>'
+          : '<button data-action="excecao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'style="padding:5px 7px;background:' + (_excAtual ? 'rgba(167,139,250,.2)' : 'rgba(100,80,180,.15)') + ';' +
+              'border:1px solid ' + (_excAtual ? 'rgba(167,139,250,.6)' : 'rgba(120,100,200,.35)') + ';' +
+              'border-radius:7px;color:' + (_excAtual ? '#c4b5fd' : '#7c6db8') + ';cursor:pointer;font-size:.6rem;font-weight:700;' +
+              'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
+              (_excAtual ? '\u2605 ' + (_excAtual.tipo === 'feriado' ? 'Feriado' : _excAtual.tipo === 'acordo' ? 'Acordo' : 'Declarado') : '\u{1F4CB} Exceção') +
+              '</button>';
 
         // Almoço
         var fAlmEnt = r.almEntrada
@@ -2269,6 +2277,56 @@ var HR_IMPORT = (function () {
    *   declarado — jornada aceita mesmo sem ponto completo (empregador confirma a presença).
    * A exceção é salva em hr_excecoes e afeta _jornadaEsperada e o cálculo de HE.
    */
+  /**
+   * Calcula a data da Páscoa (algoritmo de Gauss/Meeus) para um ano.
+   * Usada para derivar os feriados móveis (Carnaval, Sexta-Feira Santa, Corpus Christi).
+   */
+  function _pascoa(ano) {
+    var a = ano % 19, b = Math.floor(ano / 100), c = ano % 100,
+        d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+        g = Math.floor((b - f + 1) / 3), h = (19*a + b - d - g + 15) % 30,
+        i = Math.floor(c / 4), k = c % 4, l = (32 + 2*e + 2*i - h - k) % 7,
+        m = Math.floor((a + 11*h + 22*l) / 451),
+        mes = Math.floor((h + l - 7*m + 114) / 31),
+        dia = ((h + l - 7*m + 114) % 31) + 1;
+    return new Date(ano, mes - 1, dia);
+  }
+  function _addDias(d, n) { var r = new Date(d); r.setDate(r.getDate() + n); return r; }
+  function _iso(d) { return d.toISOString().slice(0, 10); }
+
+  /**
+   * Retorna o nome do feriado nacional se a data (yyyy-mm-dd) coincidir com um,
+   * ou null caso contrário. Cobre feriados fixos + móveis (baseados na Páscoa).
+   * Não inclui feriados estaduais/municipais — esses continuam manuais.
+   */
+  function _feriadoNacional(dataISO) {
+    if (!dataISO) return null;
+    var ano = parseInt(dataISO.slice(0, 4), 10);
+    var mesDia = dataISO.slice(5); // 'MM-DD'
+
+    var FIXOS = {
+      '01-01': 'Confraternização Universal',
+      '04-21': 'Tiradentes',
+      '05-01': 'Dia do Trabalho',
+      '09-07': 'Independência do Brasil',
+      '10-12': 'Nossa Senhora Aparecida',
+      '11-02': 'Finados',
+      '11-15': 'Proclamação da República',
+      '12-25': 'Natal'
+    };
+    if (FIXOS[mesDia]) return FIXOS[mesDia];
+
+    var pascoa = _pascoa(ano);
+    var moveis = [
+      { d: _iso(_addDias(pascoa, -48)), nome: 'Carnaval (segunda)' },
+      { d: _iso(_addDias(pascoa, -47)), nome: 'Carnaval (terça)' },
+      { d: _iso(_addDias(pascoa, -2)),  nome: 'Sexta-Feira Santa' },
+      { d: _iso(_addDias(pascoa, 60)),  nome: 'Corpus Christi' }
+    ];
+    var achado = moveis.find(function(m){ return m.d === dataISO; });
+    return achado ? achado.nome : null;
+  }
+
   function _abrirModalExcecao(grpIdx, recIdx) {
     var gr = _state.grupos[grpIdx];
     if (!gr || !gr.registros[recIdx]) return;
@@ -2288,6 +2346,11 @@ var HR_IMPORT = (function () {
       excExist = Object.values(excsAll).find(function(e){ return e.data === data; }) || null;
     } catch(e) {}
 
+    // Reconhecimento automático de feriado nacional — usado pra sugerir o
+    // tipo certo e já preencher a descrição, sem o usuário precisar lembrar
+    // a data de cabeça.
+    var nomeFeriado = _feriadoNacional(data);
+
     var ovId = 'hrExcecaoModal';
     var prev = document.getElementById(ovId);
     if (prev) prev.remove();
@@ -2304,6 +2367,7 @@ var HR_IMPORT = (function () {
             '<div>' +
               '<div style="font-size:1rem;font-weight:800;color:#c4b5fd;font-family:Outfit,sans-serif;">📋 Exceção do Dia</div>' +
               '<div style="font-size:.72rem;color:#888;margin-top:2px;">' + dataFmt + '</div>' +
+              (nomeFeriado ? '<div style="font-size:.72rem;color:' + GOLD + ';font-weight:700;margin-top:4px;">🎌 Feriado nacional: ' + nomeFeriado + '</div>' : '') +
             '</div>' +
             '<button id="excecao_fechar" style="background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;padding:4px;">✕</button>' +
           '</div>' +
@@ -2325,7 +2389,7 @@ var HR_IMPORT = (function () {
             '<textarea id="excecao_desc" rows="2" placeholder="Ex: Corpus Christi · Acordo de compensação de horas · etc." ' +
               'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
               'color:#ddd;font-family:Outfit,sans-serif;font-size:.82rem;padding:9px 11px;resize:none;outline:none;">' +
-              (excExist && excExist.descricao ? excExist.descricao : '') + '</textarea>' +
+              (excExist && excExist.descricao ? excExist.descricao : (nomeFeriado || '')) + '</textarea>' +
           '</div>' +
 
           // Botões de ação
@@ -2493,6 +2557,12 @@ var HR_IMPORT = (function () {
         Object.keys(excs).forEach(function(k){ if (excs[k].data === data) delete excs[k]; });
         localStorage.setItem('hr_excecoes', JSON.stringify(excs));
       } catch(e) {}
+      try {
+        if (CFG.feriados) {
+          var pos = CFG.feriados.indexOf(data);
+          if (pos !== -1) { CFG.feriados.splice(pos, 1); if (typeof svCFG === 'function') svCFG(); }
+        }
+      } catch(e) {}
       _fecharModal();
       _renderTelaCorrecao();
       _toast('Exceção removida.');
@@ -2549,10 +2619,29 @@ var HR_IMPORT = (function () {
         localStorage.setItem('hr_excecoes', JSON.stringify(excs2));
       } catch(e) {}
 
+      // Marca a data em CFG.feriados — é essa lista que faz o classificador
+      // de HE (_classificarHE) pagar 3× em vez de 2× nas horas efetivamente
+      // trabalhadas nesse dia. Sem isso, um "Feriado" registrado zera a
+      // jornada esperada (então toda hora trabalhada vira extra) mas paga
+      // no valor de dia útil normal — exatamente o caso de feriado
+      // trabalhado em troca de folga em outro dia.
+      try {
+        if (!CFG.feriados) CFG.feriados = [];
+        if (tipoAtual === 'feriado' && CFG.feriados.indexOf(data) === -1) {
+          CFG.feriados.push(data);
+          if (typeof svCFG === 'function') svCFG();
+        } else if (tipoAtual !== 'feriado') {
+          // Trocou de tipo (ex: era feriado e virou acordo/declarado) — remove
+          // a marcação de feriado pra não pagar 3× indevidamente.
+          var posRem = CFG.feriados.indexOf(data);
+          if (posRem !== -1) { CFG.feriados.splice(posRem, 1); if (typeof svCFG === 'function') svCFG(); }
+        }
+      } catch(e) {}
+
       _fecharModal();
       _renderTelaCorrecao();
 
-      var msgs = { feriado: '🎌 Feriado registrado.', acordo: '🤝 Acordo salvo.', declarado: '✅ Presença declarada.' };
+      var msgs = { feriado: '🎌 Feriado registrado (horas trabalhadas pagam 3×).', acordo: '🤝 Acordo salvo.', declarado: '✅ Presença declarada.' };
       _toast(msgs[tipoAtual] || 'Exceção salva.');
     });
 
@@ -2712,30 +2801,41 @@ var HR_IMPORT = (function () {
         '</tr>';
       }).join('');
 
-      return '<div style="' + CSS_CARD + '" id="grp_' + idx + '">' +
+      var corBorda = autoVinc ? 'rgba(92,184,92,.5)' : 'rgba(201,168,76,.6)';
+
+      return '<div style="' + CSS_CARD + 'border-left:3px solid ' + corBorda + ';" id="grp_' + idx + '">' +
 
         // Cabeçalho do grupo
-        '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;">' +
-          '<div style="font-size:1.1rem;width:34px;height:34px;border-radius:50%;' +
+        '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;">' +
+          '<div id="badge_' + idx + '" style="font-size:1.1rem;width:34px;height:34px;border-radius:50%;' +
             'background:rgba(201,168,76,.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
             (autoVinc ? '✓' : '?') +
           '</div>' +
           '<div style="flex:1;min-width:0;">' +
             '<div style="font-size:.92rem;font-weight:800;color:' + T1 + ';">' + _esc(gr.nome) + '</div>' +
-            '<div style="font-size:.72rem;color:' + T3 + ';margin-top:1px;">' +
-              calc.diasCount + ' dia(s) · ' +
-              _min2dur(calc.totalTrabMin) + ' trabalhadas · ' +
-              (calc.totalExtraMin > 0
-                ? '<span style="color:' + GOLD + ';">⚡ +' + _min2dur(calc.totalExtraMin) + ' extras</span>'
-                : '<span style="color:' + T3 + ';">⚡ +0h extras</span>') +
-              ' · ' +
-              (calc.totalAtrasoMin > 0
-                ? '<span style="color:' + RED + ';">△ ' + _min2dur(calc.totalAtrasoMin) + ' atraso/falta</span>'
-                : '<span style="color:' + T3 + ';">△ 0h atraso</span>') +
-              (nAnomalias > 0
-                ? ' · <span style="color:#c85c5c;font-weight:700;">⚠ ' + nAnomalias + ' anomalia(s)</span>'
-                : '') +
+            '<div style="font-size:.68rem;color:' + T3 + ';margin-top:1px;">' + calc.diasCount + ' dia(s) registrado(s)' +
+              (nAnomalias > 0 ? ' · <span style="color:#c85c5c;font-weight:700;">⚠ ' + nAnomalias + ' anomalia(s)</span>' : '') +
             '</div>' +
+          '</div>' +
+        '</div>' +
+
+        // Grid de estatísticas — 3 blocos separados em vez de uma linha só
+        '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+          '<div style="flex:1;background:rgba(255,255,255,.03);border-radius:8px;padding:8px 6px;text-align:center;">' +
+            '<div style="font-size:.85rem;font-weight:800;color:' + T1 + ';">' + _min2dur(calc.totalTrabMin) + '</div>' +
+            '<div style="font-size:.6rem;color:' + T3 + ';">trabalhadas</div>' +
+          '</div>' +
+          '<div style="flex:1;background:rgba(201,168,76,.08);border-radius:8px;padding:8px 6px;text-align:center;">' +
+            '<div style="font-size:.85rem;font-weight:800;color:' + (calc.totalExtraMin > 0 ? GOLD : T3) + ';">' +
+              (calc.totalExtraMin > 0 ? '+' + _min2dur(calc.totalExtraMin) : '—') +
+            '</div>' +
+            '<div style="font-size:.6rem;color:' + T3 + ';">⚡ extras</div>' +
+          '</div>' +
+          '<div style="flex:1;background:rgba(200,92,92,.08);border-radius:8px;padding:8px 6px;text-align:center;">' +
+            '<div style="font-size:.85rem;font-weight:800;color:' + (calc.totalAtrasoMin > 0 ? RED : T3) + ';">' +
+              (calc.totalAtrasoMin > 0 ? '-' + _min2dur(calc.totalAtrasoMin) : '—') +
+            '</div>' +
+            '<div style="font-size:.6rem;color:' + T3 + ';">△ atraso/falta</div>' +
           '</div>' +
         '</div>' +
 
@@ -2759,10 +2859,12 @@ var HR_IMPORT = (function () {
           '</div>' +
         '</div>' +
 
-        // Seletor de funcionário
-        '<div style="font-size:.62rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:5px;">VINCULAR AO FUNCIONÁRIO</div>' +
+        // Seletor de funcionário — rótulo muda conforme já foi vinculado ou não
+        '<div id="lbl_vinc_' + idx + '" style="font-size:.62rem;color:' + (autoVinc ? T3 : GOLD) + ';font-weight:700;letter-spacing:.04em;margin-bottom:5px;">' +
+          (autoVinc ? 'VINCULADO — CONFIRA OU TROQUE' : '⚠ ESCOLHA O FUNCIONÁRIO') +
+        '</div>' +
         '<select id="sel_func_' + idx + '" onchange="HR_IMPORT._onVincular(' + idx + ',this.value)" ' +
-          'style="width:100%;padding:10px 14px;background:#1a1006;border:1px solid ' + BD + ';' +
+          'style="width:100%;padding:10px 14px;background:#1a1006;border:1px solid ' + (autoVinc ? BD : 'rgba(201,168,76,.5)') + ';' +
           'border-radius:10px;color:' + T1 + ';font-family:Outfit,sans-serif;font-size:.85rem;">' +
           opcoesSel +
         '</select>' +
@@ -2835,6 +2937,18 @@ var HR_IMPORT = (function () {
 
   function _onVincular(idx, funcId) {
     _state.grupos[idx].funcId = funcId || null;
+    var vinculado = !!funcId;
+    var badge = document.getElementById('badge_' + idx);
+    if (badge) badge.textContent = vinculado ? '✓' : '?';
+    var card = document.getElementById('grp_' + idx);
+    if (card) card.style.borderLeftColor = vinculado ? 'rgba(92,184,92,.5)' : 'rgba(201,168,76,.6)';
+    var lbl = document.getElementById('lbl_vinc_' + idx);
+    if (lbl) {
+      lbl.textContent = vinculado ? 'VINCULADO — CONFIRA OU TROQUE' : '⚠ ESCOLHA O FUNCIONÁRIO';
+      lbl.style.color = vinculado ? T3 : GOLD;
+    }
+    var sel = document.getElementById('sel_func_' + idx);
+    if (sel) sel.style.borderColor = vinculado ? BD : 'rgba(201,168,76,.5)';
   }
 
   // ── Confirmar importação ─────────────────────────────────────────────────
@@ -3578,30 +3692,6 @@ var HR_IMPORT = (function () {
       }
 
       if (extraHoras <= 0) {
-        // ── Extra automática em feriado/meio período ─────────────────────
-        // Se ninguém lançou extra manualmente no registro, mas o funcionário
-        // trabalhou além do esperado (já reduzido pela exceção de feriado),
-        // o excedente vira HE triplicada automaticamente — mesma regra usada
-        // no relatório de ponto (app-relatorio-ponto.js), pra as duas telas
-        // (relatório e tela de Registrar Pagamento) baterem sempre.
-        var autoExtraMin = 0;
-        try {
-          var excsAuto = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
-          var excAuto  = Object.values(excsAuto).find(function(e){ return e.data === r.data && e.tipo === 'feriado'; });
-          if (excAuto) {
-            var jornadaAuto = _jornadaEsperada(r.data, func && func.id || null);
-            var trabAuto    = Math.round((parseFloat(r.horas) || 0) * 60);
-            if (trabAuto > jornadaAuto) autoExtraMin = trabAuto - jornadaAuto;
-          }
-        } catch(e) {}
-
-        if (autoExtraMin > 0) {
-          totalExtra200Min += autoExtraMin;
-          if (audit) console.log('%c[AUTO-FERIADO] ' + r.data + ' → ' + autoExtraMin + 'min excedente sem extra lançada → HE200',
-            'color:#e0954a', { id: r.id });
-          return;
-        }
-
         if (audit && r.extra !== undefined && r.extra !== null && r.extra !== 0 && r.extra !== '')
           console.log('%c[ZERO]   ' + r.data + ' → extra=' + r.extra + ' → ignorado (≤0)',
             'color:#888', { id: r.id });
