@@ -2522,17 +2522,19 @@ function buildNichoProjetoSVG(ne,opts){
   var Li=+(ne.nW||0), Ai=+(ne.nH||0), M=+(ne.nM||0), P=+(ne.nP||0);
   if(!Li||!Ai)return '';
   var outerW=Li+2*M, outerH=Ai+2*M;
-  var MAXW=opts.maxW||300, MAXH=opts.maxH||200;
-  var scale=Math.min(MAXW/outerW,MAXH/outerH*0.72,3.2);
+  var MAXW=opts.maxW||300, MAXH=opts.maxH||220;
+  // reserva ~40% da altura pra caixa de profundidade "subir" em projeção oblíqua
+  var scale=Math.min(MAXW/outerW*0.82,MAXH/outerH*0.62,3.2);
   var ow=outerW*scale, oh=outerH*scale;
 
-  // Aba de profundidade — dobrada para baixo, tamanho proporcional (não em
-  // escala real, pra não estourar o layout), mas o valor real de P aparece
-  // sempre no rótulo dentro dela.
-  var flapH=0, gapFlap=0;
+  // Profundidade desenhada em projeção oblíqua (estilo "caixa 3D"): sobe e
+  // vai pra direita a partir do vão frontal, dando a leitura de "olhando
+  // pra dentro do nicho" — igual ao desenho de referência, não mais "desdobrada".
+  var depthPx=0, dx=0, dy=0;
   if(P>0){
-    flapH=Math.min(P*scale,Math.max(oh*0.55,34),90);
-    gapFlap=12;
+    depthPx=Math.min(P*scale*0.62,Math.max(oh*0.5,32),80);
+    dx=depthPx*0.86;
+    dy=depthPx*0.52;
   }
 
   var strokeCol = light?'#2a2a2a':'rgba(201,168,76,.9)';
@@ -2540,58 +2542,62 @@ function buildNichoProjetoSVG(ne,opts){
   var strokeCol3= light?'#bbb':'rgba(201,168,76,.3)';
   var textCol   = light?'#222':'rgba(235,215,160,.95)';
   var textCol2  = light?'#888':'rgba(201,168,76,.6)';
-  var flapFill  = light?'#f4f0e4':'rgba(201,168,76,.06)';
+  var faceTop   = light?'#efe8d4':'rgba(201,168,76,.16)';
+  var faceSide  = light?'#e0d7bd':'rgba(201,168,76,.24)';
 
-  var padL=46, padR=(M>0?42:18), padT=20;
+  var padL=46, padT=20+dy;
+  var padR=dx+(M>0?58:18);
   var bottomCotaH=34;
   var vw=padL+ow+padR;
-  var vh=padT+oh+(P>0?gapFlap+flapH:0)+bottomCotaH;
+  var vh=padT+oh+bottomCotaH;
   var ox=padL, oy=padT;
 
-  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:300px;font-family:Arial,sans-serif;">';
+  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:320px;font-family:Arial,sans-serif;">';
 
   var ix,iy,iw,ih;
   if(M>0){
     ix=ox+M*scale; iy=oy+M*scale; iw=(outerW-2*M)*scale; ih=(outerH-2*M)*scale;
+  } else {
+    ix=ox; iy=oy; iw=ow; ih=oh;
+  }
+
+  // ── Caixa em projeção oblíqua (mostra a profundidade entrando no nicho) ──
+  var rightReach=ox+ow;
+  if(P>0&&depthPx>0){
+    var bx0=ix+dx,     by0=iy-dy;        // topo-esquerda do fundo
+    var bx1=ix+iw+dx,  by1=iy-dy;        // topo-direita do fundo
+    var bx2=ix+iw+dx,  by2=iy+ih-dy;     // base-direita do fundo
+    rightReach=Math.max(rightReach,bx1);
+    // face de cima (teto do nicho, visto de cima)
+    svg+='<polygon points="'+ix+','+iy+' '+(ix+iw)+','+iy+' '+bx1+','+by1+' '+bx0+','+by0+'" fill="'+faceTop+'" stroke="'+strokeCol+'" stroke-width="1.4" stroke-linejoin="round"/>';
+    // face lateral direita
+    svg+='<polygon points="'+(ix+iw)+','+iy+' '+(ix+iw)+','+(iy+ih)+' '+bx2+','+by2+' '+bx1+','+by1+'" fill="'+faceSide+'" stroke="'+strokeCol+'" stroke-width="1.4" stroke-linejoin="round"/>';
+    // fundo do nicho (aresta de volta — tracejada, não é corte)
+    svg+='<line x1="'+bx0+'" y1="'+by0+'" x2="'+bx2+'" y2="'+by2+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
+    // rótulo da profundidade, centralizado na face lateral
+    var pmx=((ix+iw)+bx1+ (ix+iw)+bx2)/4, pmy=(iy+by1+(iy+ih)+by2)/4;
+    svg+='<text x="'+pmx+'" y="'+(pmy-2)+'" font-size="12" font-weight="700" fill="'+textCol+'" text-anchor="middle">'+P+'</text>';
+    svg+='<text x="'+pmx+'" y="'+(pmy+9)+'" font-size="6.3" fill="'+textCol2+'" text-anchor="middle">prof. cm</text>';
+  }
+
+  // vão interno (frente do nicho, por onde se vê o fundo)
+  svg+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="1.8"/>';
+
+  if(M>0){
     // moldura externa
     svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="none" stroke="'+strokeCol+'" stroke-width="2"/>';
-    // vão interno (fundo do nicho, visível por dentro da moldura)
-    svg+='<rect x="'+ix+'" y="'+iy+'" width="'+iw+'" height="'+ih+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="1.8"/>';
     // quinas mitradas a 45°
     svg+='<line x1="'+ox+'" y1="'+oy+'" x2="'+ix+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+(ox+ow)+'" y1="'+oy+'" x2="'+(ix+iw)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+ix+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
     svg+='<line x1="'+(ox+ow)+'" y1="'+(oy+oh)+'" x2="'+(ix+iw)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width="1" stroke-dasharray="2,2"/>';
-    // cota da moldura (lado direito, entre a borda externa e o vão)
-    var mcx=ox+ow+14;
+    // cota da moldura (à direita de tudo, além da caixa de profundidade)
+    var mcx=rightReach+16;
     svg+='<line x1="'+mcx+'" y1="'+oy+'" x2="'+mcx+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
     svg+='<line x1="'+(mcx-3)+'" y1="'+oy+'" x2="'+(mcx+3)+'" y2="'+oy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
     svg+='<line x1="'+(mcx-3)+'" y1="'+iy+'" x2="'+(mcx+3)+'" y2="'+iy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
     svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+3)+'" font-size="10.5" font-weight="700" fill="'+textCol2+'">'+M+'</text>';
     svg+='<text x="'+(mcx+5)+'" y="'+((oy+iy)/2+13)+'" font-size="6.5" fill="'+textCol2+'">moldura</text>';
-  } else {
-    ix=ox; iy=oy; iw=ow; ih=oh;
-    svg+='<rect x="'+ox+'" y="'+oy+'" width="'+ow+'" height="'+oh+'" fill="'+(light?'#fff':'rgba(0,0,0,.15)')+'" stroke="'+strokeCol+'" stroke-width="2"/>';
-  }
-
-  // ── Aba de profundidade, dobrada para baixo (peça planificada) ──
-  if(P>0&&flapH>0){
-    var fy0=oy+oh+gapFlap, fy1=fy0+flapH;
-    // linha de dobra na base da caixa (tracejado-ponto = indica dobra, não corte)
-    svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+(ox+ow)+'" y2="'+(oy+oh)+'" stroke="'+strokeCol+'" stroke-width="1" stroke-dasharray="5,2,1,2"/>';
-    // conectores tracejados ligando a caixa à aba (mostra que é a mesma peça "aberta")
-    svg+='<line x1="'+ox+'" y1="'+(oy+oh)+'" x2="'+ox+'" y2="'+fy0+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
-    svg+='<line x1="'+(ox+ow)+'" y1="'+(oy+oh)+'" x2="'+(ox+ow)+'" y2="'+fy0+'" stroke="'+strokeCol3+'" stroke-width="1" stroke-dasharray="3,2"/>';
-    // retângulo da aba de profundidade
-    svg+='<rect x="'+ox+'" y="'+fy0+'" width="'+ow+'" height="'+flapH+'" fill="'+flapFill+'" stroke="'+strokeCol+'" stroke-width="1.6"/>';
-    // cotas verticais nas laterais da aba
-    svg+='<line x1="'+(ox-8)+'" y1="'+fy0+'" x2="'+(ox-8)+'" y2="'+fy1+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<line x1="'+(ox-11)+'" y1="'+fy0+'" x2="'+(ox-5)+'" y2="'+fy0+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    svg+='<line x1="'+(ox-11)+'" y1="'+fy1+'" x2="'+(ox-5)+'" y2="'+fy1+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
-    // rótulo da profundidade, centralizado dentro da aba
-    var fmidy=(fy0+fy1)/2;
-    svg+='<text x="'+(ox+ow/2)+'" y="'+(fmidy+3)+'" font-size="14" font-weight="700" fill="'+textCol+'" text-anchor="middle">'+P+' cm</text>';
-    svg+='<text x="'+(ox+ow/2)+'" y="'+(fmidy+15)+'" font-size="7.5" fill="'+textCol2+'" text-anchor="middle">profundidade (dobra)</text>';
   }
 
   // cota altura interna (esquerda, vertical, relativa ao vão)
@@ -2601,8 +2607,8 @@ function buildNichoProjetoSVG(ne,opts){
   svg+='<line x1="'+(lcx-3)+'" y1="'+(iy+ih)+'" x2="'+(lcx+3)+'" y2="'+(iy+ih)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<text x="'+(lcx-6)+'" y="'+(iy+ih/2+4)+'" font-size="15" fill="'+textCol+'" font-weight="700" text-anchor="middle" transform="rotate(-90 '+(lcx-6)+' '+(iy+ih/2+4)+')">'+Ai+'</text>';
 
-  // cota largura interna (embaixo de tudo — abaixo da aba, se houver)
-  var bcy=(P>0&&flapH>0?fy1:iy+ih)+22;
+  // cota largura interna (embaixo do vão)
+  var bcy=iy+ih+22;
   svg+='<line x1="'+ix+'" y1="'+bcy+'" x2="'+(ix+iw)+'" y2="'+bcy+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+ix+'" y1="'+(bcy-3)+'" x2="'+ix+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
   svg+='<line x1="'+(ix+iw)+'" y1="'+(bcy-3)+'" x2="'+(ix+iw)+'" y2="'+(bcy+3)+'" stroke="'+strokeCol2+'" stroke-width=".8"/>';
@@ -5235,15 +5241,25 @@ function gerarPDF(){
           +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
           +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
       }
-      if(snap.tipo==='🖼️ Nicho'&&snap.nichoExtra&&snap.nichoExtra.desc){
+      var isNicho=snap.tipo==='🖼️ Nicho';
+      if(isNicho&&snap.nichoExtra&&snap.nichoExtra.desc){
         allRowsHtml+='<tr><td colspan="2" style="background:#faf6ef;padding:7px 14px;font-size:11.5px;'
           +'font-style:italic;color:#7a5a20;border-bottom:1px solid #ede8dc;">📐 '+escH(snap.nichoExtra.desc)+'</td></tr>';
+      }
+      if(isNicho&&snap.nichoExtra){
+        var neP=snap.nichoExtra;
+        var nicMedTxt='Vão interno (dentro a dentro): <b>'+(neP.nW||0)+' × '+(neP.nH||0)+' cm</b>'
+          +(neP.nP?' &nbsp;·&nbsp; Profundidade: <b>'+neP.nP+' cm</b>':'')
+          +(neP.nM?' &nbsp;·&nbsp; Moldura: <b>'+neP.nM+' cm</b>':' &nbsp;·&nbsp; Sem moldura')
+          +(neP.comFundo?' &nbsp;·&nbsp; Com fundo':' &nbsp;·&nbsp; Sem fundo');
+        allRowsHtml+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:12.5px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
       }
       var isBP=snap.tipo==='🏊 Borda Piscina';
       var bpNomes=['Borda lateral A','Borda frontal B','Borda lateral C','Borda frontal D','Borda curva E','Canto boleado F','Trecho especial G','Borda interna H'];
       // bpSnapFirst e bpAcabTipoPDF: contexto do acabamento global desta Borda Piscina
       var bpSnapFirst = isBP ? snap : null;
       var bpAcabTipoPDF = isBP && snap.bordaAcb && snap.bordaAcb.tipo ? snap.bordaAcb.tipo : 'polida';
+      if(isNicho)return; // não lista peça por peça (Base/Topo/Laterais/Moldura) — só o resumo acima
       (snap.pecas||[]).forEach(function(p,i){
         if(!p.w||!p.h)return;
         var bg=i%2===0?'#fff':'#faf6ef';
