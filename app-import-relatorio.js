@@ -2109,9 +2109,33 @@ var HR_IMPORT = (function () {
     ovEl.id = ovId;
     ovEl.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(8,7,4,.95);' +
       'display:flex;align-items:center;justify-content:center;font-family:Outfit,sans-serif;padding:24px;';
+    // Lista de OUTROS funcionários deste lote, pra marcar quem mais recebe
+    // o mesmo dia (ex: todo mundo folgou/trabalhou junto num feriado).
+    var outrosGrupos = _state.grupos
+      .map(function(g, i){ return { g: g, i: i }; })
+      .filter(function(x){ return x.i !== grpIdx; });
+
+    var chkOutrosHtml = outrosGrupos.length === 0 ? '' :
+      '<div style="margin-bottom:14px;">' +
+        '<label style="display:flex;align-items:center;gap:7px;margin-bottom:8px;cursor:pointer;">' +
+          '<input type="checkbox" id="add_chk_todos" style="width:15px;height:15px;accent-color:' + GOLD + ';">' +
+          '<span style="font-size:.68rem;color:' + GOLD + ';font-weight:700;letter-spacing:.04em;">SELECIONAR TODOS</span>' +
+        '</label>' +
+        '<div style="font-size:.58rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:6px;">TAMBÉM ADICIONAR PARA</div>' +
+        '<div style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">' +
+          outrosGrupos.map(function(x){
+            return '<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;' +
+              'background:rgba(255,255,255,.03);border:1px solid ' + BD + ';border-radius:8px;cursor:pointer;">' +
+              '<input type="checkbox" class="add_chk_func" data-idx="' + x.i + '" style="width:15px;height:15px;accent-color:' + GOLD + ';">' +
+              '<span style="font-size:.8rem;color:' + T1 + ';">' + _esc(x.g.nome) + '</span>' +
+            '</label>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+
     ovEl.innerHTML =
       '<div style="width:100%;max-width:340px;">' +
-        '<div style="' + CSS_CARD + 'padding:22px 20px;">' +
+        '<div style="' + CSS_CARD + 'padding:22px 20px;max-height:88vh;overflow-y:auto;">' +
           '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;margin-bottom:4px;">' +
             _esc(gr.nome.toUpperCase()) +
           '</div>' +
@@ -2155,6 +2179,7 @@ var HR_IMPORT = (function () {
                 'font-family:monospace;font-size:1rem;outline:none;">' +
             '</div>' +
           '</div>' +
+          chkOutrosHtml +
           '<div style="display:flex;gap:8px;">' +
             '<button id="add_ok" ' +
               'style="flex:2;padding:12px;border-radius:10px;' +
@@ -2171,6 +2196,12 @@ var HR_IMPORT = (function () {
       '</div>';
     document.body.appendChild(ovEl);
 
+    // "Selecionar todos" marca/desmarca as checkboxes individuais
+    var chkTodos = document.getElementById('add_chk_todos');
+    if (chkTodos) chkTodos.addEventListener('change', function(){
+      document.querySelectorAll('.add_chk_func').forEach(function(c){ c.checked = chkTodos.checked; });
+    });
+
     // Máscara nos inputs de hora via addEventListener (evita inline handlers/CSP)
     ['add_e','add_s','add_ae','add_as'].forEach(function(id) {
       var el = document.getElementById(id);
@@ -2184,7 +2215,24 @@ var HR_IMPORT = (function () {
     setTimeout(function(){ var el = document.getElementById('add_d'); if (el) el.focus(); }, 50);
   }
 
-  /** Valida e insere o novo dia, ordena os registros e re-renderiza. */
+  /** Insere um registro de dia num grupo específico. Retorna {ok, msg}. */
+  function _inserirDiaEmGrupo(grpIdx, dataISO, entrada, saida, almEntrada, almSaida, almocoManual) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr) return { ok: false, msg: 'Funcionário não encontrado.' };
+    if (gr.registros.some(function(r){ return r.data === dataISO; })) {
+      return { ok: false, msg: '⚠️ ' + gr.nome + ' já tem registro em ' + dataISO.slice(8) + '.' };
+    }
+    gr.registros.push({
+      nome: gr.nome, data: dataISO,
+      entrada: entrada, saida: saida,
+      almEntrada: almEntrada || null, almSaida: almSaida || null,
+      almocoManual: almocoManual
+    });
+    gr.registros.sort(function(a, b){ return a.data.localeCompare(b.data); });
+    return { ok: true };
+  }
+
+  /** Valida e insere o novo dia (no grupo atual + nos marcados), ordena e re-renderiza. */
   function _confirmarAddDia(grpIdx, ano, mes) {
     var dEl  = document.getElementById('add_d');
     var eEl  = document.getElementById('add_e');
@@ -2210,11 +2258,7 @@ var HR_IMPORT = (function () {
     var dt = new Date(dataISO + 'T12:00:00');
     if (isNaN(dt.getTime()) || dt.getDate() !== dia) { _toast('⚠️ Data inválida para este mês.'); return; }
     if (dt.getDay() === 0)   { _toast('⚠️ Domingo não é dia útil — use Exceção para registrar trabalho no domingo.'); return; }
-    var gr = _state.grupos[grpIdx];
-    if (!gr) return;
-    if (gr.registros.some(function(r){ return r.data === dataISO; })) {
-      _toast('⚠️ Já existe registro para o dia ' + dia + '.'); return;
-    }
+
     // Calcula almocoManual se ambos informados
     var almocoManual = null;
     if (almEntrada && almSaida) {
@@ -2224,13 +2268,22 @@ var HR_IMPORT = (function () {
         if (dur > 0) almocoManual = dur;
       }
     }
-    gr.registros.push({
-      nome: gr.nome, data: dataISO,
-      entrada: entrada, saida: saida,
-      almEntrada: almEntrada || null, almSaida: almSaida || null,
-      almocoManual: almocoManual
+
+    // Grupo principal (o que abriu o modal)
+    var resPrincipal = _inserirDiaEmGrupo(grpIdx, dataISO, entrada, saida, almEntrada, almSaida, almocoManual);
+    if (!resPrincipal.ok) { _toast(resPrincipal.msg); return; }
+
+    // Demais funcionários marcados na lista "Também adicionar para"
+    var idxsExtra = Array.prototype.map.call(
+      document.querySelectorAll('.add_chk_func:checked'),
+      function(c){ return parseInt(c.getAttribute('data-idx'), 10); }
+    );
+    var pulados = [];
+    idxsExtra.forEach(function(idx){
+      var res = _inserirDiaEmGrupo(idx, dataISO, entrada, saida, almEntrada, almSaida, almocoManual);
+      if (!res.ok) pulados.push(res.msg);
     });
-    gr.registros.sort(function(a, b){ return a.data.localeCompare(b.data); });
+
     // Atualiza período se necessário
     var todas = [];
     _state.grupos.forEach(function(g){ g.registros.forEach(function(r){ todas.push(r.data); }); });
@@ -2238,6 +2291,12 @@ var HR_IMPORT = (function () {
     _state.periodo = { di: todas[0], df: todas[todas.length - 1] };
     var ov = document.getElementById('hrAddDia'); if (ov) ov.remove();
     _renderTelaCorrecao();
+
+    if (idxsExtra.length > 0) {
+      var okCount = idxsExtra.length - pulados.length;
+      _toast('✅ Dia adicionado para ' + (1 + okCount) + ' funcionário(s)' +
+        (pulados.length ? ' — ' + pulados.length + ' pulado(s) por já ter registro nesse dia.' : '.'));
+    }
   }
 
   /** Marca/desmarca grupo para ser ignorado na importação. */
