@@ -3701,6 +3701,8 @@ function renderAmbientes(){
     if(amb.tipo==='🖼️ Nicho'){
       if(!amb.nichoExtra)amb.nichoExtra={};
       var ne=amb.nichoExtra;
+      if(ne.nE===undefined||ne.nE===null||ne.nE==='')ne.nE=2;
+      if(ne.nM===undefined||ne.nM===null||ne.nM==='')ne.nM=8;
       h+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:12px;margin:10px 0;">';
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:10px;">🖼️ Dados do Nicho</div>';
       h+='<div class="f"><label>Cliente / Descrição</label><input placeholder="Ex: Nicho para churrasqueira" type="text" style="background:var(--s3);" value="'+escH(ne.desc||'')+'" oninput="updNichoExtra('+amb.id+',\'desc\',this.value)"></div>';
@@ -3712,9 +3714,9 @@ function renderAmbientes(){
       h+='</div>';
       h+='<div class="r2">';
       h+='<div class="f"><label>Profundidade (cm)</label><input type="number" placeholder="15" style="background:var(--s3);" value="'+(ne.nP||'')+'" oninput="updNichoMed('+amb.id+',\'nP\',+this.value)"></div>';
-      h+='<div class="f"><label>Espessura da chapa (cm)</label><input type="number" placeholder="2" step="0.5" style="background:var(--s3);" value="'+(ne.nE||'')+'" oninput="updNichoMed('+amb.id+',\'nE\',+this.value)"></div>';
+      h+='<div class="f"><label>Espessura da chapa</label><div style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:.78rem;color:var(--t3);">2cm <span style="color:var(--t4);font-size:.65rem;">(padrão de todas as chapas)</span></div></div>';
       h+='</div>';
-      h+='<div class="f"><label>Moldura — largura (cm) <span style="color:var(--t4);">· 0 = sem moldura</span></label><input type="number" placeholder="0" min="0" style="background:var(--s3);" value="'+(ne.nM||'')+'" oninput="updNichoMed('+amb.id+',\'nM\',+this.value)"></div>';
+      h+='<div class="f"><label>Moldura</label><div style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:.78rem;color:var(--t3);">8cm de largura <span style="color:var(--t4);font-size:.65rem;">(padrão — quase todo nicho usa essa moldura)</span></div></div>';
       // Toggle com/sem fundo
       var _comFundo=!!ne.comFundo;
       h+='<div style="margin-top:8px;"><button onclick="updNichoMed('+amb.id+',\'comFundo\','+(!_comFundo)+')" style="'+(_comFundo?'background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.45);color:var(--gold2);font-weight:700;':'background:var(--s3);border-color:var(--bd);color:var(--t4);')+'border:1px solid;border-radius:8px;padding:8px 14px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;width:100%;">'+(_comFundo?'▣ Com fundo':'□ Sem fundo')+'</button></div>';
