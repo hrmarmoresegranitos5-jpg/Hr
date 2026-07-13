@@ -2179,6 +2179,9 @@ var HR_IMPORT = (function () {
                 'font-family:monospace;font-size:1rem;outline:none;">' +
             '</div>' +
           '</div>' +
+          '<div style="font-size:.6rem;color:' + T3 + ';margin-bottom:14px;line-height:1.4;">' +
+            'Deixe ENTRADA e SAÍDA em branco para registrar um dia sem expediente (ex: sábado de folga).' +
+          '</div>' +
           chkOutrosHtml +
           '<div style="display:flex;gap:8px;">' +
             '<button id="add_ok" ' +
@@ -2246,7 +2249,10 @@ var HR_IMPORT = (function () {
     var almEntrada = aeEl ? aeEl.value.trim() : '';
     var almSaida   = asEl ? asEl.value.trim() : '';
     if (!dia || dia < 1 || dia > 31) { _toast('⚠️ Dia inválido.'); return; }
-    if (!entrada)                    { _toast('⚠️ Informe a entrada.'); return; }
+    // Entrada/saída são opcionais (dia sem expediente, ex: sábado de folga),
+    // mas se um dos dois for informado o outro também precisa ser.
+    if (entrada && !saida)  { _toast('⚠️ Informe também a saída.'); return; }
+    if (!entrada && saida)  { _toast('⚠️ Informe também a entrada.'); return; }
     // Valida horários se ambos informados
     if (entrada && saida) {
       var eMin = _hhmm2min(entrada), sMin = _hhmm2min(saida);
