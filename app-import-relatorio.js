@@ -3753,13 +3753,17 @@ var HR_IMPORT = (function () {
     (registros || []).forEach(function(r) {
       var extraHoras = parseFloat(r.extra) || 0;
 
+      // Alteração: 'banco' deixou de ser excluído do financeiro. A HE marcada
+      // 'banco' agora também é classificada e paga (vira dinheiro automaticamente
+      // no próximo decêndio). Mantemos o contador totalExtraBancoMin só como
+      // informação/legado (ex: telas que ainda mostram "quanto foi pro banco"),
+      // mas ele NÃO é mais subtraído do valorTotalExtras.
       if (r.destinoExtra === 'banco') {
-        // banco de horas não entra no financeiro — rastreamos separado
         var bancoMin = Math.round(extraHoras * 60);
         if (bancoMin > 0) totalExtraBancoMin += bancoMin;
-        if (audit) console.log('%c[BANCO]  ' + r.data + ' → ' + extraHoras + 'h → destinoExtra=banco — EXCLUÍDO do financeiro',
+        if (audit) console.log('%c[BANCO→PAGAR] ' + r.data + ' → ' + extraHoras + 'h → destinoExtra=banco — agora ENTRA no financeiro também',
           'color:#8ec8f0', { id: r.id, tipoExtra: r.tipoExtra, extraHoras: extraHoras });
-        return;
+        // segue o fluxo normal abaixo (não retorna mais)
       }
 
       if (extraHoras <= 0) {
@@ -3806,7 +3810,7 @@ var HR_IMPORT = (function () {
       console.log('HE50: '  + (totalExtra50Min/60).toFixed(2)  + 'h → R$ ' + valorExtra50.toFixed(2));
       console.log('HE100: ' + (totalExtra100Min/60).toFixed(2) + 'h → R$ ' + valorExtra100.toFixed(2));
       console.log('HE200: ' + (totalExtra200Min/60).toFixed(2) + 'h → R$ ' + valorExtra200.toFixed(2));
-      console.log('🏦 Banco: ' + (totalExtraBancoMin/60).toFixed(2) + 'h (não entra no financeiro)');
+      console.log('🏦 Banco (informativo): ' + (totalExtraBancoMin/60).toFixed(2) + 'h (já incluída no financeiro acima)');
       console.log('TOTAL FINANCEIRO: ' + ((totalExtra50Min+totalExtra100Min+totalExtra200Min)/60).toFixed(2) + 'h → R$ ' + valorTotalExtras.toFixed(2));
       console.groupEnd();
     }
@@ -3821,7 +3825,8 @@ var HR_IMPORT = (function () {
       valorExtra200:    valorExtra200,
       valorTotalExtras: valorTotalExtras,
       totalExtraHoras:  (totalExtra50Min + totalExtra100Min + totalExtra200Min) / 60,
-      // Campo extra: banco de horas (para exibição na UI, não entra no pagamento)
+      // Campo informativo/legado: quanto dessa HE estava marcada 'banco'
+      // (já está somada dentro de valorTotalExtras/totalExtraHoras acima).
       totalExtraBancoMin: totalExtraBancoMin,
       totalExtraBancoHoras: totalExtraBancoMin / 60
     };
