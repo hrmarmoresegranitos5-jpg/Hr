@@ -20,7 +20,7 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // 1. PERSISTÊNCIA
   // ─────────────────────────────────────────────────────────────
-  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes', adv:'hr_advertencias', acr:'hr_he_acrescimos' };
+  var KEYS = { func:'hr_funcionarios', reg:'hr_registros', pag:'hr_pagamentos', ocor:'hr_ocorrencias', exc:'hr_excecoes', adv:'hr_advertencias', acr:'hr_he_acrescimos', cred:'hr_creditos' };
 
   function _load(key) { try { return JSON.parse(localStorage.getItem(key)||'{}'); } catch(e){ return {}; } }
   function _save(key,data) { try { localStorage.setItem(key,JSON.stringify(data)); } catch(e){ console.error('[HR]',e); } }
@@ -39,6 +39,8 @@ var HR_FUNC = (function () {
   function saveAdvertencias(d){ _save(KEYS.adv,d); }
   function getAcrescimos()    { return _load(KEYS.acr); }
   function saveAcrescimos(d)  { _save(KEYS.acr,d); }
+  function getCreditos()      { return _load(KEYS.cred); }
+  function saveCreditos(d)    { _save(KEYS.cred,d); }
   function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
   // ─────────────────────────────────────────────────────────────
@@ -2623,6 +2625,7 @@ var HR_FUNC = (function () {
       // Expor funções para botões inline do HTML
       HR_FUNC._toggleExtraPag    = _atualizarToggle;
       HR_FUNC._selecionarDecendio = _selecionarDecendio;
+      HR_FUNC._atualizarPainelPagamento = _atualizarPainel;
 
       selFunc.addEventListener('change', _atualizarPainel);
       if (selTipo) selTipo.addEventListener('change', _atualizarPainel);
@@ -2680,7 +2683,31 @@ var HR_FUNC = (function () {
       ? _adiantamentosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
     var totalAdiantamentos = adiantamentosAlvo.reduce(function(s2,a){ return s2 + (parseFloat(a.valor)||0); }, 0);
 
-    var saldo   = sal + heEfetivo + acrEfetivo - pago - totalAdiantamentos;
+    // Créditos (overpago de decêndio anterior) apontados pra serem somados
+    // justamente neste decêndio — é dinheiro a favor do funcionário, então
+    // soma (não abate) do valor a pagar. Espelha adiantamentosAlvo, sinal invertido.
+    var creditosAlvo = (decNum && typeof _creditosAlvoDecendio === 'function')
+      ? _creditosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
+    var totalCreditosAlvo = creditosAlvo.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+
+    // Créditos que se originaram justamente neste decêndio (overpago detectado
+    // ao registrar o pagamento anterior) e ainda não têm destino escolhido —
+    // é aqui que aparece o seletor "Aplicar este crédito em: ___".
+    var creditosOrigemAqui = (decNum && f && f.id && typeof _creditosEmAberto === 'function')
+      ? _creditosEmAberto(f.id).filter(function(c){
+          return !c.creditarDecendio && c.decNumOrigem === decNum && c.mesRefOrigem === _refMesAdi;
+        })
+      : [];
+
+    // Outros créditos em aberto (origem diferente, sem destino ainda) — só
+    // pra não sumir da vista, mostrados como nota informativa no rodapé.
+    var creditosOutrosAbertos = (f && f.id && typeof _creditosEmAberto === 'function')
+      ? _creditosEmAberto(f.id).filter(function(c){
+          return !c.creditarDecendio && !(c.decNumOrigem === decNum && c.mesRefOrigem === _refMesAdi);
+        })
+      : [];
+
+    var saldo   = sal + heEfetivo + acrEfetivo - pago - totalAdiantamentos + totalCreditosAlvo;
 
     // Linha de composição: só mostra itens com valor > 0
     function _linha(label, valor, cor, destaque) {
@@ -2745,19 +2772,64 @@ var HR_FUNC = (function () {
           var dLbl = a.data ? _fmtData(a.data) : '';
           return _linhaSubt('💸 Adiantamento '+dLbl+(a.obs?' ('+_esc(a.obs)+')':''), parseFloat(a.valor)||0, '#e0954a');
         }).join('') +
+        creditosAlvo.map(function(c){
+          var dLbl = c.data ? _fmtData(c.data) : '';
+          return '<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+              '<span style="font-size:.75rem;color:'+GREEN+';">💳 Crédito '+dLbl+'</span>'+
+              '<span style="font-size:.82rem;font-weight:600;color:'+GREEN+';">+ '+_fmtMoeda(parseFloat(c.valor)||0)+'</span>'+
+            '</div>'+
+            (c.obs ? '<div style="font-size:.62rem;color:'+T3+';margin-top:2px;">'+_esc(c.obs)+' — a favor do funcionário</div>' : '')+
+          '</div>';
+        }).join('') +
       '</div>'+
       '<div style="background:rgba(0,0,0,.35);border-radius:10px;padding:11px 14px;'+
         'display:flex;justify-content:space-between;align-items:center;">'+
         '<div>'+
           '<div style="font-size:.62rem;color:'+T3+';margin-bottom:1px;">'+saldoIco+' '+saldoLabel+'</div>'+
-          (saldo < -0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">Desconta no próximo pagamento</div>' : '')+
           (!incluirExtra && he > 0 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(he)+' acumulado no banco</div>' : '')+
           (totalAdiantamentos > 0.01 ? '<div style="font-size:.6rem;color:#e0954a;">−'+_fmtMoeda(totalAdiantamentos)+' já descontado em adiantamentos</div>' : '')+
+          (totalCreditosAlvo > 0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">+'+_fmtMoeda(totalCreditosAlvo)+' de crédito (overpago anterior) somado acima</div>' : '')+
         '</div>'+
         '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
           _fmtMoeda(Math.abs(saldo))+
         '</div>'+
       '</div>'+
+      // ── Crédito recém-detectado NESTE decêndio, ainda sem destino ─────────
+      // Em vez de só avisar "desconta no próximo pagamento", deixa o usuário
+      // escolher explicitamente em qual decêndio futuro o valor será somado.
+      creditosOrigemAqui.map(function(c){
+        var selId = 'credito_destino_'+c.id;
+        var _a = parseInt(_refMesAdi.slice(0,4),10), _m = parseInt(_refMesAdi.slice(5,7),10)-1;
+        var _prox = new Date(_a, _m+1, 1); var _mesProx = _prox.toISOString().slice(0,7);
+        function _optRef(mesRef, n, label){
+          var sel = (c.creditarDecendio===n && c.mesRefDestino===mesRef) ? ' selected' : '';
+          return '<option value="'+mesRef+'|'+n+'"'+sel+'>'+label+'</option>';
+        }
+        return '<div style="background:rgba(46,139,87,.08);border:1px solid rgba(46,139,87,.3);border-radius:10px;'+
+          'padding:10px 12px;margin-top:8px;">'+
+          '<div style="font-size:.68rem;color:'+GREEN+';font-weight:700;margin-bottom:2px;">💳 Crédito de '+_fmtMoeda(parseFloat(c.valor)||0)+' a favor do funcionário</div>'+
+          '<div style="font-size:.62rem;color:'+T3+';margin-bottom:7px;">'+_esc(c.obs||'')+'</div>'+
+          '<div style="font-size:.66rem;color:'+T2+';margin-bottom:4px;">Aplicar este crédito em:</div>'+
+          '<select id="'+selId+'" onchange="HR_FUNC._alocarCreditoSelect(\''+c.id+'\', this.value)" '+
+            'style="width:100%;padding:7px 8px;border-radius:8px;background:rgba(255,255,255,.06);'+
+            'border:1px solid rgba(255,255,255,.15);color:'+T1+';font-family:Outfit,sans-serif;font-size:.72rem;">'+
+            '<option value="">Não aplicar ainda</option>'+
+            _optRef(_refMesAdi, 1, '1º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
+            _optRef(_refMesAdi, 2, '2º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
+            _optRef(_refMesAdi, 3, '3º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
+            _optRef(_mesProx, 1, '1º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
+            _optRef(_mesProx, 2, '2º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
+            _optRef(_mesProx, 3, '3º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
+          '</select>'+
+        '</div>';
+      }).join('') +
+      (creditosOutrosAbertos.length > 0
+        ? '<div style="font-size:.6rem;color:'+GREEN+';font-style:italic;margin-top:6px;">'+
+            'Outros créditos em aberto (sem destino escolhido): '+
+            creditosOutrosAbertos.map(function(c){ return _fmtData(c.data)+' '+_fmtMoeda(parseFloat(c.valor)||0); }).join(' · ')+
+          '</div>'
+        : '')+
     '</div>';
   }
 
@@ -2925,6 +2997,147 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // CRÉDITOS (overpago em decêndio anterior)
+  // Espelha 1:1 o sistema de adiantamentos, só que a favor do funcionário:
+  // em vez de ser abatido, o valor é somado a um decêndio futuro escolhido.
+  // Registro: { id, funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem,
+  //             creditarDecendio, mesRefDestino, aplicado }
+  //   - creditarDecendio/mesRefDestino: onde vai ser somado (escolhido na tela
+  //     de pagamento, via alocarCredito). Se null, ainda está "em aberto".
+  //   - aplicado: true depois que já entrou no cálculo de um pagamento.
+  // ─────────────────────────────────────────────────────────────
+  function criarCredito(funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem) {
+    var creditos = getCreditos();
+    var id = 'cred_' + genId();
+    creditos[id] = {
+      id: id,
+      funcionarioId: funcionarioId,
+      valor: parseFloat(valor) || 0,
+      data: data || _hoje(),
+      obs: obs || '',
+      decNumOrigem: decNumOrigem || null,
+      mesRefOrigem: mesRefOrigem || null,
+      creditarDecendio: null,
+      mesRefDestino: null,
+      aplicado: false,
+      criadoEm: new Date().toISOString()
+    };
+    saveCreditos(creditos);
+    return creditos[id];
+  }
+
+  // Define em qual decêndio o crédito deve ser somado (seletor "Aplicar este
+  // crédito em: ___" na tela de pagamento).
+  function alocarCredito(creditoId, decNum, mesRef) {
+    var creditos = getCreditos();
+    if (!creditos[creditoId]) return null;
+    creditos[creditoId].creditarDecendio = decNum || null;
+    creditos[creditoId].mesRefDestino    = decNum ? mesRef : null;
+    saveCreditos(creditos);
+    return creditos[creditoId];
+  }
+
+  function marcarCreditoAplicado(creditoId) {
+    var creditos = getCreditos();
+    if (!creditos[creditoId]) return null;
+    creditos[creditoId].aplicado = true;
+    creditos[creditoId].aplicadoEm = _hoje();
+    saveCreditos(creditos);
+    return creditos[creditoId];
+  }
+
+  // Créditos apontados para um decêndio específico (usado pelo relatório e
+  // pelo bloco de saldo do pagamento) — mesma assinatura de _adiantamentosAlvoDecendio.
+  function _creditosAlvoDecendio(funcId, decNum, mesRef) {
+    var creditos = getCreditos();
+    return Object.values(creditos).filter(function (c) {
+      return c.funcionarioId === funcId && !c.aplicado &&
+             c.creditarDecendio === decNum && c.mesRefDestino === mesRef;
+    }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+  }
+
+  // Todos os créditos em aberto do funcionário (pra faixinha informativa e
+  // pro seletor "Aplicar este crédito em") — mesma assinatura de _adiantamentosEmAberto.
+  function _creditosEmAberto(funcId) {
+    var creditos = getCreditos();
+    return Object.values(creditos).filter(function (c) {
+      return c.funcionarioId === funcId && !c.aplicado;
+    }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+  }
+
+  // Já existe um crédito em aberto criado a partir desta mesma origem
+  // (mesmo funcionário + mesmo decêndio/mês que gerou o overpago)? Evita
+  // duplicar o registro se o usuário mexer no mesmo pagamento mais de uma vez.
+  function _creditoAbertoPorOrigem(funcId, decNumOrigem, mesRefOrigem) {
+    var creditos = getCreditos();
+    var achado = null;
+    Object.values(creditos).forEach(function(c){
+      if (!achado && c.funcionarioId === funcId && !c.aplicado &&
+          c.decNumOrigem === decNumOrigem && c.mesRefOrigem === mesRefOrigem) {
+        achado = c;
+      }
+    });
+    return achado;
+  }
+
+  // Gera o texto de observação automaticamente a partir do cálculo que
+  // detectou o overpago — nunca fica em branco pro usuário preencher.
+  // Ex: "3º decêndio (21/06 a 30/06) overpago — pago R$ 700,00, devido
+  //      R$ 686,94 (fixo R$ 500,00 + hora extra R$ 186,94)"
+  function _gerarObsCreditoOverpago(s, per, mesRefOrigem) {
+    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var mesLabel = meses[parseInt(mesRefOrigem.slice(5,7),10)-1] + '/' + mesRefOrigem.slice(0,4);
+    var acrescimos = (s.totalDevido - s.totalSalario - s.valorExtra);
+    var partes = [];
+    if (s.totalSalario > 0.01) partes.push('fixo ' + _fmtMoeda(s.totalSalario));
+    if (s.valorExtra   > 0.01) partes.push('hora extra ' + _fmtMoeda(s.valorExtra));
+    if (acrescimos     > 0.01) partes.push('acréscimo HE ' + _fmtMoeda(acrescimos));
+    var composicao = partes.length ? ' (' + partes.join(' + ') + ')' : '';
+    return per.label + ' ' + mesLabel + ' overpago — pago ' + _fmtMoeda(s.totalPago) +
+      ', devido ' + _fmtMoeda(s.totalDevido) + composicao;
+  }
+
+  // Detecta overpago logo após um pagamento de decêndio ser registrado e
+  // cria (ou atualiza, se já existir da mesma origem) o crédito automaticamente
+  // — chamada pelo motor único de pagamento, nunca precisa ser feita manualmente.
+  function _detectarECriarCreditoOverpago(funcId, decPago, mesPago, dataPagamento) {
+    var per = _periodoDecendio(decPago, mesPago);
+    var s   = calcSaldoFuncionario(funcId, per.di, per.df);
+    if (!s.temCredito) return null;
+
+    var valorCredito = Math.abs(s.saldo);
+    var obsAuto = _gerarObsCreditoOverpago(s, per, mesPago);
+    var existente = _creditoAbertoPorOrigem(funcId, decPago, mesPago);
+
+    if (existente) {
+      var creditos = getCreditos();
+      creditos[existente.id].valor = valorCredito;
+      creditos[existente.id].obs   = obsAuto;
+      saveCreditos(creditos);
+      return creditos[existente.id];
+    }
+    return criarCredito(funcId, valorCredito, dataPagamento, obsAuto, decPago, mesPago);
+  }
+
+  // Chamada pelo onchange do seletor "Aplicar este crédito em: ___" no
+  // bloco de saldo. value vem no formato "yyyy-mm|decNum" (ou vazio).
+  function _alocarCreditoSelect(creditoId, value) {
+    if (!value) {
+      alocarCredito(creditoId, null, null);
+      _toast('Crédito sem destino — continua em aberto.');
+    } else {
+      var partes = value.split('|');
+      var mesRef = partes[0], decNum = parseInt(partes[1], 10);
+      alocarCredito(creditoId, decNum, mesRef);
+      _toast('💳 Crédito será somado no '+decNum+'º decêndio de '+mesRef.slice(5,7)+'/'+mesRef.slice(0,4)+'.');
+    }
+    // Recarrega o bloco de saldo do modal de pagamento, se estiver aberto.
+    if (typeof HR_FUNC._atualizarPainelPagamento === 'function') {
+      HR_FUNC._atualizarPainelPagamento();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // MOTOR ÚNICO DE PAGAMENTO — sem dependência de DOM.
   // Usado pelo formulário (_salvarPagamento) e pelo RH IA (app-rh-ia.js).
   // Centralizar aqui evita reimplementações divergentes da mesma regra
@@ -2998,6 +3211,19 @@ var HR_FUNC = (function () {
         });
         savePagamentos(pags);
       }
+
+      // Créditos (overpago de decêndio anterior) que o usuário apontou pra
+      // serem somados justamente neste decêndio: agora que o pagamento foi
+      // de fato registrado, marca como aplicados (somem da lista "em aberto").
+      var creditosAlvo = _creditosAlvoDecendio(funcId, decPago, mesPago);
+      if (creditosAlvo.length > 0) {
+        creditosAlvo.forEach(function(c){ marcarCreditoAplicado(c.id); });
+      }
+
+      // Se ESTE pagamento deixou o próprio decêndio pago a mais (overpago),
+      // gera automaticamente o crédito a favor do funcionário — com a
+      // observação já explicando de onde veio, sem precisar preencher nada.
+      _detectarECriarCreditoOverpago(funcId, decPago, mesPago, data);
     }
 
     if (opts.notificar !== false) {
@@ -4661,6 +4887,13 @@ var HR_FUNC = (function () {
     // Adiantamentos/vales com decêndio-alvo (usado pelo Relatório de Ponto)
     _adiantamentosAlvoDecendio: _adiantamentosAlvoDecendio,
     _adiantamentosEmAberto:     _adiantamentosEmAberto,
+    getCreditos:              getCreditos,
+    criarCredito:             criarCredito,
+    alocarCredito:            alocarCredito,
+    marcarCreditoAplicado:    marcarCreditoAplicado,
+    _creditosAlvoDecendio:    _creditosAlvoDecendio,
+    _creditosEmAberto:        _creditosEmAberto,
+    _alocarCreditoSelect:     _alocarCreditoSelect,
     _periodoDecendio:           _periodoDecendio
   };
 })();
