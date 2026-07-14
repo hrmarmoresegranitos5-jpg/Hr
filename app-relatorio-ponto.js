@@ -19,6 +19,17 @@
 var HR_RELATORIO_PONTO = (function () {
   'use strict';
 
+  // ─── Config ─────────────────────────────────────────────────────────────────
+  // Número de WhatsApp do RH/dono, usado no link "dúvidas ou contestação" do
+  // rodapé do PDF. Formato: DDD + número, sem +55 (o link já adiciona o 55).
+  // Deixe vazio ('') para não mostrar o link.
+  var WPP_CONTATO_RH = '';
+
+  // Acima deste número de minutos de hora extra NUM ÚNICO DIA, o sistema pede
+  // confirmação antes de gerar o relatório (evita pagar valor errado por
+  // erro de digitação/importação do ponto). 240min = 4h.
+  var LIMIAR_HE_ANOMALA_MIN = 240;
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   function _fmtMoeda(v) {
@@ -573,6 +584,26 @@ var HR_RELATORIO_PONTO = (function () {
       }
     });
 
+    // ── Resumo visual: quantos dias com jornada esperada foram batidos "completos" ──
+    var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
+    var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
+    var diasComAjuste = diasEsperados - diasCompletos;
+
+    // ── Alerta de anomalia: HE muito alta num único dia (possível erro de ponto) ──
+    var diaAnomalo = null;
+    linhas.forEach(function (l) {
+      if (l.extraMin >= LIMIAR_HE_ANOMALA_MIN && (!diaAnomalo || l.extraMin > diaAnomalo.extraMin)) diaAnomalo = l;
+    });
+    if (diaAnomalo && typeof window !== 'undefined' && window.confirm) {
+      var confirmou = window.confirm(
+        '⚠️ ' + (f.nome || 'Funcionário') + ' tem ' + _fmtMin(diaAnomalo.extraMin) +
+        ' de hora extra no dia ' + _fmtData(diaAnomalo.data) + '.\n\n' +
+        'Isso é bem mais que o normal — pode ser erro de importação/edição do ponto.\n\n' +
+        'Confirma que está certo e quer gerar o relatório mesmo assim?'
+      );
+      if (!confirmou) return null;
+    }
+
     var fin = _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, meusPags);
 
     var doc = new jsPDFClass({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -606,7 +637,7 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text(f.nome || '', pW / 2, 15.5, { align: 'center' });
     doc.setFontSize(7.5);
     doc.setTextColor(200, 215, 240);
-    doc.text(_mesExtenso(di, df) + '  ·  ' + fin.decNum + 'º decêndio (' + _fmtData(di) + ' a ' + _fmtData(df) + ')', pW / 2, 19, { align: 'center' });
+    doc.text(_mesExtenso(di, df) + '  ·  ' + fin.decNum + 'º período (' + _fmtData(di) + ' a ' + _fmtData(df) + ')', pW / 2, 19, { align: 'center' });
 
     y = 25;
 
@@ -652,7 +683,14 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor.apply(doc, COR_HEADER);
-    doc.text('💰 Resumo do ' + fin.decNum + 'º Decêndio', mL + 4, fy);
+    doc.text('💰 Resumo do ' + fin.decNum + 'º Período', mL + 4, fy);
+    if (diasEsperados > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      if (diasComAjuste === 0) doc.setTextColor(42, 130, 70);
+      else doc.setTextColor(190, 130, 40);
+      doc.text((diasComAjuste === 0 ? '✅ ' : '⏳ ') + diasCompletos + ' de ' + diasEsperados + ' dias completos', pW - mR - 4, fy, { align: 'right' });
+    }
     fy += 6;
 
     function _lin(label, valor, cor, negativo) {
@@ -666,17 +704,17 @@ var HR_RELATORIO_PONTO = (function () {
       fy += 5;
     }
 
-    _lin('Salário fixo do decêndio', fin.decValor, [30, 30, 30]);
+    _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
     if (totalValorExtra > 0) _lin('+ Horas extras deste período', totalValorExtra, COR_VERDE);
     if (fin.creditosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
       doc.setTextColor(40, 130, 90);
-      doc.text('Créditos de decêndio(s) anterior(es):', mL + 5, fy);
+      doc.text('Créditos de período(s) anterior(es):', mL + 5, fy);
       fy += 4.2;
       creditosWrap.forEach(function (cw) {
         var c = cw.c;
-        var origemLbl = (c.decNumOrigem ? c.decNumOrigem + 'º decêndio' : 'Decêndio anterior') +
+        var origemLbl = (c.decNumOrigem ? c.decNumOrigem + 'º período' : 'Período anterior') +
           (c.mesRefOrigem ? ' de ' + _mesExtenso(c.mesRefOrigem + '-01', c.mesRefOrigem + '-01') : '');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7);
@@ -696,7 +734,7 @@ var HR_RELATORIO_PONTO = (function () {
         doc.setFont('helvetica', 'italic');
         doc.setFontSize(6.3);
         doc.setTextColor(90, 160, 110);
-        doc.text('Diferença a favor do funcionário — não é desconto arbitrário. Aplicada neste decêndio.', mL + 8, fy);
+        doc.text('Esse valor é seu, não é desconto. Já está somado no total abaixo.', mL + 8, fy);
         fy += 4.5;
       });
       fy += 1.5;
@@ -743,7 +781,7 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setFontSize(7.8);
       var lx2 = mL;
       fin.outrosDecendios.forEach(function (od) {
-        var txt = od.num + 'º dec.: ' + (od.quitado ? '✅ pago' : '⏳ pendente') + ' (' + _fmtMoeda(od.valor) + ')';
+        var txt = od.num + 'º período: ' + (od.quitado ? '✅ pago' : '⏳ pendente') + ' (' + _fmtMoeda(od.valor) + ')';
         doc.setTextColor(od.quitado ? 42 : 190, od.quitado ? 130 : 130, od.quitado ? 70 : 40);
         doc.text(txt, lx2, y);
         lx2 += doc.getTextWidth(txt) + 8;
@@ -785,7 +823,7 @@ var HR_RELATORIO_PONTO = (function () {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.8);
         doc.setTextColor(90, 90, 90);
-        doc.text('• ' + _fmtData(a.data) + ' — ' + _fmtMoeda(a.valor) + ' (p/ ' + a.descontarDecendio + 'º dec.)', mL + 2, y);
+        doc.text('• ' + _fmtData(a.data) + ' — ' + _fmtMoeda(a.valor) + ' (p/ ' + a.descontarDecendio + 'º período)', mL + 2, y);
         y += 3.8;
       });
       y += 1.5;
@@ -938,10 +976,14 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setTextColor(110, 110, 110);
     var totalExtraHMin = totalExtraMin50 + totalExtraMin200;
     var detalheHE = 'Valor hora normal: ' + _fmtMoeda(valorHora) + '  ·  Total de horas extras: ' + _fmtMin(totalExtraHMin) +
-      (totalExtraMin50 > 0 ? '  ·  HE ×2: ' + _fmtMin(totalExtraMin50) : '') +
-      (totalExtraMin200 > 0 ? '  ·  HE ×3: ' + _fmtMin(totalExtraMin200) : '') +
+      (totalExtraMin50 > 0 ? '  ·  Horas extras em dobro (×2): ' + _fmtMin(totalExtraMin50) : '') +
+      (totalExtraMin200 > 0 ? '  ·  Horas extras em triplo (×3): ' + _fmtMin(totalExtraMin200) : '') +
       (totalDeficitMin < 0 ? '  ·  Déficit: ' + _fmtMin(totalDeficitMin) : '');
     doc.text(detalheHE, mL, y, { maxWidth: cW });
+    y += 5;
+    doc.setFontSize(6.5);
+    doc.setTextColor(130, 130, 130);
+    doc.text('Trabalhado = horas batidas no ponto  ·  Esperado = sua jornada normal do dia  ·  Saldo do Dia = diferença entre os dois (×2 = paga em dobro, ×3 = paga em triplo)', mL, y, { maxWidth: cW });
     y += 6;
 
     // Legenda de cores
@@ -969,6 +1011,15 @@ var HR_RELATORIO_PONTO = (function () {
     var dtGer = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
     doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos', pW / 2, y, { align: 'center' });
 
+    if (WPP_CONTATO_RH) {
+      y += 4.5;
+      var msgContest = 'Olá! Sobre meu relatório de ponto (' + (f.nome || '') + ', ' + _mesExtenso(di, df) + '): tenho uma dúvida ou algo não bate.';
+      var urlContest = 'https://wa.me/55' + WPP_CONTATO_RH + '?text=' + encodeURIComponent(msgContest);
+      doc.setTextColor(26, 54, 93);
+      doc.setFont('helvetica', 'bold');
+      doc.textWithLink('📩 Não bate com o que você lembra? Toque aqui para falar com o RH', pW / 2, y, { align: 'center', url: urlContest });
+    }
+
     // ── Prepara dados de saída ────────────────────────────────────────────────
     var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
     var mesFmt  = di.slice(0, 7).replace('-', '') + '_' + di.slice(8,10) + '_' + df.slice(8,10);
@@ -991,6 +1042,9 @@ var HR_RELATORIO_PONTO = (function () {
 
     var mesRef = _mesExtenso(di, df);
     var depto  = f.equipe || f.cargo || 'Marmoraria';
+    var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
+    var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
+    var diasComAjuste = diasEsperados - diasCompletos;
 
     function fmtMin(min) {
       var neg = min < 0, abs = Math.abs(Math.round(min));
@@ -1052,7 +1106,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     var linhasResumo = '';
     linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;">'+
-      '<span style="color:#444;">Salário fixo do decêndio</span>'+
+      '<span style="color:#444;">Salário fixo do período</span>'+
       '<span style="font-weight:700;color:#222;">'+fmtMoeda(fin.decValor)+'</span></div>';
 
     if (totalValorExtra > 0) {
@@ -1062,9 +1116,9 @@ var HR_RELATORIO_PONTO = (function () {
     }
 
     if (fin.creditosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:14px;color:#2a8a5a;font-style:italic;padding:7px 0 3px;">Créditos de decêndio(s) anterior(es):</div>';
+      linhasResumo += '<div style="font-size:14px;color:#2a8a5a;font-style:italic;padding:7px 0 3px;">Créditos de período(s) anterior(es):</div>';
       fin.creditosAlvo.forEach(function(c){
-        var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º decêndio' : 'Decêndio anterior') +
+        var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º período' : 'Período anterior') +
           (c.mesRefOrigem ? ' de '+_mesExtenso(c.mesRefOrigem+'-01', c.mesRefOrigem+'-01') : '');
         // c.obs já vem pronto da geração automática: "pago X, devido Y (fixo A + HE B)"
         linhasResumo +=
@@ -1075,7 +1129,7 @@ var HR_RELATORIO_PONTO = (function () {
             '</div>'+
             (c.obs ? '<div style="font-size:13px;color:#4a4a4a;margin-top:4px;line-height:1.4;">'+_esc(c.obs)+'</div>' : '')+
             '<div style="font-size:12px;color:#5a9a6e;font-style:italic;margin-top:4px;">'+
-              'Diferença a favor do funcionário — não é desconto arbitrário. Aplicada neste decêndio.'+
+              'Esse valor é seu, não é desconto. Já está somado no total abaixo.'+
             '</div>'+
           '</div>';
       });
@@ -1100,8 +1154,8 @@ var HR_RELATORIO_PONTO = (function () {
     if (fin.outrosDecendios.length > 0) {
       outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:9px;font-size:14px;color:#777;">'+
         fin.outrosDecendios.map(function(od){
-          return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º dec. pago ('+fmtMoeda(od.valor)+')</span>'
-                              : '<span style="color:#a67a2a;">⏳ '+od.num+'º dec. pendente ('+fmtMoeda(od.valor)+')</span>');
+          return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º período pago ('+fmtMoeda(od.valor)+')</span>'
+                              : '<span style="color:#a67a2a;">⏳ '+od.num+'º período pendente ('+fmtMoeda(od.valor)+')</span>');
         }).join('')+
       '</div>';
     }
@@ -1125,7 +1179,7 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="font-size:14px;color:#777;font-weight:700;margin-bottom:5px;">Outros adiantamentos em aberto</div>'+
         fin.outrosAdiantamentos.map(function(a){
           return '<div style="font-size:14px;color:#555;line-height:1.5;margin-bottom:3px;">'+
-            '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º dec.)</span>'+
+            '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º período)</span>'+
           '</div>';
         }).join('')+
       '</div>';
@@ -1137,7 +1191,7 @@ var HR_RELATORIO_PONTO = (function () {
       '<div style="background:#1a3660;color:#fff;text-align:center;padding:12px 0 8px;border-radius:6px 6px 0 0;">'+
         '<div style="font-size:17px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
         '<div style="font-size:12px;margin-top:3px;">'+_esc(f.nome||'')+'</div>'+
-        '<div style="font-size:10px;opacity:.8;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º decêndio ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
+        '<div style="font-size:10px;opacity:.8;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
       '</div>'+
 
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:2px solid #1a3660;font-size:13px;">'+
@@ -1147,7 +1201,10 @@ var HR_RELATORIO_PONTO = (function () {
 
       // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
       '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:12px 16px;margin-top:12px;">'+
-        '<div style="font-size:16px;font-weight:700;color:#1a3660;margin-bottom:7px;">💰 Resumo do '+fin.decNum+'º Decêndio</div>'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">'+
+          '<div style="font-size:16px;font-weight:700;color:#1a3660;">💰 Resumo do '+fin.decNum+'º Período</div>'+
+          (diasEsperados>0 ? '<div style="font-size:13px;font-weight:700;color:'+(diasComAjuste===0?'#2a8246':'#be8228')+';">'+(diasComAjuste===0?'✅ ':'⏳ ')+diasCompletos+' de '+diasEsperados+' dias completos</div>' : '')+
+        '</div>'+
         linhasResumo+
         '<div style="background:'+faixaCor+';border-radius:6px;padding:10px 14px;margin-top:9px;display:flex;justify-content:space-between;align-items:center;">'+
           '<span style="color:#fff;font-size:15px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
@@ -1179,15 +1236,16 @@ var HR_RELATORIO_PONTO = (function () {
       '<hr style="border:none;border-top:1px solid #eee;margin:10px 0 6px;">'+
 
       // Detalhe técnico discreto (o valor já está no card do topo)
-      '<div style="font-size:10px;color:#777;">'+
+      '<div style="font-size:12px;color:#777;line-height:1.6;">'+
         'Valor hora normal: '+fmtMoeda(valorHora)+
-        (totalExtraMin50>0 ? '  ·  HE ×2: '+fmtMin(totalExtraMin50) : '')+
-        (totalExtraMin200>0 ? '  ·  HE ×3: '+fmtMin(totalExtraMin200) : '')+
+        (totalExtraMin50>0 ? '  ·  Horas extras em dobro (×2): '+fmtMin(totalExtraMin50) : '')+
+        (totalExtraMin200>0 ? '  ·  Horas extras em triplo (×3): '+fmtMin(totalExtraMin200) : '')+
         (totalDeficitMin<0 ? '  ·  <span style="color:#b43c3c;">Déficit: '+fmtMin(totalDeficitMin)+'</span>' : '')+
+        '<br><span style="color:#999;">Trabalhado = horas batidas no ponto · Esperado = sua jornada normal do dia · Saldo do Dia = diferença entre os dois (×2 paga em dobro, ×3 paga em triplo)</span>'+
       '</div>'+
 
       // Legenda
-      '<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:9px;color:#555;">'+
+      '<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:#555;">'+
         '<span><span style="display:inline-block;width:10px;height:10px;background:#e6f2ff;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Azul = feriado/acordo</span>'+
         '<span><span style="display:inline-block;width:10px;height:10px;background:#fffce6;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Amarelo = incompleto</span>'+
         '<span><span style="display:inline-block;width:10px;height:10px;background:#f0fff0;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Verde = horas extras</span>'+
@@ -1195,6 +1253,7 @@ var HR_RELATORIO_PONTO = (function () {
       '</div>'+
 
       '<div style="text-align:center;font-size:8px;color:#aaa;margin-top:10px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
+      (WPP_CONTATO_RH ? '<div style="text-align:center;font-size:11px;color:#1a3660;font-weight:700;margin-top:8px;">📩 Não bate com o que você lembra? Fale com o RH pelo link no PDF baixado.</div>' : '')+
     '</div>';
   }
 
