@@ -222,6 +222,18 @@ var HR_RELATORIO_PONTO = (function () {
           else if (r.tipo === 'folga_banco') obs = 'folga banco';
         }
 
+        // Dia trabalhado (entrada + saída registradas) mas sem batida de
+        // almoço no ponto → aqui na HR todo mundo bate o ponto do almoço,
+        // mesmo almoçando na empresa, então isso não é "sem almoço", é
+        // batida direta faltando no relógio/importação. Sinaliza em vez de
+        // esconder, pra não passar a impressão de jornada contínua real.
+        // Se já foi revisado e confirmado na tela de correção do import
+        // (semAlmocoConfirmado), mostra neutro em vez de alerta — já foi
+        // uma decisão consciente, não uma pendência.
+        var temEntSai    = r.entrada && r.saida;
+        var almocoDireta = !!(temEntSai && !r.saidaAlmoco && !r.voltaAlmoco && !r.semAlmocoConfirmado);
+        var almocoDiretoConf = !!(temEntSai && !r.saidaAlmoco && !r.voltaAlmoco && r.semAlmocoConfirmado);
+
         linhas.push({
           data:       iso,
           diaTxt:     _labelDia(dow),
@@ -229,6 +241,8 @@ var HR_RELATORIO_PONTO = (function () {
           saidaAlm:   r.saidaAlmoco  || '—',
           voltaAlm:   r.voltaAlmoco  || '—',
           saida:      r.saida        || '—',
+          almocoDireta: almocoDireta,
+          almocoDiretoConf: almocoDiretoConf,
           trabMin:    trabMin,
           esperadoMin:esperadoMin,
           saldoMin:   saldoMin,
@@ -831,13 +845,15 @@ var HR_RELATORIO_PONTO = (function () {
 
     y += 2;
 
-    // Se ninguém bate almoço nesse período, tira as colunas de almoço da
-    // tabela — sobra espaço pra aumentar a fonte do resto, que é o que
-    // realmente importa pro funcionário conferir.
-    var temAlmoco = linhas.some(function(l){ return l.saidaAlm !== '—' || l.voltaAlm !== '—'; });
+    // Colunas de almoço sempre aparecem — aqui na HR todo mundo bate o
+    // ponto do almoço (mesmo comendo na empresa), então esconder a coluna
+    // quando um dia vem sem essa batida passaria a impressão errada de
+    // jornada contínua. Dias sem a batida mostram "Batida direta" (ver
+    // cells abaixo) em vez de sumir a coluna inteira.
+    var temAlmoco = true;
 
     // ── TABELA DE PONTO ─────────────────────────────────────────────────────
-    var cols = temAlmoco ? [
+    var cols = [
       { header: 'Data',        w: 15, align: 'center' },
       { header: 'Dia',         w: 11, align: 'center' },
       { header: 'Entrada',     w: 19, align: 'center' },
@@ -847,14 +863,6 @@ var HR_RELATORIO_PONTO = (function () {
       { header: 'Trabalhado',  w: 24, align: 'center' },
       { header: 'Esperado',    w: 22, align: 'center' },
       { header: 'Saldo do Dia',w: 38, align: 'center' },
-    ] : [
-      { header: 'Data',        w: 20, align: 'center' },
-      { header: 'Dia',         w: 16, align: 'center' },
-      { header: 'Entrada',     w: 26, align: 'center' },
-      { header: 'Saída',       w: 26, align: 'center' },
-      { header: 'Trabalhado',  w: 32, align: 'center' },
-      { header: 'Esperado',    w: 30, align: 'center' },
-      { header: 'Saldo do Dia',w: 36, align: 'center' },
     ];
     var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
     var diff   = cW - totalW;
@@ -930,14 +938,27 @@ var HR_RELATORIO_PONTO = (function () {
       else if (l.autoComp)      corTexto = [160, 120, 20];
       doc.setTextColor.apply(doc, corTexto);
 
-      var cells = temAlmoco ? [
+      var cells = [
         _fmtData(l.data), l.diaTxt, l.entrada, l.saidaAlm, l.voltaAlm, l.saida,
-        _fmtMin(l.trabMin), l.esperadoMin > 0 ? _fmtMin(l.esperadoMin) : '—',
-      ] : [
-        _fmtData(l.data), l.diaTxt, l.entrada, l.saida,
         _fmtMin(l.trabMin), l.esperadoMin > 0 ? _fmtMin(l.esperadoMin) : '—',
       ];
       cells.forEach(function (txt, i) {
+        // Colunas 3 e 4 (Saída/Volta Almoço) — dia trabalhado sem batida de
+        // almoço vira uma célula mesclada: "Batida direta" (itálico, cinza
+        // de alerta) se ainda não foi revisado, ou "Direto" (neutro) se o
+        // dono já confirmou na tela de correção que foi intencional.
+        if ((l.almocoDireta || l.almocoDiretoConf) && i === 3) {
+          doc.setFont('helvetica', 'italic');
+          doc.setTextColor.apply(doc, l.almocoDireta ? [140, 140, 140] : [130, 150, 140]);
+          doc.setFontSize(7.4);
+          var wSpan = cols[3].w + cols[4].w;
+          doc.text(l.almocoDireta ? 'Batida direta' : 'Direto (confirmado)', colX[3] + wSpan / 2, cy, { align: 'center' });
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.6);
+          doc.setTextColor.apply(doc, corTexto);
+          return;
+        }
+        if ((l.almocoDireta || l.almocoDiretoConf) && i === 4) return; // já desenhado mesclado acima
         var c = cols[i];
         doc.text(txt, colX[i] + c.w / 2, cy, { align: 'center' });
       });
@@ -1056,10 +1077,11 @@ var HR_RELATORIO_PONTO = (function () {
     var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
     var diasComAjuste = diasEsperados - diasCompletos;
 
-    // Se ninguém bate almoço (caso comum aqui), essas duas colunas só
-    // ocupam espaço e apertam a letra do resto. Some com elas e usa o
-    // espaço extra pra aumentar a fonte das colunas que importam.
-    var temAlmoco = linhas.some(function(l){ return l.saidaAlm !== '—' || l.voltaAlm !== '—'; });
+    // Colunas de almoço sempre aparecem — todo mundo na HR bate o ponto do
+    // almoço (mesmo comendo na empresa). Dias sem essa batida não somem a
+    // coluna; mostram "Batida direta" (ver rowsHtml) pra deixar claro que
+    // é uma falta de registro, não jornada contínua sem intervalo.
+    var temAlmoco = true;
 
     function fmtMin(min) {
       var neg = min < 0, abs = Math.abs(Math.round(min));
@@ -1090,8 +1112,14 @@ var HR_RELATORIO_PONTO = (function () {
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtData(l.data)+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.diaTxt+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.entrada+'</td>'+
-        (temAlmoco ? '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saidaAlm+'</td>' : '')+
-        (temAlmoco ? '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.voltaAlm+'</td>' : '')+
+        (l.almocoDireta
+          ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#999;">Batida direta</td>'
+          : (l.almocoDiretoConf
+              ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#7a9a85;">Direto (confirmado)</td>'
+              : '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saidaAlm+'</td>'+
+                '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.voltaAlm+'</td>'
+            )
+        )+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saida+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtMin(l.trabMin)+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+(l.esperadoMin>0?fmtMin(l.esperadoMin):'—')+'</td>'+

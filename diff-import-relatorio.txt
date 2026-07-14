@@ -1,0 +1,157 @@
+--- /mnt/user-data/uploads/app-import-relatorio.js	2026-07-14 23:42:21.249095000 +0000
++++ /mnt/user-data/outputs/app-import-relatorio.js	2026-07-14 23:53:58.313221429 +0000
+@@ -661,8 +661,10 @@
+ 
+     if (!lc.valido) return badges; // inválido sem incompleto = sem horário
+ 
+-    // Trabalho direto: não houve intervalo, jornada relevante (≥4h)
+-    if (res.almoco === 0 && res.bruto >= 240) {
++    // Trabalho direto: não houve intervalo, jornada relevante (≥4h).
++    // Se já foi confirmado manualmente na tela de correção (✓ Direto),
++    // não repete o aviso — já foi revisado e decidido.
++    if (res.almoco === 0 && res.bruto >= 240 && !lc.r.almocoConfirmado) {
+       badges.push({ label: '🔄 TRABALHO DIRETO', cor: '#8ec8c8',
+         title: 'Sem intervalo de almoço registrado — confirme se foi trabalho direto intencional' });
+     }
+@@ -1662,13 +1664,27 @@
+   // Permite editar entrada/saída e adicionar dias manualmente.
+   // ══════════════════════════════════════════════════════════════════════════
+ 
++  /**
++   * Um dia "precisa de decisão de almoço" quando tem entrada e saída
++   * batidas (trabalhou) mas nenhuma batida de almoço veio no ponto, e
++   * ninguém ainda decidiu o que fazer com isso (deixar direto/confirmar
++   * sem almoço, ou lançar o horário manualmente). Aqui na HR todo mundo
++   * bate o ponto do almoço mesmo comendo na empresa, então isso é tratado
++   * como pendência a resolver, não como comportamento normal.
++   */
++  function _precisaDecisaoAlmoco(r) {
++    return !!(r.entrada && r.saida && !r.almEntrada && !r.almSaida && !r.almocoConfirmado);
++  }
++
+   function _renderTelaCorrecao() {
+     var grupos = _state.grupos;
+     var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+ 
+     var gruposAtivos = grupos.filter(function(gr){ return !gr._ignorar; });
+     var totalErros = gruposAtivos.reduce(function(s, gr) {
+-      return s + gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
++      return s + gr.registros.filter(function(r){
++        return ((!r.entrada || !r.saida) || _precisaDecisaoAlmoco(r)) && !r._punicao;
++      }).length;
+     }, 0);
+ 
+     var gruposHtml = grupos.map(function(gr, gi) {
+@@ -1684,7 +1700,9 @@
+         '</div>';
+       }
+ 
+-      var errosGrupo    = gr.registros.filter(function(r){ return (!r.entrada || !r.saida) && !r._punicao; }).length;
++      var errosGrupo    = gr.registros.filter(function(r){
++        return ((!r.entrada || !r.saida) || _precisaDecisaoAlmoco(r)) && !r._punicao;
++      }).length;
+       var punicoesGrupo = gr.registros.filter(function(r){ return r._punicao; }).length;
+       var excecoesGrupo = (function(){
+         try {
+@@ -1724,6 +1742,7 @@
+         }
+ 
+         var temErr    = !r.entrada || !r.saida;
++        var precisaAlmoco = _precisaDecisaoAlmoco(r);
+         var umaBatida = (r.nBatidas === 1 || (!r.entrada && r.saida) || (r.entrada && !r.saida));
+         var corBorda  = temErr ? RED : (isSab ? '#8ec8c8' : GREEN);
+         var bgRow     = temErr ? 'rgba(200,92,92,.07)' : 'transparent';
+@@ -1824,22 +1843,34 @@
+           '</div>' +
+ 
+           '<div style="display:flex;align-items:center;gap:7px;padding:3px 0 5px 10px;' +
+-          'border-left:3px solid ' + corBorda + ';border-bottom-right-radius:8px;' +
+-          'background:' + bgRow + ';">' +
+-            '<div style="min-width:32px;text-align:center;font-size:.5rem;color:' + T3 + ';">ALM</div>' +
++          'border-left:3px solid ' + (precisaAlmoco ? RED : corBorda) + ';border-bottom-right-radius:8px;' +
++          'background:' + (precisaAlmoco ? 'rgba(200,92,92,.07)' : bgRow) + ';">' +
++            '<div style="min-width:32px;text-align:center;font-size:.5rem;color:' + (precisaAlmoco ? RED : T3) + ';">ALM</div>' +
+             '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="almEntrada" ' +
+-              'style="flex:1;background:rgba(255,255,255,.02);border:1px solid #1c1c1c;' +
++              'style="flex:1;background:' + (precisaAlmoco ? 'rgba(200,92,92,.1)' : 'rgba(255,255,255,.02)') + ';' +
++              'border:1px solid ' + (precisaAlmoco ? 'rgba(200,92,92,.4)' : '#1c1c1c') + ';' +
+               'border-radius:7px;padding:4px 6px;text-align:center;cursor:pointer;touch-action:manipulation;">' +
+               '<div style="font-size:.48rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">SA\u00CD. ALM</div>' +
+               fAlmEnt +
+             '</button>' +
+             '<button data-action="editar" data-gi="' + gi + '" data-ri="' + ri + '" data-field="almSaida" ' +
+-              'style="flex:1;background:rgba(255,255,255,.02);border:1px solid #1c1c1c;' +
++              'style="flex:1;background:' + (precisaAlmoco ? 'rgba(200,92,92,.1)' : 'rgba(255,255,255,.02)') + ';' +
++              'border:1px solid ' + (precisaAlmoco ? 'rgba(200,92,92,.4)' : '#1c1c1c') + ';' +
+               'border-radius:7px;padding:4px 6px;text-align:center;cursor:pointer;touch-action:manipulation;">' +
+               '<div style="font-size:.48rem;color:' + T3 + ';letter-spacing:1px;margin-bottom:1px;">RETORNO</div>' +
+               fAlmSai +
+             '</button>' +
+-            (umaBatida || temErr ? '<div style="min-width:58px;"></div>' : '') +
++            (precisaAlmoco
++              ? '<button data-action="confirmar-sem-almoco" data-gi="' + gi + '" data-ri="' + ri + '" ' +
++                  'title="Confirmar que foi trabalho direto, sem intervalo — todos os minutos contam" ' +
++                  'style="padding:5px 7px;background:rgba(120,20,20,.3);border:1px solid rgba(180,40,40,.4);' +
++                  'border-radius:7px;color:#c06060;cursor:pointer;font-size:.6rem;font-weight:700;' +
++                  'white-space:nowrap;font-family:Outfit,sans-serif;touch-action:manipulation;">' +
++                  '\u2713 Direto</button>'
++              : (r.almocoConfirmado
++                  ? '<div style="min-width:58px;text-align:center;font-size:.55rem;color:' + GREEN + ';font-weight:700;">\u2713 direto\u00A0conf.</div>'
++                  : (umaBatida || temErr ? '<div style="min-width:58px;"></div>' : ''))
++            ) +
+             '<div style="min-width:30px;"></div>' +
+           '</div>' +
+ 
+@@ -1928,6 +1959,7 @@
+       if (action === 'editar'          && gi !== null && ri !== null && fld) { e.stopPropagation(); _editCorrecao(gi, ri, fld); }
+       else if (action === 'trocar'     && gi !== null && ri !== null)        { e.stopPropagation(); _trocarEntradaSaida(gi, ri); }
+       else if (action === 'punir'      && gi !== null && ri !== null)        { e.stopPropagation(); _aplicarPunicao(gi, ri); }
++      else if (action === 'confirmar-sem-almoco' && gi !== null && ri !== null) { e.stopPropagation(); _confirmarSemAlmoco(gi, ri); }
+       else if (action === 'desfazer-punicao' && gi !== null && ri !== null)  { e.stopPropagation(); _desfazerPunicao(gi, ri); }
+       else if (action === 'excluir'    && gi !== null && ri !== null)        { e.stopPropagation(); _excluirCorrecao(gi, ri); }
+       else if (action === 'ignorar'    && gi !== null && val !== null)       { e.stopPropagation(); _ignorarGrupo(gi, val === 1); }
+@@ -2341,6 +2373,23 @@
+   }
+ 
+   /**
++   * Confirma que um dia sem batida de almoço foi trabalho direto de
++   * propósito (funcionário optou por não parar, ou já foi verificado que
++   * não bateu o ponto do intervalo por engano mas trabalhou direto mesmo).
++   * Não desconta nenhum minuto de almoço — o dia continua contando a
++   * jornada inteira (entrada→saída) como trabalhado/extra, exatamente como
++   * já acontece hoje quando não há almoço registrado. A diferença é que o
++   * dia sai da lista de pendências/erros a revisar.
++   */
++  function _confirmarSemAlmoco(grpIdx, recIdx) {
++    var gr = _state.grupos[grpIdx];
++    if (gr && gr.registros[recIdx]) {
++      gr.registros[recIdx].almocoConfirmado = true;
++    }
++    _renderTelaCorrecao();
++  }
++
++  /**
+    * Abre modal para registrar uma exceção para o dia (feriado, acordo ou declarado).
+    * Tipos:
+    *   feriado  — dia não trabalhado (feriado oficial ou combinado). Pode ser dia todo ou meio período.
+@@ -3075,6 +3124,12 @@
+           // app-funcionarios.js e app-relatorio-ponto.js.
+           saidaAlmoco: r.almEntrada || '',
+           voltaAlmoco: r.almSaida   || '',
++          // Marcado quando o dono confirmou explicitamente na tela de
++          // correção que o dia foi trabalho direto (sem almoço) de
++          // propósito — usado pelo relatório de ponto pra não tratar como
++          // pendência/erro depois de já revisado. Não muda o cálculo: o
++          // dia já conta a jornada inteira como trabalhada de qualquer forma.
++          semAlmocoConfirmado: !!r.almocoConfirmado,
+           horas: parseFloat((calc.trab / 60).toFixed(4)),
+           extra: parseFloat((calc.extra / 60).toFixed(4)),
+           tipoExtra: (function(){
+@@ -4015,6 +4070,7 @@
+     _ignorarGrupo:          _ignorarGrupo,
+     _aplicarPunicao:        _aplicarPunicao,
+     _desfazerPunicao:       _desfazerPunicao,
++    _confirmarSemAlmoco:    _confirmarSemAlmoco,
+     // Relatório e UI
+     _gerarRelatorioHE:   _gerarRelatorioHE,
+     _abrirDialogRelatorioHE: _abrirDialogRelatorioHE,
