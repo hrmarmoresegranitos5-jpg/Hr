@@ -831,8 +831,13 @@ var HR_RELATORIO_PONTO = (function () {
 
     y += 2;
 
+    // Se ninguém bate almoço nesse período, tira as colunas de almoço da
+    // tabela — sobra espaço pra aumentar a fonte do resto, que é o que
+    // realmente importa pro funcionário conferir.
+    var temAlmoco = linhas.some(function(l){ return l.saidaAlm !== '—' || l.voltaAlm !== '—'; });
+
     // ── TABELA DE PONTO ─────────────────────────────────────────────────────
-    var cols = [
+    var cols = temAlmoco ? [
       { header: 'Data',        w: 15, align: 'center' },
       { header: 'Dia',         w: 11, align: 'center' },
       { header: 'Entrada',     w: 19, align: 'center' },
@@ -842,6 +847,14 @@ var HR_RELATORIO_PONTO = (function () {
       { header: 'Trabalhado',  w: 24, align: 'center' },
       { header: 'Esperado',    w: 22, align: 'center' },
       { header: 'Saldo do Dia',w: 38, align: 'center' },
+    ] : [
+      { header: 'Data',        w: 20, align: 'center' },
+      { header: 'Dia',         w: 16, align: 'center' },
+      { header: 'Entrada',     w: 26, align: 'center' },
+      { header: 'Saída',       w: 26, align: 'center' },
+      { header: 'Trabalhado',  w: 32, align: 'center' },
+      { header: 'Esperado',    w: 30, align: 'center' },
+      { header: 'Saldo do Dia',w: 36, align: 'center' },
     ];
     var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
     var diff   = cW - totalW;
@@ -851,8 +864,8 @@ var HR_RELATORIO_PONTO = (function () {
     var cx = mL;
     cols.forEach(function(c){ colX.push(cx); cx += c.w; });
 
-    var rowH  = 5.6;
-    var thH   = 8;
+    var rowH  = 6.3;
+    var thH   = 8.6;
 
     function _headerTabela() {
       doc.setFillColor.apply(doc, COR_TH_BG);
@@ -861,14 +874,14 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setLineWidth(0.2);
       doc.rect(mL, y, cW, thH, 'S');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.2);
+      doc.setFontSize(8.4);
       doc.setTextColor(30, 50, 90);
       cols.forEach(function(c, i) {
         var lines = c.header.split('\n');
         var tx = colX[i] + c.w / 2;
-        var baseY = y + (lines.length === 2 ? 3.2 : 5.2);
+        var baseY = y + (lines.length === 2 ? 3.4 : 5.6);
         lines.forEach(function(line, li) {
-          doc.text(line, tx, baseY + li * 3.1, { align: 'center' });
+          doc.text(line, tx, baseY + li * 3.3, { align: 'center' });
         });
       });
       y += thH;
@@ -877,7 +890,9 @@ var HR_RELATORIO_PONTO = (function () {
     _headerTabela();
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.3);
+    doc.setFontSize(8.6);
+
+    var saldoIdx = cols.length - 1;
 
     linhas.forEach(function (l, idx) {
       if (y + rowH > pH - 18) {
@@ -885,7 +900,7 @@ var HR_RELATORIO_PONTO = (function () {
         y = 12;
         _headerTabela();
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.3);
+        doc.setFontSize(8.6);
       }
 
       if (l.tipo === 'feriado' || l.tipo === 'acordo') {
@@ -909,14 +924,17 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setLineWidth(0.1);
       doc.line(mL, y + rowH, mL + cW, y + rowH);
 
-      var cy = y + rowH - 1.7;
+      var cy = y + rowH - 1.9;
       var corTexto = [40, 40, 40];
       if (l.tipo === 'ausente') corTexto = [180, 60, 60];
       else if (l.autoComp)      corTexto = [160, 120, 20];
       doc.setTextColor.apply(doc, corTexto);
 
-      var cells = [
+      var cells = temAlmoco ? [
         _fmtData(l.data), l.diaTxt, l.entrada, l.saidaAlm, l.voltaAlm, l.saida,
+        _fmtMin(l.trabMin), l.esperadoMin > 0 ? _fmtMin(l.esperadoMin) : '—',
+      ] : [
+        _fmtData(l.data), l.diaTxt, l.entrada, l.saida,
         _fmtMin(l.trabMin), l.esperadoMin > 0 ? _fmtMin(l.esperadoMin) : '—',
       ];
       cells.forEach(function (txt, i) {
@@ -938,7 +956,7 @@ var HR_RELATORIO_PONTO = (function () {
       }
       doc.setFont('helvetica', 'bold');
       doc.setTextColor.apply(doc, saldoCor);
-      doc.text(saldoTxt, colX[8] + cols[8].w / 2, cy, { align: 'center' });
+      doc.text(saldoTxt, colX[saldoIdx] + cols[saldoIdx].w / 2, cy, { align: 'center' });
       doc.setFont('helvetica', 'normal');
 
       y += rowH;
@@ -965,26 +983,18 @@ var HR_RELATORIO_PONTO = (function () {
       y += 5;
     }
 
-    // Totais de horas extras (breakdown técnico, discreto — o valor já está no resumo do topo)
-    if (y + 12 > pH - 15) { doc.addPage(); y = 15; }
+    // Aviso de déficit, se houver — o resto (valor hora, ×2, ×3) já está
+    // explicado no card de resumo do topo, então não repete aqui.
+    if (totalDeficitMin < 0) {
+      if (y + 8 > pH - 15) { doc.addPage(); y = 15; }
+      y += 3;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(180, 60, 60);
+      doc.text('⚠️ Faltaram ' + _fmtMin(Math.abs(totalDeficitMin)) + ' no período (já descontado do total acima).', mL, y, { maxWidth: cW });
+      y += 6;
+    }
     y += 2;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(mL, y, pW - mR, y);
-    y += 4;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(110, 110, 110);
-    var totalExtraHMin = totalExtraMin50 + totalExtraMin200;
-    var detalheHE = 'Valor hora normal: ' + _fmtMoeda(valorHora) + '  ·  Total de horas extras: ' + _fmtMin(totalExtraHMin) +
-      (totalExtraMin50 > 0 ? '  ·  Horas extras em dobro (×2): ' + _fmtMin(totalExtraMin50) : '') +
-      (totalExtraMin200 > 0 ? '  ·  Horas extras em triplo (×3): ' + _fmtMin(totalExtraMin200) : '') +
-      (totalDeficitMin < 0 ? '  ·  Déficit: ' + _fmtMin(totalDeficitMin) : '');
-    doc.text(detalheHE, mL, y, { maxWidth: cW });
-    y += 5;
-    doc.setFontSize(6.5);
-    doc.setTextColor(130, 130, 130);
-    doc.text('Trabalhado = horas batidas no ponto  ·  Esperado = sua jornada normal do dia  ·  Saldo do Dia = diferença entre os dois (×2 = paga em dobro, ×3 = paga em triplo)', mL, y, { maxWidth: cW });
-    y += 6;
 
     // Legenda de cores
     var legItems = [
@@ -1046,6 +1056,11 @@ var HR_RELATORIO_PONTO = (function () {
     var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
     var diasComAjuste = diasEsperados - diasCompletos;
 
+    // Se ninguém bate almoço (caso comum aqui), essas duas colunas só
+    // ocupam espaço e apertam a letra do resto. Some com elas e usa o
+    // espaço extra pra aumentar a fonte das colunas que importam.
+    var temAlmoco = linhas.some(function(l){ return l.saidaAlm !== '—' || l.voltaAlm !== '—'; });
+
     function fmtMin(min) {
       var neg = min < 0, abs = Math.abs(Math.round(min));
       return (neg?'-':'')+String(Math.floor(abs/60)).padStart(2,'0')+'h'+String(abs%60).padStart(2,'0')+'m';
@@ -1072,15 +1087,15 @@ var HR_RELATORIO_PONTO = (function () {
 
       rowsHtml +=
         '<tr style="background:'+bg+';">'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+fmtData(l.data)+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+l.diaTxt+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+l.entrada+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+l.saidaAlm+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+l.voltaAlm+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+l.saida+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+fmtMin(l.trabMin)+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+(l.esperadoMin>0?fmtMin(l.esperadoMin):'—')+'</td>'+
-        '<td style="text-align:center;padding:5px 4px;font-size:11px;">'+saldoDiaHtml+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtData(l.data)+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.diaTxt+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.entrada+'</td>'+
+        (temAlmoco ? '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saidaAlm+'</td>' : '')+
+        (temAlmoco ? '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.voltaAlm+'</td>' : '')+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saida+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtMin(l.trabMin)+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+(l.esperadoMin>0?fmtMin(l.esperadoMin):'—')+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+saldoDiaHtml+'</td>'+
         '</tr>';
     });
 
@@ -1105,54 +1120,51 @@ var HR_RELATORIO_PONTO = (function () {
     var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
 
     var linhasResumo = '';
-    linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;">'+
+    linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
       '<span style="color:#444;">Salário fixo do período</span>'+
       '<span style="font-weight:700;color:#222;">'+fmtMoeda(fin.decValor)+'</span></div>';
 
     if (totalValorExtra > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;">'+
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
         '<span style="color:#2a8a46;">+ Horas extras deste período</span>'+
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
     }
 
     if (fin.creditosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:14px;color:#2a8a5a;font-style:italic;padding:7px 0 3px;">Créditos de período(s) anterior(es):</div>';
+      linhasResumo += '<div style="font-size:15px;color:#2a8a5a;font-weight:700;padding:8px 0 4px;">+ Horas extras acumuladas de período(s) anterior(es):</div>';
       fin.creditosAlvo.forEach(function(c){
         var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º período' : 'Período anterior') +
           (c.mesRefOrigem ? ' de '+_mesExtenso(c.mesRefOrigem+'-01', c.mesRefOrigem+'-01') : '');
-        // c.obs já vem pronto da geração automática: "pago X, devido Y (fixo A + HE B)"
+        // c.obs já vem pronto explicando os dias (ex: "Horas extras de 01 a 10/07 (3.0h) acumuladas...")
         linhasResumo +=
-          '<div style="margin:5px 0 5px 6px;padding:9px 11px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
+          '<div style="margin:5px 0 5px 6px;padding:10px 12px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;">'+
-              '<span style="font-size:15px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+' — '+fmtData(c.data)+'</span>'+
-              '<span style="color:#2a8a5a;font-weight:800;font-size:16px;">+ '+fmtMoeda(c.valor)+'</span>'+
+              '<span style="font-size:15px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+'</span>'+
+              '<span style="color:#2a8a5a;font-weight:800;font-size:17px;">+ '+fmtMoeda(c.valor)+'</span>'+
             '</div>'+
-            (c.obs ? '<div style="font-size:13px;color:#4a4a4a;margin-top:4px;line-height:1.4;">'+_esc(c.obs)+'</div>' : '')+
-            '<div style="font-size:12px;color:#5a9a6e;font-style:italic;margin-top:4px;">'+
-              'Esse valor é seu, não é desconto. Já está somado no total abaixo.'+
-            '</div>'+
+            (c.obs ? '<div style="font-size:14px;color:#3a3a3a;margin-top:5px;line-height:1.45;">'+_esc(c.obs)+'</div>' : '')+
           '</div>';
       });
     }
 
     if (fin.adiantamentosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:14px;color:#a67a2a;font-style:italic;padding:7px 0 3px;">Adiantamentos a descontar:</div>';
+      linhasResumo += '<div style="font-size:15px;color:#a67a2a;font-weight:700;padding:8px 0 4px;">− Adiantamentos a descontar:</div>';
       fin.adiantamentosAlvo.forEach(function(a){
-        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:3px 0 3px 10px;font-size:15px;">'+
+        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:4px 0 4px 10px;font-size:15.5px;">'+
           '<span style="color:#666;">• '+fmtData(a.data)+(a.obs?' — '+_esc(a.obs):'')+'</span>'+
           '<span style="color:#c07a2a;font-weight:700;">− '+fmtMoeda(a.valor)+'</span></div>';
       });
     }
 
     if (fin.totalPago > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;border-top:1px dashed #ddd;margin-top:5px;">'+
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;border-top:1px dashed #ddd;margin-top:6px;">'+
         '<span style="color:#b43c3c;">Já pago neste período</span>'+
         '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalPago)+'</span></div>';
     }
 
     var outrosDecendiosHtml = '';
     if (fin.outrosDecendios.length > 0) {
-      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:9px;font-size:14px;color:#777;">'+
+      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:10px;font-size:14.5px;color:#777;flex-wrap:wrap;">'+
         fin.outrosDecendios.map(function(od){
           return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º período pago ('+fmtMoeda(od.valor)+')</span>'
                               : '<span style="color:#a67a2a;">⏳ '+od.num+'º período pendente ('+fmtMoeda(od.valor)+')</span>');
@@ -1162,12 +1174,12 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosCreditosHtml = '';
     if (fin.outrosCreditos.length > 0) {
-      outrosCreditosHtml = '<div style="margin-top:7px;padding:9px 11px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
-        '<div style="font-size:14px;color:#2a6a3e;font-weight:700;margin-bottom:5px;">Créditos em aberto (sem destino escolhido)</div>'+
+      outrosCreditosHtml = '<div style="margin-top:8px;padding:10px 12px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
+        '<div style="font-size:14.5px;color:#2a6a3e;font-weight:700;margin-bottom:5px;">Créditos em aberto (ainda sem período definido)</div>'+
         fin.outrosCreditos.map(function(c){
-          return '<div style="font-size:14px;color:#333;line-height:1.5;margin-bottom:3px;">'+
+          return '<div style="font-size:14.5px;color:#333;line-height:1.5;margin-bottom:3px;">'+
             '• '+fmtData(c.data)+' — <b style="color:#2a8a5a;">'+fmtMoeda(c.valor)+'</b>'+
-            (c.obs?'<div style="font-size:13px;color:#666;margin:2px 0 4px 10px;">'+_esc(c.obs)+'</div>':'')+
+            (c.obs?'<div style="font-size:13.5px;color:#666;margin:2px 0 4px 10px;">'+_esc(c.obs)+'</div>':'')+
           '</div>';
         }).join('')+
       '</div>';
@@ -1175,85 +1187,85 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosAdiantamentosHtml = '';
     if (fin.outrosAdiantamentos.length > 0) {
-      outrosAdiantamentosHtml = '<div style="margin-top:7px;padding:9px 11px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
-        '<div style="font-size:14px;color:#777;font-weight:700;margin-bottom:5px;">Outros adiantamentos em aberto</div>'+
+      outrosAdiantamentosHtml = '<div style="margin-top:8px;padding:10px 12px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
+        '<div style="font-size:14.5px;color:#777;font-weight:700;margin-bottom:5px;">Outros adiantamentos em aberto</div>'+
         fin.outrosAdiantamentos.map(function(a){
-          return '<div style="font-size:14px;color:#555;line-height:1.5;margin-bottom:3px;">'+
+          return '<div style="font-size:14.5px;color:#555;line-height:1.5;margin-bottom:3px;">'+
             '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º período)</span>'+
           '</div>';
         }).join('')+
       '</div>';
     }
 
+    // Colunas da tabela — Saída/Volta Almoço só entram se alguém realmente bate almoço
+    var colsHead =
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Data</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Dia</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Entrada</th>'+
+      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída<br>Almoço</th>' : '')+
+      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>' : '')+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Esperado</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saldo do Dia</th>';
+
+    // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
+    // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
+    var rodapeTecnico = totalDeficitMin < 0
+      ? '<div style="font-size:13px;color:#b43c3c;margin-top:8px;">⚠️ Faltaram '+fmtMin(Math.abs(totalDeficitMin))+' no período (já descontado do total acima).</div>'
+      : '';
+
     return '<div style="font-family:Arial,sans-serif;background:#fff;padding:16px 20px;color:#111;width:754px;box-sizing:border-box;">'+
 
       // Cabeçalho
       '<div style="background:#1a3660;color:#fff;text-align:center;padding:12px 0 8px;border-radius:6px 6px 0 0;">'+
-        '<div style="font-size:17px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
-        '<div style="font-size:12px;margin-top:3px;">'+_esc(f.nome||'')+'</div>'+
-        '<div style="font-size:10px;opacity:.8;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
+        '<div style="font-size:18px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
+        '<div style="font-size:13px;margin-top:3px;">'+_esc(f.nome||'')+'</div>'+
+        '<div style="font-size:11px;opacity:.85;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
       '</div>'+
 
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:2px solid #1a3660;font-size:13px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:2px solid #1a3660;font-size:14px;">'+
         '<div>Departamento: '+_esc(depto)+'</div>'+
         '<div><b>Salário mensal: '+fmtMoeda(salario)+'</b></div>'+
       '</div>'+
 
       // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
-      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:12px 16px;margin-top:12px;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">'+
-          '<div style="font-size:16px;font-weight:700;color:#1a3660;">💰 Resumo do '+fin.decNum+'º Período</div>'+
-          (diasEsperados>0 ? '<div style="font-size:13px;font-weight:700;color:'+(diasComAjuste===0?'#2a8246':'#be8228')+';">'+(diasComAjuste===0?'✅ ':'⏳ ')+diasCompletos+' de '+diasEsperados+' dias completos</div>' : '')+
+      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 16px;margin-top:12px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
+          '<div style="font-size:17px;font-weight:700;color:#1a3660;">💰 Resumo do '+fin.decNum+'º Período</div>'+
+          (diasEsperados>0 ? '<div style="font-size:13.5px;font-weight:700;color:'+(diasComAjuste===0?'#2a8246':'#be8228')+';">'+(diasComAjuste===0?'✅ ':'⏳ ')+diasCompletos+' de '+diasEsperados+' dias completos</div>' : '')+
         '</div>'+
         linhasResumo+
-        '<div style="background:'+faixaCor+';border-radius:6px;padding:10px 14px;margin-top:9px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span style="color:#fff;font-size:15px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
-          '<span style="color:#fff;font-size:20px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
+        '<div style="background:'+faixaCor+';border-radius:6px;padding:12px 16px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span style="color:#fff;font-size:16px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
+          '<span style="color:#fff;font-size:22px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
         '</div>'+
         outrosDecendiosHtml+
         outrosCreditosHtml+
         outrosAdiantamentosHtml+
       '</div>'+
 
-      // Tabela
-      '<table style="width:100%;border-collapse:collapse;margin-top:14px;">'+
-        '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Data</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Dia</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Entrada</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Saída<br>Almoço</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Esperado</th>'+
-          '<th style="padding:6px 4px;font-size:10.5px;text-align:center;border:1px solid #ccd6e0;">Saldo do Dia</th>'+
-        '</tr></thead>'+
+      // Tabela — só o ponto, limpo
+      '<div style="font-size:14px;font-weight:700;color:#1a3660;margin-top:16px;margin-bottom:6px;">🕐 Relatório de Ponto</div>'+
+      '<table style="width:100%;border-collapse:collapse;">'+
+        '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+colsHead+'</tr></thead>'+
         '<tbody>'+rowsHtml+'</tbody>'+
       '</table>'+
 
-      (obsHtml ? '<div style="font-size:10px;color:#555;font-style:italic;margin-top:8px;">Observações: '+obsHtml+'</div>' : '')+
+      (obsHtml ? '<div style="font-size:11.5px;color:#555;font-style:italic;margin-top:8px;">Observações: '+obsHtml+'</div>' : '')+
 
-      '<hr style="border:none;border-top:1px solid #eee;margin:10px 0 6px;">'+
-
-      // Detalhe técnico discreto (o valor já está no card do topo)
-      '<div style="font-size:12px;color:#777;line-height:1.6;">'+
-        'Valor hora normal: '+fmtMoeda(valorHora)+
-        (totalExtraMin50>0 ? '  ·  Horas extras em dobro (×2): '+fmtMin(totalExtraMin50) : '')+
-        (totalExtraMin200>0 ? '  ·  Horas extras em triplo (×3): '+fmtMin(totalExtraMin200) : '')+
-        (totalDeficitMin<0 ? '  ·  <span style="color:#b43c3c;">Déficit: '+fmtMin(totalDeficitMin)+'</span>' : '')+
-        '<br><span style="color:#999;">Trabalhado = horas batidas no ponto · Esperado = sua jornada normal do dia · Saldo do Dia = diferença entre os dois (×2 paga em dobro, ×3 paga em triplo)</span>'+
-      '</div>'+
+      rodapeTecnico+
 
       // Legenda
-      '<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:#555;">'+
-        '<span><span style="display:inline-block;width:10px;height:10px;background:#e6f2ff;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Azul = feriado/acordo</span>'+
-        '<span><span style="display:inline-block;width:10px;height:10px;background:#fffce6;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Amarelo = incompleto</span>'+
-        '<span><span style="display:inline-block;width:10px;height:10px;background:#f0fff0;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Verde = horas extras</span>'+
-        '<span><span style="display:inline-block;width:10px;height:10px;background:#fff2f2;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Vermelho = déficit</span>'+
+      '<div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:#555;">'+
+        '<span><span style="display:inline-block;width:11px;height:11px;background:#e6f2ff;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Azul = feriado/acordo</span>'+
+        '<span><span style="display:inline-block;width:11px;height:11px;background:#fffce6;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Amarelo = incompleto</span>'+
+        '<span><span style="display:inline-block;width:11px;height:11px;background:#f0fff0;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Verde = horas extras</span>'+
+        '<span><span style="display:inline-block;width:11px;height:11px;background:#fff2f2;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Vermelho = déficit</span>'+
       '</div>'+
 
-      '<div style="text-align:center;font-size:8px;color:#aaa;margin-top:10px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
-      (WPP_CONTATO_RH ? '<div style="text-align:center;font-size:11px;color:#1a3660;font-weight:700;margin-top:8px;">📩 Não bate com o que você lembra? Fale com o RH pelo link no PDF baixado.</div>' : '')+
+      '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
+      (WPP_CONTATO_RH ? '<div style="text-align:center;font-size:12px;color:#1a3660;font-weight:700;margin-top:8px;">📩 Não bate com o que você lembra? Fale com o RH pelo link no PDF baixado.</div>' : '')+
     '</div>';
   }
 
