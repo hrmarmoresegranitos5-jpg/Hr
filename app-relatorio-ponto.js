@@ -50,10 +50,9 @@ var HR_RELATORIO_PONTO = (function () {
   }
 
   function _labelDia(dow) {
-    // Retorna "2ª", "Sáb", "Dom" etc
+    // Retorna "2ª", "Sáb", "Dom" etc — usa DIAS_NUM (já corrigido, indexado por getDay())
     if (dow === 0) return 'Dom';
-    if (dow === 6) return 'Sáb';
-    return dow + 'ª';
+    return DIAS_NUM[dow];
   }
 
   function _mesExtenso(di, df) {
@@ -124,6 +123,10 @@ var HR_RELATORIO_PONTO = (function () {
       // Acordo → jornada = 0 (saldo livre pelos horários reais)
       var tipoLinha = r ? (r.tipo || 'normal') : 'ausente';
       var obsExcecao = '';
+      // Horas a descontar da HE deste dia porque compensam falta/folga em outro
+      // dia (ex: trabalhou o feriado pra folgar no sábado — as horas do sábado
+      // não viram HE, só o que sobrar depois do desconto).
+      var compensarMin = 0;
       if (exc) {
         if (exc.tipo === 'feriado') {
           if (exc.meioperiodo) {
@@ -144,12 +147,20 @@ var HR_RELATORIO_PONTO = (function () {
           // Declarado: jornada normal, mas usa horários da exceção se não há registro
           obsExcecao = 'declarado' + (exc.descricao ? ' — ' + exc.descricao : '');
         }
+        compensarMin = Math.round((parseFloat(exc.compensacaoHoras) || 0) * 60);
       }
 
       if (r) {
-        var trabMin     = Math.round((parseFloat(r.horas) || 0) * 60);
-        var extraMin    = Math.round((parseFloat(r.extra) || 0) * 60);
-        var saldoMin    = trabMin - esperadoMin;
+        var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
+        var extraBrutoMin = Math.round((parseFloat(r.extra) || 0) * 60);
+        // Desconta a compensação ANTES de classificar/multiplicar — as horas
+        // descontadas não são pagas nem triplicadas, só abatem a folga devida.
+        compensarMin      = Math.min(extraBrutoMin, compensarMin);
+        var extraMin      = extraBrutoMin - compensarMin;
+        var saldoMin      = trabMin - esperadoMin - compensarMin;
+        if (compensarMin > 0) {
+          obsExcecao += (obsExcecao ? ' — ' : '') + 'descontadas ' + _fmtMin(compensarMin) + ' (compensação)';
+        }
 
         // Valor extra financeiro do dia
         // (usa o motor unificado HR_IMPORT.calcValorHoraReal — mesma jornada
@@ -439,8 +450,21 @@ var HR_RELATORIO_PONTO = (function () {
     adiantamentosAlvo.forEach(function (a) { idsAlvo[a.id] = true; });
     var outrosAdiantamentos = todosAbertos.filter(function (a) { return !idsAlvo[a.id]; });
 
+    // Créditos (overpago em decêndio anterior) apontados especificamente para este —
+    // mesmo padrão dos adiantamentos, só que somam ao invés de descontar.
+    var creditosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosAlvoDecendio)
+      ? HR_FUNC._creditosAlvoDecendio(funcId, decNum, mesRef) : [];
+    var totalCreditos = creditosAlvo.reduce(function (s, c) { return s + (parseFloat(c.valor) || 0); }, 0);
+
+    // Outros créditos em aberto do funcionário (ainda sem decêndio de destino escolhido)
+    var creditosTodos = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosEmAberto)
+      ? HR_FUNC._creditosEmAberto(funcId) : [];
+    var idsCredAlvo = {};
+    creditosAlvo.forEach(function (c) { idsCredAlvo[c.id] = true; });
+    var outrosCreditos = creditosTodos.filter(function (c) { return !idsCredAlvo[c.id]; });
+
     var totalDevido  = decValor + totalValorExtra;
-    var totalLiquido = totalDevido - totalAdiantamentos;
+    var totalLiquido = totalDevido - totalAdiantamentos + totalCreditos;
     var saldoFinal    = totalLiquido - totalPago;
     var status = saldoFinal <= 0.5 ? 'pago' : 'pendente';
 
@@ -465,6 +489,7 @@ var HR_RELATORIO_PONTO = (function () {
       totalPagoDecendio: totalPagoDecendio, totalPagoOutros: totalPagoOutros, totalPago: totalPago,
       adiantamentosAlvo: adiantamentosAlvo, totalAdiantamentos: totalAdiantamentos,
       outrosAdiantamentos: outrosAdiantamentos,
+      creditosAlvo: creditosAlvo, totalCreditos: totalCreditos, outrosCreditos: outrosCreditos,
       totalDevido: totalDevido, totalLiquido: totalLiquido, saldoFinal: saldoFinal,
       status: status, outrosDecendios: outrosDecendios
     };
@@ -572,6 +597,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
     var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
+               (fin.creditosAlvo.length > 0 ? 6 + fin.creditosAlvo.length * 5 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
                (fin.totalPago > 0 ? 6 : 0) + 12;
 
@@ -601,6 +627,23 @@ var HR_RELATORIO_PONTO = (function () {
 
     _lin('Salário fixo do decêndio', fin.decValor, [30, 30, 30]);
     if (totalValorExtra > 0) _lin('+ Horas extras deste período', totalValorExtra, COR_VERDE);
+    if (fin.creditosAlvo.length > 0) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(40, 130, 90);
+      doc.text('Créditos de decêndio(s) anterior(es):', mL + 5, fy);
+      fy += 4.2;
+      fin.creditosAlvo.forEach(function (c) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(90, 90, 90);
+        doc.text('  • ' + _fmtData(c.data) + (c.obs ? ' — ' + c.obs : ''), mL + 6, fy);
+        doc.setTextColor(40, 130, 90);
+        doc.text('+ ' + _fmtMoeda(c.valor), pW - mR - 4, fy, { align: 'right' });
+        fy += 4.2;
+      });
+      fy += 1.5;
+    }
     if (fin.adiantamentosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
@@ -648,6 +691,18 @@ var HR_RELATORIO_PONTO = (function () {
         doc.text(txt, lx2, y);
         lx2 += doc.getTextWidth(txt) + 8;
       });
+      y += 5;
+    }
+
+    // Créditos em aberto ainda sem decêndio de destino — visibilidade geral
+    if (fin.outrosCreditos.length > 0) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6.8);
+      doc.setTextColor(40, 130, 90);
+      var txtOC = 'Créditos em aberto (sem destino escolhido): ' + fin.outrosCreditos.map(function (c) {
+        return _fmtData(c.data) + ' ' + _fmtMoeda(c.valor) + (c.obs ? ' (' + c.obs + ')' : '');
+      }).join(' · ');
+      doc.text(txtOC, mL, y, { maxWidth: cW });
       y += 5;
     }
 
@@ -933,6 +988,15 @@ var HR_RELATORIO_PONTO = (function () {
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
     }
 
+    if (fin.creditosAlvo.length > 0) {
+      linhasResumo += '<div style="font-size:11px;color:#2a8a5a;font-style:italic;padding:6px 0 2px;">Créditos de decêndio(s) anterior(es):</div>';
+      fin.creditosAlvo.forEach(function(c){
+        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 2px 10px;font-size:11.5px;">'+
+          '<span style="color:#666;">• '+fmtData(c.data)+(c.obs?' — '+_esc(c.obs):'')+'</span>'+
+          '<span style="color:#2a8a5a;font-weight:700;">+ '+fmtMoeda(c.valor)+'</span></div>';
+      });
+    }
+
     if (fin.adiantamentosAlvo.length > 0) {
       linhasResumo += '<div style="font-size:11px;color:#a67a2a;font-style:italic;padding:6px 0 2px;">Adiantamentos a descontar:</div>';
       fin.adiantamentosAlvo.forEach(function(a){
@@ -955,6 +1019,16 @@ var HR_RELATORIO_PONTO = (function () {
           return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º dec. pago ('+fmtMoeda(od.valor)+')</span>'
                               : '<span style="color:#a67a2a;">⏳ '+od.num+'º dec. pendente ('+fmtMoeda(od.valor)+')</span>');
         }).join('')+
+      '</div>';
+    }
+
+    var outrosCreditosHtml = '';
+    if (fin.outrosCreditos.length > 0) {
+      outrosCreditosHtml = '<div style="margin-top:4px;font-size:9.5px;color:#2a8a5a;font-style:italic;">'+
+        'Créditos em aberto (sem destino escolhido): '+
+        fin.outrosCreditos.map(function(c){
+          return fmtData(c.data)+' '+fmtMoeda(c.valor)+(c.obs?' ('+_esc(c.obs)+')':'');
+        }).join(' · ')+
       '</div>';
     }
 
@@ -991,6 +1065,7 @@ var HR_RELATORIO_PONTO = (function () {
           '<span style="color:#fff;font-size:16px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
         '</div>'+
         outrosDecendiosHtml+
+        outrosCreditosHtml+
         outrosAdiantamentosHtml+
       '</div>'+
 
