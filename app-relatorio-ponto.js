@@ -596,8 +596,21 @@ var HR_RELATORIO_PONTO = (function () {
     y += 5;
 
     // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
+    // Créditos ganham um mini-card por registro (origem + obs explicada +
+    // nota "a favor do funcionário"), então a altura precisa ser calculada
+    // a partir do texto real (obs pode quebrar em mais de uma linha).
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    var creditosWrap = fin.creditosAlvo.map(function (c) {
+      var obsLinhas = c.obs ? doc.splitTextToSize(c.obs, cW - 16) : [];
+      return { c: c, obsLinhas: obsLinhas };
+    });
+    var creditosBoxH = creditosWrap.reduce(function (s, cw) {
+      return s + 4.2 + cw.obsLinhas.length * 3.4 + 4.5;
+    }, 0);
+
     var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
-               (fin.creditosAlvo.length > 0 ? 6 + fin.creditosAlvo.length * 5 : 0) +
+               (fin.creditosAlvo.length > 0 ? 6 + creditosBoxH + 1.5 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
                (fin.totalPago > 0 ? 6 : 0) + 12;
 
@@ -633,14 +646,30 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setTextColor(40, 130, 90);
       doc.text('Créditos de decêndio(s) anterior(es):', mL + 5, fy);
       fy += 4.2;
-      fin.creditosAlvo.forEach(function (c) {
-        doc.setFont('helvetica', 'normal');
+      creditosWrap.forEach(function (cw) {
+        var c = cw.c;
+        var origemLbl = (c.decNumOrigem ? c.decNumOrigem + 'º decêndio' : 'Decêndio anterior') +
+          (c.mesRefOrigem ? ' de ' + _mesExtenso(c.mesRefOrigem + '-01', c.mesRefOrigem + '-01') : '');
+        doc.setFont('helvetica', 'bold');
         doc.setFontSize(7);
-        doc.setTextColor(90, 90, 90);
-        doc.text('  • ' + _fmtData(c.data) + (c.obs ? ' — ' + c.obs : ''), mL + 6, fy);
         doc.setTextColor(40, 130, 90);
+        doc.text('  • ' + origemLbl + ' — ' + _fmtData(c.data), mL + 6, fy);
         doc.text('+ ' + _fmtMoeda(c.valor), pW - mR - 4, fy, { align: 'right' });
-        fy += 4.2;
+        fy += 4;
+        if (cw.obsLinhas.length > 0) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(90, 90, 90);
+          cw.obsLinhas.forEach(function (linha) {
+            doc.text(linha, mL + 8, fy);
+            fy += 3.4;
+          });
+        }
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(6.3);
+        doc.setTextColor(90, 160, 110);
+        doc.text('Diferença a favor do funcionário — não é desconto arbitrário. Aplicada neste decêndio.', mL + 8, fy);
+        fy += 4.5;
       });
       fy += 1.5;
     }
@@ -991,9 +1020,20 @@ var HR_RELATORIO_PONTO = (function () {
     if (fin.creditosAlvo.length > 0) {
       linhasResumo += '<div style="font-size:11px;color:#2a8a5a;font-style:italic;padding:6px 0 2px;">Créditos de decêndio(s) anterior(es):</div>';
       fin.creditosAlvo.forEach(function(c){
-        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 2px 10px;font-size:11.5px;">'+
-          '<span style="color:#666;">• '+fmtData(c.data)+(c.obs?' — '+_esc(c.obs):'')+'</span>'+
-          '<span style="color:#2a8a5a;font-weight:700;">+ '+fmtMoeda(c.valor)+'</span></div>';
+        var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º decêndio' : 'Decêndio anterior') +
+          (c.mesRefOrigem ? ' de '+_mesExtenso(c.mesRefOrigem+'-01', c.mesRefOrigem+'-01') : '');
+        // c.obs já vem pronto da geração automática: "pago X, devido Y (fixo A + HE B)"
+        linhasResumo +=
+          '<div style="margin:4px 0 4px 6px;padding:8px 10px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+              '<span style="font-size:11.5px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+' — '+fmtData(c.data)+'</span>'+
+              '<span style="color:#2a8a5a;font-weight:800;font-size:12.5px;">+ '+fmtMoeda(c.valor)+'</span>'+
+            '</div>'+
+            (c.obs ? '<div style="font-size:10px;color:#4a4a4a;margin-top:3px;line-height:1.4;">'+_esc(c.obs)+'</div>' : '')+
+            '<div style="font-size:9.5px;color:#5a9a6e;font-style:italic;margin-top:3px;">'+
+              'Diferença a favor do funcionário — não é desconto arbitrário. Aplicada neste decêndio.'+
+            '</div>'+
+          '</div>';
       });
     }
 
