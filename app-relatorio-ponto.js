@@ -712,7 +712,7 @@ var HR_RELATORIO_PONTO = (function () {
     // Faixinha de contexto: status dos outros 2 decêndios do mês
     if (fin.outrosDecendios.length > 0) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
+      doc.setFontSize(7.8);
       var lx2 = mL;
       fin.outrosDecendios.forEach(function (od) {
         var txt = od.num + 'º dec.: ' + (od.quitado ? '✅ pago' : '⏳ pendente') + ' (' + _fmtMoeda(od.valor) + ')';
@@ -725,26 +725,42 @@ var HR_RELATORIO_PONTO = (function () {
 
     // Créditos em aberto ainda sem decêndio de destino — visibilidade geral
     if (fin.outrosCreditos.length > 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(6.8);
-      doc.setTextColor(40, 130, 90);
-      var txtOC = 'Créditos em aberto (sem destino escolhido): ' + fin.outrosCreditos.map(function (c) {
-        return _fmtData(c.data) + ' ' + _fmtMoeda(c.valor) + (c.obs ? ' (' + c.obs + ')' : '');
-      }).join(' · ');
-      doc.text(txtOC, mL, y, { maxWidth: cW });
-      y += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(40, 106, 62);
+      doc.text('Créditos em aberto (sem destino escolhido)', mL, y);
+      y += 4.2;
+      fin.outrosCreditos.forEach(function (c) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.8);
+        doc.setTextColor(50, 50, 50);
+        doc.text('• ' + _fmtData(c.data) + ' — ' + _fmtMoeda(c.valor), mL + 2, y);
+        y += 3.8;
+        if (c.obs) {
+          doc.setFontSize(7);
+          doc.setTextColor(110, 110, 110);
+          var obsLinhas = doc.splitTextToSize(c.obs, cW - 10);
+          obsLinhas.forEach(function (linha) { doc.text(linha, mL + 6, y); y += 3.4; });
+        }
+      });
+      y += 1.5;
     }
 
     // Adiantamentos em aberto para OUTROS decêndios — visibilidade geral
     if (fin.outrosAdiantamentos.length > 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(6.8);
-      doc.setTextColor(140, 140, 140);
-      var txtOA = 'Outros adiantamentos em aberto: ' + fin.outrosAdiantamentos.map(function (a) {
-        return _fmtData(a.data) + ' ' + _fmtMoeda(a.valor) + ' (p/ ' + a.descontarDecendio + 'º dec.)';
-      }).join(' · ');
-      doc.text(txtOA, mL, y, { maxWidth: cW });
-      y += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.8);
+      doc.setTextColor(130, 130, 130);
+      doc.text('Outros adiantamentos em aberto', mL, y);
+      y += 4.2;
+      fin.outrosAdiantamentos.forEach(function (a) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.8);
+        doc.setTextColor(90, 90, 90);
+        doc.text('• ' + _fmtData(a.data) + ' — ' + _fmtMoeda(a.valor) + ' (p/ ' + a.descontarDecendio + 'º dec.)', mL + 2, y);
+        y += 3.8;
+      });
+      y += 1.5;
     }
 
     y += 2;
@@ -1054,7 +1070,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosDecendiosHtml = '';
     if (fin.outrosDecendios.length > 0) {
-      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:8px;font-size:10px;color:#777;">'+
+      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:#777;">'+
         fin.outrosDecendios.map(function(od){
           return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º dec. pago ('+fmtMoeda(od.valor)+')</span>'
                               : '<span style="color:#a67a2a;">⏳ '+od.num+'º dec. pendente ('+fmtMoeda(od.valor)+')</span>');
@@ -1064,21 +1080,26 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosCreditosHtml = '';
     if (fin.outrosCreditos.length > 0) {
-      outrosCreditosHtml = '<div style="margin-top:4px;font-size:9.5px;color:#2a8a5a;font-style:italic;">'+
-        'Créditos em aberto (sem destino escolhido): '+
+      outrosCreditosHtml = '<div style="margin-top:6px;padding:8px 10px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
+        '<div style="font-size:11px;color:#2a6a3e;font-weight:700;margin-bottom:4px;">Créditos em aberto (sem destino escolhido)</div>'+
         fin.outrosCreditos.map(function(c){
-          return fmtData(c.data)+' '+fmtMoeda(c.valor)+(c.obs?' ('+_esc(c.obs)+')':'');
-        }).join(' · ')+
+          return '<div style="font-size:11px;color:#333;line-height:1.5;margin-bottom:2px;">'+
+            '• '+fmtData(c.data)+' — <b style="color:#2a8a5a;">'+fmtMoeda(c.valor)+'</b>'+
+            (c.obs?'<div style="font-size:10px;color:#666;margin:1px 0 3px 10px;">'+_esc(c.obs)+'</div>':'')+
+          '</div>';
+        }).join('')+
       '</div>';
     }
 
     var outrosAdiantamentosHtml = '';
     if (fin.outrosAdiantamentos.length > 0) {
-      outrosAdiantamentosHtml = '<div style="margin-top:4px;font-size:9.5px;color:#999;font-style:italic;">'+
-        'Outros adiantamentos em aberto: '+
+      outrosAdiantamentosHtml = '<div style="margin-top:6px;padding:8px 10px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
+        '<div style="font-size:11px;color:#777;font-weight:700;margin-bottom:4px;">Outros adiantamentos em aberto</div>'+
         fin.outrosAdiantamentos.map(function(a){
-          return fmtData(a.data)+' '+fmtMoeda(a.valor)+' (p/ '+a.descontarDecendio+'º dec.)';
-        }).join(' · ')+
+          return '<div style="font-size:11px;color:#555;line-height:1.5;margin-bottom:2px;">'+
+            '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º dec.)</span>'+
+          '</div>';
+        }).join('')+
       '</div>';
     }
 
