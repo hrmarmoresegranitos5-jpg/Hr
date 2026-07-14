@@ -259,11 +259,19 @@ var HR_FUNC = (function () {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // Item 4 — BANCO DE HORAS (separado do financeiro HE paga)
+  // Item 4 — BANCO DE HORAS (legado de exibição)
   //
-  // Regras:
-  //  destinoExtra === 'banco'  → entra no saldo de banco, NÃO no financeiro
-  //  destinoExtra === 'pagar'  → entra no financeiro, NÃO no banco
+  // Regra atual (alterada a pedido):
+  //  destinoExtra === 'banco' OU 'pagar' → AMBOS entram no financeiro (valorExtra
+  //  do decêndio). O rótulo 'banco' continua existindo só para exibição/telas
+  //  já feitas, mas não representa mais "acumular sem pagar" — a HE vira
+  //  dinheiro automaticamente no próximo decêndio, igual a 'pagar'.
+  //
+  // calcSaldoBancoHoras continua calculando acumuladoMin/utilizadoMin para
+  // dar visibilidade de folgas já concedidas via banco (registros tipo=
+  // 'folga_banco'), mas ATENÇÃO: como a HE marcada 'banco' agora também é
+  // paga em dinheiro, conceder folga_banco usando esse saldo representa
+  // pagamento em dobro (dinheiro + folga). Ver aviso no final da resposta.
   //
   // calcSaldoBancoHoras retorna:
   //  acumuladoMin   — total de minutos creditados no banco (destinoExtra='banco')
@@ -386,8 +394,10 @@ var HR_FUNC = (function () {
       // não estiver carregado, ex: testes isolados)
       var mult          = _getMultNormal();
       var valorHoraFb   = salario / 220;
+      // Alteração: 'banco' deixou de ser excluído do financeiro — toda HE
+      // (destinoExtra 'banco' ou 'pagar') agora entra no valor a pagar do decêndio.
       var totalExtraFb  = meusRegs.reduce(function(s, r){
-        return s + (r.destinoExtra === 'banco' ? 0 : (parseFloat(r.extra) || 0));
+        return s + (parseFloat(r.extra) || 0);
       }, 0);
       heResult = {
         valorHoraBase:    valorHoraFb,
@@ -726,9 +736,9 @@ var HR_FUNC = (function () {
     // Stats do mês atual
     var regsDoMes=allRegs.filter(function(r){return r.data&&r.data.startsWith(mesAtual);});
     var totHorasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // totExtrasMes: apenas extras a PAGAR (alinhado com cálculo financeiro)
-    var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
-    // totBancoMes: extras que foram para o banco de horas (separado, para exibição)
+    // totExtrasMes: TODAS as extras (banco não é mais excluído — vira dinheiro automaticamente)
+    var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
+    // totBancoMes: apenas informativo/legado — extras que ficaram marcadas 'banco' (já incluídas em totExtrasMes)
     var totBancoMes=regsDoMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var totalFolha=ativos.reduce(function(s,f){return s+(parseFloat(f.salario)||0);},0);
 
@@ -1264,12 +1274,12 @@ var HR_FUNC = (function () {
     var regsMes=meusRegs.filter(function(r){return r.data.startsWith(mesAtual);});
 
     var totalHoras=meusRegs.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // totalExtra: apenas extras a pagar (alinhado com calcSaldoFuncionario → calcSaldoHE)
-    var totalExtra=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
+    // totalExtra: TODAS as extras (banco não é mais excluído — vira dinheiro automaticamente)
+    var totalExtra=meusRegs.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
     var totalExtraBanco=meusRegs.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     var horasMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.horas)||0);},0);
-    // extraMes: apenas extras a pagar este mês (alinhado com financeiro)
-    var extraMes=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?0:(parseFloat(r.extra)||0));},0);
+    // extraMes: TODAS as extras deste mês (alinhado com financeiro)
+    var extraMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     // Saldo do decêndio atual (1–10, 11–20, 21–fim)
     var _dpModal = _periodoDecendioAtual();
@@ -3120,6 +3130,47 @@ var HR_FUNC = (function () {
     return criarCredito(funcId, valorCredito, dataPagamento, obsAuto, decPago, mesPago);
   }
 
+  // Recalcula (cria/atualiza) ou invalida o crédito de overpago gerado a
+  // partir do decêndio/mês de origem de `dataPagamento`. Chamada sempre que
+  // um pagamento tipo=decêndio é editado ou excluído — sem isso, o crédito
+  // fica com valor/obs congelados do pagamento original (ex: "pago R$800",
+  // mesmo depois de corrigido pra R$400), ou pior, continua existindo mesmo
+  // depois que a correção fez o overpago deixar de existir ("crédito
+  // fantasma" — ver auditoria jul/2026, caso Gibson).
+  // Só APAGA créditos ainda não aplicados (aplicado===false). Um crédito
+  // já aplicado a um pagamento futuro não é mexido aqui: ele já entrou de
+  // fato no cálculo de outro decêndio, e apagá-lo retroativamente sem
+  // reconciliar aquele outro pagamento poderia fazer a empresa pagar a
+  // menos pro funcionário. Nesse caso só avisa no console pra checagem manual.
+  function _reconciliarCreditoOrigem(funcId, dataPagamento) {
+    if (!funcId || !dataPagamento) return;
+    var dia    = parseInt(dataPagamento.slice(8, 10), 10);
+    var decNum = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+    var mesRef = dataPagamento.slice(0, 7);
+
+    var per       = _periodoDecendio(decNum, mesRef);
+    var s         = calcSaldoFuncionario(funcId, per.di, per.df);
+    var existente = _creditoAbertoPorOrigem(funcId, decNum, mesRef);
+
+    if (s.temCredito) {
+      // Overpago ainda existe (ou passou a existir) — cria/atualiza normalmente.
+      _detectarECriarCreditoOverpago(funcId, decNum, mesRef, dataPagamento);
+      return;
+    }
+    if (!existente) return; // nunca houve crédito aqui, nada a fazer
+
+    if (!existente.aplicado) {
+      var creditos = getCreditos();
+      delete creditos[existente.id];
+      saveCreditos(creditos);
+      _toast('💳 Crédito de overpago do ' + per.label + ' removido — o valor corrigido não gera mais overpago.');
+    } else {
+      console.warn('[HR_FUNC] Crédito ' + existente.id + ' (funcionário ' + funcId + ', ' +
+        per.label + ' ' + mesRef + ') já havia sido aplicado a um pagamento futuro, mas o ' +
+        'overpago de origem deixou de existir após esta edição/exclusão. Verifique manualmente.');
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────
   // MIGRAÇÃO RETROATIVA — roda uma única vez (botão "🔧 Verificar créditos
   // retroativos" no modal de pagamento). Necessária porque a detecção
@@ -3320,8 +3371,11 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // EDITAR / EXCLUIR um pagamento já lançado — corrige valor, data,
   // forma ou observação digitados errado (ex: lançou R$ 800 mas o
-  // pago de fato foi R$ 700). Não afeta os cálculos de acréscimos/
-  // descontos já quitados por esse pagamento; só corrige os campos.
+  // pago de fato foi R$ 700). Não desfaz descontos/quitações de
+  // adiantamento já aplicados por esse pagamento (isso continua manual);
+  // mas SE o pagamento era tipo=decêndio, o crédito de overpago gerado a
+  // partir dele é recalculado ou removido automaticamente via
+  // _reconciliarCreditoOrigem, pra nunca ficar com valor/obs desatualizado.
   // ─────────────────────────────────────────────────────────────
   function abrirEditarPagamento(pagId){
     var pags = getPagamentos();
@@ -3380,6 +3434,10 @@ var HR_FUNC = (function () {
     if (!data)                { _toast('Informe a data');   return; }
     if (!valor || valor <= 0) { _toast('Valor inválido');   return; }
 
+    var funcId     = p.funcionarioId;
+    var dataAntiga = p.data;
+    var tipoAntigo = p.tipo;
+
     p.data  = data;
     p.valor = valor;
     p.tipo  = tipo;
@@ -3387,6 +3445,13 @@ var HR_FUNC = (function () {
     p.obs   = obs;
     p.editadoEm = new Date().toISOString();
     savePagamentos(pags);
+
+    // Se este pagamento gerava (ou passou a gerar) um crédito de overpago,
+    // recalcula/invalida esse crédito com os dados corrigidos — reconcilia
+    // o período de origem antigo (caso a data tenha mudado de decêndio) e
+    // o novo, pra nunca sobrar um crédito com valor/obs desatualizados.
+    if (tipoAntigo === 'decendio') _reconciliarCreditoOrigem(funcId, dataAntiga);
+    if (tipo === 'decendio')       _reconciliarCreditoOrigem(funcId, data);
 
     _toast('✏️ Pagamento corrigido: ' + _fmtMoeda(valor));
     _closeEditarPag();
@@ -3400,8 +3465,15 @@ var HR_FUNC = (function () {
     if (!p) { _toast('Pagamento não encontrado.'); return; }
     if (!confirm('Excluir este pagamento de ' + _fmtMoeda(p.valor) + '? Essa ação não pode ser desfeita.')) return;
     var funcId = p.funcionarioId;
+    var tipo   = p.tipo;
+    var data   = p.data;
     delete pags[pagId];
     savePagamentos(pags);
+
+    // Se o pagamento excluído era um decêndio, o overpago que ele tinha
+    // gerado (se houver) não existe mais — remove o crédito fantasma.
+    if (tipo === 'decendio') _reconciliarCreditoOrigem(funcId, data);
+
     _toast('🗑 Pagamento excluído.');
     _closeEditarPag();
     if (document.getElementById('hrExtrato')) abrirExtratoPagamentos(funcId);
