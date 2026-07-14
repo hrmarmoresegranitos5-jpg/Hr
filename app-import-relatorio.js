@@ -1238,15 +1238,21 @@ var HR_IMPORT = (function () {
         // Almoço: calculado apenas se houver 4+ batidas
         // batidas[1] = saída para almoço, batidas[2] = retorno do almoço
         var almocoMin = 0;
+        var almEntradaStr = null, almSaidaStr = null;
         if (batidas.length >= 4) {
           var smMin = _hhmm2min(batidas[1]);
           var etMin = _hhmm2min(batidas[2]);
-          if (!isNaN(smMin) && !isNaN(etMin) && etMin > smMin) almocoMin = etMin - smMin;
+          if (!isNaN(smMin) && !isNaN(etMin) && etMin > smMin) {
+            almocoMin     = etMin - smMin;
+            almEntradaStr = batidas[1]; // saída para almoço
+            almSaidaStr   = batidas[2]; // retorno do almoço
+          }
         }
 
         registros.push({
           nome: nome, data: dataISO,
           entrada: entrada, saida: saida,
+          almEntrada: almEntradaStr, almSaida: almSaidaStr,
           almocoManual: almocoMin > 0 ? almocoMin : null
         });
       }
