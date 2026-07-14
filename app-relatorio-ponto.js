@@ -319,12 +319,13 @@ var HR_RELATORIO_PONTO = (function () {
     bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid '+GOLDB+';flex-shrink:0;flex-wrap:wrap;';
     bar.innerHTML =
       '<span style="flex:1;font-size:.73rem;color:'+GOLD+';font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📋 '+nomeFunc+' · '+mesRef+'</span>'+
+      '<button id="hrPontoZoom" disabled style="background:transparent;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">🔍</button>'+
       '<button id="hrPontoClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'+
       '<button id="hrPontoDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ PDF...</button>'+
       (temShare ? '<button id="hrPontoWpp" disabled style="background:#0d1f12;border:1px solid rgba(37,211,102,.25);color:rgba(37,211,102,.4);padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">💬 WhatsApp</button>' : '');
 
     var preview = document.createElement('div');
-    preview.style.cssText = 'flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+    preview.style.cssText = 'flex:1;overflow:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;-webkit-overflow-scrolling:touch;';
     preview.innerHTML = '<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando visualização, aguarde...</div>';
 
     ov.appendChild(bar);
@@ -386,9 +387,36 @@ var HR_RELATORIO_PONTO = (function () {
         wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:794px;';
         var img = document.createElement('img');
         img.src = canvas.toDataURL('image/jpeg', 0.90);
-        img.style.cssText = 'width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
+        img.style.cssText = 'width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);transition:width .15s ease;';
         wrap.appendChild(img);
         preview.appendChild(wrap);
+
+        // Zoom: tap na imagem ou botão 🔍 alterna entre ajustar-à-tela e tamanho ampliado (rolagem)
+        var zoomed = false;
+        function _setZoom(on){
+          zoomed = on;
+          if (zoomed) {
+            wrap.style.maxWidth = 'none';
+            img.style.width = '210%';
+            preview.style.justifyContent = 'flex-start';
+            preview.style.alignItems = 'flex-start';
+          } else {
+            wrap.style.maxWidth = '794px';
+            img.style.width = '100%';
+            preview.style.justifyContent = 'center';
+            preview.style.alignItems = 'flex-start';
+          }
+          var btnZoom = document.getElementById('hrPontoZoom');
+          if (btnZoom) btnZoom.style.color = zoomed ? GOLD : 'rgba(201,168,76,.7)';
+        }
+        img.onclick = function(){ _setZoom(!zoomed); };
+        var btnZoomEl = document.getElementById('hrPontoZoom');
+        if (btnZoomEl) {
+          btnZoomEl.disabled = false;
+          btnZoomEl.style.color = 'rgba(201,168,76,.7)';
+          btnZoomEl.style.borderColor = GOLDB;
+          btnZoomEl.onclick = function(){ _setZoom(!zoomed); };
+        }
 
         // Gera PDF em background
         pdfBlobRef = pdfBlobFn();
@@ -1023,30 +1051,30 @@ var HR_RELATORIO_PONTO = (function () {
     var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
 
     var linhasResumo = '';
-    linhasResumo += '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;">'+
+    linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;">'+
       '<span style="color:#444;">Salário fixo do decêndio</span>'+
       '<span style="font-weight:700;color:#222;">'+fmtMoeda(fin.decValor)+'</span></div>';
 
     if (totalValorExtra > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;">'+
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;">'+
         '<span style="color:#2a8a46;">+ Horas extras deste período</span>'+
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
     }
 
     if (fin.creditosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:11px;color:#2a8a5a;font-style:italic;padding:6px 0 2px;">Créditos de decêndio(s) anterior(es):</div>';
+      linhasResumo += '<div style="font-size:14px;color:#2a8a5a;font-style:italic;padding:7px 0 3px;">Créditos de decêndio(s) anterior(es):</div>';
       fin.creditosAlvo.forEach(function(c){
         var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º decêndio' : 'Decêndio anterior') +
           (c.mesRefOrigem ? ' de '+_mesExtenso(c.mesRefOrigem+'-01', c.mesRefOrigem+'-01') : '');
         // c.obs já vem pronto da geração automática: "pago X, devido Y (fixo A + HE B)"
         linhasResumo +=
-          '<div style="margin:4px 0 4px 6px;padding:8px 10px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
+          '<div style="margin:5px 0 5px 6px;padding:9px 11px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
             '<div style="display:flex;justify-content:space-between;align-items:center;">'+
-              '<span style="font-size:11.5px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+' — '+fmtData(c.data)+'</span>'+
-              '<span style="color:#2a8a5a;font-weight:800;font-size:12.5px;">+ '+fmtMoeda(c.valor)+'</span>'+
+              '<span style="font-size:15px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+' — '+fmtData(c.data)+'</span>'+
+              '<span style="color:#2a8a5a;font-weight:800;font-size:16px;">+ '+fmtMoeda(c.valor)+'</span>'+
             '</div>'+
-            (c.obs ? '<div style="font-size:10px;color:#4a4a4a;margin-top:3px;line-height:1.4;">'+_esc(c.obs)+'</div>' : '')+
-            '<div style="font-size:9.5px;color:#5a9a6e;font-style:italic;margin-top:3px;">'+
+            (c.obs ? '<div style="font-size:13px;color:#4a4a4a;margin-top:4px;line-height:1.4;">'+_esc(c.obs)+'</div>' : '')+
+            '<div style="font-size:12px;color:#5a9a6e;font-style:italic;margin-top:4px;">'+
               'Diferença a favor do funcionário — não é desconto arbitrário. Aplicada neste decêndio.'+
             '</div>'+
           '</div>';
@@ -1054,23 +1082,23 @@ var HR_RELATORIO_PONTO = (function () {
     }
 
     if (fin.adiantamentosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:11px;color:#a67a2a;font-style:italic;padding:6px 0 2px;">Adiantamentos a descontar:</div>';
+      linhasResumo += '<div style="font-size:14px;color:#a67a2a;font-style:italic;padding:7px 0 3px;">Adiantamentos a descontar:</div>';
       fin.adiantamentosAlvo.forEach(function(a){
-        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 2px 10px;font-size:11.5px;">'+
+        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:3px 0 3px 10px;font-size:15px;">'+
           '<span style="color:#666;">• '+fmtData(a.data)+(a.obs?' — '+_esc(a.obs):'')+'</span>'+
           '<span style="color:#c07a2a;font-weight:700;">− '+fmtMoeda(a.valor)+'</span></div>';
       });
     }
 
     if (fin.totalPago > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-top:1px dashed #ddd;margin-top:4px;">'+
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:16px;border-top:1px dashed #ddd;margin-top:5px;">'+
         '<span style="color:#b43c3c;">Já pago neste período</span>'+
         '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalPago)+'</span></div>';
     }
 
     var outrosDecendiosHtml = '';
     if (fin.outrosDecendios.length > 0) {
-      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:#777;">'+
+      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:9px;font-size:14px;color:#777;">'+
         fin.outrosDecendios.map(function(od){
           return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º dec. pago ('+fmtMoeda(od.valor)+')</span>'
                               : '<span style="color:#a67a2a;">⏳ '+od.num+'º dec. pendente ('+fmtMoeda(od.valor)+')</span>');
@@ -1080,12 +1108,12 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosCreditosHtml = '';
     if (fin.outrosCreditos.length > 0) {
-      outrosCreditosHtml = '<div style="margin-top:6px;padding:8px 10px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
-        '<div style="font-size:11px;color:#2a6a3e;font-weight:700;margin-bottom:4px;">Créditos em aberto (sem destino escolhido)</div>'+
+      outrosCreditosHtml = '<div style="margin-top:7px;padding:9px 11px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
+        '<div style="font-size:14px;color:#2a6a3e;font-weight:700;margin-bottom:5px;">Créditos em aberto (sem destino escolhido)</div>'+
         fin.outrosCreditos.map(function(c){
-          return '<div style="font-size:11px;color:#333;line-height:1.5;margin-bottom:2px;">'+
+          return '<div style="font-size:14px;color:#333;line-height:1.5;margin-bottom:3px;">'+
             '• '+fmtData(c.data)+' — <b style="color:#2a8a5a;">'+fmtMoeda(c.valor)+'</b>'+
-            (c.obs?'<div style="font-size:10px;color:#666;margin:1px 0 3px 10px;">'+_esc(c.obs)+'</div>':'')+
+            (c.obs?'<div style="font-size:13px;color:#666;margin:2px 0 4px 10px;">'+_esc(c.obs)+'</div>':'')+
           '</div>';
         }).join('')+
       '</div>';
@@ -1093,10 +1121,10 @@ var HR_RELATORIO_PONTO = (function () {
 
     var outrosAdiantamentosHtml = '';
     if (fin.outrosAdiantamentos.length > 0) {
-      outrosAdiantamentosHtml = '<div style="margin-top:6px;padding:8px 10px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
-        '<div style="font-size:11px;color:#777;font-weight:700;margin-bottom:4px;">Outros adiantamentos em aberto</div>'+
+      outrosAdiantamentosHtml = '<div style="margin-top:7px;padding:9px 11px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
+        '<div style="font-size:14px;color:#777;font-weight:700;margin-bottom:5px;">Outros adiantamentos em aberto</div>'+
         fin.outrosAdiantamentos.map(function(a){
-          return '<div style="font-size:11px;color:#555;line-height:1.5;margin-bottom:2px;">'+
+          return '<div style="font-size:14px;color:#555;line-height:1.5;margin-bottom:3px;">'+
             '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º dec.)</span>'+
           '</div>';
         }).join('')+
@@ -1112,18 +1140,18 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="font-size:10px;opacity:.8;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º decêndio ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
       '</div>'+
 
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:2px solid #1a3660;font-size:11px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px;border-bottom:2px solid #1a3660;font-size:13px;">'+
         '<div>Departamento: '+_esc(depto)+'</div>'+
         '<div><b>Salário mensal: '+fmtMoeda(salario)+'</b></div>'+
       '</div>'+
 
       // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
       '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:12px 16px;margin-top:12px;">'+
-        '<div style="font-size:12.5px;font-weight:700;color:#1a3660;margin-bottom:6px;">💰 Resumo do '+fin.decNum+'º Decêndio</div>'+
+        '<div style="font-size:16px;font-weight:700;color:#1a3660;margin-bottom:7px;">💰 Resumo do '+fin.decNum+'º Decêndio</div>'+
         linhasResumo+
-        '<div style="background:'+faixaCor+';border-radius:6px;padding:9px 14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span style="color:#fff;font-size:12px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
-          '<span style="color:#fff;font-size:16px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
+        '<div style="background:'+faixaCor+';border-radius:6px;padding:10px 14px;margin-top:9px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span style="color:#fff;font-size:15px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
+          '<span style="color:#fff;font-size:20px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
         '</div>'+
         outrosDecendiosHtml+
         outrosCreditosHtml+
