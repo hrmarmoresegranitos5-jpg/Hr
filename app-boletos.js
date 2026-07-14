@@ -45,6 +45,15 @@ var B_FPAG = {
 function bAutoStatus() {
   var hoje = td();
   var changed = false;
+
+  // Migração: remove registros órfãos do antigo sistema "Contas a Pagar"
+  // (objetos sem os campos tipo/status do módulo de Boletos)
+  if (DB.b && DB.b.length) {
+    var antesLen = DB.b.length;
+    DB.b = DB.b.filter(function(b){ return !!b.tipo; });
+    if (DB.b.length !== antesLen) changed = true;
+  }
+
   (DB.b || []).forEach(function(b) {
     if (b.status === 'pendente' && b.venc && b.venc < hoje) {
       b.status = 'vencido';
@@ -124,6 +133,7 @@ function renderBoletosTab() {
   // ── BUSCA + ADD ──
   h += '<div class="b-toolbar">';
   h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
+  h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
   h += '</div>';
 
@@ -374,9 +384,9 @@ function openBoletoDetail(id) {
   if (body) {
     var vencInfo = '';
     if (diff !== null) {
-      if (diff < 0)      vencInfo = ' <span class="red">(' + Math.abs(diff) + 'd vencido)</span>';
-      else if (diff === 0) vencInfo = ' <span class="red">(vence hoje)</span>';
-      else if (diff <= 3)  vencInfo = ' <span class="yel">(' + diff + 'd restantes)</span>';
+      if (diff < 0)      vencInfo = ' <span class="b-red-txt">(' + Math.abs(diff) + 'd vencido)</span>';
+      else if (diff === 0) vencInfo = ' <span class="b-red-txt">(vence hoje)</span>';
+      else if (diff <= 3)  vencInfo = ' <span class="b-yel-txt">(' + diff + 'd restantes)</span>';
       else                 vencInfo = ' <span style="color:var(--t3);">(' + diff + 'd restantes)</span>';
     }
     body.innerHTML =
@@ -450,6 +460,189 @@ function bUpdDot() {
   }).length;
   var dot = document.getElementById('boletosDot');
   if (dot) dot.classList.toggle('on', urgentes > 0);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ESTRATÉGIA DE PAGAMENTO — IA (usa a mesma API Key de Config → Empresa)
+// Prioriza vencidos, impostos/funcionários (risco legal), sugere negociar
+// parcelamento quando o caixa projetado não cobre os pagamentos, e alerta
+// sobre recebíveis vencidos que deveriam ser cobrados primeiro.
+// ══════════════════════════════════════════════════════════════════════
+function bAbrirEstrategiaMd() {
+  showMd('estrategiaMd');
+  var box = document.getElementById('estrategiaBody');
+  if (box) box.innerHTML = '<div style="text-align:center;padding:30px 10px;color:var(--t3);font-size:.8rem;">⏳ Analisando seus boletos...</div>';
+  bGerarEstrategiaIA();
+}
+
+function bGerarEstrategiaIA() {
+  bAutoStatus();
+  var hoje = td();
+  var boletos  = DB.b || [];
+  var aPagar   = boletos.filter(function(b){return b.tipo==='pagar'  && (b.status==='pendente'||b.status==='vencido');});
+  var aReceber = boletos.filter(function(b){return b.tipo==='receber'&& (b.status==='pendente'||b.status==='vencido');});
+
+  var inT  = DB.t.filter(function(t){return t.type==='in'; }).reduce(function(s,t){return s+t.value;},0);
+  var outT = DB.t.filter(function(t){return t.type==='out';}).reduce(function(s,t){return s+t.value;},0);
+  var saldoAtual = inT - outT;
+
+  var _aiKey = (CFG.emp && CFG.emp.apiKey) || '';
+  if (!_aiKey) { bEstrategiaFallbackLocal(aPagar, aReceber, saldoAtual); return; }
+
+  var resumoDados = {
+    hoje: hoje,
+    saldoAtual: saldoAtual,
+    aPagar: aPagar.map(function(b){return {item:(b.cli||b.desc), cat:b.cat, valor:b.valor, venc:b.venc, status:b.status, parc:b.parc};}),
+    aReceber: aReceber.map(function(b){return {item:(b.cli||b.desc), valor:b.valor, venc:b.venc, status:b.status, parc:b.parc};})
+  };
+
+  var prompt =
+    'Você é um consultor financeiro para uma marmoraria (HR Mármores e Granitos).\n'
+   +'Dados atuais (JSON):\n' + JSON.stringify(resumoDados) + '\n\n'
+   +'Gere uma estratégia de pagamento. Retorne APENAS JSON válido, sem markdown:\n'
+   +'{\n'
+   +'  "resumo": "1-2 frases sobre a situação geral do caixa",\n'
+   +'  "prioridades": [\n'
+   +'     {"item":"nome do boleto/cliente","motivo":"por que pagar isso primeiro","urgencia":"alta|media|baixa"}\n'
+   +'  ],\n'
+   +'  "acoes": ["ação recomendada 1", "ação recomendada 2"],\n'
+   +'  "alerta": "algum risco importante, ou null"\n'
+   +'}\n\n'
+   +'Priorize: contas vencidas, depois impostos e funcionários (risco legal/trabalhista), depois fornecedores.\n'
+   +'Sugira negociar parcelamento quando o caixa não cobrir os pagamentos a vencer.\n'
+   +'Sugira cobrar recebíveis vencidos antes de comprometer o caixa com novos pagamentos.\n'
+   +'Retorne SÓ o JSON.';
+
+  var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
+  var _aiIsGemini    = (_aiKey.indexOf('AIza') === 0 || _aiKey.indexOf('AQ.') === 0);
+  var fetchPromise;
+
+  if (_aiIsAnthropic) {
+    fetchPromise = fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-api-key':_aiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:1200, system:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.', messages:[{role:'user',content:prompt}] })
+    }).then(function(r){return r.json();}).then(function(data){
+      if (data.error) throw new Error(data.error.message||'Erro Anthropic');
+      return (data.content && data.content[0] && data.content[0].text) || '';
+    });
+  } else if (_aiIsGemini) {
+    fetchPromise = fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + _aiKey, {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ system_instruction:{parts:[{text:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.'}]}, contents:[{role:'user',parts:[{text:prompt}]}], generationConfig:{maxOutputTokens:1200} })
+    }).then(function(r){return r.json();}).then(function(data){
+      if (data.error) throw new Error(data.error.message||'Erro Gemini');
+      return (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) || '';
+    });
+  } else {
+    fetchPromise = fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + _aiKey },
+      body: JSON.stringify({ model:'llama-3.3-70b-versatile', max_tokens:1200, messages:[
+        { role:'system', content:'Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON.' },
+        { role:'user', content: prompt }
+      ]})
+    }).then(function(r){return r.json();}).then(function(data){
+      if (data.error) throw new Error(data.error.message||'Erro Groq');
+      return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+    });
+  }
+
+  fetchPromise
+    .then(function(txt){
+      txt = txt.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+      var parsed;
+      try { parsed = JSON.parse(txt); }
+      catch(e) { bEstrategiaFallbackLocal(aPagar, aReceber, saldoAtual); return; }
+      bRenderEstrategia(parsed, true);
+    })
+    .catch(function(e){
+      bEstrategiaFallbackLocal(aPagar, aReceber, saldoAtual);
+    });
+}
+
+// Motor local (regras determinísticas) — usado sem API Key configurada ou se a IA falhar
+function bEstrategiaFallbackLocal(aPagar, aReceber, saldoAtual) {
+  var pesoCategoria = { imposto:3, funcionario:3, energia:2, agua:2, aluguel:2, fornecedor:1, ferramentas:1, material:1, servico:1, outros_pagar:1 };
+
+  var itens = aPagar.map(function(b){
+    var diff = b.venc ? dDiff(b.venc) : 0;
+    var urgencia = diff<0 ? 100+Math.abs(diff) : (diff<=3 ? 50-diff*5 : Math.max(0,20-diff));
+    var score = urgencia + (pesoCategoria[b.cat]||1)*5;
+    return { b:b, score:score, diff:diff };
+  }).sort(function(a,b){ return b.score - a.score; });
+
+  var recebiveis = aReceber.slice().sort(function(a,b){ return (a.venc||'').localeCompare(b.venc||''); });
+  var caixaSim = saldoAtual, recIdx = 0;
+
+  var prioridades = [];
+  itens.forEach(function(it){
+    while (recIdx < recebiveis.length && (recebiveis[recIdx].venc||'') <= (it.b.venc||'9999-99-99')) {
+      caixaSim += recebiveis[recIdx].valor || 0; recIdx++;
+    }
+    var podePagar = caixaSim >= (it.b.valor||0);
+    var urgLabel = it.diff<0 ? 'alta' : (it.diff<=3 ? 'alta' : (it.score>=30 ? 'media' : 'baixa'));
+    var catInfo = B_CAT[it.b.cat] || { label: it.b.cat || 'Outros' };
+    var motivo = it.diff<0
+      ? Math.abs(it.diff) + ' dia(s) vencido — risco de juros/multa'
+      : (it.diff<=3 ? 'Vence em ' + it.diff + ' dia(s)' : 'Categoria prioritária (' + catInfo.label + ')');
+    if (!podePagar) motivo += ' — caixa projetado insuficiente, considere negociar parcelamento';
+    prioridades.push({ item: (it.b.cli||it.b.desc||'Boleto'), motivo: motivo, urgencia: urgLabel });
+    if (podePagar) caixaSim -= (it.b.valor||0);
+  });
+
+  var vencidosReceber = aReceber.filter(function(b){ return b.status==='vencido'; });
+  var acoes = [];
+  if (vencidosReceber.length) acoes.push('Cobrar ' + vencidosReceber.length + ' recebimento(s) vencido(s) antes de comprometer o caixa com novos pagamentos.');
+  var semCaixa = prioridades.filter(function(p){ return p.motivo.indexOf('parcelamento') >= 0; });
+  if (semCaixa.length) acoes.push('Negociar parcelamento ou prazo extra para ' + semCaixa.length + ' conta(s) que o caixa atual não cobre.');
+  if (!acoes.length) acoes.push('Caixa projetado é suficiente para cobrir os compromissos pendentes, seguindo a ordem sugerida.');
+
+  var alerta = null;
+  var totalVencido = aPagar.filter(function(b){ return b.status==='vencido'; }).reduce(function(s,b){ return s+(b.valor||0); }, 0);
+  if (totalVencido > 0) alerta = 'Há R$ ' + fm(totalVencido) + ' em boletos já vencidos — priorize a quitação para evitar juros e multas.';
+
+  var resumoTxt = 'Saldo atual: R$ ' + fm(saldoAtual) + '. ' + aPagar.length + ' conta(s) a pagar, ' + aReceber.length + ' a receber.';
+
+  bRenderEstrategia({ resumo: resumoTxt, prioridades: prioridades, acoes: acoes, alerta: alerta }, false);
+}
+
+function bRenderEstrategia(data, viaIA) {
+  var box = document.getElementById('estrategiaBody');
+  if (!box) return;
+  var h = '';
+  h += '<div style="font-size:.62rem;color:var(--t4);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:6px;">'
+     + (viaIA ? '🤖 Estratégia gerada por IA' : '🧮 Estratégia (motor local — configure uma API Key em Config → Empresa para usar IA)') + '</div>';
+  h += '<div style="font-size:.78rem;color:var(--t2);margin-bottom:14px;">' + escH(data.resumo||'') + '</div>';
+
+  if (data.alerta) {
+    h += '<div class="b-alerta b-alerta-red"><span class="b-alerta-icon">⚠️</span><div><div class="b-alerta-title">' + escH(data.alerta) + '</div></div></div>';
+  }
+
+  if (data.prioridades && data.prioridades.length) {
+    h += '<div style="font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;margin:14px 0 8px;">📋 Ordem de Prioridade</div>';
+    data.prioridades.forEach(function(p, i){
+      var cor = p.urgencia==='alta' ? '#f87171' : (p.urgencia==='media' ? '#f59e0b' : '#4ade80');
+      h += '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);">'
+         + '<div style="font-size:.85rem;font-weight:900;color:var(--gold);min-width:20px;">' + (i+1) + '</div>'
+         + '<div style="flex:1;min-width:0;">'
+         + '<div style="font-size:.78rem;font-weight:700;color:var(--tx);">' + escH(p.item) + '</div>'
+         + '<div style="font-size:.68rem;color:var(--t3);margin-top:2px;">' + escH(p.motivo) + '</div>'
+         + '</div>'
+         + '<div style="font-size:.6rem;font-weight:800;color:' + cor + ';text-transform:uppercase;white-space:nowrap;">' + p.urgencia + '</div>'
+         + '</div>';
+    });
+  } else {
+    h += '<div style="padding:14px 0;text-align:center;color:var(--t3);font-size:.75rem;">Nenhuma conta pendente a priorizar. 🎉</div>';
+  }
+
+  if (data.acoes && data.acoes.length) {
+    h += '<div style="font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--t4);font-weight:700;margin:14px 0 8px;">✅ Ações Recomendadas</div>';
+    data.acoes.forEach(function(a){
+      h += '<div style="font-size:.75rem;color:var(--t2);padding:4px 0;">• ' + escH(a) + '</div>';
+    });
+  }
+
+  box.innerHTML = h;
 }
 
 // ══════════════════════════════════════════════════════════════════════
