@@ -79,7 +79,7 @@ var HR_RELATORIO_PONTO = (function () {
 
   // ─── Monta linhas da tabela ──────────────────────────────────────────────────
 
-  function _montarLinhas(meusRegs, f, di, df) {
+  function _montarLinhas(meusRegs, f, di, df, funcId) {
     // Jornada esperada: configurável via f.jornadaDiariaMin ou padrão 8h/dia-útil, 4h/sáb
     var jornDia = f.jornadaDiariaMin ? parseInt(f.jornadaDiariaMin) : 480;
     var jornSab = 240; // 4h sábado — padrão marmoraria
@@ -151,16 +151,6 @@ var HR_RELATORIO_PONTO = (function () {
         var extraMin    = Math.round((parseFloat(r.extra) || 0) * 60);
         var saldoMin    = trabMin - esperadoMin;
 
-        // Feriado/meio período: se trabalhou além do esperado (reduzido) e
-        // ninguém lançou hora extra manualmente no registro, calcula a extra
-        // automaticamente a partir do excedente — não pode ficar em branco
-        // só porque o campo "extra" do ponto não foi preenchido.
-        var autoExtra = false;
-        if (tipoLinha === 'feriado' && extraMin === 0 && saldoMin > 0) {
-          extraMin  = saldoMin;
-          autoExtra = true;
-        }
-
         // Valor extra financeiro do dia
         // (usa o motor unificado HR_IMPORT.calcValorHoraReal — mesma jornada
         // real usada em calcSaldoFuncionario/app-funcionarios.js — em vez de
@@ -172,13 +162,33 @@ var HR_RELATORIO_PONTO = (function () {
           : salario / 192; // fallback se HR_IMPORT não estiver carregado
 
         var valorExtra  = 0;
-        // Detecta automaticamente o multiplicador:
-        // ×3 → sábado, domingo ou feriado  |  ×2 → dia útil normal
-        var _ehTriplado = (dow === 0 || dow === 6) || (exc && exc.tipo === 'feriado');
-        var tipoHE = _ehTriplado ? 'especial' : 'normal';
-        if (extraMin > 0 && r.destinoExtra !== 'banco') {
-          var mult = _ehTriplado ? 3.0 : 2.0;
-          valorExtra = (extraMin / 60) * mult * valorHora;
+        // Multiplicador correto vem do motor unificado HR_IMPORT._classificarHE
+        // (mesma regra usada na tela de correção de ponto): sábado só triplica
+        // se a saída for depois de 12:00 ("sábado tarde") — sábado de manhã,
+        // mesmo com exceção de acordo/feriado meio período, é dobrado (×2).
+        // Antes, este arquivo tinha sua própria regra simplificada
+        // (`dow===0 || dow===6` → sempre ×3), que triplicava indevidamente
+        // qualquer sábado, mesmo terminando de manhã.
+        var tipoHE = 'normal';
+        if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT._classificarHE === 'function') {
+          var classeHE = HR_IMPORT._classificarHE({
+            data: iso, extra: extraMin,
+            entrada: r.entrada || '', saida: r.saida || '',
+            funcId: funcId || null
+          });
+          if (extraMin > 0 && r.destinoExtra !== 'banco') {
+            valorExtra = (classeHE.extra200 / 60) * 3.0 * valorHora +
+                         (classeHE.extra100 / 60) * 3.0 * valorHora +
+                         (classeHE.extra50  / 60) * 2.0 * valorHora;
+          }
+          if (classeHE.extra200 > 0 || classeHE.extra100 > 0) tipoHE = 'especial';
+        } else {
+          // Fallback (HR_IMPORT indisponível) — mantém regra antiga só como rede de segurança
+          var _ehTriplado = (dow === 0) || (exc && exc.tipo === 'feriado');
+          tipoHE = _ehTriplado ? 'especial' : 'normal';
+          if (extraMin > 0 && r.destinoExtra !== 'banco') {
+            valorExtra = (extraMin / 60) * (_ehTriplado ? 3.0 : 2.0) * valorHora;
+          }
         }
 
         // Observação do dia (prioriza exceção, depois dados do registro)
@@ -189,7 +199,6 @@ var HR_RELATORIO_PONTO = (function () {
           else if (r.autoCompletado)        obs = 'incompleto';
           else if (r.tipo === 'folga_banco') obs = 'folga banco';
         }
-        if (autoExtra) obs += ' (extra calculada automaticamente)';
 
         linhas.push({
           data:       iso,
@@ -207,7 +216,6 @@ var HR_RELATORIO_PONTO = (function () {
           obs:        obs,
           tipo:       tipoLinha,
           autoComp:   !!r.autoCompletado,
-          autoExtra:  autoExtra,
           destinoBanco: r.destinoExtra === 'banco',
           excDescricao: exc ? (exc.descricao || '') : '',
         });
@@ -493,7 +501,7 @@ var HR_RELATORIO_PONTO = (function () {
       return p.funcionarioId != null && p.funcionarioId == funcId && p.data >= di && p.data <= df;
     });
 
-    var linhas = _montarLinhas(meusRegs, f, di, df);
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
 
     var totalTrabMin  = 0, totalEsperadoMin = 0, totalSaldoMin = 0;
     var totalExtraMin50 = 0, totalExtraMin200 = 0;
@@ -565,7 +573,7 @@ var HR_RELATORIO_PONTO = (function () {
     // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
     var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
-               (fin.totalPago > 0 ? 6 : 0) + 12 + 6.5;
+               (fin.totalPago > 0 ? 6 : 0) + 12;
 
     var corStatus = fin.status === 'pago' ? COR_VERDE : COR_GOLD;
     doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
@@ -626,15 +634,6 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text(fin.status === 'pago' ? '✅ QUITADO' : '💰 TOTAL LÍQUIDO A PAGAR', mL + 6, fy + 1);
     doc.setFontSize(11);
     doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 6, fy + 1.2, { align: 'right' });
-
-    fy += 6.5;
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(6.3);
-    doc.setTextColor(150, 150, 150);
-    doc.text('* Valores com centavos são normais: ocorrem quando um pagamento anterior foi um pouco maior ou menor',
-      mL + 3, fy, { maxWidth: cW - 6 });
-    fy += 3;
-    doc.text('  que o devido, e a diferença é ajustada automaticamente aqui.', mL + 3, fy, { maxWidth: cW - 6 });
 
     y += boxH + 4;
 
@@ -990,10 +989,6 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="background:'+faixaCor+';border-radius:6px;padding:9px 14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">'+
           '<span style="color:#fff;font-size:12px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
           '<span style="color:#fff;font-size:16px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
-        '</div>'+
-        '<div style="font-size:9px;color:#999;font-style:italic;margin-top:6px;line-height:1.4;">'+
-          '* Valores com centavos são normais: acontecem quando o pagamento de um período '+
-          'anterior foi um pouco maior ou menor que o devido, e a diferença é ajustada aqui.'+
         '</div>'+
         outrosDecendiosHtml+
         outrosAdiantamentosHtml+
