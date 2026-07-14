@@ -2543,6 +2543,7 @@ var HR_FUNC = (function () {
 
       '<button onclick="HR_FUNC._salvarPagamento()" style="'+CSS_BTN_GREEN+'">✅ Confirmar Pagamento</button>'+
       '<button onclick="HR_FUNC._gerarRelatorioPonto()" style="'+CSS_BTN_GHOST+'margin-bottom:6px;">📄 Relatório de Ponto</button>'+
+      '<button onclick="HR_FUNC._rodarMigracaoCreditos()" style="'+CSS_BTN_GHOST+'margin-bottom:6px;font-size:.68rem;">🔧 Verificar créditos retroativos (rodar 1 vez)</button>'+
       '<button onclick="HR_FUNC._closePagamento()" style="'+CSS_BTN_GHOST+'">Cancelar</button>'+
     '</div>';
 
@@ -3117,6 +3118,54 @@ var HR_FUNC = (function () {
       return creditos[existente.id];
     }
     return criarCredito(funcId, valorCredito, dataPagamento, obsAuto, decPago, mesPago);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // MIGRAÇÃO RETROATIVA — roda uma única vez (botão "🔧 Verificar créditos
+  // retroativos" no modal de pagamento). Necessária porque a detecção
+  // automática só dispara no MOMENTO em que um pagamento é registrado — ela
+  // não enxerga overpagos de pagamentos que já existiam antes deste recurso
+  // existir. Varre todo o histórico de pagamentos tipo=decêndio, recalcula
+  // o saldo de cada período já pago e cria/atualiza o crédito que faltou.
+  // Idempotente: rodar de novo não duplica nada (reaproveita _creditoAbertoPorOrigem).
+  // ─────────────────────────────────────────────────────────────
+  function _migrarCreditosRetroativos() {
+    var pags = getPagamentos();
+    var combos = {};
+    Object.values(pags).forEach(function (p) {
+      if (p.tipo !== 'decendio' || !p.funcionarioId || !p.data) return;
+      var dia    = parseInt(p.data.slice(8, 10), 10);
+      var decNum = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+      var mesRef = p.data.slice(0, 7);
+      var chave  = p.funcionarioId + '|' + mesRef + '|' + decNum;
+      // Guarda a data mais recente do grupo (usada só como data do crédito, se criado)
+      if (!combos[chave] || p.data > combos[chave].data) {
+        combos[chave] = { funcId: p.funcionarioId, mesRef: mesRef, decNum: decNum, data: p.data };
+      }
+    });
+
+    var criados = 0, atualizados = 0;
+    Object.values(combos).forEach(function (c) {
+      var antes = _creditoAbertoPorOrigem(c.funcId, c.decNum, c.mesRef);
+      var res    = _detectarECriarCreditoOverpago(c.funcId, c.decNum, c.mesRef, c.data);
+      if (res) { if (antes) atualizados++; else criados++; }
+    });
+
+    return { periodosVerificados: Object.keys(combos).length, criados: criados, atualizados: atualizados };
+  }
+
+  // Chamada pelo botão "🔧 Verificar créditos retroativos" — roda a migração
+  // e atualiza a tela na hora, pra o crédito aparecer sem precisar reabrir o modal.
+  function _rodarMigracaoCreditos() {
+    var r = _migrarCreditosRetroativos();
+    if (r.criados === 0 && r.atualizados === 0) {
+      _toast('✅ Nenhum crédito retroativo pendente — tudo já estava certo (' + r.periodosVerificados + ' períodos verificados).');
+    } else {
+      _toast('🔧 ' + r.criados + ' crédito(s) novo(s) e ' + r.atualizados + ' atualizado(s), de ' + r.periodosVerificados + ' períodos verificados.');
+    }
+    if (typeof HR_FUNC._atualizarPainelPagamento === 'function') {
+      HR_FUNC._atualizarPainelPagamento();
+    }
   }
 
   // Chamada pelo onchange do seletor "Aplicar este crédito em: ___" no
@@ -4894,6 +4943,8 @@ var HR_FUNC = (function () {
     _creditosAlvoDecendio:    _creditosAlvoDecendio,
     _creditosEmAberto:        _creditosEmAberto,
     _alocarCreditoSelect:     _alocarCreditoSelect,
+    _migrarCreditosRetroativos: _migrarCreditosRetroativos,
+    _rodarMigracaoCreditos:     _rodarMigracaoCreditos,
     _periodoDecendio:           _periodoDecendio
   };
 })();
