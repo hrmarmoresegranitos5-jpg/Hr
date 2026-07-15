@@ -199,12 +199,25 @@ var HR_RELATORIO_PONTO = (function () {
         // (`dow===0 || dow===6` → sempre ×3), que triplicava indevidamente
         // qualquer sábado, mesmo terminando de manhã.
         var tipoHE = 'normal';
+        // Feriado declarado na tela de correção (exceção local, salva em
+        // hr_excecoes) NÃO é a mesma lista que HR_IMPORT._classificarHE usa
+        // pra decidir ×3 — aquele só olha o array global CFG.feriados. Então
+        // um feriado marcado aqui (dia todo ou meio período) sem estar
+        // também no CFG.feriados global caía na regra padrão de dia útil
+        // (×2) em vez da regra de feriado (×3). Sábado fica de fora dessa
+        // correção porque já tem regra própria e deliberada (só triplica se
+        // a saída for depois de 12:00 — sábado de manhã com feriado/acordo
+        // continua ×2).
+        var feriadoLocalForcaTriplo = !!(exc && exc.tipo === 'feriado' && dow !== 6);
         if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT._classificarHE === 'function') {
           var classeHE = HR_IMPORT._classificarHE({
             data: iso, extra: extraMin,
             entrada: r.entrada || '', saida: r.saida || '',
             funcId: funcId || null
           });
+          if (feriadoLocalForcaTriplo) {
+            classeHE = { extra50: 0, extra100: 0, extra200: extraMin };
+          }
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
             valorExtra = (classeHE.extra200 / 60) * 3.0 * valorHora +
                          (classeHE.extra100 / 60) * 3.0 * valorHora +
@@ -213,7 +226,7 @@ var HR_RELATORIO_PONTO = (function () {
           if (classeHE.extra200 > 0 || classeHE.extra100 > 0) tipoHE = 'especial';
         } else {
           // Fallback (HR_IMPORT indisponível) — mantém regra antiga só como rede de segurança
-          var _ehTriplado = (dow === 0) || (exc && exc.tipo === 'feriado');
+          var _ehTriplado = (dow === 0) || feriadoLocalForcaTriplo;
           tipoHE = _ehTriplado ? 'especial' : 'normal';
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
             valorExtra = (extraMin / 60) * (_ehTriplado ? 3.0 : 2.0) * valorHora;
@@ -596,6 +609,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     var totalTrabMin  = 0, totalEsperadoMin = 0, totalSaldoMin = 0;
     var totalExtraMin50 = 0, totalExtraMin200 = 0;
+    var totalValorExtra50 = 0, totalValorExtra200 = 0;
     var totalValorExtra = 0, totalDeficitMin = 0;
 
     linhas.forEach(function (l) {
@@ -606,8 +620,8 @@ var HR_RELATORIO_PONTO = (function () {
       if (l.saldoMin < 0) totalDeficitMin += l.saldoMin;
       if (l.extraMin > 0 && !l.destinoBanco) {
         var isTrip = (l.tipoHE === 'especial' || l.tipoHE === 'feriado' || l.tipoHE === 'domingo');
-        if (isTrip) totalExtraMin200 += l.extraMin;
-        else        totalExtraMin50  += l.extraMin;
+        if (isTrip) { totalExtraMin200 += l.extraMin; totalValorExtra200 += l.valorExtra; }
+        else        { totalExtraMin50  += l.extraMin; totalValorExtra50  += l.valorExtra; }
       }
     });
 
@@ -695,7 +709,10 @@ var HR_RELATORIO_PONTO = (function () {
       return s + 4.2 + cw.obsLinhas.length * 3.4 + 4.5;
     }, 0);
 
-    var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) + (fin.totalDeficitValor > 0 ? 6 : 0) +
+    var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
+               (totalExtraMin50  > 0 ? 4.2 : 0) +
+               (totalExtraMin200 > 0 ? 4.2 : 0) +
+               (fin.totalDeficitValor > 0 ? 6 : 0) +
                (fin.creditosAlvo.length > 0 ? 6 + creditosBoxH + 1.5 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
                (fin.totalPago > 0 ? 6 : 0) + 12;
@@ -731,9 +748,24 @@ var HR_RELATORIO_PONTO = (function () {
       fy += 5;
     }
 
+    // Linha de detalhe menor, indentada — usada pra abrir o cálculo de
+    // horas extras dobradas/triplicadas (quantidade × valor da hora).
+    function _linSub(label, valor, cor) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(110, 110, 110);
+      doc.text(label, mL + 8, fy);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor.apply(doc, cor || [110, 110, 110]);
+      doc.text(_fmtMoeda(valor), pW - mR - 4, fy, { align: 'right' });
+      fy += 4.2;
+    }
+
     _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
-    if (totalValorExtra > 0) _lin('+ Horas extras deste período', totalValorExtra, COR_VERDE);
-    if (fin.totalDeficitValor > 0) _lin('− Minutos faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
+    if (totalValorExtra > 0) _lin('+ Horas extras deste período (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
+    if (totalExtraMin50  > 0) _linSub('  · Dobrada ×2: ' + _fmtMin(totalExtraMin50)  + ' × ' + _fmtMoeda(valorHora * 2), totalValorExtra50,  COR_VERDE);
+    if (totalExtraMin200 > 0) _linSub('  · Triplicada ×3: ' + _fmtMin(totalExtraMin200) + ' × ' + _fmtMoeda(valorHora * 3), totalValorExtra200, COR_VERDE);
+    if (fin.totalDeficitValor > 0) _lin('− Horas negativas / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
     if (fin.creditosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
@@ -1073,7 +1105,7 @@ var HR_RELATORIO_PONTO = (function () {
     var telFunc  = f.telefone || f.tel || '';
 
     var htmlPreview = _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
-      totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin);
+      totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200);
 
     var pdfBlobFn = function() { return doc.output('blob'); };
 
@@ -1083,7 +1115,7 @@ var HR_RELATORIO_PONTO = (function () {
   // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
 
   function _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
-    totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin) {
+    totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200) {
 
     var mesRef = _mesExtenso(di, df);
     var depto  = f.equipe || f.cargo || 'Marmoraria';
@@ -1168,13 +1200,23 @@ var HR_RELATORIO_PONTO = (function () {
 
     if (totalValorExtra > 0) {
       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#2a8a46;">+ Horas extras deste período</span>'+
+        '<span style="color:#2a8a46;">+ Horas extras deste período ('+fmtMin(totalExtraMin50+totalExtraMin200)+')</span>'+
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
+    }
+    if (totalExtraMin50 > 0) {
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 2px 14px;font-size:13px;">'+
+        '<span style="color:#5a8a68;">· Dobrada ×2: '+_esc(fmtMin(totalExtraMin50))+' × '+fmtMoeda(valorHora*2)+'</span>'+
+        '<span style="color:#5a8a68;">'+fmtMoeda(totalValorExtra50)+'</span></div>';
+    }
+    if (totalExtraMin200 > 0) {
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 6px 14px;font-size:13px;">'+
+        '<span style="color:#5a8a68;">· Triplicada ×3: '+_esc(fmtMin(totalExtraMin200))+' × '+fmtMoeda(valorHora*3)+'</span>'+
+        '<span style="color:#5a8a68;">'+fmtMoeda(totalValorExtra200)+'</span></div>';
     }
 
     if (fin.totalDeficitValor > 0) {
       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#b43c3c;">− Minutos faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
+        '<span style="color:#b43c3c;">− Horas negativas / faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
         '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalDeficitValor)+'</span></div>';
     }
 
