@@ -1,0 +1,45 @@
+--- /mnt/user-data/uploads/app-import-relatorio.js	2026-07-15 01:43:58.508944000 +0000
++++ app-import-relatorio.js	2026-07-15 01:47:25.743857728 +0000
+@@ -340,6 +340,7 @@
+     if (d === 0) return 0; // domingo = folga sempre
+ 
+     // Consulta exceções globais (hr_excecoes)
++    var meioPeriodo = false;
+     try {
+       var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+       var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
+@@ -347,7 +348,11 @@
+         // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
+         if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
+         if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
+-        // Feriado meio período ou declarado → usa jornada normal (calculada abaixo)
++        // Feriado meio período → jornada normal É REDUZIDA PELA METADE abaixo
++        // (marca a flag aqui; a metade é aplicada só no final, depois de
++        // resolver qual seria a jornada cheia — customizada ou padrão do dia).
++        if (exc.tipo === 'feriado' && exc.meioperiodo) meioPeriodo = true;
++        // 'declarado' → usa jornada normal cheia (calculada abaixo), sem alteração
+       }
+     } catch(e) {}
+ 
+@@ -363,15 +368,18 @@
+       } catch(e) {}
+     }
+ 
+-    // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
++    // Jornada base do dia: customizada do funcionário (ex: jovem aprendiz 4h/dia)
++    // ou o padrão semanal. Em feriado meio período, aplica metade sobre essa base
++    // (proporcional — respeita jornada diferenciada de cada funcionário).
++    var jornadaBase = JORNADA[DOW_KEYS[d]] || 480;
+     if (funcId) {
+       try {
+         var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
+         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
+-        if (jMin > 0) return jMin;
++        if (jMin > 0) jornadaBase = jMin;
+       } catch(e) {}
+     }
+-    return JORNADA[DOW_KEYS[d]] || 480;
++    return meioPeriodo ? Math.round(jornadaBase / 2) : jornadaBase;
+   }
+ 
+   /**

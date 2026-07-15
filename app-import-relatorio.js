@@ -340,6 +340,7 @@ var HR_IMPORT = (function () {
     if (d === 0) return 0; // domingo = folga sempre
 
     // Consulta exceções globais (hr_excecoes)
+    var meioPeriodo = false;
     try {
       var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
       var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
@@ -347,7 +348,11 @@ var HR_IMPORT = (function () {
         // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
         if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
         if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
-        // Feriado meio período ou declarado → usa jornada normal (calculada abaixo)
+        // Feriado meio período → jornada normal É REDUZIDA PELA METADE abaixo
+        // (marca a flag aqui; a metade é aplicada só no final, depois de
+        // resolver qual seria a jornada cheia — customizada ou padrão do dia).
+        if (exc.tipo === 'feriado' && exc.meioperiodo) meioPeriodo = true;
+        // 'declarado' → usa jornada normal cheia (calculada abaixo), sem alteração
       }
     } catch(e) {}
 
@@ -363,15 +368,18 @@ var HR_IMPORT = (function () {
       } catch(e) {}
     }
 
-    // Jornada customizada do funcionário (ex: jovem aprendiz 4h/dia)
+    // Jornada base do dia: customizada do funcionário (ex: jovem aprendiz 4h/dia)
+    // ou o padrão semanal. Em feriado meio período, aplica metade sobre essa base
+    // (proporcional — respeita jornada diferenciada de cada funcionário).
+    var jornadaBase = JORNADA[DOW_KEYS[d]] || 480;
     if (funcId) {
       try {
         var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
-        if (jMin > 0) return jMin;
+        if (jMin > 0) jornadaBase = jMin;
       } catch(e) {}
     }
-    return JORNADA[DOW_KEYS[d]] || 480;
+    return meioPeriodo ? Math.round(jornadaBase / 2) : jornadaBase;
   }
 
   /**
@@ -1656,6 +1664,12 @@ var HR_IMPORT = (function () {
 
     // Sempre abre tela de correção para permitir revisar/editar os registros
     _renderTelaCorrecao();
+
+    // Verifica se há feriados nacionais no lote sem exceção registrada e,
+    // se houver, pergunta diretamente (dia todo / meio período / não é
+    // feriado) em vez de só destacar o botão. Roda só aqui, na entrada da
+    // tela — não a cada re-render — pra não repetir a pergunta a cada edição.
+    _abrirDialogFeriadosDetectados();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -2445,6 +2459,182 @@ var HR_IMPORT = (function () {
     ];
     var achado = moveis.find(function(m){ return m.d === dataISO; });
     return achado ? achado.nome : null;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // MELHORIA — Confirmação automática de feriado nacional
+  // Antes o sistema só destacava o botão "🎌 Feriado?" na linha do dia
+  // (passivo — o usuário podia não perceber). Agora, ao entrar na tela de
+  // correção logo após importar, o sistema varre todos os dias do lote,
+  // detecta datas que batem com feriado nacional e ainda não têm exceção
+  // registrada, e ABRE UM DIÁLOGO perguntando diretamente: dia todo,
+  // meio período, ou não é feriado dessa vez.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Retorna a lista de feriados nacionais presentes no lote atual que ainda
+   * não têm exceção salva em hr_excecoes nem foram dispensados nesta sessão.
+   * @returns {Array<{data:String, nome:String}>}
+   */
+  function _detectarFeriadosPendentes() {
+    var vistos      = {};
+    var pendentes    = [];
+    var dispensados  = _state._feriadosDispensados || {};
+    var datasComExc  = {};
+    try {
+      var excsAll = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      Object.values(excsAll).forEach(function(e){ if (e && e.data) datasComExc[e.data] = true; });
+    } catch(e) {}
+
+    (_state.grupos || []).forEach(function(gr) {
+      if (gr._ignorar) return;
+      (gr.registros || []).forEach(function(r) {
+        var data = r.data;
+        if (!data || vistos[data] || datasComExc[data] || dispensados[data]) return;
+        var nome = _feriadoNacional(data);
+        if (nome) { vistos[data] = true; pendentes.push({ data: data, nome: nome }); }
+      });
+    });
+
+    pendentes.sort(function(a, b){ return a.data.localeCompare(b.data); });
+    return pendentes;
+  }
+
+  /** Formata "yyyy-mm-dd" como "Sex 25/Dez" para exibição compacta. */
+  function _fmtDataCurta(data) {
+    var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    var MESES  = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var dow    = DOW_PT[new Date(data + 'T12:00:00').getDay()];
+    var dia    = data.split('-')[2];
+    var mesNum = parseInt(data.split('-')[1]);
+    return dow + ' ' + dia + '/' + MESES[mesNum];
+  }
+
+  /** Acha {gi, ri} do primeiro registro do lote atual numa data específica. */
+  function _acharRegistroPorData(data) {
+    var grupos = _state.grupos || [];
+    for (var gi = 0; gi < grupos.length; gi++) {
+      var gr = grupos[gi];
+      if (gr._ignorar) continue;
+      var regs = gr.registros || [];
+      for (var ri = 0; ri < regs.length; ri++) {
+        if (regs[ri].data === data) return { gi: gi, ri: ri };
+      }
+    }
+    return null;
+  }
+
+  /** Salva direto uma exceção "feriado, dia todo" sem abrir o modal completo. */
+  function _salvarFeriadoDiaTodo(data, nome) {
+    try {
+      var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      Object.keys(excs).forEach(function(k){ if (excs[k].data === data) delete excs[k]; });
+      var novaKey = 'exc_' + data.replace(/-/g, '_');
+      excs[novaKey] = { data: data, tipo: 'feriado', meioperiodo: false, descricao: nome, horEntrada: null, horSaida: null };
+      localStorage.setItem('hr_excecoes', JSON.stringify(excs));
+    } catch(e) {}
+    try {
+      if (!CFG.feriados) CFG.feriados = [];
+      if (CFG.feriados.indexOf(data) === -1) {
+        CFG.feriados.push(data);
+        if (typeof svCFG === 'function') svCFG();
+      }
+    } catch(e) {}
+  }
+
+  /**
+   * Abre o diálogo de confirmação em lote para feriados detectados
+   * automaticamente. Chamado uma vez ao entrar na tela de correção
+   * (ver _processar()) — não é re-disparado a cada re-render, pra não
+   * ficar incomodando a cada edição feita na tela.
+   */
+  function _abrirDialogFeriadosDetectados() {
+    var pendentes = _detectarFeriadosPendentes();
+    if (pendentes.length === 0) return;
+
+    var ovId = 'hrFeriadosDetectadosModal';
+    var prev = document.getElementById(ovId);
+    if (prev) prev.remove();
+
+    var linhasHtml = pendentes.map(function(p, idx) {
+      return '<div id="fdet_row_' + idx + '" style="padding:12px 0;border-bottom:1px solid #222;">' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;">' +
+          '<div style="font-size:.85rem;font-weight:700;color:' + T1 + ';">' + _fmtDataCurta(p.data) + '</div>' +
+          '<div style="font-size:.72rem;color:' + GOLD + ';font-weight:600;">🎌 ' + _esc(p.nome) + '</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">' +
+          '<button data-fdet-acao="diatodo" data-fdet-idx="' + idx + '" ' +
+            'style="padding:9px 4px;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.5);' +
+            'border-radius:8px;color:#c4b5fd;font-family:Outfit,sans-serif;font-size:.68rem;font-weight:700;cursor:pointer;">' +
+            '🔴 Dia todo</button>' +
+          '<button data-fdet-acao="meio" data-fdet-idx="' + idx + '" ' +
+            'style="padding:9px 4px;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);' +
+            'border-radius:8px;color:' + GOLD + ';font-family:Outfit,sans-serif;font-size:.68rem;font-weight:700;cursor:pointer;">' +
+            '🟡 Meio período</button>' +
+          '<button data-fdet-acao="skip" data-fdet-idx="' + idx + '" ' +
+            'style="padding:9px 4px;background:transparent;border:1px solid #2a2a2a;' +
+            'border-radius:8px;color:' + T3 + ';font-family:Outfit,sans-serif;font-size:.68rem;font-weight:600;cursor:pointer;">' +
+            'Não é feriado</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    var html =
+      '<div id="' + ovId + '" style="position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:999999;' +
+        'display:flex;align-items:flex-end;justify-content:center;padding:0;">' +
+        '<div style="width:100%;max-width:520px;background:#0f0f0f;border-radius:18px 18px 0 0;' +
+          'border:1px solid #2a2020;padding:20px 18px 28px;max-height:85vh;overflow-y:auto;">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+            '<div style="font-size:1rem;font-weight:800;color:' + GOLD + ';font-family:Outfit,sans-serif;">🎌 Feriado(s) detectado(s)</div>' +
+            '<button id="fdet_fechar" style="background:none;border:none;color:#555;font-size:1.2rem;cursor:pointer;padding:4px;">✕</button>' +
+          '</div>' +
+          '<div style="font-size:.72rem;color:' + T2 + ';margin-bottom:14px;">' +
+            'Este lote tem ' + pendentes.length + ' data(s) de feriado nacional sem exceção registrada ainda. Decida pra cada uma:' +
+          '</div>' +
+          '<div id="fdet_lista">' + linhasHtml + '</div>' +
+        '</div>' +
+      '</div>';
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    var ov = document.getElementById(ovId);
+
+    function _fecharDialog() { var o = document.getElementById(ovId); if (o) o.remove(); }
+    function _removerLinha(idx) {
+      var row = document.getElementById('fdet_row_' + idx);
+      if (row) row.remove();
+      if (!document.querySelector('#fdet_lista > div')) _fecharDialog();
+    }
+
+    var btnFechar = document.getElementById('fdet_fechar');
+    if (btnFechar) btnFechar.addEventListener('click', _fecharDialog);
+    ov.addEventListener('click', function(e){ if (e.target === ov) _fecharDialog(); });
+
+    pendentes.forEach(function(p, idx) {
+      var btnDia  = document.querySelector('[data-fdet-acao="diatodo"][data-fdet-idx="' + idx + '"]');
+      var btnMeio = document.querySelector('[data-fdet-acao="meio"][data-fdet-idx="' + idx + '"]');
+      var btnSkip = document.querySelector('[data-fdet-acao="skip"][data-fdet-idx="' + idx + '"]');
+
+      if (btnDia) btnDia.addEventListener('click', function(){
+        _salvarFeriadoDiaTodo(p.data, p.nome);
+        _toast('🎌 ' + p.nome + ' registrado como feriado (dia todo).');
+        _removerLinha(idx);
+        _renderTelaCorrecao();
+      });
+
+      if (btnMeio) btnMeio.addEventListener('click', function(){
+        // Meio período precisa dos horários trabalhados — reaproveita o
+        // modal completo de exceção, já pré-preenchido com o nome do feriado.
+        var alvo = _acharRegistroPorData(p.data);
+        _fecharDialog();
+        if (alvo) _abrirModalExcecao(alvo.gi, alvo.ri);
+      });
+
+      if (btnSkip) btnSkip.addEventListener('click', function(){
+        if (!_state._feriadosDispensados) _state._feriadosDispensados = {};
+        _state._feriadosDispensados[p.data] = true;
+        _removerLinha(idx);
+      });
+    });
   }
 
   function _abrirModalExcecao(grpIdx, recIdx) {
