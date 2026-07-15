@@ -23,7 +23,9 @@ var HR_RELATORIO_PONTO = (function () {
   // Número de WhatsApp do RH/dono, usado no link "dúvidas ou contestação" do
   // rodapé do PDF. Formato: DDD + número, sem +55 (o link já adiciona o 55).
   // Deixe vazio ('') para não mostrar o link.
-  var WPP_CONTATO_RH = '';
+  // OBS: preenchido com o WhatsApp da empresa (74991484460). Se Hangel quiser
+  // um número diferente pra contestação de ponto, é só trocar aqui.
+  var WPP_CONTATO_RH = '74991484460';
 
   // Acima deste número de minutos de hora extra NUM ÚNICO DIA, o sistema pede
   // confirmação antes de gerar o relatório (evita pagar valor errado por
@@ -349,7 +351,7 @@ var HR_RELATORIO_PONTO = (function () {
 
   // ─── Overlay de preview (html2canvas → imagem, igual ao contrato) ────────────
 
-  function _abrirOverlayPonto(htmlRelatorio, pdfBlobFn, fileName, nomeFunc, mesRef, telFunc) {
+  function _abrirOverlayPonto(htmlRelatorio, pdfBlobFn, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado) {
     var GOLD = '#C9A84C', GOLDB = 'rgba(201,168,76,.55)';
 
     var old = document.getElementById('hrPontoPDFOverlay');
@@ -412,10 +414,13 @@ var HR_RELATORIO_PONTO = (function () {
         btnWpp.onclick = function(){
           if (!pdfBlobRef) { if(typeof toast==='function') toast('PDF ainda gerando...'); return; }
           var pdfFile = new File([pdfBlobRef], fileName, {type:'application/pdf'});
-          var sd = { title:'Relatório de Ponto — '+nomeFunc, text:'Relatório de ponto — '+mesRef+'\n_HR Mármores e Granitos_' };
+          var textoWpp = jaQuitado
+            ? 'Relatório de ponto — '+mesRef+'\nStatus: já quitado ✅\n_HR Mármores e Granitos_'
+            : 'Relatório de ponto — '+mesRef+'\nVocê vai receber: '+valorMsg+'\n_HR Mármores e Granitos_';
+          var sd = { title:'Relatório de Ponto — '+nomeFunc, text: textoWpp };
           if (navigator.canShare && navigator.canShare({files:[pdfFile]})) sd.files = [pdfFile];
           navigator.share(sd).catch(function(e){
-            if (e && e.name !== 'AbortError') _fallbackWpp(pdfBlobRef, fileName, nomeFunc, mesRef, telFunc);
+            if (e && e.name !== 'AbortError') _fallbackWpp(pdfBlobRef, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado);
           });
         };
       }
@@ -477,12 +482,14 @@ var HR_RELATORIO_PONTO = (function () {
     }, 200);
   }
 
-  function _fallbackWpp(blob, fileName, nomeFunc, mesRef, telFunc) {
+  function _fallbackWpp(blob, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a'); a.href = url; a.download = fileName;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     var tel = (telFunc || '').replace(/\D/g, '');
-    var msg = 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\n\n_HR Mármores e Granitos_';
+    var msg = jaQuitado
+      ? 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\nStatus: já quitado ✅\n\n_HR Mármores e Granitos_'
+      : 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\nVocê vai receber: '+(valorMsg||'')+'\n\n_HR Mármores e Granitos_';
     setTimeout(function(){
       window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
     }, 700);
@@ -695,6 +702,34 @@ var HR_RELATORIO_PONTO = (function () {
     doc.line(mL, y, pW - mR, y);
     y += 5;
 
+    // ── DE RELANCE — 3 linhas grandes, sem jargão, antes de qualquer detalhe ──
+    var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
+    var totalExtraMinRelance = totalExtraMin50 + totalExtraMin200;
+    var relanceH = 24;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor.apply(doc, COR_HEADER);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(mL, y, cW, relanceH, 2, 2, 'FD');
+    var ry = y + 6;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.2);
+    doc.setTextColor(140, 140, 140);
+    doc.text('DE RELANCE', mL + 4, ry - 2.5);
+    ry += 3;
+    doc.setFontSize(12.5);
+    doc.setTextColor.apply(doc, fin.status === 'pago' ? COR_VERDE : COR_HEADER);
+    doc.text((fin.status === 'pago' ? 'Já recebido: ' : 'Você vai receber: ') + _fmtMoeda(Math.abs(fin.saldoFinal)), mL + 4, ry);
+    ry += 6.5;
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(50, 50, 50);
+    doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), mL + 4, ry);
+    if (totalExtraMinRelance > 0) {
+      doc.setTextColor.apply(doc, COR_VERDE);
+      doc.text('Tem ' + _fmtMin(totalExtraMinRelance) + ' de hora extra', mL + 65, ry);
+    }
+    y += relanceH + 4;
+
     // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
     // Créditos ganham um mini-card por registro (origem + obs explicada +
     // nota "a favor do funcionário"), então a altura precisa ser calculada
@@ -727,13 +762,13 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor.apply(doc, COR_HEADER);
-    doc.text('💰 Resumo do ' + fin.decNum + 'º Período', mL + 4, fy);
+    doc.text('Resumo do ' + fin.decNum + 'º Período', mL + 4, fy);
     if (diasEsperados > 0) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       if (diasComAjuste === 0) doc.setTextColor(42, 130, 70);
       else doc.setTextColor(190, 130, 40);
-      doc.text((diasComAjuste === 0 ? '✅ ' : '⏳ ') + diasCompletos + ' de ' + diasEsperados + ' dias completos', pW - mR - 4, fy, { align: 'right' });
+      doc.text(diasCompletos + ' de ' + diasEsperados + ' dias completos', pW - mR - 4, fy, { align: 'right' });
     }
     fy += 6;
 
@@ -744,7 +779,7 @@ var HR_RELATORIO_PONTO = (function () {
       doc.text(label, mL + 5, fy);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor.apply(doc, cor || [30, 30, 30]);
-      doc.text((negativo ? '− ' : '') + _fmtMoeda(valor), pW - mR - 4, fy, { align: 'right' });
+      doc.text((negativo ? '- ' : '') + _fmtMoeda(valor), pW - mR - 4, fy, { align: 'right' });
       fy += 5;
     }
 
@@ -765,7 +800,7 @@ var HR_RELATORIO_PONTO = (function () {
     if (totalValorExtra > 0) _lin('+ Horas extras deste período (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
     if (totalExtraMin50  > 0) _linSub('  · Dobrada ×2: ' + _fmtMin(totalExtraMin50)  + ' × ' + _fmtMoeda(valorHora * 2), totalValorExtra50,  COR_VERDE);
     if (totalExtraMin200 > 0) _linSub('  · Triplicada ×3: ' + _fmtMin(totalExtraMin200) + ' × ' + _fmtMoeda(valorHora * 3), totalValorExtra200, COR_VERDE);
-    if (fin.totalDeficitValor > 0) _lin('− Horas negativas / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
+    if (fin.totalDeficitValor > 0) _lin('- Horas negativas / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
     if (fin.creditosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
@@ -811,7 +846,7 @@ var HR_RELATORIO_PONTO = (function () {
         doc.setTextColor(90, 90, 90);
         doc.text('  • ' + _fmtData(a.data) + (a.obs ? ' — ' + a.obs : ''), mL + 6, fy);
         doc.setTextColor.apply(doc, COR_LARANJA);
-        doc.text('− ' + _fmtMoeda(a.valor), pW - mR - 4, fy, { align: 'right' });
+        doc.text('- ' + _fmtMoeda(a.valor), pW - mR - 4, fy, { align: 'right' });
         fy += 4.2;
       });
       fy += 1.5;
@@ -829,7 +864,7 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(255, 255, 255);
-    doc.text(fin.status === 'pago' ? '✅ QUITADO' : '💰 TOTAL LÍQUIDO A PAGAR', mL + 6, fy + 1);
+    doc.text(fin.status === 'pago' ? 'QUITADO' : 'TOTAL LÍQUIDO A PAGAR', mL + 6, fy + 1);
     doc.setFontSize(11);
     doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 6, fy + 1.2, { align: 'right' });
 
@@ -908,7 +943,7 @@ var HR_RELATORIO_PONTO = (function () {
       { header: 'Saída',       w: 19, align: 'center' },
       { header: 'Trabalhado',  w: 24, align: 'center' },
       { header: 'Esperado',    w: 22, align: 'center' },
-      { header: 'Saldo do Dia',w: 38, align: 'center' },
+      { header: 'Trabalhou a\nmais / Faltou',w: 38, align: 'center' },
     ];
     var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
     var diff   = cW - totalW;
@@ -1012,7 +1047,7 @@ var HR_RELATORIO_PONTO = (function () {
       // Coluna final "Saldo do Dia" — uma célula só, colorida
       var saldoTxt, saldoCor;
       if (l.extraMin > 0 && !l.destinoBanco) {
-        saldoTxt = '+' + _fmtMin(l.extraMin) + (l.tipoHE === 'especial' || l.tipoHE === 'feriado' || l.tipoHE === 'domingo' ? ' ×3' : ' ×2');
+        saldoTxt = '+' + _fmtMin(l.extraMin) + (l.tipoHE === 'especial' || l.tipoHE === 'feriado' || l.tipoHE === 'domingo' ? ' (triplicado)' : ' (dobrado)');
         saldoCor = [40, 130, 70];
       } else if (l.saldoMin < -5) {
         saldoTxt = _fmtMin(l.saldoMin);
@@ -1022,9 +1057,11 @@ var HR_RELATORIO_PONTO = (function () {
         saldoCor = [150, 150, 150];
       }
       doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.6);
       doc.setTextColor.apply(doc, saldoCor);
       doc.text(saldoTxt, colX[saldoIdx] + cols[saldoIdx].w / 2, cy, { align: 'center' });
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.6);
 
       y += rowH;
     });
@@ -1058,7 +1095,7 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(180, 60, 60);
-      doc.text('⚠️ Faltaram ' + _fmtMin(Math.abs(totalDeficitMin)) + ' no período (já descontado do total acima).', mL, y, { maxWidth: cW });
+      doc.text('Atenção: faltaram ' + _fmtMin(Math.abs(totalDeficitMin)) + ' no período (já descontado do total acima).', mL, y, { maxWidth: cW });
       y += 6;
     }
     y += 2;
@@ -1089,12 +1126,17 @@ var HR_RELATORIO_PONTO = (function () {
     doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos', pW / 2, y, { align: 'center' });
 
     if (WPP_CONTATO_RH) {
-      y += 4.5;
+      y += 6;
       var msgContest = 'Olá! Sobre meu relatório de ponto (' + (f.nome || '') + ', ' + _mesExtenso(di, df) + '): tenho uma dúvida ou algo não bate.';
       var urlContest = 'https://wa.me/55' + WPP_CONTATO_RH + '?text=' + encodeURIComponent(msgContest);
-      doc.setTextColor(26, 54, 93);
+      doc.setFillColor(230, 246, 234);
+      doc.setDrawColor(120, 190, 140);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(mL + 20, y - 5, cW - 40, 8, 1.5, 1.5, 'FD');
+      doc.setTextColor(20, 110, 55);
       doc.setFont('helvetica', 'bold');
-      doc.textWithLink('📩 Não bate com o que você lembra? Toque aqui para falar com o RH', pW / 2, y, { align: 'center', url: urlContest });
+      doc.setFontSize(8.5);
+      doc.textWithLink('📩 Dúvida ou algo não bate? Toque aqui e fale com o RH', pW / 2, y, { align: 'center', url: urlContest });
     }
 
     // ── Prepara dados de saída ────────────────────────────────────────────────
@@ -1109,7 +1151,8 @@ var HR_RELATORIO_PONTO = (function () {
 
     var pdfBlobFn = function() { return doc.output('blob'); };
 
-    _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc);
+    var valorMsg = (fin.status === 'pago' ? 'já quitado' : _fmtMoeda(Math.abs(fin.saldoFinal)));
+    _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc, valorMsg, fin.status === 'pago');
   }
 
   // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
@@ -1122,6 +1165,8 @@ var HR_RELATORIO_PONTO = (function () {
     var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
     var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
     var diasComAjuste = diasEsperados - diasCompletos;
+    var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
+    var totalExtraMinRelance = totalExtraMin50 + totalExtraMin200;
 
     // Colunas de almoço sempre aparecem — todo mundo na HR bate o ponto do
     // almoço (mesmo comendo na empresa). Dias sem essa batida não somem a
@@ -1146,7 +1191,7 @@ var HR_RELATORIO_PONTO = (function () {
 
       var saldoDiaHtml;
       if (l.extraMin>0 && !l.destinoBanco) {
-        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+(l.tipoHE==='especial'||l.tipoHE==='feriado'||l.tipoHE==='domingo'?' ×3':' ×2')+'</span>';
+        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+(l.tipoHE==='especial'||l.tipoHE==='feriado'||l.tipoHE==='domingo'?' (triplicado)':' (dobrado)')+'</span>';
       } else if (l.saldoMin<-5) {
         saldoDiaHtml = '<span style="color:#b43c3c;font-weight:700;">'+fmtMin(l.saldoMin)+'</span>';
       } else {
@@ -1297,7 +1342,7 @@ var HR_RELATORIO_PONTO = (function () {
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Esperado</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saldo do Dia</th>';
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhou a mais<br>/ Faltou</th>';
 
     // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
     // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
@@ -1317,6 +1362,16 @@ var HR_RELATORIO_PONTO = (function () {
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:2px solid #1a3660;font-size:14px;">'+
         '<div>Departamento: '+_esc(depto)+'</div>'+
         '<div><b>Salário mensal: '+fmtMoeda(salario)+'</b></div>'+
+      '</div>'+
+
+      // ── DE RELANCE — 3 linhas grandes, sem jargão, sem tabela ──────────────
+      '<div style="background:#fff;border:2px solid #1a3660;border-radius:8px;padding:14px 16px;margin-top:12px;">'+
+        '<div style="font-size:11px;color:#999;font-weight:700;letter-spacing:.5px;margin-bottom:6px;">DE RELANCE</div>'+
+        '<div style="font-size:21px;font-weight:800;color:'+(fin.status==='pago'?'#2a8a46':'#1a3660')+';margin-bottom:5px;">'+(fin.status==='pago'?'✅ Já recebido: ':'💰 Você vai receber: ')+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
+        '<div style="display:flex;gap:22px;flex-wrap:wrap;">'+
+          '<div style="font-size:16px;color:#333;">📅 Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
+          (totalExtraMinRelance>0 ? '<div style="font-size:16px;color:#2a8a46;font-weight:700;">⏱ Tem '+fmtMin(totalExtraMinRelance)+' de hora extra</div>' : '<div style="font-size:14px;color:#999;">Sem hora extra neste período</div>')+
+        '</div>'+
       '</div>'+
 
       // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
@@ -1355,7 +1410,7 @@ var HR_RELATORIO_PONTO = (function () {
       '</div>'+
 
       '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
-      (WPP_CONTATO_RH ? '<div style="text-align:center;font-size:12px;color:#1a3660;font-weight:700;margin-top:8px;">📩 Não bate com o que você lembra? Fale com o RH pelo link no PDF baixado.</div>' : '')+
+      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55'+WPP_CONTATO_RH+'?text='+encodeURIComponent('Olá! Sobre meu relatório de ponto ('+(f.nome||'')+', '+mesRef+'): tenho uma dúvida ou algo não bate.')+'" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">📩 Dúvida ou algo não bate? Toque aqui e fale com o RH</a></div>' : '')+
     '</div>';
   }
 
