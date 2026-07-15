@@ -4032,6 +4032,22 @@ var HR_IMPORT = (function () {
    * @param {String} mesISO    — "yyyy-mm" de referência para valor/hora real
    * @returns {Object} breakdown financeiro completo
    */
+  /**
+   * Minutos de HE do dia que devem ser descontados por compensação de acordo
+   * (ex: trabalhou feriado meio período pra folgar em outro dia — essas
+   * horas não são pagas nem multiplicadas, só abatem a folga devida).
+   * Mesma regra de app-relatorio-ponto.js (linhas ~142-183), replicada aqui
+   * para que o motor de pagamento (calcSaldoHE) não confie apenas no r.extra
+   * bruto salvo na importação, que não conhece compensação lançada depois.
+   */
+  function _compensacaoMin(isoDate) {
+    try {
+      var excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      var exc = Object.values(excs).find(function(e){ return e.data === isoDate; });
+      return exc ? Math.round((parseFloat(exc.compensacaoHoras) || 0) * 60) : 0;
+    } catch (e) { return 0; }
+  }
+
   function calcSaldoHE(registros, func, mesISO) {
     var refMes = mesISO ||
       (registros && registros.length > 0
@@ -4075,6 +4091,21 @@ var HR_IMPORT = (function () {
       }
 
       var extraMin = Math.round(extraHoras * 60);
+
+      // Desconta a compensação de acordo ANTES de classificar/somar — as
+      // horas descontadas não são pagas nem multiplicadas, só abatem a
+      // folga devida (mesma regra do relatório de ponto).
+      var compensarMin = Math.min(extraMin, _compensacaoMin(r.data));
+      if (compensarMin > 0) {
+        extraMin -= compensarMin;
+        if (audit) console.log('%c[COMPENSA] ' + r.data + ' → descontadas ' + compensarMin + 'min (acordo) → sobra ' + extraMin + 'min',
+          'color:#e08a8a', { id: r.id });
+      }
+      if (extraMin <= 0) {
+        if (audit) console.log('%c[ZERO-APÓS-COMPENSA] ' + r.data + ' → nada a pagar', 'color:#888', { id: r.id });
+        return;
+      }
+
       var tipo = r.tipoExtra || 'normal';
       var faixaUsada;
 
