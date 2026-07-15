@@ -2737,6 +2737,8 @@ var HR_IMPORT = (function () {
 
       if (tipo === 'feriado') {
         var isMeio = excExist && excExist.meioperiodo;
+        var compHoraFer = excExist && excExist.compensacaoHoras ? excExist.compensacaoHoras : '';
+        var compDiasFer = excExist && excExist.compensacaoDias  ? excExist.compensacaoDias  : '';
         html2 =
           '<div style="margin-bottom:14px;">' +
             '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Período trabalhado</div>' +
@@ -2757,8 +2759,29 @@ var HR_IMPORT = (function () {
                 _inputHora('fer_ent', 'Entrada', excExist && excExist.horEntrada ? excExist.horEntrada : r.entrada || '07:00') +
                 _inputHora('fer_sai', 'Saída',   excExist && excExist.horSaida   ? excExist.horSaida   : r.saida   || '12:00') +
               '</div>' +
-              '<div style="font-size:.62rem;color:#7a6;background:rgba(92,150,80,.08);border:1px solid rgba(92,150,80,.25);border-radius:7px;padding:7px 10px;margin-top:8px;">' +
+              '<div style="font-size:.62rem;color:#7a6;background:rgba(92,150,80,.08);border:1px solid rgba(92,150,80,.25);border-radius:7px;padding:7px 10px;margin-top:8px;margin-bottom:12px;">' +
                 'ℹ️ No meio período o sistema calculará as horas trabalhadas normalmente.' +
+              '</div>' +
+              '<div style="font-size:.6rem;color:#888;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;">Compensação (opcional — descontar HE por folga em outro dia)</div>' +
+              '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">' +
+                '<div>' +
+                  '<div style="font-size:.6rem;color:#888;margin-bottom:4px;">Horas a descontar</div>' +
+                  '<input id="fer_comp_horas" type="number" min="0" max="24" step="0.5" value="' + compHoraFer + '" ' +
+                    'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+                    'color:#ddd;font-family:Outfit,sans-serif;font-size:.88rem;padding:9px 11px;outline:none;" ' +
+                    'placeholder="Ex: 4">' +
+                '</div>' +
+                '<div>' +
+                  '<div style="font-size:.6rem;color:#888;margin-bottom:4px;">Compensa qual dia</div>' +
+                  '<input id="fer_comp_dias" type="text" value="' + compDiasFer + '" ' +
+                    'style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;' +
+                    'color:#ddd;font-family:Outfit,sans-serif;font-size:.88rem;padding:9px 11px;outline:none;" ' +
+                    'placeholder="Ex: Sáb 04/07">' +
+                '</div>' +
+              '</div>' +
+              '<div style="font-size:.62rem;color:#8ec8c8;background:rgba(92,180,180,.06);border:1px solid rgba(92,180,180,.2);border-radius:7px;padding:8px 10px;">' +
+                '💡 Use isso quando a pessoa trabalhou a mais no feriado pra folgar outro dia (ex: sábado). ' +
+                'Essas horas descontadas não entram como hora extra — só o que sobrar depois do desconto.' +
               '</div>' +
             '</div>' +
           '</div>';
@@ -2893,6 +2916,18 @@ var HR_IMPORT = (function () {
           // Atualiza o registro para refletir o meio período
           r.entrada = exc.horEntrada;
           r.saida   = exc.horSaida;
+          // Compensação opcional: horas trabalhadas a mais no feriado que
+          // descontam de HE, por compensarem folga em outro dia (ex: sábado).
+          var compHorasFerVal = parseFloat((document.getElementById('fer_comp_horas') || {}).value) || 0;
+          if (compHorasFerVal > 0) {
+            exc.compensacaoHoras = compHorasFerVal;
+            exc.compensacaoDias  = (document.getElementById('fer_comp_dias') || {}).value || '';
+            r.observacao = (r.observacao ? r.observacao + ' — ' : '') +
+              'Compensa ' + compHorasFerVal + 'h' + (exc.compensacaoDias ? ' de ' + exc.compensacaoDias : '') + '.';
+          } else {
+            delete exc.compensacaoHoras;
+            delete exc.compensacaoDias;
+          }
         } else {
           // Dia todo: zera ponto (não é dia trabalhado — jornada = 0)
           exc.horEntrada = null;
