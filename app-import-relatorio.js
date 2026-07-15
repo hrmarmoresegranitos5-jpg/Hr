@@ -3076,7 +3076,7 @@ var HR_IMPORT = (function () {
   function _confirmarImportacao() {
     var regs = _getRegistros();
     var funcs = _getFuncionarios();
-    var importados = 0, pulados = 0, semFunc = 0;
+    var importados = 0, pulados = 0, semFunc = 0, reconciliados = 0;
     var conflitos = [];
 
     // Identificador único deste lote de importação (usado para apagar em bloco)
@@ -3092,7 +3092,27 @@ var HR_IMPORT = (function () {
         var dup = Object.values(regs).find(function(rx) {
           return rx.funcionarioId === gr.funcId && rx.data === r.data;
         });
-        if (dup) { pulados++; conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data); return; }
+        if (dup) {
+          // Reconciliação de almoço: dia já importado antes (numa versão
+          // anterior do sistema que calculava o almoço certo mas não
+          // salvava os horários pro relatório mostrar — ficava "Batida
+          // direta" mesmo quando o intervalo real já tinha sido descontado
+          // do trabalhado). Se bater exatamente a mesma entrada/saída deste
+          // mesmo re-envio do relatório, só preenche os horários de almoço
+          // que faltavam — não mexe em horas/extra/valor, que já estão
+          // corretos, evitando qualquer impacto em pagamento já feito.
+          if (!dup.saidaAlmoco && !dup.voltaAlmoco && r.almEntrada && r.almSaida &&
+              dup.entrada === r.entrada && dup.saida === r.saida) {
+            dup.saidaAlmoco = r.almEntrada;
+            dup.voltaAlmoco = r.almSaida;
+            dup.semAlmocoConfirmado = !!r.almocoConfirmado;
+            dup.atualizadoEm = new Date().toISOString();
+            reconciliados++;
+          }
+          pulados++;
+          conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data);
+          return;
+        }
 
         // ── Trava de jornada impossível (Item 2) ──────────────────────────
         var entMin   = _hhmm2min(r.entrada);
@@ -3162,6 +3182,7 @@ var HR_IMPORT = (function () {
 
     var msg = '✅ ' + importados + ' registro(s) importado(s).';
     if (pulados > 0) msg += ' ⚠️ ' + pulados + ' duplicata(s) ignorada(s).';
+    if (reconciliados > 0) msg += ' 🍽 ' + reconciliados + ' dia(s) com almoço reconciliado(s).';
     if (semFunc > 0) msg += ' ℹ️ ' + semFunc + ' sem vínculo.';
     _toast(msg);
 
