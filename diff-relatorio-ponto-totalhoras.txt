@@ -1,0 +1,20 @@
+--- /mnt/user-data/outputs/app-relatorio-ponto.js	2026-07-15 01:18:50.121560000 +0000
++++ app-relatorio-ponto.js	2026-07-15 01:36:37.189500463 +0000
+@@ -745,7 +745,7 @@
+     }
+ 
+     _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
+-    if (totalValorExtra > 0) _lin('+ Horas extras deste período', totalValorExtra, COR_VERDE);
++    if (totalValorExtra > 0) _lin('+ Horas extras deste período (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
+     if (fin.totalDeficitValor > 0) _lin('− Minutos faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
+     if (fin.creditosAlvo.length > 0) {
+       doc.setFont('helvetica', 'italic');
+@@ -1181,7 +1181,7 @@
+ 
+     if (totalValorExtra > 0) {
+       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
+-        '<span style="color:#2a8a46;">+ Horas extras deste período</span>'+
++        '<span style="color:#2a8a46;">+ Horas extras deste período ('+fmtMin(totalExtraMin50+totalExtraMin200)+')</span>'+
+         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
+     }
+ 
