@@ -163,12 +163,19 @@ var HR_RELATORIO_PONTO = (function () {
 
       if (r) {
         var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
-        var extraBrutoMin = Math.round((parseFloat(r.extra) || 0) * 60);
+        // Extra/déficit agora SEMPRE vêm do saldo real do dia (trabalhado −
+        // esperado), calculado aqui — não mais do campo r.extra salvo na
+        // importação. Aquele valor foi calculado ANTES de qualquer exceção
+        // (feriado meio período, acordo, "Direto confirmado") ser lançada
+        // na tela de correção, então ficava desatualizado sempre que o
+        // esperado do dia mudava depois do import — fazendo o relatório
+        // mostrar "—" (sem HE) em dias que na verdade tiveram extra real.
+        var brutoExtraDia = Math.max(0, trabMin - esperadoMin);
         // Desconta a compensação ANTES de classificar/multiplicar — as horas
         // descontadas não são pagas nem triplicadas, só abatem a folga devida.
-        compensarMin      = Math.min(extraBrutoMin, compensarMin);
-        var extraMin      = extraBrutoMin - compensarMin;
+        compensarMin      = Math.min(brutoExtraDia, compensarMin);
         var saldoMin      = trabMin - esperadoMin - compensarMin;
+        var extraMin      = Math.max(0, saldoMin);
         if (compensarMin > 0) {
           obsExcecao += (obsExcecao ? ' — ' : '') + 'descontadas ' + _fmtMin(compensarMin) + ' (compensação)';
         }
@@ -471,7 +478,7 @@ var HR_RELATORIO_PONTO = (function () {
   // ─── Motor financeiro do decêndio (usado por jsPDF e pelo preview HTML) ──────
   // Centraliza toda a conta: salário fixo do decêndio + HE do período
   // − adiantamentos apontados para este decêndio − já pago = líquido a pagar.
-  function _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, meusPagsPeriodo) {
+  function _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, totalDeficitMin, valorHora, meusPagsPeriodo) {
     var diaIni = di.slice(8, 10);
     var decNum = diaIni === '01' ? 1 : (diaIni === '11' ? 2 : 3);
     var mesRef = di.slice(0, 7);
@@ -516,7 +523,12 @@ var HR_RELATORIO_PONTO = (function () {
     creditosAlvo.forEach(function (c) { idsCredAlvo[c.id] = true; });
     var outrosCreditos = creditosTodos.filter(function (c) { return !idsCredAlvo[c.id]; });
 
-    var totalDevido  = decValor + totalValorExtra;
+    // Desconta os minutos a menos (déficit) à hora normal (1×, sem adicional —
+    // hora extra é paga com adicional porque é trabalho a mais fora da jornada;
+    // hora faltante é só jornada não cumprida, então desconta ao valor cheio).
+    var totalDeficitValor = (Math.abs(totalDeficitMin || 0) / 60) * (valorHora || 0);
+
+    var totalDevido  = decValor + totalValorExtra - totalDeficitValor;
     var totalLiquido = totalDevido - totalAdiantamentos + totalCreditos;
     var saldoFinal    = totalLiquido - totalPago;
     var status = saldoFinal <= 0.5 ? 'pago' : 'pendente';
@@ -539,6 +551,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     return {
       decNum: decNum, mesRef: mesRef, decValor: decValor,
+      totalDeficitValor: totalDeficitValor,
       totalPagoDecendio: totalPagoDecendio, totalPagoOutros: totalPagoOutros, totalPago: totalPago,
       adiantamentosAlvo: adiantamentosAlvo, totalAdiantamentos: totalAdiantamentos,
       outrosAdiantamentos: outrosAdiantamentos,
@@ -618,7 +631,7 @@ var HR_RELATORIO_PONTO = (function () {
       if (!confirmou) return null;
     }
 
-    var fin = _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, meusPags);
+    var fin = _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, totalDeficitMin, valorHora, meusPags);
 
     var doc = new jsPDFClass({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     var pW = 210, pH = 297;
@@ -682,7 +695,7 @@ var HR_RELATORIO_PONTO = (function () {
       return s + 4.2 + cw.obsLinhas.length * 3.4 + 4.5;
     }, 0);
 
-    var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
+    var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) + (fin.totalDeficitValor > 0 ? 6 : 0) +
                (fin.creditosAlvo.length > 0 ? 6 + creditosBoxH + 1.5 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
                (fin.totalPago > 0 ? 6 : 0) + 12;
@@ -720,6 +733,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
     if (totalValorExtra > 0) _lin('+ Horas extras deste período', totalValorExtra, COR_VERDE);
+    if (fin.totalDeficitValor > 0) _lin('− Minutos faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
     if (fin.creditosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
@@ -1156,6 +1170,12 @@ var HR_RELATORIO_PONTO = (function () {
       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
         '<span style="color:#2a8a46;">+ Horas extras deste período</span>'+
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
+    }
+
+    if (fin.totalDeficitValor > 0) {
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
+        '<span style="color:#b43c3c;">− Minutos faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
+        '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalDeficitValor)+'</span></div>';
     }
 
     if (fin.creditosAlvo.length > 0) {

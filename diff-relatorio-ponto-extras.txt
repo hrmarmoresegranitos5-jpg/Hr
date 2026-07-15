@@ -1,0 +1,25 @@
+--- /mnt/user-data/outputs/app-relatorio-ponto.js	2026-07-15 00:35:23.656491000 +0000
++++ app-relatorio-ponto.js	2026-07-15 00:58:54.716068429 +0000
+@@ -163,12 +163,19 @@
+ 
+       if (r) {
+         var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
+-        var extraBrutoMin = Math.round((parseFloat(r.extra) || 0) * 60);
++        // Extra/déficit agora SEMPRE vêm do saldo real do dia (trabalhado −
++        // esperado), calculado aqui — não mais do campo r.extra salvo na
++        // importação. Aquele valor foi calculado ANTES de qualquer exceção
++        // (feriado meio período, acordo, "Direto confirmado") ser lançada
++        // na tela de correção, então ficava desatualizado sempre que o
++        // esperado do dia mudava depois do import — fazendo o relatório
++        // mostrar "—" (sem HE) em dias que na verdade tiveram extra real.
++        var brutoExtraDia = Math.max(0, trabMin - esperadoMin);
+         // Desconta a compensação ANTES de classificar/multiplicar — as horas
+         // descontadas não são pagas nem triplicadas, só abatem a folga devida.
+-        compensarMin      = Math.min(extraBrutoMin, compensarMin);
+-        var extraMin      = extraBrutoMin - compensarMin;
++        compensarMin      = Math.min(brutoExtraDia, compensarMin);
+         var saldoMin      = trabMin - esperadoMin - compensarMin;
++        var extraMin      = Math.max(0, saldoMin);
+         if (compensarMin > 0) {
+           obsExcecao += (obsExcecao ? ' — ' : '') + 'descontadas ' + _fmtMin(compensarMin) + ' (compensação)';
+         }
