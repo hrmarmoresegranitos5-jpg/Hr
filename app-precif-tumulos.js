@@ -673,17 +673,17 @@ function tumAplicarTabela(opts) {
   if (q.lapide && q.lapide.on && ta.lapide) {
     q.lapide.venda = ta.lapide.preco;
     if (!q.lapide.custo || opts.forceAcab)
-      q.lapide.custo = Math.round(ta.lapide.preco * (ta.lapide.custoPerc||60) / 100);
+      q.lapide.custo = Math.round(ta.lapide.preco * (ta.lapide.custoPerc||60) / 100 * 100) / 100;
   }
   if (q.cruz && q.cruz.on && ta.cruz) {
     q.cruz.venda = ta.cruz.preco;
     if (!q.cruz.custo || opts.forceAcab)
-      q.cruz.custo = Math.round(ta.cruz.preco * (ta.cruz.custoPerc||55) / 100);
+      q.cruz.custo = Math.round(ta.cruz.preco * (ta.cruz.custoPerc||55) / 100 * 100) / 100;
   }
   if (q.foto && q.foto.on && ta.foto) {
     q.foto.venda = ta.foto.preco;
     if (!q.foto.custo || opts.forceAcab)
-      q.foto.custo = Math.round(ta.foto.preco * (ta.foto.custoPerc||50) / 100);
+      q.foto.custo = Math.round(ta.foto.preco * (ta.foto.custoPerc||50) / 100 * 100) / 100;
   }
 }
 
