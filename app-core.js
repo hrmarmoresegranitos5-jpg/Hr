@@ -281,7 +281,7 @@ var SYNC={
     });
   },
   push:function(){
-    if(!this.db||!this.code)return;
+    if(!this.db||!this.code)return Promise.reject(new Error('Sincronização ainda não conectou — aguarde alguns segundos e tente de novo'));
     var ts=Date.now();
     localStorage.setItem('hr_sync_ts',ts);
     // apiKey nunca é enviada pro Firebase: é config local de cada aparelho.
@@ -973,7 +973,7 @@ window.aplicarEstiloNi=function(){
   // ── Sync: reconectar se já configurado ────────────────────────
   var savedCode = localStorage.getItem('hr_sync_code');
   if (savedCode) {
-    setTimeout(function() { if (typeof firebase !== 'undefined') SYNC.init(savedCode); }, 3000);
+    setTimeout(function() { SYNC.init(savedCode); }, 3000);
   }
 
   // ── Tratar tap que aconteceu antes do DOMContentLoaded ────────
