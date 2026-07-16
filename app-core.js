@@ -276,6 +276,8 @@ var SYNC={
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
         toast('↓ Dados sincronizados!');
       }
+    }, function(erro){
+      toast('❌ ERRO ao sincronizar: '+erro.message);
     });
   },
   push:function(){
@@ -288,7 +290,7 @@ var SYNC={
     // a chave nova nos outros dispositivos na próxima sincronização.
     var cfgSemChave = JSON.parse(JSON.stringify(CFG));
     if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
-    this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,_ts:ts});
+    return this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,_ts:ts});
   },
   stop:function(){
     if(this.db&&this.code)this.db.ref('hr/'+this.code).off();
@@ -8309,7 +8311,7 @@ function buildCfg(){
     if(syncAtivo){
       h+='<div style="background:#0a1f12;border:1px solid var(--grn);border-radius:9px;padding:11px 13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">';
       h+='<span style="font-size:1rem;">✅</span><div style="flex:1;"><div style="font-size:.8rem;font-weight:600;color:var(--grn);">Sincronização ativa</div><div style="font-size:.65rem;color:var(--t3);">Código: <b style="color:var(--gold2);">'+SYNC.code+'</b></div></div></div>';
-      h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;" onclick="SYNC.push();toast(\'↑ Enviado!\')">↑ Enviar dados agora</button>';
+      h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;" onclick="SYNC.push().then(function(){toast(\'↑ Enviado com sucesso!\')}).catch(function(e){toast(\'❌ ERRO: \'+e.message)})">↑ Enviar dados agora</button>';
       h+='<button class="btn btn-red" style="font-size:.78rem;padding:10px;" onclick="SYNC.stop();buildCfg();">Desativar sincronização</button>';
     } else {
       h+='<div style="display:flex;gap:8px;margin-bottom:8px;">';
