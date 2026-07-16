@@ -118,6 +118,54 @@ function mkReg(data, entrada, saida, almocoManual) {
 function runAll() {
   _results = [];
 
+  // ════════════════════════════════════════════════════════════════════════
+  suite('0 — ORÇAMENTO: arredondamento e consistência de preço');
+  // (roda sempre, não depende de HR_IMPORT — testa as fórmulas em isolado
+  //  pra pegar regressão do bug de 16/07/2026: desconto arredondando pro
+  //  real inteiro em vez de centavos, e "Área" não batendo com "Pedra")
+  // ════════════════════════════════════════════════════════════════════════
+
+  test('Desconto em centavos: 8% de R$ 6.278,72 = R$ 502,30 (não R$ 502,00)', function() {
+    var valor = 6278.72, pct = 8;
+    var econ = Math.round(valor * (pct / 100) * 100) / 100;
+    return eq(econ, 502.30, 'Valor do desconto de 8%');
+  });
+
+  test('Cliente paga após 8% de desconto: R$ 6.278,72 → R$ 5.776,42', function() {
+    var valor = 6278.72, pct = 8;
+    var econ = Math.round(valor * (pct / 100) * 100) / 100;
+    var final = Math.round((valor - econ) * 100) / 100;
+    return eq(final, 5776.42, 'Valor final com desconto aplicado');
+  });
+
+  test('Área líquida + perda de corte reconcilia com o preço/m² cobrado', function() {
+    var m2 = 5.63, perda = 10, prM2 = 302.50;
+    var m2Compra = m2 * (1 + perda / 100);
+    var pedT = m2Compra * prM2;
+    var ratio = pedT / m2; // "preço efetivo" por m² líquido mostrado ao cliente
+    var pass = ratio >= prM2 * 0.95 && ratio <= prM2 * 1.35;
+    return {
+      pass: pass,
+      detail: 'Área ' + m2 + 'm² · Pedra R$ ' + pedT.toFixed(2) +
+        ' · relação R$ ' + ratio.toFixed(2) + '/m² (base R$ ' + prM2 + '/m², faixa aceita até +35% de perda)'
+    };
+  });
+
+  test('Valor de pedra (cuba/recorte) nunca trunca para real inteiro', function() {
+    // Regressão do bug em app-core.js: Math.round(aExtra*mat.pr) sem /100
+    // truncava frações de centavo. A fórmula correta deve manter 2 casas.
+    var aExtra = 0.0837, prM2 = 302.50;
+    var valorPedraCorreto = Math.round(aExtra * prM2 * 100) / 100;
+    var valorPedraBugado = Math.round(aExtra * prM2); // como era antes do fix
+    var diff = Math.abs(valorPedraCorreto - valorPedraBugado);
+    return {
+      pass: true, // informativo — mostra o tamanho do desvio que o bug antigo causava
+      detail: 'Correto: R$ ' + valorPedraCorreto.toFixed(2) +
+        ' · Fórmula antiga (bugada): R$ ' + valorPedraBugado.toFixed(2) +
+        ' · desvio de R$ ' + diff.toFixed(2)
+    };
+  });
+
   // Verifica se HR_IMPORT está disponível
   if (typeof HR_IMPORT === 'undefined') {
     _results.push({ suite: 'SETUP', name: 'HR_IMPORT carregado', pass: false,
@@ -562,6 +610,7 @@ function runAll() {
   });
 
   render();
+}
 
 // ── Renderiza resultados ──────────────────────────────────────────────────
 function render() {

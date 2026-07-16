@@ -357,7 +357,7 @@ function _cliConsultorDraw(q,ai){
   var maxDlocal=Math.max(0,fin.maxD+(hist?hist.bonus:0));
   var maxD=ai?Math.max(0,Math.round(+(ai.maxDesconto)||0)):maxDlocal;
   var valor=q?q.vista:0;
-  var econ=valor>0?Math.round(valor*(maxD/100)):0;
+  var econ=valor>0?Math.round(valor*(maxD/100)*100)/100:0;
 
   var NIVEL_COR ={otimo:'#5dbf7a',bom:'#5dbf7a',atencao:'#d4a017',critico:'#c94444'};
   var NIVEL_BG  ={otimo:'rgba(93,191,122,.10)',bom:'rgba(93,191,122,.07)',atencao:'rgba(212,160,23,.07)',critico:'rgba(201,68,68,.07)'};
@@ -428,7 +428,7 @@ function _cliConsultorDraw(q,ai){
     h+='<div style="font-size:.62rem;color:var(--t3);margin-bottom:5px;">Aplicar desconto:</div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;">';
     opts.forEach(function(p){
-      var e=Math.round(valor*(p/100));
+      var e=Math.round(valor*(p/100)*100)/100;
       h+='<button onclick="cliAplicarDesc('+p+')" style="flex:1;min-width:52px;padding:8px 4px;background:var(--s2);border:1px solid var(--bd2);border-radius:9px;cursor:pointer;font-family:Outfit;">';
       h+='<div style="font-size:.78rem;font-weight:700;color:#5dbf7a;">'+p+'%</div>';
       h+='<div style="font-size:.58rem;color:var(--t3);">−R$ '+fm(e)+'</div></button>';
@@ -949,15 +949,13 @@ function _orcSyncValorCard() {
   var subEl = document.getElementById('orcValorSub');
   if (!numEl) return;
 
-  // Extrair valor à vista do resDetail ou do estado global
-  var vista = 0;
-  if (typeof DB !== 'undefined' && DB.q && DB.q.length) {
-    var last = (DB.q&&DB.q.length) ? DB.q[DB.q.length - 1] : null;
-    if (last) vista = last.vista || 0;
-  }
+  // Fonte principal: window._vistaAtual, setado pela própria calcular()
+  // no momento em que o valor final é definido — nenhum parsing de texto
+  // envolvido, então não pode capturar o número errado.
+  var vista = window._vistaAtual || 0;
 
-  // Fallback confiável: ler o valor já calculado no painel interno (#piVista),
-  // que é preenchido pela mesma função calcular() que gera o resDetail.
+  // Fallback 1: valor já calculado no painel interno (#piVista), pra casos
+  // em que calcular() rodou antes desta melhoria estar em memória (cache).
   if (!vista) {
     var piVistaEl = document.getElementById('piVista');
     if (piVistaEl) {
@@ -967,9 +965,15 @@ function _orcSyncValorCard() {
     }
   }
 
-  // Último fallback: procurar no texto do resDetail (menos confiável — pode
-  // capturar o primeiro valor de peça/serviço em vez do total; usar só se
-  // as opções acima não estiverem disponíveis)
+  // Fallback 2: só usa o último orçamento salvo em DB.q se ainda não há
+  // nenhum valor calculado na tela (ex.: reabrindo um orçamento existente).
+  if (!vista && typeof DB !== 'undefined' && DB.q && DB.q.length) {
+    var last = DB.q[DB.q.length - 1];
+    if (last) vista = last.vista || 0;
+  }
+
+  // Último recurso: procurar no texto do resDetail (menos confiável — pode
+  // capturar o primeiro valor de peça/serviço em vez do total).
   if (!vista) {
     var resDetail = document.getElementById('resDetail');
     if (resDetail) {
@@ -984,6 +988,21 @@ function _orcSyncValorCard() {
   if (vista > 0) {
     numEl.textContent = 'R$ ' + fm(vista);
     numEl.style.color = 'var(--gold2)';
+    // ── Self-check: card de destaque vs painel interno ──
+    // Se algum dia voltarem a divergir (ex.: alguém reintroduzir uma leitura
+    // de DB.q antes da hora), isso avisa em vez de deixar passar em silêncio.
+    var _piCheckEl = document.getElementById('piVista');
+    if (_piCheckEl) {
+      var _piTxt = _piCheckEl.textContent || '';
+      var _piMatch = _piTxt.match(/R\$\s*([\d.,]+)/);
+      if (_piMatch) {
+        var _piVal = parseFloat(_piMatch[1].replace(/\./g, '').replace(',', '.'));
+        if (_piVal > 0 && Math.abs(_piVal - vista) > 0.01) {
+          console.warn('[orcamento] Card de destaque (R$ ' + fm(vista) + ') difere do painel interno (R$ ' + fm(_piVal) + ')');
+          if (typeof toast === 'function') toast('⚠ Card de valor pode estar desatualizado — confira o painel interno');
+        }
+      }
+    }
     if (subEl) {
       // Parcelado estimado (12x, 2%)
       var parcVal = vista * 1.02 / 12;
