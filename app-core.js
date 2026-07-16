@@ -220,7 +220,7 @@ var SYNC={
   init:function(code){
     if(!code){this.code='';localStorage.removeItem('hr_sync_code');this.on=false;return;}
     // Firebase project — free Realtime DB
-    var cfg={apiKey:"AIzaSyD_placeholder",databaseURL:"https://hr-marmores-default-rtdb.firebaseio.com"};
+    var cfg={apiKey:"AIzaSyCplqbYAl1eOKbNnM9rqHmDa47zB4ec9hQ",databaseURL:"https://orcamento-hr-marmoraria-default-rtdb.firebaseio.com"};
     try{
       if(typeof firebase==='undefined'){
         // Load Firebase on demand
@@ -244,6 +244,7 @@ var SYNC={
       this.on=true;
       this._listen();
       toast('✓ Sincronização ativa — código: '+code);
+      if(typeof FCM!=='undefined' && typeof Notification!=='undefined' && Notification.permission==='granted') FCM.init();
     }catch(e){toast('Sync: configure o Firebase (ver instruções)');}
   },
   _listen:function(){
@@ -269,6 +270,7 @@ var SYNC={
         if(d.q)DB.q=d.q;
         if(d.j)DB.j=d.j;
         if(d.t)DB.t=d.t;
+        if(d.b)DB.b=d.b;
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
@@ -286,7 +288,7 @@ var SYNC={
     // a chave nova nos outros dispositivos na próxima sincronização.
     var cfgSemChave = JSON.parse(JSON.stringify(CFG));
     if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
-    this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,_ts:ts});
+    this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,_ts:ts});
   },
   stop:function(){
     if(this.db&&this.code)this.db.ref('hr/'+this.code).off();
@@ -294,6 +296,58 @@ var SYNC={
     localStorage.removeItem('hr_sync_code');
     localStorage.removeItem('hr_sync_ts');
     toast('Sincronização desativada');
+  }
+};
+
+// ═══ FCM (Push real — funciona com app fechado) ═══
+// PREENCHER com os valores reais do seu projeto Firebase (Configurações do
+// projeto → Geral → seus apps → Web). O VAPID_KEY vem de Configurações do
+// projeto → Cloud Messaging → Certificados push da Web.
+var FCM_CFG = {
+  apiKey: "AIzaSyCplqbYAl1eOKbNnM9rqHmDa47zB4ec9hQ",
+  authDomain: "orcamento-hr-marmoraria.firebaseapp.com",
+  databaseURL: "https://orcamento-hr-marmoraria-default-rtdb.firebaseio.com",
+  projectId: "orcamento-hr-marmoraria",
+  messagingSenderId: "450670328636",
+  appId: "1:450670328636:web:a673a81c755436dccd7c39"
+};
+var VAPID_KEY = "BF1b09spZngDCLWrv1QUlQm6UjCutcH1thyribQuTYOEvyovwUpiCc4AwQ8AWp5EcrLkvI99ch3qObgbCIdpj0o";
+
+var FCM = {
+  token: null,
+  init: function(){
+    if(!SYNC.code){ return; } // só faz sentido ter push se o dispositivo estiver sincronizado
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if(Notification.permission !== 'granted') return;
+    if(typeof firebase === 'undefined' || !firebase.messaging){
+      var fb3 = document.createElement('script');
+      fb3.src = 'https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js';
+      fb3.onload = function(){ FCM.init(); };
+      document.head.appendChild(fb3);
+      return;
+    }
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(FCM_CFG);
+      var messaging = firebase.messaging();
+      navigator.serviceWorker.register('firebase-messaging-sw.js').then(function(reg){
+        messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg }).then(function(token){
+          if(!token) return;
+          FCM.token = token;
+          FCM.salvarToken(token);
+        }).catch(function(e){ console.warn('FCM getToken falhou:', e); });
+      });
+      messaging.onMessage(function(payload){
+        // App aberto em primeiro plano — mostra como toast em vez de notificação do SO
+        var n = payload.notification || {};
+        toast((n.title || 'Aviso') + (n.body ? ' — ' + n.body : ''));
+      });
+    }catch(e){ console.warn('FCM init falhou:', e); }
+  },
+  salvarToken: function(token){
+    if(!SYNC.db || !SYNC.code) return;
+    // Salva sob o código de sync — é assim que a Cloud Function sabe pra
+    // quais dispositivos mandar push relativo aos boletos daquele código.
+    SYNC.db.ref('hr/'+SYNC.code+'/fcmTokens/'+token).set(true);
   }
 };
 
@@ -898,6 +952,10 @@ window.aplicarEstiloNi=function(){
   renderAg();
   renderFin();
   if (typeof bUpdDot === 'function') bUpdDot();
+  if (typeof bCheckNotificacoes === 'function') {
+    bCheckNotificacoes();
+    setInterval(bCheckNotificacoes, 30 * 60 * 1000); // reverifica a cada 30min com o app aberto
+  }
   renderDashboard();
   updEmp();
   updUrgDot();
