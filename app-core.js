@@ -207,7 +207,44 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
-  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));localStorage.setItem('hr_b',JSON.stringify(this.b));if(SYNC.on)SYNC.push();}
+  sv:function(){
+    var self=this;
+    function _setAll(){
+      localStorage.setItem('hr_q',JSON.stringify(self.q));
+      localStorage.setItem('hr_j',JSON.stringify(self.j));
+      localStorage.setItem('hr_t',JSON.stringify(self.t));
+      localStorage.setItem('hr_b',JSON.stringify(self.b));
+    }
+    try{
+      _setAll();
+    }catch(e){
+      if(e && (e.name==='QuotaExceededError' || e.code===22 || e.code===1014)){
+        // ── Cota do localStorage estourada: hr_q cresce sem limite (unshift a cada orçamento) ──
+        // Arquiva os orçamentos mais antigos em IndexedDB (sem limite prático) e mantém
+        // só os N mais recentes em localStorage, pra não perder dados nem travar o app.
+        var KEEP=150;
+        if(self.q.length>KEEP){
+          var arquivados=self.q.slice(KEEP);
+          self.q=self.q.slice(0,KEEP);
+          _hrArquivarOrcamentosAntigos(arquivados);
+          try{
+            _setAll();
+            toast('⚠ Espaço cheio: '+arquivados.length+' orçamentos antigos foram arquivados automaticamente.');
+          }catch(e2){
+            toast('🔴 Armazenamento cheio. Não foi possível salvar. Exporte um backup e limpe orçamentos antigos.');
+            console.error('DB.sv falhou mesmo após arquivar:',e2);
+          }
+        } else {
+          toast('🔴 Armazenamento cheio e não há orçamentos antigos suficientes para liberar espaço. Exporte um backup.');
+          console.error('QuotaExceededError em DB.sv, hr_q já está no mínimo:',e);
+        }
+      } else {
+        console.error('Erro ao salvar DB:',e);
+        if(typeof toast==='function')toast('⚠ Erro ao salvar dados: '+(e&&e.message?e.message:e));
+      }
+    }
+    if(SYNC.on)SYNC.push();
+  }
 };
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
@@ -671,6 +708,56 @@ function _hrFotoDBMigrarLegado() {
     console.warn('[_hrFotoDBMigrarLegado]', e.message || e);
     return Promise.resolve();
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ARQUIVAMENTO DE ORÇAMENTOS ANTIGOS (hr_q) EM INDEXEDDB
+// hr_q cresce sem limite — todo orçamento entra com DB.q.unshift() e nunca é
+// removido. Cada item carrega ambSnap completo (peças, medidas, nichoExtra,
+// tumPendOrc), então depois de algumas centenas de orçamentos hr_q sozinho
+// pode passar a cota do localStorage e derrubar DB.sv() (erro visto: "Setting
+// the value of 'hr_q' exceeded the quota"). Em vez de travar, os orçamentos
+// mais antigos são movidos pra cá — IndexedDB não tem esse limite prático.
+// ══════════════════════════════════════════════════════════════════════════
+var _hrOrcDBP = null;
+function _hrOrcDBOpen() {
+  if (_hrOrcDBP) return _hrOrcDBP;
+  _hrOrcDBP = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
+    var req = indexedDB.open('hr_orcamentos_db', 1);
+    req.onupgradeneeded = function() {
+      var db = req.result;
+      if (!db.objectStoreNames.contains('orcamentos')) db.createObjectStore('orcamentos', { keyPath: 'id' });
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror   = function() { reject(req.error); };
+  });
+  return _hrOrcDBP;
+}
+function _hrArquivarOrcamentosAntigos(lista) {
+  if (!lista || !lista.length) return Promise.resolve();
+  return _hrOrcDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('orcamentos', 'readwrite');
+      var store = tx.objectStore('orcamentos');
+      lista.forEach(function(q) { store.put(q); });
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  }).catch(function(e) {
+    console.error('[_hrArquivarOrcamentosAntigos] Falha ao arquivar em IndexedDB:', e);
+  });
+}
+// Recupera todos os orçamentos arquivados (ex: para exibir no histórico ou exportar backup)
+function _hrOrcDBGetAll() {
+  return _hrOrcDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('orcamentos', 'readonly');
+      var req = tx.objectStore('orcamentos').getAll();
+      req.onsuccess = function() { resolve(req.result || []); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
 }
 
 function svCFG(){
@@ -1471,24 +1558,39 @@ function _isPePc(desc){
   return /\bpe\b/.test(d)||d.indexOf('pe estrut')>=0||d.indexOf('pe de balc')>=0||d.indexOf('pe organ')>=0;
 }
 // Calcula subpeças derivadas de um pé estrutural
-// pc: {w, h, q, peExtra:{espPar, sainhaH, organico}}
+// pc: {w, h, q, peExtra:{fechH, espPar(legado), sainhaH(sainha da frente), retornoProf, organico}}
 // Retorna [{desc, w, h, q, m2}] + opcional {isMo:true, moVal}
 function _calcPeSubpecas(pc){
   var pe=pc.peExtra||{};
   var peW=+(pc.w||0), peH=+(pc.h||0), peQ=+(pc.q||1);
-  var espPar=+(pe.espPar||0), sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
+  var sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
   var sub=[];
   if(!peW||!peH) return sub;
   var peE=2; // espessura chapa granito (cm)
-  // 1. Fechamento lateral: (peH − espPar) × peW
-  if(espPar>0){
-    var fH=peH-espPar;
-    if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  // 1. Fechamento lateral: altura informada diretamente (engrossamento) × peW.
+  //    fechH é o campo atual (você digita a altura do fechamento direto).
+  //    espPar é o campo legado (espessura da parede) — se um orçamento antigo
+  //    só tiver espPar salvo, calcula a altura como antes (peH − espPar).
+  var fH=0;
+  if(pe.fechH!==undefined && pe.fechH!==null && pe.fechH!==''){
+    fH=+pe.fechH;
+  } else if(pe.espPar>0){
+    fH=peH-(+pe.espPar);
   }
-  // 2. Sainha lateral 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
+  if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  // 1b. Retorno: peça que sai da lateral do pé e volta reto até encostar na
+  //     parede/móvel (corte reto, sem esquadria — fica escondida). A altura
+  //     dela é a altura do pé menos a espessura de uma chapa (peE), porque
+  //     desliza por baixo do tampo de cima e fica encoberta ali.
+  var retornoProf=+(pe.retornoProf||0);
+  if(retornoProf>0){
+    var retH=peH-peE;
+    if(retH>0){ sub.push({desc:'Retorno ('+retH+'×'+retornoProf+' cm)',w:retornoProf,h:retH,q:peQ,m2:(retH/100)*(retornoProf/100)*peQ}); }
+  }
+  // 2. Sainha da frente 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
   if(sainhaH>0){
     var m2S=(sainhaH/100)*(sainhaH/100)/2; // área do triângulo = base×altura/2
-    sub.push({desc:'Sainha Lateral 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
+    sub.push({desc:'Sainha da Frente 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
   }
   // 3. Taxa de m.o. orgânico — sobre m² total (pé + derivadas)
   if(organico){
@@ -1534,7 +1636,7 @@ function updPeExtra(ambId,pcId,field,val){
     });
     h+='</div>';
   } else {
-    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe espessura da parede para ver as pecas derivadas</div>';
+    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe o engrossamento para ver as pecas derivadas</div>';
   }
   panel.innerHTML=h;
   if(typeof _syncBordaSvState==='function') _syncBordaSvState(amb);
@@ -3921,9 +4023,10 @@ function renderAmbientes(){
           h+='</div>';
           if(_peOrg) h+='<div style="font-size:.6rem;color:rgba(201,168,76,.7);margin-bottom:8px;">+R$ '+(getPr('pe_organico_mo')||60)+'/m² taxa de corte orgânico</div>';
           h+='<div class="r2">';
-          h+='<div class="f"><label>Esp. parede (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.espPar||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'espPar\',+this.value)"></div>';
-          h+='<div class="f"><label>Sainha lateral (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
+          h+='<div class="f"><label>Engrossamento (cm)</label><input type="number" placeholder="Ex: 8" style="background:var(--s3);" value="'+(_pe.fechH!==undefined&&_pe.fechH!==null?_pe.fechH:'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'fechH\',+this.value)"></div>';
+          h+='<div class="f"><label>Sainha da frente (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
           h+='</div>';
+          h+='<div class="f"><label>Retorno até a parede/móvel (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.retornoProf||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'retornoProf\',+this.value)"></div>';
           h+='<div id="pe-sub-'+pc.id+'">';
           var _subPes=_calcPeSubpecas(pc);
           if(_subPes.length){
@@ -3945,7 +4048,7 @@ function renderAmbientes(){
             });
             h+='</div>';
           } else {
-            h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe espessura da parede para ver as peças derivadas</div>';
+            h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe o engrossamento para ver as peças derivadas</div>';
           }
           h+='</div>';
           h+='</div>';
