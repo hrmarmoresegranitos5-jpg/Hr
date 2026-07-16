@@ -1,0 +1,27 @@
+name: Checar boletos e enviar push
+
+on:
+  schedule:
+    - cron: '0 11 * * *'   # 08:00 horário de Bahia (UTC-3)
+    - cron: '0 21 * * *'   # 18:00 horário de Bahia (UTC-3)
+  workflow_dispatch:        # permite rodar manualmente na aba "Actions" do GitHub, pra testar
+
+jobs:
+  checar-boletos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        working-directory: scripts
+        run: npm install
+
+      - name: Rodar checagem de boletos
+        working-directory: scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node checar-boletos.js
