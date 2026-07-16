@@ -130,9 +130,18 @@ function renderBoletosTab() {
     h += '</div>';
   }
 
+  if (typeof Notification !== 'undefined' && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+    h += '<div class="b-alerta" style="cursor:pointer;" onclick="bPedirPermissaoNotif()">';
+    h += '<span class="b-alerta-icon">🔔</span>';
+    h += '<div><div class="b-alerta-title">Ativar avisos de vencimento</div>';
+    h += '<div class="b-alerta-nomes">Toque aqui para ser avisado quando um boleto estiver perto de vencer, vencer ou vencido</div></div>';
+    h += '</div>';
+  }
+
   // ── BUSCA + ADD ──
   h += '<div class="b-toolbar">';
   h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
+  h += '<button class="btn btn-o" onclick="document.getElementById(\'bImportFileInput\').click()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
   h += '</div>';
@@ -643,6 +652,237 @@ function bRenderEstrategia(data, viaIA) {
   }
 
   box.innerHTML = h;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// LINHA DIGITÁVEL: decodifica valor e vencimento direto do código de barras
+// (não depende de OCR/rótulos — é o dado oficial do boleto, sempre exato)
+// ══════════════════════════════════════════════════════════════════════
+function bDecodeLinhaDigitavel(linha) {
+  var digits = (linha || '').replace(/\D/g, '');
+  if (digits.length !== 47) return null;
+
+  var campo5 = digits.slice(33); // últimos 14 dígitos: fator(4) + valor(10)
+  var fator  = parseInt(campo5.slice(0, 4), 10);
+  var valor  = parseInt(campo5.slice(4), 10) / 100;
+
+  if (!fator) return { valor: valor, venc: null, fator: 0 };
+
+  // Bancos brasileiros trocaram a data-base em 2025 (a antiga, 07/10/1997,
+  // estourava o campo de 4 dígitos). Calculamos pelas duas e escolhemos
+  // a mais plausível (mais perto de hoje).
+  function fatorParaData(baseUTC, f) {
+    var d = new Date(baseUTC + f * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+  var baseNova   = Date.UTC(2022, 4, 29);   // nova base (pós-2025)
+  var baseAntiga = Date.UTC(1997, 9, 7);    // base tradicional
+  var dataNova   = fatorParaData(baseNova, fator);
+  var dataAntiga = fatorParaData(baseAntiga, fator);
+
+  var hoje = Date.now();
+  var difNova   = Math.abs(new Date(dataNova).getTime()   - hoje);
+  var difAntiga = Math.abs(new Date(dataAntiga).getTime() - hoje);
+  var venc = difNova <= difAntiga ? dataNova : dataAntiga;
+
+  return { valor: valor, venc: venc, fator: fator };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// IMPORTAR BOLETOS DE PDF (pdf.js) — lê o PDF, encontra a(s) linha(s)
+// digitável(is), decodifica valor/vencimento com certeza (via código de
+// barras) e tenta extrair fornecedor/nº documento por proximidade de
+// texto. Sempre mostra uma prévia editável antes de gravar qualquer coisa.
+// ══════════════════════════════════════════════════════════════════════
+var _bImportPreview = [];
+
+async function bProcessarPDFs(fileList) {
+  if (!fileList || !fileList.length) return;
+  if (typeof pdfjsLib === 'undefined') { toast('Biblioteca de PDF não carregou — verifique sua conexão'); return; }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  _bImportPreview = [];
+  showMd('bImportMd');
+  document.getElementById('bImportBody').innerHTML = '<div style="text-align:center;padding:24px;color:var(--t3);font-size:.8rem;">⏳ Lendo PDF(s)...</div>';
+
+  for (var i = 0; i < fileList.length; i++) {
+    var file = fileList[i];
+    try {
+      var buf = await file.arrayBuffer();
+      var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      var fullText = '';
+      for (var p = 1; p <= pdf.numPages; p++) {
+        var page = await pdf.getPage(p);
+        var content = await page.getTextContent();
+        fullText += content.items.map(function(it){ return it.str; }).join(' ') + '\n';
+      }
+      var achados = bExtrairBoletosDoTexto(fullText, file.name);
+      _bImportPreview = _bImportPreview.concat(achados);
+    } catch (e) {
+      toast('Erro ao ler ' + file.name);
+    }
+  }
+  bRenderImportPreview();
+  document.getElementById('bImportFileInput').value = '';
+}
+
+function bExtrairBoletosDoTexto(texto, nomeArquivo) {
+  var regexLinha = /(\d{5}\.\d{5})\s*(\d{5}\.\d{6})\s*(\d{5}\.\d{6})\s*(\d)\s*(\d{14})/g;
+  var results = [], vistos = {}, match;
+  var prevEnd = 0;
+  var matches = [];
+  while ((match = regexLinha.exec(texto)) !== null) matches.push(match);
+
+  matches.forEach(function(match, idx){
+    var linhaDigits = match[0].replace(/\D/g, '');
+    if (linhaDigits.length !== 47 || vistos[linhaDigits]) { prevEnd = match.index + match[0].length; return; }
+    vistos[linhaDigits] = true;
+
+    var dec = bDecodeLinhaDigitavel(linhaDigits);
+    if (!dec || !dec.venc) { prevEnd = match.index + match[0].length; return; }
+
+    // Janela escopada: só o texto entre o boleto anterior e este (evita
+    // "vazar" dados de um boleto vizinho quando o PDF tem vários juntos)
+    var inicioJanela = Math.max(prevEnd, match.index - 1200);
+    var janela = texto.slice(inicioJanela, match.index + 200);
+    prevEnd = match.index + match[0].length;
+
+    var cli = '';
+    var fornecMatches = janela.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))\s+\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g);
+    if (fornecMatches && fornecMatches.length) {
+      var ultimo = fornecMatches[fornecMatches.length - 1];
+      var mF = ultimo.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))/);
+      if (mF) cli = mF[1].trim().replace(/\s+/g, ' ');
+    }
+
+    var nDoc = '';
+    var docMatches = janela.match(/\b\d{4,7}-[A-Z]\/\d\b/g) || janela.match(/\b\d{4,7}-\d{2}\b/g);
+    if (docMatches && docMatches.length) nDoc = docMatches[docMatches.length - 1];
+
+    var nn = '';
+    var nnMatches = [].concat(janela.match(/Nosso\s*[Nn][úu]mero\D{0,15}?\d{4,8}/g) || []);
+    if (nnMatches.length) {
+      var mNN = nnMatches[nnMatches.length - 1].match(/(\d{4,8})$/);
+      if (mNN) nn = mNN[1];
+    }
+
+    results.push({
+      linhaDig: linhaDigits,
+      cli: cli || '',
+      desc: nDoc ? ('Doc. ' + nDoc) : (nn ? ('Boleto ' + nn) : 'Boleto importado'),
+      nDoc: nDoc,
+      nn: nn,
+      valor: dec.valor,
+      venc: dec.venc,
+      arquivo: nomeArquivo,
+      _jaExiste: (DB.b || []).some(function(b){ return b.linhaDig === linhaDigits; })
+    });
+  });
+  return results;
+}
+
+function bRenderImportPreview() {
+  var box = document.getElementById('bImportBody');
+  if (!box) return;
+  if (!_bImportPreview.length) {
+    box.innerHTML = '<div class="b-empty">Nenhuma linha digitável reconhecida nos PDF(s) selecionados.<br><span style="font-size:.65rem;color:var(--t4);">Verifique se são boletos bancários (não notas fiscais) e tente novamente.</span></div>';
+    return;
+  }
+  var h = '<div style="font-size:.68rem;color:var(--t3);margin-bottom:10px;">Confira os dados antes de importar — valor e vencimento vêm direto do código de barras (sempre exatos). Corrija fornecedor/descrição se necessário.</div>';
+  _bImportPreview.forEach(function(item, i) {
+    var dis = item._jaExiste ? 'disabled' : '';
+    var chk = item._jaExiste ? '' : 'checked';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px;' + (item._jaExiste?'opacity:.5;':'') + '">';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+    h += '<input type="checkbox" id="bImpChk' + i + '" ' + chk + ' ' + dis + ' style="width:16px;height:16px;">';
+    h += '<span style="font-size:.68rem;font-weight:700;color:var(--tx);flex:1;">' + escH(item.arquivo) + '</span>';
+    if (item._jaExiste) h += '<span class="b-status-badge bs-canc">já importado</span>';
+    h += '</div>';
+    h += '<div class="r2"><div class="f" style="margin-bottom:5px;"><label style="font-size:.6rem;">Fornecedor</label><input id="bImpCli' + i + '" type="text" value="' + escH(item.cli) + '" placeholder="Nome do fornecedor" ' + dis + '></div>';
+    h += '<div class="f" style="margin-bottom:5px;"><label style="font-size:.6rem;">Descrição</label><input id="bImpDesc' + i + '" type="text" value="' + escH(item.desc) + '" ' + dis + '></div></div>';
+    h += '<div class="r2"><div class="f" style="margin-bottom:0;"><label style="font-size:.6rem;">Valor R$</label><input id="bImpValor' + i + '" type="number" step="0.01" value="' + item.valor.toFixed(2) + '" ' + dis + '></div>';
+    h += '<div class="f" style="margin-bottom:0;"><label style="font-size:.6rem;">Vencimento</label><input id="bImpVenc' + i + '" type="date" value="' + item.venc + '" ' + dis + '></div></div>';
+    h += '</div>';
+  });
+  box.innerHTML = h;
+}
+
+function bConfirmarImport() {
+  var count = 0;
+  _bImportPreview.forEach(function(item, i) {
+    var chk = document.getElementById('bImpChk' + i);
+    if (!chk || !chk.checked || chk.disabled) return;
+    var cli   = (document.getElementById('bImpCli' + i)   || {}).value || '';
+    var desc  = (document.getElementById('bImpDesc' + i)  || {}).value || '';
+    var valor = parseFloat((document.getElementById('bImpValor' + i) || {}).value) || 0;
+    var venc  = (document.getElementById('bImpVenc' + i)  || {}).value || '';
+    if (!DB.b) DB.b = [];
+    DB.b.unshift({
+      id: Date.now() + Math.random(),
+      tipo: 'pagar',
+      cat: 'fornecedor',
+      cli: cli || '(fornecedor a definir)',
+      desc: desc,
+      valor: valor,
+      venc: venc,
+      parc: item.nDoc || '',
+      fpag: 'boleto',
+      status: 'pendente',
+      obs: 'Importado de ' + item.arquivo,
+      dtCriado: td(),
+      linhaDig: item.linhaDig,
+      nn: item.nn
+    });
+    count++;
+  });
+  if (count) {
+    DB.sv();
+    bAutoStatus();
+    toast(count + ' boleto(s) importado(s) ✅');
+    _bRerender();
+  } else {
+    toast('Nenhum boleto selecionado');
+  }
+  closeAll();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// NOTIFICAÇÕES: avisa quando um boleto está próximo de vencer, vence hoje
+// ou está vencido. Funciona enquanto o app estiver aberto no navegador
+// (não é push — não dispara com o app/aba totalmente fechados).
+// ══════════════════════════════════════════════════════════════════════
+function bPedirPermissaoNotif() {
+  if (typeof Notification === 'undefined') { toast('Seu navegador não suporta notificações'); return; }
+  Notification.requestPermission().then(function(perm) {
+    if (perm === 'granted') {
+      toast('Notificações ativadas ✅');
+      bCheckNotificacoes(); _bRerender();
+      if (typeof FCM !== 'undefined') FCM.init(); // registra push real (funciona com app fechado)
+    }
+    else toast('Permissão de notificação negada');
+  });
+}
+
+function bCheckNotificacoes() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  var mudou = false;
+  (DB.b || []).forEach(function(b) {
+    if (b.tipo !== 'pagar' || (b.status !== 'pendente' && b.status !== 'vencido') || !b.venc) return;
+    var diff = dDiff(b.venc);
+    b._notif = b._notif || {};
+    var nome = b.cli || b.desc || 'Boleto';
+    if (diff < 0 && !b._notif.vencido) {
+      new Notification('🔴 Boleto vencido', { body: nome + ' — R$ ' + fm(b.valor) + ' venceu há ' + Math.abs(diff) + ' dia(s)', tag: 'boleto-' + b.id });
+      b._notif.vencido = true; mudou = true;
+    } else if (diff === 0 && !b._notif.hoje) {
+      new Notification('🟡 Boleto vence hoje', { body: nome + ' — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      b._notif.hoje = true; mudou = true;
+    } else if (diff > 0 && diff <= 3 && !b._notif.proximo) {
+      new Notification('⏳ Boleto vence em breve', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      b._notif.proximo = true; mudou = true;
+    }
+  });
+  if (mudou) DB.sv();
 }
 
 // ══════════════════════════════════════════════════════════════════════
