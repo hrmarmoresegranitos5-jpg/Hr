@@ -8517,9 +8517,10 @@ function importarDados(){
   if(!txt)return;
   try{
     var d=JSON.parse(txt);
-    _restaurarBackup(d);
-    toast('✓ Dados restaurados!');
-    setTimeout(function(){location.reload();},800);
+    Promise.resolve(_restaurarBackup(d)).then(function(){
+      toast('✓ Dados restaurados!');
+      setTimeout(function(){location.reload();},800);
+    });
   }catch(e){toast('❌ Dados inválidos');}
 }
 
@@ -10168,29 +10169,33 @@ function _coletarLocalStorageExtra(){
 }
 
 function baixarBackup(){
-  var dados={
-    _v:2,
-    _ts:Date.now(),
-    cfg:CFG,
-    q:DB.q,
-    j:DB.j,
-    t:DB.t,
-    b:DB.b,
-    hrdb:_coletarHRdb(),
-    extra:_coletarLocalStorageExtra()
-  };
-  var json=JSON.stringify(dados);
-  var dt=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
-  var fname='HR_Backup_'+dt+'.json';
-  var blob=new Blob([json],{type:'application/json'});
-  if(navigator.share){
-    var file=new File([blob],fname,{type:'application/json'});
-    navigator.share({files:[file],title:'Backup HR Mármores'})
-      .then(function(){toast('✓ Backup compartilhado!');})
-      .catch(function(){_baixarViaLink(json,fname);});
-    return;
-  }
-  _baixarViaLink(json,fname);
+  toast('⏳ Preparando backup (incluindo fotos)...');
+  _hrFotoDBGetAll().catch(function(){ return {}; }).then(function(fotosDB){
+    var dados={
+      _v:3,
+      _ts:Date.now(),
+      cfg:CFG,
+      q:DB.q,
+      j:DB.j,
+      t:DB.t,
+      b:DB.b,
+      hrdb:_coletarHRdb(),
+      extra:_coletarLocalStorageExtra(),
+      fotosDB:fotosDB
+    };
+    var json=JSON.stringify(dados);
+    var dt=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
+    var fname='HR_Backup_'+dt+'.json';
+    var blob=new Blob([json],{type:'application/json'});
+    if(navigator.share){
+      var file=new File([blob],fname,{type:'application/json'});
+      navigator.share({files:[file],title:'Backup HR Mármores'})
+        .then(function(){toast('✓ Backup completo (com fotos) compartilhado!');})
+        .catch(function(){_baixarViaLink(json,fname);});
+      return;
+    }
+    _baixarViaLink(json,fname);
+  });
 }
 // ═══ CATÁLOGO PÚBLICO (catalogo.html via GitHub) ═══
 function _ghRepoPath(){
@@ -10432,6 +10437,15 @@ function _restaurarBackup(d){
   try{localStorage.setItem('hr_just_restored','1');}catch(e){}
   // 6. Re-sincronizar CFG em memória para não ser sobrescrito depois
   if(d.cfg) CFG = d.cfg;
+  // 7. Fotos do catálogo (cuba/acessório/pedra/etc) — grava de volta no
+  //    IndexedDB antes de recarregar, senão o backup fica "incompleto"
+  //    igual aconteceu antes desta função existir.
+  if(d.fotosDB && typeof d.fotosDB==='object' && Object.keys(d.fotosDB).length){
+    return _hrFotoDBSaveAll(d.fotosDB).catch(function(e){
+      console.warn('[Backup] Falha ao restaurar fotos no IndexedDB:',e);
+    });
+  }
+  return Promise.resolve();
 }
 
 function carregarBackup(input){
@@ -10440,9 +10454,11 @@ function carregarBackup(input){
   reader.onload=function(e){
     try{
       var d=JSON.parse(e.target.result);
-      _restaurarBackup(d);
-      toast('✓ Backup restaurado! Recarregando...');
-      setTimeout(function(){location.reload();},900);
+      toast('⏳ Restaurando backup...');
+      Promise.resolve(_restaurarBackup(d)).then(function(){
+        toast('✓ Backup restaurado! Recarregando...');
+        setTimeout(function(){location.reload();},900);
+      });
     }catch(err){toast('❌ Arquivo inválido');}
   };
   reader.readAsText(file);
