@@ -797,20 +797,23 @@ function svCFG(){
   }
 
   // ── Fotos → IndexedDB (não localStorage) — resolve o problema de raiz ──
+  // As chaves são prefixadas por categoria (coz_, lav_, stone_, ac_, trab_,
+  // ref_) para impedir que dois itens de categorias diferentes com o mesmo
+  // .id acabem sobrescrevendo a foto um do outro na mesma gaveta do IndexedDB.
   var fotosMap = {};
-  function _extrairFotos(lista) {
+  function _extrairFotos(lista, prefixo) {
     (lista || []).forEach(function(c) {
       if (c && c.id && c.fotos && c.fotos.length) {
-        fotosMap[c.id] = c.fotos.slice();
+        fotosMap[prefixo + '_' + c.id] = c.fotos.slice();
       }
     });
   }
-  _extrairFotos(CFG.coz);
-  _extrairFotos(CFG.lav);
-  _extrairFotos(CFG.stones);
-  _extrairFotos(CFG.ac);
-  _extrairFotos(CFG.trabalhos);
-  _extrairFotos(CFG.referencias);
+  _extrairFotos(CFG.coz, 'coz');
+  _extrairFotos(CFG.lav, 'lav');
+  _extrairFotos(CFG.stones, 'stone');
+  _extrairFotos(CFG.ac, 'ac');
+  _extrairFotos(CFG.trabalhos, 'trab');
+  _extrairFotos(CFG.referencias, 'ref');
   window._svCFGFotosPromise = _hrFotoDBSaveAll(fotosMap).catch(function(e3) {
     console.warn('[svCFG] Falha ao salvar fotos no IndexedDB:', e3.message || e3);
     if (typeof toast === 'function') toast('⚠️ Fotos do catálogo não foram salvas — tente novamente.');
@@ -827,20 +830,25 @@ function _restoreCubaFotos() {
   return _hrFotoDBMigrarLegado().then(function() {
     return _hrFotoDBGetAll();
   }).then(function(fotosMap) {
-    function _injetar(lista) {
+    function _injetar(lista, prefixo) {
       (lista || []).forEach(function(c) {
-        if (c && c.id && fotosMap[c.id] && fotosMap[c.id].length) {
-          c.fotos = fotosMap[c.id];
+        // Tenta a chave nova (com prefixo de categoria) e, se não achar,
+        // cai pro formato antigo (sem prefixo) — cobre fotos salvas antes
+        // desta correção, pra não parecerem "perdidas" à toa.
+        var chave = prefixo + '_' + c.id;
+        var fotos = (c && c.id) ? (fotosMap[chave] || fotosMap[c.id]) : null;
+        if (c && fotos && fotos.length) {
+          c.fotos = fotos;
           if (!c.photo && c.fotos.length) c.photo = c.fotos[0];
         }
       });
     }
-    _injetar(CFG.coz);
-    _injetar(CFG.lav);
-    _injetar(CFG.stones);
-    _injetar(CFG.ac);
-    _injetar(CFG.trabalhos);
-    _injetar(CFG.referencias);
+    _injetar(CFG.coz, 'coz');
+    _injetar(CFG.lav, 'lav');
+    _injetar(CFG.stones, 'stone');
+    _injetar(CFG.ac, 'ac');
+    _injetar(CFG.trabalhos, 'trab');
+    _injetar(CFG.referencias, 'ref');
     // Re-renderiza telas que já podem ter sido montadas sem as fotos
     if (typeof buildCubaList === 'function') buildCubaList();
     if (typeof buildCatalog   === 'function') buildCatalog();
