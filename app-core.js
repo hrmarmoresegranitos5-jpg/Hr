@@ -207,7 +207,44 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
-  sv:function(){localStorage.setItem('hr_q',JSON.stringify(this.q));localStorage.setItem('hr_j',JSON.stringify(this.j));localStorage.setItem('hr_t',JSON.stringify(this.t));localStorage.setItem('hr_b',JSON.stringify(this.b));if(SYNC.on)SYNC.push();}
+  sv:function(){
+    var self=this;
+    function _setAll(){
+      localStorage.setItem('hr_q',JSON.stringify(self.q));
+      localStorage.setItem('hr_j',JSON.stringify(self.j));
+      localStorage.setItem('hr_t',JSON.stringify(self.t));
+      localStorage.setItem('hr_b',JSON.stringify(self.b));
+    }
+    try{
+      _setAll();
+    }catch(e){
+      if(e && (e.name==='QuotaExceededError' || e.code===22 || e.code===1014)){
+        // ── Cota do localStorage estourada: hr_q cresce sem limite (unshift a cada orçamento) ──
+        // Arquiva os orçamentos mais antigos em IndexedDB (sem limite prático) e mantém
+        // só os N mais recentes em localStorage, pra não perder dados nem travar o app.
+        var KEEP=150;
+        if(self.q.length>KEEP){
+          var arquivados=self.q.slice(KEEP);
+          self.q=self.q.slice(0,KEEP);
+          _hrArquivarOrcamentosAntigos(arquivados);
+          try{
+            _setAll();
+            toast('⚠ Espaço cheio: '+arquivados.length+' orçamentos antigos foram arquivados automaticamente.');
+          }catch(e2){
+            toast('🔴 Armazenamento cheio. Não foi possível salvar. Exporte um backup e limpe orçamentos antigos.');
+            console.error('DB.sv falhou mesmo após arquivar:',e2);
+          }
+        } else {
+          toast('🔴 Armazenamento cheio e não há orçamentos antigos suficientes para liberar espaço. Exporte um backup.');
+          console.error('QuotaExceededError em DB.sv, hr_q já está no mínimo:',e);
+        }
+      } else {
+        console.error('Erro ao salvar DB:',e);
+        if(typeof toast==='function')toast('⚠ Erro ao salvar dados: '+(e&&e.message?e.message:e));
+      }
+    }
+    if(SYNC.on)SYNC.push();
+  }
 };
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
@@ -671,6 +708,56 @@ function _hrFotoDBMigrarLegado() {
     console.warn('[_hrFotoDBMigrarLegado]', e.message || e);
     return Promise.resolve();
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ARQUIVAMENTO DE ORÇAMENTOS ANTIGOS (hr_q) EM INDEXEDDB
+// hr_q cresce sem limite — todo orçamento entra com DB.q.unshift() e nunca é
+// removido. Cada item carrega ambSnap completo (peças, medidas, nichoExtra,
+// tumPendOrc), então depois de algumas centenas de orçamentos hr_q sozinho
+// pode passar a cota do localStorage e derrubar DB.sv() (erro visto: "Setting
+// the value of 'hr_q' exceeded the quota"). Em vez de travar, os orçamentos
+// mais antigos são movidos pra cá — IndexedDB não tem esse limite prático.
+// ══════════════════════════════════════════════════════════════════════════
+var _hrOrcDBP = null;
+function _hrOrcDBOpen() {
+  if (_hrOrcDBP) return _hrOrcDBP;
+  _hrOrcDBP = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
+    var req = indexedDB.open('hr_orcamentos_db', 1);
+    req.onupgradeneeded = function() {
+      var db = req.result;
+      if (!db.objectStoreNames.contains('orcamentos')) db.createObjectStore('orcamentos', { keyPath: 'id' });
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror   = function() { reject(req.error); };
+  });
+  return _hrOrcDBP;
+}
+function _hrArquivarOrcamentosAntigos(lista) {
+  if (!lista || !lista.length) return Promise.resolve();
+  return _hrOrcDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('orcamentos', 'readwrite');
+      var store = tx.objectStore('orcamentos');
+      lista.forEach(function(q) { store.put(q); });
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  }).catch(function(e) {
+    console.error('[_hrArquivarOrcamentosAntigos] Falha ao arquivar em IndexedDB:', e);
+  });
+}
+// Recupera todos os orçamentos arquivados (ex: para exibir no histórico ou exportar backup)
+function _hrOrcDBGetAll() {
+  return _hrOrcDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('orcamentos', 'readonly');
+      var req = tx.objectStore('orcamentos').getAll();
+      req.onsuccess = function() { resolve(req.result || []); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
 }
 
 function svCFG(){
@@ -1471,24 +1558,39 @@ function _isPePc(desc){
   return /\bpe\b/.test(d)||d.indexOf('pe estrut')>=0||d.indexOf('pe de balc')>=0||d.indexOf('pe organ')>=0;
 }
 // Calcula subpeças derivadas de um pé estrutural
-// pc: {w, h, q, peExtra:{espPar, sainhaH, organico}}
+// pc: {w, h, q, peExtra:{fechH, espPar(legado), sainhaH(sainha da frente), retornoProf, organico}}
 // Retorna [{desc, w, h, q, m2}] + opcional {isMo:true, moVal}
 function _calcPeSubpecas(pc){
   var pe=pc.peExtra||{};
   var peW=+(pc.w||0), peH=+(pc.h||0), peQ=+(pc.q||1);
-  var espPar=+(pe.espPar||0), sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
+  var sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
   var sub=[];
   if(!peW||!peH) return sub;
   var peE=2; // espessura chapa granito (cm)
-  // 1. Fechamento lateral: (peH − espPar) × peW
-  if(espPar>0){
-    var fH=peH-espPar;
-    if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  // 1. Fechamento lateral: altura informada diretamente (engrossamento) × peW.
+  //    fechH é o campo atual (você digita a altura do fechamento direto).
+  //    espPar é o campo legado (espessura da parede) — se um orçamento antigo
+  //    só tiver espPar salvo, calcula a altura como antes (peH − espPar).
+  var fH=0;
+  if(pe.fechH!==undefined && pe.fechH!==null && pe.fechH!==''){
+    fH=+pe.fechH;
+  } else if(pe.espPar>0){
+    fH=peH-(+pe.espPar);
   }
-  // 2. Sainha lateral 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
+  if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  // 1b. Retorno: peça que sai da lateral do pé e volta reto até encostar na
+  //     parede/móvel (corte reto, sem esquadria — fica escondida). A altura
+  //     dela é a altura do pé menos a espessura de uma chapa (peE), porque
+  //     desliza por baixo do tampo de cima e fica encoberta ali.
+  var retornoProf=+(pe.retornoProf||0);
+  if(retornoProf>0){
+    var retH=peH-peE;
+    if(retH>0){ sub.push({desc:'Retorno ('+retH+'×'+retornoProf+' cm)',w:retornoProf,h:retH,q:peQ,m2:(retH/100)*(retornoProf/100)*peQ}); }
+  }
+  // 2. Sainha da frente 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
   if(sainhaH>0){
     var m2S=(sainhaH/100)*(sainhaH/100)/2; // área do triângulo = base×altura/2
-    sub.push({desc:'Sainha Lateral 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
+    sub.push({desc:'Sainha da Frente 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
   }
   // 3. Taxa de m.o. orgânico — sobre m² total (pé + derivadas)
   if(organico){
@@ -1534,7 +1636,7 @@ function updPeExtra(ambId,pcId,field,val){
     });
     h+='</div>';
   } else {
-    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe espessura da parede para ver as pecas derivadas</div>';
+    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe o engrossamento para ver as pecas derivadas</div>';
   }
   panel.innerHTML=h;
   if(typeof _syncBordaSvState==='function') _syncBordaSvState(amb);
@@ -1665,7 +1767,7 @@ function pickEsculpida(escId, tipo){
   var _escAmb = _escAmbId ? ambientes.find(function(a){return a.id==_escAmbId;}) : null;
   var _escMatId = (_escAmb && _escAmb.selMat) ? _escAmb.selMat : selMat;
   var mat=CFG.stones.find(function(s){return s.id===_escMatId;})||{pr:0,nm:''};
-  var valorPedra=Math.round(aExtra*mat.pr*100)/100;
+  var valorPedra=Math.round(aExtra*mat.pr);
   var totalCuba=moTotal+valorPedra;
 
   var tipoFinal=tipo||'lav';
@@ -3921,9 +4023,10 @@ function renderAmbientes(){
           h+='</div>';
           if(_peOrg) h+='<div style="font-size:.6rem;color:rgba(201,168,76,.7);margin-bottom:8px;">+R$ '+(getPr('pe_organico_mo')||60)+'/m² taxa de corte orgânico</div>';
           h+='<div class="r2">';
-          h+='<div class="f"><label>Esp. parede (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.espPar||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'espPar\',+this.value)"></div>';
-          h+='<div class="f"><label>Sainha lateral (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
+          h+='<div class="f"><label>Engrossamento (cm)</label><input type="number" placeholder="Ex: 8" style="background:var(--s3);" value="'+(_pe.fechH!==undefined&&_pe.fechH!==null?_pe.fechH:'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'fechH\',+this.value)"></div>';
+          h+='<div class="f"><label>Sainha da frente (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
           h+='</div>';
+          h+='<div class="f"><label>Retorno até a parede/móvel (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.retornoProf||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'retornoProf\',+this.value)"></div>';
           h+='<div id="pe-sub-'+pc.id+'">';
           var _subPes=_calcPeSubpecas(pc);
           if(_subPes.length){
@@ -3945,7 +4048,7 @@ function renderAmbientes(){
             });
             h+='</div>';
           } else {
-            h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe espessura da parede para ver as peças derivadas</div>';
+            h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe o engrossamento para ver as peças derivadas</div>';
           }
           h+='</div>';
           h+='</div>';
@@ -4523,17 +4626,6 @@ function novoOrcamento() {
   toast('✦ Novo orçamento pronto!');
 }
 
-function _orcToggleDebug() {
-  var box = document.getElementById('orcDebugBox');
-  if (!box) return;
-  if (box.style.display === 'none') {
-    box.textContent = JSON.stringify(window._orcDebug || {}, null, 2);
-    box.style.display = 'block';
-  } else {
-    box.style.display = 'none';
-  }
-}
-
 function calcular(){
   // Túmulo agora é orçado via chat do Léo (app-tum-ia.js). Buscamos o
   // resultado direto da sessão do Léo em vez do motor clássico antigo,
@@ -4921,17 +5013,11 @@ function calcular(){
   window._tumVistaOverride=0;
   var vista=bruto+tumAdj;
 
-  // ── Fonte única de verdade do valor calculado agora ──
-  // Qualquer outra parte da UI (card de destaque, PDF, WhatsApp) deve ler
-  // daqui em vez de tentar recalcular ou reler do último orçamento salvo.
-  window._vistaAtual = vista; // será ajustado abaixo se houver taxa de urgência
-
   // ── Taxa de urgência ──
   var urgPct = window._urgPct || 0;
   var urgVal = urgPct > 0 ? Math.round(vista * (urgPct / 100) * 100) / 100 : 0;
   if (urgVal > 0) {
     vista += urgVal;
-    window._vistaAtual = vista;
     detHtml += '<div style="margin-top:6px;"></div>';
     detHtml += '<div class="rrow" style="background:rgba(255,100,30,.06);border-radius:7px;padding:5px 7px;">'
       + '<span class="rk" style="color:#ff9060;font-weight:700;">🚨 Taxa de Urgência +' + urgPct + '%</span>'
@@ -4972,9 +5058,7 @@ function calcular(){
     pi+='<div style="display:flex;justify-content:space-between;">';
     pi+='<b style="font-size:.85rem;color:var(--tx);">'+matDisplay.nm+' — '+matDisplay.fin+'</b>';
     pi+='<b style="color:var(--gold2);">R$ '+fm(matDisplay.pr)+'/m²</b></div>';
-    var _m2cUnicaPre=_m2CompraPorPedra[pedrasUnicas[0]]||0;
-    var _perdaTxtUnica=(_m2cUnicaPre>0&&Math.abs(_m2cUnicaPre-totalM2)>0.001)?(' (+perda → '+fm(_m2cUnicaPre)+' m²)'):'';
-    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m²'+_perdaTxtUnica+' → Pedra: R$ '+fm(pedT)+'</div>';
+    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
     // Item 10: estimativa de chapas
     var _m2cUnica=_m2CompraPorPedra[pedrasUnicas[0]]||0;
     if(_m2cUnica>0){
@@ -4994,10 +5078,7 @@ function calcular(){
       pi+='<span style="font-size:.82rem;color:var(--tx);font-weight:700;">'+ms.nm+'</span>';
       pi+='<span style="color:var(--gold2);font-weight:700;">R$ '+fm(ms.pr)+'/m²</span></div>';
     });
-    var _m2cTotalMulti=0;
-    pedrasUnicas.forEach(function(mid){_m2cTotalMulti+=_m2CompraPorPedra[mid]||0;});
-    var _perdaTxtMulti=(_m2cTotalMulti>0&&Math.abs(_m2cTotalMulti-totalM2)>0.001)?(' (+perda → '+fm(_m2cTotalMulti)+' m²)'):'';
-    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área total: '+fm(totalM2)+' m²'+_perdaTxtMulti+' → Pedra: R$ '+fm(pedT)+'</div>';
+    pi+='<div style="font-size:.72rem;color:var(--t3);margin-top:3px;">Área total: '+fm(totalM2)+' m² → Pedra: R$ '+fm(pedT)+'</div>';
     // Item 10: estimativa de chapas por pedra
     var _chapHtml='';
     pedrasUnicas.forEach(function(mid){
@@ -5129,50 +5210,6 @@ function calcular(){
     +(_margemPct<25?'🔴 Margem crítica — reveja o preço ou custo':'🟡 Margem abaixo de 40% — considere ajustar')
     +'</div>':'')
   +'</div>';
-
-  // ── Sanity check: sinais de erro de fórmula, não de margem baixa normal ──
-  var _sanityMsgs=[];
-  if(_margemPct<0){
-    _sanityMsgs.push('Margem negativa ('+_margemPct+'%) — o custo ficou maior que o valor cobrado. Confira se algum item não entrou duplicado ou fora do total.');
-  } else if(_margemPct>90){
-    _sanityMsgs.push('Margem de '+_margemPct+'% é incomum — confira se o custo não ficou zerado ou incompleto.');
-  }
-  if(!temTumulo && totalM2>0 && pedT>0 && mat.pr>0){
-    var _pcM2=pedT/totalM2;
-    // Aceita a faixa normal de perda de corte (0% a ~35%) sobre o preço base da pedra
-    if(_pcM2 < mat.pr*0.95 || _pcM2 > mat.pr*1.35){
-      _sanityMsgs.push('Área ('+fm(totalM2)+' m²) e valor da pedra (R$ '+fm(pedT)+') não fecham com R$ '+fm(mat.pr)+'/m² — confira a perda de corte aplicada.');
-    }
-  }
-  if(_sanityMsgs.length){
-    pi+='<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(224,81,81,.10);border:1px solid rgba(224,81,81,.35);">';
-    pi+='<div style="font-size:.6rem;font-weight:700;color:#e05151;margin-bottom:4px;">🐞 CONFIRA ANTES DE ENVIAR</div>';
-    _sanityMsgs.forEach(function(msg){
-      pi+='<div style="font-size:.65rem;color:#e05151;line-height:1.4;margin-bottom:2px;">• '+msg+'</div>';
-    });
-    pi+='</div>';
-    console.warn('[orcamento] Sanity check:', _sanityMsgs);
-  }
-
-  // ── Modo Debug: expõe as variáveis internas do cálculo pra conferência rápida ──
-  window._orcDebug = {
-    totalM2_liquido: totalM2,
-    m2CompraPorPedra: _m2CompraPorPedra,
-    pedra_precoM2: mat.pr,
-    pedra_totalVendido: pedT,
-    servicos_acessorios: totalAcT,
-    vista_final: vista,
-    custoPedra_estimado: (typeof custoPedraExibir!=='undefined')?custoPedraExibir:null,
-    custoMO_estimado: (typeof custoMOReal!=='undefined')?custoMOReal:null,
-    custoTotal_painel: custoPainel,
-    margem_valor: _margemVal,
-    margem_pct: _margemPct,
-    fatorCustoMO: fatorMO
-  };
-  pi+='<div style="margin-top:10px;text-align:center;">'
-    +'<span onclick="_orcToggleDebug()" style="cursor:pointer;font-size:.6rem;color:var(--t4);border:1px solid var(--bd2);border-radius:6px;padding:3px 10px;display:inline-block;">🔍 Debug do cálculo</span>'
-    +'</div>'
-    +'<pre id="orcDebugBox" style="display:none;margin-top:8px;padding:10px;background:#0a0a0f;border:1px solid var(--bd2);border-radius:8px;font-size:.6rem;color:#8ec8c8;white-space:pre-wrap;word-break:break-all;"></pre>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
   // ── Alerta ativo de margem mínima (toast + vibração) ──
   if(_margemPct<25){
@@ -5252,15 +5289,6 @@ function calcular(){
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
-  // ── Checagem de estoque de chapas: bloqueia até confirmação se faltar material ──
-  if (typeof estVerificar === 'function' && mat && mat.nm && totalM2 > 0) {
-    var _estCheck = estVerificar(mat.nm, totalM2);
-    if (_estCheck.status !== 'ok' && typeof estMsgBloqueio === 'function') {
-      var _estOk = window.confirm(estMsgBloqueio(_estCheck, mat.nm, totalM2));
-      if (!_estOk) return;
-    }
-  }
-  var _estEraEdicao=!!pendEditId;
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
@@ -5274,9 +5302,6 @@ function calcular(){
     DB.q.unshift(q);
   }
   DB.sv();pendQ=q;
-  if (typeof estConsumir === 'function' && mat && mat.nm && totalM2 > 0 && !_estEraEdicao) {
-    estConsumir(mat.nm, totalM2);
-  }
   // ── Consultor de Desconto (reconhece cliente pelo nome, aplica bônus por histórico) + auto-save do cliente ──
   if(typeof _cliMostrarConsultor==='function'||typeof _cliAutoSave==='function'){
     setTimeout(function(){
@@ -11517,7 +11542,7 @@ function tumAplicarTabela(opts) {
     var item = tp.acabamentos[tpKey];
     q.acab[acabKey].venda = item.preco;
     if (!q.acab[acabKey].custo || opts.forceAcab)
-      q.acab[acabKey].custo = Math.round(item.preco * (item.custoPerc || 55) / 100 * 100) / 100;
+      q.acab[acabKey].custo = Math.round(item.preco * (item.custoPerc || 55) / 100);
   }
   _apAcab('bisote',    'lateral');
   _apAcab('polimento', 'polimento');
@@ -11529,17 +11554,17 @@ function tumAplicarTabela(opts) {
   if (q.lapide.on && ta.lapide) {
     q.lapide.venda = ta.lapide.preco;
     if (!q.lapide.custo || opts.forceAcab)
-      q.lapide.custo = Math.round(ta.lapide.preco * (ta.lapide.custoPerc||60) / 100 * 100) / 100;
+      q.lapide.custo = Math.round(ta.lapide.preco * (ta.lapide.custoPerc||60) / 100);
   }
   if (q.cruz.on && ta.cruz) {
     q.cruz.venda = ta.cruz.preco;
     if (!q.cruz.custo || opts.forceAcab)
-      q.cruz.custo = Math.round(ta.cruz.preco * (ta.cruz.custoPerc||55) / 100 * 100) / 100;
+      q.cruz.custo = Math.round(ta.cruz.preco * (ta.cruz.custoPerc||55) / 100);
   }
   if (q.foto.on && ta.foto) {
     q.foto.venda = ta.foto.preco;
     if (!q.foto.custo || opts.forceAcab)
-      q.foto.custo = Math.round(ta.foto.preco * (ta.foto.custoPerc||50) / 100 * 100) / 100;
+      q.foto.custo = Math.round(ta.foto.preco * (ta.foto.custoPerc||50) / 100);
   }
 }
 
