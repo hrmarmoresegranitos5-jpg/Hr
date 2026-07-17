@@ -142,6 +142,7 @@ function renderBoletosTab() {
   h += '<div class="b-toolbar">';
   h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
   h += '<button class="btn btn-o" onclick="document.getElementById(\'bImportFileInput\').click()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
+  h += '<button class="btn btn-o" onclick="estAbrirPainel()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📦 Estoque</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
   h += '</div>';
