@@ -5252,6 +5252,15 @@ function calcular(){
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
+  // ── Checagem de estoque de chapas: bloqueia até confirmação se faltar material ──
+  if (typeof estVerificar === 'function' && mat && mat.nm && totalM2 > 0) {
+    var _estCheck = estVerificar(mat.nm, totalM2);
+    if (_estCheck.status !== 'ok' && typeof estMsgBloqueio === 'function') {
+      var _estOk = window.confirm(estMsgBloqueio(_estCheck, mat.nm, totalM2));
+      if (!_estOk) return;
+    }
+  }
+  var _estEraEdicao=!!pendEditId;
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
@@ -5265,6 +5274,9 @@ function calcular(){
     DB.q.unshift(q);
   }
   DB.sv();pendQ=q;
+  if (typeof estConsumir === 'function' && mat && mat.nm && totalM2 > 0 && !_estEraEdicao) {
+    estConsumir(mat.nm, totalM2);
+  }
   // ── Consultor de Desconto (reconhece cliente pelo nome, aplica bônus por histórico) + auto-save do cliente ──
   if(typeof _cliMostrarConsultor==='function'||typeof _cliAutoSave==='function'){
     setTimeout(function(){
