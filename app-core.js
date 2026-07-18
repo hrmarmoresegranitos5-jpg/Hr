@@ -5603,14 +5603,10 @@ function gerarPDF(){
   if(q.ambSnap&&q.ambSnap.length){
     q.ambSnap.forEach(function(snap,idx){
       var tipo=snap.tipo||'Ambiente';
-      if(q.ambSnap.length>1){
-        allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:10px 14px;font-size:11px;'
-          +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
-          +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
-      }
+      var ambBuf=''; // conteúdo deste ambiente — só vira cabeçalho+linhas se tiver algo de fato
       var isNicho=snap.tipo==='🖼️ Nicho';
       if(isNicho&&snap.nichoExtra&&snap.nichoExtra.desc){
-        allRowsHtml+='<tr><td colspan="2" style="background:#faf6ef;padding:8px 14px;font-size:13px;'
+        ambBuf+='<tr><td colspan="2" style="background:#faf6ef;padding:8px 14px;font-size:13px;'
           +'font-style:italic;color:#7a5a20;border-bottom:1px solid #ede8dc;">📐 '+escH(snap.nichoExtra.desc)+'</td></tr>';
       }
       if(isNicho&&snap.nichoExtra){
@@ -5619,14 +5615,14 @@ function gerarPDF(){
           +(neP.nP?' &nbsp;·&nbsp; Profundidade: <b>'+neP.nP+' cm</b>'+(neP.nPBase&&+neP.nPBase>+neP.nP?' <span style="color:#8a5a20;">(base '+neP.nPBase+' cm — até o tijolo)</span>':''):'')
           +(neP.nM?' &nbsp;·&nbsp; Moldura: <b>'+neP.nM+' cm</b>':' &nbsp;·&nbsp; Sem moldura')
           +(neP.comFundo?' &nbsp;·&nbsp; Com fundo':' &nbsp;·&nbsp; Sem fundo');
-        allRowsHtml+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:14px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
+        ambBuf+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:14px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
       }
       var isBP=snap.tipo==='🏊 Borda Piscina';
       var bpNomes=['Borda lateral A','Borda frontal B','Borda lateral C','Borda frontal D','Borda curva E','Canto boleado F','Trecho especial G','Borda interna H'];
       // bpSnapFirst e bpAcabTipoPDF: contexto do acabamento global desta Borda Piscina
       var bpSnapFirst = isBP ? snap : null;
       var bpAcabTipoPDF = isBP && snap.bordaAcb && snap.bordaAcb.tipo ? snap.bordaAcb.tipo : 'polida';
-      if(isNicho)return; // não lista peça por peça (Base/Topo/Laterais/Moldura) — só o resumo acima
+      if(!isNicho){
       (snap.pecas||[]).forEach(function(p,i){
         if(!p.w||!p.h)return;
         var bg=i%2===0?'#fff':'#faf6ef';
@@ -5639,9 +5635,9 @@ function gerarPDF(){
         var bpLdLabelsPDF=['','1 lateral aparente','2 laterais aparentes','3 lados','todos os lados'];
         var bpAcabDescPDF=isBP&&bpAcabLdsPDF>0?bpSnapFirst&&bpSnapFirst.bordaAcb?'Acabamento '+bpAcabTipoPDF+' — '+bpLdLabelsPDF[bpAcabLdsPDF]:'':'';
         var bpAcabMLPDF=isBP&&bpAcabLdsPDF>0&&p.w?_calcBordaPcML(p,bpAcabLdsPDF):0;
-        allRowsHtml+='<tr>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:16px;font-weight:800;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:14.5px;font-weight:700;color:#666;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
+        ambBuf+='<tr>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:18px;font-weight:800;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:16px;font-weight:700;color:#555;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
         if(isBP&&bpAcabLdsPDF>0){
-          allRowsHtml+='<tr>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12px;color:#6688bb;font-style:italic;">'+bpAcabDescPDF+(bpAcabMLPDF>0?' · <b>'+bpAcabMLPDF.toFixed(2)+'m</b>':'')+'</td>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:11.5px;color:#9bb;text-align:right;">'+bpAcabMLPDF.toFixed(2)+'m linear</td>'            +'</tr>';
+          ambBuf+='<tr>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:13px;color:#6688bb;font-style:italic;">'+bpAcabDescPDF+(bpAcabMLPDF>0?' · <b>'+bpAcabMLPDF.toFixed(2)+'m</b>':'')+'</td>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12.5px;color:#9bb;text-align:right;">'+bpAcabMLPDF.toFixed(2)+'m linear</td>'            +'</tr>';
         }
       });
       if(isBP){
@@ -5649,7 +5645,7 @@ function gerarPDF(){
         var bpLarg=snap.pecas&&snap.pecas.length>0?snap.pecas[0].h:0;
         var bpBA=snap.bordaAcb||{};
         var bpAcabStr=bpBA.tipo&&bpBA.tipo!=='polida'?' · acabamento '+bpBA.tipo:'';
-        allRowsHtml+='<tr><td colspan="2" style="background:linear-gradient(90deg,#e8f0ff,#f0f6ff);padding:10px 14px;border-bottom:2px solid #6ea4ff;border-top:1px solid #c8d8f8;">'          +'<span style="font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:#2255aa;font-weight:900;">📏 METRAGEM LINEAR</span>'          +'&nbsp;&nbsp;<span style="font-size:15px;font-weight:900;color:#1a3a7a;">'+bpML.toFixed(2)+'m</span>'          +'<span style="font-size:11px;color:#446;font-weight:600;"> de borda'+(bpLarg?' '+bpLarg+'cm':'')+bpAcabStr+'</span>'          +'</td></tr>';
+        ambBuf+='<tr><td colspan="2" style="background:linear-gradient(90deg,#e8f0ff,#f0f6ff);padding:10px 14px;border-bottom:2px solid #6ea4ff;border-top:1px solid #c8d8f8;">'          +'<span style="font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:#2255aa;font-weight:900;">📏 METRAGEM LINEAR</span>'          +'&nbsp;&nbsp;<span style="font-size:15px;font-weight:900;color:#1a3a7a;">'+bpML.toFixed(2)+'m</span>'          +'<span style="font-size:11px;color:#446;font-weight:600;"> de borda'+(bpLarg?' '+bpLarg+'cm':'')+bpAcabStr+'</span>'          +'</td></tr>';
       }
       // Saihas/frontões do svState — deduplificado para evitar duplicação por grupo combinado
       var g=SV_DEFS[tipo]||SV_DEFS.Cozinha;
@@ -5661,11 +5657,21 @@ function gerarPDF(){
         var svd=sv[it.k];
         var ml=svd.ml||0,alt=svd.altCm||0,qq=svd.q||1;
         if(!ml||!alt)return;
-        allRowsHtml+='<tr>'
-          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:14.5px;font-weight:700;color:#3a4a66;">'+it.l+'</td>'
-          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:13.5px;color:#666;text-align:right;">'+ml+'ml × '+alt+'cm'+(qq>1?' <b style=\"color:#7a4400;\">×'+qq+'</b>':'')+'</td>'
+        ambBuf+='<tr>'
+          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:16px;font-weight:700;color:#3a4a66;">'+it.l+'</td>'
+          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:14.5px;color:#555;text-align:right;">'+ml+'ml × '+alt+'cm'+(qq>1?' <b style=\"color:#7a4400;\">×'+qq+'</b>':'')+'</td>'
           +'</tr>';
       });});
+      } // fim if(!isNicho)
+      // Só imprime o cabeçalho do ambiente (e seu conteúdo) se houver algo de fato nele
+      if(ambBuf){
+        if(q.ambSnap.length>1){
+          allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:10px 14px;font-size:12px;'
+            +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
+            +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
+        }
+        allRowsHtml+=ambBuf;
+      }
     });
   } else {
     (q.pds||[]).forEach(function(p,i){
@@ -5900,8 +5906,8 @@ function gerarPDF(){
       +'<table style="width:100%;border-collapse:collapse;">'
         +'<thead>'
           +'<tr style="background:#0f0c00;">'
-            +'<th style="padding:12px 14px;text-align:left;font-size:11.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
-            +'<th style="padding:12px 14px;text-align:right;font-size:11.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:13px 14px;text-align:left;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
+            +'<th style="padding:13px 14px;text-align:right;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
           +'</tr>'
         +'</thead>'
         +'<tbody>'
@@ -5969,9 +5975,10 @@ function gerarPDF(){
       +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
         +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
           +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'BANCADA HR':'À VISTA')+'</span>'
-          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">DESCONTO</span>'
+          +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">'+(q.desconto>0&&q.descontoPct>0?'-'+q.descontoPct.toFixed(0)+'% OFF':'DESCONTO')+'</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
+          +(q.desconto>0&&q._vistaCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._vistaCalc)+'</div>':'')
           +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(q.vista)+'</div>'
           +'<div style="font-size:11px;color:#a06020;font-weight:700;margin-bottom:6px;">Desconto especial pagamento à vista</div>'
           +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
