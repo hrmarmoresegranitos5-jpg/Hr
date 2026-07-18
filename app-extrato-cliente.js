@@ -374,16 +374,20 @@ function _patchListaClientes() {
   };
 }
 
-// ─── Botão flutuante: abre o Banco de Clientes de qualquer tela ─
+// ─── Botão no cabeçalho: abre o Banco de Clientes de qualquer tela ─
 // (esse painel existia pronto no código mas não tinha nenhum
-// botão na interface que levasse até ele — este FAB resolve isso.)
-function _injetarFabClientes() {
-  if (document.getElementById('extFabClientes')) return;
+// botão na interface que levasse até ele. Usa o mesmo estilo do
+// botão de cadeado #btnAdm já existente no header, em vez de um
+// FAB flutuante por cima do conteúdo.)
+function _injetarBtnHeaderClientes() {
+  if (document.getElementById('extBtnHdrClientes')) return;
+  var admBtn = document.getElementById('btnAdm');
+  if (!admBtn || !admBtn.parentNode) return;
   var btn = document.createElement('button');
-  btn.id = 'extFabClientes';
+  btn.id = 'extBtnHdrClientes';
   btn.innerHTML = '👥';
   btn.title = 'Banco de Clientes';
-  btn.style.cssText = 'position:fixed;right:14px;bottom:78px;width:52px;height:52px;border-radius:50%;background:linear-gradient(145deg,#C9A84C,#8a6f22);border:none;color:#000;font-size:1.3rem;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:850;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+  btn.style.cssText = admBtn.getAttribute('style') || 'background:transparent;border:1px solid var(--bd);border-radius:9px;padding:6px 9px;font-size:1rem;cursor:pointer;color:var(--t3);flex-shrink:0;line-height:1;';
   btn.onclick = function () {
     if (typeof abrirGestaoClientes === 'function') {
       abrirGestaoClientes();
@@ -391,14 +395,14 @@ function _injetarFabClientes() {
       toast('Módulo de clientes ainda não carregado, tente novamente');
     }
   };
-  document.body.appendChild(btn);
+  admBtn.parentNode.insertBefore(btn, admBtn);
 }
 
 function _tentarPatches() {
   _patchPerfilFooter();
   _patchListaClientes();
-  _injetarFabClientes();
-  if (!window._extCPPatched || !window._extListaPatched) {
+  _injetarBtnHeaderClientes();
+  if (!window._extCPPatched || !window._extListaPatched || !document.getElementById('extBtnHdrClientes')) {
     setTimeout(_tentarPatches, 400);
   }
 }
