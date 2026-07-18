@@ -186,10 +186,15 @@ function _cliSim(a,b){
   a=_cliNorm(a); b=_cliNorm(b);
   if(!a||!b) return 0;
   if(a===b) return 100;
-  if(b.indexOf(a)!==-1||a.indexOf(b)!==-1) return 90;
-  var wa=a.split(' ').filter(function(w){return w.length>2;}),wb=b.split(' ').filter(Boolean),m=0;
-  wa.forEach(function(w){ if(wb.some(function(x){return x.indexOf(w)!==-1||w.indexOf(x)!==-1;})) m++; });
-  if(m) return Math.min(85, 50+m*15);
+  var wa=a.split(' ').filter(Boolean), wb=b.split(' ').filter(Boolean);
+  // Um nome "contido" no outro só conta como muito parecido se tiver
+  // 2+ palavras — evita juntar duas pessoas diferentes que só têm o
+  // mesmo primeiro nome (ex: "Romário Santana" e "Romário Silva").
+  if((wa.length>=2 && b.indexOf(a)!==-1) || (wb.length>=2 && a.indexOf(b)!==-1)) return 90;
+  var m=0;
+  wa.forEach(function(w){ if(w.length>2 && wb.some(function(x){return x===w;})) m++; });
+  if(m>=2) return Math.min(85, 50+m*15);
+  if(m===1) return 60; // 1 palavra em comum (ex: só o primeiro nome) — bom pra busca/autocomplete, mas abaixo do limiar de 70 usado para agrupar histórico financeiro
   return 0;
 }
 function _cliBuscar(q,thr){
