@@ -374,9 +374,30 @@ function _patchListaClientes() {
   };
 }
 
+// ─── Botão flutuante: abre o Banco de Clientes de qualquer tela ─
+// (esse painel existia pronto no código mas não tinha nenhum
+// botão na interface que levasse até ele — este FAB resolve isso.)
+function _injetarFabClientes() {
+  if (document.getElementById('extFabClientes')) return;
+  var btn = document.createElement('button');
+  btn.id = 'extFabClientes';
+  btn.innerHTML = '👥';
+  btn.title = 'Banco de Clientes';
+  btn.style.cssText = 'position:fixed;right:14px;bottom:78px;width:52px;height:52px;border-radius:50%;background:linear-gradient(145deg,#C9A84C,#8a6f22);border:none;color:#000;font-size:1.3rem;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:850;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+  btn.onclick = function () {
+    if (typeof abrirGestaoClientes === 'function') {
+      abrirGestaoClientes();
+    } else if (typeof toast === 'function') {
+      toast('Módulo de clientes ainda não carregado, tente novamente');
+    }
+  };
+  document.body.appendChild(btn);
+}
+
 function _tentarPatches() {
   _patchPerfilFooter();
   _patchListaClientes();
+  _injetarFabClientes();
   if (!window._extCPPatched || !window._extListaPatched) {
     setTimeout(_tentarPatches, 400);
   }
