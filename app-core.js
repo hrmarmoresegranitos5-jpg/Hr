@@ -866,6 +866,71 @@ var selMat=null,pendQ=null,fType='in',catF='Todos',cubaCat='coz',cfgTab=0,editTr
 var ambientes=[];
 var _cubaPickKey=null;
 
+// ═══ RASCUNHO AUTOMÁTICO ═══
+// Evita perder o orçamento em andamento quando o app é minimizado/fechado
+// pelo sistema (Android mata o processo do PWA em segundo plano com muita
+// frequência — isso NÃO é um reload de página normal, é o processo sendo
+// recriado do zero, então sem isso o estado em memória (ambientes, cliente
+// etc.) simplesmente some).
+var _RASCUNHO_KEY='hr_rascunho_v1';
+function _salvarRascunho(){
+  try{
+    if(!ambientes||!ambientes.length)return;
+    var temAlgo=ambientes.some(function(a){
+      return (a.pecas||[]).some(function(p){return p.w||p.h||p.desc;}) || (a.selMat);
+    });
+    var elCli=document.getElementById('oCliente');
+    if(!temAlgo && !(elCli&&elCli.value))return; // nada pra salvar ainda
+    var draft={
+      ts: Date.now(),
+      ambientes: ambientes,
+      selMat: selMat,
+      urgPct: window._urgPct||0,
+      cli: elCli?elCli.value:'',
+      tel: (document.getElementById('oTel')||{}).value||'',
+      cidade: (document.getElementById('oCidade')||{}).value||'',
+      end: (document.getElementById('oEnd')||{}).value||'',
+      obs: (document.getElementById('oObs')||{}).value||''
+    };
+    localStorage.setItem(_RASCUNHO_KEY, JSON.stringify(draft));
+  }catch(e){}
+}
+function _limparRascunho(){ try{localStorage.removeItem(_RASCUNHO_KEY);}catch(e){} }
+function _restaurarRascunho(){
+  try{
+    var raw=localStorage.getItem(_RASCUNHO_KEY);
+    if(!raw)return;
+    var draft=JSON.parse(raw);
+    if(!draft||!draft.ambientes||!draft.ambientes.length)return;
+    // Rascunhos muito antigos (>7 dias) provavelmente já viraram orçamento
+    // de verdade ou foram abandonados de propósito — não restaura sozinho.
+    if(draft.ts && (Date.now()-draft.ts) > 7*24*60*60*1000)return;
+    ambientes=draft.ambientes;
+    if(draft.selMat) selMat=draft.selMat;
+    window._urgPct=draft.urgPct||0;
+    var _tries=0;
+    (function _tryFill(){
+      _tries++;
+      var elCli=document.getElementById('oCliente');
+      if(elCli){
+        elCli.value=draft.cli||'';
+        var elTel=document.getElementById('oTel'); if(elTel)elTel.value=draft.tel||'';
+        var elCid=document.getElementById('oCidade'); if(elCid)elCid.value=draft.cidade||'';
+        var elEnd=document.getElementById('oEnd'); if(elEnd)elEnd.value=draft.end||'';
+        var elObs=document.getElementById('oObs'); if(elObs)elObs.value=draft.obs||'';
+        try{ renderAmbientes(); }catch(e){}
+        try{ if(typeof calcular==='function') calcular(); }catch(e){}
+      } else if(_tries<25){
+        setTimeout(_tryFill,200);
+      } else {
+        // Campos de texto não apareceram (aba não visitada ainda), mas os
+        // ambientes já estão restaurados em memória — renderiza mesmo assim.
+        try{ renderAmbientes(); }catch(e){}
+      }
+    })();
+  }catch(e){}
+}
+
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',function(){
   console.log('BOOT START');
@@ -1007,6 +1072,19 @@ window.aplicarEstiloNi=function(){
   var _savedMatValid = _savedMat && CFG.stones.find(function(s){return s.id===_savedMat;});
   selMat = _savedMatValid ? _savedMat : null;
   if(_savedMat && !_savedMatValid){ try{localStorage.removeItem('hr_last_mat');}catch(e){} }
+
+  // ── Rascunho: recupera orçamento em andamento se o app foi recarregado ──
+  _restaurarRascunho();
+
+  // ── Rascunho: salva sempre que o app for pra segundo plano/fechado ──
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden) _salvarRascunho();
+  });
+  window.addEventListener('pagehide', _salvarRascunho);
+  window.addEventListener('blur', _salvarRascunho);
+  // Rede de segurança: alguns WebViews Android não disparam os eventos acima
+  // a tempo antes de matar o processo — salva periodicamente também.
+  setInterval(_salvarRascunho, 15000);
 
   // ── Bridge bidirecional: pedra do módulo Túmulos ↔ selMat global ──
   window.tumSyncMat = function(stoneId) {
@@ -1383,7 +1461,7 @@ SV_DEFS.Banheiro=[
   {g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
-SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -4228,7 +4306,8 @@ function buildSVHtml(amb){
   }
   g.forEach(function(grp){
     // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
-    if(hasBordas&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
+    // Escada é sempre por medida manual de peça (não instalamos, só fornecemos)
+    if((hasBordas||amb.tipo==='Escada')&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
     // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
     if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro')){
       if(grp.g==='Fixação'&&typeof window._fixInlineHtml==='function') h+=window._fixInlineHtml(amb);
@@ -4625,6 +4704,7 @@ function novoOrcamento() {
     } catch(e) {}
     if (temDados && !confirm('Deseja realmente iniciar um novo orçamento?\n\nO orçamento atual será apagado.')) return;
   }
+  _limparRascunho();
 
   ['oCliente','oTel','oCidade','oEnd','oObs'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -4802,7 +4882,7 @@ function calcular(){
           var prS=getPr(it.k)+((matS&&matS.fin==='Escovada')?(getPr('s_slim_esc')||0):0);
           var moS=mlS*qS*prS;
           acT+=moS;
-          acL.push({l:it.l+' '+mlS+'ml (só polimento)',v:moS});
+          acL.push({l:it.l+' '+mlS+'ml — Polimento (Acabamento Minimalista Slim)',v:moS});
           acN.push(it.l+' ('+mlS+'ml)');
         }
         return;
@@ -4845,7 +4925,7 @@ function calcular(){
           var prSl=getPr(k)+((matSl&&matSl.fin==='Escovada')?(getPr('s_slim_esc')||0):0);
           var moSl=ml*q*prSl;
           acT+=moSl;
-          acL.push({l:lbl+' '+ml+'ml (só polimento)',v:moSl});
+          acL.push({l:lbl+' '+ml+'ml — Polimento (Acabamento Minimalista Slim)',v:moSl});
           acN.push(lbl+' ('+ml+'ml)');
           return;
         }
@@ -5221,6 +5301,18 @@ function calcular(){
         rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+(acbNmP[akP]||akP)+' '+mlA+'ml ('+escH(pP.desc||'')+')</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vA)+'</span></div>';
       });
     });
+    if(ambP.tipo==='Escada'){
+      var _m2P=0;
+      (ambP.pecas||[]).forEach(function(pP2){if(pP2.w&&pP2.h)_m2P+=(pP2.w/100)*(pP2.h/100)*(pP2.q||1);});
+      var _matP2=CFG.stones.find(function(s){return s.id===ambP.selMat;})||mat;
+      var _perdaP=_matP2.perda!=null?_matP2.perda:10;
+      var _pedTambP=_m2P*(1+_perdaP/100)*_matP2.pr;
+      var _garPctP=CFG.sv.escada_garantia!=null?CFG.sv.escada_garantia:8;
+      if(_pedTambP>0&&_garPctP>0){
+        var _garValP=_pedTambP*(_garPctP/100);
+        rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">Garantia de Medidas ('+_garPctP+'% sobre a pedra)</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(_garValP)+'</span></div>';
+      }
+    }
     if(rowsP){
       pi+='<div style="padding:10px 16px;border-bottom:1px solid var(--bd);">';
       pi+='<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold3);opacity:.7;margin-bottom:6px;">'+ambP.tipo+'</div>'+rowsP+'</div>';
@@ -8175,6 +8267,19 @@ function buildCfg(){
     }
 
     // Migração: adicionar adicional de Sainha Slim escovado se não existir
+    if(!CFG.svList.find(function(x){return x.k==='s_slim';})){
+      // (nunca deveria cair aqui, s_slim é padrão de fábrica, mas por segurança)
+    } else {
+      // Corrige label da Sainha Slim caso tenha sido renomeada por engano (ex: "Acabamento")
+      var _slimEntry=CFG.svList.find(function(x){return x.k==='s_slim';});
+      if(_slimEntry&&_slimEntry.l!=='Sainha Slim'){_slimEntry.l='Sainha Slim';svCFG();}
+    }
+    // Remove duplicata quebrada cadastrada manualmente antes da Sainha Slim existir
+    // (ficava sem preço e cobrando m² de pedra por engano)
+    var _dupIdx=CFG.svList.findIndex(function(x){
+      return x.k!=='s_slim' && (x.l||'').trim().toLowerCase()==='acabamento slim' && (x.preco||0)===0;
+    });
+    if(_dupIdx!==-1){CFG.svList.splice(_dupIdx,1);svCFG();}
     if(!CFG.svList.find(function(x){return x.k==='s_slim_esc';})){
       CFG.svList.push({k:'s_slim_esc',l:'Adicional Sainha Slim c/ pedra Escovada (por ml)',preco:CFG.sv.s_slim_esc||15,grp:'Ajustes & Garantias',u:'ml'});
       if(!CFG.sv['s_slim_esc'])CFG.sv['s_slim_esc']=15;
