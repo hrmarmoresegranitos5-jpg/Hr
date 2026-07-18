@@ -5154,7 +5154,7 @@ function calcular(){
     // Texto WA por ambiente
     var pTxt=pds.map(function(p){return '• '+(p.desc||'Peça')+' — '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
     if(sfPcs.length)pTxt+=(pTxt?'\n':'')+sfPcs.map(function(p){return '• '+p.l+' — '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
-    var aTxt=acN.length?acN.map(function(a){return '• '+a;}).join('\n'):'';
+    var aTxt=acN.length?acN.map(function(a){return '• '+(/^Garantia de Medidas/i.test(a)?'Garantia de Medidas':a);}).join('\n'):'';
     var extraTxt='';
     if(amb.tipo==='⛪ Capela'&&amb.capExtra){
       var cex=amb.capExtra;
@@ -5635,7 +5635,7 @@ function gerarPDF(){
         var bpLdLabelsPDF=['','1 lateral aparente','2 laterais aparentes','3 lados','todos os lados'];
         var bpAcabDescPDF=isBP&&bpAcabLdsPDF>0?bpSnapFirst&&bpSnapFirst.bordaAcb?'Acabamento '+bpAcabTipoPDF+' — '+bpLdLabelsPDF[bpAcabLdsPDF]:'':'';
         var bpAcabMLPDF=isBP&&bpAcabLdsPDF>0&&p.w?_calcBordaPcML(p,bpAcabLdsPDF):0;
-        ambBuf+='<tr>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:18px;font-weight:800;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:11px 14px 7px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:16px;font-weight:700;color:#555;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
+        ambBuf+='<tr>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:21px;font-weight:900;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:18px;font-weight:700;color:#444;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
         if(isBP&&bpAcabLdsPDF>0){
           ambBuf+='<tr>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:13px;color:#6688bb;font-style:italic;">'+bpAcabDescPDF+(bpAcabMLPDF>0?' · <b>'+bpAcabMLPDF.toFixed(2)+'m</b>':'')+'</td>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12.5px;color:#9bb;text-align:right;">'+bpAcabMLPDF.toFixed(2)+'m linear</td>'            +'</tr>';
         }
@@ -5658,15 +5658,15 @@ function gerarPDF(){
         var ml=svd.ml||0,alt=svd.altCm||0,qq=svd.q||1;
         if(!ml||!alt)return;
         ambBuf+='<tr>'
-          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:16px;font-weight:700;color:#3a4a66;">'+it.l+'</td>'
-          +'<td style="padding:11px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:14.5px;color:#555;text-align:right;">'+ml+'ml × '+alt+'cm'+(qq>1?' <b style=\"color:#7a4400;\">×'+qq+'</b>':'')+'</td>'
+          +'<td style="padding:13px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:20px;font-weight:800;color:#2a3a56;">'+it.l+'</td>'
+          +'<td style="padding:13px 14px;background:#f5f9ff;border-bottom:1px solid #e0e8f0;font-size:17px;font-weight:700;color:#555;text-align:right;">'+ml+'ml × '+alt+'cm'+(qq>1?' <b style=\"color:#7a4400;\">×'+qq+'</b>':'')+'</td>'
           +'</tr>';
       });});
       } // fim if(!isNicho)
       // Só imprime o cabeçalho do ambiente (e seu conteúdo) se houver algo de fato nele
       if(ambBuf){
         if(q.ambSnap.length>1){
-          allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:10px 14px;font-size:12px;'
+          allRowsHtml+='<tr><td colspan="2" style="background:#f0ece3;padding:11px 14px;font-size:13.5px;'
             +'letter-spacing:1.5px;text-transform:uppercase;color:#8a6020;font-weight:900;'
             +'border-bottom:1px solid #e0d8c8;">'+(idx+1)+'º AMBIENTE — '+tipo.toUpperCase()+'</td></tr>';
         }
@@ -5712,6 +5712,7 @@ function gerarPDF(){
   var bpSnapFirst=hasBP&&q.ambSnap?q.ambSnap.find(function(s){return s.tipo==='🏊 Borda Piscina';}):null;
   var bpAcabTipoPDF=bpSnapFirst&&bpSnapFirst.bordaAcb?bpSnapFirst.bordaAcb.tipo:'polida';
   function polishSvcPDF(txt){
+    if(/^Garantia de Medidas/i.test(txt))return 'Garantia de Medidas';
     if(!hasBP)return txt;
     var map={
       'Acab. Boleada 1 lateral':'Acabamento boleado na lateral aparente',
@@ -5906,8 +5907,8 @@ function gerarPDF(){
       +'<table style="width:100%;border-collapse:collapse;">'
         +'<thead>'
           +'<tr style="background:#0f0c00;">'
-            +'<th style="padding:13px 14px;text-align:left;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
-            +'<th style="padding:13px 14px;text-align:right;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:14px;text-align:left;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
+            +'<th style="padding:14px;text-align:right;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
           +'</tr>'
         +'</thead>'
         +'<tbody>'
@@ -9938,7 +9939,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   });
 
   // Serviços inclusos
-  var svHtml=(q.acN&&q.acN.length)?q.acN.map(function(s){return '<li>'+s+'</li>';}).join(''):'<li>Acabamento profissional</li>';
+  var svHtml=(q.acN&&q.acN.length)?q.acN.map(function(s){return '<li>'+(/^Garantia de Medidas/i.test(s)?'Garantia de Medidas':s)+'</li>';}).join(''):'<li>Acabamento profissional</li>';
 
   // Condições de pagamento (dinâmico)
   var pgCondsHtml=pgConds.map(function(c){
