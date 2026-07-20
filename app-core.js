@@ -4649,7 +4649,7 @@ function aplicarVistaAdj() {
   } else return;
   pendQ.vista = newVista;
   pendQ.ent   = Math.round(newVista / 2 * 100) / 100;
-  pendQ.parc  = Math.round(newVista * 1.15 * 100) / 100;
+  pendQ.parc  = Math.round(base * 1.15 * 100) / 100;
   pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
   // ── Rastreabilidade do desconto ──
   var _base = pendQ._vistaCalc || base;
