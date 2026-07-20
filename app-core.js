@@ -2153,13 +2153,27 @@ function setAmbTipo(id,tipo){
   renderAmbientes();
 }
 
+// Se a última peça tiver uma descrição terminando em número (ex: "Peitoril 1", "Soleira 2"),
+// sugere a próxima descrição na sequência (ex: "Peitoril 2", "Soleira 3") para a nova peça.
+function _proxDescSequencial(amb){
+  if(!amb.pecas.length)return '';
+  var ultima=amb.pecas[amb.pecas.length-1];
+  var desc=(ultima.desc||'').trim();
+  var m=desc.match(/^(.*?)(\d+)\s*$/);
+  if(!m)return '';
+  var base=m[1];
+  var num=parseInt(m[2],10)+1;
+  return base+num;
+}
+
 function addPecaAmb(ambId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb)return;
   // Rodapé de Armário: padrão de mercado é 60cm de comprimento por 15cm de altura
   var _defW=amb.tipo==='Rodapé de Armário'?60:0;
   var _defH=amb.tipo==='Rodapé de Armário'?15:0;
-  amb.pecas.push({id:Date.now(),desc:'',w:_defW,h:_defH,q:1});
+  var _descAuto=_proxDescSequencial(amb);
+  amb.pecas.push({id:Date.now(),desc:_descAuto,w:_defW,h:_defH,q:1});
   renderAmbientes();
 }
 
