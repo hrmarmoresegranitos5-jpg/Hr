@@ -5649,7 +5649,7 @@ function gerarPDF(){
         var bpLdLabelsPDF=['','1 lateral aparente','2 laterais aparentes','3 lados','todos os lados'];
         var bpAcabDescPDF=isBP&&bpAcabLdsPDF>0?bpSnapFirst&&bpSnapFirst.bordaAcb?'Acabamento '+bpAcabTipoPDF+' — '+bpLdLabelsPDF[bpAcabLdsPDF]:'':'';
         var bpAcabMLPDF=isBP&&bpAcabLdsPDF>0&&p.w?_calcBordaPcML(p,bpAcabLdsPDF):0;
-        ambBuf+='<tr>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:21px;font-weight:900;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:18px;font-weight:700;color:#444;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
+        ambBuf+='<tr>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:15px;font-weight:800;color:#1a1a1a;">'+pNome+'</td>'          +'<td style="padding:13px 14px 8px;background:'+bg+';border-bottom:'+(isBP&&bpAcabLdsPDF>0?'none':'1px solid #ede8dc')+';font-size:13px;font-weight:700;color:#444;text-align:right;">'+p.w+' × '+p.h+' cm'+(p.q>1?' <b style=\"color:#7a4400;\">×'+p.q+'</b>':'')+'</td>'          +'</tr>';
         if(isBP&&bpAcabLdsPDF>0){
           ambBuf+='<tr>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:13px;color:#6688bb;font-style:italic;">'+bpAcabDescPDF+(bpAcabMLPDF>0?' · <b>'+bpAcabMLPDF.toFixed(2)+'m</b>':'')+'</td>'            +'<td style="padding:3px 14px 10px;background:'+bg+';border-bottom:1px solid #ede8dc;font-size:12.5px;color:#9bb;text-align:right;">'+bpAcabMLPDF.toFixed(2)+'m linear</td>'            +'</tr>';
         }
@@ -5977,8 +5977,8 @@ function gerarPDF(){
       // parcelado — "preço cheio", sem mencionar taxa
       +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
         +'<div style="background:#0f0c00;padding:10px 16px;">'
-          +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:rgba(201,168,76,0.55);font-weight:900;margin-bottom:1px;">VALOR DO PROJETO</div>'
-          +'<div style="font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:rgba(201,168,76,0.75);font-weight:700;">Parcelado em até 8×</div>'
+          +'<div style="font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(201,168,76,0.7);font-weight:900;margin-bottom:1px;">VALOR DO PROJETO</div>'
+          +'<div style="font-size:10.5px;letter-spacing:0.5px;text-transform:uppercase;color:rgba(201,168,76,0.85);font-weight:700;">Parcelado em até 8×</div>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#faf8f4;">'
           +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:3px;">R$ '+fm(q.p8)+'</div>'
@@ -5989,7 +5989,7 @@ function gerarPDF(){
       // a vista — desconto especial
       +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
         +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
-          +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'BANCADA HR':'À VISTA')+'</span>'
+          +'<span style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'BANCADA HR':'À VISTA')+'</span>'
           +'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">'+(q.desconto>0&&q.descontoPct>0?'-'+q.descontoPct.toFixed(0)+'% OFF':'DESCONTO')+'</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
@@ -6014,12 +6014,12 @@ function gerarPDF(){
       : '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:16px 18px;margin-bottom:6px;">'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
         +'<div>'
-          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ASSINATURA</div>'
+          +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ASSINATURA</div>'
           +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
           +'<div style="font-size:11px;color:#999;">Entrada para iniciar a produção</div>'
         +'</div>'
         +'<div style="border-left:1px solid #e8dfc4;padding-left:16px;">'
-          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
+          +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#c0a860;margin-bottom:5px;font-weight:900;">NA ENTREGA</div>'
           +'<div style="font-size:24px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.ent)+'</div>'
           +'<div style="font-size:11px;color:#999;">Pagamento na entrega e instalação</div>'
         +'</div>'
@@ -6050,7 +6050,7 @@ function gerarPDF(){
         +'<div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:stretch;margin-bottom:14px;">'
           +'<div style="border:2px solid #3a8a3a;border-radius:12px;overflow:hidden;">'
             +'<div style="background:#0a1a0a;padding:9px 18px;">'
-              +'<span style="font-size:7.5px;letter-spacing:2px;text-transform:uppercase;color:#6abf6a;font-weight:900;">✅ SE FECHAR HOJE</span>'
+              +'<span style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#6abf6a;font-weight:900;">✅ SE FECHAR HOJE</span>'
             +'</div>'
             +'<div style="background:#f4fbf4;padding:13px 18px;">'
               +'<div style="font-size:28px;font-weight:900;color:#1e5a1e;line-height:1;margin-bottom:3px;">'+fd(pd.dataEst)+'</div>'
@@ -6059,7 +6059,7 @@ function gerarPDF(){
             +'</div>'
           +'</div>'
           +'<div style="background:#fffbf0;border:1px solid rgba(232,160,0,.4);border-radius:12px;padding:13px 16px;max-width:230px;">'
-            +'<div style="font-size:8px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#b87000;margin-bottom:7px;">⚠️ Estimativa</div>'
+            +'<div style="font-size:9.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:#b87000;margin-bottom:7px;">⚠️ Estimativa</div>'
             +'<div style="font-size:10.5px;color:#7a5000;line-height:1.6;">Este prazo é válido se o contrato for assinado hoje. Caso outro cliente feche antes, a vaga pode ser ocupada e o prazo ajustado.</div>'
           +'</div>'
         +'</div>';
