@@ -3317,6 +3317,84 @@ var HR_FUNC = (function () {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // INTEGRAÇÃO RH → FINANÇAS
+  // Todo pagamento registrado no RH (decêndio, vale, HE, em mãos ou pix)
+  // vira automaticamente uma saída em Finanças (DB.t), pra o custo real
+  // de mão de obra entrar no ponto de equilíbrio sem precisar lançar
+  // duas vezes. Cada transação carrega _rhPagId pra poder ser
+  // atualizada/removida se o pagamento for editado ou excluído.
+  // ─────────────────────────────────────────────────────────────
+  function _lancarFinancasPagamento(pagId, funcId, valor, tipo, data, obs){
+    if (typeof DB === 'undefined' || !DB || !DB.t) return;
+    var funcs = getFuncionarios();
+    var f = funcs[funcId];
+    var nomeFunc = f ? f.nome : 'Funcionário';
+    var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
+    var desc = t.label + ' — ' + nomeFunc + (obs ? ' (' + obs + ')' : '');
+    DB.t.unshift({
+      id: Date.now() + Math.random(),
+      type: 'out',
+      desc: desc,
+      value: valor,
+      date: data,
+      origem: 'rh_pagamento',
+      funcionarioId: funcId,
+      _rhPagId: pagId
+    });
+    if (typeof DB.sv === 'function') DB.sv();
+    if (typeof renderFin === 'function') try { renderFin(); } catch(e){}
+  }
+
+  function _removerFinancasPagamento(pagId){
+    if (typeof DB === 'undefined' || !DB || !DB.t) return;
+    var idx = DB.t.findIndex(function(x){ return x._rhPagId === pagId; });
+    if (idx === -1) return;
+    DB.t.splice(idx, 1);
+    if (typeof DB.sv === 'function') DB.sv();
+    if (typeof renderFin === 'function') try { renderFin(); } catch(e){}
+  }
+
+  function _atualizarFinancasPagamento(pagId, funcId, valor, tipo, data, obs){
+    if (typeof DB === 'undefined' || !DB || !DB.t) return;
+    var tr = DB.t.find(function(x){ return x._rhPagId === pagId; });
+    if (!tr) { _lancarFinancasPagamento(pagId, funcId, valor, tipo, data, obs); return; }
+    var funcs = getFuncionarios();
+    var f = funcs[funcId];
+    var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
+    tr.desc  = t.label + ' — ' + (f ? f.nome : 'Funcionário') + (obs ? ' (' + obs + ')' : '');
+    tr.value = valor;
+    tr.date  = data;
+    if (typeof DB.sv === 'function') DB.sv();
+    if (typeof renderFin === 'function') try { renderFin(); } catch(e){}
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // IMPORTAÇÃO RETROATIVA — pagamentos registrados no RH ANTES desta
+  // integração existir não foram espelhados em Finanças automaticamente
+  // (o gancho só dispara em pagamentos novos, editados ou excluídos a
+  // partir de agora). Esta função varre o histórico e cria a saída em
+  // Finanças pra cada um que ainda não tem o marcador _rhPagId — segura
+  // pra rodar mais de uma vez, nunca duplica o que ela mesma já criou.
+  // ─────────────────────────────────────────────────────────────
+  function migrarPagamentosParaFinancas(){
+    if (typeof DB === 'undefined' || !DB || !DB.t) return { ok:false, erro:'Finanças indisponível' };
+    var pags = getPagamentos();
+    var jaLancados = {};
+    DB.t.forEach(function(t){ if (t._rhPagId) jaLancados[t._rhPagId] = true; });
+
+    var importados = 0;
+    Object.keys(pags).forEach(function(id){
+      if (jaLancados[id]) return; // já espelhado, não duplica
+      var p = pags[id];
+      if (!p || !p.valor || !p.data) return;
+      _lancarFinancasPagamento(id, p.funcionarioId, p.valor, p.tipo, p.data, p.obs);
+      importados++;
+    });
+
+    return { ok:true, importados: importados };
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // MOTOR ÚNICO DE PAGAMENTO — sem dependência de DOM.
   // Usado pelo formulário (_salvarPagamento) e pelo RH IA (app-rh-ia.js).
   // Centralizar aqui evita reimplementações divergentes da mesma regra
@@ -3363,6 +3441,7 @@ var HR_FUNC = (function () {
       criadoEm:      new Date().toISOString()
     };
     savePagamentos(pags);
+    _lancarFinancasPagamento(id, funcId, valor, tipo, data, obs);
 
     // Ao registrar decêndio, quita os acréscimos HE pendentes do funcionário
     // e também os adiantamentos/vales apontados para este decêndio específico.
@@ -3548,6 +3627,7 @@ var HR_FUNC = (function () {
     p.obs   = obs;
     p.editadoEm = new Date().toISOString();
     savePagamentos(pags);
+    _atualizarFinancasPagamento(pagId, funcId, valor, tipo, data, obs);
 
     // Se este pagamento gerava (ou passou a gerar) um crédito de overpago,
     // recalcula/invalida esse crédito com os dados corrigidos — reconcilia
@@ -3572,6 +3652,7 @@ var HR_FUNC = (function () {
     var data   = p.data;
     delete pags[pagId];
     savePagamentos(pags);
+    _removerFinancasPagamento(pagId);
 
     // Se o pagamento excluído era um decêndio, o overpago que ele tinha
     // gerado (se houver) não existe mais — remove o crédito fantasma.
@@ -5108,6 +5189,7 @@ var HR_FUNC = (function () {
     _periodoDecendioAtual:  _periodoDecendioAtual,
     // Motor único de pagamento (usado pelo formulário e pelo RH IA)
     registrarPagamento:     registrarPagamento,
+    migrarPagamentosParaFinancas: migrarPagamentosParaFinancas,
     // Adiantamentos/vales com decêndio-alvo (usado pelo Relatório de Ponto)
     _adiantamentosAlvoDecendio: _adiantamentosAlvoDecendio,
     _adiantamentosEmAberto:     _adiantamentosEmAberto,

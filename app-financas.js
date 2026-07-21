@@ -155,6 +155,7 @@ function renderFin() {
 
   renderFinBody();
   renderFixos();
+  renderCustoMaoObra();
   renderSaudeFinanceira();
 }
 
@@ -428,8 +429,89 @@ function renderFixos() {
 }
 
 // ══════════════════════════════════════════════════════════════
-// PAINEL DE SAÚDE FINANCEIRA
+// CUSTO TOTAL DE MÃO DE OBRA — puxa da própria Finanças, olhando
+// só as transações que vieram do RH (origem: 'rh_pagamento').
+// Não depende de nada novo: é o espelhamento criado em
+// registrarPagamento() no app-funcionarios.js.
 // ══════════════════════════════════════════════════════════════
+function importarPagamentosRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.migrarPagamentosParaFinancas) return;
+  var r = HR_FUNC.migrarPagamentosParaFinancas();
+  if (r && r.ok) {
+    toast('✓ ' + r.importados + ' pagamento(s) importado(s) pra Finanças');
+  } else {
+    toast('Erro ao importar pagamentos');
+  }
+  renderFin();
+}
+
+function renderCustoMaoObra() {
+  var el = document.getElementById('custoMaoObraCard');
+  if (!el) return;
+  var mes = td().slice(0, 7);
+  var lista = (DB.t || []).filter(function(t) {
+    return t.origem === 'rh_pagamento' && (t.date || '').slice(0, 7) === mes;
+  });
+
+  var todosPags = (typeof HR_FUNC !== 'undefined') ? (HR_FUNC.getPagamentos() || {}) : {};
+  var idsJaLancados = {};
+  (DB.t || []).forEach(function(t){ if (t._rhPagId) idsJaLancados[t._rhPagId] = true; });
+  var pendentesImportar = Object.keys(todosPags).filter(function(id){ return !idsJaLancados[id]; }).length;
+
+  var avisoImportar = '';
+  if (pendentesImportar > 0) {
+    avisoImportar = '<div style="padding:10px 14px 0;">'
+      + '<button onclick="importarPagamentosRH()" style="width:100%;padding:10px;border-radius:9px;border:1px solid var(--bd2,#ddd);background:var(--gold,#c9a84c);color:#000;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;">⬇️ Importar ' + pendentesImportar + ' pagamento(s) já registrado(s) no RH</button>'
+      + '</div>';
+  }
+
+  if (!lista.length) {
+    el.innerHTML = avisoImportar || ('<div class="sf-hint" style="padding:14px;">'
+      + 'Nenhum pagamento de funcionário lançado no RH este mês ainda. '
+      + 'Registre os pagamentos (inclusive os em mãos) no módulo RH pra esse painel preencher sozinho.'
+      + '</div>');
+    return;
+  }
+
+  var porFunc = {};
+  var total = 0;
+  lista.forEach(function(t) {
+    var fid = t.funcionarioId || '_sem';
+    if (!porFunc[fid]) porFunc[fid] = { nome: null, valor: 0, qtd: 0 };
+    porFunc[fid].valor += (t.value || 0);
+    porFunc[fid].qtd++;
+    total += (t.value || 0);
+  });
+
+  var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+  var h = '';
+  Object.keys(porFunc).forEach(function(fid) {
+    var f = funcs[fid];
+    var nome = f ? f.nome : 'Sem funcionário vinculado';
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">' + nome
+      + ' <span style="color:var(--t4);font-size:.62rem;">(' + porFunc[fid].qtd + ' lanç.)</span></span>'
+      + '<span class="fin-fixo-vl">R$ ' + fm(porFunc[fid].valor) + '</span></div>';
+  });
+  h += '<div class="fin-fixo-tot"><span>Total Mão de Obra · ' + mes.replace('-', '/') + '</span>'
+    + '<span class="fin-fixo-tot-val">R$ ' + fm(total) + '</span></div>';
+
+  h = avisoImportar + h;
+
+  // Aviso de contagem em duplicidade com o custo fixo "Funcionários"
+  var fixoFunc = (CFG.fixos || []).find(function(f) {
+    return /funcion/i.test(f.n || '');
+  });
+  if (fixoFunc && fixoFunc.v > 0) {
+    h += '<div class="sf-alerta sf-alerta-yel" style="margin:8px 14px 0;">'
+      + '🟡 Você ainda tem "' + fixoFunc.n + '" = R$ ' + fm(fixoFunc.v) + ' fixo no Config. '
+      + 'Agora que os pagamentos reais vêm do RH, isso pode estar contando em dobro — considere zerar esse custo fixo.'
+      + '</div>';
+  }
+
+  el.innerHTML = h;
+}
+
+
 
 function _sfGetConfig() {
   if (!CFG.saudeFinanceira) {
