@@ -25,10 +25,39 @@ function _onReady(fn) {
 }
 
 // ─── Coleta os dados financeiros consolidados do cliente ───────
+// Fonte principal: DB.j (Agenda) quando o serviço já foi agendado.
+// Fallback: orçamentos aceitos/concluídos em DB.q que AINDA não têm
+// registro em DB.j — isso acontece quando o modal "Dias de produção"
+// (salvarAgenda → confirmarAgenda) foi fechado/ignorado sem confirmar
+// o prazo. Nesse caso o dinheiro já está certo em Finanças e no
+// orçamento (q.vista / q._valorRecebido), só falta aparecer aqui.
 function _extDadosCliente(nome) {
   if (typeof _cliSim !== 'function') return null;
 
-  var jobs = (DB.j || []).filter(function (j) { return _cliSim(nome, j.cli) >= 70; });
+  var jobsAgenda = (DB.j || []).filter(function (j) { return _cliSim(nome, j.cli) >= 70; });
+  var qIdsComAgenda = {};
+  jobsAgenda.forEach(function (j) { if (j.qId) qIdsComAgenda[j.qId] = true; });
+
+  var orcsFechados = (DB.q || []).filter(function (q) {
+    return _cliSim(nome, q.cli) >= 70 &&
+           (q.status === 'aceito' || q.status === 'concluido') &&
+           !qIdsComAgenda[q.id];
+  });
+
+  var jobsDeOrc = orcsFechados.map(function (q) {
+    return {
+      id: 'q' + q.id, qId: q.id,
+      desc: (q.tipo || 'Serviço') + (q.mat ? ' — ' + q.mat : ''),
+      start: q._aceitoData || q._statusDate || q.date || null,
+      end: q._concluidoData || null,
+      value: q.vista || 0,
+      pago: q._valorRecebido || 0,
+      done: q.status === 'concluido',
+      _semAgenda: true
+    };
+  });
+
+  var jobs = jobsAgenda.concat(jobsDeOrc);
   // Ordem cronológica: mais antigo primeiro (ordem em que os serviços foram feitos)
   jobs.sort(function (a, b) {
     var da = a.start || '', db_ = b.start || '';
@@ -149,6 +178,7 @@ window.gerarExtratoClientePDF = function (nomeArg) {
             '<div style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;font-weight:700;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-bottom:3px;">Serviço ' + (idx + 1) + '</div>' +
             '<div style="font-size:15px;font-weight:700;color:#1a1a1a;">' + escH(j.desc || 'Serviço') + '</div>' +
             (periodo ? '<div style="font-size:10.5px;color:#999;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-top:2px;">' + periodo + '</div>' : '') +
+            (j._semAgenda ? '<div style="font-size:9.5px;color:#a06a00;font-family:\'Helvetica Neue\',Arial,sans-serif;margin-top:3px;">&#9888; Ainda n&atilde;o agendado na produ&ccedil;&atilde;o</div>' : '') +
           '</div>' +
           '<span style="font-size:8.5px;font-weight:700;letter-spacing:0.5px;padding:4px 10px;border-radius:20px;white-space:nowrap;font-family:\'Helvetica Neue\',Arial,sans-serif;background:' + st.bg + ';color:' + st.cor + ';">' + st.label + '</span>' +
         '</div>' +

@@ -2987,20 +2987,31 @@ function _cliBuscar(q,thr){
 // ── Histórico do cliente ──
 function _cliHist(nome){
   var orcs  = (DB.q||[]).filter(function(q){ return _cliSim(nome,q.cli)>=70; });
-  var jobs  = (DB.j||[]).filter(function(j){ return _cliSim(nome,j.cli)>=70; });
+  var jobsAgenda = (DB.j||[]).filter(function(j){ return _cliSim(nome,j.cli)>=70; });
   var rec   = (DB.t||[]).filter(function(t){ return t.type==='in'&&t.desc&&_cliNorm(t.desc).indexOf(_cliNorm(nome))!==-1; });
+  // "Serviços fechados" = agendados na produção (DB.j) + orçamentos aceitos/
+  // concluídos que ainda não entraram na Agenda (acontece quando o modal de
+  // "Dias de produção" é fechado/ignorado sem confirmar o prazo). Sem isso,
+  // cliente com aceite confirmado mas sem agendamento aparecia como Prospect.
+  var qIdsComAgenda = {};
+  jobsAgenda.forEach(function(j){ if(j.qId) qIdsComAgenda[j.qId]=true; });
+  var orcsFechadosSemAgenda = orcs.filter(function(q){
+    return (q.status==='aceito'||q.status==='concluido') && !qIdsComAgenda[q.id];
+  });
+  var qtdFechados = jobsAgenda.length + orcsFechadosSemAgenda.length;
   var fat   = Math.max(
     rec.reduce(function(s,t){return s+(t.value||0);},0),
-    jobs.reduce(function(s,j){return s+(j.value||0);},0)
+    jobsAgenda.reduce(function(s,j){return s+(j.value||0);},0) +
+      orcsFechadosSemAgenda.reduce(function(s,q){return s+(q.vista||0);},0)
   );
-  var conv  = orcs.length>0?Math.round((jobs.length/orcs.length)*100):0;
+  var conv  = orcs.length>0?Math.round((qtdFechados/orcs.length)*100):0;
   var cat,icon,cor,bonus;
-  if(jobs.length>=5||fat>=20000){cat='VIP';icon='⭐';cor='#C9A84C';bonus=4;}
-  else if(jobs.length>=2||fat>=5000){cat='Fiel';icon='🤝';cor='#5dbf7a';bonus=2;}
-  else if(orcs.length>=3&&jobs.length===0){cat='Prospect';icon='👀';cor='#d4a017';bonus=-1;}
+  if(qtdFechados>=5||fat>=20000){cat='VIP';icon='⭐';cor='#C9A84C';bonus=4;}
+  else if(qtdFechados>=2||fat>=5000){cat='Fiel';icon='🤝';cor='#5dbf7a';bonus=2;}
+  else if(orcs.length>=3&&qtdFechados===0){cat='Prospect';icon='👀';cor='#d4a017';bonus=-1;}
   else if(orcs.length===0){cat='Novo';icon='🆕';cor='#6ab0ff';bonus=0;}
   else{cat='Regular';icon='👤';cor='#a0a0b0';bonus=1;}
-  return {orcs:orcs.length,jobs:jobs.length,fat:fat,conv:conv,cat:cat,icon:icon,cor:cor,bonus:bonus,ultOrc:orcs.length?orcs[0].date:null};
+  return {orcs:orcs.length,jobs:qtdFechados,fat:fat,conv:conv,cat:cat,icon:icon,cor:cor,bonus:bonus,ultOrc:orcs.length?orcs[0].date:null};
 }
 
 // ── Análise financeira ──
