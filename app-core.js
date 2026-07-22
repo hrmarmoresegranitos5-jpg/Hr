@@ -10,7 +10,7 @@ window.onerror = function(msg, src, line, col, err) {
 
 // ── Histórico de Orçamentos ─────────────────────────────────────────────────
 var _orcFilter = '';
-var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aprovado' | 'perdido'
+var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aceito' | 'concluido' | 'perdido'
 
 function renderOrc() {
   var total = DB.q.length;
@@ -18,25 +18,29 @@ function renderOrc() {
   var thisMonth = (new Date()).toISOString().slice(0,7);
   var mesCount = DB.q.filter(function(q){return (q.date||'').slice(0,7)===thisMonth;}).length;
 
-  // Contagens por status (A2)
-  var cPend = DB.q.filter(function(q){return (q.status||'pendente')==='pendente';}).length;
-  var cAprov = DB.q.filter(function(q){return q.status==='aprovado';}).length;
-  var cPerd  = DB.q.filter(function(q){return q.status==='perdido';}).length;
+  // Contagens por status (A2) — 'aprovado' (dados antigos) conta como 'aceito'
+  var _norm = function(q){ return q.status==='aprovado' ? 'aceito' : (q.status||'pendente'); };
+  var cPend  = DB.q.filter(function(q){return _norm(q)==='pendente';}).length;
+  var cAceito = DB.q.filter(function(q){return _norm(q)==='aceito';}).length;
+  var cConcl = DB.q.filter(function(q){return _norm(q)==='concluido';}).length;
+  var cPerd  = DB.q.filter(function(q){return _norm(q)==='perdido';}).length;
 
   var sumEl = document.getElementById('orcSummary');
   if(sumEl) sumEl.innerHTML =
     '<div class="orc-sum-card"><div class="orc-sum-v">'+total+'</div><div class="orc-sum-l">Total</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">'+mesCount+'</div><div class="orc-sum-l">Este mês</div></div>' +
+    '<div class="orc-sum-card"><div class="orc-sum-v">'+cConcl+'</div><div class="orc-sum-l">🏆 Concluídos</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>';
 
   // Botões de filtro por status (A2)
   var fEl = document.getElementById('orcStatusFilter');
   if(fEl) {
     var tabs = [
-      {k:'todos',   l:'Todos',    n:total,  col:'var(--t3)'},
-      {k:'pendente',l:'⏳ Aguard.',n:cPend, col:'#f59e0b'},
-      {k:'aprovado',l:'✅ Aprov.', n:cAprov, col:'#4ade80'},
-      {k:'perdido', l:'❌ Perd.',  n:cPerd,  col:'#f87171'}
+      {k:'todos',    l:'Todos',      n:total,   col:'var(--t3)'},
+      {k:'pendente', l:'⏳ Aguard.', n:cPend,   col:'#f59e0b'},
+      {k:'aceito',   l:'✅ Aceito',  n:cAceito, col:'#4ade80'},
+      {k:'concluido',l:'🏆 Concl.',  n:cConcl,  col:'#e0c068'},
+      {k:'perdido',  l:'❌ Perd.',   n:cPerd,   col:'#f87171'}
     ];
     fEl.innerHTML = tabs.map(function(t){
       var on = _orcStatusFilter === t.k;
@@ -57,9 +61,12 @@ function filterOrc() {
   var filtered = DB.q;
   // Filtro de texto
   if(_orcFilter) filtered = filtered.filter(function(q){ return (q.cli||'').toLowerCase().indexOf(_orcFilter) >= 0; });
-  // Filtro de status (A2)
+  // Filtro de status (A2) — 'aprovado' (dados antigos) equivale a 'aceito'
   if(_orcStatusFilter && _orcStatusFilter !== 'todos') {
-    filtered = filtered.filter(function(q){ return (q.status||'pendente') === _orcStatusFilter; });
+    filtered = filtered.filter(function(q){
+      var st = q.status==='aprovado' ? 'aceito' : (q.status||'pendente');
+      return st === _orcStatusFilter;
+    });
   }
   buildOrcList(filtered);
 }
@@ -75,9 +82,10 @@ function buildOrcList(list) {
   var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
   // Configuração de badges de status (A1)
   var _stMap = {
-    pendente: {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)', lbl:'Aguardando'},
-    aprovado: {ic:'✅', cor:'#4ade80', bg:'rgba(74,222,128,.12)', lbl:'Aprovado'},
-    perdido:  {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
+    pendente:  {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)', lbl:'Aguardando'},
+    aceito:    {ic:'✅', cor:'#4ade80', bg:'rgba(74,222,128,.12)', lbl:'Aceito'},
+    concluido: {ic:'🏆', cor:'#e0c068', bg:'rgba(224,192,104,.14)', lbl:'Concluído'},
+    perdido:   {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
   };
   var h = '';
   list.forEach(function(q) {
@@ -85,6 +93,7 @@ function buildOrcList(list) {
     var dateStr = q.date ? fd(q.date) : '';
     var pdsCount = (q.pds||[]).length + (q.sfPcs||[]).length;
     var st = q.status || 'pendente';
+    if (st === 'aprovado') st = 'aceito'; // compat. com dados antigos
     var stCfg = _stMap[st] || _stMap.pendente;
     h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
     h += '<div class="qcard-head">';
@@ -94,10 +103,10 @@ function buildOrcList(list) {
     h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+'</div>';
     h +=   '</div>';
     // Badge de status (A1)
-    h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para alterar status" style="'
-      +'display:inline-flex;align-items:center;gap:3px;padding:3px 7px;border-radius:20px;'
-      +'background:'+stCfg.bg+';border:1px solid '+stCfg.cor+'40;'
-      +'font-size:.6rem;font-weight:700;color:'+stCfg.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
+    h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para avançar o status" style="'
+      +'display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:20px;'
+      +'background:'+stCfg.bg+';border:1px solid '+stCfg.cor+'55;box-shadow:0 1px 3px rgba(0,0,0,.25) inset;'
+      +'font-size:.6rem;font-weight:800;letter-spacing:.2px;color:'+stCfg.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
       +stCfg.ic+' '+stCfg.lbl+'</span>';
     h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
     h +=   '<span class="qcard-chev">▼</span>';
@@ -171,18 +180,127 @@ function orcWhatsApp(id, e) {
     : 'https://wa.me/?text=' + encodeURIComponent(txt);
   window.open(url, '_blank');
 }
+var ORC_STATUS_LABELS = {pendente:'⏳ Aguardando',aceito:'✅ Aceito',concluido:'🏆 Concluído',perdido:'❌ Perdido'};
+
 function orcCicloStatus(id, e) {
   if(e) e.stopPropagation();
   var q = DB.q.find(function(x){return String(x.id)===String(id);});
   if(!q) return;
-  var ciclo = ['pendente','aprovado','perdido'];
-  var cur = ciclo.indexOf(q.status||'pendente');
-  q.status = ciclo[(cur+1) % ciclo.length];
+  var ciclo = ['pendente','aceito','concluido','perdido'];
+  var atual = q.status === 'aprovado' ? 'aceito' : (q.status||'pendente'); // compat. com dados antigos
+  var cur = ciclo.indexOf(atual);
+  var novoStatus = ciclo[(cur+1) % ciclo.length];
+
+  // ── Aceito e Concluído pedem confirmação do valor/forma/data antes de mudar o status ──
+  if (novoStatus === 'aceito' && !q._aceitoConfirmado) {
+    _abrirModalStatusOrc(q, 'aceito');
+    return;
+  }
+  if (novoStatus === 'concluido' && !q._concluidoConfirmado) {
+    _abrirModalStatusOrc(q, 'concluido');
+    return;
+  }
+
+  _aplicarStatusOrc(q, novoStatus);
+}
+
+function _aplicarStatusOrc(q, novoStatus) {
+  q.status = novoStatus;
   q._statusDate = (new Date()).toISOString().slice(0,10);
   DB.sv();
   renderOrc();
-  var labels = {pendente:'⏳ Aguardando',aprovado:'✅ Aprovado',perdido:'❌ Perdido'};
-  toast((labels[q.status]||q.status)+' — '+escH(q.cli));
+  toast((ORC_STATUS_LABELS[novoStatus]||novoStatus)+' — '+escH(q.cli));
+}
+
+// ── Modal de confirmação: valor certinho recebido + forma de pagamento + data ──
+// Usado tanto ao marcar "Aceito" (entrada) quanto "Concluído" (pagamento final).
+// Só depois de confirmar aqui é que lança em Finanças e mexe na Agenda.
+function _abrirModalStatusOrc(q, tipo) {
+  var isAceito = tipo === 'aceito';
+  var jaRecebido = q._valorRecebido || 0;
+  var saldo = Math.max(0, (q.vista||0) - jaRecebido);
+  var valorSugerido = isAceito ? (q.vista||0) : saldo;
+  var titulo = isAceito ? '✅ Confirmar Aceite' : '🏆 Confirmar Conclusão';
+  var subt = isAceito
+    ? 'Qual foi o valor certinho de entrada que ' + escH(q.cli||'o cliente') + ' deu?'
+    : 'Qual foi o valor certinho pago agora, na conclusão do serviço?';
+  var hoje = (new Date()).toISOString().slice(0,10);
+
+  var _modal = document.createElement('div');
+  _modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+  var h = '<div style="background:var(--bg);border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;padding:22px 18px 28px;">';
+  h += '<div style="font-size:.95rem;font-weight:800;color:var(--gold);margin-bottom:4px;">'+titulo+'</div>';
+  h += '<div style="font-size:.72rem;color:var(--t3);margin-bottom:18px;line-height:1.5;">'+subt+'</div>';
+
+  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Valor recebido (R$)</label>';
+  h += '<input id="_stModalValor" type="number" step="0.01" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1rem;font-weight:700;margin-bottom:14px;box-sizing:border-box;">';
+
+  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Forma de pagamento</label>';
+  h += '<select id="_stModalForma" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:14px;box-sizing:border-box;">';
+  h += '<option value="Dinheiro">💵 Dinheiro</option>';
+  h += '<option value="Pix">📱 Pix</option>';
+  h += '<option value="Cartão">💳 Cartão</option>';
+  h += '<option value="Transferência">🏦 Transferência</option>';
+  h += '</select>';
+
+  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Data certinha</label>';
+  h += '<input id="_stModalData" type="date" value="'+hoje+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:20px;box-sizing:border-box;">';
+
+  h += '<div style="display:flex;gap:10px;">';
+  h += '<button onclick="this.closest(\'[data-st-modal]\').remove();" style="flex:1;padding:13px;background:transparent;border:1px solid var(--bd2);border-radius:11px;color:var(--t3);font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Cancelar</button>';
+  h += '<button onclick="window._stModalConfirmar()" style="flex:1.4;padding:13px;background:var(--gold3);border:none;border-radius:11px;color:#000;font-weight:800;font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Confirmar</button>';
+  h += '</div></div>';
+
+  _modal.setAttribute('data-st-modal','1');
+  _modal.innerHTML = h;
+  _modal.addEventListener('click', function(e){ if(e.target === _modal) _modal.remove(); });
+  document.body.appendChild(_modal);
+
+  window._stModalConfirmar = function() {
+    var valor = +document.getElementById('_stModalValor').value || 0;
+    var forma = document.getElementById('_stModalForma').value;
+    var data  = document.getElementById('_stModalData').value || hoje;
+    if (valor <= 0) { toast('Informe um valor válido'); return; }
+
+    _modal.remove();
+
+    // ── Lança em Finanças com o valor, forma e data certinhos ──
+    if (typeof addTr === 'function') {
+      var descBase = isAceito ? 'Entrada (aceito)' : 'Pagamento final (concluído)';
+      addTr('in', descBase + ' — ' + (q.cli||'Cliente') + (q.tipo ? ' — '+q.tipo : '') + ' · ' + forma, valor, data);
+    }
+    q._valorRecebido = (q._valorRecebido||0) + valor;
+
+    if (isAceito) {
+      q._aceitoConfirmado = true;
+      q._aceitoValor = valor; q._aceitoForma = forma; q._aceitoData = data;
+    } else {
+      q._concluidoConfirmado = true;
+      q._concluidoValor = valor; q._concluidoForma = forma; q._concluidoData = data;
+    }
+
+    _aplicarStatusOrc(q, tipo);
+
+    // ── Ao aceitar, manda pra Agenda (se ainda não estiver lá) — confirma o prazo certinho ──
+    var jaAgendado = (DB.j||[]).some(function(j){ return j.qId === q.id; });
+    if (isAceito && !jaAgendado) {
+      setTimeout(function(){ pendQ = q; salvarAgenda(); }, 400);
+    }
+
+    // ── Ao concluir, marca o serviço correspondente na Agenda como feito ──
+    if (!isAceito) {
+      var job = (DB.j||[]).find(function(j){ return j.qId === q.id; });
+      if (job) {
+        job.done = true;
+        job.pago = (job.pago||0) + valor;
+        DB.sv();
+        if (typeof renderAg === 'function') renderAg();
+        if (typeof updUrgDot === 'function') updUrgDot();
+      }
+    }
+
+    toast('✓ '+(isAceito?'Aceito':'Concluído')+' — R$ '+fm(valor)+' ('+forma+') lançado em Finanças');
+  };
 }
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -934,6 +1052,46 @@ function _restaurarRascunho(){
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',function(){
   console.log('BOOT START');
+
+  // ── Migração única: orçamentos que JÁ estavam "aprovado" antes desta
+  //    atualização não tinham sido lançados em Finanças automaticamente.
+  //    Roda uma vez só (marca CFG._migAprovadosV1) e lança o que faltar.
+  (function _migAprovadosPendentes(){
+    if (!CFG || CFG._migAprovadosV1) return;
+    var lancados = 0;
+    (DB.q||[]).forEach(function(q){
+      if (q.status === 'aprovado' && !q._finLancada) {
+        var valor = q.vista || 0;
+        if (valor > 0 && typeof addTr === 'function') {
+          addTr('pend', 'A Receber (orçamento aprovado) — ' + (q.cli||'Cliente') + (q.tipo ? ' — ' + q.tipo : ''), valor);
+          q._finLancada = true;
+          lancados++;
+        }
+      }
+    });
+    CFG._migAprovadosV1 = true;
+    try{ localStorage.setItem('hr_cfg', JSON.stringify(CFG)); }catch(e){}
+    if (lancados > 0) {
+      DB.sv();
+      setTimeout(function(){
+        toast('✓ '+lancados+' orçamento(s) aprovado(s) antes da atualização foram lançados em Finanças');
+      }, 900);
+    }
+  })();
+
+  // ── Migração única: renomeia status "aprovado" (nome antigo) para "aceito"
+  //    (agora o ciclo do Histórico é Aguardando → Aceito → Concluído → Perdido).
+  (function _migStatusAceitoV1(){
+    if (!CFG || CFG._migStatusAceitoV1) return;
+    var mudou = false;
+    (DB.q||[]).forEach(function(q){
+      if (q.status === 'aprovado') { q.status = 'aceito'; q._aceitoConfirmado = true; mudou = true; }
+    });
+    CFG._migStatusAceitoV1 = true;
+    try{ localStorage.setItem('hr_cfg', JSON.stringify(CFG)); }catch(e){}
+    if (mudou) DB.sv();
+  })();
+
   // Force correct layout on resize / orientation change
   // ── LAYOUT ENGINE COMPLETO ──
 window.setLayout=function(){
@@ -6168,6 +6326,48 @@ function gerarPDF(){
     });
   },200);
 }
+// ── Motor de capacidade (IEO) ────────────────────────────────────────────────
+// Tabela de pesos por categoria: quanto cada tipo de serviço "pesa" na agenda,
+// dividido entre oficina/campo/geral. Usado por estimaIEO() + calcSemana()
+// para detectar conflito de agenda antes de confirmar uma data.
+var _IEO_CAT = {
+  'Cozinha'    : { base: 0,   ppm2: 1.0,  oficina: 0.40, campo: 0.35, geral: 0.25 },
+  'Banheiro'   : { base: 0,   ppm2: 1.1,  oficina: 0.45, campo: 0.30, geral: 0.25 },
+  'Lavabo'     : { base: 0,   ppm2: 1.1,  oficina: 0.45, campo: 0.30, geral: 0.25 },
+  'Cuba'       : { base: 2.5, ppm2: 0.5,  oficina: 0.70, campo: 0.10, geral: 0.20 },
+  'Rebaixo'    : { base: 3.0, ppm2: 0.3,  oficina: 0.75, campo: 0.10, geral: 0.15 },
+  'Instalação' : { base: 1.5, ppm2: 0.8,  oficina: 0.05, campo: 0.85, geral: 0.10 },
+  'Escada'     : { base: 1.0, ppm2: 1.3,  oficina: 0.35, campo: 0.50, geral: 0.15 },
+  'Soleira'    : { base: 0.5, ppm2: 1.0,  oficina: 0.25, campo: 0.55, geral: 0.20 },
+  'Peitoril'   : { base: 0.5, ppm2: 0.9,  oficina: 0.25, campo: 0.55, geral: 0.20 },
+  'Fachada'    : { base: 0.5, ppm2: 1.2,  oficina: 0.30, campo: 0.55, geral: 0.15 },
+  'Lápide'     : { base: 4.0, ppm2: 0.4,  oficina: 0.40, campo: 0.50, geral: 0.10 },
+  'Cruzeiro'   : { base: 3.5, ppm2: 0.3,  oficina: 0.25, campo: 0.65, geral: 0.10 },
+  'Capelinha'  : { base: 2.0, ppm2: 1.0,  oficina: 0.35, campo: 0.50, geral: 0.15 },
+  'Túmulo'     : { base: 3.0, ppm2: 0.8,  oficina: 0.35, campo: 0.55, geral: 0.10 },
+  'Funerário'  : { base: 3.0, ppm2: 0.6,  oficina: 0.35, campo: 0.55, geral: 0.10 },
+  'Mesa'       : { base: 0,   ppm2: 1.0,  oficina: 0.50, campo: 0.25, geral: 0.25 },
+  'Tampo'      : { base: 0,   ppm2: 1.0,  oficina: 0.50, campo: 0.25, geral: 0.25 },
+  'Rodapé'     : { base: 0,   ppm2: 0.8,  oficina: 0.30, campo: 0.45, geral: 0.25 },
+  'Outro'      : { base: 0.5, ppm2: 1.0,  oficina: 0.33, campo: 0.34, geral: 0.33 }
+};
+function estimaIEO(job) {
+  var cat = (job && job.cat) || 'Outro';
+  var m2  = (job && job.m2 > 0) ? job.m2 : 1;
+  var peso = _IEO_CAT[cat];
+  if (!peso) {
+    var catKey = Object.keys(_IEO_CAT).find(function(k) {
+      return cat.toLowerCase().indexOf(k.toLowerCase()) >= 0;
+    });
+    peso = catKey ? _IEO_CAT[catKey] : _IEO_CAT['Outro'];
+  }
+  var ieo    = Math.round((peso.base + peso.ppm2 * m2) * 10) / 10;
+  var ieo_of = Math.round(ieo * peso.oficina * 10) / 10;
+  var ieo_ca = Math.round(ieo * peso.campo   * 10) / 10;
+  var ieo_ge = Math.round((ieo - ieo_of - ieo_ca) * 10) / 10;
+  return { ieo: ieo, ieo_of: ieo_of, ieo_ca: ieo_ca, ieo_ge: ieo_ge };
+}
+
 function salvarAgenda() {
   if (!pendQ) return;
 
@@ -6354,19 +6554,8 @@ function confirmarAgenda() {
     closeAll();
     updUrgDot();
     toast('✓ ' + q.cli + ' agendado para ' + fd(end));
-    setTimeout(function () {
-      showCB(
-        q.cli + ' já pagou os 50% de entrada (R$ ' + fm(q.ent) + ')?',
-        function () {
-          addTr('in', 'Entrada 50% — ' + q.cli, q.ent);
-          var j = DB.j.find(function (x) { return x.id === novoJob.id; });
-          if (j) { j.pago = q.ent; DB.sv(); }
-          hideCB();
-          toast('✓ Entrada registrada!');
-        },
-        function () { hideCB(); }
-      );
-    }, 600);
+    // Nota: Finanças NÃO é lançado aqui — o valor certinho de entrada já
+    // foi lançado no modal de confirmação ao marcar "Aceito" (orcCicloStatus).
   }
 
   // ── Se há alerta: pede confirmação; senão salva direto ───────────
@@ -6568,7 +6757,7 @@ function jCard(j){
 // ═══ FINANÇAS ═══
 function openFin(t){fType=t;document.querySelectorAll('.ts').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});var fd=document.getElementById('fData');if(fd&&!fd.value)fd.value=td();showMd('finMd');}
 function setFT(t){fType=t;document.querySelectorAll('[data-ftp]').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});}
-function addTr(type,desc,value){DB.t.unshift({id:Date.now(),type:type,desc:desc,value:value,date:td()});DB.sv();renderFin();}
+function addTr(type,desc,value,date){DB.t.unshift({id:Date.now(),type:type,desc:desc,value:value,date:date||td()});DB.sv();renderFin();}
 function saveFin(){var desc=document.getElementById('fDesc').value.trim(),val=+document.getElementById('fVal').value||0,date=document.getElementById('fData').value;if(!desc){toast('Preencha a descrição');return;}DB.t.unshift({id:Date.now(),type:fType,desc:desc,value:val,date:date});DB.sv();renderFin();closeAll();document.getElementById('fDesc').value='';document.getElementById('fVal').value='';toast('✓ Lançado!');}
 function openEditTr(id){
   editTrId=id;
@@ -6779,12 +6968,13 @@ function renderDashboard() {
   var orcMes    = DB.q.filter(function(q) { return (q.date || q.dt || '').substring(0, 7) === mesAtual; });
   var receitaOrc = orcMes.reduce(function(s, q) { return s + (q.vista || 0); }, 0);
 
-  // ── Conversão (A3) ────────────────────────────────────────────
-  var orcAprov  = DB.q.filter(function(q){ return q.status === 'aprovado'; }).length;
+  // ── Conversão (A3) — conta "Aceito" e "Concluído" como convertido ──
+  var _isConvertido = function(q){ return q.status === 'aceito' || q.status === 'concluido' || q.status === 'aprovado'; };
+  var orcAprov  = DB.q.filter(_isConvertido).length;
   var orcPerd   = DB.q.filter(function(q){ return q.status === 'perdido';  }).length;
   var orcPend   = totalOrc - orcAprov - orcPerd;
   var taxaConv  = totalOrc > 0 ? Math.round((orcAprov / totalOrc) * 100) : 0;
-  var orcAprovMes = orcMes.filter(function(q){ return q.status === 'aprovado'; }).length;
+  var orcAprovMes = orcMes.filter(_isConvertido).length;
 
   // ── Meta mensal (B2) ─────────────────────────────────────────
   var metaMes   = (CFG.emp && CFG.emp.metaMes) ? +CFG.emp.metaMes : 0;
@@ -9916,18 +10106,15 @@ function confirmarContrato(){
   if(dataEntrega){var de=new Date(dataEntrega+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🚚',txt:'<strong>Previsão de entrega:</strong> '+de+' ('+prazo+' dias úteis)'});}
   if(obsContr)pgConds.push({icon:'📝',txt:obsContr});
 
-  // ── Lançamento automático nas Finanças ──
-  // Sempre lança: entrada como recebida (in) + entrega como a receber (pend)
-  if(entVal>0){
-    var pgDesc=pgTipo==='vista'?'à vista':(pgTipo==='3x'?'3×':'50/50');
-    addTr('in','Entrada contrato ('+pgDesc+') — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entVal);
-    var toastMsg='✓ Finanças: Entrada R$ '+fm(entVal)+' recebida';
-    if(entgVal>0&&pgTipo!=='vista'){
-      addTr('pend','A receber entrega ('+pgDesc+') — '+escH(q.cli||'Cliente')+' ('+q.tipo+')',entgVal);
-      toastMsg+=' · A receber R$ '+fm(entgVal);
-    }
-    toast(toastMsg);
-  }
+  // ── Entrega do projeto ──
+  // Não lança nada em Finanças aqui: o valor já foi lançado como "A Receber"
+  // na aprovação do orçamento, e é quitado manualmente em Finanças/Histórico.
+  // Aqui só marcamos o projeto como entregue (garantia) na ficha do orçamento.
+  q.entregue    = true;
+  q.entregueEm  = td();
+  q.garantiaAte = (function(){var d=new Date();d.setMonth(d.getMonth()+12);return d.toISOString().slice(0,10);})();
+  DB.sv();
+  toast('✓ Projeto marcado como entregue — garantia até '+fd(q.garantiaAte));
   _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa);
   }catch(err){console.error('confirmarContrato:',err);toast('Erro: '+err.message);}
 }
