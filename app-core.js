@@ -562,6 +562,21 @@ var FCM_CFG = {
 };
 var VAPID_KEY = "BF1b09spZngDCLWrv1QUlQm6UjCutcH1thyribQuTYOEvyovwUpiCc4AwQ8AWp5EcrLkvI99ch3qObgbCIdpj0o";
 
+// ── Pede a permissão de notificação ao usuário e liga o FCM ──────────────
+function ativarNotificacoes(){
+  if(typeof Notification==='undefined'){ toast('Este navegador não suporta notificações.'); return; }
+  if(!SYNC.code){ toast('Ative a Sincronização Celular ↔ Tablet primeiro (é ela que identifica seu dispositivo).'); return; }
+  Notification.requestPermission().then(function(perm){
+    if(perm==='granted'){
+      toast('✓ Notificações ativadas!');
+      FCM.init();
+    } else {
+      toast('Permissão não concedida.');
+    }
+    if(typeof buildCfg==='function') buildCfg();
+  });
+}
+
 var FCM = {
   token: null,
   init: function(){
@@ -6826,6 +6841,8 @@ function openJobModal(id){
   editJobId=id;
   document.getElementById('jobMdTitle').textContent=id?'Editar Serviço':'Novo Serviço';
   _ensureJobInstalaToggle();
+  _ensureOrcLinkSelect();
+  var _orcWrap=document.getElementById('jOrcLinkWrap');
   if(id){
     var j=DB.j.find(function(x){return x.id===id;});
     if(!j)return;
@@ -6838,11 +6855,16 @@ function openJobModal(id){
     document.getElementById('jPago').value=j.pago||'';
     document.getElementById('jObs').value=j.obs||'';
     _jobInstalaOn=!!j.instala;
+    _jobLinkedQId=null;
+    if(_orcWrap)_orcWrap.style.display='none'; // já é um serviço existente — não faz sentido reatrelar aqui
   } else {
     ['jCli','jDesc','jVal','jPago','jObs'].forEach(function(i){document.getElementById(i).value='';});
     document.getElementById('jStart').value=td();
     document.getElementById('jDias').value='';
     _jobInstalaOn=false;
+    _jobLinkedQId=null;
+    if(_orcWrap)_orcWrap.style.display='';
+    _refreshOrcLinkOptions();
   }
   _paintJobInstala();
   document.getElementById('jobDp').classList.remove('on');
@@ -6859,7 +6881,9 @@ function saveJob(){
     var j=DB.j.find(function(x){return x.id===editJobId;});
     if(j){j.cli=cli;j.desc=desc;j.start=s;j.end=end;j.value=val;j.pago=pago;j.obs=obs;j.instala=instala;_syncJobDone(j);DB.sv();}
   } else {
-    DB.j.unshift({id:Date.now(),cli:cli,desc:desc,start:s,end:end,value:val,pago:pago,obs:obs,done:false,instala:instala,stage:'producao'});DB.sv();
+    var _novoJobManual={id:Date.now(),cli:cli,desc:desc,start:s,end:end,value:val,pago:pago,obs:obs,done:false,instala:instala,stage:'producao'};
+    if(_jobLinkedQId) _novoJobManual.qId=_jobLinkedQId;
+    DB.j.unshift(_novoJobManual);DB.sv();
     if(pago>0)setTimeout(function(){showCB('Registrar entrada de R$ '+fm(pago)+' do '+cli+'?',function(){addTr('in','Entrada — '+cli,pago);hideCB();},function(){hideCB();});},400);
   }
   renderAg();updUrgDot();closeAll();toast('✓ Salvo!');
@@ -6973,7 +6997,101 @@ function _ensureJobInstalaToggle(){ _ensureInstalaToggle('btnSvJob','jInstalaWra
 function _ensureAgInstalaToggle(){ _ensureInstalaToggle('btnConfAg','jAgInstalaWrap','jAgInstalaBtn','toggleAgInstala'); }
 window.addEventListener('load',function(){ _ensureJobInstalaToggle(); _ensureAgInstalaToggle(); });
 
+// ── Vincular "Novo Serviço" a um orçamento já aceito (evita digitar tudo de novo) ──
+var _jobLinkedQId = null;
+function _normQStatus(q){ return q.status==='aprovado' ? 'aceito' : (q.status||'pendente'); }
+function _orcamentosDisponiveisParaJob(){
+  return (DB.q||[]).filter(function(q){
+    if(_normQStatus(q)!=='aceito') return false;
+    var jaAgendado=(DB.j||[]).some(function(j){ return j.qId===q.id; });
+    return !jaAgendado;
+  });
+}
+function _ensureOrcLinkSelect(){
+  if(document.getElementById('jOrcLinkWrap')) return;
+  var cliEl=document.getElementById('jCli');
+  if(!cliEl||!cliEl.parentNode) return;
+  var anchor=cliEl.parentNode;
+  var host=anchor.parentNode||anchor;
+  var wrap=document.createElement('div');
+  wrap.id='jOrcLinkWrap';
+  wrap.style.margin='0 0 14px';
+  wrap.innerHTML =
+    '<div style="font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3,#8a8a90);font-weight:700;margin-bottom:7px;">VINCULAR A UM ORÇAMENTO ACEITO (opcional)</div>'+
+    '<select id="jOrcLinkSel" onchange="pickOrcamentoParaJob(this.value)" style="width:100%;padding:11px 12px;border-radius:11px;border:1px solid var(--bd,#333);background:var(--s3,#141419);color:var(--t2,#ccc);font-family:Outfit,sans-serif;font-size:.8rem;">'+
+    '<option value="">— Preencher manualmente —</option>'+
+    '</select>';
+  host.insertBefore(wrap, anchor);
+}
+function _refreshOrcLinkOptions(){
+  var sel=document.getElementById('jOrcLinkSel');
+  if(!sel) return;
+  var disp=_orcamentosDisponiveisParaJob();
+  var opts='<option value="">— Preencher manualmente —</option>';
+  disp.forEach(function(q){
+    opts+='<option value="'+q.id+'">'+escH(q.cli||'Cliente')+' — '+escH(q.tipo||'')+' (R$ '+fm(q.vista||0)+')</option>';
+  });
+  sel.innerHTML=opts;
+  sel.value='';
+}
+function pickOrcamentoParaJob(qid){
+  if(!qid){ _jobLinkedQId=null; return; }
+  var q=(DB.q||[]).find(function(x){ return String(x.id)===String(qid); });
+  if(!q) return;
+  _jobLinkedQId=q.id;
+  document.getElementById('jCli').value=q.cli||'';
+  document.getElementById('jDesc').value=(q.tipo||'')+(q.mat?' — '+q.mat:'');
+  document.getElementById('jVal').value=q.vista||'';
+  document.getElementById('jPago').value=q._valorRecebido||0;
+  toast('✓ Dados preenchidos a partir do orçamento de '+(q.cli||'cliente'));
+}
+window.addEventListener('load',function(){ _ensureOrcLinkSelect(); });
+
+// ── Briefing do dia: avisos automáticos (atrasado / começa hoje / em produção / entrega hoje) ──
+function _montaBriefingDia(opts){
+  opts=opts||{};
+  _migrateAllJobs();
+  var hoje=td();
+  var ativos=DB.j.filter(function(j){ return !j.done; });
+  var atrasados=ativos.filter(function(j){ return j.end && dDiff(j.end)<0; });
+  var comecandoHoje=ativos.filter(function(j){ return j.start===hoje; });
+  var emProducaoHoje=ativos.filter(function(j){ return j.stage==='producao' && j.start && j.start<=hoje; });
+  var entregaHoje=ativos.filter(function(j){ return j.end && dDiff(j.end)===0; });
+
+  if(!atrasados.length && !comecandoHoje.length && !emProducaoHoje.length && !entregaHoje.length) return '';
+
+  function linha(icon,cor,label,lista){
+    if(!lista.length) return '';
+    var nomes=lista.map(function(j){return j.cli;}).join(', ');
+    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06);">'
+      +'<span style="font-size:1rem;line-height:1;">'+icon+'</span>'
+      +'<div style="flex:1;min-width:0;"><div style="font-size:.7rem;font-weight:800;color:'+cor+';">'+lista.length+' '+label+'</div>'
+      +'<div style="font-size:.66rem;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+nomes+'</div></div>'
+      +'</div>';
+  }
+
+  var h='<div style="background:linear-gradient(135deg,var(--s2),var(--s3));border:1px solid var(--gold3);border-radius:14px;padding:14px 16px;margin-bottom:14px;'+(opts.onclick?'cursor:pointer;':'')+'"'+(opts.onclick?' onclick="'+opts.onclick+'"':'')+'>'
+    +'<div style="font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:900;margin-bottom:4px;">✨ Briefing do dia — '+fd(hoje)+'</div>';
+  h+=linha('🔴','#e74c3c','atrasado(s)',atrasados);
+  h+=linha('🚀','var(--gold)','começa(m) hoje',comecandoHoje);
+  h+=linha('🛠️','#4aa8e0','em produção hoje',emProducaoHoje);
+  h+=linha('📦','#4ade80','com entrega hoje',entregaHoje);
+  h+='</div>';
+  return h;
+}
+
 function renderAg(){
+  // ── Briefing do dia (avisos automáticos) ─────────────────────────────────
+  var _agListEl0 = document.getElementById('agList');
+  if (_agListEl0) {
+    var _briefEl = document.getElementById('agBriefing');
+    if (!_briefEl) {
+      _briefEl = document.createElement('div');
+      _briefEl.id = 'agBriefing';
+      _agListEl0.parentNode.insertBefore(_briefEl, _agListEl0);
+    }
+    _briefEl.innerHTML = _montaBriefingDia();
+  }
   // ── Painel de carga semanal (IEO) ────────────────────────────────────────
   var _agListEl = document.getElementById('agList');
   if (_agListEl) {
@@ -7104,6 +7222,12 @@ function jCard(j){
   // ── Indicador simples de pagamento pendente (sem mostrar valor) ─────────
   var payTag=(rest>0)?'<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.35);font-size:.6rem;font-weight:700;color:#f87171;white-space:nowrap;">💰 Pagamento pendente</span>':'';
 
+  // ── Alerta de início de produção hoje (independe do prazo de entrega) ──
+  var startBanner='';
+  if(!j.done && j.start===td()){
+    startBanner='<div style="background:rgba(201,168,76,.11);border:1px solid rgba(201,168,76,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:var(--gold);font-weight:700;">🚀 COMEÇA HOJE — início da produção</div>';
+  }
+
   // ── Alerta de prazo vencendo (só enquanto não estiver concluído) ───────
   var alertBanner='';
   if(!j.done&&d!==null){
@@ -7127,6 +7251,7 @@ function jCard(j){
 
   return '<div class="jcard '+st+'">'
     + alertBanner
+    + startBanner
     + '<div class="jnm">'+j.cli+'</div>'
     + '<div class="jdesc">'+j.desc+'</div>'
     + '<div class="jmeta">'+meta+'</div>'
@@ -7410,6 +7535,9 @@ function renderDashboard() {
     + '<div style="font-size:1.3rem;font-weight:900;color:var(--gold);line-height:1.2;">' + (CFG.emp.nome || 'HR Mármores') + '</div>'
     + '<div style="font-size:.7rem;color:var(--t4);margin-top:2px;">' + nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1) + '</div>'
     + '</div>';
+
+  // ── Briefing do dia (avisos automáticos) ───────────────────────
+  h += _montaBriefingDia({onclick:"go(3)"});
 
   // ── Cards resumo ──────────────────────────────────────────────
   h += sec('Resumo Financeiro', '💰');
@@ -9234,7 +9362,22 @@ function buildCfg(){
     }
     h+='</div></div>';
 
-    // Catálogo Público
+    // Notificações Push
+    h+='<div class="cfgsec"><div class="cfghd">🔔 Notificações Push</div>';
+    h+='<div style="padding:13px;">';
+    h+='<div style="font-size:.76rem;color:var(--t2);line-height:1.65;margin-bottom:12px;">Ative para receber avisos no celular (tela de bloqueio) mesmo com o app fechado — atrasos, entregas do dia, boletos.</div>';
+    var _notifStatus = (typeof Notification!=='undefined') ? Notification.permission : 'unsupported';
+    if(_notifStatus==='unsupported'){
+      h+='<div style="background:var(--s3);border-radius:9px;padding:11px 13px;font-size:.72rem;color:var(--t3);">Este navegador não suporta notificações push.</div>';
+    } else if(_notifStatus==='granted'){
+      h+='<div style="background:#0a1f12;border:1px solid var(--grn);border-radius:9px;padding:11px 13px;display:flex;align-items:center;gap:8px;">'
+        +'<span style="font-size:1rem;">✅</span><div style="font-size:.8rem;font-weight:600;color:var(--grn);">Notificações ativadas</div></div>';
+    } else if(_notifStatus==='denied'){
+      h+='<div style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:9px;padding:11px 13px;font-size:.72rem;color:#f87171;line-height:1.6;">🚫 Bloqueado. Vá nas configurações do navegador/site e libere notificações manualmente, depois recarregue o app.</div>';
+    } else {
+      h+='<button class="btn btn-g" style="font-size:.82rem;padding:12px;width:100%;" onclick="ativarNotificacoes()">🔔 Ativar notificações</button>';
+    }
+    h+='</div></div>';
     h+='<div class="cfgsec"><div class="cfghd">🌐 Catálogo Público (Cubas/Acessórios)</div>';
     h+='<div style="padding:12px 13px;">';
     if(e.ultimaPublicacao){
