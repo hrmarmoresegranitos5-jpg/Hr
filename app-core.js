@@ -5959,6 +5959,8 @@ function gerarPDF(){
 
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
+  // ── Forma de pagamento que o cliente escolheu no painel (à vista é o padrão) ──
+  var _pdfIsParc = q.formaPag === 'parcelado';
   // Para orçamentos pequenos (poucas peças de soleira/peitoril), não faz sentido
   // exigir entrada + entrega — deixa o cliente livre pra decidir quando paga.
   var _valorBaixo = q.vista < (CFG.limiarPagamentoSimples||600);
@@ -6333,7 +6335,24 @@ function gerarPDF(){
     +'</div>'):'') 
     // VALORES
     +sh('Valores do Projeto')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
+    +(_pdfIsParc
+      // ── Cliente fechou PARCELADO: mostra só o cartão parcelado, sem mencionar o valor à vista ──
+      ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
+        +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
+          +'<div style="background:#0f0c00;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">'
+            +'<span style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">VALOR DO PROJETO</span>'
+            +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:8px;font-weight:900;padding:2px 8px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
+          +'</div>'
+          +'<div style="padding:14px 16px;background:#fff;">'
+            +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._parcCalc)+'</div>':'')
+            +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.p8)+'</div>'
+            +'<div style="font-size:11px;color:#999;margin-bottom:8px;">por mês — 8 parcelas</div>'
+            +'<div style="font-size:12px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      // ── Cliente fechou À VISTA (padrão): mantém os dois cartões, como já combinado ──
+      : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
       // parcelado — "preço cheio", sem mencionar taxa
       +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
         +'<div style="background:#0f0c00;padding:10px 16px;">'
@@ -6359,18 +6378,29 @@ function gerarPDF(){
           +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:9px;font-weight:900;padding:3px 10px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
         +'</div>'
       +'</div>'
-    +'</div>'
+    +'</div>')
 
     // CONDIÇÃO DE PAGAMENTO
     +sh('Como Fica o Pagamento')
-    +(_valorBaixo
-      // Orçamento pequeno: sem exigir entrada/entrega, cliente decide quando paga
+    +(_pdfIsParc
+      // ── Cliente fechou PARCELADO: só o plano de 8x, sem dividir em entrada/entrega (isso dobraria a taxa) ──
+      ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PARCELAMENTO EM 8×</div>'
+          +'<div style="font-size:26px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.p8)+'<span style="font-size:13px;color:#999;font-weight:700;">/mês</span></div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.6;margin-bottom:10px;">1ª parcela na assinatura, as demais mensalmente.</div>'
+          +'<div style="padding-top:10px;border-top:1px solid #e8dfc4;font-size:11px;color:#888;display:flex;align-items:center;gap:6px;">'
+            +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
+            +'<span>Total parcelado: R$ '+fm(q.parc)+'</span>'
+          +'</div>'
+        +'</div>'
+      : (_valorBaixo
+      // Orçamento pequeno à vista: sem exigir entrada/entrega, cliente decide quando paga
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PAGAMENTO LIVRE</div>'
           +'<div style="font-size:26px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:8px;">R$ '+fm(q.vista)+'</div>'
           +'<div style="font-size:12.5px;color:#555;line-height:1.6;">Por ser um valor menor, não exigimos entrada. Você pode pagar tudo à vista ou combinar diretamente com a gente a melhor forma — antes ou depois do serviço.</div>'
         +'</div>'
-      // Orçamento maior: mantém a divisão entrada/entrega
+      // À vista, orçamento maior: mantém a divisão entrada/entrega (50% na assinatura, 50% na entrega)
       : '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:16px 18px;margin-bottom:6px;">'
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">'
         +'<div>'
@@ -6388,7 +6418,7 @@ function gerarPDF(){
         +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
         +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
       +'</div>'
-    +'</div>')
+    +'</div>'))
 
     // PRAZO ESTIMADO (injetado pelo app-pdf-prazo.js)
     +(window._pdfPrazoData ? (function(){
