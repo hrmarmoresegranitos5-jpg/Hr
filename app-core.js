@@ -1598,7 +1598,7 @@ function dispatch(e){
   el=e.target.closest('#cbN');if(el){if(cbNcb)cbNcb();return;}
 }
 function closeAll(){document.querySelectorAll('.ov').forEach(function(o){o.classList.remove('on');});}
-function showMd(id){closeAll();document.getElementById(id).classList.add('on');}
+function showMd(id){closeAll();var el=document.getElementById(id);if(el)el.classList.add('on');else console.warn('showMd: modal #'+id+' não existe no HTML atual.');}
 
 // ═══ PHOTO PICKER ═══
 function pickPhoto(target,idx){fileTarget={t:target,i:idx};document.getElementById('fileInp').click();}
