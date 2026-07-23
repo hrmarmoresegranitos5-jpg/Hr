@@ -6383,15 +6383,10 @@ function gerarPDF(){
     // CONDIÇÃO DE PAGAMENTO
     +sh('Como Fica o Pagamento')
     +(_pdfIsParc
-      // ── Cliente fechou PARCELADO: só o plano de 8x, sem dividir em entrada/entrega (isso dobraria a taxa) ──
+      // ── Cliente fechou PARCELADO: explica a mecânica sem repetir os números já mostrados acima ──
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
-          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PARCELAMENTO EM 8×</div>'
-          +'<div style="font-size:26px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(q.p8)+'<span style="font-size:13px;color:#999;font-weight:700;">/mês</span></div>'
-          +'<div style="font-size:12.5px;color:#555;line-height:1.6;margin-bottom:10px;">1ª parcela na assinatura, as demais mensalmente.</div>'
-          +'<div style="padding-top:10px;border-top:1px solid #e8dfc4;font-size:11px;color:#888;display:flex;align-items:center;gap:6px;">'
-            +'<span style="color:#C9A84C;font-size:13px;">ℹ</span>'
-            +'<span>Total parcelado: R$ '+fm(q.parc)+'</span>'
-          +'</div>'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">COMO FUNCIONA O PARCELAMENTO</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O valor é dividido em 8 parcelas mensais e iguais. A primeira parcela é paga na assinatura, para darmos início à produção — as demais seguem mensalmente até a entrega e instalação. Não existe entrada separada: é só a parcela, todo mês, até completar as 8.</div>'
         +'</div>'
       : (_valorBaixo
       // Orçamento pequeno à vista: sem exigir entrada/entrega, cliente decide quando paga
@@ -6419,6 +6414,15 @@ function gerarPDF(){
         +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
       +'</div>'
     +'</div>'))
+
+    // POR QUE FECHAR COM A HR (inclui a garantia de 1 ano) — aparece em todo orçamento, à vista ou parcelado
+    +sh('Por Que Fechar Com a HR Mármores')
+    +(function(){var motivos=[
+        ['🛡️','1 Ano de Garantia','Cobrimos qualquer defeito de fabricação ou instalação por 12 meses após a entrega, sem custo adicional.'],
+        ['✂️','Corte de Precisão','Pedra cortada com precisão milimétrica em maquinário próprio, com rigoroso controle dimensional em cada peça.'],
+        ['🚚','Do Corte à Instalação','Nossa equipe cuida de tudo — fabricação, entrega, instalação e nivelamento. Nada fica por sua conta.'],
+        ['📍','Atendimento Direto','Sem intermediários: você fala com quem produz e instala, do orçamento à entrega final.']
+      ];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+motivos.map(function(m){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+m[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+m[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+m[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // PRAZO ESTIMADO (injetado pelo app-pdf-prazo.js)
     +(window._pdfPrazoData ? (function(){
