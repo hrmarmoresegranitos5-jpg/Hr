@@ -265,9 +265,10 @@ function _abrirModalStatusOrc(q, tipo) {
     _modal.remove();
 
     // ── Lança em Finanças com o valor, forma e data certinhos ──
+    var _trNova = null;
     if (typeof addTr === 'function') {
       var descBase = isAceito ? 'Entrada (aceito)' : 'Pagamento final (concluído)';
-      addTr('in', descBase + ' — ' + (q.cli||'Cliente') + (q.tipo ? ' — '+q.tipo : '') + ' · ' + forma, valor, data);
+      _trNova = addTr('in', descBase + ' — ' + (q.cli||'Cliente') + (q.tipo ? ' — '+q.tipo : '') + ' · ' + forma, valor, data);
     }
     q._valorRecebido = (q._valorRecebido||0) + valor;
 
@@ -300,6 +301,16 @@ function _abrirModalStatusOrc(q, tipo) {
     }
 
     toast('✓ '+(isAceito?'Aceito':'Concluído')+' — R$ '+fm(valor)+' ('+forma+') lançado em Finanças');
+
+    // ── Oferece gerar o comprovante desse pagamento pro cliente ──
+    if (_trNova && typeof gerarComprovante === 'function') {
+      var _atrasoComprov = (isAceito && !jaAgendado) ? 1000 : 350;
+      setTimeout(function(){
+        showCB('🧾 Gerar comprovante deste pagamento para '+(q.cli||'o cliente')+'?', function(){
+          hideCB(); gerarComprovante(_trNova.id);
+        }, function(){ hideCB(); });
+      }, _atrasoComprov);
+    }
   };
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -6616,8 +6627,8 @@ function saveJob(){
 }
 
 function editJob(id){openJobModal(id);}
-function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){addTr('in','Entrega — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');},function(){hideCB();});},400);}}
-function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){addTr('in','Pagamento — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');},function(){hideCB();});}
+function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){var _tr=addTr('in','Entrega — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});},400);}}
+function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){var _tr=addTr('in','Pagamento — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});}
 function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();});}
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
 
@@ -6757,7 +6768,7 @@ function jCard(j){
 // ═══ FINANÇAS ═══
 function openFin(t){fType=t;document.querySelectorAll('.ts').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});var fd=document.getElementById('fData');if(fd&&!fd.value)fd.value=td();showMd('finMd');}
 function setFT(t){fType=t;document.querySelectorAll('[data-ftp]').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});}
-function addTr(type,desc,value,date){DB.t.unshift({id:Date.now(),type:type,desc:desc,value:value,date:date||td()});DB.sv();renderFin();}
+function addTr(type,desc,value,date){var _tr={id:Date.now(),type:type,desc:desc,value:value,date:date||td()};DB.t.unshift(_tr);DB.sv();renderFin();return _tr;}
 function saveFin(){var desc=document.getElementById('fDesc').value.trim(),val=+document.getElementById('fVal').value||0,date=document.getElementById('fData').value;if(!desc){toast('Preencha a descrição');return;}DB.t.unshift({id:Date.now(),type:fType,desc:desc,value:val,date:date});DB.sv();renderFin();closeAll();document.getElementById('fDesc').value='';document.getElementById('fVal').value='';toast('✓ Lançado!');}
 function openEditTr(id){
   editTrId=id;
@@ -6792,7 +6803,7 @@ function gerarComprovante(id){
   var cli='';
   var descLower=(t.desc||'').toLowerCase();
   // padrão: "Entrada contrato ... — NomeCliente (tipo)"
-  var mCli=(t.desc||'').match(/—\s*([^\(]+)/);
+  var mCli=(t.desc||'').match(/—\s*([^—·\(]+)/);
   if(mCli)cli=mCli[1].trim();
 
   // Buscar orçamento relacionado para pegar valor total
