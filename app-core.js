@@ -371,6 +371,8 @@ function _abrirModalStatusOrc(q, tipo) {
     if (!isAceito) {
       var job = (DB.j||[]).find(function(j){ return j.qId === q.id; });
       if (job) {
+        if(typeof _migrateJobStage==='function') _migrateJobStage(job);
+        job.stage = (typeof _jobTerminal==='function') ? _jobTerminal(job) : job.stage;
         job.done = true;
         job.pago = (job.pago||0) + valor;
         DB.sv();
@@ -1536,9 +1538,9 @@ function dispatch(e){
   // Finance type in edit modal
   el=e.target.closest('[data-tet]');if(el){setTET(el.dataset.tet);return;}
   // Job actions
-  el=e.target.closest('[data-togjob]');if(el){togJob(+el.dataset.togjob);return;}
+  el=e.target.closest('[data-jobstage]');if(el){jobAdvance(+el.dataset.jobstage);return;}
+  el=e.target.closest('[data-jobback]');if(el){jobBack(+el.dataset.jobback);return;}
   el=e.target.closest('[data-editjob]');if(el){editJob(+el.dataset.editjob);return;}
-  el=e.target.closest('[data-pagrest]');if(el){pagRest(+el.dataset.pagrest);return;}
   el=e.target.closest('[data-deljob]');if(el){delJob(+el.dataset.deljob);return;}
   // Peca remove
   el=e.target.closest('[data-rmpc]');if(el){remPeca(+el.dataset.rmpc);return;}
@@ -6607,6 +6609,10 @@ function estimaIEO(job) {
 function salvarAgenda() {
   if (!pendQ) return;
 
+  _ensureAgInstalaToggle();
+  _agInstalaOn=false;
+  _paintAgInstala();
+
   var hoje = td();
   var last  = lastEnd();
   var inicioJob = last && last > hoje ? last : hoje;
@@ -6746,7 +6752,9 @@ function confirmarAgenda() {
     m2    : q.m2    || 0,
     matPr : q.matPr || 0,
     custoPedraEpoca : q.matCusto || q.custo || 0,
-    cat   : q.tipo  || 'Outro'
+    cat   : q.tipo  || 'Outro',
+    stage : 'producao',
+    instala : !!_agInstalaOn
   };
 
   // ── Estima IEO e simula a semana COM o job ───────────────────────
@@ -6817,9 +6825,11 @@ function confirmarAgenda() {
 function openJobModal(id){
   editJobId=id;
   document.getElementById('jobMdTitle').textContent=id?'Editar Serviço':'Novo Serviço';
+  _ensureJobInstalaToggle();
   if(id){
     var j=DB.j.find(function(x){return x.id===id;});
     if(!j)return;
+    _migrateJobStage(j);
     document.getElementById('jCli').value=j.cli||'';
     document.getElementById('jDesc').value=j.desc||'';
     document.getElementById('jStart').value=j.start||td();
@@ -6827,11 +6837,14 @@ function openJobModal(id){
     document.getElementById('jVal').value=j.value||'';
     document.getElementById('jPago').value=j.pago||'';
     document.getElementById('jObs').value=j.obs||'';
+    _jobInstalaOn=!!j.instala;
   } else {
     ['jCli','jDesc','jVal','jPago','jObs'].forEach(function(i){document.getElementById(i).value='';});
     document.getElementById('jStart').value=td();
     document.getElementById('jDias').value='';
+    _jobInstalaOn=false;
   }
+  _paintJobInstala();
   document.getElementById('jobDp').classList.remove('on');
   showMd('jobMd');
 }
@@ -6841,11 +6854,12 @@ function saveJob(){
   if(!cli||!desc){toast('Preencha cliente e descrição');return;}
   var s=document.getElementById('jStart').value,d=+document.getElementById('jDias').value||0;
   var end=d?addD(s,d):'',val=+document.getElementById('jVal').value||0,pago=+document.getElementById('jPago').value||0,obs=document.getElementById('jObs').value;
+  var instala=!!_jobInstalaOn;
   if(editJobId){
     var j=DB.j.find(function(x){return x.id===editJobId;});
-    if(j){j.cli=cli;j.desc=desc;j.start=s;j.end=end;j.value=val;j.pago=pago;j.obs=obs;DB.sv();}
+    if(j){j.cli=cli;j.desc=desc;j.start=s;j.end=end;j.value=val;j.pago=pago;j.obs=obs;j.instala=instala;_syncJobDone(j);DB.sv();}
   } else {
-    DB.j.unshift({id:Date.now(),cli:cli,desc:desc,start:s,end:end,value:val,pago:pago,obs:obs,done:false});DB.sv();
+    DB.j.unshift({id:Date.now(),cli:cli,desc:desc,start:s,end:end,value:val,pago:pago,obs:obs,done:false,instala:instala,stage:'producao'});DB.sv();
     if(pago>0)setTimeout(function(){showCB('Registrar entrada de R$ '+fm(pago)+' do '+cli+'?',function(){addTr('in','Entrada — '+cli,pago);hideCB();},function(){hideCB();});},400);
   }
   renderAg();updUrgDot();closeAll();toast('✓ Salvo!');
@@ -6856,6 +6870,108 @@ function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return
 function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){var _tr=addTr('in','Pagamento — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});}
 function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();});}
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
+
+// ═══ PIPELINE DE PRODUÇÃO DA AGENDA (Produzindo → Pronto p/ entrega → Entregue → Instalado) ═══
+var JOB_STAGES = ['producao','pronto','entregue','instalado'];
+var JOB_STAGE_LABEL = {producao:'🛠️ Produzindo', pronto:'📦 Pronto p/ entrega', entregue:'🚚 Entregue', instalado:'✅ Instalado'};
+var JOB_STAGE_COLOR = {producao:'#e0a83c', pronto:'#4aa8e0', entregue:'#4ade80', instalado:'#4ade80'};
+
+function _jobTerminal(j){ return j.instala ? 'instalado' : 'entregue'; }
+function _syncJobDone(j){ j.done = (j.stage === _jobTerminal(j)); }
+function _migrateJobStage(j){
+  if(!j.stage){
+    j.instala = !!j.instala;
+    j.stage = j.done ? _jobTerminal(j) : 'producao';
+  }
+  _syncJobDone(j);
+}
+function _migrateAllJobs(){ (DB.j||[]).forEach(_migrateJobStage); }
+
+function _jobPagamentoFlow(j){
+  var r = j.value - (j.pago||0);
+  if(r>0){
+    setTimeout(function(){
+      showCB(j.cli+' — recebeu R$ '+fm(r)+' da entrega?',function(){
+        var _tr=addTr('in','Entrega — '+j.cli,r);
+        j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');
+        if(typeof gerarComprovante==='function')setTimeout(function(){
+          showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});
+        },350);
+      },function(){hideCB();});
+    },400);
+  }
+}
+
+function jobAdvance(id){
+  var j=DB.j.find(function(x){return x.id===id;});if(!j)return;
+  _migrateJobStage(j);
+  var term=_jobTerminal(j);
+  if(j.stage===term){toast('Este serviço já está concluído.');return;}
+  var idx=JOB_STAGES.indexOf(j.stage);
+  var next=JOB_STAGES[idx+1];
+  // Pula "instalado" se o job não precisar de instalação (não deveria acontecer, mas por segurança)
+  if(next==='instalado' && !j.instala) next='entregue';
+  var enteringEntrega = (next==='entregue' && j.stage!=='entregue');
+  j.stage=next;
+  _syncJobDone(j);
+  DB.sv();renderAg();updUrgDot();
+  toast('✓ '+JOB_STAGE_LABEL[next]);
+  if(enteringEntrega){ _jobPagamentoFlow(j); }
+}
+function jobBack(id){
+  var j=DB.j.find(function(x){return x.id===id;});if(!j)return;
+  _migrateJobStage(j);
+  var idx=JOB_STAGES.indexOf(j.stage);
+  if(idx<=0){toast('Já está na primeira etapa.');return;}
+  var prev=JOB_STAGES[idx-1];
+  if(prev==='instalado' && !j.instala) prev='entregue'; // segurança
+  j.stage=prev;
+  _syncJobDone(j);
+  DB.sv();renderAg();updUrgDot();
+  toast('↩ Voltou para '+JOB_STAGE_LABEL[prev]);
+}
+
+// ── Toggle "Requer instalação?" injetado dinamicamente nos modais (jobMd e diasMd) ──
+var _jobInstalaOn = false;
+var _agInstalaOn = false;
+function _instalaBtnHTML(on, wantsLabelOn, wantsLabelOff){
+  return (on
+    ? '✅ <span>'+wantsLabelOn+'</span>'
+    : '🔧 <span>'+wantsLabelOff+'</span>');
+}
+function _styleInstalaBtn(btn,on){
+  if(!btn)return;
+  btn.style.borderColor = on ? 'var(--gold,#C9A84C)' : 'var(--bd,#333)';
+  btn.style.background  = on ? 'rgba(201,168,76,.12)' : 'transparent';
+  btn.style.color       = on ? 'var(--gold,#C9A84C)' : 'var(--t2,#aaa)';
+}
+function _paintJobInstala(){
+  var b=document.getElementById('jInstalaBtn');
+  _styleInstalaBtn(b,_jobInstalaOn);
+  if(b)b.innerHTML=_instalaBtnHTML(_jobInstalaOn,'Requer instalação','Não requer instalação (finaliza na entrega)');
+}
+function _paintAgInstala(){
+  var b=document.getElementById('jAgInstalaBtn');
+  _styleInstalaBtn(b,_agInstalaOn);
+  if(b)b.innerHTML=_instalaBtnHTML(_agInstalaOn,'Requer instalação','Não requer instalação (finaliza na entrega)');
+}
+function toggleJobInstala(){ _jobInstalaOn=!_jobInstalaOn; _paintJobInstala(); }
+function toggleAgInstala(){ _agInstalaOn=!_agInstalaOn; _paintAgInstala(); }
+function _ensureInstalaToggle(anchorId, wrapId, btnId, onClickFn){
+  if(document.getElementById(wrapId)) return;
+  var anchor=document.getElementById(anchorId);
+  if(!anchor||!anchor.parentNode) return;
+  var wrap=document.createElement('div');
+  wrap.id=wrapId;
+  wrap.style.margin='14px 0';
+  wrap.innerHTML =
+    '<div style="font-size:.62rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3,#8a8a90);font-weight:700;margin-bottom:7px;">INSTALAÇÃO</div>'+
+    '<button type="button" id="'+btnId+'" onclick="'+onClickFn+'()" style="display:flex;align-items:center;gap:7px;padding:9px 14px;border-radius:11px;border:1px solid var(--bd,#333);background:transparent;color:var(--t2,#aaa);font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;width:100%;justify-content:flex-start;">🔧 <span>Não requer instalação (finaliza na entrega)</span></button>';
+  anchor.parentNode.insertBefore(wrap, anchor);
+}
+function _ensureJobInstalaToggle(){ _ensureInstalaToggle('btnSvJob','jInstalaWrap','jInstalaBtn','toggleJobInstala'); }
+function _ensureAgInstalaToggle(){ _ensureInstalaToggle('btnConfAg','jAgInstalaWrap','jAgInstalaBtn','toggleAgInstala'); }
+window.addEventListener('load',function(){ _ensureJobInstalaToggle(); _ensureAgInstalaToggle(); });
 
 function renderAg(){
   // ── Painel de carga semanal (IEO) ────────────────────────────────────────
@@ -6869,14 +6985,23 @@ function renderAg(){
     }
     _cargaEl.innerHTML = _renderCargaSemana();
   }
-  // ── Lista de jobs (inalterada) ────────────────────────────────────────────
+  // ── Lista de jobs agrupada pelo pipeline de produção ─────────────────────
+  _migrateAllJobs();
   var ov=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)<0;});
   var ur=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;});
-  var pe=DB.j.filter(function(j){return !j.done&&(!j.end||dDiff(j.end)>3);});
-  var dn=DB.j.filter(function(j){return j.done;}).slice(0,5);
+  var restante=function(j){ return ov.indexOf(j)<0 && ur.indexOf(j)<0 && !j.done; };
+  var peProd   = DB.j.filter(function(j){return restante(j) && j.stage==='producao';});
+  var pePronto = DB.j.filter(function(j){return restante(j) && j.stage==='pronto';});
+  var peInst   = DB.j.filter(function(j){return restante(j) && j.stage==='entregue' && j.instala;});
+  var dn = DB.j.filter(function(j){return j.done;}).slice(0,5);
   var h='';
   function sec(lbl,col,items){if(!items.length)return;h+='<div style="font-size:.57rem;letter-spacing:2px;text-transform:uppercase;color:'+col+';font-weight:600;margin:14px 0 8px;">'+lbl+'</div>';items.forEach(function(j){h+=jCard(j);});}
-  sec('Atrasados','var(--red)',ov);sec('Próximos 3 dias','var(--gold)',ur);sec('Em andamento ('+pe.length+')','var(--t3)',pe);sec('Concluídos','var(--t3)',dn);
+  sec('Atrasados','var(--red)',ov);
+  sec('Próximos 3 dias','var(--gold)',ur);
+  sec('🛠️ Produzindo ('+peProd.length+')','var(--t3)',peProd);
+  sec('📦 Pronto p/ entrega ('+pePronto.length+')','var(--t3)',pePronto);
+  sec('🚚 Aguardando instalação ('+peInst.length+')','var(--t3)',peInst);
+  sec('Concluídos','var(--t3)',dn);
   if(!DB.j.length)h='<div style="text-align:center;padding:40px 20px;color:var(--t3);font-size:.82rem;"><div style="font-size:2.2rem;margin-bottom:9px;">📅</div>Nenhum serviço ainda.</div>';
   document.getElementById('agList').innerHTML=h;
 }
@@ -6966,17 +7091,20 @@ function _renderCargaSemana() {
   return h;
 }
 function jCard(j){
-  var rest=j.value-(j.pago||0),d=j.end?dDiff(j.end):null,st=j.done?'done':(d!==null&&d<=3?'urg':'pend');
+  _migrateJobStage(j);
+  var rest=j.value-(j.pago||0);
+  var d=j.end?dDiff(j.end):null,st=j.done?'done':(d!==null&&d<=3?'urg':'pend');
   var dTxt='';if(d!==null){if(d<0)dTxt='<span class="red">'+Math.abs(d)+'d atrasado</span>';else if(d===0)dTxt='<span class="red">Hoje!</span>';else dTxt='<span>'+d+'d restantes</span>';}
   var meta=(j.start?'<span>Início: '+fd(j.start)+'</span> ':'')+(j.end?'<span>Entrega: '+fd(j.end)+'</span> ':'')+dTxt;
-  var valMeta=j.value?'<div class="jmeta"><span class="gold">Total: R$ '+fm(j.value)+'</span><span class="grn">Pago: R$ '+fm(j.pago||0)+'</span>'+(rest>0?'<span class="red">A receber: R$ '+fm(rest)+'</span>':'')+'</div>':'';
-  var btnPag=(!j.done&&rest>0)?'<button class="btn btn-sm" style="background:var(--gdim);color:var(--gold2);border:1px solid var(--gold3);" data-pagrest="'+j.id+'">Receber</button>':'';
-  // ── H2: Badge de saldo em aberto em job concluído ─────────────────────
-  var saldobanner='';
-  if(j.done&&rest>0){
-    saldobanner='<div style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#f87171;font-weight:700;display:flex;align-items:center;justify-content:space-between;">💸 R$ '+fm(rest)+' ainda em aberto<button onclick="pagRest('+j.id+')" style="background:rgba(248,113,113,.2);border:1px solid rgba(248,113,113,.5);border-radius:5px;color:#f87171;font-size:.6rem;padding:2px 7px;font-family:Outfit,sans-serif;cursor:pointer;font-weight:700;">Receber →</button></div>';
-  }
-  // ── Alerta de prazo vencendo ──────────────────────────────────────────
+
+  // ── Badge do estágio do pipeline (sem valores — isso fica em Finanças) ──
+  var stCor=JOB_STAGE_COLOR[j.stage]||'#888';
+  var stBadge='<span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:20px;background:'+stCor+'1e;border:1px solid '+stCor+'55;font-size:.6rem;font-weight:800;color:'+stCor+';white-space:nowrap;">'+JOB_STAGE_LABEL[j.stage]+'</span>';
+
+  // ── Indicador simples de pagamento pendente (sem mostrar valor) ─────────
+  var payTag=(rest>0)?'<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:20px;background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.35);font-size:.6rem;font-weight:700;color:#f87171;white-space:nowrap;">💰 Pagamento pendente</span>':'';
+
+  // ── Alerta de prazo vencendo (só enquanto não estiver concluído) ───────
   var alertBanner='';
   if(!j.done&&d!==null){
     if(d<0){
@@ -6987,7 +7115,24 @@ function jCard(j){
       alertBanner='<div style="background:rgba(243,156,18,.11);border:1px solid rgba(243,156,18,.4);border-radius:7px;padding:5px 9px;margin-bottom:6px;font-size:.62rem;color:#f39c12;font-weight:700;">⚠️ Entrega em '+d+' dia(s) — '+fd(j.end)+'</div>';
     }
   }
-  return '<div class="jcard '+st+'">'+saldobanner+alertBanner+'<div class="jnm">'+j.cli+'</div><div class="jdesc">'+j.desc+'</div><div class="jmeta">'+meta+'</div>'+valMeta+'<div class="jbtns"><button class="btn btn-sm '+(j.done?'btn-o':'btn-grn')+'" data-togjob="'+j.id+'">'+(j.done?'↩ Reabrir':'✓ Concluir')+'</button>'+btnPag+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div></div>';
+
+  // ── Botão principal (avança etapa) conforme o estágio atual ────────────
+  var term=_jobTerminal(j);
+  var advLbl = j.stage==='producao' ? '✓ Pronto p/ entrega'
+             : j.stage==='pronto'   ? '📦 Marcar entregue'
+             : (j.stage==='entregue' && j.instala) ? '🔧 Marcar instalado'
+             : null;
+  var btnAdv = advLbl ? '<button class="btn btn-sm btn-grn" data-jobstage="'+j.id+'">'+advLbl+'</button>' : '';
+  var btnBack = '<button class="btn btn-sm btn-o" data-jobback="'+j.id+'">↩ Voltar</button>';
+
+  return '<div class="jcard '+st+'">'
+    + alertBanner
+    + '<div class="jnm">'+j.cli+'</div>'
+    + '<div class="jdesc">'+j.desc+'</div>'
+    + '<div class="jmeta">'+meta+'</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px;">'+stBadge+payTag+'</div>'
+    + '<div class="jbtns">'+btnAdv+btnBack+'<button class="btn btn-sm btn-o" data-editjob="'+j.id+'">✏️</button><button class="btn btn-sm btn-red" data-deljob="'+j.id+'">✕</button></div>'
+    + '</div>';
 }
 
 // ═══ FINANÇAS ═══
