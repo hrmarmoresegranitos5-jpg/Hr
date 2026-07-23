@@ -218,33 +218,71 @@ function _aplicarStatusOrc(q, novoStatus) {
 function _abrirModalStatusOrc(q, tipo) {
   var isAceito = tipo === 'aceito';
   var jaRecebido = q._valorRecebido || 0;
-  var saldo = Math.max(0, (q.vista||0) - jaRecebido);
-  var valorSugerido = isAceito ? (q.vista||0) : saldo;
-  var titulo = isAceito ? '✅ Confirmar Aceite' : '🏆 Confirmar Conclusão';
-  var subt = isAceito
-    ? 'Qual foi o valor certinho de entrada que ' + escH(q.cli||'o cliente') + ' deu?'
-    : 'Qual foi o valor certinho pago agora, na conclusão do serviço?';
+  var totalOrc = q.vista || 0;
+  var saldoAntes = Math.max(0, totalOrc - jaRecebido);
+  var LIMITE_AVISTA = 1000; // até esse valor, sugere pagamento total; acima, sugere 50% de entrada
+  var sugere50 = isAceito && totalOrc > LIMITE_AVISTA;
+  var valorSugerido = isAceito ? (sugere50 ? totalOrc * 0.5 : totalOrc) : saldoAntes;
+  var titulo = isAceito ? 'Confirmar Aceite' : 'Confirmar Conclusão';
+  var iconTop = isAceito ? '✅' : '🏆';
+  var subt = isAceito ? 'Confirme o valor de entrada recebido' : 'Confirme o valor pago na conclusão';
   var hoje = (new Date()).toISOString().slice(0,10);
+  var formas = ['Dinheiro','Pix','Cartão','Transferência'];
+  var formaIcons = {'Dinheiro':'💵','Pix':'📱','Cartão':'💳','Transferência':'🏦'};
 
   var _modal = document.createElement('div');
   _modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
-  var h = '<div style="background:var(--bg);border-radius:18px 18px 0 0;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;padding:22px 18px 28px;">';
-  h += '<div style="font-size:.95rem;font-weight:800;color:var(--gold);margin-bottom:4px;">'+titulo+'</div>';
-  h += '<div style="font-size:.72rem;color:var(--t3);margin-bottom:18px;line-height:1.5;">'+subt+'</div>';
+  var h = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:14px 18px 26px;">';
 
-  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Valor recebido (R$)</label>';
-  h += '<input id="_stModalValor" type="number" step="0.01" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1rem;font-weight:700;margin-bottom:14px;box-sizing:border-box;">';
+  // ── alça do bottom sheet ──
+  h += '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 16px;"></div>';
 
-  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Forma de pagamento</label>';
-  h += '<select id="_stModalForma" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:14px;box-sizing:border-box;">';
-  h += '<option value="Dinheiro">💵 Dinheiro</option>';
-  h += '<option value="Pix">📱 Pix</option>';
-  h += '<option value="Cartão">💳 Cartão</option>';
-  h += '<option value="Transferência">🏦 Transferência</option>';
-  h += '</select>';
+  // ── cabeçalho ──
+  h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
+  h += '<div style="width:42px;height:42px;flex-shrink:0;border-radius:12px;background:rgba(201,168,76,.13);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">'+iconTop+'</div>';
+  h += '<div><div style="font-size:1.02rem;font-weight:800;color:var(--gold);line-height:1.2;">'+titulo+'</div><div style="font-size:.72rem;color:var(--t3);margin-top:2px;">'+subt+'</div></div>';
+  h += '</div>';
 
-  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Data certinha</label>';
-  h += '<input id="_stModalData" type="date" value="'+hoje+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:20px;box-sizing:border-box;">';
+  // ── resumo do orçamento ──
+  h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:14px 16px;margin-bottom:18px;">';
+  h += '<div style="font-size:.95rem;font-weight:800;color:var(--tx);">'+escH(q.cli||'Cliente')+'</div>';
+  h += '<div style="font-size:.72rem;color:var(--t3);margin-top:1px;">'+escH(q.tipo||'Serviço')+'</div>';
+  h += '<div style="display:flex;gap:16px;margin-top:12px;padding-top:12px;border-top:1px solid var(--bd2);">';
+  h += '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);margin-bottom:2px;">Total do orçamento</div><div style="font-size:.9rem;font-weight:800;color:var(--tx);">R$ '+fm(totalOrc)+'</div></div>';
+  if (jaRecebido > 0.005) {
+    h += '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);margin-bottom:2px;">Já recebido</div><div style="font-size:.9rem;font-weight:800;color:#5dbf7a;">R$ '+fm(jaRecebido)+'</div></div>';
+  }
+  h += '</div></div>';
+
+  // ── valor recebido ──
+  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Valor recebido agora</label>';
+  if (isAceito && totalOrc > 0.005) {
+    h += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
+    h += '<button type="button" data-stpct="50" onclick="window._stModalSetPct(50)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(sugere50?'800':'600')+';border:1px solid '+(sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(sugere50?'var(--gold)':'var(--t3)')+';">50% entrada · R$ '+fm(totalOrc*0.5)+'</button>';
+    h += '<button type="button" data-stpct="100" onclick="window._stModalSetPct(100)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(!sugere50?'800':'600')+';border:1px solid '+(!sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(!sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(!sugere50?'var(--gold)':'var(--t3)')+';">Valor cheio · R$ '+fm(totalOrc)+'</button>';
+    h += '</div>';
+  }
+  h += '<div style="position:relative;margin-bottom:6px;">';
+  h += '<span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--t3);font-weight:700;font-size:.95rem;">R$</span>';
+  h += '<input id="_stModalValor" type="number" step="0.01" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" oninput="window._stModalUpdateSaldo()" style="width:100%;padding:13px 14px 13px 42px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1.05rem;font-weight:800;box-sizing:border-box;">';
+  h += '</div>';
+  h += '<div id="_stModalSaldoLine" style="font-size:.72rem;color:var(--t3);margin-bottom:18px;min-height:16px;"></div>';
+
+  // ── forma de pagamento (chips) ──
+  h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:8px;">Forma de pagamento</label>';
+  h += '<input type="hidden" id="_stModalForma" value="'+formas[0]+'">';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">';
+  formas.forEach(function(fm_, i){
+    h += '<button type="button" data-stforma="'+fm_+'" onclick="window._stModalSetForma(\''+fm_+'\')" style="flex:1;min-width:44%;padding:11px 8px;border-radius:10px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.78rem;border:1px solid '+(i===0?'var(--gold3)':'var(--bd2)')+';background:'+(i===0?'var(--gold3)':'var(--s2)')+';color:'+(i===0?'#000':'var(--tx)')+';font-weight:'+(i===0?'800':'600')+';">'+formaIcons[fm_]+' '+fm_+'</button>';
+  });
+  h += '</div>';
+
+  // ── data ──
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+  h += '<label style="font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);">Data certinha</label>';
+  h += '<button type="button" onclick="document.getElementById(\'_stModalData\').value=\''+hoje+'\';" style="background:none;border:none;color:var(--gold);font-size:.7rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">Hoje</button>';
+  h += '</div>';
+  h += '<input id="_stModalData" type="date" value="'+hoje+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:22px;box-sizing:border-box;">';
 
   h += '<div style="display:flex;gap:10px;">';
   h += '<button onclick="this.closest(\'[data-st-modal]\').remove();" style="flex:1;padding:13px;background:transparent;border:1px solid var(--bd2);border-radius:11px;color:var(--t3);font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Cancelar</button>';
@@ -255,6 +293,47 @@ function _abrirModalStatusOrc(q, tipo) {
   _modal.innerHTML = h;
   _modal.addEventListener('click', function(e){ if(e.target === _modal) _modal.remove(); });
   document.body.appendChild(_modal);
+
+  window._stModalSetPct = function(pct){
+    var inp = document.getElementById('_stModalValor');
+    if (!inp) return;
+    inp.value = (totalOrc * pct / 100).toFixed(2);
+    document.querySelectorAll('[data-stpct]').forEach(function(el){
+      var on = el.getAttribute('data-stpct') === String(pct);
+      el.style.fontWeight = on ? '800' : '600';
+      el.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+      el.style.background = on ? 'rgba(201,168,76,.15)' : 'var(--s2)';
+      el.style.color = on ? 'var(--gold)' : 'var(--t3)';
+    });
+    window._stModalUpdateSaldo();
+  };
+
+  window._stModalSetForma = function(v){
+    var hid = document.getElementById('_stModalForma');
+    if (hid) hid.value = v;
+    document.querySelectorAll('[data-stforma]').forEach(function(el){
+      var on = el.getAttribute('data-stforma') === v;
+      el.style.background = on ? 'var(--gold3)' : 'var(--s2)';
+      el.style.color = on ? '#000' : 'var(--tx)';
+      el.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+      el.style.fontWeight = on ? '800' : '600';
+    });
+  };
+
+  window._stModalUpdateSaldo = function(){
+    var el = document.getElementById('_stModalSaldoLine');
+    var inp = document.getElementById('_stModalValor');
+    if (!el || !inp) return;
+    var v = +inp.value || 0;
+    var restante = Math.max(0, totalOrc - jaRecebido - v);
+    if (totalOrc <= 0.005) { el.innerHTML = ''; return; }
+    if (restante <= 0.005) {
+      el.innerHTML = '<span style="color:#5dbf7a;font-weight:700;">✓ Fica quitado com esse pagamento</span>';
+    } else {
+      el.innerHTML = 'Fica faltando <b style="color:#e0a530;">R$ '+fm(restante)+'</b> depois desse pagamento';
+    }
+  };
+  window._stModalUpdateSaldo();
 
   window._stModalConfirmar = function() {
     var valor = +document.getElementById('_stModalValor').value || 0;
@@ -4756,6 +4835,9 @@ function abrirAIMd(ambId){
 }
 
 // ═══ CALCULAR ═══
+// ── Forma de pagamento escolhida pelo cliente ──
+window._formaPagEscolhida = 'vista'; // 'vista' | 'parcelado'
+
 // ── Taxa de Urgência ──
 window._urgPct = 0;
 var _urgHints = {
@@ -4783,7 +4865,47 @@ function _buildPriceText(q) {
     + 'Entrega 50%: R$ ' + fm(q.ent) + '\n';
 }
 
-// ── Ajuste do valor à vista ──
+// ── Texto de preço quando o cliente escolhe PARCELADO (não mostra o valor à vista, evita comparação) ──
+function _buildPriceTextParcelado(q) {
+  var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
+  return urg
+    + 'PARCELADO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
+}
+
+// ── Forma de pagamento escolhida na hora de fechar (não mexe no painel interno, só no que vai pro cliente) ──
+function setFormaPag(forma) {
+  if (!pendQ) return;
+  window._formaPagEscolhida = forma;
+  pendQ.formaPag = forma;
+  document.querySelectorAll('[data-formapag]').forEach(function(b) {
+    var on = b.dataset.formapag === forma;
+    b.classList.toggle('on', on);
+    b.style.opacity = on ? '1' : '.55';
+    b.style.borderColor = on ? 'var(--gold2)' : 'var(--bd2)';
+  });
+  // Trocar de forma cancela um desconto que estava sendo digitado pra não aplicar no valor errado
+  window._vistaAdjMode = 'none';
+  document.querySelectorAll('[data-vmode]').forEach(function(b) { b.classList.toggle('on', b.dataset.vmode === 'none'); });
+  var pctEl = document.getElementById('vistaAdjPct');
+  var fixEl = document.getElementById('vistaAdjFixed');
+  if (pctEl) pctEl.style.display = 'none';
+  if (fixEl) fixEl.style.display = 'none';
+  var res = document.getElementById('vistaAdjResult');
+  if (res) res.style.display = 'none';
+  if (pendQ._vistaCalc) {
+    pendQ.vista = pendQ._vistaCalc;
+    pendQ.ent   = Math.round(pendQ.vista / 2 * 100) / 100;
+  }
+  if (pendQ._parcCalc) {
+    pendQ.parc = pendQ._parcCalc;
+    pendQ.p8   = Math.round(pendQ.parc / 8 * 100) / 100;
+  }
+  var lbl = document.getElementById('formaPagDiscLabel');
+  if (lbl) lbl.textContent = forma === 'parcelado' ? '💳 Ajustando o valor PARCELADO — o cliente não verá o valor à vista' : '💰 Ajustando o valor À VISTA';
+  _applyVistaToUI();
+}
+
+// ── Ajuste do valor mostrado ao cliente (à vista OU parcelado, conforme setFormaPag) ──
 window._vistaAdjMode = 'none';
 function setVistaMode(mode) {
   window._vistaAdjMode = mode;
@@ -4792,11 +4914,17 @@ function setVistaMode(mode) {
   });
   document.getElementById('vistaAdjPct').style.display   = mode === 'pct'   ? 'block' : 'none';
   document.getElementById('vistaAdjFixed').style.display = mode === 'fixed' ? 'block' : 'none';
-  if (mode === 'none' && pendQ && pendQ._vistaCalc) {
-    pendQ.vista = pendQ._vistaCalc;
-    pendQ.ent   = Math.round(pendQ.vista / 2 * 100) / 100;
-    pendQ.parc  = Math.round(pendQ.vista * 1.15 * 100) / 100;
-    pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
+  if (mode === 'none' && pendQ) {
+    var forma = window._formaPagEscolhida || 'vista';
+    if (forma === 'parcelado' && pendQ._parcCalc) {
+      pendQ.parc = pendQ._parcCalc;
+      pendQ.p8   = Math.round(pendQ.parc / 8 * 100) / 100;
+    } else if (pendQ._vistaCalc) {
+      pendQ.vista = pendQ._vistaCalc;
+      pendQ.ent   = Math.round(pendQ.vista / 2 * 100) / 100;
+      pendQ.parc  = Math.round(pendQ.vista * 1.15 * 100) / 100;
+      pendQ.p8    = Math.round(pendQ.parc / 8 * 100) / 100;
+    }
     _applyVistaToUI();
     var res = document.getElementById('vistaAdjResult');
     if (res) res.style.display = 'none';
@@ -4804,9 +4932,44 @@ function setVistaMode(mode) {
 }
 function aplicarVistaAdj() {
   if (!pendQ) return;
+  var forma = window._formaPagEscolhida || 'vista';
+  var mode = window._vistaAdjMode;
+
+  // ── Desconto aplicado sobre o valor PARCELADO (cliente escolheu parcelado) ──
+  if (forma === 'parcelado') {
+    var baseParc = pendQ._parcCalc || pendQ.parc;
+    var newParc;
+    if (mode === 'pct') {
+      var pctP = parseFloat(document.getElementById('vistaDiscPct').value) || 0;
+      if (pctP < 0 || pctP > 60) { toast('Desconto entre 0 e 60%'); return; }
+      newParc = Math.round(baseParc * (1 - pctP / 100) * 100) / 100;
+    } else if (mode === 'fixed') {
+      newParc = parseFloat(document.getElementById('vistaDiscFixed').value) || 0;
+      if (newParc <= 0) { toast('Informe um valor válido'); return; }
+      newParc = Math.round(newParc * 100) / 100;
+    } else return;
+    pendQ.parc = newParc;
+    pendQ.p8   = Math.round(newParc / 8 * 100) / 100;
+    var _baseP = pendQ._parcCalc || baseParc;
+    var _diffP = Math.round((_baseP - newParc) * 100) / 100;
+    var _pctP  = _baseP > 0 ? Math.round(_diffP / _baseP * 10000) / 100 : 0;
+    pendQ.parcDesconto       = _diffP > 0 ? _diffP : 0;
+    pendQ.parcDescontoPct    = _diffP > 0 ? _pctP  : 0;
+    var _motivoElP = document.getElementById('vistaDiscMotivo');
+    pendQ.parcDescontoMotivo = _motivoElP ? _motivoElP.value.trim() : '';
+    pendQ.parcDescontoUser   = (CFG.emp && CFG.emp.nome) ? CFG.emp.nome : '';
+    _applyVistaToUI();
+    var resP = document.getElementById('vistaAdjResult');
+    var finP = document.getElementById('vistaFinalShow');
+    if (resP) resP.style.display = 'block';
+    if (finP) finP.textContent = 'R$ ' + fm(newParc) + (mode === 'pct' ? '  (-' + parseFloat(document.getElementById('vistaDiscPct').value) + '%)' : '');
+    toast('✓ Parcelado ajustado: R$ ' + fm(newParc));
+    return;
+  }
+
+  // ── Desconto aplicado sobre o valor À VISTA (comportamento original) ──
   var base = pendQ._vistaCalc || pendQ.vista;
   var newVista;
-  var mode = window._vistaAdjMode;
   if (mode === 'pct') {
     var pct = parseFloat(document.getElementById('vistaDiscPct').value) || 0;
     if (pct < 0 || pct > 60) { toast('Desconto entre 0 e 60%'); return; }
@@ -4882,7 +5045,9 @@ function _applyVistaToUI() {
   }
   var qb = document.getElementById('quoteBox');
   if (qb && pendQ._txtPre) {
-    qb.textContent = pendQ._txtPre + _buildPriceText(pendQ) + pendQ._txtFooter;
+    var _forma = window._formaPagEscolhida || 'vista';
+    var _priceTxt = _forma === 'parcelado' ? _buildPriceTextParcelado(pendQ) : _buildPriceText(pendQ);
+    qb.textContent = pendQ._txtPre + _priceTxt + pendQ._txtFooter;
   }
 }
 
@@ -5623,6 +5788,32 @@ function calcular(){
   document.getElementById('vistaAdjPct').style.display='none';
   document.getElementById('vistaAdjFixed').style.display='none';
 
+  // ── Injetar seletor "Cliente escolheu: À Vista / Parcelado" ──
+  window._formaPagEscolhida='vista';
+  if(adjSec && !document.getElementById('formaPagSec')){
+    var _fDiv=document.createElement('div');
+    _fDiv.id='formaPagSec';
+    _fDiv.style.cssText='padding:12px 0;border-top:1px solid var(--bd);margin-top:8px;';
+    _fDiv.innerHTML='<label style="font-size:.65rem;color:var(--t3);font-weight:600;display:block;margin-bottom:6px;">Cliente fechou como:</label>'
+      +'<div style="display:flex;gap:8px;margin-bottom:6px;">'
+        +'<button type="button" data-formapag="vista" onclick="setFormaPag(\'vista\')" class="on" '
+          +'style="flex:1;padding:10px 8px;border-radius:8px;border:1px solid var(--gold2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;opacity:1;">💰 À Vista</button>'
+        +'<button type="button" data-formapag="parcelado" onclick="setFormaPag(\'parcelado\')" '
+          +'style="flex:1;padding:10px 8px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;opacity:.55;">💳 Parcelado</button>'
+      +'</div>'
+      +'<div id="formaPagDiscLabel" style="font-size:.62rem;color:var(--t3);">💰 Ajustando o valor À VISTA</div>';
+    adjSec.appendChild(_fDiv);
+  } else {
+    document.querySelectorAll('[data-formapag]').forEach(function(b){
+      var on=b.dataset.formapag==='vista';
+      b.classList.toggle('on',on);
+      b.style.opacity=on?'1':'.55';
+      b.style.borderColor=on?'var(--gold2)':'var(--bd2)';
+    });
+    var _lblReset=document.getElementById('formaPagDiscLabel');
+    if(_lblReset)_lblReset.textContent='💰 Ajustando o valor À VISTA';
+  }
+
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
     var snap={tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
@@ -5652,7 +5843,7 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){
