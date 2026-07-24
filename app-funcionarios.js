@@ -2988,7 +2988,7 @@ var HR_FUNC = (function () {
       '</div>'+
       toggleHE +
       '<div style="margin-bottom:8px;margin-top:4px;">'+
-        _linha(_dp.label+' (fixo)', sal, GOLD) +
+        _linha(_dp.label+(f && f.socio ? '' : ' (fixo)'), sal, GOLD) +
         (he > 0 && incluirExtra  ? _linha('H. extras ('+_dp.di.slice(8)+' a '+_dp.df.slice(8)+') · '+(s.totalExtra||0).toFixed(1)+'h', he, '#e0b870') : '') +
         (he > 0 && !incluirExtra ? '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:.75rem;color:'+T3+';font-style:italic;">Extras ('+(s.totalExtra||0).toFixed(1)+'h) → banco 🏦</span><span style="font-size:.75rem;color:#8ec8f0;">'+_fmtMoeda(he)+'</span></div>' : '') +
         (acrEfetivo > 0.01 ? _linha('Acréscimo HE 2× / 3×', acrEfetivo, '#8ec8c8') : '') +
