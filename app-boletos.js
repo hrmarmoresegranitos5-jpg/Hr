@@ -9,6 +9,10 @@ var _bTipoAtual     = 'receber';
 var _bFiltroAtual   = 'todos';
 var _bBusca         = '';
 
+// ── Seleção múltipla (marcar vários boletos como pago de uma vez) ──────
+var _bModoSelecao   = false;
+var _bSelecionados  = {}; // { [id]: true }
+
 // ── Anexo (PDF/foto do boleto) — guardado em IndexedDB (mesmo padrão já usado
 // pra fotos de cuba em app-core.js, banco 'hr_fotos_db'/'fotos') + leitura
 // automática dos dados via IA ──
@@ -102,10 +106,113 @@ function bAutoStatus() {
 // ══════════════════════════════════════════════════════════════════════
 // MÉTRICAS
 // ══════════════════════════════════════════════════════════════════════
+function _bDiasAlerta() {
+  var v = DB.bCfgDiasAlerta;
+  return (typeof v === 'number' && v > 0) ? v : 3;
+}
+// Segundo nível, mais chamativo, além do aviso "suave" acima — ex: suave
+// avisa com 3 dias, urgente avisa (de novo, com destaque) faltando só 1 dia.
+function _bDiasAlertaUrgente() {
+  var v = DB.bCfgDiasAlertaUrgente;
+  var suave = _bDiasAlerta();
+  var n = (typeof v === 'number' && v > 0) ? v : 1;
+  return Math.min(n, suave); // urgente nunca pode ser mais frouxo que o suave
+}
+function bConfigurarDiasAlerta() {
+  var atualSuave = _bDiasAlerta();
+  var novoSuave = prompt('Aviso "suave" 🟡 — avisar com quantos dias de antecedência do vencimento?', String(atualSuave));
+  if (novoSuave === null) return;
+  var nSuave = parseInt(novoSuave, 10);
+  if (!nSuave || nSuave < 1) { toast('Digite um número de dias válido'); return; }
+
+  var atualUrgente = _bDiasAlertaUrgente();
+  var novoUrgente = prompt('Aviso "urgente" 🔥 (mais chamativo) — quantos dias antes?', String(Math.min(atualUrgente, nSuave)));
+  var nUrgente = (novoUrgente === null) ? atualUrgente : parseInt(novoUrgente, 10);
+  if (!nUrgente || nUrgente < 1 || nUrgente > nSuave) nUrgente = Math.min(atualUrgente, nSuave);
+
+  DB.bCfgDiasAlerta = nSuave;
+  DB.bCfgDiasAlertaUrgente = nUrgente;
+  DB.sv();
+  toast('🔔 Alertas ajustados: suave ' + nSuave + 'd · urgente ' + nUrgente + 'd');
+  _bRerender();
+  bUpdDot();
+}
+// ══════════════════════════════════════════════════════════════════════
+// PROJEÇÃO DE FLUXO DE CAIXA — quanto vence nos próximos 30/60/90 dias,
+// e um gráfico simples (barras em CSS, sem lib externa) do saldo líquido
+// projetado mês a mês, só com os boletos ainda pendentes.
+// ══════════════════════════════════════════════════════════════════════
+function bProjecao() {
+  var b = (DB.b || []).filter(function(x){ return x.status === 'pendente' && x.venc; });
+  function faixa(ini, fim) {
+    return b.filter(function(x){ var d = dDiff(x.venc); return d >= ini && d <= fim; });
+  }
+  function soma(arr, tipo) { return arr.filter(function(x){return x.tipo===tipo;}).reduce(function(s,x){return s+(x.valor||0);},0); }
+  function montar(arr) { return { receber: soma(arr,'receber'), pagar: soma(arr,'pagar'), count: arr.length }; }
+  return { d30: montar(faixa(0,30)), d60: montar(faixa(31,60)), d90: montar(faixa(61,90)) };
+}
+
+function _bRenderProjecao() {
+  var p = bProjecao();
+  if (!p.d30.count && !p.d60.count && !p.d90.count) return '';
+  function bloco(lbl, o) {
+    var liq = o.receber - o.pagar;
+    return '<div style="flex:1;min-width:0;background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px 6px;text-align:center;">' +
+      '<div style="font-size:.58rem;color:var(--t4);text-transform:uppercase;letter-spacing:.05em;">' + lbl + '</div>' +
+      '<div style="font-size:.78rem;font-weight:700;color:' + (liq>=0?'var(--grn)':'#ff5555') + ';margin-top:4px;">R$ ' + fm(liq) + '</div>' +
+      '<div style="font-size:.56rem;color:var(--t4);margin-top:2px;">' + o.count + ' boleto(s)</div>' +
+      '</div>';
+  }
+  return '<div style="display:flex;gap:8px;margin:10px 0;">' +
+    bloco('Próx. 30 dias', p.d30) + bloco('31–60 dias', p.d60) + bloco('61–90 dias', p.d90) +
+    '</div>';
+}
+
+var B_MESES_ABREV = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function _bSaldoProjetadoMensal() {
+  var b = (DB.b || []).filter(function(x){ return x.status === 'pendente' && x.venc; });
+  if (!b.length) return '';
+  var base = new Date(td() + 'T00:00:00');
+  var meses = [];
+  for (var i = 0; i < 6; i++) {
+    var mesIdx = base.getMonth() + i;
+    var ano = base.getFullYear() + Math.floor(mesIdx / 12);
+    var mesNorm = ((mesIdx % 12) + 12) % 12;
+    var mm = (mesNorm + 1) < 10 ? ('0' + (mesNorm + 1)) : String(mesNorm + 1);
+    meses.push({ chave: ano + '-' + mm, label: B_MESES_ABREV[mesNorm] + '/' + String(ano).slice(2), receber: 0, pagar: 0 });
+  }
+  b.forEach(function(x) {
+    var chave = String(x.venc).slice(0, 7);
+    for (var i = 0; i < meses.length; i++) {
+      if (meses[i].chave === chave) { if (x.tipo === 'receber') meses[i].receber += (x.valor||0); else meses[i].pagar += (x.valor||0); break; }
+    }
+  });
+  var max = 1;
+  meses.forEach(function(m){ max = Math.max(max, Math.abs(m.receber - m.pagar)); });
+
+  var h = '<div style="margin:10px 0;padding:12px;background:var(--s2);border:1px solid var(--bd);border-radius:12px;">';
+  h += '<div style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);margin-bottom:8px;">📈 Saldo projetado (próx. 6 meses)</div>';
+  meses.forEach(function(m) {
+    var liq = m.receber - m.pagar;
+    var pct = Math.round(Math.abs(liq) / max * 100);
+    var cor = liq >= 0 ? 'var(--grn)' : '#ff5555';
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+    h += '<div style="width:44px;font-size:.6rem;color:var(--t4);">' + m.label + '</div>';
+    h += '<div style="flex:1;background:rgba(255,255,255,.06);border-radius:6px;height:14px;overflow:hidden;">';
+    h += '<div style="width:' + pct + '%;height:100%;background:' + cor + ';border-radius:6px;"></div>';
+    h += '</div>';
+    h += '<div style="width:82px;text-align:right;font-size:.64rem;font-weight:700;color:' + cor + ';">R$ ' + fm(liq) + '</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
 function bMetrics() {
   bAutoStatus();
   var hoje = td();
-  var em3 = addD(hoje, 3);
+  var em3 = addD(hoje, _bDiasAlerta());
+  var emUrg = addD(hoje, _bDiasAlertaUrgente());
   var b = DB.b || [];
 
   var aReceber   = b.filter(function(x){return x.tipo==='receber'&&x.status==='pendente';});
@@ -114,6 +221,7 @@ function bMetrics() {
   var vencPag    = b.filter(function(x){return x.tipo==='pagar'  &&x.status==='vencido';});
   var pagos      = b.filter(function(x){return x.status==='pago';});
   var alertas    = b.filter(function(x){return (x.status==='pendente')&&x.venc&&x.venc<=em3&&x.venc>=hoje;});
+  var alertasUrgentes = alertas.filter(function(x){return x.venc<=emUrg;});
 
   function soma(arr) { return arr.reduce(function(s,x){return s+(x.valor||0);},0); }
 
@@ -129,6 +237,8 @@ function bMetrics() {
     countVencPag:  vencPag.length,
     countAlertas:  alertas.length,
     alertas:       alertas,
+    countAlertasUrgentes: alertasUrgentes.length,
+    alertasUrgentes: alertasUrgentes,
     saldoLiquido:  soma(aReceber) - soma(aPagar),
     inadimplencia: soma(vencRec)
   };
@@ -150,12 +260,23 @@ function renderBoletosTab() {
   h += _bCard('💰', 'Saldo Prev.', m.saldoLiquido,  m.saldoLiquido>=0?'grn':'red', 'receber − pagar');
   h += '</div>';
 
-  // ── ALERTAS ──
-  if (m.alertas.length) {
-    h += '<div class="b-alerta">';
-    h += '<span class="b-alerta-icon">🔔</span>';
-    h += '<div><div class="b-alerta-title">' + m.alertas.length + ' boleto(s) vencem em até 3 dias</div>';
-    h += '<div class="b-alerta-nomes">' + m.alertas.slice(0,3).map(function(b){return (b.cli||b.desc);}).join(' · ') + '</div></div>';
+  // ── PROJEÇÃO DE FLUXO DE CAIXA ──
+  h += _bRenderProjecao();
+  h += _bSaldoProjetadoMensal();
+
+  // ── ALERTAS ── (2 níveis: urgente 🔥 primeiro/mais chamativo, depois o suave 🟡)
+  if (m.countAlertasUrgentes > 0) {
+    h += '<div class="b-alerta b-alerta-red" style="cursor:pointer;" onclick="bConfigurarDiasAlerta()">';
+    h += '<span class="b-alerta-icon">🔥</span>';
+    h += '<div><div class="b-alerta-title">Urgente: ' + m.countAlertasUrgentes + ' boleto(s) vencem em até ' + _bDiasAlertaUrgente() + ' dia(s)</div>';
+    h += '<div class="b-alerta-nomes">' + m.alertasUrgentes.slice(0,3).map(function(b){return (b.cli||b.desc);}).join(' · ') + ' · toque para ajustar</div></div>';
+    h += '</div>';
+  }
+  if (m.alertas.length > m.countAlertasUrgentes) {
+    h += '<div class="b-alerta" style="cursor:pointer;" onclick="bConfigurarDiasAlerta()">';
+    h += '<span class="b-alerta-icon">🟡</span>';
+    h += '<div><div class="b-alerta-title">' + m.alertas.length + ' boleto(s) vencem em até ' + _bDiasAlerta() + ' dia(s)</div>';
+    h += '<div class="b-alerta-nomes">' + m.alertas.slice(0,3).map(function(b){return (b.cli||b.desc);}).join(' · ') + ' · toque para ajustar</div></div>';
     h += '</div>';
   }
   if (m.countVencRec > 0 || m.countVencPag > 0) {
@@ -176,11 +297,14 @@ function renderBoletosTab() {
 
   // ── BUSCA + ADD ──
   h += '<div class="b-toolbar">';
-  h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
+  h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição, nº doc, valor..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
   h += '<button class="btn btn-o" onclick="bAbrirSeletorPDF()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
+  h += '<button class="btn btn-o" onclick="bAbrirSeletorComprovante()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🧾 Comprovante</button>';
   h += '<button class="btn btn-o" onclick="estAbrirPainel()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📦 Estoque</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
+  h += '<button class="btn btn-o" onclick="bExportarBackupJSON()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">💾 Backup</button>';
   h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
+  h += '<button class="btn ' + (_bModoSelecao?'btn-g':'btn-o') + '" onclick="bToggleModoSelecao()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">' + (_bModoSelecao?'✕ Cancelar':'☑️ Selecionar') + '</button>';
   h += '</div>';
 
   // ── SUBTABS ──
@@ -201,7 +325,16 @@ function renderBoletosTab() {
   h += '</div>';
 
   // ── LISTA ──
-  h += '<div class="b-list">' + _bLista() + '</div>';
+  h += '<div class="b-list" style="' + (_bModoSelecao ? 'padding-bottom:64px;' : '') + '">' + _bLista() + '</div>';
+
+  // ── BARRA DE AÇÃO EM MASSA (modo seleção) ──
+  if (_bModoSelecao) {
+    var qtd = _bContarSelecionados();
+    h += '<div style="position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--s1,#151515);border-top:1px solid var(--bd);">';
+    h += '<div style="flex:1;font-size:.72rem;color:var(--t3);">' + qtd + ' selecionado(s)</div>';
+    h += '<button class="btn btn-g" ' + (qtd?'':'disabled') + ' onclick="bMarcarSelecionadosComoPago()" style="font-size:.72rem;padding:9px 14px;white-space:nowrap;">✅ Marcar como pago</button>';
+    h += '</div>';
+  }
 
   return h;
 }
@@ -211,9 +344,70 @@ function _bRerender() {
   if (body && _finTab === 'boletos') body.innerHTML = renderBoletosTab();
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// BACKUP — exporta DB.b inteiro (todos os boletos, com todos os campos
+// extras já lidos dos PDFs) pra um arquivo .json que o usuário baixa e
+// guarda em outro lugar. Proteção simples contra perder tudo se limpar
+// o navegador/trocar de aparelho. Não inclui os anexos (ficam no
+// IndexedDB, mais pesados) — só os dados dos boletos em si.
+// ══════════════════════════════════════════════════════════════════════
+function bExportarBackupJSON() {
+  try {
+    var payload = { exportadoEm: new Date().toISOString(), versao: 1, boletos: DB.b || [] };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'backup-boletos-' + td() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+    toast('💾 Backup exportado — ' + (DB.b||[]).length + ' boleto(s)');
+  } catch (e) {
+    toast('⚠️ Não consegui gerar o backup');
+  }
+}
+
 function bSetFiltro(f) {
   _bFiltroAtual = f;
   _bRerender();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SELEÇÃO MÚLTIPLA — liga/desliga o "modo seleção" (mostra checkbox em
+// cada linha) e a ação em massa de marcar vários boletos como pago de
+// uma vez só, sem precisar abrir um por um.
+// ══════════════════════════════════════════════════════════════════════
+function bToggleModoSelecao() {
+  _bModoSelecao = !_bModoSelecao;
+  _bSelecionados = {};
+  _bRerender();
+}
+function bToggleSelecionado(id, ev) {
+  if (ev) ev.stopPropagation();
+  if (_bSelecionados[id]) delete _bSelecionados[id];
+  else _bSelecionados[id] = true;
+  _bRerender();
+}
+function _bContarSelecionados() { return Object.keys(_bSelecionados).length; }
+function bMarcarSelecionadosComoPago() {
+  var idsSelecionados = Object.keys(_bSelecionados);
+  if (!idsSelecionados.length) { toast('Nenhum boleto selecionado'); return; }
+  var n = 0;
+  (DB.b || []).forEach(function(b) {
+    if (_bSelecionados[b.id] && b.status !== 'pago') {
+      b.status = 'pago';
+      b.dtPag = td();
+      n++;
+    }
+  });
+  DB.sv();
+  toast('✅ ' + n + ' boleto(s) marcado(s) como pago');
+  _bSelecionados = {};
+  _bModoSelecao = false;
+  _bRerender();
+  bUpdDot();
 }
 
 function _bLista() {
@@ -237,9 +431,13 @@ function _bLista() {
   // Filter by search
   if (busca) {
     filtrado = filtrado.filter(function(x) {
+      var valorTxt = (fm(x.valor||0) + ' ' + String(x.valor||'')).toLowerCase();
       return (x.cli||'').toLowerCase().indexOf(busca) >= 0 ||
+             (x.titular||'').toLowerCase().indexOf(busca) >= 0 ||
              (x.desc||'').toLowerCase().indexOf(busca) >= 0 ||
-             (x.cat||'').toLowerCase().indexOf(busca) >= 0;
+             (x.cat||'').toLowerCase().indexOf(busca) >= 0 ||
+             (x.nDoc||'').toLowerCase().indexOf(busca) >= 0 ||
+             valorTxt.indexOf(busca) >= 0;
     });
   }
 
@@ -325,6 +523,7 @@ function _bListaCargas() {
     return {
       id: id,
       fornecedor: maisFrequente(itens, 'cli') || '(fornecedor a definir)',
+      titular: maisFrequente(itens, 'titular'),
       fpag: maisFrequente(itens, 'fpag'),
       itens: itens, total: total,
       qtdPagas: pagas.length, qtdPendentes: pendentes.length, qtdVencidas: vencidas.length,
@@ -345,6 +544,7 @@ function _bListaCargas() {
     h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px;">';
     h += '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;cursor:pointer;" onclick="bToggleCarga(\'' + id2(g.id) + '\')">';
     h += '<div><div style="font-size:.78rem;font-weight:700;color:var(--tx);">' + escH(g.fornecedor) + '</div>';
+    if (g.titular) h += '<div style="font-size:.64rem;color:var(--gold);margin-top:1px;">👤 ' + escH(g.titular) + '</div>';
     h += '<div style="font-size:.66rem;color:' + cor + ';margin-top:2px;">' + statusTxt + '</div></div>';
     h += '<div style="text-align:right;"><div style="font-size:.62rem;color:var(--t4);">falta pagar</div>';
     h += '<div style="font-size:.8rem;font-weight:700;color:' + (g.faltaPagar>0?'#ff5555':'var(--grn)') + ';">R$ ' + fm(g.faltaPagar) + '</div></div>';
@@ -389,11 +589,17 @@ function _bRow(b, hoje) {
     else                 diasTxt = '<span class="b-dias muted">' + diff + 'd</span>';
   }
 
-  return '<div class="b-row ' + st.cls + '" data-openboleto="' + b.id + '">' +
+  var selecionado = !!_bSelecionados[b.id];
+  return '<div class="b-row ' + st.cls + '"' + (_bModoSelecao ? ' onclick="bToggleSelecionado(' + JSON.stringify(b.id) + ',event)"' : ' data-openboleto="' + b.id + '"') +
+    (selecionado ? ' style="outline:2px solid var(--gold);border-radius:10px;"' : '') + '>' +
     '<div class="b-row-left">' +
+    (_bModoSelecao
+      ? '<input type="checkbox" ' + (selecionado ? 'checked' : '') + ' onclick="bToggleSelecionado(' + JSON.stringify(b.id) + ',event)" style="width:18px;height:18px;flex-shrink:0;margin-right:2px;">'
+      : '') +
     '<span class="b-row-icon">' + cat.icon + '</span>' +
     '<div class="b-row-info">' +
     '<div class="b-row-cli">' + escH(b.cli || b.desc || '—') + (b.parc ? ' <span class="b-parc-tag">' + escH(b.parc) + '</span>' : '') + '</div>' +
+    (b.titular ? '<div style="font-size:.62rem;color:var(--gold);">👤 ' + escH(b.titular) + '</div>' : '') +
     '<div class="b-row-desc">' + escH(b.desc || '') + '</div>' +
     '<div class="b-row-meta">' +
     '<span class="b-status-badge ' + st.cls + '">' + st.emoji + ' ' + st.label + '</span>' +
@@ -445,10 +651,11 @@ function openNovoBoleto() {
   var el = document.getElementById('boletoMdTitle');
   if (el) el.textContent = 'Novo Boleto';
   _bGarantirAnexoUI();
+  _bGarantirTitularUI();
   _bRemoverAnexo(); // limpa qualquer anexo deixado de uma abertura anterior
   // Reset form
   _bFormSet({ tipo:'receber', cat:'parcela', cli:'', desc:'', valor:'',
-    venc: addD(td(), 30), parc:'', fpag:'pix', status:'pendente', obs:'' });
+    venc: addD(td(), 30), parc:'', fpag:'pix', status:'pendente', obs:'', titular:'' });
   bSetTipo('receber');
   // O Vencimento acima já vem preenchido com "hoje+30" só como sugestão —
   // marca como "ainda não mexido pelo usuário" pra não bloquear a extração
@@ -471,6 +678,7 @@ function editBoleto(id) {
   var el = document.getElementById('boletoMdTitle');
   if (el) el.textContent = 'Editar Boleto';
   _bGarantirAnexoUI();
+  _bGarantirTitularUI();
   _bAnexoFile = null;
   _bAnexoIdSalvo = b.anexoId || '';
   _bAnexoNomeSalvo = ''; _bAnexoTipoSalvo = '';
@@ -501,6 +709,7 @@ function _bFormSet(b) {
   var s = function(id, v) { var el=document.getElementById(id); if(el)el.value=v||''; };
   s('bCat', b.cat || 'parcela');
   s('bCli', b.cli || '');
+  s('bTitular', b.titular || b.pagadorNome || '');
   s('bDesc', b.desc || '');
   s('bValor', b.valor || '');
   s('bVenc', b.venc || '');
@@ -597,6 +806,26 @@ async function _bAbrirAnexoPorId(id) {
   } catch (e) { toast('Erro ao abrir anexo'); }
 }
 function _bAbrirAnexoSalvo() { _bAbrirAnexoPorId(_bAnexoIdSalvo); }
+
+// ══════════════════════════════════════════════════════════════════════
+// TITULAR/PAGADOR — campo separado do "Cliente/Fornecedor" (que no boleto
+// costuma ser quem EMITE/recebe, ex: "J.C. Brito Marmores"). O titular é
+// de QUEM é a dívida/direito na prática (Joel, Giliarde, seu pai...),
+// pra dar pra separar e filtrar mesmo quando o fornecedor é sempre o
+// mesmo. Injetado via JS (não existe no index.html) — mesmo padrão do
+// bloco de anexo logo abaixo.
+// ══════════════════════════════════════════════════════════════════════
+function _bGarantirTitularUI() {
+  if (document.getElementById('bTitular')) return;
+  var title = document.getElementById('boletoMdTitle');
+  if (!title) return;
+  title.insertAdjacentHTML('afterend',
+    '<div style="margin:10px 0 0;">' +
+      '<label style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);display:block;margin-bottom:6px;">👤 Titular/Pagador (de quem é essa dívida)</label>' +
+      '<input type="text" id="bTitular" placeholder="Ex: Giliarde, Joel, seu pai..." style="width:100%;box-sizing:border-box;background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:9px 10px;font-size:.75rem;color:var(--tx);">' +
+    '</div>'
+  );
+}
 
 function _bGarantirAnexoUI() {
   if (document.getElementById('bAnexoWrap')) return;
@@ -714,7 +943,7 @@ function _bAdicionarParcelaExtra(i) {
     id: Date.now() + Math.random(),
     tipo: _bTipoAtual,
     cat: p.cat || (typeof bGuessCategoria === 'function' ? bGuessCategoria(p.cli) : 'parcela'),
-    cli: p.cli || '', desc: p.desc || '', valor: p.valor || 0, venc: p.venc || '',
+    cli: p.cli || '', titular: p.pagadorNome || '', desc: p.desc || '', valor: p.valor || 0, venc: p.venc || '',
     parc: (p.parcAtual && p.parcTotal) ? (p.parcAtual + '/' + p.parcTotal) : '',
     fpag: 'pix', status: 'pendente', obs: '', dtCriado: td()
   };
@@ -949,6 +1178,77 @@ async function _bExtrairDadosAnexoIA(file) {
   try { return JSON.parse(txt); } catch (e) { return null; }
 }
 
+// Lê um comprovante de pagamento (print de Pix/TED ou PDF do banco) via IA
+// e devolve {valor, data, favorecido, pagador, docFavorecido} — usado pelo
+// reconhecimento automático de comprovante (bProcessarComprovantes).
+async function _bExtrairComprovanteIA(file) {
+  var _aiKey = (CFG.emp && CFG.emp.apiKey) || '';
+  if (!_aiKey) return null;
+
+  var mediaType, base64;
+  if (file.type === 'application/pdf') {
+    base64 = await _bPdfParaImagemBase64(file);
+    mediaType = 'image/png';
+    if (!base64) return null;
+  } else {
+    base64 = await _bArquivoParaBase64(file);
+    mediaType = file.type;
+  }
+
+  var prompt =
+    'Extraia os dados deste comprovante de pagamento (Pix, TED, DOC, pagamento de boleto etc). Retorne APENAS JSON válido, sem markdown:\n' +
+    '{"valor":0.00,"data":"AAAA-MM-DD","favorecido":"nome de quem RECEBEU o pagamento (destinatário/beneficiário)",' +
+    '"pagador":"nome de quem PAGOU, se aparecer","docFavorecido":"CPF/CNPJ do favorecido, se aparecer"}\n' +
+    'A data é a data em que o pagamento foi efetuado/confirmado (não a de vencimento). Se algum dado não aparecer, deixe "" ou 0. Retorne SÓ o JSON.';
+
+  var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
+  var _aiIsGemini    = (_aiKey.indexOf('AIza') === 0 || _aiKey.indexOf('AQ.') === 0);
+  var txt;
+
+  if (_aiIsAnthropic) {
+    var r1 = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-api-key':_aiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:400, messages:[{
+        role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type: mediaType, data: base64 } },
+          { type:'text', text: prompt }
+        ]
+      }]})
+    });
+    var d1 = await r1.json();
+    if (d1.error) throw new Error(d1.error.message || 'Erro Anthropic');
+    txt = (d1.content && d1.content[0] && d1.content[0].text) || '';
+  } else if (_aiIsGemini) {
+    var r2 = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + _aiKey, {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ contents:[{ role:'user', parts:[
+        { inline_data:{ mime_type: mediaType, data: base64 } },
+        { text: prompt }
+      ]}], generationConfig:{ maxOutputTokens:400 } })
+    });
+    var d2 = await r2.json();
+    if (d2.error) throw new Error(d2.error.message || 'Erro Gemini');
+    txt = (d2.candidates && d2.candidates[0] && d2.candidates[0].content && d2.candidates[0].content.parts && d2.candidates[0].content.parts[0] && d2.candidates[0].content.parts[0].text) || '';
+  } else {
+    var r3 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + _aiKey },
+      body: JSON.stringify({ model:'meta-llama/llama-4-scout-17b-16e-instruct', max_tokens:400, messages:[{
+        role:'user', content:[
+          { type:'text', text: prompt },
+          { type:'image_url', image_url:{ url: 'data:' + mediaType + ';base64,' + base64 } }
+        ]
+      }]})
+    });
+    var d3 = await r3.json();
+    if (d3.error) throw new Error(d3.error.message || 'Erro Groq');
+    txt = (d3.choices && d3.choices[0] && d3.choices[0].message && d3.choices[0].message.content) || '';
+  }
+
+  txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  try { return JSON.parse(txt); } catch (e) { return null; }
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // SALVAR BOLETO
 // ══════════════════════════════════════════════════════════════════════
@@ -980,12 +1280,17 @@ async function saveBoleto() {
     var dadosCheck = {
       linhaDig: (_bAnexoDadosExtra && _bAnexoDadosExtra.linhaDig) || '',
       cnpjBenef: (_bAnexoDadosExtra && _bAnexoDadosExtra.cnpjBenef) || '',
+      nDoc: (_bAnexoDadosExtra && _bAnexoDadosExtra.nDoc) || '',
       valor: valor, venc: venc
     };
     var dup = _bAchaDuplicado(dadosCheck);
     if (dup) {
       toast('⚠️ Esse boleto já está lançado (' + (dup.cli||dup.desc||'') + ' — R$ ' + fm(dup.valor) + ')');
       return;
+    }
+    var conflitoND = _bAchaConflitoNDoc(dadosCheck);
+    if (conflitoND) {
+      toast('⚠️ Já existe o documento ' + dadosCheck.nDoc + ' lançado com valor diferente (R$ ' + fm(conflitoND.valor) + ') — confira antes de salvar');
     }
   }
 
@@ -1000,6 +1305,7 @@ async function saveBoleto() {
     tipo:   _bTipoAtual,
     cat:    g('bCat'),
     cli:    cli,
+    titular: g('bTitular').trim(),
     desc:   desc,
     valor:  valor,
     venc:   venc,
@@ -1077,6 +1383,7 @@ function openBoletoDetail(id) {
       (b.obs  ? _bDetRow('Obs.',   escH(b.obs)) : '') +
       _bDetRow('Criado em',    b.dtCriado ? fd(b.dtCriado) : '—') +
       (b.dtPag ? _bDetRow('Pago em', fd(b.dtPag)) : '') +
+      (b.comprovanteId ? _bDetRow('Comprovante', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.comprovanteId + '\')">🧾 Ver comprovante</button>') : '') +
       (b.pix ? _bDetRow('Pix Copia e Cola', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="bCopiarPix(' + b.id + ')">📋 Copiar código</button>') : '') +
       (b.anexoId ? _bDetRow('Anexo', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.anexoId + '\')">📎 Abrir anexo</button>') : '') +
       _bResumoCarneHTML(b) +
@@ -1129,19 +1436,28 @@ function _bDetDadosBoletoHTML(b) {
   if (!linhas.length) return '';
 
   return '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);">' +
-    '<div style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);margin-bottom:4px;">📄 Dados do Boleto Original</div>' +
-    linhas.map(function(l){ return _bDetRow(l[0], escH(String(l[1]))); }).join('') +
+    _bCaixaDetalhesToggle(linhas, '_bToggleDetOriginais()', 'bDetOriginaisBox') +
     '</div>';
+}
+
+function _bToggleDetOriginais() {
+  var el = document.getElementById('bDetOriginaisBox');
+  if (!el) return;
+  var abrindo = el.style.display === 'none';
+  el.style.display = abrindo ? 'block' : 'none';
+  var lbl = el.previousElementSibling;
+  if (lbl) lbl.textContent = (abrindo ? '▴ Ocultar dados do boleto original' : '▾ Ver dados do boleto original');
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // AÇÕES
 // ══════════════════════════════════════════════════════════════════════
-function bMarcarPago(id) {
+function bMarcarPago(id, opts) {
+  opts = opts || {};
   var b = (DB.b||[]).find(function(x){return x.id===id;});
   if (!b) return;
   b.status = 'pago';
-  b.dtPag  = td();
+  b.dtPag  = opts.dtPag || td();
   DB.sv();
 
   // Auto-lançar no financeiro se for receber
@@ -1152,10 +1468,128 @@ function bMarcarPago(id) {
     addTr('out', (b.cli||b.desc||'Boleto') + ' — ' + (B_CAT[b.cat]||{label:''}).label, b.valor);
   }
 
-  closeAll();
-  toast('✅ Marcado como pago e lançado no financeiro!');
+  if (!opts.silent) {
+    closeAll();
+    toast('✅ Marcado como pago e lançado no financeiro!');
+    _bRerender();
+    bUpdDot();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// RECONHECIMENTO DE COMPROVANTE — casa comprovante de pagamento com o
+// boleto pendente/vencido correspondente e marca como pago sozinho.
+// ══════════════════════════════════════════════════════════════════════
+function _bDiasEntreDatas(d1, d2) {
+  try {
+    var a = new Date(d1 + 'T00:00:00');
+    var c = new Date(d2 + 'T00:00:00');
+    if (isNaN(a) || isNaN(c)) return 999;
+    return Math.round((c - a) / 86400000);
+  } catch (e) { return 999; }
+}
+function _bNormalizaNome(s) {
+  return String(s || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Procura, entre os boletos pendentes/vencidos, o que melhor bate com os
+// dados lidos do comprovante (valor, favorecido, data do pagamento).
+// O valor pago pode vir um pouco maior (juros/multa de atraso), por isso a
+// tolerância é maior pra cima do que pra baixo. Exige uma pontuação mínima
+// pra evitar casar errado — se não bater com confiança, devolve null.
+function _bAcharBoletoPorComprovante(dados) {
+  var candidatos = (DB.b || []).filter(function(b) {
+    return (b.status === 'pendente' || b.status === 'vencido') && b.valor > 0;
+  });
+  if (!candidatos.length || !dados || !dados.valor) return null;
+
+  var palavrasFav = _bNormalizaNome(dados.favorecido).split(' ').filter(function(w){ return w.length >= 3; });
+
+  var melhor = null, melhorScore = 0;
+  candidatos.forEach(function(b) {
+    var diff = dados.valor - b.valor;
+    var diffPct = Math.abs(diff) / b.valor;
+    var score = 0;
+
+    if (diffPct <= 0.005) score += 50;                       // valor praticamente igual
+    else if (diff > 0 && diffPct <= 0.20) score += 35;        // pagou a mais (juros/multa de atraso)
+    else if (diffPct <= 0.03) score += 25;                    // diferença pequena pra qualquer lado
+    else return;                                              // valor incompatível — descarta
+
+    if (palavrasFav.length && b.tipo === 'pagar') {
+      var nomeBoleto = _bNormalizaNome(b.cli || b.desc);
+      var bateu = palavrasFav.filter(function(p){ return nomeBoleto.indexOf(p) >= 0; }).length;
+      score += bateu * 15;
+    }
+
+    if (dados.data && b.venc) {
+      var dias = Math.abs(_bDiasEntreDatas(b.venc, dados.data));
+      score += Math.max(0, 20 - dias);
+    }
+
+    if (score > melhorScore) { melhorScore = score; melhor = b; }
+  });
+
+  return melhorScore >= 30 ? melhor : null;
+}
+
+function bAbrirSeletorComprovante() {
+  var input = document.getElementById('bComprovanteInput');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'bComprovanteInput';
+    input.accept = 'application/pdf,image/*';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.onchange = function() { bProcessarComprovantes(this.files); };
+    document.body.appendChild(input);
+  }
+  input.value = '';
+  input.click();
+}
+
+// Lê cada comprovante, procura o boleto correspondente e marca como pago
+// automaticamente — sem pedir confirmação. Ao final mostra um resumo do
+// que foi reconhecido, do que não bateu com nada, e do que não deu pra ler.
+async function bProcessarComprovantes(files) {
+  if (!files || !files.length) return;
+  var _aiKey = (CFG.emp && CFG.emp.apiKey) || '';
+  if (!_aiKey) { toast('⚠️ Configure uma API Key em Config → Empresa pra usar o reconhecimento de comprovante'); return; }
+
+  toast('⏳ Lendo ' + files.length + ' comprovante(s)...');
+
+  var okList = [], semMatch = [], comErro = [];
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    try {
+      var dados = await _bExtrairComprovanteIA(file);
+      if (!dados || !dados.valor) { comErro.push(file.name); continue; }
+
+      var boleto = _bAcharBoletoPorComprovante(dados);
+      if (!boleto) { semMatch.push(file.name + ' (R$ ' + fm(dados.valor) + ')'); continue; }
+
+      var compId = 'comp_' + boleto.id + '_' + Date.now() + '_' + i;
+      try { await _bAnexoDBSave(compId, file); boleto.comprovanteId = compId; } catch (e) {}
+
+      bMarcarPago(boleto.id, { silent: true, dtPag: dados.data });
+      okList.push((boleto.cli || boleto.desc || 'Boleto') + ' — R$ ' + fm(boleto.valor));
+    } catch (e) {
+      comErro.push(file.name);
+    }
+  }
+
+  DB.sv();
   _bRerender();
   bUpdDot();
+
+  var msg = '';
+  if (okList.length)  msg += '✅ Pago automaticamente: ' + okList.join(', ');
+  if (semMatch.length) msg += (msg ? ' · ' : '') + '❓ Sem boleto correspondente: ' + semMatch.join(', ');
+  if (comErro.length)  msg += (msg ? ' · ' : '') + '⚠️ Não consegui ler: ' + comErro.join(', ');
+  toast(msg || 'Nada processado');
 }
 
 function delBoleto(id) {
@@ -1168,6 +1602,7 @@ function delBoleto(id) {
   _bRerender();
   bUpdDot();
   if (b && b.anexoId) _bAnexoDBDelete(b.anexoId).catch(function(){});
+  if (b && b.comprovanteId) _bAnexoDBDelete(b.comprovanteId).catch(function(){});
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1176,7 +1611,7 @@ function delBoleto(id) {
 function bUpdDot() {
   bAutoStatus();
   var hoje = td();
-  var em3  = addD(hoje, 3);
+  var em3  = addD(hoje, _bDiasAlerta());
   var urgentes = (DB.b||[]).filter(function(x){
     return x.status==='vencido' || (x.status==='pendente'&&x.venc&&x.venc<=em3);
   }).length;
@@ -1455,6 +1890,14 @@ function _bParseCarga(nDoc) {
   if (m) return { cargaId: m[1], parcAtual: parseInt(m[2], 10), parcTotal: parseInt(m[3], 10) };
   var m2 = nDoc.match(/^(\d{4,7})-([A-Za-z])\/(\d{1,2})$/);
   if (m2) return { cargaId: m2[1], parcAtual: m2[2], parcTotal: parseInt(m2[3], 10) };
+  // Formato sem "/total" (ex: "32009-01", "0031557-01") — muito comum em
+  // carnês SICOOB que numeram cada parcela como BASE-NN sem informar o total
+  // no próprio número. parcTotal fica null aqui; _bListaCargas já cai pra
+  // itens.length como total quando parcTotal não vem (ver "var total =
+  // itens[0].parcTotal || itens.length"), então a carga aparece certinha
+  // assim que as parcelas forem sendo importadas/lançadas.
+  var m3 = nDoc.match(/^(\d{4,7})-(\d{1,2})$/);
+  if (m3) return { cargaId: m3[1], parcAtual: parseInt(m3[2], 10), parcTotal: null };
   return null;
 }
 
@@ -1530,6 +1973,16 @@ function _bAchaDuplicado(item) {
   return null;
 }
 
+// Mesmo número de documento já lançado, mas com valor diferente — não é
+// necessariamente duplicado (pode ser boleto reemitido com juros/desconto),
+// então só avisa, não bloqueia o lançamento.
+function _bAchaConflitoNDoc(item) {
+  if (!item.nDoc || !item.valor) return null;
+  return (DB.b || []).find(function(b){
+    return b.nDoc && b.nDoc === item.nDoc && b.valor && Math.abs(b.valor - item.valor) > 0.01;
+  }) || null;
+}
+
 async function bProcessarPDFs(fileList) {
   if (!fileList || !fileList.length) return;
   var pdfjsLib;
@@ -1538,7 +1991,7 @@ async function bProcessarPDFs(fileList) {
 
   toast('⏳ Lendo ' + fileList.length + ' PDF(s)...');
 
-  var importados = 0, duplicados = 0, falhas = [];
+  var importados = 0, duplicados = 0, falhas = [], conflitosND = [];
 
   for (var i = 0; i < fileList.length; i++) {
     var file = fileList[i];
@@ -1581,6 +2034,8 @@ async function bProcessarPDFs(fileList) {
 
     achados.forEach(function(item) {
       if (_bAchaDuplicado(item)) { duplicados++; return; }
+      var conflitoND = _bAchaConflitoNDoc(item);
+      if (conflitoND) conflitosND.push(item.nDoc + ' (R$ ' + fm(item.valor) + ' vs R$ ' + fm(conflitoND.valor) + ' já salvo)');
       _bImportarItem(item);
       importados++;
     });
@@ -1590,6 +2045,7 @@ async function bProcessarPDFs(fileList) {
 
   var msg = importados ? (importados + ' boleto(s) importado(s) automaticamente ✅') : 'Nenhum boleto novo importado';
   if (duplicados) msg += ' · ' + duplicados + ' já existia(m) (ignorado)';
+  if (conflitosND.length) msg += ' · ⚠️ documento repetido com valor diferente: ' + conflitosND.join(', ');
   if (falhas.length) msg += ' · não reconheci: ' + falhas.join(', ');
   toast(msg);
 
@@ -1607,6 +2063,7 @@ function _bImportarItem(item) {
     tipo: 'pagar',
     cat: item.cat || 'fornecedor',
     cli: item.cli || '(fornecedor a definir)',
+    titular: item.pagadorNome || '',
     desc: item.desc || 'Boleto importado',
     valor: item.valor,
     venc: item.venc,
@@ -1748,7 +2205,7 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
       if (mPagNome) pagadorNome = mPagNome[1].trim().replace(/\s+/g, ' ');
     }
 
-    var localMatches = janelaPix.match(/[A-ZÀ-ÜÇ][A-ZÀ-ÜÇ\s]{2,35}\s*[-–]?\s*\b[A-Z]{2}\b\s+\d{5}-?\d{3}/g) || [];
+    var localMatches = janelaPix.match(/[A-ZÀ-ÜÇ][A-ZÀ-ÜÇ\s]{2,70}\s*[-–]?\s*\b[A-Z]{2}\b\s+\d{5}-?\d{3}/g) || [];
     var pagadorLocal = localMatches.length ? localMatches[localMatches.length - 1].trim().replace(/\s+/g, ' ') : '';
 
     var dtEmissao = (janelaPix.match(/Data de Emiss[ãa]o\D{0,15}?(\d{2}\/\d{2}\/\d{4})/) || [])[1] || '';
@@ -1845,7 +2302,10 @@ function bCheckNotificacoes() {
     } else if (diff === 0 && !b._notif.hoje) {
       new Notification('🟡 Boleto vence hoje', { body: nome + ' — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
       b._notif.hoje = true; mudou = true;
-    } else if (diff > 0 && diff <= 3 && !b._notif.proximo) {
+    } else if (diff > 0 && diff <= _bDiasAlertaUrgente() && !b._notif.urgente) {
+      new Notification('🔥 Boleto urgente', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      b._notif.urgente = true; mudou = true;
+    } else if (diff > 0 && diff <= _bDiasAlerta() && !b._notif.proximo) {
       new Notification('⏳ Boleto vence em breve', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
       b._notif.proximo = true; mudou = true;
     }
