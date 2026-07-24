@@ -24,7 +24,9 @@ function renderDashboard() {
   var totPend   = pendentes.reduce(function(s,t){ return s+(t.value||0); }, 0);
   var fixos     = (CFG.fixos||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
   var vars      = (CFG.variaveis||[]).reduce(function(s,f){ return s+(f.v||0); }, 0);
-  var totalCustos = fixos + vars + ((CFG.saudeFinanceira&&CFG.saudeFinanceira.proLabore)||0);
+  var proLaboreMes = (DB.t||[]).filter(function(t){ return t.type==='out' && t.isProLabore && (t.date||'').slice(0,7)===mes; })
+    .reduce(function(s,t){ return s+(t.value||0); }, 0);
+  var totalCustos = fixos + vars + proLaboreMes;
   var lucro     = recMes - despMes;
   var saldoLiq  = recMes + totPend - totalCustos;
 

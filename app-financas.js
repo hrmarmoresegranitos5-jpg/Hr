@@ -157,6 +157,7 @@ function renderFin() {
   renderFixos();
   renderCustoMaoObra();
   renderSaudeFinanceira();
+  renderProLabore();
 }
 
 // ═══ CORPO DA ABA ATIVA ═══
@@ -522,6 +523,13 @@ function _sfGetConfig() {
     };
     svCFG();
   }
+  // Migração: garante o sub-objeto de pró-labore em configs já existentes
+  if (typeof CFG.saudeFinanceira.proLabore !== 'object' || !CFG.saudeFinanceira.proLabore) {
+    CFG.saudeFinanceira.proLabore = {
+      minimoDesejado: 0 // valor mínimo mensal que o dono precisa tirar pra viver
+    };
+    svCFG();
+  }
   return CFG.saudeFinanceira;
 }
 
@@ -718,6 +726,295 @@ function _sfAlertas(recMes, despMes, fixos, vars, orcVar, gastoVar, saldoMes, pe
   return alertas;
 }
 
+// ══════════════════════════════════════════════════════════════
+// PRÓ-LABORE — quanto você merece ganhar pelo que conseguiu vender
+//
+// Antes a sugestão só olhava "o que sobrou" no caixa. Agora ela
+// parte do que você efetivamente VENDEU (serviços fechados em
+// DB.j, contados pelo mês em que foram vendidos/agendados) e
+// aplica um % justo configurável — isso é o que você merece por
+// ter vendido aquilo, independente de o caixa já ter recebido
+// tudo ou não.
+//
+// Esse "valor justo" é então limitado por um teto de segurança
+// (baseado no lucro livre do mês e na sua reserva de emergência,
+// pra não descapitalizar o negócio). Se o que você merece for
+// maior do que o caixa aguenta com segurança agora, a diferença
+// não se perde: fica registrada como "a empresa ainda te deve" e
+// entra na conta dos próximos meses, até você conseguir retirar.
+//
+// Essa dívida é 100% calculada a partir do histórico real (vendas
+// em DB.j × retiradas em DB.t) — não existe um saldo guardado à
+// parte que possa ficar dessincronizado.
+//
+// Teto de segurança = % do lucro livre do mês (faturamento menos
+// custos fixos/variáveis menos reserva de 10%), variando conforme
+// a reserva de emergência (saldo real de caixa vs. meta em meses
+// de custo, CFG.saudeFinanceira.reservaEmergencia):
+//   caixa negativo        → 30% do lucro livre (modo cautela)
+//   reserva < 50% da meta → 45%
+//   reserva < 100% da meta→ 65%
+//   reserva completa      → 85%
+// O "mínimo desejado" configurado por você funciona como piso,
+// mas nunca passa do lucro livre real (dinheiro que existe agora).
+//
+// As retiradas reais são lançadas como despesa normal em DB.t
+// (type:'out', isProLabore:true) — assim já entram certinho nos
+// totais de Despesas/Caixa sem duplicar nada.
+// ══════════════════════════════════════════════════════════════
+
+function _plGetConfig() {
+  var pl = _sfGetConfig().proLabore; // já migrado/garantido por _sfGetConfig
+  if (pl.percentualVenda == null) { pl.percentualVenda = 10; svCFG(); } // % justo inicial sobre o que você vende — ajustável
+  return pl;
+}
+
+// Soma o valor dos serviços vendidos (DB.j) num mês específico,
+// usando o próprio id do job (sempre Date.now() na criação) como
+// data de venda — é quando o serviço entrou pra produção.
+function _plVendidoNoMes(mes) {
+  return (DB.j || []).filter(function(j) {
+    return j.id && new Date(j.id).toISOString().slice(0,7) === mes;
+  }).reduce(function(s, j) { return s + (j.value || 0); }, 0);
+}
+
+// Dívida acumulada de meses ANTERIORES ao mês corrente: soma, mês
+// a mês, quanto era justo (vendido × %) menos quanto foi de fato
+// retirado como pró-labore naquele mês. Só conta a diferença
+// quando o justo é maior que o retirado (a empresa "deve").
+function _plDevidoAcumulado(mesAtual, pctVenda) {
+  var vendasPorMes = {};
+  (DB.j || []).forEach(function(j) {
+    if (!j.id) return;
+    var m = new Date(j.id).toISOString().slice(0,7);
+    if (m >= mesAtual) return; // só meses já fechados, antes do atual
+    vendasPorMes[m] = (vendasPorMes[m] || 0) + (j.value || 0);
+  });
+  var retiradoPorMes = {};
+  (DB.t || []).filter(function(t) { return t.type === 'out' && t.isProLabore; }).forEach(function(t) {
+    var m = (t.date || '').slice(0,7);
+    if (m >= mesAtual) return;
+    retiradoPorMes[m] = (retiradoPorMes[m] || 0) + (t.value || 0);
+  });
+  var devido = 0;
+  Object.keys(vendasPorMes).forEach(function(m) {
+    var justo    = vendasPorMes[m] * pctVenda / 100;
+    var retirado = retiradoPorMes[m] || 0;
+    if (justo > retirado) devido += (justo - retirado);
+  });
+  return Math.round(devido);
+}
+
+function _plCalc() {
+  var sf    = _sfGetConfig();
+  var pl    = _plGetConfig();
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+
+  var fixos = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var vars  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+
+  var recMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'in' && (t.date || '').slice(0,7) === mes; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  // ── mesma distribuição usada no card de Saúde Financeira ──
+  var saldoDisp      = Math.max(0, recMes);
+  var reservaCorte   = Math.round(saldoDisp * 0.10);
+  var custosCobertos = Math.min(saldoDisp, fixos + vars);
+  var lucroLivre     = Math.max(0, saldoDisp - custosCobertos - reservaCorte);
+
+  // ── saldo real de caixa (histórico completo, todas as entradas/saídas) ──
+  var saldoCaixa = (DB.t || [])
+    .filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); })
+    .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
+
+  var reservaMeses = sf.reservaEmergencia || 3;
+  var reservaAlvo  = (fixos + vars) * reservaMeses;
+  var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
+
+  // ── teto de segurança (protege o caixa/reserva) ──
+  var pctSeguranca, faixaSeguranca;
+  if (saldoCaixa <= 0)          { pctSeguranca = 30; faixaSeguranca = 'caixa negativo'; }
+  else if (pctReserva < 50)     { pctSeguranca = 45; faixaSeguranca = 'reserva abaixo de 50%'; }
+  else if (pctReserva < 100)    { pctSeguranca = 65; faixaSeguranca = 'reserva entre 50% e 100%'; }
+  else                          { pctSeguranca = 85; faixaSeguranca = 'reserva completa'; }
+  var tetoSeguranca = Math.round(lucroLivre * pctSeguranca / 100);
+
+  // ── quanto você merece: valor justo do que vendeu + dívida de meses anteriores ──
+  var pctVenda       = pl.percentualVenda;
+  var vendidoMes     = _plVendidoNoMes(mes);
+  var qtdVendidoMes  = (DB.j || []).filter(function(j) { return j.id && new Date(j.id).toISOString().slice(0,7) === mes; }).length;
+  var justoMes       = Math.round(vendidoMes * pctVenda / 100);
+  var devidoAnterior = _plDevidoAcumulado(mes, pctVenda);
+  var totalMerecido  = justoMes + devidoAnterior;
+
+  // ── sugestão final: o que é justo, limitado pelo teto de segurança do caixa ──
+  var sugerido = Math.min(totalMerecido, tetoSeguranca);
+  var pisoDesejado = pl.minimoDesejado || 0;
+  if (pisoDesejado > sugerido) sugerido = Math.min(pisoDesejado, lucroLivre); // respeita o mínimo que você precisa, sem passar do dinheiro livre real
+  sugerido = Math.max(0, Math.round(sugerido));
+  var minimoNaoCabe    = pisoDesejado > lucroLivre;
+  var saldoFicaDevendo = Math.max(0, totalMerecido - sugerido);
+
+  // ── retiradas já feitas este mês / total histórico ──
+  var retiradasMes = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0,7) === mes;
+  });
+  var retiradoMes = retiradasMes.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var retiradasAno = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0,4) === mes.slice(0,4);
+  });
+  var retiradoAno = retiradasAno.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  return {
+    mes: mes, fixos: fixos, vars: vars, recMes: recMes, lucroLivre: lucroLivre,
+    saldoCaixa: saldoCaixa, reservaAlvo: reservaAlvo, pctReserva: pctReserva,
+    pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
+    pctVenda: pctVenda, vendidoMes: vendidoMes, qtdVendidoMes: qtdVendidoMes, justoMes: justoMes,
+    devidoAnterior: devidoAnterior, totalMerecido: totalMerecido,
+    sugerido: sugerido, minimoNaoCabe: minimoNaoCabe, saldoFicaDevendo: saldoFicaDevendo,
+    retiradoMes: retiradoMes, retiradoAno: retiradoAno, retiradasMes: retiradasMes
+  };
+}
+
+function renderProLabore() {
+  var el = document.getElementById('proLaboreCard');
+  if (!el) return;
+  var pl = _plGetConfig();
+  var c  = _plCalc();
+
+  var h = '';
+
+  // ── Sugestão do mês ──
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">Sugestão pra ' + c.mes.replace('-','/') + '</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:var(--gold2);margin-top:2px;">R$ ' + fm(c.sugerido) + '</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">Você merece R$ ' + fm(c.totalMerecido) + ' pelo que vendeu · teto de segurança do caixa: R$ ' + fm(c.tetoSeguranca) + ' (' + c.pctSeguranca + '%, ' + c.faixaSeguranca + ')</div>';
+  h += '</div>';
+
+  if (c.minimoNaoCabe) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Seu mínimo desejado (R$ ' + fm(pl.minimoDesejado) + ') é maior que o lucro livre do mês (R$ ' + fm(c.lucroLivre) + '). O negócio ainda não sustenta esse valor sem mexer na reserva.</div>';
+    h += '</div>';
+  }
+  if (c.saldoFicaDevendo > 0) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 A empresa ainda fica devendo R$ ' + fm(c.saldoFicaDevendo) + ' do que você merece — o caixa não aguenta pagar tudo agora com segurança. Isso entra na conta dos próximos meses.</div>';
+    h += '</div>';
+  }
+
+  // ── Valor justo pela venda ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>📈 Valor Justo Pela Venda</span>';
+  h += '<button class="sf-edit-btn" onclick="plEditPercentual()">⚙️ ' + c.pctVenda + '%</button>';
+  h += '</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.vendidoMes) + '</div><div class="sf-eq-lbl">Vendido este mês' + (c.qtdVendidoMes ? ' (' + c.qtdVendidoMes + ')' : '') + '</div></div>';
+  h += '<div class="sf-eq-sep">×' + c.pctVenda + '%</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(c.justoMes) + '</div><div class="sf-eq-lbl">Valor justo do mês</div></div>';
+  h += '</div>';
+  if (c.devidoAnterior > 0) {
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Dívida de meses anteriores</span><span class="fin-fixo-vl">R$ ' + fm(c.devidoAnterior) + '</span></div>';
+    h += '<div class="fin-fixo-tot"><span>Total que você merece</span><span class="fin-fixo-tot-val">R$ ' + fm(c.totalMerecido) + '</span></div>';
+  }
+  if (!c.vendidoMes) {
+    h += '<div class="sf-hint">Nenhum serviço vendido/agendado este mês ainda.</div>';
+  }
+  h += '</div>';
+
+  // ── Retirado este mês vs sugerido ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">📤 Retirado Este Mês</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--grn);">R$ ' + fm(c.retiradoMes) + '</div><div class="sf-eq-lbl">Já retirado</div></div>';
+  h += '<div class="sf-eq-sep">·</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(c.sugerido) + '</div><div class="sf-eq-lbl">Sugerido</div></div>';
+  h += '</div>';
+  if (c.sugerido > 0) {
+    var pctRet = Math.min(100, Math.round((c.retiradoMes / c.sugerido) * 100));
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctRet + '%;background:' + (pctRet > 120 ? 'var(--red)' : pctRet >= 80 ? 'var(--grn)' : '#d4a017') + ';"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctRet + '% do sugerido</div>';
+  }
+  if (c.retiradoMes > c.sugerido * 1.2 && c.sugerido > 0) {
+    h += '<div class="sf-alerta sf-alerta-red" style="margin-top:8px;">🔴 Você já retirou bem acima do sugerido esse mês — atenção pra não descapitalizar o caixa.</div>';
+  } else if (c.retiradoMes === 0 && c.sugerido > 0) {
+    h += '<div class="sf-alerta sf-alerta-yel" style="margin-top:8px;">🟡 Você ainda não registrou nenhuma retirada esse mês, mas há valor sugerido disponível — não esqueça de se pagar.</div>';
+  }
+  h += '<button class="fin-add-btn fin-add-grn" style="width:100%;margin-top:10px;" onclick="plRegistrar()">💸 Registrar retirada</button>';
+  h += '</div>';
+
+  // ── Reserva de emergência (contexto do teto de segurança) ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🛡️ Reserva de Emergência</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:' + (c.saldoCaixa >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(c.saldoCaixa) + '</div><div class="sf-eq-lbl">Caixa atual</div></div>';
+  h += '<div class="sf-eq-sep">/</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.reservaAlvo) + '</div><div class="sf-eq-lbl">Meta (' + (_sfGetConfig().reservaEmergencia||3) + ' meses)</div></div>';
+  h += '</div>';
+  h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + Math.min(100,c.pctReserva) + '%;background:' + (c.pctReserva>=100?'var(--grn)':c.pctReserva>=50?'#d4a017':'var(--red)') + ';"></div></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + c.pctReserva + '% da meta — quanto mais completa, maior o teto de segurança sobre o valor justo</div>';
+  h += '</div>';
+
+  // ── Histórico recente ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>📜 Retiradas do Mês</span>';
+  h += '<button class="sf-edit-btn" onclick="plEditConfig()">⚙️ mínimo desejado</button>';
+  h += '</div>';
+  if (c.retiradasMes.length) {
+    c.retiradasMes.forEach(function(t) {
+      h += '<div class="fin-fixo-row" style="cursor:pointer;" onclick="openEditTr(' + t.id + ')"><span class="fin-fixo-nm">' + fd(t.date) + ' · ' + (t.desc || 'Pró-labore') + '</span><span class="fin-fixo-vl">R$ ' + fm(t.value) + '</span></div>';
+    });
+  } else {
+    h += '<div class="sf-hint">Nenhuma retirada lançada esse mês ainda.</div>';
+  }
+  h += '<div class="fin-fixo-tot"><span>Total no Ano (' + c.mes.slice(0,4) + ')</span><span class="fin-fixo-tot-val">R$ ' + fm(c.retiradoAno) + '</span></div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+// ── Registrar retirada de pró-labore ──
+function plRegistrar() {
+  var val = prompt('Valor da retirada de pró-labore (R$):');
+  if (val === null) return;
+  val = +val || 0;
+  if (val <= 0) { toast('Informe um valor válido'); return; }
+  var data = prompt('Data (AAAA-MM-DD):', td());
+  if (data === null) return;
+  DB.t.unshift({ id: Date.now(), type: 'out', desc: 'Pró-labore', value: val, date: data || td(), isProLabore: true });
+  DB.sv();
+  renderFin();
+  toast('✓ Retirada de pró-labore registrada!');
+}
+
+// ── Editar valor mínimo desejado ──
+function plEditConfig() {
+  var pl  = _plGetConfig();
+  var val = prompt('Valor mínimo mensal que você precisa tirar do negócio pra viver (R$):', pl.minimoDesejado || '');
+  if (val === null) return;
+  pl.minimoDesejado = +val || 0;
+  svCFG();
+  renderProLabore();
+  toast('✓ Mínimo desejado atualizado!');
+}
+
+// ── Editar % justo sobre o valor vendido ──
+function plEditPercentual() {
+  var pl  = _plGetConfig();
+  var val = prompt('Qual % do valor de cada serviço vendido é justo virar seu pró-labore? (ex: 10 = 10%)', pl.percentualVenda != null ? pl.percentualVenda : 10);
+  if (val === null) return;
+  var n = +val;
+  if (isNaN(n) || n < 0 || n > 100) { toast('Informe um número entre 0 e 100'); return; }
+  pl.percentualVenda = n;
+  svCFG();
+  renderProLabore();
+  toast('✓ % sobre vendas atualizado!');
+}
+
 // ── Editar meta ──
 function sfEditMeta() {
   var sf  = _sfGetConfig();
@@ -726,6 +1023,7 @@ function sfEditMeta() {
   sf.metaFaturamento = +val || 0;
   svCFG();
   renderSaudeFinanceira();
+  renderProLabore();
 }
 
 // ── Editar custos variáveis ──
@@ -779,6 +1077,7 @@ function sfSaveVars() {
   svCFG();
   closeAll();
   renderSaudeFinanceira();
+  renderProLabore();
   renderFixos();
   toast('✓ Custos variáveis salvos!');
 }
