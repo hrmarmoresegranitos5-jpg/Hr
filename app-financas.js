@@ -904,6 +904,12 @@ function renderProLabore() {
     h += '<div class="sf-alerta sf-alerta-yel">🟡 A empresa ainda fica devendo R$ ' + fm(c.saldoFicaDevendo) + ' do que você merece — o caixa não aguenta pagar tudo agora com segurança. Isso entra na conta dos próximos meses.</div>';
     h += '</div>';
   }
+  if (c.recMes > 0 && c.retiradoMes / c.recMes > 0.4) {
+    var pctFat = Math.round((c.retiradoMes / c.recMes) * 100);
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Suas retiradas já somam ' + pctFat + '% do faturamento deste mês — bem acima da faixa saudável (até ~30-40%). Vale segurar antes de tirar mais.</div>';
+    h += '</div>';
+  }
 
   // ── Valor justo pela venda ──
   h += '<div class="sf-section">';
@@ -919,6 +925,7 @@ function renderProLabore() {
   if (c.devidoAnterior > 0) {
     h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Dívida de meses anteriores</span><span class="fin-fixo-vl">R$ ' + fm(c.devidoAnterior) + '</span></div>';
     h += '<div class="fin-fixo-tot"><span>Total que você merece</span><span class="fin-fixo-tot-val">R$ ' + fm(c.totalMerecido) + '</span></div>';
+    h += '<button class="fin-add-btn" style="width:100%;margin-top:8px;" onclick="plLancarCreditoRH()">📥 Lançar dívida como crédito no RH</button>';
   }
   if (!c.vendidoMes) {
     h += '<div class="sf-hint">Nenhum serviço vendido/agendado este mês ainda.</div>';
@@ -946,6 +953,9 @@ function renderProLabore() {
   h += '<button class="fin-add-btn fin-add-grn" style="width:100%;margin-top:10px;" onclick="plRegistrar()">💸 Registrar retirada</button>';
   h += '</div>';
 
+  // ── Evolução mensal (retirado x merecido x mínimo desejado) ──
+  h += renderProLaboreEvolucao();
+
   // ── Reserva de emergência (contexto do teto de segurança) ──
   h += '<div class="sf-section">';
   h += '<div class="sf-title">🛡️ Reserva de Emergência</div>';
@@ -972,13 +982,211 @@ function renderProLabore() {
     h += '<div class="sf-hint">Nenhuma retirada lançada esse mês ainda.</div>';
   }
   h += '<div class="fin-fixo-tot"><span>Total no Ano (' + c.mes.slice(0,4) + ')</span><span class="fin-fixo-tot-val">R$ ' + fm(c.retiradoAno) + '</span></div>';
+  h += '<div style="display:flex;gap:8px;margin-top:10px;">';
+  h += '<button class="fin-add-btn" style="flex:1;" onclick="plMigrarHistoricoRH()">📦 Importar pro RH</button>';
+  h += '<button class="fin-add-btn" style="flex:1;" onclick="plGerarResumoAnual(\'' + c.mes.slice(0,4) + '\')">📄 Resumo anual (IR)</button>';
+  h += '</div>';
   h += '</div>';
 
   el.innerHTML = h;
 }
 
+// ── Últimos n meses (mais antigo primeiro): retirado real x valor merecido
+// (vendido no mês × % justo atual) — usado no gráfico de evolução ──
+function _plHistoricoMeses(n) {
+  var pl = _plGetConfig();
+  var pctVenda = pl.percentualVenda;
+  var hoje = new Date();
+  var nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var meses = [];
+  for (var i = n - 1; i >= 0; i--) {
+    var d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    var retirado = (DB.t || []).filter(function(t) {
+      return t.type === 'out' && t.isProLabore && (t.date || '').slice(0, 7) === key;
+    }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+    var merecido = Math.round(_plVendidoNoMes(key) * pctVenda / 100);
+    meses.push({ key: key, label: nomesMes[d.getMonth()], retirado: retirado, merecido: merecido });
+  }
+  return meses;
+}
+
+function renderProLaboreEvolucao() {
+  _injectPlChartStyles();
+  var pl = _plGetConfig();
+  var meses = _plHistoricoMeses(6);
+  var maxVal = meses.reduce(function(m, x) { return Math.max(m, x.retirado, x.merecido); }, 1);
+  var minimo = pl.minimoDesejado || 0;
+  var BAR_H = 80;
+  var minimoH = minimo > 0 ? Math.min(BAR_H, Math.round((minimo / maxVal) * BAR_H)) : 0;
+
+  var h = '<div class="sf-section">';
+  h += '<div class="sf-title">📊 Evolução do Pró-labore (6 meses)</div>';
+  h += '<div class="pl-chart-wrap">';
+  h += '<div class="pl-chart-legend">';
+  h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dot" style="background:var(--gold2);"></div>Retirado</div>';
+  h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dot" style="background:#60a5fa;"></div>Merecido</div>';
+  if (minimo > 0) h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dash"></div>Mínimo desejado</div>';
+  h += '</div>';
+  h += '<div class="pl-chart-bars" style="--bar-max:' + BAR_H + 'px;">';
+  if (minimo > 0) {
+    h += '<div class="pl-chart-minline" style="bottom:' + (minimoH + 26) + 'px;"></div>';
+  }
+  meses.forEach(function(m) {
+    var retH = Math.round((m.retirado / maxVal) * BAR_H);
+    var merH = Math.round((m.merecido / maxVal) * BAR_H);
+    h += '<div class="pl-chart-col">';
+    h += '<div class="pl-chart-bars-group" title="' + m.label + ': retirado R$ ' + fm(m.retirado) + ' · merecido R$ ' + fm(m.merecido) + '">';
+    h += '<div class="pl-chart-bar retirado" style="height:' + retH + 'px;"></div>';
+    h += '<div class="pl-chart-bar merecido" style="height:' + merH + 'px;"></div>';
+    h += '</div>';
+    h += '<div class="pl-chart-label">' + m.label + '</div>';
+    h += '</div>';
+  });
+  h += '</div>'; // pl-chart-bars
+  h += '</div>'; // pl-chart-wrap
+  h += '</div>'; // sf-section
+  return h;
+}
+
+function _injectPlChartStyles() {
+  if (document.getElementById('plChartStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'plChartStyle';
+  s.textContent = `
+    .pl-chart-wrap { position:relative; overflow:hidden; }
+    .pl-chart-legend { display:flex; gap:14px; margin-bottom:10px; justify-content:flex-end; flex-wrap:wrap; }
+    .pl-chart-leg-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--t3); }
+    .pl-chart-leg-dot { width:8px; height:8px; border-radius:50%; }
+    .pl-chart-leg-dash { width:12px; height:0; border-top:2px dashed var(--t3); }
+    .pl-chart-bars { display:flex; align-items:flex-end; gap:6px; height:calc(var(--bar-max,80px) + 26px); padding-bottom:26px; position:relative; }
+    .pl-chart-minline { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(201,168,76,.55); }
+    .pl-chart-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; position:relative; }
+    .pl-chart-bars-group { width:100%; display:flex; gap:2px; align-items:flex-end; justify-content:center; }
+    .pl-chart-bar { flex:1; border-radius:4px 4px 0 0; min-height:2px; transition:opacity .2s; }
+    .pl-chart-bar.retirado { background: linear-gradient(to top, #a1780f, var(--gold2)); }
+    .pl-chart-bar.merecido { background: linear-gradient(to top, #1e4d7a80, #60a5fa70); }
+    .pl-chart-label { position:absolute; bottom:4px; font-size:9px; color:var(--t4); font-weight:600; white-space:nowrap; }
+  `;
+  document.head.appendChild(s);
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESUMO ANUAL DE PRÓ-LABORE (PDF) — pra apoio na declaração de IR
+// ══════════════════════════════════════════════════════════════
+function _carregarJsPDFFin(cb) {
+  if (window.jspdf && window.jspdf.jsPDF) { cb(window.jspdf.jsPDF); return; }
+  if (window.jsPDF) { cb(window.jsPDF); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  s.onload = function() { cb((window.jspdf && window.jspdf.jsPDF) || window.jsPDF); };
+  s.onerror = function() { toast('❌ Erro ao carregar jsPDF.'); };
+  document.head.appendChild(s);
+}
+
+function plGerarResumoAnual(ano) {
+  ano = String(ano || td().slice(0, 4));
+  var lista = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0, 4) === ano;
+  }).sort(function(a, b) { return (a.date || '').localeCompare(b.date || ''); });
+  if (!lista.length) { toast('Nenhuma retirada de pró-labore em ' + ano); return; }
+
+  toast('⏳ Gerando PDF...');
+  _carregarJsPDFFin(function(JsPDF) {
+    var doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pW = 210, mL = 14, cW = pW - 28, y = 18;
+    var empNome = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.nome) || 'HR Mármores e Granitos';
+    var empCNPJ = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.cnpj) || '';
+    var empTel  = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.tel)  || '';
+    var nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+    function cabecalho() {
+      doc.setFillColor(12, 10, 3); doc.rect(0, 0, pW, 32, 'F');
+      doc.setFillColor(201, 168, 76); doc.rect(0, 0, pW, 1.5, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(201, 168, 76);
+      doc.text(empNome, mL, 16);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 150, 130);
+      var infoEmp = [empCNPJ, empTel].filter(Boolean).join('  ·  ');
+      if (infoEmp) doc.text(infoEmp, mL, 21);
+      doc.setFontSize(9); doc.setTextColor(240, 236, 228);
+      doc.text('Resumo Anual de Pró-labore — ' + ano, mL, 27);
+    }
+    function cabecalhoTabela() {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(80, 70, 55);
+      doc.text('DATA', mL, y);
+      doc.text('DESCRIÇÃO', mL + 22, y);
+      doc.text('VALOR (R$)', mL + cW, y, { align: 'right' });
+      y += 2;
+      doc.setDrawColor(210, 200, 180); doc.line(mL, y, mL + cW, y);
+      y += 5;
+    }
+    function novaPaginaSeNecessario() {
+      if (y > 275) { doc.addPage(); cabecalho(); y = 42; cabecalhoTabela(); }
+    }
+
+    cabecalho(); y = 42; cabecalhoTabela();
+
+    var totalGeral = 0, mesAtualGrp = null, totalMes = 0;
+    function fecharSubtotalMes() {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120, 100, 60);
+      doc.text('Subtotal ' + nomesMes[parseInt(mesAtualGrp.slice(5, 7), 10) - 1], mL + 22, y);
+      doc.text(fm(totalMes), mL + cW, y, { align: 'right' });
+      y += 7; totalMes = 0;
+    }
+
+    lista.forEach(function(t) {
+      var mes = (t.date || '').slice(0, 7);
+      if (mesAtualGrp !== null && mes !== mesAtualGrp) {
+        fecharSubtotalMes();
+        novaPaginaSeNecessario();
+      }
+      mesAtualGrp = mes;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60, 55, 45);
+      doc.text(fd(t.date), mL, y);
+      doc.text(String(t.desc || 'Pró-labore').substring(0, 45), mL + 22, y);
+      doc.text(fm(t.value), mL + cW, y, { align: 'right' });
+      y += 5.5;
+      totalMes += t.value || 0;
+      totalGeral += t.value || 0;
+      novaPaginaSeNecessario();
+    });
+    if (mesAtualGrp) fecharSubtotalMes();
+
+    novaPaginaSeNecessario();
+    doc.setDrawColor(201, 168, 76); doc.setLineWidth(0.6); doc.line(mL, y, mL + cW, y);
+    y += 6;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(201, 168, 76);
+    doc.text('TOTAL RETIRADO EM ' + ano, mL, y);
+    doc.text('R$ ' + fm(totalGeral), mL + cW, y, { align: 'right' });
+    y += 10;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(140, 130, 115);
+    doc.text('Documento gerado automaticamente para apoio na declaração de Imposto de Renda.', mL, y);
+    y += 4;
+    doc.text('Consulte um contador pra confirmar o enquadramento fiscal correto do pró-labore.', mL, y);
+
+    doc.save('pro-labore-' + ano + '.pdf');
+    toast('✓ PDF gerado!');
+  });
+}
+
 // ── Registrar retirada de pró-labore ──
 function plRegistrar() {
+  // Se o sócio já está cadastrado no RH, usa o formulário de pagamento
+  // de lá (mesmo motor de funcionários — fica editável, com adiantamento
+  // e saldo certinho). Só cai no prompt simples se ainda não existe RH.
+  if (typeof HR_FUNC !== 'undefined' && HR_FUNC.getFuncionarios) {
+    var funcs = HR_FUNC.getFuncionarios();
+    var socio = Object.values(funcs).filter(function(f) { return f.socio; })[0];
+    if (socio) {
+      HR_FUNC.abrirFormPagamento(socio.id);
+      setTimeout(function() {
+        var selTipo = document.getElementById('pag_tipo');
+        if (selTipo) selTipo.value = 'adiantamento';
+      }, 150);
+      return;
+    }
+  }
   var val = prompt('Valor da retirada de pró-labore (R$):');
   if (val === null) return;
   val = +val || 0;
@@ -989,6 +1197,34 @@ function plRegistrar() {
   DB.sv();
   renderFin();
   toast('✓ Retirada de pró-labore registrada!');
+}
+
+// ── Lança a dívida acumulada (meses anteriores) como crédito no RH ──
+function plLancarCreditoRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.criarCredito || !HR_FUNC.getFuncionarios) {
+    toast('Módulo RH não carregado'); return;
+  }
+  var funcs = HR_FUNC.getFuncionarios();
+  var socio = Object.values(funcs).filter(function(f) { return f.socio; })[0];
+  if (!socio) { toast('Cadastre-se como Sócio no RH primeiro'); return; }
+  var c = _plCalc();
+  if (c.devidoAnterior <= 0) { toast('Não há dívida acumulada de meses anteriores'); return; }
+  HR_FUNC.criarCredito(socio.id, c.devidoAnterior, td(), 'Dívida acumulada de pró-labore (meses anteriores)', null, null);
+  toast('✓ Lançado como crédito no RH — aloque o decêndio na tela de Pagamento');
+  renderProLabore();
+}
+
+// ── Importa retiradas antigas de pró-labore (lançadas antes da integração
+//    com o RH) como pagamentos do sócio no RH — roda quantas vezes precisar,
+//    nunca duplica o que já foi importado ──
+function plMigrarHistoricoRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.migrarProLaboreFinancasParaRH) {
+    toast('Módulo RH não carregado'); return;
+  }
+  var r = HR_FUNC.migrarProLaboreFinancasParaRH();
+  if (!r.ok) { toast(r.erro || 'Não foi possível migrar'); return; }
+  toast(r.importados > 0 ? ('✓ ' + r.importados + ' retirada(s) importada(s) pro RH') : 'Nada novo pra importar');
+  renderProLabore();
 }
 
 // ── Editar valor mínimo desejado ──

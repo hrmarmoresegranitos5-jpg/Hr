@@ -766,6 +766,7 @@ var HR_FUNC = (function () {
       return allRegs.some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
     });
     var semPontoHoje=ativos.filter(function(f){
+      if(f.socio)return false; // sócio/pró-labore não bate ponto
       return !allRegs.some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
     });
 
@@ -808,6 +809,27 @@ var HR_FUNC = (function () {
         '<span style="font-size:.9rem;">🎂</span>'+
         '<div style="font-size:.75rem;font-weight:700;color:'+GOLD+';">'+
         aniversariantes.map(function(f){return f.nome.split(' ')[0];}).join(', ')+' faz aniversário!</div></div>';
+    }
+
+    // Chip: sócio(s) sem retirada de pró-labore há muito tempo
+    var _pagsTodos = getPagamentos();
+    var sociosAtrasados = ativos.filter(function(f){
+      if(!f.socio) return false;
+      var ultP = Object.values(_pagsTodos)
+        .filter(function(p){return p.funcionarioId===f.id;})
+        .sort(function(a,b){return b.data.localeCompare(a.data);})[0];
+      var dias = ultP ? Math.round((new Date()-new Date(ultP.data+'T12:00:00'))/86400000) : null;
+      return dias===null || dias>30;
+    });
+    if(sociosAtrasados.length>0){
+      alertChips+='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.3);border-radius:8px;'+
+        'padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px;cursor:pointer;" '+
+        'onclick="HR_FUNC.abrirDetalhesFuncionario(\''+sociosAtrasados[0].id+'\')">' +
+        '<span style="font-size:.9rem;">🏛️</span>'+
+        '<div><div style="font-size:.75rem;font-weight:700;color:'+GOLD+';">'+
+        sociosAtrasados.map(function(f){return f.nome.split(' ')[0];}).join(', ')+' sem retirar pró-labore há tempo</div>'+
+        '<div style="font-size:.65rem;color:'+T3+';">Toque para ver o saldo</div></div>'+
+        '<span style="margin-left:auto;font-size:.75rem;color:'+T3+';">→</span></div>';
     }
 
     // ── Cards da equipe ──
@@ -1027,6 +1049,7 @@ var HR_FUNC = (function () {
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
             '<div style="font-weight:700;color:'+T1+';font-size:.97rem;">'+_esc(f.nome)+'</div>' +
             _statusPill(f.ativo) +
+            (f.socio?'<span style="font-size:.6rem;background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.4);color:'+GOLD+';border-radius:20px;padding:2px 8px;">🏛️ Sócio</span>':'') +
           '</div>' +
           '<div style="font-size:.73rem;color:'+T3+';margin-top:1px;">'+
             _esc(f.cargo||'—')+(f.equipe?' · '+_esc(f.equipe):'')+
@@ -1039,7 +1062,7 @@ var HR_FUNC = (function () {
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
           '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_decendioBase(f))+'</div>' +
-          '<div style="font-size:.55rem;color:'+T3+';">por decêndio</div>' +
+          '<div style="font-size:.55rem;color:'+T3+';">'+(f.socio?'pró-labore/decêndio':'por decêndio')+'</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1087,7 +1110,7 @@ var HR_FUNC = (function () {
     var hoje=_hoje();
     var regs=getRegistros();
     var funcs=getFuncionarios();
-    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false;});
+    var ativos=Object.values(funcs).filter(function(f){return f.ativo!==false&&!f.socio;});
     var semPonto=ativos.filter(function(f){
       return !Object.values(regs).some(function(r){return r.funcionarioId===f.id&&r.data===hoje;});
     });
@@ -1146,6 +1169,11 @@ var HR_FUNC = (function () {
       )+
 
       _secao('Dados Profissionais',
+        '<label style="display:flex;align-items:center;gap:9px;padding:9px 12px;background:rgba(201,168,76,.06);'+
+          'border:1px solid rgba(201,168,76,.25);border-radius:10px;margin-bottom:12px;cursor:pointer;">'+
+          '<input type="checkbox" id="ff_socio" '+(f.socio?'checked':'')+' style="width:16px;height:16px;accent-color:'+GOLD+';">'+
+          '<span style="font-size:.75rem;color:'+T2+';">🏛️ Sócio / Pró-labore <span style="color:'+T3+';">(não bate ponto — saldo calculado só pelos decêndios)</span></span>'+
+        '</label>'+
         _campo('Cargo',_inp('ff_cargo','text','Ex: Marmorista, Ajudante...',f.cargo))+
         _grid2(
           _campo('Equipe',_sel('ff_equipe',[
@@ -1182,6 +1210,11 @@ var HR_FUNC = (function () {
           'Informe o valor fixo de cada parcela de 10 dias. '+
           'Só desconta se o funcionário tiver déficit de horas.'+
         '</div>'+
+        '<button type="button" onclick="HR_FUNC._preencherDecSugestaoFin()" style="width:100%;padding:8px;margin-bottom:10px;'+
+          'border-radius:9px;border:1px solid rgba(201,168,76,.35);background:rgba(201,168,76,.06);'+
+          'color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;">'+
+          '💡 Preencher com sugestão de pró-labore (Finanças)'+
+        '</button>'+
         _grid2(
           _campo('1º Decêndio — dia 10 (R$)',_inp('ff_dec1','number','0,00',f.dec1!=null?f.dec1:'','min="0" step="0.01"')),
           _campo('2º Decêndio — dia 20 (R$)',_inp('ff_dec2','number','0,00',f.dec2!=null?f.dec2:'','min="0" step="0.01"'))
@@ -1200,6 +1233,16 @@ var HR_FUNC = (function () {
     '</div>';
 
     _overlay('hrFuncForm',html);
+  }
+
+  function _preencherDecSugestaoFin(){
+    if (typeof _plCalc !== 'function'){ _toast('Módulo Finanças não carregado'); return; }
+    var c = _plCalc();
+    if (!c.sugerido){ _toast('Ainda não há sugestão de pró-labore calculada em Finanças'); return; }
+    var terco = Math.round((c.sugerido/3)*100)/100;
+    var d1=document.getElementById('ff_dec1'), d2=document.getElementById('ff_dec2'), d3=document.getElementById('ff_dec3');
+    if(d1)d1.value=terco; if(d2)d2.value=terco; if(d3)d3.value=terco;
+    _toast('✓ Preenchido com base na sugestão de Finanças (R$ '+_fmtMoeda(c.sugerido)+'/mês)');
   }
 
   function _previewFoto(input){
@@ -1231,6 +1274,7 @@ var HR_FUNC = (function () {
       nascimento:(document.getElementById('ff_nasc')||{}).value||'',
       cpf:(document.getElementById('ff_cpf')||{}).value||'',
       cargo:(document.getElementById('ff_cargo')||{}).value||'',
+      socio:!!(document.getElementById('ff_socio')||{}).checked,
       equipe:(document.getElementById('ff_equipe')||{}).value||'producao',
       salario:parseFloat((document.getElementById('ff_salario')||{}).value)||0,
       admissao:(document.getElementById('ff_admissao')||{}).value||'',
@@ -3339,6 +3383,7 @@ var HR_FUNC = (function () {
       date: data,
       origem: 'rh_pagamento',
       funcionarioId: funcId,
+      isProLabore: !!(f && f.socio),
       _rhPagId: pagId
     });
     if (typeof DB.sv === 'function') DB.sv();
@@ -3364,6 +3409,7 @@ var HR_FUNC = (function () {
     tr.desc  = t.label + ' — ' + (f ? f.nome : 'Funcionário') + (obs ? ' (' + obs + ')' : '');
     tr.value = valor;
     tr.date  = data;
+    tr.isProLabore = !!(f && f.socio);
     if (typeof DB.sv === 'function') DB.sv();
     if (typeof renderFin === 'function') try { renderFin(); } catch(e){}
   }
@@ -3392,6 +3438,49 @@ var HR_FUNC = (function () {
     });
 
     return { ok:true, importados: importados };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // MIGRAÇÃO DE HISTÓRICO — retiradas de pró-labore lançadas em
+  // Finanças (via plRegistrar, antes da integração com o RH) para
+  // o registro do sócio no RH. Importa como pagamento tipo 'outro',
+  // já marcado como quitado (é histórico, não gera pendência de
+  // decêndio), e liga via _rhPagId na transação original de Finanças
+  // pra nunca duplicar em execuções futuras.
+  // ─────────────────────────────────────────────────────────────
+  function migrarProLaboreFinancasParaRH(){
+    if (typeof DB === 'undefined' || !DB || !DB.t) return { ok:false, erro:'Finanças indisponível' };
+    var funcs = getFuncionarios();
+    var socio = Object.values(funcs).filter(function(f){ return f.socio; })[0];
+    if (!socio) return { ok:false, erro:'Cadastre-se como Sócio no RH primeiro' };
+
+    var pags = getPagamentos();
+    var importados = 0;
+    DB.t.forEach(function(t){
+      if (!t.isProLabore || t.type !== 'out' || t._rhPagId) return;
+      var id = genId();
+      pags[id] = {
+        id: id,
+        funcionarioId: socio.id,
+        data: t.date || _hoje(),
+        valor: t.value || 0,
+        tipo: 'outro',
+        forma: 'outro',
+        obs: 'Migrado do histórico de Finanças' + (t.desc ? (' (' + t.desc + ')') : ''),
+        descontarDecendio: null,
+        descontarMes: null,
+        descontoQuitado: true,
+        criadoEm: new Date().toISOString(),
+        _financasOrigId: t.id
+      };
+      t._rhPagId = id;
+      importados++;
+    });
+    if (importados > 0) {
+      savePagamentos(pags);
+      if (typeof DB.sv === 'function') DB.sv();
+    }
+    return { ok:true, importados: importados, socio: socio.nome };
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -5190,6 +5279,8 @@ var HR_FUNC = (function () {
     // Motor único de pagamento (usado pelo formulário e pelo RH IA)
     registrarPagamento:     registrarPagamento,
     migrarPagamentosParaFinancas: migrarPagamentosParaFinancas,
+    migrarProLaboreFinancasParaRH: migrarProLaboreFinancasParaRH,
+    _preencherDecSugestaoFin: _preencherDecSugestaoFin,
     // Adiantamentos/vales com decêndio-alvo (usado pelo Relatório de Ponto)
     _adiantamentosAlvoDecendio: _adiantamentosAlvoDecendio,
     _adiantamentosEmAberto:     _adiantamentosEmAberto,
