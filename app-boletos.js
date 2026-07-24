@@ -571,14 +571,46 @@ async function _bAnexoFileSelected(input) {
 
   _bAnexoExtraindo = true;
   _bRenderAnexoPreview();
+  var dados = null;
   try {
-    var dados = await _bExtrairDadosAnexoIA(file);
-    if (dados) _bPreencherComExtracao(dados);
+    // 1) PDF com linha digitável (boleto bancário) → dado exato, sem precisar de IA
+    if (file.type === 'application/pdf') {
+      dados = await _bExtrairDadosAnexoPorCodigoBarras(file);
+    }
+    // 2) Sem código de barras (foto, nota, boleto sem linha digitável) → tenta IA
+    if (!dados) dados = await _bExtrairDadosAnexoIA(file);
   } catch (e) {
     // Extração é um bônus — se falhar, o preenchimento manual continua disponível
   }
   _bAnexoExtraindo = false;
+  if (dados) {
+    _bPreencherComExtracao(dados);
+  } else if (!(CFG.emp && CFG.emp.apiKey)) {
+    toast('📎 Anexo salvo — não achei código de barras nem tenho IA configurada (Config → Empresa) pra ler automaticamente. Preencha manualmente.');
+  } else {
+    toast('📎 Anexo salvo — não consegui ler os dados automaticamente. Preencha manualmente.');
+  }
   _bRenderAnexoPreview();
+}
+
+// PDF de boleto bancário quase sempre tem a linha digitável em texto — lê ela
+// com o mesmo motor do importador em lote (bExtrairBoletosDoTexto), que decodifica
+// valor/vencimento direto do código de barras (sempre exato, sem IA).
+async function _bExtrairDadosAnexoPorCodigoBarras(file) {
+  if (typeof pdfjsLib === 'undefined') return null;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var buf = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var fullText = '';
+  for (var p = 1; p <= pdf.numPages; p++) {
+    var page = await pdf.getPage(p);
+    var content = await page.getTextContent();
+    fullText += content.items.map(function(it){ return it.str; }).join(' ') + '\n';
+  }
+  var achados = bExtrairBoletosDoTexto(fullText, file.name);
+  if (!achados.length) return null;
+  var a = achados[0];
+  return { cliente: a.cli, descricao: a.desc, valor: a.valor, vencimento: a.venc, categoria: a.cat };
 }
 
 function _bPreencherComExtracao(d) {
