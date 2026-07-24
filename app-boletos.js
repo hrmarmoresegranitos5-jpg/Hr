@@ -18,6 +18,7 @@ var _bAnexoNomeSalvo     = '';
 var _bAnexoTipoSalvo     = '';
 var _bAnexoPreviewObjUrl = null;  // object URL local, só pra preview de imagem
 var _bAnexoExtraindo     = false;
+var _bAnexoDadosExtra    = null;  // dados extras lidos do boleto (CNPJ, pagador, nosso número, juros/multa...) — vão junto quando salvar
 
 // ── Categorias com ícones ─────────────────────────────────────────────
 var B_CAT = {
@@ -362,11 +363,25 @@ function editBoleto(id) {
   _bAnexoIdSalvo = b.anexoId || '';
   _bAnexoNomeSalvo = ''; _bAnexoTipoSalvo = '';
   if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
+  // Se o boleto já tem dados extras salvos (CNPJ, pagador, nosso número...),
+  // recarrega pra continuar aparecendo no box do anexo durante a edição.
+  _bAnexoDadosExtra = _bExtrairCamposExtras(b);
   _bRenderAnexoPreview();
   if (_bAnexoIdSalvo) _bCarregarPreviewAnexoSalvo(_bAnexoIdSalvo);
   _bFormSet(b);
   bSetTipo(b.tipo || 'receber');
   showMd('boletoMd');
+}
+
+// Extrai do registro do boleto só os campos "extras" (não os campos normais
+// do formulário) — usado tanto ao editar (carregar pra tela) quanto ao salvar.
+function _bExtrairCamposExtras(o) {
+  var campos = ['cnpjBenef','pagadorNome','pagadorDoc','pagadorLocal','dtEmissao',
+    'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','nn','nDoc','linhaDig'];
+  var out = {};
+  var achou = false;
+  campos.forEach(function(k){ if (o && o[k]) { out[k] = o[k]; achou = true; } });
+  return achou ? out : null;
 }
 
 function _bFormSet(b) {
@@ -519,7 +534,17 @@ function _bRenderAnexoPreview() {
     '</div>' +
     (_bAnexoIdSalvo && !_bAnexoFile ? '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;white-space:nowrap;" onclick="_bAbrirAnexoSalvo()">Abrir</button>' : '') +
     '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;" onclick="_bRemoverAnexo()">✕</button>' +
-    '</div>';
+    '</div>' +
+    (_bAnexoDadosExtra ? _bCaixaDetalhesToggle(_bLinhasDetalhesBoleto(_bAnexoDadosExtra), '_bToggleAnexoDet()', 'bAnexoDet') : '');
+}
+
+function _bToggleAnexoDet() {
+  var el = document.getElementById('bAnexoDet');
+  if (!el) return;
+  var abrindo = el.style.display === 'none';
+  el.style.display = abrindo ? 'block' : 'none';
+  var lbl = el.previousElementSibling;
+  if (lbl) lbl.textContent = (abrindo ? '▴ Ocultar dados do boleto' : '▾ Ver todos os dados do boleto');
 }
 
 function _bRemoverAnexo() {
@@ -529,6 +554,7 @@ function _bRemoverAnexo() {
   _bAnexoNomeSalvo = '';
   _bAnexoTipoSalvo = '';
   _bAnexoExtraindo = false;
+  _bAnexoDadosExtra = null;
   if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
   var input = document.getElementById('bAnexoInput');
   if (input) input.value = '';
@@ -558,6 +584,7 @@ async function _bAnexoFileSelected(input) {
   _bAnexoFile = file;
   _bAnexoIdSalvo = ''; // um novo anexo substitui o anterior (o antigo fica no IndexedDB até salvar)
   _bAnexoNomeSalvo = ''; _bAnexoTipoSalvo = '';
+  _bAnexoDadosExtra = null;
   if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
   if (/^image\//.test(file.type)) _bAnexoPreviewObjUrl = URL.createObjectURL(file);
   _bRenderAnexoPreview();
@@ -610,7 +637,13 @@ async function _bExtrairDadosAnexoPorCodigoBarras(file) {
   var achados = bExtrairBoletosDoTexto(fullText, file.name);
   if (!achados.length) return null;
   var a = achados[0];
-  return { cliente: a.cli, descricao: a.desc, valor: a.valor, vencimento: a.venc, categoria: a.cat };
+  return {
+    cliente: a.cli, descricao: a.desc, valor: a.valor, vencimento: a.venc, categoria: a.cat,
+    linhaDig: a.linhaDig, nn: a.nn, nDoc: a.nDoc,
+    cnpjBenef: a.cnpjBenef, pagadorNome: a.pagadorNome, pagadorDoc: a.pagadorDoc, pagadorLocal: a.pagadorLocal,
+    dtEmissao: a.dtEmissao, vencOriginal: a.vencOriginal, valorOriginal: a.valorOriginal,
+    encargosAtraso: a.encargosAtraso, valorAtualizado: a.valorAtualizado, instrucoes: a.instrucoes
+  };
 }
 
 function _bPreencherComExtracao(d) {
@@ -620,6 +653,7 @@ function _bPreencherComExtracao(d) {
   if (d.valor)      s('bValor', d.valor);
   if (d.vencimento) s('bVenc', d.vencimento);
   if (d.categoria && B_CAT[d.categoria]) { var c = document.getElementById('bCat'); if (c) c.value = d.categoria; }
+  _bAnexoDadosExtra = _bExtrairCamposExtras(d);
   toast('🤖 Dados preenchidos automaticamente — confira antes de salvar');
 }
 
@@ -665,7 +699,9 @@ async function _bExtrairDadosAnexoIA(file) {
     'Extraia os dados deste boleto/comprovante/nota. Retorne APENAS JSON válido, sem markdown:\n' +
     '{"cliente":"nome do cliente ou fornecedor/beneficiário","descricao":"descrição curta (ex: Fatura energia, Parcela 2/3)",' +
     '"valor":0.00,"vencimento":"AAAA-MM-DD",' +
-    '"categoria":"uma destas: parcela|saldo|cobranca|entrada|energia|agua|aluguel|fornecedor|funcionario|ferramentas|material|imposto|servico|outros_pagar"}\n' +
+    '"categoria":"uma destas: parcela|saldo|cobranca|entrada|energia|agua|aluguel|fornecedor|funcionario|ferramentas|material|imposto|servico|outros_pagar",' +
+    '"cnpjBenef":"CNPJ do beneficiário, se aparecer","pagadorNome":"nome do pagador, se aparecer","pagadorDoc":"CPF/CNPJ do pagador, se aparecer",' +
+    '"nn":"nosso número, se aparecer","instrucoes":"texto de juros/multa/desconto, se aparecer"}\n' +
     'Se algum dado não aparecer na imagem, deixe "" ou 0. Datas sempre em AAAA-MM-DD. Retorne SÓ o JSON.';
 
   var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
@@ -762,6 +798,9 @@ async function saveBoleto() {
     dtCriado: td(),
     anexoId: anexoId
   };
+  if (_bAnexoDadosExtra) {
+    Object.keys(_bAnexoDadosExtra).forEach(function(k){ obj[k] = _bAnexoDadosExtra[k]; });
+  }
 
   if (_editBoletoId) {
     var idx = (DB.b||[]).findIndex(function(x){return x.id===_editBoletoId;});
@@ -836,6 +875,30 @@ function openBoletoDetail(id) {
   showMd('boletoDetailMd');
 }
 
+// Monta a lista [rótulo, valor] com todos os dados extras que o app conseguiu
+// ler de um boleto (CNPJ, pagador, nosso número, datas, juros/multa, linha
+// digitável) — usado tanto na prévia de importação em lote quanto no box de
+// anexo do "Novo/Editar Boleto" e na tela de detalhe. Aceita qualquer objeto
+// que tenha esses campos (item da importação, _bAnexoDadosExtra, ou o próprio
+// registro salvo do boleto).
+function _bLinhasDetalhesBoleto(o) {
+  var linhas = [];
+  if (o.nn)              linhas.push(['Nosso Número', o.nn]);
+  if (o.cnpjBenef)        linhas.push(['CNPJ Beneficiário', o.cnpjBenef]);
+  if (o.pagadorNome)      linhas.push(['Pagador', o.pagadorNome]);
+  if (o.pagadorDoc)       linhas.push(['CPF/CNPJ Pagador', o.pagadorDoc]);
+  if (o.pagadorLocal)     linhas.push(['Cidade/UF/CEP Pagador', o.pagadorLocal]);
+  if (o.nDoc)             linhas.push(['Número do Documento', o.nDoc]);
+  if (o.dtEmissao)        linhas.push(['Data de Emissão', o.dtEmissao]);
+  if (o.vencOriginal)     linhas.push(['Vencimento Original', o.vencOriginal]);
+  if (o.valorOriginal)    linhas.push(['Valor Original', 'R$ ' + o.valorOriginal]);
+  if (o.encargosAtraso)   linhas.push(['Encargos por Atraso', 'R$ ' + o.encargosAtraso]);
+  if (o.valorAtualizado)  linhas.push(['Valor Atualizado', 'R$ ' + o.valorAtualizado]);
+  if (o.instrucoes)       linhas.push(['Juros/Multa/Desconto', o.instrucoes]);
+  if (o.linhaDig)         linhas.push(['Linha Digitável', o.linhaDig.replace(/(\d{5})(\d{5})(\d{5})(\d{6})(\d{5})(\d{6})(\d)(\d{14})/, '$1.$2 $3.$4 $5.$6 $7 $8')]);
+  return linhas;
+}
+
 function _bDetRow(l, v) {
   return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:12px;">' +
     '<span style="font-size:.62rem;color:var(--t4);text-transform:uppercase;letter-spacing:.6px;white-space:nowrap;">' + l + '</span>' +
@@ -846,19 +909,7 @@ function _bDetRow(l, v) {
 // linha digitável) — CNPJ, pagador, nosso número, datas, juros/multa,
 // linha digitável completa. Só aparece se o boleto tiver algum desses dados.
 function _bDetDadosBoletoHTML(b) {
-  var linhas = [];
-  if (b.nn)             linhas.push(['Nosso Número', b.nn]);
-  if (b.cnpjBenef)      linhas.push(['CNPJ Beneficiário', b.cnpjBenef]);
-  if (b.pagadorNome)    linhas.push(['Pagador', b.pagadorNome]);
-  if (b.pagadorDoc)     linhas.push(['CPF/CNPJ Pagador', b.pagadorDoc]);
-  if (b.pagadorLocal)   linhas.push(['Cidade/UF/CEP Pagador', b.pagadorLocal]);
-  if (b.dtEmissao)      linhas.push(['Data de Emissão', b.dtEmissao]);
-  if (b.vencOriginal)   linhas.push(['Vencimento Original', b.vencOriginal]);
-  if (b.valorOriginal)  linhas.push(['Valor Original', 'R$ ' + b.valorOriginal]);
-  if (b.encargosAtraso) linhas.push(['Encargos por Atraso', 'R$ ' + b.encargosAtraso]);
-  if (b.valorAtualizado)linhas.push(['Valor Atualizado', 'R$ ' + b.valorAtualizado]);
-  if (b.instrucoes)     linhas.push(['Juros/Multa/Desconto', b.instrucoes]);
-  if (b.linhaDig)       linhas.push(['Linha Digitável', b.linhaDig.replace(/(\d{5})(\d{5})(\d{5})(\d{6})(\d{5})(\d{6})(\d)(\d{14})/, '$1.$2 $3.$4 $5.$6 $7 $8')]);
+  var linhas = _bLinhasDetalhesBoleto(b);
   if (!linhas.length) return '';
 
   return '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);">' +
@@ -1425,33 +1476,24 @@ function bRenderImportPreview() {
 // lista quando são vários boletos de uma vez — toca em "Ver todos os dados"
 // pra abrir.
 function _bImportDetalhesHTML(item, i) {
-  var linhas = [];
-  if (item.cnpjBenef)      linhas.push(['CNPJ Beneficiário', item.cnpjBenef]);
-  if (item.pagadorNome)    linhas.push(['Pagador', item.pagadorNome]);
-  if (item.pagadorDoc)     linhas.push(['CPF/CNPJ Pagador', item.pagadorDoc]);
-  if (item.pagadorLocal)   linhas.push(['Cidade/UF/CEP Pagador', item.pagadorLocal]);
-  if (item.nn)             linhas.push(['Nosso Número', item.nn]);
-  if (item.nDoc)           linhas.push(['Número do Documento', item.nDoc]);
-  if (item.dtEmissao)      linhas.push(['Data de Emissão', item.dtEmissao]);
-  if (item.vencOriginal)   linhas.push(['Vencimento Original', item.vencOriginal]);
-  if (item.valorOriginal)  linhas.push(['Valor Original', 'R$ ' + item.valorOriginal]);
-  if (item.encargosAtraso) linhas.push(['Encargos por Atraso', 'R$ ' + item.encargosAtraso]);
-  if (item.valorAtualizado)linhas.push(['Valor Atualizado', 'R$ ' + item.valorAtualizado]);
-  if (item.instrucoes)     linhas.push(['Juros/Multa/Desconto', item.instrucoes]);
-  linhas.push(['Linha Digitável', item.linhaDig.replace(/(\d{5})(\d{5})(\d{5})(\d{6})(\d{5})(\d{6})(\d)(\d{14})/, '$1.$2 $3.$4 $5.$6 $7 $8')]);
-
+  var linhas = _bLinhasDetalhesBoleto(item);
   if (!linhas.length) return '';
+  return _bCaixaDetalhesToggle(linhas, '_bToggleImportDet(' + i + ')', 'bImpDet' + i);
+}
 
+// Bloco recolhível genérico de "ver todos os dados" — recebe a lista de
+// linhas já montada e o onclick/id do container a expandir/recolher.
+function _bCaixaDetalhesToggle(linhas, onclickFn, containerId) {
   var corpo = linhas.map(function(l){
     return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
       '<span style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">' + l[0] + '</span>' +
-      '<span style="font-size:.66rem;color:var(--t2);text-align:right;word-break:break-word;">' + escH(l[1]) + '</span>' +
+      '<span style="font-size:.66rem;color:var(--t2);text-align:right;word-break:break-word;">' + escH(String(l[1])) + '</span>' +
       '</div>';
   }).join('');
 
   return '<div style="margin-top:8px;">' +
-    '<div onclick="_bToggleImportDet(' + i + ')" style="font-size:.62rem;color:var(--gold);font-weight:700;cursor:pointer;user-select:none;">▾ Ver todos os dados do boleto</div>' +
-    '<div id="bImpDet' + i + '" style="display:none;margin-top:6px;background:var(--s3,rgba(0,0,0,.15));border-radius:8px;padding:8px 10px;">' + corpo + '</div>' +
+    '<div onclick="' + onclickFn + '" style="font-size:.62rem;color:var(--gold);font-weight:700;cursor:pointer;user-select:none;">▾ Ver todos os dados do boleto</div>' +
+    '<div id="' + containerId + '" style="display:none;margin-top:6px;background:var(--s3,rgba(0,0,0,.15));border-radius:8px;padding:8px 10px;">' + corpo + '</div>' +
     '</div>';
 }
 
@@ -1500,6 +1542,7 @@ function bConfirmarImport() {
       dtCriado: td(),
       linhaDig: item.linhaDig,
       nn: item.nn,
+      nDoc: item.nDoc || '',
       cnpjBenef: item.cnpjBenef || '',
       pagadorNome: item.pagadorNome || '',
       pagadorDoc: item.pagadorDoc || '',
