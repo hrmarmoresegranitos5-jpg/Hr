@@ -20,6 +20,8 @@ var _bAnexoPreviewObjUrl = null;  // object URL local, só pra preview de imagem
 var _bAnexoExtraindo     = false;
 var _bAnexoDadosExtra    = null;  // dados extras lidos do boleto (CNPJ, pagador, nosso número, juros/multa...) — vão junto quando salvar
 var _bPdfJsPromise       = null;  // cache da promise de carregamento do pdf.js, pra não injetar o script mais de uma vez
+var _bVencAutoPreenchido = false; // true enquanto o campo Vencimento ainda tiver só a sugestão padrão (hoje+30) de "Novo Boleto", sem o usuário ter mexido — usado pro guard da extração automática não travar (e pra extração poder sobrescrever esse valor)
+var _bParcelasExtrasPdf  = [];    // demais parcelas do mesmo carnê/PDF, além da 1ª (que preenche o formulário principal) — viram cartões extras no modal
 
 // pdf.js NUNCA foi incluído no index.html (só o jsPDF, que serve pra GERAR
 // PDF, não pra LER) — por isso a leitura de linha digitável sempre falhava
@@ -448,6 +450,16 @@ function openNovoBoleto() {
   _bFormSet({ tipo:'receber', cat:'parcela', cli:'', desc:'', valor:'',
     venc: addD(td(), 30), parc:'', fpag:'pix', status:'pendente', obs:'' });
   bSetTipo('receber');
+  // O Vencimento acima já vem preenchido com "hoje+30" só como sugestão —
+  // marca como "ainda não mexido pelo usuário" pra não bloquear a extração
+  // automática do anexo (guard em _bAnexoFileSelected) nem impedir que a
+  // extração sobrescreva esse valor padrão (_bPreencherComExtracao).
+  _bVencAutoPreenchido = true;
+  var vencEl = document.getElementById('bVenc');
+  if (vencEl) {
+    var _bLimparFlagVenc = function() { _bVencAutoPreenchido = false; vencEl.removeEventListener('input', _bLimparFlagVenc); };
+    vencEl.addEventListener('input', _bLimparFlagVenc);
+  }
   showMd('boletoMd');
 }
 
@@ -455,6 +467,7 @@ function editBoleto(id) {
   var b = (DB.b||[]).find(function(x){return x.id===id;});
   if (!b) return;
   _editBoletoId = id;
+  _bVencAutoPreenchido = false; // vencimento é dado real do boleto, não a sugestão padrão
   var el = document.getElementById('boletoMdTitle');
   if (el) el.textContent = 'Editar Boleto';
   _bGarantirAnexoUI();
@@ -476,7 +489,7 @@ function editBoleto(id) {
 // do formulário) — usado tanto ao editar (carregar pra tela) quanto ao salvar.
 function _bExtrairCamposExtras(o) {
   var campos = ['cnpjBenef','pagadorNome','pagadorDoc','pagadorLocal','dtEmissao',
-    'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','nn','nDoc','linhaDig'];
+    'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','nn','nDoc','linhaDig','pix'];
   var out = {};
   var achou = false;
   campos.forEach(function(k){ if (o && o[k]) { out[k] = o[k]; achou = true; } });
@@ -597,6 +610,7 @@ function _bGarantirAnexoUI() {
       '</div>' +
       '<input type="file" id="bAnexoInput" accept="application/pdf,image/*" style="display:none;" onchange="_bAnexoFileSelected(this)">' +
       '<div id="bAnexoPreviewBox" style="display:none;margin-top:8px;"></div>' +
+      '<div id="bParcelasExtrasWrap" style="display:none;margin-top:10px;"></div>' +
     '</div>'
   );
 }
@@ -654,11 +668,65 @@ function _bRemoverAnexo() {
   _bAnexoTipoSalvo = '';
   _bAnexoExtraindo = false;
   _bAnexoDadosExtra = null;
+  _bParcelasExtrasPdf = [];
   if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
   var input = document.getElementById('bAnexoInput');
   if (input) input.value = '';
   _bRenderAnexoPreview();
+  _bRenderParcelasExtras();
   if (idParaExcluir) _bAnexoDBDelete(idParaExcluir).catch(function(){});
+}
+
+// Cartões das demais parcelas do mesmo carnê/PDF (a 1ª já preencheu o
+// formulário principal) — cada uma pode ser lançada direto como um novo
+// boleto, sem precisar escolher o mesmo PDF de novo.
+function _bRenderParcelasExtras() {
+  var wrap = document.getElementById('bParcelasExtrasWrap');
+  if (!wrap) return;
+  if (!_bParcelasExtrasPdf || !_bParcelasExtrasPdf.length) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = 'block';
+  var cards = _bParcelasExtrasPdf.map(function(p, i) {
+    var jaExiste = p._jaExiste || (DB.b || []).some(function(b){ return b.linhaDig && p.linhaDig && b.linhaDig === p.linhaDig; });
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-top:6px;">' +
+      '<div style="flex:1;min-width:0;">' +
+      '<div style="font-size:.68rem;color:var(--tx);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+        escH(p.cli || p.desc || 'Boleto') + (p.parcAtual && p.parcTotal ? ' · ' + p.parcAtual + '/' + p.parcTotal : '') + '</div>' +
+      '<div style="font-size:.62rem;color:var(--t4);">R$ ' + fm(p.valor||0) + ' · vence ' + (p.venc ? fd(p.venc) : '—') + '</div>' +
+      '</div>' +
+      (jaExiste
+        ? '<span style="font-size:.6rem;color:var(--t4);white-space:nowrap;">já lançado</span>'
+        : '<button type="button" class="btn btn-g" style="font-size:.6rem;padding:6px 8px;white-space:nowrap;" onclick="_bAdicionarParcelaExtra(' + i + ')">+ Adicionar</button>') +
+      '</div>';
+  }).join('');
+  wrap.innerHTML =
+    '<label style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);display:block;margin-bottom:2px;">📑 Outras parcelas encontradas neste PDF</label>' +
+    cards;
+}
+
+// Lança direto uma das parcelas extras (cartão) como um novo boleto —
+// carrega junto todos os dados extras já extraídos daquela parcela.
+function _bAdicionarParcelaExtra(i) {
+  var p = _bParcelasExtrasPdf && _bParcelasExtrasPdf[i];
+  if (!p) return;
+  var obj = {
+    id: Date.now() + Math.random(),
+    tipo: _bTipoAtual,
+    cat: p.cat || (typeof bGuessCategoria === 'function' ? bGuessCategoria(p.cli) : 'parcela'),
+    cli: p.cli || '', desc: p.desc || '', valor: p.valor || 0, venc: p.venc || '',
+    parc: (p.parcAtual && p.parcTotal) ? (p.parcAtual + '/' + p.parcTotal) : '',
+    fpag: 'pix', status: 'pendente', obs: '', dtCriado: td()
+  };
+  ['linhaDig','nn','nDoc','pix','cnpjBenef','pagadorNome','pagadorDoc','pagadorLocal','dtEmissao',
+   'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','cargaId','parcAtual','parcTotal']
+    .forEach(function(k){ if (p[k]) obj[k] = p[k]; });
+  if (!DB.b) DB.b = [];
+  DB.b.unshift(obj);
+  DB.sv();
+  p._jaExiste = true;
+  toast('✅ Parcela adicionada');
+  _bRenderParcelasExtras();
+  _bRerender();
+  bUpdDot();
 }
 
 // Carrega o preview (nome/thumbnail) de um anexo já salvo, ao abrir edição de um boleto.
@@ -690,10 +758,14 @@ async function _bAnexoFileSelected(input) {
 
   // Só tenta preencher automaticamente se os campos principais ainda
   // estiverem vazios — nunca sobrescreve o que o usuário já digitou.
+  // Vencimento é um caso especial: em "Novo Boleto" ele já vem preenchido
+  // com uma sugestão padrão (hoje+30), então só conta como "preenchido pelo
+  // usuário" (e bloqueia a extração) se _bVencAutoPreenchido não estiver ativo.
   var cli = (document.getElementById('bCli') || {}).value || '';
   var valor = (document.getElementById('bValor') || {}).value || '';
   var venc = (document.getElementById('bVenc') || {}).value || '';
-  if (cli || valor || venc) return;
+  var vencPreenchidoPeloUsuario = venc && !_bVencAutoPreenchido;
+  if (cli || valor || vencPreenchidoPeloUsuario) return;
 
   _bAnexoExtraindo = true;
   _bRenderAnexoPreview();
@@ -709,6 +781,10 @@ async function _bAnexoFileSelected(input) {
     // Extração é um bônus — se falhar, o preenchimento manual continua disponível
   }
   _bAnexoExtraindo = false;
+  // Carnê em PDF pode trazer mais de uma parcela — a 1ª preenche o formulário
+  // principal, as demais viram cartões extras (_bRenderParcelasExtras) pra
+  // o usuário lançar de uma vez, sem precisar reabrir o mesmo PDF várias vezes.
+  _bParcelasExtrasPdf = (dados && dados.parcelasExtras) ? dados.parcelasExtras : [];
   if (dados) {
     _bPreencherComExtracao(dados);
   } else if (!(CFG.emp && CFG.emp.apiKey)) {
@@ -717,6 +793,7 @@ async function _bAnexoFileSelected(input) {
     toast('📎 Anexo salvo — não consegui ler os dados automaticamente. Preencha manualmente.');
   }
   _bRenderAnexoPreview();
+  _bRenderParcelasExtras();
 }
 
 // PDF de boleto bancário quase sempre tem a linha digitável em texto — lê ela
@@ -738,10 +815,16 @@ async function _bExtrairDadosAnexoPorCodigoBarras(file) {
   var a = achados[0];
   return {
     cliente: a.cli, descricao: a.desc, valor: a.valor, vencimento: a.venc, categoria: a.cat,
-    linhaDig: a.linhaDig, nn: a.nn, nDoc: a.nDoc,
+    linhaDig: a.linhaDig, nn: a.nn, nDoc: a.nDoc, pix: a.pix,
     cnpjBenef: a.cnpjBenef, pagadorNome: a.pagadorNome, pagadorDoc: a.pagadorDoc, pagadorLocal: a.pagadorLocal,
     dtEmissao: a.dtEmissao, vencOriginal: a.vencOriginal, valorOriginal: a.valorOriginal,
-    encargosAtraso: a.encargosAtraso, valorAtualizado: a.valorAtualizado, instrucoes: a.instrucoes
+    encargosAtraso: a.encargosAtraso, valorAtualizado: a.valorAtualizado, instrucoes: a.instrucoes,
+    cargaId: a.cargaId, parcAtual: a.parcAtual, parcTotal: a.parcTotal,
+    parc: (a.parcAtual && a.parcTotal) ? (a.parcAtual + '/' + a.parcTotal) : '',
+    obs: a.instrucoes || '',
+    // Demais parcelas do mesmo carnê/PDF (além da 1ª, já usada acima) —
+    // antes eram descartadas; agora viram cartões extras no formulário.
+    parcelasExtras: achados.slice(1)
   };
 }
 
@@ -749,9 +832,22 @@ function _bPreencherComExtracao(d) {
   var s = function(id, v) { var el = document.getElementById(id); if (el && !el.value && v) el.value = v; };
   s('bCli', d.cliente);
   s('bDesc', d.descricao);
-  if (d.valor)      s('bValor', d.valor);
-  if (d.vencimento) s('bVenc', d.vencimento);
+  if (d.valor) s('bValor', d.valor);
+
+  // Vencimento: em "Novo Boleto" o campo já vem preenchido com uma sugestão
+  // padrão (hoje+30) — nesse caso a extração pode (e deve) sobrescrever;
+  // se o usuário já tiver mexido nele manualmente, respeita o que está lá.
+  if (d.vencimento) {
+    var vEl = document.getElementById('bVenc');
+    if (vEl && (!vEl.value || _bVencAutoPreenchido)) vEl.value = d.vencimento;
+  }
+  _bVencAutoPreenchido = false;
+
   if (d.categoria && B_CAT[d.categoria]) { var c = document.getElementById('bCat'); if (c) c.value = d.categoria; }
+  s('bParc', d.parc);
+  if (d.fpag && B_FPAG[d.fpag]) { var fEl = document.getElementById('bFpag'); if (fEl) fEl.value = d.fpag; }
+  s('bObs', d.obs);
+
   _bAnexoDadosExtra = _bExtrairCamposExtras(d);
   toast('🤖 Dados preenchidos automaticamente — confira antes de salvar');
 }
