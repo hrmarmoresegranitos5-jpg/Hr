@@ -19,6 +19,29 @@ var _bAnexoTipoSalvo     = '';
 var _bAnexoPreviewObjUrl = null;  // object URL local, só pra preview de imagem
 var _bAnexoExtraindo     = false;
 var _bAnexoDadosExtra    = null;  // dados extras lidos do boleto (CNPJ, pagador, nosso número, juros/multa...) — vão junto quando salvar
+var _bPdfJsPromise       = null;  // cache da promise de carregamento do pdf.js, pra não injetar o script mais de uma vez
+
+// pdf.js NUNCA foi incluído no index.html (só o jsPDF, que serve pra GERAR
+// PDF, não pra LER) — por isso a leitura de linha digitável sempre falhava
+// silenciosamente. Carrega sob demanda, na primeira vez que for preciso,
+// no mesmo padrão já usado no projeto pro jsPDF (app-core.js, app-funcionarios.js
+// etc): injeta o <script> e resolve quando terminar de carregar.
+function _bCarregarPdfJs() {
+  if (typeof pdfjsLib !== 'undefined') return Promise.resolve(pdfjsLib);
+  if (_bPdfJsPromise) return _bPdfJsPromise;
+  _bPdfJsPromise = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = function() {
+      if (typeof pdfjsLib === 'undefined') { reject(new Error('pdfjsLib não definiu após carregar')); return; }
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve(pdfjsLib);
+    };
+    s.onerror = function() { _bPdfJsPromise = null; reject(new Error('Falha ao carregar pdf.js (sem internet?)')); };
+    document.head.appendChild(s);
+  });
+  return _bPdfJsPromise;
+}
 
 // ── Categorias com ícones ─────────────────────────────────────────────
 var B_CAT = {
@@ -624,8 +647,8 @@ async function _bAnexoFileSelected(input) {
 // com o mesmo motor do importador em lote (bExtrairBoletosDoTexto), que decodifica
 // valor/vencimento direto do código de barras (sempre exato, sem IA).
 async function _bExtrairDadosAnexoPorCodigoBarras(file) {
-  if (typeof pdfjsLib === 'undefined') return null;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var pdfjsLib;
+  try { pdfjsLib = await _bCarregarPdfJs(); } catch (e) { return null; }
   var buf = await file.arrayBuffer();
   var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   var fullText = '';
@@ -669,8 +692,8 @@ function _bArquivoParaBase64(file) {
 // Boleto em PDF não tem foto — renderiza a 1ª página num canvas (via
 // pdf.js, já usado pelo importador de boletos) e manda como imagem pra IA.
 async function _bPdfParaImagemBase64(file) {
-  if (typeof pdfjsLib === 'undefined') return null;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var pdfjsLib;
+  try { pdfjsLib = await _bCarregarPdfJs(); } catch (e) { return null; }
   var buf = await file.arrayBuffer();
   var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   var page = await pdf.getPage(1);
@@ -1240,8 +1263,9 @@ function bGuessCategoria(nomeFornecedor) {
 
 async function bProcessarPDFs(fileList) {
   if (!fileList || !fileList.length) return;
-  if (typeof pdfjsLib === 'undefined') { toast('Biblioteca de PDF não carregou — verifique sua conexão'); return; }
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var pdfjsLib;
+  try { pdfjsLib = await _bCarregarPdfJs(); }
+  catch (e) { toast('Não consegui carregar a biblioteca de leitura de PDF — verifique sua conexão e tente de novo'); return; }
 
   _bImportPreview = [];
   showMd('bImportMd');
