@@ -825,7 +825,8 @@ function openBoletoDetail(id) {
       _bDetRow('Criado em',    b.dtCriado ? fd(b.dtCriado) : '—') +
       (b.dtPag ? _bDetRow('Pago em', fd(b.dtPag)) : '') +
       (b.pix ? _bDetRow('Pix Copia e Cola', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="bCopiarPix(' + b.id + ')">📋 Copiar código</button>') : '') +
-      (b.anexoId ? _bDetRow('Anexo', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.anexoId + '\')">📎 Abrir anexo</button>') : '');
+      (b.anexoId ? _bDetRow('Anexo', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.anexoId + '\')">📎 Abrir anexo</button>') : '') +
+      _bDetDadosBoletoHTML(b);
   }
 
   // Show/hide pagar button
@@ -839,6 +840,31 @@ function _bDetRow(l, v) {
   return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:12px;">' +
     '<span style="font-size:.62rem;color:var(--t4);text-transform:uppercase;letter-spacing:.6px;white-space:nowrap;">' + l + '</span>' +
     '<span style="font-size:.78rem;color:var(--t2);text-align:right;">' + v + '</span></div>';
+}
+
+// Dados originais do boleto bancário (quando veio de importação/anexo com
+// linha digitável) — CNPJ, pagador, nosso número, datas, juros/multa,
+// linha digitável completa. Só aparece se o boleto tiver algum desses dados.
+function _bDetDadosBoletoHTML(b) {
+  var linhas = [];
+  if (b.nn)             linhas.push(['Nosso Número', b.nn]);
+  if (b.cnpjBenef)      linhas.push(['CNPJ Beneficiário', b.cnpjBenef]);
+  if (b.pagadorNome)    linhas.push(['Pagador', b.pagadorNome]);
+  if (b.pagadorDoc)     linhas.push(['CPF/CNPJ Pagador', b.pagadorDoc]);
+  if (b.pagadorLocal)   linhas.push(['Cidade/UF/CEP Pagador', b.pagadorLocal]);
+  if (b.dtEmissao)      linhas.push(['Data de Emissão', b.dtEmissao]);
+  if (b.vencOriginal)   linhas.push(['Vencimento Original', b.vencOriginal]);
+  if (b.valorOriginal)  linhas.push(['Valor Original', 'R$ ' + b.valorOriginal]);
+  if (b.encargosAtraso) linhas.push(['Encargos por Atraso', 'R$ ' + b.encargosAtraso]);
+  if (b.valorAtualizado)linhas.push(['Valor Atualizado', 'R$ ' + b.valorAtualizado]);
+  if (b.instrucoes)     linhas.push(['Juros/Multa/Desconto', b.instrucoes]);
+  if (b.linhaDig)       linhas.push(['Linha Digitável', b.linhaDig.replace(/(\d{5})(\d{5})(\d{5})(\d{6})(\d{5})(\d{6})(\d)(\d{14})/, '$1.$2 $3.$4 $5.$6 $7 $8')]);
+  if (!linhas.length) return '';
+
+  return '<div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);">' +
+    '<div style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);margin-bottom:4px;">📄 Dados do Boleto Original</div>' +
+    linhas.map(function(l){ return _bDetRow(l[0], escH(String(l[1]))); }).join('') +
+    '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1224,13 +1250,23 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
     var janela = texto.slice(inicioJanela, match.index + 200);
     prevEnd = match.index + match[0].length;
 
-    var cli = '';
+    // O código Pix Copia e Cola e vários outros dados (CNPJ, datas, juros/multa)
+    // costumam ficar mais longe do que o nome do beneficiário (perto do QR
+    // Code, que pode vir depois da linha digitável), então usa uma janela mais
+    // larga pra frente, limitada pelo próximo boleto do mesmo PDF.
+    var fimJanelaPix = (idx + 1 < matches.length)
+      ? Math.min(matches[idx + 1].index, match.index + match[0].length + 1000)
+      : Math.min(texto.length, match.index + match[0].length + 1000);
+    var janelaPix = texto.slice(inicioJanela, fimJanelaPix);
+    var pix = _bExtrairPix(janelaPix);
+
+    var cli = '', cnpjBenef = '';
     // Tier 1: nome com CNPJ colado logo em seguida (mais confiável quando existe)
-    var fornecMatches = janela.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))\s+\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g);
+    var fornecMatches = janela.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/g);
     if (fornecMatches && fornecMatches.length) {
       var ultimo = fornecMatches[fornecMatches.length - 1];
-      var mF = ultimo.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))/);
-      if (mF) cli = mF[1].trim().replace(/\s+/g, ' ');
+      var mF = ultimo.match(/([A-ZÀ-ÜÇ0-9.&\s]{5,60}(?:LTDA|EIRELI|S\/A|S\.A\.|ME))\s+(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/);
+      if (mF) { cli = mF[1].trim().replace(/\s+/g, ' '); cnpjBenef = mF[2]; }
     }
     // Tier 2 (fallback): alguns layouts (ex. boletos SICOOB) colocam o CNPJ do
     // beneficiário bem longe do nome no texto extraído do PDF (a extração junta
@@ -1247,26 +1283,63 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
       }
       if (melhor) cli = melhor;
     }
+    // Lista de todos os CNPJ/CPF que aparecem na janela ampla — usada tanto
+    // pro fallback do CNPJ do beneficiário quanto pra achar o doc. do pagador.
+    // Heurística: o CNPJ do beneficiário costuma se repetir (aparece no recibo
+    // do pagador E na ficha de compensação/cabeçalho da cooperativa), enquanto
+    // o doc. do pagador normalmente aparece uma vez só — por isso o mais
+    // frequente vira o "candidato a beneficiário" quando não achamos por
+    // adjacência ao nome (tier 1/2 acima).
+    var todosDocs = (janelaPix.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g) || [])
+      .concat(janelaPix.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/g) || []);
+    var contagemDocs = {};
+    todosDocs.forEach(function(d){ contagemDocs[d] = (contagemDocs[d] || 0) + 1; });
+    var docsPorFrequencia = Object.keys(contagemDocs).sort(function(a, b){ return contagemDocs[b] - contagemDocs[a]; });
+    if (!cnpjBenef && docsPorFrequencia.length) cnpjBenef = docsPorFrequencia[0];
 
     var nDoc = '';
     var docMatches = janela.match(/\b\d{4,7}-[A-Z]\/\d\b/g) || janela.match(/\b\d{4,7}-\d{2}\b/g);
     if (docMatches && docMatches.length) nDoc = docMatches[docMatches.length - 1];
 
     var nn = '';
-    var nnMatches = [].concat(janela.match(/Nosso\s*[Nn][úu]mero\D{0,15}?\d{4,8}/g) || []);
+    var nnMatches = [].concat(janelaPix.match(/Nosso\s*[Nn][úu]mero\D{0,15}?\d{4,8}/g) || []);
     if (nnMatches.length) {
       var mNN = nnMatches[nnMatches.length - 1].match(/(\d{4,8})$/);
       if (mNN) nn = mNN[1];
     }
 
-    // O código Pix Copia e Cola às vezes fica mais longe do que o nome do
-    // beneficiário (perto do QR Code, que pode vir depois da linha digitável),
-    // então usa uma janela mais larga pra depois, limitada pelo próximo boleto.
-    var fimJanelaPix = (idx + 1 < matches.length)
-      ? Math.min(matches[idx + 1].index, match.index + match[0].length + 1000)
-      : Math.min(texto.length, match.index + match[0].length + 1000);
-    var janelaPix = texto.slice(inicioJanela, fimJanelaPix);
-    var pix = _bExtrairPix(janelaPix);
+    // ── Dados extras (pagador, datas, instruções de juros/multa) — tudo
+    // "best effort": se não achar, fica vazio e some da tela de detalhe. ──
+    var cpfCnpjPagador = '';
+    for (var di = 0; di < docsPorFrequencia.length; di++) {
+      if (docsPorFrequencia[di] !== cnpjBenef) { cpfCnpjPagador = docsPorFrequencia[di]; break; }
+    }
+
+    var pagadorNome = '';
+    if (nDoc) {
+      var nDocEsc = nDoc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var mPagNome = janela.match(new RegExp('([A-ZÀ-ÜÇ][A-ZÀ-ÜÇ\\s]{4,60})\\s+' + nDocEsc));
+      if (mPagNome) pagadorNome = mPagNome[1].trim().replace(/\s+/g, ' ');
+    }
+
+    var localMatches = janelaPix.match(/[A-ZÀ-ÜÇ][A-ZÀ-ÜÇ\s]{2,35}\s*[-–]?\s*\b[A-Z]{2}\b\s+\d{5}-?\d{3}/g) || [];
+    var pagadorLocal = localMatches.length ? localMatches[localMatches.length - 1].trim().replace(/\s+/g, ' ') : '';
+
+    var dtEmissao = (janelaPix.match(/Data de Emiss[ãa]o\D{0,15}?(\d{2}\/\d{2}\/\d{4})/) || [])[1] || '';
+
+    var vencOriginal    = (janelaPix.match(/Vencimento original:\s*(\d{2}\/\d{2}\/\d{4})/) || [])[1] || '';
+    var valorOriginal   = (janelaPix.match(/Valor original:\s*R\$\s*([\d.,]+)/) || [])[1] || '';
+    var encargosAtraso  = (janelaPix.match(/Encargos por atraso:\s*R\$\s*([\d.,]+)/) || [])[1] || '';
+    var valorAtualizado = (janelaPix.match(/Valor atualizado:\s*R\$\s*([\d.,]+)/) || [])[1] || '';
+
+    var instrPartes = [];
+    var mJuros = janelaPix.match(/A partir \d{2}\/\d{2}\/\d{4}\s*Juros\s*[\d,]+%\s*\/?\s*dia\.?/i);
+    if (mJuros) instrPartes.push(mJuros[0]);
+    var mMulta = janelaPix.match(/A partir \d{2}\/\d{2}\/\d{4}\s*Multa\s*(?:de)?\s*[\d,]+%\.?/i) ||
+                 janelaPix.match(/Multa\s*(?:de)?\s*[\d,]+%\.?/i);
+    if (mMulta) instrPartes.push(mMulta[0]);
+    if (/N[ãa]o conceder desconto/i.test(janelaPix)) instrPartes.push('Não conceder desconto.');
+    var instrucoes = instrPartes.join(' ');
 
     results.push({
       linhaDig: linhaDigits,
@@ -1279,6 +1352,16 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
       valor: dec.valor,
       venc: dec.venc,
       arquivo: nomeArquivo,
+      cnpjBenef: cnpjBenef,
+      pagadorNome: pagadorNome,
+      pagadorDoc: cpfCnpjPagador,
+      pagadorLocal: pagadorLocal,
+      dtEmissao: dtEmissao,
+      vencOriginal: vencOriginal,
+      valorOriginal: valorOriginal,
+      encargosAtraso: encargosAtraso,
+      valorAtualizado: valorAtualizado,
+      instrucoes: instrucoes,
       _jaExiste: (DB.b || []).some(function(b){ return b.linhaDig === linhaDigits; })
     });
   });
@@ -1329,9 +1412,56 @@ function bRenderImportPreview() {
       h += '<button type="button" class="btn btn-o" style="white-space:nowrap;font-size:.62rem;padding:8px 10px;" onclick="bCopiarPixPreview(' + i + ')">📋 Copiar</button>';
       h += '</div></div>';
     }
+    h += _bImportDetalhesHTML(item, i);
     h += '</div>';
   });
   box.innerHTML = h;
+}
+
+// Bloco recolhível com TODOS os dados que o app conseguiu ler do boleto —
+// não só os campos editáveis (fornecedor/valor/vencimento), mas tudo mais:
+// CNPJ do beneficiário, dados do pagador, nosso número, datas, juros/multa
+// e a linha digitável completa. Fica escondido por padrão pra não poluir a
+// lista quando são vários boletos de uma vez — toca em "Ver todos os dados"
+// pra abrir.
+function _bImportDetalhesHTML(item, i) {
+  var linhas = [];
+  if (item.cnpjBenef)      linhas.push(['CNPJ Beneficiário', item.cnpjBenef]);
+  if (item.pagadorNome)    linhas.push(['Pagador', item.pagadorNome]);
+  if (item.pagadorDoc)     linhas.push(['CPF/CNPJ Pagador', item.pagadorDoc]);
+  if (item.pagadorLocal)   linhas.push(['Cidade/UF/CEP Pagador', item.pagadorLocal]);
+  if (item.nn)             linhas.push(['Nosso Número', item.nn]);
+  if (item.nDoc)           linhas.push(['Número do Documento', item.nDoc]);
+  if (item.dtEmissao)      linhas.push(['Data de Emissão', item.dtEmissao]);
+  if (item.vencOriginal)   linhas.push(['Vencimento Original', item.vencOriginal]);
+  if (item.valorOriginal)  linhas.push(['Valor Original', 'R$ ' + item.valorOriginal]);
+  if (item.encargosAtraso) linhas.push(['Encargos por Atraso', 'R$ ' + item.encargosAtraso]);
+  if (item.valorAtualizado)linhas.push(['Valor Atualizado', 'R$ ' + item.valorAtualizado]);
+  if (item.instrucoes)     linhas.push(['Juros/Multa/Desconto', item.instrucoes]);
+  linhas.push(['Linha Digitável', item.linhaDig.replace(/(\d{5})(\d{5})(\d{5})(\d{6})(\d{5})(\d{6})(\d)(\d{14})/, '$1.$2 $3.$4 $5.$6 $7 $8')]);
+
+  if (!linhas.length) return '';
+
+  var corpo = linhas.map(function(l){
+    return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
+      '<span style="font-size:.6rem;color:var(--t4);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">' + l[0] + '</span>' +
+      '<span style="font-size:.66rem;color:var(--t2);text-align:right;word-break:break-word;">' + escH(l[1]) + '</span>' +
+      '</div>';
+  }).join('');
+
+  return '<div style="margin-top:8px;">' +
+    '<div onclick="_bToggleImportDet(' + i + ')" style="font-size:.62rem;color:var(--gold);font-weight:700;cursor:pointer;user-select:none;">▾ Ver todos os dados do boleto</div>' +
+    '<div id="bImpDet' + i + '" style="display:none;margin-top:6px;background:var(--s3,rgba(0,0,0,.15));border-radius:8px;padding:8px 10px;">' + corpo + '</div>' +
+    '</div>';
+}
+
+function _bToggleImportDet(i) {
+  var el = document.getElementById('bImpDet' + i);
+  if (!el) return;
+  var abrindo = el.style.display === 'none';
+  el.style.display = abrindo ? 'block' : 'none';
+  var lbl = el.previousElementSibling;
+  if (lbl) lbl.textContent = (abrindo ? '▴ Ocultar dados do boleto' : '▾ Ver todos os dados do boleto');
 }
 
 function _bImportCatOpts(sel) {
@@ -1369,7 +1499,17 @@ function bConfirmarImport() {
       obs: 'Importado de ' + item.arquivo,
       dtCriado: td(),
       linhaDig: item.linhaDig,
-      nn: item.nn
+      nn: item.nn,
+      cnpjBenef: item.cnpjBenef || '',
+      pagadorNome: item.pagadorNome || '',
+      pagadorDoc: item.pagadorDoc || '',
+      pagadorLocal: item.pagadorLocal || '',
+      dtEmissao: item.dtEmissao || '',
+      vencOriginal: item.vencOriginal || '',
+      valorOriginal: item.valorOriginal || '',
+      encargosAtraso: item.encargosAtraso || '',
+      valorAtualizado: item.valorAtualizado || '',
+      instrucoes: item.instrucoes || ''
     });
     count++;
   });
