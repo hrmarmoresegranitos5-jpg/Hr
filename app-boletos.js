@@ -388,6 +388,17 @@ function bSetTipo(tipo) {
 // ══════════════════════════════════════════════════════════════════════
 // SALVAR BOLETO
 // ══════════════════════════════════════════════════════════════════════
+function _bMarcarCampoInvalido(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.style.borderColor = '#ff5555';
+  el.style.boxShadow = '0 0 0 1px #ff5555';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.focus();
+  var limpar = function() { el.style.borderColor = ''; el.style.boxShadow = ''; el.removeEventListener('input', limpar); };
+  el.addEventListener('input', limpar);
+}
+
 function saveBoleto() {
   var g = function(id){return (document.getElementById(id)||{}).value||'';};
   var cli   = g('bCli').trim();
@@ -395,9 +406,9 @@ function saveBoleto() {
   var valor = parseFloat(g('bValor')) || 0;
   var venc  = g('bVenc');
 
-  if (!cli && !desc) { toast('Preencha cliente ou descrição'); return; }
-  if (!valor)        { toast('Preencha o valor'); return; }
-  if (!venc)         { toast('Preencha o vencimento'); return; }
+  if (!cli && !desc) { toast('Preencha cliente ou descrição'); _bMarcarCampoInvalido('bCli'); return; }
+  if (!valor)        { toast('Preencha o valor');              _bMarcarCampoInvalido('bValor'); return; }
+  if (!venc)         { toast('Preencha o vencimento');         _bMarcarCampoInvalido('bVenc'); return; }
 
   var obj = {
     tipo:   _bTipoAtual,
