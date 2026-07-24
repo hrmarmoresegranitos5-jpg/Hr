@@ -489,7 +489,8 @@ function editBoleto(id) {
 // do formulário) — usado tanto ao editar (carregar pra tela) quanto ao salvar.
 function _bExtrairCamposExtras(o) {
   var campos = ['cnpjBenef','pagadorNome','pagadorDoc','pagadorLocal','dtEmissao',
-    'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','nn','nDoc','linhaDig','pix'];
+    'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','nn','nDoc','linhaDig','pix',
+    'cargaId','parcAtual','parcTotal'];
   var out = {};
   var achou = false;
   campos.forEach(function(k){ if (o && o[k]) { out[k] = o[k]; achou = true; } });
@@ -648,6 +649,7 @@ function _bRenderAnexoPreview() {
     (_bAnexoIdSalvo && !_bAnexoFile ? '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;white-space:nowrap;" onclick="_bAbrirAnexoSalvo()">Abrir</button>' : '') +
     '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;" onclick="_bRemoverAnexo()">✕</button>' +
     '</div>' +
+    (_bAnexoDadosExtra ? _bResumoCarneHTML(_bAnexoDadosExtra) : '') +
     (_bAnexoDadosExtra ? _bCaixaDetalhesToggle(_bLinhasDetalhesBoleto(_bAnexoDadosExtra), '_bToggleAnexoDet()', 'bAnexoDet') : '');
 }
 
@@ -1077,6 +1079,7 @@ function openBoletoDetail(id) {
       (b.dtPag ? _bDetRow('Pago em', fd(b.dtPag)) : '') +
       (b.pix ? _bDetRow('Pix Copia e Cola', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="bCopiarPix(' + b.id + ')">📋 Copiar código</button>') : '') +
       (b.anexoId ? _bDetRow('Anexo', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.anexoId + '\')">📎 Abrir anexo</button>') : '') +
+      _bResumoCarneHTML(b) +
       _bDetDadosBoletoHTML(b);
   }
 
@@ -1455,6 +1458,55 @@ function _bParseCarga(nDoc) {
   return null;
 }
 
+// ── Resumo do Carnê ──────────────────────────────────────────────────
+// Monta o resumo de uma carga a partir do cargaId de UM boleto/parcela:
+// parcela atual/total, quantas já foram pagas, quantas faltam, quanto
+// falta pagar e o próximo vencimento pendente. Diferente de _bListaCargas
+// (que lista TODAS as cargas), esta é focada numa carga só — usada tanto
+// no formulário Novo/Editar Boleto (ao detectar carnê num PDF anexado,
+// antes mesmo de salvar) quanto na tela de detalhe do boleto já salvo.
+// Aceita qualquer objeto com cargaId/parcAtual/parcTotal (item de
+// importação, _bAnexoDadosExtra, ou o próprio boleto salvo).
+function _bResumoCarne(o) {
+  if (!o || !o.cargaId) return null;
+  var todos = (DB.b || []).filter(function(x){ return x.cargaId === o.cargaId; });
+  // Se o boleto ainda nem foi salvo (prévia no formulário, antes do
+  // usuário confirmar), ele não está em DB.b ainda — usa o parcTotal do
+  // próprio objeto lido do PDF como fallback pro total da carga.
+  var total = (todos.length && todos[0].parcTotal) || o.parcTotal || todos.length || 1;
+  var pagas = todos.filter(function(x){ return x.status === 'pago'; });
+  var pendentes = todos.filter(function(x){ return x.status !== 'pago' && x.status !== 'cancelado'; });
+  var valorRestante = pendentes.reduce(function(s,x){ return s + (x.valor||0); }, 0);
+  var proxVenc = pendentes.reduce(function(m,x){ return (!m || (x.venc && x.venc < m)) ? x.venc : m; }, '');
+  return {
+    cargaId: o.cargaId,
+    parcAtual: o.parcAtual || '',
+    parcTotal: total,
+    qtdPagas: pagas.length,
+    qtdFaltam: pendentes.length,
+    valorRestante: valorRestante,
+    proxVenc: proxVenc
+  };
+}
+
+// HTML do painel "Resumo do Carnê" — sempre visível (ao contrário do "Ver
+// todos os dados", que fica escondido), pra quantas parcelas faltam e
+// quanto ainda falta pagar aparecerem de cara. Retorna string vazia se o
+// boleto/objeto não pertencer a uma carga.
+function _bResumoCarneHTML(o) {
+  var r = _bResumoCarne(o);
+  if (!r) return '';
+  return '<div style="margin-top:10px;padding:10px 12px;background:rgba(232,184,71,.08);border:1px solid rgba(232,184,71,.25);border-radius:10px;">' +
+    '<div style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--gold);margin-bottom:6px;">📑 Resumo do Carnê' +
+      (r.parcAtual ? ' — parcela ' + r.parcAtual + '/' + r.parcTotal : '') + '</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px 16px;font-size:.68rem;color:var(--t2);">' +
+      '<span>✅ Pagas: <b style="color:var(--tx);">' + r.qtdPagas + '/' + r.parcTotal + '</b></span>' +
+      '<span>⏳ Faltam: <b style="color:var(--tx);">' + r.qtdFaltam + '</b></span>' +
+      '<span>💰 Restante: <b style="color:var(--tx);">R$ ' + fm(r.valorRestante) + '</b></span>' +
+      (r.proxVenc ? '<span>📅 Próximo venc.: <b style="color:var(--tx);">' + fd(r.proxVenc) + '</b></span>' : '') +
+    '</div></div>';
+}
+
 // ── Duplicidade ─────────────────────────────────────────────────────────
 // Verifica se um boleto (recém lido de um PDF/foto) já existe salvo, pra
 // nunca deixar lançar o mesmo boleto duas vezes por engano. Critério
@@ -1664,9 +1716,14 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
     if (!cnpjBenef && docsPorFrequencia.length) cnpjBenef = docsPorFrequencia[0];
 
     var nDoc = '';
+    // BUG CORRIGIDO: o padrão de fallback (\d{4,7}-\d{2}) batia tanto no
+    // número real do documento (ex: "32009-04") quanto no filial-DV de um
+    // CNPJ no formato .../0001-28 (o "0001-28" também é 4-7 dígitos, hífen,
+    // 2 dígitos). O lookbehind (?<!\/) exclui esse segundo caso, já que o
+    // trecho do CNPJ sempre vem logo depois de uma barra.
     var docMatches = janela.match(/\b\d{4,7}-\d{1,2}\/\d{1,2}\b/g) ||
                      janela.match(/\b\d{4,7}-[A-Z]\/\d\b/g) ||
-                     janela.match(/\b\d{4,7}-\d{2}\b/g);
+                     janela.match(/(?<!\/)\b\d{4,7}-\d{2}\b/g);
     if (docMatches && docMatches.length) nDoc = docMatches[docMatches.length - 1];
     var carga = _bParseCarga(nDoc);
 
