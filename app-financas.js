@@ -805,6 +805,127 @@ function _plDevidoAcumulado(mesAtual, pctVenda) {
   return Math.round(devido);
 }
 
+// ── Pró-labore por DECÊNDIO (10 dias) ──────────────────────────
+// Usado quando o sócio não tem salário fixo: ele vive de um % sobre
+// o LUCRO LIVRE gerado em cada janela de 10 dias (1-10, 11-20,
+// 21-fim do mês), com o mesmo teto de segurança de caixa/reserva
+// já usado no cálculo mensal acima — só que fatiado por período.
+function _plPeriodoDecendio(mes, num) {
+  var ano = parseInt(mes.slice(0,4), 10), mIdx = parseInt(mes.slice(5,7), 10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var ultimoDia = new Date(ano, mIdx + 1, 0).getDate();
+  if (num === 1) return { di: mes+'-01', df: mes+'-10', dias: 10 };
+  if (num === 2) return { di: mes+'-11', df: mes+'-20', dias: 10 };
+  return { di: mes+'-21', df: mes+'-'+pad(ultimoDia), dias: (ultimoDia - 20) };
+}
+
+function _plVendidoNoPeriodo(di, df) {
+  return (DB.j || []).filter(function(j) {
+    if (!j.id) return false;
+    var d = new Date(j.id).toISOString().slice(0,10);
+    return d >= di && d <= df;
+  }).reduce(function(s, j) { return s + (j.value || 0); }, 0);
+}
+
+function _plRecebidoNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'in' && t.date && t.date >= di && t.date <= df;
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+function _plRetiradoNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && t.date && t.date >= di && t.date <= df;
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+// Dívida acumulada de tudo que veio ANTES do (mes, num) informado:
+// meses fechados inteiros (via _plDevidoAcumulado) + decêndios já
+// passados dentro do próprio mês atual, ainda não compensados.
+function _plDevidoAntesDoDecendio(mes, num, pctVenda) {
+  var devido = _plDevidoAcumulado(mes, pctVenda);
+  for (var n = 1; n < num; n++) {
+    var p = _plPeriodoDecendio(mes, n);
+    var justo    = Math.round(_plVendidoNoPeriodo(p.di, p.df) * pctVenda / 100);
+    var retirado = _plRetiradoNoPeriodo(p.di, p.df);
+    if (justo > retirado) devido += (justo - retirado);
+  }
+  return devido;
+}
+
+function _plCalcDecendio(mes, num) {
+  var sf  = _sfGetConfig();
+  var pl  = _plGetConfig();
+  var per = _plPeriodoDecendio(mes, num);
+  var diasNoMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
+
+  var fixosMes = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var varsMes  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var fracao   = per.dias / diasNoMes;
+  var fixos    = fixosMes * fracao;
+  var vars     = varsMes  * fracao;
+
+  var recPeriodo = _plRecebidoNoPeriodo(per.di, per.df);
+
+  // ── mesma distribuição do cálculo mensal, aplicada ao período ──
+  var saldoDisp      = Math.max(0, recPeriodo);
+  var reservaCorte   = Math.round(saldoDisp * 0.10);
+  var custosCobertos = Math.min(saldoDisp, fixos + vars);
+  var lucroLivre     = Math.max(0, saldoDisp - custosCobertos - reservaCorte);
+
+  // ── teto de segurança: usa a posição de caixa REAL da empresa
+  //    hoje (não dá pra fatiar caixa por decêndio, é uma coisa só) ──
+  var saldoCaixa = (DB.t || [])
+    .filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); })
+    .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
+  var reservaMeses = sf.reservaEmergencia || 3;
+  var reservaAlvo  = (fixosMes + varsMes) * reservaMeses;
+  var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
+  var pctSeguranca, faixaSeguranca;
+  if (saldoCaixa <= 0)          { pctSeguranca = 30; faixaSeguranca = 'caixa negativo'; }
+  else if (pctReserva < 50)     { pctSeguranca = 45; faixaSeguranca = 'reserva abaixo de 50%'; }
+  else if (pctReserva < 100)    { pctSeguranca = 65; faixaSeguranca = 'reserva entre 50% e 100%'; }
+  else                          { pctSeguranca = 85; faixaSeguranca = 'reserva completa'; }
+  var tetoSeguranca = Math.round(lucroLivre * pctSeguranca / 100);
+
+  // ── quanto é justo neste período: % sobre o vendido + dívida anterior ──
+  var pctVenda        = pl.percentualVenda;
+  var vendidoPeriodo  = _plVendidoNoPeriodo(per.di, per.df);
+  var justoPeriodo    = Math.round(vendidoPeriodo * pctVenda / 100);
+  var devidoAnterior  = _plDevidoAntesDoDecendio(mes, num, pctVenda);
+  var totalMerecido   = justoPeriodo + devidoAnterior;
+
+  // ── sugestão final: o que é justo, limitado pelo teto de segurança ──
+  var sugerido = Math.min(totalMerecido, tetoSeguranca);
+  var pisoDesejado = (pl.minimoDesejado || 0) / 3; // mínimo mensal desejado, dividido em 3 parcelas
+  if (pisoDesejado > sugerido) sugerido = Math.min(pisoDesejado, lucroLivre);
+  sugerido = Math.max(0, Math.round(sugerido));
+  var minimoNaoCabe    = pisoDesejado > lucroLivre;
+  var saldoFicaDevendo = Math.max(0, totalMerecido - sugerido);
+
+  var retiradoPeriodo = _plRetiradoNoPeriodo(per.di, per.df);
+
+  return {
+    mes: mes, num: num, di: per.di, df: per.df, dias: per.dias,
+    fixos: fixos, vars: vars, recPeriodo: recPeriodo, lucroLivre: lucroLivre,
+    saldoCaixa: saldoCaixa, pctReserva: pctReserva,
+    pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
+    pctVenda: pctVenda, vendidoPeriodo: vendidoPeriodo, justoPeriodo: justoPeriodo,
+    devidoAnterior: devidoAnterior, totalMerecido: totalMerecido,
+    sugerido: sugerido, minimoNaoCabe: minimoNaoCabe, saldoFicaDevendo: saldoFicaDevendo,
+    retiradoPeriodo: retiradoPeriodo
+  };
+}
+
+// Decêndio de HOJE (o que os cards/lista do RH mostram por padrão).
+function _plCalcDecendioAtual() {
+  var hoje = td();
+  var mes  = hoje.slice(0,7);
+  var d    = parseInt(hoje.slice(8,10), 10);
+  var num  = d <= 10 ? 1 : d <= 20 ? 2 : 3;
+  return _plCalcDecendio(mes, num);
+}
+
 function _plCalc() {
   var sf    = _sfGetConfig();
   var pl    = _plGetConfig();
