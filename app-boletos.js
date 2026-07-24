@@ -175,7 +175,7 @@ function renderBoletosTab() {
   // ── BUSCA + ADD ──
   h += '<div class="b-toolbar">';
   h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
-  h += '<button class="btn btn-o" onclick="bAbrirImportMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
+  h += '<button class="btn btn-o" onclick="bAbrirSeletorPDF()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
   h += '<button class="btn btn-o" onclick="estAbrirPainel()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📦 Estoque</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
@@ -189,7 +189,8 @@ function renderBoletosTab() {
     {k:'vencidos',    l:'🔴 Vencidos'},
     {k:'empresa',     l:'🏢 Empresa'},
     {k:'fornecedores',l:'🏭 Fornec.'},
-    {k:'parcelamentos',l:'📋 Parcelas'}
+    {k:'parcelamentos',l:'📋 Parcelas'},
+    {k:'cargas',       l:'📦 Cargas'}
   ];
   h += '<div class="b-subtabs">';
   subtabs.forEach(function(t){
@@ -214,6 +215,8 @@ function bSetFiltro(f) {
 }
 
 function _bLista() {
+  if (_bFiltroAtual === 'cargas') return _bListaCargas();
+
   var hoje = td();
   var b = DB.b || [];
   var busca = (_bBusca || '').toLowerCase();
@@ -284,6 +287,87 @@ function _bLista() {
   return h;
 }
 
+// ── Visão por Carga ──────────────────────────────────────────────────
+// Agrupa os boletos "a pagar" que têm cargaId (vieram de PDFs cujo número
+// de documento segue o padrão BASE-PARCELA/TOTAL) e mostra, por carga:
+// quantas parcelas no total, quantas já pagas, quantas faltam, quanto
+// falta pagar, forma de pagamento e o nome do fornecedor.
+function _bListaCargas() {
+  var b = (DB.b || []).filter(function(x){ return x.tipo === 'pagar' && x.cargaId; });
+  if (!b.length) {
+    return '<div class="b-empty">Nenhuma carga identificada ainda.<br><span style="font-size:.65rem;color:var(--t4);">Cargas são detectadas automaticamente ao importar boletos em PDF cujo número do documento segue o padrão base-parcela/total (ex: 12345-1/3).</span></div>';
+  }
+
+  var grupos = {};
+  b.forEach(function(x){
+    if (!grupos[x.cargaId]) grupos[x.cargaId] = [];
+    grupos[x.cargaId].push(x);
+  });
+
+  function maisFrequente(arr, campo) {
+    var cont = {};
+    arr.forEach(function(x){ var v = x[campo]; if (v) cont[v] = (cont[v]||0) + 1; });
+    var chaves = Object.keys(cont).sort(function(a,c){ return cont[c]-cont[a]; });
+    return chaves.length ? chaves[0] : '';
+  }
+
+  var cargas = Object.keys(grupos).map(function(id){
+    var itens = grupos[id];
+    itens.sort(function(a,c){ return (a.parcAtual||0) - (c.parcAtual||0); });
+    var pagas = itens.filter(function(x){ return x.status === 'pago'; });
+    var pendentes = itens.filter(function(x){ return x.status !== 'pago' && x.status !== 'cancelado'; });
+    var vencidas = itens.filter(function(x){ return x.status === 'vencido'; });
+    var total = itens[0].parcTotal || itens.length;
+    var faltaPagar = pendentes.reduce(function(s,x){ return s+(x.valor||0); }, 0);
+    var proxVenc = pendentes.reduce(function(m,x){ return (!m || (x.venc && x.venc < m)) ? x.venc : m; }, '');
+    return {
+      id: id,
+      fornecedor: maisFrequente(itens, 'cli') || '(fornecedor a definir)',
+      fpag: maisFrequente(itens, 'fpag'),
+      itens: itens, total: total,
+      qtdPagas: pagas.length, qtdPendentes: pendentes.length, qtdVencidas: vencidas.length,
+      faltaPagar: faltaPagar, proxVenc: proxVenc
+    };
+  });
+
+  cargas.sort(function(a,c){
+    if (!!a.qtdVencidas !== !!c.qtdVencidas) return a.qtdVencidas ? -1 : 1;
+    return (a.proxVenc||'9999').localeCompare(c.proxVenc||'9999');
+  });
+
+  var h = '';
+  cargas.forEach(function(g){
+    var cor = g.qtdVencidas ? '#ff5555' : (g.qtdPendentes ? 'var(--gold)' : 'var(--grn)');
+    var statusTxt = g.qtdPendentes === 0 ? '✅ Carga quitada' :
+      (g.qtdVencidas ? g.qtdVencidas + ' vencida(s) · ' : '') + g.qtdPendentes + ' de ' + g.total + ' parcela(s) restante(s)';
+    h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px;">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;cursor:pointer;" onclick="bToggleCarga(\'' + id2(g.id) + '\')">';
+    h += '<div><div style="font-size:.78rem;font-weight:700;color:var(--tx);">' + escH(g.fornecedor) + '</div>';
+    h += '<div style="font-size:.66rem;color:' + cor + ';margin-top:2px;">' + statusTxt + '</div></div>';
+    h += '<div style="text-align:right;"><div style="font-size:.62rem;color:var(--t4);">falta pagar</div>';
+    h += '<div style="font-size:.8rem;font-weight:700;color:' + (g.faltaPagar>0?'#ff5555':'var(--grn)') + ';">R$ ' + fm(g.faltaPagar) + '</div></div>';
+    h += '</div>';
+    h += '<div style="font-size:.62rem;color:var(--t4);margin-top:6px;">Pago: ' + g.qtdPagas + '/' + g.total + ' · Forma: ' + (B_FPAG[g.fpag]||g.fpag||'—') + '</div>';
+    h += '<div onclick="bToggleCarga(\'' + id2(g.id) + '\')" style="font-size:.62rem;color:var(--gold);font-weight:700;cursor:pointer;user-select:none;margin-top:8px;">▾ Ver parcelas</div>';
+    h += '<div id="bCarga' + id2(g.id) + '" style="display:none;margin-top:8px;">';
+    g.itens.forEach(function(x){ h += _bRow(x, td()); });
+    h += '</div>';
+    h += '</div>';
+  });
+  return h;
+}
+// cargaId vem direto do número do documento (só dígitos) — usado como id
+// de elemento HTML, então precisa ser sanitizado (não deve ter chars
+// especiais de qualquer forma, mas por segurança).
+function id2(s) { return String(s).replace(/[^a-zA-Z0-9]/g, ''); }
+
+function bToggleCarga(id) {
+  var el = document.getElementById('bCarga' + id);
+  if (!el) return;
+  var abrindo = el.style.display === 'none';
+  el.style.display = abrindo ? 'block' : 'none';
+}
+
 function _bSecHeader(icon, label, count, total, cor) {
   return '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:14px 2px 6px;">' +
     '<div style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:' + cor + ';">' + icon + ' ' + label + ' (' + count + ')</div>' +
@@ -331,14 +415,6 @@ function bCopiarPix(id) {
   var b = (DB.b || []).find(function(x){ return x.id === id; });
   if (!b || !b.pix) { toast('Este boleto não tem código Pix salvo'); return; }
   _bCopiarTexto(b.pix, 'Código Pix copiado ✅');
-}
-
-// Copia o código Pix ainda na tela de prévia de importação (antes de salvar).
-function bCopiarPixPreview(i) {
-  var el = document.getElementById('bImpPix' + i);
-  var texto = (el && el.value) || (_bImportPreview[i] && _bImportPreview[i].pix) || '';
-  if (!texto) { toast('Código Pix não encontrado'); return; }
-  _bCopiarTexto(texto, 'Código Pix copiado ✅');
 }
 
 function _bCopiarTexto(t, msgOk) {
@@ -800,6 +876,21 @@ async function saveBoleto() {
   if (!valor)        { toast('Preencha o valor');              _bMarcarCampoInvalido('bValor'); return; }
   if (!venc)         { toast('Preencha o vencimento');         _bMarcarCampoInvalido('bVenc'); return; }
 
+  // Bloqueia lançar o mesmo boleto duas vezes por engano — só checa ao
+  // criar um boleto novo (não ao editar um já existente).
+  if (!_editBoletoId) {
+    var dadosCheck = {
+      linhaDig: (_bAnexoDadosExtra && _bAnexoDadosExtra.linhaDig) || '',
+      cnpjBenef: (_bAnexoDadosExtra && _bAnexoDadosExtra.cnpjBenef) || '',
+      valor: valor, venc: venc
+    };
+    var dup = _bAchaDuplicado(dadosCheck);
+    if (dup) {
+      toast('⚠️ Esse boleto já está lançado (' + (dup.cli||dup.desc||'') + ' — R$ ' + fm(dup.valor) + ')');
+      return;
+    }
+  }
+
   var anexoId = _bAnexoIdSalvo || '';
   if (_bAnexoFile) {
     anexoId = 'anx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -824,6 +915,8 @@ async function saveBoleto() {
   if (_bAnexoDadosExtra) {
     Object.keys(_bAnexoDadosExtra).forEach(function(k){ obj[k] = _bAnexoDadosExtra[k]; });
   }
+  var carga = _bParseCarga(obj.nDoc);
+  if (carga) { obj.cargaId = carga.cargaId; obj.parcAtual = carga.parcAtual; obj.parcTotal = carga.parcTotal; }
 
   if (_editBoletoId) {
     var idx = (DB.b||[]).findIndex(function(x){return x.id===_editBoletoId;});
@@ -912,6 +1005,7 @@ function _bLinhasDetalhesBoleto(o) {
   if (o.pagadorDoc)       linhas.push(['CPF/CNPJ Pagador', o.pagadorDoc]);
   if (o.pagadorLocal)     linhas.push(['Cidade/UF/CEP Pagador', o.pagadorLocal]);
   if (o.nDoc)             linhas.push(['Número do Documento', o.nDoc]);
+  if (o.cargaId)          linhas.push(['Carga', o.cargaId + (o.parcAtual&&o.parcTotal ? (' — parcela ' + o.parcAtual + '/' + o.parcTotal) : '')]);
   if (o.dtEmissao)        linhas.push(['Data de Emissão', o.dtEmissao]);
   if (o.vencOriginal)     linhas.push(['Vencimento Original', o.vencOriginal]);
   if (o.valorOriginal)    linhas.push(['Valor Original', 'R$ ' + o.valorOriginal]);
@@ -1214,33 +1308,23 @@ function bDecodeLinhaDigitavel(linha) {
 // barras) e tenta extrair fornecedor/nº documento por proximidade de
 // texto. Sempre mostra uma prévia editável antes de gravar qualquer coisa.
 // ══════════════════════════════════════════════════════════════════════
-var _bImportPreview = [];
-
-function bAbrirImportMd() {
-  _bImportPreview = [];
-  var box = document.getElementById('bImportBody');
-  if (box) box.innerHTML = '';
-  var btn = document.getElementById('btnBImportConfirmar');
-  if (btn) btn.style.display = 'none';
-  showMd('bImportMd');
-}
-
-function bDragOver(e) {
-  e.preventDefault();
-  var el = document.getElementById('bImportDrop');
-  if (el) { el.style.borderColor = 'var(--gold)'; el.style.background = 'rgba(201,168,76,.06)'; }
-}
-function bDragLeave(e) {
-  var el = document.getElementById('bImportDrop');
-  if (el) { el.style.borderColor = ''; el.style.background = ''; }
-}
-function bDropFiles(e) {
-  e.preventDefault();
-  bDragLeave(e);
-  var files = (e.dataTransfer && e.dataTransfer.files) || [];
-  var pdfs = Array.prototype.filter.call(files, function(f){ return /\.pdf$/i.test(f.name); });
-  if (!pdfs.length) { toast('Solte apenas arquivos PDF'); return; }
-  bProcessarPDFs(pdfs);
+// Abre o seletor de arquivos direto — sem tela intermediária. O usuário
+// escolhe 1 ou vários PDFs e o app lê e lança tudo sozinho (ver
+// bProcessarPDFs mais abaixo).
+function bAbrirSeletorPDF() {
+  var input = document.getElementById('bImportFileInput');
+  if (!input) {
+    input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'bImportFileInput';
+    input.accept = 'application/pdf';
+    input.multiple = true;
+    input.style.display = 'none';
+    input.onchange = function() { bProcessarPDFs(this.files); };
+    document.body.appendChild(input);
+  }
+  input.value = '';
+  input.click();
 }
 
 // Tenta adivinhar a categoria (e se é conta de casa/empresa) pelo nome do
@@ -1261,18 +1345,56 @@ function bGuessCategoria(nomeFornecedor) {
   return 'fornecedor';
 }
 
+// ── Carga (lote de compra) ─────────────────────────────────────────────
+// O "número do documento" do boleto costuma vir no formato
+// BASE-PARCELA/TOTAL (ex: "12345-1/3" = documento 12345, parcela 1 de 3).
+// Boletos com a mesma BASE pertencem à mesma carga/compra — é assim que
+// agrupamos pra saber quantas parcelas faltam pagar de cada carga.
+function _bParseCarga(nDoc) {
+  if (!nDoc) return null;
+  var m = nDoc.match(/^(\d{4,7})-(\d{1,2})\/(\d{1,2})$/);
+  if (m) return { cargaId: m[1], parcAtual: parseInt(m[2], 10), parcTotal: parseInt(m[3], 10) };
+  var m2 = nDoc.match(/^(\d{4,7})-([A-Za-z])\/(\d{1,2})$/);
+  if (m2) return { cargaId: m2[1], parcAtual: m2[2], parcTotal: parseInt(m2[3], 10) };
+  return null;
+}
+
+// ── Duplicidade ─────────────────────────────────────────────────────────
+// Verifica se um boleto (recém lido de um PDF/foto) já existe salvo, pra
+// nunca deixar lançar o mesmo boleto duas vezes por engano. Critério
+// principal: linha digitável idêntica (é o identificador exato de um
+// boleto bancário). Quando não há linha digitável (ex: extraído por IA de
+// uma foto/nota sem código de barras), usa como critério de reserva o
+// mesmo beneficiário + mesmo valor + mesmo vencimento — combinação que na
+// prática só se repete quando é o mesmo boleto reenviado.
+function _bAchaDuplicado(item) {
+  var lista = DB.b || [];
+  if (item.linhaDig) {
+    var porLinha = lista.filter(function(b){ return b.linhaDig && b.linhaDig === item.linhaDig; });
+    if (porLinha.length) return porLinha[0];
+  }
+  if (item.cnpjBenef && item.valor && item.venc) {
+    var porCombo = lista.filter(function(b){
+      return b.cnpjBenef === item.cnpjBenef && b.valor === item.valor && b.venc === item.venc;
+    });
+    if (porCombo.length) return porCombo[0];
+  }
+  return null;
+}
+
 async function bProcessarPDFs(fileList) {
   if (!fileList || !fileList.length) return;
   var pdfjsLib;
   try { pdfjsLib = await _bCarregarPdfJs(); }
   catch (e) { toast('Não consegui carregar a biblioteca de leitura de PDF — verifique sua conexão e tente de novo'); return; }
 
-  _bImportPreview = [];
-  showMd('bImportMd');
-  document.getElementById('bImportBody').innerHTML = '<div style="text-align:center;padding:24px;color:var(--t3);font-size:.8rem;">⏳ Lendo PDF(s)...</div>';
+  toast('⏳ Lendo ' + fileList.length + ' PDF(s)...');
+
+  var importados = 0, duplicados = 0, falhas = [];
 
   for (var i = 0; i < fileList.length; i++) {
     var file = fileList[i];
+    var achados = [];
     try {
       var buf = await file.arrayBuffer();
       var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -1282,14 +1404,87 @@ async function bProcessarPDFs(fileList) {
         var content = await page.getTextContent();
         fullText += content.items.map(function(it){ return it.str; }).join(' ') + '\n';
       }
-      var achados = bExtrairBoletosDoTexto(fullText, file.name);
-      _bImportPreview = _bImportPreview.concat(achados);
+      achados = bExtrairBoletosDoTexto(fullText, file.name);
     } catch (e) {
-      toast('Erro ao ler ' + file.name);
+      achados = [];
     }
+
+    // Sem linha digitável em texto (PDF escaneado como imagem, layout fora
+    // do padrão bancário etc.) → último recurso: manda a 1ª página pra IA de
+    // visão, igual já acontecia no anexo individual. Só entra se achar valor
+    // E vencimento — não lança boleto incompleto sem o usuário perceber.
+    if (!achados.length) {
+      try {
+        var viaIA = await _bExtrairDadosAnexoIA(file);
+        if (viaIA && viaIA.valor && viaIA.vencimento) {
+          achados = [{
+            cli: viaIA.cliente || '', desc: viaIA.descricao || 'Boleto importado',
+            cat: (viaIA.categoria && B_CAT[viaIA.categoria]) ? viaIA.categoria : bGuessCategoria(viaIA.cliente),
+            valor: viaIA.valor, venc: viaIA.vencimento, arquivo: file.name,
+            cnpjBenef: viaIA.cnpjBenef || '', pagadorNome: viaIA.pagadorNome || '', pagadorDoc: viaIA.pagadorDoc || '',
+            nn: viaIA.nn || '', instrucoes: viaIA.instrucoes || '',
+            nDoc: '', cargaId: '', parcAtual: '', parcTotal: null, linhaDig: '', pix: ''
+          }];
+        }
+      } catch (e) { /* segue pra falha abaixo */ }
+    }
+
+    if (!achados.length) { falhas.push(file.name); continue; }
+
+    achados.forEach(function(item) {
+      if (_bAchaDuplicado(item)) { duplicados++; return; }
+      _bImportarItem(item);
+      importados++;
+    });
   }
-  bRenderImportPreview();
-  document.getElementById('bImportFileInput').value = '';
+
+  if (importados) { DB.sv(); bAutoStatus(); }
+
+  var msg = importados ? (importados + ' boleto(s) importado(s) automaticamente ✅') : 'Nenhum boleto novo importado';
+  if (duplicados) msg += ' · ' + duplicados + ' já existia(m) (ignorado)';
+  if (falhas.length) msg += ' · não reconheci: ' + falhas.join(', ');
+  toast(msg);
+
+  _bRerender();
+  bUpdDot();
+}
+
+// Monta o registro final do boleto a partir de um item já lido (do PDF ou
+// da IA de visão) e lança direto na base — sem nenhuma tela de conferência
+// no meio do caminho.
+function _bImportarItem(item) {
+  if (!DB.b) DB.b = [];
+  DB.b.unshift({
+    id: Date.now() + Math.random(),
+    tipo: 'pagar',
+    cat: item.cat || 'fornecedor',
+    cli: item.cli || '(fornecedor a definir)',
+    desc: item.desc || 'Boleto importado',
+    valor: item.valor,
+    venc: item.venc,
+    parc: (item.parcAtual && item.parcTotal) ? (item.parcAtual + '/' + item.parcTotal) : (item.nDoc || ''),
+    fpag: 'boleto',
+    pix: item.pix || '',
+    status: (item.venc && item.venc < td()) ? 'vencido' : 'pendente',
+    obs: 'Importado automaticamente de ' + item.arquivo,
+    dtCriado: td(),
+    linhaDig: item.linhaDig || '',
+    nn: item.nn || '',
+    nDoc: item.nDoc || '',
+    cargaId: item.cargaId || '',
+    parcAtual: item.parcAtual || '',
+    parcTotal: item.parcTotal || null,
+    cnpjBenef: item.cnpjBenef || '',
+    pagadorNome: item.pagadorNome || '',
+    pagadorDoc: item.pagadorDoc || '',
+    pagadorLocal: item.pagadorLocal || '',
+    dtEmissao: item.dtEmissao || '',
+    vencOriginal: item.vencOriginal || '',
+    valorOriginal: item.valorOriginal || '',
+    encargosAtraso: item.encargosAtraso || '',
+    valorAtualizado: item.valorAtualizado || '',
+    instrucoes: item.instrucoes || ''
+  });
 }
 
 // Tenta achar o código "Pix Copia e Cola" (BR Code / EMV) perto do boleto.
@@ -1373,8 +1568,11 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
     if (!cnpjBenef && docsPorFrequencia.length) cnpjBenef = docsPorFrequencia[0];
 
     var nDoc = '';
-    var docMatches = janela.match(/\b\d{4,7}-[A-Z]\/\d\b/g) || janela.match(/\b\d{4,7}-\d{2}\b/g);
+    var docMatches = janela.match(/\b\d{4,7}-\d{1,2}\/\d{1,2}\b/g) ||
+                     janela.match(/\b\d{4,7}-[A-Z]\/\d\b/g) ||
+                     janela.match(/\b\d{4,7}-\d{2}\b/g);
     if (docMatches && docMatches.length) nDoc = docMatches[docMatches.length - 1];
+    var carga = _bParseCarga(nDoc);
 
     var nn = '';
     var nnMatches = [].concat(janelaPix.match(/Nosso\s*[Nn][úu]mero\D{0,15}?\d{4,8}/g) || []);
@@ -1437,76 +1635,18 @@ function bExtrairBoletosDoTexto(texto, nomeArquivo) {
       encargosAtraso: encargosAtraso,
       valorAtualizado: valorAtualizado,
       instrucoes: instrucoes,
+      cargaId: carga ? carga.cargaId : '',
+      parcAtual: carga ? carga.parcAtual : '',
+      parcTotal: carga ? carga.parcTotal : null,
       _jaExiste: (DB.b || []).some(function(b){ return b.linhaDig === linhaDigits; })
     });
   });
   return results;
 }
 
-function bRenderImportPreview() {
-  var box = document.getElementById('bImportBody');
-  var btn = document.getElementById('btnBImportConfirmar');
-  if (!box) return;
-  if (!_bImportPreview.length) {
-    box.innerHTML = '<div class="b-empty">Nenhuma linha digitável reconhecida nos PDF(s) selecionados.<br><span style="font-size:.65rem;color:var(--t4);">Verifique se são boletos bancários (não notas fiscais) e tente novamente.</span></div>';
-    if (btn) btn.style.display = 'none';
-    return;
-  }
-  if (btn) btn.style.display = 'block';
-
-  var novos = _bImportPreview.filter(function(i){ return !i._jaExiste; });
-  var total = novos.reduce(function(s,i){ return s + i.valor; }, 0);
-  var venc  = novos.filter(function(i){ return i.venc < td(); }).length;
-
-  var h = '<div style="background:rgba(201,168,76,.07);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:10px 12px;margin-bottom:12px;">' +
-    '<div style="font-size:.78rem;color:var(--tx);font-weight:700;">' + novos.length + ' boleto(s) prontos para importar — R$ ' + fm(total) + '</div>' +
-    (venc ? '<div style="font-size:.65rem;color:#ff5555;margin-top:2px;">🔴 ' + venc + ' já vencido(s) entre eles</div>' : '') +
-    '<div style="font-size:.62rem;color:var(--t4);margin-top:3px;">Valor e vencimento vêm direto do código de barras (sempre exatos). Fornecedor e categoria foram sugeridos — corrija se precisar.</div>' +
-    '</div>';
-
-  _bImportPreview.forEach(function(item, i) {
-    var dis = item._jaExiste ? 'disabled' : '';
-    var chk = item._jaExiste ? '' : 'checked';
-    var atrasado = item.venc && item.venc < td();
-    h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px;' + (item._jaExiste?'opacity:.5;':'') + '">';
-    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
-    h += '<input type="checkbox" id="bImpChk' + i + '" ' + chk + ' ' + dis + ' style="width:16px;height:16px;">';
-    h += '<span style="font-size:.68rem;font-weight:700;color:var(--tx);flex:1;">' + escH(item.arquivo) + '</span>';
-    if (item._jaExiste) h += '<span class="b-status-badge bs-canc">já importado</span>';
-    else if (atrasado)  h += '<span class="b-status-badge bs-venc">vencido</span>';
-    h += '</div>';
-    h += '<div class="r2"><div class="f" style="margin-bottom:5px;"><label style="font-size:.6rem;">Fornecedor</label><input id="bImpCli' + i + '" type="text" value="' + escH(item.cli) + '" placeholder="Nome do fornecedor" ' + dis + '></div>';
-    h += '<div class="f" style="margin-bottom:5px;"><label style="font-size:.6rem;">Categoria</label><select id="bImpCat' + i + '" class="cfginp" style="width:100%;" ' + dis + '>' + _bImportCatOpts(item.cat) + '</select></div></div>';
-    h += '<div class="f" style="margin-bottom:5px;"><label style="font-size:.6rem;">Descrição</label><input id="bImpDesc' + i + '" type="text" value="' + escH(item.desc) + '" ' + dis + '></div>';
-    h += '<div class="r2"><div class="f" style="margin-bottom:0;"><label style="font-size:.6rem;">Valor R$</label><input id="bImpValor' + i + '" type="number" step="0.01" value="' + item.valor.toFixed(2) + '" ' + dis + '></div>';
-    h += '<div class="f" style="margin-bottom:0;"><label style="font-size:.6rem;">Vencimento</label><input id="bImpVenc' + i + '" type="date" value="' + item.venc + '" ' + dis + '></div></div>';
-    if (item.pix) {
-      h += '<div class="f" style="margin-top:8px;margin-bottom:0;"><label style="font-size:.6rem;">Pix Copia e Cola (detectado)</label>';
-      h += '<div style="display:flex;gap:6px;align-items:center;">';
-      h += '<input id="bImpPix' + i + '" type="text" value="' + escH(item.pix) + '" style="flex:1;font-size:.62rem;" ' + dis + '>';
-      h += '<button type="button" class="btn btn-o" style="white-space:nowrap;font-size:.62rem;padding:8px 10px;" onclick="bCopiarPixPreview(' + i + ')">📋 Copiar</button>';
-      h += '</div></div>';
-    }
-    h += _bImportDetalhesHTML(item, i);
-    h += '</div>';
-  });
-  box.innerHTML = h;
-}
-
-// Bloco recolhível com TODOS os dados que o app conseguiu ler do boleto —
-// não só os campos editáveis (fornecedor/valor/vencimento), mas tudo mais:
-// CNPJ do beneficiário, dados do pagador, nosso número, datas, juros/multa
-// e a linha digitável completa. Fica escondido por padrão pra não poluir a
-// lista quando são vários boletos de uma vez — toca em "Ver todos os dados"
-// pra abrir.
-function _bImportDetalhesHTML(item, i) {
-  var linhas = _bLinhasDetalhesBoleto(item);
-  if (!linhas.length) return '';
-  return _bCaixaDetalhesToggle(linhas, '_bToggleImportDet(' + i + ')', 'bImpDet' + i);
-}
-
 // Bloco recolhível genérico de "ver todos os dados" — recebe a lista de
 // linhas já montada e o onclick/id do container a expandir/recolher.
+// Usado na caixa de anexo do formulário Novo/Editar Boleto.
 function _bCaixaDetalhesToggle(linhas, onclickFn, containerId) {
   var corpo = linhas.map(function(l){
     return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">' +
@@ -1519,76 +1659,6 @@ function _bCaixaDetalhesToggle(linhas, onclickFn, containerId) {
     '<div onclick="' + onclickFn + '" style="font-size:.62rem;color:var(--gold);font-weight:700;cursor:pointer;user-select:none;">▾ Ver todos os dados do boleto</div>' +
     '<div id="' + containerId + '" style="display:none;margin-top:6px;background:var(--s3,rgba(0,0,0,.15));border-radius:8px;padding:8px 10px;">' + corpo + '</div>' +
     '</div>';
-}
-
-function _bToggleImportDet(i) {
-  var el = document.getElementById('bImpDet' + i);
-  if (!el) return;
-  var abrindo = el.style.display === 'none';
-  el.style.display = abrindo ? 'block' : 'none';
-  var lbl = el.previousElementSibling;
-  if (lbl) lbl.textContent = (abrindo ? '▴ Ocultar dados do boleto' : '▾ Ver todos os dados do boleto');
-}
-
-function _bImportCatOpts(sel) {
-  var pagarCats = ['energia','agua','aluguel','fornecedor','funcionario','ferramentas','material','imposto','servico','outros_pagar'];
-  return pagarCats.map(function(k){
-    var c = B_CAT[k];
-    return '<option value="' + k + '"' + (k===sel?' selected':'') + '>' + c.icon + ' ' + c.label + '</option>';
-  }).join('');
-}
-
-function bConfirmarImport() {
-  var count = 0;
-  _bImportPreview.forEach(function(item, i) {
-    var chk = document.getElementById('bImpChk' + i);
-    if (!chk || !chk.checked || chk.disabled) return;
-    var cli   = (document.getElementById('bImpCli' + i)   || {}).value || '';
-    var cat   = (document.getElementById('bImpCat' + i)   || {}).value || 'fornecedor';
-    var desc  = (document.getElementById('bImpDesc' + i)  || {}).value || '';
-    var valor = parseFloat((document.getElementById('bImpValor' + i) || {}).value) || 0;
-    var venc  = (document.getElementById('bImpVenc' + i)  || {}).value || '';
-    var pix   = (document.getElementById('bImpPix' + i)   || {}).value || item.pix || '';
-    if (!DB.b) DB.b = [];
-    DB.b.unshift({
-      id: Date.now() + Math.random(),
-      tipo: 'pagar',
-      cat: cat,
-      cli: cli || '(fornecedor a definir)',
-      desc: desc,
-      valor: valor,
-      venc: venc,
-      parc: item.nDoc || '',
-      fpag: 'boleto',
-      pix: pix,
-      status: (venc && venc < td()) ? 'vencido' : 'pendente',
-      obs: 'Importado de ' + item.arquivo,
-      dtCriado: td(),
-      linhaDig: item.linhaDig,
-      nn: item.nn,
-      nDoc: item.nDoc || '',
-      cnpjBenef: item.cnpjBenef || '',
-      pagadorNome: item.pagadorNome || '',
-      pagadorDoc: item.pagadorDoc || '',
-      pagadorLocal: item.pagadorLocal || '',
-      dtEmissao: item.dtEmissao || '',
-      vencOriginal: item.vencOriginal || '',
-      valorOriginal: item.valorOriginal || '',
-      encargosAtraso: item.encargosAtraso || '',
-      valorAtualizado: item.valorAtualizado || '',
-      instrucoes: item.instrucoes || ''
-    });
-    count++;
-  });
-  if (count) {
-    DB.sv();
-    bAutoStatus();
-    toast(count + ' boleto(s) importado(s) ✅');
-    _bRerender();
-  } else {
-    toast('Nenhum boleto selecionado');
-  }
-  closeAll();
 }
 
 // ══════════════════════════════════════════════════════════════════════
