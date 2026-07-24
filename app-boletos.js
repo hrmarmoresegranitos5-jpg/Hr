@@ -9,6 +9,16 @@ var _bTipoAtual     = 'receber';
 var _bFiltroAtual   = 'todos';
 var _bBusca         = '';
 
+// ── Anexo (PDF/foto do boleto) — guardado em IndexedDB (mesmo padrão já usado
+// pra fotos de cuba em app-core.js, banco 'hr_fotos_db'/'fotos') + leitura
+// automática dos dados via IA ──
+var _bAnexoFile          = null;  // File escolhido, ainda não salvo
+var _bAnexoIdSalvo       = '';    // id do anexo já salvo no IndexedDB (edição de boleto existente)
+var _bAnexoNomeSalvo     = '';
+var _bAnexoTipoSalvo     = '';
+var _bAnexoPreviewObjUrl = null;  // object URL local, só pra preview de imagem
+var _bAnexoExtraindo     = false;
+
 // ── Categorias com ícones ─────────────────────────────────────────────
 var B_CAT = {
   parcela:     { icon:'📋', label:'Parcela',        tipo:'receber' },
@@ -332,6 +342,8 @@ function openNovoBoleto() {
   _editBoletoId = null;
   var el = document.getElementById('boletoMdTitle');
   if (el) el.textContent = 'Novo Boleto';
+  _bGarantirAnexoUI();
+  _bRemoverAnexo(); // limpa qualquer anexo deixado de uma abertura anterior
   // Reset form
   _bFormSet({ tipo:'receber', cat:'parcela', cli:'', desc:'', valor:'',
     venc: addD(td(), 30), parc:'', fpag:'pix', status:'pendente', obs:'' });
@@ -345,6 +357,13 @@ function editBoleto(id) {
   _editBoletoId = id;
   var el = document.getElementById('boletoMdTitle');
   if (el) el.textContent = 'Editar Boleto';
+  _bGarantirAnexoUI();
+  _bAnexoFile = null;
+  _bAnexoIdSalvo = b.anexoId || '';
+  _bAnexoNomeSalvo = ''; _bAnexoTipoSalvo = '';
+  if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
+  _bRenderAnexoPreview();
+  if (_bAnexoIdSalvo) _bCarregarPreviewAnexoSalvo(_bAnexoIdSalvo);
   _bFormSet(b);
   bSetTipo(b.tipo || 'receber');
   showMd('boletoMd');
@@ -386,6 +405,286 @@ function bSetTipo(tipo) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
+// ANEXO DO BOLETO — injeta a área de upload no modal, lê o arquivo,
+// extrai os dados via IA (mesma API Key de Config → Empresa, reaproveita
+// a detecção de provedor usada em bGerarEstrategiaIA) e guarda o arquivo em
+// IndexedDB (mesmo padrão de app-core.js pras fotos de cuba — sem depender
+// de nenhum serviço externo). Vale tanto pra "A Receber" quanto "A Pagar".
+// ══════════════════════════════════════════════════════════════════════
+var _bAnexoDBP = null;
+function _bAnexoDBOpen() {
+  if (_bAnexoDBP) return _bAnexoDBP;
+  _bAnexoDBP = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
+    var req = indexedDB.open('hr_boletos_anexos_db', 1);
+    req.onupgradeneeded = function() {
+      var db = req.result;
+      if (!db.objectStoreNames.contains('anexos')) db.createObjectStore('anexos', { keyPath: 'id' });
+    };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror   = function() { reject(req.error); };
+  });
+  return _bAnexoDBP;
+}
+function _bAnexoDBSave(id, file) {
+  return _bAnexoDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('anexos', 'readwrite');
+      tx.objectStore('anexos').put({ id: id, blob: file, nome: file.name, tipo: file.type, criadoEm: Date.now() });
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+function _bAnexoDBGet(id) {
+  return _bAnexoDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('anexos', 'readonly');
+      var req = tx.objectStore('anexos').get(id);
+      req.onsuccess = function() { resolve(req.result || null); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
+}
+function _bAnexoDBDelete(id) {
+  return _bAnexoDBOpen().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction('anexos', 'readwrite');
+      tx.objectStore('anexos').delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+
+// Abre um anexo salvo (por id) numa nova aba, gerando a URL temporária na hora.
+async function _bAbrirAnexoPorId(id) {
+  if (!id) return;
+  try {
+    var rec = await _bAnexoDBGet(id);
+    if (!rec || !rec.blob) { toast('Anexo não encontrado'); return; }
+    var url = URL.createObjectURL(rec.blob);
+    window.open(url, '_blank');
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+  } catch (e) { toast('Erro ao abrir anexo'); }
+}
+function _bAbrirAnexoSalvo() { _bAbrirAnexoPorId(_bAnexoIdSalvo); }
+
+function _bGarantirAnexoUI() {
+  if (document.getElementById('bAnexoWrap')) return;
+  var title = document.getElementById('boletoMdTitle');
+  if (!title) return;
+  title.insertAdjacentHTML('afterend',
+    '<div id="bAnexoWrap" style="margin:10px 0 16px;">' +
+      '<label style="font-size:.62rem;letter-spacing:.07em;text-transform:uppercase;font-weight:800;color:var(--t4);display:block;margin-bottom:6px;">📎 Anexar Boleto/Comprovante (opcional)</label>' +
+      '<div id="bAnexoDrop" style="border:1.5px dashed var(--bd);border-radius:10px;padding:14px;text-align:center;cursor:pointer;" onclick="document.getElementById(\'bAnexoInput\').click()">' +
+        '<div id="bAnexoDropTxt" style="font-size:.72rem;color:var(--t3);">📥 Toque para escolher o PDF ou foto do boleto</div>' +
+        '<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">Os campos abaixo são preenchidos automaticamente quando possível</div>' +
+      '</div>' +
+      '<input type="file" id="bAnexoInput" accept="application/pdf,image/*" style="display:none;" onchange="_bAnexoFileSelected(this)">' +
+      '<div id="bAnexoPreviewBox" style="display:none;margin-top:8px;"></div>' +
+    '</div>'
+  );
+}
+
+function _bRenderAnexoPreview() {
+  var box = document.getElementById('bAnexoPreviewBox');
+  var dropTxt = document.getElementById('bAnexoDropTxt');
+  if (!box) return;
+  if (!_bAnexoFile && !_bAnexoIdSalvo) {
+    box.style.display = 'none'; box.innerHTML = '';
+    if (dropTxt) dropTxt.textContent = '📥 Toque para escolher o PDF ou foto do boleto';
+    return;
+  }
+  box.style.display = 'block';
+  if (dropTxt) dropTxt.textContent = '✅ Anexo selecionado — toque para trocar';
+
+  var nome = _bAnexoFile ? _bAnexoFile.name : (_bAnexoNomeSalvo || 'anexo');
+  var tipo = _bAnexoFile ? _bAnexoFile.type : _bAnexoTipoSalvo;
+  var isImg = /^image\//.test(tipo || '');
+  var thumb = (isImg && _bAnexoPreviewObjUrl)
+    ? '<img src="' + _bAnexoPreviewObjUrl + '" style="width:52px;height:52px;object-fit:cover;border-radius:8px;">'
+    : '<div style="width:52px;height:52px;border-radius:8px;background:var(--s2);display:flex;align-items:center;justify-content:center;font-size:1.4rem;">' + (isImg?'🖼️':'📄') + '</div>';
+
+  var status = _bAnexoExtraindo
+    ? '🤖 Lendo dados automaticamente...'
+    : (_bAnexoIdSalvo && !_bAnexoFile ? 'Anexo salvo' : 'Pronto para salvar junto com o boleto');
+
+  box.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:8px;">' +
+    thumb +
+    '<div style="flex:1;min-width:0;">' +
+    '<div style="font-size:.68rem;color:var(--tx);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escH(nome) + '</div>' +
+    '<div style="font-size:.62rem;color:var(--t4);margin-top:2px;">' + status + '</div>' +
+    '</div>' +
+    (_bAnexoIdSalvo && !_bAnexoFile ? '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;white-space:nowrap;" onclick="_bAbrirAnexoSalvo()">Abrir</button>' : '') +
+    '<button type="button" class="btn btn-o" style="font-size:.6rem;padding:6px 8px;" onclick="_bRemoverAnexo()">✕</button>' +
+    '</div>';
+}
+
+function _bRemoverAnexo() {
+  var idParaExcluir = _bAnexoIdSalvo;
+  _bAnexoFile = null;
+  _bAnexoIdSalvo = '';
+  _bAnexoNomeSalvo = '';
+  _bAnexoTipoSalvo = '';
+  _bAnexoExtraindo = false;
+  if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
+  var input = document.getElementById('bAnexoInput');
+  if (input) input.value = '';
+  _bRenderAnexoPreview();
+  if (idParaExcluir) _bAnexoDBDelete(idParaExcluir).catch(function(){});
+}
+
+// Carrega o preview (nome/thumbnail) de um anexo já salvo, ao abrir edição de um boleto.
+async function _bCarregarPreviewAnexoSalvo(id) {
+  try {
+    var rec = await _bAnexoDBGet(id);
+    if (!rec || _bAnexoIdSalvo !== id) return; // modal pode ter mudado nesse meio tempo
+    _bAnexoNomeSalvo = rec.nome || 'anexo';
+    _bAnexoTipoSalvo = rec.tipo || '';
+    if (/^image\//.test(rec.tipo || '') && rec.blob) _bAnexoPreviewObjUrl = URL.createObjectURL(rec.blob);
+    _bRenderAnexoPreview();
+  } catch (e) { /* silencioso — preview é só um bônus visual */ }
+}
+
+async function _bAnexoFileSelected(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var okType = file.type === 'application/pdf' || /^image\//.test(file.type);
+  if (!okType) { toast('Envie um PDF ou uma foto/imagem do boleto'); input.value = ''; return; }
+  if (file.size > 15 * 1024 * 1024) { toast('Arquivo muito grande (máx. 15MB)'); input.value = ''; return; }
+
+  _bAnexoFile = file;
+  _bAnexoIdSalvo = ''; // um novo anexo substitui o anterior (o antigo fica no IndexedDB até salvar)
+  _bAnexoNomeSalvo = ''; _bAnexoTipoSalvo = '';
+  if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
+  if (/^image\//.test(file.type)) _bAnexoPreviewObjUrl = URL.createObjectURL(file);
+  _bRenderAnexoPreview();
+
+  // Só tenta preencher automaticamente se os campos principais ainda
+  // estiverem vazios — nunca sobrescreve o que o usuário já digitou.
+  var cli = (document.getElementById('bCli') || {}).value || '';
+  var valor = (document.getElementById('bValor') || {}).value || '';
+  var venc = (document.getElementById('bVenc') || {}).value || '';
+  if (cli || valor || venc) return;
+
+  _bAnexoExtraindo = true;
+  _bRenderAnexoPreview();
+  try {
+    var dados = await _bExtrairDadosAnexoIA(file);
+    if (dados) _bPreencherComExtracao(dados);
+  } catch (e) {
+    // Extração é um bônus — se falhar, o preenchimento manual continua disponível
+  }
+  _bAnexoExtraindo = false;
+  _bRenderAnexoPreview();
+}
+
+function _bPreencherComExtracao(d) {
+  var s = function(id, v) { var el = document.getElementById(id); if (el && !el.value && v) el.value = v; };
+  s('bCli', d.cliente);
+  s('bDesc', d.descricao);
+  if (d.valor)      s('bValor', d.valor);
+  if (d.vencimento) s('bVenc', d.vencimento);
+  if (d.categoria && B_CAT[d.categoria]) { var c = document.getElementById('bCat'); if (c) c.value = d.categoria; }
+  toast('🤖 Dados preenchidos automaticamente — confira antes de salvar');
+}
+
+function _bArquivoParaBase64(file) {
+  return new Promise(function(res, rej) {
+    var r = new FileReader();
+    r.onload = function() { res(r.result.split(',')[1]); };
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// Boleto em PDF não tem foto — renderiza a 1ª página num canvas (via
+// pdf.js, já usado pelo importador de boletos) e manda como imagem pra IA.
+async function _bPdfParaImagemBase64(file) {
+  if (typeof pdfjsLib === 'undefined') return null;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var buf = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var page = await pdf.getPage(1);
+  var viewport = page.getViewport({ scale: 2 });
+  var canvas = document.createElement('canvas');
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+  return canvas.toDataURL('image/png').split(',')[1];
+}
+
+async function _bExtrairDadosAnexoIA(file) {
+  var _aiKey = (CFG.emp && CFG.emp.apiKey) || '';
+  if (!_aiKey) return null;
+
+  var mediaType, base64;
+  if (file.type === 'application/pdf') {
+    base64 = await _bPdfParaImagemBase64(file);
+    mediaType = 'image/png';
+    if (!base64) return null;
+  } else {
+    base64 = await _bArquivoParaBase64(file);
+    mediaType = file.type;
+  }
+
+  var prompt =
+    'Extraia os dados deste boleto/comprovante/nota. Retorne APENAS JSON válido, sem markdown:\n' +
+    '{"cliente":"nome do cliente ou fornecedor/beneficiário","descricao":"descrição curta (ex: Fatura energia, Parcela 2/3)",' +
+    '"valor":0.00,"vencimento":"AAAA-MM-DD",' +
+    '"categoria":"uma destas: parcela|saldo|cobranca|entrada|energia|agua|aluguel|fornecedor|funcionario|ferramentas|material|imposto|servico|outros_pagar"}\n' +
+    'Se algum dado não aparecer na imagem, deixe "" ou 0. Datas sempre em AAAA-MM-DD. Retorne SÓ o JSON.';
+
+  var _aiIsAnthropic = _aiKey.indexOf('sk-ant-') === 0;
+  var _aiIsGemini    = (_aiKey.indexOf('AIza') === 0 || _aiKey.indexOf('AQ.') === 0);
+  var txt;
+
+  if (_aiIsAnthropic) {
+    var r1 = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'x-api-key':_aiKey, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+      body: JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:500, messages:[{
+        role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type: mediaType, data: base64 } },
+          { type:'text', text: prompt }
+        ]
+      }]})
+    });
+    var d1 = await r1.json();
+    if (d1.error) throw new Error(d1.error.message || 'Erro Anthropic');
+    txt = (d1.content && d1.content[0] && d1.content[0].text) || '';
+  } else if (_aiIsGemini) {
+    var r2 = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' + _aiKey, {
+      method: 'POST', headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ contents:[{ role:'user', parts:[
+        { inline_data:{ mime_type: mediaType, data: base64 } },
+        { text: prompt }
+      ]}], generationConfig:{ maxOutputTokens:500 } })
+    });
+    var d2 = await r2.json();
+    if (d2.error) throw new Error(d2.error.message || 'Erro Gemini');
+    txt = (d2.candidates && d2.candidates[0] && d2.candidates[0].content && d2.candidates[0].content.parts && d2.candidates[0].content.parts[0] && d2.candidates[0].content.parts[0].text) || '';
+  } else {
+    var r3 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST', headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + _aiKey },
+      body: JSON.stringify({ model:'meta-llama/llama-4-scout-17b-16e-instruct', max_tokens:500, messages:[{
+        role:'user', content:[
+          { type:'text', text: prompt },
+          { type:'image_url', image_url:{ url: 'data:' + mediaType + ';base64,' + base64 } }
+        ]
+      }]})
+    });
+    var d3 = await r3.json();
+    if (d3.error) throw new Error(d3.error.message || 'Erro Groq');
+    txt = (d3.choices && d3.choices[0] && d3.choices[0].message && d3.choices[0].message.content) || '';
+  }
+
+  txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  try { return JSON.parse(txt); } catch (e) { return null; }
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // SALVAR BOLETO
 // ══════════════════════════════════════════════════════════════════════
 function _bMarcarCampoInvalido(id) {
@@ -399,7 +698,7 @@ function _bMarcarCampoInvalido(id) {
   el.addEventListener('input', limpar);
 }
 
-function saveBoleto() {
+async function saveBoleto() {
   var g = function(id){return (document.getElementById(id)||{}).value||'';};
   var cli   = g('bCli').trim();
   var desc  = g('bDesc').trim();
@@ -409,6 +708,13 @@ function saveBoleto() {
   if (!cli && !desc) { toast('Preencha cliente ou descrição'); _bMarcarCampoInvalido('bCli'); return; }
   if (!valor)        { toast('Preencha o valor');              _bMarcarCampoInvalido('bValor'); return; }
   if (!venc)         { toast('Preencha o vencimento');         _bMarcarCampoInvalido('bVenc'); return; }
+
+  var anexoId = _bAnexoIdSalvo || '';
+  if (_bAnexoFile) {
+    anexoId = 'anx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    try { await _bAnexoDBSave(anexoId, _bAnexoFile); }
+    catch (e) { toast('⚠️ Boleto será salvo, mas o anexo falhou ao guardar'); anexoId = _bAnexoIdSalvo || ''; }
+  }
 
   var obj = {
     tipo:   _bTipoAtual,
@@ -421,7 +727,8 @@ function saveBoleto() {
     fpag:   g('bFpag'),
     status: g('bStatus'),
     obs:    g('bObs').trim(),
-    dtCriado: td()
+    dtCriado: td(),
+    anexoId: anexoId
   };
 
   if (_editBoletoId) {
@@ -485,7 +792,8 @@ function openBoletoDetail(id) {
       (b.obs  ? _bDetRow('Obs.',   escH(b.obs)) : '') +
       _bDetRow('Criado em',    b.dtCriado ? fd(b.dtCriado) : '—') +
       (b.dtPag ? _bDetRow('Pago em', fd(b.dtPag)) : '') +
-      (b.pix ? _bDetRow('Pix Copia e Cola', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="bCopiarPix(' + b.id + ')">📋 Copiar código</button>') : '');
+      (b.pix ? _bDetRow('Pix Copia e Cola', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="bCopiarPix(' + b.id + ')">📋 Copiar código</button>') : '') +
+      (b.anexoId ? _bDetRow('Anexo', '<button type="button" class="btn btn-o" style="font-size:.62rem;padding:6px 10px;" onclick="_bAbrirAnexoPorId(\'' + b.anexoId + '\')">📎 Abrir anexo</button>') : '');
   }
 
   // Show/hide pagar button
@@ -527,12 +835,14 @@ function bMarcarPago(id) {
 
 function delBoleto(id) {
   if (!confirm('Remover este boleto?')) return;
+  var b = (DB.b||[]).find(function(x){return x.id===id;});
   DB.b = (DB.b||[]).filter(function(x){return x.id!==id;});
   DB.sv();
   closeAll();
   toast('✓ Removido');
   _bRerender();
   bUpdDot();
+  if (b && b.anexoId) _bAnexoDBDelete(b.anexoId).catch(function(){});
 }
 
 // ══════════════════════════════════════════════════════════════════════
