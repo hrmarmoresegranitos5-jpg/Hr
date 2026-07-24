@@ -136,14 +136,31 @@ var HR_FUNC = (function () {
     var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
     return _decendioValorNum(f, num);
   }
-  // Retorna o valor fixo do decêndio num (1/2/3) para um funcionário.
-  function _decendioValorNum(f, num){
+  // Retorna o valor do decêndio num (1/2/3) para um funcionário.
+  // Sócio/pró-labore: NUNCA usa campo manual — é sempre calculado
+  // automaticamente como % do lucro livre do período de 10 dias
+  // (módulo Finanças → Pró-labore), no mês de referência informado
+  // (ou o mês atual, se omitido).
+  // Funcionário comum: usa dec1/dec2/dec3 fixos, com fallback salário÷3.
+  function _decendioValorNum(f, num, mesRef){
+    if (f.socio){
+      if (typeof _plCalcDecendio !== 'function') return 0;
+      var mes = mesRef || _mesAno(0);
+      return _plCalcDecendio(mes, num).sugerido || 0;
+    }
     var dec;
     if      (num === 1) dec = parseFloat(f.dec1) || 0;
     else if (num === 2) dec = parseFloat(f.dec2) || 0;
     else                dec = parseFloat(f.dec3) || 0;
     if (!dec) dec = (parseFloat(f.salario) || 0) / 3;
     return dec;
+  }
+  // Label compacto do % sobre vendas configurado em Finanças, usado
+  // no lugar do "salário" para exibir sócios na lista/detalhe.
+  function _pctSocioLabel(){
+    if (typeof _plGetConfig !== 'function') return '—';
+    var pl = _plGetConfig();
+    return (pl.percentualVenda != null ? pl.percentualVenda : '—')+'% do lucro';
   }
   function _valorDecendioAtual(f){
     var dec = _decendioBase(f);
@@ -353,7 +370,22 @@ var HR_FUNC = (function () {
     // Regra: soma os valores fixos dos decêndios cujo vencimento já passou
     // dentro do período di–df. Se não houver dec1/dec2/dec3 configurados,
     // cai no proporcional (comportamento anterior).
+    // Sócio/pró-labore: NUNCA usa fixo/proporcional — sempre o motor de
+    // % sobre o lucro do decêndio (Finanças), via _decendioValorNum.
     var totalSalario = 0;
+
+    if (f.socio && di && df) {
+      var anoS  = parseInt(di.slice(0,4));
+      var mesNS = parseInt(di.slice(5,7));
+      var mesRefS = di.slice(0,7);
+      var ultimoDiaS = new Date(anoS, mesNS, 0).getDate();
+      var d10S  = di.slice(0,8) + '10';
+      var d20S  = di.slice(0,8) + '20';
+      var dFimS = di.slice(0,8) + String(ultimoDiaS).padStart(2,'0');
+      if (d10S  >= di && d10S  <= df) totalSalario += _decendioValorNum(f, 1, mesRefS);
+      if (d20S  >= di && d20S  <= df) totalSalario += _decendioValorNum(f, 2, mesRefS);
+      if (dFimS >= di && dFimS <= df) totalSalario += _decendioValorNum(f, 3, mesRefS);
+    } else {
     var temDec = (parseFloat(f.dec1)||0) > 0 || (parseFloat(f.dec2)||0) > 0 || (parseFloat(f.dec3)||0) > 0;
 
     if (temDec && di && df) {
@@ -387,6 +419,7 @@ var HR_FUNC = (function () {
         var duMes = _diasUteisMes(m);
         totalSalario += (salario / (duMes || 1)) * porMes[m];
       });
+    }
     }
 
     // ── Motor financeiro de HE — delegado ao HR_IMPORT (Bug 1 + Bug 2) ──
@@ -753,7 +786,10 @@ var HR_FUNC = (function () {
     var totExtrasMes=regsDoMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
     // totBancoMes: apenas informativo/legado — extras que ficaram marcadas 'banco' (já incluídas em totExtrasMes)
     var totBancoMes=regsDoMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
-    var totalFolha=ativos.reduce(function(s,f){return s+(parseFloat(f.salario)||0);},0);
+    var totalFolha=ativos.reduce(function(s,f){
+      if (f.socio) return s + (typeof _plCalc==='function' ? (_plCalc().sugerido||0) : 0);
+      return s+(parseFloat(f.salario)||0);
+    },0);
 
     // Aniversariantes do mês
     var mesHoje=hoje.slice(5,7);
@@ -1060,7 +1096,7 @@ var HR_FUNC = (function () {
           ultPagLine+
         '</div>' +
         '<div style="text-align:right;flex-shrink:0;">' +
-          '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(f.salario)+'</div>' +
+          '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+(f.socio?_pctSocioLabel():_fmtMoeda(f.salario))+'</div>' +
           '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_decendioBase(f))+'</div>' +
           '<div style="font-size:.55rem;color:'+T3+';">'+(f.socio?'pró-labore/decêndio':'por decêndio')+'</div>' +
         '</div>' +
@@ -1171,8 +1207,8 @@ var HR_FUNC = (function () {
       _secao('Dados Profissionais',
         '<label style="display:flex;align-items:center;gap:9px;padding:9px 12px;background:rgba(201,168,76,.06);'+
           'border:1px solid rgba(201,168,76,.25);border-radius:10px;margin-bottom:12px;cursor:pointer;">'+
-          '<input type="checkbox" id="ff_socio" '+(f.socio?'checked':'')+' style="width:16px;height:16px;accent-color:'+GOLD+';">'+
-          '<span style="font-size:.75rem;color:'+T2+';">🏛️ Sócio / Pró-labore <span style="color:'+T3+';">(não bate ponto — saldo calculado só pelos decêndios)</span></span>'+
+          '<input type="checkbox" id="ff_socio" '+(f.socio?'checked':'')+' onchange="HR_FUNC._toggleSocioCampos(this.checked)" style="width:16px;height:16px;accent-color:'+GOLD+';">'+
+          '<span style="font-size:.75rem;color:'+T2+';">🏛️ Sócio / Pró-labore <span style="color:'+T3+';">(não bate ponto, sem salário fixo — % automático sobre o lucro)</span></span>'+
         '</label>'+
         _campo('Cargo',_inp('ff_cargo','text','Ex: Marmorista, Ajudante...',f.cargo))+
         _grid2(
@@ -1191,7 +1227,18 @@ var HR_FUNC = (function () {
         )
         )+
         _grid2(
-          _campo('Salário Mensal (R$)',_inp('ff_salario','number','0,00',f.salario,'min="0" step="0.01"')),
+          '<div id="ffSalarioBlock" style="display:'+(f.socio?'none':'block')+';">'+
+            _campo('Salário Mensal (R$)',_inp('ff_salario','number','0,00',f.salario,'min="0" step="0.01"'))+
+          '</div>'+
+          '<div id="ffPctBlock" style="display:'+(f.socio?'block':'none')+';">'+
+            _campo('% sobre o Lucro',
+              '<div style="'+CSS_INP+'display:flex;align-items:center;justify-content:space-between;background:rgba(201,168,76,.05);">'+
+                '<span id="ffPctVal">'+_pctSocioLabel()+'</span>'+
+                '<button type="button" onclick="HR_FUNC._editarPctSocio()" '+
+                  'style="background:none;border:none;color:'+GOLD+';font-size:.68rem;font-weight:700;cursor:pointer;padding:0;font-family:Outfit,sans-serif;">editar →</button>'+
+              '</div>')+
+            '<div style="font-size:.62rem;color:'+T3+';margin-top:-6px;margin-bottom:12px;">Definido em Finanças → Pró-labore. Sem salário fixo — os decêndios abaixo são calculados sozinhos.</div>'+
+          '</div>',
           _campo('Data de Admissão',_inp('ff_admissao','date','',f.admissao))
         )+
         _grid2(
@@ -1205,6 +1252,7 @@ var HR_FUNC = (function () {
         )
       )+
 
+      '<div id="ffDecManualBlock" style="display:'+(f.socio?'none':'block')+';">'+
       _secao('Decêndios (valores fixos a pagar)',
         '<div style="font-size:.68rem;color:'+T3+';margin-bottom:10px;line-height:1.5;">'+
           'Informe o valor fixo de cada parcela de 10 dias. '+
@@ -1221,6 +1269,22 @@ var HR_FUNC = (function () {
         )+
         _campo('3º Decêndio — último dia (R$)',_inp('ff_dec3','number','0,00',f.dec3!=null?f.dec3:'','min="0" step="0.01"'))
       )+
+      '</div>'+
+
+      '<div id="ffDecAutoBlock" style="display:'+(f.socio?'block':'none')+';">'+
+      _secao('Pró-labore por Decêndio (automático)',
+        '<div style="font-size:.68rem;color:'+T3+';margin-bottom:10px;line-height:1.5;">'+
+          'Nada pra preencher. Cada parcela de 10 dias é '+_pctSocioLabel()+
+          ' livre gerado no período, com o mesmo teto de segurança de caixa usado em Finanças.'+
+        '</div>'+
+        '<button type="button" onclick="HR_FUNC._recalcDecAuto()" style="width:100%;padding:8px;margin-bottom:10px;'+
+          'border-radius:9px;border:1px solid rgba(201,168,76,.35);background:rgba(201,168,76,.06);'+
+          'color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.72rem;font-weight:700;cursor:pointer;">'+
+          '🔄 Recalcular agora'+
+        '</button>'+
+        '<div id="ffDecAutoPreview">'+_previewDecendiosSocio()+'</div>'
+      )+
+      '</div>'+
 
       _secao('Observações',
         _campo('Obs. interna (opcional)',_ta('ff_obs','Informações adicionais, restrições, metas...',f.obs,3))
@@ -1233,6 +1297,59 @@ var HR_FUNC = (function () {
     '</div>';
 
     _overlay('hrFuncForm',html);
+  }
+
+  // Alterna, dentro do form de funcionário, entre os campos manuais
+  // (funcionário CLT) e o painel automático de % sobre lucro (sócio),
+  // conforme o checkbox "Sócio / Pró-labore" é marcado/desmarcado.
+  function _toggleSocioCampos(isSocio){
+    var salBlock = document.getElementById('ffSalarioBlock');
+    var pctBlock = document.getElementById('ffPctBlock');
+    var decManual = document.getElementById('ffDecManualBlock');
+    var decAuto   = document.getElementById('ffDecAutoBlock');
+    if (salBlock)  salBlock.style.display  = isSocio ? 'none'  : 'block';
+    if (pctBlock)  pctBlock.style.display  = isSocio ? 'block' : 'none';
+    if (decManual) decManual.style.display = isSocio ? 'none'  : 'block';
+    if (decAuto)   decAuto.style.display   = isSocio ? 'block' : 'none';
+    if (isSocio) _recalcDecAuto();
+  }
+
+  // Abre o prompt de edição do % sobre lucro (definido em Finanças)
+  // direto pelo form do sócio, e atualiza o texto + preview na hora.
+  function _editarPctSocio(){
+    if (typeof plEditPercentual !== 'function'){
+      _toast('Abra Finanças → Pró-labore para editar o %');
+      return;
+    }
+    plEditPercentual();
+    var span = document.getElementById('ffPctVal');
+    if (span) span.textContent = _pctSocioLabel();
+    _recalcDecAuto();
+  }
+
+  // Preview somente-leitura dos 3 decêndios do mês atual, calculados
+  // automaticamente (% sobre o lucro livre de cada período de 10 dias).
+  function _previewDecendiosSocio(){
+    if (typeof _plCalcDecendio !== 'function'){
+      return '<div style="font-size:.7rem;color:'+T3+';">Módulo Finanças não carregado.</div>';
+    }
+    var mes = _mesAno(0);
+    var labels = ['1º — dia 10','2º — dia 20','3º — último dia'];
+    var html = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">';
+    for (var n=1; n<=3; n++){
+      var c = _plCalcDecendio(mes, n);
+      html += '<div style="background:rgba(255,255,255,.03);border:1px solid '+BD+';border-radius:9px;padding:8px;text-align:center;">'+
+        '<div style="font-size:.58rem;color:'+T3+';margin-bottom:3px;">'+labels[n-1]+'</div>'+
+        '<div style="font-size:.85rem;font-weight:700;color:'+GOLD+';">'+_fmtMoeda(c.sugerido)+'</div>'+
+      '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function _recalcDecAuto(){
+    var el = document.getElementById('ffDecAutoPreview');
+    if (el) el.innerHTML = _previewDecendiosSocio();
   }
 
   function _preencherDecSugestaoFin(){
@@ -1267,6 +1384,7 @@ var HR_FUNC = (function () {
     var foto=(document.getElementById('ff_foto_val')||{}).value||
              (document.getElementById('ff_foto')||{}).value||
              (funcs[funcId]&&funcs[funcId].foto)||'';
+    var _isSocioSave = !!(document.getElementById('ff_socio')||{}).checked;
     funcs[funcId]={
       id:funcId,nome:nome.trim(),
       telefone:(document.getElementById('ff_tel')||{}).value||'',
@@ -1274,7 +1392,7 @@ var HR_FUNC = (function () {
       nascimento:(document.getElementById('ff_nasc')||{}).value||'',
       cpf:(document.getElementById('ff_cpf')||{}).value||'',
       cargo:(document.getElementById('ff_cargo')||{}).value||'',
-      socio:!!(document.getElementById('ff_socio')||{}).checked,
+      socio:_isSocioSave,
       equipe:(document.getElementById('ff_equipe')||{}).value||'producao',
       salario:parseFloat((document.getElementById('ff_salario')||{}).value)||0,
       admissao:(document.getElementById('ff_admissao')||{}).value||'',
@@ -1284,9 +1402,11 @@ var HR_FUNC = (function () {
       feriasInicio:(document.getElementById('ff_ferias_ini')||{}).value||'',
       feriasFim:   (document.getElementById('ff_ferias_fim')||{}).value||'',
       jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
-      dec1:(function(){var v=parseFloat((document.getElementById('ff_dec1')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
-      dec2:(function(){var v=parseFloat((document.getElementById('ff_dec2')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
-      dec3:(function(){var v=parseFloat((document.getElementById('ff_dec3')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      // Sócio nunca usa valores manuais de decêndio — sempre calculado
+      // automaticamente (% sobre o lucro do período, em Finanças).
+      dec1:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec1')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      dec2:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec2')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      dec3:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec3')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
@@ -1492,8 +1612,10 @@ var HR_FUNC = (function () {
               'ver extrato →</button>'+
           '</div>'+
           // Linhas da conta
-          lc(_dpModal.label+' (fixo)', sal2, GOLD,
-             'mensal: '+_fmtMoeda(parseFloat(f.salario)||0)+' · parcela: '+_fmtMoeda(_decendioBase(f))) +
+          lc(_dpModal.label+(f.socio?'':' (fixo)'), sal2, GOLD,
+             (f.socio
+               ? _pctSocioLabel()+' · parcela: '+_fmtMoeda(_decendioBase(f))
+               : 'mensal: '+_fmtMoeda(parseFloat(f.salario)||0)+' · parcela: '+_fmtMoeda(_decendioBase(f)))) +
           (he2 > 0   ? lc('H. extras ('+_dpModal.di.slice(8)+' a '+_dpModal.df.slice(8)+')', he2, '#e0b870', heSub) : '') +
           (acr2 > 0.01? lc('Acréscimo HE 2× / 3×', acr2, '#8ec8c8', 'diferença sobre a hora normal') : '') +
           bancoLinha +
@@ -1564,9 +1686,9 @@ var HR_FUNC = (function () {
           else if (dp <= 20) pagoPorDec.d2 += parseFloat(p.valor)||0;
           else               pagoPorDec.d3 += parseFloat(p.valor)||0;
         });
-        var dec1 = parseFloat(f.dec1)||(parseFloat(f.salario)||0)/3;
-        var dec2 = parseFloat(f.dec2)||(parseFloat(f.salario)||0)/3;
-        var dec3 = parseFloat(f.dec3)||(parseFloat(f.salario)||0)/3;
+        var dec1 = _decendioValorNum(f, 1);
+        var dec2 = _decendioValorNum(f, 2);
+        var dec3 = _decendioValorNum(f, 3);
 
         // Descobre qual decêndio já venceu e ainda não foi pago
         var emAberto = null;
@@ -2100,7 +2222,7 @@ var HR_FUNC = (function () {
       var comDado = mediasMes.filter(function(v){ return v > 0; });
       var media   = comDado.length > 0
         ? comDado.reduce(function(s,v){ return s+v; }, 0) / comDado.length
-        : (parseFloat(f.salario)||0); // fallback: salário cadastrado
+        : (f.socio ? (typeof _plCalc==='function' ? (_plCalc().sugerido||0) : 0) : (parseFloat(f.salario)||0)); // fallback: sugestão (sócio) ou salário cadastrado
 
       // Vales frequentes: média dos vales nos 3 meses
       var mediaVales = (function() {
@@ -2520,8 +2642,9 @@ var HR_FUNC = (function () {
 
     var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
 
-    // Sugestão de valor: usa dec1/dec2/dec3 configurado, fallback salário ÷ 3
-    var _sugestaoNum = funcIdInicial ? _decendioBase(f) : 0;
+    // Sugestão de valor: dec1/dec2/dec3 (fallback salário÷3) ou, pra
+    // sócio, % automático sobre o lucro do decêndio selecionado
+    var _sugestaoNum = funcIdInicial ? _decendioValorNum(f, _decSelecionado, _mesPeriodo) : 0;
     var sugestao = _sugestaoNum > 0 ? _sugestaoNum.toFixed(2) : '';
 
     var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
@@ -2668,7 +2791,7 @@ var HR_FUNC = (function () {
           // funcionário (ou o load inicial) podia silenciosamente tirar a HE
           // do campo mesmo com "Pagar agora" selecionado. Agora respeita
           // _extraPagIncluir, igual o toggle já fazia.
-          var valDec2 = _decendioValorNum(f2, _decSelecionado);
+          var valDec2 = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
           var heV2    = _extraPagIncluir ? (s2.valorExtra || 0) : 0;
           if (valDec2 > 0) inpV.value = (valDec2 + heV2).toFixed(2);
         }
@@ -2714,7 +2837,7 @@ var HR_FUNC = (function () {
         var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV) {
-          var valDec = _decendioValorNum(f2, _decSelecionado);
+          var valDec = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
           if (!_extraPagIncluir) {
             inpV.value = valDec > 0 ? valDec.toFixed(2) : (parseFloat(f2.salario)||0).toFixed(2);
           } else {
@@ -3032,9 +3155,9 @@ var HR_FUNC = (function () {
       else               pagoPorDec[3] += parseFloat(p.valor)||0;
     });
     var decValores = {
-      1: parseFloat(f.dec1)||(parseFloat(f.salario)||0)/3,
-      2: parseFloat(f.dec2)||(parseFloat(f.salario)||0)/3,
-      3: parseFloat(f.dec3)||(parseFloat(f.salario)||0)/3
+      1: _decendioValorNum(f, 1, mesRef),
+      2: _decendioValorNum(f, 2, mesRef),
+      3: _decendioValorNum(f, 3, mesRef)
     };
     // Encontra decêndios vencidos e não pagos
     var decAberto = null;
@@ -5281,6 +5404,9 @@ var HR_FUNC = (function () {
     migrarPagamentosParaFinancas: migrarPagamentosParaFinancas,
     migrarProLaboreFinancasParaRH: migrarProLaboreFinancasParaRH,
     _preencherDecSugestaoFin: _preencherDecSugestaoFin,
+    _toggleSocioCampos:       _toggleSocioCampos,
+    _editarPctSocio:          _editarPctSocio,
+    _recalcDecAuto:           _recalcDecAuto,
     // Adiantamentos/vales com decêndio-alvo (usado pelo Relatório de Ponto)
     _adiantamentosAlvoDecendio: _adiantamentosAlvoDecendio,
     _adiantamentosEmAberto:     _adiantamentosEmAberto,
