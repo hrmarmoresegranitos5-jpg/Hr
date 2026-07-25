@@ -5,6 +5,32 @@
 
 var _finTab = 'resumo';
 
+// ═══ AUTO-CATEGORIZAÇÃO DE DESPESAS POR PALAVRA-CHAVE ═══
+// Sugere a categoria enquanto a pessoa digita a descrição, do mesmo
+// jeito que já funciona pros boletos (B_CAT_KEYWORDS). Só sugere —
+// se a pessoa escolher manualmente a categoria, a sugestão para de
+// sobrescrever (dataset.userSet).
+var _finCatKeywords = [
+  ['insumos',     /disco\s*(de\s*)?corte|disco\s*diamantado|lixa|rebolo|resina|talco|abrasivo|broca|pastilha|cola\b|silicone|espatula|espátula|massa\s*plastica|catalisador/i],
+  ['mao_obra',    /diarista|ajudante|instalador|pedreiro|m[aã]o\s*de\s*obra|servi[çc]o\s*prestado|freelancer|di[aá]ria/i],
+  ['combustivel', /combust[ií]vel|gasolina|diesel|posto\b|etanol/i],
+  ['ferramentas', /ferramenta|makita|dewalt|bosch|politriz|maquita|esmerilhadeira/i],
+  ['fixo',        /aluguel|energia|luz\b|\bagua\b|água|internet|telefone|conta\s*de\s*(luz|agua|água)/i]
+];
+function _finGuessCategoria(desc) {
+  var n = desc || '';
+  for (var i = 0; i < _finCatKeywords.length; i++) {
+    if (_finCatKeywords[i][1].test(n)) return _finCatKeywords[i][0];
+  }
+  return '';
+}
+function _finAutoCat(desc, selId) {
+  var sel = document.getElementById(selId);
+  if (!sel || sel.dataset.userSet === '1') return;
+  var g = _finGuessCategoria(desc);
+  if (g) sel.value = g;
+}
+
 // Mostra o seletor de categoria só quando o lançamento é uma saída
 // ('out') — pra Entrada/Nota/A receber a categoria de despesa não
 // faz sentido.
@@ -22,7 +48,7 @@ function openFin(t) {
   var fd = document.getElementById('fData');
   if (fd && !fd.value) fd.value = td();
   var fc = document.getElementById('fCat');
-  if (fc) fc.value = '';
+  if (fc) { fc.value = ''; fc.dataset.userSet = ''; }
   _finToggleCatWrap(t, 'fCatWrap');
   showMd('finMd');
 }
@@ -69,7 +95,7 @@ function openEditTr(id) {
   _teVal.value  = t.value || '';
   _teData.value = t.date  || td();
   var _teCat = document.getElementById('teCat');
-  if (_teCat) _teCat.value = t.cat || '';
+  if (_teCat) { _teCat.value = t.cat || ''; _teCat.dataset.userSet = t.cat ? '1' : ''; }
   document.querySelectorAll('[data-tet]').forEach(function(o) {
     o.classList.toggle('on', o.dataset.tet === t.type);
   });
@@ -188,6 +214,8 @@ function renderFin() {
   renderCustoMaoObra();
   renderSaudeFinanceira();
   renderProLabore();
+  renderSimplesNacional();
+  renderReservaMaquinas();
 }
 
 // ═══ CORPO DA ABA ATIVA ═══
@@ -560,6 +588,32 @@ function _sfGetConfig() {
     };
     svCFG();
   }
+  // Migração: custos recorrentes automáticos (contador, insumos estimados,
+  // contas fixas etc.) + % de imposto sobre o recebido — deduzidos todo
+  // mês/decêndio sem precisar lançar cada um manualmente. Faz merge por
+  // nome, então rodar de novo só acrescenta itens novos, sem duplicar ou
+  // apagar o que já existia (inclusive se você editar os valores depois).
+  if (typeof CFG.saudeFinanceira.custosRecorrentes !== 'object' || !CFG.saudeFinanceira.custosRecorrentes) {
+    CFG.saudeFinanceira.custosRecorrentes = { impostoPct: 6, fixosMensais: [] };
+    svCFG();
+  }
+  var _crList = CFG.saudeFinanceira.custosRecorrentes.fixosMensais || (CFG.saudeFinanceira.custosRecorrentes.fixosMensais = []);
+  var _crDefaults = [
+    { n: 'Contador', v: 300 },
+    { n: 'Insumos (estimado)', v: 1300 },
+    { n: 'Internet', v: 100 },
+    { n: 'Água', v: 50 },
+    { n: 'Luz', v: 170 },
+    { n: 'Promob (minha parte)', v: 125 }, // R$1.500/ano ÷ 12
+    { n: 'Limpeza', v: 250 },
+    { n: 'Café da manhã', v: 300 },
+    { n: 'Depreciação de máquinas', v: 190 }
+  ];
+  var _crChanged = false;
+  _crDefaults.forEach(function(d) {
+    if (!_crList.some(function(x) { return x.n === d.n; })) { _crList.push(d); _crChanged = true; }
+  });
+  if (_crChanged) svCFG();
   return CFG.saudeFinanceira;
 }
 
@@ -820,6 +874,7 @@ function _plVendidoNoMes(mes) {
 // na UI do pró-labore, no lugar de um número só.
 var PL_CAT_LABEL = {
   mao_obra:    '👷 Mão de obra',
+  insumos:     '🧰 Insumos',
   fixo:        '🏠 Custo fixo',
   combustivel: '⛽ Combustível',
   ferramentas: '🔧 Ferramentas',
@@ -839,14 +894,28 @@ function _plEhDespesaMaterial(t) {
   return t.cat === 'material' || /—\s*Material\s*$/.test(t.desc || '');
 }
 
+// Verdadeiro pra despesa categoria "Ferramentas" (compra/conserto de
+// máquina/equipamento). Desde que a Reserva de Depreciação de Máquinas
+// existe (item "Depreciação de máquinas" em custosRecorrentes, rateado
+// todo mês), esse desgaste já é descontado aos poucos no lucro líquido
+// via custo recorrente — contar a compra real de novo em despesasReais
+// cobraria o mesmo desgaste DUAS vezes. Por isso, assim como material,
+// essas saídas ficam de fora de despesasReais; o gasto real é abatido
+// da reserva já acumulada (ver _mqReserva).
+function _plEhDespesaFerramentas(t) {
+  return t.cat === 'ferramentas';
+}
+
 // Todas as saídas reais do período que entram na conta de despesas
 // (fixos, insumos, mão de obra), já filtradas: sem as retiradas de
 // pró-labore (isso não é custo do negócio, é a distribuição do lucro
-// que a gente está calculando) e sem compras de material (contadas à
-// parte, via custo do job — ver _plEhDespesaMaterial acima).
+// que a gente está calculando), sem compras de material (contadas à
+// parte, via custo do job — ver _plEhDespesaMaterial acima) e sem
+// gastos com máquinas (contados à parte, via reserva de depreciação —
+// ver _plEhDespesaFerramentas acima).
 function _plDespesasBrutasNoPeriodo(di, df) {
   return (DB.t || []).filter(function(t) {
-    return t.type === 'out' && !t.isProLabore && !_plEhDespesaMaterial(t) &&
+    return t.type === 'out' && !t.isProLabore && !_plEhDespesaMaterial(t) && !_plEhDespesaFerramentas(t) &&
       t.date && t.date >= di && t.date <= df;
   });
 }
@@ -900,16 +969,279 @@ function _plCustoMaterialNoPeriodo(di, df) {
   return total;
 }
 
+// Custos recorrentes automáticos (contador, insumos estimados etc.)
+// configurados em CFG.saudeFinanceira.custosRecorrentes.fixosMensais —
+// rateados pelos dias do período, pra não precisar lançar manualmente
+// todo mês/decêndio.
+function _plRecorrentesNoPeriodo(di, df) {
+  var sf = _sfGetConfig();
+  var lista = (sf.custosRecorrentes && sf.custosRecorrentes.fixosMensais) || [];
+  var totalMensal = lista.reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  if (!totalMensal) return 0;
+  var dias = Math.round((new Date(df) - new Date(di)) / 86400000) + 1;
+  return totalMensal / 30 * dias;
+}
+
+// Imposto (% configurado em custosRecorrentes.impostoPct) sobre o
+// recebido do período.
+function _plImpostoNoPeriodo(di, df) {
+  var sf  = _sfGetConfig();
+  var pct = (sf.custosRecorrentes && sf.custosRecorrentes.impostoPct) || 0;
+  if (!pct) return 0;
+  return _plRecebidoNoPeriodo(di, df) * pct / 100;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PROJEÇÃO SIMPLES NACIONAL — RBT12, faixa e alíquota efetiva real
+// A tabela do Simples traz uma alíquota NOMINAL por faixa, mas o
+// que se paga de fato é a alíquota EFETIVA, sempre menor a partir
+// da 2ª faixa:
+//   Alíquota Efetiva = (RBT12 × Alíquota Nominal − Parcela a
+//   Deduzir) ÷ RBT12
+// O % fixo configurado em custosRecorrentes.impostoPct (hoje 6%)
+// só bate exatamente com a realidade enquanto o RBT12 (receita
+// bruta acumulada dos últimos 12 meses) ficar na 1ª faixa de cada
+// anexo — a partir da 2ª faixa a conta muda, e essa tela avisa
+// antes de você ser pego de surpresa se o faturamento crescer.
+// Tabelas vigentes em 2026 (LC 123/2006, redação da LC 155/2016) —
+// confirme com seu contador qual anexo se aplica ao seu CNAE.
+// ══════════════════════════════════════════════════════════════
+
+var SN_TABELAS = {
+  I:   { nome: 'Anexo I — Comércio', faixas: [
+    { ate: 180000,   aliq: 0.0400, pd: 0 },
+    { ate: 360000,   aliq: 0.0730, pd: 5940 },
+    { ate: 720000,   aliq: 0.0950, pd: 13860 },
+    { ate: 1800000,  aliq: 0.1070, pd: 22500 },
+    { ate: 3600000,  aliq: 0.1430, pd: 87300 },
+    { ate: 4800000,  aliq: 0.1900, pd: 378000 }
+  ]},
+  II:  { nome: 'Anexo II — Indústria', faixas: [
+    { ate: 180000,   aliq: 0.0450, pd: 0 },
+    { ate: 360000,   aliq: 0.0780, pd: 5940 },
+    { ate: 720000,   aliq: 0.1000, pd: 13860 },
+    { ate: 1800000,  aliq: 0.1120, pd: 22500 },
+    { ate: 3600000,  aliq: 0.1470, pd: 85500 },
+    { ate: 4800000,  aliq: 0.3000, pd: 720000 }
+  ]},
+  III: { nome: 'Anexo III — Serviços gerais', faixas: [
+    { ate: 180000,   aliq: 0.0600, pd: 0 },
+    { ate: 360000,   aliq: 0.1120, pd: 9360 },
+    { ate: 720000,   aliq: 0.1350, pd: 17640 },
+    { ate: 1800000,  aliq: 0.1600, pd: 35640 },
+    { ate: 3600000,  aliq: 0.2100, pd: 125640 },
+    { ate: 4800000,  aliq: 0.3300, pd: 648000 }
+  ]},
+  IV:  { nome: 'Anexo IV — Construção/limpeza/vigilância (INSS patronal à parte)', faixas: [
+    { ate: 180000,   aliq: 0.0450, pd: 0 },
+    { ate: 360000,   aliq: 0.0900, pd: 8100 },
+    { ate: 720000,   aliq: 0.1020, pd: 12420 },
+    { ate: 1800000,  aliq: 0.1400, pd: 39780 },
+    { ate: 3600000,  aliq: 0.2200, pd: 183780 },
+    { ate: 4800000,  aliq: 0.3300, pd: 828000 }
+  ]},
+  V:   { nome: 'Anexo V — TI/consultoria/engenharia (Fator R < 28%)', faixas: [
+    { ate: 180000,   aliq: 0.1550, pd: 0 },
+    { ate: 360000,   aliq: 0.1800, pd: 4500 },
+    { ate: 720000,   aliq: 0.1950, pd: 9900 },
+    { ate: 1800000,  aliq: 0.2050, pd: 17100 },
+    { ate: 3600000,  aliq: 0.2300, pd: 62100 },
+    { ate: 4800000,  aliq: 0.3050, pd: 540000 }
+  ]}
+};
+
+// Garante (e migra, se preciso) o anexo configurado — default III,
+// que é o que bate com o 6% fixo já usado hoje em impostoPct.
+function _snGetAnexo() {
+  var sf = _sfGetConfig();
+  var cr = sf.custosRecorrentes;
+  if (!cr.anexoSimples || !SN_TABELAS[cr.anexoSimples]) { cr.anexoSimples = 'III'; svCFG(); }
+  return cr.anexoSimples;
+}
+
+// RBT12: soma do recebido (regime de caixa, igual ao resto do
+// módulo) nos 12 meses corridos terminados em mesRef (inclusive).
+function _snRBT12(mesRef) {
+  var ano = parseInt(mesRef.slice(0,4),10), mIdx = parseInt(mesRef.slice(5,7),10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var total = 0;
+  for (var i = 0; i < 12; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    total += _plRecebidoNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+  }
+  return total;
+}
+
+function _snFaixa(rbt12, anexo) {
+  var tab = SN_TABELAS[anexo].faixas;
+  for (var i = 0; i < tab.length; i++) {
+    if (rbt12 <= tab[i].ate) return { idx: i, dados: tab[i], estourouTeto: false };
+  }
+  // Acima de R$ 4,8 milhões: fora do teto do Simples — sinaliza,
+  // mas usa a última faixa como referência pro cálculo.
+  return { idx: tab.length - 1, dados: tab[tab.length - 1], estourouTeto: true };
+}
+
+function _snAliquotaEfetiva(rbt12, faixa) {
+  if (rbt12 <= 0) return faixa.dados.aliq;
+  return Math.max(0, (rbt12 * faixa.dados.aliq - faixa.dados.pd) / rbt12);
+}
+
+function _snProjecao() {
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+  var pad   = function(n){ return String(n).padStart(2,'0'); };
+  var anexo = _snGetAnexo();
+  var tab   = SN_TABELAS[anexo].faixas;
+  var rbt12 = _snRBT12(mes);
+  var faixa = _snFaixa(rbt12, anexo);
+  var aliqEfetiva = _snAliquotaEfetiva(rbt12, faixa);
+
+  var ultimoDiaMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
+  var recMes = _plRecebidoNoPeriodo(mes + '-01', mes + '-' + pad(ultimoDiaMes));
+  var dasEstimadoMes = recMes * aliqEfetiva;
+
+  var pisoFaixaAnterior = faixa.idx > 0 ? tab[faixa.idx - 1].ate : 0;
+  var tetoFaixaAtual     = faixa.dados.ate;
+  var faltaProximaFaixa  = Math.max(0, tetoFaixaAtual - rbt12);
+  var pctFaixaUsado      = tetoFaixaAtual > pisoFaixaAnterior
+    ? Math.min(100, Math.round(((rbt12 - pisoFaixaAnterior) / (tetoFaixaAtual - pisoFaixaAnterior)) * 100))
+    : 100;
+
+  // Média de recebido dos últimos 3 meses fechados, pra projetar em
+  // quantos meses (no ritmo atual) o RBT12 estoura a faixa em uso.
+  var ano = parseInt(mes.slice(0,4),10), mIdx = parseInt(mes.slice(5,7),10) - 1;
+  var somaUlt3 = 0, contUlt3 = 0;
+  for (var i = 1; i <= 3; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var r = _plRecebidoNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+    if (r > 0) { somaUlt3 += r; contUlt3++; }
+  }
+  var mediaMensal = contUlt3 ? somaUlt3 / contUlt3 : 0;
+  var mesesAteProximaFaixa = (mediaMensal > 0 && !faixa.estourouTeto)
+    ? Math.ceil(faltaProximaFaixa / mediaMensal) : null;
+  var proximaFaixaDados = (faixa.idx + 1 < tab.length) ? tab[faixa.idx + 1] : null;
+
+  return {
+    anexo: anexo, nomeAnexo: SN_TABELAS[anexo].nome, mes: mes,
+    rbt12: rbt12, faixa: faixa, aliqEfetiva: aliqEfetiva,
+    recMes: recMes, dasEstimadoMes: dasEstimadoMes,
+    pctFaixaUsado: pctFaixaUsado, faltaProximaFaixa: faltaProximaFaixa,
+    mesesAteProximaFaixa: mesesAteProximaFaixa, mediaMensal: mediaMensal,
+    proximaFaixaDados: proximaFaixaDados, estourouTeto: faixa.estourouTeto
+  };
+}
+
+function renderSimplesNacional() {
+  var el = document.getElementById('simplesNacionalCard');
+  if (!el) return;
+  var sf = _sfGetConfig();
+  var p  = _snProjecao();
+  var pctConfigurado = (sf.custosRecorrentes && sf.custosRecorrentes.impostoPct) || 0;
+  var aliqEfetivaPct = Math.round(p.aliqEfetiva * 10000) / 100;
+  var diverge = Math.abs(aliqEfetivaPct - pctConfigurado) >= 0.1;
+  var pf = function(n) { return n.toFixed(2).replace('.', ','); };
+
+  var h = '';
+
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">' + p.nomeAnexo + '</div>';
+  h += '<button class="sf-edit-btn" onclick="snEditAnexo()">trocar anexo</button>';
+  h += '</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:var(--gold2);margin-top:2px;">' + pf(aliqEfetivaPct) + '%</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">Alíquota efetiva real · faixa ' + (p.faixa.idx + 1) + ' de 6 · RBT12 R$ ' + fm(p.rbt12) + '</div>';
+  h += '</div>';
+
+  if (p.estourouTeto) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Seu RBT12 já passou de R$ 4.800.000 — acima do teto do Simples Nacional. Fale com seu contador sobre desenquadramento/mudança de regime.</div>';
+    h += '</div>';
+  }
+
+  if (diverge && !p.estourouTeto) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 O app hoje desconta ' + pctConfigurado + '% fixo de imposto, mas sua alíquota efetiva real é ' + pf(aliqEfetivaPct) + '%.';
+    h += '<div style="margin-top:8px;"><button class="sf-edit-btn" onclick="snAplicarAliquotaEfetiva()">🔧 Atualizar % usado no app para ' + pf(aliqEfetivaPct) + '%</button></div>';
+    h += '</div></div>';
+  }
+
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">📊 Faixa Atual</div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">RBT12 (últimos 12 meses)</span><span class="fin-fixo-vl">R$ ' + fm(p.rbt12) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">Teto da faixa ' + (p.faixa.idx + 1) + '</span><span class="fin-fixo-vl">R$ ' + fm(p.faixa.dados.ate) + '</span></div>';
+  h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + p.pctFaixaUsado + '%;background:' + (p.pctFaixaUsado >= 90 ? 'var(--red)' : p.pctFaixaUsado >= 70 ? '#d4a017' : 'var(--grn)') + ';"></div></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + p.pctFaixaUsado + '% da faixa usado';
+  if (!p.estourouTeto) h += ' · faltam R$ ' + fm(p.faltaProximaFaixa) + ' pra próxima faixa';
+  h += '</div>';
+  h += '</div>';
+
+  if (p.mesesAteProximaFaixa != null && p.proximaFaixaDados) {
+    h += '<div class="sf-section">';
+    h += '<div class="sf-title">📈 Projeção</div>';
+    h += '<div style="font-size:.75rem;color:var(--t2);line-height:1.5;">No ritmo médio dos últimos meses (R$ ' + fm(p.mediaMensal) + '/mês recebido), você deve entrar na próxima faixa em <b style="color:var(--gold2);">' + p.mesesAteProximaFaixa + ' mes' + (p.mesesAteProximaFaixa !== 1 ? 'es' : '') + '</b>, quando a alíquota nominal sobe para ' + pf(p.proximaFaixaDados.aliq * 100) + '%.</div>';
+    h += '</div>';
+  }
+
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🧾 DAS Estimado — ' + p.mes.replace('-','/') + '</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(p.recMes) + '</div><div class="sf-eq-lbl">Recebido no mês</div></div>';
+  h += '<div class="sf-eq-sep">×' + pf(aliqEfetivaPct) + '%</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--red);">R$ ' + fm(p.dasEstimadoMes) + '</div><div class="sf-eq-lbl">DAS estimado</div></div>';
+  h += '</div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+function snEditAnexo() {
+  var sf = _sfGetConfig();
+  var atual = _snGetAnexo();
+  var val = prompt(
+    'Anexo do Simples Nacional — confirme com seu contador se não tiver certeza:\n\n' +
+    'I = comércio · II = indústria · III = serviços gerais\n' +
+    'IV = construção/limpeza/vigilância · V = TI/consultoria (Fator R < 28%)',
+    atual
+  );
+  if (val === null) return;
+  var v = val.trim().toUpperCase();
+  if (!SN_TABELAS[v]) { toast('Anexo inválido — use I, II, III, IV ou V'); return; }
+  sf.custosRecorrentes.anexoSimples = v;
+  svCFG();
+  renderSimplesNacional();
+  toast('✓ Anexo atualizado para ' + SN_TABELAS[v].nome);
+}
+
+function snAplicarAliquotaEfetiva() {
+  var sf = _sfGetConfig();
+  var p  = _snProjecao();
+  var novoPct = Math.round(p.aliqEfetiva * 10000) / 100;
+  sf.custosRecorrentes.impostoPct = novoPct;
+  svCFG();
+  renderSaudeFinanceira();
+  renderProLabore();
+  renderSimplesNacional();
+  toast('✓ % de imposto atualizado para ' + novoPct.toFixed(2).replace('.', ',') + '%');
+}
+
 // Lucro bruto/líquido reais de um período: bruto = recebido − custo
 // de material; líquido = bruto − despesas reais (fixos, insumos, mão
-// de obra — tudo que foi de fato lançado como saída, exceto pró-labore).
+// de obra — tudo que foi de fato lançado como saída, exceto pró-labore)
+// − custos recorrentes automáticos (contador etc.) − imposto.
 function _plLucroNoPeriodo(di, df) {
   var recebido        = _plRecebidoNoPeriodo(di, df);
   var custoMaterial    = _plCustoMaterialNoPeriodo(di, df);
   var despesasReais     = _plDespesasNoPeriodo(di, df);
+  var recorrentes      = _plRecorrentesNoPeriodo(di, df);
+  var imposto          = _plImpostoNoPeriodo(di, df);
   var lucroBruto        = recebido - custoMaterial;
-  var lucroLiquido       = lucroBruto - despesasReais;
-  return { recebido: recebido, custoMaterial: custoMaterial, despesasReais: despesasReais, lucroBruto: lucroBruto, lucroLiquido: lucroLiquido };
+  var lucroLiquido       = lucroBruto - despesasReais - recorrentes - imposto;
+  return { recebido: recebido, custoMaterial: custoMaterial, despesasReais: despesasReais, recorrentes: recorrentes, imposto: imposto, lucroBruto: lucroBruto, lucroLiquido: lucroLiquido };
 }
 
 // Custo total médio (despesas reais + material) dos últimos meses
@@ -953,12 +1285,15 @@ function _plCustoMedioMensal(mesRef, nMeses) {
 // retirado como pró-labore naquele mês. Só conta a diferença
 // quando o justo é maior que o retirado (a empresa "deve").
 function _plDevidoAcumulado(mesAtual, pctVenda) {
-  var vendasPorMes = {};
+  var lucroPorMes = {};
   (DB.j || []).forEach(function(j) {
     if (!j.id) return;
     var m = new Date(j.id).toISOString().slice(0,7);
     if (m >= mesAtual) return; // só meses já fechados, antes do atual
-    vendasPorMes[m] = (vendasPorMes[m] || 0) + (j.value || 0);
+    if (lucroPorMes.hasOwnProperty(m)) return; // já calculado
+    var ultimoDia = new Date(parseInt(m.slice(0,4),10), parseInt(m.slice(5,7),10), 0).getDate();
+    var l = _plLucroNoPeriodo(m+'-01', m+'-'+String(ultimoDia).padStart(2,'0'));
+    lucroPorMes[m] = l.lucroLiquido;
   });
   var retiradoPorMes = {};
   (DB.t || []).filter(function(t) { return t.type === 'out' && t.isProLabore; }).forEach(function(t) {
@@ -967,8 +1302,8 @@ function _plDevidoAcumulado(mesAtual, pctVenda) {
     retiradoPorMes[m] = (retiradoPorMes[m] || 0) + (t.value || 0);
   });
   var devido = 0;
-  Object.keys(vendasPorMes).forEach(function(m) {
-    var justo    = vendasPorMes[m] * pctVenda / 100;
+  Object.keys(lucroPorMes).forEach(function(m) {
+    var justo    = Math.max(0, lucroPorMes[m]) * pctVenda / 100;
     var retirado = retiradoPorMes[m] || 0;
     if (justo > retirado) devido += (justo - retirado);
   });
@@ -1016,7 +1351,7 @@ function _plDevidoAntesDoDecendio(mes, num, pctVenda) {
   var devido = _plDevidoAcumulado(mes, pctVenda);
   for (var n = 1; n < num; n++) {
     var p = _plPeriodoDecendio(mes, n);
-    var justo    = Math.round(_plVendidoNoPeriodo(p.di, p.df) * pctVenda / 100);
+    var justo    = Math.round(Math.max(0, _plLucroNoPeriodo(p.di, p.df).lucroLiquido) * pctVenda / 100);
     var retirado = _plRetiradoNoPeriodo(p.di, p.df);
     if (justo > retirado) devido += (justo - retirado);
   }
@@ -1057,7 +1392,7 @@ function _plCalcDecendio(mes, num) {
   // ── quanto é justo neste período: % sobre o vendido + dívida anterior ──
   var pctVenda        = pl.percentualVenda;
   var vendidoPeriodo  = _plVendidoNoPeriodo(per.di, per.df);
-  var justoPeriodo    = Math.round(vendidoPeriodo * pctVenda / 100);
+  var justoPeriodo    = Math.round(Math.max(0, lucroLiquido) * pctVenda / 100);
   var devidoAnterior  = _plDevidoAntesDoDecendio(mes, num, pctVenda);
   var totalMerecido   = justoPeriodo + devidoAnterior;
 
@@ -1107,6 +1442,8 @@ function _plCalc() {
   var recMes          = l.recebido;
   var custoMaterialMes = l.custoMaterial;
   var despesasMes     = l.despesasReais;
+  var recorrentesMes  = l.recorrentes;
+  var impostoMes      = l.imposto;
   var lucroBrutoMes   = l.lucroBruto;
   var lucroLiquidoMes = l.lucroLiquido;
   var despesasPorCategoriaMes = _plDespesasPorCategoriaNoPeriodo(diMes, dfMes);
@@ -1135,7 +1472,7 @@ function _plCalc() {
   var pctVenda       = pl.percentualVenda;
   var vendidoMes     = _plVendidoNoMes(mes);
   var qtdVendidoMes  = (DB.j || []).filter(function(j) { return j.id && new Date(j.id).toISOString().slice(0,7) === mes; }).length;
-  var justoMes       = Math.round(vendidoMes * pctVenda / 100);
+  var justoMes       = Math.round(Math.max(0, lucroLiquidoMes) * pctVenda / 100);
   var devidoAnterior = _plDevidoAcumulado(mes, pctVenda);
   var totalMerecido  = justoMes + devidoAnterior;
 
@@ -1163,6 +1500,7 @@ function _plCalc() {
     despesasPorCategoriaMes: despesasPorCategoriaMes,
     lucroBrutoMes: lucroBrutoMes, lucroLiquidoMes: lucroLiquidoMes,
     recMes: recMes, lucroLivre: lucroLivre,
+    recorrentesMes: recorrentesMes, impostoMes: impostoMes,
     saldoCaixa: saldoCaixa, reservaAlvo: reservaAlvo, pctReserva: pctReserva,
     pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
     pctVenda: pctVenda, vendidoMes: vendidoMes, qtdVendidoMes: qtdVendidoMes, justoMes: justoMes,
@@ -1170,6 +1508,82 @@ function _plCalc() {
     sugerido: sugerido, minimoNaoCabe: minimoNaoCabe, saldoFicaDevendo: saldoFicaDevendo,
     retiradoMes: retiradoMes, retiradoAno: retiradoAno, retiradasMes: retiradasMes
   };
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESERVA DE DEPRECIAÇÃO DE MÁQUINAS — o item "Depreciação de
+// máquinas" em custosRecorrentes.fixosMensais já é descontado todo
+// mês do lucro líquido, como qualquer outro custo recorrente. Isso
+// monta, mês a mês, uma reserva virtual pro desgaste de equipamento.
+// Quando você gasta de verdade com máquina (despesa categoria
+// "🔧 Ferramentas" no modal de despesa), esse gasto sai dessa
+// reserva já acumulada — em vez de contar como custo extra do mês
+// (o que cobraria o desgaste duas vezes: uma no rateio mensal, outra
+// na hora da compra real). Por isso essas despesas ficam de fora de
+// despesasReais (ver _plEhDespesaFerramentas) e aparecem só aqui.
+// Sem ledger separado: tudo recalculado sempre a partir de DB.t e
+// da data de início guardada em custosRecorrentes.reservaMaquinasInicio.
+// ══════════════════════════════════════════════════════════════
+
+function _mqGetInicio() {
+  var sf = _sfGetConfig();
+  if (!sf.custosRecorrentes.reservaMaquinasInicio) {
+    sf.custosRecorrentes.reservaMaquinasInicio = td().slice(0, 7);
+    svCFG();
+  }
+  return sf.custosRecorrentes.reservaMaquinasInicio;
+}
+
+function _mqValorMensal() {
+  var sf   = _sfGetConfig();
+  var item = (sf.custosRecorrentes.fixosMensais || []).find(function(f) { return f.n === 'Depreciação de máquinas'; });
+  return item ? (item.v || 0) : 0;
+}
+
+function _mqReserva() {
+  var inicio = _mqGetInicio();
+  var mes    = td().slice(0, 7);
+  var anoI = parseInt(inicio.slice(0,4),10), mIdxI = parseInt(inicio.slice(5,7),10) - 1;
+  var anoA = parseInt(mes.slice(0,4),10),    mIdxA = parseInt(mes.slice(5,7),10) - 1;
+  var mesesDecorridos = (anoA - anoI) * 12 + (mIdxA - mIdxI) + 1;
+  var valorMensal = _mqValorMensal();
+  var acumulado   = mesesDecorridos * valorMensal;
+  var gasto = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && _plEhDespesaFerramentas(t) && t.date && t.date >= (inicio + '-01');
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+  return {
+    inicio: inicio, mesesDecorridos: mesesDecorridos, valorMensal: valorMensal,
+    acumulado: acumulado, gasto: gasto, saldo: acumulado - gasto
+  };
+}
+
+function renderReservaMaquinas() {
+  var el = document.getElementById('reservaMaquinasCard');
+  if (!el) return;
+  var r = _mqReserva();
+  if (!r.valorMensal) { el.innerHTML = ''; return; }
+
+  var h = '';
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">Saldo disponível</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:' + (r.saldo >= 0 ? 'var(--gold2)' : 'var(--red)') + ';margin-top:2px;">R$ ' + fm(r.saldo) + '</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">R$ ' + fm(r.valorMensal) + '/mês reservado desde ' + r.inicio.replace('-','/') + ' (' + r.mesesDecorridos + ' mes' + (r.mesesDecorridos !== 1 ? 'es' : '') + ')</div>';
+  h += '</div>';
+
+  h += '<div class="sf-section">';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Acumulado (reserva mensal)</span><span class="fin-fixo-vl">R$ ' + fm(r.acumulado) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Gasto real com máquinas (🔧 Ferramentas)</span><span class="fin-fixo-vl">R$ ' + fm(r.gasto) + '</span></div>';
+  h += '<div class="fin-fixo-tot"><span>= Saldo</span><span class="fin-fixo-tot-val" style="color:' + (r.saldo >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(r.saldo) + '</span></div>';
+  h += '</div>';
+
+  if (r.saldo < 0) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 Você já gastou com máquinas mais do que a reserva acumulada até agora — o excedente saiu do caixa geral.</div>';
+    h += '</div>';
+  }
+
+  h += '<div style="padding:0 14px 14px;font-size:.6rem;color:var(--t3);">Pra um gasto sair dessa reserva, lance a despesa normalmente e escolha a categoria "🔧 Ferramentas".</div>';
+  el.innerHTML = h;
 }
 
 function renderProLabore() {
@@ -1220,21 +1634,29 @@ function renderProLabore() {
     });
     h += '</div>';
   }
+  if (c.recorrentesMes > 0) {
+    h += '<div class="fin-fixo-row" style="margin-top:6px;"><span class="fin-fixo-nm">− Custos recorrentes (contador, insumos estimados...)</span><span class="fin-fixo-vl">R$ ' + fm(c.recorrentesMes) + '</span></div>';
+    h += '<div style="text-align:right;margin-top:2px;"><button class="sf-edit-btn" onclick="crEditRecorrentes()">⚙️ configurar</button></div>';
+  }
+  if (c.impostoMes > 0) {
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Impostos</span><span class="fin-fixo-vl">R$ ' + fm(c.impostoMes) + '</span></div>';
+  }
   h += '<div class="fin-fixo-tot"><span>= Lucro Líquido</span><span class="fin-fixo-tot-val" style="color:' + (c.lucroLiquidoMes >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(c.lucroLiquidoMes) + '</span></div>';
   h += '<div style="font-size:.63rem;color:var(--t3);margin-top:6px;">Lucro livre pra pró-labore (após reserva de 10%): R$ ' + fm(c.lucroLivre) + '</div>';
   h += '</div>';
 
-  // ── Valor justo pela venda ──
+  // ── Valor justo pelo lucro ──
   h += '<div class="sf-section">';
   h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
-  h += '<span>📈 Valor Justo Pela Venda</span>';
+  h += '<span>📈 Valor Justo Pelo Lucro</span>';
   h += '<button class="sf-edit-btn" onclick="plEditPercentual()">⚙️ ' + c.pctVenda + '%</button>';
   h += '</div>';
   h += '<div class="sf-eq-row">';
-  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.vendidoMes) + '</div><div class="sf-eq-lbl">Vendido este mês' + (c.qtdVendidoMes ? ' (' + c.qtdVendidoMes + ')' : '') + '</div></div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.lucroLiquidoMes) + '</div><div class="sf-eq-lbl">Lucro líquido do mês</div></div>';
   h += '<div class="sf-eq-sep">×' + c.pctVenda + '%</div>';
   h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(c.justoMes) + '</div><div class="sf-eq-lbl">Valor justo do mês</div></div>';
   h += '</div>';
+  h += '<div style="font-size:.6rem;color:var(--t3);margin-top:4px;">Vendido este mês: R$ ' + fm(c.vendidoMes) + (c.qtdVendidoMes ? ' (' + c.qtdVendidoMes + ' serviço' + (c.qtdVendidoMes>1?'s':'') + ')' : '') + '</div>';
   if (c.devidoAnterior > 0) {
     h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Dívida de meses anteriores</span><span class="fin-fixo-vl">R$ ' + fm(c.devidoAnterior) + '</span></div>';
     h += '<div class="fin-fixo-tot"><span>Total que você merece</span><span class="fin-fixo-tot-val">R$ ' + fm(c.totalMerecido) + '</span></div>';
@@ -1318,7 +1740,9 @@ function _plHistoricoMeses(n) {
     var retirado = (DB.t || []).filter(function(t) {
       return t.type === 'out' && t.isProLabore && (t.date || '').slice(0, 7) === key;
     }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
-    var merecido = Math.round(_plVendidoNoMes(key) * pctVenda / 100);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var lLiq = _plLucroNoPeriodo(key+'-01', key+'-'+String(ultimoDia).padStart(2,'0')).lucroLiquido;
+    var merecido = Math.round(Math.max(0, lLiq) * pctVenda / 100);
     meses.push({ key: key, label: nomesMes[d.getMonth()], retirado: retirado, merecido: merecido });
   }
   return meses;
@@ -1573,6 +1997,85 @@ function sfEditMeta() {
   svCFG();
   renderSaudeFinanceira();
   renderProLabore();
+}
+
+// ── Editar custos recorrentes automáticos (contador, insumos
+//    estimados, contas fixas...) + % de imposto — hoje só existiam
+//    como valores fixos no código; aqui dá pra ajustar quando mudar,
+//    sem precisar editar o app. ──
+function crEditRecorrentes() {
+  var sf = _sfGetConfig();
+  var el = document.getElementById('crMd');
+  if (!el) {
+    var md = document.createElement('div');
+    md.id = 'crMd';
+    md.className = 'ov';
+    md.style.cssText = 'align-items:flex-end;';
+    md.innerHTML = '<div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;max-height:85vh;overflow-y:auto;">'
+      + '<div style="font-size:1rem;font-weight:700;color:var(--gold2);margin-bottom:4px;">⚙️ Custos Recorrentes</div>'
+      + '<div style="font-size:.68rem;color:var(--t3);margin-bottom:14px;">Valores fixos mensais descontados automaticamente (contador, insumos estimados, contas fixas...), sem precisar lançar um por um todo mês.</div>'
+      + '<div id="crList"></div>'
+      + '<button class="cfgadd" style="margin-top:10px;" onclick="crAddItem()">+ Adicionar</button>'
+      + '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd);">'
+      + '<div style="font-size:.8rem;font-weight:700;color:var(--t2);margin-bottom:8px;">% de Imposto (Simples Nacional)</div>'
+      + '<div class="cfg-row"><input class="cfginp cfginp-w" type="number" step="0.01" id="crImposto" value="' + (sf.custosRecorrentes.impostoPct || 0) + '" placeholder="%"><span style="font-size:.7rem;color:var(--t3);">Ajuste manual — ou use "🔧 Atualizar" no card de Projeção Simples Nacional pra sincronizar com a alíquota efetiva real.</span></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:10px;margin-top:16px;">'
+      + '<button class="fin-add-btn fin-add-grn" style="flex:1;" onclick="crSaveRecorrentes()">Salvar</button>'
+      + '<button class="fin-add-btn" style="flex:1;background:var(--s3);" onclick="closeAll()">Cancelar</button>'
+      + '</div></div>';
+    document.body.appendChild(md);
+  }
+  _crRenderList();
+  showMd('crMd');
+}
+
+function _crRenderList() {
+  var el = document.getElementById('crList');
+  if (!el) return;
+  var sf   = _sfGetConfig();
+  var lista = sf.custosRecorrentes.fixosMensais || [];
+  var total = lista.reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var h = '';
+  lista.forEach(function(f, i) {
+    h += '<div class="cfg-row">'
+      + '<input class="cfginp" value="' + f.n + '" style="flex:1;text-align:left;" placeholder="Ex: Contador" onchange="_sfGetConfig().custosRecorrentes.fixosMensais[' + i + '].n=this.value;_crUpdateTotal();">'
+      + '<input class="cfginp cfginp-w" type="number" value="' + f.v + '" placeholder="R$" onchange="_sfGetConfig().custosRecorrentes.fixosMensais[' + i + '].v=+this.value;_crUpdateTotal();">'
+      + '<button class="cfgdel" onclick="_sfGetConfig().custosRecorrentes.fixosMensais.splice(' + i + ',1);_crRenderList();">✕</button>'
+      + '</div>';
+  });
+  if (!lista.length) {
+    h = '<div style="font-size:.75rem;color:var(--t3);padding:8px 0;">Nenhum custo recorrente cadastrado.</div>';
+  }
+  h += '<div id="crTotal" style="font-size:.72rem;color:var(--t3);text-align:right;margin-top:6px;">Total mensal: R$ ' + fm(total) + '</div>';
+  el.innerHTML = h;
+}
+
+function _crUpdateTotal() {
+  var elT = document.getElementById('crTotal');
+  if (!elT) return;
+  var sf    = _sfGetConfig();
+  var total = (sf.custosRecorrentes.fixosMensais || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  elT.textContent = 'Total mensal: R$ ' + fm(total);
+}
+
+function crAddItem() {
+  var sf = _sfGetConfig();
+  sf.custosRecorrentes.fixosMensais.push({ n: '', v: 0 });
+  _crRenderList();
+}
+
+function crSaveRecorrentes() {
+  var sf = _sfGetConfig();
+  var impEl = document.getElementById('crImposto');
+  if (impEl) sf.custosRecorrentes.impostoPct = +impEl.value || 0;
+  svCFG();
+  closeAll();
+  renderSaudeFinanceira();
+  renderProLabore();
+  renderSimplesNacional();
+  renderReservaMaquinas();
+  toast('✓ Custos recorrentes salvos!');
 }
 
 // ── Editar custos variáveis ──
