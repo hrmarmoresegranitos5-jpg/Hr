@@ -5,6 +5,14 @@
 
 var _finTab = 'resumo';
 
+// Mostra o seletor de categoria só quando o lançamento é uma saída
+// ('out') — pra Entrada/Nota/A receber a categoria de despesa não
+// faz sentido.
+function _finToggleCatWrap(t, wrapId) {
+  var wrap = document.getElementById(wrapId);
+  if (wrap) wrap.style.display = (t === 'out') ? '' : 'none';
+}
+
 // ═══ ABRIR MODAL DE LANÇAMENTO ═══
 function openFin(t) {
   fType = t;
@@ -13,6 +21,9 @@ function openFin(t) {
   });
   var fd = document.getElementById('fData');
   if (fd && !fd.value) fd.value = td();
+  var fc = document.getElementById('fCat');
+  if (fc) fc.value = '';
+  _finToggleCatWrap(t, 'fCatWrap');
   showMd('finMd');
 }
 
@@ -21,6 +32,7 @@ function setFT(t) {
   document.querySelectorAll('[data-ftp]').forEach(function(o) {
     o.classList.toggle('on', o.dataset.ftp === t);
   });
+  _finToggleCatWrap(t, 'fCatWrap');
 }
 
 function saveFin() {
@@ -32,10 +44,15 @@ function saveFin() {
   var val  = +_fVal.value || 0;
   var date = _fData.value;
   if (!desc) { toast('Preencha a descrição'); return; }
-  DB.t.unshift({ id: Date.now(), type: fType, desc: desc, value: val, date: date });
+  var _fCat = document.getElementById('fCat');
+  var cat = (fType === 'out' && _fCat && _fCat.value) ? _fCat.value : undefined;
+  var _tr = { id: Date.now(), type: fType, desc: desc, value: val, date: date };
+  if (cat) _tr.cat = cat;
+  DB.t.unshift(_tr);
   DB.sv(); renderFin(); closeAll();
   _fDesc.value = '';
   _fVal.value  = '';
+  if (_fCat) _fCat.value = '';
   toast('✓ Lançado!');
 }
 
@@ -50,9 +67,12 @@ function openEditTr(id) {
   _teDesc.value = t.desc  || '';
   _teVal.value  = t.value || '';
   _teData.value = t.date  || td();
+  var _teCat = document.getElementById('teCat');
+  if (_teCat) _teCat.value = t.cat || '';
   document.querySelectorAll('[data-tet]').forEach(function(o) {
     o.classList.toggle('on', o.dataset.tet === t.type);
   });
+  _finToggleCatWrap(t.type, 'teCatWrap');
   showMd('trEdMd');
 }
 
@@ -60,6 +80,7 @@ function setTET(tp) {
   document.querySelectorAll('[data-tet]').forEach(function(o) {
     o.classList.toggle('on', o.dataset.tet === tp);
   });
+  _finToggleCatWrap(tp, 'teCatWrap');
 }
 
 function saveTrEdit() {
@@ -70,6 +91,13 @@ function saveTrEdit() {
   t.desc  = document.getElementById('teDesc').value.trim() || t.desc;
   t.value = +document.getElementById('teVal').value || t.value;
   t.date  = document.getElementById('teData').value || t.date;
+  if (t.type === 'out') {
+    var _teCat = document.getElementById('teCat');
+    var cat = _teCat ? _teCat.value : '';
+    if (cat) t.cat = cat; else delete t.cat;
+  } else {
+    delete t.cat;
+  }
   DB.sv(); renderFin(); closeAll(); toast('✓ Atualizado!');
 }
 
@@ -778,6 +806,126 @@ function _plVendidoNoMes(mes) {
   }).reduce(function(s, j) { return s + (j.value || 0); }, 0);
 }
 
+// ── Custos REAIS (transações lançadas em Finanças) ──────────────
+// Substitui o antigo modelo de fixos/variáveis ORÇADOS (CFG.fixos /
+// CFG.variaveis, distribuídos por fração de dias). Agora o app lê
+// direto o que foi de fato lançado: despesas reais (custos fixos,
+// insumos, mão de obra etc.) e o custo de material dos serviços
+// vendidos no período — igual a como você já lança tudo hoje.
+
+// Categorias de despesa disponíveis no modal "+ Despesa" (campo `fCat`/
+// `teCat` no index.html) — usadas pra quebrar as despesas reais por tipo
+// na UI do pró-labore, no lugar de um número só.
+var PL_CAT_LABEL = {
+  mao_obra:    '👷 Mão de obra',
+  fixo:        '🏠 Custo fixo',
+  combustivel: '⛽ Combustível',
+  ferramentas: '🔧 Ferramentas',
+  outros:      '📦 Outros',
+  '':          '❔ Sem categoria'
+};
+
+// Verdadeiro pra qualquer saída que representa custo de MATERIAL —
+// seja pela categoria escolhida no modal (`t.cat === 'material'`), seja
+// por vir de um boleto de fornecedor categoria Material (app-boletos.js,
+// B_CAT.material), que cai aqui via bMarcarPago() com a descrição
+// terminando em " — Material". Como o custo de material já é contado
+// por job (m2 × custoPedraEpoca — mais preciso e casado com a venda),
+// uma compra de material lançada como despesa normal contaria o mesmo
+// custo DUAS vezes. Por isso essas saídas ficam de fora de despesasReais.
+function _plEhDespesaMaterial(t) {
+  return t.cat === 'material' || /—\s*Material\s*$/.test(t.desc || '');
+}
+
+// Todas as saídas reais do período que entram na conta de despesas
+// (fixos, insumos, mão de obra), já filtradas: sem as retiradas de
+// pró-labore (isso não é custo do negócio, é a distribuição do lucro
+// que a gente está calculando) e sem compras de material (contadas à
+// parte, via custo do job — ver _plEhDespesaMaterial acima).
+function _plDespesasBrutasNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'out' && !t.isProLabore && !_plEhDespesaMaterial(t) &&
+      t.date && t.date >= di && t.date <= df;
+  });
+}
+
+function _plDespesasNoPeriodo(di, df) {
+  return _plDespesasBrutasNoPeriodo(di, df).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+// Mesma soma de despesas reais, mas quebrada por categoria — pra
+// mostrar na UI de onde vem o dinheiro que sai (mão de obra, fixo,
+// combustível, ferramentas, outros/sem categoria). Só reflete o que
+// foi categorizado no modal de despesa; lançamentos antigos ou vindos
+// de outros módulos (ex. boletos) sem `cat` caem em "Sem categoria".
+function _plDespesasPorCategoriaNoPeriodo(di, df) {
+  var porCat = {};
+  Object.keys(PL_CAT_LABEL).forEach(function(k) { porCat[k] = 0; });
+  _plDespesasBrutasNoPeriodo(di, df).forEach(function(t) {
+    var k = (t.cat && PL_CAT_LABEL.hasOwnProperty(t.cat)) ? t.cat : '';
+    porCat[k] += (t.value || 0);
+  });
+  return porCat;
+}
+
+// Custo do material (pedra) dos serviços vendidos no período — usa
+// o mesmo par m2 × custoPedraEpoca já usado no dashboard mensal.
+function _plCustoMaterialNoPeriodo(di, df) {
+  return (DB.j || []).filter(function(j) {
+    if (!j.id) return false;
+    var d = new Date(j.id).toISOString().slice(0,10);
+    return d >= di && d <= df;
+  }).reduce(function(s, j) { return s + (j.m2 || 0) * (j.custoPedraEpoca || j.matCusto || 0); }, 0);
+}
+
+// Lucro bruto/líquido reais de um período: bruto = recebido − custo
+// de material; líquido = bruto − despesas reais (fixos, insumos, mão
+// de obra — tudo que foi de fato lançado como saída, exceto pró-labore).
+function _plLucroNoPeriodo(di, df) {
+  var recebido        = _plRecebidoNoPeriodo(di, df);
+  var custoMaterial    = _plCustoMaterialNoPeriodo(di, df);
+  var despesasReais     = _plDespesasNoPeriodo(di, df);
+  var lucroBruto        = recebido - custoMaterial;
+  var lucroLiquido       = lucroBruto - despesasReais;
+  return { recebido: recebido, custoMaterial: custoMaterial, despesasReais: despesasReais, lucroBruto: lucroBruto, lucroLiquido: lucroLiquido };
+}
+
+// Custo total médio (despesas reais + material) dos últimos meses
+// FECHADOS antes de mesRef — base estável pra meta de reserva de
+// emergência, no lugar do antigo fixos+vars orçado. Procura até
+// `maxBusca` meses pra trás pra achar `nMeses` com movimento (cobre
+// meses sem nenhum lançamento, ex. app recém-começado a usar pra
+// isso). Sem NENHUM histórico, projeta o mês corrente (parcial) pra
+// uma estimativa de mês cheio, em vez de usar o valor bruto — que
+// ficaria artificialmente baixo nos primeiros dias do mês.
+function _plCustoMedioMensal(mesRef, nMeses) {
+  nMeses = nMeses || 3;
+  var maxBusca = 12;
+  var ano = parseInt(mesRef.slice(0,4),10), mIdx = parseInt(mesRef.slice(5,7),10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var total = 0, contados = 0;
+  for (var i = 1; i <= maxBusca && contados < nMeses; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var l = _plLucroNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+    if (l.despesasReais || l.custoMaterial) { total += (l.despesasReais + l.custoMaterial); contados++; }
+  }
+  if (!contados) {
+    var hoje = td();
+    var diaAtual = (hoje.slice(0,7) === mesRef) ? parseInt(hoje.slice(8,10),10) : null;
+    var ultimoDiaRef = new Date(ano, mIdx + 1, 0).getDate();
+    var lRef = _plLucroNoPeriodo(mesRef + '-01', mesRef + '-' + pad(ultimoDiaRef));
+    var brutoRef = lRef.despesasReais + lRef.custoMaterial;
+    // projeta o parcial do mês corrente pra uma estimativa de mês cheio
+    if (diaAtual && diaAtual > 0 && diaAtual < ultimoDiaRef) {
+      return Math.round(brutoRef / diaAtual * ultimoDiaRef);
+    }
+    return brutoRef;
+  }
+  return total / contados;
+}
+
 // Dívida acumulada de meses ANTERIORES ao mês corrente: soma, mês
 // a mês, quanto era justo (vendido × %) menos quanto foi de fato
 // retirado como pró-labore naquele mês. Só conta a diferença
@@ -857,21 +1005,17 @@ function _plCalcDecendio(mes, num) {
   var sf  = _sfGetConfig();
   var pl  = _plGetConfig();
   var per = _plPeriodoDecendio(mes, num);
-  var diasNoMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
 
-  var fixosMes = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
-  var varsMes  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
-  var fracao   = per.dias / diasNoMes;
-  var fixos    = fixosMes * fracao;
-  var vars     = varsMes  * fracao;
+  // ── lucro real do período (não mais fração de orçamento) ──
+  var l              = _plLucroNoPeriodo(per.di, per.df);
+  var recPeriodo     = l.recebido;
+  var custoMaterial  = l.custoMaterial;
+  var despesasReais  = l.despesasReais;
+  var lucroBruto     = l.lucroBruto;
+  var lucroLiquido   = l.lucroLiquido;
 
-  var recPeriodo = _plRecebidoNoPeriodo(per.di, per.df);
-
-  // ── mesma distribuição do cálculo mensal, aplicada ao período ──
-  var saldoDisp      = Math.max(0, recPeriodo);
-  var reservaCorte   = Math.round(saldoDisp * 0.10);
-  var custosCobertos = Math.min(saldoDisp, fixos + vars);
-  var lucroLivre     = Math.max(0, saldoDisp - custosCobertos - reservaCorte);
+  var reservaCorte = Math.round(Math.max(0, recPeriodo) * 0.10);
+  var lucroLivre   = Math.max(0, lucroLiquido - reservaCorte);
 
   // ── teto de segurança: usa a posição de caixa REAL da empresa
   //    hoje (não dá pra fatiar caixa por decêndio, é uma coisa só) ──
@@ -879,7 +1023,7 @@ function _plCalcDecendio(mes, num) {
     .filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); })
     .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
   var reservaMeses = sf.reservaEmergencia || 3;
-  var reservaAlvo  = (fixosMes + varsMes) * reservaMeses;
+  var reservaAlvo  = _plCustoMedioMensal(mes, 3) * reservaMeses;
   var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
   var pctSeguranca, faixaSeguranca;
   if (saldoCaixa <= 0)          { pctSeguranca = 30; faixaSeguranca = 'caixa negativo'; }
@@ -907,7 +1051,9 @@ function _plCalcDecendio(mes, num) {
 
   return {
     mes: mes, num: num, di: per.di, df: per.df, dias: per.dias,
-    fixos: fixos, vars: vars, recPeriodo: recPeriodo, lucroLivre: lucroLivre,
+    custoMaterial: custoMaterial, despesasReais: despesasReais,
+    lucroBruto: lucroBruto, lucroLiquido: lucroLiquido,
+    recPeriodo: recPeriodo, lucroLivre: lucroLivre,
     saldoCaixa: saldoCaixa, pctReserva: pctReserva,
     pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
     pctVenda: pctVenda, vendidoPeriodo: vendidoPeriodo, justoPeriodo: justoPeriodo,
@@ -931,19 +1077,20 @@ function _plCalc() {
   var pl    = _plGetConfig();
   var hoje  = td();
   var mes   = hoje.slice(0, 7);
+  var ultimoDiaMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
+  var diMes = mes + '-01', dfMes = mes + '-' + String(ultimoDiaMes).padStart(2,'0');
 
-  var fixos = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
-  var vars  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  // ── lucro real do mês (não mais fração de orçamento) ──
+  var l               = _plLucroNoPeriodo(diMes, dfMes);
+  var recMes          = l.recebido;
+  var custoMaterialMes = l.custoMaterial;
+  var despesasMes     = l.despesasReais;
+  var lucroBrutoMes   = l.lucroBruto;
+  var lucroLiquidoMes = l.lucroLiquido;
+  var despesasPorCategoriaMes = _plDespesasPorCategoriaNoPeriodo(diMes, dfMes);
 
-  var recMes = (DB.t || [])
-    .filter(function(t) { return t.type === 'in' && (t.date || '').slice(0,7) === mes; })
-    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
-
-  // ── mesma distribuição usada no card de Saúde Financeira ──
-  var saldoDisp      = Math.max(0, recMes);
-  var reservaCorte   = Math.round(saldoDisp * 0.10);
-  var custosCobertos = Math.min(saldoDisp, fixos + vars);
-  var lucroLivre     = Math.max(0, saldoDisp - custosCobertos - reservaCorte);
+  var reservaCorte = Math.round(Math.max(0, recMes) * 0.10);
+  var lucroLivre   = Math.max(0, lucroLiquidoMes - reservaCorte);
 
   // ── saldo real de caixa (histórico completo, todas as entradas/saídas) ──
   var saldoCaixa = (DB.t || [])
@@ -951,7 +1098,7 @@ function _plCalc() {
     .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
 
   var reservaMeses = sf.reservaEmergencia || 3;
-  var reservaAlvo  = (fixos + vars) * reservaMeses;
+  var reservaAlvo  = _plCustoMedioMensal(mes, 3) * reservaMeses;
   var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
 
   // ── teto de segurança (protege o caixa/reserva) ──
@@ -990,7 +1137,10 @@ function _plCalc() {
   var retiradoAno = retiradasAno.reduce(function(s, t) { return s + (t.value || 0); }, 0);
 
   return {
-    mes: mes, fixos: fixos, vars: vars, recMes: recMes, lucroLivre: lucroLivre,
+    mes: mes, custoMaterialMes: custoMaterialMes, despesasMes: despesasMes,
+    despesasPorCategoriaMes: despesasPorCategoriaMes,
+    lucroBrutoMes: lucroBrutoMes, lucroLiquidoMes: lucroLiquidoMes,
+    recMes: recMes, lucroLivre: lucroLivre,
     saldoCaixa: saldoCaixa, reservaAlvo: reservaAlvo, pctReserva: pctReserva,
     pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
     pctVenda: pctVenda, vendidoMes: vendidoMes, qtdVendidoMes: qtdVendidoMes, justoMes: justoMes,
@@ -1031,6 +1181,26 @@ function renderProLabore() {
     h += '<div class="sf-alerta sf-alerta-red">🔴 Suas retiradas já somam ' + pctFat + '% do faturamento deste mês — bem acima da faixa saudável (até ~30-40%). Vale segurar antes de tirar mais.</div>';
     h += '</div>';
   }
+
+  // ── Lucro Bruto / Líquido do mês (transações reais lançadas em Finanças) ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🧮 Lucro Real do Mês</div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">Recebido</span><span class="fin-fixo-vl">R$ ' + fm(c.recMes) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Custo de material</span><span class="fin-fixo-vl">R$ ' + fm(c.custoMaterialMes) + '</span></div>';
+  h += '<div class="fin-fixo-tot"><span>= Lucro Bruto</span><span class="fin-fixo-tot-val">R$ ' + fm(c.lucroBrutoMes) + '</span></div>';
+  h += '<div class="fin-fixo-row" style="margin-top:6px;"><span class="fin-fixo-nm">− Despesas reais (fixos, insumos, mão de obra...)</span><span class="fin-fixo-vl">R$ ' + fm(c.despesasMes) + '</span></div>';
+  if (c.despesasMes > 0) {
+    h += '<div style="padding-left:10px;margin-top:2px;">';
+    Object.keys(PL_CAT_LABEL).forEach(function(k) {
+      var v = c.despesasPorCategoriaMes[k] || 0;
+      if (!v) return;
+      h += '<div class="fin-fixo-row" style="opacity:.8;"><span class="fin-fixo-nm" style="font-size:.68rem;">' + PL_CAT_LABEL[k] + '</span><span class="fin-fixo-vl" style="font-size:.68rem;">R$ ' + fm(v) + '</span></div>';
+    });
+    h += '</div>';
+  }
+  h += '<div class="fin-fixo-tot"><span>= Lucro Líquido</span><span class="fin-fixo-tot-val" style="color:' + (c.lucroLiquidoMes >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(c.lucroLiquidoMes) + '</span></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);margin-top:6px;">Lucro livre pra pró-labore (após reserva de 10%): R$ ' + fm(c.lucroLivre) + '</div>';
+  h += '</div>';
 
   // ── Valor justo pela venda ──
   h += '<div class="sf-section">';
