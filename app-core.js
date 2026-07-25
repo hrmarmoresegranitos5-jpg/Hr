@@ -11199,18 +11199,41 @@ function _compressImageDataUrl(dataUrl,maxW,quality){
 // Aplica a compressão em todas as fotos do objeto de catálogo (em paralelo)
 function _compressCatalogoDados(dados){
   var listas=[dados.cubas_coz,dados.cubas_lav,dados.acessorios,dados.pedras,dados.trabalhos,dados.referencias];
+  var cache={}; // mesma foto (photo === fotos[0]) só é comprimida uma vez
+  function comp(url){
+    if(!url)return Promise.resolve(url);
+    if(!cache[url])cache[url]=_compressImageDataUrl(url,1200,0.8);
+    return cache[url];
+  }
   var tasks=[];
   listas.forEach(function(lista){
     (lista||[]).forEach(function(item){
-      if(item.photo){ tasks.push(_compressImageDataUrl(item.photo,1200,0.8).then(function(c){item.photo=c;})); }
+      if(item.photo){ tasks.push(comp(item.photo).then(function(c){item.photo=c;})); }
       if(item.fotos&&item.fotos.length){
         item.fotos.forEach(function(f,i){
-          tasks.push(_compressImageDataUrl(f,1200,0.8).then(function(c){item.fotos[i]=c;}));
+          tasks.push(comp(f).then(function(c){item.fotos[i]=c;}));
         });
       }
     });
   });
   return Promise.all(tasks).then(function(){ return dados; });
+}
+// Separa as fotos "extras" (galeria, além da capa) num arquivo à parte —
+// o site carrega só a capa de cada item pra montar a vitrine rapidamente,
+// e busca a galeria completa sob demanda, só quando o cliente abre o item.
+function _splitFotosExtras(dados){
+  var galeria={};
+  var mapa={cubas_coz:'coz',cubas_lav:'lav',acessorios:'ac',pedras:'pedra'};
+  Object.keys(mapa).forEach(function(catKey){
+    (dados[catKey]||[]).forEach(function(item){
+      var f=item.fotos||[];
+      if(f.length>1){
+        galeria[mapa[catKey]+':'+item.id]=f.slice(1);
+        item.fotos=[f[0]];
+      }
+    });
+  });
+  return galeria;
 }
 function _publicarCatalogoImpl(){
   var token=(CFG.emp&&CFG.emp.ghToken||'').trim();
@@ -11218,6 +11241,7 @@ function _publicarCatalogoImpl(){
   if(!token){toast('⚠ Configure o GitHub Token em Empresa');return;}
   if(!repo){toast('⚠ Configure o Repositório (ex: usuario/Hr)');return;}
   var apiUrl='https://api.github.com/repos/'+repo+'/contents/catalogo.json';
+  var fotosUrl='https://api.github.com/repos/'+repo+'/contents/catalogo-fotos.json';
   var backupUrl='https://api.github.com/repos/'+repo+'/contents/catalogo.backup.json';
   var headers={
     'Authorization':'token '+token,
@@ -11226,11 +11250,30 @@ function _publicarCatalogoImpl(){
   };
   toast('🗜️ Comprimindo fotos...');
   _compressCatalogoDados(_buildCatalogoDados()).then(function(dados){
+    // Tira as fotos extras (galeria) do payload principal — isso é o que
+    // realmente deixa o site rápido: catalogo.json fica só com a capa de
+    // cada item, e a galeria completa vai num arquivo separado, carregado
+    // apenas quando o cliente abre um item específico.
+    var galeria=_splitFotosExtras(dados);
     var jsonStr=JSON.stringify(dados);
     var content;
     try{ content=btoa(unescape(encodeURIComponent(jsonStr))); }
     catch(e){ toast('Erro ao codificar catálogo'); return; }
+    var fotosContent;
+    try{ fotosContent=btoa(unescape(encodeURIComponent(JSON.stringify(galeria)))); }
+    catch(e){ fotosContent=null; }
     toast('📡 Publicando catálogo...');
+    var publicarGaleria=function(){
+      if(!fotosContent)return Promise.resolve();
+      return fetch(fotosUrl,{headers:{'Authorization':headers.Authorization,'Accept':headers.Accept}})
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .catch(function(){ return null; })
+        .then(function(existingFotos){
+          var body={ message:'Atualiza galeria de fotos do catálogo — '+new Date().toLocaleString('pt-BR'), content:fotosContent };
+          if(existingFotos&&existingFotos.sha) body.sha=existingFotos.sha;
+          return fetch(fotosUrl,{method:'PUT',headers:headers,body:JSON.stringify(body)}).catch(function(){});
+        });
+    };
     fetch(apiUrl,{headers:{'Authorization':headers.Authorization,'Accept':headers.Accept}})
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; })
@@ -11258,9 +11301,11 @@ function _publicarCatalogoImpl(){
       })
       .then(function(putResp){
         if(putResp.ok){
-          CFG.emp=CFG.emp||{};CFG.emp.ultimaPublicacao=new Date().toISOString();svCFG();
-          toast('✓ Catálogo publicado com sucesso!');
-          if(typeof buildCfg==='function')buildCfg();
+          return publicarGaleria().then(function(){
+            CFG.emp=CFG.emp||{};CFG.emp.ultimaPublicacao=new Date().toISOString();svCFG();
+            toast('✓ Catálogo publicado com sucesso!');
+            if(typeof buildCfg==='function')buildCfg();
+          });
         } else {
           return putResp.json().then(function(e){
             toast('✗ Erro: '+(e&&e.message?e.message:putResp.status));
@@ -11287,10 +11332,15 @@ function _previewCatalogoImpl(){
   }
 }
 function _normFotosPublic(lista){
+  // NOTA: "photo" não é mais serializado junto com "fotos" quando idêntico —
+  // catalogo.html já cai pra fotos[0] quando photo está ausente (evita
+  // duplicar a mesma imagem 2x no catalogo.json e inflar o arquivo ~2x).
   return (lista||[]).map(function(c){
     var f=c.fotos?c.fotos.slice():[];
     if(c.photo&&f.indexOf(c.photo)<0)f.unshift(c.photo);
-    var o=Object.assign({},c);o.fotos=f;o.photo=f[0]||c.photo||'';return o;
+    var o=Object.assign({},c);o.fotos=f;
+    if(f.length)delete o.photo; else o.photo=c.photo||'';
+    return o;
   });
 }
 // Pedras (granito/mármore/quartzito/ultra compacto/travertino) para o catálogo público.
@@ -11299,7 +11349,9 @@ function _normStonesPublic(lista){
   return (lista||[]).filter(function(s){return s&&s.photo;}).map(function(s){
     var f=s.fotos?s.fotos.slice():[];
     if(s.photo&&f.indexOf(s.photo)<0)f.unshift(s.photo);
-    return {id:s.id,nm:s.nm,cat:s.cat,fin:s.fin,pr:s.pr,desc:s.desc||'',photo:f[0]||s.photo,fotos:f};
+    var o={id:s.id,nm:s.nm,cat:s.cat,fin:s.fin,pr:s.pr,desc:s.desc||'',fotos:f};
+    if(!f.length)o.photo=s.photo;
+    return o;
   });
 }
 // Trabalhos realizados (portfólio "Inspire-se") para o catálogo público.
@@ -11308,7 +11360,9 @@ function _normTrabalhosPublic(lista){
   return (lista||[]).filter(function(t){return t&&t.photo;}).map(function(t){
     var f=t.fotos?t.fotos.slice():[];
     if(t.photo&&f.indexOf(t.photo)<0)f.unshift(t.photo);
-    return {id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',photo:f[0]||t.photo,fotos:f};
+    var o={id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',fotos:f};
+    if(!f.length)o.photo=t.photo;
+    return o;
   });
 }
 // Referências de mercado (galeria "Ideias e possibilidades") para o catálogo público.
@@ -11317,7 +11371,9 @@ function _normReferenciasPublic(lista){
   return (lista||[]).filter(function(t){return t&&t.photo;}).map(function(t){
     var f=t.fotos?t.fotos.slice():[];
     if(t.photo&&f.indexOf(t.photo)<0)f.unshift(t.photo);
-    return {id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',photo:f[0]||t.photo,fotos:f};
+    var o={id:t.id,ambiente:t.ambiente||'',desc:t.desc||'',fotos:f};
+    if(!f.length)o.photo=t.photo;
+    return o;
   });
 }
 function baixarCatalogoJson(){
