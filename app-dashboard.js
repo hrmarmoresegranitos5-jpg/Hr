@@ -1025,7 +1025,7 @@ function _inadimpReceberJob(jobId) {
   showCB(
     'Registrar R$ ' + fm(resto) + ' recebido de ' + j.cli + '?',
     function() {
-      if (typeof addTr === 'function') addTr('in', 'Recebimento — ' + j.cli, resto);
+      if (typeof addTr === 'function') addTr('in', 'Recebimento — ' + j.cli, resto, null, j.id);
       j.pago = j.value;
       DB.sv();
       hideCB();

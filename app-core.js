@@ -6884,14 +6884,14 @@ function saveJob(){
     var _novoJobManual={id:Date.now(),cli:cli,desc:desc,start:s,end:end,value:val,pago:pago,obs:obs,done:false,instala:instala,stage:'producao'};
     if(_jobLinkedQId) _novoJobManual.qId=_jobLinkedQId;
     DB.j.unshift(_novoJobManual);DB.sv();
-    if(pago>0)setTimeout(function(){showCB('Registrar entrada de R$ '+fm(pago)+' do '+cli+'?',function(){addTr('in','Entrada — '+cli,pago);hideCB();},function(){hideCB();});},400);
+    if(pago>0)setTimeout(function(){showCB('Registrar entrada de R$ '+fm(pago)+' do '+cli+'?',function(){addTr('in','Entrada — '+cli,pago,null,_novoJobManual.id);hideCB();},function(){hideCB();});},400);
   }
   renderAg();updUrgDot();closeAll();toast('✓ Salvo!');
 }
 
 function editJob(id){openJobModal(id);}
-function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){var _tr=addTr('in','Entrega — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});},400);}}
-function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){var _tr=addTr('in','Pagamento — '+j.cli,r);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});}
+function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){var _tr=addTr('in','Entrega — '+j.cli,r,null,j.id);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});},400);}}
+function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){var _tr=addTr('in','Pagamento — '+j.cli,r,null,j.id);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});}
 function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();});}
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
 
@@ -6916,7 +6916,7 @@ function _jobPagamentoFlow(j){
   if(r>0){
     setTimeout(function(){
       showCB(j.cli+' — recebeu R$ '+fm(r)+' da entrega?',function(){
-        var _tr=addTr('in','Entrega — '+j.cli,r);
+        var _tr=addTr('in','Entrega — '+j.cli,r,null,j.id);
         j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');
         if(typeof gerarComprovante==='function')setTimeout(function(){
           showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});
@@ -7263,7 +7263,7 @@ function jCard(j){
 // ═══ FINANÇAS ═══
 function openFin(t){fType=t;document.querySelectorAll('.ts').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});var fd=document.getElementById('fData');if(fd&&!fd.value)fd.value=td();showMd('finMd');}
 function setFT(t){fType=t;document.querySelectorAll('[data-ftp]').forEach(function(o){o.classList.toggle('on',o.dataset.ftp===t);});}
-function addTr(type,desc,value,date){var _tr={id:Date.now(),type:type,desc:desc,value:value,date:date||td()};DB.t.unshift(_tr);DB.sv();renderFin();return _tr;}
+function addTr(type,desc,value,date,jId){var _tr={id:Date.now(),type:type,desc:desc,value:value,date:date||td()};if(jId)_tr.jId=jId;DB.t.unshift(_tr);DB.sv();renderFin();return _tr;}
 function saveFin(){var desc=document.getElementById('fDesc').value.trim(),val=+document.getElementById('fVal').value||0,date=document.getElementById('fData').value;if(!desc){toast('Preencha a descrição');return;}DB.t.unshift({id:Date.now(),type:fType,desc:desc,value:val,date:date});DB.sv();renderFin();closeAll();document.getElementById('fDesc').value='';document.getElementById('fVal').value='';toast('✓ Lançado!');}
 function openEditTr(id){
   editTrId=id;

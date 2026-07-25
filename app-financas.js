@@ -46,6 +46,7 @@ function saveFin() {
   if (!desc) { toast('Preencha a descrição'); return; }
   var _fCat = document.getElementById('fCat');
   var cat = (fType === 'out' && _fCat && _fCat.value) ? _fCat.value : undefined;
+  if (fType === 'out' && !cat) { toast('Escolha uma categoria pra despesa'); return; }
   var _tr = { id: Date.now(), type: fType, desc: desc, value: val, date: date };
   if (cat) _tr.cat = cat;
   DB.t.unshift(_tr);
@@ -94,7 +95,8 @@ function saveTrEdit() {
   if (t.type === 'out') {
     var _teCat = document.getElementById('teCat');
     var cat = _teCat ? _teCat.value : '';
-    if (cat) t.cat = cat; else delete t.cat;
+    if (!cat) { toast('Escolha uma categoria pra despesa'); return; }
+    t.cat = cat;
   } else {
     delete t.cat;
   }
@@ -868,14 +870,34 @@ function _plDespesasPorCategoriaNoPeriodo(di, df) {
   return porCat;
 }
 
-// Custo do material (pedra) dos serviços vendidos no período — usa
-// o mesmo par m2 × custoPedraEpoca já usado no dashboard mensal.
+// Custo do material (pedra) reconhecido no período — agora casado com
+// a MESMA base de "recebido" (regime de caixa): o custo só entra no mês
+// em que o pagamento daquele serviço efetivamente aconteceu (via t.jId),
+// proporcional ao valor recebido. Pagamentos antigos, lançados antes
+// desse rastreamento existir (sem t.jId), caem no fallback antigo —
+// reconhecidos no mês de criação do serviço — pra não reescrever
+// silenciosamente o histórico já fechado.
 function _plCustoMaterialNoPeriodo(di, df) {
-  return (DB.j || []).filter(function(j) {
-    if (!j.id) return false;
-    var d = new Date(j.id).toISOString().slice(0,10);
-    return d >= di && d <= df;
-  }).reduce(function(s, j) { return s + (j.m2 || 0) * (j.custoPedraEpoca || j.matCusto || 0); }, 0);
+  var total = 0;
+  (DB.j || []).forEach(function(j) {
+    if (!j.id || !j.value) return;
+    var custoTotal = (j.m2 || 0) * (j.custoPedraEpoca || j.matCusto || 0);
+    if (!custoTotal) return;
+    var custoPorReal = custoTotal / j.value;
+    var trackedPago = 0;
+    (DB.t || []).forEach(function(t) {
+      if (t.type !== 'in' || t.jId !== j.id) return;
+      trackedPago += (t.value || 0);
+      var d = (t.date || '').slice(0,10);
+      if (d >= di && d <= df) total += (t.value || 0) * custoPorReal;
+    });
+    var legacyPago = Math.max(0, (j.pago || 0) - trackedPago);
+    if (legacyPago > 0) {
+      var dj = new Date(j.id).toISOString().slice(0,10);
+      if (dj >= di && dj <= df) total += legacyPago * custoPorReal;
+    }
+  });
+  return total;
 }
 
 // Lucro bruto/líquido reais de um período: bruto = recebido − custo
