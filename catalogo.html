@@ -26,7 +26,7 @@
   --line:#e3e3e3; --line2:#d8d8d8;
   --gold:#b8893a; --gold-soft:#a9692a; --gold-deep:#8a5c1e;
   --cream:#1a1a1a; --ink:#333333; --ink-soft:#666666; --ink-mute:#8c8c8c;
-  --blue:#3483fa; --blue-dark:#2968c8; --green:#00a650;
+  --blue:#8a5c1e; --blue-dark:#6e4817; --green:#3d6b52;
   --r:16px; --r-sm:10px;
   --maxw:1180px;
 }
@@ -172,17 +172,18 @@ section{padding:56px 0;}
 .card{
   background:#fff;
   border:1px solid #e8e8e8;
-  border-radius:6px;
+  border-radius:var(--r-sm);
   overflow:hidden;
   cursor:pointer;
   display:flex;
   flex-direction:column;
-  transition:box-shadow .18s;
+  transition:box-shadow .18s,transform .18s;
   position:relative;
 }
 .card:hover{
-  box-shadow:0 4px 20px rgba(0,0,0,.18);
+  box-shadow:0 8px 24px rgba(0,0,0,.12);
   border-color:#ccc;
+  transform:translateY(-2px);
 }
 
 /* foto — fundo branco, contém a imagem inteira, nunca corta */
@@ -232,29 +233,29 @@ section{padding:56px 0;}
   word-break:break-word;
   hyphens:auto;
 }
-.cbrand{font-size:.65rem;color:#00a650;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
+.cbrand{font-size:.65rem;color:var(--gold-deep);font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;}
 .cdim{font-size:.6rem;color:#999;margin-bottom:4px;}
 .cpr-block{margin-top:auto;}
 .cpr-orig{font-size:.65rem;color:#999;text-decoration:line-through;display:block;line-height:1.3;}
 .cpr{font-size:1.1rem;font-weight:700;color:#333;display:block;line-height:1.15;}
-.cpr-off{font-size:.65rem;font-weight:700;color:#00a650;margin-left:4px;}
+.cpr-off{font-size:.65rem;font-weight:700;color:var(--green);margin-left:4px;}
 .cpr-parce{font-size:.62rem;color:#666;display:block;margin-top:2px;}
 .cbtn{
   width:100%;
   padding:9px 8px;
   border:none;
-  background:#3483fa;
-  color:#fff;
+  background:var(--cream);
+  color:var(--gold);
   font-size:.72rem;font-weight:700;
   font-family:Outfit,sans-serif;
   cursor:pointer;
   display:flex;align-items:center;justify-content:center;gap:5px;
-  transition:background .15s;
+  transition:background .15s,color .15s;
   flex-shrink:0;
   margin-top:8px;
   border-radius:4px;
 }
-.cbtn:hover{background:#2968c8;}
+.cbtn:hover{background:#000;color:var(--gold-soft);}
 
 /* favoritos — coração no canto do card, estilo ML */
 .cfav{
@@ -514,7 +515,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdstars{color:#f5a623;font-size:.78rem;letter-spacing:1px;}
 .mdrval{font-size:.72rem;color:var(--ink-mute);font-weight:600;}
 .mdsold{font-size:.72rem;color:var(--ink-mute);}
-.mdsold span{color:#4dc87a;font-weight:700;}
+.mdsold span{color:#3f8462;font-weight:700;}
 .mdnm{font-family:"Cormorant Garamond",serif;font-size:1.45rem;font-weight:700;color:var(--cream);line-height:1.15;margin-bottom:5px;}
 .mddim{font-size:.72rem;color:var(--ink-mute);margin-bottom:10px;}
 .mddesc{font-size:.8rem;color:var(--ink-soft);line-height:1.6;margin-bottom:14px;}
@@ -553,12 +554,12 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .badge-rank{font-size:.72rem;color:var(--ink-mute);}
 .badge-oferta{
   display:inline-flex;align-items:center;gap:5px;
-  background:rgba(30,100,200,.2);color:#6ab0ff;
+  background:rgba(184,137,58,.15);color:var(--gold-deep);
   font-size:.62rem;font-weight:800;letter-spacing:.5px;text-transform:uppercase;
-  padding:4px 9px;border-radius:5px;border:1px solid rgba(30,100,200,.35);
+  padding:4px 9px;border-radius:5px;border:1px solid rgba(184,137,58,.35);
 }
 
-/* loja oficial — barra acima do título, estilo ML */
+/* selo de fabricação própria — barra acima do título */
 .mdloja{
   display:flex;align-items:center;gap:6px;
   margin-bottom:10px;
@@ -568,7 +569,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdloja .check{
   display:inline-flex;align-items:center;justify-content:center;
   width:14px;height:14px;border-radius:50%;
-  background:#3483fa;color:#fff;font-size:.55rem;font-weight:900;
+  background:var(--gold-deep);color:#fff;font-size:.55rem;font-weight:900;
   flex-shrink:0;
 }
 
@@ -581,7 +582,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 /* linha de desconto: "52% OFF  R$ 396,52" */
 .mdpr-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .mdpr-pct{
-  background:#00a650;color:#fff;
+  background:var(--green);color:#fff;
   font-size:.68rem;font-weight:800;
   padding:3px 7px;border-radius:4px;
 }
@@ -591,10 +592,10 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .mdpr-val small{font-size:.7rem;font-weight:500;color:var(--ink-mute);}
 /* parcelamento */
 .mdpr-parce{font-size:.76rem;color:var(--ink-soft);}
-.mdpr-parce strong{color:#4dc87a;}
+.mdpr-parce strong{color:#3f8462;}
 /* disponível */
-.mdpr-estoque{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:.7rem;font-weight:700;color:#4dc87a;}
-.mdpr-estoque::before{content:'';width:7px;height:7px;border-radius:50%;background:#4dc87a;flex-shrink:0;}
+.mdpr-estoque{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:.7rem;font-weight:700;color:#3f8462;}
+.mdpr-estoque::before{content:'';width:7px;height:7px;border-radius:50%;background:#3f8462;flex-shrink:0;}
 /* sob consulta */
 .mdpr-consulta{font-size:1rem;color:var(--ink-soft);}
 
@@ -1164,12 +1165,27 @@ function checkDeepLink(){
 /* ════════════════════════════════════
    CARGA DO JSON
    ════════════════════════════════════ */
+var CAT_CACHE_KEY='hr_catalogo_cache_v1';
 function load(){
-  fetch('./catalogo.json?t='+Date.now(),{cache:'no-store'})
+  // 1) Mostra na hora o que já está salvo do último acesso (se houver) —
+  //    catálogo aparece instantaneamente enquanto a versão nova é conferida.
+  var cached=null;
+  try{ cached=JSON.parse(localStorage.getItem(CAT_CACHE_KEY)||'null'); }catch(e){}
+  if(cached){ DATA=cached; boot(); }
+
+  // 2) 'no-cache' (em vez de 'no-store') deixa o navegador validar com o
+  //    servidor via ETag/Last-Modified: se nada mudou, recebe 304 e não
+  //    baixa os bytes de novo — bem mais rápido que forçar download total.
+  fetch('./catalogo.json',{cache:'no-cache'})
     .then(function(r){if(!r.ok)throw new Error('not found');return r.json();})
-    .then(function(d){DATA=d;boot();})
+    .then(function(d){
+      var isNew=!cached||cached.updatedAt!==d.updatedAt;
+      DATA=d;
+      try{ localStorage.setItem(CAT_CACHE_KEY,JSON.stringify(d)); }catch(e){}
+      if(isNew||!cached) boot(); // só re-renderiza se mudou (ou se era o primeiro load)
+    })
     .catch(function(){
-      document.getElementById('loading').innerHTML='<div style="font-size:2rem;margin-bottom:10px;">⚠️</div>Catálogo ainda não publicado.<br>Volte em breve.';
+      if(!cached) document.getElementById('loading').innerHTML='<div style="font-size:2rem;margin-bottom:10px;">⚠️</div>Catálogo ainda não publicado.<br>Volte em breve.';
     });
 }
 
@@ -1637,6 +1653,18 @@ function renderGrid(){
 /* ════════════════════════════════════
    MODAL COM GALERIA
    ════════════════════════════════════ */
+/* Galeria completa (fotos extras além da capa) — carregada sob demanda,
+   só quando o cliente abre o item, não no carregamento inicial do site. */
+var GALERIA_EXTRA=null, GALERIA_FETCH=null;
+function _fetchGaleriaExtra(){
+  if(GALERIA_EXTRA)return Promise.resolve(GALERIA_EXTRA);
+  if(GALERIA_FETCH)return GALERIA_FETCH;
+  GALERIA_FETCH=fetch('./catalogo-fotos.json',{cache:'no-cache'})
+    .then(function(r){return r.ok?r.json():{};})
+    .catch(function(){return {};})
+    .then(function(d){GALERIA_EXTRA=d||{};return GALERIA_EXTRA;});
+  return GALERIA_FETCH;
+}
 function openItem(cat,idx,fromDeepLink){
   var it=listFor(cat)[idx];
   if(!it)return;
@@ -1646,6 +1674,15 @@ function openItem(cat,idx,fromDeepLink){
   CURFOTOS=(it.fotos&&it.fotos.length)?it.fotos:(it.photo?[it.photo]:[]);
   CURFOTO_IDX=0;
   STONE_M2=null;
+  /* busca fotos extras da galeria em segundo plano e injeta no carrossel
+     se o item ainda estiver aberto quando a resposta chegar */
+  _fetchGaleriaExtra().then(function(gal){
+    var extras=gal&&gal[cat+':'+it.id];
+    if(extras&&extras.length&&CURITEM===it){
+      extras.forEach(function(f){ if(CURFOTOS.indexOf(f)<0)CURFOTOS.push(f); });
+      if(typeof _refreshGal==='function')_refreshGal();
+    }
+  });
 
   /* SEO — atualiza metatags para este produto (para compartilhamento de link) */
   var itemLink=itemUrl(cat,idx);
@@ -1705,7 +1742,7 @@ function openItem(cat,idx,fromDeepLink){
   var corHtml=it.cor?'<div class="mdcor">Cor: <strong>'+esc(it.cor)+'</strong></div>':'';
 
   var lojaNome=(DATA.emp&&DATA.emp.nome)||'HR Mármores e Granitos';
-  var lojaHtml='<div class="mdloja">Loja oficial <strong>'+esc(lojaNome)+'</strong> <span class="check">✓</span></div>';
+  var lojaHtml='<div class="mdloja">Fabricação própria <strong>'+esc(lojaNome)+'</strong> <span class="check">✓</span></div>';
   var crumbHtml=_buildBreadcrumb(cat,it);
 
   document.getElementById('md').innerHTML=
@@ -1800,6 +1837,10 @@ function _buildRating(it){
     +'</div>';
 }
 
+function _refreshGal(){
+  var el=document.querySelector('.mdgal');
+  if(el)el.outerHTML=_buildGal();
+}
 function _buildGal(){
   var n=CURFOTOS.length;
   var phIcon=CAT==='ac'?'🔩':(CAT==='pedra'?'🪨':'🚰');
