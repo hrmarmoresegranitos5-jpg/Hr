@@ -240,6 +240,22 @@ function buildOrcList(list) {
     if(q.editCount > 0) {
       h += '<div class="qdr"><span class="k">Editado</span><span class="v" style="font-size:.65rem;color:#aaa;">'+q.editCount+'x · última vez '+fd(q.updatedAt||q.date)+'</span></div>';
     }
+    // Versões anteriores — aninhadas dentro do mesmo card, pra comparar
+    // sem duplicar o orçamento na lista.
+    if(q.versoes && q.versoes.length) {
+      h += '<div class="qdr" style="cursor:pointer;" onclick="event.stopPropagation();toggleVersoesOrc(\''+q.id+'\')">';
+      h +=   '<span class="k">🕐 Versões anteriores</span>';
+      h +=   '<span class="v" style="color:var(--gold);font-size:.68rem;">'+q.versoes.length+' · comparar ▾</span>';
+      h += '</div>';
+      h += '<div id="vers-'+q.id+'" style="display:none;margin:2px 0 8px;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:8px;">';
+      q.versoes.slice().reverse().forEach(function(v) {
+        h += '<div class="qdr" style="font-size:.68rem;opacity:.8;">';
+        h +=   '<span class="k">'+fd(v.updatedAt||'')+'</span>';
+        h +=   '<span class="v">R$ '+fm(v.vista)+' · '+(v.m2?v.m2.toFixed(2)+'m²':escH(v.mat||''))+'</span>';
+        h += '</div>';
+      });
+      h += '</div>';
+    }
     // Motivo da perda
     if(q.status==='perdido' && q.motivoPerda) {
       h += '<div class="qdr"><span class="k" style="color:#e74c3c;">Motivo perda</span><span class="v" style="font-size:.7rem;color:#e74c3c;">'+escH(q.motivoPerda)+'</span></div>';
@@ -308,6 +324,13 @@ function buildOrcList(list) {
     h += '</div>'; // qcard
   });
   el.innerHTML = h;
+}
+
+// ── Expandir/recolher versões anteriores aninhadas no card ─────────────────
+function toggleVersoesOrc(id) {
+  var el = document.getElementById('vers-'+id);
+  if (!el) return;
+  el.style.display = (el.style.display === 'none') ? 'block' : 'none';
 }
 
 // ── Alterar status do funil ──────────────────────────────────────────────────

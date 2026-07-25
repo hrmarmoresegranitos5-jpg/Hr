@@ -2116,18 +2116,62 @@ function calcular(){
   });
   var _agora=td();
   var q={id:Date.now(),date:_agora,createdAt:_agora,updatedAt:_agora,editCount:0,status:'aberto',cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,m2:totalM2,custoPedra:totalCustoPedra,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+
+  // ── Deduplicação + versionamento aninhado ──────────────────────────────
+  // Cada vez que "Calcular" roda (inclusive antes de salvar o PDF de novo),
+  // esse bloco decidia sem pensar se cria um card novo no histórico. Isso
+  // fazia 10 PDFs sem mudar nada virarem 10 cards idênticos. Agora: só cria
+  // card novo se o CONTEÚDO realmente mudou; se mudou, a versão anterior
+  // fica ANINHADA dentro do mesmo card (q.versoes), pra poder comparar sem
+  // poluir a lista com duplicatas.
+  var _fpCampos=['cli','tel','cidade','end','obs','tipo','mat','matPr','matCusto','m2','custoPedra','pedT','acT','acN','pds','sfPcs','vista','parc','p8','ent','ambSnap','ceara'];
+  function _orcFingerprint(o){
+    var slim={};
+    _fpCampos.forEach(function(k){ slim[k]=o[k]; });
+    return JSON.stringify(slim);
+  }
+  function _orcSnapshotVersao(o){
+    var s={updatedAt:o.updatedAt||o.date};
+    _fpCampos.forEach(function(k){ s[k]=o[k]; });
+    return s;
+  }
+  function _orcMesclarVersao(qNovo,orig){
+    qNovo.id=orig.id; qNovo.date=orig.date;
+    qNovo.createdAt=orig.createdAt||orig.date;
+    qNovo.updatedAt=_agora; qNovo.editCount=(orig.editCount||0)+1;
+    qNovo.status=orig.status||'aberto'; qNovo.statusAt=orig.statusAt||null;
+    if(orig.motivoPerda) qNovo.motivoPerda=orig.motivoPerda;
+    var hist=(orig.versoes||[]).slice(-4); // guarda no máx. 5 versões (4 antigas + a que entra agora)
+    hist.push(_orcSnapshotVersao(orig));
+    qNovo.versoes=hist;
+  }
+
   if(window._orcEditandoId){
     var _eIdx=DB.q.findIndex(function(x){return x.id==window._orcEditandoId;});
     if(_eIdx>=0){
       var _orig=DB.q[_eIdx];
-      q.id=_orig.id; q.date=_orig.date;
-      q.createdAt=_orig.createdAt||_orig.date;
-      q.updatedAt=_agora; q.editCount=(_orig.editCount||0)+1;
-      q.status=_orig.status||'aberto'; q.statusAt=_orig.statusAt||null;
-      if(_orig.motivoPerda) q.motivoPerda=_orig.motivoPerda;
-      DB.q[_eIdx]=q; window._orcEditandoId=null; DB.sv(); pendQ=q;
+      if(_orcFingerprint(_orig)===_orcFingerprint(q)){
+        _orig.updatedAt=_agora; DB.sv(); pendQ=_orig;
+      } else {
+        _orcMesclarVersao(q,_orig);
+        DB.q[_eIdx]=q; window._orcEditandoId=null; DB.sv(); pendQ=q;
+      }
     } else { window._orcEditandoId=null; DB.q.unshift(q); DB.sv(); pendQ=q; }
-  } else { DB.q.unshift(q); DB.sv(); pendQ=q; }
+  } else {
+    var _ultimo=DB.q[0];
+    var _mesmoOrcamento=_ultimo && _ultimo.cli===q.cli && _ultimo.tipo===q.tipo && (Date.now()-(_ultimo.id||0))<30*60*1000;
+    if(_mesmoOrcamento && _orcFingerprint(_ultimo)===_orcFingerprint(q)){
+      // Recalculou/gerou PDF de novo sem mudar nada — só atualiza o horário.
+      _ultimo.updatedAt=_agora; DB.sv(); pendQ=_ultimo;
+    } else if(_mesmoOrcamento){
+      // Mesmo cliente/ambiente, dentro da mesma sessão de orçamento, e algo
+      // mudou — é uma revisão do mesmo orçamento, não um orçamento novo.
+      _orcMesclarVersao(q,_ultimo);
+      DB.q[0]=q; DB.sv(); pendQ=q;
+    } else {
+      DB.q.unshift(q); DB.sv(); pendQ=q;
+    }
+  }
   // ── Consultor de Desconto + Auto-save cliente ──
   setTimeout(function(){ _cliMostrarConsultor(q); _cliAutoSave(cli,tel,cidade,end); }, 500);
 }
