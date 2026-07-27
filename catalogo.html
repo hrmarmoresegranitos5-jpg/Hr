@@ -723,6 +723,68 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .btn-add-cart.added{background:var(--panel2);color:var(--gold-soft);border:2px solid var(--gold);box-shadow:none;}
 
 /* ═══ POPUP SUGESTÃO ACESSÓRIOS ═══ */
+#introOv{
+  position:fixed;inset:0;z-index:200;
+  background:linear-gradient(160deg,#1a1a1a 0%,#2b2116 60%,#1a1a1a 100%);
+  display:none;
+  flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 22px;overflow-y:auto;text-align:center;
+}
+#introOv.on{display:flex;}
+#introSkip{
+  position:absolute;top:18px;right:18px;background:none;border:none;
+  color:rgba(255,255,255,.55);font-size:.8rem;cursor:pointer;padding:8px;
+}
+#introBox{width:100%;max-width:420px;margin:auto;animation:introFade .4s ease;}
+@keyframes introFade{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.intro-logo{
+  width:64px;height:64px;border-radius:16px;margin:0 auto 18px;
+  background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));
+  display:flex;align-items:center;justify-content:center;
+  font-family:"Cormorant Garamond",serif;font-weight:700;font-size:1.5rem;color:#fff;
+}
+.intro-title{color:#fff;font-size:1.6rem;line-height:1.25;margin:0 0 8px;}
+.intro-title span{color:var(--gold);}
+.intro-sub{color:rgba(255,255,255,.65);font-size:.9rem;margin:0 0 26px;}
+.intro-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
+.intro-card{
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+  border-radius:14px;padding:20px 12px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  transition:background .15s,border-color .15s,transform .15s;
+}
+.intro-card:active{transform:scale(.96);}
+.intro-card:hover{background:rgba(255,255,255,.1);border-color:var(--gold-soft);}
+.intro-ic{font-size:1.8rem;}
+.intro-lbl{color:#fff;font-weight:700;font-size:.95rem;}
+.intro-desc{color:rgba(255,255,255,.5);font-size:.68rem;}
+.intro-visita{
+  width:100%;padding:14px;border-radius:12px;
+  background:none;border:1.5px dashed var(--gold-soft);color:var(--gold);
+  font-size:.85rem;font-weight:700;cursor:pointer;
+}
+.intro-visita:active{transform:scale(.98);}
+.intro-visita-form{width:100%;text-align:left;}
+.intro-visita-form.hide{display:none;}
+.intro-form-back{background:none;border:none;color:rgba(255,255,255,.6);font-size:.82rem;cursor:pointer;padding:0 0 14px;}
+.intro-visita-form h3{color:#fff;font-family:"Cormorant Garamond",serif;font-size:1.3rem;margin:0 0 6px;}
+.intro-visita-form p{color:rgba(255,255,255,.6);font-size:.82rem;margin:0 0 16px;line-height:1.5;}
+.intro-visita-form input{
+  width:100%;padding:13px 14px;margin-bottom:10px;border-radius:10px;
+  border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);
+  color:#fff;font-size:.9rem;font-family:Outfit,sans-serif;
+}
+.intro-visita-form input::placeholder{color:rgba(255,255,255,.4);}
+.intro-visita-send{
+  width:100%;padding:14px;margin-top:6px;border-radius:12px;border:none;
+  background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));
+  color:#fff;font-weight:800;font-size:.9rem;cursor:pointer;
+}
+.intro-visita-chat{
+  width:100%;padding:12px;margin-top:8px;border-radius:12px;border:none;
+  background:none;color:rgba(255,255,255,.6);font-size:.8rem;cursor:pointer;text-decoration:underline;
+}
+
 #suggestOv{
   position:fixed;inset:0;
   background:rgba(0,0,0,.72);
@@ -870,6 +932,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 .resume-item .rpr{font-size:.92rem;font-weight:800;color:var(--gold-soft);}
 .resume-item .rdel{background:none;border:none;color:var(--ink-mute);font-size:.72rem;cursor:pointer;padding:0;margin-top:6px;font-family:Outfit,sans-serif;text-decoration:underline;}
 .resume-total{margin:0 20px;padding:16px 18px;background:var(--panel);border:1px solid var(--line2);border-radius:14px;display:flex;justify-content:space-between;align-items:center;}
+.resume-pay-note{margin:12px 20px 0;font-size:.78rem;color:var(--ink-mute);}
+.resume-pay-note a{color:var(--gold);font-weight:700;text-decoration:underline;}
 .resume-total .tl{font-size:.75rem;color:var(--ink-mute);text-transform:uppercase;letter-spacing:1px;}
 .resume-total .tv{font-family:"Cormorant Garamond",serif;font-size:1.6rem;font-weight:700;color:var(--gold-soft);}
 .resume-actions{position:fixed;bottom:0;left:0;right:0;padding:16px 20px 28px;background:linear-gradient(to top,var(--bg) 70%,transparent);display:flex;flex-direction:column;gap:10px;max-width:520px;margin:0 auto;}
@@ -1160,6 +1224,45 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
 </button>
 
 <!-- Popup sugestão de acessórios -->
+<!-- Boas-vindas — só na primeira visita (ou via link ?bemvindo=1), pra usar como link no WhatsApp -->
+<div id="introOv">
+  <button id="introSkip" onclick="fecharIntro()" type="button">Pular ✕</button>
+  <div id="introBox">
+    <div class="intro-logo" id="introLogo">HR</div>
+    <h1 class="intro-title serif">Bem-vindo(a) à<br><span id="introNome">HR Mármores e Granitos</span></h1>
+    <p class="intro-sub">O que você está procurando hoje?</p>
+    <div id="introGrid" class="intro-grid">
+      <button class="intro-card" onclick="introIr('pedras')" type="button">
+        <span class="intro-ic">🪨</span><span class="intro-lbl">Pedras</span>
+        <span class="intro-desc">Granitos, mármores e quartzos</span>
+      </button>
+      <button class="intro-card" onclick="introIr('coz')" type="button">
+        <span class="intro-ic">🚰</span><span class="intro-lbl">Cubas</span>
+        <span class="intro-desc">Cozinha e banheiro</span>
+      </button>
+      <button class="intro-card" onclick="introIr('ac')" type="button">
+        <span class="intro-ic">🔩</span><span class="intro-lbl">Acessórios</span>
+        <span class="intro-desc">Válvulas, sifões e mais</span>
+      </button>
+      <button class="intro-card" onclick="introIr('inspire')" type="button">
+        <span class="intro-ic">✨</span><span class="intro-lbl">Inspire-se</span>
+        <span class="intro-desc">Fotos de ambientes prontos</span>
+      </button>
+    </div>
+    <button id="introVisitaBtn" class="intro-visita" onclick="introMostrarVisita()" type="button">📐 Já sei o que quero — agendar visita técnica</button>
+
+    <div id="introVisitaForm" class="intro-visita-form hide">
+      <button class="intro-form-back" onclick="introVoltar()" type="button">← Voltar</button>
+      <h3>Agendar visita técnica</h3>
+      <p>Me conta seu nome e onde fica, que a gente já se organiza pra ir até você medir e orçar.</p>
+      <input id="ivNome" type="text" placeholder="Seu nome" autocomplete="name">
+      <input id="ivLocal" type="text" placeholder="Endereço, bairro ou cidade" autocomplete="street-address">
+      <button class="intro-visita-send" onclick="introEnviarVisita()" type="button">Enviar pelo WhatsApp</button>
+      <button class="intro-visita-chat" onclick="introChatDireto()" type="button">Prefiro só mandar mensagem no chat</button>
+    </div>
+  </div>
+</div>
+
 <div id="suggestOv" onclick="if(event.target===this)closeSuggest()">
   <div id="suggestBox">
     <div class="suggest-header">
@@ -1204,6 +1307,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 28px;background:var(--bg2
       <span class="tl">Total estimado</span>
       <span class="tv" id="resumeTotalVal"></span>
     </div>
+    <div class="resume-pay-note">💳 Aceitamos Pix, cartão (até 8x) e transferência. <a href="#pagamento" onclick="fecharResumo()">Ver formas de pagamento</a></div>
   </div>
   <div class="resume-actions">
     <button class="btn-share-fotos" onclick="enviarComFotos()">
@@ -1525,7 +1629,7 @@ function boot(){
   var nome=e.nome||'HR Mármores e Granitos';
   var tipo=e.tipo||'Marmoraria';
   document.title=nome+' — Catálogo';
-  ['navNome','footNome'].forEach(function(id){document.getElementById(id).textContent=nome;});
+  ['navNome','footNome','introNome'].forEach(function(id){document.getElementById(id).textContent=nome;});
   document.getElementById('navTipo').textContent=tipo;
   document.getElementById('footCopy').textContent='© '+new Date().getFullYear()+' '+nome;
 
@@ -1854,6 +1958,71 @@ function onSearchInput(v){
   SEARCH_DEBOUNCE=setTimeout(function(){runSearch(v);},180);
 }
 var PIX_COPIA_COLA='00020126650014br.gov.bcb.pix0136d985083f-3094-437e-94ec-7dfb5f838e4d0203Pix5204000053039865802BR5925HR_MARMORES_E_GRANITOS_-_6012PILAO_ARCADO62290525BsUAQouuoqSyRhNq2K62WLjSo6304E356';
+/* ════════════════════════════════════
+   TELA DE BOAS-VINDAS (primeira visita)
+   ════════════════════════════════════ */
+var INTRO_SEEN_KEY='hr_intro_visto_v1';
+function verificarIntro(){
+  var forcar=new URLSearchParams(window.location.search).has('bemvindo');
+  var jaViu=false;
+  try{jaViu=localStorage.getItem(INTRO_SEEN_KEY)==='1';}catch(e){}
+  if(forcar||!jaViu){
+    document.getElementById('introOv').classList.add('on');
+    document.body.style.overflow='hidden';
+  }
+}
+function _marcarIntroVista(){
+  try{localStorage.setItem(INTRO_SEEN_KEY,'1');}catch(e){}
+}
+function fecharIntro(){
+  _marcarIntroVista();
+  document.getElementById('introOv').classList.remove('on');
+  document.body.style.overflow='';
+}
+function introIr(destino){
+  if(typeof gtag==='function')gtag('event','select_content',{content_type:'intro_categoria',item_id:destino});
+  fecharIntro();
+  setTimeout(function(){
+    if(destino==='pedras'){
+      document.getElementById('pedras').scrollIntoView({behavior:'smooth'});
+    } else if(destino==='inspire'){
+      document.getElementById('inspire').scrollIntoView({behavior:'smooth'});
+    } else {
+      document.getElementById('catalogo').scrollIntoView({behavior:'smooth'});
+      if(typeof setCat==='function')setCat(destino);
+    }
+  },50);
+}
+function introMostrarVisita(){
+  document.getElementById('introGrid').style.display='none';
+  document.getElementById('introVisitaBtn').style.display='none';
+  document.getElementById('introVisitaForm').classList.remove('hide');
+}
+function introVoltar(){
+  document.getElementById('introGrid').style.display='';
+  document.getElementById('introVisitaBtn').style.display='';
+  document.getElementById('introVisitaForm').classList.add('hide');
+}
+function introEnviarVisita(){
+  var nome=(document.getElementById('ivNome').value||'').trim();
+  var local=(document.getElementById('ivLocal').value||'').trim();
+  if(!nome||!local){showToast('Preenche nome e localização, por favor 🙏');return;}
+  if(typeof gtag==='function')gtag('event','generate_lead',{method:'visita_tecnica_form'});
+  var txt='Olá! Meu nome é *'+nome+'*, moro em *'+local+'* e gostaria de agendar uma visita técnica para medir e orçar. 📐';
+  _marcarIntroVista();
+  document.getElementById('introOv').classList.remove('on');
+  document.body.style.overflow='';
+  window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+}
+function introChatDireto(){
+  if(typeof gtag==='function')gtag('event','generate_lead',{method:'intro_chat_direto'});
+  _marcarIntroVista();
+  document.getElementById('introOv').classList.remove('on');
+  document.body.style.overflow='';
+  var txt='Olá! Vi o catálogo e gostaria de mais informações.';
+  window.open('https://wa.me/'+(WAPHONE||'')+'?text='+encodeURIComponent(txt),'_blank');
+}
+
 function _copiarPix(){
   var done=function(){
     var btn=event&&event.target;
@@ -2462,6 +2631,7 @@ function abrirWaGeral(){
 }
 
 load();
+verificarIntro();
 
 /* ════════════════════════════════════
    ZOOM FOTO
