@@ -66,7 +66,7 @@ function _extDadosCliente(nome) {
   });
 
   var pagamentos = (DB.t || []).filter(function (t) {
-    return t.desc && typeof _cliNorm === 'function' &&
+    return t.type === 'in' && t.desc && typeof _cliNorm === 'function' &&
            _cliNorm(t.desc).indexOf(_cliNorm(nome)) !== -1;
   });
   pagamentos.sort(function (a, b) {
@@ -77,6 +77,10 @@ function _extDadosCliente(nome) {
   var totalContratado = jobs.reduce(function (s, j) { return s + (j.value || 0); }, 0);
   var totalPago = jobs.reduce(function (s, j) { return s + (j.pago || 0); }, 0);
   var saldoAberto = totalContratado - totalPago;
+  var totalCredito = jobs.reduce(function (s, j) {
+    var sj = (j.value || 0) - (j.pago || 0);
+    return s + (sj < -0.005 ? -sj : 0);
+  }, 0); // soma de tudo que foi pago a mais em algum serviço específico (já está descontado no saldoAberto acima)
 
   var cliInfo = null;
   if (typeof _cliBuscar === 'function') {
@@ -86,7 +90,7 @@ function _extDadosCliente(nome) {
 
   return {
     nome: nome, jobs: jobs, pagamentos: pagamentos,
-    totalContratado: totalContratado, totalPago: totalPago, saldoAberto: saldoAberto,
+    totalContratado: totalContratado, totalPago: totalPago, saldoAberto: saldoAberto, totalCredito: totalCredito,
     cliInfo: cliInfo
   };
 }
@@ -186,6 +190,7 @@ window.gerarExtratoClientePDF = function (nomeArg) {
           '<div><div style="font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:2px;">Valor Total</div><div style="font-size:13px;font-weight:700;color:#1a1a1a;">R$ ' + fm(j.value || 0) + '</div></div>' +
           '<div><div style="font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:2px;">Pago</div><div style="font-size:13px;font-weight:700;color:#2e7d32;">R$ ' + fm(j.pago || 0) + '</div></div>' +
           (saldoJob > 0.005 ? '<div><div style="font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:2px;">Saldo</div><div style="font-size:13px;font-weight:700;color:#b23b3b;">R$ ' + fm(saldoJob) + '</div></div>' : '') +
+          (saldoJob < -0.005 ? '<div><div style="font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:2px;">Cr&eacute;dito (pago a mais)</div><div style="font-size:13px;font-weight:700;color:#2e7d32;">R$ ' + fm(-saldoJob) + '</div></div>' : '') +
         '</div>' +
       '</div>';
   });
@@ -265,6 +270,9 @@ window.gerarExtratoClientePDF = function (nomeArg) {
       + (d.saldoAberto > 0.005
           ? 'Saldo total em aberto de <strong style="color:#b23b3b;">R$ ' + fm(d.saldoAberto) + '</strong> considerando todos os servi&ccedil;os acima.'
           : '<strong style="color:#2e7d32;">Todos os servi&ccedil;os listados est&atilde;o quitados.</strong>')
+      + (d.totalCredito > 0.005
+          ? '<br>Desse total, <strong style="color:#2e7d32;">R$ ' + fm(d.totalCredito) + '</strong> j&aacute; foi pago a mais em outro(s) servi&ccedil;o(s) (veja "Cr&eacute;dito" nos cards acima) e est&aacute; abatido do saldo em aberto mostrado.'
+          : '')
     + '</div>'
 
   + '</div>'

@@ -218,7 +218,9 @@ function _aplicarStatusOrc(q, novoStatus) {
 function _abrirModalStatusOrc(q, tipo) {
   var isAceito = tipo === 'aceito';
   var jaRecebido = q._valorRecebido || 0;
-  var totalOrc = q.vista || 0;
+  var totalVista = q.vista || 0;
+  var totalParc = (q.parc && q.parc > totalVista + 0.005) ? q.parc : totalVista; // valor com acréscimo do parcelado/cartão, quando existir
+  var totalOrc = totalVista; // referência atual — muda conforme a forma de pagamento escolhida (ver _stModalSetForma)
   var saldoAntes = Math.max(0, totalOrc - jaRecebido);
   var LIMITE_AVISTA = 1000; // até esse valor, sugere pagamento total; acima, sugere 50% de entrada
   var sugere50 = isAceito && totalOrc > LIMITE_AVISTA;
@@ -245,10 +247,10 @@ function _abrirModalStatusOrc(q, tipo) {
 
   // ── resumo do orçamento ──
   h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:14px 16px;margin-bottom:18px;">';
-  h += '<div style="font-size:.95rem;font-weight:800;color:var(--tx);">'+escH(q.cli||'Cliente')+'</div>';
-  h += '<div style="font-size:.72rem;color:var(--t3);margin-top:1px;">'+escH(q.tipo||'Serviço')+'</div>';
+  h += '<div style="font-size:.95rem;font-weight:800;color:var(--tx);overflow-wrap:break-word;word-break:break-word;">'+escH(q.cli||'Cliente')+'</div>';
+  h += '<div style="font-size:.72rem;color:var(--t3);margin-top:1px;overflow-wrap:break-word;word-break:break-word;">'+escH(q.tipo||'Serviço')+'</div>';
   h += '<div style="display:flex;gap:16px;margin-top:12px;padding-top:12px;border-top:1px solid var(--bd2);">';
-  h += '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);margin-bottom:2px;">Total do orçamento</div><div style="font-size:.9rem;font-weight:800;color:var(--tx);">R$ '+fm(totalOrc)+'</div></div>';
+  h += '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);margin-bottom:2px;">Total do orçamento</div><div id="_stModalTotalLine" style="font-size:.9rem;font-weight:800;color:var(--tx);">R$ '+fm(totalOrc)+'</div></div>';
   if (jaRecebido > 0.005) {
     h += '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);margin-bottom:2px;">Já recebido</div><div style="font-size:.9rem;font-weight:800;color:#5dbf7a;">R$ '+fm(jaRecebido)+'</div></div>';
   }
@@ -263,8 +265,8 @@ function _abrirModalStatusOrc(q, tipo) {
     h += '</div>';
   }
   h += '<div style="position:relative;margin-bottom:6px;">';
-  h += '<span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--t3);font-weight:700;font-size:.95rem;">R$</span>';
-  h += '<input id="_stModalValor" type="number" step="0.01" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" oninput="window._stModalUpdateSaldo()" style="width:100%;padding:13px 14px 13px 42px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1.05rem;font-weight:800;box-sizing:border-box;">';
+  h += '<span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--t3);font-weight:700;font-size:.95rem;pointer-events:none;">R$</span>';
+  h += '<input id="_stModalValor" type="text" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" oninput="window._stModalOnInput()" style="width:100%;padding:13px 14px 13px 46px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1.05rem;font-weight:800;box-sizing:border-box;">';
   h += '</div>';
   h += '<div id="_stModalSaldoLine" style="font-size:.72rem;color:var(--t3);margin-bottom:18px;min-height:16px;"></div>';
 
@@ -294,10 +296,35 @@ function _abrirModalStatusOrc(q, tipo) {
   _modal.addEventListener('click', function(e){ if(e.target === _modal) _modal.remove(); });
   document.body.appendChild(_modal);
 
+  // ── controla se o valor no campo ainda é uma sugestão automática (não editada à mão) ──
+  var _stModalManual = false;
+  var _stModalFracao = sugere50 ? 0.5 : 1; // fração usada no Aceite (100% ou 50% de entrada); ignorada na Conclusão
+
+  function _stModalValorAuto(){
+    return isAceito ? (totalOrc * _stModalFracao) : Math.max(0, totalOrc - jaRecebido);
+  }
+
+  // ── lê o valor digitado aceitando tanto vírgula quanto ponto decimal ──
+  window._stModalGetValor = function(){
+    var inp = document.getElementById('_stModalValor');
+    if (!inp) return 0;
+    var raw = String(inp.value||'').trim().replace(/[^\d,.-]/g,'');
+    if (raw.indexOf(',') > -1) raw = raw.replace(/\./g,'').replace(',', '.'); // 1.234,56 -> 1234.56
+    return parseFloat(raw) || 0;
+  };
+
+  // ── dispara quando o usuário digita algo no campo (não quando o script ajusta sozinho) ──
+  window._stModalOnInput = function(){
+    _stModalManual = true;
+    window._stModalUpdateSaldo();
+  };
+
   window._stModalSetPct = function(pct){
     var inp = document.getElementById('_stModalValor');
     if (!inp) return;
-    inp.value = (totalOrc * pct / 100).toFixed(2);
+    _stModalFracao = pct / 100;
+    _stModalManual = false;
+    inp.value = _stModalValorAuto().toFixed(2);
     document.querySelectorAll('[data-stpct]').forEach(function(el){
       var on = el.getAttribute('data-stpct') === String(pct);
       el.style.fontWeight = on ? '800' : '600';
@@ -318,13 +345,33 @@ function _abrirModalStatusOrc(q, tipo) {
       el.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
       el.style.fontWeight = on ? '800' : '600';
     });
+
+    // ── Cartão usa o valor parcelado (com acréscimo), as demais formas usam o valor à vista ──
+    var novoTotal = (v === 'Cartão') ? totalParc : totalVista;
+    if (Math.abs(novoTotal - totalOrc) > 0.005) {
+      totalOrc = novoTotal;
+
+      var totLine = document.getElementById('_stModalTotalLine');
+      if (totLine) totLine.textContent = 'R$ ' + fm(totalOrc);
+      var b50 = document.querySelector('[data-stpct="50"]');
+      var b100 = document.querySelector('[data-stpct="100"]');
+      if (b50) b50.textContent = '50% entrada · R$ ' + fm(totalOrc*0.5);
+      if (b100) b100.textContent = 'Valor cheio · R$ ' + fm(totalOrc);
+
+      // só reajusta o valor no campo se ainda for a sugestão automática — não mexe no que o usuário digitou
+      if (!_stModalManual) {
+        var inp = document.getElementById('_stModalValor');
+        if (inp) inp.value = _stModalValorAuto().toFixed(2);
+      }
+    }
+    window._stModalUpdateSaldo();
   };
 
   window._stModalUpdateSaldo = function(){
     var el = document.getElementById('_stModalSaldoLine');
     var inp = document.getElementById('_stModalValor');
     if (!el || !inp) return;
-    var v = +inp.value || 0;
+    var v = window._stModalGetValor();
     var restante = Math.max(0, totalOrc - jaRecebido - v);
     if (totalOrc <= 0.005) { el.innerHTML = ''; return; }
     if (restante <= 0.005) {
@@ -336,7 +383,7 @@ function _abrirModalStatusOrc(q, tipo) {
   window._stModalUpdateSaldo();
 
   window._stModalConfirmar = function() {
-    var valor = +document.getElementById('_stModalValor').value || 0;
+    var valor = window._stModalGetValor();
     var forma = document.getElementById('_stModalForma').value;
     var data  = document.getElementById('_stModalData').value || hoje;
     if (valor <= 0) { toast('Informe um valor válido'); return; }
@@ -7326,7 +7373,8 @@ function gerarComprovante(id){
   }
   historico.sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
 
-  var totalOrc=qRel?qRel.vista:0;
+  var pagouCartao=historico.some(function(h){return /·\s*Cartão\s*$/i.test(h.desc||'');});
+  var totalOrc=qRel?((pagouCartao&&qRel.parc&&qRel.parc>qRel.vista+0.005)?qRel.parc:qRel.vista):0;
   var saldo=totalOrc>0?(totalOrc-totalPago):null;
 
   // Tipo do pagamento
