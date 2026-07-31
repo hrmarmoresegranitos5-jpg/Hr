@@ -632,6 +632,32 @@ var HR_RELATORIO_PONTO = (function () {
       }
     });
 
+    // ── Abate horas negativas/faltantes CONTRA as horas extras do período ──
+    // Regra: a falta é descontada primeiro da HE ×2 (dobrada). A HE ×3
+    // (triplicada — domingo/feriado/especial) é protegida e só é usada pra
+    // cobrir a falta se a ×2 sozinha não bastar (ou seja, se o total de
+    // horas extras ×2 for MENOR que as horas negativas do período). O que
+    // sobrar de falta sem nenhuma HE pra cobrir continua descontado à parte,
+    // ao valor cheio (1×) — é jornada não cumprida, não tem adicional.
+    if (totalDeficitMin < 0) {
+      var _deficitAbs    = Math.abs(totalDeficitMin);
+      var _extra50Orig   = totalExtraMin50;
+      var _extra200Orig  = totalExtraMin200;
+
+      var _novoExtraMin50  = Math.max(0, _extra50Orig - _deficitAbs);
+      var _restanteDeficit = Math.max(0, _deficitAbs - _extra50Orig);
+
+      var _novoExtraMin200  = Math.max(0, _extra200Orig - _restanteDeficit);
+      var _faltaRestanteMin = Math.max(0, _restanteDeficit - _extra200Orig);
+
+      totalValorExtra50  = (_extra50Orig  > 0) ? totalValorExtra50  * (_novoExtraMin50  / _extra50Orig)  : 0;
+      totalValorExtra200 = (_extra200Orig > 0) ? totalValorExtra200 * (_novoExtraMin200 / _extra200Orig) : 0;
+      totalExtraMin50  = _novoExtraMin50;
+      totalExtraMin200 = _novoExtraMin200;
+      totalValorExtra  = totalValorExtra50 + totalValorExtra200;
+      totalDeficitMin  = -_faltaRestanteMin;
+    }
+
     // ── Resumo visual: quantos dias com jornada esperada foram batidos "completos" ──
     var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
     var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
