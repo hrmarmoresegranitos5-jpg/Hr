@@ -639,6 +639,15 @@ var HR_RELATORIO_PONTO = (function () {
     // horas extras ×2 for MENOR que as horas negativas do período). O que
     // sobrar de falta sem nenhuma HE pra cobrir continua descontado à parte,
     // ao valor cheio (1×) — é jornada não cumprida, não tem adicional.
+    //
+    // Guarda os brutos (antes de abater) só para exibição — o funcionário
+    // precisa ver que trabalhou hora extra e que ela foi usada pra cobrir
+    // a falta, não simplesmente "sumir" do relatório.
+    var extraBrutoMin       = totalExtraMin50 + totalExtraMin200;
+    var valorExtraBrutoTotal = totalValorExtra50 + totalValorExtra200;
+    var deficitBrutoMin     = Math.abs(totalDeficitMin);
+    var deficitAbatidoMin   = 0; // quanto da falta foi coberto pelas horas extras
+
     if (totalDeficitMin < 0) {
       var _deficitAbs    = Math.abs(totalDeficitMin);
       var _extra50Orig   = totalExtraMin50;
@@ -656,6 +665,8 @@ var HR_RELATORIO_PONTO = (function () {
       totalExtraMin200 = _novoExtraMin200;
       totalValorExtra  = totalValorExtra50 + totalValorExtra200;
       totalDeficitMin  = -_faltaRestanteMin;
+
+      deficitAbatidoMin = _deficitAbs - _faltaRestanteMin;
     }
 
     // ── Resumo visual: quantos dias com jornada esperada foram batidos "completos" ──
@@ -729,9 +740,12 @@ var HR_RELATORIO_PONTO = (function () {
     y += 5;
 
     // ── DE RELANCE — 3 linhas grandes, sem jargão, antes de qualquer detalhe ──
+    // Usa os valores BRUTOS de extra/negativas (antes do abatimento) pra que
+    // o funcionário sempre veja quanto trabalhou a mais e quanto faltou,
+    // mesmo quando um cobre o outro e o líquido final de algum dos dois vira zero.
     var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
-    var totalExtraMinRelance = totalExtraMin50 + totalExtraMin200;
-    var relanceH = 24;
+    var temLinhaNegativas = deficitBrutoMin > 0;
+    var relanceH = temLinhaNegativas ? 29 : 24;
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor.apply(doc, COR_HEADER);
     doc.setLineWidth(0.5);
@@ -750,9 +764,17 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(50, 50, 50);
     doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), mL + 4, ry);
-    if (totalExtraMinRelance > 0) {
+    if (extraBrutoMin > 0) {
       doc.setTextColor.apply(doc, COR_VERDE);
-      doc.text('Tem ' + _fmtMin(totalExtraMinRelance) + ' de hora extra', mL + 65, ry);
+      doc.text('Fez ' + _fmtMin(extraBrutoMin) + ' de hora extra', mL + 65, ry);
+    }
+    if (temLinhaNegativas) {
+      ry += 5.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor.apply(doc, COR_VERM);
+      var _txtNeg = 'Teve ' + _fmtMin(deficitBrutoMin) + ' de horas negativas';
+      if (deficitAbatidoMin > 0) _txtNeg += ' (' + _fmtMin(deficitAbatidoMin) + ' abatidas pela hora extra)';
+      doc.text(_txtNeg, mL + 4, ry);
     }
     y += relanceH + 4;
 
@@ -773,6 +795,8 @@ var HR_RELATORIO_PONTO = (function () {
     var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
                (totalExtraMin50  > 0 ? 4.2 : 0) +
                (totalExtraMin200 > 0 ? 4.2 : 0) +
+               (extraBrutoMin    > 0 ? 4.2 : 0) +
+               (deficitBrutoMin  > 0 ? 4.2 : 0) +
                (fin.totalDeficitValor > 0 ? 6 : 0) +
                (fin.creditosAlvo.length > 0 ? 6 + creditosBoxH + 1.5 : 0) +
                (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
@@ -822,11 +846,28 @@ var HR_RELATORIO_PONTO = (function () {
       fy += 4.2;
     }
 
+    // Linha informativa (sem valor em R$) — usada pra deixar claro quanto
+    // foi trabalhado de hora extra e quanto de negativa existiu no período,
+    // mesmo quando um abate o outro e o valor líquido de um deles vira zero.
+    function _linInfo(label) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.text(label, mL + 5, fy);
+      fy += 4.2;
+    }
+
     _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
-    if (totalValorExtra > 0) _lin('+ Horas extras deste período (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
+    if (extraBrutoMin > 0) _linInfo('Horas extras trabalhadas no período: ' + _fmtMin(extraBrutoMin));
+    if (deficitBrutoMin > 0) {
+      var _txtDefInfo = 'Horas negativas no período: ' + _fmtMin(deficitBrutoMin);
+      if (deficitAbatidoMin > 0) _txtDefInfo += ' (' + _fmtMin(deficitAbatidoMin) + ' abatidas pela hora extra)';
+      _linInfo(_txtDefInfo);
+    }
+    if (totalValorExtra > 0) _lin('+ Horas extras a pagar (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
     if (totalExtraMin50  > 0) _linSub('  · Dobrada ×2: ' + _fmtMin(totalExtraMin50)  + ' × ' + _fmtMoeda(valorHora * 2), totalValorExtra50,  COR_VERDE);
     if (totalExtraMin200 > 0) _linSub('  · Triplicada ×3: ' + _fmtMin(totalExtraMin200) + ' × ' + _fmtMoeda(valorHora * 3), totalValorExtra200, COR_VERDE);
-    if (fin.totalDeficitValor > 0) _lin('- Horas negativas / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
+    if (fin.totalDeficitValor > 0) _lin('- Horas negativas restantes / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
     if (fin.creditosAlvo.length > 0) {
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7);
@@ -1173,7 +1214,8 @@ var HR_RELATORIO_PONTO = (function () {
     var telFunc  = f.telefone || f.tel || '';
 
     var htmlPreview = _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
-      totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200);
+      totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
+      extraBrutoMin, deficitBrutoMin, deficitAbatidoMin);
 
     var pdfBlobFn = function() { return doc.output('blob'); };
 
@@ -1184,7 +1226,12 @@ var HR_RELATORIO_PONTO = (function () {
   // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
 
   function _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
-    totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200) {
+    totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
+    extraBrutoMin, deficitBrutoMin, deficitAbatidoMin) {
+
+    extraBrutoMin     = extraBrutoMin     || 0;
+    deficitBrutoMin   = deficitBrutoMin   || 0;
+    deficitAbatidoMin = deficitAbatidoMin || 0;
 
     var mesRef = _mesExtenso(di, df);
     var depto  = f.equipe || f.cargo || 'Marmoraria';
@@ -1269,9 +1316,22 @@ var HR_RELATORIO_PONTO = (function () {
       '<span style="color:#444;">Salário fixo do período</span>'+
       '<span style="font-weight:700;color:#222;">'+fmtMoeda(fin.decValor)+'</span></div>';
 
+    // Linhas informativas (sem R$) — mostram o bruto trabalhado/faltado
+    // mesmo quando um é totalmente abatido pelo outro e o líquido vira zero.
+    if (extraBrutoMin > 0) {
+      linhasResumo += '<div style="padding:3px 0;font-size:13.5px;color:#888;font-style:italic;">'+
+        'Horas extras trabalhadas no período: '+_esc(fmtMin(extraBrutoMin))+'</div>';
+    }
+    if (deficitBrutoMin > 0) {
+      linhasResumo += '<div style="padding:3px 0 7px;font-size:13.5px;color:#888;font-style:italic;">'+
+        'Horas negativas no período: '+_esc(fmtMin(deficitBrutoMin))+
+        (deficitAbatidoMin>0 ? ' ('+_esc(fmtMin(deficitAbatidoMin))+' abatidas pela hora extra)' : '')+
+        '</div>';
+    }
+
     if (totalValorExtra > 0) {
       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#2a8a46;">+ Horas extras deste período ('+fmtMin(totalExtraMin50+totalExtraMin200)+')</span>'+
+        '<span style="color:#2a8a46;">+ Horas extras a pagar ('+fmtMin(totalExtraMin50+totalExtraMin200)+')</span>'+
         '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
     }
     if (totalExtraMin50 > 0) {
@@ -1287,7 +1347,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     if (fin.totalDeficitValor > 0) {
       linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#b43c3c;">− Horas negativas / faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
+        '<span style="color:#b43c3c;">− Horas negativas restantes / faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
         '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalDeficitValor)+'</span></div>';
     }
 
@@ -1396,8 +1456,9 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="font-size:21px;font-weight:800;color:'+(fin.status==='pago'?'#2a8a46':'#1a3660')+';margin-bottom:5px;">'+(fin.status==='pago'?'✅ Já recebido: ':'💰 Você vai receber: ')+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
         '<div style="display:flex;gap:22px;flex-wrap:wrap;">'+
           '<div style="font-size:16px;color:#333;">📅 Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
-          (totalExtraMinRelance>0 ? '<div style="font-size:16px;color:#2a8a46;font-weight:700;">⏱ Tem '+fmtMin(totalExtraMinRelance)+' de hora extra</div>' : '<div style="font-size:14px;color:#999;">Sem hora extra neste período</div>')+
+          (extraBrutoMin>0 ? '<div style="font-size:16px;color:#2a8a46;font-weight:700;">⏱ Fez '+fmtMin(extraBrutoMin)+' de hora extra</div>' : '<div style="font-size:14px;color:#999;">Sem hora extra neste período</div>')+
         '</div>'+
+        (deficitBrutoMin>0 ? '<div style="margin-top:6px;font-size:15px;color:#b43c3c;">⚠️ Teve '+fmtMin(deficitBrutoMin)+' de horas negativas'+(deficitAbatidoMin>0 ? ' <span style="color:#888;font-size:13px;">('+fmtMin(deficitAbatidoMin)+' abatidas pela hora extra)</span>' : '')+'</div>' : '')+
       '</div>'+
 
       // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
