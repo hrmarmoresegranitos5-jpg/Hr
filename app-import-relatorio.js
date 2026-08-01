@@ -49,6 +49,9 @@ var HR_IMPORT = (function () {
   if (CFG.limiteHorarioTarde === undefined) CFG.limiteHorarioTarde = 20 * 60;  // 20:00 → 1200min
   // Sábado tarde: partir de que hora vira triplicada (padrão 12:00)
   if (CFG.limiteSabadoTarde  === undefined) CFG.limiteSabadoTarde  = 12 * 60;  // 12:00 → 720min
+  // Janela noturna 00:00–07:00: qualquer minuto trabalhado nesse horário vale
+  // triplicada, pra todo mundo, sempre — independente de sobra/falta no dia.
+  if (CFG.janelaNoturnaFim   === undefined) CFG.janelaNoturnaFim   = 7 * 60;   // 07:00 → 420min
   // Lista de feriados e dias especiais (arrays de "yyyy-mm-dd")
   // Preenchidos externamente se necessário; padrão vazio = apenas regras de dia da semana
   if (!CFG.feriados) CFG.feriados = [];
@@ -301,6 +304,25 @@ var HR_IMPORT = (function () {
     if ((m = s.match(/^(\d+)[.,](\d+)$/)))         return Math.round(parseFloat(m[1]+'.'+m[2]) * 60);
     if ((m = s.match(/^(\d{1,2})$/)))              return parseInt(m[1]) * 60;
     return NaN;
+  }
+
+  /**
+   * Minutos de um intervalo de trabalho (entrada→saída) que caem dentro da
+   * janela noturna 00:00–07:00 (configurável via CFG.janelaNoturnaFim,
+   * padrão 420min = 07:00). Vale tanto pra quem começa de madrugada (ex:
+   * entrada 05:00) quanto pra turno que atravessa a meia-noite (ex: entrada
+   * 22:00 → saída 06:00 do dia seguinte). Todo funcionário, qualquer dia.
+   * Retorna 0 se entrada/saída inválidas ou não há sobreposição.
+   */
+  function _minutosNoturnos(entrada, saida) {
+    var fimJanela = (CFG.janelaNoturnaFim !== undefined) ? CFG.janelaNoturnaFim : 420; // 07:00
+    var e = _hhmm2min(entrada), s = _hhmm2min(saida);
+    if (isNaN(e) || isNaN(s)) return 0;
+    var fim = (s <= e) ? s + 1440 : s; // atravessa meia-noite → projeta o fim pro dia seguinte
+    var noturno = 0;
+    noturno += Math.max(0, Math.min(fim, fimJanela)          - Math.max(e, 0));          // janela do próprio dia (madrugada)
+    noturno += Math.max(0, Math.min(fim, 1440 + fimJanela)   - Math.max(e, 1440));        // janela do dia seguinte (virada)
+    return Math.max(0, Math.round(noturno));
   }
 
   /** 450 → "07:30" */
@@ -4357,6 +4379,7 @@ var HR_IMPORT = (function () {
     calcValorHoraReal:    _calcValorHoraReal,
     // Expõe camada HE para testes externos
     _classificarHE:      _classificarHE,
+    minutosNoturnos:     _minutosNoturnos,
     _calcValorHE:        _calcValorHE,
     _calcFinanceiroGrupo: _calcFinanceiroGrupo,
     _calcGrupo:          _calcGrupo,

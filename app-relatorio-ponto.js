@@ -165,6 +165,16 @@ var HR_RELATORIO_PONTO = (function () {
 
       if (r) {
         var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
+
+        // ── Janela noturna 00:00–07:00: sempre triplicada, pra todo mundo ──
+        // Minutos trabalhados nesse horário (madrugada ou virada de turno)
+        // são tirados do cálculo de jornada esperada e sempre viram HE ×3,
+        // mesmo em um dia que fecharia no negativo sem eles — não fica
+        // "escondido" dentro de um déficit do dia.
+        var minNoturno = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.minutosNoturnos === 'function')
+          ? HR_IMPORT.minutosNoturnos(r.entrada || '', r.saida || '') : 0;
+        var trabDiurno = Math.max(0, trabMin - minNoturno);
+
         // Extra/déficit agora SEMPRE vêm do saldo real do dia (trabalhado −
         // esperado), calculado aqui — não mais do campo r.extra salvo na
         // importação. Aquele valor foi calculado ANTES de qualquer exceção
@@ -172,14 +182,17 @@ var HR_RELATORIO_PONTO = (function () {
         // na tela de correção, então ficava desatualizado sempre que o
         // esperado do dia mudava depois do import — fazendo o relatório
         // mostrar "—" (sem HE) em dias que na verdade tiveram extra real.
-        var brutoExtraDia = Math.max(0, trabMin - esperadoMin);
+        var brutoExtraDia = Math.max(0, trabDiurno - esperadoMin);
         // Desconta a compensação ANTES de classificar/multiplicar — as horas
         // descontadas não são pagas nem triplicadas, só abatem a folga devida.
         compensarMin      = Math.min(brutoExtraDia, compensarMin);
-        var saldoMin      = trabMin - esperadoMin - compensarMin;
+        var saldoMin      = (trabDiurno - esperadoMin - compensarMin) + minNoturno;
         var extraMin      = Math.max(0, saldoMin);
         if (compensarMin > 0) {
           obsExcecao += (obsExcecao ? ' — ' : '') + 'descontadas ' + _fmtMin(compensarMin) + ' (compensação)';
+        }
+        if (minNoturno > 0) {
+          obsExcecao += (obsExcecao ? ' — ' : '') + _fmtMin(minNoturno) + ' em horário noturno (00h–07h), triplicado';
         }
 
         // Valor extra financeiro do dia
@@ -211,13 +224,14 @@ var HR_RELATORIO_PONTO = (function () {
         // a saída for depois de 12:00 — sábado de manhã com feriado/acordo
         // continua ×2).
         var feriadoLocalForcaTriplo = !!(exc && exc.tipo === 'feriado' && dow !== 6);
+        var temNoturno = minNoturno > 0;
         if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT._classificarHE === 'function') {
           var classeHE = HR_IMPORT._classificarHE({
             data: iso, extra: extraMin,
             entrada: r.entrada || '', saida: r.saida || '',
             funcId: funcId || null
           });
-          if (feriadoLocalForcaTriplo) {
+          if (feriadoLocalForcaTriplo || temNoturno) {
             classeHE = { extra50: 0, extra100: 0, extra200: extraMin };
           }
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
@@ -228,7 +242,7 @@ var HR_RELATORIO_PONTO = (function () {
           if (classeHE.extra200 > 0 || classeHE.extra100 > 0) tipoHE = 'especial';
         } else {
           // Fallback (HR_IMPORT indisponível) — mantém regra antiga só como rede de segurança
-          var _ehTriplado = (dow === 0) || feriadoLocalForcaTriplo;
+          var _ehTriplado = (dow === 0) || feriadoLocalForcaTriplo || temNoturno;
           tipoHE = _ehTriplado ? 'especial' : 'normal';
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
             valorExtra = (extraMin / 60) * (_ehTriplado ? 3.0 : 2.0) * valorHora;
@@ -276,6 +290,7 @@ var HR_RELATORIO_PONTO = (function () {
           autoComp:   !!r.autoCompletado,
           destinoBanco: r.destinoExtra === 'banco',
           excDescricao: exc ? (exc.descricao || '') : '',
+          minNoturno: minNoturno,
         });
       } else if (dow !== 0) {
         // Dia sem registro
@@ -1501,10 +1516,30 @@ var HR_RELATORIO_PONTO = (function () {
     '</div>';
   }
 
+  // ─── Deficit de um período, exposto pra outros módulos (ex: painel de ────────
+  // pagamento em app-funcionarios.js) reaproveitarem o mesmo cálculo de
+  // jornada esperada/saldo diário usado neste relatório, em vez de duplicar
+  // a lógica de _montarLinhas em outro arquivo.
+  // Retorna minutos de falta no período, sempre >= 0 (valor absoluto).
+  function calcDeficitPeriodo(funcId, di, df) {
+    if (!funcId || !di || !df) return 0;
+    var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+    var regs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
+    var f = funcs[funcId] || {};
+    var meusRegs = Object.values(regs).filter(function (r) {
+      return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
+    });
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
+    var totalDeficitMin = 0;
+    linhas.forEach(function (l) { if (l.saldoMin < 0) totalDeficitMin += l.saldoMin; });
+    return Math.abs(totalDeficitMin);
+  }
+
   // ─── API pública ─────────────────────────────────────────────────────────────
 
   return {
     gerarPDF: gerarPDF,
+    calcDeficitPeriodo: calcDeficitPeriodo,
   };
 
 })();
