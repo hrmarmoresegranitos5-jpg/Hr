@@ -1535,11 +1535,77 @@ var HR_RELATORIO_PONTO = (function () {
     return Math.abs(totalDeficitMin);
   }
 
+  // ─── Extras + déficit de um período, calculado 100% ao vivo a partir de ──────
+  // _montarLinhas — mesma fonte usada pelo Relatório de Ponto (classificação
+  // ×2/×3, janela noturna 00h-07h, abatimento de negativas contra extras).
+  // Existe pra o painel de pagamento (app-funcionarios.js) parar de usar o
+  // motor antigo baseado em r.extra "congelado" na importação, que diverge
+  // do relatório sempre que a classificação muda depois (feriado declarado,
+  // correção manual, janela noturna, etc). Uma única fonte de verdade.
+  function calcExtraPeriodo(funcId, di, df) {
+    if (!funcId || !di || !df) return null;
+    var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+    var regs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
+    var f = funcs[funcId] || {};
+    var meusRegs = Object.values(regs).filter(function (r) {
+      return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
+    });
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
+
+    var extra50Min = 0, extra200Min = 0, valorExtra50 = 0, valorExtra200 = 0;
+    var deficitMin = 0;
+    linhas.forEach(function (l) {
+      if (l.saldoMin < 0) deficitMin += l.saldoMin;
+      if (l.extraMin > 0 && !l.destinoBanco) {
+        if (l.tipoHE === 'especial') { extra200Min += l.extraMin; valorExtra200 += l.valorExtra; }
+        else                         { extra50Min  += l.extraMin; valorExtra50  += l.valorExtra; }
+      }
+    });
+
+    // Mesmo abatimento de negativas contra extras usado no Relatório de
+    // Ponto: desconta primeiro da ×2, só mexe na ×3 se a ×2 não bastar.
+    var extraBrutoMin  = extra50Min + extra200Min;
+    var deficitBrutoMin = Math.abs(deficitMin);
+    var deficitAbatidoMin = 0, deficitRestanteMin = 0;
+    if (deficitBrutoMin > 0) {
+      var novo50    = Math.max(0, extra50Min - deficitBrutoMin);
+      var restante  = Math.max(0, deficitBrutoMin - extra50Min);
+      var novo200   = Math.max(0, extra200Min - restante);
+      deficitRestanteMin = Math.max(0, restante - extra200Min);
+      deficitAbatidoMin  = deficitBrutoMin - deficitRestanteMin;
+      valorExtra50  = (extra50Min  > 0) ? valorExtra50  * (novo50  / extra50Min)  : 0;
+      valorExtra200 = (extra200Min > 0) ? valorExtra200 * (novo200 / extra200Min) : 0;
+      extra50Min  = novo50;
+      extra200Min = novo200;
+    }
+
+    var valorHora = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+      ? HR_IMPORT.calcValorHoraReal(f, di.slice(0, 7)) : 0;
+
+    return {
+      totalExtra50Min:  extra50Min,
+      totalExtra100Min: 0, // não distinguido aqui — domingo/especial já somam junto em extra200 (mesma alíquota ×3)
+      totalExtra200Min: extra200Min,
+      valorExtra50:     valorExtra50,
+      valorExtra100:    0,
+      valorExtra200:    valorExtra200,
+      valorTotalExtras: valorExtra50 + valorExtra200,
+      totalExtraHoras:  (extra50Min + extra200Min) / 60,
+      extraBrutoMin:        extraBrutoMin,
+      deficitBrutoMin:      deficitBrutoMin,
+      deficitAbatidoMin:    deficitAbatidoMin,
+      deficitRestanteMin:   deficitRestanteMin,
+      deficitRestanteValor: (deficitRestanteMin / 60) * valorHora,
+      valorHoraBase:        valorHora
+    };
+  }
+
   // ─── API pública ─────────────────────────────────────────────────────────────
 
   return {
     gerarPDF: gerarPDF,
     calcDeficitPeriodo: calcDeficitPeriodo,
+    calcExtraPeriodo:   calcExtraPeriodo,
   };
 
 })();

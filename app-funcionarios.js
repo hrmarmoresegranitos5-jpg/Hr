@@ -76,6 +76,11 @@ var HR_FUNC = (function () {
   function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function _fmtData(iso){ if(!iso)return '—'; var p=iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
   function _fmtMoeda(v){ return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function _fmtHorasMin(min){
+    var m = Math.round(min || 0);
+    var neg = m < 0; m = Math.abs(m);
+    return (neg ? '-' : '') + String(Math.floor(m/60)).padStart(2,'0') + 'h' + String(m%60).padStart(2,'0') + 'm';
+  }
   function _hoje(){ return new Date().toISOString().slice(0,10); }
   function _mesAno(offset){ var d=new Date(); d.setMonth(d.getMonth()+(offset||0)); return d.toISOString().slice(0,7); }
   function _diaSemana(iso){ var d=new Date(iso+'T12:00:00'); return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()]; }
@@ -432,12 +437,25 @@ var HR_FUNC = (function () {
     ).slice(0, 7);
 
     var heResult;
-    if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcSaldoHE === 'function') {
-      // Caminho principal: usa motor unificado com HE50/100/200 corretos
+    var usaMotorAoVivo = (typeof HR_RELATORIO_PONTO !== 'undefined' && typeof HR_RELATORIO_PONTO.calcExtraPeriodo === 'function' && di && df);
+    if (usaMotorAoVivo) {
+      // Caminho principal quando há período definido: recalcula ao vivo a
+      // partir dos horários batidos, reaproveitando o MESMO motor do
+      // Relatório de Ponto (_montarLinhas) — classificação ×2/×3, janela
+      // noturna 00h-07h e abatimento de negativas contra extras já saem
+      // prontos daqui, em vez de duplicados/somados por cima em cima do
+      // valor "congelado" no momento da importação (que diverge sempre que
+      // algo muda depois: feriado declarado, correção manual, reimportação).
+      heResult = HR_RELATORIO_PONTO.calcExtraPeriodo(funcId, di, df);
+    }
+    if (!heResult && typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcSaldoHE === 'function') {
+      // Fallback: sem período definido (ex: totais vitalícios) — usa o
+      // motor antigo baseado em r.extra, já que _montarLinhas exige um
+      // intervalo de datas pra percorrer dia a dia.
       heResult = HR_IMPORT.calcSaldoHE(meusRegs, f, refMes);
-    } else {
-      // Fallback seguro: comportamento anterior (sem quebrar se HR_IMPORT
-      // não estiver carregado, ex: testes isolados)
+    } else if (!heResult) {
+      // Fallback seguro: comportamento anterior (sem quebrar se nem
+      // HR_RELATORIO_PONTO nem HR_IMPORT estiverem carregados, ex: testes isolados)
       var mult          = _getMultNormal();
       var valorHoraFb   = salario / 220;
       // Alteração: 'banco' deixou de ser excluído do financeiro — toda HE
@@ -455,6 +473,49 @@ var HR_FUNC = (function () {
     }
 
     var valorExtra  = heResult.valorTotalExtras;
+
+    // ── Abate horas negativas/faltantes CONTRA as horas extras do período ──
+    // Quando o motor ao vivo (calcExtraPeriodo) já foi usado acima, esse
+    // abatimento já vem pronto nele — não repete aqui. Só roda quando caiu
+    // no fallback antigo (calcSaldoHE / sem período), que não sabe nada de
+    // déficit. Mesma regra do Relatório de Ponto: desconta primeiro da HE
+    // ×2 (dobrada). A HE ×3 (triplicada) só é usada se a ×2 não bastar —
+    // ou seja, se a extra ×2 for MENOR que a falta. O que sobrar de falta
+    // sem HE pra cobrir é descontado à parte, ao valor cheio (1×).
+    var extraBrutoMin       = usaMotorAoVivo ? (heResult.extraBrutoMin || 0) : ((heResult.totalExtra50Min || 0) + (heResult.totalExtra100Min || 0) + (heResult.totalExtra200Min || 0));
+    var deficitBrutoMin     = usaMotorAoVivo ? (heResult.deficitBrutoMin || 0)
+      : ((typeof HR_RELATORIO_PONTO !== 'undefined' && typeof HR_RELATORIO_PONTO.calcDeficitPeriodo === 'function' && di && df)
+          ? (HR_RELATORIO_PONTO.calcDeficitPeriodo(funcId, di, df) || 0) : 0);
+    var deficitAbatidoMin   = usaMotorAoVivo ? (heResult.deficitAbatidoMin || 0) : 0;
+    var deficitRestanteMin  = usaMotorAoVivo ? (heResult.deficitRestanteMin || 0) : 0;
+    var deficitRestanteValor = usaMotorAoVivo ? (heResult.deficitRestanteValor || 0) : 0;
+
+    if (!usaMotorAoVivo && deficitBrutoMin > 0 && extraBrutoMin >= 0) {
+      var _e50 = heResult.totalExtra50Min || 0;
+      var _e3x = (heResult.totalExtra100Min || 0) + (heResult.totalExtra200Min || 0);
+
+      var _novo50   = Math.max(0, _e50 - deficitBrutoMin);
+      var _restante = Math.max(0, deficitBrutoMin - _e50);
+
+      var _novo3x   = Math.max(0, _e3x - _restante);
+      deficitRestanteMin = Math.max(0, _restante - _e3x);
+      deficitAbatidoMin  = deficitBrutoMin - deficitRestanteMin;
+
+      var _fator50 = (_e50 > 0) ? (_novo50 / _e50) : 0;
+      var _fator3x = (_e3x > 0) ? (_novo3x / _e3x) : 0;
+
+      heResult.totalExtra50Min  = _novo50;
+      heResult.totalExtra100Min = (heResult.totalExtra100Min || 0) * _fator3x;
+      heResult.totalExtra200Min = (heResult.totalExtra200Min || 0) * _fator3x;
+      heResult.valorExtra50     = (heResult.valorExtra50  || 0) * _fator50;
+      heResult.valorExtra100    = (heResult.valorExtra100 || 0) * _fator3x;
+      heResult.valorExtra200    = (heResult.valorExtra200 || 0) * _fator3x;
+      heResult.valorTotalExtras = heResult.valorExtra50 + heResult.valorExtra100 + heResult.valorExtra200;
+      heResult.totalExtraHoras  = (heResult.totalExtra50Min + heResult.totalExtra100Min + heResult.totalExtra200Min) / 60;
+
+      valorExtra = heResult.valorTotalExtras;
+      deficitRestanteValor = (deficitRestanteMin / 60) * (heResult.valorHoraBase || 0);
+    }
 
     // ── Acréscimos HE pendentes (2× e 3×) ───────────────────────────────
     // Ficam em hr_he_acrescimos com status='pendente' até o decêndio ser pago.
@@ -478,7 +539,7 @@ var HR_FUNC = (function () {
       return true;
     }).reduce(function(s,a){ return s + (parseFloat(a.valor)||0); }, 0);
 
-    var totalDevido = totalSalario + valorExtra + totalAcrescimos;
+    var totalDevido = totalSalario + valorExtra + totalAcrescimos - deficitRestanteValor;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -500,6 +561,7 @@ var HR_FUNC = (function () {
       valorExtra:       valorExtra,
       totalSalario:     totalSalario,
       totalDevido:      totalDevido,
+      totalAcrescimos:  totalAcrescimos,
       totalPago:        totalPago,
       saldo:            saldo,
       temCredito:       saldo < -0.01,
@@ -513,6 +575,13 @@ var HR_FUNC = (function () {
       totalExtra50Min:  heResult.totalExtra50Min,
       totalExtra100Min: heResult.totalExtra100Min,
       totalExtra200Min: heResult.totalExtra200Min,
+      // Abate de horas negativas contra as extras — brutos e o que sobrou
+      // (disponíveis pra UI mostrar transparência, ex: painel de pagamento)
+      extraBrutoMin:        extraBrutoMin,
+      deficitBrutoMin:      deficitBrutoMin,
+      deficitAbatidoMin:    deficitAbatidoMin,
+      deficitRestanteMin:   deficitRestanteMin,
+      deficitRestanteValor: deficitRestanteValor,
       // Item 4 — Banco de horas (separado do financeiro)
       banco:            calcSaldoBancoHoras(funcId, di, df)
     };
@@ -1560,7 +1629,7 @@ var HR_FUNC = (function () {
         // Detalhe HE por faixa (só se houver HE100 ou HE200)
         var heDetalhe = '';
         if (saldo.valorExtra50  > 0) heDetalhe += '×2 dobrada: '+_fmtMoeda(saldo.valorExtra50);
-        if (saldo.valorExtra100 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'×2 dobrada: '+_fmtMoeda(saldo.valorExtra100);
+        if (saldo.valorExtra100 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'×3 triplicada: '+_fmtMoeda(saldo.valorExtra100);
         if (saldo.valorExtra200 > 0) heDetalhe += (heDetalhe?'  ·  ':'')+'×3 triplicada: '+_fmtMoeda(saldo.valorExtra200);
         var heSub = heDetalhe || ('R$ '+(saldo.valorHoraBase||0).toFixed(2)+'/h base · ×2 = R$ '+((saldo.valorHoraBase||0)*2).toFixed(2)+'/h extra');
 
@@ -2793,7 +2862,8 @@ var HR_FUNC = (function () {
           // _extraPagIncluir, igual o toggle já fazia.
           var valDec2 = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
           var heV2    = _extraPagIncluir ? (s2.valorExtra || 0) : 0;
-          if (valDec2 > 0) inpV.value = (valDec2 + heV2).toFixed(2);
+          var defV2   = s2.deficitRestanteValor || 0;
+          if (valDec2 > 0) inpV.value = Math.max(0, valDec2 + heV2 - defV2).toFixed(2);
         }
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
         _atualizarCamposHEOcultos(s2);
@@ -2838,11 +2908,12 @@ var HR_FUNC = (function () {
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV) {
           var valDec = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
+          var defV   = s2.deficitRestanteValor || 0;
           if (!_extraPagIncluir) {
-            inpV.value = valDec > 0 ? valDec.toFixed(2) : (parseFloat(f2.salario)||0).toFixed(2);
+            inpV.value = Math.max(0, (valDec > 0 ? valDec : (parseFloat(f2.salario)||0)) - defV).toFixed(2);
           } else {
             var heV = s2.valorExtra || 0;
-            inpV.value = (valDec > 0 ? valDec + heV : (parseFloat(f2.salario)||0) + heV).toFixed(2);
+            inpV.value = Math.max(0, (valDec > 0 ? valDec + heV : (parseFloat(f2.salario)||0) + heV) - defV).toFixed(2);
           }
         }
         _atualizarCamposHEOcultos(s2);
@@ -2897,9 +2968,13 @@ var HR_FUNC = (function () {
     var sal     = (s && s.totalSalario != null) ? s.totalSalario : (f && f.salario ? parseFloat(f.salario) : 0);
     var he      = s.valorExtra || 0;
     var heEfetivo = incluirExtra ? he : 0; // HE só entra no total se toggleado
-    var acr     = (s.totalDevido - sal - he) || 0; // acréscimos 2×/3× pendentes
+    var acr     = s.totalAcrescimos || 0; // acréscimos 2×/3× pendentes
     var acrEfetivo = incluirExtra ? acr : 0;
     var pago    = s.totalPago   || 0;
+    // Horas negativas restantes após abater contra as extras (mesma regra
+    // do Relatório de Ponto) — sempre entra no total, independe do toggle
+    // de HE, já que é jornada não cumprida, não tem relação com acumular ou não.
+    var deficitEfetivo = s.deficitRestanteValor || 0;
 
     // Adiantamentos/vales apontados especificamente para este decêndio —
     // abatem do valor a pagar mesmo tendo sido tomados em outra data.
@@ -2932,7 +3007,7 @@ var HR_FUNC = (function () {
         })
       : [];
 
-    var saldo   = sal + heEfetivo + acrEfetivo - pago - totalAdiantamentos + totalCreditosAlvo;
+    var saldo   = sal + heEfetivo + acrEfetivo - deficitEfetivo - pago - totalAdiantamentos + totalCreditosAlvo;
 
     // Linha de composição: só mostra itens com valor > 0
     function _linha(label, valor, cor, destaque) {
@@ -2989,9 +3064,12 @@ var HR_FUNC = (function () {
       toggleHE +
       '<div style="margin-bottom:8px;margin-top:4px;">'+
         _linha(_dp.label+(f && f.socio ? '' : ' (fixo)'), sal, GOLD) +
-        (he > 0 && incluirExtra  ? _linha('H. extras ('+_dp.di.slice(8)+' a '+_dp.df.slice(8)+') · '+(s.totalExtra||0).toFixed(1)+'h', he, '#e0b870') : '') +
+        ((s.extraBrutoMin||0) > 0 ? '<div style="padding:3px 0;font-size:.68rem;color:'+T3+';font-style:italic;">Horas extras trabalhadas no período: '+_fmtHorasMin(s.extraBrutoMin)+'</div>' : '') +
+        ((s.deficitBrutoMin||0) > 0 ? '<div style="padding:3px 0 7px;font-size:.68rem;color:'+T3+';font-style:italic;">Horas negativas no período: '+_fmtHorasMin(s.deficitBrutoMin)+((s.deficitAbatidoMin||0) > 0 ? ' ('+_fmtHorasMin(s.deficitAbatidoMin)+' abatidas pela hora extra)' : '')+'</div>' : '') +
+        (he > 0 && incluirExtra  ? _linha('H. extras a pagar ('+_dp.di.slice(8)+' a '+_dp.df.slice(8)+') · '+(s.totalExtra||0).toFixed(1)+'h', he, '#e0b870') : '') +
         (he > 0 && !incluirExtra ? '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:.75rem;color:'+T3+';font-style:italic;">Extras ('+(s.totalExtra||0).toFixed(1)+'h) → banco 🏦</span><span style="font-size:.75rem;color:#8ec8f0;">'+_fmtMoeda(he)+'</span></div>' : '') +
         (acrEfetivo > 0.01 ? _linha('Acréscimo HE 2× / 3×', acrEfetivo, '#8ec8c8') : '') +
+        (deficitEfetivo > 0.01 ? _linhaSubt('Horas negativas restantes ('+_fmtHorasMin(s.deficitRestanteMin)+')', deficitEfetivo, RED) : '') +
         (pago > 0  ? _linhaSubt('Já pago neste período', pago, RED) : '') +
         adiantamentosAlvo.map(function(a){
           var dLbl = a.data ? _fmtData(a.data) : '';
