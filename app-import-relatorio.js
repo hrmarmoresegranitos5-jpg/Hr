@@ -3323,7 +3323,7 @@ var HR_IMPORT = (function () {
   function _confirmarImportacao() {
     var regs = _getRegistros();
     var funcs = _getFuncionarios();
-    var importados = 0, pulados = 0, semFunc = 0, reconciliados = 0;
+    var importados = 0, pulados = 0, semFunc = 0, reconciliados = 0, corrigidos = 0;
     var conflitos = [];
 
     // Identificador único deste lote de importação (usado para apagar em bloco)
@@ -3335,7 +3335,7 @@ var HR_IMPORT = (function () {
       if (!f) { semFunc += gr.registros.length; return; }
 
       gr.registros.forEach(function(r) {
-        // Verifica duplicata — mesmo funcionário + mesma data = pula sem exceção
+        // Verifica duplicata — mesmo funcionário + mesma data
         var dup = Object.values(regs).find(function(rx) {
           return rx.funcionarioId === gr.funcId && rx.data === r.data;
         });
@@ -3355,7 +3355,51 @@ var HR_IMPORT = (function () {
             dup.semAlmocoConfirmado = !!r.almocoConfirmado;
             dup.atualizadoEm = new Date().toISOString();
             reconciliados++;
+            return;
           }
+
+          // Correção por reimportação: já existe registro pra esse dia, mas
+          // a entrada/saída do reenvio é DIFERENTE da que está salva. Antes
+          // isso era tratado como "duplicata" e simplesmente ignorado — o
+          // dado velho (possivelmente errado, ex: de uma leitura ruim de
+          // foto) ficava preso pra sempre, mesmo reimportando o relatório
+          // certo depois. Agora atualiza o registro existente com os
+          // horários novos (mantém o id original) e recalcula horas/extra.
+          if (dup.entrada !== (r.entrada || '') || dup.saida !== (r.saida || '')) {
+            var entMinC   = _hhmm2min(r.entrada);
+            var saiMinC   = _hhmm2min(r.saida);
+            var almocoMinC = (r.almocoManual !== null && r.almocoManual !== undefined) ? r.almocoManual : 0;
+            var travouC   = _validarJornada(entMinC, saiMinC, almocoMinC);
+            if (!travouC.valido) {
+              conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data + ' [INVÁLIDO na correção: ' + travouC.motivo + ']');
+              pulados++;
+              return;
+            }
+            var isOvernightC = !isNaN(entMinC) && !isNaN(saiMinC) && saiMinC < entMinC && CFG.allowOvernight === true;
+            var calcC = (!isNaN(entMinC) && !isNaN(saiMinC) && (saiMinC > entMinC || isOvernightC))
+              ? _calcDia(entMinC, saiMinC, r.data, almocoMinC, gr.funcId || null)
+              : { trab: 0, saldo: 0, extra: 0, atraso: 0, almoco: 0 };
+            var clsC = _classificarHE({ data: r.data, extra: calcC.extra, funcId: gr.funcId || null,
+                                        entrada: r.entrada || '', saida: r.saida || '' });
+            dup.entrada      = r.entrada || '';
+            dup.saida        = r.saida   || '';
+            dup.saidaAlmoco  = r.almEntrada || '';
+            dup.voltaAlmoco  = r.almSaida   || '';
+            dup.semAlmocoConfirmado = !!r.almocoConfirmado;
+            dup.horas        = parseFloat((calcC.trab  / 60).toFixed(4));
+            dup.extra        = parseFloat((calcC.extra / 60).toFixed(4));
+            dup.tipoExtra    = (clsC.extra200 > 0)
+              ? ((CFG.diasEspeciais && CFG.diasEspeciais.indexOf(r.data) >= 0) ? 'especial'
+                 : (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) ? 'feriado' : 'especial')
+              : 'normal';
+            dup.observacao   = 'Corrigido por reimportação em ' + new Date().toISOString().slice(0,10);
+            dup.atualizadoEm = new Date().toISOString();
+            corrigidos++;
+            conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data + ' [CORRIGIDO: ' + (dup.entrada||'—') + '–antigo → ' + (r.entrada||'—') + '–novo]');
+            return;
+          }
+
+          // Entrada/saída idênticas e sem almoço pra reconciliar → duplicata real, ignora
           pulados++;
           conflitos.push(f.nome.split(' ')[0] + ' · ' + r.data);
           return;
@@ -3428,6 +3472,7 @@ var HR_IMPORT = (function () {
     _saveRegistros(regs);
 
     var msg = '✅ ' + importados + ' registro(s) importado(s).';
+    if (corrigidos > 0) msg += ' ✏️ ' + corrigidos + ' registro(s) corrigido(s) (horário diferente do salvo).';
     if (pulados > 0) msg += ' ⚠️ ' + pulados + ' duplicata(s) ignorada(s).';
     if (reconciliados > 0) msg += ' 🍽 ' + reconciliados + ' dia(s) com almoço reconciliado(s).';
     if (semFunc > 0) msg += ' ℹ️ ' + semFunc + ' sem vínculo.';
@@ -3443,7 +3488,7 @@ var HR_IMPORT = (function () {
     }
 
     if (importados > 0 && funcIdsDoLote.length > 0) {
-      _mostrarResumoHE(funcIdsDoLote);
+      _mostrarResumoHE(funcIdsDoLote, conflitos);
     } else {
       _fechar();
     }
@@ -3502,7 +3547,8 @@ var HR_IMPORT = (function () {
     return f(di) + ' a ' + f(df);
   }
 
-  function _mostrarResumoHE(funcIds) {
+  function _mostrarResumoHE(funcIds, conflitos) {
+    conflitos = conflitos || [];
     var funcs = _getFuncionarios();
     var mesRef = (_state.periodo.di || '').slice(0, 7);
     var periodoTexto = _fmtPeriodoCurto(_state.periodo.di, _state.periodo.df);
@@ -3553,7 +3599,25 @@ var HR_IMPORT = (function () {
       '</div>';
     });
 
+    var htmlConflitos = '';
+    if (conflitos.length > 0) {
+      var corrigidosTxt = conflitos.filter(function(c){ return c.indexOf('[CORRIGIDO:') >= 0; });
+      var invalidosTxt  = conflitos.filter(function(c){ return c.indexOf('[INVÁLIDO') >= 0; });
+      var puladosTxt    = conflitos.filter(function(c){ return c.indexOf('[CORRIGIDO:') < 0 && c.indexOf('[INVÁLIDO') < 0; });
+      htmlConflitos =
+        '<details style="width:calc(100% - 32px);max-width:520px;' + CSS_CARD + 'background:rgba(255,255,255,.03);cursor:pointer;">' +
+          '<summary style="font-size:.78rem;font-weight:700;color:' + T2 + ';">⚠️ ' + conflitos.length + ' registro(s) precisam da sua atenção — toque pra ver</summary>' +
+          '<div style="margin-top:8px;font-size:.72rem;color:' + T3 + ';line-height:1.6;">' +
+            (corrigidosTxt.length ? '<div style="color:#8ec8f0;font-weight:700;margin-top:4px;">✏️ Corrigidos (dado antigo ≠ novo, atualizado):</div>' + corrigidosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
+            (invalidosTxt.length ? '<div style="color:#e08a8a;font-weight:700;margin-top:4px;">🚫 Inválidos (não importados):</div>' + invalidosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
+            (puladosTxt.length ? '<div style="color:' + T3 + ';font-weight:700;margin-top:4px;">➖ Duplicatas idênticas ignoradas:</div>' + puladosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
+          '</div>' +
+        '</details>';
+      if (typeof console !== 'undefined') console.log('[HR_IMPORT] Conflitos/correções desta importação:', conflitos);
+    }
+
     var html = _header('Resumo de Horas Extras', 'Período: ' + periodoTexto) +
+      htmlConflitos +
 
       '<div style="width:calc(100% - 32px);max-width:520px;' + CSS_CARD + 'background:' + GOLD2 + ';border-color:' + GOLDB + ';display:flex;justify-content:space-between;align-items:center;">' +
         '<div>' +
