@@ -61,11 +61,13 @@ var HR_IA = (function () {
       var s;
       try { s = HR_FUNC.calcSaldoFuncionario(f.id, di, df); } catch (e) { return '• ' + f.nome + ' — erro ao calcular saldo'; }
       var bancoH = ((s.banco && s.banco.saldoMin || 0) / 60).toFixed(1);
+      var avisoPonto = (typeof HR_FUNC._avisoSemPonto === 'function') ? HR_FUNC._avisoSemPonto(s) : '';
       return '• ' + f.nome + ' (id:' + f.id + ')' +
         ' | devido no mês: ' + _fmtMoeda(s.totalDevido) +
         ' | pago: ' + _fmtMoeda(s.totalPago) +
         ' | saldo: ' + _fmtMoeda(s.saldo) + (s.temCredito ? ' (crédito a favor do funcionário)' : '') +
-        ' | banco de horas: ' + bancoH + 'h';
+        ' | banco de horas: ' + bancoH + 'h' +
+        (avisoPonto ? ' | ⚠️ ATENÇÃO: ' + avisoPonto + ' — NÃO afirme que este funcionário está com pouco a receber ou pague o decêndio dele sem avisar isso ao usuário primeiro' : '');
     });
 
     return 'SALDO/EXTRATO RH — referência ' + mesAtual + ' (' + lista.length + ' ativo(s)):\n' + linhas.join('\n');
@@ -81,6 +83,7 @@ var HR_IA = (function () {
       _buildContext(),
       '',
       'Responda direto e curto, com **negrito** em valores e nomes. Use os números do contexto acima — nunca invente valores.',
+      'Se um funcionário no contexto tiver a tag "⚠️ ATENÇÃO" (sem ponto importado no período), avise o usuário disso ANTES de responder sobre saldo/pagamento dele, e não sugira nem execute pagamento de decêndio pra esse funcionário sem confirmação explícita depois desse aviso.',
       '',
       'Para registrar um pagamento de decêndio/folha, responda com um bloco ```json``` assim:',
       '{"action":"pagar_decendio","funcionario":"nome ou parte do nome","valor":500,"forma":"pix","obs":"opcional"}',
@@ -240,6 +243,8 @@ var HR_IA = (function () {
         : (s.saldo < -0.01
           ? ' Crédito de **' + _fmtMoeda(Math.abs(s.saldo)) + '**.'
           : ' Conta **quitada**! ✅');
+      var _avisoPag = (typeof HR_FUNC._avisoSemPonto === 'function') ? HR_FUNC._avisoSemPonto(s) : '';
+      if (_avisoPag) saldoTxt += ' ⚠️ **Atenção:** ' + _avisoPag + '.';
     }
     return '✅ Pagamento de **' + _fmtMoeda(p.valor) + '** para **' + p.funcionarioNome + '** registrado.' + saldoTxt;
   }

@@ -1252,6 +1252,8 @@ function _jobLog(job, campo, de, para) {
                 : sDepois.saldo < -0.01
                   ? ' Crédito de **R$ ' + Math.abs(sDepois.saldo).toFixed(2).replace('.',',') + '** a favor.'
                   : ' Conta **quitada**! ✅';
+              var _avisoSecPag = (typeof HR_FUNC._avisoSemPonto === 'function') ? HR_FUNC._avisoSemPonto(sDepois) : '';
+              if (_avisoSecPag) saldoTxt += ' ⚠️ **Atenção:** ' + _avisoSecPag + '.';
             } catch(eSaldo) {}
 
             result.extra = '✅ Pagamento de **R$ ' + pagValor.toFixed(2).replace('.',',') + '** para **' + funcEncontrado.nome + '** registrado.' + saldoTxt;
