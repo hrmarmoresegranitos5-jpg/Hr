@@ -1529,6 +1529,10 @@ var HR_RELATORIO_PONTO = (function () {
     var meusRegs = Object.values(regs).filter(function (r) {
       return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
     });
+    // Sem NENHUM registro no período inteiro = ponto ainda não foi importado/
+    // lançado, não é o funcionário "faltando todos os dias". Não gera déficit
+    // fantasma (ver calcExtraPeriodo, mesma regra e motivo detalhado lá).
+    if (meusRegs.length === 0) return 0;
     var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
     var totalDeficitMin = 0;
     linhas.forEach(function (l) { if (l.saldoMin < 0) totalDeficitMin += l.saldoMin; });
@@ -1550,6 +1554,26 @@ var HR_RELATORIO_PONTO = (function () {
     var meusRegs = Object.values(regs).filter(function (r) {
       return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
     });
+
+    // Sem NENHUM registro no período inteiro: o ponto desse período ainda
+    // não foi importado/lançado no sistema — não dá pra saber se a pessoa
+    // faltou ou se é só falta de dado. _montarLinhas trata todo dia sem
+    // batida como falta total (saldoMin = -esperadoMin), então rodar ele
+    // aqui geraria um "déficit" do tamanho da jornada inteira do período
+    // (ex: 56h num decêndio de 10 dias) mesmo quando a pessoa trabalhou
+    // normal e só falta importar. Detecta esse caso e devolve zerado com
+    // um aviso, em vez de descontar dinheiro de um período sem dado nenhum.
+    if (meusRegs.length === 0) {
+      return {
+        totalExtra50Min: 0, totalExtra100Min: 0, totalExtra200Min: 0,
+        valorExtra50: 0, valorExtra100: 0, valorExtra200: 0,
+        valorTotalExtras: 0, totalExtraHoras: 0,
+        extraBrutoMin: 0, deficitBrutoMin: 0, deficitAbatidoMin: 0,
+        deficitRestanteMin: 0, deficitRestanteValor: 0, valorHoraBase: 0,
+        semRegistrosPeriodo: true
+      };
+    }
+
     var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
 
     var extra50Min = 0, extra200Min = 0, valorExtra50 = 0, valorExtra200 = 0;
