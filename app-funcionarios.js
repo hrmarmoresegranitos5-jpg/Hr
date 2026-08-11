@@ -371,16 +371,6 @@ var HR_FUNC = (function () {
     var totalHoras = meusRegs.reduce(function(s, r){ return s + (parseFloat(r.horas) || 0); }, 0);
     var dias       = meusRegs.length;
 
-    // ── Guarda de segurança: período sem NENHUM ponto batido/importado ─────
-    // Dia sem registro é tratado como falta total (déficit = jornada esperada
-    // inteira do dia — ver _montarLinhas em app-relatorio-ponto.js). Isso é
-    // correto quando o funcionário realmente faltou, mas é enganoso quando o
-    // motivo real é que o ponto do período ainda não foi importado: o painel
-    // de pagamento mostraria um déficit gigante (até o período inteiro) e
-    // quase zeraria o valor a pagar por falta de dado, não por falta real.
-    // Sinaliza aqui pra UI (_blocoSaldo) poder avisar antes de descontar.
-    var semRegistrosPeriodo = !!(di && df && meusRegs.length === 0);
-
     // ── Cálculo de salário: usa decêndios fixos se configurados ────────────
     // Regra: soma os valores fixos dos decêndios cujo vencimento já passou
     // dentro do período di–df. Se não houver dec1/dec2/dec3 configurados,
@@ -592,8 +582,10 @@ var HR_FUNC = (function () {
       deficitAbatidoMin:    deficitAbatidoMin,
       deficitRestanteMin:   deficitRestanteMin,
       deficitRestanteValor: deficitRestanteValor,
-      // Guarda de segurança — ver comentário acima de onde é calculada
-      semRegistrosPeriodo:  semRegistrosPeriodo,
+      // Sem nenhum registro de ponto no período todo (ponto ainda não
+      // importado/lançado) — sinaliza pra UI mostrar aviso em vez de
+      // deficit fantasma (ver calcExtraPeriodo em app-relatorio-ponto.js)
+      semRegistrosPeriodo: !!heResult.semRegistrosPeriodo,
       // Item 4 — Banco de horas (separado do financeiro)
       banco:            calcSaldoBancoHoras(funcId, di, df)
     };
@@ -1141,10 +1133,6 @@ var HR_FUNC = (function () {
     if (!emFerias && diasSemPag !== null && diasSemPag > 12) badges += '<span style="font-size:.6rem;background:rgba(200,92,92,.1);'+
       'border:1px solid rgba(200,92,92,.35);color:'+RED+';border-radius:4px;padding:2px 7px;margin-right:4px;">'+
       '⏳ '+diasSemPag+'d sem pagamento</span>';
-    if (saldo.semRegistrosPeriodo && (saldo.deficitBrutoMin||0) > 0) badges += '<span style="font-size:.6rem;'+
-      'background:rgba(229,57,53,.1);border:1px solid rgba(229,57,53,.4);color:'+RED+';border-radius:4px;'+
-      'padding:2px 7px;margin-right:4px;" title="Saldo abaixo pode estar errado por falta de import">'+
-      '⚠ sem ponto no período</span>';
 
     var saldoBadge = '';
     if (saldo.saldo > 0.5) saldoBadge = '<span style="font-size:.62rem;color:'+GOLD+';">💰 a receber '+_fmtMoeda(saldo.saldo)+'</span>';
@@ -1576,18 +1564,6 @@ var HR_FUNC = (function () {
         alertas.map(function(a){
           return '<div style="font-size:.75rem;color:#e0b870;padding:4px 0;border-bottom:1px solid rgba(200,160,60,.1);">'+_esc(a.descricao)+'</div>';
         }).join('')+
-      '</div>';
-    }
-    // Aviso: mês atual e/ou mês anterior sem nenhum ponto importado — os
-    // saldos mostrados nesta tela podem estar contando falta total por
-    // falta de dado, não por falta real (ver calcSaldoFuncionario).
-    var avisoSemPontoTxt = _avisoSemPonto(saldo);
-    var avisoSemPontoAntTxt = _avisoSemPonto(saldoAnteriorModal);
-    if (avisoSemPontoTxt || avisoSemPontoAntTxt) {
-      alertasHtml += '<div style="background:rgba(229,57,53,.1);border:1px solid rgba(229,57,53,.4);'+
-        'border-radius:12px;padding:12px 14px;margin-bottom:12px;">'+
-        (avisoSemPontoTxt ? '<div style="font-size:.75rem;color:#ffb4b0;padding:3px 0;">⚠️ Mês atual: '+avisoSemPontoTxt+'.</div>' : '')+
-        (avisoSemPontoAntTxt ? '<div style="font-size:.75rem;color:#ffb4b0;padding:3px 0;">⚠️ '+_lblMesAntModal+': '+avisoSemPontoAntTxt+'.</div>' : '')+
       '</div>';
     }
     // Bloco de ocorrências de falha de registro (penalidades)
@@ -2144,7 +2120,6 @@ var HR_FUNC = (function () {
     }
 
     var totalFolha=0, totalExtras=0, totalPago=0, totalVales=0, totalDec=0, totalSaldo=0;
-    var funcionariosSemPonto=[];
 
     var linhas = ativos.map(function(f){
       var s = calcSaldoFuncionario(f.id, di, df);
@@ -2153,7 +2128,6 @@ var HR_FUNC = (function () {
       totalPago   += s.totalPago;
       // Acumula saldo real (pode ser negativo = crédito): soma s.saldo positivos apenas
       if (s.saldo > 0.01) totalSaldo += s.saldo;
-      if (s.semRegistrosPeriodo && (s.deficitBrutoMin||0) > 0) funcionariosSemPonto.push(f.nome);
 
       // Vales e adiantamentos deste funcionário no período
       var meusPags = pagsPeriodo.filter(function(p){ return p.funcionarioId === f.id; });
@@ -2203,18 +2177,6 @@ var HR_FUNC = (function () {
           'border-radius:11px;padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;">'+
           '<div style="font-size:.78rem;color:'+T1+';line-height:1.35;">⚠️ Ainda há <b style="color:'+RED+';">'+_fmtMoeda(saldoPendenteAnterior)+'</b> pendente em '+fmtMes(mesAnterior)+'</div>'+
           '<span style="color:'+RED+';font-size:.78rem;font-weight:700;white-space:nowrap;">Ver →</span>'+
-        '</div>'
-      : '')+
-
-      // Alerta: um ou mais funcionários sem NENHUM ponto importado neste período —
-      // os totais acima (Saldo a Pagar em especial) podem estar artificialmente
-      // baixos porque o déficit tá contando o período inteiro como falta.
-      (funcionariosSemPonto.length > 0 ?
-        '<div style="background:rgba(229,57,53,.10);border:1px solid rgba(229,57,53,.4);'+
-          'border-radius:11px;padding:11px 14px;margin-bottom:12px;">'+
-          '<div style="font-size:.78rem;color:#ffb4b0;line-height:1.4;">⚠️ <b>Sem ponto importado neste período:</b> '+
-          _esc(funcionariosSemPonto.join(', '))+'. Os valores devidos deles acima podem estar '+
-          'menores do que o real — confira o import antes de fechar a folha.</div>'+
         '</div>'
       : '')+
 
@@ -3003,16 +2965,6 @@ var HR_FUNC = (function () {
   // ─── Bloco financeiro reutilizável: conta-corrente visual ─────────────────
   // Aparece no modal de pagamento e pode ser chamado de outros contextos.
   // Mostra as linhas de composição do valor a pagar de forma transparente.
-  // ─── Aviso reutilizável: período sem NENHUM ponto importado ────────────
-  // Mesma checagem em todo lugar que exibe saldo/déficit pro dono ou pro
-  // funcionário (card, folha, modal, PDF, IA) — evita que cada tela invente
-  // seu próprio texto e uma delas acabe esquecida.
-  function _avisoSemPonto(s) {
-    if (!s || !s.semRegistrosPeriodo || !((s.deficitBrutoMin||0) > 0)) return '';
-    return 'sem nenhum ponto importado neste período — o desconto de horas negativas ('+
-      _fmtHorasMin(s.deficitBrutoMin)+') pode estar contando falta total só por falta de dado, não por falta real';
-  }
-
   function _blocoSaldo(s, f, incluirExtra, decNum, mesISO){
     if (!s) return '';
     // incluirExtra: undefined/true = incluir HE no total; false = acumular no banco
@@ -3108,21 +3060,21 @@ var HR_FUNC = (function () {
         '</div>';
     }
 
+    var avisoSemRegistros = s.semRegistrosPeriodo
+      ? '<div style="display:flex;gap:8px;align-items:flex-start;background:rgba(224,138,138,.1);border:1px solid rgba(224,138,138,.35);'+
+        'border-radius:9px;padding:9px 11px;margin-bottom:8px;">'+
+        '<span style="font-size:.9rem;line-height:1;">⚠️</span>'+
+        '<span style="font-size:.72rem;color:#e0a0a0;line-height:1.5;">Nenhum ponto batido/importado ainda pra este período — não é possível calcular horas extras nem faltas. '+
+        'Se a pessoa já trabalhou nesses dias, importe o ponto antes de registrar o pagamento.</span>'+
+        '</div>'
+      : '';
+
     return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:14px;margin-bottom:12px;">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
         '<div style="font-size:.62rem;color:'+GOLD+';letter-spacing:.1em;text-transform:uppercase;font-weight:700;">📋 '+periodoLabel+'</div>'+
         (f && f.salario ? '<div style="font-size:.6rem;color:'+T3+';">mensal: '+_fmtMoeda(parseFloat(f.salario))+'</div>' : '')+
       '</div>'+
-      (s.semRegistrosPeriodo && (s.deficitBrutoMin||0) > 0 ?
-        '<div style="display:flex;gap:8px;align-items:flex-start;background:rgba(229,57,53,.12);'+
-        'border:1px solid rgba(229,57,53,.45);border-radius:9px;padding:9px 11px;margin-bottom:10px;">'+
-          '<span style="font-size:.95rem;line-height:1;">⚠️</span>'+
-          '<span style="font-size:.7rem;color:#ffb4b0;line-height:1.45;">'+
-            '<b>Nenhum ponto registrado neste período.</b> O desconto de horas negativas abaixo ('+
-            _fmtHorasMin(s.deficitBrutoMin)+') pode estar contando falta total só porque os dados de '+
-            'ponto ainda não foram importados — confira antes de confirmar o pagamento.'+
-          '</span>'+
-        '</div>' : '') +
+      avisoSemRegistros +
       toggleHE +
       '<div style="margin-bottom:8px;margin-top:4px;">'+
         _linha(_dp.label+(f && f.socio ? '' : ' (fixo)'), sal, GOLD) +
@@ -3479,29 +3431,6 @@ var HR_FUNC = (function () {
     var per = _periodoDecendio(decPago, mesPago);
     var s   = calcSaldoFuncionario(funcId, per.di, per.df);
     if (!s.temCredito) return null;
-
-    // Guarda de segurança: se o "overpago" só aparece porque não há NENHUM
-    // ponto importado nesse decêndio (déficit = jornada inteira do período,
-    // ver semRegistrosPeriodo em calcSaldoFuncionario), NÃO cria o crédito
-    // automático. Criar aqui descontaria injustamente do funcionário num
-    // decêndio futuro por causa de um dado ausente, não de um overpago real
-    // — e o crédito ficaria "congelado" com esse valor errado até alguém
-    // notar. Só avisa e deixa pra checagem manual depois que o ponto for
-    // importado (nesse ponto o saldo recalcula e, se o overpago for real,
-    // este mesmo fluxo roda de novo — via _reconciliarCreditoOrigem — e
-    // cria o crédito certo).
-    if (s.semRegistrosPeriodo) {
-      var msgSemPonto = '[HR_FUNC] Overpago aparente no ' + per.label + ' de ' + mesPago +
-        ' (funcionário ' + funcId + ') NÃO virou crédito automático: não há nenhum ponto ' +
-        'importado nesse período, então o déficit pode estar inflado por falta de dado. ' +
-        'Confira o ponto e, se o overpago for real, reabra o pagamento pra recalcular.';
-      console.warn(msgSemPonto);
-      try {
-        _toast('⚠️ Pagamento acima do esperado, mas sem ponto importado no período — ' +
-          'crédito automático NÃO foi criado. Confira o ponto antes de decidir.');
-      } catch(e){}
-      return null;
-    }
 
     var valorCredito = Math.abs(s.saldo);
     var obsAuto = _gerarObsCreditoOverpago(s, per, mesPago);
@@ -4069,9 +3998,6 @@ var HR_FUNC = (function () {
       saldoTexto = '✅ Quitado';
     } else {
       saldoTexto = '⏳ Saldo restante: ' + _fmtMoeda(saldo.saldo);
-    }
-    if (_avisoSemPonto(saldo)) {
-      saldoTexto += ' ⚠️ (' + _avisoSemPonto(saldo) + ')';
     }
 
     // Período de referência legível
@@ -5564,7 +5490,6 @@ var HR_FUNC = (function () {
     _excluirExcecao:       _excluirExcecao,
     // Motor único de cálculo de saldo (usado por Folha, Card e Secretária IA)
     calcSaldoFuncionario:   calcSaldoFuncionario,
-    _avisoSemPonto:         _avisoSemPonto,
     _periodoDecendioAtual:  _periodoDecendioAtual,
     // Motor único de pagamento (usado pelo formulário e pelo RH IA)
     registrarPagamento:     registrarPagamento,
