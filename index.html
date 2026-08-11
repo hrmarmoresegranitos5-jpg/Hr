@@ -390,6 +390,7 @@ function openApp(pg){
           <div class="qbox" id="quoteBox" onclick="selectQuote()"></div>
           <div style="font-size:.6rem;color:var(--t3);margin:4px 0 7px;text-align:center;">Toque no texto para selecionar · ou use o botão Copiar</div>
           <div class="row mt6"><button class="btn btn-g" id="btnCopy" style="flex:1;">📋 Copiar</button><button class="btn btn-o" id="btnPDF" style="flex:1;">📄 PDF</button></div>
+          <button class="btn btn-o mt" id="btnFichaCorte" style="display:none;background:rgba(96,200,160,.12);border-color:rgba(96,200,160,.35);color:#5ecb9a;">✂️ Ficha de Corte (foto p/ equipe)</button>
           <button class="btn btn-o mt" id="btnSaveAg">📅 Salvar na Agenda</button>
           <button class="btn btn-o mt" onclick="javascript:(function(){var cli=document.getElementById('oCliente')?document.getElementById('oCliente').value.trim():'';var tel=document.getElementById('oTel')?document.getElementById('oTel').value.trim():'';if(typeof openVisitaMd==='function'){if(typeof pendQ!=='undefined'&&pendQ){var p=pendQ;window._pendVisita={cli:p.cli||cli,tel:p.tel||tel,end:p.end||''};};openVisitaMd(null);}else{go(11);}})();" style="background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.3);color:#60a5fa;">📐 Agendar Visita de Medição</button>
         </div>
@@ -1040,7 +1041,7 @@ if (typeof TUM === 'undefined') {
   };
 }
   </script>
-  <script src="app-core.js?v=33"></script>
+  <script src="app-core.js?v=34"></script>
   <script src="app-inst-tubo-fix.js?v=1"></script>
   <script src="hr-db-core.js?v=1"></script>
   <script src="app-clientes.js?v=4"></script>
@@ -1066,9 +1067,9 @@ if (typeof TUM === 'undefined') {
   <script src="app-contrato-area.js?v=3"></script>
   <script src="app-contrato-pdf.js?v=2"></script>
   <script src="app-horas-extras-pdf.js?v=2"></script>
-  <script src="app-relatorio-ponto.js?v=2"></script>
+  <script src="app-relatorio-ponto.js?v=3"></script>
   <script src="app-pdf-tumulo.js?v=2"></script>
-  <script src="app-funcionarios.js?v=7"></script>
+  <script src="app-funcionarios.js?v=9"></script>
   <script src="app-rh-ia.js?v=1"></script>
   <script src="app-import-relatorio.js?v=1"></script>
   <script src="app-banco-horas.js?v=1"></script>

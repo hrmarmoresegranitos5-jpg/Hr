@@ -2716,8 +2716,10 @@ var HR_FUNC = (function () {
     var f     = funcIdInicial ? (funcs[funcIdInicial] || {}) : {};
 
     // Sugestão de valor: dec1/dec2/dec3 (fallback salário÷3) ou, pra
-    // sócio, % automático sobre o lucro do decêndio selecionado
-    var _sugestaoNum = funcIdInicial ? _decendioValorNum(f, _decSelecionado, _mesPeriodo) : 0;
+    // sócio, % automático sobre o lucro do decêndio selecionado — já com HE,
+    // déficit, "já pago" e adiantamentos descontados (mesma conta do resumo
+    // visual), pra não abrir o campo com o valor bruto do decêndio.
+    var _sugestaoNum = funcIdInicial ? _calcValorAPagar(saldo, f, _extraPagIncluir, _decSelecionado, _mesPeriodo) : 0;
     var sugestao = _sugestaoNum > 0 ? _sugestaoNum.toFixed(2) : '';
 
     var opsTipo = Object.keys(_TIPOS_PAG).map(function(k){
@@ -2859,15 +2861,12 @@ var HR_FUNC = (function () {
         var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV && tipo === 'decendio') {
-          // Bugfix: antes este reset sempre usava só o valor fixo do decêndio,
-          // ignorando o toggle "Pagar agora/Acumular" — então trocar de
-          // funcionário (ou o load inicial) podia silenciosamente tirar a HE
-          // do campo mesmo com "Pagar agora" selecionado. Agora respeita
-          // _extraPagIncluir, igual o toggle já fazia.
-          var valDec2 = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
-          var heV2    = _extraPagIncluir ? (s2.valorExtra || 0) : 0;
-          var defV2   = s2.deficitRestanteValor || 0;
-          if (valDec2 > 0) inpV.value = Math.max(0, valDec2 + heV2 - defV2).toFixed(2);
+          // Bugfix: antes este reset usava só decêndio+HE-déficit, sem
+          // descontar "já pago" nem adiantamentos — agora usa a mesma
+          // fórmula do resumo visual (_calcValorAPagar), senão o campo
+          // ficava com um valor maior que o "A pagar hoje" mostrado acima.
+          var valorCalc2 = _calcValorAPagar(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
+          if (valorCalc2 > 0 || (s2 && s2.totalSalario > 0)) inpV.value = valorCalc2.toFixed(2);
         }
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
         _atualizarCamposHEOcultos(s2);
@@ -2911,14 +2910,9 @@ var HR_FUNC = (function () {
         var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV) {
-          var valDec = _decendioValorNum(f2, _decSelecionado, _mesPeriodo);
-          var defV   = s2.deficitRestanteValor || 0;
-          if (!_extraPagIncluir) {
-            inpV.value = Math.max(0, (valDec > 0 ? valDec : (parseFloat(f2.salario)||0)) - defV).toFixed(2);
-          } else {
-            var heV = s2.valorExtra || 0;
-            inpV.value = Math.max(0, (valDec > 0 ? valDec + heV : (parseFloat(f2.salario)||0) + heV) - defV).toFixed(2);
-          }
+          // Mesma fórmula do resumo visual — desconta déficit, "já pago" e
+          // adiantamentos, não só HE (ver _calcValorAPagar).
+          inpV.value = _calcValorAPagar(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo).toFixed(2);
         }
         _atualizarCamposHEOcultos(s2);
       }
@@ -2965,6 +2959,29 @@ var HR_FUNC = (function () {
   // ─── Bloco financeiro reutilizável: conta-corrente visual ─────────────────
   // Aparece no modal de pagamento e pode ser chamado de outros contextos.
   // Mostra as linhas de composição do valor a pagar de forma transparente.
+  // Calcula o valor final "a pagar hoje" com a MESMA fórmula usada no resumo
+  // visual (_blocoSaldo) — salário do decêndio + HE - déficit - já pago -
+  // adiantamentos + créditos. Extraído pra função própria porque antes o
+  // campo "Valor (R$)" era preenchido com uma conta simplificada (só
+  // decêndio + HE - déficit), sem descontar "já pago" nem adiantamentos —
+  // então o resumo mostrava o valor certo mas o campo ficava com o bruto.
+  function _calcValorAPagar(s, f, incluirExtra, decNum, mesISO) {
+    if (incluirExtra === undefined) incluirExtra = true;
+    var sal        = (s && s.totalSalario != null) ? s.totalSalario : (f && f.salario ? parseFloat(f.salario) : 0);
+    var heEfetivo  = incluirExtra ? (s.valorExtra || 0) : 0;
+    var acrEfetivo = incluirExtra ? (s.totalAcrescimos || 0) : 0;
+    var pago       = s.totalPago || 0;
+    var deficitEfetivo = s.deficitRestanteValor || 0;
+    var _refMesAdi = mesISO || window._folhaMes || _mesAno(0);
+    var adiantamentosAlvo = (decNum && typeof _adiantamentosAlvoDecendio === 'function')
+      ? _adiantamentosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
+    var totalAdiantamentos = adiantamentosAlvo.reduce(function(s2,a){ return s2 + (parseFloat(a.valor)||0); }, 0);
+    var creditosAlvo = (decNum && typeof _creditosAlvoDecendio === 'function')
+      ? _creditosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
+    var totalCreditosAlvo = creditosAlvo.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+    return Math.max(0, sal + heEfetivo + acrEfetivo - deficitEfetivo - pago - totalAdiantamentos + totalCreditosAlvo);
+  }
+
   function _blocoSaldo(s, f, incluirExtra, decNum, mesISO){
     if (!s) return '';
     // incluirExtra: undefined/true = incluir HE no total; false = acumular no banco
@@ -3011,7 +3028,7 @@ var HR_FUNC = (function () {
         })
       : [];
 
-    var saldo   = sal + heEfetivo + acrEfetivo - deficitEfetivo - pago - totalAdiantamentos + totalCreditosAlvo;
+    var saldo   = _calcValorAPagar(s, f, incluirExtra, decNum, mesISO);
 
     // Linha de composição: só mostra itens com valor > 0
     function _linha(label, valor, cor, destaque) {
