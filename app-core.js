@@ -1634,6 +1634,7 @@ function dispatch(e){
   el=e.target.closest('#btnCalc');if(el){calcular();return;}
   el=e.target.closest('#btnCopy');if(el){copiar();return;}
   el=e.target.closest('#btnPDF');if(el){gerarPDF();return;}
+  el=e.target.closest('#btnFichaCorte');if(el){gerarFichaCorteSolPeit();return;}
   el=e.target.closest('#btnSaveAg');if(el){salvarAgenda();return;}
   el=e.target.closest('#btnNewJob');if(el){openJobModal(null);return;}
   el=e.target.closest('#btnSvJob');if(el){saveJob();return;}
@@ -5827,6 +5828,15 @@ function calcular(){
   document.getElementById('resArea').style.display='block';
   document.getElementById('resArea').scrollIntoView({behavior:'smooth',block:'start'});
 
+  // Ficha de Corte: só mostra o botão se o orçamento tem alguma peça de Soleira/Peitoril
+  var _btnFC=document.getElementById('btnFichaCorte');
+  if(_btnFC){
+    var _temSolPeitFC=ambientes.some(function(a){
+      return (a.tipo==='Soleira'||a.tipo==='Peitoril') && a.pecas && a.pecas.some(function(p){return p.w&&p.h;});
+    });
+    _btnFC.style.display=_temSolPeitFC?'block':'none';
+  }
+
   // Mostra painel de ajuste de vista
   var adjSec=document.getElementById('vistaAdjSec');
   if(adjSec){adjSec.style.display='block';}
@@ -6623,6 +6633,168 @@ function gerarPDF(){
     }).catch(function(){
       if(document.body.contains(offscreen))document.body.removeChild(offscreen);
       preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar. Use &#128424; Imprimir.</div>';
+    });
+  },200);
+}
+// ─── FICHA DE CORTE — foto pra equipe (Soleira/Peitoril) ───────────────────
+// Lista as peças com largura×altura, material, e destaca bem visível se cada
+// grupo TEM ou NÃO TEM acabamento (e quantos lados) — feita pra abrir a foto
+// direto no WhatsApp e mandar pros meninos cortarem, sem confundir peça.
+function _fcAcbInfo(amb){
+  var g=SV_DEFS[amb.tipo]||[];
+  var acbGrp=g.find(function(gr){return gr.g==='Acabamento'&&gr.its.length&&gr.its[0].u==='acb_auto';});
+  if(!acbGrp)return null;
+  var sv=amb.svState||{};
+  var selK=null;
+  acbGrp.its.forEach(function(it){if(sv.hasOwnProperty(it.k))selK=it.k;});
+  var it=acbGrp.its.find(function(i){return i.k===selK;})||acbGrp.its[0];
+  return {k:it.k,label:it.l,lados:it.lados||0,is45:!!it.is45,sainhaH:(it.k==='sol_45'&&sv[it.k])?sv[it.k].sainhaH:null};
+}
+function _fcTipoInfo(amb){
+  if(amb.tipo!=='Peitoril')return null;
+  var g=SV_DEFS.Peitoril;
+  var tipoGrp=g.find(function(gr){return gr.g==='Tipo';});
+  if(!tipoGrp)return null;
+  var sv=amb.svState||{};
+  var sels=tipoGrp.its.filter(function(it){return sv.hasOwnProperty(it.k);}).map(function(it){return it.l;});
+  return sels.length?sels.join(' + '):null;
+}
+function gerarFichaCorteSolPeit(){
+  var grupos=(typeof ambientes!=='undefined'?ambientes:[]).filter(function(a){
+    return (a.tipo==='Soleira'||a.tipo==='Peitoril')&&a.pecas&&a.pecas.some(function(p){return p.w&&p.h;});
+  });
+  if(!grupos.length){toast('Nenhuma soleira/peitoril com medida neste orçamento');return;}
+  toast('⏳ Gerando ficha de corte...');
+  _loadNicImgLibs(function(){
+    try{_buildFichaCorteImg(grupos);}
+    catch(e){console.error('fichaCorte:',e);toast('Erro ao gerar imagem: '+e.message);}
+  });
+}
+function _buildFichaCorteImg(grupos){
+  var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
+  var cliEl=document.getElementById('oCliente');
+  var cliNome=cliEl?cliEl.value.trim():'';
+  var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  var gruposHtml='';
+  grupos.forEach(function(amb,gi){
+    var mat=CFG.stones.find(function(s){return s.id===amb.selMat;});
+    var matTxt=mat?(mat.nm+(mat.fin?' — '+mat.fin:'')):'—';
+    var acb=_fcAcbInfo(amb);
+    var tipoInfo=_fcTipoInfo(amb);
+    var pecas=amb.pecas.filter(function(p){return p.w&&p.h;});
+    var totalMl=pecas.reduce(function(s,p){return s+(p.w/100)*(p.q||1);},0);
+
+    var temAcb=acb&&acb.lados>0;
+    var acbBadge=acb
+      ? ('<span style="display:inline-block;padding:5px 14px;border-radius:20px;font-size:13px;font-weight:800;letter-spacing:.3px;'
+          +(temAcb?'background:#1f6b3a;color:#fff;':'background:#888;color:#fff;')+'">'
+          +(temAcb?'✔ COM ACABAMENTO — '+acb.label.toUpperCase():'✘ SEM ACABAMENTO')
+          +'</span>'
+          +(acb.is45&&acb.sainhaH?'<span style="margin-left:8px;font-size:12px;color:#7a4e00;font-weight:700;">sainha '+acb.sainhaH+'cm</span>':''))
+      : '';
+
+    gruposHtml+='<div style="margin:0 40px 22px;border:2px solid #222;border-radius:10px;overflow:hidden;">'
+      +'<div style="background:#222;color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+        +'<span style="font-size:15px;font-weight:900;letter-spacing:.5px;">'+(grupos.length>1?(gi+1)+'. ':'')+(amb.tipo==='Soleira'?'🚪 SOLEIRA':'🪟 PEITORIL')+(tipoInfo?' — '+tipoInfo.toUpperCase():'')+'</span>'
+        +acbBadge
+      +'</div>'
+      +'<div style="padding:10px 16px 4px;font-size:12.5px;color:#555;border-bottom:1px solid #eee;">Material: <b style="color:#222;">'+matTxt+'</b></div>'
+      +'<table style="width:100%;border-collapse:collapse;">'
+      +'<tr style="background:#f5f5f5;">'
+        +'<td style="padding:7px 16px;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;">Peça</td>'
+        +'<td style="padding:7px 16px;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;text-align:right;">Comprimento × Largura</td>'
+        +'<td style="padding:7px 16px;font-size:11px;font-weight:800;color:#888;text-transform:uppercase;letter-spacing:.5px;text-align:right;">Qtd</td>'
+      +'</tr>';
+    pecas.forEach(function(p,pi){
+      var bg=pi%2===0?'#fff':'#fafafa';
+      gruposHtml+='<tr style="background:'+bg+';">'
+        +'<td style="padding:9px 16px;font-size:14px;font-weight:700;color:#1a1a1a;border-top:1px solid #eee;">'+(p.desc||'Peça '+(pi+1))+'</td>'
+        +'<td style="padding:9px 16px;font-size:15px;font-weight:800;color:#222;text-align:right;border-top:1px solid #eee;white-space:nowrap;">'+p.w+' × '+p.h+' cm</td>'
+        +'<td style="padding:9px 16px;font-size:14px;font-weight:700;color:#222;text-align:right;border-top:1px solid #eee;">'+(p.q||1)+'</td>'
+      +'</tr>';
+    });
+    gruposHtml+='</table>'
+      +'<div style="padding:8px 16px;background:#f5f5f5;font-size:11.5px;color:#666;text-align:right;">Total: '+totalMl.toFixed(2)+'ml</div>'
+    +'</div>';
+  });
+
+  var recHtml=''
+  +'<div id="fcReceipt" style="width:700px;background:#fff;font-family:Arial,sans-serif;color:#222;">'
+    +'<div style="padding:30px 40px 16px;text-align:center;border-bottom:3px solid #333;">'
+      +'<div style="font-size:20px;font-weight:800;color:#2a2a2a;">'+(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:16px;color:#555;margin-top:6px;letter-spacing:1px;text-transform:uppercase;">✂️ Ficha de Corte — Soleiras e Peitoris</div>'
+      +(cliNome?'<div style="font-size:13px;color:#888;margin-top:4px;">Cliente: '+cliNome+'</div>':'')
+    +'</div>'
+    +'<div style="height:18px;"></div>'
+    +gruposHtml
+    +'<div style="background:#f5f5f5;padding:10px 40px;display:flex;justify-content:space-between;font-size:10px;color:#888;border-top:1px solid #ddd;">'
+      +'<span>'+(emp.nome||'')+'</span><span>Gerado em '+hoje+'</span>'
+    +'</div>'
+  +'</div>';
+
+  var fileName='FichaCorte_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+
+  var offscreen=document.createElement('div');
+  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
+  offscreen.innerHTML=recHtml;
+  document.body.appendChild(offscreen);
+
+  var ov=document.createElement('div');
+  ov.id='fcOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
+  var barEl=document.createElement('div');
+  barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid rgba(201,168,76,.55);flex-shrink:0;flex-wrap:wrap;';
+  barEl.innerHTML=''
+    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;">✂️ Ficha de Corte</span>'
+    +'<button id="fcClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
+    +'<button id="fcDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
+    +(navigator.share?'<button id="fcShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'');
+  var preview=document.createElement('div');
+  preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">⏳ Gerando imagem, aguarde...</div>';
+  ov.appendChild(barEl); ov.appendChild(preview);
+  document.body.appendChild(ov);
+  document.getElementById('fcClose').onclick=function(){ov.remove();};
+
+  setTimeout(function(){
+    html2canvas(offscreen.querySelector('#fcReceipt'),{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
+      document.body.removeChild(offscreen);
+      var imgDataUrl=canvas.toDataURL('image/jpeg',0.92);
+
+      preview.innerHTML='';
+      var img=document.createElement('img');
+      img.src=imgDataUrl;
+      img.style.cssText='max-width:700px;width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
+      preview.appendChild(img);
+
+      function enableBtn(id,label,cb){
+        var b=document.getElementById(id);if(!b)return;
+        b.innerHTML=label;b.disabled=false;
+        b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';
+        b.onclick=cb;
+      }
+      canvas.toBlob(function(imgBlob){
+        enableBtn('fcDown','⬇ Salvar foto',function(){
+          var url=URL.createObjectURL(imgBlob);
+          var a=document.createElement('a');a.href=url;a.download=fileName;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},30000);
+          toast('Foto salva: '+fileName);
+        });
+        if(navigator.share){
+          enableBtn('fcShare','↗ Compartilhar',function(){
+            var imgFile=new File([imgBlob],fileName,{type:'image/jpeg'});
+            var sd={title:'Ficha de Corte',text:(emp.nome||'HR')+' — peças pra cortar'};
+            if(navigator.canShare&&navigator.canShare({files:[imgFile]}))sd.files=[imgFile];
+            navigator.share(sd).catch(function(){});
+          });
+        }
+      },'image/jpeg',0.92);
+      toast('✓ Ficha de corte pronta');
+    }).catch(function(){
+      if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar imagem.</div>';
     });
   },200);
 }
