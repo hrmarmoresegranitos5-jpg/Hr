@@ -38,6 +38,19 @@ var HR_RELATORIO_PONTO = (function () {
     return 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
   }
 
+  /**
+   * Rótulo do saldo do dia — agora um dia pode ter parte dobrada e parte
+   * triplicada ao mesmo tempo (ex: chegou alguns minutos antes das 7h: só
+   * esses minutos são ×3, o resto do dia continua ×2). Mostra o detalhe
+   * quando misto, em vez de rotular o dia inteiro como se fosse uma coisa só.
+   */
+  function _rotuloHE(l) {
+    var e200 = l.extra200Min || 0, e50 = l.extra50Min || 0;
+    if (e200 > 0 && e50 > 0) return ' (' + _fmtMin(e50) + ' ×2 + ' + _fmtMin(e200) + ' ×3)';
+    if (e200 > 0) return ' (triplicado)';
+    return ' (dobrado)';
+  }
+
   function _fmtMin(min) {
     var neg = min < 0;
     var abs = Math.abs(Math.round(min));
@@ -231,9 +244,15 @@ var HR_RELATORIO_PONTO = (function () {
             entrada: r.entrada || '', saida: r.saida || '',
             funcId: funcId || null
           });
-          if (feriadoLocalForcaTriplo || temNoturno) {
+          if (feriadoLocalForcaTriplo) {
             classeHE = { extra50: 0, extra100: 0, extra200: extraMin };
           }
+          // Não força mais o dia inteiro pra triplicada só por ter minutos
+          // noturnos (antes de 07h) ou depois das 18h — _classificarHE já
+          // calcula isso PROPORCIONALMENTE internamente (só o excedente ao
+          // limite vira ×3, o resto continua ×2). Antes, um funcionário que
+          // chegasse alguns minutos antes das 7h tinha o dia inteiro de HE
+          // pago como triplicada, o que superpagava bastante.
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
             valorExtra = (classeHE.extra200 / 60) * 3.0 * valorHora +
                          (classeHE.extra100 / 60) * 3.0 * valorHora +
@@ -247,6 +266,7 @@ var HR_RELATORIO_PONTO = (function () {
           if (extraMin > 0 && r.destinoExtra !== 'banco') {
             valorExtra = (extraMin / 60) * (_ehTriplado ? 3.0 : 2.0) * valorHora;
           }
+          var classeHE = _ehTriplado ? { extra50: 0, extra100: 0, extra200: extraMin } : { extra50: extraMin, extra100: 0, extra200: 0 };
         }
 
         // Observação do dia (prioriza exceção, depois dados do registro)
@@ -285,6 +305,11 @@ var HR_RELATORIO_PONTO = (function () {
           valorExtra: valorExtra,
           extraMin:   extraMin,
           tipoHE:     tipoHE,
+          // Minutos de HE por faixa (proporcional — um dia pode ter parte
+          // dobrada e parte triplicada ao mesmo tempo, ex: chegou 6min antes
+          // das 7h). Usado na agregação do período e no rótulo do dia.
+          extra50Min:  classeHE.extra50  || 0,
+          extra200Min: (classeHE.extra100 || 0) + (classeHE.extra200 || 0),
           obs:        obs,
           tipo:       tipoLinha,
           autoComp:   !!r.autoCompletado,
@@ -641,9 +666,14 @@ var HR_RELATORIO_PONTO = (function () {
       totalValorExtra   += l.valorExtra;
       if (l.saldoMin < 0) totalDeficitMin += l.saldoMin;
       if (l.extraMin > 0 && !l.destinoBanco) {
-        var isTrip = (l.tipoHE === 'especial' || l.tipoHE === 'feriado' || l.tipoHE === 'domingo');
-        if (isTrip) { totalExtraMin200 += l.extraMin; totalValorExtra200 += l.valorExtra; }
-        else        { totalExtraMin50  += l.extraMin; totalValorExtra50  += l.valorExtra; }
+        // Proporcional por faixa real do dia, não binário (ver _rotuloHE)
+        var e200b = l.extra200Min || 0, e50b = l.extra50Min || 0;
+        totalExtraMin200 += e200b;
+        totalExtraMin50  += e50b;
+        if (l.extraMin > 0) {
+          totalValorExtra200 += l.valorExtra * (e200b / l.extraMin);
+          totalValorExtra50  += l.valorExtra * (e50b  / l.extraMin);
+        }
       }
     });
 
@@ -1129,7 +1159,7 @@ var HR_RELATORIO_PONTO = (function () {
       // Coluna final "Saldo do Dia" — uma célula só, colorida
       var saldoTxt, saldoCor;
       if (l.extraMin > 0 && !l.destinoBanco) {
-        saldoTxt = '+' + _fmtMin(l.extraMin) + (l.tipoHE === 'especial' || l.tipoHE === 'feriado' || l.tipoHE === 'domingo' ? ' (triplicado)' : ' (dobrado)');
+        saldoTxt = '+' + _fmtMin(l.extraMin) + _rotuloHE(l);
         saldoCor = [40, 130, 70];
       } else if (l.saldoMin < -5) {
         saldoTxt = _fmtMin(l.saldoMin);
@@ -1279,7 +1309,7 @@ var HR_RELATORIO_PONTO = (function () {
 
       var saldoDiaHtml;
       if (l.extraMin>0 && !l.destinoBanco) {
-        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+(l.tipoHE==='especial'||l.tipoHE==='feriado'||l.tipoHE==='domingo'?' (triplicado)':' (dobrado)')+'</span>';
+        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+_rotuloHE(l)+'</span>';
       } else if (l.saldoMin<-5) {
         saldoDiaHtml = '<span style="color:#b43c3c;font-weight:700;">'+fmtMin(l.saldoMin)+'</span>';
       } else {
@@ -1581,8 +1611,16 @@ var HR_RELATORIO_PONTO = (function () {
     linhas.forEach(function (l) {
       if (l.saldoMin < 0) deficitMin += l.saldoMin;
       if (l.extraMin > 0 && !l.destinoBanco) {
-        if (l.tipoHE === 'especial') { extra200Min += l.extraMin; valorExtra200 += l.valorExtra; }
-        else                         { extra50Min  += l.extraMin; valorExtra50  += l.valorExtra; }
+        // Divide o valor financeiro do dia proporcionalmente entre as faixas
+        // reais (extra50Min/extra200Min) em vez de jogar o dia inteiro numa
+        // faixa só — um dia pode ter parte dobrada e parte triplicada.
+        var e200 = l.extra200Min || 0, e50 = l.extra50Min || 0;
+        extra200Min += e200;
+        extra50Min  += e50;
+        if (l.extraMin > 0) {
+          valorExtra200 += l.valorExtra * (e200 / l.extraMin);
+          valorExtra50  += l.valorExtra * (e50  / l.extraMin);
+        }
       }
     });
 
