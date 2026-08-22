@@ -38,6 +38,11 @@
     var p = iso.split('-'); return p[2] + '/' + p[1] + '/' + p[0];
   }
   function _fmtHoje() { return _fmtData(new Date().toISOString().slice(0, 10)); }
+  function _fmtMinPdf(min) {
+    min = Math.round(min || 0);
+    var h = Math.floor(min / 60), m = min % 60;
+    return (h > 0 ? h + 'h' : '') + (m > 0 || h === 0 ? m + 'm' : '');
+  }
   function _mesAtual() {
     var d = new Date(), m = d.getMonth() + 1;
     return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m;
@@ -196,6 +201,7 @@
 
     registrosPagar.forEach(function (r) {
       var hExtra = parseFloat(r.extra) || 0;
+      var extraMinR = Math.round(hExtra * 60);
 
       // Resolve multiplicador: bonificação por func > bonificação geral > tipo do dia
       var res = _resolverMultiplicador(r.data, funcId, mult);
@@ -210,11 +216,34 @@
         if (tipoM === 'especial') res = { mult: mult.especial || 3.0, origem: 'especial', label: 'Triplicada ×' + (mult.especial || 3.0).toFixed(1).replace('.',',') };
       }
 
+      // Dia misto (tipoExtra='normal' mas ainda tem uma fatia triplicada,
+      // ex: chegou minutos antes das 7h): reclassifica por minuto em vez de
+      // aplicar um multiplicador único no dia inteiro. Só entra aqui quando
+      // NENHUMA bonificação/feriado/domingo/especial de dia inteiro já se
+      // aplicou acima (res.origem ainda 'normal' ou 'sabado').
+      var extraMistoMin = 0;
+      if ((res.origem === 'normal' || res.origem === 'sabado') && extraMinR > 0 &&
+          typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT._classificarHE === 'function') {
+        var clsPdf = HR_IMPORT._classificarHE({ data: r.data, extra: extraMinR, funcId: funcId || null, entrada: r.entrada || '', saida: r.saida || '' });
+        if (clsPdf.extra200 > 0 && clsPdf.extra50 > 0) {
+          extraMistoMin = clsPdf.extra200; // parte que vale ×3 dentro do dia
+        }
+      }
+
       r._multUsado       = res.mult;
       r._multOrigem      = res.origem;
       r._multLabel       = res.label;
       r._valorHoraExtra  = valorHoraBase * res.mult;
-      r._valorTotalExtra = hExtra * r._valorHoraExtra;
+      if (extraMistoMin > 0) {
+        // Parte ×3 (minutos que passaram do limite) + parte ×2 (resto do dia)
+        var multEspecialPdf = mult.especial || 3.0;
+        var valorParteTripla  = (extraMistoMin / 60) * valorHoraBase * multEspecialPdf;
+        var valorParteDobrada = ((extraMinR - extraMistoMin) / 60) * valorHoraBase * res.mult;
+        r._valorTotalExtra = valorParteTripla + valorParteDobrada;
+        r._multLabel = res.label + ' + ' + _fmtMinPdf(extraMistoMin) + ' ×' + multEspecialPdf.toFixed(1).replace('.', ',');
+      } else {
+        r._valorTotalExtra = hExtra * r._valorHoraExtra;
+      }
       r._aprovado        = aprova[r.id] !== false;
 
       totalHorasExtra += hExtra;

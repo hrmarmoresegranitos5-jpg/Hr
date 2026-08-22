@@ -43,8 +43,11 @@ var HR_IMPORT = (function () {
       especial: 3.0    // HE triplicada — sábado tarde / muito cedo / muito tarde / dias especiais
     };
   }
-  // Limites de horário para HE triplicada (muito cedo / muito tarde)
-  // Antes de 06:00 ou depois de 20:00 → HE triplicada (especial)
+  // OBS: os antigos CFG.limiteHorarioCedo / CFG.limiteHorarioTarde (tudo-ou-
+  // nada: dia inteiro virava triplicada) foram substituídos por
+  // CFG.janelaNoturnaFim / CFG.janelaTardeInicio abaixo, que triplicam só o
+  // minuto que excede o limite. Mantidos aqui apenas por retrocompatibilidade
+  // — não são mais lidos por _classificarHE.
   if (CFG.limiteHorarioCedo  === undefined) CFG.limiteHorarioCedo  = 6 * 60;   // 06:00 → 360min
   if (CFG.limiteHorarioTarde === undefined) CFG.limiteHorarioTarde = 20 * 60;  // 20:00 → 1200min
   // Sábado tarde: partir de que hora vira triplicada (padrão 12:00)
@@ -52,6 +55,9 @@ var HR_IMPORT = (function () {
   // Janela noturna 00:00–07:00: qualquer minuto trabalhado nesse horário vale
   // triplicada, pra todo mundo, sempre — independente de sobra/falta no dia.
   if (CFG.janelaNoturnaFim   === undefined) CFG.janelaNoturnaFim   = 7 * 60;   // 07:00 → 420min
+  // Janela tarde: a partir de que hora, o que ultrapassar vira triplicada
+  // (só o excedente, não o dia inteiro). Espelha janelaNoturnaFim do outro lado.
+  if (CFG.janelaTardeInicio  === undefined) CFG.janelaTardeInicio  = 18 * 60;  // 18:00 → 1080min
   // Lista de feriados e dias especiais (arrays de "yyyy-mm-dd")
   // Preenchidos externamente se necessário; padrão vazio = apenas regras de dia da semana
   if (!CFG.feriados) CFG.feriados = [];
@@ -325,6 +331,22 @@ var HR_IMPORT = (function () {
     return Math.max(0, Math.round(noturno));
   }
 
+  /**
+   * Minutos de um intervalo de trabalho (entrada→saída) que caem DEPOIS do
+   * limite noturno de fechamento (configurável via CFG.janelaTardeInicio,
+   * padrão 1080min = 18:00). Só o que ultrapassa o limite é contado — não o
+   * turno inteiro. Espelha _minutosNoturnos, mas do lado da saída.
+   * Retorna 0 se entrada/saída inválidas ou não há sobreposição.
+   */
+  function _minutosTarde(entrada, saida) {
+    var inicioJanela = (CFG.janelaTardeInicio !== undefined) ? CFG.janelaTardeInicio : 1080; // 18:00
+    var e = _hhmm2min(entrada), s = _hhmm2min(saida);
+    if (isNaN(e) || isNaN(s)) return 0;
+    var fim = (s <= e) ? s + 1440 : s; // atravessa meia-noite → projeta o fim pro dia seguinte
+    var tarde = Math.max(0, fim - Math.max(inicioJanela, e));
+    return Math.max(0, Math.round(tarde));
+  }
+
   /** 450 → "07:30" */
   function _min2hhmm(min) {
     if (isNaN(min) || min < 0) return '—';
@@ -453,14 +475,19 @@ var HR_IMPORT = (function () {
    *   2. Domingo inteiro                             → HE200 (3×) triplicada
    *   3. Feriado                                     → HE200 (3×) triplicada
    *   4. Sábado tarde (saída após CFG.limiteSabadoTarde, padrão 12:00) → HE200 (3×)
-   *   5. Horário muito cedo (entrada antes de 06:00) → HE200 (3×) triplicada
-   *   6. Horário muito tarde (saída após 20:00)      → HE200 (3×) triplicada
-   *   7. Trabalho durante férias                     → HE200 (3×)
-   *   8. Sábado manhã normal                         → HE100 (2×) dobrada
-   *   9. Dia útil normal (seg–sex)                   → HE100 (2×) dobrada
+   *   5. Trabalho durante férias                     → HE200 (3×)
+   *   6. Minutos antes de CFG.janelaNoturnaFim (padrão 07:00)  → HE200 (3×),
+   *      SÓ os minutos que caem antes do limite — o resto do dia continua ×2.
+   *   7. Minutos depois de CFG.janelaTardeInicio (padrão 18:00) → HE200 (3×),
+   *      SÓ os minutos que ultrapassam o limite — o resto do dia continua ×2.
+   *   8. Sábado manhã normal / dia útil normal (seg–sex) → HE100 (2×) dobrada
    *
    * Obs: extra50 não é mais usado (mínimo agora é 2×), mantido no objeto
-   * para retrocompatibilidade com código que lê o campo.
+   * para retrocompatibilidade com código que lê o campo. Os itens 6 e 7 são
+   * PROPORCIONAIS — antes disso, um funcionário que chegasse alguns minutos
+   * cedo tinha o dia inteiro pago como triplicada, o que superpagava e não
+   * refletia a regra real da empresa (só os minutos excedentes ao limite
+   * valem 3×; o restante da jornada continua 2×).
    */
   function _classificarHE(registro) {
     var result = { extra50: 0, extra100: 0, extra200: 0 };
@@ -472,16 +499,17 @@ var HR_IMPORT = (function () {
     var data   = registro.data   || '';
     var funcId = registro.funcId || null;
 
-    // Limites de horário configuráveis
-    var LIMITE_CEDO  = (CFG.limiteHorarioCedo  !== undefined) ? CFG.limiteHorarioCedo  : 360;  // 06:00
-    var LIMITE_TARDE = (CFG.limiteHorarioTarde !== undefined) ? CFG.limiteHorarioTarde : 1200; // 20:00
-    var LIMITE_SAB   = (CFG.limiteSabadoTarde  !== undefined) ? CFG.limiteSabadoTarde  : 720;  // 12:00
+    // Limite do sábado (a partir de quando a saída vira "sábado tarde")
+    var LIMITE_SAB = (CFG.limiteSabadoTarde !== undefined) ? CFG.limiteSabadoTarde : 720;  // 12:00
 
-    // Horários do registro (se disponíveis) para checar muito cedo / muito tarde
+    // Horários do registro (se disponíveis)
     var entMin = _hhmm2min(registro.entrada || '');
     var saiMin = _hhmm2min(registro.saida   || '');
-    var horarioExtremo = (!isNaN(entMin) && entMin < LIMITE_CEDO) ||
-                         (!isNaN(saiMin) && saiMin > LIMITE_TARDE);
+
+    // Minutos de HE que caem antes do LIMITE_CEDO e depois do LIMITE_TARDE
+    // (PROPORCIONAL — só o que excede o limite, não o dia inteiro).
+    var cedoMin  = _minutosNoturnos(registro.entrada || '', registro.saida || '');
+    var tardeMin = _minutosTarde(registro.entrada || '', registro.saida || '');
 
     // ── 1. Dia especial (maior prioridade) ──────────────────────────────────
     if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(data) >= 0) {
@@ -509,13 +537,7 @@ var HR_IMPORT = (function () {
       return result;
     }
 
-    // ── 5 e 6. Horário extremo (muito cedo ou muito tarde) → triplicada ─────
-    if (horarioExtremo) {
-      result.extra200 = extraMin;
-      return result;
-    }
-
-    // ── 7. Trabalho durante férias → triplicada ──────────────────────────────
+    // ── 5. Trabalho durante férias → triplicada ──────────────────────────────
     if (funcId) {
       try {
         var funcsF = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
@@ -529,10 +551,13 @@ var HR_IMPORT = (function () {
       } catch(e) {}
     }
 
-    // ── 8. Sábado manhã e ── 9. Dia útil → dobrada (×2) ────────────────────
+    // ── 6 e 7. Sábado manhã / dia útil: minutos antes do LIMITE_CEDO e depois
+    // do LIMITE_TARDE são triplicada (só o excedente); o resto é dobrada ─────
     // Usa extra50 que é multiplicado por CFG.he.normal (2.0)
     // extra100 ficaria associado a CFG.he.domingo (3.0) — incorreto para dia útil
-    result.extra50 = extraMin;
+    var triploMin = Math.min(extraMin, cedoMin + tardeMin);
+    result.extra200 = triploMin;
+    result.extra50  = extraMin - triploMin;
     return result;
   }
 
@@ -1680,6 +1705,7 @@ var HR_IMPORT = (function () {
     }
 
     _state.grupos = _vincularAuto(_agrupar(registros));
+    _autoConfirmarAlmocoPadrao(_state.grupos);
 
     var todas = registros.map(function(r){ return r.data; }).sort();
     _state.periodo = { di: todas[0], df: todas[todas.length-1] };
@@ -1710,6 +1736,50 @@ var HR_IMPORT = (function () {
    */
   function _precisaDecisaoAlmoco(r) {
     return !!(r.entrada && r.saida && !r.almEntrada && !r.almSaida && !r.almocoConfirmado);
+  }
+
+  /**
+   * Confirma automaticamente "trabalho direto, sem almoço" pra dois casos
+   * que são o PADRÃO da empresa, não exceção — evita clicar "✓ Direto"
+   * manualmente em cada importação pra esses casos:
+   *
+   *   1. Sábado com turno curto (até 6h) — sábado aqui é sempre 7h–11h
+   *      direto, sem intervalo. Só um sábado mais longo que isso (possível
+   *      exceção real, com almoço) continua pedindo confirmação manual.
+   *   2. Funcionário com jornada diária reduzida configurada (≤6h, ex:
+   *      jovem aprendiz como Tiago) — CLT não exige intervalo pra turnos
+   *      de até 6h, então "direto" é o normal em qualquer dia da semana.
+   *
+   * Roda uma vez logo após o agrupamento/vínculo automático, antes da tela
+   * de correção ser desenhada — assim esses registros já nascem confirmados
+   * e não aparecem como pendência nem no relatório.
+   */
+  function _autoConfirmarAlmocoPadrao(grupos) {
+    var funcs = null;
+    try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) { funcs = {}; }
+
+    (grupos || []).forEach(function(gr) {
+      var jornadaCurta = false;
+      if (gr.funcId && funcs && funcs[gr.funcId]) {
+        var jMin = parseInt(funcs[gr.funcId].jornadaDiariaMin);
+        jornadaCurta = (jMin > 0 && jMin <= 360);
+      }
+      (gr.registros || []).forEach(function(r) {
+        if (!_precisaDecisaoAlmoco(r)) return;
+
+        var dow = new Date(r.data + 'T12:00:00').getDay();
+        var entMin = _hhmm2min(r.entrada), saiMin = _hhmm2min(r.saida);
+        var brutoMin = (!isNaN(entMin) && !isNaN(saiMin))
+          ? ((saiMin >= entMin) ? saiMin - entMin : saiMin + 1440 - entMin)
+          : null;
+
+        var sabadoCurto = (dow === 6 && brutoMin !== null && brutoMin <= 360);
+
+        if (sabadoCurto || jornadaCurta) {
+          r.almocoConfirmado = true;
+        }
+      });
+    });
   }
 
   function _renderTelaCorrecao() {
@@ -3388,7 +3458,11 @@ var HR_IMPORT = (function () {
             dup.semAlmocoConfirmado = !!r.almocoConfirmado;
             dup.horas        = parseFloat((calcC.trab  / 60).toFixed(4));
             dup.extra        = parseFloat((calcC.extra / 60).toFixed(4));
-            dup.tipoExtra    = (clsC.extra200 > 0)
+            dup.tipoExtra    = (clsC.extra200 > 0 && clsC.extra50 === 0)
+              // Só marca 'especial' (tudo ×3) quando o dia é 100% triplicada.
+              // Dia misto (parte ×2 + parte ×3, ex: chegou minutos cedo) fica
+              // 'normal' — quem reclassifica corretamente por minuto depois é
+              // o próprio calcSaldoHE/calcExtraPeriodo, olhando entrada/saída.
               ? ((CFG.diasEspeciais && CFG.diasEspeciais.indexOf(r.data) >= 0) ? 'especial'
                  : (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) ? 'feriado' : 'especial')
               : 'normal';
@@ -3447,13 +3521,19 @@ var HR_IMPORT = (function () {
             // Classifica pelo dia + horário para gravar o tipo correto no registro
             var cls = _classificarHE({ data: r.data, extra: calc.extra, funcId: gr.funcId || null,
                                        entrada: r.entrada || '', saida: r.saida || '' });
-            if (cls.extra200 > 0) {
+            // Só marca 'especial'/'feriado' (tudo ×3) quando o dia é 100%
+            // triplicada. Um dia misto (ex: chegou 6min antes das 7h — só
+            // esses 6min são ×3, o resto ×2) fica 'normal': o fallback
+            // (calcSaldoHE) reclassifica esse caso por minuto de novo a
+            // partir de entrada/saída, em vez de confiar numa tag binária
+            // que jogaria o dia inteiro pra ×3.
+            if (cls.extra200 > 0 && cls.extra50 === 0) {
               // Triplicada: distingue feriado / domingo / sáb tarde / horário extremo / especial
               if (CFG.diasEspeciais && CFG.diasEspeciais.indexOf(r.data) >= 0) return 'especial';
               if (CFG.feriados && CFG.feriados.indexOf(r.data) >= 0) return 'feriado';
               return 'especial'; // domingo, sáb tarde, horário extremo → 'especial' (×3)
             }
-            // extra100 → dobrada → dia útil normal / sáb manhã → 'normal' (×2)
+            // extra100/extra50 (mesmo que combinado com um pouco de extra200) → 'normal'
             return 'normal';
           }()),
           destinoExtra: 'pagar',
@@ -4443,6 +4523,7 @@ var HR_IMPORT = (function () {
     calcValorHoraReal:    _calcValorHoraReal,
     // Expõe camada HE para testes externos
     _classificarHE:      _classificarHE,
+    _autoConfirmarAlmocoPadrao: _autoConfirmarAlmocoPadrao,
     minutosNoturnos:     _minutosNoturnos,
     _calcValorHE:        _calcValorHE,
     _calcFinanceiroGrupo: _calcFinanceiroGrupo,
