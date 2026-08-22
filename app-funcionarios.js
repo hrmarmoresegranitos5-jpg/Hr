@@ -4535,8 +4535,21 @@ var HR_FUNC = (function () {
       });
 
       // HE triplicada total (minutos) — dom/feriado/sáb tarde/ext (×3)
+      // Reclassifica por _classificarHE em vez de confiar só na tag
+      // tipoExtra: um dia misto (ex: chegou minutos antes das 7h) é gravado
+      // como 'normal' mas ainda tem uma fatia triplicada dentro dele — a
+      // tag sozinha não capturava isso.
       var totalHE100Min=meusRegs.reduce(function(s,r){
-        return s+(r.tipoExtra==='especial'||r.tipoExtra==='domingo'||r.tipoExtra==='feriado'?Math.round((parseFloat(r.extra)||0)*60):0);
+        var extraMinR=Math.round((parseFloat(r.extra)||0)*60);
+        if(extraMinR<=0) return s;
+        if(r.tipoExtra==='especial'||r.tipoExtra==='domingo'||r.tipoExtra==='feriado'){
+          return s+extraMinR; // dia 100% triplicada, já gravado assim
+        }
+        if(typeof HR_IMPORT!=='undefined'&&typeof HR_IMPORT._classificarHE==='function'){
+          var clsHE=HR_IMPORT._classificarHE({data:r.data,extra:extraMinR,funcId:f.id||null,entrada:r.entrada||'',saida:r.saida||''});
+          return s+(clsHE.extra200||0);
+        }
+        return s;
       },0);
 
       // Banco de horas (saldo)
