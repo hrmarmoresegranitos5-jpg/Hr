@@ -466,8 +466,13 @@ var DB={
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
   sv:function(){
     var self=this;
+    // Só os orçamentos "vivos" (não arquivados) vão pro localStorage — os
+    // arquivados (ver _hrCarregarOrcamentosArquivados acima) ficam só em
+    // memória + IndexedDB, mas continuam em self.q pra tudo que LÊ funcionar
+    // normalmente (histórico, perfil do cliente, backup, etc.).
+    function _vivos(){ return self.q.filter(function(x){ return !x._arquivado; }); }
     function _setAll(){
-      localStorage.setItem('hr_q',JSON.stringify(self.q));
+      localStorage.setItem('hr_q',JSON.stringify(_vivos()));
       localStorage.setItem('hr_j',JSON.stringify(self.j));
       localStorage.setItem('hr_t',JSON.stringify(self.t));
       localStorage.setItem('hr_b',JSON.stringify(self.b));
@@ -478,15 +483,17 @@ var DB={
       if(e && (e.name==='QuotaExceededError' || e.code===22 || e.code===1014)){
         // ── Cota do localStorage estourada: hr_q cresce sem limite (unshift a cada orçamento) ──
         // Arquiva os orçamentos mais antigos em IndexedDB (sem limite prático) e mantém
-        // só os N mais recentes em localStorage, pra não perder dados nem travar o app.
+        // só os N mais recentes no localStorage — mas SEM removê-los de self.q, só
+        // marcando _arquivado:true, pra continuarem aparecendo no histórico normalmente.
         var KEEP=150;
-        if(self.q.length>KEEP){
-          var arquivados=self.q.slice(KEEP);
-          self.q=self.q.slice(0,KEEP);
+        var vivos=_vivos();
+        if(vivos.length>KEEP){
+          var arquivados=vivos.slice(KEEP);
+          arquivados.forEach(function(q){ q._arquivado=true; });
           _hrArquivarOrcamentosAntigos(arquivados);
           try{
             _setAll();
-            toast('⚠ Espaço cheio: '+arquivados.length+' orçamentos antigos foram arquivados automaticamente.');
+            toast('⚠ Espaço cheio: '+arquivados.length+' orçamentos antigos foram movidos pro arquivo (continuam visíveis no histórico, só não ficam mais no dispositivo local).');
           }catch(e2){
             toast('🔴 Armazenamento cheio. Não foi possível salvar. Exporte um backup e limpe orçamentos antigos.');
             console.error('DB.sv falhou mesmo após arquivar:',e2);
@@ -1033,6 +1040,32 @@ function _hrOrcDBGetAll() {
     });
   });
 }
+// ── Carrega os orçamentos arquivados de volta pra DB.q em memória ──────────
+// BUG CORRIGIDO: antes, quando a cota estourava, os orçamentos mais antigos
+// eram arquivados no IndexedDB E REMOVIDOS de DB.q ao mesmo tempo — então
+// desapareciam de tudo que lê DB.q (histórico, perfil do cliente, backups),
+// mesmo continuando salvos (inacessíveis) no IndexedDB. Agora eles voltam
+// pra DB.q em memória (marcados com _arquivado:true) assim que o app abre,
+// então aparecem de novo em todo lugar. DB.sv() abaixo tira essa marca antes
+// de gravar no localStorage, então eles não tentam voltar pra lá (o que
+// estouraria a cota de novo) — continuam só no IndexedDB + memória.
+function _hrCarregarOrcamentosArquivados() {
+  return _hrOrcDBGetAll().then(function(arquivados) {
+    if (!arquivados || !arquivados.length) return;
+    var idsAtuais = {};
+    DB.q.forEach(function(q) { idsAtuais[q.id] = true; });
+    var novos = arquivados.filter(function(q) { return !idsAtuais[q.id]; });
+    if (!novos.length) return;
+    novos.forEach(function(q) { q._arquivado = true; });
+    DB.q = DB.q.concat(novos);
+    // Reordena por data (mais recente primeiro) pra manter a ordem esperada
+    // pelo resto do app (unshift de novos orçamentos assume essa ordem).
+    DB.q.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    if (typeof renderOrc === 'function') { try { renderOrc(); } catch (e) {} }
+  }).catch(function(e) {
+    console.error('[_hrCarregarOrcamentosArquivados] Falha ao recuperar arquivados:', e);
+  });
+}
 
 function svCFG(){
   // ── Separa fotos[] das cubas antes de serializar o CFG ──────────────────
@@ -1206,6 +1239,13 @@ function _restaurarRascunho(){
 // ═══ INIT ═══
 document.addEventListener('DOMContentLoaded',function(){
   console.log('BOOT START');
+
+  // Recupera orçamentos antigos que foram arquivados (ver DB.sv acima) de
+  // volta pra memória, pra continuarem aparecendo no histórico/perfil do
+  // cliente/backups — só não voltam a ocupar espaço no localStorage.
+  if (typeof _hrCarregarOrcamentosArquivados === 'function') {
+    _hrCarregarOrcamentosArquivados();
+  }
 
   // ── Migração única: orçamentos que JÁ estavam "aprovado" antes desta
   //    atualização não tinham sido lançados em Finanças automaticamente.
@@ -1959,17 +1999,48 @@ function _isPePc(desc){
   return /\bpe\b/.test(d)||d.indexOf('pe estrut')>=0||d.indexOf('pe de balc')>=0||d.indexOf('pe organ')>=0;
 }
 // Calcula subpeças derivadas de um pé estrutural
-// pc: {w, h, q, peExtra:{fechH, espPar(legado), sainhaH(sainha da frente), retornoProf, organico}}
+// pc: {w, h, q, peExtra:{fechH, espPar(legado), sainhaH, retornoProf, organico, slim, slimFundoCm}}
+//
+// NOMES CORRETOS (ajustado — os nomes de campo internos ficaram invertidos
+// em relação ao termo real usado na marmoraria, mas não foram renomeados
+// pra não quebrar orçamentos antigos já salvos; só o RÓTULO mostrado pro
+// usuário e as descrições das peças derivadas foram corrigidos):
+//   pe.fechH   → é a "Sainha da Frente" (peça reta, encostada na lateral)
+//   pe.sainhaH → é o "Engrossamento" (corte triangular 45°, 2 por pé)
+// amb: ambiente (opcional) — só usado no modo Pé Slim pra pegar o
+// acabamento do material (bônus de polimento em pedra Escovada).
 // Retorna [{desc, w, h, q, m2}] + opcional {isMo:true, moVal}
-function _calcPeSubpecas(pc){
+function _calcPeSubpecas(pc,amb){
   var pe=pc.peExtra||{};
   var peW=+(pc.w||0), peH=+(pc.h||0), peQ=+(pc.q||1);
-  var sainhaH=+(pe.sainhaH||0), organico=!!pe.organico;
   var sub=[];
   if(!peW||!peH) return sub;
   var peE=2; // espessura chapa granito (cm)
-  // 1. Fechamento lateral: altura informada diretamente (engrossamento) × peW.
-  //    fechH é o campo atual (você digita a altura do fechamento direto).
+
+  // ── Pé Slim: acabamento por polimento, sem nenhuma peça colada. Só
+  //    polimento nas duas laterais (altura do pé) + polimento numa faixa
+  //    específica do fundo, que fica visível (não encostada na parede).
+  if(pe.slim){
+    var mat=amb?CFG.stones.find(function(s){return s.id===amb.selMat;}):null;
+    var prSlim=(getPr('s_slim')||0)+((mat&&mat.fin==='Escovada')?(getPr('s_slim_esc')||0):0);
+    var mlLat=(peH/100)*2*peQ; // 2 laterais, altura do pé
+    if(mlLat>0){
+      var moLat=+(mlLat*prSlim).toFixed(2);
+      if(moLat>0) sub.push({desc:'Polimento Lateral Slim ('+mlLat.toFixed(2)+'ml)',w:0,h:0,q:1,m2:0,isMo:true,moVal:moLat});
+    }
+    var fundoCm=+(pe.slimFundoCm||0);
+    if(fundoCm>0){
+      var mlFundo=(fundoCm/100)*peQ;
+      var moFundo=+(mlFundo*prSlim).toFixed(2);
+      if(moFundo>0) sub.push({desc:'Polimento do Fundo Visível ('+mlFundo.toFixed(2)+'ml)',w:0,h:0,q:1,m2:0,isMo:true,moVal:moFundo});
+    }
+    return sub; // pé Slim não usa fechamento/sainha/engrossamento/retorno
+  }
+
+  var organico=!!pe.organico;
+  var sainhaH=+(pe.sainhaH||0);
+  // 1. Sainha da Frente: altura informada diretamente × peW.
+  //    fechH é o campo salvo (você digita a altura da sainha direto).
   //    espPar é o campo legado (espessura da parede) — se um orçamento antigo
   //    só tiver espPar salvo, calcula a altura como antes (peH − espPar).
   var fH=0;
@@ -1978,7 +2049,7 @@ function _calcPeSubpecas(pc){
   } else if(pe.espPar>0){
     fH=peH-(+pe.espPar);
   }
-  if(fH>0){ sub.push({desc:'Fechamento Lateral ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
+  if(fH>0){ sub.push({desc:'Sainha da Frente ('+fH+'×'+peW+' cm)',w:peW,h:fH,q:peQ,m2:(fH/100)*(peW/100)*peQ}); }
   // 1b. Retorno: peça que sai da lateral do pé e volta reto até encostar na
   //     parede/móvel (corte reto, sem esquadria — fica escondida). A altura
   //     dela é a altura do pé menos a espessura de uma chapa (peE), porque
@@ -1988,10 +2059,10 @@ function _calcPeSubpecas(pc){
     var retH=peH-peE;
     if(retH>0){ sub.push({desc:'Retorno ('+retH+'×'+retornoProf+' cm)',w:retornoProf,h:retH,q:peQ,m2:(retH/100)*(retornoProf/100)*peQ}); }
   }
-  // 2. Sainha da frente 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
+  // 2. Engrossamento 45°: sainhaH × sainhaH (corte triangular isósceles), 2 por peça
   if(sainhaH>0){
     var m2S=(sainhaH/100)*(sainhaH/100)/2; // área do triângulo = base×altura/2
-    sub.push({desc:'Sainha da Frente 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
+    sub.push({desc:'Engrossamento 45° ('+sainhaH+'×'+sainhaH+' cm)',w:sainhaH,h:sainhaH,q:peQ*2,m2:m2S*peQ*2});
   }
   // 3. Taxa de m.o. orgânico — sobre m² total (pé + derivadas)
   if(organico){
@@ -2011,12 +2082,17 @@ function updPeExtra(ambId,pcId,field,val){
   if(!pc) return;
   if(!pc.peExtra) pc.peExtra={};
   pc.peExtra[field]=val;
+  // Os 3 tipos de pé são mutuamente exclusivos
+  if(field==='organico'&&val===true) pc.peExtra.slim=false;
+  if(field==='slim'&&val===true) pc.peExtra.organico=false;
+  // Re-renderiza o bloco inteiro quando troca de tipo de pé (campos mudam)
+  if(field==='organico'||field==='slim'){ renderAmbientes(); return; }
   // Atualiza apenas o painel de subpecas inline (nao re-renderiza o DOM inteiro)
   var panelId='pe-sub-'+pcId;
   var panel=document.getElementById(panelId);
   if(!panel){ renderAmbientes(); return; }
   var ambMat=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
-  var subs=_calcPeSubpecas(pc);
+  var subs=_calcPeSubpecas(pc,amb);
   var h='';
   if(subs.length){
     h+='<div style="margin-top:8px;border-top:1px solid rgba(201,168,76,.15);padding-top:8px;">';
@@ -2037,7 +2113,7 @@ function updPeExtra(ambId,pcId,field,val){
     });
     h+='</div>';
   } else {
-    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe o engrossamento para ver as pecas derivadas</div>';
+    h='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Informe as medidas para ver as pecas derivadas</div>';
   }
   panel.innerHTML=h;
   if(typeof _syncBordaSvState==='function') _syncBordaSvState(amb);
@@ -4445,22 +4521,31 @@ function renderAmbientes(){
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
           var _pe=pc.peExtra||{};
-          var _peOrg=!!_pe.organico, _peQuad=!_peOrg;
+          var _peSlim=!!_pe.slim, _peOrg=!!_pe.organico&&!_peSlim, _peQuad=!_peOrg&&!_peSlim;
           var _ambMatPe=CFG.stones.find(function(s){return s.id===amb.selMat;})||null;
           h+='<div style="margin:8px 0 6px;background:rgba(201,168,76,.05);border:1.5px solid rgba(201,168,76,.22);border-radius:10px;padding:11px 12px;">';
           h+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:9px;">🦵 Pé Estrutural</div>';
-          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:9px;">';
-          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',false)" style="padding:8px 6px;border-radius:9px;border:1.5px solid '+(_peQuad?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peQuad?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peQuad?'var(--gold)':'var(--t3)')+';font-size:.75rem;font-weight:'+(_peQuad?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">⬛ Quadrado</button>';
-          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',true)" style="padding:8px 6px;border-radius:9px;border:1.5px solid '+(_peOrg?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peOrg?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peOrg?'var(--gold)':'var(--t3)')+';font-size:.75rem;font-weight:'+(_peOrg?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">🌊 Orgânico</button>';
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:9px;">';
+          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',false)" style="padding:8px 4px;border-radius:9px;border:1.5px solid '+(_peQuad?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peQuad?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peQuad?'var(--gold)':'var(--t3)')+';font-size:.72rem;font-weight:'+(_peQuad?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">⬛ Quadrado</button>';
+          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'organico\',true)" style="padding:8px 4px;border-radius:9px;border:1.5px solid '+(_peOrg?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peOrg?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peOrg?'var(--gold)':'var(--t3)')+';font-size:.72rem;font-weight:'+(_peOrg?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">🌊 Orgânico</button>';
+          h+='<button onclick="updPeExtra('+amb.id+','+pc.id+',\'slim\',true)" style="padding:8px 4px;border-radius:9px;border:1.5px solid '+(_peSlim?'var(--gold)':'rgba(201,168,76,.25)')+';background:'+(_peSlim?'rgba(201,168,76,.15)':'transparent')+';color:'+(_peSlim?'var(--gold)':'var(--t3)')+';font-size:.72rem;font-weight:'+(_peSlim?700:500)+';cursor:pointer;font-family:Outfit,sans-serif;">📏 Slim</button>';
           h+='</div>';
           if(_peOrg) h+='<div style="font-size:.6rem;color:rgba(201,168,76,.7);margin-bottom:8px;">+R$ '+(getPr('pe_organico_mo')||60)+'/m² taxa de corte orgânico</div>';
-          h+='<div class="r2">';
-          h+='<div class="f"><label>Engrossamento (cm)</label><input type="number" placeholder="Ex: 8" style="background:var(--s3);" value="'+(_pe.fechH!==undefined&&_pe.fechH!==null?_pe.fechH:'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'fechH\',+this.value)"></div>';
-          h+='<div class="f"><label>Sainha da frente (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
-          h+='</div>';
-          h+='<div class="f"><label>Retorno até a parede/móvel (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.retornoProf||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'retornoProf\',+this.value)"></div>';
+          if(_peSlim){
+            // Pé Slim: só acabamento por polimento — sem peça colada. Só
+            // precisa da faixa do fundo que fica visível (a lateral usa
+            // sempre a altura do pé, não precisa perguntar).
+            h+='<div style="font-size:.6rem;color:rgba(201,168,76,.7);margin-bottom:8px;">Acabamento polido nas 2 laterais + faixa visível do fundo (sem peça colada)</div>';
+            h+='<div class="f"><label>Faixa visível do fundo (cm)</label><input type="number" placeholder="Ex: 10" step="0.5" style="background:var(--s3);" value="'+(_pe.slimFundoCm||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'slimFundoCm\',+this.value)"></div>';
+          } else {
+            h+='<div class="r2">';
+            h+='<div class="f"><label>Sainha da Frente (cm)</label><input type="number" placeholder="Ex: 8" style="background:var(--s3);" value="'+(_pe.fechH!==undefined&&_pe.fechH!==null?_pe.fechH:'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'fechH\',+this.value)"></div>';
+            h+='<div class="f"><label>Engrossamento (cm)</label><input type="number" placeholder="Ex: 6" step="0.5" style="background:var(--s3);" value="'+(_pe.sainhaH||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'sainhaH\',+this.value)"></div>';
+            h+='</div>';
+            h+='<div class="f"><label>Retorno até a parede/móvel (cm)</label><input type="number" placeholder="Ex: 15" style="background:var(--s3);" value="'+(_pe.retornoProf||'')+'" oninput="updPeExtra('+amb.id+','+pc.id+',\'retornoProf\',+this.value)"></div>';
+          }
           h+='<div id="pe-sub-'+pc.id+'">';
-          var _subPes=_calcPeSubpecas(pc);
+          var _subPes=_calcPeSubpecas(pc,amb);
           if(_subPes.length){
             h+='<div style="margin-top:8px;border-top:1px solid rgba(201,168,76,.15);padding-top:8px;">';
             h+='<div style="font-size:.57rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:6px;">Peças derivadas (incluídas no total)</div>';
@@ -5267,7 +5352,7 @@ function calcular(){
         allPds.push({desc:(tipo+': '+(p.desc||'Peça')),w:p.w,h:p.h,q:p.q||1,m2:a});
         // Subpeças de pé estrutural (fechamento lateral, sainha, m.o. orgânico)
         if(_isPePc(p.desc)){
-          var _peSubs=_calcPeSubpecas(p);
+          var _peSubs=_calcPeSubpecas(p,amb);
           _peSubs.forEach(function(s){
             if(s.isMo){
               acT+=s.moVal;
