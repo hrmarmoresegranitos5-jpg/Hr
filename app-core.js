@@ -79,7 +79,8 @@ function buildOrcList(list) {
       (_orcFilter ? 'Nenhum orçamento para "'+_orcFilter+'"' : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
     return;
   }
-  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
+  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴','Área de Serviço':'🧺',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
+  if(typeof CFG!=='undefined' && CFG.customTipos) CFG.customTipos.forEach(function(ct){ if(ct.icon) tipo_icons[ct.tipo]=ct.icon; });
   // Configuração de badges de status (A1)
   var _stMap = {
     pendente:  {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)', lbl:'Aguardando'},
@@ -1815,6 +1816,16 @@ SV_DEFS.Banheiro=[
   {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
 ];
 SV_DEFS.Lavabo=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Furos',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0}]},{g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},{g:'Cuba / Lavatório',its:[{k:'cuba_lav',l:'Escolher cuba ou lavatório',u:'cuba',ctp:'lav'}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['Área de Serviço']=[
+  {g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},
+  {g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},
+  {g:'Furos & Recortes',its:[{k:'forn',l:'Furo Torneira',u:'un',fx:0},{k:'fralo',l:'Furo Ralo',u:'un',fx:0}]},
+  {g:'Área Molhada',its:[{k:'rodape',l:'Rodapé de Pedra',u:'sf'}]},
+  {g:'Tanque',its:[{k:'cuba_coz',l:'Escolher tanque/cuba inox',u:'cuba',ctp:'coz'}]},
+  {g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},
+  {g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},
+  {g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}
+];
 SV_DEFS.Soleira=[{g:'Acabamento',its:[{k:'sol_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'sol1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'sol2',l:'Acabamento 2 lados',u:'acb_auto',lados:2},{k:'sol_45',l:'Soleira em 45°',u:'acb_auto',lados:1,is45:true}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Peitoril=[{g:'Tipo',its:[{k:'peit_reto',l:'Peitoril Reto',u:'ml_auto'},{k:'peit_ping',l:'c/ Pingadeira',u:'ml_auto'},{k:'peit_col',l:'c/ Pedra Colada + Pingadeira',u:'ml_auto'},{k:'peit_portal',l:'p/ Portal Madeira',u:'ml_auto'}]},{g:'Acabamento',its:[{k:'peit_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'peit_acb1',l:'Acabamento 1 lado',u:'acb_auto',lados:1},{k:'peit_acb2',l:'Acabamento 2 lados',u:'acb_auto',lados:2}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l:'Sainha 45°',u:'sf'},{k:'s_boleada',l:'Sainha Boleada',u:'sf'},{k:'s_slim',l:'Sainha Slim',u:'sf'}]},{g:'Frontão',its:[{k:'frontao',l:'Frontão Reto',u:'sf'},{k:'frontao_chf',l:'Frontão Chanfrado',u:'sf'}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
@@ -2409,7 +2420,7 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -2435,6 +2446,7 @@ function buildMatCarouselHtml(amb){
     'Cozinha':  ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Ultra Compacto','Quartzito','Mármore','Travertino'],
     'Banheiro': ['Mármore','Quartzito','Granito Branco','Granito Cinza','Travertino','Ultra Compacto','Granito Preto','Granito Verde'],
     'Lavabo':   ['Mármore','Quartzito','Travertino','Granito Branco','Granito Cinza','Ultra Compacto','Granito Preto','Granito Verde'],
+    'Área de Serviço': ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Ultra Compacto','Quartzito','Mármore','Travertino'],
     'Escada':   ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Soleira':  ['Granito Preto','Granito Cinza','Granito Branco','Granito Verde','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Peitoril': ['Granito Cinza','Granito Branco','Granito Preto','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
@@ -3492,13 +3504,19 @@ function getBordaSvcs(){
   var keys=[], seen={};
   getSainhaSubs().forEach(function(s){if(!seen[s.k]){keys.push(s.k);seen[s.k]=true;}});
   getFrontaoSubs().forEach(function(s){if(!seen[s.k]){keys.push(s.k);seen[s.k]=true;}});
+  // "acab" (Acabamento — prateleira/soleira/peitoril) usa o mesmo motor de
+  // preço do "Pé Slim"/"Sainha Slim" (s_slim: só polimento, sem pedra extra),
+  // mas é agregado numa chave própria só pra exibição, pra não sair impresso
+  // como "Sainha Slim" (rótulo usado em borda de bancada). Não é um serviço
+  // configurável em CFG.svList — sempre incluído aqui.
+  if(!seen['acab']){keys.push('acab');seen['acab']=true;}
   return keys;
 }
 
 // Keep aliases for legacy references — will be refreshed by syncSVDefsFromList
 var SAINHA_SUBS  = _SAINHA_SUBS_DEFAULT;
 var FRONTAO_SUBS = _FRONTAO_SUBS_DEFAULT;
-var BORDA_SVCS   = ['s_reta','s_45','s_boleada','s_slim','frontao','frontao_chf'];
+var BORDA_SVCS   = ['s_reta','s_45','s_boleada','s_slim','acab','frontao','frontao_chf'];
 
 function _refreshBordaArrays(){
   SAINHA_SUBS  = getSainhaSubs();
@@ -3548,6 +3566,19 @@ function _syncBordaSvState(amb) {
       }
     });
   });
+  // Migração: lados "Acabamento" salvos antes da correção do bug que os
+  // tratava como Sainha Reta (peça de pedra colada, com m² e custo de
+  // material) — corrige pra 's_slim' (só mão de obra de polimento, sem
+  // consumir pedra), que é o que "Acabamento" sempre devia significar.
+  (amb.pecas||[]).forEach(function(pc){
+    if(!pc.bordas) return;
+    ['fr','fd','esq','dir'].forEach(function(lado){
+      var bd=pc.bordas[lado];
+      if(bd&&bd.tipo==='acabamento'&&bd.sub!=='s_slim'){
+        bd.sub='s_slim';
+      }
+    });
+  });
   var totML = {}, totAlt = {}, hasBordas = false;
   amb.pecas.forEach(function(pc) {
     if (!pc.bordas) return;
@@ -3559,8 +3590,13 @@ function _syncBordaSvState(amb) {
       hasBordas = true;
       var ml = bd.ml != null ? bd.ml : dims[lado]; // ml is in cm
       var alt = bd.alt || 6;
-      totML[bd.sub] = (totML[bd.sub] || 0) + (ml / 100) * q;
-      totAlt[bd.sub] = alt;
+      // "Acabamento" (prateleira/soleira/peitoril) usa o motor de preço do
+      // s_slim (bd.sub já foi normalizado pra 's_slim' acima), mas é somado
+      // à parte, na chave 'acab', só pra sair com o rótulo certo no orçamento
+      // — sem misturar com uma "Sainha Slim" real de borda de bancada.
+      var dispKey = bd.tipo === 'acabamento' ? 'acab' : bd.sub;
+      totML[dispKey] = (totML[dispKey] || 0) + (ml / 100) * q;
+      totAlt[dispKey] = alt;
     });
   });
   if (!hasBordas) return;
@@ -3593,8 +3629,14 @@ function updPcBordaTipo(ambId, pcId, lado, tipo) {
     _setBd(pc, lado, null);
   } else {
     var isDivTipo = BORDA_TIPOS_DIV.some(function(t){return t.k===tipo && t.k!==null;});
-    // Tipos simples sem submenu: sub é fixo
-    var _simpleSubMap = { acabamento: 's_reta', recorte45: 's_45' };
+    // Tipos simples sem submenu: sub é fixo.
+    // "Acabamento" = só polimento na borda, sem peça colada extra — por isso
+    // usa 's_slim' (mesmo motor de "só mão de obra" do Pé Slim), NÃO 's_reta'
+    // (Sainha Reta), que é uma peça de pedra colada com m² e custo de material.
+    // Bug corrigido: antes 'acabamento'→'s_reta' fazia o sistema cobrar como
+    // se fosse uma sainha de pedra colada (com dimensão de 6cm de altura),
+    // quando na verdade é só polir a borda que já existe, sem gastar pedra.
+    var _simpleSubMap = { acabamento: 's_slim', recorte45: 's_45' };
     var defSub;
     if (_simpleSubMap[tipo] !== undefined) {
       defSub = _simpleSubMap[tipo];
@@ -3725,7 +3767,12 @@ function buildPecaBordaHtml(amb, pc) {
       }
       if (curSub === 's_slim') {
         var _matSlimPc=CFG.stones.find(function(s){return s.id===(amb.selMat||selMat);});
-        h += '<div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">Só polimento na borda — sem pedra extra'+(_matSlimPc&&_matSlimPc.fin==='Escovada'?' · +adicional escovado':'')+'</div>';
+        // O adicional de pedra escovada só se aplica à Sainha Slim de bancada
+        // (tipo 'sainha'); Acabamento (prateleira/soleira/peitoril) reaproveita
+        // o mesmo motor de preço mas nunca leva esse adicional — ver 'acab' em
+        // getBordaSvcs()/_syncBordaSvState.
+        var _showEscBonusNote = tipo !== 'acabamento' && _matSlimPc && _matSlimPc.fin==='Escovada';
+        h += '<div style=\"font-size:.55rem;color:var(--t4);margin-bottom:3px;\">Só polimento na borda — sem pedra extra'+(_showEscBonusNote?' · +adicional escovado':'')+'</div>';
       }
       if (_isSimpleTipo) {
         // Acabamento simples (só polimento): sem campo de altura, apenas ML
@@ -4700,12 +4747,13 @@ function buildSVHtml(amb){
     if(bordaKeys.length){
       h+='<div class="svblk"><div class="svhd">Bordas — calculado por lado das peças</div>';
       bordaKeys.forEach(function(k){
-        var svd=sv[k]; var pr=getPr(k);
+        var svd=sv[k]; var pr=k==='acab'?getPr('s_slim'):getPr(k);
         // Look up label from dynamic subs (s_reta → 'Sainha Reta' etc)
         var _allSubs = getSainhaSubs().concat(getFrontaoSubs());
         var _subMatch = _allSubs.find(function(s){return s.k===k;});
         var _svMatch = CFG.svList ? CFG.svList.find(function(s){return s.k===k;}) : null;
-        var opt = _subMatch ? {l:(_svMatch?_svMatch.l:_subMatch.l),cor:'#4fa86b'} : (BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'});
+        // 'acab' não existe em CFG.svList nem nas subs de sainha/frontão — rótulo fixo
+        var opt = k==='acab' ? {l:'Acabamento',cor:'#C9A84C'} : (_subMatch ? {l:(_svMatch?_svMatch.l:_subMatch.l),cor:'#4fa86b'} : (BORDA_OPTS.find(function(o){return o.k===k;})||{l:k,cor:'var(--t3)'}));
         var m2=(svd.ml*(svd.altCm/100)*(svd.q||1)).toFixed(3);
         h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-bottom:1px solid var(--bd2);">';
         h+='<span style="font-size:.7rem;font-weight:600;color:'+opt.cor+'">'+opt.l+' — '+svd.ml.toFixed(2)+'m × '+svd.altCm+'cm = '+m2+'m²</span>';
@@ -5429,13 +5477,18 @@ function calcular(){
         var _svMatch=CFG.svList?CFG.svList.find(function(s){return s.k===k;}):null;
         var _allSubs=getSainhaSubs().concat(getFrontaoSubs());
         var _subMatch=_allSubs.find(function(s){return s.k===k;});
-        var lbl=_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k);
-        if(k==='s_slim'){
-          var matSl=CFG.stones.find(function(s){return s.id===(amb.selMat||selMat);});
-          var prSl=getPr(k)+((matSl&&matSl.fin==='Escovada')?(getPr('s_slim_esc')||0):0);
+        // 'acab' não tem entrada em CFG.svList (não é configurável) — rótulo fixo "Acabamento"
+        var lbl=k==='acab'?'Acabamento':(_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k));
+        if(k==='s_slim'||k==='acab'){
+          // 'acab' usa o mesmo motor de preço do s_slim, mas sem o adicional
+          // de pedra escovada (contexto de prateleira/soleira/peitoril, não
+          // de bancada) e com rótulo/descrição próprios no orçamento.
+          var matSl2=CFG.stones.find(function(s){return s.id===(amb.selMat||selMat);});
+          var prSl=getPr('s_slim')+((k==='s_slim'&&matSl2&&matSl2.fin==='Escovada')?(getPr('s_slim_esc')||0):0);
           var moSl=ml*q*prSl;
           acT+=moSl;
-          acL.push({l:lbl+' '+ml+'ml — Polimento (Acabamento Minimalista Slim)',v:moSl});
+          var descSl=k==='acab'?(lbl+' '+ml+'ml — Polimento'):(lbl+' '+ml+'ml — Polimento (Acabamento Minimalista Slim)');
+          acL.push({l:descSl,v:moSl});
           acN.push(lbl+' ('+ml+'ml)');
           return;
         }
@@ -5790,14 +5843,14 @@ function calcular(){
         var sdP=svP[k];
         if(!sdP||!sdP._fb||!sdP.ml)return;
         var mlP=sdP.ml,hP=sdP.altCm||6,qP=sdP.q||1;
-        var prK=getPr(k);
+        var prK=k==='acab'?getPr('s_slim'):getPr(k);
         if(k==='s_slim'){var matPk=CFG.stones.find(function(s){return s.id===(ambP.selMat||selMat);});prK+=(matPk&&matPk.fin==='Escovada')?(getPr('s_slim_esc')||0):0;}
         var vP=mlP*qP*prK;if(!vP)return;
         var _svMatch=CFG.svList?CFG.svList.find(function(s){return s.k===k;}):null;
         var _allSubs=getSainhaSubs().concat(getFrontaoSubs());
         var _subMatch=_allSubs.find(function(s){return s.k===k;});
-        var lbl=_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k);
-        var dP=k==='s_slim'?(lbl+' '+mlP+'ml (só polimento)'):(lbl+' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:''));
+        var lbl=k==='acab'?'Acabamento':(_svMatch?_svMatch.l:(_subMatch?_subMatch.l:k));
+        var dP=(k==='s_slim'||k==='acab')?(lbl+' '+mlP+'ml (só polimento)'):(lbl+' '+mlP+'ml×'+hP+'cm'+(qP>1?' ×'+qP:''));
         rowsP+='<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #0d0d10;"><span style="font-size:.75rem;color:var(--t2);">'+dP+'</span><span style="font-size:.75rem;color:var(--gold2);font-weight:600;">R$ '+fm(vP)+'</span></div>';
       });
     }
@@ -14467,6 +14520,179 @@ window.addEventListener('load',function _capCfgBoot(){
         if(body)body.innerHTML=buildCfgCapela();
       } else {
         _orig();
+      }
+    };
+  }
+});
+
+})();
+
+
+// ─────────────────────────────────────────────────────────────────────
+// NOVOS TIPOS DE AMBIENTE (config extensível — usuário cria seus próprios)
+// ─────────────────────────────────────────────────────────────────────
+// Permite ao usuário criar novos tipos de ambiente pela tela de
+// Configurações, sem precisar editar o código. Cada tipo criado ganha
+// automaticamente todas as funções dos ambientes existentes: aparece
+// nos botões de "Tipo de Ambiente" do orçamento, tem sua própria lista
+// de serviços (editável), entra no carrossel de pedras e no PDF/WhatsApp
+// normalmente, pois tudo isso já lê SV_DEFS/TIPOS_AMBIENTE dinamicamente.
+(function(){
+
+var _cfgAmbSel = -1; // índice do tipo custom aberto para edição
+
+function ambInitCustom(){
+  if(!CFG.customTipos) CFG.customTipos=[];
+  CFG.customTipos.forEach(function(ct){
+    if(!ct.icon) ct.icon='🧩';
+    if(!ct.items) ct.items=[];
+    if(typeof TIPOS_AMBIENTE!=='undefined' && TIPOS_AMBIENTE.indexOf(ct.tipo)===-1) TIPOS_AMBIENTE.push(ct.tipo);
+    ambSyncCustomSVDefs(ct);
+  });
+}
+
+// Reconstrói SV_DEFS[tipo] a partir de ct.items, agrupados por ct.items[].grp
+function ambSyncCustomSVDefs(ct){
+  var grpIdx={}, grps=[];
+  (ct.items||[]).forEach(function(it){
+    if(!grpIdx.hasOwnProperty(it.grp)){ grpIdx[it.grp]=grps.length; grps.push({g:it.grp,its:[]}); }
+    grps[grpIdx[it.grp]].its.push({k:it.k,l:it.l,u:it.u,fx:it.fx,ctp:it.ctp});
+    CFG.sv[it.k]=it.preco;
+  });
+  if(!grps.length) grps=[{g:'Serviços',its:[]}];
+  SV_DEFS[ct.tipo]=grps;
+}
+
+function _escAmbT(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function ambNovoTipo(){
+  var nome=prompt('Nome do novo tipo de ambiente (ex: Churrasqueira, Rodapé, Bancada Externa...):');
+  if(!nome||!nome.trim()) return;
+  nome=nome.trim();
+  if(typeof TIPOS_AMBIENTE!=='undefined' && TIPOS_AMBIENTE.indexOf(nome)>=0){ toast('⚠ Esse tipo já existe'); return; }
+  var icon=prompt('Emoji/ícone para esse tipo (opcional, ex: 🔧):','🧩');
+  if(icon===null) icon='🧩';
+  var baseList = (typeof TIPOS_AMBIENTE!=='undefined'?TIPOS_AMBIENTE:[]).filter(function(t){return SV_DEFS[t];}).join(', ');
+  var base=prompt('Copiar a lista de serviços de qual tipo existente? (deixe em branco pra começar do zero)\n\nOpções: '+baseList,'');
+  var items=[];
+  if(base && base.trim() && SV_DEFS[base.trim()]){
+    var n=0;
+    SV_DEFS[base.trim()].forEach(function(g){
+      g.its.forEach(function(it){
+        n++;
+        var nk='amb'+Date.now()+'_'+n;
+        var novo={k:nk, l:it.l, preco:(typeof getPr==='function'?(getPr(it.k)||0):0), u:it.u, grp:g.g};
+        if(it.ctp) novo.ctp=it.ctp;
+        items.push(novo);
+      });
+    });
+  }
+  if(!CFG.customTipos) CFG.customTipos=[];
+  var novoTipo={tipo:nome, icon:(icon||'🧩').trim()||'🧩', items:items};
+  CFG.customTipos.push(novoTipo);
+  if(typeof TIPOS_AMBIENTE!=='undefined') TIPOS_AMBIENTE.push(nome);
+  ambSyncCustomSVDefs(novoTipo);
+  svCFG();
+  _cfgAmbSel = CFG.customTipos.length-1;
+  toast('✓ Tipo "'+nome+'" criado!');
+  buildCfg();
+}
+
+function ambRemoverTipo(i){
+  var ct=CFG.customTipos[i];
+  if(!ct) return;
+  if(!confirm('Remover o tipo "'+ct.tipo+'"? Ambientes já orçados com esse tipo continuam salvos, mas ele deixa de aparecer nas opções.')) return;
+  (ct.items||[]).forEach(function(it){ delete CFG.sv[it.k]; });
+  delete SV_DEFS[ct.tipo];
+  if(typeof TIPOS_AMBIENTE!=='undefined'){
+    var idx=TIPOS_AMBIENTE.indexOf(ct.tipo);
+    if(idx>=0) TIPOS_AMBIENTE.splice(idx,1);
+  }
+  CFG.customTipos.splice(i,1);
+  _cfgAmbSel=-1;
+  svCFG();
+  toast('✓ Tipo removido');
+  buildCfg();
+}
+
+function buildCfgTiposAmbiente(){
+  ambInitCustom();
+  var h='<div style="font-size:.72rem;color:var(--t2);margin-bottom:14px;line-height:1.6;">Crie novos tipos de ambiente para o orçamento. Cada tipo criado aqui ganha as mesmas funções dos outros: botão de seleção, lista de serviços própria e carrossel de pedras.</div>';
+  h+='<button class="cfgadd" onclick="ambNovoTipo()" style="margin-bottom:14px;">+ Novo Tipo de Ambiente</button>';
+
+  if(!CFG.customTipos.length){
+    h+='<div style="font-size:.68rem;color:var(--t4);padding:10px 2px;">Nenhum tipo personalizado ainda.</div>';
+    return h;
+  }
+
+  CFG.customTipos.forEach(function(ct,i){
+    var open=_cfgAmbSel===i;
+    h+='<div class="cfgsec">';
+    h+='<div class="cfghd" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="_cfgAmbSelToggle('+i+')">';
+    h+='<span>'+_escAmbT(ct.icon)+' '+_escAmbT(ct.tipo)+' <span style="color:var(--t4);font-weight:500;">('+(ct.items||[]).length+' itens)</span></span>';
+    h+='<span style="display:flex;gap:8px;align-items:center;">';
+    h+='<button class="cfgdel" onclick="event.stopPropagation();ambRemoverTipo('+i+')">✕</button>';
+    h+='<span style="font-size:.6rem;color:var(--t4);">'+(open?'▲':'▼')+'</span>';
+    h+='</span></div>';
+
+    if(open){
+      var grps=[]; var grpIdx={};
+      (ct.items||[]).forEach(function(it,j){
+        if(!grpIdx.hasOwnProperty(it.grp)){grpIdx[it.grp]=grps.length;grps.push({g:it.grp,its:[]});}
+        grps[grpIdx[it.grp]].its.push({it:it,j:j});
+      });
+      grps.forEach(function(grp){
+        var gEsc=_escAmbT(grp.g);
+        var gJs=grp.g.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        h+='<div style="margin-top:10px;padding:10px;background:var(--bg2);border-radius:10px;">';
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;font-size:.66rem;font-weight:700;color:var(--gold2);margin-bottom:8px;">'+gEsc;
+        h+='<button class="cfgbtn" style="font-size:.64rem;padding:4px 9px;" onclick="CFG.customTipos['+i+'].items.push({k:\'amb\'+Date.now(),l:\'Novo Item\',preco:0,u:\'un\',grp:\''+gJs+'\'});svCFG();buildCfg();">+ Item</button>';
+        h+='</div>';
+        grp.its.forEach(function(entry){
+          var it=entry.it, j=entry.j;
+          h+='<div class="cfg-row" style="flex-wrap:wrap;gap:6px;">';
+          h+='<input class="cfginp" value="'+_escAmbT(it.l)+'" style="flex:1;min-width:110px;text-align:left;" onchange="CFG.customTipos['+i+'].items['+j+'].l=this.value;svCFG();">';
+          h+='<input class="cfginp cfginp-w" type="number" value="'+it.preco+'" style="width:80px;" onchange="CFG.customTipos['+i+'].items['+j+'].preco=+this.value;svCFG();" placeholder="R$">';
+          h+='<select class="cfginp" style="width:64px;padding:6px 4px;" onchange="CFG.customTipos['+i+'].items['+j+'].u=this.value;svCFG();">';
+          ['un','sf','ml','km','livre'].forEach(function(u){h+='<option'+(it.u===u?' selected':'')+'>'+u+'</option>';});
+          h+='</select>';
+          h+='<button class="cfgdel" onclick="CFG.customTipos['+i+'].items.splice('+j+',1);svCFG();buildCfg();">✕</button>';
+          h+='</div>';
+        });
+        h+='</div>';
+      });
+      h+='<button class="cfgadd" style="margin-top:10px;" onclick="var g=prompt(\'Nome do novo grupo:\');if(g&&g.trim()){CFG.customTipos['+i+'].items.push({k:\'amb\'+Date.now(),l:\'Novo Item\',preco:0,u:\'un\',grp:g.trim()});svCFG();buildCfg();}">+ Novo Grupo</button>';
+      h+='<div style="padding:14px 2px 4px;"><button onclick="ambSyncCustomSVDefs(CFG.customTipos['+i+']);svCFG();toast(\'✓ \'+CFG.customTipos['+i+'].tipo+\' salvo!\');if(typeof renderAmbientes===\'function\')renderAmbientes();" style="width:100%;padding:12px;background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;border-radius:12px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:900;color:#000;cursor:pointer;">✓ Salvar "'+_escAmbT(ct.tipo)+'"</button></div>';
+    }
+    h+='</div>';
+  });
+  return h;
+}
+
+window._cfgAmbSelToggle=function(i){ _cfgAmbSel = (_cfgAmbSel===i) ? -1 : i; buildCfg(); };
+window.ambNovoTipo=ambNovoTipo;
+window.ambRemoverTipo=ambRemoverTipo;
+window.ambSyncCustomSVDefs=ambSyncCustomSVDefs;
+
+window.addEventListener('load',function _ambTipoCfgBoot(){
+  ambInitCustom();
+  var cfgTabs=document.getElementById('cfgTabs');
+  if(cfgTabs&&!cfgTabs.querySelector('[data-cftab="11"]')){
+    var t=document.createElement('div');
+    t.className='cfgtab';
+    t.setAttribute('data-cftab','11');
+    t.textContent='🧩 Tipos de Ambiente';
+    cfgTabs.appendChild(t);
+  }
+  if(typeof buildCfg==='function'){
+    var _orig2=buildCfg;
+    buildCfg=function(){
+      if(typeof cfgTab!=='undefined'&&cfgTab===11){
+        ambInitCustom();
+        var body=document.getElementById('cfgBody');
+        if(body) body.innerHTML=buildCfgTiposAmbiente();
+      } else {
+        _orig2();
       }
     };
   }
