@@ -79,7 +79,7 @@ function buildOrcList(list) {
       (_orcFilter ? 'Nenhum orçamento para "'+_orcFilter+'"' : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
     return;
   }
-  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴','Área de Serviço':'🧺',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Outro:'📦'};
+  var tipo_icons = {Cozinha:'🍳',Banheiro:'🚿',Lavabo:'🪴','Área de Serviço':'🧺',Soleira:'🚪',Peitoril:'🏠',Escada:'📐',Fachada:'🏛️',Túmulo:'⚰️',Plaquinha:'🪧',Outro:'📦'};
   if(typeof CFG!=='undefined' && CFG.customTipos) CFG.customTipos.forEach(function(ct){ if(ct.icon) tipo_icons[ct.tipo]=ct.icon; });
   // Configuração de badges de status (A1)
   var _stMap = {
@@ -1918,6 +1918,36 @@ SV_DEFS.Tumulo=[
 ];
 SV_DEFS['Túmulo'] = SV_DEFS.Tumulo;
 
+// ── PLAQUINHA AVULSA ────────────────────────────────────────────────
+// Orçamento rápido só da plaquinha (sem montar o túmulo inteiro no Léo).
+// A peça (comprimento×largura) já é cobrada automaticamente pela pedra
+// escolhida (igual a qualquer outro ambiente) — os itens abaixo somam
+// o restante do valor: mão de obra, tempo de máquina, gravação e etc.
+SV_DEFS.Plaquinha=[
+  {g:'🔨 Mão de Obra',its:[
+    {k:'plaq_mo', l:'Mão de Obra (corte/acabamento manual)', u:'un', fx:1}
+  ]},
+  {g:'⚙️ Tempo de Máquina',its:[
+    {k:'plaq_maq', l:'Tempo de Máquina (politriz/cortadeira)', u:'un', fx:1}
+  ]},
+  {g:'Gravação / Acabamento',its:[
+    {k:'plaq_grav',  l:'Gravação de Letras/Números', u:'un', fx:0},
+    {k:'plaq_foto',  l:'Foto em Porcelana',          u:'un', fx:1},
+    {k:'plaq_pol',   l:'Polimento Extra',            u:'un', fx:1}
+  ]},
+  {g:'Fixação',its:[
+    {k:'tubo', l:'Tubo Metálico', u:'un', fx:0},
+    {k:'cant', l:'Cantoneira',    u:'un', fx:0}
+  ]},
+  {g:'Instalação',its:[
+    {k:'inst', l:'Instalação Padrão', u:'un', fx:1}
+  ]},
+  {g:'Deslocamento',its:[
+    {k:'desl_cid', l:'Na cidade',      u:'livre'},
+    {k:'desl_for', l:'Fora da cidade', u:'km', fx:0}
+  ]}
+];
+
 // ── SERVIÇOS ESPECÍFICOS PARA CAPELAS ──────────────────────────────────
 // Estrutura e pilares são calculados automaticamente pelo configurador de medidas.
 // Aqui ficam apenas os serviços adicionais que o usuário escolhe manualmente.
@@ -1998,7 +2028,8 @@ var DEF_TUM_SV={
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
   div_recorte:80,div_inst:120,
   rda_inst:380,
-  // pe_ (pé estrutural orgânico — taxa extra de m.o. de corte)
+    plaq_grav: 60, plaq_foto: 170, plaq_pol: 60, plaq_mo: 25, plaq_maq: 15,
+    // pe_ (pé estrutural orgânico — taxa extra de m.o. de corte)
   pe_organico_mo: 60
 }
 function getPr(k){var v=CFG.sv[k];if(v!==undefined&&v!==null)return v;return DEF_TUM_SV[k]||0;}
@@ -2420,7 +2451,7 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
+var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -2452,6 +2483,7 @@ function buildMatCarouselHtml(amb){
     'Peitoril': ['Granito Cinza','Granito Branco','Granito Preto','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
     'Fachada':  ['Granito Cinza','Granito Preto','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
     'Túmulo':   ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Quartzito','Mármore','Travertino','Ultra Compacto'],
+    'Plaquinha': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
     '⛪ Capela': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
     '🖼️ Nicho': ['Granito Preto','Granito Cinza','Granito Verde','Granito Branco','Mármore','Quartzito','Travertino','Ultra Compacto'],
     'Outro':    ['Granito Cinza','Granito Preto','Granito Branco','Granito Verde','Mármore','Quartzito','Travertino','Ultra Compacto'],
@@ -5360,6 +5392,16 @@ function calcular(){
   });
   if (ambSemMedida) {
     toast('⚠ Preencha Comprimento E Largura em todas as peças');
+    return;
+  }
+  // Plaquinha: a peça (medida da placa) é obrigatória — sem ela o orçamento
+  // sairia sem valor de pedra nenhum, o que não faz sentido pra esse tipo.
+  var plaqSemMedida = ambientes.find(function(a){
+    if (a.tipo !== 'Plaquinha') return false;
+    return !(a.pecas || []).some(function(p){ return p.w > 0 && p.h > 0; });
+  });
+  if (plaqSemMedida) {
+    toast('⚠ Preencha a medida (Largura × Altura) da Plaquinha antes de calcular');
     return;
   }
   // Only require stone selection if the ambiente has stone pieces (w×h defined)
@@ -12813,6 +12855,7 @@ var DEF_TUM_PRECOS = {
     pingadeira: { label:'Pingadeira',          preco:80,  unid:'ml',  custoPerc:55, desc:'Pingadeira de proteção' },
     lapide:     { label:'Lápide Padrão',       preco:450, unid:'un',  custoPerc:60, desc:'Lápide gravada padrão' },
     lapide_esp: { label:'Lápide Especial',     preco:720, unid:'un',  custoPerc:55, desc:'Personalizada ou placa bronze' },
+    plaquinha:  { label:'Plaquinha',            preco:120, unid:'un',  custoPerc:55, desc:'Placa de identificação (nome/data), menor que a lápide — comum em gavetas' },
     cruz:       { label:'Cruz (granito)',       preco:320, unid:'un',  custoPerc:55, desc:'Cruz em granito ou mármore' },
     foto:       { label:'Foto Porcelana',       preco:160, unid:'un',  custoPerc:50, desc:'Foto em porcelana c/ moldura' },
     polimento:  { label:'Polimento Especial',  preco:150, unid:'m²',  custoPerc:53, desc:'Polimento brilhante extra' },
@@ -12944,6 +12987,11 @@ function tumAplicarTabela(opts) {
     q.foto.venda = ta.foto.preco;
     if (!q.foto.custo || opts.forceAcab)
       q.foto.custo = Math.round(ta.foto.preco * (ta.foto.custoPerc||50) / 100);
+  }
+  if (q.plaquinha && q.plaquinha.on && ta.plaquinha) {
+    q.plaquinha.venda = ta.plaquinha.preco;
+    if (!q.plaquinha.custo || opts.forceAcab)
+      q.plaquinha.custo = Math.round(ta.plaquinha.preco * (ta.plaquinha.custoPerc||55) / 100);
   }
 }
 
