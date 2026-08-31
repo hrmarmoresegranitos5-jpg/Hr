@@ -513,6 +513,23 @@ var DB={
 };
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 
+// Mescla um array local com a versão recebida de outro aparelho, por ID —
+// nunca perde um item novo de nenhum dos dois lados. Em caso de o MESMO id
+// existir nos dois (editado nos dois aparelhos), fica a versão local: o
+// próximo push deste aparelho reenvia essa versão e ela se propaga.
+function _syncMergeById(localArr, remoteArr){
+  localArr = localArr || [];
+  if(!remoteArr || !remoteArr.length) return localArr;
+  var localIds = {};
+  localArr.forEach(function(item){ if(item && item.id!=null) localIds[item.id]=true; });
+  var merged = localArr.slice();
+  remoteArr.forEach(function(rItem){
+    if(!rItem || rItem.id==null) return;
+    if(!localIds[rItem.id]) merged.push(rItem);
+  });
+  return merged;
+}
+
 // ═══ SYNC (Firebase) ═══
 var SYNC={
   db:null,
@@ -569,10 +586,19 @@ var SYNC={
           CFG.emp.apiKey = _apiKeyLocal || '';
           localStorage.setItem('hr_cfg',JSON.stringify(CFG));
         }
-        if(d.q)DB.q=d.q;
-        if(d.j)DB.j=d.j;
-        if(d.t)DB.t=d.t;
-        if(d.b)DB.b=d.b;
+        // Merge por ID em vez de sobrescrever o array inteiro — assim um
+        // orçamento/lançamento criado em OUTRO aparelho (ex: funcionário)
+        // nunca "some" por causa de uma sincronização concorrente, e um
+        // criado agora mesmo NESTE aparelho (ainda não enviado) também não
+        // se perde. Cada aparelho reenvia o resultado já mesclado no
+        // próximo push, então em poucos ciclos todos convergem pro mesmo
+        // conjunto completo. Observação: isso é um merge aditivo — uma
+        // exclusão feita num aparelho pode "voltar" se outro aparelho
+        // ainda tinha o registro antigo em cache e sincronizar depois.
+        if(d.q)DB.q=_syncMergeById(DB.q,d.q);
+        if(d.j)DB.j=_syncMergeById(DB.j,d.j);
+        if(d.t)DB.t=_syncMergeById(DB.t,d.t);
+        if(d.b)DB.b=_syncMergeById(DB.b,d.b);
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
@@ -664,9 +690,14 @@ var FCM = {
   },
   salvarToken: function(token){
     if(!SYNC.db || !SYNC.code) return;
-    // Salva sob o código de sync — é assim que a Cloud Function sabe pra
-    // quais dispositivos mandar push relativo aos boletos daquele código.
-    SYNC.db.ref('hr/'+SYNC.code+'/fcmTokens/'+token).set(true);
+    // Salva sob o código de sync — é assim que os scripts de push (boletos,
+    // orçamentos) sabem pra quais dispositivos mandar notificação daquele
+    // código. Guarda também o nome do aparelho, pra dar pra pular o próprio
+    // aparelho que criou um orçamento na hora de notificar "orçamento novo".
+    SYNC.db.ref('hr/'+SYNC.code+'/fcmTokens/'+token).set({
+      deviceName: localStorage.getItem('hr_device_name') || '',
+      ts: Date.now()
+    });
   }
 };
 
@@ -1930,9 +1961,13 @@ SV_DEFS.Plaquinha=[
   {g:'⚙️ Tempo de Máquina',its:[
     {k:'plaq_maq', l:'Tempo de Máquina (politriz/cortadeira)', u:'un', fx:1}
   ]},
+  {g:'Foto', radio:true, its:[
+    {k:'plaq_sem_foto',  l:'Sem Foto',              u:'un', fx:0, default:true},
+    {k:'plaq_foto',      l:'Foto Porcelana',        u:'un', fx:1},
+    {k:'plaq_foto_grav', l:'Foto Gravada na Pedra', u:'un', fx:1}
+  ]},
   {g:'Gravação / Acabamento',its:[
     {k:'plaq_grav',  l:'Gravação de Letras/Números', u:'un', fx:0},
-    {k:'plaq_foto',  l:'Foto em Porcelana',          u:'un', fx:1},
     {k:'plaq_pol',   l:'Polimento Extra',            u:'un', fx:1}
   ]},
   {g:'Fixação',its:[
@@ -2028,7 +2063,7 @@ var DEF_TUM_SV={
   bp_c_arred:180,bp_c_curva:220,bp_c_infinita:350,
   div_recorte:80,div_inst:120,
   rda_inst:380,
-    plaq_grav: 60, plaq_foto: 170, plaq_pol: 60, plaq_mo: 25, plaq_maq: 15,
+    plaq_grav: 60, plaq_foto: 170, plaq_foto_grav: 90, plaq_pol: 60, plaq_mo: 25, plaq_maq: 15,
     // pe_ (pé estrutural orgânico — taxa extra de m.o. de corte)
   pe_organico_mo: 60
 }
@@ -4574,12 +4609,20 @@ function renderAmbientes(){
       var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
       h+='<div class="peca">';
       h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
-      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':amb.tipo==='Rodapé de Armário'?'Ex: Armário cozinha, Balcão banheiro':amb.tipo==='🌴 Área Gourmet'?'Ex: Pé Estrutural, Tampo da Ilha, Base, Fundo':amb.tipo==='Escada'?'Ex: Base, Espelho, Rodapé, Patamar':'Ex: Bancada';
+      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':amb.tipo==='Rodapé de Armário'?'Ex: Armário cozinha, Balcão banheiro':amb.tipo==='🌴 Área Gourmet'?'Ex: Pé Estrutural, Tampo da Ilha, Base, Fundo':amb.tipo==='Escada'?'Ex: Base, Espelho, Rodapé, Patamar':amb.tipo==='Plaquinha'?'Ex: Plaquinha':'Ex: Bancada';
       h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
-      var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':amb.tipo==='Rodapé de Armário'?'Ex: 60':'300';
-      var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':amb.tipo==='Rodapé de Armário'?'Ex: 15':'60';
+      var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':amb.tipo==='Rodapé de Armário'?'Ex: 60':amb.tipo==='Plaquinha'?'Ex: 30':'300';
+      var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':amb.tipo==='Rodapé de Armário'?'Ex: 15':amb.tipo==='Plaquinha'?'Ex: 40':'60';
       h+='<div class="r2"><div class="f"><label>Comprimento (cm)</label><input id="pw-'+pc.id+'" placeholder="'+_phW+'" type="number" style="background:var(--s3);" value="'+(pc.w||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'w\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'comp\')"></div>';
       h+='<div class="f"><label>Largura (cm)</label><input id="ph-'+pc.id+'" placeholder="'+_phH+'" type="number" style="background:var(--s3);" value="'+(pc.h||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'h\',+this.value);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+');_alertMedida(this,+this.value,\'larg\')"></div></div>';
+      if(amb.tipo==='Plaquinha'){
+        h+='<div style="display:flex;gap:6px;margin:-4px 0 10px;">';
+        [['20×30',20,30],['20×40',20,40],['30×40',30,40]].forEach(function(pz){
+          var onPz=pc.w===pz[1]&&pc.h===pz[2];
+          h+='<button type="button" onclick="updPcAmb('+amb.id+','+pc.id+',\'w\','+pz[1]+');updPcAmb('+amb.id+','+pc.id+',\'h\','+pz[2]+');_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+');renderAmbientes();" style="flex:1;padding:7px 4px;border-radius:8px;border:1.5px solid '+(onPz?'var(--gold)':'var(--bd2)')+';background:'+(onPz?'rgba(201,168,76,.15)':'var(--s3)')+';color:'+(onPz?'var(--gold)':'var(--t3)')+';font-size:.68rem;font-weight:'+(onPz?'700':'500')+';cursor:pointer;font-family:Outfit,sans-serif;">'+pz[0]+'</button>';
+        });
+        h+='</div>';
+      }
       h+='<div style="max-width:130px;"><div class="f"><label>Quantidade</label><input id="pq-'+pc.id+'" type="number" style="background:var(--s3);" value="'+(pc.q||1)+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'q\',+this.value||1);_updPcPreview('+amb.id+','+pc.id+');_updPcBorda('+amb.id+','+pc.id+')"></div></div>';
       // Preview em tempo real de m² e preço estimado
       var _pvW=pc.w||0,_pvH=pc.h||0,_pvQ=pc.q||1;
@@ -4595,7 +4638,7 @@ function renderAmbientes(){
         h+='<div id="pv-'+pc.id+'"></div>';
       }
       // SVG technical preview + per-side borda selector
-      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira'){
+      if(amb.tipo!=='🏊 Borda Piscina' && amb.tipo!=='Rodapé de Box' && amb.tipo!=='Peitoril' && amb.tipo!=='Soleira' && amb.tipo!=='Plaquinha'){
         h+='<div id="svgw-'+pc.id+'">'+buildPecaPreviewSVG(amb,pc,pi)+'</div>';
         // ── Bloco de Pé Estrutural (aparece quando descrição contém "pé") ──
         if(_isPePc(pc.desc)){
@@ -4650,6 +4693,9 @@ function renderAmbientes(){
           h+='</div>';
         }
         h+='<div id="bda-'+pc.id+'">'+buildPecaBordaHtml(amb,pc)+'</div>';
+      }
+      if(amb.tipo==='Plaquinha' && _pvM2>0){
+        h+='<div style="margin:8px 0;padding:8px 12px;background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:8px;font-size:.66rem;color:var(--gold2);">✓ Acabamento polido incluso nas 4 bordas</div>';
       }
       if(amb.tipo==='🏊 Borda Piscina'){
         var pcLados=pc.acabLados||0;
@@ -4859,6 +4905,23 @@ function buildSVHtml(amb){
       h+='</div>';
       return;
     }
+    // grp.radio: opções mutuamente exclusivas com preço fixo (ex: Sem Foto / Foto Porcelana / Foto Gravada)
+    if(grp.radio){
+      var selRadio=null;
+      grp.its.forEach(function(it){if(sv[it.k])selRadio=it.k;});
+      h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;padding:8px 12px 10px;">';
+      grp.its.forEach(function(it){
+        var activeR=it.k===selRadio||(!selRadio&&it.default);
+        var prR=getPr(it.k);
+        h+='<div onclick="togSVRadioGroup('+amb.id+',\''+it.k+'\')" style="cursor:pointer;text-align:center;padding:9px 8px;border-radius:10px;border:1.5px solid '+(activeR?'var(--gold)':'var(--bd2)')+';background:'+(activeR?'rgba(201,168,76,.12)':'var(--s2)')+';transition:all .15s;">'
+          +'<div style="font-size:.78rem;font-weight:'+(activeR?'700':'500')+';color:'+(activeR?'var(--gold)':'var(--t2)')+'">'+it.l+'</div>'
+          +(prR>0?'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">R$ '+fm(prR)+'</div>':'<div style="font-size:.6rem;color:var(--t4);margin-top:2px;">incluso</div>')
+          +'</div>';
+      });
+      h+='</div></div>';
+      return;
+    }
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
@@ -4974,6 +5037,21 @@ function togAcbAuto(ambId,k){
     sv[k]={lados:match.lados||0};
     if(k==='sol_45'&&prevSainhaH)sv[k].sainhaH=prevSainhaH;
   });
+  renderAmbientes();
+}
+
+function togSVRadioGroup(ambId,k){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.svState)amb.svState={};
+  var sv=amb.svState;
+  var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
+  var grpFound=null;
+  g.forEach(function(grp){ if(grp.radio && grp.its.some(function(it){return it.k===k;})) grpFound=grp; });
+  if(!grpFound)return;
+  grpFound.its.forEach(function(it){ delete sv[it.k]; });
+  var picked=grpFound.its.find(function(it){return it.k===k;});
+  if(picked && !picked.default) sv[k]={ml:0,altCm:6,q:1,qty:1};
   renderAmbientes();
 }
 
@@ -6098,12 +6176,16 @@ function calcular(){
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
   var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  // Marca qual aparelho criou este orçamento (usado nas notificações de
+  // "novo orçamento" pros outros dispositivos sincronizados saberem quem fez).
+  q.criadoPor = localStorage.getItem('hr_device_name') || '';
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
   if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
       q.id=DB.q[eIdx].id;
+      q.criadoPor=DB.q[eIdx].criadoPor||q.criadoPor; // preserva o autor original na edição
       DB.q[eIdx]=q;
     } else {
       DB.q.unshift(q);
@@ -9751,6 +9833,9 @@ function buildCfg(){
     if(syncAtivo){
       h+='<div style="background:#0a1f12;border:1px solid var(--grn);border-radius:9px;padding:11px 13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">';
       h+='<span style="font-size:1rem;">✅</span><div style="flex:1;"><div style="font-size:.8rem;font-weight:600;color:var(--grn);">Sincronização ativa</div><div style="font-size:.65rem;color:var(--t3);">Código: <b style="color:var(--gold2);">'+SYNC.code+'</b></div></div></div>';
+      h+='<div style="margin-bottom:10px;"><label style="font-size:.62rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;">Nome deste aparelho</label>';
+      h+='<input id="deviceNameInp" class="cfginp" style="width:100%;margin-top:4px;" placeholder="Ex: João - Celular, Loja - Tablet" value="'+escH(localStorage.getItem('hr_device_name')||'')+'" onchange="localStorage.setItem(\'hr_device_name\',this.value.trim());toast(\'✓ Nome do aparelho salvo\');">';
+      h+='<div style="font-size:.6rem;color:var(--t4);margin-top:4px;">Aparece nas notificações de orçamento novo pros outros aparelhos, pra saber quem criou.</div></div>';
       h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;" onclick="SYNC.push().then(function(){toast(\'↑ Enviado com sucesso!\')}).catch(function(e){toast(\'❌ ERRO: \'+e.message)})">↑ Enviar dados agora</button>';
       h+='<button class="btn btn-red" style="font-size:.78rem;padding:10px;" onclick="SYNC.stop();buildCfg();">Desativar sincronização</button>';
     } else {
