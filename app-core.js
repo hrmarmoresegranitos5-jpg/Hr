@@ -465,6 +465,21 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
+  // Marca de exclusão (tombstone) por coleção: {q:{"171234...":tsExclusao}, j:{...}, t:{...}, b:{...}}.
+  // Existir aqui significa "esse id foi excluído de propósito" — é isso que
+  // permite a mesclagem entre aparelhos (_syncMergeById) diferenciar "nunca
+  // existiu nesse aparelho" de "existiu e foi apagado", evitando que um
+  // item excluído "volte" quando outro aparelho sincroniza uma cópia antiga.
+  tombstones:JSON.parse(localStorage.getItem('hr_tombstones')||'{}'),
+  marcarExcluido:function(collKey,id){
+    if(!collKey||id==null)return;
+    if(!this.tombstones[collKey])this.tombstones[collKey]={};
+    this.tombstones[collKey][id]=Date.now();
+  },
+  desmarcarExcluido:function(collKey,id){
+    if(!collKey||id==null||!this.tombstones[collKey])return;
+    delete this.tombstones[collKey][id];
+  },
   sv:function(){
     var self=this;
     // Só os orçamentos "vivos" (não arquivados) vão pro localStorage — os
@@ -477,6 +492,7 @@ var DB={
       localStorage.setItem('hr_j',JSON.stringify(self.j));
       localStorage.setItem('hr_t',JSON.stringify(self.t));
       localStorage.setItem('hr_b',JSON.stringify(self.b));
+      localStorage.setItem('hr_tombstones',JSON.stringify(self.tombstones));
     }
     try{
       _setAll();
@@ -517,9 +533,16 @@ var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
 // nunca perde um item novo de nenhum dos dois lados. Em caso de o MESMO id
 // existir nos dois (editado nos dois aparelhos), fica a versão local: o
 // próximo push deste aparelho reenvia essa versão e ela se propaga.
-function _syncMergeById(localArr, remoteArr){
+// `tomb` (opcional): mapa {id: tsExclusao} — qualquer item cujo id apareça
+// aqui é excluído do resultado mesmo que ainda exista no array remoto,
+// resolvendo o caso de um item excluído "voltar" quando outro aparelho
+// sincroniza uma cópia que ainda não sabia da exclusão.
+function _syncMergeById(localArr, remoteArr, tomb){
   localArr = localArr || [];
-  if(!remoteArr || !remoteArr.length) return localArr;
+  tomb = tomb || {};
+  if(!remoteArr || !remoteArr.length){
+    return Object.keys(tomb).length ? localArr.filter(function(item){ return !item || item.id==null || !tomb[item.id]; }) : localArr;
+  }
   var localIds = {};
   localArr.forEach(function(item){ if(item && item.id!=null) localIds[item.id]=true; });
   var merged = localArr.slice();
@@ -527,7 +550,29 @@ function _syncMergeById(localArr, remoteArr){
     if(!rItem || rItem.id==null) return;
     if(!localIds[rItem.id]) merged.push(rItem);
   });
+  if(Object.keys(tomb).length){
+    merged = merged.filter(function(item){ return !item || item.id==null || !tomb[item.id]; });
+  }
   return merged;
+}
+
+// Mescla os mapas de tombstone (local ∪ remoto) de todas as coleções —
+// nunca "esquece" uma exclusão que já foi registrada em qualquer aparelho.
+// Também poda marcas muito antigas (>180 dias) pra não crescer sem limite.
+function _syncMergeTombstones(localTomb, remoteTomb){
+  var result = {};
+  var collKeys = ['q','j','t','b','stones','coz','lav','ac','trabalhos','referencias'];
+  var limiteMs = Date.now() - (180*24*60*60*1000);
+  collKeys.forEach(function(ck){
+    var a = (localTomb && localTomb[ck]) || {};
+    var b = (remoteTomb && remoteTomb[ck]) || {};
+    var merged = Object.assign({}, a, b);
+    Object.keys(merged).forEach(function(id){
+      if(merged[id] < limiteMs) delete merged[id];
+    });
+    if(Object.keys(merged).length) result[ck]=merged;
+  });
+  return result;
 }
 
 // ═══ SYNC (Firebase) ═══
@@ -580,8 +625,26 @@ var SYNC={
         // chave salva neste dispositivo. Preserva o valor atual antes de
         // aplicar o CFG remoto, e restaura em seguida.
         var _apiKeyLocal = (CFG && CFG.emp) ? CFG.emp.apiKey : '';
+        // Marcas de exclusão (tombstones) mescladas ANTES de tudo — tanto o
+        // catálogo (CFG.stones/coz/lav/ac/trabalhos/referencias) quanto
+        // orçamentos/financeiro (DB.q/j/t/b) usam elas pra filtrar o merge.
+        DB.tombstones = _syncMergeTombstones(DB.tombstones, d.tombstones);
         if(d.cfg){
-          CFG=d.cfg;
+          // NUNCA substitui CFG inteiro — isso é o que apagava o catálogo
+          // inteiro (pedras, cubas, acessórios, trabalhos, fotos) toda vez
+          // que um aparelho sincronizava uma cópia mais antiga/incompleta.
+          // Os campos que são listas de itens com ID próprio são mesclados
+          // por ID (igual orçamentos); o resto do CFG (preços, textos,
+          // parâmetros gerais) vem do remoto normalmente.
+          var _camposCatalogo = ['stones','coz','lav','ac','trabalhos','referencias'];
+          _camposCatalogo.forEach(function(fld){
+            if(Array.isArray(d.cfg[fld])){
+              CFG[fld] = _syncMergeById(CFG[fld]||[], d.cfg[fld], DB.tombstones[fld]);
+            }
+          });
+          Object.keys(d.cfg).forEach(function(k){
+            if(_camposCatalogo.indexOf(k)===-1) CFG[k]=d.cfg[k];
+          });
           if(!CFG.emp) CFG.emp={};
           CFG.emp.apiKey = _apiKeyLocal || '';
           localStorage.setItem('hr_cfg',JSON.stringify(CFG));
@@ -592,13 +655,11 @@ var SYNC={
         // criado agora mesmo NESTE aparelho (ainda não enviado) também não
         // se perde. Cada aparelho reenvia o resultado já mesclado no
         // próximo push, então em poucos ciclos todos convergem pro mesmo
-        // conjunto completo. Observação: isso é um merge aditivo — uma
-        // exclusão feita num aparelho pode "voltar" se outro aparelho
-        // ainda tinha o registro antigo em cache e sincronizar depois.
-        if(d.q)DB.q=_syncMergeById(DB.q,d.q);
-        if(d.j)DB.j=_syncMergeById(DB.j,d.j);
-        if(d.t)DB.t=_syncMergeById(DB.t,d.t);
-        if(d.b)DB.b=_syncMergeById(DB.b,d.b);
+        // conjunto completo.
+        if(d.q)DB.q=_syncMergeById(DB.q,d.q,DB.tombstones.q);
+        if(d.j)DB.j=_syncMergeById(DB.j,d.j,DB.tombstones.j);
+        if(d.t)DB.t=_syncMergeById(DB.t,d.t,DB.tombstones.t);
+        if(d.b)DB.b=_syncMergeById(DB.b,d.b,DB.tombstones.b);
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
@@ -618,7 +679,12 @@ var SYNC={
     // a chave nova nos outros dispositivos na próxima sincronização.
     var cfgSemChave = JSON.parse(JSON.stringify(CFG));
     if(cfgSemChave.emp) delete cfgSemChave.emp.apiKey;
-    return this.db.ref('hr/'+this.code).set({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,_ts:ts});
+    // IMPORTANTE: usa .update() (mescla só as chaves passadas), NUNCA
+    // .set() no nó raiz do código. .set() substituiria o nó inteiro e
+    // apagaria "fcmTokens" e "notifOrcState", que também moram em
+    // hr/<código> mas são escritos por outros caminhos (registro de
+    // notificação push e o controle de orçamentos já avisados).
+    return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,tombstones:DB.tombstones,_ts:ts});
   },
   stop:function(){
     if(this.db&&this.code)this.db.ref('hr/'+this.code).off();
@@ -7373,7 +7439,7 @@ function saveJob(){
 function editJob(id){openJobModal(id);}
 function togJob(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;j.done=!j.done;DB.sv();renderAg();updUrgDot();if(j.done){toast('✓ Concluído!');var r=j.value-(j.pago||0);if(r>0)setTimeout(function(){showCB(j.cli+' concluído! Recebeu R$ '+fm(r)+' da entrega?',function(){var _tr=addTr('in','Entrega — '+j.cli,r,null,j.id);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});},400);}}
 function pagRest(id){var j=DB.j.find(function(x){return x.id===id;});if(!j)return;var r=j.value-(j.pago||0);showCB('Registrar R$ '+fm(r)+' do '+j.cli+'?',function(){var _tr=addTr('in','Pagamento — '+j.cli,r,null,j.id);j.pago=j.value;DB.sv();renderAg();hideCB();toast('✓ Registrado!');if(typeof gerarComprovante==='function')setTimeout(function(){showCB('🧾 Gerar comprovante para '+j.cli+'?',function(){hideCB();gerarComprovante(_tr.id);},function(){hideCB();});},350);},function(){hideCB();});}
-function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();});}
+function delJob(id){var idx=DB.j.findIndex(function(j){return j.id===id;});if(idx<0)return;_undoDelete(DB.j,idx,'Serviço removido',function(){DB.sv();renderAg();updUrgDot();},'j');}
 function updUrgDot(){var u=DB.j.filter(function(j){return !j.done&&j.end&&dDiff(j.end)>=0&&dDiff(j.end)<=3;}).length;document.getElementById('urgDot').classList.toggle('on',u>0);}
 
 // ═══ PIPELINE DE PRODUÇÃO DA AGENDA (Produzindo → Pronto p/ entrega → Entregue → Instalado) ═══
@@ -7765,7 +7831,7 @@ function saveTrEdit(){
   t.date=document.getElementById('teData').value||t.date;
   DB.sv();renderFin();closeAll();toast('✓ Atualizado!');
 }
-function delTr(){var idx=DB.t.findIndex(function(x){return x.id===editTrId;});if(idx<0)return;closeAll();_undoDelete(DB.t,idx,'Lançamento excluído',function(){DB.sv();renderFin();});}
+function delTr(){var idx=DB.t.findIndex(function(x){return x.id===editTrId;});if(idx<0)return;closeAll();_undoDelete(DB.t,idx,'Lançamento excluído',function(){DB.sv();renderFin();},'t');}
 
 function gerarComprovante(id){
   var t=DB.t.find(function(x){return x.id===(id||editTrId)});
@@ -9280,7 +9346,7 @@ function buildCfg(){
       h+='<button class="cfgbtn" onclick="if('+i+'>0){var a=CFG.stones.splice('+i+',1)[0];CFG.stones.splice('+(i-1)+',0,a);svCFG();buildCatalog();buildCfg();}" style="font-size:.8rem;padding:5px 10px;">↑</button>';
       h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.stones.length){var a=CFG.stones.splice('+i+',1)[0];CFG.stones.splice('+(i+1)+',0,a);svCFG();buildCatalog();buildCfg();}" style="font-size:.8rem;padding:5px 10px;">↓</button>';
       h+="</div>";
-      h+='<button class="cfgdel" onclick="_undoDelete(CFG.stones,'+i+',\'Pedra removida\',function(){buildMat();buildCatalog();buildPT();svCFG();buildCfg();})">✕ Remover</button></div>';
+      h+='<button class="cfgdel" onclick="_undoDelete(CFG.stones,'+i+',\'Pedra removida\',function(){buildMat();buildCatalog();buildPT();svCFG();buildCfg();},\'stones\')">✕ Remover</button></div>';
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="var _ns={id:\'s_\'+Date.now(),nm:\'Nova Pedra\',cat:\'Granito Cinza\',fin:\'Polida\',pr:300,custo:0,frete:0,perda:10,margem:30,tx:\'tx-andorinha\',photo:\'\',fotos:[],desc:\'\'};_ns.desc=_gerarDescPedra(_ns);CFG.stones.push(_ns);buildMat();buildCatalog();buildPT();svCFG();buildCfg();">+ Nova Pedra</button>';
@@ -9346,7 +9412,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.coz.length){var x=CFG.coz.splice('+i+',1)[0];CFG.coz.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="event.stopPropagation();_undoDelete(CFG.coz,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();})">✕ Remover</button>';
+        h+='<button class="cfgdel" style="background:rgba(224,81,81,.1);border-radius:8px;padding:6px 11px;font-weight:600;" onclick="event.stopPropagation();_undoDelete(CFG.coz,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();},\'coz\')">✕ Remover</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -9417,7 +9483,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.lav.length){var x=CFG.lav.splice('+i+',1)[0];CFG.lav.splice('+(i+1)+',0,x);svCFG();buildCubaList();buildCfg();}">↓</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.lav,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();})">✕ Remover</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.lav,'+i+',\'Cuba removida\',function(){svCFG();buildCubaList();buildCfg();},\'lav\')">✕ Remover</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -9605,7 +9671,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.ac.length){var x=CFG.ac.splice('+i+',1)[0];CFG.ac.splice('+(i+1)+',0,x);svCFG();buildAcList();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.ac,'+i+',\'Acessório removido\',function(){svCFG();buildAcList();buildCfg();})">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.ac,'+i+',\'Acessório removido\',function(){svCFG();buildAcList();buildCfg();},\'ac\')">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -9649,7 +9715,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.trabalhos.length){var x=CFG.trabalhos.splice('+i+',1)[0];CFG.trabalhos.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.trabalhos,'+i+',\'Trabalho removido\',function(){svCFG();buildCfg();})">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.trabalhos,'+i+',\'Trabalho removido\',function(){svCFG();buildCfg();},\'trabalhos\')">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -9692,7 +9758,7 @@ function buildCfg(){
         h+='<button class="cfgbtn" onclick="event.stopPropagation();if('+(i+1)+'<CFG.referencias.length){var x=CFG.referencias.splice('+i+',1)[0];CFG.referencias.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓ Descer</button>';
         h+='<span style="flex:1;"></span>';
         h+='<button class="cfgbtn" onclick="event.stopPropagation();_cfgToggle(\''+key+'\')">▴ Recolher</button>';
-        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.referencias,'+i+',\'Referência removida\',function(){svCFG();buildCfg();})">✕</button>';
+        h+='<button class="cfgdel" onclick="event.stopPropagation();_undoDelete(CFG.referencias,'+i+',\'Referência removida\',function(){svCFG();buildCfg();},\'referencias\')">✕</button>';
         h+='</div>';
       }
       h+='</div>';
@@ -10936,7 +11002,7 @@ function orcDel(id, e) {
   _undoDelete(DB.q, idx, 'Orçamento de ' + q.cli + ' excluído', function(){
     DB.sv();
     if (typeof renderHistorico === 'function') renderHistorico();
-  });
+  }, 'q');
 }
 
 // ═══ GERAR CONTRATO ═══
@@ -11901,6 +11967,7 @@ function _restaurarBackup(d){
   if(d.j)DB.j=d.j;
   if(d.t)DB.t=d.t;
   if(d.b)DB.b=d.b;
+  if(d.tombstones)DB.tombstones=d.tombstones;
   DB.sv();
   // 3. Módulos HRdb (hrdb_*)
   if(d.hrdb&&typeof d.hrdb==='object'){
@@ -12855,9 +12922,10 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
 // #90 — Exclusão com "Desfazer" por 5s. Remove o item de `arr` na posição `idx` imediatamente,
 // mostra um toast com botão de desfazer; se tocado, reinsere o item na mesma posição.
 // `onChange` roda tanto após excluir quanto após desfazer (salvar + re-renderizar telas).
-function _undoDelete(arr, idx, msg, onChange){
+function _undoDelete(arr, idx, msg, onChange, collKey){
   if(!arr || idx<0 || idx>=arr.length) return null;
   var removed = arr.splice(idx,1)[0];
+  if(collKey && removed && removed.id!=null) DB.marcarExcluido(collKey, removed.id);
   if(typeof onChange==='function') onChange();
   var old = document.getElementById('undoToast');
   if(old) old.remove();
@@ -12873,6 +12941,7 @@ function _undoDelete(arr, idx, msg, onChange){
     done = true;
     clearTimeout(timer);
     arr.splice(idx, 0, removed);
+    if(collKey && removed && removed.id!=null) DB.desmarcarExcluido(collKey, removed.id);
     if(typeof onChange==='function') onChange();
     div.remove();
     toast('✓ Restaurado');
