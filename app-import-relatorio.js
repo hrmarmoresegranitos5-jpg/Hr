@@ -1317,7 +1317,18 @@ var HR_IMPORT = (function () {
           .filter(function(b) { return !!b; })
           .sort(); // HH:MM ordena corretamente como string
 
-        if (batidas.length === 0) continue; // dia sem registro algum
+        if (batidas.length === 0) {
+          // Mesma correção do parser biométrico: dia sem nenhuma batida cria
+          // registro vazio (não pula) pra aparecer na Correção de Ponto.
+          registros.push({
+            nome: nome, data: dataISO,
+            entrada: '', saida: '',
+            almEntrada: null, almSaida: null,
+            almocoManual: null,
+            _semBatida: true
+          });
+          continue;
+        }
 
         // Primeira batida = entrada do dia / última = saída do dia
         var entrada = batidas[0];
@@ -1372,7 +1383,8 @@ var HR_IMPORT = (function () {
    * Extrai registros do relógio biométrico.
    * Cada batida única = sem saída (erro para correção).
    * 2+ batidas = entrada = primeira, saída = última.
-   * Dias sem batida não são incluídos.
+   * Dias sem batida alguma entram como registro vazio (aparecem na
+   * Correção de Ponto pra virar falta ou serem ignorados).
    */
   function _parseBiometricoXLS(workbook) {
     var ws   = workbook.Sheets[workbook.SheetNames[0]];
@@ -1421,7 +1433,28 @@ var HR_IMPORT = (function () {
             ? cell.split(/[\r\n]+/).map(function(t){ return t.trim(); }).filter(Boolean)
             : [];
 
-          if (punches.length === 0) continue; // dia sem batida alguma — pula
+          if (punches.length === 0) {
+            // Dia sem nenhuma batida = falta em potencial. NÃO pula mais —
+            // cria o registro vazio (entrada/saída em branco) pra ele
+            // aparecer na tela de Correção de Ponto, onde o usuário decide:
+            // marca como falta (Exceção/Punição, desconta a jornada do dia)
+            // ou ignora (funcionário não trabalhava esse dia, feriado etc).
+            // Antes, o dia sumia sem deixar rastro e só entrava no sistema
+            // se alguém lembrasse de inserir manualmente.
+            registros.push({
+              nome:         nome,
+              data:         dataISO,
+              entrada:      '',
+              saida:        '',
+              almEntrada:   null,
+              almSaida:     null,
+              almocoManual: null,
+              _doBiometrico: true,
+              _todasBatidas: [],
+              _semBatida:   true
+            });
+            continue;
+          }
 
           // Almoço: calculado apenas se houver 4+ batidas
           // batidas[1] = saída para almoço, batidas[2] = retorno do almoço
