@@ -681,6 +681,37 @@ var HR_IMPORT = (function () {
     };
   }
 
+  /**
+   * Abate o déficit (falta/atraso) de um período contra a extra calculada
+   * por _calcFinanceiroGrupo — desconta primeiro da faixa ×2, só mexe na ×3
+   * se a ×2 não bastar. Mesma regra de calcSaldoHE/calcExtraPeriodo (a fonte
+   * de verdade usada na tela de pagamento em app-funcionarios.js). Usada em
+   * toda tela/relatório deste arquivo que ainda calcula com o motor antigo
+   * (_calcGrupo/_calcFinanceiroGrupo), pra não voltar a mostrar valor de
+   * extra bruto — sem descontar a falta do mesmo período — em lugar nenhum.
+   */
+  function _abaterDeficitFin(fin, atrasoMin, valorHora) {
+    var e50 = fin.totalExtra50Min || 0, e200 = fin.totalExtra200Min || 0;
+    if (atrasoMin > 0) {
+      var novo50    = Math.max(0, e50 - atrasoMin);
+      var restante  = Math.max(0, atrasoMin - e50);
+      var novo200   = Math.max(0, e200 - restante);
+      e50  = novo50;
+      e200 = novo200;
+    }
+    var valorExtra50b  = _calcValorHE(e50,  CFG.he.normal,   valorHora);
+    var valorExtra200b = _calcValorHE(e200, CFG.he.especial, valorHora);
+    return {
+      totalExtra50Min:  e50,
+      totalExtra100Min: (fin.totalExtra100Min || 0), // sempre 0 — _classificarHE nunca preenche esta faixa
+      totalExtra200Min: e200,
+      valorExtra50:     valorExtra50b,
+      valorExtra100:    0,
+      valorExtra200:    valorExtra200b,
+      valorTotalExtras: valorExtra50b + valorExtra200b
+    };
+  }
+
   /** Formata valor monetário: 1234.5 → "R$ 1.234,50" */
   function _fmtMoeda(v) {
     if (isNaN(v) || v === null || v === undefined) return 'R$ —';
@@ -3405,6 +3436,50 @@ var HR_IMPORT = (function () {
       if (!f) { semFunc += gr.registros.length; return; }
 
       gr.registros.forEach(function(r) {
+        // ── Punição (falta lançada manualmente na tela de correção) ────────
+        // Zera o dia inteiro: 0h trabalhadas, sem entrada/saída, sem passar
+        // pela trava de jornada (Item 2) — que rejeitava isso como "Horário
+        // incompleto ou inválido" porque o texto 'PUNIÇÃO' não é um horário e
+        // vira NaN em _hhmm2min, fazendo o registro ser descartado inteiro e
+        // nunca chegar a descontar nada. Tem prioridade sobre duplicata: se
+        // já existe registro salvo pra essa data (de importação anterior),
+        // a punição sobrescreve ele em vez de entrar na reconciliação normal
+        // de horário (que é pra batidas reais, não pra isso). O desconto em
+        // si (saldoMin = -jornadaEsperada do dia) já é calculado corretamente
+        // por _montarLinhas/calcExtraPeriodo pra qualquer registro com
+        // horas=0 — só faltava esse registro conseguir ser salvo.
+        if (r._punicao) {
+          var jornadaPun = _jornadaEsperada(r.data, gr.funcId);
+          var dupPun = Object.values(regs).find(function(rx) {
+            return rx.funcionarioId === gr.funcId && rx.data === r.data;
+          });
+          var idPun = dupPun ? dupPun.id : _genId();
+          regs[idPun] = {
+            id: idPun,
+            funcionarioId: gr.funcId,
+            data: r.data,
+            entrada: '',
+            saida: '',
+            saidaAlmoco: '',
+            voltaAlmoco: '',
+            semAlmocoConfirmado: false,
+            horas: 0,
+            extra: 0,
+            tipoExtra: 'normal',
+            destinoExtra: 'pagar',
+            producao: '',
+            instalacao: '',
+            ieo: '',
+            observacao: 'PUNIÇÃO — falta lançada manualmente (desconta ' + _min2dur(jornadaPun) + ' do dia)',
+            punicao: true,
+            loteId: loteId,
+            criadoEm: dupPun ? dupPun.criadoEm : new Date().toISOString(),
+            atualizadoEm: new Date().toISOString()
+          };
+          importados++;
+          return;
+        }
+
         // Verifica duplicata — mesmo funcionário + mesma data
         var dup = Object.values(regs).find(function(rx) {
           return rx.funcionarioId === gr.funcId && rx.data === r.data;
@@ -3598,6 +3673,39 @@ var HR_IMPORT = (function () {
       '\n_HR Mármores e Granitos — Pilão Arcado_';
   }
 
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * MOTOR ÚNICO DE HORAS EXTRAS para a tela de resumo pós-importação e o
+   * WhatsApp de aviso ao funcionário.
+   *
+   * Antes, esta tela calculava com _calcGrupo/_calcFinanceiroGrupo — que somam
+   * a extra de cada dia isoladamente e NUNCA abatem os dias de falta/atraso
+   * do período contra essa extra. HR_RELATORIO_PONTO.calcExtraPeriodo (usado
+   * pela tela de pagamento em app-funcionarios.js) faz esse abatimento
+   * corretamente (desconta primeiro da faixa ×2, só mexe na ×3 se a ×2 não
+   * bastar) e lê os registros já salvos, então reflete qualquer punição/
+   * correção feita depois da importação original. Usar dois motores
+   * diferentes é exatamente por que o valor mostrado aqui divergia do valor
+   * realmente cobrado na folha — agora os dois usam a mesma fonte de
+   * verdade. _calcGrupo/_calcFinanceiroGrupo ficam só como fallback (não
+   * abatem déficit) se o módulo de relatório não estiver carregado.
+   */
+  function _calcExtraUnificado(funcId, di, df, gr, f, mesRef) {
+    if (typeof HR_RELATORIO_PONTO !== 'undefined' && typeof HR_RELATORIO_PONTO.calcExtraPeriodo === 'function') {
+      var finU = HR_RELATORIO_PONTO.calcExtraPeriodo(funcId, di, df);
+      if (finU) {
+        var totalExtraMinU = (finU.totalExtra50Min || 0) + (finU.totalExtra100Min || 0) + (finU.totalExtra200Min || 0);
+        return { calc: { totalExtraMin: totalExtraMinU }, fin: finU };
+      }
+    }
+    // Fallback: motor antigo, já com o mesmo abatimento de déficit aplicado
+    // no resto do arquivo — só usado se HR_RELATORIO_PONTO não carregar.
+    var calcOld = _calcGrupo(gr);
+    var valorHoraOld = _calcValorHoraReal(f, mesRef);
+    var finOld = _abaterDeficitFin(_calcFinanceiroGrupo(calcOld, valorHoraOld), calcOld.totalAtrasoMin, valorHoraOld);
+    return { calc: calcOld, fin: finOld };
+  }
+
   function _enviarResumoWhatsApp(funcId) {
     var funcs = _getFuncionarios();
     var f = funcs[funcId];
@@ -3608,12 +3716,10 @@ var HR_IMPORT = (function () {
     var tel = (f.telefone || '').replace(/\D/g, '');
     if (tel.length < 10) { _toast('⚠️ ' + f.nome.split(' ')[0] + ' sem telefone cadastrado.'); return; }
 
-    var calc = _calcGrupo(gr);
     var mesRef = (_state.periodo.di || '').slice(0, 7);
-    var valorHora = _calcValorHoraReal(f, mesRef);
-    var fin = _calcFinanceiroGrupo(calc, valorHora);
+    var r = _calcExtraUnificado(funcId, _state.periodo.di, _state.periodo.df, gr, f, mesRef);
     var periodoTexto = _fmtPeriodoCurto(_state.periodo.di, _state.periodo.df);
-    var msg = _msgResumoHE(f, calc, fin, periodoTexto);
+    var msg = _msgResumoHE(f, r.calc, r.fin, periodoTexto);
 
     window.open('https://wa.me/55' + tel + '?text=' + encodeURIComponent(msg), '_blank');
   }
@@ -3638,10 +3744,8 @@ var HR_IMPORT = (function () {
       if (!f) return null;
       var gr = _state.grupos.filter(function(g){ return g.funcId === funcId; })[0];
       if (!gr) return null;
-      var calc = _calcGrupo(gr);
-      var valorHora = _calcValorHoraReal(f, mesRef);
-      var fin = _calcFinanceiroGrupo(calc, valorHora);
-      return { func: f, calc: calc, fin: fin };
+      var r = _calcExtraUnificado(funcId, _state.periodo.di, _state.periodo.df, gr, f, mesRef);
+      return { func: f, calc: r.calc, fin: r.fin };
     }).filter(Boolean);
 
     // Ordena: quem tem mais horas extra aparece primeiro
@@ -3696,7 +3800,28 @@ var HR_IMPORT = (function () {
       if (typeof console !== 'undefined') console.log('[HR_IMPORT] Conflitos/correções desta importação:', conflitos);
     }
 
-    var html = _header('Resumo de Horas Extras', 'Período: ' + periodoTexto) +
+    // Cabeçalho próprio desta tela (em vez de _header()): inclui um botão
+    // "← Voltar" que retorna para a tela de correção de horários
+    // (_renderTelaCorrecao) sem perder o que já foi importado. _state.grupos
+    // continua em memória depois da confirmação, então dá pra ajustar mais
+    // um dia (ex: aplicar outra punição) e confirmar de novo — o salvamento
+    // já trata registro existente (dup) como atualização, não duplicata.
+    var htmlHeaderResumo =
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;width:100%;">' +
+        '<div style="display:flex;align-items:flex-start;gap:10px;">' +
+          '<button onclick="HR_IMPORT._voltarParaCorrecaoDoResumo()" title="Voltar para ajustar horários" ' +
+            'style="background:none;border:1px solid ' + BD2 + ';border-radius:8px;color:' + T2 + ';cursor:pointer;' +
+            'font-size:1rem;line-height:1;padding:6px 11px;margin-top:1px;flex-shrink:0;touch-action:manipulation;">←</button>' +
+          '<div>' +
+            '<div style="font-size:.55rem;color:' + GOLD + ';letter-spacing:.18em;text-transform:uppercase;margin-bottom:3px;">HR MÁRMORES</div>' +
+            '<div style="font-size:1.3rem;font-weight:800;color:' + T1 + ';letter-spacing:-.02em;">📥 Resumo de Horas Extras</div>' +
+            '<div style="font-size:.72rem;color:' + T3 + ';margin-top:3px;">Período: ' + periodoTexto + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<button onclick="HR_IMPORT._fechar()" title="Fechar" style="background:none;border:none;color:' + T3 + ';cursor:pointer;font-size:1.1rem;padding:4px 0 4px 8px;">✕</button>' +
+      '</div>';
+
+    var html = htmlHeaderResumo +
       htmlConflitos +
 
       '<div style="width:calc(100% - 32px);max-width:520px;' + CSS_CARD + 'background:' + GOLD2 + ';border-color:' + GOLDB + ';display:flex;justify-content:space-between;align-items:center;">' +
@@ -3736,6 +3861,10 @@ var HR_IMPORT = (function () {
 
   function _fechar() { _closeOverlay('hrImport'); }
 
+  /** Volta da tela "Resumo de Horas Extras" (pós-importação) para a tela de
+   *  correção de horários, sem fechar o fluxo nem perder o que já foi salvo. */
+  function _voltarParaCorrecaoDoResumo() { _renderTelaCorrecao(); }
+
   // ══════════════════════════════════════════════════════════════════════════
   // ETAPA 5 — RESUMO OPERACIONAL
   // Painel de totais agregados de todos os grupos do período importado.
@@ -3762,12 +3891,21 @@ var HR_IMPORT = (function () {
     _state.grupos.forEach(function(gr) {
       var calc = _calcGrupo(gr);
       var fin  = _calcFinanceiroGrupo(calc, valorHora);
-      totTrabMin     += calc.totalTrabMin;
-      totExtra50Min  += fin.totalExtra50Min;
-      totExtra100Min += fin.totalExtra100Min;
-      totExtra200Min += fin.totalExtra200Min;
-      totAtrasoMin   += calc.totalAtrasoMin;
-      totSaldoMin    += calc.saldoLiquidoMin;
+      totTrabMin   += calc.totalTrabMin;
+      totAtrasoMin += calc.totalAtrasoMin;
+      totSaldoMin  += calc.saldoLiquidoMin;
+
+      // ── Abate o déficit (falta/atraso) DESTE funcionário contra a extra
+      // DELE MESMO antes de somar ao total — precisa ser por funcionário
+      // aqui dentro do forEach, e não depois de somar tudo, senão a falta
+      // de um funcionário acabaria abatendo a extra de outro. Sem isso, esse
+      // painel somava a extra bruta de cada dia sem nunca descontar as
+      // faltas do mesmo período — sempre um valor maior do que o que
+      // realmente seria pago depois na tela de pagamento.
+      var finAbatida = _abaterDeficitFin(fin, calc.totalAtrasoMin, valorHora);
+      totExtra50Min  += finAbatida.totalExtra50Min;
+      totExtra100Min += finAbatida.totalExtra100Min;
+      totExtra200Min += finAbatida.totalExtra200Min;
     });
 
     var totExtraMin   = totExtra50Min + totExtra100Min + totExtra200Min;
@@ -3859,7 +3997,7 @@ var HR_IMPORT = (function () {
         '<div style="font-size:.62rem;color:' + T3 + ';font-weight:600;letter-spacing:.04em;margin-bottom:8px;">DETALHE POR FUNCIONÁRIO</div>' +
         _state.grupos.map(function(gr) {
           var calc = _calcGrupo(gr);
-          var fin  = _calcFinanceiroGrupo(calc, valorHora);
+          var fin  = _abaterDeficitFin(_calcFinanceiroGrupo(calc, valorHora), calc.totalAtrasoMin, valorHora);
           var anom = _totalAnomalias(calc);
           var totalIndExtra = fin.totalExtra50Min + fin.totalExtra100Min + fin.totalExtra200Min;
           if (calc.totalTrabMin === 0 && totalIndExtra === 0) return '';
@@ -3914,7 +4052,7 @@ var HR_IMPORT = (function () {
     // Gera HTML de cada funcionário
     var secoesFuncs = _state.grupos.map(function(gr) {
       var calc = _calcGrupo(gr);
-      var fin  = _calcFinanceiroGrupo(calc, valorHora);
+      var fin  = _abaterDeficitFin(_calcFinanceiroGrupo(calc, valorHora), calc.totalAtrasoMin, valorHora);
 
       // Tabela de dias
       var linhasDias = calc.linhasCalc.map(function(lc) {
@@ -3976,7 +4114,7 @@ var HR_IMPORT = (function () {
     var gTotAtraso  = 0, gValorFin = 0;
     _state.grupos.forEach(function(gr) {
       var calc = _calcGrupo(gr);
-      var fin  = _calcFinanceiroGrupo(calc, valorHora);
+      var fin  = _abaterDeficitFin(_calcFinanceiroGrupo(calc, valorHora), calc.totalAtrasoMin, valorHora);
       gTotTrab   += calc.totalTrabMin;
       gTot50Min  += fin.totalExtra50Min;
       gTot100Min += fin.totalExtra100Min;
@@ -4438,7 +4576,7 @@ var HR_IMPORT = (function () {
    */
   function _gerarSnapshotFinanceiro(grupo, calc, func, mesISO) {
     var valorHora   = _calcValorHoraReal(func, mesISO);
-    var fin         = _calcFinanceiroGrupo(calc, valorHora);
+    var fin         = _abaterDeficitFin(_calcFinanceiroGrupo(calc, valorHora), calc.totalAtrasoMin, valorHora);
 
     return {
       geradoEm:     new Date().toISOString(),
@@ -4499,6 +4637,7 @@ var HR_IMPORT = (function () {
     // Tela de resumo de HE pós-importação
     _mostrarResumoHE:     _mostrarResumoHE,
     _enviarResumoWhatsApp: _enviarResumoWhatsApp,
+    _voltarParaCorrecaoDoResumo: _voltarParaCorrecaoDoResumo,
     // Correção de ponto
     _renderTelaCorrecao:    _renderTelaCorrecao,
     _editCorrecao:          _editCorrecao,
