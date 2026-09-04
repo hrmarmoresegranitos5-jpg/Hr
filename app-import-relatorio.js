@@ -420,7 +420,15 @@ var HR_IMPORT = (function () {
       try {
         var funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}');
         var jMin = funcs[funcId] && parseInt(funcs[funcId].jornadaDiariaMin);
-        if (jMin > 0) jornadaBase = jMin;
+        if (jMin > 0) {
+          jornadaBase = jMin;
+          // CORREÇÃO: alerta (não bloqueia) se a jornada cadastrada for
+          // maior que o padrão de 8h — isso zera a hora extra silenciosamente
+          // (bug encontrado no cadastro do Fabrício).
+          if (jMin > 480 && typeof console !== 'undefined') {
+            console.warn('[HR] funcId=' + funcId + ' tem jornadaDiariaMin=' + jMin + 'min (>8h) — hora extra só conta acima disso.');
+          }
+        }
       } catch(e) {}
     }
     return meioPeriodo ? Math.round(jornadaBase / 2) : jornadaBase;
@@ -1054,6 +1062,23 @@ var HR_IMPORT = (function () {
     } catch(e) {}
 
     var linhasCalc = registrosComDeclarados.map(function(r) {
+      // CORREÇÃO: dia com punição aplicada (r._punicao) tem entrada/saída
+      // = 'PUNIÇÃO', que não é horário — antes disso caía direto no ramo
+      // "incompleto/inválido" abaixo e ficava com atraso:0, fazendo os
+      // totais desta tela (trabalhadas/extras/atraso) NÃO refletirem o
+      // desconto do dia, mesmo a punição aparecendo marcada na lista.
+      // O desconto de fato (no dinheiro pago) já é salvo corretamente na
+      // hora de confirmar o import — mas essa preview ficava mostrando
+      // o atraso errado (mais baixo do que o real) até lá.
+      if (r._punicao) {
+        var jornadaPun = _jornadaEsperada(r.data, g.funcId || null);
+        var resPun = { trab:0, saldo:-jornadaPun, extra:0, atraso:jornadaPun, almoco:0, bruto:0, incompleto:false, _punicao:true };
+        totalTrabMin  += resPun.trab;
+        totalExtraMin += resPun.extra;
+        totalAtrasoMin+= resPun.atraso;
+        return { r:r, valido:false, res:resPun };
+      }
+
       var entMin = _hhmm2min(r.entrada);
       var saiMin = _hhmm2min(r.saida);
 
@@ -3821,13 +3846,27 @@ var HR_IMPORT = (function () {
       var corrigidosTxt = conflitos.filter(function(c){ return c.indexOf('[CORRIGIDO:') >= 0; });
       var invalidosTxt  = conflitos.filter(function(c){ return c.indexOf('[INVÁLIDO') >= 0; });
       var puladosTxt    = conflitos.filter(function(c){ return c.indexOf('[CORRIGIDO:') < 0 && c.indexOf('[INVÁLIDO') < 0; });
+      // CORREÇÃO: o cabeçalho dizia "N registro(s) precisam da sua atenção"
+      // usando conflitos.length inteiro — mas duplicata idêntica ignorada
+      // (puladosTxt) NÃO precisa de atenção nenhuma, é o caminho normal de
+      // reimportar o mesmo relatório sem duplicar dado. Isso gerava alarme
+      // falso (ex: "44 registros precisam de atenção" quando na real eram
+      // só duplicatas reconhecidas e ignoradas com segurança). Agora conta
+      // só o que de fato precisa de decisão/revisão (corrigido ou inválido)
+      // pro número e pro ícone; duplicatas ficam listadas mas em tom neutro.
+      var precisamAtencao = corrigidosTxt.length + invalidosTxt.length;
+      var tituloResumo = precisamAtencao > 0
+        ? '⚠️ ' + precisamAtencao + ' registro(s) precisam da sua atenção'
+          + (puladosTxt.length ? ' (+' + puladosTxt.length + ' duplicata(s) ignorada(s) automaticamente)' : '')
+          + ' — toque pra ver'
+        : 'ℹ️ ' + puladosTxt.length + ' registro(s) já conferido(s) automaticamente (duplicatas idênticas) — toque pra ver';
       htmlConflitos =
         '<details style="width:calc(100% - 32px);max-width:520px;' + CSS_CARD + 'background:rgba(255,255,255,.03);cursor:pointer;">' +
-          '<summary style="font-size:.78rem;font-weight:700;color:' + T2 + ';">⚠️ ' + conflitos.length + ' registro(s) precisam da sua atenção — toque pra ver</summary>' +
+          '<summary style="font-size:.78rem;font-weight:700;color:' + (precisamAtencao > 0 ? T2 : T3) + ';">' + tituloResumo + '</summary>' +
           '<div style="margin-top:8px;font-size:.72rem;color:' + T3 + ';line-height:1.6;">' +
             (corrigidosTxt.length ? '<div style="color:#8ec8f0;font-weight:700;margin-top:4px;">✏️ Corrigidos (dado antigo ≠ novo, atualizado):</div>' + corrigidosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
             (invalidosTxt.length ? '<div style="color:#e08a8a;font-weight:700;margin-top:4px;">🚫 Inválidos (não importados):</div>' + invalidosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
-            (puladosTxt.length ? '<div style="color:' + T3 + ';font-weight:700;margin-top:4px;">➖ Duplicatas idênticas ignoradas:</div>' + puladosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
+            (puladosTxt.length ? '<div style="color:' + T3 + ';font-weight:700;margin-top:4px;">➖ Duplicatas idênticas ignoradas (nada a fazer):</div>' + puladosTxt.map(function(c){ return '<div>' + _esc(c) + '</div>'; }).join('') : '') +
           '</div>' +
         '</details>';
       if (typeof console !== 'undefined') console.log('[HR_IMPORT] Conflitos/correções desta importação:', conflitos);
