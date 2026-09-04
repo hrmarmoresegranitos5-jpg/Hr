@@ -81,8 +81,13 @@ var HR_FUNC = (function () {
     var neg = m < 0; m = Math.abs(m);
     return (neg ? '-' : '') + String(Math.floor(m/60)).padStart(2,'0') + 'h' + String(m%60).padStart(2,'0') + 'm';
   }
-  function _hoje(){ return new Date().toISOString().slice(0,10); }
-  function _mesAno(offset){ var d=new Date(); d.setMonth(d.getMonth()+(offset||0)); return d.toISOString().slice(0,7); }
+  // _hoje() e _mesAno() ficam definidos mais abaixo (perto de _calcHEMulti) —
+  // havia uma segunda definição idêntica/quase-idêntica aqui em cima que
+  // nunca era usada de verdade (funções são hoisted: a ÚLTIMA definição no
+  // arquivo é sempre a que vale, então esta cópia daqui era código morto,
+  // e ainda por cima calculava o mês de forma sutilmente diferente — via
+  // toISOString(), que usa UTC, enquanto a versão que de fato roda usa os
+  // componentes locais de data. Removida pra não confundir manutenção futura.
   function _diaSemana(iso){ var d=new Date(iso+'T12:00:00'); return ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'][d.getDay()]; }
   function _tempoEmpresa(admissao){
     if(!admissao)return '';
@@ -1452,6 +1457,20 @@ var HR_FUNC = (function () {
   function _salvarFuncionario(id){
     var nome=(document.getElementById('ff_nome')||{}).value||'';
     if(!nome.trim()){_toast('Informe o nome');return;}
+    // CORREÇÃO: valida "Jornada diária" antes de salvar. Esse campo existe
+    // pra REDUZIR a jornada (ex: 4h jovem aprendiz) — se cadastrado ACIMA
+    // do padrão (8h), ele passa a ser usado como jornada esperada em TODOS
+    // os dias, inclusive sábado, e zera silenciosamente a hora extra do
+    // funcionário mesmo que ele trabalhe mais que os colegas (bug real
+    // encontrado no cadastro do Fabrício — jornada alta absorvia toda
+    // hora extra). Pede confirmação explícita antes de permitir.
+    var jornadaValRaw=parseFloat((document.getElementById('ff_jornada')||{}).value);
+    if(!isNaN(jornadaValRaw)&&jornadaValRaw>8){
+      if(!confirm('Jornada diária de '+jornadaValRaw+'h é maior que o padrão (8h).\n\nIsso faz esse funcionário só ter hora extra depois de '+jornadaValRaw+'h trabalhadas por dia — inclusive aos sábados. Tem certeza que é isso mesmo?')){
+        _toast('Cadastro não salvo — ajuste a jornada diária.');
+        return;
+      }
+    }
     var funcs=getFuncionarios();
     var funcId=id||genId(); var isNew=!id;
     var foto=(document.getElementById('ff_foto_val')||{}).value||
@@ -2064,6 +2083,13 @@ var HR_FUNC = (function () {
       var jornadaEsperadaMin;
       if(f2.jornadaDiariaMin && f2.jornadaDiariaMin > 0){
         jornadaEsperadaMin = f2.jornadaDiariaMin;
+        // CORREÇÃO: alerta se a jornada cadastrada for maior que o padrão —
+        // isso zera a hora extra silenciosamente (bug encontrado no
+        // cadastro do Fabrício). Não bloqueia (pode ser um contrato real
+        // com jornada maior), só avisa pra facilitar o diagnóstico.
+        if(jornadaEsperadaMin > 480 && typeof console!=='undefined'){
+          console.warn('[HR] '+(f2.nome||funcId)+' tem jornadaDiariaMin='+jornadaEsperadaMin+'min (>8h) — hora extra só conta acima disso.');
+        }
       } else {
         // Padrão marmoraria: sábado = 4h, demais dias úteis = 8h
         jornadaEsperadaMin = (dow === 6) ? 240 : 480;

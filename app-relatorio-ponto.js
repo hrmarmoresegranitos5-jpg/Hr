@@ -108,6 +108,12 @@ var HR_RELATORIO_PONTO = (function () {
     // Jornada esperada: configurável via f.jornadaDiariaMin ou padrão 8h/dia-útil, 4h/sáb
     var jornDia = f.jornadaDiariaMin ? parseInt(f.jornadaDiariaMin) : 480;
     var jornSab = 240; // 4h sábado — padrão marmoraria
+    // CORREÇÃO: alerta (não bloqueia) se a jornada cadastrada for maior
+    // que o padrão de 8h — isso zera a hora extra silenciosamente no
+    // relatório (bug encontrado no cadastro do Fabrício).
+    if (jornDia > 480 && typeof console !== 'undefined') {
+      console.warn('[HR] ' + (f.nome || '?') + ' tem jornadaDiariaMin=' + jornDia + 'min (>8h) — relatório só conta extra acima disso.');
+    }
 
     // ── Carrega exceções globais (feriados, acordos, declarados) ──────────────
     var excPorData = {};
