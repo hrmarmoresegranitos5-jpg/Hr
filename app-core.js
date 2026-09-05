@@ -1808,6 +1808,8 @@ function dispatch(e){
   el=e.target.closest('#btnCopy');if(el){copiar();return;}
   el=e.target.closest('#btnPDF');if(el){gerarPDF();return;}
   el=e.target.closest('#btnFichaCorte');if(el){gerarFichaCorteSolPeit();return;}
+  el=e.target.closest('#btnPlanoCorte');if(el){gerarPlanoCorte();return;}
+  el=e.target.closest('#btnEncaixeChapa');if(el){abrirEncaixeChapa();return;}
   el=e.target.closest('#btnSaveAg');if(el){salvarAgenda();return;}
   el=e.target.closest('#btnNewJob');if(el){openJobModal(null);return;}
   el=e.target.closest('#btnSvJob');if(el){saveJob();return;}
@@ -6206,6 +6208,24 @@ function calcular(){
     _btnFC.style.display=_temSolPeitFC?'block':'none';
   }
 
+  // Plano de Corte: só mostra o botão se alguma peça tem sainha/frontão anexado
+  var _btnPC=document.getElementById('btnPlanoCorte');
+  if(_btnPC){
+    var _temSainhaFrontao=ambientes.some(function(a){
+      return a.pecas && a.pecas.some(function(p){return _calcCorteBrutoPeca(p);});
+    });
+    _btnPC.style.display=_temSainhaFrontao?'block':'none';
+  }
+
+  // Encaixe de Chapa: mostra sempre que houver ao menos uma peça com medida
+  var _btnEC=document.getElementById('btnEncaixeChapa');
+  if(_btnEC){
+    var _temPecaMedida=ambientes.some(function(a){
+      return a.pecas && a.pecas.some(function(p){return p.w&&p.h;});
+    });
+    _btnEC.style.display=_temPecaMedida?'block':'none';
+  }
+
   // Mostra painel de ajuste de vista
   var adjSec=document.getElementById('vistaAdjSec');
   if(adjSec){adjSec.style.display='block';}
@@ -7171,8 +7191,379 @@ function _buildFichaCorteImg(grupos){
     });
   },200);
 }
-// ── Motor de capacidade (IEO) ────────────────────────────────────────────────
-// Tabela de pesos por categoria: quanto cada tipo de serviço "pesa" na agenda,
+
+// ── PLANO DE CORTE (Sainha/Frontão cortados junto com a peça) ──────────────
+// Calcula, para cada peça com sainha/frontão em algum lado, a medida BRUTA
+// que precisa ser cortada na chapa (peça + tiras de sainha/frontão anexadas
+// + 1cm de folga por corte de serra necessário pra separar as tiras depois).
+function _calcCorteBrutoPeca(pc){
+  var LADOS=['fr','fd','esq','dir'];
+  var LADO_LBL={fr:'Frente',fd:'Fundo',esq:'Esquerda',dir:'Direita'};
+  var wAdd=0,wCortes=0,hAdd=0,hCortes=0,detalhes=[];
+  LADOS.forEach(function(lado){
+    var bd=pc.bordas&&pc.bordas[lado];
+    if(!bd||!bd.tipo||(bd.tipo!=='sainha'&&bd.tipo!=='frontao'))return;
+    var alt=bd.alt||(bd.tipo==='frontao'?10:6);
+    var subs=bd.tipo==='frontao'?getFrontaoSubs():getSainhaSubs();
+    var subLbl=(subs.find(function(s){return s.k===bd.sub;})||{l:(bd.tipo==='frontao'?'Reto':'Reta')}).l;
+    detalhes.push({lado:LADO_LBL[lado],tipo:(bd.tipo==='frontao'?'Frontão':'Sainha')+' '+subLbl,alt:alt});
+    if(lado==='fr'||lado==='fd'){hAdd+=alt;hCortes++;}
+    else{wAdd+=alt;wCortes++;}
+  });
+  if(!detalhes.length)return null;
+  return{
+    wOrig:pc.w, hOrig:pc.h,
+    wBruto:pc.w+wAdd+wCortes,
+    hBruto:pc.h+hAdd+hCortes,
+    detalhes:detalhes
+  };
+}
+
+function gerarPlanoCorte(){
+  var itens=[];
+  (typeof ambientes!=='undefined'?ambientes:[]).forEach(function(amb){
+    (amb.pecas||[]).forEach(function(pc){
+      var calc=_calcCorteBrutoPeca(pc);
+      if(calc)itens.push({amb:amb,pc:pc,calc:calc});
+    });
+  });
+  if(!itens.length){toast('Nenhuma peça com sainha/frontão neste orçamento');return;}
+  toast('⏳ Gerando plano de corte...');
+  _loadNicImgLibs(function(){
+    try{_buildPlanoCorteImg(itens);}
+    catch(e){console.error('planoCorte:',e);toast('Erro ao gerar imagem: '+e.message);}
+  });
+}
+
+function _buildPlanoCorteImg(itens){
+  var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
+  var cliEl=document.getElementById('oCliente');
+  var cliNome=cliEl?cliEl.value.trim():'';
+  var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  var itensHtml='';
+  itens.forEach(function(it,idx){
+    var pc=it.pc,calc=it.calc,amb=it.amb;
+    var detTxt=calc.detalhes.map(function(d){return d.lado+': '+d.tipo+' ('+d.alt+'cm)';}).join(' · ');
+    var separarTxt='Peça final '+calc.wOrig+'×'+calc.hOrig+'cm'
+      +calc.detalhes.map(function(d){return ' + '+d.tipo+' '+d.alt+'cm ('+d.lado+')';}).join('');
+    itensHtml+='<div style="margin:0 40px 18px;border:2px solid #222;border-radius:10px;overflow:hidden;">'
+      +'<div style="background:#222;color:#fff;padding:10px 16px;">'
+        +'<span style="font-size:14px;font-weight:900;letter-spacing:.3px;">'+(idx+1)+'. '+(pc.desc||'Peça')+'</span>'
+        +'<span style="font-size:11.5px;color:#bbb;margin-left:8px;">— '+amb.tipo+(pc.q>1?' · x'+pc.q:'')+'</span>'
+      +'</div>'
+      +'<div style="padding:12px 16px;">'
+        +'<div style="font-size:12px;color:#666;margin-bottom:4px;">Peça final: <b style="color:#222;">'+calc.wOrig+' × '+calc.hOrig+' cm</b></div>'
+        +'<div style="font-size:11.5px;color:#888;margin-bottom:10px;">'+detTxt+'</div>'
+        +'<div style="padding:10px 14px;background:#fff3cd;border:2px solid #e0a800;border-radius:8px;">'
+          +'<div style="font-size:10.5px;color:#7a5c00;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">✂️ Cortar bruto na chapa</div>'
+          +'<div style="font-size:22px;font-weight:900;color:#7a5c00;margin-top:2px;">'+calc.wBruto+' × '+calc.hBruto+' cm</div>'
+          +'<div style="font-size:10.5px;color:#7a5c00;margin-top:2px;">já com 1cm de folga por corte da serra incluído</div>'
+        +'</div>'
+        +'<div style="font-size:11px;color:#999;margin-top:8px;">Depois, na máquina: separar em → '+separarTxt+'</div>'
+      +'</div>'
+    +'</div>';
+  });
+
+  var recHtml=''
+  +'<div id="pcReceipt" style="width:700px;background:#fff;font-family:Arial,sans-serif;color:#222;">'
+    +'<div style="padding:30px 40px 16px;text-align:center;border-bottom:3px solid #333;">'
+      +'<div style="font-size:20px;font-weight:800;color:#2a2a2a;">'+(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:16px;color:#555;margin-top:6px;letter-spacing:1px;text-transform:uppercase;">✂️ Plano de Corte — Sainha/Frontão</div>'
+      +(cliNome?'<div style="font-size:13px;color:#888;margin-top:4px;">Cliente: '+cliNome+'</div>':'')
+    +'</div>'
+    +'<div style="height:18px;"></div>'
+    +itensHtml
+    +'<div style="background:#f5f5f5;padding:10px 40px;display:flex;justify-content:space-between;font-size:10px;color:#888;border-top:1px solid #ddd;">'
+      +'<span>'+(emp.nome||'')+'</span><span>Gerado em '+hoje+'</span>'
+    +'</div>'
+  +'</div>';
+
+  var fileName='PlanoCorte_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+
+  var offscreen=document.createElement('div');
+  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
+  offscreen.innerHTML=recHtml;
+  document.body.appendChild(offscreen);
+
+  var ov=document.createElement('div');
+  ov.id='pcOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
+  var barEl=document.createElement('div');
+  barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid rgba(201,168,76,.55);flex-shrink:0;flex-wrap:wrap;';
+  barEl.innerHTML=''
+    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;">✂️ Plano de Corte</span>'
+    +'<button id="pcClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
+    +'<button id="pcDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
+    +(navigator.share?'<button id="pcShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'');
+  var preview=document.createElement('div');
+  preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">⏳ Gerando imagem, aguarde...</div>';
+  ov.appendChild(barEl); ov.appendChild(preview);
+  document.body.appendChild(ov);
+  document.getElementById('pcClose').onclick=function(){ov.remove();};
+
+  setTimeout(function(){
+    html2canvas(offscreen.querySelector('#pcReceipt'),{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
+      document.body.removeChild(offscreen);
+      var imgDataUrl=canvas.toDataURL('image/jpeg',0.92);
+
+      preview.innerHTML='';
+      var img=document.createElement('img');
+      img.src=imgDataUrl;
+      img.style.cssText='max-width:700px;width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
+      preview.appendChild(img);
+
+      function enableBtn(id,label,cb){
+        var b=document.getElementById(id);if(!b)return;
+        b.innerHTML=label;b.disabled=false;
+        b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';
+        b.onclick=cb;
+      }
+      canvas.toBlob(function(imgBlob){
+        enableBtn('pcDown','⬇ Salvar foto',function(){
+          var url=URL.createObjectURL(imgBlob);
+          var a=document.createElement('a');a.href=url;a.download=fileName;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},30000);
+          toast('Foto salva: '+fileName);
+        });
+        if(navigator.share){
+          enableBtn('pcShare','↗ Compartilhar',function(){
+            var imgFile=new File([imgBlob],fileName,{type:'image/jpeg'});
+            var sd={title:'Plano de Corte',text:(emp.nome||'HR')+' — plano de corte sainha/frontão'};
+            if(navigator.canShare&&navigator.canShare({files:[imgFile]}))sd.files=[imgFile];
+            navigator.share(sd).catch(function(){});
+          });
+        }
+      },'image/jpeg',0.92);
+      toast('✓ Plano de corte pronto');
+    }).catch(function(){
+      if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar imagem.</div>';
+    });
+  },200);
+}
+
+// ── ENCAIXE DE CHAPA (Nesting) ───────────────────────────────────────────────
+// Pega automaticamente as peças do orçamento (já com corte bruto de
+// sainha/frontão quando houver) e encaixa numa chapa do tamanho informado,
+// usando um algoritmo guilhotina simples (sem rotacionar peça, pra respeitar
+// o sentido do veio da pedra). Se não couber tudo numa chapa, abre outra.
+function _coletarPecasParaEncaixe(){
+  var lista=[];
+  (typeof ambientes!=='undefined'?ambientes:[]).forEach(function(amb){
+    (amb.pecas||[]).forEach(function(pc){
+      if(!pc.w||!pc.h)return;
+      var calc=_calcCorteBrutoPeca(pc);
+      var w=calc?calc.wBruto:pc.w;
+      var h=calc?calc.hBruto:pc.h;
+      lista.push({w:w,h:h,qty:pc.q||1,label:(pc.desc||'Peça')+' — '+amb.tipo,temCombo:!!calc});
+    });
+  });
+  return lista;
+}
+
+function _nestPecas(pieces,chapaW,chapaH){
+  var rects=[];
+  pieces.forEach(function(p){
+    for(var i=0;i<(p.qty||1);i++)rects.push({w:p.w,h:p.h,label:p.label,temCombo:p.temCombo});
+  });
+  rects.sort(function(a,b){return (b.h-a.h)||(b.w-a.w);});
+
+  function newSlab(){return{free:[{x:0,y:0,w:chapaW,h:chapaH}],placed:[]};}
+  function tryPlace(slab,r){
+    var bestIdx=-1,bestWaste=Infinity;
+    for(var i=0;i<slab.free.length;i++){
+      var f=slab.free[i];
+      if(r.w<=f.w+0.001&&r.h<=f.h+0.001){
+        var waste=(f.w*f.h)-(r.w*r.h);
+        if(waste<bestWaste){bestWaste=waste;bestIdx=i;}
+      }
+    }
+    if(bestIdx<0)return false;
+    var f=slab.free[bestIdx];
+    slab.placed.push({x:f.x,y:f.y,w:r.w,h:r.h,label:r.label,temCombo:r.temCombo});
+    slab.free.splice(bestIdx,1);
+    if(f.w-r.w>0.01)slab.free.push({x:f.x+r.w,y:f.y,w:f.w-r.w,h:r.h});
+    if(f.h-r.h>0.01)slab.free.push({x:f.x,y:f.y+r.h,w:f.w,h:f.h-r.h});
+    return true;
+  }
+
+  var slabs=[newSlab()],tooBig=[];
+  rects.forEach(function(r){
+    if(r.w>chapaW+0.01||r.h>chapaH+0.01){tooBig.push(r);return;}
+    for(var s=0;s<slabs.length;s++){if(tryPlace(slabs[s],r))return;}
+    var ns=newSlab();
+    tryPlace(ns,r);
+    slabs.push(ns);
+  });
+
+  return{
+    chapaW:chapaW,chapaH:chapaH,tooBig:tooBig,
+    slabs:slabs.filter(function(s){return s.placed.length;}).map(function(slab){
+      var used=slab.placed.reduce(function(s,p){return s+p.w*p.h;},0);
+      var total=chapaW*chapaH;
+      return{placed:slab.placed,usedArea:used,totalArea:total,wastePct:Math.round((1-used/total)*100)};
+    })
+  };
+}
+
+function abrirEncaixeChapa(){
+  var lista=_coletarPecasParaEncaixe();
+  if(!lista.length){toast('Nenhuma peça com medida neste orçamento');return;}
+  var ov=document.createElement('div');
+  ov.id='ecOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Outfit,sans-serif;';
+  ov.innerHTML=''
+    +'<div style="background:#161616;border:1px solid rgba(201,168,76,.35);border-radius:14px;padding:20px;max-width:340px;width:100%;">'
+      +'<div style="font-size:.85rem;font-weight:700;color:#C9A84C;margin-bottom:4px;">🪨 Encaixe de Chapa</div>'
+      +'<div style="font-size:.68rem;color:#999;margin-bottom:14px;">Digite o tamanho da chapa bruta que vai usar (peças já incluem corte bruto de sainha/frontão quando houver)</div>'
+      +'<label style="font-size:.62rem;color:#aaa;text-transform:uppercase;letter-spacing:.5px;">Comprimento (cm)</label>'
+      +'<input id="ecChapaW" type="number" placeholder="Ex: 280" style="width:100%;margin:4px 0 10px;padding:10px;border-radius:9px;border:1px solid rgba(255,255,255,.15);background:#0f0f0f;color:#fff;font-size:.85rem;box-sizing:border-box;">'
+      +'<label style="font-size:.62rem;color:#aaa;text-transform:uppercase;letter-spacing:.5px;">Largura (cm)</label>'
+      +'<input id="ecChapaH" type="number" placeholder="Ex: 180" style="width:100%;margin:4px 0 16px;padding:10px;border-radius:9px;border:1px solid rgba(255,255,255,.15);background:#0f0f0f;color:#fff;font-size:.85rem;box-sizing:border-box;">'
+      +'<div style="display:flex;gap:8px;">'
+        +'<button id="ecCancel" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,.15);color:#999;padding:10px;border-radius:9px;font-size:.75rem;cursor:pointer;font-family:Outfit,sans-serif;">Cancelar</button>'
+        +'<button id="ecGo" style="flex:1;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.5);color:#C9A84C;padding:10px;border-radius:9px;font-size:.75rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">Encaixar →</button>'
+      +'</div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  document.getElementById('ecCancel').onclick=function(){ov.remove();};
+  document.getElementById('ecGo').onclick=function(){
+    var cw=+document.getElementById('ecChapaW').value;
+    var ch=+document.getElementById('ecChapaH').value;
+    if(!cw||!ch){toast('Preencha os dois tamanhos da chapa');return;}
+    ov.remove();
+    toast('⏳ Calculando encaixe...');
+    var res=_nestPecas(lista,cw,ch);
+    _loadNicImgLibs(function(){
+      try{_buildEncaixeImg(res);}
+      catch(e){console.error('encaixe:',e);toast('Erro ao gerar imagem: '+e.message);}
+    });
+  };
+}
+
+function _buildSlabDiagramHtml(slab,chapaW,chapaH,idx){
+  var maxW=620,maxH=440;
+  var scale=Math.min(maxW/chapaW,maxH/chapaH);
+  var dispW=Math.round(chapaW*scale),dispH=Math.round(chapaH*scale);
+  var colors=['#cfe8d8','#f7e6b8','#f3c9c9','#c9d9f3','#e3cdf0','#f0dcc0','#c9f0e6','#f0c9df','#dbe8c9','#e8d0c9'];
+  var piecesHtml='';
+  slab.placed.forEach(function(p,i){
+    var left=Math.round(p.x*scale),top=Math.round(p.y*scale),w=Math.round(p.w*scale),h=Math.round(p.h*scale);
+    var col=colors[i%colors.length];
+    piecesHtml+='<div style="position:absolute;left:'+left+'px;top:'+top+'px;width:'+w+'px;height:'+h+'px;background:'+col+';border:1px solid #333;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:9px;line-height:1.25;color:#222;text-align:center;padding:2px;overflow:hidden;">'
+      +'<span><b>'+p.w+'×'+p.h+'</b><br>'+(p.label||'').substring(0,20)+(p.temCombo?' 🔗':'')+'</span></div>';
+  });
+  return '<div style="margin:0 40px 22px;">'
+    +'<div style="font-size:13px;font-weight:800;color:#222;margin-bottom:6px;">Chapa '+(idx+1)+' — '+chapaW+'×'+chapaH+'cm <span style="color:#888;font-weight:400;">· desperdício '+slab.wastePct+'%</span></div>'
+    +'<div style="position:relative;width:'+dispW+'px;height:'+dispH+'px;background:#f0f0f0;border:2px solid #222;">'+piecesHtml+'</div>'
+  +'</div>';
+}
+
+function _buildEncaixeImg(res){
+  var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
+  var cliEl=document.getElementById('oCliente');
+  var cliNome=cliEl?cliEl.value.trim():'';
+  var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+
+  var totalUsado=res.slabs.reduce(function(s,sl){return s+sl.usedArea;},0);
+  var totalChapa=res.slabs.length*res.chapaW*res.chapaH;
+  var wasteGeral=totalChapa>0?Math.round((1-totalUsado/totalChapa)*100):0;
+
+  var slabsHtml=res.slabs.map(function(slab,i){return _buildSlabDiagramHtml(slab,res.chapaW,res.chapaH,i);}).join('');
+
+  var tooBigHtml='';
+  if(res.tooBig.length){
+    tooBigHtml='<div style="margin:0 40px 18px;padding:10px 14px;background:#fdecea;border:2px solid #d9534f;border-radius:8px;">'
+      +'<div style="font-size:11px;color:#a02622;font-weight:800;text-transform:uppercase;">⚠ Não cabe na chapa '+res.chapaW+'×'+res.chapaH+'cm</div>'
+      +res.tooBig.map(function(r){return '<div style="font-size:12px;color:#a02622;margin-top:4px;">'+r.w+'×'+r.h+'cm — '+r.label+'</div>';}).join('')
+    +'</div>';
+  }
+
+  var recHtml=''
+  +'<div id="ecReceipt" style="width:700px;background:#fff;font-family:Arial,sans-serif;color:#222;">'
+    +'<div style="padding:30px 40px 16px;text-align:center;border-bottom:3px solid #333;">'
+      +'<div style="font-size:20px;font-weight:800;color:#2a2a2a;">'+(emp.nome||'HR Mármores e Granitos')+'</div>'
+      +'<div style="font-size:16px;color:#555;margin-top:6px;letter-spacing:1px;text-transform:uppercase;">🪨 Encaixe de Chapa</div>'
+      +(cliNome?'<div style="font-size:13px;color:#888;margin-top:4px;">Cliente: '+cliNome+'</div>':'')
+      +'<div style="font-size:12px;color:#888;margin-top:6px;">'+res.slabs.length+' chapa(s) de '+res.chapaW+'×'+res.chapaH+'cm · desperdício médio '+wasteGeral+'%</div>'
+    +'</div>'
+    +'<div style="height:18px;"></div>'
+    +tooBigHtml
+    +slabsHtml
+    +'<div style="background:#f5f5f5;padding:10px 40px;display:flex;justify-content:space-between;font-size:10px;color:#888;border-top:1px solid #ddd;">'
+      +'<span>'+(emp.nome||'')+'</span><span>Gerado em '+hoje+'</span>'
+    +'</div>'
+  +'</div>';
+
+  var fileName='EncaixeChapa_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+
+  var offscreen=document.createElement('div');
+  offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
+  offscreen.innerHTML=recHtml;
+  document.body.appendChild(offscreen);
+
+  var ov=document.createElement('div');
+  ov.id='ecImgOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:9999;display:flex;flex-direction:column;font-family:Outfit,sans-serif;';
+  var barEl=document.createElement('div');
+  barEl.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid rgba(201,168,76,.55);flex-shrink:0;flex-wrap:wrap;';
+  barEl.innerHTML=''
+    +'<span style="flex:1;font-size:.75rem;color:#C9A84C;font-weight:700;">🪨 Encaixe de Chapa</span>'
+    +'<button id="ecClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'
+    +'<button id="ecDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ Gerando...</button>'
+    +(navigator.share?'<button id="ecShare" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">↗ Compartilhar</button>':'');
+  var preview=document.createElement('div');
+  preview.style.cssText='flex:1;overflow-y:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;';
+  preview.innerHTML='<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;">⏳ Gerando imagem, aguarde...</div>';
+  ov.appendChild(barEl); ov.appendChild(preview);
+  document.body.appendChild(ov);
+  document.getElementById('ecClose').onclick=function(){ov.remove();};
+
+  setTimeout(function(){
+    html2canvas(offscreen.querySelector('#ecReceipt'),{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false,width:700,windowWidth:700}).then(function(canvas){
+      document.body.removeChild(offscreen);
+      var imgDataUrl=canvas.toDataURL('image/jpeg',0.92);
+
+      preview.innerHTML='';
+      var img=document.createElement('img');
+      img.src=imgDataUrl;
+      img.style.cssText='max-width:700px;width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);';
+      preview.appendChild(img);
+
+      function enableBtn(id,label,cb){
+        var b=document.getElementById(id);if(!b)return;
+        b.innerHTML=label;b.disabled=false;
+        b.style.color='#C9A84C';b.style.borderColor='rgba(201,168,76,.55)';b.style.background='#1e1800';
+        b.onclick=cb;
+      }
+      canvas.toBlob(function(imgBlob){
+        enableBtn('ecDown','⬇ Salvar foto',function(){
+          var url=URL.createObjectURL(imgBlob);
+          var a=document.createElement('a');a.href=url;a.download=fileName;
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},30000);
+          toast('Foto salva: '+fileName);
+        });
+        if(navigator.share){
+          enableBtn('ecShare','↗ Compartilhar',function(){
+            var imgFile=new File([imgBlob],fileName,{type:'image/jpeg'});
+            var sd={title:'Encaixe de Chapa',text:(emp.nome||'HR')+' — encaixe de chapa'};
+            if(navigator.canShare&&navigator.canShare({files:[imgFile]}))sd.files=[imgFile];
+            navigator.share(sd).catch(function(){});
+          });
+        }
+      },'image/jpeg',0.92);
+      toast('✓ Encaixe pronto');
+    }).catch(function(){
+      if(document.body.contains(offscreen))document.body.removeChild(offscreen);
+      preview.innerHTML='<div style="text-align:center;color:#c94444;padding:40px 20px;font-family:Outfit,sans-serif;font-size:.82rem;">Erro ao gerar imagem.</div>';
+    });
+  },200);
+}
+
 // dividido entre oficina/campo/geral. Usado por estimaIEO() + calcSemana()
 // para detectar conflito de agenda antes de confirmar uma data.
 var _IEO_CAT = {
