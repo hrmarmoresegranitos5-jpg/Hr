@@ -1966,17 +1966,6 @@ SV_DEFS['🏊 Borda Piscina']=[
 ];
 
 SV_DEFS.Tumulo=[
-  {g:'🪨 Peças de Pedra (m²)',its:[
-    {k:'tum_tampa',  l:'Tampa Superior',           u:'sf'},
-    {k:'tum_lat',    l:'Laterais (×2)',            u:'sf'},
-    {k:'tum_front',  l:'Frente / Frontal',         u:'sf'},
-    {k:'tum_base',   l:'Base / Plataforma',        u:'sf'},
-    {k:'tum_det',    l:'Detalhe Superior',         u:'sf'},
-    {k:'tum_sainha', l:'Sainha Frontal',           u:'sf'},
-    {k:'tum_gav1',   l:'Frente de Gaveta — 1ª',   u:'sf'},
-    {k:'tum_gav2',   l:'Frente de Gaveta — 2ª',   u:'sf'},
-    {k:'tum_gav3',   l:'Frente de Gaveta — 3ª',   u:'sf'}
-  ]},
   {g:'📐 Acabamentos (ml)',its:[
     {k:'tum_mol',    l:'Moldura decorativa',       u:'ml'},
     {k:'tum_ping',   l:'Pingadeira',               u:'ml'},
@@ -1994,23 +1983,30 @@ SV_DEFS.Tumulo=[
     {k:'tum_mont',   l:'Montagem / Instalação',    u:'un', fx:1},
     {k:'tum_montc',  l:'Instalação Complexa',      u:'un', fx:1}
   ]},
-  {g:'🧱 Construção & Materiais',its:[
-    {k:'tum_fund',   l:'Fundação',                 u:'livre'},
-    {k:'tum_lev',    l:'Levantamento / Alvenaria', u:'livre'},
-    {k:'tum_reb',    l:'Reboco / Chapisco',        u:'livre'},
-    {k:'tum_conc',   l:'Concreto Armado',          u:'livre'},
-    {k:'tum_cpiso',  l:'Contra-piso',              u:'livre'},
-    {k:'tum_acob',   l:'Acabamento Final Obra',    u:'livre'},
-    {k:'tum_cim',    l:'Cimento / Areia',          u:'livre'},
-    {k:'tum_cola',   l:'Cola p/ Granito',          u:'livre'},
-    {k:'tum_rej',    l:'Rejunte',                  u:'livre'},
-    {k:'tum_ferro',  l:'Ferro / Tela',             u:'livre'},
-    {k:'tum_tijolo', l:'Tijolos / Blocos',         u:'livre'},
-    {k:'tum_frete',  l:'Frete / Entrega Material', u:'livre'}
+  {g:'👷 Mão de Obra Extra (interno)',its:[
+    {k:'tum_pedreiro',    l:'Mão de obra Pedreiro',                       u:'livre', interno:true},
+    {k:'tum_ajudante',    l:'Mão de obra Ajudante',                       u:'livre', interno:true},
+    {k:'tum_marmorista',  l:'Mão de obra Marmorista',                     u:'livre', interno:true},
+    {k:'tum_insumos',     l:'Insumos / Argamassa',                        u:'livre', interno:true},
+    {k:'tum_extraop',     l:'Extra (hora extra, almoço, dia de obra)',    u:'livre', interno:true}
   ]},
-  {g:'Deslocamento',its:[
-    {k:'desl_cid',   l:'Na cidade',                u:'livre'},
-    {k:'desl_for',   l:'Fora da cidade',           u:'km', fx:0}
+  {g:'🧱 Construção & Materiais (interno)',its:[
+    {k:'tum_fund',   l:'Fundação',                 u:'livre', interno:true},
+    {k:'tum_lev',    l:'Levantamento / Alvenaria', u:'livre', interno:true},
+    {k:'tum_reb',    l:'Reboco / Chapisco',        u:'livre', interno:true},
+    {k:'tum_conc',   l:'Concreto Armado',          u:'livre', interno:true},
+    {k:'tum_cpiso',  l:'Contra-piso',              u:'livre', interno:true},
+    {k:'tum_acob',   l:'Acabamento Final Obra',    u:'livre', interno:true},
+    {k:'tum_cim',    l:'Cimento / Areia',          u:'livre', interno:true},
+    {k:'tum_cola',   l:'Cola p/ Granito',          u:'livre', interno:true},
+    {k:'tum_rej',    l:'Rejunte',                  u:'livre', interno:true},
+    {k:'tum_ferro',  l:'Ferro / Tela',             u:'livre', interno:true},
+    {k:'tum_tijolo', l:'Tijolos / Blocos',         u:'livre', interno:true},
+    {k:'tum_frete',  l:'Frete / Entrega Material', u:'livre', interno:true}
+  ]},
+  {g:'Deslocamento (interno)',its:[
+    {k:'desl_cid',   l:'Na cidade',                u:'livre', interno:true},
+    {k:'desl_for',   l:'Fora da cidade',           u:'km', fx:0, interno:true}
   ]}
 ];
 SV_DEFS['Túmulo'] = SV_DEFS.Tumulo;
@@ -4603,13 +4599,12 @@ function renderAmbientes(){
       h+='<div id="nicDyn'+amb.id+'">'+buildNichoDynamicHTML(amb)+'</div>';
       h+='</div>';
     }
-    // ── TÚMULO: calculadora v14 embutida inline ──
-    if(amb.tipo==='Túmulo'){
-      // IA Léo — chat conversacional para orçamento de túmulos
-      h+='<div id="tumIA_'+amb.id+'" class="tum-ia-host" style="margin:8px 0;"></div>';
-      h+='</div></div>';
-    } else {
-    // STEP 2: Selecao de Pedra — apenas para ambientes não-Túmulo
+    // ── TÚMULO: agora é um ambiente normal — medida + acabamento + pedra,
+    // igual aos demais tipos. Custos manuais de obra ficam na lista de
+    // Serviços (grupos "Mão de Obra Extra", "Construção & Materiais" e
+    // "Deslocamento" em SV_DEFS.Tumulo), marcados como internos (não saem no PDF do cliente).
+    {
+    // STEP 2: Selecao de Pedra
     h+='<div style="margin:10px 0 12px;">';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;">';
     h+='<span style="font-size:.52rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;">② Pedra</span>';
@@ -4675,7 +4670,7 @@ function renderAmbientes(){
       var rm=amb.pecas.length>1?'<button style="background:none;border:none;color:var(--red);font-size:.7rem;cursor:pointer;padding:2px 5px;font-family:Outfit,sans-serif;" onclick="rmPecaAmb('+amb.id+','+pc.id+')">&#10005;</button>':'';
       h+='<div class="peca">';
       h+='<div class="ptop"><span class="pnum">Peça '+(pi+1)+'</span>'+rm+'</div>';
-      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':amb.tipo==='Rodapé de Armário'?'Ex: Armário cozinha, Balcão banheiro':amb.tipo==='🌴 Área Gourmet'?'Ex: Pé Estrutural, Tampo da Ilha, Base, Fundo':amb.tipo==='Escada'?'Ex: Base, Espelho, Rodapé, Patamar':amb.tipo==='Plaquinha'?'Ex: Plaquinha':'Ex: Bancada';
+      var _phDesc=amb.tipo==='Soleira'?'Ex: Sala, Quarto 1':amb.tipo==='Peitoril'?'Ex: Janela sala, Janela quarto':amb.tipo==='Rodapé de Armário'?'Ex: Armário cozinha, Balcão banheiro':amb.tipo==='🌴 Área Gourmet'?'Ex: Pé Estrutural, Tampo da Ilha, Base, Fundo':amb.tipo==='Escada'?'Ex: Base, Espelho, Rodapé, Patamar':amb.tipo==='Plaquinha'?'Ex: Plaquinha':amb.tipo==='Túmulo'?'Ex: Tampa, Lateral Dir., Frente, Lápide':'Ex: Bancada';
       h+='<div class="f"><label>Descrição</label><input id="pd-'+pc.id+'" placeholder="'+_phDesc+'" type="text" style="background:var(--s3);" value="'+escH(pc.desc||'')+'" oninput="updPcAmb('+amb.id+','+pc.id+',\'desc\',this.value)"></div>';
       var _phW=amb.tipo==='Soleira'?'Ex: 90 (vão)':amb.tipo==='Peitoril'?'Ex: 120 (janela)':amb.tipo==='Rodapé de Armário'?'Ex: 60':amb.tipo==='Plaquinha'?'Ex: 30':'300';
       var _phH=amb.tipo==='Soleira'?'Ex: 15':amb.tipo==='Peitoril'?'Ex: 20':amb.tipo==='Rodapé de Armário'?'Ex: 15':amb.tipo==='Plaquinha'?'Ex: 40':'60';
@@ -4818,15 +4813,6 @@ function renderAmbientes(){
     } // fim else (não-Túmulo)
   });
   container.innerHTML=h;
-  // Montar IA Léo para cada ambiente Túmulo
-  ambientes.forEach(function(a){
-    if(a.tipo==='Túmulo'){
-      var _host = document.getElementById('tumIA_'+a.id);
-      if(_host && typeof tumIARender==='function'){
-        _host.innerHTML = tumIARender(a.id);
-      }
-    }
-  });
   }catch(e2){console.error('renderAmbientes:',e2);toast('Erro: '+e2.message);}
 }
 // ─── BORDA PISCINA: cálculo automático de ML por lados ───────────
@@ -5003,7 +4989,7 @@ function buildSVHtml(amb){
       var isSlim=it.k==='s_slim';
       var hint=isSlim?'R$ '+pr+'/ml (só polimento, sem pedra extra)':it.u==='sf'?'R$ '+pr+'/ml + m² pedra':it.u==='ml'?'R$ '+pr+'/ml':it.u==='ml_auto'?'R$ '+pr+'/ml · auto':it.u==='km'?'R$ '+pr+'/km':it.u==='cuba'?'Selecionar modelo':it.u==='livre'?'Valor livre':'R$ '+pr;
       h+='<div class="svrow'+(isOn?' on':'')+'" data-sv="'+it.k+'" data-amb="'+amb.id+'">';
-      h+='<div class="svchk">✓</div><div class="svlbl">'+it.l+'<span class="svph">'+hint+'</span></div></div>';
+      h+='<div class="svchk">✓</div><div class="svlbl">'+it.l+(it.interno?' <span style="font-size:.6rem;color:var(--t4);font-weight:400;">🔒 interno — não aparece no PDF do cliente</span>':'')+'<span class="svph">'+hint+'</span></div></div>';
       if(it.u==='ml_auto'&&isOn){
         var custo_auto=autoMlQty>0&&pr>0?' · R$ '+fm(autoMlQty*pr):'';
         h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'" style="pointer-events:none;opacity:.85;">';
@@ -5035,8 +5021,39 @@ function buildSVHtml(amb){
         h+='<div class="svxtr on" id="sq-'+amb.id+'-'+it.k+'"><input type="number" id="si-'+amb.id+'-'+it.k+'" placeholder="valor" value="'+(sv3.qty||'')+'" oninput="updSVAmb('+amb.id+',\''+it.k+'\',\'qty\',+this.value)" onclick="event.stopPropagation()"><span class="svunit">reais</span></div>';
       }
     });
+    // Subtotal do grupo — só para grupos 100% internos (não aparecem no PDF do cliente)
+    if(grp.its.length && grp.its.every(function(it){return it.interno;})){
+      var _grpSub=grp.its.reduce(function(s,it){
+        var svd=sv[it.k];
+        if(!svd)return s;
+        if(it.u==='livre')return s+(svd.qty||0);
+        if(it.fx===1)return s+(getPr(it.k)||0);
+        return s+((svd.qty||1)*(getPr(it.k)||0));
+      },0);
+      if(_grpSub>0){
+        h+='<div style="display:flex;justify-content:space-between;padding:7px 12px;border-top:1px dashed var(--bd2);margin-top:2px;">';
+        h+='<span style="font-size:.65rem;color:var(--t4);">Subtotal interno</span>';
+        h+='<span style="font-size:.7rem;color:var(--gold2);font-weight:700;">R$ '+fm(_grpSub)+'</span></div>';
+      }
+    }
     h+='</div>';
   });
+
+  // Total combinado dos custos internos do Túmulo (Mão de Obra Extra + Construção & Materiais + Deslocamento)
+  if(amb.tipo==='Túmulo'){
+    var _tumIntTotal=0;
+    g.forEach(function(grp){grp.its.forEach(function(it){
+      if(!it.interno)return;
+      var svd=sv[it.k];
+      if(!svd)return;
+      if(it.u==='livre')_tumIntTotal+=(svd.qty||0);
+      else if(it.fx===1)_tumIntTotal+=(getPr(it.k)||0);
+      else _tumIntTotal+=((svd.qty||1)*(getPr(it.k)||0));
+    });});
+    h+='<div id="tumIntBox-'+amb.id+'" style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:10px 14px;margin:4px 0 10px;display:'+(_tumIntTotal>0?'flex':'none')+';justify-content:space-between;align-items:center;">';
+    h+='<span style="font-size:.62rem;letter-spacing:1px;text-transform:uppercase;color:var(--gold);font-weight:700;">🔒 Total custos internos</span>';
+    h+='<span id="tumIntTot-'+amb.id+'" style="font-size:.85rem;font-weight:800;color:var(--gold2);">R$ '+fm(_tumIntTotal)+'</span></div>';
+  }
 
   // ── ACESSÓRIOS DO CATÁLOGO ──
   var acList=CFG.ac||[];
@@ -5086,6 +5103,27 @@ function updSVAmb(ambId,k,prop,val){
   var amb=ambientes.find(function(a){return a.id==ambId;});
   if(!amb||!amb.svState||!amb.svState[k])return;
   amb.svState[k][prop]=val;
+  if(amb.tipo==='Túmulo')_updTumIntTotal(ambId);
+}
+
+function _updTumIntTotal(ambId){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
+  var sv=amb.svState||{};
+  var total=0;
+  g.forEach(function(grp){grp.its.forEach(function(it){
+    if(!it.interno)return;
+    var svd=sv[it.k];
+    if(!svd)return;
+    if(it.u==='livre')total+=(svd.qty||0);
+    else if(it.fx===1)total+=(getPr(it.k)||0);
+    else total+=((svd.qty||1)*(getPr(it.k)||0));
+  });});
+  var box=document.getElementById('tumIntBox-'+ambId);
+  var el=document.getElementById('tumIntTot-'+ambId);
+  if(el)el.textContent='R$ '+fm(total);
+  if(box)box.style.display=total>0?'flex':'none';
 }
 
 function togAcbAuto(ambId,k){
@@ -5481,39 +5519,14 @@ function novoOrcamento() {
 }
 
 function calcular(){
-  // Túmulo agora é orçado via chat do Léo (app-tum-ia.js). Buscamos o
-  // resultado direto da sessão do Léo em vez do motor clássico antigo,
-  // que não é mais montado na tela (evita ambiente Túmulo virar R$0
-  // quando combinado com outros ambientes no mesmo orçamento).
-  var tumIncompleto = false;
+  // Túmulo agora é um ambiente normal: medida + acabamento + pedra,
+  // validado e precificado igual a qualquer outro tipo de ambiente abaixo.
   ambientes.forEach(function(a){
     if(a.tipo==='Túmulo'){
       a.tumResult  = null;
       a.tumPendOrc = null;
-
-      if (typeof _tumIABuildQ !== 'function') return; // módulo Léo não carregado
-
-      var q = _tumIABuildQ(a.id);
-      if (q && q.tumPendOrc && q.tumPendOrc.r && q.tumPendOrc.r.valor_vista > 0) {
-        a.tumResult  = q.tumPendOrc.r;
-        a.tumPendOrc = q.tumPendOrc;
-        // ── SYNC: pedra escolhida no Léo → amb.selMat (mesmo catálogo dos outros ambientes) ──
-        var _stones = (typeof CFG !== 'undefined' && CFG.stones) ? CFG.stones : [];
-        var _matSel = _stones.find(function(s){ return s.nm === a.tumResult.mat.nm; });
-        if (_matSel) {
-          a.selMat = _matSel.id;
-          selMat   = _matSel.id;
-          try { localStorage.setItem('hr_last_mat', _matSel.id); } catch(e){}
-        }
-      } else {
-        tumIncompleto = true;
-      }
     }
   });
-  if (tumIncompleto) {
-    toast('⚠ Conclua o orçamento do Túmulo no chat do Léo antes de calcular');
-    return;
-  }
   var cli=document.getElementById('oCliente').value.trim()||'Cliente';
   var tel=document.getElementById('oTel').value.trim()||'';
   var cidade=document.getElementById('oCidade').value.trim()||'';
@@ -5527,7 +5540,6 @@ function calcular(){
 
   // ── Validação de medidas: C ou L zerados geram resultado silenciosamente errado ──
   var ambSemMedida = ambientes.find(function(a) {
-    if (a.tipo === 'Túmulo') return false;
     var temPecaPreenchida = (a.pecas || []).some(function(p) { return p.w > 0 || p.h > 0; });
     if (!temPecaPreenchida) return false; // ambiente só de serviços está OK
     return (a.pecas || []).some(function(p) {
@@ -5550,7 +5562,6 @@ function calcular(){
   }
   // Only require stone selection if the ambiente has stone pieces (w×h defined)
   var missingMat=ambientes.find(function(a){
-    if(a.tipo==='Túmulo') return false;
     var hasPecas=a.pecas&&a.pecas.some(function(p){return p.w&&p.h;});
     if(!hasPecas) return false; // service-only: no stone needed
     return !a.selMat || !CFG.stones.find(function(s){return s.id===a.selMat;});
@@ -5647,10 +5658,10 @@ function calcular(){
         if(amb.selCuba){var _cQtd2=amb.selCuba.qtd||1;var _cTot2=(amb.selCuba.total||0)*_cQtd2;acT+=_cTot2;var _cLbl='Cuba: '+(amb.selCuba.nm||'Cuba').trim()+(amb.selCuba.instTipoLabel?' ('+amb.selCuba.instTipoLabel+')':'')+(_cQtd2>1?' ×'+_cQtd2:'');acL.push({l:_cLbl,v:_cTot2});acN.push(_cLbl);}
         return;
       }
-      if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});acN.push(it.l);}return;}
-      if(it.fx===1){var p2=getPr(it.k);if(p2>0){acT+=p2;acL.push({l:it.l,v:p2});acN.push(it.l);}return;}
+      if(it.u==='livre'){var v=svd.qty||0;if(v>0){acT+=v;acL.push({l:it.l,v:v});if(!it.interno)acN.push(it.l);}return;}
+      if(it.fx===1){var p2=getPr(it.k);if(p2>0){acT+=p2;acL.push({l:it.l,v:p2});if(!it.interno)acN.push(it.l);}return;}
       var qty=svd.qty||1;
-      var vv=getPr(it.k)*qty;acT+=vv;var lblQty=it.l+(qty>1?' ('+qty+it.u+')':'');acL.push({l:lblQty,v:vv});acN.push(lblQty);
+      var vv=getPr(it.k)*qty;acT+=vv;var lblQty=it.l+(qty>1?' ('+qty+it.u+')':'');acL.push({l:lblQty,v:vv});if(!it.interno)acN.push(lblQty);
     });});
     // Bordas por lado (_fb): calcular deduplificado
     if(typeof _ambHasBordas==='function'&&_ambHasBordas(amb)){
@@ -5831,7 +5842,7 @@ function calcular(){
     }
     totalM2+=m2;totalAcT+=acT;totalPedT+=pedTamb;
     // Item 10: acumular m² de compra por pedra (para estimativa de chapas)
-    if(amb.tipo!=='Túmulo' && ambMat2 && ambMat2.id){
+    if(ambMat2 && ambMat2.id){
       _m2CompraPorPedra[ambMat2.id]=(_m2CompraPorPedra[ambMat2.id]||0)+_m2Compra;
     }
     if(tumVistaOverride>0) window._tumVistaOverride=(window._tumVistaOverride||0)+tumVistaOverride-pedTamb;
@@ -5951,7 +5962,7 @@ function calcular(){
   pi+='<div style="padding:12px 16px;border-bottom:1px solid var(--bd);">';
   pi+='<div style="font-size:.55rem;letter-spacing:2px;text-transform:uppercase;color:var(--t4);margin-bottom:6px;">Material</div>';
   // Se todos os ambientes usam a mesma pedra, mostra uma linha; senão mostra por ambiente
-  var ambsNaoTumulo=ambientes.filter(function(a){return a.tipo!=='Túmulo';});
+  var ambsNaoTumulo=ambientes.filter(function(a){return true;}); // Túmulo agora conta como ambiente normal aqui
   var pedrasUnicas=[];
   ambsNaoTumulo.forEach(function(a){if(a.selMat&&pedrasUnicas.indexOf(a.selMat)===-1)pedrasUnicas.push(a.selMat);});
   if(pedrasUnicas.length<=1){
@@ -6070,7 +6081,6 @@ function calcular(){
   var mobPainel=totalAcT+tumMobPainel;
   // ── Custo REAL da pedra (para ambientes não-Túmulo) ──
   var totalCustoPedraReal=ambientes.reduce(function(s,a){
-    if(a.tipo==='Túmulo') return s; // Túmulo tratado separado abaixo
     var ambMat=CFG.stones.find(function(x){return x.id===a.selMat;})||mat;
     var _def=(typeof DEF_STONES!=='undefined')?DEF_STONES.find(function(x){return x.id===ambMat.id;}):null;
     var custoUnit=ambMat.custo||(_def?_def.custo:0)||0;
@@ -6519,8 +6529,8 @@ function gerarPDF(){
   // ── Detecta múltiplos materiais (usa ambientes ao vivo, não só o snapshot) ──
   // Prioriza ambientes[] pois reflete o estado atual da UI
   var _liveAmbs = (typeof ambientes !== 'undefined' && ambientes.length)
-    ? ambientes.filter(function(a){return a.tipo!=='Túmulo' && a.selMat;})
-    : (q.ambSnap||[]).filter(function(a){return a.tipo!=='Túmulo' && a.selMat;});
+    ? ambientes.filter(function(a){return a.selMat;})
+    : (q.ambSnap||[]).filter(function(a){return a.selMat;});
   var _snaps = _liveAmbs; // alias para _m2PosMat
   var _matIds=[];
   _liveAmbs.forEach(function(a){if(_matIds.indexOf(a.selMat)===-1)_matIds.push(a.selMat);});
@@ -8203,7 +8213,7 @@ function renderDashboard() {
     h += sec('Últimos Orçamentos', '📄');
     ultOrc.forEach(function(q) {
       h += '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
-        + '<div style="width:40px;height:40px;border-radius:10px;background:var(--gdim);display:grid;place-items:center;font-size:1.1rem;flex-shrink:0;">' + (q.tum ? '⚱️' : '📐') + '</div>'
+        + '<div style="width:40px;height:40px;border-radius:10px;background:var(--gdim);display:grid;place-items:center;font-size:1.1rem;flex-shrink:0;">' + ((q.tum || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}))) ? '⚱️' : '📐') + '</div>'
         + '<div style="flex:1;min-width:0;">'
         + '<div style="font-size:.82rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (q.cli || 'Cliente') + '</div>'
         + '<div style="font-size:.66rem;color:var(--t3);">' + (q.tipo || '') + (q.mat ? ' · ' + q.mat : '') + '</div>'
@@ -10803,8 +10813,10 @@ function orcEditar(id, e){
   var q = DB.q.find(function(x){return x.id==id;});
   if(!q) return;
 
-  // Detectar se é túmulo: flag q.tum OU ambSnap com tipo Túmulo
-  var isTumulo = q.tum || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
+  // Detectar orçamento ANTIGO do motor automático de túmulo (tem tumPendOrc salvo).
+  // Orçamentos de Túmulo feitos como ambiente normal (medida+acabamento+pedra)
+  // NÃO caem aqui — seguem o fluxo padrão de orcRefazer abaixo.
+  var isTumulo = q.tum || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo' && s.tumPendOrc;}));
 
   if(isTumulo){
     // tumPendOrc pode estar na raiz (q.tumPendOrc) ou dentro do ambSnap
@@ -10986,9 +10998,9 @@ function orcPDF(id, e) {
   e.stopPropagation();
   var q = DB.q.find(function(x) { return x.id == id; });
   if (!q) return;
-  // Detectar orçamento de túmulo: flag q.tum OU ambSnap com tipo Túmulo
+  // Só usa o PDF técnico antigo se o orçamento salvo tiver dados do motor automático (tumPendOrc).
   var isTumulo = q.tum
-    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo';}));
+    || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo' && s.tumPendOrc;}));
   if (isTumulo) { gerarPDFTumulo(q); return; }
   pendQ = q;
   gerarPDF();
