@@ -54,6 +54,41 @@ function renderOrc() {
   }
 
   filterOrc();
+  _renderRascunhoBanner();
+}
+
+// Mostra na tela de Histórico um aviso de rascunho em andamento (orçamento
+// começado mas ainda não calculado/salvo), com opção de continuar ou descartar.
+function _renderRascunhoBanner(){
+  var box=document.getElementById('orcRascunhoBox');
+  if(!box)return;
+  var raw=null;
+  try{raw=localStorage.getItem(_RASCUNHO_KEY);}catch(e){}
+  if(!raw){box.innerHTML='';return;}
+  var draft=null;
+  try{draft=JSON.parse(raw);}catch(e){}
+  if(!draft||!draft.ambientes||!draft.ambientes.length){box.innerHTML='';return;}
+  var nAmb=draft.ambientes.length;
+  var tipos=draft.ambientes.map(function(a){return a.tipo;}).join(', ');
+  var cli=draft.cli?draft.cli:'sem nome ainda';
+  box.innerHTML =
+    '<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);border-radius:12px;padding:12px 14px;margin:0 0 10px;">'
+    + '<div style="font-size:.72rem;font-weight:700;color:#f59e0b;margin-bottom:2px;">📝 Rascunho em andamento</div>'
+    + '<div style="font-size:.7rem;color:var(--t3);margin-bottom:10px;">Cliente: '+cli+' · '+nAmb+' ambiente'+(nAmb>1?'s':'')+' ('+tipos+')</div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button onclick="_orcContinuarRascunho()" style="flex:1;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);border-radius:9px;padding:8px;color:#f59e0b;font-size:.7rem;font-weight:700;font-family:Outfit,sans-serif;cursor:pointer;">Continuar</button>'
+    + '<button onclick="_orcDescartarRascunho()" style="background:transparent;border:1px solid var(--bd);border-radius:9px;padding:8px 12px;color:var(--t4);font-size:.7rem;font-family:Outfit,sans-serif;cursor:pointer;">Descartar</button>'
+    + '</div></div>';
+}
+function _orcContinuarRascunho(){
+  go(0);
+}
+function _orcDescartarRascunho(){
+  if(!confirm('Descartar o rascunho em andamento? O que já foi calculado e salvo no histórico não é afetado.'))return;
+  _limparRascunho();
+  if(typeof novoOrcamento==='function')novoOrcamento();
+  _renderRascunhoBanner();
+  toast('Rascunho descartado');
 }
 
 function filterOrc() {
@@ -1572,7 +1607,7 @@ window.aplicarEstiloNi=function(){
 
   // ── Build inicial ──────────────────────────────────────────────
   buildMat();
-  addAmbiente();
+  if(!ambientes.length) addAmbiente(); // só cria o ambiente padrão se não veio nada do rascunho restaurado acima
   buildCatalog();
   buildCubaList();
   buildAcList();
@@ -1620,7 +1655,7 @@ function openApp(pg){
   setLayout();
   requestAnimationFrame(function(){
     setLayout();
-    go(pg===0 ? 12 : pg);
+    go(pg);
   });
   window._pendingPg=null;
 }
