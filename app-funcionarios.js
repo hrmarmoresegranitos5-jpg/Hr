@@ -2991,21 +2991,47 @@ var HR_FUNC = (function () {
   // campo "Valor (R$)" era preenchido com uma conta simplificada (só
   // decêndio + HE - déficit), sem descontar "já pago" nem adiantamentos —
   // então o resumo mostrava o valor certo mas o campo ficava com o bruto.
-  function _calcValorAPagar(s, f, incluirExtra, decNum, mesISO) {
+  // Valor bruto devido, antes de abater adiantamentos E créditos — usado
+  // tanto pra saber o "espaço" disponível pra cada um quanto pra checar
+  // consumo parcial na hora de registrar o pagamento.
+  function _calcBaseBruta(s, f, incluirExtra) {
     if (incluirExtra === undefined) incluirExtra = true;
     var sal        = (s && s.totalSalario != null) ? s.totalSalario : (f && f.salario ? parseFloat(f.salario) : 0);
     var heEfetivo  = incluirExtra ? (s.valorExtra || 0) : 0;
     var acrEfetivo = incluirExtra ? (s.totalAcrescimos || 0) : 0;
     var pago       = s.totalPago || 0;
     var deficitEfetivo = s.deficitRestanteValor || 0;
+    return sal + heEfetivo + acrEfetivo - deficitEfetivo - pago;
+  }
+
+  // Valor devido ANTES de abater créditos de overpago (mas já depois de
+  // adiantamentos) — extraído de _calcValorAPagar pra ser reutilizável
+  // também na hora de registrar o pagamento (precisa saber quanto do
+  // crédito coube neste decêndio, pra não consumir um crédito inteiro
+  // quando só uma parte foi usada).
+  function _calcBaseAntesDeCredito(s, f, incluirExtra, decNum, mesISO) {
+    var baseBruta = _calcBaseBruta(s, f, incluirExtra);
     var _refMesAdi = mesISO || window._folhaMes || _mesAno(0);
     var adiantamentosAlvo = (decNum && typeof _adiantamentosAlvoDecendio === 'function')
       ? _adiantamentosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
     var totalAdiantamentos = adiantamentosAlvo.reduce(function(s2,a){ return s2 + (parseFloat(a.valor)||0); }, 0);
+    return Math.max(0, baseBruta - totalAdiantamentos);
+  }
+
+  function _calcValorAPagar(s, f, incluirExtra, decNum, mesISO) {
+    var base = _calcBaseAntesDeCredito(s, f, incluirExtra, decNum, mesISO);
     var creditosAlvo = (decNum && typeof _creditosAlvoDecendio === 'function')
-      ? _creditosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
+      ? _creditosAlvoDecendio(f && f.id, decNum, mesISO || window._folhaMes || _mesAno(0)) : [];
     var totalCreditosAlvo = creditosAlvo.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
-    return Math.max(0, sal + heEfetivo + acrEfetivo - deficitEfetivo - pago - totalAdiantamentos + totalCreditosAlvo);
+    // CORREÇÃO: overpago (pagou mais que o devido no decêndio anterior) tem
+    // que DESCONTAR do próximo pagamento — igual adiantamento — não somar.
+    // O comentário antigo aqui dizia "é dinheiro a favor do funcionário,
+    // então soma" — isso está errado: se a empresa já pagou R$107,28 A MAIS
+    // do que devia, esse dinheiro já está com o funcionário; descontar no
+    // próximo pagamento é o que CORRIGE o excesso. Somar (como estava)
+    // dobra o erro em vez de corrigi-lo. Ver conversa com o dono sobre o
+    // caso do Tiago (2º decêndio ago/2026) pra reprodução exata do bug.
+    return Math.max(0, base - totalCreditosAlvo);
   }
 
   function _blocoSaldo(s, f, incluirExtra, decNum, mesISO){
@@ -3030,9 +3056,11 @@ var HR_FUNC = (function () {
       ? _adiantamentosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
     var totalAdiantamentos = adiantamentosAlvo.reduce(function(s2,a){ return s2 + (parseFloat(a.valor)||0); }, 0);
 
-    // Créditos (overpago de decêndio anterior) apontados pra serem somados
-    // justamente neste decêndio — é dinheiro a favor do funcionário, então
-    // soma (não abate) do valor a pagar. Espelha adiantamentosAlvo, sinal invertido.
+    // CORREÇÃO: overpago (pagou mais que o devido) precisa DESCONTAR do
+    // próximo pagamento — igual adiantamento, mesmo sentido, sem inverter
+    // o sinal. O comentário antigo aqui ("é dinheiro a favor do funcionário,
+    // então soma") estava com a lógica invertida — ver a correção espelhada
+    // em _calcValorAPagar.
     var creditosAlvo = (decNum && typeof _creditosAlvoDecendio === 'function')
       ? _creditosAlvoDecendio(f && f.id, decNum, _refMesAdi) : [];
     var totalCreditosAlvo = creditosAlvo.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
@@ -3132,15 +3160,14 @@ var HR_FUNC = (function () {
           var dLbl = a.data ? _fmtData(a.data) : '';
           return _linhaSubt('💸 Adiantamento '+dLbl+(a.obs?' ('+_esc(a.obs)+')':''), parseFloat(a.valor)||0, '#e0954a');
         }).join('') +
+        // CORREÇÃO: crédito de overpago agora é exibido e tratado como
+        // desconto (igual adiantamento) — antes aparecia em verde com "+"
+        // e "a favor do funcionário", dando a entender que somava no total,
+        // quando na verdade precisa descontar pra corrigir o excesso pago
+        // no decêndio anterior.
         creditosAlvo.map(function(c){
           var dLbl = c.data ? _fmtData(c.data) : '';
-          return '<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
-            '<div style="display:flex;justify-content:space-between;align-items:center;">'+
-              '<span style="font-size:.75rem;color:'+GREEN+';">💳 Crédito '+dLbl+'</span>'+
-              '<span style="font-size:.82rem;font-weight:600;color:'+GREEN+';">+ '+_fmtMoeda(parseFloat(c.valor)||0)+'</span>'+
-            '</div>'+
-            (c.obs ? '<div style="font-size:.62rem;color:'+T3+';margin-top:2px;">'+_esc(c.obs)+' — a favor do funcionário</div>' : '')+
-          '</div>';
+          return _linhaSubt('💳 Crédito (overpago) '+dLbl+(c.obs?' ('+_esc(c.obs)+')':''), parseFloat(c.valor)||0, GREEN);
         }).join('') +
       '</div>'+
       '<div style="background:rgba(0,0,0,.35);border-radius:10px;padding:11px 14px;'+
@@ -3149,7 +3176,7 @@ var HR_FUNC = (function () {
           '<div style="font-size:.62rem;color:'+T3+';margin-bottom:1px;">'+saldoIco+' '+saldoLabel+'</div>'+
           (!incluirExtra && he > 0 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(he)+' acumulado no banco</div>' : '')+
           (totalAdiantamentos > 0.01 ? '<div style="font-size:.6rem;color:#e0954a;">−'+_fmtMoeda(totalAdiantamentos)+' já descontado em adiantamentos</div>' : '')+
-          (totalCreditosAlvo > 0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">+'+_fmtMoeda(totalCreditosAlvo)+' de crédito (overpago anterior) somado acima</div>' : '')+
+          (totalCreditosAlvo > 0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">−'+_fmtMoeda(totalCreditosAlvo)+' descontado por overpago no decêndio anterior</div>' : '')+
         '</div>'+
         '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
           _fmtMoeda(Math.abs(saldo))+
@@ -3168,9 +3195,9 @@ var HR_FUNC = (function () {
         }
         return '<div style="background:rgba(46,139,87,.08);border:1px solid rgba(46,139,87,.3);border-radius:10px;'+
           'padding:10px 12px;margin-top:8px;">'+
-          '<div style="font-size:.68rem;color:'+GREEN+';font-weight:700;margin-bottom:2px;">💳 Crédito de '+_fmtMoeda(parseFloat(c.valor)||0)+' a favor do funcionário</div>'+
+          '<div style="font-size:.68rem;color:'+GREEN+';font-weight:700;margin-bottom:2px;">💳 Overpago de '+_fmtMoeda(parseFloat(c.valor)||0)+' a corrigir</div>'+
           '<div style="font-size:.62rem;color:'+T3+';margin-bottom:7px;">'+_esc(c.obs||'')+'</div>'+
-          '<div style="font-size:.66rem;color:'+T2+';margin-bottom:4px;">Aplicar este crédito em:</div>'+
+          '<div style="font-size:.66rem;color:'+T2+';margin-bottom:4px;">Descontar este valor em:</div>'+
           '<select id="'+selId+'" onchange="HR_FUNC._alocarCreditoSelect(\''+c.id+'\', this.value)" '+
             'style="width:100%;padding:7px 8px;border-radius:8px;background:rgba(255,255,255,.06);'+
             'border:1px solid rgba(255,255,255,.15);color:'+T1+';font-family:Outfit,sans-serif;font-size:.72rem;">'+
@@ -3358,8 +3385,10 @@ var HR_FUNC = (function () {
 
   // ─────────────────────────────────────────────────────────────
   // CRÉDITOS (overpago em decêndio anterior)
-  // Espelha 1:1 o sistema de adiantamentos, só que a favor do funcionário:
-  // em vez de ser abatido, o valor é somado a um decêndio futuro escolhido.
+  // Espelha 1:1 o sistema de adiantamentos, no MESMO sentido: o valor é
+  // ABATIDO de um decêndio futuro escolhido, corrigindo o excesso pago.
+  // (Correção: versões anteriores somavam em vez de abater — sinal errado,
+  // dobrava o overpago em vez de corrigi-lo.)
   // Registro: { id, funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem,
   //             creditarDecendio, mesRefDestino, aplicado }
   //   - creditarDecendio/mesRefDestino: onde vai ser somado (escolhido na tela
@@ -3808,25 +3837,90 @@ var HR_FUNC = (function () {
       var diaPag  = parseInt(data.slice(8,10), 10);
       var decPago = diaPag <= 10 ? 1 : diaPag <= 20 ? 2 : 3;
       var mesPago = data.slice(0,7);
+      var perAtualAdi = _periodoDecendio(decPago, mesPago);
+      var sAtualAdi   = calcSaldoFuncionario(funcId, perAtualAdi.di, perAtualAdi.df);
       var alvos = _adiantamentosAlvoDecendio(funcId, decPago, mesPago);
       if (alvos.length > 0) {
+        // CORREÇÃO: mesmo bug dos créditos, espelhado aqui — um adiantamento
+        // de R$300 apontado pra um decêndio que só tinha R$100 de espaço era
+        // marcado como "quitado" inteiro, perdoando os R$200 que faltavam.
+        // Agora só quita o quanto coube, e o restante volta a ficar em
+        // aberto, apontado automaticamente pro próximo decêndio.
+        var espacoAdi = _calcBaseBruta(sAtualAdi, funcs[funcId], true);
         alvos.forEach(function(a){
-          pags[a.id].descontoQuitado  = true;
-          pags[a.id].descontoQuitadoEm = data;
+          var valorAdi = parseFloat(a.valor) || 0;
+          if (espacoAdi <= 0.005) {
+            var destA0 = _decendioSeguinte(decPago, mesPago);
+            pags[a.id].descontarDecendio = destA0.num;
+            pags[a.id].descontarMes      = destA0.mesRef;
+            return;
+          }
+          if (valorAdi <= espacoAdi + 0.005) {
+            espacoAdi -= valorAdi;
+            pags[a.id].descontoQuitado  = true;
+            pags[a.id].descontoQuitadoEm = data;
+          } else {
+            var restanteAdi = valorAdi - espacoAdi;
+            var abatidoAdi  = espacoAdi;
+            espacoAdi = 0;
+            var destA1 = _decendioSeguinte(decPago, mesPago);
+            pags[a.id].valor            = restanteAdi;
+            pags[a.id].descontarDecendio = destA1.num;
+            pags[a.id].descontarMes      = destA1.mesRef;
+            pags[a.id].obs = (pags[a.id].obs || '') + ' (parcial: ' + _fmtMoeda(abatidoAdi) + ' abatido em ' + (perAtualAdi.label || (decPago + 'º dec.')) + ')';
+          }
         });
         savePagamentos(pags);
       }
 
-      // Créditos (overpago de decêndio anterior) que o usuário apontou pra
-      // serem somados justamente neste decêndio: agora que o pagamento foi
-      // de fato registrado, marca como aplicados (somem da lista "em aberto").
+      // Créditos (overpago de decêndio anterior) apontados pra este decêndio:
+      // agora que o pagamento foi de fato registrado, abate do(s) crédito(s)
+      // só o quanto realmente coube aqui — na ordem do mais antigo primeiro.
+      // CORREÇÃO: antes, um crédito de R$107,28 apontado pra um decêndio que
+      // só tinha R$92,63 de espaço era marcado como "aplicado" (todo ele),
+      // e a diferença de R$14,65 simplesmente desaparecia — não rolava pro
+      // próximo decêndio. Agora sobra vira um crédito novo, com o restante,
+      // já apontado automaticamente pro decêndio seguinte.
       var creditosAlvo = _creditosAlvoDecendio(funcId, decPago, mesPago);
       if (creditosAlvo.length > 0) {
-        creditosAlvo.forEach(function(c){ marcarCreditoAplicado(c.id); });
+        var perAtual  = _periodoDecendio(decPago, mesPago);
+        var sAtual = calcSaldoFuncionario(funcId, perAtual.di, perAtual.df);
+        var espacoDisponivel = _calcBaseAntesDeCredito(sAtual, funcs[funcId], true, decPago, mesPago);
+        creditosAlvo.forEach(function(c){
+          var valorCred = parseFloat(c.valor) || 0;
+          if (espacoDisponivel <= 0.005) {
+            // Não sobrou espaço nenhum pra este crédito (os anteriores já
+            // consumiram tudo) — rola ele inteiro pro próximo decêndio, sem marcar aplicado.
+            var creditos0 = getCreditos();
+            var dest0 = _decendioSeguinte(decPago, mesPago);
+            creditos0[c.id].creditarDecendio = dest0.num;
+            creditos0[c.id].mesRefDestino    = dest0.mesRef;
+            saveCreditos(creditos0);
+            return;
+          }
+          if (valorCred <= espacoDisponivel + 0.005) {
+            // Coube inteiro — consome e marca aplicado normalmente.
+            espacoDisponivel -= valorCred;
+            marcarCreditoAplicado(c.id);
+          } else {
+            // Só coube uma parte — abate o que coube, e o restante vira
+            // crédito em aberto apontado pro próximo decêndio.
+            var restante = valorCred - espacoDisponivel;
+            var abatido  = espacoDisponivel;
+            espacoDisponivel = 0;
+            var creditos1 = getCreditos();
+            var dest1 = _decendioSeguinte(decPago, mesPago);
+            creditos1[c.id].valor            = restante;
+            creditos1[c.id].creditarDecendio = dest1.num;
+            creditos1[c.id].mesRefDestino    = dest1.mesRef;
+            creditos1[c.id].obs              = (creditos1[c.id].obs || '') + ' (parcial: ' + _fmtMoeda(abatido) + ' abatido em ' + (perAtual.label || (decPago + 'º dec.')) + ')';
+            saveCreditos(creditos1);
+          }
+        });
       }
 
       // Se ESTE pagamento deixou o próprio decêndio pago a mais (overpago),
-      // gera automaticamente o crédito a favor do funcionário — com a
+      // gera automaticamente o crédito a ser descontado depois — com a
       // observação já explicando de onde veio, sem precisar preencher nada.
       _detectarECriarCreditoOverpago(funcId, decPago, mesPago, data);
     }
