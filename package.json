@@ -1,8 +1,19 @@
 {
-  "name": "hr-marmores-push-boletos",
-  "private": true,
-  "engines": { "node": "20" },
+  "name": "whatsapp-bot-gastos",
+  "version": "1.0.0",
+  "description": "Assistente virtual via WhatsApp com registro de gastos (HR Mármores)",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
   "dependencies": {
-    "firebase-admin": "^12.1.0"
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@supabase/supabase-js": "^2.45.4",
+    "pino": "^9.3.2",
+    "qrcode": "^1.5.4",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.5"
   }
 }
