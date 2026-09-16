@@ -112,8 +112,8 @@
     });
 
     function _configGet(){
-      try { return Object.assign({ percentualPadrao: 70 }, JSON.parse(localStorage.getItem('hrdb_cp_config')) || {}); }
-      catch(e){ return { percentualPadrao: 70 }; }
+      try { return Object.assign({ percentualPadrao: 70, acrescimoPadrao: 0 }, JSON.parse(localStorage.getItem('hrdb_cp_config')) || {}); }
+      catch(e){ return { percentualPadrao: 70, acrescimoPadrao: 0 }; }
     }
     function _configSet(patch){
       var cfg = Object.assign(_configGet(), patch);
@@ -744,6 +744,7 @@
       '<div class="ov" id="cpConfigMd"><div class="modal" style="max-width:440px;max-height:88vh;overflow-y:auto;" onclick="event.stopPropagation()">' +
         '<div class="mtitle">⚙️ Configurações — Compra Programada</div>' +
         '<div class="f"><label>Percentual padrão para liberar produção (%)</label><input id="cpCfgPct" type="number" step="0.1"></div>' +
+        '<div class="f"><label>Acréscimo padrão ao importar de orçamento (%)</label><input id="cpCfgAcrescimo" type="number" step="0.1" placeholder="Ex: 10"><small style="display:block;color:var(--t3);font-size:.64rem;margin-top:4px;">Aplicado por cima do valor parcelado do orçamento, pra cobrir o tempo mais longo da Compra Programada (reajuste de material/mão de obra até lá). 0 = usa o valor parcelado sem acréscimo.</small></div>' +
         '<div class="f"><label>Texto jurídico do contrato (opcional)</label><textarea id="cpCfgTextoJuridico" rows="6" placeholder="Cole aqui o texto de cláusulas revisado por um advogado. Se deixar em branco, o contrato usa só o texto explicativo padrão (não-jurídico)."></textarea></div>' +
         '<button class="btn btn-g" onclick="cpSalvarConfig()" style="margin-bottom:7px;">Salvar</button>' +
         '<button class="btn btn-o" data-close>Fechar</button>' +
@@ -1166,13 +1167,16 @@
     window.cpAbrirConfig = function(){
       var cfg = _configGet();
       document.getElementById('cpCfgPct').value = cfg.percentualPadrao;
+      document.getElementById('cpCfgAcrescimo').value = cfg.acrescimoPadrao || 0;
       document.getElementById('cpCfgTextoJuridico').value = cfg.textoJuridico || '';
       _abrir('cpConfigMd');
     };
     window.cpSalvarConfig = function(){
       var n = parseFloat(String(document.getElementById('cpCfgPct').value).replace(',','.'));
       if (isNaN(n) || n <= 0 || n > 100) { alert('Percentual inválido.'); return; }
-      _configSet({ percentualPadrao: n, textoJuridico: document.getElementById('cpCfgTextoJuridico').value || '' });
+      var nAcr = parseFloat(String(document.getElementById('cpCfgAcrescimo').value).replace(',','.'));
+      if (isNaN(nAcr) || nAcr < 0) { alert('Acréscimo inválido.'); return; }
+      _configSet({ percentualPadrao: n, acrescimoPadrao: nAcr, textoJuridico: document.getElementById('cpCfgTextoJuridico').value || '' });
       _voltarAte('cpAdminMd');
       alert('Configurações salvas. O percentual novo vale para novas Compras Programadas; contratos já criados mantêm o percentual definido na criação.');
     };
@@ -1225,7 +1229,7 @@
       var sel = document.getElementById('cpNovoOrc');
       var aprovados = (HRdb.orcamentos ? HRdb.orcamentos.listar({status:'aprovado'}) : []);
       sel.innerHTML = '<option value="">— Preencher manualmente —</option>' + aprovados.map(function(o){
-        var val = o.vista || o.parc || 0;
+        var val = o.parc || o.vista || 0; // valor parcelado é o padrão pra Compra Programada (cobre o custo real de vender fiado)
         return '<option value="' + o.id + '">' + (o.cli||'Sem nome') + ' — ' + (o.tipo||'Projeto') + ' — ' + fmtR(cent(val)) + '</option>';
       }).join('');
       ['cpNovoCliente','cpNovoTel','cpNovoProjeto','cpNovoValor','cpNovoParcela','cpNovoQtd','cpNovoObs'].forEach(function(id){ document.getElementById(id).value=''; });
@@ -1233,8 +1237,27 @@
       document.getElementById('cpNovoData1').value = hoje();
       document.getElementById('cpNovoPct').value = _configGet().percentualPadrao;
       document.getElementById('cpNovoPrazo').value = '';
+      _cpParcelaDirty = false; // reabrir o modal sempre restaura o preenchimento automático da parcela
       _abrir('cpNovoMd');
     };
+
+    // item pedido: "valor da parcela" preenchido sozinho a partir de
+    // "valor do projeto" ÷ "qtd. parcelas" — só para de recalcular se o
+    // usuário digitar um valor manualmente no próprio campo da parcela
+    // (mesmo padrão de "campo sujo" já usado em outros lugares do app,
+    // ex.: valor sugerido no modal de Confirmar Aceite).
+    var _cpParcelaDirty = false;
+    function _cpRecalcParcela(){
+      if (_cpParcelaDirty) return;
+      var valor = parseFloat(String(document.getElementById('cpNovoValor').value).replace(',','.')) || 0;
+      var qtd = parseInt(document.getElementById('cpNovoQtd').value, 10) || 0;
+      if (valor > 0 && qtd > 0) {
+        document.getElementById('cpNovoParcela').value = (valor / qtd).toFixed(2);
+      }
+    }
+    document.getElementById('cpNovoValor').addEventListener('input', _cpRecalcParcela);
+    document.getElementById('cpNovoQtd').addEventListener('input', _cpRecalcParcela);
+    document.getElementById('cpNovoParcela').addEventListener('input', function(){ _cpParcelaDirty = true; });
 
     window.cpNovoPreencherDeOrcamento = function(){
       var id = document.getElementById('cpNovoOrc').value;
@@ -1244,7 +1267,15 @@
       document.getElementById('cpNovoCliente').value = o.cli || '';
       document.getElementById('cpNovoTel').value = o.tel || '';
       document.getElementById('cpNovoProjeto').value = o.tipo || '';
-      document.getElementById('cpNovoValor').value = (o.vista || o.parc || 0);
+      // item pedido: valor do projeto = valor PARCELADO do orçamento (não
+      // à vista) + o acréscimo configurado em ⚙️ (cobre o tempo mais longo
+      // da Compra Programada — reajuste de material/mão de obra até lá).
+      var base = o.parc || o.vista || 0;
+      var acrescimo = _configGet().acrescimoPadrao || 0;
+      var valorFinal = base * (1 + acrescimo / 100);
+      document.getElementById('cpNovoValor').value = valorFinal ? valorFinal.toFixed(2) : '';
+      _cpParcelaDirty = false; // troca de orçamento sempre reativa o cálculo automático da parcela
+      _cpRecalcParcela();
     };
 
     window.cpSalvarNovo = function(){
