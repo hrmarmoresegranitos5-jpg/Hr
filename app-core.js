@@ -11610,9 +11610,9 @@ function confirmarContrato(){
     entVal=vista*(entPct/100);
     entgVal=vista*(entgPct/100);
   }
-  if(entPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrada ('+entPct+'%):</strong> R$ '+fm(entVal)+' no ato da assinatura'});
-  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Entrega ('+entgPct+'%):</strong> R$ '+fm(entgVal)+' na entrega e instalação'});
-  if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª:</strong> R$ '+fm(v3)+' na metade'},{icon:'💰',txt:'<strong>3ª:</strong> R$ '+fm(v3)+' na entrega'});}
+  if(entPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Pago:</strong> R$ '+fm(entVal)+' no ato da assinatura'});
+  if(entgPct>0&&pgTipo!=='3x')pgConds.push({icon:'💰',txt:'<strong>Restante:</strong> R$ '+fm(entgVal)+' no ato da entrega'});
+  if(pgTipo==='3x'){var v3=vista/3;pgConds.push({icon:'💰',txt:'<strong>1ª parcela:</strong> R$ '+fm(v3)+' na assinatura'},{icon:'💰',txt:'<strong>2ª parcela:</strong> R$ '+fm(v3)+' na metade do prazo'},{icon:'💰',txt:'<strong>3ª parcela:</strong> R$ '+fm(v3)+' na entrega'});}
   // parcelamento mostrado na price-box, não duplicar em pgConds
   // "Orçamento válido por X dias" removido — não faz sentido em contrato assinado
   if(dataInicio){var di=new Date(dataInicio+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});pgConds.push({icon:'🔨',txt:'<strong>Início:</strong> '+di});}
