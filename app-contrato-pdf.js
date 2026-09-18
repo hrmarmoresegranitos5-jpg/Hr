@@ -259,7 +259,7 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   document.getElementById('cPdfPrint').onclick=function(){
     var w=window.open('','_blank');
     if(w){
-      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}.sec-h{page-break-after:avoid;break-after:avoid;}.cond-item,.guarantee,tr,li,.avoid-break{page-break-inside:avoid;break-inside:avoid;}table{page-break-inside:auto;}@media print{.sec{orphans:3;widows:3;}}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
+      w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:14mm;}*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}body{background:#fff;}table td{border-bottom:1px solid #f0e8d8;}table tr:nth-child(even) td{background:#faf5ea;}.cond-item{display:flex;gap:10px;align-items:flex-start;margin-bottom:9px;padding:9px 12px;background:#f9f5ef;border-left:3px solid #C9A84C;border-radius:0 6px 6px 0;}.cond-num{font-size:11px;font-weight:900;color:#C9A84C;min-width:18px;}.cond-text{font-size:11px;color:#333;line-height:1.5;}.guarantee{background:#e8f4e8;border:1px solid #a8d4a8;border-radius:8px;padding:14px 16px;margin-bottom:16px;}.guarantee-title{font-size:11px;font-weight:900;color:#2a6a2a;margin-bottom:6px;}.guarantee-text{font-size:11px;color:#2a4a2a;line-height:1.6;}.alerta-inst{background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-top:10px;font-size:11px;color:#5a3a00;border-radius:0 6px 6px 0;}ul li{margin-bottom:4px;font-size:11px;color:#333;}.sec-h{page-break-after:avoid;break-after:avoid;}.cond-item,.guarantee,tr,li,.avoid-break{page-break-inside:avoid;break-inside:avoid;}table{page-break-inside:auto;}@media print{.sec{orphans:3;widows:3;}}</style></head><body>'+recHtml+'<script>window.onload=function(){window.print();};<\/script></body></html>');
       w.document.close();
     }
   };
@@ -309,49 +309,58 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
     }).then(function(canvas){
       document.body.removeChild(offscreen);
       var jsPDF=window.jspdf.jsPDF;
-      // A4 em pontos (595.28 × 841.89 pt)
+      // A4 em pontos (595.28 × 841.89 pt), com margens de impressão
       var pageW=595.28;
       var pageH=841.89;
-      var imgW=pageW;
-      // Pixels por página A4 no canvas
-      var pxPerPage=Math.round(canvas.height/(canvas.height*(pageW/canvas.width)/pageH));
-      var nPagesEst=Math.ceil(canvas.height/pxPerPage);
+      var marginPt=40; // ~14mm — mesma margem usada no caminho de impressão (@page)
+      var contentW=pageW-marginPt*2;
+      var contentH=pageH-marginPt*2;
+      var imgW=contentW;
+      // Escala uniforme canvas→pt (mesma escala nos dois eixos, sem distorcer)
+      var pxToPt=contentW/canvas.width;
+      // Altura máxima (em px do canvas) que cabe na área útil de UMA página A4
+      var pxPerPage=Math.floor(contentH/pxToPt);
 
-      // Se o ponto ideal de corte cai dentro de uma zona proibida, empurra
-      // pra borda mais próxima daquela zona — pra cima ou pra baixo,
-      // preferindo a mais perto do ideal e que caiba na página atual.
-      function findSafeCut(idealPx,minY,maxY){
-        var y=Math.max(minY,Math.min(maxY,idealPx));
+      // Acha o maior corte seguro que ainda caiba na página atual: parte
+      // do limite físico da página (maxY) e SÓ RECUA (nunca avança) se
+      // maxY cair dentro de uma zona proibida — assim a fatia nunca
+      // ultrapassa a altura útil da página A4.
+      function findSafeCut(maxY,minY){
+        var y=maxY;
         for(var i=0;i<forbiddenZones.length;i++){
           var z=forbiddenZones[i];
           if(y>z[0]&&y<z[1]){
-            var toTop=z[0]-2,toBottom=z[1]+2;
-            var okTop=toTop>=minY,okBottom=toBottom<=maxY;
-            if(okTop&&okBottom)y=(Math.abs(toTop-idealPx)<=Math.abs(toBottom-idealPx))?toTop:toBottom;
-            else if(okTop)y=toTop;
-            else if(okBottom)y=toBottom;
+            var toTop=z[0]-2;
+            // Se recuar até o início da zona ainda deixa a página com
+            // conteúdo, corta ali (o item protegido inteiro vai pra
+            // próxima página). Senão (zona maior que a página inteira,
+            // caso extremo), força o corte em maxY para não travar.
+            y=(toTop>minY)?toTop:maxY;
             break;
           }
         }
         return Math.round(Math.max(minY,Math.min(maxY,y)));
       }
 
-      // Monta pontos de corte reais, sempre estritamente crescentes
-      // (nunca gera página vazia/invertida) e com espaço mínimo entre eles.
+      // Monta pontos de corte reais avançando página a página. Cada
+      // fatia é limitada a no máximo pxPerPage (nunca ultrapassa a A4)
+      // e o corte recua até a borda de uma zona protegida — cláusula,
+      // linha de tabela, caixa de garantia, bloco de assinaturas, título
+      // de seção — quando necessário, mantendo o conteúdo relacionado
+      // junto e empurrando o excedente inteiro para a página seguinte.
       var cuts=[0];
-      var minGap=Math.round(pxPerPage*0.25);
-      for(var k=1;k<nPagesEst;k++){
-        var ideal=Math.round(k*pxPerPage);
-        if(ideal>=canvas.height)break;
+      while(cuts[cuts.length-1]<canvas.height-1){
         var prevCut=cuts[cuts.length-1];
-        var cutY=findSafeCut(ideal,prevCut+minGap,canvas.height-2);
-        if(cutY<=prevCut)cutY=Math.min(ideal,canvas.height-2);
+        var maxY=prevCut+pxPerPage;
+        if(maxY>=canvas.height){cuts.push(canvas.height);break;}
+        var cutY=findSafeCut(maxY,prevCut);
+        if(cutY<=prevCut)cutY=maxY; // segurança: nunca trava sem avançar
         cuts.push(cutY);
       }
-      cuts.push(canvas.height);
       var nPages=cuts.length-1;
 
-      // Gera PDF com fatias nos pontos de corte inteligentes
+      // Gera PDF com fatias nos pontos de corte inteligentes, respeitando
+      // as margens de impressão em todas as páginas
       var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
       for(var pg=0;pg<nPages;pg++){
         if(pg>0)pdf.addPage();
@@ -364,9 +373,9 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
         sc2.fillStyle='#ffffff';
         sc2.fillRect(0,0,sc.width,sh);
         sc2.drawImage(canvas,0,y0,canvas.width,sh,0,0,canvas.width,sh);
-        // Altura proporcional desta fatia em pt (pode ser < pageH na última página)
-        var slicePtH=sh*(pageW/canvas.width);
-        pdf.addImage(sc.toDataURL('image/jpeg',0.96),'JPEG',0,0,imgW,slicePtH);
+        // Altura proporcional desta fatia em pt (nunca excede contentH)
+        var slicePtH=sh*pxToPt;
+        pdf.addImage(sc.toDataURL('image/jpeg',0.96),'JPEG',marginPt,marginPt,imgW,slicePtH);
       }
       var pdfBlob=pdf.output('blob');
 
