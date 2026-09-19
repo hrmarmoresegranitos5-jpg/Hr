@@ -28,6 +28,86 @@ var AUTOBACKUP = {
   _timer: null,
   _pushDebounce: null,
 
+  // ── IndexedDB para o conteúdo pesado dos snapshots (json) ───────────────
+  // Só os metadados pequenos (data, kb, checksum, contagens) ficam no
+  // localStorage — o JSON completo de cada snapshot (pode chegar a
+  // centenas de KB) vai pro IndexedDB, que tem MUITO mais espaço
+  // disponível e não compete pela mesma cota apertada que hr_q/hr_t/hr_cfg
+  // precisam. Antes, guardar até 7 cópias completas dentro do localStorage
+  // multiplicava por 7 o uso de espaço só com backup redundante.
+  _DB_NAME: 'hr_autobackup_payloads_db',
+  _dbP: null,
+  _dbOpen: function() {
+    var self = this;
+    if (self._dbP) return self._dbP;
+    self._dbP = new Promise(function(resolve, reject) {
+      if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
+      var req = indexedDB.open(self._DB_NAME, 1);
+      req.onupgradeneeded = function() {
+        var db = req.result;
+        if (!db.objectStoreNames.contains('payloads')) db.createObjectStore('payloads', { keyPath: 'ts' });
+      };
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror   = function() { reject(req.error); };
+    });
+    return self._dbP;
+  },
+  _payloadSalvar: function(ts, json) {
+    return this._dbOpen().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction('payloads', 'readwrite');
+        tx.objectStore('payloads').put({ ts: ts, json: json });
+        tx.oncomplete = resolve;
+        tx.onerror = function() { reject(tx.error); };
+      });
+    });
+  },
+  _payloadLer: function(ts) {
+    return this._dbOpen().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction('payloads', 'readonly');
+        var req = tx.objectStore('payloads').get(ts);
+        req.onsuccess = function() { resolve(req.result ? req.result.json : null); };
+        req.onerror = function() { reject(req.error); };
+      });
+    });
+  },
+  _payloadApagar: function(ts) {
+    return this._dbOpen().then(function(db) {
+      return new Promise(function(resolve) {
+        try {
+          var tx = db.transaction('payloads', 'readwrite');
+          tx.objectStore('payloads')['delete'](ts);
+          tx.oncomplete = function(){ resolve(); };
+          tx.onerror = function(){ resolve(); };
+        } catch(e) { resolve(); }
+      });
+    });
+  },
+  // Migra snapshots do formato antigo (json embutido no próprio registro do
+  // localStorage) pro novo (json no IndexedDB, só metadado leve no
+  // localStorage) — roda uma vez só, na primeira vez que o app abre com
+  // esta versão, e libera de cara o espaço que já estava sendo gasto.
+  _migrarSnapshotsAntigos: function() {
+    var self = this;
+    try {
+      var lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]');
+      var precisaMigrar = lista.some(function(s){ return s.json; });
+      if (!precisaMigrar) return;
+      var tasks = lista.map(function(s) {
+        return s.json ? self._payloadSalvar(s.ts, s.json) : Promise.resolve();
+      });
+      Promise.all(tasks).then(function() {
+        var listaLeve = lista.map(function(s) {
+          var copia = {}; Object.keys(s).forEach(function(k){ if (k!=='json') copia[k]=s[k]; });
+          return copia;
+        });
+        localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(listaLeve));
+        console.log('[AutoBackup] ' + lista.length + ' snapshot(s) migrado(s) do localStorage pro IndexedDB — espaço liberado.');
+      }).catch(function(e){ console.warn('[AutoBackup] Falha na migração de snapshots:', e); });
+    } catch(e) { console.warn('[AutoBackup] _migrarSnapshotsAntigos falhou:', e); }
+  },
+
   // ── Checksum simples (não-criptográfico, só pra detectar corrupção/truncamento) ──
   _checksum: function(str) {
     var h = 5381;
@@ -41,6 +121,8 @@ var AUTOBACKUP = {
     // Injeta estilos e toast (sem badge flutuante)
     this._injetarEstilos();
     this._criarToast();
+    // Migra snapshots antigos (json no localStorage) pro IndexedDB — uma vez só
+    this._migrarSnapshotsAntigos();
     // Primeiro snapshot após 10s
     setTimeout(function() { self.salvarSnapshot(); }, 10000);
     // Snapshots periódicos
@@ -95,6 +177,19 @@ var AUTOBACKUP = {
     });
   },
 
+  // ── Estima o uso total do localStorage (todas as chaves hr_*, hrdb_*, etc.) ──
+  _medirLocalStorageKB: function() {
+    var total = 0;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        var v = localStorage.getItem(k) || '';
+        total += (k ? k.length : 0) + v.length;
+      }
+    } catch(e) {}
+    return Math.round(total / 1024);
+  },
+
   // ── Renderiza o painel de backup dentro do cfgBody ──
   renderizarPainelCfg: function() {
     var body = document.getElementById('cfgBody');
@@ -128,6 +223,30 @@ var AUTOBACKUP = {
     h += '<div class="ab-status-lbl">Supabase</div>';
     h += '</div>';
     h += '</div>';
+
+    // ── Uso do armazenamento do aparelho (localStorage) ──────────────────
+    // Estimativa: a maioria dos navegadores mobile reserva ~5MB por site.
+    // Como já movemos o auto-backup e as fotos pro IndexedDB (que não
+    // compete por essa cota), o que sobra aqui é o "ativo" do app —
+    // orçamentos, financeiro, catálogo. Mostrar isso avisa ANTES de virar
+    // erro de "armazenamento cheio", em vez de só descobrir na hora.
+    (function(){
+      var usoKB = AUTOBACKUP._medirLocalStorageKB();
+      var LIMITE_ESTIMADO_KB = 5 * 1024;
+      var pct = Math.min(100, Math.round((usoKB / LIMITE_ESTIMADO_KB) * 100));
+      var cor = pct >= 85 ? '#ef4444' : (pct >= 60 ? '#f59e0b' : '#22c55e');
+      h += '<div style="margin:10px 0 4px;background:var(--bg2,#1a1a1a);border-radius:10px;padding:12px 14px;">';
+      h += '<div style="display:flex;justify-content:space-between;font-size:.72rem;color:var(--t2,#aaa);margin-bottom:6px;">';
+      h += '<span>💽 Espaço usado neste aparelho</span><span>' + usoKB + ' KB (~' + pct + '%)</span>';
+      h += '</div>';
+      h += '<div style="background:#00000033;border-radius:6px;height:8px;overflow:hidden;">';
+      h += '<div style="width:' + pct + '%;height:100%;background:' + cor + ';"></div>';
+      h += '</div>';
+      if (pct >= 85) {
+        h += '<div style="font-size:.68rem;color:#ef4444;margin-top:6px;">⚠️ Espaço quase no limite — orçamentos e lançamentos antigos serão arquivados automaticamente (continuam visíveis), mas vale exportar um backup.</div>';
+      }
+      h += '</div>';
+    })();
 
     // Botões de ação
     h += '<button class="ab-btn-dl" onclick="AUTOBACKUP._dispararDownload();AUTOBACKUP._mostrarToastBackup(\'📥 Backup gerado!\')">';
@@ -219,8 +338,9 @@ var AUTOBACKUP = {
     };
   },
 
-  // ── Salva snapshot no localStorage ──
+  // ── Salva snapshot: json pesado no IndexedDB, metadado leve no localStorage ──
   salvarSnapshot: function() {
+    var self = this;
     try {
       // Guard: CFG e DB precisam existir
       if (typeof CFG === 'undefined' || typeof DB === 'undefined') return;
@@ -231,34 +351,33 @@ var AUTOBACKUP = {
         q: (dados.q||[]).length, j: (dados.j||[]).length,
         t: (dados.t||[]).length, b: (dados.b||[]).length
       };
+      var ts = dados._ts;
+      var kb = Math.round(json.length / 1024);
 
-      var lista = [];
-      try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
+      this._payloadSalvar(ts, json).then(function() {
+        var lista = [];
+        try { lista = JSON.parse(localStorage.getItem(self.KEY_SNAPSHOTS) || '[]'); } catch(e) { lista = []; }
+        lista.push({ ts: ts, data: new Date(ts).toLocaleString('pt-BR'), kb: kb, sum: soma, cont: contagens });
+        var removidos = [];
+        if (lista.length > self.MAX_SNAPSHOTS) {
+          removidos = lista.slice(0, lista.length - self.MAX_SNAPSHOTS);
+          lista = lista.slice(lista.length - self.MAX_SNAPSHOTS);
+        }
+        localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
+        localStorage.setItem(self.KEY_ULTIMO_SV, String(ts));
+        // Apaga do IndexedDB os payloads dos snapshots que saíram da rotação
+        // — senão o IndexedDB cresceria pra sempre em vez de girar as 7 cópias.
+        removidos.forEach(function(r){ self._payloadApagar(r.ts); });
 
-      lista.push({
-        ts:   dados._ts,
-        data: new Date(dados._ts).toLocaleString('pt-BR'),
-        kb:   Math.round(json.length / 1024),
-        json: json,
-        sum:  soma,
-        cont: contagens
+        // #73 — Verificação de integridade: relê do IndexedDB e confere
+        // checksum + contagem de registros, pra detectar corrupção silenciosa.
+        self._verificarIntegridade(ts, soma, contagens);
+
+        // Envia para nuvem (debounce 5s)
+        self._pushNuvem(dados);
+      }).catch(function(e) {
+        console.warn('[AutoBackup] Erro ao salvar snapshot no IndexedDB:', e);
       });
-
-      if (lista.length > this.MAX_SNAPSHOTS) {
-        lista = lista.slice(lista.length - this.MAX_SNAPSHOTS);
-      }
-
-      localStorage.setItem(this.KEY_SNAPSHOTS, JSON.stringify(lista));
-      localStorage.setItem(this.KEY_ULTIMO_SV, String(dados._ts));
-
-      // #73 — Verificação de integridade: relê do localStorage e confere
-      // checksum + contagem de registros, pra detectar truncamento (ex: quota
-      // do localStorage estourando no meio da gravação) ou corrupção silenciosa.
-      this._verificarIntegridade(dados._ts, soma, contagens);
-
-      // Envia para nuvem (debounce 5s)
-      this._pushNuvem(dados);
-
     } catch(e) {
       console.warn('[AutoBackup] Erro ao salvar snapshot:', e);
     }
@@ -266,46 +385,49 @@ var AUTOBACKUP = {
 
   // ── Confere se o snapshot recém-salvo bate com o que devia ter sido salvo ──
   _verificarIntegridade: function(ts, somaEsperada, contEsperada) {
-    var ok = true;
-    try {
-      var lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]');
-      var idx = lista.findIndex(function(s){ return s.ts === ts; });
-      if (idx < 0) {
-        console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' não encontrado após salvar — possível estouro de cota do localStorage.');
-        return false;
-      }
-      var snap = lista[idx];
-      var dadosRelidos;
-      try { dadosRelidos = JSON.parse(snap.json); } catch(e) {
-        console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' ficou com JSON corrompido/truncado (não é possível reabrir).');
+    var self = this;
+    this._payloadLer(ts).then(function(json) {
+      var ok = true;
+      if (!json) {
+        console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' não encontrado após salvar — possível falha de gravação no IndexedDB.');
         ok = false;
-      }
-      if (ok) {
-        var somaRelida = this._checksum(snap.json);
-        if (somaRelida !== somaEsperada) {
-          console.warn('[AutoBackup] ⚠️ Checksum do snapshot ' + ts + ' não confere (esperado ' + somaEsperada + ', encontrado ' + somaRelida + ') — dado pode ter sido truncado ao salvar.');
+      } else {
+        var dadosRelidos;
+        try { dadosRelidos = JSON.parse(json); } catch(e) {
+          console.warn('[AutoBackup] ⚠️ Snapshot ' + ts + ' ficou com JSON corrompido/truncado (não é possível reabrir).');
           ok = false;
         }
-      }
-      if (ok) {
-        var contRelida = {
-          q: (dadosRelidos.q||[]).length, j: (dadosRelidos.j||[]).length,
-          t: (dadosRelidos.t||[]).length, b: (dadosRelidos.b||[]).length
-        };
-        var okContagem = contRelida.q===contEsperada.q && contRelida.j===contEsperada.j &&
-                          contRelida.t===contEsperada.t && contRelida.b===contEsperada.b;
-        if (!okContagem) {
-          console.warn('[AutoBackup] ⚠️ Contagem de registros do snapshot ' + ts + ' não bate (esperado ' + JSON.stringify(contEsperada) + ', encontrado ' + JSON.stringify(contRelida) + ').');
-          ok = false;
+        if (ok) {
+          var somaRelida = self._checksum(json);
+          if (somaRelida !== somaEsperada) {
+            console.warn('[AutoBackup] ⚠️ Checksum do snapshot ' + ts + ' não confere (esperado ' + somaEsperada + ', encontrado ' + somaRelida + ') — dado pode ter sido truncado ao salvar.');
+            ok = false;
+          }
+        }
+        if (ok) {
+          var contRelida = {
+            q: (dadosRelidos.q||[]).length, j: (dadosRelidos.j||[]).length,
+            t: (dadosRelidos.t||[]).length, b: (dadosRelidos.b||[]).length
+          };
+          var okContagem = contRelida.q===contEsperada.q && contRelida.j===contEsperada.j &&
+                            contRelida.t===contEsperada.t && contRelida.b===contEsperada.b;
+          if (!okContagem) {
+            console.warn('[AutoBackup] ⚠️ Contagem de registros do snapshot ' + ts + ' não bate (esperado ' + JSON.stringify(contEsperada) + ', encontrado ' + JSON.stringify(contRelida) + ').');
+            ok = false;
+          }
         }
       }
-      lista[idx].okInt = ok;
-      localStorage.setItem(this.KEY_SNAPSHOTS, JSON.stringify(lista));
-      return ok;
-    } catch(e) {
+      try {
+        var lista = JSON.parse(localStorage.getItem(self.KEY_SNAPSHOTS) || '[]');
+        var idx = lista.findIndex(function(s){ return s.ts === ts; });
+        if (idx >= 0) {
+          lista[idx].okInt = ok;
+          localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
+        }
+      } catch(e) {}
+    }).catch(function(e) {
       console.warn('[AutoBackup] Erro ao verificar integridade do snapshot:', e);
-      return false;
-    }
+    });
   },
 
   // ── Push para Supabase usando coluna "dados" existente ──
@@ -387,19 +509,23 @@ var AUTOBACKUP = {
 
             var existe = lista.some(function(s) { return s.ts === dadosNuvem._ts; });
             if (!existe) {
-              lista.push({
-                ts:      dadosNuvem._ts,
-                data:    new Date(dadosNuvem._ts).toLocaleString('pt-BR') + ' ☁️',
-                kb:      Math.round(ab.json.length / 1024),
-                json:    ab.json,
-                deNuvem: true
+              self._payloadSalvar(dadosNuvem._ts, ab.json).then(function() {
+                lista.push({
+                  ts:      dadosNuvem._ts,
+                  data:    new Date(dadosNuvem._ts).toLocaleString('pt-BR') + ' ☁️',
+                  kb:      Math.round(ab.json.length / 1024),
+                  deNuvem: true
+                });
+                var removidos = [];
+                if (lista.length > self.MAX_SNAPSHOTS) {
+                  removidos = lista.slice(0, lista.length - self.MAX_SNAPSHOTS);
+                  lista = lista.slice(lista.length - self.MAX_SNAPSHOTS);
+                }
+                localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
+                localStorage.setItem(self.KEY_NUVEM_TS, String(ab.ts));
+                removidos.forEach(function(r){ self._payloadApagar(r.ts); });
+                self._mostrarToastBackup('☁️ Backup da nuvem disponível!');
               });
-              if (lista.length > self.MAX_SNAPSHOTS) {
-                lista = lista.slice(lista.length - self.MAX_SNAPSHOTS);
-              }
-              localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
-              localStorage.setItem(self.KEY_NUVEM_TS, String(ab.ts));
-              self._mostrarToastBackup('☁️ Backup da nuvem disponível!');
             }
           } catch(e) {}
         })
@@ -456,11 +582,16 @@ var AUTOBACKUP = {
 
   _baixarViaLink: function(json, fname) {
     try {
-      var uri = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
-      var a   = document.createElement('a');
-      a.href = uri; a.download = fname; a.target = '_blank';
+      // Blob + URL.createObjectURL em vez de data: URI — mesma correção do
+      // backup manual em app-core.js: data: URI tem limite de tamanho em
+      // navegadores mobile e corrompia/truncava o download diário quando
+      // o backup ficava grande.
+      var blob = new Blob([json], { type: 'application/json' });
+      var url  = URL.createObjectURL(blob);
+      var a    = document.createElement('a');
+      a.href = url; a.download = fname;
       document.body.appendChild(a); a.click();
-      setTimeout(function() { document.body.removeChild(a); }, 1000);
+      setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
       AUTOBACKUP._mostrarToastBackup('📥 Backup diário salvo! Verifique seus Downloads.');
     } catch(e) {}
   },
@@ -483,6 +614,7 @@ var AUTOBACKUP = {
 
   // ── Restaurar snapshot ──
   restaurarSnapshot: function(idx) {
+    var self = this;
     var lista = [];
     try { lista = JSON.parse(localStorage.getItem(this.KEY_SNAPSHOTS) || '[]'); } catch(e) {}
     var snap = lista[idx];
@@ -491,18 +623,23 @@ var AUTOBACKUP = {
     var dataFormatada = snap.data || 'desconhecida';
     if (!confirm('Restaurar backup de ' + dataFormatada + '?\n\nO estado atual será substituído. Esta ação não pode ser desfeita.')) return;
 
-    try {
-      var d = JSON.parse(snap.json);
-      if (typeof _restaurarBackup === 'function') {
-        _restaurarBackup(d);
-        if (typeof toast === 'function') toast('✓ Backup restaurado! Recarregando...');
-        setTimeout(function() { location.reload(); }, 900);
-      } else {
-        alert('Função de restauração não encontrada. Use o menu Configurações > Backup.');
+    this._payloadLer(snap.ts).then(function(json) {
+      if (!json) { alert('Não foi possível encontrar o conteúdo deste snapshot (pode ter sido removido).'); return; }
+      try {
+        var d = JSON.parse(json);
+        if (typeof _restaurarBackup === 'function') {
+          _restaurarBackup(d);
+          if (typeof toast === 'function') toast('✓ Backup restaurado! Recarregando...');
+          setTimeout(function() { location.reload(); }, 900);
+        } else {
+          alert('Função de restauração não encontrada. Use o menu Configurações > Backup.');
+        }
+      } catch(e) {
+        alert('Erro ao restaurar snapshot: ' + e.message);
       }
-    } catch(e) {
-      alert('Erro ao restaurar snapshot: ' + e.message);
-    }
+    }).catch(function(e) {
+      alert('Erro ao ler snapshot: ' + (e && e.message ? e.message : e));
+    });
   },
 
   // ── CSS ──
