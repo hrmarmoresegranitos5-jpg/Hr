@@ -29,6 +29,28 @@ function _gel(id) {
 var CFG_TUM = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_cfg')||'null'); }catch(e){ return null; } })();
 var HIST = (function(){ try{ return JSON.parse(localStorage.getItem('hr_tum_hist')||'[]')||[]; }catch(e){ return []; } })();
 
+// ── Salvamento seguro de CFG_TUM/HIST — antes, as ~11 gravações deste
+// módulo não tinham NENHUM try/catch: se a cota do localStorage estourasse
+// (muitos túmulos/fotos cadastrados), quebrava sem aviso nenhum pro
+// usuário. Agora falha de forma silenciosa pro app continuar funcionando,
+// com um toast avisando o que aconteceu.
+function _svTumCfg() {
+  try {
+    localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  } catch(e) {
+    console.error('[Túmulos] Falha ao salvar configuração:', e);
+    if (typeof toast === 'function') toast('⚠ Armazenamento cheio — configuração de túmulos não foi salva. Exporte um backup.');
+  }
+}
+function _svTumHist(valor) {
+  try {
+    localStorage.setItem('hr_tum_hist', valor);
+  } catch(e) {
+    console.error('[Túmulos] Falha ao salvar histórico:', e);
+    if (typeof toast === 'function') toast('⚠ Armazenamento cheio — histórico de túmulos não foi salvo.');
+  }
+}
+
 var DEF_CFG = {
   emp: { nome:'HR Mármores e Granitos', tel:'(74) 99148-4460', end:'Av. Dep. Rodolfo Queiroz, 653 — Centro', cidade:'Pilão Arcado — BA' },
   margem: 35,
@@ -100,7 +122,7 @@ if (!CFG_TUM.civil.canaleta)       CFG_TUM.civil.canaleta       = DEF_CFG.civil.
     CFG_TUM.civil.cimento > 50 || CFG_TUM.civil.areia > 150 || CFG_TUM.civil.brita > 180;
   if (precisaMigrar) {
     CFG_TUM.civil = JSON.parse(JSON.stringify(DEF_CFG.civil));
-    localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+    _svTumCfg();
     console.info('[HR Túmulos] Preços civis migrados v64→v66 (ferro agora em R$/metro linear)');
   }
 })();
@@ -460,7 +482,7 @@ function iaAplicarResultado(p) {
         esp: nm.esp || 3
       };
       CFG_TUM.pedras.push(novaPedra);
-      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+      _svTumCfg();
       buildPedrasCfg();
       buildMatCats();
       buildMatList();
@@ -3482,7 +3504,7 @@ function salvarHistorico() {
     if (HIST.length > 50) HIST.pop();
     toast('\u2713 Salvo no histórico!');
   }
-  localStorage.setItem('hr_tum_hist', JSON.stringify(HIST));
+  _svTumHist(JSON.stringify(HIST));
   renderHistorico();
   // Salvar no orçamento ativo do ERP
   if (_TI_ambId) _tumInlineSaveAmb();
@@ -3776,7 +3798,7 @@ function confirmarDel(i) {
   btn.textContent = '🗑 Excluir';
   btn.onclick = function() {
     HIST.splice(delIdx, 1);
-    localStorage.setItem('hr_tum_hist', JSON.stringify(HIST));
+    _svTumHist(JSON.stringify(HIST));
     renderHistorico();
     fecharModal('modalDel');
     toast('✓ Removido do histórico');
@@ -3789,7 +3811,7 @@ function confirmarLimpar() {
   btn.textContent = '🗑 Limpar Tudo';
   btn.onclick = function() {
     HIST = [];
-    localStorage.setItem('hr_tum_hist', '[]');
+    _svTumHist('[]');
     renderHistorico();
     fecharModal('modalDel');
     btn.textContent = '🗑 Excluir';
@@ -3845,7 +3867,7 @@ function testarGroq() {
       res.textContent = '✓ Groq conectado!';
       res.style.color = 'var(--grn)';
       CFG_TUM.groqKey = key;
-      localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+      _svTumCfg();
       toast('✓ Chave Groq salva!');
     }
   })
@@ -3904,7 +3926,7 @@ function svCfg() {
   CFG_TUM.civil.canaleta       = +(_gel('cCanaleta').value);
   CFG_TUM.civil.trelica        = +(_gel('cTrelica').value);
   CFG_TUM.civil.massa_plastica = +(_gel('cMassaPlastica').value);
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  _svTumCfg();
   buildMatList();
   _TI_calcular();
 }
@@ -3938,7 +3960,7 @@ function buildPedrasCfg() {
 }
 
 function svCfg2() {
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  _svTumCfg();
   buildMatList();
 }
 
@@ -3961,7 +3983,7 @@ function confirmarAddPedra() {
 
   var novaPedra = { id:'p_'+Date.now(), nm:nm, cat:cat, pr:pr, peso:peso, esp:esp };
   CFG_TUM.pedras.push(novaPedra);
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  _svTumCfg();
 
   // Selecionar automaticamente a pedra recém-criada no SEL
   SEL.matId = novaPedra.id;
@@ -3985,7 +4007,7 @@ function remPedra(i) {
   var nm = CFG_TUM.pedras[i].nm;
   CFG_TUM.pedras.splice(i, 1);
   if (!CFG_TUM.pedras.find(function(p){return p.id===SEL.matId;})) SEL.matId = CFG_TUM.pedras[0].id;
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  _svTumCfg();
   buildPedrasCfg();
   buildMatCats();
   buildMatList();
@@ -3995,7 +4017,7 @@ function remPedra(i) {
 function resetCfg() {
   if (!confirm('Restaurar todas as configurações padrão?')) return;
   CFG_TUM = JSON.parse(JSON.stringify(DEF_CFG));
-  localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+  _svTumCfg();
   loadCfgUI();
   buildPedrasCfg();
   buildMatCats();
@@ -4016,7 +4038,7 @@ function importarCfg() {
         var cfg = JSON.parse(ev.target.result);
         if (!cfg.emp || !cfg.pedras) throw new Error('Formato inválido');
         CFG_TUM = cfg;
-        localStorage.setItem('hr_tum_cfg', JSON.stringify(CFG_TUM));
+        _svTumCfg();
         loadCfgUI();
         buildPedrasCfg();
         buildMatCats();
