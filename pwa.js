@@ -14,6 +14,16 @@ if('serviceWorker' in navigator){
         });
       }
     });
+    // Um app instalado (standalone) pode ficar dias em segundo plano sem
+    // NUNCA recarregar a página — e reg.update() só roda uma vez aqui, no
+    // load. Sem isso, um aparelho podia ficar preso numa versão antiga até
+    // alguém lembrar de forçar fechar e reabrir o app manualmente.
+    // Reforça a checagem: sempre que o app volta a ficar visível (usuário
+    // reabre/traz pra frente) e a cada 30min enquanto estiver aberto.
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'visible') reg.update().catch(function(){});
+    });
+    setInterval(function(){ reg.update().catch(function(){}); }, 30*60*1000);
   }).catch(function(){});
   // Recarrega quando novo SW assumir (guard anti-loop)
   var _swReloading = false;
