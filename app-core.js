@@ -198,7 +198,7 @@ function orcWhatsApp(id, e) {
   if(!q) return;
   var txt = '';
   if(q._txtPre && typeof _buildPriceText === 'function') {
-    txt = q._txtPre + _buildPriceText(q) + (q._txtFooter||'');
+    txt = q._txtPre + _buildPriceText(q) + (typeof _buildBrindeText==='function'?_buildBrindeText(q):'') + (q._txtFooter||'');
   } else {
     // Fallback compacto se o texto longo não estiver salvo
     var emp = CFG.emp || {};
@@ -522,11 +522,10 @@ var DB={
     // memória + IndexedDB, mas continuam em self.q pra tudo que LÊ funcionar
     // normalmente (histórico, perfil do cliente, backup, etc.).
     function _vivos(){ return self.q.filter(function(x){ return !x._arquivado; }); }
-    function _vivosT(){ return (self.t||[]).filter(function(x){ return !x._arquivado; }); }
     function _setAll(){
       localStorage.setItem('hr_q',JSON.stringify(_vivos()));
       localStorage.setItem('hr_j',JSON.stringify(self.j));
-      localStorage.setItem('hr_t',JSON.stringify(_vivosT()));
+      localStorage.setItem('hr_t',JSON.stringify(self.t));
       localStorage.setItem('hr_b',JSON.stringify(self.b));
       localStorage.setItem('hr_tombstones',JSON.stringify(self.tombstones));
     }
@@ -534,52 +533,33 @@ var DB={
       _setAll();
     }catch(e){
       if(e && (e.name==='QuotaExceededError' || e.code===22 || e.code===1014)){
-        // ── Cota do localStorage estourada — libera espaço em camadas, da
-        // mais barata/sem perda pra mais custosa, tentando salvar de novo
-        // depois de cada uma, até uma delas ser suficiente:
-        //  1) poda tombstones com +180 dias (não têm mais utilidade)
-        //  2) arquiva orçamentos antigos no IndexedDB (mantém os 150 mais novos)
-        //  3) arquiva lançamentos financeiros antigos no IndexedDB (mantém os 300 mais novos)
-        var KEEP_Q=150, KEEP_T=300;
-        var podou=_hrPodarTombstonesAntigos();
-        if(podou){
-          try{ _setAll(); toast('✓ Salvo (espaço liberado automaticamente).'); return; }catch(e0){}
-        }
+        // ── Cota do localStorage estourada: hr_q cresce sem limite (unshift a cada orçamento) ──
+        // Arquiva os orçamentos mais antigos em IndexedDB (sem limite prático) e mantém
+        // só os N mais recentes no localStorage — mas SEM removê-los de self.q, só
+        // marcando _arquivado:true, pra continuarem aparecendo no histórico normalmente.
+        var KEEP=150;
         var vivos=_vivos();
-        var precisaArquivarQ = vivos.length>KEEP_Q;
-        var precisaArquivarT = (self.t||[]).filter(function(x){return !x._arquivado;}).length>KEEP_T;
-        if(precisaArquivarQ){
-          var arquivados=vivos.slice(KEEP_Q);
+        if(vivos.length>KEEP){
+          var arquivados=vivos.slice(KEEP);
           arquivados.forEach(function(q){ q._arquivado=true; });
           _hrArquivarOrcamentosAntigos(arquivados);
-        }
-        if(precisaArquivarT){
-          var tVivos=(self.t||[]).filter(function(x){return !x._arquivado;});
-          var tArquivados=tVivos.slice(KEEP_T);
-          tArquivados.forEach(function(x){ x._arquivado=true; });
-          _hrArquivarAntigosGenerico('t',tArquivados);
-        }
-        if(precisaArquivarQ||precisaArquivarT){
           try{
             _setAll();
-            var partes=[];
-            if(precisaArquivarQ)partes.push((vivos.length-KEEP_Q)+' orçamento(s)');
-            if(precisaArquivarT)partes.push('lançamento(s) financeiro(s) antigos');
-            toast('⚠ Espaço cheio: '+partes.join(' e ')+' foram movidos pro arquivo (continuam visíveis normalmente, só não ficam mais no dispositivo local).');
+            toast('⚠ Espaço cheio: '+arquivados.length+' orçamentos antigos foram movidos pro arquivo (continuam visíveis no histórico, só não ficam mais no dispositivo local).');
           }catch(e2){
-            toast('🔴 Armazenamento cheio. Não foi possível salvar. Exporte um backup e limpe dados antigos.');
+            toast('🔴 Armazenamento cheio. Não foi possível salvar. Exporte um backup e limpe orçamentos antigos.');
             console.error('DB.sv falhou mesmo após arquivar:',e2);
           }
         } else {
-          toast('🔴 Armazenamento cheio e não há dados antigos suficientes para liberar espaço. Exporte um backup.');
-          console.error('QuotaExceededError em DB.sv, já está no mínimo:',e);
+          toast('🔴 Armazenamento cheio e não há orçamentos antigos suficientes para liberar espaço. Exporte um backup.');
+          console.error('QuotaExceededError em DB.sv, hr_q já está no mínimo:',e);
         }
       } else {
         console.error('Erro ao salvar DB:',e);
         if(typeof toast==='function')toast('⚠ Erro ao salvar dados: '+(e&&e.message?e.message:e));
       }
     }
-    if(SYNC.on)SYNC.pushDebounced();
+    if(SYNC.on)SYNC.push();
   }
 };
 var CFG=JSON.parse(localStorage.getItem('hr_cfg')||'null');
@@ -636,43 +616,6 @@ var SYNC={
   code:localStorage.getItem('hr_sync_code')||'',
   on:false,
   _push:null,
-  _pushTimer:null,
-  _lastPushFailToast:0,
-  // Chamado por DB.sv()/svCFG() em toda alteração — que pode disparar a
-  // cada tecla digitada (calcular() roda no oninput em alguns campos) ou a
-  // cada clique. Em vez de mandar um push() completo (todo o CFG + q/j/t/b)
-  // pro Firebase a cada uma dessas chamadas, agrupa as que chegam a menos
-  // de 1.2s de distância num único envio. Também loga/avisa (sem spam) se o
-  // push falhar, já que antes uma falha aqui passava 100% silenciosa.
-  pushDebounced:function(){
-    var self=this;
-    if(self._pushTimer) clearTimeout(self._pushTimer);
-    self._pushTimer=setTimeout(function(){
-      self._pushTimer=null;
-      self.push().catch(function(e){
-        console.warn('Sync push (debounced) falhou:', e);
-        var agora=Date.now();
-        if(agora-self._lastPushFailToast>30000){ // no máx. 1 aviso a cada 30s
-          self._lastPushFailToast=agora;
-          if(typeof toast==='function') toast('⚠ Falha ao sincronizar — verifique sua internet. Os dados já estão salvos neste aparelho.');
-        }
-      });
-    }, 1200);
-  },
-  // Força o envio pendente AGORA, sem esperar os 1.2s do debounce — chamado
-  // quando o app vai pra segundo plano/é fechado (ver visibilitychange/
-  // pagehide no boot). Sem isso, um orçamento salvo bem antes de trocar de
-  // tela ou fechar o app podia nunca chegar a sincronizar: o timer do
-  // debounce fica pendente, e navegadores mobile costumam suspender timers
-  // JS assim que o app sai de primeiro plano — o dado ficava salvo só
-  // localmente, sem aparecer nos outros aparelhos.
-  flush:function(){
-    if(this._pushTimer){
-      clearTimeout(this._pushTimer);
-      this._pushTimer=null;
-      if(this.on) this.push().catch(function(e){ console.warn('Sync flush falhou:', e); });
-    }
-  },
   init:function(code){
     if(!code){this.code='';localStorage.removeItem('hr_sync_code');this.on=false;return;}
     // Firebase project — free Realtime DB
@@ -698,26 +641,8 @@ var SYNC={
       this.code=code;
       localStorage.setItem('hr_sync_code',code);
       this.on=true;
-      this._retryDelay=2000;
-      var self=this;
-      toast('🔄 Conectando...');
-      // Leitura única, além do listener contínuo (_listen) abaixo: confirma
-      // NA HORA se a conexão/código funcionam e quanto tem pra baixar — sem
-      // isso, entrar um código num aparelho novo ficava em silêncio total
-      // até os dados aparecerem (ou não), indistinguível de uma falha real.
-      this.db.ref('hr/'+code).once('value').then(function(snap){
-        var d=snap.val();
-        if(d && d._ts){
-          var nOrc=(d.q||[]).length;
-          var nCat=['stones','coz','lav','ac'].reduce(function(s,f){return s+((d.cfg&&Array.isArray(d.cfg[f]))?d.cfg[f].length:0);},0);
-          toast('✓ Conectado! Baixando '+nOrc+' orçamento(s) e '+nCat+' item(ns) de catálogo...');
-        } else {
-          toast('✓ Conectado — código "'+code+'" ainda sem dados (este é o 1º aparelho nele).');
-        }
-      }).catch(function(e){
-        toast('❌ Não foi possível conectar: '+(e&&e.message?e.message:'verifique sua internet'));
-      });
       this._listen();
+      toast('✓ Sincronização ativa — código: '+code);
       if(typeof FCM!=='undefined' && typeof Notification!=='undefined' && Notification.permission==='granted') FCM.init();
     }catch(e){toast('Sync: configure o Firebase (ver instruções)');}
   },
@@ -725,7 +650,6 @@ var SYNC={
     if(!this.db||!this.code)return;
     var self=this;
     this.db.ref('hr/'+this.code).on('value',function(snap){
-      self._retryDelay=2000; // uma leitura ok reseta o backoff de reconexão
       var d=snap.val();
       if(!d||!d._ts)return;
       var localTs=+localStorage.getItem('hr_sync_ts')||0;
@@ -774,25 +698,10 @@ var SYNC={
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
-        if(!self._primeiraSyncOk){
-          self._primeiraSyncOk=true;
-          toast('✓ Dados deste código carregados neste aparelho!');
-        } else {
-          toast('↓ Dados sincronizados!');
-        }
+        toast('↓ Dados sincronizados!');
       }
     }, function(erro){
-      // Listener do Firebase caiu (rede, permissão temporária, etc.) — sem
-      // reconectar sozinho, o aparelho ficava sem sincronizar mais nada até
-      // alguém lembrar de recarregar a página manualmente. Tenta de novo
-      // com backoff crescente (2s, 4s, 8s... até 30s) em vez de desistir.
-      toast('❌ Sincronização interrompida — tentando reconectar...');
-      self.on=false;
-      var espera=Math.min(self._retryDelay||2000,30000);
-      setTimeout(function(){
-        if(self.code){ self.on=true; self._listen(); }
-      },espera);
-      self._retryDelay=Math.min((self._retryDelay||2000)*2,30000);
+      toast('❌ ERRO ao sincronizar: '+erro.message);
     });
   },
   push:function(){
@@ -1291,89 +1200,6 @@ function _hrCarregarOrcamentosArquivados() {
   });
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// Arquivamento genérico em IndexedDB — mesma ideia usada acima só pra
-// orçamentos, agora reutilizável pra qualquer coleção do DB. Numa marmoraria
-// funcionando há anos, os LANÇAMENTOS FINANCEIROS (DB.t) crescem tanto
-// quanto os orçamentos, e sem essa proteção, se fossem eles a estourar a
-// cota do localStorage, o app tentava liberar espaço arquivando orçamentos
-// (que podem já estar no mínimo) e continuava falhando do mesmo jeito.
-// ══════════════════════════════════════════════════════════════════════════
-var _hrColDBP = {};
-function _hrColDBOpen(nomeStore) {
-  if (_hrColDBP[nomeStore]) return _hrColDBP[nomeStore];
-  _hrColDBP[nomeStore] = new Promise(function(resolve, reject) {
-    if (!window.indexedDB) { reject(new Error('IndexedDB indisponível')); return; }
-    var req = indexedDB.open('hr_col_db_' + nomeStore, 1);
-    req.onupgradeneeded = function() {
-      var db = req.result;
-      if (!db.objectStoreNames.contains(nomeStore)) db.createObjectStore(nomeStore, { keyPath: 'id' });
-    };
-    req.onsuccess = function() { resolve(req.result); };
-    req.onerror   = function() { reject(req.error); };
-  });
-  return _hrColDBP[nomeStore];
-}
-function _hrArquivarAntigosGenerico(nomeStore, lista) {
-  if (!lista || !lista.length) return Promise.resolve();
-  return _hrColDBOpen(nomeStore).then(function(db) {
-    return new Promise(function(resolve, reject) {
-      var tx = db.transaction(nomeStore, 'readwrite');
-      var store = tx.objectStore(nomeStore);
-      lista.forEach(function(item) { store.put(item); });
-      tx.oncomplete = resolve;
-      tx.onerror = function() { reject(tx.error); };
-    });
-  }).catch(function(e) {
-    console.error('[_hrArquivarAntigosGenerico:' + nomeStore + '] Falha ao arquivar:', e);
-  });
-}
-function _hrColDBGetAll(nomeStore) {
-  return _hrColDBOpen(nomeStore).then(function(db) {
-    return new Promise(function(resolve, reject) {
-      var tx = db.transaction(nomeStore, 'readonly');
-      var req = tx.objectStore(nomeStore).getAll();
-      req.onsuccess = function() { resolve(req.result || []); };
-      req.onerror = function() { reject(req.error); };
-    });
-  });
-}
-// Carrega de volta pra memória (marcado _arquivado:true) — mesmo padrão do
-// _hrCarregarOrcamentosArquivados acima, pra continuar aparecendo em
-// Finanças/relatórios/backup mesmo sem ocupar espaço no localStorage.
-function _hrCarregarArquivadosGenerico(nomeStore, arrRef) {
-  return _hrColDBGetAll(nomeStore).then(function(arquivados) {
-    if (!arquivados || !arquivados.length) return arrRef;
-    var idsAtuais = {};
-    arrRef.forEach(function(x) { idsAtuais[x.id] = true; });
-    var novos = arquivados.filter(function(x) { return !idsAtuais[x.id]; });
-    if (!novos.length) return arrRef;
-    novos.forEach(function(x) { x._arquivado = true; });
-    Array.prototype.push.apply(arrRef, novos);
-    arrRef.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
-    return arrRef;
-  }).catch(function(e) {
-    console.error('[_hrCarregarArquivadosGenerico:' + nomeStore + '] Falha ao recuperar:', e);
-    return arrRef;
-  });
-}
-// Remove tombstones (marcas de exclusão) com mais de 180 dias. Elas só
-// precisam existir tempo suficiente pra todo aparelho já ter sincronizado
-// a exclusão — depois disso não servem mais pra nada e só crescem à toa
-// pra sempre a cada item excluído desde o início do uso do app.
-function _hrPodarTombstonesAntigos() {
-  try {
-    var LIMITE = Date.now() - 180 * 24 * 60 * 60 * 1000;
-    var mudou = false;
-    Object.keys(DB.tombstones || {}).forEach(function(coll) {
-      Object.keys(DB.tombstones[coll] || {}).forEach(function(id) {
-        if ((DB.tombstones[coll][id] || 0) < LIMITE) { delete DB.tombstones[coll][id]; mudou = true; }
-      });
-    });
-    return mudou;
-  } catch (e) { console.warn('[_hrPodarTombstonesAntigos]', e); return false; }
-}
-
 function svCFG(){
   // ── Separa fotos[] das cubas antes de serializar o CFG ──────────────────
   // Fotos ficam no IndexedDB (ver acima), não em hr_cfg — hr_cfg guarda só
@@ -1434,7 +1260,7 @@ function svCFG(){
     throw e3;
   });
 
-  if(SYNC.on) SYNC.pushDebounced();
+  if(SYNC.on) SYNC.push();
 }
 
 // ── Reinjeta fotos[] nas cubas a partir do IndexedDB ──────────────────────
@@ -1474,13 +1300,6 @@ function _restoreCubaFotos() {
 
 // ═══ STATE ═══
 var selMat=null,pendQ=null,fType='in',catF='Todos',cubaCat='coz',cfgTab=0,editTrId=null,editJobId=null,fileTarget=null,cbYcb=null,cbNcb=null;
-// ID do orçamento "em elaboração" nesta sessão de cálculo (ainda não é uma
-// edição de um orçamento já salvo — controlada por pendEditId). Enquanto o
-// usuário ajusta urgência/valor do móvel e calcular() roda de novo, esse ID
-// permite ATUALIZAR o mesmo registro em vez de criar um duplicata nova a
-// cada recálculo. É resetado (novoOrcamento) sempre que um orçamento
-// realmente novo começa.
-var _draftQId=null;
 // Ambientes: cada um tem id, tipo, pecas[], selCuba
 var ambientes=[];
 var _cubaPickKey=null;
@@ -1559,11 +1378,6 @@ document.addEventListener('DOMContentLoaded',function(){
   // cliente/backups — só não voltam a ocupar espaço no localStorage.
   if (typeof _hrCarregarOrcamentosArquivados === 'function') {
     _hrCarregarOrcamentosArquivados();
-  }
-  if (typeof _hrCarregarArquivadosGenerico === 'function') {
-    _hrCarregarArquivadosGenerico('t', DB.t).then(function(){
-      if (typeof renderFin === 'function') { try { renderFin(); } catch(e) {} }
-    });
   }
 
   // ── Migração única: orçamentos que JÁ estavam "aprovado" antes desta
@@ -1749,13 +1563,13 @@ window.aplicarEstiloNi=function(){
 
   // ── Rascunho: salva sempre que o app for pra segundo plano/fechado ──
   document.addEventListener('visibilitychange', function(){
-    if(document.hidden){ _salvarRascunho(); SYNC.flush(); }
+    if(document.hidden) _salvarRascunho();
   });
-  window.addEventListener('pagehide', function(){ _salvarRascunho(); SYNC.flush(); });
-  window.addEventListener('blur', function(){ _salvarRascunho(); SYNC.flush(); });
+  window.addEventListener('pagehide', _salvarRascunho);
+  window.addEventListener('blur', _salvarRascunho);
   // Rede de segurança: alguns WebViews Android não disparam os eventos acima
-  // a tempo antes de matar o processo — salva (e sincroniza) periodicamente também.
-  setInterval(function(){ _salvarRascunho(); SYNC.flush(); }, 15000);
+  // a tempo antes de matar o processo — salva periodicamente também.
+  setInterval(_salvarRascunho, 15000);
 
   // ── Bridge bidirecional: pedra do módulo Túmulos ↔ selMat global ──
   window.tumSyncMat = function(stoneId) {
@@ -5634,6 +5448,75 @@ function aplicarVistaAdj() {
   if (fin) fin.textContent = 'R$ ' + fm(newVista) + (mode === 'pct' ? '  (-' + parseFloat(document.getElementById('vistaDiscPct').value) + '%)' : '');
   toast('✓ À vista ajustado: R$ ' + fm(newVista));
 }
+// ── Brinde (cortesia) para o cliente: do catálogo de acessórios ou nome livre ──
+window._brindeMode = 'cat';
+function setBrindeMode(mode) {
+  window._brindeMode = mode;
+  document.querySelectorAll('[data-bmode]').forEach(function(b) {
+    var on = b.dataset.bmode === mode;
+    b.classList.toggle('on', on);
+    b.style.opacity = on ? '1' : '.55';
+    b.style.borderColor = on ? 'var(--gold2)' : 'var(--bd2)';
+  });
+  var catW = document.getElementById('brindeCatWrap');
+  var livW = document.getElementById('brindeLivreWrap');
+  if (catW) catW.style.display = mode === 'cat' ? 'flex' : 'none';
+  if (livW) livW.style.display = mode === 'livre' ? 'flex' : 'none';
+}
+function addBrinde() {
+  if (!pendQ) return;
+  var nome = '';
+  if (window._brindeMode === 'cat') {
+    var sel = document.getElementById('brindeCatSel');
+    var id = sel ? sel.value : '';
+    if (!id) { toast('Selecione um acessório do catálogo'); return; }
+    var item = (CFG.ac || []).find(function(a) { return a.id === id; });
+    nome = item ? (item.nm || item.id) : id;
+  } else {
+    var inp = document.getElementById('brindeLivreInp');
+    nome = inp ? inp.value.trim() : '';
+    if (!nome) { toast('Digite o nome do brinde'); return; }
+    if (inp) inp.value = '';
+  }
+  pendQ.brindes = pendQ.brindes || [];
+  pendQ.brindes.push({ nome: nome, origem: window._brindeMode });
+  _renderBrindeLista();
+  _refreshQuoteBoxText();
+  toast('🎁 Brinde adicionado');
+}
+function removeBrinde(idx) {
+  if (!pendQ || !pendQ.brindes) return;
+  pendQ.brindes.splice(idx, 1);
+  _renderBrindeLista();
+  _refreshQuoteBoxText();
+}
+function _renderBrindeLista() {
+  var el = document.getElementById('brindeLista');
+  if (!el) return;
+  var brindes = (pendQ && pendQ.brindes) || [];
+  if (!brindes.length) { el.innerHTML = ''; return; }
+  el.innerHTML = brindes.map(function(b, i) {
+    return '<div style="display:flex;align-items:center;justify-content:space-between;background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);border-radius:8px;padding:7px 10px;margin-bottom:6px;">'
+      + '<span style="font-size:.76rem;color:var(--tx);">🎁 ' + escH(b.nome) + '</span>'
+      + '<button type="button" onclick="removeBrinde(' + i + ')" style="background:none;border:none;color:var(--t3);font-size:.85rem;cursor:pointer;padding:2px 6px;">✕</button>'
+      + '</div>';
+  }).join('');
+}
+// ── Bloco de texto do brinde (WhatsApp) — destacado, entra entre o preço e o rodapé ──
+function _buildBrindeText(q) {
+  if (!q || !q.brindes || !q.brindes.length) return '';
+  return '\n🎁 BRINDE HR — CORTESIA\n' + q.brindes.map(function(b) { return '✓ ' + b.nome; }).join('\n') + '\n';
+}
+// Reconstrói o quoteBox já com o brinde atual, sem esperar o próximo ajuste de vista
+function _refreshQuoteBoxText() {
+  if (!pendQ || !pendQ._txtPre) return;
+  var qb = document.getElementById('quoteBox');
+  if (!qb) return;
+  var forma = window._formaPagEscolhida || 'vista';
+  var priceTxt = forma === 'parcelado' ? _buildPriceTextParcelado(pendQ) : _buildPriceText(pendQ);
+  qb.textContent = pendQ._txtPre + priceTxt + _buildBrindeText(pendQ) + pendQ._txtFooter;
+}
+
 function _applyVistaToUI() {
   if (!pendQ) return;
   var rdV = document.getElementById('rdVistaVal');
@@ -5682,7 +5565,7 @@ function _applyVistaToUI() {
   if (qb && pendQ._txtPre) {
     var _forma = window._formaPagEscolhida || 'vista';
     var _priceTxt = _forma === 'parcelado' ? _buildPriceTextParcelado(pendQ) : _buildPriceText(pendQ);
-    qb.textContent = pendQ._txtPre + _priceTxt + pendQ._txtFooter;
+    qb.textContent = pendQ._txtPre + _priceTxt + _buildBrindeText(pendQ) + pendQ._txtFooter;
   }
 }
 
@@ -5733,7 +5616,6 @@ function novoOrcamento() {
   }];
 
   pendQ = null;
-  _draftQId = null;
   renderAmbientes();
 
   var pg = document.getElementById('pg0');
@@ -6464,6 +6346,46 @@ function calcular(){
     if(_lblReset)_lblReset.textContent='💰 Ajustando o valor À VISTA';
   }
 
+  // ── Injetar seção de Brinde (cortesia pro cliente) ──
+  if(adjSec && !document.getElementById('brindeSec')){
+    var _bDiv=document.createElement('div');
+    _bDiv.id='brindeSec';
+    _bDiv.style.cssText='padding:12px 0;border-top:1px solid var(--bd);margin-top:8px;';
+    var _acOpts=(CFG.ac||[]).map(function(a){return '<option value="'+escH(a.id)+'">'+escH(a.nm||a.id)+'</option>';}).join('');
+    _bDiv.innerHTML='<label style="font-size:.65rem;color:var(--t3);font-weight:600;display:block;margin-bottom:6px;">🎁 Brinde para o cliente (opcional)</label>'
+      +'<div style="display:flex;gap:8px;margin-bottom:8px;">'
+        +'<button type="button" data-bmode="cat" onclick="setBrindeMode(\'cat\')" class="on" '
+          +'style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--gold2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.75rem;font-weight:700;opacity:1;">📦 Do Catálogo</button>'
+        +'<button type="button" data-bmode="livre" onclick="setBrindeMode(\'livre\')" '
+          +'style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.75rem;font-weight:700;opacity:.55;">✏️ Nome Livre</button>'
+      +'</div>'
+      +'<div id="brindeCatWrap" style="display:flex;gap:8px;margin-bottom:8px;">'
+        +'<select id="brindeCatSel" style="flex:1;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;">'
+          +'<option value="">'+(_acOpts?'Selecione um acessório…':'Nenhum acessório cadastrado')+'</option>'+_acOpts
+        +'</select>'
+      +'</div>'
+      +'<div id="brindeLivreWrap" style="display:none;gap:8px;margin-bottom:8px;">'
+        +'<input id="brindeLivreInp" type="text" maxlength="60" placeholder="Ex: Kit de ralos e sifões" '
+          +'style="flex:1;box-sizing:border-box;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 12px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.8rem;">'
+      +'</div>'
+      +'<button type="button" onclick="addBrinde()" class="btn btn-o" style="width:100%;padding:9px;font-size:.78rem;margin-bottom:8px;">+ Adicionar Brinde</button>'
+      +'<div id="brindeLista"></div>';
+    adjSec.appendChild(_bDiv);
+  }
+  // Reset dos controles de brinde (a lista em si só é renderizada depois
+  // que `pendQ` apontar pro novo `q`, mais abaixo — aqui ainda é o pendQ
+  // da tela anterior)
+  window._brindeMode = 'cat';
+  document.querySelectorAll('[data-bmode]').forEach(function(b){
+    var on=b.dataset.bmode==='cat';
+    b.classList.toggle('on',on);
+    b.style.opacity=on?'1':'.55';
+    b.style.borderColor=on?'var(--gold2)':'var(--bd2)';
+  });
+  var _bCatW=document.getElementById('brindeCatWrap'); if(_bCatW)_bCatW.style.display='flex';
+  var _bLivW=document.getElementById('brindeLivreWrap'); if(_bLivW)_bLivW.style.display='none';
+  var _bLivInp=document.getElementById('brindeLivreInp'); if(_bLivInp)_bLivInp.value='';
+
   // Salvar snapshot dos ambientes para poder recarregar depois
   var ambSnap=ambientes.map(function(a){
     var snap={tipo:a.tipo,pecas:JSON.parse(JSON.stringify(a.pecas)),selCuba:a.selCuba,svState:JSON.parse(JSON.stringify(a.svState||{})),acState:JSON.parse(JSON.stringify(a.acState||{})),selMat:a.selMat||null};
@@ -6493,7 +6415,7 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marca qual aparelho criou este orçamento (usado nas notificações de
   // "novo orçamento" pros outros dispositivos sincronizados saberem quem fez).
   q.criadoPor = localStorage.getItem('hr_device_name') || '';
@@ -6504,35 +6426,18 @@ function calcular(){
     if(eIdx>=0){
       q.id=DB.q[eIdx].id;
       q.criadoPor=DB.q[eIdx].criadoPor||q.criadoPor; // preserva o autor original na edição
+      q.brindes=DB.q[eIdx].brindes||[]; // preserva brindes já adicionados ao reeditar
       DB.q[eIdx]=q;
     } else {
       DB.q.unshift(q);
     }
     pendEditId=null;
-    // Continua rastreando este id: se o usuário recalcular de novo (ajustar
-    // urgência, valor do móvel, clicar Calcular outra vez) ANTES de sair da
-    // tela ou carregar outro orçamento, esses recálculos seguintes devem
-    // continuar atualizando ESTE mesmo registro (ramo abaixo), não criar
-    // um novo — esse era exatamente o bug relatado ao editar um orçamento
-    // e salvar/recalcular mais de uma vez.
-    _draftQId=q.id;
-  } else if(_draftQId){
-    // Recálculo (urgência, valor do móvel etc.) de um orçamento que esta
-    // MESMA sessão já havia salvo — atualiza o registro existente em vez de
-    // criar um novo, evitando duplicatas idênticas no histórico e no sync.
-    var dIdx=DB.q.findIndex(function(x){return x.id==_draftQId;});
-    q.id=_draftQId;
-    if(dIdx>=0){
-      q.criadoPor=DB.q[dIdx].criadoPor||q.criadoPor;
-      DB.q[dIdx]=q;
-    } else {
-      DB.q.unshift(q); // não achou (ex: foi excluído nesse meio-tempo) — recria
-    }
   } else {
-    _draftQId=q.id;
     DB.q.unshift(q);
   }
   DB.sv();pendQ=q;
+  _renderBrindeLista();
+  _refreshQuoteBoxText();
   // ── Consultor de Desconto (reconhece cliente pelo nome, aplica bônus por histórico) + auto-save do cliente ──
   if(typeof _cliMostrarConsultor==='function'||typeof _cliAutoSave==='function'){
     setTimeout(function(){
@@ -7053,6 +6958,17 @@ function gerarPDF(){
         +'</div>'
       +'</div>'
     +'</div>')
+
+    // BRINDE (cortesia) — só aparece quando há brinde adicionado ao orçamento
+    +(q.brindes&&q.brindes.length?(
+      '<div style="background:linear-gradient(135deg,#fdf6e3,#faf0d0);border:2px dashed #C9A84C;border-radius:12px;padding:16px 20px;margin-bottom:20px;">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+          +'<span style="font-size:20px;">🎁</span>'
+          +'<span style="font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:#a06020;font-weight:900;">Cortesia HR Mármores e Granitos</span>'
+        +'</div>'
+        +q.brindes.map(function(b){return '<div style="font-size:14px;font-weight:800;color:#7a4400;padding:3px 0;">✓ '+escH(b.nome)+'</div>';}).join('')
+      +'</div>'
+    ):'')
 
     // CONDIÇÃO DE PAGAMENTO
     +sh('Como Fica o Pagamento')
@@ -11613,6 +11529,7 @@ function orcCopiar(id, e) {
     '',
     'A VISTA',
     'R$ ' + fm(q.vista),
+    _buildBrindeText(q),
     '==================',
     CFG.emp.nome,
     CFG.emp.tel
@@ -12306,39 +12223,12 @@ function _coletarLocalStorageExtra(){
 }
 
 function baixarBackup(){
-  toast('⏳ Preparando backup (comprimindo fotos)...');
+  toast('⏳ Preparando backup (incluindo fotos)...');
   _hrFotoDBGetAll().catch(function(){ return {}; }).then(function(fotosDB){
-    // Comprime as fotos do IndexedDB antes de embutir no backup — uma foto
-    // direto da câmera do celular facilmente passa de 3-5MB, e com dezenas
-    // de pedras/cubas cadastradas isso rapidamente vira um arquivo de
-    // centenas de MB que trava a geração/download no celular. Reduz pra um
-    // tamanho máximo de 1600px mantendo qualidade boa o suficiente pra
-    // conferência (mesma técnica já usada no catálogo público).
-    var chaves=Object.keys(fotosDB);
-    var tasks=chaves.map(function(k){
-      var v=fotosDB[k];
-      if(Array.isArray(v)){
-        return Promise.all(v.map(function(f){return _compressImageDataUrl(f,1600,0.85);})).then(function(comp){fotosDB[k]=comp;});
-      }
-      return _compressImageDataUrl(v,1600,0.85).then(function(c){fotosDB[k]=c;});
-    });
-    return Promise.all(tasks).then(function(){return fotosDB;});
-  }).then(function(fotosDB){
-    // CFG "leve": remove o array `fotos` que _restoreCubaFotos() reinjetou
-    // em memória a partir do IndexedDB pra exibição em tela — sem isso,
-    // cada foto ia parar DUAS VEZES no backup (uma aqui, outra em
-    // fotosDB abaixo), quase dobrando o tamanho do arquivo à toa. `photo`
-    // (a capa, uma imagem só) continua, é usada pra mostrar algo na tela
-    // antes do IndexedDB terminar de carregar.
-    var cfgLeve=JSON.parse(JSON.stringify(CFG));
-    var camposComFoto=['coz','lav','stones','ac','trabalhos','referencias'];
-    camposComFoto.forEach(function(campo){
-      (cfgLeve[campo]||[]).forEach(function(item){ delete item.fotos; });
-    });
     var dados={
-      _v:4,
+      _v:3,
       _ts:Date.now(),
-      cfg:cfgLeve,
+      cfg:CFG,
       q:DB.q,
       j:DB.j,
       t:DB.t,
@@ -12350,19 +12240,15 @@ function baixarBackup(){
     var json=JSON.stringify(dados);
     var dt=new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
     var fname='HR_Backup_'+dt+'.json';
-    var tamanhoMB=(json.length/1024/1024).toFixed(1);
     var blob=new Blob([json],{type:'application/json'});
     if(navigator.share){
       var file=new File([blob],fname,{type:'application/json'});
       navigator.share({files:[file],title:'Backup HR Mármores'})
-        .then(function(){toast('✓ Backup completo (com fotos, '+tamanhoMB+'MB) compartilhado!');})
+        .then(function(){toast('✓ Backup completo (com fotos) compartilhado!');})
         .catch(function(){_baixarViaLink(json,fname);});
       return;
     }
     _baixarViaLink(json,fname);
-  }).catch(function(e){
-    console.error('[baixarBackup] falhou:',e);
-    toast('❌ Não foi possível gerar o backup: '+(e&&e.message?e.message:'erro desconhecido'));
   });
 }
 // ═══ CATÁLOGO PÚBLICO (catalogo.html via GitHub) ═══
@@ -12627,17 +12513,11 @@ function copiarLinkCatalogo(){
 }
 
 function _baixarViaLink(json,fname){
-  // Blob + URL.createObjectURL em vez de data: URI: navegadores mobile
-  // (Chrome Android incluso) têm um limite de tamanho pra data: URIs — um
-  // JSON grande (com fotos embutidas) passava desse limite e o download
-  // saía truncado/corrompido, causando "Arquivo inválido" ao tentar
-  // restaurar depois. Blob URL não tem esse teto.
-  var blob=new Blob([json],{type:'application/json'});
-  var url=URL.createObjectURL(blob);
+  var uri='data:application/json;charset=utf-8,'+encodeURIComponent(json);
   var a=document.createElement('a');
-  a.href=url;a.download=fname;
+  a.href=uri;a.download=fname;a.target='_blank';
   document.body.appendChild(a);a.click();
-  setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},2000);
+  setTimeout(function(){document.body.removeChild(a);},1000);
   toast('📥 Backup salvo! Verifique seus Downloads.');
 }
 
@@ -12681,29 +12561,16 @@ function _restaurarBackup(d){
 
 function carregarBackup(input){
   var file=input.files[0];if(!file)return;
-  var tamanhoMB=(file.size/1024/1024).toFixed(1);
-  toast('⏳ Lendo backup ('+tamanhoMB+'MB)...');
   var reader=new FileReader();
-  reader.onerror=function(){
-    toast('❌ Falha ao ler o arquivo — tente novamente ou verifique se não está corrompido.');
-  };
   reader.onload=function(e){
-    var d;
     try{
-      d=JSON.parse(e.target.result);
-    }catch(err){
-      console.error('[carregarBackup] JSON.parse falhou:',err);
-      toast('❌ Não foi possível ler este backup (arquivo corrompido ou incompleto).');
-      return;
-    }
-    toast('⏳ Restaurando backup...');
-    Promise.resolve(_restaurarBackup(d)).then(function(){
-      toast('✓ Backup restaurado! Recarregando...');
-      setTimeout(function(){location.reload();},900);
-    }).catch(function(err2){
-      console.error('[carregarBackup] restaurar falhou:',err2);
-      toast('❌ Falha ao restaurar: '+(err2&&err2.message?err2.message:'erro desconhecido'));
-    });
+      var d=JSON.parse(e.target.result);
+      toast('⏳ Restaurando backup...');
+      Promise.resolve(_restaurarBackup(d)).then(function(){
+        toast('✓ Backup restaurado! Recarregando...');
+        setTimeout(function(){location.reload();},900);
+      });
+    }catch(err){toast('❌ Arquivo inválido');}
   };
   reader.readAsText(file);
 }
@@ -13569,10 +13436,12 @@ function _applyMode(){
   }
 }
 
-// PWA Service Worker
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').catch(function(){});
-}
+// PWA Service Worker: registro real fica só em pwa.js (com updateViaCache:
+// 'none' + checagem forçada de atualização) — um segundo register('sw.js')
+// aqui, sem essas opções, rodava ANTES de pwa.js (script anterior no HTML)
+// e podia "vencer" a corrida deixando o navegador cachear o sw.js por HTTP
+// normal, atrasando a detecção de versão nova em dias/semanas num app que
+// fica sempre aberto em segundo plano.
 
 // ── Micro-interactions ──
 document.addEventListener('DOMContentLoaded', function(){
