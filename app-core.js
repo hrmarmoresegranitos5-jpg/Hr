@@ -1300,6 +1300,13 @@ function _restoreCubaFotos() {
 
 // ═══ STATE ═══
 var selMat=null,pendQ=null,fType='in',catF='Todos',cubaCat='coz',cfgTab=0,editTrId=null,editJobId=null,fileTarget=null,cbYcb=null,cbNcb=null;
+// ID do orçamento "em elaboração" nesta sessão de cálculo (ainda não é uma
+// edição de um orçamento já salvo — controlada por pendEditId). Enquanto o
+// usuário ajusta urgência/valor do móvel e calcular() roda de novo, esse ID
+// permite ATUALIZAR o mesmo registro em vez de criar um duplicata nova a
+// cada recálculo. É resetado (novoOrcamento) sempre que um orçamento
+// realmente novo começa.
+var _draftQId=null;
 // Ambientes: cada um tem id, tipo, pecas[], selCuba
 var ambientes=[];
 var _cubaPickKey=null;
@@ -5547,6 +5554,7 @@ function novoOrcamento() {
   }];
 
   pendQ = null;
+  _draftQId = null;
   renderAmbientes();
 
   var pg = document.getElementById('pg0');
@@ -6322,7 +6330,27 @@ function calcular(){
       DB.q.unshift(q);
     }
     pendEditId=null;
+    // Continua rastreando este id: se o usuário recalcular de novo (ajustar
+    // urgência, valor do móvel, clicar Calcular outra vez) ANTES de sair da
+    // tela ou carregar outro orçamento, esses recálculos seguintes devem
+    // continuar atualizando ESTE mesmo registro (ramo abaixo), não criar
+    // um novo — esse era exatamente o bug relatado ao editar um orçamento
+    // e salvar/recalcular mais de uma vez.
+    _draftQId=q.id;
+  } else if(_draftQId){
+    // Recálculo (urgência, valor do móvel etc.) de um orçamento que esta
+    // MESMA sessão já havia salvo — atualiza o registro existente em vez de
+    // criar um novo, evitando duplicatas idênticas no histórico e no sync.
+    var dIdx=DB.q.findIndex(function(x){return x.id==_draftQId;});
+    q.id=_draftQId;
+    if(dIdx>=0){
+      q.criadoPor=DB.q[dIdx].criadoPor||q.criadoPor;
+      DB.q[dIdx]=q;
+    } else {
+      DB.q.unshift(q); // não achou (ex: foi excluído nesse meio-tempo) — recria
+    }
   } else {
+    _draftQId=q.id;
     DB.q.unshift(q);
   }
   DB.sv();pendQ=q;
