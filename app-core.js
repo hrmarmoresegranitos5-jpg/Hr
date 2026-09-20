@@ -8,6 +8,11 @@ window.onerror = function(msg, src, line, col, err) {
 };
 // ════════════════════════════════════════════════
 
+// Versão do build — bumpar junto com "app-core.js?v=" (index.html) e
+// CACHE_NAME (sw.js) a cada deploy. Mostrado em Config → Empresa pra dar
+// pra comparar visualmente se dois aparelhos estão na mesma versão.
+window.APP_BUILD_VERSION = 'v38';
+
 // ── Histórico de Orçamentos ─────────────────────────────────────────────────
 var _orcFilter = '';
 var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aceito' | 'concluido' | 'perdido'
@@ -610,6 +615,40 @@ function _syncMergeTombstones(localTomb, remoteTomb){
   return result;
 }
 
+// Poda orçamentos-clone gerados independentemente em dois aparelhos: mesmo
+// cliente + tipo + material + valor à vista, criados no mesmo dia. Mantém
+// SEMPRE o de menor id (o mais antigo/original) e marca os demais como
+// excluídos (tombstone), pra convergir pra uma cópia só nos próximos syncs.
+// Só mexe em orçamentos com status "pendente" — um já aprovado/concluído
+// nunca é tocado aqui, mesmo que "pareça" duplicado.
+function _dedupOrcamentosSync(arr){
+  arr = arr || [];
+  var grupos = {};
+  arr.forEach(function(q){
+    if(!q || q.id==null || q.status!=='pendente') return;
+    var chave = [
+      (q.cli||'').trim().toLowerCase(),
+      q.tipo||'',
+      q.mat||'',
+      Math.round((q.vista||0)*100),
+      q.date||''
+    ].join('|');
+    (grupos[chave] = grupos[chave] || []).push(q);
+  });
+  var idsRemover = {};
+  Object.keys(grupos).forEach(function(k){
+    var g = grupos[k];
+    if(g.length<2) return;
+    g.sort(function(a,b){ return a.id-b.id; });
+    for(var i=1;i<g.length;i++){
+      idsRemover[g[i].id]=true;
+      DB.marcarExcluido('q', g[i].id);
+    }
+  });
+  if(!Object.keys(idsRemover).length) return arr;
+  return arr.filter(function(q){ return !q || q.id==null || !idsRemover[q.id]; });
+}
+
 // ═══ SYNC (Firebase) ═══
 var SYNC={
   db:null,
@@ -695,6 +734,11 @@ var SYNC={
         if(d.j)DB.j=_syncMergeById(DB.j,d.j,DB.tombstones.j);
         if(d.t)DB.t=_syncMergeById(DB.t,d.t,DB.tombstones.t);
         if(d.b)DB.b=_syncMergeById(DB.b,d.b,DB.tombstones.b);
+        // Orçamento igual criado independentemente nos dois aparelhos (mesmo
+        // cliente/tipo/material/valor no mesmo dia) vira 2 ids diferentes —
+        // o merge por ID acima não detecta isso. Poda as cópias extras aqui,
+        // já marcando tombstone pra elas não "voltarem" num próximo sync.
+        DB.q=_dedupOrcamentosSync(DB.q);
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
@@ -10327,6 +10371,29 @@ function buildCfg(){
   else if(cfgTab===4){
     // EMPRESA — completo e organizado
     var e=CFG.emp;
+    // ── Versão do app instalado neste aparelho (comparar entre celulares) ──
+    h+='<div class="cfgsec"><div class="cfghd">🔖 Versão deste Aparelho</div>';
+    h+='<div style="padding:12px 13px;">';
+    h+='<div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--t2);margin-bottom:4px;"><span>Código (app-core.js)</span><b style="color:var(--gold2);">'+(window.APP_BUILD_VERSION||'?')+'</b></div>';
+    h+='<div id="cfgSwVer" style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--t2);margin-bottom:4px;"><span>Service Worker</span><b style="color:var(--gold2);">verificando…</b></div>';
+    h+='<div style="font-size:.6rem;color:var(--t4);margin-top:6px;">Se esse número for diferente do outro celular, um dos dois ainda não recebeu a atualização — feche o app dos dois lados e reabra, ou puxe pra atualizar.</div>';
+    h+='</div></div>';
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistration().then(function(reg){
+        var el=document.getElementById('cfgSwVer');
+        if(!el)return;
+        var sw=reg&&(reg.active||reg.waiting||reg.installing);
+        if(!sw){el.querySelector('b').textContent='nenhum registrado';return;}
+        if(reg.waiting){el.querySelector('b').textContent='atualização baixada — reabra o app';el.querySelector('b').style.color='#e8b84c';return;}
+        // Pergunta pro próprio SW qual CACHE_NAME ele está usando
+        try{
+          var mc=new MessageChannel();
+          mc.port1.onmessage=function(ev){ if(ev.data&&ev.data.cacheName)el.querySelector('b').textContent=ev.data.cacheName; };
+          sw.postMessage({type:'GET_VERSION'},[mc.port2]);
+          setTimeout(function(){ if(el.querySelector('b').textContent==='verificando…')el.querySelector('b').textContent='ativo (sem resposta)'; },1500);
+        }catch(_e){ el.querySelector('b').textContent='ativo'; }
+      }).catch(function(){});
+    }
     // ── Indicador de uso do localStorage (quota costuma ser ~5-10MB) ──
     (function(){
       var _bytes=0;
