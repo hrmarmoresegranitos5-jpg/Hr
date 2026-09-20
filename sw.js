@@ -3,7 +3,7 @@
 // Network-first com fallback offline para index.html
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v27';
+var CACHE_NAME = 'hr-shell-v29';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
@@ -67,9 +67,12 @@ self.addEventListener('fetch', function(e) {
   );
 });
 
-// MESSAGE: compatibilidade com pwa.js
+// MESSAGE: compatibilidade com pwa.js + consulta de versão (Config → Empresa)
 self.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+  if (e.data && e.data.type === 'GET_VERSION' && e.ports && e.ports[0]) {
+    e.ports[0].postMessage({ cacheName: CACHE_NAME });
   }
 });
