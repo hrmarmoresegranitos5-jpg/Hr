@@ -11,7 +11,7 @@ window.onerror = function(msg, src, line, col, err) {
 // Versão do build — bumpar junto com "app-core.js?v=" (index.html) e
 // CACHE_NAME (sw.js) a cada deploy. Mostrado em Config → Empresa pra dar
 // pra comparar visualmente se dois aparelhos estão na mesma versão.
-window.APP_BUILD_VERSION = 'v38';
+window.APP_BUILD_VERSION = 'v39';
 
 // ── Histórico de Orçamentos ─────────────────────────────────────────────────
 var _orcFilter = '';

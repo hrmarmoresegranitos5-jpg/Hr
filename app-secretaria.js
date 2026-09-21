@@ -219,11 +219,24 @@ function _sendNotifRica(opts) {
   } catch(e) {}
 
   try {
-    var n = new Notification(opts.titulo, options);
-    n.onclick = function() { window.focus(); n.close(); };
-    // Notificações urgentes ficam até o usuário fechar, demais somem em 12s
-    if (!opts.urgente) {
-      setTimeout(function() { try { n.close(); } catch(e) {} }, 12000);
+    // Notificação via Service Worker quando disponível: em Android com o
+    // app controlado por SW, `new Notification()` direto pode lançar
+    // "Illegal constructor" — e as `actions` (abrir/dispensar) só funcionam
+    // mesmo via showNotification(), o construtor direto as ignora.
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(function(reg) {
+        reg.showNotification(opts.titulo, options);
+      }).catch(function(e) { console.warn('Notificação bloqueada:', e); });
+      if (!opts.urgente) {
+        // Sem instância local pra fechar sozinha; o SW cuida do tag/replace.
+      }
+    } else {
+      var n = new Notification(opts.titulo, options);
+      n.onclick = function() { window.focus(); n.close(); };
+      // Notificações urgentes ficam até o usuário fechar, demais somem em 12s
+      if (!opts.urgente) {
+        setTimeout(function() { try { n.close(); } catch(e) {} }, 12000);
+      }
     }
   } catch(e) {
     // Fallback silencioso
