@@ -3,7 +3,7 @@
 // Network-first com fallback offline para index.html
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v29';
+var CACHE_NAME = 'hr-shell-v30';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
@@ -75,4 +75,19 @@ self.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'GET_VERSION' && e.ports && e.ports[0]) {
     e.ports[0].postMessage({ cacheName: CACHE_NAME });
   }
+});
+
+// NOTIFICATIONCLICK: trata os botões "Abrir app"/"Dispensar" das notificações
+// disparadas via reg.showNotification() (app-secretaria.js, app-boletos.js)
+self.addEventListener('notificationclick', function(e) {
+  e.notification.close();
+  if (e.action === 'dispensar') return;
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
+      for (var i = 0; i < list.length; i++) {
+        if ('focus' in list[i]) return list[i].focus();
+      }
+      if (clients.openWindow) return clients.openWindow('./');
+    })
+  );
 });

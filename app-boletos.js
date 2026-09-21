@@ -2288,6 +2288,23 @@ function bPedirPermissaoNotif() {
   });
 }
 
+// Helper: dispara notificação via Service Worker quando disponível — em
+// Android com o app controlado por SW, `new Notification()` direto lança
+// "Illegal constructor" (o navegador exige showNotification() do registro).
+// Sem SW ativo (ex: desktop fora do PWA), cai pro construtor normal.
+function _showNotif(title, opts) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.ready.then(function(reg) {
+      reg.showNotification(title, opts);
+    }).catch(function() {
+      try { new Notification(title, opts); } catch (_e) {}
+    });
+  } else {
+    try { new Notification(title, opts); } catch (_e) {}
+  }
+}
+
 function bCheckNotificacoes() {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   var mudou = false;
@@ -2297,16 +2314,16 @@ function bCheckNotificacoes() {
     b._notif = b._notif || {};
     var nome = b.cli || b.desc || 'Boleto';
     if (diff < 0 && !b._notif.vencido) {
-      new Notification('🔴 Boleto vencido', { body: nome + ' — R$ ' + fm(b.valor) + ' venceu há ' + Math.abs(diff) + ' dia(s)', tag: 'boleto-' + b.id });
+      _showNotif('🔴 Boleto vencido', { body: nome + ' — R$ ' + fm(b.valor) + ' venceu há ' + Math.abs(diff) + ' dia(s)', tag: 'boleto-' + b.id });
       b._notif.vencido = true; mudou = true;
     } else if (diff === 0 && !b._notif.hoje) {
-      new Notification('🟡 Boleto vence hoje', { body: nome + ' — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      _showNotif('🟡 Boleto vence hoje', { body: nome + ' — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
       b._notif.hoje = true; mudou = true;
     } else if (diff > 0 && diff <= _bDiasAlertaUrgente() && !b._notif.urgente) {
-      new Notification('🔥 Boleto urgente', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      _showNotif('🔥 Boleto urgente', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
       b._notif.urgente = true; mudou = true;
     } else if (diff > 0 && diff <= _bDiasAlerta() && !b._notif.proximo) {
-      new Notification('⏳ Boleto vence em breve', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
+      _showNotif('⏳ Boleto vence em breve', { body: nome + ' vence em ' + diff + ' dia(s) — R$ ' + fm(b.valor), tag: 'boleto-' + b.id });
       b._notif.proximo = true; mudou = true;
     }
   });

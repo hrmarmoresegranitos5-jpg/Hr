@@ -241,13 +241,21 @@ function _secretariaReceberErro(msg, src, linha) {
 
   // Notificação push do browser
   if (Notification && Notification.permission === 'granted') {
-    try {
-      new Notification('⚠️ Erro no Sistema HR', {
-        body: (msg || 'Erro desconhecido').slice(0, 100) + (linha ? ' (linha ' + linha + ')' : ''),
-        icon: 'icon-192.png',
-        tag: 'hr-erro-js'
-      });
-    } catch(e) {}
+    var notifOpts = {
+      body: (msg || 'Erro desconhecido').slice(0, 100) + (linha ? ' (linha ' + linha + ')' : ''),
+      icon: 'icon-192.png',
+      tag: 'hr-erro-js'
+    };
+    // Em Android com o app controlado por SW, `new Notification()` direto
+    // lança "Illegal constructor" — inclusive quando chamado daqui dentro
+    // de um handler de erro, o que soterrava o próprio erro original.
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.ready.then(function(reg) {
+        reg.showNotification('⚠️ Erro no Sistema HR', notifOpts);
+      }).catch(function(e) {});
+    } else {
+      try { new Notification('⚠️ Erro no Sistema HR', notifOpts); } catch(e) {}
+    }
   }
 
   // Injeta aviso no chat da secretária (aparece na próxima abertura)
