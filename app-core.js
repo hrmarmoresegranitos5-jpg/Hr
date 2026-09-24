@@ -203,7 +203,7 @@ function orcWhatsApp(id, e) {
   if(!q) return;
   var txt = '';
   if(q._txtPre && typeof _buildPriceText === 'function') {
-    txt = q._txtPre + _buildPriceText(q) + (typeof _buildBrindeText==='function'?_buildBrindeText(q):'') + (q._txtFooter||'');
+    txt = q._txtPre + _pickPriceText(q, q.formaPag || 'vista') + (typeof _buildBrindeText==='function'?_buildBrindeText(q):'') + (q._txtFooter||'');
   } else {
     // Fallback compacto se o texto longo não estiver salvo
     var emp = CFG.emp || {};
@@ -261,11 +261,13 @@ function _abrirModalStatusOrc(q, tipo) {
   var jaRecebido = q._valorRecebido || 0;
   var totalVista = q.vista || 0;
   var totalParc = (q.parc && q.parc > totalVista + 0.005) ? q.parc : totalVista; // valor com acréscimo do parcelado/cartão, quando existir
-  var totalOrc = totalVista; // referência atual — muda conforme a forma de pagamento escolhida (ver _stModalSetForma)
+  var _misto = (q.formaPag === 'misto') ? _mistoCalc(q) : null; // entrada 50% + parcelado com juros
+  var _entFrac = _misto ? (_misto.entrada / (_misto.total || 1)) : 0.5; // fração da entrada sobre o total (com juros)
+  var totalOrc = _misto ? _misto.total : totalVista; // referência atual — muda conforme a forma de pagamento escolhida (ver _stModalSetForma)
   var saldoAntes = Math.max(0, totalOrc - jaRecebido);
   var LIMITE_AVISTA = 1000; // até esse valor, sugere pagamento total; acima, sugere 50% de entrada
-  var sugere50 = isAceito && totalOrc > LIMITE_AVISTA;
-  var valorSugerido = isAceito ? (sugere50 ? totalOrc * 0.5 : totalOrc) : saldoAntes;
+  var sugere50 = isAceito && (!!_misto || totalOrc > LIMITE_AVISTA);
+  var valorSugerido = isAceito ? (sugere50 ? totalOrc * _entFrac : totalOrc) : saldoAntes;
   var titulo = isAceito ? 'Confirmar Aceite' : 'Confirmar Conclusão';
   var iconTop = isAceito ? '✅' : '🏆';
   var subt = isAceito ? 'Confirme o valor de entrada recebido' : 'Confirme o valor pago na conclusão';
@@ -301,7 +303,7 @@ function _abrirModalStatusOrc(q, tipo) {
   h += '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Valor recebido agora</label>';
   if (isAceito && totalOrc > 0.005) {
     h += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
-    h += '<button type="button" data-stpct="50" onclick="window._stModalSetPct(50)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(sugere50?'800':'600')+';border:1px solid '+(sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(sugere50?'var(--gold)':'var(--t3)')+';">50% entrada · R$ '+fm(totalOrc*0.5)+'</button>';
+    h += '<button type="button" data-stpct="50" onclick="window._stModalSetPct(50)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(sugere50?'800':'600')+';border:1px solid '+(sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(sugere50?'var(--gold)':'var(--t3)')+';">50% entrada · R$ '+fm(totalOrc*_entFrac)+'</button>';
     h += '<button type="button" data-stpct="100" onclick="window._stModalSetPct(100)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(!sugere50?'800':'600')+';border:1px solid '+(!sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(!sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(!sugere50?'var(--gold)':'var(--t3)')+';">Valor cheio · R$ '+fm(totalOrc)+'</button>';
     h += '</div>';
   }
@@ -339,7 +341,7 @@ function _abrirModalStatusOrc(q, tipo) {
 
   // ── controla se o valor no campo ainda é uma sugestão automática (não editada à mão) ──
   var _stModalManual = false;
-  var _stModalFracao = sugere50 ? 0.5 : 1; // fração usada no Aceite (100% ou 50% de entrada); ignorada na Conclusão
+  var _stModalFracao = sugere50 ? _entFrac : 1; // fração usada no Aceite (100% ou 50% de entrada); ignorada na Conclusão
 
   function _stModalValorAuto(){
     return isAceito ? (totalOrc * _stModalFracao) : Math.max(0, totalOrc - jaRecebido);
@@ -363,7 +365,7 @@ function _abrirModalStatusOrc(q, tipo) {
   window._stModalSetPct = function(pct){
     var inp = document.getElementById('_stModalValor');
     if (!inp) return;
-    _stModalFracao = pct / 100;
+    _stModalFracao = (pct === 50) ? _entFrac : pct / 100;
     _stModalManual = false;
     inp.value = _stModalValorAuto().toFixed(2);
     document.querySelectorAll('[data-stpct]').forEach(function(el){
@@ -388,7 +390,7 @@ function _abrirModalStatusOrc(q, tipo) {
     });
 
     // ── Cartão usa o valor parcelado (com acréscimo), as demais formas usam o valor à vista ──
-    var novoTotal = (v === 'Cartão') ? totalParc : totalVista;
+    var novoTotal = _misto ? _misto.total : ((v === 'Cartão') ? totalParc : totalVista);
     if (Math.abs(novoTotal - totalOrc) > 0.005) {
       totalOrc = novoTotal;
 
@@ -396,7 +398,7 @@ function _abrirModalStatusOrc(q, tipo) {
       if (totLine) totLine.textContent = 'R$ ' + fm(totalOrc);
       var b50 = document.querySelector('[data-stpct="50"]');
       var b100 = document.querySelector('[data-stpct="100"]');
-      if (b50) b50.textContent = '50% entrada · R$ ' + fm(totalOrc*0.5);
+      if (b50) b50.textContent = '50% entrada · R$ ' + fm(totalOrc*_entFrac);
       if (b100) b100.textContent = 'Valor cheio · R$ ' + fm(totalOrc);
 
       // só reajusta o valor no campo se ainda for a sugestão automática — não mexe no que o usuário digitou
@@ -5365,6 +5367,79 @@ function _buildPriceTextParcelado(q) {
     + 'PARCELADO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
 }
 
+// ── Entrada 50% à vista + restante 50% parcelado COM JUROS (% e nº de parcelas definidos na hora) ──
+// Base = valor à vista (já com eventual desconto). Juros simples sobre o restante (mesma lógica do parcelado de 15%).
+function _mistoCalc(q) {
+  var pct = (q.mistoPct != null && !isNaN(+q.mistoPct)) ? +q.mistoPct : 15;
+  var n = Math.max(1, Math.round(+q.mistoN || 4));
+  var base = q.vista || 0;
+  var ent = Math.round(base / 2 * 100) / 100;
+  var resto = Math.round((base - ent) * 100) / 100;
+  var juros = Math.round(resto * pct / 100 * 100) / 100;
+  var restoTotal = Math.round((resto + juros) * 100) / 100;
+  return {
+    pct: pct, n: n, base: base, entrada: ent, resto: resto, juros: juros,
+    restoTotal: restoTotal,
+    parcela: Math.round(restoTotal / n * 100) / 100,
+    total: Math.round((ent + restoTotal) * 100) / 100
+  };
+}
+function _fmPct(v) { return String(Math.round(v * 100) / 100).replace('.', ','); }
+
+function _buildPriceTextMisto(q) {
+  var m = _mistoCalc(q);
+  var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
+  return urg
+    + 'ENTRADA + PARCELADO\n'
+    + 'Entrada (à vista): R$ ' + fm(m.entrada) + '\n'
+    + 'Restante: ' + m.n + '× R$ ' + fm(m.parcela) + '/mês\n'
+    + '(restante de R$ ' + fm(m.resto) + ' parcelado com juros de ' + _fmPct(m.pct) + '% = R$ ' + fm(m.restoTotal) + ')\n\n'
+    + 'Valor total: R$ ' + fm(m.total) + '\n';
+}
+
+// Escolhe o texto de preço conforme a forma de pagamento
+function _pickPriceText(q, forma) {
+  if (forma === 'misto') return _buildPriceTextMisto(q);
+  if (forma === 'parcelado') return _buildPriceTextParcelado(q);
+  return _buildPriceText(q);
+}
+
+// Mostra o resultado do cálculo no painel interno
+function _mistoRenderResult() {
+  var el = document.getElementById('mistoResult');
+  if (!el || !pendQ) return;
+  var m = _mistoCalc(pendQ);
+  el.innerHTML =
+    '<div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Entrada 50% (à vista)</span><b>R$ ' + fm(m.entrada) + '</b></div>'
+  + '<div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Restante sem juros</span><span>R$ ' + fm(m.resto) + '</span></div>'
+  + '<div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Juros (' + _fmPct(m.pct) + '%)</span><span>+ R$ ' + fm(m.juros) + '</span></div>'
+  + '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--bd2);margin-top:4px;padding-top:4px;"><span style="color:var(--t3);">Parcelas</span><b style="color:var(--gold);">' + m.n + '× R$ ' + fm(m.parcela) + '</b></div>'
+  + '<div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Total do cliente</span><b>R$ ' + fm(m.total) + '</b></div>';
+}
+
+// Chamado ao digitar % de juros ou nº de parcelas
+function mistoRecalc() {
+  if (!pendQ || window._formaPagEscolhida !== 'misto') return;
+  var pEl = document.getElementById('mistoPct');
+  var nEl = document.getElementById('mistoN');
+  var pct = parseFloat(String(pEl ? pEl.value : '').replace(',', '.'));
+  if (isNaN(pct) || pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  var n = parseInt(nEl ? nEl.value : '', 10);
+  if (!n || n < 1) n = 1;
+  if (n > 24) n = 24;
+  pendQ.mistoPct = pct;
+  pendQ.mistoN = n;
+  pendQ.misto = _mistoCalc(pendQ);
+  _mistoRenderResult();
+  _refreshQuoteBoxText();
+}
+// Ao terminar de editar, grava o orçamento (pendQ é o mesmo objeto de DB.q)
+function mistoSalvar() {
+  mistoRecalc();
+  if (pendQ && typeof DB !== 'undefined' && DB.sv) DB.sv();
+}
+
 // ── Forma de pagamento escolhida na hora de fechar (não mexe no painel interno, só no que vai pro cliente) ──
 function setFormaPag(forma) {
   if (!pendQ) return;
@@ -5394,7 +5469,20 @@ function setFormaPag(forma) {
     pendQ.p8   = Math.round(pendQ.parc / 8 * 100) / 100;
   }
   var lbl = document.getElementById('formaPagDiscLabel');
-  if (lbl) lbl.textContent = forma === 'parcelado' ? '💳 Ajustando o valor PARCELADO — o cliente não verá o valor à vista' : '💰 Ajustando o valor À VISTA';
+  if (lbl) lbl.textContent = forma === 'parcelado' ? '💳 Ajustando o valor PARCELADO — o cliente não verá o valor à vista'
+    : forma === 'misto' ? '🔀 Desconto (se houver) incide sobre o valor base à vista, antes de dividir 50% / 50%'
+    : '💰 Ajustando o valor À VISTA';
+  // Painel de juros (só na opção Entrada + Parcelado com juros)
+  var mSec = document.getElementById('mistoSec');
+  if (mSec) mSec.style.display = forma === 'misto' ? 'block' : 'none';
+  if (forma === 'misto') {
+    var _pI = document.getElementById('mistoPct');
+    var _nI = document.getElementById('mistoN');
+    if (_pI) _pI.value = (pendQ.mistoPct != null ? pendQ.mistoPct : 15);
+    if (_nI) _nI.value = (pendQ.mistoN || 4);
+    mistoRecalc();
+    if (typeof DB !== 'undefined' && DB.sv) DB.sv();
+  }
   _applyVistaToUI();
 }
 
@@ -5557,12 +5645,13 @@ function _refreshQuoteBoxText() {
   var qb = document.getElementById('quoteBox');
   if (!qb) return;
   var forma = window._formaPagEscolhida || 'vista';
-  var priceTxt = forma === 'parcelado' ? _buildPriceTextParcelado(pendQ) : _buildPriceText(pendQ);
+  var priceTxt = _pickPriceText(pendQ, forma);
   qb.textContent = pendQ._txtPre + priceTxt + _buildBrindeText(pendQ) + pendQ._txtFooter;
 }
 
 function _applyVistaToUI() {
   if (!pendQ) return;
+  if (window._formaPagEscolhida === 'misto') { pendQ.misto = _mistoCalc(pendQ); _mistoRenderResult(); }
   var rdV = document.getElementById('rdVistaVal');
   var rdP = document.getElementById('rdParc');
   if (rdV) rdV.textContent = 'R$ ' + fm(pendQ.vista);
@@ -5608,7 +5697,7 @@ function _applyVistaToUI() {
   var qb = document.getElementById('quoteBox');
   if (qb && pendQ._txtPre) {
     var _forma = window._formaPagEscolhida || 'vista';
-    var _priceTxt = _forma === 'parcelado' ? _buildPriceTextParcelado(pendQ) : _buildPriceText(pendQ);
+    var _priceTxt = _pickPriceText(pendQ, _forma);
     qb.textContent = pendQ._txtPre + _priceTxt + _buildBrindeText(pendQ) + pendQ._txtFooter;
   }
 }
@@ -6370,12 +6459,24 @@ function calcular(){
     var _fDiv=document.createElement('div');
     _fDiv.id='formaPagSec';
     _fDiv.style.cssText='padding:12px 0;border-top:1px solid var(--bd);margin-top:8px;';
+    var _bSt='flex:1;padding:10px 4px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.72rem;font-weight:700;opacity:.55;';
+    var _inSt='width:100%;box-sizing:border-box;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;';
+    var _lbSt='font-size:.6rem;color:var(--t3);font-weight:600;display:block;margin-bottom:4px;';
     _fDiv.innerHTML='<label style="font-size:.65rem;color:var(--t3);font-weight:600;display:block;margin-bottom:6px;">Cliente fechou como:</label>'
-      +'<div style="display:flex;gap:8px;margin-bottom:6px;">'
-        +'<button type="button" data-formapag="vista" onclick="setFormaPag(\'vista\')" class="on" '
-          +'style="flex:1;padding:10px 8px;border-radius:8px;border:1px solid var(--gold2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;opacity:1;">💰 À Vista</button>'
-        +'<button type="button" data-formapag="parcelado" onclick="setFormaPag(\'parcelado\')" '
-          +'style="flex:1;padding:10px 8px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;opacity:.55;">💳 Parcelado</button>'
+      +'<div style="display:flex;gap:6px;margin-bottom:6px;">'
+        +'<button type="button" data-formapag="vista" onclick="setFormaPag(\'vista\')" class="on" style="'+_bSt.replace('border:1px solid var(--bd2)','border:1px solid var(--gold2)').replace('opacity:.55','opacity:1')+'">💰 À Vista</button>'
+        +'<button type="button" data-formapag="parcelado" onclick="setFormaPag(\'parcelado\')" style="'+_bSt+'">💳 Parcelado</button>'
+        +'<button type="button" data-formapag="misto" onclick="setFormaPag(\'misto\')" style="'+_bSt+'">🔀 50% + Juros</button>'
+      +'</div>'
+      +'<div id="mistoSec" style="display:none;margin:8px 0;background:var(--s2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;">'
+        +'<div style="font-size:.66rem;color:var(--t3);margin-bottom:8px;">50% de entrada à vista e os outros 50% parcelados com juros</div>'
+        +'<div style="display:flex;gap:8px;">'
+          +'<div style="flex:1;"><label style="'+_lbSt+'">Juros sobre o restante (%)</label>'
+            +'<input id="mistoPct" type="text" inputmode="decimal" value="15" oninput="mistoRecalc()" onchange="mistoSalvar()" style="'+_inSt+'"></div>'
+          +'<div style="flex:1;"><label style="'+_lbSt+'">Nº de parcelas</label>'
+            +'<input id="mistoN" type="number" inputmode="numeric" min="1" max="24" value="4" oninput="mistoRecalc()" onchange="mistoSalvar()" style="'+_inSt+'"></div>'
+        +'</div>'
+        +'<div id="mistoResult" style="margin-top:10px;font-size:.74rem;color:var(--tx);line-height:1.7;"></div>'
       +'</div>'
       +'<div id="formaPagDiscLabel" style="font-size:.62rem;color:var(--t3);">💰 Ajustando o valor À VISTA</div>';
     adjSec.appendChild(_fDiv);
@@ -6386,6 +6487,8 @@ function calcular(){
       b.style.opacity=on?'1':'.55';
       b.style.borderColor=on?'var(--gold2)':'var(--bd2)';
     });
+    var _mSecReset=document.getElementById('mistoSec');
+    if(_mSecReset)_mSecReset.style.display='none';
     var _lblReset=document.getElementById('formaPagDiscLabel');
     if(_lblReset)_lblReset.textContent='💰 Ajustando o valor À VISTA';
   }
@@ -6584,6 +6687,8 @@ function gerarPDF(){
   var economia=q.parc-q.vista;
   // ── Forma de pagamento que o cliente escolheu no painel (à vista é o padrão) ──
   var _pdfIsParc = q.formaPag === 'parcelado';
+  var _pdfIsMisto = q.formaPag === 'misto';
+  var _pdfM = _pdfIsMisto ? _mistoCalc(q) : null;
   // Para orçamentos pequenos (poucas peças de soleira/peitoril), não faz sentido
   // exigir entrada + entrega — deixa o cliente livre pra decidir quando paga.
   var _valorBaixo = q.vista < (CFG.limiarPagamentoSimples||600);
@@ -6958,7 +7063,27 @@ function gerarPDF(){
     +'</div>'):'') 
     // VALORES
     +sh('Valores do Projeto')
-    +(_pdfIsParc
+    +(_pdfIsMisto
+      // ── Cliente fechou ENTRADA 50% + PARCELADO COM JUROS ──
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
+        +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
+          +'<div style="background:#0f0c00;padding:10px 16px;"><span style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">ENTRADA À VISTA</span></div>'
+          +'<div style="padding:14px 16px;background:#fff;">'
+            +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:3px;">R$ '+fm(_pdfM.entrada)+'</div>'
+            +'<div style="font-size:11px;color:#999;">50% na assinatura, para iniciar a produção</div>'
+          +'</div>'
+        +'</div>'
+        +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+          +'<div style="background:#0f0c00;padding:10px 16px;"><span style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(201,168,76,0.85);font-weight:900;">RESTANTE PARCELADO</span></div>'
+          +'<div style="padding:14px 16px;background:#faf8f4;">'
+            +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:3px;">'+_pdfM.n+'× R$ '+fm(_pdfM.parcela)+'</div>'
+            +'<div style="font-size:11px;color:#999;margin-bottom:8px;">por mês, com juros de '+_fmPct(_pdfM.pct)+'%</div>'
+            +'<div style="font-size:12px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Restante: R$ '+fm(_pdfM.restoTotal)+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div style="text-align:right;font-size:13px;font-weight:900;color:#7a4400;margin:-8px 0 20px;">Valor total: R$ '+fm(_pdfM.total)+'</div>'
+      : _pdfIsParc
       // ── Cliente fechou PARCELADO: mostra só o cartão parcelado, sem mencionar o valor à vista ──
       ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
         +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
@@ -7016,7 +7141,13 @@ function gerarPDF(){
 
     // CONDIÇÃO DE PAGAMENTO
     +sh('Como Fica o Pagamento')
-    +(_pdfIsParc
+    +(_pdfIsMisto
+      // ── ENTRADA 50% + PARCELADO COM JUROS: explica a mecânica ──
+      ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">ENTRADA + PARCELAMENTO</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">Na assinatura você paga <b>R$ '+fm(_pdfM.entrada)+'</b> (50%), para darmos início à produção. Os outros 50% (R$ '+fm(_pdfM.resto)+') são parcelados em <b>'+_pdfM.n+' parcelas mensais de R$ '+fm(_pdfM.parcela)+'</b>, já com juros de '+_fmPct(_pdfM.pct)+'%.</div>'
+        +'</div>'
+      : _pdfIsParc
       // ── Cliente fechou PARCELADO: explica a mecânica sem repetir os números já mostrados acima ──
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">COMO FUNCIONA O PARCELAMENTO</div>'
@@ -8477,7 +8608,7 @@ function gerarComprovante(id){
   historico.sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
 
   var pagouCartao=historico.some(function(h){return /·\s*Cartão\s*$/i.test(h.desc||'');});
-  var totalOrc=qRel?((pagouCartao&&qRel.parc&&qRel.parc>qRel.vista+0.005)?qRel.parc:qRel.vista):0;
+  var totalOrc=qRel?((qRel.formaPag==='misto')?_mistoCalc(qRel).total:((pagouCartao&&qRel.parc&&qRel.parc>qRel.vista+0.005)?qRel.parc:qRel.vista)):0;
   var saldo=totalOrc>0?(totalOrc-totalPago):null;
 
   // Tipo do pagamento
