@@ -1137,4 +1137,30 @@
 
   window._mlSalvar = _salvar;
 
+  // ── API para o monitor de cubas (app-ml-monitor.js) ─────────
+  // Busca um anúncio pelo link/ID SEM abrir o modal nem mexer no estado _ml.
+  // Devolve Promise<item> (com item._desc = descrição).
+  window._mlExtractId = _extractId;
+  window._mlDownloadFotoB64 = _downloadFotoB64;
+  window._mlCarregarItem = function(rawUrl) {
+    var url = String(rawUrl || '').trim();
+    var info = _extractId(url);
+    var pInfo = info ? Promise.resolve(info)
+      : (_isLinkCurtoML(url) ? _resolverLinkCurto(url) : Promise.reject(new Error('link inválido')));
+    return pInfo.then(function(inf) {
+      if (!inf) throw new Error('não identifiquei o anúncio pelo link');
+      var mItem = url.match(/item_id:(MLB\d+)/i) || url.match(/[?&#]wid=(MLB\d+)/i);
+      var pItem;
+      if (inf.isCatalog && !mItem) {
+        pItem = _resolveCatalog(inf.id).then(_getItem);
+      } else {
+        var id = mItem ? mItem[1].toUpperCase() : inf.id;
+        pItem = _getItem(id).catch(function() { return _getItem(id); });
+      }
+      return pItem;
+    }).then(function(item) {
+      return _getDesc(item.id).then(function(d) { item._desc = d; return item; });
+    });
+  };
+
 })();
