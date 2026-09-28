@@ -2594,6 +2594,7 @@ function pickCuba(id,tipo){
   } else {
     var c=lista.find(function(x){return x.id===id;});
     if(!c)return;
+    if(window.mlConfirmarUsoCuba && !window.mlConfirmarUsoCuba(c)){window._pendCubaInstTipo=null;return;}
     var isEsc=c.tipo==='Esculpida';
     var moUsar=c.inst; // fallback: comportamento antigo (cuba sem forma de instalação configurada)
     var instTipoSel=null, instTipoLbl=null;
@@ -10110,6 +10111,7 @@ function buildCfg(){
       if(c.brand)h+='<span style="font-size:.62rem;color:var(--t3);">'+escH(c.brand)+'</span>';
       if(c.dim)h+='<span style="font-size:.62rem;color:var(--t3);">· '+escH(c.dim)+'</span>';
       h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+=(window.mlBadgeHtml?mlBadgeHtml(c):'');
       h+='</div></div>';
       h+='<div style="text-align:right;flex-shrink:0;">';
       h+='<div style="font-size:.86rem;font-weight:800;color:var(--gold2);">R$ '+c.pr+'</div>';
@@ -10127,6 +10129,7 @@ function buildCfg(){
         h+='</div>';
         h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:12px 14px 0;"></div>';
         // Forma de instalação (Sobrepor/Embutir/Flush)
+        h+=(window.mlBlocoHtml?mlBlocoHtml('coz',i,c):'');
         h+=_buildCubaInstTiposHtml('coz', i, c);
         h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:0 14px;"></div>';
         // Editor de fotos
@@ -10179,6 +10182,7 @@ function buildCfg(){
       h+='<div style="display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;">';
       h+='<span style="font-size:.62rem;color:var(--t3);">'+escH(c.dim)+(c.tipo?' · '+c.tipo:'')+'</span>';
       h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
+      h+=(window.mlBadgeHtml?mlBadgeHtml(c):'');
       h+='</div></div>';
       h+='<div style="text-align:right;flex-shrink:0;"><div style="font-size:.84rem;font-weight:800;color:var(--gold2);">'+(isEsc?'—':'R$ '+c.pr)+'</div><div style="font-size:.58rem;color:var(--t4);">M.O. R$ '+c.inst+'</div></div>';
       h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
@@ -10199,6 +10203,7 @@ function buildCfg(){
         if(!isEsc){
           h+='<div style="height:1px;background:linear-gradient(90deg,transparent,var(--bd2),transparent);margin:10px 13px 0;"></div>';
           // Forma de instalação (Sobrepor/Embutir/Flush)
+          h+=(window.mlBlocoHtml?mlBlocoHtml('lav',i,c):'');
           h+=_buildCubaInstTiposHtml('lav', i, c);
         }
         // Editor de fotos
