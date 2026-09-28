@@ -15,15 +15,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Instalar dependências
-        working-directory: scripts
-        run: npm install
+      # O package.json da raiz é do bot de WhatsApp (type: module), então
+      # instalamos só o firebase-admin, sem usar aquele package.json.
+      - name: Instalar firebase-admin
+        run: npm install firebase-admin --no-save --no-package-lock
 
       - name: Checar cubas
-        working-directory: scripts
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
           ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
           ML_PROXY: ${{ secrets.ML_PROXY }}
-        run: node checar-cubas-ml.js
+        run: node checar-cubas-ml.cjs
