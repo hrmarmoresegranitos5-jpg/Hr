@@ -10155,6 +10155,7 @@ function buildCfg(){
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{var _nc={id:\'c_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Inox\',dim:\'??cm\',pr:0,pr_orig:0,inst:110,instCli:160,photo:\'\',fotos:[],desc:\'\'};CFG.coz.push(_nc);_cfgOpen[\'coz_\'+_nc.id]=true;svCFG();buildCfg();}">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof abrirMLImport===\'function\'){abrirMLImport(\'coz\');}" style="background:#2a2600;color:#ffe600;border:1px solid #6b5f00;margin-top:6px;">🛒 Nova Cuba pelo Mercado Livre (link)</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'coz\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:linear-gradient(135deg,#1a1a0a,#241d0a);color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Cuba (Fotos + IA)</button>';
   }
   else if(cfgTab===2){
@@ -10228,6 +10229,7 @@ function buildCfg(){
       h+='</div>';
     });
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{var _nl={id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'};CFG.lav.push(_nl);_cfgOpen[\'lav_\'+_nl.id]=true;svCFG();buildCfg();}">+ Nova Cuba</button>';
+    h+='<button class="cfgadd" onclick="if(typeof abrirMLImport===\'function\'){abrirMLImport(\'lav\');}" style="background:#2a2600;color:#ffe600;border:1px solid #6b5f00;margin-top:6px;">🛒 Nova Cuba pelo Mercado Livre (link)</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:#1a1a0a;color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Cuba (Fotos + IA)</button>';
   }
   else if(cfgTab===3){

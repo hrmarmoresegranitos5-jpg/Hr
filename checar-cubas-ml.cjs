@@ -131,6 +131,13 @@ async function consultarCuba(cuba) {
     return { itemId, status: 'removido', qtd: 0, preco: null, checkedAt: Date.now() };
   }
   const it = r.json;
+  // Descrição (plain_text). Se falhar, segue sem ela — não derruba a checagem.
+  let desc = '', descHash = '';
+  try {
+    const d = await mlGet('/items/' + itemId + '/description');
+    desc = String((d.json && d.json.plain_text) || '').trim().slice(0, 1000);
+    if (desc) { let h = 5381; for (let i = 0; i < desc.length; i++) h = ((h * 33) ^ desc.charCodeAt(i)) >>> 0; descHash = String(h); }
+  } catch (_) { /* ignora */ }
   return {
     itemId,
     status: it.status || 'desconhecido',          // active | paused | closed | under_review ...
@@ -138,6 +145,8 @@ async function consultarCuba(cuba) {
     qtd: Number(it.available_quantity || 0),
     preco: Number(it.price || 0),
     titulo: it.title || '',
+    desc,
+    descHash,
     checkedAt: Date.now()
   };
 }
@@ -184,6 +193,7 @@ async function main() {
         console.warn('  ! ' + nome + ': ' + res.erro);
         continue;
       }
+      if (!res.desc && anterior[k] && anterior[k].desc) { res.desc = anterior[k].desc; res.descHash = anterior[k].descHash || ''; }
       novo[k] = res;
 
       const prev = anterior[k];
