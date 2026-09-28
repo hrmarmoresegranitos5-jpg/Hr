@@ -749,8 +749,12 @@
         _ml_id:          d.id,
         _ml_preco_custo: custo,
         _ml_margem:      margem,
-        _ml_url:         d.permalink || '',
+        _ml_url:         d.permalink || _ml.urlAtual || '',
+        titulo:          d.title || nome,
+        desc:            String(d._desc || '').trim().slice(0, 1000),
+        fotos:           b64 ? [b64] : [],
       };
+      if (cat !== 'coz') novaCuba.tipo = 'Sobrepor';
 
       var lista = cat === 'coz' ? CFG.coz : CFG.lav;
       var idx   = lista.findIndex(function(c) { return c._ml_id === d.id; });
