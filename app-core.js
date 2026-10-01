@@ -2012,6 +2012,7 @@ SV_DEFS.Escada=[{g:'Sainha',its:[{k:'s_reta',l:'Sainha Reta',u:'sf'},{k:'s_45',l
 SV_DEFS.Fachada=[{g:'Fixação',its:[{k:'tubo',l:'Tubo Metálico',u:'un',fx:0},{k:'cant',l:'Cantoneira',u:'un',fx:0}]},{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'inst_c',l:'Instalação Complexa',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS.Outro=SV_DEFS.Cozinha;
 SV_DEFS['Rodapé de Box']=[{g:'Acabamento',its:[{k:'rdbox_sem',l:'Sem acabamento',u:'acb_auto',lados:0},{k:'rdbox_sup',l:'Acabamento Superior (1 lado)',u:'acb_auto',lados:1}]},{g:'Colagem',its:[{k:'rdbox_cola',l:'Cola p/ Colagem (2 pedras)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
+SV_DEFS['🔧 Instalação']=[{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 SV_DEFS['Rodapé de Armário']=[{g:'Instalação',its:[{k:'inst',l:'Instalação Padrão',u:'un',fx:1},{k:'rda_inst',l:'Instalação c/ Silicone + Ajuste (Makita/Macaco)',u:'un',fx:1}]},{g:'Deslocamento',its:[{k:'desl_cid',l:'Na cidade',u:'livre'},{k:'desl_for',l:'Fora da cidade',u:'km',fx:0}]}];
 
 // ─── DIVISÓRIA WC ─────────────────────────────────────────────
@@ -2632,7 +2633,8 @@ function pickCuba(id,tipo){
 }
 
 // ═══ AMBIENTES ═══
-var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','Outro'];
+var TIPO_INST='🔧 Instalação';
+var TIPOS_AMBIENTE=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Área de Serviço','Soleira','Peitoril','Escada','Fachada','Túmulo','Plaquinha','⛪ Capela','🖼️ Nicho','🏊 Borda Piscina','Rodapé de Box','Rodapé de Armário','🚽 Divisória WC','🔧 Instalação','Outro'];
 
 function pickMatAmb(ambId,stoneId){
   var amb=ambientes.find(function(a){return a.id==ambId;});
@@ -2745,6 +2747,38 @@ function rmAmbiente(id){
   renderAmbientes();
 }
 
+
+// ─── 🔧 INSTALAÇÃO: cliente já tem a bancada, só instalamos ───────────
+function _parseValorBR(t){
+  t=String(t==null?'':t).replace(/[^\d.,]/g,'');
+  if(!t)return 0;
+  if(t.indexOf(',')>=0){t=t.replace(/\./g,'').replace(',','.');}
+  else if(/^\d{1,3}(\.\d{3})+$/.test(t)){t=t.replace(/\./g,'');}
+  var n=parseFloat(t);
+  return isNaN(n)?0:n;
+}
+function updInstExtra(ambId,field,val){
+  var amb=ambientes.find(function(a){return a.id==ambId;});
+  if(!amb)return;
+  if(!amb.instExtra)amb.instExtra={desc:'',mat:'',valorTxt:'',valor:0,obs:''};
+  if(field==='valor'){amb.instExtra.valorTxt=val;amb.instExtra.valor=_parseValorBR(val);}
+  else amb.instExtra[field]=val;
+}
+function buildInstalacaoHTML(amb){
+  if(!amb.instExtra)amb.instExtra={desc:'',mat:'',valorTxt:'',valor:0,obs:''};
+  var ie=amb.instExtra;
+  var inp='background:var(--s3);';
+  var h='<div style="background:rgba(201,168,76,.06);border:1px solid rgba(201,168,76,.18);border-radius:10px;padding:12px;margin:10px 0;">';
+  h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:6px;">🔧 Instalação de bancada do cliente</div>';
+  h+='<div style="font-size:.6rem;color:var(--t4);margin-bottom:10px;line-height:1.5;">O cliente já tem a bancada. Aqui entra só a instalação — sem pedra e sem m².</div>';
+  h+='<div class="f"><label>Bancada / local a instalar</label><input type="text" placeholder="Ex: Bancada da cozinha em granito, 2,80m, fornecida pelo cliente" style="'+inp+'" value="'+escH(ie.desc||'')+'" oninput="updInstExtra('+amb.id+',\'desc\',this.value)"></div>';
+  h+='<div class="f"><label>Material que será usado</label><input type="text" placeholder="Ex: Cola PU, silicone neutro, massa plástica" style="'+inp+'" value="'+escH(ie.mat||'')+'" oninput="updInstExtra('+amb.id+',\'mat\',this.value)"></div>';
+  h+='<div class="f"><label>Valor da instalação (R$)</label><div style="position:relative;"><span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:.8rem;color:var(--t3);pointer-events:none;">R$</span><input type="text" inputmode="decimal" placeholder="0,00" style="'+inp+'padding-left:38px;" value="'+escH(ie.valorTxt||(ie.valor?String(ie.valor).replace('.',','):''))+'" oninput="updInstExtra('+amb.id+',\'valor\',this.value)"></div></div>';
+  h+='<div class="f"><label>Observações (opcional)</label><input type="text" placeholder="Ex: 2º andar, sem elevador" style="'+inp+'" value="'+escH(ie.obs||'')+'" oninput="updInstExtra('+amb.id+',\'obs\',this.value)"></div>';
+  h+='</div>';
+  return h;
+}
+
 function setAmbTipo(id,tipo){
   var amb=ambientes.find(function(a){return a.id==id;});
   if(!amb)return;
@@ -2752,6 +2786,7 @@ function setAmbTipo(id,tipo){
   amb.selCuba=null;
   amb.svState={};
   amb.acState={};
+  if(tipo===TIPO_INST){amb.selMat=null;if(!amb.instExtra)amb.instExtra={desc:'',mat:'',valorTxt:'',valor:0,obs:''};}
   var gNew=SV_DEFS[tipo]||SV_DEFS.Cozinha;
   gNew.forEach(function(grp){
     if(grp.its.length>0&&grp.its[0].u==='acb_auto'){
@@ -4237,6 +4272,14 @@ function renderAmbientes(){
     });
     h+='</div>';
 
+
+    if(amb.tipo===TIPO_INST){
+      h+=buildInstalacaoHTML(amb);
+      h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:7px;">Serviços</div>';
+      h+=buildSVHtml(amb);
+      h+='</div></div>';
+      return;
+    }
     if(amb.tipo==='🚽 Divisória WC'){
       h+='<div style="background:rgba(201,168,76,.05);border:1px solid rgba(201,168,76,.2);border-radius:10px;padding:12px;margin:10px 0;">';
       h+='<div style="font-size:.58rem;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:8px;">🚽 Como orçar divisórias</div>';
@@ -5800,6 +5843,8 @@ function calcular(){
     toast('⚠ Preencha a medida (Largura × Altura) da Plaquinha antes de calcular');
     return;
   }
+  var instSemValor = ambientes.find(function(a){ return a.tipo===TIPO_INST && !(a.instExtra && +a.instExtra.valor>0); });
+  if (instSemValor) { toast('⚠ Informe o valor da instalação'); return; }
   // Only require stone selection if the ambiente has stone pieces (w×h defined)
   var missingMat=ambientes.find(function(a){
     var hasPecas=a.pecas&&a.pecas.some(function(p){return p.w&&p.h;});
@@ -6051,6 +6096,17 @@ function calcular(){
       });
     }
 
+    // 🔧 INSTALAÇÃO (bancada do cliente): só mão de obra, sem pedra
+    if(tipo===TIPO_INST){
+      var _ie=amb.instExtra||{};
+      var _iv=+_ie.valor||0;
+      if(_iv>0){
+        acT+=_iv;
+        acL.push({l:'Instalação'+(_ie.desc?' — '+escH(_ie.desc):''),v:_iv});
+        acN.push('Instalação completa da bancada');
+      }
+    }
+
     var ambMat2=CFG.stones.find(function(s){return s.id===amb.selMat;})||mat;
     // Fator de perda: aplicado ao m² de COMPRA (cortes, refiles, quebras)
     // O m² exibido ao cliente permanece líquido (medidas reais)
@@ -6139,6 +6195,14 @@ function calcular(){
       if(nicInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+nicInfo.join(' · ')+'</div>';
     }
 
+    if(amb.tipo===TIPO_INST && amb.instExtra){
+      var instInfo=[];
+      if(amb.instExtra.desc)instInfo.push(escH(amb.instExtra.desc));
+      if(amb.instExtra.mat)instInfo.push('Material: <b>'+escH(amb.instExtra.mat)+'</b>');
+      if(amb.instExtra.obs)instInfo.push('Obs: '+escH(amb.instExtra.obs));
+      if(instInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+instInfo.join(' · ')+'</div>';
+    }
+
     // Texto WA por ambiente
     var pTxt=pds.map(function(p){return '• '+(p.desc||'Peça')+' — '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
     if(sfPcs.length)pTxt+=(pTxt?'\n':'')+sfPcs.map(function(p){return '• '+p.l+' — '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:'');}).join('\n');
@@ -6158,7 +6222,13 @@ function calcular(){
       if(nex.nM)extraTxt+='Moldura: '+nex.nM+'cm\n';
       extraTxt+=(nex.comFundo?'Com fundo':'Sem fundo')+'\n';
     }
-    txtAmbientes+='\n─── '+ambLabel+' ───\n'+extraTxt+(pTxt||'(sem peças)')+(aTxt?'\nInclusos:\n'+aTxt:'');
+    if(tipo===TIPO_INST&&amb.instExtra){
+      var iex=amb.instExtra;
+      if(iex.desc)extraTxt+=iex.desc+'\n';
+      if(iex.mat)extraTxt+='Material: '+iex.mat+'\n';
+      if(iex.obs)extraTxt+='Obs: '+iex.obs+'\n';
+    }
+    txtAmbientes+='\n─── '+ambLabel+' ───\n'+extraTxt+(pTxt||(tipo===TIPO_INST?'':'(sem peças)'))+(aTxt?'\nInclusos:\n'+aTxt:'');
   });
 
   var pedT=totalPedT;
@@ -6540,6 +6610,9 @@ function calcular(){
     if(a.tipo==='🖼️ Nicho'&&a.nichoExtra){
       snap.nichoExtra=JSON.parse(JSON.stringify(a.nichoExtra));
     }
+    if(a.tipo===TIPO_INST&&a.instExtra){
+      snap.instExtra=JSON.parse(JSON.stringify(a.instExtra));
+    }
     if(a.tipo==='Túmulo'){
       if(a.tumResult)  snap.tumResult  = JSON.parse(JSON.stringify(a.tumResult));
       if(a.tumPendOrc) snap.tumPendOrc = JSON.parse(JSON.stringify(a.tumPendOrc));
@@ -6563,7 +6636,8 @@ function calcular(){
   // Detectar se há Túmulo com dados do motor inline
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:mat.nm,matPr:mat.pr,matCusto:mat.custo||0,validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  var _soInstQ=ambientes.length>0&&ambientes.every(function(a){return a.tipo===TIPO_INST;});
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:_soInstQ?'Instalação':mat.nm,matPr:_soInstQ?0:mat.pr,matCusto:_soInstQ?0:(mat.custo||0),validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marca qual aparelho criou este orçamento (usado nas notificações de
   // "novo orçamento" pros outros dispositivos sincronizados saberem quem fez).
   q.criadoPor = localStorage.getItem('hr_device_name') || '';
@@ -6702,6 +6776,11 @@ function gerarPDF(){
   var _pdfTotal=_pdfCeara?(q.vista+_pdfCearaValor):q.vista;
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;})||{pr:q.matPr||0,nm:q.mat||'',fin:''};
 
+  // ── 🔧 Orçamento só de instalação (bancada do cliente) ──
+  var _soInstPDF=!!(q.ambSnap&&q.ambSnap.length&&q.ambSnap.every(function(s){return s.tipo===TIPO_INST;}));
+  var _stepsInstPDF=[['📐','1. Conferência da Bancada','Visita para conferir a bancada, o local e as condições de instalação antes de começar.'],['🧰','2. Preparação','Preparo do local e dos materiais combinados neste orçamento.'],['🔧','3. Instalação','Instalação e nivelamento da bancada pela nossa equipe.'],['✅','4. Entrega','Conferência final com você e limpeza do local.']];
+  var _motivosInstPDF=[['🛡️','1 Ano de Garantia','Cobrimos qualquer defeito de instalação por 12 meses após a entrega, sem custo adicional.'],['🔧','Instalação Profissional','Equipe experiente cuidando de toda a instalação e do nivelamento da sua bancada.'],['📍','Atendimento Direto','Sem intermediários: você fala com quem instala, do orçamento à entrega final.']];
+
   // ── Linhas da tabela ──
   // Montar linhas da tabela por ambiente
   var allRowsHtml='';
@@ -6721,6 +6800,21 @@ function gerarPDF(){
           +(neP.nM?' &nbsp;·&nbsp; Moldura: <b>'+neP.nM+' cm</b>':' &nbsp;·&nbsp; Sem moldura')
           +(neP.comFundo?' &nbsp;·&nbsp; Com fundo':' &nbsp;·&nbsp; Sem fundo');
         ambBuf+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:14px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
+      }
+      var isInst=snap.tipo===TIPO_INST;
+      if(isInst&&snap.instExtra){
+        var _ieP=snap.instExtra;
+        var _rowsI=[];
+        if(_ieP.desc)_rowsI.push(['Bancada a instalar',_ieP.desc]);
+        if(_ieP.mat)_rowsI.push(['Material utilizado',_ieP.mat]);
+        if(_ieP.obs)_rowsI.push(['Observações',_ieP.obs]);
+        _rowsI.forEach(function(r,ri){
+          var bgI=ri%2===0?'#fff':'#faf6ef';
+          ambBuf+='<tr>'
+            +'<td style="padding:13px 14px;background:'+bgI+';border-bottom:1px solid #ede8dc;font-size:15px;font-weight:800;color:#1a1a1a;vertical-align:top;width:38%;">'+r[0]+'</td>'
+            +'<td style="padding:13px 14px;background:'+bgI+';border-bottom:1px solid #ede8dc;font-size:14px;font-weight:600;color:#444;text-align:right;line-height:1.5;">'+escH(r[1])+'</td>'
+            +'</tr>';
+        });
       }
       var isBP=snap.tipo==='🏊 Borda Piscina';
       var bpNomes=['Borda lateral A','Borda frontal B','Borda lateral C','Borda frontal D','Borda curva E','Canto boleado F','Trecho especial G','Borda interna H'];
@@ -7007,13 +7101,13 @@ function gerarPDF(){
     +(hasBP?'<div style="background:linear-gradient(135deg,#e8f0ff 0%,#f0f5ff 100%);border-left:4px solid #6ea4ff;border-radius:0 10px 10px 0;padding:13px 18px;margin-bottom:18px;">'      +'<div style="font-size:7.5px;letter-spacing:2.5px;text-transform:uppercase;color:#2255aa;font-weight:900;margin-bottom:5px;">🏊 BORDA DE PISCINA — Projeto Especializado</div>'      +'<div style="font-size:12.5px;color:#1a2a5a;font-weight:700;line-height:1.55;">Projeto fabricado sob medida com acabamento especializado para área molhada e externa.</div>'      +(bpAcabTipoPDF&&bpAcabTipoPDF!=='polida'?'<div style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;background:#2255aa;color:#fff;font-size:9px;font-weight:900;padding:3px 12px;border-radius:20px;letter-spacing:1px;">★ ACABAMENTO '+bpAcabTipoPDF.toUpperCase()+' PREMIUM</div>':'')      +'</div>':'')
 
     // MATERIAL E MEDIDAS
-    +sh('Peças e Dimensões')
+    +sh(_soInstPDF?'Serviço de Instalação':'Peças e Dimensões')
     +'<div style="border:1px solid #e8e0d0;border-radius:10px;overflow:hidden;margin-bottom:20px;">'
       +'<table style="width:100%;border-collapse:collapse;">'
         +'<thead>'
           +'<tr style="background:#0f0c00;">'
-            +'<th style="padding:14px;text-align:left;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">PEÇA / DESCRIÇÃO</th>'
-            +'<th style="padding:14px;text-align:right;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">DIMENSÕES</th>'
+            +'<th style="padding:14px;text-align:left;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_soInstPDF?'SERVIÇO':'PEÇA / DESCRIÇÃO')+'</th>'
+            +'<th style="padding:14px;text-align:right;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_soInstPDF?'DETALHES':'DIMENSÕES')+'</th>'
           +'</tr>'
         +'</thead>'
         +'<tbody>'
@@ -7023,7 +7117,7 @@ function gerarPDF(){
     +'</div>'
 
     // MATERIAL DESTAQUE
-    +matSecHtml
+    +(_soInstPDF?'':matSecHtml)
 
     // INCLUSO
     +(svcs?sh('Incluso no Projeto')
@@ -7032,7 +7126,7 @@ function gerarPDF(){
         +svcs
         +'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;">'
           +'<span style="color:#C9A84C;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">&#10003;</span>'
-          +'<span style="font-size:12px;color:#333;line-height:1.4;">Fabricacao e acabamento completo</span>'
+          +'<span style="font-size:12px;color:#333;line-height:1.4;">'+(_soInstPDF?'Mão de obra de instalação':'Fabricacao e acabamento completo')+'</span>'
         +'</div>'
         +(q.urgPct>0?'<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid #f5f0e8;"><span style="color:#ff8050;font-weight:900;font-size:11px;margin-top:1px;flex-shrink:0;">🚨</span><span style="font-size:12px;color:#c04000;font-weight:700;line-height:1.4;">Atendimento prioritário — prazo garantido</span></div>':'')
       +'</div>'
@@ -7044,7 +7138,7 @@ function gerarPDF(){
       +'<div style="font-size:12px;color:#ffd0b0;line-height:1.6;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos em andamento.</div>'
     +'</div>':'')
     +sh('Como Funciona')
-    +(function(){var steps=[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
+    +(function(){var steps=_soInstPDF?_stepsInstPDF:[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // Bloco móvel planejado (se ativo)
     +(_pdfCeara?('<div style="background:#1a0f2e;border:1px solid rgba(167,139,250,0.3);border-radius:10px;padding:16px 22px;margin-bottom:18px;">'
@@ -7183,7 +7277,7 @@ function gerarPDF(){
 
     // POR QUE FECHAR COM A HR (inclui a garantia de 1 ano) — aparece em todo orçamento, à vista ou parcelado
     +sh('Por Que Fechar Com a HR Mármores')
-    +(function(){var motivos=[
+    +(function(){var motivos=_soInstPDF?_motivosInstPDF:[
         ['🛡️','1 Ano de Garantia','Cobrimos qualquer defeito de fabricação ou instalação por 12 meses após a entrega, sem custo adicional.'],
         ['✂️','Corte de Precisão','Pedra cortada com precisão milimétrica em maquinário próprio, com rigoroso controle dimensional em cada peça.'],
         ['🚚','Do Corte à Instalação','Nossa equipe cuida de tudo — fabricação, entrega, instalação e nivelamento. Nada fica por sua conta.'],
@@ -11636,6 +11730,10 @@ function orcRefazer(id, e) {
       // Restaurar medidas do Nicho (largura/altura/profundidade/moldura/descrição)
       if(snap.tipo==='🖼️ Nicho'&&snap.nichoExtra){
         amb.nichoExtra=JSON.parse(JSON.stringify(snap.nichoExtra));
+      }
+      if(snap.tipo===TIPO_INST){
+        amb.selMat=null;
+        amb.instExtra=JSON.parse(JSON.stringify(snap.instExtra||{desc:'',mat:'',valorTxt:'',valor:0,obs:''}));
       }
       // Restaurar dados do motor inline para Túmulos
       if(snap.tipo==='Túmulo'){
