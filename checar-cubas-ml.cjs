@@ -54,7 +54,19 @@ async function getToken() {
   return _token;
 }
 
-// Devolve { http, json } ou lança erro de rede. Tenta direto (com token) e depois pelo proxy.
+// Uma tentativa de fetch, com timeout — uma rede lenta no runner do
+// GitHub não pode travar a checagem inteira.
+async function fetchComTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || 10000);
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
+// Devolve { http, json } ou lança erro de rede. Tenta direto (com token) e
+// depois pelo proxy; cada canal tem 1 nova tentativa antes de desistir dele —
+// falhas de rede transitórias (comuns em runners compartilhados) não devem
+// virar "erro" pra uma cuba que na verdade está tudo bem.
 async function mlGet(path) {
   const url = ML_API + path;
   const tentativas = [];
@@ -64,15 +76,18 @@ async function mlGet(path) {
 
   let ultimoErro = null;
   for (const t of tentativas) {
-    try {
-      const r = await fetch(t.url, { headers: { Accept: 'application/json', ...t.headers } });
-      if (r.status === 404 || r.status === 410) return { http: r.status, json: null };
-      if (!r.ok) { ultimoErro = new Error('HTTP ' + r.status + ' (' + t.label + ')'); continue; }
-      const txt = await r.text();
-      try { return { http: 200, json: JSON.parse(txt) }; }
-      catch (_) { ultimoErro = new Error('resposta não-JSON (' + t.label + ')'); }
-    } catch (e) {
-      ultimoErro = new Error(e.message + ' (' + t.label + ')');
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      try {
+        const r = await fetchComTimeout(t.url, { headers: { Accept: 'application/json', ...t.headers } }, 10000);
+        if (r.status === 404 || r.status === 410) return { http: r.status, json: null };
+        if (!r.ok) { ultimoErro = new Error('HTTP ' + r.status + ' (' + t.label + ')'); break; } // erro do servidor: repetir não ajuda
+        const txt = await r.text();
+        try { return { http: 200, json: JSON.parse(txt) }; }
+        catch (_) { ultimoErro = new Error('resposta não-JSON (' + t.label + ')'); break; }
+      } catch (e) {
+        ultimoErro = new Error((e.name === 'AbortError' ? 'timeout' : e.message) + ' (' + t.label + ', tentativa ' + tentativa + ')');
+        if (tentativa === 1) await sleep(500); // rede transitória: espera um instante e tenta de novo antes de trocar de canal
+      }
     }
   }
   throw ultimoErro || new Error('falha desconhecida');

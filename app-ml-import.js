@@ -230,8 +230,40 @@
     });
   }
 
-  // Tenta uma URL direta e, se falhar, cada proxy da lista em sequência.
-  // Loga cada tentativa e o motivo da falha no console para diagnóstico.
+  function _getCanalPreferido() {
+    try { return localStorage.getItem('ml_import_canal_ok') || null; } catch (e) { return null; }
+  }
+  function _setCanalPreferido(label) {
+    try { localStorage.setItem('ml_import_canal_ok', label); } catch (e) {}
+  }
+
+  function _corridaPrimeiroSucesso(tentativas, asJson) {
+    return new Promise(function(resolve, reject) {
+      var pendentes = tentativas.length;
+      var erros = [];
+      if (!pendentes) { reject(new Error('nenhum canal disponível')); return; }
+      tentativas.forEach(function(t) {
+        _fetchOnce(t.url, 9000, asJson)
+          .then(function(data) {
+            if (asJson && data && typeof data.contents === 'string') {
+              try { data = JSON.parse(data.contents); } catch (e) {}
+            }
+            console.info('[ML-import] OK via', t.label);
+            _setCanalPreferido(t.label);
+            resolve(data);
+          })
+          .catch(function(e) {
+            console.warn('[ML-import] falhou via', t.label + ':', e.message || e);
+            erros.push(t.label + ': ' + (e.message || e));
+            pendentes--;
+            if (pendentes === 0) {
+              reject(new Error('todos os ' + tentativas.length + ' canais falharam — ' + erros.join(' | ')));
+            }
+          });
+      });
+    });
+  }
+
   function _fetchComProxies(targetUrl, asJson) {
     var tentativas = [{ label: 'direto', url: targetUrl }]
       .concat(PROXIES.map(function(fn, i) {
@@ -239,29 +271,26 @@
       }))
       .concat([{ label: 'jina', url: 'https://r.jina.ai/' + targetUrl }]);
 
-    function tentar(i) {
-      if (i >= tentativas.length) {
-        console.error('[ML-import] todas as tentativas falharam para', targetUrl);
-        return Promise.reject(new Error('Não foi possível acessar "' + targetUrl + '" (direto + ' + (tentativas.length - 1) + ' proxies falharam — veja o console para detalhes)'));
-      }
-      var t = tentativas[i];
-      return _fetchOnce(t.url, 9000, asJson)
-        .then(function(data) {
-          // allorigins /raw já devolve o corpo puro; mas se vier um
-          // wrapper { contents: "..." } (variante /get), desembrulha.
-          if (asJson && data && typeof data.contents === 'string') {
-            try { data = JSON.parse(data.contents); } catch (e) { /* não era JSON, mantém string fora do caminho normal */ }
-          }
-          console.info('[ML-import] OK via', t.label, '→', targetUrl);
-          return data;
-        })
-        .catch(function(e) {
-          console.warn('[ML-import] falhou via', t.label, '(' + targetUrl + '):', e.message || e);
-          return tentar(i + 1);
-        });
+    function corridaCompleta() {
+      return _corridaPrimeiroSucesso(tentativas, asJson);
     }
 
-    return tentar(0);
+    var preferidoLabel = _getCanalPreferido();
+    var tPreferido = preferidoLabel && tentativas.filter(function(t) { return t.label === preferidoLabel; })[0];
+    if (!tPreferido) return corridaCompleta();
+
+    return _fetchOnce(tPreferido.url, 6000, asJson)
+      .then(function(data) {
+        if (asJson && data && typeof data.contents === 'string') {
+          try { data = JSON.parse(data.contents); } catch (e) {}
+        }
+        console.info('[ML-import] OK via', tPreferido.label, '(canal preferido)');
+        return data;
+      })
+      .catch(function(e) {
+        console.warn('[ML-import] canal preferido (' + tPreferido.label + ') falhou, tentando todos em paralelo:', e.message || e);
+        return corridaCompleta();
+      });
   }
 
   // ─── Busca um endpoint da API do ML, com cascata de proxies ─
@@ -596,7 +625,13 @@
         _ml.loading = false;
         _renderModal();
         console.error('[ML-import-IA] falhou:', e.message || e);
-        _showStatus('❌ IA não conseguiu extrair os dados: ' + ((e && e.message) || e), 'error');
+        _showStatus('❌ IA não conseguiu extrair os dados: ' + (function(){
+          var m = (e && e.message) || String(e);
+          if (/invalid api key/i.test(m) || /401/.test(m)) {
+            return 'a chave de IA em Config → Empresa → Inteligência Artificial está inválida ou vencida. Gere uma nova chave Groq e atualize lá.';
+          }
+          return m;
+        })(), 'error');
       });
   }
 
@@ -917,7 +952,7 @@
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">API do ML → proxy próprio → allorigins → corsproxy → thingproxy</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">Tentando vários canais ao mesmo tempo (o mais rápido responde)</span>'
          + '</div>';
     }
 

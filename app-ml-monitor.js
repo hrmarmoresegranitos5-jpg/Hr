@@ -36,8 +36,9 @@
   // ─── Estado de uma cuba ─────────────────────────────────────
   function mlInfo(c) {
     var st = c && c.id ? ST[mlKey(c.id)] : null;
-    var info = { st: st, temLink: !!(c && (c._ml_url || c._ml_id)), indisponivel: false, motivo: '', precoMudou: false };
+    var info = { st: st, temLink: !!(c && (c._ml_url || c._ml_id)), indisponivel: false, motivo: '', precoMudou: false, atrasada: false };
     if (!st || st.checkedAt == null) return info;
+    info.atrasada = (Date.now() - st.checkedAt) > 36 * 3600 * 1000; // robô roda 1x/dia; >36h sem checar = suspeito
     if (st.status && st.status !== 'active') {
       info.indisponivel = true;
       info.motivo = st.status === 'paused' ? 'Anúncio pausado'
@@ -109,8 +110,9 @@
         ? '<span style="color:#ff8a8a;font-weight:700;">🔴 ' + esc(info.motivo) + '</span>'
         : '<span style="color:#6fdc8c;font-weight:700;">✅ Ativa · ' + (st.qtd != null ? st.qtd + ' em estoque' : '') + '</span>';
       if (st.preco > 0) linha += ' · <span style="color:var(--t2);">ML: ' + brl(st.preco) + '</span>';
-      linha += ' · <span style="color:var(--t4);">checado ' + quando(st.checkedAt) + '</span>';
+      linha += ' · <span style="color:' + (info.atrasada ? '#f3c94a' : 'var(--t4)') + ';">checado ' + quando(st.checkedAt) + '</span>';
       h += '<div style="font-size:.68rem;">' + linha + '</div>';
+      if (info.atrasada) h += '<div style="font-size:.6rem;color:#f3c94a;margin-top:3px;">⚠ Checagem automática atrasada (mais de 36h). Confira em Actions, no GitHub, se o robô "checar-cubas-ml" ainda está rodando.</div>';
       if (st.erro) h += '<div style="font-size:.6rem;color:var(--t4);margin-top:3px;">⚠ Última tentativa falhou (' + esc(st.erro) + '), mostrando o último resultado bom.</div>';
     }
 
