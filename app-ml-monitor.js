@@ -6,7 +6,7 @@
 // - Lê hr/<codigo>/mlStatus (gravado pelo GitHub Actions todo dia)
 // - Selo 🔴 Esgotada / ⏸ Pausada e aviso 🟡 "Preço mudou" com botão Aprovar
 // - Botão "🔄 Atualizar do ML": título, descrição, fotos, preço e estoque
-// - Preço de venda acompanha o ML automaticamente (padrão: ligado; dá pra desligar por cuba)
+// - Opção por cuba: "aplicar preço automaticamente" (padrão: desligada)
 // - Confirmação ao adicionar no orçamento uma cuba esgotada
 // Depende de: app-core.js (CFG, SYNC, svCFG, buildCfg, buildCubaList, toast)
 //             app-ml-import.js (_mlCarregarItem, _mlExtractId, _mlDownloadFotoB64)
@@ -36,9 +36,8 @@
   // ─── Estado de uma cuba ─────────────────────────────────────
   function mlInfo(c) {
     var st = c && c.id ? ST[mlKey(c.id)] : null;
-    var info = { st: st, temLink: !!(c && (c._ml_url || c._ml_id)), indisponivel: false, motivo: '', precoMudou: false, atrasada: false };
+    var info = { st: st, temLink: !!(c && (c._ml_url || c._ml_id)), indisponivel: false, motivo: '', precoMudou: false };
     if (!st || st.checkedAt == null) return info;
-    info.atrasada = (Date.now() - st.checkedAt) > 36 * 3600 * 1000; // robô roda 1x/dia; >36h sem checar = suspeito
     if (st.status && st.status !== 'active') {
       info.indisponivel = true;
       info.motivo = st.status === 'paused' ? 'Anúncio pausado'
@@ -58,10 +57,7 @@
   // Margem: usa a gravada; se não tiver mas há custo e venda, deduz da venda atual
   function margemDe(c, custo) {
     if (c._ml_margem != null && c._ml_margem !== '' && isFinite(+c._ml_margem)) return +c._ml_margem;
-    if (custo > 0 && c.pr > 0) {
-      var m = Math.round((c.pr / custo - 1) * 1000) / 10;
-      return m > 0 ? m : null; // venda menor que o custo = link/produto provavelmente errado; não deduz margem negativa
-    }
+    if (custo > 0 && c.pr > 0) return Math.round((c.pr / custo - 1) * 1000) / 10;
     return null;
   }
   function vendaCalc(custo, margem) { return Math.round(custo * (1 + margem / 100)); }
@@ -78,7 +74,6 @@
   // ─── Bloco dentro do card aberto ────────────────────────────
   window.mlBlocoHtml = function (tipo, i, c) {
     var info = mlInfo(c), st = info.st;
-    if (!info.temLink) return ''; // bloco só aparece em cubas criadas pelo Mercado Livre
     var lbl = 'font-size:.5rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;';
     var box = 'flex:1;background:var(--s3);border-radius:8px;padding:5px 8px;border:1px solid var(--bd2);';
     var inp = 'width:100%;background:transparent;border:none;padding:0;font-size:.8rem;';
@@ -88,7 +83,7 @@
     var h = '<div style="margin:12px 14px 0;padding:10px 12px;border:1px solid var(--bd2);border-radius:11px;background:rgba(255,230,0,.035);">';
     h += '<div style="font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:8px;">🛒 Mercado Livre</div>';
 
-    h += '<div style="font-size:.6rem;color:var(--t4);margin-bottom:8px;">Cuba criada pelo Mercado Livre: preço, descrição, estoque e disponibilidade são conferidos todo dia.</div>';
+    h += '<input class="cfginp" style="width:100%;font-size:.72rem;margin-bottom:8px;" placeholder="Cole o link do anúncio (mercadolivre.com.br/…)" value="' + esc(c._ml_url || '') + '" onchange="mlSetLink(\'' + tipo + '\',' + i + ',this.value)">';
 
     h += '<div style="display:flex;gap:6px;margin-bottom:8px;">';
     h += '<div style="' + box + '"><div style="' + lbl + '">Custo ML R$</div><input class="cfginp" type="number" step="0.01" value="' + (custo || '') + '" placeholder="0" style="' + inp + '" onchange="mlSetCampo(\'' + tipo + '\',' + i + ',\'_ml_preco_custo\',this.value)"></div>';
@@ -110,9 +105,8 @@
         ? '<span style="color:#ff8a8a;font-weight:700;">🔴 ' + esc(info.motivo) + '</span>'
         : '<span style="color:#6fdc8c;font-weight:700;">✅ Ativa · ' + (st.qtd != null ? st.qtd + ' em estoque' : '') + '</span>';
       if (st.preco > 0) linha += ' · <span style="color:var(--t2);">ML: ' + brl(st.preco) + '</span>';
-      linha += ' · <span style="color:' + (info.atrasada ? '#f3c94a' : 'var(--t4)') + ';">checado ' + quando(st.checkedAt) + '</span>';
+      linha += ' · <span style="color:var(--t4);">checado ' + quando(st.checkedAt) + '</span>';
       h += '<div style="font-size:.68rem;">' + linha + '</div>';
-      if (info.atrasada) h += '<div style="font-size:.6rem;color:#f3c94a;margin-top:3px;">⚠ Checagem automática atrasada (mais de 36h). Confira em Actions, no GitHub, se o robô "checar-cubas-ml" ainda está rodando.</div>';
       if (st.erro) h += '<div style="font-size:.6rem;color:var(--t4);margin-top:3px;">⚠ Última tentativa falhou (' + esc(st.erro) + '), mostrando o último resultado bom.</div>';
     }
 
@@ -132,7 +126,7 @@
     }
 
     // Auto + ações
-    h += '<label style="display:flex;align-items:center;gap:9px;margin-top:10px;font-size:.7rem;font-weight:400;text-transform:none;letter-spacing:0;color:var(--t2);cursor:pointer;"><input type="checkbox" style="width:20px;height:20px;min-width:20px;flex:none;padding:0;margin:0;accent-color:#c9a84c;-webkit-appearance:checkbox;appearance:auto;" ' + (c._ml_auto !== false ? 'checked' : '') + ' onchange="mlSetCampo(\'' + tipo + '\',' + i + ',\'_ml_auto\',this.checked)"> Atualizar preço de venda e descrição automaticamente</label>';
+    h += '<label style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:.66rem;color:var(--t3);cursor:pointer;"><input type="checkbox" ' + (c._ml_auto ? 'checked' : '') + ' onchange="mlSetCampo(\'' + tipo + '\',' + i + ',\'_ml_auto\',this.checked)"> Aplicar preço novo automaticamente (sem pedir aprovação)</label>';
     h += '<div style="display:flex;gap:6px;margin-top:9px;flex-wrap:wrap;">';
     h += '<button class="cfgbtn" style="font-size:.7rem;" onclick="event.stopPropagation();mlAtualizarCuba(\'' + tipo + '\',' + i + ')">🔄 Atualizar do ML</button>';
     if (c._ml_url) h += '<a class="cfgbtn" style="font-size:.7rem;text-decoration:none;display:inline-block;" href="' + esc(c._ml_url) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗ Abrir anúncio</a>';
@@ -195,16 +189,6 @@
     return true;
   }
 
-  // Descrição: só troca quando o texto do ML mudou desde a última vez aplicada
-  function aplicarDescricao(c) {
-    var st = mlInfo(c).st;
-    if (!st || !st.desc || !st.descHash) return false;
-    if (c._ml_desc_hash === st.descHash) return false;
-    c.desc = st.desc;
-    c._ml_desc_hash = st.descHash;
-    return true;
-  }
-
   window.mlAplicarPreco = function (tipo, i) {
     var c = lista(tipo)[i]; if (!c) return;
     if (!aplicarPreco(c)) return;
@@ -254,7 +238,7 @@
       var resumo = 'Encontrado no ML:\n' + item.title + '\n\nPreço: ' + brl(st.preco) +
         ' · ' + (st.status !== 'active' ? 'anúncio ' + st.status : st.qtd + ' em estoque') +
         '\n' + fotosUrl.length + ' foto(s)\n\nSubstituir título, descrição e fotos deste card pelos do ML?' +
-        '\n(Preço e descrição acompanham o ML automaticamente todo dia.)';
+        '\n(O preço de venda não muda sozinho — você aprova no aviso amarelo.)';
       if (!confirm(resumo)) {
         _busy = false; persistir(tipo); _toast('Status e estoque atualizados. Conteúdo mantido.');
         return;
@@ -297,19 +281,18 @@
 
   // ─── Auto-aplicar (só cubas com a opção ligada) ──────────────
   function autoAplicar() {
-    var n = 0, nd = 0;
+    var n = 0;
     ['coz', 'lav'].forEach(function (t) {
       (lista(t) || []).forEach(function (c) {
-        if (!c || c._ml_auto === false) return; // padrão: automático
+        if (!c || !c._ml_auto) return;
         var info = mlInfo(c);
         if (info.precoMudou && !info.indisponivel && aplicarPreco(c, true)) n++;
-        if (aplicarDescricao(c)) nd++;
       });
     });
-    if (n || nd) {
+    if (n) {
       svCFG();
       if (typeof buildCubaList === 'function') buildCubaList();
-      _toast('🔄 ML: ' + n + ' preço(s) e ' + nd + ' descrição(ões) atualizados');
+      _toast('🔄 ' + n + ' preço(s) de cuba atualizado(s) automaticamente pelo ML');
     }
   }
 
