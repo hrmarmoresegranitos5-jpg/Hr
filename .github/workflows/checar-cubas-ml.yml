@@ -1,0 +1,27 @@
+name: Checar cubas no Mercado Livre
+
+on:
+  schedule:
+    - cron: '0 10 * * *'   # 07:00 horário de Bahia (UTC-3)
+  workflow_dispatch:        # permite rodar na mão pela aba "Actions" pra testar
+
+jobs:
+  checar-cubas-ml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Checar cubas
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
+          ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
+          ML_PROXY: ${{ secrets.ML_PROXY }}
+        run: node checar-cubas-ml.js
