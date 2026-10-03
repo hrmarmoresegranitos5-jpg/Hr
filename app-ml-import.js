@@ -230,40 +230,8 @@
     });
   }
 
-  function _getCanalPreferido() {
-    try { return localStorage.getItem('ml_import_canal_ok') || null; } catch (e) { return null; }
-  }
-  function _setCanalPreferido(label) {
-    try { localStorage.setItem('ml_import_canal_ok', label); } catch (e) {}
-  }
-
-  function _corridaPrimeiroSucesso(tentativas, asJson) {
-    return new Promise(function(resolve, reject) {
-      var pendentes = tentativas.length;
-      var erros = [];
-      if (!pendentes) { reject(new Error('nenhum canal disponível')); return; }
-      tentativas.forEach(function(t) {
-        _fetchOnce(t.url, 9000, asJson)
-          .then(function(data) {
-            if (asJson && data && typeof data.contents === 'string') {
-              try { data = JSON.parse(data.contents); } catch (e) {}
-            }
-            console.info('[ML-import] OK via', t.label);
-            _setCanalPreferido(t.label);
-            resolve(data);
-          })
-          .catch(function(e) {
-            console.warn('[ML-import] falhou via', t.label + ':', e.message || e);
-            erros.push(t.label + ': ' + (e.message || e));
-            pendentes--;
-            if (pendentes === 0) {
-              reject(new Error('todos os ' + tentativas.length + ' canais falharam — ' + erros.join(' | ')));
-            }
-          });
-      });
-    });
-  }
-
+  // Tenta uma URL direta e, se falhar, cada proxy da lista em sequência.
+  // Loga cada tentativa e o motivo da falha no console para diagnóstico.
   function _fetchComProxies(targetUrl, asJson) {
     var tentativas = [{ label: 'direto', url: targetUrl }]
       .concat(PROXIES.map(function(fn, i) {
@@ -271,26 +239,29 @@
       }))
       .concat([{ label: 'jina', url: 'https://r.jina.ai/' + targetUrl }]);
 
-    function corridaCompleta() {
-      return _corridaPrimeiroSucesso(tentativas, asJson);
+    function tentar(i) {
+      if (i >= tentativas.length) {
+        console.error('[ML-import] todas as tentativas falharam para', targetUrl);
+        return Promise.reject(new Error('Não foi possível acessar "' + targetUrl + '" (direto + ' + (tentativas.length - 1) + ' proxies falharam — veja o console para detalhes)'));
+      }
+      var t = tentativas[i];
+      return _fetchOnce(t.url, 9000, asJson)
+        .then(function(data) {
+          // allorigins /raw já devolve o corpo puro; mas se vier um
+          // wrapper { contents: "..." } (variante /get), desembrulha.
+          if (asJson && data && typeof data.contents === 'string') {
+            try { data = JSON.parse(data.contents); } catch (e) { /* não era JSON, mantém string fora do caminho normal */ }
+          }
+          console.info('[ML-import] OK via', t.label, '→', targetUrl);
+          return data;
+        })
+        .catch(function(e) {
+          console.warn('[ML-import] falhou via', t.label, '(' + targetUrl + '):', e.message || e);
+          return tentar(i + 1);
+        });
     }
 
-    var preferidoLabel = _getCanalPreferido();
-    var tPreferido = preferidoLabel && tentativas.filter(function(t) { return t.label === preferidoLabel; })[0];
-    if (!tPreferido) return corridaCompleta();
-
-    return _fetchOnce(tPreferido.url, 6000, asJson)
-      .then(function(data) {
-        if (asJson && data && typeof data.contents === 'string') {
-          try { data = JSON.parse(data.contents); } catch (e) {}
-        }
-        console.info('[ML-import] OK via', tPreferido.label, '(canal preferido)');
-        return data;
-      })
-      .catch(function(e) {
-        console.warn('[ML-import] canal preferido (' + tPreferido.label + ') falhou, tentando todos em paralelo:', e.message || e);
-        return corridaCompleta();
-      });
+    return tentar(0);
   }
 
   // ─── Busca um endpoint da API do ML, com cascata de proxies ─
@@ -625,13 +596,7 @@
         _ml.loading = false;
         _renderModal();
         console.error('[ML-import-IA] falhou:', e.message || e);
-        _showStatus('❌ IA não conseguiu extrair os dados: ' + (function(){
-          var m = (e && e.message) || String(e);
-          if (/invalid api key/i.test(m) || /401/.test(m)) {
-            return 'a chave de IA em Config → Empresa → Inteligência Artificial está inválida ou vencida. Gere uma nova chave Groq e atualize lá.';
-          }
-          return m;
-        })(), 'error');
+        _showStatus('❌ IA não conseguiu extrair os dados: ' + ((e && e.message) || e), 'error');
       });
   }
 
@@ -784,12 +749,8 @@
         _ml_id:          d.id,
         _ml_preco_custo: custo,
         _ml_margem:      margem,
-        _ml_url:         d.permalink || _ml.urlAtual || '',
-        titulo:          d.title || nome,
-        desc:            String(d._desc || '').trim().slice(0, 1000),
-        fotos:           b64 ? [b64] : [],
+        _ml_url:         d.permalink || '',
       };
-      if (cat !== 'coz') novaCuba.tipo = 'Sobrepor';
 
       var lista = cat === 'coz' ? CFG.coz : CFG.lav;
       var idx   = lista.findIndex(function(c) { return c._ml_id === d.id; });
@@ -952,7 +913,7 @@
       h += '<div style="text-align:center;padding:32px 0;color:var(--t3);font-size:.85rem;">'
          + '<div style="font-size:2rem;margin-bottom:10px;">⏳</div>'
          + 'Buscando produto…<br>'
-         + '<span style="font-size:.68rem;opacity:.6;">Tentando vários canais ao mesmo tempo (o mais rápido responde)</span>'
+         + '<span style="font-size:.68rem;opacity:.6;">API do ML → proxy próprio → allorigins → corsproxy → thingproxy</span>'
          + '</div>';
     }
 
@@ -1176,30 +1137,59 @@
 
   window._mlSalvar = _salvar;
 
-  // ── API para o monitor de cubas (app-ml-monitor.js) ─────────
-  // Busca um anúncio pelo link/ID SEM abrir o modal nem mexer no estado _ml.
-  // Devolve Promise<item> (com item._desc = descrição).
-  window._mlExtractId = _extractId;
-  window._mlDownloadFotoB64 = _downloadFotoB64;
-  window._mlCarregarItem = function(rawUrl) {
-    var url = String(rawUrl || '').trim();
-    var info = _extractId(url);
-    var pInfo = info ? Promise.resolve(info)
-      : (_isLinkCurtoML(url) ? _resolverLinkCurto(url) : Promise.reject(new Error('link inválido')));
-    return pInfo.then(function(inf) {
-      if (!inf) throw new Error('não identifiquei o anúncio pelo link');
-      var mItem = url.match(/item_id:(MLB\d+)/i) || url.match(/[?&#]wid=(MLB\d+)/i);
-      var pItem;
-      if (inf.isCatalog && !mItem) {
-        pItem = _resolveCatalog(inf.id).then(_getItem);
+  // ──────────────────────────────────────────────────────────
+  // API "sem modal" — usada por app-ml-monitor.js (botão
+  // "🔄 Atualizar do ML" dentro do card da cuba). Reaproveita a
+  // mesma cascata de busca (item direto → catálogo → link curto)
+  // só que devolvendo o item via Promise, sem tocar na UI do modal.
+  // ──────────────────────────────────────────────────────────
+  function _resolverParaItem(rawUrl) {
+    var info = _extractId(rawUrl);
+
+    function comInfo(info2) {
+      var promise;
+      if (info2.isCatalog) {
+        var mItem = rawUrl.match(/item_id:(MLB\d+)/i) || rawUrl.match(/[?&#]wid=(MLB\d+)/i);
+        var itemDireto = mItem ? mItem[1].toUpperCase() : null;
+        if (itemDireto) {
+          promise = _getItem(itemDireto);
+        } else {
+          promise = _resolveCatalog(info2.id).then(function(itemId) { return _getItem(itemId); });
+        }
       } else {
-        var id = mItem ? mItem[1].toUpperCase() : inf.id;
-        pItem = _getItem(id).catch(function() { return _getItem(id); });
+        promise = _getItem(info2.id).catch(function() {
+          // 2ª tentativa (rede instável), igual ao fluxo do modal
+          return _getItem(info2.id);
+        }).catch(function(eDireto2) {
+          var catalogM = rawUrl.match(/\/p\/(MLB\d+)/i);
+          if (catalogM && catalogM[1].toUpperCase() !== info2.id) {
+            return _resolveCatalog(catalogM[1].toUpperCase()).then(function(itemId) { return _getItem(itemId); });
+          }
+          throw eDireto2;
+        });
       }
-      return pItem;
-    }).then(function(item) {
-      return _getDesc(item.id).then(function(d) { item._desc = d; return item; });
-    });
+      return promise.then(function(item) {
+        return _getDesc(item.id).then(function(desc) { item._desc = desc; return item; });
+      });
+    }
+
+    if (info) return comInfo(info);
+
+    if (_isLinkCurtoML(rawUrl)) {
+      return _resolverLinkCurto(rawUrl).then(comInfo);
+    }
+
+    return Promise.reject(new Error('Link inválido — cole a URL do produto ou o código MLB.'));
+  }
+
+  // item: { id, title, price, pictures:[{url|secure_url}], attributes, permalink, _desc, status, available_quantity }
+  window._mlCarregarItem = function (rawUrl) {
+    return _resolverParaItem((rawUrl || '').trim());
   };
+
+  window._mlExtractId = _extractId;
+
+  // cb(dataUrlBase64 | null)
+  window._mlDownloadFotoB64 = _downloadFotoB64;
 
 })();
