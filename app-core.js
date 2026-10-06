@@ -7245,7 +7245,14 @@ function gerarPDF(){
       +'<div style="text-align:right;font-size:13px;font-weight:900;color:#7a4400;margin:-8px 0 20px;">Valor total: R$ '+fm(_pdfM.total)+'</div>'
       : _pdfIsTres
       // ── Cliente fechou 3x HR: entrada + metade do prazo + entrega ──
-      ? '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">'
+      ? '<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);margin-bottom:14px;">'
+        +'<div style="background:#0f0c00;padding:12px 16px;"><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Valor do projeto</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Pago em 3 etapas, sem juros</div></div>'
+        +'<div style="padding:14px 16px;background:#fff;">'
+          +(q.desconto>0&&q._vistaCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._vistaCalc)+'</div>':'')
+          +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;">R$ '+fm(_pdfT.total)+'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">'
         +'<div style="border:2px solid #C9A84C;box-shadow:0 3px 16px rgba(201,168,76,0.2);border-radius:10px;overflow:hidden;">'
           +'<div style="background:#0f0c00;padding:10px 14px;"><span style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">1. Entrada</span></div>'
           +'<div style="padding:14px;background:#fff;">'
@@ -7268,7 +7275,6 @@ function gerarPDF(){
           +'</div>'
         +'</div>'
       +'</div>'
-      +'<div style="text-align:right;font-size:13px;font-weight:900;color:#7a4400;margin:0 0 20px;">Valor total: R$ '+fm(_pdfT.total)+'</div>'
       : _pdfIsParc
       // ── Cliente fechou PARCELADO: mostra só o cartão parcelado, sem mencionar o valor à vista ──
       ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
