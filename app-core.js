@@ -262,11 +262,12 @@ function _abrirModalStatusOrc(q, tipo) {
   var totalVista = q.vista || 0;
   var totalParc = (q.parc && q.parc > totalVista + 0.005) ? q.parc : totalVista; // valor com acréscimo do parcelado/cartão, quando existir
   var _misto = (q.formaPag === 'misto') ? _mistoCalc(q) : null; // entrada 50% + parcelado com juros
-  var _entFrac = _misto ? (_misto.entrada / (_misto.total || 1)) : 0.5; // fração da entrada sobre o total (com juros)
+  var _tres = (q.formaPag === 'tres') ? _tresCalc(q) : null; // 3x HR: entrada = 1/3
+  var _entFrac = _misto ? (_misto.entrada / (_misto.total || 1)) : (_tres ? (_tres.entrada / (_tres.total || 1)) : 0.5); // fração da entrada sobre o total (com juros)
   var totalOrc = _misto ? _misto.total : totalVista; // referência atual — muda conforme a forma de pagamento escolhida (ver _stModalSetForma)
   var saldoAntes = Math.max(0, totalOrc - jaRecebido);
   var LIMITE_AVISTA = 1000; // até esse valor, sugere pagamento total; acima, sugere 50% de entrada
-  var sugere50 = isAceito && (!!_misto || totalOrc > LIMITE_AVISTA);
+  var sugere50 = isAceito && (!!_misto || !!_tres || totalOrc > LIMITE_AVISTA);
   var valorSugerido = isAceito ? (sugere50 ? totalOrc * _entFrac : totalOrc) : saldoAntes;
   var titulo = isAceito ? 'Confirmar Aceite' : 'Confirmar Conclusão';
   var iconTop = isAceito ? '✅' : '🏆';
@@ -5408,7 +5409,7 @@ function _buildPriceText(q) {
 function _buildPriceTextParcelado(q) {
   var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
   return urg
-    + 'PARCELADO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
+    + 'PARCELADO NO CARTÃO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
 }
 
 // ── Entrada 50% à vista + restante 50% parcelado COM JUROS (% e nº de parcelas definidos na hora) ──
@@ -5428,6 +5429,34 @@ function _mistoCalc(q) {
     total: Math.round((ent + restoTotal) * 100) / 100
   };
 }
+// ── 3x HR: entrada + meio do prazo + entrega, em 3 partes iguais, sem juros (base = valor à vista) ──
+function _tresCalc(q) {
+  var base = q.vista || 0;
+  var e = Math.round(base / 3 * 100) / 100;
+  var m = e;
+  var f = Math.round((base - e - m) * 100) / 100;
+  return { base: base, entrada: e, meio: m, entrega: f, total: Math.round((e + m + f) * 100) / 100 };
+}
+// Data do meio do prazo (ISO yyyy-mm-dd) a partir de hoje e da data estimada de entrega
+function _tresDataMeio(pd) {
+  try {
+    if (!pd || !pd.hoje || !pd.dataEst) return '';
+    var a = new Date(String(pd.hoje).slice(0,10) + 'T12:00:00').getTime();
+    var b = new Date(String(pd.dataEst).slice(0,10) + 'T12:00:00').getTime();
+    if (isNaN(a) || isNaN(b) || b <= a) return '';
+    return new Date(Math.round((a + b) / 2)).toISOString().slice(0,10);
+  } catch (e) { return ''; }
+}
+function _buildPriceTextTres(q) {
+  var t = _tresCalc(q);
+  var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
+  return urg
+    + 'PAGAMENTO EM 3 ETAPAS\n'
+    + 'Entrada (na assinatura): R$ ' + fm(t.entrada) + '\n'
+    + 'Metade do prazo: R$ ' + fm(t.meio) + '\n'
+    + 'Na entrega: R$ ' + fm(t.entrega) + '\n\n'
+    + 'Valor total: R$ ' + fm(t.total) + '\n';
+}
 function _fmPct(v) { return String(Math.round(v * 100) / 100).replace('.', ','); }
 
 function _buildPriceTextMisto(q) {
@@ -5444,6 +5473,7 @@ function _buildPriceTextMisto(q) {
 // Escolhe o texto de preço conforme a forma de pagamento
 function _pickPriceText(q, forma) {
   if (forma === 'misto') return _buildPriceTextMisto(q);
+  if (forma === 'tres') return _buildPriceTextTres(q);
   if (forma === 'parcelado' || (q && q.mostrarVista === false)) return _buildPriceTextParcelado(q);
   return _buildPriceText(q);
 }
@@ -5515,6 +5545,7 @@ function setFormaPag(forma) {
   var lbl = document.getElementById('formaPagDiscLabel');
   if (lbl) lbl.textContent = forma === 'parcelado' ? '💳 Ajustando o valor PARCELADO — o cliente não verá o valor à vista'
     : forma === 'misto' ? '🔀 Desconto (se houver) incide sobre o valor base à vista, antes de dividir 50% / 50%'
+    : forma === 'tres' ? '3️⃣ 3x HR — desconto (se houver) incide sobre o valor à vista, antes de dividir em 3 partes iguais'
     : '💰 Ajustando o valor À VISTA';
   // Painel de juros (só na opção Entrada + Parcelado com juros)
   var mSec = document.getElementById('mistoSec');
@@ -6547,14 +6578,15 @@ function calcular(){
     var _fDiv=document.createElement('div');
     _fDiv.id='formaPagSec';
     _fDiv.style.cssText='padding:12px 0;border-top:1px solid var(--bd);margin-top:8px;';
-    var _bSt='flex:1;padding:10px 4px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.72rem;font-weight:700;opacity:.55;';
+    var _bSt='flex:1;padding:10px 4px;border-radius:8px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);font-family:Outfit,sans-serif;font-size:.72rem;font-weight:700;opacity:.55;min-width:30%;';
     var _inSt='width:100%;box-sizing:border-box;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:9px 10px;color:var(--tx);font-family:Outfit,sans-serif;font-size:.85rem;';
     var _lbSt='font-size:.6rem;color:var(--t3);font-weight:600;display:block;margin-bottom:4px;';
     _fDiv.innerHTML='<label style="font-size:.65rem;color:var(--t3);font-weight:600;display:block;margin-bottom:6px;">Cliente fechou como:</label>'
-      +'<div style="display:flex;gap:6px;margin-bottom:6px;">'
+      +'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;">'
         +'<button type="button" data-formapag="vista" onclick="setFormaPag(\'vista\')" class="on" style="'+_bSt.replace('border:1px solid var(--bd2)','border:1px solid var(--gold2)').replace('opacity:.55','opacity:1')+'">💰 À Vista</button>'
         +'<button type="button" data-formapag="parcelado" onclick="setFormaPag(\'parcelado\')" style="'+_bSt+'">💳 Parcelado</button>'
         +'<button type="button" data-formapag="misto" onclick="setFormaPag(\'misto\')" style="'+_bSt+'">🔀 50% + Juros</button>'
+        +'<button type="button" data-formapag="tres" onclick="setFormaPag(\'tres\')" style="'+_bSt+'">3️⃣ 3x HR</button>'
       +'</div>'
       +'<div id="mostrarVistaRow" style="margin:8px 0;">'
         +'<label style="font-size:.62rem;color:var(--t3);font-weight:600;display:block;margin-bottom:5px;">Mostrar o valor à vista para o cliente?</label>'
@@ -6789,11 +6821,14 @@ function gerarPDF(){
   var economia=q.parc-q.vista;
   // ── Forma de pagamento que o cliente escolheu no painel (à vista é o padrão) ──
   // "parcelado" = cliente fechou parcelado OU o vendedor escolheu NÃO mostrar o valor à vista
-  var _pdfIsParc = q.formaPag === 'parcelado' || (q.formaPag !== 'misto' && q.mostrarVista === false);
+  var _pdfIsParc = q.formaPag === 'parcelado' || (q.formaPag !== 'misto' && q.formaPag !== 'tres' && q.mostrarVista === false);
   // % de desconto do valor parcelado para o à vista (mostrado no selo do cartão À VISTA)
   var _pdfPctVista = (q.parc > 0 && q.vista > 0 && q.parc > q.vista) ? Math.round((q.parc - q.vista) / q.parc * 100) : 0;
   var _pdfIsMisto = q.formaPag === 'misto';
   var _pdfM = _pdfIsMisto ? _mistoCalc(q) : null;
+  var _pdfIsTres = q.formaPag === 'tres';
+  var _pdfT = _pdfIsTres ? _tresCalc(q) : null;
+  var _pdfTMeio = _pdfIsTres ? _tresDataMeio(window._pdfPrazoData) : '';
   // Para orçamentos pequenos (poucas peças de soleira/peitoril), não faz sentido
   // exigir entrada + entrega — deixa o cliente livre pra decidir quando paga.
   var _valorBaixo = q.vista < (CFG.limiarPagamentoSimples||600);
@@ -7187,7 +7222,7 @@ function gerarPDF(){
       +'</div>'
     +'</div>'):'') 
     // VALORES
-    +sh((_pdfIsParc||_pdfIsMisto)?'Valores do Projeto':'Escolha como pagar')
+    +sh((_pdfIsParc||_pdfIsMisto||_pdfIsTres)?'Valores do Projeto':'Escolha como pagar')
     +(_pdfIsMisto
       // ── Cliente fechou ENTRADA 50% + PARCELADO COM JUROS ──
       ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
@@ -7208,18 +7243,44 @@ function gerarPDF(){
         +'</div>'
       +'</div>'
       +'<div style="text-align:right;font-size:13px;font-weight:900;color:#7a4400;margin:-8px 0 20px;">Valor total: R$ '+fm(_pdfM.total)+'</div>'
+      : _pdfIsTres
+      // ── Cliente fechou 3x HR: entrada + metade do prazo + entrega ──
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:8px;">'
+        +'<div style="border:2px solid #C9A84C;box-shadow:0 3px 16px rgba(201,168,76,0.2);border-radius:10px;overflow:hidden;">'
+          +'<div style="background:#0f0c00;padding:10px 14px;"><span style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">1. Entrada</span></div>'
+          +'<div style="padding:14px;background:#fff;">'
+            +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:5px;">R$ '+fm(_pdfT.entrada)+'</div>'
+            +'<div style="font-size:11px;color:#999;line-height:1.4;">'+'Na assinatura, para iniciar a produção'+'</div>'
+          +'</div>'
+        +'</div>'
+        +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+          +'<div style="background:#0f0c00;padding:10px 14px;"><span style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">2. Meio do prazo</span></div>'
+          +'<div style="padding:14px;background:#faf8f4;">'
+            +'<div style="font-size:22px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">R$ '+fm(_pdfT.meio)+'</div>'
+            +'<div style="font-size:11px;color:#999;line-height:1.4;">'+(_pdfTMeio?'Até '+fd(_pdfTMeio):'Quando faltar metade do prazo de entrega')+'</div>'
+          +'</div>'
+        +'</div>'
+        +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+          +'<div style="background:#0f0c00;padding:10px 14px;"><span style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">3. Entrega</span></div>'
+          +'<div style="padding:14px;background:#faf8f4;">'
+            +'<div style="font-size:22px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">R$ '+fm(_pdfT.entrega)+'</div>'
+            +'<div style="font-size:11px;color:#999;line-height:1.4;">'+'No dia da entrega e instalação'+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      +'<div style="text-align:right;font-size:13px;font-weight:900;color:#7a4400;margin:0 0 20px;">Valor total: R$ '+fm(_pdfT.total)+'</div>'
       : _pdfIsParc
       // ── Cliente fechou PARCELADO: mostra só o cartão parcelado, sem mencionar o valor à vista ──
       ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
         +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
           +'<div style="background:#0f0c00;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">'
-            +'<div><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Valor do projeto</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Parcelado em até 8 vezes</div></div>'
+            +'<div><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Valor do projeto</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">No cartão de crédito, em até 8 vezes</div></div>'
             +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
           +'</div>'
           +'<div style="padding:14px 16px;background:#fff;">'
             +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._parcCalc)+'</div>':'')
             +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:5px;">8× R$ '+fm(q.p8)+'</div>'
-            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">por mês, em 8 parcelas</div>'
+            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em 8 parcelas</div>'
             +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
           +'</div>'
         +'</div>'
@@ -7234,7 +7295,7 @@ function gerarPDF(){
         +'</div>'
         +'<div style="padding:14px 16px;background:#faf8f4;">'
           +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">8× R$ '+fm(q.p8)+'</div>'
-          +'<div style="font-size:13px;color:#777;margin-bottom:8px;">por mês, em 8 parcelas</div>'
+          +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em 8 parcelas</div>'
           +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
         +'</div>'
       +'</div>'
@@ -7272,11 +7333,17 @@ function gerarPDF(){
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">ENTRADA + PARCELAMENTO</div>'
           +'<div style="font-size:12.5px;color:#555;line-height:1.7;">Na assinatura você paga <b>R$ '+fm(_pdfM.entrada)+'</b> (50%), para darmos início à produção. Os outros 50% (R$ '+fm(_pdfM.resto)+') são parcelados em <b>'+_pdfM.n+' parcelas mensais de R$ '+fm(_pdfM.parcela)+'</b>, já com juros de '+_fmPct(_pdfM.pct)+'%.</div>'
         +'</div>'
+      : _pdfIsTres
+      // ── 3x HR: explica as 3 etapas ──
+      ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+          +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PAGAMENTO EM 3 ETAPAS</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O valor é dividido em 3 partes iguais, sem juros. A <b>1ª</b> é paga na assinatura, para darmos início à produção. A <b>2ª</b> é paga quando faltar metade do prazo de entrega'+(_pdfTMeio?' (até <b>'+fd(_pdfTMeio)+'</b>)':'')+'. A <b>3ª</b> é paga na entrega e instalação.</div>'
+        +'</div>'
       : _pdfIsParc
       // ── Cliente fechou PARCELADO: explica a mecânica sem repetir os números já mostrados acima ──
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">COMO FUNCIONA O PARCELAMENTO</div>'
-          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O valor é dividido em 8 parcelas mensais e iguais. A primeira parcela é paga na assinatura, para darmos início à produção — as demais seguem mensalmente até a entrega e instalação. Não existe entrada separada: é só a parcela, todo mês, até completar as 8.</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O pagamento é feito no cartão de crédito, em até 8 parcelas iguais. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura. Não existe entrada separada nem pagamento na entrega.</div>'
         +'</div>'
       : (_valorBaixo
       // Orçamento pequeno à vista: sem exigir entrada/entrega, cliente decide quando paga
@@ -7439,7 +7506,7 @@ function gerarPDF(){
       if(navigator.share){
         enableBtn('pdfBtnShare','&#8599; Compartilhar',function(){
           var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsParc?'8× R$ '+fm(q.p8)+' (total R$ '+fm(q.parc)+')':'R$ '+fm(q.vista)+' a vista')};
+          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsParc?'8× R$ '+fm(q.p8)+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
           if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
           navigator.share(sd).catch(function(){});
         });
