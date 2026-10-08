@@ -10,7 +10,6 @@ import { fileURLToPath }      from 'url';
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion,
   isJidBroadcast,
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
@@ -22,10 +21,12 @@ const logger    = pino({ level: 'silent' });
 
 // ── Configuração ─────────────────────────────────────────────────────
 const CFG = {
-  DONO:     (process.env.DONO_NUMERO || '74991484460').replace(/\D/g, ''),
+  // DDI 55 é acrescentado automaticamente se faltar (ex: 74991484460 → 5574991484460)
+  DONO:     (d => (d.length <= 11 ? '55' + d : d))((process.env.DONO_NUMERO || '74991484460').replace(/\D/g, '')),
   EMPRESA:  process.env.EMPRESA      || 'HR Mármores e Granitos',
   PORT:     process.env.PORT         || 3000,
-  AUTH_DIR: './baileys_auth',
+  AUTH_DIR: process.env.AUTH_DIR || './baileys_auth',
+  BOT_KEY:  process.env.BOT_KEY  || '',
   TESTES:   ['5574988356878', '5574991484460'],
 };
 
@@ -41,6 +42,22 @@ const MIME = {
   '.svg':  'image/svg+xml',
   '.webp': 'image/webp',
 };
+
+// Arquivos que NUNCA devem ser servidos pela web (sessão do WhatsApp, código do bot, etc.)
+const BLOQUEADOS = /^\/(server|bot-server|servidor|index|config|ia|memoria|comandos|acesso|gastos|supabase|logger)\.js$|^\/package(-lock)?\.json$|^\/(baileys_auth|auth_|node_modules|\.)|\.(bak|bak2|md|env)$/i;
+
+function autorizado(req) {
+  return !!CFG.BOT_KEY && req.headers['x-bot-key'] === CFG.BOT_KEY;
+}
+
+// IDs das mensagens enviadas pelo próprio bot (evita loop quando bot e dono são o mesmo número)
+const enviados = new Set();
+function lembrarEnviado(r) {
+  const id = r?.key?.id;
+  if (!id) return;
+  enviados.add(id);
+  if (enviados.size > 500) enviados.delete(enviados.values().next().value);
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // ESTADO GLOBAL DO BOT
@@ -119,7 +136,8 @@ let enviarMsg = async (jid, texto) => {
   console.log(`[BOT→SIM ${jid}]: ${texto.slice(0, 80)}`);
 };
 
-async function processarMsg(numero, texto) {
+async function processarMsg(jid, texto) {
+  const numero = jid;
   if (!numero || !texto) return;
   const msg = normaliza(texto);
   if (!msg) return;
@@ -140,7 +158,7 @@ async function processarMsg(numero, texto) {
   const resp = await fsm(s, msg, numero);
   sessoes[numero] = s;
   if (resp) {
-    await enviarMsg(numero + '@s.whatsapp.net', resp).catch(err =>
+    await enviarMsg(jid, resp).catch(err =>
       console.error('[BOT] Erro ao enviar:', err.message)
     );
   }
@@ -225,7 +243,9 @@ async function finalizar(s, numero) {
   const notif = [
     `🔔 *NOVO LEAD — WHATSAPP*`, ``,
     `👤 *Cliente:* ${d.nome || '---'}`,
-    `📱 *Número:* wa.me/55${numero}`,
+    numero.endsWith('@lid')
+      ? `📱 *Número:* oculto pelo WhatsApp — responda pelo chat do bot`
+      : `📱 *Número:* wa.me/${numero.split('@')[0]}`,
     `🏗 *Projeto:* ${d.projeto || '---'}`,
     `📝 *Detalhes:* ${d.detalhe || '---'}`,
     `📏 *Medidas:* ${d.medidas || 'Não informado'}`,
@@ -288,12 +308,9 @@ async function iniciarBaileys() {
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(CFG.AUTH_DIR);
-    const { version }          = await fetchLatestBaileysVersion();
-
-    console.log(`[BOT] Baileys v${version.join('.')} | phone: ${bot.phoneTarget || 'não definido'}`);
+    console.log(`[BOT] Iniciando Baileys | phone: ${bot.phoneTarget || 'sessão salva'}`);
 
     const sock = makeWASocket({
-      version,
       auth: {
         creds: state.creds,
         keys:  makeCacheableSignalKeyStore(state.keys, logger),
@@ -349,7 +366,7 @@ async function iniciarBaileys() {
         // Religa enviarMsg
         enviarMsg = async (jid, texto) => {
           if (!bot.sock || !bot.conectado) throw new Error('Bot desconectado');
-          await bot.sock.sendMessage(jid, { text: texto });
+          lembrarEnviado(await bot.sock.sendMessage(jid, { text: texto }));
         };
       }
 
@@ -363,7 +380,7 @@ async function iniciarBaileys() {
         console.log(`[BOT] Conexão encerrada. Código: ${code}`);
         if (loggedOut) {
           limparAuth();
-          setTimeout(iniciarBaileys, 3000);
+          console.log('[BOT] Sessão encerrada no celular. Gere um novo código no app.');
         } else {
           bot.tentativas++;
           const delay = Math.min(5000 * bot.tentativas, 30000);
@@ -378,11 +395,13 @@ async function iniciarBaileys() {
       for (const m of messages) {
         try {
           if (!m.message)                             continue;
-          if (isJidBroadcast(m.key.remoteJid || '')) continue;
-          if (m.key.remoteJid?.endsWith('@g.us'))     continue;
+          const jid = m.key.remoteJid || '';
+          if (isJidBroadcast(jid))                    continue;
+          if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue;
+          if (enviados.has(m.key.id))                 continue;
 
-          const numero  = m.key.remoteJid?.replace('@s.whatsapp.net', '') || '';
-          const ehTeste = CFG.TESTES.some(t => t === numero || t === '55' + numero);
+          const numero  = jid.split('@')[0].split(':')[0];
+          const ehTeste = !jid.endsWith('@lid') && CFG.TESTES.some(t => t === numero || t === '55' + numero);
 
           if (m.key.fromMe && !ehTeste) continue;
 
@@ -394,7 +413,7 @@ async function iniciarBaileys() {
 
           if (!numero || !texto) continue;
           console.log(`[MSG] De ${numero}: ${texto.slice(0, 60)}`);
-          await processarMsg(numero, texto);
+          await processarMsg(jid, texto);
         } catch (err) {
           console.error('[BOT] Erro ao processar:', err.message);
         }
@@ -403,7 +422,7 @@ async function iniciarBaileys() {
 
     enviarMsg = async (jid, texto) => {
       if (!bot.sock || !bot.conectado) throw new Error('Bot desconectado');
-      await bot.sock.sendMessage(jid, { text: texto });
+      lembrarEnviado(await bot.sock.sendMessage(jid, { text: texto }));
     };
 
   } catch (err) {
@@ -518,7 +537,7 @@ function jsonRes(res, data, status = 200) {
     'Content-Type':                'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers':'Content-Type',
+    'Access-Control-Allow-Headers':'Content-Type, x-bot-key',
   });
   res.end(JSON.stringify(data));
 }
@@ -548,7 +567,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers':'Content-Type',
+      'Access-Control-Allow-Headers':'Content-Type, x-bot-key',
     });
     res.end();
     return;
@@ -567,10 +586,19 @@ const server = http.createServer(async (req, res) => {
       ok:        true,
       bot:       bot.conectado,
       status:    bot.status,
-      numero:    bot.numero,
       sessoes:   Object.keys(sessoes).length,
       ts:        new Date().toISOString(),
     });
+  }
+
+  // ── Todas as rotas /bot/* exigem a chave (BOT_KEY) ──
+  if (url.startsWith('/bot/')) {
+    if (!CFG.BOT_KEY) {
+      return jsonRes(res, { error: 'Servidor sem BOT_KEY configurada. Defina a variável BOT_KEY no Railway.' }, 503);
+    }
+    if (!autorizado(req)) {
+      return jsonRes(res, { error: 'Chave do bot incorreta.' }, 401);
+    }
   }
 
   // ── GET /bot/status ──
@@ -655,7 +683,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── Arquivos estáticos ──
-  let filePath = path.join(__dirname, url === '/' ? 'index.html' : url);
+  let decoded = url;
+  try { decoded = decodeURIComponent(url); } catch (_) {}
+  if (BLOQUEADOS.test(decoded) || decoded.includes('..')) {
+    res.writeHead(404); res.end('Not found'); return;
+  }
+  let filePath = path.join(__dirname, decoded === '/' ? 'index.html' : decoded);
   if (!filePath.startsWith(__dirname)) {
     res.writeHead(403); res.end('Forbidden'); return;
   }
@@ -683,7 +716,19 @@ server.listen(CFG.PORT, '0.0.0.0', () => {
   console.log(`📡 Porta:  ${CFG.PORT}`);
   console.log(`📱 Dono:   ${CFG.DONO}`);
   console.log(`🔗 Health: /health\n`);
-  // NÃO inicia Baileys automaticamente — espera /bot/start com número
+  if (!CFG.BOT_KEY) console.log('⚠️  BOT_KEY não definida — rotas /bot/* ficam bloqueadas até configurar.');
+  // Reconecta sozinho se já existe uma sessão pareada (sobrevive a reinício/deploy)
+  try {
+    const creds = JSON.parse(fs.readFileSync(path.join(CFG.AUTH_DIR, 'creds.json'), 'utf8'));
+    if (creds?.registered) {
+      console.log('[BOT] Sessão salva encontrada — reconectando automaticamente...');
+      iniciarBaileys();
+    } else {
+      console.log('[BOT] Sem sessão pareada — aguardando /bot/start.');
+    }
+  } catch (_) {
+    console.log('[BOT] Sem sessão salva — aguardando /bot/start.');
+  }
 });
 
 process.on('SIGTERM', () => { server.close(() => process.exit(0)); });

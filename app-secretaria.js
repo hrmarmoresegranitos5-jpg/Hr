@@ -258,6 +258,13 @@ function _saveBotCfg(obj) {
   localStorage.setItem('hr_bot_cfg', JSON.stringify(Object.assign(_getBotCfg(), obj)));
 }
 
+function _botHeaders() {
+  var h = { 'Content-Type': 'application/json' };
+  var k = _getBotCfg().key;
+  if (k) h['x-bot-key'] = k;
+  return h;
+}
+
 var _botPollTimer = null;
 var _botPolling   = false;
 
@@ -275,7 +282,7 @@ function botStopPoll() {
 function botCheckStatus() {
   var cfg = _getBotCfg();
   if (!cfg.url) return;
-  fetch(cfg.url + '/bot/status')
+  fetch(cfg.url + '/bot/status', { headers: _botHeaders() })
     .then(function(r){ return r.json(); })
     .then(function(d){ _saveBotCfg({ status: d.status, code: d.code || null }); _botUpdateUI(d); })
     .catch(function(){ _botUpdateUI({ status: 'offline' }); });
@@ -312,15 +319,18 @@ function _botUpdateUI(d) {
 function botConnect() {
   var url   = (document.getElementById('botServerUrl').value || '').trim().replace(/\/$/, '');
   var phone = (document.getElementById('botPhone').value || '').trim();
+  var keyEl = document.getElementById('botKey');
+  var key   = keyEl ? (keyEl.value || '').trim() : (_getBotCfg().key || '');
+  if (!key)   { toast('Informe a chave do bot (BOT_KEY)'); return; }
   if (!url)   { toast('Informe a URL do servidor'); return; }
   if (!phone) { toast('Informe o número do bot'); return; }
   var cleanPhone = phone.replace(/\D/g, '');
   if (cleanPhone.length < 12) { toast('Número inválido — use DDI+DDD+número'); return; }
-  _saveBotCfg({ url, phone: cleanPhone, status: 'connecting' });
+  _saveBotCfg({ url, phone: cleanPhone, key: key, status: 'connecting' });
   _botUpdateUI({ status: 'connecting' });
   var btnEl = document.getElementById('botConnectBtn');
   if (btnEl) { btnEl.textContent = '⏳ Gerando...'; btnEl.disabled = true; }
-  fetch(url + '/bot/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: cleanPhone }) })
+  fetch(url + '/bot/start', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ phone: cleanPhone }) })
   .then(function(r){ return r.json(); })
   .then(function(d){
     if (btnEl) { btnEl.textContent = '📲 Gerar Código'; btnEl.disabled = false; }
@@ -339,7 +349,7 @@ function botDisconnect() {
   var cfg = _getBotCfg();
   if (!cfg.url) return;
   if (!confirm('Desconectar o bot do WhatsApp?')) return;
-  fetch(cfg.url + '/bot/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limparSessao: false }) })
+  fetch(cfg.url + '/bot/disconnect', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ limparSessao: false }) })
   .then(function(){
     _saveBotCfg({ status: 'disconnected', code: null });
     _botUpdateUI({ status: 'disconnected' });
@@ -379,6 +389,8 @@ function _renderBotPanel() {
   h += '<input id="botPhone" class="sec2-bot-input" type="tel" placeholder="5574999990000" value="' + escH(cfg.phone||'') + '"/>';
   h += '<div class="sec2-bot-hint">Ex: 5574999990000 — sem espaços ou símbolos</div></div>';
   h += '</div>';
+  h += '<div class="sec2-bot-field"><label class="sec2-bot-label">🔑 Chave do bot (BOT_KEY)</label>';
+  h += '<input id="botKey" class="sec2-bot-input" type="password" autocomplete="off" placeholder="a mesma chave definida no servidor" value="' + escH(cfg.key||'') + '"/></div>';
   h += '<button id="botConnectBtn" class="sec2-bot-connect-btn" onclick="botConnect()">📲 Gerar Código de Pareamento</button>';
   h += '</div>';
 
