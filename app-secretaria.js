@@ -271,7 +271,7 @@ var _botPolling   = false;
 function botStartPoll() {
   if (_botPolling) return;
   _botPolling = true;
-  _botPollTimer = setInterval(botCheckStatus, 3000);
+  _botPollTimer = setInterval(botCheckStatus, 15000);
   botCheckStatus();
 }
 function botStopPoll() {
@@ -318,43 +318,179 @@ function _botUpdateUI(d) {
 
 function botConnect() {
   var url   = (document.getElementById('botServerUrl').value || '').trim().replace(/\/$/, '');
-  var phone = (document.getElementById('botPhone').value || '').trim();
   var keyEl = document.getElementById('botKey');
   var key   = keyEl ? (keyEl.value || '').trim() : (_getBotCfg().key || '');
-  if (!key)   { toast('Informe a chave do bot (BOT_KEY)'); return; }
-  if (!url)   { toast('Informe a URL do servidor'); return; }
-  if (!phone) { toast('Informe o número do bot'); return; }
-  var cleanPhone = phone.replace(/\D/g, '');
-  if (cleanPhone.length < 12) { toast('Número inválido — use DDI+DDD+número'); return; }
-  _saveBotCfg({ url, phone: cleanPhone, key: key, status: 'connecting' });
-  _botUpdateUI({ status: 'connecting' });
+  if (!url) { toast('Informe a URL do Worker'); return; }
+  if (!key) { toast('Informe a chave do bot (BOT_KEY)'); return; }
+  _saveBotCfg({ url: url, key: key });
   var btnEl = document.getElementById('botConnectBtn');
-  if (btnEl) { btnEl.textContent = '⏳ Gerando...'; btnEl.disabled = true; }
-  fetch(url + '/bot/start', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ phone: cleanPhone }) })
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    if (btnEl) { btnEl.textContent = '📲 Gerar Código'; btnEl.disabled = false; }
-    if (d.error) { toast('❌ ' + d.error); return; }
-    _saveBotCfg({ code: d.code });
-    _botUpdateUI({ status: d.status, code: d.code });
-    botStartPoll();
+  if (btnEl) { btnEl.textContent = '⏳ Verificando...'; btnEl.disabled = true; }
+  fetch(url + '/bot/status', { headers: _botHeaders() })
+  .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+  .then(function(x){
+    if (btnEl) { btnEl.textContent = '🔌 Conectar ao bot'; btnEl.disabled = false; }
+    if (!x.ok) { toast('❌ ' + (x.d.error || 'Falha ao conectar')); return; }
+    _saveBotCfg({ status: x.d.status, phone: x.d.phone || '' });
+    _botUpdateUI(x.d);
+    botLoadLeads();
+    toast(x.d.status === 'connected' ? '✅ Bot ativo' : '⚠️ Worker sem alguma variável configurada');
   })
-  .catch(function(e){
-    if (btnEl) { btnEl.textContent = '📲 Gerar Código'; btnEl.disabled = false; }
-    toast('❌ Servidor não acessível. Verifique a URL.');
+  .catch(function(){
+    if (btnEl) { btnEl.textContent = '🔌 Conectar ao bot'; btnEl.disabled = false; }
+    toast('❌ Worker não acessível. Confira a URL.');
   });
 }
 
-function botDisconnect() {
+function botLoadLeads() {
   var cfg = _getBotCfg();
-  if (!cfg.url) return;
-  if (!confirm('Desconectar o bot do WhatsApp?')) return;
-  fetch(cfg.url + '/bot/disconnect', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ limparSessao: false }) })
-  .then(function(){
-    _saveBotCfg({ status: 'disconnected', code: null });
-    _botUpdateUI({ status: 'disconnected' });
-    toast('Bot desconectado.');
-  }).catch(function(){ toast('Erro ao desconectar.'); });
+  var box = document.getElementById('botLeadsBox');
+  if (!cfg.url || !box) return;
+  fetch(cfg.url + '/bot/leads', { headers: _botHeaders() })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    var ls = d.leads || [];
+    if (!ls.length) { box.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:11px;padding:8px 0;">Nenhum lead recebido ainda.</div>'; return; }
+    box.innerHTML = ls.map(function(l){
+      return '<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,.08);font-size:12px;">'
+        + '<b>' + escH(l.nome) + '</b> — ' + escH(l.projeto) + '<br>'
+        + '<span style="color:rgba(255,255,255,.45);font-size:11px;">' + escH(l.hora) + ' · '
+        + '<a href="https://wa.me/' + escH(l.numero) + '" target="_blank" style="color:#4ade80;">wa.me/' + escH(l.numero) + '</a></span></div>';
+    }).join('');
+  }).catch(function(){});
+}
+
+function botDisconnect() {
+  if (!confirm('Remover a conexão do painel com o bot? (o bot continua funcionando no Worker)')) return;
+  _saveBotCfg({ status: 'disconnected', code: null, key: '' });
+  _botUpdateUI({ status: 'disconnected' });
+  toast('Painel desconectado do bot.');
+}
+
+// ── Lançamentos que chegam pelo WhatsApp → Finanças ──
+// O bot guarda "gastei 150 com cimento" no Worker; aqui o app busca,
+// grava em DB.t (mesmo formato do saveFin) e confirma pro Worker.
+var _botFinBusy = false;
+
+function botSyncFinancas(manual) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) { if (manual) toast('Conecte o bot primeiro (URL e chave).'); return; }
+  if (typeof DB === 'undefined' || !DB || !DB.t) return;
+  if (_botFinBusy) return;
+  _botFinBusy = true;
+  fetch(cfg.url + '/bot/financas', { headers: _botHeaders() })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+    .then(function(x){
+      if (!x.ok) { _botFinBusy = false; if (manual) toast('❌ ' + (x.d.error || 'Falha ao buscar lançamentos')); return; }
+      var lista = x.d.lancamentos || [];
+      var novos = 0, waIds = [];
+      lista.forEach(function(l){
+        waIds.push(l.waId);
+        if (DB.t.some(function(t){ return t.waId === l.waId; })) return; // já importado antes
+        var tr = { id: l.id, type: l.type, desc: l.desc, value: l.value, date: l.date, waId: l.waId, origem: 'whatsapp' };
+        if (l.type === 'out' && l.cat) tr.cat = l.cat;
+        DB.t.unshift(tr);
+        novos++;
+      });
+      if (novos) {
+        DB.sv();
+        try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
+      }
+      if (!waIds.length) { _botFinBusy = false; if (manual) toast('Nenhum lançamento novo no bot.'); return; }
+      return fetch(cfg.url + '/bot/financas/confirmar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ waIds: waIds }) })
+        .then(function(){ _botFinBusy = false; if (novos) toast('📲 ' + novos + ' lançamento(s) do WhatsApp em Finanças'); else if (manual) toast('Nenhum lançamento novo no bot.'); });
+    })
+    .catch(function(){ _botFinBusy = false; if (manual) toast('❌ Worker não acessível.'); });
+}
+
+// Busca sozinho: ao abrir o app e depois a cada 1 minuto
+setTimeout(function(){ botSyncFinancas(false); }, 4000);
+setInterval(function(){ botSyncFinancas(false); }, 60000);
+
+// ── Falas do bot (editor) ──
+var _botFalasData = null;
+
+function botToggleFalas() {
+  var box = document.getElementById('botFalasBox');
+  if (!box) return;
+  if (box.style.display === 'block') { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  botLoadFalas();
+}
+
+function botLoadFalas() {
+  var cfg = _getBotCfg();
+  var box = document.getElementById('botFalasBox');
+  if (!cfg.url || !box) return;
+  box.innerHTML = '<div style="color:rgba(255,255,255,.5);font-size:12px;padding:8px 0;">Carregando falas...</div>';
+  fetch(cfg.url + '/bot/falas', { headers: _botHeaders() })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+    .then(function(x){
+      if (!x.ok) { box.innerHTML = '<div style="color:#f87171;font-size:12px;">❌ ' + escH(x.d.error || 'Falha ao carregar') + (x.d.error ? '' : '. Atualize o código do Worker.') + '</div>'; return; }
+      _botFalasData = x.d;
+      _botRenderFalas(box, x.d);
+    })
+    .catch(function(){ box.innerHTML = '<div style="color:#f87171;font-size:12px;">❌ Worker não acessível.</div>'; });
+}
+
+function _botRenderFalas(box, d) {
+  var h = '<div style="font-size:11px;color:rgba(255,255,255,.55);line-height:1.5;margin-bottom:10px;">'
+    + 'Edite o que o bot fala em cada etapa. Onde aparecer <b>{nome}</b>, <b>{empresa}</b>, <b>{projeto}</b> ou <b>{lista}</b>, o bot troca pelo valor real. '
+    + 'Use *negrito* e _itálico_ como no WhatsApp.</div>';
+  (d.rotulos || []).forEach(function(r){
+    var val = (d.falas && d.falas[r.k]) || '';
+    var mudou = d.padrao && d.padrao[r.k] !== val;
+    h += '<div style="margin-bottom:12px;">'
+      + '<div style="font-size:12px;font-weight:700;margin-bottom:2px;">' + escH(r.t) + (mudou ? ' <span style="color:#fb923c;font-weight:600;">· editada</span>' : '') + '</div>'
+      + (r.d ? '<div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:4px;">' + escH(r.d) + '</div>' : '')
+      + '<textarea id="botFala_' + escH(r.k) + '" class="sec2-bot-input" rows="4" maxlength="1500" style="width:100%;box-sizing:border-box;resize:vertical;font-family:inherit;line-height:1.45;">' + escH(val) + '</textarea>'
+      + '</div>';
+  });
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button class="sec2-bot-connect-btn" id="botFalasSalvar" onclick="botSaveFalas()">💾 Salvar falas</button>'
+    + '<button class="sec2-bot-disconnect" onclick="botResetFalas()">↺ Restaurar padrão</button>'
+    + '</div>';
+  box.innerHTML = h;
+}
+
+function botSaveFalas() {
+  var cfg = _getBotCfg();
+  var d = _botFalasData;
+  if (!cfg.url || !d) return;
+  var falas = {};
+  (d.rotulos || []).forEach(function(r){
+    var el = document.getElementById('botFala_' + r.k);
+    if (el) falas[r.k] = el.value;
+  });
+  var btn = document.getElementById('botFalasSalvar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
+  fetch(cfg.url + '/bot/falas', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ falas: falas }) })
+    .then(function(r){ return r.json().then(function(x){ return { ok: r.ok, d: x }; }); })
+    .then(function(x){
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar falas'; }
+      if (!x.ok) { toast('❌ ' + (x.d.error || 'Falha ao salvar')); return; }
+      _botFalasData.falas = x.d.falas;
+      toast('✅ Falas salvas. O bot já usa os novos textos.');
+      var box = document.getElementById('botFalasBox');
+      if (box) _botRenderFalas(box, _botFalasData);
+    })
+    .catch(function(){
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar falas'; }
+      toast('❌ Worker não acessível.');
+    });
+}
+
+function botResetFalas() {
+  if (!confirm('Voltar todas as falas para o texto padrão?')) return;
+  var cfg = _getBotCfg();
+  fetch(cfg.url + '/bot/falas', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ restaurar: true }) })
+    .then(function(r){ return r.json(); })
+    .then(function(x){
+      if (_botFalasData && x.falas) _botFalasData.falas = x.falas;
+      var box = document.getElementById('botFalasBox');
+      if (box && _botFalasData) _botRenderFalas(box, _botFalasData);
+      toast('↺ Falas restauradas.');
+    })
+    .catch(function(){ toast('❌ Worker não acessível.'); });
 }
 
 function _renderBotPanel() {
@@ -383,15 +519,12 @@ function _renderBotPanel() {
   // Setup Area
   h += '<div id="botSetupArea" style="' + (st === 'connected' ? 'display:none;' : '') + '">';
   h += '<div class="sec2-bot-fields">';
-  h += '<div class="sec2-bot-field"><label class="sec2-bot-label">🌐 URL do Servidor</label>';
-  h += '<input id="botServerUrl" class="sec2-bot-input" type="url" placeholder="https://seuservidor.com" value="' + escH(cfg.url||'') + '"/></div>';
-  h += '<div class="sec2-bot-field"><label class="sec2-bot-label">📱 Número do Bot</label>';
-  h += '<input id="botPhone" class="sec2-bot-input" type="tel" placeholder="5574999990000" value="' + escH(cfg.phone||'') + '"/>';
-  h += '<div class="sec2-bot-hint">Ex: 5574999990000 — sem espaços ou símbolos</div></div>';
+  h += '<div class="sec2-bot-field"><label class="sec2-bot-label">🌐 URL do Worker (Cloudflare)</label>';
+  h += '<input id="botServerUrl" class="sec2-bot-input" type="url" placeholder="https://seu-worker.workers.dev" value="' + escH(cfg.url||'') + '"/></div>';
   h += '</div>';
   h += '<div class="sec2-bot-field"><label class="sec2-bot-label">🔑 Chave do bot (BOT_KEY)</label>';
-  h += '<input id="botKey" class="sec2-bot-input" type="password" autocomplete="off" placeholder="a mesma chave definida no servidor" value="' + escH(cfg.key||'') + '"/></div>';
-  h += '<button id="botConnectBtn" class="sec2-bot-connect-btn" onclick="botConnect()">📲 Gerar Código de Pareamento</button>';
+  h += '<input id="botKey" class="sec2-bot-input" type="password" autocomplete="off" placeholder="a mesma BOT_KEY do Worker" value="' + escH(cfg.key||'') + '"/></div>';
+  h += '<button id="botConnectBtn" class="sec2-bot-connect-btn" onclick="botConnect()">🔌 Conectar ao bot</button>';
   h += '</div>';
 
   // Code Area
@@ -414,7 +547,12 @@ function _renderBotPanel() {
   h += '<div><div style="color:#4ade80;font-weight:700;font-size:13px;">Bot ativo e respondendo</div>';
   h += '<div style="color:rgba(255,255,255,.4);font-size:11px;">+' + escH(cfg.phone||'—') + '</div></div></div>';
   h += '<button class="sec2-bot-disconnect" onclick="botDisconnect()">Desconectar</button>';
-  h += '</div></div>';
+  h += '</div>';
+  h += '<div style="margin-top:12px;"><div style="font-size:12px;font-weight:700;margin-bottom:4px;">📋 Últimos leads</div><div id="botLeadsBox"></div></div>';
+  h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botSyncFinancas(true)">🔄 Buscar lançamentos do WhatsApp agora</button><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:6px;line-height:1.4;">Escreva pro bot: <i>gastei 150 com cimento</i> ou <i>recebi 2.500 do João</i>. O app busca sozinho a cada 1 minuto.</div></div>';
+  h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botToggleFalas()">💬 Editar falas do bot</button><div id="botFalasBox" style="display:none;margin-top:12px;"></div></div>';
+  h += '</div>';
+  setTimeout(botLoadLeads, 0);
 
   h += '<span id="botStatusInd" style="display:none;" data-status="' + escH(st) + '"></span>';
   h += '</div>';
