@@ -572,6 +572,7 @@ function renderSecretaria() {
       _secRenderAI();
       // Auto-fetch do briefing IA se ainda nao gerado ou cache expirou (30min)
       _secAutoFetchBriefing();
+      if (_getBotCfg().url) botCheckStatus();
     }, 0);
   } catch(err) {
     el.innerHTML = '<div style="padding:30px 18px;color:var(--t3);font-size:.78rem;">⚠️ Erro ao carregar secretária.<br><small>' + escH(String(err)) + '</small></div>';
@@ -708,6 +709,10 @@ function _renderSecretariaInner(el) {
   if (!totalTarefas && !visitasHoje.length && !proxVisitas.length) {
     h += '<div class="sec2-empty"><div style="font-size:2.5rem;margin-bottom:10px;">🤝</div><div>Nada urgente. Aproveite para novos orçamentos!</div></div>';
   }
+
+  // ── WHATSAPP BOT (conexão, lançamentos em Finanças e falas) ──
+  h += '<div class="sec2-section-header"><span class="sec2-section-dot green"></span>WhatsApp Bot</div>';
+  h += _renderBotPanel();
 
   h += '<div style="height:24px;"></div>';
   el.innerHTML = h;
