@@ -493,6 +493,15 @@ function botResetFalas() {
     .catch(function(){ toast('❌ Worker não acessível.'); });
 }
 
+var _botPanelOpen = false;
+function botTogglePanel() {
+  _botPanelOpen = !_botPanelOpen;
+  var w = document.getElementById('botPanelWrap');
+  var a = document.getElementById('botTopSeta');
+  if (w) w.style.display = _botPanelOpen ? 'block' : 'none';
+  if (a) a.textContent = _botPanelOpen ? '▴' : '▾';
+}
+
 function _renderBotPanel() {
   var cfg = _getBotCfg();
   var st  = cfg.status || 'disconnected';
@@ -633,6 +642,10 @@ function _renderSecretariaInner(el) {
   h += _sec2Chip(atrasados.length, '⚠️', 'atrasados', '#f87171');
   h += '</div>';
 
+  // ── WHATSAPP BOT (recolhível, no topo para não ficar escondido no fim da tela) ──
+  h += '<button class="sec2-nova-visita" id="botTopBtn" onclick="botTogglePanel()">💬 WhatsApp Bot · v4 <span id="botTopSeta">' + (_botPanelOpen ? '▴' : '▾') + '</span></button>';
+  h += '<div id="botPanelWrap" style="display:' + (_botPanelOpen ? 'block' : 'none') + ';margin:10px 0 14px;">' + _renderBotPanel() + '</div>';
+
   // ── TIMELINE DO DIA ──
   h += _secTimeline(hoje, agora);
 
@@ -709,10 +722,6 @@ function _renderSecretariaInner(el) {
   if (!totalTarefas && !visitasHoje.length && !proxVisitas.length) {
     h += '<div class="sec2-empty"><div style="font-size:2.5rem;margin-bottom:10px;">🤝</div><div>Nada urgente. Aproveite para novos orçamentos!</div></div>';
   }
-
-  // ── WHATSAPP BOT (conexão, lançamentos em Finanças e falas) ──
-  h += '<div class="sec2-section-header"><span class="sec2-section-dot green"></span>WhatsApp Bot</div>';
-  h += _renderBotPanel();
 
   h += '<div style="height:24px;"></div>';
   el.innerHTML = h;
