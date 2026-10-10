@@ -567,6 +567,13 @@ var HR_RELATORIO_PONTO = (function () {
     // Adiantamentos/vales apontados especificamente para este decêndio
     var adiantamentosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._adiantamentosAlvoDecendio)
       ? HR_FUNC._adiantamentosAlvoDecendio(funcId, decNum, mesRef) : [];
+    // Crédito de OVERPAGO (empresa pagou a mais antes) desconta, igual adiantamento:
+    // entra na mesma lista para aparecer como linha de desconto no relatório.
+    var _overpagos = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosAlvoDecendio)
+      ? HR_FUNC._creditosAlvoDecendio(funcId, decNum, mesRef) : [];
+    adiantamentosAlvo = adiantamentosAlvo.concat(_overpagos.map(function (c) {
+      return { id: c.id, data: c.data, valor: c.valor, obs: 'Crédito de overpago' + (c.obs ? ' — ' + c.obs : '') };
+    }));
     var totalAdiantamentos = adiantamentosAlvo.reduce(function (s, a) { return s + (parseFloat(a.valor) || 0); }, 0);
 
     // Outros adiantamentos em aberto do funcionário (apontados p/ outros decêndios) — informativo
@@ -578,8 +585,8 @@ var HR_RELATORIO_PONTO = (function () {
 
     // Créditos (overpago em decêndio anterior) apontados especificamente para este —
     // mesmo padrão dos adiantamentos, só que somam ao invés de descontar.
-    var creditosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosAlvoDecendio)
-      ? HR_FUNC._creditosAlvoDecendio(funcId, decNum, mesRef) : [];
+    var creditosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosHEDecendio)
+      ? HR_FUNC._creditosHEDecendio(funcId, decNum, mesRef) : [];
     var totalCreditos = creditosAlvo.reduce(function (s, c) { return s + (parseFloat(c.valor) || 0); }, 0);
 
     // Outros créditos em aberto do funcionário (ainda sem decêndio de destino escolhido)

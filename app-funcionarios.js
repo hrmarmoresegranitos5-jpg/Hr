@@ -545,6 +545,9 @@ var HR_FUNC = (function () {
     }).reduce(function(s,a){ return s + (parseFloat(a.valor)||0); }, 0);
 
     var totalDevido = totalSalario + valorExtra + totalAcrescimos - deficitRestanteValor;
+    // HE acumuladas de decêndios anteriores apontadas para este período
+    var totalCreditosHE = _totalCreditosHEPeriodo(funcId, di, df);
+    totalDevido += totalCreditosHE;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -566,6 +569,7 @@ var HR_FUNC = (function () {
       valorExtra:       valorExtra,
       totalSalario:     totalSalario,
       totalDevido:      totalDevido,
+      totalCreditosHE:  totalCreditosHE,
       totalAcrescimos:  totalAcrescimos,
       totalPago:        totalPago,
       saldo:            saldo,
@@ -3001,7 +3005,7 @@ var HR_FUNC = (function () {
     var acrEfetivo = incluirExtra ? (s.totalAcrescimos || 0) : 0;
     var pago       = s.totalPago || 0;
     var deficitEfetivo = s.deficitRestanteValor || 0;
-    return sal + heEfetivo + acrEfetivo - deficitEfetivo - pago;
+    return sal + heEfetivo + acrEfetivo + (s.totalCreditosHE || 0) - deficitEfetivo - pago;
   }
 
   // Valor devido ANTES de abater créditos de overpago (mas já depois de
@@ -3082,6 +3086,9 @@ var HR_FUNC = (function () {
         })
       : [];
 
+    var creditosHE = (decNum && f && f.id) ? _creditosHEDecendio(f.id, decNum, _refMesAdi) : [];
+    var totalCreditosHE = creditosHE.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+
     var saldo   = _calcValorAPagar(s, f, incluirExtra, decNum, mesISO);
 
     // Linha de composição: só mostra itens com valor > 0
@@ -3154,6 +3161,10 @@ var HR_FUNC = (function () {
         (he > 0 && incluirExtra  ? _linha('H. extras a pagar ('+_dp.di.slice(8)+' a '+_dp.df.slice(8)+') · '+(s.totalExtra||0).toFixed(1)+'h', he, '#e0b870') : '') +
         (he > 0 && !incluirExtra ? '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:.75rem;color:'+T3+';font-style:italic;">Extras ('+(s.totalExtra||0).toFixed(1)+'h) → banco 🏦</span><span style="font-size:.75rem;color:#8ec8f0;">'+_fmtMoeda(he)+'</span></div>' : '') +
         (acrEfetivo > 0.01 ? _linha('Acréscimo HE 2× / 3×', acrEfetivo, '#8ec8c8') : '') +
+        creditosHE.map(function(c){
+          var dLbl = c.data ? _fmtData(c.data) : '';
+          return _linha('🏦 HE acumulada '+dLbl+(c.obs?' ('+_esc(c.obs)+')':''), parseFloat(c.valor)||0, '#8ec8f0');
+        }).join('') +
         (deficitEfetivo > 0.01 ? _linhaSubt('Horas negativas restantes ('+_fmtHorasMin(s.deficitRestanteMin)+')', deficitEfetivo, RED) : '') +
         (pago > 0  ? _linhaSubt('Já pago neste período', pago, RED) : '') +
         adiantamentosAlvo.map(function(a){
@@ -3177,6 +3188,7 @@ var HR_FUNC = (function () {
           (!incluirExtra && he > 0 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(he)+' acumulado no banco</div>' : '')+
           (totalAdiantamentos > 0.01 ? '<div style="font-size:.6rem;color:#e0954a;">−'+_fmtMoeda(totalAdiantamentos)+' já descontado em adiantamentos</div>' : '')+
           (totalCreditosAlvo > 0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">−'+_fmtMoeda(totalCreditosAlvo)+' descontado por overpago no decêndio anterior</div>' : '')+
+          (totalCreditosHE > 0.01 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(totalCreditosHE)+' de horas extras acumuladas de outro período</div>' : '')+
         '</div>'+
         '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
           _fmtMoeda(Math.abs(saldo))+
@@ -3217,7 +3229,29 @@ var HR_FUNC = (function () {
             creditosOutrosAbertos.map(function(c){ return _fmtData(c.data)+' '+_fmtMoeda(parseFloat(c.valor)||0); }).join(' · ')+
           '</div>'
         : '')+
+      ((decNum && f && f.id)
+        ? '<button type="button" onclick="HR_FUNC._addCreditoHEManual(\''+f.id+'\','+decNum+',\''+_refMesAdi+'\')" '+
+          'style="margin-top:9px;width:100%;padding:8px 10px;border-radius:9px;background:rgba(142,200,240,.08);'+
+          'border:1px dashed rgba(142,200,240,.4);color:#8ec8f0;font-family:Outfit,sans-serif;font-size:.7rem;'+
+          'font-weight:700;cursor:pointer;">🏦 Somar horas extras acumuladas de outro período</button>'
+        : '')+
     '</div>';
+  }
+
+  // Lança HE acumulada de um período já pago/acumulado (ex: o 3º decêndio que
+  // foi marcado como "Acumular") para ser SOMADA neste decêndio.
+  function _addCreditoHEManual(funcId, decNum, mesRef) {
+    var v = window.prompt('Valor (R$) das horas extras acumuladas para somar neste decêndio:', '');
+    if (v === null) return;
+    var txt = String(v).trim();
+    var valor = txt.indexOf(',') >= 0 ? parseFloat(txt.replace(/\./g, '').replace(',', '.')) : parseFloat(txt);
+    if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
+    var obs = window.prompt('De quais dias vêm essas horas? (aparece no relatório)', 'Horas extras acumuladas do período anterior');
+    if (obs === null) return;
+    var c = criarCredito(funcId, valor, _hoje(), obs, null, null, 'he');
+    alocarCredito(c.id, decNum, mesRef);
+    _toast('🏦 +' + _fmtMoeda(valor) + ' de HE acumulada somado neste decêndio.');
+    if (typeof HR_FUNC._atualizarPainelPagamento === 'function') HR_FUNC._atualizarPainelPagamento();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -3395,7 +3429,7 @@ var HR_FUNC = (function () {
   //     de pagamento, via alocarCredito). Se null, ainda está "em aberto".
   //   - aplicado: true depois que já entrou no cálculo de um pagamento.
   // ─────────────────────────────────────────────────────────────
-  function criarCredito(funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem) {
+  function criarCredito(funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem, tipo) {
     var creditos = getCreditos();
     var id = 'cred_' + genId();
 
@@ -3419,6 +3453,10 @@ var HR_FUNC = (function () {
       creditarDecendio: destino ? destino.num    : null,
       mesRefDestino:    destino ? destino.mesRef : null,
       aplicado: false,
+      // tipo 'he' = horas extras acumuladas (dinheiro que a empresa DEVE ao
+      // funcionário → SOMA no decêndio de destino). Sem tipo = overpago
+      // (a empresa pagou a mais → DESCONTA).
+      tipo: tipo || null,
       criadoEm: new Date().toISOString()
     };
     saveCreditos(creditos);
@@ -3447,10 +3485,38 @@ var HR_FUNC = (function () {
 
   // Créditos apontados para um decêndio específico (usado pelo relatório e
   // pelo bloco de saldo do pagamento) — mesma assinatura de _adiantamentosAlvoDecendio.
+  // Crédito de HORAS EXTRAS acumuladas (soma) x crédito de OVERPAGO (desconta).
+  // Os criados antes do campo `tipo` existir são reconhecidos pelo texto da obs.
+  function _ehCreditoHE(c) {
+    return !!c && (c.tipo === 'he' || /^Horas extras de .*acumuladas/i.test(c.obs || ''));
+  }
+
+  // HE acumuladas apontadas para um decêndio (aplicadas ou não: elas passam a
+  // fazer parte do valor DEVIDO daquele decêndio, então o relatório e o saldo
+  // continuam fechando depois do pagamento).
+  function _creditosHEDecendio(funcId, decNum, mesRef) {
+    return Object.values(getCreditos()).filter(function (c) {
+      return _ehCreditoHE(c) && c.funcionarioId === funcId &&
+             c.creditarDecendio === decNum && c.mesRefDestino === mesRef;
+    }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
+  }
+
+  function _totalCreditosHEPeriodo(funcId, di, df) {
+    var total = 0;
+    Object.values(getCreditos()).forEach(function (c) {
+      if (!_ehCreditoHE(c) || c.funcionarioId !== funcId || !c.creditarDecendio || !c.mesRefDestino) return;
+      var per = _periodoDecendio(c.creditarDecendio, c.mesRefDestino);
+      if (di && per.di < di) return;
+      if (df && per.df > df) return;
+      total += parseFloat(c.valor) || 0;
+    });
+    return total;
+  }
+
   function _creditosAlvoDecendio(funcId, decNum, mesRef) {
     var creditos = getCreditos();
     return Object.values(creditos).filter(function (c) {
-      return c.funcionarioId === funcId && !c.aplicado &&
+      return !_ehCreditoHE(c) && c.funcionarioId === funcId && !c.aplicado &&
              c.creditarDecendio === decNum && c.mesRefDestino === mesRef;
     }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
   }
@@ -3460,7 +3526,7 @@ var HR_FUNC = (function () {
   function _creditosEmAberto(funcId) {
     var creditos = getCreditos();
     return Object.values(creditos).filter(function (c) {
-      return c.funcionarioId === funcId && !c.aplicado;
+      return !_ehCreditoHE(c) && c.funcionarioId === funcId && !c.aplicado;
     }).sort(function(a,b){ return (a.data||'').localeCompare(b.data||''); });
   }
 
@@ -3471,7 +3537,7 @@ var HR_FUNC = (function () {
     var creditos = getCreditos();
     var achado = null;
     Object.values(creditos).forEach(function(c){
-      if (!achado && c.funcionarioId === funcId && !c.aplicado &&
+      if (!achado && !_ehCreditoHE(c) && c.funcionarioId === funcId && !c.aplicado &&
           c.decNumOrigem === decNumOrigem && c.mesRefOrigem === mesRefOrigem) {
         achado = c;
       }
@@ -3486,7 +3552,7 @@ var HR_FUNC = (function () {
   function _gerarObsCreditoOverpago(s, per, mesRefOrigem) {
     var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     var mesLabel = meses[parseInt(mesRefOrigem.slice(5,7),10)-1] + '/' + mesRefOrigem.slice(0,4);
-    var acrescimos = (s.totalDevido - s.totalSalario - s.valorExtra);
+    var acrescimos = (s.totalDevido - s.totalSalario - s.valorExtra - (s.totalCreditosHE || 0));
     var partes = [];
     if (s.totalSalario > 0.01) partes.push('fixo ' + _fmtMoeda(s.totalSalario));
     if (s.valorExtra   > 0.01) partes.push('hora extra ' + _fmtMoeda(s.valorExtra));
@@ -3977,7 +4043,7 @@ var HR_FUNC = (function () {
       var perOrigem  = _periodoDecendio(decOrigem, mesOrigem);
       var obsHE = 'Horas extras de ' + perOrigem.di.slice(8) + ' a ' + perOrigem.df.slice(8) +
         '/' + mesOrigem.slice(5,7) + ' (' + heHoras.toFixed(1) + 'h) acumuladas — a pagar no próximo decêndio';
-      creditoGerado = criarCredito(funcId, heValor, data, obsHE, decOrigem, mesOrigem);
+      creditoGerado = criarCredito(funcId, heValor, data, obsHE, decOrigem, mesOrigem, 'he');
     }
 
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
@@ -5658,6 +5724,9 @@ var HR_FUNC = (function () {
     marcarCreditoAplicado:    marcarCreditoAplicado,
     _creditosAlvoDecendio:    _creditosAlvoDecendio,
     _creditosEmAberto:        _creditosEmAberto,
+    _creditosHEDecendio:      _creditosHEDecendio,
+    _totalCreditosHEPeriodo:  _totalCreditosHEPeriodo,
+    _addCreditoHEManual:      _addCreditoHEManual,
     _alocarCreditoSelect:     _alocarCreditoSelect,
     _migrarCreditosRetroativos: _migrarCreditosRetroativos,
     _rodarMigracaoCreditos:     _rodarMigracaoCreditos,
