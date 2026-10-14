@@ -546,11 +546,12 @@ var HR_RELATORIO_PONTO = (function () {
   // − adiantamentos apontados para este decêndio − já pago = líquido a pagar.
   function _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, totalDeficitMin, valorHora, meusPagsPeriodo) {
     var diaIni = di.slice(8, 10);
-    var decNum = diaIni === '01' ? 1 : (diaIni === '11' ? 2 : 3);
+    var _quinz = !!(f && !f.socio && f.periodicidade === 'quinzenal');
+    var decNum = _quinz ? (parseInt(diaIni, 10) >= 16 ? 2 : 1) : (diaIni === '01' ? 1 : (diaIni === '11' ? 2 : 3));
     var mesRef = di.slice(0, 7);
 
     var salario  = parseFloat(f.salario) || 0;
-    var decValor = parseFloat(f['dec' + decNum]) || (salario / 3);
+    var decValor = parseFloat(f['dec' + decNum]) || (salario / (_quinz ? 2 : 3));
 
     // Pagamentos do decêndio propriamente dito (tipo='decendio') feitos neste período
     var pagsDecendio = meusPagsPeriodo.filter(function (p) { return p.tipo === 'decendio'; });
@@ -612,15 +613,15 @@ var HR_RELATORIO_PONTO = (function () {
     function _statusOutroDecendio(num) {
       if (num === decNum) return null;
       var per = (typeof HR_FUNC !== 'undefined' && HR_FUNC._periodoDecendio)
-        ? HR_FUNC._periodoDecendio(num, mesRef) : null;
+        ? HR_FUNC._periodoDecendio(num, mesRef, f) : null;
       if (!per) return null;
-      var valorDec = parseFloat(f['dec' + num]) || (salario / 3);
+      var valorDec = parseFloat(f['dec' + num]) || (salario / (_quinz ? 2 : 3));
       var pago = Object.values(pagsTodoMes).filter(function (p) {
         return p.funcionarioId == funcId && p.tipo === 'decendio' && p.data >= per.di && p.data <= per.df;
       }).reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
       return { num: num, di: per.di, df: per.df, valor: valorDec, pago: pago, quitado: pago >= valorDec - 0.5 };
     }
-    var outrosDecendios = [1, 2, 3].map(_statusOutroDecendio).filter(function (x) { return x; });
+    var outrosDecendios = (_quinz ? [1, 2] : [1, 2, 3]).map(_statusOutroDecendio).filter(function (x) { return x; });
 
     return {
       decNum: decNum, mesRef: mesRef, decValor: decValor,
