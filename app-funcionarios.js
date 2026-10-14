@@ -124,13 +124,84 @@ var HR_FUNC = (function () {
   // ─────────────────────────────────────────────────────────────
   // HELPERS DE DECENDIO
   // ─────────────────────────────────────────────────────────────
-  function _proximoDecendio(){
+  // ── Periodicidade: decêndio (10/20/último dia) ou quinzenal (15/último dia) ──
+  // Funcionário com f.periodicidade === 'quinzenal' tem 2 períodos por mês:
+  //   1 = dias 1–15 (paga dia 15) | 2 = dias 16–fim (paga no último dia)
+  // Reaproveita dec1/dec2 como valores da 1ª/2ª quinzena (dec3 fica 0).
+  // Sócio (pró-labore) sempre segue decêndio.
+  function _funcDe(x){
+    if (x && typeof x === 'object') return x;
+    if (x == null || x === '') return null;
+    return getFuncionarios()[x] || null;
+  }
+  function _ehQuinzenal(x){
+    var f = _funcDe(x);
+    return !!(f && !f.socio && f.periodicidade === 'quinzenal');
+  }
+  function _numPeriodos(x){ return _ehQuinzenal(x) ? 2 : 3; }
+  function _numDoDia(x, dia){
+    if (_ehQuinzenal(x)) return dia <= 15 ? 1 : 2;
+    return dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+  }
+  function _rotuloPeriodo(x, n){ return _ehQuinzenal(x) ? (n+'ª quinzena') : (n+'º decêndio'); }
+  // Data de vencimento do período num no mês (ano, mesIdx 0-11)
+  function _vencDate(x, num, ano, mesIdx){
+    if (_ehQuinzenal(x)) return num === 1 ? new Date(ano, mesIdx, 15) : new Date(ano, mesIdx + 1, 0);
+    if (num === 1) return new Date(ano, mesIdx, 10);
+    if (num === 2) return new Date(ano, mesIdx, 20);
+    return new Date(ano, mesIdx + 1, 0);
+  }
+  function _opsDescontoDec(x){
+    if (_ehQuinzenal(x)) return [
+      {v:'',  l:'Não descontar automaticamente (avulso)'},
+      {v:'1', l:'1ª quinzena — dia 15'},
+      {v:'2', l:'2ª quinzena — fim do mês'}
+    ];
+    return [
+      {v:'',  l:'Não descontar automaticamente (avulso)'},
+      {v:'1', l:'1º decêndio — dia 10'},
+      {v:'2', l:'2º decêndio — dia 20'},
+      {v:'3', l:'3º decêndio — fim do mês'}
+    ];
+  }
+  function _htmlBotoesDec(fid, mes, sel){
+    var np = _numPeriodos(fid), out = '';
+    for (var n = 1; n <= np; n++){
+      var dp = _periodoDecendio(n, mes, fid);
+      var ativo = n === sel;
+      out += '<button onclick="HR_FUNC._selecionarDecendio('+n+')" id="btn_dec_'+n+'" '+
+        'style="flex:1;padding:8px 4px;border-radius:9px;border:1.5px solid '+(ativo?GOLD:'rgba(255,255,255,.12)')+';'+
+        'background:'+(ativo?'rgba(201,168,76,.15)':'rgba(255,255,255,.04)')+';'+
+        'color:'+(ativo?GOLD:T3)+';font-family:Outfit,sans-serif;font-size:.7rem;font-weight:700;cursor:pointer;">'+
+        '<div>'+(np === 2 ? (n+'ª quinz') : (n+'º dec'))+'</div>'+
+        '<div style="font-size:.58rem;font-weight:400;">'+dp.di.slice(8)+' a '+dp.df.slice(8)+'</div>'+
+      '</button>';
+    }
+    return out;
+  }
+  function _htmlDicaGrid(fid){
+    var itens = _ehQuinzenal(fid)
+      ? [['1º pagamento','dia 15'],['2º pagamento','fim do mês']]
+      : [['1º pagamento','dia 10'],['2º pagamento','dia 20'],['3º pagamento','fim do mês']];
+    return itens.map(function(it){
+      return '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
+        '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">'+it[0]+'</div>'+
+        '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">'+it[1]+'</div>'+
+      '</div>';
+    }).join('');
+  }
+
+  function _proximoDecendio(f){
     var hoje = new Date();
     var d    = hoje.getDate();
     var ano  = hoje.getFullYear();
     var mes  = hoje.getMonth();
     var alvo, label;
-    if (d < 10)      { alvo = new Date(ano, mes,   10); label = '1º decendio'; }
+    if (_ehQuinzenal(f)) {
+      if (d <= 15) { alvo = new Date(ano, mes,   15); label = '1ª quinzena'; }
+      else         { alvo = new Date(ano, mes+1,  0); label = '2ª quinzena'; }
+    }
+    else if (d < 10) { alvo = new Date(ano, mes,   10); label = '1º decendio'; }
     else if (d < 20) { alvo = new Date(ano, mes,   20); label = '2º decendio'; }
     else             { alvo = new Date(ano, mes+1,   0); label = '3º decendio'; }
     var diff = Math.round((alvo - hoje) / (1000*60*60*24));
@@ -142,8 +213,7 @@ var HR_FUNC = (function () {
   // já somando os acréscimos HE pendentes (2× e 3×).
   // Se não configurado, retorna salario÷3 como fallback.
   function _decendioBase(f){
-    var d = new Date().getDate();
-    var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
+    var num = _numDoDia(f, new Date().getDate());
     return _decendioValorNum(f, num);
   }
   // Retorna o valor do decêndio num (1/2/3) para um funcionário.
@@ -159,6 +229,13 @@ var HR_FUNC = (function () {
       return _plCalcDecendio(mes, num).sugerido || 0;
     }
     var dec;
+    if (_ehQuinzenal(f)) {
+      if      (num === 1) dec = parseFloat(f.dec1) || 0;
+      else if (num === 2) dec = parseFloat(f.dec2) || 0;
+      else return 0;
+      if (!dec) dec = (parseFloat(f.salario) || 0) / 2;
+      return dec;
+    }
     if      (num === 1) dec = parseFloat(f.dec1) || 0;
     else if (num === 2) dec = parseFloat(f.dec2) || 0;
     else                dec = parseFloat(f.dec3) || 0;
@@ -183,31 +260,35 @@ var HR_FUNC = (function () {
 
     return dec + pendentes;
   }
-  function _labelDecendio(){
-    var nd = _proximoDecendio();
+  function _labelDecendio(f){
+    var nd = _proximoDecendio(f);
     if (nd.diasRestantes === 0) return { txt:'📆 '+nd.label+' HOJE',    urgente:true };
     if (nd.diasRestantes === 1) return { txt:'📆 '+nd.label+' amanhã',  urgente:true };
     return                             { txt:'📆 '+nd.label+' em '+nd.diasRestantes+'d', urgente:false };
   }
   // Retorna {di, df, label} do decêndio em que "hoje" se encontra.
   // 1º dec: dias 1–10 | 2º dec: dias 11–20 | 3º dec: dias 21–fim do mês
-  function _periodoDecendioAtual(){
+  function _periodoDecendioAtual(fOuId){
     var hoje = new Date();
     var d = hoje.getDate();
-    var num = d <= 10 ? 1 : d <= 20 ? 2 : 3;
-    return _periodoDecendio(num, _mesAno(0)); // sempre o mês real de hoje, ignora window._folhaMes
+    var num = _numDoDia(fOuId, d);
+    return _periodoDecendio(num, _mesAno(0), fOuId); // sempre o mês real de hoje, ignora window._folhaMes
   }
   // Retorna {di, df, label, num} para o decêndio num (1, 2 ou 3).
   // mesISO (opcional): mês de referência no formato 'YYYY-MM'. Se omitido,
   // usa window._folhaMes (mês da folha aberta na tela) ou, na falta dele,
   // o mês real de hoje. Isso evita calcular o período no mês corrente
   // quando o usuário está navegando/pagando um mês anterior.
-  function _periodoDecendio(num, mesISO){
+  function _periodoDecendio(num, mesISO, fOuId){
     var ref = mesISO || window._folhaMes || _mesAno(0);
     var ano = parseInt(ref.slice(0,4), 10), mes = parseInt(ref.slice(5,7), 10) - 1;
     var pad = function(n){ return String(n).padStart(2,'0'); };
     var mesStr = ref;
     var ultimoDia = new Date(ano, mes+1, 0).getDate();
+    if (_ehQuinzenal(fOuId)) {
+      if (num === 1) return { num:1, di: mesStr+'-01', df: mesStr+'-15', label: '1ª quinzena' };
+      return { num:2, di: mesStr+'-16', df: mesStr+'-'+pad(ultimoDia), label: '2ª quinzena' };
+    }
     if (num === 1) return { num:1, di: mesStr+'-01', df: mesStr+'-10', label: '1º decêndio' };
     if (num === 2) return { num:2, di: mesStr+'-11', df: mesStr+'-20', label: '2º decêndio' };
                    return { num:3, di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
@@ -217,9 +298,10 @@ var HR_FUNC = (function () {
   // seguinte — usado pra saber automaticamente pra onde mandar créditos
   // (overpago ou HE acumulada) sem depender de escolha manual do usuário.
   // 1→2, 2→3, 3→1 do mês seguinte.
-  function _decendioSeguinte(num, mesRef){
+  function _decendioSeguinte(num, mesRef, fOuId){
+    var _qz = _ehQuinzenal(fOuId);
     if (num === 1) return { num: 2, mesRef: mesRef };
-    if (num === 2) return { num: 3, mesRef: mesRef };
+    if (num === 2 && !_qz) return { num: 3, mesRef: mesRef };
     var ano = parseInt(mesRef.slice(0,4), 10), mes = parseInt(mesRef.slice(5,7), 10) - 1;
     var d = new Date(ano, mes + 1, 1);
     var novoMesRef = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
@@ -408,9 +490,15 @@ var HR_FUNC = (function () {
       var d20  = di.slice(0,8) + '20';
       var dFim = di.slice(0,8) + String(ultimoDia).padStart(2,'0');
 
-      if (d10 >= di && d10 <= df)  totalSalario += parseFloat(f.dec1) || 0;
-      if (d20 >= di && d20 <= df)  totalSalario += parseFloat(f.dec2) || 0;
-      if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec3) || 0;
+      if (_ehQuinzenal(f)) {
+        var d15 = di.slice(0,8) + '15';
+        if (d15 >= di && d15 <= df)   totalSalario += parseFloat(f.dec1) || 0;
+        if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec2) || 0;
+      } else {
+        if (d10 >= di && d10 <= df)  totalSalario += parseFloat(f.dec1) || 0;
+        if (d20 >= di && d20 <= df)  totalSalario += parseFloat(f.dec2) || 0;
+        if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec3) || 0;
+      }
 
       // Se nenhum decêndio venceu ainda no período (mês em curso, antes do dia 10),
       // usa zero — o saldo será zerado e o pagamento ainda não é devido.
@@ -1180,7 +1268,7 @@ var HR_FUNC = (function () {
         '<div style="text-align:right;flex-shrink:0;">' +
           '<div style="font-size:.82rem;font-weight:700;color:'+GOLD+';">'+(f.socio?_pctSocioLabel():_fmtMoeda(f.salario))+'</div>' +
           '<div style="font-size:.58rem;color:'+T3+';margin-top:1px;">'+_fmtMoeda(_decendioBase(f))+'</div>' +
-          '<div style="font-size:.55rem;color:'+T3+';">'+(f.socio?'pró-labore/decêndio':'por decêndio')+'</div>' +
+          '<div style="font-size:.55rem;color:'+T3+';">'+(f.socio?'pró-labore/decêndio':(_ehQuinzenal(f)?'por quinzena':'por decêndio'))+'</div>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1260,6 +1348,7 @@ var HR_FUNC = (function () {
     var funcs=getFuncionarios();
     var f=id?(funcs[id]||{}):{};
     var isEdit=!!id;
+    var _qf=(f.periodicidade==='quinzenal'&&!f.socio);
 
     var html='<div style="width:100%;max-width:500px;padding:0 16px;">'+
       _overlayHeader(isEdit?'Editar Funcionário':'Novo Funcionário','RH · Equipe','HR_FUNC._closeForm()')+
@@ -1335,9 +1424,14 @@ var HR_FUNC = (function () {
       )+
 
       '<div id="ffDecManualBlock" style="display:'+(f.socio?'none':'block')+';">'+
-      _secao('Decêndios (valores fixos a pagar)',
+      _secao('Decêndios / Quinzenas (valores fixos a pagar)',
+        _campo('Periodicidade do pagamento',
+          '<select id="ff_periodicidade" onchange="HR_FUNC._onPeriodicidadeChange()" style="'+CSS_INP+'">'+
+            '<option value="decendio"'+(_qf?'':' selected')+'>📆 Decêndio (dias 10, 20 e último dia)</option>'+
+            '<option value="quinzenal"'+(_qf?' selected':'')+'>📅 Quinzenal (dia 15 e último dia)</option>'+
+          '</select>')+
         '<div style="font-size:.68rem;color:'+T3+';margin-bottom:10px;line-height:1.5;">'+
-          'Informe o valor fixo de cada parcela de 10 dias. '+
+          '<span id="ff_txt_per">Informe o valor fixo de cada parcela '+(_qf?'quinzenal (15 dias)':'de 10 dias')+'.</span> '+
           'Só desconta se o funcionário tiver déficit de horas.'+
         '</div>'+
         '<button type="button" onclick="HR_FUNC._preencherDecSugestaoFin()" style="width:100%;padding:8px;margin-bottom:10px;'+
@@ -1346,10 +1440,12 @@ var HR_FUNC = (function () {
           '💡 Preencher com sugestão de pró-labore (Finanças)'+
         '</button>'+
         _grid2(
-          _campo('1º Decêndio — dia 10 (R$)',_inp('ff_dec1','number','0,00',f.dec1!=null?f.dec1:'','min="0" step="0.01"')),
-          _campo('2º Decêndio — dia 20 (R$)',_inp('ff_dec2','number','0,00',f.dec2!=null?f.dec2:'','min="0" step="0.01"'))
+          _campo((_qf?'1ª Quinzena — dia 15 (R$)':'1º Decêndio — dia 10 (R$)'),_inp('ff_dec1','number','0,00',f.dec1!=null?f.dec1:'','min="0" step="0.01"')),
+          _campo((_qf?'2ª Quinzena — último dia (R$)':'2º Decêndio — dia 20 (R$)'),_inp('ff_dec2','number','0,00',f.dec2!=null?f.dec2:'','min="0" step="0.01"'))
         )+
-        _campo('3º Decêndio — último dia (R$)',_inp('ff_dec3','number','0,00',f.dec3!=null?f.dec3:'','min="0" step="0.01"'))
+        '<div id="ff_wrap_dec3" style="display:'+(_qf?'none':'block')+';">'+
+          _campo('3º Decêndio — último dia (R$)',_inp('ff_dec3','number','0,00',f.dec3!=null?f.dec3:'','min="0" step="0.01"'))+
+        '</div>'
       )+
       '</div>'+
 
@@ -1434,13 +1530,26 @@ var HR_FUNC = (function () {
     if (el) el.innerHTML = _previewDecendiosSocio();
   }
 
+  // Alterna rótulos/campos do cadastro entre decêndio e quinzenal
+  function _onPeriodicidadeChange(){
+    var sel = document.getElementById('ff_periodicidade');
+    var q = !!(sel && sel.value === 'quinzenal');
+    var d1 = document.getElementById('ff_dec1'), d2 = document.getElementById('ff_dec2');
+    if (d1 && d1.previousElementSibling) d1.previousElementSibling.textContent = q ? '1ª Quinzena — dia 15 (R$)' : '1º Decêndio — dia 10 (R$)';
+    if (d2 && d2.previousElementSibling) d2.previousElementSibling.textContent = q ? '2ª Quinzena — último dia (R$)' : '2º Decêndio — dia 20 (R$)';
+    var w3 = document.getElementById('ff_wrap_dec3'); if (w3) w3.style.display = q ? 'none' : 'block';
+    var t = document.getElementById('ff_txt_per');
+    if (t) t.textContent = 'Informe o valor fixo de cada parcela ' + (q ? 'quinzenal (15 dias)' : 'de 10 dias') + '.';
+  }
+
   function _preencherDecSugestaoFin(){
     if (typeof _plCalc !== 'function'){ _toast('Módulo Finanças não carregado'); return; }
     var c = _plCalc();
     if (!c.sugerido){ _toast('Ainda não há sugestão de pró-labore calculada em Finanças'); return; }
-    var terco = Math.round((c.sugerido/3)*100)/100;
+    var _qs = ((document.getElementById('ff_periodicidade')||{}).value==='quinzenal');
+    var terco = Math.round((c.sugerido/(_qs?2:3))*100)/100;
     var d1=document.getElementById('ff_dec1'), d2=document.getElementById('ff_dec2'), d3=document.getElementById('ff_dec3');
-    if(d1)d1.value=terco; if(d2)d2.value=terco; if(d3)d3.value=terco;
+    if(d1)d1.value=terco; if(d2)d2.value=terco; if(d3)d3.value=_qs?'':terco;
     _toast('✓ Preenchido com base na sugestão de Finanças (R$ '+_fmtMoeda(c.sugerido)+'/mês)');
   }
 
@@ -1500,9 +1609,10 @@ var HR_FUNC = (function () {
       jornadaDiariaMin:(function(){var v=parseFloat((document.getElementById('ff_jornada')||{}).value);return(!isNaN(v)&&v>0)?Math.round(v*60):0;}()),
       // Sócio nunca usa valores manuais de decêndio — sempre calculado
       // automaticamente (% sobre o lucro do período, em Finanças).
+      periodicidade:(function(){if(_isSocioSave)return 'decendio';var _s=document.getElementById('ff_periodicidade');return(_s&&_s.value==='quinzenal')?'quinzenal':'decendio';}()),
       dec1:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec1')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
       dec2:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec2')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
-      dec3:_isSocioSave?0:(function(){var v=parseFloat((document.getElementById('ff_dec3')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
+      dec3:(_isSocioSave||((document.getElementById('ff_periodicidade')||{}).value==='quinzenal'))?0:(function(){var v=parseFloat((document.getElementById('ff_dec3')||{}).value);return(!isNaN(v)&&v>0)?v:0;}()),
       obs:(document.getElementById('ff_obs')||{}).value||'',
       criadoEm:(funcs[funcId]&&funcs[funcId].criadoEm)||new Date().toISOString(),
       atualizadoEm:new Date().toISOString()
@@ -1555,7 +1665,7 @@ var HR_FUNC = (function () {
     var extraMes=regsMes.reduce(function(s,r){return s+(parseFloat(r.extra)||0);},0);
     var extraMesBanco=regsMes.reduce(function(s,r){return s+(r.destinoExtra==='banco'?(parseFloat(r.extra)||0):0);},0);
     // Saldo do decêndio atual (1–10, 11–20, 21–fim)
-    var _dpModal = _periodoDecendioAtual();
+    var _dpModal = _periodoDecendioAtual(id);
     var _diMes   = _dpModal.di;
     var _dfMes   = _dpModal.df;
     var saldo=calcSaldoFuncionario(id, _diMes, _dfMes);
@@ -1778,9 +1888,7 @@ var HR_FUNC = (function () {
         var pagoPorDec = { d1: 0, d2: 0, d3: 0 };
         meusP.forEach(function(p){
           var dp = parseInt(p.data.slice(8,10));
-          if (dp <= 10)      pagoPorDec.d1 += parseFloat(p.valor)||0;
-          else if (dp <= 20) pagoPorDec.d2 += parseFloat(p.valor)||0;
-          else               pagoPorDec.d3 += parseFloat(p.valor)||0;
+          pagoPorDec['d' + _numDoDia(f, dp)] += parseFloat(p.valor)||0;
         });
         var dec1 = _decendioValorNum(f, 1);
         var dec2 = _decendioValorNum(f, 2);
@@ -1789,7 +1897,13 @@ var HR_FUNC = (function () {
         // Descobre qual decêndio já venceu e ainda não foi pago
         var emAberto = null;
         var numAberto = null;
-        if (dHoje >= 10 && pagoPorDec.d1 < dec1 - 0.5) {
+        if (_ehQuinzenal(f)) {
+          if (dHoje >= 15 && pagoPorDec.d1 < dec1 - 0.5) {
+            emAberto = { label: '1ª quinzena', valor: dec1, sub: 'Venceu dia 15' }; numAberto = 1;
+          } else if (dHoje > 15 && pagoPorDec.d2 < dec2 - 0.5) {
+            emAberto = { label: '2ª quinzena', valor: dec2, sub: 'Vence fim do mês' }; numAberto = 2;
+          }
+        } else if (dHoje >= 10 && pagoPorDec.d1 < dec1 - 0.5) {
           emAberto = { label: '1º decêndio', valor: dec1, sub: 'Venceu dia 10' }; numAberto = 1;
         } else if (dHoje >= 20 && pagoPorDec.d2 < dec2 - 0.5) {
           emAberto = { label: '2º decêndio', valor: dec2, sub: 'Venceu dia 20' }; numAberto = 2;
@@ -1799,10 +1913,10 @@ var HR_FUNC = (function () {
 
         // Se nada em aberto, mostra o próximo a vencer
         if (!emAberto) {
-          var nd = _proximoDecendio();
+          var nd = _proximoDecendio(f);
           var vDec = _decendioBase(f);
           var prazo = nd.diasRestantes === 0 ? 'HOJE' : nd.diasRestantes === 1 ? 'amanhã' : 'em '+nd.diasRestantes+'d';
-          numAberto = dHoje <= 10 ? 1 : dHoje <= 20 ? 2 : 3;
+          numAberto = _numDoDia(f, dHoje);
           emAberto = { label: nd.label, valor: vDec, sub: 'Vence '+prazo };
         }
 
@@ -2713,15 +2827,15 @@ var HR_FUNC = (function () {
     if (_mesPeriodo !== _mesAno(0)) {
       // Mês diferente do mês real de hoje (ex: folha de mês anterior) → o mês
       // inteiro já fechou, então o padrão é o 3º decêndio (o último dele).
-      _decInicial = 3;
+      _decInicial = _numPeriodos(funcIdInicial);
     } else {
       var _hoje2 = new Date();
       var _dHoje = _hoje2.getDate();
-      _decInicial = _dHoje <= 10 ? 1 : _dHoje <= 20 ? 2 : 2; // dia 21-30: último pago foi o 2º
+      _decInicial = _ehQuinzenal(funcIdInicial) ? (_dHoje <= 15 ? 1 : 2) : (_dHoje <= 10 ? 1 : 2); // decêndio: dia 21-30 → último pago foi o 2º
       // Se hoje > 20, o 3º ainda não fechou — padrão é 2º. Mas se funcionar via atalho, pode ser sobrescrito.
     }
     var _decSelecionado = _decInicial;
-    var _decPer = _periodoDecendio(_decSelecionado, _mesPeriodo);
+    var _decPer = _periodoDecendio(_decSelecionado, _mesPeriodo, funcIdInicial);
     var _pagDi  = _decPer.di;
     var _pagDf  = _decPer.df;
     var _extraPagIncluir = true; // estado do toggle: true=pagar HE, false=acumular
@@ -2761,19 +2875,9 @@ var HR_FUNC = (function () {
       '<div style="width:100%;max-width:500px;padding:0 16px;">'+
       _overlayHeader('Registrar Pagamento','💳 RH · Financeiro','HR_FUNC._closePagamento()')+
 
-      // Seletor de decêndio
-      '<div style="display:flex;gap:6px;margin-bottom:10px;">'+
-        [1,2,3].map(function(n){
-          var dp = _periodoDecendio(n, _mesPeriodo);
-          var ativo = n === _decSelecionado;
-          return '<button onclick="HR_FUNC._selecionarDecendio('+n+')" id="btn_dec_'+n+'" '+
-            'style="flex:1;padding:8px 4px;border-radius:9px;border:1.5px solid '+(ativo?GOLD:'rgba(255,255,255,.12)')+';'+
-            'background:'+(ativo?'rgba(201,168,76,.15)':'rgba(255,255,255,.04)')+';'+
-            'color:'+(ativo?GOLD:T3)+';font-family:Outfit,sans-serif;font-size:.7rem;font-weight:700;cursor:pointer;">'+
-            '<div>'+n+'º dec</div>'+
-            '<div style="font-size:.58rem;font-weight:400;">'+dp.di.slice(8)+' a '+dp.df.slice(8)+'</div>'+
-          '</button>';
-        }).join('')+
+      // Seletor de decêndio / quinzena (muda conforme a periodicidade do funcionário)
+      '<div id="pag_dec_btns" style="display:flex;gap:6px;margin-bottom:10px;">'+
+        _htmlBotoesDec(funcIdInicial, _mesPeriodo, _decSelecionado)+
       '</div>'+
       // Bloco saldo (atualizado via JS)
       '<div id="pag_saldo_info">'+(funcIdInicial && saldo ? _blocoSaldo(saldo, f, _extraPagIncluir, _decSelecionado, _mesPeriodo) : '')+'</div>'+
@@ -2802,12 +2906,7 @@ var HR_FUNC = (function () {
       '<div id="pag_desconto_wrap" style="display:none;">'+
         _secao('',
           _campo('💸 Descontar do funcionário em qual decêndio?',
-            _sel('pag_desconto_dec', [
-              {v:'',  l:'Não descontar automaticamente (avulso)'},
-              {v:'1', l:'1º decêndio — dia 10'},
-              {v:'2', l:'2º decêndio — dia 20'},
-              {v:'3', l:'3º decêndio — fim do mês'}
-            ], String(_decSelecionado))
+            _sel('pag_desconto_dec', _opsDescontoDec(funcIdInicial), String(_decSelecionado))
           )+
           '<div style="font-size:.68rem;color:'+T3+';line-height:1.5;">'+
             'O valor fica marcado como pendente até o decêndio escolhido ser pago — '+
@@ -2822,19 +2921,8 @@ var HR_FUNC = (function () {
         '<div style="font-size:.65rem;color:'+GOLD+';font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;">'+
           '📆 Como funciona o pagamento decendial'+
         '</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;">'+
-          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
-            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">1º pagamento</div>'+
-            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">dia 10</div>'+
-          '</div>'+
-          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
-            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">2º pagamento</div>'+
-            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">dia 20</div>'+
-          '</div>'+
-          '<div style="background:rgba(0,0,0,.2);border-radius:8px;padding:7px 8px;text-align:center;">'+
-            '<div style="font-size:.58rem;color:'+T3+';margin-bottom:2px;">3º pagamento</div>'+
-            '<div style="font-size:.7rem;font-weight:700;color:'+T2+';">fim do mês</div>'+
-          '</div>'+
+        '<div id="pag_dica_grid" style="display:grid;grid-template-columns:repeat('+_numPeriodos(funcIdInicial)+',1fr);gap:6px;margin-bottom:8px;">'+
+          _htmlDicaGrid(funcIdInicial)+
         '</div>'+
         (sugestao
           ? '<div style="font-size:.72rem;color:'+T2+';line-height:1.5;">'+
@@ -2876,6 +2964,25 @@ var HR_FUNC = (function () {
         hMes.value = _mesPeriodo;
       }
 
+      // Reconstrói botões/dica/select de desconto conforme a periodicidade do funcionário
+      function _ajustarUIPeriodicidade(fid){
+        var np = _numPeriodos(fid);
+        if (_decSelecionado > np) _decSelecionado = np;
+        var wrap = document.getElementById('pag_dec_btns');
+        if (wrap) wrap.innerHTML = _htmlBotoesDec(fid, _mesPeriodo, _decSelecionado);
+        var grid = document.getElementById('pag_dica_grid');
+        if (grid){ grid.style.gridTemplateColumns = 'repeat('+np+',1fr)'; grid.innerHTML = _htmlDicaGrid(fid); }
+        var sd = document.getElementById('pag_desconto_dec');
+        if (sd){
+          var cur = sd.value;
+          sd.innerHTML = _opsDescontoDec(fid).map(function(o){
+            return '<option value="'+_esc(String(o.v))+'">'+_esc(o.l)+'</option>';
+          }).join('');
+          sd.value = cur;
+          if (sd.value !== cur) sd.value = '';
+        }
+      }
+
       function _atualizarPainel(){
         var fid   = selFunc.value;
         var tipo  = (selTipo && selTipo.value) || 'decendio';
@@ -2884,10 +2991,11 @@ var HR_FUNC = (function () {
         var inpV  = document.getElementById('pag_valor');
         var descW = document.getElementById('pag_desconto_wrap');
         if (descW) descW.style.display = (tipo === 'vale' || tipo === 'adiantamento') ? '' : 'none';
+        _ajustarUIPeriodicidade(fid);
         if (!info) return;
         if (!fid){ info.innerHTML=''; if(dica) dica.style.display='none'; return; }
         var f2   = getFuncionarios()[fid] || {};
-        var _dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo);
+        var _dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo, fid);
         var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV && tipo === 'decendio') {
@@ -2920,9 +3028,7 @@ var HR_FUNC = (function () {
         if (inpD) {
           var _a = parseInt(_mesPeriodo.slice(0,4), 10), _m = parseInt(_mesPeriodo.slice(5,7), 10) - 1;
           var _dt;
-          if      (num === 1) _dt = new Date(_a, _m, 10);
-          else if (num === 2) _dt = new Date(_a, _m, 20);
-          else                _dt = new Date(_a, _m + 1, 0);
+          _dt = _vencDate(selFunc.value || funcIdInicial, num, _a, _m);
           inpD.value = _dt.toISOString().slice(0, 10);
         }
         _atualizarPainel();
@@ -2936,7 +3042,7 @@ var HR_FUNC = (function () {
         var inpV = document.getElementById('pag_valor');
         if (!fid || !info) return;
         var f2  = getFuncionarios()[fid] || {};
-        var dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo);
+        var dp2 = _periodoDecendio(_decSelecionado, _mesPeriodo, fid);
         var s2  = calcSaldoFuncionario(fid, dp2.di, dp2.df);
         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
         if (inpV) {
@@ -2965,20 +3071,9 @@ var HR_FUNC = (function () {
           if (!val || val.length < 10) return;
           _mesPeriodo     = val.slice(0, 7);
           var dia         = parseInt(val.slice(8, 10), 10);
-          _decSelecionado = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+          _decSelecionado = _numDoDia(selFunc.value, dia);
 
-          // Atualiza os 3 botões de decêndio: destaque + faixa de dias do novo mês
-          [1,2,3].forEach(function(n){
-            var btn = document.getElementById('btn_dec_'+n);
-            if (!btn) return;
-            var dp    = _periodoDecendio(n, _mesPeriodo);
-            var ativo = n === _decSelecionado;
-            btn.style.borderColor = ativo ? '#C9A84C' : 'rgba(255,255,255,.12)';
-            btn.style.background  = ativo ? 'rgba(201,168,76,.15)' : 'rgba(255,255,255,.04)';
-            btn.style.color       = ativo ? '#C9A84C' : '#888';
-            var labelDiv = btn.querySelector('div:last-child');
-            if (labelDiv) labelDiv.textContent = dp.di.slice(8) + ' a ' + dp.df.slice(8);
-          });
+          // Botões de período são reconstruídos dentro de _atualizarPainel()
 
           _atualizarPainel();
         });
@@ -3116,7 +3211,7 @@ var HR_FUNC = (function () {
 
     // Decêndio e período legível
     var _refMes = mesISO || window._folhaMes || _mesAno(0);
-    var _dp = decNum ? _periodoDecendio(decNum, _refMes) : _periodoDecendioAtual();
+    var _dp = decNum ? _periodoDecendio(decNum, _refMes, f) : _periodoDecendioAtual(f);
     var _meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     var _mesLabel = _meses[parseInt(_refMes.slice(5,7),10)-1] + '/' + _refMes.slice(0,4);
     var periodoLabel = _dp.label + ' — ' + _dp.di.slice(8) + ' a ' + _dp.df.slice(8) + '/' + _mesLabel;
@@ -3214,12 +3309,12 @@ var HR_FUNC = (function () {
             'style="width:100%;padding:7px 8px;border-radius:8px;background:rgba(255,255,255,.06);'+
             'border:1px solid rgba(255,255,255,.15);color:'+T1+';font-family:Outfit,sans-serif;font-size:.72rem;">'+
             '<option value="">Não aplicar ainda</option>'+
-            _optRef(_refMesAdi, 1, '1º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
-            _optRef(_refMesAdi, 2, '2º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
-            _optRef(_refMesAdi, 3, '3º decêndio — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4))+
-            _optRef(_mesProx, 1, '1º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
-            _optRef(_mesProx, 2, '2º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
-            _optRef(_mesProx, 3, '3º decêndio — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4))+
+            [1,2,3].filter(function(n){ return n <= _numPeriodos(f); }).map(function(n){
+              return _optRef(_refMesAdi, n, _rotuloPeriodo(f, n)+' — '+_refMesAdi.slice(5,7)+'/'+_refMesAdi.slice(0,4));
+            }).join('')+
+            [1,2,3].filter(function(n){ return n <= _numPeriodos(f); }).map(function(n){
+              return _optRef(_mesProx, n, _rotuloPeriodo(f, n)+' — '+_mesProx.slice(5,7)+'/'+_mesProx.slice(0,4));
+            }).join('')+
           '</select>'+
         '</div>';
       }).join('') +
@@ -3276,8 +3371,8 @@ var HR_FUNC = (function () {
     var dataVal    = (inpData && inpData.value) ? inpData.value : _hoje(); // yyyy-mm-dd
     var mesPeriodo = dataVal.slice(0, 7);
     var dia        = parseInt(dataVal.slice(8, 10), 10);
-    var decNum     = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
-    var per        = _periodoDecendio(decNum, mesPeriodo);
+    var decNum     = _numDoDia(funcId, dia);
+    var per        = _periodoDecendio(decNum, mesPeriodo, funcId);
 
     // Se não houver ponto importado nesse período exato, recua decêndio a
     // decêndio (até ~2 meses) procurando o mais recente com registros —
@@ -3307,7 +3402,7 @@ var HR_FUNC = (function () {
     var regs = getRegistros();
     var num = decNumInicial, mes = mesInicial;
     for (var i = 0; i < 6; i++) {
-      var per = _periodoDecendio(num, mes);
+      var per = _periodoDecendio(num, mes, funcId);
       var temDados = Object.values(regs).some(function(r){
         return r && r.funcionarioId != null && r.funcionarioId == funcId &&
           r.data >= per.di && r.data <= per.df;
@@ -3316,7 +3411,7 @@ var HR_FUNC = (function () {
       if (num > 1) {
         num -= 1;
       } else {
-        num = 3;
+        num = _numPeriodos(funcId);
         var p = mes.split('-'), a = parseInt(p[0],10), m = parseInt(p[1],10) - 1 - 1;
         if (m < 0) { m = 11; a -= 1; }
         mes = a + '-' + String(m + 1).padStart(2,'0');
@@ -3346,9 +3441,7 @@ var HR_FUNC = (function () {
     var pagoPorDec = { 1:0, 2:0, 3:0 };
     meusP.forEach(function(p){
       var dp = parseInt(p.data.slice(8,10));
-      if (dp <= 10)      pagoPorDec[1] += parseFloat(p.valor)||0;
-      else if (dp <= 20) pagoPorDec[2] += parseFloat(p.valor)||0;
-      else               pagoPorDec[3] += parseFloat(p.valor)||0;
+      pagoPorDec[_numDoDia(f, dp)] += parseFloat(p.valor)||0;
     });
     var decValores = {
       1: _decendioValorNum(f, 1, mesRef),
@@ -3357,16 +3450,14 @@ var HR_FUNC = (function () {
     };
     // Encontra decêndios vencidos e não pagos
     var decAberto = null;
-    if (d >= 20 && pagoPorDec[2] < decValores[2] - 0.5) decAberto = 2;
-    if (d >= 10 && pagoPorDec[1] < decValores[1] - 0.5) decAberto = decAberto || 1;
-    // fallback: decêndio atual pelo dia
-    var decNum = numDecHint || decAberto || (d <= 10 ? 1 : d <= 20 ? 2 : 3);
+    var _qz = _ehQuinzenal(f);
+    if (d >= (_qz ? 16 : 20) && pagoPorDec[2] < decValores[2] - 0.5) decAberto = 2;
+    if (d >= (_qz ? 15 : 10) && pagoPorDec[1] < decValores[1] - 0.5) decAberto = decAberto || 1;
+    // fallback: período atual pelo dia
+    var decNum = numDecHint || decAberto || _numDoDia(f, d);
 
     // Data de vencimento do decêndio escolhido
-    var dataAlvo;
-    if      (decNum === 1) dataAlvo = new Date(ano, mes, 10);
-    else if (decNum === 2) dataAlvo = new Date(ano, mes, 20);
-    else                   dataAlvo = new Date(ano, mes + 1, 0);
+    var dataAlvo = _vencDate(f, decNum, ano, mes);
     var isoAlvo = dataAlvo.toISOString().slice(0, 10);
 
     // Abre o formulário padrão (vai pré-selecionar _decInicial=2 se hoje>20)
@@ -3440,7 +3531,7 @@ var HR_FUNC = (function () {
     // Agora ele já nasce contando automaticamente no próximo decêndio; o
     // usuário ainda pode trocar o destino manualmente se quiser (ver
     // _alocarCreditoSelect), inclusive voltando pra "sem destino".
-    var destino = (decNumOrigem && mesRefOrigem) ? _decendioSeguinte(decNumOrigem, mesRefOrigem) : null;
+    var destino = (decNumOrigem && mesRefOrigem) ? _decendioSeguinte(decNumOrigem, mesRefOrigem, funcionarioId) : null;
 
     creditos[id] = {
       id: id,
@@ -3505,7 +3596,7 @@ var HR_FUNC = (function () {
     var total = 0;
     Object.values(getCreditos()).forEach(function (c) {
       if (!_ehCreditoHE(c) || c.funcionarioId !== funcId || !c.creditarDecendio || !c.mesRefDestino) return;
-      var per = _periodoDecendio(c.creditarDecendio, c.mesRefDestino);
+      var per = _periodoDecendio(c.creditarDecendio, c.mesRefDestino, funcId);
       if (di && per.di < di) return;
       if (df && per.df > df) return;
       total += parseFloat(c.valor) || 0;
@@ -3566,7 +3657,7 @@ var HR_FUNC = (function () {
   // cria (ou atualiza, se já existir da mesma origem) o crédito automaticamente
   // — chamada pelo motor único de pagamento, nunca precisa ser feita manualmente.
   function _detectarECriarCreditoOverpago(funcId, decPago, mesPago, dataPagamento) {
-    var per = _periodoDecendio(decPago, mesPago);
+    var per = _periodoDecendio(decPago, mesPago, funcId);
     var s   = calcSaldoFuncionario(funcId, per.di, per.df);
     if (!s.temCredito) return null;
 
@@ -3581,7 +3672,7 @@ var HR_FUNC = (function () {
       // Se esse crédito ficou "sem destino" (criado antes desta correção, ou
       // zerado manualmente), aplica o destino padrão agora — próximo decêndio.
       if (!creditos[existente.id].creditarDecendio) {
-        var destinoExistente = _decendioSeguinte(decPago, mesPago);
+        var destinoExistente = _decendioSeguinte(decPago, mesPago, funcId);
         creditos[existente.id].creditarDecendio = destinoExistente.num;
         creditos[existente.id].mesRefDestino    = destinoExistente.mesRef;
       }
@@ -3606,10 +3697,10 @@ var HR_FUNC = (function () {
   function _reconciliarCreditoOrigem(funcId, dataPagamento) {
     if (!funcId || !dataPagamento) return;
     var dia    = parseInt(dataPagamento.slice(8, 10), 10);
-    var decNum = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+    var decNum = _numDoDia(funcId, dia);
     var mesRef = dataPagamento.slice(0, 7);
 
-    var per       = _periodoDecendio(decNum, mesRef);
+    var per       = _periodoDecendio(decNum, mesRef, funcId);
     var s         = calcSaldoFuncionario(funcId, per.di, per.df);
     var existente = _creditoAbertoPorOrigem(funcId, decNum, mesRef);
 
@@ -3647,7 +3738,7 @@ var HR_FUNC = (function () {
     Object.values(pags).forEach(function (p) {
       if (p.tipo !== 'decendio' || !p.funcionarioId || !p.data) return;
       var dia    = parseInt(p.data.slice(8, 10), 10);
-      var decNum = dia <= 10 ? 1 : dia <= 20 ? 2 : 3;
+      var decNum = _numDoDia(p.funcionarioId, dia);
       var mesRef = p.data.slice(0, 7);
       var chave  = p.funcionarioId + '|' + mesRef + '|' + decNum;
       // Guarda a data mais recente do grupo (usada só como data do crédito, se criado)
@@ -3670,7 +3761,7 @@ var HR_FUNC = (function () {
     Object.keys(todosCreditos).forEach(function(id){
       var c = todosCreditos[id];
       if (c.aplicado || c.creditarDecendio || !c.decNumOrigem || !c.mesRefOrigem) return;
-      var destino = _decendioSeguinte(c.decNumOrigem, c.mesRefOrigem);
+      var destino = _decendioSeguinte(c.decNumOrigem, c.mesRefOrigem, c.funcionarioId);
       c.creditarDecendio = destino.num;
       c.mesRefDestino    = destino.mesRef;
       direcionados++;
@@ -3901,9 +3992,9 @@ var HR_FUNC = (function () {
 
       // Detecta qual decêndio (1/2/3) este pagamento está quitando, a partir do dia
       var diaPag  = parseInt(data.slice(8,10), 10);
-      var decPago = diaPag <= 10 ? 1 : diaPag <= 20 ? 2 : 3;
+      var decPago = _numDoDia(funcId, diaPag);
       var mesPago = data.slice(0,7);
-      var perAtualAdi = _periodoDecendio(decPago, mesPago);
+      var perAtualAdi = _periodoDecendio(decPago, mesPago, funcId);
       var sAtualAdi   = calcSaldoFuncionario(funcId, perAtualAdi.di, perAtualAdi.df);
       var alvos = _adiantamentosAlvoDecendio(funcId, decPago, mesPago);
       if (alvos.length > 0) {
@@ -3916,7 +4007,7 @@ var HR_FUNC = (function () {
         alvos.forEach(function(a){
           var valorAdi = parseFloat(a.valor) || 0;
           if (espacoAdi <= 0.005) {
-            var destA0 = _decendioSeguinte(decPago, mesPago);
+            var destA0 = _decendioSeguinte(decPago, mesPago, funcId);
             pags[a.id].descontarDecendio = destA0.num;
             pags[a.id].descontarMes      = destA0.mesRef;
             return;
@@ -3929,7 +4020,7 @@ var HR_FUNC = (function () {
             var restanteAdi = valorAdi - espacoAdi;
             var abatidoAdi  = espacoAdi;
             espacoAdi = 0;
-            var destA1 = _decendioSeguinte(decPago, mesPago);
+            var destA1 = _decendioSeguinte(decPago, mesPago, funcId);
             pags[a.id].valor            = restanteAdi;
             pags[a.id].descontarDecendio = destA1.num;
             pags[a.id].descontarMes      = destA1.mesRef;
@@ -3949,7 +4040,7 @@ var HR_FUNC = (function () {
       // já apontado automaticamente pro decêndio seguinte.
       var creditosAlvo = _creditosAlvoDecendio(funcId, decPago, mesPago);
       if (creditosAlvo.length > 0) {
-        var perAtual  = _periodoDecendio(decPago, mesPago);
+        var perAtual  = _periodoDecendio(decPago, mesPago, funcId);
         var sAtual = calcSaldoFuncionario(funcId, perAtual.di, perAtual.df);
         var espacoDisponivel = _calcBaseAntesDeCredito(sAtual, funcs[funcId], true, decPago, mesPago);
         creditosAlvo.forEach(function(c){
@@ -3958,7 +4049,7 @@ var HR_FUNC = (function () {
             // Não sobrou espaço nenhum pra este crédito (os anteriores já
             // consumiram tudo) — rola ele inteiro pro próximo decêndio, sem marcar aplicado.
             var creditos0 = getCreditos();
-            var dest0 = _decendioSeguinte(decPago, mesPago);
+            var dest0 = _decendioSeguinte(decPago, mesPago, funcId);
             creditos0[c.id].creditarDecendio = dest0.num;
             creditos0[c.id].mesRefDestino    = dest0.mesRef;
             saveCreditos(creditos0);
@@ -3975,7 +4066,7 @@ var HR_FUNC = (function () {
             var abatido  = espacoDisponivel;
             espacoDisponivel = 0;
             var creditos1 = getCreditos();
-            var dest1 = _decendioSeguinte(decPago, mesPago);
+            var dest1 = _decendioSeguinte(decPago, mesPago, funcId);
             creditos1[c.id].valor            = restante;
             creditos1[c.id].creditarDecendio = dest1.num;
             creditos1[c.id].mesRefDestino    = dest1.mesRef;
@@ -4038,16 +4129,16 @@ var HR_FUNC = (function () {
     var creditoGerado = null;
     if (tipo === 'decendio' && !heIncluir && heValor > 0.005) {
       var diaOrigem  = parseInt(data.slice(8,10), 10);
-      var decOrigem  = diaOrigem <= 10 ? 1 : diaOrigem <= 20 ? 2 : 3;
+      var decOrigem  = _numDoDia(funcId, diaOrigem);
       var mesOrigem  = data.slice(0,7);
-      var perOrigem  = _periodoDecendio(decOrigem, mesOrigem);
+      var perOrigem  = _periodoDecendio(decOrigem, mesOrigem, funcId);
       var obsHE = 'Horas extras de ' + perOrigem.di.slice(8) + ' a ' + perOrigem.df.slice(8) +
         '/' + mesOrigem.slice(5,7) + ' (' + heHoras.toFixed(1) + 'h) acumuladas — a pagar no próximo decêndio';
       creditoGerado = criarCredito(funcId, heValor, data, obsHE, decOrigem, mesOrigem, 'he');
     }
 
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
-    var descTxt = descontarDecendio ? (' — desconto no '+descontarDecendio+'º decêndio') : '';
+    var descTxt = descontarDecendio ? (' — desconto '+(_ehQuinzenal(funcId)?'na '+descontarDecendio+'ª quinzena':'no '+descontarDecendio+'º decêndio')) : '';
     var heTxt = creditoGerado ? (' · ' + _fmtMoeda(heValor) + ' de HE acumulada pro próximo decêndio') : '';
     _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!' + descTxt + heTxt);
     _closePagamento();
@@ -5660,6 +5751,7 @@ var HR_FUNC = (function () {
     _closePagamento:          _closePagamento,
     _gerarRelatorioPonto:     _gerarRelatorioPonto,
     _pagarDecendioRapido:     _pagarDecendioRapido,
+    _onPeriodicidadeChange:   _onPeriodicidadeChange,
     _salvarPagamento:         _salvarPagamento,
     abrirEditarPagamento:     abrirEditarPagamento,
     _closeEditarPag:          _closeEditarPag,

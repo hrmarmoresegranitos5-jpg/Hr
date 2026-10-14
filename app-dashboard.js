@@ -109,7 +109,7 @@ function renderDashboard() {
       var funcs, pags;
       try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) { funcs = {}; }
       try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}'); } catch(e) { pags  = {}; }
-      var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false; });
+      var ativos = Object.values(funcs).filter(function(f){ return f.ativo !== false && !(f.periodicidade === 'quinzenal' && !f.socio); });
       if (!ativos.length) return;
 
       // Próximo vencimento de decêndio
@@ -200,6 +200,63 @@ function renderDashboard() {
         msg:  msgDias + ' · ' + funcsPendentes.length + ' func. pendente' + (funcsPendentes.length > 1 ? 's' : '') +
               ': ' + nomes + ' · Total: R$\u00a0' + parseFloat(totalPendente).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}),
         fn:   'go(30)'
+      });
+    } catch(e) { /* silencioso */ }
+  })();
+
+  // ── Alerta de vencimento quinzenal (funcionários com periodicidade quinzenal) ──
+  (function() {
+    try {
+      var funcs, pags;
+      try { funcs = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}'); } catch(e) { funcs = {}; }
+      try { pags  = JSON.parse(localStorage.getItem('hr_pagamentos')  || '{}'); } catch(e) { pags  = {}; }
+      var qs = Object.values(funcs).filter(function(f){ return f.ativo !== false && !f.socio && f.periodicidade === 'quinzenal'; });
+      if (!qs.length) return;
+
+      var agD   = parseInt(hoje.slice(8, 10));
+      var agAno = parseInt(hoje.slice(0, 4));
+      var agMes = parseInt(hoje.slice(5, 7)) - 1;
+      var proxVenc, labelVenc, periodoInicio;
+      if (agD <= 15) {
+        proxVenc = new Date(agAno, agMes, 15);
+        labelVenc = '1ª quinzena (dia 15)';
+        periodoInicio = hoje.slice(0, 7) + '-01';
+      } else {
+        proxVenc = new Date(agAno, agMes + 1, 0);
+        labelVenc = '2ª quinzena (dia ' + proxVenc.getDate() + ')';
+        periodoInicio = hoje.slice(0, 7) + '-16';
+      }
+      var diasAte = Math.round((proxVenc - new Date()) / 86400000);
+      var periodoFim = proxVenc.toISOString().slice(0, 10);
+
+      function devidoQ(f) {
+        var v = agD <= 15 ? (parseFloat(f.dec1) || 0) : (parseFloat(f.dec2) || 0);
+        return v > 0 ? v : (parseFloat(f.salario) || 0) / 2;
+      }
+      var pend = qs.filter(function(f) {
+        var pago = Object.values(pags).filter(function(p){
+          return p.funcionarioId === f.id && p.data >= periodoInicio && p.data <= periodoFim;
+        }).reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
+        var dv = devidoQ(f);
+        return dv > 0 && pago < dv - 0.50;
+      });
+      if (!pend.length) return;
+
+      var total = pend.reduce(function(s, f){ return s + devidoQ(f); }, 0);
+      var nomes = pend.slice(0, 3).map(function(f){ return f.nome.split(' ')[0]; }).join(', ');
+      if (pend.length > 3) nomes += ' e mais ' + (pend.length - 3);
+      var cor, icon;
+      if (diasAte <= 0)      { cor = 'var(--red)'; icon = '🔴'; }
+      else if (diasAte <= 2) { cor = '#e07820';    icon = '🟠'; }
+      else                   { cor = '#d4a017';    icon = '🟡'; }
+      var msgDias = diasAte <= 0 ? 'Hoje é dia de pagamento!'
+        : diasAte === 1 ? 'Amanhã vence a ' + labelVenc
+        : 'Faltam ' + diasAte + ' dias — ' + labelVenc;
+      alertas.push({
+        cor: cor, icon: icon,
+        msg: msgDias + ' · ' + pend.length + ' func. quinzenal pendente' + (pend.length > 1 ? 's' : '') +
+             ': ' + nomes + ' · Total: R$\u00a0' + parseFloat(total).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}),
+        fn: 'go(30)'
       });
     } catch(e) { /* silencioso */ }
   })();
