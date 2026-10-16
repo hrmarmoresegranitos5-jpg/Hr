@@ -2179,7 +2179,13 @@ document.addEventListener('click', function(e) {
 // ── Travar orientação portrait + bloquear gestos nativos ──
 (function() {
   // Orientation lock
+  // Só trava em retrato no celular; tablet (lado menor >= 600px) gira livremente
   function lockPortrait() {
+    var menor = Math.min(screen.width || 0, screen.height || 0);
+    if (menor >= 600) {
+      if (screen.orientation && screen.orientation.unlock) { try { screen.orientation.unlock(); } catch(e){} }
+      return;
+    }
     if (screen.orientation && screen.orientation.lock) {
       screen.orientation.lock('portrait-primary').catch(function(){});
     }
