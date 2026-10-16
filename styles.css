@@ -4508,3 +4508,15 @@ button:focus-visible {
   gap: 13px !important;
 }
 
+
+
+/* ── RH em tablet: conteúdo centralizado e equipe em colunas ── */
+@media (min-width: 700px) {
+  #pg30 > div { max-width: 1100px; margin-left: auto; margin-right: auto; }
+  #pg30 .hr-lista { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; align-items: start; }
+  #pg30 .hr-lista > div { margin-bottom: 0 !important; }
+  #pg30 .hr-lista > div:only-child { grid-column: 1 / -1; }
+}
+@media (min-width: 1000px) {
+  #pg30 .hr-lista { grid-template-columns: repeat(3, 1fr); }
+}
