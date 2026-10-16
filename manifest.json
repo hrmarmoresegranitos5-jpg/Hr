@@ -1,10 +1,10 @@
 {
-    "id": "/hr-marmores/",
+    "id": "/Hr/?pwa=2",
     "name": "HR Mármores e Granitos",
     "short_name": "HR Mármores",
     "description": "Sistema de gestão HR Mármores e Granitos",
-    "start_url": "./index.html",
-    "scope": "./",
+    "start_url": "/Hr/index.html?pwa=2",
+    "scope": "/Hr/",
     "display": "standalone",
     "display_override": ["standalone", "minimal-ui"],
     "orientation": "any",
