@@ -213,6 +213,7 @@ function renderFin() {
   renderFixos();
   renderCustoMaoObra();
   renderSaudeFinanceira();
+  _finOrganizar();
   renderProLabore();
   renderSimplesNacional();
   renderReservaMaquinas();
@@ -236,10 +237,8 @@ function renderFinBody() {
 function _finResumo(m) {
   var h = '';
   h += '<div class="fin-cards6">';
-  h += _finCard('💰', 'Saldo Real',       fm(m.saldoReal),     m.saldoReal >= 0 ? 'grn' : 'red');
   h += _finCard('📅', 'Recebido Hoje',    fm(m.recebidoHoje),  'grn');
   h += _finCard('📆', 'Recebido no Mês',  fm(m.recebidoMes),   'grn');
-  h += _finCard('📉', 'Despesas',         fm(m.totalDespesas), 'red');
   h += _finCard('📈', 'Lucro Líquido',    fm(m.lucro),         m.lucro >= 0 ? 'grn' : 'red');
   h += _finCard('⏳', 'Previsão a Rec.',  fm(m.totalPendente), 'yel');
   h += '</div>';
@@ -252,9 +251,6 @@ function _finResumo(m) {
   }
 
   h += '<div class="fin-qa-grid">';
-  h += _finQA('in',   '📈', 'Entrada',   'Valor recebido');
-  h += _finQA('out',  '📉', 'Despesa',   'Saída de caixa');
-  h += _finQA('pend', '⏳', 'A Receber', 'Pendente');
   h += _finQA('note', '📝', 'Nota',      'Anotação');
   h += '</div>';
 
@@ -2132,4 +2128,22 @@ function sfSaveVars() {
   renderProLabore();
   renderFixos();
   toast('✓ Custos variáveis salvos!');
+}
+
+
+// Blocos de análise: cabeçalho clicável abre/fecha (só "Saúde Financeira" começa aberto)
+function _finOrganizar() {
+  var ids = ['saudeFinCard','proLaboreCard','simplesNacionalCard','reservaMaquinasCard','custoMaoObraCard','fixosCard'];
+  window._finSecOpen = window._finSecOpen || { saudeFinCard: true };
+  ids.forEach(function(id) {
+    var card = document.getElementById(id); if (!card) return;
+    var hd = card.parentNode.querySelector('.sl'); if (!hd) return;
+    if (!hd.dataset.fo) {
+      hd.dataset.fo = '1'; hd.classList.add('fin-sec-hd');
+      hd.onclick = function() { window._finSecOpen[id] = !window._finSecOpen[id]; _finOrganizar(); };
+    }
+    var on = !!window._finSecOpen[id];
+    card.style.display = on ? '' : 'none';
+    hd.classList.toggle('open', on);
+  });
 }

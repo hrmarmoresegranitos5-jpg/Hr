@@ -17,7 +17,7 @@
 <title>HR Mármores e Granitos</title>
 <!-- external scripts loaded on-demand -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=19">
 
 <style id="capCSS">
 /* ══ CAPELAS & DETALHES AVULSOS ══ */
@@ -478,6 +478,12 @@ function openApp(pg){
         <div class="finsub" id="finSub">Nenhuma movimentação</div>
       </div>
       <div class="fingrid" id="finMiniCards"></div>
+      <div class="fin-actions">
+        <button class="fin-act fa-in" data-qa="in"><span>＋</span>Entrada</button>
+        <button class="fin-act fa-out" data-qa="out"><span>－</span>Despesa</button>
+        <button class="fin-act fa-pend" data-qa="pend"><span>⏳</span>A receber</button>
+        <button class="fin-act fa-ext" onclick="finTab('extrato');var b=document.getElementById('finBody');if(b&&b.scrollIntoView)b.scrollIntoView({behavior:'smooth',block:'start'})"><span>📥</span>Extrato</button>
+      </div>
       <!-- Abas -->
       <div class="fin-tabs">
         <div class="fin-tab on" data-ftab="resumo">📊 Resumo</div>
@@ -1064,9 +1070,9 @@ if (typeof TUM === 'undefined') {
   <script src="app-inst-ia-qtd.js?v=2"></script>
   <script src="app-fix-consultor.js?v=2"></script>
   <script src="app-precif-tumulos.js?v=2"></script>
-  <script src="app-financas.js?v=5"></script>
+  <script src="app-financas.js?v=6"></script>
   <script src="app-boletos.js?v=3"></script>
-  <script src="app-extrato-banco.js?v=3"></script>
+  <script src="app-extrato-banco.js?v=5"></script>
   <script src="app-estoque.js?v=1"></script>
   <script src="app-pdf-prazo.js?v=2"></script>
   <script src="app-secretaria.js?v=6"></script>
