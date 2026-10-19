@@ -4549,3 +4549,27 @@ button:focus-visible {
 .fin-sec-hd{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0;}
 .fin-sec-hd::after{content:"▸";color:var(--gold2);font-size:.8rem;}
 .fin-sec-hd.open::after{content:"▾";}
+
+.fin-resumo-btn{width:100%;margin:10px 0 0;padding:12px;border-radius:14px;font-family:inherit;font-size:.78rem;font-weight:700;color:var(--gold2);background:linear-gradient(135deg,rgba(201,168,76,.16),rgba(201,168,76,.05));border:1px solid rgba(201,168,76,.4);cursor:pointer;box-shadow:0 0 14px rgba(201,168,76,.1);}
+.fin-resumo-btn small{font-weight:500;opacity:.7;font-size:.62rem;margin-left:4px;}
+.fin-resumo-btn:active{filter:brightness(1.4);}
+
+/* ── Radar do dia ── */
+.radar{margin:12px 17px 0;padding:11px 12px;border-radius:16px;cursor:pointer;border:1px solid rgba(201,168,76,.35);background:linear-gradient(135deg,rgba(201,168,76,.10),rgba(20,20,30,.6));box-shadow:0 0 18px rgba(201,168,76,.08);}
+.radar-t{display:flex;align-items:center;gap:7px;font-size:.58rem;letter-spacing:1.6px;font-weight:700;color:var(--gold2);margin-bottom:8px;}
+.radar-t em{margin-left:auto;font-style:normal;letter-spacing:.3px;font-weight:500;opacity:.7;}
+.radar-dot{width:7px;height:7px;border-radius:50%;background:#3ddc84;box-shadow:0 0 8px #3ddc84;animation:radarPulse 1.8s infinite;}
+@keyframes radarPulse{0%,100%{opacity:1}50%{opacity:.3}}
+.radar-r{display:flex;flex-wrap:wrap;gap:6px;}
+.radar-c{font-size:.7rem;font-weight:600;padding:6px 10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);}
+.radar-c.r{color:#f87171;border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.1);}
+.radar-c.y{color:#fbbf24;border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.1);}
+.radar-c.b{color:#60a5fa;border-color:rgba(96,165,250,.4);background:rgba(96,165,250,.1);}
+.radar-c.p{color:#a78bfa;border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.1);}
+.radar-c.g{color:#3ddc84;border-color:rgba(61,220,132,.4);background:rgba(61,220,132,.1);}
+
+.sec-cx{margin:0 0 10px;padding:12px 14px;border:1px solid;border-radius:14px;background:rgba(255,255,255,.03);}
+.sec-cx-t{font-size:.62rem;letter-spacing:1px;text-transform:uppercase;color:var(--gold2);font-weight:700;}
+.sec-cx-v{font-size:1.5rem;font-weight:800;margin:4px 0 2px;}
+.sec-cx-s{font-size:.72rem;font-weight:600;}
+.sec-cx-n{font-size:.58rem;color:var(--t3);margin-top:4px;}

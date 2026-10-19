@@ -619,7 +619,14 @@ function _renderSecretariaInner(el) {
   var pendVenc    = pendentes.filter(function(t){return t.date && t.date < hoje;});
   var totPend     = pendentes.reduce(function(s,t){return s+(t.value||0);},0);
   var followUps   = _secFollowUps(hoje);
-  var totalTarefas = atrasados.length + urgentes.length + pendVenc.length + followUps.length + visitasHoje.length;
+  var iniciarHoje = _secInicioHoje();
+  var entregaAmanha = (DB.j || []).filter(function(j) { return !j.done && j.end && j.end === addD(hoje, 1); });
+  var margemBaixa = (DB.j || []).filter(function(j) { var m = _secMargemJob(j); return !j.done && m && m.pct < 20; });
+  var _em3b = addD(hoje, 3);
+  var boletosV = (DB.b || []).filter(function(x) {
+    return x.tipo === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= _em3b));
+  }).sort(function(a, b) { return String(a.venc).localeCompare(String(b.venc)); });
+  var totalTarefas = atrasados.length + urgentes.length + pendVenc.length + followUps.length + visitasHoje.length + boletosV.length + iniciarHoje.length + entregaAmanha.length + margemBaixa.length;
 
   var h = '';
 
@@ -651,6 +658,8 @@ function _renderSecretariaInner(el) {
     + '<button onclick="secAtalhoChat(\'Recebi R$ \')">💰 Lançar entrada</button>'
     + '<button onclick="secAtalhoChat(\'Como estou este mês? Faça um resumo.\',true)">📊 Como estou?</button>'
     + '</div></div>';
+  h += _secCaixaCard();
+
   // ── AÇÕES RÁPIDAS (visita + bot) ──
   h += '<div class="sec2-qa-row">'
     + '<button class="sec2-qa" onclick="openVisitaMd(null)">📐 Agendar visita</button>'
@@ -675,13 +684,47 @@ function _renderSecretariaInner(el) {
       hTk += _sec2Task('⚠️', escH(j.cli) + ' — ' + escH(j.desc), d + (d===1?' dia':' dias') + ' atrasado', '#f87171', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
     pendVenc.forEach(function(t){
-      hTk += _sec2Task('💰', escH(t.desc), 'R$ '+fm(t.value||0)+' · venceu '+fd(t.date), '#fbbf24', 'onclick="go(4);finTab(\'areceber\')"', 'Ir para Finanças');
+      var _jj = (DB.j || []).find(function(j) { return j.cli && String(t.desc || '').toLowerCase().indexOf(String(j.cli).toLowerCase()) !== -1; });
+      var _tl = _jj ? _telCliente(_jj.cli) : '';
+      var _msg = _jj ? 'Olá, ' + String(_jj.cli).split(' ')[0] + '! Tudo bem? Aqui é da HR Mármores e Granitos. Passando para lembrar do pagamento de R$ ' + fm(t.value || 0) + ' (' + t.desc + '), que venceu em ' + fd(t.date) + '. Pode me confirmar a previsão? Obrigado!' : '';
+      hTk += _sec2Task('💰', escH(t.desc), 'R$ '+fm(t.value||0)+' · venceu '+fd(t.date), '#fbbf24',
+        _tl ? _waAcao(_tl, _msg) : 'onclick="go(4);finTab(\'areceber\')"', _tl ? '💬 Cobrar no WhatsApp' : 'Ir para Finanças');
     });
     urgentes.filter(function(j){return !atrasados.find(function(a){return a.id===j.id;});}).forEach(function(j){
       hTk += _sec2Task('🚨', escH(j.cli) + ' — ' + escH(j.desc), j.urgMotivo||'Urgente', '#fb923c', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
+    entregaAmanha.forEach(function(j) {
+      var tl = _telCliente(j.cli);
+      hTk += _sec2Task('📦', 'Entrega amanhã: ' + escH(j.cli), escH(j.desc || 'Avise o cliente'), '#60a5fa',
+        tl ? _waAcao(tl, 'Olá, ' + String(j.cli).split(' ')[0] + '! Aqui é da HR Mármores e Granitos. Passando para avisar que sua entrega está prevista para amanhã (' + fd(j.end) + '). Pode confirmar se haverá alguém no local? Obrigado!') : 'data-editjob="' + j.id + '"',
+        tl ? '💬 Avisar cliente' : 'Ver serviço');
+    });
+    margemBaixa.forEach(function(j) {
+      var m = _secMargemJob(j);
+      hTk += _sec2Task('⚠️', 'Margem baixa: ' + escH(j.cli), 'Lucro estimado ' + m.pct.toFixed(0) + '% · R$ ' + fm(m.lucro) + ' de R$ ' + fm(j.value), '#fb923c', 'data-editjob="' + j.id + '"', 'Ver serviço');
+    });
+    iniciarHoje.forEach(function(j) {
+      var dd = j.end ? dDiff(j.end) : null;
+      hTk += _sec2Task('🛠️', 'Iniciar hoje: ' + escH(j.cli) + (j.desc ? ' — ' + escH(j.desc) : ''),
+        'Entrega ' + (j.end ? fd(j.end) + (dd !== null ? ' · faltam ' + dd + ' dias' : '') : 'sem data'), '#34d399', 'data-editjob="' + j.id + '"', 'Ver serviço');
+    });
+    boletosV.forEach(function(b) {
+      var venceu = b.venc && b.venc < hoje;
+      hTk += _sec2Task('🧾', 'Boleto: ' + escH(b.cli || b.desc || 'a pagar'),
+        'R$ ' + fm(b.valor || 0) + ' · ' + (venceu ? 'venceu ' : 'vence ') + fd(b.venc), venceu ? '#f87171' : '#fbbf24',
+        'onclick="go(4);finTab(\'boletos\')"', 'Ver boletos');
+    });
+    var _fuPorCli = {}, _fuOrd = [];
     followUps.forEach(function(q){
-      hTk += _sec2Task('📞', 'Follow-up: ' + escH(q.cli), 'Orçamento '+fd(q.date)+' — R$ '+fm(q.vista)+' — sem retorno', '#a78bfa', 'onclick="go(7)"', 'Ver histórico');
+      var k = String(q.cli || '').trim().toLowerCase();
+      if (!_fuPorCli[k]) { _fuPorCli[k] = []; _fuOrd.push(k); }
+      _fuPorCli[k].push(q);
+    });
+    _fuOrd.forEach(function(k){
+      var g = _fuPorCli[k], q = g[0], tot = g.reduce(function(a,x){ return a + (x.vista||0); }, 0);
+      hTk += _sec2Task('📞', 'Follow-up: ' + escH(q.cli),
+        g.length > 1 ? g.length + ' orçamentos sem retorno — R$ ' + fm(tot) : 'Orçamento '+fd(q.date)+' — R$ '+fm(q.vista)+' — sem retorno',
+        '#a78bfa', _fuAcao(g), _fuTemTel(g) ? '💬 Chamar no WhatsApp' : 'Ver histórico');
     });
     hTk += '</div>';
   }
@@ -2098,4 +2141,121 @@ function _secColapsaTarefas() {
     b.textContent = aberto ? 'Ver mais ' + (itens.length - 4) + ' ▾' : 'Ver menos ▴';
   };
   lista.appendChild(b);
+}
+
+
+// Follow-up: abre o WhatsApp do cliente com a mensagem pronta
+function _fuTemTel(g) { return g.some(function(x) { return String(x.tel || '').replace(/\D/g, '').length >= 10; }); }
+function _fuAcao(g) {
+  var q = g.filter(function(x) { return String(x.tel || '').replace(/\D/g, '').length >= 10; })[0];
+  if (!q) return 'onclick="go(7)"';
+  var n = String(q.tel).replace(/\D/g, ''); if (n.length <= 11) n = '55' + n;
+  var nome = String(q.cli || '').trim().split(' ')[0];
+  var msg = 'Olá, ' + nome + '! Tudo bem? Aqui é da HR Mármores e Granitos. Passando para saber se você conseguiu avaliar o orçamento que enviamos. Qualquer dúvida estou à disposição!';
+  return 'onclick="window.open(\'https://wa.me/' + n + '?text=' + encodeURIComponent(msg) + '\',\'_blank\')"';
+}
+
+
+// ── Radar do dia (tela inicial): o que precisa de atenção, num relance ──
+function homeRadar() {
+  var el = document.getElementById('homeRadar'); if (!el) return;
+  try {
+    var hoje = td(), em3 = addD(hoje, 3);
+    var atras = (DB.j || []).filter(function(j) { return !j.done && j.end && dDiff(j.end) < 0; }).length;
+    var bol = (DB.b || []).filter(function(x) { return x.tipo === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= em3)); }).length;
+    var rec = (DB.t || []).filter(function(t) { return t.type === 'pend' && t.date && t.date < hoje; }).length;
+    var vis = (typeof _getV === 'function' ? _getV() : []).filter(function(v) { return v.status === 'agendada' && v.date === hoje; }).length;
+    var ini = _secInicioHoje().length;
+    var fu = (typeof _secFollowUps === 'function' ? _secFollowUps(hoje) : []).length;
+    var itens = [];
+    if (atras) itens.push('<span class="radar-c r">🔴 ' + atras + ' serviço' + (atras > 1 ? 's' : '') + ' atrasado' + (atras > 1 ? 's' : '') + '</span>');
+    var cx = _secPrevCaixa();
+    if (cx.negDia) itens.push('<span class="radar-c r">⚠️ caixa negativo em ' + fd(cx.negDia) + '</span>');
+    if (ini) itens.push('<span class="radar-c g">🛠️ ' + ini + ' para iniciar hoje</span>');
+    if (bol) itens.push('<span class="radar-c y" onclick="event.stopPropagation();go(4);finTab(\'boletos\')">🧾 ' + bol + ' boleto' + (bol > 1 ? 's' : '') + ' a pagar</span>');
+    if (rec) itens.push('<span class="radar-c y">⏳ ' + rec + ' cobrança' + (rec > 1 ? 's' : '') + ' vencida' + (rec > 1 ? 's' : '') + '</span>');
+    if (vis) itens.push('<span class="radar-c b">📐 ' + vis + ' visita' + (vis > 1 ? 's' : '') + ' hoje</span>');
+    if (fu) itens.push('<span class="radar-c p">📞 ' + fu + ' follow-up' + (fu > 1 ? 's' : '') + '</span>');
+    _secAvisoInicio();
+    el.innerHTML = '<div class="radar-t"><span class="radar-dot"></span>RADAR DO DIA<em>abrir Secretária →</em></div>'
+      + '<div class="radar-r">' + (itens.length ? itens.join('') : '<span class="radar-c g">✅ Tudo em dia</span>') + '</div>';
+  } catch (e) { el.innerHTML = ''; }
+}
+(function() {
+  function ini() { homeRadar(); setInterval(homeRadar, 5000); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 800);
+})();
+
+
+// Serviços cuja data de início é hoje (e ainda não concluídos)
+function _secInicioHoje() {
+  var hoje = td();
+  return (DB.j || []).filter(function(j) { return !j.done && j.start && j.start === hoje; });
+}
+// Avisa uma vez por serviço no dia de começar (toast + notificação do celular, se permitida)
+function _secAvisoInicio() {
+  var lista = _secInicioHoje(); if (!lista.length) return;
+  var ja = {}; try { ja = JSON.parse(localStorage.getItem('hr_inicio_avisados') || '{}'); } catch (e) {}
+  var novos = lista.filter(function(j) { return !ja[j.id + '|' + j.start]; });
+  if (!novos.length) return;
+  novos.forEach(function(j) { ja[j.id + '|' + j.start] = 1; });
+  try { localStorage.setItem('hr_inicio_avisados', JSON.stringify(ja)); } catch (e) {}
+  var j0 = novos[0];
+  var txt = (novos.length > 1 ? novos.length + ' serviços para iniciar hoje' : 'Hoje é dia de iniciar: ' + j0.cli) + (novos.length === 1 && j0.end ? ' — entrega ' + fd(j0.end) : '');
+  if (typeof toast === 'function') toast('🛠️ ' + txt);
+  try {
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') new Notification('HR Mármores — iniciar serviço', { body: txt });
+      else if (Notification.permission === 'default') Notification.requestPermission();
+    }
+  } catch (e) {}
+}
+
+
+// ── Auxiliares: telefone, WhatsApp, margem e previsão de caixa ──
+function _telCliente(nome) {
+  var n = String(nome || '').trim().toLowerCase(); if (!n) return '';
+  var q = (DB.q || []).find(function(x) { return x.cli && String(x.cli).trim().toLowerCase() === n && String(x.tel || '').replace(/\D/g, '').length >= 10; });
+  return q ? String(q.tel).replace(/\D/g, '') : '';
+}
+function _waAcao(tel, msg) {
+  var n = tel; if (n.length <= 11) n = '55' + n;
+  return 'onclick="window.open(\'https://wa.me/' + n + '?text=' + encodeURIComponent(msg) + '\',\'_blank\')"';
+}
+// Margem estimada: valor do serviço − custo da pedra − despesas vinculadas ao serviço (t.jId)
+function _secMargemJob(j) {
+  if (!j || !j.value) return null;
+  var custo = (j.custoPedraEpoca || 0) + (DB.t || []).filter(function(t) { return t.type === 'out' && t.jId === j.id; }).reduce(function(a, t) { return a + (t.value || 0); }, 0);
+  if (!custo) return null;
+  return { custo: custo, lucro: j.value - custo, pct: (j.value - custo) / j.value * 100 };
+}
+// Previsão de caixa dos próximos 30 dias (saldo + a receber − boletos a pagar − custos fixos)
+function _secPrevCaixa() {
+  var hoje = td(), fim = addD(hoje, 30), T = DB.t || [];
+  var saldo = T.reduce(function(a, t) { return a + (t.type === 'in' ? (t.value || 0) : t.type === 'out' ? -(t.value || 0) : 0); }, 0);
+  var ev = {};
+  function add(d, v) { if (!d) return; if (d < hoje) d = hoje; if (d > fim) return; ev[d] = (ev[d] || 0) + v; }
+  T.forEach(function(t) { if (t.type === 'pend' && t.date && t.date >= hoje) add(t.date, t.value || 0); });
+  (DB.b || []).forEach(function(b) {
+    if (b.status === 'pago') return;
+    if (b.tipo === 'receber' && b.venc && b.venc >= hoje) add(b.venc, b.valor || 0);
+    if (b.tipo === 'pagar') add(b.venc, -(b.valor || 0));
+  });
+  var fixos = ((typeof CFG !== 'undefined' && CFG.fixos) || []).reduce(function(a, f) { return a + (f.v || 0); }, 0);
+  add(addD(hoje, 15), -fixos);
+  var cur = saldo, min = saldo, minDia = hoje, negDia = null;
+  for (var i = 0; i <= 30; i++) {
+    var d = addD(hoje, i); cur += (ev[d] || 0);
+    if (cur < min) { min = cur; minDia = d; }
+    if (cur < 0 && !negDia) negDia = d;
+  }
+  return { saldo: saldo, final: cur, min: min, minDia: minDia, negDia: negDia };
+}
+function _secCaixaCard() {
+  var c = _secPrevCaixa();
+  var cor = c.negDia ? '#f87171' : '#3ddc84';
+  return '<div class="sec-cx" style="border-color:' + cor + '55"><div class="sec-cx-t">📈 Caixa nos próximos 30 dias</div>'
+    + '<div class="sec-cx-v" style="color:' + cor + '">R$ ' + fm(c.final) + '</div>'
+    + '<div class="sec-cx-s">' + (c.negDia ? '⚠️ Fica negativo em ' + fd(c.negDia) + ' (pior ponto R$ ' + fm(c.min) + ')' : '✅ Sem risco de faltar dinheiro · pior ponto R$ ' + fm(c.min))
+    + '</div><div class="sec-cx-n">Estimativa: saldo + a receber − boletos a pagar − custos fixos</div></div>';
 }
