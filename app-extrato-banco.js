@@ -608,7 +608,19 @@
       '.ext-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px;}' +
       '.ext-row:last-child{border:0;}' +
       '.ext-ok{color:var(--grn);} .ext-warn{color:#e0a030;}' +
-      '.ext-lrn{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);}';
+      '.ext-lrn{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--t2);}' +
+      '.ext-tab-hero{display:flex;gap:12px;align-items:center;}' +
+      '.ext-tab-ic{font-size:30px;line-height:1;}' +
+      '.ext-tab-t{font-size:15px;font-weight:700;color:var(--gold2);}' +
+      '.ext-tab-hero + .ext-b{width:100%;margin-top:14px;}' +
+      '.ext-tab-sec{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);font-weight:700;margin:16px 2px 8px;}' +
+      '.ext-mini{display:flex;align-items:center;justify-content:space-between;gap:10px;}' +
+      '.ext-mini .ext-b{padding:8px 14px;font-size:12px;flex-shrink:0;}' +
+      '.ext-row .ext-b{padding:7px 12px;font-size:11px;flex-shrink:0;}' +
+      '.fin-imp-wrap{padding:12px 17px 0;}' +
+      '.fin-imp{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:14px;border:1px solid var(--gold);background:linear-gradient(135deg,#2a2008,#1a1400);color:var(--gold2);font-family:inherit;font-size:.82rem;font-weight:700;cursor:pointer;}' +
+      '.fin-imp small{font-weight:500;opacity:.7;font-size:.62rem;}' +
+      '.fin-imp:active{filter:brightness(1.3);}';
     document.head.appendChild(st);
   }
   function ov() {
@@ -930,18 +942,21 @@
 
   // ───────────────────────── ABA "EXTRATO" ─────────────────────────
   function renderExtratoTab() {
+    injetarCss();
     var hist = _ler(K_HIST, []), regras = lerRegras(), nReg = Object.keys(regras).length;
-    var h = '<div class="ext-card" style="margin-top:6px">' +
-      '<div style="font-size:15px;font-weight:700;margin-bottom:4px">📥 Importar extrato do banco</div>' +
-      '<div class="ext-sub">Envie o PDF do BB ou o arquivo OFX de qualquer banco. Eu leio tudo e só pergunto o que ainda não sei.</div>' +
-      '<button class="ext-b p" style="width:100%;margin-top:12px" onclick="HR_EXTRATO.escolherArquivo()">Escolher PDF ou OFX do extrato</button></div>';
-    h += '<div class="ext-card"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>🧠 Regras aprendidas</b><div class="ext-sub">' + nReg + (nReg === 1 ? ' nome lembrado' : ' nomes lembrados') + '</div></div>' +
+    var h = '<div class="ext-card" style="margin-top:10px">' +
+      '<div class="ext-tab-hero"><div class="ext-tab-ic">📥</div><div>' +
+      '<div class="ext-tab-t">Importar extrato do banco</div>' +
+      '<div class="ext-sub" style="margin-top:2px">PDF do BB ou OFX de qualquer banco. Só pergunto o que ainda não sei.</div></div></div>' +
+      '<button class="ext-b p" onclick="HR_EXTRATO.escolherArquivo()">Escolher arquivo</button></div>';
+    h += '<div class="ext-card"><div class="ext-mini"><div><b>🧠 Regras aprendidas</b>' +
+      '<div class="ext-sub">' + nReg + (nReg === 1 ? ' nome lembrado' : ' nomes lembrados') + '</div></div>' +
       '<button class="ext-b" onclick="HR_EXTRATO.verRegras()">Ver</button></div></div>';
     if (hist.length) {
-      h += '<div class="ext-card"><div style="font-weight:700;margin-bottom:4px">Importações</div>';
+      h += '<div class="ext-tab-sec">Importações feitas</div><div class="ext-card">';
       hist.forEach(function (x) {
         var mes = x.mes ? x.mes.slice(5) + '/' + x.mes.slice(0, 4) : '—';
-        h += '<div class="ext-row" style="align-items:center"><span>' + esc(mes) + ' · ' + x.n + ' lançamentos<br><span style="font-size:11px;color:var(--t3)">Entradas R$ ' + brl(x.ent) + ' · Saídas R$ ' + brl(x.sai) + '</span></span>' +
+        h += '<div class="ext-row" style="align-items:center"><span><b>' + esc(mes) + '</b> · ' + x.n + ' lançamentos<br><span style="font-size:11px;color:var(--t3)">Entradas R$ ' + brl(x.ent) + ' · Saídas R$ ' + brl(x.sai) + '</span></span>' +
           '<button class="ext-b" onclick="HR_EXTRATO.desfazer(\'' + esc(x.id) + '\')">Desfazer</button></div>';
       });
       h += '</div>';
@@ -993,15 +1008,28 @@
       d.textContent = '📥 Extrato';
       tabs.appendChild(d);
     }
+    var grid = document.getElementById('finMiniCards');
+    if (grid && !document.getElementById('finImpBtn') && !document.querySelector('.fin-actions')) {
+      var w = document.createElement('div');
+      w.className = 'fin-imp-wrap'; w.id = 'finImpBtn';
+      w.innerHTML = '<button class="fin-imp" onclick="finTab(\'extrato\');var b=document.getElementById(\'finBody\');if(b&&b.scrollIntoView)b.scrollIntoView({behavior:\'smooth\',block:\'start\'})">📥 Importar extrato do banco <small>PDF ou OFX</small></button>';
+      grid.parentNode.insertBefore(w, grid.nextSibling);
+      injetarCss();
+    }
     if (typeof window.renderFinBody === 'function' && !window.renderFinBody._extPatched) {
       var orig = window.renderFinBody;
       var novo = function () {
         if (window._finTab === 'extrato') {
           var body = document.getElementById('finBody');
           if (body) body.innerHTML = renderExtratoTab();
+          var on0 = document.querySelector('.fin-tab.on');
+          if (on0 && on0.scrollIntoView) on0.scrollIntoView({ inline: 'center', block: 'nearest' });
           return;
         }
-        return orig.apply(this, arguments);
+        var r = orig.apply(this, arguments);
+        var on = document.querySelector('.fin-tab.on');
+        if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
+        return r;
       };
       novo._extPatched = true;
       window.renderFinBody = novo;

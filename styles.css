@@ -4530,3 +4530,22 @@ button:focus-visible {
 .sp2-q-hero .sp2-q-sub { font-size: .6rem; }
 .sp2-q-go { color: var(--gold2); font-size: 1.2rem; font-weight: 700; }
 .sp2-quick .sp2-q-btn:last-child:nth-child(even) { grid-column: 1 / -1; }
+
+/* Finanças: 3º card ocupa a linha inteira (sem sobrar sozinho) */
+
+/* ── Finanças: tela reorganizada ── */
+#pg4 .finhero{padding-bottom:10px;}
+#finMiniCards{grid-template-columns:repeat(3,1fr) !important;gap:7px !important;}
+#finMiniCards .fc{padding:10px 8px;}
+#finMiniCards .fcv{font-size:.84rem;}
+.fin-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 17px 2px;}
+.fin-act{display:flex;flex-direction:column;align-items:center;gap:3px;padding:11px 2px;border-radius:14px;font-family:inherit;font-size:.68rem;font-weight:700;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);cursor:pointer;touch-action:manipulation;}
+.fin-act span{font-size:1.25rem;line-height:1;}
+.fin-act:active{filter:brightness(1.4);}
+.fin-act.fa-in{border-color:rgba(58,158,106,.55);background:rgba(58,158,106,.12);color:var(--grn);}
+.fin-act.fa-out{border-color:rgba(201,68,68,.55);background:rgba(201,68,68,.12);color:var(--red);}
+.fin-act.fa-pend{border-color:rgba(224,160,48,.55);background:rgba(224,160,48,.12);color:#e0a030;}
+.fin-act.fa-ext{border-color:var(--gold);background:linear-gradient(135deg,#2a2008,#1a1400);color:var(--gold2);}
+.fin-sec-hd{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0;}
+.fin-sec-hd::after{content:"▸";color:var(--gold2);font-size:.8rem;}
+.fin-sec-hd.open::after{content:"▾";}
