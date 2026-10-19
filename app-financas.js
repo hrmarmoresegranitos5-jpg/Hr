@@ -243,6 +243,16 @@ function _finResumo(m) {
   h += _finCard('⏳', 'Previsão a Rec.',  fm(m.totalPendente), 'yel');
   h += '</div>';
 
+  var _dm = (DB.t || []).filter(function(t) { return t.origem === 'dinheiro_mao' && String(t.date || '').slice(0, 7) === m.mesAtual; });
+  var _dmIn = _dm.filter(function(t) { return t.type === 'in'; }).reduce(function(a, t) { return a + (t.value || 0); }, 0);
+  var _dmOut = _dm.filter(function(t) { return t.type === 'out'; }).reduce(function(a, t) { return a + (t.value || 0); }, 0);
+  h += '<div class="fin-dm"><div class="fin-dm-t">💵 Dinheiro na mão · este mês</div><div class="fin-dm-r">'
+    + '<div><small>Entrou</small><b class="g">R$ ' + fm(_dmIn) + '</b></div>'
+    + '<div><small>Saiu</small><b class="r">R$ ' + fm(_dmOut) + '</b></div>'
+    + '<div><small>Saldo</small><b>R$ ' + fm(_dmIn - _dmOut) + '</b></div></div></div>';
+
+  h += '<button class="fin-resumo-btn" onclick="finResumoMes()">📤 Enviar resumo do mês <small>para o contador</small></button>';
+
   if (m.totalAtrasado > 0) {
     h += '<div class="fin-alerta">';
     h += '<span>⚠️ R$ ' + fm(m.totalAtrasado) + ' em atraso</span>';
@@ -2146,4 +2156,59 @@ function _finOrganizar() {
     card.style.display = on ? '' : 'none';
     hd.classList.toggle('open', on);
   });
+}
+
+
+// Botão flutuante "+": lança entrada/despesa/a receber de qualquer tela
+(function() {
+  function montar() {
+    if (document.getElementById('fabPlus')) return;
+    var st = document.createElement('style');
+    st.textContent = '#fabPlus{position:fixed;right:14px;bottom:84px;z-index:700;display:flex;flex-direction:column;align-items:flex-end;gap:8px;}'
+      + '#fabPlus .fab-main{width:50px;height:50px;border-radius:50%;border:1px solid var(--gold);background:linear-gradient(135deg,#c9a84c,#8b6014);color:#1a1400;font-size:1.7rem;font-weight:700;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.5);cursor:pointer;}'
+      + '#fabPlus .fab-opt{display:none;font-family:inherit;font-size:.8rem;font-weight:700;padding:10px 16px;border-radius:22px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);box-shadow:0 3px 10px rgba(0,0,0,.45);cursor:pointer;}'
+      + '#fabPlus.open .fab-opt{display:block;}#fabPlus.open .fab-main{transform:rotate(45deg);}'
+      + '.fin-dm{margin:10px 0;padding:10px 12px;border:1px solid var(--bd2);border-radius:14px;background:var(--s2);}'
+      + '.fin-dm-t{font-size:.66rem;letter-spacing:.8px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:6px;}'
+      + '.fin-dm-r{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;}'
+      + '.fin-dm-r small{display:block;font-size:.58rem;color:var(--t3);}.fin-dm-r b{font-size:.82rem;}'
+      + '.fin-dm-r b.g{color:var(--grn);}.fin-dm-r b.r{color:var(--red);}';
+    document.head.appendChild(st);
+    var d = document.createElement('div'); d.id = 'fabPlus';
+    d.innerHTML = '<button class="fab-opt" data-t="out">➖ Despesa</button><button class="fab-opt" data-t="in">➕ Entrada</button><button class="fab-opt" data-t="pend">⏳ A receber</button><button class="fab-main" aria-label="Lançar">+</button>';
+    d.addEventListener('click', function(e) {
+      var o = e.target.closest('.fab-opt');
+      if (o) { d.classList.remove('open'); if (typeof openFin === 'function') openFin(o.dataset.t); return; }
+      if (e.target.closest('.fab-main')) d.classList.toggle('open');
+    });
+    document.body.appendChild(d);
+    // esconde na Secretária/Chat (o botão de enviar fica ali)
+    setInterval(function() {
+      var sec = document.getElementById('pg11');
+      d.style.display = (sec && sec.offsetParent !== null) ? 'none' : 'flex';
+    }, 500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', montar); else montar();
+})();
+
+
+// Resumo do mês (texto pronto): compartilha pelo celular ou abre o WhatsApp
+function finResumoMes() {
+  var mes = td().slice(0, 7), nomes = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  var T = (DB.t || []).filter(function(t) { return String(t.date || '').slice(0, 7) === mes; });
+  var soma = function(a) { return a.reduce(function(x, t) { return x + (t.value || 0); }, 0); };
+  var ent = T.filter(function(t) { return t.type === 'in'; }), sai = T.filter(function(t) { return t.type === 'out'; });
+  var rot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', outros:'Outros' };
+  var porCat = {};
+  sai.forEach(function(t) { var k = rot[t.cat] || 'Sem categoria'; porCat[k] = (porCat[k] || 0) + (t.value || 0); });
+  var dm = T.filter(function(t) { return t.origem === 'dinheiro_mao'; });
+  var linhas = ['*HR Mármores e Granitos — resumo de ' + nomes[+mes.slice(5) - 1] + '/' + mes.slice(0, 4) + '*', '',
+    '💰 Entradas: R$ ' + fm(soma(ent)), '📉 Saídas: R$ ' + fm(soma(sai)), '📈 Saldo do mês: R$ ' + fm(soma(ent) - soma(sai)), '', '*Saídas por categoria*'];
+  Object.keys(porCat).sort(function(a, b) { return porCat[b] - porCat[a]; }).forEach(function(k) { linhas.push('• ' + k + ': R$ ' + fm(porCat[k])); });
+  var pagar = (DB.b || []).filter(function(b) { return b.tipo === 'pagar' && b.status !== 'pago'; });
+  if (dm.length) linhas.push('', '💵 Em dinheiro: entrou R$ ' + fm(soma(dm.filter(function(t) { return t.type === 'in'; }))) + ' · saiu R$ ' + fm(soma(dm.filter(function(t) { return t.type === 'out'; }))));
+  if (pagar.length) linhas.push('', '🧾 Boletos a pagar em aberto: ' + pagar.length + ' (R$ ' + fm(pagar.reduce(function(x, b) { return x + (b.valor || 0); }, 0)) + ')');
+  var txt = linhas.join('\n');
+  if (navigator.share) navigator.share({ title: 'Resumo do mês', text: txt }).catch(function() {});
+  else window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
 }

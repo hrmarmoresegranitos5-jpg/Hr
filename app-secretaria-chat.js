@@ -392,6 +392,7 @@ function renderChat() {
   _chatVozLoad();
   _secProativCheck();
   _injectChatStyles();
+  _injectChatWa();
 
   var h = '';
   h += '<div class="chat-wrap">';
@@ -770,7 +771,7 @@ function _chatBuildSystem() {
     '═══ AÇÕES DISPONÍVEIS ═══',
     'Use blocos ```json``` para executar ações. Múltiplos blocos na mesma resposta são suportados.',
     '',
-    '1.  Despesa:       {"action":"despesa",      "desc":"...","valor":100}',
+    '1.  Despesa:       {"action":"despesa",      "desc":"...","valor":100,"cat":"combustivel","forma":"dinheiro"} — cat: material|mao_obra|insumos|fixo|combustivel|ferramentas|outros (sempre escolha a mais adequada). Use "forma":"dinheiro" quando o usuário disser que pagou em dinheiro vivo/espécie/na mão (gasto que não passa pelo banco); omita "forma" nos demais casos. Vale também para a entrada (adicione "forma":"dinheiro" quando recebido em dinheiro). Se o usuário listar VÁRIOS gastos/entradas na mesma mensagem, emita um bloco JSON separado para cada um. Se o usuário enviar FOTO de nota, cupom ou recibo, leia o valor total, o fornecedor e a data e emita a ação despesa (com a categoria adequada); só pergunte se o valor estiver ilegível.',
     '2.  Entrada:       {"action":"entrada",       "desc":"...","valor":100}',
     '3.  A receber:     {"action":"areceber",      "desc":"...","valor":100,"data":"YYYY-MM-DD"}',
     '4.  Receber pend:  {"action":"receber_pend",  "desc":"parte do nome do lançamento"}',
@@ -810,12 +811,13 @@ function _chatClassifyIntent(text) {
     diagnostico: /erro|falha|bug|diagnóstico|diagnostico|problema|sistema|travou|log/.test(t),
     orcamentos:  /orçamento|orcamento|proposta|pedra|granito|mármore|marmore|m²|m2/.test(t),
     tumulos:     /túmulo|tumulo|jazigo|sepultura|gaveta|monumento|cemitério|cemiterio|falecido|obra funerária|funer/.test(t),
-    visitas:     /visita|medição|medicao|medir|agendad|marcar|agendar|cliente/.test(t)
+    visitas:     /visita|medição|medicao|medir|agendad|marcar|agendar|cliente/.test(t),
+    boletos:     /boleto|vence|vencimento|vencer|a pagar|contas? (a|de)|pagamentos? (de|do|dos)/.test(t)
   };
   // Imagem sem texto → carrega contexto de pedras + finanças
   flags.temImagem = false; // será setado pelo chamador se necessário
   // Se nada específico, manda contexto geral (finanças + jobs)
-  if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.tumulos && !flags.visitas) {
+  if (!flags.financas && !flags.jobs && !flags.rh && !flags.diagnostico && !flags.orcamentos && !flags.tumulos && !flags.visitas && !flags.boletos) {
     flags.financas = true; flags.jobs = true;
   }
   return flags;
@@ -856,15 +858,32 @@ function _chatBuildContextSurgical(userText, flags) {
     parts.push('A RECEBER:\n'+(pendLista.join('\n')||'Nenhum'));
   }
 
+  if (flags.financas && typeof _secPrevCaixa === 'function') {
+    var _cx = _secPrevCaixa();
+    parts.push('══ PREVISÃO DE CAIXA 30 DIAS ══\nsaldo hoje R$ ' + fm(_cx.saldo) + ' → em 30 dias R$ ' + fm(_cx.final) + ' | pior ponto R$ ' + fm(_cx.min) + ' em ' + _cx.minDia + (_cx.negDia ? ' | FICA NEGATIVO em ' + _cx.negDia : ' | sem risco'));
+  }
+
   if (flags.jobs) {
     var jobsAtivos = (DB.j||[]).filter(function(j){ return !j.done; });
     var jobsAtrasados = jobsAtivos.filter(function(j){ return j.end && j.end < hoje; });
+    jobsAtivos.sort(function(a,b){ return String(a.end||'9999').localeCompare(String(b.end||'9999')); });
     var jobsList = jobsAtivos.slice(0,12).map(function(j){
       var diff = dDiff(j.end); var st = diff<0?'🔴 ATRASADO '+Math.abs(diff)+'d':'🟢 em '+diff+'d';
-      return j.cli+' | '+j.desc+' | '+( j.end||'?')+' ('+st+') | R$ '+fm(j.value||0)+(j.pago?' | pago R$ '+fm(j.pago):'');
+      var _mg = (typeof _secMargemJob === 'function') ? _secMargemJob(j) : null;
+      return j.cli+' | '+j.desc+' | início '+(j.start||'?')+' | entrega '+( j.end||'?')+' ('+st+') | R$ '+fm(j.value||0)+(j.pago?' | pago R$ '+fm(j.pago):'');
     });
-    parts.push('══ JOBS ('+jobsAtivos.length+' ativos, '+jobsAtrasados.length+' atrasados) ══');
+    parts.push('══ JOBS ('+jobsAtivos.length+' ativos, '+jobsAtrasados.length+' atrasados) — ordenados do mais próximo da entrega ══');
     parts.push(jobsList.join('\n')||'Nenhum');
+  }
+
+  if (flags.boletos) {
+    var _bl = (DB.b || []).filter(function(b){ return b.status !== 'pago'; }).sort(function(a,b){ return String(a.venc||'9999').localeCompare(String(b.venc||'9999')); });
+    var _fmtB = function(b){ var d = b.venc ? dDiff(b.venc) : null; var st = d === null ? 'sem data' : (d < 0 ? '🔴 VENCIDO há ' + Math.abs(d) + 'd' : (d === 0 ? '🟡 vence HOJE' : 'vence em ' + d + 'd')); return (b.cli || b.desc || 'Boleto') + ' | ' + (b.venc || '?') + ' (' + st + ') | R$ ' + fm(b.valor || 0); };
+    ['pagar','receber'].forEach(function(tp){
+      var L = _bl.filter(function(b){ return b.tipo === tp; });
+      parts.push('══ BOLETOS A ' + tp.toUpperCase() + ' (' + L.length + ', total R$ ' + fm(L.reduce(function(a,b){ return a + (b.valor||0); }, 0)) + ') — do mais próximo de vencer ══');
+      parts.push(L.slice(0,10).map(_fmtB).join('\n') || 'Nenhum');
+    });
   }
 
   if (flags.visitas) {
@@ -1098,7 +1117,7 @@ function _chatProcessReply(text) {
         console.warn('chat action parse error:', e, jsonStr.slice(0,100));
       }
     });
-    if (extras.length) cleanText = cleanText + (cleanText ? '\n' : '') + extras.join('\n');
+    if (extras.length) cleanText = ((cleanText && !/^\s*[✅✓]/.test(cleanText)) ? cleanText + '\n' : '') + extras.join('\n');
   }
 
   _chatBotReply(cleanText || '✓ Feito!', actions.length ? actions : null);
@@ -1147,17 +1166,36 @@ function _jobLog(job, campo, de, para) {
 
     case 'despesa':
       if (data.desc && data.valor > 0) {
-        addTr('out', data.desc, +data.valor);
-        result.extra = '✅ Despesa de **R$ ' + fm(data.valor) + '** lançada!';
+        var _catsOk = ['material','mao_obra','insumos','fixo','combustivel','ferramentas','outros'];
+        var _catDesp = String(data.cat || '').toLowerCase().trim();
+        if (_catsOk.indexOf(_catDesp) === -1) {
+          _catDesp = (typeof _finGuessCategoria === 'function') ? (_finGuessCategoria(data.desc) || '') : '';
+        }
+        var _emDinheiro = /dinheiro|esp[eé]cie|m[aã]o|vivo/i.test(String(data.forma || ''));
+        var _trDesp = addTr('out', data.desc, +data.valor, data.data);
+        if (_trDesp) {
+          if (_catDesp) _trDesp.cat = _catDesp;
+          if (_emDinheiro) { _trDesp.forma = 'Dinheiro'; _trDesp.origem = 'dinheiro_mao'; }
+          DB.sv();
+          if (typeof renderFin === 'function') renderFin();
+        }
+        var _catRot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', outros:'Outros' }[_catDesp];
+        result.extra = '✅ Despesa de **R$ ' + fm(data.valor) + '** lançada' +
+          (_catRot ? ' em **' + _catRot + '**' : ' (sem categoria)') +
+          (_emDinheiro ? ', paga em dinheiro' : '') + '!';
         result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+        if (_trDesp) result.actions.push({label:'↩️ Desfazer', fn:'chatDesfazerTr(' + _trDesp.id + ')'});
       }
       break;
 
     case 'entrada':
       if (data.desc && data.valor > 0) {
-        addTr('in', data.desc, +data.valor);
-        result.extra = '✅ Entrada de **R$ ' + fm(data.valor) + '** registrada!';
+        var _trIn = addTr('in', data.desc, +data.valor, data.data);
+        var _inDin = /dinheiro|esp[eé]cie|m[aã]o|vivo/i.test(String(data.forma || ''));
+        if (_trIn && _inDin) { _trIn.forma = 'Dinheiro'; _trIn.origem = 'dinheiro_mao'; DB.sv(); }
+        result.extra = '✅ Entrada de **R$ ' + fm(data.valor) + '** registrada' + (_inDin ? ' em dinheiro' : '') + '!';
         result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
+        if (_trIn) result.actions.push({label:'↩️ Desfazer', fn:'chatDesfazerTr(' + _trIn.id + ')'});
       }
       break;
 
@@ -2049,4 +2087,45 @@ function _injectChatStyles() {
     .chat-img-btn:active { transform:scale(.92); }
   `;
   document.head.appendChild(s);
+}
+
+
+// ── Visual estilo WhatsApp: bolhas compactas, hora dentro da bolha, campo arredondado ──
+function _injectChatWa() {
+  if (document.getElementById('chatWaCss')) return;
+  var st = document.createElement('style'); st.id = 'chatWaCss';
+  st.textContent = [
+  '#chatBody .chat-header{padding:8px 12px;gap:10px;background:#202c33;border-bottom:0;}',
+  '#chatBody .chat-avatar{width:38px;height:38px;font-size:1.1rem;}',
+  '#chatBody .chat-header-name{font-size:.92rem;}',
+  '#chatBody .chat-header-sub{font-size:.62rem;}',
+  '#chatBody .chat-clear-btn,#chatBody .chat-voz-btn{padding:5px 8px;font-size:.78rem;background:transparent;border-color:transparent;}',
+  '#chatBody .chat-messages{background:#0b141a;padding:10px 10px 6px;gap:3px;}',
+  '#chatBody .chat-bubble{max-width:84%;padding:6px 9px 4px;border-radius:9px;font-size:.86rem;line-height:1.38;box-shadow:0 1px 1px rgba(0,0,0,.35);}',
+  '#chatBody .chat-bubble-user{background:#005c4b;border:0;border-top-right-radius:0;margin-top:5px;}',
+  '#chatBody .chat-bubble-bot{background:#202c33;border:0;border-top-left-radius:0;margin-top:5px;}',
+  '#chatBody .chat-bubble-text strong{color:#e9edef;}',
+  '#chatBody .chat-bubble-ts{font-size:.58rem;text-align:right;opacity:.6;margin-top:1px;padding:0;}',
+  '#chatBody .chat-actions{margin-top:6px;gap:5px;}',
+  '#chatBody .chat-action-btn{font-size:.72rem;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.07);border:0;color:#53bdeb;font-weight:600;}',
+  '#chatBody .chat-chips{padding:6px 10px;background:#0b141a;gap:6px;}',
+  '#chatBody .chat-chip{font-size:.7rem;padding:6px 11px;background:#202c33;border:0;border-radius:16px;color:#aebac1;}',
+  '#chatBody .chat-input-area{background:#0b141a;border-top:0;padding:6px 8px calc(8px + env(safe-area-inset-bottom));}',
+  '#chatBody .chat-input-row{gap:6px;align-items:flex-end;}',
+  '#chatBody .chat-input{background:#202c33;border:0;border-radius:22px;padding:10px 14px;font-size:.88rem;min-height:42px;}',
+  '#chatBody .chat-img-btn,#chatBody .chat-mic-btn{background:transparent;border:0;width:38px;height:42px;}',
+  '#chatBody .chat-send-btn{background:#00a884;border:0;width:44px;height:44px;border-radius:50%;box-shadow:none;}'
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
+
+// Desfaz um lançamento feito pela Secretária (botão ↩️ na resposta)
+function chatDesfazerTr(id) {
+  var i = (DB.t || []).findIndex(function(t) { return t.id === id; });
+  if (i < 0) { _chatBotReply('Esse lançamento já não existe mais.', null); return; }
+  var t = DB.t.splice(i, 1)[0];
+  DB.sv();
+  if (typeof renderFin === 'function') renderFin();
+  _chatBotReply('↩️ Desfeito: ' + (t.type === 'in' ? 'entrada' : 'despesa') + ' de **R$ ' + fm(t.value) + '** (' + escH(t.desc) + ') removida.', null);
 }
