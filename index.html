@@ -17,7 +17,7 @@
 <title>HR Mármores e Granitos</title>
 <!-- external scripts loaded on-demand -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=16">
+  <link rel="stylesheet" href="styles.css?v=17">
 
 <style id="capCSS">
 /* ══ CAPELAS & DETALHES AVULSOS ══ */
@@ -207,6 +207,14 @@ function openApp(pg){
     <!-- ── ACESSO RÁPIDO ── -->
     <div class="sp2-sec-lbl"><span>⚡</span>Acesso Rápido</div>
     <div class="sp2-quick">
+      <button class="sp2-q-btn sp2-q-hero" onclick="openApp(11)">
+        <span class="sp2-q-ic">🤖</span>
+        <div>
+          <div class="sp2-q-title">Secretária IA</div>
+          <div class="sp2-q-sub">Fale, lance gastos, veja alertas e o briefing do dia</div>
+        </div>
+        <span class="sp2-q-go">→</span>
+      </button>
       <button class="sp2-q-btn" onclick="openApp(12)">
         <span class="sp2-q-ic">🏠</span>
         <div>
@@ -1058,12 +1066,12 @@ if (typeof TUM === 'undefined') {
   <script src="app-precif-tumulos.js?v=2"></script>
   <script src="app-financas.js?v=5"></script>
   <script src="app-boletos.js?v=3"></script>
-  <script src="app-extrato-banco.js?v=2"></script>
+  <script src="app-extrato-banco.js?v=3"></script>
   <script src="app-estoque.js?v=1"></script>
   <script src="app-pdf-prazo.js?v=2"></script>
-  <script src="app-secretaria.js?v=4"></script>
+  <script src="app-secretaria.js?v=6"></script>
   <script src="app-dashboard.js?v=1"></script>
-  <script src="app-secretaria-chat.js?v=5"></script>
+  <script src="app-secretaria-chat.js?v=6"></script>
   <script src="app-tum-template.js?v=12"></script>
   <script src="app-tum-inline.js?v=12"></script>
   <script src="app-tum-integracao.js?v=12"></script>

@@ -576,9 +576,11 @@ function renderSecretaria() {
   if (!el) return;
   try {
     _injectSec2Styles();
+    _injectSecClean();
     _renderSecretariaInner(el);
     setTimeout(function() {
       _secRenderAI();
+      _secColapsaTarefas();
       // Auto-fetch do briefing IA se ainda nao gerado ou cache expirou (30min)
       _secAutoFetchBriefing();
       if (_getBotCfg().url) botCheckStatus();
@@ -642,40 +644,50 @@ function _renderSecretariaInner(el) {
   h += _sec2Chip(atrasados.length, '⚠️', 'atrasados', '#f87171');
   h += '</div>';
 
-  // ── WHATSAPP BOT (recolhível, no topo para não ficar escondido no fim da tela) ──
-  h += '<button class="sec2-nova-visita" id="botTopBtn" onclick="botTogglePanel()">💬 WhatsApp Bot · v4 <span id="botTopSeta">' + (_botPanelOpen ? '▴' : '▾') + '</span></button>';
-  h += '<div id="botPanelWrap" style="display:' + (_botPanelOpen ? 'block' : 'none') + ';margin:10px 0 14px;">' + _renderBotPanel() + '</div>';
+  var hTl = '', hAi = '', hTk = '';
+  // ── ATALHOS PARA A SECRETÁRIA (abre o Chat IA já com o comando) ──
+  h += '<div class="sec2-atalhos"><div class="sec2-atalhos-t">🤖 Fale com a Secretária</div><div class="sec2-atalhos-r">'
+    + '<button onclick="secAtalhoChat(\'Gastei R$ \')">💸 Lançar gasto</button>'
+    + '<button onclick="secAtalhoChat(\'Recebi R$ \')">💰 Lançar entrada</button>'
+    + '<button onclick="secAtalhoChat(\'Como estou este mês? Faça um resumo.\',true)">📊 Como estou?</button>'
+    + '</div></div>';
+  // ── AÇÕES RÁPIDAS (visita + bot) ──
+  h += '<div class="sec2-qa-row">'
+    + '<button class="sec2-qa" onclick="openVisitaMd(null)">📐 Agendar visita</button>'
+    + '<button class="sec2-qa" id="botTopBtn" onclick="botTogglePanel()">💬 WhatsApp Bot <span id="botTopSeta">' + (_botPanelOpen ? '▴' : '▾') + '</span></button>'
+    + '</div>';
+  h += '<div id="botPanelWrap" style="display:' + (_botPanelOpen ? 'block' : 'none') + ';margin:0 0 12px;">' + _renderBotPanel() + '</div>';
 
   // ── TIMELINE DO DIA ──
-  h += _secTimeline(hoje, agora);
+  hTl += _secTimeline(hoje, agora);
 
   // ── AI CONTAINER ──
-  h += '<div class="sec2-ai-container" id="secAIContainer">';
-  h += '<div style="color:rgba(255,255,255,.3);font-size:12px;text-align:center;padding:16px 0;">✨ Carregando análise IA...</div>';
-  h += '</div>';
-
-  // ── BOTÃO NOVA VISITA ──
-  h += '<button class="sec2-nova-visita" onclick="openVisitaMd(null)">📐 Agendar Visita de Medição</button>';
+  hAi += '<div class="sec2-ai-container" id="secAIContainer">';
+  hAi += '<div style="color:rgba(255,255,255,.3);font-size:12px;text-align:center;padding:16px 0;">✨ Carregando análise IA...</div>';
+  hAi += '</div>';
 
   // ── TAREFAS URGENTES ──
   if (atrasados.length || urgentes.length || pendVenc.length || followUps.length) {
-    h += '<div class="sec2-section-header"><span class="sec2-section-dot red"></span>Ação imediata</div>';
-    h += '<div class="sec2-task-list">';
+    hTk += '<div class="sec2-section-header"><span class="sec2-section-dot red"></span>Ação imediata</div>';
+    hTk += '<div class="sec2-task-list">';
     atrasados.forEach(function(j){
       var d = Math.abs(dDiff(j.end));
-      h += _sec2Task('⚠️', escH(j.cli) + ' — ' + escH(j.desc), d + (d===1?' dia':' dias') + ' atrasado', '#f87171', 'data-editjob="'+j.id+'"', 'Ver serviço');
+      hTk += _sec2Task('⚠️', escH(j.cli) + ' — ' + escH(j.desc), d + (d===1?' dia':' dias') + ' atrasado', '#f87171', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
     pendVenc.forEach(function(t){
-      h += _sec2Task('💰', escH(t.desc), 'R$ '+fm(t.value||0)+' · venceu '+fd(t.date), '#fbbf24', 'onclick="go(4);finTab(\'areceber\')"', 'Ir para Finanças');
+      hTk += _sec2Task('💰', escH(t.desc), 'R$ '+fm(t.value||0)+' · venceu '+fd(t.date), '#fbbf24', 'onclick="go(4);finTab(\'areceber\')"', 'Ir para Finanças');
     });
     urgentes.filter(function(j){return !atrasados.find(function(a){return a.id===j.id;});}).forEach(function(j){
-      h += _sec2Task('🚨', escH(j.cli) + ' — ' + escH(j.desc), j.urgMotivo||'Urgente', '#fb923c', 'data-editjob="'+j.id+'"', 'Ver serviço');
+      hTk += _sec2Task('🚨', escH(j.cli) + ' — ' + escH(j.desc), j.urgMotivo||'Urgente', '#fb923c', 'data-editjob="'+j.id+'"', 'Ver serviço');
     });
     followUps.forEach(function(q){
-      h += _sec2Task('📞', 'Follow-up: ' + escH(q.cli), 'Orçamento '+fd(q.date)+' — R$ '+fm(q.vista)+' — sem retorno', '#a78bfa', 'onclick="go(7)"', 'Ver histórico');
+      hTk += _sec2Task('📞', 'Follow-up: ' + escH(q.cli), 'Orçamento '+fd(q.date)+' — R$ '+fm(q.vista)+' — sem retorno', '#a78bfa', 'onclick="go(7)"', 'Ver histórico');
     });
-    h += '</div>';
+    hTk += '</div>';
   }
+
+  // ── ORDEM: o que exige ação primeiro, depois briefing IA e agenda do dia ──
+  h += hTk + hAi + hTl;
 
   // ── VISITAS HOJE ──
   if (visitasHoje.length) {
@@ -2015,3 +2027,75 @@ function _injectTimelineStyles() {
 }
 
 // Chamar _injectTimelineStyles() dentro de _injectSec2Styles() ou no init
+
+
+// ── Visual limpo da Secretária: tudo mais compacto, uma coluna de leitura ──
+function _injectSecClean() {
+  if (document.getElementById('secCleanCss')) return;
+  var st = document.createElement('style'); st.id = 'secCleanCss';
+  st.textContent = [
+  '#secBody{padding:10px 12px 20px;}',
+  '#secBody .sec2-hero{padding:12px 14px;margin:0 0 10px;border-radius:14px;}',
+  '#secBody .sec2-hero-inner{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}',
+  '#secBody .sec2-saud{font-size:.62rem;letter-spacing:1.5px;}',
+  '#secBody .sec2-nome{font-size:1.25rem;line-height:1.1;}',
+  '#secBody .sec2-alert-badge,#secBody .sec2-ok-badge{font-size:.62rem;padding:5px 10px;margin:0;}',
+  '#secBody .sec2-chips{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:0 0 10px;}',
+  '#secBody .sec2-chip{padding:8px 4px;text-align:center;border-radius:12px;min-width:0;}',
+  '#secBody .sec2-chip-icon{font-size:.85rem;}',
+  '#secBody .sec2-chip-val{font-size:.95rem;line-height:1.2;}',
+  '#secBody .sec2-chip-lbl{font-size:.48rem;letter-spacing:.3px;text-transform:uppercase;}',
+  '#secBody .sec2-qa-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px;}',
+  '#secBody .sec2-qa{font-family:inherit;font-size:.68rem;font-weight:700;color:var(--gold2);background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.28);border-radius:12px;padding:10px 6px;cursor:pointer;}',
+  '#secBody .sec2-qa:active{background:rgba(201,168,76,.2);}',
+  '#secBody .sec2-section-header{font-size:.6rem;letter-spacing:1.5px;margin:14px 0 6px;}',
+  '#secBody .sec2-task-list{gap:6px;}',
+  '#secBody .sec2-task{padding:9px 10px;}',
+  '#secBody .sec2-task-title{font-size:.74rem;}',
+  '#secBody .sec2-task-sub{font-size:.6rem;}',
+  '#secBody .sec2-task-btn{font-size:.58rem;padding:5px 8px;}',
+  '#secBody .sec2-ai-container{margin:14px 0;}',
+  '#secBody .sec2-atalhos{margin:0 0 10px;padding:10px;border:1px solid rgba(201,168,76,.22);border-radius:14px;background:rgba(201,168,76,.05);}',
+  '#secBody .sec2-atalhos-t{font-size:.62rem;letter-spacing:1px;color:var(--gold2);font-weight:700;margin-bottom:7px;text-transform:uppercase;}',
+  '#secBody .sec2-atalhos-r{display:flex;gap:6px;flex-wrap:wrap;}',
+  '#secBody .sec2-atalhos-r button{flex:1 1 auto;font-family:inherit;font-size:.66rem;font-weight:600;color:var(--tx);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:20px;padding:8px 10px;cursor:pointer;white-space:nowrap;}',
+  '#secBody .sec2-atalhos-r button:active{background:rgba(201,168,76,.25);}',
+  '#secBody .sec2-tab-btn{font-size:.66rem;padding:8px 4px;}'
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
+
+// Abre o Chat IA com o texto pronto (envia na hora só se enviar=true)
+function secAtalhoChat(texto, enviar) {
+  secSwitchTab('chat');
+  setTimeout(function() {
+    var inp = document.getElementById('chatInput');
+    if (!inp) return;
+    inp.value = texto;
+    if (typeof chatInputResize === 'function') chatInputResize(inp);
+    if (enviar && typeof chatSend === 'function') { chatSend(); return; }
+    inp.focus();
+    try { inp.setSelectionRange(texto.length, texto.length); } catch (e) {}
+  }, 450);
+}
+
+// Lista de "Ação imediata": mostra 4 e esconde o resto atrás de "Ver mais"
+function _secColapsaTarefas() {
+  var lista = document.querySelector('#secBody .sec2-task-list');
+  if (!lista || lista.dataset.col) return;
+  var itens = lista.querySelectorAll('.sec2-task');
+  if (itens.length <= 4) return;
+  lista.dataset.col = '1';
+  for (var i = 4; i < itens.length; i++) itens[i].style.display = 'none';
+  var b = document.createElement('button');
+  b.className = 'sec2-qa'; b.style.cssText = 'width:100%;margin-top:6px;';
+  b.textContent = 'Ver mais ' + (itens.length - 4) + ' ▾';
+  b.onclick = function() {
+    var aberto = b.dataset.o === '1';
+    for (var j = 4; j < itens.length; j++) itens[j].style.display = aberto ? 'none' : '';
+    b.dataset.o = aberto ? '' : '1';
+    b.textContent = aberto ? 'Ver mais ' + (itens.length - 4) + ' ▾' : 'Ver menos ▴';
+  };
+  lista.appendChild(b);
+}
