@@ -1,6 +1,7 @@
 // ══════════════════════════════════════════════════════════════
 // EXTRATO BANCÁRIO → FINANÇAS
-// Importa o PDF do extrato (Banco do Brasil), lê todos os lançamentos
+// Importa o PDF do extrato (Banco do Brasil) ou um arquivo OFX (qualquer banco),
+// lê todos os lançamentos
 // e pergunta UMA vez por favorecido o que ele é. A resposta fica
 // guardada como regra: no mês seguinte o sistema já classifica sozinho.
 //
@@ -181,6 +182,69 @@
   }
 
   // ───────────────────────── FUNCIONÁRIOS (RH) ─────────────────────────
+  // ───────────────────────── PARSER OFX (qualquer banco) ─────────────────────────
+  // Gera o mesmo formato do parser do BB, então o resto do fluxo não muda.
+  function parseOFX(texto) {
+    texto = String(texto || '').replace(/\r/g, '');
+    function tag(bloco, nome) {
+      var m = new RegExp('<' + nome + '>([^<\\n]*)', 'i').exec(bloco);
+      return m ? m[1].trim() : '';
+    }
+    function dataOFX(v) {
+      var m = /^(\d{4})(\d{2})(\d{2})/.exec(v || '');
+      return m ? m[1] + '-' + m[2] + '-' + m[3] : '';
+    }
+    var blocos = texto.split(/<STMTTRN>/i).slice(1).map(function (b) { return b.split(/<\/STMTTRN>|<\/BANKTRANLIST>/i)[0]; });
+    var recs = [], avisos = [], vistos = {};
+    blocos.forEach(function (b) {
+      var data = dataOFX(tag(b, 'DTPOSTED'));
+      var bruto = tag(b, 'TRNAMT');
+      if (bruto.indexOf('.') < 0) bruto = bruto.replace(',', '.');
+      var amt = parseFloat(bruto.replace(/[^\d.\-+]/g, ''));
+      if (!data || isNaN(amt)) { avisos.push('Lançamento ilegível: ' + b.slice(0, 40).replace(/\s+/g, ' ')); return; }
+      var cent = Math.round(amt * 100);
+      if (cent === 0) return;
+      var sinal = cent < 0 ? '-' : '+';
+      var memo = (tag(b, 'MEMO') || tag(b, 'NAME')).replace(/\s+/g, ' ').trim();
+      var mn = norm(memo);
+      var tipo = 'outro';
+      if (/RENDE FACIL|APLIC(ACAO)? AUTOM|RESG(ATE)? AUTOM|INVEST FACIL/.test(mn)) tipo = 'rende';
+      else if (sinal === '-' && /TARIFA|^TAR |CESTA|ANUIDADE|^IOF|MANUT/.test(mn)) tipo = 'tarifa';
+      else if (sinal === '+' && /PIX/.test(mn) && /DEVOLV|ESTORNO/.test(mn)) tipo = 'estorno';
+      else if (/PIX/.test(mn)) tipo = sinal === '-' ? 'pix_out' : 'pix_in';
+      else if (/SAQUE/.test(mn)) tipo = 'saque';
+      else if (/DEPOSITO|DEP DINHEIRO/.test(mn)) tipo = 'deposito';
+      else if (sinal === '-' && /BOLETO|TITULO|CONVENIO|PAGAMENTO CONTA/.test(mn)) tipo = 'boleto';
+      else if (sinal === '-' && /COMPRA|CARTAO|DEBITO/.test(mn)) tipo = 'cartao';
+
+      var docp = '', nome = memo;
+      var dm = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b|\b\d{14}\b|\b\d{11}\b/.exec(nome);
+      if (dm) { docp = dm[0].replace(/\D/g, ''); nome = nome.replace(dm[0], ' '); }
+      if (tipo === 'deposito') nome = 'Depósito em dinheiro';
+      else if (tipo === 'saque') nome = 'Saque em dinheiro';
+      else if (tipo !== 'tarifa') {
+        nome = nome
+          .replace(/^(PIX|TRANSF(ERENCIA)?|TED|DOC)\s*(-|:)?\s*(ENVIAD[OA]|RECEBID[OA]|ENVIO|RECEBIMENTO|DEVOLVID[OA]|DEVOLUCAO)?\s*(PIX)?\s*(-|:)?\s*/i, '')
+          .replace(/^(COMPRA( NO)?\s*(CARTAO|DEBITO)?|PAGAMENTO( DE)?\s*(BOLETO|TITULO|CONTA)?|PAGTO( DE)?\s*(BOLETO|TITULO)?)\s*(-|:)?\s*/i, '')
+          .replace(/\s+/g, ' ').trim();
+        if (!nome) nome = memo;
+      }
+      var fit = tag(b, 'FITID');
+      var id = ['ofx', data, fit, cent].join('|');
+      if (vistos[id]) { vistos[id]++; id += '#' + vistos[id]; } else vistos[id] = 1;
+      recs.push({
+        id: id, tipo: tipo, data: data, dataEvento: data, lote: '', doc: fit,
+        sinal: sinal, cent: cent, valor: Math.abs(cent) / 100,
+        hist: memo, nome: nome, nomeNorm: norm(nome), docp: docp
+      });
+    });
+    var ini = dataOFX(tag(texto, 'DTSTART')), fim = dataOFX(tag(texto, 'DTEND'));
+    if (!ini && recs.length) ini = recs.map(function (r) { return r.data; }).sort()[0];
+    if (!fim && recs.length) fim = recs.map(function (r) { return r.data; }).sort().slice(-1)[0];
+    var periodo = ini ? { mes: ini.slice(0, 7), de: ini, ate: fim || ini } : null;
+    return { periodo: periodo, linhas: recs, conferencia: { ok: false, semConf: true, dias: 0, erros: [] }, avisos: avisos };
+  }
+
   function getFuncs() {
     try {
       if (window.HR_FUNC && HR_FUNC.getFuncionarios) {
@@ -237,6 +301,25 @@
     _gravar(K_REGRAS, r);
   }
 
+  // aprende com o que já existe no sistema: se lançamentos anteriores com o mesmo
+  // nome (palavra de 6+ letras) foram quase sempre da mesma categoria, sugere ela
+  function _histCat(nomeNorm) {
+    var T = (typeof DB !== 'undefined' && DB.t) ? DB.t : [];
+    var palavras = String(nomeNorm || '').split(' ').filter(function (w) { return w.length >= 6; });
+    if (!palavras.length || !T.length) return '';
+    var cont = {}, tot = 0;
+    T.forEach(function (t) {
+      if (t.type !== 'out' || !t.cat || t.cat === 'mao_obra' || t.isProLabore || t.origem === 'rh_pagamento') return;
+      var d = norm(t.desc);
+      if (!palavras.some(function (w) { return d.indexOf(w) >= 0; })) return;
+      if (!CATS.some(function (c) { return c.k === t.cat; })) return;
+      cont[t.cat] = (cont[t.cat] || 0) + 1; tot++;
+    });
+    if (tot < 2) return '';
+    var melhor = Object.keys(cont).sort(function (a, b) { return cont[b] - cont[a]; })[0];
+    return cont[melhor] / tot >= 0.7 ? melhor : '';
+  }
+
   // sugestões (só destacam um botão; quem decide é você)
   function sugerir(g) {
     var n = g.nomeNorm;
@@ -251,6 +334,7 @@
     if (/NEOENERGIA|COELBA|CACTUSNET|INTERNET|AGUA|CONTAB|TARIFA/.test(n)) return 'fixo';
     if (/SUPERMERCADO|MERCADINHO|MERCADO|DROGARIA|FARMACIA|CLINICA|ODONTO|CHURRASCARIA|PASTEL|KOMBINADO|HOTEL|VERDURA/.test(n)) return 'retirada';
     if (/GOOGLE|BYTEDANCE|APPMAX|MARSECON/.test(n)) return 'outros';
+    var hc = _histCat(n); if (hc) return hc;
     if (typeof _finGuessCategoria === 'function') { var gc = _finGuessCategoria(g.nome); if (gc && gc !== 'mao_obra') return gc; }
     return '';
   }
@@ -552,6 +636,7 @@
   function desenhar() {
     if (!_S) return;
     if (_S.etapa === 'resumo') return telaResumo();
+    if (_S.etapa === 'lote') return telaLote();
     if (_S.etapa === 'pergunta') return telaPergunta();
     if (_S.etapa === 'conferencia') return telaConferencia();
     if (_S.etapa === 'fim') return telaFim();
@@ -564,7 +649,9 @@
     var aut = P.linhas.filter(function (l) { return l.estado === 'auto'; }).length;
     var h = '<div class="ext-card"><div style="font-size:13px;color:var(--t2);">Extrato ' + esc(per) + '</div>' +
       '<div style="font-size:26px;font-weight:700;margin:6px 0;">' + P.linhas.length + ' lançamentos</div>' +
-      (P.conferencia.ok
+      (P.conferencia.semConf
+        ? '<div class="ext-sub">Arquivo OFX: o banco não manda saldo por dia, então confira os totais antes de lançar.</div>'
+        : P.conferencia.ok
         ? '<div class="ext-ok" style="font-size:13px;">✓ Conferido: o saldo bate com o banco em ' + P.conferencia.dias + ' dias</div>'
         : '<div class="ext-warn" style="font-size:13px;">⚠️ Não consegui conferir o saldo com o banco' + (P.conferencia.erros.length ? ' (' + esc(P.conferencia.erros[0]) + ')' : '') + '. Confira os valores no final.</div>') +
       '</div>';
@@ -574,10 +661,14 @@
       '<div class="ext-row"><span>↩️ Já lançados antes (RH, boletos)</span><b>' + (r.nJa + r.nDup) + '</b></div>' +
       '<div class="ext-row"><span>❓ Preciso da sua resposta</span><b>' + nGr + (nGr === 1 ? ' pergunta' : ' perguntas') + '</b></div>' +
       '</div>';
+    var nLote = P.grupos.filter(function (g) { return !!acDoSug(g); }).length;
     if (nGr) h += '<div class="ext-sub">Cada nome é perguntado só uma vez. A resposta vale pra todos os lançamentos dele — e fica lembrada pros próximos meses.</div>';
-    quadro('Importar extrato', h, nGr
-      ? '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.comecar()">Começar (' + nGr + ')</button>'
-      : '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.irConferencia()">Ver resumo e lançar</button>');
+    quadro('Importar extrato', h, !nGr
+      ? '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.irConferencia()">Ver resumo e lançar</button>'
+      : nLote >= 2
+        ? '<button class="ext-b" style="flex:1" onclick="HR_EXTRATO.comecar()">Um por um (' + nGr + ')</button>' +
+          '<button class="ext-b p" style="flex:2" onclick="HR_EXTRATO.abrirLote()">⚡ Aceitar sugestões (' + nLote + ')</button>'
+        : '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.comecar()">Começar (' + nGr + ')</button>');
   }
 
   function botoesSaida(g) {
@@ -671,6 +762,66 @@
       '<button class="ext-b g" style="flex:2" onclick="HR_EXTRATO.lancar()">Lançar ' + r.nTr + '</button>');
   }
 
+  // ───────────────────────── ACEITAR SUGESTÕES DE UMA VEZ ─────────────────────────
+  // Converte a sugestão de um grupo numa ação. Retorna null quando precisa de decisão
+  // humana (possível funcionário, saque/depósito, devolução, sem sugestão).
+  function acDoSug(g) {
+    if (!g || g.askEach || g.dir === 'estorno' || (g.cand && g.cand.length)) return null;
+    var s = g.sug, label = titulo(g.nome);
+    if (s === 'interna') return { a: 'interna' };
+    if (g.dir === 'in') {
+      if (g.pend) return { a: 'baixa', pendId: g.pend.id };
+      return { a: 'cliente', label: label };
+    }
+    if (s === 'retirada') return { a: 'retirada', label: 'Retirada — ' + label };
+    if (CATS.some(function (c) { return c.k === s; })) return { a: 'cat', cat: s, label: label };
+    return null;
+  }
+  function telaLote() {
+    var L = _S.lote, fora = _S.loteFora || {};
+    var nOk = L.filter(function (g, i) { return !fora[i]; }).length;
+    var h = '<div class="ext-sub">Confira. O que estiver errado, toque em <b>Mudar</b> que eu pergunto depois.</div>';
+    L.forEach(function (g, i) {
+      var f = !!fora[i], ac = acDoSug(g);
+      h += '<div class="ext-card" style="' + (f ? 'opacity:.55' : '') + '">' +
+        '<div class="ext-row" style="align-items:center"><span><b>' + esc(titulo(g.nome)) + '</b> ' +
+        (g.dir === 'in' ? '<span class="ext-pill in">ENTRADA</span>' : '<span class="ext-pill out">SAÍDA</span>') +
+        '<br><span class="ext-sub">' + g.linhas.length + (g.linhas.length === 1 ? ' lançamento' : ' lançamentos') + ' · R$ ' + brl(g.total) + '</span><br>' +
+        '<span class="ext-sub">' + (f ? '❓ vou perguntar depois' : esc(descAc(ac))) + '</span></span>' +
+        '<button class="ext-b" onclick="HR_EXTRATO.loteMudar(' + i + ')">' + (f ? 'Aceitar' : 'Mudar') + '</button></div></div>';
+    });
+    h += '<label class="ext-lrn"><input type="checkbox" ' + (_S.lembrar ? 'checked' : '') + ' onchange="HR_EXTRATO._lembrar(this.checked)"> Lembrar essas respostas nos próximos meses</label>';
+    quadro('Aceitar sugestões', h,
+      '<button class="ext-b" style="flex:1" onclick="HR_EXTRATO.voltarResumo()">← Voltar</button>' +
+      '<button class="ext-b g" style="flex:2" onclick="HR_EXTRATO.confirmarLote()">Confirmar (' + nOk + ')</button>');
+  }
+  function abrirLote() {
+    _S.lote = _S.plano.grupos.filter(function (g) { return !!acDoSug(g); });
+    _S.loteFora = {};
+    _S.etapa = 'lote';
+    desenhar();
+  }
+  function loteMudar(i) {
+    _S.loteFora = _S.loteFora || {};
+    _S.loteFora[i] = !_S.loteFora[i];
+    desenhar();
+  }
+  function confirmarLote() {
+    var fora = _S.loteFora || {};
+    _S.lote.forEach(function (g, i) {
+      if (fora[i]) return;
+      var ac = acDoSug(g);
+      if (!ac) return;
+      g.linhas.forEach(function (l) { l.estado = 'resp'; l.ac = ac; l.forcar = false; });
+      g.respondido = true;
+      if (_S.lembrar && ac.a !== 'baixa') aprender(g.dir, g.nomeNorm, titulo(g.nome), ac);
+    });
+    _S.plano.grupos = _S.plano.grupos.filter(function (g) { return !g.respondido; });
+    _S.i = 0; _S.lote = null; _S.loteFora = null;
+    _S.etapa = _S.plano.grupos.length ? 'pergunta' : 'conferencia';
+    desenhar();
+  }
+
   function telaFim() {
     var f = _S.fim;
     quadro('Pronto!',
@@ -734,13 +885,31 @@
     _S = { plano: plano, arquivo: arquivo || '', etapa: 'resumo', i: 0, rotulo: {}, lembrar: true, escolhendoFunc: false };
     desenhar();
   }
+  function ehPdfBuf(buf) {
+    var u = new Uint8Array(buf.slice(0, 5));
+    return u[0] === 0x25 && u[1] === 0x50 && u[2] === 0x44 && u[3] === 0x46;
+  }
+  function lerTextoOFX(buf) {
+    var u8 = new Uint8Array(buf);
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) {}
+    try { return new TextDecoder('windows-1252').decode(u8); } catch (e2) {}
+    var t = ''; for (var i = 0; i < u8.length; i++) t += String.fromCharCode(u8[i]); return t;
+  }
   function importarArquivo(file) {
     if (!file) return;
     if (typeof toast === 'function') toast('Lendo extrato…');
     var fr = new FileReader();
     fr.onerror = function () { alert('Não consegui abrir o arquivo.'); };
     fr.onload = function () {
-      textoDoPdf(new Uint8Array(fr.result)).then(function (txt) {
+      var buf = fr.result;
+      if (!ehPdfBuf(buf)) {
+        var txt = lerTextoOFX(buf);
+        if (!/<STMTTRN>/i.test(txt)) { alert('Arquivo não reconhecido. Envie o PDF do extrato do BB ou um arquivo OFX.'); return; }
+        var po = parseOFX(txt);
+        if (!po.linhas.length) { alert('Não encontrei lançamentos nesse arquivo OFX.'); return; }
+        return iniciar(montarPlano(po), file.name);
+      }
+      textoDoPdf(new Uint8Array(buf)).then(function (txt) {
         var parsed = parseExtratoBB(txt);
         if (!parsed.linhas.length) { alert('Não encontrei lançamentos nesse PDF. É o "Extrato de Conta Corrente" do Banco do Brasil?'); return; }
         iniciar(montarPlano(parsed), file.name);
@@ -752,7 +921,7 @@
     var inp = document.getElementById('extFile');
     if (!inp) {
       inp = document.createElement('input');
-      inp.type = 'file'; inp.id = 'extFile'; inp.accept = 'application/pdf,.pdf'; inp.style.display = 'none';
+      inp.type = 'file'; inp.id = 'extFile'; inp.accept = '.pdf,.ofx,application/pdf,application/x-ofx,application/octet-stream,text/plain'; inp.style.display = 'none';
       inp.onchange = function () { var f = inp.files && inp.files[0]; inp.value = ''; importarArquivo(f); };
       document.body.appendChild(inp);
     }
@@ -764,8 +933,8 @@
     var hist = _ler(K_HIST, []), regras = lerRegras(), nReg = Object.keys(regras).length;
     var h = '<div class="ext-card" style="margin-top:6px">' +
       '<div style="font-size:15px;font-weight:700;margin-bottom:4px">📥 Importar extrato do banco</div>' +
-      '<div class="ext-sub">Envie o PDF do mês. Eu leio tudo e só pergunto o que ainda não sei.</div>' +
-      '<button class="ext-b p" style="width:100%;margin-top:12px" onclick="HR_EXTRATO.escolherArquivo()">Escolher PDF do extrato</button></div>';
+      '<div class="ext-sub">Envie o PDF do BB ou o arquivo OFX de qualquer banco. Eu leio tudo e só pergunto o que ainda não sei.</div>' +
+      '<button class="ext-b p" style="width:100%;margin-top:12px" onclick="HR_EXTRATO.escolherArquivo()">Escolher PDF ou OFX do extrato</button></div>';
     h += '<div class="ext-card"><div style="display:flex;justify-content:space-between;align-items:center"><div><b>🧠 Regras aprendidas</b><div class="ext-sub">' + nReg + (nReg === 1 ? ' nome lembrado' : ' nomes lembrados') + '</div></div>' +
       '<button class="ext-b" onclick="HR_EXTRATO.verRegras()">Ver</button></div></div>';
     if (hist.length) {
@@ -790,6 +959,7 @@
     if (ac.a === 'entrada') return '↩️ Outra entrada';
     if (ac.a === 'interna') return '🔁 Transferência interna';
     if (ac.a === 'ignorar') return '🚫 Ignorar';
+    if (ac.a === 'baixa') return '✅ Baixa em "A receber"';
     return ac.a;
   }
   function verRegras() {
@@ -847,12 +1017,14 @@
     comecar: function () { _S.etapa = 'pergunta'; _S.i = 0; desenhar(); },
     irConferencia: function () { _S.etapa = 'conferencia'; desenhar(); },
     voltarConf: function () { if (_S.plano.grupos.length) { _S.etapa = 'pergunta'; _S.i = Math.max(0, _S.plano.grupos.length - 1); var g = _S.plano.grupos[_S.i]; g.linhas.forEach(function (l) { l.estado = 'ask'; l.ac = null; }); desenhar(); } else { _S.etapa = 'resumo'; desenhar(); } },
+    abrirLote: abrirLote, loteMudar: loteMudar, confirmarLote: confirmarLote,
+    voltarResumo: function () { _S.etapa = 'resumo'; desenhar(); },
     resp: resp, respFunc: respFunc, pular: pular, voltar: voltar,
     voltarBotoes: function () { _S.escolhendoFunc = false; desenhar(); },
     lancar: lancar, desfazer: desfazer, verRegras: verRegras, esquecer: esquecer,
     _lembrar: function (v) { _S.lembrar = v; },
     _forcar: function (id, v) { _S.plano.linhas.forEach(function (l) { if (l.id === id) l.forcar = v; }); },
     renderTab: renderExtratoTab, iniciar: iniciar, _estado: function () { return _S; },
-    _parse: parseExtratoBB, _plano: montarPlano
+    _parse: parseExtratoBB, _parseOFX: parseOFX, _plano: montarPlano
   };
 })();
