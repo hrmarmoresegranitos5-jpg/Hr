@@ -3,18 +3,25 @@
 // Network-first com fallback offline para index.html
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v35';
+var CACHE_NAME = 'hr-shell-v36';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
   './index.html'
+];
+// Leitor de PDF do extrato bancário: guardado para funcionar sem internet
+var PDFJS_FILES = [
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
 ];
 
 // INSTALL: pré-cacheia o shell mínimo e ativa imediatamente
 self.addEventListener('install', function(e) {
   e.waitUntil(
     caches.open(CACHE_NAME).then(function(cache) {
-      return cache.addAll(SHELL_FILES);
+      // pdf.js é opcional: se falhar (sem rede), não impede a instalação
+      var extras = Promise.all(PDFJS_FILES.map(function(u) { return cache.add(u).catch(function() {}); }));
+      return cache.addAll(SHELL_FILES).then(function() { return extras; });
     }).then(function() {
       return self.skipWaiting();
     })
