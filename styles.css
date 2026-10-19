@@ -4520,3 +4520,13 @@ button:focus-visible {
 @media (min-width: 1000px) {
   #pg30 .hr-lista { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ── Botão de destaque: Secretária IA (tela inicial) ── */
+.sp2-q-btn.sp2-q-hero { grid-column: 1 / -1; padding: 14px 14px;
+  background: linear-gradient(135deg, rgba(201,168,76,.26), rgba(139,96,20,.12));
+  border-color: rgba(201,168,76,.55); box-shadow: 0 0 18px rgba(201,168,76,.12); }
+.sp2-q-hero .sp2-q-ic { font-size: 1.7rem; }
+.sp2-q-hero .sp2-q-title { font-size: .95rem; }
+.sp2-q-hero .sp2-q-sub { font-size: .6rem; }
+.sp2-q-go { color: var(--gold2); font-size: 1.2rem; font-weight: 700; }
+.sp2-quick .sp2-q-btn:last-child:nth-child(even) { grid-column: 1 / -1; }

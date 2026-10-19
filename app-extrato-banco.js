@@ -347,7 +347,7 @@
     T.forEach(function (t) { if (t._extId) jaImp[t._extId] = 1; });
     function mk(t) { return { t: t, usado: false }; }
     var rhEx   = T.filter(function (t) { return t.origem === 'rh_pagamento'; }).map(mk);
-    var outEx  = T.filter(function (t) { return t.type === 'out' && t.origem !== 'extrato_bb' && t.origem !== 'rh_pagamento'; }).map(mk);
+    var outEx  = T.filter(function (t) { return t.type === 'out' && t.origem !== 'extrato_bb' && t.origem !== 'rh_pagamento' && t.origem !== 'dinheiro_mao'; }).map(mk);
     var inEx   = T.filter(function (t) { return t.type === 'in' && t.origem !== 'extrato_bb'; }).map(mk);
     var pendEx = T.filter(function (t) { return t.type === 'pend'; }).map(mk);
 
