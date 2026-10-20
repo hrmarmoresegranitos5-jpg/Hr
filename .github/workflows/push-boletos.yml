@@ -2,9 +2,9 @@ name: Checar boletos e enviar push
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 08:00 horário de Bahia (UTC-3)
-    - cron: '0 21 * * *'   # 18:00 horário de Bahia (UTC-3)
-  workflow_dispatch:        # permite rodar manualmente na aba "Actions" do GitHub, pra testar
+    - cron: '0 11 * * *'   # 08:00 Bahia
+    - cron: '0 21 * * *'   # 18:00 Bahia
+  workflow_dispatch:        # botão "Run workflow" na aba Actions, pra testar na hora
 
 jobs:
   checar-boletos:
@@ -16,12 +16,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Instalar dependências
-        working-directory: scripts
-        run: npm install
+      - name: Instalar firebase-admin
+        run: |
+          mkdir -p /tmp/fb && cd /tmp/fb
+          npm init -y > /dev/null
+          npm install firebase-admin
 
-      - name: Rodar checagem de boletos
-        working-directory: scripts
+      - name: Rodar checar-boletos.cjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: node checar-boletos.js
+          NODE_PATH: /tmp/fb/node_modules
+        run: node checar-boletos.cjs
