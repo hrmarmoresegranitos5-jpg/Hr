@@ -4573,3 +4573,70 @@ button:focus-visible {
 .sec-cx-v{font-size:1.5rem;font-weight:800;margin:4px 0 2px;}
 .sec-cx-s{font-size:.72rem;font-weight:600;}
 .sec-cx-n{font-size:.58rem;color:var(--t3);margin-top:4px;}
+
+
+/* ═══════════════════════════════════════════════════════════
+   HOME v2 — Etapa 1: cabeçalho enxuto + Radar do dia no topo
+   (sobrescreve os blocos antigos de .sp2-name/.sp2-tagline)
+═══════════════════════════════════════════════════════════ */
+#sSplash .sp2-hdr{
+  padding: max(env(safe-area-inset-top), 10px) 12px 8px !important;
+  gap: 9px !important;
+}
+#sSplash .sp2-hdr .sp2-logo{ width:32px !important; height:32px !important; border-radius:9px !important; }
+#sSplash .sp2-hdr .sp2-logo img{ width:100%; height:100%; }
+#sSplash .sp2-hdr .sp2-name{
+  font-size:1rem !important; line-height:1.2 !important; letter-spacing:0 !important;
+  white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;
+  text-align:left !important;
+}
+#sSplash .sp2-hdr .sp2-tagline{ display:none !important; }
+#sSplash .sp2-hdr .sp2-hdr-tel{
+  width:38px; height:38px; padding:0 !important; border-radius:50% !important;
+  justify-content:center; font-size:0 !important; flex-shrink:0;
+  background:rgba(201,168,76,.12); border:1px solid rgba(201,168,76,.35);
+}
+#sSplash .sp2-hdr .sp2-hdr-tel::before{ content:"📞"; font-size:1rem; line-height:1; }
+#sSplash .sp2-hdr .sp2-hdr-tel:active{ background:rgba(201,168,76,.28); }
+
+/* Radar do dia — cards tocáveis */
+#sSplash #homeRadar.radar{ margin:10px 12px 0 !important; padding:10px !important; cursor:default; }
+#homeRadar .radar-t{ margin-bottom:8px; }
+.rd-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+.rd-grid .rd-card:last-child:nth-child(odd){ grid-column:1 / -1; }
+.rd-card{
+  display:flex; align-items:center; gap:9px; text-align:left;
+  padding:10px 11px; border-radius:13px; font-family:inherit; color:var(--tx);
+  background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+  min-height:52px; transition:transform .12s, background .12s;
+}
+.rd-card:active{ transform:scale(.96); background:rgba(255,255,255,.1); }
+.rd-ic{ font-size:1.25rem; line-height:1; flex-shrink:0; }
+.rd-tx{ display:flex; flex-direction:column; min-width:0; }
+.rd-tx b{ font-size:1.05rem; font-weight:800; line-height:1.1; }
+.rd-tx small{ font-size:.6rem; color:var(--t2); line-height:1.25; }
+.rd-card.r{ border-color:rgba(248,113,113,.45); background:rgba(248,113,113,.10); } .rd-card.r b{ color:#f87171; }
+.rd-card.y{ border-color:rgba(251,191,36,.45);  background:rgba(251,191,36,.10); }  .rd-card.y b{ color:#fbbf24; }
+.rd-card.b{ border-color:rgba(96,165,250,.45);  background:rgba(96,165,250,.10); }  .rd-card.b b{ color:#60a5fa; }
+.rd-card.p{ border-color:rgba(167,139,250,.45); background:rgba(167,139,250,.10); } .rd-card.p b{ color:#a78bfa; }
+.rd-card.g{ border-color:rgba(61,220,132,.45);  background:rgba(61,220,132,.10); }  .rd-card.g b{ color:#3ddc84; }
+.rd-ok{ font-size:.8rem; font-weight:600; color:#3ddc84; padding:4px 2px 2px; }
+
+
+/* ═══ HOME v2 — Etapa 2: resumo financeiro + gráfico compacto ═══ */
+#sSplash .sp2-kpis{ margin:10px 12px 0 !important; gap:7px !important; }
+#sSplash .sp2-kpi{ padding:9px 9px 8px !important; }
+#sSplash .sp2-kpi-val{ font-size:.92rem !important; white-space:nowrap; }
+.sp2-kpi-sub{ white-space:nowrap; }
+.sp2-var{ font-size:.54rem; font-weight:700; margin-left:2px; color:var(--t3); }
+.sp2-var.good{ color:#5dc48a; } .sp2-var.bad{ color:#e07070; }
+#sSplash .sp2-chart-wrap{ margin:8px 12px 0 !important; padding:8px 10px 7px !important; }
+#sSplash .sp2-chart-hdr{ margin-bottom:4px !important; }
+#sSplash .sp2-bar-pair{ height:28px !important; }
+#sSplash .sp2-bar-group{ padding:2px 1px 0; border-radius:7px; cursor:pointer; }
+#sSplash .sp2-bar-group.sel{ background:rgba(201,168,76,.14); }
+#sSplash .sp2-bar-group.sel .sp2-bar-lbl{ color:var(--gold2); font-weight:700; }
+.sp2-tip{ margin-top:5px; font-size:.62rem; color:var(--t3); text-align:center; min-height:1em; }
+.sp2-tip b{ color:var(--gold2); } .sp2-tip .g{ color:#5dc48a; } .sp2-tip .r{ color:#e07070; }
+
+#sSplash .sp2-kpis{ padding:0 !important; }

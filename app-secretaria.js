@@ -2157,6 +2157,12 @@ function _fuAcao(g) {
 
 
 // ── Radar do dia (tela inicial): o que precisa de atenção, num relance ──
+// Destino de cada card do Radar (abre o app a partir da home)
+window._rdGo = function(k) {
+  var dest = { atr: 3, ini: 3, vis: 3, cx: 4, bol: 4, rec: 4, fu: 11 };
+  if (typeof openApp === 'function') openApp(dest[k]);
+  if (k === 'bol') setTimeout(function() { if (typeof finTab === 'function') finTab('boletos'); }, 300);
+};
 function homeRadar() {
   var el = document.getElementById('homeRadar'); if (!el) return;
   try {
@@ -2168,17 +2174,21 @@ function homeRadar() {
     var ini = _secInicioHoje().length;
     var fu = (typeof _secFollowUps === 'function' ? _secFollowUps(hoje) : []).length;
     var itens = [];
-    if (atras) itens.push('<span class="radar-c r">🔴 ' + atras + ' serviço' + (atras > 1 ? 's' : '') + ' atrasado' + (atras > 1 ? 's' : '') + '</span>');
+    function card(cls, ic, n, lbl, k) {
+      return '<button type="button" class="rd-card ' + cls + '" onclick="_rdGo(\'' + k + '\')">'
+        + '<span class="rd-ic">' + ic + '</span><span class="rd-tx"><b>' + n + '</b><small>' + lbl + '</small></span></button>';
+    }
+    if (atras) itens.push(card('r', '🔴', atras, 'serviço' + (atras > 1 ? 's' : '') + ' atrasado' + (atras > 1 ? 's' : ''), 'atr'));
     var cx = _secPrevCaixa();
-    if (cx.negDia) itens.push('<span class="radar-c r">⚠️ caixa negativo em ' + fd(cx.negDia) + '</span>');
-    if (ini) itens.push('<span class="radar-c g">🛠️ ' + ini + ' para iniciar hoje</span>');
-    if (bol) itens.push('<span class="radar-c y" onclick="event.stopPropagation();go(4);finTab(\'boletos\')">🧾 ' + bol + ' boleto' + (bol > 1 ? 's' : '') + ' a pagar</span>');
-    if (rec) itens.push('<span class="radar-c y">⏳ ' + rec + ' cobrança' + (rec > 1 ? 's' : '') + ' vencida' + (rec > 1 ? 's' : '') + '</span>');
-    if (vis) itens.push('<span class="radar-c b">📐 ' + vis + ' visita' + (vis > 1 ? 's' : '') + ' hoje</span>');
-    if (fu) itens.push('<span class="radar-c p">📞 ' + fu + ' follow-up' + (fu > 1 ? 's' : '') + '</span>');
+    if (cx.negDia) itens.push(card('r', '⚠️', String(fd(cx.negDia)).slice(0, 5), 'caixa negativo', 'cx'));
+    if (ini) itens.push(card('g', '🛠️', ini, 'para iniciar hoje', 'ini'));
+    if (bol) itens.push(card('y', '🧾', bol, 'boleto' + (bol > 1 ? 's' : '') + ' a pagar', 'bol'));
+    if (rec) itens.push(card('y', '⏳', rec, 'cobrança' + (rec > 1 ? 's' : '') + ' vencida' + (rec > 1 ? 's' : ''), 'rec'));
+    if (vis) itens.push(card('b', '📐', vis, 'visita' + (vis > 1 ? 's' : '') + ' hoje', 'vis'));
+    if (fu) itens.push(card('p', '📞', fu, 'follow-up' + (fu > 1 ? 's' : ''), 'fu'));
     _secAvisoInicio();
-    el.innerHTML = '<div class="radar-t"><span class="radar-dot"></span>RADAR DO DIA<em>abrir Secretária →</em></div>'
-      + '<div class="radar-r">' + (itens.length ? itens.join('') : '<span class="radar-c g">✅ Tudo em dia</span>') + '</div>';
+    el.innerHTML = '<div class="radar-t"><span class="radar-dot"></span>RADAR DO DIA<em>' + (itens.length ? 'toque para abrir' : '') + '</em></div>'
+      + (itens.length ? '<div class="rd-grid">' + itens.join('') + '</div>' : '<div class="rd-ok">✅ Tudo em dia</div>');
   } catch (e) { el.innerHTML = ''; }
 }
 (function() {
