@@ -3,7 +3,7 @@
 // Network-first com fallback offline para index.html
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v38';
+var CACHE_NAME = 'hr-shell-v41';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',

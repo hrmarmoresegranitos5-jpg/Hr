@@ -4993,6 +4993,238 @@ function updBordaAcb(ambId,prop,val){
   renderAmbientes();
 }
 
+// ═══ ORÇAMENTO › CARDS INTELIGENTES (mesmo modelo do "Fixação (IA)") ═══════
+// Furos e Deslocamento deixam de ser checkbox + campo solto: viram cartão com
+// quantidade − / + e total na hora. Gravam no MESMO svState de antes
+// ({qty}), então o cálculo e o PDF não mudam.
+function _svBtnStep(ambId, k, d) {
+  return '<button type="button" onclick="_svStep(' + ambId + ',\'' + k + '\',' + d + ')" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">' + (d < 0 ? '−' : '+') + '</button>';
+}
+
+function _svStep(ambId, k, d) {
+  var amb = ambientes.find(function (a) { return a.id == ambId; });
+  if (!amb) return;
+  if (!amb.svState) amb.svState = {};
+  var sv = amb.svState;
+  var cur = sv[k] ? (sv[k].qty || 1) : 0;
+  var n = Math.max(0, cur + d);
+  if (n === 0) delete sv[k];
+  else sv[k] = Object.assign({ ml: 0, altCm: 6, q: 1 }, sv[k] || {}, { qty: n });
+  renderAmbientes();
+}
+
+// liga/desliga item do cartão (Deslocamento)
+function _svChip(ambId, k) {
+  var amb = ambientes.find(function (a) { return a.id == ambId; });
+  if (!amb) return;
+  if (!amb.svState) amb.svState = {};
+  var sv = amb.svState;
+  if (sv[k]) delete sv[k];
+  else {
+    var g = SV_DEFS[amb.tipo] || SV_DEFS.Cozinha, it = null;
+    g.forEach(function (grp) { grp.its.forEach(function (i) { if (i.k === k) it = i; }); });
+    sv[k] = { ml: 0, altCm: 6, q: 1, qty: (it && it.u === 'livre') ? 0 : 1 };
+  }
+  renderAmbientes();
+}
+
+function _svSetQtyAmb(ambId, k, val) {
+  var amb = ambientes.find(function (a) { return a.id == ambId; });
+  if (!amb || !amb.svState || !amb.svState[k]) return;
+  var it = null;
+  (SV_DEFS[amb.tipo] || SV_DEFS.Cozinha).forEach(function (grp) { grp.its.forEach(function (i) { if (i.k === k) it = i; }); });
+  var v = parseFloat(val) || 0;
+  if (!(it && it.u === 'livre') && v < 1) v = 1; // km/un nunca abaixo de 1 (o cálculo trata 0 como 1)
+  amb.svState[k].qty = v;
+  renderAmbientes();
+}
+
+// Retorna o HTML do cartão, ou '' se o grupo não for um dos suportados
+function _svSmartCard(amb, grp) {
+  var sv = amb.svState || {};
+  var its = grp.its || [];
+  if (!its.length || its.some(function (it) { return it.interno; })) return '';
+
+  // ── Furos ──
+  if ((grp.g === 'Furos' || grp.g === 'Furos & Recortes') && its.every(function (it) { return it.u === 'un'; })) {
+    var tot = 0;
+    var h = '<div class="svblk"><div class="svhd">🕳️ ' + grp.g + '</div><div style="padding:10px 12px 12px;">';
+    h += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:4px;">Quantos de cada?</div>';
+    its.forEach(function (it) {
+      var fixo = it.fx === 1; // preço fixo (ex.: Recorte Cooktop): liga/desliga, sem quantidade
+      var q = sv[it.k] ? (fixo ? 1 : (sv[it.k].qty || 1)) : 0;
+      var pr = getPr(it.k) || 0;
+      tot += q * pr;
+      if (fixo) {
+        h += '<div style="display:flex;align-items:center;gap:10px;margin:8px 0;">';
+        h += '<div style="flex:1;min-width:0;"><div style="font-size:.78rem;color:' + (q ? 'var(--gold)' : 'var(--t2)') + ';font-weight:' + (q ? '700' : '500') + ';">' + escH(it.l) + '</div>';
+        h += '<div style="font-size:.6rem;color:var(--t4);">R$ ' + fm(pr) + ' (valor fixo)</div></div>';
+        h += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it.k + '\')" style="min-width:74px;padding:7px 12px;border-radius:9px;border:1px solid ' + (q ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (q ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (q ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.74rem;">' + (q ? '✓ Sim' : 'Não') + '</button></div>';
+        return;
+      }
+      h += '<div style="display:flex;align-items:center;gap:10px;margin:8px 0;">';
+      h += '<div style="flex:1;min-width:0;"><div style="font-size:.78rem;color:' + (q ? 'var(--gold)' : 'var(--t2)') + ';font-weight:' + (q ? '700' : '500') + ';">' + escH(it.l) + '</div>';
+      h += '<div style="font-size:.6rem;color:var(--t4);">R$ ' + fm(pr) + ' cada' + (q ? ' · <b style="color:var(--gold2);">R$ ' + fm(q * pr) + '</b>' : '') + '</div></div>';
+      h += _svBtnStep(amb.id, it.k, -1);
+      h += '<span style="min-width:24px;text-align:center;font-weight:700;color:' + (q ? 'var(--gold)' : 'var(--t4)') + ';">' + q + '</span>';
+      h += _svBtnStep(amb.id, it.k, 1);
+      h += '</div>';
+    });
+    if (tot > 0) h += '<div style="font-size:.66rem;color:var(--t4);border-top:1px solid var(--bd);padding-top:8px;margin-top:4px;">Total: <b style="color:var(--gold);">R$ ' + fm(tot) + '</b></div>';
+    return h + '</div></div>';
+  }
+
+  // ── Deslocamento ──
+  if (grp.g === 'Deslocamento' && its.every(function (it) { return it.u === 'livre' || it.u === 'km'; })) {
+    var h2 = '<div class="svblk"><div class="svhd">🚚 Deslocamento</div><div style="padding:10px 12px 12px;">';
+    h2 += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:6px;">Onde fica a obra?</div>';
+    h2 += '<div style="display:flex;gap:8px;margin-bottom:6px;">';
+    its.forEach(function (it) {
+      var on = !!sv[it.k];
+      var sub = it.u === 'km' ? 'R$ ' + fm(getPr(it.k) || 0) + '/km' : 'valor livre';
+      h2 += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it.k + '\')" style="flex:1;padding:9px;border-radius:9px;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (on ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.78rem;line-height:1.3;">' + escH(it.l) + '<br><span style="font-weight:500;font-size:.66rem;opacity:.8;">' + sub + '</span></button>';
+    });
+    h2 += '</div>';
+    its.forEach(function (it) {
+      if (!sv[it.k]) return;
+      var q = sv[it.k].qty || 0;
+      if (it.u === 'km') {
+        var pr = getPr(it.k) || 0;
+        h2 += '<div style="display:flex;align-items:center;gap:10px;margin:8px 0 2px;"><span style="font-size:.72rem;color:var(--t3);flex:1;">Distância (km, ida)</span>';
+        h2 += '<input type="number" inputmode="decimal" min="1" step="1" value="' + (q || 1) + '" onchange="_svSetQtyAmb(' + amb.id + ',\'' + it.k + '\',this.value)" style="width:90px;text-align:center;font-weight:700;">';
+        h2 += '</div><div style="font-size:.66rem;color:var(--t4);">' + (q || 1) + ' km × R$ ' + fm(pr) + ' = <b style="color:var(--gold);">R$ ' + fm((q || 1) * pr) + '</b></div>';
+      } else {
+        h2 += '<div style="display:flex;align-items:center;gap:10px;margin:8px 0 2px;"><span style="font-size:.72rem;color:var(--t3);flex:1;">Valor (R$)</span>';
+        h2 += '<input type="number" inputmode="decimal" min="0" step="any" value="' + (q || '') + '" placeholder="0" onchange="_svSetQtyAmb(' + amb.id + ',\'' + it.k + '\',this.value)" style="width:110px;text-align:center;font-weight:700;">';
+        h2 += '</div>';
+      }
+    });
+    return h2 + '</div></div>';
+  }
+  return '';
+}
+window._svStep = _svStep; window._svChip = _svChip; window._svSetQtyAmb = _svSetQtyAmb;
+
+// ═══ ORÇAMENTO › ACESSÓRIOS — mesmo modelo das Cubas ═════════════════════════
+// Card com os acessórios escolhidos + folha de seleção (foto, marca, nome,
+// medida, preço) igual à de Cubas. Continua gravando em amb.acState
+// ({ac_cat_<id>: qtd}), então cálculo e PDF não mudam.
+var _acPickAmbId = null, _acPickQ = '';
+
+function _acFoto(a) { return a.photo || (a.fotos && a.fotos[0]) || ''; }
+function _acPrTxt(a) { return a.pr > 0 ? 'R$ <b>' + fm(a.pr) + '</b>' : '<b>Consultar</b>'; }
+
+// Card dentro do ambiente
+function _acCardHtml(amb) {
+  var lista = CFG.ac || [];
+  if (!amb.acState) amb.acState = {};
+  var sel = [], tot = 0;
+  Object.keys(amb.acState).forEach(function (k) {
+    var a = lista.find(function (x) { return 'ac_cat_' + x.id === k; });
+    if (!a) return;
+    var q = amb.acState[k] || 1;
+    sel.push({ a: a, k: k, q: q });
+    tot += (a.pr > 0 ? a.pr : 0) * q;
+  });
+  var h = '<div class="svblk"><div class="svhd">🔩 Acessórios</div><div style="padding:10px 12px 12px;">';
+  if (!sel.length) {
+    h += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:8px;">Dispenser, calha, lixeira, torneira…</div>';
+  } else {
+    sel.forEach(function (s) {
+      var foto = _acFoto(s.a);
+      h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">';
+      h += '<div class="cpthumb" style="width:52px;height:48px;">' + (foto ? '<img src="' + foto + '" alt="">' : '🔩') + '</div>';
+      h += '<div style="flex:1;min-width:0;"><div style="font-size:.76rem;font-weight:700;line-height:1.25;">' + escH((s.a.marca ? s.a.marca + ' — ' : '') + s.a.nm) + '</div>';
+      h += '<div style="font-size:.62rem;color:var(--t4);">' + (s.a.pr > 0 ? 'R$ ' + fm(s.a.pr) + (s.q > 1 ? ' × ' + s.q + ' = <b style="color:var(--gold2);">R$ ' + fm(s.a.pr * s.q) + '</b>' : '') : 'Consultar') + '</div></div>';
+      h += '<button type="button" onclick="_acStep(' + amb.id + ',\'' + s.k + '\',-1)" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">' + (s.q <= 1 ? '✕' : '−') + '</button>';
+      h += '<span style="min-width:20px;text-align:center;font-weight:700;color:var(--gold);">' + s.q + '</span>';
+      h += '<button type="button" onclick="_acStep(' + amb.id + ',\'' + s.k + '\',1)" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">+</button>';
+      h += '</div>';
+    });
+    if (tot > 0) h += '<div style="font-size:.66rem;color:var(--t4);border-top:1px solid var(--bd);padding-top:8px;margin-bottom:8px;">Acessórios: <b style="color:var(--gold);">R$ ' + fm(tot) + '</b></div>';
+  }
+  h += '<button type="button" onclick="_acAbrir(' + amb.id + ')" style="width:100%;padding:10px;border-radius:9px;border:1px dashed var(--gold);background:rgba(201,168,76,.08);color:var(--gold);font-weight:700;font-size:.76rem;">+ ' + (sel.length ? 'Adicionar outro acessório' : 'Escolher acessório') + '</button>';
+  return h + '</div></div>';
+}
+
+function _acStep(ambId, k, d) {
+  var amb = ambientes.find(function (a) { return a.id == ambId; });
+  if (!amb) return;
+  if (!amb.acState) amb.acState = {};
+  var n = (amb.acState[k] || 0) + d;
+  if (n <= 0) delete amb.acState[k]; else amb.acState[k] = n;
+  if (document.getElementById('acPickMd') && document.getElementById('acPickMd').classList.contains('on')) _acRender();
+  else renderAmbientes();
+}
+
+// Folha de seleção
+function _acAbrir(ambId) {
+  _acPickAmbId = ambId; _acPickQ = '';
+  if (!document.getElementById('acPickMd')) {
+    var o = document.createElement('div');
+    o.className = 'ov'; o.id = 'acPickMd';
+    o.innerHTML = '<div class="modal"><div class="mtitle">Acessórios</div>' +
+      '<div style="font-size:.75rem;color:var(--t3);margin-bottom:10px;" id="acpSub">Toque para adicionar ao ambiente</div>' +
+      '<input id="acpQ" class="cfginp" style="width:100%;text-align:left;margin-bottom:12px;" placeholder="🔍 Buscar por nome, marca ou medida..." oninput="_acBusca(this.value)">' +
+      '<div id="acpList"></div>' +
+      '<button class="btn btn-g mt" id="acpOk" onclick="_acFechar()">Concluir</button></div>';
+    document.body.appendChild(o);
+  }
+  document.getElementById('acpQ').value = '';
+  showMd('acPickMd');
+  _acRender();
+}
+
+function _acBusca(v) { _acPickQ = v || ''; _acRender(); }
+
+function _acFechar() { closeAll(); renderAmbientes(); }
+
+function _acRender() {
+  var amb = ambientes.find(function (a) { return a.id == _acPickAmbId; });
+  var box = document.getElementById('acpList');
+  if (!amb || !box) return;
+  var q = _acPickQ.trim().toLowerCase();
+  var lista = (CFG.ac || []).filter(function (a) {
+    if (!q) return true;
+    return [a.nm, a.marca, a.dim, a.desc].filter(Boolean).join(' ').toLowerCase().indexOf(q) >= 0;
+  });
+  var st = amb.acState || {};
+  var nSel = Object.keys(st).length;
+  var h = '';
+  lista.forEach(function (a) {
+    var k = 'ac_cat_' + a.id, qtd = st[k] || 0, foto = _acFoto(a);
+    h += '<div class="cpcard' + (qtd ? ' on' : '') + '" onclick="_acToggle(\'' + k + '\')">';
+    h += '<div class="cpthumb">' + (foto ? '<img src="' + foto + '" alt="">' : '🔩') + '</div>';
+    h += '<div style="flex:1;min-width:0;">' + (a.marca ? '<div class="cpbrand">' + escH(a.marca) + '</div>' : '') +
+      '<div class="cpnm">' + escH(a.nm) + '</div>' + (a.dim ? '<div class="cpdim">' + escH(a.dim) + '</div>' : '') +
+      '<div class="cppr">' + _acPrTxt(a) + '</div>';
+    if (qtd) {
+      h += '<div style="display:flex;align-items:center;gap:10px;margin-top:7px;" onclick="event.stopPropagation()">' +
+        '<button type="button" onclick="_acStep(' + _acPickAmbId + ',\'' + k + '\',-1)" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">' + (qtd <= 1 ? '✕' : '−') + '</button>' +
+        '<span style="min-width:20px;text-align:center;font-weight:700;color:var(--gold);">' + qtd + '</span>' +
+        '<button type="button" onclick="_acStep(' + _acPickAmbId + ',\'' + k + '\',1)" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">+</button>' +
+        '<span style="font-size:.66rem;color:var(--gold2);font-weight:700;">✓ no orçamento</span></div>';
+    }
+    h += '</div></div>';
+  });
+  if (!lista.length) h = '<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhum acessório encontrado.</div>';
+  var mdl = box.closest('.modal'), sc = mdl ? mdl.scrollTop : 0; // preserva posição (a folha rola pelo .modal)
+  box.innerHTML = h;
+  var ok = document.getElementById('acpOk');
+  if (ok) ok.textContent = nSel ? 'Concluir (' + nSel + ' escolhido' + (nSel > 1 ? 's' : '') + ')' : 'Concluir';
+  if (mdl) mdl.scrollTop = sc;
+}
+
+function _acToggle(k) {
+  var amb = ambientes.find(function (a) { return a.id == _acPickAmbId; });
+  if (!amb) return;
+  if (!amb.acState) amb.acState = {};
+  if (!amb.acState[k]) amb.acState[k] = 1;
+  _acRender();
+}
+window._acAbrir = _acAbrir; window._acBusca = _acBusca; window._acFechar = _acFechar;
+window._acStep = _acStep; window._acToggle = _acToggle;
+
 function buildSVHtml(amb){
   var g=SV_DEFS[amb.tipo]||SV_DEFS.Cozinha;
   var sv=amb.svState||{};
@@ -5025,12 +5257,19 @@ function buildSVHtml(amb){
   g.forEach(function(grp){
     // Skip Sainha/Frontão groups when borda system is active (they're computed per-piece)
     // Escada é sempre por medida manual de peça (não instalamos, só fornecemos)
-    if((hasBordas||amb.tipo==='Escada')&&(grp.g==='Sainha'||grp.g==='Frontão'))return;
+    // Sainha/Frontão manuais (ml digitado) foram aposentados: o "Acabamento por lado" de cada peça faz isso
+    // com medida automática. Só reaparecem num orçamento ANTIGO que já tenha lançamento manual neles.
+    if(grp.g==='Sainha'||grp.g==='Frontão'){
+      var _legManual=grp.its.some(function(it){return sv[it.k]&&!sv[it.k]._fb;});
+      if(!_legManual)return;
+    }
     // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
     if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro')){
       if(grp.g==='Fixação'&&typeof window._fixInlineHtml==='function') h+=window._fixInlineHtml(amb);
       return;
     }
+    // Furos e Deslocamento: cartão inteligente (mesmo modelo do Fixação IA)
+    if(amb.tipo!=='Túmulo'&&amb.tipo!=='Tumulo'){var _sc=_svSmartCard(amb,grp);if(_sc){h+=_sc;return;}}
     // Para capelinha: ocultar grupos sf_auto (peças calculadas pelo configurador) e pilares em chapa
     var isSfAutoGrp=grp.its.length>0&&grp.its[0].u==='sf_auto';
     if(isSfAutoGrp&&amb.tipo==='⛪ Capela')return;
@@ -5188,20 +5427,7 @@ function buildSVHtml(amb){
   var tiposComAcess=['Cozinha','🌴 Área Gourmet','Banheiro','Lavabo','Outro'];
   if(acList.length&&tiposComAcess.indexOf(amb.tipo)>=0){
     if(!amb.acState)amb.acState={};
-    h+='<div class="svblk"><div class="svhd">🔩 Acessórios</div>';
-    acList.forEach(function(a,ai){
-      var acKey='ac_cat_'+a.id;
-      var isOn=!!amb.acState[acKey];
-      var prStr=a.pr>0?'R$ '+a.pr.toLocaleString('pt-BR'):'Consultar';
-      h+='<div class="svrow'+(isOn?' on':'')+'" data-tog-ac="'+acKey+'" data-amb-ac="'+amb.id+'">';
-      h+='<div class="svchk">✓</div>';
-      h+='<div class="svlbl">'+a.nm+'<span class="svph">'+prStr+'</span></div></div>';
-      if(isOn){
-        var qv=amb.acState[acKey]||1;
-        h+='<div class="svxtr on"><input type="number" min="1" value="'+qv+'" style="width:60px;" data-upd-ac="'+acKey+'" data-amb-ac2="'+amb.id+'" oninput="updAcAmb('+amb.id+',\''+acKey+'\',+this.value||1)"><span class="svunit">un</span></div>';
-      }
-    });
-    h+='</div>';
+    h+=_acCardHtml(amb);
   }
 
   return h;
@@ -10223,6 +10449,266 @@ function _cfgFiltrar(tipo, arr){
   });
 }
 
+// ═══ CONFIG › SERVIÇOS — lista organizada ═══════════════════════════════════
+// Grupos recolhíveis, busca, "Novo serviço" em folha (nome/preço/unidade/grupo),
+// mover dentro do grupo, trocar de grupo e propagar pro Orçamento na hora.
+// Dados continuam em CFG.svList [{k,l,preco,grp,u}] — nada mudou no formato.
+var _SV_UNIDADES = [
+  ['sf', 'ml + m² de pedra'],
+  ['ml', 'por metro linear (ml)'],
+  ['un', 'por unidade'],
+  ['km', 'por km']
+];
+if (!_cfgQ.sv) _cfgQ.sv = '';
+
+function _svCss() {
+  if (document.getElementById('svCss')) return;
+  var s = document.createElement('style');
+  s.id = 'svCss';
+  s.textContent =
+    '.sv-gh{display:flex;align-items:center;gap:10px;padding:13px 13px;cursor:pointer;background:var(--s3);user-select:none;}' +
+    '.sv-gh .n{flex:1;min-width:0;font-size:.74rem;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--gold2);}' +
+    '.sv-gh .c{font-size:.6rem;color:var(--t3);background:var(--s2);border:1px solid var(--bd2);border-radius:20px;padding:2px 9px;font-weight:700;}' +
+    '.sv-gh .ch{font-size:.8rem;color:var(--t4);transition:transform .15s;}' +
+    '.sv-gh .ad{background:transparent;border:1px solid var(--bd2);color:var(--t2);border-radius:8px;font-size:.78rem;padding:3px 10px;cursor:pointer;font-family:Outfit,sans-serif;}' +
+    '.sv-it{padding:11px 13px;border-top:1px solid #0c0c10;}' +
+    '.sv-it .nm{width:100%;text-align:left;font-size:.84rem;}' +
+    '.sv-l2{display:flex;gap:8px;align-items:center;margin-top:8px;}' +
+    '.sv-pr{display:flex;align-items:center;gap:6px;flex:0 0 118px;background:var(--s3);border:1px solid var(--bd2);border-radius:8px;padding:0 8px;}' +
+    '.sv-pr span{font-size:.7rem;color:var(--t3);}' +
+    '.sv-pr input{border:none !important;background:transparent !important;box-shadow:none !important;border-radius:0 !important;width:100%;min-width:0;padding:7px 0;margin:0;text-align:right;color:var(--tx);font-size:.84rem;font-family:Outfit,sans-serif;outline:none;}' +
+    '.sv-l2 select{flex:1;min-width:0;text-align:left;padding:7px 6px;}' +
+    '.sv-hint{font-size:.6rem;color:var(--t4);margin-top:6px;line-height:1.4;}' +
+    '.sv-act{display:flex;gap:6px;align-items:center;margin-top:9px;flex-wrap:wrap;}' +
+    '.sv-act select{flex:1;min-width:120px;text-align:left;padding:6px 6px;font-size:.72rem;}' +
+    '.sv-ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.74);z-index:100000;display:flex;align-items:flex-end;justify-content:center;}' +
+    '.sv-sheet{width:100%;max-width:520px;max-height:92vh;overflow:auto;background:var(--s2);border-top:1px solid var(--gold3);border-radius:18px 18px 0 0;padding:18px 16px 24px;}' +
+    '.sv-sheet .tt{font-family:"Cormorant Garamond",serif;font-size:1.3rem;font-weight:700;color:var(--gold2);margin-bottom:6px;}' +
+    '.sv-sheet label{display:block;font-size:.6rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin:12px 0 2px;font-weight:600;}' +
+    '.sv-sheet .bt{display:flex;gap:10px;margin-top:18px;}' +
+    '.sv-sheet .bt button{flex:1;padding:13px;border-radius:12px;font-family:Outfit,sans-serif;font-size:.84rem;font-weight:800;cursor:pointer;}';
+  document.head.appendChild(s);
+}
+
+function _svJs(s) { return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+
+function _svGrupos() {
+  var o = [], seen = {};
+  (CFG.svList || []).forEach(function (x) {
+    var g = x.grp || 'Sem grupo';
+    if (!seen[g]) { seen[g] = 1; o.push(g); }
+  });
+  return o;
+}
+
+// Salva e propaga pro Orçamento imediatamente (antes só valia após recarregar
+// o app ou tocar em "Salvar Configurações" em outra aba).
+function _svAplicar() {
+  try { if (typeof syncSVDefsFromList === 'function') syncSVDefsFromList(); } catch (e) { console.warn('[sv] sync', e); }
+  try { svCFG(); } catch (e) { console.warn('[sv] save', e); }
+  try { if (typeof renderAmbientes === 'function') renderAmbientes(); } catch (e) { console.warn('[sv] render', e); }
+}
+
+function _svFind(k) {
+  return (CFG.svList || []).find(function (x) { return x.k === k; });
+}
+
+function _svSet(k, campo, valor, rerender) {
+  var it = _svFind(k);
+  if (!it) return;
+  it[campo] = valor;
+  if (campo === 'preco') CFG.sv[k] = valor;
+  _svAplicar();
+  if (rerender) buildCfg();
+}
+
+function _svGrpToggle(i) {
+  var g = _svGrupos()[i];
+  if (g === undefined) return;
+  _cfgOpen['svg_' + g] = !_cfgOpen['svg_' + g];
+  buildCfg();
+}
+
+function _svTodos(abrir) {
+  _svGrupos().forEach(function (g) { _cfgOpen['svg_' + g] = !!abrir; });
+  buildCfg();
+}
+
+function _svItToggle(k) {
+  _cfgOpen['svi_' + k] = !_cfgOpen['svi_' + k];
+  buildCfg();
+}
+
+// Move dentro do mesmo grupo (pula itens de outros grupos no array)
+function _svMover(k, dir) {
+  var L = CFG.svList, i = L.findIndex(function (x) { return x.k === k; });
+  if (i < 0) return;
+  var g = L[i].grp, j = i + dir;
+  while (j >= 0 && j < L.length && L[j].grp !== g) j += dir;
+  if (j < 0 || j >= L.length) return;
+  var t = L[i]; L[i] = L[j]; L[j] = t;
+  _svAplicar();
+  buildCfg();
+}
+
+function _svMoverGrupo(k, val) {
+  var it = _svFind(k);
+  if (!it) return;
+  if (val === '__novo__') {
+    var n = prompt('Nome do novo grupo:');
+    if (!n || !n.trim()) { buildCfg(); return; }
+    val = n.trim();
+  }
+  if (val === it.grp) return;
+  // tira o item de todos os ambientes antes de reagrupar (o sync re-adiciona no lugar certo)
+  _svTirarDoOrcamento(k);
+  it.grp = val;
+  _cfgOpen['svg_' + val] = true;
+  _svAplicar();
+  buildCfg();
+  toast('✓ Movido para ' + val);
+}
+
+function _svTirarDoOrcamento(k) {
+  try {
+    Object.keys(SV_DEFS).forEach(function (amb) {
+      if (!Array.isArray(SV_DEFS[amb])) return;
+      SV_DEFS[amb].forEach(function (grp) {
+        if (grp && Array.isArray(grp.its)) grp.its = grp.its.filter(function (it) { return it.k !== k; });
+      });
+    });
+  } catch (e) { console.warn('[sv] tirar', e); }
+}
+
+function _svRemover(k) {
+  var it = _svFind(k);
+  if (!it) return;
+  if (!confirm('Remover "' + it.l + '"?\n\nEle some do Orçamento também.')) return;
+  CFG.svList.splice(CFG.svList.indexOf(it), 1);
+  delete CFG.sv[k];
+  _svTirarDoOrcamento(k);
+  _svAplicar();
+  buildCfg();
+  toast('✓ Serviço removido');
+}
+
+// ── Folha "Novo serviço" ────────────────────────────────────────────────────
+function _svNovoItem(gi) {
+  _svCss();
+  var grupos = _svGrupos();
+  var pre = (gi !== undefined && gi !== null && grupos[gi] !== undefined) ? grupos[gi] : '';
+  // unidade sugerida = a mais usada no grupo
+  var cont = {}, uSug = 'ml';
+  (CFG.svList || []).forEach(function (x) { if (x.grp === pre) cont[x.u] = (cont[x.u] || 0) + 1; });
+  var mx = 0; Object.keys(cont).forEach(function (u) { if (cont[u] > mx) { mx = cont[u]; uSug = u; } });
+  var old = document.getElementById('svModal'); if (old) old.remove();
+  var o = document.createElement('div');
+  o.id = 'svModal'; o.className = 'sv-ov';
+  o.onclick = function (e) { if (e.target === o) o.remove(); };
+  var h = '<div class="sv-sheet">';
+  h += '<div class="tt">Novo serviço</div>';
+  h += '<div style="font-size:.68rem;color:var(--t3);line-height:1.5;">Já aparece no Orçamento assim que você adicionar.</div>';
+  h += '<label>Nome</label><input id="svN_l" class="cfginp cfginp-xl" placeholder="Ex.: Sainha Duplo 45°">';
+  h += '<div style="display:flex;gap:10px;"><div style="flex:1;"><label>Preço (R$)</label><input id="svN_p" type="number" inputmode="decimal" step="any" class="cfginp cfginp-xl" placeholder="0"></div>';
+  h += '<div style="flex:1.5;"><label>Como cobra</label><select id="svN_u" class="cfginp cfginp-xl">';
+  _SV_UNIDADES.forEach(function (u) { h += '<option value="' + u[0] + '"' + (u[0] === uSug ? ' selected' : '') + '>' + u[1] + '</option>'; });
+  h += '</select></div></div>';
+  h += '<label>Grupo</label><select id="svN_g" class="cfginp cfginp-xl" onchange="document.getElementById(\'svN_gn\').style.display=this.value===\'__novo__\'?\'block\':\'none\';">';
+  grupos.forEach(function (g) { h += '<option value="' + escH(g) + '"' + (g === pre ? ' selected' : '') + '>' + escH(g) + '</option>'; });
+  h += '<option value="__novo__"' + (!pre && !grupos.length ? ' selected' : '') + '>➕ Criar novo grupo…</option></select>';
+  h += '<input id="svN_gn" class="cfginp cfginp-xl" placeholder="Nome do novo grupo" style="display:' + (!grupos.length ? 'block' : 'none') + ';">';
+  h += '<div class="bt"><button onclick="document.getElementById(\'svModal\').remove()" style="background:transparent;border:1px solid var(--bd2);color:var(--t2);">Cancelar</button>';
+  h += '<button onclick="_svNovoSalvar()" style="background:linear-gradient(135deg,var(--gold),var(--gold3));border:none;color:#000;">Adicionar</button></div>';
+  h += '</div>';
+  o.innerHTML = h;
+  document.body.appendChild(o);
+  setTimeout(function () { var e = document.getElementById('svN_l'); if (e) e.focus(); }, 50);
+}
+
+function _svNovoSalvar() {
+  var nm = (document.getElementById('svN_l').value || '').trim();
+  var pr = parseFloat(String(document.getElementById('svN_p').value).replace(',', '.')) || 0;
+  var u = document.getElementById('svN_u').value;
+  var g = document.getElementById('svN_g').value;
+  if (g === '__novo__') g = (document.getElementById('svN_gn').value || '').trim();
+  if (!nm) { toast('Digite o nome do serviço'); return; }
+  if (!g) { toast('Escolha ou crie um grupo'); return; }
+  var k = 'sv_' + Date.now();
+  CFG.svList.push({ k: k, l: nm, preco: pr, grp: g, u: u });
+  CFG.sv[k] = pr;
+  _cfgOpen['svg_' + g] = true;
+  _svAplicar();
+  var m = document.getElementById('svModal'); if (m) m.remove();
+  _cfgQ.sv = '';
+  buildCfg();
+  toast('✓ "' + nm + '" adicionado em ' + g);
+}
+
+// ── Renderização da aba ─────────────────────────────────────────────────────
+function _svRenderLista() {
+  _svCss();
+  var lista = CFG.svList || [];
+  var q = (_cfgQ.sv || '').trim().toLowerCase();
+  var grupos = _svGrupos();
+  var vis = 0;
+  var corpo = '';
+
+  grupos.forEach(function (g, gi) {
+    var itens = lista.filter(function (x) { return (x.grp || 'Sem grupo') === g; });
+    var mostrar = q ? itens.filter(function (x) { return ((x.l || '') + ' ' + g).toLowerCase().indexOf(q) >= 0; }) : itens;
+    if (!mostrar.length) return;
+    vis += mostrar.length;
+    var aberto = q ? true : !!_cfgOpen['svg_' + g];
+    corpo += '<div class="cfgsec">';
+    corpo += '<div class="sv-gh" onclick="_svGrpToggle(' + gi + ')">';
+    corpo += '<span class="n">' + escH(g) + '</span><span class="c">' + itens.length + '</span>';
+    corpo += '<button class="ad" onclick="event.stopPropagation();_svNovoItem(' + gi + ')">+</button>';
+    corpo += '<span class="ch" style="transform:rotate(' + (aberto ? '180' : '0') + 'deg);">▾</span></div>';
+    if (aberto) {
+      mostrar.forEach(function (sv) {
+        var k = _svJs(sv.k);
+        var ab = !!_cfgOpen['svi_' + sv.k];
+        corpo += '<div class="sv-it">';
+        corpo += '<input class="cfginp nm" value="' + escH(sv.l || '') + '" placeholder="Nome do serviço" onchange="_svSet(\'' + k + '\',\'l\',this.value)">';
+        corpo += '<div class="sv-l2"><div class="sv-pr"><span>R$</span><input type="number" inputmode="decimal" step="any" value="' + (sv.preco || 0) + '" onchange="_svSet(\'' + k + '\',\'preco\',parseFloat(this.value)||0,true)"></div>';
+        corpo += '<select class="cfginp" onchange="_svSet(\'' + k + '\',\'u\',this.value,true)">';
+        var temU = false;
+        _SV_UNIDADES.forEach(function (u) { if (u[0] === sv.u) temU = true; corpo += '<option value="' + u[0] + '"' + (u[0] === sv.u ? ' selected' : '') + '>' + u[1] + '</option>'; });
+        if (!temU && sv.u) corpo += '<option value="' + escH(sv.u) + '" selected>' + escH(sv.u) + '</option>';
+        corpo += '</select>';
+        corpo += '<button class="cfgbtn" onclick="_svItToggle(\'' + k + '\')" aria-label="Mais opções">' + (ab ? '▴' : '⋯') + '</button></div>';
+        if (sv.u === 'sf') corpo += '<div class="sv-hint">Cobra R$ ' + (sv.preco || 0) + ' por ml, mais a m² da pedra da borda.</div>';
+        if (ab) {
+          corpo += '<div class="sv-act">';
+          corpo += '<button class="cfgbtn" onclick="_svMover(\'' + k + '\',-1)">↑</button>';
+          corpo += '<button class="cfgbtn" onclick="_svMover(\'' + k + '\',1)">↓</button>';
+          corpo += '<select class="cfginp" onchange="_svMoverGrupo(\'' + k + '\',this.value)" aria-label="Mover para grupo"><option value="' + escH(g) + '" selected>Grupo: ' + escH(g) + '</option>';
+          grupos.forEach(function (o) { if (o !== g) corpo += '<option value="' + escH(o) + '">→ ' + escH(o) + '</option>'; });
+          corpo += '<option value="__novo__">➕ Novo grupo…</option></select>';
+          corpo += '<button class="cfgdel" onclick="_svRemover(\'' + k + '\')">✕</button>';
+          corpo += '</div>';
+        }
+        corpo += '</div>';
+      });
+    }
+    corpo += '</div>';
+  });
+
+  var h = '';
+  h += _cfgBarraBusca('sv', lista.length, q ? vis : lista.length, '🔍 Buscar serviço ou grupo...');
+  h += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+  h += '<button class="btn btn-g" style="flex:1;font-size:.78rem;padding:11px;" onclick="_svNovoItem()">+ Novo serviço</button>';
+  h += '<button class="cfgbtn" onclick="_svTodos(true)">Abrir tudo</button>';
+  h += '<button class="cfgbtn" onclick="_svTodos(false)">Fechar</button>';
+  h += '</div>';
+  if (!vis) h += '<div style="text-align:center;padding:22px 10px;color:var(--t3);font-size:.78rem;">Nenhum serviço encontrado para "' + escH(_cfgQ.sv) + '".</div>';
+  return h + corpo;
+}
+
+window._svGrpToggle = _svGrpToggle; window._svTodos = _svTodos; window._svItToggle = _svItToggle;
+window._svSet = _svSet; window._svMover = _svMover; window._svMoverGrupo = _svMoverGrupo;
+window._svRemover = _svRemover; window._svNovoItem = _svNovoItem; window._svNovoSalvar = _svNovoSalvar;
+
 // ═══ CONFIG ═══
 function buildCfg(){
   var h='';
@@ -10431,7 +10917,7 @@ function buildCfg(){
   }
   else if(cfgTab===3){
     // SERVIÇOS — editável: nome, preço, adicionar, remover, reordenar
-    h+='<div style="font-size:.72rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Edite o nome e preço de cada serviço. Adicione novos acabamentos conforme necessário.</div>';
+    h+='<div style="font-size:.72rem;color:var(--t2);margin-bottom:12px;line-height:1.6;">Toque num grupo para abrir. Tudo que você muda aqui já vale no Orçamento na hora.</div>';
 
     // CFG.svList: array de {k, l, preco, grp, u}
     // Se não existir ainda, inicializa a partir de DEF_SV_LIST
@@ -10520,44 +11006,8 @@ function buildCfg(){
       svCFG();
     }
 
-    // Group display
-    var grps={};
-    CFG.svList.forEach(function(sv,i){
-      if(!grps[sv.grp])grps[sv.grp]=[];
-      grps[sv.grp].push({sv:sv,i:i});
-    });
-
-    Object.keys(grps).forEach(function(grpNm){
-      h+='<div class="cfgsec">';
-      h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-      h+='<div class="cfghd" style="margin:0;">'+grpNm+'</div>';
-      h+='<button class="cfgbtn" style="font-size:.68rem;padding:4px 10px;" onclick="CFG.svList.push({k:\'sv_\'+(Date.now()),l:\'Novo Acabamento\',preco:0,grp:\''+grpNm+'\',u:\'ml\'});syncSvList=function(){CFG.svList.forEach(function(sv){CFG.sv[sv.k]=sv.preco;});svCFG();};svCFG();buildCfg();">+ Adicionar</button>';
-      h+='</div>';
-      grps[grpNm].forEach(function(item){
-        var sv=item.sv,i=item.i;
-        h+='<div class="cfg-row" style="gap:6px;flex-wrap:wrap;">';
-        // Nome editável
-        h+='<input class="cfginp" value="'+escH(sv.l)+'" style="flex:1;min-width:120px;text-align:left;" onchange="CFG.svList['+i+'].l=this.value;svCFG();" placeholder="Nome do serviço">';
-        // Preço
-        h+='<input class="cfginp cfginp-w" type="number" value="'+sv.preco+'" style="width:72px;" onchange="CFG.svList['+i+'].preco=+this.value;CFG.sv[CFG.svList['+i+'].k]=+this.value;svCFG();" placeholder="R$">';
-        // Unidade
-        h+='<select class="cfginp" style="width:58px;padding:6px 4px;" onchange="CFG.svList['+i+'].u=this.value;svCFG();">';
-        h+='<option '+(sv.u==='sf'?'selected':'')+'>sf</option>';
-        h+='<option '+(sv.u==='ml'?'selected':'')+'>ml</option>';
-        h+='<option '+(sv.u==='un'?'selected':'')+'>un</option>';
-        h+='<option '+(sv.u==='km'?'selected':'')+'>km</option>';
-        h+='</select>';
-        // Mover e remover
-        h+='<button class="cfgbtn" onclick="if('+i+'>0){var x=CFG.svList.splice('+i+',1)[0];CFG.svList.splice('+(i-1)+',0,x);svCFG();buildCfg();}">↑</button>';
-        h+='<button class="cfgbtn" onclick="if('+(i+1)+'<CFG.svList.length){var x=CFG.svList.splice('+i+',1)[0];CFG.svList.splice('+(i+1)+',0,x);svCFG();buildCfg();}">↓</button>';
-        h+='<button class="cfgdel" onclick="if(confirm(\'Remover '+escH(sv.l)+'?\')){CFG.svList.splice('+i+',1);delete CFG.sv[\''+sv.k+'\'];svCFG();buildCfg();}">✕</button>';
-        h+='</div>';
-      });
-      h+='</div>';
-    });
-
-    // Botão para adicionar novo grupo
-    h+='<button class="cfgadd" onclick="var g=prompt(\'Nome do novo grupo:\');if(g){CFG.svList.push({k:\'sv_\'+(Date.now()),l:\'Novo Acabamento\',preco:0,grp:g,u:\'ml\'});svCFG();buildCfg();}">+ Novo Grupo de Serviços</button>';
+    // Lista organizada (grupos recolhíveis, busca, novo serviço) — ver _svRenderLista
+    h+=_svRenderLista();
     h+='<div class="cfgsec"><div class="cfghd">Custos Fixos Mensais</div>';
     CFG.fixos.forEach(function(f,i){
       h+='<div class="cfg-row"><input class="cfginp" value="'+f.n+'" style="flex:1;text-align:left;" onchange="CFG.fixos['+i+'].n=this.value;renderFixos();svCFG();"><input class="cfginp cfginp-w" type="number" value="'+f.v+'" onchange="CFG.fixos['+i+'].v=+this.value;renderFixos();svCFG();"><button class="cfgdel" onclick="CFG.fixos.splice('+i+',1);renderFixos();svCFG();buildCfg();">✕</button></div>';
