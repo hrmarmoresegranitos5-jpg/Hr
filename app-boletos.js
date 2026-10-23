@@ -6,7 +6,7 @@
 
 var _editBoletoId   = null;
 var _bTipoAtual     = 'receber';
-var _bFiltroAtual   = 'todos';
+var _bFiltroAtual   = 'compras';
 var _bBusca         = '';
 
 // ── Seleção múltipla (marcar vários boletos como pago de uma vez) ──────
@@ -303,20 +303,21 @@ function renderBoletosTab() {
   h += '<button class="btn btn-o" onclick="estAbrirPainel()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📦 Estoque</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-o" onclick="bExportarBackupJSON()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">💾 Backup</button>';
-  h += '<button class="btn btn-g" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
+  h += '<button class="btn btn-g" onclick="bcNovaCompra()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">🛒 Nova compra</button>';
+  h += '<button class="btn btn-o" onclick="openNovoBoleto()" style="white-space:nowrap;font-size:.72rem;padding:9px 12px;">+ Boleto</button>';
   h += '<button class="btn ' + (_bModoSelecao?'btn-g':'btn-o') + '" onclick="bToggleModoSelecao()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">' + (_bModoSelecao?'✕ Cancelar':'☑️ Selecionar') + '</button>';
   h += '</div>';
 
   // ── SUBTABS ──
   var subtabs = [
+    {k:'compras',     l:'🛒 Compras'},
     {k:'todos',       l:'Todos'},
     {k:'areceber',    l:'📥 A Receber'},
     {k:'apagar',      l:'📤 A Pagar'},
     {k:'vencidos',    l:'🔴 Vencidos'},
     {k:'empresa',     l:'🏢 Empresa'},
     {k:'fornecedores',l:'🏭 Fornec.'},
-    {k:'parcelamentos',l:'📋 Parcelas'},
-    {k:'cargas',       l:'📦 Cargas'}
+    {k:'parcelamentos',l:'📋 Parcelas'}
   ];
   h += '<div class="b-subtabs">';
   subtabs.forEach(function(t){
@@ -332,6 +333,7 @@ function renderBoletosTab() {
     var qtd = _bContarSelecionados();
     h += '<div style="position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--s1,#151515);border-top:1px solid var(--bd);">';
     h += '<div style="flex:1;font-size:.72rem;color:var(--t3);">' + qtd + ' selecionado(s)</div>';
+    h += '<button class="btn btn-o" ' + (qtd>1?'':'disabled') + ' onclick="bcJuntarSelecionados()" style="font-size:.72rem;padding:9px 12px;white-space:nowrap;">🧩 Juntar em compra</button>';
     h += '<button class="btn btn-g" ' + (qtd?'':'disabled') + ' onclick="bMarcarSelecionadosComoPago()" style="font-size:.72rem;padding:9px 14px;white-space:nowrap;">✅ Marcar como pago</button>';
     h += '</div>';
   }
@@ -411,6 +413,7 @@ function bMarcarSelecionadosComoPago() {
 }
 
 function _bLista() {
+  if (_bFiltroAtual === 'compras' && typeof _bListaCompras === 'function') return _bListaCompras();
   if (_bFiltroAtual === 'cargas') return _bListaCargas();
 
   var hoje = td();
@@ -900,6 +903,7 @@ function _bRemoverAnexo() {
   _bAnexoExtraindo = false;
   _bAnexoDadosExtra = null;
   _bParcelasExtrasPdf = [];
+  _bCompraIdPdf = '';
   if (_bAnexoPreviewObjUrl) { URL.revokeObjectURL(_bAnexoPreviewObjUrl); _bAnexoPreviewObjUrl = null; }
   var input = document.getElementById('bAnexoInput');
   if (input) input.value = '';
@@ -948,7 +952,7 @@ function _bAdicionarParcelaExtra(i) {
     fpag: 'pix', status: 'pendente', obs: '', dtCriado: td()
   };
   ['linhaDig','nn','nDoc','pix','cnpjBenef','pagadorNome','pagadorDoc','pagadorLocal','dtEmissao',
-   'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','cargaId','parcAtual','parcTotal']
+   'vencOriginal','valorOriginal','encargosAtraso','valorAtualizado','instrucoes','cargaId','compraId','parcAtual','parcTotal']
     .forEach(function(k){ if (p[k]) obj[k] = p[k]; });
   if (!DB.b) DB.b = [];
   DB.b.unshift(obj);
@@ -1016,6 +1020,11 @@ async function _bAnexoFileSelected(input) {
   // principal, as demais viram cartões extras (_bRenderParcelasExtras) pra
   // o usuário lançar de uma vez, sem precisar reabrir o mesmo PDF várias vezes.
   _bParcelasExtrasPdf = (dados && dados.parcelasExtras) ? dados.parcelasExtras : [];
+  _bCompraIdPdf = '';
+  if (_bParcelasExtrasPdf.length && typeof _bcNovoId === 'function' && !(dados && dados.cargaId)) {
+    _bCompraIdPdf = _bcNovoId();
+    _bParcelasExtrasPdf.forEach(function(p){ if (!p.cargaId && !p.compraId) p.compraId = _bCompraIdPdf; });
+  }
   if (dados) {
     _bPreencherComExtracao(dados);
   } else if (!(CFG.emp && CFG.emp.apiKey)) {
@@ -1321,12 +1330,14 @@ async function saveBoleto() {
   }
   var carga = _bParseCarga(obj.nDoc);
   if (carga) { obj.cargaId = carga.cargaId; obj.parcAtual = carga.parcAtual; obj.parcTotal = carga.parcTotal; }
+  if (!_editBoletoId && _bCompraIdPdf && !obj.cargaId) obj.compraId = _bCompraIdPdf;
 
   if (_editBoletoId) {
     var idx = (DB.b||[]).findIndex(function(x){return x.id===_editBoletoId;});
     // Não há campo no formulário pra editar o código Pix — preserva o que já
     // existia no boleto pra não perder na hora de salvar uma edição manual.
     if (idx >= 0 && DB.b[idx].pix) obj.pix = DB.b[idx].pix;
+    if (idx >= 0) { if (DB.b[idx].compraId) obj.compraId = DB.b[idx].compraId; if (DB.b[idx].compraNome) obj.compraNome = DB.b[idx].compraNome; }
     if (idx >= 0) { obj.id = _editBoletoId; obj.dtCriado = DB.b[idx].dtCriado; DB.b[idx] = obj; }
   } else {
     obj.id = Date.now();
@@ -2032,6 +2043,12 @@ async function bProcessarPDFs(fileList) {
 
     if (!achados.length) { falhas.push(file.name); continue; }
 
+    // Várias parcelas no mesmo PDF = uma compra só (quando o nº do documento não já identifica a carga)
+    if (achados.length > 1) {
+      var _cpPdf = (typeof _bcNovoId === 'function') ? _bcNovoId() : ('cp_' + Date.now());
+      achados.forEach(function(it){ if (!it.cargaId && !it.compraId) it.compraId = _cpPdf; });
+    }
+
     achados.forEach(function(item) {
       if (_bAchaDuplicado(item)) { duplicados++; return; }
       var conflitoND = _bAchaConflitoNDoc(item);
@@ -2077,6 +2094,7 @@ function _bImportarItem(item) {
     nn: item.nn || '',
     nDoc: item.nDoc || '',
     cargaId: item.cargaId || '',
+    compraId: item.compraId || '',
     parcAtual: item.parcAtual || '',
     parcTotal: item.parcTotal || null,
     cnpjBenef: item.cnpjBenef || '',
