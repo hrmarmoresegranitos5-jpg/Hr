@@ -5101,8 +5101,68 @@ function _svSmartCard(amb, grp) {
     });
     return h2 + '</div></div>';
   }
+  // ── Rebaixo: opções grandes (preço fixo cada), liga/desliga ──
+  if (grp.g === 'Rebaixo' && its.every(function (it) { return it.u === 'un' && it.fx === 1; })) {
+    var totR = 0;
+    var hR = '<div class="svblk"><div class="svhd">⬇️ Rebaixo</div><div style="padding:10px 12px 12px;">';
+    hR += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:6px;">Qual tipo de rebaixo?</div>';
+    hR += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+    its.forEach(function (it) {
+      var on = !!sv[it.k], pr = getPr(it.k) || 0;
+      if (on) totR += pr;
+      hR += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it.k + '\')" style="padding:10px 6px;border-radius:9px;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (on ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.74rem;line-height:1.3;">' + (on ? '✓ ' : '') + escH(it.l) + '<br><span style="font-weight:500;font-size:.66rem;opacity:.85;">R$ ' + fm(pr) + '</span></button>';
+    });
+    hR += '</div>';
+    if (totR > 0) hR += '<div style="font-size:.66rem;color:var(--t4);border-top:1px solid var(--bd);padding-top:8px;margin-top:10px;">Total rebaixo: <b style="color:var(--gold);">R$ ' + fm(totR) + '</b></div>';
+    return hR + '</div></div>';
+  }
+
+  // ── Rodapé de Pedra (R$/ml + m² de pedra): medidas guiadas ──
+  if (grp.g === 'Área Molhada' && its.length === 1 && its[0].u === 'sf') {
+    var it0 = its[0], d = sv[it0.k], pr0 = getPr(it0.k) || 0;
+    var hP = '<div class="svblk"><div class="svhd">📏 ' + escH(it0.l) + '</div><div style="padding:10px 12px 12px;">';
+    if (!d) {
+      hP += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:8px;">R$ ' + fm(pr0) + '/ml + m² de pedra</div>';
+      hP += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it0.k + '\')" style="width:100%;padding:10px;border-radius:9px;border:1px dashed var(--gold);background:rgba(201,168,76,.08);color:var(--gold);font-weight:700;font-size:.76rem;">+ Incluir ' + escH(it0.l) + '</button>';
+      return hP + '</div></div>';
+    }
+    var ml = d.ml || 0, alt = d.altCm || 0, qq = d.q || 1;
+    hP += '<div style="display:flex;gap:10px;">';
+    hP += '<div style="flex:1;"><div style="font-size:.62rem;color:var(--t3);margin-bottom:3px;">Comprimento (ml)</div><input type="number" inputmode="decimal" step="0.01" min="0" placeholder="2,50" value="' + (ml || '') + '" onchange="_svRodSet(' + amb.id + ',\'' + it0.k + '\',\'ml\',this.value)" style="width:100%;text-align:center;font-weight:700;"></div>';
+    hP += '<div style="flex:1;"><div style="font-size:.62rem;color:var(--t3);margin-bottom:3px;">Altura (cm)</div><input type="number" inputmode="decimal" step="0.5" min="1" placeholder="7" value="' + (alt || '') + '" onchange="_svRodSet(' + amb.id + ',\'' + it0.k + '\',\'altCm\',this.value)" style="width:100%;text-align:center;font-weight:700;"></div>';
+    hP += '</div>';
+    hP += '<div style="display:flex;gap:6px;margin-top:8px;">';
+    [5, 7, 8, 10].forEach(function (a) {
+      var on = alt === a;
+      hP += '<button type="button" onclick="_svRodSet(' + amb.id + ',\'' + it0.k + '\',\'altCm\',' + a + ')" style="flex:1;padding:7px 0;border-radius:8px;border:1px solid ' + (on ? 'var(--gold)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'var(--s1)') + ';color:' + (on ? 'var(--gold)' : 'var(--t2)') + ';font-weight:700;font-size:.72rem;">' + a + ' cm</button>';
+    });
+    hP += '</div>';
+    hP += '<div style="display:flex;align-items:center;gap:10px;margin:10px 0 4px;"><span style="font-size:.72rem;color:var(--t3);flex:1;">Quantidade de trechos</span>' +
+      '<button type="button" onclick="_svRodSet(' + amb.id + ',\'' + it0.k + '\',\'q\',' + (qq - 1) + ')" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">−</button>' +
+      '<span style="min-width:24px;text-align:center;font-weight:700;color:var(--gold);">' + qq + '</span>' +
+      '<button type="button" onclick="_svRodSet(' + amb.id + ',\'' + it0.k + '\',\'q\',' + (qq + 1) + ')" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--bd2);background:var(--s1);color:var(--t2);font-weight:700;">+</button></div>';
+    if (ml && alt) {
+      var m2 = ml * (alt / 100) * qq;
+      var mat = CFG.stones.find(function (s) { return s.id === (amb.selMat || selMat); });
+      var vPedra = mat ? m2 * mat.pr : 0, vMo = ml * qq * pr0;
+      hP += '<div style="font-size:.66rem;color:var(--t4);margin-top:6px;">' + ml + ' ml × ' + alt + ' cm' + (qq > 1 ? ' × ' + qq : '') + ' = ' + m2.toFixed(3) + ' m²' + (mat ? ' · Pedra <b style="color:var(--grn);">R$ ' + fm(vPedra) + '</b>' : ' · <i>escolha a pedra</i>') + ' + M.O. <b style="color:var(--gold2);">R$ ' + fm(vMo) + '</b></div>';
+    } else {
+      hP += '<div style="font-size:.64rem;color:var(--t4);margin-top:6px;">Informe comprimento e altura para calcular.</div>';
+    }
+    hP += '<button type="button" onclick="_svChip(' + amb.id + ',\'' + it0.k + '\')" style="margin-top:10px;background:none;border:none;color:var(--t4);text-decoration:underline;font-size:.68rem;">Remover rodapé</button>';
+    return hP + '</div></div>';
+  }
   return '';
 }
+function _svRodSet(ambId, k, prop, val) {
+  var amb = ambientes.find(function (a) { return a.id == ambId; });
+  if (!amb || !amb.svState || !amb.svState[k]) return;
+  var v = parseFloat(String(val).replace(',', '.')) || 0;
+  if (prop === 'q') v = Math.max(1, Math.round(v));
+  amb.svState[k][prop] = v;
+  renderAmbientes();
+}
+window._svRodSet = _svRodSet;
 window._svStep = _svStep; window._svChip = _svChip; window._svSetQtyAmb = _svSetQtyAmb;
 
 // ═══ ORÇAMENTO › ACESSÓRIOS — mesmo modelo das Cubas ═════════════════════════
