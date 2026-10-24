@@ -397,10 +397,9 @@ function bMarcarSelecionadosComoPago() {
   var idsSelecionados = Object.keys(_bSelecionados);
   if (!idsSelecionados.length) { toast('Nenhum boleto selecionado'); return; }
   var n = 0;
-  (DB.b || []).forEach(function(b) {
-    if (_bSelecionados[b.id] && b.status !== 'pago') {
-      b.status = 'pago';
-      b.dtPag = td();
+  (DB.b || []).slice().forEach(function(b) {
+    if (_bSelecionados[b.id] && b.status !== 'pago' && b.status !== 'cancelado') {
+      bMarcarPago(b.id, { silent: true });   // marca pago E lança em Finanças
       n++;
     }
   });
@@ -1469,14 +1468,17 @@ function bMarcarPago(id, opts) {
   if (!b) return;
   b.status = 'pago';
   b.dtPag  = opts.dtPag || td();
+  // Valor realmente pago (pode ter juros/multa de atraso). Mantém b.valor original.
+  var _vPago = (+opts.valorPago > 0) ? +opts.valorPago : b.valor;
+  if (+opts.valorPago > 0 && Math.abs(+opts.valorPago - b.valor) > 0.009) b.valorPago = +opts.valorPago;
   DB.sv();
 
   // Auto-lançar no financeiro se for receber
-  if (b.tipo === 'receber' && b.valor > 0) {
-    addTr('in', (b.cli||b.desc||'Boleto') + (b.parc?' ('+b.parc+')':''), b.valor);
+  if (b.tipo === 'receber' && _vPago > 0) {
+    addTr('in', (b.cli||b.desc||'Boleto') + (b.parc?' ('+b.parc+')':''), _vPago);
   }
-  if (b.tipo === 'pagar' && b.valor > 0) {
-    addTr('out', (b.cli||b.desc||'Boleto') + ' — ' + (B_CAT[b.cat]||{label:''}).label, b.valor);
+  if (b.tipo === 'pagar' && _vPago > 0) {
+    addTr('out', (b.cli||b.desc||'Boleto') + ' — ' + (B_CAT[b.cat]||{label:''}).label, _vPago);
   }
 
   if (!opts.silent) {
@@ -1546,6 +1548,11 @@ function _bAcharBoletoPorComprovante(dados) {
   return melhorScore >= 30 ? melhor : null;
 }
 
+// Usado pelo Chat IA: acha o boleto que bate com o pagamento informado (sem baixar).
+function bAcharBoletoPagamento(dados) {
+  try { return _bAcharBoletoPorComprovante(dados); } catch (e) { return null; }
+}
+
 function bAbrirSeletorComprovante() {
   var input = document.getElementById('bComprovanteInput');
   if (!input) {
@@ -1585,8 +1592,8 @@ async function bProcessarComprovantes(files) {
       var compId = 'comp_' + boleto.id + '_' + Date.now() + '_' + i;
       try { await _bAnexoDBSave(compId, file); boleto.comprovanteId = compId; } catch (e) {}
 
-      bMarcarPago(boleto.id, { silent: true, dtPag: dados.data });
-      okList.push((boleto.cli || boleto.desc || 'Boleto') + ' — R$ ' + fm(boleto.valor));
+      bMarcarPago(boleto.id, { silent: true, dtPag: dados.data, valorPago: dados.valor });
+      okList.push((boleto.cli || boleto.desc || 'Boleto') + ' — R$ ' + fm(dados.valor));
     } catch (e) {
       comErro.push(file.name);
     }

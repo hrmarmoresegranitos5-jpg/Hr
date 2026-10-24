@@ -791,6 +791,7 @@ function _chatBuildSystem() {
     '18. Perder orç.:     {"action":"marcar_perdido","cli":"NOME","motivo":"opcional"} — marca orçamento como perdido/não fechado',
     '19. Atualizar pedra: {"action":"atualizar_pedra","id":"ID_PEDRA","custo":236.65,"pr":500} — atualiza custo e/ou preço de venda de uma pedra no catálogo. Use quando o usuário enviar NF ou etiqueta de pedra.',
     '20. Lançar boleto:   {"action":"lancar_boleto","fornecedor":"NOME","valor":4200,"vencimento":"YYYY-MM-DD"} — cria despesa e entrada a pagar a partir de boleto fotografado.',
+    '22. Baixar boleto:   {"action":"baixar_boleto","fornecedor":"NOME","valor":6155.14,"data":"YYYY-MM-DD"} — use quando o usuário disser que PAGOU um boleto (ou enviar comprovante/print de pagamento). Dá baixa na parcela pendente correspondente e lança a saída UMA vez, com o valor realmente pago (juros/multa incluídos). NÃO use "despesa" para boleto pago que já está na lista de boletos a pagar. Use "despesa" só se não existir boleto correspondente.',
     '21. Lembrete:        {"action":"lembrete","texto":"TEXTO DO LEMBRETE","data":"YYYY-MM-DD"} — salva um lembrete interno para a data informada.',
     '',
     '═══ FORMATO ═══',
@@ -1126,6 +1127,33 @@ function _chatProcessReply(text) {
 function _chatExecuteAction(data) {
   var result = { actions: [], extra: '' };
   var hoje = td();
+
+  // ── Baixa de boleto: casa com a parcela e pede confirmação mostrando qual ──
+  if (data.action === 'baixar_boleto' && !data._confirmado) {
+    var _vp = +data.valor, _dp = data.data || hoje;
+    var _bm = (_vp > 0 && typeof bAcharBoletoPagamento === 'function')
+      ? bAcharBoletoPagamento({valor: _vp, favorecido: data.fornecedor || '', data: _dp}) : null;
+    if (!_bm) {
+      var _vf = parseFloat(_vp || 0).toFixed(2).replace('.', ',');
+      result.extra = '\u26a0\ufe0f N\u00e3o achei boleto pendente que bata com **R$ ' + _vf + '**' +
+        (data.fornecedor ? ' (' + data.fornecedor + ')' : '') + '. Quer lan\u00e7ar como despesa avulsa?';
+      if (_vp > 0) {
+        result.actions.push({label: '\ud83d\udcb8 Lan\u00e7ar despesa R$ ' + _vf,
+          fn: '_chatExecuteActionDirect(' + JSON.stringify({action:'despesa', desc:'Pagamento boleto - ' + (data.fornecedor||''), valor:_vp, data:_dp, _confirmado:true}) + ')'});
+      }
+      result.actions.push({label: '\u274c Cancelar', fn: 'void(0)'});
+      return result;
+    }
+    var _fv = function(n){ return 'R$ ' + parseFloat(n).toFixed(2).replace('.', ','); };
+    var _dif = _vp - _bm.valor;
+    result.extra = '\u26a0\ufe0f Dar baixa em **' + (_bm.cli || _bm.desc || 'Boleto') + '**' +
+      (_bm.parc ? ' (' + _bm.parc + ')' : '') + ' \u2014 venc. ' + fd(_bm.venc) + ', valor ' + _fv(_bm.valor) +
+      '. Pago: **' + _fv(_vp) + '**' + (_dif > 0.009 ? ' (+' + _fv(_dif) + ' de juros/multa)' : '') + '. Lan\u00e7a a sa\u00edda uma vez s\u00f3.';
+    result.actions.push({label: '\u2705 Confirmar baixa ' + _fv(_vp),
+      fn: '_chatExecuteActionDirect(' + JSON.stringify({action:'baixar_boleto', fornecedor:data.fornecedor||'', valor:_vp, data:_dp, boletoId:_bm.id, _confirmado:true}) + ')'});
+    result.actions.push({label: '\u274c Cancelar', fn: 'void(0)'});
+    return result;
+  }
 
     // ── Confirmação para ações financeiras acima de R$ 500 ──────
   var LIMITE_CONFIRM = 500;
@@ -1667,6 +1695,21 @@ function _jobLog(job, campo, de, para) {
         }
       } else {
         result.extra = '⚠️ Informe o id da pedra e ao menos custo ou pr. Ex: {action:"atualizar_pedra",id:"p_gabriel",custo:250}';
+      }
+      break;
+
+    case 'baixar_boleto':
+      var _bb = (DB.b || []).find(function(x){ return x.id === data.boletoId; });
+      if (_bb && _bb.status !== 'pago' && typeof bMarcarPago === 'function') {
+        bMarcarPago(_bb.id, {silent:true, dtPag:data.data || hoje, valorPago:+data.valor});
+        if (typeof _bRerender === 'function') { try { _bRerender(); } catch(eR) {} }
+        if (typeof bUpdDot === 'function') { try { bUpdDot(); } catch(eD) {} }
+        if (typeof renderFin === 'function') { try { renderFin(); } catch(eF) {} }
+        result.extra = '\u2705 Baixa feita: **' + (_bb.cli || _bb.desc || 'Boleto') + '**' + (_bb.parc ? ' (' + _bb.parc + ')' : '') +
+          ' \u2014 **R$ ' + fm(+data.valor) + '** lan\u00e7ado em Finan\u00e7as.';
+        result.actions.push({label:'\ud83e\uddfe Ver boletos', fn:"go(4);finTab('boletos')"});
+      } else {
+        result.extra = '\u26a0\ufe0f Esse boleto j\u00e1 estava pago ou n\u00e3o foi encontrado. Nada foi lan\u00e7ado.';
       }
       break;
 
