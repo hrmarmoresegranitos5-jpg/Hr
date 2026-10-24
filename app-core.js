@@ -269,6 +269,8 @@ function _abrirModalStatusOrc(q, tipo) {
   var LIMITE_AVISTA = 1000; // até esse valor, sugere pagamento total; acima, sugere 50% de entrada
   var sugere50 = isAceito && (!!_misto || !!_tres || totalOrc > LIMITE_AVISTA);
   var valorSugerido = isAceito ? (sugere50 ? totalOrc * _entFrac : totalOrc) : saldoAntes;
+  // Valor no campo: arredonda em centavos (meio pra cima, igual ao fm) e mostra com vírgula (8494,68)
+  var _stIn = function(n){ return (Math.round(((+n||0) + 1e-9) * 100) / 100).toFixed(2).replace('.', ','); };
   var titulo = isAceito ? 'Confirmar Aceite' : 'Confirmar Conclusão';
   var iconTop = isAceito ? '✅' : '🏆';
   var subt = isAceito ? 'Confirme o valor de entrada recebido' : 'Confirme o valor pago na conclusão';
@@ -308,9 +310,10 @@ function _abrirModalStatusOrc(q, tipo) {
     h += '<button type="button" data-stpct="100" onclick="window._stModalSetPct(100)" style="flex:1;padding:8px 6px;border-radius:9px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.72rem;font-weight:'+(!sugere50?'800':'600')+';border:1px solid '+(!sugere50?'var(--gold3)':'var(--bd2)')+';background:'+(!sugere50?'rgba(201,168,76,.15)':'var(--s2)')+';color:'+(!sugere50?'var(--gold)':'var(--t3)')+';">Valor cheio · R$ '+fm(totalOrc)+'</button>';
     h += '</div>';
   }
-  h += '<div style="position:relative;margin-bottom:6px;">';
-  h += '<span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--t3);font-weight:700;font-size:.95rem;pointer-events:none;">R$</span>';
-  h += '<input id="_stModalValor" type="text" inputmode="decimal" value="'+valorSugerido.toFixed(2)+'" oninput="window._stModalOnInput()" style="width:100%;padding:13px 14px 13px 46px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1.05rem;font-weight:800;box-sizing:border-box;">';
+  // "R$" e campo lado a lado (flex) — não depende de padding do input, que estava sendo sobrescrito e deixava o R$ por cima do número
+  h += '<div style="display:flex;align-items:center;gap:8px;padding:0 14px;margin-bottom:6px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);">';
+  h += '<span style="flex:0 0 auto;color:var(--t3);font-weight:700;font-size:.95rem;">R$</span>';
+  h += '<input id="_stModalValor" type="text" inputmode="decimal" value="'+_stIn(valorSugerido)+'" oninput="window._stModalOnInput()" style="flex:1 1 auto;min-width:0;width:auto!important;padding:13px 0!important;border:none!important;background:transparent!important;box-shadow:none!important;color:var(--tx);font-size:1.05rem;font-weight:800;">';
   h += '</div>';
   h += '<div id="_stModalSaldoLine" style="font-size:.72rem;color:var(--t3);margin-bottom:18px;min-height:16px;"></div>';
 
@@ -354,7 +357,7 @@ function _abrirModalStatusOrc(q, tipo) {
     if (!inp) return 0;
     var raw = String(inp.value||'').trim().replace(/[^\d,.-]/g,'');
     if (raw.indexOf(',') > -1) raw = raw.replace(/\./g,'').replace(',', '.'); // 1.234,56 -> 1234.56
-    return parseFloat(raw) || 0;
+    return Math.round(((parseFloat(raw) || 0) + 1e-9) * 100) / 100;
   };
 
   // ── dispara quando o usuário digita algo no campo (não quando o script ajusta sozinho) ──
@@ -368,7 +371,7 @@ function _abrirModalStatusOrc(q, tipo) {
     if (!inp) return;
     _stModalFracao = (pct === 50) ? _entFrac : pct / 100;
     _stModalManual = false;
-    inp.value = _stModalValorAuto().toFixed(2);
+    inp.value = _stIn(_stModalValorAuto());
     document.querySelectorAll('[data-stpct]').forEach(function(el){
       var on = el.getAttribute('data-stpct') === String(pct);
       el.style.fontWeight = on ? '800' : '600';
@@ -405,7 +408,7 @@ function _abrirModalStatusOrc(q, tipo) {
       // só reajusta o valor no campo se ainda for a sugestão automática — não mexe no que o usuário digitou
       if (!_stModalManual) {
         var inp = document.getElementById('_stModalValor');
-        if (inp) inp.value = _stModalValorAuto().toFixed(2);
+        if (inp) inp.value = _stIn(_stModalValorAuto());
       }
     }
     window._stModalUpdateSaldo();
