@@ -8560,7 +8560,8 @@ function confirmarAgenda() {
   var d = +document.getElementById('diasIn').value;
   if (!d || !pendQ) { toast('Informe os dias'); return; }
 
-  var s   = lastEnd() || td();
+  var _le = lastEnd(), _hj = td();
+  var s   = (_le && _le > _hj) ? _le : _hj; // igual à prévia: nunca começa no passado
   var end = addD(s, d);
   var q   = pendQ;
 
