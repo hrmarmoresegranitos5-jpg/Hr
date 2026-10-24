@@ -557,6 +557,19 @@ function _renderBotPanel() {
   h += '<div style="color:rgba(255,255,255,.4);font-size:11px;">+' + escH(cfg.phone||'—') + '</div></div></div>';
   h += '<button class="sec2-bot-disconnect" onclick="botDisconnect()">Desconectar</button>';
   h += '</div>';
+  var _wkBase = String(cfg.url || '').replace(/\/+$/, '');
+  if (_wkBase) {
+    var _bs = 'flex:1;color:#fff;border-color:rgba(255,255,255,.25);background:rgba(255,255,255,.06);';
+    h += '<div style="margin-top:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 12px;">';
+    h += '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:4px;">🌐 Endereço do Worker</div>';
+    h += '<div style="font-size:12px;word-break:break-all;margin-bottom:8px;">' + escH(_wkBase) + '</div>';
+    h += '<div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:4px;">🔗 URL do webhook (cole na Meta)</div>';
+    h += '<div style="font-size:12px;word-break:break-all;margin-bottom:8px;">' + escH(_wkBase) + '/webhook</div>';
+    h += '<div style="display:flex;gap:8px;">';
+    h += '<button class="sec2-bot-disconnect" style="' + _bs + '" onclick="_botCopiar(\'' + escH(_wkBase) + '/webhook\')">Copiar webhook</button>';
+    h += '<button class="sec2-bot-disconnect" style="' + _bs + '" onclick="window.open(\'' + escH(_wkBase) + '\',\'_blank\')">Abrir Worker</button>';
+    h += '</div></div>';
+  }
   h += '<div style="margin-top:12px;"><div style="font-size:12px;font-weight:700;margin-bottom:4px;">📋 Últimos leads</div><div id="botLeadsBox"></div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botSyncFinancas(true)">🔄 Buscar lançamentos do WhatsApp agora</button><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:6px;line-height:1.4;">Escreva pro bot: <i>gastei 150 com cimento</i> ou <i>recebi 2.500 do João</i>. O app busca sozinho a cada 1 minuto.</div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botToggleFalas()">💬 Editar falas do bot</button><div id="botFalasBox" style="display:none;margin-top:12px;"></div></div>';
@@ -2269,3 +2282,24 @@ function _secCaixaCard() {
     + '<div class="sec-cx-s">' + (c.negDia ? '⚠️ Fica negativo em ' + fd(c.negDia) + ' (pior ponto R$ ' + fm(c.min) + ')' : '✅ Sem risco de faltar dinheiro · pior ponto R$ ' + fm(c.min))
     + '</div><div class="sec-cx-n">Estimativa: saldo + a receber − boletos a pagar − custos fixos</div></div>';
 }
+
+
+// Copia texto pra área de transferência (usado no painel do bot)
+function _botCopiar(txt) {
+  function ok() { if (typeof toast === 'function') toast('✓ Copiado!'); }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(ok, function(){ _botCopiarFallback(txt, ok); });
+      return;
+    }
+  } catch (e) {}
+  _botCopiarFallback(txt, ok);
+}
+function _botCopiarFallback(txt, ok) {
+  var ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); ok(); } catch (e) {}
+  document.body.removeChild(ta);
+}
+window._botCopiar = _botCopiar;
