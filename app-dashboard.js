@@ -73,33 +73,6 @@ function renderDashboard() {
 
   var h = '';
 
-  // ══ HERO ══
-  h += '<div class="dash-hero">';
-  h += '<div class="dash-hero-top">';
-  h += '<div>';
-  h += '<div class="dash-saud">' + saudacao + ', <span>' + escH(nomeEmp) + '</span> 👋</div>';
-  var dataHoje = agora.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long'});
-  h += '<div class="dash-data">' + dataHoje + '</div>';
-  h += '</div>';
-  h += '<div class="dash-logo" onclick="go(5)">HR</div>';
-  h += '</div>';
-
-  // Barra de progresso do mês
-  h += '<div class="dash-mes-label">';
-  h += '<span>' + sfEmoji + ' ' + mes.replace('-','/') + ' · ' + pctMes + '% do ponto de equilíbrio</span>';
-  h += '<span style="color:' + sfColor + ';font-weight:700;">R$ ' + _dashFmShort(recMes) + '</span>';
-  h += '</div>';
-  h += '<div class="dash-bar-bg"><div class="dash-bar-fill" style="width:' + pctMes + '%;background:' + sfColor + ';"></div></div>';
-  h += '</div>';
-
-  // ══ CARDS RÁPIDOS (2×2) ══
-  h += '<div class="dash-cards">';
-  h += _dashCard('💰', 'Faturado', 'R$ ' + _dashFmShort(recMes), 'este mês', 'var(--grn)', 'go(4)');
-  h += _dashCard('⏳', 'A receber', 'R$ ' + _dashFmShort(totPend), pendVenc.length ? pendVenc.length + ' vencido(s)' : 'em dia', pendVenc.length ? 'var(--red)' : '#d4a017', 'go(4);setTimeout(function(){finTab(\'areceber\')},200)');
-  h += _dashCard('🔨', 'Em produção', emProd.length + ' jobs', concluidos.length + ' concluído(s) no mês', 'var(--gold2)', 'go(3)');
-  h += _dashCard('📐', 'Visitas', visitasHoje.length + ' hoje', visitasSemana.length + ' esta semana', '#60a5fa', 'go(11)');
-  h += '</div>';
-
   // ══ ALERTAS ══
   var alertas = [];
 
@@ -199,7 +172,7 @@ function renderDashboard() {
         icon: icon,
         msg:  msgDias + ' · ' + funcsPendentes.length + ' func. pendente' + (funcsPendentes.length > 1 ? 's' : '') +
               ': ' + nomes + ' · Total: R$\u00a0' + parseFloat(totalPendente).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}),
-        fn:   'go(30)'
+        fn:   'go(30)', dias: diasAte, folha: true
       });
     } catch(e) { /* silencioso */ }
   })();
@@ -256,151 +229,290 @@ function renderDashboard() {
         cor: cor, icon: icon,
         msg: msgDias + ' · ' + pend.length + ' func. quinzenal pendente' + (pend.length > 1 ? 's' : '') +
              ': ' + nomes + ' · Total: R$\u00a0' + parseFloat(total).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}),
-        fn: 'go(30)'
+        fn: 'go(30)', dias: diasAte, folha: true
       });
     } catch(e) { /* silencioso */ }
   })();
 
-  if (atrasados.length) alertas.push({ cor:'var(--red)', icon:'⚠️', msg: atrasados.length + ' entrega(s) atrasada(s): ' + atrasados.slice(0,2).map(function(j){ return j.cli; }).join(', '), fn:'go(3)' });
-  if (pendVenc.length)  alertas.push({ cor:'#e07820', icon:'💸', msg: 'R$ ' + _dashFmShort(pendVenc.reduce(function(s,t){ return s+(t.value||0); },0)) + ' vencidos a receber', fn:'go(4)' });
-  if (urgentes.length)  alertas.push({ cor:'#fb923c', icon:'🚨', msg: urgentes.length + ' job(s) urgente(s): ' + urgentes.slice(0,2).map(function(j){ return j.cli; }).join(', '), fn:'go(3)' });
-  if (visitasHoje.length) alertas.push({ cor:'#60a5fa', icon:'📐', msg: visitasHoje.length + ' visita(s) hoje — ' + visitasHoje.map(function(v){ return v.cli+(v.hora?' às '+v.hora:''); }).join(', '), fn:'go(11)' });
-  if (totalInadimplentes.length) alertas.push({ cor:'#e05151', icon:'🚨', msg: totalInadimplentes.length + ' cliente(s) com saldo em aberto — R$ ' + _dashFmShort(totalInadimpValor), fn:'_showInadimpModal()' });
+  // ══════════ NOVA HOME — MESA DE TRABALHO ══════════
+  _injectHomeStyles();
+  var emp = (CFG && CFG.emp) || {};
+  var pctReal = totalCustos > 0 ? Math.round((recMes / totalCustos) * 100) : 0;
+  var faltaCobrir = Math.max(0, totalCustos - recMes);
 
-  if (alertas.length) {
-    h += '<div class="dash-section-lbl">⚡ Ação imediata</div>';
-    h += '<div class="dash-alertas">';
-    alertas.forEach(function(a) {
-      h += '<div class="dash-alerta" style="border-left-color:' + a.cor + ';" onclick="' + a.fn + '">';
+  var _diasDesde = function(dt){ return dt ? Math.max(0, -dDiff(dt)) : null; };
+  var _quando = function(n){ return n === 0 ? 'hoje' : n === 1 ? 'ontem' : 'há ' + n + 'd'; };
+  // ── Orçamentos aguardando resposta (últimos 45 dias) ──
+  var orcPendAll = (DB.q || []).filter(function(q){
+    var st = q.status === 'aprovado' ? 'aceito' : (q.status || 'pendente');
+    return st === 'pendente';
+  });
+  var orcPend = orcPendAll.filter(function(q){ return q.date && -dDiff(q.date) <= 45; })
+    ;
+  var _priOrc = function(q){
+    var id = _diasDesde(q.date), fu = _diasDesde(q._followUp);
+    return (id >= 2 && (fu === null || fu >= 3)) ? 1 : 0;
+  };
+  orcPend.sort(function(a,b){ return (_priOrc(b) - _priOrc(a)) || (b.date||'').localeCompare(a.date||''); });
+  var orcAcompanhar = orcPend.filter(_priOrc).length;
+  var orcPendTotal = orcPend.reduce(function(s,q){ return s + (q.parc || q.vista || 0); }, 0);
+
+  // ── Boletos a pagar ──
+  var amanhaDt = (function(){ var d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+  var bolVenc = (DB.b||[]).filter(function(b){ return b.tipo==='pagar' && (b.status==='vencido' || (b.status==='pendente' && b.venc && b.venc < hoje)); });
+  var bolHoje = (DB.b||[]).filter(function(b){ return b.tipo==='pagar' && b.status==='pendente' && b.venc === hoje; });
+  var bolAmanha = (DB.b||[]).filter(function(b){ return b.tipo==='pagar' && b.status==='pendente' && b.venc === amanhaDt; });
+  var d7 = (function(){ var d = new Date(); d.setDate(d.getDate()+7); return d.toISOString().slice(0,10); })();
+  var bol7 = (DB.b||[]).filter(function(b){ return b.tipo==='pagar' && b.status==='pendente' && b.venc > amanhaDt && b.venc <= d7; });
+  var somaB = function(a){ return a.reduce(function(s,b){ return s + (b.valor||0); }, 0); };
+
+  // ── Avisos do dia (só o que exige ação hoje) ──
+  var avisos = [];
+  if (bolVenc.length)   avisos.push({ cor:'var(--red)', icon:'🧾', msg: bolVenc.length + ' boleto(s) vencido(s) — R$ ' + _dashFmShort(somaB(bolVenc)), fn:"go(4);setTimeout(function(){finTab('boletos')},200)" });
+  if (bolHoje.length)   avisos.push({ cor:'#e07820', icon:'🧾', msg: bolHoje.length + ' boleto(s) vence(m) HOJE — R$ ' + _dashFmShort(somaB(bolHoje)), fn:"go(4);setTimeout(function(){finTab('boletos')},200)" });
+  if (bolAmanha.length) avisos.push({ cor:'#d4a017', icon:'🧾', msg: bolAmanha.length + ' boleto(s) vence(m) amanhã — R$ ' + _dashFmShort(somaB(bolAmanha)), fn:"go(4);setTimeout(function(){finTab('boletos')},200)" });
+  if (bol7.length)      avisos.push({ cor:'var(--t3)', icon:'🗓️', msg: 'A pagar nos próximos 7 dias: ' + bol7.length + ' boleto(s) — R$ ' + _dashFmShort(somaB(bol7)), fn:"go(4);setTimeout(function(){finTab('boletos')},200)" });
+  alertas.filter(function(a){ return a.folha && a.dias <= 5; }).forEach(function(a){ avisos.push(a); });
+  if (pendVenc.length)  avisos.push({ cor:'#e07820', icon:'💸', msg: 'R$ ' + _dashFmShort(pendVenc.reduce(function(s,t){ return s+(t.value||0); },0)) + ' em lançamentos a receber vencidos', fn:"go(4);setTimeout(function(){finTab('areceber')},200)" });
+  var semEntrada = emProd.filter(function(j){ return (j.value||0) > 0 && (j.pago||0) < (j.value||0) * 0.5 && !j.done; });
+  if (semEntrada.length) {
+    var nomesSE = semEntrada.slice(0,2).map(function(j){ return _dashPrimeiroNome(j.cli); }).join(', ');
+    avisos.push({ cor:'#d4a017', icon:'💵', msg: semEntrada.length + ' job(s) em produção sem a entrada de 50% — ' + escH(nomesSE) + (semEntrada.length > 2 ? ' e +' + (semEntrada.length - 2) : ''), fn:'go(3)' });
+  }
+  if (visitasHoje.length) avisos.push({ cor:'#60a5fa', icon:'📐', msg: visitasHoje.length + ' visita(s) hoje — ' + visitasHoje.map(function(v){ return v.cli+(v.hora?' às '+v.hora:''); }).join(', '), fn:'go(11)' });
+
+  var h = '';
+
+  // ══ TOPO: saudação + mês em uma linha ══
+  h += '<div class="hm-top">';
+  h += '<div class="hm-top-row"><div><div class="hm-saud">' + saudacao + ', <span>' + escH(nomeEmp) + '</span></div>';
+  h += '<div class="hm-data">' + agora.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long'}) + '</div></div></div>';
+  h += '<div class="hm-mes" onclick="go(4)">';
+  h += '<div><small>Entrou</small><b style="color:var(--grn);">R$ ' + _dashFmShort(recMes) + '</b></div>';
+  h += '<div><small>Saiu</small><b style="color:var(--red);">R$ ' + _dashFmShort(despMes) + '</b></div>';
+  h += '<div><small>Resultado</small><b style="color:' + (lucro>=0?'var(--grn)':'var(--red)') + ';">' + (lucro>=0?'+':'') + 'R$ ' + _dashFmShort(lucro) + '</b></div>';
+  h += '</div>';
+  h += '<div class="hm-eq">' + (faltaCobrir > 0
+        ? '⚠️ Faltam R$ ' + _dashFmShort(faltaCobrir) + ' pra cobrir os custos do mês (' + pctReal + '%)'
+        : '✅ Custos do mês já cobertos (R$ ' + _dashFmShort(totalCustos) + ')') + '</div>';
+  var recHoje = 0, despHoje = 0;
+  (DB.t || []).forEach(function(t){
+    if (t.date !== hoje) return;
+    if (t.type === 'in') recHoje += (t.value || 0);
+    else if (t.type === 'out') despHoje += (t.value || 0);
+  });
+  h += '<div class="hm-eq" style="margin-top:4px;">Hoje: ' + (recHoje || despHoje
+        ? '<span style="color:var(--grn);">+R$ ' + _dashFmShort(recHoje) + '</span> · <span style="color:var(--red);">−R$ ' + _dashFmShort(despHoje) + '</span>'
+        : 'nenhum lançamento ainda') + '</div>';
+  h += '</div>';
+
+  // ══ LANÇAR RÁPIDO ══
+  h += '<div class="hm-quick">';
+  h += '<button onclick="openFin(\'out\')"><span>➖</span>Despesa</button>';
+  h += '<button onclick="openFin(\'in\')"><span>➕</span>Entrada</button>';
+  h += '<button onclick="go(1)"><span>💰</span>Orçamento</button>';
+  h += '<button onclick="go(11)"><span>🤖</span>Secretária</button>';
+  h += '</div>';
+
+  // ══ AVISOS ══
+  if (avisos.length) {
+    h += '<div class="dash-alertas" style="margin-top:12px;">';
+    avisos.forEach(function(a) {
+      h += '<div class="dash-alerta" style="border-left-color:' + a.cor + ';" onclick="' + a.fn.replace(/"/g,'&quot;') + '">';
       h += '<span style="font-size:1.1rem;">' + a.icon + '</span>';
       h += '<span class="dash-alerta-msg">' + a.msg + '</span>';
-      h += '<span class="dash-alerta-arr" style="color:' + a.cor + ';">→</span>';
-      h += '</div>';
+      h += '<span class="dash-alerta-arr" style="color:' + a.cor + ';">→</span></div>';
     });
     h += '</div>';
   }
 
-  // ══ RADAR FINANCEIRO ══
-  h += '<div class="dash-section-lbl">💵 Radar financeiro</div>';
-  h += '<div class="dash-radar card">';
-  var radarItems = [
-    { label:'Faturado', val:recMes, color:'var(--grn)', max:Math.max(recMes,totalCustos,1) },
-    { label:'Despesas', val:despMes, color:'var(--red)', max:Math.max(recMes,totalCustos,1) },
-    { label:'Custos fixos', val:totalCustos, color:'#d4a017', max:Math.max(recMes,totalCustos,1) },
-    { label:'A receber', val:totPend, color:'#60a5fa', max:Math.max(recMes,totalCustos,totPend,1) },
-  ];
-  radarItems.forEach(function(item) {
-    var pct = Math.min(100, Math.round((item.val/item.max)*100));
-    h += '<div class="dash-radar-row">';
-    h += '<div class="dash-radar-meta"><span class="dash-radar-lbl">' + item.label + '</span>';
-    h += '<span style="color:' + item.color + ';font-weight:700;font-size:.8rem;">R$ ' + _dashFmShort(item.val) + '</span></div>';
-    h += '<div class="dash-radar-bar-bg"><div style="height:100%;width:' + pct + '%;background:' + item.color + ';border-radius:3px;transition:width .5s;"></div></div>';
-    h += '</div>';
+  // ══ COBRAR ══
+  var _priCob = function(j){ var c = _diasDesde(j._cobrancaEm); return (c === null || c >= 2) ? 1 : 0; };
+  var cobrar = totalInadimplentes.slice().sort(function(a,b){
+    return (_priCob(b) - _priCob(a)) || (((b.value||0)-(b.pago||0)) - ((a.value||0)-(a.pago||0)));
   });
-  // Lucro líquido
-  var lucroColor = lucro >= 0 ? 'var(--grn)' : 'var(--red)';
-  h += '<div class="dash-radar-saldo">';
-  h += '<span style="font-size:.72rem;color:var(--t3);">Resultado do mês</span>';
-  h += '<span style="font-size:1.1rem;font-weight:900;color:' + lucroColor + ';">' + (lucro>=0?'+':'') + 'R$ ' + _dashFmShort(lucro) + '</span>';
-  h += '</div>';
-  h += '</div>';
-
-  // ══ PRODUÇÃO ══
-  h += '<div class="dash-section-lbl">🔨 Produção</div>';
-  h += '<div class="dash-prod-row">';
-  [
-    { val:emProd.length, lbl:'Em produção', col:'var(--gold2)', fn:'go(3)' },
-    { val:atrasados.length, lbl:'Atrasados', col:'var(--red)', fn:'go(3)' },
-    { val:entrega3d.length, lbl:'Entrega 3 dias', col:'#fb923c', fn:'go(3)' },
-    { val:concluidos.length, lbl:'Concluídos/mês', col:'var(--grn)', fn:'go(3)' },
-  ].forEach(function(item) {
-    h += '<div class="dash-prod-card" onclick="' + item.fn + '">';
-    h += '<div class="dash-prod-val" style="color:' + item.col + ';">' + item.val + '</div>';
-    h += '<div class="dash-prod-lbl">' + item.lbl + '</div>';
-    h += '</div>';
-  });
-  h += '</div>';
-
-  // ══ PRÓXIMAS ENTREGAS ══
-  var prox = emProd.filter(function(j){ return j.end; })
-    .sort(function(a,b){ return a.end.localeCompare(b.end); })
-    .slice(0, 4);
-  if (prox.length) {
-    h += '<div class="dash-section-lbl">📅 Próximas entregas</div>';
-    h += '<div class="dash-entregas card">';
-    prox.forEach(function(j) {
-      var diff = dDiff(j.end);
-      var dlbl = diff < 0 ? Math.abs(diff)+'d atrasado' : diff === 0 ? 'HOJE' : diff === 1 ? 'AMANHÃ' : 'em '+diff+'d';
-      var dcor = diff < 0 ? 'var(--red)' : diff <= 1 ? '#fb923c' : diff <= 3 ? '#d4a017' : 'var(--grn)';
-      h += '<div class="dash-entrega-row" onclick="go(3)">';
-      h += '<div>';
-      h += '<div class="dash-entrega-cli">' + escH(j.cli) + '</div>';
-      h += '<div class="dash-entrega-desc">' + escH(j.desc||'') + '</div>';
-      h += '</div>';
-      h += '<div class="dash-entrega-badge" style="background:' + dcor + '18;color:' + dcor + ';">' + dlbl + '</div>';
-      h += '</div>';
+  h += '<div class="hm-sec"><span>💰 Cobrar</span>' + (cobrar.length ? '<b style="color:var(--red);">R$ ' + _dashFmShort(totalInadimpValor) + ' · ' + cobrar.length + '</b>' : '') + '</div>';
+  if (!cobrar.length) {
+    h += '<div class="hm-empty">✅ Ninguém te devendo agora</div>';
+  } else {
+    h += '<div class="hm-card">';
+    cobrar.slice(0, 4).forEach(function(j) {
+      var resto = (j.value||0) - (j.pago||0);
+      var atraso = j.end ? Math.abs(Math.min(0, dDiff(j.end))) : 0;
+      var sit = j.done ? '<span style="color:#f0a500;">entregue</span>' : '<span style="color:var(--red);">' + (atraso ? atraso + 'd de atraso' : 'em aberto') + '</span>';
+      h += '<div class="hm-row"><div class="hm-row-main"><div class="hm-cli">' + escH(j.cli||'') + '</div>';
+      h += '<div class="hm-sub">' + escH(j.desc||'') + ' · ' + sit + (j._cobrancaEm ? ' · 📲 ' + _quando(_diasDesde(j._cobrancaEm)) : '') + '</div></div>';
+      h += '<div class="hm-row-r"><div class="hm-val" style="color:var(--red);">R$ ' + _dashFmShort(resto) + '</div>';
+      h += '<div class="hm-btns"><button class="hm-b hm-zap" onclick="event.stopPropagation();_dashZapCobrar(' + j.id + ')">WhatsApp</button>';
+      h += '<button class="hm-b" onclick="event.stopPropagation();_inadimpReceberJob(' + j.id + ')">Recebi</button></div></div></div>';
     });
+    if (cobrar.length > 4) h += '<div class="hm-more" onclick="_showInadimpModal()">+ ver todos os ' + cobrar.length + ' →</div>';
     h += '</div>';
   }
 
-  // ── GRÁFICO DE RECEITA MENSAL ──
+  // ══ ORÇAMENTOS AGUARDANDO ══
+  h += '<div class="hm-sec"><span>📋 Orçamentos esperando resposta</span>' + (orcPend.length ? '<b style="color:var(--gold2);">' + (orcAcompanhar ? orcAcompanhar + ' pra acompanhar · ' : '') + 'R$ ' + _dashFmShort(orcPendTotal) + '</b>' : '') + '</div>';
+  if (!orcPend.length) {
+    h += '<div class="hm-empty">Nenhum orçamento pendente nos últimos 45 dias</div>';
+  } else {
+    h += '<div class="hm-card">';
+    orcPend.slice(0, 5).forEach(function(q) {
+      var idade = Math.max(0, -dDiff(q.date));
+      var bcor = idade <= 2 ? 'var(--grn)' : idade <= 7 ? '#d4a017' : 'var(--red)';
+      var blbl = idade === 0 ? 'hoje' : idade === 1 ? 'ontem' : 'há ' + idade + 'd';
+      var extra = idade > 7 ? ' · esfriando' : '';
+      var fuD = _diasDesde(q._followUp);
+      var fuTxt = fuD !== null ? ' · 📲 ' + _quando(fuD) : '';
+      h += '<div class="hm-row"><div class="hm-row-main"><div class="hm-cli">' + escH(q.cli||'Sem nome') + '</div>';
+      h += '<div class="hm-sub">' + escH((q.tipo||'') + (q.mat ? ' · ' + q.mat : '')) + ' · <span style="color:' + bcor + ';font-weight:700;">' + blbl + extra + '</span>' + fuTxt + '</div></div>';
+      h += '<div class="hm-row-r"><div class="hm-val" style="color:var(--gold2);">R$ ' + _dashFmShort(q.parc || q.vista || 0) + '</div>';
+      h += '<div class="hm-btns"><button class="hm-b hm-zap" onclick="event.stopPropagation();_dashZapOrc(\'' + q.id + '\')">WhatsApp</button>';
+      h += '<button class="hm-b hm-ok" onclick="event.stopPropagation();_dashOrcAceito(\'' + q.id + '\')">✅</button>';
+      h += '<button class="hm-b" onclick="event.stopPropagation();_dashOrcPerdido(\'' + q.id + '\')">❌</button></div></div></div>';
+    });
+    h += '<div class="hm-more" onclick="_orcStatusFilter=\'pendente\';go(7)">' + (orcPendAll.length > 5 ? '+ ver todos (' + orcPendAll.length + ' pendentes) →' : 'abrir histórico →') + '</div>';
+    h += '</div>';
+  }
+
+  // ══ SEMANA: produção + entregas + visitas ══
+  var semana = [];
+  emProd.forEach(function(j){
+    if (!j.end) return;
+    var df = dDiff(j.end);
+    if (df <= 7) semana.push({ ord: df, tipo:'entrega', cli:j.cli, desc:j.desc, df:df });
+  });
+  visitasHoje.concat(visitasSemana).forEach(function(v){
+    semana.push({ ord: dDiff(v.date), tipo:'visita', cli:v.cli, desc:'Visita' + (v.hora ? ' às ' + v.hora : ''), df:dDiff(v.date) });
+  });
+  semana.sort(function(a,b){ return a.ord - b.ord; });
+  h += '<div class="hm-sec"><span>🔨 Semana</span><b style="color:var(--t3);">' + emProd.length + ' em produção' + (atrasados.length ? ' · <span style="color:var(--red);">' + atrasados.length + ' atrasado(s)</span>' : '') + '</b></div>';
+  if (!semana.length) {
+    h += '<div class="hm-empty">Nada marcado pros próximos 7 dias</div>';
+  } else {
+    h += '<div class="hm-card">';
+    semana.slice(0, 6).forEach(function(it) {
+      var df = it.df;
+      var lbl = df < 0 ? Math.abs(df) + 'd atrasado' : df === 0 ? 'HOJE' : df === 1 ? 'AMANHÃ' : 'em ' + df + 'd';
+      var cor = df < 0 ? 'var(--red)' : df <= 1 ? '#fb923c' : df <= 3 ? '#d4a017' : 'var(--grn)';
+      h += '<div class="hm-row" onclick="go(' + (it.tipo === 'visita' ? 11 : 3) + ')"><div class="hm-row-main"><div class="hm-cli">' + (it.tipo === 'visita' ? '📐 ' : '🚚 ') + escH(it.cli||'') + '</div>';
+      h += '<div class="hm-sub">' + escH(it.desc||'') + '</div></div>';
+      h += '<div class="dash-entrega-badge" style="background:' + cor + '18;color:' + cor + ';">' + lbl + '</div></div>';
+    });
+    if (semana.length > 6) h += '<div class="hm-more" onclick="go(3)">+ ' + (semana.length - 6) + ' na agenda →</div>';
+    h += '</div>';
+  }
+
+  // ══ NÚMEROS (recolhido) ══
+  h += '<details class="hm-det"><summary>📈 Números dos últimos 6 meses</summary>';
   h += _dashGraficoReceita(hoje);
-
-  // ── GRÁFICO DE CUSTO DA EQUIPE ──
   h += _dashGraficoCustoEquipe(hoje);
+  h += '</details>';
 
-  // ══ INADIMPLÊNCIA ══
-  if (totalInadimplentes.length) {
-    h += '<div class="dash-section-lbl" style="color:#e05151;">🚨 Inadimplência</div>';
-    h += '<div class="dash-inadimp card" style="border-left:3px solid #e05151;">';
-    // Cabeçalho resumo
-    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
-    h += '<span style="font-size:.7rem;color:var(--t3);">' + totalInadimplentes.length + ' cliente(s) com saldo em aberto</span>';
-    h += '<b style="color:#e05151;font-size:.9rem;">R$ ' + _dashFmShort(totalInadimpValor) + '</b>';
-    h += '</div>';
-    // Lista (máx 4)
-    totalInadimplentes.slice(0, 4).forEach(function(j) {
-      var resto   = (j.value||0) - (j.pago||0);
-      var diasAt  = j.end ? Math.abs(Math.min(0, dDiff(j.end))) : null;
-      var situacao = j.done
-        ? '<span style="color:#f0a500;font-size:.6rem;font-weight:700;">ENTREGUE</span>'
-        : '<span style="color:#e05151;font-size:.6rem;font-weight:700;">' + (diasAt ? diasAt+'d atraso' : 'EM ABERTO') + '</span>';
-      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(224,81,81,.1);">';
-      h += '<div><div style="font-size:.78rem;font-weight:600;color:var(--tx);">' + escH(j.cli) + '</div>';
-      h += '<div style="font-size:.63rem;color:var(--t3);">' + escH(j.desc||'') + ' · ' + situacao + '</div></div>';
-      h += '<div style="text-align:right;">';
-      h += '<div style="font-size:.82rem;font-weight:700;color:#e05151;">R$ ' + _dashFmShort(resto) + '</div>';
-      h += '<button onclick="event.stopPropagation();_inadimpReceberJob(' + j.id + ')" style="font-size:.58rem;padding:3px 8px;background:rgba(224,81,81,.12);border:1px solid rgba(224,81,81,.35);color:#e05151;border-radius:6px;cursor:pointer;margin-top:3px;">Receber</button>';
-      h += '</div></div>';
-    });
-    if (totalInadimplentes.length > 4) {
-      h += '<div style="text-align:center;padding-top:8px;font-size:.65rem;color:var(--t4);cursor:pointer;" onclick="_showInadimpModal()">+ ver todos os ' + totalInadimplentes.length + ' casos →</div>';
-    }
-    h += '</div>';
-  }
-
-  // ══ ATALHOS RÁPIDOS ══
-  h += '<div class="dash-section-lbl">⚡ Atalhos</div>';
-  h += '<div class="dash-atalhos">';
-  var atalhos = [
-    { icon:'💰', lbl:'Orçamento', fn:'go(1)', cor:'var(--gold2)' },
-    { icon:'📅', lbl:'Agenda', fn:'go(3)', cor:'#fb923c' },
-    { icon:'💵', lbl:'Finanças', fn:'go(4)', cor:'var(--grn)' },
-    { icon:'🤖', lbl:'Secretária', fn:'go(11)', cor:'#a78bfa' },
-    { icon:'📜', lbl:'Contratos', fn:'go(10)', cor:'#60a5fa' },
-    { icon:'📋', lbl:'Histórico', fn:'go(7)', cor:'var(--t3)' },
-  ];
-  atalhos.forEach(function(a) {
-    h += '<div class="dash-atalho" onclick="' + a.fn + '">';
-    h += '<div class="dash-atalho-icon" style="color:' + a.cor + ';background:' + a.cor + '15;">' + a.icon + '</div>';
-    h += '<div class="dash-atalho-lbl">' + a.lbl + '</div>';
-    h += '</div>';
-  });
-  h += '</div>';
-
-  h += '<div style="height:24px;"></div>';
+  h += '<div style="height:96px;"></div>';
 
   el.innerHTML = '<div class="dash-wrap">' + h + '</div>';
+}
+
+// ── Helpers da nova home ──
+function _dashTelCli(nome) {
+  var n = String(nome || '').trim().toLowerCase();
+  if (!n) return '';
+  var j = (DB.j || []).find(function(x){ return x.tel && String(x.cli||'').trim().toLowerCase() === n; });
+  if (j) return String(j.tel).replace(/\D/g, '');
+  var q = (DB.q || []).find(function(x){ return x.tel && String(x.cli||'').trim().toLowerCase() === n; });
+  return q ? String(q.tel).replace(/\D/g, '') : '';
+}
+function _dashAbrirZap(tel, txt) {
+  var num = String(tel || '').replace(/\D/g, '');
+  if (num && num.length <= 11) num = '55' + num;
+  window.open((num ? 'https://wa.me/' + num : 'https://wa.me/') + '?text=' + encodeURIComponent(txt), '_blank');
+}
+function _dashPrimeiroNome(n) { return String(n || '').trim().split(/\s+/)[0] || ''; }
+function _dashZapOrc(id) {
+  var q = (DB.q || []).find(function(x){ return String(x.id) === String(id); });
+  if (!q) return;
+  var emp = (CFG && CFG.emp && CFG.emp.nome) || 'HR Mármores e Granitos';
+  var txt = 'Olá, ' + _dashPrimeiroNome(q.cli) + '! Tudo bem? Aqui é da ' + emp + '. '
+    + 'Passando pra saber se você conseguiu ver o orçamento' + (q.tipo ? ' do(a) ' + String(q.tipo).replace(/\+/g, ' + ').toLowerCase() : '') + '. '
+    + 'Ficou alguma dúvida? Posso ajustar o que precisar!';
+  q._followUp = td();
+  DB.sv();
+  _dashAbrirZap(q.tel, txt);
+  renderDashboard();
+}
+function _dashZapCobrar(jobId) {
+  var j = (DB.j || []).find(function(x){ return x.id === jobId; });
+  if (!j) return;
+  var resto = (j.value || 0) - (j.pago || 0);
+  var emp = (CFG && CFG.emp && CFG.emp.nome) || 'HR Mármores e Granitos';
+  var txt = 'Olá, ' + _dashPrimeiroNome(j.cli) + '! Tudo bem? Aqui é da ' + emp + '. '
+    + 'Passando pra lembrar do saldo de R$ ' + fm(resto) + (j.desc ? ' referente a ' + j.desc : '') + '. '
+    + 'Consegue me confirmar quando fica bom pra você acertar? Se precisar, te mando a chave Pix.';
+  j._cobrancaEm = td();
+  DB.sv();
+  _dashAbrirZap(j.tel || _dashTelCli(j.cli), txt);
+  renderDashboard();
+}
+function _dashOrcAceito(id) {
+  var q = (DB.q || []).find(function(x){ return String(x.id) === String(id); });
+  if (!q) return;
+  if (typeof _abrirModalStatusOrc === 'function') _abrirModalStatusOrc(q, 'aceito');
+}
+function _dashOrcPerdido(id) {
+  var q = (DB.q || []).find(function(x){ return String(x.id) === String(id); });
+  if (!q) return;
+  showCB('Marcar orçamento de ' + q.cli + ' como perdido?', function() {
+    q.status = 'perdido';
+    q._statusDate = td();
+    DB.sv();
+    hideCB();
+    toast('❌ Perdido — ' + q.cli);
+    renderDashboard();
+  }, function() { hideCB(); });
+}
+window._dashZapOrc = _dashZapOrc;
+window._dashZapCobrar = _dashZapCobrar;
+window._dashOrcAceito = _dashOrcAceito;
+window._dashOrcPerdido = _dashOrcPerdido;
+
+function _injectHomeStyles() {
+  if (document.getElementById('homeStyle')) return;
+  var st = document.createElement('style');
+  st.id = 'homeStyle';
+  st.textContent = `
+    .hm-top{padding:16px 16px 4px;}
+    .hm-saud{font-size:1.15rem;font-weight:700;color:var(--tx);}
+    .hm-saud span{color:var(--gold2);}
+    .hm-data{font-size:.7rem;color:var(--t3);text-transform:capitalize;margin-top:2px;}
+    .hm-mes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:12px 8px;text-align:center;cursor:pointer;}
+    .hm-mes small{display:block;font-size:.6rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px;}
+    .hm-mes b{font-size:.98rem;font-weight:800;}
+    .hm-eq{font-size:.68rem;color:var(--t3);margin:8px 2px 0;}
+    .hm-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 16px 0;}
+    .hm-quick button{font-family:inherit;background:var(--s2);border:1px solid var(--bd);border-radius:12px;color:var(--tx);font-size:.68rem;font-weight:600;padding:10px 4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;}
+    .hm-quick button span{font-size:1.25rem;}
+    .hm-quick button:active{border-color:var(--gold2);}
+    .hm-sec{display:flex;justify-content:space-between;align-items:baseline;padding:18px 16px 8px;font-size:.72rem;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--t2,var(--t3));}
+    .hm-sec b{font-size:.74rem;text-transform:none;letter-spacing:0;}
+    .hm-card{margin:0 16px;background:var(--s2);border:1px solid var(--bd);border-radius:14px;padding:4px 12px;}
+    .hm-empty{margin:0 16px;font-size:.75rem;color:var(--t3);background:var(--s2);border:1px dashed var(--bd);border-radius:12px;padding:14px;text-align:center;}
+    .hm-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--bd);}
+    .hm-row:last-of-type{border-bottom:none;}
+    .hm-row-main{min-width:0;flex:1;}
+    .hm-cli{font-size:.84rem;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .hm-sub{font-size:.65rem;color:var(--t3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .hm-row-r{text-align:right;flex-shrink:0;}
+    .hm-val{font-size:.86rem;font-weight:800;}
+    .hm-btns{display:flex;gap:5px;margin-top:5px;justify-content:flex-end;}
+    .hm-b{font-family:inherit;font-size:.62rem;font-weight:700;padding:5px 9px;border-radius:8px;border:1px solid var(--bd2,var(--bd));background:var(--s3);color:var(--tx);cursor:pointer;}
+    .hm-zap{color:#25d366;border-color:rgba(37,211,102,.4);background:rgba(37,211,102,.08);}
+    .hm-ok{border-color:rgba(74,222,128,.4);}
+    .hm-more{text-align:center;font-size:.66rem;color:var(--t4);padding:10px 0 8px;cursor:pointer;}
+    .hm-det{margin:20px 0 0;}
+    .hm-det summary{padding:12px 16px;font-size:.72rem;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);cursor:pointer;list-style:none;}
+    .hm-det summary::-webkit-details-marker{display:none;}
+  `;
+  document.head.appendChild(st);
 }
 
 function _dashCard(icon, title, val, sub, cor, fn) {
@@ -645,7 +757,7 @@ function _dashGraficoReceita(hoje) {
     var bucket = meses.find(function(x) { return x.key === m; });
     if (!bucket) return;
     bucket.nOrc++;
-    if (q.contrato) bucket.nContr++;
+    if (q.contrato || q.status === 'aceito' || q.status === 'aprovado' || q.status === 'concluido') bucket.nContr++;
   });
 
   // ── Métricas globais (6 meses) ──
@@ -1099,3 +1211,27 @@ function _inadimpReceberJob(jobId) {
 
 window._showInadimpModal   = _showInadimpModal;
 window._inadimpReceberJob  = _inadimpReceberJob;
+
+
+// ── Mantém a home em dia: re-renderiza (com debounce) quando Finanças/Histórico mudam ──
+(function() {
+  var _t = null;
+  function agendar() {
+    clearTimeout(_t);
+    _t = setTimeout(function() {
+      var el = document.getElementById('pg12');
+      if (el && el.offsetParent !== null && typeof renderDashboard === 'function') {
+        try { renderDashboard(); } catch (e) {}
+      }
+    }, 80);
+  }
+  function wrap(nome) {
+    var o = window[nome];
+    if (typeof o !== 'function' || o._hmWrapped) return;
+    var w = function() { var r = o.apply(this, arguments); agendar(); return r; };
+    w._hmWrapped = true;
+    window[nome] = w;
+  }
+  // espera todos os scripts carregarem pra pegar as versões finais das funções
+  window.addEventListener('load', function() { wrap('renderFin'); wrap('renderOrc'); });
+})();
