@@ -2,8 +2,13 @@ name: Checar serviços e enviar push
 
 on:
   schedule:
-    - cron: '0 10 * * *'   # 07:00 Bahia — avisos do dia + resumo da manhã
-    - cron: '0 15 * * *'   # 12:00 Bahia — serviços cadastrados de manhã
+    # Horários em UTC (Bahia = UTC-3). Várias checagens por dia: o GitHub pode atrasar
+    # um agendamento, e assim um serviço cadastrado de manhã ainda é avisado no mesmo dia.
+    - cron: '0 9 * * *'    # 06:00 Bahia — avisos do dia + resumo da manhã
+    - cron: '0 11 * * *'   # 08:00 Bahia
+    - cron: '0 13 * * *'   # 10:00 Bahia
+    - cron: '0 15 * * *'   # 12:00 Bahia
+    - cron: '0 17 * * *'   # 14:00 Bahia
   workflow_dispatch:        # botão "Run workflow" na aba Actions, pra testar na hora
 
 jobs:
