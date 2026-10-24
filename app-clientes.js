@@ -939,9 +939,13 @@ function _orcWrapResult() {
   card.id = 'orcValorCard';
   card.className = 'orc-valor-card';
   card.innerHTML =
-    '<div class="orc-valor-label">VALOR DO ORÇAMENTO</div>' +
+    '<div class="orc-valor-label" id="orcValorLabel">VALOR A PRAZO</div>' +
     '<div class="orc-valor-num" id="orcValorNum">R$ —</div>' +
     '<div class="orc-valor-sub" id="orcValorSub"></div>' +
+    '<div id="orcModoRow" style="display:flex;justify-content:center;gap:6px;margin-top:12px;position:relative;z-index:2;">' +
+      '<button type="button" id="orcModoPrazo" onclick="_orcSetModo(\'prazo\')" style="padding:7px 14px;border-radius:20px;font-size:12px;font-weight:700;font-family:inherit;border:1px solid var(--bd2);background:transparent;color:var(--t3);">💳 A prazo</button>' +
+      '<button type="button" id="orcModoVista" onclick="_orcSetModo(\'vista\')" style="padding:7px 14px;border-radius:20px;font-size:12px;font-weight:700;font-family:inherit;border:1px solid var(--bd2);background:transparent;color:var(--t3);">💰 À vista</button>' +
+    '</div>' +
     '<div class="orc-valor-sparkles" aria-hidden="true">' +
       '<span class="orc-sp orc-sp1">✦</span>' +
       '<span class="orc-sp orc-sp2">✦</span>' +
@@ -1002,8 +1006,21 @@ function _orcSyncValorCard() {
   }
 
   if (vista > 0) {
-    numEl.textContent = 'R$ ' + fm(vista);
+    // Padrão: mostra o valor A PRAZO (regra do app: à vista × 1,15). O à vista só aparece se o vendedor tocar em "À vista".
+    var _modo = window._orcModoValor === 'vista' ? 'vista' : 'prazo';
+    var _parcCard = Math.round(vista * 1.15 * 100) / 100;
+    numEl.textContent = 'R$ ' + fm(_modo === 'vista' ? vista : _parcCard);
     numEl.style.color = 'var(--gold2)';
+    var _lblCard = document.getElementById('orcValorLabel');
+    if (_lblCard) _lblCard.textContent = _modo === 'vista' ? 'VALOR À VISTA' : 'VALOR A PRAZO';
+    ['Prazo', 'Vista'].forEach(function(n) {
+      var b = document.getElementById('orcModo' + n);
+      if (!b) return;
+      var on = (n === 'Vista') === (_modo === 'vista');
+      b.style.background = on ? 'var(--gold2)' : 'transparent';
+      b.style.color = on ? '#000' : 'var(--t3)';
+      b.style.borderColor = on ? 'var(--gold2)' : 'var(--bd2)';
+    });
     // ── Self-check: card de destaque vs painel interno ──
     // Se algum dia voltarem a divergir (ex.: alguém reintroduzir uma leitura
     // de DB.q antes da hora), isso avisa em vez de deixar passar em silêncio.
@@ -1020,14 +1037,22 @@ function _orcSyncValorCard() {
       }
     }
     if (subEl) {
-      // Parcelado estimado (12x, 2%)
-      var parcVal = vista * 1.02 / 12;
-      subEl.textContent = 'ou 12× de R$ ' + fm(parcVal) + ' (est.)';
+      subEl.textContent = _modo === 'vista'
+        ? 'pagamento à vista'
+        : 'ou 10× de R$ ' + fm(_parcCard / 10) + ' no cartão';
     }
   }
 }
 
+// Alterna o valor grande do card: a prazo (padrão) ou à vista (quando o cliente disser que é à vista)
+window._orcModoValor = 'prazo';
+function _orcSetModo(m) {
+  window._orcModoValor = (m === 'vista') ? 'vista' : 'prazo';
+  _orcSyncValorCard();
+}
+
 function _orcAnimateResult() {
+  window._orcModoValor = 'prazo';   // todo cálculo novo volta pro valor a prazo
   _orcSyncValorCard();
   var card = document.getElementById('orcValorCard');
   if (card) {

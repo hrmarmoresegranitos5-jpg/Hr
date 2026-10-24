@@ -5685,7 +5685,7 @@ function setUrgPct(pct) {
 function _buildPriceText(q) {
   var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
   return urg
-    + 'PARCELADO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(total parcelado: R$ ' + fm(q.parc) + ')\n\n'
+    + 'PARCELADO EM 10×\n10× R$ ' + fm(_p10(q)) + '/mês\n(total parcelado: R$ ' + fm(q.parc) + ')\n\n'
     + 'À VISTA\nR$ ' + fm(q.vista) + '\n\n'
     + 'Entrada 50%: R$ ' + fm(q.ent) + '\n'
     + 'Entrega 50%: R$ ' + fm(q.ent) + '\n';
@@ -5695,7 +5695,7 @@ function _buildPriceText(q) {
 function _buildPriceTextParcelado(q) {
   var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
   return urg
-    + 'PARCELADO NO CARTÃO EM 8×\n8× R$ ' + fm(q.p8) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
+    + 'PARCELADO NO CARTÃO EM ATÉ 10×\n10× R$ ' + fm(_p10(q)) + '/mês\n(valor total: R$ ' + fm(q.parc) + ')\n';
 }
 
 // ── Entrada 50% à vista + restante 50% parcelado COM JUROS (% e nº de parcelas definidos na hora) ──
@@ -5756,11 +5756,33 @@ function _buildPriceTextMisto(q) {
     + 'Valor total: R$ ' + fm(m.total) + '\n';
 }
 
+// ── Parcelas no cartão em até 10× (base = valor a prazo q.parc) ──
+function _parcNx(q, n) { return Math.round(((q && q.parc) || 0) / n * 100) / 100; }
+function _p10(q) { return _parcNx(q, 10); }
+// Houve desconto à vista de verdade? (confere o valor, não só o campo q.desconto, que pode ficar sobrando)
+function _temDescVista(q) { return !!(q && q.desconto > 0 && q._vistaCalc > 0 && q.vista < q._vistaCalc - 0.005); }
+// Grade 2× … 10× com o valor de cada parcela
+function _parcGridHtml(q, cols) {
+  var h = '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:5px 12px;margin-bottom:8px;">';
+  for (var n = 2; n <= 10; n++) {
+    h += '<div style="font-size:12px;color:#555;line-height:1.3;white-space:nowrap;"><span style="color:#a06020;font-weight:800;">' + n + '×</span> R$&nbsp;' + fm(_parcNx(q, n)) + '</div>';
+  }
+  return h + '</div>';
+}
+// Cliente pediu desconto: mostra o valor do projeto (sem rótulo "à vista") + parcelas no cartão
+function _buildPriceTextPrazoDesc(q) {
+  var urg = q.urgPct > 0 ? '🚨 URGÊNCIA +' + q.urgPct + '% (+R$ ' + fm(q.urgVal) + ')\n\n' : '';
+  return urg
+    + 'VALOR DO PROJETO\nR$ ' + fm(q.vista) + '\n\n'
+    + 'OU NO CARTÃO EM ATÉ 10×\n10× R$ ' + fm(_p10(q)) + '/mês\n(total parcelado: R$ ' + fm(q.parc) + ')\n';
+}
+
 // Escolhe o texto de preço conforme a forma de pagamento
 function _pickPriceText(q, forma) {
   if (forma === 'misto') return _buildPriceTextMisto(q);
   if (forma === 'tres') return _buildPriceTextTres(q);
-  if (forma === 'parcelado' || (q && q.mostrarVista === false)) return _buildPriceTextParcelado(q);
+  if (forma === 'parcelado') return _buildPriceTextParcelado(q);
+  if (q && q.mostrarVista === false) return _temDescVista(q) ? _buildPriceTextPrazoDesc(q) : _buildPriceTextParcelado(q);
   return _buildPriceText(q);
 }
 
@@ -6795,7 +6817,7 @@ function calcular(){
   var _txtPre='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n';
   var _txtFooter='==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel+(cidade?'\n'+cidade:'');
 
-  var txt=_txtPre+_buildPriceText({vista:vista,parc:parc,p8:p8,ent:ent,urgPct:urgPct,urgVal:urgVal})+_txtFooter;
+  var txt=_txtPre+_buildPriceTextParcelado({vista:vista,parc:parc,p8:p8,ent:ent,urgPct:urgPct,urgVal:urgVal})+_txtFooter;
   if(_cearaAtivo&&_cearaValor>0){
     txt+='\n\n==================\n🤝 ORCAMENTO CONJUNTO\n==================\n';
     txt+='Bancada em pedra (HR Marmores): R$ '+fm(vista)+'\n';
@@ -6877,8 +6899,8 @@ function calcular(){
       +'<div id="mostrarVistaRow" style="margin:8px 0;">'
         +'<label style="font-size:.62rem;color:var(--t3);font-weight:600;display:block;margin-bottom:5px;">Mostrar o valor à vista para o cliente?</label>'
         +'<div style="display:flex;gap:6px;">'
-          +'<button type="button" data-mostrarvista="1" onclick="setMostrarVista(true)" class="on" style="'+_bSt.replace('border:1px solid var(--bd2)','border:1px solid var(--gold2)').replace('opacity:.55','opacity:1')+'">✅ Sim</button>'
-          +'<button type="button" data-mostrarvista="0" onclick="setMostrarVista(false)" style="'+_bSt+'">🚫 Não, só parcelado</button>'
+          +'<button type="button" data-mostrarvista="1" onclick="setMostrarVista(true)" style="'+_bSt+'">✅ Sim</button>'
+          +'<button type="button" data-mostrarvista="0" onclick="setMostrarVista(false)" class="on" style="'+_bSt.replace('border:1px solid var(--bd2)','border:1px solid var(--gold2)').replace('opacity:.55','opacity:1')+'">🚫 Não (só a prazo)</button>'
         +'</div>'
       +'</div>'
       +'<div id="mistoSec" style="display:none;margin:8px 0;background:var(--s2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;">'
@@ -6904,7 +6926,7 @@ function calcular(){
     if(_mSecReset)_mSecReset.style.display='none';
     var _mvRowR=document.getElementById('mostrarVistaRow');
     if(_mvRowR)_mvRowR.style.display='block';
-    document.querySelectorAll('[data-mostrarvista]').forEach(function(b){var on=b.dataset.mostrarvista==='1';b.classList.toggle('on',on);b.style.opacity=on?'1':'.55';b.style.borderColor=on?'var(--gold2)':'var(--bd2)';});
+    document.querySelectorAll('[data-mostrarvista]').forEach(function(b){var on=b.dataset.mostrarvista==='0';b.classList.toggle('on',on);b.style.opacity=on?'1':'.55';b.style.borderColor=on?'var(--gold2)':'var(--bd2)';});
     var _lblReset=document.getElementById('formaPagDiscLabel');
     if(_lblReset)_lblReset.textContent='💰 Ajustando o valor À VISTA';
   }
@@ -6982,7 +7004,7 @@ function calcular(){
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
   var _soInstQ=ambientes.length>0&&ambientes.every(function(a){return a.tipo===TIPO_INST;});
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:_soInstQ?'Instalação':mat.nm,matPr:_soInstQ?0:mat.pr,matCusto:_soInstQ?0:(mat.custo||0),validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',mostrarVista:true,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:_soInstQ?'Instalação':mat.nm,matPr:_soInstQ?0:mat.pr,matCusto:_soInstQ?0:(mat.custo||0),validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',mostrarVista:false,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marca qual aparelho criou este orçamento (usado nas notificações de
   // "novo orçamento" pros outros dispositivos sincronizados saberem quem fez).
   q.criadoPor = localStorage.getItem('hr_device_name') || '';
@@ -7107,7 +7129,11 @@ function gerarPDF(){
   var economia=q.parc-q.vista;
   // ── Forma de pagamento que o cliente escolheu no painel (à vista é o padrão) ──
   // "parcelado" = cliente fechou parcelado OU o vendedor escolheu NÃO mostrar o valor à vista
-  var _pdfIsParc = q.formaPag === 'parcelado' || (q.formaPag !== 'misto' && q.formaPag !== 'tres' && q.mostrarVista === false);
+  // Padrão novo: o PDF mostra só o valor a prazo (cartão, até 10×). Se o vendedor deu desconto à vista,
+  // mostra "Valor do projeto" + as parcelas no cartão. O valor à vista só aparece se o vendedor marcar "Mostrar à vista = Sim".
+  var _pdfSemVista = q.formaPag !== 'misto' && q.formaPag !== 'tres' && q.formaPag !== 'parcelado' && q.mostrarVista === false;
+  var _pdfIsPrazoDesc = _pdfSemVista && _temDescVista(q);
+  var _pdfIsParc = q.formaPag === 'parcelado' || (_pdfSemVista && !_pdfIsPrazoDesc);
   // % de desconto do valor parcelado para o à vista (mostrado no selo do cartão À VISTA)
   var _pdfPctVista = (q.parc > 0 && q.vista > 0 && q.parc > q.vista) ? Math.round((q.parc - q.vista) / q.parc * 100) : 0;
   var _pdfIsMisto = q.formaPag === 'misto';
@@ -7508,7 +7534,7 @@ function gerarPDF(){
       +'</div>'
     +'</div>'):'') 
     // VALORES
-    +sh((_pdfIsParc||_pdfIsMisto||_pdfIsTres)?'Valores do Projeto':'Escolha como pagar')
+    +sh((_pdfIsParc||_pdfIsMisto||_pdfIsTres||_pdfIsPrazoDesc)?'Valores do Projeto':'Escolha como pagar')
     +(_pdfIsMisto
       // ── Cliente fechou ENTRADA 50% + PARCELADO COM JUROS ──
       ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
@@ -7566,28 +7592,46 @@ function gerarPDF(){
       ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
         +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
           +'<div style="background:#0f0c00;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">'
-            +'<div><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Valor do projeto</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">No cartão de crédito, em até 8 vezes</div></div>'
+            +'<div><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Valor do projeto</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">No cartão de crédito, em até 10 vezes</div></div>'
             +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
           +'</div>'
           +'<div style="padding:14px 16px;background:#fff;">'
             +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._parcCalc)+'</div>':'')
-            +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:5px;">8× R$ '+fm(q.p8)+'</div>'
-            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em 8 parcelas</div>'
+            +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:5px;">10× R$ '+fm(_p10(q))+'</div>'
+            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em até 10 parcelas</div>'
+            +_parcGridHtml(q,3)
             +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
           +'</div>'
         +'</div>'
       +'</div>'
-      // ── Cliente fechou À VISTA (padrão): mantém os dois cartões, como já combinado ──
+      // ── Desconto dado: "Valor do projeto" (sem rótulo à vista) + parcelas no cartão em até 10× ──
+      : _pdfIsPrazoDesc
+      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
+        +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
+          +'<div style="background:#0f0c00;padding:12px 16px;"><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Condição especial</div></div>'
+          +'<div style="padding:14px 16px;background:#fff;"><div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;">R$ '+fm(q.vista)+'</div></div>'
+        +'</div>'
+        +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
+          +'<div style="background:#0f0c00;padding:12px 16px;"><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Parcelado</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">No cartão, em até 10 vezes</div></div>'
+          +'<div style="padding:14px 16px;background:#faf8f4;">'
+            +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">10× R$ '+fm(_p10(q))+'</div>'
+            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão</div>'
+            +_parcGridHtml(q,2)
+            +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
+          +'</div>'
+        +'</div>'
+      +'</div>'
+      // ── Cliente fechou À VISTA e o vendedor marcou "mostrar à vista": mantém os dois cartões ──
       : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
       // parcelado — "preço cheio", sem mencionar taxa
       +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
         +'<div style="background:#0f0c00;padding:12px 16px;">'
           +'<div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Parcelado</div>'
-          +'<div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Em até 8 vezes</div>'
+          +'<div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Em até 10 vezes</div>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#faf8f4;">'
-          +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">8× R$ '+fm(q.p8)+'</div>'
-          +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em 8 parcelas</div>'
+          +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">10× R$ '+fm(_p10(q))+'</div>'
+          +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão, em até 10 parcelas</div>'
           +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
         +'</div>'
       +'</div>'
@@ -7635,7 +7679,7 @@ function gerarPDF(){
       // ── Cliente fechou PARCELADO: explica a mecânica sem repetir os números já mostrados acima ──
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">COMO FUNCIONA O PARCELAMENTO</div>'
-          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O pagamento é feito no cartão de crédito, em até 8 parcelas iguais. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura. Não existe entrada separada nem pagamento na entrega.</div>'
+          +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O pagamento é feito no cartão de crédito, em até 10 parcelas iguais. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura. Não existe entrada separada nem pagamento na entrega.</div>'
         +'</div>'
       : (_valorBaixo
       // Orçamento pequeno à vista: sem exigir entrada/entrega, cliente decide quando paga
@@ -7798,7 +7842,7 @@ function gerarPDF(){
       if(navigator.share){
         enableBtn('pdfBtnShare','&#8599; Compartilhar',function(){
           var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsParc?'8× R$ '+fm(q.p8)+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
+          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+((_pdfIsParc||_pdfIsPrazoDesc)?(_pdfIsPrazoDesc?'Valor do projeto R$ '+fm(q.vista)+' ou ':'')+'10× R$ '+fm(_p10(q))+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
           if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
           navigator.share(sd).catch(function(){});
         });
