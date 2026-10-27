@@ -238,6 +238,28 @@ function _orcToggleSec(k){
   if(a)a.style.transform=_orcSecOpen[k]?'rotate(180deg)':'';
 }
 
+// ── Imposto por orçamento: alíquota EFETIVA real do Simples (RBT12 do Financeiro).
+// Se não houver cálculo disponível, cai no % fixo configurado (custosRecorrentes.impostoPct).
+var _impCache = {t:0, a:null};
+function _orcAliqImposto(){
+  var now = Date.now();
+  if(_impCache.a!==null && now-_impCache.t<30000) return _impCache.a;
+  var a = 0;
+  try{ if(typeof _snProjecao==='function') a = _snProjecao().aliqEfetiva||0; }catch(e){}
+  if(!a){
+    try{
+      var sf = (typeof _sfGetConfig==='function') ? _sfGetConfig() : null;
+      a = ((sf && sf.custosRecorrentes && sf.custosRecorrentes.impostoPct)||0)/100;
+    }catch(e){}
+  }
+  _impCache = {t:now, a:a};
+  return a;
+}
+function _orcImposto(base){
+  var a = _orcAliqImposto();
+  return {aliq:a, pct:(a*100).toFixed(2).replace('.',','), valor:Math.round((base||0)*a*100)/100};
+}
+
 function renderOrc() {
   var grupos = _orcAgrupar(DB.q);
   var total = grupos.length;
@@ -369,6 +391,13 @@ function buildOrcList(list) {
       var _dLabel='🏷 Desconto: -R$ '+fm(q.desconto)+(q.descontoPct>0?' ('+q.descontoPct.toFixed(1)+'%)':'');
       if(q.descontoMotivo)_dLabel+=' · '+escH(q.descontoMotivo);
       h += '<div class="qdr"><span class="k" style="color:var(--gold2);">Desconto</span><span class="v" style="font-size:.68rem;color:var(--gold2);text-align:right;max-width:200px;">'+_dLabel+'</span></div>';
+    }
+    if(q.vista>0){
+      var _imp = _orcImposto(q.vista);
+      if(_imp.valor>0){
+        h += '<div class="qdr"><span class="k">🧾 Imposto estimado ('+_imp.pct+'%)</span><span class="v" style="color:#f59e0b;">R$ '+fm(_imp.valor)+'</span></div>';
+        h += '<div class="qdr"><span class="k">Sobra após imposto (à vista)</span><span class="v grn">R$ '+fm(q.vista-_imp.valor)+'</span></div>';
+      }
     }
     h += '</div>';
     h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
@@ -7381,6 +7410,8 @@ function gerarPDF(){
   var _proj8 = Math.round(_projTotal / 8 * 100) / 100;
   var _projMeta1 = Math.round(_projTotal / 2 * 100) / 100;
   var _projMeta2 = Math.round((_projTotal - _projMeta1) * 100) / 100;
+  // Valor pequeno (< R$ 500): sem entrada, paga tudo na entrega. Cartão em até 8× continua disponível.
+  var _projBaixo = _projTotal > 0 && _projTotal < 500;
   // % de desconto do valor parcelado para o à vista (mostrado no selo do cartão À VISTA)
   var _pdfPctVista = (q.parc > 0 && q.vista > 0 && q.parc > q.vista) ? Math.round((q.parc - q.vista) / q.parc * 100) : 0;
   var _pdfIsMisto = q.formaPag === 'misto';
@@ -7847,15 +7878,15 @@ function gerarPDF(){
             +'<div style="width:60px;height:3px;background:#C9A84C;border-radius:2px;margin:12px auto 0;"></div>'
           +'</div>'
           +'<div style="padding:14px 18px 16px;background:#fff;border-top:1px solid #ede8dc;">'
-            +'<div style="font-size:17px;color:#555;line-height:1.55;text-align:center;margin-bottom:12px;">Podemos dividir em <b style="color:#7a4400;">até 8× no cartão de crédito sem juros</b> ou fazer o pagamento <b style="color:#7a4400;">50% + 50%</b>.</div>'
+            +'<div style="font-size:17px;color:#555;line-height:1.55;text-align:center;margin-bottom:12px;">Podemos dividir em <b style="color:#7a4400;">até 8× no cartão de crédito sem juros</b> ou '+(_projBaixo?'pagar <b style="color:#7a4400;">tudo na entrega</b>.':'fazer o pagamento <b style="color:#7a4400;">50% + 50%</b>.')+'</div>'
             +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
               +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
                 +'<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">💳 Cartão · sem juros</div>'
                 +'<div style="font-size:27px;font-weight:900;color:#7a4400;line-height:1.1;">8× R$ '+fm(_proj8)+'</div>'
               +'</div>'
               +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
-                +'<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">🤝 50% + 50%</div>'
-                +'<div style="font-size:27px;font-weight:900;color:#7a4400;line-height:1.1;">2× R$ '+fm(_projMeta1)+'</div>'
+                +'<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">'+(_projBaixo?'🤝 Na entrega':'🤝 50% + 50%')+'</div>'
+                +'<div style="font-size:27px;font-weight:900;color:#7a4400;line-height:1.1;">'+(_projBaixo?'R$ '+fm(_projTotal):'2× R$ '+fm(_projMeta1))+'</div>'
               +'</div>'
             +'</div>'
           +'</div>'
@@ -7957,8 +7988,10 @@ function gerarPDF(){
               +'<div style="font-size:15px;color:#555;line-height:1.65;">Em até <b>8 parcelas iguais, sem juros</b>. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura.</div>'
             +'</div>'
             +'<div style="border-left:1px solid #e8dfc4;padding-left:18px;">'
-              +'<div style="font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">🤝 PAGAMENTO 50% + 50%</div>'
-              +'<div style="font-size:15px;color:#555;line-height:1.65;"><b>R$ '+fm(_projMeta1)+'</b> na assinatura, para iniciar a produção, e <b>R$ '+fm(_projMeta2)+'</b> na entrega e instalação.</div>'
+              +'<div style="font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">'+(_projBaixo?'🤝 PAGAMENTO NA ENTREGA':'🤝 PAGAMENTO 50% + 50%')+'</div>'
+              +(_projBaixo
+                ?'<div style="font-size:15px;color:#555;line-height:1.65;">Sem entrada: você paga <b>R$ '+fm(_projTotal)+'</b> somente na entrega e instalação.</div>'
+                :'<div style="font-size:15px;color:#555;line-height:1.65;"><b>R$ '+fm(_projMeta1)+'</b> na assinatura, para iniciar a produção, e <b>R$ '+fm(_projMeta2)+'</b> na entrega e instalação.</div>')
             +'</div>'
           +'</div>'
         +'</div>'
@@ -7994,6 +8027,17 @@ function gerarPDF(){
         +'<span>Você só paga R$ '+fm(q.ent)+' agora. O restante apenas na entrega do serviço.</span>'
       +'</div>'
     +'</div>'))
+
+    // TRIBUTOS APROXIMADOS (informativo) — alíquota efetiva real do Simples sobre o valor mostrado
+    +(function(){
+      var base = _pdfIsMisto ? _pdfM.total : _pdfIsTres ? _pdfT.total : _pdfIsProj ? _projTotal : _pdfIsParc ? (q.parc||q.vista) : q.vista;
+      var imp = _orcImposto(base);
+      if(!(imp.valor>0)) return '';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 18px;margin:0 0 20px;">'
+        +'<div style="font-size:12.5px;color:#777;line-height:1.4;">🧾 Tributos aproximados inclusos neste valor <span style="color:#a06020;">(Simples Nacional · '+imp.pct+'%)</span></div>'
+        +'<div style="font-size:15px;font-weight:900;color:#7a4400;white-space:nowrap;">R$ '+fm(imp.valor)+'</div>'
+      +'</div>';
+    })()
 
     // POR QUE FECHAR COM A HR (inclui a garantia de 1 ano) — aparece em todo orçamento, à vista ou parcelado
     +sh('Por Que Fechar Com a HR Mármores')
@@ -8129,7 +8173,7 @@ function gerarPDF(){
       if(navigator.share){
         enableBtn('pdfBtnShare','&#8599; Compartilhar',function(){
           var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsProj?'Valor do projeto R$ '+fm(_projTotal)+' — até 8× R$ '+fm(_proj8)+' sem juros ou 50% + 50%':(_pdfIsParc||_pdfIsPrazoDesc)?(_pdfIsPrazoDesc?'Valor do projeto R$ '+fm(q.vista)+' ou ':'')+'10× R$ '+fm(_p10(q))+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
+          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsProj?'Valor do projeto R$ '+fm(_projTotal)+' — até 8× R$ '+fm(_proj8)+' sem juros ou '+(_projBaixo?'tudo na entrega':'50% + 50%'):(_pdfIsParc||_pdfIsPrazoDesc)?(_pdfIsPrazoDesc?'Valor do projeto R$ '+fm(q.vista)+' ou ':'')+'10× R$ '+fm(_p10(q))+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
           if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
           navigator.share(sd).catch(function(){});
         });
