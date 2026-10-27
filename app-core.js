@@ -68,6 +68,16 @@ function _orcAssin(q){
     brindes:q.brindes||[], ceara:q.ceara||null, ambSnap:q.ambSnap||[]
   }));
 }
+// Assinatura só do que o calcular() produz (ignora desconto, forma de pagamento e brindes, que são
+// ajustados depois). Usada pra não criar orçamento novo quando nada mudou.
+function _orcAssinCalc(q){
+  return JSON.stringify(_orcCanon({
+    cli:_orcNomeKey(q.cli), tel:String(q.tel||'').replace(/\D/g,''), cidade:q.cidade||'', end:q.end||'', obs:q.obs||'',
+    tipo:q.tipo||'', mat:q.mat||'', m2:q.m2||0,
+    vista:(q._vistaCalc!=null?q._vistaCalc:q.vista)||0, parc:(q._parcCalc!=null?q._parcCalc:q.parc)||0,
+    acN:q.acN||[], pds:q.pds||[], sfPcs:q.sfPcs||[], urgPct:q.urgPct||0, ceara:q.ceara||null, ambSnap:q.ambSnap||[]
+  }));
+}
 function _orcMontarGrupo(qs){
   var cl={}, ordem=[];
   qs.forEach(function(q){
@@ -1641,6 +1651,7 @@ function _salvarRascunho(){
       ambientes: ambientes,
       selMat: selMat,
       urgPct: window._urgPct||0,
+      editId: pendEditId||null,
       cli: elCli?elCli.value:'',
       tel: (document.getElementById('oTel')||{}).value||'',
       cidade: (document.getElementById('oCidade')||{}).value||'',
@@ -1661,6 +1672,7 @@ function _restaurarRascunho(){
     // de verdade ou foram abandonados de propósito — não restaura sozinho.
     if(draft.ts && (Date.now()-draft.ts) > 7*24*60*60*1000)return;
     ambientes=draft.ambientes;
+    if(draft.editId && (DB.q||[]).some(function(x){return x.id==draft.editId;})) pendEditId=draft.editId;
     if(draft.selMat) selMat=draft.selMat;
     window._urgPct=draft.urgPct||0;
     var _tries=0;
@@ -6386,6 +6398,7 @@ function novoOrcamento() {
     if (temDados && !confirm('Deseja realmente iniciar um novo orçamento?\n\nO orçamento atual será apagado.')) return;
   }
   _limparRascunho();
+  pendEditId=null;
 
   ['oCliente','oTel','oCidade','oEnd','oObs'].forEach(function(id) {
     var el = document.getElementById(id);
@@ -7280,17 +7293,34 @@ function calcular(){
   q.criadoPor = localStorage.getItem('hr_device_name') || '';
   // Marcar como túmulo e salvar tumPendOrc na raiz para orcEditar encontrar
   if(_tumPendOrcSnap){q.tum=true;q.tumPendOrc=_tumPendOrcSnap;}
+  // ── Sem duplicar: se nada mudou, reaproveita o orçamento que já existe ──
+  // (calcular() roda de novo sozinho: ao restaurar o rascunho quando o Android recria o app,
+  //  ao trocar urgência etc. Antes, cada rodada sem pendEditId criava uma cópia nova.)
+  var _sigNovo=_orcAssinCalc(q);
+  var _exist=null;
   if(pendEditId){
+    _exist=DB.q.find(function(x){return x.id==pendEditId;})||null;
+    if(_exist && _orcAssinCalc(_exist)!==_sigNovo) _exist=null; // mudou algo → segue o fluxo de edição abaixo
+  }
+  if(!_exist && !pendEditId){
+    _exist=DB.q.find(function(x){return x && x.status==='pendente' && _orcAssinCalc(x)===_sigNovo;})||null;
+  }
+  if(_exist){
+    q=_exist;                       // mantém status, prazo, desconto, PDF já gerado etc.
+    pendEditId=q.id;
+    window._formaPagEscolhida=q.formaPag||'vista';
+  } else if(pendEditId){
     var eIdx=DB.q.findIndex(function(x){return x.id==pendEditId;});
     if(eIdx>=0){
       q.id=DB.q[eIdx].id;
       q.criadoPor=DB.q[eIdx].criadoPor||q.criadoPor; // preserva o autor original na edição
       q.brindes=DB.q[eIdx].brindes||[]; // preserva brindes já adicionados ao reeditar
       DB.q[eIdx]=q;
+      pendEditId=q.id;              // continua editando o MESMO orçamento nos próximos cálculos
     } else {
       DB.q.unshift(q);
+      pendEditId=null;
     }
-    pendEditId=null;
   } else {
     DB.q.unshift(q);
   }
