@@ -8808,23 +8808,85 @@ function _orcInstalaDe(q){
 
 // ── Agenda automática ao ACEITAR: usa prazo e instalação já definidos no orçamento. ──
 // Retorna true se agendou sozinho; false se o orçamento não tem prazo salvo (aí abre o modal de antes).
-function _agendarAposAceite(q){
+// Último dia de validade do orçamento (emissão + dias de validade; padrão 7)
+function _orcValidoAte(q){
+  try{
+    if(!q||!q.date)return null;
+    var d=+(q.validade||(CFG.emp&&CFG.emp.diasValidade)||7);
+    return addD(q.date,d);
+  }catch(e){return null;}
+}
+function _orcVencido(q){
+  var v=_orcValidoAte(q);
+  return !!(v&&td()>v);
+}
+
+// Início e entrega de um orçamento vencido: ignora o início combinado lá atrás e respeita a fila de hoje.
+function _orcPlanoVencido(q){
+  var hoje=td(), le=lastEnd(), dias=+q.prazoDias;
+  var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
+  var manual=(q.prazoModo==='manual');
+  var s=hoje, ocupada=false;
+  if(!urgente&&!manual&&le&&le>hoje){ s=le; ocupada=true; }
+  // quem está segurando a fila (serviço que termina por último)
+  var occ=null;
+  if(ocupada){
+    occ=(DB.j||[]).filter(function(j){return !j.done&&j.end;})
+      .sort(function(a,b){return new Date(b.end)-new Date(a.end);})[0]||null;
+  }
+  return {hoje:hoje,le:le,s:s,end:addD(s,dias),dias:dias,ocupada:ocupada,occ:occ};
+}
+
+// Tela de revisão ao aceitar orçamento vencido
+function _revisaoVencidoModal(q){
+  var esc=function(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+  var pl=_orcPlanoVencido(q), ate=_orcValidoAte(q);
+  var dv=+(q.validade||(CFG.emp&&CFG.emp.diasValidade)||7);
+  var m=document.createElement('div');
+  m.id='_revVencModal';
+  m.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+  var corpo='O orçamento de <b>'+esc(q.cli)+'</b> venceu em <b>'+fd(ate)+'</b> (válido por '+dv+' dias desde '+fd(q.date)+').';
+  var fila=pl.ocupada
+    ? '<div style="margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(224,165,48,.1);border:1px solid rgba(224,165,48,.35);">Nesse meio tempo entrou o serviço de <b>'+esc(pl.occ&&pl.occ.cli||'outro cliente')+'</b> e a agenda está ocupada até <b>'+fd(pl.le)+'</b>.<br>Só podemos começar este projeto a partir de <b style="color:#e0a530;">'+fd(pl.s)+'</b>.</div>'
+    : '<div style="margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(93,191,122,.1);border:1px solid rgba(93,191,122,.35);">A agenda está livre: podemos começar <b>hoje, '+fd(pl.s)+'</b>.</div>';
+  var datas='<div style="margin-top:12px;font-size:.95rem;line-height:1.5;">Como foram combinados <b>'+pl.dias+' dias</b> para entregar, vai ficar de <b style="color:#C9A84C;">'+fd(pl.s)+'</b> até <b style="color:#C9A84C;">'+fd(pl.end)+'</b>.</div>';
+  m.innerHTML='<div style="width:100%;max-width:480px;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:22px 20px 26px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;max-height:90vh;overflow:auto;">'
+    +'<div style="font-size:1.1rem;font-weight:800;margin-bottom:10px;">⏰ Orçamento vencido — rever entrega</div>'
+    +'<div style="font-size:.88rem;line-height:1.5;color:var(--t2,#ccc);">'+corpo+fila+datas+'</div>'
+    +'<button type="button" id="_revVencOk" style="width:100%;margin-top:18px;padding:14px;border-radius:12px;border:none;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;font-family:Outfit,sans-serif;">✅ Confirmar essas datas</button>'
+    +'<button type="button" id="_revVencOutra" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid var(--bd2,#444);background:transparent;color:var(--tx,#eee);font-weight:700;font-size:.85rem;cursor:pointer;font-family:Outfit,sans-serif;">📅 Escolher outras datas</button>'
+    +'<button type="button" id="_revVencDepois" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3,#999);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Agendar depois</button>'
+    +'</div>';
+  document.body.appendChild(m);
+  var fechar=function(){var e=document.getElementById('_revVencModal');if(e)e.remove();};
+  document.getElementById('_revVencOk').onclick=function(){fechar();_agendarAposAceite(q,true);};
+  document.getElementById('_revVencOutra').onclick=function(){fechar();pendQ=q;salvarAgenda();};
+  document.getElementById('_revVencDepois').onclick=function(){fechar();toast('Aceito, mas sem agenda ainda. Agende depois pela Agenda.');};
+}
+
+function _agendarAposAceite(q,forcar){
   try{
     var dias=+q.prazoDias;
     if(!q||!dias||dias<1)return false;
     if((DB.j||[]).some(function(j){return j.qId===q.id;}))return true;
 
+    // Orçamento vencido: sempre rever a entrega com o cliente antes de agendar
+    var vencido=_orcVencido(q);
+    if(vencido&&!forcar){ _revisaoVencidoModal(q); return true; }
+
     var hoje=td(), le=lastEnd();
     var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
     var manual=(q.prazoModo==='manual');
     var s;
-    if(urgente) s=hoje;                                   // urgente fura a fila
+    if(vencido){ s=_orcPlanoVencido(q).s; }               // vencido: conta a partir da fila de hoje
+    else if(urgente) s=hoje;                              // urgente fura a fila
     else{
       s=hoje;
       if(q.prazoInicio&&q.prazoInicio>s)s=q.prazoInicio;  // início combinado no orçamento
       if(!manual&&le&&le>s)s=le;                          // fila andou: não sobrepõe serviço em andamento
     }
     var end=addD(s,dias);
+    if(vencido){ q.prazoInicio=s; q.prazoEntrega=end; q.validadeRevisadaEm=hoje; }  // grava as datas revisadas
     var instala=_orcInstalaDe(q);
 
     var job={
@@ -12947,6 +13009,7 @@ function orcPDF(id, e) {
     || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo' && s.tumPendOrc;}));
   if (isTumulo) { _orcMarcarPdf(q); gerarPDFTumulo(q); return; }
   pendQ = q;
+  window._pdfReusarPrazo = true;   // reabrir PDF pelo Histórico: usa o prazo já salvo, sem perguntar de novo
   gerarPDF();
 }
 

@@ -54,6 +54,29 @@
 
       // Se o prazo já foi confirmado, vai direto (chamada interna)
       if (window._pdfPrazoData) {
+        window._pdfReusarPrazo = false;
+        _originalGerarPDF();
+        return;
+      }
+
+      // Reabrindo o PDF pelo Histórico: se o orçamento já tem prazo salvo, reaproveita
+      // (se já foi aceito e está na agenda, usa as datas reais do serviço) e não pergunta de novo.
+      var _reusar = window._pdfReusarPrazo;
+      window._pdfReusarPrazo = false;
+      var _jobAg = (DB.j || []).find(function (j) { return String(j.qId) === String(pendQ.id); });
+      var _venc = (typeof _orcVencido === 'function') && _orcVencido(pendQ);
+      // Orçamento vencido e ainda sem agenda: a entrega precisa ser revista (cai na pergunta normal)
+      if (_reusar && pendQ.prazoDias > 0 && pendQ.prazoEntrega && (!_venc || _jobAg)) {
+        var _hoje = td();
+        var _job = _jobAg;
+        var _base = (_job && _job.start) || pendQ.prazoInicio || _hoje;
+        var _fim  = (_job && _job.end)   || pendQ.prazoEntrega;
+        window._pdfPrazoData = {
+          dias: pendQ.prazoDias, base: _base, dataEst: _fim,
+          lastEnd: (_base > _hoje ? _base : null),
+          emProd: (DB.j || []).filter(function (j) { return !j.done; }).length,
+          hoje: _hoje, isUrgent: !!pendQ.prazoUrgente
+        };
         _originalGerarPDF();
         return;
       }
