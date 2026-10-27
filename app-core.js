@@ -8033,9 +8033,18 @@ function gerarPDF(){
       var base = _pdfIsMisto ? _pdfM.total : _pdfIsTres ? _pdfT.total : _pdfIsProj ? _projTotal : _pdfIsParc ? (q.parc||q.vista) : q.vista;
       var imp = _orcImposto(base);
       if(!(imp.valor>0)) return '';
-      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 18px;margin:0 0 20px;">'
-        +'<div style="font-size:12.5px;color:#777;line-height:1.4;">🧾 Tributos aproximados inclusos neste valor <span style="color:#a06020;">(Simples Nacional · '+imp.pct+'%)</span></div>'
-        +'<div style="font-size:15px;font-weight:900;color:#7a4400;white-space:nowrap;">R$ '+fm(imp.valor)+'</div>'
+      var _pctNum = Math.max(1, Math.min(100, imp.aliq*100));
+      var _liq = Math.round((base - imp.valor)*100)/100;
+      return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin:0 0 20px;">'
+        +'<div style="font-size:13px;font-weight:800;color:#3a2000;margin-bottom:3px;">🧾 Quanto desse valor é imposto?</div>'
+        +'<div style="font-size:12px;color:#777;line-height:1.5;margin-bottom:10px;">Do total de <b style="color:#3a2000;">R$ '+fm(base)+'</b>, cerca de <b style="color:#7a4400;">R$ '+fm(imp.valor)+'</b> ('+imp.pct.replace(/,00$/,'')+'%) vai para o governo em impostos. <b>Esse valor já está incluso no preço</b> — você não paga nada a mais.</div>'
+        +'<div style="display:flex;height:10px;border-radius:6px;overflow:hidden;background:#e8dfc4;margin-bottom:8px;">'
+          +'<div style="width:'+_pctNum.toFixed(2)+'%;background:#a06020;"></div>'
+        +'</div>'
+        +'<div style="display:flex;justify-content:space-between;gap:10px;font-size:11.5px;color:#666;line-height:1.35;">'
+          +'<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#a06020;margin-right:5px;"></span>Impostos: <b>R$ '+fm(imp.valor)+'</b></div>'
+          +'<div><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#e8dfc4;margin-right:5px;"></span>Material e serviço: <b>R$ '+fm(_liq)+'</b></div>'
+        +'</div>'
       +'</div>';
     })()
 
