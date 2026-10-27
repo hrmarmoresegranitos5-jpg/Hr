@@ -187,6 +187,7 @@ function buildOrcList(list) {
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
     h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
     h += '<button class="btn btn-o" onclick="orcPDF(\''+q.id+'\',event)">📄 PDF</button>';
+    if(q.ambSnap&&q.ambSnap.some(function(s){return (s.tipo==='Soleira'||s.tipo==='Peitoril')&&s.pecas&&s.pecas.some(function(p){return p.w&&p.h;});})) h += '<button class="btn btn-o" style="background:rgba(96,200,160,.12);border-color:rgba(96,200,160,.35);color:#5ecb9a;" onclick="orcFichaCorte(\''+q.id+'\',event)">✂️ Ficha de Corte</button>';
     h += '<button class="btn" style="background:#075e54;color:#fff;border:1px solid #128c7e;" onclick="orcWhatsApp(\''+q.id+'\',event)">📲 WhatsApp</button>';
     h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
     h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
@@ -476,6 +477,9 @@ function _abrirModalStatusOrc(q, tipo) {
     }
 
     toast('✓ '+(isAceito?'Aceito':'Concluído')+' — R$ '+fm(valor)+' ('+forma+') lançado em Finanças');
+
+    // ── Ao aceitar soleira/peitoril: abre a Ficha de Corte direto pra mandar pro cortador ──
+    if (isAceito) setTimeout(function(){ _fichaCorteAposAceite(q); }, 300);
 
     // ── Oferece gerar o comprovante desse pagamento pro cliente ──
     if (_trNova && typeof gerarComprovante === 'function') {
@@ -1857,7 +1861,7 @@ function dispatch(e){
   el=e.target.closest('#btnCalc');if(el){calcular();return;}
   el=e.target.closest('#btnCopy');if(el){copiar();return;}
   el=e.target.closest('#btnPDF');if(el){gerarPDF();return;}
-  el=e.target.closest('#btnFichaCorte');if(el){gerarFichaCorteSolPeit();return;}
+  el=e.target.closest('#btnFichaCorte');if(el){gerarFichaCorteSolPeit(null);return;}
   el=e.target.closest('#btnPlanoCorte');if(el){gerarPlanoCorte();return;}
   el=e.target.closest('#btnEncaixeChapa');if(el){abrirEncaixeChapa();return;}
   el=e.target.closest('#btnSaveAg');if(el){salvarAgenda();return;}
@@ -7881,21 +7885,39 @@ function _fcTipoInfo(amb){
   var sels=tipoGrp.its.filter(function(it){return sv.hasOwnProperty(it.k);}).map(function(it){return it.l;});
   return sels.length?sels.join(' + '):null;
 }
-function gerarFichaCorteSolPeit(){
-  var grupos=(typeof ambientes!=='undefined'?ambientes:[]).filter(function(a){
+function _fcGruposDe(lista){
+  return (lista||[]).filter(function(a){
     return (a.tipo==='Soleira'||a.tipo==='Peitoril')&&a.pecas&&a.pecas.some(function(p){return p.w&&p.h;});
   });
+}
+// q (opcional): orçamento já salvo no Histórico. Sem q, usa o orçamento em edição na tela.
+function gerarFichaCorteSolPeit(q){
+  var fromQ=!!(q&&q.ambSnap);
+  var grupos=_fcGruposDe(fromQ?q.ambSnap:(typeof ambientes!=='undefined'?ambientes:[]));
   if(!grupos.length){toast('Nenhuma soleira/peitoril com medida neste orçamento');return;}
   toast('⏳ Gerando ficha de corte...');
   _loadNicImgLibs(function(){
-    try{_buildFichaCorteImg(grupos);}
+    try{_buildFichaCorteImg(grupos,fromQ?(q.cli||''):null);}
     catch(e){console.error('fichaCorte:',e);toast('Erro ao gerar imagem: '+e.message);}
   });
 }
-function _buildFichaCorteImg(grupos){
+// Chamada quando o orçamento é ACEITO no Histórico: abre a ficha direto, pronta pra mandar pro cortador.
+function _fichaCorteAposAceite(q){
+  try{
+    if(!q||!q.ambSnap||!_fcGruposDe(q.ambSnap).length)return;
+    gerarFichaCorteSolPeit(q);
+  }catch(e){console.error('fichaCorteAposAceite:',e);}
+}
+// Botão "✂️ Ficha de Corte" dos cards do Histórico
+function orcFichaCorte(id,e){
+  if(e)e.stopPropagation();
+  var q=DB.q.find(function(x){return String(x.id)===String(id);});
+  if(q)gerarFichaCorteSolPeit(q);
+}
+function _buildFichaCorteImg(grupos,cliNomeOv){
   var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
   var cliEl=document.getElementById('oCliente');
-  var cliNome=cliEl?cliEl.value.trim():'';
+  var cliNome=(typeof cliNomeOv==='string')?cliNomeOv.trim():(cliEl?cliEl.value.trim():'');
   var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 
   var gruposHtml='';
