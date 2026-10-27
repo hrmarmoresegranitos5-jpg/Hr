@@ -7375,6 +7375,12 @@ function gerarPDF(){
   var _pdfSemVista = q.formaPag !== 'misto' && q.formaPag !== 'tres' && q.formaPag !== 'parcelado' && q.mostrarVista === false;
   var _pdfIsPrazoDesc = _pdfSemVista && _temDescVista(q);
   var _pdfIsParc = q.formaPag === 'parcelado' || (_pdfSemVista && !_pdfIsPrazoDesc);
+  // Vendedor escolheu NÃO mostrar o à vista: mostra UM valor do projeto bem destacado + opções (8× sem juros ou 50%/50%)
+  var _pdfIsProj = _pdfSemVista && !_pdfIsPrazoDesc;
+  var _projTotal = (q.parc > 0) ? q.parc : (q.vista || 0);
+  var _proj8 = Math.round(_projTotal / 8 * 100) / 100;
+  var _projMeta1 = Math.round(_projTotal / 2 * 100) / 100;
+  var _projMeta2 = Math.round((_projTotal - _projMeta1) * 100) / 100;
   // % de desconto do valor parcelado para o à vista (mostrado no selo do cartão À VISTA)
   var _pdfPctVista = (q.parc > 0 && q.vista > 0 && q.parc > q.vista) ? Math.round((q.parc - q.vista) / q.parc * 100) : 0;
   var _pdfIsMisto = q.formaPag === 'misto';
@@ -7775,7 +7781,7 @@ function gerarPDF(){
       +'</div>'
     +'</div>'):'') 
     // VALORES
-    +sh((_pdfIsParc||_pdfIsMisto||_pdfIsTres||_pdfIsPrazoDesc)?'Valores do Projeto':'Escolha como pagar')
+    +sh((_pdfIsParc||_pdfIsMisto||_pdfIsTres||_pdfIsPrazoDesc)?(_pdfIsProj?'Valor do Projeto':'Valores do Projeto'):'Escolha como pagar')
     +(_pdfIsMisto
       // ── Cliente fechou ENTRADA 50% + PARCELADO COM JUROS ──
       ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
@@ -7828,6 +7834,32 @@ function gerarPDF(){
           +'</div>'
         +'</div>'
       +'</div>'
+      : _pdfIsProj
+      // ── Vendedor NÃO mostra o à vista: VALOR DO PROJETO bem destacado + 8× sem juros ou 50%/50% ──
+      ? '<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.22);margin-bottom:20px;">'
+          +'<div style="background:#0f0c00;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;">'
+            +'<div style="font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div>'
+            +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
+          +'</div>'
+          +'<div style="padding:22px 18px 18px;background:linear-gradient(180deg,#fffdf7,#fbf4e2);text-align:center;">'
+            +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:15px;color:#aaa;text-decoration:line-through;margin-bottom:4px;">De R$ '+fm(q._parcCalc)+'</div>':'')
+            +'<div style="font-size:52px;font-weight:900;color:#7a4400;line-height:1.05;letter-spacing:-1px;">R$ '+fm(_projTotal)+'</div>'
+            +'<div style="width:60px;height:3px;background:#C9A84C;border-radius:2px;margin:12px auto 0;"></div>'
+          +'</div>'
+          +'<div style="padding:14px 18px 16px;background:#fff;border-top:1px solid #ede8dc;">'
+            +'<div style="font-size:14px;color:#555;line-height:1.55;text-align:center;margin-bottom:12px;">Podemos dividir em <b style="color:#7a4400;">até 8× no cartão de crédito sem juros</b> ou fazer o pagamento <b style="color:#7a4400;">50% + 50%</b>.</div>'
+            +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+              +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
+                +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">💳 Cartão · sem juros</div>'
+                +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1.1;">8× R$ '+fm(_proj8)+'</div>'
+              +'</div>'
+              +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
+                +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">🤝 50% + 50%</div>'
+                +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1.1;">2× R$ '+fm(_projMeta1)+'</div>'
+              +'</div>'
+            +'</div>'
+          +'</div>'
+        +'</div>'
       : _pdfIsParc
       // ── Cliente fechou PARCELADO: mostra só o cartão parcelado, sem mencionar o valor à vista ──
       ? '<div style="display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px;">'
@@ -7915,6 +7947,20 @@ function gerarPDF(){
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PAGAMENTO EM 3 ETAPAS</div>'
           +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O valor é dividido em 3 partes iguais, sem juros. A <b>1ª</b> é paga na assinatura, para darmos início à produção. A <b>2ª</b> é paga quando faltar metade do prazo de entrega'+(_pdfTMeio?' (até <b>'+fd(_pdfTMeio)+'</b>)':'')+'. A <b>3ª</b> é paga na entrega e instalação.</div>'
+        +'</div>'
+      : _pdfIsProj
+      // ── Valor do projeto (sem à vista): explica as duas opções ──
+      ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+          +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">'
+            +'<div>'
+              +'<div style="font-size:9.5px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">💳 NO CARTÃO DE CRÉDITO</div>'
+              +'<div style="font-size:12.5px;color:#555;line-height:1.65;">Em até <b>8 parcelas iguais, sem juros</b>. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura.</div>'
+            +'</div>'
+            +'<div style="border-left:1px solid #e8dfc4;padding-left:18px;">'
+              +'<div style="font-size:9.5px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">🤝 PAGAMENTO 50% + 50%</div>'
+              +'<div style="font-size:12.5px;color:#555;line-height:1.65;"><b>R$ '+fm(_projMeta1)+'</b> na assinatura, para iniciar a produção, e <b>R$ '+fm(_projMeta2)+'</b> na entrega e instalação.</div>'
+            +'</div>'
+          +'</div>'
         +'</div>'
       : _pdfIsParc
       // ── Cliente fechou PARCELADO: explica a mecânica sem repetir os números já mostrados acima ──
@@ -8083,7 +8129,7 @@ function gerarPDF(){
       if(navigator.share){
         enableBtn('pdfBtnShare','&#8599; Compartilhar',function(){
           var pdfFile=new File([pdfBlob],fileName,{type:'application/pdf'});
-          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+((_pdfIsParc||_pdfIsPrazoDesc)?(_pdfIsPrazoDesc?'Valor do projeto R$ '+fm(q.vista)+' ou ':'')+'10× R$ '+fm(_p10(q))+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
+          var sd={title:'Orcamento '+orcNum+' — '+q.cli,text:emp.nome+'\n'+(_pdfIsProj?'Valor do projeto R$ '+fm(_projTotal)+' — até 8× R$ '+fm(_proj8)+' sem juros ou 50% + 50%':(_pdfIsParc||_pdfIsPrazoDesc)?(_pdfIsPrazoDesc?'Valor do projeto R$ '+fm(q.vista)+' ou ':'')+'10× R$ '+fm(_p10(q))+' (total R$ '+fm(q.parc)+')':(_pdfIsTres?'3 etapas: R$ '+fm(_pdfT.entrada)+' + R$ '+fm(_pdfT.meio)+' + R$ '+fm(_pdfT.entrega)+' (total R$ '+fm(_pdfT.total)+')':'R$ '+fm(q.vista)+' a vista'))};
           if(navigator.canShare&&navigator.canShare({files:[pdfFile]}))sd.files=[pdfFile];
           navigator.share(sd).catch(function(){});
         });
