@@ -7530,7 +7530,7 @@ function gerarPDF(){
   var obsBox=q.obs?'<div style="background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#555;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#7a4e00;">Observacoes:</strong> '+q.obs+'</div>':'';
 
   // sec header helper
-  function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
+  function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
   var hasBP=q.ambSnap&&q.ambSnap.some(function(s){return s.tipo==='🏊 Borda Piscina';});
   var bpSnapFirst=hasBP&&q.ambSnap?q.ambSnap.find(function(s){return s.tipo==='🏊 Borda Piscina';}):null;
   var bpAcabTipoPDF=bpSnapFirst&&bpSnapFirst.bordaAcb?bpSnapFirst.bordaAcb.tipo:'polida';
@@ -7588,8 +7588,8 @@ function gerarPDF(){
     '<div style="border:2px solid #a83232;background:#fff6f0;border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;">'
       +'<span style="font-size:20px;line-height:1;flex-shrink:0;">⚠️</span>'
       +'<div>'
-        +'<div style="font-size:11.5px;font-weight:900;color:#a83232;letter-spacing:0.3px;margin-bottom:4px;">SOLEIRA E PEITORIL NÃO SÃO VENDIDOS POR M² DE PEDRA</div>'
-        +'<div style="font-size:11px;color:#5a3a2a;line-height:1.55;">O valor de R$/m² acima é apenas referência do custo da matéria-prima. Soleira e peitoril têm baixíssimo aproveitamento de chapa (peças estreitas, muitos cortes) e o corte e acabamento manual por peça representam a maior parte do custo real. O valor final deste orçamento já inclui corte, acabamento, fabricação e instalação — não é (e nunca foi) só o preço da pedra.</div>'
+        +'<div style="font-size:13.5px;font-weight:900;color:#a83232;letter-spacing:0.3px;margin-bottom:4px;">SOLEIRA E PEITORIL NÃO SÃO VENDIDOS POR M² DE PEDRA</div>'
+        +'<div style="font-size:13px;color:#5a3a2a;line-height:1.55;">O valor de R$/m² acima é apenas referência do custo da matéria-prima. Soleira e peitoril têm baixíssimo aproveitamento de chapa (peças estreitas, muitos cortes) e o corte e acabamento manual por peça representam a maior parte do custo real. O valor final deste orçamento já inclui corte, acabamento, fabricação e instalação — não é (e nunca foi) só o preço da pedra.</div>'
       +'</div>'
     +'</div>';
 
@@ -7602,28 +7602,28 @@ function gerarPDF(){
         +'<div class="'+(mat.photo?'':mat.tx)+'" style="height:110px;width:100%;position:relative;overflow:hidden;'+(mat.photo?'background-image:url(\''+mat.photo+'\');background-size:cover;background-position:center;':'')+'">'
           +'<div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,0.78) 0%,rgba(0,0,0,0.45) 50%,rgba(0,0,0,0.12) 100%);">'
             +'<div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);">'
-              +'<div style="font-size:7px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:6px;">MATERIAL SELECIONADO</div>'
+              +'<div style="font-size:9.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,0.8);font-weight:900;margin-bottom:6px;">MATERIAL SELECIONADO</div>'
               +'<div style="font-size:26px;font-weight:900;color:#C9A84C;line-height:1;letter-spacing:-0.3px;">'+matNomePDF+'</div>'
-              +'<div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:5px;letter-spacing:1px;">'+(mat.cat||'')+(mat.cat&&mat.fin?' · ':'')+( mat.fin||'')+'</div>'
+              +'<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:5px;letter-spacing:1px;">'+(mat.cat||'')+(mat.cat&&mat.fin?' · ':'')+( mat.fin||'')+'</div>'
             +'</div>'
             +'<div style="position:absolute;right:20px;top:50%;transform:translateY(-50%);text-align:right;">'
-              +'<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">TOTAL DE PEDRA</div>'
+              +'<div style="font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.45);font-weight:900;margin-bottom:4px;">TOTAL DE PEDRA</div>'
               +'<div style="font-size:26px;font-weight:900;color:#fff;line-height:1;">'+q.m2.toFixed(3)+' m&sup2;</div>'
             +'</div>'
           +'</div>'
         +'</div>'
         +'<div style="background:#fdfaf3;padding:14px 20px;display:flex;gap:0;border-top:2px solid #C9A84C;">'
           +'<div style="flex:1;padding-right:16px;border-right:1px solid #e8dfc4;">'
-            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Categoria</div>'
-            +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.cat||'Granito')+'</div>'
+            +'<div style="font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Categoria</div>'
+            +'<div style="font-size:15px;font-weight:700;color:#2a1a00;">'+(mat.cat||'Granito')+'</div>'
           +'</div>'
           +'<div style="flex:1;padding-left:16px;padding-right:16px;border-right:1px solid #e8dfc4;">'
-            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Acabamento</div>'
-            +'<div style="font-size:13px;font-weight:700;color:#2a1a00;">'+(mat.fin||'Polida')+'</div>'
+            +'<div style="font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Acabamento</div>'
+            +'<div style="font-size:15px;font-weight:700;color:#2a1a00;">'+(mat.fin||'Polida')+'</div>'
           +'</div>'
           +'<div style="flex:2;padding-left:16px;">'
-            +'<div style="font-size:7px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Características</div>'
-            +'<div style="font-size:10.5px;color:#555;line-height:1.5;">'+(mat.desc?mat.desc.substring(0,120)+(mat.desc.length>120?'…':''):'Material de alta qualidade para sua obra.')+'</div>'
+            +'<div style="font-size:9.5px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;font-weight:900;margin-bottom:4px;">Características</div>'
+            +'<div style="font-size:12.5px;color:#555;line-height:1.5;">'+(mat.desc?mat.desc.substring(0,120)+(mat.desc.length>120?'…':''):'Material de alta qualidade para sua obra.')+'</div>'
           +'</div>'
         +'</div>'
       +'</div>'
@@ -7762,7 +7762,7 @@ function gerarPDF(){
       +'<div style="font-size:12px;color:#ffd0b0;line-height:1.6;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos em andamento.</div>'
     +'</div>':'')
     +sh('Como Funciona')
-    +(function(){var steps=_soInstPDF?_stepsInstPDF:[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
+    +(function(){var steps=_soInstPDF?_stepsInstPDF:[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:13px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:12px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // Bloco móvel planejado (se ativo)
     +(_pdfCeara?('<div style="background:#1a0f2e;border:1px solid rgba(167,139,250,0.3);border-radius:10px;padding:16px 22px;margin-bottom:18px;">'
@@ -7838,24 +7838,24 @@ function gerarPDF(){
       // ── Vendedor NÃO mostra o à vista: VALOR DO PROJETO bem destacado + 8× sem juros ou 50%/50% ──
       ? '<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.22);margin-bottom:20px;">'
           +'<div style="background:#0f0c00;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;">'
-            +'<div style="font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div>'
-            +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
+            +'<div style="font-size:14px;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div>'
+            +(q.parcDesconto>0&&q.parcDescontoPct>0?'<span style="background:#C9A84C;color:#000;font-size:15px;font-weight:900;padding:4px 12px;border-radius:20px;">-'+q.parcDescontoPct.toFixed(0)+'% OFF</span>':'')
           +'</div>'
           +'<div style="padding:22px 18px 18px;background:linear-gradient(180deg,#fffdf7,#fbf4e2);text-align:center;">'
-            +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:15px;color:#aaa;text-decoration:line-through;margin-bottom:4px;">De R$ '+fm(q._parcCalc)+'</div>':'')
-            +'<div style="font-size:52px;font-weight:900;color:#7a4400;line-height:1.05;letter-spacing:-1px;">R$ '+fm(_projTotal)+'</div>'
+            +(q.parcDesconto>0&&q._parcCalc>0?'<div style="font-size:17px;color:#aaa;text-decoration:line-through;margin-bottom:4px;">De R$ '+fm(q._parcCalc)+'</div>':'')
+            +'<div style="font-size:40px;font-weight:900;color:#7a4400;line-height:1.05;letter-spacing:-1px;">R$ '+fm(_projTotal)+'</div>'
             +'<div style="width:60px;height:3px;background:#C9A84C;border-radius:2px;margin:12px auto 0;"></div>'
           +'</div>'
           +'<div style="padding:14px 18px 16px;background:#fff;border-top:1px solid #ede8dc;">'
-            +'<div style="font-size:14px;color:#555;line-height:1.55;text-align:center;margin-bottom:12px;">Podemos dividir em <b style="color:#7a4400;">até 8× no cartão de crédito sem juros</b> ou fazer o pagamento <b style="color:#7a4400;">50% + 50%</b>.</div>'
+            +'<div style="font-size:17px;color:#555;line-height:1.55;text-align:center;margin-bottom:12px;">Podemos dividir em <b style="color:#7a4400;">até 8× no cartão de crédito sem juros</b> ou fazer o pagamento <b style="color:#7a4400;">50% + 50%</b>.</div>'
             +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
               +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
-                +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">💳 Cartão · sem juros</div>'
-                +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1.1;">8× R$ '+fm(_proj8)+'</div>'
+                +'<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">💳 Cartão · sem juros</div>'
+                +'<div style="font-size:27px;font-weight:900;color:#7a4400;line-height:1.1;">8× R$ '+fm(_proj8)+'</div>'
               +'</div>'
               +'<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:12px 10px;text-align:center;">'
-                +'<div style="font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">🤝 50% + 50%</div>'
-                +'<div style="font-size:22px;font-weight:900;color:#7a4400;line-height:1.1;">2× R$ '+fm(_projMeta1)+'</div>'
+                +'<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#a06020;font-weight:900;margin-bottom:5px;">🤝 50% + 50%</div>'
+                +'<div style="font-size:27px;font-weight:900;color:#7a4400;line-height:1.1;">2× R$ '+fm(_projMeta1)+'</div>'
               +'</div>'
             +'</div>'
           +'</div>'
@@ -7953,12 +7953,12 @@ function gerarPDF(){
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
           +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">'
             +'<div>'
-              +'<div style="font-size:9.5px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">💳 NO CARTÃO DE CRÉDITO</div>'
-              +'<div style="font-size:12.5px;color:#555;line-height:1.65;">Em até <b>8 parcelas iguais, sem juros</b>. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura.</div>'
+              +'<div style="font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">💳 NO CARTÃO DE CRÉDITO</div>'
+              +'<div style="font-size:15px;color:#555;line-height:1.65;">Em até <b>8 parcelas iguais, sem juros</b>. Na assinatura o valor é aprovado no cartão, para darmos início à produção, e as parcelas são cobradas mensalmente na sua fatura.</div>'
             +'</div>'
             +'<div style="border-left:1px solid #e8dfc4;padding-left:18px;">'
-              +'<div style="font-size:9.5px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">🤝 PAGAMENTO 50% + 50%</div>'
-              +'<div style="font-size:12.5px;color:#555;line-height:1.65;"><b>R$ '+fm(_projMeta1)+'</b> na assinatura, para iniciar a produção, e <b>R$ '+fm(_projMeta2)+'</b> na entrega e instalação.</div>'
+              +'<div style="font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">🤝 PAGAMENTO 50% + 50%</div>'
+              +'<div style="font-size:15px;color:#555;line-height:1.65;"><b>R$ '+fm(_projMeta1)+'</b> na assinatura, para iniciar a produção, e <b>R$ '+fm(_projMeta2)+'</b> na entrega e instalação.</div>'
             +'</div>'
           +'</div>'
         +'</div>'
@@ -8002,7 +8002,7 @@ function gerarPDF(){
         ['✂️','Corte de Precisão','Pedra cortada com precisão milimétrica em maquinário próprio, com rigoroso controle dimensional em cada peça.'],
         ['🚚','Do Corte à Instalação','Nossa equipe cuida de tudo — fabricação, entrega, instalação e nivelamento. Nada fica por sua conta.'],
         ['📍','Atendimento Direto','Sem intermediários: você fala com quem produz e instala, do orçamento à entrega final.']
-      ];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+motivos.map(function(m){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+m[0]+'</div><div><div style="font-size:10.5px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+m[1]+'</div><div style="font-size:10px;color:#777;line-height:1.45;">'+m[2]+'</div></div></div>';}).join('')+'</div></div>';})()
+      ];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+motivos.map(function(m){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+m[0]+'</div><div><div style="font-size:13px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+m[1]+'</div><div style="font-size:12px;color:#777;line-height:1.45;">'+m[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // PRAZO ESTIMADO (injetado pelo app-pdf-prazo.js)
     +(window._pdfPrazoData ? (function(){
