@@ -102,6 +102,26 @@
       lastEnd: last, emProd: emProd, hoje: hoje, isUrgent: isUrgent
     };
 
+    // Guarda o prazo no próprio orçamento — ao ACEITAR no Histórico o app usa isso
+    // (início, dias e entrega) em vez de perguntar a entrega de novo.
+    try {
+      if (pendQ) {
+        var _alvos = [pendQ];
+        var _noDB = (DB.q || []).find(function (x) { return String(x.id) === String(pendQ.id); });
+        if (_noDB && _noDB !== pendQ) _alvos.push(_noDB);
+        _alvos.forEach(function (o) {
+          o.prazoDias = dias;
+          o.prazoInicio = base;
+          o.prazoEntrega = dataEst;
+          o.prazoModo = isModoManual ? 'manual' : 'agenda';
+          o.prazoUrgente = isUrgent;
+          o.pdfGerado = true;
+          o.pdfData = hoje;
+        });
+        DB.sv();
+      }
+    } catch (e) { console.error('salvar prazo no orçamento:', e); }
+
     closeAll();
     setTimeout(function () { _originalGerarPDF(); }, 150);
   };

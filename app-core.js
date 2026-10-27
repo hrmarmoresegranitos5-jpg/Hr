@@ -17,18 +17,234 @@ window.APP_BUILD_VERSION = 'v39';
 var _orcFilter = '';
 var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aceito' | 'concluido' | 'perdido'
 
-function renderOrc() {
-  var total = DB.q.length;
-  var totalVista = DB.q.reduce(function(s,q){return s+(q.vista||0);},0);
-  var thisMonth = (new Date()).toISOString().slice(0,7);
-  var mesCount = DB.q.filter(function(q){return (q.date||'').slice(0,7)===thisMonth;}).length;
+// ── Seções do Histórico ─────────────────────────────────────────────────────
+var _orcSecOpen = {aceito:true, pendente:true, rascunho:true, concluido:false, perdido:false};
+var _ORC_SECS = [
+  {k:'aceito',    ic:'✅', l:'Aceitos',    cor:'#4ade80'},
+  {k:'pendente',  ic:'⏳', l:'Aguardando', cor:'#f59e0b'},
+  {k:'rascunho',  ic:'📝', l:'Rascunhos',  cor:'#fb923c', sub:'feitos, sem PDF gerado'},
+  {k:'concluido', ic:'🏆', l:'Concluídos', cor:'#e0c068'},
+  {k:'perdido',   ic:'❌', l:'Perdidos',   cor:'#f87171'}
+];
+var _ORC_ST = {
+  pendente:  {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)',  lbl:'Aguardando'},
+  rascunho:  {ic:'📝', cor:'#fb923c', bg:'rgba(251,146,60,.12)',  lbl:'Rascunho'},
+  aceito:    {ic:'✅', cor:'#4ade80', bg:'rgba(74,222,128,.12)',  lbl:'Aceito'},
+  concluido: {ic:'🏆', cor:'#e0c068', bg:'rgba(224,192,104,.14)', lbl:'Concluído'},
+  perdido:   {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
+};
+function _orcStatusDe(q){ return q.status==='aprovado' ? 'aceito' : (q.status||'pendente'); }
+// Rascunho = orçamento feito (já rastreado) que ainda NÃO teve PDF gerado. Orçamentos antigos (sem rastreio) ficam em Aguardando.
+function _orcSecaoDe(q){
+  var st=_orcStatusDe(q);
+  if(st==='pendente' && q._trkPdf && !q.pdfGerado) return 'rascunho';
+  return st;
+}
+function _orcRankSt(q){ return {concluido:4,aceito:3,pendente:2,perdido:1}[_orcStatusDe(q)]||2; }
+function _orcMarcarPdf(q){ if(!q)return; q.pdfGerado=true; q.pdfData=td(); try{DB.sv();}catch(e){} }
 
-  // Contagens por status (A2) — 'aprovado' (dados antigos) conta como 'aceito'
-  var _norm = function(q){ return q.status==='aprovado' ? 'aceito' : (q.status||'pendente'); };
-  var cPend  = DB.q.filter(function(q){return _norm(q)==='pendente';}).length;
-  var cAceito = DB.q.filter(function(q){return _norm(q)==='aceito';}).length;
-  var cConcl = DB.q.filter(function(q){return _norm(q)==='concluido';}).length;
-  var cPerd  = DB.q.filter(function(q){return _norm(q)==='perdido';}).length;
+// ── Duplicados: assinatura = tudo que importa no orçamento (ignora id, data, status) ──
+function _orcNomeKey(s){
+  return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+function _orcCanon(v){
+  if(Array.isArray(v)) return v.map(_orcCanon);
+  if(v&&typeof v==='object'){
+    var o={}; Object.keys(v).sort().forEach(function(k){
+      if(k==='id'||k.charAt(0)==='_')return;
+      o[k]=_orcCanon(v[k]);
+    }); return o;
+  }
+  if(typeof v==='number') return Math.round(v*100)/100;
+  if(typeof v==='string') return v.trim();
+  return v;
+}
+function _orcAssin(q){
+  return JSON.stringify(_orcCanon({
+    cli:_orcNomeKey(q.cli), tel:String(q.tel||'').replace(/\D/g,''), cidade:q.cidade||'', end:q.end||'', obs:q.obs||'',
+    tipo:q.tipo||'', mat:q.mat||'', vista:q.vista||0, parc:q.parc||0, p8:q.p8||0, ent:q.ent||0, m2:q.m2||0,
+    acN:q.acN||[], pds:q.pds||[], sfPcs:q.sfPcs||[], desconto:q.desconto||0, descontoPct:q.descontoPct||0,
+    descontoMotivo:q.descontoMotivo||'', urgPct:q.urgPct||0, formaPag:q.formaPag||'', mostrarVista:q.mostrarVista,
+    brindes:q.brindes||[], ceara:q.ceara||null, ambSnap:q.ambSnap||[]
+  }));
+}
+function _orcMontarGrupo(qs){
+  var cl={}, ordem=[];
+  qs.forEach(function(q){
+    var s=_orcAssin(q);
+    if(!cl[s]){cl[s]=[];ordem.push(s);}
+    cl[s].push(q);
+  });
+  var clusters=ordem.map(function(s){
+    var m=cl[s].slice().sort(function(a,b){
+      var d=(_orcRankSt(b)*10+(b.pdfGerado?1:0))-(_orcRankSt(a)*10+(a.pdfGerado?1:0));
+      return d||((+b.id||0)-(+a.id||0));
+    });
+    return {rep:m[0], ocultas:m.length-1, oldest:Math.min.apply(null,m.map(function(x){return +x.id||0;}))};
+  });
+  clusters.slice().sort(function(a,b){return a.oldest-b.oldest;}).forEach(function(c,i){c.num=i+1;});
+  clusters.sort(function(a,b){
+    var d=_orcRankSt(b.rep)-_orcRankSt(a.rep);
+    return d||((+b.rep.id||0)-(+a.rep.id||0));
+  });
+  var main=clusters[0];
+  return {
+    main:main.rep, mainInfo:main, total:clusters.length,
+    outros:clusters.slice(1).sort(function(a,b){return a.num-b.num;}),
+    secao:_orcSecaoDe(main.rep)
+  };
+}
+// Agrupa por cliente + tipo de serviço. Cópias idênticas somem (ficam só contadas); versões diferentes ficam dentro do card principal.
+function _orcAgrupar(lista){
+  var por={}, ordem=[];
+  (lista||[]).forEach(function(q){
+    var nome=_orcNomeKey(q.cli);
+    var k=nome ? nome+'|'+_orcNomeKey(q.tipo) : 'id:'+q.id;
+    if(!por[k]){por[k]=[];ordem.push(k);}
+    por[k].push(q);
+  });
+  return ordem.map(function(k){return _orcMontarGrupo(por[k]);})
+    .sort(function(a,b){return (+b.main.id||0)-(+a.main.id||0);});
+}
+
+// ── Diferenças entre dois orçamentos do mesmo cliente ──
+function _orcMats(q){
+  var n=[];
+  (q.ambSnap||[]).forEach(function(s){
+    var st=((typeof CFG!=='undefined'&&CFG.stones)||[]).find(function(x){return x.id===s.selMat;});
+    if(st&&n.indexOf(st.nm)<0)n.push(st.nm);
+  });
+  if(!n.length&&q.mat)n.push(q.mat);
+  return n;
+}
+function _orcPecasTxt(q){
+  var out=[];
+  (q.pds||[]).forEach(function(p){out.push((p.desc||'Peça')+' '+p.w+'×'+p.h+'cm'+(p.q>1?' ×'+p.q:''));});
+  (q.sfPcs||[]).forEach(function(p){out.push((p.l||'Sainha/Frontão')+' '+p.w+'ml×'+p.h+'cm'+(p.q>1?' ×'+p.q:''));});
+  return out;
+}
+function _orcOpcoesTxt(q){
+  var out=[], snaps=q.ambSnap||[];
+  snaps.forEach(function(s){
+    var defs=(typeof SV_DEFS!=='undefined'&&SV_DEFS[s.tipo])||[];
+    Object.keys(s.svState||{}).forEach(function(k){
+      var lbl=k;
+      defs.forEach(function(g){(g.its||[]).forEach(function(it){if(it.k===k)lbl=it.l;});});
+      out.push((snaps.length>1?s.tipo+': ':'')+lbl);
+    });
+  });
+  return out;
+}
+function _orcListaDiff(a,b){
+  var cnt={}; b.forEach(function(x){cnt[x]=(cnt[x]||0)+1;});
+  var rem=[]; a.forEach(function(x){ if(cnt[x]>0)cnt[x]--; else rem.push(x); });
+  var cnt2={}; a.forEach(function(x){cnt2[x]=(cnt2[x]||0)+1;});
+  var add=[]; b.forEach(function(x){ if(cnt2[x]>0)cnt2[x]--; else add.push(x); });
+  return {rem:rem,add:add};
+}
+function _orcDiffs(a,b){
+  var d=[];
+  var R=function(v){return 'R$ '+fm(v||0);};
+  var esc=function(s){return String(s||'').trim();};
+  var esc2=function(l,x,y){ if(esc(x)!==esc(y)) d.push({l:l,a:esc(x),b:esc(y)}); };
+  if(Math.round((a.vista||0)*100)!==Math.round((b.vista||0)*100)) d.push({l:'Valor à vista',a:R(a.vista),b:R(b.vista)});
+  else if(Math.round((a.parc||0)*100)!==Math.round((b.parc||0)*100)) d.push({l:'Valor a prazo',a:R(a.parc),b:R(b.parc)});
+  var ma=_orcMats(a).join(', '), mb=_orcMats(b).join(', ');
+  if(ma!==mb) d.push({l:'Pedra',a:ma,b:mb});
+  if(Math.round((a.m2||0)*1000)!==Math.round((b.m2||0)*1000)) d.push({l:'Área',a:(a.m2||0).toFixed(3)+' m²',b:(b.m2||0).toFixed(3)+' m²'});
+  var lp=_orcListaDiff(_orcPecasTxt(a),_orcPecasTxt(b));
+  if(lp.rem.length||lp.add.length) d.push({l:'Peças',rem:lp.rem,add:lp.add});
+  var ls=_orcListaDiff(a.acN||[],b.acN||[]);
+  if(ls.rem.length||ls.add.length) d.push({l:'Serviços',rem:ls.rem,add:ls.add});
+  var lo=_orcListaDiff(_orcOpcoesTxt(a),_orcOpcoesTxt(b));
+  if(lo.rem.length||lo.add.length) d.push({l:'Opções',rem:lo.rem,add:lo.add});
+  if(Math.round((a.desconto||0)*100)!==Math.round((b.desconto||0)*100)) d.push({l:'Desconto',a:a.desconto>0?R(a.desconto):'sem desconto',b:b.desconto>0?R(b.desconto):'sem desconto'});
+  if((a.urgPct||0)!==(b.urgPct||0)) d.push({l:'Urgência',a:(a.urgPct||0)+'%',b:(b.urgPct||0)+'%'});
+  if((a.formaPag||'')!==(b.formaPag||'')) d.push({l:'Forma de pagto',a:a.formaPag||'—',b:b.formaPag||'—'});
+  if(String(a.tel||'').replace(/\D/g,'')!==String(b.tel||'').replace(/\D/g,'')) d.push({l:'Telefone',a:a.tel||'—',b:b.tel||'—'});
+  esc2('Cidade',a.cidade,b.cidade); esc2('Endereço',a.end,b.end); esc2('Obs.',a.obs,b.obs);
+  if(JSON.stringify(_orcCanon(a.brindes||[]))!==JSON.stringify(_orcCanon(b.brindes||[]))||JSON.stringify(_orcCanon(a.ceara||null))!==JSON.stringify(_orcCanon(b.ceara||null)))
+    d.push({l:'Brindes/extras',a:'diferentes',b:'diferentes'});
+  if(!d.length) d.push({l:'Detalhes',a:'',b:'bordas/acabamento das peças diferentes'});
+  return d;
+}
+function _orcDiffHtml(it){
+  var row='display:flex;gap:8px;font-size:.72rem;padding:5px 0;border-bottom:1px solid var(--bd);line-height:1.45;';
+  var lab='<span style="color:var(--t3);min-width:86px;flex-shrink:0;">'+it.l+'</span>';
+  if(it.rem||it.add){
+    var s='';
+    (it.rem||[]).forEach(function(x){s+='<div style="color:#f87171;">− '+escH(x)+'</div>';});
+    (it.add||[]).forEach(function(x){s+='<div style="color:#4ade80;">+ '+escH(x)+'</div>';});
+    return '<div style="'+row+'">'+lab+'<div style="flex:1;min-width:0;">'+s+'</div></div>';
+  }
+  if(!it.a) return '<div style="'+row+'">'+lab+'<div style="flex:1;color:var(--gold2);font-weight:700;">'+escH(it.b)+'</div></div>';
+  return '<div style="'+row+'">'+lab+'<div style="flex:1;min-width:0;"><span style="text-decoration:line-through;opacity:.55;">'+escH(it.a)+'</span> → <b style="color:var(--gold2);">'+escH(it.b)+'</b></div></div>';
+}
+function _orcBadgeHtml(q){
+  var c=_ORC_ST[_orcSecaoDe(q)]||_ORC_ST.pendente;
+  return '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para avançar o status" style="'
+    +'display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:20px;'
+    +'background:'+c.bg+';border:1px solid '+c.cor+'55;box-shadow:0 1px 3px rgba(0,0,0,.25) inset;'
+    +'font-size:.6rem;font-weight:800;letter-spacing:.2px;color:'+c.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
+    +c.ic+' '+c.lbl+'</span>';
+}
+function togQVer(id,e){
+  if(e)e.stopPropagation();
+  var b=document.getElementById('qvb-'+id), c=document.getElementById('qvc-'+id);
+  if(!b)return;
+  var abre=(b.style.display==='none');
+  b.style.display=abre?'block':'none';
+  if(c)c.style.transform=abre?'rotate(180deg)':'';
+}
+function _orcVersoesHtml(g){
+  if(!g.outros.length && !g.mainInfo.ocultas) return '';
+  var h='<div onclick="event.stopPropagation()" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--bd2);">';
+  if(g.outros.length){
+    h+='<div style="font-size:.6rem;letter-spacing:1.2px;text-transform:uppercase;color:var(--gold3);margin-bottom:8px;">📑 Outros orçamentos deste cliente ('+g.outros.length+')</div>';
+    g.outros.forEach(function(c){
+      var q=c.rep, id=q.id;
+      var diffs=_orcDiffs(g.main,q);
+      h+='<div style="background:var(--s3);border:1px solid var(--bd2);border-radius:12px;margin-bottom:8px;overflow:hidden;">'
+        +'<div onclick="togQVer(\''+id+'\',event)" style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;">'
+          +'<div style="flex:1;min-width:0;"><div style="font-size:.78rem;font-weight:800;">'+c.num+'º orçamento</div>'
+          +'<div style="font-size:.62rem;color:var(--t3);">'+(q.date?fd(q.date):'')+'</div></div>'
+          +_orcBadgeHtml(q)
+          +'<div style="font-family:\'Cormorant Garamond\',serif;font-size:1rem;font-weight:700;color:var(--gold2);">R$ '+fm(q.vista)+'</div>'
+          +'<span id="qvc-'+id+'" style="font-size:.65rem;color:var(--t4);transition:transform .2s;">▼</span>'
+        +'</div>'
+        +'<div id="qvb-'+id+'" style="display:none;padding:0 12px 12px;" onclick="event.stopPropagation()">'
+          +'<div style="font-size:.6rem;color:var(--t3);margin:2px 0 4px;">O que muda em relação ao '+g.mainInfo.num+'º orçamento (o do topo):</div>'
+          +diffs.map(_orcDiffHtml).join('')
+          +(c.ocultas?'<div style="font-size:.64rem;color:var(--t4);margin-top:8px;">🗂 +'+c.ocultas+' cópia'+(c.ocultas>1?'s':'')+' idêntica'+(c.ocultas>1?'s':'')+' a este, ocultada'+(c.ocultas>1?'s':'')+'</div>':'')
+          +'<div class="qcard-btns" style="margin-top:10px;">'
+            +'<button class="btn btn-g" onclick="orcEditar(\''+id+'\',event)">✏️ Editar</button>'
+            +'<button class="btn btn-o" onclick="orcPDF(\''+id+'\',event)">📄 PDF</button>'
+            +'<button class="btn" style="background:#075e54;color:#fff;border:1px solid #128c7e;" onclick="orcWhatsApp(\''+id+'\',event)">📲 WhatsApp</button>'
+            +'<button class="btn btn-red" onclick="orcDel(\''+id+'\',event)">🗑</button>'
+          +'</div>'
+        +'</div></div>';
+    });
+  }
+  if(g.mainInfo.ocultas){
+    var n=g.mainInfo.ocultas;
+    h+='<div style="font-size:.64rem;color:var(--t4);">🗂 +'+n+' cópia'+(n>1?'s':'')+' idêntica'+(n>1?'s':'')+' a este orçamento, ocultada'+(n>1?'s':'')+'</div>';
+  }
+  return h+'</div>';
+}
+function _orcToggleSec(k){
+  _orcSecOpen[k]=!_orcSecOpen[k];
+  var b=document.getElementById('orcsec-'+k), a=document.getElementById('orcsecA-'+k);
+  if(b)b.style.display=_orcSecOpen[k]?'block':'none';
+  if(a)a.style.transform=_orcSecOpen[k]?'rotate(180deg)':'';
+}
+
+function renderOrc() {
+  var grupos = _orcAgrupar(DB.q);
+  var total = grupos.length;
+  var totalVista = grupos.reduce(function(s,g){return s+(g.main.vista||0);},0);
+  var thisMonth = (new Date()).toISOString().slice(0,7);
+  var mesCount = grupos.filter(function(g){return (g.main.date||'').slice(0,7)===thisMonth;}).length;
+  var cConcl = grupos.filter(function(g){return g.secao==='concluido';}).length;
 
   var sumEl = document.getElementById('orcSummary');
   if(sumEl) sumEl.innerHTML =
@@ -36,27 +252,6 @@ function renderOrc() {
     '<div class="orc-sum-card"><div class="orc-sum-v">'+mesCount+'</div><div class="orc-sum-l">Este mês</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">'+cConcl+'</div><div class="orc-sum-l">🏆 Concluídos</div></div>' +
     '<div class="orc-sum-card"><div class="orc-sum-v">R$ '+(totalVista/1000).toFixed(0)+'k</div><div class="orc-sum-l">Em orçamentos</div></div>';
-
-  // Botões de filtro por status (A2)
-  var fEl = document.getElementById('orcStatusFilter');
-  if(fEl) {
-    var tabs = [
-      {k:'todos',    l:'Todos',      n:total,   col:'var(--t3)'},
-      {k:'pendente', l:'⏳ Aguard.', n:cPend,   col:'#f59e0b'},
-      {k:'aceito',   l:'✅ Aceito',  n:cAceito, col:'#4ade80'},
-      {k:'concluido',l:'🏆 Concl.',  n:cConcl,  col:'#e0c068'},
-      {k:'perdido',  l:'❌ Perd.',   n:cPerd,   col:'#f87171'}
-    ];
-    fEl.innerHTML = tabs.map(function(t){
-      var on = _orcStatusFilter === t.k;
-      return '<button onclick="_orcStatusFilter=\''+t.k+'\';renderOrc();" style="'
-        +'flex:1;padding:7px 4px;border:1px solid '+(on?t.col:'var(--bd)')+';'
-        +'border-radius:9px;background:'+(on?'rgba(255,255,255,.06)':'transparent')+';'
-        +'color:'+(on?t.col:'var(--t3)')+';font-size:.66rem;font-weight:'+(on?'800':'500')+';'
-        +'font-family:Outfit,sans-serif;cursor:pointer;white-space:nowrap;transition:.15s;">'
-        +t.l+' <span style="opacity:.75;">('+t.n+')</span></button>';
-    }).join('');
-  }
 
   filterOrc();
   _renderRascunhoBanner();
@@ -99,22 +294,17 @@ function _orcDescartarRascunho(){
 function filterOrc() {
   _orcFilter = (document.getElementById('orcSearch')||{value:''}).value.trim().toLowerCase();
   var filtered = DB.q;
-  // Filtro de texto
-  if(_orcFilter) filtered = filtered.filter(function(q){ return (q.cli||'').toLowerCase().indexOf(_orcFilter) >= 0; });
-  // Filtro de status (A2) — 'aprovado' (dados antigos) equivale a 'aceito'
-  if(_orcStatusFilter && _orcStatusFilter !== 'todos') {
-    filtered = filtered.filter(function(q){
-      var st = q.status==='aprovado' ? 'aceito' : (q.status||'pendente');
-      return st === _orcStatusFilter;
-    });
-  }
+  if(_orcFilter) filtered = filtered.filter(function(q){
+    return ((q.cli||'')+' '+(q.mat||'')+' '+(q.cidade||'')).toLowerCase().indexOf(_orcFilter) >= 0;
+  });
   buildOrcList(filtered);
 }
 
 function buildOrcList(list) {
   var el = document.getElementById('orcList');
   if(!el) return;
-  if(!list.length) {
+  var _grupos = _orcAgrupar(list);
+  if(!_grupos.length) {
     el.innerHTML = '<div class="orc-empty"><div class="orc-empty-icon">📋</div>' +
       (_orcFilter ? 'Nenhum orçamento para "'+_orcFilter+'"' : 'Nenhum orçamento ainda.<br>Faça um orçamento para começar!') + '</div>';
     return;
@@ -128,20 +318,18 @@ function buildOrcList(list) {
     concluido: {ic:'🏆', cor:'#e0c068', bg:'rgba(224,192,104,.14)', lbl:'Concluído'},
     perdido:   {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
   };
-  var h = '';
-  list.forEach(function(q) {
+  var _cardHtml = function(q, grp) {
+    var h = '';
     var icon = tipo_icons[q.tipo]||'📦';
     var dateStr = q.date ? fd(q.date) : '';
     var pdsCount = (q.pds||[]).length + (q.sfPcs||[]).length;
-    var st = q.status || 'pendente';
-    if (st === 'aprovado') st = 'aceito'; // compat. com dados antigos
-    var stCfg = _stMap[st] || _stMap.pendente;
+    var stCfg = _ORC_ST[_orcSecaoDe(q)] || _ORC_ST.pendente;
     h += '<div class="qcard" id="qc-'+q.id+'" onclick="togQCard(\''+q.id+'\')">';
     h += '<div class="qcard-head">';
     h +=   '<div class="qcard-badge">'+icon+'</div>';
     h +=   '<div class="qcard-info">';
     h +=     '<div class="qcard-cli">'+escH(q.cli)+'</div>';
-    h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+'</div>';
+    h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+(grp&&grp.total>1?' · 📑 '+grp.total+' orçamentos':'')+'</div>';
     h +=   '</div>';
     // Badge de status (A1)
     h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para avançar o status" style="'
@@ -154,6 +342,7 @@ function buildOrcList(list) {
     h += '</div>';
     h += '<div class="qcard-body">';
     h += '<div class="qcard-pills">';
+    if(grp&&grp.total>1) h += '<div class="qpill gold">'+grp.mainInfo.num+'º de '+grp.total+' orçamentos</div>';
     if(q.m2) h += '<div class="qpill gold">'+q.m2.toFixed(3)+' m²</div>';
     if(pdsCount) h += '<div class="qpill">'+pdsCount+' peça'+(pdsCount>1?'s':'')+'</div>';
     if(q.mat) h += '<div class="qpill">'+escH(q.mat)+'</div>';
@@ -192,9 +381,51 @@ function buildOrcList(list) {
     h += '<button class="btn btn-contrato" data-cid="'+q.id+'" onclick="gerarContrId(this,event)">📜 Contrato</button>';
     h += '<button class="btn btn-red" onclick="orcDel(\''+q.id+'\',event)">🗑</button>';
     h += '</div>';
+    if(grp) h += _orcVersoesHtml(grp);
     h += '</div>'; // qcard-body
     h += '</div>'; // qcard
+    return h;
+  };
+
+  // ── Chips de seção (sempre dá pra voltar pra "Todos") ──
+  var cont = {}; var soma = {};
+  _ORC_SECS.forEach(function(s){cont[s.k]=0;soma[s.k]=0;});
+  _grupos.forEach(function(g){cont[g.secao]=(cont[g.secao]||0)+1; soma[g.secao]=(soma[g.secao]||0)+(g.main.vista||0);});
+  var filtro = _orcStatusFilter||'todos';
+  if(filtro!=='todos' && !_ORC_SECS.some(function(s){return s.k===filtro;})) filtro='todos';
+  var chips = [{k:'todos',l:'Todos',n:_grupos.length,cor:'var(--gold2)'}].concat(
+    _ORC_SECS.filter(function(s){return s.k==='aceito'||s.k==='pendente'||s.k==='rascunho'||cont[s.k]>0;})
+      .map(function(s){return {k:s.k,l:s.ic+' '+s.l,n:cont[s.k],cor:s.cor};}));
+  var h = '<div style="display:flex;gap:7px;overflow-x:auto;padding:0 17px 4px;margin-bottom:6px;-webkit-overflow-scrolling:touch;">'
+    + chips.map(function(c){
+        var on = filtro===c.k;
+        return '<button onclick="_orcStatusFilter=\''+c.k+'\';renderOrc();" style="flex:0 0 auto;padding:7px 11px;border-radius:20px;'
+          +'border:1px solid '+(on?c.cor:'var(--bd)')+';background:'+(on?'rgba(255,255,255,.07)':'transparent')+';'
+          +'color:'+(on?c.cor:'var(--t3)')+';font-size:.68rem;font-weight:'+(on?'800':'500')+';font-family:Outfit,sans-serif;cursor:pointer;white-space:nowrap;">'
+          +c.l+' <span style="opacity:.7;">('+c.n+')</span></button>';
+      }).join('')
+    + '</div>';
+
+  // ── Seções: Aceitos · Aguardando · Rascunhos · Concluídos · Perdidos ──
+  var algum = false;
+  _ORC_SECS.forEach(function(s){
+    if(filtro!=='todos' && filtro!==s.k) return;
+    var gs = _grupos.filter(function(g){return g.secao===s.k;});
+    if(!gs.length) return;
+    algum = true;
+    var aberta = (filtro!=='todos') || !!_orcFilter || _orcSecOpen[s.k];
+    if(filtro!=='todos'||_orcFilter) _orcSecOpen[s.k] = true;
+    h += '<div onclick="_orcToggleSec(\''+s.k+'\')" style="display:flex;align-items:center;gap:8px;margin:14px 17px 10px;padding:10px 13px;'
+      +'border-radius:12px;background:rgba(255,255,255,.03);border:1px solid '+s.cor+'44;border-left:3px solid '+s.cor+';cursor:pointer;">'
+      +'<span style="font-size:1rem;">'+s.ic+'</span>'
+      +'<div style="flex:1;min-width:0;"><div style="font-size:.82rem;font-weight:800;color:'+s.cor+';">'+s.l+' <span style="opacity:.75;font-weight:600;">('+gs.length+')</span></div>'
+      +'<div style="font-size:.6rem;color:var(--t3);">'+(s.sub?s.sub+' · ':'')+'R$ '+fm(soma[s.k])+'</div></div>'
+      +'<span id="orcsecA-'+s.k+'" style="font-size:.7rem;color:var(--t4);transition:transform .2s;'+(aberta?'transform:rotate(180deg);':'')+'">▼</span></div>';
+    h += '<div id="orcsec-'+s.k+'" style="display:'+(aberta?'block':'none')+';">';
+    gs.forEach(function(g){ h += _cardHtml(g.main, g); });
+    h += '</div>';
   });
+  if(!algum) h += '<div class="orc-empty"><div class="orc-empty-icon">📋</div>Nenhum orçamento nesta seção.</div>';
   el.innerHTML = h;
 }
 // Abre WhatsApp com o texto completo do orçamento (K2)
@@ -459,7 +690,10 @@ function _abrirModalStatusOrc(q, tipo) {
     // ── Ao aceitar, manda pra Agenda (se ainda não estiver lá) — confirma o prazo certinho ──
     var jaAgendado = (DB.j||[]).some(function(j){ return j.qId === q.id; });
     if (isAceito && !jaAgendado) {
-      setTimeout(function(){ pendQ = q; salvarAgenda(); }, 400);
+      setTimeout(function(){
+        // Puxa prazo + instalação do orçamento; só abre "Definir Entrega" se o orçamento não tem prazo salvo
+        if (!_agendarAposAceite(q)) { pendQ = q; salvarAgenda(); }
+      }, 400);
     }
 
     // ── Ao concluir, marca o serviço correspondente na Agenda como feito ──
@@ -7011,7 +7245,7 @@ function calcular(){
   var _tumAmb=ambientes.find(function(a){return a.tipo==='Túmulo'&&a.tumPendOrc;});
   var _tumPendOrcSnap=_tumAmb?JSON.parse(JSON.stringify(_tumAmb.tumPendOrc)):undefined;
   var _soInstQ=ambientes.length>0&&ambientes.every(function(a){return a.tipo===TIPO_INST;});
-  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:_soInstQ?'Instalação':mat.nm,matPr:_soInstQ?0:mat.pr,matCusto:_soInstQ?0:(mat.custo||0),validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',mostrarVista:false,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
+  var q={id:Date.now(),date:td(),cli:cli,tel:tel,cidade:cidade,end:end,obs:obs,tipo:ambientes.map(function(a){return a.tipo;}).join('+'),mat:_soInstQ?'Instalação':mat.nm,matPr:_soInstQ?0:mat.pr,matCusto:_soInstQ?0:(mat.custo||0),validade:CFG.emp&&CFG.emp.diasValidade?CFG.emp.diasValidade:7,m2:totalM2,pedT:pedT,acT:totalAcT,acN:allAcN,pds:allPds,sfPcs:[],vista:vista,parc:parc,p8:p8,ent:ent,ambSnap:ambSnap,urgPct:urgPct,urgVal:urgVal,_vistaCalc:vista,_parcCalc:parc,formaPag:'vista',mostrarVista:false,_custoPainel:custoPainel,_txtPre:_txtPre,_txtFooter:_txtFooter,status:'pendente',_trkPdf:true,pdfGerado:false,brindes:[],ceara:(_cearaAtivo&&_cearaValor>0)?{ativo:true,desc:_cearaDesc,valor:_cearaValor,totalCombinado:vista+_cearaValor}:null};
   // Marca qual aparelho criou este orçamento (usado nas notificações de
   // "novo orçamento" pros outros dispositivos sincronizados saberem quem fez).
   q.criadoPor = localStorage.getItem('hr_device_name') || '';
@@ -8455,11 +8689,83 @@ function estimaIEO(job) {
   return { ieo: ieo, ieo_of: ieo_of, ieo_ca: ieo_ca, ieo_ge: ieo_ge };
 }
 
+// ── Instalação: lida do ORÇAMENTO. Soleira/Peitoril nunca têm instalação. ──
+function _orcInstalaDe(q){
+  if(!q)return false;
+  var snaps=q.ambSnap||[];
+  if(snaps.length){
+    var soSolPeit=snaps.every(function(s){return s.tipo==='Soleira'||s.tipo==='Peitoril';});
+    if(soSolPeit)return false;
+    var porSnap=snaps.some(function(s){
+      if(s.tipo==='Soleira'||s.tipo==='Peitoril')return false;
+      if(s.tipo===TIPO_INST)return true;
+      var sv=s.svState||{};
+      return sv.hasOwnProperty('inst')||sv.hasOwnProperty('inst_c');
+    });
+    if(porSnap)return true;
+  }
+  return (q.acN||[]).some(function(a){return String(a).toLowerCase().indexOf('instala')>=0;});
+}
+
+// ── Agenda automática ao ACEITAR: usa prazo e instalação já definidos no orçamento. ──
+// Retorna true se agendou sozinho; false se o orçamento não tem prazo salvo (aí abre o modal de antes).
+function _agendarAposAceite(q){
+  try{
+    var dias=+q.prazoDias;
+    if(!q||!dias||dias<1)return false;
+    if((DB.j||[]).some(function(j){return j.qId===q.id;}))return true;
+
+    var hoje=td(), le=lastEnd();
+    var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
+    var manual=(q.prazoModo==='manual');
+    var s;
+    if(urgente) s=hoje;                                   // urgente fura a fila
+    else{
+      s=hoje;
+      if(q.prazoInicio&&q.prazoInicio>s)s=q.prazoInicio;  // início combinado no orçamento
+      if(!manual&&le&&le>s)s=le;                          // fila andou: não sobrepõe serviço em andamento
+    }
+    var end=addD(s,dias);
+    var instala=_orcInstalaDe(q);
+
+    var job={
+      id:Date.now(),cli:q.cli,desc:q.tipo+' — '+q.mat,start:s,end:end,value:q.vista,pago:0,
+      obs:q.obs||'',done:false,qId:q.id,m2:q.m2||0,matPr:q.matPr||0,
+      custoPedraEpoca:q.matCusto||q.custo||0,cat:q.tipo||'Outro',stage:'producao',instala:instala
+    };
+    var ie=estimaIEO(job);
+    job.ieo=ie.ieo;job.ieo_of=ie.ieo_of;job.ieo_ca=ie.ieo_ca;job.ieo_ge=ie.ieo_ge;
+
+    // Avisa (sem travar) se a semana vai ficar sobrecarregada
+    var aviso='';
+    try{
+      DB.j.unshift(job);
+      var sim=calcSemana(_inicioSemana(s));
+      DB.j.shift();
+      if(sim.faixa==='critica'||sim.faixa_of==='critica'||sim.faixa_ca==='critica')aviso=' · 🔴 semana sobrecarregada';
+      else if(sim.faixa==='pesada'||sim.faixa_of==='pesada'||sim.faixa_ca==='pesada')aviso=' · ⚠️ semana pesada';
+    }catch(e){ if(DB.j[0]===job)DB.j.shift(); }
+
+    DB.j.unshift(job);
+    DB.sv();
+    if(typeof updUrgDot==='function')updUrgDot();
+    if(typeof renderAg==='function')try{renderAg();}catch(e){}
+
+    var mudou=(q.prazoEntrega&&q.prazoEntrega!==end);
+    toast('📅 '+q.cli+' agendado: início '+fd(s)+' · entrega '+fd(end)+(instala?' · com instalação':' · sem instalação')
+      +(mudou?' · ⚠️ ajustado (orçamento previa '+fd(q.prazoEntrega)+')':'')+aviso);
+    return true;
+  }catch(e){
+    console.error('agendarAposAceite:',e);
+    return false;
+  }
+}
+
 function salvarAgenda() {
   if (!pendQ) return;
 
   _ensureAgInstalaToggle();
-  _agInstalaOn=false;
+  _agInstalaOn=_orcInstalaDe(pendQ);   // vem do orçamento (soleira/peitoril = sem instalação)
   _paintAgInstala();
 
   var hoje = td();
@@ -8540,7 +8846,10 @@ function salvarAgenda() {
 
     // Preenche input com sugestão
     var diasInput = document.getElementById('diasIn');
-    if (diasInput && !diasInput.value) {
+    if (diasInput && pendQ.prazoDias) {
+      diasInput.value = pendQ.prazoDias;   // dias definidos no orçamento
+      prevDias();
+    } else if (diasInput && !diasInput.value) {
       diasInput.value = diasMinimos;
       prevDias();
     }
@@ -12537,7 +12846,7 @@ function orcPDF(id, e) {
   // Só usa o PDF técnico antigo se o orçamento salvo tiver dados do motor automático (tumPendOrc).
   var isTumulo = q.tum
     || (q.ambSnap && q.ambSnap.some(function(s){return s.tipo==='Túmulo' && s.tumPendOrc;}));
-  if (isTumulo) { gerarPDFTumulo(q); return; }
+  if (isTumulo) { _orcMarcarPdf(q); gerarPDFTumulo(q); return; }
   pendQ = q;
   gerarPDF();
 }
