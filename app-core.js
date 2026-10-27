@@ -8837,6 +8837,39 @@ function _orcPlanoVencido(q){
   return {hoje:hoje,le:le,s:s,end:addD(s,dias),dias:dias,ocupada:ocupada,occ:occ};
 }
 
+// ── Aviso de preço da pedra (só informa, nunca altera valores) ──
+// Compara o R$/m² guardado no orçamento (q.matPr, do dia da emissão) com o preço atual
+// da mesma pedra em CFG.stones. Só devolve algo se o preço SUBIU.
+function _avisoPrecoPedra(q){
+  try{
+    if(!q||!q.mat||!(q.matPr>0)||!CFG||!CFG.stones)return null;
+    var st=CFG.stones.find(function(s){return s.nm===q.mat;});
+    if(!st||!(st.pr>0))return null;                 // pedra renomeada/removida: não dá pra comparar
+    var antigo=+q.matPr, atual=+st.pr;
+    if(!(atual>antigo+0.005))return null;           // igual ou mais barata: sem aviso
+    // m² desta pedra no orçamento (se tiver mais de uma pedra, só a principal é comparada)
+    var snaps=(q.ambSnap||[]).filter(function(a){return a.selMat===st.id;});
+    var m2=snaps.reduce(function(t,a){
+      return t+(a.pecas||[]).reduce(function(t2,pc){
+        return t2+(pc.w&&pc.h?(pc.w/100)*(pc.h/100)*(pc.q||1):0);
+      },0);
+    },0);
+    if(!(m2>0))m2=+q.m2||0;                          // orçamento antigo sem ambSnap
+    return {nm:q.mat,antigo:antigo,atual:atual,m2:m2,dif:(atual-antigo)*m2};
+  }catch(e){return null;}
+}
+function _avisoPrecoPedraHtml(q){
+  var a=_avisoPrecoPedra(q);
+  if(!a)return '';
+  var esc=function(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+  var pr=function(v){return 'R$ '+(Math.abs(v-Math.round(v))<0.005?String(Math.round(v)):fm(v));};
+  return '<div style="margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(224,100,48,.1);border:1px solid rgba(224,100,48,.4);">'
+    +'⚠️ <b>'+esc(a.nm)+'</b> subiu de <b>'+pr(a.antigo)+'/m²</b> para <b>'+pr(a.atual)+'/m²</b>.'
+    +(a.dif>0.005?' Diferença neste serviço: <b style="color:#e06430;">R$ '+fm(a.dif)+'</b>.':'')
+    +'<div style="margin-top:6px;font-size:.78rem;color:var(--t3,#999);">Só um aviso: o valor do orçamento não foi alterado. Você decide se mantém, refaz ou combina com o cliente.</div>'
+    +'</div>';
+}
+
 // Tela de revisão ao aceitar orçamento vencido
 function _revisaoVencidoModal(q){
   var esc=function(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
@@ -8852,7 +8885,7 @@ function _revisaoVencidoModal(q){
   var datas='<div style="margin-top:12px;font-size:.95rem;line-height:1.5;">Como foram combinados <b>'+pl.dias+' dias</b> para entregar, vai ficar de <b style="color:#C9A84C;">'+fd(pl.s)+'</b> até <b style="color:#C9A84C;">'+fd(pl.end)+'</b>.</div>';
   m.innerHTML='<div style="width:100%;max-width:480px;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:22px 20px 26px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;max-height:90vh;overflow:auto;">'
     +'<div style="font-size:1.1rem;font-weight:800;margin-bottom:10px;">⏰ Orçamento vencido — rever entrega</div>'
-    +'<div style="font-size:.88rem;line-height:1.5;color:var(--t2,#ccc);">'+corpo+fila+datas+'</div>'
+    +'<div style="font-size:.88rem;line-height:1.5;color:var(--t2,#ccc);">'+corpo+fila+datas+_avisoPrecoPedraHtml(q)+'</div>'
     +'<button type="button" id="_revVencOk" style="width:100%;margin-top:18px;padding:14px;border-radius:12px;border:none;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;font-family:Outfit,sans-serif;">✅ Confirmar essas datas</button>'
     +'<button type="button" id="_revVencOutra" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px solid var(--bd2,#444);background:transparent;color:var(--tx,#eee);font-weight:700;font-size:.85rem;cursor:pointer;font-family:Outfit,sans-serif;">📅 Escolher outras datas</button>'
     +'<button type="button" id="_revVencDepois" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3,#999);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Agendar depois</button>'
@@ -11844,9 +11877,10 @@ function buildCfg(){
       ['email','E-mail','email','giliardhangel18@gmail.com'],
       ['ig','Instagram','text','@HR Marmores e Granitos'],
       ['site','Site','url',''],
+      ['maps','Link do Google Maps (avaliações)','url','Cole aqui o link da empresa'],
     ];
     contato.forEach(function(x){
-      h+='<div class="cfg-row" style="padding:7px 0;border-bottom:1px solid var(--bd);"><span class="cfg-lbl">'+({'tel':'Telefone','email':'E-mail','ig':'Instagram','site':'Site'}[x[0]])+'</span>';
+      h+='<div class="cfg-row" style="padding:7px 0;border-bottom:1px solid var(--bd);"><span class="cfg-lbl">'+({'tel':'Telefone','email':'E-mail','ig':'Instagram','site':'Site','maps':'Google Maps'}[x[0]])+'</span>';
       h+='<input class="cfginp" type="'+x[2]+'" value="'+(e[x[0]]||'')+'" placeholder="'+x[3]+'" style="flex:1;text-align:right;" onchange="CFG.emp[\''+x[0]+'\']=this.value;updEmp();svCFG();"></div>';
     });
     h+='</div></div>';
