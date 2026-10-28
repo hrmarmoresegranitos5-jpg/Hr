@@ -61,8 +61,9 @@ async function main() {
         if (dIni <= 0 && dIni >= -2 && !st.inicio) {
           const faltam = j.end ? diasEntre(hoje, j.end) : null;
           mensagens.push({
-            titulo: dIni === 0 ? '🛠️ Hoje é dia de iniciar' : '🛠️ Serviço devia ter iniciado',
-            corpo: nome + desc + (j.end ? ' — entrega ' + fmtBR(j.end) + (faltam !== null ? ' (faltam ' + faltam + ' dias)' : '') : ''),
+            titulo: dIni === 0 ? '🛠️ Hoje é dia de iniciar a obra de ' + nome : '🛠️ Serviço devia ter iniciado: ' + nome,
+            corpo: (j.proj ? 'Projeto ' + j.proj + desc : nome + desc) + (j.end ? ' — entrega ' + fmtBR(j.end) + (faltam !== null ? ' (faltam ' + faltam + ' dias)' : '') : '')
+              + (j.medido ? '' : '. 📐 Lembre-se de ir na casa do cliente conferir as medidas.'),
             tag: 'inicio-' + j.id
           });
           marcou.inicio = true;
@@ -103,6 +104,19 @@ async function main() {
       if (bols.length) linhas.push('🧾 Boletos a pagar (até 3 dias): ' + bols.length + ' · R$ ' + bols.reduce((a, b) => a + (b.valor || 0), 0).toFixed(2).replace('.', ','));
       if (linhas.length) mensagens.push({ titulo: '☀️ Resumo do dia', corpo: linhas.join(' • '), tag: 'resumo-' + hoje });
       novo.resumoData = hoje;
+    }
+
+    // 💬 "Como estamos?" (1x por dia, entre 06h e 11h): convida a contar o andamento para a Secretária reorganizar a fila
+    if (hora >= 6 && hora < 11 && estado.checkinData !== hoje) {
+      const emProd = jobs.filter(j => j && !j.done && (j.stage || 'producao') === 'producao' && j.start && j.start <= hoje);
+      if (emProd.length) {
+        mensagens.push({
+          titulo: '💬 Como estamos hoje?',
+          corpo: 'Em produção: ' + emProd.slice(0, 3).map(j => j.cli).join(', ') + (emProd.length > 3 ? ' +' + (emProd.length - 3) : '') + '. Abra a Secretária e me conte o andamento — eu reorganizo a fila.',
+          tag: 'checkin-' + hoje
+        });
+        novo.checkinData = hoje;
+      }
     }
 
     if (!mensagens.length) { console.log('Código ' + codigo + ': nada novo pra avisar.'); continue; }
