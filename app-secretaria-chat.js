@@ -793,6 +793,7 @@ function _chatBuildSystem() {
     '20. Lançar boleto:   {"action":"lancar_boleto","fornecedor":"NOME","valor":4200,"vencimento":"YYYY-MM-DD"} — cria despesa e entrada a pagar a partir de boleto fotografado.',
     '22. Baixar boleto:   {"action":"baixar_boleto","fornecedor":"NOME","valor":6155.14,"data":"YYYY-MM-DD"} — use quando o usuário disser que PAGOU um boleto (ou enviar comprovante/print de pagamento). Dá baixa na parcela pendente correspondente e lança a saída UMA vez, com o valor realmente pago (juros/multa incluídos). NÃO use "despesa" para boleto pago que já está na lista de boletos a pagar. Use "despesa" só se não existir boleto correspondente.',
     '21. Lembrete:        {"action":"lembrete","texto":"TEXTO DO LEMBRETE","data":"YYYY-MM-DD"} — salva um lembrete interno para a data informada.',
+    '24. Andamento obra:  {"action":"andamento","cli":"NOME","etapa":"corte|pronto|previsao|atraso","termina":"YYYY-MM-DD","dias":2} — use quando ele disser o que andou: "terminamos de cortar" → etapa corte; "ficou pronto pra entrega" → pronto; "termina dia X" → previsao com termina; "atrasou 2 dias" → atraso com dias. A agenda reorganiza a fila sozinha.',
     '23. Nota com itens:  {"action":"nota_itens","fornecedor":"NOME","data":"YYYY-MM-DD","forma":"dinheiro|banco|nao_pago","frete":0,"total":0,"itens":[{"descricao":"TUBO QUAD 20X20 6M","quantidade":2,"unidade":"BARRA","valorUnitario":110,"valorTotal":220}]} — use quando o usuário mandar FOTO ou texto de uma nota/cupom de compra de materiais com VÁRIOS itens (tubo, cantoneira, disco, cola…). NÃO use "despesa" nesse caso: esta ação abre a tela de conferência dos itens e, quando o usuário confirmar, guarda o preço de cada item e lança o gasto. Mantenha medidas e comprimentos na descrição.',
     '',
     '═══ FORMATO ═══',
@@ -921,6 +922,8 @@ function _chatBuildContextSurgical(userText, flags) {
 }
 
 function _chatAsk(userText, imgObj) {
+  // Andamento da obra ("terminamos de cortar a cozinha da Maria", "Maria termina dia 15"): a agenda trata sozinha, sem IA
+  if (!imgObj && typeof hrChatInterpretar === 'function' && hrChatInterpretar(userText || '')) return;
   var key = CFG && CFG.emp && CFG.emp.apiKey;
   if (!key) {
     _chatBotReply('🔑 Chave de API não configurada. Vá em Config → Empresa para adicionar sua chave.', [
@@ -1632,10 +1635,15 @@ function _jobLog(job, campo, de, para) {
       if (data.cli) {
         var buscaOrc = (data.cli || '').toLowerCase();
         var orcAprov = (DB.q || []).find(function(q) {
-          return q.cli && q.cli.toLowerCase().indexOf(buscaOrc) !== -1 && q.status !== 'aprovado';
+          return q.cli && q.cli.toLowerCase().indexOf(buscaOrc) !== -1 && q.status !== 'aprovado' && q.status !== 'aceito' && q.status !== 'concluido' && q.status !== 'perdido';
         });
         if (!orcAprov) {
           result.extra = '⚠️ Orçamento pendente de **' + data.cli + '** não encontrado.';
+        } else if (typeof _abrirModalStatusOrc === 'function') {
+          // Aceite de verdade: confirma entrada, lança em Finanças e coloca na Agenda com as datas do orçamento
+          _abrirModalStatusOrc(orcAprov, 'aceito');
+          result.extra = '✅ Abri a confirmação de aceite de **' + orcAprov.cli + '** (R$ ' + fm(orcAprov.vista||0) + '). Confirme o valor da entrada que eu lanço em Finanças e já coloco na Agenda.';
+          result.actions.push({label:'📋 Ver Orçamentos', fn:'go(1)'});
         } else {
           orcAprov.status = 'aprovado';
           orcAprov._statusDate = hoje;
@@ -1736,6 +1744,14 @@ function _jobLog(job, campo, de, para) {
         result.actions.push({label:'💰 Ver Finanças', fn:'go(4)'});
       } else {
         result.extra = '⚠️ Informe o fornecedor e o valor do boleto.';
+      }
+      break;
+
+    case 'andamento':
+      if (data.cli && typeof hrAndamentoPorCli === 'function') {
+        var _r = hrAndamentoPorCli(data);
+        result.extra = _r.texto;
+        if (_r.acoes && _r.acoes.length) result.actions = result.actions.concat(_r.acoes);
       }
       break;
 
