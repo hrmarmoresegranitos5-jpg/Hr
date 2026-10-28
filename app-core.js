@@ -6227,8 +6227,7 @@ function _dscInfo(q, usaVista) {
 function _dscHtml(d, rotulo) {
   var h = '';
   if (d) {
-    h += '<div style="font-size:19px;color:#444;margin-bottom:8px;">Preço normal: <b style="text-decoration:line-through;color:#888;">R$ ' + fm(d.de) + '</b></div>'
-      + '<div style="display:inline-block;background:#e6f4e6;border:2px solid #2e8b2e;color:#17591a;font-size:21px;font-weight:900;padding:8px 18px;border-radius:12px;margin-bottom:12px;">Desconto: R$ ' + fm(d.off) + ' (' + _pctTxt(d.pct) + '% a menos)</div>';
+    h += '<div style="font-size:19px;color:#444;margin-bottom:8px;">Preço normal: <b style="text-decoration:line-through;color:#888;">R$ ' + fm(d.de) + '</b></div>';
   }
   return h + '<div style="font-size:19px;color:#333;font-weight:700;margin-bottom:2px;">' + rotulo + '</div>';
 }
