@@ -440,6 +440,18 @@ var HR_FUNC = (function () {
     };
   }
 
+  // Lista os meses ("yyyy-mm") que o intervalo di–df toca, em ordem.
+  function _mesesNoIntervalo(di, df){
+    var out = [];
+    var y = parseInt(di.slice(0,4)), m = parseInt(di.slice(5,7));
+    var yf = parseInt(df.slice(0,4)), mf = parseInt(df.slice(5,7));
+    while (y < yf || (y === yf && m <= mf)) {
+      out.push(y + '-' + String(m).padStart(2,'0'));
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  }
+
   function calcSaldoFuncionario(funcId, di, df){
     var funcs  = getFuncionarios();
     var regs   = getRegistros();
@@ -467,38 +479,37 @@ var HR_FUNC = (function () {
     var totalSalario = 0;
 
     if (f.socio && di && df) {
-      var anoS  = parseInt(di.slice(0,4));
-      var mesNS = parseInt(di.slice(5,7));
-      var mesRefS = di.slice(0,7);
-      var ultimoDiaS = new Date(anoS, mesNS, 0).getDate();
-      var d10S  = di.slice(0,8) + '10';
-      var d20S  = di.slice(0,8) + '20';
-      var dFimS = di.slice(0,8) + String(ultimoDiaS).padStart(2,'0');
-      if (d10S  >= di && d10S  <= df) totalSalario += _decendioValorNum(f, 1, mesRefS);
-      if (d20S  >= di && d20S  <= df) totalSalario += _decendioValorNum(f, 2, mesRefS);
-      if (dFimS >= di && dFimS <= df) totalSalario += _decendioValorNum(f, 3, mesRefS);
+      // Percorre TODOS os meses entre di e df (antes só olhava o mês de di,
+      // e os decêndios do mês corrente nunca entravam como devido).
+      _mesesNoIntervalo(di, df).forEach(function(mRef){
+        var ultS = new Date(parseInt(mRef.slice(0,4)), parseInt(mRef.slice(5,7)), 0).getDate();
+        var d10S = mRef+'-10', d20S = mRef+'-20', dFimS = mRef+'-'+String(ultS).padStart(2,'0');
+        if (d10S  >= di && d10S  <= df) totalSalario += _decendioValorNum(f, 1, mRef);
+        if (d20S  >= di && d20S  <= df) totalSalario += _decendioValorNum(f, 2, mRef);
+        if (dFimS >= di && dFimS <= df) totalSalario += _decendioValorNum(f, 3, mRef);
+      });
     } else {
     var temDec = (parseFloat(f.dec1)||0) > 0 || (parseFloat(f.dec2)||0) > 0 || (parseFloat(f.dec3)||0) > 0;
 
     if (temDec && di && df) {
-      // Identifica quais decêndios vencem dentro do período di–df
-      var ano  = parseInt(di.slice(0,4));
-      var mesN = parseInt(di.slice(5,7));
-      // último dia do mês do período
-      var ultimoDia = new Date(ano, mesN, 0).getDate();
-      var d10  = di.slice(0,8) + '10';
-      var d20  = di.slice(0,8) + '20';
-      var dFim = di.slice(0,8) + String(ultimoDia).padStart(2,'0');
+      // Identifica quais decêndios vencem dentro do período di–df,
+      // em CADA mês do intervalo (antes só contava o mês de di).
+      _mesesNoIntervalo(di, df).forEach(function(mRef){
+        var ultimoDia = new Date(parseInt(mRef.slice(0,4)), parseInt(mRef.slice(5,7)), 0).getDate();
+        var d10  = mRef+'-10';
+        var d20  = mRef+'-20';
+        var dFim = mRef+'-'+String(ultimoDia).padStart(2,'0');
 
-      if (_ehQuinzenal(f)) {
-        var d15 = di.slice(0,8) + '15';
-        if (d15 >= di && d15 <= df)   totalSalario += parseFloat(f.dec1) || 0;
-        if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec2) || 0;
-      } else {
-        if (d10 >= di && d10 <= df)  totalSalario += parseFloat(f.dec1) || 0;
-        if (d20 >= di && d20 <= df)  totalSalario += parseFloat(f.dec2) || 0;
-        if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec3) || 0;
-      }
+        if (_ehQuinzenal(f)) {
+          var d15 = mRef+'-15';
+          if (d15 >= di && d15 <= df)   totalSalario += parseFloat(f.dec1) || 0;
+          if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec2) || 0;
+        } else {
+          if (d10 >= di && d10 <= df)  totalSalario += parseFloat(f.dec1) || 0;
+          if (d20 >= di && d20 <= df)  totalSalario += parseFloat(f.dec2) || 0;
+          if (dFim >= di && dFim <= df) totalSalario += parseFloat(f.dec3) || 0;
+        }
+      });
 
       // Se nenhum decêndio venceu ainda no período (mês em curso, antes do dia 10),
       // usa zero — o saldo será zerado e o pagamento ainda não é devido.
