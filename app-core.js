@@ -932,41 +932,143 @@ function _dedupOrcamentosSync(arr){
   return arr.filter(function(q){ return !q || q.id==null || !idsRemover[q.id]; });
 }
 
-// ═══ SYNC (Firebase) ═══
+// ═══ SYNC (Firebase + login com Google) ═══
+// Os dados continuam em hr/<código> (o MESMO caminho de antes — nada é migrado).
+// O que muda: só entra quem fez login com Google E está liberado em
+// acesso/<e-mail> (o valor guardado é o código da empresa). As regras do
+// Firebase (ver LEIA-ME-LOGIN-GOOGLE.md) barram todo o resto.
+var SYNC_DONO_EMAIL = 'giliardhangel18@gmail.com';   // quem libera os outros e-mails
+var SYNC_CODIGO_LEGADO = 'HR2025';                    // código que já guarda os dados atuais
+function _syncEmailKey(email){ return String(email||'').trim().toLowerCase().replace(/\./g,','); }
+
 var SYNC={
   db:null,
-  code:localStorage.getItem('hr_sync_code')||'',
+  user:null,
+  code:'',
   on:false,
+  status:'',          // '', carregando, deslogado, sem_acesso, ativo, erro
   _push:null,
-  init:function(code){
-    if(!code){this.code='';localStorage.removeItem('hr_sync_code');this.on=false;return;}
-    // Firebase project — free Realtime DB
-    var cfg={apiKey:"AIzaSyCplqbYAl1eOKbNnM9rqHmDa47zB4ec9hQ",databaseURL:"https://orcamento-hr-marmoraria-default-rtdb.firebaseio.com"};
+  _authIniciado:false,
+  ehDono:function(){
+    return !!(this.user && _syncEmailKey(this.user.email)===_syncEmailKey(SYNC_DONO_EMAIL));
+  },
+  // Atualiza a tela de Config se ela estiver aberta (sem atrapalhar digitação)
+  _ui:function(){
     try{
-      if(typeof firebase==='undefined'){
-        // Load Firebase on demand
-        var fb1=document.createElement('script');
-        fb1.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';
-        fb1.onload=function(){
-          var fb2=document.createElement('script');
-          fb2.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';
-          fb2.onload=function(){SYNC.init(SYNC.code);};
-          document.head.appendChild(fb2);
-        };
-        document.head.appendChild(fb1);
-        toast('Carregando sincronização...');
-        return;
+      var a=document.activeElement;
+      if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+      var cb=document.getElementById('cfgBody');
+      if(cb && cb.offsetParent!==null && typeof buildCfg==='function') buildCfg();
+    }catch(e){}
+  },
+  // Carrega app + auth + database do Firebase sob demanda (um depois do outro)
+  _carregarSdk:function(cb){
+    var self=this, base='https://www.gstatic.com/firebasejs/9.23.0/';
+    var fila=[
+      {url:base+'firebase-app-compat.js',      ok:function(){return typeof firebase!=='undefined';}},
+      {url:base+'firebase-auth-compat.js',     ok:function(){return typeof firebase!=='undefined' && !!firebase.auth;}},
+      {url:base+'firebase-database-compat.js', ok:function(){return typeof firebase!=='undefined' && !!firebase.database;}}
+    ];
+    var i=0;
+    (function prox(){
+      while(i<fila.length && fila[i].ok()) i++;
+      if(i>=fila.length){ cb(); return; }
+      var sc=document.createElement('script');
+      sc.src=fila[i].url;
+      sc.onload=function(){ i++; prox(); };
+      sc.onerror=function(){
+        self.status='erro'; self._ui();
+        toast('Sem conexão com o serviço de login — tente de novo com internet');
+      };
+      document.head.appendChild(sc);
+    })();
+  },
+  _iniciarAuth:function(cb){
+    var self=this;
+    this._carregarSdk(function(){
+      try{
+        if(!firebase.apps.length) firebase.initializeApp(FCM_CFG);
+        if(!self._authIniciado){
+          self._authIniciado=true;
+          firebase.auth().onAuthStateChanged(function(u){ self._aoMudarAuth(u); });
+        }
+        if(cb) cb();
+      }catch(e){
+        self.status='erro'; self._ui();
+        console.warn('[SYNC] falha ao iniciar login:',e);
       }
-      if(!firebase.apps.length)firebase.initializeApp(cfg);
-      else firebase.app();
-      this.db=firebase.database();
-      this.code=code;
-      localStorage.setItem('hr_sync_code',code);
-      this.on=true;
-      this._listen();
-      toast('✓ Sincronização ativa — código: '+code);
-      if(typeof FCM!=='undefined' && typeof Notification!=='undefined' && Notification.permission==='granted') FCM.init();
-    }catch(e){toast('Sync: configure o Firebase (ver instruções)');}
+    });
+  },
+  // Chamado no boot: só carrega o Firebase se o aparelho já usou a sincronização
+  start:function(){
+    if(localStorage.getItem('hr_sync_user')||localStorage.getItem('hr_sync_code')){
+      this.status='carregando';
+      this._iniciarAuth();
+    }
+  },
+  init:function(){ this.start(); },   // compatibilidade com chamadas antigas
+  login:function(){
+    var self=this;
+    this.status='carregando'; this._ui();
+    localStorage.setItem('hr_sync_user','1');   // se a página recarregar (redirect), o boot retoma o login
+    this._iniciarAuth(function(){
+      var prov=new firebase.auth.GoogleAuthProvider();
+      prov.setCustomParameters({prompt:'select_account'});
+      firebase.auth().signInWithPopup(prov).catch(function(e){
+        var c=(e&&e.code)||'';
+        if(c==='auth/popup-blocked' || c==='auth/operation-not-supported-in-this-environment'){
+          firebase.auth().signInWithRedirect(prov);
+          return;
+        }
+        if(!self.user){ localStorage.removeItem('hr_sync_user'); self.status='deslogado'; }
+        self._ui();
+        if(c==='auth/popup-closed-by-user' || c==='auth/cancelled-popup-request') return;
+        if(c==='auth/unauthorized-domain') toast('❌ Domínio não autorizado no Firebase (Authentication → Configurações → Domínios autorizados)');
+        else toast('❌ Login falhou: '+((e&&e.message)||c));
+      });
+    });
+  },
+  _aoMudarAuth:function(u){
+    var self=this;
+    this.user=u||null;
+    if(!u){
+      this._pararListen();
+      this.on=false; this.code=''; this.status='deslogado';
+      localStorage.removeItem('hr_sync_user');
+      this._ui();
+      return;
+    }
+    localStorage.setItem('hr_sync_user',u.email||'1');
+    this.db=firebase.database();
+    this.status='carregando';
+    var chave=_syncEmailKey(u.email);
+    this.db.ref('acesso/'+chave).once('value').then(function(snap){
+      var cod=snap.val();
+      if(typeof cod==='string' && cod){ self._ativar(cod); return; }
+      if(self.ehDono()){
+        // Primeira vez do dono: libera o próprio e-mail usando o código que já guarda os dados
+        var cod2=localStorage.getItem('hr_sync_code')||SYNC_CODIGO_LEGADO;
+        return self.db.ref('acesso/'+chave).set(cod2).then(function(){ self._ativar(cod2); });
+      }
+      self.on=false; self.code=''; self.status='sem_acesso'; self._ui();
+    }).catch(function(e){
+      self.status='erro'; self._ui();
+      toast('❌ '+((e&&e.code==='PERMISSION_DENIED')?'Sem permissão — peça ao dono para liberar seu e-mail':'Erro na sincronização: '+((e&&e.message)||e)));
+    });
+  },
+  _ativar:function(code){
+    if(this.on && this.code===code){ this.status='ativo'; this._ui(); return; }
+    this._pararListen();
+    this.code=code;
+    localStorage.setItem('hr_sync_code',code);
+    this.on=true; this.status='ativo';
+    this._listen();
+    this._ui();
+    toast('✓ Sincronização ativa');
+    if(typeof FCM!=='undefined' && typeof Notification!=='undefined' && Notification.permission==='granted') FCM.init();
+  },
+  _pararListen:function(){
+    try{ if(this.db && this.code) this.db.ref('hr/'+this.code).off(); }catch(e){}
   },
   _listen:function(){
     if(!this.db||!this.code)return;
@@ -1028,11 +1130,16 @@ var SYNC={
         toast('↓ Dados sincronizados!');
       }
     }, function(erro){
+      if(erro && (erro.code==='PERMISSION_DENIED' || /permission_denied/i.test(erro.message||''))){
+        SYNC.on=false; SYNC.status='sem_acesso'; SYNC._ui();
+        toast('🔒 Seu acesso à sincronização foi removido ou ainda não foi liberado');
+        return;
+      }
       toast('❌ ERRO ao sincronizar: '+erro.message);
     });
   },
   push:function(){
-    if(!this.db||!this.code)return Promise.reject(new Error('Sincronização ainda não conectou — aguarde alguns segundos e tente de novo'));
+    if(!this.db||!this.code||!this.user)return Promise.reject(new Error('Sincronização ainda não conectou — entre com Google em Config → Sincronização'));
     var ts=Date.now();
     localStorage.setItem('hr_sync_ts',ts);
     // apiKey nunca é enviada pro Firebase: é config local de cada aparelho.
@@ -1048,12 +1155,72 @@ var SYNC={
     // notificação push e o controle de orçamentos já avisados).
     return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,tombstones:DB.tombstones,_ts:ts});
   },
-  stop:function(){
-    if(this.db&&this.code)this.db.ref('hr/'+this.code).off();
-    this.on=false;this.code='';
+  logout:function(){
+    this._pararListen();
+    this.on=false; this.code=''; this.status='deslogado';
     localStorage.removeItem('hr_sync_code');
+    localStorage.removeItem('hr_sync_user');
     localStorage.removeItem('hr_sync_ts');
-    toast('Sincronização desativada');
+    try{ if(typeof firebase!=='undefined' && firebase.auth) firebase.auth().signOut(); }catch(e){}
+    this.user=null;
+    toast('Você saiu da sincronização');
+    this._ui();
+  },
+  stop:function(){ this.logout(); },   // compatibilidade
+  // ── Quem pode entrar (só o dono mexe) ──────────────────────────
+  acessoListar:function(cb){
+    var self=this;
+    this.db.ref('acesso').once('value').then(function(s){
+      var o=s.val()||{}, arr=[];
+      Object.keys(o).forEach(function(k){
+        if(o[k]===self.code) arr.push({chave:k,email:k.replace(/,/g,'.')});
+      });
+      arr.sort(function(a,b){ return a.email<b.email?-1:1; });
+      cb(null,arr);
+    }).catch(function(e){ cb(e); });
+  },
+  acessoAdicionar:function(email,cb){
+    email=String(email||'').trim().toLowerCase();
+    if(!/^[^\s@\/\\\[\]#$]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast('Digite um e-mail válido (a conta Google da pessoa)'); return; }
+    this.db.ref('acesso/'+_syncEmailKey(email)).set(this.code).then(function(){
+      toast('✓ '+email+' liberado'); if(cb) cb();
+    }).catch(function(e){ toast('❌ '+(e&&e.message||e)); });
+  },
+  acessoRemover:function(chave,cb){
+    if(chave===_syncEmailKey(SYNC_DONO_EMAIL)){ toast('O dono não pode ser removido'); return; }
+    this.db.ref('acesso/'+chave).remove().then(function(){
+      toast('Acesso removido'); if(cb) cb();
+    }).catch(function(e){ toast('❌ '+(e&&e.message||e)); });
+  },
+  uiLiberar:function(){
+    var inp=document.getElementById('syncNovoEmail'); if(!inp) return;
+    var self=this;
+    this.acessoAdicionar(inp.value,function(){ inp.value=''; self._renderAcesso(); });
+  },
+  _renderAcesso:function(){
+    var self=this;
+    if(!this.db||!this.on||!document.getElementById('syncAcessoLista')) return;
+    this.acessoListar(function(err,arr){
+      var box=document.getElementById('syncAcessoLista'); if(!box) return;
+      if(err){ box.textContent='Não foi possível carregar a lista agora.'; return; }
+      box.innerHTML='';
+      arr.forEach(function(pess){
+        var ehDono=pess.chave===_syncEmailKey(SYNC_DONO_EMAIL);
+        var row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--s3);font-size:.74rem;color:var(--t2);';
+        var nm=document.createElement('span');
+        nm.style.cssText='flex:1;word-break:break-all;';
+        nm.textContent=pess.email+(ehDono?' (dono)':'');
+        row.appendChild(nm);
+        if(!ehDono){
+          var bt=document.createElement('button');
+          bt.className='btn btn-red btn-sm'; bt.textContent='Remover';
+          bt.onclick=function(){ self.acessoRemover(pess.chave,function(){ self._renderAcesso(); }); };
+          row.appendChild(bt);
+        }
+        box.appendChild(row);
+      });
+    });
   }
 };
 
@@ -1074,7 +1241,7 @@ var VAPID_KEY = "BF1b09spZngDCLWrv1QUlQm6UjCutcH1thyribQuTYOEvyovwUpiCc4AwQ8AWp5
 // ── Pede a permissão de notificação ao usuário e liga o FCM ──────────────
 function ativarNotificacoes(){
   if(typeof Notification==='undefined'){ toast('Este navegador não suporta notificações.'); return; }
-  if(!SYNC.code){ toast('Ative a Sincronização Celular ↔ Tablet primeiro (é ela que identifica seu dispositivo).'); return; }
+  if(!SYNC.code){ toast('Entre com Google em Config → Sincronização primeiro (é ela que identifica seu dispositivo).'); return; }
   Notification.requestPermission().then(function(perm){
     if(perm==='granted'){
       toast('✓ Notificações ativadas!');
@@ -1960,10 +2127,7 @@ window.aplicarEstiloNi=function(){
   console.log('boot completo');
 
   // ── Sync: reconectar se já configurado ────────────────────────
-  var savedCode = localStorage.getItem('hr_sync_code');
-  if (savedCode) {
-    setTimeout(function() { SYNC.init(savedCode); }, 3000);
-  }
+  setTimeout(function() { SYNC.start(); }, 1500);
 
   // ── Tratar tap que aconteceu antes do DOMContentLoaded ────────
   if (window._pendingPg !== null) {
@@ -11966,25 +12130,42 @@ function buildCfg(){
     h+='<div class="cfg-row"><span class="cfg-lbl">API Key OpenAI (Whisper / voz)</span><input class="cfginp" type="password" value="'+(e.openaiKey||'')+'" placeholder="sk-proj-... ou sk-..." style="flex:1;text-align:right;font-family:monospace;" onchange="CFG.emp.openaiKey=this.value;svCFG();toast(\'✓ Chave OpenAI salva!\');"></div>';
     h+='</div>';
 
-    // Sincronização
-    h+='<div class="cfgsec"><div class="cfghd">📡 Sincronização Celular ↔ Tablet</div>';
+    // Sincronização (login com Google)
+    h+='<div class="cfgsec"><div class="cfghd">📡 Sincronização entre aparelhos</div>';
     h+='<div style="padding:13px;">';
-    h+='<div style="font-size:.76rem;color:var(--t2);line-height:1.65;margin-bottom:12px;">Use o mesmo <b>código</b> em todos os dispositivos para sincronizar dados em tempo real.</div>';
-    var syncAtivo=SYNC.on||!!localStorage.getItem('hr_sync_code');
-    if(syncAtivo){
+    var _su=SYNC.user;
+    if(SYNC.status==='carregando'){
+      h+='<div style="font-size:.76rem;color:var(--t2);line-height:1.65;">Conectando… (precisa de internet)</div>';
+    } else if(_su && SYNC.on){
       h+='<div style="background:#0a1f12;border:1px solid var(--grn);border-radius:9px;padding:11px 13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">';
-      h+='<span style="font-size:1rem;">✅</span><div style="flex:1;"><div style="font-size:.8rem;font-weight:600;color:var(--grn);">Sincronização ativa</div><div style="font-size:.65rem;color:var(--t3);">Código: <b style="color:var(--gold2);">'+SYNC.code+'</b></div></div></div>';
+      h+='<span style="font-size:1rem;">✅</span><div style="flex:1;min-width:0;"><div style="font-size:.8rem;font-weight:600;color:var(--grn);">Sincronização ativa</div><div style="font-size:.65rem;color:var(--t3);word-break:break-all;">Conta: <b style="color:var(--gold2);">'+escH(_su.email||'')+'</b></div></div></div>';
       h+='<div style="margin-bottom:10px;"><label style="font-size:.62rem;color:var(--t4);text-transform:uppercase;letter-spacing:.5px;">Nome deste aparelho</label>';
       h+='<input id="deviceNameInp" class="cfginp" style="width:100%;margin-top:4px;" placeholder="Ex: João - Celular, Loja - Tablet" value="'+escH(localStorage.getItem('hr_device_name')||'')+'" onchange="localStorage.setItem(\'hr_device_name\',this.value.trim());toast(\'✓ Nome do aparelho salvo\');">';
       h+='<div style="font-size:.6rem;color:var(--t4);margin-top:4px;">Aparece nas notificações de orçamento novo pros outros aparelhos, pra saber quem criou.</div></div>';
       h+='<button class="btn btn-o" style="font-size:.78rem;padding:10px;margin-bottom:8px;" onclick="SYNC.push().then(function(){toast(\'↑ Enviado com sucesso!\')}).catch(function(e){toast(\'❌ ERRO: \'+e.message)})">↑ Enviar dados agora</button>';
-      h+='<button class="btn btn-red" style="font-size:.78rem;padding:10px;" onclick="SYNC.stop();buildCfg();">Desativar sincronização</button>';
+      if(SYNC.ehDono()){
+        h+='<div style="margin:14px 0 10px;padding-top:12px;border-top:1px solid var(--s3);">';
+        h+='<div style="font-size:.8rem;font-weight:600;color:var(--t1);margin-bottom:4px;">👥 Quem pode entrar</div>';
+        h+='<div style="font-size:.66rem;color:var(--t3);line-height:1.6;margin-bottom:8px;">Só os e-mails desta lista conseguem ler e gravar os dados. Use a conta Google que a pessoa vai usar no celular dela.</div>';
+        h+='<div id="syncAcessoLista" style="margin-bottom:8px;font-size:.72rem;color:var(--t3);">Carregando…</div>';
+        h+='<div style="display:flex;gap:8px;"><input id="syncNovoEmail" type="email" class="cfginp" style="flex:1;text-align:left;" placeholder="email.do.funcionario@gmail.com">';
+        h+='<button class="btn btn-g btn-sm" onclick="SYNC.uiLiberar()">Liberar</button></div></div>';
+        setTimeout(function(){ SYNC._renderAcesso(); },50);
+      }
+      h+='<button class="btn btn-red" style="font-size:.78rem;padding:10px;" onclick="SYNC.logout();">Sair da conta</button>';
+    } else if(_su && SYNC.status==='sem_acesso'){
+      h+='<div style="background:#2a1a0a;border:1px solid var(--gold2);border-radius:9px;padding:11px 13px;margin-bottom:10px;">';
+      h+='<div style="font-size:.8rem;font-weight:600;color:var(--gold2);margin-bottom:4px;">🔒 E-mail ainda não liberado</div>';
+      h+='<div style="font-size:.7rem;color:var(--t2);line-height:1.6;">Você entrou como <b style="word-break:break-all;">'+escH(_su.email||'')+'</b>, mas o dono ainda não liberou esse e-mail. Mande esse endereço pra ele em Config → Sincronização → “Quem pode entrar”.</div></div>';
+      h+='<button class="btn btn-red" style="font-size:.78rem;padding:10px;" onclick="SYNC.logout();">Sair e usar outra conta</button>';
     } else {
-      h+='<div style="display:flex;gap:8px;margin-bottom:8px;">';
-      h+='<input id="syncCodeInp" class="cfginp" style="flex:1;text-align:left;" placeholder="Ex: HR2025, MeuNegocio123..." value="'+SYNC.code+'">';
-      h+='<button class="btn btn-g btn-sm" onclick="var c=document.getElementById(\'syncCodeInp\').value.trim().replace(/\\s+/g,\'_\');if(!c){toast(\'Digite um código\');return;}SYNC.init(c);buildCfg();">Ativar</button>';
-      h+='</div>';
-      h+='<div style="font-size:.65rem;color:var(--t4);line-height:1.6;">⚠️ Requer internet. Use o mesmo código em todos os dispositivos.</div>';
+      h+='<div style="font-size:.76rem;color:var(--t2);line-height:1.65;margin-bottom:12px;">Entre com sua conta Google para manter o app igual em todos os seus aparelhos. Cada alteração aparece nos outros em poucos segundos (com internet).</div>';
+      if(localStorage.getItem('hr_sync_code')){
+        h+='<div style="font-size:.66rem;color:var(--gold2);line-height:1.6;margin-bottom:10px;">⚠️ A sincronização por código foi substituída pelo login com Google. Entre com Google para voltar a sincronizar — seus dados continuam guardados.</div>';
+      }
+      h+='<button class="btn btn-g" style="font-size:.82rem;padding:12px;" onclick="SYNC.login()">Entrar com Google</button>';
+      if(SYNC.status==='erro') h+='<div style="font-size:.65rem;color:var(--red,#e57373);line-height:1.6;margin-top:8px;">Não foi possível conectar agora. Verifique a internet e tente de novo.</div>';
+      h+='<div style="font-size:.65rem;color:var(--t4);line-height:1.6;margin-top:8px;">Requer internet na hora de entrar. Sem sinal, o app continua funcionando e sincroniza quando a conexão voltar.</div>';
     }
     h+='</div></div>';
 

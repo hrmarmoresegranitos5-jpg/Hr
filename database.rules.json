@@ -1,0 +1,28 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "acesso": {
+      ".read": "auth != null && auth.token.email_verified === true && auth.token.email.toLowerCase() === 'giliardhangel18@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified === true && auth.token.email.toLowerCase() === 'giliardhangel18@gmail.com'",
+      "$emailKey": {
+        ".read": "auth != null && auth.token.email_verified === true && $emailKey === auth.token.email.toLowerCase().replace('.', ',')"
+      }
+    },
+
+    "hr": {
+      "$code": {
+        ".read": "auth != null && auth.token.email_verified === true && root.child('acesso').child(auth.token.email.toLowerCase().replace('.', ',')).val() === $code",
+        ".write": "auth != null && auth.token.email_verified === true && root.child('acesso').child(auth.token.email.toLowerCase().replace('.', ',')).val() === $code"
+      }
+    },
+
+    "hr_new": {
+      "$code": {
+        ".read": "auth != null && auth.token.email_verified === true && root.child('acesso').child(auth.token.email.toLowerCase().replace('.', ',')).val() === $code",
+        ".write": "auth != null && auth.token.email_verified === true && root.child('acesso').child(auth.token.email.toLowerCase().replace('.', ',')).val() === $code"
+      }
+    }
+  }
+}
