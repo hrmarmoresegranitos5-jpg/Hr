@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════════
 // EXTRATO BANCÁRIO → FINANÇAS
-// Importa o PDF do extrato (Banco do Brasil) ou um arquivo OFX (qualquer banco),
+// Importa o PDF do extrato (Banco do Brasil), a planilha XLSX (Bradesco) ou um OFX (qualquer banco),
 // lê todos os lançamentos
 // e pergunta UMA vez por favorecido o que ele é. A resposta fica
 // guardada como regra: no mês seguinte o sistema já classifica sozinho.
@@ -25,6 +25,7 @@
   var K_CFG    = 'hr_extrato_cfg';
   var PDFJS_URL    = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
   var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var SHEETJS_URL  = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
   // Categorias de despesa que já existem em Finanças
   var CATS = [
@@ -33,8 +34,32 @@
     { k: 'combustivel', i: '⛽', n: 'Combustível' },
     { k: 'fixo',        i: '🏠', n: 'Custo fixo' },
     { k: 'ferramentas', i: '🔧', n: 'Ferramentas' },
+    { k: 'veiculo',     i: '🚗', n: 'Veículo / manutenção' },
     { k: 'outros',      i: '📦', n: 'Outros' }
   ];
+  var K_CATS = 'hr_extrato_cats';   // categorias criadas por você ({k,i,n})
+  var EMOJIS_CAT = ['🏷️', '🧾', '🍽️', '🏥', '📣', '📱', '🧹', '🛠️', '📚', '🎁'];
+  // deixa a categoria conhecida no resto do app (pró-labore, resumo, modais de lançamento)
+  function registrarCat(c) {
+    if (c.k !== 'veiculo' && c.k.indexOf('c_') !== 0) return;   // as categorias de sempre o app já conhece
+    try {
+      if (typeof PL_CAT_LABEL !== 'undefined' && !PL_CAT_LABEL.hasOwnProperty(c.k)) PL_CAT_LABEL[c.k] = c.i + ' ' + c.n;
+      ['fCat', 'teCat'].forEach(function (id) {
+        var sel = document.getElementById(id);
+        if (!sel || !sel.options) return;
+        for (var i = 0; i < sel.options.length; i++) if (sel.options[i].value === c.k) return;
+        var o = document.createElement('option'); o.value = c.k; o.textContent = c.i + ' ' + c.n; sel.appendChild(o);
+      });
+    } catch (e) {}
+  }
+  (function carregarCatsCustom() {
+    var salvas = [];
+    try { salvas = JSON.parse(localStorage.getItem(K_CATS)) || []; } catch (e) {}
+    var outros = CATS.pop();                                    // mantém "Outros" por último
+    salvas.forEach(function (c) { if (c && c.k && !CATS.some(function (x) { return x.k === c.k; })) CATS.push(c); });
+    CATS.push(outros);
+    CATS.forEach(registrarCat);
+  })();
   function catNome(k) {
     for (var i = 0; i < CATS.length; i++) if (CATS[i].k === k) return CATS[i].i + ' ' + CATS[i].n;
     if (k === 'mao_obra') return '👷 Mão de obra';
@@ -245,6 +270,136 @@
     return { periodo: periodo, linhas: recs, conferencia: { ok: false, semConf: true, dias: 0, erros: [] }, avisos: avisos };
   }
 
+  // ───────────────────────── PARSER PLANILHA (XLSX/XLS — Bradesco) ─────────────────────────
+  // Entrada: matriz de linhas (array de arrays) da 1ª aba. Gera o mesmo formato
+  // dos outros parsers. Colunas: Data | Descrição | Documento | Tipo | Valor | Saldo.
+  function parseExtratoPlanilha(rows) {
+    function celula(v) { return v == null ? '' : String(v).replace(/\u00a0/g, ' ').trim(); }
+    function dinheiro(v) {
+      if (typeof v === 'number') return Math.round(v * 100);
+      var t = celula(v).replace(/[R$\s]/g, '');
+      if (!t || !/\d/.test(t)) return null;
+      var neg = /^-|\(.*\)$/.test(t);
+      t = t.replace(/[-()]/g, '');
+      if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(t);
+      if (isNaN(n)) return null;
+      return Math.round(n * 100) * (neg ? -1 : 1);
+    }
+    function dataBR(v) {
+      if (typeof v === 'number' && v > 30000 && v < 80000) {
+        var d = new Date(Math.round((v - 25569) * 86400000));
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+      }
+      var m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(celula(v));
+      return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+    }
+
+    var periodo = null;
+    rows.some(function (r) {
+      if (/^PER[IÍ]ODO/i.test(celula(r[0]))) {
+        var m = /(\d{2})\/(\d{2})\/(\d{4})\s*a\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(celula(r[1]));
+        if (m) { periodo = { mes: m[3] + '-' + m[2], de: m[3] + '-' + m[2] + '-' + m[1], ate: m[6] + '-' + m[5] + '-' + m[4] }; return true; }
+      }
+      return false;
+    });
+
+    var recs = [], avisos = [], vistos = {}, grupos = {}, ordemDias = [];
+    rows.forEach(function (r) {
+      var data = dataBR(r[0]);
+      if (!data) return;
+      var desc = celula(r[1]).replace(/\s+/g, ' ');
+      if (!grupos[data]) { grupos[data] = { rows: [], saldoDia: null }; ordemDias.push(data); }
+      if (/^SALDO\s*(DO\s*DIA|FINAL)/i.test(desc)) { grupos[data].saldoDia = dinheiro(r[5]); return; }
+      if (/^SALDO\s*ANTERIOR/i.test(desc)) return;
+      var cent = dinheiro(r[4]);
+      if (cent === null) { avisos.push('Sem valor: ' + data + ' ' + desc.slice(0, 40)); return; }
+      if (cent === 0) return;
+      var tipoCol = celula(r[3]);
+      if (/^D[EÉ]BITO/i.test(tipoCol) && cent > 0) cent = -cent;
+      if (/^CR[EÉ]DITO/i.test(tipoCol) && cent < 0) cent = -cent;
+      var sinal = cent < 0 ? '-' : '+';
+      var doc = celula(r[2]);
+
+      // data real da operação: "... 27/10" no fim da descrição
+      var dataEv = data, hist = desc;
+      var dm0 = /\s(\d{2})\/(\d{2})$/.exec(hist);
+      if (dm0) {
+        var cand = data.slice(0, 4) + '-' + dm0[2] + '-' + dm0[1];
+        if (cand > data) cand = (parseInt(data.slice(0, 4), 10) - 1) + '-' + dm0[2] + '-' + dm0[1];
+        dataEv = cand;
+        hist = hist.slice(0, dm0.index).trim();
+      }
+      var mn = norm(hist);
+      var tipo = 'outro';
+      if (/RENDE FACIL|APLIC(ACAO)? AUTOM|RESG(ATE)? AUTOM|INVEST FACIL/.test(mn)) tipo = 'rende';
+      else if (sinal === '-' && /TARIFA|^TAR |CESTA|ANUIDADE|^IOF|MANUT/.test(mn)) tipo = 'tarifa';
+      else if (sinal === '+' && /PIX/.test(mn) && /DEVOLV|ESTORNO/.test(mn)) tipo = 'estorno';
+      else if (/PIX/.test(mn)) tipo = sinal === '-' ? 'pix_out' : 'pix_in';
+      else if (/SAQUE/.test(mn)) tipo = 'saque';
+      else if (/DEPOSITO|DEP DINHEIRO/.test(mn)) tipo = 'deposito';
+      else if (sinal === '-' && /BOLETO|TITULO|CONVENIO|PAGAMENTO CONTA|COBRANCA/.test(mn)) tipo = 'boleto';
+      else if (sinal === '-' && /COMPRA|CARTAO|DEBITO/.test(mn)) tipo = 'cartao';
+
+      var nome = hist, docp = '';
+      var pm = /\b(?:DES|REM)\s*:\s*(.*)$/i.exec(hist);   // Pix: "DES: fulano" (enviado) / "REM: fulano" (recebido)
+      if (pm) nome = pm[1];
+      var cp = /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b|\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b|\b\d{14}\b|\b\d{11}\b/.exec(nome);
+      if (cp) { docp = cp[0].replace(/\D/g, ''); nome = nome.replace(cp[0], ' '); }
+      if (tipo === 'deposito') nome = 'Depósito em dinheiro';
+      else if (tipo === 'saque') nome = 'Saque em dinheiro';
+      else if (tipo !== 'tarifa' && !pm) {
+        nome = nome
+          .replace(/^(PIX|TRANSF(ERENCIA)?|TED|DOC)\s*(-|:)?\s*(ENVIAD[OA]|RECEBID[OA]|ENVIO|RECEBIMENTO|DEVOLVID[OA]|DEVOLUCAO)?\s*(PIX)?\s*(-|:)?\s*/i, '')
+          .replace(/^(COMPRA( NO)?\s*(CARTAO|DEBITO)?|PAGAMENTO( DE)?\s*(BOLETO|TITULO|CONTA)?|PAGTO( DE)?\s*(BOLETO|TITULO)?)\s*(-|:)?\s*/i, '');
+      }
+      nome = nome.replace(/\s+/g, ' ').trim() || hist;
+
+      var id = ['bradesco', data, doc, cent].join('|');
+      if (vistos[id]) { vistos[id]++; id += '#' + vistos[id]; } else vistos[id] = 1;
+      var rec = {
+        id: id, tipo: tipo, data: data, dataEvento: dataEv, lote: '', doc: doc,
+        sinal: sinal, cent: cent, valor: Math.abs(cent) / 100,
+        hist: hist, nome: nome, nomeNorm: norm(nome), docp: docp
+      };
+      recs.push(rec);
+      grupos[data].rows.push({ cent: cent, saldo: dinheiro(r[5]) });
+    });
+
+    // conferência: o saldo linha a linha tem que fechar com o "Saldo do Dia" e
+    // com o fechamento do dia anterior presente no arquivo
+    var dias = 0, erros = [];
+    var diasOrd = ordemDias.slice().sort();
+    function cadeiaOk(lista) {
+      for (var i = 1; i < lista.length; i++) {
+        if (lista[i].saldo === null || lista[i - 1].saldo === null) return false;
+        if (lista[i - 1].saldo + lista[i].cent !== lista[i].saldo) return false;
+      }
+      return true;
+    }
+    var fechamentoAnterior = null;
+    diasOrd.forEach(function (d) {
+      var g = grupos[d];
+      if (!g.rows.length) { if (g.saldoDia !== null) fechamentoAnterior = g.saldoDia; return; }
+      var lista = g.rows;
+      if (!cadeiaOk(lista) && cadeiaOk(lista.slice().reverse())) lista = lista.slice().reverse();
+      var ok = cadeiaOk(lista) && lista[0].saldo !== null;
+      var ultimo = lista[lista.length - 1];
+      if (ok && g.saldoDia !== null && ultimo.saldo !== g.saldoDia) ok = false;
+      if (ok && fechamentoAnterior !== null && lista[0].saldo - lista[0].cent !== fechamentoAnterior) ok = false;
+      dias++;
+      if (!ok) erros.push(dmy(d) + ': o saldo da planilha não fecha com os lançamentos');
+      if (g.saldoDia !== null) fechamentoAnterior = g.saldoDia;
+      else if (ultimo.saldo !== null) fechamentoAnterior = ultimo.saldo;
+    });
+
+    if (!periodo && recs.length) {
+      var ds = recs.map(function (r) { return r.data; }).sort();
+      periodo = { mes: ds[0].slice(0, 7), de: ds[0], ate: ds[ds.length - 1] };
+    }
+    return { periodo: periodo, linhas: recs, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
+  }
+
   function getFuncs() {
     try {
       if (window.HR_FUNC && HR_FUNC.getFuncionarios) {
@@ -331,6 +486,7 @@
     if (/MARMORES|GRANIT/.test(n)) return 'material';
     if (/SERRALHEIR|CONSTRUBASE|FERRAGEM|ELETRIC|MATERIAL DE CONSTR/.test(n)) return 'insumos';
     if (/POSTO|COMBUSTIV|GASOLIN/.test(n)) return 'combustivel';
+    if (/OFICINA|MECANIC|AUTO PECAS|AUTOPECAS|BORRACHARIA|PNEU|LAVA JATO|LAVAJATO|FUNILARIA|AUTO CENTER|RETIFICA/.test(n)) return 'veiculo';
     if (/NEOENERGIA|COELBA|CACTUSNET|INTERNET|AGUA|CONTAB|TARIFA/.test(n)) return 'fixo';
     if (/SUPERMERCADO|MERCADINHO|MERCADO|DROGARIA|FARMACIA|CLINICA|ODONTO|CHURRASCARIA|PASTEL|KOMBINADO|HOTEL|VERDURA/.test(n)) return 'retirada';
     if (/GOOGLE|BYTEDANCE|APPMAX|MARSECON/.test(n)) return 'outros';
@@ -557,6 +713,27 @@
       document.head.appendChild(s);
     });
   }
+  function carregarSheetJS() {
+    return new Promise(function (resolve, reject) {
+      if (window.XLSX) return resolve(window.XLSX);
+      var s = document.createElement('script');
+      s.src = SHEETJS_URL;
+      s.onload = function () { resolve(window.XLSX); };
+      s.onerror = function () { reject(new Error('Sem internet para carregar o leitor de planilha. Conecte e tente de novo.')); };
+      document.head.appendChild(s);
+    });
+  }
+  function linhasDaPlanilha(buf) {
+    return carregarSheetJS().then(function (X) {
+      var wb = X.read(new Uint8Array(buf), { type: 'array' });
+      var melhor = [];
+      wb.SheetNames.forEach(function (n) {
+        var rows = X.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' });
+        if (rows.length > melhor.length) melhor = rows;
+      });
+      return melhor;
+    });
+  }
   function textoDoPdf(buf) {
     return carregarPdfJs().then(function (pdfjs) {
       return pdfjs.getDocument({ data: buf }).promise;
@@ -693,6 +870,12 @@
     h += b('funcionario', '👷 Funcionário') + b('terceiro', '🤝 Ajudante / terceiro');
     CATS.slice(2).forEach(function (c) { h += b(c.k, c.i + ' ' + c.n); });
     h += b('retirada', '👤 Pessoal / retirada') + b('interna', '🔁 Transf. interna');
+    h += '<div style="grid-column:1/-1;margin-top:6px">' +
+      '<div class="ext-sub" style="margin-bottom:4px">✍️ Não achou? Escreva o que é esse gasto:</div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<input class="ext-in" id="extCat" style="flex:1;margin:0" placeholder="Ex.: Alimentação, Marketing, Manutenção da máquina" onkeydown="if(event.key===\'Enter\'){HR_EXTRATO.novaCategoria()}">' +
+      '<button class="ext-b p" style="flex:0 0 auto" onclick="HR_EXTRATO.novaCategoria()">Usar</button>' +
+      '</div></div>';
     h += b('ignorar', '🚫 Ignorar', 'w');
     return h;
   }
@@ -874,6 +1057,26 @@
     else ac = { a: 'cat', cat: k, label: label };
     aplicarResposta(g, ac, aprende);
   }
+  // Cria uma categoria sua e já usa nela neste lançamento. Fica salva pra sempre.
+  function novaCategoria() {
+    var g = _S && _S.plano.grupos[_S.i]; if (!g) return;
+    var campo = document.getElementById('extCat');
+    var nome = campo ? String(campo.value || '').replace(/\s+/g, ' ').trim() : '';
+    if (!nome) { if (campo && campo.focus) campo.focus(); return; }
+    var nn = norm(nome);
+    var ja = CATS.filter(function (c) { return norm(c.n) === nn; })[0];
+    if (!ja) {
+      var base = nn.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'cat';
+      var k = 'c_' + base, n = 2;
+      while (CATS.some(function (c) { return c.k === k; })) k = 'c_' + base + '_' + (n++);
+      var salvas = _ler(K_CATS, []);
+      ja = { k: k, i: EMOJIS_CAT[salvas.length % EMOJIS_CAT.length], n: nome.charAt(0).toUpperCase() + nome.slice(1) };
+      salvas.push(ja); _gravar(K_CATS, salvas);
+      CATS.splice(CATS.length - 1, 0, ja);                       // antes de "Outros"
+      registrarCat(ja);
+    }
+    resp(ja.k);
+  }
   function respFunc(fid) {
     var g = _S.plano.grupos[_S.i]; if (!g) return;
     var f = getFuncs().filter(function (x) { return String(x.id) === String(fid); })[0];
@@ -901,6 +1104,12 @@
     var u = new Uint8Array(buf.slice(0, 5));
     return u[0] === 0x25 && u[1] === 0x50 && u[2] === 0x44 && u[3] === 0x46;
   }
+  function ehPlanilhaBuf(buf) {
+    var u = new Uint8Array(buf.slice(0, 4));
+    var zip = u[0] === 0x50 && u[1] === 0x4B && u[2] === 0x03 && u[3] === 0x04;      // .xlsx
+    var ole = u[0] === 0xD0 && u[1] === 0xCF && u[2] === 0x11 && u[3] === 0xE0;      // .xls antigo
+    return zip || ole;
+  }
   function lerTextoOFX(buf) {
     var u8 = new Uint8Array(buf);
     try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch (e) {}
@@ -914,9 +1123,17 @@
     fr.onerror = function () { alert('Não consegui abrir o arquivo.'); };
     fr.onload = function () {
       var buf = fr.result;
+      if (ehPlanilhaBuf(buf)) {
+        linhasDaPlanilha(buf).then(function (rows) {
+          var pp = parseExtratoPlanilha(rows);
+          if (!pp.linhas.length) { alert('Não encontrei lançamentos nessa planilha. Envie o extrato (Data, Descrição, Documento, Tipo, Valor, Saldo).'); return; }
+          iniciar(montarPlano(pp), file.name);
+        }).catch(function (e) { alert(e && e.message ? e.message : 'Erro ao ler a planilha.'); });
+        return;
+      }
       if (!ehPdfBuf(buf)) {
         var txt = lerTextoOFX(buf);
-        if (!/<STMTTRN>/i.test(txt)) { alert('Arquivo não reconhecido. Envie o PDF do extrato do BB ou um arquivo OFX.'); return; }
+        if (!/<STMTTRN>/i.test(txt)) { alert('Arquivo não reconhecido. Envie a planilha (XLSX) ou o OFX do extrato, ou o PDF do BB.'); return; }
         var po = parseOFX(txt);
         if (!po.linhas.length) { alert('Não encontrei lançamentos nesse arquivo OFX.'); return; }
         return iniciar(montarPlano(po), file.name);
@@ -933,7 +1150,7 @@
     var inp = document.getElementById('extFile');
     if (!inp) {
       inp = document.createElement('input');
-      inp.type = 'file'; inp.id = 'extFile'; inp.accept = '.pdf,.ofx,application/pdf,application/x-ofx,application/octet-stream,text/plain'; inp.style.display = 'none';
+      inp.type = 'file'; inp.id = 'extFile'; inp.accept = '.pdf,.ofx,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/x-ofx,application/octet-stream,text/plain'; inp.style.display = 'none';
       inp.onchange = function () { var f = inp.files && inp.files[0]; inp.value = ''; importarArquivo(f); };
       document.body.appendChild(inp);
     }
@@ -947,7 +1164,7 @@
     var h = '<div class="ext-card" style="margin-top:10px">' +
       '<div class="ext-tab-hero"><div class="ext-tab-ic">📥</div><div>' +
       '<div class="ext-tab-t">Importar extrato do banco</div>' +
-      '<div class="ext-sub" style="margin-top:2px">PDF do BB ou OFX de qualquer banco. Só pergunto o que ainda não sei.</div></div></div>' +
+      '<div class="ext-sub" style="margin-top:2px">PDF do BB, planilha (XLSX) ou OFX de qualquer banco. Só pergunto o que ainda não sei.</div></div></div>' +
       '<button class="ext-b p" onclick="HR_EXTRATO.escolherArquivo()">Escolher arquivo</button></div>';
     h += '<div class="ext-card"><div class="ext-mini"><div><b>🧠 Regras aprendidas</b>' +
       '<div class="ext-sub">' + nReg + (nReg === 1 ? ' nome lembrado' : ' nomes lembrados') + '</div></div>' +
@@ -1012,7 +1229,7 @@
     if (grid && !document.getElementById('finImpBtn') && !document.querySelector('.fin-actions')) {
       var w = document.createElement('div');
       w.className = 'fin-imp-wrap'; w.id = 'finImpBtn';
-      w.innerHTML = '<button class="fin-imp" onclick="finTab(\'extrato\');var b=document.getElementById(\'finBody\');if(b&&b.scrollIntoView)b.scrollIntoView({behavior:\'smooth\',block:\'start\'})">📥 Importar extrato do banco <small>PDF ou OFX</small></button>';
+      w.innerHTML = '<button class="fin-imp" onclick="finTab(\'extrato\');var b=document.getElementById(\'finBody\');if(b&&b.scrollIntoView)b.scrollIntoView({behavior:\'smooth\',block:\'start\'})">📥 Importar extrato do banco <small>PDF, XLSX ou OFX</small></button>';
       grid.parentNode.insertBefore(w, grid.nextSibling);
       injetarCss();
     }
@@ -1047,12 +1264,12 @@
     voltarConf: function () { if (_S.plano.grupos.length) { _S.etapa = 'pergunta'; _S.i = Math.max(0, _S.plano.grupos.length - 1); var g = _S.plano.grupos[_S.i]; g.linhas.forEach(function (l) { l.estado = 'ask'; l.ac = null; }); desenhar(); } else { _S.etapa = 'resumo'; desenhar(); } },
     abrirLote: abrirLote, loteMudar: loteMudar, confirmarLote: confirmarLote,
     voltarResumo: function () { _S.etapa = 'resumo'; desenhar(); },
-    resp: resp, respFunc: respFunc, pular: pular, voltar: voltar,
+    resp: resp, respFunc: respFunc, novaCategoria: novaCategoria, pular: pular, voltar: voltar,
     voltarBotoes: function () { _S.escolhendoFunc = false; desenhar(); },
     lancar: lancar, desfazer: desfazer, verRegras: verRegras, esquecer: esquecer,
     _lembrar: function (v) { _S.lembrar = v; },
     _forcar: function (id, v) { _S.plano.linhas.forEach(function (l) { if (l.id === id) l.forcar = v; }); },
     renderTab: renderExtratoTab, iniciar: iniciar, _estado: function () { return _S; },
-    _parse: parseExtratoBB, _parseOFX: parseOFX, _plano: montarPlano
+    _parse: parseExtratoBB, _parseOFX: parseOFX, _parseXLSX: parseExtratoPlanilha, _plano: montarPlano
   };
 })();
