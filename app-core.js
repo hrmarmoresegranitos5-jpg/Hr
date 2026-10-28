@@ -6224,9 +6224,11 @@ function _dscInfo(q, usaVista) {
   return { de: de, por: por, off: off, pct: off / de * 100 };
 }
 // Bloco de desconto (letras grandes, palavras simples). d = _dscInfo(); rotulo = "Você paga:" etc.
-function _dscHtml(d, rotulo) {
+function _dscHtml(d, rotulo, soRiscado) {
   var h = '';
-  if (d) {
+  if (d && soRiscado) {
+    h += '<div style="font-size:13px;color:#aaa;margin-bottom:4px;text-decoration:line-through;">R$ ' + fm(d.de) + '</div>';
+  } else if (d) {
     h += '<div style="font-size:19px;color:#444;margin-bottom:8px;">Preço normal: <b style="text-decoration:line-through;color:#888;">R$ ' + fm(d.de) + '</b></div>';
   }
   return h + '<div style="font-size:19px;color:#333;font-weight:700;margin-bottom:2px;">' + rotulo + '</div>';
@@ -8170,7 +8172,7 @@ function gerarPDF(){
           +'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">'+(_pdfPctVista>0?_pctTxt((q.parc-q.vista)/q.parc*100)+'% OFF':'DESCONTO')+'</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
-          +_dscHtml((q.parc>0&&q.vista>0&&q.parc>q.vista+0.004)?{de:q.parc,por:q.vista,off:Math.round((q.parc-q.vista)*100)/100,pct:(q.parc-q.vista)/q.parc*100}:null,'Você paga à vista:').replace('Preço normal:','Preço a prazo:')
+          +_dscHtml((q.parc>0&&q.vista>0&&q.parc>q.vista+0.004)?{de:q.parc,por:q.vista,off:Math.round((q.parc-q.vista)*100)/100,pct:(q.parc-q.vista)/q.parc*100}:null,'Você paga à vista:', true)
           +'<div style="font-size:34px;font-weight:900;color:#7a4400;line-height:1.1;margin-bottom:4px;">R$ '+fm(q.vista)+'</div>'
           +'<div style="font-size:17px;color:#333;line-height:1.4;">Pagando tudo de uma vez.</div>'
         +'</div>'
