@@ -8168,13 +8168,12 @@ function gerarPDF(){
       +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
         +'<div style="background:#0f0c00;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">'
           +'<div><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">'+(_pdfCeara?'Bancada HR':'À vista')+'</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Pagamento único</div></div>'
-          +'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">'+(_pdfPctVista>0?_pdfPctVista+'% OFF':'DESCONTO')+'</span>'
+          +'<span style="background:#C9A84C;color:#000;font-size:13px;font-weight:900;padding:4px 12px;border-radius:20px;">'+(_pdfPctVista>0?_pctTxt((q.parc-q.vista)/q.parc*100)+'% OFF':'DESCONTO')+'</span>'
         +'</div>'
         +'<div style="padding:14px 16px;background:#fff;">'
-          +(q.desconto>0&&q._vistaCalc>0?'<div style="font-size:13px;color:#aaa;text-decoration:line-through;margin-bottom:2px;">De R$ '+fm(q._vistaCalc)+'</div>':'')
-          +'<div style="font-size:28px;font-weight:900;color:#7a4400;line-height:1;margin-bottom:4px;">R$ '+fm(q.vista)+'</div>'
-          +'<div style="font-size:13px;color:#a06020;font-weight:700;margin-bottom:8px;">Desconto especial pagando de uma vez</div>'
-          +'<div style="display:inline-flex;align-items:center;gap:5px;background:#edf7ed;border:1px solid #7ac47a;color:#1e6b1e;font-size:13px;font-weight:900;padding:5px 12px;border-radius:20px;">&#9660; Economize R$ '+fm(economia)+'</div>'
+          +_dscHtml((q.parc>0&&q.vista>0&&q.parc>q.vista+0.004)?{de:q.parc,por:q.vista,off:Math.round((q.parc-q.vista)*100)/100,pct:(q.parc-q.vista)/q.parc*100}:null,'Você paga à vista:').replace('Preço normal:','Preço a prazo:')
+          +'<div style="font-size:34px;font-weight:900;color:#7a4400;line-height:1.1;margin-bottom:4px;">R$ '+fm(q.vista)+'</div>'
+          +'<div style="font-size:17px;color:#333;line-height:1.4;">Pagando tudo de uma vez.</div>'
         +'</div>'
       +'</div>'
     +'</div>')
