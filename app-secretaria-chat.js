@@ -771,7 +771,7 @@ function _chatBuildSystem() {
     '═══ AÇÕES DISPONÍVEIS ═══',
     'Use blocos ```json``` para executar ações. Múltiplos blocos na mesma resposta são suportados.',
     '',
-    '1.  Despesa:       {"action":"despesa",      "desc":"...","valor":100,"cat":"combustivel","forma":"dinheiro"} — cat: material|mao_obra|insumos|fixo|combustivel|ferramentas|outros (sempre escolha a mais adequada). Use "forma":"dinheiro" quando o usuário disser que pagou em dinheiro vivo/espécie/na mão (gasto que não passa pelo banco); omita "forma" nos demais casos. Vale também para a entrada (adicione "forma":"dinheiro" quando recebido em dinheiro). Se o usuário listar VÁRIOS gastos/entradas na mesma mensagem, emita um bloco JSON separado para cada um. Se o usuário enviar FOTO de nota, cupom ou recibo, leia o valor total, o fornecedor e a data e emita a ação despesa (com a categoria adequada); só pergunte se o valor estiver ilegível.',
+    '1.  Despesa:       {"action":"despesa",      "desc":"...","valor":100,"cat":"combustivel","forma":"dinheiro"} — cat: material|mao_obra|insumos|fixo|combustivel|ferramentas|veiculo|outros (veiculo = manutenção de carro/caminhão/moto: oficina, peças, pneu; sempre escolha a mais adequada). Use "forma":"dinheiro" quando o usuário disser que pagou em dinheiro vivo/espécie/na mão (gasto que não passa pelo banco); omita "forma" nos demais casos. Vale também para a entrada (adicione "forma":"dinheiro" quando recebido em dinheiro). Se o usuário listar VÁRIOS gastos/entradas na mesma mensagem, emita um bloco JSON separado para cada um. Se o usuário enviar FOTO de nota, cupom ou recibo, leia o valor total, o fornecedor e a data e emita a ação despesa (com a categoria adequada); só pergunte se o valor estiver ilegível.',
     '2.  Entrada:       {"action":"entrada",       "desc":"...","valor":100}',
     '3.  A receber:     {"action":"areceber",      "desc":"...","valor":100,"data":"YYYY-MM-DD"}',
     '4.  Receber pend:  {"action":"receber_pend",  "desc":"parte do nome do lançamento"}',
@@ -793,6 +793,7 @@ function _chatBuildSystem() {
     '20. Lançar boleto:   {"action":"lancar_boleto","fornecedor":"NOME","valor":4200,"vencimento":"YYYY-MM-DD"} — cria despesa e entrada a pagar a partir de boleto fotografado.',
     '22. Baixar boleto:   {"action":"baixar_boleto","fornecedor":"NOME","valor":6155.14,"data":"YYYY-MM-DD"} — use quando o usuário disser que PAGOU um boleto (ou enviar comprovante/print de pagamento). Dá baixa na parcela pendente correspondente e lança a saída UMA vez, com o valor realmente pago (juros/multa incluídos). NÃO use "despesa" para boleto pago que já está na lista de boletos a pagar. Use "despesa" só se não existir boleto correspondente.',
     '21. Lembrete:        {"action":"lembrete","texto":"TEXTO DO LEMBRETE","data":"YYYY-MM-DD"} — salva um lembrete interno para a data informada.',
+    '23. Nota com itens:  {"action":"nota_itens","fornecedor":"NOME","data":"YYYY-MM-DD","forma":"dinheiro|banco|nao_pago","frete":0,"total":0,"itens":[{"descricao":"TUBO QUAD 20X20 6M","quantidade":2,"unidade":"BARRA","valorUnitario":110,"valorTotal":220}]} — use quando o usuário mandar FOTO ou texto de uma nota/cupom de compra de materiais com VÁRIOS itens (tubo, cantoneira, disco, cola…). NÃO use "despesa" nesse caso: esta ação abre a tela de conferência dos itens e, quando o usuário confirmar, guarda o preço de cada item e lança o gasto. Mantenha medidas e comprimentos na descrição.',
     '',
     '═══ FORMATO ═══',
     '- **negrito** para números e nomes importantes',
@@ -952,7 +953,8 @@ function _chatAsk(userText, imgObj) {
   // Se houver imagem, adiciona instrução ao system para analisar
   if (imgObj) {
     systemPrompt += '\n\nO usuário enviou uma imagem. Analise-a com atenção. ' +
-      'Se for uma nota fiscal, boleto ou cupom: extraia fornecedor, valor total e vencimento (se houver). ' +
+      'Se for um BOLETO: extraia fornecedor, valor e vencimento. ' +
+      'Se for nota fiscal ou cupom de compra de MATERIAIS com vários itens (tubo, cantoneira, disco, cola, ferragens…): leia item por item (descrição com medidas, quantidade, unidade, valor unitário e total) e emita a ação nota_itens — NÃO emita despesa nesse caso, a conferência dos itens abre sozinha. Se for um cupom de um item só (ex.: combustível), use despesa. ' +
       'Se for etiqueta/tabela de preço de pedra: extraia nome da pedra, valor por m² e categoria. ' +
       'Se for medição ou croqui: extraia as dimensões visíveis. ' +
       'Ao final, ofereça ações práticas como lançar em Finanças ou atualizar catálogo. ' +
@@ -1194,7 +1196,8 @@ function _jobLog(job, campo, de, para) {
 
     case 'despesa':
       if (data.desc && data.valor > 0) {
-        var _catsOk = ['material','mao_obra','insumos','fixo','combustivel','ferramentas','outros'];
+        var _catsOk = ['material','mao_obra','insumos','fixo','combustivel','ferramentas','veiculo','outros'];
+        try { (JSON.parse(localStorage.getItem('hr_extrato_cats')) || []).forEach(function(c){ if (c && c.k) _catsOk.push(c.k); }); } catch(e) {}
         var _catDesp = String(data.cat || '').toLowerCase().trim();
         if (_catsOk.indexOf(_catDesp) === -1) {
           _catDesp = (typeof _finGuessCategoria === 'function') ? (_finGuessCategoria(data.desc) || '') : '';
@@ -1207,7 +1210,7 @@ function _jobLog(job, campo, de, para) {
           DB.sv();
           if (typeof renderFin === 'function') renderFin();
         }
-        var _catRot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', outros:'Outros' }[_catDesp];
+        var _catRot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', veiculo:'Veículo / manutenção', outros:'Outros' }[_catDesp] || ((typeof PL_CAT_LABEL !== 'undefined' && _catDesp && PL_CAT_LABEL[_catDesp]) ? PL_CAT_LABEL[_catDesp].replace(/^\S+\s+/, '') : '');
         result.extra = '✅ Despesa de **R$ ' + fm(data.valor) + '** lançada' +
           (_catRot ? ' em **' + _catRot + '**' : ' (sem categoria)') +
           (_emDinheiro ? ', paga em dinheiro' : '') + '!';
@@ -1710,6 +1713,14 @@ function _jobLog(job, campo, de, para) {
         result.actions.push({label:'\ud83e\uddfe Ver boletos', fn:"go(4);finTab('boletos')"});
       } else {
         result.extra = '\u26a0\ufe0f Esse boleto j\u00e1 estava pago ou n\u00e3o foi encontrado. Nada foi lan\u00e7ado.';
+      }
+      break;
+
+    case 'nota_itens':
+      if (window.HR_NOTAS && HR_NOTAS.registrarDeAcao && HR_NOTAS.registrarDeAcao(data)) {
+        result.extra = '🧾 Li a nota e abri a **conferência dos itens**. Confira quantidades e valores e toque em **Salvar nota** — só então guardo os preços e lanço o gasto.';
+      } else {
+        result.extra = '⚠️ Não consegui montar os itens dessa nota. Abra **Finanças → 🧾 Notas** e digite à mão.';
       }
       break;
 

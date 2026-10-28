@@ -15,6 +15,7 @@ var _finCatKeywords = [
   ['mao_obra',    /diarista|ajudante|instalador|pedreiro|m[aã]o\s*de\s*obra|servi[çc]o\s*prestado|freelancer|di[aá]ria/i],
   ['combustivel', /combust[ií]vel|gasolina|diesel|posto\b|etanol/i],
   ['ferramentas', /ferramenta|makita|dewalt|bosch|politriz|maquita|esmerilhadeira/i],
+  ['veiculo',     /oficina|mec[aâ]nic|pneu|borracharia|auto\s*pe[cç]as|lava\s*jato|funilaria|manuten[cç][aã]o\s*(do\s*)?(carro|ve[ií]culo|caminh|moto)|troca\s*de\s*[oó]leo/i],
   ['fixo',        /aluguel|energia|luz\b|\bagua\b|água|internet|telefone|conta\s*de\s*(luz|agua|água)/i]
 ];
 function _finGuessCategoria(desc) {
@@ -884,6 +885,7 @@ var PL_CAT_LABEL = {
   fixo:        '🏠 Custo fixo',
   combustivel: '⛽ Combustível',
   ferramentas: '🔧 Ferramentas',
+  veiculo:     '🚗 Veículo / manutenção',
   outros:      '📦 Outros',
   '':          '❔ Sem categoria'
 };
@@ -2198,9 +2200,9 @@ function finResumoMes() {
   var T = (DB.t || []).filter(function(t) { return String(t.date || '').slice(0, 7) === mes; });
   var soma = function(a) { return a.reduce(function(x, t) { return x + (t.value || 0); }, 0); };
   var ent = T.filter(function(t) { return t.type === 'in'; }), sai = T.filter(function(t) { return t.type === 'out'; });
-  var rot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', outros:'Outros' };
+  var rot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', veiculo:'Veículo / manutenção', outros:'Outros' };
   var porCat = {};
-  sai.forEach(function(t) { var k = rot[t.cat] || 'Sem categoria'; porCat[k] = (porCat[k] || 0) + (t.value || 0); });
+  sai.forEach(function(t) { var k = rot[t.cat] || ((typeof PL_CAT_LABEL !== 'undefined' && t.cat && PL_CAT_LABEL[t.cat]) ? PL_CAT_LABEL[t.cat].replace(/^\S+\s+/, '') : 'Sem categoria'); porCat[k] = (porCat[k] || 0) + (t.value || 0); });
   var dm = T.filter(function(t) { return t.origem === 'dinheiro_mao'; });
   var linhas = ['*HR Mármores e Granitos — resumo de ' + nomes[+mes.slice(5) - 1] + '/' + mes.slice(0, 4) + '*', '',
     '💰 Entradas: R$ ' + fm(soma(ent)), '📉 Saídas: R$ ' + fm(soma(sai)), '📈 Saldo do mês: R$ ' + fm(soma(ent) - soma(sai)), '', '*Saídas por categoria*'];
