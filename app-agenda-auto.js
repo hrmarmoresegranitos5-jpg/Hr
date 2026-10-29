@@ -87,9 +87,11 @@
     try {
       var h = hoje(), jobs = DB.j || [], qs = DB.q || [];
       jobs.forEach(function (j) {
+        if (j && !j.done && j.end && !j.promessa) j.promessa = j.end;     // data prometida ao cliente (base do "risco de atraso")
         if (!j || !j.qId) return;
         var q = qs.find(function (x) { return String(x.id) === String(j.qId); });
         if (!q) return;
+        if (!j.done && !j.mat && !j.material && q.mat) j.mat = q.mat;   // serviços agendados pelo aceite só traziam a pedra dentro da descrição
         if (j.start && j.end && !j.done) {
           if (q.prazoInicio !== j.start) q.prazoInicio = j.start;
           if (q.prazoEntrega !== j.end) q.prazoEntrega = j.end;
@@ -172,40 +174,145 @@
     toast('📅 ' + feitos + ' agendado(s)' + (manuais ? ' · ' + manuais + ' precisa(m) de prazo (toque em Agendar)' : ''));
   };
 
+  // Ao aceitar/agendar, o serviço novo já entra no melhor lugar da fila (fim de semana, instalação, pedra).
+  // Só mexe no serviço novo — nunca desloca os outros sem você ver (isso fica nas sugestões).
+  function envolverAgendar() {
+    if (typeof window._agendarAposAceite !== 'function' || window._agendarAposAceite.__hrAuto) return;
+    var orig = window._agendarAposAceite;
+    window._agendarAposAceite = function (q) {
+      var tinha = q && (DB.j || []).some(function (x) { return String(x.qId) === String(q.id); });
+      var r = orig.apply(this, arguments);
+      try {
+        if (r && q && !tinha) {
+          var j = (DB.j || []).find(function (x) { return String(x.qId) === String(q.id) && !x.done; });
+          if (j) {
+            if (!j.mat && !j.material && q.mat) j.mat = q.mat;
+            if (!j.urgente && !(q.prazoUrgente || (q.urgPct || 0) > 0) && typeof window.hrPlanoFila === 'function') {
+              var mud = window.hrPlanoFila();
+              if (mud.length === 1 && mud[0].job === j) { aplicarPlano(mud); j._encaixado = true; } else { DB.sv(); }
+            }
+            j.promessa = j.end;
+            // confirmação pronta para o cliente (um toque; o app não envia sozinho)
+            responderChat('✅ **' + j.cli + '** agendado: início **' + fdb(j.start) + '** · entrega **' + fdb(j.end) + '**' +
+              (j._encaixado ? ' (encaixado na fila)' : '') + '.\nQuer confirmar o pedido com o cliente?',
+              [{ label: '💬 Confirmar com ' + primeiroNome(j.cli), fn: 'hrAvisarCliente(' + JSON.stringify(String(j.id)) + ",'confirmar','" + j.start + "','" + j.end + "')" }]);
+            delete j._encaixado;
+          }
+        }
+      } catch (e) { console.warn('hr-auto agendar:', e); }
+      return r;
+    };
+    window._agendarAposAceite.__hrAuto = true;
+  }
+
   // ═════════════════════════════════════════════════════════════
   //  FILA INTELIGENTE (6)
   // ═════════════════════════════════════════════════════════════
-  function jaComecou(j, h) { return j.start <= h || etapaDe(j) !== 'producao'; }
+  // ── calendário de trabalho (sábado opcional; domingo nunca) ────
+  var _cfgRaw = null, _cfgVal = null;
+  function cfgFila() {
+    var raw = ''; try { raw = localStorage.getItem('hr_fila_cfg') || ''; } catch (e) {}
+    if (_cfgVal && raw === _cfgRaw) return _cfgVal;
+    var c = {}; try { c = JSON.parse(raw || '{}') || {}; } catch (e) {}
+    _cfgRaw = raw;
+    _cfgVal = {
+      sabado: !!c.sabado,
+      instDias: (c.instDias >= 0 && c.instDias !== '' && c.instDias != null) ? +c.instDias : 1,
+      facultativos: c.facultativos !== false,                       // Carnaval e Corpus Christi como folga
+      extras: Array.isArray(c.extras) ? c.extras.filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(d); }) : []
+    };
+    return _cfgVal;
+  }
+  function salvarCfgFila(c) { try { localStorage.setItem('hr_fila_cfg', JSON.stringify(c)); } catch (e) {} _cfgRaw = null; }
+  function dow(iso) { return new Date(pd(iso)).getUTCDay(); }
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function pascoa(y) {   // algoritmo de Meeus/Jones/Butcher
+    var a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+      g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+      l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+      mes = Math.floor((h + l - 7 * m + 114) / 31), dia = ((h + l - 7 * m + 114) % 31) + 1;
+    return y + '-' + pad2(mes) + '-' + pad2(dia);
+  }
+  var _ferCache = {};
+  function feriadosDoAno(y, fac) {
+    var k = y + (fac ? 'f' : 'n'); if (_ferCache[k]) return _ferCache[k];
+    var o = {}, p = pascoa(y);
+    ['01-01', '04-21', '05-01', '09-07', '10-12', '11-02', '11-15', '11-20', '12-25'].forEach(function (md) { o[y + '-' + md] = 1; });
+    o[add(p, -2)] = 1;                                              // Sexta-feira Santa
+    if (fac) { o[add(p, -48)] = 1; o[add(p, -47)] = 1; o[add(p, 60)] = 1; }   // Carnaval (seg e ter) e Corpus Christi
+    _ferCache[k] = o; return o;
+  }
+  function feriado(iso) { var c = cfgFila(); return !!(feriadosDoAno(+String(iso).slice(0, 4), c.facultativos)[iso] || c.extras.indexOf(iso) >= 0); }
+  function util(iso) { var w = dow(iso); return !(w === 0 || (w === 6 && !cfgFila().sabado) || feriado(iso)); }
+  function proxUtil(iso) { var i = iso, n = 0; while (!util(i) && n < 10) { i = add(i, 1); n++; } return i; }
+  function somaUteis(iso, n) { var i = proxUtil(iso); while (n > 0) { i = proxUtil(add(i, 1)); n--; } return i; }
+  function subUteis(iso, n) { var i = iso, g = 0; while (n > 0 && g < 60) { i = add(i, -1); g++; if (util(i)) n--; } return i; }
+  function uteisEntre(a, b) { var n = 0, i = a, g = 0; while (i < b && g < 400) { i = add(i, 1); g++; if (util(i)) n++; } return n; }
+  function instDias(j) { return j.instala ? (j.instDias >= 0 && j.instDias != null && j.instDias !== '' ? +j.instDias : cfgFila().instDias) : 0; }
+  window.hrCalUteis = { feriado: feriado, util: util, proxUtil: proxUtil, somaUteis: somaUteis, uteisEntre: uteisEntre };
+
+  // ── material (pedra) ───────────────────────────────────────────
+  function semPedra(j, h) {   // não pode começar: pedra ainda não chegou OU obra do cliente ainda não liberou
+    if (etapaDe(j) !== 'producao' || j.oficinaFim) return false;
+    return !!((j.matChega && !j.matOk && j.matChega > h) || (j.clienteAte && j.clienteAte > h));
+  }
+  function dataPedra(j, h) { return (j.matChega && !j.matOk) ? j.matChega : ''; }
+  function dataCliente(j, h) { return (j.clienteAte && j.clienteAte > h) ? j.clienteAte : ''; }
+  function dataBloqueio(j, h) { return maxd(dataPedra(j, h), dataCliente(j, h)); }
+
+  function jaComecou(j, h) {
+    if (etapaDe(j) !== 'producao') return true;
+    if (semPedra(j, h)) return false;               // sem pedra não começou, mesmo que a data já tenha passado
+    return j.start <= h;
+  }
+  // dia em que a OFICINA fica livre (a instalação é feita em campo e não segura a oficina)
+  function fabFim(j, endRef) {
+    if (j.oficinaFim) return j.oficinaFim;
+    var e = endRef || j.end, f = j.instala ? subUteis(e, instDias(j)) : e;
+    return f < j.start ? j.start : f;
+  }
   function ocupaAte(j, h) {
     if (etapaDe(j) !== 'producao') return h;
-    if (j.oficinaFim) return maxd(j.oficinaFim, h);
-    return maxd(j.end, h);
+    return maxd(fabFim(j), h);
   }
 
   // Calcula como a fila deveria ficar. Não altera nada.
   function planoFila() {
-    var h = hoje();
-    var lista = jobsAtivos().slice().sort(function (a, b) {
-      var ua = a.urgente ? 0 : 1, ub = b.urgente ? 0 : 1;
-      if (ua !== ub) return ua - ub;
-      if (a.start !== b.start) return a.start < b.start ? -1 : 1;
-      return String(a.id) < String(b.id) ? -1 : 1;
-    });
-    var cursor = h;
-    lista.forEach(function (j) {               // quem já está em produção segura a oficina (urgente não segura)
+    var h = hoje(), cursor = h;
+    var ativos = jobsAtivos();
+    ativos.forEach(function (j) {                    // quem já está em produção segura a oficina (urgente não segura)
       if (jaComecou(j, h) && !j.urgente) cursor = maxd(cursor, ocupaAte(j, h));
     });
+    var pend = ativos.filter(function (j) { return !jaComecou(j, h); });
     var mud = [];
-    lista.forEach(function (j) {
-      if (jaComecou(j, h)) return;
-      if (j.fixo) { cursor = maxd(cursor, j.end); return; }
-      var dur = Math.max(1, diff(j.start, j.end));
-      var ns = maxd(h, cursor), ne = add(ns, dur);
-      cursor = ne;
-      if (ns !== j.start || ne !== j.end) {
-        mud.push({ job: j, de: { s: j.start, e: j.end }, para: { s: ns, e: ne }, tipo: ns < j.start ? 'adiantar' : 'atrasar' });
+    while (pend.length) {
+      var melhor = null, melhorPoss = null;
+      pend.forEach(function (j) {                    // escolhe quem pode começar primeiro (urgente e data original desempatam)
+        var poss = j.fixo ? j.start : proxUtil(maxd(maxd(h, cursor), dataBloqueio(j, h) || h));
+        var ganha = !melhor || poss < melhorPoss ||
+          (poss === melhorPoss && ((j.urgente ? 0 : 1) < (melhor.urgente ? 0 : 1) ||
+            ((j.urgente ? 0 : 1) === (melhor.urgente ? 0 : 1) && (j.start < melhor.start || (j.start === melhor.start && String(j.id) < String(melhor.id))))));
+        if (ganha) { melhor = j; melhorPoss = poss; }
+      });
+      var j = melhor;
+      pend.splice(pend.indexOf(j), 1);
+      if (j.fixo) { cursor = maxd(cursor, fabFim(j)); continue; }
+      var inst = instDias(j);
+      var wd = Math.max(1, uteisEntre(j.start, j.end));
+      var fab = j.instala ? Math.max(1, wd - inst) : wd;
+      var ns = melhorPoss, ne, fimOf;
+      var cursorAntes = maxd(h, cursor), pedra = dataBloqueio(j, h);
+      if (ns === j.start) { ne = j.end; fimOf = fabFim(j); }
+      else { fimOf = somaUteis(ns, fab); ne = j.instala ? somaUteis(fimOf, inst) : fimOf; }
+      cursor = maxd(cursor, fimOf);
+      if (ns !== j.start) {
+        mud.push({
+          job: j, de: { s: j.start, e: j.end }, para: { s: ns, e: ne }, tipo: ns < j.start ? 'adiantar' : 'atrasar',
+          motivo: (pedra && pedra > cursorAntes) ? (dataCliente(j, h) === pedra ? 'cliente' : 'material') : 'fila'
+        });
       }
-    });
+    }
+    planoFila._cursor = cursor;   // dia em que a oficina fica livre depois de toda a fila (usado no prazo possível)
     return mud;
   }
   window.hrPlanoFila = planoFila;
@@ -239,6 +346,14 @@
   // Mensagem de WhatsApp para o cliente afetado
   function textoCliente(j, m) {
     var nome = primeiroNome(j.cli);
+    if (m.tipo === 'atraso') {
+      return 'Olá, ' + nome + '! Passando para avisar com antecedência: a previsão de entrega do seu serviço mudou para ' + fdb(m.para.e) +
+        '. Pedimos desculpas pelo transtorno e estamos fazendo o possível para entregar o quanto antes. — HR Mármores e Granitos';
+    }
+    if (m.tipo === 'confirmar') {
+      return 'Olá, ' + nome + '! Seu pedido está confirmado. Início previsto: ' + fdb(m.para.s) + ' · entrega prevista: ' + fdb(m.para.e) +
+        '. Antes de começar, vamos passar aí para conferir as medidas. Qualquer dúvida é só chamar. — HR Mármores e Granitos';
+    }
     if (m.tipo === 'adiantar') {
       return 'Olá, ' + nome + '! Boa notícia: conseguimos adiantar o seu serviço. Início previsto para ' + fdb(m.para.s) +
         ' e entrega prevista para ' + fdb(m.para.e) + '. Qualquer dúvida é só chamar. — HR Mármores e Granitos';
@@ -263,6 +378,7 @@
     mud.forEach(function (m) {
       var ic = m.tipo === 'adiantar' ? '⏩ Adiantei' : '⏳ Empurrei';
       linhas.push(ic + ' **' + m.job.cli + '**: início ' + fdb(m.de.s) + ' → **' + fdb(m.para.s) + '** · entrega ' + fdb(m.de.e) + ' → **' + fdb(m.para.e) + '**' +
+        (m.motivo === 'material' ? '\n   🪨 aguardando a pedra' : m.motivo === 'cliente' ? '\n   ⏸️ aguardando o cliente liberar a obra' : '') +
         (m.tipo === 'adiantar' ? '\n   📐 conferir as medidas na casa do cliente antes de começar' : ''));
       acoes.push({
         label: '💬 Avisar ' + primeiroNome(m.job.cli),
@@ -297,10 +413,31 @@
       logJob(j, 'prazo', j.end, nv);
       partes.push('🔴 **' + j.cli + '**: atrasou ' + valor + ' dia(s) — nova entrega **' + fdb(nv) + '**.');
       j.end = nv;
+    } else if (etapa === 'clientelivre' || (etapa === 'clienteate' && valor && valor <= h)) {
+      logJob(j, 'cliente', j.clienteAte || 'aguardando', 'liberou a obra');
+      j.clienteAte = '';
+      partes.push('✅ **' + j.cli + '**: obra liberada pelo cliente.');
+    } else if (etapa === 'clienteate' && valor) {
+      logJob(j, 'cliente', j.clienteAte || '—', valor);
+      j.clienteAte = valor;
+      partes.push('⏸️ **' + j.cli + '**: obra do cliente só libera **' + fdb(valor) + '** — a oficina segue com o próximo.');
+    } else if (etapa === 'matok' || (etapa === 'material' && valor && valor <= h)) {
+      logJob(j, 'material', j.matChega || 'sem previsão', 'chegou');
+      j.matOk = true; if (!j.matChega || j.matChega > h) j.matChega = h;
+      partes.push('🪨 **' + j.cli + '**: pedra chegou.');
+    } else if (etapa === 'material' && valor) {
+      logJob(j, 'material', j.matChega || 'sem previsão', valor);
+      j.matOk = false; j.matChega = valor;
+      partes.push('🪨 **' + j.cli + '**: pedra prevista para **' + fdb(valor) + '**.');
+    } else if (etapa === 'matatraso' && valor) {
+      var bm = (j.matChega && j.matChega > h) ? j.matChega : h, nm = add(bm, +valor);
+      logJob(j, 'material', j.matChega || 'sem previsão', nm);
+      j.matOk = false; j.matChega = nm;
+      partes.push('🪨 **' + j.cli + '**: pedra atrasou ' + valor + ' dia(s) — chega **' + fdb(nm) + '**.');
     } else {
       return { ok: false, texto: '⚠️ Não entendi o que aconteceu com ' + j.cli + '.', acoes: [] };
     }
-    if (opcoes && opcoes.fim && etapa !== 'previsao') {           // "terminamos o corte e entrega dia X"
+    if (opcoes && opcoes.fim && (etapa === 'corte' || etapa === 'pronto' || etapa === 'atraso')) {           // "terminamos o corte e entrega dia X"
       var n2 = opcoes.fim < h ? h : opcoes.fim;
       if (n2 !== j.end) { logJob(j, 'prazo', j.end, n2); partes.push('📅 Entrega ajustada para **' + fdb(n2) + '**.'); j.end = n2; }
     }
@@ -325,8 +462,13 @@
   };
 
   // Resposta no chat da secretária (se o chat não estiver carregado, vira aviso na tela)
+  function garantirHistorico() {
+    try { if (typeof _chat !== 'undefined' && Array.isArray(_chat.history) && !_chat.history.length && typeof _chatLoad === 'function') _chatLoad(); } catch (e) {}
+  }
   function responderChat(texto, acoes) {
     try {
+      garantirHistorico();
+      if (!document.getElementById('chatBody')) toast(String(texto).replace(/\*\*/g, '').split('\n')[0]);   // fora do chat: feedback imediato
       if (typeof _chatBotReply === 'function' && typeof _chat !== 'undefined') {
         _chatBotReply(texto, acoes && acoes.length ? acoes : null); return;
       }
@@ -357,7 +499,95 @@
     };
   };
 
-  // ── Modal de sugestões da fila ─────────────────────────────────
+  // ── Modal: obra do cliente ainda não está pronta ───────────────
+  window.hrPerguntaCliente = function (jobId) {
+    var j = achaJobPorId(jobId); if (!j) return;
+    var ant = document.getElementById('hrAutoCliMd'); if (ant) ant.remove();
+    var h = hoje(), sug = (j.clienteAte && j.clienteAte > h) ? j.clienteAte : add(h, 7);
+    var m = document.createElement('div');
+    m.id = 'hrAutoCliMd';
+    m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
+    m.innerHTML = '<div style="width:100%;max-width:480px;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:22px 20px 26px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;">' +
+      '<div style="font-size:1.05rem;font-weight:800;margin-bottom:6px;">⏸️ Até quando o cliente não está pronto?</div>' +
+      '<div style="font-size:.85rem;color:var(--t3,#999);margin-bottom:12px;">' + esc(j.cli) + ' — a obra precisa estar liberada para medir e começar. Enquanto isso a oficina segue com o próximo da fila.</div>' +
+      '<input id="hrAutoCliIn" type="date" value="' + esc(sug) + '" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd2,#444);background:var(--s2,#1d1910);color:var(--tx,#eee);font-size:1rem;box-sizing:border-box;">' +
+      '<button id="hrAutoCliOk" style="width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;">Salvar e reorganizar a fila</button>' +
+      '<button id="hrAutoCliJa" style="width:100%;margin-top:8px;padding:12px;border:1px solid var(--gold,#C9A84C);border-radius:12px;background:transparent;color:var(--gold,#C9A84C);font-weight:700;cursor:pointer;">✅ A obra já está liberada</button>' +
+      '<button id="hrAutoCliNo" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3,#999);cursor:pointer;">Cancelar</button></div>';
+    document.body.appendChild(m);
+    document.getElementById('hrAutoCliNo').onclick = function () { m.remove(); };
+    document.getElementById('hrAutoCliJa').onclick = function () { m.remove(); var r = window.hrAndamento(jobId, 'clientelivre'); responderChat(r.texto, r.acoes); };
+    document.getElementById('hrAutoCliOk').onclick = function () {
+      var v = document.getElementById('hrAutoCliIn').value; m.remove(); if (!v) return;
+      var r = window.hrAndamento(jobId, 'clienteate', v); responderChat(r.texto, r.acoes);
+    };
+  };
+
+  // ── Modal: data da pedra ───────────────────────────────────────
+  window.hrPerguntaMaterial = function (jobId) {
+    var j = achaJobPorId(jobId); if (!j) return;
+    var ant = document.getElementById('hrAutoMatMd'); if (ant) ant.remove();
+    var h = hoje(), sug = (j.matChega && j.matChega > h) ? j.matChega : add(h, 3);
+    var m = document.createElement('div');
+    m.id = 'hrAutoMatMd';
+    m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
+    m.innerHTML = '<div style="width:100%;max-width:480px;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:22px 20px 26px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;">' +
+      '<div style="font-size:1.05rem;font-weight:800;margin-bottom:6px;">🪨 Quando chega a pedra?</div>' +
+      '<div style="font-size:.85rem;color:var(--t3,#999);margin-bottom:12px;">' + esc(j.cli) + (j.mat || j.material ? ' — ' + esc(j.mat || j.material) : '') + '</div>' +
+      '<input id="hrAutoMatIn" type="date" value="' + esc(sug) + '" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd2,#444);background:var(--s2,#1d1910);color:var(--tx,#eee);font-size:1rem;box-sizing:border-box;">' +
+      '<button id="hrAutoMatOk" style="width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;">Salvar e reorganizar a fila</button>' +
+      '<button id="hrAutoMatJa" style="width:100%;margin-top:8px;padding:12px;border:1px solid var(--gold,#C9A84C);border-radius:12px;background:transparent;color:var(--gold,#C9A84C);font-weight:700;cursor:pointer;">✅ A pedra já chegou</button>' +
+      '<button id="hrAutoMatNo" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3,#999);cursor:pointer;">Cancelar</button></div>';
+    document.body.appendChild(m);
+    document.getElementById('hrAutoMatNo').onclick = function () { m.remove(); };
+    document.getElementById('hrAutoMatJa').onclick = function () { m.remove(); var r = window.hrAndamento(jobId, 'matok'); responderChat(r.texto, r.acoes); };
+    document.getElementById('hrAutoMatOk').onclick = function () {
+      var v = document.getElementById('hrAutoMatIn').value; m.remove(); if (!v) return;
+      var r = window.hrAndamento(jobId, 'material', v); responderChat(r.texto, r.acoes);
+    };
+  };
+
+  // ── Modal: ajustes da fila (sábado / dias de instalação) ───────
+  window.hrConfigFila = function () {
+    var c = cfgFila(), ant = document.getElementById('hrAutoCfgMd'); if (ant) ant.remove();
+    var m = document.createElement('div');
+    m.id = 'hrAutoCfgMd';
+    m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
+    var chips = c.extras.slice().sort().map(function (d) {
+      return '<span style="display:inline-flex;gap:6px;align-items:center;background:var(--s2,#1d1910);border:1px solid var(--bd2,#444);border-radius:999px;padding:5px 10px;margin:3px 4px 0 0;font-size:.82rem;">' + fdb(d) + '/' + d.slice(0, 4) +
+        ' <b data-d="' + d + '" style="cursor:pointer;color:var(--gold,#C9A84C);">✕</b></span>';
+    }).join('');
+    var inp = 'width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd2,#444);background:var(--s2,#1d1910);color:var(--tx,#eee);font-size:1rem;box-sizing:border-box;';
+    m.innerHTML = '<div style="width:100%;max-width:480px;max-height:92vh;overflow-y:auto;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:22px 20px 26px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;">' +
+      '<div style="font-size:1.05rem;font-weight:800;margin-bottom:12px;">⚙️ Ajustes da fila</div>' +
+      '<label style="display:flex;gap:10px;align-items:center;margin-bottom:12px;font-size:.92rem;"><input id="hrCfgSab" type="checkbox" ' + (c.sabado ? 'checked' : '') + ' style="width:20px;height:20px;"> Trabalhamos aos sábados</label>' +
+      '<label style="display:flex;gap:10px;align-items:center;margin-bottom:14px;font-size:.92rem;"><input id="hrCfgFac" type="checkbox" ' + (c.facultativos ? 'checked' : '') + ' style="width:20px;height:20px;"> Folga no Carnaval e no Corpus Christi</label>' +
+      '<div style="font-size:.85rem;color:var(--t3,#999);margin-bottom:6px;">Dias de instalação no final do serviço (a oficina já fica livre para o próximo)</div>' +
+      '<input id="hrCfgInst" type="number" min="0" max="10" value="' + c.instDias + '" style="' + inp + '">' +
+      '<div style="font-size:.85rem;color:var(--t3,#999);margin:14px 0 6px;">Feriados nacionais e a Sexta-feira Santa já são pulados sozinhos. Outros dias sem trabalho (feriado da cidade, recesso):</div>' +
+      '<div style="display:flex;gap:8px;"><input id="hrCfgDia" type="date" style="' + inp + 'flex:1;"><button id="hrCfgAdd" style="padding:0 16px;border:none;border-radius:10px;background:var(--gold3,#C9A84C);color:#000;font-weight:800;cursor:pointer;">+</button></div>' +
+      '<div style="margin-top:6px;">' + (chips || '<span style="font-size:.8rem;color:var(--t3,#999);">Nenhum dia extra.</span>') + '</div>' +
+      '<button id="hrCfgOk" style="width:100%;margin-top:16px;padding:14px;border:none;border-radius:12px;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.95rem;cursor:pointer;">Salvar</button>' +
+      '<button id="hrCfgNo" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3,#999);cursor:pointer;">Cancelar</button></div>';
+    document.body.appendChild(m);
+    function lerForm(extras) {
+      var d = parseInt(document.getElementById('hrCfgInst').value, 10);
+      return { sabado: document.getElementById('hrCfgSab').checked, facultativos: document.getElementById('hrCfgFac').checked, instDias: isNaN(d) ? 1 : Math.max(0, Math.min(10, d)), extras: extras };
+    }
+    document.getElementById('hrCfgNo').onclick = function () { m.remove(); };
+    document.getElementById('hrCfgAdd').onclick = function () {
+      var v = document.getElementById('hrCfgDia').value; if (!v) return;
+      var ex = c.extras.slice(); if (ex.indexOf(v) < 0) ex.push(v);
+      salvarCfgFila(lerForm(ex)); window.hrConfigFila();
+    };
+    Array.prototype.forEach.call(m.querySelectorAll('[data-d]'), function (el) {
+      el.onclick = function () { salvarCfgFila(lerForm(c.extras.filter(function (x) { return x !== el.getAttribute('data-d'); }))); window.hrConfigFila(); };
+    });
+    document.getElementById('hrCfgOk').onclick = function () {
+      salvarCfgFila(lerForm(c.extras.slice())); m.remove(); toast('⚙️ Fila ajustada'); try { renderAg(); } catch (e) {}
+    };
+  };
+
   window.hrAbrirPlano = function () {
     var mud = planoFila();
     if (!mud.length) { toast('🧠 A fila está certinha — nada a mudar'); return; }
@@ -370,7 +600,7 @@
       return '<label style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--bd2,#333);">' +
         '<input type="checkbox" data-i="' + i + '" checked style="margin-top:4px;width:18px;height:18px;">' +
         '<div style="font-size:.88rem;line-height:1.45;"><b>' + esc(x.job.cli) + '</b> <span style="color:' + cor + ';font-weight:800;">' + (x.tipo === 'adiantar' ? '⏩ adiantar' : '⏳ empurrar') + '</span><br>' +
-        'início ' + fdb(x.de.s) + ' → <b>' + fdb(x.para.s) + '</b> · entrega ' + fdb(x.de.e) + ' → <b>' + fdb(x.para.e) + '</b></div></label>';
+        'início ' + fdb(x.de.s) + ' → <b>' + fdb(x.para.s) + '</b> · entrega ' + fdb(x.de.e) + ' → <b>' + fdb(x.para.e) + '</b>' + (x.motivo === 'material' ? '<br>🪨 aguardando a pedra' : x.motivo === 'cliente' ? '<br>⏸️ aguardando o cliente liberar a obra' : '') + '</div></label>';
     }).join('');
     m.innerHTML = '<div style="width:100%;max-width:480px;background:var(--s1,#14110a);border-radius:20px 20px 0 0;padding:20px 20px 24px;border-top:2px solid var(--gold,#C9A84C);color:var(--tx,#eee);font-family:Outfit,sans-serif;max-height:88vh;overflow:auto;">' +
       '<div style="font-size:1.05rem;font-weight:800;margin-bottom:4px;">🧠 Sugestão da agenda</div>' +
@@ -451,9 +681,25 @@
     try {
       var s = norm(texto);
       if (!s || s.length < 8) return false;
+      var hk = window.hrChatExtras || [];
+      for (var hi = 0; hi < hk.length; hi++) { try { if (hk[hi](texto, s) === true) return true; } catch (e) {} }
       var j = achaJobPorTexto(s);
       if (!j) return false;
       var data = parseData(texto), etapa = null, valor = null, fim = null;
+      var falouMat = /\b(pedra|pedras|material|chapa|chapas|granito|marmore|quartzo|quartzito)\b/.test(s);
+      var mAtM = s.match(/atras\w*\s*(?:de\s*)?(\d{1,2})\s*dias?/);
+      if (falouMat) {
+        var rm = null;
+        if (/(nao chegou|nao chegaram|ainda nao|ainda falta|nao veio|nao vem)/.test(s)) { if (data) rm = ['material', data]; }
+        else if (/(chegou|chegaram|recebemos|recebi|entregaram|ja chegou)/.test(s)) rm = ['matok', null];
+        else if (/atras/.test(s) && mAtM) rm = ['matatraso', +mAtM[1]];
+        else if (data && /(chega|chegam|chegara|vai chegar|previs|vem )/.test(s)) rm = ['material', data];
+        if (rm) { var rr = window.hrAndamento(j.id, rm[0], rm[1]); responderChat(rr.texto, rr.acoes); return true; }
+      }
+      var rc = null;
+      if (/(nao esta pront|nao ficou pront|ainda nao liberou|nao liberou|so libera|so fica pront|pediu (pra|para) (esperar|segurar|adiar|aguardar)|obra atrasou|reforma atrasou|obra nao terminou|obra ainda nao)/.test(s) && data) rc = ['clienteate', data];
+      else if (/(liberou a obra|obra liberada|obra (ja )?(esta|ficou) pront|cliente liberou|local liberado|ja pode (ir|medir|comecar))/.test(s)) rc = ['clientelivre', null];
+      if (rc) { var rcr = window.hrAndamento(j.id, rc[0], rc[1]); responderChat(rcr.texto, rcr.acoes); return true; }
       var falouFim = /(termin|conclu|finaliz|acab|fechamos|ficou pront|fica pront)/.test(s);
       var falouOficina = /(cort|serr|pedra|fabrica|bancada|producao|oficina|acabamento|polimento|marmore|granito)/.test(s);
       if (falouFim && falouOficina) etapa = 'corte';
@@ -469,14 +715,14 @@
     } catch (e) { console.error('hrChatInterpretar:', e); return false; }
   };
 
-  // Ação vinda da IA: {"action":"andamento","cli":"","etapa":"corte|pronto|previsao|atraso","termina":"YYYY-MM-DD","dias":2}
+  // Ação vinda da IA: {"action":"andamento","cli":"","etapa":"corte|pronto|previsao|atraso|material|matok|matatraso","termina":"YYYY-MM-DD","dias":2}
   window.hrAndamentoPorCli = function (data) {
     var s = norm(data.cli || '');
     var j = achaJobPorTexto(s) || jobsAtivos().find(function (x) { return norm(x.cli).indexOf(s) !== -1; });
     if (!j) return { texto: '⚠️ Serviço de **' + (data.cli || '?') + '** não encontrado na agenda.', acoes: [] };
     var etapa = data.etapa || (data.termina ? 'previsao' : 'corte');
-    var valor = etapa === 'atraso' ? +data.dias : data.termina;
-    return window.hrAndamento(j.id, etapa, valor, { fim: etapa !== 'previsao' ? data.termina : null });
+    var valor = (etapa === 'atraso' || etapa === 'matatraso') ? +data.dias : data.termina;
+    return window.hrAndamento(j.id, etapa, valor, { fim: (etapa === 'corte' || etapa === 'pronto' || etapa === 'atraso') ? data.termina : null });
   };
 
   // ═════════════════════════════════════════════════════════════
@@ -485,7 +731,7 @@
   window.hrCheckinDiario = function (forcar) {
     try {
       if (typeof _chatBotReply !== 'function' || typeof _chat === 'undefined') return false;
-      if (!Array.isArray(_chat.history) && typeof _chatLoad === 'function') _chatLoad();   // garante o histórico carregado
+      garantirHistorico();   // _chatBotReply grava tudo: sem carregar antes, apagaria as conversas antigas
       if (!Array.isArray(_chat.history)) return false;
       var h = hoje(), agora = new Date();
       if (!forcar) {
@@ -514,16 +760,41 @@
       comecaHoje.forEach(function (j) {
         t += '\n\n🛠️ **Hoje é o dia de iniciar a obra de ' + j.cli + '** — projeto ' + (j.proj || '') + '. Lembre-se de ir na casa do cliente conferir as medidas.';
       });
-      t += '\n\nMe conta o que andou. Ex.: *“terminamos de cortar a cozinha da Maria”* ou *“Maria termina dia 15”*. Eu reorganizo a fila para ninguém atrasar.';
+      var pedras = ativos.filter(function (j) {
+        return etapaDe(j) === 'producao' && (j.mat || j.material) && !j.matOk && !j.oficinaFim && j.start <= add(h, 10);
+      }).sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+      if (pedras.length) {
+        t += '\n\n🪨 **Pedra dos próximos serviços:**\n' + pedras.slice(0, 4).map(function (j) {
+          var st = !j.matChega ? 'sem previsão — já chegou?' : j.matChega > h ? 'chega ' + fdb(j.matChega) : '🔴 devia ter chegado em ' + fdb(j.matChega) + ' — já chegou?';
+          return '• **' + j.cli + '** — ' + st;
+        }).join('\n');
+      }
+      var porDia = {};
+      ativos.filter(function (j) { return j.instala && etapaDe(j) !== 'instalado' && j.end >= h && j.end <= add(h, 14); })
+        .forEach(function (j) { (porDia[j.end] = porDia[j.end] || []).push(j); });
+      Object.keys(porDia).sort().forEach(function (d) {
+        if (porDia[d].length > 1) t += '\n\n🔧 **Instalações no mesmo dia (' + fdb(d) + '):** ' + porDia[d].map(function (j) { return j.cli; }).join(' e ') + ' — confira a equipe.';
+      });
+      var extraAcoes = [];
+      (window.hrCheckinExtras || []).forEach(function (fn) {
+        try { var r = fn(h, ativos); if (r && r.texto) { t += '\n\n' + r.texto; (r.acoes || []).forEach(function (a) { extraAcoes.push(a); }); } } catch (e) { console.warn('checkin extra:', e); }
+      });
+      t += '\n\nMe conta o que andou. Ex.: *“terminamos de cortar a cozinha da Maria”* *“Maria termina dia 15”* ou *“a pedra da Maria chega dia 10”*. Eu reorganizo a fila para ninguém atrasar.';
       var acoes = [];
       prod.slice(0, 3).forEach(function (j) {
         var id = JSON.stringify(String(j.id)), n = primeiroNome(j.cli);
         acoes.push({ label: '✂️ ' + n + ': corte pronto', fn: 'hrBotao(' + id + ",'corte')" });
         acoes.push({ label: '📅 ' + n + ': nova data', fn: 'hrPerguntaData(' + id + ')' });
       });
+      pedras.slice(0, 2).forEach(function (j) {
+        var id = JSON.stringify(String(j.id)), n = primeiroNome(j.cli);
+        acoes.push({ label: '🪨 ' + n + ': pedra chegou', fn: 'hrBotao(' + id + ",'matok')" });
+        acoes.push({ label: '📅 ' + n + ': pedra chega dia…', fn: 'hrPerguntaMaterial(' + id + ')' });
+      });
       comecaHoje.slice(0, 2).forEach(function (j) {
         acoes.push({ label: '📐 Medidas conferidas: ' + primeiroNome(j.cli), fn: 'hrMedicaoFeita(' + JSON.stringify(String(j.id)) + ')' });
       });
+      extraAcoes.slice(0, 4).forEach(function (a) { acoes.push(a); });
       _chatBotReply(t, acoes);
       localStorage.setItem('hr_checkin_dia', h);   // só marca o dia depois de postar
       try { if (typeof secNotifDotUpdate === 'function') secNotifDotUpdate(); } catch (e) {}
@@ -561,6 +832,98 @@
     } catch (e) { console.warn('hrContratoSincronizar:', e); }
   };
 
+  // Liga o contrato à agenda: ao abrir, puxa início/entrega do serviço agendado;
+  // ao confirmar, datas editadas voltam para a agenda.
+  function diasUteis(ini, fim) {
+    var n = 0, t = pd(ini), f = pd(fim);
+    while (t < f) { t += 86400000; var w = new Date(t).getUTCDay(); if (w !== 0 && w !== 6) n++; }
+    return n;
+  }
+  function envolverContrato() {
+    if (typeof window.gerarContrato === 'function' && !window.gerarContrato.__hrAuto) {
+      var og = window.gerarContrato;
+      window.gerarContrato = function (id, e) {
+        var r = og.apply(this, arguments);
+        try {
+          var q = achaQ(id); if (!q) return r;
+          var j = (DB.j || []).find(function (x) { return String(x.qId) === String(q.id) && !x.done; });
+          var ini = j ? j.start : q.prazoInicio, fim = j ? j.end : q.prazoEntrega;
+          window._hrContrAg = null;
+          if (ini && fim) {
+            window.hrContratoPrefill(q);
+            var du = diasUteis(ini, fim);
+            var pz = document.getElementById('contrPrazo'); if (pz && du > 0) pz.value = du;
+            window._hrContrAg = { ini: ini, fim: fim, prazo: String(du) };
+            var en = document.getElementById('contrDataEntrega'); if (en) en.value = fim;
+          }
+        } catch (err) { console.warn('hr-auto gerarContrato:', err); }
+        return r;
+      };
+      window.gerarContrato.__hrAuto = true;
+    }
+    // O cálculo automático (início + prazo) não pode sobrescrever a entrega da agenda
+    if (typeof window.contrCalcEntrega === 'function' && !window.contrCalcEntrega.__hrAuto) {
+      var oc = window.contrCalcEntrega;
+      window.contrCalcEntrega = function () {
+        var r = oc.apply(this, arguments);
+        try {
+          var a = window._hrContrAg;
+          var ini = document.getElementById('contrDataInicio'), pz = document.getElementById('contrPrazo'), en = document.getElementById('contrDataEntrega');
+          if (a && ini && pz && en) {
+            if (ini.value === a.ini && String(pz.value) === a.prazo) en.value = a.fim;   // nada mudou: mantém a data da agenda
+            else window._hrContrAg = null;                                               // o dono mexeu: vale o que ele digitou
+          }
+        } catch (err) {}
+        return r;
+      };
+      window.contrCalcEntrega.__hrAuto = true;
+    }
+    if (typeof window.confirmarContrato === 'function' && !window.confirmarContrato.__hrAuto) {
+      var oconf = window.confirmarContrato;
+      window.confirmarContrato = function () {
+        try {
+          var q = achaQ(window._contrId);
+          var ini = (document.getElementById('contrDataInicio') || {}).value, fim = (document.getElementById('contrDataEntrega') || {}).value;
+          if (q && ini && fim) window.hrContratoSincronizar(q, ini, fim);
+        } catch (err) { console.warn('hr-auto confirmarContrato:', err); }
+        return oconf.apply(this, arguments);
+      };
+      window.confirmarContrato.__hrAuto = true;
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  //  GARANTIA DE 1 ANO (complementa o pós-venda de 30 dias)
+  //  Avisa 30 dias antes de a garantia terminar; o app só prepara a mensagem.
+  // ═════════════════════════════════════════════════════════════
+  var GARANTIA_DIAS = 365, GARANTIA_AVISO = 30;
+  function garantiaPendentes() {
+    var h = hoje();
+    return (DB.j || []).filter(function (j) {
+      if (!j || !j.done || j.garantiaFeita || j.garantiaDispensada) return false;
+      var ref = j.doneAt || j.end; if (!ref) return false;
+      var fim = add(ref, GARANTIA_DIAS), falta = diff(h, fim);
+      return falta <= GARANTIA_AVISO && falta >= 0;   // de 30 dias antes até o dia em que termina
+    }).sort(function (a, b) { return String(a.doneAt || a.end).localeCompare(String(b.doneAt || b.end)); });
+  }
+  window.hrGarantiaPendentes = garantiaPendentes;
+  function textoGarantia(j) {
+    var ref = j.doneAt || j.end, fim = add(ref, GARANTIA_DIAS), nome = primeiroNome(j.cli);
+    return 'Oi' + (nome ? ', ' + nome : '') + '! A garantia de 1 ano do seu serviço' + (j.desc ? ' (' + String(j.desc).split(' — ')[0] + ')' : '') +
+      ' termina em ' + fdb(fim) + '. Se tiver notado qualquer detalhe, é só nos chamar que a gente confere. — HR Mármores e Granitos';
+  }
+  window.hrGarantiaAvisar = function (jobId) {
+    var j = achaJobPorId(jobId); if (!j) return;
+    var q = j.qId ? achaQ(j.qId) : null, tel = j.tel || (q && q.tel) || '', txt = textoGarantia(j);
+    if (typeof _dashAbrirZap === 'function') _dashAbrirZap(tel, txt);
+    else { var num = String(tel).replace(/\D/g, ''); if (num && num.length <= 11) num = '55' + num; window.open((num ? 'https://wa.me/' + num : 'https://wa.me/') + '?text=' + encodeURIComponent(txt), '_blank'); }
+    j.garantiaFeita = hoje(); salvar(); toast('🛡️ Aviso de garantia de ' + primeiroNome(j.cli) + ' marcado como feito');
+  };
+  window.hrGarantiaDispensar = function (jobId) {
+    var j = achaJobPorId(jobId); if (!j) return;
+    j.garantiaDispensada = hoje(); salvar(); toast('Ok — não aviso mais sobre a garantia de ' + primeiroNome(j.cli));
+  };
+
   // ═════════════════════════════════════════════════════════════
   //  AVISOS NO TOPO DA AGENDA
   // ═════════════════════════════════════════════════════════════
@@ -590,8 +953,47 @@
         'Projeto <b>' + esc(j.proj || (q ? projNum(q) : '—')) + '</b> · ' + esc(j.desc || '') + '<br>' +
         '📐 Lembre-se de ir na casa do cliente <b>conferir as medidas</b>.' + (end ? '<br>📍 ' + esc(end) : '') +
         '<div class="hra-btns"><button class="hra-btn pri" onclick="hrMedicaoFeita(' + esc(id) + ')">📐 Já conferi as medidas</button>' +
-        '<button class="hra-btn" onclick="hrPerguntaData(' + esc(id) + ')">📅 Mudar data</button></div></div>';
+        '<button class="hra-btn" onclick="hrPerguntaData(' + esc(id) + ')">📅 Mudar data</button>' +
+        '<button class="hra-btn" onclick="hrPerguntaCliente(' + esc(id) + ')">⏸️ Cliente não está pronto</button></div></div>';
     });
+    // garantia de 1 ano terminando
+    var gar = garantiaPendentes();
+    if (gar.length) {
+      html += '<div class="hra-card"><div class="hra-t">🛡️ Garantia terminando (' + gar.length + ')</div>' +
+        gar.slice(0, 4).map(function (j) {
+          var id = JSON.stringify(String(j.id)), fim = add(j.doneAt || j.end, GARANTIA_DIAS);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bd2,#2a2418);">' +
+            '<span><b>' + esc(j.cli) + '</b> · termina ' + fdb(fim) + '</span>' +
+            '<span><button class="hra-btn pri" onclick="hrGarantiaAvisar(' + esc(id) + ')">💬 Avisar</button> ' +
+            '<button class="hra-btn mut" onclick="hrGarantiaDispensar(' + esc(id) + ')">Ignorar</button></span></div>';
+        }).join('') + '</div>';
+    }
+    // obra do cliente ainda não liberada
+    var aguard = jobsAtivos().filter(function (j) { return j.clienteAte && j.clienteAte > h && etapaDe(j) === 'producao' && !j.oficinaFim; })
+      .sort(function (a, b) { return a.clienteAte < b.clienteAte ? -1 : 1; });
+    if (aguard.length) {
+      html += '<div class="hra-card warn"><div class="hra-t">⏸️ Aguardando o cliente (' + aguard.length + ')</div>' +
+        aguard.slice(0, 4).map(function (j) {
+          var id = JSON.stringify(String(j.id));
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bd2,#2a2418);">' +
+            '<span><b>' + esc(j.cli) + '</b> · libera ' + fdb(j.clienteAte) + '</span>' +
+            '<span><button class="hra-btn pri" onclick="hrBotao(' + esc(id) + ',\'clientelivre\')">Liberou</button> ' +
+            '<button class="hra-btn" onclick="hrPerguntaCliente(' + esc(id) + ')">Data</button></span></div>';
+        }).join('') + '</div>';
+    }
+    // pedra pendente
+    var pend = jobsAtivos().filter(function (j) { return etapaDe(j) === 'producao' && j.matChega && !j.matOk && !j.oficinaFim; })
+      .sort(function (a, b) { return a.matChega < b.matChega ? -1 : 1; });
+    if (pend.length) {
+      html += '<div class="hra-card warn"><div class="hra-t">🪨 Pedra a caminho (' + pend.length + ')</div>' +
+        pend.slice(0, 4).map(function (j) {
+          var id = JSON.stringify(String(j.id)), atr = j.matChega < h;
+          return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bd2,#2a2418);">' +
+            '<span><b>' + esc(j.cli) + '</b> · ' + (atr ? '🔴 devia ter chegado ' : 'chega ') + fdb(j.matChega) + '</span>' +
+            '<span><button class="hra-btn pri" onclick="hrBotao(' + esc(id) + ',\'matok\')">Chegou</button> ' +
+            '<button class="hra-btn" onclick="hrPerguntaMaterial(' + esc(id) + ')">Data</button></span></div>';
+        }).join('') + '</div>';
+    }
     // aceitos sem agenda
     var sem = aceitosSemAgenda();
     if (sem.length) {
@@ -613,6 +1015,8 @@
         (adi ? '⏩ Dá para <b>adiantar ' + adi + '</b> serviço(s). ' : '') + (atr ? '⏳ <b>' + atr + '</b> serviço(s) com conflito de data. ' : '') +
         '<div class="hra-btns"><button class="hra-btn pri" onclick="hrAbrirPlano()">Ver sugestões</button></div></div>';
     }
+    (window.hrAgBlocos || []).forEach(function (fn) { try { var r = fn(h); if (r) html += r; } catch (e) { console.warn('bloco extra:', e); } });
+    html += '<div style="text-align:right;margin:-2px 0 8px;"><button class="hra-btn mut" onclick="hrConfigFila()">⚙️ Ajustar fila</button></div>';
     return html;
   }
   function injetarBlocos() {
@@ -635,11 +1039,20 @@
     window.renderAg.__hrAuto = true;
   }
 
+  window.__hrAg = {
+    hoje: hoje, add: add, diff: diff, esc: esc, norm: norm, fdb: fdb, primeiroNome: primeiroNome, pd: pd, dow: dow,
+    jobsAtivos: jobsAtivos, achaJobPorId: achaJobPorId, achaQ: achaQ, achaJobPorTexto: achaJobPorTexto, etapaDe: etapaDe,
+    jaComecou: jaComecou, salvar: salvar, logJob: logJob, responderChat: responderChat, planoFila: planoFila, aplicarPlano: aplicarPlano,
+    proxUtil: proxUtil, somaUteis: somaUteis, uteisEntre: uteisEntre, util: util, parseData: parseData, garantirHistorico: garantirHistorico
+  };
+
   // ── arranque ───────────────────────────────────────────────────
   function iniciar() {
     envolverRenderAg();
+    envolverContrato();
+    envolverAgendar();
     try { sincronizar(); } catch (e) {}
-    setTimeout(envolverRenderAg, 1500);           // garante, caso outro módulo troque renderAg depois
+    setTimeout(function () { envolverRenderAg(); envolverContrato(); envolverAgendar(); }, 1500);           // garante, caso outro módulo troque renderAg depois
     setTimeout(function () { try { renderAg(); } catch (e) {} }, 1800);
     setTimeout(function () { window.hrCheckinDiario(false); }, 3500);
     document.addEventListener('visibilitychange', function () {
