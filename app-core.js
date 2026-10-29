@@ -9172,8 +9172,11 @@ function _agendarAposAceite(q,forcar){
   }
 }
 
+var _agAlertaKey = null;   // chave do aviso de sobrecarga já mostrado no modal "Definir Entrega"
 function salvarAgenda() {
   if (!pendQ) return;
+  _agAlertaKey = null;
+  var _bc0 = document.getElementById('btnConfAg'); if (_bc0) _bc0.textContent = 'Confirmar';
 
   _ensureAgInstalaToggle();
   _agInstalaOn=_orcInstalaDe(pendQ);   // vem do orçamento (soleira/peitoril = sem instalação)
@@ -9373,23 +9376,28 @@ function confirmarAgenda() {
   }
 
   // ── Se há alerta: pede confirmação; senão salva direto ───────────
+  // OBS: o showCB() desenha o aviso na página de trás, que fica ENCOBERTA pelo modal
+  // "Definir Entrega" (overlay z-index 400) — por isso o Confirmar parecia não fazer nada.
+  // Agora o aviso aparece DENTRO do modal e o 2º toque em "Confirmar mesmo assim" salva.
   if (alertas.length > 0) {
-    var msg = 'Atenção: ao incluir ' + q.cli
-      + ', a semana de ' + fd(s) + ' ficará:\n\n'
-      + alertas.join('\n')
-      + '\n\nDeseja continuar assim mesmo?';
-
-    showCB(msg, function () {
-      hideCB();
-      _salvar();
-    }, function () {
-      hideCB();
-      toast('Agendamento cancelado.');
-    });
-
-  } else {
-    _salvar();
+    var _key = [q.id, s, d, !!_agInstalaOn].join('|');
+    if (_agAlertaKey !== _key) {
+      _agAlertaKey = _key;
+      var _aEl = document.getElementById('diasAlerta'), _aTx = document.getElementById('diasAlertaTexto');
+      if (_aEl && _aTx) {
+        _aTx.innerHTML = '<strong>⚠️ Ao incluir ' + q.cli + ', a semana de ' + fd(s) + ' ficará:</strong><br>'
+          + alertas.join('<br>') + '<br><br>Toque em <strong>Confirmar mesmo assim</strong> para agendar, ou altere os dias.';
+        _aEl.style.display = 'block';
+        try { _aEl.scrollIntoView({ block: 'center' }); } catch (e) {}
+      }
+      var _bc = document.getElementById('btnConfAg'); if (_bc) _bc.textContent = 'Confirmar mesmo assim';
+      toast('⚠️ Semana sobrecarregada — veja o aviso');
+      return;
+    }
   }
+  _agAlertaKey = null;
+  var _bc2 = document.getElementById('btnConfAg'); if (_bc2) _bc2.textContent = 'Confirmar';
+  _salvar();
 }
 
 function openJobModal(id){
