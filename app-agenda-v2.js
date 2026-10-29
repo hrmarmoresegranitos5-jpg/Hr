@@ -171,6 +171,9 @@
       '.ag2-warn b{color:#ff9a9a;}' +
       '.ag2-more{display:none;gap:6px;margin-top:6px;}.ag2-more.on{display:flex;}' +
       '.ag2-more .btn{flex:1;margin:0;}' +
+      '.ag2-recv{border:0;font-family:inherit;cursor:pointer;text-align:left;}' +
+      '.ag2-recebe{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:12px;margin:8px 0 2px;background:rgba(93,191,122,.08);border:1px solid rgba(93,191,122,.35);font-size:.74rem;line-height:1.35;color:var(--t2);}' +
+      '.ag2-recebe b{color:#5dbf7a;font-size:.86rem;}' +
       /* pop-up de avisos */
       '.ag2-pop{position:fixed;left:0;right:0;bottom:0;z-index:9999;display:flex;justify-content:center;padding:0 10px calc(10px + env(safe-area-inset-bottom,0px));pointer-events:none;}' +
       '.ag2-pop-in{pointer-events:auto;width:100%;max-width:480px;background:var(--s2);border:1px solid var(--gold3);border-radius:18px;padding:15px 15px 12px;box-shadow:0 -6px 30px rgba(0,0,0,.6);animation:ag2up .25s ease-out;}' +
@@ -193,6 +196,7 @@
     return sem + ', ' + a[2] + '/' + a[1];
   }
   function nDias(n) { return n + (n === 1 ? ' dia' : ' dias'); }
+  function brl(n) { return (typeof fm === 'function') ? fm(n) : (+n || 0).toFixed(2).replace('.', ','); }
 
   function jCardV2(j) {
     var sit = situacao(j);
@@ -237,7 +241,12 @@
     });
     steps += '</div>';
 
-    var pay = (!j.done && rest > 0) ? '<div class="ag2-meta"><span class="ag2-tag pay">Pagamento pendente</span></div>' : '';
+    var pay = '';
+    if (!j.done && rest > 0) {
+      var antesEntrega = (stage === 'producao' || stage === 'pronto');
+      pay = '<div class="ag2-meta"><button type="button" class="ag2-tag pay ag2-recv" data-ag2recv="' + j.id + '">💰 ' +
+        (antesEntrega ? 'Receber R$ ' + brl(rest) + ' na entrega' : 'Falta receber R$ ' + brl(rest)) + ' · toque p/ lançar</button></div>';
+    }
 
     // ── ações: 1 principal + editar + “mais” ──
     var advLbl = null;
@@ -279,6 +288,165 @@
     return '<div class="ag2-notif ok" data-ag2-aviso="testar">🔔 Avisos ativos neste aparelho · toque para testar</div>';
   }
 
+  // ── 💰 Faixa "a receber": entregas atrasadas, de hoje e dos próximos 7 dias ──
+  function faixaReceber(jobs) {
+    var tot = 0, n = 0;
+    (jobs || []).forEach(function (j) {
+      if (!j || j.done) return;
+      var rest = (j.value || 0) - (j.pago || 0);
+      if (rest <= 0.005) return;
+      var stage = j.stage || 'producao';
+      var fim = diasAte(j.end);
+      var entregaProxima = (fim !== null && fim <= 7) && stage !== 'entregue';
+      if (entregaProxima || stage === 'entregue') { tot += rest; n++; }
+    });
+    if (!n) return '';
+    return '<div class="ag2-recebe">💰<div>A receber nas entregas até 7 dias: <b>R$ ' + brl(tot) + '</b> · ' + plural(n, 'serviço', 'serviços') + '</div></div>';
+  }
+
+  // ── Receber pagamento de um serviço (entrega) ─────────────────────
+  function fechaReceber() {
+    var m = document.getElementById('ag2RecvModal');
+    if (m && m.parentNode) m.parentNode.removeChild(m);
+  }
+  function abrirReceberJob(id) {
+    var j = (DB.j || []).find(function (x) { return x.id === id; });
+    if (!j) return;
+    var rest = Math.max(0, (j.value || 0) - (j.pago || 0));
+    if (rest <= 0.005) { if (typeof toast === 'function') toast('Este serviço já está quitado'); return; }
+    fechaReceber();
+    var formas = ['Dinheiro', 'Pix', 'Cartão', 'Transferência'];
+    var icones = { 'Dinheiro': '💵', 'Pix': '📱', 'Cartão': '💳', 'Transferência': '🏦' };
+    var m = document.createElement('div');
+    m.id = 'ag2RecvModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+    var chips = formas.map(function (f, i) {
+      return '<button type="button" data-ag2forma="' + f + '" style="flex:1;min-width:44%;padding:11px 8px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.78rem;font-weight:' + (i === 0 ? 800 : 600) +
+        ';border:1px solid ' + (i === 0 ? 'var(--gold3)' : 'var(--bd2)') + ';background:' + (i === 0 ? 'var(--gold3)' : 'var(--s2)') + ';color:' + (i === 0 ? '#000' : 'var(--tx)') + ';">' + icones[f] + ' ' + f + '</button>';
+    }).join('');
+    m.innerHTML =
+      '<div style="background:var(--bg,#0d0d12);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:14px 18px 26px;border-top:2px solid var(--gold3);">' +
+        '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>' +
+        '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">💰 Receber — ' + esc(j.cli) + '</div>' +
+        '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">' + esc(j.desc || '') + '</div>' +
+        '<div style="display:flex;gap:16px;background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:12px 14px;margin-bottom:14px;">' +
+          '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Total</div><div style="font-weight:800;">R$ ' + brl(j.value || 0) + '</div></div>' +
+          ((j.pago || 0) > 0 ? '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Já recebido</div><div style="font-weight:800;color:#5dbf7a;">R$ ' + brl(j.pago) + '</div></div>' : '') +
+          '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Falta</div><div style="font-weight:800;color:#e0a530;">R$ ' + brl(rest) + '</div></div>' +
+        '</div>' +
+        '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;">Valor recebido agora</label>' +
+        '<div style="display:flex;align-items:center;gap:8px;padding:0 14px;margin-bottom:6px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);">' +
+          '<span style="color:var(--t3);font-weight:700;">R$</span>' +
+          '<input id="ag2RecvVal" type="text" inputmode="decimal" value="' + (Math.round(rest * 100) / 100).toFixed(2).replace('.', ',') + '" style="flex:1;min-width:0;width:auto!important;padding:13px 0!important;border:none!important;background:transparent!important;font-size:1.1rem;font-weight:800;color:var(--tx);outline:none;">' +
+        '</div>' +
+        '<div id="ag2RecvSaldo" style="font-size:.72rem;color:#5dbf7a;margin-bottom:14px;min-height:16px;">✓ Fica quitado com esse pagamento</div>' +
+        '<input type="hidden" id="ag2RecvForma" value="Dinheiro">' +
+        '<label style="display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:8px;">Forma de pagamento</label>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">' + chips + '</div>' +
+        '<label style="display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--t2);margin:0 0 16px;text-transform:none;letter-spacing:0;cursor:pointer;"><input type="checkbox" id="ag2RecvComp" checked style="width:20px!important;height:20px!important;min-width:20px;padding:0!important;margin:0;flex:0 0 auto;accent-color:#C9A84C;"> <span>🧾 Gerar comprovante</span></label>' +
+        '<button type="button" id="ag2RecvOk" style="width:100%;padding:14px;border-radius:12px;border:none;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.92rem;cursor:pointer;font-family:inherit;">Confirmar recebimento</button>' +
+        '<button type="button" id="ag2RecvNo" style="width:100%;margin-top:8px;padding:11px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:inherit;">Agora não</button>' +
+      '</div>';
+    document.body.appendChild(m);
+
+    function lerValor() {
+      var v = String(document.getElementById('ag2RecvVal').value || '').replace(/\./g, '').replace(',', '.');
+      v = parseFloat(v); return isNaN(v) ? 0 : v;
+    }
+    function atualizaSaldo() {
+      var el = document.getElementById('ag2RecvSaldo'); if (!el) return;
+      var falta = Math.max(0, rest - lerValor());
+      el.style.color = falta <= 0.005 ? '#5dbf7a' : '#e0a530';
+      el.textContent = falta <= 0.005 ? '✓ Fica quitado com esse pagamento' : 'Fica faltando R$ ' + brl(falta) + ' depois desse pagamento';
+    }
+    document.getElementById('ag2RecvVal').addEventListener('input', atualizaSaldo);
+    Array.prototype.forEach.call(m.querySelectorAll('[data-ag2forma]'), function (b) {
+      b.addEventListener('click', function () {
+        document.getElementById('ag2RecvForma').value = b.getAttribute('data-ag2forma');
+        Array.prototype.forEach.call(m.querySelectorAll('[data-ag2forma]'), function (o) {
+          var on = o === b;
+          o.style.background = on ? 'var(--gold3)' : 'var(--s2)';
+          o.style.color = on ? '#000' : 'var(--tx)';
+          o.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+          o.style.fontWeight = on ? '800' : '600';
+        });
+      });
+    });
+    document.getElementById('ag2RecvNo').addEventListener('click', fechaReceber);
+    document.getElementById('ag2RecvOk').addEventListener('click', function () {
+      var v = lerValor();
+      if (v <= 0) { if (typeof toast === 'function') toast('Informe um valor válido'); return; }
+      var forma = document.getElementById('ag2RecvForma').value;
+      var comp = document.getElementById('ag2RecvComp').checked;
+      fechaReceber();
+      var tr = (typeof addTr === 'function') ? addTr('in', 'Entrega — ' + j.cli + ' · ' + forma, v, null, j.id) : null;
+      j.pago = (j.pago || 0) + v;
+      DB.sv();
+      renderAgV2();
+      if (typeof toast === 'function') toast('✓ R$ ' + brl(v) + ' (' + forma + ') lançado em Finanças');
+      if (comp && tr && typeof gerarComprovante === 'function') setTimeout(function () { gerarComprovante(tr.id); }, 400);
+    });
+  }
+  window.abrirReceberJob = abrirReceberJob;
+
+  // Ao marcar "Entregue": abre a tela de receber (a faixa antiga ficava escondida em outra página)
+  window._jobPagamentoFlow = function (j) {
+    var rest = (j.value || 0) - (j.pago || 0);
+    if (rest > 0.005) setTimeout(function () { abrirReceberJob(j.id); }, 350);
+  };
+
+  // ── ⚙️ Regra de prazo das peças rápidas (peças → dias) ────────────
+  function abrirRegraPrazo() {
+    if (typeof _prazoRapidoRegra !== 'function') return;
+    var r = _prazoRapidoRegra();
+    var f = r.faixas.slice().sort(function (a, b) { return a.ate - b.ate; });
+    while (f.length < 3) f.push({ ate: (f.length ? f[f.length - 1].ate : 0) + 5, dias: (f.length ? f[f.length - 1].dias : 0) + 1 });
+    var m = document.createElement('div');
+    m.id = 'ag2RegraModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+    var inp = 'width:64px!important;padding:9px 6px!important;text-align:center;border-radius:9px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:1rem;font-weight:800;font-family:inherit;';
+    var linhas = f.slice(0, 3).map(function (x, i) {
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:.85rem;">Até <input id="rgAte' + i + '" type="number" min="1" value="' + x.ate + '" style="' + inp + '"> peças → <input id="rgDias' + i + '" type="number" min="1" value="' + x.dias + '" style="' + inp + '"> dia(s)</div>';
+    }).join('');
+    m.innerHTML =
+      '<div style="background:var(--bg,#0d0d12);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:14px 18px 26px;border-top:2px solid var(--gold3);">' +
+        '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>' +
+        '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">⚙️ Prazo das soleiras/peitoris</div>' +
+        '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;line-height:1.4;">Conta a partir de hoje, fora da fila. O app sugere os dias pela quantidade de peças do orçamento.</div>' +
+        linhas +
+        '<div style="display:flex;align-items:center;gap:8px;margin:4px 0 16px;font-size:.85rem;">Acima disso → <input id="rgAcima" type="number" min="1" value="' + (r.acima || 4) + '" style="' + inp + '"> dia(s)</div>' +
+        '<button type="button" id="rgOk" style="width:100%;padding:14px;border-radius:12px;border:none;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.92rem;cursor:pointer;font-family:inherit;">Salvar regra</button>' +
+        '<button type="button" id="rgPadrao" style="width:100%;margin-top:8px;padding:11px;border-radius:12px;border:1px solid var(--bd2);background:transparent;color:var(--t2);font-size:.8rem;cursor:pointer;font-family:inherit;">Voltar ao padrão (4→1, 10→2, 20→3, mais→4)</button>' +
+        '<button type="button" id="rgNo" style="width:100%;margin-top:6px;padding:10px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:inherit;">Cancelar</button>' +
+      '</div>';
+    document.body.appendChild(m);
+    function fecha() { if (m.parentNode) m.parentNode.removeChild(m); }
+    function grava(obj) {
+      CFG.prazoRapido = obj;
+      if (typeof svCFG === 'function') { try { svCFG(); } catch (e) {} }
+      fecha();
+      if (typeof toast === 'function') toast('✓ Regra de prazo salva');
+    }
+    document.getElementById('rgNo').onclick = fecha;
+    document.getElementById('rgPadrao').onclick = function () {
+      grava({ faixas: [{ ate: 4, dias: 1 }, { ate: 10, dias: 2 }, { ate: 20, dias: 3 }], acima: 4 });
+    };
+    document.getElementById('rgOk').onclick = function () {
+      var fx = [], ant = 0;
+      for (var i = 0; i < 3; i++) {
+        var a = parseInt(document.getElementById('rgAte' + i).value, 10), d = parseInt(document.getElementById('rgDias' + i).value, 10);
+        if (!a || a < 1 || !d || d < 1) { if (typeof toast === 'function') toast('Preencha todos os campos com números'); return; }
+        if (a <= ant) { if (typeof toast === 'function') toast('As quantidades devem ir aumentando'); return; }
+        ant = a; fx.push({ ate: a, dias: d });
+      }
+      var ac = parseInt(document.getElementById('rgAcima').value, 10);
+      if (!ac || ac < 1) { if (typeof toast === 'function') toast('Informe os dias de "acima disso"'); return; }
+      grava({ faixas: fx, acima: ac });
+    };
+  }
+
+  window.abrirRegraPrazo = abrirRegraPrazo;
+
   // ── Tela da agenda ────────────────────────────────────────────────
   function renderAgV2() {
     var el = document.getElementById('agList');
@@ -319,8 +487,36 @@
       kpi('todos', 'Em aberto', por.atrasado.length + por.hoje.length + por.semana.length + por.andamento.length + por.depois.length, 'mut') +
       '</div>';
     if (_filtro !== 'todos') h += '<div class="ag2-fil">Mostrando só um grupo · <u data-ag2f="todos">ver tudo</u></div>';
+    h += faixaReceber(jobs);
 
     var mostrou = 0;
+
+    // ⚡ Peças rápidas (soleira/peitoril): saem dos grupos normais e ficam juntas, com ficha de corte única
+    if (_filtro === 'todos' && typeof _jobForaFila === 'function') {
+      var rapidos = [];
+      ['hoje', 'semana', 'andamento', 'depois'].forEach(function (g) {
+        por[g] = por[g].filter(function (x) {
+          var rap = _jobForaFila(x.j) && (x.j.stage || 'producao') === 'producao';
+          if (rap) rapidos.push(x);
+          return !rap;
+        });
+      });
+      if (rapidos.length) {
+        rapidos.sort(function (a, b) { return String(a.j.end || '').localeCompare(String(b.j.end || '')); });
+        var qIds = [];
+        rapidos.forEach(function (x) {
+          var q = x.j.qId && (DB.q || []).find(function (o) { return String(o.id) === String(x.j.qId); });
+          if (q && q.ambSnap && typeof _fcGruposDe === 'function' && _fcGruposDe(q.ambSnap).length) qIds.push(q.id);
+        });
+        mostrou += rapidos.length;
+        h += '<div class="ag2-sec gold">⚡ PEÇAS RÁPIDAS · FORA DA FILA <i>' + rapidos.length + '</i>' +
+             '<u data-ag2regra="1" style="margin-left:auto;font-weight:700;letter-spacing:0;cursor:pointer;color:var(--t3);text-decoration:none;">⚙️ Regra de prazo</u></div>';
+        if (qIds.length) {
+          h += '<button type="button" class="btn btn-o btn-sm" data-ag2ficha="' + qIds.join(',') + '" style="width:100%;margin:0 0 8px;">✂️ Ficha de corte única (' + plural(qIds.length, 'cliente', 'clientes') + ')</button>';
+        }
+        rapidos.forEach(function (x) { h += jCardV2(x.j); });
+      }
+    }
     GRUPOS.forEach(function (g) {
       if (_filtro !== 'todos' && _filtro !== g.id) return;
       var lista = por[g.id];
@@ -497,6 +693,11 @@
   // ── Cliques (filtros, barra de avisos, pop-up) ────────────────────
   document.addEventListener('click', function (e) {
     var t = e.target;
+    if (t.closest && t.closest('[data-ag2regra]')) { abrirRegraPrazo(); return; }
+    var fc = t.closest && t.closest('[data-ag2ficha]');
+    if (fc) { if (typeof gerarFichaCorteUnica === 'function') gerarFichaCorteUnica(fc.getAttribute('data-ag2ficha').split(',')); return; }
+    var rc = t.closest && t.closest('[data-ag2recv]');
+    if (rc) { abrirReceberJob(+rc.getAttribute('data-ag2recv')); return; }
     var mo = t.closest && t.closest('[data-ag2more]');
     if (mo) { var bx = document.getElementById('ag2more' + mo.getAttribute('data-ag2more')); if (bx) bx.classList.toggle('on'); return; }
     var el = t.closest && t.closest('[data-ag2f]');

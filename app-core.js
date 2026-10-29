@@ -505,6 +505,8 @@ function orcCicloStatus(id, e) {
 
   // ── Aceito e Concluído pedem confirmação do valor/forma/data antes de mudar o status ──
   if (novoStatus === 'aceito' && !q._aceitoConfirmado) {
+    // Soleira/peitoril: na maioria dos casos só recebe na entrega → aceita sem cobrar entrada
+    if (_orcSoSolPeit(q)) { _aceitarSolPeitSemEntrada(q); return; }
     _abrirModalStatusOrc(q, 'aceito');
     return;
   }
@@ -514,6 +516,22 @@ function orcCicloStatus(id, e) {
   }
 
   _aplicarStatusOrc(q, novoStatus);
+}
+
+// Aceite de soleira/peitoril SEM entrada: marca aceito, agenda (hoje, fora da fila) e abre a ficha de corte.
+// O pagamento é lançado depois, ao marcar "Concluído" (o modal já sugere o valor cheio).
+function _aceitarSolPeitSemEntrada(q) {
+  q._aceitoConfirmado = true;
+  q._aceitoValor = 0; q._aceitoForma = ''; q._aceitoData = td();
+  _aplicarStatusOrc(q, 'aceito');
+  var jaAgendado = (DB.j||[]).some(function(j){ return j.qId === q.id; });
+  if (!jaAgendado) {
+    setTimeout(function(){
+      if (!_agendarAposAceite(q)) { pendQ = q; salvarAgenda(); }
+    }, 400);
+  }
+  setTimeout(function(){ _fichaCorteAposAceite(q); }, 300);
+  setTimeout(function(){ toast('💡 Sem entrada — o pagamento é lançado ao concluir (entrega)'); }, 1800);
 }
 
 function _aplicarStatusOrc(q, novoStatus) {
@@ -8451,6 +8469,30 @@ function gerarFichaCorteSolPeit(q){
     catch(e){console.error('fichaCorte:',e);toast('Erro ao gerar imagem: '+e.message);}
   });
 }
+// Ficha de corte ÚNICA: junta soleiras/peitoris de vários orçamentos (ids de DB.q) numa só foto,
+// com o nome do cliente em cada bloco — pra mandar pro cortador de uma vez.
+function gerarFichaCorteUnica(qIds){
+  var grupos=[], nomes=[];
+  (qIds||[]).forEach(function(id){
+    var q=DB.q.find(function(x){return String(x.id)===String(id);});
+    if(!q||!q.ambSnap)return;
+    var g=_fcGruposDe(q.ambSnap);
+    if(!g.length)return;
+    nomes.push(q.cli||'Cliente');
+    g.forEach(function(a){
+      var c={}; for(var k in a){ if(Object.prototype.hasOwnProperty.call(a,k)) c[k]=a[k]; }
+      c._cli=q.cli||'Cliente';
+      grupos.push(c);
+    });
+  });
+  if(!grupos.length){toast('Nenhuma soleira/peitoril com medida nesses serviços');return;}
+  toast('⏳ Gerando ficha única...');
+  var rotulo='Peças rápidas — '+(new Date()).toLocaleDateString('pt-BR')+' ('+nomes.length+' cliente'+(nomes.length>1?'s':'')+')';
+  _loadNicImgLibs(function(){
+    try{_buildFichaCorteImg(grupos,rotulo);}
+    catch(e){console.error('fichaCorteUnica:',e);toast('Erro ao gerar imagem: '+e.message);}
+  });
+}
 // Chamada quando o orçamento é ACEITO no Histórico: abre a ficha direto, pronta pra mandar pro cortador.
 function _fichaCorteAposAceite(q){
   try{
@@ -8490,7 +8532,7 @@ function _buildFichaCorteImg(grupos,cliNomeOv){
 
     gruposHtml+='<div style="margin:0 40px 22px;border:2px solid #222;border-radius:10px;overflow:hidden;">'
       +'<div style="background:#222;color:#fff;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
-        +'<span style="font-size:15px;font-weight:900;letter-spacing:.5px;">'+(grupos.length>1?(gi+1)+'. ':'')+(amb.tipo==='Soleira'?'🚪 SOLEIRA':'🪟 PEITORIL')+(tipoInfo?' — '+tipoInfo.toUpperCase():'')+'</span>'
+        +'<span style="font-size:15px;font-weight:900;letter-spacing:.5px;">'+(grupos.length>1?(gi+1)+'. ':'')+(amb._cli?'👤 '+String(amb._cli).toUpperCase()+' — ':'')+(amb.tipo==='Soleira'?'🚪 SOLEIRA':'🪟 PEITORIL')+(tipoInfo?' — '+tipoInfo.toUpperCase():'')+'</span>'
         +acbBadge
       +'</div>'
       +'<div style="padding:10px 16px 4px;font-size:12.5px;color:#555;border-bottom:1px solid #eee;">Material: <b style="color:#222;">'+matTxt+'</b></div>'
@@ -9040,11 +9082,11 @@ function _orcVencido(q){
 
 // Início e entrega de um orçamento vencido: ignora o início combinado lá atrás e respeita a fila de hoje.
 function _orcPlanoVencido(q){
-  var hoje=td(), le=lastEnd(), dias=+q.prazoDias;
+  var hoje=td(), le=lastEnd(), dias=_orcSoSolPeit(q)?_prazoSolPeit(q):+q.prazoDias;
   var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
   var manual=(q.prazoModo==='manual');
   var s=hoje, ocupada=false;
-  if(!urgente&&!manual&&le&&le>hoje){ s=le; ocupada=true; }
+  if(!urgente&&!manual&&le&&le>hoje&&!_orcSoSolPeit(q)){ s=le; ocupada=true; }
   // quem está segurando a fila (serviço que termina por último)
   var occ=null;
   if(ocupada){
@@ -9116,7 +9158,7 @@ function _revisaoVencidoModal(q){
 
 function _agendarAposAceite(q,forcar){
   try{
-    var dias=+q.prazoDias;
+    var dias=(q&&_orcSoSolPeit(q))?_prazoSolPeit(q):+(q&&q.prazoDias);
     if(!q||!dias||dias<1)return false;
     if((DB.j||[]).some(function(j){return j.qId===q.id;}))return true;
 
@@ -9127,8 +9169,9 @@ function _agendarAposAceite(q,forcar){
     var hoje=td(), le=lastEnd();
     var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
     var manual=(q.prazoModo==='manual');
-    var s;
-    if(vencido){ s=_orcPlanoVencido(q).s; }               // vencido: conta a partir da fila de hoje
+    var s, sp=_orcSoSolPeit(q);
+    if(sp) s=hoje;                                        // soleira/peitoril: fora da fila, começa hoje
+    else if(vencido){ s=_orcPlanoVencido(q).s; }          // vencido: conta a partir da fila de hoje
     else if(urgente) s=hoje;                              // urgente fura a fila
     else{
       s=hoje;
@@ -9142,14 +9185,14 @@ function _agendarAposAceite(q,forcar){
     var job={
       id:Date.now(),cli:q.cli,desc:q.tipo+' — '+q.mat,start:s,end:end,value:q.vista,pago:0,
       obs:q.obs||'',done:false,qId:q.id,m2:q.m2||0,matPr:q.matPr||0,
-      custoPedraEpoca:q.matCusto||q.custo||0,cat:q.tipo||'Outro',stage:'producao',instala:instala
+      custoPedraEpoca:q.matCusto||q.custo||0,cat:q.tipo||'Outro',stage:'producao',instala:instala,foraFila:sp
     };
     var ie=estimaIEO(job);
     job.ieo=ie.ieo;job.ieo_of=ie.ieo_of;job.ieo_ca=ie.ieo_ca;job.ieo_ge=ie.ieo_ge;
 
     // Avisa (sem travar) se a semana vai ficar sobrecarregada
     var aviso='';
-    try{
+    if(!sp)try{
       DB.j.unshift(job);
       var sim=calcSemana(_inicioSemana(s));
       DB.j.shift();
@@ -9172,6 +9215,42 @@ function _agendarAposAceite(q,forcar){
   }
 }
 
+// ── Soleira/Peitoril: peça rápida (1–2 dias), FORA da fila, conta a partir de HOJE ──
+function _tipoSoSolPeit(t){
+  t = String(t||'').toLowerCase();
+  if(!/soleira|peitor/.test(t)) return false;
+  return t.replace(/soleiras?|peitor[ií]s?l?|peitoris/g,'').replace(/[^a-zà-ú]/g,'').replace(/^e*$/,'') === '';
+}
+function _orcSoSolPeit(q){
+  if(!q) return false;
+  var snaps = q.ambSnap || [];
+  if(snaps.length) return snaps.every(function(s){ return s.tipo==='Soleira' || s.tipo==='Peitoril'; });
+  return _tipoSoSolPeit(q.tipo);
+}
+// Prazo padrão por quantidade de peças (editável em Agenda → ⚙️ Regra de prazo; guardado em CFG.prazoRapido)
+var _PRAZO_RAPIDO_PADRAO = [{ate:4,dias:1},{ate:10,dias:2},{ate:20,dias:3}], _PRAZO_RAPIDO_ACIMA = 4;
+function _prazoRapidoRegra(){
+  var r = (typeof CFG!=='undefined' && CFG) ? CFG.prazoRapido : null;
+  if(r && r.faixas && r.faixas.length) return r;
+  return {faixas:_PRAZO_RAPIDO_PADRAO, acima:_PRAZO_RAPIDO_ACIMA};
+}
+function _qtdPecasSolPeit(q){
+  var n=0;
+  ((q&&q.ambSnap)||[]).forEach(function(a){
+    if(a.tipo==='Soleira'||a.tipo==='Peitoril')(a.pecas||[]).forEach(function(p){ if(p.w&&p.h) n+=(+p.q||1); });
+  });
+  return n;
+}
+function _prazoSolPeit(q){
+  if(q && q.prazoModo==='manual' && +q.prazoDias>0) return +q.prazoDias;   // prazo digitado à mão vale
+  var n=_qtdPecasSolPeit(q);
+  if(!n) return (q && +q.prazoDias>0) ? +q.prazoDias : 1;
+  var r=_prazoRapidoRegra(), f=r.faixas.slice().sort(function(a,b){return a.ate-b.ate;});
+  for(var i=0;i<f.length;i++){ if(n<=f[i].ate) return f[i].dias; }
+  return r.acima||f[f.length-1].dias;
+}
+function _jobForaFila(j){ return !!(j && (j.foraFila || (j.cat && _tipoSoSolPeit(j.cat)))); }
+
 var _agAlertaKey = null;   // chave do aviso de sobrecarga já mostrado no modal "Definir Entrega"
 function salvarAgenda() {
   if (!pendQ) return;
@@ -9182,13 +9261,32 @@ function salvarAgenda() {
   _agInstalaOn=_orcInstalaDe(pendQ);   // vem do orçamento (soleira/peitoril = sem instalação)
   _paintAgInstala();
 
+  // ── Soleira/peitoril: não entra na fila, começa hoje, padrão 1 dia ──
+  if (_orcSoSolPeit(pendQ)) {
+    var _dSp = _prazoSolPeit(pendQ);
+    var _nPc = _qtdPecasSolPeit(pendQ);
+    var _stSp = document.getElementById('diasAgStatus');
+    if (_stSp) _stSp.innerHTML = '⚡ <strong style="color:var(--gold)">Soleira/peitoril</strong> — peça rápida: <strong>fora da fila</strong>, conta a partir de <strong>hoje</strong> (' + fd(td()) + ').';
+    var _sgSp = document.getElementById('diasSugestao'), _sgTx = document.getElementById('diasSugTexto');
+    if (_sgSp && _sgTx) {
+      _sgSp.style.display = 'block';
+      _sgTx.innerHTML = (_nPc ? _nPc + ' peça(s) → ' : '') + 'início <strong>hoje</strong>, entrega em ' + _dSp + ' dia(s) → <strong>' + fd(addD(td(), _dSp)) + '</strong>.<br>Quer outro prazo? É só mudar os dias.';
+    }
+    var _alSp = document.getElementById('diasAlerta'); if (_alSp) _alSp.style.display = 'none';
+    var _inSp = document.getElementById('diasIn'); if (_inSp) _inSp.value = _dSp;
+    prevDias();
+    showMd('diasMd');
+    return;
+  }
+
   var hoje = td();
   var last  = lastEnd();
   var inicioJob = last && last > hoje ? last : hoje;
 
   // ── Jobs ativos em fila (não concluídos) ──────────────────────────
-  var jobsAtivos = DB.j.filter(function(j) { return !j.done; });
+  var jobsAtivos = DB.j.filter(function(j) { return !j.done && !_jobForaFila(j); });
   var qtdFila = jobsAtivos.length;
+  var _qtdRapidos = DB.j.filter(function(j) { return !j.done && _jobForaFila(j); }).length;
 
   // ── Estima IEO do job candidato ──────────────────────────────────
   var catCandidato = (pendQ.tipo || 'Outro').split('+')[0].trim();
@@ -9222,8 +9320,11 @@ function salvarAgenda() {
     if (qtdFila === 0) {
       txt = 'Agenda livre — o serviço pode iniciar hoje.';
     } else {
-      txt = 'Fila atual: <strong style="color:var(--gold)">' + qtdFila + ' serviço(s)</strong> em andamento.';
+      var _atrasFila = jobsAtivos.filter(function(j){ return j.end && j.end < hoje; }).length;
+      txt = 'Fila atual: <strong style="color:var(--gold)">' + qtdFila + ' serviço(s)</strong> em andamento'
+        + (_atrasFila ? ' · <strong style="color:#ff7a7a;">' + _atrasFila + ' atrasado(s)</strong>' : '') + '.';
       if (last) txt += '<br>Agenda ocupada até <strong style="color:#ff9060;">' + fd(last) + '</strong>.';
+      if (_qtdRapidos) txt += '<br><span style="color:var(--t3);">⚡ ' + _qtdRapidos + ' peça(s) rápida(s) de soleira/peitoril fora da fila.</span>';
     }
     statusEl.innerHTML = txt;
   }
@@ -9238,18 +9339,20 @@ function salvarAgenda() {
   var isUrgente = (window._urgPct || 0) > 0;
 
   if (sugEl && sugTxt) {
-    var diasMinimos = Math.max(5, Math.round((ieoPreview.ieo || 1) * 2)); // estimativa baseada em IEO
+    var diasMinimos = Math.max(5, Math.round((ieoPreview.ieo || 1) * 2)); // estimativa baseada em IEO (só quando o orçamento não tem prazo)
+    var doOrc       = (+pendQ.prazoDias > 0);                              // prazo já definido no orçamento tem prioridade
+    var diasBase    = doOrc ? +pendQ.prazoDias : diasMinimos;
     var inicioSug   = isUrgente ? hoje : inicioJob;
-    var entregaSug  = addD(inicioSug, diasMinimos);
+    var entregaSug  = addD(inicioSug, diasBase);
 
     var textoSug = '';
     if (isUrgente) {
-      textoSug = '🚨 <strong>Urgente:</strong> início hoje (' + fd(hoje) + '), entrega estimada em ' + diasMinimos + ' dias → <strong>' + fd(entregaSug) + '</strong>.';
+      textoSug = '🚨 <strong>Urgente:</strong> início hoje (' + fd(hoje) + '), entrega ' + (doOrc ? 'em ' : 'estimada em ') + diasBase + ' dias → <strong>' + fd(entregaSug) + '</strong>.';
       if (qtdFila > 0) {
         textoSug += '<br><span style="color:#ff9060;">⚠️ Este job vai passar na frente de ' + qtdFila + ' serviço(s) em andamento.</span>';
       }
     } else {
-      textoSug = 'Início após fila: <strong>' + fd(inicioSug) + '</strong>, entrega em ~' + diasMinimos + ' dias → <strong>' + fd(entregaSug) + '</strong>.';
+      textoSug = 'Início após fila: <strong>' + fd(inicioSug) + '</strong>, entrega em ' + (doOrc ? '' : '~') + diasBase + ' dias' + (doOrc ? ' (prazo do orçamento)' : '') + ' → <strong>' + fd(entregaSug) + '</strong>.';
       if (semanaOk && semanaOk.semanas > 0) {
         textoSug += '<br>Semana atual está sobrecarregada — início ideal na semana de ' + fd(semTentativa) + '.';
       }
@@ -9264,7 +9367,7 @@ function salvarAgenda() {
       diasInput.value = pendQ.prazoDias;   // dias definidos no orçamento
       prevDias();
     } else if (diasInput && !diasInput.value) {
-      diasInput.value = diasMinimos;
+      diasInput.value = diasBase;
       prevDias();
     }
   }
@@ -9295,7 +9398,7 @@ function prevDias(){
   if(!d){p.classList.remove('on');p.textContent='';return;}
   var isUrgente=(window._urgPct||0)>0;
   var hoje=td(),last=lastEnd();
-  var s=isUrgente?hoje:(last&&last>hoje?last:hoje);
+  var s=(isUrgente||_orcSoSolPeit(pendQ))?hoje:(last&&last>hoje?last:hoje);
   var entrega=addD(s,d);
   var diasCorridos=Math.ceil((new Date(entrega+'T00:00:00')-new Date(hoje+'T00:00:00'))/86400000);
   p.textContent='Início: '+fd(s)+'  ·  Entrega: '+fd(entrega)+'  ('+(isUrgente?'🚨 urgente, ':'')+(diasCorridos)+'d corridos)';
@@ -9306,7 +9409,8 @@ function confirmarAgenda() {
   if (!d || !pendQ) { toast('Informe os dias'); return; }
 
   var _le = lastEnd(), _hj = td();
-  var s   = (_le && _le > _hj) ? _le : _hj; // igual à prévia: nunca começa no passado
+  var _sp = _orcSoSolPeit(pendQ);            // soleira/peitoril: fora da fila, começa hoje
+  var s   = (!_sp && _le && _le > _hj) ? _le : _hj; // igual à prévia: nunca começa no passado
   var end = addD(s, d);
   var q   = pendQ;
 
@@ -9327,7 +9431,8 @@ function confirmarAgenda() {
     custoPedraEpoca : q.matCusto || q.custo || 0,
     cat   : q.tipo  || 'Outro',
     stage : 'producao',
-    instala : !!_agInstalaOn
+    instala : !!_agInstalaOn,
+    foraFila : _sp
   };
 
   // ── Estima IEO e simula a semana COM o job ───────────────────────
@@ -9379,7 +9484,7 @@ function confirmarAgenda() {
   // OBS: o showCB() desenha o aviso na página de trás, que fica ENCOBERTA pelo modal
   // "Definir Entrega" (overlay z-index 400) — por isso o Confirmar parecia não fazer nada.
   // Agora o aviso aparece DENTRO do modal e o 2º toque em "Confirmar mesmo assim" salva.
-  if (alertas.length > 0) {
+  if (alertas.length > 0 && !_sp) {
     var _key = [q.id, s, d, !!_agInstalaOn].join('|');
     if (_agAlertaKey !== _key) {
       _agAlertaKey = _key;
@@ -12316,7 +12421,7 @@ function fd(s){try{var p=s.split('-');return p[2]+'/'+p[1]+'/'+p[0];}catch(e){re
 function dDiff(s){try{var t=new Date(s+'T00:00:00');var n=new Date();n.setHours(0,0,0,0);return Math.ceil((t-n)/86400000);}catch(e){return 0;}}
 function addD(s,n){try{var d=new Date(s+'T00:00:00');d.setDate(d.getDate()+n);return d.toISOString().split('T')[0];}catch(e){return s;}}
 function td(){return new Date().toISOString().split('T')[0];}
-function lastEnd(){var a=DB.j.filter(function(j){return !j.done&&j.end;}).sort(function(a,b){return new Date(b.end)-new Date(a.end);});return a.length?a[0].end:null;}
+function lastEnd(){var a=DB.j.filter(function(j){return !j.done&&j.end&&!_jobForaFila(j);}).sort(function(a,b){return new Date(b.end)-new Date(a.end);});return a.length?a[0].end:null;}
 // ═══════════════════════════════════════════════
 // ── GERADOR DE PDF PARA TÚMULOS ──
 function gerarPDFTumulo(q){
