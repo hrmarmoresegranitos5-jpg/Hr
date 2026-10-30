@@ -573,8 +573,10 @@ function _renderBotPanel() {
   h += '<div style="margin-top:12px;"><div style="font-size:12px;font-weight:700;margin-bottom:4px;">📋 Últimos leads</div><div id="botLeadsBox"></div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botSyncFinancas(true)">🔄 Buscar lançamentos do WhatsApp agora</button><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:6px;line-height:1.4;">Escreva pro bot: <i>gastei 150 com cimento</i> ou <i>recebi 2.500 do João</i>. O app busca sozinho a cada 1 minuto.</div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botToggleFalas()">💬 Editar falas do bot</button><div id="botFalasBox" style="display:none;margin-top:12px;"></div></div>';
+  h += '<div style="margin-top:14px;"><button id="botSnapBtn" class="sec2-bot-connect-btn" onclick="botSnapSincronizar()">🧠 Sincronizar agora com o bot</button><div id="botSnapInfo" style="font-size:11px;color:rgba(255,255,255,.55);margin-top:6px;line-height:1.4;">Última sincronização: consultando…</div><div id="botSnapMsg" style="font-size:11px;margin-top:4px;line-height:1.4;"></div><div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:4px;line-height:1.4;">Envia ao bot uma cópia resumida dos seus dados (sem fotos, documentos nem senhas) para ele responder suas perguntas no WhatsApp.</div></div>';
   h += '</div>';
   setTimeout(botLoadLeads, 0);
+  setTimeout(botSnapAtualizarInfo, 0);
 
   h += '<span id="botStatusInd" style="display:none;" data-status="' + escH(st) + '"></span>';
   h += '</div>';
@@ -2303,3 +2305,347 @@ function _botCopiarFallback(txt, ok) {
   document.body.removeChild(ta);
 }
 window._botCopiar = _botCopiar;
+
+// ═══════════════════════════════════════════════════════════════════════
+// SNAPSHOT PARA O BOT (cópia compacta dos dados que a IA do WhatsApp lê)
+// Só campos da lista permitida. NUNCA entram: fotos/base64, logos, PDFs,
+// logs, chave/URL do bot, CPF/RG/documentos, custos internos.
+// ═══════════════════════════════════════════════════════════════════════
+var _SNAP_ALVO_CHARS = 100000;   // alvo; o Worker corta a IA em 120.000
+var _SNAP_META_KEY   = 'hr_bot_snap_meta'; // {hash, ok} — fora do hr_bot_cfg
+
+function _snapMeta() {
+  try { return JSON.parse(localStorage.getItem(_SNAP_META_KEY) || '{}'); } catch (e) { return {}; }
+}
+function _snapSalvaMeta(obj) {
+  try { localStorage.setItem(_SNAP_META_KEY, JSON.stringify(Object.assign(_snapMeta(), obj))); } catch (e) {}
+}
+function _snapP2(n) { return (n < 10 ? '0' : '') + n; }
+
+// Qualquer formato de data → AAAA-MM-DD ('' se não der pra entender)
+function _snapData(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && isFinite(v)) {
+    var dn = new Date(v);
+    return isNaN(dn) ? '' : dn.getFullYear() + '-' + _snapP2(dn.getMonth() + 1) + '-' + _snapP2(dn.getDate());
+  }
+  var s = String(v).trim(), m;
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return m[1] + '-' + m[2] + '-' + m[3];
+  if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) return m[3] + '-' + _snapP2(+m[2]) + '-' + _snapP2(+m[1]);
+  return '';
+}
+function _snapNum(v) {
+  var n = typeof v === 'number' ? v : parseFloat(String(v == null ? '' : v).replace(',', '.'));
+  return isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+function _snapTxt(v, max) {
+  if (v == null) return '';
+  var s = String(v).replace(/\s+/g, ' ').trim();
+  // descarta qualquer coisa que pareça imagem/base64
+  if (/^data:|base64,/i.test(s) || s.length > 4000 && /^[A-Za-z0-9+\/=]+$/.test(s.slice(0, 200))) return '';
+  return s.length > (max || 120) ? s.slice(0, max || 120) : s;
+}
+function _snapMes(dataISO) { return dataISO ? dataISO.slice(0, 7) : ''; }
+
+// Monta o objeto compacto. `meses` = janela de detalhe (padrão 12).
+function _snapConstruir(meses) {
+  var hoje = new Date();
+  var lim = new Date(hoje.getFullYear(), hoje.getMonth() - meses, hoje.getDate());
+  var limISO = lim.getFullYear() + '-' + _snapP2(lim.getMonth() + 1) + '-' + _snapP2(lim.getDate());
+  var hojeISO = hoje.getFullYear() + '-' + _snapP2(hoje.getMonth() + 1) + '-' + _snapP2(hoje.getDate());
+  var dentro = function (d) { return !!d && d >= limISO; };
+
+  var listaQ = (typeof DB !== 'undefined' && DB.q) || [];
+  var listaJ = (typeof DB !== 'undefined' && DB.j) || [];
+  var listaT = (typeof DB !== 'undefined' && DB.t) || [];
+  var listaB = (typeof DB !== 'undefined' && DB.b) || [];
+  var listaC = (typeof DB !== 'undefined' && DB.c) || [];
+
+  var qPorId = {};
+  listaQ.forEach(function (q) { if (q && q.id != null) qPorId[String(q.id)] = q; });
+
+  // ── Agenda: tudo que ainda não foi entregue + o que começou na janela
+  var agenda = [];
+  listaJ.forEach(function (j) {
+    if (!j) return;
+    var ini = _snapData(j.start);
+    var aberto = j.stage !== 'entregue' && !j.done;
+    if (!aberto && !dentro(ini)) return;
+    agenda.push({
+      cliente: _snapTxt(j.cli, 60), servico: _snapTxt(j.desc, 90),
+      inicio: ini, entrega: _snapData(j.end),
+      valor: _snapNum(j.value), pago: _snapNum(j.pago),
+      etapa: _snapTxt(j.stage, 20), concluido: !!j.done,
+      urgente: j.urgente ? true : undefined
+    });
+  });
+  agenda.sort(function (a, b) { return (a.inicio || '9') < (b.inicio || '9') ? -1 : 1; });
+
+  // ── Finanças: lançamentos na janela + totais de TODOS os meses
+  var lanc = [], totMes = {};
+  listaT.forEach(function (t) {
+    if (!t) return;
+    var d = _snapData(t.date), v = _snapNum(t.value), ent = t.type === 'in';
+    var mes = _snapMes(d);
+    if (mes) {
+      if (!totMes[mes]) totMes[mes] = { entradas: 0, saidas: 0 };
+      totMes[mes][ent ? 'entradas' : 'saidas'] = _snapNum(totMes[mes][ent ? 'entradas' : 'saidas'] + v);
+    }
+    if (dentro(d)) {
+      var l = { tipo: ent ? 'entrada' : 'saida', valor: v, descricao: _snapTxt(t.desc, 80), data: d };
+      if (t.isProLabore) l.categoria = 'pro-labore';
+      lanc.push(l);
+    }
+  });
+  lanc.sort(function (a, b) { return a.data < b.data ? 1 : -1; });
+
+  // ── Boletos: tudo que não está pago/cancelado + os da janela
+  var boletos = [];
+  listaB.forEach(function (b) {
+    if (!b) return;
+    var venc = _snapData(b.venc);
+    var aberto = b.status !== 'pago' && b.status !== 'cancelado';
+    if (!aberto && !dentro(venc)) return;
+    var o = { descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15) };
+    if (b.cli) o.fornecedor = _snapTxt(b.cli, 50);
+    if (b.cat) o.categoria = _snapTxt(b.cat, 25);
+    if (b.parc) o.parcela = _snapTxt(b.parc, 10);
+    boletos.push(o);
+  });
+  boletos.sort(function (a, b) { return (a.vencimento || '9') < (b.vencimento || '9') ? -1 : 1; });
+
+  // ── Orçamentos: detalhe na janela; antigos só totais por mês
+  var orc = [], orcAntigos = {};
+  listaQ.forEach(function (q) {
+    if (!q) return;
+    var d = _snapData(q.date || q.createdAt);
+    if (dentro(d)) {
+      var o = {
+        cliente: _snapTxt(q.cli, 60), projeto: _snapTxt(q.tipo, 70), material: _snapTxt(q.mat, 50),
+        m2: _snapNum(q.m2), valor: _snapNum(q.vista), entrada: _snapNum(q.ent),
+        status: _snapTxt(q.status, 15), data: d
+      };
+      var dias = +(q.validade || (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.diasValidade) || 7);
+      if (d && dias > 0) {
+        var dv = new Date(d + 'T12:00:00'); dv.setDate(dv.getDate() + dias);
+        o.validoAte = dv.getFullYear() + '-' + _snapP2(dv.getMonth() + 1) + '-' + _snapP2(dv.getDate());
+      }
+      orc.push(o);
+    } else {
+      var mes = _snapMes(d) || 'sem-data';
+      if (!orcAntigos[mes]) orcAntigos[mes] = { qtd: 0, valor: 0 };
+      orcAntigos[mes].qtd++; orcAntigos[mes].valor = _snapNum(orcAntigos[mes].valor + _snapNum(q.vista));
+    }
+  });
+  orc.sort(function (a, b) { return a.data < b.data ? 1 : -1; });
+
+  // ── Contratos: cliente e valor vêm do orçamento ligado (qid)
+  var contratos = [];
+  listaC.forEach(function (c) {
+    if (!c) return;
+    var q = qPorId[String(c.qid)] || {};
+    contratos.push({
+      cliente: _snapTxt(q.cli, 60), valor: _snapNum(q.vista),
+      situacao: _snapTxt(c.status, 20), geradoEm: _snapData(c.dtGerado)
+    });
+  });
+
+  // ── Clientes
+  var clientes = [];
+  try {
+    ((typeof CLDB !== 'undefined' && CLDB.get && CLDB.get()) || []).forEach(function (c) {
+      if (c && c.nome) clientes.push({ nome: _snapTxt(c.nome, 60), tel: _snapTxt(c.tel, 20), cidade: _snapTxt(c.cidade, 40) });
+    });
+  } catch (e) {}
+
+  // ── Catálogo (sem foto, sem custo)
+  var catalogo = [];
+  if (typeof CFG !== 'undefined' && CFG) {
+    (CFG.stones || []).forEach(function (s) {
+      if (s && s.nm) catalogo.push({ nome: _snapTxt(s.nm, 50), tipo: _snapTxt(s.cat || 'Pedra', 30), preco: _snapNum(s.pr), unidade: 'm²' });
+    });
+    (CFG.coz || []).forEach(function (s) {
+      if (s && s.nm) catalogo.push({ nome: _snapTxt(s.nm + (s.brand ? ' ' + s.brand : ''), 60), tipo: 'Cuba de cozinha', preco: _snapNum(s.pr), unidade: 'un' });
+    });
+    (CFG.lav || []).forEach(function (s) {
+      if (s && s.nm) catalogo.push({ nome: _snapTxt(s.nm + (s.brand ? ' ' + s.brand : ''), 60), tipo: 'Cuba de banheiro' + (s.tipo ? ' (' + s.tipo + ')' : ''), preco: _snapNum(s.pr), unidade: 'un' });
+    });
+  }
+
+  // Ordem importa: o Worker corta no fim. O mais importante vem primeiro.
+  return {
+    geradoEm: hoje.toISOString(),
+    hoje: hojeISO,
+    legenda: {
+      datas: 'AAAA-MM-DD; valores em reais (número)',
+      orcamentos: 'status: aberto/pendente = aguardando resposta do cliente; aprovado = fechado; perdido = não fechou; vencido = passou da validade. "valor" = preço à vista; "validoAte" = último dia de validade',
+      agenda: 'etapa: producao = em produção; pronto = pronto p/ entrega; entregue = entregue. "inicio" = início do serviço, "entrega" = data prevista. "pago" = já recebido do "valor"',
+      financas: 'tipo entrada = dinheiro que entrou; saida = gasto. totaisPorMes cobre todos os meses; lancamentos só os últimos ' + meses + ' meses',
+      boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
+      janelaMeses: meses
+    },
+    agenda: agenda,
+    financas: { lancamentos: lanc, totaisPorMes: totMes },
+    boletos: boletos,
+    orcamentos: orc,
+    orcamentosAntigosPorMes: orcAntigos,
+    contratos: contratos,
+    clientes: clientes,
+    catalogo: catalogo
+  };
+}
+
+// Devolve o snapshot; reduz a janela de meses até caber no alvo de tamanho.
+function montarSnapshot() {
+  var passos = [12, 9, 6, 3, 1], dados = null, len = 0;
+  for (var i = 0; i < passos.length; i++) {
+    dados = _snapConstruir(passos[i]);
+    len = JSON.stringify(dados).length;
+    if (len <= _SNAP_ALVO_CHARS) break;
+  }
+  // Último recurso: ainda grande → tira clientes sem telefone, depois limita
+  if (len > _SNAP_ALVO_CHARS) {
+    dados.clientes = dados.clientes.filter(function (c) { return c.tel; }).slice(0, 200);
+    len = JSON.stringify(dados).length;
+  }
+  console.log('[snapshot] ' + len + ' caracteres (janela de ' + dados.legenda.janelaMeses + ' meses)' +
+    (len > _SNAP_ALVO_CHARS ? ' ⚠ acima do alvo de ' + _SNAP_ALVO_CHARS : ''));
+  return dados;
+}
+
+// Hash simples (djb2) — ignora geradoEm, que muda a cada montagem
+function _snapHash(dados) {
+  var c = Object.assign({}, dados); delete c.geradoEm;
+  var s = JSON.stringify(c), h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return String(h) + ':' + s.length;
+}
+
+var _snapEnviando = false;
+// enviarSnapshot(true) ignora o "nada mudou" (usado pelo botão manual).
+// Resolve sempre (nunca rejeita) com {ok, enviado, bytes?, motivo?}.
+function enviarSnapshot(forcar) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) return Promise.resolve({ ok: false, enviado: false, motivo: 'bot não configurado' });
+  if (_snapEnviando) return Promise.resolve({ ok: false, enviado: false, motivo: 'envio em andamento' });
+  var dados, hash;
+  try {
+    dados = montarSnapshot();
+    hash = _snapHash(dados);
+  } catch (e) {
+    console.warn('[snapshot] falha ao montar:', e);
+    return Promise.resolve({ ok: false, enviado: false, motivo: 'erro ao montar' });
+  }
+  if (!forcar && _snapMeta().hash === hash) {
+    return Promise.resolve({ ok: true, enviado: false, motivo: 'sem mudanças' });
+  }
+  _snapEnviando = true;
+  return fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/snapshot', {
+    method: 'POST', headers: _botHeaders(), body: JSON.stringify({ dados: dados })
+  })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok || !d.ok) throw new Error('HTTP ' + r.status + (d && d.error ? ' — ' + d.error : ''));
+        _snapSalvaMeta({ hash: hash, ok: Date.now() });
+        console.log('[snapshot] enviado: ' + d.bytes + ' bytes');
+        return { ok: true, enviado: true, bytes: d.bytes, meses: dados.legenda.janelaMeses };
+      });
+    })
+    .catch(function (e) {
+      console.warn('[snapshot] não enviado:', e && e.message ? e.message : e);
+      return { ok: false, enviado: false, motivo: e && e.message ? e.message : 'erro' };
+    })
+    .then(function (res) { _snapEnviando = false; return res; });
+}
+window.montarSnapshot = montarSnapshot;
+window.enviarSnapshot = enviarSnapshot;
+
+// ─── Snapshot: linha "Última sincronização" e botão manual ───────────────
+function _snapFmtBahia(ts) {
+  try {
+    var p = {};
+    new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', day: '2-digit', month: '2-digit',
+      year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      .formatToParts(new Date(ts)).forEach(function (x) { p[x.type] = x.value; });
+    if (p.hour === '24') p.hour = '00';
+    return p.day + '/' + p.month + '/' + p.year + ' ' + p.hour + ':' + p.minute;
+  } catch (e) { return ''; }
+}
+
+function botSnapAtualizarInfo() {
+  var el = document.getElementById('botSnapInfo');
+  if (!el) return;
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) { el.textContent = 'Última sincronização: configure a URL e a chave do bot.'; return; }
+  fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/snapshot', { headers: _botHeaders() })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var el2 = document.getElementById('botSnapInfo');
+      if (!el2) return;
+      if (d && d.existe && d.ts) {
+        var q = d.bytes ? ' · ' + Number(d.bytes).toLocaleString('pt-BR') + ' bytes' : '';
+        el2.textContent = 'Última sincronização: ' + _snapFmtBahia(d.ts) + q;
+      } else {
+        el2.textContent = 'Nunca sincronizado';
+      }
+    })
+    .catch(function (e) {
+      console.warn('[snapshot] não consegui consultar o bot:', e);
+      var el2 = document.getElementById('botSnapInfo');
+      if (el2) el2.textContent = 'Última sincronização: não foi possível consultar o bot agora.';
+    });
+}
+
+function botSnapSincronizar() {
+  var btn = document.getElementById('botSnapBtn');
+  var msg = document.getElementById('botSnapMsg');
+  function _m(t, cor) { var m = document.getElementById('botSnapMsg'); if (m) { m.textContent = t; m.style.color = cor || ''; } }
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  _m('Sincronizando…', 'rgba(255,255,255,.6)');
+  enviarSnapshot(true).then(function (r) {
+    if (r && r.ok) {
+      _m('✓ Sincronizado — ' + Number(r.bytes || 0).toLocaleString('pt-BR') + ' bytes, últimos ' + (r.meses || 12) + ' meses em detalhe.', '#4ade80');
+      if (typeof toast === 'function') toast('✓ Dados enviados ao bot');
+    } else {
+      var mot = (r && r.motivo) || 'erro desconhecido';
+      if (/404/.test(mot)) mot = 'o Worker publicado ainda não tem a rota /bot/snapshot (versão antiga no ar).';
+      else if (/401|403/.test(mot)) mot = 'chave do bot recusada pelo Worker.';
+      else if (/413/.test(mot)) mot = 'dados grandes demais para o Worker.';
+      _m('✗ Não foi possível sincronizar: ' + mot, '#f87171');
+    }
+    var b2 = document.getElementById('botSnapBtn');
+    if (b2) { b2.disabled = false; b2.style.opacity = ''; }
+    botSnapAtualizarInfo();
+  });
+}
+window.botSnapSincronizar = botSnapSincronizar;
+window.botSnapAtualizarInfo = botSnapAtualizarInfo;
+
+// ─── Snapshot: gatilhos automáticos ──────────────────────────────────────
+// 1) ~8 s depois de abrir o app; 2) depois de qualquer DB.sv() (salvar),
+// com debounce de 15 s (o KV aceita ~1 escrita/s na mesma chave).
+var _snapTimer = null;
+function _snapAgendar() {
+  clearTimeout(_snapTimer);
+  _snapTimer = setTimeout(function () { enviarSnapshot(false); }, 15000);
+}
+(function () {
+  var tentativas = 0;
+  function ini() {
+    try {
+      if (typeof DB === 'undefined' || typeof DB.sv !== 'function') {
+        if (++tentativas < 40) setTimeout(ini, 500);
+        return;
+      }
+      if (DB.sv.__hrSnap) return;
+      var orig = DB.sv;
+      DB.sv = function () {
+        try { _snapAgendar(); } catch (e) {}
+        return orig.apply(this, arguments);
+      };
+      DB.sv.__hrSnap = true;
+      setTimeout(function () { enviarSnapshot(false); }, 8000);
+    } catch (e) { console.warn('[snapshot] gatilhos:', e); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 1500);
+})();
