@@ -8392,6 +8392,7 @@ function gerarPDF(){
       var pdf=new jsPDF({orientation:'portrait',unit:'pt',format:[pageW,pageH]});
       pdf.addImage(canvas.toDataURL('image/jpeg',0.96),'JPEG',0,0,pageW,pageH);
       var pdfBlob=pdf.output('blob');
+      if(window._botPdfHook){var _bh=window._botPdfHook;window._botPdfHook=null;try{_bh(pdfBlob,fileName,q);}catch(e){}}
 
       var img=document.createElement('img');
       img.src=canvas.toDataURL('image/jpeg',0.88);

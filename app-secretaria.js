@@ -493,6 +493,74 @@ function botResetFalas() {
     .catch(function(){ toast('❌ Worker não acessível.'); });
 }
 
+// ─── Orçamento pelo WhatsApp: padrões de prazo e pagamento ───────────────
+function botToggleOrcCfg() {
+  var box = document.getElementById('botOrcCfgBox');
+  if (!box) return;
+  if (box.style.display === 'block') { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  botLoadOrcCfg();
+}
+
+function botLoadOrcCfg() {
+  var cfg = _getBotCfg();
+  var box = document.getElementById('botOrcCfgBox');
+  if (!cfg.url || !box) return;
+  box.innerHTML = '<div style="color:rgba(255,255,255,.5);font-size:12px;padding:8px 0;">Carregando...</div>';
+  fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/orc-config', { headers: _botHeaders() })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (!x.ok || !x.d.config) { box.innerHTML = '<div style="color:#f87171;font-size:12px;">❌ ' + escH(x.d.error || 'Falha ao carregar') + (x.d.error ? '' : '. Atualize o código do Worker.') + '</div>'; return; }
+      _botRenderOrcCfg(box, x.d.config);
+    })
+    .catch(function () { box.innerHTML = '<div style="color:#f87171;font-size:12px;">❌ Worker não acessível.</div>'; });
+}
+
+function _botRenderOrcCfg(box, c) {
+  var sel = 'width:100%;box-sizing:border-box;';
+  var h = '<div style="font-size:11px;color:rgba(255,255,255,.55);line-height:1.5;margin-bottom:10px;">'
+    + 'Valem para pedidos de soleira e peitoril feitos pelo WhatsApp quando o Sr. Hangel não diz o prazo ou a forma de pagamento. O que ele disser na conversa vale mais que estes padrões.</div>'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Forma de pagamento padrão</div>'
+    + '<select id="botOrcPag" class="sec2-bot-input" style="' + sel + 'margin-bottom:12px;">'
+    + '<option value="vista"' + (c.pagamento === 'vista' ? ' selected' : '') + '>À vista</option>'
+    + '<option value="parcelado"' + (c.pagamento === 'parcelado' ? ' selected' : '') + '>Parcelado</option></select>'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:4px;">Prazo padrão</div>'
+    + '<select id="botOrcPrazoModo" class="sec2-bot-input" style="' + sel + 'margin-bottom:8px;" onchange="document.getElementById(\'botOrcDiasWrap\').style.display=this.value===\'fixo\'?\'block\':\'none\'">'
+    + '<option value="fixo"' + (c.prazo_modo === 'fixo' ? ' selected' : '') + '>Número fixo de dias</option>'
+    + '<option value="regra"' + (c.prazo_modo === 'regra' ? ' selected' : '') + '>Pela quantidade de peças (regra cadastrada no app)</option></select>'
+    + '<div id="botOrcDiasWrap" style="display:' + (c.prazo_modo === 'fixo' ? 'block' : 'none') + ';margin-bottom:12px;">'
+    + '<input id="botOrcDias" class="sec2-bot-input" type="number" min="1" max="365" inputmode="numeric" value="' + escH(String(c.prazo_dias)) + '" style="' + sel + '" placeholder="Dias"></div>'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:2px;">Pedir confirmação antes de registrar</div>'
+    + '<div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:4px;">Quando o pedido tiver mais peças que este número, o bot mostra o resumo e espera o "Confirmar". Deixe 0 para nunca pedir.</div>'
+    + '<input id="botOrcConfirma" class="sec2-bot-input" type="number" min="0" max="500" inputmode="numeric" value="' + escH(String(c.confirmar_acima || 0)) + '" style="' + sel + 'margin-bottom:12px;" placeholder="0">'
+    + '<button class="sec2-bot-connect-btn" id="botOrcSalvar" onclick="botSaveOrcCfg()">💾 Salvar padrões</button>';
+  box.innerHTML = h;
+}
+
+function botSaveOrcCfg() {
+  var cfg = _getBotCfg();
+  var btn = document.getElementById('botOrcSalvar');
+  var corpo = {
+    pagamento: document.getElementById('botOrcPag').value,
+    prazo_modo: document.getElementById('botOrcPrazoModo').value,
+    prazo_dias: parseInt(document.getElementById('botOrcDias').value, 10) || 0,
+    confirmar_acima: Math.max(0, parseInt(document.getElementById('botOrcConfirma').value, 10) || 0)
+  };
+  if (corpo.prazo_modo === 'fixo' && !(corpo.prazo_dias >= 1 && corpo.prazo_dias <= 365)) { toast('⚠ Informe o prazo de 1 a 365 dias'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
+  fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/orc-config', { method: 'POST', headers: _botHeaders(), body: JSON.stringify(corpo) })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar padrões'; }
+      if (!x.ok) { toast('❌ ' + (x.d.error || 'Falha ao salvar')); return; }
+      toast('✅ Padrões salvos. O bot já usa os novos valores.');
+    })
+    .catch(function () {
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Salvar padrões'; }
+      toast('❌ Worker não acessível.');
+    });
+}
+
 var _botPanelOpen = false;
 function botTogglePanel() {
   _botPanelOpen = !_botPanelOpen;
@@ -573,6 +641,7 @@ function _renderBotPanel() {
   h += '<div style="margin-top:12px;"><div style="font-size:12px;font-weight:700;margin-bottom:4px;">📋 Últimos leads</div><div id="botLeadsBox"></div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botSyncFinancas(true)">🔄 Buscar lançamentos do WhatsApp agora</button><div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:6px;line-height:1.4;">Escreva pro bot: <i>gastei 150 com cimento</i> ou <i>recebi 2.500 do João</i>. O app busca sozinho a cada 1 minuto.</div></div>';
   h += '<div style="margin-top:14px;"><button class="sec2-bot-connect-btn" onclick="botToggleFalas()">💬 Editar falas do bot</button><div id="botFalasBox" style="display:none;margin-top:12px;"></div></div>';
+  h += '<div style="margin-top:10px;"><button class="sec2-bot-connect-btn" onclick="botToggleOrcCfg()">⏱️ Prazo e pagamento do orçamento</button><div id="botOrcCfgBox" style="display:none;margin-top:12px;"></div></div>';
   h += '<div style="margin-top:14px;"><button id="botSnapBtn" class="sec2-bot-connect-btn" onclick="botSnapSincronizar()">🧠 Sincronizar agora com o bot</button><div id="botSnapInfo" style="font-size:11px;color:rgba(255,255,255,.55);margin-top:6px;line-height:1.4;">Última sincronização: consultando…</div><div id="botSnapMsg" style="font-size:11px;margin-top:4px;line-height:1.4;"></div><div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:4px;line-height:1.4;">Envia ao bot uma cópia resumida dos seus dados (sem fotos, documentos nem senhas) para ele responder suas perguntas no WhatsApp.</div></div>';
   h += '</div>';
   setTimeout(botLoadLeads, 0);
@@ -2646,6 +2715,26 @@ function _snapAgendar() {
       DB.sv.__hrSnap = true;
       setTimeout(function () { enviarSnapshot(false); }, 8000);
     } catch (e) { console.warn('[snapshot] gatilhos:', e); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 1500);
+})();
+
+// ─── Snapshot: catálogo e preços (svCFG) também disparam a sincronização ────
+// DB.sv() cobre orçamentos, agenda etc., mas editar pedra/preço salva só via svCFG().
+(function () {
+  var tentativas = 0;
+  function ini() {
+    try {
+      if (typeof svCFG !== 'function') { if (++tentativas < 40) setTimeout(ini, 500); return; }
+      if (svCFG.__hrSnap) return;
+      var orig = svCFG;
+      var nova = function () {
+        try { _snapAgendar(); } catch (e) {}
+        return orig.apply(this, arguments);
+      };
+      nova.__hrSnap = true;
+      window.svCFG = nova;
+    } catch (e) { console.warn('[snapshot] gatilho svCFG:', e); }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 1500);
 })();
