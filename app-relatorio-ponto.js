@@ -635,6 +635,37 @@ var HR_RELATORIO_PONTO = (function () {
     };
   }
 
+  // ─── Linhas do resumo financeiro (usadas no PDF e na pré-visualização) ───────
+  // Só o que entra na conta do período. Nada de outros períodos, créditos
+  // em aberto ou adiantamentos de outras datas: isso confunde o funcionário.
+  function _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin) {
+    var VERDE = [42, 130, 70], VERM = [180, 60, 60], LARANJA = [200, 120, 40], NEUTRO = [30, 30, 30];
+    var rows = [];
+    rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
+    if (totalValorExtra > 0) {
+      rows.push({ label: 'Horas extras (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', valor: totalValorExtra, sinal: '+', cor: VERDE });
+    }
+    if ((deficitAbatidoMin || 0) > 0) {
+      rows.push({ nota: 'Você fez ' + _fmtMin(extraBrutoMin || 0) + ' de hora extra; ' + _fmtMin(deficitAbatidoMin) +
+        ' foram usadas para cobrir horas negativas.' });
+    }
+    if (fin.totalDeficitValor > 0) {
+      rows.push({ label: 'Horas não trabalhadas (' + _fmtMin(Math.abs(totalDeficitMin || 0)) + ')', valor: fin.totalDeficitValor, sinal: '-', cor: VERM });
+    }
+    fin.creditosAlvo.forEach(function (c) {
+      rows.push({ label: 'Horas extras acumuladas (' + _fmtData(c.data) + ')', valor: parseFloat(c.valor) || 0, sinal: '+', cor: VERDE });
+    });
+    fin.adiantamentosAlvo.forEach(function (a) {
+      var ehOverpago = a.obs && String(a.obs).indexOf('Crédito de overpago') === 0;
+      rows.push({ label: ehOverpago ? 'Desconto de valor pago a mais' : 'Adiantamento de ' + _fmtData(a.data),
+        valor: parseFloat(a.valor) || 0, sinal: '-', cor: LARANJA });
+    });
+    if (fin.totalPago > 0) {
+      rows.push({ label: 'Já pago neste período', valor: fin.totalPago, sinal: '-', cor: VERM });
+    }
+    return rows;
+  }
+
   // ─── Gerador PDF principal ───────────────────────────────────────────────────
 
   function gerarPDF(funcId, di, df) {
@@ -785,270 +816,81 @@ var HR_RELATORIO_PONTO = (function () {
 
     y = 25;
 
-    doc.setTextColor(60, 60, 60);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    var depto = f.equipe || f.cargo || 'Marmoraria';
-    doc.text('Departamento: ' + depto, mL, y);
-    doc.text('Salário mensal: ' + _fmtMoeda(salario), pW - mR, y, { align: 'right' });
-
-    y += 4;
-    doc.setDrawColor.apply(doc, COR_HEADER);
-    doc.setLineWidth(0.4);
-    doc.line(mL, y, pW - mR, y);
-    y += 5;
-
-    // ── DE RELANCE — 3 linhas grandes, sem jargão, antes de qualquer detalhe ──
-    // Usa os valores BRUTOS de extra/negativas (antes do abatimento) pra que
-    // o funcionário sempre veja quanto trabalhou a mais e quanto faltou,
-    // mesmo quando um cobre o outro e o líquido final de algum dos dois vira zero.
+    // ── VALOR A RECEBER — a primeira (e principal) informação do documento ──
     var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
-    var temLinhaNegativas = deficitBrutoMin > 0;
-    var relanceH = temLinhaNegativas ? 29 : 24;
+    var corStatus = fin.status === 'pago' ? COR_VERDE : COR_HEADER;
+    y = 27;
+    var relanceH = 22;
     doc.setFillColor(255, 255, 255);
-    doc.setDrawColor.apply(doc, COR_HEADER);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(mL, y, cW, relanceH, 2, 2, 'FD');
-    var ry = y + 6;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.2);
-    doc.setTextColor(140, 140, 140);
-    doc.text('DE RELANCE', mL + 4, ry - 2.5);
-    ry += 3;
-    doc.setFontSize(12.5);
-    doc.setTextColor.apply(doc, fin.status === 'pago' ? COR_VERDE : COR_HEADER);
-    doc.text((fin.status === 'pago' ? 'Já recebido: ' : 'Você vai receber: ') + _fmtMoeda(Math.abs(fin.saldoFinal)), mL + 4, ry);
-    ry += 6.5;
-    doc.setFontSize(9.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(50, 50, 50);
-    doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), mL + 4, ry);
-    if (extraBrutoMin > 0) {
-      doc.setTextColor.apply(doc, COR_VERDE);
-      doc.text('Fez ' + _fmtMin(extraBrutoMin) + ' de hora extra', mL + 65, ry);
-    }
-    if (temLinhaNegativas) {
-      ry += 5.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor.apply(doc, COR_VERM);
-      var _txtNeg = 'Teve ' + _fmtMin(deficitBrutoMin) + ' de horas negativas';
-      if (deficitAbatidoMin > 0) _txtNeg += ' (' + _fmtMin(deficitAbatidoMin) + ' abatidas pela hora extra)';
-      doc.text(_txtNeg, mL + 4, ry);
-    }
-    y += relanceH + 4;
-
-    // ── RESUMO FINANCEIRO — bloco em destaque, primeiro que tudo ──────────────
-    // Créditos ganham um mini-card por registro (origem + obs explicada +
-    // nota "a favor do funcionário"), então a altura precisa ser calculada
-    // a partir do texto real (obs pode quebrar em mais de uma linha).
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    var creditosWrap = fin.creditosAlvo.map(function (c) {
-      var obsLinhas = c.obs ? doc.splitTextToSize(c.obs, cW - 16) : [];
-      return { c: c, obsLinhas: obsLinhas };
-    });
-    var creditosBoxH = creditosWrap.reduce(function (s, cw) {
-      return s + 4.2 + cw.obsLinhas.length * 3.4 + 4.5;
-    }, 0);
-
-    var boxH = 8 + 6 + (totalValorExtra > 0 ? 6 : 0) +
-               (totalExtraMin50  > 0 ? 4.2 : 0) +
-               (totalExtraMin200 > 0 ? 4.2 : 0) +
-               (extraBrutoMin    > 0 ? 4.2 : 0) +
-               (deficitBrutoMin  > 0 ? 4.2 : 0) +
-               (fin.totalDeficitValor > 0 ? 6 : 0) +
-               (fin.creditosAlvo.length > 0 ? 6 + creditosBoxH + 1.5 : 0) +
-               (fin.adiantamentosAlvo.length > 0 ? 6 + fin.adiantamentosAlvo.length * 5 : 0) +
-               (fin.totalPago > 0 ? 6 : 0) + 12;
-
-    var corStatus = fin.status === 'pago' ? COR_VERDE : COR_GOLD;
-    doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
     doc.setDrawColor.apply(doc, corStatus);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(mL, y, cW, relanceH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text(fin.status === 'pago' ? 'Valor já recebido' : 'Você vai receber', mL + 5, y + 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(19);
+    doc.setTextColor.apply(doc, corStatus);
+    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), mL + 5, y + 17);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(90, 90, 90);
+    doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), pW - mR - 5, y + 16.5, { align: 'right' });
+    y += relanceH + 5;
+
+    // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ──────────────────
+    var resumoRows = _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin);
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    var boxH = 9 + 15;
+    resumoRows.forEach(function (r) {
+      if (r.nota) { r.notaLinhas = doc.splitTextToSize(r.nota, cW - 12); boxH += r.notaLinhas.length * 3.6 + 1.5; }
+      else boxH += 6;
+    });
+
+    doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
+    doc.setDrawColor.apply(doc, fin.status === 'pago' ? COR_VERDE : COR_GOLD);
     doc.setLineWidth(0.5);
     doc.roundedRect(mL, y, cW, boxH, 2, 2, 'FD');
 
-    var fy = y + 6;
+    var fy = y + 6.5;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(9.5);
     doc.setTextColor.apply(doc, COR_HEADER);
-    doc.text('Resumo do ' + fin.decNum + 'º Período', mL + 4, fy);
-    if (diasEsperados > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      if (diasComAjuste === 0) doc.setTextColor(42, 130, 70);
-      else doc.setTextColor(190, 130, 40);
-      doc.text(diasCompletos + ' de ' + diasEsperados + ' dias completos', pW - mR - 4, fy, { align: 'right' });
-    }
-    fy += 6;
+    doc.text('Como chegamos nesse valor', mL + 5, fy);
+    fy += 6.5;
 
-    function _lin(label, valor, cor, negativo) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(60, 60, 60);
-      doc.text(label, mL + 5, fy);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor.apply(doc, cor || [30, 30, 30]);
-      doc.text((negativo ? '- ' : '') + _fmtMoeda(valor), pW - mR - 4, fy, { align: 'right' });
-      fy += 5;
-    }
-
-    // Linha de detalhe menor, indentada — usada pra abrir o cálculo de
-    // horas extras dobradas/triplicadas (quantidade × valor da hora).
-    function _linSub(label, valor, cor) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(110, 110, 110);
-      doc.text(label, mL + 8, fy);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor.apply(doc, cor || [110, 110, 110]);
-      doc.text(_fmtMoeda(valor), pW - mR - 4, fy, { align: 'right' });
-      fy += 4.2;
-    }
-
-    // Linha informativa (sem valor em R$) — usada pra deixar claro quanto
-    // foi trabalhado de hora extra e quanto de negativa existiu no período,
-    // mesmo quando um abate o outro e o valor líquido de um deles vira zero.
-    function _linInfo(label) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(7);
-      doc.setTextColor(120, 120, 120);
-      doc.text(label, mL + 5, fy);
-      fy += 4.2;
-    }
-
-    _lin('Salário fixo do período', fin.decValor, [30, 30, 30]);
-    if (extraBrutoMin > 0) _linInfo('Horas extras trabalhadas no período: ' + _fmtMin(extraBrutoMin));
-    if (deficitBrutoMin > 0) {
-      var _txtDefInfo = 'Horas negativas no período: ' + _fmtMin(deficitBrutoMin);
-      if (deficitAbatidoMin > 0) _txtDefInfo += ' (' + _fmtMin(deficitAbatidoMin) + ' abatidas pela hora extra)';
-      _linInfo(_txtDefInfo);
-    }
-    if (totalValorExtra > 0) _lin('+ Horas extras a pagar (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', totalValorExtra, COR_VERDE);
-    if (totalExtraMin50  > 0) _linSub('  · Dobrada ×2: ' + _fmtMin(totalExtraMin50)  + ' × ' + _fmtMoeda(valorHora * 2), totalValorExtra50,  COR_VERDE);
-    if (totalExtraMin200 > 0) _linSub('  · Triplicada ×3: ' + _fmtMin(totalExtraMin200) + ' × ' + _fmtMoeda(valorHora * 3), totalValorExtra200, COR_VERDE);
-    if (fin.totalDeficitValor > 0) _lin('- Horas negativas restantes / faltantes (' + _fmtMin(Math.abs(totalDeficitMin)) + ')', fin.totalDeficitValor, COR_VERM, true);
-    if (fin.creditosAlvo.length > 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(7);
-      doc.setTextColor(40, 130, 90);
-      doc.text('Créditos de período(s) anterior(es):', mL + 5, fy);
-      fy += 4.2;
-      creditosWrap.forEach(function (cw) {
-        var c = cw.c;
-        var origemLbl = (c.decNumOrigem ? c.decNumOrigem + 'º período' : 'Período anterior') +
-          (c.mesRefOrigem ? ' de ' + _mesExtenso(c.mesRefOrigem + '-01', c.mesRefOrigem + '-01') : '');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7);
-        doc.setTextColor(40, 130, 90);
-        doc.text('  • ' + origemLbl + ' — ' + _fmtData(c.data), mL + 6, fy);
-        doc.text('+ ' + _fmtMoeda(c.valor), pW - mR - 4, fy, { align: 'right' });
-        fy += 4;
-        if (cw.obsLinhas.length > 0) {
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(6.5);
-          doc.setTextColor(90, 90, 90);
-          cw.obsLinhas.forEach(function (linha) {
-            doc.text(linha, mL + 8, fy);
-            fy += 3.4;
-          });
-        }
+    resumoRows.forEach(function (r) {
+      if (r.nota) {
         doc.setFont('helvetica', 'italic');
-        doc.setFontSize(6.3);
-        doc.setTextColor(90, 160, 110);
-        doc.text('Esse valor é seu, não é desconto. Já está somado no total abaixo.', mL + 8, fy);
-        fy += 4.5;
-      });
-      fy += 1.5;
-    }
-    if (fin.adiantamentosAlvo.length > 0) {
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(7);
-      doc.setTextColor(150, 110, 40);
-      doc.text('Adiantamentos a descontar:', mL + 5, fy);
-      fy += 4.2;
-      fin.adiantamentosAlvo.forEach(function (a) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(90, 90, 90);
-        doc.text('  • ' + _fmtData(a.data) + (a.obs ? ' — ' + a.obs : ''), mL + 6, fy);
-        doc.setTextColor.apply(doc, COR_LARANJA);
-        doc.text('- ' + _fmtMoeda(a.valor), pW - mR - 4, fy, { align: 'right' });
-        fy += 4.2;
-      });
-      fy += 1.5;
-    }
-    if (fin.totalPago > 0) _lin('Já pago neste período', fin.totalPago, COR_VERM, true);
+        doc.setFontSize(7.5);
+        doc.setTextColor(120, 120, 120);
+        r.notaLinhas.forEach(function (t) { doc.text(t, mL + 6, fy - 1); fy += 3.6; });
+        fy += 1.5;
+        return;
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.text(r.label, mL + 6, fy);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor.apply(doc, r.cor);
+      doc.text((r.sinal ? r.sinal + ' ' : '') + _fmtMoeda(r.valor), pW - mR - 5, fy, { align: 'right' });
+      fy += 6;
+    });
 
-    fy += 1;
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.2);
-    doc.line(mL + 4, fy, pW - mR - 4, fy);
-    fy += 5.5;
-
+    fy += 1.5;
     doc.setFillColor(fin.status === 'pago' ? 42 : 26, fin.status === 'pago' ? 130 : 54, fin.status === 'pago' ? 70 : 93);
     doc.roundedRect(mL + 3, fy - 4.5, cW - 6, 9, 1.5, 1.5, 'F');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(9.5);
     doc.setTextColor(255, 255, 255);
-    doc.text(fin.status === 'pago' ? 'QUITADO' : 'TOTAL LÍQUIDO A PAGAR', mL + 6, fy + 1);
-    doc.setFontSize(11);
-    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 6, fy + 1.2, { align: 'right' });
+    doc.text(fin.status === 'pago' ? 'QUITADO' : 'TOTAL A RECEBER', mL + 7, fy + 1.2);
+    doc.setFontSize(12);
+    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 7, fy + 1.4, { align: 'right' });
 
-    y += boxH + 4;
-
-    // Faixinha de contexto: status dos outros 2 decêndios do mês
-    if (fin.outrosDecendios.length > 0) {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.8);
-      var lx2 = mL;
-      fin.outrosDecendios.forEach(function (od) {
-        var txt = od.num + 'º período: ' + (od.quitado ? '✅ pago' : '⏳ pendente') + ' (' + _fmtMoeda(od.valor) + ')';
-        doc.setTextColor(od.quitado ? 42 : 190, od.quitado ? 130 : 130, od.quitado ? 70 : 40);
-        doc.text(txt, lx2, y);
-        lx2 += doc.getTextWidth(txt) + 8;
-      });
-      y += 5;
-    }
-
-    // Créditos em aberto ainda sem decêndio de destino — visibilidade geral
-    if (fin.outrosCreditos.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.8);
-      doc.setTextColor(40, 106, 62);
-      doc.text('Créditos em aberto (sem destino escolhido)', mL, y);
-      y += 4.2;
-      fin.outrosCreditos.forEach(function (c) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.8);
-        doc.setTextColor(50, 50, 50);
-        doc.text('• ' + _fmtData(c.data) + ' — ' + _fmtMoeda(c.valor), mL + 2, y);
-        y += 3.8;
-        if (c.obs) {
-          doc.setFontSize(7);
-          doc.setTextColor(110, 110, 110);
-          var obsLinhas = doc.splitTextToSize(c.obs, cW - 10);
-          obsLinhas.forEach(function (linha) { doc.text(linha, mL + 6, y); y += 3.4; });
-        }
-      });
-      y += 1.5;
-    }
-
-    // Adiantamentos em aberto para OUTROS decêndios — visibilidade geral
-    if (fin.outrosAdiantamentos.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.8);
-      doc.setTextColor(130, 130, 130);
-      doc.text('Outros adiantamentos em aberto', mL, y);
-      y += 4.2;
-      fin.outrosAdiantamentos.forEach(function (a) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.8);
-        doc.setTextColor(90, 90, 90);
-        doc.text('• ' + _fmtData(a.data) + ' — ' + _fmtMoeda(a.valor) + ' (p/ ' + a.descontarDecendio + 'º período)', mL + 2, y);
-        y += 3.8;
-      });
-      y += 1.5;
-    }
+    y += boxH + 5;
 
     y += 2;
 
@@ -1067,8 +909,7 @@ var HR_RELATORIO_PONTO = (function () {
       { header: 'Saída\nAlmoço', w: 19, align: 'center' },
       { header: 'Volta\nAlmoço', w: 19, align: 'center' },
       { header: 'Saída',       w: 19, align: 'center' },
-      { header: 'Trabalhado',  w: 24, align: 'center' },
-      { header: 'Esperado',    w: 22, align: 'center' },
+      { header: 'Trabalhado',  w: 28, align: 'center' },
       { header: 'Trabalhou a\nmais / Faltou',w: 38, align: 'center' },
     ];
     var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
@@ -1147,7 +988,7 @@ var HR_RELATORIO_PONTO = (function () {
 
       var cells = [
         _fmtData(l.data), l.diaTxt, l.entrada, l.saidaAlm, l.voltaAlm, l.saida,
-        _fmtMin(l.trabMin), l.esperadoMin > 0 ? _fmtMin(l.esperadoMin) : '—',
+        _fmtMin(l.trabMin),
       ];
       cells.forEach(function (txt, i) {
         // Colunas 3 e 4 (Saída/Volta Almoço) — dia trabalhado sem batida de
@@ -1173,7 +1014,7 @@ var HR_RELATORIO_PONTO = (function () {
       // Coluna final "Saldo do Dia" — uma célula só, colorida
       var saldoTxt, saldoCor;
       if (l.extraMin > 0 && !l.destinoBanco) {
-        saldoTxt = '+' + _fmtMin(l.extraMin) + _rotuloHE(l);
+        saldoTxt = '+' + _fmtMin(l.extraMin);
         saldoCor = [40, 130, 70];
       } else if (l.saldoMin < -5) {
         saldoTxt = _fmtMin(l.saldoMin);
@@ -1213,37 +1054,9 @@ var HR_RELATORIO_PONTO = (function () {
       y += 5;
     }
 
-    // Aviso de déficit, se houver — o resto (valor hora, ×2, ×3) já está
-    // explicado no card de resumo do topo, então não repete aqui.
-    if (totalDeficitMin < 0) {
-      if (y + 8 > pH - 15) { doc.addPage(); y = 15; }
-      y += 3;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(180, 60, 60);
-      doc.text('Atenção: faltaram ' + _fmtMin(Math.abs(totalDeficitMin)) + ' no período (já descontado do total acima).', mL, y, { maxWidth: cW });
-      y += 6;
-    }
     y += 2;
 
-    // Legenda de cores
-    var legItems = [
-      { cor: COR_HEADER,    txt: 'Azul = feriado/acordo' },
-      { cor: [200, 180, 80], txt: 'Amarelo = incompleto' },
-      { cor: [50, 150, 70],  txt: 'Verde = horas extras' },
-      { cor: [180, 60, 60],  txt: 'Vermelho = déficit' },
-    ];
-    if (y + 6 > pH - 12) { doc.addPage(); y = 15; }
-    doc.setFontSize(6);
-    var lx = mL;
-    legItems.forEach(function(item) {
-      doc.setFillColor.apply(doc, item.cor);
-      doc.rect(lx, y, 3, 3, 'F');
-      doc.setTextColor(60, 60, 60);
-      doc.text(item.txt, lx + 4.5, y + 2.5);
-      lx += 42;
-    });
-    y += 7;
+    y += 4;
 
     doc.setTextColor(150, 150, 150);
     doc.setFontSize(6);
@@ -1262,7 +1075,7 @@ var HR_RELATORIO_PONTO = (function () {
       doc.setTextColor(20, 110, 55);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
-      doc.textWithLink('📩 Dúvida ou algo não bate? Toque aqui e fale com o RH', pW / 2, y, { align: 'center', url: urlContest });
+      doc.textWithLink('Dúvida ou algo não bate? Toque aqui e fale com o RH', pW / 2, y, { align: 'center', url: urlContest });
     }
 
     // ── Prepara dados de saída ────────────────────────────────────────────────
@@ -1323,7 +1136,7 @@ var HR_RELATORIO_PONTO = (function () {
 
       var saldoDiaHtml;
       if (l.extraMin>0 && !l.destinoBanco) {
-        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+_rotuloHE(l)+'</span>';
+        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+'</span>';
       } else if (l.saldoMin<-5) {
         saldoDiaHtml = '<span style="color:#b43c3c;font-weight:700;">'+fmtMin(l.saldoMin)+'</span>';
       } else {
@@ -1345,7 +1158,6 @@ var HR_RELATORIO_PONTO = (function () {
         )+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saida+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtMin(l.trabMin)+'</td>'+
-        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+(l.esperadoMin>0?fmtMin(l.esperadoMin):'—')+'</td>'+
         '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+saldoDiaHtml+'</td>'+
         '</tr>';
     });
@@ -1365,117 +1177,20 @@ var HR_RELATORIO_PONTO = (function () {
     var agora = new Date();
     var dtGer = agora.toLocaleDateString('pt-BR')+' '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
-    // ── Bloco de resumo financeiro — a peça central do novo design ────────────
     var statusCorBg  = fin.status === 'pago' ? '#eaf7ee' : '#fdf7e6';
     var statusCorBd  = fin.status === 'pago' ? '#8fcf9f' : '#e8c877';
     var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
 
     var linhasResumo = '';
-    linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-      '<span style="color:#444;">Salário fixo do período</span>'+
-      '<span style="font-weight:700;color:#222;">'+fmtMoeda(fin.decValor)+'</span></div>';
-
-    // Linhas informativas (sem R$) — mostram o bruto trabalhado/faltado
-    // mesmo quando um é totalmente abatido pelo outro e o líquido vira zero.
-    if (extraBrutoMin > 0) {
-      linhasResumo += '<div style="padding:3px 0;font-size:13.5px;color:#888;font-style:italic;">'+
-        'Horas extras trabalhadas no período: '+_esc(fmtMin(extraBrutoMin))+'</div>';
-    }
-    if (deficitBrutoMin > 0) {
-      linhasResumo += '<div style="padding:3px 0 7px;font-size:13.5px;color:#888;font-style:italic;">'+
-        'Horas negativas no período: '+_esc(fmtMin(deficitBrutoMin))+
-        (deficitAbatidoMin>0 ? ' ('+_esc(fmtMin(deficitAbatidoMin))+' abatidas pela hora extra)' : '')+
-        '</div>';
-    }
-
-    if (totalValorExtra > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#2a8a46;">+ Horas extras a pagar ('+fmtMin(totalExtraMin50+totalExtraMin200)+')</span>'+
-        '<span style="font-weight:700;color:#2a8a46;">'+fmtMoeda(totalValorExtra)+'</span></div>';
-    }
-    if (totalExtraMin50 > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 2px 14px;font-size:13px;">'+
-        '<span style="color:#5a8a68;">· Dobrada ×2: '+_esc(fmtMin(totalExtraMin50))+' × '+fmtMoeda(valorHora*2)+'</span>'+
-        '<span style="color:#5a8a68;">'+fmtMoeda(totalValorExtra50)+'</span></div>';
-    }
-    if (totalExtraMin200 > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:2px 0 6px 14px;font-size:13px;">'+
-        '<span style="color:#5a8a68;">· Triplicada ×3: '+_esc(fmtMin(totalExtraMin200))+' × '+fmtMoeda(valorHora*3)+'</span>'+
-        '<span style="color:#5a8a68;">'+fmtMoeda(totalValorExtra200)+'</span></div>';
-    }
-
-    if (fin.totalDeficitValor > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;">'+
-        '<span style="color:#b43c3c;">− Horas negativas restantes / faltantes ('+_esc(fmtMin(Math.abs(totalDeficitMin)))+')</span>'+
-        '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalDeficitValor)+'</span></div>';
-    }
-
-    if (fin.creditosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:15px;color:#2a8a5a;font-weight:700;padding:8px 0 4px;">+ Horas extras acumuladas de período(s) anterior(es):</div>';
-      fin.creditosAlvo.forEach(function(c){
-        var origemLbl = (c.decNumOrigem ? c.decNumOrigem+'º período' : 'Período anterior') +
-          (c.mesRefOrigem ? ' de '+_mesExtenso(c.mesRefOrigem+'-01', c.mesRefOrigem+'-01') : '');
-        // c.obs já vem pronto explicando os dias (ex: "Horas extras de 01 a 10/07 (3.0h) acumuladas...")
-        linhasResumo +=
-          '<div style="margin:5px 0 5px 6px;padding:10px 12px;background:#f2faf4;border:1px solid #cfe9d6;border-radius:6px;">'+
-            '<div style="display:flex;justify-content:space-between;align-items:center;">'+
-              '<span style="font-size:15px;color:#2a6a3e;font-weight:700;">💳 '+origemLbl+'</span>'+
-              '<span style="color:#2a8a5a;font-weight:800;font-size:17px;">+ '+fmtMoeda(c.valor)+'</span>'+
-            '</div>'+
-            (c.obs ? '<div style="font-size:14px;color:#3a3a3a;margin-top:5px;line-height:1.45;">'+_esc(c.obs)+'</div>' : '')+
-          '</div>';
-      });
-    }
-
-    if (fin.adiantamentosAlvo.length > 0) {
-      linhasResumo += '<div style="font-size:15px;color:#a67a2a;font-weight:700;padding:8px 0 4px;">− Adiantamentos a descontar:</div>';
-      fin.adiantamentosAlvo.forEach(function(a){
-        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:4px 0 4px 10px;font-size:15.5px;">'+
-          '<span style="color:#666;">• '+fmtData(a.data)+(a.obs?' — '+_esc(a.obs):'')+'</span>'+
-          '<span style="color:#c07a2a;font-weight:700;">− '+fmtMoeda(a.valor)+'</span></div>';
-      });
-    }
-
-    if (fin.totalPago > 0) {
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:17px;border-top:1px dashed #ddd;margin-top:6px;">'+
-        '<span style="color:#b43c3c;">Já pago neste período</span>'+
-        '<span style="font-weight:700;color:#b43c3c;">− '+fmtMoeda(fin.totalPago)+'</span></div>';
-    }
-
-    var outrosDecendiosHtml = '';
-    if (fin.outrosDecendios.length > 0) {
-      outrosDecendiosHtml = '<div style="display:flex;gap:14px;margin-top:10px;font-size:14.5px;color:#777;flex-wrap:wrap;">'+
-        fin.outrosDecendios.map(function(od){
-          return (od.quitado ? '<span style="color:#2a8a46;">✅ '+od.num+'º período pago ('+fmtMoeda(od.valor)+')</span>'
-                              : '<span style="color:#a67a2a;">⏳ '+od.num+'º período pendente ('+fmtMoeda(od.valor)+')</span>');
-        }).join('')+
-      '</div>';
-    }
-
-    var outrosCreditosHtml = '';
-    if (fin.outrosCreditos.length > 0) {
-      outrosCreditosHtml = '<div style="margin-top:8px;padding:10px 12px;background:#eef8f0;border:1px solid #cfe9d6;border-radius:6px;">'+
-        '<div style="font-size:14.5px;color:#2a6a3e;font-weight:700;margin-bottom:5px;">Créditos em aberto (ainda sem período definido)</div>'+
-        fin.outrosCreditos.map(function(c){
-          return '<div style="font-size:14.5px;color:#333;line-height:1.5;margin-bottom:3px;">'+
-            '• '+fmtData(c.data)+' — <b style="color:#2a8a5a;">'+fmtMoeda(c.valor)+'</b>'+
-            (c.obs?'<div style="font-size:13.5px;color:#666;margin:2px 0 4px 10px;">'+_esc(c.obs)+'</div>':'')+
-          '</div>';
-        }).join('')+
-      '</div>';
-    }
-
-    var outrosAdiantamentosHtml = '';
-    if (fin.outrosAdiantamentos.length > 0) {
-      outrosAdiantamentosHtml = '<div style="margin-top:8px;padding:10px 12px;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:6px;">'+
-        '<div style="font-size:14.5px;color:#777;font-weight:700;margin-bottom:5px;">Outros adiantamentos em aberto</div>'+
-        fin.outrosAdiantamentos.map(function(a){
-          return '<div style="font-size:14.5px;color:#555;line-height:1.5;margin-bottom:3px;">'+
-            '• '+fmtData(a.data)+' — '+fmtMoeda(a.valor)+' <span style="color:#999;">(p/ '+a.descontarDecendio+'º período)</span>'+
-          '</div>';
-        }).join('')+
-      '</div>';
-    }
+    _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin).forEach(function (r) {
+      if (r.nota) {
+        linhasResumo += '<div style="padding:0 0 8px;font-size:13px;color:#888;font-style:italic;line-height:1.4;">'+_esc(r.nota)+'</div>';
+        return;
+      }
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
+        '<span style="color:#444;">'+_esc(r.label)+'</span>'+
+        '<span style="font-weight:700;color:rgb('+r.cor.join(',')+');">'+(r.sinal ? r.sinal+' ' : '')+fmtMoeda(r.valor)+'</span></div>';
+    });
 
     // Colunas da tabela — Saída/Volta Almoço só entram se alguém realmente bate almoço
     var colsHead =
@@ -1486,14 +1201,11 @@ var HR_RELATORIO_PONTO = (function () {
       (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>' : '')+
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
-      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Esperado</th>'+
       '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhou a mais<br>/ Faltou</th>';
 
     // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
     // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
-    var rodapeTecnico = totalDeficitMin < 0
-      ? '<div style="font-size:13px;color:#b43c3c;margin-top:8px;">⚠️ Faltaram '+fmtMin(Math.abs(totalDeficitMin))+' no período (já descontado do total acima).</div>'
-      : '';
+    var rodapeTecnico = '';
 
     return '<div style="font-family:Arial,sans-serif;background:#fff;padding:16px 20px;color:#111;width:754px;box-sizing:border-box;">'+
 
@@ -1504,40 +1216,27 @@ var HR_RELATORIO_PONTO = (function () {
         '<div style="font-size:11px;opacity:.85;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
       '</div>'+
 
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:2px solid #1a3660;font-size:14px;">'+
-        '<div>Departamento: '+_esc(depto)+'</div>'+
-        '<div><b>Salário mensal: '+fmtMoeda(salario)+'</b></div>'+
+      // ── VALOR A RECEBER — a primeira (e principal) informação ───────────────
+      '<div style="background:#fff;border:2px solid '+faixaCor+';border-radius:8px;padding:14px 18px;margin-top:14px;display:flex;justify-content:space-between;align-items:flex-end;">'+
+        '<div>'+
+          '<div style="font-size:14px;color:#777;">'+(fin.status==='pago'?'Valor já recebido':'Você vai receber')+'</div>'+
+          '<div style="font-size:30px;font-weight:800;color:'+faixaCor+';">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
+        '</div>'+
+        '<div style="font-size:15px;color:#555;">Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
       '</div>'+
 
-      // ── DE RELANCE — 3 linhas grandes, sem jargão, sem tabela ──────────────
-      '<div style="background:#fff;border:2px solid #1a3660;border-radius:8px;padding:14px 16px;margin-top:12px;">'+
-        '<div style="font-size:11px;color:#999;font-weight:700;letter-spacing:.5px;margin-bottom:6px;">DE RELANCE</div>'+
-        '<div style="font-size:21px;font-weight:800;color:'+(fin.status==='pago'?'#2a8a46':'#1a3660')+';margin-bottom:5px;">'+(fin.status==='pago'?'✅ Já recebido: ':'💰 Você vai receber: ')+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
-        '<div style="display:flex;gap:22px;flex-wrap:wrap;">'+
-          '<div style="font-size:16px;color:#333;">📅 Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
-          (extraBrutoMin>0 ? '<div style="font-size:16px;color:#2a8a46;font-weight:700;">⏱ Fez '+fmtMin(extraBrutoMin)+' de hora extra</div>' : '<div style="font-size:14px;color:#999;">Sem hora extra neste período</div>')+
-        '</div>'+
-        (deficitBrutoMin>0 ? '<div style="margin-top:6px;font-size:15px;color:#b43c3c;">⚠️ Teve '+fmtMin(deficitBrutoMin)+' de horas negativas'+(deficitAbatidoMin>0 ? ' <span style="color:#888;font-size:13px;">('+fmtMin(deficitAbatidoMin)+' abatidas pela hora extra)</span>' : '')+'</div>' : '')+
-      '</div>'+
-
-      // ── RESUMO FINANCEIRO — bloco principal, logo no topo ──────────────────
-      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 16px;margin-top:12px;">'+
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'+
-          '<div style="font-size:17px;font-weight:700;color:#1a3660;">💰 Resumo do '+fin.decNum+'º Período</div>'+
-          (diasEsperados>0 ? '<div style="font-size:13.5px;font-weight:700;color:'+(diasComAjuste===0?'#2a8246':'#be8228')+';">'+(diasComAjuste===0?'✅ ':'⏳ ')+diasCompletos+' de '+diasEsperados+' dias completos</div>' : '')+
-        '</div>'+
+      // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ─────────────────
+      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 18px;margin-top:12px;">'+
+        '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Como chegamos nesse valor</div>'+
         linhasResumo+
         '<div style="background:'+faixaCor+';border-radius:6px;padding:12px 16px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
-          '<span style="color:#fff;font-size:16px;font-weight:700;">'+(fin.status==='pago'?'✅ QUITADO':'💰 TOTAL LÍQUIDO A PAGAR')+'</span>'+
+          '<span style="color:#fff;font-size:16px;font-weight:700;">'+(fin.status==='pago'?'QUITADO':'TOTAL A RECEBER')+'</span>'+
           '<span style="color:#fff;font-size:22px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
         '</div>'+
-        outrosDecendiosHtml+
-        outrosCreditosHtml+
-        outrosAdiantamentosHtml+
       '</div>'+
 
       // Tabela — só o ponto, limpo
-      '<div style="font-size:14px;font-weight:700;color:#1a3660;margin-top:16px;margin-bottom:6px;">🕐 Relatório de Ponto</div>'+
+      '<div style="font-size:14px;font-weight:700;color:#1a3660;margin-top:16px;margin-bottom:6px;">Registro de ponto</div>'+
       '<table style="width:100%;border-collapse:collapse;">'+
         '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+colsHead+'</tr></thead>'+
         '<tbody>'+rowsHtml+'</tbody>'+
@@ -1547,16 +1246,8 @@ var HR_RELATORIO_PONTO = (function () {
 
       rodapeTecnico+
 
-      // Legenda
-      '<div style="display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:#555;">'+
-        '<span><span style="display:inline-block;width:11px;height:11px;background:#e6f2ff;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Azul = feriado/acordo</span>'+
-        '<span><span style="display:inline-block;width:11px;height:11px;background:#fffce6;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Amarelo = incompleto</span>'+
-        '<span><span style="display:inline-block;width:11px;height:11px;background:#f0fff0;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Verde = horas extras</span>'+
-        '<span><span style="display:inline-block;width:11px;height:11px;background:#fff2f2;border:1px solid #ccc;margin-right:3px;vertical-align:middle;"></span>Vermelho = déficit</span>'+
-      '</div>'+
-
       '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
-      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55'+WPP_CONTATO_RH+'?text='+encodeURIComponent('Olá! Sobre meu relatório de ponto ('+(f.nome||'')+', '+mesRef+'): tenho uma dúvida ou algo não bate.')+'" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">📩 Dúvida ou algo não bate? Toque aqui e fale com o RH</a></div>' : '')+
+      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55'+WPP_CONTATO_RH+'?text='+encodeURIComponent('Olá! Sobre meu relatório de ponto ('+(f.nome||'')+', '+mesRef+'): tenho uma dúvida ou algo não bate.')+'" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">Dúvida ou algo não bate? Toque aqui e fale com o RH</a></div>' : '')+
     '</div>';
   }
 
