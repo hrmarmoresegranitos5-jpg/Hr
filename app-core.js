@@ -806,6 +806,8 @@ var DB={
   j:JSON.parse(localStorage.getItem('hr_j')||'[]'),
   t:JSON.parse(localStorage.getItem('hr_t')||'[]'),
   b:JSON.parse(localStorage.getItem('hr_b')||'[]'),
+  // Anotações (visitas, medidas de soleiras etc.) — módulo app-notas.js
+  n:JSON.parse(localStorage.getItem('hr_n')||'[]'),
   // Marca de exclusão (tombstone) por coleção: {q:{"171234...":tsExclusao}, j:{...}, t:{...}, b:{...}}.
   // Existir aqui significa "esse id foi excluído de propósito" — é isso que
   // permite a mesclagem entre aparelhos (_syncMergeById) diferenciar "nunca
@@ -833,6 +835,7 @@ var DB={
       localStorage.setItem('hr_j',JSON.stringify(self.j));
       localStorage.setItem('hr_t',JSON.stringify(self.t));
       localStorage.setItem('hr_b',JSON.stringify(self.b));
+      localStorage.setItem('hr_n',JSON.stringify(self.n||[]));
       localStorage.setItem('hr_tombstones',JSON.stringify(self.tombstones));
     }
     try{
@@ -902,7 +905,7 @@ function _syncMergeById(localArr, remoteArr, tomb){
 // Também poda marcas muito antigas (>180 dias) pra não crescer sem limite.
 function _syncMergeTombstones(localTomb, remoteTomb){
   var result = {};
-  var collKeys = ['q','j','t','b','stones','coz','lav','ac','trabalhos','referencias'];
+  var collKeys = ['q','j','t','b','n','stones','coz','lav','ac','trabalhos','referencias'];
   var limiteMs = Date.now() - (180*24*60*60*1000);
   collKeys.forEach(function(ck){
     var a = (localTomb && localTomb[ck]) || {};
@@ -1137,6 +1140,7 @@ var SYNC={
         if(d.j)DB.j=_syncMergeById(DB.j,d.j,DB.tombstones.j);
         if(d.t)DB.t=_syncMergeById(DB.t,d.t,DB.tombstones.t);
         if(d.b)DB.b=_syncMergeById(DB.b,d.b,DB.tombstones.b);
+        if(d.n)DB.n=_syncMergeById(DB.n||[],d.n,DB.tombstones.n);
         // Orçamento igual criado independentemente nos dois aparelhos (mesmo
         // cliente/tipo/material/valor no mesmo dia) vira 2 ids diferentes —
         // o merge por ID acima não detecta isso. Poda as cópias extras aqui,
@@ -1145,6 +1149,7 @@ var SYNC={
         DB.sv();
         localStorage.setItem('hr_sync_ts',d._ts);
         buildMat();buildSV();buildCatalog();buildCubaList();renderAg();renderFin();updEmp();
+        try{ if(typeof renderNotas==='function') renderNotas(); }catch(e){}
         toast('↓ Dados sincronizados!');
       }
     }, function(erro){
@@ -1171,7 +1176,7 @@ var SYNC={
     // apagaria "fcmTokens" e "notifOrcState", que também moram em
     // hr/<código> mas são escritos por outros caminhos (registro de
     // notificação push e o controle de orçamentos já avisados).
-    return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,tombstones:DB.tombstones,_ts:ts});
+    return this.db.ref('hr/'+this.code).update({cfg:cfgSemChave,q:DB.q,j:DB.j,t:DB.t,b:DB.b,n:DB.n||[],tombstones:DB.tombstones,_ts:ts});
   },
   logout:function(){
     this._pararListen();
@@ -2252,6 +2257,7 @@ function go(n) {
     if (typeof secNotifDotUpdate === 'function') secNotifDotUpdate();
   }
   if (n === 12 && typeof renderDashboard   === 'function') renderDashboard();
+  if (n === 13 && typeof renderNotas       === 'function') renderNotas();
   if (n === 30 && typeof HR_FUNC !== 'undefined' &&
       typeof HR_FUNC.renderPaginaFuncionarios === 'function') {
     HR_FUNC.renderPaginaFuncionarios();
@@ -14072,6 +14078,7 @@ function baixarBackup(){
       j:DB.j,
       t:DB.t,
       b:DB.b,
+      n:DB.n||[],
       hrdb:_coletarHRdb(),
       extra:_coletarLocalStorageExtra(),
       fotosDB:fotosDB
@@ -14368,6 +14375,7 @@ function _restaurarBackup(d){
   if(d.j)DB.j=d.j;
   if(d.t)DB.t=d.t;
   if(d.b)DB.b=d.b;
+  if(d.n)DB.n=d.n;
   if(d.tombstones)DB.tombstones=d.tombstones;
   DB.sv();
   // 3. Módulos HRdb (hrdb_*)

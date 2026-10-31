@@ -234,6 +234,13 @@ function openApp(pg){
           <div class="sp2-q-sub">Calcular projeto</div>
         </div>
       </button>
+      <button class="sp2-q-btn" onclick="openApp(13)">
+        <span class="sp2-q-ic">📝</span>
+        <div>
+          <div class="sp2-q-title">Anotações</div>
+          <div class="sp2-q-sub">Medidas e visitas</div>
+        </div>
+      </button>
       <button class="sp2-q-btn" onclick="openApp(4)">
         <span class="sp2-q-ic">💵</span>
         <div>
@@ -475,6 +482,21 @@ function openApp(pg){
       <div style="height:14px;"></div>
     </div>
 
+    <!-- 13: ANOTAÇÕES -->
+    <div class="pg" id="pg13">
+      <div class="hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div>
+          <div class="htitle">Anotações</div>
+          <div class="hsub2">Medidas, visitas e observações dos clientes</div>
+        </div>
+        <button onclick="notasAbrir()" style="flex-shrink:0;display:flex;align-items:center;gap:6px;background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.45);border-radius:12px;padding:9px 14px;font-size:.72rem;font-family:Outfit,sans-serif;font-weight:600;letter-spacing:.5px;color:var(--gold);cursor:pointer;white-space:nowrap;">＋ Nova</button>
+      </div>
+      <div class="sec">
+        <div id="notasWrap"></div>
+      </div>
+      <div style="height:24px;"></div>
+    </div>
+
     <!-- 4: FINANÇAS -->
     <div class="pg" id="pg4">
       <div class="finhero">
@@ -601,6 +623,7 @@ function openApp(pg){
     <div class="ni on" data-pg="12"><span class="ni-i">🏠</span><span class="ni-l">Início</span></div>
     <div class="ni" data-pg="0"><span class="ni-i">💰</span><span class="ni-l">Orçamento</span></div>
     <div class="ni" data-pg="3"><span class="ni-i">📅</span><span class="ni-l">Agenda</span><span class="ndot" id="urgDot"></span></div>
+    <div class="ni" data-pg="13"><span class="ni-i">📝</span><span class="ni-l">Notas</span></div>
     <div class="ni" data-pg="4"><span class="ni-i">💵</span><span class="ni-l">Finanças</span><span class="ndot" id="boletosDot"></span></div>
     <div class="ni" data-pg="11"><span class="ni-i">🤖</span><span class="ni-l">Secretária</span><span class="ndot" id="secDot"></span></div>
     <div class="ni-sep"></div>
@@ -1063,7 +1086,7 @@ if (typeof TUM === 'undefined') {
   };
 }
   </script>
-  <script src="app-core.js?v=62"></script>
+  <script src="app-core.js?v=63"></script>
   <script src="app-inst-tubo-fix.js?v=1"></script>
   <script src="hr-db-core.js?v=1"></script>
   <script src="app-compra-programada.js?v=1"></script>
@@ -1082,7 +1105,8 @@ if (typeof TUM === 'undefined') {
   <script src="app-notas-insumos.js?v=1"></script>
   <script src="app-estoque.js?v=1"></script>
   <script src="app-pdf-prazo.js?v=6"></script>
-  <script src="app-secretaria.js?v=18"></script>
+  <script src="app-notas.js?v=1"></script>
+  <script src="app-secretaria.js?v=19"></script>
   <script src="app-botpedidos.js?v=3"></script>
   <script src="app-dashboard.js?v=5"></script>
   <script src="app-secretaria-chat.js?v=16"></script>

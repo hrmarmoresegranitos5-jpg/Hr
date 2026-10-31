@@ -402,9 +402,46 @@ function botSyncFinancas(manual) {
     .catch(function(){ _botFinBusy = false; if (manual) toast('❌ Worker não acessível.'); });
 }
 
+// ── Anotações que chegam pelo WhatsApp → área Anotações ──
+// O bot guarda "anotar Maria: soleira 0,90 x 0,15" no Worker; aqui o app busca,
+// grava em DB.n (mesmo formato do formulário do app) e confirma pro Worker.
+var _botNotasBusy = false;
+
+function botSyncNotas(manual) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) { if (manual) toast('Conecte o bot primeiro (URL e chave).'); return; }
+  if (typeof DB === 'undefined' || !DB) return;
+  if (!Array.isArray(DB.n)) DB.n = [];
+  if (_botNotasBusy) return;
+  _botNotasBusy = true;
+  fetch(cfg.url + '/bot/notas', { headers: _botHeaders() })
+    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+    .then(function(x){
+      if (!x.ok) { _botNotasBusy = false; if (manual) toast('⚠ ' + (x.d.error || 'Falha ao buscar anotações')); return; }
+      var lista = x.d.notas || [];
+      var novos = 0, waIds = [];
+      lista.forEach(function(n){
+        waIds.push(n.waId);
+        if (DB.n.some(function(e){ return e.waId === n.waId; })) return; // já importada antes
+        DB.n.unshift({ id: n.id, cliente: n.cliente || '', texto: n.texto, tipo: n.tipo || 'geral', origem: 'whatsapp', waId: n.waId });
+        novos++;
+      });
+      if (novos) {
+        DB.sv();
+        try { if (typeof renderNotas === 'function') renderNotas(); } catch (e) {}
+      }
+      if (!waIds.length) { _botNotasBusy = false; if (manual) toast('Nenhuma anotação nova no bot.'); return; }
+      return fetch(cfg.url + '/bot/notas/confirmar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ waIds: waIds }) })
+        .then(function(){ _botNotasBusy = false; if (novos) toast('📝 ' + novos + ' anotação(ões) do WhatsApp em Anotações'); else if (manual) toast('Nenhuma anotação nova no bot.'); });
+    })
+    .catch(function(){ _botNotasBusy = false; if (manual) toast('⚠ Worker não acessível.'); });
+}
+
 // Busca sozinho: ao abrir o app e depois a cada 1 minuto
 setTimeout(function(){ botSyncFinancas(false); }, 4000);
 setInterval(function(){ botSyncFinancas(false); }, 60000);
+setTimeout(function(){ botSyncNotas(false); }, 6000);
+setInterval(function(){ botSyncNotas(false); }, 60000);
 
 // ── Falas do bot (editor) ──
 var _botFalasData = null;
