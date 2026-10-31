@@ -87,15 +87,17 @@
     } else {
       h += vis.map(function (n) {
         var t = TIPOS[n.tipo] || TIPOS.geral;
+        var orc = n.orcadoEm ? '<span style="font-size:.58rem;color:var(--gold);border:1px solid rgba(201,168,76,.4);border-radius:8px;padding:1px 6px;margin-left:6px;">✓ Orçado</span>' : '';
         var wa = n.origem === 'whatsapp'
           ? '<span style="font-size:.58rem;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:8px;padding:1px 6px;margin-left:6px;">WhatsApp</span>' : '';
         return '<div class="card" style="margin-bottom:9px;">'
           + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">'
-          +   '<div style="font-weight:700;font-size:.86rem;min-width:0;overflow-wrap:anywhere;">' + t.ic + ' ' + (n.cliente ? esc(n.cliente) : '<span style="color:var(--t3);font-weight:500;">Sem cliente</span>') + wa + '</div>'
+          +   '<div style="font-weight:700;font-size:.86rem;min-width:0;overflow-wrap:anywhere;">' + t.ic + ' ' + (n.cliente ? esc(n.cliente) : '<span style="color:var(--t3);font-weight:500;">Sem cliente</span>') + wa + orc + '</div>'
           +   '<div style="font-size:.62rem;color:var(--t3);white-space:nowrap;">' + esc(fmtData(n.id)) + '</div>'
           + '</div>'
           + '<div style="font-size:.82rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--t2);">' + esc(n.texto) + '</div>'
-          + '<div style="display:flex;gap:6px;margin-top:10px;">'
+          + (temMedidas(n) ? '<button class="btn btn-g" style="margin-top:10px;padding:9px;font-size:.74rem;" onclick="notasOrcar(' + n.id + ')">🧾 ' + (n.orcadoEm ? 'Orçar de novo' : 'Orçar essas medidas') + '</button>' : '')
+          + '<div style="display:flex;gap:6px;margin-top:8px;">'
           +   '<button class="btn btn-o" style="padding:8px;font-size:.7rem;" onclick="notasAbrir(' + n.id + ')">✏️ Editar</button>'
           +   '<button class="btn btn-o" style="padding:8px;font-size:.7rem;" onclick="notasCopiar(' + n.id + ')">📋 Copiar</button>'
           +   '<button class="btn btn-o" style="padding:8px;font-size:.7rem;" onclick="notasEnviar(' + n.id + ')">💬 Enviar</button>'
@@ -246,6 +248,107 @@
     else { if (!confirm('Excluir esta anotação?')) return; arr.splice(idx, 1); if (DB.marcarExcluido) DB.marcarExcluido('n', id); onChange(); }
   }
 
+
+  // ── Orçar a partir da anotação ──────────────────────────────────────
+  // Lê linhas como "soleira porta 0,90 x 0,15 (2 un)" e monta os ambientes
+  // do orçamento. Número < 10 é tratado como metros (0,90 → 90 cm); senão cm.
+  var RE_MED = /(\d+(?:[.,]\d+)?)\s*(?:cm|m)?\s*(?:[x×*]|por)\s*(\d+(?:[.,]\d+)?)\s*(?:cm|m)?/i;
+  var TIPOS_AMB = [
+    [/soleiras?/, 'Soleira'], [/peitoril|peitoris/, 'Peitoril'], [/escadas?|degrau|degraus/, 'Escada'],
+    [/banheiro|\bwc\b/, 'Banheiro'], [/lavabo/, 'Lavabo'], [/bancada|cozinha|\bpia\b/, 'Cozinha']
+  ];
+  function paraCm(v) {
+    var n = parseFloat(String(v).replace(',', '.'));
+    if (isNaN(n)) return 0;
+    return Math.round((n < 10 ? n * 100 : n) * 10) / 10;
+  }
+  function tipoDaLinha(linhaNorm) {
+    for (var i = 0; i < TIPOS_AMB.length; i++) if (TIPOS_AMB[i][0].test(linhaNorm)) return TIPOS_AMB[i][1];
+    return null;
+  }
+  function parseMedidas(texto) {
+    var linhas = String(texto || '').split(/\n|;/);
+    var grupos = {}, ordem = [], ignoradas = 0, ultimoTipo = null;
+    var padrao = tipoDaLinha(norm(texto)) ? null : 'Soleira'; // sem palavra-chave em lugar nenhum → soleira
+    linhas.forEach(function (ln) {
+      var m = ln.match(RE_MED);
+      if (!m) { if (ln.trim()) ignoradas++; return; }
+      var resto = (ln.slice(0, m.index) + ' ' + ln.slice(m.index + m[0].length));
+      var rn = norm(resto);
+      var tipo = tipoDaLinha(norm(ln)) || ultimoTipo || padrao || 'Soleira';
+      ultimoTipo = tipo;
+      var q = 1, qm = rn.match(/(?:qtd|quantidade)\.?\s*[:=]?\s*(\d+)|(\d+)\s*(?:un|und|unid|unidades|pecas|pcs)\b|\(\s*(\d+)\s*x\s*\)|\bx\s*(\d+)\b/);
+      if (qm) q = parseInt(qm[1] || qm[2] || qm[3] || qm[4], 10) || 1;
+      var desc = resto
+        .replace(/(?:qtd|quantidade)\.?\s*[:=]?\s*\d+/ig, ' ')
+        .replace(/\d+\s*(?:un|und|unid|unidades|pe[cç]as|p[cç]s)\b/ig, ' ')
+        .replace(/\(\s*\d+\s*x\s*\)/ig, ' ')
+        .replace(/\bx\s*\d+\b/ig, ' ')
+        .replace(/soleiras?|peitoril|peitoris/ig, ' ')
+        .replace(/^[\s•\-–*:,.()]+|[\s•\-–*:,.()]+$/g, '')
+        .replace(/\s+/g, ' ');
+      if (!grupos[tipo]) { grupos[tipo] = []; ordem.push(tipo); }
+      grupos[tipo].push({ desc: desc, w: paraCm(m[1]), h: paraCm(m[2]), q: Math.min(q, 99) });
+    });
+    return { grupos: grupos, ordem: ordem, ignoradas: ignoradas };
+  }
+  function temMedidas(n) { return RE_MED.test(n.texto || ''); }
+
+  function notasOrcar(id) {
+    var n = achar(id); if (!n) return;
+    var r = parseMedidas(n.texto);
+    if (!r.ordem.length) { if (typeof toast === 'function') toast('Não achei medidas no formato 0,90 x 0,15'); return; }
+    if (typeof novoOrcamento !== 'function' || typeof renderAmbientes !== 'function') { if (typeof toast === 'function') toast('Abra a área Orçamento uma vez e tente de novo'); return; }
+
+    var resumo = r.ordem.map(function (t) {
+      return t + ':\n' + r.grupos[t].map(function (p) {
+        return '  • ' + (p.desc || '(sem nome)') + ' — ' + p.w + ' × ' + p.h + ' cm' + (p.q > 1 ? ' (' + p.q + ' un)' : '');
+      }).join('\n');
+    }).join('\n');
+    if (!confirm('Levar para o orçamento' + (n.cliente ? ' de ' + n.cliente : '') + '?\n\n' + resumo
+      + (r.ignoradas ? '\n\n(' + r.ignoradas + ' linha(s) sem medida ficam só na anotação)' : '')
+      + '\n\nConfira se as medidas estão certas.')) return;
+
+    var antes = window.ambientes;
+    novoOrcamento();                         // pergunta antes de apagar um orçamento em andamento
+    if (window.ambientes === antes && antes && antes.length) return; // o usuário cancelou
+
+    var matPadrao = null;
+    try {
+      matPadrao = localStorage.getItem('hr_last_mat') || window.selMat || null;
+      if (matPadrao && window.CFG && CFG.stones && !CFG.stones.some(function (s) { return s.id === matPadrao; })) matPadrao = null;
+    } catch (e) {}
+    var base = Date.now(), c = 0;
+    window.ambientes = [];
+    r.ordem.forEach(function (tipo, i) {
+      var amb = { id: base + (++c) * 1000, tipo: 'Cozinha', pecas: [], selCuba: null, svState: {}, acState: {}, selMat: matPadrao };
+      r.grupos[tipo].forEach(function (p, j) {
+        amb.pecas.push({ id: base + c * 1000 + j + 1, desc: p.desc || (tipo + ' ' + (j + 1)), w: p.w, h: p.h, q: p.q });
+      });
+      window.ambientes.push(amb);
+      if (typeof setAmbTipo === 'function') setAmbTipo(amb.id, tipo); // aplica os padrões de acabamento do tipo
+      else amb.tipo = tipo;
+    });
+
+    // dados do cliente: nome da anotação + telefone/cidade/endereço do último orçamento dele
+    var setV = function (idEl, v) { var el = document.getElementById(idEl); if (el && v) el.value = v; };
+    setV('oCliente', n.cliente);
+    var ant = null;
+    if (n.cliente && typeof DB !== 'undefined' && DB.q) {
+      var nc = norm(n.cliente).trim();
+      ant = DB.q.filter(function (o) { return o && norm(o.cliente).trim() === nc; })
+        .sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); })[0] || null;
+    }
+    if (ant) { setV('oTel', ant.tel || ant.telefone); setV('oCidade', ant.cidade); setV('oEnd', ant.end || ant.endereco); }
+
+    renderAmbientes();
+    if (typeof _salvarRascunho === 'function') _salvarRascunho();
+    n.orcadoEm = Date.now(); salvar(); renderNotas();
+    if (typeof go === 'function') go(0);
+    var total = r.ordem.reduce(function (a, t) { return a + r.grupos[t].length; }, 0);
+    if (typeof toast === 'function') toast('🧾 ' + total + ' peça(s) no orçamento — escolha a pedra e calcule');
+  }
+
   // Exposição global (onclick inline + chamadas de outros módulos)
   window.renderNotas = renderNotas;
   window.notasBuscar = notasBuscar;
@@ -257,4 +360,6 @@
   window.notasCopiar = notasCopiar;
   window.notasEnviar = notasEnviar;
   window.notasExcluir = notasExcluir;
+  window.notasOrcar = notasOrcar;
+  window._notasParseMedidas = parseMedidas; // usado nos testes
 })();
