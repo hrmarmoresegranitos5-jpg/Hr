@@ -653,6 +653,10 @@ var HR_FUNC = (function () {
       if (p.funcionarioId !== funcId) return false;
       if (di && p.data < di) return false;
       if (df && p.data > df) return false;
+      // CORREÇÃO: vale/adiantamento ainda pendente (apontado para um decêndio
+      // e não quitado) é descontado pela linha "Adiantamento" de _blocoSaldo /
+      // _calcBaseAntesDeCredito. Contar também aqui em "Já pago" descontava 2x.
+      if ((p.tipo === 'vale' || p.tipo === 'adiantamento') && p.descontarDecendio && !p.descontoQuitado) return false;
       return true;
     });
     var totalPago = meusPags.reduce(function(s, p){ return s + (parseFloat(p.valor) || 0); }, 0);
