@@ -635,22 +635,35 @@ var HR_RELATORIO_PONTO = (function () {
     };
   }
 
-  // ─── Linhas do resumo financeiro (usadas no PDF e na pré-visualização) ───────
-  // Só o que entra na conta do período. Nada de outros períodos, créditos
-  // em aberto ou adiantamentos de outras datas: isso confunde o funcionário.
-  function _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin) {
+  // ─── Resumo financeiro (usado no PDF e na pré-visualização) ──────────────────
+  // Só o que entra na conta do período, explicado em linguagem simples:
+  // horas dobradas (×2), triplicadas (×3), horas negativas e o quanto
+  // elas tiraram do valor. Nada de outros períodos nem adiantamentos de
+  // outras datas: isso confunde o funcionário.
+  // info: { extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, e50Min, e200Min,
+  //         v50, v200 (BRUTOS, antes de abater as negativas), valorExtraLiq, totalDeficitMin }
+  function _linhasResumoFin(fin, info) {
     var VERDE = [42, 130, 70], VERM = [180, 60, 60], LARANJA = [200, 120, 40], NEUTRO = [30, 30, 30];
+    var horas = [];
+    if (info.extraBrutoMin > 0) horas.push({ label: 'Horas extras feitas no período', texto: _fmtMin(info.extraBrutoMin), cor: VERDE });
+    if (info.deficitBrutoMin > 0) horas.push({ label: 'Horas negativas no período', texto: _fmtMin(info.deficitBrutoMin), cor: VERM });
+
     var rows = [];
     rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
-    if (totalValorExtra > 0) {
-      rows.push({ label: 'Horas extras (' + _fmtMin(totalExtraMin50 + totalExtraMin200) + ')', valor: totalValorExtra, sinal: '+', cor: VERDE });
+    if (info.e50Min > 0) {
+      rows.push({ label: 'Horas extras dobradas (×2): ' + _fmtMin(info.e50Min), valor: info.v50, sinal: '+', cor: VERDE });
     }
-    if ((deficitAbatidoMin || 0) > 0) {
-      rows.push({ nota: 'Você fez ' + _fmtMin(extraBrutoMin || 0) + ' de hora extra; ' + _fmtMin(deficitAbatidoMin) +
-        ' foram usadas para cobrir horas negativas.' });
+    if (info.e200Min > 0) {
+      rows.push({ label: 'Horas extras triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200, sinal: '+', cor: VERDE });
     }
-    if (fin.totalDeficitValor > 0) {
-      rows.push({ label: 'Horas não trabalhadas (' + _fmtMin(Math.abs(totalDeficitMin || 0)) + ')', valor: fin.totalDeficitValor, sinal: '-', cor: VERM });
+    // Quanto as horas negativas tiraram do valor: a parte que abateu as extras
+    // (extras brutas − extras líquidas) + a parte que sobrou e saiu do salário.
+    var valorNegativas = Math.max(0, (info.v50 + info.v200) - info.valorExtraLiq) + (fin.totalDeficitValor || 0);
+    if (info.deficitBrutoMin > 0 && valorNegativas > 0.005) {
+      rows.push({ label: 'Horas negativas (×1): ' + _fmtMin(info.deficitBrutoMin), valor: valorNegativas, sinal: '-', cor: VERM });
+      var nota = 'As horas negativas são descontadas primeiro das horas extras dobradas (×2); as triplicadas (×3) só entram se as dobradas não bastarem.';
+      if ((fin.totalDeficitValor || 0) > 0.005) nota += ' O que as extras não cobriram foi descontado do salário.';
+      rows.push({ nota: nota });
     }
     fin.creditosAlvo.forEach(function (c) {
       rows.push({ label: 'Horas extras acumuladas (' + _fmtData(c.data) + ')', valor: parseFloat(c.valor) || 0, sinal: '+', cor: VERDE });
@@ -663,7 +676,7 @@ var HR_RELATORIO_PONTO = (function () {
     if (fin.totalPago > 0) {
       rows.push({ label: 'Já pago neste período', valor: fin.totalPago, sinal: '-', cor: VERM });
     }
-    return rows;
+    return { horas: horas, rows: rows };
   }
 
   // ─── Gerador PDF principal ───────────────────────────────────────────────────
@@ -737,6 +750,8 @@ var HR_RELATORIO_PONTO = (function () {
     var valorExtraBrutoTotal = totalValorExtra50 + totalValorExtra200;
     var deficitBrutoMin     = Math.abs(totalDeficitMin);
     var deficitAbatidoMin   = 0; // quanto da falta foi coberto pelas horas extras
+    var e50Bruto = totalExtraMin50, e200Bruto = totalExtraMin200;       // para o resumo do relatório
+    var v50Bruto = totalValorExtra50, v200Bruto = totalValorExtra200;
 
     if (totalDeficitMin < 0) {
       var _deficitAbs    = Math.abs(totalDeficitMin);
@@ -840,10 +855,15 @@ var HR_RELATORIO_PONTO = (function () {
     y += relanceH + 5;
 
     // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ──────────────────
-    var resumoRows = _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin);
+    var resumo = _linhasResumoFin(fin, {
+      extraBrutoMin: extraBrutoMin, deficitBrutoMin: deficitBrutoMin, deficitAbatidoMin: deficitAbatidoMin,
+      e50Min: e50Bruto, e200Min: e200Bruto, v50: v50Bruto, v200: v200Bruto,
+      valorExtraLiq: totalValorExtra, totalDeficitMin: totalDeficitMin
+    });
+    var resumoRows = resumo.rows;
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(7.5);
-    var boxH = 9 + 15;
+    var boxH = 9 + 15 + (resumo.horas.length ? resumo.horas.length * 6 + 10.5 : 0);
     resumoRows.forEach(function (r) {
       if (r.nota) { r.notaLinhas = doc.splitTextToSize(r.nota, cW - 12); boxH += r.notaLinhas.length * 3.6 + 1.5; }
       else boxH += 6;
@@ -858,6 +878,24 @@ var HR_RELATORIO_PONTO = (function () {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor.apply(doc, COR_HEADER);
+    if (resumo.horas.length) {
+      doc.text('Horas do período', mL + 5, fy);
+      fy += 6.5;
+      resumo.horas.forEach(function (h) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(60, 60, 60);
+        doc.text(h.label, mL + 6, fy);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor.apply(doc, h.cor);
+        doc.text(h.texto, pW - mR - 5, fy, { align: 'right' });
+        fy += 6;
+      });
+      fy += 4;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor.apply(doc, COR_HEADER);
+    }
     doc.text('Como chegamos nesse valor', mL + 5, fy);
     fy += 6.5;
 
@@ -1087,7 +1125,7 @@ var HR_RELATORIO_PONTO = (function () {
 
     var htmlPreview = _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
       totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
-      extraBrutoMin, deficitBrutoMin, deficitAbatidoMin);
+      extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, resumo);
 
     var pdfBlobFn = function() { return doc.output('blob'); };
 
@@ -1099,7 +1137,7 @@ var HR_RELATORIO_PONTO = (function () {
 
   function _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
     totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
-    extraBrutoMin, deficitBrutoMin, deficitAbatidoMin) {
+    extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, resumo) {
 
     extraBrutoMin     = extraBrutoMin     || 0;
     deficitBrutoMin   = deficitBrutoMin   || 0;
@@ -1181,8 +1219,18 @@ var HR_RELATORIO_PONTO = (function () {
     var statusCorBd  = fin.status === 'pago' ? '#8fcf9f' : '#e8c877';
     var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
 
+    var horasHtml = '';
+    if (resumo.horas.length) {
+      horasHtml = '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Horas do período</div>'+
+        resumo.horas.map(function (h) {
+          return '<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
+            '<span style="color:#444;">'+_esc(h.label)+'</span>'+
+            '<span style="font-weight:700;color:rgb('+h.cor.join(',')+');">'+_esc(h.texto)+'</span></div>';
+        }).join('')+
+        '<div style="height:12px;"></div>';
+    }
     var linhasResumo = '';
-    _linhasResumoFin(fin, extraBrutoMin, deficitAbatidoMin, totalValorExtra, totalExtraMin50, totalExtraMin200, totalDeficitMin).forEach(function (r) {
+    resumo.rows.forEach(function (r) {
       if (r.nota) {
         linhasResumo += '<div style="padding:0 0 8px;font-size:13px;color:#888;font-style:italic;line-height:1.4;">'+_esc(r.nota)+'</div>';
         return;
@@ -1227,6 +1275,7 @@ var HR_RELATORIO_PONTO = (function () {
 
       // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ─────────────────
       '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 18px;margin-top:12px;">'+
+        horasHtml+
         '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Como chegamos nesse valor</div>'+
         linhasResumo+
         '<div style="background:'+faixaCor+';border-radius:6px;padding:12px 16px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
