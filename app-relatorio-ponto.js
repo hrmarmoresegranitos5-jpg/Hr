@@ -645,22 +645,19 @@ var HR_RELATORIO_PONTO = (function () {
   function _linhasResumoFin(fin, info) {
     var VERDE = [42, 130, 70], VERM = [180, 60, 60], LARANJA = [200, 120, 40], NEUTRO = [30, 30, 30];
     var horas = [];
-    if (info.extraBrutoMin > 0) horas.push({ label: 'Horas extras feitas no período', texto: _fmtMin(info.extraBrutoMin), cor: VERDE });
-    if (info.deficitBrutoMin > 0) horas.push({ label: 'Horas negativas no período', texto: _fmtMin(info.deficitBrutoMin), cor: VERM });
 
     var rows = [];
     rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
-    if (info.e50Min > 0) {
-      rows.push({ label: 'Horas extras dobradas (×2): ' + _fmtMin(info.e50Min), valor: info.v50, sinal: '+', cor: VERDE });
-    }
-    if (info.e200Min > 0) {
-      rows.push({ label: 'Horas extras triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200, sinal: '+', cor: VERDE });
+    if ((info.e50Min + info.e200Min) > 0) {
+      rows.push({ label: 'Horas extras (' + _fmtMin(info.e50Min + info.e200Min) + ')', valor: info.v50 + info.v200, sinal: '+', cor: VERDE });
+      if (info.e50Min > 0)  rows.push({ sub: true, label: 'dobradas (×2): ' + _fmtMin(info.e50Min),   valor: info.v50 });
+      if (info.e200Min > 0) rows.push({ sub: true, label: 'triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200 });
     }
     // Quanto as horas negativas tiraram do valor: a parte que abateu as extras
     // (extras brutas − extras líquidas) + a parte que sobrou e saiu do salário.
     var valorNegativas = Math.max(0, (info.v50 + info.v200) - info.valorExtraLiq) + (fin.totalDeficitValor || 0);
     if (info.deficitBrutoMin > 0 && valorNegativas > 0.005) {
-      rows.push({ label: 'Horas negativas (×1): ' + _fmtMin(info.deficitBrutoMin), valor: valorNegativas, sinal: '-', cor: VERM });
+      rows.push({ label: 'Horas negativas (' + _fmtMin(info.deficitBrutoMin) + ')', valor: valorNegativas, sinal: '-', cor: VERM });
       var nota = 'As horas negativas são descontadas primeiro das horas extras dobradas (×2); as triplicadas (×3) só entram se as dobradas não bastarem.';
       if ((fin.totalDeficitValor || 0) > 0.005) nota += ' O que as extras não cobriram foi descontado do salário.';
       rows.push({ nota: nota });
@@ -866,6 +863,7 @@ var HR_RELATORIO_PONTO = (function () {
     var boxH = 9 + 15 + (resumo.horas.length ? resumo.horas.length * 6 + 10.5 : 0);
     resumoRows.forEach(function (r) {
       if (r.nota) { r.notaLinhas = doc.splitTextToSize(r.nota, cW - 12); boxH += r.notaLinhas.length * 3.6 + 1.5; }
+      else if (r.sub) boxH += 4.8;
       else boxH += 6;
     });
 
@@ -906,6 +904,15 @@ var HR_RELATORIO_PONTO = (function () {
         doc.setTextColor(120, 120, 120);
         r.notaLinhas.forEach(function (t) { doc.text(t, mL + 6, fy - 1); fy += 3.6; });
         fy += 1.5;
+        return;
+      }
+      if (r.sub) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.text('· ' + r.label, mL + 11, fy - 1);
+        doc.text(_fmtMoeda(r.valor), pW - mR - 5, fy - 1, { align: 'right' });
+        fy += 4.8;
         return;
       }
       doc.setFont('helvetica', 'normal');
@@ -1235,7 +1242,12 @@ var HR_RELATORIO_PONTO = (function () {
         linhasResumo += '<div style="padding:0 0 8px;font-size:13px;color:#888;font-style:italic;line-height:1.4;">'+_esc(r.nota)+'</div>';
         return;
       }
-      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
+      if (r.sub) {
+        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:0 0 6px 16px;font-size:13px;color:#888;">'+
+          '<span>· '+_esc(r.label)+'</span><span>'+fmtMoeda(r.valor)+'</span></div>';
+        return;
+      }
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:8px 0 6px;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
         '<span style="color:#444;">'+_esc(r.label)+'</span>'+
         '<span style="font-weight:700;color:rgb('+r.cor.join(',')+');">'+(r.sinal ? r.sinal+' ' : '')+fmtMoeda(r.valor)+'</span></div>';
     });
