@@ -1,9 +1,10 @@
 // app-botpedidos.js — Etapa 1: pedido do WhatsApp → orçamento no app → PDF → volta pro WhatsApp
 // Carregar DEPOIS de app-core.js e app-secretaria.js (usa _getBotCfg, _botHeaders, ambientes, calcular, gerarPDF).
 (function () {
-  var POLL_MS = 15000;      // consulta a fila a cada 15 s enquanto o app está aberto e visível
+  var POLL_MS = 5000;       // consulta a fila a cada 5 s enquanto o app está aberto e visível
   var PDF_TIMEOUT_MS = 60000;
   var busy = false;
+  var cotados = {};         // pedidos já cotados (valor enviado ao Worker) nesta sessão
   var feitos = {};          // ids já tratados nesta sessão (evita repetir se o Worker demorar a atualizar)
 
   // Acabamento do Worker → chave do SV_DEFS de cada tipo
@@ -75,11 +76,12 @@
     var pecas = (p.pecas || []).map(function (x) {
       return { desc: x.tipo || amb, comp_cm: +x.comp_cm || 0, larg_cm: +x.larg_cm || 0, qtd: Math.max(1, +x.qtd || 1) };
     }).filter(function (x) { return x.comp_cm > 0 && x.larg_cm > 0; });
-    var avisos = ['Acabamento não informado pelo cliente: calculei sem acabamento.', 'Calculado com preço à vista.'];
-    if (p.instalacao) avisos.push('Cliente falou em instalação ("' + String(p.instalacao).slice(0, 60) + '"): não incluída no cálculo.');
+    var avisos = ['Calculado com preço à vista.'];
+    if (!p.acabamento) avisos.unshift('Acabamento não informado pelo cliente: calculei sem acabamento.');
+    if (p.instalacao === 'com') avisos.push('Cliente quer instalação: não incluída no cálculo.');
     return Object.assign({}, p, {
       ambiente: amb, pedra: String(p.cor || '').trim(), pecas: pecas, acabamento: p.acabamento || 'sem',
-      pagamento: 'vista', prazo_modo: 'agenda', prazo_dias: 1, _avisos: avisos
+      pagamento: 'vista', prazo_modo: p.prazo_modo || 'agenda', prazo_dias: p.prazo_dias || 1, _avisos: avisos
     });
   }
 
@@ -118,9 +120,23 @@
   }
 
   // gerarPDF() abre a tela de PDF; o gancho window._botPdfHook (patch em app-core.js) recebe o arquivo pronto
+  // Prazo já combinado pelo WhatsApp: entrega o prazo pronto ao app-pdf-prazo.js (ele não abre o modal)
+  function definirPrazo(ped, q) {
+    var hoje = td(), dias = +ped.prazo_dias || 0;
+    var dataEst = /^\d{4}-\d{2}-\d{2}$/.test(String(ped.entrega_prevista || '')) ? ped.entrega_prevista : (dias > 0 ? addD(hoje, dias) : '');
+    if (!dataEst) return false;
+    if (!(dias > 0)) dias = Math.max(1, Math.round((new Date(dataEst + 'T00:00:00') - new Date(hoje + 'T00:00:00')) / 86400000));
+    var last = lastEnd();
+    window._pdfPrazoData = { dias: dias, base: hoje, dataEst: dataEst, lastEnd: ped.prazo_modo === 'agenda' ? last : null,
+      emProd: (DB.j || []).filter(function (j) { return !j.done; }).length, hoje: hoje, isUrgent: (window._urgPct || 0) > 0 };
+    q.prazoDias = dias; q.prazoInicio = hoje; q.prazoEntrega = dataEst; q.prazoModo = 'manual'; q.prazoUrgente = false;
+    try { DB.sv(); } catch (e) {}
+    return true;
+  }
+
   function gerarPdfDoBot() {
     return new Promise(function (ok, erro) {
-      var t = setTimeout(function () { window._botPdfHook = null; erro(new Error('O PDF demorou demais para ficar pronto.')); }, PDF_TIMEOUT_MS);
+      var t = setTimeout(function () { window._botPdfHook = null; delete window._pdfPrazoData; erro(new Error('O PDF demorou demais para ficar pronto.')); }, PDF_TIMEOUT_MS);
       window._botPdfHook = function (blob, nome, q) { clearTimeout(t); ok({ blob: blob, nome: nome, q: q }); };
       gerarPDF();
     });
@@ -128,6 +144,28 @@
 
   function avisarAceito(ped) {
     return api('/bot/pedidos/status', { method: 'POST', body: JSON.stringify({ id: ped.id, status: 'aceito' }) }).catch(function () {});
+  }
+
+  // Fase 'cotar': calcula só o VALOR (sem PDF, sem modal) e manda ao Worker, que pergunta o prazo ao dono no WhatsApp
+  function cotar(ped) {
+    avisarAceito(ped);
+    var estado = guardarTela();
+    var stone = acharPedra(ped.pedra);
+    if (!stone) { restaurarTela(estado); return revisar(ped, 'Pedra "' + ped.pedra + '" não encontrada (ou ambígua) no catálogo do app.'); }
+    var q, valor, agenda;
+    try {
+      q = montarQ(ped, stone);
+      valor = ped.pagamento === 'parcelado' ? q.parc : q.vista;
+      agenda = lastEnd();
+    } catch (e) { restaurarTela(estado); return revisar(ped, e.message); }
+    restaurarTela(estado);
+    if (!(valor > 0)) return revisar(ped, 'O app calculou valor zero (confira as medidas e a pedra).');
+    var corpo = { id: ped.id, valor: valor, avisos: ped._avisos || [], pagamento: ped.pagamento === 'parcelado' ? 'parcelado' : 'vista' };
+    if (agenda && agenda > td()) corpo.agenda_ate = agenda;
+    return api('/bot/pedidos/cotacao', { method: 'POST', body: JSON.stringify(corpo) }).then(function (res) {
+      if (res && (res.ok || res._http === 404)) cotados[ped.id] = true;
+      else console.warn('[bot] cotação falhou:', res);
+    }).catch(function () {});
   }
 
   function processar(ped) {
@@ -138,6 +176,7 @@
     var q;
     try { q = montarQ(ped, stone); }
     catch (e) { restaurarTela(estado); return revisar(ped, e.message); }
+    if (ped.fase === 'gerar' || ped.origem === 'dono') definirPrazo(ped, q); // sem prazo definido, o modal abre como antes
     return gerarPdfDoBot()
       .then(function (r) {
         var ov = document.getElementById('pdfOv'); if (ov) ov.remove();
@@ -150,7 +189,7 @@
         if (res && (res.ok || res._http === 410)) { feitos[ped.id] = true; if (res.ok) _orcMarcarPdf(q); } // 410 = janela de 24 h (Worker já avisou o dono)
         else if (res && res._http && res._http !== 409) console.warn('[bot] envio falhou:', res);
       })
-      .catch(function (e) { return revisar(ped, e.message || 'Falha ao gerar o PDF.'); })
+      .catch(function (e) { delete window._pdfPrazoData; return revisar(ped, e.message || 'Falha ao gerar o PDF.'); })
       .then(function () { restaurarTela(estado); });
   }
 
@@ -159,10 +198,10 @@
     busy = true;
     api('/bot/pedidos').then(function (r) {
       var fila = (r.pedidos || []).map(normalizar).filter(function (p) {
-        return !feitos[p.id] && p.pedra && itensDe(p).every(function (it) { return it.pecas && it.pecas.length && ACB[it.ambiente]; });
+        return !feitos[p.id] && !(p.fase === 'cotar' && cotados[p.id]) && p.pedra && itensDe(p).every(function (it) { return it.pecas && it.pecas.length && ACB[it.ambiente]; });
       });
       var seq = Promise.resolve();
-      fila.forEach(function (p) { seq = seq.then(function () { return processar(p); }); });
+      fila.forEach(function (p) { seq = seq.then(function () { return p.fase === 'cotar' ? cotar(p) : processar(p); }); });
       return seq;
     }).catch(function () {}).then(function () { busy = false; });
   }
