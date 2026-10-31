@@ -388,6 +388,9 @@ function botSyncFinancas(manual) {
         if (DB.t.some(function(t){ return t.waId === l.waId; })) return; // já importado antes
         var tr = { id: l.id, type: l.type, desc: l.desc, value: l.value, date: l.date, waId: l.waId, origem: 'whatsapp' };
         if (l.type === 'out' && l.cat) tr.cat = l.cat;
+        // fechamento do dia: forma de pagamento que o dono informou ao bot (dinheiro entra em "Dinheiro na mão")
+        if (l.forma === 'dinheiro' || l.forma === 'pix' || l.forma === 'cartao') tr.fpag = l.forma;
+        if (l.forma === 'dinheiro') tr.origem = 'dinheiro_mao';
         DB.t.unshift(tr);
         novos++;
       });
@@ -2482,7 +2485,9 @@ function _snapConstruir(meses) {
       inicio: ini, entrega: _snapData(j.end),
       valor: _snapNum(j.value), pago: _snapNum(j.pago),
       etapa: _snapTxt(j.stage, 20), concluido: !!j.done,
-      urgente: j.urgente ? true : undefined
+      urgente: j.urgente ? true : undefined,
+      // dia em que o serviço foi fechado (o id nasce no fechamento da venda); o bot usa no fechamento das 17h
+      fechadoEm: (j.qid && j.id) ? (_snapData(Number(j.id)) || undefined) : undefined
     });
   });
   agenda.sort(function (a, b) { return (a.inicio || '9') < (b.inicio || '9') ? -1 : 1; });
@@ -2585,7 +2590,7 @@ function _snapConstruir(meses) {
     legenda: {
       datas: 'AAAA-MM-DD; valores em reais (número)',
       orcamentos: 'status: aberto/pendente = aguardando resposta do cliente; aprovado = fechado; perdido = não fechou; vencido = passou da validade. "valor" = preço à vista; "validoAte" = último dia de validade',
-      agenda: 'etapa: producao = em produção; pronto = pronto p/ entrega; entregue = entregue. "inicio" = início do serviço, "entrega" = data prevista. "pago" = já recebido do "valor"',
+      agenda: '"fechadoEm" = dia em que a venda foi fechada. etapa: producao = em produção; pronto = pronto p/ entrega; entregue = entregue. "inicio" = início do serviço, "entrega" = data prevista. "pago" = já recebido do "valor"',
       financas: 'tipo entrada = dinheiro que entrou; saida = gasto. totaisPorMes cobre todos os meses; lancamentos só os últimos ' + meses + ' meses',
       boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
       janelaMeses: meses
