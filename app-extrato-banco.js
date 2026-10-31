@@ -202,8 +202,10 @@
       if (run !== null) run += r.cent;
     });
 
+    var sfBB = null;
+    recs.forEach(function (r) { if (r.tipo === 'saldo_dia' || r.tipo === 'saldo_fim') sfBB = { data: r.data, valor: r.cent / 100 }; });
     var linhas = recs.filter(function (r) { return r.tipo.indexOf('saldo') !== 0; });
-    return { periodo: periodo, linhas: linhas, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
+    return { periodo: periodo, linhas: linhas, saldoFinal: sfBB, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
   }
 
   // ───────────────────────── FUNCIONÁRIOS (RH) ─────────────────────────
@@ -267,7 +269,15 @@
     if (!ini && recs.length) ini = recs.map(function (r) { return r.data; }).sort()[0];
     if (!fim && recs.length) fim = recs.map(function (r) { return r.data; }).sort().slice(-1)[0];
     var periodo = ini ? { mes: ini.slice(0, 7), de: ini, ate: fim || ini } : null;
-    return { periodo: periodo, linhas: recs, conferencia: { ok: false, semConf: true, dias: 0, erros: [] }, avisos: avisos };
+    var sfOFX = null;
+    var lb = /<LEDGERBAL>([\s\S]*?)(?:<\/LEDGERBAL>|<AVAILBAL>|<\/STMTRS>|$)/i.exec(texto);
+    if (lb) {
+      var amt = tag(lb[1], 'BALAMT').replace(/\s/g, ''), dt = dataOFX(tag(lb[1], 'DTASOF'));
+      if (/,\d{1,2}$/.test(amt)) amt = amt.replace(/\./g, '').replace(',', '.');
+      var nAmt = parseFloat(amt);
+      if (isFinite(nAmt) && dt) sfOFX = { data: dt, valor: nAmt };
+    }
+    return { periodo: periodo, linhas: recs, saldoFinal: sfOFX, conferencia: { ok: false, semConf: true, dias: 0, erros: [] }, avisos: avisos };
   }
 
   // ───────────────────────── PARSER PLANILHA (XLSX/XLS — Bradesco) ─────────────────────────
@@ -397,7 +407,8 @@
       var ds = recs.map(function (r) { return r.data; }).sort();
       periodo = { mes: ds[0].slice(0, 7), de: ds[0], ate: ds[ds.length - 1] };
     }
-    return { periodo: periodo, linhas: recs, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
+    var sfX = (diasOrd.length && fechamentoAnterior !== null) ? { data: diasOrd[diasOrd.length - 1], valor: fechamentoAnterior / 100 } : null;
+    return { periodo: periodo, linhas: recs, saldoFinal: sfX, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
   }
 
   function getFuncs() {
@@ -504,7 +515,7 @@
     function mk(t) { return { t: t, usado: false }; }
     var rhEx   = T.filter(function (t) { return t.origem === 'rh_pagamento'; }).map(mk);
     var outEx  = T.filter(function (t) { return t.type === 'out' && t.origem !== 'extrato_bb' && t.origem !== 'rh_pagamento' && t.origem !== 'dinheiro_mao'; }).map(mk);
-    var inEx   = T.filter(function (t) { return t.type === 'in' && t.origem !== 'extrato_bb'; }).map(mk);
+    var inEx   = T.filter(function (t) { return t.type === 'in' && t.origem !== 'extrato_bb' && t.origem !== 'dinheiro_mao'; }).map(mk);
     var pendEx = T.filter(function (t) { return t.type === 'pend'; }).map(mk);
 
     function achar(lista, valor, data, extra) {
@@ -575,9 +586,10 @@
         }
       }
 
-      // já lançado à mão / por boleto pago (só valores a partir de R$ 100, pra não confundir miudezas)
-      if (l.valor >= 100 && dir !== 'estorno') {
-        var ex = achar(dir === 'in' ? inEx : outEx, l.valor, l.dataEvento, { dias: 5 });
+      // já lançado à mão / por boleto pago / pelo bot. Até R$ 100 a janela de datas é menor (2 dias), pra não confundir miudezas;
+      // o que casar vai pra lista "parecem já lançados", onde você ainda pode mandar lançar
+      if (l.valor > 0 && dir !== 'estorno') {
+        var ex = achar(dir === 'in' ? inEx : outEx, l.valor, l.dataEvento, { dias: l.valor >= 100 ? 5 : 2 });
         if (ex) { ex.usado = true; l.estado = 'dup'; l.motivo = 'já existe "' + (ex.t.desc || '') + '" em ' + dmy(ex.t.date); l.dupDe = ex.t.id; return; }
       }
 
@@ -603,7 +615,7 @@
       if (a.askEach !== b.askEach) return a.askEach ? 1 : -1;
       return b.total - a.total;
     });
-    return { linhas: linhas, grupos: lista, periodo: parsed.periodo, conferencia: parsed.conferencia, avisos: parsed.avisos };
+    return { linhas: linhas, grupos: lista, periodo: parsed.periodo, saldoFinal: parsed.saldoFinal || null, conferencia: parsed.conferencia, avisos: parsed.avisos };
   }
 
   // ───────────────────────── LANÇAR NO FINANCEIRO ─────────────────────────
@@ -678,6 +690,7 @@
     });
     _gravar(K_HIST, hist);
     DB.sv();
+    try { if (window.HR_FECHDIA && S.plano.periodo) HR_FECHDIA.extratoImportado(S.plano.periodo.mes); } catch (e) {}
     S.etapa = 'fim'; S.fim = { n: nTr, ent: ent, sai: sai };
     try { renderFin(); } catch (e) {}
     desenhar();
@@ -831,6 +844,21 @@
     if (_S.etapa === 'fim') return telaFim();
   }
 
+  // Saldo final do extrato + o que o dono informou na conta no fechamento do dia (soma de todas as contas)
+  function saldoFinalHtml(P) {
+    if (!P || !P.saldoFinal) return '';
+    var sf = P.saldoFinal, h = '<div class="ext-sub" style="margin-top:6px">Saldo final do extrato: <b>R$ ' + brl(sf.valor) + '</b> em ' + dmy(sf.data) + '.</div>';
+    try {
+      var inf = window.HR_FECHDIA && HR_FECHDIA.saldoContaEm(sf.data);
+      if (inf) {
+        h += Math.abs(inf.saldoConta - sf.valor) < 0.01
+          ? '<div class="ext-ok" style="font-size:13px;">✓ Igual ao saldo da conta que você informou no fechamento de ' + dmy(inf.data) + '</div>'
+          : '<div class="ext-sub">No fechamento de ' + dmy(inf.data) + ' você informou R$ ' + brl(inf.saldoConta) + ' na conta (soma de todas as contas, pode incluir outro banco).</div>';
+      }
+    } catch (e) {}
+    return h;
+  }
+
   function telaResumo() {
     var P = _S.plano, r = resumoPlano(P), nGr = P.grupos.length;
     var per = P.periodo ? (P.periodo.mes.slice(5) + '/' + P.periodo.mes.slice(0, 4)) : '';
@@ -843,7 +871,7 @@
         : P.conferencia.ok
         ? '<div class="ext-ok" style="font-size:13px;">✓ Conferido: o saldo bate com o banco em ' + P.conferencia.dias + ' dias</div>'
         : '<div class="ext-warn" style="font-size:13px;">⚠️ Não consegui conferir o saldo com o banco' + (P.conferencia.erros.length ? ' (' + esc(P.conferencia.erros[0]) + ')' : '') + '. Confira os valores no final.</div>') +
-      '</div>';
+      saldoFinalHtml(P) + '</div>';
     h += '<div class="ext-card">' +
       '<div class="ext-row"><span>🤖 Classificados sozinhos</span><b>' + aut + '</b></div>' +
       '<div class="ext-row"><span>🚫 Ignorados (Rende Fácil, devoluções)</span><b>' + P.linhas.filter(function (l) { return l.estado === 'ignora'; }).length + '</b></div>' +
