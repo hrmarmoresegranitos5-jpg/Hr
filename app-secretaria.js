@@ -16,6 +16,7 @@ function _getV() {
 }
 function _saveV() {
   try { localStorage.setItem('hr_v', JSON.stringify(_getV())); } catch(e){}
+  try { if (typeof _snapAgendar === 'function') _snapAgendar(); } catch(e){}
 }
 
 // ─────────────────────────────────────────────
@@ -129,6 +130,7 @@ function secNotifDiaria() {
   // 5. Follow-ups — orçamentos sem resposta há 7+ dias
   var seteDias = addD(hoje, -7);
   var followUps = (DB.q || []).filter(function(q) {
+    if (['aprovado', 'aceito', 'concluido', 'perdido'].indexOf(q.status) >= 0) return false;
     if (!q.date || q.date > seteDias) return false;
     var temContrato = (DB.t || []).some(function(t) {
       return t.type === 'in' && t.desc && q.cli && t.desc.toLowerCase().indexOf(q.cli.toLowerCase()) !== -1;
@@ -333,6 +335,7 @@ function botConnect() {
     _saveBotCfg({ status: x.d.status, phone: x.d.phone || '' });
     _botUpdateUI(x.d);
     botLoadLeads();
+    try { botDeclararCapacidades(); } catch (e) {}
     toast(x.d.status === 'connected' ? '✅ Bot ativo' : '⚠️ Worker sem alguma variável configurada');
   })
   .catch(function(){
@@ -748,7 +751,7 @@ function _renderSecretariaInner(el) {
   var margemBaixa = (DB.j || []).filter(function(j) { var m = _secMargemJob(j); return !j.done && m && m.pct < 20; });
   var _em3b = addD(hoje, 3);
   var boletosV = (DB.b || []).filter(function(x) {
-    return x.tipo === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= _em3b));
+    return _bolTipo(x) === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= _em3b));
   }).sort(function(a, b) { return String(a.venc).localeCompare(String(b.venc)); });
   var totalTarefas = atrasados.length + urgentes.length + pendVenc.length + followUps.length + visitasHoje.length + boletosV.length + iniciarHoje.length + entregaAmanha.length + margemBaixa.length;
 
@@ -964,6 +967,7 @@ function _secFollowUps(hoje) {
   var cutoff = addD(hoje, -5);
   var cutoff2 = addD(hoje, -30);
   return (DB.q||[]).filter(function(q){
+    if (['aprovado', 'aceito', 'concluido', 'perdido'].indexOf(q.status) >= 0) return false;
     if (!q.date || q.date > cutoff || q.date < cutoff2) return false;
     var temContrato = (DB.t||[]).some(function(t){
       return t.desc && t.desc.indexOf(q.cli||'???') >= 0 && t.type === 'in' && t.date >= q.date;
@@ -1097,14 +1101,14 @@ function _secBuildCtx() {
   var cutoff      = addD(hoje, -5);
   var cutoff2     = addD(hoje, -30);
   var followUps   = (DB.q||[]).filter(function(q){
-    if (q.status === 'aprovado' || q.status === 'perdido') return false;
+    if (['aprovado', 'aceito', 'concluido', 'perdido'].indexOf(q.status) >= 0) return false;
     if (!q.date || q.date > cutoff || q.date < cutoff2) return false;
     return !(DB.t||[]).some(function(t){
       return t.desc && t.desc.indexOf(q.cli||'') >= 0 && t.type === 'in' && t.date >= q.date;
     });
   });
   var todosOrcs    = DB.q || [];
-  var orcAprovados = todosOrcs.filter(function(q){ return q.status === 'aprovado'; }).length;
+  var orcAprovados = todosOrcs.filter(function(q){ return ['aprovado', 'aceito', 'concluido'].indexOf(q.status) >= 0; }).length;
   var taxaConv     = todosOrcs.length > 0 ? Math.round((orcAprovados / todosOrcs.length) * 100) : 0;
   var orcVencidos  = todosOrcs.filter(function(q){
     if (q.status && q.status !== 'pendente') return false;
@@ -2292,7 +2296,7 @@ function homeRadar() {
   try {
     var hoje = td(), em3 = addD(hoje, 3);
     var atras = (DB.j || []).filter(function(j) { return !j.done && j.end && dDiff(j.end) < 0; }).length;
-    var bol = (DB.b || []).filter(function(x) { return x.tipo === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= em3)); }).length;
+    var bol = (DB.b || []).filter(function(x) { return _bolTipo(x) === 'pagar' && (x.status === 'vencido' || (x.status === 'pendente' && x.venc && x.venc <= em3)); }).length;
     var rec = (DB.t || []).filter(function(t) { return t.type === 'pend' && t.date && t.date < hoje; }).length;
     var vis = (typeof _getV === 'function' ? _getV() : []).filter(function(v) { return v.status === 'agendada' && v.date === hoje; }).length;
     var ini = _secInicioHoje().length;
@@ -2372,8 +2376,8 @@ function _secPrevCaixa() {
   T.forEach(function(t) { if (t.type === 'pend' && t.date && t.date >= hoje) add(t.date, t.value || 0); });
   (DB.b || []).forEach(function(b) {
     if (b.status === 'pago') return;
-    if (b.tipo === 'receber' && b.venc && b.venc >= hoje) add(b.venc, b.valor || 0);
-    if (b.tipo === 'pagar') add(b.venc, -(b.valor || 0));
+    if (_bolTipo(b) === 'receber' && b.venc && b.venc >= hoje) add(b.venc, b.valor || 0);
+    if (_bolTipo(b) === 'pagar') add(b.venc, -(b.valor || 0));
   });
   var fixos = ((typeof CFG !== 'undefined' && CFG.fixos) || []).reduce(function(a, f) { return a + (f.v || 0); }, 0);
   add(addD(hoje, 15), -fixos);
@@ -2468,7 +2472,7 @@ function _snapConstruir(meses) {
   var listaJ = (typeof DB !== 'undefined' && DB.j) || [];
   var listaT = (typeof DB !== 'undefined' && DB.t) || [];
   var listaB = (typeof DB !== 'undefined' && DB.b) || [];
-  var listaC = (typeof DB !== 'undefined' && DB.c) || [];
+  var listaC = (typeof _cDB === 'function' ? _cDB() : ((typeof DB !== 'undefined' && DB.c) || []));
 
   var qPorId = {};
   listaQ.forEach(function (q) { if (q && q.id != null) qPorId[String(q.id)] = q; });
@@ -2517,8 +2521,8 @@ function _snapConstruir(meses) {
     var venc = _snapData(b.venc);
     var aberto = b.status !== 'pago' && b.status !== 'cancelado';
     if (!aberto && !dentro(venc)) return;
-    var o = { descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15) };
-    if (b.cli) o.fornecedor = _snapTxt(b.cli, 50);
+    var o = { tipo: _bolTipo(b), descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15) };
+    if (b.cli) { if (o.tipo === 'receber') o.cliente = _snapTxt(b.cli, 50); else o.fornecedor = _snapTxt(b.cli, 50); }
     if (b.cat) o.categoria = _snapTxt(b.cat, 25);
     if (b.parc) o.parcela = _snapTxt(b.parc, 10);
     boletos.push(o);
@@ -2583,26 +2587,65 @@ function _snapConstruir(meses) {
     });
   }
 
+  // ── Anotações (visitas, medidas)
+  var notas = [];
+  try {
+    ((typeof DB !== 'undefined' && DB.n) || []).slice(0, 60).forEach(function (n) {
+      if (n && n.texto) notas.push({ cliente: _snapTxt(n.cliente, 60), tipo: _snapTxt(n.tipo, 15), texto: _snapTxt(n.texto, 220), data: _snapData(n.id) });
+    });
+  } catch (e) {}
+
+  // ── Funcionários (sem salário, CPF ou documentos)
+  var funcionarios = [];
+  try {
+    var _fo = JSON.parse(localStorage.getItem('hr_funcionarios') || '{}') || {};
+    var _fl = Array.isArray(_fo) ? _fo : Object.keys(_fo).map(function (k) { return _fo[k]; });
+    _fl.forEach(function (f) {
+      if (!f || !f.nome) return;
+      var emFerias = f.ativo === 'ferias' || !!(f.feriasInicio && f.feriasFim && hojeISO >= f.feriasInicio && hojeISO <= f.feriasFim);
+      funcionarios.push({ nome: _snapTxt(f.nome, 60), cargo: _snapTxt(f.cargo, 40), situacao: f.ativo === false ? 'inativo' : (emFerias ? 'férias' : 'ativo') });
+    });
+  } catch (e) {}
+
+  // ── Visitas de medição (agendadas + realizadas/canceladas na janela)
+  var visitas = [];
+  try {
+    _getV().forEach(function (v) {
+      if (!v) return;
+      var dv = _snapData(v.date);
+      var aberta = v.status === 'agendada';
+      if (!aberta && !dentro(dv)) return;
+      visitas.push({ cliente: _snapTxt(v.cli, 60), data: dv, hora: _snapTxt(v.hora, 5), endereco: _snapTxt(v.end, 90), status: _snapTxt(v.status, 12), obs: _snapTxt(v.obs, 120) });
+    });
+    visitas.sort(function (a, b) { return (a.data || '9') < (b.data || '9') ? -1 : 1; });
+  } catch (e) {}
+
   // Ordem importa: o Worker corta no fim. O mais importante vem primeiro.
   return {
     geradoEm: hoje.toISOString(),
     hoje: hojeISO,
     legenda: {
       datas: 'AAAA-MM-DD; valores em reais (número)',
-      orcamentos: 'status: aberto/pendente = aguardando resposta do cliente; aprovado = fechado; perdido = não fechou; vencido = passou da validade. "valor" = preço à vista; "validoAte" = último dia de validade',
+      orcamentos: 'status: pendente = aguardando resposta do cliente (se "validoAte" já passou, está vencido); aceito = cliente fechou e o serviço está em andamento; concluido = serviço entregue; perdido = não fechou. "valor" = preço à vista; "validoAte" = último dia de validade',
       agenda: '"fechadoEm" = dia em que a venda foi fechada. etapa: producao = em produção; pronto = pronto p/ entrega; entregue = entregue. "inicio" = início do serviço, "entrega" = data prevista. "pago" = já recebido do "valor"',
       financas: 'tipo entrada = dinheiro que entrou; saida = gasto. totaisPorMes cobre todos os meses; lancamentos só os últimos ' + meses + ' meses',
-      boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
+      visitas: 'visitas de medição agendadas (status agendada) e as recentes (realizada/cancelada); "data" AAAA-MM-DD, "hora" HH:MM',
+      boletos: 'tipo receber = o CLIENTE deve à empresa (parcela, saldo, cobrança, entrada); tipo pagar = a EMPRESA deve (energia, fornecedor, etc.). status: pendente = em aberto e ainda no prazo; vencido = atrasado; pago; cancelado',
+      notas: 'anotações de visita e medidas, da mais antiga para a mais recente (últimas 60)',
+      funcionarios: 'quadro de funcionários: nome, cargo e situação (ativo, férias ou inativo). Sem salário nem documentos',
       janelaMeses: meses
     },
     agenda: agenda,
+    visitas: visitas,
     financas: { lancamentos: lanc, totaisPorMes: totMes },
     boletos: boletos,
     orcamentos: orc,
     orcamentosAntigosPorMes: orcAntigos,
     contratos: contratos,
     clientes: clientes,
-    catalogo: catalogo
+    catalogo: catalogo,
+    notas: notas,
+    funcionarios: funcionarios
   };
 }
 
@@ -2780,3 +2823,356 @@ function _snapAgendar() {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 1500);
 })();
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// TIPO DO BOLETO (a receber / a pagar)
+// Usa b.tipo quando o app o grava; sem ele, infere pela categoria — a mesma
+// regra que o Worker usa (parcela, saldo, cobrança, entrada = a receber).
+// ═══════════════════════════════════════════════════════════════════════
+function _bolTipo(b) {
+  if (!b) return 'pagar';
+  if (b.tipo === 'receber' || b.tipo === 'pagar') return b.tipo;
+  var c = String(b.cat || b.categoria || '').toLowerCase();
+  try { c = c.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+  return ['parcela', 'saldo', 'cobranca', 'entrada'].indexOf(c.trim()) >= 0 ? 'receber' : 'pagar';
+}
+window._bolTipo = _bolTipo;
+
+// ═══════════════════════════════════════════════════════════════════════
+// CAPACIDADES: o que o app EXPÕE ao bot (seções para ler, ações para pedir)
+// O dono liga/desliga seções e confirma ações pelo WhatsApp. O que não está
+// declarado aqui o bot não enxerga nem executa.
+// ═══════════════════════════════════════════════════════════════════════
+var _CAP_SECOES = [
+  { chave: 'agenda',       nome: 'Agenda de serviços', descricao: 'Serviços em produção e entregues, com datas de início e entrega', base: true,  ativa_padrao: true },
+  { chave: 'visitas',      nome: 'Visitas de medição', descricao: 'Visitas agendadas, realizadas e canceladas',                      base: false, ativa_padrao: true },
+  { chave: 'financas',     nome: 'Finanças',           descricao: 'Entradas, saídas e totais por mês',                               base: true,  ativa_padrao: true },
+  { chave: 'boletos',      nome: 'Boletos',            descricao: 'A receber e a pagar, com vencimento e situação',                  base: true,  ativa_padrao: true },
+  { chave: 'orcamentos',   nome: 'Orçamentos',         descricao: 'Orçamentos recentes e totais dos antigos',                        base: true,  ativa_padrao: true },
+  { chave: 'contratos',    nome: 'Contratos',          descricao: 'Contratos gerados, cliente, valor e situação',                    base: false, ativa_padrao: true },
+  { chave: 'clientes',     nome: 'Clientes',           descricao: 'Cadastro de clientes (nome, telefone, cidade)',                   base: false, ativa_padrao: true },
+  { chave: 'catalogo',     nome: 'Catálogo e preços',  descricao: 'Pedras e cubas com preço (sem fotos nem custos)',                 base: false, ativa_padrao: true },
+  { chave: 'notas',        nome: 'Anotações',          descricao: 'Anotações de visita e medidas',                                   base: false, ativa_padrao: true },
+  { chave: 'funcionarios', nome: 'Funcionários',       descricao: 'Nome, cargo e situação (sem salário nem documentos)',             base: false, ativa_padrao: true }
+];
+
+var _CAP_ACOES = [
+  { acao: 'agendar_visita', nome: 'Agendar visita de medição', descricao: 'Cria uma visita na agenda de visitas',
+    parametros: { cliente: 'nome do cliente', data: 'AAAA-MM-DD', hora: 'HH:MM (opcional)', endereco: 'opcional', telefone: 'opcional', obs: 'opcional' } },
+  { acao: 'remarcar_visita', nome: 'Remarcar visita', descricao: 'Muda data e/ou hora de uma visita agendada',
+    parametros: { cliente: 'nome do cliente', data_atual: 'AAAA-MM-DD da visita (opcional se só houver uma)', nova_data: 'AAAA-MM-DD', nova_hora: 'HH:MM (opcional)' } },
+  { acao: 'marcar_visita', nome: 'Marcar visita como realizada ou cancelada', descricao: 'Muda a situação de uma visita',
+    parametros: { cliente: 'nome do cliente', data: 'AAAA-MM-DD (opcional se só houver uma)', status: 'realizada, cancelada ou agendada' } },
+  { acao: 'mudar_entrega_servico', nome: 'Mudar data de entrega de um serviço', descricao: 'Altera a data de entrega de um serviço em aberto na agenda',
+    parametros: { cliente: 'nome do cliente', servico: 'trecho da descrição (opcional)', nova_entrega: 'AAAA-MM-DD' } },
+  { acao: 'marcar_boleto_pago', nome: 'Marcar boleto como pago', descricao: 'Marca um boleto em aberto como pago e lança em Finanças, como o botão do app',
+    parametros: { nome: 'cliente ou fornecedor do boleto', tipo: 'receber ou pagar (opcional)', vencimento: 'AAAA-MM-DD (opcional)', valor: 'valor do boleto (opcional)', valor_pago: 'valor efetivamente pago, se diferente (opcional)', data_pagamento: 'AAAA-MM-DD (opcional, padrão hoje)' } },
+  { acao: 'marcar_orcamento', nome: 'Marcar orçamento como perdido ou reabrir', descricao: 'Muda um orçamento pendente para perdido, ou um perdido de volta para pendente. Aceitar e concluir envolvem valor recebido e ficam no app',
+    parametros: { cliente: 'nome do cliente', data: 'AAAA-MM-DD do orçamento (opcional)', status: 'perdido ou pendente' } },
+  { acao: 'marcar_contrato', nome: 'Marcar contrato como assinado, gerado ou pendente', descricao: 'Muda a situação de um contrato já gerado no app',
+    parametros: { cliente: 'nome do cliente', data: 'AAAA-MM-DD do orçamento (opcional)', status: 'assinado, gerado ou pendente' } },
+  { acao: 'desfazer_ultima_acao', nome: 'Desfazer a última ação feita no aplicativo', confirmar: false,
+    descricao: 'Desfaz a ação mais recente que o bot executou no app (visita, entrega, boleto pago, orçamento, contrato, nota). Use quando o Sr. Hangel escrever "desfazer no app", "desfaz o que fez no app" ou pedir para voltar a última ação do app' },
+  { acao: 'criar_nota', nome: 'Criar anotação', descricao: 'Adiciona uma anotação em Anotações',
+    parametros: { cliente: 'opcional', texto: 'texto da anotação' } }
+];
+
+var _capUltimo = '';
+function botDeclararCapacidades(forcar) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) return;
+  var corpo = JSON.stringify({ secoes: _CAP_SECOES, acoes: _CAP_ACOES });
+  if (!forcar && _capUltimo === corpo) return;
+  fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/capacidades', { method: 'POST', headers: _botHeaders(), body: corpo })
+    .then(function (r) { if (r.ok) _capUltimo = corpo; })
+    .catch(function () {});
+}
+window.botDeclararCapacidades = botDeclararCapacidades;
+
+// ═══════════════════════════════════════════════════════════════════════
+// COMANDOS: o dono confirma no WhatsApp; o app busca, executa e devolve o resultado
+// ═══════════════════════════════════════════════════════════════════════
+function _botNorm(t) {
+  var s = String(t == null ? '' : t).toLowerCase();
+  try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+  return s.replace(/\s+/g, ' ').trim();
+}
+// todas as palavras buscadas aparecem no nome
+function _botCasa(nome, busca) {
+  var n = ' ' + _botNorm(nome) + ' ', ws = _botNorm(busca).split(' ').filter(Boolean);
+  if (!ws.length) return false;
+  return ws.every(function (w) { return n.indexOf(w) >= 0; });
+}
+function _botISO(d) { return /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) && !isNaN(new Date(d + 'T12:00:00')); }
+function _botHora(h) { var m = String(h || '').match(/^(\d{1,2}):(\d{2})$/); return m && +m[1] < 24 && +m[2] < 60 ? (m[1].length < 2 ? '0' : '') + m[1] + ':' + m[2] : ''; }
+function _botAtualizaTelas() {
+  try { if (typeof renderAg === 'function') renderAg(); } catch (e) {}
+  try { if (typeof updUrgDot === 'function') updUrgDot(); } catch (e) {}
+  try { if (typeof _bRerender === 'function') _bRerender(); } catch (e) {}
+  try { if (typeof bUpdDot === 'function') bUpdDot(); } catch (e) {}
+  try { if (typeof renderSecretaria === 'function' && document.getElementById('secBody') && _secCurrentTab !== 'chat') renderSecretaria(); } catch (e) {}
+  try { if (typeof homeRadar === 'function') homeRadar(); } catch (e) {}
+  try { if (typeof secNotifDotUpdate === 'function') secNotifDotUpdate(); } catch (e) {}
+}
+function _botVisitaUnica(p, dataCampo, statusOk) {
+  var achadas = _getV().filter(function (v) { return v && _botCasa(v.cli, p.cliente) && (!statusOk || statusOk(v)) && (!p[dataCampo] || v.date === p[dataCampo]); });
+  if (!achadas.length) return { erro: 'Não encontrei visita de "' + p.cliente + '"' + (p[dataCampo] ? ' em ' + fd(p[dataCampo]) : '') + '.' };
+  if (achadas.length > 1) return { erro: 'Há ' + achadas.length + ' visitas de "' + p.cliente + '": ' + achadas.map(function (v) { return fd(v.date) + (v.hora ? ' ' + v.hora : ''); }).join(', ') + '. Informe a data.' };
+  return { v: achadas[0] };
+}
+
+var _BOT_DICA_DESFAZER = ' Para desfazer, escreva: desfazer no app.';
+
+// Pilha de desfazer: guarda só o estado ANTERIOR (dados simples) das últimas ações do bot
+var _BOT_UNDO_KEY = 'hr_bot_undo';
+function _botUndoLer() { try { var a = JSON.parse(localStorage.getItem(_BOT_UNDO_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function _botUndoSalvar(a) { try { localStorage.setItem(_BOT_UNDO_KEY, JSON.stringify(a.slice(0, 15))); } catch (e) {} }
+function _botUndoPush(e) { var a = _botUndoLer(); a.unshift(e); _botUndoSalvar(a); }
+function _botIdsTrans() { var o = {}; (DB.t || []).forEach(function (t) { if (t) o[t.id] = 1; }); return o; }
+
+var _BOT_ACOES = {
+  agendar_visita: function (p) {
+    var cli = String(p.cliente || '').trim();
+    if (!cli) return { ok: false, mensagem: 'Falta o nome do cliente.' };
+    if (!_botISO(p.data)) return { ok: false, mensagem: 'Data inválida (use AAAA-MM-DD).' };
+    var hora = p.hora ? _botHora(p.hora) : '';
+    if (p.hora && !hora) return { ok: false, mensagem: 'Hora inválida (use HH:MM).' };
+    var dup = _getV().some(function (v) { return v.status === 'agendada' && _botNorm(v.cli) === _botNorm(cli) && v.date === p.data && (v.hora || '') === hora; });
+    if (dup) return { ok: false, mensagem: 'Já existe uma visita igual agendada.' };
+    var nv = { id: _genId(), cli: cli, tel: String(p.telefone || '').trim(), end: String(p.endereco || '').trim(), date: p.data, hora: hora, obs: String(p.obs || '').trim(), status: 'agendada' };
+    _getV().unshift(nv);
+    _saveV(); _botAtualizaTelas();
+    return { ok: true, mensagem: 'Visita de ' + cli + ' agendada para ' + fd(p.data) + (hora ? ' às ' + hora : '') + '.', undo: { t: 'visita_nova', id: nv.id } };
+  },
+  remarcar_visita: function (p) {
+    if (!_botISO(p.nova_data)) return { ok: false, mensagem: 'Nova data inválida (use AAAA-MM-DD).' };
+    var r = _botVisitaUnica({ cliente: p.cliente, data_atual: p.data_atual }, 'data_atual', function (v) { return v.status === 'agendada'; });
+    if (r.erro) return { ok: false, mensagem: r.erro };
+    var hora = p.nova_hora ? _botHora(p.nova_hora) : null;
+    if (p.nova_hora && !hora) return { ok: false, mensagem: 'Hora inválida (use HH:MM).' };
+    var u = { t: 'visita_campos', id: r.v.id, date: r.v.date, hora: r.v.hora || '', status: r.v.status };
+    r.v.date = p.nova_data; if (hora !== null) r.v.hora = hora;
+    _saveV(); _botAtualizaTelas();
+    return { ok: true, mensagem: 'Visita de ' + r.v.cli + ' remarcada para ' + fd(r.v.date) + (r.v.hora ? ' às ' + r.v.hora : '') + '.', undo: u };
+  },
+  marcar_visita: function (p) {
+    var st = _botNorm(p.status);
+    if (['realizada', 'cancelada', 'agendada'].indexOf(st) < 0) return { ok: false, mensagem: 'Situação inválida (realizada, cancelada ou agendada).' };
+    var r = _botVisitaUnica(p, 'data');
+    if (r.erro) return { ok: false, mensagem: r.erro };
+    var u = { t: 'visita_campos', id: r.v.id, date: r.v.date, hora: r.v.hora || '', status: r.v.status };
+    r.v.status = st; _saveV(); _botAtualizaTelas();
+    return { ok: true, mensagem: 'Visita de ' + r.v.cli + ' marcada como ' + st + '.', undo: u };
+  },
+  mudar_entrega_servico: function (p) {
+    if (!_botISO(p.nova_entrega)) return { ok: false, mensagem: 'Data inválida (use AAAA-MM-DD).' };
+    var js = (DB.j || []).filter(function (j) { return j && !j.done && j.stage !== 'entregue' && _botCasa(j.cli, p.cliente) && (!p.servico || _botCasa(j.desc, p.servico)); });
+    if (!js.length) return { ok: false, mensagem: 'Não encontrei serviço em aberto de "' + p.cliente + '".' };
+    if (js.length > 1) return { ok: false, mensagem: 'Há ' + js.length + ' serviços em aberto de "' + p.cliente + '": ' + js.map(function (j) { return (j.desc || 'sem descrição') + ' (entrega ' + (j.end ? fd(j.end) : 'sem data') + ')'; }).join('; ') + '. Informe o serviço.' };
+    var j = js[0], antes = j.end ? fd(j.end) : 'sem data';
+    var u = { t: 'job_campos', id: j.id, end: j.end || '', done: !!j.done };
+    j.end = p.nova_entrega; try { if (typeof _syncJobDone === 'function') _syncJobDone(j); } catch (e) {} DB.sv(); _botAtualizaTelas();
+    return { ok: true, mensagem: 'Entrega de ' + j.cli + (j.desc ? ' (' + j.desc + ')' : '') + ' mudou de ' + antes + ' para ' + fd(j.end) + '.', undo: u };
+  },
+  marcar_boleto_pago: function (p) {
+    if (typeof bMarcarPago !== 'function') return { ok: false, mensagem: 'O módulo de boletos não está carregado no app.' };
+    var nome = String(p.nome || '').trim();
+    if (!nome) return { ok: false, mensagem: 'Falta o nome do cliente ou fornecedor.' };
+    if (p.vencimento && !_botISO(p.vencimento)) return { ok: false, mensagem: 'Vencimento inválido (use AAAA-MM-DD).' };
+    if (p.data_pagamento && !_botISO(p.data_pagamento)) return { ok: false, mensagem: 'Data de pagamento inválida (use AAAA-MM-DD).' };
+    var tp = p.tipo ? _botNorm(p.tipo) : '';
+    if (tp && tp !== 'receber' && tp !== 'pagar') return { ok: false, mensagem: 'Tipo inválido (receber ou pagar).' };
+    var valor = p.valor != null && p.valor !== '' ? Number(String(p.valor).replace(',', '.')) : 0;
+    var vpago = p.valor_pago != null && p.valor_pago !== '' ? Number(String(p.valor_pago).replace(',', '.')) : 0;
+    var achados = (DB.b || []).filter(function (b) {
+      if (!b || b.status === 'pago' || b.status === 'cancelado') return false;
+      if (!(_botCasa(b.cli, nome) || _botCasa(b.desc, nome))) return false;
+      if (tp && _bolTipo(b) !== tp) return false;
+      if (p.vencimento && b.venc !== p.vencimento) return false;
+      if (valor > 0 && Math.abs((+b.valor || 0) - valor) > 0.009) return false;
+      return true;
+    });
+    if (!achados.length) return { ok: false, mensagem: 'Não encontrei boleto em aberto de "' + nome + '" com esses dados.' };
+    if (achados.length > 1) return { ok: false, mensagem: 'Há ' + achados.length + ' boletos em aberto de "' + nome + '": ' + achados.slice(0, 6).map(function (b) { return 'R$ ' + fm(b.valor || 0) + ' vence ' + (b.venc ? fd(b.venc) : 'sem data') + ' (' + _bolTipo(b) + ')'; }).join('; ') + '. Informe o vencimento ou o valor.' };
+    var b = achados[0], opts = { silent: true };
+    if (p.data_pagamento) opts.dtPag = p.data_pagamento;
+    if (vpago > 0) opts.valorPago = vpago;
+    var antes = _botIdsTrans();
+    var u = { t: 'boleto', id: b.id, status: b.status, dtPag: b.dtPag === undefined ? null : b.dtPag, valorPago: b.valorPago === undefined ? null : b.valorPago, trIds: [] };
+    bMarcarPago(b.id, opts);
+    (DB.t || []).forEach(function (t) { if (t && !antes[t.id]) u.trIds.push(t.id); });
+    _botAtualizaTelas();
+    return { ok: true, mensagem: 'Boleto de ' + (b.cli || b.desc || nome) + ' (R$ ' + fm(b.valor || 0) + ', venc. ' + (b.venc ? fd(b.venc) : 'sem data') + ') marcado como pago e lançado em Finanças.', undo: u };
+  },
+  marcar_orcamento: function (p) {
+    var st = _botNorm(p.status);
+    if (st !== 'perdido' && st !== 'pendente') return { ok: false, mensagem: 'Por aqui só é possível marcar como perdido ou reabrir como pendente. Aceitar e concluir pedem valor e forma de pagamento: faça no app.' };
+    if (p.data && !_botISO(p.data)) return { ok: false, mensagem: 'Data inválida (use AAAA-MM-DD).' };
+    var de = function (q) { return st === 'perdido' ? (!q.status || q.status === 'pendente') : q.status === 'perdido'; };
+    var achados = (DB.q || []).filter(function (q) { return q && de(q) && _botCasa(q.cli, p.cliente) && (!p.data || q.date === p.data); });
+    if (!achados.length) return { ok: false, mensagem: 'Não encontrei orçamento ' + (st === 'perdido' ? 'pendente' : 'perdido') + ' de "' + p.cliente + '"' + (p.data ? ' em ' + fd(p.data) : '') + '.' };
+    if (achados.length > 1) return { ok: false, mensagem: 'Há ' + achados.length + ' orçamentos de "' + p.cliente + '": ' + achados.slice(0, 6).map(function (q) { return (q.date ? fd(q.date) : 'sem data') + ' R$ ' + fm(q.vista || 0); }).join('; ') + '. Informe a data.' };
+    var q = achados[0];
+    var u = { t: 'orc', id: q.id, status: q.status === undefined ? null : q.status, statusDate: q._statusDate === undefined ? null : q._statusDate };
+    q.status = st; q._statusDate = td(); DB.sv();
+    try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+    _botAtualizaTelas();
+    return { ok: true, mensagem: 'Orçamento de ' + q.cli + (q.date ? ' (' + fd(q.date) + ', R$ ' + fm(q.vista || 0) + ')' : '') + ' marcado como ' + st + '.', undo: u };
+  },
+  marcar_contrato: function (p) {
+    var st = _botNorm(p.status);
+    if (['assinado', 'gerado', 'pendente'].indexOf(st) < 0) return { ok: false, mensagem: 'Situação inválida (assinado, gerado ou pendente).' };
+    if (p.data && !_botISO(p.data)) return { ok: false, mensagem: 'Data inválida (use AAAA-MM-DD).' };
+    if (typeof _cDB !== 'function' || typeof _cSv !== 'function') return { ok: false, mensagem: 'O módulo de contratos não está carregado no app.' };
+    var lista = _cDB();
+    var achados = [];
+    (DB.q || []).forEach(function (q) {
+      if (!q || !_botCasa(q.cli, p.cliente) || (p.data && q.date !== p.data)) return;
+      var c = lista.find(function (x) { return String(x.qid) === String(q.id); });
+      if (c) achados.push({ q: q, c: c });
+    });
+    if (!achados.length) return { ok: false, mensagem: 'Não há contrato gerado de "' + p.cliente + '". Gere o contrato no app primeiro.' };
+    if (achados.length > 1) return { ok: false, mensagem: 'Há ' + achados.length + ' contratos de "' + p.cliente + '": ' + achados.slice(0, 6).map(function (a) { return (a.q.date ? fd(a.q.date) : 'sem data') + ' R$ ' + fm(a.q.vista || 0) + ' (' + a.c.status + ')'; }).join('; ') + '. Informe a data do orçamento.' };
+    var a = achados[0];
+    var u = { t: 'contrato', qid: String(a.c.qid), status: a.c.status, dtGerado: a.c.dtGerado || '', removido: st === 'pendente' };
+    if (st === 'pendente') { DB.c = lista.filter(function (x) { return x !== a.c; }); } else { a.c.status = st; }
+    _cSv();
+    try { if (typeof renderContratos === 'function' && document.getElementById('ctrList')) renderContratos(); } catch (e) {}
+    try { _snapAgendar(); } catch (e) {}
+    return { ok: true, mensagem: 'Contrato de ' + a.q.cli + ' marcado como ' + st + '.', undo: u };
+  },
+  criar_nota: function (p) {
+    var texto = String(p.texto || '').trim();
+    if (!texto) return { ok: false, mensagem: 'Falta o texto da anotação.' };
+    if (!Array.isArray(DB.n)) DB.n = [];
+    var nid = Date.now();
+    DB.n.unshift({ id: nid, cliente: String(p.cliente || '').trim(), texto: texto.slice(0, 1000), tipo: 'geral', origem: 'whatsapp' });
+    DB.sv();
+    try { if (typeof renderNotas === 'function') renderNotas(); } catch (e) {}
+    return { ok: true, mensagem: 'Anotação criada' + (p.cliente ? ' para ' + p.cliente : '') + '.', undo: { t: 'nota', id: nid } };
+  },
+  desfazer_ultima_acao: function () {
+    var pilha = _botUndoLer(), e = null, limite = Date.now() - 48 * 3600 * 1000;
+    while (pilha.length) { var c = pilha.shift(); if (c && c.hora >= limite && c.undo && _BOT_DESFAZ[c.undo.t]) { e = c; break; } }
+    _botUndoSalvar(pilha);
+    if (!e) return { ok: false, mensagem: 'Não há ação do bot para desfazer (só as últimas 48 horas ficam guardadas).' };
+    var r;
+    try { r = _BOT_DESFAZ[e.undo.t](e.undo); } catch (x) { r = { ok: false, mensagem: 'Erro ao desfazer: ' + (x && x.message ? x.message : x) }; }
+    return r.ok ? { ok: true, mensagem: 'Desfeito: ' + (e.resumo || e.acao) + '. ' + r.mensagem } : { ok: false, mensagem: 'Não consegui desfazer "' + (e.resumo || e.acao) + '": ' + r.mensagem };
+  }
+};
+
+// Como voltar cada tipo de ação ao estado anterior
+var _BOT_DESFAZ = {
+  visita_nova: function (u) {
+    var n = _getV().length;
+    DB.v = _getV().filter(function (v) { return v.id !== u.id; });
+    if (DB.v.length === n) return { ok: false, mensagem: 'a visita não existe mais.' };
+    _saveV(); _botAtualizaTelas(); return { ok: true, mensagem: 'Visita removida da agenda.' };
+  },
+  visita_campos: function (u) {
+    var v = _getV().find(function (x) { return x.id === u.id; });
+    if (!v) return { ok: false, mensagem: 'a visita não existe mais.' };
+    v.date = u.date; v.hora = u.hora; v.status = u.status;
+    _saveV(); _botAtualizaTelas(); return { ok: true, mensagem: 'Visita de ' + v.cli + ' voltou para ' + fd(v.date) + (v.hora ? ' às ' + v.hora : '') + ' (' + v.status + ').' };
+  },
+  job_campos: function (u) {
+    var j = (DB.j || []).find(function (x) { return x.id === u.id; });
+    if (!j) return { ok: false, mensagem: 'o serviço não existe mais.' };
+    j.end = u.end; j.done = u.done;
+    DB.sv(); _botAtualizaTelas(); return { ok: true, mensagem: 'Entrega de ' + j.cli + ' voltou para ' + (j.end ? fd(j.end) : 'sem data') + '.' };
+  },
+  boleto: function (u) {
+    var b = (DB.b || []).find(function (x) { return x.id === u.id; });
+    if (!b) return { ok: false, mensagem: 'o boleto não existe mais.' };
+    b.status = u.status;
+    if (u.dtPag === null) delete b.dtPag; else b.dtPag = u.dtPag;
+    if (u.valorPago === null) delete b.valorPago; else b.valorPago = u.valorPago;
+    var ids = {}; (u.trIds || []).forEach(function (i) { ids[i] = 1; });
+    var n = (DB.t || []).length;
+    DB.t = (DB.t || []).filter(function (t) { return !(t && ids[t.id]); });
+    DB.sv();
+    try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
+    _botAtualizaTelas();
+    return { ok: true, mensagem: 'Boleto de ' + (b.cli || b.desc || '') + ' voltou para ' + b.status + (n !== DB.t.length ? ' e o lançamento em Finanças foi removido.' : '.') };
+  },
+  orc: function (u) {
+    var q = (DB.q || []).find(function (x) { return x.id === u.id; });
+    if (!q) return { ok: false, mensagem: 'o orçamento não existe mais.' };
+    if (u.status === null) delete q.status; else q.status = u.status;
+    if (u.statusDate === null) delete q._statusDate; else q._statusDate = u.statusDate;
+    DB.sv();
+    try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+    _botAtualizaTelas();
+    return { ok: true, mensagem: 'Orçamento de ' + q.cli + ' voltou para ' + (q.status || 'pendente') + '.' };
+  },
+  contrato: function (u) {
+    if (typeof _cDB !== 'function' || typeof _cSv !== 'function') return { ok: false, mensagem: 'o módulo de contratos não está carregado.' };
+    var lista = _cDB();
+    var c = lista.find(function (x) { return String(x.qid) === u.qid; });
+    if (u.removido) { if (!c) lista.push({ qid: u.qid, status: u.status, dtGerado: u.dtGerado }); }
+    else { if (!c) return { ok: false, mensagem: 'o contrato não existe mais.' }; c.status = u.status; }
+    _cSv();
+    try { if (typeof renderContratos === 'function' && document.getElementById('ctrList')) renderContratos(); } catch (e) {}
+    try { _snapAgendar(); } catch (e) {}
+    return { ok: true, mensagem: 'Contrato voltou para ' + u.status + '.' };
+  },
+  nota: function (u) {
+    var n = (DB.n || []).length;
+    DB.n = (DB.n || []).filter(function (x) { return x.id !== u.id; });
+    if (DB.n.length === n) return { ok: false, mensagem: 'a anotação não existe mais.' };
+    DB.sv();
+    try { if (typeof renderNotas === 'function') renderNotas(); } catch (e) {}
+    return { ok: true, mensagem: 'Anotação removida.' };
+  }
+};
+
+var _BOT_CMD_FEITOS = 'hr_bot_cmd_feitos'; // evita executar duas vezes se o envio do resultado falhar
+function _botCmdFeitos() { try { return JSON.parse(localStorage.getItem(_BOT_CMD_FEITOS) || '{}'); } catch (e) { return {}; } }
+function _botCmdMarca(id, r) {
+  var f = _botCmdFeitos(), ks = Object.keys(f);
+  if (ks.length > 60) ks.sort().slice(0, ks.length - 60).forEach(function (k) { delete f[k]; });
+  f[id] = r;
+  try { localStorage.setItem(_BOT_CMD_FEITOS, JSON.stringify(f)); } catch (e) {}
+}
+
+var _botCmdBusy = false;
+function botBuscarComandos() {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key || _botCmdBusy) return;
+  if (typeof DB === 'undefined' || !DB || !DB.sv) return;
+  _botCmdBusy = true;
+  var base = String(cfg.url).replace(/\/+$/, '');
+  fetch(base + '/bot/comandos', { headers: _botHeaders() })
+    .then(function (r) { return r.ok ? r.json() : { comandos: [] }; })
+    .then(function (d) {
+      return (d.comandos || []).reduce(function (cadeia, c) {
+        return cadeia.then(function () {
+          var feito = _botCmdFeitos()[c.id], r;
+          if (feito) r = feito;
+          else {
+            var fn = _BOT_ACOES[c.acao];
+            try { r = fn ? fn(c.parametros || {}) : { ok: false, mensagem: 'Este app não conhece a ação "' + c.acao + '".' }; }
+            catch (e) { r = { ok: false, mensagem: 'Erro ao executar: ' + (e && e.message ? e.message : e) }; }
+            if (r && r.ok && r.undo) {
+              _botUndoPush({ id: c.id, acao: c.acao, resumo: String(c.resumo || '').slice(0, 120), hora: Date.now(), undo: r.undo });
+              if ((String(r.mensagem || '') + _BOT_DICA_DESFAZER).length <= 300) r.mensagem += _BOT_DICA_DESFAZER;
+            }
+            if (r) delete r.undo;
+            _botCmdMarca(c.id, r);
+            try { if (typeof toast === 'function') toast((r.ok ? '✅ ' : '⚠ ') + r.mensagem); } catch (e) {}
+          }
+          return fetch(base + '/bot/comandos/resultado', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ id: c.id, ok: !!r.ok, mensagem: r.mensagem }) }).catch(function () {});
+        });
+      }, Promise.resolve());
+    })
+    .catch(function () {})
+    .then(function () { _botCmdBusy = false; });
+}
+window.botBuscarComandos = botBuscarComandos;
+
+setTimeout(function () { botDeclararCapacidades(); }, 9000);
+setInterval(function () { botDeclararCapacidades(); }, 30 * 60 * 1000);
+setTimeout(botBuscarComandos, 7000);
+setInterval(botBuscarComandos, 60000);
