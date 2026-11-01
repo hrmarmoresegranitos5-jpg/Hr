@@ -371,17 +371,51 @@ function botDisconnect() {
 // grava em DB.t (mesmo formato do saveFin) e confirma pro Worker.
 var _botFinBusy = false;
 
+// Categorias de despesa válidas no app (as mesmas do select do lançamento)
+var _CATS_FIN_PADRAO = ['material', 'mao_obra', 'insumos', 'fixo', 'combustivel', 'ferramentas', 'veiculo', 'outros'];
+function _botCatsValidas() {
+  var v = [];
+  try { document.querySelectorAll('#fCat option').forEach(function(o){ if (o.value) v.push(o.value); }); } catch (e) {}
+  return v.length ? v : _CATS_FIN_PADRAO;
+}
+
+// Correções pedidas pelo WhatsApp depois que o lançamento já estava no app: o bot manda { id, waId, campo:'cat', novo }
+// e o app aplica pelo waId, salva e devolve o resultado (ok ou o motivo de não ter aplicado). Aplicar duas vezes é inofensivo.
+function _botAplicarCorrecoes(cors, base) {
+  if (!cors || !cors.length) return Promise.resolve(0);
+  var validas = _botCatsValidas(), alterou = 0;
+  var respostas = cors.map(function(c){
+    var ok = false, motivo = '';
+    var t = DB.t.find(function(x){ return x.waId === c.waId; });
+    if (c.campo !== 'cat') motivo = 'tipo de correção desconhecido';
+    else if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)';
+    else if (t.type !== 'out') motivo = 'só gastos têm categoria';
+    else if (validas.indexOf(c.novo) < 0) motivo = 'a categoria "' + c.novo + '" não existe no aplicativo';
+    else { if (t.cat !== c.novo) { t.cat = c.novo; alterou++; } ok = true; }
+    return { id: c.id, ok: ok, motivo: motivo };
+  });
+  if (alterou) {
+    try { DB.sv(); } catch (e) { return Promise.reject(e); } // só avisa o bot depois de salvar
+    try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
+  }
+  return Promise.all(respostas.map(function(r){
+    return fetch(base + '/bot/correcoes/resultado', { method: 'POST', headers: _botHeaders(), body: JSON.stringify(r) }).catch(function(){});
+  })).then(function(){ return alterou; });
+}
+
 function botSyncFinancas(manual) {
   var cfg = _getBotCfg();
   if (!cfg.url || !cfg.key) { if (manual) toast('Conecte o bot primeiro (URL e chave).'); return; }
   if (typeof DB === 'undefined' || !DB || !DB.t) return;
   if (_botFinBusy) return;
   _botFinBusy = true;
-  fetch(cfg.url + '/bot/financas', { headers: _botHeaders() })
+  var base = String(cfg.url).replace(/\/+$/, '');
+  fetch(base + '/bot/financas', { headers: _botHeaders() })
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
     .then(function(x){
       if (!x.ok) { _botFinBusy = false; if (manual) toast('❌ ' + (x.d.error || 'Falha ao buscar lançamentos')); return; }
       var lista = x.d.lancamentos || [];
+      var cors = x.d.correcoes || [];
       var novos = 0, waIds = [];
       lista.forEach(function(l){
         waIds.push(l.waId);
@@ -398,9 +432,17 @@ function botSyncFinancas(manual) {
         DB.sv();
         try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
       }
-      if (!waIds.length) { _botFinBusy = false; if (manual) toast('Nenhum lançamento novo no bot.'); return; }
-      return fetch(cfg.url + '/bot/financas/confirmar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ waIds: waIds }) })
-        .then(function(){ _botFinBusy = false; if (novos) toast('📲 ' + novos + ' lançamento(s) do WhatsApp em Finanças'); else if (manual) toast('Nenhum lançamento novo no bot.'); });
+      var tarefas = [];
+      // só confirma ao bot depois de salvar no app (DB.sv acima)
+      if (waIds.length) tarefas.push(fetch(base + '/bot/financas/confirmar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ waIds: waIds }) }));
+      tarefas.push(_botAplicarCorrecoes(cors, base));
+      return Promise.all(tarefas).then(function(res){
+        _botFinBusy = false;
+        var corrigidas = Number(res[res.length - 1]) || 0;
+        if (novos) toast('📲 ' + novos + ' lançamento(s) do WhatsApp em Finanças');
+        else if (corrigidas) toast('✏️ ' + corrigidas + ' categoria(s) corrigida(s) pelo WhatsApp');
+        else if (manual) toast('Nenhum lançamento novo no bot.');
+      });
     })
     .catch(function(){ _botFinBusy = false; if (manual) toast('❌ Worker não acessível.'); });
 }
