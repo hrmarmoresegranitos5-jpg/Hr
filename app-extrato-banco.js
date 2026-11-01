@@ -37,6 +37,7 @@
     { k: 'veiculo',     i: '🚗', n: 'Veículo / manutenção' },
     { k: 'outros',      i: '📦', n: 'Outros' }
   ];
+  var CAT_ALIM = 'c_alimentacao_equipe';
   var K_CATS = 'hr_extrato_cats';   // categorias criadas por você ({k,i,n})
   var EMOJIS_CAT = ['🏷️', '🧾', '🍽️', '🏥', '📣', '📱', '🧹', '🛠️', '📚', '🎁'];
   // deixa a categoria conhecida no resto do app (pró-labore, resumo, modais de lançamento)
@@ -55,6 +56,10 @@
   (function carregarCatsCustom() {
     var salvas = [];
     try { salvas = JSON.parse(localStorage.getItem(K_CATS)) || []; } catch (e) {}
+    if (!salvas.some(function (c) { return c && c.k === CAT_ALIM; })) {      // comida/café/pão da equipe (não é gasto pessoal)
+      salvas.push({ k: CAT_ALIM, i: '🍽️', n: 'Alimentação da equipe' });
+      _gravar(K_CATS, salvas);
+    }
     var outros = CATS.pop();                                    // mantém "Outros" por último
     salvas.forEach(function (c) { if (c && c.k && !CATS.some(function (x) { return x.k === c.k; })) CATS.push(c); });
     CATS.push(outros);
@@ -85,6 +90,8 @@
   function diasEntre(a, b) { return Math.abs((Date.parse(a + 'T12:00:00') - Date.parse(b + 'T12:00:00')) / 86400000); }
   function mesmoGrupo(a, b) {
     if (a === b) return true;
+    a = String(a).replace(/ /g, ''); b = String(b).replace(/ /g, '');
+    if (a === b) return true;
     var m = Math.min(a.length, b.length);
     return m >= 8 && (a.indexOf(b) === 0 || b.indexOf(a) === 0);
   }
@@ -102,7 +109,12 @@
   function ehProprio(nomeNorm, docp) {
     var c = lerCfg();
     if (docp) for (var i = 0; i < c.docs.length; i++) if (docp.slice(-c.docs[i].length) === c.docs[i] && c.docs[i].length >= 11) return true;
-    for (var j = 0; j < c.nomes.length; j++) if (nomeNorm.indexOf(norm(c.nomes[j])) === 0 && nomeNorm.length >= 8) return true;
+    for (var j = 0; j < c.nomes.length; j++) {
+      var cn = norm(c.nomes[j]);
+      if (nomeNorm.indexOf(cn) === 0 && nomeNorm.length >= 8) return true;
+      // nome cortado pelo banco: "GILIARDE HANGE" é o começo de "GILIARDE HANGEL RODRIGUES"
+      if (nomeNorm.length >= 10 && nomeNorm.indexOf(' ') > 0 && cn.indexOf(nomeNorm) === 0) return true;
+    }
     return false;
   }
 
@@ -284,6 +296,8 @@
   // Entrada: matriz de linhas (array de arrays) da 1ª aba. Gera o mesmo formato
   // dos outros parsers. Colunas: Data | Descrição | Documento | Tipo | Valor | Saldo.
   function parseExtratoPlanilha(rows) {
+    var hbb = achaCabecalhoBBPlanilha(rows);
+    if (hbb >= 0) return parseExtratoBBPlanilha(rows, hbb);
     function celula(v) { return v == null ? '' : String(v).replace(/\u00a0/g, ' ').trim(); }
     function dinheiro(v) {
       if (typeof v === 'number') return Math.round(v * 100);
@@ -345,6 +359,7 @@
       if (/RENDE FACIL|APLIC(ACAO)? AUTOM|RESG(ATE)? AUTOM|INVEST FACIL/.test(mn)) tipo = 'rende';
       else if (sinal === '-' && /TARIFA|^TAR |CESTA|ANUIDADE|^IOF|MANUT/.test(mn)) tipo = 'tarifa';
       else if (sinal === '+' && /PIX/.test(mn) && /DEVOLV|ESTORNO/.test(mn)) tipo = 'estorno';
+      else if (sinal === '-' && /PIX/.test(mn) && /DEVOLV|ESTORNO/.test(mn)) tipo = 'estorno_in';
       else if (/PIX/.test(mn)) tipo = sinal === '-' ? 'pix_out' : 'pix_in';
       else if (/SAQUE/.test(mn)) tipo = 'saque';
       else if (/DEPOSITO|DEP DINHEIRO/.test(mn)) tipo = 'deposito';
@@ -411,6 +426,111 @@
     return { periodo: periodo, linhas: recs, saldoFinal: sfX, conferencia: { ok: erros.length === 0 && dias > 0, dias: dias, erros: erros }, avisos: avisos };
   }
 
+
+  // ───────────────────────── PARSER PLANILHA DO BB (XLSX do app/internet banking) ─────────────────────────
+  // Colunas: Data | Lançamento | Detalhes | N° documento | Valor | Tipo Lançamento
+  // O NOME de quem recebeu/pagou vem na coluna "Detalhes" (junto com o carimbo "dd/mm hh:mm"
+  // e, nos Pix recebidos, o CPF/CNPJ). Por isso este formato precisa de leitor próprio.
+  function achaCabecalhoBBPlanilha(rows) {
+    for (var i = 0; i < rows.length && i < 40; i++) {
+      var r = rows[i] || [];
+      if (norm(r[1]) === 'LANCAMENTO' && /^DETALHES/.test(norm(r[2]))) return i;
+    }
+    return -1;
+  }
+  function docNormal(d) {
+    d = String(d || '').replace(/\D/g, '');
+    if (d.length === 14 && d.indexOf('000') === 0) d = d.slice(3);   // CPF vem com zeros na frente
+    return d;
+  }
+  function parseExtratoBBPlanilha(rows, h0) {
+    function celula(v) { return v == null ? '' : String(v).replace(/\u00a0/g, ' ').trim(); }
+    function dinheiro(v) {
+      if (typeof v === 'number') return Math.round(v * 100);
+      var t = celula(v).replace(/[R$\s]/g, '');
+      if (!t || !/\d/.test(t)) return null;
+      var neg = /^-|\(.*\)$/.test(t);
+      t = t.replace(/[-()]/g, '');
+      if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(t);
+      if (isNaN(n)) return null;
+      return Math.round(n * 100) * (neg ? -1 : 1);
+    }
+    function dataBR(v) {
+      if (typeof v === 'number' && v > 30000 && v < 80000) {
+        var d = new Date(Math.round((v - 25569) * 86400000));
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+      }
+      var m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(celula(v));
+      return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+    }
+    var recs = [], avisos = [], vistos = {};
+    for (var i = h0 + 1; i < rows.length; i++) {
+      var r = rows[i] || [];
+      var data = dataBR(r[0]);
+      if (!data) continue;
+      var hist = celula(r[1]).replace(/\s+/g, ' ');
+      if (/^(SALDO|S\s*A\s*L\s*D\s*O)/i.test(hist)) continue;
+      var cent = dinheiro(r[4]);
+      if (cent === null) { avisos.push('Sem valor: ' + data + ' ' + hist.slice(0, 40)); continue; }
+      if (cent === 0) continue;
+      var tc = norm(r[5]);
+      if (tc === 'SAIDA' && cent > 0) cent = -cent;
+      if (tc === 'ENTRADA' && cent < 0) cent = -cent;
+      var sinal = cent < 0 ? '-' : '+';
+      var det = celula(r[2]).replace(/\s+/g, ' ');
+      var doc = celula(r[3]);
+
+      // carimbo da operação + nome
+      var dataEv = data, resto = det;
+      var sm = /^(\d{2})\/(\d{2})\s+(\d{2}:\d{2})\s*(.*)$/.exec(det);
+      if (sm) {
+        var cand = data.slice(0, 4) + '-' + sm[2] + '-' + sm[1];
+        if (cand > data) cand = (parseInt(data.slice(0, 4), 10) - 1) + '-' + sm[2] + '-' + sm[1];
+        dataEv = cand; resto = sm[4];
+      }
+      var mn = norm(hist);
+      var tipo = 'outro';
+      if (/RENDE FACIL|APLIC(ACAO)? AUTOM|RESG(ATE)? AUTOM|INVEST FACIL/.test(mn)) tipo = 'rende';
+      else if (/^TAR\b|^TARIFA/.test(mn)) tipo = 'tarifa';
+      else if (/^PIX/.test(mn) && /DEVOLV/.test(mn)) tipo = sinal === '+' ? 'estorno' : 'estorno_in';
+      else if (/^PIX/.test(mn)) tipo = sinal === '-' ? 'pix_out' : 'pix_in';
+      else if (/^COMPRA COM CART/.test(mn)) tipo = 'cartao';
+      else if (/^DEP/.test(mn) && /DINHEIRO|DEPOSITO/.test(mn)) tipo = 'deposito';
+      else if (/^SAQUE/.test(mn)) tipo = 'saque';
+      else if (/^PAGAMENTO DE BOLETO|^PAGAMENTO/.test(mn)) tipo = 'boleto';
+
+      var nome = resto, docp = '';
+      if (tipo === 'deposito') nome = 'Depósito em dinheiro';
+      else if (tipo === 'saque') nome = 'Saque em dinheiro';
+      else if (tipo === 'tarifa') nome = hist;
+      else if (tipo === 'rende') nome = hist;
+      else {
+        var dm = /^([\d.\/-]{6,})\s+(.*)$/.exec(nome);       // Pix recebido: \"04065091586 JAILTON RODRIG\"
+        if (dm) { docp = docNormal(dm[1]); nome = dm[2]; }
+        if (!nome || /^Dinheiro na Conta$/i.test(nome)) nome = nome || hist;
+      }
+      nome = nome.replace(/\s+/g, ' ').trim();
+      if (!nome) nome = (tipo === 'pix_in' || tipo === 'pix_out') ? 'Pix sem identificação' : hist;
+
+      var id = ['bbx', data, doc, cent].join('|');
+      if (vistos[id]) { vistos[id]++; id += '#' + vistos[id]; } else vistos[id] = 1;
+      recs.push({
+        id: id, tipo: tipo, data: data, dataEvento: dataEv, lote: '', doc: doc,
+        sinal: sinal, cent: cent, valor: Math.abs(cent) / 100,
+        hist: hist, nome: nome, nomeNorm: norm(nome), docp: docp
+      });
+    }
+    var periodo = null;
+    if (recs.length) {
+      var ds = recs.map(function (x) { return x.data; }).sort(), porMes = {};
+      ds.forEach(function (d) { porMes[d.slice(0, 7)] = (porMes[d.slice(0, 7)] || 0) + 1; });
+      var mes = Object.keys(porMes).sort(function (a, b) { return porMes[b] - porMes[a]; })[0];
+      periodo = { mes: mes, de: ds[0], ate: ds[ds.length - 1] };
+    }
+    return { periodo: periodo, linhas: recs, saldoFinal: null, conferencia: { ok: false, semConf: true, dias: 0, erros: [] }, avisos: avisos };
+  }
+
   function getFuncs() {
     try {
       if (window.HR_FUNC && HR_FUNC.getFuncionarios) {
@@ -449,6 +569,60 @@
     return r;
   }
 
+  // ───────────────────────── QUEM É? (tipo de negócio pelo nome) ─────────────────────────
+  // Lê o nome de cada Pix/compra e diz o que parece ser: padaria, loja de construção, mercado,
+  // posto, oficina, pessoa… A sugestão só destaca um botão; quem decide é você.
+  var TIPOS_NEG = [
+    { k: 'pagadora',   i: '💳', n: 'Instituição de pagamento', sug: '',        re: /MERCADO PAGO|PAGSEGURO|PAGBANK|PICPAY|INSTITUICAO DE PAGAMENTO|INSTITUICAO D\b/ },
+    { k: 'padaria',    i: '🥖', n: 'Padaria',             sug: CAT_ALIM,    re: /PADARIA|PANIFICADORA|PANIFICIO|CONFEITARIA|DOCERIA|\bPAES?\b/ },
+    { k: 'construcao', i: '🏗️', n: 'Loja de construção',  sug: 'insumos',     re: /MATERIAL DE CONSTRU|MAT DE CONSTRU|MATERIAIS DE CONSTRU|CONSTRUBASE|CONSTRU|FERRAGEM|FERRAGENS|SERRALHEIR|DEPOSITO DE MATERIA|\bTINTAS?\b|MADEIREIRA|VIDRACARIA|ELETRIC|HIDRAULIC|\bCIMENTO\b/ },
+    { k: 'pedra',      i: '🪨', n: 'Mármore / granito',   sug: 'material',    re: /MARMORES|MARMORARIA|GRANIT|PEDRAS\b/ },
+    { k: 'posto',      i: '⛽', n: 'Posto / combustível', sug: 'combustivel', re: /POSTO|COMBUSTIV|GASOLIN|PETROBRAS|IPIRANGA/ },
+    { k: 'oficina',    i: '🚗', n: 'Oficina / auto peças', sug: 'veiculo',    re: /OFICINA|MECANIC|AUTO PECAS|AUTOPECAS|BORRACHARIA|PNEU|LAVA JATO|LAVAJATO|FUNILARIA|AUTO CENTER|RETIFICA|\bAUTO LTDA|\bAUTO\b.*\bLTDA/ },
+    { k: 'conta',      i: '🏠', n: 'Conta fixa / serviço', sug: 'fixo',       re: /NEOENERGIA|COELBA|CACTUSNET|INTERNET|\bAGUA\b|CONTAB|PONTOCONTABIL|ENERGIA|SANEAMENTO|TARIFA/ },
+    { k: 'farmacia',   i: '💊', n: 'Farmácia / saúde',     sug: '',   re: /DROGARIA|DROGA|FARMACIA|CLINICA|ODONTO|LABORATORIO/ },
+    { k: 'lanche',     i: '🍽️', n: 'Lanche / restaurante', sug: CAT_ALIM,   re: /CHURRASCARIA|LANCH|PASTEL|RESTAURANTE|PIZZ|SORVET|ACAI|HAMBURG|ESPETINHO|KOMBINADO/ },
+    { k: 'mercado',    i: '🛒', n: 'Mercado',              sug: CAT_ALIM,   re: /SUPERMERCADO|MERCADINHO|MERCEARIA|MERCADO|COMERCIAL|ATACADO|ATACAREJO|HORTIFRUTI|VERDURA|ACOUGUE|\bMER$/ },
+    { k: 'bebidas',    i: '🍺', n: 'Bebidas',              sug: CAT_ALIM,   re: /BEBIDAS|CERVEJ/ },
+    { k: 'hotel',      i: '🏨', n: 'Hotel',                sug: 'outros',   re: /\bHOTEL\b|POUSADA/ },
+    { k: 'governo',    i: '🏛️', n: 'Governo / taxa',       sug: 'outros',     re: /DEPARTAMENTO|DETRAN|PREFEITURA|RECEITA FEDERAL|SEFAZ|MUNICIPIO|GOVERNO/ },
+    { k: 'digital',    i: '💻', n: 'Serviço digital',      sug: 'outros',     re: /GOOGLE|BYTEDANCE|APPMAX|MARSECON|MARKETPLACE|ZUPPER/ }
+  ];
+  var TIPO_FUNC = { k: 'func', i: '👷', n: 'Funcionário' };
+  function tipoNeg(g) {
+    var n = g.nomeNorm || '';
+    if (!n) return null;
+    if (ehProprio(n, g.docp)) return { k: 'proprio', i: '🔁', n: 'Você / sua empresa' };
+    for (var i = 0; i < TIPOS_NEG.length; i++) if (TIPOS_NEG[i].re.test(n)) return TIPOS_NEG[i];
+    var d = g.docp || '';
+    if (d.length === 14) return { k: 'empresa', i: '🏢', n: 'Empresa (CNPJ)' };
+    if (d.length === 11) return { k: 'pessoa', i: '🧑', n: 'Pessoa (CPF)' };
+    if (n.indexOf(' ') > 0 && !/\d/.test(n) && n.split(' ').length <= 6) return { k: 'pessoa', i: '🧑', n: 'Pessoa' };
+    return null;
+  }
+  // \"MP*DROGARIAPOUPA\", \"PAYGO*SUPERMERCADO R\", \"JIM.COM* HR MARMORES\": tira o prefixo da maquininha
+  function limparGateway(nome) {
+    return String(nome || '').replace(/^(PAYGO|MP|JIM\.?\s*COM|PG|PAG|SUMUP|IZ|CIELO|STONE|GETNET|PAGSEGURO|PAGBANK|EC|TON|MERCADOPAGO)\s*\*\s*/i, '').trim();
+  }
+  // O banco corta o nome em ~25 letras e cada tela corta de um jeito (\"ELLEN CRIST\" / \"Ellen Cristina Silva Alve\").
+  // Se um nome curto é o começo de UM só nome mais longo do mesmo extrato, usa o nome mais longo.
+  function completarNomes(linhas) {
+    var tipos = { pix_in: 1, pix_out: 1, cartao: 1, boleto: 1, estorno: 1, estorno_in: 1 };
+    var itens = linhas.filter(function (l) { return tipos[l.tipo] && l.nomeNorm && l.nomeNorm.length >= 6; });
+    var vistos = {};
+    itens.forEach(function (l) { if (!vistos[l.nomeNorm] || l.nome.length > vistos[l.nomeNorm].length) vistos[l.nomeNorm] = l.nome; });
+    var nomes = Object.keys(vistos);
+    itens.forEach(function (l) {
+      var a = l.nomeNorm.replace(/ /g, '');
+      if (a.length < 8) return;
+      var cands = nomes.filter(function (m) { return m !== l.nomeNorm && m.replace(/ /g, '').indexOf(a) === 0; });
+      if (!cands.length) return;
+      cands.sort(function (x, y) { return y.length - x.length; });
+      var longo = cands[0].replace(/ /g, '');
+      if (cands.every(function (c) { return longo.indexOf(c.replace(/ /g, '')) === 0; })) { l.nome = vistos[cands[0]]; l.nomeNorm = cands[0]; }
+    });
+  }
+
   // ───────────────────────── REGRAS APRENDIDAS ─────────────────────────
   function lerRegras() { return _ler(K_REGRAS, {}); }
   function achaRegra(regras, dir, nomeNorm) {
@@ -465,6 +639,11 @@
     var r = lerRegras();
     r[dir + '|' + nomeNorm] = { ac: ac, n: nomeExib, em: Date.now() };
     _gravar(K_REGRAS, r);
+  }
+  // o mesmo CNPJ pode aparecer com dois nomes ("SUPERMERCAD" e "R E A RAMOS"): lembra de todos
+  function aprenderGrupo(g, ac) {
+    var ks = (g.aliasNorms && g.aliasNorms.length) ? g.aliasNorms : [g.nomeNorm];
+    ks.forEach(function (k) { aprender(g.dir, k, titulo(g.nome), ac); });
   }
 
   // aprende com o que já existe no sistema: se lançamentos anteriores com o mesmo
@@ -488,19 +667,14 @@
 
   // sugestões (só destacam um botão; quem decide é você)
   function sugerir(g) {
-    var n = g.nomeNorm;
+    var n = g.nomeNorm, h = norm(g.hist || '');
     if (g.dir === 'in') {
-      if (ehProprio(n, g.docp)) return 'interna';
+      if (ehProprio(n, g.docp) || /POUPANCA/.test(h)) return 'interna';
+      if (/CASHBACK/.test(h)) return 'entrada';
       return 'cliente';
     }
-    if (ehProprio(n, g.docp)) return 'interna';
-    if (/MARMORES|GRANIT/.test(n)) return 'material';
-    if (/SERRALHEIR|CONSTRUBASE|FERRAGEM|ELETRIC|MATERIAL DE CONSTR/.test(n)) return 'insumos';
-    if (/POSTO|COMBUSTIV|GASOLIN/.test(n)) return 'combustivel';
-    if (/OFICINA|MECANIC|AUTO PECAS|AUTOPECAS|BORRACHARIA|PNEU|LAVA JATO|LAVAJATO|FUNILARIA|AUTO CENTER|RETIFICA/.test(n)) return 'veiculo';
-    if (/NEOENERGIA|COELBA|CACTUSNET|INTERNET|AGUA|CONTAB|TARIFA/.test(n)) return 'fixo';
-    if (/SUPERMERCADO|MERCADINHO|MERCADO|DROGARIA|FARMACIA|CLINICA|ODONTO|CHURRASCARIA|PASTEL|KOMBINADO|HOTEL|VERDURA/.test(n)) return 'retirada';
-    if (/GOOGLE|BYTEDANCE|APPMAX|MARSECON/.test(n)) return 'outros';
+    if (ehProprio(n, g.docp) || /POUPANCA/.test(h)) return 'interna';
+    if (g.neg && g.neg.sug) return g.neg.sug;
     var hc = _histCat(n); if (hc) return hc;
     if (typeof _finGuessCategoria === 'function') { var gc = _finGuessCategoria(g.nome); if (gc && gc !== 'mao_obra') return gc; }
     return '';
@@ -531,18 +705,33 @@
     }
 
     var linhas = parsed.linhas;
-    // devolução que anula um envio de mesmo valor
+    linhas.forEach(function (l) {
+      if (l.tipo === 'cartao') { l.nome = limparGateway(l.nome) || l.nome; l.nomeNorm = norm(l.nome); }
+    });
+    completarNomes(linhas);
+    // devolução que anula um envio (ou um recebimento) de mesmo valor.
+    // 1ª tentativa: mesmo nome. 2ª: só o valor, se houver um único candidato (o banco às vezes devolve com outro nome).
     linhas.forEach(function (e) {
-      if (e.tipo !== 'estorno') return;
-      for (var i = 0; i < linhas.length; i++) {
-        var o = linhas[i];
-        if (o.estado || o === e || o.sinal !== '-' || (o.tipo !== 'pix_out' && o.tipo !== 'cartao')) continue;
-        if (o.cent !== -e.cent || o.dataEvento > e.dataEvento) continue;
-        if (!mesmoGrupo(o.nomeNorm, e.nomeNorm)) continue;
-        o.estado = 'ignora'; o.motivo = 'enviado e devolvido';
-        e.estado = 'ignora'; e.motivo = 'enviado e devolvido';
-        return;
+      if (e.tipo !== 'estorno' && e.tipo !== 'estorno_in') return;
+      var devolveEnvio = e.tipo === 'estorno';
+      function achaPar(semNome) {
+        var achados = [];
+        for (var i = 0; i < linhas.length; i++) {
+          var o = linhas[i];
+          if (o.estado || o === e) continue;
+          if (devolveEnvio ? (o.sinal !== '-' || (o.tipo !== 'pix_out' && o.tipo !== 'cartao')) : (o.sinal !== '+' || o.tipo !== 'pix_in')) continue;
+          if (o.cent !== -e.cent || o.dataEvento > e.dataEvento) continue;
+          if (diasEntre(o.dataEvento, e.dataEvento) > 15) continue;
+          if (!semNome && !mesmoGrupo(o.nomeNorm, e.nomeNorm)) continue;
+          if (!semNome) return o;
+          achados.push(o);
+        }
+        return achados.length === 1 ? achados[0] : null;
       }
+      var par = achaPar(false) || achaPar(true);
+      if (!par) return;
+      par.estado = 'ignora'; par.motivo = devolveEnvio ? 'enviado e devolvido' : 'recebido e devolvido';
+      e.estado = 'ignora'; e.motivo = par.motivo;
     });
 
     var grupos = {};
@@ -552,15 +741,21 @@
         var ks = Object.keys(grupos);
         for (var i = 0; i < ks.length; i++) {
           var g0 = grupos[ks[i]];
-          if (!g0.askEach && g0.dir === dir && mesmoGrupo(g0.nomeNorm, l.nomeNorm)) { chave = ks[i]; break; }
+          if (g0.askEach || g0.dir !== dir) continue;
+          // mesmo nome, ou mesmo CPF/CNPJ (mesma pessoa/empresa que o banco escreveu de dois jeitos)
+          if (mesmoGrupo(g0.nomeNorm, l.nomeNorm) || (g0.docp && l.docp && g0.docp.length >= 11 && g0.docp === l.docp)) { chave = ks[i]; break; }
         }
         if (!chave) chave = dir + '|' + l.nomeNorm;
       }
-      if (!grupos[chave]) grupos[chave] = { key: chave, dir: dir, nome: l.nome, nomeNorm: l.nomeNorm, docp: l.docp, askEach: !!askEach, linhas: [], total: 0 };
-      grupos[chave].linhas.push(l);
-      grupos[chave].total += l.valor;
-      l.estado = 'ask';
-      return grupos[chave];
+      if (!grupos[chave]) grupos[chave] = { key: chave, dir: dir, nome: l.nome, nomeNorm: l.nomeNorm, docp: l.docp, hist: l.hist, askEach: !!askEach, linhas: [], total: 0, aliasNorms: [], apelidos: [] };
+      var G = grupos[chave];
+      G.linhas.push(l);
+      G.total += l.valor;
+      if (!G.docp && l.docp) G.docp = l.docp;
+      if (G.aliasNorms.indexOf(l.nomeNorm) < 0) { G.aliasNorms.push(l.nomeNorm); G.apelidos.push(l.nome); }
+      if (!askEach && l.nome.length > G.nome.length) { G.nome = l.nome; G.nomeNorm = l.nomeNorm; }   // fica o nome mais completo
+      l.estado = 'ask'; l._g = G;
+      return G;
     }
 
     linhas.forEach(function (l) {
@@ -604,6 +799,7 @@
     // sugestões + possível baixa em "A receber"
     var lista = Object.keys(grupos).map(function (k) { return grupos[k]; });
     lista.forEach(function (g) {
+      g.neg = g.askEach ? null : tipoNeg(g);
       g.sug = sugerir(g);
       g.cand = (g.dir === 'out' && !g.askEach) ? candidatosFunc(g.nomeNorm, funcs) : [];
       if (g.dir === 'in' && g.linhas.length === 1) {
@@ -620,7 +816,7 @@
 
   // ───────────────────────── LANÇAR NO FINANCEIRO ─────────────────────────
   function criarTr(l, ac, impId) {
-    var base = { id: Date.now() + Math.random(), date: l.dataEvento || l.data, value: l.valor, origem: 'extrato_bb', _extId: l.id, _extImp: impId };
+    var base = { id: Date.now() + Math.random(), date: l.dataEvento || l.data, value: l.valor, origem: 'extrato_bb', _extId: l.id, _extImp: impId, _extNome: titulo(l.nome) };
     var nomeL = titulo(l.nome);
     if (ac.a === 'cat') { base.type = 'out'; base.cat = ac.cat; base.desc = ac.label || nomeL; }
     else if (ac.a === 'terceiro') { base.type = 'out'; base.cat = 'mao_obra'; base.desc = ac.label || ('Pagamento — ' + nomeL); }
@@ -782,6 +978,10 @@
       '.ext-pill.out{background:rgba(201,68,68,.15);color:var(--red);}' +
       '.ext-pill.in{background:rgba(58,158,106,.15);color:var(--grn);}' +
       '.ext-pill.est{background:rgba(74,128,181,.15);color:var(--blu);}' +
+      '.ext-pill.neg{background:rgba(201,162,39,.14);color:var(--gold2);font-weight:600;letter-spacing:0;font-size:11px;}' +
+      '.ext-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px;}' +
+      '.ext-chip{padding:7px 11px;border-radius:20px;border:1px solid var(--bd2);background:var(--s3);color:var(--t2);font-size:12px;font-weight:600;font-family:inherit;}' +
+      '.ext-chip.on{border-color:var(--gold);color:var(--gold2);background:#2a2008;}' +
       '.ext-nm{font-size:20px;font-weight:700;margin:8px 0 4px;word-break:break-word;}' +
       '.ext-sub{font-size:13px;color:var(--t2);}' +
       '.ext-ln{font-size:12px;color:var(--t3);margin-top:8px;line-height:1.7;}' +
@@ -841,6 +1041,7 @@
     if (_S.etapa === 'lote') return telaLote();
     if (_S.etapa === 'pergunta') return telaPergunta();
     if (_S.etapa === 'conferencia') return telaConferencia();
+    if (_S.etapa === 'pix') return telaPix();
     if (_S.etapa === 'fim') return telaFim();
   }
 
@@ -867,7 +1068,7 @@
     var h = '<div class="ext-card"><div style="font-size:13px;color:var(--t2);">Extrato ' + esc(per) + '</div>' +
       '<div style="font-size:26px;font-weight:700;margin:6px 0;">' + P.linhas.length + ' lançamentos</div>' +
       (P.conferencia.semConf
-        ? '<div class="ext-sub">Arquivo OFX: o banco não manda saldo por dia, então confira os totais antes de lançar.</div>'
+        ? '<div class="ext-sub">Este arquivo não traz o saldo de cada dia, então confira os totais antes de lançar.</div>'
         : P.conferencia.ok
         ? '<div class="ext-ok" style="font-size:13px;">✓ Conferido: o saldo bate com o banco em ' + P.conferencia.dias + ' dias</div>'
         : '<div class="ext-warn" style="font-size:13px;">⚠️ Não consegui conferir o saldo com o banco' + (P.conferencia.erros.length ? ' (' + esc(P.conferencia.erros[0]) + ')' : '') + '. Confira os valores no final.</div>') +
@@ -879,6 +1080,8 @@
       '<div class="ext-row"><span>❓ Preciso da sua resposta</span><b>' + nGr + (nGr === 1 ? ' pergunta' : ' perguntas') + '</b></div>' +
       '</div>';
     var nLote = P.grupos.filter(function (g) { return !!acDoSug(g); }).length;
+    var nPix = P.linhas.filter(function (l) { return l.tipo === 'pix_in' || l.tipo === 'pix_out'; }).length;
+    if (nPix) h += '<button class="ext-b w" style="width:100%;margin-bottom:12px" onclick="HR_EXTRATO.verPix()">📋 Ver cada Pix com o nome (' + nPix + ')</button>';
     if (nGr) h += '<div class="ext-sub">Cada nome é perguntado só uma vez. A resposta vale pra todos os lançamentos dele — e fica lembrada pros próximos meses.</div>';
     quadro('Importar extrato', h, !nGr
       ? '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.irConferencia()">Ver resumo e lançar</button>'
@@ -933,7 +1136,10 @@
       '<div class="ext-sub">' + (_S.i + 1) + ' de ' + P.grupos.length + '</div>' +
       '<div class="ext-card">' + tag +
       '<div class="ext-nm">' + esc(titulo(g.nome)) + '</div>' +
-      '<div class="ext-sub">' + g.linhas.length + (g.linhas.length === 1 ? ' lançamento' : ' lançamentos') + ' · R$ ' + brl(g.total) + '</div>' +
+      ((g.cand && g.cand.length) ? '<span class="ext-pill neg">👷 Pode ser funcionário</span> ' : '') +
+      (g.neg ? '<span class="ext-pill neg">' + g.neg.i + ' ' + esc(g.neg.n) + '</span>' : '') +
+      ((g.apelidos && g.apelidos.length > 1) ? '<div class="ext-sub" style="margin-top:6px">Aparece também como: ' + esc(g.apelidos.filter(function (a) { return a !== g.nome; }).map(titulo).join(', ')) + '</div>' : '') +
+      '<div class="ext-sub" style="margin-top:6px">' + g.linhas.length + (g.linhas.length === 1 ? ' lançamento' : ' lançamentos') + ' · R$ ' + brl(g.total) + '</div>' +
       '<div class="ext-ln">' + prev + '</div>';
     if (_S.escolhendoFunc) {
       h += '<div class="ext-sub" style="margin-top:12px">Qual funcionário?</div><div class="ext-g">';
@@ -1009,6 +1215,7 @@
       h += '<div class="ext-card" style="' + (f ? 'opacity:.55' : '') + '">' +
         '<div class="ext-row" style="align-items:center"><span><b>' + esc(titulo(g.nome)) + '</b> ' +
         (g.dir === 'in' ? '<span class="ext-pill in">ENTRADA</span>' : '<span class="ext-pill out">SAÍDA</span>') +
+        (g.neg ? ' <span class="ext-pill neg">' + g.neg.i + ' ' + esc(g.neg.n) + '</span>' : '') +
         '<br><span class="ext-sub">' + g.linhas.length + (g.linhas.length === 1 ? ' lançamento' : ' lançamentos') + ' · R$ ' + brl(g.total) + '</span><br>' +
         '<span class="ext-sub">' + (f ? '❓ vou perguntar depois' : esc(descAc(ac))) + '</span></span>' +
         '<button class="ext-b" onclick="HR_EXTRATO.loteMudar(' + i + ')">' + (f ? 'Aceitar' : 'Mudar') + '</button></div></div>';
@@ -1037,12 +1244,59 @@
       if (!ac) return;
       g.linhas.forEach(function (l) { l.estado = 'resp'; l.ac = ac; l.forcar = false; });
       g.respondido = true;
-      if (_S.lembrar && ac.a !== 'baixa') aprender(g.dir, g.nomeNorm, titulo(g.nome), ac);
+      if (_S.lembrar && ac.a !== 'baixa') aprenderGrupo(g, ac);
     });
     _S.plano.grupos = _S.plano.grupos.filter(function (g) { return !g.respondido; });
     _S.i = 0; _S.lote = null; _S.loteFora = null;
     _S.etapa = _S.plano.grupos.length ? 'pergunta' : 'conferencia';
     desenhar();
+  }
+
+
+  // ───────────────────────── LISTA DE CADA PIX ─────────────────────────
+  function tipoDaLinha(l) {
+    if (l.estado === 'ignora') return { k: 'ignorado', i: '🚫', n: 'Ignorado' };
+    if (l.ac && l.ac.a === 'func') return TIPO_FUNC;
+    if (l.motivo && /^RH já lançou/.test(l.motivo)) return TIPO_FUNC;
+    var g = l._g;
+    if (g && g.cand && g.cand.length) return { k: 'func?', i: '👷', n: 'Pode ser funcionário' };
+    return tipoNeg({ nomeNorm: l.nomeNorm, docp: l.docp }) || { k: 'sem', i: '❓', n: 'Sem tipo' };
+  }
+  function statusDaLinha(l) {
+    if ((l.estado === 'auto' || l.estado === 'resp') && l.ac) return descAc(l.ac);
+    if (l.estado === 'ask') { var ac = l._g ? acDoSug(l._g) : null; return ac ? 'sugestão: ' + descAc(ac) : '❓ vou perguntar'; }
+    if (l.estado === 'pulado') return '⏭️ pulado';
+    return l.motivo || '';
+  }
+  function telaPix() {
+    var P = _S.plano, filtro = _S.pixFiltro || 'todos';
+    var pix = P.linhas.filter(function (l) { return l.tipo === 'pix_in' || l.tipo === 'pix_out' || l.tipo === 'estorno' || l.tipo === 'estorno_in'; })
+      .sort(function (a, b) { return a.dataEvento < b.dataEvento ? -1 : a.dataEvento > b.dataEvento ? 1 : 0; });
+    var itens = pix.map(function (l) { return { l: l, t: tipoDaLinha(l) }; });
+    var cont = {}, ordem = [];
+    itens.forEach(function (x) { if (!cont[x.t.k]) { cont[x.t.k] = { n: 0, t: x.t }; ordem.push(x.t.k); } cont[x.t.k].n++; });
+    ordem.sort(function (a, b) { return cont[b].n - cont[a].n; });
+    var h = '<div class="ext-sub">Cada Pix com o nome que o banco informou e o que o sistema entendeu. Os nomes que ele não conhece, ele pergunta.</div><div class="ext-chips" style="margin-top:10px">' +
+      '<button class="ext-chip ' + (filtro === 'todos' ? 'on' : '') + '" onclick="HR_EXTRATO.pixFiltro(\'todos\')">Todos (' + itens.length + ')</button>';
+    ordem.forEach(function (k) {
+      h += '<button class="ext-chip ' + (filtro === k ? 'on' : '') + '" onclick="HR_EXTRATO.pixFiltro(\'' + k + '\')">' + cont[k].t.i + ' ' + esc(cont[k].t.n) + ' (' + cont[k].n + ')</button>';
+    });
+    h += '</div>';
+    var vis = itens.filter(function (x) { return filtro === 'todos' || x.t.k === filtro; });
+    var tIn = 0, tOut = 0;
+    vis.forEach(function (x) { if (x.l.sinal === '+') tIn += x.l.valor; else tOut += x.l.valor; });
+    h += '<div class="ext-card"><div class="ext-row"><span>💰 Entradas</span><b class="ext-ok">R$ ' + brl(tIn) + '</b></div><div class="ext-row"><span>📉 Saídas</span><b style="color:var(--red)">R$ ' + brl(tOut) + '</b></div></div>';
+    h += '<div class="ext-card">';
+    if (!vis.length) h += '<div class="ext-sub">Nenhum Pix nesse filtro.</div>';
+    vis.forEach(function (x) {
+      var l = x.l, ent = l.sinal === '+';
+      h += '<div class="ext-row" style="align-items:flex-start"><span style="min-width:0"><b>' + esc(titulo(l.nome)) + '</b><br>' +
+        '<span style="color:var(--t3);font-size:11px">' + dmy(l.dataEvento) + ' · ' + (ent ? 'entrada' : 'saída') + ' · ' + x.t.i + ' ' + esc(x.t.n) + '</span><br>' +
+        '<span class="ext-sub" style="font-size:11px">' + esc(statusDaLinha(l)) + '</span></span>' +
+        '<b style="white-space:nowrap;color:' + (ent ? 'var(--grn)' : 'var(--red)') + '">' + (ent ? '+' : '−') + ' R$ ' + brl(l.valor) + '</b></div>';
+    });
+    h += '</div>';
+    quadro('Cada Pix', h, '<button class="ext-b p" style="flex:1" onclick="HR_EXTRATO.voltarResumo()">← Voltar</button>');
   }
 
   function telaFim() {
@@ -1064,7 +1318,7 @@
   function aplicarResposta(g, ac, aprende) {
     g.linhas.forEach(function (l) { l.estado = 'resp'; l.ac = ac; l.forcar = false; });
     g.respondido = true;
-    if (aprende && !g.askEach && g.dir !== 'estorno' && ac.a !== 'baixa' && ac.a !== 'abater') aprender(g.dir, g.nomeNorm, titulo(g.nome), ac);
+    if (aprende && !g.askEach && g.dir !== 'estorno' && ac.a !== 'baixa' && ac.a !== 'abater') aprenderGrupo(g, ac);
     _S.i++;
     _S.escolhendoFunc = false;
     desenhar();
@@ -1154,7 +1408,7 @@
       if (ehPlanilhaBuf(buf)) {
         linhasDaPlanilha(buf).then(function (rows) {
           var pp = parseExtratoPlanilha(rows);
-          if (!pp.linhas.length) { alert('Não encontrei lançamentos nessa planilha. Envie o extrato (Data, Descrição, Documento, Tipo, Valor, Saldo).'); return; }
+          if (!pp.linhas.length) { alert('Não encontrei lançamentos nessa planilha. Envie o extrato do banco (BB: Data, Lançamento, Detalhes, Documento, Valor, Tipo — ou Bradesco: Data, Descrição, Documento, Tipo, Valor, Saldo).'); return; }
           iniciar(montarPlano(pp), file.name);
         }).catch(function (e) { alert(e && e.message ? e.message : 'Erro ao ler a planilha.'); });
         return;
@@ -1292,12 +1546,14 @@
     voltarConf: function () { if (_S.plano.grupos.length) { _S.etapa = 'pergunta'; _S.i = Math.max(0, _S.plano.grupos.length - 1); var g = _S.plano.grupos[_S.i]; g.linhas.forEach(function (l) { l.estado = 'ask'; l.ac = null; }); desenhar(); } else { _S.etapa = 'resumo'; desenhar(); } },
     abrirLote: abrirLote, loteMudar: loteMudar, confirmarLote: confirmarLote,
     voltarResumo: function () { _S.etapa = 'resumo'; desenhar(); },
+    verPix: function () { _S.etapa = 'pix'; _S.pixFiltro = 'todos'; desenhar(); },
+    pixFiltro: function (k) { _S.pixFiltro = k; desenhar(); },
     resp: resp, respFunc: respFunc, novaCategoria: novaCategoria, pular: pular, voltar: voltar,
     voltarBotoes: function () { _S.escolhendoFunc = false; desenhar(); },
     lancar: lancar, desfazer: desfazer, verRegras: verRegras, esquecer: esquecer,
     _lembrar: function (v) { _S.lembrar = v; },
     _forcar: function (id, v) { _S.plano.linhas.forEach(function (l) { if (l.id === id) l.forcar = v; }); },
     renderTab: renderExtratoTab, iniciar: iniciar, _estado: function () { return _S; },
-    _parse: parseExtratoBB, _parseOFX: parseOFX, _parseXLSX: parseExtratoPlanilha, _plano: montarPlano
+    _parse: parseExtratoBB, _parseOFX: parseOFX, _parseXLSX: parseExtratoPlanilha, _plano: montarPlano, _tipoNeg: tipoNeg
   };
 })();
