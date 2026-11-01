@@ -5,6 +5,7 @@
   var PDF_TIMEOUT_MS = 60000;
   var busy = false;
   var cotados = {};         // pedidos já cotados (valor enviado ao Worker) nesta sessão
+  var tent = {};            // tentativas por falha de rede (3 e desiste)
   var feitos = {};          // ids já tratados nesta sessão (evita repetir se o Worker demorar a atualizar)
 
   // Acabamento do Worker → chave do SV_DEFS de cada tipo
@@ -24,9 +25,25 @@
     });
   }
 
+  var RE_REDE = /failed to fetch|networkerror|network request failed|load failed|timeout|timed out|abort|demorou demais/i;
   function revisar(ped, motivo) {
-    feitos[ped.id] = true;
-    return api('/bot/pedidos/status', { method: 'POST', body: JSON.stringify({ id: ped.id, status: 'revisar', motivo: motivo }) });
+    // Falha de rede não é erro de dados: o pedido continua na fila e o app tenta de novo (até 3 vezes)
+    if (RE_REDE.test(String(motivo || ''))) { tent[ped.id] = (tent[ped.id] || 0) + 1; if (tent[ped.id] >= 3) feitos[ped.id] = true; }
+    else feitos[ped.id] = true;
+    return api('/bot/pedidos/status', { method: 'POST', body: JSON.stringify({ id: ped.id, status: 'revisar', motivo: motivo }) }).catch(function () {});
+  }
+
+  // Cliente do WhatsApp sempre vai para o banco de clientes, sem perguntar (por telefone ou nome parecido)
+  function salvarCliente(ped) {
+    try {
+      var nome = String(ped.nome || '').trim(), tel = String(ped.numero || '').replace(/^55/, '');
+      if (!nome || typeof CLDB === 'undefined') return;
+      var telN = tel.replace(/\D/g, ''), ja = null;
+      if (telN) ja = CLDB.get().filter(function (c) { return String(c.tel || '').replace(/\D/g, '') === telN; })[0] || null;
+      if (!ja && typeof _cliBuscar === 'function') { var r = _cliBuscar(nome, 80); if (r.length) ja = r[0].c; }
+      if (ja) { if (tel && !ja.tel) CLDB.upd(ja.id, { tel: tel }); return; }
+      CLDB.add({ nome: nome, tel: tel, cidade: '', end: '', obs: 'Cliente via WhatsApp (bot)' });
+    } catch (e) { console.warn('[bot] salvar cliente:', e); }
   }
 
   // Pedra do pedido → pedra do catálogo (nome exato; senão uma única que contenha o texto)
@@ -44,9 +61,16 @@
     ['oCliente', 'oTel', 'oCidade', 'oEnd', 'oObs'].forEach(function (id) {
       var el = document.getElementById(id); campos[id] = el ? el.value : '';
     });
-    return { amb: ambientes, campos: campos, pend: pendQ, edit: pendEditId };
+    // sobra de um pedido do bot (rascunho salvo quando o app foi fechado no meio): não é trabalho do dono
+    var sobra = /Pedido via WhatsApp \(bot\)/.test(campos.oObs || '');
+    return { amb: ambientes, campos: campos, pend: pendQ, edit: pendEditId, sobra: sobra };
+  }
+  function novoSilencioso() { // o mesmo "Novo" do app, sem a pergunta de confirmação
+    var oc = window.confirm; window.confirm = function () { return true; };
+    try { novoOrcamento(); } catch (e) {} finally { window.confirm = oc; }
   }
   function restaurarTela(s) {
+    if (s.sobra) { novoSilencioso(); return; }
     ambientes = s.amb; pendQ = s.pend; pendEditId = s.edit;
     Object.keys(s.campos).forEach(function (id) { var el = document.getElementById(id); if (el) el.value = s.campos[id]; });
     try { renderAmbientes(); } catch (e) {}
@@ -91,6 +115,8 @@
 
   function montarQ(ped, stone) {
     var t = Date.now();
+    salvarCliente(ped);
+    novoSilencioso(); // começa de um orçamento limpo (zera também urgência e ajustes do anterior)
     var novos = itensDe(ped).map(function (it, i) { return ambienteDoItem(it, stone, t + i * 100); });
     ambientes = novos;
     pendQ = null; pendEditId = null;
