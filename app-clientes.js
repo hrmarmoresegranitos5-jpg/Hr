@@ -302,6 +302,24 @@ function _cliConsultorLoading(){
     +'</div></div>';
 }
 
+// Chat de uma pergunta só, roteado pelo tipo da chave: Anthropic (sk-ant-), Gemini (AIza/AQ.) ou Groq (demais).
+function _aiChatTexto(key,system,user,maxTok,signal){
+  var ant=key.indexOf('sk-ant-')===0, gem=!ant&&(key.indexOf('AIza')===0||key.indexOf('AQ.')===0);
+  function ok(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  if(ant) return fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:signal,
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:maxTok,system:system,messages:[{role:'user',content:user}]})})
+    .then(ok).then(function(d){return (d.content&&d.content[0]&&d.content[0].text)||'';});
+  if(gem) return fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key='+key,{method:'POST',signal:signal,
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({system_instruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:user}]}],generationConfig:{maxOutputTokens:maxTok}})})
+    .then(ok).then(function(d){return (d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts&&d.candidates[0].content.parts[0]&&d.candidates[0].content.parts[0].text)||'';});
+  return fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',signal:signal,
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:maxTok,messages:[{role:'system',content:system},{role:'user',content:user}]})})
+    .then(ok).then(function(d){return (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';});
+}
+
 function _cliFetchAIDesc(q){
   var key=CFG&&CFG.emp&&CFG.emp.apiKey; if(!key) return;
   var nome=q?q.cli:'';
@@ -331,26 +349,9 @@ function _cliFetchAIDesc(q){
   var controller=window.AbortController?new AbortController():null;
   var tid=controller?setTimeout(function(){controller.abort();},18000):null;
 
-  fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    signal:controller?controller.signal:undefined,
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({
-      model:'llama-3.3-70b-versatile',
-      max_tokens:350,
-      messages:[
-        {role:'system',content:'Você é consultor financeiro de marmoraria. Responda SOMENTE JSON válido, sem markdown, sem texto fora do JSON.'},
-        {role:'user',content:prompt}
-      ]
-    })
-  })
-  .then(function(r){
+  _aiChatTexto(key,'Você é consultor financeiro de marmoraria. Responda SOMENTE JSON válido, sem markdown, sem texto fora do JSON.',prompt,350,controller?controller.signal:undefined)
+  .then(function(text){
     if(tid) clearTimeout(tid);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  })
-  .then(function(d){
-    var text=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
     var clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
     var match=clean.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('no_json');

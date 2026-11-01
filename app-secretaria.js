@@ -1195,7 +1195,7 @@ function secFetchAI() {
     };
     apiBody = JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 800,
+      max_tokens: 1500,
       system: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.',
       messages: [{ role: 'user', content: '' }] // preenchido abaixo
     });
@@ -1231,12 +1231,12 @@ function secFetchAI() {
     body = JSON.stringify({
       system_instruction: { parts: [{ text: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.' }] },
       contents: [{ role: 'user', parts: [{ text: briefing }] }],
-      generationConfig: { maxOutputTokens: 800 }
+      generationConfig: { maxOutputTokens: 1500 }
     });
   } else {
     body = JSON.stringify({
       model: 'llama-3.3-70b-versatile',
-      max_tokens: 800,
+      max_tokens: 1500,
       messages: [
         { role: 'system', content: 'Você é a Secretária Inteligente da HR Mármores. Responda SOMENTE em JSON válido, sem markdown, sem texto fora do JSON.' },
         { role: 'user', content: briefing }
@@ -1275,7 +1275,7 @@ function secFetchAI() {
     }
     var clean = text.replace(/```json[\s\S]*?```|```/g, '').trim();
     var match = clean.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('parse: resposta não contém JSON');
+    if (!match) { console.warn('secFetchAI: resposta sem JSON (início):', String(text).slice(0, 200)); throw new Error('parse: resposta não contém JSON'); }
     _secAI.data = JSON.parse(match[0]);
     _secAI.loading = false;
     _secAI.lastUpdate = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
