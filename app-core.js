@@ -7529,6 +7529,7 @@ function calcular(){
       q.id=DB.q[eIdx].id;
       q.criadoPor=DB.q[eIdx].criadoPor||q.criadoPor; // preserva o autor original na edição
       q.brindes=DB.q[eIdx].brindes||[]; // preserva brindes já adicionados ao reeditar
+      if(DB.q[eIdx].orcNum)q.orcNum=DB.q[eIdx].orcNum; // preserva o ORC já emitido: não gera outro número ao editar
       DB.q[eIdx]=q;
       pendEditId=q.id;              // continua editando o MESMO orçamento nos próximos cálculos
     } else {
@@ -7635,9 +7636,20 @@ function gerarPDF(){
   var emp=CFG.emp;
 
   // ── Numeração sequencial a partir de 0 ──
-  var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
-  var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
-  localStorage.setItem('hr_pdf_count', pdfCount+1);
+  // O ORC é criado só na primeira emissão e gravado em q.orcNum (o q.id não muda);
+  // as próximas emissões do mesmo orçamento reutilizam o mesmo número, sem avançar o contador.
+  var _qNoDB=(q.id!=null)?(DB.q||[]).find(function(x){return x&&String(x.id)===String(q.id);}):null;
+  var orcNum=String(q.orcNum||(_qNoDB&&_qNoDB.orcNum)||'');
+  if(!orcNum){
+    var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
+    orcNum='ORC-'+String(pdfCount).padStart(4,'0');
+    localStorage.setItem('hr_pdf_count', pdfCount+1);
+  }
+  if(q.orcNum!==orcNum||(_qNoDB&&_qNoDB.orcNum!==orcNum)){
+    q.orcNum=orcNum;
+    if(_qNoDB&&_qNoDB!==q)_qNoDB.orcNum=orcNum;
+    try{DB.sv();}catch(e){console.warn('[orcNum] não salvou:',e);}
+  }
 
   var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;

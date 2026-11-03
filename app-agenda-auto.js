@@ -41,7 +41,6 @@
   // ── número do projeto (estável) ────────────────────────────────
   function projNum(q) {
     if (!q) return '';
-    if (q.orcNum) return q.orcNum;
     if (!q.projNum) {
       var n = 1;
       try { n = parseInt(localStorage.getItem('hr_proj_seq') || '0', 10) + 1; localStorage.setItem('hr_proj_seq', n); } catch (e) {}
