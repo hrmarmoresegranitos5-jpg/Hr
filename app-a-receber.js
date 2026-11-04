@@ -1,0 +1,579 @@
+// ═══════════════════════════════════════════════════════════════════
+// app-a-receber.js — Cliente recebeu e não pagou: "A Receber" + multa e juros
+// Carregar DEPOIS de app-agenda-v2.js.
+//
+// Fluxo:
+//  1. Marcou "Entregue" → abre a tela de receber (já existia).
+//  2. Cliente não pagou → botão "Cliente não pagou agora" → o app PERGUNTA
+//     se pode lançar como "a receber" (com vencimento).
+//  3. Depois do vencimento o app conta MULTA (uma vez) + JUROS (por dia).
+//  4. Tela "💸 A Receber": todos os clientes devendo, valor atualizado hoje,
+//     botão Receber, Cobrar no WhatsApp, mudar vencimento, perdoar encargos.
+//
+// Os dados ficam dentro do próprio serviço (j.fiado) — sincroniza junto com a agenda.
+// ═══════════════════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  var PADRAO = { multaPct: 2, jurosMesPct: 1, diasPrazo: 7, carenciaDias: 0 };
+
+  // ── utilidades ────────────────────────────────────────────────────
+  function p2(n) { return n < 10 ? '0' + n : '' + n; }
+  function iso(d) { return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()); }
+  function hoje() { return iso(new Date()); }
+  function mkData(s) { var a = String(s).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+  function somaDias(s, n) { var d = mkData(s); d.setDate(d.getDate() + n); return iso(d); }
+  function diff(a, b) { return Math.round((mkData(a) - mkData(b)) / 86400000); } // a - b em dias
+  function r2(n) { return Math.round(((+n || 0) + 1e-9) * 100) / 100; }
+  function brl(n) { return (typeof fm === 'function') ? fm(n) : (+n || 0).toFixed(2).replace('.', ','); }
+  function dm(s) { if (!s) return ''; var p = String(s).split('-'); return p[2] + '/' + p[1]; }
+  function dmy(s) { if (!s) return ''; var p = String(s).split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function toastS(m) { if (typeof toast === 'function') toast(m); }
+  function num(v) {
+    var raw = String(v == null ? '' : v).trim().replace(/[^\d,.-]/g, '');
+    if (raw.indexOf(',') > -1) raw = raw.replace(/\./g, '').replace(',', '.');
+    var n = parseFloat(raw);
+    return isNaN(n) ? 0 : n;
+  }
+  function achaJob(id) { return (DB.j || []).find(function (x) { return String(x.id) === String(id); }); }
+  function achaOrc(j) { return j && j.qId ? (DB.q || []).find(function (o) { return String(o.id) === String(j.qId); }) : null; }
+  function redesenha() { if (typeof renderAg === 'function') { try { renderAg(); } catch (e) {} } }
+
+  // ── configuração (multa / juros / prazo padrão) ───────────────────
+  function cfg() {
+    var c = (typeof CFG !== 'undefined' && CFG && CFG.cobranca) || {};
+    return {
+      multaPct: isFinite(c.multaPct) && c.multaPct !== '' && c.multaPct != null ? +c.multaPct : PADRAO.multaPct,
+      jurosMesPct: isFinite(c.jurosMesPct) && c.jurosMesPct !== '' && c.jurosMesPct != null ? +c.jurosMesPct : PADRAO.jurosMesPct,
+      diasPrazo: c.diasPrazo > 0 ? +c.diasPrazo : PADRAO.diasPrazo,
+      carenciaDias: isFinite(c.carenciaDias) && c.carenciaDias !== '' && c.carenciaDias != null && c.carenciaDias >= 0 ? Math.round(+c.carenciaDias) : PADRAO.carenciaDias
+    };
+  }
+  function salvaCfg(c) {
+    if (typeof CFG === 'undefined' || !CFG) return;
+    CFG.cobranca = c;
+    if (typeof svCFG === 'function') { try { svCFG(); } catch (e) {} }
+  }
+
+  // ── cálculo: multa + juros ────────────────────────────────────────
+  // Multa: % única sobre o que está em aberto, a partir do dia seguinte ao vencimento.
+  // Juros: % ao mês (simples), proporcional por dia (÷30), sobre o que está em aberto.
+  // Quando entra pagamento parcial / perdão, o que já foi apurado é "congelado" e o juros
+  // novo passa a contar só sobre o saldo que sobrou.
+  function calc(j, ref) {
+    ref = ref || hoje();
+    var f = j && j.fiado;
+    var rest = Math.max(0, r2((j.value || 0) - (j.pago || 0)));
+    var out = { rest: rest, dias: 0, multa: 0, juros: 0, enc: 0, total: rest, atrasado: false, jurosDia: 0, naCarencia: false };
+    if (!f || !f.venc) return out;
+    var car = f.carencia || 0;               // dias de tolerância depois do vencimento (sem multa nem juros)
+    var diasVenc = ref > f.venc ? diff(ref, f.venc) : 0;
+    var atras = diasVenc > car;
+    out.atrasado = atras;
+    out.naCarencia = diasVenc > 0 && !atras;
+    out.dias = atras ? diasVenc : 0;
+    out.jurosDia = r2(rest * (f.jurosMesPct || 0) / 100 / 30);
+    var multa = (f.multaCobrada != null) ? f.multaCobrada : (atras ? r2(rest * (f.multaPct || 0) / 100) : 0);
+    var dj = 0;
+    if (atras) dj = (f.desde && f.desde > f.venc) ? Math.max(0, diff(ref, f.desde)) : Math.max(0, diasVenc - car);
+    var juros = r2((f.jurosAcum || 0) + rest * ((f.jurosMesPct || 0) / 100 / 30) * dj);
+    out.multa = multa;
+    out.juros = juros;
+    out.enc = Math.max(0, r2(multa + juros - (f.encPago || 0) - (f.perdoado || 0)));
+    out.total = r2(rest + out.enc);
+    return out;
+  }
+  function congela(j, ref) {
+    var f = j.fiado; if (!f) return;
+    var c = calc(j, ref);
+    if (c.atrasado) {
+      f.multaCobrada = c.multa; f.jurosAcum = c.juros; f.desde = ref;
+    }
+  }
+  function emAberto(j) { return !!(j && j.fiado && ((j.value || 0) - (j.pago || 0)) > 0.005); }
+
+  // ── janelinha (bottom sheet) ──────────────────────────────────────
+  var ID = 'hrRecModal';
+  function fecha() { var m = document.getElementById(ID); if (m && m.parentNode) m.parentNode.removeChild(m); }
+  function sheet(html, opts) {
+    fecha();
+    opts = opts || {};
+    var m = document.createElement('div');
+    m.id = ID;
+    m.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+    m.innerHTML = '<div style="background:var(--bg,#0d0d12);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:' + (opts.alto || '90vh') + ';overflow-y:auto;padding:14px 18px 26px;border-top:2px solid var(--gold3,#C9A84C);">' +
+      '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>' + html + '</div>';
+    m.addEventListener('click', function (e) { if (e.target === m && !opts.fixo) fecha(); });
+    document.body.appendChild(m);
+    return m;
+  }
+  var LBL = 'display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;';
+  var BTN_OK = 'width:100%;padding:14px;border-radius:12px;border:none;background:var(--gold3,#C9A84C);color:#000;font-weight:800;font-size:.92rem;cursor:pointer;font-family:inherit;';
+  var BTN_NO = 'width:100%;margin-top:8px;padding:11px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:inherit;';
+  var BTN_LN = 'width:100%;margin-top:8px;padding:12px;border-radius:12px;border:1px dashed var(--gold3,#C9A84C);background:transparent;color:var(--gold,#C9A84C);font-weight:700;font-size:.82rem;cursor:pointer;font-family:inherit;';
+  var CHIP = 'flex:1;min-width:22%;padding:10px 6px;border-radius:10px;cursor:pointer;font-family:inherit;font-size:.74rem;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-weight:600;';
+  var INPUT = 'width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.9rem;box-sizing:border-box;font-family:inherit;';
+
+  function valorBox(id, valor) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:0 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);">' +
+      '<span style="color:var(--t3);font-weight:700;">R$</span>' +
+      '<input id="' + id + '" type="text" inputmode="decimal" value="' + (Math.round(valor * 100) / 100).toFixed(2).replace('.', ',') + '" style="flex:1;min-width:0;width:auto!important;padding:13px 0!important;border:none!important;background:transparent!important;box-shadow:none!important;color:var(--tx);font-size:1.05rem;font-weight:800;font-family:inherit;"></div>';
+  }
+  function resumoBox(cols) {
+    return '<div style="display:flex;gap:12px;flex-wrap:wrap;background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:12px 14px;margin-bottom:14px;">' +
+      cols.map(function (c) {
+        return '<div style="flex:1;min-width:30%;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">' + c[0] + '</div>' +
+          '<div style="font-weight:800;color:' + (c[2] || 'var(--tx)') + ';">' + c[1] + '</div></div>';
+      }).join('') + '</div>';
+  }
+
+  // ═══ 1) PERGUNTA: pode lançar como "a receber"? ═══════════════════
+  function perguntarLancar(j) {
+    var rest = Math.max(0, r2((j.value || 0) - (j.pago || 0)));
+    if (rest <= 0.005) { toastS('Este serviço já está quitado'); return; }
+    var c = cfg();
+    var venc = somaDias(hoje(), c.diasPrazo);
+    var jDia = r2(rest * c.jurosMesPct / 100 / 30);
+    sheet(
+      '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">💸 Cliente não pagou?</div>' +
+      '<div style="font-size:.78rem;color:var(--t2);margin:6px 0 14px;line-height:1.5;">Posso lançar <b style="color:#e0a530;">R$ ' + brl(rest) + '</b> de <b>' + esc(j.cli) + '</b> no sistema como <b>a receber</b>?</div>' +
+      '<label style="' + LBL + '">Cliente vai pagar até</label>' +
+      '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+        [3, 7, 15, 30].map(function (n) { return '<button type="button" data-rec-dias="' + n + '" style="' + CHIP + '">+' + n + ' dias</button>'; }).join('') +
+      '</div>' +
+      '<input id="hrRecVenc" type="date" value="' + venc + '" style="' + INPUT + 'margin-bottom:12px;">' +
+      '<div style="font-size:.7rem;color:var(--t3);line-height:1.5;background:var(--s2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;margin-bottom:16px;">' +
+        'Se passar do vencimento o app passa a contar <b>multa de ' + c.multaPct.toString().replace('.', ',') + '%</b> (uma vez) + <b>juros de ' + c.jurosMesPct.toString().replace('.', ',') + '% ao mês</b> (hoje daria R$ ' + brl(jDia) + ' por dia).' +
+        ' <u id="hrRecCfgLink" style="cursor:pointer;color:var(--gold);">Mudar taxas</u></div>' +
+      '<button type="button" id="hrRecSim" style="' + BTN_OK + '">Sim, lançar como a receber</button>' +
+      '<button type="button" id="hrRecNao" style="' + BTN_NO + '">Não lançar</button>',
+      { fixo: true });
+    var m = document.getElementById(ID);
+    Array.prototype.forEach.call(m.querySelectorAll('[data-rec-dias]'), function (b) {
+      b.addEventListener('click', function () {
+        document.getElementById('hrRecVenc').value = somaDias(hoje(), +b.getAttribute('data-rec-dias'));
+      });
+    });
+    document.getElementById('hrRecCfgLink').addEventListener('click', function () { abrirCfg(function () { perguntarLancar(j); }); });
+    document.getElementById('hrRecNao').addEventListener('click', fecha);
+    document.getElementById('hrRecSim').addEventListener('click', function () {
+      var v = document.getElementById('hrRecVenc').value || venc;
+      lancar(j, v);
+    });
+  }
+
+  function lancar(j, venc) {
+    var c = cfg();
+    j.fiado = {
+      lancadoEm: hoje(), venc: venc,
+      multaPct: c.multaPct, jurosMesPct: c.jurosMesPct, carencia: c.carenciaDias, // taxas combinadas ficam gravadas neste lançamento
+      multaCobrada: null, jurosAcum: 0, desde: null, encPago: 0, perdoado: 0
+    };
+    if (typeof DB.sv === 'function') DB.sv();
+    fecha();
+    redesenha();
+    toastS('💸 Lançado a receber de ' + j.cli + ' — vence ' + dmy(venc));
+  }
+
+  // ═══ 2) RECEBER (com multa e juros) ═══════════════════════════════
+  function abrirReceber(id) {
+    var j = achaJob(id); if (!j) return;
+    var c = calc(j);
+    if (c.rest <= 0.005) { toastS('Este serviço já está quitado'); return; }
+    var f = j.fiado;
+    var formas = ['Dinheiro', 'Pix', 'Cartão', 'Transferência'];
+    var icones = { 'Dinheiro': '💵', 'Pix': '📱', 'Cartão': '💳', 'Transferência': '🏦' };
+    var chips = formas.map(function (fo, i) {
+      return '<button type="button" data-rec-forma="' + fo + '" style="' + CHIP + 'min-width:44%;padding:11px 8px;font-size:.78rem;' +
+        (i === 0 ? 'background:var(--gold3);color:#000;border-color:var(--gold3);font-weight:800;' : '') + '">' + icones[fo] + ' ' + fo + '</button>';
+    }).join('');
+
+    var cols = [['Serviço', 'R$ ' + brl(j.value || 0)]];
+    if ((j.pago || 0) > 0) cols.push(['Já recebido', 'R$ ' + brl(j.pago), '#5dbf7a']);
+    cols.push(['Falta', 'R$ ' + brl(c.rest), '#e0a530']);
+
+    var enc = '';
+    if (f) {
+      if (c.atrasado) {
+        enc = '<div style="background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:12px;padding:10px 12px;margin-bottom:14px;font-size:.76rem;line-height:1.6;">' +
+          '<b style="color:#f08a8a;">⏰ Atrasado há ' + c.dias + (c.dias === 1 ? ' dia' : ' dias') + '</b> (venceu ' + dm(f.venc) + ')<br>' +
+          'Multa: R$ ' + brl(c.multa) + ' · Juros: R$ ' + brl(c.juros) +
+          ((f.encPago || 0) + (f.perdoado || 0) > 0.005 ? '<br><span style="color:var(--t3);">Já pago/perdoado de encargos: R$ ' + brl((f.encPago || 0) + (f.perdoado || 0)) + '</span>' : '') +
+          '<br><b>Total hoje: <span style="color:#e0a530;">R$ ' + brl(c.total) + '</span></b></div>';
+      } else {
+        enc = '<div style="font-size:.74rem;color:var(--t3);margin-bottom:14px;">📅 Vence em ' + dmy(f.venc) + ' — sem multa nem juros até lá.</div>';
+      }
+    }
+
+    sheet(
+      '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">💰 Receber — ' + esc(j.cli) + '</div>' +
+      '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">' + esc(j.desc || '') + '</div>' +
+      resumoBox(cols) + enc +
+      '<label style="' + LBL + '">Valor recebido agora</label>' +
+      valorBox('hrRecVal', c.total) +
+      '<div id="hrRecSaldo" style="font-size:.72rem;margin:6px 0 14px;min-height:16px;"></div>' +
+      '<input type="hidden" id="hrRecForma" value="Dinheiro">' +
+      '<label style="' + LBL + 'margin-bottom:8px;">Forma de pagamento</label>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">' + chips + '</div>' +
+      '<label style="display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--t2);margin:0 0 16px;text-transform:none;letter-spacing:0;cursor:pointer;"><input type="checkbox" id="hrRecComp" checked style="width:20px!important;height:20px;"> Gerar comprovante para o cliente</label>' +
+      '<button type="button" id="hrRecOk" style="' + BTN_OK + '">Confirmar recebimento</button>' +
+      (f ? '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Fechar</button>'
+         : '<button type="button" id="hrRecNaoPagou" style="' + BTN_LN + '">💸 Cliente não pagou agora — lançar como a receber</button>' +
+           '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Agora não</button>'),
+      { fixo: true });
+
+    var m = document.getElementById(ID);
+    function atualiza() {
+      var el = document.getElementById('hrRecSaldo'); if (!el) return;
+      var v = num(document.getElementById('hrRecVal').value);
+      var falta = r2(c.total - v);
+      if (v > c.total + 0.005) { el.style.color = '#f08a8a'; el.textContent = 'Maior que o total devido (R$ ' + brl(c.total) + ')'; }
+      else if (falta <= 0.005) { el.style.color = '#5dbf7a'; el.textContent = '✓ Fica quitado com esse pagamento'; }
+      else { el.style.color = '#e0a530'; el.textContent = 'Fica faltando R$ ' + brl(falta) + ' depois desse pagamento'; }
+    }
+    atualiza();
+    document.getElementById('hrRecVal').addEventListener('input', atualiza);
+    Array.prototype.forEach.call(m.querySelectorAll('[data-rec-forma]'), function (b) {
+      b.addEventListener('click', function () {
+        document.getElementById('hrRecForma').value = b.getAttribute('data-rec-forma');
+        Array.prototype.forEach.call(m.querySelectorAll('[data-rec-forma]'), function (o) {
+          var on = o === b;
+          o.style.background = on ? 'var(--gold3)' : 'var(--s2)';
+          o.style.color = on ? '#000' : 'var(--tx)';
+          o.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+          o.style.fontWeight = on ? '800' : '600';
+        });
+      });
+    });
+    var fx = document.getElementById('hrRecFecha'); if (fx) fx.addEventListener('click', fecha);
+    var np = document.getElementById('hrRecNaoPagou');
+    if (np) np.addEventListener('click', function () { perguntarLancar(j); });
+    document.getElementById('hrRecOk').addEventListener('click', function () {
+      var v = num(document.getElementById('hrRecVal').value);
+      if (v <= 0) { toastS('Informe um valor válido'); return; }
+      if (v > c.total + 0.005) { toastS('Valor maior que o total devido'); return; }
+      var forma = document.getElementById('hrRecForma').value;
+      var comp = document.getElementById('hrRecComp').checked;
+      fecha();
+      receber(j, v, forma, comp);
+    });
+  }
+
+  // aplica o pagamento: primeiro quita multa/juros, o resto abate o principal
+  // Abate o pagamento: primeiro multa e juros, o resto vai para o principal. Não mexe em Finanças.
+  function aplicaPagamento(j, v) {
+    var ref = hoje();
+    var c = calc(j, ref);
+    var encPago = 0;
+    if (j.fiado) {
+      congela(j, ref);
+      encPago = Math.min(v, c.enc);
+      j.fiado.encPago = r2((j.fiado.encPago || 0) + encPago);
+    }
+    var principal = r2(Math.min(v - encPago, c.rest));
+    j.pago = r2((j.pago || 0) + principal);
+    var quitou = r2((j.value || 0) - (j.pago || 0)) <= 0.005;
+    if (j.fiado && quitou) j.fiado.quitadoEm = ref;
+    return { encPago: encPago, principal: principal, quitou: quitou };
+  }
+
+  function receber(j, v, forma, comp) {
+    var ap = aplicaPagamento(j, v);
+    var encPago = ap.encPago, quitou = ap.quitou;
+    var desc = 'Entrega — ' + j.cli + ' · ' + forma + (encPago > 0.005 ? ' (inclui R$ ' + brl(encPago) + ' de multa/juros)' : '');
+    var tr = (typeof addTr === 'function') ? addTr('in', desc, v, null, j.id) : null;
+    if (typeof DB.sv === 'function') DB.sv();
+    redesenha();
+    if (document.getElementById('hrRecLista')) abrirLista();
+    toastS('✓ R$ ' + brl(v) + ' (' + forma + ') lançado em Finanças' + (quitou ? ' — quitado' : ''));
+    if (comp && tr && typeof gerarComprovante === 'function') setTimeout(function () { gerarComprovante(tr.id); }, 400);
+  }
+
+  // ═══ 3) LISTA "A RECEBER" ═════════════════════════════════════════
+  function lista() {
+    return (DB.j || []).filter(emAberto).map(function (j) { return { j: j, c: calc(j) }; })
+      .sort(function (a, b) { return (b.c.dias - a.c.dias) || String(a.j.fiado.venc).localeCompare(String(b.j.fiado.venc)); });
+  }
+
+  function faixa() {
+    var l = lista(); if (!l.length) return '';
+    var tot = 0, atr = 0;
+    l.forEach(function (x) { tot += x.c.total; if (x.c.atrasado) atr++; });
+    return '<button type="button" data-hrrec-lista="1" style="display:flex;width:100%;text-align:left;align-items:center;gap:9px;padding:10px 12px;border-radius:12px;margin:8px 0 2px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.4);font-size:.74rem;line-height:1.35;color:var(--tx);font-family:inherit;cursor:pointer;">💸<div style="flex:1;">' +
+      '<b style="color:#f08a8a;font-size:.86rem;">A receber de clientes: R$ ' + brl(tot) + '</b><br>' + l.length + (l.length === 1 ? ' cliente' : ' clientes') +
+      (atr ? ' · <b>' + atr + ' em atraso</b>' : '') + ' · toque para ver</div><span style="color:var(--t3);">›</span></button>';
+  }
+
+  function tagCard(j) {
+    if (!emAberto(j)) return '';
+    var c = calc(j);
+    var f = j.fiado;
+    var txt = c.atrasado
+      ? '⏰ Atrasado ' + c.dias + 'd · deve R$ ' + brl(c.total) + (c.enc > 0.005 ? ' (c/ multa e juros)' : '')
+      : '💸 A receber R$ ' + brl(c.rest) + ' · vence ' + dm(f.venc);
+    return '<div class="ag2-meta"><button type="button" class="ag2-tag pay ag2-recv" data-hrrec-receber="' + j.id + '" style="' +
+      (c.atrasado ? 'background:rgba(248,113,113,.22);color:#ff9d9d;' : 'background:rgba(224,165,48,.15);color:#e0a530;') + '">' + txt + ' · toque p/ receber</button></div>';
+  }
+
+  function abrirLista() {
+    var l = lista();
+    var totRest = 0, totEnc = 0;
+    l.forEach(function (x) { totRest += x.c.rest; totEnc += x.c.enc; });
+    var h = '<div id="hrRecLista"></div>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
+        '<div style="flex:1;font-size:1.02rem;font-weight:800;color:var(--gold);">💸 A Receber</div>' +
+        '<button type="button" data-rec-cfg="1" style="border:1px solid var(--bd2);background:var(--s2);color:var(--t2);border-radius:9px;padding:7px 10px;font-size:.7rem;cursor:pointer;font-family:inherit;">⚙️ Taxas</button>' +
+      '</div>';
+    if (!l.length) {
+      h += '<div style="text-align:center;padding:30px 10px;color:var(--t3);font-size:.85rem;line-height:1.6;"><div style="font-size:2rem;">🎉</div>Nenhum cliente devendo.<br>Quando alguém receber e não pagar, lance aqui na entrega.</div>' +
+           '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Fechar</button>';
+      sheet(h, { alto: '88vh' }); var b0 = document.getElementById('hrRecFecha'); if (b0) b0.addEventListener('click', fecha);
+      return;
+    }
+    h += resumoBox([['Principal', 'R$ ' + brl(totRest), '#e0a530'], ['Multa + juros', 'R$ ' + brl(totEnc), totEnc > 0.005 ? '#f08a8a' : 'var(--t3)'], ['Total hoje', 'R$ ' + brl(totRest + totEnc), '#5dbf7a']]);
+    l.forEach(function (x) {
+      var j = x.j, c = x.c, f = j.fiado;
+      var cor = c.atrasado ? '#f08a8a' : '#e0a530';
+      var sit = c.atrasado ? '⏰ Atrasado há ' + c.dias + (c.dias === 1 ? ' dia' : ' dias') + ' (venceu ' + dm(f.venc) + ')' : c.naCarencia ? '⏳ Venceu ' + dm(f.venc) + ' · dentro da carência de ' + (f.carencia || 0) + ' dias' : '📅 Vence ' + dmy(f.venc);
+      h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-left:4px solid ' + cor + ';border-radius:14px;padding:12px 13px;margin-bottom:10px;">' +
+        '<div style="display:flex;justify-content:space-between;gap:8px;"><div style="font-weight:800;overflow-wrap:anywhere;">' + esc(j.cli) + '</div>' +
+          '<div style="font-weight:800;color:' + cor + ';white-space:nowrap;">R$ ' + brl(c.total) + '</div></div>' +
+        '<div style="font-size:.7rem;color:var(--t3);margin:2px 0 6px;overflow-wrap:anywhere;">' + esc(j.desc || '') + '</div>' +
+        '<div style="font-size:.74rem;color:' + cor + ';font-weight:700;">' + sit + '</div>' +
+        (c.atrasado
+          ? '<div style="font-size:.7rem;color:var(--t2);margin-top:3px;">Principal R$ ' + brl(c.rest) + ' + multa R$ ' + brl(c.multa) + ' + juros R$ ' + brl(c.juros) + (((f.encPago || 0) + (f.perdoado || 0)) > 0.005 ? ' − já pago/perdoado R$ ' + brl((f.encPago || 0) + (f.perdoado || 0)) : '') + '<br>Hoje rende R$ ' + brl(c.jurosDia) + ' de juros por dia.</div>'
+          : '<div style="font-size:.7rem;color:var(--t3);margin-top:3px;">Sem multa/juros até o vencimento.</div>') +
+        '<div style="display:flex;gap:6px;margin-top:10px;">' +
+          '<button type="button" data-rec-r="' + j.id + '" style="flex:1.4;padding:10px 4px;border:none;border-radius:10px;background:var(--gold3);color:#000;font-weight:800;font-size:.76rem;cursor:pointer;font-family:inherit;">💰 Receber</button>' +
+          '<button type="button" data-rec-w="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">📲 Cobrar</button>' +
+          '<button type="button" data-rec-m="' + j.id + '" style="padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--t2);font-size:.9rem;cursor:pointer;font-family:inherit;">⋯</button>' +
+        '</div></div>';
+    });
+    h += '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Fechar</button>';
+    sheet(h, { alto: '90vh' });
+    var bf = document.getElementById('hrRecFecha'); if (bf) bf.addEventListener('click', fecha);
+  }
+
+  // ── mais opções de um lançamento ──────────────────────────────────
+  function abrirMais(id) {
+    var j = achaJob(id); if (!j || !j.fiado) return;
+    var c = calc(j), f = j.fiado;
+    sheet(
+      '<div style="font-size:1rem;font-weight:800;color:var(--gold);">' + esc(j.cli) + '</div>' +
+      '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">Deve R$ ' + brl(c.total) + ' · vence ' + dmy(f.venc) + '</div>' +
+      '<label style="' + LBL + '">Mudar vencimento</label>' +
+      '<input id="hrRecNovoVenc" type="date" value="' + esc(f.venc) + '" style="' + INPUT + 'margin-bottom:10px;">' +
+      '<button type="button" id="hrRecSalvaVenc" style="' + BTN_OK + 'padding:12px;">Salvar novo vencimento</button>' +
+      (c.enc > 0.005 ? '<button type="button" id="hrRecPerdoa" style="' + BTN_LN + '">🤝 Perdoar multa e juros (R$ ' + brl(c.enc) + ')</button>' : '') +
+      '<button type="button" id="hrRecTira" style="' + BTN_NO + 'color:#f08a8a;">Tirar de "a receber" (não cobrar mais)</button>' +
+      '<button type="button" id="hrRecVolta" style="' + BTN_NO + '">Voltar</button>');
+    document.getElementById('hrRecVolta').addEventListener('click', abrirLista);
+    document.getElementById('hrRecSalvaVenc').addEventListener('click', function () {
+      var v = document.getElementById('hrRecNovoVenc').value;
+      if (!v) { toastS('Escolha uma data'); return; }
+      congela(j, hoje()); // o que já correu até hoje fica gravado
+      f.venc = v;
+      if (f.desde && f.desde < v) f.desde = null;
+      DB.sv(); redesenha(); toastS('📅 Novo vencimento: ' + dmy(v)); abrirLista();
+    });
+    var pe = document.getElementById('hrRecPerdoa');
+    if (pe) pe.addEventListener('click', function () {
+      var cc = calc(j);
+      congela(j, hoje());
+      f.perdoado = r2((f.perdoado || 0) + cc.enc);
+      DB.sv(); redesenha(); toastS('🤝 Multa e juros perdoados'); abrirLista();
+    });
+    document.getElementById('hrRecTira').addEventListener('click', function () {
+      if (typeof showCB === 'function') {
+        showCB('Tirar ' + j.cli + ' de "a receber"? O saldo continua no serviço, só para de contar juros.', function () {
+          hideCB(); delete j.fiado; DB.sv(); redesenha(); toastS('Removido de "a receber"'); abrirLista();
+        }, function () { hideCB(); });
+      } else { delete j.fiado; DB.sv(); redesenha(); abrirLista(); }
+    });
+  }
+
+  // ═══ 4) COBRAR PELO WHATSAPP ══════════════════════════════════════
+  function cobrar(id) {
+    var j = achaJob(id); if (!j || !j.fiado) return;
+    var c = calc(j), f = j.fiado, q = achaOrc(j);
+    var emp = (typeof CFG !== 'undefined' && CFG && CFG.emp) || {};
+    var nome = String(j.cli || '').trim().split(/\s+/)[0] || 'tudo bem';
+    var t = 'Olá, ' + nome + '! Tudo bem? Aqui é da ' + (emp.nome || 'HR Mármores e Granitos') + '.\n\n';
+    t += 'Passando para lembrar do pagamento de *R$ ' + brl(c.rest) + '* referente a ' + (j.desc || 'seu serviço') + ', com vencimento em ' + dmy(f.venc) + '.\n';
+    if (c.atrasado) {
+      t += '\nComo o pagamento está em atraso há ' + c.dias + (c.dias === 1 ? ' dia' : ' dias') + ', foram acrescidos multa de ' + String(f.multaPct).replace('.', ',') + '% e juros de ' + String(f.jurosMesPct).replace('.', ',') + '% ao mês. ';
+      t += 'O valor atualizado hoje é de *R$ ' + brl(c.total) + '*.\n';
+    }
+    t += '\nQualquer dúvida, é só chamar. Obrigado!';
+    var tel = String((q && q.tel) || j.tel || '').replace(/\D/g, '');
+    if (tel && tel.length <= 11) tel = '55' + tel;
+    window.open((tel ? 'https://wa.me/' + tel : 'https://wa.me/') + '?text=' + encodeURIComponent(t), '_blank');
+  }
+
+  // ═══ 5) CONFIGURAR TAXAS ══════════════════════════════════════════
+  function abrirCfg(voltaPara) {
+    var c = cfg();
+    function campo(id, rot, val, suf) {
+      return '<label style="' + LBL + '">' + rot + '</label><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;"><input id="' + id + '" type="text" inputmode="decimal" value="' + String(val).replace('.', ',') + '" style="' + INPUT + 'flex:1;"><span style="color:var(--t3);font-size:.8rem;min-width:56px;">' + suf + '</span></div>';
+    }
+    sheet(
+      '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">⚙️ Multa e juros</div>' +
+      '<div style="font-size:.72rem;color:var(--t3);margin:4px 0 14px;line-height:1.5;">Valem para os <b>próximos</b> lançamentos, no app e no bot do WhatsApp (os dois usam esta mesma conta). O que já foi lançado mantém as taxas combinadas na época. Padrão comum: multa de 2% e juros de 1% ao mês — confirme que isso consta no seu contrato/orçamento.</div>' +
+      campo('hrRecCfgMulta', 'Multa por atraso (uma vez)', c.multaPct, '%') +
+      campo('hrRecCfgJuros', 'Juros ao mês (por dia, proporcional)', c.jurosMesPct, '% a.m.') +
+      campo('hrRecCfgCar', 'Carência: dias depois do vencimento sem multa nem juros', c.carenciaDias, 'dias') +
+      campo('hrRecCfgDias', 'Prazo padrão para o cliente pagar', c.diasPrazo, 'dias') +
+      '<button type="button" id="hrRecCfgOk" style="' + BTN_OK + '">Salvar</button>' +
+      '<button type="button" id="hrRecCfgNo" style="' + BTN_NO + '">Cancelar</button>');
+    document.getElementById('hrRecCfgNo').addEventListener('click', function () { if (voltaPara) voltaPara(); else fecha(); });
+    document.getElementById('hrRecCfgOk').addEventListener('click', function () {
+      var mu = num(document.getElementById('hrRecCfgMulta').value);
+      var ju = num(document.getElementById('hrRecCfgJuros').value);
+      var di = Math.round(num(document.getElementById('hrRecCfgDias').value));
+      var ca = Math.round(num(document.getElementById('hrRecCfgCar').value));
+      if (ca < 0 || ca > 60) { toastS('A carência deve ficar entre 0 e 60 dias'); return; }
+      if (mu < 0 || mu > 100 || ju < 0 || ju > 100) { toastS('Informe porcentagens entre 0 e 100'); return; }
+      salvaCfg({ multaPct: mu, jurosMesPct: ju, diasPrazo: di > 0 ? di : PADRAO.diasPrazo, carenciaDias: ca });
+      sincBot(true);
+      toastS('✓ Taxas salvas');
+      if (voltaPara) voltaPara(); else fecha();
+    });
+  }
+
+
+  // ═══ 6) LIGAÇÃO COM O BOT (mesma conta de multa e juros nos dois lados) ═══
+  // O app manda ao bot a lista "a receber" + as taxas daqui (⚙️ Taxas é o único lugar onde se muda).
+  // O bot usa a MESMA fórmula (ver calc) para listar, cobrar e avisar. Quando o bot recebe um pagamento
+  // (Pix ou dinheiro) de um cliente que está nesta lista, ele sugere a baixa; o app pergunta antes de aplicar.
+  var botTimer = null, ultimoEnvio = '', perguntados = {};
+
+  function achaConexao() {
+    var url = '', key = '';
+    function olha(o) {
+      if (!o || typeof o !== 'object') return;
+      Object.keys(o).forEach(function (k) {
+        var v = o[k];
+        if (typeof v === 'string') {
+          if (!url && /^https:\/\/[^\s]+/.test(v) && /bot|worker|url|base/i.test(k)) url = v;
+          if (!key && /key|chave|token/i.test(k) && /bot/i.test(k) && v.length >= 8) key = v;
+        }
+      });
+    }
+    try { if (window.HRRec && HRRec._bot) { url = HRRec._bot.url || ''; key = HRRec._bot.key || ''; } } catch (e) {}
+    try { olha(typeof CFG !== 'undefined' ? CFG : null); olha(typeof CFG !== 'undefined' && CFG ? CFG.bot : null); } catch (e) {}
+    if (!url || !key) {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var nome = localStorage.key(i), raw = localStorage.getItem(nome) || '';
+          if (/bot/i.test(nome) && /^https:\/\//.test(raw) && !url) url = raw;
+          else if (/bot/i.test(nome) && /key|chave/i.test(nome) && raw && raw.charAt(0) !== '{' && !key) key = raw;
+          else if (raw.charAt(0) === '{' && /bot/i.test(nome)) { try { olha(JSON.parse(raw)); } catch (e) {} }
+        }
+      } catch (e) {}
+    }
+    url = String(url || '').replace(/\/+$/, '').replace(/\/bot$/, '');
+    return (url && key) ? { url: url, key: key } : null;
+  }
+
+  function payloadBot() {
+    var c = cfg();
+    var itens = lista().map(function (x) {
+      var j = x.j, f = j.fiado, q = achaOrc(j);
+      return {
+        id: String(j.id), cliente: String(j.cli || ''), tel: String((q && q.tel) || j.tel || ''), desc: String(j.desc || ''),
+        valor: r2(j.value || 0), pago: r2(j.pago || 0), venc: f.venc,
+        multaPct: f.multaPct, jurosMesPct: f.jurosMesPct, carencia: f.carencia || 0,
+        multaCobrada: f.multaCobrada == null ? null : f.multaCobrada, jurosAcum: f.jurosAcum || 0, desde: f.desde || null,
+        encPago: f.encPago || 0, perdoado: f.perdoado || 0
+      };
+    });
+    return { config: { multaPct: c.multaPct, jurosMesPct: c.jurosMesPct, carenciaDias: c.carenciaDias }, itens: itens };
+  }
+
+  function chamaBot(metodo, caminho, corpo) {
+    var con = achaConexao();
+    if (!con || typeof fetch !== 'function') return Promise.reject(new Error('sem conexão com o bot'));
+    return fetch(con.url + caminho, {
+      method: metodo, headers: { 'Content-Type': 'application/json', 'x-bot-key': con.key },
+      body: corpo ? JSON.stringify(corpo) : undefined
+    }).then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d && d.error || ('HTTP ' + r.status)); return d; }); });
+  }
+
+  function sincBot(agora) {
+    if (botTimer) clearTimeout(botTimer);
+    botTimer = setTimeout(function () {
+      botTimer = null;
+      var corpo; try { corpo = payloadBot(); } catch (e) { return; }
+      var s = JSON.stringify(corpo);
+      if (s === ultimoEnvio) return;
+      chamaBot('POST', '/bot/a-receber', corpo).then(function () { ultimoEnvio = s; })
+        .catch(function (e) { if (window.console) console.warn('[A Receber] bot não sincronizou:', e.message); });
+    }, agora ? 300 : 2000);
+  }
+
+  function pegaSugestoes() {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    chamaBot('GET', '/bot/a-receber').then(function (d) {
+      (d.sugestoes || []).forEach(function (sg) {
+        if (perguntados[sg.id]) return;
+        perguntados[sg.id] = 1;
+        var j = achaJob(sg.jobId);
+        if (!j || !emAberto(j)) { chamaBot('POST', '/bot/a-receber/confirmar', { ids: [sg.id] }).catch(function () {}); return; }
+        var msg = 'O bot recebeu R$ ' + brl(sg.valor) + ' (' + esc(sg.forma) + ') de ' + esc(j.cli) + '. Dar baixa em "A Receber"? A entrada em Finanças já foi lançada pelo bot, o app não lança de novo.';
+        var feito = function () { chamaBot('POST', '/bot/a-receber/confirmar', { ids: [sg.id] }).catch(function () {}); };
+        if (typeof showCB === 'function') {
+          showCB(msg, function () {
+            hideCB();
+            var ap = aplicaPagamento(j, +sg.valor || 0);
+            if (typeof DB.sv === 'function') DB.sv();
+            redesenha(); toastS('✓ Baixa aplicada em ' + j.cli + (ap.quitou ? ' — quitado' : ''));
+            feito();
+          }, function () { hideCB(); feito(); });
+        }
+      });
+    }).catch(function () {});
+  }
+
+  function ligaBot() {
+    try {
+      if (typeof DB !== 'undefined' && DB && typeof DB.sv === 'function' && !DB.sv.__hrRec) {
+        var orig = DB.sv;
+        DB.sv = function () { var r = orig.apply(this, arguments); try { sincBot(); } catch (e) {} return r; };
+        DB.sv.__hrRec = true;
+      }
+    } catch (e) {}
+    sincBot(true);
+    setInterval(pegaSugestoes, 60000);
+    setTimeout(pegaSugestoes, 5000);
+  }
+  setTimeout(ligaBot, 3000);
+
+  // ── cliques (delegado no documento) ───────────────────────────────
+  document.addEventListener('click', function (e) {
+    var t = e.target; if (!t || !t.closest) return;
+    var el;
+    if ((el = t.closest('[data-hrrec-lista]'))) { abrirLista(); return; }
+    if ((el = t.closest('[data-hrrec-receber]'))) { abrirReceber(el.getAttribute('data-hrrec-receber')); return; }
+    if ((el = t.closest('[data-rec-r]'))) { abrirReceber(el.getAttribute('data-rec-r')); return; }
+    if ((el = t.closest('[data-rec-w]'))) { cobrar(el.getAttribute('data-rec-w')); return; }
+    if ((el = t.closest('[data-rec-m]'))) { abrirMais(el.getAttribute('data-rec-m')); return; }
+    if ((el = t.closest('[data-rec-cfg]'))) {
+      var vinha = document.getElementById('hrRecLista');
+      abrirCfg(vinha ? abrirLista : null); return;
+    }
+  }, true);
+
+  // ── API pública (usada por app-agenda-v2.js) ──────────────────────
+  window.HRRec = {
+    calc: calc, lista: lista, faixa: faixa, tagCard: tagCard,
+    abrirReceber: abrirReceber, abrirLista: abrirLista, perguntarLancar: perguntarLancar,
+    cobrar: cobrar, abrirCfg: abrirCfg, receber: receber, lancar: lancar,
+    sincBot: sincBot, payloadBot: payloadBot,
+    botConfig: function (url, key) { window.HRRec._bot = { url: url, key: key }; sincBot(true); }
+  };
+  window.abrirAReceber = abrirLista;
+})();
