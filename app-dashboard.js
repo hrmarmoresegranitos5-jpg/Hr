@@ -757,7 +757,7 @@ function _dashGraficoReceita(hoje) {
     var bucket = meses.find(function(x) { return x.key === m; });
     if (!bucket) return;
     bucket.nOrc++;
-    if (q.contrato || q.status === 'aceito' || q.status === 'aprovado' || q.status === 'concluido') bucket.nContr++;
+    if (q.contrato || q.status === 'aceito' || q.status === 'entregue' || q.status === 'aprovado' || q.status === 'concluido') bucket.nContr++;
   });
 
   // ── Métricas globais (6 meses) ──

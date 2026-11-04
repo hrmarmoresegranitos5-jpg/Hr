@@ -18,9 +18,10 @@ var _orcFilter = '';
 var _orcStatusFilter = 'todos'; // 'todos' | 'pendente' | 'aceito' | 'concluido' | 'perdido'
 
 // ── Seções do Histórico ─────────────────────────────────────────────────────
-var _orcSecOpen = {aceito:true, pendente:true, rascunho:true, concluido:false, perdido:false};
+var _orcSecOpen = {aceito:true, entregue:true, pendente:true, rascunho:true, concluido:false, perdido:false};
 var _ORC_SECS = [
   {k:'aceito',    ic:'✅', l:'Aceitos',    cor:'#4ade80'},
+  {k:'entregue',  ic:'📦', l:'Entregues',  cor:'#38bdf8', sub:'entregues · conferir pagamento'},
   {k:'pendente',  ic:'⏳', l:'Aguardando', cor:'#f59e0b'},
   {k:'rascunho',  ic:'📝', l:'Rascunhos',  cor:'#fb923c', sub:'feitos, sem PDF gerado'},
   {k:'concluido', ic:'🏆', l:'Concluídos', cor:'#e0c068'},
@@ -30,6 +31,7 @@ var _ORC_ST = {
   pendente:  {ic:'⏳', cor:'#f59e0b', bg:'rgba(245,158,11,.12)',  lbl:'Aguardando'},
   rascunho:  {ic:'📝', cor:'#fb923c', bg:'rgba(251,146,60,.12)',  lbl:'Rascunho'},
   aceito:    {ic:'✅', cor:'#4ade80', bg:'rgba(74,222,128,.12)',  lbl:'Aceito'},
+  entregue:  {ic:'📦', cor:'#38bdf8', bg:'rgba(56,189,248,.12)',  lbl:'Entregue'},
   concluido: {ic:'🏆', cor:'#e0c068', bg:'rgba(224,192,104,.14)', lbl:'Concluído'},
   perdido:   {ic:'❌', cor:'#f87171', bg:'rgba(248,113,113,.12)', lbl:'Perdido'}
 };
@@ -40,7 +42,7 @@ function _orcSecaoDe(q){
   if(st==='pendente' && q._trkPdf && !q.pdfGerado) return 'rascunho';
   return st;
 }
-function _orcRankSt(q){ return {concluido:4,aceito:3,pendente:2,perdido:1}[_orcStatusDe(q)]||2; }
+function _orcRankSt(q){ return {concluido:4,entregue:3.5,aceito:3,pendente:2,perdido:1}[_orcStatusDe(q)]||2; }
 function _orcMarcarPdf(q){ if(!q)return; q.pdfGerado=true; q.pdfData=td(); try{DB.sv();}catch(e){} }
 
 // ── Duplicados: assinatura = tudo que importa no orçamento (ignora id, data, status) ──
@@ -192,7 +194,7 @@ function _orcDiffHtml(it){
 }
 function _orcBadgeHtml(q){
   var c=_ORC_ST[_orcSecaoDe(q)]||_ORC_ST.pendente;
-  return '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para avançar o status" style="'
+  return '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Toque para escolher o status" style="'
     +'display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:20px;'
     +'background:'+c.bg+';border:1px solid '+c.cor+'55;box-shadow:0 1px 3px rgba(0,0,0,.25) inset;'
     +'font-size:.6rem;font-weight:800;letter-spacing:.2px;color:'+c.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
@@ -364,7 +366,7 @@ function buildOrcList(list) {
     h +=     '<div class="qcard-meta">'+dateStr+' · '+q.tipo+' · '+escH(q.mat||'')+(grp&&grp.total>1?' · 📑 '+grp.total+' orçamentos':'')+'</div>';
     h +=   '</div>';
     // Badge de status (A1)
-    h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Clique para avançar o status" style="'
+    h +=   '<span onclick="orcCicloStatus(\''+q.id+'\',event)" title="Toque para escolher o status" style="'
       +'display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:20px;'
       +'background:'+stCfg.bg+';border:1px solid '+stCfg.cor+'55;box-shadow:0 1px 3px rgba(0,0,0,.25) inset;'
       +'font-size:.6rem;font-weight:800;letter-spacing:.2px;color:'+stCfg.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
@@ -492,30 +494,99 @@ function orcWhatsApp(id, e) {
     : 'https://wa.me/?text=' + encodeURIComponent(txt);
   window.open(url, '_blank');
 }
-var ORC_STATUS_LABELS = {pendente:'⏳ Aguardando',aceito:'✅ Aceito',concluido:'🏆 Concluído',perdido:'❌ Perdido'};
+var ORC_STATUS_LABELS = {pendente:'⏳ Aguardando',aceito:'✅ Aceito',entregue:'📦 Entregue',concluido:'🏆 Concluído',perdido:'❌ Perdido'};
 
+// ── Seletor de status do orçamento (escolhe qualquer status, inclusive voltar) ──
+var ORC_STATUS_ORDEM = ['pendente','aceito','entregue','concluido','perdido'];
+var ORC_STATUS_DESC = {
+  pendente:'Voltar para aguardando a resposta do cliente',
+  aceito:'Cliente fechou — entra na agenda',
+  entregue:'Serviço já entregue (pode faltar o pagamento)',
+  concluido:'Entregue e pago por completo',
+  perdido:'Cliente não fechou'
+};
 function orcCicloStatus(id, e) {
   if(e) e.stopPropagation();
   var q = DB.q.find(function(x){return String(x.id)===String(id);});
   if(!q) return;
-  var ciclo = ['pendente','aceito','concluido','perdido'];
-  var atual = q.status === 'aprovado' ? 'aceito' : (q.status||'pendente'); // compat. com dados antigos
-  var cur = ciclo.indexOf(atual);
-  var novoStatus = ciclo[(cur+1) % ciclo.length];
-
-  // ── Aceito e Concluído pedem confirmação do valor/forma/data antes de mudar o status ──
-  if (novoStatus === 'aceito' && !q._aceitoConfirmado) {
-    // Soleira/peitoril: na maioria dos casos só recebe na entrega → aceita sem cobrar entrada
+  _orcAbrirSeletorStatus(q);
+}
+function _orcAbrirSeletorStatus(q) {
+  var old = document.getElementById('_orcStSheet'); if(old) old.remove();
+  var atual = _orcStatusDe(q);
+  var m = document.createElement('div');
+  m.id = '_orcStSheet';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+  var h = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:14px 18px 26px;border-top:2px solid var(--gold3,#C9A84C);">';
+  h += '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>';
+  h += '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">Status do orçamento</div>';
+  h += '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">'+escH(q.cli||'Cliente')+'</div>';
+  ORC_STATUS_ORDEM.forEach(function(st){
+    var c = _ORC_ST[st]; if(!c) return;
+    var on = (st === atual);
+    h += '<button type="button" onclick="_orcEscolherStatus(\''+q.id+'\',\''+st+'\')" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;padding:12px 14px;border-radius:12px;cursor:pointer;font-family:Outfit,sans-serif;'
+      +'border:1px solid '+(on?c.cor:'var(--bd2)')+';background:'+(on?c.bg:'var(--s2)')+';color:var(--tx);">'
+      +'<span style="font-size:1.3rem;">'+c.ic+'</span>'
+      +'<span style="flex:1;min-width:0;"><span style="display:block;font-size:.88rem;font-weight:800;color:'+c.cor+';">'+c.lbl+(on?' · atual':'')+'</span>'
+      +'<span style="display:block;font-size:.68rem;color:var(--t3);margin-top:1px;">'+ORC_STATUS_DESC[st]+'</span></span></button>';
+  });
+  h += '<button type="button" onclick="document.getElementById(\'_orcStSheet\').remove();" style="width:100%;margin-top:4px;padding:11px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Cancelar</button>';
+  h += '</div>';
+  m.innerHTML = h;
+  m.addEventListener('click', function(e){ if(e.target === m) m.remove(); });
+  document.body.appendChild(m);
+}
+function _orcEscolherStatus(id, novo) {
+  var m = document.getElementById('_orcStSheet'); if(m) m.remove();
+  var q = DB.q.find(function(x){return String(x.id)===String(id);});
+  if(!q) return;
+  var atual = _orcStatusDe(q);
+  if(novo === atual) return;
+  // Aceito e Concluído pedem confirmação do valor/forma/data na PRIMEIRA vez (depois, voltar/avançar não lança de novo)
+  if (novo === 'aceito' && !q._aceitoConfirmado) {
     if (_orcSoSolPeit(q)) { _aceitarSolPeitSemEntrada(q); return; }
     _abrirModalStatusOrc(q, 'aceito');
     return;
   }
-  if (novoStatus === 'concluido' && !q._concluidoConfirmado) {
+  if (novo === 'concluido' && !q._concluidoConfirmado) {
     _abrirModalStatusOrc(q, 'concluido');
     return;
   }
-
-  _aplicarStatusOrc(q, novoStatus);
+  if (novo === 'entregue') { _orcMarcarEntregue(q, false); return; }
+  _aplicarStatusOrc(q, novo);
+  if (novo === 'pendente' || novo === 'aceito') {
+    setTimeout(function(){ toast('↩️ Status ajustado — o que já foi lançado em Finanças continua lá'); }, 1600);
+  }
+}
+// Entregue: marca o serviço como entregue na agenda e cuida do pagamento (recebeu agora ou ficou a receber).
+// direto=true → já pergunta o vencimento do "a receber" (botão "Cliente ainda não pagou").
+function _orcMarcarEntregue(q, direto) {
+  var job = (DB.j||[]).find(function(j){ return j.qId === q.id; });
+  if (!job) {
+    job = {
+      id:Date.now(), cli:q.cli, desc:q.tipo+' — '+(q.mat||''), start:td(), end:td(), value:q.vista, pago:q._valorRecebido||0,
+      obs:q.obs||'', done:false, qId:q.id, m2:q.m2||0, matPr:q.matPr||0,
+      custoPedraEpoca:q.matCusto||q.custo||0, cat:q.tipo||'Outro', stage:'entregue', instala:false, foraFila:true
+    };
+    try { var ie = estimaIEO(job); job.ieo=ie.ieo; job.ieo_of=ie.ieo_of; job.ieo_ca=ie.ieo_ca; job.ieo_ge=ie.ieo_ge; } catch(e) {}
+    DB.j.unshift(job);
+  }
+  _migrateJobStage(job);
+  if (JOB_STAGES.indexOf(job.stage) < JOB_STAGES.indexOf('entregue')) job.stage = 'entregue';
+  job.pago = Math.max(job.pago||0, q._valorRecebido||0);
+  _syncJobDone(job);
+  if (!q._aceitoConfirmado) q._aceitoConfirmado = true; // entregou = já estava fechado; não pede entrada depois
+  _aplicarStatusOrc(q, 'entregue');
+  try { if (typeof renderAg === 'function') renderAg(); if (typeof updUrgDot === 'function') updUrgDot(); } catch(e) {}
+  var rest = Math.round(((job.value||0) - (job.pago||0)) * 100) / 100;
+  if (rest > 0.005) {
+    setTimeout(function(){
+      if (window.HRRec) { (direto ? HRRec.perguntarLancar : HRRec.abrirReceber)(direto ? job : job.id); }
+      else { _jobPagamentoFlow(job); }
+    }, 450);
+  } else {
+    setTimeout(function(){ toast('✓ Entregue — já está pago por completo'); }, 900);
+  }
 }
 
 // Aceite de soleira/peitoril SEM entrada: marca aceito, agenda (hoje, fora da fila) e abre a ficha de corte.
@@ -622,6 +693,13 @@ function _abrirModalStatusOrc(q, tipo) {
   h += '</div>';
   h += '<input id="_stModalData" type="date" value="'+hoje+'" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;margin-bottom:22px;box-sizing:border-box;">';
 
+  var _btnLn = 'width:100%;margin-bottom:12px;padding:12px;border-radius:12px;border:1px dashed var(--gold3,#C9A84C);background:transparent;color:var(--gold,#C9A84C);font-weight:700;font-size:.82rem;cursor:pointer;font-family:Outfit,sans-serif;';
+  if (!isAceito && saldoAntes > 0.005) {
+    h += '<button type="button" onclick="window._stModalNaoPagou()" style="'+_btnLn+'">💸 Cliente ainda não pagou — lançar como a receber</button>';
+  }
+  if (isAceito) {
+    h += '<button type="button" onclick="window._stModalSemEntrada()" style="'+_btnLn+'">⏳ Cliente não deu entrada agora</button>';
+  }
   h += '<div style="display:flex;gap:10px;">';
   h += '<button onclick="this.closest(\'[data-st-modal]\').remove();" style="flex:1;padding:13px;background:transparent;border:1px solid var(--bd2);border-radius:11px;color:var(--t3);font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Cancelar</button>';
   h += '<button onclick="window._stModalConfirmar()" style="flex:1.4;padding:13px;background:var(--gold3);border:none;border-radius:11px;color:#000;font-weight:800;font-family:Outfit,sans-serif;font-size:.85rem;cursor:pointer;">Confirmar</button>';
@@ -717,6 +795,9 @@ function _abrirModalStatusOrc(q, tipo) {
     }
   };
   window._stModalUpdateSaldo();
+
+  window._stModalNaoPagou = function(){ _modal.remove(); _orcMarcarEntregue(q, true); };
+  window._stModalSemEntrada = function(){ _modal.remove(); _aceitarSolPeitSemEntrada(q); };
 
   window._stModalConfirmar = function() {
     var valor = window._stModalGetValor();
@@ -10163,7 +10244,7 @@ function renderDashboard() {
   var receitaOrc = orcMes.reduce(function(s, q) { return s + (q.vista || 0); }, 0);
 
   // ── Conversão (A3) — conta "Aceito" e "Concluído" como convertido ──
-  var _isConvertido = function(q){ return q.status === 'aceito' || q.status === 'concluido' || q.status === 'aprovado'; };
+  var _isConvertido = function(q){ return q.status === 'aceito' || q.status === 'entregue' || q.status === 'concluido' || q.status === 'aprovado'; };
   var orcAprov  = DB.q.filter(_isConvertido).length;
   var orcPerd   = DB.q.filter(function(q){ return q.status === 'perdido';  }).length;
   var orcPend   = totalOrc - orcAprov - orcPerd;

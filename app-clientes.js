@@ -216,7 +216,7 @@ function _cliHist(nome){
   var qIdsComAgenda = {};
   jobsAgenda.forEach(function(j){ if(j.qId) qIdsComAgenda[j.qId]=true; });
   var orcsFechadosSemAgenda = orcs.filter(function(q){
-    return (q.status==='aceito'||q.status==='concluido') && !qIdsComAgenda[q.id];
+    return (q.status==='aceito'||q.status==='entregue'||q.status==='concluido') && !qIdsComAgenda[q.id];
   });
   var qtdFechados = jobsAgenda.length + orcsFechadosSemAgenda.length;
   var fat   = Math.max(
