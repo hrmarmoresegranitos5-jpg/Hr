@@ -241,8 +241,8 @@
     });
     steps += '</div>';
 
-    var pay = '';
-    if (!j.done && rest > 0) {
+    var pay = (window.HRRec && HRRec.tagCard) ? HRRec.tagCard(j) : ''; // 💸 lançado como "a receber" (fiado)
+    if (!pay && !j.done && rest > 0) {
       var antesEntrega = (stage === 'producao' || stage === 'pronto');
       pay = '<div class="ag2-meta"><button type="button" class="ag2-tag pay ag2-recv" data-ag2recv="' + j.id + '">💰 ' +
         (antesEntrega ? 'Receber R$ ' + brl(rest) + ' na entrega' : 'Falta receber R$ ' + brl(rest)) + ' · toque p/ lançar</button></div>';
@@ -392,7 +392,7 @@
   // Ao marcar "Entregue": abre a tela de receber (a faixa antiga ficava escondida em outra página)
   window._jobPagamentoFlow = function (j) {
     var rest = (j.value || 0) - (j.pago || 0);
-    if (rest > 0.005) setTimeout(function () { abrirReceberJob(j.id); }, 350);
+    if (rest > 0.005) setTimeout(function () { (window.HRRec ? HRRec.abrirReceber : abrirReceberJob)(j.id); }, 350);
   };
 
   // ── ⚙️ Regra de prazo das peças rápidas (peças → dias) ────────────
@@ -487,7 +487,7 @@
       kpi('todos', 'Em aberto', por.atrasado.length + por.hoje.length + por.semana.length + por.andamento.length + por.depois.length, 'mut') +
       '</div>';
     if (_filtro !== 'todos') h += '<div class="ag2-fil">Mostrando só um grupo · <u data-ag2f="todos">ver tudo</u></div>';
-    h += faixaReceber(jobs);
+    h += (window.HRRec && HRRec.faixa ? HRRec.faixa() : '') + faixaReceber(jobs);
 
     var mostrou = 0;
 
@@ -697,7 +697,7 @@
     var fc = t.closest && t.closest('[data-ag2ficha]');
     if (fc) { if (typeof gerarFichaCorteUnica === 'function') gerarFichaCorteUnica(fc.getAttribute('data-ag2ficha').split(',')); return; }
     var rc = t.closest && t.closest('[data-ag2recv]');
-    if (rc) { abrirReceberJob(+rc.getAttribute('data-ag2recv')); return; }
+    if (rc) { (window.HRRec ? HRRec.abrirReceber : abrirReceberJob)(+rc.getAttribute('data-ag2recv')); return; }
     var mo = t.closest && t.closest('[data-ag2more]');
     if (mo) { var bx = document.getElementById('ag2more' + mo.getAttribute('data-ag2more')); if (bx) bx.classList.toggle('on'); return; }
     var el = t.closest && t.closest('[data-ag2f]');
