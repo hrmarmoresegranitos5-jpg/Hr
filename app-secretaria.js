@@ -390,8 +390,9 @@ function _botAplicarCorrecoes(cors, base) {
     if (c.campo !== 'cat') motivo = 'tipo de correção desconhecido';
     else if (!t) motivo = 'não achei esse lançamento no aplicativo (talvez tenha sido apagado)';
     else if (t.type !== 'out') motivo = 'só gastos têm categoria';
+    else if (c.novo === 'prolabore') { if (!t.isProLabore || t.cat) { t.isProLabore = true; delete t.cat; alterou++; } ok = true; }
     else if (validas.indexOf(c.novo) < 0) motivo = 'a categoria "' + c.novo + '" não existe no aplicativo';
-    else { if (t.cat !== c.novo) { t.cat = c.novo; alterou++; } ok = true; }
+    else { if (t.cat !== c.novo || t.isProLabore) { t.cat = c.novo; delete t.isProLabore; alterou++; } ok = true; }
     return { id: c.id, ok: ok, motivo: motivo };
   });
   if (alterou) {
@@ -421,7 +422,9 @@ function botSyncFinancas(manual) {
         waIds.push(l.waId);
         if (DB.t.some(function(t){ return t.waId === l.waId; })) return; // já importado antes
         var tr = { id: l.id, type: l.type, desc: l.desc, value: l.value, date: l.date, waId: l.waId, origem: 'whatsapp' };
-        if (l.type === 'out' && l.cat) tr.cat = l.cat;
+        if (l.type === 'out' && (l.retirada || l.cat === 'prolabore')) {
+          tr.isProLabore = true; // retirada do dono: entra em "Já retirado" (Pró-labore), não em despesas da empresa
+        } else if (l.type === 'out' && l.cat) tr.cat = l.cat;
         // fechamento do dia: forma de pagamento que o dono informou ao bot (dinheiro entra em "Dinheiro na mão")
         if (l.forma === 'dinheiro' || l.forma === 'pix' || l.forma === 'cartao') tr.fpag = l.forma;
         if (l.forma === 'dinheiro') tr.origem = 'dinheiro_mao';
@@ -446,6 +449,61 @@ function botSyncFinancas(manual) {
     })
     .catch(function(){ _botFinBusy = false; if (manual) toast('❌ Worker não acessível.'); });
 }
+
+// ── Pagamentos a funcionários que chegam pelo WhatsApp → RH (e Finanças) ──
+// O bot guarda "adiantamento de 200 pro João" no Worker; aqui o app busca, registra pelo MESMO motor do formulário do RH
+// (HR_FUNC.registrarPagamento: também lança em Finanças e cuida de adiantamento/saldo) e devolve o resultado ao bot.
+var _botPagBusy = false;
+function botSyncPagamentos(manual) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) { if (manual) toast('Conecte o bot primeiro (URL e chave).'); return; }
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.registrarPagamento) return;
+  if (_botPagBusy) return;
+  _botPagBusy = true;
+  var base = String(cfg.url).replace(/\/+$/, '');
+  fetch(base + '/bot/pagamentos', { headers: _botHeaders() })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (!x.ok) { _botPagBusy = false; if (manual) toast('❌ ' + ((x.d && x.d.error) || 'Falha ao buscar pagamentos')); return; }
+      var lista = x.d.pagamentos || [];
+      if (!lista.length) { _botPagBusy = false; if (manual) toast('Nenhum pagamento novo no bot.'); return; }
+      var resultados = [];
+      lista.forEach(function (p) {
+        var res = { waId: p.waId, ok: false, erro: '' };
+        try {
+          var pags = HR_FUNC.getPagamentos() || {};
+          var jaTem = Object.keys(pags).filter(function (k) { return pags[k].waId === p.waId; })[0];
+          if (jaTem) { res.ok = true; res.pagId = jaTem; res.repetido = true; resultados.push(res); return; } // já importado antes
+          var funcs = HR_FUNC.getFuncionarios() || {};
+          var fid = funcs[p.funcId] ? p.funcId : null;
+          if (!fid) { // o id pode ter mudado: procura pelo nome
+            var alvo = String(p.nome || '').toLowerCase();
+            Object.keys(funcs).forEach(function (k) { if (!fid && String(funcs[k].nome || '').toLowerCase() === alvo) fid = k; });
+          }
+          if (!fid) { res.erro = 'funcionário "' + (p.nome || '') + '" não encontrado no RH'; resultados.push(res); return; }
+          var r = HR_FUNC.registrarPagamento({
+            funcionarioId: fid, data: p.data, valor: p.valor, tipo: p.tipo || 'adiantamento',
+            forma: p.forma || 'pix', obs: p.obs || '', notificar: false
+          });
+          if (!r || !r.ok) { res.erro = (r && r.erro) || 'não foi possível registrar'; resultados.push(res); return; }
+          var pg = HR_FUNC.getPagamentos();
+          if (pg[r.id]) { pg[r.id].waId = p.waId; pg[r.id].origem = 'whatsapp'; HR_FUNC.savePagamentos(pg); }
+          res.ok = true; res.pagId = r.id; resultados.push(res);
+        } catch (e) { res.erro = String((e && e.message) || e).slice(0, 120); resultados.push(res); }
+      });
+      return fetch(base + '/bot/pagamentos/resultado', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ resultados: resultados }) })
+        .then(function () {
+          _botPagBusy = false;
+          var ok = resultados.filter(function (r) { return r.ok && !r.repetido; }).length;
+          if (ok) toast('👷 ' + ok + ' pagamento(s) do WhatsApp registrado(s) no RH');
+          try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
+        });
+    })
+    .catch(function () { _botPagBusy = false; if (manual) toast('❌ Worker não acessível.'); });
+}
+window.botSyncPagamentos = botSyncPagamentos;
+setTimeout(function () { botSyncPagamentos(false); }, 8000);
+setInterval(function () { botSyncPagamentos(false); }, 60000);
 
 // ── Anotações que chegam pelo WhatsApp → área Anotações ──
 // O bot guarda "anotar Maria: soleira 0,90 x 0,15" no Worker; aqui o app busca,
@@ -2625,16 +2683,89 @@ function _snapConstruir(meses) {
     });
   }
 
+  // ── Pró-labore: o mesmo cálculo da tela Finanças → Pró-labore (o bot responde "quanto posso retirar?")
+  var proLabore = null;
+  try {
+    if (typeof _plCalc === 'function') {
+      var pc = _plCalc();
+      proLabore = {
+        mes: pc.mes,
+        sugeridoMes: _snapNum(pc.sugerido),
+        jaRetiradoMes: _snapNum(pc.retiradoMes),
+        restanteSugerido: _snapNum(Math.max(0, pc.sugerido - pc.retiradoMes)),
+        jaRetiradoAno: _snapNum(pc.retiradoAno),
+        totalMerecido: _snapNum(pc.totalMerecido),
+        dividaMesesAnteriores: _snapNum(pc.devidoAnterior),
+        tetoSegurancaCaixa: _snapNum(pc.tetoSeguranca),
+        pctSeguranca: _snapNum(pc.pctSeguranca),
+        faixaSeguranca: _snapTxt(pc.faixaSeguranca, 40),
+        lucroLivreAposReserva: _snapNum(pc.lucroLivre),
+        lucroLiquidoMes: _snapNum(pc.lucroLiquidoMes),
+        recebidoMes: _snapNum(pc.recMes),
+        saldoCaixa: _snapNum(pc.saldoCaixa),
+        minimoNaoCabe: !!pc.minimoNaoCabe
+      };
+    }
+  } catch (e) { console.warn('[snapshot] pró-labore:', e); }
+
+  // ── Resumo financeiro do mês: os MESMOS números da tela Finanças → Pró-labore ("Lucro real do mês")
+  var resumoFinanceiro = null;
+  try {
+    if (typeof _plLucroNoPeriodo === 'function' && typeof td === 'function') {
+      var hojeF = td(), mesF = hojeF.slice(0, 7);
+      var _ult = function (m) { return new Date(parseInt(m.slice(0, 4), 10), parseInt(m.slice(5, 7), 10), 0).getDate(); };
+      var _pad = function (n) { return String(n).padStart(2, '0'); };
+      var _bloco = function (m) {
+        var di = m + '-01', df = m + '-' + _pad(_ult(m));
+        var l = _plLucroNoPeriodo(di, df);
+        var cats = [];
+        try {
+          var pc = _plDespesasPorCategoriaNoPeriodo(di, df), lb = (typeof PL_CAT_LABEL !== 'undefined' ? PL_CAT_LABEL : {});
+          Object.keys(pc).forEach(function (k) { if (pc[k] > 0) cats.push({ categoria: _snapTxt(lb[k] || k || 'Outros', 30), valor: _snapNum(pc[k]) }); });
+          cats.sort(function (a, b) { return b.valor - a.valor; });
+        } catch (e) {}
+        var ret = 0; try { ret = _plRetiradoNoPeriodo(di, df); } catch (e) {}
+        return {
+          mes: m, recebido: _snapNum(l.recebido), custoMaterial: _snapNum(l.custoMaterial), lucroBruto: _snapNum(l.lucroBruto),
+          despesasReais: _snapNum(l.despesasReais), despesasPorCategoria: cats.slice(0, 6), custosRecorrentes: _snapNum(l.recorrentes),
+          impostos: _snapNum(l.imposto), lucroLiquido: _snapNum(l.lucroLiquido), retirado: _snapNum(ret)
+        };
+      };
+      var dPrev = new Date(parseInt(mesF.slice(0, 4), 10), parseInt(mesF.slice(5, 7), 10) - 2, 1);
+      var mesPrev = dPrev.getFullYear() + '-' + _pad(dPrev.getMonth() + 1);
+      var saldoF = 0;
+      try { saldoF = (DB.t || []).filter(function (t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); }).reduce(function (s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0); } catch (e) {}
+      resumoFinanceiro = { mesAtual: _bloco(mesF), mesAnterior: _bloco(mesPrev), saldoCaixa: _snapNum(saldoF) };
+    }
+  } catch (e) { console.warn('[snapshot] resumo financeiro:', e); }
+
+  // ── Funcionários (só o que o bot precisa para achar "o João" e pagar): id, nome, função, ativo, sócio
+  var funcionariosSnap = [];
+  try {
+    if (typeof HR_FUNC !== 'undefined' && HR_FUNC.getFuncionarios) {
+      var fs = HR_FUNC.getFuncionarios() || {};
+      Object.keys(fs).forEach(function (k) {
+        var f = fs[k]; if (!f || !f.nome) return;
+        funcionariosSnap.push({ id: String(f.id || k), nome: _snapTxt(f.nome, 60), funcao: _snapTxt(f.funcao || f.cargo || '', 40), ativo: f.ativo === false ? false : true, socio: !!f.socio });
+      });
+    }
+  } catch (e) { console.warn('[snapshot] funcionários:', e); }
+
   // Ordem importa: o Worker corta no fim. O mais importante vem primeiro.
   return {
     geradoEm: hoje.toISOString(),
     hoje: hojeISO,
+    proLabore: proLabore,
+    resumoFinanceiro: resumoFinanceiro,
+    funcionarios: funcionariosSnap,
     legenda: {
       datas: 'AAAA-MM-DD; valores em reais (número)',
       orcamentos: 'status: aberto/pendente = aguardando resposta do cliente; aprovado = fechado; perdido = não fechou; vencido = passou da validade. "valor" = preço à vista; "validoAte" = último dia de validade',
       agenda: '"fechadoEm" = dia em que a venda foi fechada. etapa: producao = em produção; pronto = pronto p/ entrega; entregue = entregue. "inicio" = início do serviço, "entrega" = data prevista. "pago" = já recebido do "valor"',
       financas: 'tipo entrada = dinheiro que entrou; saida = gasto. totaisPorMes cobre todos os meses; lancamentos só os últimos ' + meses + ' meses',
       boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
+      resumoFinanceiro: 'mesmos números de Finanças → Lucro real do mês (regime de caixa): recebido − custo de material = lucro bruto; − despesas reais − custos recorrentes − impostos = lucro líquido. mesAnterior serve para comparar.',
+      proLabore: 'sugeridoMes = quanto o app sugere retirar neste mês; restanteSugerido = sugerido menos o que já foi retirado; tetoSegurancaCaixa = limite seguro para o caixa; dividaMesesAnteriores = o que a empresa ainda deve ao sócio',
       janelaMeses: meses
     },
     agenda: agenda,

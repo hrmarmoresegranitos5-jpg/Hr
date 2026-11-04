@@ -5745,6 +5745,7 @@ var HR_FUNC = (function () {
     getFuncionarios:          getFuncionarios,
     getRegistros:             getRegistros,
     getPagamentos:            getPagamentos,
+    savePagamentos:           savePagamentos,
     renderPaginaFuncionarios: renderPaginaFuncionarios,
     abrirFechamento:          abrirFechamento,
     // Usados pelo módulo "Fechar pagamento" (app-fechamento-rh.js)
