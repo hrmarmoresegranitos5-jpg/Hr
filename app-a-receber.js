@@ -177,6 +177,9 @@
     fecha();
     redesenha();
     toastS('💸 Lançado a receber de ' + j.cli + ' — vence ' + dmy(venc));
+    setTimeout(function () {
+      if (typeof showCB === 'function') showCB('📄 Gerar o aviso de pagamento em PDF para ' + j.cli + '?', function () { hideCB(); avisoPDF(j.id); }, function () { hideCB(); });
+    }, 900);
   }
 
   // ═══ 2) RECEBER (com multa e juros) ═══════════════════════════════
@@ -263,6 +266,19 @@
     });
   }
 
+  // Mantém o orçamento em dia: valor recebido acompanha o serviço; quitou tudo → status Concluído
+  function sincOrc(j) {
+    try {
+      var q = achaOrc(j); if (!q) return;
+      q._valorRecebido = Math.max(q._valorRecebido || 0, r2(j.pago || 0));
+      if (r2((j.value || 0) - (j.pago || 0)) <= 0.005 && q.status !== 'concluido') {
+        q.status = 'concluido'; q._concluidoConfirmado = true; q._statusDate = hoje();
+        if (typeof renderOrc === 'function') { try { renderOrc(); } catch (e) {} }
+        toastS('🏆 ' + (j.cli || 'Cliente') + ' quitou — orçamento marcado como Concluído');
+      }
+    } catch (e) {}
+  }
+
   // aplica o pagamento: primeiro quita multa/juros, o resto abate o principal
   // Abate o pagamento: primeiro multa e juros, o resto vai para o principal. Não mexe em Finanças.
   function aplicaPagamento(j, v) {
@@ -278,6 +294,7 @@
     j.pago = r2((j.pago || 0) + principal);
     var quitou = r2((j.value || 0) - (j.pago || 0)) <= 0.005;
     if (j.fiado && quitou) j.fiado.quitadoEm = ref;
+    sincOrc(j);
     return { encPago: encPago, principal: principal, quitou: quitou };
   }
 
@@ -350,6 +367,7 @@
         '<div style="display:flex;gap:6px;margin-top:10px;">' +
           '<button type="button" data-rec-r="' + j.id + '" style="flex:1.4;padding:10px 4px;border:none;border-radius:10px;background:var(--gold3);color:#000;font-weight:800;font-size:.76rem;cursor:pointer;font-family:inherit;">💰 Receber</button>' +
           '<button type="button" data-rec-w="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">📲 Cobrar</button>' +
+          '<button type="button" data-rec-p="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">📄 Aviso</button>' +
           '<button type="button" data-rec-m="' + j.id + '" style="padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--t2);font-size:.9rem;cursor:pointer;font-family:inherit;">⋯</button>' +
         '</div></div>';
     });
@@ -414,6 +432,72 @@
     window.open((tel ? 'https://wa.me/' + tel : 'https://wa.me/') + '?text=' + encodeURIComponent(t), '_blank');
   }
 
+  // ═══ 4b) AVISO DE PAGAMENTO EM PDF (para o cliente que recebeu e não pagou) ═══
+  // Abre a página pronta para imprimir / "Salvar como PDF" (mesmo padrão do comprovante).
+  function avisoPDF(id) {
+    var j = achaJob(id); if (!j || !j.fiado) { toastS('Lance como "a receber" primeiro'); return; }
+    var f = j.fiado, c = calc(j), car = f.carencia || 0;
+    var emp = (typeof CFG !== 'undefined' && CFG && CFG.emp) || {};
+    var nomeEmp = emp.nome || 'HR Mármores e Granitos';
+    var multaTxt = String(f.multaPct == null ? 0 : f.multaPct).replace('.', ',');
+    var jurosTxt = String(f.jurosMesPct == null ? 0 : f.jurosMesPct).replace('.', ',');
+    var jDia = r2(c.rest * (f.jurosMesPct || 0) / 100 / 30);
+    var inicio = somaDias(f.venc, car + 1);
+    var hojeTxt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    var num = 'AVP-' + String(j.id).slice(-6);
+    var linhas = '<tr><td>Até ' + dmy(f.venc) + (car ? ' (+' + car + ' ' + (car === 1 ? 'dia' : 'dias') + ' de tolerância)' : '') + '</td><td>—</td><td>—</td><td class="r">R$ ' + brl(c.rest) + '</td></tr>';
+    [7, 15, 30].forEach(function (n) {
+      var d = somaDias(f.venc, car + n), x = calc(j, d);
+      linhas += '<tr><td>' + dmy(d) + '</td><td>R$ ' + brl(x.multa) + '</td><td>R$ ' + brl(x.juros) + '</td><td class="r">R$ ' + brl(x.total) + '</td></tr>';
+    });
+    var atrasoBloco = c.atrasado
+      ? '<div class="alerta"><b>⏰ Pagamento em atraso há ' + c.dias + (c.dias === 1 ? ' dia' : ' dias') + '.</b><br>Valor atualizado hoje: <b>R$ ' + brl(c.total) + '</b> (principal R$ ' + brl(c.rest) + ' + multa R$ ' + brl(c.multa) + ' + juros R$ ' + brl(c.juros) + '). Os juros seguem acumulando a cada dia até a quitação.</div>'
+      : '';
+    var html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+      + '<title>Aviso de Pagamento — ' + esc(j.cli) + '</title><style>'
+      + '*{margin:0;padding:0;box-sizing:border-box;}'
+      + 'body{font-family:Inter,Arial,sans-serif;font-size:12.5px;color:#1a1a1a;background:#f5f0e8;display:flex;justify-content:center;padding:20px;}'
+      + '.page{max-width:640px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.13);}'
+      + '.hdr{background:linear-gradient(135deg,#0f0c00,#1a1400 60%,#0f0c00);padding:26px 36px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #C9A84C;}'
+      + '.brand{font-size:18px;font-weight:900;color:#C9A84C;line-height:1.1;}.tag{font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.5);margin-top:3px;}'
+      + '.hr{text-align:right;}.doc{font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.4);}.dn{font-size:14px;font-weight:900;color:#C9A84C;margin-top:2px;}.dd{font-size:9px;color:rgba(255,255,255,.45);margin-top:2px;}'
+      + '.body{padding:28px 36px;}.sec{font-size:8.5px;font-weight:900;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;border-bottom:1.5px solid #e8d090;padding-bottom:6px;margin:22px 0 12px;}.sec:first-child{margin-top:0;}'
+      + 'p{line-height:1.65;color:#333;margin-bottom:10px;}'
+      + '.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:6px 0 4px;}.fl label{display:block;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:3px;}.fl span{font-weight:700;}'
+      + '.vb{background:linear-gradient(135deg,#0f0c00,#1e1800);border-radius:12px;padding:18px 22px;margin:16px 0;border:1px solid rgba(201,168,76,.25);display:flex;justify-content:space-between;align-items:center;}'
+      + '.vl{font-size:9px;color:rgba(255,255,255,.5);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}.vn{font-size:28px;font-weight:900;color:#C9A84C;}.vd{font-size:15px;font-weight:800;color:#fff;}'
+      + '.alerta{background:#fdecea;border:1.5px solid #e57373;border-radius:10px;padding:12px 16px;margin:14px 0;line-height:1.6;color:#8a1c1c;}'
+      + '.regra{background:#fff8e1;border:1.5px solid #f0c040;border-radius:10px;padding:14px 18px;line-height:1.7;color:#5a4300;}'
+      + 'table{width:100%;border-collapse:collapse;margin-top:10px;}th{background:#1a1400;color:#C9A84C;padding:9px 12px;text-align:left;font-size:8px;letter-spacing:1.4px;text-transform:uppercase;}'
+      + 'td{padding:9px 12px;border-bottom:1px solid #f0e8d8;font-size:11.5px;}.r,th:last-child{text-align:right;font-weight:800;}'
+      + '.nota{font-size:10.5px;color:#777;margin-top:12px;line-height:1.55;}'
+      + '.foot{background:#0f0c00;padding:14px 36px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}.foot span{font-size:8.5px;color:rgba(201,168,76,.55);}'
+      + '@media print{body{background:#fff;padding:0;}.page{box-shadow:none;border-radius:0;}}'
+      + '</style></head><body><div class="page">'
+      + '<div class="hdr"><div><div class="brand">' + esc(nomeEmp) + '</div><div class="tag">Mármores · Granitos · Acessórios</div></div>'
+      + '<div class="hr"><div class="doc">Aviso de Pagamento</div><div class="dn">' + num + '</div><div class="dd">' + hojeTxt + '</div></div></div>'
+      + '<div class="body">'
+      + '<div class="sec">Identificação</div>'
+      + '<div class="row2"><div class="fl"><label>Cliente</label><span>' + esc(j.cli) + '</span></div><div class="fl"><label>Serviço</label><span>' + esc(j.desc || 'Serviço entregue') + '</span></div>'
+      + '<div class="fl"><label>Data da entrega</label><span>' + dmy(f.lancadoEm) + '</span></div><div class="fl"><label>Vencimento</label><span>' + dmy(f.venc) + '</span></div></div>'
+      + '<div class="vb"><div><div class="vl">Valor em aberto</div><div class="vn">R$ ' + brl(c.rest) + '</div></div><div style="text-align:right;"><div class="vl">Pagar até</div><div class="vd">' + dmy(f.venc) + '</div></div></div>'
+      + atrasoBloco
+      + '<p>Prezado(a) <b>' + esc(j.cli) + '</b>, o serviço acima foi entregue e consta em nosso sistema um valor pendente de pagamento. Pedimos que a quitação seja feita até <b>' + dmy(f.venc) + '</b>.</p>'
+      + '<div class="sec">Condições em caso de atraso</div>'
+      + '<div class="regra">Se o pagamento não for realizado até <b>' + dmy(f.venc) + '</b>' + (car ? ' (mais ' + car + (car === 1 ? ' dia' : ' dias') + ' de tolerância)' : '') + ', a partir de <b>' + dmy(inicio) + '</b> passam a incidir sobre o valor em aberto:<br>'
+      + '• <b>Multa de ' + multaTxt + '%</b>, cobrada uma única vez;<br>'
+      + '• <b>Juros de ' + jurosTxt + '% ao mês</b>, calculados por dia de atraso (cerca de <b>R$ ' + brl(jDia) + ' por dia</b> sobre o valor atual).</div>'
+      + '<div class="sec">Simulação do valor</div>'
+      + '<table><tr><th>Pagamento em</th><th>Multa</th><th>Juros</th><th>Total a pagar</th></tr>' + linhas + '</table>'
+      + '<p class="nota">Valores calculados sobre o saldo em aberto na data de emissão. Após o pagamento, envie o comprovante pelo WhatsApp para darmos a baixa. Em caso de dúvida ou necessidade de negociação, entre em contato antes do vencimento.</p>'
+      + '</div>'
+      + '<div class="foot"><span><b>' + esc(nomeEmp) + '</b> · ' + esc(emp.tel || '') + '</span><span>' + esc(emp.cnpj || '') + ' · ' + esc(emp.cidade || '') + '</span></div>'
+      + '</div><script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script></body></html>';
+    var w = window.open('', '_blank', 'width=720,height=900');
+    if (w) { w.document.write(html); w.document.close(); }
+    else toastS('Permita pop-ups para gerar o aviso');
+  }
+
   // ═══ 5) CONFIGURAR TAXAS ══════════════════════════════════════════
   function abrirCfg(voltaPara) {
     var c = cfg();
@@ -464,6 +548,13 @@
       });
     }
     try { if (window.HRRec && HRRec._bot) { url = HRRec._bot.url || ''; key = HRRec._bot.key || ''; } } catch (e) {}
+    // Configuração oficial do bot no app (a mesma de Secretaria/Pedidos): localStorage 'hr_bot_cfg' → {url, key}
+    if (!url || !key) {
+      try {
+        var oc = (typeof _getBotCfg === 'function') ? _getBotCfg() : JSON.parse(localStorage.getItem('hr_bot_cfg') || '{}');
+        if (oc && oc.url && oc.key) { url = String(oc.url); key = String(oc.key); }
+      } catch (e) {}
+    }
     try { olha(typeof CFG !== 'undefined' ? CFG : null); olha(typeof CFG !== 'undefined' && CFG ? CFG.bot : null); } catch (e) {}
     if (!url || !key) {
       try {
@@ -560,6 +651,7 @@
     if ((el = t.closest('[data-hrrec-receber]'))) { abrirReceber(el.getAttribute('data-hrrec-receber')); return; }
     if ((el = t.closest('[data-rec-r]'))) { abrirReceber(el.getAttribute('data-rec-r')); return; }
     if ((el = t.closest('[data-rec-w]'))) { cobrar(el.getAttribute('data-rec-w')); return; }
+    if ((el = t.closest('[data-rec-p]'))) { avisoPDF(el.getAttribute('data-rec-p')); return; }
     if ((el = t.closest('[data-rec-m]'))) { abrirMais(el.getAttribute('data-rec-m')); return; }
     if ((el = t.closest('[data-rec-cfg]'))) {
       var vinha = document.getElementById('hrRecLista');
@@ -571,7 +663,7 @@
   window.HRRec = {
     calc: calc, lista: lista, faixa: faixa, tagCard: tagCard,
     abrirReceber: abrirReceber, abrirLista: abrirLista, perguntarLancar: perguntarLancar,
-    cobrar: cobrar, abrirCfg: abrirCfg, receber: receber, lancar: lancar,
+    cobrar: cobrar, avisoPDF: avisoPDF, abrirCfg: abrirCfg, receber: receber, lancar: lancar,
     sincBot: sincBot, payloadBot: payloadBot,
     botConfig: function (url, key) { window.HRRec._bot = { url: url, key: key }; sincBot(true); }
   };

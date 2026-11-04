@@ -40,7 +40,7 @@ function _extDadosCliente(nome) {
 
   var orcsFechados = (DB.q || []).filter(function (q) {
     return _cliSim(nome, q.cli) >= 70 &&
-           (q.status === 'aceito' || q.status === 'concluido') &&
+           (q.status === 'aceito' || q.status === 'entregue' || q.status === 'concluido') &&
            !qIdsComAgenda[q.id];
   });
 
