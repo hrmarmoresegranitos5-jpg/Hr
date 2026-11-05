@@ -1902,6 +1902,9 @@ function _restoreCubaFotos() {
     if (typeof buildCubaList === 'function') buildCubaList();
     if (typeof buildCatalog   === 'function') buildCatalog();
     if (typeof buildCfg       === 'function') buildCfg();
+    // Fotos das pedras já estão em memória: libera o envio do cartão da pedra ao bot (app-secretaria.js)
+    window._hrFotosCfgProntas = true;
+    setTimeout(function() { try { if (typeof enviarFotosPedras === 'function') enviarFotosPedras(false); } catch (e) {} }, 6000);
   }).catch(function(e) {
     console.warn('[_restoreCubaFotos]', e.message || e);
   });

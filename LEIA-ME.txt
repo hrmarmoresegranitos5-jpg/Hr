@@ -1,30 +1,62 @@
-ARQUIVOS CORRIGIDOS (3) - HR MARMORES E GRANITOS
+CARTAO DA PEDRA NO WHATSAPP - HR MARMORES E GRANITOS
 
-NO CLOUDFLARE WORKER
-  HR_Worker_livro.js  - cole inteiro em Edit code e faça o Deploy. Mudanças:
-    * Banner de apresentacao volta a ser enviado depois de 7 dias sem conversa (antes: so uma vez na vida).
-      Variavel opcional APRES_DIAS (1 = todo dia, 0 = nunca repetir).
-    * Menu inicial: botao "Outro assunto" virou "Cozinha e projetos".
-    * Fala do bot: fatos da empresa (projeto 3D, parceria Ceara Planejados, visita gratuita com conferencia do local),
-      materiais (sem porcelanato), formas de pagamento, explicacao da agenda programada, visita nunca confirmada
-      sozinha, encerramento curto, projeto 3D so entregue ao fechar.
-    * Agenda: o bot nao oferece horario de visita ja ocupado nem que ja passou.
-    * Portfolio de fotos: legenda "trabalho cozinha: ..." (categorias), aviso de pedras do catalogo sem foto no comando
-      "portfolio", limite de 80 fotos.
+O QUE MUDOU, ARQUIVO POR ARQUIVO
 
-NO REPOSITORIO DO APP (mesma pasta do index.html)
-  app-secretaria.js   - o snapshot agora envia "visitasOcupadas" (so dia e hora, sem nome) (?v=24)
-  index.html          - carrega app-secretaria.js?v=24
-  sw.js               - cache hr-shell-v91 -> hr-shell-v92
-  app-boletos.js, app-boletos-conferir.js - sem mudanca nesta rodada (iguais aos da rodada anterior)
+HR_Worker_livro.js  (Cloudflare Worker)
+  * Rota nova POST /bot/pedra-foto (mesmo x-bot-key do /bot/snapshot). Recebe uma pedra por chamada:
+    sid, nome, cat (tipo), acab, desc, preco e foto (JPEG/PNG base64, ate 400 KB). Tambem aceita
+    { ids: [...] } para tirar do bot as pedras que sairam do catalogo do app.
+  * Grava no portfolio existente: pf:lista (tipo "pedra", nome igual ao do catalogo, campos novos
+    tp, acab, desc, preco, origem "app", semFoto) e pf:img:app_<id>. Itens do app ficam separados dos
+    do dono: o limite de 80 fotos passou a contar so as do dono.
+  * Funcoes novas: legendaCartaoPedra, cartaoMostraPreco, escolherItemPedra, midFotoPortfolio,
+    persistirMids, enviarCartaoPedra, pedraFotoSalvar.
+  * enviarFotosCliente: pedra especifica ("Preto Sao Gabriel", "preto sg", "pedra verde ubatuba") e a
+    vitrine geral ("pedras") agora enviam o cartao. Trabalhos continuam como antes.
+  * enviarCatalogoPedras (vitrine): cada pedra vai como cartao; a marca "Mais escolhida para..." entra
+    como ultima linha.
+  * Pedra do app sem foto: o cartao vai so em texto quando o cliente pede aquela pedra; na vitrine
+    ela e pulada (a vitrine so mostra pedras com foto).
+  * Comando "portfolio": pedras do app aparecem resumidas numa linha; "apagar portfolio N" nao apaga
+    pedra do app (avisa para editar no app).
+  * Legenda (max. 1024): *Nome* / Tipo · Acabamento / descricao / Preco: R$ X/m2. Sem emojis.
+  * Variavel de ambiente CARTAO_PEDRA_PRECO=0 esconde a linha do preco.
 
-DEPOIS DE SUBIR
-  1) Cole o Worker no Cloudflare e faça o Deploy.
-  2) Suba os arquivos do app, abra o app, feche e abra de novo (o service worker novo ativa na 2a abertura).
-  3) Abra o app uma vez para enviar os dados da agenda ao bot.
-  4) Teste no WhatsApp do dono: "testar cliente".
+app-secretaria.js  (?v=25)
+  * enviarFotosPedras(forcar): para cada pedra de CFG.stones reduz a foto no canvas (max. 1280 px,
+    JPEG 0,8, ate 300 KB), pega tipo (cat), acabamento (fin), descricao (desc, ou a gerada, igual a tela
+    de detalhe) e preco, e envia ao Worker com _botHeaders. O snapshot continua SEM foto.
+  * So reenvia o que mudou: hash por pedra em localStorage (hr_pedra_foto_hash), um para a foto e outro
+    para os dados. Mudou so o preco = reenvia so os dados, sem foto.
+  * Gatilhos: 25 s depois de abrir o app, 20 s depois de editar o catalogo (svCFG) e no botao
+    "Sincronizar" do bot. Forcar tudo (console do navegador): enviarFotosPedras(true)
 
-AINDA NAO FEITO
-  * Fotos do catalogo do app indo automaticamente para o bot, e remover o botao "+" da tela da pedra
-    (precisa de app-core.js e styles.css, que nao estavam no zip).
-  * Aviso do Pix no numero de teste: cancele o pedido de teste pendente.
+app-core.js  (?v=70)
+  * Em _restoreCubaFotos: liga window._hrFotosCfgProntas depois que as fotos voltam do IndexedDB e
+    dispara o envio. Sem isso o app poderia achar que a pedra esta sem foto e mandar apagar a do bot.
+    (3 linhas; mais nada mexido)
+
+styles.css  (?v=25)
+  * Regra nova no fim do arquivo: o botao dourado "+" (#fabPlus, criado em app-financas.js) fica
+    escondido so enquanto a tela de detalhe da pedra (#stoneMd) esta aberta. Nas outras telas segue igual.
+
+index.html  - styles.css?v=25, app-core.js?v=70, app-secretaria.js?v=25
+sw.js       - cache hr-shell-v92 -> hr-shell-v93
+
+NAO MEXIDO: Pix, pagamentos, agenda, boletos, projeto 3D (nunca entra nesse fluxo).
+
+PASSO A PASSO PARA SUBIR
+  1) Cloudflare: Workers > seu Worker > Edit code > cole o HR_Worker_livro.js inteiro > Deploy.
+     (opcional) Settings > Variables: CARTAO_PEDRA_PRECO = 0 para esconder o preco no cartao.
+  2) Repositorio do app: substitua app-core.js, app-secretaria.js, styles.css, index.html e sw.js
+     (mesma pasta) e faca commit/push.
+  3) Abra o app, feche e abra de novo (o service worker v93 ativa na 2a abertura).
+  4) Deixe o app aberto cerca de 1 a 2 minutos: ele envia as pedras uma a uma (pausa de ~1 s entre
+     elas). Na primeira vez sao todas; depois so as que mudarem.
+
+COMO TESTAR
+  1) No WhatsApp do dono: "portfolio". Deve aparecer "Pedras do app com cartao (N)".
+  2) Escreva "testar cliente" (30 min como cliente).
+  3) Como cliente: "quero ver as pedras" ou "me sugira uma pedra" -> vitrine com ate 4 cartoes.
+  4) Como cliente: "como e o Preto Sao Gabriel?" -> 1 cartao (foto + legenda).
+  5) Compare com a tela de detalhe da pedra no app. Com CARTAO_PEDRA_PRECO=0 a linha do preco some.
