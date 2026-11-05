@@ -413,6 +413,7 @@ function buildOrcList(list) {
     }
     h += '</div>';
     h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
+    if(window.hrLivroCardHtml) h += window.hrLivroCardHtml(q); // ficha Entrega e aceite (app-livro-entrega.js)
     h += '<div class="qcard-btns">';
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
     h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
