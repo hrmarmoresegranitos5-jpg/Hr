@@ -536,6 +536,11 @@ function _orcAbrirSeletorStatus(q) {
   m.addEventListener('click', function(e){ if(e.target === m) m.remove(); });
   document.body.appendChild(m);
 }
+function _orcAceitoSemRecebido(q) {
+  var rec = q._valorRecebido || 0;
+  var tot = (q.formaPag === 'misto' && typeof _mistoCalc === 'function') ? ((_mistoCalc(q) || {}).total || 0) : (q.vista || 0);
+  return rec <= 0.005 && tot > 0.005;
+}
 function _orcEscolherStatus(id, novo) {
   var m = document.getElementById('_orcStSheet'); if(m) m.remove();
   var q = DB.q.find(function(x){return String(x.id)===String(id);});
@@ -543,7 +548,9 @@ function _orcEscolherStatus(id, novo) {
   var atual = _orcStatusDe(q);
   if(novo === atual) return;
   // Aceito e Concluído pedem confirmação do valor/forma/data na PRIMEIRA vez (depois, voltar/avançar não lança de novo)
-  if (novo === 'aceito' && !q._aceitoConfirmado) {
+  // Também volta a perguntar quando o orçamento já foi aceito antes (flag gravada), mas nada ficou registrado como recebido e ainda há saldo
+  // (ex.: voltou para Aguardando e marcou Aceito de novo). Se já entrou dinheiro, não pergunta de novo, para não duplicar lançamento.
+  if (novo === 'aceito' && (!q._aceitoConfirmado || _orcAceitoSemRecebido(q))) {
     if (_orcSoSolPeit(q)) { _aceitarSolPeitSemEntrada(q); return; }
     _abrirModalStatusOrc(q, 'aceito');
     return;
@@ -584,6 +591,9 @@ function _orcMarcarEntregue(q, direto) {
       if (window.HRRec) { (direto ? HRRec.perguntarLancar : HRRec.abrirReceber)(direto ? job : job.id); }
       else { _jobPagamentoFlow(job); }
     }, 450);
+  } else if (window.HRRec && typeof HRRec.corrigirRecebido === 'function' && ((q._valorRecebido || 0) > 0.005 || (job.pago || 0) > 0.005)) {
+    // aparece como pago por completo porque há valor "recebido" gravado: confirma se o dinheiro entrou mesmo (se não, corrige e abre o "a receber")
+    setTimeout(function(){ HRRec.corrigirRecebido(q, job); }, 450);
   } else {
     setTimeout(function(){ toast('✓ Entregue — já está pago por completo'); }, 900);
   }
@@ -593,7 +603,7 @@ function _orcMarcarEntregue(q, direto) {
 // O pagamento é lançado depois, ao marcar "Concluído" (o modal já sugere o valor cheio).
 function _aceitarSolPeitSemEntrada(q) {
   q._aceitoConfirmado = true;
-  q._aceitoValor = 0; q._aceitoForma = ''; q._aceitoData = td();
+  if (!(q._valorRecebido > 0.005)) { q._aceitoValor = 0; q._aceitoForma = ''; q._aceitoData = td(); }
   _aplicarStatusOrc(q, 'aceito');
   var jaAgendado = (DB.j||[]).some(function(j){ return j.qId === q.id; });
   if (!jaAgendado) {
