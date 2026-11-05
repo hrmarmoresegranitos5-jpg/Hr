@@ -2585,6 +2585,7 @@ function _snapConstruir(meses) {
       inicio: ini, entrega: _snapData(j.end),
       valor: _snapNum(j.value), pago: _snapNum(j.pago),
       etapa: _snapTxt(j.stage, 20), concluido: !!j.done,
+      instala: j.instala ? true : false, // o bot só faz a pesquisa de pós-instalação para serviços que têm instalação
       urgente: j.urgente ? true : undefined,
       // dia em que o serviço foi fechado (o id nasce no fechamento da venda); o bot usa no fechamento das 17h
       fechadoEm: (j.qid && j.id) ? (_snapData(Number(j.id)) || undefined) : undefined

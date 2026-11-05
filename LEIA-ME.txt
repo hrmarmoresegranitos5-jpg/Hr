@@ -1,0 +1,13 @@
+ARQUIVOS CORRIGIDOS (5)
+
+NO REPOSITÓRIO DO APP (mesma pasta do index.html):
+  index.html            - carrega o módulo novo; app-secretaria agora ?v=22 e app-cliente-ficha ?v=2
+  sw.js                 - cache subiu de hr-shell-v89 para hr-shell-v90 (força o celular a pegar os arquivos novos)
+  app-secretaria.js     - o snapshot agora envia o campo "instala" (pós-instalação)
+  app-cliente-ficha.js  - NOVO: área Clientes (lista + ficha)
+
+NO CLOUDFLARE WORKER:
+  HR_Worker_livro.js    - pós-instalação (substitui o worker atual)
+  Conferir as variáveis: ATENDER_CLIENTES=1, GOOGLE_AVALIACAO, TEMPLATE_POS_INSTALACAO (modelo da Meta)
+
+DEPOIS DE SUBIR: abra o app, feche e abra de novo uma vez (o service worker novo ativa na 2ª abertura).
