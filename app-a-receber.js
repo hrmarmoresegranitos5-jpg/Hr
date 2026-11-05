@@ -132,54 +132,145 @@
   }
 
   // ═══ 1) PERGUNTA: pode lançar como "a receber"? ═══════════════════
+  // v75: dá para informar a data da ENTREGA e o VENCIMENTO (inclusive no passado, para serviço entregue há tempo).
+  // Se o vencimento já passou, o app mostra a multa e os juros de hoje, e o bot cria o pagamento no A Receber na hora.
   function perguntarLancar(j) {
     var rest = Math.max(0, r2((j.value || 0) - (j.pago || 0)));
     if (rest <= 0.005) { toastS('Este serviço já está quitado'); return; }
     var c = cfg();
-    var venc = somaDias(hoje(), c.diasPrazo);
-    var jDia = r2(rest * c.jurosMesPct / 100 / 30);
+    var entrega0 = (j.entregueEm && /^\d{4}-\d{2}-\d{2}$/.test(j.entregueEm)) ? j.entregueEm : hoje();
+    var dias0 = c.diasPrazo;
+    var venc = somaDias(entrega0, dias0);
     sheet(
       '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">💸 Cliente não pagou?</div>' +
       '<div style="font-size:.78rem;color:var(--t2);margin:6px 0 14px;line-height:1.5;">Posso lançar <b style="color:#e0a530;">R$ ' + brl(rest) + '</b> de <b>' + esc(j.cli) + '</b> no sistema como <b>a receber</b>?</div>' +
-      '<label style="' + LBL + '">Cliente vai pagar até</label>' +
+      '<label style="' + LBL + '">Dia da entrega</label>' +
+      '<input id="hrRecEntrega" type="date" max="' + hoje() + '" value="' + entrega0 + '" style="' + INPUT + 'margin-bottom:12px;">' +
+      '<label style="' + LBL + '">Dia em que ele ia pagar (vencimento)</label>' +
       '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
-        [3, 7, 15, 30].map(function (n) { return '<button type="button" data-rec-dias="' + n + '" style="' + CHIP + '">+' + n + ' dias</button>'; }).join('') +
+        [0, 3, 7, 15, 30].map(function (n) { return '<button type="button" data-rec-dias="' + n + '" style="' + CHIP + '">' + (n === 0 ? 'Na entrega' : '+' + n + ' dias') + '</button>'; }).join('') +
       '</div>' +
       '<input id="hrRecVenc" type="date" value="' + venc + '" style="' + INPUT + 'margin-bottom:12px;">' +
+      '<div id="hrRecInfoAtraso" style="font-size:.72rem;line-height:1.5;margin-bottom:12px;"></div>' +
       '<div style="font-size:.7rem;color:var(--t3);line-height:1.5;background:var(--s2);border:1px solid var(--bd2);border-radius:10px;padding:10px 12px;margin-bottom:16px;">' +
-        'Se passar do vencimento o app passa a contar <b>multa de ' + c.multaPct.toString().replace('.', ',') + '%</b> (uma vez) + <b>juros de ' + c.jurosMesPct.toString().replace('.', ',') + '% ao mês</b> (hoje daria R$ ' + brl(jDia) + ' por dia).' +
+        'Se passar do vencimento o app conta <b>multa de ' + c.multaPct.toString().replace('.', ',') + '%</b> (uma vez) + <b>juros de ' + c.jurosMesPct.toString().replace('.', ',') + '% ao mês</b>.' +
         ' <u id="hrRecCfgLink" style="cursor:pointer;color:var(--gold);">Mudar taxas</u></div>' +
       '<button type="button" id="hrRecSim" style="' + BTN_OK + '">Sim, lançar como a receber</button>' +
       '<button type="button" id="hrRecNao" style="' + BTN_NO + '">Não lançar</button>',
       { fixo: true });
     var m = document.getElementById(ID);
+    var diasEscolhido = dias0;
+    function atualizaInfo() {
+      var el = document.getElementById('hrRecInfoAtraso'); if (!el) return;
+      var v = document.getElementById('hrRecVenc').value, e = document.getElementById('hrRecEntrega').value;
+      if (!v) { el.innerHTML = ''; return; }
+      if (e && v < e) { el.style.color = '#f08a8a'; el.textContent = 'O vencimento não pode ser antes da entrega.'; return; }
+      var tmp = { value: j.value, pago: j.pago, fiado: { venc: v, multaPct: c.multaPct, jurosMesPct: c.jurosMesPct, carencia: c.carenciaDias, multaCobrada: null, jurosAcum: 0, desde: null, encPago: 0, perdoado: 0 } };
+      var k = calc(tmp);
+      if (k.atrasado) {
+        el.style.color = '#f08a8a';
+        el.innerHTML = '⏰ Venceu em ' + dmy(v) + ' (' + k.dias + (k.dias === 1 ? ' dia' : ' dias') + ' de atraso). Hoje: R$ ' + brl(k.rest) + ' + multa R$ ' + brl(k.multa) + ' + juros R$ ' + brl(k.juros) + ' = <b>R$ ' + brl(k.total) + '</b>. O bot já pode mandar o pagamento ao cliente (com a sua aprovação).';
+      } else if (k.naCarencia) {
+        el.style.color = '#e0a530';
+        el.textContent = 'Venceu em ' + dmy(v) + ', ainda dentro da carência: sem multa nem juros por enquanto.';
+      } else { el.style.color = 'var(--t3)'; el.textContent = 'Vence em ' + dmy(v) + '. Sem multa nem juros até lá.'; }
+    }
+    function chipsDe(base) {
+      Array.prototype.forEach.call(m.querySelectorAll('[data-rec-dias]'), function (b) {
+        var on = +b.getAttribute('data-rec-dias') === base;
+        b.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+        b.style.fontWeight = on ? '800' : '600';
+      });
+    }
     Array.prototype.forEach.call(m.querySelectorAll('[data-rec-dias]'), function (b) {
       b.addEventListener('click', function () {
-        document.getElementById('hrRecVenc').value = somaDias(hoje(), +b.getAttribute('data-rec-dias'));
+        diasEscolhido = +b.getAttribute('data-rec-dias');
+        document.getElementById('hrRecVenc').value = somaDias(document.getElementById('hrRecEntrega').value || hoje(), diasEscolhido);
+        chipsDe(diasEscolhido); atualizaInfo();
       });
     });
+    document.getElementById('hrRecEntrega').addEventListener('change', function () {
+      if (diasEscolhido != null) document.getElementById('hrRecVenc').value = somaDias(this.value || hoje(), diasEscolhido);
+      atualizaInfo();
+    });
+    document.getElementById('hrRecVenc').addEventListener('change', function () { diasEscolhido = null; chipsDe(-1); atualizaInfo(); });
+    chipsDe(dias0); atualizaInfo();
     document.getElementById('hrRecCfgLink').addEventListener('click', function () { abrirCfg(function () { perguntarLancar(j); }); });
     document.getElementById('hrRecNao').addEventListener('click', fecha);
     document.getElementById('hrRecSim').addEventListener('click', function () {
       var v = document.getElementById('hrRecVenc').value || venc;
-      lancar(j, v);
+      var e = document.getElementById('hrRecEntrega').value || hoje();
+      if (v < e) { toastS('O vencimento não pode ser antes da entrega'); return; }
+      lancar(j, v, e);
     });
   }
 
-  function lancar(j, venc) {
+  function lancar(j, venc, entrega) {
     var c = cfg();
+    entrega = entrega || hoje();
+    j.entregueEm = entrega;
     j.fiado = {
-      lancadoEm: hoje(), venc: venc,
+      lancadoEm: entrega, venc: venc,
       multaPct: c.multaPct, jurosMesPct: c.jurosMesPct, carencia: c.carenciaDias, // taxas combinadas ficam gravadas neste lançamento
       multaCobrada: null, jurosAcum: 0, desde: null, encPago: 0, perdoado: 0
     };
     if (typeof DB.sv === 'function') DB.sv();
     fecha();
     redesenha();
-    toastS('💸 Lançado a receber de ' + j.cli + ' — vence ' + dmy(venc));
+    toastS('💸 Lançado a receber de ' + j.cli + (venc < hoje() ? ' — venceu ' + dmy(venc) + ' (em atraso)' : ' — vence ' + dmy(venc)));
+    try { sincBot(true); } catch (e) {}
     setTimeout(function () {
       if (typeof showCB === 'function') showCB('📄 Gerar o aviso de pagamento em PDF para ' + j.cli + '?', function () { hideCB(); avisoPDF(j.id); }, function () { hideCB(); });
     }, 900);
+  }
+
+  // v75: serviço entregue mas o orçamento já tem valor "recebido" gravado (ex.: aceite ou conclusão confirmados sem o dinheiro ter entrado).
+  // Pergunta se o dinheiro entrou mesmo; se não, zera o recebido, remove os lançamentos de entrada em Finanças (se você deixar marcado) e abre o "a receber".
+  function corrigirRecebido(q, j) {
+    if (!q || !j) return;
+    var rec = r2(Math.max(q._valorRecebido || 0, j.pago || 0));
+    var cli = String(q.cli || j.cli || '');
+    var achados = (DB.t || []).filter(function (t) {
+      if (!t || t.type !== 'in' || typeof t.desc !== 'string') return false;
+      var d = t.desc;
+      var pre = (d.indexOf('Entrada (aceito) — ' + cli) === 0) || (d.indexOf('Pagamento final (concluído) — ' + cli) === 0);
+      if (!pre) return false;
+      return !q.tipo || d.indexOf(' — ' + q.tipo) > -1;
+    });
+    var lista = achados.map(function (t, i) {
+      return '<label style="display:flex;align-items:flex-start;gap:10px;font-size:.76rem;color:var(--t2);margin:0 0 8px;text-transform:none;letter-spacing:0;cursor:pointer;line-height:1.4;">' +
+        '<input type="checkbox" data-rec-tr="' + t.id + '" checked style="width:20px!important;height:20px;flex:0 0 auto;margin-top:1px;">' +
+        '<span>R$ ' + brl(t.value) + ' · ' + esc(t.date || '') + '<br><span style="color:var(--t3);">' + esc(t.desc) + '</span></span></label>';
+    }).join('');
+    sheet(
+      '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">Confere o pagamento</div>' +
+      '<div style="font-size:.78rem;color:var(--t2);margin:6px 0 14px;line-height:1.5;">O app tem <b style="color:#5dbf7a;">R$ ' + brl(rec) + '</b> registrado como recebido de <b>' + esc(cli) + '</b>, por isso este serviço aparece como pago e não abre o "a receber". O dinheiro entrou mesmo?</div>' +
+      (achados.length ? '<label style="' + LBL + '">Lançamentos em Finanças ligados a esse pagamento</label>' + lista + '<div style="font-size:.7rem;color:var(--t3);margin:0 0 14px;line-height:1.5;">Os marcados são removidos de Finanças se você corrigir.</div>' : '') +
+      '<button type="button" id="hrRecCorrige" style="' + BTN_OK + '">Não recebi — corrigir e lançar a receber</button>' +
+      '<button type="button" id="hrRecOkPago" style="' + BTN_NO + '">Sim, ele já pagou</button>',
+      { fixo: true });
+    document.getElementById('hrRecOkPago').addEventListener('click', function () { fecha(); toastS('✓ Entregue — já está pago por completo'); });
+    document.getElementById('hrRecCorrige').addEventListener('click', function () {
+      var m = document.getElementById(ID);
+      var marcados = {};
+      Array.prototype.forEach.call(m.querySelectorAll('[data-rec-tr]'), function (cb) { if (cb.checked) marcados[cb.getAttribute('data-rec-tr')] = true; });
+      var removidos = 0;
+      for (var i = (DB.t || []).length - 1; i >= 0; i--) {
+        var t = DB.t[i];
+        if (t && marcados[String(t.id)]) { DB.t.splice(i, 1); if (DB.marcarExcluido) DB.marcarExcluido('t', t.id); removidos++; }
+      }
+      q._valorRecebido = 0;
+      q._aceitoValor = 0; q._aceitoForma = ''; q._concluidoValor = 0; q._concluidoForma = '';
+      q._concluidoConfirmado = false; // se for concluir depois, volta a perguntar o valor
+      j.pago = 0;
+      try { if (typeof _syncJobDone === 'function') _syncJobDone(j); } catch (e) {}
+      if (typeof DB.sv === 'function') DB.sv();
+      try { if (typeof renderFin === 'function') renderFin(); } catch (e) {}
+      try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+      redesenha();
+      toastS('Corrigido: recebido zerado' + (removidos ? ' e ' + removidos + (removidos === 1 ? ' lançamento removido' : ' lançamentos removidos') + ' de Finanças' : ''));
+      setTimeout(function () { perguntarLancar(j); }, 400);
+    });
   }
 
   // ═══ 2) RECEBER (com multa e juros) ═══════════════════════════════
@@ -663,7 +754,7 @@
   window.HRRec = {
     calc: calc, lista: lista, faixa: faixa, tagCard: tagCard,
     abrirReceber: abrirReceber, abrirLista: abrirLista, perguntarLancar: perguntarLancar,
-    cobrar: cobrar, avisoPDF: avisoPDF, abrirCfg: abrirCfg, receber: receber, lancar: lancar,
+    cobrar: cobrar, avisoPDF: avisoPDF, abrirCfg: abrirCfg, receber: receber, lancar: lancar, corrigirRecebido: corrigirRecebido,
     sincBot: sincBot, payloadBot: payloadBot,
     botConfig: function (url, key) { window.HRRec._bot = { url: url, key: key }; sincBot(true); }
   };
