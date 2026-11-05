@@ -300,6 +300,7 @@ function renderBoletosTab() {
   h += '<input class="b-search" id="bSearchIn" type="text" placeholder="🔍 Buscar cliente, descrição, nº doc, valor..." value="' + (_bBusca||'') + '" oninput="_bBusca=this.value;_bRerender()">';
   h += '<button class="btn btn-o" onclick="bAbrirSeletorPDF()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📥 PDF</button>';
   h += '<button class="btn btn-o" onclick="bAbrirSeletorComprovante()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🧾 Comprovante</button>';
+  h += '<button class="btn btn-o" onclick="bfAbrir()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📑 Conferir fornecedor</button>';
   h += '<button class="btn btn-o" onclick="estAbrirPainel()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">📦 Estoque</button>';
   h += '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">🤖 Estratégia</button>';
   h += '<button class="btn btn-o" onclick="bExportarBackupJSON()" style="white-space:nowrap;font-size:.72rem;padding:9px 10px;">💾 Backup</button>';
