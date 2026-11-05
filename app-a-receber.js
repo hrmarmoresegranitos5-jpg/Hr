@@ -576,7 +576,7 @@
       var j = x.j, f = j.fiado, q = achaOrc(j);
       return {
         id: String(j.id), cliente: String(j.cli || ''), tel: String((q && q.tel) || j.tel || ''), desc: String(j.desc || ''),
-        valor: r2(j.value || 0), pago: r2(j.pago || 0), venc: f.venc,
+        valor: r2(j.value || 0), pago: r2(j.pago || 0), venc: f.venc, lancadoEm: f.lancadoEm || '',
         multaPct: f.multaPct, jurosMesPct: f.jurosMesPct, carencia: f.carencia || 0,
         multaCobrada: f.multaCobrada == null ? null : f.multaCobrada, jurosAcum: f.jurosAcum || 0, desde: f.desde || null,
         encPago: f.encPago || 0, perdoado: f.perdoado || 0
