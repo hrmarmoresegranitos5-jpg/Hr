@@ -2618,7 +2618,7 @@ function _snapConstruir(meses) {
     var venc = _snapData(b.venc);
     var aberto = b.status !== 'pago' && b.status !== 'cancelado';
     if (!aberto && !dentro(venc)) return;
-    var o = { descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15) };
+    var o = { descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15), tipo: b.tipo === 'receber' ? 'receber' : 'pagar' };
     if (b.cli) o.fornecedor = _snapTxt(b.cli, 50);
     if (b.cat) o.categoria = _snapTxt(b.cat, 25);
     if (b.parc) o.parcela = _snapTxt(b.parc, 10);
