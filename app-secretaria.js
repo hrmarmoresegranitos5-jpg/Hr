@@ -2852,6 +2852,138 @@ function enviarSnapshot(forcar) {
 window.montarSnapshot = montarSnapshot;
 window.enviarSnapshot = enviarSnapshot;
 
+// ─── Fotos das pedras para o bot (cartão da pedra no WhatsApp) ───────────
+// O snapshot NÃO leva foto (ficaria enorme). Cada pedra vai separada para
+// POST /bot/pedra-foto: foto reduzida (máx. 1280 px, JPEG 0,8, < 300 KB) + tipo,
+// acabamento, descrição e preço — os mesmos dados da tela de detalhe da pedra.
+// Só reenvia o que mudou: o hash de cada pedra fica em localStorage (hr_pedra_foto_hash).
+var _PF_LS = 'hr_pedra_foto_hash';
+var _PF_MAX_PX = 1280;
+var _PF_MAX_BYTES = 300 * 1024;
+var _pfEnviando = false;
+var _pfTimer = null;
+
+function _pfLer() { try { return JSON.parse(localStorage.getItem(_PF_LS) || '{}') || {}; } catch (e) { return {}; } }
+function _pfGravar(o) { try { localStorage.setItem(_PF_LS, JSON.stringify(o)); } catch (e) {} }
+function _pfHash(txt) {
+  var s = String(txt == null ? '' : txt), h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return String(h) + ':' + s.length;
+}
+// A mesma foto que a tela de detalhe mostra primeiro (openStone)
+function _pfFotoDaPedra(s) {
+  var f = (s.fotos && s.fotos.length) ? s.fotos[0] : (s.photo || '');
+  return (typeof f === 'string') ? f : '';
+}
+// Reduz a foto no canvas. Resolve { foto: 'data:image/jpeg;base64,...' } ou null (sem foto / não deu para ler)
+function _pfReduzir(src) {
+  return new Promise(function (resolve) {
+    if (!src) return resolve(null);
+    var img = new Image();
+    if (/^https?:/i.test(src)) img.crossOrigin = 'anonymous';
+    img.onload = function () {
+      try {
+        var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (!w || !h) return resolve(null);
+        var esc = Math.min(1, _PF_MAX_PX / Math.max(w, h)), q = 0.8;
+        for (var t = 0; t < 12; t++) {
+          var cw = Math.max(1, Math.round(w * esc)), ch = Math.max(1, Math.round(h * esc));
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d');
+          cx.fillStyle = '#fff'; cx.fillRect(0, 0, cw, ch); // PNG com fundo transparente vira branco no JPEG
+          cx.drawImage(img, 0, 0, cw, ch);
+          var url = cv.toDataURL('image/jpeg', q);
+          if (url.length * 0.75 <= _PF_MAX_BYTES) return resolve({ foto: url });
+          esc *= 0.85;
+          if (t === 5) q = 0.7;
+        }
+        resolve(null);
+      } catch (e) { console.warn('[pedra-foto] canvas:', e && e.message ? e.message : e); resolve(null); }
+    };
+    img.onerror = function () { resolve(null); };
+    img.src = src;
+  });
+}
+function _pfPostar(base, corpo) {
+  return fetch(base + '/bot/pedra-foto', { method: 'POST', headers: _botHeaders(), body: JSON.stringify(corpo) })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok || !d.ok) throw new Error('HTTP ' + r.status + (d && d.error ? ' — ' + d.error : ''));
+        return d;
+      });
+    });
+}
+function _pfEspera(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+// enviarFotosPedras(true) ignora os hashes e reenvia todas (use se apagou algo no bot).
+// Resolve sempre (nunca rejeita) com { ok, enviadas, motivo? }.
+function enviarFotosPedras(forcar) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) return Promise.resolve({ ok: false, enviadas: 0, motivo: 'bot não configurado' });
+  // As fotos do catálogo ficam no IndexedDB e chegam depois do CFG. Sem esperar, uma pedra com foto
+  // pareceria "sem foto" e o bot apagaria a dela. O app-core.js liga esta bandeira quando terminam de carregar.
+  if (!window._hrFotosCfgProntas) return Promise.resolve({ ok: false, enviadas: 0, motivo: 'fotos do catálogo ainda carregando' });
+  if (_pfEnviando) return Promise.resolve({ ok: false, enviadas: 0, motivo: 'envio em andamento' });
+  if (typeof CFG === 'undefined' || !CFG || !CFG.stones || !CFG.stones.length) return Promise.resolve({ ok: true, enviadas: 0 });
+  _pfEnviando = true;
+  var base = String(cfg.url).replace(/\/+$/, '');
+  var estado = _pfLer();
+  var anterior = forcar ? {} : estado;
+  var pedras = CFG.stones.filter(function (p) { return p && p.id && p.nm; });
+  var idx = 0, enviadas = 0, erro = '';
+
+  function proxima() {
+    if (idx >= pedras.length) return Promise.resolve();
+    var p = pedras[idx++];
+    var sid = String(p.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+    if (!sid) return proxima();
+    var src = _pfFotoDaPedra(p);
+    var desc = _snapTxt(p.desc || (typeof _gerarDescPedra === 'function' ? _gerarDescPedra(p) : ''), 600);
+    var corpo = { sid: sid, nome: _snapTxt(p.nm, 50), cat: _snapTxt(p.cat || 'Pedra', 30), acab: _snapTxt(p.fin, 30), desc: desc, preco: _snapNum(p.pr) };
+    var hf = src ? _pfHash(src) : '';
+    var hm = _pfHash([corpo.nome, corpo.cat, corpo.acab, corpo.desc, corpo.preco].join('|'));
+    var ant = anterior[sid] || {};
+    var mudouFoto = (ant.hf || '') !== hf, mudouMeta = ant.hm !== hm;
+    if (!mudouFoto && !mudouMeta) return proxima();
+
+    var passo = Promise.resolve(null);
+    if (mudouFoto && hf) passo = _pfReduzir(src);
+    else if (mudouFoto && !hf) corpo.removerFoto = true;
+    return passo.then(function (red) {
+      var fotoFalhou = false;
+      if (mudouFoto && hf) { if (red && red.foto) corpo.foto = red.foto; else fotoFalhou = true; }
+      return _pfPostar(base, corpo).then(function () {
+        estado[sid] = { hf: fotoFalhou ? (ant.hf || '') : hf, hm: hm }; // foto que não deu para ler é tentada de novo depois
+        _pfGravar(estado);
+        enviadas++;
+        return _pfEspera(1100); // o KV aceita ~1 escrita/s na mesma chave (pf:lista)
+      });
+    }).then(proxima);
+  }
+
+  return proxima().then(function () {
+    // pedras que saíram do catálogo deixam de existir no bot (só quando a lista está completa)
+    var ids = pedras.map(function (p) { return String(p.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40); }).filter(Boolean).sort();
+    var hIds = _pfHash(ids.join(','));
+    if (ids.length >= 3 && (forcar || estado.__ids !== hIds)) {
+      return _pfPostar(base, { ids: ids }).then(function () { estado.__ids = hIds; _pfGravar(estado); });
+    }
+  }).then(function () {
+    if (enviadas) console.log('[pedra-foto] ' + enviadas + ' pedra(s) enviada(s) ao bot');
+    return { ok: true, enviadas: enviadas };
+  }).catch(function (e) {
+    erro = e && e.message ? e.message : 'erro';
+    console.warn('[pedra-foto] não enviado:', erro);
+    return { ok: false, enviadas: enviadas, motivo: erro };
+  }).then(function (res) { _pfEnviando = false; return res; });
+}
+function _pfAgendar() {
+  clearTimeout(_pfTimer);
+  _pfTimer = setTimeout(function () { enviarFotosPedras(false); }, 20000);
+}
+window.enviarFotosPedras = enviarFotosPedras;
+
 // ─── Snapshot: linha "Última sincronização" e botão manual ───────────────
 function _snapFmtBahia(ts) {
   try {
@@ -2894,6 +3026,7 @@ function botSnapSincronizar() {
   function _m(t, cor) { var m = document.getElementById('botSnapMsg'); if (m) { m.textContent = t; m.style.color = cor || ''; } }
   if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
   _m('Sincronizando…', 'rgba(255,255,255,.6)');
+  try { enviarFotosPedras(false); } catch (e) {}
   enviarSnapshot(true).then(function (r) {
     if (r && r.ok) {
       _m('✓ Sincronizado — ' + Number(r.bytes || 0).toLocaleString('pt-BR') + ' bytes, últimos ' + (r.meses || 12) + ' meses em detalhe.', '#4ade80');
@@ -2937,6 +3070,7 @@ function _snapAgendar() {
       };
       DB.sv.__hrSnap = true;
       setTimeout(function () { enviarSnapshot(false); }, 8000);
+      setTimeout(function () { enviarFotosPedras(false); }, 25000);
     } catch (e) { console.warn('[snapshot] gatilhos:', e); }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ini); else setTimeout(ini, 1500);
@@ -2953,6 +3087,7 @@ function _snapAgendar() {
       var orig = svCFG;
       var nova = function () {
         try { _snapAgendar(); } catch (e) {}
+        try { _pfAgendar(); } catch (e) {}
         return orig.apply(this, arguments);
       };
       nova.__hrSnap = true;

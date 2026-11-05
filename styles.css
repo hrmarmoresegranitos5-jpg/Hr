@@ -4640,3 +4640,7 @@ button:focus-visible {
 .sp2-tip b{ color:var(--gold2); } .sp2-tip .g{ color:#5dc48a; } .sp2-tip .r{ color:#e07070; }
 
 #sSplash .sp2-kpis{ padding:0 !important; }
+
+/* Tela de detalhe da pedra: o botão flutuante dourado "+" (#fabPlus) cobria o preço.
+   Fica escondido só enquanto #stoneMd está aberto; nas outras telas continua igual. */
+body:has(#stoneMd.on) #fabPlus{ display:none !important; }
