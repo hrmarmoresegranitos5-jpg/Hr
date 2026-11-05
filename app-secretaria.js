@@ -2759,6 +2759,13 @@ function _snapConstruir(meses) {
     proLabore: proLabore,
     resumoFinanceiro: resumoFinanceiro,
     funcionarios: funcionariosSnap,
+    // Só dia e hora das visitas técnicas ainda agendadas (sem nome nem endereço): o bot usa para oferecer horários livres
+    visitasOcupadas: (function () {
+      try {
+        return _getV().filter(function (v) { return v && v.status === 'agendada' && v.date && v.date >= hojeISO; })
+          .map(function (v) { return { data: String(v.date).slice(0, 10), hora: _snapTxt(v.hora || '', 8) }; }).slice(0, 80);
+      } catch (e) { return []; }
+    })(),
     legenda: {
       datas: 'AAAA-MM-DD; valores em reais (número)',
       orcamentos: 'status: aberto/pendente = aguardando resposta do cliente; aprovado = fechado; perdido = não fechou; vencido = passou da validade. "valor" = preço à vista; "validoAte" = último dia de validade',
