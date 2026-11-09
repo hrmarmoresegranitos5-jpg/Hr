@@ -105,7 +105,7 @@
     if (p.instalacao === 'com') avisos.push('Cliente quer instalação: não incluída no cálculo.');
     return Object.assign({}, p, {
       ambiente: amb, pedra: String(p.cor || '').trim(), pecas: pecas, acabamento: p.acabamento || 'sem',
-      pagamento: 'vista', prazo_modo: p.prazo_modo || 'agenda', prazo_dias: p.prazo_dias || 1, _avisos: avisos
+      pagamento: 'vista', prazo_modo: p.prazo_modo || 'manual', prazo_dias: p.prazo_dias || 1, _avisos: avisos
     });
   }
 
@@ -153,7 +153,7 @@
     if (!dataEst) return false;
     if (!(dias > 0)) dias = Math.max(1, Math.round((new Date(dataEst + 'T00:00:00') - new Date(hoje + 'T00:00:00')) / 86400000));
     var last = lastEnd();
-    window._pdfPrazoData = { dias: dias, base: hoje, dataEst: dataEst, lastEnd: ped.prazo_modo === 'agenda' ? last : null,
+    window._pdfPrazoData = { dias: dias, base: hoje, dataEst: dataEst, lastEnd: null,
       emProd: (DB.j || []).filter(function (j) { return !j.done; }).length, hoje: hoje, isUrgent: (window._urgPct || 0) > 0 };
     q.prazoDias = dias; q.prazoInicio = hoje; q.prazoEntrega = dataEst; q.prazoModo = 'manual'; q.prazoUrgente = false;
     try { DB.sv(); } catch (e) {}
@@ -187,7 +187,14 @@
     restaurarTela(estado);
     if (!(valor > 0)) return revisar(ped, 'O app calculou valor zero (confira as medidas e a pedra).');
     var corpo = { id: ped.id, valor: valor, avisos: ped._avisos || [], pagamento: ped.pagamento === 'parcelado' ? 'parcelado' : 'vista' };
-    if (agenda && agenda > td()) corpo.agenda_ate = agenda;
+    // Custo, lucro e margem calculados pelo app: o Worker mostra ao dono e avisa quando a margem fica baixa
+    var custo = +q._custoPainel || 0;
+    if (custo > 0 && valor > 0) {
+      corpo.custo = Math.round(custo * 100) / 100;
+      corpo.lucro = Math.round((valor - custo) * 100) / 100;
+      corpo.margem_pct = Math.round((valor - custo) / valor * 1000) / 10;
+    }
+    // Soleira e peitoril não entram na agenda de produção: não envia agenda_ate (o Worker não mostra "agenda ocupada")
     return api('/bot/pedidos/cotacao', { method: 'POST', body: JSON.stringify(corpo) }).then(function (res) {
       if (res && (res.ok || res._http === 404)) cotados[ped.id] = true;
       else console.warn('[bot] cotação falhou:', res);
@@ -223,8 +230,14 @@
     if (busy || document.hidden || !base()) return;
     busy = true;
     api('/bot/pedidos').then(function (r) {
-      var fila = (r.pedidos || []).map(normalizar).filter(function (p) {
-        return !feitos[p.id] && !(p.fase === 'cotar' && cotados[p.id]) && p.pedra && itensDe(p).every(function (it) { return it.pecas && it.pecas.length && ACB[it.ambiente]; });
+      var todos = (r.pedidos || []).map(normalizar).filter(function (p) { return !feitos[p.id] && !(p.fase === 'cotar' && cotados[p.id]); });
+      // Pedido sem cor/pedra ou sem peças válidas nunca era processado e expirava calado: agora o dono é avisado pelo Worker
+      todos.filter(function (p) { return !p.pedra || !itensDe(p).every(function (it) { return it.pecas && it.pecas.length && ACB[it.ambiente]; }); })
+        .forEach(function (p) {
+          revisar(p, !p.pedra ? 'O cliente ainda não informou a cor da pedra.' : 'Faltam medidas válidas ou o tipo (soleira/peitoril) do pedido.');
+        });
+      var fila = todos.filter(function (p) {
+        return p.pedra && itensDe(p).every(function (it) { return it.pecas && it.pecas.length && ACB[it.ambiente]; });
       });
       var seq = Promise.resolve();
       fila.forEach(function (p) { seq = seq.then(function () { return p.fase === 'cotar' ? cotar(p) : processar(p); }); });
