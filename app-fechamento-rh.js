@@ -110,8 +110,10 @@ var HR_FECHAMENTO = (function () {
     }
     t += '📋 *Seu pagamento — ' + rot + '*\n\n';
     t += '• Fixo: ' + _m(s.totalSalario) + '\n';
-    var ext = (s.valorExtra || 0) + (s.totalAcrescimos || 0) + (s.totalCreditosHE || 0);
+    var ext = (s.valorExtra || 0) + (s.totalAcrescimos || 0) + ((s.totalCreditosHE || 0) - (s.totalPendEntra || 0));
     if (ext > 0.01) t += '• Horas extras: +' + _m(ext) + '\n';
+    if ((s.totalPendEntra || 0) > 0.01) t += '• Restante do período anterior: +' + _m(s.totalPendEntra) + '\n';
+    if ((s.totalPendSai || 0) > 0.01) t += '• Restante passado pro próximo: −' + _m(s.totalPendSai) + '\n';
     if ((s.deficitRestanteValor || 0) > 0.01) t += '• Faltas/atrasos: −' + _m(s.deficitRestanteValor) + '\n';
     if (l.adi > 0.01) t += '• Vale/adiantamento: −' + _m(l.adi) + '\n';
     if (l.cre > 0.01) t += '• Desconto de valor pago a mais: −' + _m(l.cre) + '\n';
@@ -160,8 +162,10 @@ var HR_FECHAMENTO = (function () {
     else { vTxt = '—'; vCor = T3; vRot = 'nada a pagar'; }
 
     var partes = ['Fixo ' + _m(l.s.totalSalario)];
-    var ext = (l.s.valorExtra || 0) + (l.s.totalAcrescimos || 0) + (l.s.totalCreditosHE || 0);
+    var ext = (l.s.valorExtra || 0) + (l.s.totalAcrescimos || 0) + ((l.s.totalCreditosHE || 0) - (l.s.totalPendEntra || 0));
     if (ext > 0.01) partes.push('Extras +' + _m(ext));
+    if ((l.s.totalPendEntra || 0) > 0.01) partes.push('Restante anterior +' + _m(l.s.totalPendEntra));
+    if ((l.s.totalPendSai || 0) > 0.01) partes.push('Restante p/ próximo −' + _m(l.s.totalPendSai));
     if ((l.s.deficitRestanteValor || 0) > 0.01) partes.push('Faltas −' + _m(l.s.deficitRestanteValor));
     if (l.adi > 0.01) partes.push('Vale −' + _m(l.adi));
     if (l.cre > 0.01) partes.push('Desc. pago a mais −' + _m(l.cre));

@@ -505,6 +505,60 @@ window.botSyncPagamentos = botSyncPagamentos;
 setTimeout(function () { botSyncPagamentos(false); }, 8000);
 setInterval(function () { botSyncPagamentos(false); }, 60000);
 
+// ── Avisos de falta que chegam pelo WhatsApp → importação do ponto ──
+// "O Hugo pediu pra faltar hoje, desconta dos extras": o bot guarda o aviso no Worker; aqui o app busca e salva em
+// hr_avisos_falta (por funcionário e data). A importação do ponto lê esse registro e mostra o aviso no dia.
+// O desconto é sempre das horas extras (regra do sistema); não altera nenhum cálculo de pagamento.
+var _botFaltaBusy = false;
+function botSyncFaltas(manual) {
+  var cfg = _getBotCfg();
+  if (!cfg.url || !cfg.key) { if (manual) toast('Conecte o bot primeiro (URL e chave).'); return; }
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.getFuncionarios) return;
+  if (_botFaltaBusy) return;
+  _botFaltaBusy = true;
+  var base = String(cfg.url).replace(/\/+$/, '');
+  fetch(base + '/bot/faltas', { headers: _botHeaders() })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (!x.ok) { _botFaltaBusy = false; if (manual) toast('❌ ' + ((x.d && x.d.error) || 'Falha ao buscar avisos de falta')); return; }
+      var lista = x.d.faltas || [];
+      if (!lista.length) { _botFaltaBusy = false; if (manual) toast('Nenhum aviso de falta novo no bot.'); return; }
+      var avisos = {};
+      try { avisos = JSON.parse(localStorage.getItem('hr_avisos_falta') || '{}') || {}; } catch (e) { avisos = {}; }
+      var limite = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      Object.keys(avisos).forEach(function (k) { if (avisos[k] && avisos[k].data && avisos[k].data < limite) delete avisos[k]; });
+      var resultados = [], novos = 0;
+      lista.forEach(function (p) {
+        var res = { waId: p.waId, ok: false, erro: '' };
+        try {
+          if (avisos[p.waId]) { res.ok = true; res.repetido = true; resultados.push(res); return; } // já importado antes
+          var funcs = HR_FUNC.getFuncionarios() || {};
+          var fid = funcs[p.funcId] ? p.funcId : null;
+          if (!fid) { // o id pode ter mudado: procura pelo nome
+            var alvo = String(p.nome || '').toLowerCase();
+            Object.keys(funcs).forEach(function (k) { if (!fid && String(funcs[k].nome || '').toLowerCase() === alvo) fid = k; });
+          }
+          if (!fid) { res.erro = 'funcionário "' + (p.nome || '') + '" não encontrado no RH'; resultados.push(res); return; }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.data || ''))) { res.erro = 'data inválida'; resultados.push(res); return; }
+          avisos[p.waId] = { waId: p.waId, funcId: fid, nome: p.nome || '', data: p.data, parte: p.parte || '', motivo: p.motivo || '', desconto: 'extras', criadoEm: Date.now(), origem: 'whatsapp' };
+          novos++;
+          res.ok = true; resultados.push(res);
+        } catch (e) { res.erro = String((e && e.message) || e).slice(0, 120); resultados.push(res); }
+      });
+      try { localStorage.setItem('hr_avisos_falta', JSON.stringify(avisos)); }
+      catch (e) { resultados.forEach(function (r) { if (r.ok && !r.repetido) { r.ok = false; r.erro = 'não foi possível salvar no aplicativo'; } }); novos = 0; }
+      return fetch(base + '/bot/faltas/resultado', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ resultados: resultados }) })
+        .then(function () {
+          _botFaltaBusy = false;
+          if (novos) toast('📩 ' + novos + ' aviso(s) de falta do WhatsApp para a importação do ponto');
+        });
+    })
+    .catch(function () { _botFaltaBusy = false; if (manual) toast('❌ Worker não acessível.'); });
+}
+window.botSyncFaltas = botSyncFaltas;
+setTimeout(function () { botSyncFaltas(false); }, 9000);
+setInterval(function () { botSyncFaltas(false); }, 60000);
+
 // ── Anotações que chegam pelo WhatsApp → área Anotações ──
 // O bot guarda "anotar Maria: soleira 0,90 x 0,15" no Worker; aqui o app busca,
 // grava em DB.n (mesmo formato do formulário do app) e confirma pro Worker.

@@ -1419,9 +1419,12 @@ var HR_IMPORT = (function () {
     var ano = new Date().getFullYear(), mes = new Date().getMonth() + 1;
     for (var ri = 0; ri < Math.min(10, rows.length); ri++) {
       var rowStr = (rows[ri] || []).join('|');
-      var mPer = rowStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      // Prefere o início do período ("01/11/2026~10/11/2026"); senão, 1ª data achada.
+      var mPer = rowStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*~/) ||
+                 rowStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
       if (mPer) { ano = parseInt(mPer[3]); mes = parseInt(mPer[2]); break; }
     }
+    var anoBase = ano, mesBase = mes;
 
     var registros = [];
     var i = 0;
@@ -1443,13 +1446,23 @@ var HR_IMPORT = (function () {
         var daysRow  = rows[i + 1] || [];
         var punchRow = rows[i + 2] || [];
 
+        // Período que cruza o mês (ex: 21/10~10/11): os dias vêm 21..31,1..10.
+        // Quando o número do dia diminui, virou o mês (e o ano, se for o caso).
+        var anoCol = anoBase, mesCol = mesBase, diaAnterior = 0;
+
         for (var col = 0; col < daysRow.length; col++) {
           var dayCell = String(daysRow[col]).trim();
           if (!/^\d+$/.test(dayCell)) continue;
           var dayNum = parseInt(dayCell);
           if (dayNum < 1 || dayNum > 31) continue;
 
-          var dataISO = ano + '-' + String(mes).padStart(2,'0') + '-' + String(dayNum).padStart(2,'0');
+          if (diaAnterior && dayNum < diaAnterior) {
+            mesCol++;
+            if (mesCol > 12) { mesCol = 1; anoCol++; }
+          }
+          diaAnterior = dayNum;
+
+          var dataISO = anoCol + '-' + String(mesCol).padStart(2,'0') + '-' + String(dayNum).padStart(2,'0');
           var dt = new Date(dataISO + 'T12:00:00');
           if (isNaN(dt.getTime()) || dt.getDay() === 0) continue; // inválida ou domingo
 
@@ -1794,6 +1807,7 @@ var HR_IMPORT = (function () {
     }
 
     _state.grupos = _vincularAuto(_agrupar(registros));
+    _aplicarAvisosFalta(_state.grupos);
     _autoConfirmarAlmocoPadrao(_state.grupos);
 
     var todas = registros.map(function(r){ return r.data; }).sort();
@@ -1871,6 +1885,167 @@ var HR_IMPORT = (function () {
     });
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // REVISÃO GUIADA — resumo no topo da Correção de Ponto
+  // Junta o que precisa de decisão: quem não bateu nada no período, dias
+  // suspeitos (entrada depois das 10h / saída antes das 15h em dia útil) e
+  // pessoas do relógio sem cadastro. Só lê o estado; as ações reusam as
+  // funções já existentes (ignorar, editar, punir).
+  // ══════════════════════════════════════════════════════════════════════════
+  // ── Avisos de falta (vindos do bot pelo WhatsApp → hr_avisos_falta) ──────
+  // O dono avisa o bot ("Hugo pediu pra faltar hoje, desconta dos extras"); o app guarda por funcionário
+  // e data. Aqui o aviso aparece no dia e, se o funcionário não bateu nada, a falta já entra aplicada.
+  // O desconto continua sendo o do sistema: déficit abate primeiro das extras (nenhum cálculo é alterado).
+  function _avisosFaltaLista() {
+    try { return JSON.parse(localStorage.getItem('hr_avisos_falta') || '{}') || {}; } catch(e) { return {}; }
+  }
+
+  function _avisoDoDia(gr, data) {
+    var avisos = _avisosFaltaLista();
+    var primeiro = _normalNome(gr.nome).split(' ')[0];
+    var achado = null;
+    Object.keys(avisos).forEach(function(k) {
+      var a = avisos[k];
+      if (!a || a.data !== data || achado) return;
+      if ((gr.funcId && a.funcId === gr.funcId) ||
+          (!gr.funcId && primeiro && _normalNome(a.nome).split(' ')[0] === primeiro)) achado = a;
+    });
+    return achado;
+  }
+
+  function _textoAviso(a) {
+    return (a.motivo ? a.motivo : (a.parte === 'parcial' ? 'ausência parcial' : 'falta avisada')) + ' · desconta das extras';
+  }
+
+  function _aplicarAvisosFalta(grupos) {
+    grupos.forEach(function(gr) {
+      gr.registros.forEach(function(r) {
+        var a = _avisoDoDia(gr, r.data);
+        if (!a) return;
+        r._aviso = a;
+        // Não bateu nada no dia e o dono já avisou: a falta entra aplicada
+        // (o desconto segue a regra de sempre — primeiro das extras).
+        if (!r.entrada && !r.saida && !r._punicao) {
+          r._punicao = true; r.entrada = 'PUNIÇÃO'; r.saida = 'PUNIÇÃO';
+        }
+      });
+    });
+  }
+
+  function _removerAviso(grpIdx, recIdx) {
+    var gr = _state.grupos[grpIdx];
+    var r = gr && gr.registros[recIdx];
+    if (!r || !r._aviso) return;
+    var avisos = _avisosFaltaLista();
+    delete avisos[r._aviso.waId];
+    try { localStorage.setItem('hr_avisos_falta', JSON.stringify(avisos)); } catch(e) {}
+    if (r._punicao) {
+      r._punicao = false;
+      if (r.entrada === 'PUNIÇÃO') r.entrada = '';
+      if (r.saida   === 'PUNIÇÃO') r.saida   = '';
+    }
+    delete r._aviso;
+    _renderTelaCorrecao();
+  }
+
+  function _grupoSemNenhumaBatida(gr) {
+    return gr.registros.length > 0 && gr.registros.every(function(r) {
+      return !r.entrada && !r.saida && !r._punicao;
+    });
+  }
+
+  function _diasSuspeitos(gr) {
+    var lista = [];
+    gr.registros.forEach(function(r, ri) {
+      if (r._punicao || r._aviso || !r.entrada || !r.saida) return;
+      var ent = _hhmm2min(r.entrada), sai = _hhmm2min(r.saida);
+      var dow = new Date(r.data + 'T12:00:00').getDay();
+      if (!isNaN(ent) && ent >= 600) {
+        lista.push({ ri: ri, data: r.data, campo: 'entrada', motivo: 'entrada ' + r.entrada });
+      } else if (!isNaN(sai) && sai < 900 && dow !== 6) {
+        lista.push({ ri: ri, data: r.data, campo: 'saida', motivo: 'saída ' + r.saida });
+      }
+    });
+    return lista;
+  }
+
+  function _painelRevisao(grupos) {
+    var linhas = [];
+    grupos.forEach(function(gr, gi) {
+      if (gr._ignorar) return;
+      var semBatida = _grupoSemNenhumaBatida(gr);
+      var semCadastro = !gr.funcId;
+      var suspeitos = _diasSuspeitos(gr);
+      var btnBase = 'border-radius:7px;font-family:Outfit,sans-serif;font-size:.65rem;padding:5px 9px;' +
+        'cursor:pointer;white-space:nowrap;touch-action:manipulation;';
+
+      if (semBatida) {
+        linhas.push(
+          '<div style="padding:8px 0;border-top:1px solid #1e1e1e;">' +
+            '<div style="font-size:.8rem;color:' + T1 + ';font-weight:700;">' + _esc(gr.nome) + '</div>' +
+            '<div style="font-size:.7rem;color:' + T2 + ';margin:2px 0 7px;">Nenhuma batida em ' + gr.registros.length +
+              ' dia(s) do período' + (semCadastro ? ' · sem cadastro no sistema' : '') + '.</div>' +
+            '<div style="display:flex;gap:7px;">' +
+              '<button data-action="ignorar" data-gi="' + gi + '" data-val="1" style="background:none;border:1px solid #3a3a3a;color:' + T2 + ';' + btnBase + '">&#128683; Ignorar</button>' +
+              '<button data-action="falta-todos" data-gi="' + gi + '" style="background:rgba(120,20,20,.3);border:1px solid rgba(180,40,40,.4);color:#c06060;' + btnBase + '">&#128308; Falta em todos os dias</button>' +
+            '</div>' +
+          '</div>');
+        return;
+      }
+      if (semCadastro) {
+        linhas.push(
+          '<div style="padding:8px 0;border-top:1px solid #1e1e1e;display:flex;align-items:center;gap:8px;">' +
+            '<div style="flex:1;"><div style="font-size:.8rem;color:' + T1 + ';font-weight:700;">' + _esc(gr.nome) + '</div>' +
+            '<div style="font-size:.7rem;color:' + T2 + ';">Está no relógio mas não foi vinculado a nenhum funcionário. Vincule na próxima etapa ou ignore.</div></div>' +
+            '<button data-action="ignorar" data-gi="' + gi + '" data-val="1" style="background:none;border:1px solid #3a3a3a;color:' + T2 + ';' + btnBase + '">&#128683; Ignorar</button>' +
+          '</div>');
+      }
+      gr.registros.forEach(function(r, ri) {
+        if (!r._aviso) return;
+        linhas.push(
+          '<div style="padding:8px 0;border-top:1px solid #1e1e1e;display:flex;align-items:center;gap:8px;">' +
+            '<div style="flex:1;font-size:.76rem;color:' + T1 + ';"><b>' + _esc(gr.nome) + '</b> · ' + _fmtDataCurta(r.data) +
+              '<div style="font-size:.68rem;color:#c4b5fd;">&#128233; Aviso do dono: ' + _esc(_textoAviso(r._aviso)) + '</div></div>' +
+            '<button data-action="remover-aviso" data-gi="' + gi + '" data-ri="' + ri + '" ' +
+              'style="background:none;border:1px solid #3a3a3a;color:' + T2 + ';' + btnBase + '">Remover</button>' +
+          '</div>');
+      });
+      suspeitos.forEach(function(sp) {
+        linhas.push(
+          '<div style="padding:8px 0;border-top:1px solid #1e1e1e;display:flex;align-items:center;gap:8px;">' +
+            '<div style="flex:1;font-size:.76rem;color:' + T1 + ';"><b>' + _esc(gr.nome) + '</b> · ' + _fmtDataCurta(sp.data) +
+              '<div style="font-size:.68rem;color:' + T2 + ';">Dia suspeito: ' + sp.motivo + '</div></div>' +
+            '<button data-action="editar" data-gi="' + gi + '" data-ri="' + sp.ri + '" data-field="' + sp.campo + '" ' +
+              'style="background:rgba(201,168,76,.1);border:1px solid rgba(201,168,76,.3);color:' + GOLD + ';' + btnBase + '">Revisar</button>' +
+          '</div>');
+      });
+    });
+
+    if (linhas.length === 0) return '';
+    return '<div style="' + CSS_CARD + 'border-color:rgba(201,168,76,.3);margin-bottom:16px;">' +
+      '<div style="font-size:.78rem;font-weight:800;color:' + GOLD + ';letter-spacing:.05em;margin-bottom:6px;">' +
+        '&#128203; REVISÃO RÁPIDA</div>' +
+      '<div style="font-size:.7rem;color:' + T3 + ';margin-bottom:4px;">O que precisa de decisão antes de continuar.</div>' +
+      linhas.join('') +
+    '</div>';
+  }
+
+  /** Falta em todos os dias do período (pula dias que já têm exceção/feriado). */
+  function _faltaTodos(grpIdx) {
+    var gr = _state.grupos[grpIdx];
+    if (!gr) return;
+    var excs = {};
+    try { excs = JSON.parse(localStorage.getItem('hr_excecoes') || '{}'); } catch(e) {}
+    var datasExc = Object.keys(excs).map(function(k){ return excs[k].data; });
+    var alvo = gr.registros.filter(function(r) {
+      return !r._punicao && !r.entrada && !r.saida && datasExc.indexOf(r.data) < 0 && !_feriadoNacional(r.data);
+    });
+    if (alvo.length === 0) { _toast('Nenhum dia elegível (feriados e exceções ficam de fora).'); return; }
+    if (!window.confirm('Marcar FALTA em ' + alvo.length + ' dia(s) de ' + gr.nome + '? Isso desconta esses dias da folha.\n(Feriados e dias com exceção ficam de fora.)')) return;
+    alvo.forEach(function(r) { r._punicao = true; r.entrada = 'PUNIÇÃO'; r.saida = 'PUNIÇÃO'; });
+    _renderTelaCorrecao();
+  }
+
   function _renderTelaCorrecao() {
     var grupos = _state.grupos;
     var DOW_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -1924,7 +2099,7 @@ var HR_IMPORT = (function () {
             '<div style="flex:1;padding:6px 8px;border-radius:8px;background:rgba(120,20,20,.2);border:1px solid rgba(180,40,40,.3);">' +
               '<div style="font-size:.58rem;color:#c06060;font-weight:700;letter-spacing:1px;">' +
                 '\u{1F534} PUNI\u00C7\u00C3O APLICADA</div>' +
-              '<div style="font-size:.7rem;color:#8a5050;margin-top:1px;">Dia descontado da folha</div>' +
+              '<div style="font-size:.7rem;color:#8a5050;margin-top:1px;">' + (r._aviso ? 'Falta avisada \u00B7 ' + _esc(_textoAviso(r._aviso)) : 'Dia descontado da folha') + '</div>' +
             '</div>' +
             '<button data-action="desfazer-punicao" data-gi="' + gi + '" data-ri="' + ri + '" ' +
               'style="background:none;border:1px solid #3a2020;border-radius:7px;color:#666;' +
@@ -2001,7 +2176,11 @@ var HR_IMPORT = (function () {
           ? '<span style="color:' + T2 + ';font-weight:600;font-family:monospace;font-size:.76rem;">' + r.almSaida + '</span>'
           : '<span style="color:#333;font-family:monospace;font-size:.76rem;">\u2014:\u2014</span>';
 
-        return '<div style="margin-bottom:5px;">' +
+        var tagAviso = r._aviso
+          ? '<div style="font-size:.62rem;color:#c4b5fd;padding:2px 0 3px 10px;">&#128233; Aviso do dono: ' + _esc(_textoAviso(r._aviso)) + '</div>'
+          : '';
+
+        return '<div style="margin-bottom:5px;">' + tagAviso +
 
           '<div style="display:flex;align-items:center;gap:7px;padding:7px 0 4px 10px;' +
           'border-left:3px solid ' + corBorda + ';border-top-right-radius:8px;' +
@@ -2119,6 +2298,8 @@ var HR_IMPORT = (function () {
         '</div>' +
       '</div>' +
 
+      _painelRevisao(grupos) +
+
       gruposHtml +
 
       '<button data-action="continuar" ' +
@@ -2158,6 +2339,8 @@ var HR_IMPORT = (function () {
       else if (action === 'desfazer-punicao' && gi !== null && ri !== null)  { e.stopPropagation(); _desfazerPunicao(gi, ri); }
       else if (action === 'excluir'    && gi !== null && ri !== null)        { e.stopPropagation(); _excluirCorrecao(gi, ri); }
       else if (action === 'ignorar'    && gi !== null && val !== null)       { e.stopPropagation(); _ignorarGrupo(gi, val === 1); }
+      else if (action === 'remover-aviso' && gi !== null && ri !== null)    { e.stopPropagation(); _removerAviso(gi, ri); }
+      else if (action === 'falta-todos' && gi !== null)                     { e.stopPropagation(); _faltaTodos(gi); }
       else if (action === 'excecao'    && gi !== null && ri !== null)        { e.stopPropagation(); _abrirModalExcecao(gi, ri); }
       else if (action === 'adicionar-dia' && gi !== null)                   { e.stopPropagation(); _abrirAdicionarDia(gi); }
       else if (action === 'continuar')                                       { e.stopPropagation(); _continuarParaVinculacao(); }
@@ -3232,7 +3415,7 @@ var HR_IMPORT = (function () {
       });
       // Registros com punição: garante flag para o sistema de folha
       gr.registros.forEach(function(r){
-        if (r._punicao) r.observacao = 'PUNIÇÃO — batida faltante';
+        if (r._punicao) r.observacao = r._aviso ? 'FALTA AVISADA — ' + _textoAviso(r._aviso) : 'PUNIÇÃO — batida faltante';
       });
     });
 
@@ -3528,7 +3711,7 @@ var HR_IMPORT = (function () {
             producao: '',
             instalacao: '',
             ieo: '',
-            observacao: 'PUNIÇÃO — falta lançada manualmente (desconta ' + _min2dur(jornadaPun) + ' do dia)',
+            observacao: r._aviso ? 'FALTA AVISADA — ' + _textoAviso(r._aviso) + ' (' + _min2dur(jornadaPun) + ' do dia)' : 'PUNIÇÃO — falta lançada manualmente (desconta ' + _min2dur(jornadaPun) + ' do dia)',
             punicao: true,
             loteId: loteId,
             criadoEm: dupPun ? dupPun.criadoEm : new Date().toISOString(),
@@ -3673,7 +3856,7 @@ var HR_IMPORT = (function () {
           producao: '',
           instalacao: '',
           ieo: '',
-          observacao: 'Importado do relatório de presença',
+          observacao: r._aviso ? 'Aviso do dono: ' + _textoAviso(r._aviso) : 'Importado do relatório de presença',
           loteId: loteId,
           criadoEm: new Date().toISOString(),
           atualizadoEm: new Date().toISOString()

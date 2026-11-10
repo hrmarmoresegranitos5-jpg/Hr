@@ -647,6 +647,13 @@ var HR_FUNC = (function () {
     // HE acumuladas de decêndios anteriores apontadas para este período
     var totalCreditosHE = _totalCreditosHEPeriodo(funcId, di, df);
     totalDevido += totalCreditosHE;
+    // Restante não pago de outro decêndio (tipo 'pend'): a parte que ENTROU
+    // neste período já está somada acima (faz parte de totalCreditosHE);
+    // a parte que SAIU deste período (passada pro decêndio seguinte) deixa
+    // de ser devida aqui — senão contaria duas vezes (aqui e no destino).
+    var totalPendEntra = _totalPendEntraPeriodo(funcId, di, df);
+    var totalPendSai   = _totalPendSaiPeriodo(funcId, di, df);
+    totalDevido -= totalPendSai;
 
     // ── Pagamentos realizados ────────────────────────────────────────────
     var meusPags = Object.values(pags).filter(function(p){
@@ -672,7 +679,9 @@ var HR_FUNC = (function () {
       valorExtra:       valorExtra,
       totalSalario:     totalSalario,
       totalDevido:      totalDevido,
-      totalCreditosHE:  totalCreditosHE,
+      totalCreditosHE:  totalCreditosHE,   // inclui o restante recebido (pend)
+      totalPendEntra:   totalPendEntra,    // restante de decêndio anterior somado aqui
+      totalPendSai:     totalPendSai,      // restante daqui passado pra frente
       totalAcrescimos:  totalAcrescimos,
       totalPago:        totalPago,
       saldo:            saldo,
@@ -1102,6 +1111,10 @@ var HR_FUNC = (function () {
           '<button onclick="typeof HR_IA!==\'undefined\'&&HR_IA.abrir()" title="RH IA — saldo, extrato e pagamento de decêndio" '+
             'style="background:rgba(201,168,76,.12);border:1px solid '+GOLD+';border-radius:10px;padding:10px 14px;'+
             'color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">🤖 IA</button>' +
+          (function(){ var _n=0; try{ _n=_resumoPendencias().length; }catch(e){}
+            return '<button onclick="HR_FUNC.abrirPendencias()" title="Restante não pago de decêndios anteriores" '+
+              'style="background:'+(_n?'rgba(224,138,138,.12)':'rgba(255,255,255,.05)')+';border:1px solid '+(_n?'#c85c5c':BD)+';border-radius:10px;padding:10px 12px;'+
+              'color:'+(_n?'#e0a0a0':T3)+';font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">📌'+(_n?' '+_n:'')+'</button>'; })() +
           '<button onclick="HR_FUNC.abrirFormFuncionario(null)" '+
             'style="background:'+GOLD+';border:none;border-radius:10px;padding:10px 16px;'+
             'color:#000;font-family:Outfit,sans-serif;font-size:.8rem;font-weight:800;cursor:pointer;white-space:nowrap;">+ Cadastrar</button>' +
@@ -2915,6 +2928,9 @@ var HR_FUNC = (function () {
         // pra saber, no momento de salvar, se tem HE ficando de fora do valor
         // digitado — e se sim, quanto, de qual decêndio/mês e quantas horas
         // (usado por _salvarPagamento pra gerar o crédito automático).
+        // Resumo ao vivo: quanto é devido, quanto está sendo pago e o que sobra
+        '<div id="pag_resumo_valor" style="display:none;margin:-4px 0 12px;"></div>'+
+        '<input type="hidden" id="pag_devido" value="">'+
         '<input type="hidden" id="pag_he_incluir" value="1">'+
         '<input type="hidden" id="pag_he_valor" value="0">'+
         '<input type="hidden" id="pag_he_horas" value="0">'+
@@ -3005,6 +3021,39 @@ var HR_FUNC = (function () {
         }
       }
 
+      // Resumo ao vivo abaixo do campo Valor: deixa claro, antes de confirmar,
+      // se o pagamento quita, é parcial (e quanto sobra pro próximo decêndio)
+      // ou passa do devido.
+      function _atualizarResumoValor(){
+        var box  = document.getElementById('pag_resumo_valor');
+        var inpV = document.getElementById('pag_valor');
+        var hid  = document.getElementById('pag_devido');
+        var tp   = (selTipo && selTipo.value) || 'decendio';
+        if (!box || !inpV || !hid) return;
+        var devido = parseFloat(hid.value);
+        if (tp !== 'decendio' || isNaN(devido) || devido <= 0.005) { box.style.display = 'none'; box.innerHTML = ''; return; }
+        var pagando = parseFloat(inpV.value) || 0;
+        var dif = Math.round((devido - pagando) * 100) / 100;
+        var cor, ico, txt;
+        if (Math.abs(dif) <= 0.01) {
+          cor = GREEN; ico = '✅'; txt = 'Quita este decêndio';
+        } else if (dif > 0) {
+          cor = GOLD; ico = '📌';
+          txt = 'Pagamento parcial — restam <strong>' + _fmtMoeda(dif) + '</strong>. Fica pendente e aparece como opção no próximo decêndio.';
+        } else {
+          cor = RED; ico = '⚠️';
+          txt = 'Valor <strong>' + _fmtMoeda(-dif) + '</strong> acima do devido — vira crédito e é descontado depois.';
+        }
+        box.style.display = '';
+        box.innerHTML = '<div style="display:flex;gap:8px;align-items:flex-start;background:rgba(255,255,255,.03);border:1px solid ' + cor + '55;border-radius:10px;padding:9px 11px;">' +
+          '<span style="font-size:.9rem;line-height:1.3;">' + ico + '</span>' +
+          '<div style="font-size:.72rem;color:' + T2 + ';line-height:1.5;flex:1;">' +
+            '<div style="color:' + cor + ';font-weight:700;">' + txt + '</div>' +
+            '<div style="color:' + T3 + ';margin-top:2px;">Devido ' + _fmtMoeda(devido) + ' · Pagando ' + _fmtMoeda(pagando) + '</div>' +
+          '</div></div>';
+      }
+      HR_FUNC._atualizarResumoValor = _atualizarResumoValor;
+
       function _atualizarPainel(){
         var fid   = selFunc.value;
         var tipo  = (selTipo && selTipo.value) || 'decendio';
@@ -3027,9 +3076,12 @@ var HR_FUNC = (function () {
           // ficava com um valor maior que o "A pagar hoje" mostrado acima.
           var valorCalc2 = _calcValorAPagar(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
           if (valorCalc2 > 0 || (s2 && s2.totalSalario > 0)) inpV.value = valorCalc2.toFixed(2);
+          var hidD = document.getElementById('pag_devido');
+          if (hidD) hidD.value = valorCalc2.toFixed(2);
         }
         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
         _atualizarCamposHEOcultos(s2);
+        _atualizarResumoValor();
       }
       _atualizarPainel(); // aplica visibilidade inicial do campo de desconto
 
@@ -3071,14 +3123,19 @@ var HR_FUNC = (function () {
           // Mesma fórmula do resumo visual — desconta déficit, "já pago" e
           // adiantamentos, não só HE (ver _calcValorAPagar).
           inpV.value = _calcValorAPagar(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo).toFixed(2);
+          var hidD2 = document.getElementById('pag_devido');
+          if (hidD2) hidD2.value = inpV.value;
         }
         _atualizarCamposHEOcultos(s2);
+        _atualizarResumoValor();
       }
       // Expor funções para botões inline do HTML
       HR_FUNC._toggleExtraPag    = _atualizarToggle;
       HR_FUNC._selecionarDecendio = _selecionarDecendio;
       HR_FUNC._atualizarPainelPagamento = _atualizarPainel;
 
+      var inpValorLive = document.getElementById('pag_valor');
+      if (inpValorLive) inpValorLive.addEventListener('input', _atualizarResumoValor);
       selFunc.addEventListener('change', _atualizarPainel);
       if (selTipo) selTipo.addEventListener('change', _atualizarPainel);
 
@@ -3122,7 +3179,7 @@ var HR_FUNC = (function () {
     var acrEfetivo = incluirExtra ? (s.totalAcrescimos || 0) : 0;
     var pago       = s.totalPago || 0;
     var deficitEfetivo = s.deficitRestanteValor || 0;
-    return sal + heEfetivo + acrEfetivo + (s.totalCreditosHE || 0) - deficitEfetivo - pago;
+    return sal + heEfetivo + acrEfetivo + (s.totalCreditosHE || 0) - (s.totalPendSai || 0) - deficitEfetivo - pago;
   }
 
   // Valor devido ANTES de abater créditos de overpago (mas já depois de
@@ -3203,8 +3260,18 @@ var HR_FUNC = (function () {
         })
       : [];
 
-    var creditosHE = (decNum && f && f.id) ? _creditosHEDecendio(f.id, decNum, _refMesAdi) : [];
+    var creditosHEtodos = (decNum && f && f.id) ? _creditosHEDecendio(f.id, decNum, _refMesAdi) : [];
+    // Separa HE acumulada (🏦) do restante não pago de outro decêndio (📌)
+    var creditosHE   = creditosHEtodos.filter(function(c){ return !_ehCreditoPend(c); });
+    var pendRecebidas = creditosHEtodos.filter(_ehCreditoPend);
     var totalCreditosHE = creditosHE.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+    var totalPendRecebidas = pendRecebidas.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+    // Restante deste decêndio que já foi passado pro seguinte
+    var pendSaiLista = (decNum && f && f.id) ? _pendSaiDecendio(f.id, decNum, _refMesAdi) : [];
+    var totalPendSai = pendSaiLista.reduce(function(s2,c){ return s2 + (parseFloat(c.valor)||0); }, 0);
+    // Restante ainda NÃO passado, de decêndios anteriores — oferecido como opção
+    var pendDisponiveis = (decNum && f && f.id) ? _pendenciasAnteriores(f.id, decNum, _refMesAdi) : [];
+    function _fmtDm(iso){ return iso.slice(8)+'/'+iso.slice(5,7); }
 
     var saldo   = _calcValorAPagar(s, f, incluirExtra, decNum, mesISO);
 
@@ -3282,8 +3349,24 @@ var HR_FUNC = (function () {
           var dLbl = c.data ? _fmtData(c.data) : '';
           return _linha('🏦 HE acumulada '+dLbl+(c.obs?' ('+_esc(c.obs)+')':''), parseFloat(c.valor)||0, '#8ec8f0');
         }).join('') +
+        pendRecebidas.map(function(c){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+            '<span style="font-size:.75rem;color:'+T2+';">📌 '+_esc(c.obs||'Restante de decêndio anterior')+
+              ' <a href="#" onclick="HR_FUNC._desfazerPendencia(\''+c.id+'\');return false;" style="color:#8ec8f0;font-size:.62rem;margin-left:4px;">desfazer</a></span>'+
+            '<span style="font-size:.82rem;font-weight:600;color:#e0b870;white-space:nowrap;">'+_fmtMoeda(parseFloat(c.valor)||0)+'</span>'+
+          '</div>';
+        }).join('') +
         (deficitEfetivo > 0.01 ? _linhaSubt('Horas negativas restantes ('+_fmtHorasMin(s.deficitRestanteMin)+')', deficitEfetivo, RED) : '') +
         (pago > 0  ? _linhaSubt('Já pago neste período', pago, RED) : '') +
+        pendSaiLista.map(function(c){
+          var _d = _decendioSeguinte(decNum, _refMesAdi, f);
+          var _dest = (c.creditarDecendio ? _rotuloPeriodo(f, c.creditarDecendio) : _rotuloPeriodo(f, _d.num)) + (c.mesRefDestino ? ' '+c.mesRefDestino.slice(5,7)+'/'+c.mesRefDestino.slice(0,4) : '');
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">'+
+            '<span style="font-size:.75rem;color:'+T2+';">➡️ Restante passado pro '+_esc(_dest)+
+              ' <a href="#" onclick="HR_FUNC._desfazerPendencia(\''+c.id+'\');return false;" style="color:#8ec8f0;font-size:.62rem;margin-left:4px;">desfazer</a></span>'+
+            '<span style="font-size:.82rem;font-weight:600;color:#8ec8f0;white-space:nowrap;">− '+_fmtMoeda(parseFloat(c.valor)||0)+'</span>'+
+          '</div>';
+        }).join('') +
         adiantamentosAlvo.map(function(a){
           var dLbl = a.data ? _fmtData(a.data) : '';
           return _linhaSubt('💸 Adiantamento '+dLbl+(a.obs?' ('+_esc(a.obs)+')':''), parseFloat(a.valor)||0, '#e0954a');
@@ -3306,6 +3389,7 @@ var HR_FUNC = (function () {
           (totalAdiantamentos > 0.01 ? '<div style="font-size:.6rem;color:#e0954a;">−'+_fmtMoeda(totalAdiantamentos)+' já descontado em adiantamentos</div>' : '')+
           (totalCreditosAlvo > 0.01 ? '<div style="font-size:.6rem;color:'+GREEN+';">−'+_fmtMoeda(totalCreditosAlvo)+' descontado por overpago no decêndio anterior</div>' : '')+
           (totalCreditosHE > 0.01 ? '<div style="font-size:.6rem;color:#8ec8f0;">+'+_fmtMoeda(totalCreditosHE)+' de horas extras acumuladas de outro período</div>' : '')+
+          (totalPendRecebidas > 0.01 ? '<div style="font-size:.6rem;color:#e0b870;">+'+_fmtMoeda(totalPendRecebidas)+' de restante não pago de decêndio anterior</div>' : '')+
         '</div>'+
         '<div style="font-size:1.3rem;font-weight:800;color:'+saldoCor+';">'+
           _fmtMoeda(Math.abs(saldo))+
@@ -3346,6 +3430,14 @@ var HR_FUNC = (function () {
             creditosOutrosAbertos.map(function(c){ return _fmtData(c.data)+' '+_fmtMoeda(parseFloat(c.valor)||0); }).join(' · ')+
           '</div>'
         : '')+
+      // ── Restante não pago de decêndio(s) anterior(es) — opção de somar aqui ──
+      pendDisponiveis.map(function(p){
+        return '<button type="button" onclick="HR_FUNC._somarPendencia(\''+f.id+'\','+p.decNum+',\''+p.mesRef+'\','+decNum+',\''+_refMesAdi+'\')" '+
+          'style="margin-top:9px;width:100%;padding:9px 10px;border-radius:9px;background:rgba(201,168,76,.10);'+
+          'border:1px dashed rgba(201,168,76,.55);color:'+GOLD+';font-family:Outfit,sans-serif;font-size:.7rem;'+
+          'font-weight:700;cursor:pointer;line-height:1.4;">📌 Somar restante não pago do '+_esc(p.per.label)+
+          ' ('+_fmtDm(p.per.di)+' a '+_fmtDm(p.per.df)+') — '+_fmtMoeda(p.valor)+'</button>';
+      }).join('') +
       ((decNum && f && f.id)
         ? '<button type="button" onclick="HR_FUNC._addCreditoHEManual(\''+f.id+'\','+decNum+',\''+_refMesAdi+'\')" '+
           'style="margin-top:9px;width:100%;padding:8px 10px;border-radius:9px;background:rgba(142,200,240,.08);'+
@@ -3600,8 +3692,170 @@ var HR_FUNC = (function () {
   // pelo bloco de saldo do pagamento) — mesma assinatura de _adiantamentosAlvoDecendio.
   // Crédito de HORAS EXTRAS acumuladas (soma) x crédito de OVERPAGO (desconta).
   // Os criados antes do campo `tipo` existir são reconhecidos pelo texto da obs.
+  // Também conta como "crédito que SOMA" o tipo 'pend' (restante não pago de
+  // um decêndio anterior, somado ao pagamento de outro) — assim ele nunca é
+  // confundido com overpago nos filtros abaixo.
   function _ehCreditoHE(c) {
-    return !!c && (c.tipo === 'he' || /^Horas extras de .*acumuladas/i.test(c.obs || ''));
+    return !!c && (c.tipo === 'he' || c.tipo === 'pend' || /^Horas extras de .*acumuladas/i.test(c.obs || ''));
+  }
+  function _ehCreditoPend(c) { return !!c && c.tipo === 'pend'; }
+
+  // ─────────────────────────────────────────────────────────────
+  // RESTANTE NÃO PAGO DE UM DECÊNDIO (tipo 'pend')
+  // Quando o decêndio não é pago por inteiro, o que sobrou fica como opção
+  // pra ser somado ao pagamento do decêndio seguinte. Ao somar, grava-se um
+  // crédito tipo 'pend' com origem (decêndio que ficou devendo) e destino
+  // (decêndio que vai pagar). No destino ele SOMA ao devido; na origem ele
+  // é abatido do devido (o valor "mudou de lugar", não é contado 2×).
+  // ─────────────────────────────────────────────────────────────
+  function _periodoContido(c, campoNum, campoMes, funcId, di, df) {
+    if (!c[campoNum] || !c[campoMes]) return false;
+    var per = _periodoDecendio(c[campoNum], c[campoMes], funcId);
+    if (di && per.di < di) return false;
+    if (df && per.df > df) return false;
+    return true;
+  }
+  function _totalPendEntraPeriodo(funcId, di, df) {
+    var t = 0;
+    Object.values(getCreditos()).forEach(function (c) {
+      if (!_ehCreditoPend(c) || c.funcionarioId !== funcId) return;
+      if (_periodoContido(c, 'creditarDecendio', 'mesRefDestino', funcId, di, df)) t += parseFloat(c.valor) || 0;
+    });
+    return t;
+  }
+  function _totalPendSaiPeriodo(funcId, di, df) {
+    var t = 0;
+    Object.values(getCreditos()).forEach(function (c) {
+      if (!_ehCreditoPend(c) || c.funcionarioId !== funcId || !c.creditarDecendio) return;
+      if (_periodoContido(c, 'decNumOrigem', 'mesRefOrigem', funcId, di, df)) t += parseFloat(c.valor) || 0;
+    });
+    return t;
+  }
+  // Restantes que SAÍRAM deste decêndio (pra mostrar "passado pro próximo").
+  function _pendSaiDecendio(funcId, decNum, mesRef) {
+    return Object.values(getCreditos()).filter(function (c) {
+      return _ehCreditoPend(c) && c.funcionarioId === funcId && c.creditarDecendio &&
+             c.decNumOrigem === decNum && c.mesRefOrigem === mesRef;
+    });
+  }
+
+  // Decêndio imediatamente anterior a (num, mesRef).
+  function _decendioAnterior(num, mesRef, fOuId) {
+    if (num > 1) return { num: num - 1, mesRef: mesRef };
+    var a = parseInt(mesRef.slice(0,4), 10), m = parseInt(mesRef.slice(5,7), 10) - 1;
+    var d = new Date(a, m - 1, 1);
+    return { num: _numPeriodos(fOuId), mesRef: d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') };
+  }
+
+  // Quanto ainda falta pagar em cada um dos decêndios ANTERIORES (até 6 pra
+  // trás) a (decNum, mesRef). Usa o mesmo cálculo do "A pagar hoje" do próprio
+  // decêndio, então o valor oferecido é exatamente o que aparece lá.
+  // Só considera decêndios que tiveram ao menos um pagamento (pagamento
+  // parcial) — decêndio sem nenhum pagamento (histórico antigo, antes do
+  // sistema) não gera pendência fantasma.
+  function _pendenciasAnteriores(funcId, decNum, mesRef) {
+    var f = getFuncionarios()[funcId];
+    if (!f || !decNum || !mesRef) return [];
+    var pags = Object.values(getPagamentos());
+    var creditos = Object.values(getCreditos());
+    var out = [];
+    var cur = { num: decNum, mesRef: mesRef };
+    for (var i = 0; i < 6; i++) {
+      cur = _decendioAnterior(cur.num, cur.mesRef, f);
+      var per = _periodoDecendio(cur.num, cur.mesRef, funcId);
+      var temPag = pags.some(function (p) {
+        return p.funcionarioId === funcId && p.tipo === 'decendio' && p.data >= per.di && p.data <= per.df;
+      });
+      if (!temPag) continue;
+      var s = calcSaldoFuncionario(funcId, per.di, per.df);
+      var valor = _calcValorAPagar(s, f, true, cur.num, cur.mesRef);
+      // HE que o usuário mandou "Acumular" neste decêndio já vai ser paga no
+      // destino dela (crédito 'he') — não pode entrar de novo como restante.
+      var heAcum = creditos.reduce(function (t, c) {
+        return t + ((_ehCreditoHE(c) && !_ehCreditoPend(c) && c.funcionarioId === funcId &&
+                     c.decNumOrigem === cur.num && c.mesRefOrigem === cur.mesRef) ? (parseFloat(c.valor) || 0) : 0);
+      }, 0);
+      valor = Math.round((valor - heAcum) * 100) / 100;
+      if (valor > 0.01) out.push({ decNum: cur.num, mesRef: cur.mesRef, per: per, valor: valor });
+    }
+    return out;
+  }
+
+  // Soma o restante de um decêndio anterior ao pagamento do decêndio exibido.
+  function _somarPendencia(funcId, origDec, origMes, destDec, destMes) {
+    var achada = _pendenciasAnteriores(funcId, destDec, destMes).filter(function (p) {
+      return p.decNum === origDec && p.mesRef === origMes;
+    })[0];
+    if (!achada) { _toast('Esse decêndio não tem mais restante a pagar.'); return; }
+    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var obs = achada.per.label + ' ' + meses[parseInt(origMes.slice(5,7),10)-1] + '/' + origMes.slice(0,4) +
+      ' — restante não pago (' + _fmtMoeda(achada.valor) + ')';
+    var c = criarCredito(funcId, achada.valor, _hoje(), obs, origDec, origMes, 'pend');
+    alocarCredito(c.id, destDec, destMes);
+    _toast('📌 +' + _fmtMoeda(achada.valor) + ' do ' + achada.per.label + ' somado a este pagamento.');
+    if (typeof HR_FUNC._atualizarPainelPagamento === 'function') HR_FUNC._atualizarPainelPagamento();
+  }
+
+  // Visão geral: restantes não pagos de todos os funcionários ativos, em
+  // relação ao período em que estamos hoje (é onde seriam somados).
+  function _resumoPendencias() {
+    var funcs = getFuncionarios();
+    var hoje = new Date();
+    var mesAtual = _mesAno(0);
+    var out = [];
+    Object.values(funcs).forEach(function (f) {
+      if (!f || f.ativo === false || f.socio) return;
+      var dec = _numDoDia(f, hoje.getDate());
+      var lista = _pendenciasAnteriores(f.id, dec, mesAtual);
+      if (lista.length) out.push({ f: f, dec: dec, mesRef: mesAtual, lista: lista });
+    });
+    return out;
+  }
+
+  function abrirPendencias() {
+    var resumo = _resumoPendencias();
+    var total = resumo.reduce(function (t, r) {
+      return t + r.lista.reduce(function (t2, p) { return t2 + p.valor; }, 0);
+    }, 0);
+    var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    var corpo = resumo.length === 0
+      ? '<div style="text-align:center;padding:36px 12px;color:'+T3+';font-size:.84rem;">✅ Nenhuma pendência — todos os decêndios anteriores estão quitados.</div>'
+      : resumo.map(function (r) {
+          return '<div style="background:'+S2+';border:1px solid '+BD+';border-radius:13px;padding:12px 14px;margin-bottom:10px;">'+
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+              '<div style="font-size:.9rem;font-weight:700;color:'+T1+';">'+_esc(r.f.nome)+'</div>'+
+              '<button onclick="HR_FUNC._closeOverlay_pend();HR_FUNC._pagarDecendioRapido(\''+r.f.id+'\','+r.dec+')" '+
+                'style="background:'+GOLD+';border:none;border-radius:8px;padding:7px 12px;color:#000;font-family:Outfit,sans-serif;font-size:.7rem;font-weight:800;cursor:pointer;">Abrir pagamento</button>'+
+            '</div>'+
+            r.lista.map(function (p) {
+              return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid rgba(255,255,255,.04);font-size:.76rem;">'+
+                '<span style="color:'+T2+';">'+_esc(p.per.label)+' · '+p.per.di.slice(8)+' a '+p.per.df.slice(8)+'/'+meses[parseInt(p.mesRef.slice(5,7),10)-1]+'</span>'+
+                '<span style="color:'+GOLD+';font-weight:700;">'+_fmtMoeda(p.valor)+'</span></div>';
+            }).join('')+
+          '</div>';
+        }).join('');
+    var html =
+      '<div style="width:100%;max-width:500px;padding:0 16px;">'+
+      _overlayHeader('Pendências de Pagamento','📌 Restante não pago de decêndios anteriores','HR_FUNC._closeOverlay_pend()')+
+      (resumo.length ? '<div style="background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.3);border-radius:11px;padding:11px 14px;margin-bottom:12px;'+
+        'display:flex;justify-content:space-between;align-items:center;"><span style="font-size:.75rem;color:'+T2+';">Total pendente</span>'+
+        '<span style="font-size:1.2rem;font-weight:800;color:'+GOLD+';">'+_fmtMoeda(total)+'</span></div>'+
+        '<div style="font-size:.68rem;color:'+T3+';line-height:1.5;margin-bottom:12px;">Em “Abrir pagamento”, use o botão 📌 <em>Somar restante não pago</em> para incluir o valor no pagamento atual.</div>' : '')+
+      corpo+
+      '<button onclick="HR_FUNC._closeOverlay_pend()" style="'+CSS_BTN_GHOST+'">Fechar</button>'+
+    '</div>';
+    _overlay('hrPendencias', html);
+  }
+  function _closeOverlay_pend() { _closeOverlay('hrPendencias'); }
+
+  // Desfaz o "somar": o restante volta a ficar pendente no decêndio de origem.
+  function _desfazerPendencia(creditoId) {
+    var creditos = getCreditos();
+    if (!creditos[creditoId] || !_ehCreditoPend(creditos[creditoId])) return;
+    delete creditos[creditoId];
+    saveCreditos(creditos);
+    _toast('↩️ Restante voltou pro decêndio de origem.');
+    if (typeof HR_FUNC._atualizarPainelPagamento === 'function') HR_FUNC._atualizarPainelPagamento();
   }
 
   // HE acumuladas apontadas para um decêndio (aplicadas ou não: elas passam a
@@ -3665,7 +3919,7 @@ var HR_FUNC = (function () {
   function _gerarObsCreditoOverpago(s, per, mesRefOrigem) {
     var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     var mesLabel = meses[parseInt(mesRefOrigem.slice(5,7),10)-1] + '/' + mesRefOrigem.slice(0,4);
-    var acrescimos = (s.totalDevido - s.totalSalario - s.valorExtra - (s.totalCreditosHE || 0));
+    var acrescimos = (s.totalDevido + (s.totalPendSai || 0) - s.totalSalario - s.valorExtra - (s.totalCreditosHE || 0));
     var partes = [];
     if (s.totalSalario > 0.01) partes.push('fixo ' + _fmtMoeda(s.totalSalario));
     if (s.valorExtra   > 0.01) partes.push('hora extra ' + _fmtMoeda(s.valorExtra));
@@ -4131,6 +4385,25 @@ var HR_FUNC = (function () {
     if (!data)   { _toast('Informe a data');           return; }
     if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
 
+    // Confirmação antes de salvar um pagamento de decêndio que não bate com o
+    // devido: evita lançar parcial/excedente por engano e deixa claro o que
+    // acontece com a diferença.
+    var restanteAviso = 0;
+    if (tipo === 'decendio') {
+      var devidoSalvar = parseFloat((document.getElementById('pag_devido') || {}).value);
+      if (!isNaN(devidoSalvar) && devidoSalvar > 0.005) {
+        var difSalvar = Math.round((devidoSalvar - valor) * 100) / 100;
+        if (difSalvar > 0.01) {
+          if (!window.confirm('Pagamento PARCIAL\n\nDevido: ' + _fmtMoeda(devidoSalvar) + '\nPagando agora: ' + _fmtMoeda(valor) +
+              '\nRestante: ' + _fmtMoeda(difSalvar) + '\n\nO restante fica pendente e aparece como opção para somar no próximo decêndio.\n\nConfirmar?')) return;
+          restanteAviso = difSalvar;
+        } else if (difSalvar < -0.01) {
+          if (!window.confirm('Valor ACIMA do devido\n\nDevido: ' + _fmtMoeda(devidoSalvar) + '\nPagando agora: ' + _fmtMoeda(valor) +
+              '\nExcedente: ' + _fmtMoeda(-difSalvar) + '\n\nO excedente vira crédito e será descontado depois.\n\nConfirmar?')) return;
+        }
+      }
+    }
+
     var descontarDecendio = descSel ? parseInt(descSel, 10) : null;
     var descontarMes      = descontarDecendio ? data.slice(0,7) : null;
 
@@ -4162,6 +4435,7 @@ var HR_FUNC = (function () {
     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
     var descTxt = descontarDecendio ? (' — desconto '+(_ehQuinzenal(funcId)?'na '+descontarDecendio+'ª quinzena':'no '+descontarDecendio+'º decêndio')) : '';
     var heTxt = creditoGerado ? (' · ' + _fmtMoeda(heValor) + ' de HE acumulada pro próximo decêndio') : '';
+    if (restanteAviso > 0.01) heTxt += ' · 📌 restam ' + _fmtMoeda(restanteAviso) + ' (opção no próximo decêndio)';
     _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!' + descTxt + heTxt);
     _closePagamento();
     renderPaginaFuncionarios();
@@ -5848,6 +6122,15 @@ var HR_FUNC = (function () {
     _creditosHEDecendio:      _creditosHEDecendio,
     _totalCreditosHEPeriodo:  _totalCreditosHEPeriodo,
     _addCreditoHEManual:      _addCreditoHEManual,
+    _pendenciasAnteriores:    _pendenciasAnteriores,
+    _somarPendencia:          _somarPendencia,
+    abrirPendencias:          abrirPendencias,
+    _closeOverlay_pend:       _closeOverlay_pend,
+    _resumoPendencias:        _resumoPendencias,
+    _desfazerPendencia:       _desfazerPendencia,
+    _pendSaiDecendio:         _pendSaiDecendio,
+    _totalPendEntraPeriodo:   _totalPendEntraPeriodo,
+    _totalPendSaiPeriodo:     _totalPendSaiPeriodo,
     _alocarCreditoSelect:     _alocarCreditoSelect,
     _migrarCreditosRetroativos: _migrarCreditosRetroativos,
     _rodarMigracaoCreditos:     _rodarMigracaoCreditos,
