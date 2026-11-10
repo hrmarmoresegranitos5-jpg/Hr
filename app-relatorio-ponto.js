@@ -602,8 +602,13 @@ var HR_RELATORIO_PONTO = (function () {
     // hora faltante é só jornada não cumprida, então desconta ao valor cheio).
     var totalDeficitValor = (Math.abs(totalDeficitMin || 0) / 60) * (valorHora || 0);
 
+    // Restante deste decêndio que foi passado pro decêndio seguinte (não é mais devido aqui)
+    var pendSai = (typeof HR_FUNC !== 'undefined' && HR_FUNC._pendSaiDecendio)
+      ? HR_FUNC._pendSaiDecendio(funcId, decNum, mesRef) : [];
+    var totalPendSai = pendSai.reduce(function (s, c) { return s + (parseFloat(c.valor) || 0); }, 0);
+
     var totalDevido  = decValor + totalValorExtra - totalDeficitValor;
-    var totalLiquido = totalDevido - totalAdiantamentos + totalCreditos;
+    var totalLiquido = totalDevido - totalAdiantamentos + totalCreditos - totalPendSai;
     var saldoFinal    = totalLiquido - totalPago;
     var status = saldoFinal <= 0.5 ? 'pago' : 'pendente';
 
@@ -630,6 +635,7 @@ var HR_RELATORIO_PONTO = (function () {
       adiantamentosAlvo: adiantamentosAlvo, totalAdiantamentos: totalAdiantamentos,
       outrosAdiantamentos: outrosAdiantamentos,
       creditosAlvo: creditosAlvo, totalCreditos: totalCreditos, outrosCreditos: outrosCreditos,
+      pendSai: pendSai, totalPendSai: totalPendSai,
       totalDevido: totalDevido, totalLiquido: totalLiquido, saldoFinal: saldoFinal,
       status: status, outrosDecendios: outrosDecendios
     };
@@ -663,8 +669,12 @@ var HR_RELATORIO_PONTO = (function () {
       rows.push({ nota: nota });
     }
     fin.creditosAlvo.forEach(function (c) {
-      rows.push({ label: 'Horas extras acumuladas (' + _fmtData(c.data) + ')', valor: parseFloat(c.valor) || 0, sinal: '+', cor: VERDE });
+      var ehPend = c.tipo === 'pend';
+      rows.push({ label: ehPend ? 'Restante não pago de período anterior' : 'Horas extras acumuladas (' + _fmtData(c.data) + ')', valor: parseFloat(c.valor) || 0, sinal: '+', cor: VERDE });
     });
+    if ((fin.totalPendSai || 0) > 0.005) {
+      rows.push({ label: 'Restante passado pro próximo período', valor: fin.totalPendSai, sinal: '-', cor: LARANJA });
+    }
     fin.adiantamentosAlvo.forEach(function (a) {
       var ehOverpago = a.obs && String(a.obs).indexOf('Crédito de overpago') === 0;
       rows.push({ label: ehOverpago ? 'Desconto de valor pago a mais' : 'Adiantamento de ' + _fmtData(a.data),
