@@ -33,7 +33,7 @@ function _buildContratoPDF(q,pgConds,prazo,valid,parc,taxa){
   var dataSimples=hoje.toLocaleDateString('pt-BR');
 
   var contrNum='CTR-'+String(q.id).slice(-6);
-  var fileName='Contrato_'+contrNum+'_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var fileName='Contrato_'+contrNum+'_'+(q.cli||'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
 
   var tipo=(q.tipo||'Outro');
   var temInst=(q.acN||[]).some(function(a){return(a||'').toLowerCase().indexOf('instala')>=0;});

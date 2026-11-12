@@ -23,7 +23,7 @@ function gerarPDF(){
   var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
   localStorage.setItem('hr_pdf_count', pdfCount+1);
 
-  var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var fileName='Orcamento_'+orcNum+'_'+q.cli.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
   var mat=CFG.stones.find(function(s){return s.nm===q.mat;})||{pr:q.matPr||0,nm:q.mat||'',fin:''};
 

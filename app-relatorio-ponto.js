@@ -696,14 +696,15 @@ var HR_RELATORIO_PONTO = (function () {
     });
   }
 
-  function _executarGeracao(jsPDFClass, funcId, di, df) {
+  function _executarGeracao(jsPDFClass, funcId, di, df, opts) {
+    opts = opts || {};
     // Coleta dados
     var funcs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
     var regs   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
     var pags   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getPagamentos()   : {};
     var f      = funcs[funcId] || {};
 
-    if (!f.nome) { alert('Funcionário não encontrado.'); return; }
+    if (!f.nome) { if (opts.erro) { opts.erro('Funcionário não encontrado.'); return; } alert('Funcionário não encontrado.'); return; }
 
     var salario    = parseFloat(f.salario) || 0;
     var valorHora  = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
@@ -1119,10 +1120,11 @@ var HR_RELATORIO_PONTO = (function () {
     var dtGer = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
     doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos', pW / 2, y, { align: 'center' });
 
-    if (WPP_CONTATO_RH) {
+    var _wppRH = opts.wppContato || WPP_CONTATO_RH; // relatório mandado pelo bot: a dúvida vai para a secretária
+    if (_wppRH) {
       y += 6;
       var msgContest = 'Olá! Sobre meu relatório de ponto (' + (f.nome || '') + ', ' + _mesExtenso(di, df) + '): tenho uma dúvida ou algo não bate.';
-      var urlContest = 'https://wa.me/55' + WPP_CONTATO_RH + '?text=' + encodeURIComponent(msgContest);
+      var urlContest = 'https://wa.me/' + (String(_wppRH).length > 11 ? '' : '55') + _wppRH + '?text=' + encodeURIComponent(msgContest);
       doc.setFillColor(230, 246, 234);
       doc.setDrawColor(120, 190, 140);
       doc.setLineWidth(0.4);
@@ -1145,6 +1147,17 @@ var HR_RELATORIO_PONTO = (function () {
       extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, resumo);
 
     var pdfBlobFn = function() { return doc.output('blob'); };
+
+    // Relatório para o bot mandar no WhatsApp: devolve o PDF e os números, sem abrir a tela
+    if (opts.paraBot) {
+      opts.paraBot({
+        blob: doc.output('blob'), fileName: fileName, nome: f.nome || '', di: di, df: df, mesRef: mesRef,
+        valor: Math.abs(fin.saldoFinal), status: fin.status,
+        fin: (resumo && resumo.rows || []).filter(function (r) { return !r.nota; }).map(function (r) { return { label: r.label, valor: Math.round((r.valor || 0) * 100) / 100, sinal: r.sinal || '', sub: !!r.sub }; }),
+        dias: linhas.map(function (l) { return { data: l.data, e: l.entrada, ai: l.saidaAlm, af: l.voltaAlm, s: l.saida, trab: l.trabMin, esp: l.esperadoMin, saldo: l.saldoMin, tipo: l.tipo || '', obs: l.obs || '' }; })
+      });
+      return;
+    }
 
     var valorMsg = (fin.status === 'pago' ? 'já quitado' : _fmtMoeda(Math.abs(fin.saldoFinal)));
     _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc, valorMsg, fin.status === 'pago');
@@ -1442,6 +1455,16 @@ var HR_RELATORIO_PONTO = (function () {
 
   return {
     gerarPDF: gerarPDF,
+    // Gera o relatório do período sem abrir tela (para o bot mandar no WhatsApp). Promise com {blob, fileName, valor, fin, dias...}
+    gerarParaBot: function (funcId, di, df, wppContato) {
+      return new Promise(function (ok, erro) {
+        _loadLibs(function () {
+          var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+          if (!J) { erro(new Error('jsPDF não carregou')); return; }
+          try { _executarGeracao(J, funcId, di, df, { paraBot: ok, erro: function (m) { erro(new Error(m)); }, wppContato: wppContato }); } catch (e) { erro(e); }
+        });
+      });
+    },
     calcDeficitPeriodo: calcDeficitPeriodo,
     calcExtraPeriodo:   calcExtraPeriodo,
   };
