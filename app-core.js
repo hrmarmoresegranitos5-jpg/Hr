@@ -10386,10 +10386,14 @@ function gerarComprovante(id){
 
   // Buscar orçamento relacionado para pegar valor total
   var qRel=null;
-  if(cli){
+  // orçamento certo: o que tem este pagamento registrado, o da Agenda ligado ao lançamento, ou o do mesmo cliente e serviço
+  qRel=(DB.q||[]).find(function(q){return (q._pagsFin||[]).some(function(p){return p.trId===t.id;});})||null;
+  if(!qRel&&t.jId){var _jb=(DB.j||[]).find(function(j){return j.id===t.jId;});if(_jb&&_jb.qId)qRel=(DB.q||[]).find(function(q){return q.id===_jb.qId;})||null;}
+  if(!qRel&&cli){
     var cliLower=cli.toLowerCase();
     var matches=DB.q.filter(function(q){return (q.cli||'').toLowerCase().indexOf(cliLower)>=0;});
-    if(matches.length)qRel=matches[0];
+    var mesmoTipo=matches.filter(function(q){return q.tipo&&(t.desc||'').indexOf(q.tipo)>-1;});
+    if(mesmoTipo.length)qRel=mesmoTipo[0]; else if(matches.length)qRel=matches[0];
   }
 
   // Calcular total pago pelo cliente (todas entradas com o mesmo cli)
@@ -10426,123 +10430,135 @@ function gerarComprovante(id){
     +'</tr>';
   }).join('');
 
-  var html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">'
-  +'<meta name="viewport" content="width=device-width,initial-scale=1">'
-  +'<title>Comprovante — '+cli+'</title>'
-  +'<style>'
-  +'@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap");'
-  +'*{margin:0;padding:0;box-sizing:border-box;}'
-  +'body{font-family:Inter,Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#f5f0e8;display:flex;justify-content:center;padding:20px;}'
-  +'.page{max-width:620px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.13);}'
-  // Header
-  +'.hdr{background:linear-gradient(135deg,#0f0c00 0%,#1a1400 60%,#0f0c00 100%);padding:26px 36px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #C9A84C;}'
-  +'.hdr-brand{font-size:18px;font-weight:900;color:#C9A84C;line-height:1.1;}'
-  +'.hdr-tag{font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:rgba(201,168,76,.45);margin-top:3px;}'
-  +'.hdr-right{text-align:right;}'
-  +'.hdr-doc{font-size:8.5px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.3);}'
-  +'.hdr-num{font-size:14px;font-weight:900;color:#C9A84C;margin-top:2px;}'
-  +'.hdr-date{font-size:9px;color:rgba(255,255,255,0.4);margin-top:2px;}'
-  // Badge tipo
-  +'.type-strip{padding:12px 36px;background:#f9f4e8;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px;}'
-  +'.type-badge{padding:5px 14px;border-radius:20px;font-size:9px;font-weight:900;letter-spacing:1.5px;text-transform:uppercase;color:#fff;}'
-  +'.type-label{font-size:11px;color:#666;}'
-  // Body
-  +'.body{padding:28px 36px;}'
-  +'.sec-title{font-size:8.5px;font-weight:900;letter-spacing:2.5px;text-transform:uppercase;color:#C9A84C;border-bottom:1.5px solid #e8d090;padding-bottom:6px;margin-bottom:14px;}'
-  +'.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px;}'
-  +'.field label{display:block;font-size:8px;letter-spacing:1px;text-transform:uppercase;color:#aaa;margin-bottom:3px;}'
-  +'.field span{font-size:12px;font-weight:700;color:#1a1a1a;}'
-  // Valor principal
-  +'.valor-box{background:linear-gradient(135deg,#0f0c00,#1e1800);border-radius:12px;padding:20px 24px;margin-bottom:20px;border:1px solid rgba(201,168,76,.25);display:flex;justify-content:space-between;align-items:center;}'
-  +'.valor-label{font-size:9px;color:rgba(255,255,255,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}'
-  +'.valor-num{font-size:28px;font-weight:900;color:#C9A84C;letter-spacing:-0.5px;}'
-  +'.valor-status{text-align:right;}'
-  +'.saldo-label{font-size:8.5px;color:rgba(255,255,255,0.3);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}'
-  +'.saldo-num{font-size:16px;font-weight:700;color:rgba(201,168,76,0.65);}'
-  // Tabela histórico
-  +'table{width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;}'
-  +'th{background:#1a1400;color:#C9A84C;padding:9px 14px;text-align:left;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;font-weight:700;}'
-  +'th:last-child{text-align:right;}'
-  +'tr:last-child td{border-bottom:none;}'
-  // Linha de total pago
-  +'.total-row{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;background:#faf6ef;border-top:2px solid #C9A84C;border-radius:0 0 8px 8px;}'
-  +'.total-lbl{font-size:10px;font-weight:700;color:#555;letter-spacing:1px;text-transform:uppercase;}'
-  +'.total-val{font-size:16px;font-weight:900;color:#1a7a3a;}'
-  // Saldo restante
-  +'.saldo-box{margin-top:12px;padding:14px 18px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;}'
-  +'.saldo-box.positivo{background:#fff8e1;border:1.5px solid #f0c040;}'
-  +'.saldo-box.zerado{background:#e8f5e8;border:1.5px solid #7bc47b;}'
-  +'.saldo-box-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:3px;}'
-  +'.saldo-box-val{font-size:15px;font-weight:900;}'
-  +'.saldo-box.positivo .saldo-box-val{color:#b07000;}'
-  +'.saldo-box.zerado .saldo-box-val{color:#2a6a2a;}'
-  // Rodapé
-  +'.foot{background:#0f0c00;padding:14px 36px;display:flex;justify-content:space-between;align-items:center;}'
-  +'.foot span{font-size:8.5px;color:rgba(201,168,76,0.35);}'
-  +'.foot strong{color:rgba(201,168,76,0.6);}'
-  +'@media print{body{background:#fff;padding:0;}}'
-  +'</style></head><body>'
-  +'<div class="page">'
-  // Cabeçalho
-  +'<div class="hdr">'
-    +'<div><div class="hdr-brand">'+emp.nome+'</div><div class="hdr-tag">Mármores · Granitos · Acessórios</div></div>'
-    +'<div class="hdr-right"><div class="hdr-doc">Comprovante</div><div class="hdr-num">'+num+'</div><div class="hdr-date">'+dataStr+'</div></div>'
-  +'</div>'
-  // Badge tipo
-  +'<div class="type-strip">'
-    +'<div class="type-badge" style="background:'+corTipo+';">'+tipoPag+'</div>'
-    +'<span class="type-label">'+escH(t.desc||'')+'</span>'
-  +'</div>'
-  +'<div class="body">'
-    // Dados cliente / empresa
-    +'<div class="sec-title">Informações</div>'
-    +'<div class="row2">'
-      +(cli?'<div class="field"><label>Cliente</label><span>'+escH(cli)+'</span></div>':'')
-      +(qRel?'<div class="field"><label>Serviço</label><span>'+escH(qRel.tipo||'')+'</span></div>':'')
-      +'<div class="field"><label>Data do Lançamento</label><span>'+(t.date?new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR'):'—')+'</span></div>'
-      +(qRel?'<div class="field"><label>Nº do Orçamento</label><span>#'+String(qRel.id).slice(-5)+'</span></div>':'')
-    +'</div>'
-    // Valor em destaque
-    +'<div class="valor-box">'
-      +'<div><div class="valor-label">Valor deste lançamento</div><div class="valor-num">R$ '+fm(t.value||0)+'</div></div>'
-      +(totalOrc>0?'<div class="valor-status"><div class="saldo-label">Valor total do serviço</div><div class="saldo-num">R$ '+fm(totalOrc)+'</div></div>':'')
-    +'</div>'
-    // Histórico de pagamentos
-    +(historico.length>1?('<div class="sec-title">Histórico de Pagamentos</div>'
-    +'<table>'
-      +'<tr><th>Data</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr>'
-      +histHtml
-    +'</table>'
-    +'<div class="total-row">'
-      +'<span class="total-lbl">Total Pago</span>'
-      +'<span class="total-val">R$ '+fm(totalPago)+'</span>'
-    +'</div>'):
-    ('<table>'
-      +'<tr><th>Data</th><th>Descrição</th><th style="text-align:right;">Valor</th></tr>'
-      +histHtml
-    +'</table>'))
-    // Saldo restante
-    +(totalOrc>0?
-      '<div class="saldo-box '+(saldo<=0?'zerado':'positivo')+'">'
-        +'<div>'
-          +'<div class="saldo-box-lbl">'+(saldo<=0?'✅ Pagamento concluído':'Saldo Restante')+'</div>'
-          +'<div class="saldo-box-val">'+(saldo<=0?'Quitado':'R$ '+fm(saldo))+'</div>'
-        +'</div>'
-        +(saldo>0?('<div style="font-size:10px;color:#a07000;max-width:180px;text-align:right;line-height:1.5;">A ser pago na entrega e instalação do serviço</div>'):'')
-      +'</div>':'')
-  +'</div>'
-  // Rodapé
-  +'<div class="foot">'
-    +'<span><strong>'+emp.nome+'</strong> · '+emp.tel+'</span>'
-    +'<span>'+emp.cnpj+' · '+emp.cidade+'</span>'
-  +'</div>'
-  +'</div>'
-  +'<script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script>'
-  +'</body></html>';
+  // ── formato: PDF elegante (A4) ou cupom para impressora térmica (58/80 mm) ──
+  var fmtRec = arguments[1];
+  if (!fmtRec) { _comprovanteEscolherFormato(t.id); return; }
+  var forma = ((t.desc||'').match(/·\s*([^·—]+)\s*$/)||[])[1] || '';
+  var dataLanc = t.date ? new Date(t.date+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+  var refer = qRel ? [qRel.tipo, qRel.mat].filter(Boolean).join(' · ') : '';
+  var extenso = _valorPorExtenso(t.value||0);
+  var nOrc = qRel ? String(qRel.id).slice(-5) : '';
+  var quitado = saldo !== null && saldo <= 0.005;
+  var esc2 = function(x){ return escH(String(x==null?'':x)); };
+  var logo = emp.logoUrl || '';
+  var html;
+  if (fmtRec === '58' || fmtRec === '80') {
+    // ── CUPOM TÉRMICO: só preto, letra grande, largura da bobina ──
+    var L = fmtRec === '58' ? 48 : 72; // largura útil em mm
+    var linha = '<div class="tr"></div>';
+    var kv = function(k, v, b){ return '<div class="kv"><span>'+k+'</span><span'+(b?' class="b"':'')+'>'+v+'</span></div>'; };
+    html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recibo '+num+'</title><style>'
+      + '@page{size:'+fmtRec+'mm auto;margin:0;}'
+      + '*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+      + 'body{width:'+L+'mm;margin:0 auto;padding:3mm 0 6mm;font-family:"Courier New",monospace;font-size:'+(fmtRec==='58'?'11px':'13px')+';color:#000;background:#fff;line-height:1.35;}'
+      + '.c{text-align:center}.emp{font-size:1.25em;font-weight:900;letter-spacing:.5px}.min{font-size:.85em}'
+      + '.tr{border-top:1px dashed #000;margin:2.5mm 0}.tt{font-weight:900;font-size:1.15em;letter-spacing:1px}'
+      + '.kv{display:flex;justify-content:space-between;gap:6px}.kv span:last-child{text-align:right}.b{font-weight:900}'
+      + '.val{font-size:2em;font-weight:900;text-align:center;margin:1.5mm 0}.ext{text-align:center;font-size:.85em;font-style:italic}'
+      + '.ass{margin-top:10mm;border-top:1px solid #000;padding-top:1mm;text-align:center;font-size:.85em}'
+      + '.lg{display:block;margin:0 auto 1.5mm;max-width:'+(fmtRec==='58'?'22':'30')+'mm;filter:grayscale(1) contrast(1.4)}'
+      + '</style></head><body>'
+      + '<div class="c emp">'+esc2(emp.nome)+'</div>'
+      + '<div class="c min">CNPJ '+esc2(emp.cnpj)+'<br>'+esc2(emp.tel)+'<br>'+esc2(emp.cidade)+'</div>'
+      + linha + '<div class="c tt">RECIBO</div><div class="c min">'+num+' · '+dataLanc+'</div>' + linha
+      + kv('Cliente', esc2(cli||'—'), true)
+      + (refer ? kv('Serviço', esc2(refer)) : '')
+      + (nOrc ? kv('Orçamento', '#'+nOrc) : '')
+      + (forma ? kv('Forma', esc2(forma)) : '')
+      + linha + '<div class="c min">VALOR RECEBIDO</div><div class="val">R$ '+fm(t.value||0)+'</div><div class="ext">('+extenso+')</div>'
+      + (totalOrc > 0 ? linha + kv('Total do serviço', 'R$ '+fm(totalOrc)) + kv('Total pago', 'R$ '+fm(totalPago)) + kv(quitado?'Situação':'Falta pagar', quitado?'QUITADO':'R$ '+fm(saldo), true) : '')
+      + '<div class="ass">'+esc2(emp.nome)+'</div>'
+      + '<div class="c min" style="margin-top:4mm;">Obrigado pela preferência!</div>'
+      + '<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>';
+  } else {
+    // ── PDF ELEGANTE (A4): papel claro, dourado e letra serifada, igual ao cartão e ao catálogo ──
+    var histRows = historico.map(function(h){
+      return '<tr><td>'+(h.date?new Date(h.date+'T12:00:00').toLocaleDateString('pt-BR'):'')+'</td><td>'+esc2((h.desc||'—').replace(/^(Pagamento|Entrada \(aceito\)|Pagamento final \(concluído\))\s*—\s*/,'').replace(/\s*—\s*/g,' · '))+'</td><td class="r">R$ '+fm(h.value||0)+'</td></tr>';
+    }).join('');
+    html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Recibo '+num+' — '+esc2(cli)+'</title>'
+      + '<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">'
+      + '<style>'
+      + '@page{size:A4;margin:12mm;}'
+      + '*{margin:0;padding:0;box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}'
+      + 'body{font-family:Nunito,Arial,sans-serif;color:#2b2824;background:#efe9df;padding:24px 12px;font-size:12.5px;}'
+      + '.pg{max-width:640px;margin:0 auto;background:#fffdf8;border:1px solid #e4dccd;border-radius:6px;padding:38px 42px 30px;position:relative;}'
+      + '.pg:before{content:"";position:absolute;inset:8px;border:1px solid #e9dfc9;border-radius:3px;pointer-events:none;}'
+      + '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}'
+      + '.marca{display:flex;align-items:center;gap:12px}.marca img{width:54px;height:54px;border-radius:50%;object-fit:cover;border:1px solid #d9c79f}'
+      + '.nm{font:700 22px/1.05 "Cormorant Garamond",Georgia,serif;color:#141415}.sub{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#a8884c;margin-top:4px}'
+      + '.num{text-align:right}.num b{display:block;font:700 13px Nunito,sans-serif;letter-spacing:2px;color:#a8884c}.num span{font-size:10.5px;color:#8a8377}'
+      + '.tit{text-align:center;margin:30px 0 6px;font:600 italic 34px "Cormorant Garamond",Georgia,serif;color:#141415;letter-spacing:.5px}'
+      + '.orn{display:flex;align-items:center;gap:10px;justify-content:center;color:#c4a46a;margin-bottom:22px}.orn i{width:70px;height:1px;background:#d9c79f}'
+      + '.txt{text-align:center;font-size:14px;line-height:1.8;color:#4a453e;max-width:470px;margin:0 auto}.txt b{color:#141415}'
+      + '.valor{text-align:center;margin:16px 0 4px;font:700 46px "Cormorant Garamond",Georgia,serif;color:#141415}'
+      + '.ext{text-align:center;font-style:italic;color:#8a8377;font-size:12px;margin-bottom:24px}'
+      + '.grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #e9dfc9;border-radius:10px;overflow:hidden;margin-bottom:20px}'
+      + '.grid div{padding:12px 14px;border-right:1px solid #e9dfc9}.grid div:last-child{border-right:0}'
+      + '.grid small{display:block;font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a29c90;margin-bottom:3px}.grid b{font-size:13.5px;color:#141415}'
+      + '.ok{color:#2f7a4a!important}.dev{color:#a8700f!important}'
+      + 'table{width:100%;border-collapse:collapse;margin-bottom:20px}th{font-size:8.5px;letter-spacing:1.5px;text-transform:uppercase;color:#a8884c;text-align:left;padding:0 0 6px;border-bottom:1px solid #d9c79f}'
+      + 'td{padding:8px 0;border-bottom:1px solid #f0e9da;font-size:11.5px;color:#4a453e}td.r,th.r{text-align:right;white-space:nowrap;font-weight:700;color:#141415}'
+      + '.ass{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-top:34px}'
+      + '.ass .l{flex:1;max-width:260px;text-align:center;border-top:1px solid #141415;padding-top:6px;font-size:10.5px;color:#4a453e}'
+      + '.selo{border:1.5px solid '+(quitado?'#2f7a4a':'#c4a46a')+';color:'+(quitado?'#2f7a4a':'#a8700f')+';border-radius:999px;padding:7px 16px;font-weight:800;font-size:11px;letter-spacing:2px;text-transform:uppercase;transform:rotate(-4deg)}'
+      + '.rod{margin-top:26px;padding-top:12px;border-top:1px solid #e9dfc9;text-align:center;font-size:9.5px;color:#8a8377;line-height:1.6}'
+      + '@media print{body{background:#fff;padding:0}.pg{border:0;border-radius:0;max-width:none}}'
+      + '</style></head><body><div class="pg">'
+      + '<div class="top"><div class="marca">'+(logo?'<img src="'+logo+'" alt="">':'')+'<div><div class="nm">'+esc2(emp.nome)+'</div><div class="sub">Mármores · Granitos · Acessórios</div></div></div>'
+      + '<div class="num"><b>'+num+'</b><span>'+dataStr+'</span></div></div>'
+      + '<div class="tit">Recibo</div><div class="orn"><i></i>◆<i></i></div>'
+      + '<div class="txt">Recebemos de <b>'+esc2(cli||'—')+'</b> a quantia de</div>'
+      + '<div class="valor">R$ '+fm(t.value||0)+'</div><div class="ext">('+extenso+')</div>'
+      + '<div class="txt" style="margin-bottom:24px;">'+(refer?'referente a <b>'+esc2(refer)+'</b>'+(nOrc?' (orçamento #'+nOrc+')':'')+', ':'')+'pago em <b>'+dataLanc+'</b>'+(forma?' via <b>'+esc2(forma.toLowerCase())+'</b>':'')+'.</div>'
+      + (totalOrc > 0 ? '<div class="grid"><div><small>Total do serviço</small><b>R$ '+fm(totalOrc)+'</b></div><div><small>Total pago</small><b class="ok">R$ '+fm(totalPago)+'</b></div><div><small>'+(quitado?'Situação':'Falta pagar')+'</small><b class="'+(quitado?'ok':'dev')+'">'+(quitado?'Quitado':'R$ '+fm(saldo))+'</b></div></div>' : '')
+      + (historico.length > 1 ? '<table><tr><th>Data</th><th>Pagamento</th><th class="r">Valor</th></tr>'+histRows+'</table>' : '')
+      + '<div class="ass"><div class="l">'+esc2(emp.nome)+'</div>'+(totalOrc>0?'<div class="selo">'+(quitado?'Quitado':'Pago parcial')+'</div>':'')+'</div>'
+      + '<div class="rod">'+[emp.cnpj?'CNPJ '+esc2(emp.cnpj):'', esc2(emp.tel||''), esc2(emp.end||''), esc2(emp.cidade||'')].filter(Boolean).join(' · ')+'</div>'
+      + '</div>'
+      + '<script>window.onload=function(){var ok=false,ir=function(){if(ok)return;ok=true;setTimeout(function(){window.print();},350);};try{if(document.fonts&&document.fonts.ready)document.fonts.ready.then(ir);}catch(e){}setTimeout(ir,2500);};<\/script>'
+      + '</body></html>';
+  }
+  try { localStorage.setItem('hr_rec_fmt', fmtRec); } catch(e) {}
 
   var w=window.open('','_blank','width=700,height=800');
   if(w){w.document.write(html);w.document.close();}
   else toast('Permita pop-ups para gerar o comprovante');
+}
+// escolha do formato do comprovante (o último usado fica em destaque)
+function _comprovanteEscolherFormato(id){
+  var old = document.getElementById('_recFmt'); if (old) old.remove();
+  var ult = ''; try { ult = localStorage.getItem('hr_rec_fmt') || 'pdf'; } catch(e) { ult = 'pdf'; }
+  var ops = [['pdf','📄','Comprovante em PDF','Para mandar no WhatsApp ou imprimir em folha'],['58','🧾','Cupom térmico 58 mm','Impressora térmica pequena (bobina 58 mm)'],['80','🧾','Cupom térmico 80 mm','Impressora térmica grande (bobina 80 mm)']];
+  var m = document.createElement('div'); m.id = '_recFmt';
+  m.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
+  var h = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:14px 18px 24px;border-top:2px solid var(--gold3,#C9A84C);font-family:Outfit,sans-serif;">'
+    + '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>'
+    + '<div style="font-size:1rem;font-weight:800;color:var(--gold);margin-bottom:12px;">🧾 Gerar comprovante</div>';
+  ops.forEach(function(o){ var on = o[0] === ult;
+    h += '<button type="button" onclick="document.getElementById(\'_recFmt\').remove();gerarComprovante('+id+',\''+o[0]+'\')" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;padding:13px 14px;border-radius:12px;cursor:pointer;font-family:Outfit,sans-serif;border:1px solid '+(on?'var(--gold3)':'var(--bd2)')+';background:'+(on?'rgba(201,168,76,.12)':'var(--s2)')+';color:var(--tx);">'
+      + '<span style="font-size:1.3rem;">'+o[1]+'</span><span style="flex:1;"><span style="display:block;font-size:.88rem;font-weight:800;">'+o[2]+(on?' <span style="font-size:.66rem;color:var(--gold);">· último usado</span>':'')+'</span><span style="display:block;font-size:.7rem;color:var(--t3);">'+o[3]+'</span></span></button>'; });
+  h += '<button type="button" onclick="document.getElementById(\'_recFmt\').remove();" style="width:100%;padding:10px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Cancelar</button></div>';
+  m.innerHTML = h; m.addEventListener('click', function(e){ if (e.target === m) m.remove(); });
+  document.body.appendChild(m);
+}
+// valor por extenso em reais (até 999 milhões)
+function _valorPorExtenso(v){
+  var U=['','um','dois','três','quatro','cinco','seis','sete','oito','nove','dez','onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+  var D=['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+  var C=['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+  function ate999(n){ if(n===0)return''; if(n===100)return'cem'; var c=Math.floor(n/100), r=n%100, p=[]; if(c)p.push(C[c]); if(r){ if(r<20)p.push(U[r]); else { var d=Math.floor(r/10), u=r%10; p.push(D[d]+(u?' e '+U[u]:'')); } } return p.join(' e '); }
+  var cent=Math.round((+v||0)*100), reais=Math.floor(cent/100), cv=cent%100;
+  if(reais>=1e9) return 'R$ '+fm(v);
+  var mi=Math.floor(reais/1e6), mil=Math.floor((reais%1e6)/1000), un=reais%1000, partes=[];
+  if(mi) partes.push(ate999(mi)+(mi===1?' milhão':' milhões'));
+  if(mil) partes.push(mil===1?'mil':ate999(mil)+' mil');
+  if(un) partes.push(ate999(un));
+  var txt='';
+  partes.forEach(function(p,i){ if(i===0){txt=p;return;} var ult=(i===partes.length-1); var n=ult?un:0; txt+=(ult&&(n<100||n%100===0)?' e ':' ')+p; });
+  if(reais) txt+=(reais===1?' real':(un===0&&mil===0&&mi?' de reais':' reais'));
+  if(cv) txt+=(reais?' e ':'')+ate999(cv)+(cv===1?' centavo':' centavos');
+  if(!reais&&!cv) txt='zero real';
+  return txt;
 }
 // ═══ DASHBOARD (INÍCIO — pg12) ═══
 function renderDashboard() {
