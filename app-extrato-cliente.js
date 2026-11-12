@@ -137,7 +137,7 @@ window.gerarExtratoClientePDF = function (nomeArg) {
   var extNum = 'EXT-' + String(extCount).padStart(4, '0');
   localStorage.setItem('hr_ext_count', extCount + 1);
 
-  var fileName = 'Extrato_' + nome.replace(/[^a-zA-Z0-9]/g, '_') + '_' + td() + '.pdf';
+  var fileName = 'Extrato_' + nome.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_') + '_' + td() + '.pdf';
 
   var clienteInfo = '';
   if (d.cliInfo && d.cliInfo.tel) clienteInfo += '<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#555;"><span style="color:#C9A84C;">&#128241;</span>' + escH(d.cliInfo.tel) + '</div>';

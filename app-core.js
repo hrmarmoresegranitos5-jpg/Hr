@@ -4108,7 +4108,8 @@ function aplicarPecasCapela(ambId){
 function buildNichoDynamicHTML(amb){
   var ne=amb.nichoExtra||{};
   var h='';
-  var _nicSvgPrev=buildNichoProjetoSVG(ne,{light:false,maxW:280,maxH:220});
+  var _nicMatPrev=CFG.stones.find(function(s){return s.id===amb.selMat;});
+  var _nicSvgPrev=buildNichoProjetoSVG(ne,{light:false,maxW:280,maxH:220,mat:_nicMatPrev});
   if(_nicSvgPrev){
     h+='<div style="border-top:1px solid rgba(201,168,76,.2);margin:12px 0 8px;"></div>';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
@@ -4155,7 +4156,7 @@ function buildNichoDynamicHTML(amb){
     h+='</div>';
     if(totalValServNicPrev>0){
       h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0 2px;">';
-      h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Fundo (massa + M.O. fixação)</span>';
+      h+='<span style="font-size:.7rem;font-weight:700;color:var(--gold);">+ Serviços do nicho</span>';
       h+='<span style="font-size:.78rem;font-weight:800;color:var(--gold2);">R$ '+fm(totalValServNicPrev)+'</span>';
       h+='</div>';
     }
@@ -4227,7 +4228,7 @@ function calcNichoPecas(ne){
   var P=+(ne.nP||0);
   var Pb=+(ne.nPBase||0)||P;
   var E=+(ne.nE||2);
-  var M=+(ne.nM||0);
+  var M=ne.semMoldura?0:+(ne.nM||0);
   if(!Li||!Ai||!P)return [];
   var pecas=[];
   function add(desc,w,h,q){
@@ -4251,6 +4252,12 @@ function calcNichoPecas(ne){
   }
   // ── FUNDO (opcional) ──
   var servicos=[];
+  // ── SEM MOLDURA: polimento das bordas da frente (base + topo + 2 laterais) ──
+  if(ne.semMoldura){
+    var mlPol=nichoPolimentoML(ne);
+    var prPol=getPr('nic_pol')||getPr('s_slim')||56;
+    servicos.push({desc:'Polimento das bordas da frente ('+mlPol.toFixed(2)+'ml)',dim:'—',w:0,h:0,q:1,m2:0,valor:mlPol*prPol,_isServico:true});
+  }
   if(ne.comFundo){
     var fW=Li+2*E, fH=Ai+2*E;
     add('Fundo (fecha o nicho)',fW,fH,1);
@@ -4290,103 +4297,192 @@ function aplicarPecasNicho(ambId){
   toast('✦ '+pecasPedra.length+' peças'+(svExtras.length?' + '+svExtras.length+' serviço(s)':'')+' aplicados!');
 }
 
-// ─── DESENHO TÉCNICO (PROJETO 2D) DO NICHO ─────────────────────────
-// Contorno ÚNICO (um polígono só) — igual ao desenho de fabricação de referência:
-// o vão fica encostado no canto superior-esquerdo (sem moldura em cima/esquerda),
-// a moldura (largura M) corre só pelo lado direito, a tira da base (altura Pb)
-// corre só por baixo, e as duas se encontram no canto inferior-direito através
-// de um único corte a 45° (chanfro), sem nenhuma caixa/retângulo pendurado à parte.
+// ─── DESENHO DO NICHO (vista em perspectiva) ─────────────────────────
+// Vista de frente com profundidade: face da frente (moldura ou bordas polidas),
+// paredes internas sombreadas convergindo pro fundo, e cotas limpas.
+function _nicCorBase(nome){
+  var n=String(nome||'').toLowerCase();
+  if(/preto|absoluto|black|negro|via l[aá]ctea|s[aã]o gabriel/.test(n))return '#3b3a3c';
+  if(/verde|ubatuba/.test(n))return '#3f4a42';
+  if(/branco|white|marfim|dallas|itaunas|ita[uú]nas|siena|polar|carrara|travertino/.test(n))return '#e9e4d9';
+  if(/marrom|caf[eé]|imperial|tabaco|coffee/.test(n))return '#6b4f3a';
+  if(/cinza|corumbá|corumba|andorinha|ocre/.test(n))return '#9c9890';
+  return '#d6cdbb';
+}
+function _nicTom(hex,f){
+  var c=hex.replace('#','');
+  var r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+  function t(v){v=f<0?v*(1+f):v+(255-v)*f;return Math.max(0,Math.min(255,Math.round(v)));}
+  return 'rgb('+t(r)+','+t(g)+','+t(b)+')';
+}
+function _nicLum(hex){
+  var c=hex.replace('#','');
+  return (0.299*parseInt(c.substr(0,2),16)+0.587*parseInt(c.substr(2,2),16)+0.114*parseInt(c.substr(4,2),16))/255;
+}
+
+// Cores de uma textura CSS (.tx-*) da pedra: [cor base, ...cores dos pontinhos]
+var _nicTxCache={};
+function _nicCoresTx(tx){
+  if(!tx||typeof document==='undefined')return null;
+  if(_nicTxCache[tx])return _nicTxCache[tx];
+  var el=document.createElement('div');el.className=tx;el.style.cssText='position:absolute;left:-99px;width:10px;height:10px;';
+  document.body.appendChild(el);
+  var bg=getComputedStyle(el).backgroundImage||'';el.remove();
+  var li=bg.indexOf('linear-gradient');
+  var rx=/rgba?\([^)]*\)|#[0-9a-f]{3,6}/gi;
+  var lin=(li>=0?bg.slice(li):bg).match(rx)||[], dots=(li>=0?bg.slice(0,li):'').match(rx)||[];
+  if(!lin.length)return null;
+  return (_nicTxCache[tx]=[lin[Math.floor(lin.length/2)]].concat(lin,dots));
+}
+// Preenchimento da pedra: foto (se tiver) > textura do catálogo > cor pelo nome
+function _nicTextura(mat,uid,W,H,foto){
+  foto=foto||(mat&&mat.photo)||'';
+  if(foto){
+    return {defs:'<pattern id="'+uid+'p" patternUnits="userSpaceOnUse" x="0" y="0" width="'+W+'" height="'+H+'">'
+      +'<image href="'+foto+'" xlink:href="'+foto+'" x="0" y="0" width="'+W+'" height="'+H+'" preserveAspectRatio="xMidYMid slice"/></pattern>',
+      fill:'url(#'+uid+'p)'};
+  }
+  var cs=mat&&_nicCoresTx(mat.tx);
+  if(cs){
+    var t=70,d='<pattern id="'+uid+'p" patternUnits="userSpaceOnUse" width="'+t+'" height="'+t+'">'
+      +'<rect width="'+t+'" height="'+t+'" fill="'+cs[0]+'"/>';
+    var seed=7;function rnd(){seed=(seed*9301+49297)%233280;return seed/233280;}
+    var viz=cs.slice(1);
+    for(var i=0;i<46;i++){d+='<circle cx="'+(rnd()*t).toFixed(1)+'" cy="'+(rnd()*t).toFixed(1)+'" r="'+(0.4+rnd()*1.5).toFixed(2)+'" fill="'+viz[i%viz.length]+'" opacity="'+(0.5+rnd()*0.5).toFixed(2)+'"/>';}
+    return {defs:d+'</pattern>',fill:'url(#'+uid+'p)'};
+  }
+  return {defs:'',fill:_nicCorBase(mat&&mat.nm)};
+}
+function nichoMolduraTxt(ne){
+  if(!ne)return '';
+  if(ne.semMoldura)return 'Sem moldura — bordas da frente polidas';
+  return +ne.nM>0?'Moldura '+ne.nM+' cm':'Sem moldura';
+}
+// metros lineares de bordas da frente a polir (sem moldura): base + topo + 2 laterais
+function nichoPolimentoML(ne){
+  var Li=+(ne.nW||0),Ai=+(ne.nH||0),E=+(ne.nE||2);
+  if(!Li||!Ai)return 0;
+  return Math.round((2*(Li+2*E)+2*Ai))/100;
+}
 function buildNichoProjetoSVG(ne,opts){
   opts=opts||{};
   var light=!!opts.light;
-  var Li=+(ne.nW||0), Ai=+(ne.nH||0), M=+(ne.nM||0), P=+(ne.nP||0);
-  var Pb=+(ne.nPBase||0)||P; // profundidade/altura da tira da base (se vazio, igual à de topo/laterais)
-  var diag=+(ne.nDiag||0);  // comprimento do corte a 45° (rótulo, informado manualmente)
+  var Li=+(ne.nW||0), Ai=+(ne.nH||0), P=+(ne.nP||0);
+  var Pb=+(ne.nPBase||0)||P, E=+(ne.nE||2);
+  var sem=!!ne.semMoldura;
+  var M=sem?0:+(ne.nM||0);
+  var diag=+(ne.nDiag||0);
   if(!Li||!Ai)return '';
-
-  // tamanho do chanfro (canto cortado a 45°) — só existe onde há moldura E tira de base
-  var chanfro=0;
-  if(M>0 && Pb>0){
-    chanfro = +(ne.nChanfro||0) || Math.min(M,Pb,15) || 10;
-    chanfro = Math.max(0, Math.min(chanfro, M, Pb));
-  }
-
-  var outerW=Li+M;   // vão + moldura (só do lado direito)
-  var outerH=Ai+Pb;  // vão + tira da base (só embaixo)
+  var F=M>0?M:E;                       // largura visível da face da frente
+  var oW=Li+2*F, oH=Ai+2*F;
   var MAXW=opts.maxW||300, MAXH=opts.maxH||220;
-  var scale=Math.min(MAXW/outerW, MAXH/outerH, 6.5);
+  var s=Math.min(MAXW/oW, MAXH/oH, 7);
+  var padL=38,padT=36,padR=24,padB=sem?44:30;
+  var ox=padL, oy=padT, fw=oW*s, fh=oH*s;
+  var f=Math.max(F*s, sem?4:3);
+  var x0=ox+f, y0=oy+f, w=fw-2*f, h=fh-2*f;
+  // profundidade em perspectiva (ponto de fuga um pouco acima/esquerda → aparece chão e parede direita)
+  var dRel=P>0?P/(P+Math.max(Li,Ai)*0.9):0.12;
+  var k=Math.max(0.5,Math.min(0.9,1-dRel*1.15));
+  var w2=w*k, h2=h*k;
+  var bx=x0+(w-w2)*0.4, by=y0+(h-h2)*0.34;
+  var vw=Math.round(ox+fw+padR), vh=Math.round(oy+fh+padB);
 
-  var ow=outerW*scale, oh=outerH*scale;
-  var vaoW=Li*scale, vaoH=Ai*scale;
-  var molPx=M*scale;
-  var baseH=Pb*scale;
-  var chPx=chanfro*scale;
-
-  var strokeCol = light?'#1a1a1a':'rgba(201,168,76,.95)';
-  var textCol   = light?'#1a1a1a':'rgba(235,215,160,.95)';
-  var textCol2  = light?'#7a4d10':'rgba(230,180,90,.95)';
-  var faceStrip = light?'#d8c088':'rgba(201,168,76,.32)'; // moldura/base com contraste forte, bem visível
-  var fillVao   = light?'#fff':'rgba(0,0,0,.15)';
-
-  var pad=14;
-  var showFrame = opts.frame!==false; // moldura/margem externa fina, igual ao modelo de referência
-  var framePad  = showFrame ? Math.max(22, pad*1.7) : 0;
-  var vw=ow+pad*2+framePad*2, vh=oh+pad*2+framePad*2;
-  var ox=pad+framePad, oy=pad+framePad; // canto superior-esquerdo de TODA a peça (vão encosta aqui, sem moldura)
-
-  var frameCol = light?'#2a2a2a':'rgba(201,168,76,.55)';
-
-  // ── contorno único da peça, sentido horário, chanfro só no canto inferior-direito ──
-  var p1=ox+','+oy;                                   // superior-esquerda
-  var p2=(ox+ow)+','+oy;                               // superior-direita
-  var p3=(ox+ow)+','+(oy+oh-chPx);                     // desce a direita até antes do chanfro
-  var p4=(ox+ow-chPx)+','+(oy+oh);                      // ponto do chanfro, já na base
-  var p5=ox+','+(oy+oh);                               // inferior-esquerda
-  var pts=[p1,p2,p3,p4,p5].join(' ');
-
-  var svg='<svg viewBox="0 0 '+Math.round(vw)+' '+Math.round(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;max-height:340px;font-family:Arial,sans-serif;">';
-
-  // ── margem/moldura externa fina (retângulo de referência do modelo, sem preenchimento) ──
-  if(showFrame){
-    svg+='<rect x="'+(framePad*0.5)+'" y="'+(framePad*0.5)+'" width="'+(vw-framePad)+'" height="'+(vh-framePad)+'" fill="none" stroke="'+frameCol+'" stroke-width="1.4"/>';
+  var uid='n'+Math.floor(Math.random()*1e7);
+  var tex=_nicTextura(opts.mat,uid,vw,vh,opts.foto);
+  var cFundoSem=light?'#6a5a4e':'#2a2420';
+  var cLinha='rgba(20,15,8,.55)';
+  var cTxtFace='#fff';
+  var txtSombra=' stroke="rgba(0,0,0,.75)" stroke-width="2.6" paint-order="stroke" stroke-linejoin="round"';
+  var cCota=light?'#1a1a1a':'rgba(235,215,160,.95)';
+  var cCota2=light?'#7a4d10':'rgba(230,180,90,.95)';
+  var cBrilho=light?'#c98a12':'#ffd36b';
+  function pt(a){return a.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');}
+  // parede = pedra + camada de sombra (luz vindo de cima/direita)
+  function parede(a,sombra){
+    return '<polygon points="'+pt(a)+'" fill="'+tex.fill+'"/>'
+      +'<polygon points="'+pt(a)+'" fill="'+(sombra<0?'#fff':'#000')+'" opacity="'+Math.abs(sombra)+'" stroke="'+cLinha+'" stroke-width=".8" stroke-linejoin="round"/>';
+  }
+  function seta(x1,y1,x2,y2,cor){
+    var ang=Math.atan2(y2-y1,x2-x1),L=5,a=0.45;
+    function cab(x,y,an){return '<polygon points="'+x+','+y+' '+(x-L*Math.cos(an-a))+','+(y-L*Math.sin(an-a))+' '+(x-L*Math.cos(an+a))+','+(y-L*Math.sin(an+a))+'" fill="'+cor+'"/>';}
+    return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+cor+'" stroke-width="1"/>'+cab(x2,y2,ang)+cab(x1,y1,ang+Math.PI);
   }
 
-  // ── peça inteira: UM contorno só (moldura direita + base embaixo + chanfro) ──
-  svg+='<polygon points="'+pts+'" fill="'+faceStrip+'" stroke="'+strokeCol+'" stroke-width="2.6" stroke-linejoin="round"/>';
-
-  // ── vão (recorte), encostado no canto superior-esquerdo da peça ──
-  svg+='<rect x="'+ox+'" y="'+oy+'" width="'+vaoW+'" height="'+vaoH+'" fill="'+fillVao+'" stroke="'+strokeCol+'" stroke-width="2.2"/>';
-
-  // ── cota da largura da moldura (M), seta dupla (↔), na faixa direita ──
-  if(molPx>6){
-    var ay1=oy+Math.min(molPx*1.3, oh*0.28);
-    svg+='<line x1="'+(ox+vaoW)+'" y1="'+ay1+'" x2="'+(ox+ow)+'" y2="'+ay1+'" stroke="'+textCol2+'" stroke-width="1"/>';
-    svg+='<polygon points="'+(ox+vaoW)+','+ay1+' '+(ox+vaoW+5)+','+(ay1-3)+' '+(ox+vaoW+5)+','+(ay1+3)+'" fill="'+textCol2+'"/>';
-    svg+='<polygon points="'+(ox+ow)+','+ay1+' '+(ox+ow-5)+','+(ay1-3)+' '+(ox+ow-5)+','+(ay1+3)+'" fill="'+textCol2+'"/>';
-    svg+='<text x="'+((ox+vaoW+ox+ow)/2)+'" y="'+(ay1-6)+'" font-size="12.5" font-weight="800" fill="'+textCol+'" text-anchor="middle">'+M+'</text>';
+  var g='<svg viewBox="0 0 '+vw+' '+vh+'" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="width:100%;display:block;max-height:340px;font-family:Arial,sans-serif;">';
+  g+='<defs>'+tex.defs
+    +'<linearGradient id="'+uid+'f" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".18"/></linearGradient>'
+    +'<linearGradient id="'+uid+'s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".35"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient>'
+    +'</defs>';
+  // sombra suave atrás da peça
+  g+='<rect x="'+(ox+3)+'" y="'+(oy+4)+'" width="'+fw+'" height="'+fh+'" rx="2" fill="#000" opacity="'+(light?.14:.35)+'"/>';
+  // fundo
+  var fundoPts=[[bx,by],[bx+w2,by],[bx+w2,by+h2],[bx,by+h2]];
+  if(ne.comFundo){ g+=parede(fundoPts,0.22); }
+  else{
+    g+='<polygon points="'+pt(fundoPts)+'" fill="'+cFundoSem+'" stroke="'+cLinha+'" stroke-width=".8"/>';
+    for(var i=1;i<4;i++){var yy=by+h2*i/4;g+='<line x1="'+bx+'" y1="'+yy+'" x2="'+(bx+w2)+'" y2="'+yy+'" stroke="rgba(255,255,255,.09)" stroke-width="1"/>';
+      for(var j=0;j<4;j++){var xx=bx+w2*(j+(i%2?0.5:0.25))/4;g+='<line x1="'+xx+'" y1="'+(yy-h2/4)+'" x2="'+xx+'" y2="'+yy+'" stroke="rgba(255,255,255,.06)" stroke-width="1"/>';}}
   }
-
-  // ── cota da altura da tira da base (Pb), escrita dentro da própria tira ──
-  if(baseH>6){
-    svg+='<text x="'+(ox+8)+'" y="'+(oy+vaoH+baseH/2+5)+'" font-size="14" font-weight="800" fill="'+textCol+'" text-anchor="start">'+Pb+'</text>';
-    if(baseH>16)svg+='<text x="'+(ox+8)+'" y="'+(oy+vaoH+baseH/2+16)+'" font-size="6.3" fill="'+textCol2+'" text-anchor="start">profund. base</text>';
+  // paredes internas
+  g+=parede([[x0,y0],[x0+w,y0],[bx+w2,by],[bx,by]],0.58);          // teto (mais escuro)
+  g+=parede([[x0,y0],[bx,by],[bx,by+h2],[x0,y0+h]],0.4);         // lateral esquerda
+  g+=parede([[x0+w,y0],[bx+w2,by],[bx+w2,by+h2],[x0+w,y0+h]],0.2);// lateral direita
+  g+=parede([[x0,y0+h],[x0+w,y0+h],[bx+w2,by+h2],[bx,by+h2]],-0.08);// base (iluminada)
+  g+='<rect x="'+bx+'" y="'+by+'" width="'+w2+'" height="'+(h2*0.35)+'" fill="url(#'+uid+'s)"/>';
+  // arestas internas bem marcadas (lê bem até em foto de pedra bem rajada)
+  [[x0,y0,bx,by],[x0+w,y0,bx+w2,by],[x0+w,y0+h,bx+w2,by+h2],[x0,y0+h,bx,by+h2]].forEach(function(c){g+='<line x1="'+c[0]+'" y1="'+c[1]+'" x2="'+c[2]+'" y2="'+c[3]+'" stroke="rgba(0,0,0,.55)" stroke-width="1.1"/>';});
+  g+='<rect x="'+bx+'" y="'+by+'" width="'+w2+'" height="'+h2+'" fill="none" stroke="rgba(0,0,0,.6)" stroke-width="1.1"/>';
+  // face da frente (anel: externo menos vão)
+  var anel='M'+ox+','+oy+'h'+fw+'v'+fh+'h'+(-fw)+'Z M'+x0+','+y0+'v'+h+'h'+w+'v'+(-h)+'Z';
+  g+='<path d="'+anel+'" fill="'+tex.fill+'" fill-rule="evenodd"/>';
+  g+='<path d="'+anel+'" fill="url(#'+uid+'f)" fill-rule="evenodd" stroke="'+(light?'#2a2a2a':'rgba(201,168,76,.9)')+'" stroke-width="1.6"/>';
+  // cortes a 45° nas quinas
+  [[ox,oy,x0,y0],[ox+fw,oy,x0+w,y0],[ox+fw,oy+fh,x0+w,y0+h],[ox,oy+fh,x0,y0+h]].forEach(function(c){
+    g+='<line x1="'+c[0]+'" y1="'+c[1]+'" x2="'+c[2]+'" y2="'+c[3]+'" stroke="'+cLinha+'" stroke-width="1"/>';
+  });
+  if(sem){
+    // bordas da frente polidas: brilho no contorno da face
+    g+='<rect x="'+(ox+1)+'" y="'+(oy+1)+'" width="'+(fw-2)+'" height="'+(fh-2)+'" fill="none" stroke="'+cBrilho+'" stroke-width="2" opacity=".9"/>';
+    g+='<rect x="'+(x0-1)+'" y="'+(y0-1)+'" width="'+(w+2)+'" height="'+(h+2)+'" fill="none" stroke="'+cBrilho+'" stroke-width="2" opacity=".9"/>';
+    var ml=nichoPolimentoML(ne);
+    g+='<text x="'+(ox+fw/2)+'" y="'+(oy+fh+18)+'" font-size="11" font-weight="800" fill="'+cBrilho+'" text-anchor="middle">✦ Bordas da frente polidas · '+ml.toFixed(2).replace('.',',')+' ml</text>';
+    g+='<text x="'+(ox+fw/2)+'" y="'+(oy+fh+32)+'" font-size="9.5" fill="'+cCota2+'" text-anchor="middle">Externo: '+(Li+2*E)+' × '+(Ai+2*E)+' cm</text>';
+  } else if(M>0){
+    // cota da moldura na faixa direita
+    var my=oy+fh*0.5;
+    if(f>14){
+      g+=seta(x0+w+2,my,ox+fw-2,my,'#fff');
+      g+='<text x="'+(x0+w+f/2)+'" y="'+(my-5)+'" font-size="11" font-weight="800" fill="'+cTxtFace+'"'+txtSombra+' text-anchor="middle">'+M+'</text>';
+    }
+    g+='<text x="'+(ox+fw/2)+'" y="'+(oy+fh+18)+'" font-size="9.5" fill="'+cCota2+'" text-anchor="middle">Moldura '+M+' cm · Externo: '+(Li+2*M)+' × '+(Ai+2*M)+' cm</text>';
+    if(diag>0)g+='<text x="'+(ox+fw-f/2)+'" y="'+(oy+fh-f/2+4)+'" font-size="9" font-weight="800" fill="'+cTxtFace+'"'+txtSombra+' text-anchor="middle">'+diag+'</text>';
   }
-
-  // ── rótulo do corte a 45° (diagonal do chanfro) ──
-  if(chPx>2 && diag>0){
-    var midx=(ox+ow-chPx/2)+9, midy=(oy+oh-chPx/2);
-    svg+='<text x="'+midx+'" y="'+midy+'" font-size="10.5" font-weight="800" fill="'+textCol2+'" text-anchor="start">'+diag+'</text>';
+  // cota largura interna (em cima)
+  var yl=oy-14;
+  g+='<line x1="'+x0+'" y1="'+(y0-2)+'" x2="'+x0+'" y2="'+(yl-4)+'" stroke="'+cCota+'" stroke-width=".6" opacity=".6"/>';
+  g+='<line x1="'+(x0+w)+'" y1="'+(y0-2)+'" x2="'+(x0+w)+'" y2="'+(yl-4)+'" stroke="'+cCota+'" stroke-width=".6" opacity=".6"/>';
+  g+=seta(x0,yl,x0+w,yl,cCota);
+  g+='<rect x="'+(x0+w/2-22)+'" y="'+(yl-9)+'" width="44" height="14" fill="'+(light?'#fff':'#15120a')+'"/>';
+  g+='<text x="'+(x0+w/2)+'" y="'+(yl+3.5)+'" font-size="12" font-weight="800" fill="'+cCota+'" text-anchor="middle">'+Li+' cm</text>';
+  // cota altura interna (esquerda)
+  var xl=ox-16;
+  g+='<line x1="'+(x0-2)+'" y1="'+y0+'" x2="'+(xl-4)+'" y2="'+y0+'" stroke="'+cCota+'" stroke-width=".6" opacity=".6"/>';
+  g+='<line x1="'+(x0-2)+'" y1="'+(y0+h)+'" x2="'+(xl-4)+'" y2="'+(y0+h)+'" stroke="'+cCota+'" stroke-width=".6" opacity=".6"/>';
+  g+=seta(xl,y0,xl,y0+h,cCota);
+  var cy=y0+h/2;
+  g+='<rect x="'+(xl-8)+'" y="'+(cy-22)+'" width="16" height="44" fill="'+(light?'#fff':'#15120a')+'"/>';
+  g+='<text x="'+xl+'" y="'+(cy+4)+'" font-size="12" font-weight="800" fill="'+cCota+'" text-anchor="middle" transform="rotate(-90 '+xl+' '+cy+')">'+Ai+' cm</text>';
+  // profundidade (no fundo)
+  if(P>0){
+    var tc='#fff';
+    var fs=Math.max(8,Math.min(12,w2/9));
+    g+='<text x="'+(bx+w2/2)+'" y="'+(by+h2/2)+'" font-size="'+fs+'" font-weight="800"  fill="'+tc+'"'+txtSombra+' text-anchor="middle">Prof. '+P+' cm</text>';
+    if(Pb!==P)g+='<text x="'+(bx+w2/2)+'" y="'+(by+h2/2+fs+2)+'" font-size="'+(fs*0.8)+'" fill="'+tc+'"'+txtSombra+' text-anchor="middle">base '+Pb+' cm</text>';
+    else if(!ne.comFundo)g+='<text x="'+(bx+w2/2)+'" y="'+(by+h2/2+fs+2)+'" font-size="'+(fs*0.75)+'" fill="'+tc+'"'+txtSombra+' opacity=".85" text-anchor="middle">sem fundo</text>';
   }
-
-  // ── cota altura interna do vão (esquerda, na vertical) ──
-  var lty=oy+vaoH/2;
-  svg+='<text x="'+(ox+15)+'" y="'+(lty+5)+'" font-size="16" font-weight="800" fill="'+textCol+'" text-anchor="middle" transform="rotate(-90 '+(ox+15)+' '+lty+')">'+Ai+'</text>';
-
-  // ── cota largura interna do vão (embaixo, dentro do vão) ──
-  svg+='<text x="'+(ox+vaoW/2)+'" y="'+(oy+vaoH-11)+'" font-size="16" font-weight="800" fill="'+textCol+'" text-anchor="middle">'+Li+'</text>';
-
-  svg+='</svg>';
-  return svg;
+  g+='</svg>';
+  return g;
 }
 
 // ─── GERAR IMAGEM "PROJETO 2D SOB MEDIDA" DO NICHO ─────────────────────
@@ -4406,16 +4502,24 @@ function gerarNichoProjetoPDF(ambId){
   if(!ne.nW||!ne.nH||!ne.nP){toast('Preencha largura, altura e profundidade internas');return;}
   toast('⏳ Gerando projeto 2D...');
   _loadNicImgLibs(function(){
-    try{_buildNichoProjetoImg(amb,ne);}
-    catch(e){console.error('nichoImg:',e);toast('Erro ao gerar imagem: '+e.message);}
+    var _m=CFG.stones.find(function(s){return s.id===amb.selMat;});
+    function _go(foto){
+      try{_buildNichoProjetoImg(amb,ne,{foto:foto});}
+      catch(e){console.error('nichoImg:',e);toast('Erro ao gerar imagem: '+e.message);}
+    }
+    if(_m&&_m.photo&&!/^data:/.test(_m.photo)){
+      fetch(_m.photo).then(function(r){return r.blob();}).then(function(b){
+        var fr=new FileReader();fr.onload=function(){_go(fr.result);};fr.onerror=function(){_go('');};fr.readAsDataURL(b);
+      }).catch(function(){_go('');});
+    } else _go(_m&&_m.photo||'');
   });
 }
-function _buildNichoProjetoImg(amb,ne){
+function _buildNichoProjetoImg(amb,ne,opts2){
   var emp=CFG&&CFG.emp?CFG.emp:{nome:'HR Mármores e Granitos'};
   var cliEl=document.getElementById('oCliente');
   var cliNome=cliEl?cliEl.value.trim():'';
   var matSel=CFG.stones.find(function(s){return s.id===amb.selMat;});
-  var svgDraw=buildNichoProjetoSVG(ne,{light:true,maxW:420,maxH:300,margin:60});
+  var svgDraw=buildNichoProjetoSVG(ne,{light:true,maxW:440,maxH:320,mat:matSel,foto:opts2&&opts2.foto});
   var hoje=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 
   // ── lista de peças explicadinha pra equipe fabricar (medidas já calculadas) ──
@@ -4451,7 +4555,7 @@ function _buildNichoProjetoImg(amb,ne){
     +'<div style="padding:10px 40px 20px;font-size:11px;color:#777;text-align:center;">'
       +'Vão interno (dentro a dentro): '+ne.nW+'×'+ne.nH+'cm · Profundidade: '+ne.nP+'cm'
       +(ne.nPBase&&+ne.nPBase>+ne.nP?' (base '+ne.nPBase+'cm)':'')
-      +(ne.nM?' · Moldura: '+ne.nM+'cm':' · Sem moldura')
+      +' · '+nichoMolduraTxt(ne)
       +' · '+(ne.comFundo?'Com fundo':'Sem fundo')
     +'</div>'
     +pecasHtml
@@ -4460,7 +4564,7 @@ function _buildNichoProjetoImg(amb,ne){
     +'</div>'
   +'</div>';
 
-  var fileName='Projeto2D_Nicho_'+(cliNome||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+  var fileName='Projeto2D_Nicho_'+(cliNome||'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
 
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
@@ -5563,10 +5667,21 @@ function renderAmbientes(){
       h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">💡 Preencha só se a <b>base</b> precisa ir mais funda que topo/laterais — pra chegar até o fim do tijolo refratário.</div>';
       h+='<div class="f"><label>Corte diagonal do canto (opcional)</label><input type="number" placeholder="ex: 15,5 — deixe vazio pra não mostrar" style="background:var(--s3);" value="'+(ne.nDiag||'')+'" oninput="updNichoMed('+amb.id+',\'nDiag\',+this.value)"></div>';
       h+='<div style="font-size:.57rem;color:var(--t4);margin:-4px 0 6px;line-height:1.4;">💡 Medida da diagonal no canto onde a moldura encontra a base (aparece no desenho só se preenchida).</div>';
-      h+='<div class="f"><label>Moldura</label><div style="background:var(--s3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:.78rem;color:var(--t3);">8cm de largura <span style="color:var(--t4);font-size:.65rem;">(padrão — quase todo nicho usa essa moldura)</span></div></div>';
+      var _semMol=!!ne.semMoldura;
+      var _bOn='background:rgba(201,168,76,.18);border:1.5px solid var(--gold);color:var(--gold2);font-weight:700;';
+      var _bOff='background:var(--s3);border:1px solid var(--bd);color:var(--t3);font-weight:500;';
+      h+='<div class="f"><label>Acabamento da frente</label><div style="display:flex;gap:6px;">';
+      h+='<button onclick="updNichoMed('+amb.id+',\'semMoldura\',false)" style="flex:1;'+(_semMol?_bOff:_bOn)+'padding:10px 6px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;line-height:1.3;">🖼️ Com moldura<br><span style="font-size:.6rem;opacity:.8;">8 cm em volta</span></button>';
+      h+='<button onclick="updNichoMed('+amb.id+',\'semMoldura\',true)" style="flex:1;'+(_semMol?_bOn:_bOff)+'padding:10px 6px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;line-height:1.3;">✦ Sem moldura<br><span style="font-size:.6rem;opacity:.8;">polir bordas da frente</span></button>';
+      h+='</div>';
+      if(_semMol){var _mlP=nichoPolimentoML(ne);h+='<div style="font-size:.57rem;color:var(--t4);margin-top:5px;line-height:1.4;">✦ Polimento: '+(_mlP>0?_mlP.toFixed(2)+' ml × R$ '+fm(getPr('nic_pol')||getPr('s_slim')||56)+'/ml':'preencha as medidas')+' (base, topo e laterais)</div>';}
+      h+='</div>';
       // Toggle com/sem fundo
       var _comFundo=!!ne.comFundo;
-      h+='<div style="margin-top:8px;"><button onclick="updNichoMed('+amb.id+',\'comFundo\','+(!_comFundo)+')" style="'+(_comFundo?'background:rgba(201,168,76,.18);border-color:rgba(201,168,76,.45);color:var(--gold2);font-weight:700;':'background:var(--s3);border-color:var(--bd);color:var(--t4);')+'border:1px solid;border-radius:8px;padding:8px 14px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;width:100%;">'+(_comFundo?'▣ Com fundo':'□ Sem fundo')+'</button></div>';
+      h+='<div class="f" style="margin-top:8px;"><label>Fundo do nicho</label><div style="display:flex;gap:6px;">';
+      h+='<button onclick="updNichoMed('+amb.id+',\'comFundo\',true)" style="flex:1;'+(_comFundo?_bOn:_bOff)+'padding:10px 6px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;line-height:1.3;">▣ Com fundo<br><span style="font-size:.6rem;opacity:.8;">pedra fecha atrás</span></button>';
+      h+='<button onclick="updNichoMed('+amb.id+',\'comFundo\',false)" style="flex:1;'+(_comFundo?_bOff:_bOn)+'padding:10px 6px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;line-height:1.3;">□ Sem fundo<br><span style="font-size:.6rem;opacity:.8;">fica a parede atrás</span></button>';
+      h+='</div></div>';
       h+='<div style="font-size:.57rem;color:var(--t4);margin-top:8px;line-height:1.5;">💡 Medidas de <b>dentro a dentro</b>. Base/topo e moldura são calculados automaticamente com encaixe a 45° nas quinas.</div>';
       // Desenho técnico (projeto 2D) + peças — em container próprio, atualizado
       // parcialmente (sem recriar os campos acima) para não fechar o teclado do celular.
@@ -7312,6 +7427,11 @@ function calcular(){
 
     // 🖼️ NICHO: MO automática de corte/instalação sobre todas as peças (R$110/m² padrão)
     if(tipo==='🖼️ Nicho'){
+      var _neT=amb.nichoExtra||{};
+      if(_neT.semMoldura){
+        var _mlPolT=nichoPolimentoML(_neT), _prPolT=getPr('nic_pol')||getPr('s_slim')||56;
+        if(_mlPolT>0){acT+=_mlPolT*_prPolT;acL.push({l:'Polimento das bordas da frente '+_mlPolT.toFixed(2)+'ml',v:_mlPolT*_prPolT});acN.push('Polimento das bordas da frente');}
+      }
       var _nicMoPr=getPr('nic_mo')||110;
       amb.pecas.forEach(function(p){
         if(!p.w||!p.h)return;
@@ -7419,7 +7539,7 @@ function calcular(){
       var ne2=amb.nichoExtra;
       if(ne2.desc)nicInfo.push(escH(ne2.desc));
       if(ne2.nW&&ne2.nH&&ne2.nP)nicInfo.push('Vão interno: <b>'+ne2.nW+'×'+ne2.nH+'cm</b> · Prof. '+ne2.nP+'cm'+(ne2.nPBase&&+ne2.nPBase>+ne2.nP?' (base '+ne2.nPBase+'cm)':''));
-      if(ne2.nM)nicInfo.push('Moldura '+ne2.nM+'cm');
+      nicInfo.push(nichoMolduraTxt(ne2));
       nicInfo.push(ne2.comFundo?'Com fundo':'Sem fundo');
       if(nicInfo.length)detHtml+='<div style="background:rgba(201,168,76,.07);border-radius:8px;padding:7px 10px;margin:4px 0;font-size:.62rem;color:var(--t3);line-height:1.8;">'+nicInfo.join(' · ')+'</div>';
     }
@@ -7448,7 +7568,7 @@ function calcular(){
       var nex=amb.nichoExtra;
       if(nex.desc)extraTxt+=nex.desc+'\n';
       if(nex.nW&&nex.nH&&nex.nP)extraTxt+='Vão interno: '+nex.nW+'×'+nex.nH+'cm — Profundidade '+nex.nP+'cm'+(nex.nPBase&&+nex.nPBase>+nex.nP?' (base '+nex.nPBase+'cm — até o tijolo)':'')+'\n';
-      if(nex.nM)extraTxt+='Moldura: '+nex.nM+'cm\n';
+      extraTxt+=nichoMolduraTxt(nex)+'\n';
       extraTxt+=(nex.comFundo?'Com fundo':'Sem fundo')+'\n';
     }
     if(tipo===TIPO_INST&&amb.instExtra){
@@ -8040,7 +8160,7 @@ function gerarPDF(){
     try{DB.sv();}catch(e){console.warn('[orcNum] não salvou:',e);}
   }
 
-  var fileName='Orcamento_'+orcNum+'_'+q.cli.replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var fileName='Orcamento_'+orcNum+'_'+q.cli.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
   var economia=q.parc-q.vista;
   // ── Forma de pagamento que o cliente escolheu no painel (à vista é o padrão) ──
   // "parcelado" = cliente fechou parcelado OU o vendedor escolheu NÃO mostrar o valor à vista
@@ -8103,7 +8223,7 @@ function gerarPDF(){
         var neP=snap.nichoExtra;
         var nicMedTxt='Vão interno (dentro a dentro): <b>'+(neP.nW||0)+' × '+(neP.nH||0)+' cm</b>'
           +(neP.nP?' &nbsp;·&nbsp; Profundidade: <b>'+neP.nP+' cm</b>'+(neP.nPBase&&+neP.nPBase>+neP.nP?' <span style="color:#8a5a20;">(base '+neP.nPBase+' cm — até o tijolo)</span>':''):'')
-          +(neP.nM?' &nbsp;·&nbsp; Moldura: <b>'+neP.nM+' cm</b>':' &nbsp;·&nbsp; Sem moldura')
+          +' &nbsp;·&nbsp; <b>'+nichoMolduraTxt(neP)+'</b>'
           +(neP.comFundo?' &nbsp;·&nbsp; Com fundo':' &nbsp;·&nbsp; Sem fundo');
         ambBuf+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:14px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
       }
@@ -8982,7 +9102,7 @@ function _buildFichaCorteImg(grupos,cliNomeOv){
     +'</div>'
   +'</div>';
 
-  var fileName='FichaCorte_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+  var fileName='FichaCorte_'+(cliNome||'orcamento').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
 
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
@@ -9135,7 +9255,7 @@ function _buildPlanoCorteImg(itens){
     +'</div>'
   +'</div>';
 
-  var fileName='PlanoCorte_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+  var fileName='PlanoCorte_'+(cliNome||'orcamento').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
 
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
@@ -9354,7 +9474,7 @@ function _buildEncaixeImg(res){
     +'</div>'
   +'</div>';
 
-  var fileName='EncaixeChapa_'+(cliNome||'orcamento').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
+  var fileName='EncaixeChapa_'+(cliNome||'orcamento').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.jpg';
 
   var offscreen=document.createElement('div');
   offscreen.style.cssText='position:fixed;left:-9999px;top:0;width:700px;background:#fff;z-index:-1;';
@@ -12918,7 +13038,7 @@ function gerarPDFTumulo(q){
   var pdfCount=parseInt(localStorage.getItem('hr_pdf_count')||'0',10);
   var orcNum='ORC-'+String(pdfCount).padStart(4,'0');
   localStorage.setItem('hr_pdf_count',pdfCount+1);
-  var fileName='Orcamento_'+orcNum+'_Tumulo_'+(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
+  var fileName='Orcamento_'+orcNum+'_Tumulo_'+(q.cli||'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_')+'.pdf';
 
   function fd(d){if(!d)return new Date().toLocaleDateString('pt-BR');try{return new Date(d).toLocaleDateString('pt-BR');}catch(e){return d;}}
   function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:7.5px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
@@ -14282,7 +14402,7 @@ function _gerarContratoHtml(q,pgConds,prazo,valid,parc,taxa){
   +'</body></html>';
 
   // ── PDF profissional: html2canvas + jsPDF + share (igual ao orçamento) ──
-  var nomeCliente=(q.cli||'cliente').replace(/[^a-zA-Z0-9]/g,'_');
+  var nomeCliente=(q.cli||'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'_');
   var contrNum='CTR-'+String(q.id).slice(-6);
   var fileName='Contrato_'+contrNum+'_'+nomeCliente+'.pdf';
 
