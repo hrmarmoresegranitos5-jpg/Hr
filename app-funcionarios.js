@@ -1132,6 +1132,9 @@ var HR_FUNC = (function () {
       // ── Alertas ──
       (alertChips?'<div style="padding:12px 16px 0;">'+alertChips+'</div>':'')+
 
+      // ── Ponto pelo celular: quem está trabalhando + avisos (lança no RH sozinho) ──
+      (window.HRPonto&&HRPonto.cardRH?HRPonto.cardRH():'')+
+
       // ── Ações Rápidas ──
       '<div style="padding:14px 16px 0;">' +
         '<div style="font-size:.58rem;color:'+GOLD+';letter-spacing:.16em;text-transform:uppercase;margin-bottom:10px;">O que você mais usa</div>' +
@@ -1139,14 +1142,7 @@ var HR_FUNC = (function () {
           _btnAcao('💳','Fechar pagamento','Todos numa tela só','HR_FUNC.abrirFechamento()','gold') +
           _btnAcao('✍️','Pagamento avulso','Vale, adiantamento, bônus','HR_FUNC.abrirFormPagamento(null)','green') +
         '</div>' +
-        '<button onclick="HR_FUNC.abrirRegistroRapido()" '+
-          'style="width:100%;padding:12px 16px;background:rgba(92,142,200,.07);'+
-          'border:1.5px solid rgba(92,142,200,.3);border-radius:11px;color:'+BLUE+';'+
-          'font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;'+
-          'display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:8px;">' +
-          '<span>⚡</span><span>Registro Rápido de Ponto</span>' +
-        '</button>' +
-        '<details style="margin-top:2px;"><summary style="cursor:pointer;list-style:none;padding:11px 14px;background:rgba(201,168,76,.05);border:1px solid '+BD+';border-radius:11px;color:'+T2+';font-size:.8rem;font-weight:700;text-align:center;">🛠️ Mais ferramentas (extras, banco, importar, risco…)</summary><div style="margin-top:10px;">' +
+        '<details style="margin-top:2px;"><summary style="cursor:pointer;list-style:none;padding:11px 14px;background:rgba(201,168,76,.05);border:1px solid '+BD+';border-radius:11px;color:'+T2+';font-size:.8rem;font-weight:700;text-align:center;">🛠️ Mais ferramentas (extras, banco, ponto manual, risco…)</summary><div style="margin-top:10px;">' +
         '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">' +
           '<button onclick="if(typeof abrirRelatorioHorasExtras===\'function\')abrirRelatorioHorasExtras();" '+
             'style="padding:11px;background:rgba(201,168,76,.05);border:1px solid '+BD+';'+
@@ -1176,6 +1172,14 @@ var HR_FUNC = (function () {
             'font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">' +
             '<span>🏆</span><span>Bonificação (3×)</span></button>' +
         '</div>' +
+        '<div style="font-size:.58rem;color:'+T3+';letter-spacing:.12em;text-transform:uppercase;margin:14px 0 6px;">Lançar ponto à mão (se o celular falhar)</div>' +
+        '<button onclick="HR_FUNC.abrirRegistroRapido()" '+
+          'style="width:100%;padding:12px 16px;background:rgba(92,142,200,.07);'+
+          'border:1.5px solid rgba(92,142,200,.3);border-radius:11px;color:'+BLUE+';'+
+          'font-family:Outfit,sans-serif;font-size:.84rem;font-weight:700;cursor:pointer;'+
+          'display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:0;">' +
+          '<span>⚡</span><span>Registro Rápido de Ponto</span>' +
+        '</button>' +
         '<button onclick="if(typeof HR_IMPORT!==\'undefined\')HR_IMPORT.abrirImportacao();" '+
           'style="width:100%;margin-top:8px;padding:12px 16px;background:rgba(92,184,92,.06);'+
           'border:1.5px solid rgba(92,184,92,.28);border-radius:11px;color:'+GREEN+';'+
@@ -1225,6 +1229,7 @@ var HR_FUNC = (function () {
       // ── Lista da equipe ──
       '<div class="hr-lista" style="padding:0 16px 20px;">'+cardsHtml+'</div>';
 
+    if(window.HRPonto&&HRPonto.aoAbrirRH)setTimeout(HRPonto.aoAbrirRH,0);
     // Focus na busca se aberta
     if(busca||(document.getElementById('hrBuscaWrap')||{}).style){
       var inp=document.getElementById('hrBuscaInp');
