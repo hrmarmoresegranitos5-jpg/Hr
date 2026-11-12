@@ -8226,6 +8226,17 @@ function gerarPDF(){
           +' &nbsp;·&nbsp; <b>'+nichoMolduraTxt(neP)+'</b>'
           +(neP.comFundo?' &nbsp;·&nbsp; Com fundo':' &nbsp;·&nbsp; Sem fundo');
         ambBuf+='<tr><td colspan="2" style="padding:10px 14px;background:#fff;border-bottom:1px solid #ede8dc;font-size:14px;color:#333;line-height:1.6;">'+nicMedTxt+'</td></tr>';
+        // v76: prévia do nicho (desenho em perspectiva com a pedra escolhida)
+        try{
+          var _matN=CFG.stones.find(function(x){return x.id===snap.selMat;})||CFG.stones.find(function(x){return x.nm===q.mat;})||null;
+          var _matNp=_matN?Object.assign({},_matN):null;
+          if(_matNp&&_matNp.photo&&!/^data:/.test(_matNp.photo))delete _matNp.photo; // foto externa não sai no PDF: usa a textura
+          var _svgN=buildNichoProjetoSVG(neP,{light:true,maxW:440,maxH:300,mat:_matNp});
+          if(_svgN)ambBuf+='<tr><td colspan="2" style="padding:16px 14px 18px;background:#fff;border-bottom:1px solid #ede8dc;">'
+            +'<div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#a8862e;font-weight:700;margin-bottom:10px;">Prévia do nicho</div>'
+            +'<div style="max-width:520px;margin:0 auto;">'+_svgN+'</div>'
+            +'<div style="font-size:11px;color:#999;text-align:center;margin-top:6px;">Ilustração — medidas finais conferidas na visita técnica.</div></td></tr>';
+        }catch(e){console.warn('prévia nicho',e);}
       }
       var isInst=snap.tipo===TIPO_INST;
       if(isInst&&snap.instExtra){
@@ -8686,21 +8697,40 @@ function gerarPDF(){
       +'</div>'
       // ── Desconto dado: "Valor do projeto" (sem rótulo à vista) + parcelas no cartão em até 10× ──
       : _pdfIsPrazoDesc
-      ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
-        +'<div style="border:2px solid #C9A84C;border-radius:10px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.2);">'
-          +'<div style="background:#0f0c00;padding:12px 16px;"><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">Condição especial</div></div>'
-          +'<div style="padding:14px 16px;background:#fff;">'+_dscHtml(_dPrazo,'Você paga:')+'<div style="font-size:32px;font-weight:900;color:#7a4400;line-height:1.1;">R$ '+fm(q.vista)+'</div></div>'
-        +'</div>'
-        +'<div style="border:1px solid #ddd5c5;border-radius:10px;overflow:hidden;">'
-          +'<div style="background:#0f0c00;padding:12px 16px;"><div style="font-size:18px;font-weight:800;color:#fff;line-height:1.2;">Parcelado</div><div style="font-size:13px;color:rgba(255,255,255,0.78);margin-top:2px;">No cartão, em até 10 vezes</div></div>'
-          +'<div style="padding:14px 16px;background:#faf8f4;">'
-            +'<div style="font-size:28px;font-weight:900;color:#555;line-height:1;margin-bottom:5px;">10× R$ '+fm(_p10(q))+'</div>'
-            +'<div style="font-size:13px;color:#777;margin-bottom:8px;">na fatura do cartão</div>'
-            +_parcGridHtml(q,2)
-            +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Total parcelado: R$ '+fm(q.parc)+'</div>'
+      // ── v78: desconto dado (sem rótulo "à vista") — mesmo visual do "Valor total do projeto": valor em destaque,
+      //    economia, e as duas formas de pagar bem explicadas (Pix/dinheiro com o desconto, ou cartão em até 10×) ──
+      ? (function(){
+          // v80: o VALOR DO PROJETO é o preço cheio (até 10× SEM JUROS); o à vista aparece como DESCONTO sobre ele
+          var _v=q.vista||0, _pz=(q.parc>0?q.parc:_v), _eco=Math.max(0,Math.round((_pz-_v)*100)/100);
+          var _pct=_pz>0?Math.round(_eco/_pz*100):0, _baixo=_v>0&&_v<(CFG.limiarPagamentoSimples||600);
+          var _m1=Math.round(_v/2*100)/100, _m2=Math.round((_v-_m1)*100)/100;
+          return '<div style="border:2px solid #C9A84C;border-radius:12px;overflow:hidden;box-shadow:0 3px 16px rgba(201,168,76,0.22);margin-bottom:20px;">'
+          +'<div style="background:#0f0c00;padding:12px 18px;"><div style="font-size:19px;color:#C9A84C;font-weight:900;">'+(_pdfCeara?'Bancada HR':'Valor do projeto')+'</div></div>'
+          +'<div style="padding:20px 18px 16px;background:linear-gradient(180deg,#fffdf7,#fbf4e2);text-align:center;">'
+            +'<div style="font-size:46px;font-weight:900;color:#3a2000;line-height:1.1;letter-spacing:-1px;">R$ '+fm(_pz)+'</div>'
+            +'<div style="font-size:19px;color:#333;margin-top:6px;">em até <b>10× de R$ '+fm(_p10(q))+'</b> <b style="color:#2e7d32;">sem juros</b></div>'
           +'</div>'
-        +'</div>'
-      +'</div>'
+          +(_eco>0.004
+            ?'<div style="margin:0 16px 16px;border:2px solid #2e7d32;border-radius:12px;overflow:hidden;background:#f3faf3;">'
+              +'<div style="background:#2e7d32;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;">'
+                +'<span style="font-size:16px;font-weight:900;">💵 Pagando à vista</span>'
+                +'<span style="background:#fff;color:#2e7d32;font-size:14px;font-weight:900;padding:3px 12px;border-radius:20px;">'+_pct+'% de desconto</span>'
+              +'</div>'
+              +'<div style="padding:14px 16px;text-align:center;">'
+                +'<div style="font-size:15px;color:#555;">De <span style="text-decoration:line-through;">R$ '+fm(_pz)+'</span> por</div>'
+                +'<div style="font-size:40px;font-weight:900;color:#2e7d32;line-height:1.1;">R$ '+fm(_v)+'</div>'
+                +'<div style="font-size:16px;color:#2e7d32;font-weight:800;margin-top:4px;">Você economiza R$ '+fm(_eco)+'</div>'
+                +'<div style="font-size:14px;color:#555;margin-top:6px;">no Pix ou dinheiro'+(_baixo?' · sem entrada':' · R$ '+fm(_m1)+' ao assinar e R$ '+fm(_m2)+' na entrega')+'</div>'
+              +'</div>'
+            +'</div>'
+            :'')
+          +'<div style="padding:12px 18px 14px;background:#fff;border-top:1px solid #ede8dc;">'
+            +'<div style="font-size:14px;font-weight:800;color:#a06020;margin-bottom:8px;">💳 No cartão, sem juros — escolha em quantas vezes:</div>'
+            +_parcGridHtml(q,3)
+            +'<div style="font-size:14px;color:#7a4400;font-weight:800;border-top:1px solid #ede8dc;padding-top:8px;">Em qualquer número de parcelas o total é o mesmo: R$ '+fm(_pz)+'</div>'
+          +'</div>'
+        +'</div>';
+        })()
       // ── Cliente fechou À VISTA e o vendedor marcou "mostrar à vista": mantém os dois cartões ──
       : '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">'
       // parcelado — "preço cheio", sem mencionar taxa
@@ -8754,6 +8784,16 @@ function gerarPDF(){
           +'<div style="font-size:8px;letter-spacing:2.5px;text-transform:uppercase;color:#c0a860;margin-bottom:6px;font-weight:900;">PAGAMENTO EM 3 ETAPAS</div>'
           +'<div style="font-size:12.5px;color:#555;line-height:1.7;">O valor é dividido em 3 partes iguais, sem juros. A <b>1ª</b> é paga na assinatura, para darmos início à produção. A <b>2ª</b> é paga quando faltar metade do prazo de entrega'+(_pdfTMeio?' (até <b>'+fd(_pdfTMeio)+'</b>)':'')+'. A <b>3ª</b> é paga na entrega e instalação.</div>'
         +'</div>'
+      : _pdfIsPrazoDesc
+      // ── v78: desconto dado — explica as duas opções em palavras simples ──
+      ? (function(){
+          var _v=q.vista||0, _pz=(q.parc>0?q.parc:_v), _baixo=_v>0&&_v<(CFG.limiarPagamentoSimples||600), _m1=Math.round(_v/2*100)/100, _m2=Math.round((_v-_m1)*100)/100;
+          return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'
+            +'<div style="font-size:17px;color:#222;line-height:1.65;margin-bottom:12px;"><b style="color:#7a4400;">💳 No cartão:</b> o valor do projeto é <b>R$ '+fm(_pz)+'</b> e pode ser dividido em até 10× <b>sem juros</b>. O cartão é passado uma vez só, quando você assinar, e as parcelas vêm na sua fatura.</div>'
+            +(_pz-_v>0.004?'<div style="font-size:17px;color:#222;line-height:1.65;"><b style="color:#2e7d32;">💵 À vista (Pix ou dinheiro):</b> você ganha desconto e paga só <b>R$ '+fm(_v)+'</b> — '
+              +(_baixo?'sem entrada, pode ser agora ou no dia da entrega.':'<b>R$ '+fm(_m1)+'</b> quando assinar, para começarmos a produção, e <b>R$ '+fm(_m2)+'</b> no dia da entrega.')+'</div>':'')
+          +'</div>';
+        })()
       : _pdfIsProj
       // ── Valor do projeto (sem à vista): explica as duas opções em palavras simples ──
       ? '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:12px;padding:18px 20px;margin-bottom:6px;">'

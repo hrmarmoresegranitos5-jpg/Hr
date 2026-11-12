@@ -35,7 +35,7 @@
       if (!q || !q.cli) return;
       orcamentos.push({
         id: txt(q.id, 30), orcNum: txt(q.orcNum, 30), projNum: txt(q.projNum, 30), cliente: txt(q.cli, 60), projeto: txt(q.tipo, 70), material: txt(q.mat, 50),
-        m2: num(q.m2), valor: num(q.vista), entrada: num(q.ent), status: txt(q.status, 15),
+        m2: num(q.m2), valor: num(q.vista), prazo: num(q.parc), entrada: num(q.ent), status: txt(q.status, 15),
         data: dia(q.date || q.createdAt), arquivado: q._arquivado ? 1 : 0
       });
     });
