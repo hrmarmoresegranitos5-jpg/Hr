@@ -371,7 +371,12 @@ function buildOrcList(list) {
       +'background:'+stCfg.bg+';border:1px solid '+stCfg.cor+'55;box-shadow:0 1px 3px rgba(0,0,0,.25) inset;'
       +'font-size:.6rem;font-weight:800;letter-spacing:.2px;color:'+stCfg.cor+';cursor:pointer;white-space:nowrap;flex-shrink:0;">'
       +stCfg.ic+' '+stCfg.lbl+'</span>';
-    h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
+    var _stCard = _orcStatusDe(q);
+    if (_stCard === 'aceito' || _stCard === 'entregue') {
+      var _rpc = _orcResumoPag(q);
+      h += '<div class="qcard-val" onclick="_orcPainelPagamento(\''+q.id+'\',event)" title="Pagamento e entrega" style="cursor:pointer;text-align:right;line-height:1.15;">R$ '+fm(q.vista)
+        + '<div style="font-size:.6rem;font-weight:800;color:'+(_rpc.falta>0.005?'#e0a530':'#5dbf7a')+';margin-top:2px;white-space:nowrap;">💰 '+(_rpc.falta>0.005?'falta R$ '+fm(_rpc.falta):'quitado')+'</div></div>';
+    } else h +=   '<div class="qcard-val">R$ '+fm(q.vista)+'</div>';
     h +=   '<span class="qcard-chev">▼</span>';
     h += '</div>';
     h += '<div class="qcard-body">';
@@ -414,6 +419,7 @@ function buildOrcList(list) {
     h += '</div>';
     h += '<div class="qcard-total"><span class="k">À Vista (melhor)</span><span class="v">R$ '+fm(q.vista)+'</span></div>';
     if(window.hrLivroCardHtml) h += window.hrLivroCardHtml(q); // ficha Entrega e aceite (app-livro-entrega.js)
+    if (_stCard === 'aceito' || _stCard === 'entregue' || _stCard === 'concluido') h += '<button class="btn btn-g" style="width:100%;margin:8px 0 6px;" onclick="_orcPainelPagamento(\''+q.id+'\',event)">💰 Pagamento, entrega e comprovante</button>';
     h += '<div class="qcard-btns">';
     h += '<button class="btn btn-g" onclick="orcEditar(\''+q.id+'\',event)">✏️ Editar</button>';
     h += '<button class="btn btn-o" onclick="orcCopiar(\''+q.id+'\',event)">📋 Copiar</button>';
@@ -522,6 +528,12 @@ function _orcAbrirSeletorStatus(q) {
   h += '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>';
   h += '<div style="font-size:1.02rem;font-weight:800;color:var(--gold);">Status do orçamento</div>';
   h += '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">'+escH(q.cli||'Cliente')+'</div>';
+  if (atual === 'aceito' || atual === 'entregue' || atual === 'concluido') { // atalho: pagamento, quanto falta, entrega e comprovante
+    var _rp = _orcResumoPag(q);
+    h += '<button type="button" onclick="document.getElementById(\'_orcStSheet\').remove();_orcPainelPagamento(\''+q.id+'\')" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:12px;padding:13px 14px;border-radius:12px;cursor:pointer;font-family:Outfit,sans-serif;border:1px solid var(--gold3,#C9A84C);background:rgba(201,168,76,.1);color:var(--tx);">'
+      +'<span style="font-size:1.3rem;">💰</span><span style="flex:1;min-width:0;"><span style="display:block;font-size:.9rem;font-weight:800;color:var(--gold);">Pagamento e entrega</span>'
+      +'<span style="display:block;font-size:.7rem;color:var(--t3);margin-top:1px;">'+(_rp.falta>0.005?'Falta R$ '+fm(_rp.falta)+' · registrar pagamento, entrega, comprovante':'Quitado · entrega e comprovantes')+'</span></span><span style="color:var(--gold);">›</span></button>';
+  }
   ORC_STATUS_ORDEM.forEach(function(st){
     var c = _ORC_ST[st]; if(!c) return;
     var on = (st === atual);
@@ -547,13 +559,15 @@ function _orcEscolherStatus(id, novo) {
   var q = DB.q.find(function(x){return String(x.id)===String(id);});
   if(!q) return;
   var atual = _orcStatusDe(q);
-  if(novo === atual) return;
+  if(novo === atual) { if (atual === 'aceito' || atual === 'entregue' || atual === 'concluido') _orcPainelPagamento(q); return; }
   // Aceito e Concluído pedem confirmação do valor/forma/data na PRIMEIRA vez (depois, voltar/avançar não lança de novo)
   // Também volta a perguntar quando o orçamento já foi aceito antes (flag gravada), mas nada ficou registrado como recebido e ainda há saldo
   // (ex.: voltou para Aguardando e marcou Aceito de novo). Se já entrou dinheiro, não pergunta de novo, para não duplicar lançamento.
   if (novo === 'aceito' && (!q._aceitoConfirmado || _orcAceitoSemRecebido(q))) {
-    if (_orcSoSolPeit(q)) { _aceitarSolPeitSemEntrada(q); return; }
-    _abrirModalStatusOrc(q, 'aceito');
+    _orcConferirAntesDeFechar(q, function(){ // antes: confere se a data do PDF ainda vale (validade e agenda)
+      if (_orcSoSolPeit(q)) { _aceitarSolPeitSemEntrada(q); return; }
+      _abrirModalStatusOrc(q, 'aceito');
+    });
     return;
   }
   if (novo === 'concluido' && !q._concluidoConfirmado) {
@@ -876,6 +890,273 @@ function _abrirModalStatusOrc(q, tipo) {
   };
 }
 // ────────────────────────────────────────────────────────────────────────────
+
+
+// ═══ CONFERÊNCIA DA DATA ANTES DE FECHAR ═══
+// Ao marcar "Aceito": compara a entrega prometida no PDF com a agenda de HOJE.
+// Avisa se o orçamento venceu ou se outro serviço fechado depois ocupou a data, e deixa escolher a data certa
+// (nova data, manter a do PDF ou outra) antes de lançar a entrada. Assim a data passada ao cliente é a real.
+function _orcConferenciaData(q){
+  var hoje = td(), sp = _orcSoSolPeit(q);
+  var dias = sp ? _prazoSolPeit(q) : (+q.prazoDias || 0);
+  var venc = _orcVencido(q), ate = _orcValidoAte(q);
+  var urg = !!(q.prazoUrgente || (q.urgPct||0) > 0), manual = (q.prazoModo === 'manual');
+  var le = lastEnd(), s = hoje;
+  if (!sp && !urg) {
+    if (!venc && q.prazoInicio && q.prazoInicio > s) s = q.prazoInicio;
+    if (!manual && le && le > s) s = le;
+  }
+  var end = dias > 0 ? addD(s, dias) : null;
+  var pdfEnt = q.prazoEntrega || '';
+  var atrasa = !sp && !!(end && pdfEnt && end > pdfEnt);
+  var base = Date.parse(((q.pdfData || q.date || hoje)) + 'T00:00:00') || 0;
+  var fechados = (DB.j||[]).filter(function(j){
+    return !j.done && j.qId !== q.id && !_jobForaFila(j) && j.end && (+j.id || 0) > base && j.end > (q.prazoInicio || q.date || hoje);
+  }).sort(function(a,b){ return String(a.end).localeCompare(String(b.end)); });
+  return { hoje:hoje, sp:sp, dias:dias, venc:venc, ate:ate, s:s, end:end, pdfEnt:pdfEnt, pdfIni:q.prazoInicio||'', atrasa:atrasa, fechados:fechados, manual:manual };
+}
+function _orcConferirAntesDeFechar(q, continuar){
+  try {
+    if ((DB.j||[]).some(function(j){ return j.qId === q.id; })) { continuar(); return; } // já está na agenda
+    if (q._dataConferidaEm === td()) { continuar(); return; }                             // já conferiu hoje
+    var c = _orcConferenciaData(q);
+    if (!c.venc && !c.atrasa) { continuar(); return; }
+    var esc = function(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var old = document.getElementById('_confDataSheet'); if (old) old.remove();
+    var m = document.createElement('div');
+    m.id = '_confDataSheet';
+    m.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+    var box = 'margin-top:12px;padding:12px 14px;border-radius:12px;font-size:.84rem;line-height:1.5;';
+    var btn = 'width:100%;margin-top:8px;padding:13px;border-radius:12px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.86rem;font-weight:800;';
+    var h = '<div style="width:100%;max-width:480px;max-height:92vh;overflow-y:auto;background:var(--bg);border-radius:20px 20px 0 0;padding:14px 18px 26px;border-top:2px solid #e0a530;color:var(--tx);font-family:Outfit,sans-serif;">';
+    h += '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>';
+    h += '<div style="font-size:1.05rem;font-weight:800;color:#e0a530;">📅 Confira a data antes de fechar</div>';
+    h += '<div style="font-size:.76rem;color:var(--t3);margin-top:2px;">'+esc(q.cli||'Cliente')+' · '+esc(q.tipo||'')+' · orçamento de '+fd(q.date)+'</div>';
+    if (c.pdfEnt) h += '<div style="'+box+'background:var(--s2);border:1px solid var(--bd2);">No PDF a entrega prometida foi <b>'+fd(c.pdfEnt)+'</b>'+(c.pdfIni?' (começando em '+fd(c.pdfIni)+')':'')+'.</div>';
+    if (c.venc) h += '<div style="'+box+'background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);">⏰ <b>O orçamento venceu</b> em '+fd(c.ate)+'. As datas e o preço eram válidos até lá.'+(typeof _avisoPrecoPedraHtml==='function'?_avisoPrecoPedraHtml(q):'')+'</div>';
+    if (c.atrasa) {
+      h += '<div style="'+box+'background:rgba(224,165,48,.1);border:1px solid rgba(224,165,48,.4);">🔨 <b>A agenda mudou</b> depois desse orçamento.';
+      if (c.fechados.length) h += ' Você fechou: ' + c.fechados.slice(0,3).map(function(j){ return '<b>'+esc(j.cli)+'</b> (até '+fd(j.end)+')'; }).join(', ') + (c.fechados.length>3?' e mais '+(c.fechados.length-3):'') + '.';
+      h += '</div>';
+    }
+    if (c.end) h += '<div style="'+box+'background:rgba(93,191,122,.1);border:1px solid rgba(93,191,122,.4);font-size:.92rem;">Com a agenda de hoje, a entrega real fica para <b style="color:#5dbf7a;">'+fd(c.end)+'</b>'+(c.pdfEnt&&c.end>c.pdfEnt?' ('+Math.round((Date.parse(c.end)-Date.parse(c.pdfEnt))/864e5)+' dias depois do PDF)':'')+'.<br><span style="font-size:.76rem;color:var(--t3);">Começa em '+fd(c.s)+' · '+c.dias+' dias de produção.</span></div>';
+    else h += '<div style="'+box+'background:var(--s2);border:1px solid var(--bd2);">Esse orçamento não tem prazo de produção salvo. Escolha a data de entrega abaixo.</div>';
+    if (c.end) h += '<button type="button" id="_cdNova" style="'+btn+'border:none;background:var(--gold3);color:#000;">✅ Fechar com a nova data · '+fd(c.end)+'</button>';
+    if (c.pdfEnt && c.pdfEnt >= c.hoje && c.atrasa) h += '<button type="button" id="_cdPdf" style="'+btn+'border:1px solid var(--bd2);background:var(--s2);color:var(--tx);">📌 Manter a data do PDF · '+fd(c.pdfEnt)+'<span style="display:block;font-size:.68rem;font-weight:600;color:#e0a530;margin-top:2px;">fura a fila: encaixe esse serviço na produção</span></button>';
+    h += '<div style="display:flex;gap:8px;margin-top:8px;"><input id="_cdOutra" type="date" value="'+(c.end||c.pdfEnt||c.hoje)+'" style="flex:1;padding:12px;border-radius:12px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.85rem;font-family:Outfit,sans-serif;"><button type="button" id="_cdOutraOk" style="flex:0 0 auto;padding:0 14px;border-radius:12px;border:1px solid var(--gold3,#C9A84C);background:transparent;color:var(--gold);font-weight:800;font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Usar esta data</button></div>';
+    h += '<button type="button" id="_cdCopiar" style="'+btn+'border:1px dashed var(--gold3,#C9A84C);background:transparent;color:var(--gold);font-weight:700;">📋 Copiar mensagem para o cliente</button>';
+    h += '<button type="button" id="_cdCancelar" style="'+btn+'border:none;background:transparent;color:var(--t3);font-weight:600;">Cancelar</button>';
+    h += '</div>';
+    m.innerHTML = h;
+    m.addEventListener('click', function(e){ if (e.target === m) m.remove(); });
+    document.body.appendChild(m);
+    var fechar = function(){ m.remove(); };
+    var fixar = function(ini, ent){
+      var hj = td();
+      q.prazoInicio = (ini && ini > hj) ? ini : hj;
+      if (ent < q.prazoInicio) q.prazoInicio = ent;
+      q.prazoEntrega = ent;
+      q._fixarDatas = true; q._dataConferidaEm = hj;
+      if (c.venc) q.validadeRevisadaEm = hj;
+      DB.sv(); fechar();
+      toast('📅 Entrega combinada: ' + fd(ent));
+      setTimeout(continuar, 250);
+    };
+    var bN = document.getElementById('_cdNova'); if (bN) bN.onclick = function(){ fixar(c.s, c.end); };
+    var bP = document.getElementById('_cdPdf'); if (bP) bP.onclick = function(){ fixar(c.pdfIni, c.pdfEnt); };
+    document.getElementById('_cdOutraOk').onclick = function(){
+      var d = document.getElementById('_cdOutra').value; if (!d) { toast('Escolha a data'); return; }
+      if (d < td()) { toast('A data já passou'); return; }
+      fixar(c.dias > 0 ? addD(d, -c.dias) : td(), d);
+    };
+    document.getElementById('_cdCopiar').onclick = function(){
+      var d = document.getElementById('_cdOutra').value || c.end || c.pdfEnt;
+      var nome = String(q.cli||'').split(' ')[0];
+      var txt = 'Olá' + (nome ? ', ' + nome : '') + '! Para fecharmos o serviço de ' + String(q.tipo||'').toLowerCase() + ': '
+        + (c.venc ? 'como o orçamento foi feito em ' + fd(q.date) + ' e a nossa agenda andou, ' : 'como a nossa agenda andou desde o orçamento, ')
+        + 'a entrega fica para ' + fd(d) + '. Pode ser?';
+      var ok = function(){ toast('✓ Mensagem copiada — é só colar no WhatsApp'); };
+      try { navigator.clipboard.writeText(txt).then(ok, function(){ prompt('Copie a mensagem:', txt); }); } catch(e) { prompt('Copie a mensagem:', txt); }
+    };
+    document.getElementById('_cdCancelar').onclick = fechar;
+  } catch (e) { console.error('conferir data:', e); continuar(); }
+}
+
+// ═══ PAGAMENTO E ENTREGA (serviço aceito) ═══
+// Um toque no card (ou no status "Aceito") abre: total, já pago, quanto falta, histórico dos pagamentos,
+// "Registrar pagamento" (lança em Finanças de verdade, com forma e data), data da entrega e comprovante quando o senhor quiser.
+function _orcTotalDe(q){
+  if (q.formaPag === 'misto' && typeof _mistoCalc === 'function') { var mc = _mistoCalc(q) || {}; if (mc.total > 0) return mc.total; }
+  return q._totalCombinado || q.vista || 0;
+}
+function _orcR2(n){ return Math.round(((+n||0) + 1e-9) * 100) / 100; }
+function _orcJobDe(q){ return (DB.j||[]).find(function(j){ return j.qId === q.id; }); }
+// pagamentos conhecidos: entrada do aceite, final do concluído e os registrados aqui (cada um com o lançamento de Finanças, quando houver)
+function _orcPagamentos(q){
+  var L = [];
+  var acharTr = function(valor, data, pista){
+    var cli = String(q.cli||'').toLowerCase();
+    return (DB.t||[]).find(function(t){ return t.type === 'in' && Math.abs((t.value||0) - valor) < 0.01 && (!data || t.date === data)
+      && String(t.desc||'').toLowerCase().indexOf(cli) > -1 && (!pista || String(t.desc||'').indexOf(pista) > -1); });
+  };
+  if (q._aceitoValor > 0.005) { var t1 = acharTr(q._aceitoValor, q._aceitoData, 'Entrada'); L.push({ valor:_orcR2(q._aceitoValor), forma:q._aceitoForma||'', data:q._aceitoData||'', obs:'Entrada (aceite)', trId: t1 ? t1.id : null }); }
+  (q._pagsFin||[]).forEach(function(p){ L.push({ valor:_orcR2(p.valor), forma:p.forma||'', data:p.data||'', obs:p.obs||'Pagamento', trId:p.trId||null }); });
+  if (q._concluidoValor > 0.005) { var t2 = acharTr(q._concluidoValor, q._concluidoData, 'Pagamento final'); L.push({ valor:_orcR2(q._concluidoValor), forma:q._concluidoForma||'', data:q._concluidoData||'', obs:'Pagamento final', trId: t2 ? t2.id : null }); }
+  var soma = L.reduce(function(t,p){ return t + p.valor; }, 0), rec = _orcR2(q._valorRecebido||0);
+  if (rec > soma + 0.009) L.push({ valor:_orcR2(rec - soma), forma:'', data:'', obs:'Outros recebimentos (A Receber)', trId:null });
+  return L.sort(function(a,b){ return String(a.data).localeCompare(String(b.data)); });
+}
+function _orcResumoPag(q){
+  var total = _orcTotalDe(q), pago = _orcR2(q._valorRecebido||0);
+  return { total: total, pago: pago, falta: Math.max(0, _orcR2(total - pago)) };
+}
+function _orcPainelPagamento(id, e){
+  if (e) e.stopPropagation();
+  var q = (typeof id === 'object') ? id : DB.q.find(function(x){ return String(x.id) === String(id); });
+  if (!q) return;
+  var old = document.getElementById('_orcPagSheet'); if (old) old.remove();
+  var r = _orcResumoPag(q), job = _orcJobDe(q), st = _orcStatusDe(q);
+  var hoje = (new Date()).toISOString().slice(0,10);
+  var entPrev = (job && job.end) || q.prazoEntrega || '';
+  var pct = r.total > 0 ? Math.min(100, Math.round(r.pago / r.total * 100)) : 0;
+  var formas = ['Pix','Dinheiro','Cartão','Transferência'], ic = {'Dinheiro':'💵','Pix':'📱','Cartão':'💳','Transferência':'🏦'};
+  var lbl = 'display:block;font-size:.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin:0 0 6px;';
+  var inp = 'width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-size:.88rem;box-sizing:border-box;font-family:Outfit,sans-serif;';
+  var m = document.createElement('div');
+  m.id = '_orcPagSheet';
+  m.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.82);display:flex;align-items:flex-end;justify-content:center;';
+  var h = '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;padding:14px 18px 26px;border-top:2px solid var(--gold3,#C9A84C);">';
+  h += '<div style="width:38px;height:4px;background:var(--bd2);border-radius:3px;margin:0 auto 14px;"></div>';
+  h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;"><div style="width:42px;height:42px;flex-shrink:0;border-radius:12px;background:rgba(201,168,76,.13);display:flex;align-items:center;justify-content:center;font-size:1.2rem;">💰</div>'
+    + '<div style="min-width:0;"><div style="font-size:1.02rem;font-weight:800;color:var(--gold);line-height:1.2;">Pagamento e entrega</div><div style="font-size:.74rem;color:var(--t3);margin-top:2px;overflow-wrap:anywhere;">'+escH(q.cli||'Cliente')+' · '+escH(q.tipo||'Serviço')+'</div></div></div>';
+  // resumo
+  h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-radius:14px;padding:14px 16px;margin-bottom:16px;">';
+  h += '<div style="display:flex;gap:10px;text-align:center;">'
+    + '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Total</div><div style="font-size:.95rem;font-weight:800;color:var(--tx);margin-top:2px;">R$ '+fm(r.total)+'</div></div>'
+    + '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Pago</div><div style="font-size:.95rem;font-weight:800;color:#5dbf7a;margin-top:2px;">R$ '+fm(r.pago)+'</div></div>'
+    + '<div style="flex:1;"><div style="font-size:.6rem;letter-spacing:.5px;text-transform:uppercase;color:var(--t3);">Falta</div><div style="font-size:.95rem;font-weight:800;color:'+(r.falta>0.005?'#e0a530':'#5dbf7a')+';margin-top:2px;">'+(r.falta>0.005?'R$ '+fm(r.falta):'Quitado ✓')+'</div></div></div>';
+  h += '<div style="height:6px;border-radius:9px;background:var(--bd2);margin-top:12px;overflow:hidden;"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#3f9b5f,#5dbf7a);"></div></div>';
+  h += '</div>';
+  // histórico
+  var pags = _orcPagamentos(q);
+  if (pags.length) {
+    h += '<label style="'+lbl+'">Pagamentos recebidos</label><div style="margin-bottom:16px;">';
+    pags.forEach(function(p){
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bd2);">'
+        + '<div style="flex:1;min-width:0;"><div style="font-size:.86rem;font-weight:800;color:var(--tx);">R$ '+fm(p.valor)+(p.forma?' <span style="font-weight:600;color:var(--t3);font-size:.74rem;">· '+escH(p.forma)+'</span>':'')+'</div>'
+        + '<div style="font-size:.7rem;color:var(--t3);">'+(p.data?fd(p.data)+' · ':'')+escH(p.obs)+'</div></div>'
+        + (p.trId ? '<button type="button" onclick="gerarComprovante('+p.trId+')" style="flex:0 0 auto;padding:7px 10px;border-radius:9px;border:1px solid var(--gold3,#C9A84C);background:transparent;color:var(--gold);font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">🧾 Comprovante</button>' : '')
+        + '</div>';
+    });
+    h += '</div>';
+  }
+  // registrar pagamento
+  h += '<div style="border:1px solid var(--gold3,#C9A84C);border-radius:14px;padding:14px;margin-bottom:16px;background:rgba(201,168,76,.05);">';
+  h += '<div style="font-size:.86rem;font-weight:800;color:var(--gold);margin-bottom:10px;">➕ Registrar pagamento</div>';
+  h += '<label style="'+lbl+'">Quanto o cliente pagou</label>';
+  h += '<div style="display:flex;align-items:center;gap:8px;padding:0 14px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);margin-bottom:6px;"><span style="color:var(--t3);font-weight:700;">R$</span>'
+    + '<input id="_pgValor" type="text" inputmode="decimal" placeholder="0,00" value="" oninput="window._pgSaldo()" style="flex:1;min-width:0;width:auto!important;padding:13px 0!important;border:none!important;background:transparent!important;color:var(--tx);font-size:1.05rem;font-weight:800;outline:none;font-family:Outfit,sans-serif;"></div>';
+  if (r.falta > 0.005) h += '<div style="display:flex;gap:6px;margin-bottom:6px;"><button type="button" onclick="window._pgPreenche('+_orcR2(r.falta/2)+')" style="flex:1;padding:7px;border-radius:9px;border:1px solid var(--bd2);background:var(--s2);color:var(--t3);font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">Metade · R$ '+fm(r.falta/2)+'</button><button type="button" onclick="window._pgPreenche('+_orcR2(r.falta)+')" style="flex:1;padding:7px;border-radius:9px;border:1px solid var(--bd2);background:var(--s2);color:var(--t3);font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">Tudo que falta · R$ '+fm(r.falta)+'</button></div>';
+  h += '<div id="_pgSaldo" style="font-size:.74rem;color:var(--t3);min-height:16px;margin-bottom:12px;"></div>';
+  h += '<label style="'+lbl+'">Forma</label><input type="hidden" id="_pgForma" value="Pix"><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">';
+  formas.forEach(function(f){ h += '<button type="button" data-pgf="'+f+'" onclick="window._pgSetForma(\''+f+'\')" style="flex:1;min-width:44%;padding:10px 6px;border-radius:10px;cursor:pointer;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:'+(f==='Pix'?'800':'600')+';border:1px solid '+(f==='Pix'?'var(--gold3)':'var(--bd2)')+';background:'+(f==='Pix'?'var(--gold3)':'var(--s2)')+';color:'+(f==='Pix'?'#000':'var(--tx)')+';">'+ic[f]+' '+f+'</button>'; });
+  h += '</div>';
+  h += '<label style="'+lbl+'">Data do pagamento</label><input id="_pgData" type="date" value="'+hoje+'" style="'+inp+'margin-bottom:12px;">';
+  h += '<button type="button" id="_pgComprov" data-on="0" onclick="window._pgTogComprov()" style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--bd2);background:var(--s2);cursor:pointer;margin-bottom:12px;font-family:Outfit,sans-serif;color:var(--tx);font-size:.82rem;font-weight:600;text-align:left;">'
+    + '<span>🧾 Gerar comprovante deste pagamento</span><span id="_pgComprovSw" style="flex:0 0 auto;padding:4px 10px;border-radius:99px;background:var(--bd2);color:var(--t3);font-size:.72rem;font-weight:800;">NÃO</span></button>';
+  h += '<button type="button" onclick="window._pgRegistrar()" style="width:100%;padding:14px;border:none;border-radius:12px;background:var(--gold3);color:#000;font-weight:800;font-size:.9rem;cursor:pointer;font-family:Outfit,sans-serif;">Registrar pagamento</button>';
+  h += '</div>';
+  // entrega
+  h += '<label style="'+lbl+'">'+(st==='entregue'||st==='concluido'?'Entregue em':'Data da entrega (combinada)')+'</label>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:6px;"><input id="_pgEnt" type="date" value="'+escH(st==='entregue'||st==='concluido' ? (q._entregueEm||q._statusDate||'') : entPrev)+'" style="'+inp+'flex:1;"><button type="button" onclick="window._pgSalvarEntrega()" style="flex:0 0 auto;padding:0 16px;border-radius:10px;border:1px solid var(--gold3,#C9A84C);background:transparent;color:var(--gold);font-weight:800;font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Salvar</button></div>';
+  h += '<div style="font-size:.7rem;color:var(--t3);margin-bottom:16px;">'+(st==='aceito' ? (job ? 'Atualiza a entrega na Agenda.' : 'Coloca o serviço na Agenda com essa entrega.') : 'Data em que o serviço foi entregue.')
+    + (st==='aceito' && q.prazoEntrega ? ' <span style="color:'+(entPrev && entPrev!==q.prazoEntrega?'#e0a530':'var(--t3)')+';">Data no orçamento/PDF: '+fd(q.prazoEntrega)+(entPrev && entPrev!==q.prazoEntrega?' (diferente da Agenda)':'')+'.</span>' : '')+'</div>';
+  // atalhos
+  h += '<div style="display:flex;gap:8px;">';
+  if (st === 'aceito') h += '<button type="button" onclick="document.getElementById(\'_orcPagSheet\').remove();_orcEscolherStatus(\''+q.id+'\',\'entregue\')" style="flex:1;padding:12px;border-radius:11px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-weight:700;font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">📦 Marcar entregue</button>';
+  h += '<button type="button" onclick="document.getElementById(\'_orcPagSheet\').remove();_orcAbrirSeletorStatus(DB.q.find(function(x){return String(x.id)===\''+q.id+'\'}))" style="flex:1;padding:12px;border-radius:11px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-weight:700;font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">🔁 Mudar status</button>';
+  h += '</div>';
+  h += '<button type="button" onclick="document.getElementById(\'_orcPagSheet\').remove();" style="width:100%;margin-top:8px;padding:11px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Fechar</button>';
+  h += '</div>';
+  m.innerHTML = h;
+  m.addEventListener('click', function(ev){ if (ev.target === m) m.remove(); });
+  document.body.appendChild(m);
+
+  var lerValor = function(){
+    var raw = String((document.getElementById('_pgValor')||{}).value||'').trim().replace(/[^\d,.-]/g,'');
+    if (raw.indexOf(',') > -1) raw = raw.replace(/\./g,'').replace(',', '.');
+    return _orcR2(parseFloat(raw) || 0);
+  };
+  window._pgSaldo = function(){
+    var el = document.getElementById('_pgSaldo'); if (!el) return;
+    var v = lerValor(), resto = Math.max(0, _orcR2(r.falta - v));
+    if (!(v > 0)) { el.innerHTML = ''; return; }
+    if (v > r.falta + 0.009 && r.falta > 0.005) el.innerHTML = '<span style="color:#e0a530;">Passa R$ '+fm(v - r.falta)+' do que falta</span>';
+    else el.innerHTML = resto <= 0.005 ? '<span style="color:#5dbf7a;font-weight:700;">✓ Fica quitado com esse pagamento</span>' : 'Depois desse pagamento fica faltando <b style="color:#e0a530;">R$ '+fm(resto)+'</b>';
+  };
+  window._pgPreenche = function(v){ var i = document.getElementById('_pgValor'); if (i) { i.value = _orcR2(v).toFixed(2).replace('.',','); window._pgSaldo(); } };
+  window._pgSetForma = function(f){
+    document.getElementById('_pgForma').value = f;
+    document.querySelectorAll('[data-pgf]').forEach(function(b){ var on = b.getAttribute('data-pgf') === f;
+      b.style.background = on ? 'var(--gold3)' : 'var(--s2)'; b.style.color = on ? '#000' : 'var(--tx)'; b.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)'; b.style.fontWeight = on ? '800' : '600'; });
+  };
+  window._pgTogComprov = function(){
+    var b = document.getElementById('_pgComprov'), sw = document.getElementById('_pgComprovSw'), on = b.getAttribute('data-on') !== '1';
+    b.setAttribute('data-on', on ? '1' : '0'); b.style.borderColor = on ? 'var(--gold3)' : 'var(--bd2)';
+    sw.textContent = on ? 'SIM' : 'NÃO'; sw.style.background = on ? 'var(--gold3)' : 'var(--bd2)'; sw.style.color = on ? '#000' : 'var(--t3)';
+  };
+  window._pgSaldo();
+  window._pgRegistrar = function(){
+    var v = lerValor(), forma = document.getElementById('_pgForma').value, data = document.getElementById('_pgData').value || hoje;
+    var querComprov = document.getElementById('_pgComprov').getAttribute('data-on') === '1';
+    if (!(v > 0)) { toast('Informe quanto o cliente pagou'); return; }
+    var jb = _orcJobDe(q);
+    var tr = (typeof addTr === 'function') ? addTr('in', 'Pagamento — ' + (q.cli||'Cliente') + (q.tipo ? ' — ' + q.tipo : '') + ' · ' + forma, v, data, jb ? jb.id : undefined) : null;
+    q._pagsFin = q._pagsFin || [];
+    q._pagsFin.push({ id: Date.now(), valor: v, forma: forma, data: data, obs: 'Pagamento', trId: tr ? tr.id : null });
+    q._valorRecebido = _orcR2((q._valorRecebido||0) + v);
+    if (!q._aceitoConfirmado && _orcStatusDe(q) !== 'pendente') q._aceitoConfirmado = true;
+    if (jb) jb.pago = _orcR2(Math.max(jb.pago||0, 0) + v);
+    DB.sv();
+    try { if (typeof renderOrc === 'function') renderOrc(); if (typeof renderAg === 'function') renderAg(); if (typeof updUrgDot === 'function') updUrgDot(); } catch(err) {}
+    try { if (typeof window.hrLivroSync === 'function') setTimeout(function(){ window.hrLivroSync(false); }, 1200); } catch(err) {}
+    var nr = _orcResumoPag(q);
+    toast('✓ R$ ' + fm(v) + ' (' + forma + ') lançado em Finanças' + (nr.falta > 0.005 ? ' · falta R$ ' + fm(nr.falta) : ' · quitado'));
+    if (querComprov && tr && typeof gerarComprovante === 'function') setTimeout(function(){ gerarComprovante(tr.id); }, 300);
+    _orcPainelPagamento(q); // reabre atualizado
+    var stAgora = _orcStatusDe(q);
+    if (nr.falta <= 0.005 && stAgora === 'entregue') {
+      setTimeout(function(){ showCB('🏆 Pago por completo. Marcar ' + (q.cli||'o serviço') + ' como Concluído?', function(){
+        hideCB(); var s = document.getElementById('_orcPagSheet'); if (s) s.remove();
+        q._concluidoConfirmado = true; var j2 = _orcJobDe(q);
+        if (j2) { if (typeof _migrateJobStage === 'function') _migrateJobStage(j2); j2.stage = (typeof _jobTerminal === 'function') ? _jobTerminal(j2) : j2.stage; j2.done = true; }
+        _aplicarStatusOrc(q, 'concluido'); try { if (typeof renderAg === 'function') renderAg(); } catch(err) {}
+      }, function(){ hideCB(); }); }, querComprov ? 900 : 500);
+    }
+  };
+  window._pgSalvarEntrega = function(){
+    var d = document.getElementById('_pgEnt').value; if (!d) { toast('Escolha a data'); return; }
+    var stA = _orcStatusDe(q);
+    if (stA === 'entregue' || stA === 'concluido') { q._entregueEm = d; DB.sv(); toast('✓ Entregue em ' + fd(d)); }
+    else {
+      var jb = _orcJobDe(q);
+      if (!jb) {
+        try { _agendarAposAceite(q, true); } catch(err) {}
+        jb = _orcJobDe(q);
+        if (!jb) {
+          jb = { id:Date.now(), cli:q.cli, desc:(q.tipo||'')+' — '+(q.mat||''), start:td(), end:d, value:q.vista, pago:q._valorRecebido||0, obs:q.obs||'', done:false, qId:q.id, m2:q.m2||0, matPr:q.matPr||0,
+            custoPedraEpoca:q.matCusto||q.custo||0, cat:q.tipo||'Outro', stage:'producao', instala:(typeof _orcInstalaDe==='function'?_orcInstalaDe(q):false), foraFila:(typeof _orcSoSolPeit==='function'?_orcSoSolPeit(q):false) };
+          try { var ie = estimaIEO(jb); jb.ieo=ie.ieo; jb.ieo_of=ie.ieo_of; jb.ieo_ca=ie.ieo_ca; jb.ieo_ge=ie.ieo_ge; } catch(err) {}
+          DB.j.unshift(jb);
+        }
+      }
+      jb.end = d; if (jb.start && jb.start > d) jb.start = d;
+      DB.sv(); try { if (typeof renderAg === 'function') renderAg(); if (typeof updUrgDot === 'function') updUrgDot(); } catch(err) {}
+      toast('✓ Entrega marcada para ' + fd(d) + ' na Agenda');
+    }
+    try { if (typeof renderOrc === 'function') renderOrc(); } catch(err) {}
+  };
+}
 
 var CUBA_IMGS = {
   "tramontina_prime":"data:image/jpeg;base64,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",
@@ -7406,7 +7687,8 @@ function calcular(){
   }
 
   // Texto base para regeneração após ajuste de vista
-  var _txtPre='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n\n';
+  var _avInstTxt=_avisoSemInstalacao(ambientes);
+  var _txtPre='HR MARMORES E GRANITOS\nORCAMENTO — '+cli+'\n\nMaterial: '+mat.nm+' ('+mat.fin+')\n'+txtAmbientes+'\n\n• Fabricacao e acabamento completo\n'+(_avInstTxt?'• '+_avInstTxt+'\n':'')+'\n';
   var _txtFooter='==================\n'+CFG.emp.nome+'\n'+CFG.emp.tel+(cidade?'\n'+cidade:'');
 
   var txt=_txtPre+_buildPriceTextParcelado({vista:vista,parc:parc,p8:p8,ent:ent,urgPct:urgPct,urgVal:urgVal})+_txtFooter;
@@ -7710,6 +7992,18 @@ function _copiarModal(t){
 }
 
 
+// Soleira e peitoril: a HR não faz a instalação, o valor é só da pedra. Aviso no PDF e no texto do WhatsApp.
+// Some sozinho se a instalação estiver marcada no ambiente (para não contradizer o orçamento).
+function _avisoSemInstalacao(lista){
+  lista=(lista||[]).filter(function(a){return a&&a.tipo;});
+  var sp=lista.filter(function(a){return a.tipo==='Soleira'||a.tipo==='Peitoril';});
+  if(!sp.length)return '';
+  if(sp.some(function(a){var sv=a.svState||{};return !!(sv.inst||sv.inst_c);}))return '';
+  if(sp.length===lista.length)return 'Não fazemos a instalação. O valor deste orçamento é somente da pedra (fabricação e acabamento).';
+  var tem=function(t){return sp.some(function(a){return a.tipo===t;});};
+  var nome=tem('Soleira')&&tem('Peitoril')?'Soleira e peitoril':tem('Soleira')?'Soleira':'Peitoril';
+  return nome+': não fazemos a instalação; o valor desses itens neste orçamento é somente da pedra.';
+}
 function gerarPDF(){
   if(!pendQ){toast('Calcule um orçamento primeiro');return;}
   // Load PDF libs on-demand if not already loaded
@@ -7787,6 +8081,9 @@ function gerarPDF(){
 
   // ── 🔧 Orçamento só de instalação (bancada do cliente) ──
   var _soInstPDF=!!(q.ambSnap&&q.ambSnap.length&&q.ambSnap.every(function(s){return s.tipo===TIPO_INST;}));
+  // Orçamento só de soleira/peitoril, sem instalação: o "Como funciona" fala de entrega ou retirada (a HR não instala)
+  var _soSolPeitPDF=!!(q.ambSnap&&q.ambSnap.length&&q.ambSnap.every(function(s){return s.tipo==='Soleira'||s.tipo==='Peitoril';})&&!q.ambSnap.some(function(s){var sv=s.svState||{};return !!(sv.inst||sv.inst_c);}));
+  var _stepsSolPeitPDF=[['📏','1. Confirmação das Medidas','Conferimos com você a medida, a quantidade e o acabamento de cada peça antes do corte.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega ou Retirada','Entrega gratuita em Pilão Arcado ou retirada na marmoraria. Não fazemos a instalação.']];
   var _stepsInstPDF=[['📐','1. Conferência da Bancada','Visita para conferir a bancada, o local e as condições de instalação antes de começar.'],['🧰','2. Preparação','Preparo do local e dos materiais combinados neste orçamento.'],['🔧','3. Instalação','Instalação e nivelamento da bancada pela nossa equipe.'],['✅','4. Entrega','Conferência final com você e limpeza do local.']];
   var _motivosInstPDF=[['🛡️','1 Ano de Garantia','Cobrimos qualquer defeito de instalação por 12 meses após a entrega, sem custo adicional.'],['🔧','Instalação Profissional','Equipe experiente cuidando de toda a instalação e do nivelamento da sua bancada.'],['📍','Atendimento Direto','Sem intermediários: você fala com quem instala, do orçamento à entrega final.']];
 
@@ -7913,6 +8210,8 @@ function gerarPDF(){
   if(q.cidade)clienteInfo+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#555;"><span style="color:#C9A84C;">&#128205;</span>'+q.cidade+'</div>';
   if(q.end)clienteInfo+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#555;"><span style="color:#C9A84C;">&#127968;</span>'+q.end+'</div>';
   var obsBox=q.obs?'<div style="background:#fffbf0;border-left:4px solid #C9A84C;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#555;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#7a4e00;">Observacoes:</strong> '+q.obs+'</div>':'';
+  var _avInst=_avisoSemInstalacao(q.ambSnap&&q.ambSnap.length?q.ambSnap:String(q.tipo||'').split('+').map(function(t){return {tipo:t.trim()};}));
+  if(_avInst)obsBox+='<div style="background:#fff5f2;border-left:4px solid #c0392b;padding:10px 14px;margin-bottom:18px;font-size:11.5px;color:#444;border-radius:0 8px 8px 0;line-height:1.65;"><strong style="color:#a93226;">Importante:</strong> '+escH(_avInst)+'</div>';
 
   // sec header helper
   function sh(t){return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px;"><span style="font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#C9A84C;font-weight:900;">'+t+'</span><div style="flex:1;height:1px;background:linear-gradient(90deg,rgba(201,168,76,0.4),transparent);"></div></div>';}
@@ -7974,7 +8273,7 @@ function gerarPDF(){
       +'<span style="font-size:20px;line-height:1;flex-shrink:0;">⚠️</span>'
       +'<div>'
         +'<div style="font-size:13.5px;font-weight:900;color:#a83232;letter-spacing:0.3px;margin-bottom:4px;">SOLEIRA E PEITORIL NÃO SÃO VENDIDOS POR M² DE PEDRA</div>'
-        +'<div style="font-size:13px;color:#5a3a2a;line-height:1.55;">O valor de R$/m² acima é apenas referência do custo da matéria-prima. Soleira e peitoril têm baixíssimo aproveitamento de chapa (peças estreitas, muitos cortes) e o corte e acabamento manual por peça representam a maior parte do custo real. O valor final deste orçamento já inclui corte, acabamento, fabricação e instalação — não é (e nunca foi) só o preço da pedra.</div>'
+        +'<div style="font-size:13px;color:#5a3a2a;line-height:1.55;">O valor de R$/m² acima é apenas referência do custo da matéria-prima. Soleira e peitoril têm baixíssimo aproveitamento de chapa (peças estreitas, muitos cortes) e o corte e acabamento manual por peça representam a maior parte do custo real. '+(_avInst?'O valor final deste orçamento inclui o corte, o acabamento e a fabricação de cada peça. Não inclui instalação.':'O valor final deste orçamento já inclui corte, acabamento, fabricação e instalação — não é (e nunca foi) só o preço da pedra.')+'</div>'
       +'</div>'
     +'</div>';
 
@@ -8147,7 +8446,7 @@ function gerarPDF(){
       +'<div style="font-size:12px;color:#ffd0b0;line-height:1.6;">Seu projeto recebe prioridade máxima na nossa fila de produção, garantindo início e entrega antes dos demais orçamentos em andamento.</div>'
     +'</div>':'')
     +sh('Como Funciona')
-    +(function(){var steps=_soInstPDF?_stepsInstPDF:[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:13px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:12px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
+    +(function(){var steps=_soInstPDF?_stepsInstPDF:_soSolPeitPDF?_stepsSolPeitPDF:[['📐','1. Medição em Campo','Visita técnica após o pagamento da entrada para conferência e aprovação definitiva das medidas.'],['✂️','2. Corte e Fabricação','Pedra cortada com precisão milimétrica em nosso maquinário. Rigoroso controle dimensional em cada peça.'],['✨','3. Acabamento Profissional','Polimento e tratamentos especializados. Superfície perfeita, durável e impecável.'],['🚚','4. Entrega e Instalação','Nossa equipe realiza a entrega, instalação e nivelamento. Vedação profissional inclusa.']];return '<div style="background:#fdfaf3;border:1px solid #e8dfc4;border-radius:10px;padding:14px 18px;margin-bottom:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 20px;">'+steps.map(function(s){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #f0ebe0;"><div style="width:30px;height:30px;min-width:30px;background:#0f0c00;border:1px solid rgba(201,168,76,0.35);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;">'+s[0]+'</div><div><div style="font-size:13px;font-weight:800;color:#3a2000;margin-bottom:2px;">'+s[1]+'</div><div style="font-size:12px;color:#777;line-height:1.45;">'+s[2]+'</div></div></div>';}).join('')+'</div></div>';})()
 
     // Bloco móvel planejado (se ativo)
     +(_pdfCeara?('<div style="background:#1a0f2e;border:1px solid rgba(167,139,250,0.3);border-radius:10px;padding:16px 22px;margin-bottom:18px;">'
@@ -9273,18 +9572,20 @@ function _revisaoVencidoModal(q){
 function _agendarAposAceite(q,forcar){
   try{
     var dias=(q&&_orcSoSolPeit(q))?_prazoSolPeit(q):+(q&&q.prazoDias);
-    if(!q||!dias||dias<1)return false;
+    var fix=!!(q&&q._fixarDatas&&q.prazoEntrega); // data conferida e combinada ao fechar
+    if(!q||((!dias||dias<1)&&!fix))return false;
     if((DB.j||[]).some(function(j){return j.qId===q.id;}))return true;
 
     // Orçamento vencido: sempre rever a entrega com o cliente antes de agendar
-    var vencido=_orcVencido(q);
+    var vencido=!fix&&_orcVencido(q);
     if(vencido&&!forcar){ _revisaoVencidoModal(q); return true; }
 
     var hoje=td(), le=lastEnd();
     var urgente=!!(q.prazoUrgente||(q.urgPct||0)>0);
     var manual=(q.prazoModo==='manual');
     var s, sp=_orcSoSolPeit(q);
-    if(sp) s=hoje;                                        // soleira/peitoril: fora da fila, começa hoje
+    if(fix) s=(q.prazoInicio&&q.prazoInicio>hoje)?q.prazoInicio:hoje; // datas conferidas ao fechar
+    else if(sp) s=hoje;                                   // soleira/peitoril: fora da fila, começa hoje
     else if(vencido){ s=_orcPlanoVencido(q).s; }          // vencido: conta a partir da fila de hoje
     else if(urgente) s=hoje;                              // urgente fura a fila
     else{
@@ -9292,7 +9593,7 @@ function _agendarAposAceite(q,forcar){
       if(q.prazoInicio&&q.prazoInicio>s)s=q.prazoInicio;  // início combinado no orçamento
       if(!manual&&le&&le>s)s=le;                          // fila andou: não sobrepõe serviço em andamento
     }
-    var end=addD(s,dias);
+    var end=fix?(q.prazoEntrega<s?s:q.prazoEntrega):addD(s,dias);
     if(vencido){ q.prazoInicio=s; q.prazoEntrega=end; q.validadeRevisadaEm=hoje; }  // grava as datas revisadas
     var instala=_orcInstalaDe(q);
 

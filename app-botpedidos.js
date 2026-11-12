@@ -1,4 +1,5 @@
 // app-botpedidos.js — Etapa 1: pedido do WhatsApp → orçamento no app → PDF → volta pro WhatsApp
+// v7: peitoril pelo tipo anotado no atendimento (reto / pingadeira / pedra colada / portal) e desconto combinado no WhatsApp aplicado no PDF.
 // Carregar DEPOIS de app-core.js e app-secretaria.js (usa _getBotCfg, _botHeaders, ambientes, calcular, gerarPDF).
 (function () {
   var POLL_MS = 5000;       // consulta a fila a cada 5 s enquanto o app está aberto e visível
@@ -79,13 +80,22 @@
   }
 
   // Um ambiente do app para cada item do pedido (pedido simples = 1 item)
+  // v7: tipo do peitoril pelo detalhe anotado no WhatsApp (antes era sempre "reto", e o peitoril com pingadeira saía mais barato)
+  // O Worker (v27) usa a mesma regra quando calcula com o app fechado.
+  function tipoPeitoril(detalhe) {
+    var t = norm(detalhe);
+    if (/colad/.test(t)) return 'peit_col';
+    if (/portal|madeira/.test(t)) return 'peit_portal';
+    if (/pingadeira/.test(t)) return 'peit_ping';
+    return 'peit_reto';
+  }
   function ambienteDoItem(item, stone, t) {
     var tipo = item.ambiente;                      // 'Soleira' | 'Peitoril'
     var acb = (ACB[tipo] || {})[item.acabamento];
     if (!acb) throw new Error('Acabamento "' + item.acabamento + '" não existe para ' + tipo + '.');
     var sv = {};
     sv[acb[0]] = { lados: acb[1] };
-    if (tipo === 'Peitoril') sv.peit_reto = { ml: 0, altCm: 6, q: 1, qty: 1 };
+    if (tipo === 'Peitoril') sv[tipoPeitoril(item.detalhe)] = { ml: 0, altCm: 6, q: 1, qty: 1 };
     return {
       id: t, tipo: tipo, selCuba: null, acState: {}, svState: sv, selMat: stone.id,
       pecas: item.pecas.map(function (p, i) { return { id: t + i + 1, desc: p.desc || '', w: p.comp_cm, h: p.larg_cm, q: p.qtd || 1 }; })
@@ -110,7 +120,26 @@
   }
 
   function itensDe(ped) {
-    return (ped.itens && ped.itens.length) ? ped.itens : [{ ambiente: ped.ambiente, pecas: ped.pecas, acabamento: ped.acabamento }];
+    var l = (ped.itens && ped.itens.length) ? ped.itens : [{ ambiente: ped.ambiente, pecas: ped.pecas, acabamento: ped.acabamento }];
+    return l.map(function (it) { return it.detalhe || !ped.detalhe ? it : Object.assign({}, it, { detalhe: ped.detalhe }); });
+  }
+  function tipoPeitorilDoPedido(ped) {
+    var it = itensDe(ped).filter(function (x) { return x.ambiente === 'Peitoril'; })[0];
+    return it ? tipoPeitoril(it.detalhe) : '';
+  }
+  // v7: desconto combinado no WhatsApp (ped.desconto_pct) aplicado no orçamento, igual ao "Desconto à vista" da tela.
+  // Antes o PDF saía sem o desconto e o Worker recusava (valor diferente do combinado com o cliente).
+  function aplicarDesconto(ped, q) {
+    var pct = +ped.desconto_pct || 0;
+    if (!(pct > 0 && pct <= 60)) return;
+    var base = q._vistaCalc || q.vista;
+    var nv = Math.round(base * (1 - pct / 100) * 100) / 100;
+    q.vista = nv; q.ent = Math.round(nv / 2 * 100) / 100;
+    q.parc = Math.round(base * 1.15 * 100) / 100; q.p8 = Math.round(q.parc / 8 * 100) / 100;
+    var dif = Math.round((base - nv) * 100) / 100;
+    q.desconto = dif > 0 ? dif : 0; q.descontoPct = dif > 0 ? Math.round(dif / base * 10000) / 100 : 0;
+    q.descontoMotivo = 'Combinado pelo WhatsApp'; q.descontoUser = (CFG.emp && CFG.emp.nome) ? CFG.emp.nome : '';
+    try { DB.sv(); } catch (e) {}
   }
 
   function montarQ(ped, stone) {
@@ -187,6 +216,7 @@
     restaurarTela(estado);
     if (!(valor > 0)) return revisar(ped, 'O app calculou valor zero (confira as medidas e a pedra).');
     var corpo = { id: ped.id, valor: valor, avisos: ped._avisos || [], pagamento: ped.pagamento === 'parcelado' ? 'parcelado' : 'vista' };
+    var tpe = tipoPeitorilDoPedido(ped); if (tpe) corpo.tipo_peitoril = tpe; // v7: o Worker sabe que o preço da pingadeira entrou
     // Custo, lucro e margem calculados pelo app: o Worker mostra ao dono e avisa quando a margem fica baixa
     var custo = +q._custoPainel || 0;
     if (custo > 0 && valor > 0) {
@@ -209,6 +239,7 @@
     var q;
     try { q = montarQ(ped, stone); }
     catch (e) { restaurarTela(estado); return revisar(ped, e.message); }
+    if (ped.origem !== 'dono') aplicarDesconto(ped, q); // v7
     if (ped.fase === 'gerar' || ped.origem === 'dono') definirPrazo(ped, q); // sem prazo definido, o modal abre como antes
     return gerarPdfDoBot()
       .then(function (r) {
