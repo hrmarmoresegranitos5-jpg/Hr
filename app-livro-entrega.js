@@ -48,6 +48,9 @@
     var id = livId(q), L = [];
     if (q._aceitoValor > 0) L.push({ data: q._aceitoData || '', valor: r2(q._aceitoValor), forma: q._aceitoForma || '', obs: 'Entrada (aceite)', ref: 'app:' + id + ':aceite', fixo: true });
     if (q._concluidoValor > 0) L.push({ data: q._concluidoData || '', valor: r2(q._concluidoValor), forma: q._concluidoForma || '', obs: 'Pagamento final', ref: 'app:' + id + ':final', fixo: true });
+    (q._pagsFin || []).forEach(function (p, i) { // registrados em "Pagamento e entrega" (lançados em Finanças)
+      if (p && num(p.valor) > 0) L.push({ data: p.data || '', valor: r2(num(p.valor)), forma: p.forma || '', obs: p.obs || 'Pagamento', ref: 'app:' + id + ':f' + (p.id || i), fixo: true });
+    });
     (q._pags || []).forEach(function (p, i) {
       if (p && num(p.valor) > 0) L.push({ data: p.data || '', valor: r2(num(p.valor)), forma: p.forma || '', obs: p.obs || '', ref: 'app:' + id + ':m' + (p.id || i), manual: true, idx: i });
     });

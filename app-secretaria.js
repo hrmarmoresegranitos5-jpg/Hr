@@ -2837,8 +2837,32 @@ function _snapConstruir(meses) {
     orcamentosAntigosPorMes: orcAntigos,
     contratos: contratos,
     clientes: clientes,
-    catalogo: catalogo
+    catalogo: catalogo,
+    precosBot: _snapPrecosBot() // v27: tabela para o bot calcular soleira/peitoril quando o app estiver fechado
   };
+}
+
+// v27 — Tabela de preço de soleira e peitoril para o bot (sem foto e sem nada do cliente).
+// É a mesma base que o calcular() usa: preço e perda de cada pedra, custo (para a margem) e os preços dos serviços pelo getPr().
+// Sem data/hora dentro: se nada mudou, o snapshot não é reenviado.
+function _snapPrecosBot() {
+  try {
+    if (typeof CFG === 'undefined' || !CFG || !Array.isArray(CFG.stones)) return null;
+    var svk = ['sol_sem', 'sol1', 'sol2', 'sol_45', 'peit_reto', 'peit_ping', 'peit_col', 'peit_portal', 'peit_sem', 'peit_acb1', 'peit_acb2'];
+    var sv = {};
+    svk.forEach(function (k) { var v = typeof getPr === 'function' ? getPr(k) : (CFG.sv ? CFG.sv[k] : 0); sv[k] = isFinite(+v) ? +v : 0; });
+    var pedras = CFG.stones.filter(function (s) { return s && s.nm; }).map(function (s) {
+      var def = (typeof DEF_STONES !== 'undefined') ? DEF_STONES.find(function (x) { return x.id === s.id; }) : null;
+      var custo = s.custo || (def ? def.custo : 0) || 0;
+      return { nome: String(s.nm), pr: +s.pr || 0, perda: s.perda != null ? +s.perda : 10, custo: custo > 0 ? +custo : (+s.pr || 0) };
+    });
+    if (!pedras.length) return null;
+    return {
+      v: 1, pedras: pedras, sv: sv,
+      fatorMO: (CFG.sv && CFG.sv.fatorCustoMO != null) ? +CFG.sv.fatorCustoMO : 0.55,
+      validadeDias: (CFG.emp && CFG.emp.diasValidade) ? +CFG.emp.diasValidade : 7
+    };
+  } catch (e) { console.warn('[snapshot] preços do bot:', e); return null; }
 }
 
 // Devolve o snapshot; reduz a janela de meses até caber no alvo de tamanho.
