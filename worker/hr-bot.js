@@ -9372,7 +9372,7 @@ async function decidirMPXApp(env, h, acao, cat) {
 }
 
 // ── Lê o CSV e separa o que precisa de pergunta ──
-async function ingerirRelatorioMP(env, csv, de, ate) {
+async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
   const rel = lerRelatorioMP(csv);
   if (rel.erro) return rel;
   const vistos = {}, novos = [];
@@ -9381,7 +9381,7 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
   let outsFin = null;
   let fins = null, jaLancados = 0, foraDoPeriodo = 0, entradas = 0, saidas = 0, ignoradas = 0;
   const autos = [], desconhecidos = [];
-  let _rAtual = null, _hAtual = null;
+  let _rAtual = null, _hAtual = null, feitos = 0, parcial = false;
   const marca = async (h, v) => { await env.HR_KV.put('mpx:l:' + h, v, { expirationTtl: MPX_TTL }); if (_rAtual && h === _hAtual) await movMPSalvar(env, h, _rAtual, v).catch(e => console.log('[MPMOV]', e.message)); };
   for (const r of rel.rows) {
     if (r.data < de || r.data > ate) { foraDoPeriodo++; continue; }
@@ -9390,7 +9390,8 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
     const h = hashMPX(bruto + '#' + vistos[bruto]);
     _rAtual = r; _hAtual = h;
     const _ja = await env.HR_KV.get('mpx:l:' + h);
-    if (_ja) { await movMPSalvar(env, h, r, _ja, true).catch(() => {}); continue; } // já tratada em outro dia (garante que está no histórico do app)
+    if (_ja) { if (!max) await movMPSalvar(env, h, r, _ja, true).catch(() => {}); continue; }
+    if (max && ++feitos > max) { parcial = true; break; } // v63h: em lotes — o Cloudflare limita operações por execução // já tratada em outro dia (garante que está no histórico do app)
     if (r.sentido === 'in') {
       const idPag = /^\d+$/.test(r.id) ? r.id : '';
       if (idPag && ((await env.HR_KV.get('mp:fin:' + idPag)) || (await env.HR_KV.get('mp:conc:av:' + idPag)))) { await marca(h, 'ok'); jaLancados++; continue; } // lançada pelo bot ou já perguntada na conciliação
@@ -9451,7 +9452,7 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
     novos.push(h);
     if (r.sentido === 'in') entradas++; else saidas++;
   }
-  return { total: rel.rows.length - foraDoPeriodo, jaLancados, novos: novos.length, entradas, saidas, saldo: rel.saldo, autos, ignoradas, desconhecidos };
+  return { total: rel.rows.length - foraDoPeriodo, jaLancados, novos: novos.length, entradas, saidas, saldo: rel.saldo, autos, ignoradas, desconhecidos, parcial };
 }
 
 // ── Perguntas ──
@@ -9563,8 +9564,14 @@ async function extratoMPTick(env, opts = {}) {
   if (Date.now() - est.criadoEm < 60 * 1000) return { esperando: true };
   if (await env.HR_KV.get('mpx:lock')) return { esperando: true };
   await env.HR_KV.put('mpx:lock', '1', { expirationTtl: 90 });
-  const arquivo = await mpxAcharArquivo(env, est);
-  const csv = arquivo ? await mpxBaixar(env, arquivo) : null;
+  // v63h: o arquivo baixado fica guardado; a leitura vai em lotes de 25 movimentações por vez (antes, um mês inteiro
+  //        estourava o limite de operações do Cloudflare no meio, e o pedido ficava "Gerando…" para sempre)
+  let csv = await env.HR_KV.get('mpx:csv');
+  if (!csv) {
+    const arquivo = await mpxAcharArquivo(env, est);
+    csv = arquivo ? await mpxBaixar(env, arquivo) : null;
+    if (csv) await env.HR_KV.put('mpx:csv', csv, { expirationTtl: 6 * 3600 }).catch(e => console.log('[MPX] guardar csv:', e.message));
+  }
   if (!csv) {
     await env.HR_KV.delete('mpx:lock');
     // v63f: 20 min e a conta continua SEM nenhum relatório → o pedido se perdeu: pede de novo (até 2 vezes) e depois mostra o erro
@@ -9587,8 +9594,22 @@ async function extratoMPTick(env, opts = {}) {
     }
     return { esperando: true };
   }
-  const res = await ingerirRelatorioMP(env, csv, est.de, est.ate).finally(() => env.HR_KV.delete('mpx:lock'));
+  let res;
+  try { res = await ingerirRelatorioMP(env, csv, est.de, est.ate, Number(env.MPX_LOTE) || 25); }
+  catch (e) {
+    await env.HR_KV.delete('mpx:lock').catch(() => {});
+    await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: ('Baixei o relatório, mas falhou ao ler: ' + e.message).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
+    return { erro: e.message };
+  }
+  await env.HR_KV.delete('mpx:lock').catch(() => {});
+  if (res.saldo != null) await env.HR_KV.put('mpx:saldo', JSON.stringify({ valor: res.saldo, data: est.ate, em: Date.now() }), { expirationTtl: 30 * 86400 }).catch(() => {});
+  if (res.parcial) { // continua no próximo minuto (o painel aberto e o relógio chamam de novo)
+    await env.HR_KV.put('mpx:progresso', JSON.stringify({ em: Date.now(), total: res.total }), { expirationTtl: 3600 }).catch(() => {});
+    if (res.desconhecidos && res.desconhecidos.length) await perguntarDesconhecidosMPX(env, res.desconhecidos).catch(e => falhou(env, 'extratoMPTick: desconhecidos (lote)', e));
+    return { esperando: true, lendo: true };
+  }
   await env.HR_KV.delete('mpx:estado');
+  await env.HR_KV.delete('mpx:csv').catch(() => {});
   if (res.erro) {
     await notificarDono(env, Date.now(), `*Extrato do Mercado Pago:* baixei o relatório, mas não reconheci as colunas. Me mande esta linha para eu ajustar o leitor:\n\n${res.cabecalho.join(' | ').slice(0, 700)}`);
     return { erro: 'colunas' };
@@ -13873,7 +13894,7 @@ async function rotaBotInterna(req, env, url) {
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
-    if (pn.gerando && pn.gerando.desde && Date.now() - pn.gerando.desde > 10 * 60 * 1000) {
+    if (pn.gerando && pn.gerando.desde && (Date.now() - pn.gerando.desde > 3 * 60 * 1000 || await env.HR_KV.get('mpx:csv'))) {
       await extratoMPTick(env).catch(() => {}); // o painel aberto também faz o bot conferir (não depende só do relógio)
       const est2 = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
       if (!est2) { const pn2 = await painelMP(env, dias); Object.assign(pn, pn2); pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null; try { const e2 = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); if (e2 && (!pn.ultimaLeitura || e2.em > pn.ultimaLeitura)) pn.erro = e2; } catch (_) {} }
