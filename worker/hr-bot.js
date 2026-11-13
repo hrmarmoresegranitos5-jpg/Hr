@@ -9038,8 +9038,13 @@ async function mpxAcharArquivo(env, est) {
   const j = await r.json().catch(() => null);
   const arr = Array.isArray(j) ? j : (Array.isArray(j && j.results) ? j.results : []);
   const tempo = x => Date.parse(x.date_created || x.created_from || x.creation_date || '') || 0;
-  const fresco = x => tempo(x) ? tempo(x) >= est.criadoEm - 10 * 60 * 1000 : String(x.begin_date || '').slice(0, 10) === est.de;
+  // v63e: o MP devolve date_created às vezes sem fuso (hora local dele) → a conta antiga achava o arquivo "velho" e esperava para sempre.
+  //   Agora vale: mesmo período pedido (begin_date) OU criado até 6 h antes do pedido; o mais novo primeiro.
+  const fresco = x => String(x.begin_date || '').slice(0, 10) === est.de || (tempo(x) && tempo(x) >= est.criadoEm - 6 * 3600 * 1000);
   const x = arr.filter(a => a && a.file_name && fresco(a)).sort((a, b) => tempo(b) - tempo(a))[0];
+  try { // diagnóstico para o painel do app quando demora
+    await env.HR_KV.put('mpx:diag', JSON.stringify({ em: Date.now(), total: arr.length, ultimos: arr.slice().sort((a, b) => tempo(b) - tempo(a)).slice(0, 3).map(a => ({ f: String(a.file_name || '').slice(-40), st: a.status || '', criado: a.date_created || '', de: String(a.begin_date || '').slice(0, 10) })), escolhido: x ? x.file_name : null }), { expirationTtl: 86400 });
+  } catch (_) {}
   if (!x || /pend|progress|prepar|generat|queue|processing/i.test(String(x.status || ''))) return null;
   return x.file_name;
 }
@@ -13850,6 +13855,8 @@ async function rotaBotInterna(req, env, url) {
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
+    if (pn.gerando && pn.gerando.desde && Date.now() - pn.gerando.desde > 10 * 60 * 1000) { try { pn.diag = JSON.parse((await env.HR_KV.get('mpx:diag')) || 'null'); } catch (_) {} }
+    if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
   }
   if (p === '/bot/mp/atualizar' && req.method === 'POST') {
