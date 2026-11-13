@@ -6898,6 +6898,19 @@ function setVistaMode(mode) {
     if (res) res.style.display = 'none';
   }
 }
+// Teto de desconto (revisão de preços 13/11/2026): o desconto TOTAL sobre o valor do projeto (parcelado)
+// pode chegar a CFG.emp.descMaxPct (padrão 15%) sem justificativa; acima disso, o motivo é obrigatório.
+function _descDentroDoLimite(novoValor, valorProjeto) {
+  if (!valorProjeto || !(novoValor > 0)) return true;
+  var lim = (CFG.emp && +CFG.emp.descMaxPct) || 15;
+  var pct = (1 - novoValor / valorProjeto) * 100;
+  if (pct <= lim + 0.05) return true;
+  var m = document.getElementById('vistaDiscMotivo');
+  if (m && m.value.trim().length >= 3) return true;
+  toast('⚠️ Desconto total de ' + pct.toFixed(0).replace('.', ',') + '% passa do limite de ' + lim + '%. Escreva o motivo para aplicar.');
+  if (m) { m.focus(); m.style.borderColor = '#e05151'; }
+  return false;
+}
 function aplicarVistaAdj() {
   if (!pendQ) return;
   var forma = window._formaPagEscolhida || 'vista';
@@ -6916,6 +6929,7 @@ function aplicarVistaAdj() {
       if (newParc <= 0) { toast('Informe um valor válido'); return; }
       newParc = Math.round(newParc * 100) / 100;
     } else return;
+    if (!_descDentroDoLimite(newParc, pendQ._parcCalc || baseParc)) return;
     pendQ.parc = newParc;
     pendQ.p8   = Math.round(newParc / 8 * 100) / 100;
     var _baseP = pendQ._parcCalc || baseParc;
@@ -6947,6 +6961,7 @@ function aplicarVistaAdj() {
     if (newVista <= 0) { toast('Informe um valor válido'); return; }
     newVista = Math.round(newVista * 100) / 100;
   } else return;
+  if (!_descDentroDoLimite(newVista, pendQ._parcCalc || base * 1.15)) return;
   pendQ.vista = newVista;
   pendQ.ent   = Math.round(newVista / 2 * 100) / 100;
   pendQ.parc  = Math.round(base * 1.15 * 100) / 100;
