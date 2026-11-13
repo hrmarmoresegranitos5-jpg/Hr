@@ -9414,6 +9414,7 @@ async function decidirMPXApp(env, h, acao, cat) {
 async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
   const rel = lerRelatorioMP(csv);
   if (rel.erro) return rel;
+  try { const ids = rel.rows.filter(r => r.semNome && r.id).slice(-8).map(r => ({ id: r.id, v: r.valor, d: r.data, h: r.hora })); if (ids.length) await env.HR_KV.put('mpx:payoutIds', JSON.stringify(ids), { expirationTtl: 30 * 86400 }); } catch (_) {}
   const vistos = {}, novos = [];
   const chaveIgual = r => [r.sentido, r.valor.toFixed(2), r.data, nhMPX(r.desc)].join('|');
   const igual = {}; for (const r of rel.rows) { const k = chaveIgual(r); igual[k] = (igual[k] || 0) + 1; }
@@ -13948,13 +13949,31 @@ async function rotaBotInterna(req, env, url) {
     if (!mpAtivo(env)) return jsonR({ ok: false, linhas: ['MP_ACCESS_TOKEN não está configurado no bot.'] });
     const h = mpxAuth(env), base = `${MP_API}/v1/account/release_report`, L = [];
     const curto = t => String(t || '').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '(e-mail)').replace(/\s+/g, ' ').slice(0, 260);
+    let b0 = {}; try { b0 = await req.json(); } catch (_) {}
     try { const r = await fetch(`${MP_API}/users/me`, { headers: h }); const j = await r.json().catch(() => ({})); L.push(`Conta: ${r.status} ${r.ok ? 'ok · id ' + (j.id || '?') + ' · ' + (j.site_id || '') : curto(JSON.stringify(j))}`); } catch (e) { L.push('Conta: falhou ' + e.message); }
     try { const r = await fetch(base + '/config', { headers: h }); L.push(`Configuração: ${r.status} ${curto(await r.text())}`); } catch (e) { L.push('Configuração: falhou ' + e.message); }
     try { const r = await fetch(base + '/list', { headers: h }); const t = await r.text(); let n = '?'; try { const j = JSON.parse(t); n = Array.isArray(j) ? j.length : JSON.stringify(Object.keys(j)); } catch (_) {} L.push(`Relatórios na conta: ${r.status} · ${n} · ${curto(t)}`); } catch (e) { L.push('Lista: falhou ' + e.message); }
     try { const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); L.push(cr ? `Último pedido: ${cr.status} ${cr.resp} · período ${cr.corpo && cr.corpo.begin_date} → ${cr.corpo && cr.corpo.end_date}` : 'Último pedido: nenhum registrado'); } catch (_) {}
+    if (b0.nomes) { // v63j: experimento — alguma API do MP devolve QUEM RECEBEU um Pix enviado? (testa com o Pix mais recente do relatório)
+      let ids = []; try { ids = JSON.parse((await env.HR_KV.get('mpx:payoutIds')) || '[]'); } catch (_) {}
+      const x = ids[ids.length - 1];
+      if (!x) L.push('Teste de nomes: ainda não tenho nenhum Pix enviado lido do relatório.');
+      else {
+        L.push(`Teste de nomes com o Pix de R$ ${reais(x.v)} em ${dataBR(x.d)} ${x.h || ''} (id ${x.id}):`);
+        const mascara = t => curto(t).replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '(cpf)');
+        for (const [rot, url] of [['payments', `${MP_API}/v1/payments/${x.id}`], ['transaction-intents', `${MP_API}/v1/transaction-intents/${x.id}`], ['payouts', `${MP_API}/v1/payouts/${x.id}`], ['busca payments', `${MP_API}/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=${x.d}T00:00:00.000-03:00&end_date=${x.d}T23:59:59.999-03:00&limit=50`]]) {
+          try {
+            const r = await fetch(url, { headers: h }); const t = await r.text();
+            let achado = '';
+            if (rot === 'busca payments' && r.ok) { try { const j = JSON.parse(t); const m = (j.results || []).filter(p => Math.abs((p.transaction_amount || 0) - x.v) < 0.01); achado = `${(j.results || []).length} pagamentos no dia, ${m.length} com o mesmo valor` + (m[0] ? ': ' + mascara(JSON.stringify({ op: m[0].operation_type, desc: m[0].description, coll: m[0].collector, poi: m[0].point_of_interaction && m[0].point_of_interaction.transaction_data && m[0].point_of_interaction.transaction_data.bank_info })) : ''); } catch (_) {} }
+            L.push(`  ${rot}: ${r.status} ${achado || mascara(t)}`);
+          } catch (e) { L.push(`  ${rot}: falhou ${e.message}`); }
+        }
+      }
+    }
     const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
     L.push(est ? `Aguardando relatório desde ${new Date(est.criadoEm - 3 * 3600000).toISOString().slice(11, 16)} (tentativas ${est.tentativas || 0})` : 'Nenhum relatório aguardando.');
-    let b = {}; try { b = await req.json(); } catch (_) {}
+    const b = b0;
     if (b.recomecar) { // cancela o pedido preso e pede de novo agora, já registrando a resposta
       await env.HR_KV.delete('mpx:estado'); await env.HR_KV.delete('mpx:erro'); await env.HR_KV.delete('mpx:pedidoApp'); await env.HR_KV.delete('mpx:cfg2');
       try { const r = await extratoMPTick(env, { manual: true, dias: 13, silencioso: true }); L.push('Pedido novo: ' + curto(JSON.stringify(r))); } catch (e) { L.push('Pedido novo falhou: ' + curto(e.message)); }
