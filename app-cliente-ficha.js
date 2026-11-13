@@ -148,7 +148,7 @@ function htmlLista() {
   var chips = F.map(function (f) { return '<button class="hc-chip' + (ST.filtro === f[0] ? ' on' : '') + '" data-hc-filtro="' + f[0] + '">' + f[1] + '</button>'; }).join('');
   return '<div class="hc-wrap">' +
     '<div class="hc-top"><div><div class="hc-h1">Clientes</div><div class="hc-h1s" id="hcCont">' + ST.lista.length + ' no total</div></div>' +
-    '<button class="hc-btn gold" data-hc-act="novo">+ Novo</button></div>' +
+    '<div style="display:flex;gap:6px;"><button class="hc-btn" data-hc-act="botsync" title="Completar nomes e WhatsApp com os contatos do bot">🤖 Sincronizar</button><button class="hc-btn gold" data-hc-act="novo">+ Novo</button></div></div>' +
     '<input class="hc-busca" id="hcBusca" type="search" placeholder="Buscar por nome, WhatsApp, cidade ou ORC-0000" value="' + esc(ST.q) + '" autocomplete="off">' +
     '<div class="hc-chips">' + chips + '</div>' +
     (fora > 0 ? '<div class="hc-aviso"><div>' + fora + (fora === 1 ? ' cliente aparece nos orçamentos mas não está no cadastro.' : ' clientes aparecem nos orçamentos mas não estão no cadastro.') + '</div><button class="hc-btn" data-hc-act="sync">Cadastrar todos</button></div>' : '') +
@@ -306,6 +306,7 @@ function renderFicha(key) {
   p.innerHTML = htmlFicha(c); p.scrollTop = 0;
   carregarBot();
 }
+window.hcRecarregar = function () { try { recarregar(); } catch (e) {} };
 function recarregar() { var k = ST.aberto; ST.lista = indexar(); if (k && achaCliente(k)) { var y = pagina().scrollTop; renderFicha(k); pagina().scrollTop = y; } else renderLista(); }
 
 function abrirCliente(nome) {
@@ -370,6 +371,7 @@ function aoClicar(e) {
     var a = b.getAttribute('data-hc-act'), c = ST.aberto ? achaCliente(ST.aberto) : null;
     if (a === 'voltar') renderLista();
     else if (a === 'novo') { if (typeof cliAbrirNovo === 'function') cliAbrirNovo(); }
+    else if (a === 'botsync') { b.disabled = true; b.textContent = '⏳ Sincronizando…'; (window.hrSincronizarClientes ? window.hrSincronizarClientes(true) : Promise.resolve()).then(function () { recarregar(); }); }
     else if (a === 'sync') {
       var n = cadastrarTodos();
       toastS(n ? '✓ ' + n + (n === 1 ? ' cliente cadastrado' : ' clientes cadastrados') : 'Tudo já está no cadastro');
