@@ -27,8 +27,10 @@
     BOT.em = Date.now();
     Promise.all([
       botApi('/bot/visitas').catch(function () { return null; }),
-      botApi('/bot/site/leads').catch(function () { return null; })
+      botApi('/bot/site/leads').catch(function () { return null; }),
+      botApi('/bot/fechamentos').catch(function () { return null; })
     ]).then(function (r) {
+      if (r[2] && Array.isArray(r[2].fechamentos)) BOT.fech = r[2].fechamentos.map(function (f) { return f.data; });
       if (r[0] && Array.isArray(r[0].visitas)) BOT.visitas = r[0].visitas;
       if (r[1] && Array.isArray(r[1].leads)) BOT.site = r[1].leads;
       var pg = document.getElementById('pg12');
@@ -54,6 +56,25 @@
           + '<div class="hm-row-r"><div class="hm-btns"><button class="hm-b hm-ok" onclick="event.stopPropagation();go(0)">✦ Montar</button></div></div></div>';
       }).join('');
       antesCobrar.insertAdjacentHTML('beforebegin', secao('🌐 Projetos do site', '<b style="color:var(--gold2);">' + site.length + ' novo' + (site.length > 1 ? 's' : '') + '</b>', c, 'site'));
+    }
+
+    // 📒 fechamento do dia: cobra os dias que ficaram sem fechar (últimos 6 dias de trabalho, sem domingo)
+    if (BOT.fech && antesCobrar) {
+      var feitos = {}; BOT.fech.forEach(function (d) { feitos[d] = 1; });
+      var falta = [], d0 = new Date(hoje + 'T12:00:00'), cont = 0;
+      for (var i = 1; i <= 9 && cont < 6; i++) {
+        var dd = new Date(d0.getTime() - i * 86400000); if (dd.getDay() === 0) continue;
+        cont++; var iso = dd.toISOString().slice(0, 10); if (!feitos[iso]) falta.push(iso);
+      }
+      var hojePend = new Date().getHours() >= 17 && !feitos[hoje] && new Date().getDay() !== 0;
+      if (hojePend) falta.unshift(hoje);
+      var nomeDia = function (iso) { return iso === hoje ? 'hoje' : ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(iso + 'T12:00:00').getDay()] + ' ' + fd(iso).slice(0, 5); };
+      var cf = falta.length
+        ? '<div class="hm-row"><div class="hm-row-main"><div class="hm-cli" style="color:#f08a8a;">' + falta.length + (falta.length > 1 ? ' dias' : ' dia') + ' sem fechamento</div>'
+          + '<div class="hm-sub">' + falta.map(nomeDia).join(' · ') + '</div></div>'
+          + '<div class="hm-row-r"><div class="hm-btns"><button class="hm-b hm-ok" data-fech-agora="' + falta[0] + '">Fechar ' + (falta[0] === hoje ? 'hoje' : fd(falta[0]).slice(0, 5)) + '</button></div></div></div>'
+        : '<div class="hm-row"><div class="hm-row-main"><div class="hm-cli" style="color:#5dbf7a;">✓ Fechamentos em dia</div><div class="hm-sub">Últimos 6 dias de trabalho fechados' + (feitos[hoje] ? ' + hoje' : '') + '</div></div></div>';
+      antesCobrar.insertAdjacentHTML('beforebegin', secao('📒 Fechamento do dia', falta.length ? '<b style="color:#f08a8a;">' + falta.length + ' pendente' + (falta.length > 1 ? 's' : '') + '</b>' : '', cf, 'fech'));
     }
 
     // 📐 visitas marcadas pelo bot (hoje e próximos 7 dias)
@@ -150,6 +171,16 @@
       return r;
     };
   }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-fech-agora]'); if (!b) return;
+    ev.stopPropagation(); ev.preventDefault();
+    b.disabled = true; b.textContent = '…';
+    botApi('/bot/fechamento/agora', { method: 'POST', body: JSON.stringify({ dia: b.getAttribute('data-fech-agora') }) }).then(function (j) {
+      if (j && j.ok) { toast('📒 O bot mandou o fechamento no seu WhatsApp. É só responder lá.'); b.textContent = '✓ No WhatsApp'; }
+      else { b.disabled = false; b.textContent = 'Tentar de novo'; toast('⚠️ ' + ((j && j.error) || 'Não deu para chamar o bot agora.')); }
+    }).catch(function (e) { b.disabled = false; b.textContent = 'Tentar de novo'; toast('⚠️ ' + e.message); });
+  }, true);
 
   document.addEventListener('click', function (ev) {
     var b = ev.target.closest && ev.target.closest('[data-retomar]'); if (!b) return;
