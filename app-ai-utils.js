@@ -133,7 +133,7 @@ function _applyMode(){
 if ('serviceWorker' in navigator) {
   // cache-bust força browser a buscar sw.js novo do servidor a cada carregamento
   navigator.serviceWorker.register('sw.js').then(function(reg) {
-    reg.update();
+    reg.update().catch(function(){}); // sem internet / GitHub publicando: tenta de novo depois
 
     reg.addEventListener('updatefound', function() {
       var newWorker = reg.installing;

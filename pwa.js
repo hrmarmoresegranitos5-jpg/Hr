@@ -2,7 +2,7 @@
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function(reg){
     // Força verificação imediata de atualização
-    reg.update();
+    reg.update().catch(function(){}); // sem internet / GitHub publicando: tenta de novo depois
     // Quando novo SW estiver esperando, ativa imediatamente
     reg.addEventListener('updatefound', function(){
       var newWorker = reg.installing;
