@@ -1,3 +1,6 @@
+// v62 (13/11/2026): CONVERSAS — transcrição completa de cada cliente (tx:<número>, 7 dias: cliente + TUDO que o bot mandou); ferramenta ver_conversa
+//   (resumo ou a conversa inteira no WhatsApp do dono, no lugar do "print"); o aviso "Fulano chamou" agora mostra o que o bot respondeu.
+// v61 (13/11/2026): Mercado Pago — configuração do relatório com colunas/frequência (o MP respondia 500).
 // v60 (13/11/2026): A RECEBER — botão "🤖 Cobrar agora" no app: o bot cria (ou reenvia) a cobrança na hora, sem prévia (POST /bot/a-receber/cobrar-agora).
 // v59 (13/11/2026): painel do Mercado Pago mostra o erro da última leitura (mpx:erro) e quando foi pedido o relatório.
 // v58 (13/11/2026): GASTO COM NOME DESCONHECIDO NO MERCADO PAGO — em vez de lançar em "Outros", o bot pergunta ao Sr. Hangel
@@ -445,6 +448,7 @@ async function enviarTextoPuro(env, para, texto, jaVariado) {
     const j = await r.json(); const id = (j && j.messages && j.messages[0] && j.messages[0].id) || null;
     if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id);
     await registrarMsgDono(env, para, id, texto); // v48
+    txRegistrar(env, para, 'b', texto); // v62
     return id;
   } catch (_) { return null; }
 }
@@ -454,6 +458,54 @@ function registrarFala(env, texto, para) {
   const c = env && env._ctx;
   if (para && c && c.de && normalizarBR(para) !== c.de) return; // mensagem para outra pessoa: não entra na fala
   if (c && c.voz && texto) c.textos.push(String(texto));
+}
+
+// v62: TRANSCRIÇÃO COMPLETA da conversa com cada cliente (KV tx:<número>, 7 dias, últimas 120 falas):
+//   tudo o que o cliente mandou e TUDO o que o bot respondeu (IA, menus, botões, áudio, rotinas). A IA do dono lê com ver_conversa.
+const TX_TTL = 7 * 86400, TX_MAX = 120;
+function txTexto(extra) {
+  try {
+    if (typeof extra === 'string') return extra;
+    const r = resumoMsgDono(extra);
+    if (r) return r;
+    if (extra && extra.type === 'interactive') {
+      const it = extra.interactive || {}, rows = it.action && it.action.sections ? it.action.sections.flatMap(s => (s.rows || []).map(x => x.title)) : [];
+      return `${it.body && it.body.text || ''}${rows.length ? ' [lista: ' + rows.join(' | ') + ']' : ''}`;
+    }
+  } catch (_) {}
+  return '';
+}
+function txRegistrar(env, num, q, x) {
+  try {
+    x = String(x || '').trim(); if (!x || !num || ehDono(env, num)) return;
+    const n = normalizarBR(num), c = env && env._ctx;
+    const item = { q, t: Date.now(), x: x.slice(0, 1200) };
+    if (c && c.de === n && Array.isArray(c.tx)) { c.tx.push(item); return; }
+    const p = txGravar(env, n, [item]);
+    if (env && env._waitUntil) env._waitUntil(p); else p.catch(() => {});
+  } catch (_) {}
+}
+async function txGravar(env, num, itens, nome) {
+  if (!itens || !itens.length) return;
+  const k = 'tx:' + normalizarBR(num);
+  let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!o) o = { nome: '', f: [] };
+  if (nome) o.nome = nome;
+  o.f = o.f.concat(itens).filter(f => Date.now() - f.t < TX_TTL * 1000).slice(-TX_MAX);
+  o.em = Date.now();
+  await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: TX_TTL }).catch(e => console.log('[TX]', e.message));
+}
+async function txLer(env, num) {
+  for (const v of variantesNumero(num)) { try { const o = JSON.parse((await env.HR_KV.get('tx:' + v)) || 'null'); if (o) return o; } catch (_) {} }
+  return null;
+}
+function txFormatar(falas, nome) {
+  let dia = '';
+  return falas.map(f => {
+    const d = new Date(f.t - 3 * 3600000), dd = d.toISOString().slice(0, 10), hh = d.toISOString().slice(11, 16);
+    const cab = dd !== dia ? (dia = dd, `— ${dd.slice(8, 10)}/${dd.slice(5, 7)} —\n`) : '';
+    return `${cab}${f.q === 'c' ? '*' + (nome || 'Cliente').toUpperCase() + '*' : '_Bot_'} (${hh}):\n${f.x}\n`;
+  }).join('\n');
 }
 
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
@@ -471,7 +523,7 @@ async function postarMsg(env, para, extra) {
     throw new Error(`WhatsApp API ${r.status}: ${corpo.slice(0, 300)}`);
   }
   const j = await r.json().catch(() => null);
-  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); } catch (_) {} // v48
+  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); } catch (_) {} // v48 · v62
   return j;
 }
 
@@ -5458,9 +5510,10 @@ async function avisarInicioConversa(env, m) {
   if (c && c.chamou) acoes.push('avisei que ele pediu para falar com a equipe');
   if (!acoes.length) acoes.push('respondi pelo atendimento automático');
   const fez = acoes.length > 1 ? acoes.slice(0, -1).join(', ') + ' e ' + acoes[acoes.length - 1] : acoes[0];
+  const resp = ((env._ctx && env._ctx.tx) || []).filter(f => f.q === 'b').map(f => f.x).join(' / ').replace(/\s+/g, ' ').trim(); // v62: o que o bot respondeu de fato
   await notificarDono(env, Date.now(), [
     `${nome ? '*' + nome + '*' : 'Um novo contato'} chamou${assunto ? `: "${assunto.slice(0, 200)}"` : ''}.`,
-    `Já ${fez}.`,
+    resp ? `Respondi: "${resp.length > 280 ? resp.slice(0, 277) + '…' : resp}"` : `Já ${fez}.`,
     `wa.me/${from}`,
   ].join('\n\n'));
 }
@@ -7433,6 +7486,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { ref: { type: 'string' }, valor: { type: 'string' }, favorecido: { type: 'string' }, descricao: { type: 'string' }, categoria: { type: 'string', enum: ['material', 'mao_obra', 'insumos', 'fixo', 'combustivel', 'ferramentas', 'prolabore', 'outros', 'nao'] } }, required: ['categoria'] },
   },
   {
+    name: 'ver_conversa',
+    description: 'Mostra a CONVERSA COMPLETA do bot com um cliente: tudo o que o cliente escreveu e tudo o que o bot respondeu (com horário), dos últimos 7 dias. Use SEMPRE que o Sr. Hangel perguntar como foi/está a conversa ou o atendimento de alguém, pedir "print", "mostra a conversa", "o que o bot falou pra ele", ou quiser saber o que um cliente quer. Depois de ver: diga em 1-2 frases como está o atendimento (o que o cliente quer, se o bot respondeu bem, o que falta) e, se ele pediu print/a conversa, a transcrição já vai junto automaticamente.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone do cliente (do wa.me do aviso), se souber' }, mostrar: { type: 'boolean', description: 'true quando o Sr. Hangel pediu para VER a conversa (print, mostrar, mandar a conversa)' } } },
+  },
+  {
     name: 'convidar_visita',
     description: 'O BOT ESCREVE AO CLIENTE para marcar uma VISITA TÉCNICA (medidas para o orçamento) quando o Sr. Hangel pedir isso SEM um dia e hora fechados (ex.: "marca uma visita técnica pra esse cliente", "pergunte a ela, amanhã estou livre o dia todo"). O bot pergunta ao cliente se a obra é em Pilão Arcado e pede a localização ou o endereço; depois oferece os horários em que o Sr. Hangel disse estar livre (campo "disponibilidade", nas palavras dele: "amanhã o dia todo", "sexta 14h ou 16h"); sem disponibilidade, o bot pergunta a ele os horários quando o cliente mandar o endereço. "numero": o do wa.me do aviso sobre o cliente (ex.: wa.me/5574999999999), quando houver; senão "cliente" com o nome. Se ele ainda não disse quando está livre, chame mesmo assim (não pergunte antes).',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone do cliente (do wa.me do aviso)' }, disponibilidade: { type: 'string', description: 'quando o Sr. Hangel está livre, nas palavras dele' } } },
@@ -7530,6 +7588,44 @@ const FERRAMENTAS = [
 ];
 
 // Devolve { texto (resultado para a IA), erro, nota (resumo guardado no histórico) }
+// v62: a IA do dono lê a conversa inteira do cliente (transcrição tx: + arquivo D1)
+async function ferrVerConversa(env, from, a) {
+  let num = numeroCliente(a.numero || ''), nomeAchado = '';
+  const alvo = normaliza(String(a.cliente || '')).trim();
+  if (!num && alvo) { // 1º pelas próprias transcrições (nome salvo), depois pelo app/livro/pedidos
+    const lista = await env.HR_KV.list({ prefix: 'tx:' }).catch(() => ({ keys: [] }));
+    let melhor = null;
+    for (const k of lista.keys.slice(0, 300)) {
+      let o = null; try { o = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+      if (!o || !o.nome) continue;
+      const nn = normaliza(o.nome), pal = alvo.split(/\s+/).filter(w => w.length > 1);
+      if (pal.length && pal.every(w => nn.includes(w)) && (!melhor || (o.em || 0) > (melhor.em || 0))) melhor = { ...o, num: k.name.slice(3) };
+    }
+    if (melhor) { num = melhor.num; nomeAchado = melhor.nome; }
+    if (!num) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) { num = numeroCliente(d.numero) || d.numero; nomeAchado = d.nome || ''; } }
+    if (!num) num = await numeroDoClientePorNome(env, a.cliente).catch(() => '');
+  }
+  if (!num && !alvo) num = await ultimoCliente(env);
+  if (!num) return { erro: true, texto: `Não achei conversa com ${a.cliente || 'esse cliente'} nos últimos 7 dias. Peça o número (wa.me) ao Sr. Hangel, em uma frase.` };
+  const tx = await txLer(env, num);
+  let falas = (tx && tx.f) || [];
+  if (!falas.length) { // conversas de antes da v62: arquivo D1 (só as respostas da IA)
+    try {
+      const r = await env.HR_DB.prepare('SELECT nome, falas FROM conversas_arq WHERE numero IN (' + variantesNumero(num).map(() => '?').join(',') + ')').bind(...variantesNumero(num)).first();
+      if (r) { falas = JSON.parse(r.falas || '[]').filter(f => f.x); nomeAchado = nomeAchado || r.nome || ''; }
+    } catch (_) {}
+  }
+  let nome = (tx && tx.nome) || nomeAchado || await nomeParaDono(env, num).catch(() => '') || a.cliente || 'Cliente';
+  if (!falas.length) return { texto: `Não tenho a conversa registrada com ${nome} (registro completo começou hoje, 13/11). Diga isso ao Sr. Hangel e passe wa.me/${num} para ele abrir direto.` };
+  nome = String(nome).split(' / ').pop();
+  const ult = falas.slice(-40), texto = txFormatar(ult, String(nome).split(' ')[0]);
+  if (a.mostrar) {
+    const cab = `💬 *Conversa com ${nome}*${falas.length > ult.length ? ` (últimas ${ult.length} mensagens)` : ''}\n\n`;
+    for (let i = 0, partes = []; i < texto.length; i += 3500) { partes.push(texto.slice(i, i + 3500)); if (i + 3500 >= texto.length) for (const [j, p] of partes.entries()) await enviarTextoPuro(env, from, (j ? '' : cab) + p + (j === partes.length - 1 ? `\n\nwa.me/${normalizarBR(num)}` : '')); }
+    return { texto: `A transcrição da conversa com ${nome} JÁ FOI ENVIADA ao Sr. Hangel (não repita). Responda só 1-2 frases avaliando: o que o cliente quer, se o bot atendeu bem e o próximo passo. Transcrição:\n${texto}` };
+  }
+  return { texto: `Conversa com ${nome} (wa.me/${normalizarBR(num)}):\n${texto}\n\nResuma para o Sr. Hangel em 2-3 frases: o que o cliente quer, o que o bot respondeu, se ficou algo sem resposta e o próximo passo. Se ele quiser ver a conversa toda, use ver_conversa com mostrar=true.` };
+}
 async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'consultar_mercado_pago') return await mpConsultarGanhos(env, a);
   if (nome === 'consultar_extrato_mp') return await mpExtratoConsulta(env, a);
@@ -7650,6 +7746,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
 
   if (nome === 'classificar_gasto_mp') return await classificarGastoMP(env, a); // v58
 
+  if (nome === 'ver_conversa') return await ferrVerConversa(env, from, a);
   if (nome === 'convidar_visita') { // v53: o dono pede, o bot escreve ao cliente para marcar a visita técnica
     let num = numeroCliente(a.numero), nomeDest = '';
     if (!num && a.cliente) {
@@ -7902,6 +7999,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
+      `- Você TEM ACESSO à conversa completa de cada cliente com o bot (ver_conversa). Quando o Sr. Hangel perguntar como está/foi a conversa ou o atendimento de alguém, o que o cliente quer, ou pedir print/a conversa, chame ver_conversa (mostrar=true quando ele quer VER). Nunca diga que não tem acesso à conversa.`,
       `- Você NUNCA envia mensagens a clientes por iniciativa própria. Quando o Sr. Hangel pedir para marcar uma visita técnica SEM dia e hora fechados (\"marca uma visita técnica pra esse cliente\", \"pergunte a ela, amanhã estou livre\"), use convidar_visita na mesma resposta (é ela que escreve ao cliente; nunca diga \"vou perguntar\" sem chamá-la, e não pergunte dia e hora antes). Quando o Sr. Hangel disser o dia e a hora de uma visita técnica de um cliente (\"marca a visita da Maria sexta às 14h\"), use marcar_visita: o cliente é avisado e o Sr. Hangel é lembrado no dia. Quando o Sr. Hangel pedir para explicar, responder ou avisar um cliente, use responder_cliente: redija a mensagem PARA O CLIENTE (curta, cordial, sem inventar desconto, prazo ou valor); ela só sai depois que ele tocar em Enviar. Nunca responda ao Sr. Hangel o texto que seria do cliente.`,
       ``,
       `COMO O SISTEMA FUNCIONA (seu manual):`,
@@ -12205,9 +12303,13 @@ async function tratarVision(env, from, m, dono, tipo) {
 }
 
 async function tratarMensagem(env0, m) {
-  const ctx = { voz: false, falou: false, cliente: false, textos: [], suprimiu: false, de: normalizarBR(m.from), citado: (m.context && m.context.id) || '', paraDono: [], agente: false, bruto: '' };
+  const ctx = { voz: false, falou: false, cliente: false, textos: [], suprimiu: false, de: normalizarBR(m.from), citado: (m.context && m.context.id) || '', paraDono: [], agente: false, bruto: '', tx: [] };
   const env = Object.create(env0);
   env._ctx = ctx;
+  if (!ehDono(env0, m.from)) { // v62: transcrição
+    const ent = extrairTexto(m) || (m.interactive && ((m.interactive.button_reply && m.interactive.button_reply.title) || (m.interactive.list_reply && m.interactive.list_reply.title))) || (m.button && m.button.text) || '';
+    ctx.tx.push({ q: 'c', t: Date.now(), x: String(ent || ({ image: '[foto]', video: '[vídeo]', document: '[arquivo]', audio: '[áudio]', sticker: '[figurinha]', location: '[localização]', contacts: '[contato]' }[m.type] || '[' + (m.type || 'mensagem') + ']')).slice(0, 1200) });
+  }
   await tratarMensagemBase(env, m, ctx);
   if (ctx.cliente) { await avisarInicioConversa(env, m).catch(e => console.log('[BOT] aviso de início:', e.message)); ctx.cliente = false; } // v53: antes do registro abaixo, para a IA do dono saber quem chamou
   if (ehDono(env0, m.from) && !ctx.agente && ctx.paraDono.length) await agNota(env, ctx.bruto || extrairTexto(m) || '[mensagem do Sr. Hangel]', ctx.paraDono.join('\n')); // v48: a IA sabe o que as rotinas responderam
@@ -12215,11 +12317,13 @@ async function tratarMensagem(env0, m) {
   if (ctx.cliente) await avisarInicioConversa(env, m).catch(e => console.log('[BOT] aviso de início:', e.message));
   if (ctx.voz && !ctx.falou && ctx.textos.length) {
     const fala = textoParaFala(ctx.textos.join('\n\n'));
+    if (!ehDono(env0, m.from)) ctx.tx.push({ q: 'b', t: Date.now(), x: '[áudio] ' + ctx.textos.join(' ').slice(0, 1100) }); // v62
     // cliente que falou só recebe áudio; se o áudio não couber ou falhar, o texto sai para ele não ficar sem resposta
     const cabe = fala.length <= VOZ_MAX_CHARS;
     const ok = cabe && await enviarVoz(env, m.from, fala);
     if (!ok && ctx.suprimiu) await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(e => console.log('[BOT] texto de reserva:', e.message));
   }
+  if (ctx.tx.length) { const nm = [await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / '); await txGravar(env0, m.from, ctx.tx.splice(0), nm); } // v62
 }
 
 // ── HR COMMS · etapa 66 — preparação e envio aprovado de mensagens comuns ──
@@ -12415,7 +12519,15 @@ async function tratarMensagemBase(env, m, ctx) {
   }
 
   const msg = normaliza(bruto);
-  if (!msg) return;
+  if (!msg) {
+    // v62: cliente que manda só "???", "?" ou emoji não fica sem resposta (antes recebia só o banner, ou nada)
+    if (!dono && m.type === 'text' && String(bruto || '').trim() && atenderClientes(env) && !(await env.HR_KV.get('humano:' + from))) {
+      const emConversa = await env.HR_KV.get('ca:' + from);
+      if (emConversa && env.AI_KEY) { ctx.bruto = bruto; await atenderClienteIA(env, from, /^\?+$/.test(String(bruto).trim()) ? `${bruto} (o cliente não entendeu ou está esperando resposta)` : bruto, m._perfil).catch(e => console.log('[BOT] ??? na conversa:', e.message)); return; }
+      if (await limiteCliente(env, from)) await enviarMenuCliente(env, from, (await lerNomeSalvo(env, from).catch(() => '')) || nomeDoPerfil(m._perfil) || '');
+    }
+    return;
+  }
   ctx.bruto = bruto; // v48
   if (dono && pedeVoz(msg)) { voz = true; ctx.voz = true; }
   const F = await getFalas(env);
