@@ -8860,21 +8860,33 @@ async function aprenderMPX(env, r, cat) {
 }
 
 // ── Mercado Pago: pedir, achar e baixar o relatório ──
+const MPX_COLUNAS = ['DATE', 'SOURCE_ID', 'EXTERNAL_REFERENCE', 'RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'GROSS_AMOUNT', 'BALANCE_AMOUNT', 'PAYMENT_METHOD'];
 const mpxAuth = env => ({ 'Authorization': `Bearer ${env.MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' });
 async function mpxErro(r, o) { const j = await r.json().catch(() => null); const perm = (r.status === 401 || r.status === 403) ? ' (o token pode não ter permissão para relatórios)' : ''; return new Error(`Mercado Pago ${r.status} ${o}: ${String((j && (j.message || j.error)) || 'erro').slice(0, 100)}${perm}`); }
 
 async function mpxPedirRelatorio(env, de, ate) {
   const h = mpxAuth(env), base = `${MP_API}/v1/account/release_report`;
-  if (!(await env.HR_KV.get('mpx:cfg'))) {
+  if (!(await env.HR_KV.get('mpx:cfg2'))) {
+    // O MP exige colunas e frequência na configuração (sem isso responde 500). Saques entram com include_withdrawal_at_end.
+    const cfgBody = {
+      file_name_prefix: 'hr-release',
+      columns: MPX_COLUNAS.map(key => ({ key })),
+      frequency: { hour: 0, type: 'daily', value: 0 },
+      include_withdrawal_at_end: true,
+      execute_after_withdrawal: false,
+      scheduled: false,
+      display_timezone: 'GMT-03',
+      report_translation: 'en'
+    };
     const g = await fetch(base + '/config', { headers: h });
-    if (!g.ok) {
-      const c = await fetch(base + '/config', { method: 'POST', headers: h, body: JSON.stringify({ file_name_prefix: 'hr-release', include_withdrawal: true, display_timezone: 'GMT-03', report_translation: 'en' }) });
+    const atual = g.ok ? await g.json().catch(() => null) : null;
+    const temTudo = atual && Array.isArray(atual.columns) && MPX_COLUNAS.every(k => atual.columns.some(c => c && c.key === k)) && atual.include_withdrawal_at_end !== false;
+    if (!temTudo) {
+      let c = await fetch(base + '/config', { method: atual ? 'PUT' : 'POST', headers: h, body: JSON.stringify(cfgBody) });
+      if (!c.ok && (c.status === 409 || c.status === 404 || c.status >= 500)) c = await fetch(base + '/config', { method: atual ? 'POST' : 'PUT', headers: h, body: JSON.stringify(cfgBody) });
       if (!c.ok) throw await mpxErro(c, 'ao configurar o relatório');
-    } else {
-      const cfg = await g.json().catch(() => null);
-      if (cfg && cfg.include_withdrawal === false) await fetch(base + '/config', { method: 'PUT', headers: h, body: JSON.stringify({ include_withdrawal: true }) }).catch(e => falhou(env, 'mpxPedirRelatorio: fetch', e)); // sem isso os saques não aparecem
     }
-    await env.HR_KV.put('mpx:cfg', '1', { expirationTtl: 30 * 86400 });
+    await env.HR_KV.put('mpx:cfg2', '1', { expirationTtl: 30 * 86400 });
   }
   const r = await fetch(base, { method: 'POST', headers: h, body: JSON.stringify({ begin_date: `${de}T03:00:00Z`, end_date: `${somaDias(ate, 1)}T02:59:59Z` }) }); // dia de Bahia (UTC-3)
   if (!r.ok) throw await mpxErro(r, 'ao pedir o relatório');
