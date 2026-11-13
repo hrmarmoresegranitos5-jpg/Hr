@@ -7604,11 +7604,29 @@ async function ferrVerConversa(env, from, a) {
     if (melhor) { num = melhor.num; nomeAchado = melhor.nome; }
     if (!num) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) { num = numeroCliente(d.numero) || d.numero; nomeAchado = d.nome || ''; } }
     if (!num) num = await numeroDoClientePorNome(env, a.cliente).catch(() => '');
+    if (!num) { // avisos que o bot mandou ao Sr. Hangel ("Fulano chamou ... wa.me/...")
+      let h = []; try { h = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; } catch (_) {}
+      const pal = alvo.split(/\s+/).filter(w => w.length > 1);
+      for (const it of h.slice().reverse()) {
+        const txt = String(it.content || ''), ws = [...txt.matchAll(/wa\.me\/(\d{10,13})/g)];
+        for (let i = ws.length - 1; i >= 0; i--) {
+          const ini = i ? ws[i - 1].index : Math.max(0, ws[i].index - 500), trecho = normaliza(txt.slice(ini, ws[i].index));
+          if (pal.length && pal.every(x => trecho.includes(x))) { num = ws[i][1]; nomeAchado = nomeAchado || String(a.cliente); break; }
+        }
+        if (num) break;
+      }
+    }
   }
   if (!num && !alvo) num = await ultimoCliente(env);
   if (!num) return { erro: true, texto: `Não achei conversa com ${a.cliente || 'esse cliente'} nos últimos 7 dias. Peça o número (wa.me) ao Sr. Hangel, em uma frase.` };
   const tx = await txLer(env, num);
   let falas = (tx && tx.f) || [];
+  if (!falas.length) { // conversa recente no atendimento (KV, 24 h)
+    for (const v of variantesNumero(num)) {
+      let c = null; try { c = JSON.parse((await env.HR_KV.get('ca:' + v)) || 'null'); } catch (_) {}
+      if (c && Array.isArray(c.hist) && c.hist.length) { falas = c.hist.map(h => ({ q: h.role === 'user' ? 'c' : 'b', t: c.ultimaEm || Date.now(), x: String(h.content || '').slice(0, 1200) })); nomeAchado = nomeAchado || (c.dados && c.dados.nome) || ''; break; }
+    }
+  }
   if (!falas.length) { // conversas de antes da v62: arquivo D1 (só as respostas da IA)
     try {
       const r = await env.HR_DB.prepare('SELECT nome, falas FROM conversas_arq WHERE numero IN (' + variantesNumero(num).map(() => '?').join(',') + ')').bind(...variantesNumero(num)).first();
@@ -7616,7 +7634,7 @@ async function ferrVerConversa(env, from, a) {
     } catch (_) {}
   }
   let nome = (tx && tx.nome) || nomeAchado || await nomeParaDono(env, num).catch(() => '') || a.cliente || 'Cliente';
-  if (!falas.length) return { texto: `Não tenho a conversa registrada com ${nome} (registro completo começou hoje, 13/11). Diga isso ao Sr. Hangel e passe wa.me/${num} para ele abrir direto.` };
+  if (!falas.length) return { texto: `Achei ${nome} (wa.me/${normalizarBR(num)}), mas essa conversa é de antes do registro completo (começou hoje, 13/11, às 11h10): só sei o que veio no aviso (a mensagem dela e que o bot mandou a apresentação). Diga isso ao Sr. Hangel em 1-2 frases e passe o wa.me para ele abrir a conversa. Daqui para a frente, tudo o que ela escrever fica registrado.` };
   nome = String(nome).split(' / ').pop();
   const ult = falas.slice(-40), texto = txFormatar(ult, String(nome).split(' ')[0]);
   if (a.mostrar) {
