@@ -13359,6 +13359,7 @@ async function igConfigurar(env, b) {
   out.passos.push((await igSegredo(env)) ? 'Chave secreta do app: guardada' : 'Chave secreta do app: FALTA (sem ela o bot não confere os avisos do Instagram)');
   const self = await env.HR_KV.get('cfg:self');
   out.webhook = self ? self + '/webhook' : '(abra o WhatsApp do bot uma vez para ele descobrir o endereço)';
+  out.verifyToken = env.VERIFY_TOKEN || '';
   out.ok = true;
   return out;
 }
@@ -14290,7 +14291,7 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/instagram' && req.method === 'GET') {
     const tem = !!(await igToken(env)); let eu = null; if (tem) eu = await igEu(env).catch(e => ({ erro: e.message }));
     const l = await env.HR_KV.list({ prefix: 'ig:c:', limit: 1000 }).catch(() => ({ keys: [] }));
-    return jsonR({ ok: true, ligado: tem && igAtivo(env), conta: eu, segredo: !!(await igSegredo(env)), conversas: l.keys.length, webhook: ((await env.HR_KV.get('cfg:self')) || '') + '/webhook' });
+    return jsonR({ ok: true, ligado: tem && igAtivo(env), conta: eu, segredo: !!(await igSegredo(env)), conversas: l.keys.length, webhook: ((await env.HR_KV.get('cfg:self')) || '') + '/webhook', verifyToken: env.VERIFY_TOKEN || '' }); // rota com a chave do bot: só o app do dono vê
   }
   // v63q: IA DO APP PELO BOT — o app manda o pedido no formato do Gemini (o que ele já usa); o bot responde com o Claude no mesmo formato.
   //   Usado quando a cota grátis do Gemini acaba (20/dia). IA_APP=0 desliga. Modelo: AI_MODEL_APP (padrão claude-haiku-5-5).
