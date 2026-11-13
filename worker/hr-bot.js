@@ -1,3 +1,6 @@
+// v55 (13/11/2026): COBRANÇA DO FECHAMENTO DO DIA — convite às 17h, lembrete às 19h e último aviso às 21h (com o Pix que já
+//   entrou); de manhã (7h–11h) cobra o último dia útil que ficou sem fechamento, com a conta da semana, e deixa fechar o dia
+//   anterior com a data certa (botões "Fechar dd/mm" / "Foi sem movimento"). POST /bot/fechamento/agora {dia?} para o app.
 // v54 (12/11/2026): ATENDIMENTO MAIS INTELIGENTE — a secretária dos clientes passa a usar o modelo Sonnet (era o Haiku, que entendia mal
 //   pedido solto, áudio e erro de digitação; AI_MODEL_CLIENTE ainda escolhe outro), com a parte fixa das instruções em cache (mais barato e rápido).
 //   Vocabulário do cliente ("pia", "lavatório", "pedra da porta", "parapeito", "lápide"…), condução para o fechamento (toda resposta leva à
@@ -1066,8 +1069,8 @@ async function resumoHoje(env) {
     `*Entradas:* R$ ${reais(ent)}`, `*Gastos:* R$ ${reais(sai)}`, `*Saldo do dia:* R$ ${reais(ent - sai)}`, ...(nota ? ['', nota] : [])].join('\n');
 }
 
-async function totaisHoje(env) {
-  const hoje = dataBahia();
+async function totaisHoje(env, dia) {
+  const hoje = dia || dataBahia();
   const u = await lancamentosUnificados(env, hoje, hoje);
   let ent = 0, sai = 0;
   for (const r of u.itens) { if (r.type === 'in') ent += r.value; else sai += r.value; }
@@ -5313,9 +5316,15 @@ async function avancarFech(env, from, s, prox) {
   if (prox === 'pix' || prox === 'confirmar') s.d.pixAuto = await pixAutoDoDia(env, s.dia);
   await salvarFech(env, s);
   if (prox === 'confirmar') await enviarComBotoes(env, from, textoResumoFech(s), BTNS_FECH_CONF);
-  else await enviar(env, from, perguntaFech(prox, null, s.d.pixAuto));
+  else await enviar(env, from, fechNoDia(s, perguntaFech(prox, null, s.d.pixAuto)));
 }
 
+// v55: fechamento de um dia anterior — as perguntas falam do dia certo, não de "hoje"
+function fechNoDia(s, txt) {
+  if (!s || !s.dia || s.dia === dataBahia()) return txt;
+  const d = 'em ' + dataBR(s.dia).slice(0, 5);
+  return String(txt).replace(/\bde hoje\b/gi, 'de ' + dataBR(s.dia).slice(0, 5)).replace(/\bhoje\b/gi, d);
+}
 function perguntaFech(etapa, jaAnotado, pixAuto) {
   const ja = jaAnotado && (jaAnotado.ent || jaAnotado.sai)
     ? `\n\n_Já anotei hoje: gastos R$ ${reais(jaAnotado.sai)} e entradas R$ ${reais(jaAnotado.ent)}. Diga apenas o que ainda não foi anotado._` : '';
@@ -5351,20 +5360,24 @@ function textoResumoFech(s) {
   return l.join('\n');
 }
 
-async function iniciarFechamento(env, from, semMov) {
-  const hoje = dataBahia();
+async function iniciarFechamento(env, from, semMov, dia) {
+  const hoje = dia || dataBahia();
   if (await env.HR_KV.get('fecha:' + hoje)) {
-    await enviar(env, from, 'Sr. Hangel, o fechamento de hoje já foi registrado. Se algo estiver errado, corrija em Finanças, no aplicativo.');
+    await enviar(env, from, `Sr. Hangel, o fechamento ${hoje === dataBahia() ? 'de hoje' : 'de ' + dataBR(hoje)} já foi registrado. Se algo estiver errado, corrija em Finanças, no aplicativo.`);
     return;
   }
+  if (hoje !== dataBahia()) await enviar(env, from, `Certo, vamos fechar *${nomeDiaSemana(hoje)}, ${dataBR(hoje)}*. Os valores entram nas finanças com essa data.`);
   const s = { dia: hoje, etapa: semMov ? 'saldoConta' : 'gastos', d: { gastos: [], dinheiro: [], pix: [], cartao: [], servico: null, valorServico: null, saldoConta: null, saldoCarteira: null } };
   await salvarFech(env, s);
-  await enviar(env, from, perguntaFech(s.etapa, await totaisHoje(env)));
+  await enviar(env, from, fechNoDia(s, perguntaFech(s.etapa, await totaisHoje(env, hoje))));
 }
 
 async function enviarConviteFechamento(env, para, lembrete) {
   const h = Number(env.FECHAMENTO_HORA) || 17;
-  const txt = lembrete
+  const pa = lembrete === 'ultimo' ? await pixAutoDoDia(env, dataBahia()).catch(() => null) : null;
+  const txt = lembrete === 'ultimo'
+    ? `Sr. Hangel, último lembrete de hoje: o fechamento ainda não foi feito.${pa && pa.total ? ` Já entraram R$ ${reais(pa.total)} de Pix pelo Mercado Pago, mas os gastos e o dinheiro em espécie ainda não foram anotados.` : ''}\n\nLeva uns 2 minutos. Se ficar para amanhã, eu lembro cedo.`
+    : lembrete
     ? 'Sr. Hangel, o fechamento do dia ainda não foi feito. Podemos fazê-lo agora?'
     : `Sr. Hangel, são ${h}h: hora do fechamento do dia.\n\nVou perguntar um item por vez: gastos, o que recebeu (dinheiro, Pix e cartão), serviço fechado e saldos.`;
   await enviarComBotoes(env, para, txt, [BTN_FECH_INI, BTN_FECH_SEM]);
@@ -5643,10 +5656,15 @@ async function convocarFechamento(env, opts = {}) {
   if (!opts.refazer) {
     if (await env.HR_KV.get('fech:conv:' + hoje)) {
       if (agoraBahia().min < (hora + 2) * 60) return false;
-      if (await env.HR_KV.get('fech:lemb:' + hoje)) return false;
       if (await lerFech(env)) return false;                         // conversa em andamento
-      await env.HR_KV.put('fech:lemb:' + hoje, '1', { expirationTtl: 3 * 86400 });
-      lembrete = true;
+      if (await env.HR_KV.get('fech:lemb:' + hoje)) {               // v55: último aviso, 4 h depois do convite
+        if (agoraBahia().min < (hora + 4) * 60 || await env.HR_KV.get('fech:lemb2:' + hoje)) return false;
+        await env.HR_KV.put('fech:lemb2:' + hoje, '1', { expirationTtl: 3 * 86400 });
+        lembrete = 'ultimo';
+      } else {
+        await env.HR_KV.put('fech:lemb:' + hoje, '1', { expirationTtl: 3 * 86400 });
+        lembrete = true;
+      }
     } else await env.HR_KV.put('fech:conv:' + hoje, '1', { expirationTtl: 3 * 86400 });
   }
   const dono = numeroDono(env);
@@ -5656,6 +5674,38 @@ async function convocarFechamento(env, opts = {}) {
     // fora da janela de 24 h: guarda e avisa por modelo; o convite sai quando o dono escrever
     await env.HR_KV.put('fech:pend', JSON.stringify({ dia: hoje }), { expirationTtl: 2 * 86400 });
     if (env.TEMPLATE_AVISO) { try { await enviarTemplateAviso(env, 'Sr. Hangel, é hora do fechamento do dia. Responda esta mensagem para começar.'); } catch (e2) { console.log('[BOT] modelo do fechamento:', e2.message); } }
+    return false;
+  }
+}
+
+// v55: de manhã (7h–11h), cobra o fechamento do último dia útil que ficou sem fazer e mostra a semana.
+function diaUtilFech(env, iso) { return diaSemanaISO(iso) !== 0 || String(env.FECHAMENTO_DOMINGO || '0') === '1'; }
+async function diasSemFechamento(env, n) {
+  const out = []; let d = isoSomaDias(dataBahia(), -1);
+  for (let i = 0; i < 10 && out.length + 0 < 7; i++, d = isoSomaDias(d, -1)) {
+    if (!diaUtilFech(env, d)) continue;
+    out.push({ dia: d, feito: !!(await env.HR_KV.get('fecha:' + d)) });
+    if (out.length >= (n || 6)) break;
+  }
+  return out; // do mais recente para o mais antigo
+}
+async function cobrarFechamentoAtrasado(env, opts = {}) {
+  if (String(env.FECHAMENTO || '1') === '0') return false;
+  const hoje = dataBahia(), min = agoraBahia().min;
+  if (!opts.forcar && (min < 7 * 60 || min > 11 * 60 || await env.HR_KV.get('fech:atr:' + hoje))) return false;
+  const dias = await diasSemFechamento(env, 6);
+  const falta = dias.filter(x => !x.feito);
+  if (!falta.length) return false;
+  if (!opts.forcar) await env.HR_KV.put('fech:atr:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const alvo = falta[0].dia;
+  const feitos = dias.filter(x => x.feito).length;
+  const lista = falta.length > 1 ? `\n\nNos últimos ${dias.length} dias de trabalho, ${feitos === 0 ? 'nenhum foi fechado' : feitos === 1 ? 'só 1 foi fechado' : feitos + ' foram fechados'}. Faltam: ${falta.map(x => nomeDiaSemana(x.dia).slice(0, 3) + ' ' + dataBR(x.dia).slice(0, 5)).join(', ')}.` : '';
+  const txt = `Bom dia, Sr. Hangel. O fechamento de *${nomeDiaSemana(alvo)}, ${dataBR(alvo)}* ficou para trás.${lista}\n\nVamos fazer agora? Leva uns 2 minutos.`;
+  try {
+    await enviarComBotoes(env, numeroDono(env), txt, [{ id: 'fech_atr|' + alvo, titulo: 'Fechar ' + dataBR(alvo).slice(0, 5) }, { id: 'fech_atrsem|' + alvo, titulo: 'Foi sem movimento' }]);
+    return true;
+  } catch (e) {
+    if (janelaExpirou(e) && env.TEMPLATE_AVISO) { try { await enviarTemplateAviso(env, `Sr. Hangel, o fechamento de ${dataBR(alvo)} ficou para trás. Responda esta mensagem para fazermos agora.`); } catch (_) {} }
     return false;
   }
 }
@@ -5686,11 +5736,24 @@ async function confirmarFechamento(env, from, s) {
   };
   await env.HR_KV.put('fecha:' + dia, JSON.stringify(reg), { expirationTtl: 400 * 86400 });
   await env.HR_KV.delete(FECH_KEY);
-  await enviar(env, from, `Fechamento de ${dataBR(dia)} registrado, Sr. Hangel. ${n ? n + ' lançamento(s) seguem para Finanças na próxima sincronização do aplicativo.' : 'Nenhum lançamento novo.'}\n\nBom descanso.`);
+  const _passado = dia !== dataBahia();
+  await enviar(env, from, `Fechamento de ${dataBR(dia)} registrado, Sr. Hangel. ${n ? n + ' lançamento(s) seguem para Finanças na próxima sincronização do aplicativo.' : 'Nenhum lançamento novo.'}${_passado ? '' : '\n\nBom descanso.'}`);
+  if (_passado) { // v55: emenda o próximo dia que ainda falta
+    const falta = (await diasSemFechamento(env, 6).catch(() => [])).filter(x => !x.feito);
+    if (falta.length) await enviarComBotoes(env, from, `Ainda falta${falta.length > 1 ? 'm' : ''} ${falta.length} dia${falta.length > 1 ? 's' : ''}. Fechamos *${nomeDiaSemana(falta[0].dia)}, ${dataBR(falta[0].dia).slice(0, 5)}*?`, [{ id: 'fech_atr|' + falta[0].dia, titulo: 'Fechar ' + dataBR(falta[0].dia).slice(0, 5) }, { id: 'fech_atrsem|' + falta[0].dia, titulo: 'Foi sem movimento' }, { id: 'fech_atrdepois', titulo: 'Depois' }]).catch(() => {});
+  }
 }
 
 async function tratarBotaoFechamento(env, from, id) {
   if (id === 'fech_ini') { await iniciarFechamento(env, from, false); return true; }
+  if (id === 'fech_atrdepois') { await enviar(env, from, 'Certo, Sr. Hangel. Amanhã cedo eu lembro de novo.'); return true; }
+  if (id.startsWith('fech_atr|') || id.startsWith('fech_atrsem|')) { // v55: fechar um dia que ficou para trás
+    const dia = id.split('|')[1];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return true;
+    await env.HR_KV.delete(FECH_KEY);
+    await iniciarFechamento(env, from, id.startsWith('fech_atrsem|'), dia);
+    return true;
+  }
   if (id === 'fech_sem') { await iniciarFechamento(env, from, true); return true; }
   const s = await lerFech(env);
   if (id === 'fech_cancel') { await env.HR_KV.delete(FECH_KEY); await enviar(env, from, 'Entendido, Sr. Hangel. O fechamento foi cancelado e nada foi registrado.'); return true; }
@@ -5726,7 +5789,7 @@ async function tratarFechamento(env, from, bruto, msg) {
   }
   const s = await lerFech(env);
   if (!s) return false;
-  if (s.dia !== dataBahia()) { await env.HR_KV.delete(FECH_KEY); return false; }
+  if (s.dia !== dataBahia() && s.dia < isoSomaDias(dataBahia(), -3)) { await env.HR_KV.delete(FECH_KEY); return false; }
   if (['cancelar', 'cancelar fechamento', 'sair', 'deixa', 'deixa pra la'].includes(msg)) {
     await env.HR_KV.delete(FECH_KEY);
     await enviar(env, from, 'Entendido, Sr. Hangel. O fechamento foi cancelado e nada foi registrado.');
@@ -5736,7 +5799,7 @@ async function tratarFechamento(env, from, bruto, msg) {
   if (['ajuda', 'menu', 'comandos', 'desfazer', 'desfaz', 'leads', 'lead', 'fila', 'hoje', 'resumo', 'resumo de hoje', 'extrato', 'resumo do dia'].includes(msg)) return false;
 
   const d = s.d, de = s.etapa;
-  const repete = async (dica) => { await enviar(env, from, `${dica}\n\n${perguntaFech(de, null, d.pixAuto)}`); return true; };
+  const repete = async (dica) => { await enviar(env, from, `${dica}\n\n${fechNoDia(s, perguntaFech(de, null, d.pixAuto))}`); return true; };
   const avanca = async (prox) => { await avancarFech(env, from, s, prox); return true; };
 
   if (de === 'confirmar') {
@@ -13324,6 +13387,17 @@ async function rotaBotInterna(req, env, url) {
   }
 
   // Fechamentos do dia já confirmados pelo dono (mais recentes primeiro)
+  if (p === '/bot/fechamento/agora' && req.method === 'POST') { // v55: botão do app "Fazer pelo WhatsApp"
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(b.dia || '')) ? b.dia : dataBahia();
+    try {
+      if (dia === dataBahia()) await enviarConviteFechamento(env, numeroDono(env), false);
+      else await enviarComBotoes(env, numeroDono(env), `Sr. Hangel, vamos fechar *${nomeDiaSemana(dia)}, ${dataBR(dia)}*?`, [{ id: 'fech_atr|' + dia, titulo: 'Fechar ' + dataBR(dia).slice(0, 5) }, { id: 'fech_atrsem|' + dia, titulo: 'Foi sem movimento' }]);
+      return jsonR({ ok: true });
+    } catch (e) {
+      return jsonR({ ok: false, error: janelaExpirou(e) ? 'Passou de 24 h desde a sua última mensagem ao bot. Mande um "oi" para ele e tente de novo.' : String(e.message).slice(0, 120) });
+    }
+  }
   if (p === '/bot/fechamentos' && req.method === 'GET') {
     const lista = await env.HR_KV.list({ prefix: 'fecha:' });
     const out = [];
@@ -19934,7 +20008,7 @@ export default {
     if (event && event.cron && event.cron === (env.CRON_AVALIACAO || '*/15 * * * *')) return; // gatilho só da nota: não repete as rotinas do dono
     const hf = Number(env.FECHAMENTO_HORA) || 17;
     if (agoraBahia().min >= hf * 60) ctx.waitUntil(convocarFechamento(env));
-    else ctx.waitUntil(rotinaDiaria(env));
+    else { ctx.waitUntil(rotinaDiaria(env)); ctx.waitUntil(cobrarFechamentoAtrasado(env).catch(e => falhou(env, 'rotina: fechamento atrasado', e))); }
   },
 
   async fetch(req, env, ctx) {
