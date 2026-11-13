@@ -1,3 +1,6 @@
+// v58 (13/11/2026): GASTO COM NOME DESCONHECIDO NO MERCADO PAGO — em vez de lançar em "Outros", o bot pergunta ao Sr. Hangel
+//   com o que foi ("produtos de limpeza pro escritório"); ele responde do jeito dele e a IA lança com a categoria certa
+//   (classificar_gasto_mp), guarda a descrição e aprende o favorecido: da próxima vez entra sozinho. MPX_PERGUNTAR_DESCONHECIDO=0 desliga.
 // v57 (13/11/2026): MERCADO PAGO AUTOMÁTICO — cada entrada e saída do Mercado Pago é lançada sozinha nas finanças (categoria pela
 //   regra aprendida ou pela descrição; MPX_AUTO=0 volta a perguntar). Só fica para conferir no app o que tem alerta (repetido,
 //   parecido com gasto já digitado, valor fora do normal). O relatório é lido às 8h, 12h, 15h, 18h e 21h (MPX_HORAS), sem
@@ -7423,6 +7426,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou' }, dia: { type: 'string', description: 'AAAA-MM-DD' }, hora: { type: 'string', description: 'HH:MM' } }, required: ['dia', 'hora'] },
   },
   {
+    name: 'classificar_gasto_mp',
+    description: 'LANÇA um GASTO DO MERCADO PAGO que o bot perguntou ("Gasto no Mercado Pago com um nome que eu não conheço…", com [ref: mp:xxxx]) quando o Sr. Hangel disser com o que foi ("foi produto de limpeza pro escritório", "1 foi frete, 2 foi almoço da equipe"). Chame UMA VEZ POR GASTO, com "ref" (o código mp:xxxx do aviso, na ordem em que apareceram) ou, sem ref, "valor"/"favorecido". "descricao": o que ele disse, curto e em minúsculas ("produtos de limpeza do escritório"). "categoria": material (pedra, cola, disco, ferragem de obra), mao_obra (pagamento de ajudante/diarista/serviço de terceiro), insumos (limpeza, escritório, café, embalagem, pequenos consumos), fixo (aluguel, luz, água, internet, contador, sistema), combustivel (diesel, gasolina, posto), ferramentas (máquinas, ferramentas, manutenção delas), prolabore (retirada pessoal dele), outros; "nao" quando ele disser que não é gasto (transferência dele, saque). O bot guarda o favorecido e da próxima vez lança sozinho.',
+    input_schema: { type: 'object', properties: { ref: { type: 'string' }, valor: { type: 'string' }, favorecido: { type: 'string' }, descricao: { type: 'string' }, categoria: { type: 'string', enum: ['material', 'mao_obra', 'insumos', 'fixo', 'combustivel', 'ferramentas', 'prolabore', 'outros', 'nao'] } }, required: ['categoria'] },
+  },
+  {
     name: 'convidar_visita',
     description: 'O BOT ESCREVE AO CLIENTE para marcar uma VISITA TÉCNICA (medidas para o orçamento) quando o Sr. Hangel pedir isso SEM um dia e hora fechados (ex.: "marca uma visita técnica pra esse cliente", "pergunte a ela, amanhã estou livre o dia todo"). O bot pergunta ao cliente se a obra é em Pilão Arcado e pede a localização ou o endereço; depois oferece os horários em que o Sr. Hangel disse estar livre (campo "disponibilidade", nas palavras dele: "amanhã o dia todo", "sexta 14h ou 16h"); sem disponibilidade, o bot pergunta a ele os horários quando o cliente mandar o endereço. "numero": o do wa.me do aviso sobre o cliente (ex.: wa.me/5574999999999), quando houver; senão "cliente" com o nome. Se ele ainda não disse quando está livre, chame mesmo assim (não pergunte antes).',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone do cliente (do wa.me do aviso)' }, disponibilidade: { type: 'string', description: 'quando o Sr. Hangel está livre, nas palavras dele' } } },
@@ -7637,6 +7645,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
       ? { texto: `Visita de ${l.nome || l.numero} ${remarcou ? 'remarcada' : 'marcada'} para ${quando}${l.endereco ? ' (' + l.endereco + ')' : ''}. O cliente já foi avisado e o Sr. Hangel será lembrado na véspera, na manhã do dia, 1 hora antes e na hora. Confirme em UMA frase.`, nota: `marcou a visita de ${l.nome || l.numero} para ${dataBR(dia)} às ${hora}` }
       : { texto: `Visita de ${l.nome || l.numero} marcada para ${quando}, e o Sr. Hangel será lembrado no dia. MAS não consegui avisar o cliente: passou de 24 h desde a última mensagem dele e não há modelo aprovado na Meta. Diga isso ao Sr. Hangel em uma frase e informe wa.me/${l.numero} para ele avisar diretamente.`, nota: `marcou a visita de ${l.nome || l.numero} (cliente não avisado)` };
   }
+
+  if (nome === 'classificar_gasto_mp') return await classificarGastoMP(env, a); // v58
 
   if (nome === 'convidar_visita') { // v53: o dono pede, o bot escreve ao cliente para marcar a visita técnica
     let num = numeroCliente(a.numero), nomeDest = '';
@@ -9130,6 +9140,51 @@ async function painelMP(env, dias) {
   out.categorias = CATS;
   return out;
 }
+// v58: pergunta, em texto livre, sobre gasto com favorecido desconhecido (até 3 por vez; o resto fica no app)
+async function perguntarDesconhecidosMPX(env, hs) {
+  const lista = [];
+  for (const h of hs) { const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null'); if (r && !(await env.HR_KV.get('mpx:pq:' + h))) lista.push(r); }
+  if (!lista.length) return;
+  const vai = lista.slice(0, 3);
+  for (const r of vai) await env.HR_KV.put('mpx:pq:' + r.h, '1', { expirationTtl: MPX_PEND_TTL });
+  const nome = r => (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
+  const txt = vai.length === 1
+    ? `*Gasto no Mercado Pago com um nome que eu não conheço:* R$ ${reais(vai[0].valor)} para *${nome(vai[0])}* em ${dataBR(vai[0].data).slice(0, 5)}.\n\nCom o que foi esse gasto? Responda do seu jeito, ex.: _produtos de limpeza pro escritório_. Se não for gasto (transferência sua), diga _não é gasto_.`
+    : `*Gastos no Mercado Pago com nomes que eu não conheço:*\n${vai.map((r, i) => `${i + 1}. R$ ${reais(r.valor)} para *${nome(r)}* em ${dataBR(r.data).slice(0, 5)}`).join('\n')}\n\nCom o que foi cada um? Responda do seu jeito, ex.: _1 foi produto de limpeza pro escritório, 2 foi frete da chapa_.${lista.length > 3 ? `\n\n_Há mais ${lista.length - 3} no app (Finanças → Mercado Pago)._` : ''}`;
+  await notificarDono(env, Date.now(), txt + `\n\n[ref: ${vai.map(r => 'mp:' + r.h).join(' ')}]`);
+}
+// v58: o Sr. Hangel disse com o que foi o gasto → lança, guarda a descrição e aprende o favorecido (da próxima vez entra sozinho)
+async function classificarGastoMP(env, a) {
+  let h = String(a.ref || a.h || '').replace(/^mp:/, '').trim();
+  let r = h ? JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null') : null;
+  if (!r) { // acha pelo valor e/ou nome
+    const lst = await listarTodas(env, 'mpx:p:'); const cands = [];
+    for (const k of lst.keys) { const x = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (x && x.sentido === 'out') cands.push(x); }
+    const v = Number(String(a.valor || '').replace(/\./g, '').replace(',', '.')) || Number(a.valor) || 0;
+    const nm = normaliza(String(a.favorecido || ''));
+    let f = cands.filter(x => (!v || Math.abs(x.valor - v) < 0.01) && (!nm || normaliza(x.desc || '').includes(nm.split(' ')[0])));
+    if (f.length !== 1) f = cands.filter(x => x.perguntar && (!v || Math.abs(x.valor - v) < 0.01));
+    if (f.length !== 1) return { erro: true, texto: cands.length ? `Não sei qual gasto é (há ${cands.length} esperando). Pergunte ao Sr. Hangel o valor ou o nome, em uma frase.` : 'Não há gasto do Mercado Pago esperando resposta.' };
+    r = f[0]; h = r.h;
+  }
+  const descr = String(a.descricao || '').trim().slice(0, 60);
+  const cat = String(a.categoria || '').trim();
+  if (cat === 'nao') {
+    await env.HR_KV.put('mpx:l:' + h, 'ignorado', { expirationTtl: MPX_TTL }); await env.HR_KV.delete('mpx:p:' + h); await env.HR_KV.delete('mpx:pq:' + h);
+    await movMPStatus(env, h, 'ignorado').catch(() => {});
+    const ch = chaveMPX(r); if (ch) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: 'nao', n: 2, nome: String(r.desc).slice(0, 40), med: r.valor }), { expirationTtl: MPX_REGRA_TTL });
+    return { texto: `Não lancei os R$ ${reais(r.valor)} (${String(r.desc || '').slice(0, 40)}). Da próxima vez igual eu ignoro sozinho. Confirme em uma frase.` };
+  }
+  if (!CATS[cat]) return { erro: true, texto: 'Categoria inválida: use material, mao_obra, insumos, fixo, combustivel, ferramentas, prolabore, outros ou nao.' };
+  const desc = ((descr ? descr.charAt(0).toUpperCase() + descr.slice(1) + ' — ' : '') + String(r.desc || tipoFaladoMPX(r)).replace(/^pix enviado( para)?\s*/i, '')).slice(0, 64) + ' (Mercado Pago)';
+  await registrarLancamento(env, { type: 'out', value: r.valor, desc: desc.slice(0, 80), date: r.data, cat, origem: 'mpx', semUltimo: true });
+  await env.HR_KV.put('mpx:l:' + h, 'lancado', { expirationTtl: MPX_TTL }); await env.HR_KV.delete('mpx:p:' + h); await env.HR_KV.delete('mpx:pq:' + h);
+  await movMPStatus(env, h, 'lancado').catch(() => {});
+  const ch = chaveMPX(r);
+  if (ch) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat, n: 2, nome: String(r.desc).slice(0, 40), med: r.valor, descr }), { expirationTtl: MPX_REGRA_TTL });
+  return { texto: `Lancei R$ ${reais(r.valor)} em ${CATS[cat]}${descr ? ' (' + descr + ')' : ''}, ${dataBR(r.data).slice(0, 5)}. ${ch ? 'Guardei o favorecido: da próxima vez entra sozinho com essa descrição.' : ''} Confirme ao Sr. Hangel em UMA frase.`, nota: `classificou gasto MP R$ ${reais(r.valor)} → ${cat}` };
+}
+
 // decisão tomada no app (mesma regra dos botões do WhatsApp)
 async function decidirMPXApp(env, h, acao, cat) {
   const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
@@ -9161,7 +9216,7 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
   const igual = {}; for (const r of rel.rows) { const k = chaveIgual(r); igual[k] = (igual[k] || 0) + 1; }
   let outsFin = null;
   let fins = null, jaLancados = 0, foraDoPeriodo = 0, entradas = 0, saidas = 0, ignoradas = 0;
-  const autos = [];
+  const autos = [], desconhecidos = [];
   let _rAtual = null, _hAtual = null;
   const marca = async (h, v) => { await env.HR_KV.put('mpx:l:' + h, v, { expirationTtl: MPX_TTL }); if (_rAtual && h === _hAtual) await movMPSalvar(env, h, _rAtual, v).catch(e => console.log('[MPMOV]', e.message)); };
   for (const r of rel.rows) {
@@ -9211,8 +9266,16 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
         const entrada = r.sentido === 'in';
         const rg2 = entrada ? null : (await regraDoApp(env, r).catch(() => null)) || (await lerRegraMPX(env, r).catch(() => null));
         if (!entrada && rg2 && rg2.cat === 'nao') { await marca(h, 'ignorado'); ignoradas++; continue; }
-        const cat = entrada ? undefined : ((rg2 && (CATS[rg2.cat] || rg2.app) && rg2.cat) || categoriaDe(r.desc || ''));
-        const desc = (entrada ? `Recebido de ${r.desc && !/^(payment|pagamento)$/i.test(r.desc) ? r.desc : 'cliente'}` : (r.desc || tipoFaladoMPX(r))) + ' (Mercado Pago)';
+        const catDesc = entrada ? null : categoriaDe(String(r.desc || '').replace(/\b(das|da|de|dos|do|e|vale)\b/gi, ' ')); // nome de pessoa ("Maria das Dores") não vira imposto DAS
+        if (!entrada && !(rg2 && (CATS[rg2.cat] || rg2.app)) && catDesc === 'outros' && String(env.MPX_PERGUNTAR_DESCONHECIDO || '1') !== '0') {
+          // v58: favorecido que o bot não conhece → pergunta ao Sr. Hangel com o que foi o gasto (resposta livre)
+          r.perguntar = true;
+          await env.HR_KV.put('mpx:p:' + h, JSON.stringify({ h, ...r }), { expirationTtl: MPX_PEND_TTL });
+          await marca(h, 'pend'); novos.push(h); saidas++; desconhecidos.push(h);
+          continue;
+        }
+        const cat = entrada ? undefined : ((rg2 && (CATS[rg2.cat] || rg2.app) && rg2.cat) || catDesc);
+        const desc = (entrada ? `Recebido de ${r.desc && !/^(payment|pagamento)$/i.test(r.desc) ? r.desc : 'cliente'}` : (rg2 && rg2.descr ? (rg2.descr.charAt(0).toUpperCase() + rg2.descr.slice(1) + ' — ' + String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '')).slice(0, 64) : (r.desc || tipoFaladoMPX(r)))) + ' (Mercado Pago)';
         await registrarLancamento(env, { type: r.sentido, value: r.valor, desc: desc.slice(0, 80), date: r.data, cat, origem: 'mpx', mpId: entrada && /^\d+$/.test(r.id) ? r.id : undefined, semUltimo: true });
         await marca(h, 'lancado');
         autos.push({ valor: r.valor, nome: (r.desc || tipoFaladoMPX(r)).slice(0, 30), cat: entrada ? 'entrada' : cat });
@@ -9224,7 +9287,7 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
     novos.push(h);
     if (r.sentido === 'in') entradas++; else saidas++;
   }
-  return { total: rel.rows.length - foraDoPeriodo, jaLancados, novos: novos.length, entradas, saidas, saldo: rel.saldo, autos, ignoradas };
+  return { total: rel.rows.length - foraDoPeriodo, jaLancados, novos: novos.length, entradas, saidas, saldo: rel.saldo, autos, ignoradas, desconhecidos };
 }
 
 // ── Perguntas ──
@@ -9370,6 +9433,7 @@ async function extratoMPTick(env, opts = {}) {
   }
   if (res.ignoradas) linhas.push(`Ignoradas por regra (não são gasto): ${res.ignoradas}`);
   if (res.saldo != null) linhas.push(`Saldo ao fim do período: R$ ${reais(res.saldo)}`);
+  if (res.desconhecidos && res.desconhecidos.length) await perguntarDesconhecidosMPX(env, res.desconhecidos).catch(e => falhou(env, 'extratoMPTick: desconhecidos', e));
   if (est.silencioso) return { ok: true, ...res }; // v56: pedido pelo app — o senhor resolve as pendências lá, sem mensagens no WhatsApp
   await notificarDono(env, Date.now(), linhas.join('\n'));
   const para = opts.from || dono;
