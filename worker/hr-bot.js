@@ -14064,6 +14064,21 @@ async function rotaBotInterna(req, env, url) {
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
   }
+  // v63o: BACKUP DO APP NA NUVEM DO BOT (o Supabase falhava). Um por dia (o último do dia vale), 30 dias. Conteúdo gzip em base64.
+  if (p === '/bot/backup' && req.method === 'POST') {
+    let b = {}; try { b = await req.json(); } catch (_) { return jsonR({ ok: false, error: 'corpo inválido' }, 400); }
+    const gz = String(b.gz || ''); if (!/^[A-Za-z0-9+/=]+$/.test(gz) || gz.length < 100) return jsonR({ ok: false, error: 'backup vazio' }, 400);
+    if (gz.length > 24 * 1024 * 1024) return jsonR({ ok: false, error: 'backup grande demais (' + Math.round(gz.length / 1048576) + ' MB)' }, 413);
+    const dia = dataBahia(), ts = Number(b.ts) || Date.now();
+    await env.HR_KV.put('bk:' + dia, gz, { expirationTtl: 30 * 86400, metadata: { ts, kb: Math.round(gz.length / 1024), cont: b.cont || null } });
+    return jsonR({ ok: true, dia, kb: Math.round(gz.length / 1024) });
+  }
+  if (p === '/bot/backup' && req.method === 'GET') {
+    const dia = url.searchParams.get('dia');
+    if (dia) { const { value, metadata } = await env.HR_KV.getWithMetadata('bk:' + dia); return value ? jsonR({ ok: true, dia, ts: metadata && metadata.ts, gz: value }) : jsonR({ ok: false, error: 'não há backup desse dia' }, 404); }
+    const l = await env.HR_KV.list({ prefix: 'bk:', limit: 100 });
+    return jsonR({ ok: true, backups: l.keys.map(k => ({ dia: k.name.slice(3), ...(k.metadata || {}) })).sort((a, b) => (b.ts || 0) - (a.ts || 0)) });
+  }
   if (p === '/bot/mp/diagnostico' && req.method === 'POST') { // v63g: teste completo, mostra as respostas reais do Mercado Pago
     if (!mpAtivo(env)) return jsonR({ ok: false, linhas: ['MP_ACCESS_TOKEN não está configurado no bot.'] });
     const h = mpxAuth(env), base = `${MP_API}/v1/account/release_report`, L = [];

@@ -375,6 +375,7 @@ var AUTOBACKUP = {
 
         // Envia para nuvem (debounce 5s)
         self._pushNuvem(dados);
+        self._pushBot(json, contagens);
       }).catch(function(e) {
         console.warn('[AutoBackup] Erro ao salvar snapshot no IndexedDB:', e);
       });
@@ -470,18 +471,83 @@ var AUTOBACKUP = {
             }
           })
           .catch(function(err) {
-            console.warn('[AutoBackup] Erro ao enviar para nuvem:', err);
+            console.log('[AutoBackup] Supabase indisponível (o backup vai pela nuvem do bot):', (err && err.message) || err);
           });
       } catch(e) {
-        console.warn('[AutoBackup] Erro ao enviar para nuvem:', e);
+        console.log('[AutoBackup] Supabase indisponível:', (e && e.message) || e);
       }
     }, 5000);
+  },
+
+  // celular novo / dados apagados: traz o backup mais recente da nuvem do bot como cópia restaurável (☁️)
+  _pullBot: function() {
+    var self = this;
+    try {
+      var cfg = typeof _getBotCfg === 'function' ? _getBotCfg() : {};
+      if (!cfg.url || !cfg.key || typeof _botHeaders !== 'function' || typeof DecompressionStream === 'undefined') return;
+      var base = String(cfg.url).replace(/\/+$/, '');
+      fetch(base + '/bot/backup', { headers: _botHeaders() }).then(function(r) { return r.json(); }).then(function(j) {
+        var b = j && j.backups && j.backups[0];
+        var localTs = +localStorage.getItem(self.KEY_ULTIMO_SV) || 0;
+        if (!b || !b.ts || b.ts <= localTs + 60000) return;
+        return fetch(base + '/bot/backup?dia=' + encodeURIComponent(b.dia), { headers: _botHeaders() }).then(function(r) { return r.json(); }).then(function(x) {
+          if (!x || !x.gz) return;
+          return self._gunzipB64(x.gz).then(function(json) {
+            var lista = []; try { lista = JSON.parse(localStorage.getItem(self.KEY_SNAPSHOTS) || '[]'); } catch (e) {}
+            var ts = JSON.parse(json)._ts || b.ts;
+            if (lista.some(function(s) { return s.ts === ts; })) return;
+            return self._payloadSalvar(ts, json).then(function() {
+              lista.push({ ts: ts, data: new Date(ts).toLocaleString('pt-BR') + ' ☁️', kb: Math.round(json.length / 1024), deNuvem: true });
+              while (lista.length > self.MAX_SNAPSHOTS) { var r0 = lista.shift(); self._payloadApagar(r0.ts); }
+              localStorage.setItem(self.KEY_SNAPSHOTS, JSON.stringify(lista));
+              self._mostrarToastBackup('☁️ Backup da nuvem disponível!');
+            });
+          });
+        });
+      }).catch(function() {});
+    } catch (e) {}
+  },
+
+  // ── Backup na nuvem do BOT (Cloudflare): comprimido, no máximo a cada 3 h, 30 dias guardados ──
+  _gzipB64: function(texto) {
+    if (typeof CompressionStream === 'undefined') return Promise.reject(new Error('sem compressão'));
+    var st = new Blob([texto]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Response(st).arrayBuffer().then(function(buf) {
+      var b = new Uint8Array(buf), out = '', i, CH = 0x8000;
+      for (i = 0; i < b.length; i += CH) out += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+      return btoa(out);
+    });
+  },
+  _gunzipB64: function(b64) {
+    var bin = atob(b64), b = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+    var st = new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(st).text();
+  },
+  _pushBot: function(json, contagens) {
+    var self = this;
+    try {
+      var cfg = typeof _getBotCfg === 'function' ? _getBotCfg() : {};
+      if (!cfg.url || !cfg.key || typeof _botHeaders !== 'function') return;
+      var ult = +localStorage.getItem('hr_ab_bot_ts') || 0;
+      if (Date.now() - ult < 3 * 3600 * 1000) return;
+      clearTimeout(self._botDebounce);
+      self._botDebounce = setTimeout(function() {
+        self._gzipB64(json).then(function(gz) {
+          return fetch(String(cfg.url).replace(/\/+$/, '') + '/bot/backup', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ ts: Date.now(), gz: gz, cont: contagens }) });
+        }).then(function(r) { return r.json(); }).then(function(j) {
+          if (j && j.ok) { localStorage.setItem('hr_ab_bot_ts', String(Date.now())); localStorage.setItem(self.KEY_NUVEM_TS, String(Date.now())); self._mostrarToastBackup('☁️ Backup salvo na nuvem (' + j.kb + ' KB)'); }
+          else console.warn('[AutoBackup] Nuvem do bot recusou o backup:', (j && j.error) || '?');
+        }).catch(function(e) { console.warn('[AutoBackup] Erro ao enviar backup para a nuvem do bot:', (e && e.message) || String(e)); });
+      }, 8000);
+    } catch (e) {}
   },
 
   // ── Pull da nuvem ao abrir ──
   // Lê a coluna "dados" e extrai a chave "_ab"
   _pullNuvem: function() {
     var self = this;
+    self._pullBot();
     try {
       var url = self.SUPABASE_URL + '/rest/v1/hr_sync?codigo=eq.' +
                 encodeURIComponent(self.CHAVE) + '&select=dados';
