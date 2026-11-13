@@ -23,7 +23,9 @@
       h += '<input id="igTok" placeholder="Token do Instagram (começa com IG…)" style="width:100%;margin-top:8px;padding:9px;border-radius:9px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:#fff;font-size:12px;box-sizing:border-box;">';
       h += '<input id="igSeg" placeholder="Chave secreta do app do Instagram" style="width:100%;margin-top:6px;padding:9px;border-radius:9px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:#fff;font-size:12px;box-sizing:border-box;">';
       h += '<button data-ig="salvar" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:none;background:linear-gradient(135deg,#e1306c,#833ab4);color:#fff;font-weight:800;font-size:12px;cursor:pointer;">Ligar / conferir Instagram</button>';
-      if (e.webhook) h += '<div style="margin-top:8px;font-size:11px;color:rgba(255,255,255,.55);">No app da Meta, em Instagram → Webhooks, use o endereço <b style="color:#fff;word-break:break-all;">' + esc(e.webhook) + '</b> e o mesmo token de verificação do WhatsApp, e marque <b>messages</b> e <b>comments</b>.</div>';
+      if (e.webhook) h += '<div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.65);line-height:1.6;">No site da Meta, passo <b>3. Configurar webhooks</b>:<br>URL de callback: <b style="color:#fff;word-break:break-all;">' + esc(e.webhook) + '</b> <button data-ig-copia="' + esc(e.webhook) + '" style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;">copiar</button>'
+        + (e.verifyToken ? '<br>Verificar token: <b style="color:#fff;word-break:break-all;">' + esc(e.verifyToken) + '</b> <button data-ig-copia="' + esc(e.verifyToken) + '" style="font-size:10px;padding:2px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;">copiar</button>' : '')
+        + '<br>Depois de "Verificar e salvar", ligue <b>messages</b> e <b>comments</b>.</div>';
       if (e.passos) h += '<div style="margin-top:8px;font-size:11px;color:#fff;background:rgba(0,0,0,.25);border-radius:8px;padding:8px;">' + e.passos.map(function (p) { return '• ' + esc(p); }).join('<br>') + '</div>';
     }
     return h + '</div>';
@@ -35,6 +37,8 @@
   }
   function carregar() { api('GET', '/bot/instagram').then(function (d) { if (d && d.ok) { var p = estado && estado.passos; estado = d; if (p) estado.passos = p; por(); } }).catch(function () {}); }
   document.addEventListener('click', function (ev) {
+    var cp = ev.target.closest && ev.target.closest('[data-ig-copia]');
+    if (cp) { var v = cp.getAttribute('data-ig-copia'); (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(function () { if (typeof toast === 'function') toast('Copiado ✓'); }).catch(function () { prompt('Copie:', v); }); return; }
     var t = ev.target.closest && ev.target.closest('[data-ig]'); if (!t) return;
     var a = t.getAttribute('data-ig');
     if (a === 'abrir') { aberto = !aberto; por(); return; }
