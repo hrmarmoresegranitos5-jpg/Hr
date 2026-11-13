@@ -94,6 +94,14 @@
     el.innerHTML = h;
   }
 
+  // lançamentos internos do Mercado Pago (reserve_for_payout / payout_cancel) que a leitura antiga lançou como entrada
+  function limparInternas(ids) {
+    if (typeof DB === 'undefined' || !DB.t) return;
+    var antes = DB.t.length, set = {}; ids.forEach(function (i) { set[i] = 1; });
+    DB.t = DB.t.filter(function (t) { return !(set[t.waId] || /reserve_for_payout|payout_cancel|recebido de payout\b/i.test(t.desc || '')); });
+    var n = antes - DB.t.length;
+    if (n) { try { DB.sv(); } catch (e) {} try { if (typeof renderFin === 'function') renderFin(); } catch (e) {} if (typeof toast === 'function') toast('🧹 Tirei ' + n + ' lançamento(s) internos do Mercado Pago que tinham entrado por engano'); }
+  }
   function carregar() {
     if (!base() || carregando) return;
     carregando = true;
@@ -101,6 +109,7 @@
       carregando = false;
       if (d && !d.error) {
         D = d;
+        limparInternas(d.apagarApp || []);
         if (D.gerando) vigiar();
         else if (D.ativo !== false && !D.ultimaLeitura && !(D.movs || []).length && !D.erro && !window._mpAutoPedido) { // primeira vez: busca sozinho
           window._mpAutoPedido = true;
