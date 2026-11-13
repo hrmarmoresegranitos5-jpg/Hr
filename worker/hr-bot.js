@@ -8999,29 +8999,31 @@ async function mpxPedirRelatorio(env, de, ate) {
   const h = mpxAuth(env), base = `${MP_API}/v1/account/release_report`;
   if (!(await env.HR_KV.get('mpx:cfg2'))) {
     // O MP exige colunas e frequência na configuração (sem isso responde 500). Saques entram com include_withdrawal_at_end.
-    const cfgBody = {
-      file_name_prefix: 'hr-release',
-      columns: MPX_COLUNAS.map(key => ({ key })),
-      frequency: { hour: 0, type: 'monthly', value: 1 }, // só vale para agendamento automático (não usamos); 'daily' o MP recusa
-      include_withdrawal_at_end: true,
-      execute_after_withdrawal: false,
-      scheduled: false,
-      display_timezone: 'GMT-03',
-      report_translation: 'en'
-    };
+    // v63d: o MP recusou "frequency" em mais de um formato. Agora tenta várias formas (do corpo mínimo ao completo)
+    // e, se já existe configuração com as colunas básicas, segue com ela. Guarda o motivo de cada recusa para diagnóstico.
+    const COLS = MPX_COLUNAS.map(key => ({ key }));
+    const BASICAS = ['DATE', 'SOURCE_ID', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT'];
     const g = await fetch(base + '/config', { headers: h });
     const atual = g.ok ? await g.json().catch(() => null) : null;
-    const temTudo = atual && Array.isArray(atual.columns) && ['DATE', 'SOURCE_ID', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'BALANCE_AMOUNT'].every(k => atual.columns.some(c => c && c.key === k)) && atual.include_withdrawal_at_end !== false;
+    const temCols = cfg => cfg && Array.isArray(cfg.columns) && BASICAS.every(k => cfg.columns.some(c => c && c.key === k));
+    const temTudo = temCols(atual) && atual.columns.some(c => c && c.key === 'BALANCE_AMOUNT');
     if (!temTudo) {
-      let c = await fetch(base + '/config', { method: atual ? 'PUT' : 'POST', headers: h, body: JSON.stringify(cfgBody) });
-      if (!c.ok && (c.status === 409 || c.status === 404 || c.status >= 500)) c = await fetch(base + '/config', { method: atual ? 'POST' : 'PUT', headers: h, body: JSON.stringify(cfgBody) });
-      if (!c.ok && c.status === 400) { // recusou algum campo: tenta só o essencial (colunas básicas)
-        const txt = await c.clone().text().catch(() => '');
-        const basico = { ...cfgBody, columns: ['DATE', 'SOURCE_ID', 'EXTERNAL_REFERENCE', 'RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'BALANCE_AMOUNT'].map(key => ({ key })) };
-        if (/frequen/i.test(txt)) delete basico.frequency;
-        for (const met of (atual ? ['PUT', 'POST'] : ['POST', 'PUT'])) { c = await fetch(base + '/config', { method: met, headers: h, body: JSON.stringify(basico) }); if (c.ok) break; }
+      const freqs = [atual && atual.frequency, { hour: 0, type: 'monthly', value: 1 }, { hour: 0, type: 'weekly', value: 'monday' }, { hour: 0, type: 'daily', value: 0 }, null].filter((f, i, l) => f !== undefined && (i === 0 ? !!f : true));
+      const base0 = { file_name_prefix: (atual && atual.file_name_prefix) || 'hr-release', columns: COLS, include_withdrawal_at_end: true, execute_after_withdrawal: false, display_timezone: 'GMT-03' };
+      const tentativas = [];
+      if (atual) tentativas.push(['PUT', { columns: COLS }]);
+      for (const f of freqs) tentativas.push([atual ? 'PUT' : 'POST', f ? { ...base0, frequency: f } : base0]);
+      if (!atual) tentativas.push(['PUT', { ...base0, frequency: { hour: 0, type: 'monthly', value: 1 } }]);
+      const motivos = []; let ok = false;
+      for (const [met, corpo] of tentativas) {
+        const c = await fetch(base + '/config', { method: met, headers: h, body: JSON.stringify(corpo) });
+        if (c.ok) { ok = true; break; }
+        const t = (await c.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 120);
+        motivos.push(`${met}${corpo.frequency ? ' ' + corpo.frequency.type : corpo.file_name_prefix ? ' sem freq' : ' só colunas'}: ${c.status} ${t}`);
+        if (c.status === 401 || c.status === 403) break;
       }
-      if (!c.ok) throw await mpxErro(c, 'ao configurar o relatório');
+      if (!ok && !temCols(atual)) throw new Error('Mercado Pago recusou a configuração do relatório. ' + motivos.slice(0, 4).join(' | ').slice(0, 400));
+      if (!ok) console.log('[MPX] seguindo com a configuração que já existe:', motivos.join(' | '));
     }
     await env.HR_KV.delete('mpx:erro').catch(() => {}); // configuração aceita: o erro antigo não vale mais
     await env.HR_KV.put('mpx:cfg2', '1', { expirationTtl: 30 * 86400 });
@@ -9769,7 +9771,7 @@ async function extratoMPDiario(env) {
   try { await extratoMPTick(env); }
   catch (e) {
     console.log('[BOT] extrato MP:', e.message);
-    await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
+    await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
     const dia = dataBahia();
     if ((await env.HR_KV.get('mpx:errdia')) === dia) return;
     await env.HR_KV.put('mpx:errdia', dia, { expirationTtl: 2 * 86400 });
@@ -13847,7 +13849,7 @@ async function rotaBotInterna(req, env, url) {
     const pn = await painelMP(env, dias);
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
-    if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) pn.erro = er; } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
+    if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
     return jsonR(pn);
   }
   if (p === '/bot/mp/atualizar' && req.method === 'POST') {
@@ -13855,11 +13857,12 @@ async function rotaBotInterna(req, env, url) {
     const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
     if (est) { await extratoMPTick(env).catch(() => {}); return jsonR({ ok: true, gerando: !!(await env.HR_KV.get('mpx:estado')) }); }
     const ult = Number(await env.HR_KV.get('mpx:pedidoApp')) || 0;
-    if (Date.now() - ult < 15 * 60 * 1000) return jsonR({ ok: true, recente: true, espera: Math.ceil((15 * 60 * 1000 - (Date.now() - ult)) / 60000) });
+    const erAtual = await env.HR_KV.get('mpx:erro'); // se a última tentativa deu erro, pode tentar de novo na hora
+    if (!erAtual && Date.now() - ult < 15 * 60 * 1000) return jsonR({ ok: true, recente: true, espera: Math.ceil((15 * 60 * 1000 - (Date.now() - ult)) / 60000) });
     await env.HR_KV.put('mpx:pedidoApp', String(Date.now()), { expirationTtl: 3600 });
     let b = {}; try { b = await req.json(); } catch (_) {}
-    try { const r = await extratoMPTick(env, { manual: true, dias: Math.min(Math.max(Number(b.dias) || 3, 1), 30), silencioso: true }); if (r.erro) await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(r.erro).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }); return jsonR({ ok: !r.erro, gerando: !!r.pedido, error: r.erro }); }
-    catch (e) { await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {}); await env.HR_KV.delete('mpx:pedidoApp'); return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
+    try { const r = await extratoMPTick(env, { manual: true, dias: Math.min(Math.max(Number(b.dias) || 3, 1), 30), silencioso: true }); if (r.erro) { await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(r.erro).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }); await env.HR_KV.delete('mpx:pedidoApp'); } return jsonR({ ok: !r.erro, gerando: !!r.pedido, error: r.erro }); }
+    catch (e) { await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {}); await env.HR_KV.delete('mpx:pedidoApp'); return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
   }
   if (p === '/bot/mp/decidir' && req.method === 'POST') {
     let b = {}; try { b = await req.json(); } catch (_) {}
