@@ -3175,7 +3175,7 @@ function _cliFetchAIDesc(q){
   })
   .then(function(d){
     var text=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
-    var clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
+    var clean=text.replace(/```(?:json)?/gi,'').trim();
     var match=clean.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('no_json');
     var ai=JSON.parse(match[0]);
