@@ -63,6 +63,8 @@
     if (D.erro) h += '<div style="font-size:.72rem;color:#f08a8a;background:rgba(240,138,138,.08);border:1px solid rgba(240,138,138,.3);border-radius:10px;padding:9px 10px;margin:4px 0 8px;line-height:1.4;">⚠️ Não consegui ler o Mercado Pago ' + quando(D.erro.em) + ':<br><b>' + esc(D.erro.msg) + '</b><br><span style="color:var(--t3);">Mande um print disto para o desenvolvedor.</span></div>';
     var semLeitura = !D.ultimaLeitura && !movs.length;
     if (D.gerando) h += '<div style="font-size:.74rem;color:#4fb8ec;padding:8px 0;">⏳ O Mercado Pago está preparando o relatório' + (D.gerando.desde ? ' (pedido ' + quando(D.gerando.desde) + ')' : '') + '. Costuma levar de 2 a 10 minutos; o app confere sozinho.</div>';
+    if (D.gerando || D.erro) h += '<button type="button" data-mp="testar" style="width:100%;margin:2px 0 8px;padding:9px;border-radius:10px;border:1px dashed #4fb8ec;background:transparent;color:#4fb8ec;font-size:.74rem;font-weight:700;font-family:inherit;cursor:pointer;">🔧 Testar conexão e pedir de novo</button>';
+    if (window._mpTeste) h += '<div style="font-size:.64rem;color:var(--t2);background:rgba(79,184,236,.07);border:1px solid rgba(79,184,236,.3);border-radius:9px;padding:8px 9px;margin-bottom:8px;line-height:1.5;word-break:break-word;"><b>Teste do Mercado Pago</b> (mande print deste quadro):' + window._mpTeste.map(function (l) { return '<br>• ' + esc(l); }).join('') + '</div>';
     if (D.gerando && D.diag) h += '<div style="font-size:.62rem;color:var(--t3);background:rgba(255,255,255,.03);border-radius:8px;padding:6px 8px;margin-bottom:6px;line-height:1.45;">Diagnóstico (mande print se demorar): ' + (D.diag.total || 0) + ' relatório(s) na conta' + (D.diag.ultimos || []).map(function (u) { return '<br>• ' + esc(u.f) + ' · ' + esc(u.st || '?') + ' · ' + esc(u.criado || '') + ' · de ' + esc(u.de || ''); }).join('') + (D.diag.criacao ? '<br>pedido: ' + esc(D.diag.criacao) : '') + '<br>escolhido: ' + esc(D.diag.escolhido || 'nenhum') + ' · ' + quando(D.diag.em) + '</div>';
     else if (semLeitura && !D.erro) h += '<div style="font-size:.74rem;color:var(--t3);padding:8px 0;">Ainda não li o seu Mercado Pago. Toque em <b>↻ Atualizar</b> para buscar tudo desde o começo do mês.</div>';
     else if (!lista.length) h += '<div style="font-size:.74rem;color:var(--t3);padding:8px 0;">' + (filtro === 'pend' ? '✓ Tudo do Mercado Pago já entrou sozinho nas finanças.' : 'Nenhuma movimentação nos últimos 30 dias.') + '</div>';
@@ -131,6 +133,14 @@
   document.addEventListener('click', function (ev) {
     var t = ev.target; if (!t.closest) return;
     var f = t.closest('[data-mp-filtro]'); if (f) { filtro = f.getAttribute('data-mp-filtro'); render(); return; }
+    if (t.closest('[data-mp="testar"]')) {
+      var bt = t.closest('[data-mp="testar"]'); bt.disabled = true; bt.textContent = '⏳ Testando… (até 30 s)';
+      api('/bot/mp/diagnostico', { method: 'POST', body: JSON.stringify({ recomecar: true }) }).then(function (r) {
+        window._mpTeste = (r && r.linhas) || ['Sem resposta do bot.'];
+        carregar();
+      }).catch(function (e) { window._mpTeste = ['Falhou: ' + e.message]; render(); });
+      return;
+    }
     if (t.closest('[data-mp="atualizar"]')) {
       api('/bot/mp/atualizar', { method: 'POST', body: JSON.stringify({ dias: (D && D.movs && D.movs.length) ? 3 : Math.min(30, new Date().getDate() + 1) }) }).then(function (r) {
         if (r && r.recente) toast('O Mercado Pago foi consultado há pouco. Tente de novo em ' + r.espera + ' min.');

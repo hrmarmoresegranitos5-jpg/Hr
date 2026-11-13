@@ -13882,6 +13882,24 @@ async function rotaBotInterna(req, env, url) {
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
   }
+  if (p === '/bot/mp/diagnostico' && req.method === 'POST') { // v63g: teste completo, mostra as respostas reais do Mercado Pago
+    if (!mpAtivo(env)) return jsonR({ ok: false, linhas: ['MP_ACCESS_TOKEN não está configurado no bot.'] });
+    const h = mpxAuth(env), base = `${MP_API}/v1/account/release_report`, L = [];
+    const curto = t => String(t || '').replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '(e-mail)').replace(/\s+/g, ' ').slice(0, 260);
+    try { const r = await fetch(`${MP_API}/users/me`, { headers: h }); const j = await r.json().catch(() => ({})); L.push(`Conta: ${r.status} ${r.ok ? 'ok · id ' + (j.id || '?') + ' · ' + (j.site_id || '') : curto(JSON.stringify(j))}`); } catch (e) { L.push('Conta: falhou ' + e.message); }
+    try { const r = await fetch(base + '/config', { headers: h }); L.push(`Configuração: ${r.status} ${curto(await r.text())}`); } catch (e) { L.push('Configuração: falhou ' + e.message); }
+    try { const r = await fetch(base + '/list', { headers: h }); const t = await r.text(); let n = '?'; try { const j = JSON.parse(t); n = Array.isArray(j) ? j.length : JSON.stringify(Object.keys(j)); } catch (_) {} L.push(`Relatórios na conta: ${r.status} · ${n} · ${curto(t)}`); } catch (e) { L.push('Lista: falhou ' + e.message); }
+    try { const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); L.push(cr ? `Último pedido: ${cr.status} ${cr.resp} · período ${cr.corpo && cr.corpo.begin_date} → ${cr.corpo && cr.corpo.end_date}` : 'Último pedido: nenhum registrado'); } catch (_) {}
+    const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
+    L.push(est ? `Aguardando relatório desde ${new Date(est.criadoEm - 3 * 3600000).toISOString().slice(11, 16)} (tentativas ${est.tentativas || 0})` : 'Nenhum relatório aguardando.');
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    if (b.recomecar) { // cancela o pedido preso e pede de novo agora, já registrando a resposta
+      await env.HR_KV.delete('mpx:estado'); await env.HR_KV.delete('mpx:erro'); await env.HR_KV.delete('mpx:pedidoApp'); await env.HR_KV.delete('mpx:cfg2');
+      try { const r = await extratoMPTick(env, { manual: true, dias: 13, silencioso: true }); L.push('Pedido novo: ' + curto(JSON.stringify(r))); } catch (e) { L.push('Pedido novo falhou: ' + curto(e.message)); }
+      try { const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); if (cr) L.push(`Resposta do MP ao pedido: ${cr.status} ${cr.resp}`); } catch (_) {}
+    }
+    return jsonR({ ok: true, linhas: L });
+  }
   if (p === '/bot/mp/atualizar' && req.method === 'POST') {
     if (!mpAtivo(env)) return jsonR({ ok: false, error: 'O Mercado Pago não está ligado no bot (falta MP_ACCESS_TOKEN).' });
     const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
