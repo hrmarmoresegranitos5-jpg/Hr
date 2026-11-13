@@ -8932,6 +8932,19 @@ const MPX_COLS = {
 const MPX_SO_SALDO = /^(INITIAL|FINAL|TOTAL)|SALDO_(INICIAL|FINAL)|AVAILABLE_BALANCE/;
 const MPX_SAIDA = /PAYOUT|WITHDRAW|SAQUE|REFUND|DEVOL|FEE|TARIFA|CHARGEBACK|CONTEST/;
 
+// v63i: o relatório de liberações traz lançamentos INTERNOS do Mercado Pago que não são dinheiro entrando nem saindo:
+//   reserve_for_payout (+/-: o MP separa o valor antes de enviar o Pix) e payout_cancel (Pix cancelado, devolve o payout).
+//   Eles sumem; "payout" é o Pix/transferência que saiu de verdade — o relatório não traz o nome de quem recebeu.
+function internaMPX(r) { return /^RESERVE_FOR_|^(RESERVE|UNRESERVE|BLOCK|UNBLOCK|PAYOUT_RESERVE|MONEY_RESERVE)/.test(nhMPX(r.desc)) || /^RESERVE_FOR_/.test(r.tipoN); }
+function limparInternasMPX(rows) {
+  let out = rows.filter(r => !internaMPX(r));
+  const cancel = out.filter(r => /^PAYOUT_CANCEL/.test(nhMPX(r.desc)));
+  const tirar = new Set(cancel);
+  for (const c of cancel) { const p = out.find(r => !tirar.has(r) && /^PAYOUT$/.test(nhMPX(r.desc)) && r.sentido === 'out' && Math.abs(r.valor - c.valor) < 0.01); if (p) tirar.add(p); }
+  out = out.filter(r => !tirar.has(r));
+  for (const r of out) if (/^PAYOUT$/.test(nhMPX(r.desc))) { r.desc = 'Pix enviado' + (r.hora ? ' ' + r.hora : ''); r.semNome = true; }
+  return out;
+}
 function lerRelatorioMP(csv) {
   const linhas = csvLinhas(csv);
   const hi = linhas.findIndex(l => l.some(c => /^(DATE|DATA|FECHA)/.test(nhMPX(c))));
@@ -8957,9 +8970,10 @@ function lerRelatorioMP(csv) {
     }
     if (!sentido || valor < 0.005) continue;
     if (c.saldo >= 0 && g(c.saldo) !== '' && data >= saldoData) { saldo = numMPX(g(c.saldo)); saldoData = data; } // o saldo é o da movimentação mais recente do arquivo
-    rows.push({ data, id: g(c.id), tipo, tipoN, desc: g(c.desc), ref: g(c.ref), metodo: g(c.metodo), sentido, valor: Math.round(valor * 100) / 100 });
+    const hm = g(c.data).match(/T(\d{2}):(\d{2})/);
+    rows.push({ data, hora: hm ? `${hm[1]}:${hm[2]}` : '', id: g(c.id), tipo, tipoN, desc: g(c.desc), ref: g(c.ref), metodo: g(c.metodo), sentido, valor: Math.round(valor * 100) / 100 });
   }
-  return { rows, saldo, cabecalho: linhas[hi], mapa: c };
+  return { rows: limparInternasMPX(rows), saldo, cabecalho: linhas[hi], mapa: c };
 }
 
 const MPX_TIPOS = [[/PAYOUT|WITHDRAW|SAQUE|TRANSFER/, 'Retirada/transferência'], [/REFUND|DEVOL/, 'Devolução'], [/FEE|TARIFA|COMISS/, 'Tarifa'], [/CHARGEBACK|CONTEST/, 'Contestação'], [/PAYMENT|PAGAMENTO|SETTLEMENT/, 'Pagamento'], [/RELEASE|LIBERA/, 'Liberação']];
@@ -9283,6 +9297,31 @@ async function movMPSalvar(env, h, r, status, soSeNovo) {
     : 'INSERT INTO mp_mov (h, data, sentido, valor, descr, tipo, metodo, status, atualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(h) DO UPDATE SET status = excluded.status, atualizado = excluded.atualizado';
   await env.HR_DB.prepare(sql).bind(h, r.data, r.sentido, r.valor, String(r.desc || '').slice(0, 140), tipoFaladoMPX(r).slice(0, 60), String(r.metodo || '').slice(0, 40), status, Date.now()).run();
 }
+// v63i: desfaz o que a leitura antiga fez com os lançamentos internos (reserve_for_payout / payout_cancel / payout sem nome)
+async function limparInternasMPXJa(env) {
+  if (await env.HR_KV.get('mpx:limpo63i')) return 0;
+  let n = 0;
+  try {
+    if (await movMPTabela(env)) {
+      const r = await env.HR_DB.prepare("DELETE FROM mp_mov WHERE lower(descr) LIKE 'reserve_for%' OR lower(descr) IN ('payout', 'payout_cancel')").run();
+      n += (r.meta && r.meta.changes) || 0;
+    }
+    let cursor;
+    for (let i = 0; i < 5; i++) {
+      const l = await env.HR_KV.list({ prefix: 'fin:179', cursor, limit: 1000 });
+      for (const k of l.keys) {
+        let rec = null; try { rec = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+        if (rec && rec.origem === 'mpx' && /reserve_for|payout_cancel|recebido de payout\b/i.test(rec.desc || '')) {
+          await env.HR_KV.delete(k.name); n++;
+          if (rec.importado) { const lst = JSON.parse((await env.HR_KV.get('mpx:apagarApp')) || '[]'); lst.push(rec.waId); await env.HR_KV.put('mpx:apagarApp', JSON.stringify(lst.slice(-200)), { expirationTtl: 30 * 86400 }); }
+        }
+      }
+      if (l.list_complete || !l.cursor) break; cursor = l.cursor;
+    }
+  } catch (e) { console.log('[MPX] limpeza:', e.message); return n; }
+  await env.HR_KV.put('mpx:limpo63i', String(n), { expirationTtl: 90 * 86400 });
+  return n;
+}
 async function movMPStatus(env, h, status) {
   if (!(await movMPTabela(env))) return;
   await env.HR_DB.prepare('UPDATE mp_mov SET status = ?, atualizado = ? WHERE h = ?').bind(status, Date.now(), h).run();
@@ -9311,7 +9350,7 @@ async function perguntarDesconhecidosMPX(env, hs) {
   if (!lista.length) return;
   const vai = lista.slice(0, 3);
   for (const r of vai) await env.HR_KV.put('mpx:pq:' + r.h, '1', { expirationTtl: MPX_PEND_TTL });
-  const nome = r => (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
+  const nome = r => r.semNome ? `Pix enviado${r.hora ? ' às ' + r.hora : ''} (o Mercado Pago não informa o nome)` : (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
   const txt = vai.length === 1
     ? `*Gasto no Mercado Pago com um nome que eu não conheço:* R$ ${reais(vai[0].valor)} para *${nome(vai[0])}* em ${dataBR(vai[0].data).slice(0, 5)}.\n\nCom o que foi esse gasto? Responda do seu jeito, ex.: _produtos de limpeza pro escritório_. Se não for gasto (transferência sua), diga _não é gasto_.`
     : `*Gastos no Mercado Pago com nomes que eu não conheço:*\n${vai.map((r, i) => `${i + 1}. R$ ${reais(r.valor)} para *${nome(r)}* em ${dataBR(r.data).slice(0, 5)}`).join('\n')}\n\nCom o que foi cada um? Responda do seu jeito, ex.: _1 foi produto de limpeza pro escritório, 2 foi frete da chapa_.${lista.length > 3 ? `\n\n_Há mais ${lista.length - 3} no app (Finanças → Mercado Pago)._` : ''}`;
@@ -13890,7 +13929,9 @@ async function rotaBotInterna(req, env, url) {
   // Fechamentos do dia já confirmados pelo dono (mais recentes primeiro)
   if (p === '/bot/mp/painel' && req.method === 'GET') {
     const dias = Math.min(60, Math.max(1, Number(url.searchParams.get('dias')) || 30));
+    await limparInternasMPXJa(env).catch(() => {});
     const pn = await painelMP(env, dias);
+    try { pn.apagarApp = JSON.parse((await env.HR_KV.get('mpx:apagarApp')) || '[]'); } catch (_) {}
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
