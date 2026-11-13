@@ -873,7 +873,7 @@ function _secAutoFetchBriefing() {
   // Nao auto-busca se: ja esta carregando, dados frescos (< 30min), ou sem chave
   if (_secAI.loading) return;
   if (!CFG || !CFG.emp || !CFG.emp.apiKey) return;
-  try { if (Date.now() < (+localStorage.getItem('hr_ia_cota_ate') || 0)) return; } catch (e) {} // cota da IA esgotada: espera renovar
+  try { var _bc = typeof _getBotCfg === 'function' ? _getBotCfg() : {}; if (Date.now() < (+localStorage.getItem('hr_ia_cota_ate') || 0) && !(_bc && _bc.url && _bc.key)) return; } catch (e) {} // cota do Gemini esgotada e sem bot: espera renovar (com bot, app-ia-proxy.js usa a IA dele)
   if (_secAI.data && _secAI._fetchedAt) {
     var agora = Date.now();
     var tresHoras = 3 * 60 * 60 * 1000;
