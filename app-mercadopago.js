@@ -121,9 +121,10 @@
           }).catch(function () {});
         }
       }
+      else if (!D) D = { movs: [], mes: { ent: 0, sai: 0 }, erro: { msg: (d && d.error) || 'O bot não respondeu agora. Toque em ↻ Atualizar ou abra de novo em 1 minuto.', em: Date.now() } };
       render();
     })
-      .catch(function () { carregando = false; render(); });
+      .catch(function (e) { carregando = false; if (!D) D = { movs: [], mes: { ent: 0, sai: 0 }, erro: { msg: 'Sem conexão com o bot (' + ((e && e.message) || 'erro') + '). Abra de novo em 1 minuto.', em: Date.now() } }; render(); setTimeout(carregar, 60000); });
   }
   function vigiar() { // enquanto o relatório é gerado, confere a cada 40 s (o bot processa quando fica pronto)
     if (poll) return;

@@ -873,10 +873,11 @@ function _secAutoFetchBriefing() {
   // Nao auto-busca se: ja esta carregando, dados frescos (< 30min), ou sem chave
   if (_secAI.loading) return;
   if (!CFG || !CFG.emp || !CFG.emp.apiKey) return;
+  try { if (Date.now() < (+localStorage.getItem('hr_ia_cota_ate') || 0)) return; } catch (e) {} // cota da IA esgotada: espera renovar
   if (_secAI.data && _secAI._fetchedAt) {
     var agora = Date.now();
-    var trintaMin = 30 * 60 * 1000;
-    if (agora - _secAI._fetchedAt < trintaMin) return;
+    var tresHoras = 3 * 60 * 60 * 1000;
+    if (agora - _secAI._fetchedAt < tresHoras) return;
   }
   secFetchAI();
 }
@@ -1227,6 +1228,8 @@ function secNotifDotUpdate() {
 // ══════════════════════════════════════════════════════════════
 
 var _secAI = { data: null, loading: false, lastUpdate: null, error: null };
+// O briefing fica guardado no aparelho (antes, cada abertura do app gastava uma chamada da IA — a cota grátis do Gemini é de 20 por dia)
+try { var _secCache = JSON.parse(localStorage.getItem('hr_sec_briefing') || 'null'); if (_secCache && _secCache.data) { _secAI.data = _secCache.data; _secAI._fetchedAt = _secCache.em; _secAI.lastUpdate = _secCache.lastUpdate || null; } } catch (e) {}
 
 function _secBuildCtx() {
   var hoje = td();
@@ -1433,7 +1436,8 @@ function secFetchAI() {
     _secAI.data = JSON.parse(match[0]);
     _secAI.loading = false;
     _secAI.lastUpdate = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-    _secAI._fetchedAt = Date.now(); // para cache de 30min no auto-fetch
+    _secAI._fetchedAt = Date.now(); // para cache de 3 h no auto-fetch
+    try { localStorage.setItem('hr_sec_briefing', JSON.stringify({ data: _secAI.data, em: _secAI._fetchedAt, lastUpdate: _secAI.lastUpdate })); } catch (e) {}
     _secAI.error = null;
     _secRenderAI();
     toast('✨ Briefing da IA atualizado!');
@@ -1447,6 +1451,12 @@ function secFetchAI() {
     else if (msg.indexOf('rate:') === 0) _secAI.error = 'rate';
     else if (msg.indexOf('parse:') === 0) _secAI.error = 'parse';
     else _secAI.error = 'generic';
+    if (_secAI.error === 'rate') { // cota esgotada: não tenta de novo até renovar (o Google diz em quanto tempo)
+      var mm = msg.match(/retry in (?:(\d+)h)?(?:(\d+)m)?/i), ms = mm ? ((+mm[1] || 0) * 3600 + (+mm[2] || 0) * 60 + 60) * 1000 : 3 * 3600 * 1000;
+      try { localStorage.setItem('hr_ia_cota_ate', String(Date.now() + ms)); } catch (e2) {}
+      _secRenderAI(); console.warn('secFetchAI: cota da IA esgotada até ' + new Date(Date.now() + ms).toLocaleTimeString('pt-BR'));
+      return;
+    }
     _secRenderAI();
     console.error('secFetchAI:', e);
   });
