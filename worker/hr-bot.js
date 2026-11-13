@@ -1,3 +1,4 @@
+// v60 (13/11/2026): A RECEBER — botão "🤖 Cobrar agora" no app: o bot cria (ou reenvia) a cobrança na hora, sem prévia (POST /bot/a-receber/cobrar-agora).
 // v59 (13/11/2026): painel do Mercado Pago mostra o erro da última leitura (mpx:erro) e quando foi pedido o relatório.
 // v58 (13/11/2026): GASTO COM NOME DESCONHECIDO NO MERCADO PAGO — em vez de lançar em "Outros", o bot pergunta ao Sr. Hangel
 //   com o que foi ("produtos de limpeza pro escritório"); ele responde do jeito dele e a IA lança com a categoria certa
@@ -13163,6 +13164,11 @@ async function rotaBotInterna(req, env, url) {
     try { sug = JSON.parse((await env.HR_KV.get(REC_SUG)) || '[]') || []; } catch (_) {}
     return jsonR({ ok: true, itens: (r.itens || []).length, config: r.config || {}, sugestoes: sug });
   }
+  if (p === '/bot/a-receber/cobrar-agora' && req.method === 'POST') { // v60
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    try { return jsonR(await recCobrarAgora(env, String(b.id || ''))); }
+    catch (e) { await falhou(env, 'A Receber: cobrar agora', e).catch(() => {}); return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
+  }
   if (p === '/bot/a-receber/confirmar' && req.method === 'POST') {
     let body = {};
     try { body = await req.json(); } catch (_) { return jsonR({ error: 'JSON inválido.' }, 400); }
@@ -17458,6 +17464,42 @@ async function recSugerirBaixa(env, cb, valorC, forma, chave) {
   await env.HR_KV.put(REC_SUG, JSON.stringify(sug.slice(-50)), { expirationTtl: 14 * 86400 });
 }
 
+// v60: botão "🤖 Cobrar agora" do app — o próprio Sr. Hangel mandou: cria (ou reenvia) a cobrança na hora, sem esperar a régua e sem prévia.
+async function recCobrarAgora(env, id) {
+  const { itens } = await recLerItens(env);
+  const it = (itens || []).find(x => String(x.id) === String(id));
+  if (!it) return { ok: false, error: 'O bot ainda não recebeu este cliente do app. Espere uns segundos e toque de novo.' };
+  const hoje = dataBahia(), c = recCalc(it, hoje), restC = Math.round(c.rest * 100);
+  if (restC < 100) return { ok: false, error: 'Este cliente não tem saldo para cobrar.' };
+  if (!recProAtivo(env)) return { ok: false, error: 'A cobrança automática não está ligada no bot (falta o banco de cobranças ou o Mercado Pago).' };
+  const tel = String(it.tel || (await env.HR_KV.get(recTelKey(it.id))) || '').replace(/\D/g, '');
+  const numero = telefoneD1(tel);
+  if (!numero) return { ok: false, error: 'Falta o WhatsApp de ' + it.cliente + '. Coloque o telefone no serviço e tente de novo.' };
+  const donoNum = numeroDono(env);
+  const est = await recLerEst(env, it.id);
+  if (est.pausado) est.pausado = false;
+  if (await env.HR_KV.get('rec:lk:' + it.id)) return { ok: false, error: 'Já estou mandando essa cobrança. Confira o WhatsApp em instantes.' };
+  await env.HR_KV.put('rec:lk:' + it.id, '1', { expirationTtl: 120 });
+  try {
+    const ult = (await recProAbertas(env, it.id))[0];
+    if (ult && REC_ABERTAS.includes(ult.status)) {
+      if (ult.principal_centavos === restC && ult.vencimento === it.venc) {
+        if (ult.status === 'aguardando_aprovacao') {
+          await recAprovarAuto(env, ult.id, ult.versao);
+          await cbEmitirEEnviar(env, donoNum, ult.id);
+          await recPdfPosEnvio(env, ult.id).catch(() => {});
+        } else await cbBumpPro(env, ult, { from: donoNum, auto: false });
+        await recSalvarEst(env, it.id, est);
+        return { ok: true, acao: 'reenviada', cliente: it.cliente };
+      }
+      await recCancelarPro(env, it.id, 'cobrança refeita pelo app (valor ou vencimento mudou)');
+    }
+    const r = await recProCriar(env, it, est, hoje, restC, numero, donoNum, { semAprovacao: true });
+    await recSalvarEst(env, it.id, est);
+    return { ok: r === 'criada' || r === 'duplicada', acao: r, cliente: it.cliente, error: r === 'criada' || r === 'duplicada' ? undefined : 'Não consegui criar a cobrança agora (' + r + ').' };
+  } finally { await env.HR_KV.delete('rec:lk:' + it.id).catch(() => {}); }
+}
+
 // Um item do A Receber, na rotina: cria a cobrança profissional na hora certa. Depois dela, quem cuida é a régua da Etapa 62.
 async function recProItem(env, it, c, est, hoje) {
   const restC = Math.round(c.rest * 100);
@@ -17504,7 +17546,7 @@ async function recProItem(env, it, c, est, hoje) {
   finally { await env.HR_KV.delete('rec:lk:' + it.id).catch(() => {}); }
 }
 
-async function recProCriar(env, it, est, hoje, restC, numero, donoNum) { // cria, aprova, envia e (dentro das 24 h) manda o PDF
+async function recProCriar(env, it, est, hoje, restC, numero, donoNum, opts = {}) { // cria, aprova, envia e (dentro das 24 h) manda o PDF
   let nova;
   try {
     nova = await cbCriarPro(env, { nome: it.cliente, numero, descricao: String(it.desc || 'serviço entregue').slice(0, 60), principalC: restC, vencimento: it.venc, descontoC: 0, regua: true, origemId: REC_ORIGEM + it.id });
@@ -17513,7 +17555,7 @@ async function recProCriar(env, it, est, hoje, restC, numero, donoNum) { // cria
     if (est.falhaEm === hoje) return 'falha'; // já avisei hoje
     est.falhaEm = hoje; throw e;
   }
-  if (await recPrecisaAprovacao(env, numero)) { // 1º envio a este cliente: o dono vê a prévia e decide (nada vai ao cliente antes)
+  if (!opts.semAprovacao && await recPrecisaAprovacao(env, numero)) { // 1º envio a este cliente: o dono vê a prévia e decide (nada vai ao cliente antes)
     await cbRun(env, 'UPDATE aprovacoes SET expira_em = ? WHERE cobranca_id = ? AND versao = ? AND decisao IS NULL', new Date(Date.now() + 48 * 3600000).toISOString(), nova.id, nova.versao);
     await enviar(env, donoNum, `*A Receber:* primeiro aviso de cobrança a ${it.cliente}. Nada foi enviado ao cliente; confira a prévia e decida.`).catch(() => {});
     try { await enviarComBotoes(env, donoNum, nova.texto, [{ id: `cb_ok|${nova.id}|${nova.versao}`, titulo: 'Aprovar e enviar' }, { id: `cb_no|${nova.id}`, titulo: 'Cancelar' }]); }

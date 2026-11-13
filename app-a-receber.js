@@ -209,6 +209,7 @@
     var c = cfg();
     entrega = entrega || hoje();
     j.entregueEm = entrega;
+    delete j.naoCobrar;
     j.fiado = {
       lancadoEm: entrega, venc: venc,
       multaPct: c.multaPct, jurosMesPct: c.jurosMesPct, carencia: c.carenciaDias, // taxas combinadas ficam gravadas neste lançamento
@@ -431,7 +432,7 @@
   function semBot() {
     var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     return (DB.j || []).filter(function (j) {
-      if (!j || j.fiado) return false;
+      if (!j || j.fiado || j.naoCobrar) return false;
       var resto = (+j.value || 0) - (+j.pago || 0); if (resto <= 0.01) return false;
       if (j.done) return true;
       if (!j.end) return false;
@@ -487,7 +488,7 @@
           : '<div style="font-size:.7rem;color:var(--t3);margin-top:3px;">Sem multa/juros até o vencimento.</div>') +
         '<div style="display:flex;gap:6px;margin-top:10px;">' +
           '<button type="button" data-rec-r="' + j.id + '" style="flex:1.4;padding:10px 4px;border:none;border-radius:10px;background:var(--gold3);color:#000;font-weight:800;font-size:.76rem;cursor:pointer;font-family:inherit;">💰 Receber</button>' +
-          '<button type="button" data-rec-w="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">📲 Cobrar</button>' +
+          '<button type="button" data-rec-bot="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">🤖 Cobrar</button>' +
           '<button type="button" data-rec-p="' + j.id + '" style="flex:1;padding:10px 4px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--tx);font-weight:700;font-size:.76rem;cursor:pointer;font-family:inherit;">📄 Aviso</button>' +
           '<button type="button" data-rec-m="' + j.id + '" style="padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--t2);font-size:.9rem;cursor:pointer;font-family:inherit;">⋯</button>' +
         '</div></div>';
@@ -505,6 +506,8 @@
     sheet(
       '<div style="font-size:1rem;font-weight:800;color:var(--gold);">' + esc(j.cli) + '</div>' +
       '<div style="font-size:.72rem;color:var(--t3);margin:2px 0 14px;">Deve R$ ' + brl(c.total) + ' · vence ' + dmy(f.venc) + '</div>' +
+      '<button type="button" id="hrRecBotAgora" style="' + BTN_OK + 'padding:12px;margin-bottom:8px;">🤖 Mandar o bot cobrar agora</button>' +
+      '<button type="button" id="hrRecZap" style="' + BTN_LN + 'margin-bottom:14px;">📲 Eu mesmo cobro pelo WhatsApp</button>' +
       '<label style="' + LBL + '">Mudar vencimento</label>' +
       '<input id="hrRecNovoVenc" type="date" value="' + esc(f.venc) + '" style="' + INPUT + 'margin-bottom:10px;">' +
       '<button type="button" id="hrRecSalvaVenc" style="' + BTN_OK + 'padding:12px;">Salvar novo vencimento</button>' +
@@ -512,6 +515,8 @@
       '<button type="button" id="hrRecTira" style="' + BTN_NO + 'color:#f08a8a;">Tirar de "a receber" (não cobrar mais)</button>' +
       '<button type="button" id="hrRecVolta" style="' + BTN_NO + '">Voltar</button>');
     document.getElementById('hrRecVolta').addEventListener('click', abrirLista);
+    document.getElementById('hrRecBotAgora').addEventListener('click', function () { botCobrarAgora(j.id, this); });
+    document.getElementById('hrRecZap').addEventListener('click', function () { cobrar(j.id); });
     document.getElementById('hrRecSalvaVenc').addEventListener('click', function () {
       var v = document.getElementById('hrRecNovoVenc').value;
       if (!v) { toastS('Escolha uma data'); return; }
@@ -528,12 +533,41 @@
       DB.sv(); redesenha(); toastS('🤝 Multa e juros perdoados'); abrirLista();
     });
     document.getElementById('hrRecTira').addEventListener('click', function () {
-      if (typeof showCB === 'function') {
-        showCB('Tirar ' + j.cli + ' de "a receber"? O saldo continua no serviço, só para de contar juros.', function () {
-          hideCB(); delete j.fiado; DB.sv(); redesenha(); toastS('Removido de "a receber"'); abrirLista();
-        }, function () { hideCB(); });
-      } else { delete j.fiado; DB.sv(); redesenha(); abrirLista(); }
+      var b = this;
+      if (!b.getAttribute('data-conf')) { // 1º toque pede confirmação aqui mesmo (a caixa de confirmação antiga abria escondida atrás desta tela)
+        b.setAttribute('data-conf', '1');
+        b.textContent = 'Toque de novo para confirmar: ' + j.cli + ' sai de "a receber" e o bot para de cobrar';
+        b.style.background = 'rgba(240,138,138,.12)'; b.style.border = '1px solid rgba(240,138,138,.5)';
+        setTimeout(function () { if (b.isConnected) { b.removeAttribute('data-conf'); b.textContent = 'Tirar de "a receber" (não cobrar mais)'; b.style.background = ''; b.style.border = ''; } }, 6000);
+        return;
+      }
+      delete j.fiado; j.naoCobrar = true;
+      DB.sv(); try { sincBot(true); } catch (e) {}
+      redesenha(); toastS('Removido de "a receber" — o bot não cobra mais ' + j.cli); abrirLista();
     });
+  }
+
+  // ═══ 4a) MANDAR O BOT COBRAR AGORA ═══════════════════════════════
+  function botCobrarAgora(id, btn) {
+    var j = achaJob(id); if (!j || !j.fiado) return;
+    var q = achaOrc(j), tel = String((q && q.tel) || j.tel || '').replace(/\D/g, '');
+    if (tel.length < 10) {
+      var t = prompt('Qual o WhatsApp de ' + (j.cli || 'o cliente') + ' (com DDD)? O bot precisa dele para cobrar.');
+      t = String(t || '').replace(/\D/g, '');
+      if (t.length < 10) { toastS('Sem o telefone o bot não consegue cobrar.'); return; }
+      j.tel = t; DB.sv();
+    }
+    if (btn) { btn.disabled = true; btn.textContent = '🤖 Mandando…'; }
+    sincBot(true);
+    var tenta = function (n) {
+      chamaBot('POST', '/bot/a-receber/cobrar-agora', { id: String(j.id) }).then(function (r) {
+        if (r && r.ok) { toastS('🤖 O bot mandou a cobrança para ' + j.cli + '. Confira no WhatsApp.'); if (btn) btn.textContent = '✓ Cobrança enviada'; return; }
+        if (n < 2 && r && /ainda não recebeu/.test(r.error || '')) { setTimeout(function () { tenta(n + 1); }, 2500); return; }
+        if (btn) { btn.disabled = false; btn.textContent = '🤖 Tentar de novo'; }
+        toastS('⚠️ ' + ((r && r.error) || 'Não deu para cobrar agora.'));
+      }).catch(function (e) { if (btn) { btn.disabled = false; btn.textContent = '🤖 Tentar de novo'; } toastS('⚠️ ' + e.message); });
+    };
+    setTimeout(function () { tenta(0); }, 900);
   }
 
   // ═══ 4) COBRAR PELO WHATSAPP ══════════════════════════════════════
@@ -773,6 +807,7 @@
     if ((el = t.closest('[data-hrrec-receber]'))) { abrirReceber(el.getAttribute('data-hrrec-receber')); return; }
     if ((el = t.closest('[data-rec-r]'))) { abrirReceber(el.getAttribute('data-rec-r')); return; }
     if ((el = t.closest('[data-rec-w]'))) { cobrar(el.getAttribute('data-rec-w')); return; }
+    if ((el = t.closest('[data-rec-bot]'))) { botCobrarAgora(el.getAttribute('data-rec-bot'), el); return; }
     if ((el = t.closest('[data-rec-p]'))) { avisoPDF(el.getAttribute('data-rec-p')); return; }
     if ((el = t.closest('[data-rec-m]'))) { abrirMais(el.getAttribute('data-rec-m')); return; }
     if ((el = t.closest('[data-rec-cfg]'))) {
