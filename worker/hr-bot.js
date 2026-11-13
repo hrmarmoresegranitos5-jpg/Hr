@@ -9023,6 +9023,7 @@ async function mpxPedirRelatorio(env, de, ate) {
       }
       if (!c.ok) throw await mpxErro(c, 'ao configurar o relatório');
     }
+    await env.HR_KV.delete('mpx:erro').catch(() => {}); // configuração aceita: o erro antigo não vale mais
     await env.HR_KV.put('mpx:cfg2', '1', { expirationTtl: 30 * 86400 });
   }
   const r = await fetch(base, { method: 'POST', headers: h, body: JSON.stringify({ begin_date: `${de}T03:00:00Z`, end_date: `${somaDias(ate, 1)}T02:59:59Z` }) }); // dia de Bahia (UTC-3)
@@ -13845,8 +13846,8 @@ async function rotaBotInterna(req, env, url) {
     const dias = Math.min(60, Math.max(1, Number(url.searchParams.get('dias')) || 30));
     const pn = await painelMP(env, dias);
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
-    try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura)) pn.erro = er; } catch (_) {}
-    pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
+    try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
+    if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) pn.erro = er; } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
     return jsonR(pn);
   }
   if (p === '/bot/mp/atualizar' && req.method === 'POST') {
