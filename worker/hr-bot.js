@@ -9028,7 +9028,12 @@ async function mpxPedirRelatorio(env, de, ate) {
     await env.HR_KV.delete('mpx:erro').catch(() => {}); // configuração aceita: o erro antigo não vale mais
     await env.HR_KV.put('mpx:cfg2', '1', { expirationTtl: 30 * 86400 });
   }
-  const r = await fetch(base, { method: 'POST', headers: h, body: JSON.stringify({ begin_date: `${de}T03:00:00Z`, end_date: `${somaDias(ate, 1)}T02:59:59Z` }) }); // dia de Bahia (UTC-3)
+  // v63f: o fim do período não pode estar no futuro (o MP aceitava o pedido e não gerava nada) → no máximo "agora - 5 min"
+  const fimDia = Date.parse(`${somaDias(ate, 1)}T02:59:59Z`), fim = new Date(Math.min(fimDia, Date.now() - 5 * 60 * 1000)).toISOString().slice(0, 19) + 'Z';
+  const corpo = { begin_date: `${de}T03:00:00Z`, end_date: fim };
+  const r = await fetch(base, { method: 'POST', headers: h, body: JSON.stringify(corpo) }); // dia de Bahia (UTC-3)
+  const resp = (await r.clone().text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+  await env.HR_KV.put('mpx:criacao', JSON.stringify({ em: Date.now(), status: r.status, resp, corpo }), { expirationTtl: 3 * 86400 }).catch(() => {});
   if (!r.ok) throw await mpxErro(r, 'ao pedir o relatório');
 }
 
@@ -9562,6 +9567,19 @@ async function extratoMPTick(env, opts = {}) {
   const csv = arquivo ? await mpxBaixar(env, arquivo) : null;
   if (!csv) {
     await env.HR_KV.delete('mpx:lock');
+    // v63f: 20 min e a conta continua SEM nenhum relatório → o pedido se perdeu: pede de novo (até 2 vezes) e depois mostra o erro
+    let dg = null; try { dg = JSON.parse((await env.HR_KV.get('mpx:diag')) || 'null'); } catch (_) {}
+    if (dg && dg.total === 0 && Date.now() - est.criadoEm > 20 * 60 * 1000) {
+      if ((est.tentativas || 0) < 2) {
+        try { await mpxPedirRelatorio(env, est.de, est.ate); } catch (e) { await env.HR_KV.delete('mpx:estado'); await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {}); return { erro: e.message }; }
+        await env.HR_KV.put('mpx:estado', JSON.stringify({ ...est, criadoEm: Date.now(), tentativas: (est.tentativas || 0) + 1 }), { expirationTtl: 86400 });
+        return { esperando: true, repedido: true };
+      }
+      let cr = null; try { cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); } catch (_) {}
+      await env.HR_KV.delete('mpx:estado');
+      await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: `Pedi o relatório 3 vezes e o Mercado Pago não criou nenhum na conta. Resposta do pedido: ${cr ? cr.status + ' ' + cr.resp : '—'}`.slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
+      return { erro: 'sem relatório' };
+    }
     if (Date.now() - est.criadoEm > 3 * 3600 * 1000) {
       await env.HR_KV.delete('mpx:estado');
       await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: 'O Mercado Pago não entregou o relatório em 3 horas.', em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
@@ -13855,7 +13873,12 @@ async function rotaBotInterna(req, env, url) {
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
-    if (pn.gerando && pn.gerando.desde && Date.now() - pn.gerando.desde > 10 * 60 * 1000) { try { pn.diag = JSON.parse((await env.HR_KV.get('mpx:diag')) || 'null'); } catch (_) {} }
+    if (pn.gerando && pn.gerando.desde && Date.now() - pn.gerando.desde > 10 * 60 * 1000) {
+      await extratoMPTick(env).catch(() => {}); // o painel aberto também faz o bot conferir (não depende só do relógio)
+      const est2 = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
+      if (!est2) { const pn2 = await painelMP(env, dias); Object.assign(pn, pn2); pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null; try { const e2 = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); if (e2 && (!pn.ultimaLeitura || e2.em > pn.ultimaLeitura)) pn.erro = e2; } catch (_) {} }
+      try { pn.diag = JSON.parse((await env.HR_KV.get('mpx:diag')) || 'null'); const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); if (pn.diag && cr) pn.diag.criacao = cr.status + ' ' + cr.resp; } catch (_) {}
+    }
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
   }
