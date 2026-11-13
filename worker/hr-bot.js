@@ -9306,9 +9306,9 @@ async function limparInternasMPXJa(env) {
       const r = await env.HR_DB.prepare("DELETE FROM mp_mov WHERE lower(descr) LIKE 'reserve_for%' OR lower(descr) IN ('payout', 'payout_cancel')").run();
       n += (r.meta && r.meta.changes) || 0;
     }
-    let cursor;
-    for (let i = 0; i < 5; i++) {
-      const l = await env.HR_KV.list({ prefix: 'fin:179', cursor, limit: 1000 });
+    let cursor = (await env.HR_KV.get('mpx:limpoCursor')) || undefined;
+    for (let i = 0; i < 1; i++) { // 150 por vez (limite de operações do Cloudflare); continua na próxima abertura do painel
+      const l = await env.HR_KV.list({ prefix: 'fin:179', cursor, limit: 150 });
       for (const k of l.keys) {
         let rec = null; try { rec = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
         if (rec && rec.origem === 'mpx' && /reserve_for|payout_cancel|recebido de payout\b/i.test(rec.desc || '')) {
@@ -9316,7 +9316,7 @@ async function limparInternasMPXJa(env) {
           if (rec.importado) { const lst = JSON.parse((await env.HR_KV.get('mpx:apagarApp')) || '[]'); lst.push(rec.waId); await env.HR_KV.put('mpx:apagarApp', JSON.stringify(lst.slice(-200)), { expirationTtl: 30 * 86400 }); }
         }
       }
-      if (l.list_complete || !l.cursor) break; cursor = l.cursor;
+      if (!(l.list_complete || !l.cursor)) { await env.HR_KV.put('mpx:limpoCursor', l.cursor, { expirationTtl: 86400 }); return n; }
     }
   } catch (e) { console.log('[MPX] limpeza:', e.message); return n; }
   await env.HR_KV.put('mpx:limpo63i', String(n), { expirationTtl: 90 * 86400 });
@@ -13930,16 +13930,15 @@ async function rotaBotInterna(req, env, url) {
   // Fechamentos do dia já confirmados pelo dono (mais recentes primeiro)
   if (p === '/bot/mp/painel' && req.method === 'GET') {
     const dias = Math.min(60, Math.max(1, Number(url.searchParams.get('dias')) || 30));
-    await limparInternasMPXJa(env).catch(() => {});
+    const fundo = p => env._waitUntil ? env._waitUntil(p.catch(() => {})) : p.catch(() => {}); // v63k: o painel responde na hora; o trabalho pesado vai depois
+    fundo(limparInternasMPXJa(env));
     const pn = await painelMP(env, dias);
     try { pn.apagarApp = JSON.parse((await env.HR_KV.get('mpx:apagarApp')) || '[]'); } catch (_) {}
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
     try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura) && !(pn.pedidoEm && pn.pedidoEm > er.em)) { pn.erro = er; pn.pedidoEm = null; } } catch (_) {} // v63c: erro antigo some quando há pedido novo em andamento
     if (pn.gerando && pn.gerando.desde && (Date.now() - pn.gerando.desde > 3 * 60 * 1000 || await env.HR_KV.get('mpx:csv'))) {
-      await extratoMPTick(env).catch(() => {}); // o painel aberto também faz o bot conferir (não depende só do relógio)
-      const est2 = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
-      if (!est2) { const pn2 = await painelMP(env, dias); Object.assign(pn, pn2); pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null; try { const e2 = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); if (e2 && (!pn.ultimaLeitura || e2.em > pn.ultimaLeitura)) pn.erro = e2; } catch (_) {} }
+      fundo(extratoMPTick(env)); // o painel aberto também faz o bot conferir (em segundo plano; a próxima consulta já mostra)
       try { pn.diag = JSON.parse((await env.HR_KV.get('mpx:diag')) || 'null'); const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); if (pn.diag && cr) pn.diag.criacao = cr.status + ' ' + cr.resp; } catch (_) {}
     }
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
@@ -20662,6 +20661,7 @@ export default {
   async fetch(req, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     configurarRegras(env); // v27: limite de peças e pingadeira
+    if (ctx && ctx.waitUntil) try { env._waitUntil = p => ctx.waitUntil(p); } catch (_) {} // v63k: tarefas depois da resposta
     const url = new URL(req.url);
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
