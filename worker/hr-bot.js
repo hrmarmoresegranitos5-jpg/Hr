@@ -18636,6 +18636,41 @@ function textoAgendaEquipe(snap, hoje) {
   if (vis.length) l.push('', `*Visitas técnicas:* ${vis.map(v => v.hora || v.h || '').filter(Boolean).join(', ') || vis.length}`);
   return l.join('\n');
 }
+// v63s: ORÇAMENTO PARADO → retomada automática com 3, 7 e 15 dias sem resposta (FOLLOWUP=0 desliga; FOLLOWUP_MAX por dia, padrão 3).
+//   Usa a mesma retomada do botão "🤖 Bot" do app: na janela de 24 h o bot escreve; com o modelo TEMPLATE_RETOMADA também;
+//   sem os dois, o bot prepara a mensagem e o Sr. Hangel envia com um toque.
+async function followupOrcamentosDiario(env) {
+  if (String(env.FOLLOWUP || '1') === '0') return;
+  const agora = agoraBahia(), hoje = dataBahia();
+  if (agora.min < 9 * 60 || agora.min > 12 * 60) return;
+  if (new Date(hoje + 'T12:00:00Z').getUTCDay() === 0) return;
+  if (await env.HR_KV.get('fu:dia:' + hoje)) return;
+  await env.HR_KV.put('fu:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  const orc = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(o => o && /^(aberto|pendente|enviado)$/i.test(o.status || '') && o.data && String(o.tel || '').replace(/\D/g, '').length >= 10);
+  const fechados = new Set(((snap && snap.dados && snap.dados.agenda) || []).map(a => normaliza(a.cliente || '')).filter(Boolean)); // já virou serviço: não cobra
+  const marcos = [3, 7, 15], max = Number(env.FOLLOWUP_MAX) || 3;
+  let feitos = 0;
+  for (const o of orc.sort((a, b) => (b.valor || 0) - (a.valor || 0))) {
+    if (feitos >= max) break;
+    if (fechados.has(normaliza(o.cliente || ''))) continue;
+    const idade = Math.round((Date.parse(hoje + 'T12:00:00Z') - Date.parse(o.data + 'T12:00:00Z')) / 86400000);
+    const marco = marcos.filter(m => idade >= m && idade <= m + 2).pop(); if (!marco) continue;
+    const chave = 'fu:' + String(o.id || (o.cliente + o.data)).replace(/[^\w-]/g, '').slice(0, 50) + ':' + marco;
+    if (await env.HR_KV.get(chave)) continue;
+    let d = String(o.tel).replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
+    const num = normalizarBR(d);
+    let recente = false;
+    for (const v of variantesNumero(num)) { try { const r0 = JSON.parse((await env.HR_KV.get('rt:' + v)) || 'null'); if (r0 && Date.now() - (r0.em || 0) < 3 * 86400000) recente = true; } catch (_) {} }
+    await env.HR_KV.put(chave, '1', { expirationTtl: 40 * 86400 });
+    if (recente) continue;
+    const telFmt = num.replace(/^55(\d{2})(\d+)$/, '($1) $2');
+    const pedido = [o.projeto, o.material].filter(Boolean).join(' em ').slice(0, 100) || 'pedra';
+    const bruto = `${String(o.cliente || 'Cliente').slice(0, 60)} ${telFmt} pediu orçamento de ${pedido}${Number(o.valor) > 0 ? ' (R$ ' + reais(Number(o.valor)) + ')' : ''}, mandei o orçamento mas não me respondeu mais.`;
+    const ok = await tratarRetomadaDono(env, numeroDono(env), bruto, normaliza(bruto)).catch(e => { console.log('[FOLLOWUP]', e.message); return false; });
+    if (ok) feitos++;
+  }
+}
 async function agendaEquipeDiaria(env) {
   if (String(env.AGENDA_EQUIPE || '1') === '0') return;
   const [hh, mm] = String(env.AGENDA_EQUIPE_HORA || '6:30').split(':').map(Number);
@@ -20907,6 +20942,7 @@ export default {
     ctx.waitUntil(qrExpirar(env).catch(e => falhou(env, 'rotina: QR code', e)));
     ctx.waitUntil(pontoRotina(env).catch(e => falhou(env, 'rotina: ponto', e))); // v34: saída esquecida
     ctx.waitUntil(agendaEquipeDiaria(env).catch(e => falhou(env, 'rotina: agenda da equipe', e))); // v63r
+    ctx.waitUntil(followupOrcamentosDiario(env).catch(e => falhou(env, 'rotina: orçamentos parados', e))); // v63s
     ctx.waitUntil((async () => { // em fila, não em paralelo: todas regravam o pedido inteiro e uma sobrescrevia a outra
       for (const [nome, fn] of [['lembretes', lembretesDeValor], ['seguimento', seguimentoValor], ['prazo do Pix', lembretesPixCurto], ['lembrete Pix', lembretesDePix], ['lembrete restante', lembretesRestante], ['bot no lugar do app', pedidosNoBotRotina], ['app parado', alertaAppParado], ['pronto no dia', prontoNoDiaRotina]]) {
         try { await fn(env); } catch (e) { await falhou(env, 'rotina: ' + nome, e); }

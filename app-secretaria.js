@@ -2699,7 +2699,8 @@ function _snapConstruir(meses) {
       var o = {
         cliente: _snapTxt(q.cli, 60), projeto: _snapTxt(q.tipo, 70), material: _snapTxt(q.mat, 50),
         m2: _snapNum(q.m2), valor: _snapNum(q.vista), entrada: _snapNum(q.ent),
-        status: _snapTxt(q.status, 15), data: d
+        status: _snapTxt(q.status, 15), data: d,
+        id: q.id != null ? String(q.id).slice(0, 30) : undefined, tel: _snapTxt(q.tel || '', 20) || undefined // o bot retoma orçamento parado (3, 7 e 15 dias)
       };
       var dias = +(q.validade || (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.diasValidade) || 7);
       if (d && dias > 0) {
