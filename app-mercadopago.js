@@ -57,13 +57,13 @@
       + ['pend', 'todas'].map(function (f) {
         var on = filtro === f;
         return '<button type="button" data-mp-filtro="' + f + '" style="padding:6px 10px;border-radius:20px;border:1px solid ' + (on ? 'var(--gold2)' : 'var(--bd2)') + ';background:' + (on ? 'rgba(201,168,76,.12)' : 'transparent') + ';color:' + (on ? 'var(--gold2)' : 'var(--t3)') + ';font-size:.68rem;font-weight:700;font-family:inherit;cursor:pointer;">'
-          + (f === 'pend' ? 'Para lançar (' + pend.length + ')' : 'Todas (' + movs.length + ')') + '</button>';
+          + (f === 'pend' ? 'Para conferir (' + pend.length + ')' : 'Todas (' + movs.length + ')') + '</button>';
       }).join('') + '</div>';
     h += '<div style="padding:8px 14px 12px;">';
-    if (!lista.length) h += '<div style="font-size:.74rem;color:var(--t3);padding:8px 0;">' + (filtro === 'pend' ? '✓ Tudo do Mercado Pago já está nas finanças.' : 'Nenhuma movimentação nos últimos 30 dias.') + '</div>';
+    if (!lista.length) h += '<div style="font-size:.74rem;color:var(--t3);padding:8px 0;">' + (filtro === 'pend' ? '✓ Tudo do Mercado Pago já entrou sozinho nas finanças.' : 'Nenhuma movimentação nos últimos 30 dias.') + '</div>';
     lista.slice(0, 40).forEach(function (m) {
       var ent = m.sentido === 'in';
-      var st = { ok: '✓ já lançada', lancado: '✓ lançada', ignorado: '— ignorada', pend: '● para lançar' }[m.status] || m.status;
+      var st = { ok: '✓ já lançada', lancado: '✓ lançada', ignorado: '— ignorada', pend: '● para conferir' }[m.status] || m.status;
       h += '<div style="border-top:1px solid var(--bd);padding:9px 0;">'
         + '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">'
         + '<div style="min-width:0;"><div style="font-size:.78rem;color:var(--tx);font-weight:600;overflow-wrap:anywhere;">' + esc(/^(payment|pagamento)$/i.test(m.descr || '') ? 'Pagamento recebido (venda)' : (m.descr || m.tipo || 'Movimentação')) + '</div>'
