@@ -9350,7 +9350,7 @@ async function perguntarDesconhecidosMPX(env, hs) {
   if (!lista.length) return;
   const vai = lista.slice(0, 3);
   for (const r of vai) await env.HR_KV.put('mpx:pq:' + r.h, '1', { expirationTtl: MPX_PEND_TTL });
-  const nome = r => r.semNome ? `Pix enviado${r.hora ? ' às ' + r.hora : ''} (o Mercado Pago não informa o nome)` : (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
+  const nome = r => (r.semNome || /^(payment|pagamento)$/i.test(r.desc || '')) ? `${r.semNome ? 'Pix enviado' : 'pagamento com Pix'}${r.hora ? ' às ' + r.hora : ''} (o Mercado Pago não informa o nome)` : (r.desc || 'favorecido sem nome').replace(/^pix enviado( para)?\s*/i, '').slice(0, 50);
   const txt = vai.length === 1
     ? `*Gasto no Mercado Pago com um nome que eu não conheço:* R$ ${reais(vai[0].valor)} para *${nome(vai[0])}* em ${dataBR(vai[0].data).slice(0, 5)}.\n\nCom o que foi esse gasto? Responda do seu jeito, ex.: _produtos de limpeza pro escritório_. Se não for gasto (transferência sua), diga _não é gasto_.`
     : `*Gastos no Mercado Pago com nomes que eu não conheço:*\n${vai.map((r, i) => `${i + 1}. R$ ${reais(r.valor)} para *${nome(r)}* em ${dataBR(r.data).slice(0, 5)}`).join('\n')}\n\nCom o que foi cada um? Responda do seu jeito, ex.: _1 foi produto de limpeza pro escritório, 2 foi frete da chapa_.${lista.length > 3 ? `\n\n_Há mais ${lista.length - 3} no app (Finanças → Mercado Pago)._` : ''}`;
@@ -9414,7 +9414,7 @@ async function decidirMPXApp(env, h, acao, cat) {
 async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
   const rel = lerRelatorioMP(csv);
   if (rel.erro) return rel;
-  try { const ids = rel.rows.filter(r => r.semNome && r.id).slice(-8).map(r => ({ id: r.id, v: r.valor, d: r.data, h: r.hora })); if (ids.length) await env.HR_KV.put('mpx:payoutIds', JSON.stringify(ids), { expirationTtl: 30 * 86400 }); } catch (_) {}
+  try { const ids = rel.rows.filter(r => r.id && r.sentido === 'out' && (r.semNome || /^PAYMENT$/.test(nhMPX(r.desc)))).slice(-12).map(r => ({ id: r.id, v: r.valor, d: r.data, h: r.hora, k: r.semNome ? 'pix' : 'pag' })); if (ids.length) await env.HR_KV.put('mpx:payoutIds', JSON.stringify(ids), { expirationTtl: 30 * 86400 }); } catch (_) {}
   const vistos = {}, novos = [];
   const chaveIgual = r => [r.sentido, r.valor.toFixed(2), r.data, nhMPX(r.desc)].join('|');
   const igual = {}; for (const r of rel.rows) { const k = chaveIgual(r); igual[k] = (igual[k] || 0) + 1; }
@@ -13955,10 +13955,10 @@ async function rotaBotInterna(req, env, url) {
     try { const cr = JSON.parse((await env.HR_KV.get('mpx:criacao')) || 'null'); L.push(cr ? `Último pedido: ${cr.status} ${cr.resp} · período ${cr.corpo && cr.corpo.begin_date} → ${cr.corpo && cr.corpo.end_date}` : 'Último pedido: nenhum registrado'); } catch (_) {}
     if (b0.nomes) { // v63j: experimento — alguma API do MP devolve QUEM RECEBEU um Pix enviado? (testa com o Pix mais recente do relatório)
       let ids = []; try { ids = JSON.parse((await env.HR_KV.get('mpx:payoutIds')) || '[]'); } catch (_) {}
-      const x = ids[ids.length - 1];
-      if (!x) L.push('Teste de nomes: ainda não tenho nenhum Pix enviado lido do relatório.');
-      else {
-        L.push(`Teste de nomes com o Pix de R$ ${reais(x.v)} em ${dataBR(x.d)} ${x.h || ''} (id ${x.id}):`);
+      const alvos = [ids.filter(i => i.k !== 'pag').pop(), ids.filter(i => i.k === 'pag').pop()].filter(Boolean);
+      if (!alvos.length) L.push('Teste de nomes: ainda não tenho nenhum Pix enviado lido do relatório.');
+      for (const x of alvos) {
+        L.push(`Teste de nomes com ${x.k === 'pag' ? 'o pagamento com Pix' : 'o Pix enviado'} de R$ ${reais(x.v)} em ${dataBR(x.d)} ${x.h || ''} (id ${x.id}):`);
         const mascara = t => curto(t).replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '(cpf)');
         for (const [rot, url] of [['payments', `${MP_API}/v1/payments/${x.id}`], ['transaction-intents', `${MP_API}/v1/transaction-intents/${x.id}`], ['payouts', `${MP_API}/v1/payouts/${x.id}`], ['busca payments', `${MP_API}/v1/payments/search?sort=date_created&criteria=desc&range=date_created&begin_date=${x.d}T00:00:00.000-03:00&end_date=${x.d}T23:59:59.999-03:00&limit=50`]]) {
           try {
