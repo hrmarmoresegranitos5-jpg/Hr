@@ -35,7 +35,7 @@
       })
       .catch(function () {})
       .then(function () { conferindo = false; });
-    try { navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) { r && r.update(); }); } catch (e) {}
+    try { navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) { r && r.update().catch(function () {}); }); } catch (e) {}
   }
 
   function mostrar() {
@@ -60,7 +60,7 @@
       });
     } catch (e) {}
     var sw = Promise.resolve();
-    try { if (navigator.serviceWorker) sw = navigator.serviceWorker.getRegistration().then(function (r) { return r && r.update(); }); } catch (e) {}
+    try { if (navigator.serviceWorker) sw = navigator.serviceWorker.getRegistration().then(function (r) { return r && r.update().catch(function () {}); }); } catch (e) {}
     Promise.all([limpar, sw]).catch(function () {}).then(function () {
       var u = location.pathname + '?atualizado=' + Date.now() + location.hash;
       location.replace(u);

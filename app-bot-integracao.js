@@ -186,6 +186,8 @@
   });
   window.addEventListener('unhandledrejection', function (ev) {
     var r = ev && ev.reason;
+    // falha de rede ao procurar atualização do app (sem internet ou GitHub publicando): não é erro do app
+    if (/ServiceWorker|Failed to fetch|NetworkError|Load failed|network error/i.test(String((r && r.message) || r || ''))) return;
     relatar('Promise rejeitada: ' + String((r && r.message) || r || ''), '', 0, r && r.stack);
   });
 
