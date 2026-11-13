@@ -1209,6 +1209,7 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'rp_nao') { await enviar(env, from, 'Certo, Sr. Hangel. Quando quiser, escreva *respostas prontas*.'); return true; }
   if (id === 'cmd_ajuda') { await enviarComBotoes(env, from, fala(F, 'donoOla', {}), [BTN_HOJE, BTN_Q.financas, BTN_Q.agenda]); return true; }
   if (BTN_Q[id.slice(2)] && id.startsWith('q_')) { await responderDono(env, from, BTN_Q[id.slice(2)].pergunta, F); return true; }
+  if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -9428,7 +9429,7 @@ async function tratarPrintExtratoMP(env, from, m) {
   let lido; try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { console.log('[MPX] print:', e.message); return false; }
   if (!lido || !lido.eh) return false; // não é print do extrato: segue o fluxo normal
   const regs = []; for (const h of pend) { try { const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null'); if (r) regs.push({ ...r, h }); } catch (_) {} }
-  const usados = new Set(), lancados = [], comNome = [], semPar = [];
+  const usados = new Set(), lancados = [], comNome = [], semPar = [], paraRH = [];
   for (const it of lido.itens) {
     const cands = regs.filter(r => !usados.has(r.h) && r.sentido === it.sentido && Math.abs(r.valor - it.valor) < 0.01 && (!it.data || r.data === it.data));
     let r = null;
@@ -9438,6 +9439,15 @@ async function tratarPrintExtratoMP(env, from, m) {
     usados.add(r.h);
     const novo = { ...r, desc: it.nome, semNome: false, tipoPrint: it.tipo };
     delete novo.h;
+    // v63p: Pix para alguém da EQUIPE → vai para o RH (vale/decêndio/adiantamento), não só como gasto
+    if (novo.sentido === 'out') {
+      const f = await mpxFuncionario(env, novo.desc).catch(() => null);
+      if (f) {
+        await env.HR_KV.put('mpx:p:' + r.h, JSON.stringify({ h: r.h, ...novo, func: { id: f.id, nome: f.nome, socio: !!f.socio } }), { expirationTtl: MPX_PEND_TTL });
+        if (await movMPTabela(env)) await env.HR_DB.prepare('UPDATE mp_mov SET descr = ?, atualizado = ? WHERE h = ?').bind(String(novo.desc).slice(0, 140), Date.now(), r.h).run().catch(() => {});
+        paraRH.push({ ...novo, h: r.h, f }); continue;
+      }
+    }
     // já conhece o favorecido? (regra do app → regra aprendida → nome que diz a categoria)
     let cat = null;
     if (novo.sentido === 'out') {
@@ -9458,11 +9468,13 @@ async function tratarPrintExtratoMP(env, from, m) {
   const linhas = [`*Li o print do Mercado Pago:* ${lido.itens.length} linha(s).`];
   if (lancados.length) linhas.push('', `*Lancei sozinho* (já conheço quem recebeu):`, ...lancados.slice(0, 12).map(x => `• R$ ${reais(x.valor)} ${x.desc} → ${x.cat === 'nao' ? 'não é gasto' : (CATS[x.cat] || x.cat)}`));
   if (comNome.length) linhas.push('', `*Agora com nome, falta a categoria* (${comNome.length}): pergunto logo abaixo.`);
-  const jaResolvidos = lido.itens.length - lancados.length - comNome.length - semPar.length;
+  if (paraRH.length) linhas.push('', `*Pix para a equipe* (${paraRH.length}): vão para o RH. Toque no tipo de cada um abaixo.`);
+  const jaResolvidos = lido.itens.length - lancados.length - comNome.length - semPar.length - paraRH.length;
   if (jaResolvidos > 0) linhas.push('', `${jaResolvidos} linha(s) já estavam resolvidas ou são entradas.`);
   if (semPar.length) linhas.push('', `${semPar.length} saída(s) do print ainda não chegaram no relatório do Mercado Pago (o relatório anda um pouco atrás do app): ${semPar.slice(0, 4).map(x => `R$ ${reais(x.valor)} ${x.nome}`).join(', ')}${semPar.length > 4 ? '…' : ''}. Mande o print de novo depois da próxima atualização.`);
-  if (!lancados.length && !comNome.length && !semPar.length) linhas.push('', 'Nenhuma linha deste print está esperando nome agora.');
+  if (!lancados.length && !comNome.length && !semPar.length && !paraRH.length) linhas.push('', 'Nenhuma linha deste print está esperando nome agora.');
   await enviar(env, from, linhas.join('\n'));
+  for (const x of paraRH.slice(0, 6)) await enviarComBotoes(env, from, `*${x.f.nome}${x.f.socio ? ' (sócio)' : ''}:* Pix de R$ ${reais(x.valor)} em ${dataBR(x.data).slice(0, 5)}${x.hora ? ' às ' + x.hora : ''}. O que foi?`, [{ id: `mprh|${x.h}|vale`, titulo: 'Vale' }, { id: `mprh|${x.h}|decendio`, titulo: 'Decêndio' }, { id: `mprh|${x.h}|adiantamento`, titulo: 'Adiantamento' }]);
   if (comNome.length) await perguntarDesconhecidosMPX(env, comNome.map(x => x.h)).catch(e => falhou(env, 'print MP: perguntar', e));
   return true;
 }
@@ -9506,6 +9518,51 @@ async function tratarFotoGeralDono(env, from, m, F) {
   if (env._ctx) env._ctx.bruto = txt;
   await responderDono(env, from, txt, F, false);
   return true;
+}
+async function mpxPagador(env, id) {
+  const r = await fetch(`${MP_API}/v1/payments/${encodeURIComponent(id)}`, { headers: mpxAuth(env) });
+  if (!r.ok) return '';
+  const j = await r.json().catch(() => null); if (!j) return '';
+  const bi = j.point_of_interaction && j.point_of_interaction.transaction_data && j.point_of_interaction.transaction_data.bank_info;
+  const nome = (bi && bi.payer && (bi.payer.long_name || bi.payer.name)) || [j.payer && j.payer.first_name, j.payer && j.payer.last_name].filter(Boolean).join(' ') || (j.additional_info && j.additional_info.payer && [j.additional_info.payer.first_name, j.additional_info.payer.last_name].filter(Boolean).join(' ')) || '';
+  return String(nome).replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+// Pix que entrou com o nome de quem tem conta no A Receber → o app pergunta "Dar baixa?" (mesmo mecanismo da cobrança do bot)
+async function recSugerirBaixaMP(env, h, r) {
+  const { itens } = await recLerItens(env); if (!itens || !itens.length) return;
+  const tk = s => normaliza(s).split(/\s+/).filter(w => w.length >= 3 && !['dos', 'das', 'de', 'da', 'do'].includes(w));
+  const pag = new Set(tk(r.pagador));
+  const casa = it => { const c = tk(it.cliente); if (!c.length) return false; const prim = c[0]; return pag.has(prim) && c.filter(w => pag.has(w)).length >= Math.min(2, c.length); };
+  const cands = itens.filter(it => casa(it) && r.valor <= recR2((it.valor || 0) - (it.pago || 0)) + 0.01);
+  if (cands.length !== 1) return;
+  const it = cands[0];
+  let sug = []; try { sug = JSON.parse((await env.HR_KV.get(REC_SUG)) || '[]') || []; } catch (_) {}
+  const id = 'mpx:' + h; if (sug.some(s => s.id === id)) return;
+  sug.push({ id, jobId: it.id, valor: r.valor, forma: 'Pix no Mercado Pago', em: Date.now() });
+  await env.HR_KV.put(REC_SUG, JSON.stringify(sug.slice(-50)), { expirationTtl: 14 * 86400 });
+  await notificarDono(env, Date.now(), `*Pix recebido de ${r.pagador}:* R$ ${reais(r.valor)} em ${dataBR(r.data)}. Parece pagamento do A Receber de *${it.cliente}*; ao abrir o app ele pergunta se dá baixa.`).catch(() => {});
+}
+async function mpxFuncionario(env, nomeMP) {
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  const funcs = (snap && snap.dados && Array.isArray(snap.dados.funcionarios)) ? snap.dados.funcionarios.filter(f => f && f.nome && f.ativo !== false) : [];
+  const tk = s => normaliza(s).split(/\s+/).filter(w => w.length >= 3 && !['dos', 'das', 'de', 'da', 'do'].includes(w));
+  const mp = tk(nomeMP); if (!mp.length) return null;
+  const ach = funcs.filter(f => { const t = tk(f.nome); return t.length && t[0] === mp[0] && t.every(w => mp.includes(w)); });
+  return ach.length === 1 ? ach[0] : null;
+}
+// botão "Vale / Decêndio / Adiantamento" do Pix para alguém da equipe → registro no RH do app (o RH também lança em Finanças)
+async function mpxParaRH(env, from, h, tipo) {
+  const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
+  if (!r || !r.func) { await enviar(env, from, 'Esse Pix já foi resolvido, Sr. Hangel.'); return; }
+  const base = Date.now(), rand = Math.floor(Math.random() * 900 + 100), k = 'pag:' + String(base).padStart(13, '0') + '-' + rand;
+  const rec = { k, waId: 'wp' + base + rand, funcId: r.func.id, nome: r.func.nome, valor: r.valor, tipo, data: r.data, forma: 'pix', obs: 'Pix pelo Mercado Pago' + (r.hora ? ' às ' + r.hora : ''), socio: !!r.func.socio, importado: false };
+  await env.HR_KV.put(k, JSON.stringify(rec), { expirationTtl: 30 * 24 * 60 * 60 });
+  await env.HR_KV.put('cfg:flag:pag', String(base), { expirationTtl: 86400 }).catch(() => {});
+  await env.HR_KV.put('mpx:l:' + h, 'rh', { expirationTtl: MPX_TTL });
+  await env.HR_KV.delete('mpx:p:' + h);
+  await movMPStatus(env, h, 'lancado').catch(() => {});
+  const rot = { vale: 'Vale', decendio: 'Pagamento do decêndio', adiantamento: 'Adiantamento' }[tipo] || 'Pagamento';
+  await enviarComBotoes(env, from, `*No RH:* ${rot} de R$ ${reais(r.valor)} para ${r.func.nome} (${dataBR(r.data)}). Entra no app na próxima abertura.`, [{ id: 'pagdesf|' + k, titulo: 'Desfazer' }]);
 }
 async function decidirMPXApp(env, h, acao, cat) {
   const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
@@ -9556,6 +9613,11 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
       if (!fins) fins = await finsSemIdDoPeriodo(env, de, ate);
       const m = fins.find(f => !f.usado && f.date === r.data && Math.abs(f.value - r.valor) < 0.01);
       if (m) { m.usado = true; await marca(h, 'ok'); jaLancados++; continue; } // digitada à mão ou lançamento antigo
+      // v63p: quem pagou (o relatório não traz; a consulta do pagamento traz) → nome no lançamento + baixa sugerida no A Receber
+      if (idPag) {
+        const nomeP = await mpxPagador(env, idPag).catch(() => '');
+        if (nomeP) { r.desc = nomeP; r.pagador = nomeP; _rAtual = r; await recSugerirBaixaMP(env, h, r).catch(e => console.log('[MPX] sugerir baixa:', e.message)); }
+      }
     }
     if (r.sentido === 'out') {
       const ra = await regraDoApp(env, r);
