@@ -3197,7 +3197,7 @@ function buildSV(){
   var _tipoSel=document.getElementById('oTipo')?document.getElementById('oTipo').value:'';
   g.forEach(function(grp){
     // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
-    if((grp.g==='Fixação'||grp.g==='Instalação')&&(_tipoSel==='Cozinha'||_tipoSel==='Banheiro'))return;
+    if((grp.g==='Fixação'||grp.g==='Instalação')&&(window._fixTipos||['Cozinha','Banheiro']).indexOf(_tipoSel)>-1)return;
     h+='<div class="svblk"><div class="svhd">'+grp.g+'</div>';
     grp.its.forEach(function(it){
       var pr=getPr(it.k);
@@ -6285,7 +6285,7 @@ function buildSVHtml(amb){
       if(!_legManual)return;
     }
     // Fixação/Instalação de Cozinha e Banheiro agora são perguntas do Consultor de Fixação (IA), não checkbox manual
-    if((grp.g==='Fixação'||grp.g==='Instalação')&&(amb.tipo==='Cozinha'||amb.tipo==='Banheiro')){
+    if((grp.g==='Fixação'||grp.g==='Instalação')&&(window._fixTipos||['Cozinha','Banheiro']).indexOf(amb.tipo)>-1){
       if(grp.g==='Fixação'&&typeof window._fixInlineHtml==='function') h+=window._fixInlineHtml(amb);
       return;
     }
