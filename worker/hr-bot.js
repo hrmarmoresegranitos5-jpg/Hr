@@ -1,3 +1,8 @@
+// v57 (13/11/2026): MERCADO PAGO AUTOMÁTICO — cada entrada e saída do Mercado Pago é lançada sozinha nas finanças (categoria pela
+//   regra aprendida ou pela descrição; MPX_AUTO=0 volta a perguntar). Só fica para conferir no app o que tem alerta (repetido,
+//   parecido com gasto já digitado, valor fora do normal). O relatório é lido às 8h, 12h, 15h, 18h e 21h (MPX_HORAS), sem
+//   mensagem no WhatsApp (MPX_SILENCIO=0 volta a mandar). O FECHAMENTO DO DIA pergunta só o dinheiro em mãos: gastos em
+//   dinheiro, dinheiro recebido, serviço fechado e carteira (FECH_SO_DINHEIRO=0 volta ao fechamento completo).
 // v56 (13/11/2026): MERCADO PAGO NO APP — o relatório do Mercado Pago (entradas, saídas e saldo) vira histórico no D1 (mp_mov);
 //   o app mostra saldo, entradas e saídas do mês e cada movimentação, pede atualização (POST /bot/mp/atualizar, sem mensagens
 //   no WhatsApp) e lança/ignora o que estiver pendente (POST /bot/mp/decidir). O relatório continua saindo sozinho às 18h.
@@ -5311,15 +5316,20 @@ async function avancarFech(env, from, s, prox) {
       s.d.srvApp = fechados;
       await salvarFech(env, s);
       const linhas = fechados.map(f => `• ${f.cliente}${f.servico ? ' — ' + f.servico : ''}${f.valor ? ' (R$ ' + reais(f.valor) + ')' : ''}`).join('\n');
-      await enviarComBotoes(env, from, `*5/7 — Serviço fechado.* Vi no aplicativo que o senhor fechou hoje:\n${linhas}\n\nEstá certo?`,
+      await enviarComBotoes(env, from, `*${s.mp ? '3/4' : '5/7'} — Serviço fechado.* Vi no aplicativo que o senhor fechou hoje:\n${linhas}\n\nEstá certo?`,
         [{ id: 'fech_srv_ok', titulo: 'Está certo' }, { id: 'fech_srv_outro', titulo: 'Outro serviço' }, { id: 'fech_srv_nenhum', titulo: 'Nenhum' }]);
       return;
     }
   }
   if (prox === 'pix' || prox === 'confirmar') s.d.pixAuto = await pixAutoDoDia(env, s.dia);
+  if (prox === 'confirmar' && s.mp) {
+    s.d.mpDia = await totaisMPDia(env, s.dia).catch(() => null);
+    let sd = null; try { sd = JSON.parse((await env.HR_KV.get('mpx:saldo')) || 'null'); } catch (_) {}
+    if (sd && s.d.saldoConta == null) { s.d.saldoConta = sd.valor; s.d.saldoContaData = sd.data; }
+  }
   await salvarFech(env, s);
   if (prox === 'confirmar') await enviarComBotoes(env, from, textoResumoFech(s), BTNS_FECH_CONF);
-  else await enviar(env, from, fechNoDia(s, perguntaFech(prox, null, s.d.pixAuto)));
+  else await enviar(env, from, fechNoDia(s, perguntaFech(prox, null, s.d.pixAuto, s.mp)));
 }
 
 // v55: fechamento de um dia anterior — as perguntas falam do dia certo, não de "hoje"
@@ -5328,7 +5338,13 @@ function fechNoDia(s, txt) {
   const d = 'em ' + dataBR(s.dia).slice(0, 5);
   return String(txt).replace(/\bde hoje\b/gi, 'de ' + dataBR(s.dia).slice(0, 5)).replace(/\bhoje\b/gi, d);
 }
-function perguntaFech(etapa, jaAnotado, pixAuto) {
+function perguntaFech(etapa, jaAnotado, pixAuto, mp) {
+  if (mp) switch (etapa) { // v57: só o que passa pela mão — o Mercado Pago já entra sozinho
+    case 'gastos': return '*1/4 — Gastos em dinheiro.* Quanto o senhor gastou hoje *em dinheiro vivo* e com o quê?\nEx.: _50 de lanche, 120 de frete_\n_O que saiu pelo Mercado Pago já entra sozinho._\nSe nada, escreva _nada_.';
+    case 'dinheiro': return '*2/4 — Dinheiro recebido.* Quanto recebeu hoje *em mãos* (dinheiro vivo)?\n_Pix e cartão do Mercado Pago já entram sozinhos._\nSe nada, escreva _nada_.';
+    case 'servico': return '*3/4 — Serviço fechado.* Fechou algum serviço hoje? Diga o cliente e o serviço (e o valor, se quiser).\nSe não, escreva _nenhum_.';
+    case 'saldoCarteira': return '*4/4 — Carteira.* Quanto tem na *carteira* (dinheiro em mãos) agora?';
+  }
   const ja = jaAnotado && (jaAnotado.ent || jaAnotado.sai)
     ? `\n\n_Já anotei hoje: gastos R$ ${reais(jaAnotado.sai)} e entradas R$ ${reais(jaAnotado.ent)}. Diga apenas o que ainda não foi anotado._` : '';
   switch (etapa) {
@@ -5349,7 +5365,25 @@ function perguntaFech(etapa, jaAnotado, pixAuto) {
   return '';
 }
 
+async function totaisMPDia(env, dia) {
+  if (!(await movMPTabela(env))) return null;
+  const rs = await env.HR_DB.prepare('SELECT sentido, SUM(valor) AS t, COUNT(*) AS n, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS p FROM mp_mov WHERE data = ? GROUP BY sentido').bind('pend', dia).all();
+  const o = { ent: 0, sai: 0, pend: 0 };
+  for (const x of rs.results || []) { if (x.sentido === 'in') o.ent = x.t || 0; else o.sai = x.t || 0; o.pend += x.p || 0; }
+  return o;
+}
 function textoResumoFech(s) {
+  if (s.mp) { // v57
+    const d = s.d, g = somaItens(d.gastos), rd = somaItens(d.dinheiro), mp = d.mpDia;
+    const l = [`*Fechamento de ${dataBR(s.dia)}, Sr. Hangel*`, '', '*Em dinheiro (mãos):*', `• Gastos: R$ ${reais(g)}`];
+    for (const x of d.gastos.slice(0, 8)) l.push(`   – R$ ${reais(x.value)}${x.desc ? ' — ' + x.desc : ''}`);
+    l.push(`• Recebido: R$ ${reais(rd)}`);
+    l.push('', '*Mercado Pago (entra sozinho):*', mp ? `• Entradas: R$ ${reais(mp.ent)}\n• Saídas: R$ ${reais(mp.sai)}${mp.pend ? `\n• ${mp.pend} para conferir no app (Finanças → Mercado Pago)` : ''}` : '• Ainda sem leitura de hoje (o bot atualiza às 8h, 12h, 15h, 18h e 21h)');
+    l.push('', d.servico ? `*Serviço fechado:* ${d.servico}${d.valorServico ? ' (R$ ' + reais(d.valorServico) + ')' : ''}` : '*Serviço fechado:* nenhum');
+    l.push('', `*Na carteira:* R$ ${reais(d.saldoCarteira || 0)}`);
+    if (d.saldoConta != null) l.push(`*No Mercado Pago:* R$ ${reais(d.saldoConta)}${d.saldoContaData ? ' (lido em ' + dataBR(d.saldoContaData).slice(0, 5) + ')' : ''}`, `*Total disponível:* R$ ${reais((d.saldoConta || 0) + (d.saldoCarteira || 0))}`);
+    return l.join('\n');
+  }
   const d = s.d, l = [`*Fechamento de ${dataBR(s.dia)}, Sr. Hangel*`, ''];
   const g = somaItens(d.gastos);
   l.push(`*Gastos:* R$ ${reais(g)}`);
@@ -5370,15 +5404,19 @@ async function iniciarFechamento(env, from, semMov, dia) {
     return;
   }
   if (hoje !== dataBahia()) await enviar(env, from, `Certo, vamos fechar *${nomeDiaSemana(hoje)}, ${dataBR(hoje)}*. Os valores entram nas finanças com essa data.`);
-  const s = { dia: hoje, etapa: semMov ? 'saldoConta' : 'gastos', d: { gastos: [], dinheiro: [], pix: [], cartao: [], servico: null, valorServico: null, saldoConta: null, saldoCarteira: null } };
+  const mpModo = mpAtivo(env) && String(env.FECH_SO_DINHEIRO || '1') !== '0'; // v57: o Mercado Pago entra sozinho
+  const s = { mp: mpModo, dia: hoje, etapa: semMov ? (mpModo ? 'saldoCarteira' : 'saldoConta') : 'gastos', d: { gastos: [], dinheiro: [], pix: [], cartao: [], servico: null, valorServico: null, saldoConta: null, saldoCarteira: null } };
   await salvarFech(env, s);
-  await enviar(env, from, fechNoDia(s, perguntaFech(s.etapa, await totaisHoje(env, hoje))));
+  await enviar(env, from, fechNoDia(s, perguntaFech(s.etapa, s.mp ? null : await totaisHoje(env, hoje), null, s.mp)));
 }
 
 async function enviarConviteFechamento(env, para, lembrete) {
   const h = Number(env.FECHAMENTO_HORA) || 17;
   const pa = lembrete === 'ultimo' ? await pixAutoDoDia(env, dataBahia()).catch(() => null) : null;
-  const txt = lembrete === 'ultimo'
+  const _mpModo = mpAtivo(env) && String(env.FECH_SO_DINHEIRO || '1') !== '0';
+  const txt = !lembrete && _mpModo
+    ? `Sr. Hangel, são ${h}h: hora do fechamento do dia.\n\nO Mercado Pago já entra sozinho nas finanças. Só preciso do que passou pela mão: dinheiro que gastou, dinheiro que recebeu, serviço fechado e quanto tem na carteira.`
+    : lembrete === 'ultimo'
     ? `Sr. Hangel, último lembrete de hoje: o fechamento ainda não foi feito.${pa && pa.total ? ` Já entraram R$ ${reais(pa.total)} de Pix pelo Mercado Pago, mas os gastos e o dinheiro em espécie ainda não foram anotados.` : ''}\n\nLeva uns 2 minutos. Se ficar para amanhã, eu lembro cedo.`
     : lembrete
     ? 'Sr. Hangel, o fechamento do dia ainda não foi feito. Podemos fazê-lo agora?'
@@ -5802,7 +5840,7 @@ async function tratarFechamento(env, from, bruto, msg) {
   if (['ajuda', 'menu', 'comandos', 'desfazer', 'desfaz', 'leads', 'lead', 'fila', 'hoje', 'resumo', 'resumo de hoje', 'extrato', 'resumo do dia'].includes(msg)) return false;
 
   const d = s.d, de = s.etapa;
-  const repete = async (dica) => { await enviar(env, from, `${dica}\n\n${fechNoDia(s, perguntaFech(de, null, d.pixAuto))}`); return true; };
+  const repete = async (dica) => { await enviar(env, from, `${dica}\n\n${fechNoDia(s, perguntaFech(de, null, d.pixAuto, s.mp))}`); return true; };
   const avanca = async (prox) => { await avancarFech(env, from, s, prox); return true; };
 
   if (de === 'confirmar') {
@@ -5820,21 +5858,21 @@ async function tratarFechamento(env, from, bruto, msg) {
     }
     if (de === 'gastos') itens = itens.map(x => ({ ...x, desc: x.desc || '' }));
     d[de] = itens;
-    return avanca({ gastos: 'dinheiro', dinheiro: 'pix', pix: 'cartao', cartao: 'servico' }[de]);
+    return avanca(s.mp ? { gastos: 'dinheiro', dinheiro: 'servico' }[de] : { gastos: 'dinheiro', dinheiro: 'pix', pix: 'cartao', cartao: 'servico' }[de]);
   }
   if (de === 'servico') {
-    if (ehNada(msg)) { d.servico = null; d.valorServico = null; return avanca('saldoConta'); }
+    if (ehNada(msg)) { d.servico = null; d.valorServico = null; return avanca(s.mp ? 'saldoCarteira' : 'saldoConta'); }
     d.servico = String(bruto).trim().replace(/\s+/g, ' ').slice(0, 140);
     const v = extrairValor(bruto);
-    if (v) { d.valorServico = v.n; return avanca('saldoConta'); }
+    if (v) { d.valorServico = v.n; return avanca(s.mp ? 'saldoCarteira' : 'saldoConta'); }
     return avanca('valorServico');
   }
   if (de === 'valorServico') {
-    if (/^(pular|nao sei|depois|nao|n)$/.test(msg)) { d.valorServico = null; return avanca('saldoConta'); }
+    if (/^(pular|nao sei|depois|nao|n)$/.test(msg)) { d.valorServico = null; return avanca(s.mp ? 'saldoCarteira' : 'saldoConta'); }
     const v = extrairValor(bruto);
     if (!v) return repete('Não encontrei o valor.');
     d.valorServico = v.n;
-    return avanca('saldoConta');
+    return avanca(s.mp ? 'saldoCarteira' : 'saldoConta');
   }
   if (de === 'saldoConta' || de === 'saldoCarteira') {
     let n;
@@ -9164,6 +9202,23 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
         if (m) r.alerta = `Já existe um gasto de R$ ${reais(m.value)} lançado nesse dia (${String(m.desc).slice(0, 40)}). Se for o mesmo, escolha *Não é gasto*.`;
       }
     }
+    // v57: MERCADO PAGO ENTRA SOZINHO nas finanças (MPX_AUTO=0 volta a perguntar). Só fica para conferir o que tem alerta
+    //      (valor igual repetido, gasto parecido já digitado, valor fora do normal para o favorecido).
+    if (r.sentido === 'out' && !r.alerta && new RegExp('SAQUE|WITHDRAW|HR_M[AÁ]RMORES|' + (env.MPX_NOMES_PROPRIOS || 'HANGEL|GILIARDE'), 'i').test(nhMPX(r.desc) + ' ' + r.tipoN))
+      r.alerta = 'Parece saque ou transferência para uma conta sua. Se for, escolha *Não é gasto*.';
+    if (String(env.MPX_AUTO || '1') !== '0' && !r.alerta) {
+      try {
+        const entrada = r.sentido === 'in';
+        const rg2 = entrada ? null : (await regraDoApp(env, r).catch(() => null)) || (await lerRegraMPX(env, r).catch(() => null));
+        if (!entrada && rg2 && rg2.cat === 'nao') { await marca(h, 'ignorado'); ignoradas++; continue; }
+        const cat = entrada ? undefined : ((rg2 && (CATS[rg2.cat] || rg2.app) && rg2.cat) || categoriaDe(r.desc || ''));
+        const desc = (entrada ? `Recebido de ${r.desc && !/^(payment|pagamento)$/i.test(r.desc) ? r.desc : 'cliente'}` : (r.desc || tipoFaladoMPX(r))) + ' (Mercado Pago)';
+        await registrarLancamento(env, { type: r.sentido, value: r.valor, desc: desc.slice(0, 80), date: r.data, cat, origem: 'mpx', mpId: entrada && /^\d+$/.test(r.id) ? r.id : undefined, semUltimo: true });
+        await marca(h, 'lancado');
+        autos.push({ valor: r.valor, nome: (r.desc || tipoFaladoMPX(r)).slice(0, 30), cat: entrada ? 'entrada' : cat });
+        continue;
+      } catch (e) { console.log('[BOT] MP automático:', e.message); }
+    }
     await env.HR_KV.put('mpx:p:' + h, JSON.stringify({ h, ...r }), { expirationTtl: MPX_PEND_TTL });
     await marca(h, 'pend');
     novos.push(h);
@@ -9264,8 +9319,13 @@ async function extratoMPTick(env, opts = {}) {
   if (!est) {
     if (!opts.manual) {
       if (String(env.PROATIVO || '1') === '0') return {};
-      if (agoraBahia().min < (Number(env.CONCILIACAO_HORA) || 18) * 60) return {};
-      if ((await env.HR_KV.get('mpx:dia')) === hoje) return {};
+      // v57: atualiza sozinho várias vezes ao dia (MPX_HORAS, padrão 8,12,15,18,21), sem mensagem no WhatsApp
+      const horas = String(env.MPX_HORAS || '8,12,15,18,21').split(',').map(Number).filter(n => n >= 0 && n < 24).sort((a, b) => a - b);
+      const hAg = Math.floor(agoraBahia().min / 60), slot = horas.filter(x => x <= hAg).pop();
+      if (slot == null) return {};
+      if (await env.HR_KV.get(`mpx:slot:${hoje}:${slot}`)) return {};
+      await env.HR_KV.put(`mpx:slot:${hoje}:${slot}`, '1', { expirationTtl: 2 * 86400 });
+      opts.silencioso = String(env.MPX_SILENCIO || '1') !== '0';
     }
     const de = somaDias(hoje, -((opts.dias || 2) - 1));
     await mpxPedirRelatorio(env, de, hoje);
