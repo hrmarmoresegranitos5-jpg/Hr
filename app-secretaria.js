@@ -1427,7 +1427,7 @@ function secFetchAI() {
     } else {
       text = (d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'';
     }
-    var clean = text.replace(/```json[\s\S]*?```|```/g, '').trim();
+    var clean = text.replace(/```(?:json)?/gi,'').trim();
     var match = clean.match(/\{[\s\S]*\}/);
     if (!match) { console.warn('secFetchAI: resposta sem JSON (início):', String(text).slice(0, 200)); throw new Error('parse: resposta não contém JSON'); }
     _secAI.data = JSON.parse(match[0]);

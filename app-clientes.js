@@ -352,7 +352,7 @@ function _cliFetchAIDesc(q){
   _aiChatTexto(key,'Você é consultor financeiro de marmoraria. Responda SOMENTE JSON válido, sem markdown, sem texto fora do JSON.',prompt,350,controller?controller.signal:undefined)
   .then(function(text){
     if(tid) clearTimeout(tid);
-    var clean=text.replace(/```json[\s\S]*?```|```/g,'').trim();
+    var clean=text.replace(/```(?:json)?/gi,'').trim();
     var match=clean.match(/\{[\s\S]*\}/);
     if(!match) throw new Error('no_json');
     var ai; try { ai=JSON.parse(match[0]); } catch(e) { ai=null; }
