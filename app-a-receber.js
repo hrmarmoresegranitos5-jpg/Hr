@@ -427,6 +427,33 @@
       (c.atrasado ? 'background:rgba(248,113,113,.22);color:#ff9d9d;' : 'background:rgba(224,165,48,.15);color:#e0a530;') + '">' + txt + ' · toque p/ receber</button></div>';
   }
 
+  // Devendo mas ainda fora do A Receber (o bot ainda não cobra): entregue com saldo, ou atrasado >7 dias.
+  function semBot() {
+    var hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    return (DB.j || []).filter(function (j) {
+      if (!j || j.fiado) return false;
+      var resto = (+j.value || 0) - (+j.pago || 0); if (resto <= 0.01) return false;
+      if (j.done) return true;
+      if (!j.end) return false;
+      return (hoje - new Date(j.end + 'T00:00:00')) / 864e5 > 7;
+    }).sort(function (a, b) { return ((+b.value || 0) - (+b.pago || 0)) - ((+a.value || 0) - (+a.pago || 0)); });
+  }
+  function blocoSemBot() {
+    var sb = semBot(); if (!sb.length) return '';
+    var tot = 0; sb.forEach(function (j) { tot += (+j.value || 0) - (+j.pago || 0); });
+    var h = '<div style="margin:16px 0 8px;font-size:.8rem;font-weight:800;color:var(--t2);">⚠️ Devendo, mas o bot ainda não cobra · R$ ' + brl(tot) + '</div>' +
+      '<div style="font-size:.7rem;color:var(--t3);margin:-4px 0 8px;line-height:1.4;">Toque em 🤖 Bot cobrar para o bot assumir a cobrança pelo WhatsApp (com aviso, multa e juros após o vencimento).</div>';
+    sb.forEach(function (j) {
+      var resto = (+j.value || 0) - (+j.pago || 0);
+      h += '<div style="background:var(--s2);border:1px solid var(--bd2);border-left:4px solid var(--t3);border-radius:14px;padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:8px;">' +
+        '<div style="flex:1;min-width:0;"><div style="font-weight:800;overflow-wrap:anywhere;">' + esc(j.cli || '') + '</div>' +
+        '<div style="font-size:.7rem;color:var(--t3);overflow-wrap:anywhere;">' + esc(j.desc || '') + (j.done ? ' · entregue' : ' · em produção') + '</div>' +
+        '<div style="font-weight:800;color:#f08a8a;font-size:.86rem;margin-top:2px;">R$ ' + brl(resto) + '</div></div>' +
+        '<button type="button" data-botcob="' + j.id + '" style="padding:9px 11px;border:none;border-radius:10px;background:var(--gold3);color:#000;font-weight:800;font-size:.74rem;cursor:pointer;font-family:inherit;white-space:nowrap;">🤖 Bot cobrar</button></div>';
+    });
+    return h;
+  }
+
   function abrirLista() {
     var l = lista();
     var totRest = 0, totEnc = 0;
@@ -437,7 +464,10 @@
         '<button type="button" data-rec-cfg="1" style="border:1px solid var(--bd2);background:var(--s2);color:var(--t2);border-radius:9px;padding:7px 10px;font-size:.7rem;cursor:pointer;font-family:inherit;">⚙️ Taxas</button>' +
       '</div>';
     if (!l.length) {
-      h += '<div style="text-align:center;padding:30px 10px;color:var(--t3);font-size:.85rem;line-height:1.6;"><div style="font-size:2rem;">🎉</div>Nenhum cliente devendo.<br>Quando alguém receber e não pagar, lance aqui na entrega.</div>' +
+      var sbH = blocoSemBot();
+      h += (sbH
+        ? '<div style="text-align:center;padding:14px 10px 4px;color:var(--t3);font-size:.8rem;line-height:1.5;">🤖 O bot ainda não está cobrando ninguém.</div>' + sbH
+        : '<div style="text-align:center;padding:30px 10px;color:var(--t3);font-size:.85rem;line-height:1.6;"><div style="font-size:2rem;">🎉</div>Nenhum cliente devendo.</div>') +
            '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Fechar</button>';
       sheet(h, { alto: '88vh' }); var b0 = document.getElementById('hrRecFecha'); if (b0) b0.addEventListener('click', fecha);
       return;
@@ -462,6 +492,7 @@
           '<button type="button" data-rec-m="' + j.id + '" style="padding:10px 12px;border:1px solid var(--bd2);border-radius:10px;background:transparent;color:var(--t2);font-size:.9rem;cursor:pointer;font-family:inherit;">⋯</button>' +
         '</div></div>';
     });
+    h += blocoSemBot();
     h += '<button type="button" id="hrRecFecha" style="' + BTN_NO + '">Fechar</button>';
     sheet(h, { alto: '90vh' });
     var bf = document.getElementById('hrRecFecha'); if (bf) bf.addEventListener('click', fecha);
@@ -753,7 +784,7 @@
   // ── API pública (usada por app-agenda-v2.js) ──────────────────────
   window.HRRec = {
     calc: calc, lista: lista, faixa: faixa, tagCard: tagCard,
-    abrirReceber: abrirReceber, abrirLista: abrirLista, perguntarLancar: perguntarLancar,
+    abrirReceber: abrirReceber, abrirLista: abrirLista, semBot: semBot, perguntarLancar: perguntarLancar,
     cobrar: cobrar, avisoPDF: avisoPDF, abrirCfg: abrirCfg, receber: receber, lancar: lancar, corrigirRecebido: corrigirRecebido,
     sincBot: sincBot, payloadBot: payloadBot,
     botConfig: function (url, key) { window.HRRec._bot = { url: url, key: key }; sincBot(true); }

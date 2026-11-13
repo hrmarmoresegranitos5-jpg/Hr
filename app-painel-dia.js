@@ -89,6 +89,20 @@
 
   // 💰 Cobrar: mostra se o bot já está cobrando o cliente (serviço lançado em "A Receber") ou oferece "🤖 Bot cobrar".
   // O bot só cobra sozinho quem está no A Receber do app (com vencimento) — antes, quem só aparecia aqui nunca era cobrado.
+  // Botão fixo "Devedores" no Início, logo abaixo do título 💰 Cobrar.
+  function botaoDevedores(pg) {
+    if (pg.querySelector('[data-devedores]') || !window.HRRec) return;
+    var sec = Array.prototype.find.call(pg.querySelectorAll('.hm-sec'), function (e) { return /Cobrar/.test(e.textContent); });
+    if (!sec) return;
+    var l = HRRec.lista ? HRRec.lista() : [], sb = HRRec.semBot ? HRRec.semBot() : [];
+    var b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('data-devedores', '1');
+    b.style.cssText = 'display:flex;width:100%;align-items:center;gap:10px;text-align:left;padding:12px 14px;margin:6px 0 10px;border-radius:14px;border:1px solid rgba(248,113,113,.45);background:rgba(248,113,113,.08);color:var(--tx);font-family:inherit;cursor:pointer;';
+    b.innerHTML = '<span style="font-size:1.4rem;">💸</span><div style="flex:1;"><b style="color:#f08a8a;">Devedores</b><div style="font-size:.72rem;color:var(--t2);margin-top:2px;">🤖 Bot cobrando: ' + l.length + (sb.length ? ' · ⚠️ sem cobrança do bot: ' + sb.length : '') + '</div></div><span style="color:var(--t3);font-size:1.1rem;">›</span>';
+    b.addEventListener('click', function (ev) { ev.stopPropagation(); HRRec.abrirLista(); });
+    sec.insertAdjacentElement('afterend', b);
+  }
+
   function marcarCobrar(pg) {
     pg.querySelectorAll('button[onclick*="_dashZapCobrar("]').forEach(function (b) {
       var m = /_dashZapCobrar\(([^)]+)\)/.exec(b.getAttribute('onclick') || ''); if (!m) return;
@@ -131,7 +145,7 @@
     window.renderDashboard = function () {
       var r = orig.apply(this, arguments);
       try { completar(); } catch (e) { console.error('painel do dia', e); }
-      try { var pgc = document.getElementById('pg12'); if (pgc) marcarCobrar(pgc); } catch (e) {}
+      try { var pgc = document.getElementById('pg12'); if (pgc) { marcarCobrar(pgc); botaoDevedores(pgc); } } catch (e) {}
       carregarBot(false);
       return r;
     };
