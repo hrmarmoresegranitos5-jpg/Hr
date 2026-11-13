@@ -1,0 +1,46 @@
+name: Publicar worker do bot no Cloudflare
+
+# Quando o arquivo worker/hr-bot.js muda no GitHub, o código vai sozinho para o worker do bot.
+# Só o CÓDIGO é trocado: KV, variáveis, chaves secretas e horários automáticos do worker continuam como estão.
+# Precisa do segredo CLOUDFLARE_API_TOKEN (token com o modelo "Edit Cloudflare Workers").
+
+on:
+  push:
+    branches: [main]
+    paths: ['worker/hr-bot.js']
+  workflow_dispatch:
+
+concurrency: publicar-worker
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    env:
+      WORKER: tiny-sunset-e26ahr-whatzapp
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Conferir se o código não tem erro de sintaxe
+        run: node --check worker/hr-bot.js
+
+      - name: Enviar o código para o Cloudflare
+        run: |
+          set -e
+          if [ -z "$CF_TOKEN" ]; then echo "::error::Falta o segredo CLOUDFLARE_API_TOKEN no GitHub."; exit 1; fi
+          if [ -z "$CF_ACCOUNT" ]; then
+            CF_ACCOUNT=$(curl -s -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/accounts | jq -r '.result[0].id')
+          fi
+          if [ -z "$CF_ACCOUNT" ] || [ "$CF_ACCOUNT" = "null" ]; then echo "::error::Não consegui achar a conta do Cloudflare com esse token."; exit 1; fi
+          RESP=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/$WORKER/content" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -F 'metadata={"main_module":"hr-bot.js"};type=application/json' \
+            -F 'hr-bot.js=@worker/hr-bot.js;type=application/javascript+module')
+          echo "$RESP" | jq -c '{success, errors, messages}'
+          [ "$(echo "$RESP" | jq -r '.success')" = "true" ] || { echo "::error::O Cloudflare recusou o código."; exit 1; }
+          echo "✅ Worker $WORKER atualizado."
