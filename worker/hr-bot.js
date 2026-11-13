@@ -9002,7 +9002,7 @@ async function mpxPedirRelatorio(env, de, ate) {
     const cfgBody = {
       file_name_prefix: 'hr-release',
       columns: MPX_COLUNAS.map(key => ({ key })),
-      frequency: { hour: 0, type: 'daily', value: 0 },
+      frequency: { hour: 0, type: 'monthly', value: 1 }, // só vale para agendamento automático (não usamos); 'daily' o MP recusa
       include_withdrawal_at_end: true,
       execute_after_withdrawal: false,
       scheduled: false,
@@ -9011,10 +9011,16 @@ async function mpxPedirRelatorio(env, de, ate) {
     };
     const g = await fetch(base + '/config', { headers: h });
     const atual = g.ok ? await g.json().catch(() => null) : null;
-    const temTudo = atual && Array.isArray(atual.columns) && MPX_COLUNAS.every(k => atual.columns.some(c => c && c.key === k)) && atual.include_withdrawal_at_end !== false;
+    const temTudo = atual && Array.isArray(atual.columns) && ['DATE', 'SOURCE_ID', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'BALANCE_AMOUNT'].every(k => atual.columns.some(c => c && c.key === k)) && atual.include_withdrawal_at_end !== false;
     if (!temTudo) {
       let c = await fetch(base + '/config', { method: atual ? 'PUT' : 'POST', headers: h, body: JSON.stringify(cfgBody) });
       if (!c.ok && (c.status === 409 || c.status === 404 || c.status >= 500)) c = await fetch(base + '/config', { method: atual ? 'POST' : 'PUT', headers: h, body: JSON.stringify(cfgBody) });
+      if (!c.ok && c.status === 400) { // recusou algum campo: tenta só o essencial (colunas básicas)
+        const txt = await c.clone().text().catch(() => '');
+        const basico = { ...cfgBody, columns: ['DATE', 'SOURCE_ID', 'EXTERNAL_REFERENCE', 'RECORD_TYPE', 'DESCRIPTION', 'NET_CREDIT_AMOUNT', 'NET_DEBIT_AMOUNT', 'BALANCE_AMOUNT'].map(key => ({ key })) };
+        if (/frequen/i.test(txt)) delete basico.frequency;
+        for (const met of (atual ? ['PUT', 'POST'] : ['POST', 'PUT'])) { c = await fetch(base + '/config', { method: met, headers: h, body: JSON.stringify(basico) }); if (c.ok) break; }
+      }
       if (!c.ok) throw await mpxErro(c, 'ao configurar o relatório');
     }
     await env.HR_KV.put('mpx:cfg2', '1', { expirationTtl: 30 * 86400 });
