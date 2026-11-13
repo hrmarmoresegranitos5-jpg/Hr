@@ -7656,6 +7656,7 @@ async function ferrVerConversa(env, from, a) {
   return { texto: `Conversa com ${nome} (wa.me/${normalizarBR(num)}):\n${texto}\n\nResuma para o Sr. Hangel em 2-3 frases: o que o cliente quer, o que o bot respondeu, se ficou algo sem resposta e o próximo passo. Se ele quiser ver a conversa toda, use ver_conversa com mostrar=true.` };
 }
 async function executarFerramenta(env, from, nome, a, F, voz) {
+  marcarUso(env, 'tool:' + nome); // v63t: dica do dia não sugere o que ele já usa
   if (nome === 'consultar_mercado_pago') return await mpConsultarGanhos(env, a);
   if (nome === 'consultar_extrato_mp') return await mpExtratoConsulta(env, a);
   if (nome === 'criar_link_pagamento') return await mpCriarLink(env, from, a);
@@ -12884,8 +12885,8 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
-  if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) return; // v63m
-  if (dono && m.type === 'image' && await tratarFotoGeralDono(env, from, m, await getFalas(env)).catch(e => { console.log('[FOTO] dono:', e.message); return false; })) return; // v63n
+  if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) { await marcarUso(env, 'print_mp'); return; } // v63m
+  if (dono && m.type === 'image' && await tratarFotoGeralDono(env, from, m, await getFalas(env)).catch(e => { console.log('[FOTO] dono:', e.message); return false; })) { await marcarUso(env, 'foto'); return; } // v63n
   { const vt = visionTipo(env, m, dono); // HR VISION: imagem ou PDF é recebido, registrado e confirmado (comprovante de Pix e fluxos do dono vêm antes)
     if (vt && !(await tratarVision(env, from, m, dono, vt))) return; }
 
@@ -12951,7 +12952,11 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await tratarNumeros(env, from, bruto, msg)) return;
     if (await tratarPerfil(env, from, bruto, msg)) return;
     if (await tratarPortfolio(env, from, bruto, msg)) return;
-    { const mav = msg.match(/^(?:avaliacoes|avaliacao|notas|nota do atendimento)(?:\s+(semana|mes|hoje|\d{1,3}))?$/); if (mav) { await enviar(env, from, await resumoAvaliacoes(env, mav[1] || '')); return; } }
+    if (/^(dica|dicas|outra dica|me de uma dica|uma dica)$/.test(msg)) { const t = await escolherDica(env, true); await enviar(env, from, t ? `💡 ${t}` : 'Sr. Hangel, o senhor já usa tudo que eu tinha para mostrar. 👏'); return; }
+    if (/^(parar|desligar|sem) dicas?$/.test(msg)) { await env.HR_KV.put('cfg:dicas', '0'); await enviar(env, from, 'Certo, Sr. Hangel: não mando mais a dica do dia. Para voltar, escreva *voltar dicas*. Para ver uma quando quiser, escreva *dica*.'); return; }
+    if (/^(voltar|ligar|religar) dicas?$/.test(msg)) { await env.HR_KV.delete('cfg:dicas'); await enviar(env, from, 'Pronto, Sr. Hangel: a dica do dia volta amanhã de manhã.'); return; }
+    if (/^gastos da semana$/.test(msg)) marcarUso(env, 'cmd:semana');
+    { const mav = msg.match(/^(?:avaliacoes|avaliacao|notas|nota do atendimento)(?:\s+(semana|mes|hoje|\d{1,3}))?$/); if (mav) { marcarUso(env, 'cmd:avaliacoes'); await enviar(env, from, await resumoAvaliacoes(env, mav[1] || '')); return; } }
     if (['conferir', 'conferir pedidos', 'problemas', 'auditoria', 'tem algo errado'].includes(msg) && atenderClientes(env)) {
       await enviar(env, from, await comandoConferir(env));
       return;
@@ -13682,6 +13687,7 @@ async function rotaBotInterna(req, env, url) {
     return jsonR({ ok: true, itens: (r.itens || []).length, config: r.config || {}, sugestoes: sug });
   }
   if (p === '/bot/a-receber/cobrar-agora' && req.method === 'POST') { // v60
+    marcarUso(env, 'app:cobrar');
     let b = {}; try { b = await req.json(); } catch (_) {}
     try { return jsonR(await recCobrarAgora(env, String(b.id || ''))); }
     catch (e) { await falhou(env, 'A Receber: cobrar agora', e).catch(() => {}); return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
@@ -13705,6 +13711,7 @@ async function rotaBotInterna(req, env, url) {
   //   GET /bot/conversas            → lista (mais recentes primeiro): numero, nome, ultimaEm, total, ultima
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
+    marcarUso(env, 'app:conversas');
     if (!env.HR_DB) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no Worker.' }, 400);
     const dias = Math.min(30, Math.max(1, Number(url.searchParams.get('dias')) || 14));
     return jsonR({ conversas: await listarArquivoConversas(env, dias) });
@@ -18639,6 +18646,50 @@ function textoAgendaEquipe(snap, hoje) {
 // v63s: ORÇAMENTO PARADO → retomada automática com 3, 7 e 15 dias sem resposta (FOLLOWUP=0 desliga; FOLLOWUP_MAX por dia, padrão 3).
 //   Usa a mesma retomada do botão "🤖 Bot" do app: na janela de 24 h o bot escreve; com o modelo TEMPLATE_RETOMADA também;
 //   sem os dois, o bot prepara a mensagem e o Sr. Hangel envia com um toque.
+// v63t: DICA DO DIA — uma dica curta por dia (8h–11h, seg–sáb) de uma função que o Sr. Hangel ainda não usou (ou não usa
+//   há 30 dias), de preferência quando ela serve agora (ex.: há Pix sem nome). DICAS=0 desliga; comandos: "dica", "parar dicas", "voltar dicas".
+//   O uso é marcado em uso:<função> (ferramentas da IA, print do extrato, foto, comandos).
+async function marcarUso(env, f) { try { await env.HR_KV.put('uso:' + f, String(Date.now()), { expirationTtl: 60 * 86400 }); } catch (_) {} }
+const DICAS = [
+  { f: 'print_mp', quando: async env => (await listarTodas(env, 'mpx:p:')).keys.length >= 2, t: env => 'Tem Pix do Mercado Pago sem nome esperando. Abra o extrato no app do Mercado Pago, tire *print* e mande aqui: eu leio os nomes, lanço quem eu já conheço e mando o Pix da equipe para o RH.' },
+  { f: 'foto', t: () => 'Comprou algo *em dinheiro*? Mande a *foto do cupom ou recibo* com a legenda _foi em mãos_. Eu leio o valor, a loja e a data e lanço em "Dinheiro na mão".' },
+  { f: 'tool:ver_conversa', t: () => 'Quer saber como foi o atendimento de um cliente? Escreva _como está a conversa com a Maria?_ (eu resumo) ou _manda a conversa da Maria_ (eu mando a conversa inteira aqui).' },
+  { f: 'tool:buscar_cliente', t: () => 'Esqueceu o número de um cliente? Escreva _qual o número da Joice?_. Eu procuro nos clientes do app e em todo mundo que já falou comigo.' },
+  { f: 'tool:pagar_funcionario', t: () => 'Pagou alguém da equipe? Escreva _paguei 200 de vale pro Gibson_. Vai direto para o RH, e o saldo dele fica certo.' },
+  { f: 'tool:lancar_financeiro', t: () => 'Para lançar um gasto ou entrada, é só escrever ou mandar áudio: _gastei 150 com disco de corte_ ou _recebi 2 mil da Maria em dinheiro_.' },
+  { f: 'cmd:semana', t: () => 'Escreva _gastos da semana_ para ver quanto entrou e saiu nos últimos 7 dias, por categoria, comparando com a semana anterior.' },
+  { f: 'app:cobrar', t: () => 'No app, em *A Receber*, cada cliente tem o botão *🤖 Cobrar*: o bot manda a cobrança com Pix na hora, e dá baixa sozinho quando o cliente paga.' },
+  { f: 'app:conversas', t: () => 'No app, na *Secretária*, o botão *💬 Conversas dos clientes* mostra tudo o que os clientes falaram com o bot, e dá para exportar.' },
+  { f: 'app:lixeira', uma: true, t: () => 'Apagou um orçamento sem querer? No app, no *Histórico*, toque em *🗑*: os excluídos ficam 90 dias para restaurar.' },
+  { f: 'cmd:avaliacoes', t: () => 'Escreva _avaliacoes semana_ para ver as notas que os clientes deram ao atendimento.' },
+  { f: 'agenda', uma: true, t: () => 'Toda manhã eu mando a *agenda da equipe*. Para mandar no grupo, segure a mensagem e toque em *encaminhar*.' },
+  { f: 'tool:convidar_visita', t: () => 'Para marcar visita técnica, escreva _chama a Maria para visita_. Eu ofereço os seus horários livres e confirmo com ela.' },
+];
+async function escolherDica(env, forcar) {
+  const vistas = JSON.parse((await env.HR_KV.get('dica:vistas')) || '{}');
+  const agora = Date.now(), cand = [];
+  for (const d of DICAS) {
+    const usou = Number(await env.HR_KV.get('uso:' + d.f)) || 0;
+    if (usou && agora - usou < 30 * 86400000) continue;
+    if (vistas[d.f] && (d.uma || agora - vistas[d.f] < (forcar ? 2 : 14) * 86400000)) continue;
+    let serve = false; if (d.quando) { try { serve = await d.quando(env); } catch (_) {} if (!serve && !forcar) continue; }
+    cand.push({ d, serve });
+  }
+  if (!cand.length) return null;
+  const pick = cand.find(c => c.serve) || cand[0];
+  vistas[pick.d.f] = agora;
+  await env.HR_KV.put('dica:vistas', JSON.stringify(vistas), { expirationTtl: 120 * 86400 });
+  return pick.d.t(env);
+}
+async function dicaDoDia(env) {
+  if (String(env.DICAS || '1') === '0' || (await env.HR_KV.get('cfg:dicas')) === '0') return;
+  const agora = agoraBahia(), hoje = dataBahia();
+  if (agora.min < 8 * 60 || agora.min > 11 * 60 || new Date(hoje + 'T12:00:00Z').getUTCDay() === 0) return;
+  if (await env.HR_KV.get('dica:dia:' + hoje)) return;
+  await env.HR_KV.put('dica:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const t = await escolherDica(env, false);
+  if (t) await notificarDono(env, Date.now(), `💡 *Dica do dia:* ${t}\n\n_Escreva *dica* para ver outra, ou *parar dicas*._`, { rotina: true }).catch(() => {});
+}
 async function followupOrcamentosDiario(env) {
   if (String(env.FOLLOWUP || '1') === '0') return;
   const agora = agoraBahia(), hoje = dataBahia();
@@ -20943,6 +20994,7 @@ export default {
     ctx.waitUntil(pontoRotina(env).catch(e => falhou(env, 'rotina: ponto', e))); // v34: saída esquecida
     ctx.waitUntil(agendaEquipeDiaria(env).catch(e => falhou(env, 'rotina: agenda da equipe', e))); // v63r
     ctx.waitUntil(followupOrcamentosDiario(env).catch(e => falhou(env, 'rotina: orçamentos parados', e))); // v63s
+    ctx.waitUntil(dicaDoDia(env).catch(e => falhou(env, 'rotina: dica do dia', e))); // v63t
     ctx.waitUntil((async () => { // em fila, não em paralelo: todas regravam o pedido inteiro e uma sobrescrevia a outra
       for (const [nome, fn] of [['lembretes', lembretesDeValor], ['seguimento', seguimentoValor], ['prazo do Pix', lembretesPixCurto], ['lembrete Pix', lembretesDePix], ['lembrete restante', lembretesRestante], ['bot no lugar do app', pedidosNoBotRotina], ['app parado', alertaAppParado], ['pronto no dia', prontoNoDiaRotina]]) {
         try { await fn(env); } catch (e) { await falhou(env, 'rotina: ' + nome, e); }
