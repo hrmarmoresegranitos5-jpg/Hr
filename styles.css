@@ -92,6 +92,9 @@ html{height:100%;height:-webkit-fill-available;}body{height:100%;height:-webkit-
   overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
+/* Os blocos da tela inicial não podem encolher: com muito conteúdo
+   (radar, pós-venda) eles se espremiam e a Agenda sumia / se sobrepunha */
+.sp2-wrap > * { flex-shrink: 0; }
 
 /* ── HEADER BAR ── */
 .sp2-hdr {

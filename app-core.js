@@ -2538,6 +2538,12 @@ window.aplicarEstiloNi=function(){
 
 // ═══ SPLASH ═══
 function openApp(pg){
+  if([5,6].indexOf(+pg)>=0&&typeof _adOn!=='undefined'&&!_adOn){
+    window._pendingPg=+pg;
+    toast('Requer acesso de proprietário 🔒');
+    openAdminPin();
+    return;
+  }
   var splash=document.getElementById('sSplash');
   splash.classList.remove('on');
   splash.style.display='none';
@@ -7816,7 +7822,8 @@ function calcular(){
   +'</div>';
   var piEl=document.getElementById('painelInterno');if(piEl)piEl.innerHTML=pi;
   // ── Alerta ativo de margem mínima (toast + vibração) ──
-  if(_margemPct<25){
+  var _pg0On=(function(){var e=document.getElementById('pg0');var a=document.getElementById('sApp');return !!(e&&e.classList.contains('on')&&a&&a.classList.contains('on'));})();
+  if(_margemPct<25&&vista>0&&_pg0On){
     toast('🔴 Margem crítica: '+_margemPct+'% — revise o preço ou custo antes de enviar');
     if(navigator.vibrate)navigator.vibrate([80,40,80]);
   }
@@ -15818,6 +15825,7 @@ function _adOk(){
     closeAll();
     _applyMode();
     toast('Bem-vindo, proprietario!');
+    if(window._pendingPg!=null){var _pp=window._pendingPg;window._pendingPg=null;var _sp=document.getElementById('sSplash');if(_sp&&getComputedStyle(_sp).display!=='none')openApp(_pp);else go(_pp);}
   } else {
     var m=document.getElementById('adMsg');
     if(m)m.textContent='Senha incorreta';
