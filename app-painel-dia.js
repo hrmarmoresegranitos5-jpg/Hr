@@ -87,11 +87,51 @@
     });
   }
 
+  // 💰 Cobrar: mostra se o bot já está cobrando o cliente (serviço lançado em "A Receber") ou oferece "🤖 Bot cobrar".
+  // O bot só cobra sozinho quem está no A Receber do app (com vencimento) — antes, quem só aparecia aqui nunca era cobrado.
+  function marcarCobrar(pg) {
+    pg.querySelectorAll('button[onclick*="_dashZapCobrar("]').forEach(function (b) {
+      var m = /_dashZapCobrar\(([^)]+)\)/.exec(b.getAttribute('onclick') || ''); if (!m) return;
+      var idTxt = m[1].replace(/['"]/g, '');
+      var j = (DB.j || []).find(function (x) { return String(x.id) === idTxt; });
+      if (!j || b.parentNode.querySelector('[data-botcob]')) return;
+      var resto = (+j.value || 0) - (+j.pago || 0);
+      var nb = document.createElement('button');
+      nb.className = 'hm-b'; nb.setAttribute('data-botcob', String(j.id));
+      if (j.fiado && resto > 0.005) {
+        nb.textContent = '🤖 cobrando';
+        nb.title = 'O bot já cobra este cliente (vence ' + (j.fiado.venc ? fd(j.fiado.venc) : '—') + '). Toque para ver o A Receber.';
+        nb.style.color = 'var(--grn)'; nb.style.borderColor = 'rgba(74,222,128,.4)';
+      } else {
+        nb.textContent = '🤖 Bot cobrar';
+        nb.title = 'Lançar no A Receber: o bot passa a cobrar este cliente pelo WhatsApp';
+      }
+      b.insertAdjacentElement('afterend', nb);
+    });
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest && ev.target.closest('[data-botcob]'); if (!b) return;
+    ev.stopPropagation(); ev.preventDefault();
+    var j = (DB.j || []).find(function (x) { return String(x.id) === b.getAttribute('data-botcob'); }); if (!j) return;
+    if (!window.HRRec) { toast('⚠️ Módulo A Receber não carregou.'); return; }
+    if (j.fiado && ((+j.value || 0) - (+j.pago || 0)) > 0.005) { HRRec.abrirLista(); return; }
+    var q = (DB.q || []).find(function (o) { return String(o.id) === String(j.qId); }) || (DB.q || []).find(function (o) { return String(o.cli || '').toLowerCase().trim() === String(j.cli || '').toLowerCase().trim() && o.tel; });
+    var tel = String((q && q.tel) || j.tel || '').replace(/\D/g, '');
+    if (tel.length < 10) {
+      var t = prompt('Qual o WhatsApp de ' + (j.cli || 'o cliente') + ' (com DDD)? O bot precisa dele para cobrar.');
+      t = String(t || '').replace(/\D/g, '');
+      if (t.length < 10) { toast('Sem o telefone o bot não consegue cobrar.'); return; }
+      j.tel = t; try { DB.sv(); } catch (e) {}
+    }
+    HRRec.perguntarLancar(j);
+  }, true);
+
   var orig = window.renderDashboard;
   if (typeof orig === 'function') {
     window.renderDashboard = function () {
       var r = orig.apply(this, arguments);
       try { completar(); } catch (e) { console.error('painel do dia', e); }
+      try { var pgc = document.getElementById('pg12'); if (pgc) marcarCobrar(pgc); } catch (e) {}
       carregarBot(false);
       return r;
     };
