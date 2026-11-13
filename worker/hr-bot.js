@@ -18616,6 +18616,44 @@ async function funcJanelaAberta(env, f) {
   if (Date.now() - u < 23 * 3600000) return true;
   return f.tel ? cbJanelaAberta(env, normalizarBR(f.tel)) : false;
 }
+// v63r: AGENDA DA EQUIPE todo dia de manhã (AGENDA_EQUIPE_HORA, padrão 6:30; AGENDA_EQUIPE=0 desliga).
+//   Monta pelos serviços do app (o que entrega hoje, o que começa hoje, o que está em produção) e manda a cada funcionário
+//   do HR Ponto (WhatsApp na janela, modelo ou notificação do app) e ao Sr. Hangel (para encaminhar ao grupo, se quiser).
+function textoAgendaEquipe(snap, hoje) {
+  const ag = ((snap && snap.dados && snap.dados.agenda) || []).filter(a => a && !a.concluido && a.etapa !== 'entregue');
+  const entrega = ag.filter(a => a.entrega === hoje), comeca = ag.filter(a => a.inicio === hoje && a.entrega !== hoje);
+  const atras = ag.filter(a => a.entrega && a.entrega < hoje);
+  const prod = ag.filter(a => a.inicio && a.inicio < hoje && (!a.entrega || a.entrega > hoje) && !entrega.includes(a)).slice(0, 8);
+  const vis = ((snap && snap.dados && snap.dados.visitasOcupadas) || []).filter(v => (v.data || v.date) === hoje);
+  if (!entrega.length && !comeca.length && !atras.length && !prod.length && !vis.length) return '';
+  const it = a => `• ${a.cliente || 'Cliente'}${a.servico ? ' — ' + a.servico : ''}${a.urgente ? ' (URGENTE)' : ''}`;
+  const d = new Date(hoje + 'T12:00:00Z'), dia = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][d.getUTCDay()];
+  const l = [`*Agenda da equipe — ${dia}, ${dataBR(hoje).slice(0, 5)}*`];
+  if (entrega.length) l.push('', `*Entregar/instalar hoje (${entrega.length}):*`, ...entrega.map(it));
+  if (atras.length) l.push('', `*Atrasados — prioridade (${atras.length}):*`, ...atras.slice(0, 6).map(a => it(a) + ` · era ${dataBR(a.entrega).slice(0, 5)}`));
+  if (comeca.length) l.push('', `*Começam hoje (${comeca.length}):*`, ...comeca.map(it));
+  if (prod.length) l.push('', `*Em produção:*`, ...prod.map(a => it(a) + (a.entrega ? ` · entrega ${dataBR(a.entrega).slice(0, 5)}` : '')));
+  if (vis.length) l.push('', `*Visitas técnicas:* ${vis.map(v => v.hora || v.h || '').filter(Boolean).join(', ') || vis.length}`);
+  return l.join('\n');
+}
+async function agendaEquipeDiaria(env) {
+  if (String(env.AGENDA_EQUIPE || '1') === '0') return;
+  const [hh, mm] = String(env.AGENDA_EQUIPE_HORA || '6:30').split(':').map(Number);
+  const agora = agoraBahia(), hoje = dataBahia();
+  if (agora.min < (hh || 6) * 60 + (mm || 0) || agora.min > 11 * 60) return;
+  if (new Date(hoje + 'T12:00:00Z').getUTCDay() === 0) return; // domingo
+  if (await env.HR_KV.get('agEq:' + hoje)) return;
+  await env.HR_KV.put('agEq:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  const txt = textoAgendaEquipe(snap, hoje);
+  if (!txt) return;
+  const cfg = await pontoCfg(env).catch(() => null);
+  let n = 0;
+  for (const f of ((cfg && cfg.funcs) || []).filter(f => f && f.ativo !== false && !f.socio)) {
+    try { if (await falarComFuncionario(env, f, txt, { titulo: 'Agenda de hoje' })) n++; } catch (e) { console.log('[AGENDA] ' + f.nome + ':', e.message); }
+  }
+  await notificarDono(env, Date.now(), txt + `\n\n_${n ? `Enviei para ${n} da equipe.` : 'Ninguém da equipe está ligado ao HR Ponto para receber.'} Para encaminhar ao grupo, segure esta mensagem e toque em encaminhar._`, { rotina: true }).catch(() => {});
+}
 async function falarComFuncionario(env, f, texto, opts = {}) {
   const nome = apelidoFunc(opts.cfg || await pontoCfg(env), f);
   if (f.tel && env.WHATSAPP_TOKEN && await funcJanelaAberta(env, f)) {
@@ -20868,6 +20906,7 @@ export default {
     ctx.waitUntil(cobrancasAgendadasRotina(env).catch(e => falhou(env, 'rotina: cobranças agendadas', e))); // "manda amanhã às 7h"
     ctx.waitUntil(qrExpirar(env).catch(e => falhou(env, 'rotina: QR code', e)));
     ctx.waitUntil(pontoRotina(env).catch(e => falhou(env, 'rotina: ponto', e))); // v34: saída esquecida
+    ctx.waitUntil(agendaEquipeDiaria(env).catch(e => falhou(env, 'rotina: agenda da equipe', e))); // v63r
     ctx.waitUntil((async () => { // em fila, não em paralelo: todas regravam o pedido inteiro e uma sobrescrevia a outra
       for (const [nome, fn] of [['lembretes', lembretesDeValor], ['seguimento', seguimentoValor], ['prazo do Pix', lembretesPixCurto], ['lembrete Pix', lembretesDePix], ['lembrete restante', lembretesRestante], ['bot no lugar do app', pedidosNoBotRotina], ['app parado', alertaAppParado], ['pronto no dia', prontoNoDiaRotina]]) {
         try { await fn(env); } catch (e) { await falhou(env, 'rotina: ' + nome, e); }
