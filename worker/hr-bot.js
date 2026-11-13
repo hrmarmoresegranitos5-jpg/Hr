@@ -1,3 +1,5 @@
+// v64 (13/11/2026): INSTAGRAM — Direct respondido pela IA (leva ao WhatsApp com link pronto) e comentários de interesse respondidos
+//   (público + Direct). Configuração em POST /bot/instagram (token + chave secreta), renovação do token sozinha.
 // v63 (13/11/2026): AGENDA DE CLIENTES UNIFICADA — ct:<número> (todo cliente que fala com o bot) + clientes do app; buscar_cliente;
 //   GET /bot/contatos para o app completar nomes e telefones do banco de clientes.
 // v62 (13/11/2026): CONVERSAS — transcrição completa de cada cliente (tx:<número>, 7 dias: cliente + TUDO que o bot mandou); ferramenta ver_conversa
@@ -13211,6 +13213,156 @@ async function tratarPayload(env, payload) {
 }
 
 // ── Segurança: confere que o aviso veio mesmo da Meta ────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// v64: INSTAGRAM (@ da HR) — Direct respondido pela IA + comentários "quanto custa?" respondidos sozinhos.
+//   API do Instagram com login do Instagram (graph.instagram.com). Configuração pelo app (Config → Instagram) ou variáveis:
+//   IG_TOKEN (token de longa duração da conta), IG_APP_SECRET (chave secreta do app do Instagram, para conferir o webhook).
+//   O webhook é o mesmo /webhook do WhatsApp (objeto "instagram"). INSTAGRAM=0 desliga. IG_COMENTARIOS=0 desliga os comentários.
+//   Objetivo do Direct: responder rápido, entender o que a pessoa quer e levar para o WhatsApp (link com mensagem pronta),
+//   onde o atendimento completo (medidas, orçamento, visita) já funciona.
+// ═════════════════════════════════════════════════════════════════════════════
+const IG_API = 'https://graph.instagram.com/v23.0';
+async function igToken(env) { return (await env.HR_KV.get('ig:token')) || env.IG_TOKEN || ''; }
+async function igSegredo(env) { return (await env.HR_KV.get('ig:segredo')) || env.IG_APP_SECRET || ''; }
+function igAtivo(env) { return String(env.INSTAGRAM || '1') !== '0'; }
+async function igApi(env, caminho, opts = {}) {
+  const tk = await igToken(env); if (!tk) throw new Error('Instagram sem token');
+  const sep = caminho.includes('?') ? '&' : '?';
+  const r = await fetch(`${IG_API}${caminho}${opts.method && opts.method !== 'GET' ? '' : sep + 'access_token=' + encodeURIComponent(tk)}`, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tk } : { Authorization: 'Bearer ' + tk },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`Instagram ${r.status}: ${String((j && j.error && j.error.message) || 'erro').slice(0, 200)}`);
+  return j;
+}
+async function igEu(env) {
+  try { const c = JSON.parse((await env.HR_KV.get('ig:eu')) || 'null'); if (c && c.id) return c; } catch (_) {}
+  const j = await igApi(env, '/me?fields=user_id,username,name');
+  const eu = { id: String(j.user_id || j.id), username: j.username || '', name: j.name || '' };
+  await env.HR_KV.put('ig:eu', JSON.stringify(eu), { expirationTtl: 7 * 86400 });
+  return eu;
+}
+async function igEnviarDM(env, para, texto) {
+  const j = await igApi(env, '/me/messages', { method: 'POST', body: { recipient: { id: para }, message: { text: String(texto).slice(0, 990) } } });
+  if (j && j.message_id) await env.HR_KV.put('ig:meu:' + j.message_id, '1', { expirationTtl: 3 * 86400 }).catch(() => {});
+  return j;
+}
+async function igLinkWhats(env, texto) {
+  const n = (await pontoBotNumero(env).catch(() => '')) || '';
+  return n ? `https://wa.me/${n}?text=${encodeURIComponent(texto)}` : '';
+}
+function igPromptSistema(env, snap) {
+  const emp = (snap && snap.dados && snap.dados.empresa) || {};
+  return [
+    `Você é a atendente da HR Mármores e Granitos (${emp.cidade || 'Pilão Arcado - BA'}) no DIRECT DO INSTAGRAM. Responda em português do Brasil, simpática e direta, como uma pessoa da loja.`,
+    'A HR faz bancadas de cozinha, banheiro e lavabo, ilhas, pias, escadas, soleiras, peitoris, nichos e revestimentos em granito, mármore e quartzo; faz visita técnica, projeto em 3D e instalação.',
+    'Preço: o valor do projeto pode ser parcelado em até 10x sem juros no cartão; à vista tem desconto. NUNCA diga valores em reais, preço por metro nem prazos exatos: o orçamento é feito com as medidas.',
+    'Seu objetivo: entender o que a pessoa quer (ambiente, mais ou menos o tamanho, cidade) em no máximo 1 ou 2 perguntas e levá-la para o WhatsApp, onde o orçamento sai rápido. Quando ela já disse o que quer (ou pediu preço/orçamento), ofereça o WhatsApp.',
+    'Para oferecer o WhatsApp, escreva a tag [WHATS: frase curta do que ela quer] (ex.: [WHATS: orçamento de bancada de cozinha em granito]); o sistema troca a tag pelo link. Use a tag no máximo uma vez por conversa.',
+    'Se for elogio, agradeça com carinho. Se for reclamação, peça desculpas, diga que o responsável vai falar com ela e escreva [DONO] no fim.',
+    'Respostas CURTAS: no máximo 3 frases, sem listas, no máximo 1 emoji. Nunca invente informação. Não fale de outros assuntos.',
+  ].join('\n');
+}
+async function igResponderDM(env, ev) {
+  const de = String(ev.sender && ev.sender.id || ''), msg = ev.message || {};
+  const eu = await igEu(env).catch(() => null);
+  if (!de || (eu && de === eu.id)) return;
+  if (msg.is_echo) { // mensagem que saiu da conta: se não foi o bot, o Sr. Hangel respondeu à mão → bot fica quieto 12 h nessa conversa
+    if (!(await env.HR_KV.get('ig:meu:' + msg.mid))) { const para = String(ev.recipient && ev.recipient.id || ''); if (para) await env.HR_KV.put('ig:humano:' + para, '1', { expirationTtl: 12 * 3600 }); }
+    return;
+  }
+  if (await env.HR_KV.get('ig:humano:' + de)) return;
+  if (msg.mid && await env.HR_KV.get('ig:vista:' + msg.mid)) return;
+  if (msg.mid) await env.HR_KV.put('ig:vista:' + msg.mid, '1', { expirationTtl: 3 * 86400 });
+  let texto = String(msg.text || '').trim();
+  if (!texto && Array.isArray(msg.attachments) && msg.attachments.length) texto = `[mandou ${msg.attachments[0].type === 'image' ? 'uma foto' : msg.attachments[0].type === 'audio' ? 'um áudio' : 'um anexo'}]`;
+  if (msg.is_deleted || !texto) return;
+  let c = null; try { c = JSON.parse((await env.HR_KV.get('ig:c:' + de)) || 'null'); } catch (_) {}
+  const novo = !c;
+  c = c || { hist: [], criado: Date.now() };
+  if (!c.user) { try { const u = await igApi(env, `/${de}?fields=name,username`); c.user = u.username || ''; c.nome = u.name || ''; } catch (_) {} }
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  let resp = '';
+  if (env.AI_KEY) {
+    try { resp = await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: env.AI_MODEL_IG || 'claude-haiku-5-5', timeoutMs: 20000 }); }
+    catch (e) { console.log('[IG] IA:', e.message); }
+  }
+  resp = String(resp || '').replace(/^\s*[{[][\s\S]*$/, '').trim(); // nunca manda JSON solto
+  const chamaDono = /\[DONO\]/.test(resp); resp = resp.replace(/\[DONO\]/g, '').trim();
+  const tag = resp.match(/\[WHATS:\s*([^\]]{0,120})\]/);
+  if (tag) {
+    const link = await igLinkWhats(env, `Olá! Vim pelo Instagram${c.nome ? ', sou ' + c.nome.split(' ')[0] : ''}. Quero ${tag[1].trim() || 'um orçamento'}.`);
+    resp = resp.replace(tag[0], link ? `\n\nÉ só tocar aqui para falar com a gente no WhatsApp, a mensagem já vai pronta: ${link}` : '').trim();
+    c.whats = Date.now();
+  }
+  if (!resp) resp = `Oi${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Obrigada pela mensagem 😊 Me conta o que você está precisando (bancada, cozinha, banheiro, escada…) e de qual cidade, que eu já te ajudo.`;
+  await igEnviarDM(env, de, resp);
+  c.hist.push({ role: 'user', content: texto.slice(0, 1000) }, { role: 'assistant', content: resp.slice(0, 1000) });
+  c.hist = c.hist.slice(-20); c.em = Date.now();
+  await env.HR_KV.put('ig:c:' + de, JSON.stringify(c), { expirationTtl: 14 * 86400 });
+  const quem = c.user ? '@' + c.user : (c.nome || 'Alguém');
+  if (novo || chamaDono || tag) await notificarDono(env, Date.now(), `*Instagram — ${quem}${c.nome && c.user ? ' (' + c.nome + ')' : ''}* ${novo ? 'chamou no Direct' : 'no Direct'}: "${texto.slice(0, 200)}"\nRespondi: "${resp.replace(/https?:\/\/\S+/g, '(link do WhatsApp)').slice(0, 260)}"${chamaDono ? '\n\n⚠️ Parece reclamação: vale o senhor responder pessoalmente.' : ''}${c.user ? `\ninstagram.com/${c.user}` : ''}`).catch(() => {});
+  marcarUso(env, 'instagram').catch(() => {});
+}
+const IG_RE_INTERESSE = /\b(valor|valores|pre[cç]o|quanto|qto|qnto|or[cç]amento|orcamento|faz\b|fazem|atende|atendem|entrega|instala|whats|zap|contato|telefone|n[uú]mero|interess|parcel|m2|metro|cidade|onde fica|endere[cç]o)\b|\?\s*$/i;
+async function igTratarComentario(env, v) {
+  if (String(env.IG_COMENTARIOS || '1') === '0') return;
+  const eu = await igEu(env).catch(() => null);
+  const quem = v.from || {}, txt = String(v.text || '').trim();
+  if (!v.id || !txt || (eu && String(quem.id) === eu.id) || v.parent_id) return; // ignora os da própria conta e respostas em cadeia
+  if (await env.HR_KV.get('ig:com:' + v.id)) return;
+  await env.HR_KV.put('ig:com:' + v.id, '1', { expirationTtl: 30 * 86400 });
+  if (!IG_RE_INTERESSE.test(txt)) { // elogio e afins: só avisa o dono de vez em quando, sem responder sozinho
+    return;
+  }
+  const media = (v.media && v.media.id) || '';
+  const chaveUser = 'ig:comuser:' + (quem.id || quem.username) + ':' + media;
+  if (await env.HR_KV.get(chaveUser)) return; // já respondemos essa pessoa nesse post
+  await env.HR_KV.put(chaveUser, '1', { expirationTtl: 30 * 86400 });
+  const nomeU = quem.username ? '@' + quem.username : '';
+  const publicas = [`Oi ${nomeU}! Te chamei no Direct 😉`, `${nomeU} te mandei os detalhes no Direct! 😊`, `Oi ${nomeU}, chamei você no Direct pra te ajudar!`];
+  try { await igApi(env, `/${v.id}/replies`, { method: 'POST', body: { message: publicas[Math.floor(Math.random() * publicas.length)].replace(/\s+/g, ' ').trim() } }); } catch (e) { console.log('[IG] resposta pública:', e.message); }
+  const link = await igLinkWhats(env, 'Olá! Vi o post de vocês no Instagram e quero um orçamento.');
+  const privada = `Oi! Vi seu comentário 😊 O valor depende das medidas e da pedra escolhida, e dá para parcelar em até 10x sem juros. Me conta o que você precisa (cozinha, banheiro, escada…) e de qual cidade${link ? `, ou chama a gente direto no WhatsApp, a mensagem já vai pronta: ${link}` : '.'}`;
+  try { const j = await igApi(env, '/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message: { text: privada } } }); if (j && j.message_id) await env.HR_KV.put('ig:meu:' + j.message_id, '1', { expirationTtl: 3 * 86400 }); }
+  catch (e) { console.log('[IG] resposta privada:', e.message); }
+  await notificarDono(env, Date.now(), `*Instagram — comentário de ${nomeU || 'alguém'}:* "${txt.slice(0, 200)}"\nRespondi no comentário e chamei no Direct (com o link do WhatsApp).`, { rotina: true }).catch(() => {});
+}
+async function igTratarPayload(env, payload) {
+  if (!igAtivo(env) || !(await igToken(env))) return;
+  for (const e of (payload.entry || [])) {
+    for (const ev of (e.messaging || [])) { if (ev.message) await igResponderDM(env, ev).catch(err => falhou(env, 'Instagram: Direct', err)); }
+    for (const ch of (e.changes || [])) { if (ch.field === 'comments' && ch.value) await igTratarComentario(env, ch.value).catch(err => falhou(env, 'Instagram: comentário', err)); }
+  }
+}
+// token de longa duração vale 60 dias: renova sozinho a cada ~20 dias
+async function igRenovarToken(env) {
+  const tk = await igToken(env); if (!tk) return;
+  const em = Number(await env.HR_KV.get('ig:renovado')) || 0;
+  if (Date.now() - em < 20 * 86400000) return;
+  const r = await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(tk)}`);
+  const j = await r.json().catch(() => null);
+  if (r.ok && j && j.access_token) { await env.HR_KV.put('ig:token', j.access_token); await env.HR_KV.put('ig:renovado', String(Date.now())); }
+  else { await env.HR_KV.put('ig:renovado', String(Date.now() - 18 * 86400000)); console.log('[IG] renovar token:', JSON.stringify(j).slice(0, 200)); }
+}
+// configuração pelo app: guarda token e chave, confere a conta e assina os avisos (mensagens e comentários)
+async function igConfigurar(env, b) {
+  if (b.token) { await env.HR_KV.put('ig:token', String(b.token).trim()); await env.HR_KV.put('ig:renovado', String(Date.now())); await env.HR_KV.delete('ig:eu'); }
+  if (b.segredo) await env.HR_KV.put('ig:segredo', String(b.segredo).trim());
+  const out = { ok: false, passos: [] };
+  try { const eu = await igEu(env); out.passos.push(`Conta: @${eu.username} (id ${eu.id})`); out.conta = eu.username; }
+  catch (e) { out.passos.push('Conta: ' + e.message); return out; }
+  try { const j = await igApi(env, '/me/subscribed_apps', { method: 'POST', body: { subscribed_fields: ['messages', 'comments'] } }); out.passos.push('Avisos de mensagens e comentários: ' + (j && j.success ? 'ligados' : JSON.stringify(j).slice(0, 120))); }
+  catch (e) { try { const tk = await igToken(env); const r = await fetch(`${IG_API}/me/subscribed_apps?subscribed_fields=messages,comments&access_token=${encodeURIComponent(tk)}`, { method: 'POST' }); const j = await r.json().catch(() => ({})); out.passos.push('Avisos de mensagens e comentários: ' + (j.success ? 'ligados' : String((j.error && j.error.message) || r.status).slice(0, 160))); } catch (e2) { out.passos.push('Avisos: ' + e2.message); } }
+  out.passos.push((await igSegredo(env)) ? 'Chave secreta do app: guardada' : 'Chave secreta do app: FALTA (sem ela o bot não confere os avisos do Instagram)');
+  const self = await env.HR_KV.get('cfg:self');
+  out.webhook = self ? self + '/webhook' : '(abra o WhatsApp do bot uma vez para ele descobrir o endereço)';
+  out.ok = true;
+  return out;
+}
+
 async function assinaturaValida(raw, header, secret) {
   if (!header || !secret) return false;
   const enc = new TextEncoder();
@@ -14132,6 +14284,13 @@ async function rotaBotInterna(req, env, url) {
     }
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
+  }
+  // v64: Instagram — configuração e estado (Config → Instagram no app)
+  if (p === '/bot/instagram' && req.method === 'POST') { let b = {}; try { b = await req.json(); } catch (_) {} return jsonR(await igConfigurar(env, b)); }
+  if (p === '/bot/instagram' && req.method === 'GET') {
+    const tem = !!(await igToken(env)); let eu = null; if (tem) eu = await igEu(env).catch(e => ({ erro: e.message }));
+    const l = await env.HR_KV.list({ prefix: 'ig:c:', limit: 1000 }).catch(() => ({ keys: [] }));
+    return jsonR({ ok: true, ligado: tem && igAtivo(env), conta: eu, segredo: !!(await igSegredo(env)), conversas: l.keys.length, webhook: ((await env.HR_KV.get('cfg:self')) || '') + '/webhook' });
   }
   // v63q: IA DO APP PELO BOT — o app manda o pedido no formato do Gemini (o que ele já usa); o bot responde com o Claude no mesmo formato.
   //   Usado quando a cota grátis do Gemini acaba (20/dia). IA_APP=0 desliga. Modelo: AI_MODEL_APP (padrão claude-haiku-5-5).
@@ -20995,6 +21154,7 @@ export default {
     ctx.waitUntil(agendaEquipeDiaria(env).catch(e => falhou(env, 'rotina: agenda da equipe', e))); // v63r
     ctx.waitUntil(followupOrcamentosDiario(env).catch(e => falhou(env, 'rotina: orçamentos parados', e))); // v63s
     ctx.waitUntil(dicaDoDia(env).catch(e => falhou(env, 'rotina: dica do dia', e))); // v63t
+    ctx.waitUntil(igRenovarToken(env).catch(e => falhou(env, 'rotina: token do Instagram', e))); // v64
     ctx.waitUntil((async () => { // em fila, não em paralelo: todas regravam o pedido inteiro e uma sobrescrevia a outra
       for (const [nome, fn] of [['lembretes', lembretesDeValor], ['seguimento', seguimentoValor], ['prazo do Pix', lembretesPixCurto], ['lembrete Pix', lembretesDePix], ['lembrete restante', lembretesRestante], ['bot no lugar do app', pedidosNoBotRotina], ['app parado', alertaAppParado], ['pronto no dia', prontoNoDiaRotina]]) {
         try { await fn(env); } catch (e) { await falhou(env, 'rotina: ' + nome, e); }
@@ -21043,11 +21203,18 @@ export default {
 
     if (req.method === 'POST') {
       const raw = await req.text();
+      let payload = null;
+      try { payload = JSON.parse(raw); } catch (_) { payload = null; }
+      if (payload && payload.object === 'instagram') { // v64: avisos do Instagram (assinados com a chave do app do Instagram)
+        const sig = req.headers.get('x-hub-signature-256');
+        if (!(await assinaturaValida(raw, sig, await igSegredo(env))) && !(await assinaturaValida(raw, sig, env.APP_SECRET))) return new Response('Assinatura inválida', { status: 401 });
+        ctx.waitUntil(igTratarPayload(env, payload));
+        return new Response('ok', { status: 200 });
+      }
       if (!(await assinaturaValida(raw, req.headers.get('x-hub-signature-256'), env.APP_SECRET))) {
         return new Response('Assinatura inválida', { status: 401 });
       }
-      let payload = null;
-      try { payload = JSON.parse(raw); } catch (_) { return new Response('ok', { status: 200 }); }
+      if (!payload) return new Response('ok', { status: 200 });
       if (globalThis.__cfgSelf !== url.origin) { // v24: guarda o endereço do Worker (base dos links de pagamento) só quando muda
         globalThis.__cfgSelf = url.origin;
         ctx.waitUntil((async () => { if ((await env.HR_KV.get('cfg:self')) !== url.origin) await env.HR_KV.put('cfg:self', url.origin); })().catch(() => { globalThis.__cfgSelf = ''; }));
