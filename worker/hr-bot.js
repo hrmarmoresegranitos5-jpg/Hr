@@ -14126,6 +14126,38 @@ async function rotaBotInterna(req, env, url) {
     if (pn.gerando && pn.erro && pn.gerando.desde > pn.erro.em) pn.erro = null; // há relatório pedido depois do erro: o erro é antigo
     return jsonR(pn);
   }
+  // v63q: IA DO APP PELO BOT — o app manda o pedido no formato do Gemini (o que ele já usa); o bot responde com o Claude no mesmo formato.
+  //   Usado quando a cota grátis do Gemini acaba (20/dia). IA_APP=0 desliga. Modelo: AI_MODEL_APP (padrão claude-haiku-5-5).
+  if (p === '/bot/ia' && req.method === 'POST') {
+    if (String(env.IA_APP || '1') === '0' || String(env.AI_PROVIDER || '').toLowerCase() !== 'anthropic' || !env.AI_KEY) return jsonR({ error: { code: 503, message: 'IA do bot desligada' } }, 503);
+    let g = {}; try { g = await req.json(); } catch (_) { return jsonR({ error: { code: 400, message: 'JSON inválido' } }, 400); }
+    const dia = dataBahia(), cont = Number(await env.HR_KV.get('ia:app:' + dia)) || 0, lim = Number(env.IA_APP_LIMITE) || 300;
+    if (cont >= lim) return jsonR({ error: { code: 429, message: `Limite diário da IA do app pelo bot (${lim}) atingido.` } }, 429);
+    const sys = [((g.systemInstruction || g.system_instruction || {}).parts || []).map(x => x.text || '').join('\n')];
+    const gc = g.generationConfig || {};
+    if (/json/i.test(gc.responseMimeType || gc.response_mime_type || '')) sys.push('Responda SOMENTE com JSON válido, sem markdown e sem texto fora do JSON.');
+    const msgs = [];
+    for (const c of (g.contents || [])) {
+      const role = c.role === 'model' ? 'assistant' : 'user', content = [];
+      for (const pt of (c.parts || [])) {
+        if (pt.text) content.push({ type: 'text', text: String(pt.text) });
+        const inl = pt.inlineData || pt.inline_data;
+        if (inl && inl.data) { const mt = inl.mimeType || inl.mime_type || 'image/jpeg'; content.push(mt === 'application/pdf' ? { type: 'document', source: { type: 'base64', media_type: mt, data: inl.data } } : { type: 'image', source: { type: 'base64', media_type: mt, data: inl.data } }); }
+      }
+      if (!content.length) continue;
+      if (msgs.length && msgs[msgs.length - 1].role === role) msgs[msgs.length - 1].content.push(...content); else msgs.push({ role, content });
+    }
+    if (!msgs.length || msgs[0].role !== 'user') return jsonR({ error: { code: 400, message: 'pedido sem conteúdo' } }, 400);
+    const corpo = { model: modeloClaude(env.AI_MODEL_APP, 'claude-haiku-5-5'), max_tokens: Math.min(Math.max(Number(gc.maxOutputTokens || gc.max_output_tokens) || 2048, 256), 8000), messages: msgs };
+    if (sys.join('').trim()) corpo.system = sys.filter(Boolean).join('\n\n');
+    if (gc.temperature != null) corpo.temperature = Math.min(1, Math.max(0, Number(gc.temperature) || 0));
+    const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify(corpo) });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) return jsonR({ error: { code: r.status, message: 'IA do bot: ' + String((j && j.error && j.error.message) || r.status).slice(0, 200) } }, r.status === 429 ? 429 : 502);
+    await env.HR_KV.put('ia:app:' + dia, String(cont + 1), { expirationTtl: 3 * 86400 }).catch(() => {});
+    const texto = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    return jsonR({ candidates: [{ content: { role: 'model', parts: [{ text: texto }] }, finishReason: j.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : 'STOP' }], viaBot: true });
+  }
   // v63o: BACKUP DO APP NA NUVEM DO BOT (o Supabase falhava). Um por dia (o último do dia vale), 30 dias. Conteúdo gzip em base64.
   if (p === '/bot/backup' && req.method === 'POST') {
     let b = {}; try { b = await req.json(); } catch (_) { return jsonR({ ok: false, error: 'corpo inválido' }, 400); }
