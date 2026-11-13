@@ -1,3 +1,6 @@
+// v56 (13/11/2026): MERCADO PAGO NO APP — o relatório do Mercado Pago (entradas, saídas e saldo) vira histórico no D1 (mp_mov);
+//   o app mostra saldo, entradas e saídas do mês e cada movimentação, pede atualização (POST /bot/mp/atualizar, sem mensagens
+//   no WhatsApp) e lança/ignora o que estiver pendente (POST /bot/mp/decidir). O relatório continua saindo sozinho às 18h.
 // v55 (13/11/2026): COBRANÇA DO FECHAMENTO DO DIA — convite às 17h, lembrete às 19h e último aviso às 21h (com o Pix que já
 //   entrou); de manhã (7h–11h) cobra o último dia útil que ficou sem fechamento, com a conta da semana, e deixa fechar o dia
 //   anterior com a data certa (botões "Fechar dd/mm" / "Foi sem movimento"). POST /bot/fechamento/agora {dia?} para o app.
@@ -9053,6 +9056,64 @@ async function conferenciaDiaria(env) {
   await avisarDono(env, r.texto);
 }
 
+// v56: HISTÓRICO DO MERCADO PAGO PARA O APP (D1, tabela mp_mov) — cada linha do relatório, com a situação:
+//   ok (já estava lançada) · lancado · ignorado · pend (esperando decisão). GET /bot/mp/painel · POST /bot/mp/atualizar · POST /bot/mp/decidir
+async function movMPTabela(env) {
+  if (env._mpMovOk) return true;
+  if (!env.HR_DB) return false;
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS mp_mov (h TEXT PRIMARY KEY, data TEXT, sentido TEXT, valor REAL, descr TEXT, tipo TEXT, metodo TEXT, status TEXT, atualizado INTEGER)').run();
+  env._mpMovOk = true; return true;
+}
+async function movMPSalvar(env, h, r, status, soSeNovo) {
+  if (!(await movMPTabela(env))) return;
+  const sql = soSeNovo
+    ? 'INSERT OR IGNORE INTO mp_mov (h, data, sentido, valor, descr, tipo, metodo, status, atualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    : 'INSERT INTO mp_mov (h, data, sentido, valor, descr, tipo, metodo, status, atualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(h) DO UPDATE SET status = excluded.status, atualizado = excluded.atualizado';
+  await env.HR_DB.prepare(sql).bind(h, r.data, r.sentido, r.valor, String(r.desc || '').slice(0, 140), tipoFaladoMPX(r).slice(0, 60), String(r.metodo || '').slice(0, 40), status, Date.now()).run();
+}
+async function movMPStatus(env, h, status) {
+  if (!(await movMPTabela(env))) return;
+  await env.HR_DB.prepare('UPDATE mp_mov SET status = ?, atualizado = ? WHERE h = ?').bind(status, Date.now(), h).run();
+}
+async function painelMP(env, dias) {
+  const hoje = dataBahia(), de = somaDias(hoje, -(dias - 1)), mes = hoje.slice(0, 7) + '-01';
+  let sd = null; try { sd = JSON.parse((await env.HR_KV.get('mpx:saldo')) || 'null'); } catch (_) {}
+  const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
+  const out = { ativo: mpAtivo(env), saldo: sd, gerando: est ? { de: est.de, ate: est.ate, desde: est.criadoEm } : null, movs: [], mes: { ent: 0, sai: 0 }, pendentes: 0 };
+  if (await movMPTabela(env)) {
+    const rs = await env.HR_DB.prepare('SELECT h, data, sentido, valor, descr, tipo, metodo, status FROM mp_mov WHERE data >= ? ORDER BY data DESC, atualizado DESC LIMIT 300').bind(de < mes ? de : mes).all();
+    for (const m of rs.results || []) {
+      if (m.data >= mes) { if (m.sentido === 'in') out.mes.ent += m.valor; else out.mes.sai += m.valor; }
+      if (m.data >= de) out.movs.push(m);
+    }
+  }
+  out.mes.ent = Math.round(out.mes.ent * 100) / 100; out.mes.sai = Math.round(out.mes.sai * 100) / 100;
+  out.pendentes = (await listarTodas(env, 'mpx:p:')).keys.length;
+  out.categorias = CATS;
+  return out;
+}
+// decisão tomada no app (mesma regra dos botões do WhatsApp)
+async function decidirMPXApp(env, h, acao, cat) {
+  const r = JSON.parse((await env.HR_KV.get('mpx:p:' + h)) || 'null');
+  if (!r) return { ok: false, erro: 'Essa movimentação já foi resolvida.' };
+  if (acao === 'ignorar' || cat === 'nao') {
+    await env.HR_KV.put('mpx:l:' + h, 'ignorado', { expirationTtl: MPX_TTL });
+    await env.HR_KV.delete('mpx:p:' + h);
+    await movMPStatus(env, h, 'ignorado').catch(() => {});
+    if (r.sentido === 'out') await aprenderMPX(env, r, 'nao').catch(() => {});
+    return { ok: true, status: 'ignorado' };
+  }
+  const entrada = r.sentido === 'in';
+  if (!entrada && !CATS[cat]) return { ok: false, erro: 'Escolha a categoria do gasto.' };
+  const desc = (entrada ? `Recebido de ${r.desc || 'Mercado Pago'}` : (r.desc || tipoFaladoMPX(r))) + ' (Mercado Pago)';
+  await registrarLancamento(env, { type: r.sentido, value: r.valor, desc: desc.slice(0, 80), date: r.data, cat: entrada ? undefined : cat, origem: 'mpx', mpId: entrada && /^\d+$/.test(r.id) ? r.id : undefined, semUltimo: true });
+  await env.HR_KV.put('mpx:l:' + h, 'lancado', { expirationTtl: MPX_TTL });
+  await env.HR_KV.delete('mpx:p:' + h);
+  await movMPStatus(env, h, 'lancado').catch(() => {});
+  if (!entrada) await aprenderMPX(env, r, cat).catch(() => {});
+  return { ok: true, status: 'lancado' };
+}
+
 // ── Lê o CSV e separa o que precisa de pergunta ──
 async function ingerirRelatorioMP(env, csv, de, ate) {
   const rel = lerRelatorioMP(csv);
@@ -9063,13 +9124,16 @@ async function ingerirRelatorioMP(env, csv, de, ate) {
   let outsFin = null;
   let fins = null, jaLancados = 0, foraDoPeriodo = 0, entradas = 0, saidas = 0, ignoradas = 0;
   const autos = [];
-  const marca = (h, v) => env.HR_KV.put('mpx:l:' + h, v, { expirationTtl: MPX_TTL });
+  let _rAtual = null, _hAtual = null;
+  const marca = async (h, v) => { await env.HR_KV.put('mpx:l:' + h, v, { expirationTtl: MPX_TTL }); if (_rAtual && h === _hAtual) await movMPSalvar(env, h, _rAtual, v).catch(e => console.log('[MPMOV]', e.message)); };
   for (const r of rel.rows) {
     if (r.data < de || r.data > ate) { foraDoPeriodo++; continue; }
     const bruto = [r.id, r.sentido, r.valor.toFixed(2), r.data, r.tipoN, r.desc].join('|');
     vistos[bruto] = (vistos[bruto] || 0) + 1;
     const h = hashMPX(bruto + '#' + vistos[bruto]);
-    if (await env.HR_KV.get('mpx:l:' + h)) continue; // já tratada em outro dia
+    _rAtual = r; _hAtual = h;
+    const _ja = await env.HR_KV.get('mpx:l:' + h);
+    if (_ja) { await movMPSalvar(env, h, r, _ja, true).catch(() => {}); continue; } // já tratada em outro dia (garante que está no histórico do app)
     if (r.sentido === 'in') {
       const idPag = /^\d+$/.test(r.id) ? r.id : '';
       if (idPag && ((await env.HR_KV.get('mp:fin:' + idPag)) || (await env.HR_KV.get('mp:conc:av:' + idPag)))) { await marca(h, 'ok'); jaLancados++; continue; } // lançada pelo bot ou já perguntada na conciliação
@@ -9171,6 +9235,7 @@ async function tratarBotaoExtrato(env, from, id) {
   if (!r) { await enviar(env, from, 'Essa movimentação já foi resolvida, Sr. Hangel.'); return true; }
   if (acao === 'ext_n' || (acao === 'ext_c' && cat === 'nao')) {
     await env.HR_KV.put('mpx:l:' + h, 'ignorado', { expirationTtl: MPX_TTL });
+    await movMPStatus(env, h, 'ignorado').catch(() => {});
     await env.HR_KV.delete('mpx:p:' + h);
     const n = r.sentido === 'out' ? await aprenderMPX(env, r, 'nao') : 0;
     await enviar(env, from, `Certo, não lancei os R$ ${reais(r.valor)}.${n >= 2 ? ' Anotei: da próxima vez igual eu ignoro sozinho.' : ''}`);
@@ -9182,6 +9247,7 @@ async function tratarBotaoExtrato(env, from, id) {
     } catch (e) { await enviar(env, from, 'Não consegui lançar agora. Toque de novo na opção ou escreva *pendentes mp*.'); return true; }
     await env.HR_KV.put('mpx:l:' + h, 'lancado', { expirationTtl: MPX_TTL });
     await env.HR_KV.delete('mpx:p:' + h);
+    await movMPStatus(env, h, 'lancado').catch(() => {});
     const n = entrada ? 0 : await aprenderMPX(env, r, cat);
     await enviar(env, from, `Lancei ${entrada ? 'a entrada' : 'o gasto'} de R$ ${reais(r.valor)}${entrada ? '' : ` em ${CATS[cat]}`} (${dataBR(r.data)}).${n >= 2 ? ' Anotei: da próxima vez igual eu lanço sozinho.' : ''}`);
   } else return true;
@@ -9203,7 +9269,7 @@ async function extratoMPTick(env, opts = {}) {
     }
     const de = somaDias(hoje, -((opts.dias || 2) - 1));
     await mpxPedirRelatorio(env, de, hoje);
-    await env.HR_KV.put('mpx:estado', JSON.stringify({ de, ate: hoje, criadoEm: Date.now() }), { expirationTtl: 86400 });
+    await env.HR_KV.put('mpx:estado', JSON.stringify({ de, ate: hoje, criadoEm: Date.now(), silencioso: !!opts.silencioso }), { expirationTtl: 86400 });
     await env.HR_KV.put('mpx:dia', hoje, { expirationTtl: 2 * 86400 });
     return { pedido: true, de, ate: hoje };
   }
@@ -9226,7 +9292,8 @@ async function extratoMPTick(env, opts = {}) {
     await notificarDono(env, Date.now(), `*Extrato do Mercado Pago:* baixei o relatório, mas não reconheci as colunas. Me mande esta linha para eu ajustar o leitor:\n\n${res.cabecalho.join(' | ').slice(0, 700)}`);
     return { erro: 'colunas' };
   }
-  if (res.saldo != null) await env.HR_KV.put('mpx:saldo', JSON.stringify({ valor: res.saldo, data: est.ate }), { expirationTtl: 30 * 86400 });
+  if (res.saldo != null) await env.HR_KV.put('mpx:saldo', JSON.stringify({ valor: res.saldo, data: est.ate, em: Date.now() }), { expirationTtl: 30 * 86400 });
+  await env.HR_KV.put('mpx:ultimaLeitura', String(Date.now()), { expirationTtl: 30 * 86400 });
   const minimo = Number(await env.HR_KV.get('cfg:mpx:min')) || 0;
   if (minimo > 0 && res.saldo != null && res.saldo < minimo && (await env.HR_KV.get('mpx:minav')) !== hoje) {
     await env.HR_KV.put('mpx:minav', hoje, { expirationTtl: 2 * 86400 });
@@ -9243,6 +9310,7 @@ async function extratoMPTick(env, opts = {}) {
   }
   if (res.ignoradas) linhas.push(`Ignoradas por regra (não são gasto): ${res.ignoradas}`);
   if (res.saldo != null) linhas.push(`Saldo ao fim do período: R$ ${reais(res.saldo)}`);
+  if (est.silencioso) return { ok: true, ...res }; // v56: pedido pelo app — o senhor resolve as pendências lá, sem mensagens no WhatsApp
   await notificarDono(env, Date.now(), linhas.join('\n'));
   const para = opts.from || dono;
   if (!res.novos) {
@@ -13387,6 +13455,29 @@ async function rotaBotInterna(req, env, url) {
   }
 
   // Fechamentos do dia já confirmados pelo dono (mais recentes primeiro)
+  if (p === '/bot/mp/painel' && req.method === 'GET') {
+    const dias = Math.min(60, Math.max(1, Number(url.searchParams.get('dias')) || 30));
+    const pn = await painelMP(env, dias);
+    pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
+    return jsonR(pn);
+  }
+  if (p === '/bot/mp/atualizar' && req.method === 'POST') {
+    if (!mpAtivo(env)) return jsonR({ ok: false, error: 'O Mercado Pago não está ligado no bot (falta MP_ACCESS_TOKEN).' });
+    const est = JSON.parse((await env.HR_KV.get('mpx:estado')) || 'null');
+    if (est) { await extratoMPTick(env).catch(() => {}); return jsonR({ ok: true, gerando: !!(await env.HR_KV.get('mpx:estado')) }); }
+    const ult = Number(await env.HR_KV.get('mpx:pedidoApp')) || 0;
+    if (Date.now() - ult < 15 * 60 * 1000) return jsonR({ ok: true, recente: true, espera: Math.ceil((15 * 60 * 1000 - (Date.now() - ult)) / 60000) });
+    await env.HR_KV.put('mpx:pedidoApp', String(Date.now()), { expirationTtl: 3600 });
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    try { const r = await extratoMPTick(env, { manual: true, dias: Math.min(Math.max(Number(b.dias) || 3, 1), 30), silencioso: true }); return jsonR({ ok: !r.erro, gerando: !!r.pedido, error: r.erro }); }
+    catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
+  }
+  if (p === '/bot/mp/decidir' && req.method === 'POST') {
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    if (!/^[a-z0-9]+$/.test(String(b.h || ''))) return jsonR({ ok: false, error: 'Movimentação inválida.' }, 400);
+    try { return jsonR(await decidirMPXApp(env, String(b.h), String(b.acao || ''), String(b.cat || ''))); }
+    catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
+  }
   if (p === '/bot/fechamento/agora' && req.method === 'POST') { // v55: botão do app "Fazer pelo WhatsApp"
     let b = {}; try { b = await req.json(); } catch (_) {}
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(b.dia || '')) ? b.dia : dataBahia();
