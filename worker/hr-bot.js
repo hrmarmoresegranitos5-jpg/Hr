@@ -1,3 +1,4 @@
+// v59 (13/11/2026): painel do Mercado Pago mostra o erro da última leitura (mpx:erro) e quando foi pedido o relatório.
 // v58 (13/11/2026): GASTO COM NOME DESCONHECIDO NO MERCADO PAGO — em vez de lançar em "Outros", o bot pergunta ao Sr. Hangel
 //   com o que foi ("produtos de limpeza pro escritório"); ele responde do jeito dele e a IA lança com a categoria certa
 //   (classificar_gasto_mp), guarda a descrição e aprende o favorecido: da próxima vez entra sozinho. MPX_PERGUNTAR_DESCONHECIDO=0 desliga.
@@ -9405,6 +9406,7 @@ async function extratoMPTick(env, opts = {}) {
     await env.HR_KV.delete('mpx:lock');
     if (Date.now() - est.criadoEm > 3 * 3600 * 1000) {
       await env.HR_KV.delete('mpx:estado');
+      await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: 'O Mercado Pago não entregou o relatório em 3 horas.', em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
       await notificarDono(env, Date.now(), '*Extrato do Mercado Pago:* o relatório não ficou pronto em 3 horas. Escreva *extrato mp* para pedir de novo.').catch(e => falhou(env, 'extratoMPTick: notificarDono', e));
     }
     return { esperando: true };
@@ -9417,6 +9419,7 @@ async function extratoMPTick(env, opts = {}) {
   }
   if (res.saldo != null) await env.HR_KV.put('mpx:saldo', JSON.stringify({ valor: res.saldo, data: est.ate, em: Date.now() }), { expirationTtl: 30 * 86400 });
   await env.HR_KV.put('mpx:ultimaLeitura', String(Date.now()), { expirationTtl: 30 * 86400 });
+  await env.HR_KV.delete('mpx:erro').catch(() => {});
   const minimo = Number(await env.HR_KV.get('cfg:mpx:min')) || 0;
   if (minimo > 0 && res.saldo != null && res.saldo < minimo && (await env.HR_KV.get('mpx:minav')) !== hoje) {
     await env.HR_KV.put('mpx:minav', hoje, { expirationTtl: 2 * 86400 });
@@ -9615,6 +9618,7 @@ async function extratoMPDiario(env) {
   try { await extratoMPTick(env); }
   catch (e) {
     console.log('[BOT] extrato MP:', e.message);
+    await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
     const dia = dataBahia();
     if ((await env.HR_KV.get('mpx:errdia')) === dia) return;
     await env.HR_KV.put('mpx:errdia', dia, { expirationTtl: 2 * 86400 });
@@ -13583,6 +13587,8 @@ async function rotaBotInterna(req, env, url) {
     const dias = Math.min(60, Math.max(1, Number(url.searchParams.get('dias')) || 30));
     const pn = await painelMP(env, dias);
     pn.ultimaLeitura = Number(await env.HR_KV.get('mpx:ultimaLeitura')) || null;
+    try { const er = JSON.parse((await env.HR_KV.get('mpx:erro')) || 'null'); if (er && (!pn.ultimaLeitura || er.em > pn.ultimaLeitura)) pn.erro = er; } catch (_) {}
+    pn.pedidoEm = Number(await env.HR_KV.get('mpx:pedidoApp')) || null;
     return jsonR(pn);
   }
   if (p === '/bot/mp/atualizar' && req.method === 'POST') {
@@ -13593,8 +13599,8 @@ async function rotaBotInterna(req, env, url) {
     if (Date.now() - ult < 15 * 60 * 1000) return jsonR({ ok: true, recente: true, espera: Math.ceil((15 * 60 * 1000 - (Date.now() - ult)) / 60000) });
     await env.HR_KV.put('mpx:pedidoApp', String(Date.now()), { expirationTtl: 3600 });
     let b = {}; try { b = await req.json(); } catch (_) {}
-    try { const r = await extratoMPTick(env, { manual: true, dias: Math.min(Math.max(Number(b.dias) || 3, 1), 30), silencioso: true }); return jsonR({ ok: !r.erro, gerando: !!r.pedido, error: r.erro }); }
-    catch (e) { return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
+    try { const r = await extratoMPTick(env, { manual: true, dias: Math.min(Math.max(Number(b.dias) || 3, 1), 30), silencioso: true }); if (r.erro) await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(r.erro).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }); return jsonR({ ok: !r.erro, gerando: !!r.pedido, error: r.erro }); }
+    catch (e) { await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 220), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {}); await env.HR_KV.delete('mpx:pedidoApp'); return jsonR({ ok: false, error: String(e.message).slice(0, 160) }); }
   }
   if (p === '/bot/mp/decidir' && req.method === 'POST') {
     let b = {}; try { b = await req.json(); } catch (_) {}
