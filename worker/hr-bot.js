@@ -1,3 +1,5 @@
+// v63 (13/11/2026): AGENDA DE CLIENTES UNIFICADA — ct:<número> (todo cliente que fala com o bot) + clientes do app; buscar_cliente;
+//   GET /bot/contatos para o app completar nomes e telefones do banco de clientes.
 // v62 (13/11/2026): CONVERSAS — transcrição completa de cada cliente (tx:<número>, 7 dias: cliente + TUDO que o bot mandou); ferramenta ver_conversa
 //   (resumo ou a conversa inteira no WhatsApp do dono, no lugar do "print"); o aviso "Fulano chamou" agora mostra o que o bot respondeu.
 // v61 (13/11/2026): Mercado Pago — configuração do relatório com colunas/frequência (o MP respondia 500).
@@ -2620,6 +2622,7 @@ async function aplicarNomeAosPedidos(env, from, nome) {
 }
 async function gravarNomeSalvo(env, from, nome) {
   try { await env.HR_KV.put('nm:' + from, JSON.stringify({ nome, em: Date.now() })); } catch (e) { console.log('[BOT] nome salvo:', e.message); }
+  await ctAtualizar(env, from, { nome }); // v63
 }
 
 // v24: conta na memória e grava no KV a cada 10 mensagens (antes: 1 gravação por mensagem). Proteção contra abuso, não precisa ser exata.
@@ -7486,6 +7489,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { ref: { type: 'string' }, valor: { type: 'string' }, favorecido: { type: 'string' }, descricao: { type: 'string' }, categoria: { type: 'string', enum: ['material', 'mao_obra', 'insumos', 'fixo', 'combustivel', 'ferramentas', 'prolabore', 'outros', 'nao'] } }, required: ['categoria'] },
   },
   {
+    name: 'buscar_cliente',
+    description: 'Procura um cliente na AGENDA COMPLETA (clientes do aplicativo + todos que já falaram com o bot): devolve nome, telefone (wa.me), cidade, de onde veio e último contato. Use quando o Sr. Hangel pedir o número/contato de alguém, perguntar "quem é fulano", "tem o telefone da Maria?", ou quando você precisar do número de um cliente para outra ferramenta. Aceita nome (ou parte) ou número.',
+    input_schema: { type: 'object', properties: { busca: { type: 'string', description: 'nome (ou parte do nome) ou telefone' } }, required: ['busca'] },
+  },
+  {
     name: 'ver_conversa',
     description: 'Mostra a CONVERSA COMPLETA do bot com um cliente: tudo o que o cliente escreveu e tudo o que o bot respondeu (com horário), dos últimos 7 dias. Use SEMPRE que o Sr. Hangel perguntar como foi/está a conversa ou o atendimento de alguém, pedir "print", "mostra a conversa", "o que o bot falou pra ele", ou quiser saber o que um cliente quer. Depois de ver: diga em 1-2 frases como está o atendimento (o que o cliente quer, se o bot respondeu bem, o que falta) e, se ele pediu print/a conversa, a transcrição já vai junto automaticamente.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone do cliente (do wa.me do aviso), se souber' }, mostrar: { type: 'boolean', description: 'true quando o Sr. Hangel pediu para VER a conversa (print, mostrar, mandar a conversa)' } } },
@@ -7592,6 +7600,7 @@ const FERRAMENTAS = [
 async function ferrVerConversa(env, from, a) {
   let num = numeroCliente(a.numero || ''), nomeAchado = '';
   const alvo = normaliza(String(a.cliente || '')).trim();
+  if (!num && alvo) { const ach = (await buscarClientes(env, a.cliente).catch(() => [])).filter(c => c.numero); if (ach.length) { num = ach[0].numero; nomeAchado = ach[0].nome || ach[0].perfil || ''; } }
   if (!num && alvo) { // 1º pelas próprias transcrições (nome salvo), depois pelo app/livro/pedidos
     const lista = await env.HR_KV.list({ prefix: 'tx:' }).catch(() => ({ keys: [] }));
     let melhor = null;
@@ -7765,6 +7774,12 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'classificar_gasto_mp') return await classificarGastoMP(env, a); // v58
 
   if (nome === 'ver_conversa') return await ferrVerConversa(env, from, a);
+  if (nome === 'buscar_cliente') { // v63
+    const r = await buscarClientes(env, a.busca, 8);
+    if (!r.length) return { texto: `Nenhum cliente com "${a.busca}" no aplicativo nem nas conversas do bot. Diga isso em uma frase.` };
+    const dt = u => u ? new Date(u - 3 * 3600000).toISOString().slice(0, 10).split('-').reverse().join('/') : '';
+    return { texto: `${r.length} encontrado(s):\n` + r.map(c => `- ${c.nome || c.perfil || '(sem nome)'}${c.perfil && c.nome && normaliza(c.perfil) !== normaliza(c.nome) ? ` (WhatsApp: ${c.perfil})` : ''}: ${c.numero ? 'wa.me/' + c.numero : 'sem telefone no app'}${c.cidade ? ' · ' + c.cidade : ''} · ${c.fontes.map(f => f === 'app' ? 'aplicativo' : 'conversa no bot').join(' + ')}${c.ultimo ? ' · último contato ' + dt(c.ultimo) : ''}`).join('\n') + '\nResponda ao Sr. Hangel com o(s) nome(s) e wa.me, curto. Se houver mais de um, pergunte qual.' };
+  }
   if (nome === 'convidar_visita') { // v53: o dono pede, o bot escreve ao cliente para marcar a visita técnica
     let num = numeroCliente(a.numero), nomeDest = '';
     if (!num && a.cliente) {
@@ -11430,6 +11445,7 @@ async function nomeParaDono(env, num) { // nome salvo → livro de entregas → 
   return (await lerNomeSalvo(env, num).catch(() => ''))
     || (await livNomePorTel(env, num).catch(() => ''))
     || (await commsNomePorNumero(env, num).catch(() => ''))
+    || ((await buscarClientes(env, num, 1).catch(() => []))[0] || {}).nome
     || '';
 }
 
@@ -11888,6 +11904,88 @@ async function tratarHistorico(env, from, msg) {
   await enviar(env, from, linhas.join('\n').slice(0, 3500));
   return true;
 }
+// v63: AGENDA DE CLIENTES UNIFICADA (bot + aplicativo)
+//   ct:<número> (2 anos) — todo cliente que fala com o bot: nome confirmado, nome do perfil, último contato, interesse.
+//   O nome fica no metadata da chave: listar a agenda inteira não lê chave por chave.
+//   contatosTodos() junta: agenda do bot + clientes do app (snapshot e histórico, com telefone) → buscarClientes(nome|número).
+//   GET /bot/contatos devolve a agenda do bot para o app completar o banco de clientes (nome ↔ telefone).
+const CT_TTL = 2 * 365 * 86400;
+async function ctAtualizar(env, num, info) {
+  try {
+    num = normalizarBR(num); if (!num || ehDono(env, num)) return;
+    const k = 'ct:' + num;
+    const { value, metadata } = await env.HR_KV.getWithMetadata(k);
+    let o = null; try { o = JSON.parse(value || 'null'); } catch (_) {}
+    o = o || { criado: Date.now() };
+    const novo = { ...o };
+    if (info.nome && nomeDoPerfil(info.nome, false)) novo.nome = String(info.nome).slice(0, 60);
+    if (info.perfil) novo.perfil = String(info.perfil).slice(0, 60);
+    if (info.interesse) novo.interesse = String(info.interesse).slice(0, 40);
+    const agora = Date.now();
+    const mudou = novo.nome !== o.nome || novo.perfil !== o.perfil || novo.interesse !== o.interesse || !o.ultimo || agora - o.ultimo > 12 * 3600000;
+    if (!mudou) return;
+    novo.ultimo = agora;
+    await env.HR_KV.put(k, JSON.stringify(novo), { expirationTtl: CT_TTL, metadata: { n: (novo.nome || '').slice(0, 40), p: (novo.perfil || '').slice(0, 40), u: novo.ultimo } });
+  } catch (e) { console.log('[CT]', e.message); }
+}
+async function ctListar(env) {
+  const out = []; let cursor;
+  for (let i = 0; i < 20; i++) {
+    const r = await env.HR_KV.list({ prefix: 'ct:', cursor, limit: 1000 }).catch(() => null);
+    if (!r) break;
+    for (const k of r.keys) out.push({ numero: k.name.slice(3), nome: (k.metadata && k.metadata.n) || '', perfil: (k.metadata && k.metadata.p) || '', ultimo: (k.metadata && k.metadata.u) || 0 });
+    if (r.list_complete || !r.cursor) break; cursor = r.cursor;
+  }
+  return out;
+}
+// 1ª vez: copia para a agenda os nomes que o bot já tinha guardado (nm:) e as conversas recentes
+async function ctSemear(env) {
+  if (await env.HR_KV.get('ct:semeado')) return 0;
+  let n = 0;
+  for (const pre of ['nm:', 'tx:']) {
+    const r = await env.HR_KV.list({ prefix: pre, limit: 1000 }).catch(() => ({ keys: [] }));
+    for (const k of r.keys) {
+      const num = k.name.slice(pre.length); if (!/^\d{10,13}$/.test(num)) continue;
+      let o = null; try { o = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+      const nome = pre === 'nm:' ? (o && o.nome) : (o && o.nome ? String(o.nome).split(' / ')[0] : '');
+      if (nome) { await ctAtualizar(env, num, { nome }); n++; }
+    }
+  }
+  await env.HR_KV.put('ct:semeado', '1');
+  return n;
+}
+function telDoApp(t) { const d = String(t || '').replace(/\D/g, ''); if (d.length < 10) return ''; return normalizarBR(d.startsWith('55') && d.length >= 12 ? d : '55' + d); }
+async function contatosTodos(env) {
+  const mapa = new Map(), semTel = [];
+  const add = (numero, nome, fonte, extra = {}) => {
+    if (!nome && !numero) return;
+    if (!numero) { semTel.push({ nome, numero: '', fontes: [fonte], ...extra }); return; }
+    const k = ultimos8(numero), a = mapa.get(k);
+    if (a) { if (!a.fontes.includes(fonte)) a.fontes.push(fonte); if (fonte === 'app' && nome) a.nome = nome; else if (!a.nome && nome) a.nome = nome; Object.assign(a, { ...extra, ...a, perfil: a.perfil || extra.perfil, ultimo: Math.max(a.ultimo || 0, extra.ultimo || 0) }); }
+    else mapa.set(k, { numero, nome, fontes: [fonte], ...extra });
+  };
+  const [snap, hist, ct] = await Promise.all([lerSnapshotCompleto(env).catch(() => null), lerHistorico(env).catch(() => null), ctListar(env).catch(() => [])]);
+  const app = [...((snap && snap.dados && snap.dados.clientes) || []), ...((hist && hist.clientes) || [])];
+  for (const c of app) add(telDoApp(c.tel), String(c.nome || '').trim(), 'app', { cidade: c.cidade || '' });
+  for (const c of ct) add(c.numero, c.nome, 'whatsapp', { perfil: c.perfil, ultimo: c.ultimo });
+  for (const c of semTel) { // cliente do app sem telefone + mesma pessoa conversando no bot (mesmo nome ou nome do perfil) → junta
+    const k = normaliza(c.nome); if (!k) continue;
+    const par = [...mapa.values()].find(x => normaliza(x.nome) === k || normaliza(x.perfil || '') === k);
+    if (par) { par.nome = c.nome; if (!par.fontes.includes('app')) par.fontes.push('app'); if (c.cidade && !par.cidade) par.cidade = c.cidade; c.juntado = true; }
+  }
+  const vistos = new Set([...mapa.values()].map(c => normaliza(c.nome)));
+  return [...mapa.values(), ...semTel.filter(c => !c.juntado).filter(c => { const k = normaliza(c.nome); if (!k || vistos.has(k)) return false; vistos.add(k); return true; })];
+}
+// busca por nome (todas as palavras, aceitando plural/abreviação) ou por número; mais recentes e com telefone primeiro
+async function buscarClientes(env, termo, max = 8) {
+  const t = String(termo || '').trim(); if (!t) return [];
+  const todos = await contatosTodos(env);
+  const dig = t.replace(/\D/g, '');
+  if (dig.length >= 8) return todos.filter(c => c.numero && ultimos8(c.numero) === dig.slice(-8)).slice(0, max);
+  const q = tokensPedra(t); if (!q.length) return [];
+  const casa = c => { const tk = new Set([...tokensPedra(c.nome || ''), ...tokensPedra(c.perfil || '')]); return q.every(w => tk.has(w) || [...tk].some(x => x.startsWith(w) && w.length >= 3)); };
+  return todos.filter(casa).sort((a, b) => (!!b.numero - !!a.numero) || ((b.ultimo || 0) - (a.ultimo || 0))).slice(0, max);
+}
 async function telefoneDoClienteApp(env, nome) {
   const q = tokensPedra(nome);
   if (!q.length) return '';
@@ -11900,6 +11998,8 @@ async function telefoneDoClienteApp(env, nome) {
   return normalizarBR(d.startsWith('55') && d.length >= 12 ? d : '55' + d);
 }
 async function numeroDoClientePorNome(env, nome) {
+  const ach = (await buscarClientes(env, nome).catch(() => [])).filter(c => c.numero); // v63: agenda unificada
+  if (ach.length === 1 || (ach.length > 1 && new Set(ach.map(c => ultimos8(c.numero))).size === 1)) return ach[0].numero;
   const viaApp = await telefoneDoClienteApp(env, nome).catch(() => '');
   if (viaApp) return viaApp;
   const viaLivro = await livTelefone(env, nome); // telefone gravado no livro de entregas e pagamentos
@@ -12341,7 +12441,7 @@ async function tratarMensagem(env0, m) {
     const ok = cabe && await enviarVoz(env, m.from, fala);
     if (!ok && ctx.suprimiu) await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(e => console.log('[BOT] texto de reserva:', e.message));
   }
-  if (ctx.tx.length) { const nm = [await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / '); await txGravar(env0, m.from, ctx.tx.splice(0), nm); } // v62
+  if (ctx.tx.length) { const nm = [await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / '); await txGravar(env0, m.from, ctx.tx.splice(0), nm); await ctAtualizar(env0, m.from, { nome: await lerNomeSalvo(env0, m.from).catch(() => ''), perfil: nomeDoPerfil(m._perfil) || '' }); } // v62 · v63
 }
 
 // ── HR COMMS · etapa 66 — preparação e envio aprovado de mensagens comuns ──
@@ -13530,6 +13630,10 @@ async function rotaBotInterna(req, env, url) {
     } catch (e) { console.log('[BOT] contatos (cartões):', e.message); }
     try { for (const r of await livTodos(env)) if (r.tel) juntar(r.cliente, r.tel, r.atualizadoEm, 'livro'); }
     catch (e) { console.log('[BOT] contatos (livro):', e.message); }
+    try { // v63: todo cliente que já falou com o bot (nome confirmado; senão o nome do perfil do WhatsApp)
+      await ctSemear(env).catch(e => console.log('[CT] semear:', e.message));
+      for (const c of await ctListar(env)) if (c.nome || c.perfil) juntar(c.nome || c.perfil, c.numero, c.ultimo, c.nome ? 'whatsapp' : 'perfil');
+    } catch (e) { console.log('[BOT] contatos (agenda):', e.message); }
     const contatos = [...mapa.values()].sort((a, b) => b.atualizado - a.atualizado);
     return jsonR({ ok: true, total: contatos.length, contatos });
   }
