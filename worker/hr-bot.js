@@ -15060,8 +15060,19 @@ async function acvLer(env, id) { try { return JSON.parse((await env.HR_KV.get('a
 async function acvGravar(env, o) { await env.HR_KV.put('acv:o:' + o.id, JSON.stringify(o)); const l = await acvLista(env); if (!l.includes(o.id)) { l.push(o.id); await env.HR_KV.put('acv:lista', JSON.stringify(l.slice(-400))); } }
 async function acvParaPC(env, o) {
   const midias = [];
-  for (const [i, x] of (o.midias || []).entries()) midias.push({ n: i + 1, tipo: x.tipo, nome: `${String(i + 1).padStart(2, '0')}.${x.tipo === 'video' ? 'mp4' : (/png/.test(x.mime) ? 'png' : 'jpg')}`, url: x.md ? await mdUrl(env, x.md, x.mime) : '', w: x.w || 0, h: x.h || 0 });
+  for (const [i, x] of (o.midias || []).entries()) midias.push({ n: i + 1, capa: x.tipo === 'video' && !x.pf, tipo: x.tipo, nome: `${String(i + 1).padStart(2, '0')}.${x.tipo === 'video' ? 'mp4' : (/png/.test(x.mime) ? 'png' : 'jpg')}`, url: x.md ? await mdUrl(env, x.md, x.mime) : '', w: x.w || 0, h: x.h || 0 });
   return { id: o.id, desc: o.desc, cat: o.cat, pedra: o.pedra, midias };
+}
+async function vdPacote(env, j) { // o que o computador precisa para montar: mídias escolhidas (com a pasta da obra de cada uma)
+  if (j.mix) {
+    const midias = [];
+    for (const p of j.mix) { const o = await acvLer(env, p.obra); if (!o) continue; const pc = await acvParaPC(env, o); for (const i of p.sel) if (pc.midias[i]) midias.push({ ...pc.midias[i], obra: o.id, rotulo: o.desc }); }
+    return midias.length ? { id: 'mix', desc: 'compilação', midias } : null;
+  }
+  const o = await acvLer(env, j.obraId); if (!o) return null;
+  const pc = await acvParaPC(env, o);
+  const sel = Array.isArray(j.sel) && j.sel.length ? j.sel : pc.midias.map((x, i) => i);
+  return { ...pc, midias: sel.map(i => pc.midias[i] && { ...pc.midias[i], obra: o.id }).filter(Boolean) };
 }
 async function acvProximaParaPC(env) {
   for (const id of (await acvLista(env)).slice().reverse()) {
@@ -15073,6 +15084,21 @@ async function acvProximaParaPC(env) {
 }
 async function acvMarcarNoPC(env, id, b) { const o = await acvLer(env, id); if (!o) return; o.noPC = Math.max(o.noPC || 0, Number(b.n) || (o.midias || []).length); o.noPCem = Date.now(); await acvGravar(env, o); }
 function acvDescricao(t) { return String(t || '').replace(RE_OBRA, '').replace(/^[\s:,.\-]+/, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+async function acvNovaObra(env, desc) {
+  const o = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), desc: desc || 'Obra de ' + dataBahia().slice(8, 10) + '/' + dataBahia().slice(5, 7), semNome: !desc, criado: Date.now(), midias: [], usos: 0, usadas: [] };
+  const nd = normaliza(o.desc); o.cat = CATEGORIAS_TRABALHO.find(c => nd.includes(c)) || (/bancada|pia|ilha/.test(nd) ? 'cozinha' : '');
+  try { const pedras = [...new Set((await lerPortfolio(env)).filter(i => i.tipo === 'pedra' && i.nome).map(i => i.nome))]; o.pedra = pedras.filter(n => nd.includes(normaliza(n))).sort((a, b) => b.length - a.length)[0] || ''; } catch (_) { o.pedra = ''; }
+  return o;
+}
+async function acvPortfolioAdd(env, o, buf, mime) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
+  const lista = await lerPortfolio(env);
+  if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length >= 120 || lista.filter(i => i.obraId === o.id).length >= 8) return '';
+  const pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
+  await env.HR_KV.put('pf:img:' + pid, buf);
+  const legenda = [o.desc ? o.desc.charAt(0).toUpperCase() + o.desc.slice(1) : 'Obra', o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200);
+  await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
+  return pid;
+}
 async function acvTratarMidia(env, from, m) {
   let tipo = m.type, media = m[m.type] || {}, leg = String(media.caption || '').trim();
   if (m.type === 'document') {
@@ -15081,13 +15107,12 @@ async function acvTratarMidia(env, from, m) {
   }
   if (tipo !== 'image' && tipo !== 'video') return false;
   let alb = null; try { alb = JSON.parse((await env.HR_KV.get('acv:album')) || 'null'); } catch (_) {}
+  const aberto = alb && Date.now() < alb.ate;
   let o = null;
-  if (leg && RE_OBRA.test(leg)) {
-    const desc = acvDescricao(leg);
-    o = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), desc: desc || 'Obra', criado: Date.now(), midias: [], usos: 0 };
-    const nd = normaliza(desc); o.cat = CATEGORIAS_TRABALHO.find(c => nd.includes(c)) || (/bancada|pia|ilha/.test(nd) ? 'cozinha' : '');
-    try { const pedras = [...new Set((await lerPortfolio(env)).filter(i => i.tipo === 'pedra' && i.nome).map(i => i.nome))]; o.pedra = pedras.filter(n => nd.includes(normaliza(n))).sort((a, b) => b.length - a.length)[0] || ''; } catch (_) { o.pedra = ''; }
-  } else if (!leg && alb && Date.now() < alb.ate) o = await acvLer(env, alb.id);
+  if (leg && RE_POSTAR.test(leg)) return false; // "postar ..." continua sendo post na hora (estúdio)
+  if (leg && RE_OBRA.test(leg)) o = await acvNovaObra(env, acvDescricao(leg));
+  else if (!leg && aberto) o = await acvLer(env, alb.id);
+  else if (tipo === 'video' && !/^(comprovante|recibo|nota|pix|boleto)\b/i.test(normaliza(leg))) o = await acvNovaObra(env, leg ? acvDescricao(leg) : ''); // v88b: vídeo solto = obra nova (os seguintes entram juntos)
   if (!o) return false;
   if ((o.midias || []).length >= 30) { await enviar(env, from, 'Essa obra já tem 30 fotos/vídeos. Para outra, mande com *obra* e a descrição.'); return true; }
   let mid; try { mid = await baixarMidia(env, media.id); } catch (e) { await enviar(env, from, `Não consegui baixar ${tipo === 'video' ? 'o vídeo' : 'a foto'} (${e.message}). Pode mandar de novo?`); return true; }
@@ -15097,21 +15122,12 @@ async function acvTratarMidia(env, from, m) {
   const it = { md, mime, tipo: tipo === 'video' ? 'video' : 'foto', tam: mid.buf.byteLength, doc: m.type === 'document', em: Date.now() };
   if (tipo === 'video') { const inf = mp4Info(mid.buf); it.w = inf.w; it.h = inf.h; it.dur = inf.dur; }
   // foto vai para o catálogo de serviços feitos (site/portfólio)
-  if (tipo === 'image' && mid.buf.byteLength <= 1300 * 1024) {
-    try {
-      const lista = await lerPortfolio(env);
-      if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length < 120 && lista.filter(i => i.obraId === o.id).length < 6) {
-        const pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
-        await env.HR_KV.put('pf:img:' + pid, mid.buf);
-        const legenda = [o.desc ? o.desc.charAt(0).toUpperCase() + o.desc.slice(1) : 'Obra', o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200);
-        await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
-        it.pf = pid;
-      }
-    } catch (e) { console.log('[ACERVO] portfólio:', e.message); }
-  }
-  o.midias.push(it); o.atualizado = Date.now(); await acvGravar(env, o);
-  await env.HR_KV.put('acv:album', JSON.stringify({ id: o.id, ate: Date.now() + 3 * 60000 }), { expirationTtl: 600 });
+  if (tipo === 'image' && mid.buf.byteLength <= 1300 * 1024) { try { it.pf = await acvPortfolioAdd(env, o, mid.buf, mime); } catch (e) { console.log('[ACERVO] portfólio:', e.message); } }
+  const o2 = (await acvLer(env, o.id)) || o; // relê: mídias chegando juntas
+  o2.midias.push(it); o2.atualizado = Date.now(); await acvGravar(env, o2); o = o2;
+  await env.HR_KV.put('acv:album', JSON.stringify({ id: o.id, ate: Date.now() + 10 * 60000 }), { expirationTtl: 1200 });
   const n = o.midias.length, t = acvConfirmar(env, from, o.id, n);
+  await env.HR_KV.put('vd:novaObra', '1', { expirationTtl: 3 * 86400 });
   if (env._waitUntil) env._waitUntil(t); else await t;
   return true;
 }
@@ -15124,11 +15140,34 @@ async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 
   const on = await estEditorOnline(env), par = await estEditorPareado(env), cfg = await vdCfg(env);
   await enviar(env, from, cartaoDono('Obra guardada no acervo', [`${o.desc}${o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' · ' + o.pedra : ''}`, `${f} foto(s)${v ? ', ' + v + ' vídeo(s)' : ''}${noSite ? ` · ${noSite} no catálogo de serviços feitos` : ''}`,
     par ? (on ? 'O computador já está guardando os originais.' : 'O computador do editor está desligado: ligue em até 7 dias para ele guardar os originais.') : 'Para os vídeos do dia, conecte o editor do computador: mande *editor*.',
-    cfg.ligado ? `Ela entra nos vídeos do dia (todo dia às ${cfg.hora}h, para o senhor aprovar).` : 'Vídeo do dia está desligado: *video do dia ligar*.',
-    baixa ? 'Dica de qualidade: no WhatsApp, mande como *Documento* (clipe → Documento) para chegar o arquivo original, sem compressão.' : null, 'Mais fotos desta obra: mande nos próximos 3 minutos, sem legenda.']));
+    cfg.ligado ? `Ela entra nos vídeos do dia (todo dia às ${cfg.hora}h, para o senhor aprovar). Uma imagem de cada vídeo também vai para o álbum do site.` : 'Vídeo do dia está desligado: *video do dia ligar*.',
+    o.semNome ? 'Para dar nome à obra: *obra: cozinha da Maria em granito preto*.' : null,
+    baixa ? 'Dica de qualidade: no WhatsApp, mande como *Documento* (clipe → Documento) para chegar o arquivo original, sem compressão.' : null, 'Tudo o que o senhor mandar nos próximos 10 minutos entra nesta mesma obra. Para fazer o vídeo agora: *video do dia*.']));
 }
 // ── vídeo do dia ──
 async function vdCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('vd:cfg')) || '{}'); } catch (_) {} return { ligado: c.ligado !== false && String(env.VIDEO_DIA || '1') !== '0', hora: Number.isFinite(c.hora) ? c.hora : (Number(env.VIDEO_DIA_HORA) || 8) }; }
+function acvDisponiveis(o) { // índices das mídias que o computador tem (ou que ainda estão no bot)
+  const vivo = Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
+  return (o.midias || []).map((x, i) => i).filter(i => i < (o.noPC || 0) || vivo);
+}
+async function vdEscolher(env) {
+  const obras = []; for (const id of await acvLista(env)) { const o = await acvLer(env, id); if (o && (o.midias || []).length) obras.push(o); }
+  // 1) obra com mídia ainda não usada (a mais nova primeiro)
+  const novas = obras.map(o => ({ o, novos: acvDisponiveis(o).filter(i => !(o.usadas || []).includes(i)) }))
+    .filter(x => x.novos.length >= 2 || x.novos.some(i => x.o.midias[i].tipo === 'video')).sort((a, b) => b.o.criado - a.o.criado);
+  if (novas.length) {
+    const { o, novos } = novas[0];
+    let sel = novos.slice(0, 9); // até 9 cenas por vídeo; o resto fica para os próximos dias
+    if (novos.length > 9) { const vids = novos.filter(i => o.midias[i].tipo === 'video'), fts = novos.filter(i => o.midias[i].tipo !== 'video'); sel = [...vids.slice(0, 6), ...fts.slice(0, 3)]; if (sel.length < 9) sel = sel.concat(novos.filter(i => !sel.includes(i)).slice(0, 9 - sel.length)); sel.sort((a, b) => a - b); }
+    return { tipo: 'obra', o, sel };
+  }
+  // 2) sem novidade: compilação com 2 mídias de até 4 obras diferentes (as menos usadas)
+  const pool = obras.filter(o => acvDisponiveis(o).length).sort((a, b) => (a.usos || 0) - (b.usos || 0) || Math.random() - 0.5).slice(0, 4);
+  if (!pool.length) return null;
+  if (pool.length === 1) { const o = pool[0], d = acvDisponiveis(o); const k = ((o.usos || 0) * 5) % d.length; const sel = d.slice(k).concat(d.slice(0, k)).slice(0, 8).sort((a, b) => a - b); return { tipo: 'obra', o, sel, repetida: true }; }
+  const partes = pool.map(o => { const d = acvDisponiveis(o), v = d.filter(i => o.midias[i].tipo === 'video'), k = (o.usos || 0) % Math.max(1, d.length); const pref = v.length ? v : d; return { o, sel: [pref[k % pref.length], d[(k + 1) % d.length]].filter((x, i, a) => x != null && a.indexOf(x) === i) }; });
+  return { tipo: 'mix', partes };
+}
 async function vdEscolherObra(env, evitar) {
   const cand = [];
   for (const id of await acvLista(env)) { const o = await acvLer(env, id); if (!o || !(o.midias || []).length) continue;
@@ -15140,18 +15179,38 @@ async function vdEscolherObra(env, evitar) {
 }
 async function vdCriar(env, avisarSemObra) {
   if (!(await estEditorPareado(env))) { if (avisarSemObra) await enviar(env, numeroDono(env), 'Para o vídeo do dia, o editor do computador precisa estar conectado. Mande *editor* e siga os passos.'); return null; }
-  const o = await vdEscolherObra(env, await env.HR_KV.get('vd:ultimaObra'));
+  const esc = await vdEscolher(env);
+  const o = esc && (esc.tipo === 'obra' ? esc.o : { id: 'mix', desc: 'compilação de ' + esc.partes.length + ' obras', midias: esc.partes.flatMap(p => p.sel.map(i => p.o.midias[i])) });
   if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
-  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, obraId: o.id, estado: 'na_fila', original: true };
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
+  if (esc.tipo === 'mix') { j.mix = esc.partes.map(p => ({ obra: p.o.id, sel: p.sel })); j.obraId = 'mix'; } else { j.obraId = o.id; j.sel = esc.sel; }
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
-  o.usos = (o.usos || 0) + 1; o.ultimoVideo = Date.now(); await acvGravar(env, o);
+  for (const p of (esc.tipo === 'mix' ? esc.partes : [{ o, sel: esc.sel }])) { const x = (await acvLer(env, p.o.id)) || p.o; x.usos = (x.usos || 0) + 1; x.ultimoVideo = Date.now(); x.usadas = [...new Set([...(x.usadas || []), ...p.sel])]; await acvGravar(env, x); }
   await env.HR_KV.put('vd:ultimaObra', o.id, { expirationTtl: 30 * 86400 });
   await env.HR_KV.put('vd:ultimo', JSON.stringify({ pid: j.id, em: Date.now() }), { expirationTtl: 7 * 86400 });
   return { j, o };
 }
+async function acvMigrarSoltos(env) {
+  if (await env.HR_KV.get('acv:mig88b')) return;
+  await env.HR_KV.put('acv:mig88b', '1', { expirationTtl: 400 * 86400 });
+  let fila = []; try { fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); } catch (_) {}
+  const ids = [...new Set([...fila, await env.HR_KV.get('post:ultimo')].filter(Boolean))];
+  const soltos = [];
+  for (const id of ids) { const j = await estLer(env, id); if (j && !j.montagem && j.tipo === 'video' && ['na_fila', 'editando', 'aguardando', 'erro'].includes(j.estado) && Date.now() - j.criado < 24 * 3600000) soltos.push(j); }
+  if (soltos.length < 2) return;
+  soltos.sort((a, b) => a.criado - b.criado);
+  const o = await acvNovaObra(env, soltos.map(j => j.desc).find(d => d && d.length > 5) || '');
+  for (const j of soltos) { for (const m of j.midias) o.midias.push({ md: m.md, mime: m.mime, tipo: 'video', tam: m.tam, w: m.info && m.info.w, h: m.info && m.info.h, dur: m.info && m.info.dur, doc: !!j.original, em: j.criado }); j.estado = 'cancelado'; j.motivo = 'juntado no acervo'; await estGravar(env, j); }
+  o.criado = soltos[0].criado; o.atualizado = Date.now() - 60000; await acvGravar(env, o);
+  await env.HR_KV.put('ed:fila', JSON.stringify(fila.filter(id => !soltos.some(j => j.id === id))));
+  await env.HR_KV.put('vd:novaObra', '1', { expirationTtl: 3 * 86400 });
+  await enviar(env, numeroDono(env), cartaoDono('Juntei os vídeos numa obra só', [`Os ${soltos.length} vídeos que o senhor mandou agora não vão mais ser editados um por um: viraram a obra *${o.desc}* no acervo.`, 'O computador guarda os originais, coloca uma imagem de cada vídeo no álbum de serviços feitos do site e monta o vídeo do dia com eles (o primeiro sai já já).', 'Para dar nome: *obra: cozinha da Maria em granito preto*. Para postar um vídeo sozinho, mande com a legenda *postar*.']));
+  await vdCriar(env, false);
+}
 async function vdRotina(env) {
   if (!estAtivo(env)) return;
+  await acvMigrarSoltos(env).catch(e => console.log('[ACERVO] juntar:', e.message));
   const cfg = await vdCfg(env); if (!cfg.ligado) return;
   const { min } = agoraBahia(), hoje = dataBahia();
   // computador não pegou o vídeo em 2 h: avisa uma vez
@@ -15166,16 +15225,23 @@ function vdGanchos(o) {
   return [`OLHA COMO FICOU ESSA ${amb.toUpperCase()}`, p ? `${p}: VALE A PENA?` : 'ANTES E DEPOIS QUE IMPRESSIONA', `ESSA ${amb.toUpperCase()} FICOU DE OUTRO NÍVEL`, 'DETALHE QUE FAZ A DIFERENÇA', p ? `${p} INSTALADO` : 'DO CORTE À INSTALAÇÃO', 'VOCÊ COLOCARIA NA SUA CASA?'];
 }
 async function vdPlano(env, j) {
-  const o = (await acvLer(env, j.obraId)) || { desc: j.desc, midias: [] };
+  const o = (j.mix ? { desc: 'compilação', cat: '', pedra: '', midias: [] } : await acvLer(env, j.obraId)) || { desc: j.desc, midias: [] };
+  if (j.mix && !j.gancho) { const gm = [`${j.mix.length} PROJETOS QUE SAÍRAM DA NOSSA OFICINA`, 'QUAL DESSES VOCÊ COLOCARIA NA SUA CASA?', 'TRABALHOS RECENTES DA HR', 'DE PERTO É AINDA MAIS BONITO', 'ACABAMENTO QUE FALA POR SI']; j.gancho = gm[Math.floor(Math.random() * gm.length)]; await estGravar(env, j); }
   if (!j.legenda) await estPrepararLegenda(env, j, '');
   const gs = vdGanchos(o); let gancho = String(j.gancho || '').trim();
   if (!gancho) { gancho = gs[Math.floor(Math.random() * gs.length)]; j.gancho = gancho; await estGravar(env, j); }
   const pw = await igPalavra(env).catch(() => null);
   let logo = ''; try { logo = /^https:\/\//.test(String(env.LOGO_VIDEO_URL || env.LOGO_URL || '')) ? (env.LOGO_VIDEO_URL || env.LOGO_URL) : ''; } catch (_) {}
   const amb = o.cat ? o.cat.charAt(0).toUpperCase() + o.cat.slice(1) : '';
+  if (j.mix) return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: 'Projetos da HR', subtitulo: 'Mármores e Granitos sob medida', cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 22, legendas: [] };
   return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: o.pedra || amb || '', subtitulo: [amb && o.pedra ? amb : '', 'HR Mármores e Granitos'].filter(Boolean).join(' · '), cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 20, legendas: [] };
 }
 async function vdComandoDono(env, from, bruto, msg) {
+  { const mr = String(bruto).match(/^\s*obra\s*[:\-]\s*(.{3,160})$/i) || (/^(nome da obra|essa obra (e|é)|a obra (e|é))\b/i.test(normaliza(bruto)) ? [0, String(bruto).replace(/^\s*(nome da obra|essa obra [eé]|a obra [eé])\s*[:\-]?\s*/i, '')] : null);
+    if (mr && mr[1]) { const l = await acvLista(env); const o = l.length ? await acvLer(env, l[l.length - 1]) : null;
+      if (o) { const no = await acvNovaObra(env, acvDescricao(mr[1])); o.desc = no.desc; o.cat = no.cat || o.cat; o.pedra = no.pedra || o.pedra; o.semNome = false; await acvGravar(env, o);
+        await alterarPortfolio(env, async lst => { for (const i of lst) if (i.obraId === o.id) { i.legenda = [o.desc.charAt(0).toUpperCase() + o.desc.slice(1), o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200); i.cat = o.cat || i.cat; i.pedraNome = o.pedra || i.pedraNome; } }, () => true).catch(() => {});
+        await enviar(env, from, `Pronto: a última obra agora se chama *${o.desc}* (no acervo e no álbum do site).`); return true; } } }
   if (/^(acervo|obras|meu acervo|acervo de obras|catalogo de obras)$/.test(msg)) {
     const l = []; for (const id of (await acvLista(env)).slice(-12).reverse()) { const o = await acvLer(env, id); if (o) l.push(`• ${o.desc} — ${o.midias.length} mídia(s)${o.usos ? `, ${o.usos} vídeo(s)` : ''}${(o.noPC || 0) >= o.midias.length ? '' : ' (falta o PC guardar)'}`); }
     const cfg = await vdCfg(env);
@@ -15191,7 +15257,7 @@ async function vdComandoDono(env, from, bruto, msg) {
   if (a && !/^(agora|hoje|ja|fazer|faz|novo|outro)$/.test(a)) return false;
   const r = await vdCriar(env, true); if (!r) return true;
   const on = await estEditorOnline(env);
-  await enviar(env, from, `🎬 Montando o vídeo do dia com a obra *${r.o.desc}* (${r.o.midias.length} mídias). ${on ? 'O computador já está trabalhando; em alguns minutos chega a prévia aqui.' : 'O computador do editor parece desligado: ele monta assim que ligar.'}`);
+  await enviar(env, from, `🎬 Montando o vídeo do dia ${r.j.mix ? 'juntando *' + r.j.mix.length + ' obras* (sem obra nova, faço uma compilação)' : 'com a obra *' + r.o.desc + '* (' + (r.j.sel || []).length + ' de ' + r.o.midias.length + ' mídias' + ((r.o.midias.length - (r.o.usadas || []).length) > 0 ? '; o resto fica para os próximos dias' : '') + ')'}. ${on ? 'O computador já está trabalhando; em alguns minutos chega a prévia aqui.' : 'O computador do editor parece desligado: ele monta assim que ligar.'}`);
   return true;
 }
 // "Marque pilão mil grau, Remanso news pra colaborar" → @ dos perfis: os escritos com @, ou achados pelo nome nos perfis que já falaram com a HR no Instagram
@@ -15313,6 +15379,11 @@ async function rotaEditor(req, env, url) {
   const ma = p.match(/^\/editor\/acervo\/ok\/([a-z0-9]{6,16})$/);
   if (ma) { await acvMarcarNoPC(env, ma[1], await req.json().catch(() => ({}))); return J({ ok: true }); }
   if (p === '/editor/versao') return J({ ok: true, montagem: true, minimo: 2 });
+  const mc = p.match(/^\/editor\/acervo\/capa\/([a-z0-9]{6,16})\/(\d{1,2})$/); // v88b: imagem do vídeo para o álbum do site
+  if (mc) { const o = await acvLer(env, mc[1]); const buf = await req.arrayBuffer(); const it = o && o.midias[Number(mc[2]) - 1];
+    if (!o || !it || it.pf || buf.byteLength < 2000 || buf.byteLength > 1300 * 1024) return J({ ok: false });
+    it.pf = await acvPortfolioAdd(env, o, buf, 'image/jpeg'); const o2 = await acvLer(env, o.id); if (o2 && o2.midias[Number(mc[2]) - 1]) { o2.midias[Number(mc[2]) - 1].pf = it.pf; await acvGravar(env, o2); }
+    return J({ ok: true, pf: it.pf }); }
   if (p === '/editor/proximo') {
     estRotina(env).catch(() => {}); // aproveita para terminar publicações
     let fila = []; try { fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); } catch (_) {}
@@ -15320,8 +15391,8 @@ async function rotaEditor(req, env, url) {
       const j = await estLer(env, fila[0]);
       if (j && j.estado === 'na_fila' && j.editar) {
         j.estado = 'editando'; j.editandoEm = Date.now(); await estGravar(env, j);
-        if (j.montagem) { const ob = await acvLer(env, j.obraId); if (!ob) { j.estado = 'cancelado'; await estGravar(env, j); fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila)); continue; }
-          return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, montagem: true, obra: await acvParaPC(env, ob) } }); }
+        if (j.montagem) { const pac = await vdPacote(env, j); if (!pac) { j.estado = 'cancelado'; await estGravar(env, j); fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila)); continue; }
+          return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, montagem: true, mix: !!j.mix, obra: pac } }); }
         return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, video: await mdUrl(env, j.midias[0].md, 'video/mp4') } });
       }
       fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila));
@@ -15347,6 +15418,7 @@ async function rotaEditor(req, env, url) {
     return J({ ok: true });
   }
   // pronto: recebe o vídeo editado
+  if (j.estado === 'cancelado') return J({ ok: true, ignorado: true }); // v88b: vídeo solto que foi juntado no acervo
   const buf = await req.arrayBuffer();
   if (buf.byteLength < 1000) return J({ ok: false, erro: 'vídeo vazio' }, 400);
   const md = await mdSalvar(env, buf, 'video/mp4');
