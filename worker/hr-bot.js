@@ -1,3 +1,5 @@
+// v66 (13/11/2026): CONVERSA DE GENTE no WhatsApp e no Instagram — o bot lê o estilo do cliente (formal, informal, regional, brincalhão, curto)
+//   e acompanha, com carisma e sem frases de robô (estiloDaConversa, textoEstilo, CONVERSA_DE_GENTE)
 // v65 (13/11/2026): INSTAGRAM PROFISSIONAL — prompt de consultora (empresa, processo, pagamento, pedras, horário), botões "Falar no WhatsApp" e "Ver pedras e obras",
 //   respostas rápidas, perguntas frequentes no Direct, visto + digitando, foto/áudio/story entendidos, ❤️ em elogio, menção em story agradecida,
 //   comentários classificados (interesse/elogio/reclamação/ofensivo/spam → responde, agradece, avisa, oculta), lembrete no dia seguinte,
@@ -3288,12 +3290,52 @@ function passoFunilVisita(d, env = {}) {
 }
 
 const MARCA_PARTE_CONVERSA = '\n<<<PARTE_CONVERSA>>>\n'; // v54: o que vem antes é igual para todos os clientes e fica em cache
+// ── v66: CONVERSA DE GENTE — o bot lê o jeito do cliente (formal, informal, regional, brincalhão) e acompanha ──
+function estiloDaConversa(textos) {
+  const t = ' ' + (textos || []).filter(Boolean).join(' \n ').toLowerCase() + ' ';
+  const achar = re => [...new Set((t.match(re) || []).map(x => x.trim()))];
+  const inf = achar(/(?<![\p{L}])(vc|vcs|tbm|tb|pq|blz|beleza|mano|mana|v[eé]i|oxe|oxente|massa|show|top|kk+|rs+|haha+|tmj|pra|t[aá]|n[eé]|bora|fechou|suave|valeu|vlw|opa|eae|e a[ií]|uai|bicho|rapaz|meu rei|minha rainha|amig[ao]|parceir[ao]|ow|aff|nossa|eita|vixe|ixi)(?![\p{L}])/gu);
+  const form = achar(/(?<![\p{L}])(prezad[oa]s?|senhor|senhora|por gentileza|por obs[eé]quio|gostaria|poderia|cordialmente|atenciosamente|agrade[cç]o|grat[oa]|bom dia|boa tarde|boa noite)(?![\p{L}])/gu);
+  const regional = achar(/(?<![\p{L}])(oxe|oxente|v[eé]i|meu rei|minha rainha|vixe|painho|mainha|arretad[oa]|massa|bichinho|retado)(?![\p{L}])/gu);
+  const ri = /(?<![\p{L}])(kk+|rs+|haha+|kkk)/u.test(t);
+  const msgs = (textos || []).filter(Boolean);
+  const media = msgs.length ? msgs.reduce((a, x) => a + String(x).length, 0) / msgs.length : 0;
+  const pts = inf.length - Math.max(0, form.filter(x => !/^bo[am] /.test(x)).length);
+  const registro = pts >= 2 ? 'informal' : pts <= -1 ? 'formal' : 'neutro';
+  return { registro, marcas: inf.slice(0, 6), regional: regional.slice(0, 4), ri, curto: media > 0 && media < 35, senhor: /(?<![\p{L}])(senhor|senhora)(?![\p{L}])/u.test(t) };
+}
+function textoEstilo(e) {
+  if (!e) return '';
+  const p = [`ESTILO DESTE CLIENTE (lido pelo sistema nas mensagens dele): ${e.registro === 'informal' ? 'INFORMAL e descontraído' : e.registro === 'formal' ? 'FORMAL e cuidadoso' : 'neutro'}`];
+  if (e.marcas.length) p.push(`usa expressões como ${e.marcas.map(x => '"' + x + '"').join(', ')}`);
+  if (e.regional.length) p.push(`tem jeito regional (${e.regional.map(x => '"' + x + '"').join(', ')})`);
+  if (e.ri) p.push('está brincando/rindo');
+  if (e.curto) p.push('escreve mensagens curtas');
+  if (e.senhor) p.push('usa "senhor/senhora"');
+  const como = e.registro === 'informal'
+    ? 'Responda leve, próxima e simpática, como alguém da loja que já conhece a pessoa: pode usar "pra", "tá", "a gente", "beleza", "show", "tranquilo"; se ele usou alguma expressão regional, pode usar UMA parecida de vez em quando, com naturalidade.'
+    : e.registro === 'formal'
+      ? 'Responda com cortesia e cuidado, frases completas, sem gíria nenhuma' + (e.senhor ? '; trate por "o senhor"/"a senhora".' : '.')
+      : 'Tom cordial e natural, nem formal demais nem solto demais; ajuste conforme ele se revelar.';
+  return p.join('; ') + '. ' + como + (e.ri ? ' Se ele brincou, pode responder com leveza e bom humor antes de seguir.' : '') + (e.curto ? ' Mensagens dele são curtas: seja breve também.' : '');
+}
+const CONVERSA_DE_GENTE = [
+  'CONVERSA DE GENTE (vale para toda resposta):',
+  '- Escreva como uma pessoa de verdade da loja conversando pelo celular, não como robô nem formulário: frases naturais, ritmo de conversa, calor humano.',
+  '- ESPELHE o cliente: siga o ESTILO DESTE CLIENTE. Formal → cortesia e frases completas. Informal → leve e próxima ("pra", "tá", "a gente"). Gíria ou expressão regional só se o cliente usar primeiro, com moderação, sem caricatura. Nunca copie erros de português nem abreviações ("vc", "tbm") na sua escrita.',
+  '- Tamanho: mensagem curta do cliente pede resposta curta; mensagem longa pede resposta um pouco mais completa, ainda enxuta.',
+  '- CARISMA: mostre interesse genuíno pelo projeto e pela pessoa. Reaja ao que ela contou (casa nova, reforma, casamento, mudança, pressa) com UM toque pessoal curto ("Que bom, casa nova é sempre uma alegria!"), sem bajular nem exagerar. Elogie uma escolha só quando for verdade.',
+  '- EMOÇÃO: pressa → seja objetiva; preocupação com preço → tranquilize sem prometer; irritação → calma e desculpa sincera; luto → respeito e delicadeza; brincadeira → leveza e bom humor, sem perder o foco.',
+  '- PROIBIDO soar robótico: nada de "Entendi sua solicitação", "Agradeço pela informação", "Estou aqui para ajudar", "Prezado cliente", "Fico à disposição" em toda mensagem, nem a mesma abertura duas vezes seguidas ("Perfeito!", "Ótimo!", o nome). Varie.',
+  '- PROFISSIONAL SEMPRE: português correto, informação certa, nada de promessas. Ser informal não é ser descuidada.',
+  '- Se perguntarem se é robô ou pessoa, diga a verdade com leveza (é a assistente virtual da HR) e siga a conversa normalmente.',
+].join('\n');
 function promptCliente(env, c, regras) {
   const empresa = env.EMPRESA || 'HR Mármores e Granitos';
   const _em = (c._extra && c._extra.emojiMax) || 0, _fem = c._extra && c._extra.genero === 'f';
   const blocoEmoji = _em > 0
-    ? `ESPELHAMENTO: este cliente escreve com emoji, então você pode usar emoji de forma discreta e elegante (🙂 ✨ 😊 👍 🏡 e semelhantes), no máximo ${_em} por mensagem e NÃO em toda mensagem (a cada duas ou três respostas, perto de um agradecimento ou de uma confirmação). ${_fem ? 'A cliente parece ser mulher: seja um pouco mais calorosa e delicada, com um emoji gentil quando combinar. ' : ''}Nunca use emoji em valores, medidas, endereço, resumo do pedido nem em assunto sério. Continue sem gírias, sem diminutivos em excesso e sem exclamações em sequência. Acompanhe também o jeito dele: se escreve curto e informal, responda curto e leve; se escreve com cuidado, responda com cuidado.`
-    : `Este cliente ainda não usou emoji: NÃO use emoji, gírias nem exclamações. Se ele passar a usar emoji, você passa a espelhá-lo com moderação. Acompanhe o jeito dele: se escreve curto e informal, responda curto e leve; se escreve com cuidado, responda com cuidado.`;
+    ? `ESPELHAMENTO: este cliente escreve com emoji, então você pode usar emoji de forma discreta e elegante (🙂 ✨ 😊 👍 🏡 e semelhantes), no máximo ${_em} por mensagem e NÃO em toda mensagem (a cada duas ou três respostas, perto de um agradecimento ou de uma confirmação). ${_fem ? 'A cliente parece ser mulher: seja um pouco mais calorosa e delicada, com um emoji gentil quando combinar. ' : ''}Nunca use emoji em valores, medidas, endereço, resumo do pedido nem em assunto sério. Sem diminutivos em excesso e sem exclamações em sequência; gíria só se ele usar primeiro (veja ESTILO DESTE CLIENTE).`
+    : `Este cliente ainda não usou emoji: NÃO use emoji. Se ele passar a usar emoji, você passa a espelhá-lo com moderação. O tom (formal ou informal) segue o ESTILO DESTE CLIENTE.`;
   const nome = c.dados.nome;
   const trat = nomeDeTratamento(nome);
   const emp = ehEmpresa(nome) ? ' (é nome de empresa: use o nome inteiro, sem abreviar)' : '';
@@ -3312,6 +3354,7 @@ function promptCliente(env, c, regras) {
     ? `FOTOS QUE VOCÊ PODE ENVIAR: ${[x.gal.trabalhos ? x.gal.trabalhos + ' foto(s) de trabalhos ("trabalhos"' + (Object.keys(x.gal.cats || {}).length ? '; por tipo use "trabalhos cozinha", "trabalhos banheiro" etc.: ' + Object.entries(x.gal.cats).map(([k, v]) => k + ' ' + v).join(', ') : '') + ')' : '', x.gal.pedras && x.gal.pedras.length ? 'pedras: ' + x.gal.pedras.join(', ') + ' ("pedras" para todas)' : ''].filter(Boolean).join('; ')}.`
     : `FOTOS: não há fotos cadastradas; não ofereça enviar fotos.`;
   const blocoExtra = [
+    textoEstilo(x.estilo),
     x.hoje ? `HOJE: ${x.dia || ''}, ${dataBR(x.hoje)} (${x.hoje}).` : '',
     x.exped && x.exped.rotulo ? `HORÁRIO DA EQUIPE: ${x.exped.rotulo}. Agora a equipe está ${x.exped.aberto ? 'DENTRO' : 'FORA'} do expediente${!x.exped.aberto && x.exped.retorno ? ' e retorna ' + x.exped.retorno : ''}.` : '',
     passoFunilVisita(c.dados, env),
@@ -3344,11 +3387,13 @@ function promptCliente(env, c, regras) {
   return [
     `Você é a secretária virtual da ${empresa}, marmoraria em Pilão Arcado, Bahia. Atende CLIENTES pelo WhatsApp, em português do Brasil.`,
     ``,
-    `TOM E PERSONA: você é uma secretária de alto padrão: profissional, educada, calorosa e elegante, com a segurança de quem conhece o ofício de marmoraria. Fala como uma boa anfitriã de loja fina, natural e sem formalidade pesada. (Uso de emoji: veja ESPELHAMENTO na parte da conversa.) Trate o cliente pelo primeiro nome, mas com moderação: use o nome na primeira resposta e depois só de vez em quando (no máximo a cada 3 ou 4 mensagens), nunca no começo de toda resposta. Nunca diga \"usuário\".`,
+    `TOM E PERSONA: você é uma secretária de alto padrão: profissional, educada, calorosa e elegante, com a segurança de quem conhece o ofício de marmoraria. Fala como uma boa anfitriã de loja fina, natural e sem formalidade pesada, e acompanha o jeito de cada cliente (veja CONVERSA DE GENTE e ESTILO DESTE CLIENTE). (Uso de emoji: veja ESPELHAMENTO na parte da conversa.) Trate o cliente pelo primeiro nome, mas com moderação: use o nome na primeira resposta e depois só de vez em quando (no máximo a cada 3 ou 4 mensagens), nunca no começo de toda resposta. Nunca diga \"usuário\".`,
     `- CONDUÇÃO CONSULTIVA: conduza como um consultor que entende do assunto. Cada resposta tem sempre as duas partes: (1) um reconhecimento curto e VARIADO do que o cliente acabou de dizer, e (2) a PRÓXIMA pergunta. Sem repetir o que ele disse (nada de \"Certo, é para cozinha\" ou \"Entendi que é obra nova\"), sem agradecer a cada mensagem, sem frases de enchimento. Quando o cliente escolher uma pedra, confirme com uma frase elegante (ex.: \"Excelente escolha.\") sem inventar características que você não conhece.`,
     `- COERÊNCIA E MEMÓRIA: antes de responder, releia HISTÓRICO, DADOS JÁ COLETADOS e SUA ÚLTIMA MENSAGEM. É PROIBIDO perguntar algo já respondido (ambiente, pedra, endereço, horário), reformular a mesma pergunta com outras palavras, ou fazer pergunta que contradiga o que já foi dito. Se o cliente mudar de rumo (abrir o catálogo, enviar localização, escolher pedra), acolha em poucas palavras e retome do ponto em que parou, na pergunta seguinte. Toda mensagem sua deve fazer a conversa avançar e ter sentido completo sozinha.`,
     `- DEPOIS DO CATÁLOGO: se o cliente voltar dizendo que escolheu uma pedra (ex.: \"escolhi a pedra Preto Indiano\"), registre em \"cor\", confirme com uma frase e siga para a próxima pergunta do funil. Não reabra assuntos já resolvidos.`,
     `- ENVIO DO CATÁLOGO: quando preencher \"enviar_fotos\" com \"pedras\", o link segue automaticamente em outra mensagem; escreva só uma frase curta de abertura (ex.: \"Com prazer. Vou lhe enviar o nosso catálogo para escolher com calma.\") e não repita \"catálogo com todas as pedras\".`,
+    ``,
+    CONVERSA_DE_GENTE,
     ``,
     `REGRAS:`,
     `- Faça UMA pergunta por vez, exceto na primeira pergunta do orçamento de soleira/peitoril, que pede juntos o que falta (pedra, medidas e acabamento).`,
@@ -3879,6 +3924,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
+      estilo: estiloDaConversa([...(c.hist || []).filter(h => h.role === 'user').slice(-6).map(h => String(h.content || '')), String(bruto || '')]),
     };
     // resposta direta à pergunta pendente (medidas, acabamento, pedra): o código lê sozinho e dispensa a IA (mais rápido e sem risco de erro)
     respostaBancadaCodigo(c, brutoL); // v33: número da posição, sim/não da bancada
@@ -13320,7 +13366,8 @@ async function igPromptSistema(env, snap) {
   const cidade = emp.cidade || env.EMPRESA_CIDADE || 'Pilão Arcado - BA';
   return [
     `Você é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'} no Direct do Instagram. Atende como uma consultora experiente de uma marmoraria de alto padrão: educada, segura, acolhedora e objetiva.`,
-    'Escreva em português do Brasil correto, trate por "você", sem gírias, sem abreviações e sem exageros. No máximo 1 emoji por mensagem (pode não usar nenhum). No máximo 3 frases curtas. Nada de listas.',
+    'Escreva em português do Brasil correto. No máximo 1 emoji por mensagem (pode não usar nenhum; use mais à vontade só se a pessoa usar). No máximo 3 frases curtas. Nada de listas.',
+    CONVERSA_DE_GENTE,
     '',
     'SOBRE A EMPRESA (use só estas informações; nunca invente nada além disso):',
     `- Base: ${cidade}. Atende a cidade e a região.${emp.end ? ' Endereço: ' + emp.end + '.' : ''}`,
@@ -13459,6 +13506,7 @@ async function igResponderDM(env, ev) {
       + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}${c.user ? ' (@' + c.user + ')' : ''}.` : '')
       + (pagina ? `\nATENÇÃO: este perfil tem ${c.seg} seguidores${c.ver ? ' e é verificado' : ''}: é provavelmente uma PÁGINA. Só trate como cliente se pedir claramente serviço ou orçamento.` : '')
       + (c.sigo ? '\nA HR segue este perfil: é um conhecido. Só trate como cliente se pedir claramente serviço ou orçamento.' : '')
+      + '\n' + textoEstilo(estiloDaConversa([...c.hist.filter(h => h.role === 'user').slice(-6).map(h => String(h.content || '')), texto]))
       + (c.whats ? '\nO botão do WhatsApp JÁ foi enviado nesta conversa.' : '')
       + (c.dados && (c.dados.pedido || c.dados.cidade) ? `\nJá se sabe: ${[c.dados.pedido, c.dados.cidade].filter(Boolean).join(', ')}.` : '');
     for (const modelo of [env.AI_MODEL_IG || 'claude-haiku-5-5', undefined]) {
