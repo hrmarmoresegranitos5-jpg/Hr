@@ -1,3 +1,4 @@
+// v68 (13/11/2026): ANÁLISE DO INSTAGRAM — "instagram analise": lê os posts/reels com estatísticas, olha as capas dos melhores e manda o que viraliza + 10 ideias com roteiro
 // v67 (13/11/2026): Instagram oferece o NÚMERO do WhatsApp (resposta com botão, pedido de contato, comentários, lembrete; IG_NUMERO_PUBLICO=0 tira dos comentários públicos);
 //   no WhatsApp, quem chega pelo botão do Instagram é reconhecido, avisado ao dono e contado no resumo ("chegaram de fato")
 // v66 (13/11/2026): CONVERSA DE GENTE no WhatsApp e no Instagram — o bot lê o estilo do cliente (formal, informal, regional, brincalhão, curto)
@@ -13696,8 +13697,84 @@ async function igResumoTexto(env, semana, rotulo) {
   if ((s.leads || []).length) L.push('', '*Interessados:*', ...s.leads.slice(-10).map(x => `• ${x.u} — ${x.p}${x.c ? ' · ' + x.c : ''}`));
   return L.join('\n');
 }
+// ── v68: ANÁLISE DO INSTAGRAM — o que viraliza nos posts/reels da HR e ideias de vídeo ──────────────
+//   Comando do dono: "instagram analise" (ou "ideias de video"). Roda na rotina (até 15 min): lê os últimos posts com
+//   números (visualizações, alcance, salvamentos, compartilhamentos, curtidas, comentários), olha as capas dos melhores
+//   com a IA e manda o relatório: o que funciona, o que não funciona, melhor dia/horário e 10 ideias com roteiro.
+async function igLerPosts(env) {
+  const campos = 'id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,thumbnail_url,media_url';
+  const metricas = 'views,reach,saved,shares,total_interactions';
+  let url = `/me/media?fields=${campos},insights.metric(${metricas})&limit=50`, comInsights = true;
+  const out = [];
+  for (let pag = 0; pag < 2 && url; pag++) {
+    let j;
+    try { j = await igApi(env, url); }
+    catch (e) { if (comInsights && pag === 0) { comInsights = false; url = `/me/media?fields=${campos}&limit=50`; j = await igApi(env, url); } else throw e; }
+    for (const m of (j.data || [])) {
+      const ins = {}; for (const i of ((m.insights && m.insights.data) || [])) ins[i.name] = Number((i.values && i.values[0] && i.values[0].value) ?? i.total_value?.value ?? 0) || 0;
+      out.push({ id: m.id, tipo: m.media_product_type === 'REELS' ? 'reels' : m.media_type === 'CAROUSEL_ALBUM' ? 'carrossel' : m.media_type === 'VIDEO' ? 'video' : 'foto',
+        legenda: String(m.caption || '').slice(0, 400), link: m.permalink, quando: m.timestamp, curt: m.like_count || 0, com: m.comments_count || 0,
+        views: ins.views || 0, alcance: ins.reach || 0, salv: ins.saved || 0, comp: ins.shares || 0, capa: m.thumbnail_url || (m.media_type !== 'VIDEO' ? m.media_url : '') });
+    }
+    url = j.paging && j.paging.next ? j.paging.next.replace(/^https:\/\/graph\.instagram\.com\/v[\d.]+/, '') : '';
+  }
+  return { posts: out, comInsights };
+}
+function igNota(p) { return (p.views || p.alcance) ? (p.views || p.alcance) + p.salv * 40 + p.comp * 60 + p.com * 20 + p.curt * 5 : p.curt * 5 + p.com * 20; }
+async function igAnaliseTexto(env) {
+  const { posts, comInsights } = await igLerPosts(env);
+  if (posts.length < 3) return 'Sr. Hangel, a conta ainda tem poucos posts para analisar. Assim que tiver mais, eu faço.';
+  posts.forEach(p => { p.nota = igNota(p); const d = new Date(p.quando); p.dia = DIAS_SEMANA[new Date(d.getTime() - 3 * 3600000).getUTCDay()]; p.hora = (d.getUTCHours() + 21) % 24; });
+  const ord = [...posts].sort((a, b) => b.nota - a.nota);
+  const top = ord.slice(0, 6), fracos = ord.slice(-4);
+  // olha as capas dos melhores (o que aparece no primeiro segundo)
+  let capas = '';
+  if (String(env.AI_PROVIDER || '').toLowerCase() === 'anthropic' && env.AI_KEY) {
+    const imgs = [];
+    for (const p of top.slice(0, 5)) { if (!p.capa) continue; try { const { buf, tipo } = await igBaixar(p.capa, 4 * 1024 * 1024); imgs.push({ type: 'image', source: { type: 'base64', media_type: /png|webp/.test(tipo) ? tipo : 'image/jpeg', data: bufB64(buf) } }); } catch (_) {} }
+    if (imgs.length) {
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: JSON.stringify({ model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: 700, system: 'Você é especialista em conteúdo de Instagram para marmorarias. Descreva o padrão visual destas capas (as dos posts que mais deram resultado): enquadramento, o que aparece, pessoas, antes/depois, texto na tela, cores, luz. Português, objetivo, até 8 linhas.', messages: [{ role: 'user', content: [...imgs, { type: 'text', text: 'Capas dos posts de melhor desempenho, em ordem.' }] }] }) });
+        const j = await r.json().catch(() => null); if (r.ok) capas = (j.content || []).map(b => b.text || '').join('').trim();
+      } catch (_) {}
+    }
+  }
+  const linha = p => `${p.tipo} | ${p.dia} ${p.hora}h | ${comInsights ? `views ${p.views} alcance ${p.alcance} salv ${p.salv} comp ${p.comp} ` : ''}curt ${p.curt} com ${p.com} | "${p.legenda.replace(/\s+/g, ' ').slice(0, 160)}"`;
+  const porTipo = {}; for (const p of posts) { const t = porTipo[p.tipo] = porTipo[p.tipo] || { n: 0, s: 0 }; t.n++; t.s += p.nota; }
+  const dados = [
+    `Total analisado: ${posts.length} posts (${comInsights ? 'com visualizações/alcance/salvamentos/compartilhamentos' : 'só curtidas e comentários: a permissão de estatísticas não veio no token'}).`,
+    `Média por formato (nota): ${Object.entries(porTipo).map(([t, v]) => `${t} ${Math.round(v.s / v.n)} (${v.n} posts)`).join('; ')}.`,
+    'MELHORES:', ...top.map(linha), 'MAIS FRACOS:', ...fracos.map(linha),
+    capas ? 'PADRÃO VISUAL DAS CAPAS DOS MELHORES: ' + capas : '',
+  ].filter(Boolean).join('\n');
+  const sis = `Você é estrategista de conteúdo de Instagram para a ${env.EMPRESA || 'HR Mármores e Granitos'}, marmoraria em Pilão Arcado (BA) que faz bancadas, cozinhas, banheiros, escadas, soleiras e peitoris em granito, mármore e quartzo, com projeto 3D e equipe própria. `
+    + 'Com base SOMENTE nos dados, escreva um relatório para o dono ler no WhatsApp (use *negrito* do WhatsApp, sem markdown de #). Seções: '
+    + '*O que está viralizando* (padrões reais dos melhores: formato, tema, gancho/primeira frase, capa, legenda, dia e hora); *O que não funciona*; *Melhores dias e horários*; '
+    + '*10 ideias de vídeo* — cada uma com: título, gancho dos 2 primeiros segundos (frase na tela), roteiro em 3 a 5 cenas curtas que ele grava com o celular na obra, duração sugerida e legenda curta com chamada para o WhatsApp. '
+    + 'Ideias realistas para quem grava sozinho na obra (antes/depois, corte da pedra, instalação, reação do cliente, dica rápida, erro comum, comparação de pedras, bastidores). '
+    + 'Termine com *Para gravar esta semana*: as 3 melhores ideias. Não invente números; se os dados forem poucos, diga. '
+    + 'Responda SOMENTE em JSON: {"resposta":"o relatório completo, com quebras de linha"}';
+  const r = await chamarIA(env, sis, [], dados, { maxTokens: 3500, timeoutMs: 120000, model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5') });
+  const txt = String(lerJsonIA(r).resposta || '').trim();
+  if (!txt) throw new Error('a IA não devolveu o relatório');
+  return `📊 *Análise do Instagram da HR*\n\n${txt}${top[0] && top[0].link ? `\n\n🔝 Post que mais deu resultado: ${top[0].link}` : ''}`;
+}
+async function igAnaliseRotina(env) {
+  const pedido = await env.HR_KV.get('ig:analise:pedida'); if (!pedido) return;
+  await env.HR_KV.delete('ig:analise:pedida');
+  let t; try { t = await igAnaliseTexto(env); } catch (e) { t = `Sr. Hangel, não consegui ler os posts do Instagram (${String(e.message).slice(0, 150)}). Pode faltar a permissão de estatísticas no token: me avise que eu passo o caminho.`; }
+  const dono = numeroDono(env);
+  for (const parte of String(t).match(/[\s\S]{1,3800}(?:\n|$)/g) || [t]) await enviar(env, dono, parte.trim());
+  await env.HR_KV.put('ig:analise:ultima', String(Date.now()), { expirationTtl: 60 * 86400 });
+}
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
 async function igComandoDono(env, from, msg) {
+  if (/^((instagram|insta|ig) (analise|analisar|ideias|estudo|estudar)|ideias? de (video|videos|post|posts|reels)|analisar (o )?instagram)$/.test(msg)) {
+    await env.HR_KV.put('ig:analise:pedida', '1', { expirationTtl: 86400 });
+    await enviar(env, from, 'Certo, Sr. Hangel! Vou estudar os posts e reels da HR (o que mais deu visualização, salvamento e compartilhamento, as capas, os dias e horários) e montar ideias de vídeo com roteiro. Mando aqui em até 15 minutos. 📊');
+    return true;
+  }
   const m = msg.match(/^(?:instagram|insta|ig)\s+(pausar|parar|desligar|ligar|voltar|religar|resumo|status)$/) || msg.match(/^(pausar|parar|desligar|ligar|voltar|religar|resumo) (?:o )?(?:instagram|insta)$/);
   if (!m) return false;
   const a = m[1];
@@ -21527,6 +21604,7 @@ export default {
     ctx.waitUntil(dicaDoDia(env).catch(e => falhou(env, 'rotina: dica do dia', e))); // v63t
     ctx.waitUntil(igRenovarToken(env).catch(e => falhou(env, 'rotina: token do Instagram', e))); // v64
     ctx.waitUntil(igRotina(env).catch(e => falhou(env, 'rotina: Instagram', e))); // v65
+    ctx.waitUntil(igAnaliseRotina(env).catch(e => falhou(env, 'rotina: análise do Instagram', e))); // v68
     ctx.waitUntil((async () => { // em fila, não em paralelo: todas regravam o pedido inteiro e uma sobrescrevia a outra
       for (const [nome, fn] of [['lembretes', lembretesDeValor], ['seguimento', seguimentoValor], ['prazo do Pix', lembretesPixCurto], ['lembrete Pix', lembretesDePix], ['lembrete restante', lembretesRestante], ['bot no lugar do app', pedidosNoBotRotina], ['app parado', alertaAppParado], ['pronto no dia', prontoNoDiaRotina]]) {
         try { await fn(env); } catch (e) { await falhou(env, 'rotina: ' + nome, e); }
