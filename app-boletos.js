@@ -1083,6 +1083,8 @@ function _bPreencherComExtracao(d) {
   }
   _bVencAutoPreenchido = false;
 
+  // Boleto em nome da HR/do dono (ou de carga de fornecedor) é conta A PAGAR — antes ficava em "A receber" (padrão do formulário)
+  if (_bTipoAtual === 'receber' && (d.cargaId || /giliarde|hangel|hr m[aá]rmores|joel/i.test(String(d.pagadorNome || '')))) { bSetTipo('pagar'); toast('Boleto em seu nome: lançado como A PAGAR'); }
   if (d.categoria && B_CAT[d.categoria]) { var c = document.getElementById('bCat'); if (c) c.value = d.categoria; }
   s('bParc', d.parc);
   if (d.fpag && B_FPAG[d.fpag]) { var fEl = document.getElementById('bFpag'); if (fEl) fEl.value = d.fpag; }
