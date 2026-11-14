@@ -996,6 +996,17 @@ async function rhAvisos(env) {
     }
     if (faltam.length) await notificarDono(env, Date.now(), cartaoDono('Ponto · ainda não bateram a entrada', [faltam.join(', '), `Já são ${hhmm(ag.min)}. Se chegaram e esqueceram, me diga o horário (ex.: *${String(faltam[0]).split(' ')[0]} entrou 7h*) que eu lanço.`]));
   }
+  // 3) v83: estoque baixo (dados do app) — uma vez por dia, a partir das 8h
+  if (ag.min >= 8 * 60 && ag.min < 18 * 60 && !(await env.HR_KV.get('rh:av:est:' + hoje))) {
+    const snap = await lerSnapshotCompleto(env).catch(() => null);
+    const est = (snap && snap.dados && Array.isArray(snap.dados.estoque)) ? snap.dados.estoque.filter(x => x && x.baixo) : [];
+    await env.HR_KV.put('rh:av:est:' + hoje, '1', { expirationTtl: 2 * 86400 });
+    const chave = est.map(x => x.material + ':' + Math.round(x.m2Disponivel * 10)).sort().join('|');
+    if (est.length && chave !== (await env.HR_KV.get('rh:av:est:ult')) && await travaEnvio(env, 'rhest:' + hoje)) {
+      await env.HR_KV.put('rh:av:est:ult', chave, { expirationTtl: 30 * 86400 });
+      await notificarDono(env, Date.now(), cartaoDono('Estoque baixo', [...est.slice(0, 10).map(x => `${x.material}${x.acabamento ? ' ' + x.acabamento : ''}: ${String(Math.round(x.m2Disponivel * 100) / 100).replace('.', ',')} m²${x.m2Disponivel < 0 ? ' (faltando)' : ''}`), 'Quando a compra chegar, me diga: *chegaram 6 m² de São Gabriel* que eu dou entrada.']));
+    }
+  }
   // 2) dia do pagamento: o período fecha hoje
   if (ag.min >= 8 * 60 && ag.min < 18 * 60 && !(await env.HR_KV.get('rh:av:folha:' + hoje))) {
     const lista = (await rhPrevias(env)).filter(x => x.pv && x.pv.df === hoje && x.pv.status !== 'pago' && Number(x.pv.valor) > 0);
@@ -8879,6 +8890,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
       `- APP: "anota ..."/"anota as medidas do fulano" → pedir_acao_app com acao criar_nota (vai para Notas do app; memorizar é só para preferências suas). "o serviço do fulano ficou pronto"/"já entreguei o do fulano" → pedir_acao_app agenda_etapa (pronto/entregue). "muda a entrega do fulano para sexta" → pedir_acao_app agenda_data (AAAA-MM-DD). "o fulano desistiu" → marcar_perdido. As Notas do app estão nos dados (notas) para você consultar.`,
+      `- ESTOQUE E BOLETOS: o estoque de chapas e os boletos estão nos dados (estoque, boletos). "chegaram 6 m² de São Gabriel" → pedir_acao_app estoque_entrada; "usei/quebrou 2 m² de Itaúnas" → estoque_baixa; "paguei o boleto da Ceará" → marcar_boleto_pago (use o id do boleto dos dados; se houver dúvida entre dois, pergunte). Para "o que tenho que pagar esta semana?" use os boletos dos dados.`,
       `- RH: "paguei a folha"/"pagar todo mundo" → pagar_folha (valores do app, o Sr. Hangel confirma). "quem está trabalhando?", "quem não chegou?" → ponto_funcionario com funcionarios=["todos"]. Um pagamento de valor específico a uma pessoa → pagar_funcionario.`,
       `- PONTO: para lançar ou ver horários de funcionários ("fulano entrou 7h", "vão fazer extra hoje, saem 16h", "que horas o Lucas chegou?"), chame ponto_funcionario. O app TEM registro de ponto (HR Ponto): nunca diga que não tem.`,
       `- FOLHA DOS FUNCIONÁRIOS: para "quanto o fulano vai receber (amanhã/no fim do período)", "quanto tenho de folha", "quanto devo a fulano", chame folha_funcionarios. Nunca responda que não há pagamento programado sem chamar essa ferramenta.`,

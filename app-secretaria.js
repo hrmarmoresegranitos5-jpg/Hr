@@ -2682,7 +2682,7 @@ function _snapConstruir(meses) {
     var venc = _snapData(b.venc);
     var aberto = b.status !== 'pago' && b.status !== 'cancelado';
     if (!aberto && !dentro(venc)) return;
-    var o = { descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15), tipo: b.tipo === 'receber' ? 'receber' : 'pagar' };
+    var o = { id: b.id != null ? String(b.id).slice(0, 30) : undefined, descricao: _snapTxt(b.desc, 70), valor: _snapNum(b.valor), vencimento: venc, status: _snapTxt(b.status, 15), tipo: b.tipo === 'receber' ? 'receber' : 'pagar' };
     if (b.cli) o.fornecedor = _snapTxt(b.cli, 50);
     if (b.cat) o.categoria = _snapTxt(b.cat, 25);
     if (b.parc) o.parcela = _snapTxt(b.parc, 10);
@@ -2839,6 +2839,8 @@ function _snapConstruir(meses) {
       boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
       resumoFinanceiro: 'mesmos números de Finanças → Lucro real do mês (regime de caixa): recebido − custo de material = lucro bruto; − despesas reais − custos recorrentes − impostos = lucro líquido. mesAnterior serve para comparar.',
       proLabore: 'sugeridoMes = quanto o app sugere retirar neste mês; restanteSugerido = sugerido menos o que já foi retirado; tetoSegurancaCaixa = limite seguro para o caixa; dividaMesesAnteriores = o que a empresa ainda deve ao sócio',
+      estoque: 'chapas em estoque por material: m2Disponivel (pode ficar negativo = faltando); baixo = abaixo do limite de aviso',
+      boletosIds: 'boletos[].id serve para a ação marcar_boleto_pago',
       notas: 'anotações do Sr. Hangel em Notas (mais recentes primeiro): medidas, visitas e lembretes',
       janelaMeses: meses
     },
@@ -2848,6 +2850,9 @@ function _snapConstruir(meses) {
     orcamentos: orc,
     orcamentosAntigosPorMes: orcAntigos,
     contratos: contratos,
+    estoque: (function () { // chapas em estoque (m² disponível) — o bot avisa o que está acabando e dá baixa/entrada
+      try { var lim = (typeof _estLimiteAviso === 'function') ? _estLimiteAviso() : 5; return (typeof EST !== 'undefined' && Array.isArray(EST.itens) ? EST.itens : []).map(function (it) { return { material: _snapTxt(it.material, 50), acabamento: _snapTxt(it.acabamento || '', 25), m2Disponivel: _snapNum(it.m2Disponivel), m2Total: _snapNum(it.m2Total), custoUltimoM2: _snapNum(it.custoUltimo), ultimaCompra: _snapData(it.ultimaCompra), baixo: (+it.m2Disponivel || 0) <= lim }; }); } catch (e) { return []; }
+    })(),
     notas: (function () { // anotações de Notas (as 40 mais recentes) — o bot lê e também cria (ação criar_nota)
       try { return (Array.isArray(DB.n) ? DB.n : []).slice().sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); }).slice(0, 40).map(function (n) { return { data: _snapData(+n.id ? new Date(+n.id).toISOString() : ''), cliente: _snapTxt(n.cliente || '', 60), tipo: _snapTxt(n.tipo || '', 12), texto: _snapTxt(n.texto || '', 300) }; }); } catch (e) { return []; }
     })(),
