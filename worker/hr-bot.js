@@ -791,7 +791,7 @@ async function pdfImgTick(env) {
   for (const t of avisar) {
     const ct = crmAtivo(env) ? await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(t.num).first().catch(() => null) : null;
     const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || (ct && (ct.nome || ct.perfil)) || 'O cliente';
-    await enviarTextoPuro(env, numeroDono(env), `📄 ${nome} pediu o orçamento *em imagem* (não está conseguindo abrir o PDF). Para eu converter, preciso do *app HR aberto* (no celular ou a Central no computador). Assim que abrir, eu mando sozinho.\nwa.me/${t.num}`).catch(() => {});
+    await enviarTextoPuro(env, numeroDono(env), cartaoDono('Orçamento em imagem · ' + nome, ['Pedido: não consegue abrir o PDF e quer em foto.', 'O que fazer: abra o app HR (celular ou Central no PC) que eu converto e mando sozinho.'], t.num)).catch(() => {});
   }
 }
 async function pdfImgResultado(env, t, b) {
@@ -804,7 +804,7 @@ async function pdfImgResultado(env, t, b) {
     await postarMsg(env, t.num, { type: 'image', image: { id: mid, caption: imgs.length > 1 ? `Orçamento · página ${i + 1} de ${imgs.length}` : 'Seu orçamento da HR Mármores e Granitos.' } });
   }
   const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || 'o cliente';
-  await notificarDono(env, Date.now(), `🖼️ Mandei o orçamento em imagem para ${nome} (${imgs.length} ${imgs.length === 1 ? 'página' : 'páginas'}), como ele pediu.`, { rotina: true }).catch(() => {});
+  await notificarDono(env, Date.now(), cartaoDono('Orçamento em imagem enviado · ' + nome, [`Enviado: ${imgs.length} ${imgs.length === 1 ? 'página' : 'páginas'} em foto.`], t.num), { rotina: true }).catch(() => {});
 }
 
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
@@ -1015,6 +1015,13 @@ async function enviarAvisosDoDia(env) {
   if (!lista.length) return;
   await env.HR_KV.delete('digest:pend');
   await avisarDono(env, `*Resumo dos avisos, Sr. Hangel*\n\n` + lista.map(x => '• ' + x.t).join('\n'));
+}
+// v77: AVISOS ORGANIZADOS — todo aviso importante ao dono no mesmo formato: ícone + título em negrito com o nome,
+//   linhas curtas (uma informação por linha) e o contato no fim.
+//   Sem emojis (o dono recebe sem emojis): o título em negrito e rótulos ("Valor:", "Situação:") organizam a leitura.
+function cartaoDono(titulo, linhas, num) {
+  const corpo = (linhas || []).filter(x => x !== null && x !== undefined).map(x => String(x)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return `*${titulo}*${corpo ? '\n' + corpo : ''}${num ? '\n\nwa.me/' + String(num).replace(/\D/g, '') : ''}`;
 }
 async function notificarDono(env, ts, texto, opc = {}) {
   if (opc.rotina && String(env.AVISOS_DIA ?? '1') !== '0') { await guardarAvisoDoDia(env, texto); return; }
@@ -4636,7 +4643,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
         pedidoId: auto2 ? lead.id : null,
         ultimo: { pecasD: auto2 ? (c.dados.pecas || []).slice(0, 10) : undefined, acabD: auto2 ? (c.dados.acabamento || '') : '', data: dataBR(dataBahia()), cor: auto2 ? lead.cor : '', entrega: auto2 ? lead.entrega : '', endereco: auto2 ? lead.endereco : '', resumo: `${lead.projeto}${lead.medidas ? ' (' + String(lead.medidas).slice(0, 80) + ')' : ''}${lead.querVisita ? ', visita técnica' : ''}` },
       });
-      await notificarDono(env, lead.id, textoLeadCurto(lead, auto2));
+      if (!(auto2 && _botCalculaFlag)) await notificarDono(env, lead.id, textoLeadCurto(lead, auto2)); // v77: pedido com valor automático: um aviso só (o cartão do valor, logo em seguida)
       if (lead.loc) await enviarPinAoDono(env, lead).catch(e => console.log('[BOT] pino ao dono:', e.message)); // o pino do mapa, para abrir direto
       if (ehVisita && marcada) { // o cliente recebe a confirmação exata (código, sem IA)
         const endc = lead.endereco && !/^Localiza/i.test(String(lead.endereco)) ? ', em ' + String(lead.endereco).slice(0, 120) : '';
@@ -5308,12 +5315,12 @@ async function registrarPerguntaSemResposta(env, from, nome, pergunta) {
     if (igual.numero === from || (igual.outros || []).some(o => o.numero === from)) return;
     igual.outros = [...(igual.outros || []), { numero: from, nome: nome || '' }].slice(0, 10);
     await env.HR_KV.put('pq:lista', JSON.stringify(lista), { expirationTtl: 7 * 86400 });
-    await notificarDono(env, Date.now(), `*${nome || 'Outro cliente'}* fez a mesma pergunta: \"${p}\"\n\nSua resposta vai para os ${1 + igual.outros.length} que perguntaram.\nwa.me/${from}`);
+    await notificarDono(env, Date.now(), cartaoDono('Mesma pergunta · ' + (nome || 'Cliente'), [`Pergunta: "${p}"`, `Sua resposta vai para os ${1 + igual.outros.length} que perguntaram.`], from));
     return;
   }
   lista.push({ pergunta: p, nome: nome || '', numero: from, em: Date.now(), aprender: true });
   await env.HR_KV.put('pq:lista', JSON.stringify(lista), { expirationTtl: 7 * 86400 });
-  await notificarDono(env, Date.now(), `*${nome || 'Um cliente'}* perguntou: \"${p}\"\n\nNão sei responder. Deslize e escreva *responder* e a resposta; depois te pergunto se guardo para as próximas.\nwa.me/${from}`);
+  await notificarDono(env, Date.now(), cartaoDono('Pergunta sem resposta · ' + (nome || 'Cliente'), [`Pergunta: "${p}"`, 'O que fazer: deslize esta mensagem e escreva *responder* + a resposta. Depois pergunto se guardo para as próximas.'], from));
 }
 
 // anota, sem avisar, que este cliente espera resposta do dono (ele responde com "responder")
@@ -5874,11 +5881,11 @@ async function avisarInicioConversa(env, m) {
   if (!acoes.length) acoes.push('respondi pelo atendimento automático');
   const fez = acoes.length > 1 ? acoes.slice(0, -1).join(', ') + ' e ' + acoes[acoes.length - 1] : acoes[0];
   const resp = ((env._ctx && env._ctx.tx) || []).filter(f => f.q === 'b').map(f => f.x).join(' / ').replace(/\s+/g, ' ').trim(); // v62: o que o bot respondeu de fato
-  await notificarDono(env, Date.now(), [
-    `${nome ? '*' + nome + '*' : 'Um novo contato'} chamou${assunto ? `: "${assunto.slice(0, 200)}"` : ''}.`,
-    resp ? `Respondi: "${resp.length > 280 ? resp.slice(0, 277) + '…' : resp}"` : `Já ${fez}.`,
-    `wa.me/${from}`,
-  ].join('\n\n'));
+  const respCurta = resp.replace(/\[imagem\]\s*/g, '').replace(/[*_]/g, ''); // v77: cartão curto (o que ele disse e o que o bot fez); a conversa toda fica no CRM
+  await notificarDono(env, Date.now(), cartaoDono('Novo contato · ' + (nome || 'sem nome'), [
+    assunto ? `Mensagem: "${assunto.slice(0, 160)}"` : null,
+    ehSaudacaoMenu(normaliza(limparMensagemCliente(assunto))) || !respCurta ? `Bot: ${fez}.` : `Bot respondeu: "${respCurta.length > 160 ? respCurta.slice(0, 157) + '…' : respCurta}"`,
+  ], from));
 }
 
 // ── Nota do atendimento: quando o cliente para de responder, o bot pede uma nota de 1 a 5 e uma sugestão ──
@@ -6501,7 +6508,7 @@ async function tratarPosOrcamento(env, from, m) {
   if (ped.etapa === 'aguarda_cliente') {
     if (btn.startsWith('cli_duvida|')) {
       await enviar(env, from, 'Certo. Escreva a sua dúvida por aqui que a equipe responde.');
-      await notificarDono(env, Date.now(), `*${ped.nome || 'O cliente'}* tem dúvidas sobre o orçamento.\nwa.me/${from}`);
+      await notificarDono(env, Date.now(), cartaoDono('Dúvida no orçamento · ' + (ped.nome || 'Cliente'), ['Tocou em "Tenho dúvidas" e vai escrever a pergunta.'], from));
       return true;
     }
     if (btn.startsWith('cli_aprovar|') || (RE_APROVA.test(msg) && !naoAprova(texto, msg))) {
@@ -11948,7 +11955,7 @@ async function aplicarPrazoPedido(env, from, ped) {
     await salvarPedido(env, ped);
     await tirarDaFila(env, ped);
     await enviar(env, from, ped.prazoAutoTxt
-      ? `*${ped.nome || 'O cliente'}* confirmou R$ ${reais(Number(ped.valor) || 0)}. Entrega ${quando} (prazo automático: ${ped.prazoAutoTxt}). O PDF já está sendo gerado e segue para ele.`
+      ? cartaoDono('Pedido confirmado · ' + (ped.nome || 'Cliente'), [`Valor: R$ ${reais(Number(ped.valor) || 0)}`, `Entrega: ${quando} (prazo automático, ${ped.prazoAutoTxt})`, 'Situação: PDF sendo gerado, vai sozinho para o cliente'], ped.numero)
       : `Fechado, entrega ${quando}. O app está gerando o PDF e ele vai para ${ped.nome || 'o cliente'} sozinho.`);
     return;
   }
@@ -15186,7 +15193,10 @@ async function rodarDepois(env) {
   await Promise.allSettled(lista.map(async x => {
     const falta = x.fase === 'cotar' ? 0 : espera - (Date.now() - x.em); // v28: valor na hora; o PDF dá tempo ao app
     if (falta > 0) await new Promise(r => setTimeout(r, falta));
-    if (x.fase === 'gerar') await avisarPdfAguardando(env, x.id); else await fazerNoBot(env, x.id, x.fase);
+    if (x.fase === 'gerar') {
+      if (Date.now() - (Number(await env.HR_KV.get(APP_VISTO)) || 0) < 90000) return; // v77: app aberto agora: o PDF está saindo; se travar, a rotina avisa depois
+      await avisarPdfAguardando(env, x.id);
+    } else await fazerNoBot(env, x.id, x.fase);
   }));
 }
 // Chamada interna às rotas do app (mesmo código, mesmas conferências)
@@ -15237,10 +15247,11 @@ async function avisarPdfAguardando(env, id) {
   const quando = !ex.aberto && ex.retorno ? ` A equipe retorna ${ex.retorno}, e o PDF chega aqui logo em seguida.` : ' Ele chega aqui em breve.';
   const txt = `${p ? p + ', o' : 'O'} seu pedido está confirmado e reservado. O orçamento em PDF, com os valores e a data, é emitido pelo nosso sistema para você conferir com calma.${quando}`;
   const voz = (await env.HR_KV.get('clivoz:' + ultimos8(ped.numero))) === '1';
-  try { await falarOuEscrever(env, ped.numero, txt, voz); } catch (e) { await falhou(env, 'aviso de PDF ao cliente', e); }
+  const acabouDeOuvir = ped.valorConfirmadoEm && Date.now() - ped.valorConfirmadoEm < 15 * 60000; // v77: já ouviu "pedido confirmado, já te envio o PDF"
+  if (!acabouDeOuvir) { try { await falarOuEscrever(env, ped.numero, txt, voz); } catch (e) { await falhou(env, 'aviso de PDF ao cliente', e); } }
   await anotarNoHistorico(env, ped.numero, '[Avisei a cliente que o PDF do orçamento chega assim que o sistema emitir. Se ela perguntar, diga que o pedido está confirmado e o PDF chega em breve; não invente horário.]');
   await env.HR_KV.put('alertaapp:' + ped.id + ':gerar', '1', { expirationTtl: 2 * 86400 }).catch(() => {}); // o aviso de "app parado" não repete este
-  await notificarDono(env, Date.now(), `*${ped.nome || 'Cliente'}* aprovou R$ ${reais(Number(ped.valor) || 0)} e está esperando o PDF. *Abra o app no computador*: o PDF sai sozinho para ele.\nwa.me/${ped.numero}`);
+  await notificarDono(env, Date.now(), cartaoDono('PDF esperando o app · ' + (ped.nome || 'Cliente'), [`Valor aprovado: R$ ${reais(Number(ped.valor) || 0)}`, 'O que fazer: abra o app HR (celular ou Central no PC) e o PDF sai sozinho.'], ped.numero));
   return true;
 }
 // Rotina de reserva (cron): se a conferência logo após o pedido não rodou, faz agora
@@ -16309,14 +16320,14 @@ async function rotaBotInterna(req, env, url) {
       }
       if (r.ok) {
         if (r.voz) { ped.vozValor = true; await salvarPedido(env, ped); }
-        const acionavel = avisos.length > 0 || (ped.custo > 0 && ped.margemPct != null && ped.margemPct < 25);
-        const resumoCurto = [
-          `*${ped.nome || 'Cliente'}*: ${oQue}, R$ ${reais(valor)}${pgto}.`,
-          ped.custo > 0 ? `Lucro R$ ${reais(ped.lucro)}${ped.margemPct != null ? ` (${ped.margemPct}%)` : ''}${ped.margemPct != null && ped.margemPct < 25 ? ', margem baixa, vale conferir o preço' : ''}.` : null,
-          ...(avisos.length ? ['Atenção: ' + avisos.join('; ').replace(/\.+$/, '') + '.'] : []),
-          `Valor enviado ao cliente${r.voz ? ' por áudio' : ''}${ped.calcBot ? ' (calculado na hora pelo bot, com a tabela do app)' : ''}.`,
-        ].filter(Boolean).join('\n');
-        await notificarDono(env, Date.now(), `${resumoCurto}\nwa.me/${ped.numero}`, { rotina: !acionavel }); // sem nada a decidir: vai para o resumo dos avisos
+        const bloq = avisosQueBloqueiam(env, avisos);
+        await notificarDono(env, Date.now(), cartaoDono('Novo orçamento · ' + (ped.nome || 'Cliente'), [
+          oQue.charAt(0).toUpperCase() + oQue.slice(1) + (detalhe ? ', ' + detalhe : ''),
+          `Valor: *R$ ${reais(valor)}*${pgto}`,
+          ped.custo > 0 ? `Lucro: R$ ${reais(ped.lucro)}${ped.margemPct != null ? ` (${String(ped.margemPct).replace('.', ',')}%)` : ''}${ped.margemPct != null && ped.margemPct < 25 ? ' · margem baixa, confira o preço' : ''}` : null,
+          ...bloq.map(a => 'Atenção: ' + String(a).replace(/\.+$/, '')),
+          `Situação: valor enviado ao cliente${r.voz ? ' por áudio' : ''}`,
+        ], ped.numero)); // v77: aviso único do pedido novo (substitui "fez um pedido" + resumo)
         return jsonR({ ok: true, valorEnviado: true });
       }
       if (r.modeloRecusado) { ped.status = 'cotado'; await salvarPedido(env, ped); await tirarDaFila(env, ped); return jsonR({ ok: false, modeloRecusado: true }); } // v31b: o dono já recebeu o motivo e o texto
