@@ -1,3 +1,4 @@
+// v74 (14/11/2026): CADASTRO DE CLIENTES NO APP pelo bot (cadastrar_cliente; contato salvo e cliente de pedido vão para o banco de clientes do app; telefone ligado aos orçamentos)
 // v73b (14/11/2026): usa sozinho os modelos aprovados pelo nome (resposta_cliente, orcamento_cliente, retomada_cliente, posvenda_cliente, recado_funcionario, cobranca_order_hr)
 // v73 (14/11/2026): MODELOS DA META — acha os aprovados pela própria conta, "criar modelos" cria hr_orcamento_pronto/hr_resposta; cliente fora das 24 h recebe o aviso e o PDF ao tocar em "Pode enviar"; dentro das 24 h o PDF vai junto da mensagem
 // v72d (14/11/2026): prints guardados no D1 e lidos um por um (30 prints de uma vez perdiam-se no KV e travavam a IA); uma mensagem por rajada
@@ -2541,6 +2542,7 @@ async function registrarPedidoOrc(env, from, d) {
     await enviar(env, from, 'Sr. Hangel, não foi possível registrar o pedido com os dados informados. Por gentileza, confira as medidas e tente novamente.');
     return true;
   }
+  if (d.cliente && !d.so_valor) cadastrarClienteApp(env, d.cliente, d.numero || d.telefone || '', { obs: 'Pedido de orçamento pelo WhatsApp' }).catch(() => {}); // v74
   if (d.so_valor) { ped.fase = 'cotar'; ped.soValor = true; } // o app só calcula o valor; o bot devolve a você na hora (sem prazo e sem PDF)
   await salvarPedido(env, ped);
   await env.HR_KV.delete(ORC_RASC);
@@ -7564,6 +7566,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { pedra: { type: 'string', description: 'nome da pedra como no catálogo' }, texto: { type: 'string', description: 'texto de venda para o cliente (até 300 caracteres)' } }, required: ['pedra'] },
   },
   {
+    name: 'cadastrar_cliente',
+    description: 'CADASTRA um cliente no aplicativo (banco de clientes) e na agenda do bot. Use SEMPRE que o Sr. Hangel informar o nome e o telefone de um cliente (link wa.me, número, "o contato da Eliane é..."), ou pedir para cadastrar/salvar um cliente. O telefone também fica ligado aos orçamentos dele, para depois o bot conseguir mandar mensagem e PDF.',
+    input_schema: { type: 'object', properties: { nome: { type: 'string', description: 'nome do cliente como o Sr. Hangel falou (ex.: Eliane do Campo Grande)' }, numero: { type: 'string', description: 'telefone com DDD ou link wa.me' }, cidade: { type: 'string' }, observacao: { type: 'string' } }, required: ['nome'] },
+  },
+  {
     name: 'enviar_orcamento_cliente',
     description: 'ENVIA AO CLIENTE o PDF do orçamento que o app já gerou (pedido de orçamento do Sr. Hangel, ex.: "manda o orçamento pra Eliane", "tente de novo mandar o orçamento pra ela"). Resolve sozinho a regra das 24 h da Meta usando os modelos aprovados da conta (o cliente recebe o aviso e, quando responder, recebe a mensagem e o PDF). Use SEMPRE esta ferramenta para mandar orçamento/PDF a cliente; nunca diga que não há modelo sem chamá-la.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
@@ -7916,6 +7923,12 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return r.ok ? { texto: 'Cartão enviado ao Sr. Hangel. Responda apenas: "Pronto, é só encaminhar."', nota: 'cartão da pedra ' + r.nome }
       : { erro: true, texto: r.motivo };
   }
+  if (nome === 'cadastrar_cliente') { // v74
+    const r = await cadastrarClienteApp(env, a.nome, a.numero ? String(a.numero).replace(/^.*wa\.me\//i, '') : '', { cidade: a.cidade, obs: a.observacao });
+    if (!r.ok) return { erro: true, texto: 'Não consegui cadastrar (falta o nome, ou o número é o do próprio Sr. Hangel).' };
+    const app = (await confAppAberto(env)) ? 'já está no app' : 'entra no app assim que ele abrir';
+    return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
+  }
   if (nome === 'enviar_orcamento_cliente') { // v73d
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
@@ -7925,7 +7938,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
       await env.HR_KV.put('orc:esperapdf', JSON.stringify({ num, nome: a.cliente || '', msg: String(a.mensagem || '').trim() }), { expirationTtl: 30 * 60 });
       return { texto: `O PDF desse orçamento não ficou guardado no bot (foi feito antes desta função). Peça ao Sr. Hangel, em UMA frase, para ENCAMINHAR o PDF aqui nesta conversa (tocar e segurar no PDF → Encaminhar → Meu número); assim que chegar, o bot manda para ${a.cliente || 'o cliente'} sozinho.` };
     }
-    num = num || numeroCliente(ped.numero);
+    num = num || numeroCliente(ped.numeroCliente || '') || (ped.origem === 'dono' ? '' : numeroCliente(ped.numero));
     if (!num || normalizarBR(num) === normalizarBR(numeroDono(env))) return { erro: true, texto: 'Não sei o telefone do cliente. Peça ao Sr. Hangel o número com DDD em uma frase.' };
     const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
@@ -8137,6 +8150,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
       `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `CLIENTES: sempre que o Sr. Hangel informar nome e telefone de um cliente (wa.me, número, contato), chame cadastrar_cliente (vai para o app). Para mandar orçamento/PDF a cliente use enviar_orcamento_cliente.`,
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
@@ -12883,6 +12897,7 @@ async function commsSalvarContato(env, nome, numero, extra = {}) {
   if (!chave || !n) return false;
   const reg = { nome: String(nome).trim().slice(0, 80), numero: n, atualizado: Date.now(), origem: extra.origem || 'proprietario' };
   await env.HR_KV.put('comms:contato:' + chave, JSON.stringify(reg));
+  await cadastrarClienteApp(env, reg.nome, n, {}).catch(e => console.log('[CLI] cadastro:', e.message)); // v74
   return true;
 }
 async function commsBuscarContato(env, nome) {
@@ -14525,7 +14540,7 @@ async function rotaFinTarefa(req, env, p) {
     if (!t) return J({ ok: false, erro: 'tarefa não existe' }, 404);
     t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito').slice(-20)), { expirationTtl: 3 * 86400 });
     if (t.tipo === 'conferir') await confReceberResultado(env, t, b.resultado || {});
-    else if (b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
+    else if (t.tipo === 'aplicar' && b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
     return J({ ok: true });
   }
   return null;
@@ -14620,11 +14635,36 @@ async function pedComPdfDoNumero(env, numero, nome) {
   for (const k of l.keys) {
     try {
       const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!p || !p.mediaId) continue;
-      if (normalizarBR(p.numero || '') === alvo) { if (!melhor || quando(p) > quando(melhor)) melhor = p; }
+      if (normalizarBR(p.numeroCliente || p.numero || '') === alvo) { if (!melhor || quando(p) > quando(melhor)) melhor = p; }
       else if (nm && normaliza(p.nome || '').split(' ').includes(nm) && Date.now() - quando(p) < 10 * 86400000) { if (!porNome || quando(p) > quando(porNome)) porNome = p; }
     } catch (_) {}
   }
   return melhor || porNome;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v74: CADASTRO DE CLIENTES NO APP pelo bot — contato que o Sr. Hangel manda (cartão, wa.me, número), cliente de pedido de
+//   orçamento: vai para o banco de clientes do APP (tarefa 'cliente' no canal /bot/fin/tarefa) e para a agenda do bot (ct:),
+//   e o telefone fica ligado aos orçamentos dele (ped.numeroCliente) para o bot conseguir mandar mensagem e PDF depois.
+// ═════════════════════════════════════════════════════════════════════════════
+async function cadastrarClienteApp(env, nome, numero, extra = {}) {
+  const nm = String(nome || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const num = numero ? normalizarBR(String(numero).replace(/\D/g, '').length <= 11 ? '55' + String(numero).replace(/\D/g, '') : String(numero).replace(/\D/g, '')) : '';
+  if (!nm || (num && ehDono(env, num))) return { ok: false };
+  if (num) await ctAtualizar(env, num, { nome: nm });
+  await confEnfileirar(env, { tipo: 'cliente', nome: nm, tel: num ? num.replace(/^55/, '') : '', cidade: String(extra.cidade || '').slice(0, 40), obs: String(extra.obs || '').slice(0, 120) });
+  let ligados = 0;
+  if (num) { // liga o telefone aos orçamentos recentes desse nome feitos pelo dono (sem trocar o destino do PDF do dono)
+    const alvo = normaliza(nm).split(' ').filter(w => w.length > 2);
+    const l = await env.HR_KV.list({ prefix: 'ped:', limit: 400 }).catch(() => ({ keys: [] }));
+    for (const k of l.keys) {
+      try {
+        const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!p || p.numeroCliente) continue;
+        const pn = normaliza(p.nome || '').split(' ');
+        if (alvo.length && alvo.every(w => pn.includes(w)) && (p.origem === 'dono' || ehDono(env, p.numero || ''))) { p.numeroCliente = num; await env.HR_KV.put(k.name, JSON.stringify(p), { expirationTtl: ttlPedido(p) }); ligados++; }
+      } catch (_) {}
+    }
+  }
+  return { ok: true, num, ligados };
 }
 // v73d: manda o PDF do orçamento ao cliente, dentro ou fora das 24 h
 async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
