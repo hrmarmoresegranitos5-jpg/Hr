@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>HR Mármores e Granitos · Marmoraria em Pilão Arcado — BA</title>
-<meta name="description" content="Marmoraria em Pilão Arcado — BA. Bancadas de cozinha, banheiros, soleiras e peitoris em granito, mármore, quartzito e ultra compacto. Projeto em 3D, orçamento pelo WhatsApp e até 10x sem juros.">
+<meta name="description" content="Marmoraria em Pilão Arcado — BA. Bancadas de cozinha, banheiros, soleiras e peitoris em granito, mármore, quartzito e ultra compacto. Veja a pedra na cozinha, descubra a ideal e peça o orçamento pelo WhatsApp. Até 10x sem juros.">
 <meta name="theme-color" content="#0f0e0c">
 <meta property="og:type" content="website">
 <meta property="og:title" content="HR Mármores e Granitos">
@@ -26,36 +26,49 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;scroll-padding-top:72px}
-body{background:var(--noite);color:var(--creme);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+body{background:var(--noite);color:var(--creme);font-family:var(--sans);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 img{display:block;max-width:100%}
 a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit}
 .wrap{max-width:var(--max);margin:0 auto;padding:0 22px}
 .olho{font-size:.72rem;letter-spacing:.24em;text-transform:uppercase;color:var(--ouro);font-weight:600}
 h1,h2,h3{font-family:var(--serif);font-weight:500;line-height:1.08;letter-spacing:-.01em}
 h2{font-size:clamp(2rem,4.2vw,3.1rem);margin:.35em 0 .4em}
-.sub{color:var(--t2);max-width:620px}
-.bt{display:inline-flex;align-items:center;gap:10px;padding:14px 22px;border-radius:999px;font-weight:600;font-size:.95rem;transition:transform .15s,background .2s,border-color .2s}
+.sub{color:var(--t2);max-width:640px}
+.bt{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:14px 22px;border-radius:999px;font-weight:600;font-size:.95rem;border:none;cursor:pointer;transition:transform .15s,background .2s,border-color .2s}
 .bt:active{transform:scale(.98)}
 .bt-ouro{background:var(--ouro);color:#1a1408}
 .bt-ouro:hover{background:var(--ouro2)}
-.bt-linha{border:1px solid #ffffff2e;color:var(--creme)}
+.bt-linha{border:1px solid #ffffff2e;color:var(--creme);background:transparent}
 .bt-linha:hover{border-color:var(--ouro)}
 .bt svg{width:19px;height:19px;flex:none}
+section{padding:100px 0}
+.faixa{background:var(--pedra);border-top:1px solid var(--linha);border-bottom:1px solid var(--linha)}
+@media (max-width:860px){section{padding:72px 0}}
+.chip{background:transparent;border:1px solid var(--linha);color:var(--t2);padding:9px 16px;border-radius:99px;font-weight:600;font-size:.82rem;cursor:pointer;transition:all .2s}
+.chip:hover{border-color:#c9a45c80;color:var(--creme)}
+.chip.on{background:var(--creme);color:var(--noite);border-color:var(--creme)}
 
-/* topo */
 .topo{position:fixed;inset:0 0 auto;z-index:50;transition:background .3s,border-color .3s;border-bottom:1px solid transparent}
 .topo.cheio{background:#0f0e0ce6;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-color:var(--linha)}
-.topo .wrap{display:flex;align-items:center;gap:22px;height:68px}
+.topo .wrap{display:flex;align-items:center;gap:20px;height:68px}
 .marca{display:flex;align-items:center;gap:11px;font-family:var(--serif);font-size:1.22rem;font-weight:600;letter-spacing:.02em}
 .marca img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid #c9a45c66}
 .marca small{display:block;font-family:var(--sans);font-size:.6rem;letter-spacing:.26em;color:var(--ouro);font-weight:600;margin-top:-2px}
-.menu{display:flex;gap:26px;margin-left:auto;font-size:.88rem;color:var(--t2)}
+.menu{display:flex;gap:22px;margin-left:auto;font-size:.86rem;color:var(--t2)}
 .menu a:hover{color:var(--creme)}
 .topo .bt{padding:10px 18px;font-size:.85rem}
-@media (max-width:860px){.menu{display:none}.topo .bt{margin-left:auto}}
-@media (max-width:420px){.marca small{letter-spacing:.12em;font-size:.55rem}}
+.hamb{display:none;background:none;border:none;width:42px;height:42px;cursor:pointer;flex-direction:column;justify-content:center;align-items:center;gap:5px}
+.hamb span{width:22px;height:2px;background:var(--creme);border-radius:2px;transition:transform .25s,opacity .2s}
+.gaveta{position:fixed;inset:68px 0 0;background:#0f0e0cf7;backdrop-filter:blur(10px);z-index:49;display:none;flex-direction:column;padding:20px 22px;overflow:auto}
+.gaveta a{font-family:var(--serif);font-size:1.6rem;padding:10px 0;border-bottom:1px solid var(--linha)}
+body.menu-on .gaveta{display:flex}
+body.menu-on .hamb span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+body.menu-on .hamb span:nth-child(2){opacity:0}
+body.menu-on .hamb span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+@media (max-width:980px){.menu{display:none}.topo .bt{margin-left:auto}.hamb{display:flex}}
+@media (max-width:420px){.marca small{letter-spacing:.12em;font-size:.55rem}.topo .bt span.txt{display:none}.topo .bt{padding:10px 12px}}
 
-/* abertura */
 .abre{position:relative;min-height:100svh;display:flex;align-items:center;padding:110px 0 70px;overflow:hidden;
   background:radial-gradient(ellipse 70% 60% at 85% 20%,#c9a45c1f,transparent 60%),radial-gradient(ellipse 60% 70% at 0% 100%,#ffffff0a,transparent 60%),var(--noite)}
 .abre .wrap{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
@@ -63,20 +76,21 @@ h2{font-size:clamp(2rem,4.2vw,3.1rem);margin:.35em 0 .4em}
 .abre h1 em{font-style:italic;color:var(--ouro2)}
 .abre .sub{font-size:1.08rem;margin:22px 0 32px}
 .acoes{display:flex;flex-wrap:wrap;gap:12px}
-.selos{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:34px;color:var(--t3);font-size:.82rem}
-.selos span::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--ouro);margin-right:8px;vertical-align:middle}
+.atalhos{display:flex;flex-wrap:wrap;gap:8px;margin-top:30px}
+.atalhos a{font-size:.8rem;color:var(--t2);border:1px solid var(--linha);border-radius:99px;padding:7px 14px;transition:all .2s}
+.atalhos a:hover{border-color:var(--ouro);color:var(--creme)}
 .mosaico{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:200px 150px 200px;gap:12px;transform:rotate(-2deg)}
-.mosaico figure{position:relative;border-radius:14px;overflow:hidden;border:1px solid #ffffff14;box-shadow:0 20px 50px #00000080}
+.mosaico figure{position:relative;border-radius:14px;overflow:hidden;border:1px solid #ffffff14;box-shadow:0 20px 50px #00000080;animation:flutuar 7s ease-in-out infinite}
+.mosaico figure:nth-child(2){animation-delay:-2s}.mosaico figure:nth-child(3){animation-delay:-4s}.mosaico figure:nth-child(4){animation-delay:-5.5s}
+@keyframes flutuar{50%{transform:translateY(-8px)}}
 .mosaico figure:nth-child(1){grid-row:1/3}
 .mosaico figure:nth-child(4){grid-row:2/4;grid-column:2}
 .mosaico figure:nth-child(2){grid-column:2;grid-row:1}
 .mosaico figure:nth-child(3){grid-column:1;grid-row:3}
 .mosaico img{width:100%;height:100%;object-fit:cover}
 .mosaico figcaption{position:absolute;left:10px;bottom:10px;font-size:.7rem;letter-spacing:.06em;background:#0f0e0cb3;backdrop-filter:blur(6px);padding:4px 10px;border-radius:99px}
-@media (max-width:860px){.abre .wrap{grid-template-columns:1fr;gap:40px}.mosaico{grid-template-rows:150px 110px 150px;transform:none}}
+@media (max-width:860px){.abre .wrap{grid-template-columns:1fr;gap:40px}.mosaico{grid-template-rows:140px 100px 140px;transform:none}}
 
-/* valores */
-.valores{border-top:1px solid var(--linha);border-bottom:1px solid var(--linha);background:var(--pedra)}
 .valores .wrap{display:grid;grid-template-columns:repeat(4,1fr)}
 .valor{padding:30px 22px;border-left:1px solid var(--linha)}
 .valor:first-child{border-left:none}
@@ -84,66 +98,133 @@ h2{font-size:clamp(2rem,4.2vw,3.1rem);margin:.35em 0 .4em}
 .valor span{font-size:.86rem;color:var(--t2)}
 @media (max-width:860px){.valores .wrap{grid-template-columns:1fr 1fr}.valor:nth-child(3){border-left:none}.valor:nth-child(n+3){border-top:1px solid var(--linha)}}
 
-section{padding:100px 0}
-@media (max-width:860px){section{padding:72px 0}}
+.sobre .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center}
+.sobre p{color:var(--t2);margin-top:14px}
+.sobre p b{color:var(--creme);font-weight:600}
+.numeros{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.num{background:var(--pedra);border:1px solid var(--linha);border-radius:18px;padding:26px 22px}
+.num b{font-family:var(--serif);font-size:2.8rem;font-weight:600;color:var(--ouro2);line-height:1;display:block}
+.num span{font-size:.86rem;color:var(--t2);display:block;margin-top:8px}
+@media (max-width:860px){.sobre .wrap{grid-template-columns:1fr;gap:34px}}
 
-/* serviços */
 .servicos{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:44px}
-.serv{background:var(--pedra);border:1px solid var(--linha);border-radius:18px;padding:30px 26px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s,transform .2s}
+.serv{background:var(--noite);border:1px solid var(--linha);border-radius:18px;padding:30px 26px;display:flex;flex-direction:column;gap:12px;transition:border-color .2s,transform .2s}
 .serv:hover{border-color:#c9a45c80;transform:translateY(-3px)}
 .serv .n{font-family:var(--serif);font-size:2.6rem;color:var(--ouro);line-height:1}
 .serv h3{font-size:1.65rem}
-.serv p{color:var(--t2);font-size:.93rem;flex:1}
-.serv .nota{font-size:.78rem;color:var(--ouro2);border-top:1px dashed #c9a45c4d;padding-top:10px;margin-top:4px}
-.serv a{font-weight:600;color:var(--ouro);font-size:.88rem;margin-top:6px}
-.serv a:hover{color:var(--ouro2)}
+.serv ul{list-style:none;color:var(--t2);font-size:.9rem;flex:1;display:grid;gap:5px;align-content:start}
+.serv li::before{content:"— ";color:var(--ouro)}
+.serv .nota{font-size:.78rem;color:var(--ouro2);border-top:1px dashed #c9a45c4d;padding-top:10px}
+.serv a{font-weight:600;color:var(--ouro);font-size:.88rem}
 @media (max-width:860px){.servicos{grid-template-columns:1fr}}
 
-/* processo */
-.processo{background:var(--pedra);border-top:1px solid var(--linha);border-bottom:1px solid var(--linha)}
-.etapas{list-style:none;display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin-top:48px;counter-reset:e}
-.etapas li{counter-increment:e;padding:0 18px 0 0;position:relative}
-.etapas li::before{content:"0" counter(e);font-family:var(--serif);font-size:1.1rem;color:var(--ouro);display:flex;align-items:center;gap:12px}
-.etapas li::after{content:"";position:absolute;top:13px;left:34px;right:14px;height:1px;background:linear-gradient(90deg,#c9a45c80,transparent)}
-.etapas li:last-child::after{display:none}
-.etapas b{display:block;font-family:var(--serif);font-size:1.35rem;font-weight:600;margin:14px 0 6px}
-.etapas p{font-size:.88rem;color:var(--t2)}
-.cronograma{margin-top:40px;padding:18px 22px;border-left:2px solid var(--ouro);background:#c9a45c0d;color:var(--t2);font-size:.93rem;border-radius:0 12px 12px 0}
-.cronograma b{color:var(--creme)}
-@media (max-width:860px){.etapas{grid-template-columns:1fr;gap:26px}.etapas li::after{display:none}}
+.sim{display:grid;grid-template-columns:1.35fr .65fr;gap:28px;margin-top:40px;align-items:start}
+.cena{background:var(--pedra);border:1px solid var(--linha);border-radius:22px;overflow:hidden;position:relative}
+.cena svg{display:block;width:100%;height:auto}
+.cena .rot{position:absolute;left:16px;top:16px;background:#0f0e0cc7;backdrop-filter:blur(6px);border:1px solid var(--linha);border-radius:12px;padding:10px 14px}
+.cena .rot b{font-family:var(--serif);font-size:1.35rem;display:block;line-height:1.1}
+.cena .rot span{font-size:.7rem;color:var(--ouro);letter-spacing:.1em;text-transform:uppercase}
+.painel{display:flex;flex-direction:column;gap:20px}
+.painel h4{font-size:.72rem;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);margin-bottom:8px;font-weight:600}
+.amostras{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;max-height:280px;overflow:auto;padding:2px}
+.amostra{aspect-ratio:1;border-radius:10px;overflow:hidden;border:2px solid transparent;cursor:pointer;padding:0;background:var(--pedra2);transition:transform .15s,border-color .15s}
+.amostra:hover{transform:scale(1.06)}
+.amostra.on{border-color:var(--ouro)}
+.amostra img{width:100%;height:100%;object-fit:cover}
+.opcoes{display:flex;flex-wrap:wrap;gap:8px}
+.cor-mov{width:36px;height:36px;border-radius:50%;border:2px solid var(--linha);cursor:pointer}
+.cor-mov.on{border-color:var(--ouro);box-shadow:0 0 0 3px #c9a45c33}
+@media (max-width:560px){.cena .rot{left:10px;top:10px;padding:6px 10px}.cena .rot b{font-size:1.02rem}}
+@media (max-width:960px){.sim{grid-template-columns:1fr}.amostras{grid-template-columns:repeat(8,1fr);max-height:none}}
+@media (max-width:560px){.amostras{grid-template-columns:repeat(6,1fr)}}
 
-/* pedras */
-.filtros{display:flex;flex-wrap:wrap;gap:8px;margin:34px 0 26px}
-.filtros button{background:transparent;border:1px solid var(--linha);color:var(--t2);padding:9px 16px;border-radius:99px;font:600 .82rem var(--sans);cursor:pointer;transition:all .2s}
-.filtros button:hover{border-color:#c9a45c80;color:var(--creme)}
-.filtros button.on{background:var(--creme);color:var(--noite);border-color:var(--creme)}
+.quiz{background:linear-gradient(150deg,#221e17,#15130f);border:1px solid #c9a45c40;border-radius:24px;padding:38px;margin-top:40px}
+.qbar{height:4px;background:var(--linha);border-radius:4px;overflow:hidden;margin-bottom:26px}
+.qbar i{display:block;height:100%;background:var(--ouro);width:0;transition:width .4s}
+.qpasso h3{font-size:clamp(1.6rem,3vw,2.2rem);margin-bottom:20px}
+.qops{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.qop{background:var(--pedra);border:1px solid var(--linha);border-radius:16px;padding:20px 18px;text-align:left;cursor:pointer;transition:all .2s}
+.qop:hover{border-color:var(--ouro);transform:translateY(-2px)}
+.qop b{display:block;font-size:1rem;margin-bottom:4px}
+.qop span{font-size:.82rem;color:var(--t2)}
+.qres{display:none}
+.qres.on{display:block;animation:surgir .5s}
+@keyframes surgir{from{opacity:0;transform:translateY(10px)}}
+.qres .rec{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:22px 0}
+.qres .rec button{background:var(--pedra);border:1px solid var(--linha);border-radius:12px;overflow:hidden;padding:0;cursor:pointer;text-align:left}
+.qres .rec img{aspect-ratio:4/3;width:100%;object-fit:cover}
+.qres .rec span{display:block;padding:8px 10px;font-size:.82rem;font-weight:600}
+@media (max-width:760px){.quiz{padding:26px 20px}.qops{grid-template-columns:1fr}.qres .rec{grid-template-columns:1fr 1fr}}
+.comp{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:20px}
+.tipo{background:var(--noite);border:1px solid var(--linha);border-radius:18px;padding:24px 20px;display:flex;flex-direction:column;gap:12px}
+.tipo h3{font-size:1.6rem}
+.tipo p{font-size:.84rem;color:var(--t2)}
+.medida{font-size:.76rem;color:var(--t2)}
+.medida div{display:flex;justify-content:space-between;margin-bottom:4px}
+.barra{height:5px;background:var(--linha);border-radius:4px;overflow:hidden}
+.barra i{display:block;height:100%;background:linear-gradient(90deg,var(--ouro),var(--ouro2));border-radius:4px;width:0;transition:width 1.1s cubic-bezier(.2,.8,.2,1)}
+.comp.vis .barra i{width:var(--v)}
+.tipo .pe{display:grid;gap:4px;font-size:.8rem;border-top:1px solid var(--linha);padding-top:10px;margin-top:auto;color:var(--t2)}
+.tipo .pe b{color:var(--ouro2);font-weight:600}
+@media (max-width:960px){.comp{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.comp{grid-template-columns:1fr}}
+
+.ferr{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:34px 0 26px}
+.busca{flex:1;min-width:200px;max-width:320px;background:var(--pedra);border:1px solid var(--linha);border-radius:99px;padding:10px 18px;color:var(--creme);font:500 .9rem var(--sans);outline:none}
+.busca:focus{border-color:var(--ouro)}
 .grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
-.pedra{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;background:var(--pedra);border:1px solid var(--linha);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;color:inherit;font:inherit;padding:0;transition:border-color .2s,transform .2s}
+.pedra{display:flex;flex-direction:column;align-items:stretch;background:var(--pedra);border:1px solid var(--linha);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;transition:border-color .2s,transform .2s}
 .pedra:hover{border-color:#c9a45c80;transform:translateY(-3px)}
 .pedra .foto{aspect-ratio:4/3;overflow:hidden;background:var(--pedra2)}
 .pedra img{width:100%;height:100%;object-fit:cover;transition:transform .5s}
 .pedra:hover img{transform:scale(1.06)}
-.pedra .info{padding:13px 15px 15px;flex:1}
-@media (max-width:560px){.grade{grid-template-columns:1fr 1fr;gap:10px}.pedra b{font-size:1.05rem}.pedra .info{padding:10px 11px 12px}}
-.pedra b{font-family:var(--serif);font-size:1.2rem;font-weight:600;display:block;line-height:1.15}
-.pedra span{font-size:.74rem;color:var(--t3);letter-spacing:.04em}
+.pedra .info{padding:13px 15px 15px;flex:1;display:flex;flex-direction:column;gap:2px}
+.pedra b{font-family:var(--serif);font-size:1.2rem;font-weight:600;line-height:1.15}
+.pedra .info>span{font-size:.74rem;color:var(--t3);letter-spacing:.04em;display:flex;justify-content:space-between;gap:6px}
+.pedra .info i{font-style:normal;color:var(--ouro);letter-spacing:.1em}
 .pedra[hidden]{display:none}
+.vazio{color:var(--t3);padding:20px 0;display:none}
+@media (max-width:560px){.grade{grid-template-columns:1fr 1fr;gap:10px}.pedra b{font-size:1.05rem}.pedra .info{padding:10px 11px 12px}}
 
-/* modal */
 .modal{position:fixed;inset:0;z-index:80;background:#000000c7;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
 .modal.on{display:flex}
-.modal .caixa{background:var(--pedra);border:1px solid var(--linha);border-radius:20px;max-width:760px;width:100%;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;max-height:92vh}
-.modal .caixa img{width:100%;height:100%;object-fit:cover;min-height:280px}
+.modal .caixa{position:relative;background:var(--pedra);border:1px solid var(--linha);border-radius:20px;max-width:780px;width:100%;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;max-height:92vh;animation:surgir .3s}
+.modal .caixa img{width:100%;height:100%;object-fit:cover;min-height:300px}
 .modal .txt{padding:30px 28px;display:flex;flex-direction:column;gap:12px;overflow:auto}
 .modal h3{font-size:2rem}
 .modal p{color:var(--t2);font-size:.94rem}
 .modal .tag{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ouro)}
-.modal .fecha{position:absolute;top:16px;right:18px;background:#ffffff14;border:none;color:var(--creme);width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer}
-@media (max-width:700px){.modal .caixa{grid-template-columns:1fr}.modal .caixa img{max-height:240px;min-height:0}}
+.modal .acs{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:8px}
+.modal .fecha{position:absolute;top:14px;right:14px;background:#0f0e0cb3;border:none;color:var(--creme);width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;z-index:2}
+@media (max-width:700px){.modal .caixa{grid-template-columns:1fr}.modal .caixa img{max-height:230px;min-height:0}}
 
-/* obras + pagamento */
-.duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:44px}
-.obra{position:relative;border-radius:18px;overflow:hidden;min-height:420px;border:1px solid var(--linha)}
+.bordas{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:40px}
+.borda{background:var(--noite);border:1px solid var(--linha);border-radius:18px;padding:20px;display:flex;flex-direction:column;gap:10px}
+.borda svg{width:100%;height:auto;border-radius:12px;background:#120f0c}
+.borda h3{font-size:1.4rem}
+.borda p{font-size:.84rem;color:var(--t2)}
+@media (max-width:860px){.bordas{grid-template-columns:1fr 1fr}}
+@media (max-width:460px){.bordas{grid-template-columns:1fr}}
+
+.passos{display:grid;grid-template-columns:.85fr 1.15fr;gap:30px;margin-top:40px}
+.plista{display:flex;flex-direction:column;gap:6px}
+.pbt{display:flex;gap:16px;align-items:center;text-align:left;background:transparent;border:1px solid transparent;border-radius:14px;padding:14px 16px;cursor:pointer;transition:all .2s}
+.pbt:hover{background:var(--pedra)}
+.pbt.on{background:var(--pedra);border-color:#c9a45c66}
+.pbt i{font-style:normal;font-family:var(--serif);font-size:1.4rem;color:var(--ouro);width:30px}
+.pbt b{font-family:var(--serif);font-size:1.4rem;font-weight:600}
+.pdet{background:linear-gradient(150deg,#221e17,#15130f);border:1px solid #c9a45c40;border-radius:22px;padding:36px 34px;min-height:300px;animation:surgir .35s}
+.pdet .ix{font-family:var(--serif);font-size:4.5rem;color:#c9a45c55;line-height:1}
+.pdet h3{font-size:2.2rem;margin:6px 0 14px}
+.pdet p{color:var(--t2)}
+.pdet ul{margin-top:16px;list-style:none;display:grid;gap:8px;color:var(--t2);font-size:.92rem}
+.pdet li::before{content:"✓";color:var(--ouro);margin-right:10px;font-weight:700}
+.cronograma{margin-top:30px;padding:18px 22px;border-left:2px solid var(--ouro);background:#c9a45c0d;color:var(--t2);font-size:.93rem;border-radius:0 12px 12px 0}
+.cronograma b{color:var(--creme)}
+@media (max-width:860px){.passos{grid-template-columns:1fr}.plista{flex-direction:row;overflow:auto;padding-bottom:4px}.pbt{flex:none;padding:10px 14px}.pbt b{font-size:1.1rem}.pdet{padding:26px 22px;min-height:0}}
+
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+.obra{position:relative;border-radius:18px;overflow:hidden;min-height:420px;border:1px solid var(--linha);margin:0}
 .obra img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .obra::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,#0f0e0cf2)}
 .obra .leg{position:absolute;left:26px;right:26px;bottom:24px;z-index:1}
@@ -153,33 +234,56 @@ section{padding:100px 0}
 .insta h3{font-size:2.1rem}
 .insta p{color:var(--t2)}
 .pag{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px}
-.pag div{border:1px solid var(--linha);border-radius:16px;padding:24px 22px;background:var(--pedra)}
+.pag div{border:1px solid var(--linha);border-radius:16px;padding:24px 22px;background:var(--noite)}
 .pag b{font-family:var(--serif);font-size:2.2rem;font-weight:600;color:var(--ouro2);display:block;line-height:1.1}
 .pag span{color:var(--t2);font-size:.88rem}
 @media (max-width:860px){.duo,.pag{grid-template-columns:1fr}.obra{min-height:360px}}
 
-/* contato */
-.contato{background:var(--pedra);border-top:1px solid var(--linha)}
-.contato .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:50px;align-items:start}
+.faq{display:grid;grid-template-columns:.8fr 1.2fr;gap:50px;align-items:start}
+.perg{border-bottom:1px solid var(--linha)}
+.perg button{width:100%;background:none;border:none;text-align:left;padding:20px 0;display:flex;justify-content:space-between;gap:16px;cursor:pointer;font-family:var(--serif);font-size:1.35rem;font-weight:600}
+.perg button::after{content:"+";color:var(--ouro);font-size:1.6rem;line-height:1;transition:transform .25s;font-family:var(--sans);font-weight:400}
+.perg.on button::after{transform:rotate(45deg)}
+.perg div{max-height:0;overflow:hidden;transition:max-height .35s ease;color:var(--t2);font-size:.94rem}
+.perg div p{padding-bottom:20px}
+@media (max-width:860px){.faq{grid-template-columns:1fr;gap:10px}}
+
+.pedido{display:grid;grid-template-columns:.9fr 1.1fr;gap:40px;align-items:start}
+.form{background:var(--noite);border:1px solid var(--linha);border-radius:22px;padding:30px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form label{display:flex;flex-direction:column;gap:6px;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);font-weight:600}
+.form .cheio{grid-column:1/-1}
+.form input,.form select,.form textarea{background:var(--pedra);border:1px solid var(--linha);border-radius:12px;padding:12px 14px;color:var(--creme);font:500 .95rem var(--sans);outline:none;text-transform:none;letter-spacing:0;width:100%}
+.form input:focus,.form select:focus,.form textarea:focus{border-color:var(--ouro)}
+.form textarea{min-height:84px;resize:vertical}
+.form .check{flex-direction:row;align-items:center;gap:10px;text-transform:none;letter-spacing:0;font-size:.92rem;color:var(--t2);font-weight:500;cursor:pointer}
+.form .check input{width:20px;height:20px;accent-color:var(--ouro)}
+.previa{grid-column:1/-1;background:#0b2b1f;border:1px solid #25d36633;border-radius:14px;padding:14px 16px;font-size:.88rem;color:#d9fbe8;white-space:pre-wrap}
+.previa small{display:block;color:#7ad6a4;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+@media (max-width:860px){.pedido{grid-template-columns:1fr}.form{grid-template-columns:1fr;padding:22px}}
+
+.contato{display:grid;grid-template-columns:1.1fr .9fr;gap:50px;align-items:start}
 .dados{display:grid;gap:2px;margin-top:30px}
 .dado{display:flex;gap:16px;padding:16px 0;border-bottom:1px solid var(--linha)}
 .dado .r{font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ouro);width:110px;flex:none;padding-top:3px}
 .dado a:hover{color:var(--ouro2)}
+.aberto{display:inline-flex;align-items:center;gap:8px;font-size:.8rem;margin-top:6px;color:var(--t2)}
+.aberto i{width:8px;height:8px;border-radius:50%;background:#7a7a7a}
+.aberto.sim i{background:#25d366;box-shadow:0 0 0 4px #25d36626}
 .chamada{background:linear-gradient(150deg,#2a2419,#17140f);border:1px solid #c9a45c4d;border-radius:22px;padding:38px 32px;display:flex;flex-direction:column;gap:18px}
 .chamada h3{font-size:2.2rem}
 .chamada p{color:var(--t2)}
-@media (max-width:860px){.contato .wrap{grid-template-columns:1fr}.dado{flex-direction:column;gap:2px}}
+@media (max-width:860px){.contato{grid-template-columns:1fr}.dado{flex-direction:column;gap:2px}}
 
 footer{padding:34px 0 100px;color:var(--t3);font-size:.8rem;border-top:1px solid var(--linha)}
 footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-between}
-
 .flutua{position:fixed;right:18px;bottom:18px;z-index:60;width:60px;height:60px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px #0008;transition:transform .2s}
 .flutua:hover{transform:scale(1.07)}
 .flutua svg{width:31px;height:31px;fill:#fff}
-
+.flutua::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25d366;animation:pulso 2.4s infinite}
+@keyframes pulso{to{transform:scale(1.5);opacity:0}}
 .surge{opacity:0;transform:translateY(18px);transition:opacity .8s,transform .8s}
 .surge.vis{opacity:1;transform:none}
-@media (prefers-reduced-motion:reduce){.surge{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}
+@media (prefers-reduced-motion:reduce){.surge{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}*{animation:none!important}}
 </style>
 </head>
 <body>
@@ -187,10 +291,12 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
 <header class="topo" id="topo">
   <div class="wrap">
     <a href="#inicio" class="marca"><img src="img/logo.jpg" alt="Logo HR Mármores e Granitos"><span>HR<small>MÁRMORES E GRANITOS</small></span></a>
-    <nav class="menu"><a href="#servicos">Serviços</a><a href="#processo">Como trabalhamos</a><a href="#pedras">Pedras</a><a href="#obras">Obras</a><a href="#contato">Contato</a></nav>
-    <a class="bt bt-ouro" href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20um%20or%C3%A7amento." target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Orçamento</a>
+    <nav class="menu"><a href="#sobre">Sobre</a><a href="#servicos">Serviços</a><a href="#simulador">Simulador</a><a href="#ideal">Pedra ideal</a><a href="#pedras">Catálogo</a><a href="#processo">Como trabalhamos</a><a href="#duvidas">Dúvidas</a></nav>
+    <a class="bt bt-ouro" href="#orcamento"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg><span class="txt">Orçamento</span></a>
+    <button class="hamb" id="hamb" aria-label="Abrir menu"><span></span><span></span><span></span></button>
   </div>
 </header>
+<nav class="gaveta" id="gaveta"><a href="#sobre">Sobre nós</a><a href="#servicos">Serviços</a><a href="#simulador">Veja na cozinha</a><a href="#ideal">Qual a pedra ideal?</a><a href="#pedras">Catálogo de pedras</a><a href="#acabamentos">Acabamentos</a><a href="#processo">Como trabalhamos</a><a href="#duvidas">Dúvidas</a><a href="#orcamento">Pedir orçamento</a><a href="#contato">Contato</a></nav>
 
 <main id="inicio">
   <section class="abre">
@@ -198,18 +304,18 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
       <div>
         <div class="olho">Marmoraria · Pilão Arcado — BA</div>
         <h1 style="margin-top:18px">Pedra natural,<br>acabamento de <em>precisão</em>.</h1>
-        <p class="sub">Bancadas de cozinha, banheiros, soleiras e peitoris em granito, mármore, quartzito e ultra compacto. Projeto em 3D, prazo cumprido e atendimento direto com quem faz.</p>
+        <p class="sub">Bancadas de cozinha, banheiros, soleiras e peitoris em granito, mármore, quartzito e ultra compacto. Escolha a pedra, veja como fica na cozinha e peça o orçamento em poucos toques.</p>
         <div class="acoes">
-          <a class="bt bt-ouro" href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20um%20or%C3%A7amento." target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Pedir orçamento no WhatsApp</a>
-          <a class="bt bt-linha" href="#pedras">Ver as pedras</a>
+          <a class="bt bt-ouro" href="#orcamento"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Pedir orçamento</a>
+          <a class="bt bt-linha" href="#simulador">Ver a pedra na cozinha</a>
         </div>
-        <div class="selos"><span>Até 10x sem juros</span><span>Desconto à vista</span><span>Visita técnica</span></div>
+        <div class="atalhos"><a href="#ideal">Qual pedra é ideal para mim?</a><a href="#pedras">30 pedras</a><a href="#duvidas">Instalam soleira?</a><a href="#pagamento">Formas de pagamento</a></div>
       </div>
       <div class="mosaico" aria-hidden="true"><figure><img src="img/pedra-via-lactea.jpg" alt=""><figcaption>Preto Via Láctea</figcaption></figure><figure><img src="img/pedra-perla.jpg" alt=""><figcaption>Perla Santana</figcaption></figure><figure><img src="img/pedra-p-gabriel.jpg" alt=""><figcaption>Preto São Gabriel</figcaption></figure><figure><img src="img/pedra-itaunas.jpg" alt=""><figcaption>Branco Itaúnas</figcaption></figure></div>
     </div>
   </section>
 
-  <div class="valores">
+  <div class="valores faixa">
     <div class="wrap">
       <div class="valor"><b>Projetos</b><span>Cozinha desenhada em 3D antes de cortar a pedra.</span></div>
       <div class="valor"><b>Acabamento</b><span>Bordas, recortes e polimento feitos com cuidado.</span></div>
@@ -218,31 +324,121 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
     </div>
   </div>
 
-  <section id="servicos">
+  <section class="sobre" id="sobre">
+    <div class="wrap">
+      <div>
+        <div class="olho surge">Sobre nós</div>
+        <h2 class="surge">Quem corta a pedra é quem cuida da sua obra</h2>
+        <p class="surge">A <b>HR Mármores e Granitos</b> é uma marmoraria de <b>Pilão Arcado — BA</b>. Somos uma equipe pequena e dedicada: medimos, cortamos, fazemos o acabamento e acompanhamos cada peça de perto, do primeiro contato até a entrega.</p>
+        <p class="surge">Trabalhamos com <b>projeto em 3D</b>, conferimos tudo de novo antes de começar e seguimos o <b>cronograma pela ordem de serviço</b>. Nas cozinhas, acompanhamos a bancada junto com a marcenaria parceira para tudo se encaixar no lugar.</p>
+        <p class="surge">E você não precisa esperar o horário comercial: a nossa <b>assistente no WhatsApp</b> atende a qualquer hora, tira dúvidas, faz o orçamento de soleiras e peitoris e agenda a visita técnica.</p>
+      </div>
+      <div class="numeros">
+        <div class="num surge"><b>30</b><span>pedras no catálogo, de granitos a ultra compactos</span></div>
+        <div class="num surge"><b>3D</b><span>projeto da cozinha antes do corte</span></div>
+        <div class="num surge"><b>10x</b><span>sem juros no cartão, ou desconto à vista</span></div>
+        <div class="num surge"><b>24h</b><span>atendimento pelo WhatsApp com a nossa assistente</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faixa" id="servicos">
     <div class="wrap">
       <div class="olho surge">O que fazemos</div>
       <h2 class="surge">Do projeto à pedra pronta</h2>
       <p class="sub surge">Cada peça é cortada sob medida para o seu espaço.</p>
       <div class="servicos">
-        <article class="serv surge"><span class="n">01</span><h3>Cozinhas e bancadas</h3><p>Bancadas, ilhas e balcões com projeto em 3D e acompanhamento junto à marcenaria. Cubas e acessórios para completar.</p><a href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20or%C3%A7ar%20uma%20cozinha/bancada." target="_blank" rel="noopener">Orçar cozinha →</a></article>
-        <article class="serv surge"><span class="n">02</span><h3>Banheiros e lavabos</h3><p>Bancadas, nichos e revestimentos que resistem à umidade e ao uso diário, com o acabamento que o ambiente pede.</p><a href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20or%C3%A7ar%20um%20banheiro." target="_blank" rel="noopener">Orçar banheiro →</a></article>
-        <article class="serv surge"><span class="n">03</span><h3>Soleiras e peitoris</h3><p>Peças sob medida no granito que você escolher, com orçamento rápido direto pelo WhatsApp.</p><p class="nota">O valor é da pedra pronta (fabricação e acabamento). Não fazemos a instalação.</p><a href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20or%C3%A7ar%20soleira/peitoril." target="_blank" rel="noopener">Orçar soleira ou peitoril →</a></article>
+        <article class="serv surge"><span class="n">01</span><h3>Cozinhas e bancadas</h3><ul><li>Bancadas, ilhas e balcões</li><li>Frontão e saia na mesma pedra</li><li>Cubas e acessórios embutidos</li><li>Projeto em 3D e visita técnica</li></ul><a href="#orcamento" data-servico="Cozinha / bancada">Orçar cozinha →</a></article>
+        <article class="serv surge"><span class="n">02</span><h3>Banheiros e lavabos</h3><ul><li>Bancadas de banheiro e lavabo</li><li>Cubas de louça e de embutir</li><li>Nichos e revestimentos</li><li>Pedras que aguentam umidade</li></ul><a href="#orcamento" data-servico="Banheiro / lavabo">Orçar banheiro →</a></article>
+        <article class="serv surge"><span class="n">03</span><h3>Soleiras e peitoris</h3><ul><li>Peças sob medida em vários granitos</li><li>Acabamento em 1 ou 2 laterais, ou 45°</li><li>Orçamento rápido pelo WhatsApp</li></ul><p class="nota">O valor é da pedra pronta (fabricação e acabamento). Não fazemos a instalação.</p><a href="#orcamento" data-servico="Soleira / peitoril">Orçar soleira ou peitoril →</a></article>
       </div>
     </div>
   </section>
 
-  <section class="processo" id="processo">
+  <section id="simulador">
     <div class="wrap">
-      <div class="olho surge">Como trabalhamos</div>
-      <h2 class="surge">Um processo claro, do começo ao fim</h2>
-      <ol class="etapas">
-        <li class="surge"><b>Visita técnica</b><p>Vamos até o local, tiramos as medidas e entendemos o que você precisa.</p></li>
-        <li class="surge"><b>Orçamento</b><p>Valor detalhado, com a pedra e o acabamento escolhidos.</p></li>
-        <li class="surge"><b>Auditoria</b><p>No início da obra conferimos tudo de novo para não haver surpresa.</p></li>
-        <li class="surge"><b>Projeto 3D</b><p>Você vê a cozinha pronta antes de a pedra ser cortada.</p></li>
-        <li class="surge"><b>Acompanhamento</b><p>Seguimos a bancada junto com a marcenaria parceira até a entrega.</p></li>
-      </ol>
-      <p class="cronograma surge"><b>Prazo é compromisso.</b> Cada obra entra no cronograma pela ordem de serviço, e o cronograma é seguido com rigor.</p>
+      <div class="olho surge">Simulador</div>
+      <h2 class="surge">Veja a pedra na sua cozinha</h2>
+      <p class="sub surge">Toque numa pedra e na cor dos armários para imaginar o resultado. É uma ilustração: a pedra real tem variações naturais, e cada chapa é única.</p>
+      <div class="sim">
+        <div class="cena surge">
+          <div class="rot"><span id="simCat">Granito</span><b id="simNome">—</b></div>
+          <svg id="cozinha" viewBox="0 0 800 470" role="img" aria-label="Ilustração de cozinha com a pedra escolhida na bancada">
+<defs id="simTex">
+ <pattern id="tx" patternUnits="userSpaceOnUse" width="300" height="225"><image href="" width="300" height="225" preserveAspectRatio="xMidYMid slice"/></pattern>
+ <pattern id="txTopo" patternUnits="userSpaceOnUse" width="300" height="225" patternTransform="scale(1 .35)"><image href="" width="300" height="225" preserveAspectRatio="xMidYMid slice"/></pattern>
+ <linearGradient id="parede" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#efe9df"/><stop offset="1" stop-color="#e2dacd"/></linearGradient>
+ <linearGradient id="brilho" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".45" stop-color="#fff" stop-opacity=".22"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></linearGradient>
+ <linearGradient id="ceu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#bcd6e6"/><stop offset="1" stop-color="#e8f1f5"/></linearGradient>
+ <linearGradient id="chao" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9bfae"/><stop offset="1" stop-color="#b3a893"/></linearGradient>
+</defs>
+<rect width="800" height="470" fill="url(#parede)"/>
+<rect y="404" width="800" height="66" fill="url(#chao)"/>
+<rect x="488" y="54" width="170" height="120" rx="4" fill="url(#ceu)" stroke="#d8d0c2" stroke-width="8"/>
+<line x1="573" y1="54" x2="573" y2="174" stroke="#d8d0c2" stroke-width="5"/>
+<path d="M500 160 q30 -40 60 0 M590 160 q30 -50 58 0" fill="none" stroke="#9fbf8f" stroke-width="3" opacity=".6"/>
+<g><rect class="mov" x="60" y="34" width="380" height="118" rx="4" fill="#ece7df"/>
+ <rect class="mov2" x="68" y="42" width="88" height="102" rx="3" fill="#d6cfc3"/><rect class="mov2" x="162" y="42" width="88" height="102" rx="3" fill="#d6cfc3"/><rect class="mov2" x="256" y="42" width="88" height="102" rx="3" fill="#d6cfc3"/><rect class="mov2" x="350" y="42" width="82" height="102" rx="3" fill="#d6cfc3"/>
+ <rect x="60" y="150" width="380" height="5" fill="#000" opacity=".08"/></g>
+<rect id="frontao" x="56" y="198" width="690" height="58" fill="url(#tx)"/>
+<polygon points="40,256 760,256 780,276 20,276" fill="url(#txTopo)"/>
+<polygon points="40,256 760,256 780,276 20,276" fill="url(#brilho)"/>
+<rect x="20" y="276" width="760" height="16" fill="url(#tx)"/><rect x="20" y="276" width="760" height="16" fill="#000" opacity=".22"/>
+<g><rect class="mov" x="34" y="292" width="732" height="112" fill="#ece7df"/>
+ <rect class="mov2" x="42" y="300" width="132" height="98" rx="3" fill="#d6cfc3"/><rect class="mov2" x="180" y="300" width="132" height="98" rx="3" fill="#d6cfc3"/><rect class="mov2" x="318" y="300" width="132" height="98" rx="3" fill="#d6cfc3"/><rect class="mov2" x="456" y="300" width="148" height="44" rx="3" fill="#d6cfc3"/><rect class="mov2" x="456" y="350" width="148" height="48" rx="3" fill="#d6cfc3"/><rect class="mov2" x="610" y="300" width="148" height="98" rx="3" fill="#d6cfc3"/>
+ <g fill="#9a9184"><rect x="150" y="314" width="4" height="26" rx="2"/><rect x="200" y="314" width="4" height="26" rx="2"/><rect x="426" y="314" width="4" height="26" rx="2"/><rect x="510" y="318" width="40" height="4" rx="2"/><rect x="510" y="368" width="40" height="4" rx="2"/><rect x="630" y="314" width="4" height="26" rx="2"/></g>
+ <rect x="34" y="404" width="732" height="6" fill="#000" opacity=".12"/></g>
+<rect x="190" y="259" width="150" height="13" rx="5" fill="#8d9196"/><rect x="198" y="261" width="134" height="8" rx="4" fill="#5e6266"/>
+<path d="M265 259 v-34 q0 -12 14 -12 h16 v8" fill="none" stroke="#a7abb0" stroke-width="6" stroke-linecap="round"/>
+<rect x="520" y="258" width="150" height="10" rx="3" fill="#1b1b1c"/><g fill="none" stroke="#3a3a3c" stroke-width="2"><ellipse cx="560" cy="263" rx="16" ry="3"/><ellipse cx="630" cy="263" rx="16" ry="3"/></g>
+<g><rect x="690" y="226" width="26" height="32" rx="4" fill="#c7b9a3"/><path d="M703 226 q-18 -30 -6 -46 M703 226 q4 -36 18 -44 M703 226 q-4 -24 -22 -30" fill="none" stroke="#6f8f5d" stroke-width="4" stroke-linecap="round"/></g>
+<g><rect x="80" y="232" width="34" height="24" rx="4" fill="#efe9df" stroke="#cfc6b8"/><rect x="118" y="238" width="22" height="18" rx="3" fill="#d9cdb8"/></g>
+</svg>
+        </div>
+        <div class="painel surge">
+          <div><h4>Pedra</h4><div class="amostras" id="amostras"><button class="amostra" data-nome="Preto São Gabriel" title="Preto São Gabriel" aria-label="Preto São Gabriel"><img src="img/pedra-p-gabriel.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Itaúnas" title="Branco Itaúnas" aria-label="Branco Itaúnas"><img src="img/pedra-itaunas.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Perla Santana" title="Perla Santana" aria-label="Perla Santana"><img src="img/pedra-perla.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Preto Via Láctea" title="Preto Via Láctea" aria-label="Preto Via Láctea"><img src="img/pedra-via-lactea.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Ultra Compacto Carrara" title="Ultra Compacto Carrara" aria-label="Ultra Compacto Carrara"><img src="img/pedra-carrara.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Verde Ubatuba" title="Verde Ubatuba" aria-label="Verde Ubatuba"><img src="img/pedra-verde-ub.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Dallas" title="Branco Dallas" aria-label="Branco Dallas"><img src="img/pedra-dallas.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Cinza Andorinhas" title="Cinza Andorinhas" aria-label="Cinza Andorinhas"><img src="img/pedra-andorinha.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Taj Mahal Sintético" title="Taj Mahal Sintético" aria-label="Taj Mahal Sintético"><img src="img/pedra-s-1784564740718.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Siena" title="Branco Siena" aria-label="Branco Siena"><img src="img/pedra-siena.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Preto Absoluto" title="Preto Absoluto" aria-label="Preto Absoluto"><img src="img/pedra-s-1784305998784.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Café Imperial" title="Café Imperial" aria-label="Café Imperial"><img src="img/pedra-s-1792581500764.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Bege Bahia" title="Bege Bahia" aria-label="Bege Bahia"><img src="img/pedra-bege.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Alpha" title="Branco Alpha" aria-label="Branco Alpha"><img src="img/pedra-s-1784306120566.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Fortaleza" title="Branco Fortaleza" aria-label="Branco Fortaleza"><img src="img/pedra-s-1776800488577.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Itaúnas Escovado" title="Branco Itaúnas Escovado" aria-label="Branco Itaúnas Escovado"><img src="img/pedra-s-1783086633653.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Nepal" title="Branco Nepal" aria-label="Branco Nepal"><img src="img/pedra-nepal.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Prime" title="Branco Prime" aria-label="Branco Prime"><img src="img/pedra-prime.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Siena Escovado" title="Branco Siena Escovado" aria-label="Branco Siena Escovado"><img src="img/pedra-siena-e.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Cinza Corumbá" title="Cinza Corumbá" aria-label="Cinza Corumbá"><img src="img/pedra-s-1779301628130.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Cinza Nobre" title="Cinza Nobre" aria-label="Cinza Nobre"><img src="img/pedra-s-1776874550481.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Preto Indiano" title="Preto Indiano" aria-label="Preto Indiano"><img src="img/pedra-p-indiano.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Preto São Gabriel Escovado" title="Preto São Gabriel Escovado" aria-label="Preto São Gabriel Escovado"><img src="img/pedra-p-gabriel-e.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Verde Pérola" title="Verde Pérola" aria-label="Verde Pérola"><img src="img/pedra-verde-perla.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Paraná" title="Branco Paraná" aria-label="Branco Paraná"><img src="img/pedra-parana.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Pinta Verde" title="Branco Pinta Verde" aria-label="Branco Pinta Verde"><img src="img/pedra-s-1779737028682.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Mármore Branco Comercial" title="Mármore Branco Comercial" aria-label="Mármore Branco Comercial"><img src="img/pedra-mrm-branco.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Verde Guatemala" title="Verde Guatemala" aria-label="Verde Guatemala"><img src="img/pedra-s-1784824651560.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Nano" title="Branco Nano" aria-label="Branco Nano"><img src="img/pedra-nano.jpg" alt="" loading="lazy"></button><button class="amostra" data-nome="Branco Super Nano" title="Branco Super Nano" aria-label="Branco Super Nano"><img src="img/pedra-super-nano.jpg" alt="" loading="lazy"></button></div></div>
+          <div><h4>Armários</h4><div class="opcoes">
+            <button class="cor-mov on" data-c="#ece7df" data-c2="#d6cfc3" style="background:#ece7df" aria-label="Branco"></button>
+            <button class="cor-mov" data-c="#8a6446" data-c2="#6f4f36" style="background:#8a6446" aria-label="Madeira"></button>
+            <button class="cor-mov" data-c="#3b3d40" data-c2="#2c2e31" style="background:#3b3d40" aria-label="Grafite"></button>
+            <button class="cor-mov" data-c="#5c6b5a" data-c2="#495647" style="background:#5c6b5a" aria-label="Verde"></button>
+            <button class="cor-mov" data-c="#1d2a3a" data-c2="#152030" style="background:#1d2a3a" aria-label="Azul marinho"></button>
+          </div></div>
+          <div><h4>Parede atrás da pia</h4><div class="opcoes"><button class="chip on" data-fr="1">Com frontão de pedra</button><button class="chip" data-fr="0">Sem frontão</button></div></div>
+          <a class="bt bt-ouro" id="simWa" href="#orcamento"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Quero esta pedra</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faixa" id="ideal">
+    <div class="wrap">
+      <div class="olho surge">Pedra ideal</div>
+      <h2 class="surge">Qual pedra combina com você?</h2>
+      <p class="sub surge">Responda 3 perguntas rápidas e veja a nossa sugestão. Logo abaixo, compare os tipos de pedra lado a lado.</p>
+      <div class="quiz surge">
+        <div class="qbar"><i id="qbar"></i></div>
+        <div class="qpasso"><div class="olho" style="margin-bottom:10px">Pergunta 1 de 3</div><h3>Onde a pedra vai ficar?</h3><div class="qops">
+          <button class="qop" data-v="cozinha"><b>Cozinha</b><span>Bancada, ilha, balcão</span></button>
+          <button class="qop" data-v="banheiro"><b>Banheiro ou lavabo</b><span>Bancada, nicho, revestimento</span></button>
+          <button class="qop" data-v="soleira"><b>Soleira ou peitoril</b><span>Portas e janelas</span></button></div></div>
+        <div class="qpasso" hidden><div class="olho" style="margin-bottom:10px">Pergunta 2 de 3</div><h3>O que é mais importante para você?</h3><div class="qops">
+          <button class="qop" data-v="resist"><b>Resistência no dia a dia</b><span>Não riscar nem manchar</span></button>
+          <button class="qop" data-v="visual"><b>Visual sofisticado</b><span>Veios marcantes, efeito de mármore</span></button>
+          <button class="qop" data-v="custo"><b>Melhor custo-benefício</b><span>Qualidade com preço justo</span></button></div></div>
+        <div class="qpasso" hidden><div class="olho" style="margin-bottom:10px">Pergunta 3 de 3</div><h3>Prefere pedra clara ou escura?</h3><div class="qops">
+          <button class="qop" data-v="clara"><b>Clara</b><span>Brancos, beges, cremes</span></button>
+          <button class="qop" data-v="escura"><b>Escura</b><span>Pretos, verdes, cinzas</span></button>
+          <button class="qop" data-v="tanto"><b>Tanto faz</b><span>Quero ver as melhores</span></button></div></div>
+        <div class="qres" id="qres">
+          <div class="olho">Nossa sugestão</div>
+          <h3 id="qTit" style="font-size:clamp(1.8rem,3.4vw,2.6rem);margin:10px 0 8px"></h3>
+          <p id="qTxt" style="color:var(--t2);max-width:720px"></p>
+          <div class="rec" id="qRec"></div>
+          <div class="acoes"><a class="bt bt-ouro" id="qWa" href="#orcamento"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Pedir orçamento com essa sugestão</a><button class="bt bt-linha" id="qDe">Refazer</button></div>
+        </div>
+      </div>
+      <div class="comp" id="comp"><div class="tipo"><h3>Granito</h3><p>O mais usado em cozinhas: muito duro, aguenta calor e o uso pesado, com ótimo custo-benefício.</p><div class="medida"><div><span>Resistência a riscos</span></div><div class="barra"><i style="--v:90%"></i></div></div><div class="medida"><div><span>Resistência a manchas</span></div><div class="barra"><i style="--v:75%"></i></div></div><div class="medida"><div><span>Resistência ao calor</span></div><div class="barra"><i style="--v:95%"></i></div></div><div class="medida"><div><span>Veios e sofisticação</span></div><div class="barra"><i style="--v:55%"></i></div></div><div class="pe"><span>Impermeabilizar: <b>Raramente</b></span><span>Faixa de preço: <b>$$</b></span></div></div><div class="tipo"><h3>Mármore</h3><p>Clássico e elegante, com veios marcantes. Mais macio e sensível a ácidos: ideal para banheiros e lavabos.</p><div class="medida"><div><span>Resistência a riscos</span></div><div class="barra"><i style="--v:40%"></i></div></div><div class="medida"><div><span>Resistência a manchas</span></div><div class="barra"><i style="--v:35%"></i></div></div><div class="medida"><div><span>Resistência ao calor</span></div><div class="barra"><i style="--v:60%"></i></div></div><div class="medida"><div><span>Veios e sofisticação</span></div><div class="barra"><i style="--v:100%"></i></div></div><div class="pe"><span>Impermeabilizar: <b>Sim, de tempos em tempos</b></span><span>Faixa de preço: <b>$$</b></span></div></div><div class="tipo"><h3>Quartzito</h3><p>Visual de mármore com dureza de pedra resistente. Sofisticado para o dia a dia.</p><div class="medida"><div><span>Resistência a riscos</span></div><div class="barra"><i style="--v:90%"></i></div></div><div class="medida"><div><span>Resistência a manchas</span></div><div class="barra"><i style="--v:65%"></i></div></div><div class="medida"><div><span>Resistência ao calor</span></div><div class="barra"><i style="--v:90%"></i></div></div><div class="medida"><div><span>Veios e sofisticação</span></div><div class="barra"><i style="--v:95%"></i></div></div><div class="pe"><span>Impermeabilizar: <b>Sim, de tempos em tempos</b></span><span>Faixa de preço: <b>$$$$</b></span></div></div><div class="tipo"><h3>Ultra compacto</h3><p>Superfície de última geração com porosidade quase zero: não mancha e é muito fácil de limpar.</p><div class="medida"><div><span>Resistência a riscos</span></div><div class="barra"><i style="--v:90%"></i></div></div><div class="medida"><div><span>Resistência a manchas</span></div><div class="barra"><i style="--v:100%"></i></div></div><div class="medida"><div><span>Resistência ao calor</span></div><div class="barra"><i style="--v:95%"></i></div></div><div class="medida"><div><span>Veios e sofisticação</span></div><div class="barra"><i style="--v:80%"></i></div></div><div class="pe"><span>Impermeabilizar: <b>Não precisa</b></span><span>Faixa de preço: <b>$$$$</b></span></div></div></div>
     </div>
   </section>
 
@@ -250,13 +446,47 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
     <div class="wrap">
       <div class="olho surge">Catálogo</div>
       <h2 class="surge">Escolha a sua pedra</h2>
-      <p class="sub surge">30 opções entre granitos, mármores, quartzitos e ultra compactos. Toque numa pedra para ver os detalhes.</p>
-      <div class="filtros" role="tablist"><button class="on" data-g="todas" role="tab" aria-selected="true">Todas</button><button data-g="granitos" role="tab" aria-selected="false">Granitos</button><button data-g="marmores" role="tab" aria-selected="false">Mármores</button><button data-g="quartzitos" role="tab" aria-selected="false">Quartzitos</button><button data-g="ultra" role="tab" aria-selected="false">Ultra compactos</button></div>
-      <div class="grade" id="grade"><button class="pedra" data-g="granitos" data-nome="Bege Bahia" data-cat="Travertino" data-fin="Polida" data-desc="Granito bege claro com veios suaves. Alta durabilidade, combina com móveis claros e amadeirados."><div class="foto"><img src="img/pedra-bege.jpg" alt="Bege Bahia" loading="lazy"></div><div class="info"><b>Bege Bahia</b><span>Travertino</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Alpha" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1784306120566.jpg" alt="Branco Alpha" loading="lazy"></div><div class="info"><b>Branco Alpha</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Dallas" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito branco com veios cinza discretos. Amplifica a luminosidade. Ótimo custo-benefício."><div class="foto"><img src="img/pedra-dallas.jpg" alt="Branco Dallas" loading="lazy"></div><div class="info"><b>Branco Dallas</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Fortaleza" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1776800488577.jpg" alt="Branco Fortaleza" loading="lazy"></div><div class="info"><b>Branco Fortaleza</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Itaúnas" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito branco premium do Espírito Santo. Movimento delicado em tons dourados e cinza."><div class="foto"><img src="img/pedra-itaunas.jpg" alt="Branco Itaúnas" loading="lazy"></div><div class="info"><b>Branco Itaúnas</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Itaúnas Escovado" data-cat="Granito Branco" data-fin="Escovada" data-desc="Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento escovado traz uma textura aveludada que disfarça marcas de uso diário. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1783086633653.jpg" alt="Branco Itaúnas Escovado" loading="lazy"></div><div class="info"><b>Branco Itaúnas Escovado</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Nepal" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito branco com veios sutis em creme. Tom quente e atemporal para projetos de alto padrão."><div class="foto"><img src="img/pedra-nepal.jpg" alt="Branco Nepal" loading="lazy"></div><div class="info"><b>Branco Nepal</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Prime" data-cat="Granito Branco" data-fin="Polida" data-desc="Granito branco nobre com veios dourados delicados. Um dos mais valorizados do mercado."><div class="foto"><img src="img/pedra-prime.jpg" alt="Branco Prime" loading="lazy"></div><div class="info"><b>Branco Prime</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Siena" data-cat="Granito Branco" data-fin="Polida" data-desc="Mármore com veios dramáticos dourados e bege. Presença marcante. Exige selagem periódica."><div class="foto"><img src="img/pedra-siena.jpg" alt="Branco Siena" loading="lazy"></div><div class="info"><b>Branco Siena</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Siena Escovado" data-cat="Granito Branco" data-fin="Escovada" data-desc="Siena com acabamento escovado. Visual contemporâneo, esconde marcas de uso."><div class="foto"><img src="img/pedra-siena-e.jpg" alt="Branco Siena Escovado" loading="lazy"></div><div class="info"><b>Branco Siena Escovado</b><span>Granito Branco</span></div></button><button class="pedra" data-g="granitos" data-nome="Café Imperial" data-cat="Granito Marrom" data-fin="Polida" data-desc="Granito nacional de alta dureza e resistência — não risca nem mancha com facilidade e suporta bem o calor do dia a dia. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1792581500764.jpg" alt="Café Imperial" loading="lazy"></div><div class="info"><b>Café Imperial</b><span>Granito Marrom</span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Andorinhas" data-cat="Granito Cinza" data-fin="Polida" data-desc="Granito nacional cinza com cristais brancos. Alta dureza, resistente a manchas e calor. Ideal para cozinhas e banheiros."><div class="foto"><img src="img/pedra-andorinha.jpg" alt="Cinza Andorinhas" loading="lazy"></div><div class="info"><b>Cinza Andorinhas</b><span>Granito Cinza</span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Corumbá" data-cat="Granito" data-fin="Polida" data-desc="Pedra natural de alta qualidade, selecionada para bancadas e revestimentos de alto padrão. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1779301628130.jpg" alt="Cinza Corumbá" loading="lazy"></div><div class="info"><b>Cinza Corumbá</b><span>Granito</span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Nobre" data-cat="Granito Cinza" data-fin="Polida" data-desc="Granito nacional de alta dureza e resistência — não risca nem mancha com facilidade e suporta bem o calor do dia a dia. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1776874550481.jpg" alt="Cinza Nobre" loading="lazy"></div><div class="info"><b>Cinza Nobre</b><span>Granito Cinza</span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Absoluto" data-cat="Granito Preto" data-fin="Polida" data-desc="Granito de tom preto profundo e elegante, muito valorizado pela sofisticação e pelo polimento intenso. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1784305998784.jpg" alt="Preto Absoluto" loading="lazy"></div><div class="info"><b>Preto Absoluto</b><span>Granito Preto</span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Indiano" data-cat="Granito Preto" data-fin="Polida" data-desc="Granito importado da Índia. Preto uniforme com polimento espelhado intenso. Sofisticado e elegante."><div class="foto"><img src="img/pedra-p-indiano.jpg" alt="Preto Indiano" loading="lazy"></div><div class="info"><b>Preto Indiano</b><span>Granito Preto</span></div></button><button class="pedra" data-g="granitos" data-nome="Preto São Gabriel" data-cat="Granito Preto" data-fin="Polida" data-desc="Granito extraído em São Gabriel-RS. Preto profundo com micropontos. Um dos mais nobres do Brasil."><div class="foto"><img src="img/pedra-p-gabriel.jpg" alt="Preto São Gabriel" loading="lazy"></div><div class="info"><b>Preto São Gabriel</b><span>Granito Preto</span></div></button><button class="pedra" data-g="granitos" data-nome="Preto São Gabriel Escovado" data-cat="Granito Preto" data-fin="Escovada" data-desc="São Gabriel com acabamento escovado. Textura aveludada e aspecto contemporâneo. Esconde riscos."><div class="foto"><img src="img/pedra-p-gabriel-e.jpg" alt="Preto São Gabriel Escovado" loading="lazy"></div><div class="info"><b>Preto São Gabriel Escovado</b><span>Granito Preto</span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Via Láctea" data-cat="Granito Preto" data-fin="Polida" data-desc="Preto com incrustações brancas. Exótico e exclusivo — cada chapa é única."><div class="foto"><img src="img/pedra-via-lactea.jpg" alt="Preto Via Láctea" loading="lazy"></div><div class="info"><b>Preto Via Láctea</b><span>Granito Preto</span></div></button><button class="pedra" data-g="granitos" data-nome="Verde Pérola" data-cat="Granito Verde" data-fin="Polida" data-desc="Granito verde médio com tons pérola e cristais prateados. Textura refinada e brilho suave. Ótima opção para cozinhas e banheiros sofisticados."><div class="foto"><img src="img/pedra-verde-perla.jpg" alt="Verde Pérola" loading="lazy"></div><div class="info"><b>Verde Pérola</b><span>Granito Verde</span></div></button><button class="pedra" data-g="granitos" data-nome="Verde Ubatuba" data-cat="Granito Verde" data-fin="Polida" data-desc="Granito verde escuro com reflexos dourados. Extraído em Ubatuba-SP. Alta dureza e resistência. Muito valorizado em projetos de alto padrão."><div class="foto"><img src="img/pedra-verde-ub.jpg" alt="Verde Ubatuba" loading="lazy"></div><div class="info"><b>Verde Ubatuba</b><span>Granito Verde</span></div></button><button class="pedra" data-g="marmores" data-nome="Branco Paraná" data-cat="Mármore" data-fin="Polida" data-desc="Mármore premium com veios expressivos. Material raro e valorizado. Cada chapa é única."><div class="foto"><img src="img/pedra-parana.jpg" alt="Branco Paraná" loading="lazy"></div><div class="info"><b>Branco Paraná</b><span>Mármore</span></div></button><button class="pedra" data-g="marmores" data-nome="Branco Pinta Verde" data-cat="Mármore" data-fin="Polida" data-desc=""><div class="foto"><img src="img/pedra-s-1779737028682.jpg" alt="Branco Pinta Verde" loading="lazy"></div><div class="info"><b>Branco Pinta Verde</b><span>Mármore</span></div></button><button class="pedra" data-g="marmores" data-nome="Mármore Branco Comercial" data-cat="Mármore" data-fin="Polida" data-desc="Mármore calcítico clássico com veios cinza. Poroso, exige selagem. Ideal para banheiros e lavabos."><div class="foto"><img src="img/pedra-mrm-branco.jpg" alt="Mármore Branco Comercial" loading="lazy"></div><div class="info"><b>Mármore Branco Comercial</b><span>Mármore</span></div></button><button class="pedra" data-g="marmores" data-nome="Verde Guatemala" data-cat="Mármore" data-fin="Polida" data-desc="Mármore clássico e atemporal, com veios naturais únicos em cada chapa."><div class="foto"><img src="img/pedra-s-1784824651560.jpg" alt="Verde Guatemala" loading="lazy"></div><div class="info"><b>Verde Guatemala</b><span>Mármore</span></div></button><button class="pedra" data-g="quartzitos" data-nome="Branco Nano" data-cat="Quartzito" data-fin="Polida" data-desc="Quartzito industrializado de alta performance. Superfície compacta, baixa porosidade."><div class="foto"><img src="img/pedra-nano.jpg" alt="Branco Nano" loading="lazy"></div><div class="info"><b>Branco Nano</b><span>Quartzito</span></div></button><button class="pedra" data-g="quartzitos" data-nome="Branco Super Nano" data-cat="Quartzito" data-fin="Polida" data-desc="Versão premium do Nano. Praticamente inarranhável. Ideal para cozinhas de uso intenso."><div class="foto"><img src="img/pedra-super-nano.jpg" alt="Branco Super Nano" loading="lazy"></div><div class="info"><b>Branco Super Nano</b><span>Quartzito</span></div></button><button class="pedra" data-g="quartzitos" data-nome="Perla Santana" data-cat="Quartzito" data-fin="Polida" data-desc="Quartzito cristalino do Ceará. Aparência de mármore com resistência superior ao granito."><div class="foto"><img src="img/pedra-perla.jpg" alt="Perla Santana" loading="lazy"></div><div class="info"><b>Perla Santana</b><span>Quartzito</span></div></button><button class="pedra" data-g="ultra" data-nome="Taj Mahal Sintético" data-cat="Ultra Compacto" data-fin="Polida" data-desc="Superfície ultra compacta de última geração, com porosidade praticamente zero — não risca, não mancha e dispensa selagem. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra."><div class="foto"><img src="img/pedra-s-1784564740718.jpg" alt="Taj Mahal Sintético" loading="lazy"></div><div class="info"><b>Taj Mahal Sintético</b><span>Ultra Compacto</span></div></button><button class="pedra" data-g="ultra" data-nome="Ultra Compacto Carrara" data-cat="Ultra Compacto" data-fin="Polida" data-desc="Superfície ultra compacta estilo Carrara. Zero porosidade — não exige selagem."><div class="foto"><img src="img/pedra-carrara.jpg" alt="Ultra Compacto Carrara" loading="lazy"></div><div class="info"><b>Ultra Compacto Carrara</b><span>Ultra Compacto</span></div></button></div>
+      <p class="sub surge">30 opções entre granitos, mármores, quartzitos e ultra compactos. Toque numa pedra para ver os detalhes ou testá-la na cozinha. Os cifrões mostram a faixa de preço, do mais em conta ($) ao mais nobre ($$$$).</p>
+      <div class="ferr"><input class="busca" id="busca" type="search" placeholder="Buscar pedra… ex.: preto, branco" aria-label="Buscar pedra"><button class="chip on" data-g="todas" role="tab" aria-selected="true">Todas</button><button class="chip" data-g="granitos" role="tab" aria-selected="false">Granitos</button><button class="chip" data-g="marmores" role="tab" aria-selected="false">Mármores</button><button class="chip" data-g="quartzitos" role="tab" aria-selected="false">Quartzitos</button><button class="chip" data-g="ultra" role="tab" aria-selected="false">Ultra compactos</button></div>
+      <div class="grade" id="grade"><button class="pedra" data-g="granitos" data-nome="Bege Bahia" data-cat="Travertino"><div class="foto"><img src="img/pedra-bege.jpg" alt="Bege Bahia" loading="lazy"></div><div class="info"><b>Bege Bahia</b><span>Travertino<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Alpha" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-s-1784306120566.jpg" alt="Branco Alpha" loading="lazy"></div><div class="info"><b>Branco Alpha</b><span>Granito Branco<i>$$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Dallas" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-dallas.jpg" alt="Branco Dallas" loading="lazy"></div><div class="info"><b>Branco Dallas</b><span>Granito Branco<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Fortaleza" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-s-1776800488577.jpg" alt="Branco Fortaleza" loading="lazy"></div><div class="info"><b>Branco Fortaleza</b><span>Granito Branco<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Itaúnas" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-itaunas.jpg" alt="Branco Itaúnas" loading="lazy"></div><div class="info"><b>Branco Itaúnas</b><span>Granito Branco<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Itaúnas Escovado" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-s-1783086633653.jpg" alt="Branco Itaúnas Escovado" loading="lazy"></div><div class="info"><b>Branco Itaúnas Escovado</b><span>Granito Branco<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Nepal" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-nepal.jpg" alt="Branco Nepal" loading="lazy"></div><div class="info"><b>Branco Nepal</b><span>Granito Branco<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Prime" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-prime.jpg" alt="Branco Prime" loading="lazy"></div><div class="info"><b>Branco Prime</b><span>Granito Branco<i>$$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Siena" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-siena.jpg" alt="Branco Siena" loading="lazy"></div><div class="info"><b>Branco Siena</b><span>Granito Branco<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Branco Siena Escovado" data-cat="Granito Branco"><div class="foto"><img src="img/pedra-siena-e.jpg" alt="Branco Siena Escovado" loading="lazy"></div><div class="info"><b>Branco Siena Escovado</b><span>Granito Branco<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Café Imperial" data-cat="Granito Marrom"><div class="foto"><img src="img/pedra-s-1792581500764.jpg" alt="Café Imperial" loading="lazy"></div><div class="info"><b>Café Imperial</b><span>Granito Marrom<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Andorinhas" data-cat="Granito Cinza"><div class="foto"><img src="img/pedra-andorinha.jpg" alt="Cinza Andorinhas" loading="lazy"></div><div class="info"><b>Cinza Andorinhas</b><span>Granito Cinza<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Corumbá" data-cat="Granito"><div class="foto"><img src="img/pedra-s-1779301628130.jpg" alt="Cinza Corumbá" loading="lazy"></div><div class="info"><b>Cinza Corumbá</b><span>Granito<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Cinza Nobre" data-cat="Granito Cinza"><div class="foto"><img src="img/pedra-s-1776874550481.jpg" alt="Cinza Nobre" loading="lazy"></div><div class="info"><b>Cinza Nobre</b><span>Granito Cinza<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Absoluto" data-cat="Granito Preto"><div class="foto"><img src="img/pedra-s-1784305998784.jpg" alt="Preto Absoluto" loading="lazy"></div><div class="info"><b>Preto Absoluto</b><span>Granito Preto<i>$$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Indiano" data-cat="Granito Preto"><div class="foto"><img src="img/pedra-p-indiano.jpg" alt="Preto Indiano" loading="lazy"></div><div class="info"><b>Preto Indiano</b><span>Granito Preto<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Preto São Gabriel" data-cat="Granito Preto"><div class="foto"><img src="img/pedra-p-gabriel.jpg" alt="Preto São Gabriel" loading="lazy"></div><div class="info"><b>Preto São Gabriel</b><span>Granito Preto<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Preto São Gabriel Escovado" data-cat="Granito Preto"><div class="foto"><img src="img/pedra-p-gabriel-e.jpg" alt="Preto São Gabriel Escovado" loading="lazy"></div><div class="info"><b>Preto São Gabriel Escovado</b><span>Granito Preto<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Preto Via Láctea" data-cat="Granito Preto"><div class="foto"><img src="img/pedra-via-lactea.jpg" alt="Preto Via Láctea" loading="lazy"></div><div class="info"><b>Preto Via Láctea</b><span>Granito Preto<i>$$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Verde Pérola" data-cat="Granito Verde"><div class="foto"><img src="img/pedra-verde-perla.jpg" alt="Verde Pérola" loading="lazy"></div><div class="info"><b>Verde Pérola</b><span>Granito Verde<i>$</i></span></div></button><button class="pedra" data-g="granitos" data-nome="Verde Ubatuba" data-cat="Granito Verde"><div class="foto"><img src="img/pedra-verde-ub.jpg" alt="Verde Ubatuba" loading="lazy"></div><div class="info"><b>Verde Ubatuba</b><span>Granito Verde<i>$</i></span></div></button><button class="pedra" data-g="marmores" data-nome="Branco Paraná" data-cat="Mármore"><div class="foto"><img src="img/pedra-parana.jpg" alt="Branco Paraná" loading="lazy"></div><div class="info"><b>Branco Paraná</b><span>Mármore<i>$$$$</i></span></div></button><button class="pedra" data-g="marmores" data-nome="Branco Pinta Verde" data-cat="Mármore"><div class="foto"><img src="img/pedra-s-1779737028682.jpg" alt="Branco Pinta Verde" loading="lazy"></div><div class="info"><b>Branco Pinta Verde</b><span>Mármore<i>$</i></span></div></button><button class="pedra" data-g="marmores" data-nome="Mármore Branco Comercial" data-cat="Mármore"><div class="foto"><img src="img/pedra-mrm-branco.jpg" alt="Mármore Branco Comercial" loading="lazy"></div><div class="info"><b>Mármore Branco Comercial</b><span>Mármore<i>$</i></span></div></button><button class="pedra" data-g="marmores" data-nome="Verde Guatemala" data-cat="Mármore"><div class="foto"><img src="img/pedra-s-1784824651560.jpg" alt="Verde Guatemala" loading="lazy"></div><div class="info"><b>Verde Guatemala</b><span>Mármore<i>$$$$</i></span></div></button><button class="pedra" data-g="quartzitos" data-nome="Branco Nano" data-cat="Quartzito"><div class="foto"><img src="img/pedra-nano.jpg" alt="Branco Nano" loading="lazy"></div><div class="info"><b>Branco Nano</b><span>Quartzito<i>$$$$</i></span></div></button><button class="pedra" data-g="quartzitos" data-nome="Branco Super Nano" data-cat="Quartzito"><div class="foto"><img src="img/pedra-super-nano.jpg" alt="Branco Super Nano" loading="lazy"></div><div class="info"><b>Branco Super Nano</b><span>Quartzito<i>$$$$</i></span></div></button><button class="pedra" data-g="quartzitos" data-nome="Perla Santana" data-cat="Quartzito"><div class="foto"><img src="img/pedra-perla.jpg" alt="Perla Santana" loading="lazy"></div><div class="info"><b>Perla Santana</b><span>Quartzito<i>$$$$</i></span></div></button><button class="pedra" data-g="ultra" data-nome="Taj Mahal Sintético" data-cat="Ultra Compacto"><div class="foto"><img src="img/pedra-s-1784564740718.jpg" alt="Taj Mahal Sintético" loading="lazy"></div><div class="info"><b>Taj Mahal Sintético</b><span>Ultra Compacto<i>$$$$</i></span></div></button><button class="pedra" data-g="ultra" data-nome="Ultra Compacto Carrara" data-cat="Ultra Compacto"><div class="foto"><img src="img/pedra-carrara.jpg" alt="Ultra Compacto Carrara" loading="lazy"></div><div class="info"><b>Ultra Compacto Carrara</b><span>Ultra Compacto<i>$$$$</i></span></div></button></div>
+      <p class="vazio" id="vazio">Nenhuma pedra com esse nome. Pergunte no WhatsApp: conseguimos outras.</p>
     </div>
   </section>
 
-  <section class="processo" id="obras">
+  <section class="faixa" id="acabamentos">
+    <div class="wrap">
+      <div class="olho surge">Acabamentos</div>
+      <h2 class="surge">O acabamento da borda</h2>
+      <p class="sub surge">É a parte da pedra que fica à mostra. Em soleiras e peitoris você escolhe entre estes (em dourado, as bordas polidas):</p>
+      <div class="bordas">
+        <div class="borda surge"><svg viewBox="22 38 216 108" aria-hidden="true"><rect width="240" height="150" fill="#120f0c"/><polygon points="40,52 190,52 220,82 70,82" fill="#5a554d"/><polygon points="70,82 220,82 220,98 70,98" fill="#46423b"/><polygon points="40,52 70,82 70,98 40,68" fill="#3a362f"/><text x="120" y="138" fill="#8a8276" font-size="11" font-family="Manrope,sans-serif" text-anchor="middle">bordas retas, sem polimento</text></svg><h3>Sem acabamento</h3><p>Bordas retas, sem polimento. Para quando a pedra fica embutida no piso ou na parede.</p></div>
+        <div class="borda surge"><svg viewBox="22 38 216 108" aria-hidden="true"><rect width="240" height="150" fill="#120f0c"/><polygon points="40,52 190,52 220,82 70,82" fill="#5a554d"/><polygon points="70,82 220,82 220,98 70,98" fill="#c9a45c"/><polygon points="40,52 70,82 70,98 40,68" fill="#3a362f"/><text x="120" y="138" fill="#8a8276" font-size="11" font-family="Manrope,sans-serif" text-anchor="middle">frente polida</text></svg><h3>Uma lateral</h3><p>Uma borda comprida polida, do lado que fica aparente. O mais comum em soleiras de porta.</p></div>
+        <div class="borda surge"><svg viewBox="22 38 216 108" aria-hidden="true"><rect width="240" height="150" fill="#120f0c"/><polygon points="40,52 190,52 220,82 70,82" fill="#5a554d"/><polygon points="70,82 220,82 220,98 70,98" fill="#c9a45c"/><polygon points="40,52 70,82 70,98 40,68" fill="#3a362f"/><line x1="40" y1="52" x2="190" y2="52" stroke="#c9a45c" stroke-width="5" stroke-linecap="round"/><text x="120" y="138" fill="#8a8276" font-size="11" font-family="Manrope,sans-serif" text-anchor="middle">frente e fundo polidos</text></svg><h3>Duas laterais</h3><p>As duas bordas compridas polidas, para peças vistas dos dois lados.</p></div>
+        <div class="borda surge"><svg viewBox="22 38 216 108" aria-hidden="true"><rect width="240" height="150" fill="#120f0c"/><polygon points="40,52 190,52 220,82 70,82" fill="#5a554d"/><polygon points="70,82 220,82 220,116 70,116" fill="#c9a45c"/><polygon points="40,52 70,82 70,116 40,86" fill="#3a362f"/><line x1="70" y1="82" x2="54" y2="112" stroke="#120f0c" stroke-width="2"/><path d="M40 52 L70 82 L70 116" fill="none" stroke="#c9a45c" stroke-width="2" opacity=".6"/><text x="120" y="138" fill="#8a8276" font-size="11" font-family="Manrope,sans-serif" text-anchor="middle">corte a 45° e borda dobrada</text></svg><h3>45 graus</h3><p>Borda cortada em meia-esquadria e colada, com encaixe perfeito e aparência de pedra mais grossa.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="processo">
+    <div class="wrap">
+      <div class="olho surge">Como trabalhamos</div>
+      <h2 class="surge">Um processo claro, do começo ao fim</h2>
+      <p class="sub surge">Toque em cada etapa para ver o que acontece.</p>
+      <div class="passos surge">
+        <div class="plista">
+          <button class="pbt on" data-p="0"><i>01</i><b>Visita técnica</b></button>
+          <button class="pbt" data-p="1"><i>02</i><b>Orçamento</b></button>
+          <button class="pbt" data-p="2"><i>03</i><b>Auditoria</b></button>
+          <button class="pbt" data-p="3"><i>04</i><b>Projeto 3D</b></button>
+          <button class="pbt" data-p="4"><i>05</i><b>Acompanhamento</b></button>
+        </div>
+        <div class="pdet" id="pdet"></div>
+      </div>
+      <p class="cronograma surge"><b>Prazo é compromisso.</b> Cada obra entra no cronograma pela ordem de serviço, e o cronograma é seguido com rigor. Soleiras e peitoris costumam ficar prontos em poucos dias úteis; a data certa vem no orçamento.</p>
+    </div>
+  </section>
+
+  <section class="faixa" id="obras">
     <div class="wrap">
       <div class="olho surge">Obras e pagamento</div>
       <h2 class="surge">Feito por nós</h2>
@@ -267,31 +497,72 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
           <a class="bt bt-linha" href="https://www.instagram.com/hrmarmoregranito/" target="_blank" rel="noopener" style="align-self:flex-start">@hrmarmoregranito →</a>
         </div>
       </div>
-      <div class="pag">
+      <div class="pag" id="pagamento">
         <div class="surge"><b>10x</b><span>sem juros no cartão, no valor do projeto.</span></div>
-        <div class="surge"><b>À vista</b><span>com desconto especial, combinado no orçamento.</span></div>
-        <div class="surge"><b>Pix</b><span>e transferência, com comprovante na hora pelo WhatsApp.</span></div>
+        <div class="surge"><b>À vista</b><span>com desconto, combinado no orçamento.</span></div>
+        <div class="surge"><b>Pix</b><span>e transferência, com comprovante pelo WhatsApp.</span></div>
       </div>
     </div>
   </section>
 
-  <section class="contato" id="contato">
-    <div class="wrap">
+  <section id="duvidas">
+    <div class="wrap faq">
+      <div>
+        <div class="olho surge">Dúvidas</div>
+        <h2 class="surge">Perguntas frequentes</h2>
+        <p class="sub surge">Não achou a sua? Pergunte no WhatsApp: a resposta vem na hora.</p>
+      </div>
+      <div>
+        <div class="perg"><button>Vocês instalam soleira e peitoril?</button><div><p>Não. Em soleiras e peitoris o valor é da pedra pronta, com fabricação e acabamento. A instalação fica com o seu pedreiro.</p></div></div>
+        <div class="perg"><button>Como peço um orçamento?</button><div><p>Pelo WhatsApp. Para soleiras e peitoris, basta mandar a quantidade, as medidas e o acabamento: o valor vem na hora e o orçamento em PDF logo depois. Para cozinhas e banheiros, marcamos uma visita técnica para medir.</p></div></div>
+        <div class="perg"><button>Quais são as formas de pagamento?</button><div><p>O valor do projeto pode ser dividido em até 10x sem juros no cartão. Pagando à vista, você tem desconto. Também aceitamos Pix e transferência.</p></div></div>
+        <div class="perg"><button>Quanto tempo demora?</button><div><p>Cada obra entra no cronograma pela ordem de serviço. Soleiras e peitoris costumam ficar prontos em poucos dias úteis; cozinhas e banheiros dependem do projeto. A data certa vem escrita no orçamento.</p></div></div>
+        <div class="perg"><button>Qual pedra mancha e risca menos?</button><div><p>Os ultra compactos e os granitos são os mais resistentes no dia a dia. O mármore é lindo, mas é mais macio e mancha com limão, vinagre e produtos ácidos: vai melhor em banheiros e lavabos.</p></div></div>
+        <div class="perg"><button>Como cuidar da pedra?</button><div><p>Limpe com pano úmido e detergente neutro. Evite produtos ácidos, abrasivos e água sanitária pura. Mármores e alguns quartzitos pedem impermeabilização de tempos em tempos; os ultra compactos não precisam.</p></div></div>
+        <div class="perg"><button>Atendem fora de Pilão Arcado?</button><div><p>Atendemos Pilão Arcado e região. Mande a sua cidade no WhatsApp que confirmamos a entrega e a visita técnica.</p></div></div>
+        <div class="perg"><button>Vocês fazem o projeto da cozinha?</button><div><p>Sim. Desenhamos a cozinha em 3D para você ver tudo antes do corte, e acompanhamos a bancada junto com a marcenaria parceira até a entrega.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="faixa" id="orcamento">
+    <div class="wrap pedido">
+      <div>
+        <div class="olho surge">Orçamento</div>
+        <h2 class="surge">Monte o seu pedido</h2>
+        <p class="sub surge">Preencha o que souber. A mensagem fica pronta e você envia pelo WhatsApp com um toque. Nada fica salvo no site.</p>
+        <p class="sub surge" style="margin-top:14px">Do outro lado, a nossa assistente responde na hora, inclusive à noite e no fim de semana.</p>
+      </div>
+      <form class="form surge" id="form" onsubmit="return false">
+        <label>Seu nome<input id="fNome" autocomplete="name" placeholder="Como podemos te chamar?"></label>
+        <label>Cidade<input id="fCidade" autocomplete="address-level2" placeholder="Ex.: Pilão Arcado"></label>
+        <label>O que você precisa?<select id="fServ"><option>Cozinha / bancada</option><option>Banheiro / lavabo</option><option>Soleira / peitoril</option><option>Outro projeto</option></select></label>
+        <label>Pedra<select id="fPedra"><option value="">Ainda não sei</option><option>Bege Bahia</option><option>Branco Alpha</option><option>Branco Dallas</option><option>Branco Fortaleza</option><option>Branco Itaúnas</option><option>Branco Itaúnas Escovado</option><option>Branco Nepal</option><option>Branco Prime</option><option>Branco Siena</option><option>Branco Siena Escovado</option><option>Café Imperial</option><option>Cinza Andorinhas</option><option>Cinza Corumbá</option><option>Cinza Nobre</option><option>Preto Absoluto</option><option>Preto Indiano</option><option>Preto São Gabriel</option><option>Preto São Gabriel Escovado</option><option>Preto Via Láctea</option><option>Verde Pérola</option><option>Verde Ubatuba</option><option>Branco Paraná</option><option>Branco Pinta Verde</option><option>Mármore Branco Comercial</option><option>Verde Guatemala</option><option>Branco Nano</option><option>Branco Super Nano</option><option>Perla Santana</option><option>Taj Mahal Sintético</option><option>Ultra Compacto Carrara</option></select></label>
+        <label class="cheio">Medidas ou detalhes<textarea id="fMed" placeholder="Ex.: 2 soleiras de 1,20 por 15, acabamento nas duas laterais"></textarea></label>
+        <label class="check cheio"><input type="checkbox" id="fVisita"> Quero agendar uma visita técnica</label>
+        <div class="previa" id="previa"></div>
+        <a class="bt bt-ouro cheio" id="fEnviar" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Enviar pelo WhatsApp</a>
+      </form>
+    </div>
+  </section>
+
+  <section id="contato">
+    <div class="wrap contato">
       <div>
         <div class="olho surge">Contato</div>
         <h2 class="surge">Venha conhecer a HR</h2>
         <div class="dados">
-          <div class="dado surge"><span class="r">Endereço</span><a href="https://www.google.com/maps/search/?api=1&query=Av.+Dep.+Rodolfo+Queiroz,+653,+Pil%C3%A3o+Arcado+BA" target="_blank" rel="noopener">Av. Dep. Rodolfo Queiroz, 653 — Centro<br>Pilão Arcado — BA</a></div>
-          <div class="dado surge"><span class="r">Horário</span><span>Segunda a sexta: 7h às 17h<br>Sábado: 7h às 11h</span></div>
+          <div class="dado surge"><span class="r">Endereço</span><a href="https://www.google.com/maps/search/?api=1&query=Av.+Dep.+Rodolfo+Queiroz,+653,+Pil%C3%A3o+Arcado+BA" target="_blank" rel="noopener">Av. Dep. Rodolfo Queiroz, 653 — Centro<br>Pilão Arcado — BA · ver no mapa →</a></div>
+          <div class="dado surge"><span class="r">Horário</span><span>Segunda a sexta: 7h às 17h<br>Sábado: 7h às 11h<br><span class="aberto" id="aberto"><i></i><em style="font-style:normal" id="abertoTxt"></em></span></span></div>
           <div class="dado surge"><span class="r">WhatsApp</span><a href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20um%20or%C3%A7amento." target="_blank" rel="noopener">(74) 99148-4460</a></div>
           <div class="dado surge"><span class="r">E-mail</span><a href="mailto:hrmarmoresgranitos@gmail.com">hrmarmoresgranitos@gmail.com</a></div>
           <div class="dado surge"><span class="r">Instagram</span><a href="https://www.instagram.com/hrmarmoregranito/" target="_blank" rel="noopener">@hrmarmoregranito</a></div>
         </div>
       </div>
       <div class="chamada surge">
-        <div class="olho">Orçamento sem compromisso</div>
-        <h3>Mande as medidas e receba o valor pelo WhatsApp</h3>
-        <p>Nossa assistente atende na hora, inclusive fora do expediente: diga o que precisa, escolha a pedra e receba o orçamento. Se preferir, agendamos uma visita técnica.</p>
+        <div class="olho">Atendimento 24h</div>
+        <h3>Fale com a gente agora</h3>
+        <p>Nossa assistente atende a qualquer hora: tira dúvidas, faz o orçamento de soleiras e peitoris e agenda a visita técnica. Quando precisar, a equipe assume a conversa.</p>
         <a class="bt bt-ouro" href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20um%20or%C3%A7amento." target="_blank" rel="noopener" style="align-self:flex-start"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Chamar no WhatsApp</a>
       </div>
     </div>
@@ -305,51 +576,160 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
 <a class="flutua" href="https://wa.me/5574991484460?text=Ol%C3%A1%21%20Vim%20pelo%20site%20e%20quero%20um%20or%C3%A7amento." target="_blank" rel="noopener" aria-label="Falar no WhatsApp"><svg viewBox="0 0 24 24"  aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg></a>
 
 <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="mNome">
-  <div class="caixa" style="position:relative">
+  <div class="caixa">
+    <button class="fecha" id="mFecha" aria-label="Fechar">×</button>
     <img id="mImg" alt="">
     <div class="txt">
       <span class="tag" id="mCat"></span>
       <h3 id="mNome"></h3>
       <p id="mDesc"></p>
-      <a class="bt bt-ouro" id="mWa" target="_blank" rel="noopener" style="align-self:flex-start;margin-top:auto"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Quero esta pedra</a>
+      <p id="mFaixa" style="color:var(--ouro2);font-size:.86rem"></p>
+      <div class="acs"><a class="bt bt-ouro" id="mWa" href="#orcamento"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.8 2.8 0 0 0 1.8-1.3 2.3 2.3 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>Quero esta pedra</a><button class="bt bt-linha" id="mSim">Ver na cozinha</button></div>
     </div>
-    <button class="fecha" id="mFecha" aria-label="Fechar">×</button>
   </div>
 </div>
 
 <script>
+var PEDRAS = [{"nm": "Bege Bahia", "cat": "Travertino", "g": "granitos", "fin": "Polida", "desc": "Granito bege claro com veios suaves. Alta durabilidade, combina com móveis claros e amadeirados.", "img": "img/pedra-bege.jpg", "faixa": "$$"}, {"nm": "Branco Alpha", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1784306120566.jpg", "faixa": "$$$"}, {"nm": "Branco Dallas", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito branco com veios cinza discretos. Amplifica a luminosidade. Ótimo custo-benefício.", "img": "img/pedra-dallas.jpg", "faixa": "$"}, {"nm": "Branco Fortaleza", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1776800488577.jpg", "faixa": "$"}, {"nm": "Branco Itaúnas", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito branco premium do Espírito Santo. Movimento delicado em tons dourados e cinza.", "img": "img/pedra-itaunas.jpg", "faixa": "$$"}, {"nm": "Branco Itaúnas Escovado", "cat": "Granito Branco", "g": "granitos", "fin": "Escovada", "desc": "Granito claro que amplifica a luminosidade do ambiente, combinando com praticamente qualquer estilo de decoração. O acabamento escovado traz uma textura aveludada que disfarça marcas de uso diário. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1783086633653.jpg", "faixa": "$$"}, {"nm": "Branco Nepal", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito branco com veios sutis em creme. Tom quente e atemporal para projetos de alto padrão.", "img": "img/pedra-nepal.jpg", "faixa": "$$"}, {"nm": "Branco Prime", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Granito branco nobre com veios dourados delicados. Um dos mais valorizados do mercado.", "img": "img/pedra-prime.jpg", "faixa": "$$$"}, {"nm": "Branco Siena", "cat": "Granito Branco", "g": "granitos", "fin": "Polida", "desc": "Mármore com veios dramáticos dourados e bege. Presença marcante. Exige selagem periódica.", "img": "img/pedra-siena.jpg", "faixa": "$$"}, {"nm": "Branco Siena Escovado", "cat": "Granito Branco", "g": "granitos", "fin": "Escovada", "desc": "Siena com acabamento escovado. Visual contemporâneo, esconde marcas de uso.", "img": "img/pedra-siena-e.jpg", "faixa": "$$"}, {"nm": "Café Imperial", "cat": "Granito Marrom", "g": "granitos", "fin": "Polida", "desc": "Granito nacional de alta dureza e resistência — não risca nem mancha com facilidade e suporta bem o calor do dia a dia. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1792581500764.jpg", "faixa": "$$"}, {"nm": "Cinza Andorinhas", "cat": "Granito Cinza", "g": "granitos", "fin": "Polida", "desc": "Granito nacional cinza com cristais brancos. Alta dureza, resistente a manchas e calor. Ideal para cozinhas e banheiros.", "img": "img/pedra-andorinha.jpg", "faixa": "$"}, {"nm": "Cinza Corumbá", "cat": "Granito", "g": "granitos", "fin": "Polida", "desc": "Pedra natural de alta qualidade, selecionada para bancadas e revestimentos de alto padrão. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1779301628130.jpg", "faixa": "$"}, {"nm": "Cinza Nobre", "cat": "Granito Cinza", "g": "granitos", "fin": "Polida", "desc": "Granito nacional de alta dureza e resistência — não risca nem mancha com facilidade e suporta bem o calor do dia a dia. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1776874550481.jpg", "faixa": "$"}, {"nm": "Preto Absoluto", "cat": "Granito Preto", "g": "granitos", "fin": "Polida", "desc": "Granito de tom preto profundo e elegante, muito valorizado pela sofisticação e pelo polimento intenso. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1784305998784.jpg", "faixa": "$$$"}, {"nm": "Preto Indiano", "cat": "Granito Preto", "g": "granitos", "fin": "Polida", "desc": "Granito importado da Índia. Preto uniforme com polimento espelhado intenso. Sofisticado e elegante.", "img": "img/pedra-p-indiano.jpg", "faixa": "$$"}, {"nm": "Preto São Gabriel", "cat": "Granito Preto", "g": "granitos", "fin": "Polida", "desc": "Granito extraído em São Gabriel-RS. Preto profundo com micropontos. Um dos mais nobres do Brasil.", "img": "img/pedra-p-gabriel.jpg", "faixa": "$$"}, {"nm": "Preto São Gabriel Escovado", "cat": "Granito Preto", "g": "granitos", "fin": "Escovada", "desc": "São Gabriel com acabamento escovado. Textura aveludada e aspecto contemporâneo. Esconde riscos.", "img": "img/pedra-p-gabriel-e.jpg", "faixa": "$$"}, {"nm": "Preto Via Láctea", "cat": "Granito Preto", "g": "granitos", "fin": "Polida", "desc": "Preto com incrustações brancas. Exótico e exclusivo — cada chapa é única.", "img": "img/pedra-via-lactea.jpg", "faixa": "$$"}, {"nm": "Verde Pérola", "cat": "Granito Verde", "g": "granitos", "fin": "Polida", "desc": "Granito verde médio com tons pérola e cristais prateados. Textura refinada e brilho suave. Ótima opção para cozinhas e banheiros sofisticados.", "img": "img/pedra-verde-perla.jpg", "faixa": "$"}, {"nm": "Verde Ubatuba", "cat": "Granito Verde", "g": "granitos", "fin": "Polida", "desc": "Granito verde escuro com reflexos dourados. Extraído em Ubatuba-SP. Alta dureza e resistência. Muito valorizado em projetos de alto padrão.", "img": "img/pedra-verde-ub.jpg", "faixa": "$"}, {"nm": "Branco Paraná", "cat": "Mármore", "g": "marmores", "fin": "Polida", "desc": "Mármore premium com veios expressivos. Material raro e valorizado. Cada chapa é única.", "img": "img/pedra-parana.jpg", "faixa": "$$$$"}, {"nm": "Branco Pinta Verde", "cat": "Mármore", "g": "marmores", "fin": "Polida", "desc": "", "img": "img/pedra-s-1779737028682.jpg", "faixa": "$"}, {"nm": "Mármore Branco Comercial", "cat": "Mármore", "g": "marmores", "fin": "Polida", "desc": "Mármore calcítico clássico com veios cinza. Poroso, exige selagem. Ideal para banheiros e lavabos.", "img": "img/pedra-mrm-branco.jpg", "faixa": "$"}, {"nm": "Verde Guatemala", "cat": "Mármore", "g": "marmores", "fin": "Polida", "desc": "Mármore clássico e atemporal, com veios naturais únicos em cada chapa.", "img": "img/pedra-s-1784824651560.jpg", "faixa": "$$$$"}, {"nm": "Branco Nano", "cat": "Quartzito", "g": "quartzitos", "fin": "Polida", "desc": "Quartzito industrializado de alta performance. Superfície compacta, baixa porosidade.", "img": "img/pedra-nano.jpg", "faixa": "$$$$"}, {"nm": "Branco Super Nano", "cat": "Quartzito", "g": "quartzitos", "fin": "Polida", "desc": "Versão premium do Nano. Praticamente inarranhável. Ideal para cozinhas de uso intenso.", "img": "img/pedra-super-nano.jpg", "faixa": "$$$$"}, {"nm": "Perla Santana", "cat": "Quartzito", "g": "quartzitos", "fin": "Polida", "desc": "Quartzito cristalino do Ceará. Aparência de mármore com resistência superior ao granito.", "img": "img/pedra-perla.jpg", "faixa": "$$$$"}, {"nm": "Taj Mahal Sintético", "cat": "Ultra Compacto", "g": "ultra", "fin": "Polida", "desc": "Superfície ultra compacta de última geração, com porosidade praticamente zero — não risca, não mancha e dispensa selagem. O acabamento polido realça o brilho natural da pedra. Uma ótima escolha para cozinhas, bancadas e projetos que buscam durabilidade aliada à beleza natural da pedra.", "img": "img/pedra-s-1784564740718.jpg", "faixa": "$$$$"}, {"nm": "Ultra Compacto Carrara", "cat": "Ultra Compacto", "g": "ultra", "fin": "Polida", "desc": "Superfície ultra compacta estilo Carrara. Zero porosidade — não exige selagem.", "img": "img/pedra-carrara.jpg", "faixa": "$$$$"}];
 (function(){
-  var NUM='5574991484460';
-  document.getElementById('ano').textContent=new Date().getFullYear();
-  var topo=document.getElementById('topo');
-  function rolar(){topo.classList.toggle('cheio',window.scrollY>30)}
-  window.addEventListener('scroll',rolar,{passive:true});rolar();
-  // filtros
-  var bts=document.querySelectorAll('.filtros button'),ps=document.querySelectorAll('.pedra');
-  bts.forEach(function(b){b.addEventListener('click',function(){
-    bts.forEach(function(x){x.classList.toggle('on',x===b);x.setAttribute('aria-selected',x===b)});
-    var g=b.dataset.g;ps.forEach(function(p){p.hidden=g!=='todas'&&p.dataset.g!==g});
-  })});
-  // modal
-  var m=document.getElementById('modal');
-  function fechar(){m.classList.remove('on');document.body.style.overflow=''}
-  ps.forEach(function(p){p.addEventListener('click',function(){
-    document.getElementById('mImg').src=p.querySelector('img').src;
-    document.getElementById('mImg').alt=p.dataset.nome;
-    document.getElementById('mNome').textContent=p.dataset.nome;
-    document.getElementById('mCat').textContent=p.dataset.cat+(p.dataset.fin?' · '+p.dataset.fin:'');
-    document.getElementById('mDesc').textContent=p.dataset.desc||'Pedra selecionada para bancadas e revestimentos.';
-    document.getElementById('mWa').href='https://wa.me/'+NUM+'?text='+encodeURIComponent('Olá! Vim pelo site e gostei da pedra '+p.dataset.nome+'. Quero um orçamento.');
-    m.classList.add('on');document.body.style.overflow='hidden';
-  })});
-  document.getElementById('mFecha').addEventListener('click',fechar);
-  m.addEventListener('click',function(e){if(e.target===m)fechar()});
-  document.addEventListener('keydown',function(e){if(e.key==='Escape')fechar()});
-  // animação ao rolar
-  if('IntersectionObserver' in window){
-    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('vis');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
-    document.querySelectorAll('.surge').forEach(function(el){io.observe(el)});
-  } else document.querySelectorAll('.surge').forEach(function(el){el.classList.add('vis')});
+  var NUM = '5574991484460';
+  var $ = function(s, r){ return (r || document).querySelector(s); }, $$ = function(s, r){ return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var porNome = {}; PEDRAS.forEach(function(p){ porNome[p.nm] = p; });
+  var wa = function(t){ return 'https://wa.me/' + NUM + '?text=' + encodeURIComponent(t); };
+  $('#ano').textContent = new Date().getFullYear();
+
+  var topo = $('#topo');
+  function rolar(){ topo.classList.toggle('cheio', window.scrollY > 30); }
+  window.addEventListener('scroll', rolar, { passive: true }); rolar();
+  $('#hamb').addEventListener('click', function(){ document.body.classList.toggle('menu-on'); });
+  $$('#gaveta a').forEach(function(a){ a.addEventListener('click', function(){ document.body.classList.remove('menu-on'); }); });
+
+  (function(){ // aberto agora? (horário da Bahia, UTC-3)
+    var d = new Date(Date.now() - 3 * 3600000), dia = d.getUTCDay(), h = d.getUTCHours() + d.getUTCMinutes() / 60;
+    var ab = (dia >= 1 && dia <= 5 && h >= 7 && h < 17) || (dia === 6 && h >= 7 && h < 11);
+    $('#aberto').classList.toggle('sim', ab);
+    $('#abertoTxt').textContent = ab ? 'Aberto agora' : 'Fechado agora · a assistente do WhatsApp atende';
+  })();
+
+  function montar(){
+    var nome = $('#fNome').value.trim(), cid = $('#fCidade').value.trim(), serv = $('#fServ').value, pedra = $('#fPedra').value, med = $('#fMed').value.trim(), vis = $('#fVisita').checked;
+    var t = 'Olá! Vim pelo site da HR.' + (nome ? ' Meu nome é ' + nome + '.' : '') + '\n\nQuero orçamento de: ' + serv + (pedra ? '\nPedra: ' + pedra : '') + (med ? '\nMedidas/detalhes: ' + med : '') + (cid ? '\nCidade: ' + cid : '') + (vis ? '\nQuero agendar uma visita técnica.' : '');
+    $('#previa').innerHTML = '<small>Prévia da mensagem</small>'; $('#previa').appendChild(document.createTextNode(t));
+    $('#fEnviar').href = wa(t);
+  }
+  $$('#form input, #form select, #form textarea').forEach(function(el){ el.addEventListener('input', montar); el.addEventListener('change', montar); });
+  montar();
+  function preencher(pedra, servico){ if (pedra) $('#fPedra').value = pedra; if (servico) $('#fServ').value = servico; montar(); }
+  $$('[data-servico]').forEach(function(a){ a.addEventListener('click', function(){ preencher(null, a.getAttribute('data-servico')); }); });
+
+  var atual = null;
+  function simular(nm, irAte){
+    var p = porNome[nm]; if (!p) return; atual = p;
+    $$('#simTex image').forEach(function(im){ im.setAttribute('href', p.img); });
+    $('#simNome').textContent = p.nm; $('#simCat').textContent = p.cat;
+    $$('.amostra').forEach(function(a){ a.classList.toggle('on', a.dataset.nome === nm); });
+    if (irAte) document.getElementById('simulador').scrollIntoView({ behavior: 'smooth' });
+  }
+  $$('.amostra').forEach(function(a){ a.addEventListener('click', function(){ simular(a.dataset.nome); }); });
+  $$('.cor-mov').forEach(function(b){ b.addEventListener('click', function(){
+    $$('.cor-mov').forEach(function(x){ x.classList.toggle('on', x === b); });
+    $$('#cozinha .mov').forEach(function(el){ el.setAttribute('fill', b.dataset.c); });
+    $$('#cozinha .mov2').forEach(function(el){ el.setAttribute('fill', b.dataset.c2); });
+  }); });
+  $$('[data-fr]').forEach(function(b){ b.addEventListener('click', function(){
+    $$('[data-fr]').forEach(function(x){ x.classList.toggle('on', x === b); });
+    $('#frontao').style.display = b.dataset.fr === '1' ? '' : 'none';
+  }); });
+  $('#simWa').addEventListener('click', function(){ if (atual) preencher(atual.nm, 'Cozinha / bancada'); });
+  simular($$('.amostra')[0].dataset.nome);
+
+  var grupo = 'todas';
+  function norm(s){ return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+  function filtrar(){
+    var q = norm($('#busca').value), n = 0;
+    $$('.pedra').forEach(function(p){ var ok = (grupo === 'todas' || p.dataset.g === grupo) && (!q || norm(p.dataset.nome + ' ' + p.dataset.cat).indexOf(q) >= 0); p.hidden = !ok; if (ok) n++; });
+    $('#vazio').style.display = n ? 'none' : 'block';
+  }
+  $$('.ferr .chip').forEach(function(b){ b.addEventListener('click', function(){ $$('.ferr .chip').forEach(function(x){ x.classList.toggle('on', x === b); }); grupo = b.dataset.g; filtrar(); }); });
+  $('#busca').addEventListener('input', filtrar);
+  var m = $('#modal'), aberta = null;
+  function fechar(){ m.classList.remove('on'); document.body.style.overflow = ''; }
+  function abrir(nm){
+    var p = porNome[nm]; if (!p) return; aberta = p;
+    $('#mImg').src = p.img; $('#mImg').alt = p.nm; $('#mNome').textContent = p.nm;
+    $('#mCat').textContent = p.cat + (p.fin ? ' · ' + p.fin : '');
+    $('#mDesc').textContent = p.desc || 'Pedra selecionada para bancadas e revestimentos.';
+    $('#mFaixa').textContent = 'Faixa de preço: ' + p.faixa + '  (de $ a $$$$)';
+    m.classList.add('on'); document.body.style.overflow = 'hidden';
+  }
+  $$('.pedra').forEach(function(p){ p.addEventListener('click', function(){ abrir(p.dataset.nome); }); });
+  $('#mFecha').addEventListener('click', fechar);
+  m.addEventListener('click', function(e){ if (e.target === m) fechar(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') fechar(); });
+  $('#mWa').addEventListener('click', function(){ fechar(); preencher(aberta.nm); });
+  $('#mSim').addEventListener('click', function(){ fechar(); simular(aberta.nm, true); });
+
+  var resp = [], passos = $$('.qpasso');
+  var TIPOS = {
+    granitos: { t: 'Granito', txt: 'Muito resistente a riscos, calor e manchas, com o melhor custo-benefício. É a escolha mais segura para o uso pesado do dia a dia.' },
+    marmores: { t: 'Mármore', txt: 'Veios elegantes e um visual clássico. É mais delicado com produtos ácidos, por isso brilha em banheiros e lavabos.' },
+    quartzitos: { t: 'Quartzito', txt: 'Aparência de mármore com a resistência de pedra dura. Para quem quer sofisticação sem abrir mão do uso diário.' },
+    ultra: { t: 'Ultra compacto', txt: 'Porosidade quase zero: não mancha, não precisa impermeabilizar e aguenta calor. O topo de linha para cozinhas.' }
+  };
+  function escura(p){ return /preto|verde|caf|cinza|absoluto|via l/i.test(p.nm); }
+  function sugerir(){
+    var onde = resp[0], foco = resp[1], cor = resp[2], g;
+    if (onde === 'soleira' || foco === 'custo') g = 'granitos';
+    else if (foco === 'visual') g = onde === 'banheiro' ? 'marmores' : (cor === 'escura' ? 'granitos' : 'quartzitos');
+    else g = onde === 'cozinha' && cor !== 'escura' ? 'ultra' : 'granitos';
+    var tom = function(p){ return cor === 'tanto' || (cor === 'escura') === escura(p); };
+    var lista = PEDRAS.filter(function(p){ return p.g === g && tom(p); });
+    if (lista.length < 4) lista = lista.concat(PEDRAS.filter(function(p){ return tom(p) && lista.indexOf(p) < 0 && p.g === 'granitos'; }));
+    lista = lista.slice(0, 4);
+    $('#qTit').textContent = TIPOS[g].t + (onde === 'soleira' ? ' para soleira e peitoril' : onde === 'banheiro' ? ' para o seu banheiro' : ' para a sua cozinha');
+    $('#qTxt').textContent = TIPOS[g].txt + (onde === 'soleira' ? ' Lembrando: o valor é da pedra pronta, sem a instalação.' : '');
+    $('#qRec').innerHTML = '';
+    lista.forEach(function(p){
+      var b = document.createElement('button'); b.innerHTML = '<img alt="" loading="lazy"><span></span>';
+      b.querySelector('img').src = p.img; b.querySelector('span').textContent = p.nm;
+      b.addEventListener('click', function(){ abrir(p.nm); }); $('#qRec').appendChild(b);
+    });
+    $('#qWa').onclick = function(){ preencher(lista[0] ? lista[0].nm : '', onde === 'soleira' ? 'Soleira / peitoril' : onde === 'banheiro' ? 'Banheiro / lavabo' : 'Cozinha / bancada'); };
+    $('#qres').classList.add('on'); $('#qbar').style.width = '100%';
+  }
+  passos.forEach(function(ps, i){ $$('.qop', ps).forEach(function(b){ b.addEventListener('click', function(){
+    resp[i] = b.dataset.v; ps.hidden = true; $('#qbar').style.width = ((i + 1) / 3 * 100) + '%';
+    if (passos[i + 1]) passos[i + 1].hidden = false; else sugerir();
+  }); }); });
+  $('#qDe').addEventListener('click', function(){ resp = []; $('#qres').classList.remove('on'); passos.forEach(function(p, i){ p.hidden = i > 0; }); $('#qbar').style.width = '0'; });
+
+  var ETAPAS = [
+    ['Visita técnica', 'Vamos até o local, tiramos as medidas exatas e entendemos como você usa o espaço.', ['Medição no local', 'Conversa sobre o uso e o estilo', 'Indicação das pedras que combinam']],
+    ['Orçamento', 'Você recebe o valor detalhado, com a pedra e o acabamento escolhidos, em PDF pelo WhatsApp.', ['Valor por item, sem surpresa', 'Até 10x sem juros ou desconto à vista', 'Prazo de entrega por escrito']],
+    ['Auditoria', 'No início da obra conferimos tudo de novo: medidas, níveis e o que mudou desde a visita.', ['Conferência das medidas', 'Ajustes antes do corte', 'Nada de peça errada']],
+    ['Projeto 3D', 'Desenhamos a cozinha em 3D para você ver o resultado antes de a pedra ser cortada.', ['A pedra no seu ambiente', 'Posição de cubas e recortes', 'Aprovação antes da produção']],
+    ['Acompanhamento', 'Seguimos a bancada junto com a marcenaria parceira até a entrega, para tudo se encaixar.', ['Alinhamento com a marcenaria', 'Cronograma pela ordem de serviço', 'Entrega no prazo combinado']]
+  ];
+  function etapa(i){
+    $$('.pbt').forEach(function(b){ b.classList.toggle('on', +b.dataset.p === i); });
+    var e = ETAPAS[i], d = $('#pdet'), novo = d.cloneNode(false); d.parentNode.replaceChild(novo, d);
+    novo.innerHTML = '<div class="ix"></div><h3></h3><p></p><ul></ul>';
+    $('.ix', novo).textContent = '0' + (i + 1); $('h3', novo).textContent = e[0]; $('p', novo).textContent = e[1];
+    e[2].forEach(function(x){ var li = document.createElement('li'); li.textContent = x; $('ul', novo).appendChild(li); });
+  }
+  $$('.pbt').forEach(function(b){ b.addEventListener('click', function(){ etapa(+b.dataset.p); }); });
+  etapa(0);
+
+  $$('.perg').forEach(function(p){ $('button', p).addEventListener('click', function(){
+    var on = !p.classList.contains('on');
+    $$('.perg').forEach(function(x){ x.classList.remove('on'); $('div', x).style.maxHeight = '0'; });
+    if (on) { p.classList.add('on'); var d = $('div', p); d.style.maxHeight = d.scrollHeight + 'px'; }
+  }); });
+
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function(es){ es.forEach(function(e){ if (e.isIntersecting) { e.target.classList.add('vis'); io.unobserve(e.target); } }); }, { rootMargin: '0px 0px -8% 0px' });
+    $$('.surge, .comp').forEach(function(el){ io.observe(el); });
+  } else $$('.surge, .comp').forEach(function(el){ el.classList.add('vis'); });
 })();
 </script>
 </body>
