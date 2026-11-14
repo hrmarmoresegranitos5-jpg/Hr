@@ -1,3 +1,4 @@
+// v71c (14/11/2026): prévia mostra a resolução real do vídeo (1080p/720p/…) e avisa quando o arquivo já veio comprimido; texto mandado logo depois do vídeo vira o pedido do post
 // v71b (14/11/2026): publicação não fica parada esperando a rotina agendada (confere a cada mensagem/consulta do app); comando "postou?"
 // v71 (14/11/2026): post em QUALIDADE ORIGINAL mandando o vídeo como Documento; colaboração no Reels/Feed ("marque X, Y pra colaborar" / "colaborar @perfil")
 // v70c (14/11/2026): aviso do pedido de orçamento diz se o app está aberto ou pede para abrir; assistente explica que o PDF vem do app no celular
@@ -13834,6 +13835,33 @@ async function mdSalvar(env, buf, mime) {
   await env.HR_KV.put(`md:${id}:meta`, JSON.stringify({ mime, tam: u8.byteLength, partes, em: Date.now() }), { expirationTtl: 7 * 86400 });
   return id;
 }
+// v71c: lê a resolução e a duração de um MP4 (caixas tkhd/mvhd) para mostrar a qualidade real na prévia
+function mp4Info(buf) {
+  try {
+    const u = new Uint8Array(buf), dv = new DataView(u.buffer, u.byteOffset, u.byteLength), n = u.byteLength;
+    let w = 0, h = 0, dur = 0;
+    const lim = Math.min(n - 8, 64 * 1024 * 1024);
+    for (let i = 4; i < lim; i++) {
+      if (u[i] === 0x74 && u[i + 1] === 0x6b && u[i + 2] === 0x68 && u[i + 3] === 0x64 && !w) { // tkhd
+        const v = u[i + 4], base = i + 8 + (v === 1 ? 32 : 20) + 8 + 8 + 36;
+        const ww = dv.getUint32(base) / 65536, hh = dv.getUint32(base + 4) / 65536;
+        if (ww > 0 && hh > 0) { w = Math.round(ww); h = Math.round(hh); }
+      } else if (u[i] === 0x6d && u[i + 1] === 0x76 && u[i + 2] === 0x68 && u[i + 3] === 0x64 && !dur) { // mvhd
+        const v = u[i + 4];
+        if (v === 1) { const ts = dv.getUint32(i + 8 + 16); const d = Number(dv.getBigUint64(i + 8 + 20)); dur = ts ? d / ts : 0; }
+        else { const ts = dv.getUint32(i + 8 + 8); const d = dv.getUint32(i + 8 + 12); dur = ts ? d / ts : 0; }
+      }
+      if (w && dur) break;
+    }
+    return { w, h, dur, mbps: dur ? +(n * 8 / dur / 1e6).toFixed(1) : 0 };
+  } catch (_) { return { w: 0, h: 0, dur: 0, mbps: 0 }; }
+}
+function textoQualidade(inf) {
+  if (!inf || !inf.w) return '';
+  const lado = Math.min(inf.w, inf.h);
+  const nome = lado >= 1080 ? 'Full HD ✅' : lado >= 720 ? 'HD (720p)' : 'baixa (' + lado + 'p) ⚠️';
+  return `${inf.w}×${inf.h} · ${nome}${inf.mbps ? ' · ' + String(inf.mbps).replace('.', ',') + ' Mbps' : ''}`;
+}
 async function mdUrl(env, id, mime) { const b = await urlDoWorker(env); return `${b}/m/${id}.${/video/.test(mime) ? 'mp4' : /png/.test(mime) ? 'png' : 'jpg'}`; }
 async function rotaMidia(req, env, url) {
   const id = (url.pathname.match(/^\/m\/([a-z0-9]{20})\.(mp4|jpg|png)$/) || [])[1];
@@ -13901,7 +13929,8 @@ async function tratarMidiaPostDono(env, from, m) {
   const destino = estDestinoDaLegenda(leg) || (m.type === 'video' ? 'reels' : 'feed');
   const desc = leg.replace(RE_POSTAR, '').replace(/^\s*(no|na|nos|nas|pro|pra|para o|para a)?\s*(reels?|story|stories|feed|instagram)\b/i, '').replace(/^[\s:,.-]+/, '').trim();
   const editar = m.type === 'video' && !/sem edit|sem edic|direto/i.test(normaliza(leg)) && await estEditorPareado(env);
-  const j = { id: estId(10), criado: Date.now(), tipo: m.type, midias: [{ md, mime, tam: mid.buf.byteLength }], destino, desc: desc.slice(0, 500), editar, estado: editar ? 'na_fila' : 'aguardando', original: !!m._doc };
+  const info = m.type === 'video' ? mp4Info(mid.buf) : null;
+  const j = { id: estId(10), criado: Date.now(), tipo: m.type, midias: [{ md, mime, tam: mid.buf.byteLength, info }], destino, desc: desc.slice(0, 500), editar, estado: editar ? 'na_fila' : 'aguardando', original: !!m._doc };
   if (m.type === 'video' && !m._doc && !(await env.HR_KV.get('post:dicaHD'))) { await env.HR_KV.put('post:dicaHD', '1', { expirationTtl: 30 * 86400 }); env._dicaHD = true; }
   await estGravar(env, j);
   if (m.type === 'image') await env.HR_KV.put('post:album', JSON.stringify({ pid: j.id, ate: Date.now() + 3 * 60000 }), { expirationTtl: 600 });
@@ -13942,8 +13971,12 @@ const EST_DESTINOS = { reels: 'Reels', story: 'Story', feed: 'Feed' };
 async function estEnviarPrevia(env, para, j) {
   const md = j.editado || j.midias[0];
   const link = await mdUrl(env, md.md, md.mime);
-  const qual = j.original ? ' · qualidade original ✅' : '';
-  const corpo = `📲 *Prévia do post* (${j.tipo === 'video' ? (j.editado ? 'vídeo editado' : 'vídeo') : j.midias.length > 1 ? j.midias.length + ' fotos, carrossel' : 'foto'}${qual})\n\n*Legenda:*\n${j.legenda}${(j.colab || []).length ? `\n\n*Colaboração:* ${j.colab.map(u => '@' + u).join(', ')}` : ''}\n\n_Trocar a legenda: *legenda:* texto novo. Agendar: *agendar 19h*. Colaboração: *colaborar @perfil*._${env._dicaHD ? '\n\n💡 _Dica: para sair em qualidade máxima no Instagram, mande o vídeo como *Documento* (📎 → Documento) em vez de Galeria. Assim o WhatsApp não comprime._' : ''}`;
+  const infQ = textoQualidade(md.info);
+  const qual = (j.original ? ' · arquivo original' : '') + (infQ ? '\n🎞️ ' + infQ : '');
+  const avisoQ = md.info && md.info.w && Math.min(md.info.w, md.info.h) < 1080 && j.tipo === 'video'
+    ? `\n\n⚠️ _Este vídeo já chegou em ${Math.min(md.info.w, md.info.h)}p. ${j.original ? 'Como foi como documento, essa é a qualidade do próprio arquivo: provavelmente ele já tinha passado pelo WhatsApp antes (nome "VID-…-WA…"). Para Full HD, mande o arquivo original da câmera ou do editor.' : 'Mande como *Documento* (📎 → Documento) para não perder qualidade.'}_`
+    : '';
+  const corpo = `📲 *Prévia do post* (${j.tipo === 'video' ? (j.editado ? 'vídeo editado' : 'vídeo') : j.midias.length > 1 ? j.midias.length + ' fotos, carrossel' : 'foto'}${qual})\n\n*Legenda:*\n${j.legenda}${(j.colab || []).length ? `\n\n*Colaboração:* ${j.colab.map(u => '@' + u).join(', ')}` : ''}\n\n_Trocar a legenda: *legenda:* texto novo. Agendar: *agendar 19h*. Colaboração: *colaborar @perfil*._${avisoQ}${env._dicaHD && !avisoQ ? '\n\n💡 _Dica: para sair em qualidade máxima no Instagram, mande o vídeo como *Documento* (📎 → Documento) em vez de Galeria. Assim o WhatsApp não comprime._' : ''}`;
   const b1 = j.tipo === 'video' ? { id: `igp|${j.id}|reels`, titulo: 'Postar no Reels' } : { id: `igp|${j.id}|feed`, titulo: j.midias.length > 1 ? 'Postar carrossel' : 'Postar no Feed' };
   const botoes = [b1, ...(j.midias.length > 1 && !j.editado ? [] : [{ id: `igp|${j.id}|story`, titulo: 'Postar no Story' }]), { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }];
   const tam = md.tam || 0;
@@ -14079,6 +14112,21 @@ async function estComandoDono(env, from, bruto, msg) {
     return true;
   }
   const pid = await env.HR_KV.get('post:ultimo'); if (!pid) return false;
+  { // v71c: texto mandado logo depois do vídeo/foto (em vez de legenda) vale como pedido do post
+    const j0 = await estLer(env, pid);
+    if (j0 && ['aguardando', 'na_fila'].includes(j0.estado) && !j0.descTexto && Date.now() - j0.criado < 3 * 60000 && String(bruto).trim().length >= 4
+      && !/^(legenda|agendar|colaborar|marque|marca|cancelar|postou|status|editor)\b/i.test(normaliza(bruto))) {
+      const dest = estDestinoDaLegenda(bruto); if (dest) j0.destino = dest;
+      const d = String(bruto).replace(RE_POSTAR, '').replace(/^\s*(no|na|nos|nas|pro|pra|para o|para a)?\s*(reels?|story|stories|feed|instagram)\b/i, '').replace(/^[\s:,.-]+/, '').trim();
+      j0.descTexto = true;
+      if (d.length >= 6 || dest) {
+        if (d.length >= 6) j0.desc = d.slice(0, 500);
+        if (j0.estado === 'na_fila') { await estGravar(env, j0); await enviar(env, from, 'Anotado para o post: ' + (d.length >= 6 ? `"${d.slice(0, 80)}"` : EST_DESTINOS[j0.destino])); return true; }
+        if (d.length >= 6) await estPrepararLegenda(env, j0, ''); else await estGravar(env, j0);
+        await estEnviarPrevia(env, from, j0); return true;
+      }
+    }
+  }
   const ml = String(bruto).match(/^\s*legenda\s*[:\-]\s*([\s\S]{3,2100})$/i);
   if (ml) { const j = await estLer(env, pid); if (!j || ['publicado', 'cancelado'].includes(j.estado)) return false; j.legenda = ml[1].trim(); await estGravar(env, j); await estEnviarPrevia(env, from, j); return true; }
   const ma = msg.match(/^agendar(?: (?:para )?(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo))?(?: (?:as|a|para as))? (\d{1,2})(?:[:h](\d{2}))?h?$/);
@@ -14180,7 +14228,7 @@ async function rotaEditor(req, env, url) {
   const buf = await req.arrayBuffer();
   if (buf.byteLength < 1000) return J({ ok: false, erro: 'vídeo vazio' }, 400);
   const md = await mdSalvar(env, buf, 'video/mp4');
-  j.editado = { md, mime: 'video/mp4', tam: buf.byteLength }; j.estado = 'aguardando'; await estGravar(env, j);
+  j.editado = { md, mime: 'video/mp4', tam: buf.byteLength, info: mp4Info(buf) }; j.estado = 'aguardando'; await estGravar(env, j);
   await estEnviarPrevia(env, numeroDono(env), j);
   return J({ ok: true });
 }
