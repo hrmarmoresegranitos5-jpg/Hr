@@ -1,3 +1,4 @@
+// v73b (14/11/2026): usa sozinho os modelos aprovados pelo nome (resposta_cliente, orcamento_cliente, retomada_cliente, posvenda_cliente, recado_funcionario, cobranca_order_hr)
 // v73 (14/11/2026): MODELOS DA META — acha os aprovados pela própria conta, "criar modelos" cria hr_orcamento_pronto/hr_resposta; cliente fora das 24 h recebe o aviso e o PDF ao tocar em "Pode enviar"; dentro das 24 h o PDF vai junto da mensagem
 // v72d (14/11/2026): prints guardados no D1 e lidos um por um (30 prints de uma vez perdiam-se no KV e travavam a IA); uma mensagem por rajada
 // v72c (14/11/2026): print do extrato sem "conferir extrato" abre a conferência sozinho; um aviso só no fim dos prints (antes: "só leio texto" + HR VISION em cada foto)
@@ -14506,6 +14507,25 @@ async function rotaFinTarefa(req, env, p) {
 //   Cliente fora das 24 h: o bot usa hr_orcamento_pronto ("O orçamento de X está pronto. Posso enviar por aqui?" + botões);
 //   quando o cliente toca em "Pode enviar", a janela abre e o bot manda a mensagem e o PDF na hora.
 // ═════════════════════════════════════════════════════════════════════════════
+// v73b: usa sozinho os modelos que JÁ estão aprovados na conta, pelo nome (sem precisar criar variável no Cloudflare).
+//   Só modelos em português (pt_BR) e aprovados. A variável, se existir, sempre vale mais.
+const TPL_MAPA = {
+  TEMPLATE_RESPOSTA: ['resposta_cliente', 'hr_resposta'],
+  TEMPLATE_ORCAMENTO: ['orcamento_cliente', 'ocamento_cliente'],
+  TEMPLATE_RETOMADA: ['retomada_cliente'],
+  TEMPLATE_POSVENDA: ['posvenda_cliente'],
+  TEMPLATE_RECADO: ['recado_funcionario', 'recado_funcionario_pt'],
+  TEMPLATE_COBRANCA_ORDER: ['cobranca_order_hr'],
+};
+async function tplAutoEnv(env, ctx) {
+  let l = null; try { l = JSON.parse((await env.HR_KV.get('tpl:lista')) || 'null'); } catch (_) {}
+  if (!l) { if (!(await env.HR_KV.get('tpl:tentou'))) { await env.HR_KV.put('tpl:tentou', '1', { expirationTtl: 1800 }); const pr = tplLista(env, true).catch(e => console.log('[TPL] lista:', e.message)); if (ctx && ctx.waitUntil) ctx.waitUntil(pr); } return; }
+  for (const [chave, nomes] of Object.entries(TPL_MAPA)) {
+    if (env[chave]) continue;
+    const t = l.find(x => nomes.includes(x.nome) && x.status === 'APPROVED' && /^pt/i.test(x.idioma || ''));
+    if (t) env[chave] = t.nome;
+  }
+}
 const TPL_PADRAO = [
   { name: 'hr_orcamento_pronto', category: 'UTILITY', language: 'pt_BR', components: [
     { type: 'BODY', text: 'Olá, {{1}}! Aqui é a HR Mármores e Granitos. O orçamento de {{2}} que você pediu está pronto. Posso te enviar por aqui?', example: { body_text: [['Eliane', 'peitoris em Preto São Gabriel']] } },
@@ -14537,7 +14557,7 @@ async function tplCriarPadrao(env) {
   const out = [];
   const exist = await tplLista(env, true).catch(() => []) || [];
   for (const t of TPL_PADRAO) {
-    const ja = exist.find(x => x.nome === t.name);
+    const ja = exist.find(x => x.nome === t.name || (t.name === 'hr_resposta' && x.nome === 'resposta_cliente'));
     if (ja) { out.push(`• ${t.name}: já existe (${tplStatusPt(ja.status)})`); continue; }
     try { const r = await graphJson(env, `https://graph.facebook.com/${gv(env)}/${waba}/message_templates`, { method: 'POST', headers: { ...authBearer(env), 'Content-Type': 'application/json' }, body: JSON.stringify(t) }); out.push(`• ${t.name}: enviado para aprovação (${tplStatusPt(r.status || 'PENDING')})`); }
     catch (e) { out.push(`• ${t.name}: a Meta recusou (${String(e.message).slice(0, 140)})`); }
@@ -14555,7 +14575,8 @@ async function tplComandoDono(env, from, msg) {
   if (/^(modelos|templates|ver modelos|meus modelos)$/.test(msg)) {
     const l = await tplLista(env, true).catch(e => { console.log('[TPL]', e.message); return null; });
     if (!l) { await enviar(env, from, 'Não consegui ler os modelos da Meta (o token do WhatsApp precisa da permissão de gerenciar a conta).'); return true; }
-    await enviar(env, from, `🧩 *Modelos da conta (${l.length})*\n${l.slice(0, 30).map(t => `• ${t.nome} (${t.idioma}): ${tplStatusPt(t.status)}`).join('\n') || '(nenhum)'}${l.some(t => t.nome === 'hr_orcamento_pronto') ? '' : '\n\nPara criar os da HR: *criar modelos*.'}`);
+    const uso = {}; for (const [ch, ns] of Object.entries(TPL_MAPA)) for (const n of ns) uso[n] = ch.replace('TEMPLATE_', '').toLowerCase();
+    await enviar(env, from, `🧩 *Modelos da conta (${l.length})*\n${l.slice(0, 30).map(t => `• ${t.nome} (${t.idioma}): ${tplStatusPt(t.status)}${uso[t.nome] ? (t.status === 'APPROVED' && /^pt/i.test(t.idioma) ? ' → em uso pelo bot' : '') : ''}${!/^pt/i.test(t.idioma) ? ' ⚠️ está em inglês: recrie em Português (BR)' : ''}`).join('\n') || '(nenhum)'}${l.some(t => t.nome === 'hr_orcamento_pronto') ? '' : '\n\nPara criar os da HR: *criar modelos*.'}`);
     return true;
   }
   return false;
@@ -22441,6 +22462,7 @@ export default {
   async scheduled(event, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     configurarRegras(env); // v27: limite de peças e pingadeira
+    await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
     if (env.CRON_ALERTA_APP && event && event.cron === env.CRON_ALERTA_APP && event.cron !== (env.CRON_AVALIACAO || '*/15 * * * *')) {
       ctx.waitUntil(alertaAppParado(env).catch(e => falhou(env, 'rotina: app parado', e)));
@@ -22486,6 +22508,7 @@ export default {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     configurarRegras(env); // v27: limite de peças e pingadeira
     if (ctx && ctx.waitUntil) try { env._waitUntil = p => ctx.waitUntil(p); } catch (_) {} // v63k: tarefas depois da resposta
+    await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     const url = new URL(req.url);
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
