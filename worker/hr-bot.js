@@ -807,6 +807,53 @@ async function pdfImgResultado(env, t, b) {
   await notificarDono(env, Date.now(), cartaoDono('Orçamento em imagem enviado · ' + nome, [`Enviado: ${imgs.length} ${imgs.length === 1 ? 'página' : 'páginas'} em foto.`], t.num), { rotina: true }).catch(() => {});
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v78: FECHAMENTO DO ORÇAMENTO ENVIADO PELO DONO — o PDF que o dono mandou (enviar_orcamento_cliente / modelo / PDF encaminhado)
+//   fica registrado em orcenv:<número> (15 dias). Quando o cliente diz "pode confirmar", "pode fazer", "fechado", "aprovo"…,
+//   o bot confirma ao cliente, marca o pedido como aprovado e manda ao dono o cartão "Pedido fechado". Sem pedir nota no meio.
+// ═════════════════════════════════════════════════════════════════════════════
+async function orcEnvRegistrar(env, num, ped, nome) {
+  const o = { pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0, nome: nome || (ped && ped.nome) || '', em: Date.now(), fechado: 0 };
+  await env.HR_KV.put('orcenv:' + normalizarBR(num), JSON.stringify(o), { expirationTtl: 15 * 86400 });
+}
+const RE_FECHA_ORC = /\b(pode confirmar|confirm\w* (o |meu )?pedido|confirmo|pode fazer|pode fazer sim|quero que fa[cz]a|quero que voces? fa[cz]a\w*|pode fechar|quero fechar|vamos fechar|fechad[oa]|fecho|aprov\w+|aceito|aceitei|pode produzir|pode mandar fazer|manda fazer|pode seguir|pode come[cç]ar|vou querer|quero sim|pode encomendar|faz pra mim|faca pra mim)\b/;
+async function orcEnvFechamento(env, from, texto) {
+  const k = 'orcenv:' + normalizarBR(from);
+  let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (o && o.fechado) return false;
+  const msg = normaliza(limparMensagemCliente(String(texto || '')));
+  if (!RE_FECHA_ORC.test(msg)) return false;
+  if (!o) { // orçamento mandado antes do registro: vale o último PDF que o bot mandou a ele (CRM, 15 dias), se não houver pedido do próprio bot em andamento
+    const pid = await pedidoIdDoCliente(env, from).catch(() => null);
+    const pc = pid ? await lerPedido(env, pid).catch(() => null) : null;
+    if (pc && pc.origem !== 'dono' && pc.etapa && pc.etapa !== 'concluido') return false;
+    if (!crmAtivo(env)) return false;
+    await crmTabela(env);
+    const d = await env.HR_DB.prepare("SELECT ts FROM crm_msg WHERE num = ? AND q = 'b' AND tipo = 'document' AND ts > ? ORDER BY ts DESC LIMIT 1").bind(normalizarBR(from), Date.now() - 15 * 86400000).first();
+    if (!d) return false;
+    o = { pedId: pc && pc.origem === 'dono' ? pc.id : null, valor: pc && pc.origem === 'dono' ? Number(pc.valor) || 0 : 0, nome: '', em: d.ts, fechado: 0 };
+  }
+  if (/\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
+  o.fechado = Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
+  let ped = null;
+  if (o.pedId) { ped = await lerPedido(env, o.pedId).catch(() => null); if (ped) { ped.aprovadoCliente = Date.now(); ped.fechadoPeloCliente = Date.now(); await salvarPedido(env, ped).catch(() => {}); await funilMarca(env, 'aprovou', ped).catch(() => {}); } }
+  const valor = (ped && Number(ped.valor)) || o.valor || 0;
+  let nome = (await lerNomeSalvo(env, from).catch(() => '')) || o.nome || '';
+  if (!nome && crmAtivo(env)) { const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(normalizarBR(from)).first().catch(() => null); nome = (ct && (ct.nome || nomeDoPerfil(ct.perfil))) || ''; }
+  const pn = nomeDeTratamento(nome);
+  await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a produção entra na agenda e a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.\n\nSe tiver alguma observação (cor, medida, horário de entrega), pode mandar agora.`);
+  await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento enviado em PDF${valor ? ' (R$ ' + reais(valor) + ')' : ''}. O pedido está confirmado e a equipe vai combinar pagamento e entrega. Se ele perguntar, confirme isso; não peça nota e não diga que vai "repassar" de novo.]`).catch(() => {});
+  await notificarDono(env, Date.now(), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), [
+    valor ? `Valor do orçamento: R$ ${reais(valor)}` : null,
+    `Confirmou: "${String(texto).replace(/\s+/g, ' ').slice(0, 140)}"`,
+    'O que fazer: combinar o pagamento (até 10x sem juros ou à vista com desconto) e colocar na agenda de produção.',
+  ], from));
+  return true;
+}
+async function crmUltimaDoCliente(env, num) {
+  try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
+}
+
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
@@ -4178,6 +4225,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
   try {
     if (!(await limiteCliente(env, from))) return true; // passou do limite diário: fica em silêncio
     if (await pdfImgPedido(env, from, bruto).catch(e => { console.log('[PDFIMG]', e.message); return false; })) return true; // v76
+    if (await orcEnvFechamento(env, from, bruto).catch(e => { console.log('[ORCENV]', e.message); return false; })) return true; // v78
     const brutoL = limparMensagemCliente(bruto); // leitura corrigida (abreviações, erros de digitação) para os leitores de código
 
     const chave = 'ca:' + from;
@@ -5958,6 +6006,8 @@ async function pedirAvaliacoes(env) {
       }
       if (c.avalPedida) continue;
       if (await env.HR_KV.get('humano:' + from) || await env.HR_KV.get('aval:ult:' + from)) continue;
+      if (await env.HR_KV.get('orcenv:' + normalizarBR(from))) continue; // v78: orçamento do dono em andamento (enviado ou fechado): nota só depois
+      { const uc = Math.max(Number(await env.HR_KV.get('ult:' + from)) || 0, await crmUltimaDoCliente(env, from)); if (agora - uc < AVAL_OCIOSO_MS) continue; } // v78: o cliente acabou de falar
       if (!c.concluido && c.dados && INTERESSES[c.dados.interesse]) { // começou um atendimento e não terminou: NÃO pede nota; retoma uma vez de onde parou
         const ociosoR = agora - c.ultimaEm;
         if (String(env.RETOMADA ?? '1') !== '0' && !c.retomadaEm && ociosoR >= AVAL_RETOMADA_MS && ociosoR <= AVAL_JANELA_MS) {
@@ -14986,6 +15036,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
     await enviar(env, num, texto);
     await postarMsg(env, num, { type: 'document', document: { id: ped.mediaId, filename: ped.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } });
     await semearConversaProativa(env, num, texto + ' [PDF do orçamento enviado]').catch(() => {});
+    await orcEnvRegistrar(env, num, ped, nome).catch(() => {}); // v78
     return `Enviei a mensagem e o PDF a ${nome || 'o cliente'} (wa.me/${num}).`;
   }
   await tplAutoEnv(env).catch(() => {});
@@ -14996,7 +15047,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
     const curto = `${pn ? pn + ', o' : 'O'} seu orçamento${dePed} está pronto. Posso te enviar por aqui? É só responder esta mensagem.`.slice(0, 200);
     try {
       await postarMsg(env, num, { type: 'template', template: { name: nomeResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
-      await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+      await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true, pedId: ped.id || null, valor: Number(ped.valor) || 0 }), { expirationTtl: 7 * 86400 });
       await semearConversaProativa(env, num, `Olá! Aqui é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'}. ${curto}`).catch(() => {});
       return `${nome || 'O cliente'} estava fora das 24 h: mandei pelo modelo aprovado (${nomeResp}) "seu orçamento está pronto, posso te enviar por aqui?". Assim que responder qualquer coisa, o bot manda a mensagem e o PDF e avisa o Sr. Hangel.`;
     } catch (e) { return `A Meta recusou o modelo ${nomeResp}: ${String(e.message).slice(0, 140)}. Sugira ao Sr. Hangel encaminhar o PDF manualmente.`; }
@@ -15007,7 +15058,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
 async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
   if (!(await tplAprovado(env, 'hr_orcamento_pronto'))) return false;
   await postarMsg(env, numero, { type: 'template', template: { name: 'hr_orcamento_pronto', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: String(nome || 'tudo bem').split(' ')[0].slice(0, 30) }, { type: 'text', text: String(pedido || 'pedra').slice(0, 60) }] }] } });
-  await env.HR_KV.put('tplpend:' + normalizarBR(numero), JSON.stringify({ texto, mediaId: ped && ped.mediaId, arquivo: ped && ped.arquivoNome, nome, em: Date.now() }), { expirationTtl: 7 * 86400 });
+  await env.HR_KV.put('tplpend:' + normalizarBR(numero), JSON.stringify({ texto, mediaId: ped && ped.mediaId, arquivo: ped && ped.arquivoNome, nome, em: Date.now(), pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0 }), { expirationTtl: 7 * 86400 });
   return true;
 }
 // cliente tocou em "Pode enviar" / "Agora não" do modelo
@@ -15022,6 +15073,7 @@ async function tplRespostaCliente(env, from, m) {
   if (p.texto) await enviar(env, from, p.texto);
   if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
   await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
+  if (p.mediaId) await orcEnvRegistrar(env, from, { id: p.pedId, valor: p.valor }, p.nome).catch(() => {}); // v78
   await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} ${p.qualquer ? 'respondeu' : 'tocou em "Pode enviar"'}: mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
   return true;
 }
