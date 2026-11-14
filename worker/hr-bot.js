@@ -1,3 +1,4 @@
+// v71 (14/11/2026): post em QUALIDADE ORIGINAL mandando o vídeo como Documento; colaboração no Reels/Feed ("marque X, Y pra colaborar" / "colaborar @perfil")
 // v70c (14/11/2026): aviso do pedido de orçamento diz se o app está aberto ou pede para abrir; assistente explica que o PDF vem do app no celular
 // v70 (14/11/2026): nomes certos nos Pix recebidos — o nome do BANCO não vira mais nome do cliente; /bot/mp/quem e /bot/mp/nomear (o bot aprende a conta de quem pagou)
 // v69c (13/11/2026): extrato MP não fica mais "Gerando…" para sempre: pedido parado >90 min é refeito (até 2x) e depois vira erro; falha da lista não trava; tenta até 3 arquivos
@@ -12986,7 +12987,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
-  if (dono && (m.type === 'video' || m.type === 'image') && await tratarMidiaPostDono(env, from, m).catch(e => { console.log('[ESTUDIO] mídia:', e.message); return false; })) return; // v69
+  if (dono && (m.type === 'video' || m.type === 'image' || m.type === 'document') && await tratarMidiaPostDono(env, from, m).catch(e => { console.log('[ESTUDIO] mídia:', e.message); return false; })) return; // v69
   if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) { await marcarUso(env, 'print_mp'); return; } // v63m
   if (dono && m.type === 'image' && await tratarFotoGeralDono(env, from, m, await getFalas(env)).catch(e => { console.log('[FOTO] dono:', e.message); return false; })) { await marcarUso(env, 'foto'); return; } // v63n
   { const vt = visionTipo(env, m, dono); // HR VISION: imagem ou PDF é recebido, registrado e confirmado (comprovante de Pix e fluxos do dono vêm antes)
@@ -13532,6 +13533,7 @@ async function igResponderDM(env, ev) {
   const novo = !c;
   c = c || { hist: [], criado: Date.now() };
   if (!c.user || c.seg == null) { try { const u = await igApi(env, `/${de}?fields=name,username,follower_count,is_verified_user,is_business_follow_user`); c.user = u.username || ''; c.nome = u.name || ''; c.seg = Number(u.follower_count) || 0; c.ver = !!u.is_verified_user; c.sigo = !!u.is_business_follow_user; } catch (_) { c.seg = c.seg || 0; } }
+  if (c.user) { try { const idx = JSON.parse((await env.HR_KV.get('ig:perfis')) || '{}'); if (idx[c.user] !== (c.nome || '')) { idx[c.user] = c.nome || ''; const ks = Object.keys(idx); if (ks.length > 800) delete idx[ks[0]]; await env.HR_KV.put('ig:perfis', JSON.stringify(idx)); } } catch (_) {} }
   const quem = c.user ? '@' + c.user : (c.nome || 'Alguém');
   const linkPerfil = c.user ? `\ninstagram.com/${c.user}` : '';
   const pagina = c.ver || c.seg >= 3000;
@@ -13827,7 +13829,7 @@ function estAtivo(env) { return String(env.ESTUDIO || '1') !== '0'; }
 const estId = (n = 20) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return [...a].map(x => 'abcdefghijkmnpqrstuvwxyz23456789'[x % 32]).join(''); };
 async function mdSalvar(env, buf, mime) {
   const id = estId(), u8 = new Uint8Array(buf), partes = Math.max(1, Math.ceil(u8.byteLength / MD_PARTE));
-  for (let i = 0; i < partes; i++) await env.HR_KV.put(`md:${id}:${i}`, u8.slice(i * MD_PARTE, (i + 1) * MD_PARTE), { expirationTtl: 7 * 86400 });
+  for (let i = 0; i < partes; i++) await env.HR_KV.put(`md:${id}:${i}`, u8.subarray(i * MD_PARTE, (i + 1) * MD_PARTE), { expirationTtl: 7 * 86400 });
   await env.HR_KV.put(`md:${id}:meta`, JSON.stringify({ mime, tam: u8.byteLength, partes, em: Date.now() }), { expirationTtl: 7 * 86400 });
   return id;
 }
@@ -13867,13 +13869,23 @@ function estDestinoDaLegenda(t) {
 }
 // recebe a mídia do dono (vídeo sempre; foto só com legenda "postar/story/feed" ou como parte de um álbum em andamento)
 async function tratarMidiaPostDono(env, from, m) {
-  if (!estAtivo(env) || !(m.type === 'video' || m.type === 'image')) return false;
+  if (!estAtivo(env)) return false;
+  // v71: vídeo/foto mandado como DOCUMENTO (arquivo) chega na qualidade original, sem a compressão do WhatsApp
+  if (m.type === 'document' && m.document) {
+    const mt = String(m.document.mime_type || ''), nomeArq = String(m.document.filename || '');
+    const ehVid = /^video\//.test(mt) || /\.(mp4|mov|m4v)$/i.test(nomeArq), ehImg = /^image\/(jpe?g|png)/.test(mt);
+    const legD = String(m.document.caption || '').trim();
+    if (!(ehVid || (ehImg && RE_POSTAR.test(legD)))) return false;
+    m = { ...m, type: ehVid ? 'video' : 'image', [ehVid ? 'video' : 'image']: { id: m.document.id, caption: legD }, _doc: true };
+  }
+  if (!(m.type === 'video' || m.type === 'image')) return false;
   const leg = String((m[m.type] && m[m.type].caption) || '').trim();
   let album = null; try { album = JSON.parse((await env.HR_KV.get('post:album')) || 'null'); } catch (_) {}
   const noAlbum = m.type === 'image' && !leg && album && Date.now() < album.ate;
   if (m.type === 'image' && !RE_POSTAR.test(leg) && !noAlbum) return false;
   if (m.type === 'video' && leg && !RE_POSTAR.test(leg) && /^(comprovante|recibo|nota|pix)\b/i.test(leg)) return false;
   let mid; try { mid = await baixarMidia(env, m[m.type].id); } catch (e) { await enviar(env, from, `Sr. Hangel, não consegui baixar ${m.type === 'video' ? 'o vídeo' : 'a foto'} (${e.message}). Pode mandar de novo?`); return true; }
+  if (mid.buf.byteLength > 95 * 1024 * 1024) { await enviar(env, from, 'Sr. Hangel, esse arquivo passou de 95 MB, que é o limite que consigo receber. Se puder, mande uma versão um pouco menor (ex.: gravar em 1080p em vez de 4K).'); return true; }
   const mime = m.type === 'video' ? 'video/mp4' : (/png/.test(mid.tipo) ? 'image/png' : 'image/jpeg');
   const md = await mdSalvar(env, mid.buf, mime);
   if (noAlbum) {
@@ -13888,7 +13900,8 @@ async function tratarMidiaPostDono(env, from, m) {
   const destino = estDestinoDaLegenda(leg) || (m.type === 'video' ? 'reels' : 'feed');
   const desc = leg.replace(RE_POSTAR, '').replace(/^\s*(no|na|nos|nas|pro|pra|para o|para a)?\s*(reels?|story|stories|feed|instagram)\b/i, '').replace(/^[\s:,.-]+/, '').trim();
   const editar = m.type === 'video' && !/sem edit|sem edic|direto/i.test(normaliza(leg)) && await estEditorPareado(env);
-  const j = { id: estId(10), criado: Date.now(), tipo: m.type, midias: [{ md, mime, tam: mid.buf.byteLength }], destino, desc: desc.slice(0, 500), editar, estado: editar ? 'na_fila' : 'aguardando' };
+  const j = { id: estId(10), criado: Date.now(), tipo: m.type, midias: [{ md, mime, tam: mid.buf.byteLength }], destino, desc: desc.slice(0, 500), editar, estado: editar ? 'na_fila' : 'aguardando', original: !!m._doc };
+  if (m.type === 'video' && !m._doc && !(await env.HR_KV.get('post:dicaHD'))) { await env.HR_KV.put('post:dicaHD', '1', { expirationTtl: 30 * 86400 }); env._dicaHD = true; }
   await estGravar(env, j);
   if (m.type === 'image') await env.HR_KV.put('post:album', JSON.stringify({ pid: j.id, ate: Date.now() + 3 * 60000 }), { expirationTtl: 600 });
   if (editar) {
@@ -13928,7 +13941,8 @@ const EST_DESTINOS = { reels: 'Reels', story: 'Story', feed: 'Feed' };
 async function estEnviarPrevia(env, para, j) {
   const md = j.editado || j.midias[0];
   const link = await mdUrl(env, md.md, md.mime);
-  const corpo = `📲 *Prévia do post* (${j.tipo === 'video' ? (j.editado ? 'vídeo editado' : 'vídeo') : j.midias.length > 1 ? j.midias.length + ' fotos, carrossel' : 'foto'})\n\n*Legenda:*\n${j.legenda}\n\n_Para trocar a legenda, responda: *legenda:* e o texto novo. Para agendar: *agendar 19h* ou *agendar amanhã 19h*._`;
+  const qual = j.original ? ' · qualidade original ✅' : '';
+  const corpo = `📲 *Prévia do post* (${j.tipo === 'video' ? (j.editado ? 'vídeo editado' : 'vídeo') : j.midias.length > 1 ? j.midias.length + ' fotos, carrossel' : 'foto'}${qual})\n\n*Legenda:*\n${j.legenda}${(j.colab || []).length ? `\n\n*Colaboração:* ${j.colab.map(u => '@' + u).join(', ')}` : ''}\n\n_Trocar a legenda: *legenda:* texto novo. Agendar: *agendar 19h*. Colaboração: *colaborar @perfil*._${env._dicaHD ? '\n\n💡 _Dica: para sair em qualidade máxima no Instagram, mande o vídeo como *Documento* (📎 → Documento) em vez de Galeria. Assim o WhatsApp não comprime._' : ''}`;
   const b1 = j.tipo === 'video' ? { id: `igp|${j.id}|reels`, titulo: 'Postar no Reels' } : { id: `igp|${j.id}|feed`, titulo: j.midias.length > 1 ? 'Postar carrossel' : 'Postar no Feed' };
   const botoes = [b1, ...(j.midias.length > 1 && !j.editado ? [] : [{ id: `igp|${j.id}|story`, titulo: 'Postar no Story' }]), { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }];
   const tam = md.tam || 0;
@@ -13966,11 +13980,12 @@ async function estPublicar(env, j, avisar) {
     if (j.tipo === 'image' && j.midias.length > 1 && j.destino !== 'story') {
       const filhos = [];
       for (const x of j.midias) { const c = await igApi(env, '/me/media', { method: 'POST', body: { image_url: await mdUrl(env, x.md, x.mime), is_carousel_item: true } }); filhos.push(c.id); }
-      criacao = await igApi(env, '/me/media', { method: 'POST', body: { media_type: 'CAROUSEL', children: filhos.join(','), caption: j.legenda } });
+      criacao = await estCriarComColab(env, { media_type: 'CAROUSEL', children: filhos.join(','), caption: j.legenda }, j);
     } else if (j.tipo === 'image') {
-      criacao = await igApi(env, '/me/media', { method: 'POST', body: { image_url: await mdUrl(env, md.md, md.mime), ...(j.destino === 'story' ? { media_type: 'STORIES' } : { caption: j.legenda }) } });
+      criacao = await estCriarComColab(env, { image_url: await mdUrl(env, md.md, md.mime), ...(j.destino === 'story' ? { media_type: 'STORIES' } : { caption: j.legenda }) }, j);
     } else {
-      criacao = await igApi(env, '/me/media', { method: 'POST', body: { video_url: await mdUrl(env, md.md, md.mime), media_type: j.destino === 'story' ? 'STORIES' : 'REELS', ...(j.destino === 'story' ? {} : { caption: j.legenda, share_to_feed: true }) } });
+      const corpoV = { video_url: await mdUrl(env, md.md, md.mime), media_type: j.destino === 'story' ? 'STORIES' : 'REELS', ...(j.destino === 'story' ? {} : { caption: j.legenda, share_to_feed: true }) };
+      criacao = await estCriarComColab(env, corpoV, j);
     }
     j.container = criacao.id; j.estado = 'publicando'; j.tentativas = 0; await estGravar(env, j);
     if (avisar) await enviar(env, avisar, `⏳ Enviando para o Instagram (${EST_DESTINOS[j.destino]})... ${j.tipo === 'video' ? 'O Instagram processa o vídeo; aviso assim que estiver no ar.' : ''}`);
@@ -13983,13 +13998,24 @@ async function estPublicar(env, j, avisar) {
       [{ id: `igp|${j.id}|${j.destino}`, titulo: 'Tentar de novo' }, { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }]);
   }
 }
+// v71: colaboração (até 3 perfis; não vale para story). Se a Meta recusar, publica sem e avisa.
+async function estCriarComColab(env, corpo, j) {
+  const colab = (j.colab || []).slice(0, 3);
+  if (!colab.length || j.destino === 'story') return igApi(env, '/me/media', { method: 'POST', body: corpo });
+  for (const formato of [colab, colab.join(',')]) {
+    try { return await igApi(env, '/me/media', { method: 'POST', body: { ...corpo, collaborators: formato } }); }
+    catch (e) { console.log('[ESTUDIO] colaboradores:', e.message); j.erroColab = e.message; }
+  }
+  await enviar(env, numeroDono(env), `⚠️ O Instagram não aceitou o convite de colaboração (${String(j.erroColab || '').slice(0, 120)}). Vou publicar sem; depois o senhor pode convidar pelo app do Instagram (editar o post → Marcar pessoas → Convidar colaborador).`);
+  return igApi(env, '/me/media', { method: 'POST', body: corpo });
+}
 async function estConferirPublicacao(env, j) {
   const st = await igApi(env, `/${j.container}?fields=status_code,status`).catch(e => ({ status_code: 'ERRO_API', status: e.message }));
   if (st.status_code === 'FINISHED') {
     const pub = await igApi(env, '/me/media_publish', { method: 'POST', body: { creation_id: j.container } });
     let link = ''; try { link = (await igApi(env, `/${pub.id}?fields=permalink`)).permalink || ''; } catch (_) {}
     j.estado = 'publicado'; j.mediaId = pub.id; j.permalink = link; await estGravar(env, j);
-    await enviar(env, numeroDono(env), `✅ Publicado no ${EST_DESTINOS[j.destino]}, Sr. Hangel!${link ? '\n' + link : ''}`);
+    await enviar(env, numeroDono(env), `✅ Publicado no ${EST_DESTINOS[j.destino]}, Sr. Hangel!${(j.colab || []).length && j.destino !== 'story' && !j.erroColab ? `\nConvite de colaboração enviado para ${j.colab.map(u => '@' + u).join(', ')}: aparece no perfil deles quando aceitarem.` : ''}${link ? '\n' + link : ''}`);
     igStat(env, 'publicados').catch(() => {}); marcarUso(env, 'estudio').catch(() => {});
     return true;
   }
@@ -14011,6 +14037,26 @@ async function estRotina(env) {
   const ficam = [];
   for (const pid of ag) { const j = await estLer(env, pid); if (!j || j.estado !== 'agendado') continue; if (j.agendado <= Date.now()) await estPublicar(env, j, null); else ficam.push(pid); }
   await env.HR_KV.put('post:agendados', JSON.stringify(ficam));
+}
+// "Marque pilão mil grau, Remanso news pra colaborar" → @ dos perfis: os escritos com @, ou achados pelo nome nos perfis que já falaram com a HR no Instagram
+async function estResolverPerfis(env, texto) {
+  const achados = (String(texto).match(/@([a-z0-9._]{2,30})/gi) || []).map(x => x.slice(1).toLowerCase());
+  let resto = String(texto).replace(/@[a-z0-9._]{2,30}/gi, ' ');
+  resto = normaliza(resto).replace(/^(marque|marca|marcar|coloca|colocar|convide|convida|convidar|colabora|colaborar|chama|chamar|adiciona|adicionar)\b/, '').replace(/\b(pra|para|p\/|no|na|nos|nas|o|a|os|as|em|de|do|da|como)?\s*(colaborar|colaboracao|colaboradores?|colab|parceria|reels?|rella|rels|post|video|story|feed)\b/g, ' ');
+  const nomes = resto.split(/,|\be\b|\+|\//).map(x => x.replace(/[^a-z0-9 ._]/g, ' ').replace(/\s+/g, ' ').trim()).filter(x => x.length >= 3);
+  let idx = {}; try { idx = JSON.parse((await env.HR_KV.get('ig:perfis')) || '{}'); } catch (_) {}
+  if (!(await env.HR_KV.get('ig:perfis:semeado'))) { // primeira vez: monta o índice com as conversas do Direct que já existem
+    try { const l = await env.HR_KV.list({ prefix: 'ig:c:', limit: 80 }); for (const k of l.keys) { try { const c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (c && c.user) idx[c.user] = c.nome || ''; } catch (_) {} } } catch (_) {}
+    await env.HR_KV.put('ig:perfis', JSON.stringify(idx)); await env.HR_KV.put('ig:perfis:semeado', '1');
+  }
+  const chave = x => normaliza(x).replace(/[^a-z0-9]/g, '');
+  const faltam = [];
+  for (const n of nomes) {
+    const k = chave(n); let u = '';
+    for (const [user, nome] of Object.entries(idx)) { const ku = chave(user), kn = chave(nome); if (ku === k || kn === k || (k.length >= 5 && (ku.startsWith(k) || kn.startsWith(k) || ku.includes(k)))) { u = user; break; } }
+    if (u) achados.push(u.toLowerCase()); else faltam.push(n);
+  }
+  return { achados: [...new Set(achados)], faltam };
 }
 // comandos de texto do dono sobre o último post (legenda:, agendar, editor)
 async function estComandoDono(env, from, bruto, msg) {
@@ -14039,6 +14085,18 @@ async function estComandoDono(env, from, bruto, msg) {
     j.agendado = quando; j.estado = 'agendado'; await estGravar(env, j);
     const ag = JSON.parse((await env.HR_KV.get('post:agendados')) || '[]'); if (!ag.includes(j.id)) ag.push(j.id); await env.HR_KV.put('post:agendados', JSON.stringify(ag.slice(-30)));
     await enviar(env, from, `🗓️ Agendado para ${new Date(quando).toLocaleString('pt-BR', { timeZone: 'America/Bahia', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} no ${EST_DESTINOS[j.destino] || 'Feed'}. Para cancelar, escreva *cancelar post*.`);
+    return true;
+  }
+  if (/^(marque|marca|marcar|coloca|colocar|convide|convida|convidar|colabora|colaborar|colaboracao|chama|chamar|adiciona|adicionar)\b/.test(msg) && /colab|@|\bmarc/.test(msg)) {
+    const j = await estLer(env, pid); if (!j || ['publicado', 'cancelado'].includes(j.estado)) return false;
+    const { achados, faltam } = await estResolverPerfis(env, bruto);
+    if (!achados.length && !faltam.length) return false;
+    j.colab = [...new Set([...(j.colab || []), ...achados])].slice(0, 3); await estGravar(env, j);
+    const L = [];
+    if (achados.length) L.push(`🤝 Colaboração: ${j.colab.map(u => '@' + u).join(', ')}. Ao publicar, o Instagram manda o convite; o post aparece no perfil deles quando aceitarem.`);
+    if (faltam.length) L.push(`Não achei o @ de: *${faltam.join(', ')}*. Me mande assim: *colaborar @perfil* (o @ exato do Instagram).`);
+    if (j.destino === 'story') L.push('_Obs.: colaboração não vale para story, só para Reels e Feed._');
+    await enviar(env, from, L.join('\n\n'));
     return true;
   }
   if (/^(cancelar post|cancela o post|nao postar|cancelar agendamento)$/.test(msg)) { const j = await estLer(env, pid); if (!j || j.estado === 'publicado') return false; j.estado = 'cancelado'; await estGravar(env, j); await enviar(env, from, 'Cancelado, Sr. Hangel. Nada foi publicado.'); return true; }
