@@ -1,3 +1,4 @@
+// v64b (13/11/2026): Instagram — bot fica quieto quando o Sr. Hangel já está conversando (eco corrigido); IA responde em JSON (funciona com OpenAI e Anthropic)
 // v64 (13/11/2026): INSTAGRAM — Direct respondido pela IA (leva ao WhatsApp com link pronto) e comentários de interesse respondidos
 //   (público + Direct). Configuração em POST /bot/instagram (token + chave secreta), renovação do token sozinha.
 // v63 (13/11/2026): AGENDA DE CLIENTES UNIFICADA — ct:<número> (todo cliente que fala com o bot) + clientes do app; buscar_cliente;
@@ -13263,17 +13264,30 @@ function igPromptSistema(env, snap) {
     'Para oferecer o WhatsApp, escreva a tag [WHATS: frase curta do que ela quer] (ex.: [WHATS: orçamento de bancada de cozinha em granito]); o sistema troca a tag pelo link. Use a tag no máximo uma vez por conversa.',
     'Se for elogio, agradeça com carinho. Se for reclamação, peça desculpas, diga que o responsável vai falar com ela e escreva [DONO] no fim.',
     'Respostas CURTAS: no máximo 3 frases, sem listas, no máximo 1 emoji. Nunca invente informação. Não fale de outros assuntos.',
+    'Leia o histórico: responda ao que a pessoa acabou de dizer (um "amém", "obrigado" ou "ok" pede só uma resposta curta e simpática, sem repetir perguntas).',
+    'Responda SOMENTE em JSON: {"resposta":"texto da mensagem"}',
   ].join('\n');
+}
+// conversa antiga em que o Sr. Hangel já está falando com a pessoa (antes do bot conhecer a conversa): bot não se mete
+async function igDonoConversando(env, de, eu) {
+  try {
+    const cv = await igApi(env, `/me/conversations?platform=instagram&user_id=${encodeURIComponent(de)}&fields=messages.limit(6){from,created_time}`);
+    const msgs = (cv && cv.data && cv.data[0] && cv.data[0].messages && cv.data[0].messages.data) || [];
+    const limite = Date.now() - 12 * 3600000;
+    return msgs.some(m => m.from && eu && String(m.from.id) === eu.id && Date.parse(m.created_time) > limite);
+  } catch (e) { console.log('[IG] conversa:', e.message); return false; }
 }
 async function igResponderDM(env, ev) {
   const de = String(ev.sender && ev.sender.id || ''), msg = ev.message || {};
   const eu = await igEu(env).catch(() => null);
-  if (!de || (eu && de === eu.id)) return;
-  if (msg.is_echo) { // mensagem que saiu da conta: se não foi o bot, o Sr. Hangel respondeu à mão → bot fica quieto 12 h nessa conversa
-    if (!(await env.HR_KV.get('ig:meu:' + msg.mid))) { const para = String(ev.recipient && ev.recipient.id || ''); if (para) await env.HR_KV.put('ig:humano:' + para, '1', { expirationTtl: 12 * 3600 }); }
+  if (msg.is_echo || (eu && de === eu.id)) { // v64b: mensagem que saiu da conta (o eco vem com sender = a própria conta). Se não foi o bot, o Sr. Hangel respondeu à mão → bot fica quieto 12 h nessa conversa
+    await new Promise(r => setTimeout(r, 1500)); // o eco pode chegar antes de o bot gravar o id do que enviou
+    if (msg.mid && !(await env.HR_KV.get('ig:meu:' + msg.mid))) { const para = String(ev.recipient && ev.recipient.id || ''); if (para && para !== (eu && eu.id)) await env.HR_KV.put('ig:humano:' + para, '1', { expirationTtl: 12 * 3600 }); }
     return;
   }
+  if (!de) return;
   if (await env.HR_KV.get('ig:humano:' + de)) return;
+  if (!(await env.HR_KV.get('ig:c:' + de)) && await igDonoConversando(env, de, eu)) { await env.HR_KV.put('ig:humano:' + de, '1', { expirationTtl: 12 * 3600 }); return; }
   if (msg.mid && await env.HR_KV.get('ig:vista:' + msg.mid)) return;
   if (msg.mid) await env.HR_KV.put('ig:vista:' + msg.mid, '1', { expirationTtl: 3 * 86400 });
   let texto = String(msg.text || '').trim();
@@ -13286,8 +13300,8 @@ async function igResponderDM(env, ev) {
   const snap = await lerSnapshotCompleto(env).catch(() => null);
   let resp = '';
   if (env.AI_KEY) {
-    try { resp = await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: env.AI_MODEL_IG || 'claude-haiku-5-5', timeoutMs: 20000 }); }
-    catch (e) { console.log('[IG] IA:', e.message); }
+    try { resp = lerJsonIA(await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: env.AI_MODEL_IG || 'claude-haiku-5-5', timeoutMs: 20000 })).resposta || ''; }
+    catch (e) { console.log('[IG] IA:', e.message); await env.HR_KV.put('ig:erroIA', `${new Date().toISOString()} ${e.message}`.slice(0, 300), { expirationTtl: 7 * 86400 }).catch(() => {}); }
   }
   resp = String(resp || '').replace(/^\s*[{[][\s\S]*$/, '').trim(); // nunca manda JSON solto
   const chamaDono = /\[DONO\]/.test(resp); resp = resp.replace(/\[DONO\]/g, '').trim();
@@ -14291,7 +14305,7 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/instagram' && req.method === 'GET') {
     const tem = !!(await igToken(env)); let eu = null; if (tem) eu = await igEu(env).catch(e => ({ erro: e.message }));
     const l = await env.HR_KV.list({ prefix: 'ig:c:', limit: 1000 }).catch(() => ({ keys: [] }));
-    return jsonR({ ok: true, ligado: tem && igAtivo(env), conta: eu, segredo: !!(await igSegredo(env)), conversas: l.keys.length, webhook: ((await env.HR_KV.get('cfg:self')) || '') + '/webhook', verifyToken: env.VERIFY_TOKEN || '' }); // rota com a chave do bot: só o app do dono vê
+    return jsonR({ ok: true, ligado: tem && igAtivo(env), conta: eu, segredo: !!(await igSegredo(env)), conversas: l.keys.length, webhook: ((await env.HR_KV.get('cfg:self')) || '') + '/webhook', verifyToken: env.VERIFY_TOKEN || '', erroIA: (await env.HR_KV.get('ig:erroIA')) || '' }); // rota com a chave do bot: só o app do dono vê
   }
   // v63q: IA DO APP PELO BOT — o app manda o pedido no formato do Gemini (o que ele já usa); o bot responde com o Claude no mesmo formato.
   //   Usado quando a cota grátis do Gemini acaba (20/dia). IA_APP=0 desliga. Modelo: AI_MODEL_APP (padrão claude-haiku-5-5).
