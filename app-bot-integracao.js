@@ -78,6 +78,9 @@
     { acao: 'criar_nota', nome: 'Criar nota', descricao: 'Cria uma anotação em Notas do aplicativo (lembrete, medida, recado).', parametros: { texto: 'o que anotar', cliente: 'nome do cliente (opcional)', tipo: 'geral, medidas ou visita (opcional)' }, confirmar: false },
     { acao: 'agenda_etapa', nome: 'Mudar etapa na agenda', descricao: 'Muda a etapa de um serviço da Agenda: producao, pronto, entregue ou instalado (o pagamento continua sendo lançado pelo Sr. Hangel).', parametros: { cliente: 'nome do cliente', etapa: 'producao, pronto, entregue ou instalado' }, confirmar: true },
     { acao: 'agenda_data', nome: 'Mudar data de entrega na agenda', descricao: 'Muda a data prevista de entrega de um serviço da Agenda.', parametros: { cliente: 'nome do cliente', entrega: 'AAAA-MM-DD' }, confirmar: true },
+    { acao: 'marcar_boleto_pago', nome: 'Marcar boleto como pago', descricao: 'Marca um boleto (a pagar ou a receber) como pago e lança em Finanças, como o botão do app.', parametros: { id: 'id do boleto (dos dados)', descricao: 'parte da descrição ou fornecedor, se não tiver o id', valorPago: 'valor pago, se diferente (juros/multa)', data: 'AAAA-MM-DD (opcional)' }, confirmar: true },
+    { acao: 'estoque_entrada', nome: 'Entrada no estoque', descricao: 'Soma m² de uma chapa no estoque (compra que chegou).', parametros: { material: 'nome da pedra', acabamento: 'polido, escovado... (opcional)', m2: 'metros quadrados', custoM2: 'custo por m² (opcional)' }, confirmar: true },
+    { acao: 'estoque_baixa', nome: 'Baixa no estoque', descricao: 'Tira m² de uma chapa do estoque (uso, quebra, venda avulsa).', parametros: { material: 'nome da pedra', m2: 'metros quadrados' }, confirmar: true },
     { acao: 'atualizar_bot', nome: 'Atualizar dados do bot', descricao: 'Reenvia agora ao Worker a lista de orçamentos em aberto e o A Receber.', confirmar: false }
   ];
 
@@ -150,6 +153,33 @@
     return { ok: true, mensagem: (j.cli || 'Serviço') + ': entrega mudou de ' + (antes || '—') + ' para ' + p.entrega + '.' };
   }
 
+  function exBoleto(p) {
+    var lista = (DB.b || []).filter(function (b) { return b && b.status !== 'pago' && b.status !== 'cancelado'; });
+    var b = p.id != null && p.id !== '' ? lista.find(function (x) { return String(x.id) === String(p.id); }) : null;
+    if (!b && p.descricao) {
+      var bus = norm(p.descricao).split(' ').filter(Boolean);
+      var ach = lista.filter(function (x) { var t = norm((x.desc || '') + ' ' + (x.cli || '')); return bus.every(function (w) { return t.indexOf(w) >= 0; }); });
+      if (ach.length > 1) return { ok: false, mensagem: 'há ' + ach.length + ' boletos em aberto com "' + p.descricao + '": ' + ach.slice(0, 3).map(function (x) { return (x.desc || x.cli) + ' R$ ' + fm(x.valor) + ' venc. ' + x.venc + ' (id ' + x.id + ')'; }).join('; ') + '.' };
+      b = ach[0];
+    }
+    if (!b) return { ok: false, mensagem: 'não achei esse boleto em aberto.' };
+    if (typeof bMarcarPago !== 'function') return { ok: false, mensagem: 'o módulo de boletos não está carregado.' };
+    bMarcarPago(b.id, { silent: true, valorPago: +p.valorPago || 0, dtPag: /^\d{4}-\d{2}-\d{2}$/.test(String(p.data || '')) ? p.data : undefined });
+    try { if (typeof _bRerender === 'function') _bRerender(); if (typeof bUpdDot === 'function') bUpdDot(); } catch (e) {}
+    return { ok: true, mensagem: 'Boleto ' + (b.desc || b.cli || '') + ' (R$ ' + fm(+p.valorPago || b.valor) + ') marcado como pago e lançado em Finanças.' };
+  }
+  function exEstoque(p, sinal) {
+    if (typeof estAdicionar !== 'function') return { ok: false, mensagem: 'o módulo de estoque não está carregado.' };
+    var m2 = Math.abs(parseFloat(String(p.m2 || '').replace(',', '.'))); if (!(m2 > 0) || !p.material) return { ok: false, mensagem: 'informe a pedra e os m².' };
+    if (sinal > 0) {
+      var it = estAdicionar({ material: String(p.material), acabamento: String(p.acabamento || ''), m2: m2, custoUnit: parseFloat(String(p.custoM2 || '').replace(',', '.')) || 0, origem: 'bot (WhatsApp)' });
+      return { ok: true, mensagem: 'Entrada de ' + m2 + ' m² de ' + it.material + '. Disponível agora: ' + (+it.m2Disponivel).toFixed(2) + ' m².' };
+    }
+    var item = estBuscar(String(p.material)); if (!item) return { ok: false, mensagem: 'não achei "' + p.material + '" no estoque.' };
+    estConsumir(item.material, m2);
+    return { ok: true, mensagem: 'Baixa de ' + m2 + ' m² de ' + item.material + '. Disponível agora: ' + (+item.m2Disponivel).toFixed(2) + ' m².' };
+  }
+
   function exAtualizar() {
     return sincronizar(true).then(function () {
       try { if (typeof sincBot === 'function') sincBot(true); } catch (e) {}
@@ -165,6 +195,9 @@
       if (c.acao === 'criar_nota') return Promise.resolve(exNota(p));
       if (c.acao === 'agenda_etapa') return Promise.resolve(exEtapa(p));
       if (c.acao === 'agenda_data') return Promise.resolve(exData(p));
+      if (c.acao === 'marcar_boleto_pago') return Promise.resolve(exBoleto(p));
+      if (c.acao === 'estoque_entrada') return Promise.resolve(exEstoque(p, 1));
+      if (c.acao === 'estoque_baixa') return Promise.resolve(exEstoque(p, -1));
       if (c.acao === 'atualizar_bot') return exAtualizar();
       return Promise.resolve({ ok: false, mensagem: 'ação desconhecida neste aplicativo: ' + c.acao });
     } catch (e) {
