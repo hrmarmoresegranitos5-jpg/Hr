@@ -1,3 +1,4 @@
+// v71b (14/11/2026): publicação não fica parada esperando a rotina agendada (confere a cada mensagem/consulta do app); comando "postou?"
 // v71 (14/11/2026): post em QUALIDADE ORIGINAL mandando o vídeo como Documento; colaboração no Reels/Feed ("marque X, Y pra colaborar" / "colaborar @perfil")
 // v70c (14/11/2026): aviso do pedido de orçamento diz se o app está aberto ou pede para abrir; assistente explica que o PDF vem do app no celular
 // v70 (14/11/2026): nomes certos nos Pix recebidos — o nome do BANCO não vira mais nome do cliente; /bot/mp/quem e /bot/mp/nomear (o bot aprende a conta de quem pagou)
@@ -13988,7 +13989,7 @@ async function estPublicar(env, j, avisar) {
       criacao = await estCriarComColab(env, corpoV, j);
     }
     j.container = criacao.id; j.estado = 'publicando'; j.tentativas = 0; await estGravar(env, j);
-    if (avisar) await enviar(env, avisar, `⏳ Enviando para o Instagram (${EST_DESTINOS[j.destino]})... ${j.tipo === 'video' ? 'O Instagram processa o vídeo; aviso assim que estiver no ar.' : ''}`);
+    if (avisar) await enviar(env, avisar, `⏳ Enviando para o Instagram (${EST_DESTINOS[j.destino]})... ${j.tipo === 'video' ? 'O Instagram processa o vídeo (pode levar alguns minutos); aviso assim que estiver no ar. Para conferir: *postou?*' : ''}`);
     for (let i = 0; i < (j.tipo === 'video' ? 5 : 3); i++) { if (await estConferirPublicacao(env, j)) return; await new Promise(r => setTimeout(r, 4000)); }
     const pend = JSON.parse((await env.HR_KV.get('post:pendentes')) || '[]'); if (!pend.includes(j.id)) pend.push(j.id); await env.HR_KV.put('post:pendentes', JSON.stringify(pend.slice(-20)));
   } catch (e) {
@@ -14025,6 +14026,15 @@ async function estConferirPublicacao(env, j) {
     return true;
   }
   return false;
+}
+// v71b: chamado a cada mensagem que chega (WhatsApp/Instagram) e a cada consulta do app: no máximo a cada 20 s, e só se houver post pendente
+async function estTickLeve(env) {
+  if (!estAtivo(env)) return;
+  const pend = await env.HR_KV.get('post:pendentes'), ag = await env.HR_KV.get('post:agendados');
+  if ((!pend || pend === '[]') && (!ag || ag === '[]')) return;
+  if (await env.HR_KV.get('post:tick')) return;
+  await env.HR_KV.put('post:tick', '1', { expirationTtl: 60 });
+  await estRotina(env);
 }
 // rotina: termina publicações em processamento e publica as agendadas
 async function estRotina(env) {
@@ -14097,6 +14107,13 @@ async function estComandoDono(env, from, bruto, msg) {
     if (faltam.length) L.push(`Não achei o @ de: *${faltam.join(', ')}*. Me mande assim: *colaborar @perfil* (o @ exato do Instagram).`);
     if (j.destino === 'story') L.push('_Obs.: colaboração não vale para story, só para Reels e Feed._');
     await enviar(env, from, L.join('\n\n'));
+    return true;
+  }
+  if (/^(status do post|e o post|cade o post|postou|ja postou|postou\??|o post saiu|saiu o post)\??$/.test(msg)) {
+    const j = await estLer(env, pid); if (!j) return false;
+    const est = { aguardando: 'esperando o senhor tocar em *Postar no Reels/Story/Feed* na prévia', na_fila: 'na fila do editor do computador', editando: 'sendo editado no computador', publicando: 'o Instagram ainda está processando o vídeo (vídeos longos levam alguns minutos); já conferi de novo agora', agendado: 'agendado para ' + (j.agendado ? new Date(j.agendado).toLocaleString('pt-BR', { timeZone: 'America/Bahia', weekday: 'long', hour: '2-digit', minute: '2-digit' }) : '?'), publicado: 'publicado' + (j.permalink ? ': ' + j.permalink : ''), cancelado: 'cancelado', erro: 'com erro: ' + String(j.erro || '').slice(0, 150) }[j.estado] || j.estado;
+    await enviar(env, from, `📲 Último post: ${est}.`);
+    if (j.estado === 'publicando') { await env.HR_KV.delete('post:tick'); await estRotina(env); }
     return true;
   }
   if (/^(cancelar post|cancela o post|nao postar|cancelar agendamento)$/.test(msg)) { const j = await estLer(env, pid); if (!j || j.estado === 'publicado') return false; j.estado = 'cancelado'; await estGravar(env, j); await enviar(env, from, 'Cancelado, Sr. Hangel. Nada foi publicado.'); return true; }
@@ -22058,6 +22075,7 @@ export default {
     const url = new URL(req.url);
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (url.pathname === '/portfolio' || url.pathname.startsWith('/portfolio/')) return rotaPortfolio(req, env, ctx, url);
