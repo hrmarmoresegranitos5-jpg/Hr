@@ -7564,6 +7564,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { pedra: { type: 'string', description: 'nome da pedra como no catálogo' }, texto: { type: 'string', description: 'texto de venda para o cliente (até 300 caracteres)' } }, required: ['pedra'] },
   },
   {
+    name: 'enviar_orcamento_cliente',
+    description: 'ENVIA AO CLIENTE o PDF do orçamento que o app já gerou (pedido de orçamento do Sr. Hangel, ex.: "manda o orçamento pra Eliane", "tente de novo mandar o orçamento pra ela"). Resolve sozinho a regra das 24 h da Meta usando os modelos aprovados da conta (o cliente recebe o aviso e, quando responder, recebe a mensagem e o PDF). Use SEMPRE esta ferramenta para mandar orçamento/PDF a cliente; nunca diga que não há modelo sem chamá-la.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
+  },
+  {
     name: 'responder_cliente',
     description: 'Prepara um RASCUNHO de resposta a um cliente, em nome da empresa, quando o Sr. Hangel pedir para explicar, responder, avisar ou falar com um cliente (ex.: "explica pra ela porque tá caro"). O rascunho vai ao Sr. Hangel com botões Enviar e Cancelar; só é enviado ao cliente depois que ele confirmar. Escreva o texto PARA O CLIENTE: curto (até 3 frases), cordial, profissional, sem emojis, sem inventar desconto, prazo ou valor. Sem "numero" nem "cliente", usa o último cliente que falou. SE ele citou um cliente pelo nome (ex.: RL planejados), preencha "cliente": nunca deixe cair no último que falou. NUNCA afirme que o cliente pagou, que houve pagamento em certa data ou que algo já foi enviado, a não ser que o Sr. Hangel tenha dito; fale só do serviço, do valor informado e da data de entrega.',
     input_schema: { type: 'object', properties: { texto: { type: 'string', description: 'mensagem pronta para o cliente' }, numero: { type: 'string', description: 'telefone do cliente, só se o Sr. Hangel citou um' }, cliente: { type: 'string', description: 'NOME do cliente, quando o Sr. Hangel citou um nome' } }, required: ['texto'] },
@@ -7910,6 +7915,16 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const r = await cartaoPedraParaDono(env, from, String(a.pedra || ''), String(a.texto || ''));
     return r.ok ? { texto: 'Cartão enviado ao Sr. Hangel. Responda apenas: "Pronto, é só encaminhar."', nota: 'cartão da pedra ' + r.nome }
       : { erro: true, texto: r.motivo };
+  }
+  if (nome === 'enviar_orcamento_cliente') { // v73d
+    let num = numeroCliente(a.numero);
+    if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
+    const ped = await pedComPdfDoNumero(env, num || '0', a.cliente || '').catch(() => null);
+    if (!ped || !ped.mediaId) return { erro: true, texto: `Não achei o PDF do orçamento de "${String(a.cliente || '').slice(0, 40)}" feito nos últimos 10 dias. Diga isso ao Sr. Hangel em uma frase.` };
+    num = num || numeroCliente(ped.numero);
+    if (!num || normalizarBR(num) === normalizarBR(numeroDono(env))) return { erro: true, texto: 'Não sei o telefone do cliente. Peça ao Sr. Hangel o número com DDD em uma frase.' };
+    const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
+    return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
   if (nome === 'responder_cliente') {
     const texto = String(a.texto || '').replace(/[ \t]+/g, ' ').trim().slice(0, 700);
@@ -12493,7 +12508,7 @@ async function decidirRascunho(env, from, enviarAgora) {
   if (!enviarAgora) { await env.HR_KV.delete('rascunho:resp'); await enviar(env, from, 'Cancelado. Nada foi enviado.'); return; }
   // v20: só diz "Enviado" quando saiu de verdade. Dentro das 24 h manda texto livre; fora, usa o modelo TEMPLATE_RESPOSTA
   // (1 variável = o texto, até 200 caracteres). Sem modelo ou com texto maior, o rascunho é mantido e o dono recebe o link.
-  const tplResp = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta')) ? 'hr_resposta' : '');
+  const tplResp = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta')) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
   const usaModelo = tplResp && String(r.texto).length <= 200;
   const pedPdf = /or[cç]amento|pdf|proposta/i.test(String(r.texto) + ' ' + String(r.pedido || '')) ? await pedComPdfDoNumero(env, r.numero, r.nome).catch(() => null) : null;
   let via = null, erro = '';
@@ -14597,6 +14612,33 @@ async function pedComPdfDoNumero(env, numero, nome) {
   }
   return melhor || porNome;
 }
+// v73d: manda o PDF do orçamento ao cliente, dentro ou fora das 24 h
+async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
+  const pn = String(nome || ped.nome || '').trim().split(' ')[0];
+  const pedido = ((ped.itens && ped.itens.length ? ped.itens.map(i => String(i.ambiente || '').toLowerCase()).filter(Boolean).join(' e ') : '') || String(ped.interesse || 'pedra').toLowerCase()) + (ped.pedra ? ' em ' + ped.pedra : '');
+  const texto = mensagem || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento de ${pedido}. Qualquer dúvida, é só me chamar por aqui.`;
+  const ult = Math.max(Number(await env.HR_KV.get('ult:' + num)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(num))) || 0);
+  if (Date.now() - ult < 23 * 3600 * 1000) {
+    await enviar(env, num, texto);
+    await postarMsg(env, num, { type: 'document', document: { id: ped.mediaId, filename: ped.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } });
+    await semearConversaProativa(env, num, texto + ' [PDF do orçamento enviado]').catch(() => {});
+    return `Enviei a mensagem e o PDF a ${nome || 'o cliente'} (wa.me/${num}).`;
+  }
+  await tplAutoEnv(env).catch(() => {});
+  if (await tplAvisarOrcamento(env, num, nome, pedido, texto, ped).catch(e => { console.log('[TPL] aviso:', e.message); return false; }))
+    return `${nome || 'O cliente'} estava fora das 24 h: mandei o aviso aprovado "orçamento pronto, posso enviar?". Quando tocar em "Pode enviar", vão a mensagem e o PDF, e o Sr. Hangel é avisado.`;
+  const nomeResp = env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'); // v73d: o modelo aprovado da HR, mesmo sem conseguir listar
+  if (nomeResp) {
+    const curto = `${pn ? pn + ', o' : 'O'} seu orçamento de ${pedido} está pronto. Posso te enviar por aqui? É só responder esta mensagem.`.slice(0, 200);
+    try {
+      await postarMsg(env, num, { type: 'template', template: { name: nomeResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
+      await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+      await semearConversaProativa(env, num, `Olá! Aqui é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'}. ${curto}`).catch(() => {});
+      return `${nome || 'O cliente'} estava fora das 24 h: mandei pelo modelo aprovado (${nomeResp}) "seu orçamento está pronto, posso te enviar por aqui?". Assim que responder qualquer coisa, o bot manda a mensagem e o PDF e avisa o Sr. Hangel.`;
+    } catch (e) { return `A Meta recusou o modelo ${nomeResp}: ${String(e.message).slice(0, 140)}. Sugira ao Sr. Hangel encaminhar o PDF manualmente.`; }
+  }
+  return 'Não há modelo aprovado lido pela conta (o bot não conseguiu listar os modelos da Meta). Peça ao Sr. Hangel para mandar "modelos" e me mostrar a resposta; enquanto isso, encaminhar o PDF manualmente.';
+}
 // fora das 24 h: aviso pelo modelo; o envio de verdade fica guardado até o cliente tocar em "Pode enviar"
 async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
   if (!(await tplAprovado(env, 'hr_orcamento_pronto'))) return false;
@@ -14611,12 +14653,12 @@ async function tplRespostaCliente(env, from, m) {
   const k = 'tplpend:' + normalizarBR(from);
   const p = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (!p) return false;
   if (/^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
-  if (!/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
+  if (!p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
   if (p.texto) await enviar(env, from, p.texto);
   if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
   await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
-  await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} tocou em "Pode enviar": mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
+  await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} ${p.qualquer ? 'respondeu' : 'tocou em "Pode enviar"'}: mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
   return true;
 }
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
