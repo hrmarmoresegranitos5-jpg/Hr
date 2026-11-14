@@ -679,6 +679,10 @@ var HR_RELATORIO_PONTO = (function () {
       var ehOverpago = a.obs && String(a.obs).indexOf('Crédito de overpago') === 0;
       rows.push({ label: ehOverpago ? 'Desconto de valor pago a mais' : 'Adiantamento de ' + _fmtData(a.data),
         valor: parseFloat(a.valor) || 0, sinal: '-', cor: LARANJA });
+      if (ehOverpago) { // de onde veio: o período anterior em que se pagou mais do que o devido
+        var orig = String(a.obs).replace(/^Crédito de overpago\s*(—\s*)?/, '').replace(/\s*\(parcial:.*$/, '').replace(/ overpago — /, ': ').trim();
+        rows.push({ nota: orig ? 'Vem de um pagamento anterior que passou do valor devido — ' + orig + '.' : 'Vem de um pagamento anterior que passou do valor devido.' });
+      }
     });
     if (fin.totalPago > 0) {
       rows.push({ label: 'Já pago neste período', valor: fin.totalPago, sinal: '-', cor: VERM });
