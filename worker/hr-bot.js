@@ -7941,6 +7941,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     num = num || numeroCliente(ped.numeroCliente || '') || (ped.origem === 'dono' ? '' : numeroCliente(ped.numero));
     if (!num || normalizarBR(num) === normalizarBR(numeroDono(env))) return { erro: true, texto: 'Não sei o telefone do cliente. Peça ao Sr. Hangel o número com DDD em uma frase.' };
     const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
+    try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
   if (nome === 'responder_cliente') {
@@ -12534,13 +12535,20 @@ async function decidirRascunho(env, from, enviarAgora) {
     const ult = Math.max(Number(await env.HR_KV.get('ult:' + r.numero)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(r.numero))) || 0);
     const fora = Date.now() - ult >= 23 * 3600 * 1000;
     if (fora && pedPdf && await tplAvisarOrcamento(env, r.numero, pedPdf.nome || r.nome, (pedPdf.itens && pedPdf.itens[0] && pedPdf.itens[0].ambiente ? pedPdf.itens.map(i => String(i.ambiente).toLowerCase()).join(' e ') : pedPdf.interesse || 'pedra') + (pedPdf.pedra ? ' em ' + pedPdf.pedra : ''), r.texto, pedPdf)) via = 'aviso';
+    else if (fora && tplResp && String(r.texto).length > 200) { // v74b: texto grande fora das 24 h → aviso curto pelo modelo; o texto inteiro vai quando o cliente responder
+      const pn = String(r.nome || '').trim().split(' ')[0];
+      const curto = `${pn ? pn + ', t' : 'T'}enho uma mensagem da HR para você. Posso te enviar por aqui? É só responder esta mensagem.`;
+      await postarMsg(env, r.numero, { type: 'template', template: { name: tplResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: curto }] }] } });
+      await env.HR_KV.put('tplpend:' + normalizarBR(r.numero), JSON.stringify({ texto: r.texto, mediaId: pedPdf && pedPdf.mediaId, arquivo: pedPdf && pedPdf.arquivoNome, nome: r.nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+      via = 'aviso';
+    }
     else via = await enviarProativo(env, r.numero, r.texto, usaModelo ? { nome: tplResp, params: [r.texto] } : null);
     if (via === 'texto' && pedPdf && pedPdf.mediaId) await postarMsg(env, r.numero, { type: 'document', document: { id: pedPdf.mediaId, filename: pedPdf.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[BOT] pdf junto:', e.message));
   }
   catch (e) { erro = String(e.message || e).slice(0, 160); console.log('[BOT] responder_cliente:', erro); }
-  if (via === 'aviso') { await env.HR_KV.delete('rascunho:resp'); await enviar(env, from, `📨 ${r.nome || 'O cliente'} estava fora da janela de 24 h: mandei o aviso aprovado pela Meta ("O orçamento está pronto. Posso enviar por aqui?"). Quando tocar em *Pode enviar*, a mensagem e o PDF vão na hora, e eu te aviso.`); return; }
+  if (via === 'aviso') { await env.HR_KV.delete('rascunho:resp'); await enviar(env, from, `📨 ${r.nome || 'O cliente'} estava fora da janela de 24 h: mandei o aviso pelo modelo aprovado da Meta. Assim que responder, vai a mensagem completa${pedPdf && pedPdf.mediaId ? ' e o PDF' : ''}, e eu te aviso.`); return; }
   if (!via) {
-    await enviar(env, from, `Sr. Hangel, NÃO enviei. ${erro ? 'A Meta recusou: ' + erro + '.' : 'O cliente está fora da janela de 24 horas' + (env.TEMPLATE_RESPOSTA ? ' e o texto passa de 200 caracteres para o modelo.' : ' e ainda não há modelo aprovado na Meta. Mande *criar modelos* que eu crio e peço a aprovação; depois disso o bot consegue escrever primeiro.')}\n\nO rascunho continua guardado por 1 hora. Se preferir, escreva o senhor mesmo:\nwa.me/${r.numero}`);
+    await enviar(env, from, `Sr. Hangel, NÃO enviei. ${erro ? 'A Meta recusou: ' + erro + '.' : 'O cliente está fora da janela de 24 horas' + (false ? '' : (tplResp ? ' e a Meta não aceitou o modelo ' + tplResp + '.' : ' e ainda não há modelo aprovado na Meta. Mande *criar modelos*.'))}\n\nO rascunho continua guardado por 1 hora. Se preferir, escreva o senhor mesmo:\nwa.me/${r.numero}`);
     return;
   }
   await env.HR_KV.delete('rascunho:resp');
@@ -13058,6 +13066,7 @@ async function tratarMensagemBase(env, m, ctx) {
       const mid = await baixarMidia(env, m.document.id);
       const up = await subirPdfMeta(env, new Uint8Array(mid.buf), m.document.filename || 'Orcamento.pdf');
       const r = await enviarOrcamentoCliente(env, w.num, { mediaId: up.id, arquivoNome: up.nome, nome: w.nome }, w.nome, w.msg);
+      try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(w.num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {}
       await enviar(env, from, '📄 ' + r);
     } catch (e) { await enviar(env, from, 'Não consegui mandar esse PDF: ' + String(e.message).slice(0, 150)); }
     return;
