@@ -8995,7 +8995,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -13923,6 +13923,7 @@ async function tratarMensagemBase(env, m, ctx) {
     return;
   }
   if (dono && m.type === 'image' && await confTratarPrint(env, from, m).catch(e => { console.log('[CONF] print:', e.message); return false; })) return; // v72
+  if (dono && (m.type === 'video' || m.type === 'image' || m.type === 'document') && await acvTratarMidia(env, from, m).catch(e => { console.log('[ACERVO] mídia:', e.message); return false; })) return; // v88
   if (dono && (m.type === 'video' || m.type === 'image' || m.type === 'document') && await tratarMidiaPostDono(env, from, m).catch(e => { console.log('[ESTUDIO] mídia:', e.message); return false; })) return; // v69
   if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) { await marcarUso(env, 'print_mp'); return; } // v63m
   if (dono && m.type === 'image' && await tratarFotoGeralDono(env, from, m, await getFalas(env)).catch(e => { console.log('[FOTO] dono:', e.message); return false; })) { await marcarUso(env, 'foto'); return; } // v63n
@@ -15021,6 +15022,7 @@ async function estTickLeve(env) {
   await crmTick(env).catch(e => console.log('[CRM] tick:', e.message)); // v75
   await pdfImgTick(env).catch(e => console.log('[PDFIMG] tick:', e.message)); // v76
   await rhAvisos(env).catch(e => console.log('[RH] avisos:', e.message)); // v81
+  await vdRotina(env).catch(e => console.log('[VIDEO DIA]', e.message)); // v88
   // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
   if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
@@ -15041,6 +15043,156 @@ async function estRotina(env) {
   const ficam = [];
   for (const pid of ag) { const j = await estLer(env, pid); if (!j || j.estado !== 'agendado') continue; if (j.agendado <= Date.now()) await estPublicar(env, j, null); else ficam.push(pid); }
   await env.HR_KV.put('post:agendados', JSON.stringify(ficam));
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v88: ACERVO DE OBRAS + VÍDEO DO DIA
+//   O Sr. Hangel manda fotos/vídeos com "obra ..." (ex.: "obra cozinha da Maria em granito preto"). Cada obra:
+//   • fotos vão para o CATÁLOGO DE SERVIÇOS FEITOS (portfólio/site);
+//   • tudo (originais, em alta) vai para o computador do editor (pasta acervo), que guarda para sempre;
+//   • todo dia, no horário combinado, o bot escolhe uma obra e pede ao computador um REELS montado
+//     (1080x1920: gancho, cortes no ritmo, zoom nas fotos, transições, nome da pedra, logo, final com WhatsApp)
+//     e manda a prévia para aprovar com os botões de postar/agendar.
+//   Comandos: "video do dia" (faz agora), "video do dia 9h", "video do dia desligar/ligar", "acervo".
+// ═════════════════════════════════════════════════════════════════════════════
+const RE_OBRA = /^\s*(obra|obras|projeto|projetos|acervo|cat[aá]logo|servi[cç]o feito|servi[cç]os feitos|trabalho feito)\b/i;
+async function acvLista(env) { try { return JSON.parse((await env.HR_KV.get('acv:lista')) || '[]'); } catch (_) { return []; } }
+async function acvLer(env, id) { try { return JSON.parse((await env.HR_KV.get('acv:o:' + id)) || 'null'); } catch (_) { return null; } }
+async function acvGravar(env, o) { await env.HR_KV.put('acv:o:' + o.id, JSON.stringify(o)); const l = await acvLista(env); if (!l.includes(o.id)) { l.push(o.id); await env.HR_KV.put('acv:lista', JSON.stringify(l.slice(-400))); } }
+async function acvParaPC(env, o) {
+  const midias = [];
+  for (const [i, x] of (o.midias || []).entries()) midias.push({ n: i + 1, tipo: x.tipo, nome: `${String(i + 1).padStart(2, '0')}.${x.tipo === 'video' ? 'mp4' : (/png/.test(x.mime) ? 'png' : 'jpg')}`, url: x.md ? await mdUrl(env, x.md, x.mime) : '', w: x.w || 0, h: x.h || 0 });
+  return { id: o.id, desc: o.desc, cat: o.cat, pedra: o.pedra, midias };
+}
+async function acvProximaParaPC(env) {
+  for (const id of (await acvLista(env)).slice().reverse()) {
+    const o = await acvLer(env, id); if (!o || o.noPC >= (o.midias || []).length) continue;
+    if (Date.now() - (o.atualizado || o.criado) < 20000) continue; // espera o álbum terminar de chegar
+    return acvParaPC(env, o);
+  }
+  return null;
+}
+async function acvMarcarNoPC(env, id, b) { const o = await acvLer(env, id); if (!o) return; o.noPC = Math.max(o.noPC || 0, Number(b.n) || (o.midias || []).length); o.noPCem = Date.now(); await acvGravar(env, o); }
+function acvDescricao(t) { return String(t || '').replace(RE_OBRA, '').replace(/^[\s:,.\-]+/, '').replace(/\s+/g, ' ').trim().slice(0, 160); }
+async function acvTratarMidia(env, from, m) {
+  let tipo = m.type, media = m[m.type] || {}, leg = String(media.caption || '').trim();
+  if (m.type === 'document') {
+    const mt = String(media.mime_type || ''), arq = String(media.filename || '');
+    if (/^video\//.test(mt) || /\.(mp4|mov|m4v)$/i.test(arq)) tipo = 'video'; else if (/^image\/(jpe?g|png)/.test(mt)) tipo = 'image'; else return false;
+  }
+  if (tipo !== 'image' && tipo !== 'video') return false;
+  let alb = null; try { alb = JSON.parse((await env.HR_KV.get('acv:album')) || 'null'); } catch (_) {}
+  let o = null;
+  if (leg && RE_OBRA.test(leg)) {
+    const desc = acvDescricao(leg);
+    o = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), desc: desc || 'Obra', criado: Date.now(), midias: [], usos: 0 };
+    const nd = normaliza(desc); o.cat = CATEGORIAS_TRABALHO.find(c => nd.includes(c)) || (/bancada|pia|ilha/.test(nd) ? 'cozinha' : '');
+    try { const pedras = [...new Set((await lerPortfolio(env)).filter(i => i.tipo === 'pedra' && i.nome).map(i => i.nome))]; o.pedra = pedras.filter(n => nd.includes(normaliza(n))).sort((a, b) => b.length - a.length)[0] || ''; } catch (_) { o.pedra = ''; }
+  } else if (!leg && alb && Date.now() < alb.ate) o = await acvLer(env, alb.id);
+  if (!o) return false;
+  if ((o.midias || []).length >= 30) { await enviar(env, from, 'Essa obra já tem 30 fotos/vídeos. Para outra, mande com *obra* e a descrição.'); return true; }
+  let mid; try { mid = await baixarMidia(env, media.id); } catch (e) { await enviar(env, from, `Não consegui baixar ${tipo === 'video' ? 'o vídeo' : 'a foto'} (${e.message}). Pode mandar de novo?`); return true; }
+  if (mid.buf.byteLength > 95 * 1024 * 1024) { await enviar(env, from, 'Esse arquivo passou de 95 MB. Mande uma versão menor (1080p).'); return true; }
+  const mime = tipo === 'video' ? 'video/mp4' : (/png/.test(mid.tipo) ? 'image/png' : 'image/jpeg');
+  const md = await mdSalvar(env, mid.buf, mime);
+  const it = { md, mime, tipo: tipo === 'video' ? 'video' : 'foto', tam: mid.buf.byteLength, doc: m.type === 'document', em: Date.now() };
+  if (tipo === 'video') { const inf = mp4Info(mid.buf); it.w = inf.w; it.h = inf.h; it.dur = inf.dur; }
+  // foto vai para o catálogo de serviços feitos (site/portfólio)
+  if (tipo === 'image' && mid.buf.byteLength <= 1300 * 1024) {
+    try {
+      const lista = await lerPortfolio(env);
+      if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length < 120 && lista.filter(i => i.obraId === o.id).length < 6) {
+        const pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
+        await env.HR_KV.put('pf:img:' + pid, mid.buf);
+        const legenda = [o.desc ? o.desc.charAt(0).toUpperCase() + o.desc.slice(1) : 'Obra', o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200);
+        await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
+        it.pf = pid;
+      }
+    } catch (e) { console.log('[ACERVO] portfólio:', e.message); }
+  }
+  o.midias.push(it); o.atualizado = Date.now(); await acvGravar(env, o);
+  await env.HR_KV.put('acv:album', JSON.stringify({ id: o.id, ate: Date.now() + 3 * 60000 }), { expirationTtl: 600 });
+  const n = o.midias.length, t = acvConfirmar(env, from, o.id, n);
+  if (env._waitUntil) env._waitUntil(t); else await t;
+  return true;
+}
+async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 s sem mídia nova) e confirma uma vez
+  await new Promise(r => setTimeout(r, 15000));
+  const o = await acvLer(env, id); if (!o || o.midias.length !== n) return;
+  const f = o.midias.filter(x => x.tipo === 'foto').length, v = o.midias.length - f, noSite = o.midias.filter(x => x.pf).length;
+  const baixa = o.midias.filter(x => !x.doc).length && !(await env.HR_KV.get('acv:dicaDoc'));
+  if (baixa) await env.HR_KV.put('acv:dicaDoc', '1', { expirationTtl: 30 * 86400 });
+  const on = await estEditorOnline(env), par = await estEditorPareado(env), cfg = await vdCfg(env);
+  await enviar(env, from, cartaoDono('Obra guardada no acervo', [`${o.desc}${o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' · ' + o.pedra : ''}`, `${f} foto(s)${v ? ', ' + v + ' vídeo(s)' : ''}${noSite ? ` · ${noSite} no catálogo de serviços feitos` : ''}`,
+    par ? (on ? 'O computador já está guardando os originais.' : 'O computador do editor está desligado: ligue em até 7 dias para ele guardar os originais.') : 'Para os vídeos do dia, conecte o editor do computador: mande *editor*.',
+    cfg.ligado ? `Ela entra nos vídeos do dia (todo dia às ${cfg.hora}h, para o senhor aprovar).` : 'Vídeo do dia está desligado: *video do dia ligar*.',
+    baixa ? 'Dica de qualidade: no WhatsApp, mande como *Documento* (clipe → Documento) para chegar o arquivo original, sem compressão.' : null, 'Mais fotos desta obra: mande nos próximos 3 minutos, sem legenda.']));
+}
+// ── vídeo do dia ──
+async function vdCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('vd:cfg')) || '{}'); } catch (_) {} return { ligado: c.ligado !== false && String(env.VIDEO_DIA || '1') !== '0', hora: Number.isFinite(c.hora) ? c.hora : (Number(env.VIDEO_DIA_HORA) || 8) }; }
+async function vdEscolherObra(env, evitar) {
+  const cand = [];
+  for (const id of await acvLista(env)) { const o = await acvLer(env, id); if (!o || !(o.midias || []).length) continue;
+    const temPC = (o.noPC || 0) >= o.midias.length, mdVivo = Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
+    if (!temPC && !mdVivo) continue; if (o.midias.length < 2 && !o.midias.some(x => x.tipo === 'video')) continue; if (id === evitar) continue;
+    cand.push(o); }
+  cand.sort((a, b) => (a.usos || 0) - (b.usos || 0) || (a.ultimoVideo || 0) - (b.ultimoVideo || 0) || b.criado - a.criado);
+  return cand[0] || null;
+}
+async function vdCriar(env, avisarSemObra) {
+  if (!(await estEditorPareado(env))) { if (avisarSemObra) await enviar(env, numeroDono(env), 'Para o vídeo do dia, o editor do computador precisa estar conectado. Mande *editor* e siga os passos.'); return null; }
+  const o = await vdEscolherObra(env, await env.HR_KV.get('vd:ultimaObra'));
+  if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, obraId: o.id, estado: 'na_fila', original: true };
+  await estGravar(env, j);
+  const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
+  o.usos = (o.usos || 0) + 1; o.ultimoVideo = Date.now(); await acvGravar(env, o);
+  await env.HR_KV.put('vd:ultimaObra', o.id, { expirationTtl: 30 * 86400 });
+  await env.HR_KV.put('vd:ultimo', JSON.stringify({ pid: j.id, em: Date.now() }), { expirationTtl: 7 * 86400 });
+  return { j, o };
+}
+async function vdRotina(env) {
+  if (!estAtivo(env)) return;
+  const cfg = await vdCfg(env); if (!cfg.ligado) return;
+  const { min } = agoraBahia(), hoje = dataBahia();
+  // computador não pegou o vídeo em 2 h: avisa uma vez
+  try { const u = JSON.parse((await env.HR_KV.get('vd:ultimo')) || 'null'); if (u && Date.now() - u.em > 2 * 3600000 && !(await env.HR_KV.get('vd:avOff:' + u.pid))) { const j = await estLer(env, u.pid); if (j && j.estado === 'na_fila') { await env.HR_KV.put('vd:avOff:' + u.pid, '1', { expirationTtl: 7 * 86400 }); await enviar(env, numeroDono(env), 'O vídeo do dia está esperando o computador do editor: ele está desligado ou com a janela do editor fechada. Assim que ligar, ele monta e eu mando a prévia.'); } } } catch (_) {}
+  if (min < cfg.hora * 60 || min > cfg.hora * 60 + 180) return;
+  if (await env.HR_KV.get('vd:dia:' + hoje)) return;
+  await env.HR_KV.put('vd:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  await vdCriar(env, false);
+}
+function vdGanchos(o) {
+  const amb = o.cat || 'projeto', p = o.pedra ? o.pedra.toUpperCase() : '';
+  return [`OLHA COMO FICOU ESSA ${amb.toUpperCase()}`, p ? `${p}: VALE A PENA?` : 'ANTES E DEPOIS QUE IMPRESSIONA', `ESSA ${amb.toUpperCase()} FICOU DE OUTRO NÍVEL`, 'DETALHE QUE FAZ A DIFERENÇA', p ? `${p} INSTALADO` : 'DO CORTE À INSTALAÇÃO', 'VOCÊ COLOCARIA NA SUA CASA?'];
+}
+async function vdPlano(env, j) {
+  const o = (await acvLer(env, j.obraId)) || { desc: j.desc, midias: [] };
+  if (!j.legenda) await estPrepararLegenda(env, j, '');
+  const gs = vdGanchos(o); let gancho = String(j.gancho || '').trim();
+  if (!gancho) { gancho = gs[Math.floor(Math.random() * gs.length)]; j.gancho = gancho; await estGravar(env, j); }
+  const pw = await igPalavra(env).catch(() => null);
+  let logo = ''; try { logo = /^https:\/\//.test(String(env.LOGO_VIDEO_URL || env.LOGO_URL || '')) ? (env.LOGO_VIDEO_URL || env.LOGO_URL) : ''; } catch (_) {}
+  const amb = o.cat ? o.cat.charAt(0).toUpperCase() + o.cat.slice(1) : '';
+  return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: o.pedra || amb || '', subtitulo: [amb && o.pedra ? amb : '', 'HR Mármores e Granitos'].filter(Boolean).join(' · '), cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 20, legendas: [] };
+}
+async function vdComandoDono(env, from, bruto, msg) {
+  if (/^(acervo|obras|meu acervo|acervo de obras|catalogo de obras)$/.test(msg)) {
+    const l = []; for (const id of (await acvLista(env)).slice(-12).reverse()) { const o = await acvLer(env, id); if (o) l.push(`• ${o.desc} — ${o.midias.length} mídia(s)${o.usos ? `, ${o.usos} vídeo(s)` : ''}${(o.noPC || 0) >= o.midias.length ? '' : ' (falta o PC guardar)'}`); }
+    const cfg = await vdCfg(env);
+    await enviar(env, from, cartaoDono('Acervo de obras', [...(l.length ? l : ['Nenhuma obra ainda.']), '', 'Nova obra: mande fotos/vídeos com a legenda *obra cozinha da Maria em granito preto*.', `Vídeo do dia: ${cfg.ligado ? 'ligado, às ' + cfg.hora + 'h' : 'desligado'}. *video do dia* faz um agora.`]));
+    return true;
+  }
+  const mv = msg.match(/^(?:o )?video do dia(?: (.+))?$/); if (!mv) return false;
+  const a = String(mv[1] || '').trim(); let c = {}; try { c = JSON.parse((await env.HR_KV.get('vd:cfg')) || '{}'); } catch (_) {}
+  if (/^(desligar|desliga|parar|pausar|off)$/.test(a)) { c.ligado = false; await env.HR_KV.put('vd:cfg', JSON.stringify(c)); await enviar(env, from, 'Vídeo do dia *desligado*. Para voltar: *video do dia ligar*.'); return true; }
+  if (/^(ligar|liga|voltar|on)$/.test(a)) { c.ligado = true; await env.HR_KV.put('vd:cfg', JSON.stringify(c)); await enviar(env, from, `Vídeo do dia *ligado*: todo dia às ${(await vdCfg(env)).hora}h.`); return true; }
+  const mh = a.match(/^(?:as |a |às )?(\d{1,2})(?:h|:00)?$/);
+  if (mh && +mh[1] >= 5 && +mh[1] <= 21) { c.hora = +mh[1]; c.ligado = true; await env.HR_KV.put('vd:cfg', JSON.stringify(c)); await enviar(env, from, `Combinado: o vídeo do dia chega para o senhor aprovar todo dia às ${c.hora}h.`); return true; }
+  if (a && !/^(agora|hoje|ja|fazer|faz|novo|outro)$/.test(a)) return false;
+  const r = await vdCriar(env, true); if (!r) return true;
+  const on = await estEditorOnline(env);
+  await enviar(env, from, `🎬 Montando o vídeo do dia com a obra *${r.o.desc}* (${r.o.midias.length} mídias). ${on ? 'O computador já está trabalhando; em alguns minutos chega a prévia aqui.' : 'O computador do editor parece desligado: ele monta assim que ligar.'}`);
+  return true;
 }
 // "Marque pilão mil grau, Remanso news pra colaborar" → @ dos perfis: os escritos com @, ou achados pelo nome nos perfis que já falaram com a HR no Instagram
 async function estResolverPerfis(env, texto) {
@@ -15065,6 +15217,7 @@ async function estResolverPerfis(env, texto) {
 // comandos de texto do dono sobre o último post (legenda:, agendar, editor)
 async function estComandoDono(env, from, bruto, msg) {
   if (!estAtivo(env)) return false;
+  if (await vdComandoDono(env, from, bruto, msg)) return true; // v88
   if (/^(editor|parear editor|conectar editor|ligar editor)$/.test(msg)) {
     const cod = String(Math.floor(100000 + Math.random() * 900000));
     await env.HR_KV.put('ed:par:' + cod, '1', { expirationTtl: 30 * 60 });
@@ -15156,6 +15309,10 @@ async function rotaEditor(req, env, url) {
   const tok = String(req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   if (!tok || !(await env.HR_KV.get('ed:tok:' + tok))) return J({ ok: false, erro: 'não autorizado' }, 401);
   await env.HR_KV.put('ed:visto', String(Date.now()), { expirationTtl: 86400 });
+  if (p === '/editor/acervo/proximo') return J({ ok: true, obra: await acvProximaParaPC(env) }); // v88: o PC guarda os originais
+  const ma = p.match(/^\/editor\/acervo\/ok\/([a-z0-9]{6,16})$/);
+  if (ma) { await acvMarcarNoPC(env, ma[1], await req.json().catch(() => ({}))); return J({ ok: true }); }
+  if (p === '/editor/versao') return J({ ok: true, montagem: true, minimo: 2 });
   if (p === '/editor/proximo') {
     estRotina(env).catch(() => {}); // aproveita para terminar publicações
     let fila = []; try { fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); } catch (_) {}
@@ -15163,6 +15320,8 @@ async function rotaEditor(req, env, url) {
       const j = await estLer(env, fila[0]);
       if (j && j.estado === 'na_fila' && j.editar) {
         j.estado = 'editando'; j.editandoEm = Date.now(); await estGravar(env, j);
+        if (j.montagem) { const ob = await acvLer(env, j.obraId); if (!ob) { j.estado = 'cancelado'; await estGravar(env, j); fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila)); continue; }
+          return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, montagem: true, obra: await acvParaPC(env, ob) } }); }
         return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, video: await mdUrl(env, j.midias[0].md, 'video/mp4') } });
       }
       fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila));
@@ -15172,6 +15331,7 @@ async function rotaEditor(req, env, url) {
   const mm = p.match(/^\/editor\/(plano|pronto|erro)\/([a-z0-9]{10})$/);
   if (!mm) return J({ ok: false, erro: 'rota' }, 404);
   const j = await estLer(env, mm[2]); if (!j) return J({ ok: false, erro: 'post não existe' }, 404);
+  if (mm[1] === 'plano' && j.montagem) return J(Object.assign({ ok: true }, await vdPlano(env, j))); // v88: roteiro do vídeo do dia
   if (mm[1] === 'plano') {
     let tr = null; try { tr = await estTranscreverComTempo(env, j.midias[0].md); } catch (e) { console.log('[ESTUDIO] transcrição:', e.message); }
     await estPrepararLegenda(env, j, tr ? tr.texto : '');
@@ -15181,6 +15341,7 @@ async function rotaEditor(req, env, url) {
   }
   if (mm[1] === 'erro') {
     let b = {}; try { b = await req.json(); } catch (_) {}
+    if (j.montagem) { j.estado = 'erro'; await estGravar(env, j); await enviar(env, numeroDono(env), `⚠️ O computador não conseguiu montar o vídeo do dia (${String(b.erro || 'erro').slice(0, 200)}). Amanhã tento com outra obra; para tentar agora: *video do dia*.`); return J({ ok: true }); }
     j.estado = 'aguardando'; j.editar = false; await estGravar(env, j);
     await enviarComBotoes(env, numeroDono(env), `⚠️ O computador não conseguiu editar o vídeo (${String(b.erro || 'erro').slice(0, 200)}).`, [{ id: `igp|${j.id}|cru`, titulo: 'Postar sem editar' }, { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }]);
     return J({ ok: true });
@@ -15190,6 +15351,7 @@ async function rotaEditor(req, env, url) {
   if (buf.byteLength < 1000) return J({ ok: false, erro: 'vídeo vazio' }, 400);
   const md = await mdSalvar(env, buf, 'video/mp4');
   j.editado = { md, mime: 'video/mp4', tam: buf.byteLength, info: mp4Info(buf) }; j.estado = 'aguardando'; await estGravar(env, j);
+  if (j.montagem) await env.HR_KV.put('post:ultimo', j.id, { expirationTtl: 7 * 86400 }); // "legenda: ..." e "agendar 19h" valem para o vídeo do dia
   await estEnviarPrevia(env, numeroDono(env), j);
   return J({ ok: true });
 }
