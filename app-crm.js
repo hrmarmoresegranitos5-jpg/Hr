@@ -112,7 +112,14 @@
   }
   function cor(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return 'hsl(' + (h % 360) + ',45%,38%)'; }
   function iniciais(n) { var p = String(n || '?').replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); }
-  function nomeDe(c, app) { var a = app[so8(c.num)]; return (a && a.nome) || c.nome || c.perfil || fmtNum(c.num); }
+  function tokens(n) { return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z]+/).filter(function (t) { return t.length > 2; }); }
+  // o nome do app só vale quando bate com o nome que a pessoa deu ao bot (ou do perfil); senão o cadastro do app está com outro dono
+  function appConflita(c, a) {
+    if (!a || !a.nome) return false;
+    var bot = tokens(c.nome).concat(tokens(c.perfil)); if (!bot.length) return false;
+    var ap = tokens(a.nome); return !ap.some(function (t) { return bot.indexOf(t) >= 0; });
+  }
+  function nomeDe(c, app) { var a = app[so8(c.num)]; if (appConflita(c, a)) return c.nome || c.perfil; return (a && a.nome) || c.nome || c.perfil || fmtNum(c.num); }
 
   function fechar() {
     pararAuto(); var e = document.getElementById('hrCrm'); if (e) e.remove();
@@ -179,7 +186,7 @@
     var c = st.contatos.find(function (x) { return x.num === num; }) || { num: num }, app = nomesApp(), nm = nomeDe(c, app), cli = app[so8(num)];
     var d = document.getElementById('hrCrm'); if (!d) return;
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar">←</button><div class="crm-av" style="width:38px;height:38px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
-      '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info">' + esc(fmtNum(num)) + (c.perfil && c.perfil !== nm ? ' · ~' + esc(c.perfil) : '') + (cli ? ' · no app' : '') + '</div></div>' +
+      '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info">' + esc(fmtNum(num)) + (c.perfil && c.perfil !== nm ? ' · ~' + esc(c.perfil) : '') + (cli ? (appConflita(c, cli) ? ' · ⚠️ no app este número está como "' + esc(cli.nome) + '"' : ' · no app') : '') + '</div></div>' +
       '<button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
       '<div class="crm-chat" id="crmChat"><div class="crm-vazio">Carregando conversa…</div></div>' +
       '<div class="crm-rod"><span id="crmJanela"></span><a href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener">Abrir no WhatsApp</a></div>';
