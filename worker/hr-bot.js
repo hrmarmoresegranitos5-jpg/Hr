@@ -926,6 +926,29 @@ async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
 }
 
+// v80: FOLHA — prévia do período atual (ponto:previa:<id>, o app manda a cada 30 min) + relatório do período fechado (ponto:relpdf)
+async function ferrFolhaFuncionarios(env, a) {
+  const cfg = await pontoCfg(env);
+  const alvo = normaliza(String((a && a.funcionario) || '')).split(' ').filter(w => w.length > 2)[0] || '';
+  const funcs = cfg.funcs.filter(f => !alvo || normaliza(f.nome).split(' ').includes(alvo) || normaliza(f.nome).startsWith(alvo));
+  if (!funcs.length) return { erro: true, texto: alvo ? `Não achei funcionário com o nome "${a.funcionario}" no ponto. Diga isso em uma frase.` : 'Não há funcionários cadastrados no ponto.' };
+  const dBR = d => d.split('-').reverse().slice(0, 2).join('/'), hoje = dataBahia();
+  const linhas = []; let total = 0, semPrevia = [];
+  for (const f of funcs) {
+    let pv = null; try { pv = JSON.parse((await env.HR_KV.get('ponto:previa:' + f.id)) || 'null'); } catch (_) {}
+    if (pv && pv.df < hoje) { // o período da prévia já fechou: vale o relatório oficial, se houver
+      const rp = await pontoRelPdf(env, f.id, pv.df); if (rp) pv = { ...pv, valor: rp.valor, status: rp.status, fin: rp.fin || pv.fin, oficial: true };
+    }
+    if (!pv) { semPrevia.push(f.nome); continue; }
+    const conta = (pv.fin || []).filter(x => !x.sub).map(x => `${x.sinal === '-' ? '−' : x.sinal === '+' ? '+' : ''}${x.label}: ${brl(x.valor)}`).join('; ');
+    const idade = Math.round((Date.now() - pv.em) / 60000);
+    linhas.push(`${f.nome} — ${pv.label || 'período'} (${dBR(pv.di)} a ${dBR(pv.df)}, pagamento no fim do período): ${pv.status === 'pago' ? 'JÁ PAGO' : 'a receber ' + brl(pv.valor)}. Conta: ${conta || 'sem detalhes'}. [calculado pelo app há ${idade < 60 ? idade + ' min' : Math.round(idade / 60) + ' h'}${pv.oficial ? ', relatório oficial' : ', prévia: pode mudar com as batidas até o fim do período'}]`);
+    if (pv.status !== 'pago') total += Number(pv.valor) || 0;
+  }
+  if (!linhas.length) return { texto: 'O app ainda não mandou ao bot o cálculo da folha deste período. Peça ao Sr. Hangel, em UMA frase, para abrir o app HR (celular ou Central no PC) e esperar 1 minuto; depois é só perguntar de novo.' };
+  return { texto: `FOLHA (mesmo cálculo do relatório de ponto do app):\n${linhas.join('\n')}${funcs.length > 1 ? `\nTOTAL a pagar: ${brl(total)}` : ''}${semPrevia.length ? `\nSem cálculo ainda: ${semPrevia.join(', ')} (abrir o app atualiza).` : ''}\nResponda ao Sr. Hangel de forma curta: o valor a receber, a data em que fecha o período e a conta resumida em 1-2 linhas. Se for prévia, diga que pode mudar até o fim do período.` };
+}
+
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
@@ -8102,6 +8125,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'folha_funcionarios',
+    description: 'Quanto cada FUNCIONÁRIO tem a receber no período (decêndio/quinzena) atual e no que acabou de fechar, com a conta (salário do período, horas extras, horas negativas, adiantamentos e descontos) — o mesmo cálculo do relatório de ponto do app. Use para "quanto o Gibson vai receber amanhã?", "quanto tenho que pagar de folha?", "quanto devo ao Fabrício?". Sem funcionário, traz todos e o total.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome do funcionário (vazio = todos)' } } },
+  },
+  {
     name: 'fechar_pedido_cliente',
     description: 'O cliente FECHOU/aprovou o orçamento em PDF que o Sr. Hangel mandou (ou o Sr. Hangel pede "fecha o pedido da Eliane", "segue o pedido dela", "pergunta o pagamento e a entrega pra ela"). O bot confirma ao cliente e segue o passo a passo: forma de pagamento (Pix agora ou na entrega), entrega ou retirada, localização e troco. Precisa estar dentro de 24 h da última mensagem do cliente.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se souber' } }, required: ['cliente'] },
@@ -8480,6 +8508,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
+  if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'fechar_pedido_cliente') { // v78b
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
@@ -8718,6 +8747,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
+      `- FOLHA DOS FUNCIONÁRIOS: para "quanto o fulano vai receber (amanhã/no fim do período)", "quanto tenho de folha", "quanto devo a fulano", chame folha_funcionarios. Nunca responda que não há pagamento programado sem chamar essa ferramenta.`,
       `- Você TEM ACESSO à conversa completa de cada cliente com o bot (ver_conversa). Quando o Sr. Hangel perguntar como está/foi a conversa ou o atendimento de alguém, o que o cliente quer, ou pedir print/a conversa, chame ver_conversa (mostrar=true quando ele quer VER). Nunca diga que não tem acesso à conversa.`,
       `- Você NUNCA envia mensagens a clientes por iniciativa própria. Quando o Sr. Hangel pedir para marcar uma visita técnica SEM dia e hora fechados (\"marca uma visita técnica pra esse cliente\", \"pergunte a ela, amanhã estou livre\"), use convidar_visita na mesma resposta (é ela que escreve ao cliente; nunca diga \"vou perguntar\" sem chamá-la, e não pergunte dia e hora antes). Quando o Sr. Hangel disser o dia e a hora de uma visita técnica de um cliente (\"marca a visita da Maria sexta às 14h\"), use marcar_visita: o cliente é avisado e o Sr. Hangel é lembrado no dia. Quando o Sr. Hangel pedir para explicar, responder ou avisar um cliente, use responder_cliente: redija a mensagem PARA O CLIENTE (curta, cordial, sem inventar desconto, prazo ou valor); ela só sai depois que ele tocar em Enviar. Nunca responda ao Sr. Hangel o texto que seria do cliente.`,
       ``,
@@ -21603,6 +21633,16 @@ async function rotaBotPonto(req, env, url) {
   if (p === '/bot/ponto/aviso-dono' && req.method === 'POST') { // v41: aviso do app do dono para o WhatsApp dele
     const b = await req.json().catch(() => ({}));
     if (b.texto) await pontoAvisarDono(env, String(b.texto).slice(0, 900));
+    return jsonR({ ok: true });
+  }
+  if (p === '/bot/ponto/previa' && req.method === 'POST') { // v80: prévia da folha do período atual (o app calcula igual ao relatório de ponto)
+    const b = await req.json().catch(() => ({}));
+    const f = cfg.funcs.find(x => String(x.id) === String(b.funcId));
+    const ok = /^\d{4}-\d{2}-\d{2}$/;
+    if (!ok.test(b.di || '') || !ok.test(b.df || '')) return jsonR({ error: 'dados' }, 400);
+    const reg = { funcId: String(b.funcId), nome: String((f && f.nome) || b.nome || '').slice(0, 60), di: b.di, df: b.df, label: String(b.label || '').slice(0, 40), valor: +b.valor || 0, status: b.status === 'pago' ? 'pago' : 'pendente',
+      fin: (Array.isArray(b.fin) ? b.fin : []).slice(0, 25).map(x => ({ label: String(x.label || '').slice(0, 80), valor: +x.valor || 0, sinal: String(x.sinal || '').slice(0, 1), sub: !!x.sub })), em: Date.now() };
+    await env.HR_KV.put('ponto:previa:' + reg.funcId, JSON.stringify(reg), { expirationTtl: 20 * 86400 });
     return jsonR({ ok: true });
   }
   if (p === '/bot/ponto/relatorio-pdf' && req.method === 'POST') { // v41: o app do dono manda o PDF do período que fechou

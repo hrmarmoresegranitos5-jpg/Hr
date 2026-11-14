@@ -461,6 +461,27 @@
     if (Date.now() - ultimaAuto > 60000) { ultimaAuto = Date.now(); sincronizarAuto(true); }
   }
   setTimeout(function () { sincronizarAuto(false); }, 15000);
+  // v: prévia da folha — o quanto cada um tem a receber no período ATUAL (mesmo cálculo do relatório de ponto) vai ao bot,
+  // para ele responder "quanto o Gibson recebe amanhã?". Roda com o app aberto, no máximo a cada 30 min.
+  var previaEm = 0, previaRodando = false;
+  function enviarPrevias(forcar) {
+    if (!bot() || previaRodando || typeof HR_RELATORIO_PONTO === 'undefined' || !HR_RELATORIO_PONTO.gerarParaBot) return;
+    if (!forcar && Date.now() - previaEm < 30 * 60000) return;
+    previaRodando = true; previaEm = Date.now();
+    var seq = Promise.resolve();
+    funcsRH().forEach(function (f) {
+      seq = seq.then(function () {
+        var per = periodoAtual(f.id); if (!per || !per.di) return;
+        return Promise.race([HR_RELATORIO_PONTO.gerarParaBot(f.id, per.di, per.df, ''), new Promise(function (_, er) { setTimeout(function () { er(new Error('demorou')); }, 30000); })])
+          .then(function (r) { return api('/bot/ponto/previa', { funcId: f.id, nome: f.nome, di: per.di, df: per.df, label: per.label || '', valor: r.valor, status: r.status, fin: r.fin }); })
+          .catch(function (e) { console.warn('[HRPonto] prévia', f.nome, e && e.message); });
+      });
+    });
+    seq.then(function () { previaRodando = false; });
+  }
+  setTimeout(function () { if (!document.hidden) enviarPrevias(false); }, 45000);
+  setInterval(function () { if (!document.hidden) enviarPrevias(false); }, 10 * 60000);
+  window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
 
   window.HRPonto = { sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
