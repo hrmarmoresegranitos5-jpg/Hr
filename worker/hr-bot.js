@@ -926,6 +926,38 @@ async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
 }
 
+// v80b: PONTO pelo WhatsApp do dono — ver e lançar batidas (mesma gravação da rota /bot/ponto/ajuste, autor dono)
+async function ferrPontoFuncionario(env, a) {
+  const cfg = await pontoCfg(env);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(a.data || '')) ? a.data : dataBahia();
+  const nomes = (Array.isArray(a.funcionarios) ? a.funcionarios : [a.funcionarios]).map(x => String(x || '').trim()).filter(Boolean);
+  if (!nomes.length) return { erro: true, texto: 'Diga de qual funcionário.' };
+  const hm = v => { const t = String(v || '').trim().replace(/h$/i, ':00').replace(/h(\d{2})$/i, ':$1'); const m = t.match(/^(\d{1,2})(?::(\d{2}))?$/); if (!m) return ''; const h = +m[1], mi = +(m[2] || 0); return h <= 23 && mi <= 59 ? String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0') : ''; };
+  const novos = [['entrada', hm(a.entrada)], ['saida_almoco', hm(a.saida_almoco)], ['volta_almoco', hm(a.volta_almoco)], ['saida', hm(a.saida)]].filter(x => x[1]);
+  const motivo = 'Lançado pelo Sr. Hangel no WhatsApp' + (a.motivo ? ': ' + String(a.motivo).slice(0, 80) : '');
+  const out = [], naoAchei = [];
+  for (const n of nomes) {
+    const tk = normaliza(n).split(' ')[0];
+    const f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk)) || cfg.funcs.find(x => normaliza(x.nome).startsWith(tk) || normaliza((cfg.apelidos || {})[x.id] || '').includes(tk));
+    if (!f) { naoAchei.push(n); continue; }
+    const k = `ponto:d:${d}:${f.id}`, l = await pontoDia(env, d, f.id);
+    const feitos = [];
+    for (const [tipo, hora] of novos) {
+      const ja = l.find(b => b.tipo === tipo && b.status !== 'recusada');
+      if (ja && ja.hora === hora) continue;
+      if (ja) { ja.status = 'recusada'; ja.motivo = (ja.motivo ? ja.motivo + ' · ' : '') + 'substituída por ' + hora + ' (Sr. Hangel)'; }
+      const [h, m] = hora.split(':').map(Number), ts = Date.parse(d + 'T00:00:00-03:00') + (h * 60 + m) * 60000;
+      l.push({ id: ts.toString(36) + pontoHex(3), tipo, ts, hora, status: 'ok', ajuste: true, motivo, criadoEm: Date.now(), autor: 'dono', previsto: ts > Date.now() });
+      feitos.push(`${PONTO_TIPOS[tipo]} ${hora}${ts > Date.now() ? ' (previsto)' : ''}`);
+    }
+    if (feitos.length) { l.sort((x, y) => x.ts - y.ts); await env.HR_KV.put(k, JSON.stringify(l), { expirationTtl: PONTO_TTL }); }
+    const vale = l.filter(b => b.status !== 'recusada');
+    const pega = t => (vale.find(b => b.tipo === t) || {}).hora || '—';
+    out.push(`${f.nome}: entrada ${pega('entrada')}, almoço ${pega('saida_almoco')}-${pega('volta_almoco')}, saída ${pega('saida')}${feitos.length ? ' · LANCEI: ' + feitos.join(', ') : ''}`);
+  }
+  const falta = novos.length ? '' : '\nNenhum horário foi informado: mostre o que já foi batido e pergunte ao Sr. Hangel, em UMA frase, os horários que faltam (ex.: "entraram que horas e saem que horas?").';
+  return { texto: `PONTO de ${d.split('-').reverse().join('/')}:\n${out.join('\n')}${naoAchei.length ? '\nNão achei no ponto: ' + naoAchei.join(', ') + '.' : ''}${falta}\nOs horários lançados entram no RH e no relatório quando o app sincronizar (app aberto). Responda curto.` };
+}
 // v80: FOLHA — prévia do período atual (ponto:previa:<id>, o app manda a cada 30 min) + relatório do período fechado (ponto:relpdf)
 async function ferrFolhaFuncionarios(env, a) {
   const cfg = await pontoCfg(env);
@@ -8125,6 +8157,15 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'ponto_funcionario',
+    description: 'PONTO DOS FUNCIONÁRIOS (HR Ponto): mostra as batidas de um dia (entrada, almoço, volta, saída) e LANÇA horários que o Sr. Hangel informar (ex.: "Fabrício e Lucas vão fazer extra hoje, entraram 7h e saem 16h"). Sem horários, só mostra o que já foi batido e diz o que falta. Os horários lançados entram no RH e no relatório de ponto. Pode lançar para vários funcionários de uma vez.',
+    input_schema: { type: 'object', properties: {
+      funcionarios: { type: 'array', items: { type: 'string' }, description: 'nomes como o Sr. Hangel falou' },
+      data: { type: 'string', description: 'AAAA-MM-DD; vazio = hoje' },
+      entrada: { type: 'string', description: 'HH:MM, só se ele disse' }, saida_almoco: { type: 'string', description: 'HH:MM' }, volta_almoco: { type: 'string', description: 'HH:MM' }, saida: { type: 'string', description: 'HH:MM, só se ele disse (pode ser o horário previsto de saída)' },
+      motivo: { type: 'string', description: 'ex.: hora extra no sábado' } }, required: ['funcionarios'] },
+  },
+  {
     name: 'folha_funcionarios',
     description: 'Quanto cada FUNCIONÁRIO tem a receber no período (decêndio/quinzena) atual e no que acabou de fechar, com a conta (salário do período, horas extras, horas negativas, adiantamentos e descontos) — o mesmo cálculo do relatório de ponto do app. Use para "quanto o Gibson vai receber amanhã?", "quanto tenho que pagar de folha?", "quanto devo ao Fabrício?". Sem funcionário, traz todos e o total.',
     input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome do funcionário (vazio = todos)' } } },
@@ -8509,6 +8550,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
+  if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
   if (nome === 'fechar_pedido_cliente') { // v78b
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
@@ -8747,6 +8789,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
+      `- PONTO: para lançar ou ver horários de funcionários ("fulano entrou 7h", "vão fazer extra hoje, saem 16h", "que horas o Lucas chegou?"), chame ponto_funcionario. O app TEM registro de ponto (HR Ponto): nunca diga que não tem.`,
       `- FOLHA DOS FUNCIONÁRIOS: para "quanto o fulano vai receber (amanhã/no fim do período)", "quanto tenho de folha", "quanto devo a fulano", chame folha_funcionarios. Nunca responda que não há pagamento programado sem chamar essa ferramenta.`,
       `- Você TEM ACESSO à conversa completa de cada cliente com o bot (ver_conversa). Quando o Sr. Hangel perguntar como está/foi a conversa ou o atendimento de alguém, o que o cliente quer, ou pedir print/a conversa, chame ver_conversa (mostrar=true quando ele quer VER). Nunca diga que não tem acesso à conversa.`,
       `- Você NUNCA envia mensagens a clientes por iniciativa própria. Quando o Sr. Hangel pedir para marcar uma visita técnica SEM dia e hora fechados (\"marca uma visita técnica pra esse cliente\", \"pergunte a ela, amanhã estou livre\"), use convidar_visita na mesma resposta (é ela que escreve ao cliente; nunca diga \"vou perguntar\" sem chamá-la, e não pergunte dia e hora antes). Quando o Sr. Hangel disser o dia e a hora de uma visita técnica de um cliente (\"marca a visita da Maria sexta às 14h\"), use marcar_visita: o cliente é avisado e o Sr. Hangel é lembrado no dia. Quando o Sr. Hangel pedir para explicar, responder ou avisar um cliente, use responder_cliente: redija a mensagem PARA O CLIENTE (curta, cordial, sem inventar desconto, prazo ou valor); ela só sai depois que ele tocar em Enviar. Nunca responda ao Sr. Hangel o texto que seria do cliente.`,
