@@ -1,3 +1,4 @@
+// v64e (13/11/2026): Instagram — resposta que começava com a tag [WHATS: …] era apagada (cliente ficava sem o link)
 // v64d (13/11/2026): Instagram só atende POSSÍVEIS CLIENTES — páginas, divulgação, parcerias, conhecidos e conversa solta ficam para o dono (aviso uma vez)
 // v64c (13/11/2026): Instagram — confere a conversa toda vez (se o Sr. Hangel respondeu à mão, fica quieto); IA tenta 2 modelos e não repete a frase pronta (avisa com o erro)
 // v64b (13/11/2026): Instagram — bot fica quieto quando o Sr. Hangel já está conversando (eco corrigido); IA responde em JSON (funciona com OpenAI e Anthropic)
@@ -13316,7 +13317,7 @@ async function igResponderDM(env, ev) {
     }
     if (!resp && erroIA) await env.HR_KV.put('ig:erroIA', `${new Date().toISOString()} ${erroIA}`.slice(0, 300), { expirationTtl: 7 * 86400 }).catch(() => {});
   } else erroIA = 'sem AI_KEY';
-  resp = String(resp || '').replace(/^\s*[{[][\s\S]*$/, '').trim(); // nunca manda JSON solto
+  resp = String(resp || '').replace(/^\s*\{[\s\S]*$/, '').trim(); // nunca manda JSON solto
   const chamaDono = /\[DONO\]/.test(resp); resp = resp.replace(/\[DONO\]/g, '').trim();
   const tag = resp.match(/\[WHATS:\s*([^\]]{0,120})\]/);
   if (tag) {
