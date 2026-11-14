@@ -1,3 +1,4 @@
+// v73 (14/11/2026): MODELOS DA META — acha os aprovados pela própria conta, "criar modelos" cria hr_orcamento_pronto/hr_resposta; cliente fora das 24 h recebe o aviso e o PDF ao tocar em "Pode enviar"; dentro das 24 h o PDF vai junto da mensagem
 // v72d (14/11/2026): prints guardados no D1 e lidos um por um (30 prints de uma vez perdiam-se no KV e travavam a IA); uma mensagem por rajada
 // v72c (14/11/2026): print do extrato sem "conferir extrato" abre a conferência sozinho; um aviso só no fim dos prints (antes: "só leio texto" + HR VISION em cada foto)
 // v72 (14/11/2026): CONFERÊNCIA DO EXTRATO ("conferir extrato" + prints + "pronto" → o app compara, o bot corrige e pergunta as saídas); extrato MP conferido a cada mensagem (não só na rotina)
@@ -7920,8 +7921,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     }
     if (!num) num = await ultimoCliente(env);
     if (!num) return { erro: true, texto: 'Não sei a qual cliente se refere. Pergunte ao Sr. Hangel o número ou o nome, em uma frase.' };
-    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto }), { expirationTtl: 60 * 60 });
     const nm = nomeDest || (a.cliente ? String(a.cliente).slice(0, 40) : '') || await nomeParaDono(env, num);
+    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto, nome: nm || '' }), { expirationTtl: 60 * 60 });
     await enviarComBotoes(env, from, `Rascunho para ${nm ? nm + ' (wa.me/' + num + ')' : 'wa.me/' + num}:\n\n_${texto}_\n\nEnvio assim?`, [{ id: 'resp_ok', titulo: 'Enviar' }, { id: 'resp_no', titulo: 'Cancelar' }]);
     return { texto: 'Rascunho mostrado ao Sr. Hangel com botões. NÃO escreva mais nada; responda apenas "Aguardo a sua confirmação."', nota: `rascunho de resposta ao cliente ${nm || num}` };
   }
@@ -8116,6 +8117,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
       `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
       `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
@@ -12490,12 +12492,21 @@ async function decidirRascunho(env, from, enviarAgora) {
   if (!enviarAgora) { await env.HR_KV.delete('rascunho:resp'); await enviar(env, from, 'Cancelado. Nada foi enviado.'); return; }
   // v20: só diz "Enviado" quando saiu de verdade. Dentro das 24 h manda texto livre; fora, usa o modelo TEMPLATE_RESPOSTA
   // (1 variável = o texto, até 200 caracteres). Sem modelo ou com texto maior, o rascunho é mantido e o dono recebe o link.
-  const usaModelo = env.TEMPLATE_RESPOSTA && String(r.texto).length <= 200;
+  const tplResp = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta')) ? 'hr_resposta' : '');
+  const usaModelo = tplResp && String(r.texto).length <= 200;
+  const pedPdf = /or[cç]amento|pdf|proposta/i.test(String(r.texto) + ' ' + String(r.pedido || '')) ? await pedComPdfDoNumero(env, r.numero, r.nome).catch(() => null) : null;
   let via = null, erro = '';
-  try { via = await enviarProativo(env, r.numero, r.texto, usaModelo ? { nome: env.TEMPLATE_RESPOSTA, params: [r.texto] } : null); }
+  try {
+    const ult = Math.max(Number(await env.HR_KV.get('ult:' + r.numero)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(r.numero))) || 0);
+    const fora = Date.now() - ult >= 23 * 3600 * 1000;
+    if (fora && pedPdf && await tplAvisarOrcamento(env, r.numero, pedPdf.nome || r.nome, (pedPdf.itens && pedPdf.itens[0] && pedPdf.itens[0].ambiente ? pedPdf.itens.map(i => String(i.ambiente).toLowerCase()).join(' e ') : pedPdf.interesse || 'pedra') + (pedPdf.pedra ? ' em ' + pedPdf.pedra : ''), r.texto, pedPdf)) via = 'aviso';
+    else via = await enviarProativo(env, r.numero, r.texto, usaModelo ? { nome: tplResp, params: [r.texto] } : null);
+    if (via === 'texto' && pedPdf && pedPdf.mediaId) await postarMsg(env, r.numero, { type: 'document', document: { id: pedPdf.mediaId, filename: pedPdf.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[BOT] pdf junto:', e.message));
+  }
   catch (e) { erro = String(e.message || e).slice(0, 160); console.log('[BOT] responder_cliente:', erro); }
+  if (via === 'aviso') { await env.HR_KV.delete('rascunho:resp'); await enviar(env, from, `📨 ${r.nome || 'O cliente'} estava fora da janela de 24 h: mandei o aviso aprovado pela Meta ("O orçamento está pronto. Posso enviar por aqui?"). Quando tocar em *Pode enviar*, a mensagem e o PDF vão na hora, e eu te aviso.`); return; }
   if (!via) {
-    await enviar(env, from, `Sr. Hangel, NÃO enviei. ${erro ? 'A Meta recusou: ' + erro + '.' : 'O cliente está fora da janela de 24 horas' + (env.TEMPLATE_RESPOSTA ? ' e o texto passa de 200 caracteres para o modelo.' : ' e não há modelo configurado (TEMPLATE_RESPOSTA).')}\n\nO rascunho continua guardado por 1 hora. Se preferir, escreva o senhor mesmo:\nwa.me/${r.numero}`);
+    await enviar(env, from, `Sr. Hangel, NÃO enviei. ${erro ? 'A Meta recusou: ' + erro + '.' : 'O cliente está fora da janela de 24 horas' + (env.TEMPLATE_RESPOSTA ? ' e o texto passa de 200 caracteres para o modelo.' : ' e ainda não há modelo aprovado na Meta. Mande *criar modelos* que eu crio e peço a aprovação; depois disso o bot consegue escrever primeiro.')}\n\nO rascunho continua guardado por 1 hora. Se preferir, escreva o senhor mesmo:\nwa.me/${r.numero}`);
     return;
   }
   await env.HR_KV.delete('rascunho:resp');
@@ -13002,6 +13013,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (await tratarDesistencia(env, from, tb, tm).catch(() => false)) return;
     }
   }
+  if (!dono && (m.type === 'button' || m.type === 'interactive' || m.type === 'text') && await tratarTplPend(env, from, m)) return; // v73
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
@@ -13061,6 +13073,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (await tratarBotao(env, from, idBtn, F)) return;
     }
     if (await confComandoDono(env, from, bruto, msg)) return; // v72
+    if (await tplComandoDono(env, from, msg)) return; // v73
     if (await estComandoDono(env, from, bruto, msg)) return; // v69
     if (await igComandoDono(env, from, msg)) return; // v65
     if (await tratarAssumir(env, from, bruto, msg)) return;
@@ -14486,6 +14499,103 @@ async function rotaFinTarefa(req, env, p) {
     return J({ ok: true });
   }
   return null;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v73: MODELOS (TEMPLATES) DA META — o bot acha os modelos aprovados da conta (sem precisar de variável) e cria os que faltam.
+//   "criar modelos" → cria hr_resposta e hr_orcamento_pronto (Utilidade, pt_BR) para aprovação da Meta; "modelos" → mostra a situação.
+//   Cliente fora das 24 h: o bot usa hr_orcamento_pronto ("O orçamento de X está pronto. Posso enviar por aqui?" + botões);
+//   quando o cliente toca em "Pode enviar", a janela abre e o bot manda a mensagem e o PDF na hora.
+// ═════════════════════════════════════════════════════════════════════════════
+const TPL_PADRAO = [
+  { name: 'hr_orcamento_pronto', category: 'UTILITY', language: 'pt_BR', components: [
+    { type: 'BODY', text: 'Olá, {{1}}! Aqui é a HR Mármores e Granitos. O orçamento de {{2}} que você pediu está pronto. Posso te enviar por aqui?', example: { body_text: [['Eliane', 'peitoris em Preto São Gabriel']] } },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Pode enviar' }, { type: 'QUICK_REPLY', text: 'Agora não' }] }] },
+  { name: 'hr_resposta', category: 'UTILITY', language: 'pt_BR', components: [
+    { type: 'BODY', text: 'Olá! Aqui é a assistente virtual da HR Mármores e Granitos. {{1}}', example: { body_text: [['Sua visita técnica ficou confirmada para amanhã às 9h.']] } }] },
+];
+async function tplWaba(env) {
+  if (env.WABA_ID) return String(env.WABA_ID);
+  const c = await env.HR_KV.get('cfg:waba'); if (c) return c;
+  const tk = String(env.WHATSAPP_TOKEN || '');
+  const j = await graphJson(env, `https://graph.facebook.com/${gv(env)}/debug_token?input_token=${encodeURIComponent(tk)}`, { headers: authBearer(env) }).catch(() => null);
+  const esc = ((j && j.data && j.data.granular_scopes) || []).find(s => /whatsapp_business_(management|messaging)/.test(s.scope) && (s.target_ids || []).length);
+  const id = esc ? String(esc.target_ids[0]) : '';
+  if (id) await env.HR_KV.put('cfg:waba', id, { expirationTtl: 30 * 86400 });
+  return id;
+}
+async function tplLista(env, fresco = false) {
+  if (!fresco) { try { const c = JSON.parse((await env.HR_KV.get('tpl:lista')) || 'null'); if (c) return c; } catch (_) {} }
+  const waba = await tplWaba(env); if (!waba) return null;
+  const j = await graphJson(env, `https://graph.facebook.com/${gv(env)}/${waba}/message_templates?fields=name,status,language,category&limit=200`, { headers: authBearer(env) });
+  const l = (j.data || []).map(t => ({ nome: t.name, status: t.status, idioma: t.language, cat: t.category }));
+  await env.HR_KV.put('tpl:lista', JSON.stringify(l), { expirationTtl: 1800 });
+  return l;
+}
+async function tplAprovado(env, nome) { const l = await tplLista(env).catch(() => null); const t = (l || []).find(x => x.nome === nome && x.status === 'APPROVED'); return t || null; }
+async function tplCriarPadrao(env) {
+  const waba = await tplWaba(env); if (!waba) return ['Não consegui descobrir a conta do WhatsApp (WABA) pelo token. Coloque a variável WABA_ID no worker.'];
+  const out = [];
+  const exist = await tplLista(env, true).catch(() => []) || [];
+  for (const t of TPL_PADRAO) {
+    const ja = exist.find(x => x.nome === t.name);
+    if (ja) { out.push(`• ${t.name}: já existe (${tplStatusPt(ja.status)})`); continue; }
+    try { const r = await graphJson(env, `https://graph.facebook.com/${gv(env)}/${waba}/message_templates`, { method: 'POST', headers: { ...authBearer(env), 'Content-Type': 'application/json' }, body: JSON.stringify(t) }); out.push(`• ${t.name}: enviado para aprovação (${tplStatusPt(r.status || 'PENDING')})`); }
+    catch (e) { out.push(`• ${t.name}: a Meta recusou (${String(e.message).slice(0, 140)})`); }
+  }
+  await env.HR_KV.delete('tpl:lista');
+  return out;
+}
+const tplStatusPt = s => ({ APPROVED: 'aprovado ✅', PENDING: 'em análise ⏳', REJECTED: 'recusado ❌', PAUSED: 'pausado', DISABLED: 'desativado', IN_APPEAL: 'em recurso' }[s] || s);
+async function tplComandoDono(env, from, msg) {
+  if (/^(criar|cria|crie) (os )?(modelos|templates)$/.test(msg)) {
+    const r = await tplCriarPadrao(env);
+    await enviar(env, from, `🧩 *Modelos da Meta*\n${r.join('\n')}\n\nA Meta costuma aprovar em minutos (às vezes algumas horas). Depois de aprovado, o bot usa sozinho: cliente fora das 24 h recebe "Seu orçamento está pronto. Posso enviar por aqui?" e, ao tocar em *Pode enviar*, recebe a mensagem e o PDF. Para ver a situação: *modelos*.`);
+    return true;
+  }
+  if (/^(modelos|templates|ver modelos|meus modelos)$/.test(msg)) {
+    const l = await tplLista(env, true).catch(e => { console.log('[TPL]', e.message); return null; });
+    if (!l) { await enviar(env, from, 'Não consegui ler os modelos da Meta (o token do WhatsApp precisa da permissão de gerenciar a conta).'); return true; }
+    await enviar(env, from, `🧩 *Modelos da conta (${l.length})*\n${l.slice(0, 30).map(t => `• ${t.nome} (${t.idioma}): ${tplStatusPt(t.status)}`).join('\n') || '(nenhum)'}${l.some(t => t.nome === 'hr_orcamento_pronto') ? '' : '\n\nPara criar os da HR: *criar modelos*.'}`);
+    return true;
+  }
+  return false;
+}
+// último orçamento em PDF feito para esse número (para mandar junto)
+async function pedComPdfDoNumero(env, numero, nome) {
+  const alvo = normalizarBR(numero), nm = normaliza(String(nome || '')).split(' ').filter(w => w.length > 2)[0] || '';
+  let melhor = null, porNome = null;
+  const quando = p => p.atualizado || p.criado || Number(String(p.id || '').replace(/\D/g, '').slice(0, 13)) || 0;
+  const l = await env.HR_KV.list({ prefix: 'ped:', limit: 400 }).catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    try {
+      const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!p || !p.mediaId) continue;
+      if (normalizarBR(p.numero || '') === alvo) { if (!melhor || quando(p) > quando(melhor)) melhor = p; }
+      else if (nm && normaliza(p.nome || '').split(' ').includes(nm) && Date.now() - quando(p) < 10 * 86400000) { if (!porNome || quando(p) > quando(porNome)) porNome = p; }
+    } catch (_) {}
+  }
+  return melhor || porNome;
+}
+// fora das 24 h: aviso pelo modelo; o envio de verdade fica guardado até o cliente tocar em "Pode enviar"
+async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
+  if (!(await tplAprovado(env, 'hr_orcamento_pronto'))) return false;
+  await postarMsg(env, numero, { type: 'template', template: { name: 'hr_orcamento_pronto', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: String(nome || 'tudo bem').split(' ')[0].slice(0, 30) }, { type: 'text', text: String(pedido || 'pedra').slice(0, 60) }] }] } });
+  await env.HR_KV.put('tplpend:' + normalizarBR(numero), JSON.stringify({ texto, mediaId: ped && ped.mediaId, arquivo: ped && ped.arquivoNome, nome, em: Date.now() }), { expirationTtl: 7 * 86400 });
+  return true;
+}
+// cliente tocou em "Pode enviar" / "Agora não" do modelo
+async function tratarTplPend(env, from, m) { if (!(await env.HR_KV.get('tplpend:' + normalizarBR(from)))) return false; return tplRespostaCliente(env, from, m).catch(e => { console.log('[TPL] resposta:', e.message); return false; }); }
+async function tplRespostaCliente(env, from, m) {
+  const txt = normaliza(String((m.button && (m.button.text || m.button.payload)) || (m.interactive && m.interactive.button_reply && m.interactive.button_reply.title) || (m.text && m.text.body) || ''));
+  const k = 'tplpend:' + normalizarBR(from);
+  const p = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (!p) return false;
+  if (/^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
+  if (!/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
+  await env.HR_KV.delete(k);
+  if (p.texto) await enviar(env, from, p.texto);
+  if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
+  await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
+  await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} tocou em "Pode enviar": mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
+  return true;
 }
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
 async function igComandoDono(env, from, msg) {
