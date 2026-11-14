@@ -81,13 +81,14 @@
     }).catch(function (e) { var el = document.getElementById('hrConvLista'); if (el) el.innerHTML = '⚠️ ' + esc(e.message); });
   }
   window.abrirConversasClientes = abrir;
+  window.exportarConversasClientes = exportar;
 
   function botao() {
     var sb = document.getElementById('secBody'); if (!sb || sb.querySelector('[data-conv-btn]')) return;
     var b = document.createElement('button'); b.type = 'button'; b.setAttribute('data-conv-btn', '1');
     b.style.cssText = 'display:flex;align-items:center;gap:10px;width:calc(100% - 24px);margin:12px 12px 4px;padding:12px 14px;border-radius:14px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:inherit;text-align:left;cursor:pointer;';
-    b.innerHTML = '<span style="font-size:1.3rem;">💬</span><div style="flex:1;"><b>Conversas dos clientes</b><div style="font-size:.7rem;color:var(--t3);">Ver o que o bot respondeu e exportar</div></div><span style="color:var(--t3);">›</span>';
-    b.onclick = abrir;
+    b.innerHTML = '<span style="font-size:1.3rem;">💬</span><div style="flex:1;"><b>Conversas dos clientes</b><div style="font-size:.7rem;color:var(--t3);">Cada cliente com a conversa inteira: fotos, áudios e PDFs</div></div><span style="color:var(--t3);">›</span>';
+    b.onclick = function () { (window.abrirCRM || abrir)(); };
     sb.insertBefore(b, sb.firstChild);
   }
   function iniciar() {

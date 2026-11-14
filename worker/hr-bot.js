@@ -480,6 +480,7 @@ async function enviarTextoPuro(env, para, texto, jaVariado) {
     if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id);
     await registrarMsgDono(env, para, id, texto); // v48
     txRegistrar(env, para, 'b', texto); // v62
+    crmAdd(env, para, crmDeSaida(String(texto), id)); // v75
     return id;
   } catch (_) { return null; }
 }
@@ -539,6 +540,203 @@ function txFormatar(falas, nome) {
   }).join('\n');
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v75: CRM DE CONVERSAS — cada mensagem do WhatsApp (cliente e bot) com foto, áudio, vídeo, documento, modelo e botões.
+//   D1: crm_msg (mensagens), crm_ct (contatos), crm_md (arquivos em partes de 1,5 MB). Guarda 180 dias.
+//   Arquivos: a referência "m:<id da Meta>" vira "d:<id>" (cópia no D1) aos poucos, no tick dos webhooks (até 8 MB).
+//   App: /bot/crm/contatos · /bot/crm/conversa?num= · /bot/crm/midia?r= (x-bot-key). CRM=0 desliga.
+// ═════════════════════════════════════════════════════════════════════════════
+const CRM_DIAS = 180, CRM_MD_PARTE = 1500 * 1024, CRM_MD_MAX = 8 * 1024 * 1024;
+let crmTabelaOk = false;
+function crmAtivo(env) { return !!(env && env.HR_DB) && String(env.CRM ?? '1') !== '0'; }
+async function crmTabela(env) {
+  if (crmTabelaOk) return;
+  const db = env.HR_DB;
+  await db.prepare('CREATE TABLE IF NOT EXISTS crm_msg (id INTEGER PRIMARY KEY AUTOINCREMENT, num TEXT, ts INTEGER, q TEXT, tipo TEXT, texto TEXT, midia TEXT, mime TEXT, arq TEXT, wamid TEXT, st TEXT, extra TEXT)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS crm_msg_num ON crm_msg (num, ts)').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS crm_msg_wamid ON crm_msg (wamid)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS crm_ct (num TEXT PRIMARY KEY, nome TEXT, perfil TEXT, ult INTEGER, ultx TEXT, ultq TEXT, total INTEGER)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS crm_md (id TEXT, parte INTEGER, dados BLOB, mime TEXT, tam INTEGER, partes INTEGER, ts INTEGER, PRIMARY KEY (id, parte))').run();
+  crmTabelaOk = true;
+}
+// mensagem recebida do WhatsApp → item do CRM
+function crmDeEntrada(m) {
+  const t = m.type || 'text', o = { q: 'c', t: Date.now(), tipo: t, texto: '', midia: '', mime: '', arq: '', wamid: m.id || '', extra: null };
+  const md = m[t] || {};
+  if (t === 'text') o.texto = String(m.text && m.text.body || '');
+  else if (['image', 'video', 'audio', 'document', 'sticker'].includes(t)) {
+    o.texto = String(md.caption || ''); o.midia = md.id ? 'm:' + md.id : ''; o.mime = String(md.mime_type || ''); o.arq = String(md.filename || '');
+    if (t === 'audio' && md.voice) o.extra = { voz: true };
+  } else if (t === 'interactive') { const it = m.interactive || {}; o.tipo = 'text'; o.texto = (it.button_reply && it.button_reply.title) || (it.list_reply && it.list_reply.title) || ''; o.extra = { resposta: true }; }
+  else if (t === 'button') { o.tipo = 'text'; o.texto = String(m.button && m.button.text || ''); o.extra = { resposta: true }; }
+  else if (t === 'location') { const l = m.location || {}; o.texto = [l.name, l.address].filter(Boolean).join(' · '); o.extra = { lat: l.latitude, lng: l.longitude }; }
+  else if (t === 'contacts') { o.texto = (m.contacts || []).map(c => [(c.name && c.name.formatted_name) || '', ((c.phones || [])[0] || {}).phone || ''].filter(Boolean).join(' ')).join('\n'); }
+  else if (t === 'reaction') { o.texto = String(m.reaction && m.reaction.emoji || ''); o.extra = { alvo: m.reaction && m.reaction.message_id || '' }; }
+  else o.texto = '[' + t + ']';
+  if (m.context && m.context.id) o.extra = { ...(o.extra || {}), citou: m.context.id };
+  return o;
+}
+// mensagem enviada pelo bot (corpo da API) → item do CRM
+function crmDeSaida(extra, wamid) {
+  const o = { q: 'b', t: Date.now(), tipo: 'text', texto: '', midia: '', mime: '', arq: '', wamid: wamid || '', extra: null };
+  try {
+    if (typeof extra === 'string') { o.texto = extra; return o; }
+    const t = extra.type || 'text'; o.tipo = t;
+    if (t === 'text') o.texto = String(extra.text && extra.text.body || '');
+    else if (['image', 'video', 'audio', 'document', 'sticker'].includes(t)) {
+      const md = extra[t] || {};
+      o.texto = String(md.caption || ''); o.arq = String(md.filename || '');
+      o.midia = md.id ? 'm:' + md.id : md.link ? 'u:' + md.link : '';
+      o.mime = t === 'document' ? (/\.pdf$/i.test(o.arq) || !o.arq ? 'application/pdf' : '') : t === 'audio' ? 'audio/ogg' : '';
+    } else if (t === 'interactive') {
+      const it = extra.interactive || {}, a = it.action || {};
+      o.texto = [it.header && it.header.text, it.body && it.body.text, it.footer && it.footer.text].filter(Boolean).join('\n\n');
+      const bt = (a.buttons || []).map(b => b.reply && b.reply.title).filter(Boolean);
+      const rows = (a.sections || []).flatMap(s => (s.rows || []).map(r => r.title));
+      o.extra = { botoes: bt.length ? bt : undefined, lista: rows.length ? { botao: a.button || 'Opções', itens: rows } : undefined };
+      const h = it.header || {};
+      if (h.type && h.type !== 'text' && h[h.type]) { const hm = h[h.type]; o.tipo = h.type; o.midia = hm.id ? 'm:' + hm.id : hm.link ? 'u:' + hm.link : ''; }
+      else o.tipo = 'text';
+    } else if (t === 'template') {
+      const tp = extra.template || {};
+      const corpo = (tp.components || []).filter(c => c.type === 'body').flatMap(c => (c.parameters || []).map(p => p.text)).filter(Boolean);
+      o.texto = corpo.join(' · '); o.extra = { modelo: tp.name || '' }; o.tipo = 'text';
+      const hd = (tp.components || []).find(c => c.type === 'header'); const hp = hd && (hd.parameters || [])[0];
+      if (hp && hp.type && hp[hp.type]) { o.tipo = hp.type; o.midia = hp[hp.type].id ? 'm:' + hp[hp.type].id : hp[hp.type].link ? 'u:' + hp[hp.type].link : ''; o.arq = hp[hp.type].filename || ''; }
+    } else if (t === 'reaction') { o.texto = String(extra.reaction && extra.reaction.emoji || ''); o.extra = { alvo: extra.reaction && extra.reaction.message_id || '' }; }
+    else if (t === 'location') { const l = extra.location || {}; o.texto = [l.name, l.address].filter(Boolean).join(' · '); o.extra = { lat: l.latitude, lng: l.longitude }; }
+    else o.texto = '[' + t + ']';
+  } catch (_) {}
+  return o;
+}
+function crmAdd(env, num, item) {
+  try {
+    if (!crmAtivo(env) || !num || ehDono(env, num) || !item) return;
+    if (!item.texto && !item.midia && item.tipo === 'text') return;
+    const n = normalizarBR(num), c = env && env._ctx;
+    if (c && c.de === n && Array.isArray(c.crm)) { c.crm.push(item); return; }
+    const p = crmGravar(env, n, [item]).catch(e => console.log('[CRM]', e.message));
+    if (env && env._waitUntil) env._waitUntil(p);
+  } catch (_) {}
+}
+async function crmGravar(env, num, itens, nome, perfil) {
+  if (!crmAtivo(env) || !itens || !itens.length) return;
+  await crmTabela(env);
+  const db = env.HR_DB, n = normalizarBR(num);
+  for (const it of itens) {
+    await db.prepare('INSERT INTO crm_msg (num, ts, q, tipo, texto, midia, mime, arq, wamid, st, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(n, it.t || Date.now(), it.q, it.tipo || 'text', String(it.texto || '').slice(0, 4000), it.midia || '', it.mime || '', String(it.arq || '').slice(0, 160), it.wamid || '', it.q === 'b' ? 'sent' : '', it.extra ? JSON.stringify(it.extra).slice(0, 2000) : '').run();
+  }
+  const u = itens[itens.length - 1];
+  const prev = { image: '📷 Foto', video: '🎥 Vídeo', audio: '🎤 Áudio', document: '📄 ' + (u.arq || 'Documento'), sticker: 'Figurinha', location: '📍 Localização', contacts: '👤 Contato', reaction: 'Reagiu ' + (u.texto || '') }[u.tipo] || '';
+  const ultx = (u.texto && u.tipo !== 'reaction' ? (prev && u.tipo !== 'text' ? prev + ': ' : '') + u.texto : prev || u.texto).replace(/\s+/g, ' ').slice(0, 140);
+  await db.prepare('INSERT INTO crm_ct (num, nome, perfil, ult, ultx, ultq, total) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(num) DO UPDATE SET nome = CASE WHEN excluded.nome <> \'\' THEN excluded.nome ELSE crm_ct.nome END, perfil = CASE WHEN excluded.perfil <> \'\' THEN excluded.perfil ELSE crm_ct.perfil END, ult = excluded.ult, ultx = excluded.ultx, ultq = excluded.ultq, total = crm_ct.total + excluded.total')
+    .bind(n, String(nome || ''), String(perfil || ''), u.t || Date.now(), ultx, u.q, itens.length).run();
+}
+async function crmStatus(env, st) {
+  try {
+    if (!crmAtivo(env) || !st || !st.id || !st.status) return;
+    const r = { sent: 1, delivered: 2, read: 3, failed: 9 }[st.status]; if (!r) return;
+    await crmTabela(env);
+    const ordem = "CASE st WHEN 'sent' THEN 1 WHEN 'delivered' THEN 2 WHEN 'read' THEN 3 WHEN 'failed' THEN 9 ELSE 0 END";
+    await env.HR_DB.prepare(`UPDATE crm_msg SET st = ? WHERE wamid = ? AND ${ordem} < ?`).bind(st.status, st.id, r).run();
+  } catch (e) { console.log('[CRM] status:', e.message); }
+}
+// guarda no D1 a cópia de um arquivo (para não depender dos 30 dias da Meta)
+async function crmSalvarArquivo(env, buf, mime) {
+  await crmTabela(env);
+  const id = estId(), u8 = new Uint8Array(buf), partes = Math.max(1, Math.ceil(u8.byteLength / CRM_MD_PARTE)), ts = Date.now();
+  for (let i = 0; i < partes; i++) {
+    await env.HR_DB.prepare('INSERT INTO crm_md (id, parte, dados, mime, tam, partes, ts) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, i, u8.slice(i * CRM_MD_PARTE, (i + 1) * CRM_MD_PARTE), mime || '', u8.byteLength, partes, ts).run();
+  }
+  return id;
+}
+async function crmLerArquivo(env, id) {
+  await crmTabela(env);
+  const rs = await env.HR_DB.prepare('SELECT parte, dados, mime, tam FROM crm_md WHERE id = ? ORDER BY parte').bind(id).all();
+  const linhas = rs.results || []; if (!linhas.length) return null;
+  const pedacos = linhas.map(l => l.dados instanceof Uint8Array ? l.dados : new Uint8Array(l.dados));
+  const tot = pedacos.reduce((s, p) => s + p.byteLength, 0), out = new Uint8Array(tot); let o = 0;
+  for (const p of pedacos) { out.set(p, o); o += p.byteLength; }
+  return { buf: out, mime: linhas[0].mime || 'application/octet-stream' };
+}
+// tick: copia até 3 arquivos ainda na Meta; limpa o que passou de 180 dias (1x por dia)
+async function crmTick(env) {
+  if (!crmAtivo(env)) return;
+  if (await env.HR_KV.get('crm:tick')) return;
+  await env.HR_KV.put('crm:tick', '1', { expirationTtl: 120 });
+  await crmTabela(env);
+  const lim = Date.now() - 25 * 86400000;
+  const rs = await env.HR_DB.prepare("SELECT id, midia, mime, tipo FROM crm_msg WHERE midia LIKE 'm:%' AND ts > ? AND tipo IN ('image', 'audio', 'document', 'sticker', 'video') ORDER BY ts DESC LIMIT 3").bind(lim).all();
+  for (const r of rs.results || []) {
+    try {
+      const { buf, tipo } = await baixarMidia(env, r.midia.slice(2));
+      if (buf.byteLength > CRM_MD_MAX) { await env.HR_DB.prepare('UPDATE crm_msg SET midia = ? WHERE id = ?').bind('g:' + r.midia.slice(2), r.id).run(); continue; } // grande: fica só na Meta (30 dias)
+      const id = await crmSalvarArquivo(env, buf, tipo || r.mime);
+      await env.HR_DB.prepare('UPDATE crm_msg SET midia = ?, mime = CASE WHEN mime = \'\' THEN ? ELSE mime END WHERE id = ?').bind('d:' + id, tipo || '', r.id).run();
+    } catch (e) { await env.HR_DB.prepare('UPDATE crm_msg SET midia = ? WHERE id = ?').bind('x:' + r.midia.slice(2), r.id).run().catch(() => {}); console.log('[CRM] arquivo:', e.message); }
+  }
+  if (!(await env.HR_KV.get('crm:limpo'))) {
+    await env.HR_KV.put('crm:limpo', '1', { expirationTtl: 86400 });
+    const ant = Date.now() - CRM_DIAS * 86400000;
+    await env.HR_DB.prepare('DELETE FROM crm_msg WHERE ts < ?').bind(ant).run();
+    await env.HR_DB.prepare('DELETE FROM crm_md WHERE ts < ?').bind(ant).run();
+    await env.HR_DB.prepare('DELETE FROM crm_ct WHERE ult < ?').bind(ant).run();
+  }
+}
+// 1ª vez: traz as conversas dos últimos 7 dias (tx:) para o CRM
+async function crmMigrar(env) {
+  if (await env.HR_KV.get('crm:migrado')) return;
+  await env.HR_KV.put('crm:migrado', '1');
+  await crmTabela(env);
+  let cursor; const tipos = { '[foto]': 'image', '[vídeo]': 'video', '[arquivo]': 'document', '[áudio]': 'audio', '[figurinha]': 'sticker', '[localização]': 'location', '[contato]': 'contacts' };
+  do {
+    const l = await env.HR_KV.list({ prefix: 'tx:', cursor });
+    for (const k of l.keys) {
+      let o = null; try { o = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+      if (!o || !o.f || !o.f.length) continue;
+      const num = k.name.slice(3);
+      const ja = await env.HR_DB.prepare('SELECT COUNT(*) AS n FROM crm_msg WHERE num = ? AND ts <= ?').bind(num, o.f[o.f.length - 1].t).first();
+      if (ja && ja.n) continue;
+      const itens = o.f.map(f => { const x = String(f.x || ''); const tp = tipos[x.trim()]; const au = /^\[áudio\] /.test(x); return { q: f.q, t: f.t, tipo: tp || (au ? 'audio' : 'text'), texto: tp ? '' : au ? x.slice(8) : x, midia: '', extra: tp || au ? { antigo: true } : null }; });
+      const [nome, perfil] = String(o.nome || '').split(' / ');
+      await crmGravar(env, num, itens, nome || '', perfil || '');
+    }
+    cursor = l.list_complete ? null : l.cursor;
+  } while (cursor);
+}
+async function rotaCrm(req, env, url, p) {
+  if (!crmAtivo(env)) return jsonR({ error: 'O CRM precisa do banco D1 (HR_DB) ligado no Worker.' }, 400);
+  await crmTabela(env);
+  if (p === '/bot/crm/contatos') {
+    await crmMigrar(env).catch(e => console.log('[CRM] migrar:', e.message));
+    const rs = await env.HR_DB.prepare('SELECT num, nome, perfil, ult, ultx, ultq, total FROM crm_ct ORDER BY ult DESC LIMIT 500').all();
+    return jsonR({ contatos: rs.results || [], agora: Date.now() });
+  }
+  if (p === '/bot/crm/conversa') {
+    const alvo = String(url.searchParams.get('num') || '').replace(/\D/g, '');
+    if (!alvo) return jsonR({ error: 'Informe o número.' }, 400);
+    const ach = await env.HR_DB.prepare('SELECT num FROM crm_ct WHERE num = ? OR substr(num, -8) = ? ORDER BY (num = ?) DESC LIMIT 1').bind(normalizarBR(alvo), ultimos8(alvo), normalizarBR(alvo)).first();
+    const n = (ach && ach.num) || normalizarBR(alvo), antes = Number(url.searchParams.get('antes')) || 9e15, lim = Math.min(500, Number(url.searchParams.get('lim')) || 200);
+    const rs = await env.HR_DB.prepare('SELECT id, ts, q, tipo, texto, midia, mime, arq, wamid, st, extra FROM crm_msg WHERE num = ? AND ts < ? ORDER BY ts DESC, id DESC LIMIT ?').bind(n, antes, lim).all();
+    const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(n).first();
+    const ms = (rs.results || []).reverse().map(r => { let ex = null; try { ex = r.extra ? JSON.parse(r.extra) : null; } catch (_) {} const mid = String(r.midia || ''); return { ...r, extra: ex, midia: /^[dmu]:/.test(mid) ? mid : '', expirado: /^x:/.test(mid), grande: /^g:/.test(mid) }; });
+    const ultCliente = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(n).first();
+    return jsonR({ num: n, nome: (ct && ct.nome) || '', perfil: (ct && ct.perfil) || '', mensagens: ms, mais: ms.length === lim, janelaAte: ultCliente && ultCliente.t ? ultCliente.t + 86400000 : 0 });
+  }
+  if (p === '/bot/crm/midia') {
+    const r = String(url.searchParams.get('r') || '');
+    if (r.startsWith('d:')) { const a = await crmLerArquivo(env, r.slice(2)); if (!a) return jsonR({ error: 'Arquivo não encontrado.' }, 404); return new Response(a.buf, { headers: { 'Content-Type': a.mime, 'Cache-Control': 'private, max-age=86400', ...CORS } }); }
+    if (r.startsWith('m:') || r.startsWith('g:')) {
+      try { const { buf, tipo } = await baixarMidia(env, r.slice(2)); return new Response(buf, { headers: { 'Content-Type': tipo || 'application/octet-stream', 'Cache-Control': 'private, max-age=3600', ...CORS } }); }
+      catch (e) { return jsonR({ error: 'A Meta não tem mais esse arquivo (passou de 30 dias).' }, 404); }
+    }
+    return jsonR({ error: 'Referência inválida.' }, 400);
+  }
+  return jsonR({ error: 'Rota do CRM não encontrada.' }, 404);
+}
+
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
@@ -554,7 +752,7 @@ async function postarMsg(env, para, extra) {
     throw new Error(`WhatsApp API ${r.status}: ${corpo.slice(0, 300)}`);
   }
   const j = await r.json().catch(() => null);
-  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); } catch (_) {} // v48 · v62
+  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); crmAdd(env, para, crmDeSaida(extra, id)); } catch (_) {} // v48 · v62 · v75
   return j;
 }
 
@@ -12798,6 +12996,7 @@ async function visionEnviarTexto(env, para, texto) {
     body: JSON.stringify({ messaging_product: 'whatsapp', to: normalizarBR(para), type: 'text', text: { body: texto, preview_url: false } }),
   });
   if (!r.ok) throw new Error(`WhatsApp API ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  try { const j = await r.json(); crmAdd(env, para, crmDeSaida(texto, j && j.messages && j.messages[0] && j.messages[0].id)); } catch (_) {} // v75
 }
 
 function visionMsgErro(codigo) {
@@ -12868,14 +13067,16 @@ async function tratarVision(env, from, m, dono, tipo) {
 }
 
 async function tratarMensagem(env0, m) {
-  const ctx = { voz: false, falou: false, cliente: false, textos: [], suprimiu: false, de: normalizarBR(m.from), citado: (m.context && m.context.id) || '', paraDono: [], agente: false, bruto: '', tx: [] };
+  const ctx = { voz: false, falou: false, cliente: false, textos: [], suprimiu: false, de: normalizarBR(m.from), citado: (m.context && m.context.id) || '', paraDono: [], agente: false, bruto: '', tx: [], crm: [] };
   const env = Object.create(env0);
   env._ctx = ctx;
   if (!ehDono(env0, m.from)) { // v62: transcrição
     const ent = extrairTexto(m) || (m.interactive && ((m.interactive.button_reply && m.interactive.button_reply.title) || (m.interactive.list_reply && m.interactive.list_reply.title))) || (m.button && m.button.text) || '';
     ctx.tx.push({ q: 'c', t: Date.now(), x: String(ent || ({ image: '[foto]', video: '[vídeo]', document: '[arquivo]', audio: '[áudio]', sticker: '[figurinha]', location: '[localização]', contacts: '[contato]' }[m.type] || '[' + (m.type || 'mensagem') + ']')).slice(0, 1200) });
+    try { ctx.crm.push(ctx.crmEntrada = crmDeEntrada(m)); } catch (_) {} // v75
   }
   await tratarMensagemBase(env, m, ctx);
+  if (ctx.crmEntrada && ctx.crmEntrada.tipo === 'audio' && !ctx.crmEntrada.texto && (m._texto || ctx.bruto)) ctx.crmEntrada.texto = String(m._texto || ctx.bruto).slice(0, 2000); // v75: transcrição do áudio
   if (ctx.cliente) { await avisarInicioConversa(env, m).catch(e => console.log('[BOT] aviso de início:', e.message)); ctx.cliente = false; } // v53: antes do registro abaixo, para a IA do dono saber quem chamou
   if (ehDono(env0, m.from) && !ctx.agente && ctx.paraDono.length) await agNota(env, ctx.bruto || extrairTexto(m) || '[mensagem do Sr. Hangel]', ctx.paraDono.join('\n')); // v48: a IA sabe o que as rotinas responderam
   else if (!ehDono(env0, m.from) && ctx.paraDono.length) await agNota(env, null, '[Aviso do bot ao Sr. Hangel] ' + ctx.paraDono.join('\n')); // v48: avisos sobre clientes/funcionários
@@ -12886,8 +13087,10 @@ async function tratarMensagem(env0, m) {
     // cliente que falou só recebe áudio; se o áudio não couber ou falhar, o texto sai para ele não ficar sem resposta
     const cabe = fala.length <= VOZ_MAX_CHARS;
     const ok = cabe && await enviarVoz(env, m.from, fala);
+    if (ok) { const au = ctx.crm.filter(x => x.q === 'b' && x.tipo === 'audio').pop(); if (au && !au.texto) au.texto = ctx.textos.join(' ').slice(0, 2000); } // v75
     if (!ok && ctx.suprimiu) await enviarTextoPuro(env, m.from, ctx.textos.join('\n\n')).catch(e => console.log('[BOT] texto de reserva:', e.message));
   }
+  if (ctx.crm.length) { try { await crmGravar(env0, m.from, ctx.crm.splice(0), await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil) || ''); } catch (e) { console.log('[CRM]', e.message); } } // v75
   if (ctx.tx.length) { const nm = [await lerNomeSalvo(env0, m.from).catch(() => ''), nomeDoPerfil(m._perfil)].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / '); await txGravar(env0, m.from, ctx.tx.splice(0), nm); await ctAtualizar(env0, m.from, { nome: await lerNomeSalvo(env0, m.from).catch(() => ''), perfil: nomeDoPerfil(m._perfil) || '' }); } // v62 · v63
 }
 
@@ -13088,6 +13291,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (m.type === 'audio') {
     const t = m._texto || await ouvirAudio(env, from, m, dono);
     if (!t) return;
+    m._texto = t;
     bruto = t; voz = true; ctx.voz = true; // falou → eu respondo falando (e também em texto)
   } else if (!dono && ['image', 'video', 'document'].includes(m.type)) {
     bruto = await receberMidiaCliente(env, from, m); // foto/arquivo: vai ao dono e a IA fica sabendo
@@ -13375,6 +13579,7 @@ async function tratarPayload(env, payload) {
       for (const c of ch.value?.contacts || []) if (c.wa_id) perfis[c.wa_id] = c.profile?.name || '';
       for (const st of ch.value?.statuses || []) { // entregue / lida / falhou (só as cobranças acompanhadas geram aviso)
         try { await tratarStatusEntrega(env, st); } catch (e) { console.log('[BOT] status de entrega:', e.message); }
+        await crmStatus(env, st); // v75
       }
       for (const m of ch.value?.messages || []) {
         m._perfil = perfis[m.from] || '';
@@ -14153,6 +14358,7 @@ async function confTickLeve(env) { // sem o app aberto, cada mensagem que chega 
 }
 async function estTickLeve(env) {
   await confTickLeve(env).catch(() => {});
+  await crmTick(env).catch(e => console.log('[CRM] tick:', e.message)); // v75
   // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
   if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
@@ -15278,6 +15484,7 @@ async function rotaBotInterna(req, env, url) {
   // Conversas do bot com os clientes (somente leitura). Guardadas no KV por CLIENTE_TTL (24 h após a última mensagem), até 14 mensagens.
   //   GET /bot/conversas            → lista (mais recentes primeiro): numero, nome, ultimaEm, total, ultima
   //   GET /bot/conversas?numero=749 → conversa completa daquele cliente (aceita número com ou sem 55/formatação)
+  if (p.startsWith('/bot/crm/') && req.method === 'GET') return await rotaCrm(req, env, url, p); // v75
   if (p === '/bot/conversas/arquivo' && req.method === 'GET') { // v54: conversas dos últimos dias (padrão 14, máx. 30) para revisar o atendimento
     marcarUso(env, 'app:conversas');
     if (!env.HR_DB) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no Worker.' }, 400);
