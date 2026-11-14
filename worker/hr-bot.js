@@ -14522,8 +14522,9 @@ async function tplAutoEnv(env, ctx) {
   if (!l) { if (!(await env.HR_KV.get('tpl:tentou'))) { await env.HR_KV.put('tpl:tentou', '1', { expirationTtl: 1800 }); const pr = tplLista(env, true).catch(e => console.log('[TPL] lista:', e.message)); if (ctx && ctx.waitUntil) ctx.waitUntil(pr); } return; }
   for (const [chave, nomes] of Object.entries(TPL_MAPA)) {
     if (env[chave]) continue;
-    const t = l.find(x => nomes.includes(x.nome) && x.status === 'APPROVED' && /^pt/i.test(x.idioma || ''));
-    if (t) env[chave] = t.nome;
+    const t = l.find(x => nomes.includes(x.nome) && x.status === 'APPROVED' && /^pt/i.test(x.idioma || ''))
+      || (chave === 'TEMPLATE_RECADO' ? l.find(x => nomes.includes(x.nome) && x.status === 'APPROVED') : null); // o recado foi criado como "English", mas o texto é em português: usa o idioma dele
+    if (t) { env[chave] = t.nome; if (!/^pt/i.test(t.idioma || '')) env[chave + '_IDIOMA'] = t.idioma; }
   }
 }
 const TPL_PADRAO = [
@@ -14576,7 +14577,7 @@ async function tplComandoDono(env, from, msg) {
     const l = await tplLista(env, true).catch(e => { console.log('[TPL]', e.message); return null; });
     if (!l) { await enviar(env, from, 'Não consegui ler os modelos da Meta (o token do WhatsApp precisa da permissão de gerenciar a conta).'); return true; }
     const uso = {}; for (const [ch, ns] of Object.entries(TPL_MAPA)) for (const n of ns) uso[n] = ch.replace('TEMPLATE_', '').toLowerCase();
-    await enviar(env, from, `🧩 *Modelos da conta (${l.length})*\n${l.slice(0, 30).map(t => `• ${t.nome} (${t.idioma}): ${tplStatusPt(t.status)}${uso[t.nome] ? (t.status === 'APPROVED' && /^pt/i.test(t.idioma) ? ' → em uso pelo bot' : '') : ''}${!/^pt/i.test(t.idioma) ? ' ⚠️ está em inglês: recrie em Português (BR)' : ''}`).join('\n') || '(nenhum)'}${l.some(t => t.nome === 'hr_orcamento_pronto') ? '' : '\n\nPara criar os da HR: *criar modelos*.'}`);
+    await enviar(env, from, `🧩 *Modelos da conta (${l.length})*\n${l.slice(0, 30).map(t => `• ${t.nome} (${t.idioma}): ${tplStatusPt(t.status)}${uso[t.nome] ? (t.status === 'APPROVED' && /^pt/i.test(t.idioma) ? ' → em uso pelo bot' : '') : ''}${!/^pt/i.test(t.idioma) ? ' (marcado como inglês; o bot usa assim mesmo)' : ''}`).join('\n') || '(nenhum)'}${l.some(t => t.nome === 'hr_orcamento_pronto') ? '' : '\n\nPara criar os da HR: *criar modelos*.'}`);
     return true;
   }
   return false;
@@ -20239,7 +20240,7 @@ async function falarComFuncionario(env, f, texto, opts = {}) {
     try {
       const lin = t => String(t).replace(/\s*\n+\s*/g, ' · ').replace(/\s{4,}/g, '   ').trim().slice(0, 900); // a Meta não aceita quebra de linha na variável
       const p1 = opts.saud || `Fala, ${nome}!`, p2 = opts.saud ? texto : texto;
-      await postarMsg(env, f.tel, { type: 'template', template: { name: env.TEMPLATE_RECADO, language: { code: env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: lin(p1) }, { type: 'text', text: lin(p2) }] }] } });
+      await postarMsg(env, f.tel, { type: 'template', template: { name: env.TEMPLATE_RECADO, language: { code: env.TEMPLATE_RECADO_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: lin(p1) }, { type: 'text', text: lin(p2) }] }] } });
       if (opts.recado) await env.HR_KV.put('ponto:recpend:' + f.id, String(Date.now()), { expirationTtl: 86400 });
       return 'whatsapp';
     } catch (e) { console.log('[FUNC] modelo direto:', e.message); }
