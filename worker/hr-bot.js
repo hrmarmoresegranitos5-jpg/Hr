@@ -926,12 +926,94 @@ async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v81: RH QUE AVISA E AJUDA
+//   • pagar_folha: prepara o pagamento de todos (valores do app) → o dono confirma → registra no RH/Finanças (mesmo caminho do pagar_funcionario)
+//   • Aviso de chegada: 30 min depois do horário de entrada, quem ainda não bateu (dias úteis e sábado, fora feriado)
+//   • Aviso da folha: no dia em que o período fecha (8h), quanto cada um recebe + total, com botão "Pagar todos"
+//   RH_AVISOS=0 desliga os avisos.
+// ═════════════════════════════════════════════════════════════════════════════
+async function rhPrevias(env, filtro) {
+  const cfg = await pontoCfg(env), hoje = dataBahia(), out = [];
+  const tks = (filtro || []).map(n => normaliza(String(n)).split(' ')[0]).filter(Boolean);
+  for (const f of cfg.funcs) {
+    if (tks.length && !tks.some(t => normaliza(f.nome).split(' ').includes(t) || normaliza(f.nome).startsWith(t))) continue;
+    let pv = null; try { pv = JSON.parse((await env.HR_KV.get('ponto:previa:' + f.id)) || 'null'); } catch (_) {}
+    if (pv && pv.df < hoje) { const rp = await pontoRelPdf(env, f.id, pv.df); if (rp) pv = { ...pv, valor: rp.valor, status: rp.status, fin: rp.fin || pv.fin }; }
+    out.push({ f, pv });
+  }
+  return out;
+}
+async function rhFolhaPreparar(env, from, a) {
+  const lista = (await rhPrevias(env, a && a.funcionarios)).filter(x => x.pv && x.pv.status !== 'pago' && Number(x.pv.valor) > 0);
+  if (!lista.length) return { texto: 'Não há valores a pagar calculados pelo app (ou já estão pagos). Se acabou de mudar algo, peça ao Sr. Hangel para abrir o app por 1 minuto e pedir de novo. Diga isso em UMA frase.' };
+  const forma = ['dinheiro', 'pix', 'ted'].includes(a && a.forma) ? a.forma : 'pix';
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(String((a && a.data) || '')) ? a.data : dataBahia();
+  const itens = lista.map(x => ({ funcId: String(x.f.id), nome: x.f.nome, valor: Math.round(Number(x.pv.valor) * 100) / 100, per: x.pv.label || '', df: x.pv.df }));
+  const total = itens.reduce((t, x) => t + x.valor, 0);
+  await env.HR_KV.put('folha:pend', JSON.stringify({ itens, forma, data, em: Date.now() }), { expirationTtl: 6 * 3600 });
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Pagamento da folha', [...itens.map(x => `${x.nome}: R$ ${reais(x.valor)}${x.per ? ' (' + x.per + ')' : ''}`), `Total: *R$ ${reais(total)}*`, `Forma: ${forma} · data ${dataBR(data)}`, 'Confirmo e registro no RH e em Finanças?']),
+    [{ id: 'folha_ok', titulo: 'Confirmar pagamento' }, { id: 'folha_no', titulo: 'Cancelar' }]);
+  return { texto: 'A prévia da folha com os botões Confirmar/Cancelar já foi enviada ao Sr. Hangel. Responda apenas: "Confira os valores e toque em Confirmar."' };
+}
+async function rhFolhaBotao(env, from, id) {
+  if (id === 'folha_prep') { const r = await rhFolhaPreparar(env, from, {}); if (/Não há valores/.test(r.texto)) await enviar(env, from, 'Não há valores a pagar calculados pelo app agora (ou já foram pagos). Abra o app por 1 minuto e toque de novo.'); return true; }
+  const p = JSON.parse((await env.HR_KV.get('folha:pend')) || 'null');
+  if (!p) { await enviar(env, from, 'Essa prévia da folha expirou. Peça de novo: *pagar a folha*.'); return true; }
+  await env.HR_KV.delete('folha:pend');
+  if (id === 'folha_no') { await enviar(env, from, 'Certo, não registrei nenhum pagamento.'); return true; }
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  const funcs = (snap && snap.dados && Array.isArray(snap.dados.funcionarios)) ? snap.dados.funcionarios : [];
+  const feitos = [];
+  for (const it of p.itens) {
+    const f = funcs.find(x => String(x.id) === it.funcId) || (acharFuncionario(funcs, it.nome)[0]) || { id: it.funcId, nome: it.nome };
+    const base = Date.now(), rand = Math.floor(Math.random() * 900 + 100), k = 'pag:' + String(base).padStart(13, '0') + '-' + rand;
+    await env.HR_KV.put(k, JSON.stringify({ k, waId: 'wp' + base + rand, funcId: f.id, nome: f.nome, valor: it.valor, tipo: 'decendio', data: p.data, forma: p.forma, obs: ('Folha ' + (it.per || '')).trim(), socio: !!f.socio, importado: false }), { expirationTtl: 30 * 86400 });
+    feitos.push(`${f.nome}: R$ ${reais(it.valor)}`);
+  }
+  await env.HR_KV.put('cfg:flag:pag', String(Date.now()), { expirationTtl: 86400 }).catch(() => {});
+  await enviar(env, from, cartaoDono('Folha registrada', [...feitos, 'Entra no RH e em Finanças na próxima sincronização do app (app aberto). Para desfazer um, apague no RH → Histórico de pagamentos.']));
+  return true;
+}
+// avisos automáticos do RH (rotina do ponto e tick dos webhooks, no máximo a cada 10 min)
+async function rhAvisos(env) {
+  if (String(env.RH_AVISOS ?? '1') === '0') return;
+  if (await env.HR_KV.get('rh:av:tick')) return;
+  await env.HR_KV.put('rh:av:tick', '1', { expirationTtl: 600 });
+  const cfg = await pontoCfg(env); if (!cfg.funcs.length) return;
+  const ag = agoraBahia(), hoje = dataBahia();
+  if (ag.dia === 7 || (cfg.feriados || []).includes(hoje)) return;
+  const toMin = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
+  // 1) chegada
+  const ent = toMin((cfg.lemb && cfg.lemb.entrada) || '07:00');
+  if (isFinite(ent) && ag.min >= ent + 30 && ag.min < ent + 240 && !(await env.HR_KV.get('rh:av:cheg:' + hoje)) && await travaEnvio(env, 'rhcheg:' + hoje)) {
+    await env.HR_KV.put('rh:av:cheg:' + hoje, '1', { expirationTtl: 2 * 86400 });
+    const faltam = [];
+    for (const f of cfg.funcs) {
+      if (!(await env.HR_KV.get('ponto:fd:' + f.id))) continue; // só quem usa o HR Ponto
+      const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
+      if (!l.length) faltam.push(f.nome);
+    }
+    if (faltam.length) await notificarDono(env, Date.now(), cartaoDono('Ponto · ainda não bateram a entrada', [faltam.join(', '), `Já são ${hhmm(ag.min)}. Se chegaram e esqueceram, me diga o horário (ex.: *${String(faltam[0]).split(' ')[0]} entrou 7h*) que eu lanço.`]));
+  }
+  // 2) dia do pagamento: o período fecha hoje
+  if (ag.min >= 8 * 60 && ag.min < 18 * 60 && !(await env.HR_KV.get('rh:av:folha:' + hoje))) {
+    const lista = (await rhPrevias(env)).filter(x => x.pv && x.pv.df === hoje && x.pv.status !== 'pago' && Number(x.pv.valor) > 0);
+    if (lista.length && await travaEnvio(env, 'rhfolha:' + hoje)) {
+      await env.HR_KV.put('rh:av:folha:' + hoje, '1', { expirationTtl: 2 * 86400 });
+      const total = lista.reduce((t, x) => t + Number(x.pv.valor), 0);
+      await enviarComBotoes(env, numeroDono(env), cartaoDono('Folha · fecha hoje', [...lista.map(x => `${x.f.nome}: R$ ${reais(x.pv.valor)}${x.pv.label ? ' (' + x.pv.label + ')' : ''}`), `Total: *R$ ${reais(total)}*`, 'Valores do app até agora (mudam com as batidas de hoje).']),
+        [{ id: 'folha_prep', titulo: 'Pagar todos' }]).catch(e => falhou(env, 'rh: aviso da folha', e));
+    }
+  }
+}
+
 // v80b: PONTO pelo WhatsApp do dono — ver e lançar batidas (mesma gravação da rota /bot/ponto/ajuste, autor dono)
 async function ferrPontoFuncionario(env, a) {
   const cfg = await pontoCfg(env);
   const d = /^\d{4}-\d{2}-\d{2}$/.test(String(a.data || '')) ? a.data : dataBahia();
-  const nomes = (Array.isArray(a.funcionarios) ? a.funcionarios : [a.funcionarios]).map(x => String(x || '').trim()).filter(Boolean);
-  if (!nomes.length) return { erro: true, texto: 'Diga de qual funcionário.' };
+  let nomes = (Array.isArray(a.funcionarios) ? a.funcionarios : [a.funcionarios]).map(x => String(x || '').trim()).filter(Boolean);
+  if (!nomes.length || nomes.some(n => /^(todos|todo mundo|equipe|a equipe|geral)$/i.test(n))) nomes = cfg.funcs.map(f => f.nome); // v81: "quem está trabalhando?" = todos
   const hm = v => { const t = String(v || '').trim().replace(/h$/i, ':00').replace(/h(\d{2})$/i, ':$1'); const m = t.match(/^(\d{1,2})(?::(\d{2}))?$/); if (!m) return ''; const h = +m[1], mi = +(m[2] || 0); return h <= 23 && mi <= 59 ? String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0') : ''; };
   const novos = [['entrada', hm(a.entrada)], ['saida_almoco', hm(a.saida_almoco)], ['volta_almoco', hm(a.volta_almoco)], ['saida', hm(a.saida)]].filter(x => x[1]);
   const motivo = 'Lançado pelo Sr. Hangel no WhatsApp' + (a.motivo ? ': ' + String(a.motivo).slice(0, 80) : '');
@@ -1701,6 +1783,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
+  if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep') return rhFolhaBotao(env, from, id); // v81
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -8157,6 +8240,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'pagar_folha',
+    description: 'Prepara o PAGAMENTO DA FOLHA do período (decêndio/quinzena) com os valores calculados pelo app (os mesmos do relatório de ponto) e manda ao Sr. Hangel com botões Confirmar/Cancelar. Use para "paguei a folha", "pagar todo mundo", "pagar o Gibson e o Fabrício". Só registra depois que ele confirmar. Para pagar um valor diferente a uma pessoa, use pagar_funcionario.',
+    input_schema: { type: 'object', properties: { funcionarios: { type: 'array', items: { type: 'string' }, description: 'vazio = todos com valor a receber' }, forma: { type: 'string', enum: ['dinheiro', 'pix', 'ted'] }, data: { type: 'string', description: 'AAAA-MM-DD; vazio = hoje' } } },
+  },
+  {
     name: 'ponto_funcionario',
     description: 'PONTO DOS FUNCIONÁRIOS (HR Ponto): mostra as batidas de um dia (entrada, almoço, volta, saída) e LANÇA horários que o Sr. Hangel informar (ex.: "Fabrício e Lucas vão fazer extra hoje, entraram 7h e saem 16h"). Sem horários, só mostra o que já foi batido e diz o que falta. Os horários lançados entram no RH e no relatório de ponto. Pode lançar para vários funcionários de uma vez.',
     input_schema: { type: 'object', properties: {
@@ -8551,6 +8639,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   }
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
+  if (nome === 'pagar_folha') return await rhFolhaPreparar(env, from, a); // v81
   if (nome === 'fechar_pedido_cliente') { // v78b
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
@@ -8789,6 +8878,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
+      `- RH: "paguei a folha"/"pagar todo mundo" → pagar_folha (valores do app, o Sr. Hangel confirma). "quem está trabalhando?", "quem não chegou?" → ponto_funcionario com funcionarios=["todos"]. Um pagamento de valor específico a uma pessoa → pagar_funcionario.`,
       `- PONTO: para lançar ou ver horários de funcionários ("fulano entrou 7h", "vão fazer extra hoje, saem 16h", "que horas o Lucas chegou?"), chame ponto_funcionario. O app TEM registro de ponto (HR Ponto): nunca diga que não tem.`,
       `- FOLHA DOS FUNCIONÁRIOS: para "quanto o fulano vai receber (amanhã/no fim do período)", "quanto tenho de folha", "quanto devo a fulano", chame folha_funcionarios. Nunca responda que não há pagamento programado sem chamar essa ferramenta.`,
       `- Você TEM ACESSO à conversa completa de cada cliente com o bot (ver_conversa). Quando o Sr. Hangel perguntar como está/foi a conversa ou o atendimento de alguém, o que o cliente quer, ou pedir print/a conversa, chame ver_conversa (mostrar=true quando ele quer VER). Nunca diga que não tem acesso à conversa.`,
@@ -14795,6 +14885,7 @@ async function estTickLeve(env) {
   await confTickLeve(env).catch(() => {});
   await crmTick(env).catch(e => console.log('[CRM] tick:', e.message)); // v75
   await pdfImgTick(env).catch(e => console.log('[PDFIMG] tick:', e.message)); // v76
+  await rhAvisos(env).catch(e => console.log('[RH] avisos:', e.message)); // v81
   // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
   if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
@@ -21611,6 +21702,7 @@ async function pontoRotina(env) {
   const cfg = await pontoCfg(env);
   await pontoLembretes(env, cfg).catch(e => console.log('lembrete ponto', e && e.message)); // v35
   await pontoRelatorios(env, cfg).catch(e => console.log('relatório ponto', e && e.message)); // v40
+  await rhAvisos(env).catch(e => console.log('rh avisos', e && e.message)); // v81
   await pvRotina(env).catch(e => console.log('pós-venda', e && e.message)); // v46
   if (!cfg.funcs.length || !cfg.aviso) return;
   const hoje = dataBahia();
