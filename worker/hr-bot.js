@@ -845,8 +845,9 @@ async function orcEnvIniciarFluxo(env, from, o, texto) {
   if (!nome && crmAtivo(env)) { const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(normalizarBR(from)).first().catch(() => null); nome = (ct && (ct.nome || nomeDoPerfil(ct.perfil))) || ''; }
   let base = o.pedId ? await lerPedido(env, o.pedId).catch(() => null) : null;
   if (!base) base = await pedComPdfDoNumero(env, from, nome).catch(() => null);
+  if (!(base && Number(base.valor) > 0)) { const b2 = await pedComValorDoCliente(env, from, nome || (base && base.nome) || '').catch(() => null); if (b2) base = { ...b2, mediaId: (base && base.mediaId) || b2.mediaId }; } // v79b: o PDF encaminhado não traz o valor: acha o pedido do mesmo cliente
   if (!nome && base) nome = base.nome || '';
-  const pn = nomeDeTratamento(nome), valor = (base && Number(base.valor)) || o.valor || 0;
+  const pn = nomeDeTratamento(nome), valor = Number(o.valor) || (base && Number(base.valor)) || 0;
   let novo = null;
   if (valor > 0) {
     novo = { ...(base || {}), id: String(Date.now()), origem: 'pdf_dono', pedOrigem: base ? base.id : null, numero: from, nome: nome || (base && base.nome) || '', valor,
@@ -859,19 +860,53 @@ async function orcEnvIniciarFluxo(env, from, o, texto) {
     await gravarCliente(env, from, { pedidoId: novo.id }).catch(() => {});
     if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
     await funilMarca(env, 'aprovou', novo).catch(() => {});
-    await enviarComBotoes(env, from, `${pn ? pn + ', o' : 'O'} seu pedido está confirmado! ${novo.sinalOferta ? textoSinal(novo) + ' Como prefere?' : 'O pagamento será na entrega ou prefere fazer o Pix agora?'}`, botoesPagamento(novo));
+    await enviarComBotoes(env, from, `${o.valorPerguntado ? (pn ? pn + ', s' : 'S') + 'obre o pagamento:' : (pn ? pn + ', o' : 'O') + ' seu pedido está confirmado!'} ${novo.sinalOferta ? textoSinal(novo) + ' Como prefere?' : 'O pagamento será na entrega ou prefere fazer o Pix agora?'}`, botoesPagamento(novo));
     await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento (R$ ${reais(valor)}). Agora o bot pergunta a forma de pagamento, depois entrega ou retirada e a localização. Não peça nota e não diga que vai "repassar".]`).catch(() => {});
+  } else if (!o.valorPerguntado) { // v79b: sem o valor, pergunta ao dono e segue assim que ele responder
+    o.valorPerguntado = Date.now(); await env.HR_KV.put('orcenv:' + normalizarBR(from), JSON.stringify(o), { expirationTtl: 15 * 86400 });
+    await env.HR_KV.put('orcenv:valor:aguarda', normalizarBR(from), { expirationTtl: 6 * 3600 });
+    await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado. Já te passo as próximas etapas por aqui.`);
+    await enviar(env, numeroDono(env), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), ['Não achei o valor do orçamento no bot.', 'O que fazer: responda só o valor (ex.: *594,38*) que eu sigo com ela: pagamento, entrega e localização.'], from));
+    return null;
   } else { // sem o valor do orçamento não há como cobrar pelo bot: confirma e o dono combina
     await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.`);
     await anotarNoHistorico(env, from, '[O cliente FECHOU o orçamento enviado em PDF. A equipe vai combinar pagamento e entrega. Não peça nota e não diga que vai "repassar" de novo.]').catch(() => {});
   }
-  await notificarDono(env, Date.now(), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), [
+  if (!(novo && o.valorPerguntado)) await notificarDono(env, Date.now(), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), [
     valor ? `Valor do orçamento: R$ ${reais(valor)}` : null,
     texto ? `Confirmou: "${String(texto).replace(/\s+/g, ' ').slice(0, 140)}"` : 'Fechado pelo senhor.',
     novo ? 'Situação: o bot está perguntando o pagamento (Pix ou na entrega), entrega ou retirada e a localização. A ficha chega ao senhor no fim.'
       : 'O que fazer: não achei o valor do orçamento no bot. Combine o pagamento e a entrega com ela.',
   ], from));
   return novo;
+}
+async function pedComValorDoCliente(env, num, nome) {
+  const alvo = normalizarBR(num), nm = normaliza(String(nome || '')).split(' ').filter(w => w.length > 2)[0] || '';
+  const quando = p => p.atualizado || p.criado || Number(String(p.id || '').replace(/\D/g, '').slice(0, 13)) || 0;
+  let melhor = null;
+  const l = await env.HR_KV.list({ prefix: 'ped:', limit: 500 }).catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    try {
+      const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!p || !(Number(p.valor) > 0) || p.origem === 'pdf_dono') continue;
+      if (Date.now() - quando(p) > 20 * 86400000) continue;
+      const casa = normalizarBR(p.numeroCliente || '') === alvo || (p.origem !== 'dono' && normalizarBR(p.numero || '') === alvo) || (nm && normaliza(p.nome || '').split(' ').includes(nm));
+      if (casa && (!melhor || quando(p) > quando(melhor))) melhor = p;
+    } catch (_) {}
+  }
+  return melhor;
+}
+// o dono responde o valor pedido no cartão "Pedido fechado" (só o número)
+async function orcEnvValorDono(env, from, msg) {
+  const num = await env.HR_KV.get('orcenv:valor:aguarda'); if (!num) return false;
+  const v = /^(r\$\s*)?\d{1,3}(\.?\d{3})*(,\d{1,2})?$|^(r\$\s*)?\d+(\.\d{1,2})?$/.test(String(msg).trim()) ? extrairValor(String(msg)) : null;
+  if (!v || !(v.n > 0)) return false;
+  await env.HR_KV.delete('orcenv:valor:aguarda');
+  let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + num)) || 'null'); } catch (_) {}
+  o = o || { pedId: null, nome: '', em: Date.now(), fechado: Date.now() };
+  o.valor = v.n; await env.HR_KV.put('orcenv:' + num, JSON.stringify(o), { expirationTtl: 15 * 86400 });
+  const novo = await orcEnvIniciarFluxo(env, num, o, '');
+  if (novo) await enviar(env, from, `Certo, R$ ${reais(v.n)}. Já perguntei a forma de pagamento a ${novo.nome || 'ela'}; depois sigo com a entrega e a localização.`);
+  return true;
 }
 async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
@@ -6021,7 +6056,8 @@ async function pedirAvaliacoes(env) {
       if (!c || !c.ultimaEm || !Array.isArray(c.hist)) continue;
       if (c.hist.filter(h => h.role === 'user').length < 2) continue;                 // conversa de verdade, não só um "oi"
       const ociosoC = agora - c.ultimaEm;
-      if (!c.resumoDono && !c.concluido && ociosoC >= AVAL_OCIOSO_MS && ociosoC <= 3 * 86400000 && !ehDono(env, from) && !(await env.HR_KV.get('humano:' + from)) && !(await pedidoIdDoCliente(env, from))) {
+      if (!c.resumoDono && !c.concluido && ociosoC >= AVAL_OCIOSO_MS && ociosoC <= 3 * 86400000 && !ehDono(env, from) && !(await env.HR_KV.get('humano:' + from)) && !(await pedidoIdDoCliente(env, from))
+        && !(await env.HR_KV.get('orcenv:' + normalizarBR(from))) && await travaEnvio(env, 'resumo:' + from)) { // v79b: uma vez só, e não quando há orçamento do dono em andamento
         c.resumoDono = agora; // o cliente parou no meio do atendimento: o dono fica sabendo onde
         const nm = (c.dados && c.dados.nome) || await nomeParaDono(env, from);
         const col = [c.dados && c.dados.cor && 'pedra ' + c.dados.cor, c.dados && pecasOk(c.dados) && textoPecas(c.dados.pecas)].filter(Boolean).join('; ');
@@ -13644,6 +13680,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await tplComandoDono(env, from, msg)) return; // v73
     if (await estComandoDono(env, from, bruto, msg)) return; // v69
     if (await despachoComandoDono(env, from, bruto, msg)) return; // v79
+    if (await orcEnvValorDono(env, from, bruto).catch(e => { console.log('[ORCENV] valor:', e.message); return false; })) return; // v79b
     if (await igComandoDono(env, from, msg)) return; // v65
     if (await tratarAssumir(env, from, bruto, msg)) return;
     if (await tratarApelido(env, from, bruto, msg)) return;
