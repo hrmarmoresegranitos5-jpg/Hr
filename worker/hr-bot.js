@@ -1,3 +1,4 @@
+// v69b (13/11/2026): análise do Instagram roda na hora (modo rápido) e a rotina só refaz se falhar; "cadê?" reativa; a assistente do dono sabe dos comandos do Instagram
 // v69 (13/11/2026): ESTÚDIO DE POSTS — foto/vídeo no WhatsApp → legenda pela IA (+ edição no computador: hr-editor.mjs) → prévia com botões → Reels/Story/Feed/Carrossel, na hora ou agendado
 // v68 (13/11/2026): ANÁLISE DO INSTAGRAM — "instagram analise": lê os posts/reels com estatísticas, olha as capas dos melhores e manda o que viraliza + 10 ideias com roteiro
 // v67 (13/11/2026): Instagram oferece o NÚMERO do WhatsApp (resposta com botão, pedido de contato, comentários, lembrete; IG_NUMERO_PUBLICO=0 tira dos comentários públicos);
@@ -8094,8 +8095,9 @@ async function responderAgente(env, from, bruto, F, voz) {
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
       `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
-      `COMO RACIOCINAR:`,
+      `COMO RACIOCINAR:`
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
       `- Se faltar uma informação indispensável, faça UMA pergunta objetiva e curta. Se ele disser que você agiu errado ou der uma instrução sobre o seu comportamento, reconheça com clareza, explique o que vai fazer diferente e, se já puder, faça.`,
       `- Responda SOMENTE com base nos dados acima e no histórico. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso. Confira contas e somas com cuidado.`,
@@ -13725,7 +13727,7 @@ async function igLerPosts(env) {
   return { posts: out, comInsights };
 }
 function igNota(p) { return (p.views || p.alcance) ? (p.views || p.alcance) + p.salv * 40 + p.comp * 60 + p.com * 20 + p.curt * 5 : p.curt * 5 + p.com * 20; }
-async function igAnaliseTexto(env) {
+async function igAnaliseTexto(env, rapido = false) {
   const { posts, comInsights } = await igLerPosts(env);
   if (posts.length < 3) return 'Sr. Hangel, a conta ainda tem poucos posts para analisar. Assim que tiver mais, eu faço.';
   posts.forEach(p => { p.nota = igNota(p); const d = new Date(p.quando); p.dia = DIAS_SEMANA[new Date(d.getTime() - 3 * 3600000).getUTCDay()]; p.hora = (d.getUTCHours() + 21) % 24; });
@@ -13735,11 +13737,11 @@ async function igAnaliseTexto(env) {
   let capas = '';
   if (String(env.AI_PROVIDER || '').toLowerCase() === 'anthropic' && env.AI_KEY) {
     const imgs = [];
-    for (const p of top.slice(0, 5)) { if (!p.capa) continue; try { const { buf, tipo } = await igBaixar(p.capa, 4 * 1024 * 1024); imgs.push({ type: 'image', source: { type: 'base64', media_type: /png|webp/.test(tipo) ? tipo : 'image/jpeg', data: bufB64(buf) } }); } catch (_) {} }
+    for (const p of top.slice(0, rapido ? 3 : 5)) { if (!p.capa) continue; try { const { buf, tipo } = await igBaixar(p.capa, 4 * 1024 * 1024); imgs.push({ type: 'image', source: { type: 'base64', media_type: /png|webp/.test(tipo) ? tipo : 'image/jpeg', data: bufB64(buf) } }); } catch (_) {} }
     if (imgs.length) {
       try {
         const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-          body: JSON.stringify({ model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: 700, system: 'Você é especialista em conteúdo de Instagram para marmorarias. Descreva o padrão visual destas capas (as dos posts que mais deram resultado): enquadramento, o que aparece, pessoas, antes/depois, texto na tela, cores, luz. Português, objetivo, até 8 linhas.', messages: [{ role: 'user', content: [...imgs, { type: 'text', text: 'Capas dos posts de melhor desempenho, em ordem.' }] }] }) });
+          body: JSON.stringify({ model: rapido ? 'claude-haiku-5-5' : modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: 500, system: 'Você é especialista em conteúdo de Instagram para marmorarias. Descreva o padrão visual destas capas (as dos posts que mais deram resultado): enquadramento, o que aparece, pessoas, antes/depois, texto na tela, cores, luz. Português, objetivo, até 8 linhas.', messages: [{ role: 'user', content: [...imgs, { type: 'text', text: 'Capas dos posts de melhor desempenho, em ordem.' }] }] }) });
         const j = await r.json().catch(() => null); if (r.ok) capas = (j.content || []).map(b => b.text || '').join('').trim();
       } catch (_) {}
     }
@@ -13759,17 +13761,21 @@ async function igAnaliseTexto(env) {
     + 'Ideias realistas para quem grava sozinho na obra (antes/depois, corte da pedra, instalação, reação do cliente, dica rápida, erro comum, comparação de pedras, bastidores). '
     + 'Termine com *Para gravar esta semana*: as 3 melhores ideias. Não invente números; se os dados forem poucos, diga. '
     + 'Responda SOMENTE em JSON: {"resposta":"o relatório completo, com quebras de linha"}';
-  const r = await chamarIA(env, sis, [], dados, { maxTokens: 3500, timeoutMs: 120000, model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5') });
+  const r = await chamarIA(env, sis, [], dados, rapido ? { maxTokens: 2600, timeoutMs: 21000, model: 'claude-haiku-5-5' } : { maxTokens: 3500, timeoutMs: 240000, model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5') });
   const txt = String(lerJsonIA(r).resposta || '').trim();
   if (!txt) throw new Error('a IA não devolveu o relatório');
   return `📊 *Análise do Instagram da HR*\n\n${txt}${top[0] && top[0].link ? `\n\n🔝 Post que mais deu resultado: ${top[0].link}` : ''}`;
 }
-async function igAnaliseRotina(env) {
+async function igAnaliseRotina(env, rapido = false) {
   const pedido = await env.HR_KV.get('ig:analise:pedida'); if (!pedido) return;
-  await env.HR_KV.delete('ig:analise:pedida');
-  let t; try { t = await igAnaliseTexto(env); } catch (e) { t = `Sr. Hangel, não consegui ler os posts do Instagram (${String(e.message).slice(0, 150)}). Pode faltar a permissão de estatísticas no token: me avise que eu passo o caminho.`; }
+  if (await env.HR_KV.get('ig:analise:rodando')) return;
+  await env.HR_KV.put('ig:analise:rodando', '1', { expirationTtl: rapido ? 60 : 900 });
+  let t; try { t = await igAnaliseTexto(env, rapido); } catch (e) {
+    if (rapido) { console.log('[IG] análise rápida:', e.message); await env.HR_KV.delete('ig:analise:rodando'); return; } // a rotina tenta de novo com calma
+    t = `Sr. Hangel, não consegui ler os posts do Instagram (${String(e.message).slice(0, 150)}). Pode faltar a permissão de estatísticas no token: me avise que eu passo o caminho.`; }
   const dono = numeroDono(env);
   for (const parte of String(t).match(/[\s\S]{1,3800}(?:\n|$)/g) || [t]) await enviar(env, dono, parte.trim());
+  await env.HR_KV.delete('ig:analise:pedida'); await env.HR_KV.delete('ig:analise:rodando');
   await env.HR_KV.put('ig:analise:ultima', String(Date.now()), { expirationTtl: 60 * 86400 });
   if (t && t.length > 200) await env.HR_KV.put('ig:analise:estilo', String(t).slice(0, 2500), { expirationTtl: 120 * 86400 });
 }
@@ -14072,7 +14078,17 @@ async function rotaEditor(req, env, url) {
 async function igComandoDono(env, from, msg) {
   if (/^((instagram|insta|ig) (analise|analisar|ideias|estudo|estudar)|ideias? de (video|videos|post|posts|reels)|analisar (o )?instagram)$/.test(msg)) {
     await env.HR_KV.put('ig:analise:pedida', '1', { expirationTtl: 86400 });
-    await enviar(env, from, 'Certo, Sr. Hangel! Vou estudar os posts e reels da HR (o que mais deu visualização, salvamento e compartilhamento, as capas, os dias e horários) e montar ideias de vídeo com roteiro. Mando aqui em até 15 minutos. 📊');
+    await env.HR_KV.delete('ig:analise:rodando');
+    await enviar(env, from, 'Certo, Sr. Hangel! Vou estudar os posts e reels da HR (o que mais deu visualização, salvamento e compartilhamento, as capas, os dias e horários) e montar ideias de vídeo com roteiro. Mando aqui em instantes. 📊');
+    const tarefa = igAnaliseRotina(env, true).catch(e => console.log('[IG] análise:', e.message));
+    if (env._waitUntil) env._waitUntil(tarefa); else await tarefa;
+    return true;
+  }
+  if (/^(cade|cadê|e a analise|e ai a analise|nao chegou|ainda nao chegou|cade a analise)\??$/.test(msg) && await env.HR_KV.get('ig:analise:pedida')) {
+    await env.HR_KV.delete('ig:analise:rodando');
+    await enviar(env, from, 'Desculpe a demora, Sr. Hangel! A análise do Instagram ainda está sendo montada. Já mandei rodar de novo agora.');
+    const tarefa = igAnaliseRotina(env, true).catch(e => console.log('[IG] análise:', e.message));
+    if (env._waitUntil) env._waitUntil(tarefa); else await tarefa;
     return true;
   }
   const m = msg.match(/^(?:instagram|insta|ig)\s+(pausar|parar|desligar|ligar|voltar|religar|resumo|status)$/) || msg.match(/^(pausar|parar|desligar|ligar|voltar|religar|resumo) (?:o )?(?:instagram|insta)$/);
