@@ -15059,9 +15059,77 @@ async function acvLista(env) { try { return JSON.parse((await env.HR_KV.get('acv
 async function acvLer(env, id) { try { return JSON.parse((await env.HR_KV.get('acv:o:' + id)) || 'null'); } catch (_) { return null; } }
 async function acvGravar(env, o) { await env.HR_KV.put('acv:o:' + o.id, JSON.stringify(o)); const l = await acvLista(env); if (!l.includes(o.id)) { l.push(o.id); await env.HR_KV.put('acv:lista', JSON.stringify(l.slice(-400))); } }
 async function acvParaPC(env, o) {
+  if (o.origem === 'instagram' && Date.now() - (o.urlEm || 0) > 6 * 3600000) await igRenovarUrls(env, o).catch(() => {});
   const midias = [];
-  for (const [i, x] of (o.midias || []).entries()) midias.push({ n: i + 1, capa: x.tipo === 'video' && !x.pf, tipo: x.tipo, nome: `${String(i + 1).padStart(2, '0')}.${x.tipo === 'video' ? 'mp4' : (/png/.test(x.mime) ? 'png' : 'jpg')}`, url: x.md ? await mdUrl(env, x.md, x.mime) : '', w: x.w || 0, h: x.h || 0 });
+  for (const [i, x] of (o.midias || []).entries()) midias.push({ n: i + 1, capa: x.tipo === 'video' && !x.pf && o.origem !== 'instagram', tipo: x.tipo, nome: `${String(i + 1).padStart(2, '0')}.${x.tipo === 'video' ? 'mp4' : (/png/.test(x.mime) ? 'png' : 'jpg')}`, url: x.md ? await mdUrl(env, x.md, x.mime) : (x.url || ''), w: x.w || 0, h: x.h || 0 });
   return { id: o.id, desc: o.desc, cat: o.cat, pedra: o.pedra, midias };
+}
+// ── v89: posts antigos do Instagram viram obras (álbum + material para os vídeos do dia) ──
+function igTituloDaLegenda(cap, quando) {
+  let t = String(cap || '').split('\n').map(x => x.trim()).find(x => x && !/^#/.test(x)) || '';
+  t = t.replace(/#[\wÀ-ú]+/g, '').replace(/@[\w.]+/g, '').replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '').replace(/\s+/g, ' ').trim();
+  if (t.length > 60) t = t.slice(0, 60).replace(/\s+\S*$/, '') + '…';
+  return t || 'Obra de ' + new Date(quando).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Bahia' });
+}
+async function igRenovarUrls(env, o) {
+  const j = await igApi(env, `/${o.igId}?fields=media_type,media_url,thumbnail_url,children{media_type,media_url}`);
+  const filhos = j.children && j.children.data ? j.children.data : [j];
+  o.midias.forEach((x, i) => { const f = filhos[i]; if (f && f.media_url) x.url = f.media_url; });
+  o.urlEm = Date.now(); await acvGravar(env, o);
+}
+async function igImportarAntigos(env, max) {
+  let cur = await env.HR_KV.get('ig:imp:cur');
+  if (cur === 'fim') return { novos: 0, resta: false };
+  const campos = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,children{media_type,media_url,thumbnail_url}';
+  let novos = 0, url = cur || `/me/media?fields=${campos}&limit=25`;
+  while (url && novos < max) {
+    const j = await igApi(env, url);
+    for (const m of (j.data || [])) {
+      if (novos >= max) break;
+      if (await env.HR_KV.get('ig:imp:' + m.id)) continue;
+      await env.HR_KV.put('ig:imp:' + m.id, '1', { expirationTtl: 400 * 86400 });
+      const quando = Date.parse(m.timestamp) || Date.now();
+      const filhos = m.media_type === 'CAROUSEL_ALBUM' && m.children ? m.children.data.slice(0, 10) : [m];
+      const o = await acvNovaObra(env, igTituloDaLegenda(m.caption, quando));
+      Object.assign(o, { origem: 'instagram', igId: m.id, permalink: m.permalink, jaPostado: true, postadoEm: quando, criado: quando, atualizado: quando, urlEm: Date.now(), semNome: false });
+      o.midias = filhos.map(f => ({ tipo: f.media_type === 'VIDEO' ? 'video' : 'foto', mime: f.media_type === 'VIDEO' ? 'video/mp4' : 'image/jpeg', url: f.media_url || '', ig: true, em: quando }));
+      for (const [i, f] of filhos.slice(0, 4).entries()) { // imagens para o álbum do site (capa do vídeo ou a própria foto)
+        const u = f.media_type === 'VIDEO' ? (f.thumbnail_url || m.thumbnail_url) : f.media_url; if (!u) continue;
+        try { const r = await fetch(u); if (!r.ok) continue; const buf = await r.arrayBuffer(); if (buf.byteLength < 2000 || buf.byteLength > 1300 * 1024) continue; o.midias[i].pf = await acvPortfolioAdd(env, o, buf, 'image/jpeg', quando); } catch (_) {}
+      }
+      await acvGravar(env, o); novos++;
+    }
+    url = j.paging && j.paging.next ? j.paging.next.replace(/^https:\/\/graph\.instagram\.com\/v[\d.]+/, '') : '';
+    await env.HR_KV.put('ig:imp:cur', url || 'fim', { expirationTtl: 30 * 86400 });
+    if (!url) break;
+  }
+  return { novos, resta: !!url };
+}
+async function obrasDados(env) {
+  const pf = (await lerPortfolio(env)).filter(i => i && i.tipo === 'trabalho' && i.origem !== 'app');
+  const grupos = new Map(), soltos = [];
+  for (const i of pf) { if (i.obraId) { if (!grupos.has(i.obraId)) grupos.set(i.obraId, []); grupos.get(i.obraId).push(i); } else soltos.push(i); }
+  const cap = t => { t = String(t || '').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
+  const obras = [];
+  for (const [id, its] of grupos) {
+    const o = await acvLer(env, id);
+    const t0 = o && !o.semNome ? o.desc : (its[0].legenda || '');
+    const cat = (o && o.cat) || its[0].cat || '';
+    obras.push({ id, t: cap(o && o.semNome ? (cat ? cat + (o.pedra ? ' em ' + o.pedra : '') : 'Obra') : t0) || 'Obra', cat, pedra: (o && o.pedra) || its[0].pedraNome || '', data: (o && (o.postadoEm || o.criado)) || its[0].em || 0, fotos: its.sort((a, b) => (a.em || 0) - (b.em || 0)).map(i => i.id), ig: (o && o.permalink) || '', v: !!(o && (o.midias || []).some(x => x.tipo === 'video')) });
+  }
+  for (const i of soltos) obras.push({ id: 'f' + i.id, t: cap(i.legenda) || 'Obra', cat: i.cat || '', pedra: i.pedraNome || '', data: i.em || 0, fotos: [i.id], ig: '' });
+  obras.sort((a, b) => b.data - a.data);
+  return { empresa: env.EMPRESA || 'HR Mármores e Granitos', logo: /^https:\/\//.test(String(env.LOGO_URL || '')) ? env.LOGO_URL : '', whatsapp: String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await igNumeroWhats(env).catch(() => '')), obras };
+}
+const OBRAS_HTML = "<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<title>Serviços feitos · HR Mármores e Granitos</title>\n<meta name=\"description\" content=\"Álbum de obras da HR Mármores e Granitos: cozinhas, banheiros, escadas, soleiras e peitoris em pedra natural, em Pilão Arcado — BA e região.\">\n<meta name=\"theme-color\" content=\"#0f0e0c\">\n<meta property=\"og:title\" content=\"Serviços feitos · HR Mármores e Granitos\">\n<meta property=\"og:description\" content=\"Veja as obras que saíram da nossa oficina.\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Manrope:wght@400;500;600;700&display=swap\" rel=\"stylesheet\">\n<style>\n:root{--noite:#0f0e0c;--pedra:#171512;--pedra2:#1f1c18;--linha:#2e2a24;--ouro:#c9a45c;--ouro2:#e3c88f;--creme:#f3eee5;--t2:#b9b0a2;--t3:#8a8276;--serif:'Cormorant Garamond',Georgia,serif;--sans:'Manrope',system-ui,sans-serif}\n*{box-sizing:border-box;margin:0;padding:0}\nbody{background:var(--noite);color:var(--creme);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}\na{color:inherit;text-decoration:none}\nbutton{font:inherit;color:inherit;background:none;border:0;cursor:pointer}\n.wrap{max-width:1180px;margin:0 auto;padding:0 20px}\nheader{padding:34px 0 8px}\n.topo{display:flex;align-items:center;justify-content:space-between;gap:12px}\n.marca{display:flex;align-items:center;gap:12px}\n.marca img{width:44px;height:44px;border-radius:50%;object-fit:cover;border:1px solid var(--linha)}\n.marca b{font-family:var(--serif);font-size:1.25rem;font-weight:600;letter-spacing:.01em}\n.marca span{display:block;font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;color:var(--t3)}\n.zap{border:1px solid var(--ouro);color:var(--ouro2);padding:9px 16px;border-radius:99px;font-size:.85rem;font-weight:600;white-space:nowrap}\n.olho{font-size:.72rem;letter-spacing:.24em;text-transform:uppercase;color:var(--ouro);font-weight:600;margin-top:38px}\nh1{font-family:var(--serif);font-weight:500;font-size:clamp(2.4rem,7vw,4rem);line-height:1.02;margin-top:10px}\nh1 i{color:var(--ouro2)}\n.sub{color:var(--t2);max-width:560px;margin-top:12px}\n.nums{display:flex;gap:26px;margin-top:22px}\n.nums div b{display:block;font-family:var(--serif);font-size:2rem;color:var(--ouro2);line-height:1}\n.nums div span{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--t3)}\n.chips{position:sticky;top:0;z-index:5;background:linear-gradient(var(--noite) 80%,transparent);padding:18px 0 14px;margin-top:22px}\n.chips .rol{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}\n.chips .rol::-webkit-scrollbar{display:none}\n.chip{flex-shrink:0;padding:9px 16px;border-radius:99px;border:1px solid var(--linha);font-size:.85rem;color:var(--t2);background:var(--pedra)}\n.chip.on{background:var(--ouro);border-color:var(--ouro);color:#1a1408;font-weight:700}\n.chip small{opacity:.7;margin-left:4px}\n.grade{columns:2 140px;column-gap:10px;padding-bottom:60px}\n@media(min-width:760px){.grade{columns:3 260px;column-gap:16px}}\n.card{break-inside:avoid;margin-bottom:12px;border-radius:16px;overflow:hidden;background:var(--pedra);border:1px solid var(--linha);cursor:pointer;position:relative;display:block;width:100%;text-align:left;transition:transform .25s,border-color .25s}\n.card:hover{transform:translateY(-3px);border-color:#4a4236}\n.card img{width:100%;display:block;background:var(--pedra2);min-height:120px;object-fit:cover}\n.card .info{padding:12px 14px 14px}\n.card .t{font-family:var(--serif);font-size:1.18rem;font-weight:600;line-height:1.15}\n.card .m{font-size:.74rem;color:var(--t3);margin-top:5px;display:flex;gap:8px;flex-wrap:wrap}\n.card .q{position:absolute;top:10px;right:10px;background:rgba(15,14,12,.72);backdrop-filter:blur(6px);padding:4px 9px;border-radius:99px;font-size:.7rem;font-weight:600}\n.card .novo{position:absolute;top:10px;left:10px;background:var(--ouro);color:#1a1408;padding:4px 9px;border-radius:99px;font-size:.66rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}\n.vazio{color:var(--t3);text-align:center;padding:60px 0}\n.cta{border-top:1px solid var(--linha);padding:40px 0 60px;text-align:center}\n.cta h2{font-family:var(--serif);font-weight:500;font-size:2rem}\n.cta p{color:var(--t2);margin:8px 0 18px}\n.bt{display:inline-block;background:var(--ouro);color:#1a1408;font-weight:700;padding:14px 26px;border-radius:99px}\n/* visualizador */\n.vis{position:fixed;inset:0;z-index:20;background:#000;display:flex;flex-direction:column}\n.vis[hidden]{display:none}\n.vis .bar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;gap:10px;position:absolute;top:0;left:0;right:0;z-index:2;background:linear-gradient(rgba(0,0,0,.7),transparent)}\n.vis .bar b{font-family:var(--serif);font-size:1.2rem;font-weight:600}\n.vis .bar span{font-size:.75rem;color:var(--t2);display:block}\n.vis .x{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.12);font-size:1.2rem;flex-shrink:0}\n.trilho{flex:1;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}\n.trilho::-webkit-scrollbar{display:none}\n.trilho figure{flex:0 0 100%;scroll-snap-align:center;display:flex;align-items:center;justify-content:center}\n.trilho img{max-width:100%;max-height:100vh;object-fit:contain}\n.vis .pe{position:absolute;bottom:0;left:0;right:0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.85));display:flex;flex-direction:column;gap:12px;align-items:center}\n.pontos{display:flex;gap:6px}\n.pontos i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35)}\n.pontos i.on{background:var(--ouro2);width:18px;border-radius:4px}\n.acoes{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}\n.acoes a{padding:12px 18px;border-radius:99px;font-size:.88rem;font-weight:700}\n.acoes .a1{background:var(--ouro);color:#1a1408}\n.acoes .a2{border:1px solid rgba(255,255,255,.35)}\n.seta{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);font-size:1.4rem;z-index:2;display:none}\n@media(hover:hover){.seta{display:block}}\n.seta.e{left:14px}.seta.d{right:14px}\n</style>\n</head>\n<body>\n<header class=\"wrap\">\n  <div class=\"topo\">\n    <a class=\"marca\" href=\"#\" id=\"marca\"><img id=\"logo\" alt=\"\" hidden><div><b>HR Mármores e Granitos</b><span>Pilão Arcado — BA</span></div></a>\n    <a class=\"zap\" id=\"zapTopo\" href=\"#\" target=\"_blank\" rel=\"noopener\">Orçamento</a>\n  </div>\n  <div class=\"olho\">Álbum de obras</div>\n  <h1>Serviços <i>feitos</i></h1>\n  <p class=\"sub\">Cozinhas, banheiros, escadas, soleiras e peitoris que saíram da nossa oficina. Toque numa obra para ver as fotos.</p>\n  <div class=\"nums\" id=\"nums\"></div>\n</header>\n<div class=\"chips\"><div class=\"wrap\"><div class=\"rol\" id=\"chips\"></div></div></div>\n<main class=\"wrap\"><div class=\"grade\" id=\"grade\"><div class=\"vazio\">Carregando as obras…</div></div></main>\n<section class=\"cta wrap\"><h2>Quer uma obra assim?</h2><p>Orçamento sem compromisso. O projeto pode ser parcelado em até 10x sem juros no cartão.</p><a class=\"bt\" id=\"zapFim\" href=\"#\" target=\"_blank\" rel=\"noopener\">Falar no WhatsApp</a></section>\n\n<div class=\"vis\" id=\"vis\" hidden>\n  <div class=\"bar\"><div><b id=\"vT\"></b><span id=\"vM\"></span></div><button class=\"x\" id=\"vX\" aria-label=\"Fechar\">✕</button></div>\n  <button class=\"seta e\" id=\"vE\" aria-label=\"Anterior\">‹</button><button class=\"seta d\" id=\"vD\" aria-label=\"Próxima\">›</button>\n  <div class=\"trilho\" id=\"trilho\"></div>\n  <div class=\"pe\"><div class=\"pontos\" id=\"pontos\"></div><div class=\"acoes\" id=\"vA\"></div></div>\n</div>\n<script>\n(function(){\n  var $=function(i){return document.getElementById(i)};\n  var D=null,FILTRO='todos',ABERTA=null;\n  var CAT={cozinha:'Cozinhas',banheiro:'Banheiros',lavabo:'Lavabos',escada:'Escadas',soleira:'Soleiras',peitoril:'Peitoris',varanda:'Varandas',piso:'Pisos',tumulo:'Túmulos',jazigo:'Jazigos'};\n  var MES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];\n  function esc(s){return String(s==null?'':s).replace(/[&<>\"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]})}\n  function img(id){return 'portfolio/img/obra/'+encodeURIComponent(id)}\n  function zap(txt){return D&&D.whatsapp?'https://wa.me/'+D.whatsapp+'?text='+encodeURIComponent(txt):'#'}\n  function data(t){var d=new Date(t);return MES[d.getMonth()]+'/'+String(d.getFullYear()).slice(2)}\n  function lista(){return (D.obras||[]).filter(function(o){return FILTRO==='todos'||(FILTRO==='outros'?!CAT[o.cat]:o.cat===FILTRO)})}\n  function chips(){\n    var cont={};(D.obras||[]).forEach(function(o){var k=CAT[o.cat]?o.cat:'outros';cont[k]=(cont[k]||0)+1});\n    var ks=Object.keys(CAT).filter(function(k){return cont[k]});if(cont.outros)ks.push('outros');\n    $('chips').innerHTML='<button class=\"chip'+(FILTRO==='todos'?' on':'')+'\" data-f=\"todos\">Todas<small>'+D.obras.length+'</small></button>'+ks.map(function(k){return '<button class=\"chip'+(FILTRO===k?' on':'')+'\" data-f=\"'+k+'\">'+(CAT[k]||'Outras')+'<small>'+cont[k]+'</small></button>'}).join('');\n  }\n  function grade(){\n    var l=lista(),agora=Date.now();\n    $('grade').innerHTML=l.length?l.map(function(o){\n      var novo=agora-o.data<30*864e5;\n      return '<button class=\"card\" data-o=\"'+esc(o.id)+'\">'+(novo?'<span class=\"novo\">Novo</span>':'')+(o.fotos.length>1?'<span class=\"q\">'+o.fotos.length+' fotos</span>':'')\n        +'<img loading=\"lazy\" src=\"'+img(o.fotos[0])+'\" alt=\"'+esc(o.t)+'\"><div class=\"info\"><div class=\"t\">'+esc(o.t)+'</div><div class=\"m\">'\n        +[o.pedra?'<span>'+esc(o.pedra)+'</span>':'',CAT[o.cat]?'<span>'+CAT[o.cat].replace(/s$/,'')+'</span>':'','<span>'+data(o.data)+'</span>',o.v?'<span>▶ vídeo</span>':''].filter(Boolean).join('<span>·</span>')+'</div></div></button>'}).join(''):'<div class=\"vazio\">Nenhuma obra nesta categoria ainda.</div>';\n  }\n  function abrir(o,i){\n    ABERTA=o;$('vT').textContent=o.t;$('vM').textContent=[o.pedra,CAT[o.cat]?CAT[o.cat].replace(/s$/,''):'',data(o.data)].filter(Boolean).join(' · ');\n    $('trilho').innerHTML=o.fotos.map(function(f){return '<figure><img src=\"'+img(f)+'\" alt=\"'+esc(o.t)+'\"></figure>'}).join('');\n    $('pontos').innerHTML=o.fotos.length>1?o.fotos.map(function(_,k){return '<i'+(k===0?' class=\"on\"':'')+'></i>'}).join(''):'';\n    $('vA').innerHTML='<a class=\"a1\" target=\"_blank\" rel=\"noopener\" href=\"'+zap('Olá! Vi no álbum de obras da HR: \"'+o.t+'\"'+(o.pedra?' em '+o.pedra:'')+'. Quero um orçamento de algo assim.')+'\">Quero um orçamento assim</a>'+(o.ig?'<a class=\"a2\" target=\"_blank\" rel=\"noopener\" href=\"'+esc(o.ig)+'\">'+(o.v?'Ver o vídeo no Instagram':'Ver no Instagram')+'</a>':'');\n    $('vis').hidden=false;document.body.style.overflow='hidden';\n    setTimeout(function(){$('trilho').scrollLeft=(i||0)*$('trilho').clientWidth},0);\n    if(history.replaceState)history.replaceState(null,'','#'+o.id);\n  }\n  function fechar(){$('vis').hidden=true;document.body.style.overflow='';ABERTA=null;if(history.replaceState)history.replaceState(null,'',location.pathname)}\n  $('trilho').addEventListener('scroll',function(){var k=Math.round(this.scrollLeft/this.clientWidth);[].forEach.call($('pontos').children,function(p,j){p.className=j===k?'on':''})});\n  $('vX').onclick=fechar;\n  $('vE').onclick=function(){$('trilho').scrollBy({left:-$('trilho').clientWidth,behavior:'smooth'})};\n  $('vD').onclick=function(){$('trilho').scrollBy({left:$('trilho').clientWidth,behavior:'smooth'})};\n  document.addEventListener('keydown',function(e){if($('vis').hidden)return;if(e.key==='Escape')fechar();if(e.key==='ArrowRight')$('vD').onclick();if(e.key==='ArrowLeft')$('vE').onclick()});\n  $('chips').onclick=function(e){var b=e.target.closest('[data-f]');if(!b)return;FILTRO=b.getAttribute('data-f');chips();grade()};\n  $('grade').onclick=function(e){var b=e.target.closest('[data-o]');if(!b)return;var o=D.obras.filter(function(x){return x.id===b.getAttribute('data-o')})[0];if(o)abrir(o,0)};\n  fetch('obras/dados').then(function(r){return r.json()}).then(function(j){\n    D=j;D.obras=D.obras||[];\n    if(D.logo){$('logo').src=D.logo;$('logo').hidden=false}\n    var nf=D.obras.reduce(function(t,o){return t+o.fotos.length},0);\n    $('nums').innerHTML='<div><b>'+D.obras.length+'</b><span>obras</span></div><div><b>'+nf+'</b><span>fotos</span></div>';\n    $('zapTopo').href=$('zapFim').href=zap('Olá! Vi o álbum de obras da HR e quero um orçamento.');\n    chips();grade();\n    var h=location.hash.slice(1);if(h){var o=D.obras.filter(function(x){return x.id===h})[0];if(o)abrir(o,0)}\n  }).catch(function(){$('grade').innerHTML='<div class=\"vazio\">Não consegui carregar as obras agora. Tente de novo em instantes.</div>'});\n})();\n</script>\n</body>\n</html>\n";
+async function rotaAlbumObras(req, env, ctx, url) {
+  const cab = { 'Access-Control-Allow-Origin': '*' };
+  if (url.pathname !== '/obras/dados') return new Response(OBRAS_HTML, { headers: { ...cab, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
+  const cache = caches.default, chave = new Request(url.toString(), { method: 'GET' });
+  const ja = await cache.match(chave); if (ja) return ja;
+  const resp = new Response(JSON.stringify(await obrasDados(env)), { headers: { ...cab, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'public, max-age=180' } });
+  ctx.waitUntil(cache.put(chave, resp.clone()));
+  return resp;
 }
 async function vdPacote(env, j) { // o que o computador precisa para montar: mídias escolhidas (com a pasta da obra de cada uma)
   if (j.mix) {
@@ -15072,7 +15140,9 @@ async function vdPacote(env, j) { // o que o computador precisa para montar: mí
   const o = await acvLer(env, j.obraId); if (!o) return null;
   const pc = await acvParaPC(env, o);
   const sel = Array.isArray(j.sel) && j.sel.length ? j.sel : pc.midias.map((x, i) => i);
-  return { ...pc, midias: sel.map(i => pc.midias[i] && { ...pc.midias[i], obra: o.id }).filter(Boolean) };
+  const midias = sel.map(i => pc.midias[i] && { ...pc.midias[i], obra: o.id }).filter(Boolean);
+  for (const p of (j.extras || [])) { const ox = await acvLer(env, p.obra); if (!ox) continue; const px = await acvParaPC(env, ox); for (const i of p.sel) if (px.midias[i]) midias.splice(Math.max(1, midias.length - 1), 0, { ...px.midias[i], obra: ox.id, extra: true }); } // trechos antigos antes do resultado final
+  return { ...pc, midias };
 }
 async function acvProximaParaPC(env) {
   for (const id of (await acvLista(env)).slice().reverse()) {
@@ -15090,13 +15160,13 @@ async function acvNovaObra(env, desc) {
   try { const pedras = [...new Set((await lerPortfolio(env)).filter(i => i.tipo === 'pedra' && i.nome).map(i => i.nome))]; o.pedra = pedras.filter(n => nd.includes(normaliza(n))).sort((a, b) => b.length - a.length)[0] || ''; } catch (_) { o.pedra = ''; }
   return o;
 }
-async function acvPortfolioAdd(env, o, buf, mime) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
+async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de vídeo) no álbum de serviços feitos do site
   const lista = await lerPortfolio(env);
   if (lista.filter(i => i.tipo === 'trabalho' && i.origem !== 'app').length >= 120 || lista.filter(i => i.obraId === o.id).length >= 8) return '';
   const pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 4);
   await env.HR_KV.put('pf:img:' + pid, buf);
   const legenda = [o.desc ? o.desc.charAt(0).toUpperCase() + o.desc.slice(1) : 'Obra', o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? 'em ' + o.pedra : ''].filter(Boolean).join(' ').slice(0, 200);
-  await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
+  await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: quando || Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
   return pid;
 }
 async function acvTratarMidia(env, from, m) {
@@ -15146,23 +15216,30 @@ async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 
 }
 // ── vídeo do dia ──
 async function vdCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('vd:cfg')) || '{}'); } catch (_) {} return { ligado: c.ligado !== false && String(env.VIDEO_DIA || '1') !== '0', hora: Number.isFinite(c.hora) ? c.hora : (Number(env.VIDEO_DIA_HORA) || 8) }; }
-function acvDisponiveis(o) { // índices das mídias que o computador tem (ou que ainda estão no bot)
-  const vivo = Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
+function acvDisponiveis(o) { // índices das mídias que o computador tem (ou que ainda estão no bot / no Instagram)
+  const vivo = o.origem === 'instagram' || Date.now() - (o.atualizado || o.criado) < 6.5 * 86400000;
   return (o.midias || []).map((x, i) => i).filter(i => i < (o.noPC || 0) || vivo);
 }
 async function vdEscolher(env) {
   const obras = []; for (const id of await acvLista(env)) { const o = await acvLer(env, id); if (o && (o.midias || []).length) obras.push(o); }
   // 1) obra com mídia ainda não usada (a mais nova primeiro)
-  const novas = obras.map(o => ({ o, novos: acvDisponiveis(o).filter(i => !(o.usadas || []).includes(i)) }))
+  const velho = o => Math.max(o.ultimoVideo || 0, o.postadoEm || 0);
+  const antigas = obras.filter(o => (o.jaPostado || o.usos) && Date.now() - velho(o) > 40 * 86400000 && acvDisponiveis(o).length);
+  const extrasDe = (fora, n) => { // trechos de obras antigas (que não aparecem há mais de 40 dias), vídeo primeiro
+    const l = antigas.filter(o => o.id !== fora).sort(() => Math.random() - 0.5).slice(0, n);
+    return l.map(o => { const d = acvDisponiveis(o), v = d.filter(i => o.midias[i].tipo === 'video'); const pref = v.length ? v : d; return { o, sel: [pref[(o.usos || 0) % pref.length]] }; });
+  };
+  const novas = obras.filter(o => !o.jaPostado).map(o => ({ o, novos: acvDisponiveis(o).filter(i => !(o.usadas || []).includes(i)) }))
     .filter(x => x.novos.length >= 2 || x.novos.some(i => x.o.midias[i].tipo === 'video')).sort((a, b) => b.o.criado - a.o.criado);
   if (novas.length) {
     const { o, novos } = novas[0];
     let sel = novos.slice(0, 9); // até 9 cenas por vídeo; o resto fica para os próximos dias
     if (novos.length > 9) { const vids = novos.filter(i => o.midias[i].tipo === 'video'), fts = novos.filter(i => o.midias[i].tipo !== 'video'); sel = [...vids.slice(0, 6), ...fts.slice(0, 3)]; if (sel.length < 9) sel = sel.concat(novos.filter(i => !sel.includes(i)).slice(0, 9 - sel.length)); sel.sort((a, b) => a - b); }
-    return { tipo: 'obra', o, sel };
+    const extras = sel.length < 7 ? extrasDe(o.id, Math.min(3, 7 - sel.length)) : [];
+    return { tipo: 'obra', o, sel, extras };
   }
   // 2) sem novidade: compilação com 2 mídias de até 4 obras diferentes (as menos usadas)
-  const pool = obras.filter(o => acvDisponiveis(o).length).sort((a, b) => (a.usos || 0) - (b.usos || 0) || Math.random() - 0.5).slice(0, 4);
+  const pool = obras.filter(o => acvDisponiveis(o).length).sort((a, b) => velho(a) - velho(b) || (a.usos || 0) - (b.usos || 0) || Math.random() - 0.5).slice(0, 5).sort(() => Math.random() - 0.5).slice(0, 4);
   if (!pool.length) return null;
   if (pool.length === 1) { const o = pool[0], d = acvDisponiveis(o); const k = ((o.usos || 0) * 5) % d.length; const sel = d.slice(k).concat(d.slice(0, k)).slice(0, 8).sort((a, b) => a - b); return { tipo: 'obra', o, sel, repetida: true }; }
   const partes = pool.map(o => { const d = acvDisponiveis(o), v = d.filter(i => o.midias[i].tipo === 'video'), k = (o.usos || 0) % Math.max(1, d.length); const pref = v.length ? v : d; return { o, sel: [pref[k % pref.length], d[(k + 1) % d.length]].filter((x, i, a) => x != null && a.indexOf(x) === i) }; });
@@ -15183,10 +15260,10 @@ async function vdCriar(env, avisarSemObra) {
   const o = esc && (esc.tipo === 'obra' ? esc.o : { id: 'mix', desc: 'compilação de ' + esc.partes.length + ' obras', midias: esc.partes.flatMap(p => p.sel.map(i => p.o.midias[i])) });
   if (!o) { if (avisarSemObra) await enviar(env, numeroDono(env), cartaoDono('Vídeo do dia', ['Ainda não há obra no acervo com fotos suficientes (mínimo 2 fotos ou 1 vídeo).', 'Mande as fotos e vídeos de um projeto com a legenda: *obra cozinha da Maria em granito preto*.'])); return null; }
   const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: esc.tipo === 'mix' ? 'Alguns dos nossos trabalhos: ' + esc.partes.map(p => p.o.desc).join('; ') : o.desc + (o.pedra && !normaliza(o.desc).includes(normaliza(o.pedra)) ? ' em ' + o.pedra : ''), editar: true, montagem: true, estado: 'na_fila', original: true };
-  if (esc.tipo === 'mix') { j.mix = esc.partes.map(p => ({ obra: p.o.id, sel: p.sel })); j.obraId = 'mix'; } else { j.obraId = o.id; j.sel = esc.sel; }
+  if (esc.tipo === 'mix') { j.mix = esc.partes.map(p => ({ obra: p.o.id, sel: p.sel })); j.obraId = 'mix'; } else { j.obraId = o.id; j.sel = esc.sel; if ((esc.extras || []).length) j.extras = esc.extras.map(p => ({ obra: p.o.id, sel: p.sel })); }
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
-  for (const p of (esc.tipo === 'mix' ? esc.partes : [{ o, sel: esc.sel }])) { const x = (await acvLer(env, p.o.id)) || p.o; x.usos = (x.usos || 0) + 1; x.ultimoVideo = Date.now(); x.usadas = [...new Set([...(x.usadas || []), ...p.sel])]; await acvGravar(env, x); }
+  for (const p of (esc.tipo === 'mix' ? esc.partes : [{ o, sel: esc.sel }, ...(esc.extras || [])])) { const x = (await acvLer(env, p.o.id)) || p.o; x.usos = (x.usos || 0) + 1; x.ultimoVideo = Date.now(); x.usadas = [...new Set([...(x.usadas || []), ...p.sel])]; await acvGravar(env, x); }
   await env.HR_KV.put('vd:ultimaObra', o.id, { expirationTtl: 30 * 86400 });
   await env.HR_KV.put('vd:ultimo', JSON.stringify({ pid: j.id, em: Date.now() }), { expirationTtl: 7 * 86400 });
   return { j, o };
@@ -15210,6 +15287,7 @@ async function acvMigrarSoltos(env) {
 }
 async function vdRotina(env) {
   if (!estAtivo(env)) return;
+  if (await env.HR_KV.get('ig:imp:ligado') && !(await env.HR_KV.get('ig:imp:tick'))) { await env.HR_KV.put('ig:imp:tick', '1', { expirationTtl: 300 }); const r = await igImportarAntigos(env, 8).catch(e => { console.log('[IG] importar:', e.message); return { resta: true }; }); if (!r.resta) await env.HR_KV.delete('ig:imp:ligado'); }
   await acvMigrarSoltos(env).catch(e => console.log('[ACERVO] juntar:', e.message));
   const cfg = await vdCfg(env); if (!cfg.ligado) return;
   const { min } = agoraBahia(), hoje = dataBahia();
@@ -15237,6 +15315,17 @@ async function vdPlano(env, j) {
   return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: o.pedra || amb || '', subtitulo: [amb && o.pedra ? amb : '', 'HR Mármores e Granitos'].filter(Boolean).join(' · '), cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 20, legendas: [] };
 }
 async function vdComandoDono(env, from, bruto, msg) {
+  if (/^((link do |o |meu )?album( de obras| de servicos( feitos)?)?|servicos feitos|link (das|de) obras)$/.test(msg)) {
+    const b = await urlDoWorker(env).catch(() => ''); const d = await obrasDados(env).catch(() => ({ obras: [] }));
+    await enviar(env, from, cartaoDono('Álbum de serviços feitos', [`${d.obras.length} obras, ${d.obras.reduce((t, o) => t + o.fotos.length, 0)} fotos, separadas por tipo (cozinhas, banheiros, escadas...).`, /^https:/.test(b) ? b + '/obras' : '(sem endereço)', 'Pode mandar para clientes e colocar na bio do Instagram. Novas obras: mande fotos/vídeos com *obra ...*. Trazer os posts antigos do Instagram: *instagram importar*.']));
+    return true;
+  }
+  if (/^((instagram|insta|ig) (importar|importa|trazer|puxar)( posts| antigos| os posts)?|importar (o )?instagram)$/.test(msg)) {
+    await env.HR_KV.put('ig:imp:ligado', '1', { expirationTtl: 30 * 86400 });
+    const r = await igImportarAntigos(env, 12);
+    await enviar(env, from, cartaoDono('Importando os posts do Instagram', [`${r.novos} post(s) já viraram obras no acervo e no álbum do site${r.resta ? '; o resto vai entrando sozinho nos próximos minutos' : ''}.`, 'Eles também entram nos vídeos do dia: misturo trechos dos posts antigos (que não aparecem há mais de 40 dias) com os vídeos novos.', 'O computador do editor baixa os vídeos e as fotos para a pasta acervo.']));
+    return true;
+  }
   { const mr = String(bruto).match(/^\s*obra\s*[:\-]\s*(.{3,160})$/i) || (/^(nome da obra|essa obra (e|é)|a obra (e|é))\b/i.test(normaliza(bruto)) ? [0, String(bruto).replace(/^\s*(nome da obra|essa obra [eé]|a obra [eé])\s*[:\-]?\s*/i, '')] : null);
     if (mr && mr[1]) { const l = await acvLista(env); const o = l.length ? await acvLer(env, l[l.length - 1]) : null;
       if (o) { const no = await acvNovaObra(env, acvDescricao(mr[1])); o.desc = no.desc; o.cat = no.cat || o.cat; o.pedra = no.pedra || o.pedra; o.semNome = false; await acvGravar(env, o);
@@ -15257,6 +15346,7 @@ async function vdComandoDono(env, from, bruto, msg) {
   if (a && !/^(agora|hoje|ja|fazer|faz|novo|outro)$/.test(a)) return false;
   const r = await vdCriar(env, true); if (!r) return true;
   const on = await estEditorOnline(env);
+  if (r.j.extras) r.o = { ...r.o, desc: r.o.desc + ` (+ ${r.j.extras.length} trecho(s) de obras antigas)` };
   await enviar(env, from, `🎬 Montando o vídeo do dia ${r.j.mix ? 'juntando *' + r.j.mix.length + ' obras* (sem obra nova, faço uma compilação)' : 'com a obra *' + r.o.desc + '* (' + (r.j.sel || []).length + ' de ' + r.o.midias.length + ' mídias' + ((r.o.midias.length - (r.o.usadas || []).length) > 0 ? '; o resto fica para os próximos dias' : '') + ')'}. ${on ? 'O computador já está trabalhando; em alguns minutos chega a prévia aqui.' : 'O computador do editor parece desligado: ele monta assim que ligar.'}`);
   return true;
 }
@@ -24184,6 +24274,7 @@ export default {
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (url.pathname === '/portfolio' || url.pathname.startsWith('/portfolio/')) return rotaPortfolio(req, env, ctx, url);
+    if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname === '/ponto' || url.pathname.startsWith('/ponto/')) return rotaPonto(req, env, ctx, url); // v34: HR Ponto
     if (url.pathname.startsWith('/pagar/')) return rotaPagar(req, env, url); // v49: página de pagamento da HR
     if (url.pathname.startsWith('/m/')) return rotaMidia(req, env, url); // v69: mídia dos posts (Instagram e prévias)
