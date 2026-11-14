@@ -1,3 +1,4 @@
+// v72d (14/11/2026): prints guardados no D1 e lidos um por um (30 prints de uma vez perdiam-se no KV e travavam a IA); uma mensagem por rajada
 // v72c (14/11/2026): print do extrato sem "conferir extrato" abre a conferência sozinho; um aviso só no fim dos prints (antes: "só leio texto" + HR VISION em cada foto)
 // v72 (14/11/2026): CONFERÊNCIA DO EXTRATO ("conferir extrato" + prints + "pronto" → o app compara, o bot corrige e pergunta as saídas); extrato MP conferido a cada mensagem (não só na rotina)
 // v71c (14/11/2026): prévia mostra a resolução real do vídeo (1080p/720p/…) e avisa quando o arquivo já veio comprimido; texto mandado logo depois do vídeo vira o pedido do post
@@ -1234,6 +1235,15 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'rp_nao') { await enviar(env, from, 'Certo, Sr. Hangel. Quando quiser, escreva *respostas prontas*.'); return true; }
   if (id === 'cmd_ajuda') { await enviarComBotoes(env, from, fala(F, 'donoOla', {}), [BTN_HOJE, BTN_Q.financas, BTN_Q.agenda]); return true; }
   if (BTN_Q[id.slice(2)] && id.startsWith('q_')) { await responderDono(env, from, BTN_Q[id.slice(2)].pergunta, F); return true; }
+  if (id.startsWith('conf_auto|')) {
+    if (!ehDono(env, from)) return true;
+    if (id.endsWith('|nao')) { await confTabela(env); await env.HR_DB.prepare("UPDATE conf_img SET estado = 'descartado' WHERE sid = 'auto' AND estado = 'novo'").run(); await enviar(env, from, 'Certo, ignorei essas fotos. Se for comprovante ou nota, mande com uma legenda dizendo o que é (ex.: _comprei em mãos_).'); return true; }
+    const nid = estId(10); await confTabela(env);
+    await env.HR_DB.prepare("UPDATE conf_img SET sid = ? WHERE sid = 'auto' AND estado = 'novo'").bind(nid).run();
+    await env.HR_KV.put(CONF_SESSAO, JSON.stringify({ id: nid, linhas: [], prints: 0, inicio: Date.now(), auto: true }), { expirationTtl: 2 * 3600 });
+    await confComandoDono(env, from, 'pronto', 'pronto');
+    return true;
+  }
   if (id.startsWith('conf_pronto|')) { if (ehDono(env, from)) await confComandoDono(env, from, 'pronto', 'pronto'); return true; }
   if (id.startsWith('conf_cancelar|')) { if (ehDono(env, from)) await confComandoDono(env, from, 'cancelar conferencia', 'cancelar conferencia'); return true; }
   if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
@@ -14069,7 +14079,13 @@ async function estConferirPublicacao(env, j) {
   return false;
 }
 // v71b: chamado a cada mensagem que chega (WhatsApp/Instagram) e a cada consulta do app: no máximo a cada 20 s, e só se houver post pendente
+async function confTickLeve(env) { // sem o app aberto, cada mensagem que chega também lê 1 print pendente
+  const f = await confFila(env); const t = f.find(x => x.tipo === 'conferir' && x.lendo && x.estado === 'pendente'); if (!t) return;
+  if (await env.HR_KV.get('conf:tick')) return; await env.HR_KV.put('conf:tick', '1', { expirationTtl: 60 });
+  await confLerPendentes(env, t.id, 1, 15000);
+}
 async function estTickLeve(env) {
+  await confTickLeve(env).catch(() => {});
   // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
   if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
@@ -14270,52 +14286,74 @@ async function confComandoDono(env, from, bruto, msg) {
   if (!s) return false;
   if (/^(cancelar|parar|sair)( a)? conferencia$/.test(msg)) { await env.HR_KV.delete(CONF_SESSAO); await enviar(env, from, 'Conferência cancelada, Sr. Hangel.'); return true; }
   if (/^(pronto|terminei|acabou|so isso|e so isso|e so|pode conferir|confere|conferir|conferir agora|ok pronto|finalizar|fim)\.?!?$/.test(msg)) {
-    { // junta as partes de cada print, sem repetir a mesma linha (prints que se sobrepõem)
-      const l = await env.HR_KV.list({ prefix: `conf:p:${s.id}:` }); const chave = x => [x.data, x.hora, Number(x.valor).toFixed(2), x.sentido, normaliza(x.nome || '').slice(0, 20)].join('|');
-      const vistas = new Set(s.linhas.map(chave));
-      for (const k of l.keys) { let ps = []; try { const o = JSON.parse((await env.HR_KV.get(k.name)) || '[]'); ps = Array.isArray(o) ? o : (o.linhas || []); } catch (_) {} for (const x of ps) { const c = chave(x); if (!vistas.has(c)) { vistas.add(c); s.linhas.push(x); } } }
-      s.prints = l.keys.length;
-    }
-    if (!s.linhas.length) { await enviar(env, from, 'Ainda não recebi nenhum print do extrato, Sr. Hangel (ou ainda estou lendo: espere uns segundos). Mande os prints e depois escreva *pronto*.'); return true; }
+    const tot = await env.HR_DB.prepare("SELECT COUNT(*) n FROM conf_img WHERE sid = ? AND estado != 'descartado'").bind(s.id).first().catch(() => null);
+    if (!tot || !tot.n) { await enviar(env, from, 'Ainda não recebi nenhum print do extrato, Sr. Hangel. Mande os prints e depois escreva *pronto*.'); return true; }
     await env.HR_KV.delete(CONF_SESSAO);
-    await confEnfileirar(env, { id: s.id, tipo: 'conferir', linhas: s.linhas });
-    await confNomearPendentesMP(env, s.linhas).catch(e => console.log('[CONF] pendentes MP:', e.message)); // os mesmos prints dão nome aos Pix que o bot ainda vai perguntar
-    const datas = s.linhas.map(l => l.data).filter(Boolean).sort();
-    await enviar(env, from, `🔎 Juntei ${s.prints} print(s). Conferindo ${s.linhas.length} movimentações${datas.length ? ` (${dataBR(datas[0]).slice(0, 5)} a ${dataBR(datas[datas.length - 1]).slice(0, 5)})` : ''} com o app...\n\n${(await confAppAberto(env)) ? 'O app está aberto: o resultado chega em instantes.' : '📲 *Abra o app HR* no celular para eu comparar com as finanças (só abrir, com a tela ligada).'}`);
+    await confEnfileirar(env, { id: s.id, tipo: 'conferir', lendo: true });
+    await enviar(env, from, `🔎 Vou ler os *${tot.n} print(s)* um por um e comparar com o app. Leva cerca de ${Math.max(1, Math.round(tot.n * 6 / 60))} minuto(s).\n\n${(await confAppAberto(env)) ? 'O app está aberto: deixe ele aberto até o resultado chegar.' : '📲 *Abra o app HR* no celular e deixe aberto (tela ligada) até o resultado chegar.'}`);
     return true;
   }
   return false;
 }
 // print chegando durante a conferência
+// v72d: prints guardados no D1 (vários ao mesmo tempo sem perder nenhum: o KV recusa várias gravações na mesma chave),
+//   lidos UM POR VEZ depois (a IA recusava 30 leituras simultâneas). Uma mensagem só por rajada de prints.
+async function confTabela(env) {
+  if (env._confOk) return true; if (!env.HR_DB) return false;
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS conf_img (msg TEXT PRIMARY KEY, sid TEXT, media TEXT, ts INTEGER, estado TEXT, linhas TEXT, semdata INTEGER, tent INTEGER)').run();
+  env._confOk = true; return true;
+}
 async function confTratarPrint(env, from, m) {
-  if (m.type !== 'image' || !m.image) return false;
+  if (m.type !== 'image' || !m.image || !(await confTabela(env))) return false;
   const leg = String(m.image.caption || '').trim();
-  let s = await confSessao(env);
-  if (!s && leg) return false; // foto com legenda segue os outros fluxos (postar, comprovante "comprei em mãos"…)
-  if (s && RE_POSTAR.test(leg)) return false;
-  let mid; try { mid = await baixarMidia(env, m.image.id); } catch (e) { if (s) { await confFalha(env, s); return true; } return false; }
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mid.tipo)) return false;
-  let lido = null, erro = '';
-  for (let t = 0; t < 2 && !lido; t++) { try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { erro = e.message; await new Promise(r => setTimeout(r, 2500 + Math.random() * 3000)); } }
-  s = await confSessao(env);
-  if (!lido) { if (s) { await confFalha(env, s); return true; } return false; } // sem sessão: segue o fluxo normal da foto
-  if (!lido.eh) return s ? (await enviar(env, from, 'Esse print não parece ser do *extrato do Mercado Pago*: deixei de fora da conferência.'), true) : false;
-  // v72c: print do extrato SEM ter escrito "conferir extrato" → abre a conferência sozinho (vários prints de uma vez viram uma conferência só)
-  if (!s) {
-    const nova = { id: estId(10), linhas: [], prints: 0, inicio: Date.now(), auto: true };
-    const ja = await env.HR_KV.get('conf:criando');
-    if (ja) { await new Promise(r => setTimeout(r, 1200)); s = await confSessao(env); }
-    if (!s) { await env.HR_KV.put('conf:criando', '1', { expirationTtl: 60 }); await env.HR_KV.put(CONF_SESSAO, JSON.stringify(nova), { expirationTtl: 2 * 3600 }); s = nova; }
+  const s = await confSessao(env);
+  if (leg && (!s || RE_POSTAR.test(leg))) return false; // foto com legenda segue os outros fluxos
+  const sid = s ? s.id : 'auto', ts = Date.now(), msg = String(m.id || estId(12));
+  await env.HR_DB.prepare('INSERT OR IGNORE INTO conf_img (msg, sid, media, ts, estado, tent) VALUES (?, ?, ?, ?, ?, 0)').bind(msg, sid, m.image.id, ts, 'novo').run();
+  if (!s) { // foto solta (uma só): segue o fluxo normal; duas ou mais em sequência: viram candidatas a prints do extrato
+    await new Promise(r => setTimeout(r, 4000));
+    const c = await env.HR_DB.prepare("SELECT COUNT(*) n FROM conf_img WHERE sid = 'auto' AND estado = 'novo' AND ts > ?").bind(Date.now() - 25000).first();
+    if (!c || c.n < 2) { await env.HR_DB.prepare('DELETE FROM conf_img WHERE msg = ?').bind(msg).run(); return false; }
   }
-  const linhas = []; let semData = 0;
-  for (const it of lido.itens || []) {
-    if (!(Number(it.valor) > 0) || !['in', 'out'].includes(it.sentido)) continue;
-    if (!it.data) { semData++; continue; }
-    linhas.push({ data: it.data, hora: it.hora || '', valor: Math.round(Number(it.valor) * 100) / 100, sentido: it.sentido, nome: String(it.nome || '').slice(0, 60), tipo: String(it.tipo || '').slice(0, 40) });
-  }
-  await env.HR_KV.put(`conf:p:${s.id}:${m.id || estId(8)}`, JSON.stringify({ linhas, semData }), { expirationTtl: 2 * 3600 });
-  await confResumoAtrasado(env, from, s.id);
+  // só a última foto da rajada manda a mensagem (espera mais chegarem)
+  await new Promise(r => setTimeout(r, 7000));
+  const ult = await env.HR_DB.prepare("SELECT msg FROM conf_img WHERE sid = ? AND estado != 'descartado' ORDER BY ts DESC, msg DESC LIMIT 1").bind(sid).first();
+  if (!ult || ult.msg !== msg) return true;
+  await new Promise(r => setTimeout(r, 5000)); // confirma que parou de chegar
+  const ult2 = await env.HR_DB.prepare("SELECT msg FROM conf_img WHERE sid = ? AND estado != 'descartado' ORDER BY ts DESC, msg DESC LIMIT 1").bind(sid).first();
+  if (!ult2 || ult2.msg !== msg) return true;
+  const mx = await env.HR_DB.prepare("SELECT COUNT(*) n FROM conf_img WHERE sid = ? AND estado != 'descartado'").bind(sid).first();
+  if (s) await enviarComBotoes(env, from, `📥 Recebi *${mx.n} print(s)*. Se tem mais, mande. Se acabou, toque em *Conferir agora* e deixe o *app HR aberto* (ele me ajuda a ler e comparar).`, [{ id: 'conf_pronto|' + sid, titulo: 'Conferir agora' }]);
+  else await enviarComBotoes(env, from, `📷 Recebi *${mx.n} fotos* de uma vez. São *prints do extrato do Mercado Pago*?`, [{ id: 'conf_auto|sim', titulo: 'Sim, conferir' }, { id: 'conf_auto|nao', titulo: 'Não' }]);
   return true;
+}
+// lê até `max` prints pendentes de uma conferência (um por vez); devolve quantos faltam
+async function confLerPendentes(env, sid, max = 3, ateMs = 22000) {
+  if (!(await confTabela(env))) return 0;
+  const ini = Date.now();
+  for (let i = 0; i < max && Date.now() - ini < ateMs; i++) {
+    const r = await env.HR_DB.prepare("SELECT * FROM conf_img WHERE sid = ? AND estado = 'novo' AND tent < 3 ORDER BY ts LIMIT 1").bind(sid).first();
+    if (!r) break;
+    await env.HR_DB.prepare('UPDATE conf_img SET tent = tent + 1 WHERE msg = ?').bind(r.msg).run();
+    try {
+      const mid = await baixarMidia(env, r.media);
+      const lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo);
+      if (!lido) throw new Error('leitura vazia');
+      if (!lido.eh) { await env.HR_DB.prepare("UPDATE conf_img SET estado = 'nao_extrato' WHERE msg = ?").bind(r.msg).run(); continue; }
+      const linhas = []; let semData = 0;
+      for (const it of lido.itens || []) {
+        if (!(Number(it.valor) > 0) || !['in', 'out'].includes(it.sentido)) continue;
+        if (!it.data) { semData++; continue; }
+        linhas.push({ data: it.data, hora: it.hora || '', valor: Math.round(Number(it.valor) * 100) / 100, sentido: it.sentido, nome: String(it.nome || '').slice(0, 60), tipo: String(it.tipo || '').slice(0, 40) });
+      }
+      await env.HR_DB.prepare("UPDATE conf_img SET estado = 'lido', linhas = ?, semdata = ? WHERE msg = ?").bind(JSON.stringify(linhas), semData, r.msg).run();
+    } catch (e) {
+      console.log('[CONF] ler print:', e.message);
+      if (/429|rate|overload|529/i.test(e.message)) await new Promise(rr => setTimeout(rr, 3000));
+    }
+  }
+  const f = await env.HR_DB.prepare("SELECT COUNT(*) n FROM conf_img WHERE sid = ? AND estado = 'novo' AND tent < 3").bind(sid).first();
+  return f ? f.n : 0;
 }
 async function confNomearPendentesMP(env, linhas) {
   const lst = await listarTodas(env, 'mpx:p:'); let n = 0;
@@ -14330,38 +14368,31 @@ async function confNomearPendentesMP(env, linhas) {
   }
   return n;
 }
-async function confFalha(env, s) { await env.HR_KV.put(`conf:f:${s.id}:${estId(6)}`, '1', { expirationTtl: 2 * 3600 }); }
-// um aviso só depois que os prints param de chegar (antes era uma mensagem por print)
-async function confResumoAtrasado(env, from, sid) {
-  const marca = String(Date.now()) + Math.random();
-  await env.HR_KV.put('conf:ultimo:' + sid, marca, { expirationTtl: 3600 });
-  await new Promise(r => setTimeout(r, 12000));
-  if ((await env.HR_KV.get('conf:ultimo:' + sid)) !== marca) return; // chegou outro print depois: ele avisa
-  const l = await env.HR_KV.list({ prefix: `conf:p:${sid}:` });
-  const f = await env.HR_KV.list({ prefix: `conf:f:${sid}:` });
-  let semData = 0; const datas = [], unicas = new Set();
-  for (const k of l.keys) { try { const x = JSON.parse((await env.HR_KV.get(k.name)) || '{}'); const ls = Array.isArray(x) ? x : (x.linhas || []); semData += x.semData || 0; ls.forEach(y => { datas.push(y.data); unicas.add([y.data, y.hora, Number(y.valor).toFixed(2), y.sentido, normaliza(y.nome || '').slice(0, 20)].join('|')); }); } catch (_) {} }
-  const n = unicas.size;
-  datas.sort();
-  await enviarComBotoes(env, from, `🧾 Li *${l.keys.length} print(s)* do extrato do Mercado Pago: ${n} linha(s)${datas.length ? ` de ${dataBR(datas[0]).slice(0, 5)} a ${dataBR(datas[datas.length - 1]).slice(0, 5)}` : ''}.${semData ? `
-${semData} linha(s) sem data visível ficaram de fora.` : ''}${f.keys.length ? `
-⚠️ ${f.keys.length} print(s) não consegui ler: mande esses de novo.` : ''}
-
-Tem mais? Mande. Se acabou, toque em *Conferir agora* (com o app HR aberto).`,
-    [{ id: 'conf_pronto|' + sid, titulo: 'Conferir agora' }, { id: 'conf_cancelar|' + sid, titulo: 'Cancelar' }]);
+async function confJuntar(env, sid) {
+  const rs = await env.HR_DB.prepare('SELECT estado, linhas, semdata FROM conf_img WHERE sid = ?').bind(sid).all();
+  const linhas = [], vistas = new Set(); let falhas = 0, semData = 0, naoExtrato = 0, prints = 0;
+  const chave = x => [x.data, x.hora, Number(x.valor).toFixed(2), x.sentido, normaliza(x.nome || '').slice(0, 20)].join('|');
+  for (const r of (rs.results || [])) {
+    if (r.estado === 'lido') { prints++; semData += r.semdata || 0; let ls = []; try { ls = JSON.parse(r.linhas || '[]'); } catch (_) {} for (const x of ls) { const c = chave(x); if (!vistas.has(c)) { vistas.add(c); linhas.push(x); } } }
+    else if (r.estado === 'nao_extrato') naoExtrato++;
+    else if (r.estado === 'novo') falhas++;
+  }
+  return { linhas, falhas, semData, naoExtrato, prints };
 }
 // resultado da comparação feita no app
 async function confReceberResultado(env, t, r) {
   const res = { id: t.id, ...r, recebido: Date.now(), perguntas: (r.faltamOut || []).map((x, i) => ({ ...x, i })), respondidas: 0 };
   await confGravarRes(env, res);
   const dono = numeroDono(env);
-  const L = [`🧾 *Conferência do extrato${r.periodo ? ` (${dataBR(r.periodo[0]).slice(0, 5)} a ${dataBR(r.periodo[1]).slice(0, 5)})` : ''}*`, ''];
+  const L = [`🧾 *Conferência do extrato${t.prints ? ` — ${t.prints} prints, ${(t.linhas || []).length} linhas` : ''}${r.periodo ? ` (${dataBR(r.periodo[0]).slice(0, 5)} a ${dataBR(r.periodo[1]).slice(0, 5)})` : ''}*`, ''];
   L.push(`✅ *${r.batem || 0}* já batem com o app`);
   if ((r.renomear || []).length) L.push(`✏️ *${r.renomear.length}* nome(s) para corrigir (ex.: ${r.renomear.slice(0, 2).map(x => `"${x.de.replace(/\s*\((pix )?mercado pago\)$/i, '').slice(0, 34)}" → "${x.para.replace(/\s*\((pix )?mercado pago\)$/i, '').slice(0, 34)}"`).join('; ')})`);
   if ((r.faltamIn || []).length) L.push(`➕ *${r.faltamIn.length}* entrada(s) que faltam no app: ${r.faltamIn.slice(0, 3).map(x => `R$ ${reais(x.valor)} ${x.nome.split(' ')[0]}`).join(', ')}${r.faltamIn.length > 3 ? '…' : ''}`);
   if ((r.faltamOut || []).length) L.push(`❓ *${r.faltamOut.length}* saída(s) que faltam no app: pergunto com o que foi cada uma`);
   if ((r.sobrando || []).length) L.push(`⚠️ *${r.sobrando.length}* lançamento(s) do Mercado Pago no app que não aparecem nos prints (pode ser duplicado ou print faltando)`);
   if ((r.ignoradas || 0) > 0) L.push(`➖ ${r.ignoradas} movimentação(ões) internas (reserva/rendimento) ignoradas`);
+  if (t.falhas) L.push(`⚠️ ${t.falhas} print(s) não consegui ler: mande de novo depois.`);
+  if (t.semData) L.push(`➖ ${t.semData} linha(s) sem data visível ficaram de fora`);
   const nada = !(r.renomear || []).length && !(r.faltamIn || []).length && !(r.faltamOut || []).length && !(r.sobrando || []).length;
   if (nada) { L.push('', 'Está tudo certo nesse período, Sr. Hangel. 👏'); await enviar(env, dono, L.join('\n')); return; }
   const botoes = [];
@@ -14434,6 +14465,14 @@ async function rotaFinTarefa(req, env, p) {
     const f = await confFila(env);
     const t = f.find(x => x.estado === 'pendente' || (x.estado === 'com_app' && Date.now() - (x.tsApp || 0) > 3 * 60000));
     if (!t) return J({ ok: true, tarefa: null });
+    if (t.tipo === 'conferir' && t.lendo) { // primeiro lê os prints (alguns por consulta); quando acabar, entrega as linhas ao app
+      const faltam = await confLerPendentes(env, t.id, 3, 20000);
+      if (faltam > 0) return J({ ok: true, tarefa: null, lendo: faltam });
+      const jj = await confJuntar(env, t.id);
+      t.linhas = jj.linhas; t.lendo = false; t.falhas = jj.falhas; t.semData = jj.semData; t.naoExtrato = jj.naoExtrato; t.prints = jj.prints;
+      await confNomearPendentesMP(env, jj.linhas).catch(e => console.log('[CONF] pendentes MP:', e.message));
+      if (!jj.linhas.length) { t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito')), { expirationTtl: 3 * 86400 }); await enviar(env, numeroDono(env), `Não consegui ler nenhuma movimentação nesses prints, Sr. Hangel${jj.naoExtrato ? ` (${jj.naoExtrato} não pareciam ser do extrato do Mercado Pago)` : ''}${jj.semData ? `; ${jj.semData} linha(s) sem data visível` : ''}. Tente prints com a data aparecendo no topo.`); return J({ ok: true, tarefa: null }); }
+    }
     t.estado = 'com_app'; t.tsApp = Date.now(); await env.HR_KV.put('fin:fila', JSON.stringify(f), { expirationTtl: 3 * 86400 });
     return J({ ok: true, tarefa: t });
   }
