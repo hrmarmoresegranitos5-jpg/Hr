@@ -11,6 +11,7 @@
 var _bVisao = 'pagar';          // pagar | receber | pagos | avancado
 var _bMaisAberto = false;
 var _bFornAberto = {};
+var _bSoPagar = (function () { try { return localStorage.getItem('b:soPagar') !== '0'; } catch (e) { return true; } })(); // padrão: só contas a pagar
 
 (function () {
   var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -144,6 +145,7 @@ var _bFornAberto = {};
 
   window.bpVisao = function (v) { _bVisao = v; if (v !== 'avancado' && typeof _bModoSelecao !== 'undefined' && _bModoSelecao) _bModoSelecao = false; _bRerender(); };
   window.bpToggleForn = function (n) { _bFornAberto[n] = !_bFornAberto[n]; _bRerender(); };
+  window.bpSoPagar = function () { _bSoPagar = !_bSoPagar; try { localStorage.setItem('b:soPagar', _bSoPagar ? '1' : '0'); } catch (e) {} if (_bSoPagar && _bVisao === 'receber') _bVisao = 'pagar'; _bRerender(); };
   window.bpToggleMais = function () { _bMaisAberto = !_bMaisAberto; _bRerender(); };
 
   window.renderBoletosTab = function () {
@@ -164,25 +166,30 @@ var _bFornAberto = {};
     var atrR = receber.filter(function (b) { return b.venc && b.venc < hoje; });
     var mesAt = hoje.slice(0, 7), doMes = pagar.filter(function (b) { return String(b.venc || '').slice(0, 7) === mesAt && b.venc >= hoje; });
 
-    var h = '<div class="bp-top">' +
+    if (_bSoPagar && _bVisao === 'receber') _bVisao = 'pagar';
+    var pagoMes = todos.filter(function (b) { return b.tipo === 'pagar' && b.status === 'pago' && String(b.dtPag || '').slice(0, 7) === mesAt; });
+    var h = _bSoPagar ? '<div class="bp-top">' +
+      '<div class="bp-big' + (_bVisao === 'pagar' ? ' on' : '') + '" onclick="bpVisao(\'pagar\')"><div class="l">📤 DEVO AOS FORNECEDORES</div><div class="v bp-red">' + R(soma(pagar)) + '</div><div class="s">' + pagar.length + ' boleto(s) para pagar</div></div>' +
+      '<div class="bp-big' + (_bVisao === 'pagos' ? ' on' : '') + '" onclick="bpVisao(\'pagos\')"><div class="l">✅ PAGUEI ESTE MÊS</div><div class="v bp-grn">' + R(soma(pagoMes)) + '</div><div class="s">' + pagoMes.length + ' boleto(s) pago(s)</div></div>' +
+      '</div>' : '<div class="bp-top">' +
       '<div class="bp-big' + (_bVisao === 'pagar' ? ' on' : '') + '" onclick="bpVisao(\'pagar\')"><div class="l">📤 EU DEVO</div><div class="v bp-red">' + R(soma(pagar)) + '</div><div class="s">' + pagar.length + ' boleto(s) a pagar</div></div>' +
       '<div class="bp-big' + (_bVisao === 'receber' ? ' on' : '') + '" onclick="bpVisao(\'receber\')"><div class="l">📥 ME DEVEM</div><div class="v bp-grn">' + R(soma(receber)) + '</div><div class="s">' + receber.length + ' boleto(s) a receber</div></div>' +
       '</div>';
 
     if (atrP.length) h += '<div class="bp-alerta" onclick="bpVisao(\'pagar\')"><div style="font-size:1.4rem">🔴</div><div><div class="t">Atrasado: ' + R(soma(atrP)) + '</div><div class="d">' + atrP.length + ' boleto(s) a pagar já venceram. Se já pagou, abra o boleto e toque em "Marcar como pago".</div></div></div>';
     if (doMes.length) h += '<div class="bp-alerta" style="background:rgba(232,184,71,.08);border-color:rgba(232,184,71,.45)"><div style="font-size:1.4rem">📅</div><div><div class="t" style="color:#e8b847">Ainda vence este mês: ' + R(soma(doMes)) + '</div><div class="d">' + doMes.length + ' boleto(s) até o fim de ' + MESES[+mesAt.slice(5) - 1].toLowerCase() + '.</div></div></div>';
-    if (atrR.length) h += '<div class="bp-alerta" style="background:rgba(74,222,128,.06);border-color:rgba(74,222,128,.4)" onclick="bpVisao(\'receber\')"><div style="font-size:1.4rem">💬</div><div><div class="t" style="color:#4ade80">Clientes atrasados: ' + R(soma(atrR)) + '</div><div class="d">' + atrR.length + ' boleto(s) a receber já venceram — cobrar.</div></div></div>';
+    if (atrR.length && !_bSoPagar) h += '<div class="bp-alerta" style="background:rgba(74,222,128,.06);border-color:rgba(74,222,128,.4)" onclick="bpVisao(\'receber\')"><div style="font-size:1.4rem">💬</div><div><div class="t" style="color:#4ade80">Clientes atrasados: ' + R(soma(atrR)) + '</div><div class="d">' + atrR.length + ' boleto(s) a receber já venceram — cobrar.</div></div></div>';
 
     h += '<div class="bp-acoes"><button class="btn btn-g" onclick="openNovoBoleto()">+ Lançar boleto</button><button class="btn btn-o" onclick="bfAbrir()">📑 Conferir fornecedor</button></div>';
     h += '<input class="b-search" id="bSearchIn" type="text" style="width:100%;box-sizing:border-box;margin:8px 0 0" placeholder="🔍 Buscar fornecedor, cliente, valor..." value="' + E(busca) + '" oninput="_bBusca=this.value;clearTimeout(window._bpT);window._bpT=setTimeout(function(){_bRerender();var i=document.getElementById(\'bSearchIn\');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},350)">';
 
     h += '<div class="bp-seg" style="margin-top:12px">' +
       '<div class="' + (_bVisao === 'pagar' ? 'on' : '') + '" onclick="bpVisao(\'pagar\')">📤 A pagar</div>' +
-      '<div class="' + (_bVisao === 'receber' ? 'on' : '') + '" onclick="bpVisao(\'receber\')">📥 A receber</div>' +
+      (_bSoPagar ? '' : '<div class="' + (_bVisao === 'receber' ? 'on' : '') + '" onclick="bpVisao(\'receber\')">📥 A receber</div>') +
       '<div class="' + (_bVisao === 'pagos' ? 'on' : '') + '" onclick="bpVisao(\'pagos\')">✅ Pagos</div></div>';
 
     if (_bVisao === 'pagos') {
-      var pagos = todos.filter(function (b) { return b.status === 'pago' && filtra(b); })
+      var pagos = todos.filter(function (b) { return b.status === 'pago' && (!_bSoPagar || b.tipo === 'pagar') && filtra(b); })
         .sort(function (a, b) { return String(b.dtPag || b.venc || '').localeCompare(String(a.dtPag || a.venc || '')); }).slice(0, 120);
       if (!pagos.length) h += '<div class="bp-vazio">Nenhum boleto pago ainda.</div>';
       porMes(pagos, 'dtPag').forEach(function (g) {
@@ -210,8 +217,20 @@ var _bFornAberto = {};
       '<button class="btn btn-o" onclick="bAbrirEstrategiaMd()">🤖 Estratégia</button>' +
       '<button class="btn btn-o" onclick="estAbrirPainel()">📦 Estoque</button>' +
       '<button class="btn btn-o" onclick="_bFiltroAtual=\'todos\';bpVisao(\'avancado\')">📋 Lista completa</button>' +
-      '<button class="btn btn-o" onclick="bExportarBackupJSON()">💾 Backup</button></div>';
+      '<button class="btn btn-o" onclick="bExportarBackupJSON()">💾 Backup</button>' +
+      '<button class="btn btn-o" style="grid-column:1/-1" onclick="bpSoPagar()">' + (_bSoPagar ? '📥 Mostrar também A receber' : '📤 Mostrar só contas a pagar') + '</button></div>';
     h += '</div>';
     return h;
+  };
+})();
+
+// No modo "só contas a pagar", o formulário de boleto novo já abre em A PAGAR
+(function () {
+  var orig = window.openNovoBoleto;
+  if (typeof orig !== 'function') return;
+  window.openNovoBoleto = function () {
+    var r = orig.apply(this, arguments);
+    try { if (_bSoPagar && typeof bSetTipo === 'function') { bSetTipo('pagar'); var c = document.getElementById('bCat'); if (c && B_CAT && B_CAT.fornecedor) c.value = 'fornecedor'; } } catch (e) {}
+    return r;
   };
 })();
