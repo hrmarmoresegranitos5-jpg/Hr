@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// app-fin-conferencia.js — CONFERÊNCIA DO EXTRATO (v1)
+// app-fin-conferencia.js — CONFERÊNCIA DO EXTRATO (v2: + cadastro de clientes vindo do bot)
 //   O bot manda (GET /bot/fin/tarefa) as linhas lidas dos prints do extrato do Mercado Pago; o app compara com as
 //   finanças (DB.t) e devolve o resultado (POST /bot/fin/tarefa/resultado). Depois o bot manda as correções que o
 //   Sr. Hangel aprovou no WhatsApp: renomear, adicionar e apagar lançamentos.
@@ -85,6 +85,23 @@
     return { feitos: feitosN, erros: erros };
   }
 
+  // v2: cliente mandado pelo bot (contato do Sr. Hangel, cliente de pedido) → banco de clientes do app
+  function cliente(t) {
+    if (typeof CLDB === 'undefined' || !t.nome) return { feitos: 0 };
+    var l = CLDB.get(), tel = String(t.tel || '').replace(/\D/g, ''), u8 = tel.slice(-8), nm = norm(t.nome);
+    var c = l.find(function (x) { var xt = String(x.tel || x.telefone || '').replace(/\D/g, ''); return (u8 && xt && xt.slice(-8) === u8) || (nm && norm(x.nome || x.nm) === nm); });
+    if (c) {
+      var mud = {};
+      if (tel && !String(c.tel || '').replace(/\D/g, '')) mud.tel = tel;
+      if (t.cidade && !c.cidade) mud.cidade = t.cidade;
+      if (Object.keys(mud).length) { CLDB.upd(c.id, mud); return { feitos: 1 }; }
+      return { feitos: 0 };
+    }
+    CLDB.add({ nome: titulo(t.nome), tel: tel, cidade: t.cidade || '', obs: t.obs || '', origem: 'bot' });
+    if (typeof toast === 'function') toast('👤 Cliente cadastrado pelo bot: ' + titulo(t.nome));
+    return { feitos: 1 };
+  }
+
   function ciclo() {
     if (busy || document.hidden || !base() || typeof DB === 'undefined' || !DB.t) return;
     busy = true;
@@ -94,11 +111,12 @@
       var corpo = { id: t.id };
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }
+      else if (t.tipo === 'cliente') { corpo.feitos = cliente(t).feitos; }
       return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
     }).catch(function () {}).then(function () { busy = false; });
   }
   window.finConferenciaAgora = ciclo;
-  window._finConferir = conferir; // usado em teste
+  window._finConferir = conferir; window._finCliente = cliente; // usados em teste
   window.addEventListener('load', function () { setTimeout(function () { setInterval(ciclo, POLL_MS); ciclo(); }, 4000); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) setTimeout(ciclo, 800); });
 })();
