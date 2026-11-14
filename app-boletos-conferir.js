@@ -105,6 +105,16 @@ function bfParseListagem(texto) {
 function bfConciliar(parsed, boletos, hoje) {
   var dataL = parsed.dataListagem || hoje;
   var pagar = (boletos || []).filter(function (b) { return b && b.tipo === 'pagar' && b.status !== 'cancelado'; });
+  // Boletos do fornecedor lançados por engano como A RECEBER: mesmo documento da listagem, mesma nota,
+  // ou mesmo valor e vencimento de uma parcela da listagem. Entram na conferência como A PAGAR.
+  var basesL = {}, chavesL = {}, valVenc = {};
+  parsed.itens.forEach(function (it) { basesL[it.base] = true; chavesL[it.chave] = true; valVenc[it.venc + '|' + it.valor.toFixed(2)] = true; });
+  var trocados = (boletos || []).filter(function (b) {
+    if (!b || b.tipo !== 'receber' || b.status === 'cancelado') return false;
+    var d = _bfParseDoc(b.nDoc), k = _bfChaveBoleto(b);
+    return (k && chavesL[k]) || (d && basesL[d.base]) || (b.cargaId && basesL[String(b.cargaId).replace(/^0+/, '')]) || valVenc[b.venc + '|' + (+b.valor || 0).toFixed(2)];
+  });
+  pagar = pagar.concat(trocados);
   var usados = {};                       // id do boleto -> item da listagem
   var pares = [];                        // { item, b, por }
 
@@ -127,6 +137,7 @@ function bfConciliar(parsed, boletos, hoje) {
     if (p.b.cli) nomes[_bfNorm(p.b.cli)] = true;
   });
   function mesmoFornecedor(b) {
+    if (trocados.indexOf(b) >= 0) return true;
     if (b.cnpjBenef && cnpjs[String(b.cnpjBenef).replace(/\D/g, '')]) return true;
     if (b.cli && nomes[_bfNorm(b.cli)]) return true;
     var k = _bfParseDoc(b.nDoc); if (k && bases[k.base]) return true;
@@ -143,7 +154,7 @@ function bfConciliar(parsed, boletos, hoje) {
     if (b) { usados[b.id] = it; pares.push({ item: it, b: b, por: 'valor e data' }); it._par = true; }
   });
 
-  var r = { confirmados: [], criar: [], provPagos: [], conflitos: [], novos: [], pagosDepois: [], duplicados: [], jaBatem: 0, dataListagem: dataL };
+  var r = { trocados: trocados, confirmados: [], criar: [], provPagos: [], conflitos: [], novos: [], pagosDepois: [], duplicados: [], jaBatem: 0, dataListagem: dataL };
 
   pares.forEach(function (p) {
     var b = p.b;
@@ -304,6 +315,7 @@ function bfRender(manterScroll) {
 
   // novos / pagos depois
   var info = [];
+  if (R.trocados && R.trocados.length) info.unshift('🔁 ' + R.trocados.length + ' boleto(s) deste fornecedor estavam em A RECEBER por engano (' + _bfRs(soma(R.trocados, function (b) { return b.valor; })) + '). Ao aplicar, passam para A PAGAR.');
   if (R.novos.length) info.push(R.novos.length + ' boleto(s) lançado(s) depois da data da listagem (' + _bfRs(soma(R.novos, function (p) { return p.b.valor; })) + ') — não dá para conferir ainda.');
   if (R.pagosDepois.length) info.push(R.pagosDepois.length + ' pago(s) depois da listagem — normal, o fornecedor ainda não tinha baixado.');
   if (R.jaBatem) info.push(R.jaBatem + ' já estava(m) pago(s) no app e some(m) da listagem — tudo certo.');
@@ -312,7 +324,7 @@ function bfRender(manterScroll) {
   var nMud = Object.keys(E.marcados).filter(function (k) { return E.marcados[k]; }).length;
   var rodape = '<div style="display:flex;gap:8px;margin-top:14px;">'
     + '<button class="btn btn-o" style="flex:1;margin:0;" onclick="bfFechar()">Fechar</button>'
-    + '<button class="btn btn-g" style="flex:2;margin:0;" ' + ((nMud && P.confere !== false) ? '' : 'disabled') + ' onclick="bfAplicar()">✔ Aplicar ' + nMud + ' mudança(s)</button></div>';
+    + '<button class="btn btn-g" style="flex:2;margin:0;" ' + (((nMud || (R.trocados && R.trocados.length)) && P.confere !== false) ? '' : 'disabled') + ' onclick="bfAplicar()">✔ Aplicar ' + nMud + ' mudança(s)</button></div>';
 
   var ov = document.getElementById('bfOv'), sc = 0;
   if (!ov) {
@@ -336,6 +348,12 @@ function bfAplicar() {
 
   function guardar(b) { undo.alterados.push({ id: b.id, antes: { status: b.status, dtPag: b.dtPag, obs: b.obs, baixaConferencia: b.baixaConferencia } }); }
   function addObs(b, t) { b.obs = (b.obs ? b.obs + ' | ' : '') + t; }
+
+  var nTroc = 0;
+  (R.trocados || []).forEach(function (b) {
+    undo.alterados.push({ id: b.id, antes: { tipo: b.tipo, obs: b.obs } });
+    b.tipo = 'pagar'; addObs(b, 'Corrigido para A PAGAR pela ' + nota + ' (estava em A receber)'); nTroc++;
+  });
 
   R.criar.forEach(function (it, i) {
     if (!E.marcados['c' + i]) return;
@@ -384,6 +402,7 @@ function bfAplicar() {
   _bfUndo = undo;
 
   var partes = [];
+  if (nTroc) partes.push(nTroc + ' passado(s) de A receber para A pagar');
   if (nCri) partes.push(nCri + ' boleto(s) criado(s)');
   if (nPag) partes.push(nPag + ' dado(s) como pago(s)');
   if (nReab) partes.push(nReab + ' reaberto(s)');
