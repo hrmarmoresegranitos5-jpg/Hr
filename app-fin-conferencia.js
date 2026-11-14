@@ -102,6 +102,36 @@
     return { feitos: 1 };
   }
 
+  // v3: o cliente pediu o orçamento em imagem → baixa o PDF do bot, desenha cada página (pdf.js) e devolve em JPG
+  var PDFJS = ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/'];
+  function carregarPdfjs(i) {
+    i = i || 0;
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (i >= PDFJS.length) return Promise.reject(new Error('não carregou o leitor de PDF (sem internet?)'));
+    return new Promise(function (ok, erro) {
+      var s = document.createElement('script'); s.src = PDFJS[i] + 'pdf.min.js';
+      s.onload = function () { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS[i] + 'pdf.worker.min.js'; ok(window.pdfjsLib); } catch (e) { erro(e); } };
+      s.onerror = function () { s.remove(); carregarPdfjs(i + 1).then(ok, erro); };
+      document.head.appendChild(s);
+    });
+  }
+  function pdfEmImagens(t) {
+    return Promise.all([carregarPdfjs(), fetch(base() + '/bot/crm/midia?r=' + encodeURIComponent(t.ref), { headers: _botHeaders() }).then(function (r) { if (!r.ok) throw new Error('PDF indisponível (' + r.status + ')'); return r.arrayBuffer(); })])
+      .then(function (x) { return x[0].getDocument({ data: new Uint8Array(x[1]) }).promise; })
+      .then(function (doc) {
+        var imgs = [], n = Math.min(doc.numPages, 10), p = Promise.resolve();
+        for (var i = 1; i <= n; i++) (function (i) {
+          p = p.then(function () { return doc.getPage(i); }).then(function (pg) {
+            var v0 = pg.getViewport({ scale: 1 }), esc = Math.min(3, 1400 / v0.width), vp = pg.getViewport({ scale: esc });
+            var c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+            var cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, c.width, c.height);
+            return pg.render({ canvasContext: cx, viewport: vp }).promise.then(function () { imgs.push(c.toDataURL('image/jpeg', 0.88).split(',')[1]); });
+          });
+        })(i);
+        return p.then(function () { return imgs; });
+      });
+  }
+
   function ciclo() {
     if (busy || document.hidden || !base() || typeof DB === 'undefined' || !DB.t) return;
     busy = true;
@@ -109,6 +139,10 @@
       var t = j && j.tarefa; if (!t || feitos[t.id]) return;
       feitos[t.id] = 1;
       var corpo = { id: t.id };
+      if (t.tipo === 'pdfimg') {
+        return pdfEmImagens(t).then(function (imgs) { corpo.imagens = imgs; }, function (e) { corpo.imagens = []; corpo.erro = String(e && e.message || e); })
+          .then(function () { if (typeof toast === 'function') toast('🖼️ Orçamento convertido em imagem para o cliente'); return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) }); });
+      }
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }
       else if (t.tipo === 'cliente') { corpo.feitos = cliente(t).feitos; }
