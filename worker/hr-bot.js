@@ -859,6 +859,8 @@ async function orcEnvIniciarFluxo(env, from, o, texto) {
     await env.HR_KV.put('cliped:' + from, String(novo.id), { expirationTtl: 14 * 24 * 60 * 60 });
     await gravarCliente(env, from, { pedidoId: novo.id }).catch(() => {});
     if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
+    const oa = (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
+    if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor }).catch(() => {});
     await funilMarca(env, 'aprovou', novo).catch(() => {});
     await enviarComBotoes(env, from, `${o.valorPerguntado ? (pn ? pn + ', s' : 'S') + 'obre o pagamento:' : (pn ? pn + ', o' : 'O') + ' seu pedido está confirmado!'} ${novo.sinalOferta ? textoSinal(novo) + ' Como prefere?' : 'O pagamento será na entrega ou prefere fazer o Pix agora?'}`, botoesPagamento(novo));
     await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento (R$ ${reais(valor)}). Agora o bot pergunta a forma de pagamento, depois entrega ou retirada e a localização. Não peça nota e não diga que vai "repassar".]`).catch(() => {});
@@ -893,7 +895,19 @@ async function pedComValorDoCliente(env, num, nome) {
       if (casa && (!melhor || quando(p) > quando(melhor))) melhor = p;
     } catch (_) {}
   }
-  return melhor;
+  if (melhor) return melhor;
+  // v79c: o orçamento feito no app (Histórico) — o app envia a lista ao bot (cfg:historico)
+  const o = await orcDoHistoricoApp(env, nome);
+  return o ? { id: null, nome: o.cliente, valor: o.valor, orcApp: o.id, projetoApp: o.projeto, material: o.material, cor: o.material, origem: 'app' } : null;
+}
+async function orcDoHistoricoApp(env, nome) {
+  const h = await lerHistorico(env); if (!h) return null;
+  const tk = normaliza(String(nome || '')).split(' ').filter(w => w.length > 2); if (!tk.length) return null;
+  const lim = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const pontos = o => { const t = normaliza(o.cliente).split(' '); return tk.filter(w => t.includes(w)).length; };
+  const cands = h.orcamentos.filter(o => !o.arquivado && o.valor > 0 && (o.data || '') >= lim && normaliza(o.cliente).split(' ').includes(tk[0]) && !['perdido', 'concluido', 'entregue'].includes(o.status));
+  cands.sort((a, b) => pontos(b) - pontos(a) || String(b.data).localeCompare(String(a.data)));
+  return cands[0] || null;
 }
 // o dono responde o valor pedido no cartão "Pedido fechado" (só o número)
 async function orcEnvValorDono(env, from, msg) {
@@ -15105,6 +15119,7 @@ async function rotaFinTarefa(req, env, p) {
     t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito').slice(-20)), { expirationTtl: 3 * 86400 });
     if (t.tipo === 'conferir') await confReceberResultado(env, t, b.resultado || {});
     else if (t.tipo === 'pdfimg') await pdfImgResultado(env, t, b); // v76
+    else if (t.tipo === 'orc_aceito' && !b.feitos) await notificarDono(env, Date.now(), `Não achei no app o orçamento de ${t.cliente || 'o cliente'} para marcar como Aceito. Marque pelo Histórico.`, { rotina: true }).catch(() => {}); // v79c
     else if (t.tipo === 'aplicar' && b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
     return J({ ok: true });
   }
