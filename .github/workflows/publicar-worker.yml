@@ -12,6 +12,9 @@ on:
 
 concurrency: publicar-worker
 
+permissions:
+  contents: write
+
 jobs:
   publicar:
     runs-on: ubuntu-latest
@@ -44,3 +47,18 @@ jobs:
           echo "$RESP" | jq -c '{success, errors, messages}'
           [ "$(echo "$RESP" | jq -r '.success')" = "true" ] || { echo "::error::O Cloudflare recusou o código."; exit 1; }
           echo "✅ Worker $WORKER atualizado."
+
+      - name: Endereço público do bot (para o site oficial)
+        run: |
+          if [ -z "$CF_ACCOUNT" ]; then
+            CF_ACCOUNT=$(curl -s -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/accounts | jq -r '.result[0].id')
+          fi
+          SUB=$(curl -s -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/subdomain" | jq -r '.result.subdomain // empty')
+          if [ -z "$SUB" ]; then echo "Não consegui ler o subdomínio workers.dev (o token pode não ter essa permissão)."; exit 0; fi
+          URL="https://$WORKER.$SUB.workers.dev"
+          echo "Endereço do bot: $URL"
+          printf '{"bot":"%s","album":"%s/obras"}\n' "$URL" "$URL" > site/bot.json
+          if ! git diff --quiet -- site/bot.json 2>/dev/null || [ -n "$(git status --porcelain site/bot.json)" ]; then
+            git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+            git add site/bot.json && git commit -m "Endereço do bot para o site" && git push || true
+          fi
