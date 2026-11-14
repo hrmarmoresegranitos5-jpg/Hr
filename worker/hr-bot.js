@@ -835,20 +835,43 @@ async function orcEnvFechamento(env, from, texto) {
   }
   if (/\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
   o.fechado = Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
-  let ped = null;
-  if (o.pedId) { ped = await lerPedido(env, o.pedId).catch(() => null); if (ped) { ped.aprovadoCliente = Date.now(); ped.fechadoPeloCliente = Date.now(); await salvarPedido(env, ped).catch(() => {}); await funilMarca(env, 'aprovou', ped).catch(() => {}); } }
-  const valor = (ped && Number(ped.valor)) || o.valor || 0;
+  await orcEnvIniciarFluxo(env, from, o, texto);
+  return true;
+}
+// v78b: o pedido fechado segue o MESMO passo a passo dos pedidos do bot: pagamento (Pix agora ou na entrega / sinal),
+//   entrega ou retirada, localização, referência e troco (tratarPosOrcamento). Usa uma cópia do pedido do dono, ligada ao cliente.
+async function orcEnvIniciarFluxo(env, from, o, texto) {
   let nome = (await lerNomeSalvo(env, from).catch(() => '')) || o.nome || '';
   if (!nome && crmAtivo(env)) { const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(normalizarBR(from)).first().catch(() => null); nome = (ct && (ct.nome || nomeDoPerfil(ct.perfil))) || ''; }
-  const pn = nomeDeTratamento(nome);
-  await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a produção entra na agenda e a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.\n\nSe tiver alguma observação (cor, medida, horário de entrega), pode mandar agora.`);
-  await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento enviado em PDF${valor ? ' (R$ ' + reais(valor) + ')' : ''}. O pedido está confirmado e a equipe vai combinar pagamento e entrega. Se ele perguntar, confirme isso; não peça nota e não diga que vai "repassar" de novo.]`).catch(() => {});
+  let base = o.pedId ? await lerPedido(env, o.pedId).catch(() => null) : null;
+  if (!base) base = await pedComPdfDoNumero(env, from, nome).catch(() => null);
+  if (!nome && base) nome = base.nome || '';
+  const pn = nomeDeTratamento(nome), valor = (base && Number(base.valor)) || o.valor || 0;
+  let novo = null;
+  if (valor > 0) {
+    novo = { ...(base || {}), id: String(Date.now()), origem: 'pdf_dono', pedOrigem: base ? base.id : null, numero: from, nome: nome || (base && base.nome) || '', valor,
+      status: 'enviado', etapa: 'pagamento', aprovadoCliente: Date.now(), criado: Date.now(), atualizado: Date.now() };
+    for (const kk of ['fase', 'erro', 'forma_pagto', 'sinal', 'pago', 'mp', 'aguardaPix', 'despachadoEm', 'referencia', 'trocoPara', 'trocoPerguntado', 'avisoPdfEm', 'valorEnviadoEm']) delete novo[kk];
+    if (typeof novo.entrega !== 'string') delete novo.entrega;
+    await prepararSinal(env, novo);
+    await salvarPedido(env, novo);
+    await env.HR_KV.put('cliped:' + from, String(novo.id), { expirationTtl: 14 * 24 * 60 * 60 });
+    await gravarCliente(env, from, { pedidoId: novo.id }).catch(() => {});
+    if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
+    await funilMarca(env, 'aprovou', novo).catch(() => {});
+    await enviarComBotoes(env, from, `${pn ? pn + ', o' : 'O'} seu pedido está confirmado! ${novo.sinalOferta ? textoSinal(novo) + ' Como prefere?' : 'O pagamento será na entrega ou prefere fazer o Pix agora?'}`, botoesPagamento(novo));
+    await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento (R$ ${reais(valor)}). Agora o bot pergunta a forma de pagamento, depois entrega ou retirada e a localização. Não peça nota e não diga que vai "repassar".]`).catch(() => {});
+  } else { // sem o valor do orçamento não há como cobrar pelo bot: confirma e o dono combina
+    await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.`);
+    await anotarNoHistorico(env, from, '[O cliente FECHOU o orçamento enviado em PDF. A equipe vai combinar pagamento e entrega. Não peça nota e não diga que vai "repassar" de novo.]').catch(() => {});
+  }
   await notificarDono(env, Date.now(), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), [
     valor ? `Valor do orçamento: R$ ${reais(valor)}` : null,
-    `Confirmou: "${String(texto).replace(/\s+/g, ' ').slice(0, 140)}"`,
-    'O que fazer: combinar o pagamento (até 10x sem juros ou à vista com desconto) e colocar na agenda de produção.',
+    texto ? `Confirmou: "${String(texto).replace(/\s+/g, ' ').slice(0, 140)}"` : 'Fechado pelo senhor.',
+    novo ? 'Situação: o bot está perguntando o pagamento (Pix ou na entrega), entrega ou retirada e a localização. A ficha chega ao senhor no fim.'
+      : 'O que fazer: não achei o valor do orçamento no bot. Combine o pagamento e a entrega com ela.',
   ], from));
-  return true;
+  return novo;
 }
 async function crmUltimaDoCliente(env, num) {
   try { if (!crmAtivo(env)) return 0; await crmTabela(env); const r = await env.HR_DB.prepare("SELECT MAX(ts) AS t FROM crm_msg WHERE num = ? AND q = 'c'").bind(normalizarBR(num)).first(); return (r && Number(r.t)) || 0; } catch (_) { return 0; }
@@ -7902,6 +7925,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'fechar_pedido_cliente',
+    description: 'O cliente FECHOU/aprovou o orçamento em PDF que o Sr. Hangel mandou (ou o Sr. Hangel pede "fecha o pedido da Eliane", "segue o pedido dela", "pergunta o pagamento e a entrega pra ela"). O bot confirma ao cliente e segue o passo a passo: forma de pagamento (Pix agora ou na entrega), entrega ou retirada, localização e troco. Precisa estar dentro de 24 h da última mensagem do cliente.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se souber' } }, required: ['cliente'] },
+  },
+  {
     name: 'enviar_orcamento_em_imagem',
     description: 'Manda ao cliente o ÚLTIMO PDF de orçamento que o bot enviou a ele, transformado em IMAGEM (uma foto por página). Use quando o Sr. Hangel pedir "manda o orçamento em imagem/foto pra fulano" ou quando o cliente não consegue abrir PDF. Precisa do app HR aberto (celular ou Central no PC) para converter.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se souber' } }, required: ['cliente'] },
@@ -8274,6 +8302,18 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
     try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
+  }
+  if (nome === 'fechar_pedido_cliente') { // v78b
+    let num = numeroCliente(a.numero);
+    if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
+    if (!num && a.cliente && crmAtivo(env)) { await crmTabela(env); const rs = await env.HR_DB.prepare('SELECT num, nome, perfil FROM crm_ct ORDER BY ult DESC LIMIT 300').all(); const alvo = normaliza(a.cliente).split(' ')[0]; const c = (rs.results || []).find(x => normaliza(x.nome + ' ' + x.perfil).split(/\s+/).includes(alvo)); if (c) num = c.num; }
+    if (!num) return { erro: true, texto: 'Não achei o telefone desse cliente. Peça o número ao Sr. Hangel em uma frase.' };
+    const k = 'orcenv:' + normalizarBR(num);
+    let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+    o = o || { pedId: null, valor: 0, nome: a.cliente || '', em: Date.now() };
+    o.fechado = Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
+    const novo = await orcEnvIniciarFluxo(env, num, o, '');
+    return { texto: novo ? `Feito: confirmei o pedido a ${a.cliente} (R$ ${reais(novo.valor)}) e o bot já perguntou a forma de pagamento; depois vêm entrega ou retirada e a localização. Repasse em UMA frase.` : 'Confirmei o pedido ao cliente, mas não achei o valor do orçamento no bot: o pagamento e a entrega precisam ser combinados pelo Sr. Hangel. Diga isso em UMA frase.' };
   }
   if (nome === 'enviar_orcamento_em_imagem') { // v76
     let num = numeroCliente(a.numero);
