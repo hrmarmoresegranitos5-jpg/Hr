@@ -143,6 +143,16 @@
         return pdfEmImagens(t).then(function (imgs) { corpo.imagens = imgs; }, function (e) { corpo.imagens = []; corpo.erro = String(e && e.message || e); })
           .then(function () { if (typeof toast === 'function') toast('🖼️ Orçamento convertido em imagem para o cliente'); return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) }); });
       }
+      if (t.tipo === 'orc_aceito') { // v4: o cliente fechou pelo WhatsApp → orçamento "Aceito" no Histórico (o pagamento continua sendo lançado pelo senhor)
+        var q = (DB.q || []).find(function (x) { return String(x.id) === String(t.orcId); });
+        if (q && q.status !== 'aceito' && q.status !== 'entregue' && q.status !== 'concluido') {
+          q.status = 'aceito'; q._statusDate = new Date().toISOString().slice(0, 10); q._fechadoPeloBot = new Date().toISOString();
+          try { DB.sv(); } catch (e) {} try { if (typeof renderOrc === 'function') renderOrc(); } catch (e) {}
+          if (typeof toast === 'function') toast('✅ ' + (q.cli || 'Cliente') + ' fechou pelo WhatsApp: orçamento Aceito');
+        }
+        corpo.feitos = q ? 1 : 0;
+        return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
+      }
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }
       else if (t.tipo === 'cliente') { corpo.feitos = cliente(t).feitos; }
