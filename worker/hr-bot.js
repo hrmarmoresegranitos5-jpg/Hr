@@ -7920,7 +7920,11 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
     const ped = await pedComPdfDoNumero(env, num || '0', a.cliente || '').catch(() => null);
-    if (!ped || !ped.mediaId) return { erro: true, texto: `Não achei o PDF do orçamento de "${String(a.cliente || '').slice(0, 40)}" feito nos últimos 10 dias. Diga isso ao Sr. Hangel em uma frase.` };
+    if (!ped || !ped.mediaId) {
+      if (!num) return { erro: true, texto: 'Não achei o PDF nem o telefone. Peça ao Sr. Hangel o número da cliente e que encaminhe o PDF aqui.' };
+      await env.HR_KV.put('orc:esperapdf', JSON.stringify({ num, nome: a.cliente || '', msg: String(a.mensagem || '').trim() }), { expirationTtl: 30 * 60 });
+      return { texto: `O PDF desse orçamento não ficou guardado no bot (foi feito antes desta função). Peça ao Sr. Hangel, em UMA frase, para ENCAMINHAR o PDF aqui nesta conversa (tocar e segurar no PDF → Encaminhar → Meu número); assim que chegar, o bot manda para ${a.cliente || 'o cliente'} sozinho.` };
+    }
     num = num || numeroCliente(ped.numero);
     if (!num || normalizarBR(num) === normalizarBR(numeroDono(env))) return { erro: true, texto: 'Não sei o telefone do cliente. Peça ao Sr. Hangel o número com DDD em uma frase.' };
     const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
@@ -13033,6 +13037,16 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
+  if (dono && m.type === 'document' && /pdf/i.test(String(m.document && (m.document.mime_type || m.document.filename) || '')) && await env.HR_KV.get('orc:esperapdf')) { // v73e: PDF encaminhado para mandar ao cliente
+    try {
+      const w = JSON.parse(await env.HR_KV.get('orc:esperapdf')); await env.HR_KV.delete('orc:esperapdf');
+      const mid = await baixarMidia(env, m.document.id);
+      const up = await subirPdfMeta(env, new Uint8Array(mid.buf), m.document.filename || 'Orcamento.pdf');
+      const r = await enviarOrcamentoCliente(env, w.num, { mediaId: up.id, arquivoNome: up.nome, nome: w.nome }, w.nome, w.msg);
+      await enviar(env, from, '📄 ' + r);
+    } catch (e) { await enviar(env, from, 'Não consegui mandar esse PDF: ' + String(e.message).slice(0, 150)); }
+    return;
+  }
   if (dono && m.type === 'image' && await confTratarPrint(env, from, m).catch(e => { console.log('[CONF] print:', e.message); return false; })) return; // v72
   if (dono && (m.type === 'video' || m.type === 'image' || m.type === 'document') && await tratarMidiaPostDono(env, from, m).catch(e => { console.log('[ESTUDIO] mídia:', e.message); return false; })) return; // v69
   if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) { await marcarUso(env, 'print_mp'); return; } // v63m
@@ -14615,8 +14629,9 @@ async function pedComPdfDoNumero(env, numero, nome) {
 // v73d: manda o PDF do orçamento ao cliente, dentro ou fora das 24 h
 async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
   const pn = String(nome || ped.nome || '').trim().split(' ')[0];
-  const pedido = ((ped.itens && ped.itens.length ? ped.itens.map(i => String(i.ambiente || '').toLowerCase()).filter(Boolean).join(' e ') : '') || String(ped.interesse || 'pedra').toLowerCase()) + (ped.pedra ? ' em ' + ped.pedra : '');
-  const texto = mensagem || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento de ${pedido}. Qualquer dúvida, é só me chamar por aqui.`;
+  const pedido = ((ped.itens && ped.itens.length ? ped.itens.map(i => String(i.ambiente || '').toLowerCase()).filter(Boolean).join(' e ') : '') || String(ped.interesse || '').toLowerCase()) + (ped.pedra ? ' em ' + ped.pedra : '');
+  const dePed = pedido ? ' de ' + pedido : '';
+  const texto = mensagem || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento${dePed}. Qualquer dúvida, é só me chamar por aqui.`;
   const ult = Math.max(Number(await env.HR_KV.get('ult:' + num)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(num))) || 0);
   if (Date.now() - ult < 23 * 3600 * 1000) {
     await enviar(env, num, texto);
@@ -14625,11 +14640,11 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
     return `Enviei a mensagem e o PDF a ${nome || 'o cliente'} (wa.me/${num}).`;
   }
   await tplAutoEnv(env).catch(() => {});
-  if (await tplAvisarOrcamento(env, num, nome, pedido, texto, ped).catch(e => { console.log('[TPL] aviso:', e.message); return false; }))
+  if (pedido && await tplAvisarOrcamento(env, num, nome, pedido, texto, ped).catch(e => { console.log('[TPL] aviso:', e.message); return false; }))
     return `${nome || 'O cliente'} estava fora das 24 h: mandei o aviso aprovado "orçamento pronto, posso enviar?". Quando tocar em "Pode enviar", vão a mensagem e o PDF, e o Sr. Hangel é avisado.`;
   const nomeResp = env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'); // v73d: o modelo aprovado da HR, mesmo sem conseguir listar
   if (nomeResp) {
-    const curto = `${pn ? pn + ', o' : 'O'} seu orçamento de ${pedido} está pronto. Posso te enviar por aqui? É só responder esta mensagem.`.slice(0, 200);
+    const curto = `${pn ? pn + ', o' : 'O'} seu orçamento${dePed} está pronto. Posso te enviar por aqui? É só responder esta mensagem.`.slice(0, 200);
     try {
       await postarMsg(env, num, { type: 'template', template: { name: nomeResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
       await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
@@ -15053,6 +15068,7 @@ async function entregarPdf(env, ped, bytes, arquivo, legenda) {
     method: 'POST', headers: authBearer(env), body: fd,
   });
   if (!up?.id) throw new Error('a Meta não devolveu o id do PDF');
+  ped.mediaId = ped.mediaId || up.id; ped.arquivoNome = ped.arquivoNome || nome; ped.mediaEm = Date.now(); // v73e: guarda para poder mandar ao cliente depois (vale 30 dias na Meta)
   const empresa = env.EMPRESA || 'HR Mármores e Granitos';
   const primeiro = String(ped.nome || '').split(' ')[0];
   const padrao = ped.origem === 'dono'
