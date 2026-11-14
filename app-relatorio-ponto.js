@@ -182,6 +182,11 @@ var HR_RELATORIO_PONTO = (function () {
         compensarMin = Math.round((parseFloat(exc.compensacaoHoras) || 0) * 60);
       }
 
+      // Falta justificada (atestado) aprovada pelo dono no ponto pelo celular: dia sem jornada, não desconta
+      if (r && r.tipo === 'abonado') {
+        esperadoMin = 0; compensarMin = 0;
+        obsExcecao = 'falta abonada' + (r.motivoAbono ? ' — ' + r.motivoAbono : '');
+      }
       if (r) {
         var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
 

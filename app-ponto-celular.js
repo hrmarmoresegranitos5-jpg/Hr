@@ -100,6 +100,9 @@
       h += '</div>';
     });
     if (!alguma) h += '<div style="color:' + T3 + ';font-size:.8rem;">Ninguém bateu ponto pelo celular hoje.</div>';
+    h += sec('📝 Pedidos dos funcionários');
+    h += '<div style="font-size:.74rem;color:' + T3 + ';line-height:1.5;">No app do ponto, o funcionário pode pedir <b>"Esqueci de bater"</b> ou <b>"Justificar falta"</b> (com foto do atestado). O senhor aprova aqui ou pelos botões no WhatsApp. Falta abonada entra no RH sem desconto.</div><div id="hpPeds" style="font-size:.8rem;">Carregando…</div>';
+    setTimeout(listarPedidos, 0);
     h += '<button onclick="HRPonto.ajuste()" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">✍️ Ajuste: batida esquecida (com motivo)</button>';
     // levar ao RH
     // relatórios de horas
@@ -193,7 +196,7 @@
       var im = new Image(); im.onload = function () {
         var c = v.querySelector('canvas[data-i="' + i + '"]'); if (!c) return;
         c.width = im.naturalWidth; c.height = im.naturalHeight; var g = c.getContext('2d');
-        g.translate(c.width, 0); g.scale(-1, 1); g.drawImage(im, 0, 0); x.f = null; im.src = '';
+        if (!x.normal) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(im, 0, 0); x.f = null; im.src = '';
       }; im.src = x.f;
     });
   }
@@ -410,6 +413,20 @@
           regs[reg.id] = reg; if (existe) r.atualizados++; else r.novos++;
         });
       });
+      // v85: faltas justificadas (atestado) aprovadas no ponto pelo celular → dia abonado no RH (sem jornada, não desconta)
+      Object.keys(j.abonos || {}).forEach(function (d) {
+        Object.keys(j.abonos[d]).forEach(function (fid) {
+          if (!funcs[fid]) return;
+          var ab = j.abonos[d][fid] || {}, existe = null;
+          Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === d) { existe = g; return true; } });
+          if (existe && (existe.origem !== 'ponto-celular' || existe.tipo === 'abonado' || existe.entrada)) return; // já tem dia lançado
+          var agora = new Date().toISOString();
+          var reg = existe || { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), funcionarioId: fid, data: d, destinoExtra: 'pagar', producao: '', instalacao: '', ieo: '', origem: 'ponto-celular', loteId: 'pontocel_' + d, criadoEm: agora };
+          reg.tipo = 'abonado'; reg.entrada = ''; reg.saida = ''; reg.saidaAlmoco = ''; reg.voltaAlmoco = ''; reg.horas = 0; reg.extra = 0; reg.tipoExtra = 'normal';
+          reg.motivoAbono = String(ab.motivo || '').slice(0, 120); reg.observacao = 'Falta abonada (ponto pelo celular)' + (reg.motivoAbono ? ': ' + reg.motivoAbono : '');
+          reg.atualizadoEm = agora; regs[reg.id] = reg; r.novos++;
+        });
+      });
       if (r.novos || r.atualizados) {
         localStorage.setItem('hr_registros', JSON.stringify(regs));
       }
@@ -451,9 +468,69 @@
       if (st && st.em) h += '<div style="margin-top:6px;font-size:.66rem;color:' + T3 + ';">✓ Lançamento automático no RH · última conferência ' + new Date(st.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + '</div>';
       el.innerHTML = h;
     };
-    if (cacheHoje && Date.now() - cacheHoje.t < 60000) { desenhar(cacheHoje.j); return; }
-    api('/bot/ponto/registros?de=' + hoje() + '&ate=' + hoje()).then(function (j) { cacheHoje = { t: Date.now(), j: j }; desenhar(j); })
+    desenhar = desenharAgora; // v85: painel ao vivo
+    if (cacheHoje && Date.now() - cacheHoje.t < 45000) { desenhar(cacheHoje.j); return; }
+    api('/bot/ponto/agora').then(function (j) { cacheHoje = { t: Date.now(), j: j }; desenhar(j); })
       .catch(function (e) { el.innerHTML = '<span style="color:#f87171;">Não consegui falar com o bot: ' + esc(e.message) + '</span>'; });
+  }
+  // ── v85: PAINEL AO VIVO — quem está trabalhando, almoço, atrasos, saída esquecida, pedidos ──
+  var COR = { trabalhando: '#4ade80', almoco: '#f59e0b', esqueceu_saida: '#f87171', atrasado: '#f87171', nao_chegou: T3, saiu: T2, abonado: '#93c5fd', folga: T3 };
+  var ICO = { trabalhando: '🟢', almoco: '🍽️', esqueceu_saida: '🔴', atrasado: '🔴', nao_chegou: '⚪', saiu: '🏠', abonado: '📄', folga: '😴' };
+  function hm(n) { n = Math.round(n || 0); return Math.floor(n / 60) + 'h' + String(n % 60).padStart(2, '0'); }
+  function pedidosHtml(peds, compacto) {
+    if (!peds.length) return '';
+    return peds.map(function (x) {
+      var dt = x.data ? x.data.slice(8) + '/' + x.data.slice(5, 7) : '';
+      var oque = x.tipo === 'falta' ? 'Justificar falta de <b>' + dt + '</b>' : 'Esqueceu: <b>' + esc(x.rotulo) + '</b> de ' + dt + ' às <b>' + esc(x.hora) + '</b>';
+      var st = x.status === 'aguardando' ? '' : '<span style="color:' + (x.status === 'aprovado' ? '#4ade80' : '#f87171') + ';font-size:.7rem;font-weight:800;"> · ' + x.status + '</span>';
+      return '<div style="padding:9px 10px;border:1px solid ' + (x.status === 'aguardando' ? 'rgba(245,158,11,.45)' : BD) + ';border-radius:11px;margin-top:6px;font-size:.76rem;line-height:1.45;">'
+        + '<b style="color:#fff;">' + esc(String(x.nome || '').split(' ')[0]) + '</b> · ' + oque + st
+        + '<div style="color:' + T3 + ';">Motivo: ' + esc(x.motivo) + '</div>'
+        + (x.status === 'aguardando' || x.temFoto ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
+          + (x.temFoto ? btn('📎 Ver foto', "HRPonto.pedFoto('" + x.id + "')") : '')
+          + (x.status === 'aguardando' ? btn(x.tipo === 'falta' ? '✅ Abonar' : '✅ Aprovar', "HRPonto.pedDecidir('" + x.id + "','ok')", '#4ade80') + btn('❌ Recusar', "HRPonto.pedDecidir('" + x.id + "','no')", '#f87171') : '')
+          + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+  function desenharAgora(j) {
+    var el = document.getElementById('hrPontoCardCorpo'); if (!el) return;
+    var l = j.lista || [], cont = {}; l.forEach(function (x) { cont[x.st] = (cont[x.st] || 0) + 1; });
+    var chip = function (k, t) { return cont[k] ? '<span style="padding:4px 9px;border-radius:99px;background:rgba(255,255,255,.05);border:1px solid ' + BD + ';color:' + COR[k] + ';font-weight:700;white-space:nowrap;">' + ICO[k] + ' ' + cont[k] + ' ' + t + '</span>' : ''; };
+    var h = '<div style="display:flex;gap:6px;flex-wrap:wrap;font-size:.7rem;margin-bottom:8px;">' + chip('trabalhando', 'trabalhando') + chip('almoco', 'no almoço') + chip('atrasado', 'sem entrada') + chip('esqueceu_saida', 'sem saída') + chip('nao_chegou', 'a chegar') + chip('saiu', 'saíram') + chip('abonado', 'abonado') + chip('folga', 'de folga') + '</div>';
+    l.forEach(function (x) {
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid ' + BD + ';">'
+        + '<span style="font-size:1rem;">' + ICO[x.st] + '</span>'
+        + '<div style="flex:1;min-width:0;"><div style="color:#fff;font-weight:700;font-size:.82rem;">' + esc(String(x.nome).split(' ')[0]) + (x.atrasoMin > 10 ? ' <span style="color:#f59e0b;font-size:.68rem;font-weight:600;">· chegou ' + x.atrasoMin + ' min atrasado</span>' : '') + '</div>'
+        + '<div style="font-size:.7rem;color:' + COR[x.st] + ';">' + esc(x.txt) + (x.pend ? ' <b style="color:#f59e0b;">· ' + x.pend + ' aguardando</b>' : '') + '</div></div>'
+        + '<div style="text-align:right;font-size:.82rem;font-weight:800;color:' + (x.trab ? '#fff' : T3) + ';font-variant-numeric:tabular-nums;">' + (x.trab ? hm(x.trab) : '—') + '<div style="font-size:.58rem;font-weight:600;color:' + T3 + ';">hoje</div></div></div>';
+    });
+    if (!l.length) h += '<div>Nenhum funcionário no ponto ainda. Toque em ⚙️ para começar.</div>';
+    var peds = j.pedidos || [];
+    if (peds.length) h += '<div style="margin-top:10px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:#f59e0b;font-weight:800;">📝 Pedidos esperando o senhor (' + peds.length + ')</div>' + pedidosHtml(peds, true);
+    var st = estado.ultimoSync || lerJ('hr_ponto_sync'), avisos = [];
+    (st && st.incompletos || []).slice(0, 4).forEach(function (t) { avisos.push('⚠️ ' + esc(t)); });
+    if (avisos.length) h += '<div style="margin-top:8px;padding:8px 10px;border-radius:9px;background:rgba(245,158,11,.08);color:#fbbf24;font-size:.72rem;line-height:1.5;">' + avisos.join('<br>') + '<br><span style="color:' + T3 + ';">Resolva em ⚙️ Ponto e ajustes → os dias entram no RH sozinhos.</span></div>';
+    h += '<div style="margin-top:6px;font-size:.64rem;color:' + T3 + ';">Atualiza sozinho a cada minuto' + (st && st.em ? ' · RH conferido ' + new Date(st.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '') + '</div>';
+    el.innerHTML = h;
+  }
+  setInterval(function () { if (!document.hidden && document.getElementById('hrPontoCardCorpo')) { cacheHoje = null; cartao(); } }, 60000);
+  function pedDecidir(id, acao) {
+    var resp = acao === 'no' ? prompt('Motivo da recusa (o funcionário recebe):') : '';
+    if (acao === 'no' && resp === null) return;
+    api('/bot/ponto/pedido-decidir', { id: id, acao: acao, resposta: resp || '' }).then(function (j) {
+      toastP(acao === 'ok' ? '✅ Aprovado — ' + String(j.pedido.nome || '').split(' ')[0] + ' foi avisado' : 'Recusado — ele foi avisado');
+      cacheHoje = null; cartao(); if (document.getElementById('hrPontoMd')) { listarPedidos(); recarregar(); }
+      if (acao === 'ok') setTimeout(function () { sincronizarAuto(true); }, 800);
+    }).catch(function (e) { toastP(e.message); });
+  }
+  function pedFoto(id) { api('/bot/ponto/pedido-foto?id=' + encodeURIComponent(id)).then(function (j) { mostrarFotos([{ t: 'Foto do pedido', f: j.foto, normal: true }]); }).catch(function (e) { toastP(e.message); }); }
+  function listarPedidos() {
+    var el = document.getElementById('hpPeds'); if (!el) return;
+    api('/bot/ponto/pedidos').then(function (j) {
+      var l = j.pedidos || [], ag = l.filter(function (x) { return x.status === 'aguardando'; }), out = l.filter(function (x) { return x.status !== 'aguardando'; }).slice(0, 6);
+      el.innerHTML = (ag.length ? pedidosHtml(ag) : '<div style="color:' + T3 + ';">Nenhum pedido esperando.</div>') + (out.length ? '<div style="margin-top:10px;color:' + T3 + ';font-size:.7rem;">Últimos respondidos</div>' + pedidosHtml(out) : '');
+    }).catch(function (e) { el.textContent = e.message; });
   }
   var ultimaAuto = 0;
   function aoAbrirRH() {
@@ -484,5 +561,5 @@
   window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
 
-  window.HRPonto = { sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
+  window.HRPonto = { pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
 })();

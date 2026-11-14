@@ -1814,6 +1814,8 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('fech_')) return tratarBotaoFechamento(env, from, id);
   if (id === 'resp_ok' || id === 'resp_no') { await decidirRascunho(env, from, id === 'resp_ok'); return true; }
   if (id.startsWith('pr_ok|') || id.startsWith('pr_no|')) return pontoBotaoRede(env, from, id); // v34: HR Ponto, rede nova
+  if (id.startsWith('ppd_ok|') || id.startsWith('ppd_no|')) return pontoPedidoBotao(env, from, id); // v85
+  if (id.startsWith('pb_ok|') || id.startsWith('pb_no|')) return pontoBatidaBotao(env, from, id); // v85
   if (id.startsWith('vl_ok|') || id.startsWith('vl_no|')) { await valeBotaoDono(env, from, id); return true; } // v46: vale pelo WhatsApp
   if (id.startsWith('conc_')) return tratarBotaoConc(env, from, id);
   if (id.startsWith('din_')) return tratarBotaoDinheiro(env, from, id);
@@ -7214,6 +7216,7 @@ async function despachoBotao(env, from, id) {
 }
 // "mandar ficha <nome>" / "mandar entrega <nome>" / hora digitada depois de "Outro horário"
 async function despachoComandoDono(env, from, bruto, msg) {
+  if (/^(quem (esta|ta|tá|está) (trabalhando|na oficina|ai|aí)|ponto (de )?hoje|como (esta|ta) o ponto|quem (bateu|chegou|faltou)( o ponto)?( hoje)?)\??$/.test(msg)) { await enviar(env, from, pontoAgoraTexto(await pontoAgora(env))); return true; } // v85
   if (/^(arrumar|arruma|organizar|organiza|revisar|revisa|conferir|confere|atualizar|atualiza|ajeitar|faxina( n?os)?)( (os|meus|nos|dos))? boletos?$|^boletos? (baguncado|baguncados|desatualizado|desatualizados)/.test(msg)) { await bolRevIniciar(env, from); return true; } // v84
   if (/^(parar|cancelar|sair da) revis[aã]o/.test(msg) && await env.HR_KV.get('bol:rev')) { const ss = JSON.parse(await env.HR_KV.get('bol:rev')); await bolRevFim(env, from, { ...ss, gi: 9999 }); return true; }
   const aguarda = await env.HR_KV.get('hora:aguarda');
@@ -8319,6 +8322,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'ponto_agora',
+    description: 'Mostra a situação do ponto AGORA: quem está trabalhando (desde quando e quantas horas), no almoço, quem não bateu a entrada, quem esqueceu a saída, quem já saiu, batidas aguardando e pedidos de ajuste/falta. Use quando o Sr. Hangel perguntar quem está trabalhando, quem chegou, quem faltou, como está o ponto hoje.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'revisar_boletos',
     description: 'Começa a REVISÃO/ARRUMAÇÃO dos boletos a pagar pelo WhatsApp (o Sr. Hangel diz que os boletos estão bagunçados/desatualizados ou pede para organizar): o bot mostra fornecedor por fornecedor com botões e no fim aplica as baixas no app.',
     input_schema: { type: 'object', properties: {} },
@@ -8724,6 +8732,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
   if (nome === 'pagar_folha') return await rhFolhaPreparar(env, from, a); // v81
+  if (nome === 'ponto_agora') { const a = await pontoAgora(env); return { texto: pontoAgoraTexto(a).replace(/\*/g, '') }; } // v85
   if (nome === 'revisar_boletos') { await bolRevIniciar(env, from); return { texto: 'A revisão dos boletos já começou com botões. Responda apenas: "Vamos lá."' }; } // v84
   if (nome === 'fechar_pedido_cliente') { // v78b
     let num = numeroCliente(a.numero);
@@ -21599,20 +21608,37 @@ async function rotaPonto(req, env, ctx, url) {
       if (!antes || JSON.parse(antes).endpoint !== limpo.endpoint) ctx && ctx.waitUntil && ctx.waitUntil(pushEnviar(env, limpo, { title: 'Lembretes ligados ✓', body: 'O HR Ponto vai te avisar se esquecer de bater.', tag: 'ponto-ok' }).catch(() => {}));
       return J({ ok: true });
     }
+    if (p === '/ponto/pedido') { // v85: funcionário pede ajuste (esqueceu de bater) ou justifica falta (com foto do atestado)
+      const r = await pontoPedidoCriar(env, cfg, dev.funcId, nome, b);
+      return r.erro ? J({ erro: r.erro }, 400) : J({ ok: true, pedido: r.pedido });
+    }
     if (p === '/ponto/meu') {
       const dias = [];
       for (let i = 0; i < 7; i++) { const d = dataBahia(-i); const l = await pontoDia(env, d, dev.funcId); if (l.length || i === 0) dias.push({ data: d, batidas: l.map(pontoPublico) }); }
       const ext = !!(await env.HR_KV.get(`ponto:ext:${hoje}:${dev.funcId}`));
       const temRosto = !!(await env.HR_KV.get('ponto:face:' + dev.funcId));
       const relU = await pontoRelUltimo(env, dev.funcId), bn = relU && relU.status !== 'aprovado' ? await pontoBotNumero(env) : '';
-      return J({ ok: true, nome, hoje, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
+      const pedidos = (await pontoPedidosLista(env)).filter(x => String(x.funcId) === String(dev.funcId)).slice(0, 8).map(pontoPedidoPublico);
+      return J({ ok: true, nome, hoje, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
     }
 
     if (p === '/ponto/bater') {
-      const ts = Date.now();
-      const lista = await pontoDia(env, hoje, dev.funcId);
-      const ult = lista.filter(x => x.status !== 'recusada').slice(-1)[0];
-      if (ult && ts - ult.ts < 120000) return J({ erro: `Você já bateu às ${ult.hora}. Espere 2 minutos para bater de novo.` }, 429);
+      // v85: batida feita SEM INTERNET chega depois com a hora do celular (offline:true, tsCli, idCli): sempre fica aguardando o dono
+      const off = b.offline === true && Number.isFinite(+b.tsCli);
+      let ts = Date.now();
+      if (off) {
+        const t = Math.round(+b.tsCli);
+        if (t > ts + 180000) return J({ erro: 'A hora do celular está adiantada. Acerte a hora e bata de novo.', descartar: true }, 400);
+        if (t < ts - 48 * 3600000) return J({ erro: 'Essa batida ficou guardada mais de 2 dias. Peça um ajuste ao responsável.', descartar: true }, 400);
+        ts = Math.min(t, ts);
+      }
+      const diaB = off ? pontoDataDeTs(ts) : hoje;
+      const lista = await pontoDia(env, diaB, dev.funcId);
+      const idCli = String(b.idCli || '').replace(/[^a-z0-9]/gi, '').slice(0, 40);
+      const jaVeio = idCli && lista.find(x => x.cli === idCli);
+      if (jaVeio) return J({ ok: true, repetida: true, tipo: jaVeio.tipo, rotulo: PONTO_TIPOS[jaVeio.tipo], hora: jaVeio.hora, status: jaVeio.status, motivo: jaVeio.motivo, nome, proximo: pontoProximo(lista) });
+      const perto = lista.filter(x => x.status !== 'recusada' && Math.abs(ts - x.ts) < 120000)[0];
+      if (perto) return J({ erro: `Você já bateu às ${perto.hora}. Espere 2 minutos para bater de novo.`, descartar: off }, off ? 409 : 429);
       let tipo = String(b.tipo || '');
       if (!PONTO_TIPOS[tipo]) tipo = pontoProximo(lista);
       const ip = String(req.headers.get('cf-connecting-ip') || '');
@@ -21622,7 +21648,7 @@ async function rotaPonto(req, env, ctx, url) {
       const temGps = isFinite(lat) && isFinite(lng) && lat !== 0;
       const dist = (temGps && cfg.lat != null) ? pontoDistM(cfg.lat, cfg.lng, lat, lng) : null;
       const gpsOk = cfg.lat == null ? true : (dist != null && dist <= (cfg.raio || 150) + Math.min(acc, 100));
-      const externo = !!(await env.HR_KV.get(`ponto:ext:${hoje}:${dev.funcId}`));
+      const externo = !!(await env.HR_KV.get(`ponto:ext:${diaB}:${dev.funcId}`));
       const foto = String(b.foto || '');
       if (!/^data:image\/jpeg;base64,/.test(foto) || foto.length < 2000) return J({ erro: 'A foto não saiu. Libere a câmera e tente de novo.' }, 400);
       if (foto.length > 400000) return J({ erro: 'Foto grande demais.' }, 413);
@@ -21637,7 +21663,11 @@ async function rotaPonto(req, env, ctx, url) {
       }
       const limOk = Number(env.PONTO_ROSTO_OK) || 0.52, limMax = Number(env.PONTO_ROSTO_MAX) || 0.6;
       let status, motivo = '';
-      if (externo) { if (!temGps) return J({ erro: 'Hoje você está liberado para obra externa, mas precisa ligar a localização do celular.' }, 400); status = 'ok'; }
+      if (off) { // sem internet: a rede não dá para conferir; o dono decide com a localização, o rosto e a foto
+        status = 'pendente';
+        motivo = `feita sem internet às ${pontoHora(ts)}, enviada às ${pontoHora(Date.now())}` + (externo ? '; obra externa' : '') + (cfg.lat == null ? '' : !temGps ? '; sem localização' : gpsOk ? '; localização na oficina' : `; localização a ${dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m'}`);
+      }
+      else if (externo) { if (!temGps) return J({ erro: 'Hoje você está liberado para obra externa, mas precisa ligar a localização do celular.' }, 400); status = 'ok'; }
       else if (ipOk && (gpsOk || !temGps)) { status = 'ok'; if (!temGps && cfg.lat != null) motivo = 'sem GPS (valeu pelo Wi-Fi da oficina)'; }
       else if (ipOk && !gpsOk) { status = 'pendente'; motivo = `no Wi-Fi da oficina, mas a localização deu ${dist} m de distância`; }
       else if (!ipOk && gpsOk && temGps && cfg.lat != null) { status = 'pendente'; motivo = 'internet diferente da registrada (roteador pode ter trocado)'; }
@@ -21656,12 +21686,16 @@ async function rotaPonto(req, env, ctx, url) {
       const id = ts.toString(36) + pontoHex(3);
       await env.HR_KV.put('ponto:f:' + id, foto, { expirationTtl: PONTO_FOTO_TTL });
       const bat = { id, tipo, ts, hora: pontoHora(ts), status, motivo, ip: ipK, lat: temGps ? +lat.toFixed(6) : null, lng: temGps ? +lng.toFixed(6) : null, acc, dist, externo, rosto: rostoDist, vivo, ua: String(req.headers.get('user-agent') || '').slice(0, 120) };
-      lista.push(bat);
-      await env.HR_KV.put(`ponto:d:${hoje}:${dev.funcId}`, JSON.stringify(lista), { expirationTtl: PONTO_TTL });
+      if (off) { bat.offline = true; bat.enviadaEm = Date.now(); }
+      if (idCli) bat.cli = idCli;
+      lista.push(bat); lista.sort((a, c) => a.ts - c.ts);
+      await env.HR_KV.put(`ponto:d:${diaB}:${dev.funcId}`, JSON.stringify(lista), { expirationTtl: PONTO_TTL });
       if (status === 'pendente') {
-        const novaRede = !ipOk && ip;
-        await pontoAvisarDono(env, (alertaRosto ? '🚨 ' : '🕐 ') + `*HR Ponto*: batida de *${nome}* (${PONTO_TIPOS[tipo]}, ${bat.hora}) ficou *aguardando*: ${motivo}.` + (novaRede ? '\n\nSe ele está na oficina, confirme que esta é a internet de vocês.' : '\n\nConfira no app (RH → Ponto pelo celular).'),
-          novaRede ? [{ id: 'pr_ok|' + ipK, titulo: '✅ É a oficina' }, { id: 'pr_no|' + ipK, titulo: '❌ Não é' }] : null);
+        const novaRede = !off && !ipOk && ip;
+        const dDia = diaB === hoje ? '' : ` de ${diaB.slice(8)}/${diaB.slice(5, 7)}`;
+        await pontoAvisarDono(env, (alertaRosto ? '🚨 ' : off ? '📶 ' : '🕐 ') + `*HR Ponto*: batida de *${nome}* (${PONTO_TIPOS[tipo]}${dDia}, ${bat.hora}) ficou *aguardando*: ${motivo}.` + (novaRede ? '\n\nSe ele está na oficina, confirme que esta é a internet de vocês.' : ''),
+          novaRede ? [{ id: 'pr_ok|' + ipK, titulo: '✅ É a oficina' }, { id: 'pr_no|' + ipK, titulo: '❌ Não é' }]
+            : [{ id: `pb_ok|${diaB}|${dev.funcId}|${id}`, titulo: '✅ Confirmar' }, { id: `pb_no|${diaB}|${dev.funcId}|${id}`, titulo: '❌ Recusar' }]);
       }
       return J({ ok: true, tipo, rotulo: PONTO_TIPOS[tipo], hora: bat.hora, status, motivo, nome, proximo: pontoProximo(lista) });
     }
@@ -21670,6 +21704,118 @@ async function rotaPonto(req, env, ctx, url) {
     console.log('[PONTO] erro:', e.message);
     return J({ erro: 'Falha no servidor do ponto. Tente de novo em instantes.' }, 503);
   }
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v85: PEDIDOS DO FUNCIONÁRIO (esqueci de bater / justificar falta) + PAINEL "AGORA"
+// ═════════════════════════════════════════════════════════════════════════════
+function pontoDataDeTs(ts) { return new Date(ts - 3 * 3600000).toISOString().slice(0, 10); } // Bahia = UTC-3, sem horário de verão
+function pontoDataBR(d) { return d ? d.slice(8, 10) + '/' + d.slice(5, 7) : ''; }
+async function pontoPedidosLista(env) { try { return JSON.parse((await env.HR_KV.get('ponto:peds')) || '[]'); } catch (_) { return []; } }
+async function pontoPedidosSalvar(env, l) { await env.HR_KV.put('ponto:peds', JSON.stringify(l.slice(0, 150)), { expirationTtl: PONTO_TTL }); }
+function pontoPedidoPublico(x) { return { id: x.id, funcId: x.funcId, nome: x.nome, tipo: x.tipo, data: x.data, batida: x.batida || '', rotulo: x.batida ? PONTO_TIPOS[x.batida] : '', hora: x.hora || '', motivo: x.motivo, temFoto: !!x.temFoto, status: x.status, em: x.em, decididoEm: x.decididoEm || null, resposta: x.resposta || '' }; }
+function pontoPedidoTexto(x) { return x.tipo === 'falta' ? `falta de ${pontoDataBR(x.data)}` : `${PONTO_TIPOS[x.batida] || 'batida'} de ${pontoDataBR(x.data)} às ${x.hora}`; }
+async function pontoPedidoCriar(env, cfg, funcId, nome, b) {
+  const tipo = b.tipo === 'falta' ? 'falta' : 'esqueci';
+  const hoje = dataBahia(), data = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : '';
+  if (!data || data > hoje || data < dataBahia(-31)) return { erro: 'Escolha um dia dos últimos 30 dias.' };
+  const motivo = String(b.motivo || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (motivo.length < 3) return { erro: 'Escreva o motivo.' };
+  const ped = { id: Date.now().toString(36) + pontoHex(3), funcId: String(funcId), nome, tipo, data, motivo, status: 'aguardando', em: Date.now() };
+  if (tipo === 'esqueci') {
+    if (!PONTO_TIPOS[b.batida] || !/^\d{2}:\d{2}$/.test(b.hora || '')) return { erro: 'Escolha qual batida e a hora.' };
+    const [h, m] = b.hora.split(':').map(Number); if (h > 23 || m > 59) return { erro: 'Hora inválida.' };
+    if (data === hoje && h * 60 + m > agoraBahia().min + 5) return { erro: 'Essa hora ainda não chegou.' };
+    ped.batida = b.batida; ped.hora = b.hora;
+  }
+  const foto = String(b.foto || '');
+  if (foto) {
+    if (!/^data:image\/jpeg;base64,/.test(foto) || foto.length > 900000) return { erro: 'A foto não deu certo. Tente uma foto menor.' };
+    await env.HR_KV.put('ponto:pf:' + ped.id, foto, { expirationTtl: PONTO_FOTO_TTL }); ped.temFoto = true;
+  }
+  const l = await pontoPedidosLista(env);
+  if (l.filter(x => x.funcId === ped.funcId && x.status === 'aguardando').length >= 6) return { erro: 'Você já tem 6 pedidos esperando o responsável. Aguarde a resposta.' };
+  if (l.some(x => x.funcId === ped.funcId && x.status === 'aguardando' && x.tipo === tipo && x.data === data && (tipo === 'falta' || x.batida === ped.batida))) return { erro: 'Você já fez esse pedido. Aguarde a resposta.' };
+  l.unshift(ped); await pontoPedidosSalvar(env, l);
+  await pontoAvisarDono(env, cartaoDono(tipo === 'falta' ? 'Ponto · justificativa de falta' : 'Ponto · esqueceu de bater', [`${nome}: ${pontoPedidoTexto(ped)}`, `Motivo: ${motivo}`, ped.temFoto ? 'Mandou foto (atestado/comprovante): veja no app, RH → Ponto.' : null]),
+    [{ id: 'ppd_ok|' + ped.id, titulo: tipo === 'falta' ? '✅ Abonar' : '✅ Aprovar' }, { id: 'ppd_no|' + ped.id, titulo: '❌ Recusar' }]);
+  return { pedido: pontoPedidoPublico(ped) };
+}
+async function pontoPedidoDecidir(env, id, aprovar, resposta) {
+  const l = await pontoPedidosLista(env), x = l.find(y => y.id === id);
+  if (!x) return { erro: 'Pedido não encontrado.' };
+  if (x.status !== 'aguardando') return { erro: `Esse pedido já foi ${x.status}.`, pedido: x };
+  x.status = aprovar ? 'aprovado' : 'recusado'; x.decididoEm = Date.now(); if (resposta) x.resposta = String(resposta).slice(0, 200);
+  if (aprovar && x.tipo === 'esqueci') {
+    const k = `ponto:d:${x.data}:${x.funcId}`, lista = await pontoDia(env, x.data, x.funcId);
+    const [h, m] = x.hora.split(':').map(Number), ts = Date.parse(x.data + 'T00:00:00-03:00') + (h * 60 + m) * 60000;
+    lista.push({ id: ts.toString(36) + pontoHex(3), tipo: x.batida, ts, hora: x.hora, status: 'ok', ajuste: true, motivo: ('pedido do funcionário: ' + x.motivo).slice(0, 120), criadoEm: Date.now(), autor: 'pedido' });
+    lista.sort((a, c) => a.ts - c.ts);
+    await env.HR_KV.put(k, JSON.stringify(lista), { expirationTtl: PONTO_TTL });
+  }
+  if (aprovar && x.tipo === 'falta') await env.HR_KV.put(`ponto:abono:${x.data}:${x.funcId}`, JSON.stringify({ motivo: x.motivo, pedido: x.id, em: Date.now() }), { expirationTtl: PONTO_TTL });
+  await pontoPedidosSalvar(env, l);
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(y => String(y.id) === String(x.funcId));
+  if (f) await pontoNotificar(env, f, aprovar ? 'Pedido aprovado ✓' : 'Pedido recusado', `${aprovar ? 'Aprovado' : 'Recusado'}: ${pontoPedidoTexto(x)}.${x.resposta ? ' ' + x.resposta : ''}`, 'ponto-ped').catch(() => {});
+  return { ok: true, pedido: x };
+}
+async function pontoPedidoBotao(env, from, id) {
+  if (!ehDono(env, from)) return true;
+  const [acao, pid] = id.split('|');
+  const r = await pontoPedidoDecidir(env, pid, acao === 'ppd_ok');
+  await enviar(env, from, r.erro ? r.erro : `${acao === 'ppd_ok' ? 'Aprovado' : 'Recusado'}: ${r.pedido.nome}, ${pontoPedidoTexto(r.pedido)}. Já avisei ele.`);
+  return true;
+}
+async function pontoBatidaBotao(env, from, id) { // pb_ok|data|funcId|id — dono confirma/recusa a batida pendente pelo WhatsApp
+  if (!ehDono(env, from)) return true;
+  const [acao, data, funcId, bid] = id.split('|');
+  const l = await pontoDia(env, data, funcId), x = l.find(y => y.id === bid);
+  if (!x) { await enviar(env, from, 'Não achei essa batida.'); return true; }
+  if (x.status !== 'pendente') { await enviar(env, from, `Essa batida já está ${x.status === 'ok' ? 'confirmada' : 'recusada'}.`); return true; }
+  x.status = acao === 'pb_ok' ? 'ok' : 'recusada'; x.decididoEm = Date.now();
+  await env.HR_KV.put(`ponto:d:${data}:${funcId}`, JSON.stringify(l), { expirationTtl: PONTO_TTL });
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(y => String(y.id) === String(funcId));
+  await enviar(env, from, `${x.status === 'ok' ? 'Confirmada' : 'Recusada'}: ${(f && f.nome) || 'funcionário'}, ${PONTO_TIPOS[x.tipo]} das ${x.hora}.`);
+  if (f && x.status === 'recusada') await pontoNotificar(env, f, 'Batida recusada', `A batida de ${PONTO_TIPOS[x.tipo]} das ${x.hora} não foi aceita. Fale com o responsável.`, 'ponto-rec').catch(() => {});
+  return true;
+}
+// Situação de cada um AGORA (para o painel do app e para o dono perguntar no WhatsApp)
+async function pontoAgora(env) {
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ag = agoraBahia(), L = cfg.lemb || {};
+  const m = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
+  const folga = ag.dia === 7 || (cfg.feriados || []).includes(hoje);
+  const ent = m(L.entrada || '07:15'), sai = m(ag.dia === 6 ? (L.sabado || '12:15') : (L.saida || '17:45'));
+  const lista = [];
+  for (const f of cfg.funcs) {
+    const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
+    const ult = l[l.length - 1], e1 = l.find(b => b.tipo === 'entrada');
+    const abono = await env.HR_KV.get(`ponto:abono:${hoje}:${f.id}`);
+    let st, txt;
+    if (abono) { st = 'abonado'; txt = 'falta justificada'; }
+    else if (!ult) { st = folga ? 'folga' : ag.min > ent ? 'atrasado' : 'nao_chegou'; txt = folga ? 'folga' : ag.min > ent ? 'não bateu a entrada' : 'ainda não chegou'; }
+    else if (ult.tipo === 'saida') { st = 'saiu'; txt = 'saiu às ' + ult.hora; }
+    else if (ult.tipo === 'saida_almoco') { st = 'almoco'; txt = 'no almoço desde ' + ult.hora; }
+    else if (isFinite(sai) && ag.min > sai + 60) { st = 'esqueceu_saida'; txt = 'não bateu a saída (entrou ' + ((e1 || ult).hora) + ')'; }
+    else { st = 'trabalhando'; txt = 'trabalhando desde ' + ((e1 || ult).hora); }
+    let trab = 0, ini = null; // minutos trabalhados hoje
+    for (const b of l) { const mm = m(b.hora); if (b.tipo === 'entrada' || b.tipo === 'volta_almoco') ini = mm; else if ((b.tipo === 'saida_almoco' || b.tipo === 'saida') && ini != null) { trab += Math.max(0, mm - ini); ini = null; } }
+    if (ini != null && st !== 'esqueceu_saida') trab += Math.max(0, ag.min - ini);
+    lista.push({ funcId: f.id, nome: f.nome, st, txt, trab, atrasoMin: e1 && isFinite(ent) ? Math.max(0, m(e1.hora) - ent) : 0, pend: l.filter(b => b.status === 'pendente').length });
+  }
+  const peds = (await pontoPedidosLista(env)).filter(x => x.status === 'aguardando').map(pontoPedidoPublico);
+  return { hoje, folga, entrada: L.entrada || '07:15', lista, pedidos: peds };
+}
+function pontoAgoraTexto(a) {
+  const hm = n => Math.floor(n / 60) + 'h' + String(n % 60).padStart(2, '0');
+  const g = k => a.lista.filter(x => x.st === k);
+  const linhas = [];
+  for (const [k, t] of [['trabalhando', 'Trabalhando'], ['almoco', 'No almoço'], ['esqueceu_saida', 'Esqueceram a saída'], ['atrasado', 'Não bateram a entrada'], ['nao_chegou', 'Ainda não chegaram'], ['saiu', 'Já saíram'], ['abonado', 'Falta justificada'], ['folga', 'Folga']]) {
+    const l = g(k); if (!l.length) continue;
+    linhas.push(`*${t}:* ` + l.map(x => String(x.nome).split(' ')[0] + (k === 'trabalhando' || k === 'saiu' ? ` (${x.txt.replace(/^(trabalhando desde|saiu às) /, '')}${x.trab ? ', ' + hm(x.trab) : ''})` : '')).join(', '));
+  }
+  const pend = a.lista.reduce((t, x) => t + x.pend, 0);
+  if (pend) linhas.push(`${pend} batida(s) aguardando o senhor confirmar.`);
+  if (a.pedidos.length) linhas.push(`${a.pedidos.length} pedido(s) de ajuste/falta esperando resposta.`);
+  return cartaoDono('Ponto agora', linhas.length ? linhas : ['Ninguém no ponto ainda.']);
 }
 function escHtmlPonto(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
@@ -21970,8 +22116,13 @@ async function rotaBotPonto(req, env, url) {
       const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d = x.toISOString().slice(0, 10); n++;
     }
     const ativos = {}, push = {}, rostos = {}; for (const f of cfg.funcs) { ativos[f.id] = !!(await env.HR_KV.get('ponto:fd:' + f.id)); push[f.id] = ativos[f.id] && !!(await env.HR_KV.get('ponto:push:' + f.id)); rostos[f.id] = !!(await env.HR_KV.get('ponto:face:' + f.id)); }
-    return jsonR({ ok: true, funcs: cfg.funcs, ativos, push, rostos, facial: cfg.facial !== false, dias });
+    const abonos = {}; { let d2 = de, n2 = 0; while (d2 <= ate && n2 < 62) { for (const f of cfg.funcs) { const a = await env.HR_KV.get(`ponto:abono:${d2}:${f.id}`); if (a) (abonos[d2] = abonos[d2] || {})[f.id] = JSON.parse(a); } const x = new Date(d2 + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d2 = x.toISOString().slice(0, 10); n2++; } }
+    return jsonR({ ok: true, funcs: cfg.funcs, ativos, push, rostos, facial: cfg.facial !== false, dias, abonos });
   }
+  if (p === '/bot/ponto/agora' && req.method === 'GET') return jsonR(Object.assign({ ok: true }, await pontoAgora(env))); // v85
+  if (p === '/bot/ponto/pedidos' && req.method === 'GET') return jsonR({ ok: true, pedidos: (await pontoPedidosLista(env)).slice(0, 60).map(pontoPedidoPublico) });
+  if (p === '/bot/ponto/pedido-decidir' && req.method === 'POST') { const b = await req.json().catch(() => ({})); const r = await pontoPedidoDecidir(env, String(b.id || ''), b.acao === 'ok', b.resposta); return r.erro ? jsonR({ error: r.erro }, 400) : jsonR({ ok: true, pedido: pontoPedidoPublico(r.pedido) }); }
+  if (p === '/bot/ponto/pedido-foto' && req.method === 'GET') { const f = await env.HR_KV.get('ponto:pf:' + String(url.searchParams.get('id') || '').replace(/[^a-z0-9]/g, '')); return f ? jsonR({ ok: true, foto: f }) : jsonR({ error: 'Foto não encontrada.' }, 404); }
   if (p === '/bot/ponto/foto' && req.method === 'GET') {
     const id = String(url.searchParams.get('id') || '').replace(/[^a-z0-9]/g, '');
     const bat = await pontoAcharBatida(env, url.searchParams.get('data'), String(url.searchParams.get('funcId') || ''), id); // v38
@@ -22053,6 +22204,24 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
 .cam.r{width:240px;height:240px;transition:border-color .2s}.cam.r.bom{border-color:var(--ok)}
 .passos{display:flex;gap:6px;justify-content:center;margin:10px 0 14px}.passos i{width:10px;height:10px;border-radius:50%;background:var(--s2);border:1px solid var(--bd)}.passos i.on{background:var(--ok);border-color:var(--ok)}
 .rinst{text-align:center;font-size:1.25rem;font-weight:800;min-height:3.2em;margin:4px 0;color:var(--claro)}
+.stchip{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 auto 14px;padding:9px 14px;border-radius:99px;background:var(--s1);border:1px solid var(--bd);font-size:.9rem;font-weight:700;width:fit-content;max-width:100%}.stchip.trab{border-color:rgba(76,195,138,.6);color:var(--ok)}.stchip.alm{border-color:rgba(224,165,48,.6);color:var(--warn)}.stchip.fim{color:var(--t2)}
+.offbar{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:rgba(224,165,48,.1);border:1px solid rgba(224,165,48,.4);font-size:.84rem;line-height:1.4;color:#f3d48f}
+.fila{margin:0 0 12px;padding:12px;border-radius:14px;background:#1f1a10;border:1.5px solid var(--warn);font-size:.86rem;line-height:1.45}.fila span{color:var(--t2);font-size:.8rem}.fila button{display:block;width:100%;margin-top:10px;padding:11px;border-radius:10px;border:1px solid var(--warn);background:none;color:#f3d48f;font-weight:800;font-family:inherit;font-size:.9rem}
+.linha{display:flex;flex-direction:column;gap:0}.linha .it{display:flex;align-items:center;gap:12px;padding:9px 0;position:relative}.linha .it:not(:last-child):after{content:'';position:absolute;left:13px;top:36px;bottom:-9px;width:2px;background:var(--bd)}
+.linha .bo{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:.8rem;font-weight:900;border:2px solid var(--bd);color:var(--t2);flex-shrink:0;background:var(--bg)}.linha .ok .bo{background:var(--ok);border-color:var(--ok);color:#06210f}.linha .pendente .bo,.linha .fila2 .bo{background:var(--warn);border-color:var(--warn);color:#2a1d02}.linha .prox .bo{border-color:var(--ouro);color:var(--claro)}
+.linha .nm{flex:1;font-size:.95rem}.linha .nm small{display:block;font-size:.72rem;color:var(--t2)}.linha .hr{font-size:1.1rem;font-weight:800;font-variant-numeric:tabular-nums}.linha .prox .nm{color:var(--claro);font-weight:700}.linha .vazio .hr{color:var(--t2);font-weight:600}
+.trabhj{margin-top:6px;padding-top:10px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;font-size:.9rem;color:var(--t2)}.trabhj b{color:var(--t1);font-size:1.05rem;font-variant-numeric:tabular-nums}
+.tres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.tres div{background:var(--s2);border-radius:12px;padding:10px 4px;text-align:center;font-size:.68rem;color:var(--t2)}.tres b{display:block;font-size:1.15rem;color:var(--t1);margin-top:3px;font-variant-numeric:tabular-nums}.tres .x b{color:var(--ok)}
+.det{margin-top:10px}.det summary{cursor:pointer;font-size:.82rem;color:var(--claro);padding:6px 0}
+.pbts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pbts button{padding:14px 6px;border-radius:12px;border:1px solid var(--bd);background:var(--s2);color:var(--t1);font-size:.88rem;font-weight:700;font-family:inherit}
+.ped{margin-top:8px;padding:9px 11px;border-radius:11px;background:var(--s2);font-size:.82rem;line-height:1.4}.ped small{color:var(--t2)}
+.sheet{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.7);display:flex;align-items:flex-end}.sheet[hidden]{display:none}
+.shbox{width:100%;max-width:480px;margin:0 auto;background:var(--s1);border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto}
+.shbox h3{margin:0 0 10px;font-size:1.15rem}.shbox label{display:block;font-size:.8rem;color:var(--t2);margin:12px 0 5px}
+.shbox input,.shbox select,.shbox textarea{width:100%;padding:13px;border-radius:12px;border:1px solid var(--bd);background:var(--s2);color:var(--t1);font-size:1rem;font-family:inherit}
+.fotobt{display:block!important;text-align:center;padding:13px;border-radius:12px;border:1px dashed var(--ouro);color:var(--claro)!important;font-weight:700;font-size:.92rem!important;cursor:pointer}
+#shPrev{display:block;max-width:100%;max-height:200px;margin:10px auto 0;border-radius:10px}#shPrev[hidden]{display:none}
+.cam[hidden]{display:none}
 </style></head><body>
 <div class="top"><b>HR Ponto</b><span>__EMPRESA__</span></div>
 
@@ -22079,18 +22248,33 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   <div class="relogio" id="rel">--:--</div>
   <div class="data" id="dat"></div>
   <div class="ola">Olá, <b id="nome"></b></div>
+  <div class="stchip" id="stChip"></div>
   <div class="ext" id="ext">🚚 Hoje você está liberado para <b>obra externa</b>: vale a localização da obra.</div>
-  <div class="cam" id="cam"><video id="vid" playsinline muted autoplay></video><div class="msg" id="camMsg"><span>Toque em <b>BATER</b> para abrir a câmera</span></div></div>
+  <div class="offbar" id="offBar" hidden>📶 Sem internet agora. Pode bater normalmente: o app guarda e envia sozinho quando a internet voltar.</div>
+  <div class="fila" id="filaCard" hidden></div>
   <div class="card relc" id="relCard" hidden><h3 id="relT">Relatório de horas</h3><div id="relTab"></div><div id="relBt"></div></div>
+  <div class="cam" id="cam" hidden><video id="vid" playsinline muted autoplay></video><div class="msg" id="camMsg"><span>Abrindo a câmera…</span></div></div>
   <button class="bater" id="btBater">BATER PONTO</button>
-  <div class="hoje" id="hoje"></div>
   <button type="button" class="outro" id="btOutro">Bater outro tipo</button>
   <div class="tipos" id="tipos" hidden></div>
-  <p class="aviso">Bata conectado no <b>Wi-Fi da oficina</b>.</p>
-  <div class="card" id="resCard" hidden><h3 id="resT">Meu período</h3><div id="res"></div></div>
+  <div class="card"><h3>Hoje</h3><div class="linha" id="hoje"></div><div class="trabhj" id="trabHj"></div></div>
+  <div class="card" id="resCard" hidden><h3 id="resT">Meu período</h3><div class="tres" id="resNum"></div><details class="det"><summary>Ver dia a dia</summary><div id="res"></div></details></div>
+  <div class="card"><h3>Precisa corrigir algo?</h3><div class="pbts"><button type="button" id="btEsq">🕐 Esqueci de bater</button><button type="button" id="btFalta">📄 Justificar falta</button></div><div id="peds"></div></div>
   <div class="card" id="lembCard" style="display:none"><h3>🔔 Lembretes</h3><div id="lembTxt" style="font-size:.88rem;color:var(--t2);line-height:1.45"></div><button type="button" id="btLemb" style="display:none;width:100%;margin-top:10px;padding:13px;border-radius:12px;border:1px solid var(--ouro);background:none;color:var(--claro);font-size:.95rem;font-weight:800">LIGAR LEMBRETES</button></div>
+  <p class="aviso">Bata conectado no <b>Wi-Fi da oficina</b>.</p>
   <div id="hist" hidden></div>
 </div>
+
+<div class="sheet" id="sheet" hidden><div class="shbox">
+  <h3 id="shT">Pedido</h3>
+  <label>Qual dia</label><input type="date" id="shData">
+  <div id="shEsq"><label>Qual batida você esqueceu</label><select id="shBat"><option value="entrada">Entrada</option><option value="saida_almoco">Saída para o almoço</option><option value="volta_almoco">Volta do almoço</option><option value="saida">Saída</option></select>
+  <label>Que horas foi, mais ou menos</label><input type="time" id="shHora"></div>
+  <label>Motivo</label><textarea id="shMot" rows="3" placeholder="Ex.: esqueci o celular em casa"></textarea>
+  <div id="shFotoW"><label>Foto do atestado ou comprovante (se tiver)</label><label class="fotobt" for="shFoto">📷 Tirar ou escolher foto</label><input type="file" accept="image/*" id="shFoto" hidden><img id="shPrev" alt="" hidden></div>
+  <p class="aviso" id="shErro" style="color:var(--err)"></p>
+  <div class="relbt"><button type="button" class="nao" id="shCancel">Cancelar</button><button type="button" class="sim" id="shEnviar">Enviar pedido</button></div>
+</div></div>
 
 <div class="ok-tela" id="okTela"><div class="ic" id="okIc">✓</div><div class="t1" id="okT1"></div><div class="t2" id="okT2"></div><div class="t3" id="okT3"></div><button onclick="fecharOk()">OK</button></div>
 
@@ -22110,51 +22294,153 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   $('btOutro').onclick=function(){var t=$('tipos');t.hidden=!t.hidden;this.textContent=t.hidden?'Bater outro tipo':'Fechar';if(t.hidden){escolhido=false;tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos()}};
   $('tipos').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;tipoSel=b.getAttribute('data-t');escolhido=true;desenhaTipos()});
   function stTxt(s){return s==='ok'?'registrada':s==='pendente'?'aguardando':'recusada'}
+  var ORDEM=['entrada','saida_almoco','volta_almoco','saida'],HJ=[],ULTJ=null,ONLINE=true;
+  function hm(m){if(m==null)return '—';m=Math.round(m);return Math.floor(m/60)+':'+String(m%60).padStart(2,'0')}
+  function hm2(m){m=Math.max(0,Math.round(m||0));return Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')}
+  function agoraMin(){var p=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Bahia',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(Date.now()+difHora)).split(':');return (+p[0]%24)*60+(+p[1])}
+  function hojeISO(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bahia'}).format(new Date(Date.now()+difHora))}
+  function minDe(h){var p=String(h||'').split(':');return p.length<2?NaN:(+p[0])*60+(+p[1])}
+  // ── batidas guardadas sem internet ──
+  var FILA_K='hrponto_fila',filaMsg='';
+  function fila(){try{return JSON.parse(localStorage.getItem(FILA_K)||'[]')||[]}catch(e){return[]}}
+  function filaSalvar(l){try{localStorage.setItem(FILA_K,JSON.stringify(l));return true}catch(e){return false}}
+  function desenhaFila(){
+    var l=fila(),c=$('filaCard');
+    if(!l.length&&!filaMsg){c.hidden=true;return}
+    c.hidden=false;
+    c.innerHTML=(l.length?'📶 <b>'+l.length+' batida(s) guardada(s) neste celular</b><br><span>'+l.map(function(x){return TIPOS[x.tipo]+' às '+x.hora}).join(' · ')+'</span><br><span>Vão ser enviadas sozinhas quando a internet voltar. Não apague os dados do app.</span><button type="button" id="btFila">Enviar agora</button>':'')+(filaMsg?'<div style="margin-top:'+(l.length?'10px':'0')+';color:var(--err)">'+filaMsg+'</div>':'');
+    var b=$('btFila');if(b)b.onclick=function(){b.disabled=true;b.textContent='Enviando…';enviarFila(true)};
+  }
+  var enviandoFila=false;
+  function enviarFila(avisar){
+    if(enviandoFila||!TOKEN)return;var l=fila();if(!l.length){desenhaFila();return}
+    enviandoFila=true;var x=l[0];
+    api('/ponto/bater',Object.assign({},x,{token:TOKEN,offline:true})).then(function(j){
+      if(!j.ok&&!(j._status>=400&&j._status<500))throw new Error('servidor');
+      filaSalvar(fila().filter(function(y){return y.idCli!==x.idCli}));
+      if(!j.ok)filaMsg='Não registrou a '+TIPOS[x.tipo]+' das '+x.hora+': '+(j.erro||'recusada')+(j.desativado?'':' Use "Esqueci de bater" para pedir o ajuste.');
+      else if(!j.repetida){bip(true);filaMsg=''}
+      enviandoFila=false;desenhaFila();
+      if(fila().length)enviarFila(avisar);else carregar();
+    }).catch(function(){enviandoFila=false;desenhaFila();if(avisar){bip(false);mostra('pend','📶','Ainda sem internet','','As batidas continuam guardadas no celular. O app tenta de novo sozinho.')}});
+  }
+  window.addEventListener('online',function(){enviarFila(false);carregar()});
+  setInterval(function(){if(fila().length)enviarFila(false)},60000);
+  function trabHoje(){
+    var t=0,ini=null;HJ.forEach(function(b){var m=minDe(b.hora);if(b.tipo==='entrada'||b.tipo==='volta_almoco')ini=m;else if((b.tipo==='saida_almoco'||b.tipo==='saida')&&ini!=null){t+=Math.max(0,m-ini);ini=null}});
+    var em=ini!=null;if(em&&HJ.length&&HJ[0].data===hojeISO())t+=Math.max(0,agoraMin()-ini);
+    $('trabHj').innerHTML=HJ.length?'<span>'+(em?'Trabalhando agora':'Trabalhado hoje')+'</span><b>'+hm2(t)+'</b>':'';
+  }
+  function desenhaHoje(){
+    var ult=HJ[HJ.length-1],c=$('stChip'),e1=HJ.filter(function(b){return b.tipo==='entrada'})[0];
+    if(!ult){c.className='stchip';c.textContent='Você ainda não bateu a entrada hoje'}
+    else if(ult.tipo==='saida'){c.className='stchip fim';c.textContent='🏠 Expediente encerrado às '+ult.hora}
+    else if(ult.tipo==='saida_almoco'){c.className='stchip alm';c.textContent='🍽️ No almoço desde '+ult.hora}
+    else{c.className='stchip trab';c.textContent='🟢 Trabalhando desde '+(e1||ult).hora}
+    var h='';
+    ORDEM.forEach(function(k,i){
+      var b=HJ.filter(function(x){return x.tipo===k}).slice(-1)[0],cls=b?(b.fila?'fila2':b.status):(k===proximo?'prox':'vazio');
+      var sub=b?(b.fila?'guardada no celular, envia quando tiver internet':b.status==='pendente'?'aguardando o responsável confirmar':b.ajuste?'ajuste aprovado':''):(k===proximo?'próxima batida':'');
+      h+='<div class="it '+cls+'"><div class="bo">'+(b?(b.status==='ok'&&!b.fila?'✓':'⏳'):(i+1))+'</div><div class="nm">'+TIPOS[k]+(sub?'<small>'+sub+'</small>':'')+'</div><div class="hr">'+(b?b.hora:'--:--')+'</div></div>';
+    });
+    HJ.filter(function(x){return x.tipo==='extra'}).forEach(function(b){h+='<div class="it '+(b.fila?'fila2':b.status)+'"><div class="bo">+</div><div class="nm">Batida extra</div><div class="hr">'+b.hora+'</div></div>'});
+    $('hoje').innerHTML=h;trabHoje();
+  }
+  function desenhaPedidos(l){
+    var P={aguardando:'⏳ aguardando',aprovado:'✅ aprovado',recusado:'❌ recusado'};
+    $('peds').innerHTML=(l||[]).slice(0,5).map(function(x){var d=x.data.slice(8)+'/'+x.data.slice(5,7);return '<div class="ped"><b>'+(x.tipo==='falta'?'Falta de '+d:x.rotulo+' de '+d+' às '+x.hora)+'</b> · '+(P[x.status]||x.status)+'<br><small>'+x.motivo+(x.resposta?' — resposta: '+x.resposta:'')+'</small></div>'}).join('');
+  }
+  function render(j,offline){
+    FACIAL=!!j.facial;TEMROSTO=!!j.temRosto;if(FACIAL&&!TEMROSTO){if(!offline&&!rodandoR&&$('telaRosto').hidden)telaRosto();return}if(FACIAL)carregarIA().catch(function(){});$('telaRosto').hidden=true;$('telaAtivar').hidden=true;$('telaPonto').hidden=false;$('nome').textContent=j.nome;if(!window._lembOk&&!offline){window._lembOk=1;inscrever(false)}
+    $('offBar').hidden=!offline;
+    var hoje=hojeISO(),d0=(j.dias||[])[0]||{},hj=d0.data===hoje?(d0.batidas||[]):[];
+    HJ=hj.filter(function(b){return b.status!=='recusada'}).map(function(b){return Object.assign({data:hoje},b)});
+    fila().forEach(function(x){if(x.data===hoje)HJ.push({tipo:x.tipo,hora:x.hora,status:'pendente',fila:true,data:hoje})});
+    HJ.sort(function(a,b){return minDe(a.hora)-minDe(b.hora)});
+    proximo=ORDEM[HJ.length]||'extra';if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();
+    $('ext').style.display=j.externo&&d0.data===hoje?'block':'none';
+    desenhaHoje();desenhaFila();desenhaPedidos(j.pedidos);
+    var ds=['dom','seg','ter','qua','qui','sex','sáb'],dd=function(d){var x=d.split('-');return ds[new Date(d+'T12:00:00Z').getUTCDay()]+' '+x[2]+'/'+x[1]};
+    var tabela=function(R){
+      var t='<table class="tab"><tr><th>Dia</th><th>Ent.</th><th>Alm.</th><th>Volta</th><th>Saída</th><th>Feito</th><th>Esper.</th><th>Extra</th></tr>';
+      R.dias.slice().reverse().forEach(function(l){
+        t+='<tr><td>'+dd(l.data)+(l.aguardando?' <small>⏳</small>':'')+'</td><td>'+(l.e||'—')+'</td><td>'+(l.ai||'—')+'</td><td>'+(l.af||'—')+'</td><td>'+(l.s||'—')+'</td><td'+(l.oficial?'':' class="est"')+'>'+hm(l.feito)+'</td><td class="est">'+hm(l.esp)+'</td><td class="x">'+(l.extra?'+'+hm(l.extra):'—')+'</td></tr>'});
+      var T=R.total||{};
+      return t+'<tr class="tot"><td>Total</td><td colspan="4"></td><td>'+hm(T.feito)+'</td><td>'+hm(T.esperado)+'</td><td>'+(T.extra?'+'+hm(T.extra):'—')+'</td></tr></table>';
+    };
+    var per=function(R){var p1=R.di.split('-'),p2=R.df.split('-');return p1[2]+'/'+p1[1]+' a '+p2[2]+'/'+p2[1]};
+    var R=j.resumo;
+    if(R&&R.dias){
+      var T=R.total||{};
+      $('resT').textContent=(R.label||'Meu período')+' · '+per(R);
+      $('resNum').innerHTML='<div>Trabalhei<b>'+hm2(T.feito)+'</b></div><div>Esperado<b>'+hm2(T.esperado)+'</b></div><div class="x">Extras<b>'+(T.extra?'+'+hm2(T.extra):'0h00')+'</b></div>';
+      $('res').innerHTML=(R.dias.length?tabela(R):'<div class="lin"><small>Nenhuma batida neste período ainda.</small></div>')+'<div class="leg">Horas em cinza ainda não foram conferidas pelo RH. O valor que vale para o pagamento é o do RH.</div>';
+      $('resCard').hidden=false;
+    }
+    var RL=j.relatorio;
+    if(RL&&RL.dias&&!offline){
+      $('relT').textContent='📋 Relatório do '+RL.label+' · '+per(RL);
+      $('relTab').innerHTML=(RL.valor!=null?'<div style="font-size:1.05rem;font-weight:800;margin:2px 0 10px;color:var(--claro)">💰 '+(RL.pago?'Já quitado':'Você vai receber R$ '+Number(RL.valor).toFixed(2).replace('.',','))+'</div>':'')+tabela(RL);
+      if(RL.status==='aprovado')$('relBt').innerHTML='<div class="leg" style="color:var(--ok);font-size:.85rem">✅ Você aprovou este relatório. Obrigado!</div>';
+      else $('relBt').innerHTML=(RL.status==='duvida'?'<div class="leg" style="color:var(--warn)">Você marcou dúvida. A secretária responde pelo WhatsApp.</div>':'<div class="leg">Confira os seus horários e as horas extras.</div>')+'<div class="relbt"><button type="button" class="sim" data-a="ok">✅ Está certo</button><button type="button" class="nao" data-a="duvida">❓ Tenho dúvida</button></div>';
+      $('relBt').querySelectorAll('button').forEach(function(bt){bt.onclick=function(){
+        var a=bt.getAttribute('data-a');bt.disabled=true;
+        api('/ponto/relatorio',{token:TOKEN,df:RL.df,acao:a}).then(function(r){
+          if(a==='ok'){bip(true);carregar();return}
+          var n=r.bot||RL.bot;
+          if(n)location.href='https://wa.me/'+n+'?text='+encodeURIComponent('Tenho dúvida no meu relatório de horas do '+RL.label+'.');
+          carregar();
+        }).catch(function(){bt.disabled=false});
+      }});
+      $('relCard').hidden=false;
+    }else $('relCard').hidden=true;
+  }
   function carregar(){
     api('/ponto/meu?t='+encodeURIComponent(TOKEN)).then(function(j){
+      ONLINE=true;
       if(j.desativado){try{localStorage.removeItem('hrponto_token')}catch(e){}TOKEN='';telaAtivar();$('erroAtivar').textContent=j.erro||'';return}
       if(!j.ok)return;
-      FACIAL=!!j.facial;TEMROSTO=!!j.temRosto;if(FACIAL&&!TEMROSTO){if(!rodandoR&&$('telaRosto').hidden)telaRosto();return}if(FACIAL)carregarIA().catch(function(){});$('telaRosto').hidden=true;$('telaAtivar').hidden=true;$('telaPonto').hidden=false;$('nome').textContent=j.nome;if(!window._lembOk){window._lembOk=1;inscrever(false)}
-      proximo=j.proximo;if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();
-      $('ext').style.display=j.externo?'block':'none';
-      var hj=((j.dias||[])[0]||{}).batidas||[],val=hj.filter(function(b){return b.status!=='recusada'}),h='';
-      ['entrada','saida_almoco','volta_almoco','saida'].forEach(function(k){var b=val.filter(function(x){return x.tipo===k}).slice(-1)[0];h+='<div class="'+(b?b.status:(k===proximo?'prox':''))+'">'+CURTO[k]+'<b>'+(b?b.hora:'--:--')+'</b>'+(b&&b.status==='pendente'?'⏳':'')+'</div>'});
-      $('hoje').innerHTML=h;
-      var hm=function(m){if(m==null)return '—';m=Math.round(m);return Math.floor(m/60)+':'+String(m%60).padStart(2,'0')};
-      var ds=['dom','seg','ter','qua','qui','sex','sáb'],dd=function(d){var x=d.split('-');return ds[new Date(d+'T12:00:00Z').getUTCDay()]+' '+x[2]+'/'+x[1]};
-      var tabela=function(R){
-        var t='<table class="tab"><tr><th>Dia</th><th>Ent.</th><th>Alm.</th><th>Volta</th><th>Saída</th><th>Feito</th><th>Esper.</th><th>Extra</th></tr>';
-        R.dias.slice().reverse().forEach(function(l){
-          t+='<tr><td>'+dd(l.data)+(l.aguardando?' <small>⏳</small>':'')+'</td><td>'+(l.e||'—')+'</td><td>'+(l.ai||'—')+'</td><td>'+(l.af||'—')+'</td><td>'+(l.s||'—')+'</td><td'+(l.oficial?'':' class="est"')+'>'+hm(l.feito)+'</td><td class="est">'+hm(l.esp)+'</td><td class="x">'+(l.extra?'+'+hm(l.extra):'—')+'</td></tr>'});
-        var T=R.total||{};
-        return t+'<tr class="tot"><td>Total</td><td colspan="4"></td><td>'+hm(T.feito)+'</td><td>'+hm(T.esperado)+'</td><td>'+(T.extra?'+'+hm(T.extra):'—')+'</td></tr></table>';
-      };
-      var per=function(R){var p1=R.di.split('-'),p2=R.df.split('-');return p1[2]+'/'+p1[1]+' a '+p2[2]+'/'+p2[1]};
-      var R=j.resumo;
-      if(R&&R.dias){
-        $('resT').textContent=(R.label||'Meu período')+' · '+per(R);
-        $('res').innerHTML=(R.dias.length?tabela(R):'<div class="lin"><small>Nenhuma batida neste período ainda.</small></div>')+'<div class="leg">Horas em cinza ainda não foram conferidas pelo RH. O valor que vale para o pagamento é o do RH.</div>';
-        $('resCard').hidden=false;
-      }
-      var RL=j.relatorio;
-      if(RL&&RL.dias){
-        $('relT').textContent='📋 Relatório do '+RL.label+' · '+per(RL);
-        $('relTab').innerHTML=(RL.valor!=null?'<div style="font-size:1.05rem;font-weight:800;margin:2px 0 10px;color:var(--claro)">💰 '+(RL.pago?'Já quitado':'Você vai receber R$ '+Number(RL.valor).toFixed(2).replace('.',','))+'</div>':'')+tabela(RL);
-        if(RL.status==='aprovado')$('relBt').innerHTML='<div class="leg" style="color:var(--ok);font-size:.85rem">✅ Você aprovou este relatório. Obrigado!</div>';
-        else $('relBt').innerHTML=(RL.status==='duvida'?'<div class="leg" style="color:var(--warn)">Você marcou dúvida. A secretária responde pelo WhatsApp.</div>':'<div class="leg">Confira os seus horários e as horas extras.</div>')+'<div class="relbt"><button type="button" class="sim" data-a="ok">✅ Está certo</button><button type="button" class="nao" data-a="duvida">❓ Tenho dúvida</button></div>';
-        $('relBt').querySelectorAll('button').forEach(function(bt){bt.onclick=function(){
-          var a=bt.getAttribute('data-a');bt.disabled=true;
-          api('/ponto/relatorio',{token:TOKEN,df:RL.df,acao:a}).then(function(r){
-            if(a==='ok'){bip(true);carregar();return}
-            var n=r.bot||RL.bot;
-            if(n)location.href='https://wa.me/'+n+'?text='+encodeURIComponent('Tenho dúvida no meu relatório de horas do '+RL.label+'.');
-            carregar();
-          }).catch(function(){bt.disabled=false});
-        }});
-        $('relCard').hidden=false;
-      }else $('relCard').hidden=true;
-    }).catch(function(){$('hoje').innerHTML='<div style="grid-column:1/-1">Sem internet. Conecte no Wi-Fi da oficina.</div>'});
+      ULTJ=j;try{localStorage.setItem('hrponto_meu',JSON.stringify(Object.assign({},j,{relatorio:null})))}catch(e){}
+      render(j,false);
+      if(fila().length)enviarFila(false);
+    }).catch(function(){
+      ONLINE=false;var c=null;try{c=JSON.parse(localStorage.getItem('hrponto_meu')||'null')}catch(e){}
+      if(c)render(c,true);else{$('telaPonto').hidden=false;$('offBar').hidden=false;HJ=[];fila().forEach(function(x){if(x.data===hojeISO())HJ.push({tipo:x.tipo,hora:x.hora,status:'pendente',fila:true,data:x.data})});proximo=ORDEM[HJ.length]||'extra';if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();desenhaHoje();desenhaFila()}
+    });
   }
+  // ── pedidos: esqueci de bater / justificar falta ──
+  var shTipo='',shFotoUrl='';
+  function abrirSheet(tipo){
+    shTipo=tipo;shFotoUrl='';$('shErro').textContent='';$('shMot').value='';$('shPrev').hidden=true;$('shFoto').value='';
+    var h=hojeISO(),x=new Date(h+'T12:00:00Z');x.setUTCDate(x.getUTCDate()-30);
+    $('shData').max=h;$('shData').min=x.toISOString().slice(0,10);$('shData').value=h;
+    $('shT').textContent=tipo==='falta'?'📄 Justificar falta':'🕐 Esqueci de bater';
+    $('shEsq').hidden=tipo==='falta';$('shFotoW').hidden=tipo!=='falta';
+    if(tipo!=='falta'){$('shBat').value=TIPOS[proximo]&&proximo!=='extra'?proximo:'saida';$('shHora').value=''}
+    $('shMot').placeholder=tipo==='falta'?'Ex.: fui ao médico (atestado na foto)':'Ex.: esqueci de bater, cheguei às 7h';
+    $('sheet').hidden=false;$('shEnviar').disabled=false;$('shEnviar').textContent='Enviar pedido';
+  }
+  $('btEsq').onclick=function(){abrirSheet('esqueci')};
+  $('btFalta').onclick=function(){abrirSheet('falta')};
+  $('shCancel').onclick=function(){$('sheet').hidden=true};
+  $('sheet').addEventListener('click',function(e){if(e.target===this)this.hidden=true});
+  $('shFoto').onchange=function(){
+    var f=this.files&&this.files[0];if(!f)return;$('shErro').textContent='Preparando a foto…';
+    var im=new Image(),u=URL.createObjectURL(f);
+    im.onload=function(){var M=1280,w=im.naturalWidth,h=im.naturalHeight,k=Math.min(1,M/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);shFotoUrl=c.toDataURL('image/jpeg',.7);URL.revokeObjectURL(u);$('shPrev').src=shFotoUrl;$('shPrev').hidden=false;$('shErro').textContent=''};
+    im.onerror=function(){$('shErro').textContent='Não consegui abrir essa foto.'};im.src=u;
+  };
+  $('shEnviar').onclick=function(){
+    var bt=this,c={token:TOKEN,tipo:shTipo,data:$('shData').value,motivo:$('shMot').value.trim()};
+    if(shTipo!=='falta'){c.batida=$('shBat').value;c.hora=$('shHora').value;if(!c.hora){$('shErro').textContent='Coloque a hora.';return}}
+    else if(shFotoUrl)c.foto=shFotoUrl;
+    if(c.motivo.length<3){$('shErro').textContent='Escreva o motivo.';return}
+    bt.disabled=true;bt.textContent='Enviando…';
+    api('/ponto/pedido',c).then(function(j){
+      if(!j.ok){$('shErro').textContent=j.erro||'Não deu certo.';bt.disabled=false;bt.textContent='Enviar pedido';return}
+      $('sheet').hidden=true;bip(true);mostra('','✓','Pedido enviado','','O responsável vai responder. Você recebe o aviso aqui no app.');carregar();
+    }).catch(function(){$('shErro').textContent='Sem internet. O pedido precisa de internet para ser enviado.';bt.disabled=false;bt.textContent='Enviar pedido'});
+  };
   function abrirCamera(){
     if(stream)return Promise.resolve();
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return Promise.reject(new Error('Este navegador não abre a câmera. Use o Chrome (Android) ou o Safari (iPhone).'));
@@ -22288,24 +22574,35 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   document.addEventListener('visibilitychange',function(){if(!document.hidden)conferirVersao()});
   window.fecharOk=function(){$('okTela').className='ok-tela'};
   function mostra(cls,ic,t1,t2,t3){$('okIc').textContent=ic;$('okT1').textContent=t1;$('okT2').textContent=t2;$('okT3').textContent=t3||'';$('okTela').className='ok-tela on '+cls}
+  function fecharCamera(){try{if(stream)stream.getTracks().forEach(function(t){t.stop()})}catch(e){}stream=null;$('cam').hidden=true;$('camMsg').style.display=''}
   $('btBater').onclick=function(){
-    if(ocupado)return;ocupado=true;var bt=this;bt.disabled=true;bt.textContent='ABRINDO A CÂMERA…';
-    var rosto=null;
+    if(ocupado)return;ocupado=true;var bt=this;bt.disabled=true;bt.textContent='ABRINDO A CÂMERA…';$('cam').hidden=false;
+    var rosto=null,corpo=null;
     abrirCamera().then(function(){if(!FACIAL)return null;bt.textContent='PREPARANDO…';return conferirRosto(bt)}).then(function(r){rosto=r;bt.textContent='REGISTRANDO…';return local()}).then(function(g){
-      var ft=foto();
-      return api('/ponto/bater',{token:TOKEN,tipo:tipoSel,lat:g.lat,lng:g.lng,acc:g.acc,foto:ft,rosto:rosto});
+      corpo={tipo:tipoSel||proximo,lat:g.lat,lng:g.lng,acc:g.acc,foto:foto(),rosto:rosto};
+      var tsCli=Date.now()+difHora;corpo.tsCli=tsCli;corpo.idCli=tsCli.toString(36)+Math.random().toString(36).slice(2,7);
+      return api('/ponto/bater',Object.assign({token:TOKEN},corpo));
     }).then(function(j){
       if(j.ok){bip(j.status!=='pendente');mostra(j.status==='pendente'?'pend':'',j.status==='pendente'?'⏳':'✓',j.rotulo+(j.status==='pendente'?' aguardando':' registrada'),j.hora,j.status==='pendente'?('O responsável vai confirmar: '+(j.motivo||'')):'Pode seguir. Bom trabalho, '+String(j.nome||'').split(' ')[0]+'!');tipoSel=''}
       else{bip(false);mostra('err','✕','Não registrou','',j.erro||'Tente de novo.');if(j.desativado){try{localStorage.removeItem('hrponto_token')}catch(e){}TOKEN='';telaAtivar()}if(j.precisaRosto){fecharOk();telaRosto()}}
-    }).catch(function(e){bip(false);mostra('err','✕','Não registrou','',(e&&e.message&&/câmera|navegador/i.test(e.message))?e.message:'Libere a câmera e confira a internet (Wi-Fi da oficina).')})
-    .then(function(){ocupado=false;bt.disabled=false;escolhido=false;$('tipos').hidden=true;$('btOutro').textContent='Bater outro tipo';carregar()});
+    }).catch(function(e){
+      if(corpo){ // não chegou ao servidor: guarda no celular e manda depois
+        var d=new Date(corpo.tsCli),hr=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Bahia',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);
+        var item=Object.assign({},corpo,{hora:hr,data:hojeISO()}),l=fila();
+        if(l.length>=6){bip(false);mostra('err','✕','Memória cheia','','Já tem 6 batidas guardadas. Conecte na internet para enviar.');return}
+        if(!filaSalvar(l.concat([item]))){item.foto=item.foto.slice(0,0);bip(false);mostra('err','✕','Não registrou','','O celular está sem espaço. Conecte na internet e tente de novo.');return}
+        bip(true);mostra('pend','📶',TIPOS[item.tipo]+' guardada',hr,'Sem internet agora. A batida ficou guardada neste celular e vai ser enviada sozinha quando a internet voltar.');tipoSel='';return;
+      }
+      bip(false);mostra('err','✕','Não registrou','',(e&&e.message&&/câmera|navegador/i.test(e.message))?e.message:'Libere a câmera e tente de novo.');
+    })
+    .then(function(){ocupado=false;bt.disabled=false;escolhido=false;$('tipos').hidden=true;$('btOutro').textContent='Bater outro tipo';fecharCamera();carregar()});
   };
   $('btAtivar').onclick=function(){
     var c=$('cod').value.replace(/[^0-9]/g,'');$('erroAtivar').textContent='';
     if(c.length!==6){$('erroAtivar').textContent='Digite os 6 números.';return}
     api('/ponto/ativar',{codigo:c}).then(function(j){if(!j.ok){$('erroAtivar').textContent=j.erro||'Não deu certo.';return}TOKEN=j.token;try{localStorage.setItem('hrponto_token',TOKEN)}catch(e){}carregar()}).catch(function(){$('erroAtivar').textContent='Sem internet.'});
   };
-  sincHora();relogio();setInterval(relogio,1000);setInterval(sincHora,600000);
+  sincHora();relogio();setInterval(relogio,1000);setInterval(function(){if(HJ.length)trabHoje()},30000);setInterval(sincHora,600000);
   if(TOKEN)carregar();else telaAtivar();
   document.addEventListener('visibilitychange',function(){if(!document.hidden&&TOKEN){carregar();sincHora()}});
 })();
