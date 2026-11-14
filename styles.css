@@ -4699,3 +4699,22 @@ body:has(#stoneMd.on) #fabPlus{ display:none !important; }
 .sp3-mes .sp2-tip .g{ color:#6fd29b; } .sp3-mes .sp2-tip .r{ color:#ec8585; }
 .sp3-comp{ margin-top:6px; text-align:center; font-size:.5rem; color:var(--t4); letter-spacing:.3px; }
 .sp2-var.good{ color:#6fd29b; } .sp2-var.bad{ color:#ec8585; }
+
+/* ── v28: Finanças — nomes certos e "Quem pagou?" ── */
+.fnm-row .fnm-nome{ white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; line-height:1.2; }
+.fnm-row .fnm-vazio{ color:var(--t3); font-style:italic; font-weight:600; }
+.fnm-banco{ color:var(--t4); }
+.fnm-quem{ margin-left:6px; padding:3px 9px; border-radius:20px; border:1px solid rgba(201,168,76,.45); background:rgba(201,168,76,.12); color:var(--gold2,#e2c372); font-size:.62rem; font-weight:700; cursor:pointer; }
+.fnm-ov{ position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,.72); display:flex; align-items:flex-end; justify-content:center; }
+.fnm-box{ width:100%; max-width:520px; max-height:86vh; overflow:auto; background:linear-gradient(170deg,#1b1810,#0d0c0a); border:1px solid rgba(201,168,76,.3); border-radius:22px 22px 0 0; padding:16px 14px 24px; }
+.fnm-hd{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; }
+.fnm-tit{ font-size:1.05rem; font-weight:800; color:var(--gold2,#e2c372); }
+.fnm-sub{ font-size:.72rem; color:var(--t3); margin-top:2px; }
+.fnm-x{ background:none; border:0; color:var(--t3); font-size:1.1rem; cursor:pointer; padding:4px 8px; }
+.fnm-sec{ font-size:.58rem; letter-spacing:1.6px; text-transform:uppercase; color:var(--t3); margin:12px 2px 6px; }
+.fnm-op{ display:flex; flex-direction:column; align-items:flex-start; gap:2px; width:100%; text-align:left; padding:11px 12px; margin-bottom:6px; border-radius:12px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); color:var(--t1); font-size:.86rem; cursor:pointer; }
+.fnm-op span{ font-size:.66rem; color:var(--t3); }
+.fnm-sug{ border-color:rgba(93,196,138,.35); background:rgba(93,196,138,.08); }
+.fnm-novo{ border-style:dashed; border-color:rgba(201,168,76,.45); }
+.fnm-busca{ width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; border:1px solid rgba(201,168,76,.3); background:#0b0a08; color:var(--t1); font-size:.9rem; margin-bottom:8px; }
+.fnm-vaz{ font-size:.75rem; color:var(--t4); padding:8px; }
