@@ -3,7 +3,7 @@
 // Cache de arquivos versionados (?v=N) + rede primeiro para index.html + app abre offline
 // ═══════════════════════════════════════════════════════
 
-var CACHE_NAME = 'hr-shell-v123';
+var CACHE_NAME = 'hr-shell-v124';
 // Apenas o shell mínimo para não quebrar offline
 var SHELL_FILES = [
   './',
@@ -106,6 +106,7 @@ self.addEventListener('fetch', function(e) {
     return;
   }
   if (u.origin !== self.location.origin) return;      // outros domínios: o navegador cuida
+  if (u.pathname.indexOf('/site/') >= 0) return;      // o site público (pasta site/) não é o app: o navegador cuida
 
   var ehNavegacao = req.mode === 'navigate' || u.pathname === '/' || /\/index\.html$/.test(u.pathname) || /\/$/.test(u.pathname);
   var ehVersionado = /\.(js|css)$/.test(u.pathname) && /[?&]v=/.test(u.search);
