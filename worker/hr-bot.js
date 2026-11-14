@@ -15287,6 +15287,7 @@ async function acvMigrarSoltos(env) {
 }
 async function vdRotina(env) {
   if (!estAtivo(env)) return;
+  if (!(await env.HR_KV.get('ig:imp:auto')) && await igToken(env)) { await env.HR_KV.put('ig:imp:auto', '1', { expirationTtl: 400 * 86400 }); await env.HR_KV.put('ig:imp:ligado', '1', { expirationTtl: 30 * 86400 }); } // v89b: traz os posts antigos uma vez, sozinho
   if (await env.HR_KV.get('ig:imp:ligado') && !(await env.HR_KV.get('ig:imp:tick'))) { await env.HR_KV.put('ig:imp:tick', '1', { expirationTtl: 300 }); const r = await igImportarAntigos(env, 8).catch(e => { console.log('[IG] importar:', e.message); return { resta: true }; }); if (!r.resta) await env.HR_KV.delete('ig:imp:ligado'); }
   await acvMigrarSoltos(env).catch(e => console.log('[ACERVO] juntar:', e.message));
   const cfg = await vdCfg(env); if (!cfg.ligado) return;
