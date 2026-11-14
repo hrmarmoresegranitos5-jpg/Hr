@@ -14260,18 +14260,24 @@ const confAppAberto = async env => Date.now() - (Number(await env.HR_KV.get(APP_
 async function confComandoDono(env, from, bruto, msg) {
   if (/^(conferir|confere|conferencia( do)?|arrumar|arruma|corrigir|corrige|ajustar|organizar)( (o|os|as|a|meu|meus|minhas))? (extratos?|financas|financeiro|mercado pago)( do mercado pago)?$/.test(msg)) {
     await env.HR_KV.put(CONF_SESSAO, JSON.stringify({ id: estId(10), linhas: [], prints: 0, inicio: Date.now() }), { expirationTtl: 2 * 3600 });
-    await enviar(env, from, '🧾 *Conferência do extrato*\n\nMande agora os *prints do extrato do Mercado Pago* (pode ser vários, um atrás do outro). Pegue o período que quer conferir, com as datas aparecendo no topo de cada parte.\n\nQuando terminar, escreva *pronto*. Eu comparo com o app e corrijo o que estiver errado.');
+    await enviar(env, from, '🧾 *Conferência do extrato*\n\nMande agora os *prints do extrato do Mercado Pago*: pode selecionar vários de uma vez na galeria. Pegue o período que quer conferir, com as datas aparecendo no topo de cada parte.\n\nQuando terminar, escreva *pronto*. Eu comparo com o app e corrijo o que estiver errado.');
     return true;
   }
   const s = await confSessao(env);
   if (!s) return false;
   if (/^(cancelar|parar|sair)( a)? conferencia$/.test(msg)) { await env.HR_KV.delete(CONF_SESSAO); await enviar(env, from, 'Conferência cancelada, Sr. Hangel.'); return true; }
   if (/^(pronto|terminei|acabou|so isso|e so isso|e so|pode conferir|confere|conferir|ok pronto|finalizar|fim)\.?!?$/.test(msg)) {
-    if (!s.linhas.length) { await enviar(env, from, 'Ainda não recebi nenhum print do extrato, Sr. Hangel. Mande os prints e depois escreva *pronto*.'); return true; }
+    { // junta as partes de cada print, sem repetir a mesma linha (prints que se sobrepõem)
+      const l = await env.HR_KV.list({ prefix: `conf:p:${s.id}:` }); const chave = x => [x.data, x.hora, Number(x.valor).toFixed(2), x.sentido, normaliza(x.nome || '').slice(0, 20)].join('|');
+      const vistas = new Set(s.linhas.map(chave));
+      for (const k of l.keys) { let ps = []; try { ps = JSON.parse((await env.HR_KV.get(k.name)) || '[]'); } catch (_) {} for (const x of ps) { const c = chave(x); if (!vistas.has(c)) { vistas.add(c); s.linhas.push(x); } } }
+      s.prints = l.keys.length;
+    }
+    if (!s.linhas.length) { await enviar(env, from, 'Ainda não recebi nenhum print do extrato, Sr. Hangel (ou ainda estou lendo: espere uns segundos). Mande os prints e depois escreva *pronto*.'); return true; }
     await env.HR_KV.delete(CONF_SESSAO);
     await confEnfileirar(env, { id: s.id, tipo: 'conferir', linhas: s.linhas });
     const datas = s.linhas.map(l => l.data).filter(Boolean).sort();
-    await enviar(env, from, `🔎 Conferindo ${s.linhas.length} movimentações${datas.length ? ` (${dataBR(datas[0]).slice(0, 5)} a ${dataBR(datas[datas.length - 1]).slice(0, 5)})` : ''} com o app...\n\n${(await confAppAberto(env)) ? 'O app está aberto: o resultado chega em instantes.' : '📲 *Abra o app HR* no celular para eu comparar com as finanças (só abrir, com a tela ligada).'}`);
+    await enviar(env, from, `🔎 Juntei ${s.prints} print(s). Conferindo ${s.linhas.length} movimentações${datas.length ? ` (${dataBR(datas[0]).slice(0, 5)} a ${dataBR(datas[datas.length - 1]).slice(0, 5)})` : ''} com o app...\n\n${(await confAppAberto(env)) ? 'O app está aberto: o resultado chega em instantes.' : '📲 *Abra o app HR* no celular para eu comparar com as finanças (só abrir, com a tela ligada).'}`);
     return true;
   }
   return false;
@@ -14285,18 +14291,17 @@ async function confTratarPrint(env, from, m) {
   let lido = null; try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { console.log('[CONF] print:', e.message); }
   if (!lido) { await enviar(env, from, 'Não consegui ler esse print agora (a leitura de imagens precisa da IA da Anthropic ligada). Tente de novo em instantes.'); return true; }
   if (!lido.eh) { await enviar(env, from, 'Esse print não parece ser do *extrato do Mercado Pago*. Mande o print da tela de extrato (lista com valores e horários).'); return true; }
-  const chave = l => [l.data || '', l.hora || '', Number(l.valor).toFixed(2), l.sentido, normaliza(l.nome || '').slice(0, 20)].join('|');
-  const tem = new Set(s.linhas.map(chave));
-  let novas = 0, semData = 0;
+  // v72b: vários prints de uma vez chegam ao mesmo tempo → cada print grava a sua parte (sem um apagar o do outro); junta no "pronto"
+  const linhas = [];
+  let semData = 0;
   for (const it of lido.itens || []) {
     if (!(Number(it.valor) > 0) || !['in', 'out'].includes(it.sentido)) continue;
     if (!it.data) { semData++; continue; }
-    const l = { data: it.data, hora: it.hora || '', valor: Math.round(Number(it.valor) * 100) / 100, sentido: it.sentido, nome: String(it.nome || '').slice(0, 60), tipo: String(it.tipo || '').slice(0, 40) };
-    if (tem.has(chave(l))) continue; tem.add(chave(l)); s.linhas.push(l); novas++;
+    linhas.push({ data: it.data, hora: it.hora || '', valor: Math.round(Number(it.valor) * 100) / 100, sentido: it.sentido, nome: String(it.nome || '').slice(0, 60), tipo: String(it.tipo || '').slice(0, 40) });
   }
-  s.prints++;
-  await env.HR_KV.put(CONF_SESSAO, JSON.stringify(s), { expirationTtl: 2 * 3600 });
-  await enviar(env, from, `📄 Print ${s.prints}: ${novas} linha(s) nova(s)${semData ? ` (${semData} sem data visível ficaram de fora: pegue o print com a data no topo)` : ''}. Total: *${s.linhas.length}*.\nMande mais ou escreva *pronto*.`);
+  await env.HR_KV.put(`conf:p:${s.id}:${m.id || estId(8)}`, JSON.stringify(linhas), { expirationTtl: 2 * 3600 });
+  const dt = linhas.map(l => l.data).sort();
+  await enviar(env, from, `📄 Print lido: ${linhas.length} linha(s)${dt.length ? ` (${dataBR(dt[0]).slice(0, 5)}${dt[0] !== dt[dt.length - 1] ? ' a ' + dataBR(dt[dt.length - 1]).slice(0, 5) : ''})` : ''}${semData ? `; ${semData} sem data visível ficaram de fora` : ''}. Mande mais ou escreva *pronto*.`);
   return true;
 }
 // resultado da comparação feita no app
