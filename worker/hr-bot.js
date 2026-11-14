@@ -1,3 +1,5 @@
+// v67 (13/11/2026): Instagram oferece o NÚMERO do WhatsApp (resposta com botão, pedido de contato, comentários, lembrete; IG_NUMERO_PUBLICO=0 tira dos comentários públicos);
+//   no WhatsApp, quem chega pelo botão do Instagram é reconhecido, avisado ao dono e contado no resumo ("chegaram de fato")
 // v66 (13/11/2026): CONVERSA DE GENTE no WhatsApp e no Instagram — o bot lê o estilo do cliente (formal, informal, regional, brincalhão, curto)
 //   e acompanha, com carisma e sem frases de robô (estiloDaConversa, textoEstilo, CONVERSA_DE_GENTE)
 // v65 (13/11/2026): INSTAGRAM PROFISSIONAL — prompt de consultora (empresa, processo, pagamento, pedras, horário), botões "Falar no WhatsApp" e "Ver pedras e obras",
@@ -3915,6 +3917,9 @@ async function atenderClienteIA(env, from, bruto, perfil) {
         c.catalogoMostrado = true;
         c._volta = certos.join(', ');
       } }
+    { const mi = String(bruto).match(/vim pelo instagram(?:\s*\(@([\w.]{1,30})\))?/i); // v67: cliente que chegou pelo botão do Instagram
+      if (mi && !c.origemIG) { c.origemIG = mi[1] ? '@' + mi[1] : 'instagram'; igStat(env, 'chegaram', null).catch(() => {});
+        notificarDono(env, Date.now(), `📸➡️💬 *Veio do Instagram para o WhatsApp:* ${c.origemIG}${c.dados && c.dados.nome ? ' (' + c.dados.nome + ')' : ''}\n"${String(bruto).slice(0, 200)}"\nwa.me/${normalizarBR(from)}`, { rotina: true }).catch(() => {}); } }
     if (!(c.hist && c.hist.length) && !c.assuntoInicial && String(bruto).trim().length > 10 && !ehSaudacaoMenu(normaliza(brutoL))) c.assuntoInicial = String(bruto).trim().slice(0, 200);
     else if (c.assuntoInicial && c.nomeOrigem === 'salvo' && (c.hist || []).length >= 4) delete c.assuntoInicial;
     c._extra = {
@@ -13299,8 +13304,16 @@ async function igEu(env) {
   await env.HR_KV.put('ig:eu', JSON.stringify(eu), { expirationTtl: 7 * 86400 });
   return eu;
 }
+async function igNumeroWhats(env) { return String(env.WHATSAPP_PUBLICO || '').replace(/\D/g, '') || (await pontoBotNumero(env).catch(() => '')) || ''; }
+// "5574999998888" → "(74) 99999-8888"
+async function igWhatsFormatado(env) {
+  const n = await igNumeroWhats(env); const d = n.replace(/^55/, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return n ? '+' + n : '';
+}
 async function igLinkWhats(env, texto) {
-  const n = (await pontoBotNumero(env).catch(() => '')) || '';
+  const n = await igNumeroWhats(env);
   return n ? `https://wa.me/${n}?text=${encodeURIComponent(texto)}` : '';
 }
 // ── v65: ASSISTENTE PROFISSIONAL DO INSTAGRAM ─────────────────────────────────
@@ -13364,6 +13377,7 @@ async function igPromptSistema(env, snap) {
   const emp = (snap && snap.dados && snap.dados.empresa) || {};
   const pedras = await igPedrasTexto(env).catch(() => '');
   const cidade = emp.cidade || env.EMPRESA_CIDADE || 'Pilão Arcado - BA';
+  const zap = await igWhatsFormatado(env).catch(() => '');
   return [
     `Você é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'} no Direct do Instagram. Atende como uma consultora experiente de uma marmoraria de alto padrão: educada, segura, acolhedora e objetiva.`,
     'Escreva em português do Brasil correto. No máximo 1 emoji por mensagem (pode não usar nenhum; use mais à vontade só se a pessoa usar). No máximo 3 frases curtas. Nada de listas.',
@@ -13377,6 +13391,7 @@ async function igPromptSistema(env, snap) {
     '- Como funciona: a equipe faz a visita técnica para medir, envia o orçamento detalhado, apresenta o projeto em 3D e depois produz e instala. As obras entram num cronograma pela ordem de serviço.',
     '- Soleira e peitoril: a HR fornece a pedra, mas NÃO faz a instalação desses itens (avise com gentileza se o assunto aparecer).',
     '- Pagamento: o valor do projeto pode ser parcelado em até 10x sem juros no cartão; à vista há desconto.',
+    zap ? `- WhatsApp da HR: ${zap}. Ofereça o número sempre que a pessoa pedir contato, telefone ou WhatsApp, e junto com o botão do WhatsApp. É o mesmo atendimento, com orçamento mais rápido.` : '',
     '- NUNCA informe preço, valor por metro, desconto exato nem prazo exato: tudo depende das medidas e da pedra escolhida.',
     '',
     'OBJETIVO: entender o pedido (ambiente; pedra, se já escolheu; cidade) com no máximo UMA pergunta por mensagem e, assim que souber o ambiente e a cidade — ou se a pessoa pedir preço, orçamento, visita ou contato — levar para o WhatsApp, onde a equipe faz o orçamento com as medidas.',
@@ -13389,7 +13404,7 @@ async function igPromptSistema(env, snap) {
     '{"cliente":true|false,"motivo":"2 a 5 palavras","reagir":true|false (true se for elogio, agradecimento ou "amém": o sistema reage com ❤️),',
     '"resposta":"texto (vazio se cliente=false)","opcoes":["até 4 respostas rápidas prováveis, até 20 letras cada, ou []"],',
     '"acao":"whatsapp|catalogo|dono|" ,"pedido":"o que a pessoa quer em poucas palavras (ex.: bancada de cozinha em granito)","cidade":"cidade dela, se disse"}',
-    '- acao "whatsapp": a resposta prepara o botão (ex.: "Perfeito! Toque no botão abaixo para falar com a nossa equipe no WhatsApp: a mensagem já vai pronta."). O sistema põe o botão. Não use de novo se o histórico mostrar que o botão já foi enviado, a não ser que a pessoa peça.',
+    '- acao "whatsapp": a resposta prepara o botão (ex.: "Perfeito! Toque no botão abaixo para falar com a nossa equipe no WhatsApp: a mensagem já vai pronta."). O sistema acrescenta o número do WhatsApp no fim; não escreva o número nesse caso. O sistema põe o botão. Não use de novo se o histórico mostrar que o botão já foi enviado, a não ser que a pessoa peça.',
     '- acao "catalogo": quando a pessoa quer ver pedras, cores ou trabalhos. O sistema põe o botão do catálogo.',
     '- opcoes: use para facilitar (ex.: ["Cozinha","Banheiro","Escada","Outro"]); deixe [] quando acao for whatsapp ou catalogo.',
   ].join('\n');
@@ -13536,14 +13551,16 @@ async function igResponderDM(env, ev) {
       return;
     }
     resp = `Olá${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Seja bem-vindo(a) à ${env.EMPRESA || 'HR Mármores e Granitos'}. Como posso ajudar você hoje?`;
-    o = { opcoes: ['Fazer orçamento', 'Ver pedras', 'Endereço e horário'] };
+    o = { opcoes: ['Fazer orçamento', 'Ver pedras', 'Endereço e horário', 'Nosso WhatsApp'] };
   }
   let botaoW = false;
   if (acao === 'whatsapp') {
     const ped = (c.dados && c.dados.pedido) || 'um orçamento';
     const linkW = await igLinkWhats(env, `Olá! Vim pelo Instagram${c.user ? ' (@' + c.user + ')' : ''}${c.nome ? ', sou ' + c.nome.split(' ')[0] : ''}. Quero orçamento de ${ped}${c.dados && c.dados.cidade ? ' em ' + c.dados.cidade : ''}.`);
     const linkC = await igLinkCatalogo(env);
-    await igEnviarBotoes(env, de, resp, [{ titulo: 'Falar no WhatsApp', url: linkW }, { titulo: 'Ver pedras e obras', url: linkC }]);
+    const zap = await igWhatsFormatado(env).catch(() => '');
+    const respZ = zap && !resp.includes(zap.slice(-4)) ? `${resp}\n\n📱 WhatsApp: ${zap}` : resp;
+    await igEnviarBotoes(env, de, respZ, [{ titulo: 'Falar no WhatsApp', url: linkW }, { titulo: 'Ver pedras e obras', url: linkC }]);
     botaoW = !!linkW; if (botaoW) { c.whats = Date.now(); await igStat(env, 'whats', { u: quem, p: ped.slice(0, 60), c: (c.dados && c.dados.cidade) || '' }); }
   } else if (acao === 'catalogo') {
     await igEnviarBotoes(env, de, resp, [{ titulo: 'Ver pedras e obras', url: await igLinkCatalogo(env) }]);
@@ -13604,9 +13621,11 @@ async function igTratarComentario(env, v) {
   if (tipo !== 'interesse') return;
   if (await env.HR_KV.get(chaveUser)) return; // já respondemos essa pessoa nesse post
   await env.HR_KV.put(chaveUser, '1', { expirationTtl: 30 * 86400 });
-  try { await igApi(env, `/${v.id}/replies`, { method: 'POST', body: { message: publica || `Olá${nomeU ? ' ' + nomeU : ''}! Enviamos os detalhes no seu Direct. 😊` } }); } catch (e) { console.log('[IG] resposta pública:', e.message); }
+  const zapC = await igWhatsFormatado(env).catch(() => '');
+  const pub = (publica || `Olá${nomeU ? ' ' + nomeU : ''}! Enviamos os detalhes no seu Direct. 😊`) + (zapC && String(env.IG_NUMERO_PUBLICO || '1') !== '0' ? ` Se preferir, chame no WhatsApp ${zapC}.` : '');
+  try { await igApi(env, `/${v.id}/replies`, { method: 'POST', body: { message: pub } }); } catch (e) { console.log('[IG] resposta pública:', e.message); }
   const link = await igLinkWhats(env, `Olá! Vi o post de vocês no Instagram${nomeU ? ' (' + nomeU + ')' : ''} e quero um orçamento.`);
-  const privada = `Olá! Vi o seu comentário e já te ajudo. 😊 O valor depende das medidas e da pedra escolhida, e o projeto pode ser parcelado em até 10x sem juros no cartão. Me conte o que você precisa (cozinha, banheiro, escada…) e de qual cidade${link ? `, ou fale direto com a nossa equipe no WhatsApp, com a mensagem já pronta: ${link}` : '.'}`;
+  const privada = `Olá! Vi o seu comentário e já te ajudo. 😊 O valor depende das medidas e da pedra escolhida, e o projeto pode ser parcelado em até 10x sem juros no cartão. Me conte o que você precisa (cozinha, banheiro, escada…) e de qual cidade${link ? `, ou fale direto com a nossa equipe no WhatsApp${zapC ? ' ' + zapC : ''}, com a mensagem já pronta: ${link}` : '.'}`;
   try { const j = await igApi(env, '/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message: { text: privada } } }); if (j && j.message_id) await env.HR_KV.put('ig:meu:' + j.message_id, '1', { expirationTtl: 3 * 86400 }); await igStat(env, 'comentariosRespondidos'); }
   catch (e) { console.log('[IG] resposta privada:', e.message); }
   await notificarDono(env, Date.now(), `*Instagram — comentário de ${nomeU || 'alguém'}:* "${txt.slice(0, 200)}"\nRespondi no comentário e chamei no Direct (com o link do WhatsApp).`, { rotina: true }).catch(() => {});
@@ -13651,7 +13670,7 @@ async function igRotina(env) {
       let c; try { c = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) { c = null; }
       if (!c) continue;
       try {
-        await igEnviarDM(env, de, `Olá${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Passando para saber se ainda posso ajudar com o seu projeto. Se preferir, a nossa equipe faz o orçamento rapidinho pelo WhatsApp.`, ['Quero o orçamento', 'Agora não']);
+        await igEnviarDM(env, de, `Olá${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Passando para saber se ainda posso ajudar com o seu projeto. Se preferir, a nossa equipe faz o orçamento rapidinho pelo WhatsApp${(await igWhatsFormatado(env).catch(() => '')) ? ': ' + await igWhatsFormatado(env) : ''}.`, ['Quero o orçamento', 'Agora não']);
         c.fu = Date.now(); c.hist.push({ role: 'assistant', content: '[lembrete gentil enviado no dia seguinte]' });
         await igSalvarConversa(env, de, c); await igStat(env, 'lembretes');
       } catch (e) { console.log('[IG] lembrete:', e.message); c.fu = Date.now(); await igSalvarConversa(env, de, c); }
@@ -13670,7 +13689,7 @@ async function igResumoTexto(env, semana, rotulo) {
   let s = {}; try { s = JSON.parse((await env.HR_KV.get('ig:st:' + semana)) || '{}'); } catch (_) {}
   if (!Object.keys(s).length) return rotulo === 'desta semana' ? '📸 *Instagram:* nada registrado ainda nesta semana.' : '';
   const L = [`📸 *Instagram — resumo ${rotulo}*`];
-  L.push(`• Conversas novas no Direct: ${s.conversas || 0}`, `• Respostas da assistente: ${s.respostas || 0}`, `• Interessados levados ao WhatsApp: ${s.whats || 0}`);
+  L.push(`• Conversas novas no Direct: ${s.conversas || 0}`, `• Respostas da assistente: ${s.respostas || 0}`, `• Interessados levados ao WhatsApp: ${s.whats || 0}`, `• Chegaram de fato no WhatsApp: ${s.chegaram || 0}`);
   if (s.comentarios) L.push(`• Comentários: ${s.comentarios} (${s.comentariosRespondidos || 0} interessados chamados no Direct, ${s.agradecidos || 0} elogios agradecidos${s.ocultos ? `, ${s.ocultos} ocultados` : ''})`);
   if (s.mencoes) L.push(`• Marcações em story: ${s.mencoes}`);
   if (s.lembretes) L.push(`• Lembretes enviados: ${s.lembretes}`);
