@@ -1,3 +1,4 @@
+// v64d (13/11/2026): Instagram só atende POSSÍVEIS CLIENTES — páginas, divulgação, parcerias, conhecidos e conversa solta ficam para o dono (aviso uma vez)
 // v64c (13/11/2026): Instagram — confere a conversa toda vez (se o Sr. Hangel respondeu à mão, fica quieto); IA tenta 2 modelos e não repete a frase pronta (avisa com o erro)
 // v64b (13/11/2026): Instagram — bot fica quieto quando o Sr. Hangel já está conversando (eco corrigido); IA responde em JSON (funciona com OpenAI e Anthropic)
 // v64 (13/11/2026): INSTAGRAM — Direct respondido pela IA (leva ao WhatsApp com link pronto) e comentários de interesse respondidos
@@ -13263,10 +13264,11 @@ function igPromptSistema(env, snap) {
     'Preço: o valor do projeto pode ser parcelado em até 10x sem juros no cartão; à vista tem desconto. NUNCA diga valores em reais, preço por metro nem prazos exatos: o orçamento é feito com as medidas.',
     'Seu objetivo: entender o que a pessoa quer (ambiente, mais ou menos o tamanho, cidade) em no máximo 1 ou 2 perguntas e levá-la para o WhatsApp, onde o orçamento sai rápido. Quando ela já disse o que quer (ou pediu preço/orçamento), ofereça o WhatsApp.',
     'Para oferecer o WhatsApp, escreva a tag [WHATS: frase curta do que ela quer] (ex.: [WHATS: orçamento de bancada de cozinha em granito]); o sistema troca a tag pelo link. Use a tag no máximo uma vez por conversa.',
-    'Se for elogio, agradeça com carinho. Se for reclamação, peça desculpas, diga que o responsável vai falar com ela e escreva [DONO] no fim.',
+    'Se for reclamação de cliente, peça desculpas, diga que o responsável vai falar com ela e escreva [DONO] no fim.',
     'Respostas CURTAS: no máximo 3 frases, sem listas, no máximo 1 emoji. Nunca invente informação. Não fale de outros assuntos.',
     'Leia o histórico: responda ao que a pessoa acabou de dizer (um "amém", "obrigado" ou "ok" pede só uma resposta curta e simpática, sem repetir perguntas).',
-    'Responda SOMENTE em JSON: {"resposta":"texto da mensagem"}',
+    'Antes de tudo decida se a pessoa é um POSSÍVEL CLIENTE: alguém perguntando por serviço, pedra, preço, orçamento, prazo, visita, ou um primeiro "oi/boa tarde" de quem não conhecemos. NÃO é cliente: páginas, perfis de notícia, lojas ou empresas divulgando algo, propostas de parceria ou publicidade, amigos/conhecidos conversando, correntes, elogios soltos, "amém", "tá", "ok", figurinhas. Nesses casos não responda (o dono responde se quiser).',
+    'Responda SOMENTE em JSON: {"cliente":true ou false,"motivo":"2 a 5 palavras","resposta":"texto da mensagem (vazio se cliente=false)"}',
   ].join('\n');
 }
 // conversa antiga em que o Sr. Hangel já está falando com a pessoa (antes do bot conhecer a conversa): bot não se mete
@@ -13301,10 +13303,12 @@ async function igResponderDM(env, ev) {
   let c = null; try { c = JSON.parse((await env.HR_KV.get('ig:c:' + de)) || 'null'); } catch (_) {}
   const novo = !c;
   c = c || { hist: [], criado: Date.now() };
-  if (!c.user) { try { const u = await igApi(env, `/${de}?fields=name,username`); c.user = u.username || ''; c.nome = u.name || ''; } catch (_) {} }
+  if (!c.user || c.seg == null) { try { const u = await igApi(env, `/${de}?fields=name,username,follower_count,is_verified_user,is_business_follow_user`); c.user = u.username || ''; c.nome = u.name || ''; c.seg = Number(u.follower_count) || 0; c.ver = !!u.is_verified_user; c.sigo = !!u.is_business_follow_user; } catch (_) { c.seg = c.seg || 0; } }
+  const pagina = c.ver || c.seg >= 3000; // perfil grande / verificado: quase sempre página, não cliente
   const snap = await lerSnapshotCompleto(env).catch(() => null);
   let resp = '', erroIA = '';
-  const iaIG = async (modelo) => lerJsonIA(await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: modelo, timeoutMs: 25000 })).resposta || '';
+  let ehCliente = true, motivo = '';
+  const iaIG = async (modelo) => ((o) => { if (o.cliente === false || o.cliente === 'false') { ehCliente = false; motivo = String(o.motivo || '').slice(0, 60); return '-'; } return o.resposta; })(lerJsonIA(await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}${c.user ? ' (@' + c.user + ')' : ''}.` : '') + (pagina ? `\nATENÇÃO: este perfil tem ${c.seg} seguidores${c.ver ? ' e é verificado' : ''}: é provavelmente uma PÁGINA. Só trate como cliente se pedir claramente serviço/orçamento.` : '') + (c.sigo ? '\nA HR segue este perfil: é um conhecido. Só trate como cliente se pedir claramente serviço/orçamento.' : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: modelo, timeoutMs: 25000 }))) || '';
   if (env.AI_KEY) {
     for (const modelo of [env.AI_MODEL_IG || 'claude-haiku-5-5', undefined]) { // 2ª tentativa: o modelo normal do bot
       try { resp = await iaIG(modelo); if (resp) break; erroIA = 'resposta vazia'; }
@@ -13320,6 +13324,14 @@ async function igResponderDM(env, ev) {
     resp = resp.replace(tag[0], link ? `\n\nÉ só tocar aqui para falar com a gente no WhatsApp, a mensagem já vai pronta: ${link}` : '').trim();
     c.whats = Date.now();
   }
+  if (!ehCliente) { // não é cliente: não responde; guarda no histórico e avisa o dono só uma vez por conversa
+    c.hist.push({ role: 'user', content: texto.slice(0, 1000) }); c.hist = c.hist.slice(-20); c.em = Date.now();
+    const avisar = !c.avisoNC; c.avisoNC = Date.now();
+    await env.HR_KV.put('ig:c:' + de, JSON.stringify(c), { expirationTtl: 14 * 86400 });
+    if (avisar) await notificarDono(env, Date.now(), `*Instagram — ${c.user ? '@' + c.user : (c.nome || 'alguém')}* no Direct: "${texto.slice(0, 200)}"\nNão respondi: não parece cliente${motivo ? ' (' + motivo + ')' : ''}. Se for, é só responder o senhor mesmo.${c.user ? `\ninstagram.com/${c.user}` : ''}`, { rotina: true }).catch(() => {});
+    return;
+  }
+  if (!resp && pagina) return; // IA fora do ar e perfil de página: não manda a frase pronta
   if (!resp && c.hist.length) { // a frase pronta só serve uma vez: depois disso, não repete — avisa o dono
     await notificarDono(env, Date.now(), `*Instagram — ${c.user ? '@' + c.user : (c.nome || 'alguém')}* mandou: "${texto.slice(0, 200)}"\nNão consegui responder sozinho (${String(erroIA || 'IA').slice(0, 120)}). Vale o senhor responder.${c.user ? `\ninstagram.com/${c.user}` : ''}`).catch(() => {});
     return;
