@@ -262,7 +262,7 @@
       if (m.tipo === 'reaction') { h += '<div class="crm-row ' + q + '"><span class="crm-rea" title="Reação">' + esc(m.texto || '') + '</span></div>'; return; }
       var topo = '';
       if (ex.modelo) topo += '<div class="crm-mdl">📋 Modelo da Meta: ' + esc(ex.modelo) + '</div>';
-      if (ex.citou && porWamid[ex.citou]) { var cit = porWamid[ex.citou]; topo += '<div class="crm-resp">↩ respondendo: ' + esc(String(cit.texto || cit.arq || '[' + cit.tipo + ']').slice(0, 60)) + '</div>'; }
+      if (ex.citou && porWamid[ex.citou] && !ex.resposta) { var cit = porWamid[ex.citou]; topo += '<div class="crm-resp">↩ respondendo: ' + esc(String(cit.texto || cit.arq || '[' + cit.tipo + ']').slice(0, 60)) + '</div>'; }
       if (ex.resposta) topo += '<div class="crm-resp">↩ tocou no botão</div>';
       var txt = m.texto ? (m.tipo === 'audio' ? '<div class="crm-trans">' + (q === 'b' ? '🔊 ' : '📝 ') + fmtTexto(m.texto) + '</div>' : '<div>' + fmtTexto(m.texto) + '</div>') : '';
       var bts = '';
