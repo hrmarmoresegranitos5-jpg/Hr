@@ -737,6 +737,64 @@ async function rotaCrm(req, env, url, p) {
   return jsonR({ error: 'Rota do CRM não encontrada.' }, 404);
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v76: PDF EM IMAGEM — o cliente pede o orçamento em imagem ("não consigo abrir o PDF", "manda como foto"):
+//   o bot pega o último PDF que mandou a ele (CRM), o app aberto (celular ou Central no PC) transforma cada página
+//   em JPG (pdf.js) e devolve; o bot manda as imagens ao cliente. Sem o app aberto em 3 min, avisa o dono.
+// ═════════════════════════════════════════════════════════════════════════════
+function pedeImagemDoPdf(t) {
+  const n = normaliza(t || '');
+  if (n.length > 300) return false;
+  const img = /\b(imagem|imagens|foto|fotos|print|prints|jpg|jpeg|png)\b/.test(n);
+  const a = img && /\b(pdf|orcamento|arquivo|documento)\b/.test(n);
+  const b = /\b(em|como|cimo|de|por|numa|uma) (imagem|foto|print)\b/.test(n) && /\b(me|pode|poderia|podia|consegue|manda|mande|envia|envie|enviar|mandar)\b/.test(n);
+  const c = /\b(nao|n|num) (consigo|consegui|abre|abriu|abro|ta abrindo|esta abrindo|to conseguindo|estou conseguindo|da pra abrir)\b.{0,30}\b(pdf|arquivo|documento|orcamento)\b/.test(n) || /problema.{0,30}\bpdf\b/.test(n);
+  return a || b || c;
+}
+async function pdfImgPedido(env, from, texto) {
+  if (!crmAtivo(env) || !pedeImagemDoPdf(texto)) return false;
+  const r = await pdfImgEnfileirar(env, from);
+  if (r === 'sem_pdf') return false;
+  await enviar(env, from, r === 'ja' ? 'Já estou preparando as imagens do orçamento, só um instante.' : 'Claro! Vou te enviar o orçamento em imagem, só um instante.');
+  return true;
+}
+// 'ok' | 'ja' (já na fila) | 'sem_pdf'
+async function pdfImgEnfileirar(env, num) {
+  await crmTabela(env);
+  const r = await env.HR_DB.prepare("SELECT midia, arq, ts FROM crm_msg WHERE num = ? AND q = 'b' AND tipo = 'document' AND midia <> '' AND ts > ? ORDER BY ts DESC LIMIT 1")
+    .bind(normalizarBR(num), Date.now() - 20 * 86400000).first();
+  if (!r || !/^[dmgu]:/.test(r.midia) || (r.arq && !/\.pdf$/i.test(r.arq))) return 'sem_pdf';
+  const k = 'pdfimg:' + normalizarBR(num);
+  if (await env.HR_KV.get(k)) return 'ja';
+  const id = estId(10);
+  await confEnfileirar(env, { id, tipo: 'pdfimg', num: normalizarBR(num), ref: r.midia.replace(/^g:/, 'm:'), arq: r.arq || 'Orcamento.pdf' });
+  await env.HR_KV.put(k, JSON.stringify({ id, em: Date.now() }), { expirationTtl: 3600 });
+  return 'ok';
+}
+// sem resposta do app em 3 min: avisa o dono uma vez
+async function pdfImgTick(env) {
+  const f = await confFila(env), velhas = f.filter(x => x.tipo === 'pdfimg' && x.estado !== 'feito' && !x.avisado && Date.now() - x.criado > 3 * 60000);
+  if (!velhas.length) return;
+  for (const t of velhas) {
+    t.avisado = true;
+    const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || 'o cliente';
+    await enviarTextoPuro(env, numeroDono(env), `📄 ${nome} pediu o orçamento *em imagem* (não está conseguindo abrir o PDF). Para eu converter, preciso do *app HR aberto* (no celular ou a Central no computador). Assim que abrir, eu mando sozinho.\nwa.me/${t.num}`).catch(() => {});
+  }
+  await env.HR_KV.put('fin:fila', JSON.stringify(f), { expirationTtl: 3 * 86400 });
+}
+async function pdfImgResultado(env, t, b) {
+  await env.HR_KV.delete('pdfimg:' + t.num).catch(() => {});
+  const imgs = (b.imagens || []).slice(0, 10);
+  if (!imgs.length) { await enviarTextoPuro(env, numeroDono(env), `⚠️ Não consegui transformar o PDF de wa.me/${t.num} em imagem${b.erro ? ' (' + String(b.erro).slice(0, 80) + ')' : ''}. Mande o print do orçamento para ele.`).catch(() => {}); return; }
+  for (let i = 0; i < imgs.length; i++) {
+    const bytes = Uint8Array.from(atob(String(imgs[i]).replace(/^data:[^,]+,/, '')), c => c.charCodeAt(0));
+    const mid = await subirImagemMeta(env, bytes, 'orcamento-' + (i + 1));
+    await postarMsg(env, t.num, { type: 'image', image: { id: mid, caption: imgs.length > 1 ? `Orçamento · página ${i + 1} de ${imgs.length}` : 'Seu orçamento da HR Mármores e Granitos.' } });
+  }
+  const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || 'o cliente';
+  await notificarDono(env, Date.now(), `🖼️ Mandei o orçamento em imagem para ${nome} (${imgs.length} ${imgs.length === 1 ? 'página' : 'páginas'}), como ele pediu.`, { rotina: true }).catch(() => {});
+}
+
 // ── Botões e listas (mensagens interativas da API oficial) ───────────
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
@@ -4100,6 +4158,7 @@ async function listarArquivoConversas(env, dias) {
 async function atenderClienteIA(env, from, bruto, perfil) {
   try {
     if (!(await limiteCliente(env, from))) return true; // passou do limite diário: fica em silêncio
+    if (await pdfImgPedido(env, from, bruto).catch(e => { console.log('[PDFIMG]', e.message); return false; })) return true; // v76
     const brutoL = limparMensagemCliente(bruto); // leitura corrigida (abreviações, erros de digitação) para os leitores de código
 
     const chave = 'ca:' + from;
@@ -7774,6 +7833,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'enviar_orcamento_em_imagem',
+    description: 'Manda ao cliente o ÚLTIMO PDF de orçamento que o bot enviou a ele, transformado em IMAGEM (uma foto por página). Use quando o Sr. Hangel pedir "manda o orçamento em imagem/foto pra fulano" ou quando o cliente não consegue abrir PDF. Precisa do app HR aberto (celular ou Central no PC) para converter.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se souber' } }, required: ['cliente'] },
+  },
+  {
     name: 'responder_cliente',
     description: 'Prepara um RASCUNHO de resposta a um cliente, em nome da empresa, quando o Sr. Hangel pedir para explicar, responder, avisar ou falar com um cliente (ex.: "explica pra ela porque tá caro"). O rascunho vai ao Sr. Hangel com botões Enviar e Cancelar; só é enviado ao cliente depois que ele confirmar. Escreva o texto PARA O CLIENTE: curto (até 3 frases), cordial, profissional, sem emojis, sem inventar desconto, prazo ou valor. Sem "numero" nem "cliente", usa o último cliente que falou. SE ele citou um cliente pelo nome (ex.: RL planejados), preencha "cliente": nunca deixe cair no último que falou. NUNCA afirme que o cliente pagou, que houve pagamento em certa data ou que algo já foi enviado, a não ser que o Sr. Hangel tenha dito; fale só do serviço, do valor informado e da data de entrega.',
     input_schema: { type: 'object', properties: { texto: { type: 'string', description: 'mensagem pronta para o cliente' }, numero: { type: 'string', description: 'telefone do cliente, só se o Sr. Hangel citou um' }, cliente: { type: 'string', description: 'NOME do cliente, quando o Sr. Hangel citou um nome' } }, required: ['texto'] },
@@ -8141,6 +8205,15 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const r = await enviarOrcamentoCliente(env, num, ped, a.cliente || ped.nome, String(a.mensagem || '').trim());
     try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
+  }
+  if (nome === 'enviar_orcamento_em_imagem') { // v76
+    let num = numeroCliente(a.numero);
+    if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
+    if (!num && a.cliente && crmAtivo(env)) { await crmTabela(env); const rs = await env.HR_DB.prepare('SELECT num, nome, perfil FROM crm_ct ORDER BY ult DESC LIMIT 300').all(); const alvo = normaliza(a.cliente).split(' ')[0]; const c = (rs.results || []).find(x => normaliza(x.nome + ' ' + x.perfil).split(/\s+/).includes(alvo)); if (c) num = c.num; }
+    if (!num) return { erro: true, texto: 'Não achei o telefone desse cliente. Peça o número ao Sr. Hangel em uma frase.' };
+    const r = await pdfImgEnfileirar(env, num);
+    if (r === 'sem_pdf') return { erro: true, texto: 'O bot não mandou nenhum PDF a esse cliente nos últimos 20 dias. Diga isso em uma frase.' };
+    return { texto: (r === 'ja' ? 'Já está na fila.' : 'Pedido feito: o app aberto converte o PDF em imagem e o bot manda ao cliente sozinho (se o app estiver fechado, o bot avisa em 3 minutos).') + ' Repasse em UMA frase.' };
   }
   if (nome === 'responder_cliente') {
     const texto = String(a.texto || '').replace(/[ \t]+/g, ' ').trim().slice(0, 700);
@@ -14359,6 +14432,7 @@ async function confTickLeve(env) { // sem o app aberto, cada mensagem que chega 
 async function estTickLeve(env) {
   await confTickLeve(env).catch(() => {});
   await crmTick(env).catch(e => console.log('[CRM] tick:', e.message)); // v75
+  await pdfImgTick(env).catch(e => console.log('[PDFIMG] tick:', e.message)); // v76
   // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
   if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
@@ -14755,6 +14829,7 @@ async function rotaFinTarefa(req, env, p) {
     if (!t) return J({ ok: false, erro: 'tarefa não existe' }, 404);
     t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito').slice(-20)), { expirationTtl: 3 * 86400 });
     if (t.tipo === 'conferir') await confReceberResultado(env, t, b.resultado || {});
+    else if (t.tipo === 'pdfimg') await pdfImgResultado(env, t, b); // v76
     else if (t.tipo === 'aplicar' && b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
     return J({ ok: true });
   }
