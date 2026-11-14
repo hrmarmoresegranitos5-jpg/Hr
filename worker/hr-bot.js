@@ -773,14 +773,26 @@ async function pdfImgEnfileirar(env, num) {
 }
 // sem resposta do app em 3 min: avisa o dono uma vez
 async function pdfImgTick(env) {
-  const f = await confFila(env), velhas = f.filter(x => x.tipo === 'pdfimg' && x.estado !== 'feito' && !x.avisado && Date.now() - x.criado > 3 * 60000);
-  if (!velhas.length) return;
+  const f = await confFila(env);
+  const velhas = f.filter(x => x.tipo === 'pdfimg' && x.estado !== 'feito' && !x.avisado && Date.now() - x.criado > 3 * 60000);
+  const mortas = f.filter(x => x.tipo === 'pdfimg' && x.estado !== 'feito' && Date.now() - x.criado > 2 * 3600000);
+  if (!velhas.length && !mortas.length) return;
+  for (const t of mortas) { t.estado = 'feito'; await env.HR_KV.delete('pdfimg:' + t.num).catch(() => {}); }
+  const avisar = [];
   for (const t of velhas) {
     t.avisado = true;
-    const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || 'o cliente';
+    // v76b: um aviso só por pedido, mesmo com vários webhooks ao mesmo tempo (trava no D1 + marca no KV)
+    if (await env.HR_KV.get('pdfimg:av:' + t.id)) continue;
+    if (!(await travaEnvio(env, 'pdfimg:av:' + t.id))) continue;
+    await env.HR_KV.put('pdfimg:av:' + t.id, '1', { expirationTtl: 3 * 86400 });
+    avisar.push(t);
+  }
+  await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito')), { expirationTtl: 3 * 86400 });
+  for (const t of avisar) {
+    const ct = crmAtivo(env) ? await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(t.num).first().catch(() => null) : null;
+    const nome = (await lerNomeSalvo(env, t.num).catch(() => '')) || (ct && (ct.nome || ct.perfil)) || 'O cliente';
     await enviarTextoPuro(env, numeroDono(env), `📄 ${nome} pediu o orçamento *em imagem* (não está conseguindo abrir o PDF). Para eu converter, preciso do *app HR aberto* (no celular ou a Central no computador). Assim que abrir, eu mando sozinho.\nwa.me/${t.num}`).catch(() => {});
   }
-  await env.HR_KV.put('fin:fila', JSON.stringify(f), { expirationTtl: 3 * 86400 });
 }
 async function pdfImgResultado(env, t, b) {
   await env.HR_KV.delete('pdfimg:' + t.num).catch(() => {});
