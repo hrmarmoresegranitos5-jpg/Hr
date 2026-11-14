@@ -1889,6 +1889,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep') return rhFolhaBotao(env, from, id); // v81
   if (id.startsWith('bolrev|')) return bolRevBotao(env, from, id); // v84
+  if (id.startsWith('igq|')) return igAgendarBotao(env, from, id); // v87
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -4586,8 +4587,9 @@ async function atenderClienteIA(env, from, bruto, perfil) {
         c.catalogoMostrado = true;
         c._volta = certos.join(', ');
       } }
-    { const mi = String(bruto).match(/vim pelo instagram(?:\s*\(@([\w.]{1,30})\))?/i); // v67: cliente que chegou pelo botão do Instagram
+    { const mi = String(bruto).match(/(?:vim pelo instagram|vi (?:o post|a publica[cç][aã]o|o v[ií]deo) de voc[eê]s no instagram|instagram de voc[eê]s)(?:\s*\(@([\w.]{1,30})\))?/i); // v67/v87: cliente que chegou pelo Instagram
       if (mi && !c.origemIG) { c.origemIG = mi[1] ? '@' + mi[1] : 'instagram'; igStat(env, 'chegaram', null).catch(() => {});
+        igLeadChegou(env, from, c.origemIG, (String(bruto).match(/#p([a-z0-9]{4,8})\b/i) || [])[1]).catch(() => {});
         notificarDono(env, Date.now(), `📸➡️💬 *Veio do Instagram para o WhatsApp:* ${c.origemIG}${c.dados && c.dados.nome ? ' (' + c.dados.nome + ')' : ''}\n"${String(bruto).slice(0, 200)}"\nwa.me/${normalizarBR(from)}`, { rotina: true }).catch(() => {}); } }
     if (!(c.hist && c.hist.length) && !c.assuntoInicial && String(bruto).trim().length > 10 && !ehSaudacaoMenu(normaliza(brutoL))) c.assuntoInicial = String(bruto).trim().slice(0, 200);
     else if (c.assuntoInicial && c.nomeOrigem === 'salvo' && (c.hist || []).length >= 4) delete c.assuntoInicial;
@@ -8993,7 +8995,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -14323,6 +14325,8 @@ async function igStat(env, campo, extra) {
     s[campo] = (s[campo] || 0) + 1;
     if (extra) { s.leads = (s.leads || []).concat(extra).slice(-30); }
     await env.HR_KV.put(k, JSON.stringify(s), { expirationTtl: 40 * 86400 });
+    const km = 'ig:stm:' + dataBahia().slice(0, 7); const sm = JSON.parse((await env.HR_KV.get(km)) || '{}'); // v87: mês, para o relatório de clientes
+    sm[campo] = (sm[campo] || 0) + 1; await env.HR_KV.put(km, JSON.stringify(sm), { expirationTtl: 400 * 86400 });
   } catch (_) {}
 }
 async function igPausado(env) { return (await env.HR_KV.get('ig:pausa')) === '1'; }
@@ -14487,6 +14491,7 @@ async function igResponderDM(env, ev) {
   }
   if (!texto) return;
   if (await env.HR_KV.get('ig:humano:' + de)) return;
+  if (await igEhPalavra(env, texto, true)) { await igPalavraDM(env, de, c, quem, linkPerfil, novo); return; } // v87: "QUERO" no Direct, sem IA
   if (await igDonoConversando(env, de, eu)) { await env.HR_KV.put('ig:humano:' + de, '1', { expirationTtl: 12 * 3600 }); return; }
   if (novo) await igStat(env, 'conversas');
   if (await igPausado(env)) {
@@ -14584,6 +14589,7 @@ async function igTratarComentario(env, v) {
   if (nCom >= 80) return;
   await env.HR_KV.put('ig:comdia:' + hoje, String(nCom + 1), { expirationTtl: 2 * 86400 });
   const nomeU = quem.username ? '@' + quem.username : '';
+  if (await igEhPalavra(env, txt)) { await igPalavraComentario(env, v, quem, nomeU); return; } // v87: "Comente QUERO", sem IA
   const o = (await igClassificarComentario(env, txt, v.media && v.media.caption)) || { tipo: IG_RE_INTERESSE.test(txt) ? 'interesse' : 'outro' };
   const tipo = String(o.tipo || 'outro').toLowerCase();
   const media = (v.media && v.media.id) || '';
@@ -14608,7 +14614,8 @@ async function igTratarComentario(env, v) {
   const zapC = await igWhatsFormatado(env).catch(() => '');
   const pub = (publica || `Olá${nomeU ? ' ' + nomeU : ''}! Enviamos os detalhes no seu Direct. 😊`) + (zapC && String(env.IG_NUMERO_PUBLICO || '1') !== '0' ? ` Se preferir, chame no WhatsApp ${zapC}.` : '');
   try { await igApi(env, `/${v.id}/replies`, { method: 'POST', body: { message: pub } }); } catch (e) { console.log('[IG] resposta pública:', e.message); }
-  const link = await igLinkWhats(env, `Olá! Vi o post de vocês no Instagram${nomeU ? ' (' + nomeU + ')' : ''} e quero um orçamento.`);
+  const link = await igLinkWhats(env, `Olá! Vi o post de vocês no Instagram${nomeU ? ' (' + nomeU + ')' : ''} e quero um orçamento.${await igRefPost(env, media)}`);
+  await igMidiaStat(env, media, 'com');
   const privada = `Olá! Vi o seu comentário e já te ajudo. 😊 O valor depende das medidas e da pedra escolhida, e o projeto pode ser parcelado em até 10x sem juros no cartão. Me conte o que você precisa (cozinha, banheiro, escada…) e de qual cidade${link ? `, ou fale direto com a nossa equipe no WhatsApp${zapC ? ' ' + zapC : ''}, com a mensagem já pronta: ${link}` : '.'}`;
   try { const j = await igApi(env, '/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message: { text: privada } } }); if (j && j.message_id) await env.HR_KV.put('ig:meu:' + j.message_id, '1', { expirationTtl: 3 * 86400 }); await igStat(env, 'comentariosRespondidos'); }
   catch (e) { console.log('[IG] resposta privada:', e.message); }
@@ -14662,6 +14669,7 @@ async function igRotina(env) {
     }
   }
   const dia = diaSemanaISO(dataBahia());
+  await igLembretePostar(env, dia, min).catch(e => console.log('[IG] lembrete postar:', e.message)); // v87
   if (String(env.IG_RESUMO || '1') !== '0' && dia === 1 && min >= 8 * 60 && min < 11 * 60 && !(await env.HR_KV.get('ig:resumo:' + dataBahia()))) {
     await env.HR_KV.put('ig:resumo:' + dataBahia(), '1', { expirationTtl: 8 * 86400 });
     const d = new Date(igSemana() + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 7);
@@ -14678,6 +14686,8 @@ async function igResumoTexto(env, semana, rotulo) {
   if (s.mencoes) L.push(`• Marcações em story: ${s.mencoes}`);
   if (s.lembretes) L.push(`• Lembretes enviados: ${s.lembretes}`);
   if ((s.leads || []).length) L.push('', '*Interessados:*', ...s.leads.slice(-10).map(x => `• ${x.u} — ${x.p}${x.c ? ' · ' + x.c : ''}`));
+  if (s.palavra) L.push(`• Pediram pela palavra-chave: ${s.palavra}`);
+  L.push('', 'Para ver quantos viraram orçamento e venda: *instagram clientes*');
   return L.join('\n');
 }
 // ── v68: ANÁLISE DO INSTAGRAM — o que viraliza nos posts/reels da HR e ideias de vídeo ──────────────
@@ -14903,6 +14913,7 @@ async function estPrepararLegenda(env, j, transcr) {
   try { const o = lerJsonIA(await chamarIA(env, sis, [], ped, { maxTokens: 900, timeoutMs: 40000 })); j.legenda = String(o.legenda || o.resposta || '').trim().slice(0, 2100); j.gancho = String(o.gancho || '').trim().slice(0, 60); j.cta = String(o.cta || 'Orçamento no WhatsApp').trim().slice(0, 60); }
   catch (e) { console.log('[ESTUDIO] legenda:', e.message); }
   if (!j.legenda) j.legenda = `${j.desc || 'Mais um trabalho entregue pela HR Mármores e Granitos.'}\n\nOrçamento sem compromisso no WhatsApp${zap ? ' ' + zap : ''}.\n\n#marmoraria #granito #pilaoarcado`;
+  j.legenda = await igLegendaComPalavra(env, j.legenda); // v87
   await estGravar(env, j);
 }
 const EST_DESTINOS = { reels: 'Reels', story: 'Story', feed: 'Feed' };
@@ -14928,6 +14939,7 @@ async function estEnviarPrevia(env, para, j) {
     await enviarComBotoes(env, para, corpo, botoes);
   }
   j.estado = 'aguardando'; await estGravar(env, j);
+  await igOferecerHorarios(env, para, j).catch(e => console.log('[IG] horários:', e.message)); // v87
 }
 // botões igp|<id>|reels|story|feed|cru|cancelar
 async function estBotao(env, from, id) {
@@ -15587,6 +15599,9 @@ async function tplRespostaCliente(env, from, m) {
 }
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
 async function igComandoDono(env, from, msg) {
+  { const mp = msg.match(/^(?:instagram|insta|ig) (?:palavra|palavra chave|palavra-chave|comente)(?: (.+))?$/) || msg.match(/^comente ([a-z0-9]{2,20})$/);
+    if (mp) return igPalavraComando(env, from, mp[1]); }
+  if (/^((instagram|insta|ig) (clientes|relatorio|vendas|funil|resultado|resultados)|relatorio (do )?instagram|clientes do instagram)$/.test(msg)) { await enviar(env, from, await igRelatorioClientes(env)); return true; }
   if (/^((instagram|insta|ig) (analise|analisar|ideias|estudo|estudar)|ideias? de (video|videos|post|posts|reels)|analisar (o )?instagram)$/.test(msg)) {
     await env.HR_KV.put('ig:analise:pedida', '1', { expirationTtl: 86400 });
     await env.HR_KV.delete('ig:analise:rodando');
@@ -15611,6 +15626,152 @@ async function igComandoDono(env, from, msg) {
   let p = ''; try { p = (JSON.parse((await env.HR_KV.get('ig:preparo')) || '[]') || []).join('\n'); } catch (_) {}
   await enviar(env, from, `${t}\n\nSituação: ${(await igPausado(env)) ? '⏸️ pausada' : '✅ atendendo'}${p ? '\n' + p : ''}`);
   return true;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v87: "COMENTE QUERO" (palavra-chave → Direct sozinho, sem IA), POSTAR MAIS FÁCIL (horários com 1 toque, lembrete de postar)
+//      e RELATÓRIO DE CLIENTES (Instagram → WhatsApp → orçamento → venda, e quais posts trouxeram)
+// ═════════════════════════════════════════════════════════════════════════════
+async function igPalavra(env) { try { return JSON.parse((await env.HR_KV.get('ig:palavra')) || 'null'); } catch (_) { return null; } }
+async function igEhPalavra(env, txt, exato) {
+  const pw = await igPalavra(env); if (!pw || !pw.p) return false;
+  const t = normaliza(String(txt || '')).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.length > 60) return false;
+  return exato ? t === normaliza(pw.p) : t.split(' ').includes(normaliza(pw.p));
+}
+async function igRefPost(env, media) { // referência curta do post no texto do WhatsApp: "#p4k2x"
+  if (!media) return '';
+  let r = await env.HR_KV.get('ig:refm:' + media);
+  if (!r) { r = Math.random().toString(36).slice(2, 7); await env.HR_KV.put('ig:refm:' + media, r, { expirationTtl: 400 * 86400 }); await env.HR_KV.put('ig:ref:' + r, media, { expirationTtl: 400 * 86400 }); }
+  return ` (#p${r})`;
+}
+async function igMidiaStat(env, media, campo, valor) {
+  if (!media) return;
+  try { const k = 'ig:mst:' + dataBahia().slice(0, 7), s = JSON.parse((await env.HR_KV.get(k)) || '{}'); const x = s[media] = s[media] || {}; x[campo] = (x[campo] || 0) + (valor || 1);
+    const ks = Object.keys(s); if (ks.length > 120) delete s[ks[0]]; await env.HR_KV.put(k, JSON.stringify(s), { expirationTtl: 400 * 86400 }); } catch (_) {}
+}
+async function igPalavraMensagem(env, nome, media) {
+  const link = await igLinkWhats(env, `Olá! Vi o post de vocês no Instagram${nome ? ' (' + nome + ')' : ''} e quero um orçamento.${await igRefPost(env, media)}`);
+  const cat = await igLinkCatalogo(env);
+  return { link, cat, texto: `Oi${nome ? ' ' + nome : ''}! Aqui está o que você pediu 😊\n\n` + (cat ? `Pedras e trabalhos da HR: ${cat}\n\n` : '') + `Orçamento sem compromisso, direto com a nossa equipe no WhatsApp${link ? ': ' + link : '.'}\n\nO projeto pode ser parcelado em até 10x sem juros no cartão.` };
+}
+async function igPalavraComentario(env, v, quem, nomeU) {
+  const media = (v.media && v.media.id) || '', chaveUser = 'ig:comuser:' + (quem.id || quem.username) + ':' + media;
+  if (await env.HR_KV.get(chaveUser)) return; // a mesma pessoa comentando de novo no mesmo post: não repete
+  await env.HR_KV.put(chaveUser, '1', { expirationTtl: 30 * 86400 });
+  await igStat(env, 'palavra'); await igMidiaStat(env, media, 'pal');
+  const pubs = ['Te chamei no Direct! 📩', 'Mandei no seu Direct, confere lá! 😊', 'Já te enviei no Direct! 📲', 'Enviado no Direct! Qualquer dúvida é só chamar. 🙌'];
+  try { await igApi(env, `/${v.id}/replies`, { method: 'POST', body: { message: (nomeU ? nomeU + ' ' : '') + pubs[Math.floor(Math.random() * pubs.length)] } }); } catch (e) { console.log('[IG] palavra pública:', e.message); }
+  const m = await igPalavraMensagem(env, nomeU, media);
+  try { const j = await igApi(env, '/me/messages', { method: 'POST', body: { recipient: { comment_id: v.id }, message: { text: m.texto.slice(0, 990) } } }); if (j && j.message_id) await env.HR_KV.put('ig:meu:' + j.message_id, '1', { expirationTtl: 3 * 86400 }); await igStat(env, 'comentariosRespondidos'); }
+  catch (e) { console.log('[IG] palavra privada:', e.message); }
+}
+async function igPalavraDM(env, de, c, quem, linkPerfil, novo) {
+  if (c.whats && c.hist.some(h => h.content === '[pediu pela palavra-chave]')) { await igEnviarDM(env, de, 'Já te mandei acima 😊 Se precisar de algo mais, é só escrever aqui.').catch(() => {}); return; }
+  await igStat(env, 'palavra'); if (novo) await igStat(env, 'conversas');
+  const m = await igPalavraMensagem(env, c.user ? '@' + c.user : '', '');
+  const bt = [m.link && { titulo: 'Orçamento no WhatsApp', url: m.link }, m.cat && { titulo: 'Ver pedras e trabalhos', url: m.cat }].filter(Boolean);
+  await igEnviarBotoes(env, de, `Oi${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Aqui está o que você pediu 😊 O projeto pode ser parcelado em até 10x sem juros no cartão.`, bt).catch(() => igEnviarDM(env, de, m.texto));
+  c.cli = true; c.whats = true; c.hist.push({ role: 'user', content: '[pediu pela palavra-chave]' }, { role: 'assistant', content: '[enviei catálogo e WhatsApp]' });
+  await igSalvarConversa(env, de, c);
+  if (novo) await notificarDono(env, Date.now(), `*Instagram — ${quem}* pediu pela palavra-chave no Direct. Mandei o catálogo e o WhatsApp.${linkPerfil}`, { rotina: true }).catch(() => {});
+}
+async function igPalavraComando(env, from, arg) {
+  const a = String(arg || '').trim();
+  if (/^(desligar|desliga|parar|off|nenhuma|tirar|apagar)$/.test(a)) { await env.HR_KV.delete('ig:palavra'); await enviar(env, from, 'Palavra-chave do Instagram *desligada*.'); return true; }
+  if (!a || /^(status|qual|ver)$/.test(a)) {
+    const pw = await igPalavra(env), sm = JSON.parse((await env.HR_KV.get('ig:stm:' + dataBahia().slice(0, 7))) || '{}');
+    await enviar(env, from, pw ? cartaoDono('Instagram · palavra-chave', [`Ativa: *${pw.p}* (desde ${new Date(pw.desde).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' })})`, `Pedidos pela palavra este mês: ${sm.palavra || 0}`, 'Quem comentar ou mandar essa palavra no Direct recebe sozinho o catálogo e o WhatsApp. Para trocar: *instagram palavra NOVA*. Para tirar: *instagram palavra desligar*.'])
+      : 'Nenhuma palavra-chave ativa. Para ligar: *instagram palavra QUERO* (ou outra palavra).');
+    return true;
+  }
+  const pal = a.replace(/[^a-z0-9]/g, '').toUpperCase().slice(0, 20);
+  if (pal.length < 2) { await enviar(env, from, 'Use uma palavra só, ex.: *instagram palavra QUERO*.'); return true; }
+  await env.HR_KV.put('ig:palavra', JSON.stringify({ p: pal, desde: Date.now() }));
+  await enviar(env, from, cartaoDono('Palavra-chave ligada: ' + pal, [`Em qualquer post, quem comentar *${pal}* recebe no Direct, na hora, o catálogo de pedras e o botão do WhatsApp com a referência do post. Também vale mandar *${pal}* no Direct.`, `Respondo no comentário com "Te chamei no Direct!" (isso ajuda o post a aparecer mais).`, `Os posts que o senhor mandar pelo WhatsApp já saem com: "Comente ${pal} e receba no Direct...".`, 'Funciona mesmo sem créditos da IA.']));
+  return true;
+}
+async function igLegendaComPalavra(env, leg) {
+  const pw = await igPalavra(env); if (!pw || !pw.p || new RegExp('\\b' + pw.p + '\\b', 'i').test(leg)) return leg;
+  const cta = `💬 Comente ${pw.p} e receba no Direct o catálogo de pedras e o contato para orçamento.`;
+  const i = leg.search(/\n\s*#/);
+  return (i > 0 ? leg.slice(0, i).trimEnd() + '\n\n' + cta + '\n' + leg.slice(i) : leg.trimEnd() + '\n\n' + cta).slice(0, 2200);
+}
+async function igOferecerHorarios(env, para, j) { // depois da prévia: agendar com 1 toque
+  if (j.agendado && j.agendado > Date.now()) return;
+  const hoje = dataBahia(), { min } = agoraBahia(), amanha = (() => { const d = new Date(hoje + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+  const ts = (d, h) => Date.parse(`${d}T${String(h).padStart(2, '0')}:00:00-03:00`);
+  const op = [];
+  if (min < 18 * 60 + 30) op.push({ q: ts(hoje, 19), t: 'Hoje 19h' });
+  if (min < 11 * 60 + 30) op.unshift({ q: ts(hoje, 12), t: 'Hoje 12h' });
+  op.push({ q: ts(amanha, 12), t: 'Amanhã 12h' }, { q: ts(amanha, 19), t: 'Amanhã 19h' });
+  const b = op.slice(0, 3).map(o => ({ id: `igq|${j.id}|${o.q}`, titulo: o.t }));
+  await enviarComBotoes(env, para, `Ou agende com um toque (vai para o ${EST_DESTINOS[j.destino] || 'Feed'}). Os horários que costumam dar mais visualização são *12h* e *19h*. Outro horário: *agendar sexta 18h*.`, b);
+}
+async function igAgendarBotao(env, from, id) { // igq|pid|ts
+  const [, pid, q] = id.split('|'), j = await estLer(env, pid), quando = Number(q);
+  if (!j || ['publicado', 'cancelado'].includes(j.estado)) { await enviar(env, from, 'Esse post não está mais disponível para agendar.'); return true; }
+  if (!(quando > Date.now())) { await enviar(env, from, 'Esse horário já passou. Mande, por exemplo: *agendar amanhã 19h*.'); return true; }
+  j.agendado = quando; j.estado = 'agendado'; await estGravar(env, j);
+  const ag = JSON.parse((await env.HR_KV.get('post:agendados')) || '[]'); if (!ag.includes(j.id)) ag.push(j.id); await env.HR_KV.put('post:agendados', JSON.stringify(ag.slice(-30)));
+  await enviar(env, from, `🗓️ Agendado para ${new Date(quando).toLocaleString('pt-BR', { timeZone: 'America/Bahia', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} no ${EST_DESTINOS[j.destino] || 'Feed'}. Eu aviso quando estiver no ar. Para desistir: *cancelar agendamento*.`);
+  return true;
+}
+async function igLembretePostar(env, dia, min) { // segunda e quinta de manhã: Instagram parado há 5+ dias → lembra com 1 ideia
+  if (String(env.IG_LEMBRAR_POSTAR || '1') === '0' || ![1, 4].includes(dia) || min < 9 * 60 || min >= 11 * 60) return;
+  const k = 'ig:lembpost:' + dataBahia(); if (await env.HR_KV.get(k)) return;
+  await env.HR_KV.put(k, '1', { expirationTtl: 3 * 86400 });
+  const r = await igApi(env, '/me/media?fields=timestamp&limit=1').catch(() => null);
+  const ult = r && r.data && r.data[0] ? Date.parse(r.data[0].timestamp) : 0;
+  const dias = ult ? Math.floor((Date.now() - ult) / 86400000) : 99;
+  if (dias < 5) return;
+  const ideias = ['Antes e depois de uma cozinha: 1 foto antes, 1 depois', 'Vídeo de 15 s da bancada sendo instalada', 'Close da pedra com luz natural, mostrando o brilho e os veios', 'A equipe trabalhando na oficina (corte ou acabamento)', 'Cliente recebendo a obra pronta (com autorização)', 'Comparação de duas pedras lado a lado: qual você escolheria?'];
+  const pw = await igPalavra(env);
+  await notificarDono(env, Date.now(), cartaoDono(`Instagram sem post há ${dias >= 99 ? 'vários' : dias} dias`, [(i => `Ideia para hoje: ${i}${/[?.!]$/.test(i) ? '' : '.'}`)(ideias[Math.floor(Math.random() * ideias.length)]), 'Mande aqui 3 a 6 fotos ou um vídeo de uma obra com a palavra *postar* na legenda: eu faço a legenda e o senhor escolhe a hora com um toque.', pw ? `A legenda já sai com "Comente ${pw.p}".` : 'Dica: ligue *instagram palavra QUERO* para quem comentar receber o catálogo no Direct.'])).catch(() => {});
+}
+// ── funil: lead do Instagram → pedido → venda ──
+async function igLeadChegou(env, from, origem, ref) {
+  const media = ref ? await env.HR_KV.get('ig:ref:' + String(ref).toLowerCase()) : '';
+  await env.HR_KV.put('ig:lead:' + ultimos8(from), JSON.stringify({ u: origem, media: media || '', em: Date.now() }), { expirationTtl: 180 * 86400 });
+  if (media) await igMidiaStat(env, media, 'cheg');
+}
+function igPedidoFechado(p) { return !!(p.pago || p.valorConfirmadoEm || p.sinalPago || /confirm|aceit|aprovad|produ|pronto|entreg|conclu/.test(String(p.status || '') + ' ' + String(p.etapa || ''))) && !/cancel|recus|perdid/.test(String(p.status || '')); }
+async function igFunilPedido(env, p) {
+  if (!p || !p.numero || p.origem === 'dono') return;
+  if (!p.origemIG) { const l = await env.HR_KV.get('ig:lead:' + ultimos8(p.numero)); if (!l) return; const x = JSON.parse(l); p.origemIG = x.u || 'instagram'; p.igMedia = x.media || ''; }
+  const mes = dataBahia().slice(0, 7), k = 'ig:fun:' + mes, f = JSON.parse((await env.HR_KV.get(k)) || '{"orc":{},"fech":{}}');
+  const id = String(p.id), val = Number(p.pagoValor || p.valor || (p.mp && p.mp.valor) || 0) || 0;
+  let mud = false;
+  if (!f.orc[id]) { f.orc[id] = { n: String(p.nome || '').slice(0, 30), u: p.origemIG }; mud = true; if (p.igMedia) await igMidiaStat(env, p.igMedia, 'orc'); }
+  if (igPedidoFechado(p) && !f.fech[id]) { f.fech[id] = { n: String(p.nome || '').slice(0, 30), v: val }; mud = true; if (p.igMedia) { await igMidiaStat(env, p.igMedia, 'fech'); await igMidiaStat(env, p.igMedia, 'val', val); } }
+  else if (f.fech[id] && val > (f.fech[id].v || 0)) { f.fech[id].v = val; mud = true; }
+  if (mud) await env.HR_KV.put(k, JSON.stringify(f), { expirationTtl: 400 * 86400 });
+}
+async function igRelatorioClientes(env, mes) {
+  mes = mes || dataBahia().slice(0, 7);
+  const sm = JSON.parse((await env.HR_KV.get('ig:stm:' + mes)) || '{}'), f = JSON.parse((await env.HR_KV.get('ig:fun:' + mes)) || '{"orc":{},"fech":{}}');
+  const ms = JSON.parse((await env.HR_KV.get('ig:mst:' + mes)) || '{}');
+  const orc = Object.keys(f.orc).length, fech = Object.values(f.fech), tot = fech.reduce((t, x) => t + (+x.v || 0), 0);
+  const nomeMes = new Date(mes + '-15T12:00:00Z').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const interess = (sm.conversas || 0) + (sm.comentariosRespondidos || 0);
+  const L = [`*Instagram → clientes · ${nomeMes}*`, '',
+    `1. Interessados (Direct + comentários): *${interess}*${sm.palavra ? ` (${sm.palavra} pela palavra-chave)` : ''}`,
+    `2. Levados ao WhatsApp: *${(sm.whats || 0) + (sm.palavra || 0)}*`,
+    `3. Chegaram no WhatsApp: *${sm.chegaram || 0}*`,
+    `4. Pediram orçamento: *${orc}*`,
+    `5. Fecharam: *${fech.length}*${tot ? ` · R$ ${reais(tot)}` : ''}`];
+  if (fech.length && interess > fech.length) L.push('', `De cada ${Math.round(interess / fech.length)} interessados, 1 fechou.`);
+  if (fech.length) L.push('', '*Vendas:*', ...fech.slice(-8).map(x => `• ${x.n || 'cliente'}${x.v ? ' · R$ ' + reais(x.v) : ''}`));
+  const top = Object.entries(ms).map(([id, x]) => ({ id, ...x, nota: (x.fech || 0) * 100 + (x.orc || 0) * 20 + (x.cheg || 0) * 8 + (x.pal || 0) * 3 + (x.com || 0) * 2 })).sort((a, b) => b.nota - a.nota).slice(0, 3);
+  if (top.length) {
+    L.push('', '*Posts que mais trouxeram clientes:*');
+    for (const t of top) {
+      let link = '', leg = ''; try { const m = await igApi(env, `/${t.id}?fields=permalink,caption`); link = m.permalink || ''; leg = String(m.caption || '').split('\n')[0].slice(0, 50); } catch (_) {}
+      L.push(`• ${leg || 'post'} — ${[t.com || t.pal ? ((t.com || 0) + (t.pal || 0)) + ' interessados' : '', t.cheg ? t.cheg + ' no WhatsApp' : '', t.orc ? t.orc + ' orçamento(s)' : '', t.fech ? t.fech + ' venda(s)' : ''].filter(Boolean).join(', ')}${link ? '\n  ' + link : ''}`);
+    }
+  }
+  if (!interess && !orc) L.push('', 'Ainda sem dados neste mês: os números começam a contar a partir de agora.');
+  L.push('', '_Conta quem veio pelo botão do WhatsApp mandado no Instagram (com a mensagem pronta). Quem chamou digitando o número sozinho não entra._');
+  return L.join('\n');
 }
 // token de longa duração vale 60 dias: renova sozinho a cada ~20 dias
 async function igRenovarToken(env) {
@@ -15869,6 +16030,7 @@ async function gravarPedidoComRetry(env, p) {
   catch (e) { await new Promise(r => setTimeout(r, 1200)); await salvarPedido(env, p); }
 }
 async function salvarPedido(env, p) {
+  await igFunilPedido(env, p).catch(() => {}); // v87: orçamento/fechamento de quem veio do Instagram
   await env.HR_KV.put(chavePed(p.id), JSON.stringify(p), { expirationTtl: ttlPedido(p) });
   await atualizarAtivos(env, p);
   await atualizarEspera(env, p);
