@@ -2080,19 +2080,21 @@ document.addEventListener('click', function(e) {
     // cli/desc/end (não cliente/servico/data). Por isso o painel inicial
     // sempre mostrava R$0 e "Nenhum serviço agendado", mesmo com dados reais.
     try {
-      var fin = JSON.parse(localStorage.getItem('hr_t') || '[]');
+      // Mesma regra de Finanças: só "in" é entrada e só "out" é saída ("pend" é A RECEBER, não entrada);
+      // mês pela data AAAA-MM-DD (new Date('2026-11-01') caía em outubro por causa do fuso).
+      var fin = (window.DB && Array.isArray(DB.t) && DB.t.length) ? DB.t : JSON.parse(localStorage.getItem('hr_t') || '[]');
       if (!Array.isArray(fin)) fin = [];
       var now = new Date();
-      var yy = now.getFullYear(); var mm = now.getMonth();
-      var entMes = 0, saiMes = 0;
+      var yy = now.getFullYear(); var mm = now.getMonth(); var diaHoje = now.getDate();
+      var chave = function(y, m) { return y + '-' + String(m + 1).padStart(2, '0'); };
+      var mesAtual = chave(yy, mm);
+      var dAnt = new Date(yy, mm - 1, 1), mesAnt = chave(dAnt.getFullYear(), dAnt.getMonth());
+      var entMes = 0, saiMes = 0, entAntParcial = 0, saiAntParcial = 0;
       fin.forEach(function(t) {
-        if (!t || !t.date) return;
-        var d = new Date(t.date);
-        if (d.getFullYear()===yy && d.getMonth()===mm) {
-          var v = parseFloat(t.value||0);
-          if (t.type === 'out' || v<0) saiMes += Math.abs(v);
-          else entMes += Math.abs(v);
-        }
+        if (!t || !t.date || (t.type !== 'in' && t.type !== 'out')) return;
+        var v = Math.abs(parseFloat(t.value || 0)) || 0, k = String(t.date).slice(0, 7);
+        if (k === mesAtual) { if (t.type === 'out') saiMes += v; else entMes += v; }
+        else if (k === mesAnt && Number(String(t.date).slice(8, 10)) <= diaHoje) { if (t.type === 'out') saiAntParcial += v; else entAntParcial += v; }
       });
       var elE = document.getElementById('kpiEntradas');
       var elS = document.getElementById('kpiSaidas');
@@ -2114,18 +2116,17 @@ document.addEventListener('click', function(e) {
           ent: 0, sai: 0 });
       }
       fin.forEach(function(t) {
-        if (!t || !t.date) return;
-        var d3 = new Date(t.date);
-        var bucket = months.find(function(b){ return b.y===d3.getFullYear()&&b.m===d3.getMonth(); });
+        if (!t || !t.date || (t.type !== 'in' && t.type !== 'out')) return;
+        var k3 = String(t.date).slice(0, 7);
+        var bucket = months.find(function(b){ return chave(b.y, b.m) === k3; });
         if (!bucket) return;
-        var v2 = parseFloat(t.value||0);
-        if (t.type === 'out' || v2<0) bucket.sai += Math.abs(v2);
-        else bucket.ent += Math.abs(v2);
+        var v2 = Math.abs(parseFloat(t.value||0)) || 0;
+        if (t.type === 'out') bucket.sai += v2; else bucket.ent += v2;
       });
-      var ant = months[4], cur = months[5];
-      setVar('kpiEntVar', cur.ent, ant.ent, true);
-      setVar('kpiSaiVar', cur.sai, ant.sai, false);
-      setVar('kpiSldVar', cur.ent - cur.sai, ant.ent - ant.sai, true);
+      // variação justa: este mês até hoje × o mês passado até o mesmo dia
+      setVar('kpiEntVar', entMes, entAntParcial, true);
+      setVar('kpiSaiVar', saiMes, saiAntParcial, false);
+      setVar('kpiSldVar', entMes - saiMes, entAntParcial - saiAntParcial, true);
       window._spMonths = months;
       var maxVal = Math.max.apply(null, months.map(function(b){ return Math.max(b.ent,b.sai); }));
       var barsEl = document.getElementById('spChartBars');
