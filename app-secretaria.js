@@ -2839,6 +2839,7 @@ function _snapConstruir(meses) {
       boletos: 'status: pendente = a pagar; vencido = atrasado; pago; cancelado',
       resumoFinanceiro: 'mesmos números de Finanças → Lucro real do mês (regime de caixa): recebido − custo de material = lucro bruto; − despesas reais − custos recorrentes − impostos = lucro líquido. mesAnterior serve para comparar.',
       proLabore: 'sugeridoMes = quanto o app sugere retirar neste mês; restanteSugerido = sugerido menos o que já foi retirado; tetoSegurancaCaixa = limite seguro para o caixa; dividaMesesAnteriores = o que a empresa ainda deve ao sócio',
+      notas: 'anotações do Sr. Hangel em Notas (mais recentes primeiro): medidas, visitas e lembretes',
       janelaMeses: meses
     },
     agenda: agenda,
@@ -2847,6 +2848,9 @@ function _snapConstruir(meses) {
     orcamentos: orc,
     orcamentosAntigosPorMes: orcAntigos,
     contratos: contratos,
+    notas: (function () { // anotações de Notas (as 40 mais recentes) — o bot lê e também cria (ação criar_nota)
+      try { return (Array.isArray(DB.n) ? DB.n : []).slice().sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); }).slice(0, 40).map(function (n) { return { data: _snapData(+n.id ? new Date(+n.id).toISOString() : ''), cliente: _snapTxt(n.cliente || '', 60), tipo: _snapTxt(n.tipo || '', 12), texto: _snapTxt(n.texto || '', 300) }; }); } catch (e) { return []; }
+    })(),
     clientes: clientes,
     catalogo: catalogo,
     precosBot: _snapPrecosBot() // v27: tabela para o bot calcular soleira/peitoril quando o app estiver fechado
