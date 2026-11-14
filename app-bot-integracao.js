@@ -180,6 +180,17 @@
     return { ok: true, mensagem: 'Baixa de ' + m2 + ' m² de ' + item.material + '. Disponível agora: ' + (+item.m2Disponivel).toFixed(2) + ' m².' };
   }
 
+  // revisão dos boletos pelo WhatsApp: baixa sem lançar em Finanças (pagamentos antigos), como a conferência do app
+  function exBoletosRevisao(p) {
+    var hoje = (typeof td === 'function') ? td() : new Date().toISOString().slice(0, 10), nP = 0, nC = 0;
+    var mapa = {}; (DB.b || []).forEach(function (b) { if (b && b.id != null) mapa[String(b.id)] = b; });
+    var obs = function (b, t) { b.obs = (b.obs ? b.obs + ' · ' : '') + t; };
+    (p.pagos || []).forEach(function (id) { var b = mapa[String(id)]; if (!b || b.status === 'pago' || b.status === 'cancelado') return; b.status = 'pago'; b.dtPag = (b.venc && b.venc <= hoje) ? b.venc : hoje; b.baixaRevisao = hoje; obs(b, 'Baixa na revisão pelo WhatsApp (' + hoje + ')'); nP++; });
+    (p.cancelar || []).forEach(function (id) { var b = mapa[String(id)]; if (!b || b.status === 'cancelado') return; b.status = 'cancelado'; obs(b, 'Apagado na revisão pelo WhatsApp (duplicado)'); nC++; });
+    DB.sv(); try { if (typeof _bRerender === 'function') _bRerender(); if (typeof bUpdDot === 'function') bUpdDot(); } catch (e) {}
+    return { ok: true, mensagem: nP + ' boleto(s) com baixa' + (nC ? ' e ' + nC + ' apagado(s)' : '') + '. Nada foi lançado em Finanças.' };
+  }
+
   function exAtualizar() {
     return sincronizar(true).then(function () {
       try { if (typeof sincBot === 'function') sincBot(true); } catch (e) {}
@@ -195,6 +206,7 @@
       if (c.acao === 'criar_nota') return Promise.resolve(exNota(p));
       if (c.acao === 'agenda_etapa') return Promise.resolve(exEtapa(p));
       if (c.acao === 'agenda_data') return Promise.resolve(exData(p));
+      if (c.acao === 'boletos_revisao') return Promise.resolve(exBoletosRevisao(p));
       if (c.acao === 'marcar_boleto_pago') return Promise.resolve(exBoleto(p));
       if (c.acao === 'estoque_entrada') return Promise.resolve(exEstoque(p, 1));
       if (c.acao === 'estoque_baixa') return Promise.resolve(exEstoque(p, -1));

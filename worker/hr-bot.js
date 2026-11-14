@@ -1019,6 +1019,71 @@ async function rhAvisos(env) {
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v84: REVISÃO DOS BOLETOS PELO WHATSAPP — "arrumar os boletos": o bot mostra os boletos a pagar em aberto,
+//   fornecedor por fornecedor (Já paguei todos / Ainda devo / Um por um; um por um: Pago / Devo / Duplicado),
+//   e no fim aplica tudo de uma vez no app (baixa sem lançar em Finanças, como a conferência do app). Sessão: bol:rev.
+// ═════════════════════════════════════════════════════════════════════════════
+async function bolRevIniciar(env, from) {
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  const bs = (snap && snap.dados && Array.isArray(snap.dados.boletos)) ? snap.dados.boletos.filter(b => b && b.tipo === 'pagar' && (b.status === 'pendente' || b.status === 'vencido')) : [];
+  if (!bs.length) { await enviar(env, from, 'Não há boletos a pagar em aberto nos dados do app. Se acabou de lançar algum, abra o app por 1 minuto e peça de novo.'); return; }
+  if (!bs.some(b => b.id)) { await enviar(env, from, 'Para eu arrumar os boletos, o app precisa estar na versão nova. Feche e abra o app, espere 1 minuto e mande *arrumar boletos* de novo.'); return; }
+  const g = {};
+  for (const b of bs) { if (!b.id) continue; const f = String(b.fornecedor || b.descricao || 'Sem fornecedor').trim(); (g[f] = g[f] || []).push(b); }
+  const grupos = Object.keys(g).map(f => ({ forn: f, bols: g[f].sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento))) })).sort((a, b) => String(a.bols[0].vencimento).localeCompare(String(b.bols[0].vencimento)));
+  const hoje = dataBahia(), venc = bs.filter(b => b.vencimento && b.vencimento < hoje);
+  const sess = { grupos, gi: 0, bi: -1, pagos: [], cancelar: [], devo: [], em: Date.now() };
+  await env.HR_KV.put('bol:rev', JSON.stringify(sess), { expirationTtl: 86400 });
+  await enviar(env, from, cartaoDono('Revisão dos boletos', [`Em aberto: ${bs.length} boletos (${venc.length} vencidos) · R$ ${reais(bs.reduce((t, b) => t + (+b.valor || 0), 0))}`, `Fornecedores: ${grupos.length}`, 'Vou mostrar um fornecedor por vez. No fim, eu aplico tudo de uma vez no app. Para parar: *parar revisão*.']));
+  await bolRevMostrar(env, from, sess);
+}
+async function bolRevMostrar(env, from, sess) {
+  const gr = sess.grupos[sess.gi];
+  if (!gr) return bolRevFim(env, from, sess);
+  const dBR = d => d ? d.split('-').reverse().join('/') : '—';
+  if (sess.bi < 0) {
+    const tot = gr.bols.reduce((t, b) => t + (+b.valor || 0), 0);
+    await enviarComBotoes(env, from, cartaoDono(`${sess.gi + 1}/${sess.grupos.length} · ${gr.forn}`, [...gr.bols.slice(0, 8).map(b => `${dBR(b.vencimento)} · R$ ${reais(b.valor)}${b.parcela ? ' · parc. ' + b.parcela : ''}${b.status === 'vencido' ? ' (vencido)' : ''}`), gr.bols.length > 8 ? `… e mais ${gr.bols.length - 8}` : null, `Total: R$ ${reais(tot)} em ${gr.bols.length} boleto(s)`]),
+      [{ id: 'bolrev|pago', titulo: 'Já paguei todos' }, { id: 'bolrev|devo', titulo: 'Ainda devo todos' }, { id: 'bolrev|um', titulo: 'Um por um' }]);
+    return;
+  }
+  const b = gr.bols[sess.bi];
+  await enviarComBotoes(env, from, `*${gr.forn}* · ${sess.bi + 1}/${gr.bols.length}\n${b.descricao || ''}\nVencimento: ${dBR(b.vencimento)} · *R$ ${reais(b.valor)}*${b.parcela ? ' · parc. ' + b.parcela : ''}`,
+    [{ id: 'bolrev|b_pago', titulo: 'Pago' }, { id: 'bolrev|b_devo', titulo: 'Ainda devo' }, { id: 'bolrev|b_dup', titulo: 'Duplicado/apagar' }]);
+}
+async function bolRevBotao(env, from, id) {
+  const sess = JSON.parse((await env.HR_KV.get('bol:rev')) || 'null');
+  if (!sess) { await enviar(env, from, 'Essa revisão expirou. Mande *arrumar boletos* para começar de novo.'); return true; }
+  const acao = id.split('|')[1];
+  if (acao === 'aplicar' || acao === 'descartar') return bolRevAplicar(env, from, sess, acao === 'aplicar');
+  const gr = sess.grupos[sess.gi]; if (!gr) return bolRevFim(env, from, sess).then(() => true);
+  if (acao === 'pago' || acao === 'devo') { (acao === 'pago' ? sess.pagos : sess.devo).push(...gr.bols.map(b => String(b.id))); sess.gi++; sess.bi = -1; }
+  else if (acao === 'um') sess.bi = 0;
+  else if (/^b_/.test(acao) && sess.bi >= 0) {
+    const b = gr.bols[sess.bi];
+    (acao === 'b_pago' ? sess.pagos : acao === 'b_dup' ? sess.cancelar : sess.devo).push(String(b.id));
+    sess.bi++; if (sess.bi >= gr.bols.length) { sess.gi++; sess.bi = -1; }
+  }
+  await env.HR_KV.put('bol:rev', JSON.stringify(sess), { expirationTtl: 86400 });
+  await bolRevMostrar(env, from, sess);
+  return true;
+}
+async function bolRevFim(env, from, sess) {
+  const soma = ids => sess.grupos.flatMap(g => g.bols).filter(b => ids.includes(String(b.id))).reduce((t, b) => t + (+b.valor || 0), 0);
+  if (!sess.pagos.length && !sess.cancelar.length) { await env.HR_KV.delete('bol:rev'); await enviar(env, from, cartaoDono('Revisão dos boletos · fim', [`Nada mudou: ${sess.devo.length} boleto(s) continuam em aberto (R$ ${reais(soma(sess.devo))}).`])); return; }
+  await enviarComBotoes(env, from, cartaoDono('Revisão dos boletos · conferir', [`Dar baixa (pagos): ${sess.pagos.length} · R$ ${reais(soma(sess.pagos))}`, `Apagar (duplicados): ${sess.cancelar.length}`, `Continuam em aberto: ${sess.devo.length} · R$ ${reais(soma(sess.devo))}`, 'A baixa não lança saída em Finanças (pagamentos antigos), igual à conferência do app.']),
+    [{ id: 'bolrev|aplicar', titulo: 'Aplicar no app' }, { id: 'bolrev|descartar', titulo: 'Descartar' }]);
+}
+async function bolRevAplicar(env, from, sess, aplicar) {
+  await env.HR_KV.delete('bol:rev');
+  if (!aplicar) { await enviar(env, from, 'Certo, descartei a revisão. Nada mudou no app.'); return true; }
+  const cmd = { id: Date.now() * 10 + (_seqPedido++ % 10), acao: 'boletos_revisao', parametros: { pagos: sess.pagos.slice(0, 500), cancelar: sess.cancelar.slice(0, 200) }, resumo: `revisão dos boletos: ${sess.pagos.length} pagos, ${sess.cancelar.length} apagados`, status: 'aprovado', tsAprov: Date.now(), hora: new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' }) };
+  await salvarCmd(env, cmd);
+  await enviar(env, from, `Mandei ao app: ${sess.pagos.length} boleto(s) com baixa${sess.cancelar.length ? ' e ' + sess.cancelar.length + ' apagado(s)' : ''}. Ele aplica quando estiver aberto e eu te aviso.`);
+  return true;
+}
+
 // v80b: PONTO pelo WhatsApp do dono — ver e lançar batidas (mesma gravação da rota /bot/ponto/ajuste, autor dono)
 async function ferrPontoFuncionario(env, a) {
   const cfg = await pontoCfg(env);
@@ -1795,6 +1860,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep') return rhFolhaBotao(env, from, id); // v81
+  if (id.startsWith('bolrev|')) return bolRevBotao(env, from, id); // v84
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -7148,6 +7214,8 @@ async function despachoBotao(env, from, id) {
 }
 // "mandar ficha <nome>" / "mandar entrega <nome>" / hora digitada depois de "Outro horário"
 async function despachoComandoDono(env, from, bruto, msg) {
+  if (/^(arrumar|arruma|organizar|organiza|revisar|revisa|conferir|confere|atualizar|atualiza|ajeitar|faxina( n?os)?)( (os|meus|nos|dos))? boletos?$|^boletos? (baguncado|baguncados|desatualizado|desatualizados)/.test(msg)) { await bolRevIniciar(env, from); return true; } // v84
+  if (/^(parar|cancelar|sair da) revis[aã]o/.test(msg) && await env.HR_KV.get('bol:rev')) { const ss = JSON.parse(await env.HR_KV.get('bol:rev')); await bolRevFim(env, from, { ...ss, gi: 9999 }); return true; }
   const aguarda = await env.HR_KV.get('hora:aguarda');
   if (aguarda) {
     const h = lerHoraEntrega(msg);
@@ -8251,6 +8319,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'revisar_boletos',
+    description: 'Começa a REVISÃO/ARRUMAÇÃO dos boletos a pagar pelo WhatsApp (o Sr. Hangel diz que os boletos estão bagunçados/desatualizados ou pede para organizar): o bot mostra fornecedor por fornecedor com botões e no fim aplica as baixas no app.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'pagar_folha',
     description: 'Prepara o PAGAMENTO DA FOLHA do período (decêndio/quinzena) com os valores calculados pelo app (os mesmos do relatório de ponto) e manda ao Sr. Hangel com botões Confirmar/Cancelar. Use para "paguei a folha", "pagar todo mundo", "pagar o Gibson e o Fabrício". Só registra depois que ele confirmar. Para pagar um valor diferente a uma pessoa, use pagar_funcionario.',
     input_schema: { type: 'object', properties: { funcionarios: { type: 'array', items: { type: 'string' }, description: 'vazio = todos com valor a receber' }, forma: { type: 'string', enum: ['dinheiro', 'pix', 'ted'] }, data: { type: 'string', description: 'AAAA-MM-DD; vazio = hoje' } } },
@@ -8651,6 +8724,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
   if (nome === 'pagar_folha') return await rhFolhaPreparar(env, from, a); // v81
+  if (nome === 'revisar_boletos') { await bolRevIniciar(env, from); return { texto: 'A revisão dos boletos já começou com botões. Responda apenas: "Vamos lá."' }; } // v84
   if (nome === 'fechar_pedido_cliente') { // v78b
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
