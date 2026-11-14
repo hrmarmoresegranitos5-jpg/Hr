@@ -1,3 +1,4 @@
+// v69c (13/11/2026): extrato MP não fica mais "Gerando…" para sempre: pedido parado >90 min é refeito (até 2x) e depois vira erro; falha da lista não trava; tenta até 3 arquivos
 // v69b (13/11/2026): análise do Instagram roda na hora (modo rápido) e a rotina só refaz se falhar; "cadê?" reativa; a assistente do dono sabe dos comandos do Instagram
 // v69 (13/11/2026): ESTÚDIO DE POSTS — foto/vídeo no WhatsApp → legenda pela IA (+ edição no computador: hr-editor.mjs) → prévia com botões → Reels/Story/Feed/Carrossel, na hora ou agendado
 // v68 (13/11/2026): ANÁLISE DO INSTAGRAM — "instagram analise": lê os posts/reels com estatísticas, olha as capas dos melhores e manda o que viraliza + 10 ideias com roteiro
@@ -9120,7 +9121,7 @@ async function mpxPedirRelatorio(env, de, ate) {
   if (!r.ok) throw await mpxErro(r, 'ao pedir o relatório');
 }
 
-async function mpxAcharArquivo(env, est) {
+async function mpxAcharArquivo(env, est, todos = false) {
   const r = await fetch(`${MP_API}/v1/account/release_report/list`, { headers: mpxAuth(env) });
   if (!r.ok) throw await mpxErro(r, 'ao listar relatórios');
   const j = await r.json().catch(() => null);
@@ -9129,10 +9130,12 @@ async function mpxAcharArquivo(env, est) {
   // v63e: o MP devolve date_created às vezes sem fuso (hora local dele) → a conta antiga achava o arquivo "velho" e esperava para sempre.
   //   Agora vale: mesmo período pedido (begin_date) OU criado até 6 h antes do pedido; o mais novo primeiro.
   const fresco = x => String(x.begin_date || '').slice(0, 10) === est.de || (tempo(x) && tempo(x) >= est.criadoEm - 6 * 3600 * 1000);
+  const cands = arr.filter(a => a && a.file_name && fresco(a) && !/pend|progress|prepar|generat|queue|processing/i.test(String(a.status || ''))).sort((a, b) => tempo(b) - tempo(a));
   const x = arr.filter(a => a && a.file_name && fresco(a)).sort((a, b) => tempo(b) - tempo(a))[0];
   try { // diagnóstico para o painel do app quando demora
     await env.HR_KV.put('mpx:diag', JSON.stringify({ em: Date.now(), total: arr.length, ultimos: arr.slice().sort((a, b) => tempo(b) - tempo(a)).slice(0, 3).map(a => ({ f: String(a.file_name || '').slice(-40), st: a.status || '', criado: a.date_created || '', de: String(a.begin_date || '').slice(0, 10) })), escolhido: x ? x.file_name : null }), { expirationTtl: 86400 });
   } catch (_) {}
+  if (todos) return cands.map(a => a.file_name);
   if (!x || /pend|progress|prepar|generat|queue|processing/i.test(String(x.status || ''))) return null;
   return x.file_name;
 }
@@ -9855,8 +9858,22 @@ async function extratoMPTick(env, opts = {}) {
   //        estourava o limite de operações do Cloudflare no meio, e o pedido ficava "Gerando…" para sempre)
   let csv = await env.HR_KV.get('mpx:csv');
   if (!csv) {
-    const arquivo = await mpxAcharArquivo(env, est);
-    csv = arquivo ? await mpxBaixar(env, arquivo) : null;
+    // v69c: pedido parado há mais de 90 min (o normal é 2 a 10): pede de novo até 2 vezes e depois mostra o erro (antes ficava "Gerando…" para sempre se a lista falhasse)
+    if (Date.now() - est.criadoEm > 90 * 60 * 1000) {
+      await env.HR_KV.delete('mpx:lock');
+      if ((est.tentativas || 0) < 2) {
+        try { await mpxPedirRelatorio(env, est.de, est.ate); } catch (e) { await env.HR_KV.delete('mpx:estado'); await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: String(e.message).slice(0, 500), em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {}); return { erro: e.message }; }
+        await env.HR_KV.put('mpx:estado', JSON.stringify({ ...est, criadoEm: Date.now(), tentativas: (est.tentativas || 0) + 1 }), { expirationTtl: 86400 });
+        return { esperando: true, repedido: true };
+      }
+      await env.HR_KV.delete('mpx:estado');
+      await env.HR_KV.put('mpx:erro', JSON.stringify({ msg: 'O Mercado Pago não entregou o relatório (pedi 3 vezes). Toque em "Testar conexão e pedir de novo".', em: Date.now() }), { expirationTtl: 3 * 86400 }).catch(() => {});
+      return { erro: 'sem relatório' };
+    }
+    let arquivos = [];
+    try { arquivos = await mpxAcharArquivo(env, est, true); }
+    catch (e) { await env.HR_KV.delete('mpx:lock'); console.log('[MPX] lista:', e.message); return { esperando: true, erroLista: e.message }; }
+    for (const arq of arquivos.slice(0, 3)) { csv = await mpxBaixar(env, arq).catch(() => null); if (csv) break; }
     if (csv) await env.HR_KV.put('mpx:csv', csv, { expirationTtl: 6 * 3600 }).catch(e => console.log('[MPX] guardar csv:', e.message));
   }
   if (!csv) {
