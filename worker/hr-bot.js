@@ -1,3 +1,4 @@
+// v70c (14/11/2026): aviso do pedido de orçamento diz se o app está aberto ou pede para abrir; assistente explica que o PDF vem do app no celular
 // v70 (14/11/2026): nomes certos nos Pix recebidos — o nome do BANCO não vira mais nome do cliente; /bot/mp/quem e /bot/mp/nomear (o bot aprende a conta de quem pagou)
 // v69c (13/11/2026): extrato MP não fica mais "Gerando…" para sempre: pedido parado >90 min é refeito (até 2x) e depois vira erro; falha da lista não trava; tenta até 3 arquivos
 // v69b (13/11/2026): análise do Instagram roda na hora (modo rápido) e a rotina só refaz se falhar; "cadê?" reativa; a assistente do dono sabe dos comandos do Instagram
@@ -2550,7 +2551,7 @@ async function registrarPedidoOrc(env, from, d) {
     ...(ferNoPrazo.length ? [`_O prazo já desconta: ${ferNoPrazo.map(f => `${f.nome} (${dataBR(f.iso)})`).join(', ')}._`] : []),
     `*Pagamento:* ${ped.pagamento === 'parcelado' ? 'Parcelado' : 'À vista'}`,
     '',
-    'O orçamento em PDF será enviado nesta conversa assim que o aplicativo processar o pedido. O aplicativo precisa estar aberto.',
+    (Date.now() - (Number(await env.HR_KV.get(APP_VISTO)) || 0) < 3 * 60000) ? '📲 O app HR está aberto: o PDF chega aqui em instantes.' : '📲 *Abra o app HR no celular* (só abrir, com a tela ligada) e o PDF chega aqui em segundos. Sem o app aberto ele fica na fila.',
     ...(juntarSegundos(env) ? ['', `Se houver outro item deste cliente com a mesma pedra, envie em até ${juntarSegundos(env)} segundos: os itens saem juntos no mesmo PDF.`] : []),
     ...(avisoCat ? ['', avisoCat] : []),
   ].join('\n'), [{ id: 'orc_cancelar|' + ped.id, titulo: 'Cancelar pedido' }]);
@@ -8097,6 +8098,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
       `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
       `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
