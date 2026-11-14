@@ -1689,6 +1689,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('pronto_ag|')) { await avisarPorRegistro(env, from, id.slice(10)); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
+  if (/^(desp_fab|desp_fabno|desp_ent|desp_entno|hora_ok|hora_outro)\|/.test(id)) return despachoBotao(env, from, id); // v79
 
   if (id === 'pq_guardar' || id === 'pq_nao') {
     let u = null;
@@ -6432,6 +6433,11 @@ async function tratarPosOrcamento(env, from, m) {
   if (['image', 'document'].includes(m.type) && ped.mp && !ped.pago && (ped.aguardaPix || ped.forma_pagto === 'pix')) { // comprovante: confere na conta antes de qualquer resposta
     if (await conferirComprovante(env, from, ped, m)) return true;
   }
+  { // v79: horário da entrega
+    const bH = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : '';
+    if (ped.horaPendente && !ped.horaEntrega) { await horaPerguntarCliente(env, ped); if (!ped.horaPendente) return true; }
+    if (ped.horaEtapa === 'cliente' && (bH.startsWith('hcli|') || m.type === 'text')) { if (await horaRespostaCliente(env, from, ped, m, m.type === 'text' ? String(m.text?.body || '') : '', bH)) return true; }
+  }
   if (ped.etapa === 'concluido' && !ped.aguardaPix) return false;
   // v18 (autocura): se o PDF já foi enviado, o cliente já confirmou o valor, mas a etapa ficou presa em "confirma_valor", corrige agora
   if (ped.status === 'enviado' && ped.etapa === 'confirma_valor' && ped.valorConfirmadoEm && ped.origem !== 'dono') {
@@ -6827,7 +6833,20 @@ function fichaCortePdf(d) {
 }
 
 // Manda a ficha de corte à fábrica e os dados da entrega ao entregador; o dono recebe o resultado
-async function despacharPedido(env, ped) {
+// v79: antes de mandar à equipe, o dono confirma (DESPACHO_CONFIRMA=0 volta ao envio direto): 1) ficha à produção; 2) entrega ao entregador.
+const nomeFabrica = env => env.FABRICA_NOME || 'Fabrício', nomeEntregador = env => env.ENTREGA_NOME || 'Gibson';
+async function despacharPedido(env, ped, opc = {}) {
+  if (!opc.direto && String(env.DESPACHO_CONFIRMA ?? '1') !== '0') {
+    ped.despachoPendente = Date.now(); await salvarPedido(env, ped);
+    const retirada = ped.entrega === 'retirada';
+    await notificarDono(env, Date.now(), resumoDonoCompacto(env, ped, { retirada, mostrarEntrega: !retirada }));
+    await enviarComBotoes(env, numeroDono(env), `*Pedido fechado · ${ped.nome || 'Cliente'}*\nMando a ficha técnica (ficha de corte) para ${nomeFabrica(env)} começar a produção?`,
+      [{ id: 'desp_fab|' + ped.id, titulo: 'Enviar ao ' + nomeFabrica(env).slice(0, 12) }, { id: 'desp_fabno|' + ped.id, titulo: 'Agora não' }]).catch(e => falhou(env, 'despacho: pergunta', e));
+    return;
+  }
+  return despacharPedidoDireto(env, ped, opc);
+}
+async function despacharPedidoDireto(env, ped, opc = {}) {
   const r = ped.resumoApp || {};
   const itens = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[ped.interesse] || 'Peças', acabamento: ped.acabamento || '', pecas: ped.pecas || [] }];
   const blocos = itens.map(it => `*${it.ambiente || 'Peças'}* — ${ORC_ACAB_TXT[it.acabamento] || 'acabamento conforme o orçamento'}\n` +
@@ -6863,7 +6882,7 @@ async function despacharPedido(env, ped) {
   const nums = await lerNumeros(env); // o que você definiu no WhatsApp/painel vale mais que as variáveis do Cloudflare
   const numFab = nums.fabrica || env.FABRICA_NUMERO || doDono, numEnt = nums.entrega || env.ENTREGA_NUMERO || doDono;
   const comAviso = (texto, n) => (AVISO_TESTE.length && ultimos8(n) !== ultimos8(doDono)) ? [...AVISO_TESTE, texto].join('\n') : texto;
-  const okFab = await tentar('Fábrica', numFab, async n => {
+  const okFab = opc.so === 'entrega' ? true : await tentar('Fábrica', numFab, async n => {
     if (ped.fichaMediaId) { // ficha profissional do app (imagem)
       if (AVISO_TESTE.length && ultimos8(n) !== ultimos8(doDono)) await enviar(env, n, AVISO_TESTE.join('\n'));
       await postarMsg(env, n, { type: 'image', image: { id: ped.fichaMediaId, caption: `Ficha de corte: ${ped.nome || 'cliente'}` } });
@@ -6887,11 +6906,119 @@ async function despacharPedido(env, ped) {
   }, ficha);
   const retirada = ped.entrega === 'retirada';
   const entregaNoDono = ultimos8(numEnt) === ultimos8(doDono); // o dono já vê o endereço no resumo: não repete
-  const okEnt = (retirada || entregaNoDono) ? true : await tentar('Entrega', numEnt, async n => {
+  const okEnt = (retirada || entregaNoDono || opc.so === 'fabrica') ? true : await tentar('Entrega', numEnt, async n => {
     await enviar(env, n, comAviso(entrega, n)); // o texto (com o aviso de teste) vai antes do pino do mapa
     if (e.lat != null) await postarMsg(env, n, { type: 'location', location: { latitude: e.lat, longitude: e.lng, name: ped.nome || 'Entrega', address: e.endereco || '' } });
   }, entrega + (e.lat != null ? `\nLocalização: https://maps.google.com/?q=${e.lat},${e.lng}` : ''));
+  if (opc.so) { if (falhas.length) await notificarDono(env, Date.now(), falhas.join('\n\n')); return !falhas.length; }
   await notificarDono(env, Date.now(), [resumoDonoCompacto(env, ped, { retirada, mostrarEntrega: entregaNoDono && !retirada })].concat(falhas.flatMap(f => ['', f])).join('\n'));
+}
+// botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
+async function despachoBotao(env, from, id) {
+  const [acao, pid, extra] = id.split('|');
+  const ped = await lerPedido(env, pid).catch(() => null);
+  if (!ped) { await enviar(env, from, 'Sr. Hangel, não encontrei esse pedido.'); return true; }
+  const retirada = ped.entrega === 'retirada';
+  if (acao === 'desp_fab' || acao === 'desp_fabno') {
+    if (acao === 'desp_fab') {
+      if (ped.fichaEnviadaEm) await enviar(env, from, `A ficha de ${ped.nome || 'o cliente'} já foi para ${nomeFabrica(env)}.`);
+      else { const ok = await despacharPedidoDireto(env, ped, { so: 'fabrica' }); if (ok) { ped.fichaEnviadaEm = Date.now(); await enviar(env, from, `Enviei a ficha de ${ped.nome || 'o cliente'} para ${nomeFabrica(env)}.`); } }
+    } else await enviar(env, from, `Certo, não mandei a ficha. Quando quiser, escreva *mandar ficha ${String(ped.nome || '').split(' ')[0]}*.`);
+    delete ped.despachoPendente; await salvarPedido(env, ped);
+    if (!retirada && !ped.entregaEnviadaEm) {
+      await enviarComBotoes(env, from, `É entrega. Mando os dados da entrega (endereço, referência, pagamento e o pino do mapa) para ${nomeEntregador(env)}?`,
+        [{ id: 'desp_ent|' + ped.id, titulo: 'Enviar ao ' + nomeEntregador(env).slice(0, 12) }, { id: 'desp_entno|' + ped.id, titulo: 'Agora não' }]);
+    }
+    return true;
+  }
+  if (acao === 'desp_ent' || acao === 'desp_entno') {
+    if (acao === 'desp_ent') {
+      if (ped.entregaEnviadaEm) { await enviar(env, from, `Os dados da entrega já foram para ${nomeEntregador(env)}.`); return true; }
+      const ok = await despacharPedidoDireto(env, ped, { so: 'entrega' });
+      if (ok) { ped.entregaEnviadaEm = Date.now(); await salvarPedido(env, ped); await enviar(env, from, `Enviei os dados da entrega de ${ped.nome || 'o cliente'} para ${nomeEntregador(env)}. No dia, combino o horário com o cliente e confirmo com o senhor.`); }
+    } else await enviar(env, from, 'Certo, não mandei os dados da entrega.');
+    return true;
+  }
+  if (acao === 'hora_ok') { await horaConfirmar(env, from, ped, extra || ped.horaSugerida || ''); return true; }
+  if (acao === 'hora_outro') {
+    await env.HR_KV.put('hora:aguarda', String(ped.id), { expirationTtl: 6 * 3600 });
+    await enviar(env, from, `Qual horário confirmo para a entrega de ${ped.nome || 'o cliente'}? Escreva só a hora, ex.: *15h* ou *9:30*.`);
+    return true;
+  }
+  return false;
+}
+// "mandar ficha <nome>" / "mandar entrega <nome>" / hora digitada depois de "Outro horário"
+async function despachoComandoDono(env, from, bruto, msg) {
+  const aguarda = await env.HR_KV.get('hora:aguarda');
+  if (aguarda) {
+    const h = lerHoraEntrega(msg);
+    if (h) { await env.HR_KV.delete('hora:aguarda'); const ped = await lerPedido(env, aguarda).catch(() => null); if (ped) { await horaConfirmar(env, from, ped, h); return true; } }
+  }
+  const mm = msg.match(/^(mandar|manda|enviar|envia) (a )?(ficha|entrega|dados da entrega)( d[aeo])? (.+)$/);
+  if (!mm) return false;
+  const alvo = normaliza(mm[5]).split(' ')[0];
+  const l = await env.HR_KV.list({ prefix: 'ped:', limit: 400 }).catch(() => ({ keys: [] }));
+  let achado = null;
+  for (const k of l.keys) { try { const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (p && p.origem !== 'dono' && normaliza(p.nome || '').split(' ').includes(alvo) && (!achado || (p.atualizado || 0) > (achado.atualizado || 0))) achado = p; } catch (_) {} }
+  if (!achado) { await enviar(env, from, `Não achei pedido de ${mm[5]}.`); return true; }
+  return despachoBotao(env, from, (mm[3] === 'ficha' ? 'desp_fab|' : 'desp_ent|') + achado.id);
+}
+// ── Horário da entrega: no dia (quando o senhor toca "Pronto: avisar"), o bot pergunta ao cliente o melhor horário,
+//    pergunta ao senhor qual confirmar e confirma ao cliente e ao entregador.
+function lerHoraEntrega(msg) {
+  const t = normaliza(String(msg || ''));
+  const m = t.match(/\b(\d{1,2})\s*(?:h|hs|horas?|:)\s*(\d{2})?\b/) || t.match(/\b(\d{1,2})\s+(?=da (?:tarde|manha))/) || t.match(/^(\d{1,2})$/);
+  if (!m) return '';
+  let h = Number(m[1]); const mi = m[2] ? Number(m[2]) : 0;
+  if (h >= 1 && h <= 5 && /\b(tarde|da tarde)\b/.test(t)) h += 12;
+  if (h < 6 || h > 21 || mi > 59) return '';
+  return `${h}h${mi ? String(mi).padStart(2, '0') : ''}`;
+}
+async function horaPerguntarCliente(env, ped) {
+  const pn = nomeDeTratamento(ped.nome);
+  try {
+    await enviarComBotoes(env, ped.numero, `${pn ? pn + ', q' : 'Q'}ual horário fica bom para você receber a entrega hoje? Pode tocar numa opção ou escrever a hora.`,
+      [{ id: 'hcli|' + ped.id + '|manha', titulo: 'Manhã (8h–12h)' }, { id: 'hcli|' + ped.id + '|tarde', titulo: 'Tarde (13h–17h)' }]);
+    ped.horaEtapa = 'cliente'; ped.horaPerguntadaEm = Date.now(); delete ped.horaPendente;
+  } catch (e) { ped.horaPendente = true; } // fora das 24 h: pergunta quando o cliente responder ao aviso de pronto
+  await salvarPedido(env, ped);
+}
+async function horaRespostaCliente(env, from, ped, m, texto, btn) {
+  let pref = '', h = '';
+  if (btn.startsWith('hcli|')) pref = btn.endsWith('|manha') ? 'de manhã (8h–12h)' : 'à tarde (13h–17h)';
+  else {
+    const t = normaliza(texto || '');
+    h = lerHoraEntrega(t);
+    if (!h && /\bmanha\b/.test(t)) pref = 'de manhã (8h–12h)';
+    else if (!h && /\btarde\b/.test(t)) pref = 'à tarde (13h–17h)';
+    else if (!h && !/\b(qualquer|tanto faz|qualquer hora|todo dia|o dia todo)\b/.test(t)) return false; // não falou de horário: segue a conversa normal
+    if (!h && !pref) pref = 'em qualquer horário';
+  }
+  ped.horaCliente = h || pref; ped.horaSugerida = h || (pref.includes('manh') ? '9h' : pref.includes('tarde') ? '14h' : ''); ped.horaEtapa = 'dono';
+  await salvarPedido(env, ped);
+  await enviar(env, from, 'Anotado! Já confirmo o horário com a equipe e te aviso aqui.');
+  const bts = [];
+  if (ped.horaSugerida) bts.push({ id: `hora_ok|${ped.id}|${ped.horaSugerida}`, titulo: `Confirmar ${ped.horaSugerida}` });
+  bts.push({ id: 'hora_outro|' + ped.id, titulo: 'Outro horário' });
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Horário da entrega · ' + (ped.nome || 'Cliente'), [`Prefere receber: ${h ? 'às ' + h : pref}`, 'Qual horário confirmo para ela e para ' + nomeEntregador(env) + '?'], ped.numero), bts);
+  return true;
+}
+async function horaConfirmar(env, from, ped, hora) {
+  if (!hora) { await despachoBotao(env, from, 'hora_outro|' + ped.id); return; }
+  ped.horaEntrega = hora; ped.horaEtapa = 'ok'; ped.horaConfirmadaEm = Date.now(); await salvarPedido(env, ped);
+  const pn = nomeDeTratamento(ped.nome);
+  let okCli = true; try { await enviar(env, ped.numero, `${pn ? pn + ', c' : 'C'}ombinado! A entrega fica para hoje às *${hora}*. Qualquer imprevisto, avisamos por aqui.`); } catch (_) { okCli = false; }
+  const nums = await lerNumeros(env), numEnt = nums.entrega || env.ENTREGA_NUMERO || '';
+  let okEnt = false;
+  if (numEnt && ultimos8(numEnt) !== ultimos8(numeroDono(env))) {
+    const e = ped.entrega || {};
+    try {
+      await enviar(env, numEnt, [`*Entrega hoje às ${hora}*`, `Cliente: ${ped.nome || '---'}`, `Contato: wa.me/${ped.numero}`, e.endereco ? `Endereço: ${e.endereco}` : null, `Referência: ${ped.referencia || '---'}`, ped.pago ? 'Pagamento: já pago' : ped.forma_pagto === 'entrega' ? `Cobrar na entrega: R$ ${reais(Number(ped.valor) || 0)}` : null].filter(Boolean).join('\n'));
+      if (e.lat != null) await postarMsg(env, numEnt, { type: 'location', location: { latitude: e.lat, longitude: e.lng, name: ped.nome || 'Entrega', address: e.endereco || '' } });
+      okEnt = true;
+    } catch (_) {}
+  }
+  await enviar(env, from, `Confirmado às ${hora}: ${okCli ? 'avisei ' + (ped.nome || 'o cliente') : 'não consegui avisar o cliente (passou de 24 h)'}${okEnt ? ' e ' + nomeEntregador(env) : numEnt ? `; não consegui avisar ${nomeEntregador(env)}` : ` (o número de ${nomeEntregador(env)} não está cadastrado no bot)`}.`);
 }
 
 // ── Pix pelo Mercado Pago ────────────────────────────────────────────
@@ -12282,7 +12409,7 @@ function textoPedidoPronto(env, ped) {
   const empresa = env.EMPRESA || 'HR Mármores e Granitos';
   return String(ped.entrega || '') === 'retirada'
     ? `${p}, o seu pedido na ${empresa} está pronto. Pode retirá-lo na marmoraria: ${ENDERECO_MARMORARIA}. Qualquer dúvida, responda por aqui.`
-    : `${p}, o seu pedido na ${empresa} está pronto. A nossa equipe entrará em contato para combinar a entrega. Qualquer dúvida, responda por aqui.`;
+    : `${p}, o seu pedido na ${empresa} está pronto! Agora vamos combinar o horário da entrega.`;
 }
 // Serviço marcado como pronto na agenda do app: pergunta ao dono se avisa o cliente
 async function sugerirAvisoPronto(env, a, para) {
@@ -12374,7 +12501,8 @@ async function avisarPedidoPronto(env, from, idPed) {
   }
   ped.prontoEm = Date.now();
   await salvarPedido(env, ped);
-  await enviar(env, from, `Pronto, Sr. Hangel. Avisei ${ped.nome || 'o cliente'} de que o pedido está pronto.`);
+  await enviar(env, from, `Pronto, Sr. Hangel. Avisei ${ped.nome || 'o cliente'} de que o pedido está pronto.${String(ped.entrega || '') !== 'retirada' ? ' Já perguntei o melhor horário para a entrega e te trago a resposta.' : ''}`);
+  if (String(ped.entrega || '') !== 'retirada' && !ped.horaEntrega) await horaPerguntarCliente(env, ped).catch(e => falhou(env, 'hora: pergunta', e)); // v79
   if (ped.pago && ped.sinal && Number(ped.sinal.resto) > 0 && !ped.restantePago && mpAtivo(env)) {
     ped.restanteLembradoEm = Date.now(); await salvarPedido(env, ped);
     await enviarComBotoes(env, from, `Lembrete: falta o restante de R$ ${reais(Number(ped.sinal.resto))} de ${ped.nome || 'o cliente'}. Na entrega, toque no botão para eu gerar o Pix do saldo e mostrar a prévia antes de enviar.`, [{ id: 'entr|' + ped.id, titulo: 'Cobrar restante' }, { id: 'entr_no', titulo: 'Na entrega' }]).catch(e => falhou(env, 'avisarPedidoPronto: enviarComBotoes', e));
@@ -13515,6 +13643,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await confComandoDono(env, from, bruto, msg)) return; // v72
     if (await tplComandoDono(env, from, msg)) return; // v73
     if (await estComandoDono(env, from, bruto, msg)) return; // v69
+    if (await despachoComandoDono(env, from, bruto, msg)) return; // v79
     if (await igComandoDono(env, from, msg)) return; // v65
     if (await tratarAssumir(env, from, bruto, msg)) return;
     if (await tratarApelido(env, from, bruto, msg)) return;
