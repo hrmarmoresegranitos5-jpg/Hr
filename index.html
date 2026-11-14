@@ -17,7 +17,7 @@
 <title>HR Mármores e Granitos</title>
 <!-- external scripts loaded on-demand -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=26">
+  <link rel="stylesheet" href="styles.css?v=27">
 
 <style id="capCSS">
 /* ══ CAPELAS & DETALHES AVULSOS ══ */
@@ -174,39 +174,37 @@ function openApp(pg){
     <div id="homeRadar" class="radar"></div>
     <div id="homePosVenda"></div>
 
-    <!-- ── KPI CARDS ── -->
-    <div class="sp2-kpis" id="spKpis">
-      <div class="sp2-kpi kpi-green">
-        <div class="sp2-kpi-lbl">Entradas</div>
-        <div class="sp2-kpi-val" id="kpiEntradas">—</div>
-        <div class="sp2-kpi-sub">este mês <span class="sp2-var" id="kpiEntVar"></span></div>
+    <!-- ── RESUMO DO MÊS (saldo, entradas, saídas e 6 meses num cartão só) ── -->
+    <div class="sp3-mes" id="spKpis">
+      <div class="sp3-top">
+        <div class="sp3-tit"><span class="sp3-dot"></span><span id="spMesNome">Este mês</span></div>
+        <div class="sp3-ate" id="spMesAte"></div>
       </div>
-      <div class="sp2-kpi kpi-red">
-        <div class="sp2-kpi-lbl">Saídas</div>
-        <div class="sp2-kpi-val" id="kpiSaidas">—</div>
-        <div class="sp2-kpi-sub">este mês <span class="sp2-var" id="kpiSaiVar"></span></div>
-      </div>
-      <div class="sp2-kpi">
-        <div class="sp2-kpi-lbl">Saldo</div>
-        <div class="sp2-kpi-val" id="kpiSaldo">—</div>
-        <div class="sp2-kpi-sub">líquido <span class="sp2-var" id="kpiSldVar"></span></div>
-      </div>
-    </div>
-
-    <!-- ── MINI BAR CHART ── -->
-    <div class="sp2-chart-wrap">
-      <div class="sp2-chart-hdr">
-        <span class="sp2-chart-title">⚡ Financeiro — 6 meses</span>
-        <div class="sp2-chart-legend">
-          <span class="sp2-chart-leg-item"><span class="sp2-chart-dot" style="background:#3a9e6a;"></span>Entrada</span>
-          <span class="sp2-chart-leg-item" style="margin-left:6px;"><span class="sp2-chart-dot" style="background:#c94444;"></span>Saída</span>
+      <div class="sp3-saldo-lbl">Saldo do mês</div>
+      <div class="sp3-saldo-row"><span class="sp3-saldo" id="kpiSaldo">—</span><span class="sp2-var" id="kpiSldVar"></span></div>
+      <div class="sp3-ratio"><div class="sp3-ratio-in" id="spRatio"></div></div>
+      <div class="sp3-ratio-lbl" id="spRatioLbl"></div>
+      <div class="sp3-duo">
+        <div class="sp3-item in">
+          <div class="sp3-ico">↗</div>
+          <div class="sp3-txt"><div class="sp3-l">Entradas</div><div class="sp3-v" id="kpiEntradas">—</div><div class="sp3-c"><span class="sp2-var" id="kpiEntVar"></span></div></div>
+        </div>
+        <div class="sp3-item out">
+          <div class="sp3-ico">↘</div>
+          <div class="sp3-txt"><div class="sp3-l">Saídas</div><div class="sp3-v" id="kpiSaidas">—</div><div class="sp3-c"><span class="sp2-var" id="kpiSaiVar"></span></div></div>
         </div>
       </div>
-      <div class="sp2-bars" id="spChartBars">
-        <!-- preenchido por JS -->
-        <div style="width:100%;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--t4);">Carregando dados...</div>
+      <div class="sp3-chart">
+        <div class="sp3-chart-hdr">
+          <span class="sp3-chart-tit">Últimos 6 meses</span>
+          <span class="sp3-leg"><i class="g"></i>Entrada <i class="r"></i>Saída</span>
+        </div>
+        <div class="sp2-bars" id="spChartBars">
+          <div style="width:100%;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:var(--t4);">Carregando dados...</div>
+        </div>
+        <div class="sp2-tip" id="spChartTip">Toque numa barra para ver os valores</div>
       </div>
-      <div class="sp2-tip" id="spChartTip">Toque numa barra para ver os valores</div>
+      <div class="sp3-comp" id="spCompLbl"></div>
     </div>
 
     <!-- ── ACESSO RÁPIDO ── -->
@@ -2104,8 +2102,16 @@ document.addEventListener('click', function(e) {
       if (elB) {
         var saldo = entMes - saiMes;
         elB.textContent = fmtK(saldo);
-        elB.style.color = saldo >= 0 ? '#5dc48a' : '#e07070';
+        elB.classList.toggle('neg', saldo < 0);
       }
+      var NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      var elMes = document.getElementById('spMesNome'); if (elMes) elMes.textContent = NOMES[mm] + ' ' + yy;
+      var elAte = document.getElementById('spMesAte'); if (elAte) elAte.textContent = 'até dia ' + diaHoje;
+      var elR = document.getElementById('spRatio'), elRL = document.getElementById('spRatioLbl');
+      if (elR) { var pr = entMes > 0 ? Math.min(100, Math.round(saiMes / entMes * 100)) : (saiMes > 0 ? 100 : 0); elR.style.width = pr + '%'; elR.classList.toggle('alto', pr >= 70);
+        if (elRL) elRL.textContent = entMes > 0 ? ('As saídas consumiram ' + pr + '% do que entrou') : (saiMes > 0 ? 'Ainda sem entradas neste mês' : 'Nenhuma movimentação neste mês'); }
+      var elC = document.getElementById('spCompLbl');
+      if (elC) elC.textContent = (entAntParcial || saiAntParcial) ? ('Comparado com 1 a ' + diaHoje + ' de ' + NOMES[dAnt.getMonth()].toLowerCase()) : '';
 
       // ── Build 6-month chart ──
       var months = [];
@@ -2140,8 +2146,8 @@ document.addEventListener('click', function(e) {
             '</div></div>';
         } else {
           barsEl.innerHTML = months.map(function(b, i) {
-            var he = Math.max(3, Math.round((b.ent/maxVal)*26));
-            var hs = Math.max(3, Math.round((b.sai/maxVal)*26));
+            var he = Math.max(3, Math.round((b.ent/maxVal)*54));
+            var hs = Math.max(3, Math.round((b.sai/maxVal)*54));
             return '<div class="sp2-bar-group" onclick="spBarTap(' + i + ')">' +
               '<div class="sp2-bar-pair">' +
               '<div class="sp2-bar entrada" style="height:' + he + 'px"></div>' +
