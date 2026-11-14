@@ -1,3 +1,4 @@
+// v64c (13/11/2026): Instagram — confere a conversa toda vez (se o Sr. Hangel respondeu à mão, fica quieto); IA tenta 2 modelos e não repete a frase pronta (avisa com o erro)
 // v64b (13/11/2026): Instagram — bot fica quieto quando o Sr. Hangel já está conversando (eco corrigido); IA responde em JSON (funciona com OpenAI e Anthropic)
 // v64 (13/11/2026): INSTAGRAM — Direct respondido pela IA (leva ao WhatsApp com link pronto) e comentários de interesse respondidos
 //   (público + Direct). Configuração em POST /bot/instagram (token + chave secreta), renovação do token sozinha.
@@ -13271,10 +13272,14 @@ function igPromptSistema(env, snap) {
 // conversa antiga em que o Sr. Hangel já está falando com a pessoa (antes do bot conhecer a conversa): bot não se mete
 async function igDonoConversando(env, de, eu) {
   try {
-    const cv = await igApi(env, `/me/conversations?platform=instagram&user_id=${encodeURIComponent(de)}&fields=messages.limit(6){from,created_time}`);
+    const cv = await igApi(env, `/me/conversations?platform=instagram&user_id=${encodeURIComponent(de)}&fields=messages.limit(8){id,from,created_time}`);
     const msgs = (cv && cv.data && cv.data[0] && cv.data[0].messages && cv.data[0].messages.data) || [];
     const limite = Date.now() - 12 * 3600000;
-    return msgs.some(m => m.from && eu && String(m.from.id) === eu.id && Date.parse(m.created_time) > limite);
+    for (const m of msgs) { // mensagem da conta, recente, que NÃO foi o bot que mandou = o Sr. Hangel falando
+      if (!(m.from && eu && String(m.from.id) === eu.id && Date.parse(m.created_time) > limite)) continue;
+      if (!(await env.HR_KV.get('ig:meu:' + m.id))) return true;
+    }
+    return false;
   } catch (e) { console.log('[IG] conversa:', e.message); return false; }
 }
 async function igResponderDM(env, ev) {
@@ -13287,7 +13292,7 @@ async function igResponderDM(env, ev) {
   }
   if (!de) return;
   if (await env.HR_KV.get('ig:humano:' + de)) return;
-  if (!(await env.HR_KV.get('ig:c:' + de)) && await igDonoConversando(env, de, eu)) { await env.HR_KV.put('ig:humano:' + de, '1', { expirationTtl: 12 * 3600 }); return; }
+  if (await igDonoConversando(env, de, eu)) { await env.HR_KV.put('ig:humano:' + de, '1', { expirationTtl: 12 * 3600 }); return; }
   if (msg.mid && await env.HR_KV.get('ig:vista:' + msg.mid)) return;
   if (msg.mid) await env.HR_KV.put('ig:vista:' + msg.mid, '1', { expirationTtl: 3 * 86400 });
   let texto = String(msg.text || '').trim();
@@ -13298,11 +13303,15 @@ async function igResponderDM(env, ev) {
   c = c || { hist: [], criado: Date.now() };
   if (!c.user) { try { const u = await igApi(env, `/${de}?fields=name,username`); c.user = u.username || ''; c.nome = u.name || ''; } catch (_) {} }
   const snap = await lerSnapshotCompleto(env).catch(() => null);
-  let resp = '';
+  let resp = '', erroIA = '';
+  const iaIG = async (modelo) => lerJsonIA(await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: modelo, timeoutMs: 25000 })).resposta || '';
   if (env.AI_KEY) {
-    try { resp = lerJsonIA(await chamarIA(env, igPromptSistema(env, snap) + (c.nome ? `\nNome da pessoa no Instagram: ${c.nome}.` : '') + (c.whats ? '\nO link do WhatsApp JÁ foi enviado: não mande a tag de novo, só lembre que é por lá.' : ''), c.hist.slice(-12), texto, { maxTokens: 400, model: env.AI_MODEL_IG || 'claude-haiku-5-5', timeoutMs: 20000 })).resposta || ''; }
-    catch (e) { console.log('[IG] IA:', e.message); await env.HR_KV.put('ig:erroIA', `${new Date().toISOString()} ${e.message}`.slice(0, 300), { expirationTtl: 7 * 86400 }).catch(() => {}); }
-  }
+    for (const modelo of [env.AI_MODEL_IG || 'claude-haiku-5-5', undefined]) { // 2ª tentativa: o modelo normal do bot
+      try { resp = await iaIG(modelo); if (resp) break; erroIA = 'resposta vazia'; }
+      catch (e) { erroIA = e.message; console.log('[IG] IA:', e.message); }
+    }
+    if (!resp && erroIA) await env.HR_KV.put('ig:erroIA', `${new Date().toISOString()} ${erroIA}`.slice(0, 300), { expirationTtl: 7 * 86400 }).catch(() => {});
+  } else erroIA = 'sem AI_KEY';
   resp = String(resp || '').replace(/^\s*[{[][\s\S]*$/, '').trim(); // nunca manda JSON solto
   const chamaDono = /\[DONO\]/.test(resp); resp = resp.replace(/\[DONO\]/g, '').trim();
   const tag = resp.match(/\[WHATS:\s*([^\]]{0,120})\]/);
@@ -13310,6 +13319,10 @@ async function igResponderDM(env, ev) {
     const link = await igLinkWhats(env, `Olá! Vim pelo Instagram${c.nome ? ', sou ' + c.nome.split(' ')[0] : ''}. Quero ${tag[1].trim() || 'um orçamento'}.`);
     resp = resp.replace(tag[0], link ? `\n\nÉ só tocar aqui para falar com a gente no WhatsApp, a mensagem já vai pronta: ${link}` : '').trim();
     c.whats = Date.now();
+  }
+  if (!resp && c.hist.length) { // a frase pronta só serve uma vez: depois disso, não repete — avisa o dono
+    await notificarDono(env, Date.now(), `*Instagram — ${c.user ? '@' + c.user : (c.nome || 'alguém')}* mandou: "${texto.slice(0, 200)}"\nNão consegui responder sozinho (${String(erroIA || 'IA').slice(0, 120)}). Vale o senhor responder.${c.user ? `\ninstagram.com/${c.user}` : ''}`).catch(() => {});
+    return;
   }
   if (!resp) resp = `Oi${c.nome ? ', ' + c.nome.split(' ')[0] : ''}! Obrigada pela mensagem 😊 Me conta o que você está precisando (bancada, cozinha, banheiro, escada…) e de qual cidade, que eu já te ajudo.`;
   await igEnviarDM(env, de, resp);
