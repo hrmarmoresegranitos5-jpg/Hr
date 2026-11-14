@@ -284,6 +284,15 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
 .surge{opacity:0;transform:translateY(18px);transition:opacity .8s,transform .8s}
 .surge.vis{opacity:1;transform:none}
 @media (prefers-reduced-motion:reduce){.surge{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}*{animation:none!important}}
+.alb{margin-top:34px;padding:22px;border:1px solid var(--linha);border-radius:20px;background:var(--pedra)}
+.alb-topo{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.alb-grade{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+@media(min-width:760px){.alb-grade{grid-template-columns:repeat(6,1fr)}}
+.alb-grade:empty{display:none}
+.alb-grade a{position:relative;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:var(--pedra2)}
+.alb-grade img{width:100%;height:100%;object-fit:cover;transition:transform .4s}
+.alb-grade a:hover img{transform:scale(1.05)}
+.alb-grade span{position:absolute;left:0;right:0;bottom:0;padding:18px 8px 7px;font-size:.68rem;line-height:1.25;background:linear-gradient(transparent,rgba(0,0,0,.8));color:#fff}
 </style>
 </head>
 <body>
@@ -497,6 +506,17 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
           <a class="bt bt-linha" href="https://www.instagram.com/hrmarmoregranito/" target="_blank" rel="noopener" style="align-self:flex-start">@hrmarmoregranito →</a>
         </div>
       </div>
+      <div class="alb surge" id="alb">
+        <div class="alb-topo"><div><div class="olho">Álbum de obras</div><h3 style="margin-top:10px">Serviços feitos</h3></div><a class="bt bt-linha" id="albLink" href="https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev/obras" target="_blank" rel="noopener">Ver o álbum completo →</a></div>
+        <div class="alb-grade" id="albGrade"></div>
+      </div>
+      <script>
+      (function(){var B='https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';
+        fetch(B+'/obras/dados').then(function(r){return r.json()}).then(function(d){var l=(d.obras||[]).slice(0,6);if(!l.length)return;
+          var e=function(s){return String(s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})};
+          document.getElementById('albGrade').innerHTML=l.map(function(o){return '<a href="'+B+'/obras#'+encodeURIComponent(o.id)+'" target="_blank" rel="noopener"><img loading="lazy" src="'+B+'/portfolio/img/obra/'+encodeURIComponent(o.fotos[0])+'" alt="'+e(o.t)+'"><span>'+e(o.t)+'</span></a>'}).join('');
+          document.getElementById('albLink').textContent='Ver as '+d.obras.length+' obras →';}).catch(function(){});})();
+      </script>
       <div class="pag" id="pagamento">
         <div class="surge"><b>10x</b><span>sem juros no cartão, no valor do projeto.</span></div>
         <div class="surge"><b>À vista</b><span>com desconto, combinado no orçamento.</span></div>
