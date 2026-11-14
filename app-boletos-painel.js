@@ -23,7 +23,21 @@ var _bSoPagar = (function () { try { return localStorage.getItem('b:soPagar') !=
   function soma(a) { return a.reduce(function (s, x) { return s + (+x.valor || 0); }, 0); }
   function hojeISO() { return typeof td === 'function' ? td() : new Date().toISOString().slice(0, 10); }
   function aberto(b) { return b.status === 'pendente' || b.status === 'vencido'; }
-  function nomeDe(b) { return String(b.cli || b.desc || 'Sem nome').trim(); }
+  // O mesmo fornecedor vem escrito de jeitos diferentes nos PDFs ("MÁRMORES"/"MARMORES", "LTDA"/"LTDA ME"):
+  // a chave ignora acento, pontuação e sufixos de empresa; o nome mostrado fica curto e legível.
+  var SUFIXOS = /\b(LTDA|ME|EPP|EIRELI|S\/?A|MEI|CIA)\b\.?/gi;
+  function chaveNome(n) { return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(SUFIXOS, ' ').replace(/[^A-Z0-9]+/g, ''); }
+  function nomeBonito(n) {
+    var t = String(n || '').replace(SUFIXOS, ' ').replace(/\s+/g, ' ').trim().replace(/[\s,.-]+$/, '');
+    if (t === t.toUpperCase()) t = t.toLowerCase().replace(/(^|[\s.])([a-zà-ú])/g, function (m, a, c) { return a + c.toUpperCase(); }).replace(/\b(E|De|Da|Do|Dos|Das)\b/g, function (w) { return w.toLowerCase(); });
+    return t || 'Sem nome';
+  }
+  var _apelido = {};
+  function nomeDe(b) {
+    var bruto = String(b.cli || b.desc || 'Sem nome').trim(), k = chaveNome(bruto);
+    if (!_apelido[k] || (/[À-ú]/.test(bruto) && !/[À-ú]/.test(_apelido[k]))) _apelido[k] = nomeBonito(bruto); // prefere a grafia com acento
+    return _apelido[k];
+  }
   function parcDe(b) {
     if (b.parcAtual && b.parcTotal) {
       var n = /^[A-Za-z]$/.test(String(b.parcAtual)) ? String(b.parcAtual).toUpperCase().charCodeAt(0) - 64 : b.parcAtual;
@@ -155,6 +169,7 @@ var _bSoPagar = (function () { try { return localStorage.getItem('b:soPagar') !=
     css();
     if (typeof bAutoStatus === 'function') bAutoStatus();
     var hoje = hojeISO(), todos = (DB.b || []).filter(function (b) { return b && b.status !== 'cancelado'; });
+    todos.forEach(nomeDe); // fixa um nome só por fornecedor antes de agrupar
     var busca = String(typeof _bBusca !== 'undefined' && _bBusca || '').toLowerCase().trim();
     var filtra = function (b) {
       if (!busca) return true;
