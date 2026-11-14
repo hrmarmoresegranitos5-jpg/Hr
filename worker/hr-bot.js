@@ -1085,6 +1085,22 @@ async function bolRevAplicar(env, from, sess, aplicar) {
 }
 
 // v80b: PONTO pelo WhatsApp do dono — ver e lançar batidas (mesma gravação da rota /bot/ponto/ajuste, autor dono)
+// v86: frases curtas de ponto entendidas sem IA: "Lucas saiu agora", "Fabrício e Lucas chegaram 7h", "Gibson foi almoçar 11:30"
+async function pontoComandoDireto(env, msg) {
+  const m = String(msg || '').replace(/[.!?]+$/, '').match(/^(.+?) (sai[ur]am? (?:pro|pra|para o|para) almoco|foi almocar|foram almocar|foi pro almoco|foram pro almoco|volt(?:ou|aram)(?: do almoco)?|cheg(?:ou|aram)|entr(?:ou|aram)|sai[ur]am?|sai(?:u|ram) agora)(?: (?:agora|agorinha|nesse momento))?(?: (?:as|a|às)? ?(\d{1,2})(?:[:h](\d{2}))?h?)?(?: (?:agora|hoje))?$/);
+  if (!m) return null;
+  const cfg = await pontoCfg(env);
+  const nomes = m[1].split(/,| e /).map(x => x.trim()).filter(Boolean);
+  if (!nomes.length || nomes.length > 8) return null;
+  const acha = n => { const tk = normaliza(n).split(' ')[0]; return tk && cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk) || normaliza((cfg.apelidos || {})[x.id] || '').split(' ').includes(tk)); };
+  if (!nomes.every(acha)) return null; // não é funcionário do ponto: deixa para a IA
+  const v = m[2], campo = /almoc/.test(v) && /^(sai|foi|foram)/.test(v) ? 'saida_almoco' : /^volt/.test(v) ? 'volta_almoco' : /^(cheg|entr)/.test(v) ? 'entrada' : 'saida';
+  const ag = agoraBahia(), hora = m[3] ? `${String(+m[3]).padStart(2, '0')}:${m[4] || '00'}` : `${String(Math.floor(ag.min / 60)).padStart(2, '0')}:${String(ag.min % 60).padStart(2, '0')}`;
+  if (+hora.slice(0, 2) > 23 || +hora.slice(3) > 59) return null;
+  const r = await ferrPontoFuncionario(env, { funcionarios: nomes, [campo]: hora });
+  const linhas = String(r.texto || '').split('\n').filter(l => / · LANCEI: |: entrada /.test(l));
+  return cartaoDono(`Ponto · ${PONTO_TIPOS[campo]} ${hora}`, linhas.length ? linhas : ['Não consegui lançar.']);
+}
 async function ferrPontoFuncionario(env, a) {
   const cfg = await pontoCfg(env);
   const d = /^\d{4}-\d{2}-\d{2}$/.test(String(a.data || '')) ? a.data : dataBahia();
@@ -1568,6 +1584,16 @@ async function desfazerPagamentoPorChave(env, k) {
   return rec;
 }
 
+// v86: falha da IA explicada em português; sem crédito, diz o que fazer e o que continua funcionando sem IA
+function iaSemCredito(e) { return /credit|quota|billing|insufficient|429: you have no|402/i.test(String(e && e.message || e)); }
+async function textoFalhaIA(env, e) {
+  if (!iaSemCredito(e)) return `Sr. Hangel, não foi possível obter a resposta agora. Tente novamente em instantes.\n\n_Detalhe: ${String(e && e.message || e).slice(0, 160)}_`;
+  const prov = String(env.AI_PROVIDER || 'openai').toLowerCase() === 'anthropic' ? 'Anthropic (console.anthropic.com → Billing)' : 'OpenAI (platform.openai.com → Settings → Billing → Add credits)';
+  const ja = await env.HR_KV.get('ia:semcredito:av');
+  if (ja) return 'A IA continua sem créditos, então não entendi essa mensagem. Os comandos diretos funcionam: *quem está trabalhando*, *Lucas saiu agora*, *arrumar boletos*.';
+  await env.HR_KV.put('ia:semcredito:av', '1', { expirationTtl: 6 * 3600 });
+  return cartaoDono('A IA ficou sem créditos', [`Acabou o saldo da ${prov}. Enquanto não recarregar, eu não entendo mensagens livres e os clientes são passados para o senhor.`, 'Continua funcionando sem IA: botões, *quem está trabalhando*, *Lucas saiu agora* / *Fabrício chegou 7h*, *arrumar boletos*, ponto e avisos.']);
+}
 // ── Resumo do mês (números do app, sem IA) ───────────────────────────
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const RE_RESUMO_MES = /^(como (esta|estao|anda|andam|foi) (o )?(mes|financeiro|caixa|lucro|as financas)|como estamos( no mes| este mes)?|resumo (do )?(mes|financeiro)|lucro (do )?mes|balanco( do mes)?|financeiro|situacao financeira|quanto lucrei( no mes| este mes)?)$/;
@@ -2670,7 +2696,7 @@ async function responderIA(env, from, bruto, F, voz) {
     await env.HR_KV.put('ia:hist', JSON.stringify(hist.slice(-IA_HIST_MAX)), { expirationTtl: SESSAO_TTL });
   } catch (e) {
     console.log('[BOT] IA:', e.message);
-    await enviar(env, from, `Sr. Hangel, não foi possível obter a resposta agora. Tente novamente em instantes.\n\n_Detalhe: ${e.message}_`);
+    await enviar(env, from, await textoFalhaIA(env, e));
   }
 }
 
@@ -7216,6 +7242,7 @@ async function despachoBotao(env, from, id) {
 }
 // "mandar ficha <nome>" / "mandar entrega <nome>" / hora digitada depois de "Outro horário"
 async function despachoComandoDono(env, from, bruto, msg) {
+  { const r = await pontoComandoDireto(env, msg); if (r) { await enviar(env, from, r); return true; } } // v86: "Lucas saiu agora" sem precisar da IA
   if (/^(quem (esta|ta|tá|está) (trabalhando|na oficina|ai|aí)|ponto (de )?hoje|como (esta|ta) o ponto|quem (bateu|chegou|faltou)( o ponto)?( hoje)?)\??$/.test(msg)) { await enviar(env, from, pontoAgoraTexto(await pontoAgora(env))); return true; } // v85
   if (/^(arrumar|arruma|organizar|organiza|revisar|revisa|conferir|confere|atualizar|atualiza|ajeitar|faxina( n?os)?)( (os|meus|nos|dos))? boletos?$|^boletos? (baguncado|baguncados|desatualizado|desatualizados)/.test(msg)) { await bolRevIniciar(env, from); return true; } // v84
   if (/^(parar|cancelar|sair da) revis[aã]o/.test(msg) && await env.HR_KV.get('bol:rev')) { const ss = JSON.parse(await env.HR_KV.get('bol:rev')); await bolRevFim(env, from, { ...ss, gi: 9999 }); return true; }
@@ -9054,7 +9081,7 @@ async function responderAgente(env, from, bruto, F, voz) {
     await env.HR_KV.put('ag:hist', JSON.stringify(hist.slice(-AGENTE_HIST_MAX)), { expirationTtl: AGENTE_HIST_TTL });
   } catch (e) {
     console.log('[BOT] agente:', e.message);
-    await enviar(env, from, `Sr. Hangel, não foi possível obter a resposta agora. Tente novamente em instantes.\n\n_Detalhe: ${e.message}_`);
+    await enviar(env, from, await textoFalhaIA(env, e));
   }
 }
 
