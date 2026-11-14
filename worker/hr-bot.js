@@ -1,3 +1,4 @@
+// v72 (14/11/2026): CONFERÊNCIA DO EXTRATO ("conferir extrato" + prints + "pronto" → o app compara, o bot corrige e pergunta as saídas); extrato MP conferido a cada mensagem (não só na rotina)
 // v71c (14/11/2026): prévia mostra a resolução real do vídeo (1080p/720p/…) e avisa quando o arquivo já veio comprimido; texto mandado logo depois do vídeo vira o pedido do post
 // v71b (14/11/2026): publicação não fica parada esperando a rotina agendada (confere a cada mensagem/consulta do app); comando "postou?"
 // v71 (14/11/2026): post em QUALIDADE ORIGINAL mandando o vídeo como Documento; colaboração no Reels/Feed ("marque X, Y pra colaborar" / "colaborar @perfil")
@@ -1232,6 +1233,7 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'rp_nao') { await enviar(env, from, 'Certo, Sr. Hangel. Quando quiser, escreva *respostas prontas*.'); return true; }
   if (id === 'cmd_ajuda') { await enviarComBotoes(env, from, fala(F, 'donoOla', {}), [BTN_HOJE, BTN_Q.financas, BTN_Q.agenda]); return true; }
   if (BTN_Q[id.slice(2)] && id.startsWith('q_')) { await responderDono(env, from, BTN_Q[id.slice(2)].pergunta, F); return true; }
+  if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
   if (id.startsWith('pagdesf|')) {
@@ -8101,6 +8103,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
       `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
       `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
@@ -12989,6 +12992,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
+  if (dono && m.type === 'image' && await confTratarPrint(env, from, m).catch(e => { console.log('[CONF] print:', e.message); return false; })) return; // v72
   if (dono && (m.type === 'video' || m.type === 'image' || m.type === 'document') && await tratarMidiaPostDono(env, from, m).catch(e => { console.log('[ESTUDIO] mídia:', e.message); return false; })) return; // v69
   if (dono && m.type === 'image' && !String(m.image?.caption || '').trim() && await tratarPrintExtratoMP(env, from, m).catch(e => { console.log('[MPX] print do extrato:', e.message); return false; })) { await marcarUso(env, 'print_mp'); return; } // v63m
   if (dono && m.type === 'image' && await tratarFotoGeralDono(env, from, m, await getFalas(env)).catch(e => { console.log('[FOTO] dono:', e.message); return false; })) { await marcarUso(env, 'foto'); return; } // v63n
@@ -13043,6 +13047,7 @@ async function tratarMensagemBase(env, m, ctx) {
       const idBtn = m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '';
       if (await tratarBotao(env, from, idBtn, F)) return;
     }
+    if (await confComandoDono(env, from, bruto, msg)) return; // v72
     if (await estComandoDono(env, from, bruto, msg)) return; // v69
     if (await igComandoDono(env, from, msg)) return; // v65
     if (await tratarAssumir(env, from, bruto, msg)) return;
@@ -14062,6 +14067,8 @@ async function estConferirPublicacao(env, j) {
 }
 // v71b: chamado a cada mensagem que chega (WhatsApp/Instagram) e a cada consulta do app: no máximo a cada 20 s, e só se houver post pendente
 async function estTickLeve(env) {
+  // v72: o extrato do Mercado Pago também é conferido aqui (a cada 10 min no máximo; o próprio extrato só pede relatório nos horários combinados)
+  if (mpAtivo(env) && !(await env.HR_KV.get('mpx:tickleve'))) { await env.HR_KV.put('mpx:tickleve', '1', { expirationTtl: 600 }); await extratoMPDiario(env).catch(() => {}); }
   if (!estAtivo(env)) return;
   const pend = await env.HR_KV.get('post:pendentes'), ag = await env.HR_KV.get('post:agendados');
   if ((!pend || pend === '[]') && (!ag || ag === '[]')) return;
@@ -14231,6 +14238,164 @@ async function rotaEditor(req, env, url) {
   j.editado = { md, mime: 'video/mp4', tam: buf.byteLength, info: mp4Info(buf) }; j.estado = 'aguardando'; await estGravar(env, j);
   await estEnviarPrevia(env, numeroDono(env), j);
   return J({ ok: true });
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v72: CONFERÊNCIA DO EXTRATO — "conferir extrato" → o Sr. Hangel manda os prints do extrato do Mercado Pago →
+//   "pronto" → o APP (que tem as finanças) compara linha a linha e devolve: o que bate, nomes a corrigir,
+//   entradas/saídas que faltam e lançamentos do Mercado Pago que não aparecem nos prints. O bot resume no WhatsApp,
+//   corrige com um toque e pergunta, uma por uma, as saídas que faltam (categoria) — e aprende o favorecido.
+//   Canal com o app: GET /bot/fin/tarefa e POST /bot/fin/tarefa/resultado (app-fin-conferencia.js).
+// ═════════════════════════════════════════════════════════════════════════════
+const CONF_SESSAO = 'conf:sessao';
+async function confSessao(env) { try { return JSON.parse((await env.HR_KV.get(CONF_SESSAO)) || 'null'); } catch (_) { return null; } }
+async function confFila(env) { try { return JSON.parse((await env.HR_KV.get('fin:fila')) || '[]'); } catch (_) { return []; } }
+async function confEnfileirar(env, tarefa) {
+  const f = await confFila(env); f.push({ ...tarefa, id: tarefa.id || estId(10), criado: Date.now(), estado: 'pendente' });
+  await env.HR_KV.put('fin:fila', JSON.stringify(f.slice(-20)), { expirationTtl: 3 * 86400 });
+}
+async function confLerRes(env, id) { try { return JSON.parse((await env.HR_KV.get('fin:conf:' + id)) || 'null'); } catch (_) { return null; } }
+async function confGravarRes(env, r) { await env.HR_KV.put('fin:conf:' + r.id, JSON.stringify(r), { expirationTtl: 7 * 86400 }); }
+const confAppAberto = async env => Date.now() - (Number(await env.HR_KV.get(APP_VISTO)) || 0) < 3 * 60000;
+
+async function confComandoDono(env, from, bruto, msg) {
+  if (/^(conferir|confere|conferencia( do)?|arrumar|arruma|corrigir|corrige|ajustar|organizar)( (o|os|as|a|meu|meus|minhas))? (extratos?|financas|financeiro|mercado pago)( do mercado pago)?$/.test(msg)) {
+    await env.HR_KV.put(CONF_SESSAO, JSON.stringify({ id: estId(10), linhas: [], prints: 0, inicio: Date.now() }), { expirationTtl: 2 * 3600 });
+    await enviar(env, from, '🧾 *Conferência do extrato*\n\nMande agora os *prints do extrato do Mercado Pago* (pode ser vários, um atrás do outro). Pegue o período que quer conferir, com as datas aparecendo no topo de cada parte.\n\nQuando terminar, escreva *pronto*. Eu comparo com o app e corrijo o que estiver errado.');
+    return true;
+  }
+  const s = await confSessao(env);
+  if (!s) return false;
+  if (/^(cancelar|parar|sair)( a)? conferencia$/.test(msg)) { await env.HR_KV.delete(CONF_SESSAO); await enviar(env, from, 'Conferência cancelada, Sr. Hangel.'); return true; }
+  if (/^(pronto|terminei|acabou|so isso|e so isso|e so|pode conferir|confere|conferir|ok pronto|finalizar|fim)\.?!?$/.test(msg)) {
+    if (!s.linhas.length) { await enviar(env, from, 'Ainda não recebi nenhum print do extrato, Sr. Hangel. Mande os prints e depois escreva *pronto*.'); return true; }
+    await env.HR_KV.delete(CONF_SESSAO);
+    await confEnfileirar(env, { id: s.id, tipo: 'conferir', linhas: s.linhas });
+    const datas = s.linhas.map(l => l.data).filter(Boolean).sort();
+    await enviar(env, from, `🔎 Conferindo ${s.linhas.length} movimentações${datas.length ? ` (${dataBR(datas[0]).slice(0, 5)} a ${dataBR(datas[datas.length - 1]).slice(0, 5)})` : ''} com o app...\n\n${(await confAppAberto(env)) ? 'O app está aberto: o resultado chega em instantes.' : '📲 *Abra o app HR* no celular para eu comparar com as finanças (só abrir, com a tela ligada).'}`);
+    return true;
+  }
+  return false;
+}
+// print chegando durante a conferência
+async function confTratarPrint(env, from, m) {
+  if (m.type !== 'image' || !m.image) return false;
+  const s = await confSessao(env); if (!s) return false;
+  if (RE_POSTAR.test(String(m.image.caption || ''))) return false;
+  let mid; try { mid = await baixarMidia(env, m.image.id); } catch (e) { await enviar(env, from, 'Não consegui baixar esse print, Sr. Hangel. Mande de novo.'); return true; }
+  let lido = null; try { lido = await lerPrintExtratoMPIA(env, mid.buf, mid.tipo); } catch (e) { console.log('[CONF] print:', e.message); }
+  if (!lido) { await enviar(env, from, 'Não consegui ler esse print agora (a leitura de imagens precisa da IA da Anthropic ligada). Tente de novo em instantes.'); return true; }
+  if (!lido.eh) { await enviar(env, from, 'Esse print não parece ser do *extrato do Mercado Pago*. Mande o print da tela de extrato (lista com valores e horários).'); return true; }
+  const chave = l => [l.data || '', l.hora || '', Number(l.valor).toFixed(2), l.sentido, normaliza(l.nome || '').slice(0, 20)].join('|');
+  const tem = new Set(s.linhas.map(chave));
+  let novas = 0, semData = 0;
+  for (const it of lido.itens || []) {
+    if (!(Number(it.valor) > 0) || !['in', 'out'].includes(it.sentido)) continue;
+    if (!it.data) { semData++; continue; }
+    const l = { data: it.data, hora: it.hora || '', valor: Math.round(Number(it.valor) * 100) / 100, sentido: it.sentido, nome: String(it.nome || '').slice(0, 60), tipo: String(it.tipo || '').slice(0, 40) };
+    if (tem.has(chave(l))) continue; tem.add(chave(l)); s.linhas.push(l); novas++;
+  }
+  s.prints++;
+  await env.HR_KV.put(CONF_SESSAO, JSON.stringify(s), { expirationTtl: 2 * 3600 });
+  await enviar(env, from, `📄 Print ${s.prints}: ${novas} linha(s) nova(s)${semData ? ` (${semData} sem data visível ficaram de fora: pegue o print com a data no topo)` : ''}. Total: *${s.linhas.length}*.\nMande mais ou escreva *pronto*.`);
+  return true;
+}
+// resultado da comparação feita no app
+async function confReceberResultado(env, t, r) {
+  const res = { id: t.id, ...r, recebido: Date.now(), perguntas: (r.faltamOut || []).map((x, i) => ({ ...x, i })), respondidas: 0 };
+  await confGravarRes(env, res);
+  const dono = numeroDono(env);
+  const L = [`🧾 *Conferência do extrato${r.periodo ? ` (${dataBR(r.periodo[0]).slice(0, 5)} a ${dataBR(r.periodo[1]).slice(0, 5)})` : ''}*`, ''];
+  L.push(`✅ *${r.batem || 0}* já batem com o app`);
+  if ((r.renomear || []).length) L.push(`✏️ *${r.renomear.length}* nome(s) para corrigir (ex.: ${r.renomear.slice(0, 2).map(x => `"${x.de.replace(/\s*\((pix )?mercado pago\)$/i, '').slice(0, 34)}" → "${x.para.replace(/\s*\((pix )?mercado pago\)$/i, '').slice(0, 34)}"`).join('; ')})`);
+  if ((r.faltamIn || []).length) L.push(`➕ *${r.faltamIn.length}* entrada(s) que faltam no app: ${r.faltamIn.slice(0, 3).map(x => `R$ ${reais(x.valor)} ${x.nome.split(' ')[0]}`).join(', ')}${r.faltamIn.length > 3 ? '…' : ''}`);
+  if ((r.faltamOut || []).length) L.push(`❓ *${r.faltamOut.length}* saída(s) que faltam no app: pergunto com o que foi cada uma`);
+  if ((r.sobrando || []).length) L.push(`⚠️ *${r.sobrando.length}* lançamento(s) do Mercado Pago no app que não aparecem nos prints (pode ser duplicado ou print faltando)`);
+  if ((r.ignoradas || 0) > 0) L.push(`➖ ${r.ignoradas} movimentação(ões) internas (reserva/rendimento) ignoradas`);
+  const nada = !(r.renomear || []).length && !(r.faltamIn || []).length && !(r.faltamOut || []).length && !(r.sobrando || []).length;
+  if (nada) { L.push('', 'Está tudo certo nesse período, Sr. Hangel. 👏'); await enviar(env, dono, L.join('\n')); return; }
+  const botoes = [];
+  if ((r.renomear || []).length || (r.faltamIn || []).length || (r.faltamOut || []).length) botoes.push({ id: `conf|${t.id}|corrigir`, titulo: 'Corrigir agora' });
+  botoes.push({ id: `conf|${t.id}|detalhes`, titulo: 'Ver detalhes' });
+  if ((r.sobrando || []).length) botoes.push({ id: `conf|${t.id}|sobrando`, titulo: 'Ver os que sobram' });
+  await enviarComBotoes(env, dono, L.join('\n'), botoes.slice(0, 3));
+}
+async function confPerguntarProxima(env, para, res) {
+  const q = (res.perguntas || []).find(x => !x.ok);
+  if (!q) {
+    const add = (res.perguntas || []).filter(x => x.cat && x.cat !== 'nao').length;
+    if (res.perguntas && res.perguntas.length) await enviar(env, para, `✅ Pronto, Sr. Hangel: respondeu todas. ${add} saída(s) ${add === 1 ? 'vai' : 'vão'} para o app${(await confAppAberto(env)) ? ' agora' : ' quando ele abrir'}.`);
+    return;
+  }
+  const resta = res.perguntas.filter(x => !x.ok).length;
+  const sug = categoriaDe(q.nome || '');
+  const ordem = [...(sug !== 'outros' ? [sug] : []), ...Object.keys(CATS).filter(k => k !== sug)];
+  const linhas = ordem.slice(0, 9).map(k => ({ id: `confc|${res.id}|${q.i}|${k}`, titulo: CATS[k], descricao: k === sug ? 'Sugerida pelo nome' : undefined }));
+  linhas.push({ id: `confc|${res.id}|${q.i}|nao`, titulo: 'Não é gasto', descricao: 'Transferência minha, devolução etc.' });
+  await enviarLista(env, para, `❓ *Saída ${res.perguntas.length - resta + 1} de ${res.perguntas.length}:* R$ ${reais(q.valor)} — *${q.nome || q.tipo || 'sem nome'}*${q.tipo ? ` (${q.tipo})` : ''}, ${dataBR(q.data).slice(0, 5)}${q.hora ? ' às ' + q.hora : ''}.\n\nCom o que foi? Escolha a categoria.`, 'Escolher', linhas, true);
+}
+async function confBotao(env, from, id) {
+  const p = id.split('|');
+  if (p[0] === 'confc') {
+    const res = await confLerRes(env, p[1]); if (!res) { await enviar(env, from, 'Essa conferência expirou, Sr. Hangel.'); return; }
+    const q = (res.perguntas || []).find(x => String(x.i) === p[2]); if (!q || q.ok) { await confPerguntarProxima(env, from, res); return; }
+    q.ok = true; q.cat = p[3];
+    if (q.cat !== 'nao' && CATS[q.cat]) {
+      const nome = String(q.nome || '').trim();
+      await confEnfileirar(env, { tipo: 'aplicar', ops: [{ op: 'add', type: 'out', value: q.valor, date: q.data, cat: q.cat, desc: `${CATS[q.cat]}${nome ? ' — ' + nome : ''} (Mercado Pago)`.slice(0, 90) }] });
+      const ch = chaveMPX({ desc: nome }); if (ch) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: q.cat, n: 2, nome: nome.slice(0, 40), med: q.valor }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {});
+      res.ultimaCat = { i: q.i, em: Date.now() };
+    } else if (q.cat === 'nao') { const ch = chaveMPX({ desc: q.nome || '' }); if (ch) await env.HR_KV.put('mpx:r:' + ch, JSON.stringify({ cat: 'nao', n: 2, nome: String(q.nome).slice(0, 40), med: q.valor }), { expirationTtl: MPX_REGRA_TTL }).catch(() => {}); }
+    await confGravarRes(env, res);
+    await confPerguntarProxima(env, from, res);
+    return;
+  }
+  const res = await confLerRes(env, p[1]); if (!res) { await enviar(env, from, 'Essa conferência expirou, Sr. Hangel. Mande *conferir extrato* para começar outra.'); return; }
+  if (p[2] === 'detalhes') {
+    const L = [];
+    if ((res.renomear || []).length) L.push('*Nomes a corrigir:*', ...res.renomear.slice(0, 15).map(x => `• R$ ${reais(x.valor)} ${dataBR(x.data).slice(0, 5)}: "${x.de}" → "${x.para}"`), '');
+    if ((res.faltamIn || []).length) L.push('*Entradas que faltam:*', ...res.faltamIn.slice(0, 15).map(x => `• R$ ${reais(x.valor)} ${dataBR(x.data).slice(0, 5)}${x.hora ? ' ' + x.hora : ''} — ${x.nome}`), '');
+    if ((res.faltamOut || []).length) L.push('*Saídas que faltam:*', ...res.faltamOut.slice(0, 15).map(x => `• R$ ${reais(x.valor)} ${dataBR(x.data).slice(0, 5)}${x.hora ? ' ' + x.hora : ''} — ${x.nome}`), '');
+    if ((res.sobrando || []).length) L.push('*No app, mas não nos prints:*', ...res.sobrando.slice(0, 15).map(x => `• ${x.type === 'out' ? '−' : '+'}R$ ${reais(x.value)} ${dataBR(x.date).slice(0, 5)} — ${String(x.desc).slice(0, 50)}`));
+    await enviarComBotoes(env, from, L.join('\n').slice(0, 3900) || 'Nada a mostrar.', [{ id: `conf|${res.id}|corrigir`, titulo: 'Corrigir agora' }]);
+    return;
+  }
+  if (p[2] === 'sobrando') {
+    await enviarComBotoes(env, from, `*Lançamentos do Mercado Pago no app que não aparecem nos prints:*\n${(res.sobrando || []).slice(0, 15).map(x => `• ${x.type === 'out' ? '−' : '+'}R$ ${reais(x.value)} ${dataBR(x.date).slice(0, 5)} — ${String(x.desc).slice(0, 50)}`).join('\n')}\n\nSe algum print ficou faltando, mande *conferir extrato* de novo com ele. Se forem duplicados, posso apagar do app.`,
+      [{ id: `conf|${res.id}|apagar`, titulo: 'Apagar do app' }, { id: `conf|${res.id}|manter`, titulo: 'Manter' }]);
+    return;
+  }
+  if (p[2] === 'apagar') { if (res.apagado) { await enviar(env, from, 'Já apaguei esses, Sr. Hangel.'); return; } res.apagado = true; await confGravarRes(env, res); await confEnfileirar(env, { tipo: 'aplicar', ops: (res.sobrando || []).map(x => ({ op: 'del', id: x.id })) }); await enviar(env, from, `🗑️ ${(res.sobrando || []).length} lançamento(s) ${(await confAppAberto(env)) ? 'saindo do app agora' : 'vão sair do app quando ele abrir'}.`); return; }
+  if (p[2] === 'manter') { await enviar(env, from, 'Certo, mantive no app.'); return; }
+  if (p[2] === 'corrigir') {
+    if (res.corrigido) { await confPerguntarProxima(env, from, res); return; }
+    res.corrigido = true; await confGravarRes(env, res);
+    const ops = [...(res.renomear || []).map(x => ({ op: 'renomear', id: x.id, desc: x.para, cli: x.cli || undefined })),
+      ...(res.faltamIn || []).map(x => ({ op: 'add', type: 'in', value: x.valor, date: x.data, desc: `Recebido de ${x.nomeBom || x.nome} (Pix Mercado Pago)`.slice(0, 90), cli: x.nomeBom || undefined }))];
+    if (ops.length) { await confEnfileirar(env, { tipo: 'aplicar', ops }); await enviar(env, from, `✏️ ${ops.length} correção(ões) ${(await confAppAberto(env)) ? 'indo para o app agora' : 'vão para o app quando ele abrir'}.`); }
+    await confPerguntarProxima(env, from, res);
+    return;
+  }
+}
+async function rotaFinTarefa(req, env, p) {
+  const J = (o, st = 200) => jsonR(o, st);
+  if (p === '/bot/fin/tarefa' && req.method === 'GET') {
+    await marcarAppVisto(env);
+    const f = await confFila(env);
+    const t = f.find(x => x.estado === 'pendente' || (x.estado === 'com_app' && Date.now() - (x.tsApp || 0) > 3 * 60000));
+    if (!t) return J({ ok: true, tarefa: null });
+    t.estado = 'com_app'; t.tsApp = Date.now(); await env.HR_KV.put('fin:fila', JSON.stringify(f), { expirationTtl: 3 * 86400 });
+    return J({ ok: true, tarefa: t });
+  }
+  if (p === '/bot/fin/tarefa/resultado' && req.method === 'POST') {
+    let b = {}; try { b = await req.json(); } catch (_) { return J({ ok: false }, 400); }
+    const f = await confFila(env); const t = f.find(x => x.id === b.id);
+    if (!t) return J({ ok: false, erro: 'tarefa não existe' }, 404);
+    t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito').slice(-20)), { expirationTtl: 3 * 86400 });
+    if (t.tipo === 'conferir') await confReceberResultado(env, t, b.resultado || {});
+    else if (b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
+    return J({ ok: true });
+  }
+  return null;
 }
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
 async function igComandoDono(env, from, msg) {
@@ -15261,6 +15426,7 @@ async function rotaBotInterna(req, env, url) {
     const l = await env.HR_KV.list({ prefix: 'bk:', limit: 100 });
     return jsonR({ ok: true, backups: l.keys.map(k => ({ dia: k.name.slice(3), ...(k.metadata || {}) })).sort((a, b) => (b.ts || 0) - (a.ts || 0)) });
   }
+  if (p.startsWith('/bot/fin/tarefa')) { const r = await rotaFinTarefa(req, env, p); if (r) return r; } // v72
   if (p === '/bot/mp/quem' && req.method === 'POST') { // v70: o app pergunta quem pagou os Pix que estão sem nome
     if (!mpAtivo(env)) return jsonR({ ok: false, error: 'Mercado Pago não configurado' });
     let b = {}; try { b = await req.json(); } catch (_) {}
