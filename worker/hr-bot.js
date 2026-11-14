@@ -1,3 +1,4 @@
+// v70 (14/11/2026): nomes certos nos Pix recebidos — o nome do BANCO não vira mais nome do cliente; /bot/mp/quem e /bot/mp/nomear (o bot aprende a conta de quem pagou)
 // v69c (13/11/2026): extrato MP não fica mais "Gerando…" para sempre: pedido parado >90 min é refeito (até 2x) e depois vira erro; falha da lista não trava; tenta até 3 arquivos
 // v69b (13/11/2026): análise do Instagram roda na hora (modo rápido) e a rotina só refaz se falhar; "cadê?" reativa; a assistente do dono sabe dos comandos do Instagram
 // v69 (13/11/2026): ESTÚDIO DE POSTS — foto/vídeo no WhatsApp → legenda pela IA (+ edição no computador: hr-editor.mjs) → prévia com botões → Reels/Story/Feed/Carrossel, na hora ou agendado
@@ -9589,14 +9590,29 @@ async function tratarFotoGeralDono(env, from, m, F) {
   await responderDono(env, from, txt, F, false);
   return true;
 }
-async function mpxPagador(env, id) {
+// v70: quem pagou um Pix. O campo bank_info.payer.long_name é o NOME DO BANCO (Caixa, Stone, Nubank...), não da pessoa:
+//   antes ele virava "Recebido de STONE INSTITU...". Agora: nome da pessoa se o MP der; senão o nome que o Sr. Hangel
+//   já escolheu para essa mesma conta (aprende: mpx:quem:<hash>); senão fica sem nome e o app pergunta "Quem pagou?".
+const RE_BANCO_MP = /\b(institui|pagamentos?|banco|bank|caixa econ|nu ?pag|nubank|picpay|mercado ?pago|stone|pagseguro|pagbank|inter\b|c6|sicoob|sicredi|bradesco|ita[uú]|santander|cooperativa|cr[eé]dito|financeira|neon|next|original|safra|btg|sofisa|cora\b|asaas|efi\b|gerencianet|unicred|banrisul|banestes|brb|digio|will bank|ame digital|recargapay|99pay|s\.?\s?a\.?$|ltda\.? ip|\bip\b)/i;
+const ehNomeDeBanco = n => RE_BANCO_MP.test(String(n || ''));
+async function mpxQuemPagou(env, id) {
   const r = await fetch(`${MP_API}/v1/payments/${encodeURIComponent(id)}`, { headers: mpxAuth(env) });
-  if (!r.ok) return '';
-  const j = await r.json().catch(() => null); if (!j) return '';
+  if (!r.ok) return { nome: '', banco: '', conta: '' };
+  const j = await r.json().catch(() => null); if (!j) return { nome: '', banco: '', conta: '' };
   const bi = j.point_of_interaction && j.point_of_interaction.transaction_data && j.point_of_interaction.transaction_data.bank_info;
-  const nome = (bi && bi.payer && (bi.payer.long_name || bi.payer.name)) || [j.payer && j.payer.first_name, j.payer && j.payer.last_name].filter(Boolean).join(' ') || (j.additional_info && j.additional_info.payer && [j.additional_info.payer.first_name, j.additional_info.payer.last_name].filter(Boolean).join(' ')) || '';
-  return String(nome).replace(/\s+/g, ' ').trim().slice(0, 60);
+  const limpa = x => String(x || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const cands = [[j.payer && j.payer.first_name, j.payer && j.payer.last_name].filter(Boolean).join(' '),
+    j.additional_info && j.additional_info.payer && [j.additional_info.payer.first_name, j.additional_info.payer.last_name].filter(Boolean).join(' '),
+    bi && bi.payer && (bi.payer.long_name || bi.payer.name)].map(limpa).filter(Boolean);
+  const nome = cands.find(n => !ehNomeDeBanco(n)) || '';
+  const banco = limpa((bi && bi.payer && bi.payer.long_name) || cands.find(ehNomeDeBanco) || '');
+  const ident = (j.payer && j.payer.identification && j.payer.identification.number) || (bi && bi.payer && (bi.payer.account_id || bi.payer.external_account_id || bi.payer.id)) || (j.payer && j.payer.id) || '';
+  const conta = ident ? (await cbHash(String(ident))).slice(0, 24) : '';
+  let aprendido = ''; if (conta) aprendido = (await env.HR_KV.get('mpx:quem:' + conta)) || '';
+  return { nome: aprendido || nome, banco, conta, aprendido: !!aprendido };
 }
+async function mpxPagador(env, id) { const q = await mpxQuemPagou(env, id); return q.nome; }
+const bancoCurto = b => String(b || '').replace(/\b(institui[cç][aã]o de pagamento|instituicao|pagamentos?|s\.?\s?a\.?|ltda|ip|banco|econ[oô]mica federal)\b/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
 // Pix que entrou com o nome de quem tem conta no A Receber → o app pergunta "Dar baixa?" (mesmo mecanismo da cobrança do bot)
 async function recSugerirBaixaMP(env, h, r) {
   const { itens } = await recLerItens(env); if (!itens || !itens.length) return;
@@ -9730,7 +9746,7 @@ async function ingerirRelatorioMP(env, csv, de, ate, max = 0) {
           continue;
         }
         const cat = entrada ? undefined : ((rg2 && (CATS[rg2.cat] || rg2.app) && rg2.cat) || catDesc);
-        const desc = (entrada ? `Recebido de ${r.desc && !/^(payment|pagamento)$/i.test(r.desc) ? r.desc : 'cliente'}` : (rg2 && rg2.descr ? (rg2.descr.charAt(0).toUpperCase() + rg2.descr.slice(1) + ' — ' + String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '')).slice(0, 64) : (r.desc || tipoFaladoMPX(r)))) + ' (Mercado Pago)';
+        const desc = (entrada ? `Recebido de ${r.pagador && !ehNomeDeBanco(r.pagador) ? r.pagador : 'cliente'}` : (rg2 && rg2.descr ? (rg2.descr.charAt(0).toUpperCase() + rg2.descr.slice(1) + ' — ' + String(r.desc || '').replace(/^pix enviado( para)?\s*/i, '')).slice(0, 64) : (r.desc || tipoFaladoMPX(r)))) + ' (Mercado Pago)';
         await registrarLancamento(env, { type: r.sentido, value: r.valor, desc: desc.slice(0, 80), date: r.data, cat, origem: 'mpx', mpId: entrada && /^\d+$/.test(r.id) ? r.id : undefined, semUltimo: true });
         await marca(h, 'lancado');
         autos.push({ valor: r.valor, nome: (r.desc || tipoFaladoMPX(r)).slice(0, 30), cat: entrada ? 'entrada' : cat });
@@ -15119,6 +15135,23 @@ async function rotaBotInterna(req, env, url) {
     if (dia) { const { value, metadata } = await env.HR_KV.getWithMetadata('bk:' + dia); return value ? jsonR({ ok: true, dia, ts: metadata && metadata.ts, gz: value }) : jsonR({ ok: false, error: 'não há backup desse dia' }, 404); }
     const l = await env.HR_KV.list({ prefix: 'bk:', limit: 100 });
     return jsonR({ ok: true, backups: l.keys.map(k => ({ dia: k.name.slice(3), ...(k.metadata || {}) })).sort((a, b) => (b.ts || 0) - (a.ts || 0)) });
+  }
+  if (p === '/bot/mp/quem' && req.method === 'POST') { // v70: o app pergunta quem pagou os Pix que estão sem nome
+    if (!mpAtivo(env)) return jsonR({ ok: false, error: 'Mercado Pago não configurado' });
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).filter(x => /^\d+$/.test(x)).slice(0, 15);
+    const out = {};
+    for (const id of ids) { try { const q = await mpxQuemPagou(env, id); out[id] = { nome: q.nome, banco: bancoCurto(q.banco), aprendido: q.aprendido }; } catch (e) { out[id] = { erro: e.message }; } }
+    return jsonR({ ok: true, quem: out });
+  }
+  if (p === '/bot/mp/nomear' && req.method === 'POST') { // v70: o Sr. Hangel escolheu quem pagou → o bot aprende a conta para os próximos Pix
+    if (!mpAtivo(env)) return jsonR({ ok: false, error: 'Mercado Pago não configurado' });
+    let b = {}; try { b = await req.json(); } catch (_) {}
+    const id = String(b.mpId || ''), nome = String(b.nome || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!/^\d+$/.test(id) || !nome) return jsonR({ ok: false, error: 'dados' }, 400);
+    const q = await mpxQuemPagou(env, id).catch(() => null);
+    if (q && q.conta) await env.HR_KV.put('mpx:quem:' + q.conta, nome, { expirationTtl: 400 * 86400 });
+    return jsonR({ ok: true, aprendeu: !!(q && q.conta) });
   }
   if (p === '/bot/mp/diagnostico' && req.method === 'POST') { // v63g: teste completo, mostra as respostas reais do Mercado Pago
     if (!mpAtivo(env)) return jsonR({ ok: false, linhas: ['MP_ACCESS_TOKEN não está configurado no bot.'] });
