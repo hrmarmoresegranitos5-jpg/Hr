@@ -2655,7 +2655,7 @@ async function responderIA(env, from, bruto, F, voz) {
       `=== INSTRUÇÕES (leia com atenção) ===`,
       `Você é o assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia). Responda em português do Brasil, pelo WhatsApp, usando os dados acima.`,
       `TRATAMENTO E TOM: o dono se chama Hangel; trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom formal, sóbrio e objetivo, como um secretário executivo. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
-      `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `Hoje é ${dia}, ${dataBR(hoje)} (${hoje})${feriadosInfo(env, +hoje.slice(0, 4)).nomes.get(hoje) ? ' — FERIADO: ' + feriadosInfo(env, +hoje.slice(0, 4)).nomes.get(hoje) : ''}.`,
       ``,
       `REGRAS:`,
       `- Responda SOMENTE com base nos dados acima. Nunca invente valores, clientes, datas ou serviços. Se a informação não estiver nos dados, diga isso com clareza.`,
@@ -4037,6 +4037,7 @@ function promptCliente(env, c, regras) {
   const blocoExtra = [
     textoEstilo(x.estilo),
     x.hoje ? `HOJE: ${x.dia || ''}, ${dataBR(x.hoje)} (${x.hoje}).` : '',
+    x.hojeTxt || '',
     x.exped && x.exped.rotulo ? `HORÁRIO DA EQUIPE: ${x.exped.rotulo}. Agora a equipe está ${x.exped.aberto ? 'DENTRO' : 'FORA'} do expediente${!x.exped.aberto && x.exped.retorno ? ' e retorna ' + x.exped.retorno : ''}.` : '',
     passoFunilVisita(c.dados, env),
     x.ficha || '',
@@ -4607,7 +4608,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
-      exped: situacaoExpediente(env), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
+      exped: situacaoExpediente(env), hojeTxt: textoHoje(env), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
@@ -5129,15 +5130,22 @@ function faixasExpediente(env) {
   }
   return { faixas, rotulo: rotulos.join('; ') };
 }
+// v90d: a IA sabe a data de hoje e os feriados (antes respondeu que 15/11 não era feriado)
+function textoHoje(env) {
+  const hoje = dataBahia(), info = feriadosInfo(env, +hoje.slice(0, 4)), nome = info.nomes.get(hoje);
+  const prox = feriadosAdiante(env, hoje, 21).map(f => `${f.nome} (${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)})`);
+  return `HOJE: ${DIAS_SEMANA[diaSemanaISO(hoje)]}, ${dataBR(hoje)}${nome ? ` — FERIADO: ${nome} (a equipe não trabalha hoje)` : ''}.${prox.length ? ' Próximos feriados: ' + prox.join('; ') + '.' : ''} Use isto quando perguntarem sobre data ou feriado; não diga que não é feriado sem conferir aqui.`;
+}
 function situacaoExpediente(env) {
   const { faixas, rotulo } = faixasExpediente(env);
   if (!faixas.length) return { aberto: true, retorno: '', rotulo: '' };
-  const { dia, min } = agoraBahia();
-  const aberto = faixas.some(f => f.dia === dia && min >= f.ini && min < f.fim);
+  const { dia, min } = agoraBahia(), hoje = dataBahia();
+  const fer = iso => feriadosDoAno(env, +iso.slice(0, 4)).has(iso); // v90d: feriado também fecha o expediente
+  const aberto = !fer(hoje) && faixas.some(f => f.dia === dia && min >= f.ini && min < f.fim);
   let retorno = '';
   if (!aberto) {
-    for (let n = 0; n <= 7 && !retorno; n++) {
-      const d = (dia + n) % 7;
+    for (let n = 0; n <= 8 && !retorno; n++) {
+      const d = (dia + n) % 7; if (fer(isoSomaDias(hoje, n))) continue;
       const f = faixas.filter(x => x.dia === d && (n > 0 || x.ini > min)).sort((a, b) => a.ini - b.ini)[0];
       if (f) retorno = `${n === 0 ? 'hoje' : n === 1 ? 'amanhã' : DIAS_SEMANA[d]}, às ${hhmm(f.ini)}`;
     }
@@ -9024,7 +9032,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `=== INSTRUÇÕES ===`,
       `Você é a assistente do dono da ${env.EMPRESA || 'HR Mármores e Granitos'} (marmoraria em Pilão Arcado, Bahia), no WhatsApp. Responda em português do Brasil.`,
       `TRATAMENTO E TOM: trate-o de forma variada e natural: "Sr. Hangel", "chefe", "patrão" ou "chefia" (alterne; nem toda frase precisa de tratamento; não repita o mesmo duas vezes seguidas; "chefia" só solto no começo ou no fim da frase, como em "Certo, chefia."; esses tratamentos não contam como gíria). Tom cordial, sóbrio e objetivo, como um secretário executivo. RESPOSTAS CURTAS: no máximo 2 ou 3 frases, direto ao ponto, sem repetir o que ele disse nem explicar o que vai fazer; confirmou algo, responda em uma frase. NUNCA use emojis, gírias, diminutivos nem exclamações. Nunca use "usuário".`,
-      `Hoje é ${dia}, ${dataBR(hoje)} (${hoje}).`,
+      `Hoje é ${dia}, ${dataBR(hoje)} (${hoje})${feriadosInfo(env, +hoje.slice(0, 4)).nomes.get(hoje) ? ' — FERIADO: ' + feriadosInfo(env, +hoje.slice(0, 4)).nomes.get(hoje) : ''}.`,
       `CLIENTES: sempre que o Sr. Hangel informar nome e telefone de um cliente (wa.me, número, contato), chame cadastrar_cliente (vai para o app). Para mandar orçamento/PDF a cliente use enviar_orcamento_cliente.`,
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
