@@ -4609,7 +4609,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
-      exped: situacaoExpediente((await env.HR_KV.get('fer:dec:' + dataBahia())) === 'trab' ? Object.assign(Object.create(env), { _trabHoje: true }) : env), hojeTxt: textoHoje(env), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
+      ...(await (async () => { const eF = await envComFolgas(env); return { exped: situacaoExpediente(eF), hojeTxt: textoHoje(eF) }; })()), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
@@ -5134,7 +5134,7 @@ function faixasExpediente(env) {
 // v90d: a IA sabe a data de hoje e os feriados (antes respondeu que 15/11 não era feriado)
 function textoHoje(env) {
   const hoje = dataBahia(), info = feriadosInfo(env, +hoje.slice(0, 4)), nome = info.nomes.get(hoje);
-  const prox = feriadosAdiante(env, hoje, 21).map(f => `${f.nome} (${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)})`);
+  const prox = [...feriadosAdiante(env, hoje, 21), ...facultativosAdiante(env, hoje, 21)].sort((a, b) => (a.iso < b.iso ? -1 : 1)).map(f => `${f.nome} (${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)})`);
   return `HOJE: ${DIAS_SEMANA[diaSemanaISO(hoje)]}, ${dataBR(hoje)}${nome ? ` — FERIADO: ${nome} (a equipe não trabalha hoje)` : ''}.${prox.length ? ' Próximos feriados: ' + prox.join('; ') + '.' : ''} Use isto quando perguntarem sobre data ou feriado; não diga que não é feriado sem conferir aqui.`;
 }
 function situacaoExpediente(env) {
@@ -8124,7 +8124,30 @@ const FERIADOS_FIXOS = {
   '01-01': 'Confraternização Universal', '04-21': 'Tiradentes', '05-01': 'Dia do Trabalho',
   '07-02': 'Independência da Bahia', '09-07': 'Independência do Brasil', '10-12': 'Nossa Senhora Aparecida',
   '11-02': 'Finados', '11-15': 'Proclamação da República', '11-20': 'Consciência Negra', '12-25': 'Natal',
+  '12-30': 'Aniversário de Pilão Arcado', // v90f: feriado municipal
 };
+// v90f: pontos facultativos (o dono decide se abre): avisa antes com os botões
+function facultativosDoAno(ano) {
+  const p = pascoaISO(ano);
+  return new Map([[isoSomaDias(p, 60), 'Corpus Christi (ponto facultativo)'], [`${ano}-06-24`, 'São João (muitas cidades da Bahia param)'], [`${ano}-12-24`, 'Véspera de Natal (ponto facultativo)'], [`${ano}-12-31`, 'Véspera de Ano-Novo (ponto facultativo)']]);
+}
+function diaPonte(env, f) { // segunda (feriado na terça) ou sexta (feriado na quinta), se não for feriado também
+  const d = f.dow === 2 ? isoSomaDias(f.iso, -1) : f.dow === 4 ? isoSomaDias(f.iso, 1) : '';
+  return d && !feriadosInfo(env, +d.slice(0, 4)).set.has(d) && !facultativosDoAno(+d.slice(0, 4)).has(d) ? d : '';
+}
+function facultativosAdiante(env, de, dias) {
+  const fim = isoSomaDias(de, dias), out = [], fer = new Set();
+  for (const ano of new Set([+de.slice(0, 4), +fim.slice(0, 4)])) { for (const x of feriadosInfo(env, ano).set) fer.add(x); for (const [iso, nome] of facultativosDoAno(ano)) { const em = diasCorridos(de, iso); if (em > 0 && em <= dias && !fer.has(iso)) out.push({ iso, nome, em, dow: diaSemanaISO(iso), facultativo: true }); } }
+  return out.sort((a, b) => (a.iso < b.iso ? -1 : 1));
+}
+// folgas que o dono combinou (botão "Folga") passam a valer como feriado para o atendimento e os prazos
+async function envComFolgas(env) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('fer:folgas')) || '[]'); } catch (_) {}
+  const hoje = dataBahia(), e2 = Object.create(env);
+  if (l.length) e2.FERIADOS_EXTRAS = [String(env.FERIADOS_EXTRAS || ''), ...l].filter(Boolean).join(',');
+  if ((await env.HR_KV.get('fer:dec:' + hoje)) === 'trab') e2._trabHoje = true;
+  return e2;
+}
 // { set: Set de datas, nomes: Map data → nome } — o mesmo calendário serve ao prazo e aos avisos
 function feriadosInfo(env, ano) {
   const chave = ano + '|' + (env.FERIADOS_EXTRAS || '');
@@ -15358,7 +15381,16 @@ async function vdPlano(env, j) {
   if (j.mix) return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: 'Projetos da HR', subtitulo: 'Mármores e Granitos sob medida', cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 22, legendas: [] };
   return { gancho, cta: j.cta || 'Orçamento sem compromisso', whats: await igWhatsFormatado(env).catch(() => ''), palavra: pw && pw.p ? `Comente ${pw.p}` : '', titulo: o.pedra || amb || '', subtitulo: [amb && o.pedra ? amb : '', 'HR Mármores e Granitos'].filter(Boolean).join(' · '), cidade: env.CIDADE || 'Pilão Arcado - BA', logo, empresa: env.EMPRESA || 'HR Mármores e Granitos', duracao: 20, legendas: [] };
 }
+async function feriadosComando(env, from) { // v90f: "feriados" — o que vem pela frente, com o que já foi combinado
+  const hoje = dataBahia();
+  const l = [...feriadosAdiante(env, hoje, 120), ...facultativosAdiante(env, hoje, 120)].sort((a, b) => (a.iso < b.iso ? -1 : 1));
+  const linhas = [];
+  for (const f of l) { const d = await env.HR_KV.get('fer:dec:' + f.iso); linhas.push(`${dataBR(f.iso).slice(0, 5)} ${DIAS_SEMANA[f.dow].replace('-feira', '')} · ${f.nome}${!feriadoImpacta(env, f) ? ' (fim de semana)' : d === 'folga' ? ' · folga' : d === 'trab' ? ' · vamos trabalhar' : ' · a combinar'}${feriadoImpacta(env, f) && diaPonte(env, f) ? ' · pode virar ponte' : ''}`); }
+  await enviar(env, from, cartaoDono('Feriados nos próximos 4 meses', [...(linhas.length ? linhas : ['Nenhum.']), '', 'Eu aviso 30, 15, 7, 2 e 1 dia(s) antes, com os botões de folga.']));
+  return true;
+}
 async function vdComandoDono(env, from, bruto, msg) {
+  if (/^(feriados?|proximos feriados|quais (os|sao os) (proximos )?feriados|calendario de feriados)$/.test(msg)) return feriadosComando(env, from);
   if (/^((link do |o |meu )?album( de obras| de servicos( feitos)?)?|servicos feitos|link (das|de) obras)$/.test(msg)) {
     const b = await urlPublica(env).catch(() => ''); const d = await obrasDados(env).catch(() => ({ obras: [] }));
     await enviar(env, from, cartaoDono('Álbum de serviços feitos', [`${d.obras.length} obras, ${d.obras.reduce((t, o) => t + o.fotos.length, 0)} fotos, separadas por tipo (cozinhas, banheiros, escadas...).`, /^https:/.test(b) ? b + '/obras' : '(sem endereço)', 'Pode mandar para clientes e colocar na bio do Instagram. Novas obras: mande fotos/vídeos com *obra ...*. Trazer os posts antigos do Instagram: *instagram importar*.']));
@@ -17770,41 +17802,56 @@ const ehAberto = a => !a.concluido && a.etapa !== 'entregue';
 async function avisosFeriado(env, snap) {
   const hoje = dataBahia();
   const abertas = ((snap && snap.dados && snap.dados.agenda) || []).filter(ehAberto);
-  for (const f of feriadosAdiante(env, hoje, 31)) {
+  const bols = ((snap && snap.dados && snap.dados.boletos) || []).filter(b => b && !bolEhReceber(b) && b.status !== 'pago' && b.status !== 'cancelado');
+  const lista = [...feriadosAdiante(env, hoje, 31), ...facultativosAdiante(env, hoje, 16)].sort((a, b) => (a.iso < b.iso ? -1 : 1));
+  for (const f of lista) {
     const util = feriadoImpacta(env, f);
     const etapa = f.em <= 1 ? '1' : f.em <= 2 ? '2' : f.em <= 7 ? '7' : f.em <= 15 ? '15' : '30';
     if (!util && !['7', '1'].includes(etapa)) continue;
+    if (f.facultativo && !util) continue;
     if (await jaAvisou(env, `fer:${f.iso}:${etapa}`)) continue;
+    const dec0 = await env.HR_KV.get('fer:dec:' + f.iso);
+    if (etapa === '1' && dec0 === 'folga') { const cfgP = await pontoCfg(env); for (const fu of cfgP.funcs) await pontoNotificar(env, fu, 'Amanhã é folga', `${f.nome}: amanhã (${dataBR(f.iso)}) não tem expediente. Bom descanso!`, 'feriado-v-' + f.iso).catch(() => {}); }
     const quando = f.em === 1 ? '*amanhã*' : `daqui a *${f.em} dias*`;
     const decidido = await env.HR_KV.get('fer:dec:' + f.iso);
     const l = [`${f.nome}: ${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)} (${quando}).`];
     if (!util) l.push('Cai no fim de semana: o expediente não muda, mas fornecedores, bancos e transportadoras podem não funcionar.');
-    if (util && f.dow === 2) l.push('Cai numa terça: a segunda pode virar ponte. Vale combinar com a equipe.');
-    if (util && f.dow === 4) l.push('Cai numa quinta: a sexta pode virar ponte. Vale combinar com a equipe.');
+    if (util && diaPonte(env, f)) l.push(`Cai numa ${f.dow === 2 ? 'terça: a segunda' : 'quinta: a sexta'} pode virar ponte. Use o botão *Folga + ponte* se quiser emendar.`);
     if (util) {
       const noDia = abertas.filter(a => a.entrega === f.iso);
       const apertadas = abertas.filter(a => a.entrega > f.iso && diasCorridos(f.iso, a.entrega) <= 3);
       if (noDia.length) l.push(`Entregas marcadas para o feriado: ${noDia.map(a => a.cliente).join(', ')}. Convém antecipar ou reprogramar e avisar o cliente.`);
       if (apertadas.length) l.push(`Entregas até 3 dias depois (ficam apertadas): ${apertadas.map(a => `${a.cliente} (${dataBR(a.entrega)})`).join(', ')}.`);
       if (etapa !== '1') { const ex = calcularPrazo(env, { uteis: 5 }); l.push(`Prazos novos já descontam o feriado (5 dias úteis a partir de hoje = ${dataBR(ex.entrega_prevista)}).`); }
-      if (f.em >= 2) l.push('Lembre de comprar material e pagar contas que vencem no dia antes.');
+      const bolDia = bols.filter(b => b.vencimento === f.iso);
+      if (bolDia.length) l.push(`Boletos que vencem no feriado: ${bolDia.length} (R$ ${reais(bolDia.reduce((t, b) => t + (+b.valor || 0), 0))}). Em geral podem ser pagos no dia útil seguinte sem juros; confira no boleto.`);
+      if (f.em >= 2) l.push('Lembre de comprar material e pagar contas antes.');
+      if (f.facultativo) l.push('É ponto facultativo: o senhor decide se abre.');
       if (decidido) l.push(decidido === 'folga' ? 'Já combinado: *folga*.' : 'Já combinado: *vamos trabalhar*.');
     }
     const tit = `Feriado ${f.em <= 2 ? 'chegando' : 'em ' + f.em + ' dias'}`;
-    if (util && !decidido) await enviarComBotoes(env, numeroDono(env), cartaoDono(tit, l), [{ id: 'fer|folga|' + f.iso, titulo: 'Folga para todos' }, { id: 'fer|trab|' + f.iso, titulo: 'Vamos trabalhar' }]);
+    const ponte = util ? diaPonte(env, f) : '';
+    if (util && !decidido) await enviarComBotoes(env, numeroDono(env), cartaoDono(tit, l), [{ id: 'fer|folga|' + f.iso, titulo: 'Folga para todos' }, ...(ponte ? [{ id: 'fer|ponte|' + f.iso + '|' + ponte, titulo: 'Folga + ponte' }] : []), { id: 'fer|trab|' + f.iso, titulo: 'Vamos trabalhar' }]);
     else await avisarDono(env, cartaoDono(tit, l));
   }
 }
 async function feriadoBotao(env, from, id) {
   if (!ehDono(env, from)) return true;
-  const [, acao, iso] = id.split('|'); if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return true;
-  const nome = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso) || 'feriado';
-  await env.HR_KV.put('fer:dec:' + iso, acao, { expirationTtl: 60 * 86400 });
+  const [, acao0, iso, ponte] = id.split('|'); if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return true;
+  const acao = acao0 === 'ponte' ? 'folga' : acao0;
+  const nome = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso) || facultativosDoAno(+iso.slice(0, 4)).get(iso) || 'feriado';
+  const dias = [iso, ...(acao0 === 'ponte' && /^\d{4}-\d{2}-\d{2}$/.test(ponte || '') ? [ponte] : [])];
+  for (const d of dias) await env.HR_KV.put('fer:dec:' + d, acao, { expirationTtl: 60 * 86400 });
+  let folgas = []; try { folgas = JSON.parse((await env.HR_KV.get('fer:folgas')) || '[]'); } catch (_) {}
+  folgas = acao === 'folga' ? [...new Set([...folgas, ...dias])] : folgas.filter(d => !dias.includes(d));
+  await env.HR_KV.put('fer:folgas', JSON.stringify(folgas.filter(d => d >= dataBahia(-5)).sort().slice(-30)));
   const cfg = await pontoCfg(env); cfg.feriados = cfg.feriados || [];
   if (acao === 'folga') {
-    if (!cfg.feriados.includes(iso)) { cfg.feriados.push(iso); cfg.feriados = cfg.feriados.filter(d => d >= dataBahia(-30)).slice(-40); await pontoCfgSalvar(env, cfg); }
-    let n = 0; for (const f of cfg.funcs) { try { await pontoNotificar(env, f, 'Folga no feriado', `${nome} (${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso)}) é folga. Não precisa bater o ponto.`, 'feriado-' + iso); n++; } catch (_) {} }
-    await enviar(env, from, `Combinado: *folga* em ${dataBR(iso)} (${nome}). O ponto não vai cobrar ninguém nesse dia${n ? ' e avisei a equipe no app do ponto' : ''}. Os clientes vão ouvir que a equipe volta no dia útil seguinte.`);
+    for (const d of dias) if (!cfg.feriados.includes(d)) cfg.feriados.push(d);
+    cfg.feriados = cfg.feriados.filter(d => d >= dataBahia(-30)).slice(-40); await pontoCfgSalvar(env, cfg);
+    const txtD = dias.map(d => `${DIAS_SEMANA[diaSemanaISO(d)]}, ${dataBR(d)}`).join(' e ');
+    let n = 0; for (const f of cfg.funcs) { try { await pontoNotificar(env, f, 'Folga no feriado', `${nome}: ${txtD} ${dias.length > 1 ? 'são folga' : 'é folga'}. Não precisa bater o ponto.`, 'feriado-' + iso); n++; } catch (_) {} }
+    await enviar(env, from, `Combinado: *folga* em ${txtD} (${nome}). O ponto não cobra ninguém${n ? ', avisei a equipe no app do ponto (e lembro de novo na véspera)' : ''}, e os clientes vão ouvir que a equipe volta no dia útil seguinte.`);
   } else {
     if (cfg.feriados.includes(iso)) { cfg.feriados = cfg.feriados.filter(d => d !== iso); await pontoCfgSalvar(env, cfg); }
     await enviar(env, from, `Combinado: *vamos trabalhar* em ${dataBR(iso)} (${nome}). Se quiser avisar a equipe, mande aqui que eu encaminho.`);
