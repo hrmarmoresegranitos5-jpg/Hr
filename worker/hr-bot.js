@@ -1905,6 +1905,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('feravc|')) return feriadoAvisarClientesBotao(env, from, id); // v91
   if (id.startsWith('bfestas|')) return boasFestasBotao(env, from, id);
   if (id.startsWith('cfoto|')) return fotoObraBotao(env, from, id);
+  if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -15177,13 +15178,39 @@ async function feriadoAvisarClientesBotao(env, from, id) {
   return true;
 }
 // ── cartão de feriado / boas festas (vídeo curto feito pelo editor do computador) ──
+async function cartaoFundo(env, nao) { // uma foto bonita do acervo para o fundo (de preferência outra obra que não "nao")
+  try { const ids = (await acvLista(env)).slice(-60); for (let t = 0; t < 10; t++) { const o = await acvLer(env, ids[Math.floor(Math.random() * ids.length)]); if (!o || (nao && o.id === nao && ids.length > 1)) continue; const fs = acvDisponiveis(o).filter(k => o.midias[k].tipo === 'foto'); if (fs.length) return { obra: o.id, i: fs[Math.floor(Math.random() * fs.length)] }; } } catch (_) {}
+  return null;
+}
+function cartaoQuando(iso, h) { return Date.parse(`${iso}T${String(h).padStart(2, '0')}:00:00-03:00`); }
+async function cartaoRefazer(env, j, nova) { // "Outra versão" ou texto trocado: volta para a fila do editor
+  if (nova) { j.fundo = await cartaoFundo(env, j.fundo && j.fundo.obra); j.cartao.estilo = ((j.cartao.estilo || 0) + 1) % 3; }
+  delete j.editado; j.estado = 'na_fila'; await estGravar(env, j);
+  const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); if (!fila.includes(j.id)) fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
+}
+async function cartaoBotao(env, from, id) { // cartv|<id>
+  const j = await estLer(env, id.split('|')[1]);
+  if (!j || !j.cartao || ['publicado', 'cancelado', 'agendado'].includes(j.estado)) { await enviar(env, from, 'Esse vídeo não está mais disponível para refazer.'); return true; }
+  await cartaoRefazer(env, j, true);
+  await enviar(env, from, 'Fazendo outra versão (outra foto e outro estilo). Chega em 1 ou 2 minutos.'); return true;
+}
+async function cartaoComandoTexto(env, from, bruto, msg) { // "titulo: ...", "frase: ...", "linhas: a / b"
+  const m = String(bruto).match(/^\s*(t[ií]tulo|frase|subt[ií]tulo|linhas?|texto)\s*:\s*(.+)$/is); if (!m) return false;
+  const pid = await env.HR_KV.get('post:ultimo'); const j = pid && await estLer(env, pid);
+  if (!j || !j.cartao || ['publicado', 'cancelado', 'agendado'].includes(j.estado)) return false;
+  const k = normaliza(m[1]), v = m[2].trim().slice(0, 120);
+  if (k === 'titulo') j.cartao.titulo = v.toUpperCase().slice(0, 22);
+  else if (/^(frase|subtitulo)$/.test(k)) j.cartao.sub = v.slice(0, 60);
+  else j.cartao.linhas = v.split(/\s*[\/|\n]\s*/).filter(Boolean).slice(0, 4).map(x => x.slice(0, 42));
+  await cartaoRefazer(env, j, false);
+  await enviar(env, from, 'Certo, refazendo o vídeo com o texto novo. A prévia chega em 1 ou 2 minutos.'); return true;
+}
 async function cartaoCriar(env, c) {
   if (!estAtivo(env) || !(await estEditorPareado(env))) return null;
   if (await env.HR_KV.get('cartao:' + c.chave)) return null;
   await env.HR_KV.put('cartao:' + c.chave, '1', { expirationTtl: 60 * 86400 });
-  let fundo = null; // uma foto bonita do acervo de fundo
-  try { const ids = (await acvLista(env)).slice(-40); for (let t = 0; t < 8 && !fundo; t++) { const o = await acvLer(env, ids[Math.floor(Math.random() * ids.length)]); const i = o && acvDisponiveis(o).find(k => o.midias[k].tipo === 'foto'); if (i != null) fundo = { obra: o.id, i }; } } catch (_) {}
-  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'story', desc: c.legenda, legenda: c.legenda, editar: true, montagem: true, cartao: { titulo: c.titulo, sub: c.sub, linhas: c.linhas || [] }, fundo, estado: 'na_fila', original: true, descTexto: true };
+  const fundo = await cartaoFundo(env);
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'story', desc: c.legenda, legenda: c.legenda, editar: true, montagem: true, cartao: { titulo: c.titulo, sub: c.sub, linhas: c.linhas || [], estilo: Math.floor(Math.random() * 3) }, postarEm: c.postarEm || 0, fundo, estado: 'na_fila', original: true, descTexto: true };
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
   return j;
@@ -15200,7 +15227,8 @@ async function cartoesDatas(env) { // chamado na rotina: 2 dias antes do feriado
     const titulo = /natal/i.test(f.nome) ? 'FELIZ NATAL' : /confraterniza/i.test(f.nome) ? `FELIZ ${f.iso.slice(0, 4)}` : 'FERIADO';
     const sub = /natal/i.test(f.nome) ? 'Que a sua casa seja cheia de paz e alegria' : /confraterniza/i.test(f.nome) ? 'Obrigado por confiar na HR' : f.nome;
     const legenda = /natal/i.test(f.nome) ? 'A HR Mármores e Granitos deseja a você e à sua família um Natal abençoado. 🎄 Obrigado por fazer parte da nossa história este ano!' : /confraterniza/i.test(f.nome) ? `Feliz ${f.iso.slice(0, 4)}! Obrigado a todos os clientes e parceiros que confiaram na HR. Que venham novos projetos! ✨` : `${f.nome}: ${dataBR(f.iso).slice(0, 5)} ${dec === 'trab' ? 'atendemos normalmente' : 'não abriremos'}. ${dec === 'trab' ? '' : 'Voltamos ' + DIAS_SEMANA[diaSemanaISO(volta)] + ', ' + dataBR(volta).slice(0, 5) + '. '}Orçamentos pelo WhatsApp a qualquer hora.`;
-    const j = await cartaoCriar(env, { chave: f.iso, titulo, sub, linhas, legenda });
+    const postarEm = /natal/i.test(f.nome) ? cartaoQuando(isoSomaDias(f.iso, -1), 10) : /confraterniza/i.test(f.nome) ? cartaoQuando(isoSomaDias(f.iso, -1), 18) : cartaoQuando(isoSomaDias(f.iso, -1), 17);
+    const j = await cartaoCriar(env, { chave: f.iso, titulo, sub, linhas, legenda, postarEm });
     if (j) await avisarDono(env, `🎬 Estou preparando o cartão do ${f.nome} (${dataBR(f.iso).slice(0, 5)}) para o Instagram. A prévia chega aqui para o senhor aprovar.`);
   }
 }
@@ -15687,12 +15715,13 @@ async function cartaoSobDemanda(env, from, msg) { // v91b: "video de ano novo", 
   if (!(await estEditorPareado(env))) { await enviar(env, from, 'Para fazer o vídeo preciso do editor do computador ligado. Abra o "iniciar-editor" no computador (ou mande "editor" para conectar) e peça de novo.'); return true; }
   const hoje = dataBahia(), ano = +hoje.slice(0, 4), proxAno = +hoje.slice(5, 7) >= 10 ? ano + 1 : ano;
   let c;
-  if (tema === 'ano') c = { titulo: `FELIZ ${proxAno}`, sub: 'Obrigado por confiar na HR', linhas: ['Que venham novos projetos', 'e muitas conquistas!'], legenda: `Feliz ${proxAno}! A HR Mármores e Granitos agradece a todos os clientes e parceiros pela confiança. Que o novo ano venha cheio de saúde, conquistas e novos projetos! ✨` };
-  else if (tema === 'natal') c = { titulo: 'FELIZ NATAL', sub: 'Que a sua casa seja cheia de paz e alegria', linhas: [], legenda: 'A HR Mármores e Granitos deseja a você e à sua família um Natal abençoado. 🎄 Obrigado por fazer parte da nossa história este ano!' };
-  else if (tema === 'festas') c = { titulo: 'BOAS FESTAS', sub: `Feliz Natal e um ${proxAno} abençoado`, linhas: ['Obrigado pela confiança'], legenda: `Boas festas! A HR Mármores e Granitos deseja um Feliz Natal e um ${proxAno} cheio de conquistas. ✨` };
+  const dAno = `${proxAno - 1}-12-31`, dNatal = `${ano}-12-24`;
+  if (tema === 'ano') c = { postarEm: cartaoQuando(dAno, 18), titulo: `FELIZ ${proxAno}`, sub: 'Obrigado por confiar na HR', linhas: ['Que venham novos projetos', 'e muitas conquistas!'], legenda: `Feliz ${proxAno}! A HR Mármores e Granitos agradece a todos os clientes e parceiros pela confiança. Que o novo ano venha cheio de saúde, conquistas e novos projetos! ✨` };
+  else if (tema === 'natal') c = { postarEm: cartaoQuando(dNatal, 10), titulo: 'FELIZ NATAL', sub: 'Que a sua casa seja cheia de paz e alegria', linhas: [], legenda: 'A HR Mármores e Granitos deseja a você e à sua família um Natal abençoado. 🎄 Obrigado por fazer parte da nossa história este ano!' };
+  else if (tema === 'festas') c = { postarEm: cartaoQuando(isoSomaDias(dNatal, -1), 10), titulo: 'BOAS FESTAS', sub: `Feliz Natal e um ${proxAno} abençoado`, linhas: ['Obrigado pela confiança'], legenda: `Boas festas! A HR Mármores e Granitos deseja um Feliz Natal e um ${proxAno} cheio de conquistas. ✨` };
   else { const f = [...feriadosAdiante(env, hoje, 60)][0]; if (!f) { await enviar(env, from, 'Não achei feriado nos próximos 60 dias.'); return true; }
     const dec = await env.HR_KV.get('fer:dec:' + f.iso); let volta = isoSomaDias(f.iso, 1); for (let k = 0; k < 6 && !ehDiaUtil(env, volta); k++) volta = isoSomaDias(volta, 1);
-    c = { titulo: 'FERIADO', sub: f.nome, linhas: dec === 'trab' ? ['Atendimento normal no feriado'] : [`${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso).slice(0, 5)}: fechado`, `Voltamos ${DIAS_SEMANA[diaSemanaISO(volta)]}, ${dataBR(volta).slice(0, 5)}`, 'Orçamentos pelo WhatsApp a qualquer hora'],
+    c = { postarEm: cartaoQuando(isoSomaDias(f.iso, -1), 17), titulo: 'FERIADO', sub: f.nome, linhas: dec === 'trab' ? ['Atendimento normal no feriado'] : [`${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso).slice(0, 5)}: fechado`, `Voltamos ${DIAS_SEMANA[diaSemanaISO(volta)]}, ${dataBR(volta).slice(0, 5)}`, 'Orçamentos pelo WhatsApp a qualquer hora'],
       legenda: `${f.nome}: ${dataBR(f.iso).slice(0, 5)} ${dec === 'trab' ? 'atendemos normalmente' : 'não abriremos. Voltamos ' + DIAS_SEMANA[diaSemanaISO(volta)] + ', ' + dataBR(volta).slice(0, 5)}. Orçamentos pelo WhatsApp a qualquer hora.` }; }
   const j = await cartaoCriar(env, { ...c, chave: 'pedido:' + Date.now() });
   if (!j) { await enviar(env, from, 'Não consegui pôr o vídeo na fila agora. Tente de novo em instantes.'); return true; }
@@ -15701,6 +15730,7 @@ async function cartaoSobDemanda(env, from, msg) { // v91b: "video de ano novo", 
 }
 async function vdComandoDono(env, from, bruto, msg) {
   if (/ano novo|reveillon|natal|boas festas|feriado/.test(msg) && /\b(video|cartao|previa|arte|post)\b/.test(msg)) await env.HR_KV.put('cart:ultimo:' + from, msg, { expirationTtl: 3600 });
+  if (await cartaoComandoTexto(env, from, bruto, msg)) return true; // v91c
   if (await cartaoSobDemanda(env, from, msg)) return true; // v91b
   if (/^(painel( da)? oficina|painel da tv|tv da oficina|link da oficina)$/.test(msg)) { // v91
     let t = await env.HR_KV.get('ofi:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2, 12); await env.HR_KV.put('ofi:tok', t); }
@@ -16432,6 +16462,13 @@ async function igOferecerHorarios(env, para, j) { // depois da prévia: agendar 
   if (min < 18 * 60 + 30) op.push({ q: ts(hoje, 19), t: 'Hoje 19h' });
   if (min < 11 * 60 + 30) op.unshift({ q: ts(hoje, 12), t: 'Hoje 12h' });
   op.push({ q: ts(amanha, 12), t: 'Amanhã 12h' }, { q: ts(amanha, 19), t: 'Amanhã 19h' });
+  if (j.cartao) { // v91c: cartão de data comemorativa → sugere o dia certo e oferece outra versão
+    const b = [];
+    if (j.postarEm > Date.now() + 3600000) b.push({ id: `igq|${j.id}|${j.postarEm}`, titulo: 'Postar ' + new Date(j.postarEm).toLocaleString('pt-BR', { timeZone: 'America/Bahia', day: '2-digit', month: '2-digit' }) + ' ' + new Date(j.postarEm).toLocaleString('pt-BR', { timeZone: 'America/Bahia', hour: '2-digit' }) + 'h' });
+    b.push(op[0] ? { id: `igq|${j.id}|${op[0].q}`, titulo: op[0].t } : null, { id: `cartv|${j.id}`, titulo: 'Outra versão' });
+    await enviarComBotoes(env, para, (j.postarEm > Date.now() + 3600000 ? `Melhor dia para postar: *${new Date(j.postarEm).toLocaleString('pt-BR', { timeZone: 'America/Bahia', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}* (vai para o ${EST_DESTINOS[j.destino] || 'Story'}).` : 'Agende com um toque.') + ' Para mudar o texto do vídeo: *titulo: ...*, *frase: ...* ou *linhas: texto 1 / texto 2*.', b.filter(Boolean).slice(0, 3));
+    return;
+  }
   const b = op.slice(0, 3).map(o => ({ id: `igq|${j.id}|${o.q}`, titulo: o.t }));
   await enviarComBotoes(env, para, `Ou agende com um toque (vai para o ${EST_DESTINOS[j.destino] || 'Feed'}). Os horários que costumam dar mais visualização são *12h* e *19h*. Outro horário: *agendar sexta 18h*.`, b);
 }
