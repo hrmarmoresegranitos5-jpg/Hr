@@ -9064,7 +9064,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -15183,7 +15183,7 @@ async function cartaoCriar(env, c) {
   await env.HR_KV.put('cartao:' + c.chave, '1', { expirationTtl: 60 * 86400 });
   let fundo = null; // uma foto bonita do acervo de fundo
   try { const ids = (await acvLista(env)).slice(-40); for (let t = 0; t < 8 && !fundo; t++) { const o = await acvLer(env, ids[Math.floor(Math.random() * ids.length)]); const i = o && acvDisponiveis(o).find(k => o.midias[k].tipo === 'foto'); if (i != null) fundo = { obra: o.id, i }; } } catch (_) {}
-  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'story', desc: c.legenda, legenda: c.legenda, editar: true, montagem: true, cartao: { titulo: c.titulo, sub: c.sub, linhas: c.linhas || [] }, fundo, estado: 'na_fila', original: true };
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'story', desc: c.legenda, legenda: c.legenda, editar: true, montagem: true, cartao: { titulo: c.titulo, sub: c.sub, linhas: c.linhas || [] }, fundo, estado: 'na_fila', original: true, descTexto: true };
   await estGravar(env, j);
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
   return j;
@@ -15676,7 +15676,32 @@ async function feriadosComando(env, from) { // v90f: "feriados" — o que vem pe
   await enviar(env, from, cartaoDono('Feriados nos próximos 4 meses', [...(linhas.length ? linhas : ['Nenhum.']), '', 'Eu aviso 30, 15, 7, 2 e 1 dia(s) antes, com os botões de folga.']));
   return true;
 }
+async function cartaoSobDemanda(env, from, msg) { // v91b: "video de ano novo", "cartao de natal", "previa do feriado"
+  const tema = /ano novo|reveillon|virada|confraterniza/.test(msg) ? 'ano' : /natal/.test(msg) ? 'natal' : /boas festas/.test(msg) ? 'festas' : /feriado/.test(msg) ? 'feriado' : null;
+  const quer = /\b(video|videos|cartao|card|previa|arte|post|story|reels|crie|cria|faca|faz|monta|monte|gera|gere)\b/.test(msg);
+  if (!tema || !quer || /\?$/.test(msg) && !/\b(crie|cria|faca|faz|monta|monte)\b/.test(msg)) {
+    if (/^(eu )?(quero que )?(crie|cria|faca|faz|monta|monte|gera|gere)( o| um| esse| este)? video$/.test(msg)) { const ult = await env.HR_KV.get('cart:ultimo:' + from); if (ult) return cartaoSobDemanda(env, from, ult + ' video'); }
+    return false;
+  }
+  if (!estAtivo(env)) { await enviar(env, from, 'Os posts estão desligados. Mande "instagram ligar" e peça de novo.'); return true; }
+  if (!(await estEditorPareado(env))) { await enviar(env, from, 'Para fazer o vídeo preciso do editor do computador ligado. Abra o "iniciar-editor" no computador (ou mande "editor" para conectar) e peça de novo.'); return true; }
+  const hoje = dataBahia(), ano = +hoje.slice(0, 4), proxAno = +hoje.slice(5, 7) >= 10 ? ano + 1 : ano;
+  let c;
+  if (tema === 'ano') c = { titulo: `FELIZ ${proxAno}`, sub: 'Obrigado por confiar na HR', linhas: ['Que venham novos projetos', 'e muitas conquistas!'], legenda: `Feliz ${proxAno}! A HR Mármores e Granitos agradece a todos os clientes e parceiros pela confiança. Que o novo ano venha cheio de saúde, conquistas e novos projetos! ✨` };
+  else if (tema === 'natal') c = { titulo: 'FELIZ NATAL', sub: 'Que a sua casa seja cheia de paz e alegria', linhas: [], legenda: 'A HR Mármores e Granitos deseja a você e à sua família um Natal abençoado. 🎄 Obrigado por fazer parte da nossa história este ano!' };
+  else if (tema === 'festas') c = { titulo: 'BOAS FESTAS', sub: `Feliz Natal e um ${proxAno} abençoado`, linhas: ['Obrigado pela confiança'], legenda: `Boas festas! A HR Mármores e Granitos deseja um Feliz Natal e um ${proxAno} cheio de conquistas. ✨` };
+  else { const f = [...feriadosAdiante(env, hoje, 60)][0]; if (!f) { await enviar(env, from, 'Não achei feriado nos próximos 60 dias.'); return true; }
+    const dec = await env.HR_KV.get('fer:dec:' + f.iso); let volta = isoSomaDias(f.iso, 1); for (let k = 0; k < 6 && !ehDiaUtil(env, volta); k++) volta = isoSomaDias(volta, 1);
+    c = { titulo: 'FERIADO', sub: f.nome, linhas: dec === 'trab' ? ['Atendimento normal no feriado'] : [`${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso).slice(0, 5)}: fechado`, `Voltamos ${DIAS_SEMANA[diaSemanaISO(volta)]}, ${dataBR(volta).slice(0, 5)}`, 'Orçamentos pelo WhatsApp a qualquer hora'],
+      legenda: `${f.nome}: ${dataBR(f.iso).slice(0, 5)} ${dec === 'trab' ? 'atendemos normalmente' : 'não abriremos. Voltamos ' + DIAS_SEMANA[diaSemanaISO(volta)] + ', ' + dataBR(volta).slice(0, 5)}. Orçamentos pelo WhatsApp a qualquer hora.` }; }
+  const j = await cartaoCriar(env, { ...c, chave: 'pedido:' + Date.now() });
+  if (!j) { await enviar(env, from, 'Não consegui pôr o vídeo na fila agora. Tente de novo em instantes.'); return true; }
+  await enviar(env, from, `Certo, Sr. Hangel: estou fazendo o vídeo "${c.titulo}" no editor do computador (fundo com foto de obra, logo, música). Em 1 ou 2 minutos chega a prévia aqui para o senhor aprovar.`);
+  return true;
+}
 async function vdComandoDono(env, from, bruto, msg) {
+  if (/ano novo|reveillon|natal|boas festas|feriado/.test(msg) && /\b(video|cartao|previa|arte|post)\b/.test(msg)) await env.HR_KV.put('cart:ultimo:' + from, msg, { expirationTtl: 3600 });
+  if (await cartaoSobDemanda(env, from, msg)) return true; // v91b
   if (/^(painel( da)? oficina|painel da tv|tv da oficina|link da oficina)$/.test(msg)) { // v91
     let t = await env.HR_KV.get('ofi:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2, 12); await env.HR_KV.put('ofi:tok', t); }
     await enviar(env, from, cartaoDono('Painel da oficina', [`${await urlPublica(env)}/oficina?k=${t}`, 'Abra na TV (navegador) ou num celular/tablet na parede. Mostra a fila de serviços (atrasados em vermelho, entregas de hoje em amarelo), quem está trabalhando e o próximo feriado. Atualiza sozinho a cada minuto.'])); return true; }
@@ -15880,6 +15905,7 @@ async function rotaEditor(req, env, url) {
   }
   if (mm[1] === 'erro') {
     let b = {}; try { b = await req.json(); } catch (_) {}
+    if (j.cartao) { j.estado = 'erro'; await estGravar(env, j); await enviar(env, numeroDono(env), `O computador não conseguiu fazer o vídeo "${j.cartao.titulo}" (${String(b.erro || 'erro').slice(0, 200)}). Peça de novo em instantes.`); return J({ ok: true }); }
     if (j.montagem) { j.estado = 'erro'; await estGravar(env, j); await enviar(env, numeroDono(env), `⚠️ O computador não conseguiu montar o vídeo do dia (${String(b.erro || 'erro').slice(0, 200)}). Amanhã tento com outra obra; para tentar agora: *video do dia*.`); return J({ ok: true }); }
     j.estado = 'aguardando'; j.editar = false; await estGravar(env, j);
     await enviarComBotoes(env, numeroDono(env), `⚠️ O computador não conseguiu editar o vídeo (${String(b.erro || 'erro').slice(0, 200)}).`, [{ id: `igp|${j.id}|cru`, titulo: 'Postar sem editar' }, { id: `igp|${j.id}|cancelar`, titulo: 'Cancelar' }]);
