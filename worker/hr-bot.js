@@ -1911,6 +1911,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
   if (id.startsWith('rtpl|')) return paradosBotao(env, from, id); // v96
   if (id.startsWith('radar|')) return radarBotao(env, from, id); // v97
+  if (id.startsWith('lq|')) return quenteBotao(env, from, id); // v98
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -4617,6 +4618,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     if (!(c.hist && c.hist.length) && !c.assuntoInicial && String(bruto).trim().length > 10 && !ehSaudacaoMenu(normaliza(brutoL))) c.assuntoInicial = String(bruto).trim().slice(0, 200);
     else if (c.assuntoInicial && c.nomeOrigem === 'salvo' && (c.hist || []).length >= 4) delete c.assuntoInicial;
     await promoContarLead(env, from, bruto).catch(() => {}); // v92
+    await quenteDetectar(env, from, bruto).catch(e => console.log('[QUENTE]', e.message)); // v98
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
@@ -16033,6 +16035,37 @@ async function radarRotina(env) {
 async function radarBotao(env, from, id) {
   if (id === 'radar|parados') return paradosComando(env, from, 'orcamentos parados');
   if (id === 'radar|promo') return promoComando(env, from, 'promocao', 'promocao');
+  return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v98: CLIENTE QUENTE — quando o cliente dá sinal claro de compra ("quero fechar", "qual o pix", "pode vir medir",
+//   "quando instala?"), o dono é avisado na hora com o que ele disse e o valor do orçamento, e pode assumir com 1 toque.
+//   A assistente continua respondendo; no máximo 1 aviso por cliente a cada 12 h e 12 por dia.
+// ═════════════════════════════════════════════════════════════════════════════
+const RE_QUENTE = /\b(quero fechar|vamos fechar|pode fechar|fecho sim|fechado entao|fechamos|quero fazer( sim)?|vou querer|pode fazer( sim)?|pode mandar fazer|aceito|bora fazer|qual (e )?(o )?pix|manda (o |a )?(pix|chave)|chave pix|como (eu )?(faco|faz) (pra|para) pagar|onde (eu )?pago|vou (te )?pagar|vou fazer o pix|pode (vir|mandar) medir|vem medir|pode marcar (a )?(visita|medicao)|marca (a )?visita|quando (voces )?(podem|pode|consegue|conseguem) (vir|medir|instalar|entregar|comecar)|quanto (e|fica) (a )?entrada|qual (o )?valor da entrada|parcel\w* em \d+ ?x|da pra parcelar|passa (no )?cartao)\b/;
+async function quenteDetectar(env, from, bruto) {
+  const t = normaliza(String(bruto || '')); if (t.length < 4 || !RE_QUENTE.test(t)) return;
+  const n8 = ultimos8(from), k = 'lq:' + n8, hoje = dataBahia();
+  if (await env.HR_KV.get(k)) return;
+  const nDia = Number(await env.HR_KV.get('lq:dia:' + hoje)) || 0; if (nDia >= 12) return;
+  try { const ass = await clientesAssumidos(env); if ((ass || []).some(x => ultimos8(x) === n8)) return; } catch (_) {}
+  await env.HR_KV.put(k, '1', { expirationTtl: 12 * 3600 }); await env.HR_KV.put('lq:dia:' + hoje, String(nDia + 1), { expirationTtl: 2 * 86400 });
+  let nome = ''; try { nome = (await lerNomeSalvo(env, from)) || ''; } catch (_) {}
+  const snap = await lerSnapshotCompleto(env).catch(() => null), orc = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(o => String(o.tel || '').replace(/\D/g, '').slice(-8) === n8).slice(-1)[0];
+  let ped = null; try { const o = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(from))) || 'null'); if (o) ped = o; } catch (_) {}
+  const valor = orc && +orc.valor ? orc.valor : ped && ped.valor ? ped.valor : 0;
+  if (!nome) nome = (orc && orc.cliente) || (ped && ped.nome) || '';
+  const L = [`${nome || 'Cliente'} · ${rtpFmt(normalizarBR(from))}`, `Disse: "${String(bruto).replace(/\s+/g, ' ').slice(0, 160)}"`, orc ? `Orçamento: ${[orc.projeto || orc.ambiente, orc.material].filter(Boolean).join(' · ') || 'no app'}${valor ? ' · R$ ' + reais(valor) : ''} (${dataBR(orc.data).slice(0, 5)})` : valor ? `Orçamento enviado pelo bot: R$ ${reais(valor)}` : null, 'A assistente está respondendo. Se quiser fechar o senhor mesmo, toque em Assumir.'];
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Cliente quente', L), [{ id: 'lq|ass|' + normalizarBR(from), titulo: 'Assumir' }, { id: 'lq|ver|' + normalizarBR(from), titulo: 'Ver conversa' }]).catch(() => {});
+}
+async function quenteBotao(env, from, id) {
+  const [, ac, num] = id.split('|');
+  if (ac === 'ass') { const t = 'assumir ' + num.replace(/^55/, ''); return tratarAssumir(env, from, t, t); }
+  const tx = await txLer(env, num);
+  if (!tx || !(tx.f || []).length) { await enviar(env, from, 'Não tenho a conversa recente desse cliente guardada.'); return true; }
+  await enviarTextoPuro(env, from, txFormatar(tx.f.slice(-10), tx.nome).slice(-3500));
+  await enviarComBotoes(env, from, 'Quer assumir?', [{ id: 'lq|ass|' + num, titulo: 'Assumir' }]);
   return true;
 }
 // ═════════════════════════════════════════════════════════════════════════════
