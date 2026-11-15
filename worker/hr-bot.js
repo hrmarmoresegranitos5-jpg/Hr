@@ -7327,6 +7327,24 @@ async function horaConfirmar(env, from, ped, hora) {
 const MP_API = 'https://api.mercadopago.com';
 const mpAtivo = env => !!env.MP_ACCESS_TOKEN;
 const aguardandoPix = ped => ped.forma_pagto === 'pix' && !!ped.mp && !ped.pago;
+// v90: domínio próprio (hrmarmoresegranitos.com.br): o mesmo worker atende o site oficial (copiado do GitHub Pages) e o álbum
+const DOMINIO_SITE = 'hrmarmoresegranitos.com.br';
+const SITE_ORIGEM = 'https://hrmarmoresegranitos5-jpg.github.io/Hr/site';
+async function urlPublica(env) { // links para clientes: domínio próprio quando já estiver no ar
+  let d = env.DOMINIO_SITE || ''; if (!d) { try { d = (await env.HR_KV.get('cfg:dominio')) || ''; } catch (_) {} }
+  return d ? 'https://' + d : urlDoWorker(env);
+}
+async function siteDominio(req, env, ctx, url) {
+  const dom = env.DOMINIO_SITE || DOMINIO_SITE, host = url.hostname.toLowerCase();
+  if (host !== dom && host !== 'www.' + dom) return null;
+  if (host.startsWith('www.')) return Response.redirect('https://' + dom + url.pathname + url.search, 301);
+  ctx.waitUntil(env.HR_KV.get('cfg:dominio').then(v => v === dom ? null : env.HR_KV.put('cfg:dominio', dom)).catch(() => {}));
+  const p = url.pathname;
+  if (!(p === '/' || p === '/index.html' || /^\/(img\/[\w.-]+|bot\.json|robots\.txt|favicon\.ico)$/.test(p))) return null; // o resto (álbum, catálogo, ponto...) é o próprio bot
+  const r = await fetch(SITE_ORIGEM + (p === '/' ? '/' : p), { cf: { cacheTtl: 300, cacheEverything: true } });
+  const h = new Headers(r.headers); h.delete('x-github-request-id'); h.set('Cache-Control', 'public, max-age=300');
+  return new Response(r.body, { status: r.status, headers: h });
+}
 async function urlDoWorker(env) {
   let u = env.WORKER_URL || '';
   if (!u) { try { u = (await env.HR_KV.get('cfg:self')) || ''; } catch (_) {} }
@@ -15317,7 +15335,7 @@ async function vdPlano(env, j) {
 }
 async function vdComandoDono(env, from, bruto, msg) {
   if (/^((link do |o |meu )?album( de obras| de servicos( feitos)?)?|servicos feitos|link (das|de) obras)$/.test(msg)) {
-    const b = await urlDoWorker(env).catch(() => ''); const d = await obrasDados(env).catch(() => ({ obras: [] }));
+    const b = await urlPublica(env).catch(() => ''); const d = await obrasDados(env).catch(() => ({ obras: [] }));
     await enviar(env, from, cartaoDono('Álbum de serviços feitos', [`${d.obras.length} obras, ${d.obras.reduce((t, o) => t + o.fotos.length, 0)} fotos, separadas por tipo (cozinhas, banheiros, escadas...).`, /^https:/.test(b) ? b + '/obras' : '(sem endereço)', 'Pode mandar para clientes e colocar na bio do Instagram. Novas obras: mande fotos/vídeos com *obra ...*. Trazer os posts antigos do Instagram: *instagram importar*.']));
     return true;
   }
@@ -24271,6 +24289,7 @@ export default {
     const url = new URL(req.url);
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);

@@ -511,7 +511,7 @@ footer .wrap{display:flex;flex-wrap:wrap;gap:12px 30px;justify-content:space-bet
         <div class="alb-grade" id="albGrade"></div>
       </div>
       <script>
-      (function(){var B='https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';
+      (function(){var B=/hrmarmoresegranitos\.com\.br$/.test(location.hostname)?location.origin:'https://tiny-sunset-e26ahr-whatzapp.hrmarmoresegranitos5.workers.dev';document.getElementById('albLink').href=B+'/obras';
         fetch(B+'/obras/dados').then(function(r){return r.json()}).then(function(d){var l=(d.obras||[]).slice(0,6);if(!l.length)return;
           var e=function(s){return String(s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})};
           document.getElementById('albGrade').innerHTML=l.map(function(o){return '<a href="'+B+'/obras#'+encodeURIComponent(o.id)+'" target="_blank" rel="noopener"><img loading="lazy" src="'+B+'/portfolio/img/obra/'+encodeURIComponent(o.fotos[0])+'" alt="'+e(o.t)+'"><span>'+e(o.t)+'</span></a>'}).join('');
