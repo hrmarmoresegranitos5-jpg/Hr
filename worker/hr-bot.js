@@ -1910,6 +1910,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('rtp|')) return rtpBotao(env, from, id); // v93
   if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
   if (id.startsWith('rtpl|')) return paradosBotao(env, from, id); // v96
+  if (id.startsWith('radar|')) return radarBotao(env, from, id); // v97
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -9071,7 +9072,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -14056,6 +14057,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await tratarRecadoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] recado funcionário:', e.message); return false; })) return; // v44
     if (await rtpEditar(env, from, bruto).catch(() => false)) return; // v93
     if (await paradosComando(env, from, msg).catch(e => { console.log('[PARADOS]', e.message); return false; })) return; // v96
+    if (/^(radar( de vendas)?|vendas da semana|relatorio de vendas|como foram as vendas( da semana)?|resumo de vendas)$/.test(msg)) { await radarEnviar(env, from).catch(async e => enviar(env, from, 'Não consegui montar o radar agora: ' + String(e.message).slice(0, 100))); return; } // v97
     if (await rtpTratarTexto(env, from, bruto, msg).catch(e => { console.log('[RTP] texto:', e.message); return false; })) return; // v93
     if (await tratarRetomadaDono(env, from, bruto, msg).catch(e => { console.log('[BOT] retomada:', e.message); return false; })) return; // v43
     if (await tratarAtenderEncaminhado(env, from, bruto, msg).catch(e => { console.log('[BOT] atender encaminhado:', e.message); return false; })) return; // v31
@@ -15971,6 +15973,67 @@ async function segundoToqueRotina(env) {
     for (const v of variantesNumero(r.num)) { r.segundo = 'oferecido'; await env.HR_KV.put('rt:' + v, JSON.stringify(r), { expirationTtl: 14 * 86400 }); }
     await enviarComBotoes(env, numeroDono(env), `${r.nome || rtpFmt(r.num)} não respondeu à retomada de ${Math.round((Date.now() - r.em) / 86400000)} dias atrás (${r.pedido}). Preparo um segundo contato, mais curto e leve?`, [{ id: `rtpl|${r.num}|2`, titulo: 'Segundo contato' }, { id: `rtpl|${r.num}|no`, titulo: 'Deixar' }]);
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v97: RADAR DE VENDAS DA SEMANA — segunda de manhã (ou "vendas da semana"): novos contatos, orçamentos, fechados,
+//   retomadas e quem respondeu, dinheiro parado, melhor horário dos clientes e 3 ações da IA para a semana.
+// ═════════════════════════════════════════════════════════════════════════════
+async function radarDados(env) {
+  const hoje = dataBahia(), ini = isoSomaDias(hoje, -7), t0 = Date.parse(ini + 'T03:00:00Z'), out = { ini, fim: isoSomaDias(hoje, -1) };
+  if (env.HR_DB) {
+    try {
+      const a = await env.HR_DB.prepare("SELECT COUNT(*) AS n FROM (SELECT num, MIN(ts) AS p FROM crm_msg WHERE q = 'c' GROUP BY num) WHERE p >= ?").bind(t0).first();
+      const b = await env.HR_DB.prepare("SELECT COUNT(DISTINCT num) AS n FROM crm_msg WHERE q = 'c' AND ts >= ?").bind(t0).first();
+      out.novos = (a && a.n) || 0; out.ativos = (b && b.n) || 0;
+      const hs = await env.HR_DB.prepare("SELECT ts FROM crm_msg WHERE q = 'c' AND ts >= ? LIMIT 5000").bind(Date.now() - 28 * 86400000).all();
+      const hist = new Array(24).fill(0); for (const r of (hs.results || [])) hist[(new Date(r.ts).getUTCHours() + 21) % 24]++;
+      out.horas = hist.map((n, h) => [h, n]).sort((x, y) => y[1] - x[1]).slice(0, 3).map(x => x[0]).sort((x, y) => x - y);
+    } catch (e) { console.log('[RADAR] crm:', e.message); }
+  }
+  const snap = await lerSnapshotCompleto(env).catch(() => null), d = (snap && snap.dados) || {};
+  const orcs = (d.orcamentos || []).filter(o => o.data >= ini && o.data < hoje), fech = (d.orcamentos || []).filter(o => /aprov|fech|aceit/.test(String(o.status || '')) && o.data >= isoSomaDias(hoje, -30));
+  out.orc = { n: orcs.length, v: orcs.reduce((t, o) => t + (+o.valor || 0), 0) };
+  const vendas = (d.agenda || []).filter(a => String(a.fechadoEm || '') >= ini && String(a.fechadoEm || '') < hoje);
+  out.vendas = { n: vendas.length, v: vendas.reduce((t, a) => t + (+a.valor || 0), 0) };
+  out.conv30 = (d.orcamentos || []).filter(o => o.data >= isoSomaDias(hoje, -30)).length ? Math.round(fech.length / (d.orcamentos || []).filter(o => o.data >= isoSomaDias(hoje, -30)).length * 100) : null;
+  const rt = { env: 0, resp: 0, sim: 0, nao: 0 }, vistos = new Set();
+  try { const l = await listarTodas(env, 'rt:'); for (const k of l.keys.slice(0, 400)) { const r = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (!r || !r.em || r.em < t0 || vistos.has(ultimos8(r.num))) continue; vistos.add(ultimos8(r.num)); rt.env++; if (r.status !== 'enviado') rt.resp++; if (r.status === 'sim') rt.sim++; if (r.status === 'nao' || r.status === 'encerrado') rt.nao++; } } catch (_) {}
+  out.retomadas = rt;
+  const par = await paradosLista(env).catch(() => []); out.parados = { n: par.length, v: par.reduce((t, x) => t + x.valor, 0), top: par.slice(0, 3).map(x => `${x.nome} (R$ ${reais(x.valor)})`) };
+  out.promos = (await promoAtivas(env).catch(() => [])).map(p => `${p.titulo}: ${p.leads || 0} interessados`);
+  const mes = hoje.slice(0, 7), ig = JSON.parse((await env.HR_KV.get('ig:fun:' + mes)) || '{"orc":{},"fech":{}}'); out.igMes = { orc: Object.keys(ig.orc || {}).length, fech: Object.keys(ig.fech || {}).length };
+  out.agendaAberta = (d.agenda || []).filter(ehAberto).length;
+  return out;
+}
+async function radarEnviar(env, para) {
+  const r = await radarDados(env);
+  let acoes = [];
+  try { const j = lerJsonIA(await chamarIA(env, `Você é consultor de vendas de uma marmoraria pequena (HR Mármores e Granitos, Pilão Arcado - BA). ${promoRegras(await promoCfg(env))} Com os números da semana, diga as 3 ações mais importantes para ESTA semana, concretas e curtas (até 140 caracteres cada), citando números e, quando servir, o comando do bot (orcamentos parados, promocao, dia da HR em <cidade> <data>, video de natal, estrategia). Responda SÓ JSON {"acoes":["...","...","..."]}`, [], 'NÚMEROS: ' + JSON.stringify(r), { maxTokens: 700, timeoutMs: 25000 })); acoes = (j.acoes || []).slice(0, 3); } catch (e) { console.log('[RADAR] ia:', e.message); }
+  const L = [`Semana ${dataBR(r.ini).slice(0, 5)} a ${dataBR(r.fim).slice(0, 5)}`,
+    r.novos != null ? `Contatos novos: ${r.novos} · conversas: ${r.ativos}` : null,
+    `Orçamentos: ${r.orc.n}${r.orc.v ? ' (R$ ' + reais(r.orc.v) + ')' : ''}${r.conv30 != null ? ' · fechamento nos últimos 30 dias: ' + r.conv30 + '%' : ''}`,
+    r.vendas.n ? `Vendas fechadas: ${r.vendas.n} · R$ ${reais(r.vendas.v)}` : 'Nenhuma venda fechada registrada no app esta semana',
+    r.retomadas.env ? `Retomadas: ${r.retomadas.env} enviadas · ${r.retomadas.resp} responderam · ${r.retomadas.sim} com interesse` : null,
+    r.parados.n ? `Dinheiro parado: ${r.parados.n} orçamento(s) sem resposta, R$ ${reais(r.parados.v)}. Maiores: ${r.parados.top.join(', ')}` : null,
+    r.promos.length ? `Campanhas: ${r.promos.join('; ')}` : null,
+    r.igMes.orc ? `Instagram no mês: ${r.igMes.orc} orçamentos, ${r.igMes.fech} vendas` : null,
+    r.horas && r.horas.length ? `Seus clientes mais chamam às ${r.horas.map(h => h + 'h').join(', ')}: poste e responda nesses horários` : null,
+    acoes.length ? '' : null, ...(acoes.length ? ['*Para esta semana:*', ...acoes.map((a, i) => `${i + 1}. ${a}`)] : [])];
+  await enviar(env, para, cartaoDono('Radar de vendas', L));
+  const b = []; if (r.parados.n) b.push({ id: 'radar|parados', titulo: 'Ver parados' }); b.push({ id: 'radar|promo', titulo: 'Ideias de promoção' });
+  await enviarComBotoes(env, para, 'Quer começar por onde?', b);
+}
+async function radarRotina(env) {
+  const hoje = dataBahia(); if (diaSemanaISO(hoje) !== 1 || await env.HR_KV.get('radar:' + hoje)) return;
+  if (agoraBahia().min < 7 * 60) return;
+  await env.HR_KV.put('radar:' + hoje, '1', { expirationTtl: 8 * 86400 });
+  await radarEnviar(env, numeroDono(env));
+}
+async function radarBotao(env, from, id) {
+  if (id === 'radar|parados') return paradosComando(env, from, 'orcamentos parados');
+  if (id === 'radar|promo') return promoComando(env, from, 'promocao', 'promocao');
+  return true;
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -18921,6 +18984,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('manutenção', () => manutRotina(e2));
   await passo('promoções', () => promoRotina(e2));
   await passo('segundo contato', () => segundoToqueRotina(e2));
+  await passo('radar de vendas', () => radarRotina(e2));
   return { ok: true, feitos };
 }
 
