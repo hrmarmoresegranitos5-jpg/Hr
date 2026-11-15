@@ -1906,6 +1906,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('bfestas|')) return boasFestasBotao(env, from, id);
   if (id.startsWith('cfoto|')) return fotoObraBotao(env, from, id);
   if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
+  if (id.startsWith('promo|')) return promoBotao(env, from, id); // v92
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -4043,6 +4044,7 @@ function promptCliente(env, c, regras) {
     textoEstilo(x.estilo),
     x.hoje ? `HOJE: ${x.dia || ''}, ${dataBR(x.hoje)} (${x.hoje}).` : '',
     x.hojeTxt || '',
+    x.promoTxt || '',
     x.exped && x.exped.rotulo ? `HORÁRIO DA EQUIPE: ${x.exped.rotulo}. Agora a equipe está ${x.exped.aberto ? 'DENTRO' : 'FORA'} do expediente${!x.exped.aberto && x.exped.retorno ? ' e retorna ' + x.exped.retorno : ''}.` : '',
     passoFunilVisita(c.dados, env),
     x.ficha || '',
@@ -4610,10 +4612,11 @@ async function atenderClienteIA(env, from, bruto, perfil) {
         notificarDono(env, Date.now(), `📸➡️💬 *Veio do Instagram para o WhatsApp:* ${c.origemIG}${c.dados && c.dados.nome ? ' (' + c.dados.nome + ')' : ''}\n"${String(bruto).slice(0, 200)}"\nwa.me/${normalizarBR(from)}`, { rotina: true }).catch(() => {}); } }
     if (!(c.hist && c.hist.length) && !c.assuntoInicial && String(bruto).trim().length > 10 && !ehSaudacaoMenu(normaliza(brutoL))) c.assuntoInicial = String(bruto).trim().slice(0, 200);
     else if (c.assuntoInicial && c.nomeOrigem === 'salvo' && (c.hist || []).length >= 4) delete c.assuntoInicial;
+    await promoContarLead(env, from, bruto).catch(() => {}); // v92
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
-      ...(await (async () => { const eF = await envComFolgas(env); return { exped: situacaoExpediente(eF), hojeTxt: textoHoje(eF) }; })()), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
+      ...(await (async () => { const eF = await envComFolgas(env); return { exped: situacaoExpediente(eF), hojeTxt: textoHoje(eF), promoTxt: await promoTextoCliente(env).catch(() => '') }; })()), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
@@ -9065,7 +9068,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -15424,6 +15427,202 @@ async function cpRotina(env, snap) {
     ...vence.map(x => `Vence ${dataBR(x.proxima.data).slice(0, 5)}: ${x.cliente} · R$ ${reais(x.proxima.valor)}`),
     'Para registrar um pagamento: *compra programada: Maria pagou 500*.']));
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v92: PROMOÇÕES INTELIGENTES + EXPANSÃO PARA CIDADES VIZINHAS
+//   "promocao" → a IA estuda os dados (época, estoque, pedras mais pedidas, orçamentos parados, cidades dos clientes)
+//   e propõe 3 campanhas dentro das regras da HR; com 1 toque: vídeo para o Instagram, palavra-chave no Direct,
+//   assistente sabendo a condição, mensagem para clientes antigos/orçamentos parados, contagem e relatório no fim.
+//   "promocao: <ideia>" monta a campanha do jeito do dono. "dia da HR em Remanso 28/11" → visita técnica grátis na cidade.
+//   Páginas por cidade no site (/marmoraria-remanso) para aparecer no Google.
+// ═════════════════════════════════════════════════════════════════════════════
+const CIDADES_PADRAO = ['Remanso', 'Campo Alegre de Lourdes', 'Xique-Xique', 'Sento Sé', 'Casa Nova', 'Buritirama'];
+const slugCid = n => normaliza(n).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+async function cidLista(env) { try { const l = JSON.parse((await env.HR_KV.get('cid:lista')) || 'null'); if (Array.isArray(l) && l.length) return l; } catch (_) {} return CIDADES_PADRAO; }
+async function promoCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('promo:cfg')) || '{}'); } catch (_) {} return { descontoMax: +c.descontoMax || 13, ...c }; }
+async function promoLer(env, id) { try { return JSON.parse((await env.HR_KV.get('promo:' + id)) || 'null'); } catch (_) { return null; } }
+async function promoGravar(env, p) { await env.HR_KV.put('promo:' + p.id, JSON.stringify(p), { expirationTtl: 400 * 86400 }); }
+async function promoAtivas(env) {
+  let ids = []; try { ids = JSON.parse((await env.HR_KV.get('promo:ativas')) || '[]'); } catch (_) {}
+  const out = [], hoje = dataBahia();
+  for (const id of ids) { const p = await promoLer(env, id); if (p && p.status === 'ativa' && p.ate >= hoje) out.push(p); }
+  return out;
+}
+async function promoTextoCliente(env) { // vai no prompt da assistente dos clientes
+  const l = await promoAtivas(env); if (!l.length) return '';
+  return 'PROMOÇÕES ATIVAS DA HR (só estas; NUNCA invente outro desconto, brinde ou condição; se o cliente pedir mais, diga que vai consultar o Sr. Hangel): ' + l.map(p => `"${p.titulo}": ${p.condicao}${p.cidades && p.cidades.length ? ' (vale para: ' + p.cidades.join(', ') + ')' : ''}; válida até ${dataBR(p.ate).slice(0, 5)}${p.vagas ? '; vagas limitadas (' + Math.max(0, p.vagas - (p.usadas || 0)) + ' restantes)' : ''}`).join(' | ')
+    + '. Quando fizer sentido no assunto (orçamento, dúvida de preço, cliente indeciso), mencione a promoção uma vez, de forma natural e curta, com a data limite. Ao fechar algo com a promoção, registre em "dados.observacao" o nome da promoção.';
+}
+async function promoContexto(env) { // dados para a IA criar campanhas
+  const snap = await lerSnapshotCompleto(env).catch(() => null), d = (snap && snap.dados) || {}, hoje = dataBahia();
+  const mesAtual = hoje.slice(0, 7), lim90 = isoSomaDias(hoje, -90);
+  const orcs = (d.orcamentos || []).filter(o => String(o.data || '') >= lim90);
+  const parados = orcs.filter(o => /^(aberto|pendente|enviado)$/i.test(o.status || '') && o.data <= isoSomaDias(hoje, -5));
+  const mats = {}; for (const o of orcs) if (o.material) mats[o.material] = (mats[o.material] || 0) + 1;
+  const cids = {}; for (const c of (d.clientes || [])) if (c.cidade) cids[c.cidade] = (cids[c.cidade] || 0) + 1;
+  const est = (d.estoque || []).filter(x => x && +x.m2Disponivel > 0).sort((a, b) => b.m2Disponivel - a.m2Disponivel).slice(0, 6).map(x => `${x.material || x.nome}: ${(+x.m2Disponivel).toFixed(1)} m²`);
+  const tm = (d.financas && d.financas.totaisPorMes) || {};
+  const ag = (d.agenda || []).filter(ehAberto);
+  return { hoje, mes: relNomeMes(mesAtual), proxFeriados: [...feriadosAdiante(env, hoje, 60)].slice(0, 4).map(f => `${f.nome} ${dataBR(f.iso).slice(0, 5)}`),
+    orcamentos90d: orcs.length, fechados90d: orcs.filter(o => /aprov|fech|aceit/.test(String(o.status || ''))).length, parados: parados.length, valorParado: parados.reduce((t, o) => t + (+o.valor || 0), 0),
+    pedrasMaisPedidas: Object.entries(mats).sort((a, b) => b[1] - a[1]).slice(0, 5).map(x => x[0]), estoqueSobrando: est,
+    cidadesClientes: Object.entries(cids).sort((a, b) => b[1] - a[1]).slice(0, 8).map(x => `${x[0]} (${x[1]})`), cidadesVizinhas: await cidLista(env),
+    servicosNaFila: ag.length, entradasMesPassado: (tm[relMesAnt(mesAtual)] || {}).entradas || 0, entradasMes: (tm[mesAtual] || {}).entradas || 0 };
+}
+function relMesAnt(mes) { const [y, m] = mes.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; }
+function promoRegras(cfg) {
+  return `REGRAS DA HR (obrigatórias): o preço do projeto é o preço cheio e já pode ser parcelado em até 10x sem juros no cartão (isso NÃO é promoção, é padrão). Desconto à vista: no máximo ${cfg.descontoMax}%. NÃO faz instalação de soleira e peitoril (só a pedra). Promoções boas para marmoraria: brinde que custa pouco e vale muito (cuba inox, válvula, frontão/rodopia, kit limpeza e impermeabilização, instalação de cuba), visita técnica e medição grátis numa cidade vizinha num dia marcado, frete grátis para uma cidade, "feche até tal dia e garanta a instalação antes do Natal/da data", vagas limitadas na agenda, indique um amigo e ganhe (desconto ou brinde para quem indicou quando o indicado fechar), condição especial para orçamento já enviado que não fechou, sobra de chapa em estoque com preço menor (bancadas pequenas, lavabos, soleiras). Evite desconto alto em tudo: prefira brinde, prazo e escassez verdadeira. Nada de promessa que a equipe não consegue cumprir.`;
+}
+async function promoIdeias(env, from, pedido) {
+  const cfg = await promoCfg(env), ctx = await promoContexto(env);
+  const sis = `Você é o estrategista de marketing da HR Mármores e Granitos (marmoraria em Pilão Arcado - BA, Instagram @hrmarmoregranito). ${promoRegras(cfg)}
+Responda SÓ com JSON: {"ideias":[{"titulo":"nome curto da campanha","gancho":"título do vídeo, até 20 letras, MAIÚSCULAS, chamativo","sub":"frase curta do vídeo (até 45 letras)","linhas":["até 3 linhas curtas do vídeo, até 38 letras cada"],"condicao":"a condição exata, clara, para a assistente falar ao cliente","ate":"AAAA-MM-DD, último dia da campanha (de 5 a 25 dias a partir de hoje; tem que bater com as datas escritas na condição, no vídeo e na legenda)","vagas":número ou 0,"cidades":["cidades onde vale, ou vazio para todas"],"palavra":"palavra-chave do Instagram, 1 palavra MAIÚSCULA","publico":"quem recebe mensagem: antigos|parados|cidade|nenhum","legenda":"legenda do Instagram com gancho, condição, prazo, chamada para comentar a palavra e hashtags da região (até 600 caracteres)","whats":"mensagem de WhatsApp para o público escolhido, até 190 caracteres, começando com {nome},","porque":"por que essa campanha agora, em 1 frase, citando os dados"}]}. ${pedido ? 'Faça UMA ideia só, seguindo o pedido do dono, ajustando ao que as regras permitem.' : 'Faça 3 ideias diferentes entre si (ex.: uma para vender agora, uma para reativar orçamentos parados, uma para entrar numa cidade vizinha).'}`;
+  const r = lerJsonIA(await chamarIA(env, sis, [], `DADOS DA HR: ${JSON.stringify(ctx)}${pedido ? '\nPEDIDO DO DONO: ' + pedido : ''}`, { maxTokens: 2500, timeoutMs: 45000 }));
+  const l = (r.ideias || []).filter(i => i && i.titulo && i.condicao).slice(0, 3);
+  if (!l.length) throw new Error('a IA não devolveu ideias');
+  const lote = Date.now().toString(36);
+  await env.HR_KV.put('promo:lote:' + lote, JSON.stringify(l), { expirationTtl: 7 * 86400 });
+  for (const [n, i] of l.entries()) await enviar(env, from, cartaoDono(`${l.length > 1 ? 'Ideia ' + (n + 1) + ': ' : ''}${i.titulo}`, [i.condicao, `Validade: ${/^\d{4}-\d{2}-\d{2}$/.test(i.ate || '') ? 'até ' + dataBR(i.ate).slice(0, 5) : (i.dias || 10) + ' dias'}${i.vagas ? ' · ' + i.vagas + ' vagas' : ''}${i.cidades && i.cidades.length ? ' · ' + i.cidades.join(', ') : ''}`, `Vídeo: "${i.gancho}" / ${i.sub}`, `Palavra no Instagram: ${i.palavra || '—'}`, i.publico && i.publico !== 'nenhum' ? `Mensagem para ${({ antigos: 'clientes antigos', parados: 'orçamentos parados', cidade: 'clientes da cidade' })[i.publico] || i.publico}: "${i.whats}"` : null, i.porque ? `Por quê: ${i.porque}` : null]));
+  await enviarComBotoes(env, from, l.length > 1 ? 'Qual campanha lanço? Depois do toque eu faço o vídeo e mostro tudo antes de publicar ou mandar mensagem.' : 'Lanço essa campanha? Antes de publicar ou mandar mensagem eu mostro tudo.', l.map((_, n) => ({ id: `promo|ok|${lote}|${n}`, titulo: l.length > 1 ? 'Lançar a ' + (n + 1) : 'Lançar' })));
+  await enviar(env, from, 'Para mudar algo, peça de novo com o detalhe, ex.: *promocao: brinde de cuba inox para quem fechar cozinha até 20/12*.');
+}
+async function promoPublico(env, p, snap) { // quem recebe a mensagem da campanha
+  const d = (snap && snap.dados) || {}, out = [], vistos = new Set(), add = (num, nome) => { if (num && !vistos.has(num) && num !== numeroDono(env)) { vistos.add(num); out.push({ num, nome }); } };
+  const tel = t => { let x = String(t || '').replace(/\D/g, ''); if (x.length === 10 || x.length === 11) x = '55' + x; return x.length >= 12 ? normalizarBR(x) : ''; };
+  if (p.publico === 'parados') { const hoje = dataBahia(); for (const o of (d.orcamentos || []).filter(o => /^(aberto|pendente|enviado)$/i.test(o.status || '') && o.data >= isoSomaDias(hoje, -120) && o.data <= isoSomaDias(hoje, -5))) add(tel(o.tel), o.cliente); }
+  else if (p.publico === 'cidade') { const cs = (p.cidades || []).map(normaliza); for (const c of (d.clientes || [])) if (c.cidade && cs.includes(normaliza(c.cidade))) add(tel(c.tel), c.nome); for (const o of (d.orcamentos || [])) if (o.cidade && cs.includes(normaliza(o.cidade))) add(tel(o.tel), o.cliente); }
+  else if (p.publico === 'antigos') { for (const r of await livTodos(env).catch(() => [])) if (r.tel) add(normalizarBR(r.tel), r.cliente); for (const c of (d.clientes || [])) add(tel(c.tel), c.nome); }
+  return out.slice(0, 200);
+}
+async function promoLancar(env, from, lote, n) {
+  const l = JSON.parse((await env.HR_KV.get('promo:lote:' + lote)) || 'null'), i = l && l[n];
+  if (!i) { await enviar(env, from, 'Essa ideia expirou. Mande *promocao* de novo.'); return true; }
+  await env.HR_KV.delete('promo:lote:' + lote);
+  const hoje = dataBahia(), p = { id: estId(8), titulo: String(i.titulo).slice(0, 60), condicao: String(i.condicao).slice(0, 400), de: hoje, ate: (/^\d{4}-\d{2}-\d{2}$/.test(i.ate || '') && i.ate >= isoSomaDias(hoje, 1) && i.ate <= isoSomaDias(hoje, 45)) ? i.ate : isoSomaDias(hoje, Math.min(30, Math.max(3, +i.dias || 10))), vagas: +i.vagas || 0, usadas: 0,
+    cidades: (i.cidades || []).slice(0, 6), palavra: String(i.palavra || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16), publico: i.publico || 'nenhum', whats: String(i.whats || '').slice(0, 200), legenda: String(i.legenda || '').slice(0, 1500), status: 'ativa', criado: Date.now(), leads: 0, orcs0: 0 };
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  p.orcs0 = ((snap && snap.dados && snap.dados.orcamentos) || []).length;
+  await promoGravar(env, p);
+  const ids = JSON.parse((await env.HR_KV.get('promo:ativas')) || '[]'); ids.push(p.id); await env.HR_KV.put('promo:ativas', JSON.stringify(ids.slice(-10)));
+  if (p.palavra) { const ant = await igPalavra(env); if (ant && ant.p !== p.palavra) await env.HR_KV.put('promo:palavraAnt:' + p.id, JSON.stringify(ant), { expirationTtl: 60 * 86400 }); await env.HR_KV.put('ig:palavra', JSON.stringify({ p: p.palavra, desde: Date.now(), promo: p.id })); }
+  const linhas = [`Feito: a campanha *${p.titulo}* está valendo até ${dataBR(p.ate).slice(0, 5)}.`, 'A assistente já sabe a condição e oferece aos clientes.'];
+  if (p.palavra) linhas.push(`No Instagram, quem comentar *${p.palavra}* recebe a condição e o WhatsApp no Direct.`);
+  const j = await cartaoCriar(env, { chave: 'promo:' + p.id, titulo: String(i.gancho || p.titulo).toUpperCase().slice(0, 22), sub: String(i.sub || '').slice(0, 50), linhas: (i.linhas || []).slice(0, 3).map(x => String(x).slice(0, 40)), legenda: p.legenda || p.condicao, postarEm: 0 }).catch(() => null);
+  if (j) { j.destino = 'reels'; j.promo = p.id; await estGravar(env, j); linhas.push('O vídeo da campanha está sendo feito no computador; a prévia chega em 1 ou 2 minutos (dá para postar no Reels e no Story).'); }
+  else linhas.push('Para o vídeo, abra o editor no computador e mande *video da promocao*.');
+  await enviar(env, from, cartaoDono('Campanha lançada', linhas));
+  if (p.publico !== 'nenhum' && p.whats) {
+    const pub = await promoPublico(env, p, snap);
+    if (pub.length) { await env.HR_KV.put('promo:pub:' + p.id, JSON.stringify(pub), { expirationTtl: 30 * 86400 });
+      await enviarComBotoes(env, from, cartaoDono('Mandar a campanha no WhatsApp?', [`${pub.length} pessoa(s): ${pub.slice(0, 8).map(x => String(x.nome || '').split(' ')[0]).join(', ')}${pub.length > 8 ? '…' : ''}`, `Mensagem: "${promoMsg(p, pub[0].nome)}"`, 'Sai aos poucos; quem responder cai na conversa normal com a assistente.']), [{ id: 'promo|env|' + p.id, titulo: 'Enviar' }, { id: 'promo|nenv|' + p.id, titulo: 'Não enviar' }]); }
+  }
+  return true;
+}
+function promoMsg(p, nome) { const n = nomeDeTratamento(nome || '') || 'Olá'; return String(p.whats || '').replace(/\{nome\}/gi, n).replace(/^\s*,/, n + ',').slice(0, 200); }
+async function promoBotao(env, from, id) {
+  const [, ac, a, b] = id.split('|');
+  if (ac === 'ok') return promoLancar(env, from, a, +b || 0);
+  const p = await promoLer(env, a); if (!p) { await enviar(env, from, 'Campanha não encontrada.'); return true; }
+  if (ac === 'nenv') { await enviar(env, from, 'Certo, não mando. A campanha segue no Instagram e na assistente.'); return true; }
+  if (ac === 'env') { const pub = JSON.parse((await env.HR_KV.get('promo:pub:' + p.id)) || '[]'); await cliFilaAdd(env, pub.map(x => ({ num: x.num, nome: x.nome, texto: promoMsg(p, x.nome), tag: 'promo:' + p.id }))); await env.HR_KV.delete('promo:pub:' + p.id); await enviar(env, from, `Enviando para ${pub.length} pessoa(s), aos poucos. Te mando o resumo no fim.`); return true; }
+  if (ac === 'fim') { await promoEncerrar(env, p, from); return true; }
+  if (ac === 'mais') { p.ate = isoSomaDias(p.ate, 7); await promoGravar(env, p); await enviar(env, from, `Prorroguei *${p.titulo}* até ${dataBR(p.ate).slice(0, 5)}.`); return true; }
+  if (ac === 'ult') { const j = await cartaoCriar(env, { chave: 'promoult:' + p.id, titulo: 'ÚLTIMOS DIAS', sub: p.titulo.slice(0, 45), linhas: [`Só até ${DIAS_SEMANA[diaSemanaISO(p.ate)].replace('-feira', '')}, ${dataBR(p.ate).slice(0, 5)}`, p.vagas ? `Restam ${Math.max(1, p.vagas - (p.usadas || 0))} vagas` : 'Chame no WhatsApp'], legenda: `Últimos dias: ${p.condicao} Válido até ${dataBR(p.ate).slice(0, 5)}.${p.palavra ? ' Comente ' + p.palavra + ' que te mandamos no Direct.' : ''}` }).catch(() => null);
+    await enviar(env, from, j ? 'Fazendo o vídeo de últimos dias; a prévia chega já já.' : 'Não consegui fazer o vídeo agora (o editor do computador está ligado?).'); return true; }
+  return true;
+}
+async function promoEncerrar(env, p, para) {
+  p.status = 'encerrada'; p.fim = Date.now(); await promoGravar(env, p);
+  const ids = JSON.parse((await env.HR_KV.get('promo:ativas')) || '[]').filter(x => x !== p.id); await env.HR_KV.put('promo:ativas', JSON.stringify(ids));
+  const pw = await igPalavra(env); if (pw && pw.promo === p.id) { const ant = JSON.parse((await env.HR_KV.get('promo:palavraAnt:' + p.id)) || 'null'); if (ant) await env.HR_KV.put('ig:palavra', JSON.stringify(ant)); else await env.HR_KV.delete('ig:palavra'); }
+  const snap = await lerSnapshotCompleto(env).catch(() => null), orcs = ((snap && snap.dados && snap.dados.orcamentos) || []).filter(o => String(o.data || '') >= p.de);
+  await enviar(env, para || numeroDono(env), cartaoDono('Fim da campanha: ' + p.titulo, [`Período: ${dataBR(p.de).slice(0, 5)} a ${dataBR(p.ate).slice(0, 5)}`, `Clientes que falaram da promoção com a assistente: ${p.leads || 0}`, `Orçamentos no período: ${orcs.length} · fechados: ${orcs.filter(o => /aprov|fech|aceit/.test(String(o.status || ''))).length}`, p.palavra ? `Pedidos pela palavra ${p.palavra}: ${p.pal || 0}` : null, 'Para outra campanha: *promocao*.']));
+}
+async function promoRotina(env) {
+  const hoje = dataBahia(); if (await env.HR_KV.get('promo:dia:' + hoje)) return;
+  await env.HR_KV.put('promo:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  let ids = []; try { ids = JSON.parse((await env.HR_KV.get('promo:ativas')) || '[]'); } catch (_) {}
+  for (const id of ids) { const p = await promoLer(env, id); if (!p || p.status !== 'ativa') continue;
+    if (p.ate < hoje) { await promoEncerrar(env, p); continue; }
+    if (p.ate === isoSomaDias(hoje, 2) && !p.avUlt) { p.avUlt = 1; await promoGravar(env, p);
+      await enviarComBotoes(env, numeroDono(env), cartaoDono('Campanha acaba em 2 dias', [`*${p.titulo}* vale até ${dataBR(p.ate).slice(0, 5)}.`, `Até agora: ${p.leads || 0} cliente(s) falaram dela com a assistente.`, 'Um vídeo de "últimos dias" costuma trazer quem estava em dúvida.']), [{ id: 'promo|ult|' + p.id, titulo: 'Vídeo últimos dias' }, { id: 'promo|mais|' + p.id, titulo: 'Prorrogar 7 dias' }, { id: 'promo|fim|' + p.id, titulo: 'Encerrar' }]); }
+  }
+}
+async function promoContarLead(env, from, txt) { // cliente citou a promoção/palavra: conta 1 vez por campanha
+  const l = await promoAtivas(env); if (!l.length) return;
+  const t = normaliza(String(txt || ''));
+  for (const p of l) { if (!(p.palavra && t.split(/\W+/).includes(normaliza(p.palavra))) && !/promoc|promo\b|condicao especial|brinde/.test(t)) continue;
+    const k = 'promo:lead:' + p.id + ':' + normalizarBR(from); if (await env.HR_KV.get(k)) continue;
+    await env.HR_KV.put(k, '1', { expirationTtl: 60 * 86400 }); p.leads = (p.leads || 0) + 1; await promoGravar(env, p); }
+}
+// ── dia da HR numa cidade vizinha ──
+async function promoDiaCidade(env, from, cidade, dataTxt) {
+  const hoje = dataBahia(), [dd, mm] = dataTxt.split('/').map(Number); let ano = +hoje.slice(0, 4); let iso = `${ano}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`; if (iso < hoje) iso = `${ano + 1}${iso.slice(4)}`;
+  const cid = cidade.replace(/\b\w/g, c => c.toUpperCase());
+  const i = { titulo: `Dia da HR em ${cid}`, gancho: `HR EM ${normaliza(cid).toUpperCase()}`.slice(0, 22), sub: `${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso).slice(0, 5)}`, linhas: ['Visita técnica e medição GRÁTIS', 'Agende pelo WhatsApp', 'Até 10x sem juros no cartão'],
+    condicao: `No dia ${dataBR(iso).slice(0, 5)} (${DIAS_SEMANA[diaSemanaISO(iso)]}) a equipe da HR estará em ${cid} fazendo visita técnica e medição GRÁTIS. Agende o horário pelo WhatsApp (vagas limitadas). Ofereça esse dia a clientes de ${cid}.`,
+    ate: iso, vagas: 8, cidades: [cid], palavra: 'VISITA', publico: 'cidade',
+    legenda: `📍 A HR Mármores e Granitos vai até ${cid}! ${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso).slice(0, 5)}: visita técnica e medição GRÁTIS para cozinhas, banheiros, escadas e mais. Vagas limitadas: comente VISITA ou chame no WhatsApp para agendar. Parcelamos em até 10x sem juros. #${normaliza(cid).replace(/\W/g, '')} #marmoraria #granito #bahia`,
+    whats: `{nome}, a HR vai estar em ${cid} ${dataBR(iso).slice(0, 5)} fazendo visita técnica e medição grátis. Quer agendar um horário? Vagas limitadas.` };
+  const lote = Date.now().toString(36); await env.HR_KV.put('promo:lote:' + lote, JSON.stringify([i]), { expirationTtl: 7 * 86400 });
+  await enviar(env, from, cartaoDono(i.titulo, [i.condicao.split(' Ofereça')[0], `Vídeo: "${i.gancho}"`, `Mensagem para clientes de ${cid}: "${i.whats}"`, 'Dica: impulsione o vídeo no Instagram para quem mora em ' + cid + ' (R$ 10 a 20 por dia, 3 a 5 dias, já dá alcance bom).']));
+  await enviarComBotoes(env, from, 'Lanço o Dia da HR em ' + cid + '?', [{ id: `promo|ok|${lote}|0`, titulo: 'Lançar' }]);
+  return true;
+}
+// ── estratégia ──
+async function promoEstrategia(env, from) {
+  const cfg = await promoCfg(env), ctx = await promoContexto(env);
+  const sis = `Você é consultor de vendas e marketing de uma marmoraria pequena no interior da Bahia (HR Mármores e Granitos, Pilão Arcado). ${promoRegras(cfg)} Com os dados, escreva um plano prático para os próximos 30 dias para vender mais e entrar nas cidades vizinhas. Responda SÓ com JSON {"plano":["8 a 10 ações curtas e concretas, cada uma com o que fazer, quando e o resultado esperado; cite números dos dados; inclua: qual cidade atacar primeiro e como (dia da HR, parceria com arquiteto/marceneiro/loja de material de construção local, impulsionamento com valor diário), reativar orçamentos parados, pedir indicação, aproveitar as próximas datas, o que postar"],"comandos":["comandos do bot que ajudam (ex.: promocao, dia da HR em Remanso 28/11, video de natal, instagram palavra QUERO)"]}`;
+  const r = lerJsonIA(await chamarIA(env, sis, [], 'DADOS: ' + JSON.stringify(ctx), { maxTokens: 2500, timeoutMs: 45000 }));
+  if (!(r.plano || []).length) throw new Error('sem plano');
+  await enviar(env, from, cartaoDono('Plano de 30 dias para vender mais', r.plano.slice(0, 10).map((x, n) => `${n + 1}. ${x}`)));
+  if ((r.comandos || []).length) await enviar(env, from, 'Comandos para isso: ' + r.comandos.slice(0, 6).map(c => `*${c}*`).join(' · '));
+}
+// ── páginas por cidade (SEO) ──
+async function rotaCidade(req, env, url) {
+  const m = url.pathname.match(/^\/marmoraria-([a-z0-9-]+)\/?$/); if (!m) return null;
+  const nomes = [...await cidLista(env), env.CIDADE_BASE || 'Pilão Arcado']; const cid = nomes.find(n => slugCid(n) === m[1]); if (!cid) return null;
+  const base = await urlPublica(env).catch(() => ''), d = await obrasDados(env).catch(() => ({ obras: [] })), wa = await igLinkWhats(env, `Olá! Sou de ${cid} e quero um orçamento.`).catch(() => '');
+  const ob = (d.obras || []).slice(0, 9), e = escHtmlPonto, desc = `Marmoraria que atende ${cid} - BA: bancadas de cozinha, banheiros, escadas e soleiras em granito, mármore e quartzo. Visita técnica, orçamento sem compromisso e até 10x sem juros.`;
+  const outras = nomes.filter(n => n !== cid).map(n => `<a href="/marmoraria-${slugCid(n)}">${e(n)}</a>`).join(' · ');
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Marmoraria em ${e(cid)} - BA · HR Mármores e Granitos</title><meta name="description" content="${e(desc)}"><link rel="canonical" href="${e(base)}/marmoraria-${m[1]}">
+<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'HomeAndConstructionBusiness', name: 'HR Mármores e Granitos', areaServed: cid + ', BA', address: { '@type': 'PostalAddress', addressLocality: 'Pilão Arcado', addressRegion: 'BA', addressCountry: 'BR' }, url: base, sameAs: ['https://instagram.com/hrmarmoregranito'] })}</script>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#0f0e0c;color:#f3eee5;line-height:1.6}main{max-width:900px;margin:0 auto;padding:28px 20px 70px}h1{font-family:Georgia,serif;font-weight:500;font-size:clamp(2rem,6vw,3rem);line-height:1.1;margin:.2em 0}.o{color:#c9a45c;letter-spacing:.2em;font-size:.75rem;text-transform:uppercase}p{color:#cfc6b8}.g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:22px 0}.g img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px}ul{color:#cfc6b8}.bt{display:inline-block;background:#c9a45c;color:#1a1408;font-weight:700;padding:14px 24px;border-radius:99px;text-decoration:none;margin:8px 8px 0 0}.b2{background:none;border:1px solid #c9a45c;color:#e3c88f}a{color:#e3c88f}footer{margin-top:40px;font-size:.85rem;color:#8a8276}@media(max-width:560px){.g{grid-template-columns:1fr 1fr}}</style></head><body><main>
+<div class="o">HR Mármores e Granitos</div><h1>Marmoraria em ${e(cid)}</h1><p>${e(desc)}</p>
+<a class="bt" href="${e(wa || '#')}">Pedir orçamento no WhatsApp</a><a class="bt b2" href="/obras">Ver o álbum de obras</a>
+${ob.length ? '<div class="g">' + ob.map(o => `<img loading="lazy" src="/portfolio/img/obra/${encodeURIComponent(o.fotos[0])}" alt="${e(o.t)}">`).join('') + '</div>' : ''}
+<h2>Como funciona para quem é de ${e(cid)}</h2><ul><li>Visita técnica e medição no local, com dia combinado.</li><li>Orçamento sem compromisso, com fotos das pedras.</li><li>Projeto e cozinha em 3D antes de cortar.</li><li>Pagamento em até 10x sem juros no cartão ou desconto à vista.</li></ul>
+<h2>Serviços</h2><p>Bancadas de cozinha, ilhas, banheiros e lavabos, escadas, soleiras e peitoris, mesas e túmulos em granito, mármore e quartzo.</p>
+<footer>Também atendemos: ${outras}</footer></main></body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
+}
+async function rotaSitemap(env) {
+  const b = await urlPublica(env).catch(() => ''), nomes = [...await cidLista(env), env.CIDADE_BASE || 'Pilão Arcado'];
+  const u = ['/', '/obras', '/portfolio', ...nomes.map(n => '/marmoraria-' + slugCid(n))];
+  return new Response(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${u.map(x => `<url><loc>${b}${x}</loc></url>`).join('')}</urlset>`, { headers: { 'Content-Type': 'application/xml' } });
+}
+async function promoComando(env, from, bruto, msg) {
+  if (/^(promocoes?|promocao|ideias? de promocao|campanha|campanhas|nova promocao|criar promocao)$/.test(msg)) {
+    const at = await promoAtivas(env);
+    if (at.length && msg !== 'nova promocao' && msg !== 'criar promocao') await enviar(env, from, 'Ativas agora: ' + at.map(p => `*${p.titulo}* (até ${dataBR(p.ate).slice(0, 5)}, ${p.leads || 0} interessado(s))`).join('; ') + '. Para encerrar: *encerrar promocao*.');
+    await enviar(env, from, 'Estudando os números da HR para montar 3 campanhas…');
+    try { await promoIdeias(env, from, ''); } catch (e) { await enviar(env, from, await textoFalhaIA(env, e)); }
+    return true;
+  }
+  const mp = String(bruto).match(/^\s*(?:promo[cç][aã]o|campanha)\s*:\s*(.{8,})$/i);
+  if (mp) { await enviar(env, from, 'Montando a campanha…'); try { await promoIdeias(env, from, mp[1].trim()); } catch (e) { await enviar(env, from, 'Não consegui montar agora: ' + String(e.message).slice(0, 100)); } return true; }
+  if (/^(encerrar|parar|acabar|terminar) (a )?(promocao|campanha)$/.test(msg)) { const at = await promoAtivas(env); if (!at.length) { await enviar(env, from, 'Nenhuma campanha ativa.'); return true; } for (const p of at) await promoEncerrar(env, p, from); return true; }
+  const md = msg.match(/^(?:dia da hr|hr) em (.+?) (?:dia )?(\d{1,2}\/\d{1,2})$/); if (md) return promoDiaCidade(env, from, md[1], md[2]);
+  if (/^(estrategia|estrategias|plano de vendas|como vender mais|plano de 30 dias)$/.test(msg)) { await enviar(env, from, 'Montando o plano com os números da HR…'); try { await promoEstrategia(env, from); } catch (e) { await enviar(env, from, 'Não consegui montar o plano agora.'); } return true; }
+  const mc = String(bruto).match(/^\s*cidades\s*:\s*(.+)$/i);
+  if (mc) { const l = mc[1].split(/\s*[,;\/]\s*/).map(x => x.trim()).filter(Boolean).slice(0, 15); await env.HR_KV.put('cid:lista', JSON.stringify(l)); await enviar(env, from, `Cidades vizinhas: ${l.join(', ')}. Cada uma ganhou uma página no site para aparecer no Google.`); return true; }
+  if (/^(cidades|cidades vizinhas|paginas das cidades)$/.test(msg)) { const b = await urlPublica(env); const l = await cidLista(env);
+    await enviar(env, from, cartaoDono('Cidades vizinhas', [...l.map(n => `${n}: ${b}/marmoraria-${slugCid(n)}`), 'Para mudar: *cidades: Remanso, Xique-Xique, ...*', 'Para ir até uma: *dia da HR em Remanso 28/11*.'])); return true; }
+  if (/^video da promocao$/.test(msg)) { const at = await promoAtivas(env); if (!at.length) { await enviar(env, from, 'Nenhuma campanha ativa.'); return true; } const p = at[at.length - 1];
+    const j = await cartaoCriar(env, { chave: 'promov:' + p.id + ':' + Date.now(), titulo: p.titulo.toUpperCase().slice(0, 22), sub: `Até ${dataBR(p.ate).slice(0, 5)}`, linhas: [p.condicao.slice(0, 38)], legenda: p.legenda || p.condicao });
+    await enviar(env, from, j ? 'Fazendo o vídeo da campanha; a prévia chega já já.' : 'O editor do computador não está ligado.'); return true; }
+  return false;
+}
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
 //   O Sr. Hangel manda fotos/vídeos com "obra ..." (ex.: "obra cozinha da Maria em granito preto"). Cada obra:
@@ -15731,6 +15930,7 @@ async function cartaoSobDemanda(env, from, msg) { // v91b: "video de ano novo", 
 async function vdComandoDono(env, from, bruto, msg) {
   if (/ano novo|reveillon|natal|boas festas|feriado/.test(msg) && /\b(video|cartao|previa|arte|post)\b/.test(msg)) await env.HR_KV.put('cart:ultimo:' + from, msg, { expirationTtl: 3600 });
   if (await cartaoComandoTexto(env, from, bruto, msg)) return true; // v91c
+  if (await promoComando(env, from, bruto, msg)) return true; // v92
   if (await cartaoSobDemanda(env, from, msg)) return true; // v91b
   if (/^(painel( da)? oficina|painel da tv|tv da oficina|link da oficina)$/.test(msg)) { // v91
     let t = await env.HR_KV.get('ofi:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2, 12); await env.HR_KV.put('ofi:tok', t); }
@@ -16408,6 +16608,12 @@ async function igMidiaStat(env, media, campo, valor) {
     const ks = Object.keys(s); if (ks.length > 120) delete s[ks[0]]; await env.HR_KV.put(k, JSON.stringify(s), { expirationTtl: 400 * 86400 }); } catch (_) {}
 }
 async function igPalavraMensagem(env, nome, media) {
+  const pw0 = await igPalavra(env), pr = pw0 && pw0.promo ? await promoLer(env, pw0.promo) : null; // v92: palavra de campanha
+  if (pr && pr.status === 'ativa') { pr.pal = (pr.pal || 0) + 1; await promoGravar(env, pr);
+    const link = await igLinkWhats(env, `Olá! Vi a promoção "${pr.titulo}" no Instagram e quero aproveitar.${await igRefPost(env, media)}`);
+    return { link, cat: await igLinkCatalogo(env), texto: `Oi${nome ? ' ' + nome : ''}! 😊 ${pr.titulo}: ${pr.condicao}
+
+Válido até ${dataBR(pr.ate).slice(0, 5)}. Chame a nossa equipe no WhatsApp para garantir${link ? ': ' + link : '.'}` }; }
   const link = await igLinkWhats(env, `Olá! Vi o post de vocês no Instagram${nome ? ' (' + nome + ')' : ''} e quero um orçamento.${await igRefPost(env, media)}`);
   const cat = await igLinkCatalogo(env);
   return { link, cat, texto: `Oi${nome ? ' ' + nome : ''}! Aqui está o que você pediu 😊\n\n` + (cat ? `Pedras e trabalhos da HR: ${cat}\n\n` : '') + `Orçamento sem compromisso, direto com a nossa equipe no WhatsApp${link ? ': ' + link : '.'}\n\nO projeto pode ser parcelado em até 10x sem juros no cartão.` };
@@ -18360,6 +18566,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('relatório do mês', () => relRotina(e2));
   await passo('compra programada', () => cpRotina(e2, snap));
   await passo('manutenção', () => manutRotina(e2));
+  await passo('promoções', () => promoRotina(e2));
   return { ok: true, feitos };
 }
 
@@ -24771,6 +24978,8 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
+    if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
+    if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));
     if (url.pathname === '/ponto' || url.pathname.startsWith('/ponto/')) return rotaPonto(req, env, ctx, url); // v34: HR Ponto
     if (url.pathname.startsWith('/pagar/')) return rotaPagar(req, env, url); // v49: página de pagamento da HR
     if (url.pathname.startsWith('/m/')) return rotaMidia(req, env, url); // v69: mídia dos posts (Instagram e prévias)
