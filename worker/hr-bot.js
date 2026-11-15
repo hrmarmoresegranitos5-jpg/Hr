@@ -1908,6 +1908,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('cartv|')) return cartaoBotao(env, from, id); // v91c
   if (id.startsWith('promo|')) return promoBotao(env, from, id); // v92
   if (id.startsWith('rtp|')) return rtpBotao(env, from, id); // v93
+  if (id.startsWith('qcob|')) return qcobBotao(env, from, id); // v94
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -12170,9 +12171,14 @@ async function tratarRetomadaCliente(env, from, m) {
   const salvar = async () => { for (const v of variantesNumero(reg.num)) await env.HR_KV.put('rt:' + v, JSON.stringify(reg), { expirationTtl: 14 * 86400 }); };
   const quem = reg.nome || 'o cliente', nomeC = reg.nome ? ', ' + reg.nome : '';
   let sim = /^rt_sim\|/.test(id), nao = /^rt_nao\|/.test(id);
-  if (m.type === 'button' && !sim && !nao) { const t = normaliza(m.button?.text || ''); sim = /^sim/.test(t); nao = /^nao/.test(t); }
+  if (m.type === 'button' && !sim && !nao) { const t = normaliza(m.button?.text || ''); sim = /^(sim|quero continuar)/.test(t); nao = /^(nao|agora nao)/.test(t); }
   if (sim || nao) {
-    if (reg.status !== 'enviado' && reg.status !== 'respondeu') return true; // já respondeu antes
+    if (reg.status !== 'enviado' && reg.status !== 'respondeu') return reg.tipo === 'rtp' && sim ? false : true; // já respondeu antes
+    if (sim && reg.tipo === 'rtp') { // v94: retomada pelo print → a assistente responde com o contexto completo
+      reg.status = 'sim'; await salvar();
+      await notificarDono(env, Date.now(), `✅ *${quem}* tocou em "Quero continuar" (${reg.pedido}). A assistente já está atendendo com tudo o que o senhor combinou.`).catch(() => {});
+      return false;
+    }
     if (sim) {
       reg.status = 'sim'; await salvar();
       await enviar(env, from, `Que ótimo${nomeC}! Agradecemos o retorno.\n\nSobre o seu orçamento de ${reg.pedido}: prefere que eu confirme o valor para fecharmos o pedido, ou deseja ajustar alguma medida ou conhecer outras opções de pedra?`);
@@ -13511,6 +13517,7 @@ async function tratarAssumir(env, from, bruto, msg) {
   if (await tratarRecebiDinheiro(env, from, bruto, msg)) return true; // "recebi 72,13 do fulano em dinheiro": baixa na cobrança + finanças
   if (await tratarExtratoMP(env, from, msg)) return true;
   if (await tratarReceberComando(env, from, msg, bruto)) return true; // Etapa 72: "a receber", "telefone <cliente> <número>", "parar aviso <cliente>"
+  if (await qcobComando(env, from, bruto, msg).catch(e => { console.log('[QCOB]', e.message); return false; })) return true; // v94: cobrar entrega de sábado
   if (await tratarCobrancaD1Comando(env, from, msg)) return true; // "cobrar pix" (módulo novo); o "cobrar" antigo segue abaixo
   if (await tratarHistorico(env, from, msg)) return true; // Etapa 63: "historico <nome>"
   if (await tratarCobranca(env, from, msg)) return true;
@@ -15729,9 +15736,15 @@ Responda SÓ JSON: {"nome":"primeiro nome","pedido":"o que ele quer, curto, ex.:
 }
 async function rtpEnviar(env, from, reg) {
   const tpl = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta').catch(() => null)) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
-  let via = null, erro = '';
-  try { via = await enviarProativo(env, reg.num, reg.mensagem, { nome: tpl, params: [reg.curta] }); } catch (e) { erro = String(e.message || e); }
-  const enviado = via === 'texto' ? reg.mensagem : reg.curta;
+  let via = null, erro = '', enviado = reg.curta;
+  const corpo = rtpCorpoModelo(reg.mensagem);
+  try {
+    if (await cbJanelaAberta(env, reg.num).catch(() => false)) { await enviar(env, reg.num, reg.mensagem); via = 'texto'; enviado = reg.mensagem; }
+    else if (corpo && await tplAprovado(env, 'hr_continuar_atendimento')) { // v94: mensagem completa pelo modelo aprovado
+      await postarMsg(env, reg.num, { type: 'template', template: { name: 'hr_continuar_atendimento', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(String(reg.nome || 'tudo bem').split(' ')[0]).slice(0, 30) || 'tudo bem' }, { type: 'text', text: corpo }] }] } });
+      via = 'longo'; enviado = `Olá, ${reg.nome || ''}! Aqui é da HR Mármores e Granitos. ${corpo} Pode me responder por aqui mesmo.`;
+    } else { via = await enviarProativo(env, reg.num, reg.mensagem, { nome: tpl, params: [reg.curta] }); await rtpGarantirModelo(env).catch(() => {}); }
+  } catch (e) { erro = String(e.message || e); }
   if (!via) { const url = `https://wa.me/${reg.num}?text=${encodeURIComponent(reg.mensagem)}`;
     try { await postarMsg(env, from, { type: 'interactive', interactive: { type: 'cta_url', body: { text: `A Meta não deixou o bot escrever primeiro para esse número${erro ? ' (' + erro.slice(0, 80) + ')' : ''}. Toque e envie o senhor mesmo; quando ele responder, a assistente continua.` }, action: { name: 'cta_url', parameters: { display_text: 'Enviar pelo WhatsApp', url } } } }); } catch (_) { await enviar(env, from, url); } }
   const pn = reg.nome;
@@ -15745,9 +15758,21 @@ async function rtpEnviar(env, from, reg) {
     if (pn) await env.HR_KV.put('nm:' + v, JSON.stringify({ nome: pn }), { expirationTtl: LEAD_TTL }).catch(() => {});
     await env.HR_KV.put('apr2:' + ultimos8(v), '1', { expirationTtl: apresTtl(env) }).catch(() => {});
     await env.HR_KV.put('ini:' + ultimos8(v), '1', { expirationTtl: 6 * 3600 }).catch(() => {});
-    await env.HR_KV.put('rt:' + v, JSON.stringify({ id: Date.now(), num: reg.num, nome: pn, pedido: reg.pedido, em: Date.now(), status: 'enviado' }), { expirationTtl: 14 * 86400 });
+    await env.HR_KV.put('rt:' + v, JSON.stringify({ id: Date.now(), num: reg.num, nome: pn, pedido: reg.pedido, em: Date.now(), status: 'enviado', tipo: 'rtp' }), { expirationTtl: 14 * 86400 });
   }
-  if (via) await enviar(env, from, via === 'texto' ? `Enviado para ${pn || 'o cliente'}. Te aviso quando responder; a assistente já sabe do orçamento.` : `Ele não falava com o número da HR há mais de 24 h, então foi pelo modelo da Meta, na versão curta: "${reg.curta}". Quando responder, a assistente continua com tudo e te aviso.`);
+  if (via) await enviar(env, from, via === 'texto' ? `Enviado para ${pn || 'o cliente'}. Te aviso quando responder; a assistente já sabe do orçamento.` : via === 'longo' ? `Enviado para ${pn || 'o cliente'} pelo modelo aprovado, com a mensagem completa e os botões "Quero continuar" / "Agora não". Quando responder, a assistente continua e te aviso.` : `Ele não falava com o número da HR há mais de 24 h, então foi pelo modelo da Meta, na versão curta: "${reg.curta}". Quando responder, a assistente continua com tudo e te aviso.`);
+}
+function rtpCorpoModelo(t) { // a Meta não aceita quebra de linha nem 4+ espaços no parâmetro; a saudação já está no modelo
+  return semEmoji(String(t || '')).replace(/^\s*(oi+|ol[aá]|bom dia|boa tarde|boa noite|e a[ií])[^,.!?]{0,30}[,.!?]+\s*/i, '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').replace(/^[a-zà-ú]/, c => c.toUpperCase()).trim().slice(0, 700);
+}
+async function rtpGarantirModelo(env) { // cria o modelo na Meta uma vez (aprovação costuma levar minutos)
+  if (await env.HR_KV.get('tpl:cria:hrca')) return;
+  await env.HR_KV.put('tpl:cria:hrca', '1', { expirationTtl: 6 * 3600 });
+  const l = await tplLista(env, true).catch(() => null); if (!l || l.find(x => x.nome === 'hr_continuar_atendimento')) return;
+  const waba = await tplWaba(env); if (!waba) return;
+  const t = TPL_PADRAO.find(x => x.name === 'hr_continuar_atendimento');
+  await graphJson(env, `https://graph.facebook.com/${gv(env)}/${waba}/message_templates`, { method: 'POST', headers: { ...authBearer(env), 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+  await env.HR_KV.delete('tpl:lista');
 }
 async function rtpBotao(env, from, id) {
   const [, ac, k] = id.split('|');
@@ -15772,6 +15797,66 @@ async function rtpEditar(env, from, bruto) { // "mensagem: ..." troca o texto da
   reg.mensagem = m[1].trim().slice(0, 900); if (reg.mensagem.length <= 200) reg.curta = reg.mensagem;
   await env.HR_KV.put('rtp:p:' + k, JSON.stringify(reg), { expirationTtl: 3 * 86400 });
   await enviarComBotoes(env, from, reg.mensagem, [{ id: 'rtp|env|' + k, titulo: 'Enviar' }, { id: 'rtp|no|' + k, titulo: 'Cancelar' }]);
+  return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v94: COBRANÇA RÁPIDA DE ENTREGA — "cobra os peitoris que entreguei sábado", "cobrar entrega de ontem",
+//   "cobrar o cliente da soleira de 14/11": acha no livro de entregas / agenda do app quem recebeu e não pagou,
+//   monta a cobrança com Pix/link (prévia com "Aprovar e enviar") e os lembretes automáticos seguem sozinhos.
+// ═════════════════════════════════════════════════════════════════════════════
+function qcobData(msg) {
+  const hoje = dataBahia(), dias = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+  if (/\banteontem\b/.test(msg)) return isoSomaDias(hoje, -2);
+  if (/\bontem\b/.test(msg)) return isoSomaDias(hoje, -1);
+  if (/\bhoje\b/.test(msg)) return hoje;
+  const dm = msg.match(/\b(\d{1,2})\/(\d{1,2})\b/); if (dm) { let iso = `${hoje.slice(0, 4)}-${dm[2].padStart(2, '0')}-${dm[1].padStart(2, '0')}`; if (iso > hoje) iso = `${+hoje.slice(0, 4) - 1}${iso.slice(4)}`; return iso; }
+  for (let i = 0; i < 7; i++) if (new RegExp('\\b' + dias[i] + '(-feira)?\\b').test(msg)) { let d = hoje; for (let k = 0; k < 7; k++) { if (diaSemanaISO(d) === i && d !== hoje) return d; d = isoSomaDias(d, -1); } }
+  return '';
+}
+async function qcobCandidatos(env, data, palavras) {
+  const out = [], hoje = dataBahia(), cabe = t => !palavras.length || palavras.some(w => normaliza(t || '').includes(w));
+  for (const r of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(r.entregaEm); if (!d || !livTemSaldo(r)) continue;
+    if (data ? d !== data : d < isoSomaDias(hoje, -15)) continue;
+    if (!cabe(r.desc)) continue;
+    out.push({ src: 'liv', id: r.id, nome: r.cliente, desc: r.desc || 'serviço entregue', saldo: livSaldo(r), tel: r.tel ? normalizarBR(r.tel) : '', entrega: d });
+  }
+  const snap = await lerSnapshotCompleto(env).catch(() => null);
+  for (const a of ((snap && snap.dados && snap.dados.agenda) || [])) {
+    const d = String(a.entrega || '').slice(0, 10); if (!d) continue;
+    if (data ? d !== data : d < isoSomaDias(hoje, -15) || d > hoje) continue;
+    const saldo = Math.round(((+a.valor || 0) - (+a.pago || 0)) * 100) / 100; if (!(saldo > 0) || !cabe(a.servico)) continue;
+    if (out.some(x => normaliza(x.nome).split(' ')[0] === normaliza(a.cliente).split(' ')[0])) continue;
+    out.push({ src: 'ag', id: a.id || a.cliente, nome: a.cliente, desc: a.servico || 'serviço entregue', saldo, tel: await cliTelPorNome(env, snap, a.cliente), entrega: d });
+  }
+  return out;
+}
+async function qcobComando(env, from, bruto, msg) {
+  if (!/\b(cobra|cobrar|cobre|cobranca)\b/.test(msg) || /\?\s*$/.test(String(bruto).trim()) || /\b(pix|boletos?)\b/.test(msg)) return false;
+  const resto = msg, data = qcobData(resto);
+  const temEntrega = /\bentreg\w*|\bpeitor\w*|\bsoleir\w*|\bbancad\w*|\bpia\b|\bescad\w*|\blavator\w*|\bmesa\b|\btumul\w*|\bnicho\b|\bfilete\b/.test(resto);
+  if (!data && !temEntrega) return false; // "cobrar fulano" / "cobrar pix": fluxos antigos
+  const palavras = (resto.match(/\b(peitor|soleir|bancad|pia|escad|lavator|mesa|tumul|nicho|filete|cuba|ilha)\w*/g) || []).map(w => w.slice(0, 5));
+  const c = await qcobCandidatos(env, data, palavras);
+  const quando = data ? `${DIAS_SEMANA[diaSemanaISO(data)]}, ${dataBR(data).slice(0, 5)}` : 'nos últimos 15 dias';
+  if (!c.length) { await enviar(env, from, `Não achei entrega${palavras.length ? ' de ' + palavras.join('/') + '…' : ''} com saldo em aberto ${data ? 'de ' + quando : quando}, nem no livro de entregas nem na agenda do app. Mande assim: *cobrar Fulano 350 dos peitoris* (com o número dele se for a primeira vez).`); return true; }
+  if (c.length === 1) return qcobCriar(env, from, c[0]);
+  const k = Date.now().toString(36); await env.HR_KV.put('qcob:' + k, JSON.stringify(c.slice(0, 3)), { expirationTtl: 86400 });
+  await enviarComBotoes(env, from, cartaoDono(`Entregas com saldo (${quando})`, c.slice(0, 3).map((x, i) => `${i + 1}. ${x.nome}: ${x.desc} · falta R$ ${reais(x.saldo)}`).concat(c.length > 3 ? [`… e mais ${c.length - 3}. Diga o nome: *cobrar Fulano ${data ? 'de ' + dataBR(data).slice(0, 5) : 'dos peitoris'}*`] : [], ['Qual eu cobro?'])), c.slice(0, 3).map((x, i) => ({ id: `qcob|${k}|${i}`, titulo: String(x.nome).split(' ').slice(0, 2).join(' ').slice(0, 20) })));
+  return true;
+}
+async function qcobBotao(env, from, id) {
+  const [, k, i] = id.split('|'); const l = JSON.parse((await env.HR_KV.get('qcob:' + k)) || 'null');
+  if (!l || !l[+i]) { await enviar(env, from, 'Essa lista expirou. Peça a cobrança de novo.'); return true; }
+  return qcobCriar(env, from, l[+i]);
+}
+async function qcobCriar(env, from, x) {
+  if (!x.saldo || x.saldo <= 0) { await enviar(env, from, `${x.nome}: não sei o valor que falta. Mande: *cobrar ${String(x.nome).split(' ')[0]} 350 ${String(x.desc).toLowerCase()}*.`); return true; }
+  if (!cbAtivo(env)) { await enviar(env, from, 'O sistema de cobrança com Pix precisa do banco HR_DB ligado ao Worker.'); return true; }
+  const r = await cbFerramentaCriar(env, from, { cliente: x.tel ? x.tel.replace(/^55/, '') : x.nome, nome: x.nome, valor: x.saldo, descricao: `${x.desc} (entregue ${dataBR(x.entrega).slice(0, 5)})`.slice(0, 60), regua: true });
+  if (r && r.erro) { await enviar(env, from, `Não montei a cobrança de ${x.nome}: ${r.texto}`); return true; }
+  await enviar(env, from, `Acima está a cobrança de ${x.nome} (${x.desc}, entregue ${DIAS_SEMANA[diaSemanaISO(x.entrega)].replace('-feira', '')}). Tocando em *Aprovar e enviar*, ele recebe a mensagem com o Pix e o link para pagar, mesmo sem ter conversado com a HR nas últimas 24 h. Se não pagar, os lembretes seguem sozinhos e o senhor é avisado quando ele ler e quando pagar.`);
   return true;
 }
 // ═════════════════════════════════════════════════════════════════════════════
@@ -16017,6 +16102,7 @@ async function acvMigrarSoltos(env) {
 }
 async function vdRotina(env) {
   await cliFilaTick(env).catch(e => console.log('[FILA]', e.message)); // v91
+  await rtpGarantirModelo(env).catch(e => console.log('[TPL] continuar:', e.message)); // v94
   if (!estAtivo(env)) return;
   if (!(await env.HR_KV.get('ig:imp:auto')) && await igToken(env)) { await env.HR_KV.put('ig:imp:auto', '1', { expirationTtl: 400 * 86400 }); await env.HR_KV.put('ig:imp:ligado', '1', { expirationTtl: 30 * 86400 }); } // v89b: traz os posts antigos uma vez, sozinho
   if (await env.HR_KV.get('ig:imp:ligado') && !(await env.HR_KV.get('ig:imp:tick'))) { await env.HR_KV.put('ig:imp:tick', '1', { expirationTtl: 300 }); const r = await igImportarAntigos(env, 8).catch(e => { console.log('[IG] importar:', e.message); return { resta: true }; }); if (!r.resta) await env.HR_KV.delete('ig:imp:ligado'); }
@@ -16563,6 +16649,9 @@ const TPL_PADRAO = [
   { name: 'hr_orcamento_pronto', category: 'UTILITY', language: 'pt_BR', components: [
     { type: 'BODY', text: 'Olá, {{1}}! Aqui é a HR Mármores e Granitos. O orçamento de {{2}} que você pediu está pronto. Posso te enviar por aqui?', example: { body_text: [['Eliane', 'peitoris em Preto São Gabriel']] } },
     { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Pode enviar' }, { type: 'QUICK_REPLY', text: 'Agora não' }] }] },
+  { name: 'hr_continuar_atendimento', category: 'MARKETING', language: 'pt_BR', components: [ // v94: retomada com a mensagem inteira, fora das 24 h
+    { type: 'BODY', text: 'Olá, {{1}}! Aqui é da HR Mármores e Granitos. {{2}} Pode me responder por aqui mesmo.', example: { body_text: [['Joana', 'Sobre a bancada da sua cozinha em Branco Itaúnas: separei umas fotos de uma obra parecida que entregamos este mês. Conseguiu ver com seu marido?']] } },
+    { type: 'BUTTONS', buttons: [{ type: 'QUICK_REPLY', text: 'Quero continuar' }, { type: 'QUICK_REPLY', text: 'Agora não' }] }] },
   { name: 'hr_resposta', category: 'UTILITY', language: 'pt_BR', components: [
     { type: 'BODY', text: 'Olá! Aqui é a assistente virtual da HR Mármores e Granitos. {{1}}', example: { body_text: [['Sua visita técnica ficou confirmada para amanhã às 9h.']] } }] },
 ];
