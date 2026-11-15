@@ -1901,6 +1901,7 @@ async function tratarBotao(env, from, id, F) {
   if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep' || id === 'folha_ja') return rhFolhaBotao(env, from, id); // v81
   if (id.startsWith('bolrev|')) return bolRevBotao(env, from, id); // v84
   if (id.startsWith('igq|')) return igAgendarBotao(env, from, id); // v87
+  if (id.startsWith('fer|')) return feriadoBotao(env, from, id); // v90e
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -4608,7 +4609,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
-      exped: situacaoExpediente(env), hojeTxt: textoHoje(env), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
+      exped: situacaoExpediente((await env.HR_KV.get('fer:dec:' + dataBahia())) === 'trab' ? Object.assign(Object.create(env), { _trabHoje: true }) : env), hojeTxt: textoHoje(env), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
@@ -5141,7 +5142,7 @@ function situacaoExpediente(env) {
   if (!faixas.length) return { aberto: true, retorno: '', rotulo: '' };
   const { dia, min } = agoraBahia(), hoje = dataBahia();
   const fer = iso => feriadosDoAno(env, +iso.slice(0, 4)).has(iso); // v90d: feriado também fecha o expediente
-  const aberto = !fer(hoje) && faixas.some(f => f.dia === dia && min >= f.ini && min < f.fim);
+  const aberto = (env._trabHoje || !fer(hoje)) && faixas.some(f => f.dia === dia && min >= f.ini && min < f.fim);
   let retorno = '';
   if (!aberto) {
     for (let n = 0; n <= 8 && !retorno; n++) {
@@ -17764,25 +17765,51 @@ async function lerSnapshotCompleto(env) {
 }
 const ehAberto = a => !a.concluido && a.etapa !== 'entregue';
 
+// v90e: avisos de feriado bem antes — 30, 15, 7, 2 e 1 dia(s) antes; feriado em fim de semana também (só 7 e 1 dia antes),
+// com botões: dar folga (o ponto não cobra a equipe e ela recebe o aviso no celular) ou trabalhar normalmente.
 async function avisosFeriado(env, snap) {
   const hoje = dataBahia();
   const abertas = ((snap && snap.dados && snap.dados.agenda) || []).filter(ehAberto);
-  for (const f of feriadosAdiante(env, hoje, 10)) {
-    if (!feriadoImpacta(env, f)) continue;
-    const etapa = f.em > 3 ? '10' : '3'; // quem entra a menos de 3 dias recebe só o aviso final
+  for (const f of feriadosAdiante(env, hoje, 31)) {
+    const util = feriadoImpacta(env, f);
+    const etapa = f.em <= 1 ? '1' : f.em <= 2 ? '2' : f.em <= 7 ? '7' : f.em <= 15 ? '15' : '30';
+    if (!util && !['7', '1'].includes(etapa)) continue;
     if (await jaAvisou(env, `fer:${f.iso}:${etapa}`)) continue;
-    const quando = f.em === 1 ? 'amanhã' : `em ${f.em} dias`;
-    const l = [`Sr. Hangel, aviso de feriado: *${f.nome}*, ${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)} (${quando}).`, ''];
-    if (f.dow === 2) l.push('Cai numa terça-feira: a segunda-feira pode virar ponte. Vale combinar com a equipe.');
-    if (f.dow === 4) l.push('Cai numa quinta-feira: a sexta-feira pode virar ponte. Vale combinar com a equipe.');
-    const noDia = abertas.filter(a => a.entrega === f.iso);
-    const apertadas = abertas.filter(a => a.entrega > f.iso && diasCorridos(f.iso, a.entrega) <= 3);
-    if (noDia.length) l.push(`*Entregas previstas para esse dia:* ${noDia.map(a => a.cliente).join(', ')}. Convém antecipar ou reprogramar.`);
-    if (apertadas.length) l.push(`*Entregas até 3 dias depois (ficam apertadas):* ${apertadas.map(a => `${a.cliente} (${dataBR(a.entrega)})`).join(', ')}.`);
-    const ex = calcularPrazo(env, { uteis: 5 });
-    l.push(`*Orçamentos novos:* os prazos em dias úteis já descontam este feriado. Um pedido de 5 dias úteis feito hoje tem entrega prevista em ${dataBR(ex.entrega_prevista)}.`);
-    await avisarDono(env, l.join('\n'));
+    const quando = f.em === 1 ? '*amanhã*' : `daqui a *${f.em} dias*`;
+    const decidido = await env.HR_KV.get('fer:dec:' + f.iso);
+    const l = [`${f.nome}: ${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso)} (${quando}).`];
+    if (!util) l.push('Cai no fim de semana: o expediente não muda, mas fornecedores, bancos e transportadoras podem não funcionar.');
+    if (util && f.dow === 2) l.push('Cai numa terça: a segunda pode virar ponte. Vale combinar com a equipe.');
+    if (util && f.dow === 4) l.push('Cai numa quinta: a sexta pode virar ponte. Vale combinar com a equipe.');
+    if (util) {
+      const noDia = abertas.filter(a => a.entrega === f.iso);
+      const apertadas = abertas.filter(a => a.entrega > f.iso && diasCorridos(f.iso, a.entrega) <= 3);
+      if (noDia.length) l.push(`Entregas marcadas para o feriado: ${noDia.map(a => a.cliente).join(', ')}. Convém antecipar ou reprogramar e avisar o cliente.`);
+      if (apertadas.length) l.push(`Entregas até 3 dias depois (ficam apertadas): ${apertadas.map(a => `${a.cliente} (${dataBR(a.entrega)})`).join(', ')}.`);
+      if (etapa !== '1') { const ex = calcularPrazo(env, { uteis: 5 }); l.push(`Prazos novos já descontam o feriado (5 dias úteis a partir de hoje = ${dataBR(ex.entrega_prevista)}).`); }
+      if (f.em >= 2) l.push('Lembre de comprar material e pagar contas que vencem no dia antes.');
+      if (decidido) l.push(decidido === 'folga' ? 'Já combinado: *folga*.' : 'Já combinado: *vamos trabalhar*.');
+    }
+    const tit = `Feriado ${f.em <= 2 ? 'chegando' : 'em ' + f.em + ' dias'}`;
+    if (util && !decidido) await enviarComBotoes(env, numeroDono(env), cartaoDono(tit, l), [{ id: 'fer|folga|' + f.iso, titulo: 'Folga para todos' }, { id: 'fer|trab|' + f.iso, titulo: 'Vamos trabalhar' }]);
+    else await avisarDono(env, cartaoDono(tit, l));
   }
+}
+async function feriadoBotao(env, from, id) {
+  if (!ehDono(env, from)) return true;
+  const [, acao, iso] = id.split('|'); if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return true;
+  const nome = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso) || 'feriado';
+  await env.HR_KV.put('fer:dec:' + iso, acao, { expirationTtl: 60 * 86400 });
+  const cfg = await pontoCfg(env); cfg.feriados = cfg.feriados || [];
+  if (acao === 'folga') {
+    if (!cfg.feriados.includes(iso)) { cfg.feriados.push(iso); cfg.feriados = cfg.feriados.filter(d => d >= dataBahia(-30)).slice(-40); await pontoCfgSalvar(env, cfg); }
+    let n = 0; for (const f of cfg.funcs) { try { await pontoNotificar(env, f, 'Folga no feriado', `${nome} (${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso)}) é folga. Não precisa bater o ponto.`, 'feriado-' + iso); n++; } catch (_) {} }
+    await enviar(env, from, `Combinado: *folga* em ${dataBR(iso)} (${nome}). O ponto não vai cobrar ninguém nesse dia${n ? ' e avisei a equipe no app do ponto' : ''}. Os clientes vão ouvir que a equipe volta no dia útil seguinte.`);
+  } else {
+    if (cfg.feriados.includes(iso)) { cfg.feriados = cfg.feriados.filter(d => d !== iso); await pontoCfgSalvar(env, cfg); }
+    await enviar(env, from, `Combinado: *vamos trabalhar* em ${dataBR(iso)} (${nome}). Se quiser avisar a equipe, mande aqui que eu encaminho.`);
+  }
+  return true;
 }
 
 async function avisoSnapshotVelho(env, snap) {
