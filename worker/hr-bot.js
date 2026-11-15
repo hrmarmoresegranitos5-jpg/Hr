@@ -15161,7 +15161,7 @@ async function cliFilaTick(env) {
   const tpl = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta').catch(() => null)) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
   const lote = f.splice(0, 6), res = JSON.parse((await env.HR_KV.get('cli:fila:res')) || '{"ok":0,"falha":0}');
   for (const x of lote) {
-    let via = null; try { via = await enviarProativo(env, x.num, x.texto, x.texto.length <= 200 ? { nome: tpl, params: [x.texto] } : null); } catch (e) { console.log('[FILA]', x.num, e.message); }
+    let via = null; try { via = (await cbJanelaAberta(env, x.num).catch(() => false)) ? (await enviar(env, x.num, x.texto), 'texto') : ((await tplCadeiaEnviar(env, x.num, { nome: x.nome, mensagem: x.texto, curta: x.texto.slice(0, 200), pedido: x.pedido || '' })) || {}).via || null; } catch (e) { console.log('[FILA]', x.num, e.message); } // v95
     if (via) { res.ok++; await semearConversaProativa(env, x.num, x.texto).catch(() => {}); } else { res.falha++; (res.falhas = res.falhas || []).push(x.nome || x.num); }
   }
   await env.HR_KV.put('cli:fila', JSON.stringify(f), { expirationTtl: 10 * 86400 });
@@ -15740,10 +15740,11 @@ async function rtpEnviar(env, from, reg) {
   const corpo = rtpCorpoModelo(reg.mensagem);
   try {
     if (await cbJanelaAberta(env, reg.num).catch(() => false)) { await enviar(env, reg.num, reg.mensagem); via = 'texto'; enviado = reg.mensagem; }
-    else if (corpo && await tplAprovado(env, 'hr_continuar_atendimento')) { // v94: mensagem completa pelo modelo aprovado
-      await postarMsg(env, reg.num, { type: 'template', template: { name: 'hr_continuar_atendimento', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(String(reg.nome || 'tudo bem').split(' ')[0]).slice(0, 30) || 'tudo bem' }, { type: 'text', text: corpo }] }] } });
-      via = 'longo'; enviado = `Olá, ${reg.nome || ''}! Aqui é da HR Mármores e Granitos. ${corpo} Pode me responder por aqui mesmo.`;
-    } else { via = await enviarProativo(env, reg.num, reg.mensagem, { nome: tpl, params: [reg.curta] }); await rtpGarantirModelo(env).catch(() => {}); }
+    else { // v95: tenta os modelos em sequência até um passar
+      const x = await tplCadeiaEnviar(env, reg.num, { nome: reg.nome, mensagem: reg.mensagem, curta: reg.curta, pedido: reg.pedido });
+      if (x) { via = x.via; enviado = x.enviado; reg.modelo = x.nome; }
+      await rtpGarantirModelo(env).catch(() => {});
+    }
   } catch (e) { erro = String(e.message || e); }
   if (!via) { const url = `https://wa.me/${reg.num}?text=${encodeURIComponent(reg.mensagem)}`;
     try { await postarMsg(env, from, { type: 'interactive', interactive: { type: 'cta_url', body: { text: `A Meta não deixou o bot escrever primeiro para esse número${erro ? ' (' + erro.slice(0, 80) + ')' : ''}. Toque e envie o senhor mesmo; quando ele responder, a assistente continua.` }, action: { name: 'cta_url', parameters: { display_text: 'Enviar pelo WhatsApp', url } } } }); } catch (_) { await enviar(env, from, url); } }
@@ -15760,7 +15761,7 @@ async function rtpEnviar(env, from, reg) {
     await env.HR_KV.put('ini:' + ultimos8(v), '1', { expirationTtl: 6 * 3600 }).catch(() => {});
     await env.HR_KV.put('rt:' + v, JSON.stringify({ id: Date.now(), num: reg.num, nome: pn, pedido: reg.pedido, em: Date.now(), status: 'enviado', tipo: 'rtp' }), { expirationTtl: 14 * 86400 });
   }
-  if (via) await enviar(env, from, via === 'texto' ? `Enviado para ${pn || 'o cliente'}. Te aviso quando responder; a assistente já sabe do orçamento.` : via === 'longo' ? `Enviado para ${pn || 'o cliente'} pelo modelo aprovado, com a mensagem completa e os botões "Quero continuar" / "Agora não". Quando responder, a assistente continua e te aviso.` : `Ele não falava com o número da HR há mais de 24 h, então foi pelo modelo da Meta, na versão curta: "${reg.curta}". Quando responder, a assistente continua com tudo e te aviso.`);
+  if (via) await enviar(env, from, via === 'texto' ? `Enviado para ${pn || 'o cliente'}. Te aviso quando responder; a assistente já sabe do orçamento.` : via === 'longo' ? `Enviado para ${pn || 'o cliente'} pelo modelo aprovado, com a mensagem completa e os botões "Quero continuar" / "Agora não". Quando responder, a assistente continua e te aviso.` : `Ele não falava com a HR há mais de 24 h; foi pelo modelo "${reg.modelo || 'da Meta'}" (o completo ainda não está aprovado). Quando ele responder, mando a mensagem inteira e a assistente continua com tudo.`);
 }
 function rtpCorpoModelo(t) { // a Meta não aceita quebra de linha nem 4+ espaços no parâmetro; a saudação já está no modelo
   return semEmoji(String(t || '')).replace(/^\s*(oi+|ol[aá]|bom dia|boa tarde|boa noite|e a[ií])[^,.!?]{0,30}[,.!?]+\s*/i, '').replace(/\s*\n+\s*/g, ' ').replace(/\s{2,}/g, ' ').replace(/^[a-zà-ú]/, c => c.toUpperCase()).trim().slice(0, 700);
@@ -15858,6 +15859,51 @@ async function qcobCriar(env, from, x) {
   if (r && r.erro) { await enviar(env, from, `Não montei a cobrança de ${x.nome}: ${r.texto}`); return true; }
   await enviar(env, from, `Acima está a cobrança de ${x.nome} (${x.desc}, entregue ${DIAS_SEMANA[diaSemanaISO(x.entrega)].replace('-feira', '')}). Tocando em *Aprovar e enviar*, ele recebe a mensagem com o Pix e o link para pagar, mesmo sem ter conversado com a HR nas últimas 24 h. Se não pagar, os lembretes seguem sozinhos e o senhor é avisado quando ele ler e quando pagar.`);
   return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v95: CADEIA DE MODELOS — fora das 24 h o bot tenta um modelo; se a Meta recusar (na hora ou depois, pelo aviso de
+//   entrega), tenta o próximo: 1) hr_continuar_atendimento (mensagem completa) 2) retomada_cliente (nome + pedido)
+//   3) hr_orcamento_pronto (nome + pedido; a mensagem completa vai quando ele responder) 4) resposta_cliente/hr_resposta
+//   (versão curta). Se nenhum passar, o dono recebe o botão para mandar do próprio WhatsApp.
+// ═════════════════════════════════════════════════════════════════════════════
+async function tplCadeiaLista(env, d) {
+  const l = await tplLista(env).catch(() => null), ok = n => !l || l.some(x => x.nome === n && x.status === 'APPROVED');
+  const idi = n => { const t = l && l.find(x => x.nome === n); return t && t.idioma ? t.idioma : (env.TEMPLATE_IDIOMA || 'pt_BR'); };
+  const nome = semEmoji(String(d.nome || '').split(' ')[0]).slice(0, 30) || 'tudo bem', pedido = semEmoji(String(d.pedido || '')).replace(/\s+/g, ' ').slice(0, 60);
+  const corpo = rtpCorpoModelo(d.mensagem), curta = semEmoji(String(d.curta || d.mensagem || '')).replace(/\s*\n+\s*/g, ' ').slice(0, 200);
+  const P = (...a) => [{ type: 'body', parameters: a.map(t => ({ type: 'text', text: t })) }];
+  const op = [];
+  if (corpo && ok('hr_continuar_atendimento')) op.push({ n: 'hr_continuar_atendimento', comp: P(nome, corpo), longo: true });
+  const ret = env.TEMPLATE_RETOMADA || 'retomada_cliente';
+  if (pedido && ok(ret)) { op.push({ n: ret, comp: P(nome, pedido), pend: true }); }
+  if (pedido && ok('hr_orcamento_pronto')) op.push({ n: 'hr_orcamento_pronto', comp: P(nome, pedido), pend: true });
+  for (const n of [...new Set([env.TEMPLATE_RESPOSTA, 'hr_resposta', 'resposta_cliente'].filter(Boolean))]) if (curta && ok(n)) op.push({ n, comp: P(curta), curto: true });
+  return op.map(o => ({ ...o, idioma: idi(o.n) }));
+}
+async function tplCadeiaEnviar(env, num, d, inicio = 0) { // devolve { via, nome, idx } ou null
+  const op = await tplCadeiaLista(env, d);
+  for (let i = inicio; i < op.length; i++) {
+    const o = op[i];
+    try {
+      const j = await postarMsg(env, num, { type: 'template', template: { name: o.n, language: { code: o.idioma }, components: o.comp } });
+      const wid = j && j.messages && j.messages[0] && j.messages[0].id;
+      if (wid) await env.HR_KV.put('tplc:' + wid, JSON.stringify({ num, d, idx: i }), { expirationTtl: 2 * 86400 });
+      if (o.pend || (o.curto && String(d.mensagem || '').trim() !== String(d.curta || '').trim())) await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto: d.mensagem, nome: d.nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 }); // quando ele responder, vai a mensagem completa
+      const enviado = o.longo ? `Olá, ${String(d.nome || '').split(' ')[0]}! Aqui é da HR Mármores e Granitos. ${rtpCorpoModelo(d.mensagem)} Pode me responder por aqui mesmo.` : o.curto ? String(d.curta || '').slice(0, 200) : `[modelo ${o.n}: ${d.pedido}]`;
+      return { via: o.longo ? 'longo' : 'modelo', nome: o.n, idx: i, enviado };
+    } catch (e) { console.log('[TPL] cadeia', o.n, 'falhou:', String(e.message).slice(0, 160)); if (/131026|131021|not a valid whatsapp|recipient/i.test(e.message)) return null; }
+  }
+  return null;
+}
+async function tplCadeiaStatus(env, st) { // a Meta avisou depois que o modelo não foi entregue: tenta o próximo
+  if (!st || st.status !== 'failed' || !st.id) return;
+  const k = 'tplc:' + st.id; let r = null; try { r = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  if (!r) return; await env.HR_KV.delete(k);
+  const code = Number(st.errors && st.errors[0] && st.errors[0].code) || 0;
+  if (code === 131026 || code === 131021) { await notificarDono(env, Date.now(), `A mensagem para ${r.d.nome || r.num} não chegou: o número não tem WhatsApp ou está errado (${rtpFmt(r.num)}).`).catch(() => {}); return; }
+  const x = await tplCadeiaEnviar(env, r.num, r.d, r.idx + 1);
+  await notificarDono(env, Date.now(), x ? `A Meta recusou o primeiro modelo para ${r.d.nome || 'o cliente'} (${code}); mandei pelo modelo "${x.nome}".` : `A Meta recusou todos os modelos para ${r.d.nome || 'o cliente'} (${code}). Mande o senhor mesmo: https://wa.me/${r.num}?text=${encodeURIComponent(String(r.d.mensagem || '').slice(0, 700))}`).catch(() => {});
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -20656,6 +20702,7 @@ function traduzirErroMeta(er) {
 }
 async function tratarStatusEntrega(env, st) {
   if (!st || !st.id || !st.status) return;
+  if (st.status === 'failed') await tplCadeiaStatus(env, st).catch(e => console.log('[TPL] cadeia status:', e.message)); // v95
   if (st.recipient_id && ehDono(env, st.recipient_id)) return; // avisos ao dono não são rastreados
   const k = 'wst:' + st.id;
   let w = null; try { w = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
