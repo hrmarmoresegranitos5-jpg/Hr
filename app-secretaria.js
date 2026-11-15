@@ -2842,6 +2842,7 @@ function _snapConstruir(meses) {
       estoque: 'chapas em estoque por material: m2Disponivel (pode ficar negativo = faltando); baixo = abaixo do limite de aviso',
       boletosIds: 'boletos[].id serve para a ação marcar_boleto_pago',
       notas: 'anotações do Sr. Hangel em Notas (mais recentes primeiro): medidas, visitas e lembretes',
+      compraProgramada: 'Compra Programada HR (cliente paga parcelas antes e recebe o projeto quando atinge a meta %): valor = valor atual do projeto; pago; saldo; pct = % pago; meta = % para liberar a produção; faltaMeta = R$ que falta para a meta; atrasoDias > 0 = parcela vencida; proxima = próxima parcela',
       janelaMeses: meses
     },
     agenda: agenda,
@@ -2852,6 +2853,19 @@ function _snapConstruir(meses) {
     contratos: contratos,
     estoque: (function () { // chapas em estoque (m² disponível) — o bot avisa o que está acabando e dá baixa/entrada
       try { var lim = (typeof _estLimiteAviso === 'function') ? _estLimiteAviso() : 5; return (typeof EST !== 'undefined' && Array.isArray(EST.itens) ? EST.itens : []).map(function (it) { return { material: _snapTxt(it.material, 50), acabamento: _snapTxt(it.acabamento || '', 25), m2Disponivel: _snapNum(it.m2Disponivel), m2Total: _snapNum(it.m2Total), custoUltimoM2: _snapNum(it.custoUltimo), ultimaCompra: _snapData(it.ultimaCompra), baixo: (+it.m2Disponivel || 0) <= lim }; }); } catch (e) { return []; }
+    })(),
+    compraProgramada: (function () { // v91: Compra Programada HR — o bot acompanha parcelas, metas e atrasos
+      try {
+        var cp = (typeof HRdb !== 'undefined' && HRdb.compraProgramada) || null; if (!cp) return [];
+        var rs = (cp.reais || function (c) { return (c || 0) / 100; });
+        return cp.listarComResumo().filter(function (r) { return r && r.compra && r.compra.situacao !== 'cancelado'; }).slice(0, 80).map(function (r) {
+          var c = r.compra;
+          return { id: String(c.id).slice(0, 30), numero: _snapTxt(c.numero, 20), cliente: _snapTxt(c.clienteNome, 60), tel: _snapTxt(c.clienteTel || '', 20) || undefined, projeto: _snapTxt(c.projetoTitulo, 70),
+            valor: _snapNum(rs(c.valorAtual)), pago: _snapNum(rs(r.totalPago)), saldo: _snapNum(rs(r.saldo)), pct: Math.round(r.percentual || 0), meta: c.percentualLiberacao || 70,
+            faltaMeta: _snapNum(rs(r.faltaParaMeta)), status: _snapTxt(r.statusFinanceiro, 20), producao: _snapTxt(c.producao || '', 20) || undefined, atrasoDias: r.diasAtraso || 0,
+            proxima: r.proximaParcela ? { n: r.proximaParcela.indice, data: r.proximaParcela.data, valor: _snapNum(rs(r.proximaParcela.valor)) } : undefined };
+        });
+      } catch (e) { return []; }
     })(),
     notas: (function () { // anotações de Notas (as 40 mais recentes) — o bot lê e também cria (ação criar_nota)
       try { return (Array.isArray(DB.n) ? DB.n : []).slice().sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); }).slice(0, 40).map(function (n) { return { data: _snapData(+n.id ? new Date(+n.id).toISOString() : ''), cliente: _snapTxt(n.cliente || '', 60), tipo: _snapTxt(n.tipo || '', 12), texto: _snapTxt(n.texto || '', 300) }; }); } catch (e) { return []; }
