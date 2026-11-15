@@ -956,7 +956,17 @@ async function rhFolhaPreparar(env, from, a) {
     [{ id: 'folha_ok', titulo: 'Confirmar pagamento' }, { id: 'folha_no', titulo: 'Cancelar' }]);
   return { texto: 'A prévia da folha com os botões Confirmar/Cancelar já foi enviada ao Sr. Hangel. Responda apenas: "Confira os valores e toque em Confirmar."' };
 }
+// v90c: "Já paguei" — o dono pagou fora do app: marca as prévias como pagas (para de lembrar) sem criar pagamento
+async function rhFolhaJaPaguei(env, from, nomes) {
+  const hoje = dataBahia(), l = (await rhPrevias(env, nomes)).filter(x => x.pv && x.pv.status !== 'pago' && x.pv.df >= dataBahia(-16));
+  if (!l.length) { await enviar(env, from, nomes && nomes.length ? 'Não achei prévia em aberto para esse funcionário.' : 'Não há folha em aberto.'); return true; }
+  for (const x of l) { const pv = { ...x.pv, status: 'pago', pagoManual: Date.now() }; await env.HR_KV.put('ponto:previa:' + x.f.id, JSON.stringify(pv), { expirationTtl: 20 * 86400 }); await env.HR_KV.put('rh:pagoman:' + x.f.id + ':' + pv.df, '1', { expirationTtl: 40 * 86400 }); }
+  await env.HR_KV.put('rh:av:folha:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  await enviar(env, from, cartaoDono('Folha · marcado como pago', [l.map(x => x.f.nome.split(' ')[0]).join(', ') + ': não vou lembrar mais deste período.', 'Se o pagamento ainda não está lançado no app (RH → Pagamentos), lance lá, para o relatório do funcionário sair como quitado.']));
+  return true;
+}
 async function rhFolhaBotao(env, from, id) {
+  if (id === 'folha_ja') return rhFolhaJaPaguei(env, from, null);
   if (id === 'folha_prep') { const r = await rhFolhaPreparar(env, from, {}); if (/Não há valores/.test(r.texto)) await enviar(env, from, 'Não há valores a pagar calculados pelo app agora (ou já foram pagos). Abra o app por 1 minuto e toque de novo.'); return true; }
   const p = JSON.parse((await env.HR_KV.get('folha:pend')) || 'null');
   if (!p) { await enviar(env, from, 'Essa prévia da folha expirou. Peça de novo: *pagar a folha*.'); return true; }
@@ -1009,12 +1019,13 @@ async function rhAvisos(env) {
   }
   // 2) dia do pagamento: o período fecha hoje
   if (ag.min >= 8 * 60 && ag.min < 18 * 60 && !(await env.HR_KV.get('rh:av:folha:' + hoje))) {
-    const lista = (await rhPrevias(env)).filter(x => x.pv && x.pv.df === hoje && x.pv.status !== 'pago' && Number(x.pv.valor) > 0);
+    const lista = [];
+    for (const x of await rhPrevias(env)) if (x.pv && x.pv.df === hoje && x.pv.status !== 'pago' && Number(x.pv.valor) > 0 && !(await env.HR_KV.get('rh:pagoman:' + x.f.id + ':' + hoje))) lista.push(x);
     if (lista.length && await travaEnvio(env, 'rhfolha:' + hoje)) {
       await env.HR_KV.put('rh:av:folha:' + hoje, '1', { expirationTtl: 2 * 86400 });
       const total = lista.reduce((t, x) => t + Number(x.pv.valor), 0);
       await enviarComBotoes(env, numeroDono(env), cartaoDono('Folha · fecha hoje', [...lista.map(x => `${x.f.nome}: R$ ${reais(x.pv.valor)}${x.pv.label ? ' (' + x.pv.label + ')' : ''}`), `Total: *R$ ${reais(total)}*`, 'Valores do app até agora (mudam com as batidas de hoje).']),
-        [{ id: 'folha_prep', titulo: 'Pagar todos' }]).catch(e => falhou(env, 'rh: aviso da folha', e));
+        [{ id: 'folha_prep', titulo: 'Pagar todos' }, { id: 'folha_ja', titulo: 'Já paguei' }]).catch(e => falhou(env, 'rh: aviso da folha', e));
     }
   }
 }
@@ -1887,7 +1898,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('conf|') || id.startsWith('confc|')) { if (ehDono(env, from)) await confBotao(env, from, id); return true; } // v72
   if (id.startsWith('igp|')) { if (ehDono(env, from)) await estBotao(env, from, id); return true; } // v69
   if (id.startsWith('mprh|')) { const [, h, tipo] = id.split('|'); if (ehDono(env, from)) await mpxParaRH(env, from, h, ['vale', 'decendio', 'adiantamento'].includes(tipo) ? tipo : 'vale'); return true; }
-  if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep') return rhFolhaBotao(env, from, id); // v81
+  if (id === 'folha_ok' || id === 'folha_no' || id === 'folha_prep' || id === 'folha_ja') return rhFolhaBotao(env, from, id); // v81
   if (id.startsWith('bolrev|')) return bolRevBotao(env, from, id); // v84
   if (id.startsWith('igq|')) return igAgendarBotao(env, from, id); // v87
   if (id.startsWith('pagdesf|')) {
@@ -7244,7 +7255,10 @@ async function despachoBotao(env, from, id) {
 }
 // "mandar ficha <nome>" / "mandar entrega <nome>" / hora digitada depois de "Outro horário"
 async function despachoComandoDono(env, from, bruto, msg) {
-  { const r = await pontoComandoDireto(env, msg); if (r) { await enviar(env, from, r); return true; } } // v86: "Lucas saiu agora" sem precisar da IA
+  { const r = await pontoComandoDireto(env, msg); if (r) { await enviar(env, from, r); return true; } }
+  { const mj = msg.match(/^(?:eu )?ja paguei (?:a folha|todos|todo mundo|(?:o |a )?(.+?))(?: ontem| hoje| sexta| sabado)?$/); // v90c
+    if (mj) { const nomes = mj[1] ? mj[1].split(/,| e /).map(x => x.trim()).filter(Boolean) : null; const cfg = await pontoCfg(env);
+      if (!nomes || nomes.every(n => cfg.funcs.some(f => normaliza(f.nome).split(' ').includes(normaliza(n).split(' ')[0])))) return rhFolhaJaPaguei(env, from, nomes); } } // v86: "Lucas saiu agora" sem precisar da IA
   if (/^(quem (esta|ta|tá|está) (trabalhando|na oficina|ai|aí)|ponto (de )?hoje|como (esta|ta) o ponto|quem (bateu|chegou|faltou)( o ponto)?( hoje)?)\??$/.test(msg)) { await enviar(env, from, pontoAgoraTexto(await pontoAgora(env))); return true; } // v85
   if (/^(arrumar|arruma|organizar|organiza|revisar|revisa|conferir|confere|atualizar|atualiza|ajeitar|faxina( n?os)?)( (os|meus|nos|dos))? boletos?$|^boletos? (baguncado|baguncados|desatualizado|desatualizados)/.test(msg)) { await bolRevIniciar(env, from); return true; } // v84
   if (/^(parar|cancelar|sair da) revis[aã]o/.test(msg) && await env.HR_KV.get('bol:rev')) { const ss = JSON.parse(await env.HR_KV.get('bol:rev')); await bolRevFim(env, from, { ...ss, gi: 9999 }); return true; }
