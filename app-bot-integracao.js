@@ -81,6 +81,7 @@
     { acao: 'marcar_boleto_pago', nome: 'Marcar boleto como pago', descricao: 'Marca um boleto (a pagar ou a receber) como pago e lança em Finanças, como o botão do app.', parametros: { id: 'id do boleto (dos dados)', descricao: 'parte da descrição ou fornecedor, se não tiver o id', valorPago: 'valor pago, se diferente (juros/multa)', data: 'AAAA-MM-DD (opcional)' }, confirmar: true },
     { acao: 'estoque_entrada', nome: 'Entrada no estoque', descricao: 'Soma m² de uma chapa no estoque (compra que chegou).', parametros: { material: 'nome da pedra', acabamento: 'polido, escovado... (opcional)', m2: 'metros quadrados', custoM2: 'custo por m² (opcional)' }, confirmar: true },
     { acao: 'estoque_baixa', nome: 'Baixa no estoque', descricao: 'Tira m² de uma chapa do estoque (uso, quebra, venda avulsa).', parametros: { material: 'nome da pedra', m2: 'metros quadrados' }, confirmar: true },
+    { acao: 'cp_pagamento', nome: 'Pagamento da Compra Programada', descricao: 'Registra um pagamento de parcela na Compra Programada HR de um cliente (como o botão do app; lança em Finanças).', parametros: { cliente: 'nome do cliente ou número do contrato (CP-...)', valor: 'valor pago em reais', forma: 'pix, dinheiro, cartão... (opcional)', data: 'AAAA-MM-DD (opcional)' }, confirmar: true },
     { acao: 'atualizar_bot', nome: 'Atualizar dados do bot', descricao: 'Reenvia agora ao Worker a lista de orçamentos em aberto e o A Receber.', confirmar: false }
   ];
 
@@ -191,6 +192,22 @@
     return { ok: true, mensagem: nP + ' boleto(s) com baixa' + (nC ? ' e ' + nC + ' apagado(s)' : '') + '. Nada foi lançado em Finanças.' };
   }
 
+  function exCompraProg(p) { // v91
+    var cp = (typeof HRdb !== 'undefined' && HRdb.compraProgramada) || null;
+    if (!cp) return { ok: false, mensagem: 'A Compra Programada não está carregada neste aparelho.' };
+    var q = String(p.cliente || '').toLowerCase().trim(), v = parseFloat(String(p.valor || '').replace(/[^\d,.]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    if (!q || !(v > 0)) return { ok: false, mensagem: 'Faltou o cliente ou o valor.' };
+    var l = cp.listarComResumo().filter(function (r) { var c = r.compra; return c.situacao !== 'cancelado' && (String(c.numero || '').toLowerCase() === q || String(c.clienteNome || '').toLowerCase().indexOf(q) >= 0); });
+    if (!l.length) return { ok: false, mensagem: 'Não achei Compra Programada de "' + p.cliente + '".' };
+    if (l.length > 1) return { ok: false, mensagem: 'Achei ' + l.length + ' contratos: ' + l.map(function (r) { return r.compra.numero + ' (' + r.compra.clienteNome + ')'; }).join(', ') + '. Diga o número.' };
+    try {
+      cp.registrarPagamento(l[0].compra.id, v, { forma: p.forma || '', data: /^\d{4}-\d{2}-\d{2}$/.test(p.data || '') ? p.data : undefined, obs: 'Registrado pelo bot' });
+      var r = cp.resumo(cp.db.compras.buscar(l[0].compra.id));
+      try { if (typeof enviarSnapshot === 'function') enviarSnapshot(true); } catch (e) {}
+      return { ok: true, mensagem: 'Pagamento de R$ ' + v.toFixed(2).replace('.', ',') + ' registrado em ' + l[0].compra.numero + ' (' + l[0].compra.clienteNome + '). Pago: ' + Math.round(r.percentual) + '%.' };
+    } catch (e) { return { ok: false, mensagem: e.message }; }
+  }
+
   function exAtualizar() {
     return sincronizar(true).then(function () {
       try { if (typeof sincBot === 'function') sincBot(true); } catch (e) {}
@@ -207,6 +224,7 @@
       if (c.acao === 'agenda_etapa') return Promise.resolve(exEtapa(p));
       if (c.acao === 'agenda_data') return Promise.resolve(exData(p));
       if (c.acao === 'boletos_revisao') return Promise.resolve(exBoletosRevisao(p));
+      if (c.acao === 'cp_pagamento') return Promise.resolve(exCompraProg(p));
       if (c.acao === 'marcar_boleto_pago') return Promise.resolve(exBoleto(p));
       if (c.acao === 'estoque_entrada') return Promise.resolve(exEstoque(p, 1));
       if (c.acao === 'estoque_baixa') return Promise.resolve(exEstoque(p, -1));

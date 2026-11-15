@@ -1902,6 +1902,9 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('bolrev|')) return bolRevBotao(env, from, id); // v84
   if (id.startsWith('igq|')) return igAgendarBotao(env, from, id); // v87
   if (id.startsWith('fer|')) return feriadoBotao(env, from, id); // v90e
+  if (id.startsWith('feravc|')) return feriadoAvisarClientesBotao(env, from, id); // v91
+  if (id.startsWith('bfestas|')) return boasFestasBotao(env, from, id);
+  if (id.startsWith('cfoto|')) return fotoObraBotao(env, from, id);
   if (id.startsWith('pagdesf|')) {
     const r = await desfazerPagamentoPorChave(env, id.slice(8));
     if (r === 'importado') await enviar(env, from, 'Esse pagamento já foi registrado no RH, Sr. Hangel. Para desfazê-lo, abra o RH no aplicativo, em Histórico de pagamentos, e exclua por lá.');
@@ -9061,7 +9064,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -13997,6 +14000,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (vt && !(await tratarVision(env, from, m, dono, vt))) return; }
 
   if (dono && m.type === 'image') { await tratarImagemDono(env, from, m); return; }
+  if (!dono && m.type === 'image' && m.image && m.image.id && await fotoObraCliente(env, from, m).catch(e => { console.log('[FOTO OBRA]', e.message); return false; })) return; // v91
 
   if (!dono && m.type === 'location' && m.location && m.location.latitude != null) { // pino do cliente: só a localização atual vale
     if (await localizacaoAoVivoCliente(env, from, m)) return;
@@ -15110,6 +15114,288 @@ async function estRotina(env) {
   for (const pid of ag) { const j = await estLer(env, pid); if (!j || j.estado !== 'agendado') continue; if (j.agendado <= Date.now()) await estPublicar(env, j, null); else ficam.push(pid); }
   await env.HR_KV.put('post:agendados', JSON.stringify(ficam));
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v91: MAIS AUTOMAÇÕES
+//   • fila de mensagens a clientes (aviso de feriado, boas festas): sai aos poucos, 6 por vez
+//   • cartão de feriado / boas festas em vídeo (editor do computador) para aprovar e postar
+//   • foto da obra pronta: 6 dias depois da entrega, pede a foto; o dono aprova e ela vai para o álbum
+//   • relatório do mês (dia 1) com página para salvar em PDF; painel da oficina para a TV
+//   • Compra Programada HR: parcelas vencendo/atrasadas e quem atingiu a meta
+// ═════════════════════════════════════════════════════════════════════════════
+async function cliTelPorNome(env, snap, nome) { // telefone do cliente pelo nome (cadastro, orçamentos, livro de entregas)
+  const n = normaliza(String(nome || '')).trim(); if (!n) return '';
+  const d = (snap && snap.dados) || {}, bate = x => { const m = normaliza(String(x || '')).trim(); return m && (m === n || m.startsWith(n + ' ') || n.startsWith(m + ' ')); };
+  const c = (d.clientes || []).find(x => x.tel && bate(x.nome)) || (d.orcamentos || []).find(x => x.tel && bate(x.cliente)) || (d.compraProgramada || []).find(x => x.tel && bate(x.cliente));
+  if (c && c.tel) return normalizarBR(String(c.tel).replace(/\D/g, '').replace(/^(?!55)/, '55'));
+  try { const l = (await livTodos(env)).find(r => r.tel && bate(r.cliente)); if (l) return normalizarBR(l.tel); } catch (_) {}
+  return '';
+}
+async function cliFilaAdd(env, itens) {
+  let f = []; try { f = JSON.parse((await env.HR_KV.get('cli:fila')) || '[]'); } catch (_) {}
+  const ja = new Set(f.map(x => x.num + '|' + x.tag));
+  for (const x of itens) if (x.num && !ja.has(x.num + '|' + x.tag)) { f.push(x); ja.add(x.num + '|' + x.tag); }
+  await env.HR_KV.put('cli:fila', JSON.stringify(f.slice(0, 300)), { expirationTtl: 10 * 86400 });
+  return f.length;
+}
+async function cliFilaTick(env) {
+  if (await env.HR_KV.get('cli:fila:trava')) return;
+  let f = []; try { f = JSON.parse((await env.HR_KV.get('cli:fila')) || '[]'); } catch (_) {}
+  if (!f.length) return;
+  await env.HR_KV.put('cli:fila:trava', '1', { expirationTtl: 60 });
+  const tpl = env.TEMPLATE_RESPOSTA || ((await tplAprovado(env, 'hr_resposta').catch(() => null)) ? 'hr_resposta' : (env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'));
+  const lote = f.splice(0, 6), res = JSON.parse((await env.HR_KV.get('cli:fila:res')) || '{"ok":0,"falha":0}');
+  for (const x of lote) {
+    let via = null; try { via = await enviarProativo(env, x.num, x.texto, x.texto.length <= 200 ? { nome: tpl, params: [x.texto] } : null); } catch (e) { console.log('[FILA]', x.num, e.message); }
+    if (via) { res.ok++; await semearConversaProativa(env, x.num, x.texto).catch(() => {}); } else { res.falha++; (res.falhas = res.falhas || []).push(x.nome || x.num); }
+  }
+  await env.HR_KV.put('cli:fila', JSON.stringify(f), { expirationTtl: 10 * 86400 });
+  if (!f.length) { await env.HR_KV.delete('cli:fila:res'); await enviar(env, numeroDono(env), cartaoDono('Mensagens enviadas', [`Enviadas: ${res.ok}`, res.falha ? `Não foram: ${res.falha} (${(res.falhas || []).slice(0, 6).join(', ')}): número errado ou o WhatsApp recusou.` : null])).catch(() => {}); }
+  else await env.HR_KV.put('cli:fila:res', JSON.stringify(res), { expirationTtl: 10 * 86400 });
+  await env.HR_KV.delete('cli:fila:trava');
+}
+// ── clientes com entrega perto do feriado ──
+async function ferClientesAfetados(env, snap, f) {
+  const abertas = ((snap && snap.dados && snap.dados.agenda) || []).filter(ehAberto).filter(a => a.entrega && a.entrega >= isoSomaDias(f.iso, -1) && a.entrega <= isoSomaDias(f.iso, 3));
+  const out = [];
+  for (const a of abertas) { const num = await cliTelPorNome(env, snap, a.cliente); out.push({ nome: a.cliente, num, entrega: a.entrega, noDia: a.entrega === f.iso }); }
+  return out;
+}
+function ferTextoCliente(f, x) {
+  const n = nomeDeTratamento(x.nome || ''), d = `${DIAS_SEMANA[f.dow].replace('-feira', '')}, ${dataBR(f.iso).slice(0, 5)}`;
+  return (x.noDia ? `${n}, ${d} é feriado (${f.nome}) e a HR não abre. Sua entrega estava marcada para esse dia: a equipe vai te chamar para combinar a nova data.`
+    : `${n}, ${d} é feriado (${f.nome}) e a HR não abre. Sua entrega segue prevista para ${dataBR(x.entrega).slice(0, 5)}; se mudar algo, avisamos.`).slice(0, 200);
+}
+async function feriadoAvisarClientesBotao(env, from, id) {
+  const iso = id.split('|')[1]; const snap = await lerSnapshotCompleto(env);
+  const nome = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso) || facultativosDoAno(+iso.slice(0, 4)).get(iso) || 'feriado';
+  const f = { iso, nome, dow: diaSemanaISO(iso) };
+  const l = (await ferClientesAfetados(env, snap, f)).filter(x => x.num);
+  if (!l.length) { await enviar(env, from, 'Não achei telefone dos clientes com entrega perto do feriado.'); return true; }
+  await cliFilaAdd(env, l.map(x => ({ num: x.num, nome: x.nome, texto: ferTextoCliente(f, x), tag: 'fer:' + iso })));
+  await enviar(env, from, `Certo: vou avisar ${l.length} cliente(s) (${l.map(x => x.nome.split(' ')[0]).join(', ')}) nos próximos minutos e te mando o resumo.`);
+  return true;
+}
+// ── cartão de feriado / boas festas (vídeo curto feito pelo editor do computador) ──
+async function cartaoCriar(env, c) {
+  if (!estAtivo(env) || !(await estEditorPareado(env))) return null;
+  if (await env.HR_KV.get('cartao:' + c.chave)) return null;
+  await env.HR_KV.put('cartao:' + c.chave, '1', { expirationTtl: 60 * 86400 });
+  let fundo = null; // uma foto bonita do acervo de fundo
+  try { const ids = (await acvLista(env)).slice(-40); for (let t = 0; t < 8 && !fundo; t++) { const o = await acvLer(env, ids[Math.floor(Math.random() * ids.length)]); const i = o && acvDisponiveis(o).find(k => o.midias[k].tipo === 'foto'); if (i != null) fundo = { obra: o.id, i }; } } catch (_) {}
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'story', desc: c.legenda, legenda: c.legenda, editar: true, montagem: true, cartao: { titulo: c.titulo, sub: c.sub, linhas: c.linhas || [] }, fundo, estado: 'na_fila', original: true };
+  await estGravar(env, j);
+  const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
+  return j;
+}
+async function cartoesDatas(env) { // chamado na rotina: 2 dias antes do feriado e nas datas de festa
+  const hoje = dataBahia(), ano = +hoje.slice(0, 4);
+  for (const f of feriadosAdiante(env, hoje, 2)) {
+    if (f.em !== 2) continue;
+    const dec = await env.HR_KV.get('fer:dec:' + f.iso), util = feriadoImpacta(env, f);
+    const festa = /natal|confraterniza/i.test(f.nome);
+    if (!util && !festa) continue;
+    const volta = (() => { let d = isoSomaDias(f.iso, 1); for (let k = 0; k < 6 && !ehDiaUtil(env, d); k++) d = isoSomaDias(d, 1); return d; })();
+    const linhas = festa ? [] : dec === 'trab' ? ['Atendimento normal no feriado', `${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso).slice(0, 5)}`] : [`${DIAS_SEMANA[f.dow]}, ${dataBR(f.iso).slice(0, 5)}: fechado`, `Voltamos ${DIAS_SEMANA[diaSemanaISO(volta)]}, ${dataBR(volta).slice(0, 5)}`, 'Orçamentos pelo WhatsApp a qualquer hora'];
+    const titulo = /natal/i.test(f.nome) ? 'FELIZ NATAL' : /confraterniza/i.test(f.nome) ? `FELIZ ${f.iso.slice(0, 4)}` : 'FERIADO';
+    const sub = /natal/i.test(f.nome) ? 'Que a sua casa seja cheia de paz e alegria' : /confraterniza/i.test(f.nome) ? 'Obrigado por confiar na HR' : f.nome;
+    const legenda = /natal/i.test(f.nome) ? 'A HR Mármores e Granitos deseja a você e à sua família um Natal abençoado. 🎄 Obrigado por fazer parte da nossa história este ano!' : /confraterniza/i.test(f.nome) ? `Feliz ${f.iso.slice(0, 4)}! Obrigado a todos os clientes e parceiros que confiaram na HR. Que venham novos projetos! ✨` : `${f.nome}: ${dataBR(f.iso).slice(0, 5)} ${dec === 'trab' ? 'atendemos normalmente' : 'não abriremos'}. ${dec === 'trab' ? '' : 'Voltamos ' + DIAS_SEMANA[diaSemanaISO(volta)] + ', ' + dataBR(volta).slice(0, 5) + '. '}Orçamentos pelo WhatsApp a qualquer hora.`;
+    const j = await cartaoCriar(env, { chave: f.iso, titulo, sub, linhas, legenda });
+    if (j) await avisarDono(env, `🎬 Estou preparando o cartão do ${f.nome} (${dataBR(f.iso).slice(0, 5)}) para o Instagram. A prévia chega aqui para o senhor aprovar.`);
+  }
+}
+// ── boas festas: 22/12 o dono aprova; mensagem curta a quem fechou com a HR no ano ──
+async function boasFestasRotina(env, snap) {
+  const hoje = dataBahia(); if (hoje.slice(5) !== '12-22' || await env.HR_KV.get('bf:av:' + hoje.slice(0, 4))) return;
+  await env.HR_KV.put('bf:av:' + hoje.slice(0, 4), '1', { expirationTtl: 60 * 86400 });
+  const l = await boasFestasLista(env, snap);
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Boas festas para os clientes', [`${l.length} cliente(s) que fecharam com a HR este ano.`, 'Mensagem: "' + boasFestasTexto('Maria') + '"', 'Quer que eu mande para todos? Sai aos poucos, e quem responder continua a conversa normalmente.']), [{ id: 'bfestas|ok', titulo: 'Enviar para todos' }, { id: 'bfestas|no', titulo: 'Não enviar' }]);
+}
+function boasFestasTexto(nome) { const a = String(new Date().getFullYear() + 1); return `${nome}, a HR Mármores e Granitos agradece a confiança este ano e deseja a você e sua família um Feliz Natal e um ${a} abençoado!`.slice(0, 200); }
+async function boasFestasLista(env, snap) {
+  const ano = dataBahia().slice(0, 4), nomes = new Map();
+  for (const a of ((snap && snap.dados && snap.dados.agenda) || [])) if (String(a.fechadoEm || a.inicio || '').startsWith(ano)) nomes.set(normaliza(a.cliente), a.cliente);
+  const out = [], vistos = new Set();
+  try { for (const r of await livTodos(env)) if (r.tel && String(r.entregaEm || r.criadoEm || '').slice(0, 4) === ano) { const n = normalizarBR(r.tel); if (!vistos.has(n)) { vistos.add(n); out.push({ num: n, nome: r.cliente }); nomes.delete(normaliza(r.cliente)); } } } catch (_) {}
+  for (const nome of nomes.values()) { const n = await cliTelPorNome(env, snap, nome); if (n && !vistos.has(n)) { vistos.add(n); out.push({ num: n, nome }); } }
+  return out.filter(x => x.num !== numeroDono(env)).slice(0, 150);
+}
+async function boasFestasBotao(env, from, id) {
+  if (id.endsWith('|no')) { await enviar(env, from, 'Certo, não vou mandar.'); return true; }
+  const l = await boasFestasLista(env, await lerSnapshotCompleto(env));
+  await cliFilaAdd(env, l.map(x => ({ num: x.num, nome: x.nome, texto: boasFestasTexto(nomeDeTratamento(x.nome)), tag: 'bf:' + dataBahia().slice(0, 4) })));
+  await enviar(env, from, `Enviando para ${l.length} cliente(s), aos poucos. Te mando o resumo no fim.`);
+  return true;
+}
+// ── foto da obra pronta → álbum ──
+async function fotoObraRotina(env) {
+  const hoje = dataBahia(); if (await env.HR_KV.get('fp:dia:' + hoje)) return;
+  await env.HR_KV.put('fp:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  if (String(env.FOTO_OBRA || '1') === '0') return;
+  const ini = dataBahia(-9), fim = dataBahia(-5);
+  for (const r of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel || await env.HR_KV.get('fp:' + r.id)) continue;
+    await env.HR_KV.put('fp:' + r.id, '1', { expirationTtl: 200 * 86400 });
+    const num = normalizarBR(r.tel), nome = nomeDeTratamento(r.cliente || ''), serv = String(r.desc || 'obra').replace(/\s+/g, ' ').slice(0, 40).toLowerCase();
+    const txt = `${nome}, aqui é da HR! Como está a ${serv}? Se puder, manda uma foto de como ficou: vamos adorar ver e, com sua permissão, mostrar no nosso álbum de obras.`.slice(0, 200);
+    let via = null; try { via = await enviarProativo(env, num, txt, null); } catch (_) {}
+    if (via) { for (const v of variantesNumero(num)) await env.HR_KV.put('fp:num:' + v, JSON.stringify({ liv: r.id, nome: r.cliente, desc: r.desc || '' }), { expirationTtl: 12 * 86400 }); await semearConversaProativa(env, num, txt).catch(() => {}); }
+  }
+}
+async function fotoObraCliente(env, from, m) { // cliente mandou a foto pedida
+  let x = null; for (const v of variantesNumero(from)) { try { x = JSON.parse((await env.HR_KV.get('fp:num:' + v)) || 'null'); } catch (_) {} if (x) break; }
+  if (!x) return false;
+  let mid; try { mid = await baixarMidia(env, m.image.id); } catch (_) { return false; }
+  const md = await mdSalvar(env, mid.buf, 'image/jpeg'), k = Date.now().toString(36);
+  await env.HR_KV.put('fpc:' + k, JSON.stringify({ md, tam: mid.buf.byteLength, nome: x.nome, desc: x.desc, from }), { expirationTtl: 6 * 86400 });
+  await enviar(env, from, 'Que lindo, obrigado por mandar! 😊 Fico feliz que tenha gostado.');
+  await postarMsg(env, numeroDono(env), { type: 'image', image: { link: await mdUrl(env, md, 'image/jpeg'), caption: `Foto da obra de ${x.nome} (${x.desc || 'obra'}). Coloco no álbum de serviços feitos do site? (sem o nome do cliente)` } }).catch(() => {});
+  await enviarComBotoes(env, numeroDono(env), `Foto de ${x.nome}: pôr no álbum?`, [{ id: 'cfoto|ok|' + k, titulo: 'Pôr no álbum' }, { id: 'cfoto|no|' + k, titulo: 'Não' }]);
+  return true;
+}
+async function fotoObraBotao(env, from, id) {
+  const [, ac, k] = id.split('|'); const x = JSON.parse((await env.HR_KV.get('fpc:' + k)) || 'null');
+  if (!x) { await enviar(env, from, 'Essa foto expirou.'); return true; }
+  await env.HR_KV.delete('fpc:' + k);
+  if (ac !== 'ok') { await enviar(env, from, 'Certo, não coloquei.'); return true; }
+  const o = await acvNovaObra(env, String(x.desc || 'Obra').toLowerCase());
+  const r = await fetch(await mdUrl(env, x.md, 'image/jpeg')).catch(() => null), buf = r && r.ok ? await r.arrayBuffer() : null;
+  o.midias.push({ md: x.md, mime: 'image/jpeg', tipo: 'foto', tam: x.tam, em: Date.now(), cliente: true });
+  if (buf && buf.byteLength <= 1300 * 1024) o.midias[0].pf = await acvPortfolioAdd(env, o, buf, 'image/jpeg');
+  await acvGravar(env, o);
+  await enviar(env, from, `Pronto: entrou no álbum como "${o.desc}"${o.midias[0].pf ? '' : ' (no acervo; a foto era grande demais para o site)'} e também vai para os vídeos do dia.`);
+  return true;
+}
+// ── manutenção: ~11 meses depois da entrega, lembrete de limpeza/impermeabilização ──
+async function manutRotina(env) {
+  const hoje = dataBahia(); if (String(env.MANUTENCAO || '1') === '0' || await env.HR_KV.get('mn:dia:' + hoje)) return;
+  await env.HR_KV.put('mn:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const ini = dataBahia(-337), fim = dataBahia(-330), lista = [];
+  for (const r of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel || await env.HR_KV.get('mn:' + r.id)) continue;
+    const desc = normaliza(r.desc || ''); if (PI_SO_ENTREGA.test(desc) && !PI_COM_INSTALACAO.test(desc)) continue;
+    await env.HR_KV.put('mn:' + r.id, '1', { expirationTtl: 400 * 86400 });
+    const nome = nomeDeTratamento(r.cliente || ''), serv = String(r.desc || 'pedra').replace(/\s+/g, ' ').slice(0, 35).toLowerCase();
+    lista.push({ num: normalizarBR(r.tel), nome: r.cliente, tag: 'mn', texto: `${nome}, já faz quase 1 ano da sua ${serv}! Dica da HR: uma limpeza e impermeabilização deixa a pedra protegida e com brilho. Quer que a gente agende?`.slice(0, 200) });
+  }
+  if (lista.length) { await cliFilaAdd(env, lista); await avisarDono(env, cartaoDono('Manutenção de 1 ano', [`Mandei o lembrete de manutenção para: ${lista.map(x => x.nome).join(', ')}.`, 'Quem responder cai na conversa normal; é uma chance de venda (impermeabilização/polimento).'])); }
+}
+// ── relatório do mês ──
+async function relDados(env, mes) {
+  const snap = await lerSnapshotCompleto(env), d = (snap && snap.dados) || {};
+  const ant = (() => { const [y, m] = mes.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; })();
+  const tm = (d.financas && d.financas.totaisPorMes) || {}, f = tm[mes] || { entradas: 0, saidas: 0 }, fa = tm[ant] || { entradas: 0, saidas: 0 };
+  const orcs = (d.orcamentos || []).filter(o => String(o.data || '').startsWith(mes));
+  const fechados = orcs.filter(o => /aprov|fech|aceit/.test(String(o.status || '')));
+  const vendas = (d.agenda || []).filter(a => String(a.fechadoEm || '').startsWith(mes));
+  const vendasV = vendas.reduce((t, a) => t + (+a.valor || 0), 0);
+  const mats = {}; for (const o of fechados.length ? fechados : orcs) if (o.material) mats[o.material] = (mats[o.material] || 0) + 1;
+  const gastos = {}; for (const l of ((d.financas && d.financas.lancamentos) || []).filter(l => l.tipo === 'saida' && String(l.data || '').startsWith(mes))) { const k = String(l.descricao || 'outros').split(/[-–:·(]/)[0].trim().slice(0, 30) || 'outros'; gastos[k] = (gastos[k] || 0) + (+l.valor || 0); }
+  const ig = JSON.parse((await env.HR_KV.get('ig:fun:' + mes)) || '{"orc":{},"fech":{}}'), igm = JSON.parse((await env.HR_KV.get('ig:stm:' + mes)) || '{}');
+  const cp = (d.compraProgramada || []);
+  return { mes, ant, entradas: +f.entradas || 0, saidas: +f.saidas || 0, entradasAnt: +fa.entradas || 0, saidasAnt: +fa.saidas || 0,
+    orcQtd: orcs.length, orcValor: orcs.reduce((t, o) => t + (+o.valor || 0), 0), fechQtd: fechados.length, fechValor: fechados.reduce((t, o) => t + (+o.valor || 0), 0),
+    vendasQtd: vendas.length, vendasValor: vendasV, ticket: vendas.length ? vendasV / vendas.length : 0,
+    materiais: Object.entries(mats).sort((a, b) => b[1] - a[1]).slice(0, 5), gastos: Object.entries(gastos).sort((a, b) => b[1] - a[1]).slice(0, 8),
+    ig: { interessados: (igm.conversas || 0) + (igm.comentariosRespondidos || 0), orc: Object.keys(ig.orc || {}).length, fech: Object.keys(ig.fech || {}).length, valor: Object.values(ig.fech || {}).reduce((t, x) => t + (+x.v || 0), 0) },
+    cp: { ativos: cp.length, recebido: cp.reduce((t, x) => t + (+x.pago || 0), 0), atrasados: cp.filter(x => x.atrasoDias > 0).length },
+    snapEm: snap && snap.ts };
+}
+function relNomeMes(mes) { return new Date(mes + '-15T12:00:00Z').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' }); }
+async function relToken(env) { let t = await env.HR_KV.get('rel:tok'); if (!t) { t = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2); await env.HR_KV.put('rel:tok', t); } return t; }
+function relVar(a, b) { if (!b) return ''; const p = Math.round((a - b) / b * 100); return ` (${p >= 0 ? '+' : ''}${p}% vs mês anterior)`; }
+async function relTextoWhats(env, r) {
+  const lucro = r.entradas - r.saidas, conv = r.orcQtd ? Math.round(r.fechQtd / r.orcQtd * 100) : 0;
+  const link = `${await urlPublica(env)}/relatorio/${r.mes}?k=${await relToken(env)}`;
+  return cartaoDono(`Relatório de ${relNomeMes(r.mes)}`, [
+    `Entrou: R$ ${reais(r.entradas)}${relVar(r.entradas, r.entradasAnt)}`, `Saiu: R$ ${reais(r.saidas)}${relVar(r.saidas, r.saidasAnt)}`, `Sobrou: *R$ ${reais(lucro)}*`,
+    `Orçamentos: ${r.orcQtd} (R$ ${reais(r.orcValor)}) · fechados: ${r.fechQtd} (${conv}%)`,
+    r.vendasQtd ? `Vendas: ${r.vendasQtd} · R$ ${reais(r.vendasValor)} · ticket médio R$ ${reais(r.ticket)}` : null,
+    r.ig.interessados || r.ig.fech ? `Instagram: ${r.ig.interessados} interessados → ${r.ig.orc} orçamentos → ${r.ig.fech} vendas${r.ig.valor ? ' (R$ ' + reais(r.ig.valor) + ')' : ''}` : null,
+    r.materiais.length ? `Pedras mais pedidas: ${r.materiais.map(x => x[0]).join(', ')}` : null,
+    r.cp.ativos ? `Compra Programada: ${r.cp.ativos} contrato(s), ${r.cp.atrasados} com atraso` : null,
+    '', 'Relatório completo (dá para salvar em PDF): ' + link]);
+}
+function relHtml(r) {
+  const R = v => 'R$ ' + (+v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), lucro = r.entradas - r.saidas;
+  const barra = (l, v, max, cor) => `<div class="b"><span>${escHtmlPonto(l)}</span><i style="width:${max ? Math.max(2, v / max * 100) : 0}%;background:${cor}"></i><b>${R(v)}</b></div>`;
+  const maxG = Math.max(1, ...r.gastos.map(g => g[1]));
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório ${escHtmlPonto(relNomeMes(r.mes))} · HR</title>
+<style>body{font-family:system-ui,Segoe UI,sans-serif;margin:0;background:#f6f3ee;color:#1d1a16}main{max-width:820px;margin:0 auto;padding:28px 20px 60px}h1{font-family:Georgia,serif;font-weight:600;margin:0}h2{font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;color:#8a7350;margin:28px 0 10px}.sub{color:#6b645a}.g{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.c{background:#fff;border:1px solid #e6dfd3;border-radius:14px;padding:14px}.c span{font-size:.72rem;color:#6b645a;text-transform:uppercase;letter-spacing:.06em}.c b{display:block;font-size:1.35rem;margin-top:4px}.v{color:#1f7a45}.r{color:#b3392f}.b{display:grid;grid-template-columns:150px 1fr 110px;gap:10px;align-items:center;margin:6px 0;font-size:.88rem}.b i{display:block;height:12px;border-radius:6px}.b b{text-align:right}table{width:100%;border-collapse:collapse;font-size:.9rem}td{padding:7px 4px;border-bottom:1px solid #e6dfd3}td:last-child{text-align:right;font-weight:600}.pr{position:fixed;right:16px;bottom:16px;background:#1d1a16;color:#fff;border:0;border-radius:99px;padding:12px 20px;font-size:.95rem}@media print{.pr{display:none}body{background:#fff}}@media(max-width:560px){.g{grid-template-columns:1fr 1fr}.b{grid-template-columns:100px 1fr 90px}}</style></head><body><main>
+<p class="sub">HR Mármores e Granitos · Pilão Arcado — BA</p><h1>Relatório de ${escHtmlPonto(relNomeMes(r.mes))}</h1>
+<h2>Dinheiro</h2><div class="g"><div class="c"><span>Entrou</span><b class="v">${R(r.entradas)}</b></div><div class="c"><span>Saiu</span><b class="r">${R(r.saidas)}</b></div><div class="c"><span>Sobrou</span><b class="${lucro >= 0 ? 'v' : 'r'}">${R(lucro)}</b></div></div>
+<p class="sub">Mês anterior: entrou ${R(r.entradasAnt)}, saiu ${R(r.saidasAnt)}.</p>
+<h2>Vendas</h2><div class="g"><div class="c"><span>Orçamentos</span><b>${r.orcQtd}</b>${R(r.orcValor)}</div><div class="c"><span>Fechados</span><b>${r.fechQtd}</b>${r.orcQtd ? Math.round(r.fechQtd / r.orcQtd * 100) : 0}% de conversão</div><div class="c"><span>Ticket médio</span><b>${R(r.ticket)}</b>${r.vendasQtd} venda(s)</div></div>
+${r.gastos.length ? '<h2>Para onde foi o dinheiro</h2>' + r.gastos.map(g => barra(g[0], g[1], maxG, '#c9a45c')).join('') : ''}
+<h2>De onde vieram os clientes</h2><table><tr><td>Instagram: interessados</td><td>${r.ig.interessados}</td></tr><tr><td>Instagram: orçamentos</td><td>${r.ig.orc}</td></tr><tr><td>Instagram: vendas</td><td>${r.ig.fech}${r.ig.valor ? ' · ' + R(r.ig.valor) : ''}</td></tr></table>
+${r.materiais.length ? '<h2>Pedras mais pedidas</h2><table>' + r.materiais.map(m => `<tr><td>${escHtmlPonto(m[0])}</td><td>${m[1]} orçamento(s)</td></tr>`).join('') + '</table>' : ''}
+${r.cp.ativos ? `<h2>Compra Programada</h2><table><tr><td>Contratos ativos</td><td>${r.cp.ativos}</td></tr><tr><td>Já recebido nos contratos</td><td>${R(r.cp.recebido)}</td></tr><tr><td>Com parcela atrasada</td><td>${r.cp.atrasados}</td></tr></table>` : ''}
+<p class="sub" style="margin-top:30px;font-size:.78rem">Números do aplicativo da HR${r.snapEm ? ', atualizados em ' + new Date(r.snapEm).toLocaleString('pt-BR', { timeZone: 'America/Bahia' }) : ''}.</p>
+</main><button class="pr" onclick="print()">Salvar em PDF</button></body></html>`;
+}
+async function rotaRelatorio(req, env, url) {
+  const m = url.pathname.match(/^\/relatorio\/(\d{4}-\d{2})$/); if (!m) return null;
+  if (url.searchParams.get('k') !== (await env.HR_KV.get('rel:tok'))) return new Response('Link inválido.', { status: 403 });
+  return new Response(relHtml(await relDados(env, m[1])), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+async function relRotina(env) {
+  const hoje = dataBahia(); if (hoje.slice(8) !== '01' || await env.HR_KV.get('rel:env:' + hoje)) return;
+  await env.HR_KV.put('rel:env:' + hoje, '1', { expirationTtl: 40 * 86400 });
+  const d = new Date(hoje + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() - 1);
+  await avisarDono(env, await relTextoWhats(env, await relDados(env, d.toISOString().slice(0, 7))));
+}
+// ── painel da oficina (TV) ──
+async function oficinaDados(env) {
+  const snap = await lerSnapshotCompleto(env), d = (snap && snap.dados) || {}, hoje = dataBahia();
+  const ab = (d.agenda || []).filter(ehAberto).map(a => ({ c: a.cliente, s: a.servico, e: a.entrega || '', et: a.etapa || '', u: !!a.urgente, i: !!a.instala }));
+  ab.sort((a, b) => (a.e || '9') < (b.e || '9') ? -1 : 1);
+  let ponto = null; try { ponto = await pontoAgora(env); } catch (_) {}
+  return { hoje, dia: DIAS_SEMANA[diaSemanaISO(hoje)], fer: [...feriadosAdiante(env, hoje, 10)].slice(0, 2).map(f => ({ n: f.nome, d: f.iso, dow: DIAS_SEMANA[f.dow] })), servicos: ab.slice(0, 40),
+    equipe: ponto ? ponto.lista.map(x => ({ n: String(x.nome).split(' ')[0], st: x.st, t: x.txt })) : [], em: snap && snap.ts };
+}
+const OFICINA_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Oficina · HR</title><style>
+*{box-sizing:border-box;margin:0}body{background:#0f0e0c;color:#f3eee5;font-family:system-ui,Segoe UI,sans-serif;padding:2vw;min-height:100vh}
+header{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:1.6vw}h1{font-size:2.6vw;font-weight:800;color:#e3c88f}.rel{font-size:4.2vw;font-weight:800;font-variant-numeric:tabular-nums}.d{color:#b9b0a2;font-size:1.4vw}
+.cols{display:grid;grid-template-columns:2.2fr 1fr;gap:1.6vw}.box{background:#171512;border:1px solid #2e2a24;border-radius:1vw;padding:1.2vw}.box h2{font-size:1.2vw;letter-spacing:.15em;text-transform:uppercase;color:#c9a45c;margin-bottom:.8vw}
+.s{display:grid;grid-template-columns:7vw 1fr 10vw;gap:1vw;align-items:center;padding:.8vw 0;border-bottom:1px solid #2e2a24;font-size:1.5vw}.s:last-child{border:0}.s .dt{font-weight:800;font-variant-numeric:tabular-nums}.s small{display:block;color:#b9b0a2;font-size:1.1vw}
+.tag{padding:.3vw .8vw;border-radius:99px;font-size:1vw;font-weight:800;text-align:center}.producao{background:#2b3a55;color:#bcd2ff}.pronto{background:#22452f;color:#9fe0b4}.atr{color:#ff7b72}.hj{color:#ffd166}.urg{background:#5c1f1f;color:#ffb3ad}
+.p{display:flex;justify-content:space-between;font-size:1.5vw;padding:.6vw 0;border-bottom:1px solid #2e2a24}.p:last-child{border:0}.ok{color:#4ade80}.al{color:#f59e0b}.no{color:#ff7b72}.fer{margin-top:1.2vw;font-size:1.3vw;color:#ffd166}
+</style></head><body><header><div><h1>HR Mármores e Granitos · Oficina</h1><div class="d" id="d"></div></div><div class="rel" id="rel"></div></header>
+<div class="cols"><div class="box"><h2>Fila de serviços</h2><div id="sv"></div></div><div><div class="box"><h2>Equipe agora</h2><div id="eq"></div></div><div class="fer" id="fer"></div></div></div>
+<script>
+var K=new URLSearchParams(location.search).get('k');function e(s){return String(s||'').replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function rel(){var d=new Date();document.getElementById('rel').textContent=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Bahia'})}setInterval(rel,1000);rel();
+function br(i){return i?i.slice(8,10)+'/'+i.slice(5,7):'—'}
+function carregar(){fetch('oficina/dados?k='+encodeURIComponent(K)).then(function(r){return r.json()}).then(function(j){
+ document.getElementById('d').textContent=j.dia+', '+br(j.hoje)+(j.em?' · dados do app de '+new Date(j.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Bahia'}):'');
+ document.getElementById('sv').innerHTML=(j.servicos||[]).map(function(s){var c=s.e&&s.e<j.hoje?'atr':s.e===j.hoje?'hj':'';var et=/pronto/.test(s.et)?'pronto':'producao';
+  return '<div class="s"><div class="dt '+c+'">'+br(s.e)+(c==='atr'?'<small>atrasado</small>':c==='hj'?'<small>hoje</small>':'')+'</div><div>'+e(s.c)+'<small>'+e(s.s)+(s.i?' · instalação':'')+'</small></div><div class="tag '+(s.u?'urg':et)+'">'+(s.u?'URGENTE':et==='pronto'?'PRONTO':'PRODUÇÃO')+'</div></div>'}).join('')||'<div class="p">Nenhum serviço em aberto.</div>';
+ var C={trabalhando:'ok',almoco:'al',saiu:'',atrasado:'no',esqueceu_saida:'no',nao_chegou:'',abonado:'',folga:''};
+ document.getElementById('eq').innerHTML=(j.equipe||[]).map(function(x){return '<div class="p"><span>'+e(x.n)+'</span><span class="'+(C[x.st]||'')+'">'+e(x.t)+'</span></div>'}).join('')||'<div class="p">Ponto pelo celular ainda não configurado.</div>';
+ document.getElementById('fer').innerHTML=(j.fer||[]).map(function(f){return '📅 '+e(f.n)+': '+e(f.dow)+', '+br(f.d)}).join('<br>');
+}).catch(function(){})}
+carregar();setInterval(carregar,60000);setTimeout(function(){location.reload()},6*3600000);
+</script></body></html>`;
+async function rotaOficina(req, env, url) {
+  if (url.pathname !== '/oficina' && url.pathname !== '/oficina/dados') return null;
+  if (url.searchParams.get('k') !== (await env.HR_KV.get('ofi:tok'))) return new Response('Link inválido. Peça ao bot: painel da oficina.', { status: 403 });
+  if (url.pathname === '/oficina') return new Response(OFICINA_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  return new Response(JSON.stringify(await oficinaDados(env)), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+}
+// ── Compra Programada HR ──
+async function cpRotina(env, snap) {
+  const hoje = dataBahia(), l = (snap && snap.dados && snap.dados.compraProgramada) || [];
+  if (!l.length || await env.HR_KV.get('cp:dia:' + hoje)) return;
+  await env.HR_KV.put('cp:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const atr = l.filter(x => x.atrasoDias > 0), vence = l.filter(x => x.proxima && x.proxima.data > hoje && x.proxima.data <= isoSomaDias(hoje, 3));
+  const meta = []; for (const x of l) if (x.pct >= x.meta && !x.producao && !(await env.HR_KV.get('cp:meta:' + x.id))) { meta.push(x); await env.HR_KV.put('cp:meta:' + x.id, '1', { expirationTtl: 400 * 86400 }); }
+  if (!atr.length && !vence.length && !meta.length) return;
+  await avisarDono(env, cartaoDono('Compra Programada', [
+    ...meta.map(x => `🎯 ${x.cliente} atingiu ${x.pct}% (meta ${x.meta}%): pode liberar a produção de ${x.projeto || 'o projeto'}.`),
+    ...atr.map(x => `Atrasada: ${x.cliente} · parcela ${x.proxima ? x.proxima.n + ' de R$ ' + reais(x.proxima.valor) : ''} · ${x.atrasoDias} dia(s)`),
+    ...vence.map(x => `Vence ${dataBR(x.proxima.data).slice(0, 5)}: ${x.cliente} · R$ ${reais(x.proxima.valor)}`),
+    'Para registrar um pagamento: *compra programada: Maria pagou 500*.']));
+}
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
 //   O Sr. Hangel manda fotos/vídeos com "obra ..." (ex.: "obra cozinha da Maria em granito preto"). Cada obra:
@@ -15352,6 +15638,7 @@ async function acvMigrarSoltos(env) {
   await vdCriar(env, false);
 }
 async function vdRotina(env) {
+  await cliFilaTick(env).catch(e => console.log('[FILA]', e.message)); // v91
   if (!estAtivo(env)) return;
   if (!(await env.HR_KV.get('ig:imp:auto')) && await igToken(env)) { await env.HR_KV.put('ig:imp:auto', '1', { expirationTtl: 400 * 86400 }); await env.HR_KV.put('ig:imp:ligado', '1', { expirationTtl: 30 * 86400 }); } // v89b: traz os posts antigos uma vez, sozinho
   if (await env.HR_KV.get('ig:imp:ligado') && !(await env.HR_KV.get('ig:imp:tick'))) { await env.HR_KV.put('ig:imp:tick', '1', { expirationTtl: 300 }); const r = await igImportarAntigos(env, 8).catch(e => { console.log('[IG] importar:', e.message); return { resta: true }; }); if (!r.resta) await env.HR_KV.delete('ig:imp:ligado'); }
@@ -15390,6 +15677,18 @@ async function feriadosComando(env, from) { // v90f: "feriados" — o que vem pe
   return true;
 }
 async function vdComandoDono(env, from, bruto, msg) {
+  if (/^(painel( da)? oficina|painel da tv|tv da oficina|link da oficina)$/.test(msg)) { // v91
+    let t = await env.HR_KV.get('ofi:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2, 12); await env.HR_KV.put('ofi:tok', t); }
+    await enviar(env, from, cartaoDono('Painel da oficina', [`${await urlPublica(env)}/oficina?k=${t}`, 'Abra na TV (navegador) ou num celular/tablet na parede. Mostra a fila de serviços (atrasados em vermelho, entregas de hoje em amarelo), quem está trabalhando e o próximo feriado. Atualiza sozinho a cada minuto.'])); return true; }
+  { const mr = msg.match(/^relatorio( do mes| mensal)?(?: (?:de )?(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))?$/);
+    if (mr) { const M = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']; const hoje = dataBahia();
+      let mes = hoje.slice(0, 7); if (mr[2]) { const mi = M.indexOf(mr[2]) + 1; let y = +hoje.slice(0, 4); if (mi > +hoje.slice(5, 7)) y--; mes = `${y}-${String(mi).padStart(2, '0')}`; }
+      await enviar(env, from, await relTextoWhats(env, await relDados(env, mes))); return true; } }
+  { const mc = String(bruto).match(/^\s*compra programada\s*[:\-]?\s*(.+?)\s+(?:pagou|pago|deu|depositou)\s+(?:r\$\s*)?([\d.,]+)/i);
+    if (mc) { const cmd = { id: Date.now() * 10 + (_seqPedido++ % 10), acao: 'cp_pagamento', parametros: { cliente: mc[1].trim(), valor: mc[2] }, resumo: `pagamento de R$ ${mc[2]} na Compra Programada de ${mc[1].trim()}`, status: 'aprovado', tsAprov: Date.now(), hora: new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' }) };
+      await salvarCmd(env, cmd); await enviar(env, from, `Mandei ao app: ${cmd.resumo}. Ele registra quando estiver aberto e eu te aviso.`); return true; }
+    if (/^(compra programada|compras programadas)$/.test(msg)) { const l = ((await lerSnapshotCompleto(env)) || {}).dados?.compraProgramada || [];
+      await enviar(env, from, cartaoDono('Compra Programada', l.length ? l.slice(0, 15).map(x => `${x.cliente}: ${x.pct}% de R$ ${reais(x.valor)} (meta ${x.meta}%)${x.atrasoDias ? ' · ' + x.atrasoDias + 'd de atraso' : x.proxima ? ' · próxima ' + dataBR(x.proxima.data).slice(0, 5) : ''}`) : ['Nenhum contrato ativo (ou o app ainda não mandou os dados: abra o app).'])); return true; } }
   if (/^(feriados?|proximos feriados|quais (os|sao os) (proximos )?feriados|calendario de feriados)$/.test(msg)) return feriadosComando(env, from);
   if (/^((link do |o |meu )?album( de obras| de servicos( feitos)?)?|servicos feitos|link (das|de) obras)$/.test(msg)) {
     const b = await urlPublica(env).catch(() => ''); const d = await obrasDados(env).catch(() => ({ obras: [] }));
@@ -15557,6 +15856,8 @@ async function rotaEditor(req, env, url) {
       const j = await estLer(env, fila[0]);
       if (j && j.estado === 'na_fila' && j.editar) {
         j.estado = 'editando'; j.editandoEm = Date.now(); await estGravar(env, j);
+        if (j.montagem && j.cartao) { let fundo = null; if (j.fundo) { const ob = await acvLer(env, j.fundo.obra); if (ob) { const pc = await acvParaPC(env, ob); const m = pc.midias[j.fundo.i]; if (m) fundo = { ...m, obra: ob.id }; } }
+          return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, montagem: true, cartao: j.cartao, obra: { id: 'cartao', desc: '', midias: fundo ? [fundo] : [] } } }); }
         if (j.montagem) { const pac = await vdPacote(env, j); if (!pac) { j.estado = 'cancelado'; await estGravar(env, j); fila.shift(); await env.HR_KV.put('ed:fila', JSON.stringify(fila)); continue; }
           return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, montagem: true, mix: !!j.mix, obra: pac } }); }
         return J({ ok: true, post: { id: j.id, destino: j.destino, desc: j.desc, video: await mdUrl(env, j.midias[0].md, 'video/mp4') } });
@@ -15568,6 +15869,7 @@ async function rotaEditor(req, env, url) {
   const mm = p.match(/^\/editor\/(plano|pronto|erro)\/([a-z0-9]{10})$/);
   if (!mm) return J({ ok: false, erro: 'rota' }, 404);
   const j = await estLer(env, mm[2]); if (!j) return J({ ok: false, erro: 'post não existe' }, 404);
+  if (mm[1] === 'plano' && j.montagem && j.cartao) { let logo = /^https:\/\//.test(String(env.LOGO_VIDEO_URL || env.LOGO_URL || '')) ? (env.LOGO_VIDEO_URL || env.LOGO_URL) : ''; return J({ ok: true, cartao: j.cartao, whats: await igWhatsFormatado(env).catch(() => ''), cidade: env.CIDADE || 'Pilão Arcado - BA', logo }); } // v91
   if (mm[1] === 'plano' && j.montagem) return J(Object.assign({ ok: true }, await vdPlano(env, j))); // v88: roteiro do vídeo do dia
   if (mm[1] === 'plano') {
     let tr = null; try { tr = await estTranscreverComTempo(env, j.midias[0].md); } catch (e) { console.log('[ESTUDIO] transcrição:', e.message); }
@@ -17820,7 +18122,7 @@ async function avisosFeriado(env, snap) {
     if (util) {
       const noDia = abertas.filter(a => a.entrega === f.iso);
       const apertadas = abertas.filter(a => a.entrega > f.iso && diasCorridos(f.iso, a.entrega) <= 3);
-      if (noDia.length) l.push(`Entregas marcadas para o feriado: ${noDia.map(a => a.cliente).join(', ')}. Convém antecipar ou reprogramar e avisar o cliente.`);
+      if (noDia.length) l.push(`Entregas marcadas para o feriado: ${noDia.map(a => a.cliente).join(', ')}. Convém antecipar ou reprogramar.`);
       if (apertadas.length) l.push(`Entregas até 3 dias depois (ficam apertadas): ${apertadas.map(a => `${a.cliente} (${dataBR(a.entrega)})`).join(', ')}.`);
       if (etapa !== '1') { const ex = calcularPrazo(env, { uteis: 5 }); l.push(`Prazos novos já descontam o feriado (5 dias úteis a partir de hoje = ${dataBR(ex.entrega_prevista)}).`); }
       const bolDia = bols.filter(b => b.vencimento === f.iso);
@@ -17833,6 +18135,11 @@ async function avisosFeriado(env, snap) {
     const ponte = util ? diaPonte(env, f) : '';
     if (util && !decidido) await enviarComBotoes(env, numeroDono(env), cartaoDono(tit, l), [{ id: 'fer|folga|' + f.iso, titulo: 'Folga para todos' }, ...(ponte ? [{ id: 'fer|ponte|' + f.iso + '|' + ponte, titulo: 'Folga + ponte' }] : []), { id: 'fer|trab|' + f.iso, titulo: 'Vamos trabalhar' }]);
     else await avisarDono(env, cartaoDono(tit, l));
+    if (util && ['7', '2'].includes(etapa) && !f.facultativo) { // v91: avisar os clientes com entrega perto do feriado
+      const af = (await ferClientesAfetados(env, snap, f)).filter(x => x.num);
+      if (af.length && !(await env.HR_KV.get('feravc:' + f.iso))) { await env.HR_KV.put('feravc:' + f.iso, '1', { expirationTtl: 30 * 86400 });
+        await enviarComBotoes(env, numeroDono(env), cartaoDono('Avisar os clientes do feriado?', [`${af.length} cliente(s) com entrega perto do ${f.nome}: ${af.map(x => x.nome.split(' ')[0]).join(', ')}.`, 'Mensagem de exemplo: "' + ferTextoCliente(f, af[0]) + '"']), [{ id: 'feravc|' + f.iso, titulo: 'Avisar clientes' }]); }
+    }
   }
 }
 async function feriadoBotao(env, from, id) {
@@ -17984,6 +18291,12 @@ async function rotinaDiaria(env, opts = {}) {
     await passo('semanal', async () => { if (!(await jaAvisou(e2, 'semana:' + hoje))) await avisarDono(e2, await resumoSemanal(e2, snap)); });
   }
   await passo('clientes', async () => { const r = await rotinaClientes(e2, opts); if (r && r.length) feitos.push(...r); });
+  await passo('cartões de feriado', () => cartoesDatas(e2)); // v91
+  await passo('boas festas', () => boasFestasRotina(e2, snap));
+  await passo('foto da obra', () => fotoObraRotina(e2));
+  await passo('relatório do mês', () => relRotina(e2));
+  await passo('compra programada', () => cpRotina(e2, snap));
+  await passo('manutenção', () => manutRotina(e2));
   return { ok: true, feitos };
 }
 
@@ -24393,6 +24706,8 @@ export default {
     if (url.pathname === '/mp/webhook') return rotaMercadoPago(req, env, ctx, url);
     if (url.pathname === '/portfolio' || url.pathname.startsWith('/portfolio/')) return rotaPortfolio(req, env, ctx, url);
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
+    if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
+    if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
     if (url.pathname === '/ponto' || url.pathname.startsWith('/ponto/')) return rotaPonto(req, env, ctx, url); // v34: HR Ponto
     if (url.pathname.startsWith('/pagar/')) return rotaPagar(req, env, url); // v49: página de pagamento da HR
     if (url.pathname.startsWith('/m/')) return rotaMidia(req, env, url); // v69: mídia dos posts (Instagram e prévias)
