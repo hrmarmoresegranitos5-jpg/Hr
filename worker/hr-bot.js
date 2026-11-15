@@ -982,7 +982,7 @@ async function rhAvisos(env) {
   await env.HR_KV.put('rh:av:tick', '1', { expirationTtl: 600 });
   const cfg = await pontoCfg(env); if (!cfg.funcs.length) return;
   const ag = agoraBahia(), hoje = dataBahia();
-  if (ag.dia === 7 || (cfg.feriados || []).includes(hoje)) return;
+  if (semExpediente(env, cfg, hoje)) return;
   const toMin = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
   // 1) chegada
   const ent = toMin((cfg.lemb && cfg.lemb.entrada) || '07:00');
@@ -8079,6 +8079,8 @@ function isoSomaDias(iso, n) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
+// v90b: dia sem expediente = domingo, feriado nacional/da Bahia ou folga cadastrada no ponto (antes "domingo" era testado como 7 e nunca batia)
+function semExpediente(env, cfg, iso) { return diaSemanaISO(iso) === 0 || feriadosDoAno(env, +iso.slice(0, 4)).has(iso) || ((cfg && cfg.feriados) || []).includes(iso); }
 function diaSemanaISO(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = domingo
@@ -20725,8 +20727,8 @@ async function recSalvarLista(env, body) {
       const cm = cbConfEncargos(env);
       if (Math.abs(cm.multaPct - cfg.multaPct) > 0.001 || Math.abs(cm.jurosMes - cfg.jurosMesPct) > 0.001 || Math.round(cm.carencia) !== Math.round(cfg.carenciaDias)) {
         aviso = `As taxas do app (multa ${cbPct(cfg.multaPct)}%, juros ${cbPct(cfg.jurosMesPct)}% ao mês, carência ${cfg.carenciaDias} dias) são diferentes das do Cloudflare (COBRANCA_MULTA_PCT ${cbPct(cm.multaPct)}, COBRANCA_JUROS_MES_PCT ${cbPct(cm.jurosMes)}, COBRANCA_CARENCIA_DIAS ${cm.carencia}). A cobrança profissional usa as do Cloudflare.`;
-        const chave = 'rec:cfgdiv:' + dataBahia();
-        if (!(await env.HR_KV.get(chave))) { await env.HR_KV.put(chave, '1', { expirationTtl: 86400 }).catch(() => {}); await notificarDono(env, Date.now(), `*A Receber:* ${aviso}`).catch(() => {}); }
+        const assin = [cfg.multaPct, cfg.jurosMesPct, cfg.carenciaDias, cm.multaPct, cm.jurosMes, cm.carencia].join('|'); // v90b: avisa uma vez por diferença, não todo dia
+        if ((await env.HR_KV.get('rec:cfgdiv')) !== assin) { await env.HR_KV.put('rec:cfgdiv', assin, { expirationTtl: 180 * 86400 }).catch(() => {}); await notificarDono(env, Date.now(), `*A Receber:* ${aviso}`, { rotina: true }).catch(() => {}); }
       }
     }
   }
@@ -21885,7 +21887,7 @@ function pvTexto(nome, serv) {
 async function pvRotina(env) {
   if (!pvAtivo(env)) return;
   const ag = agoraBahia(), hoje = dataBahia();
-  if (ag.min < 10 * 60 || ag.dia === 7 || await env.HR_KV.get('pv:dia:' + hoje)) return;
+  if (ag.min < 10 * 60 || ag.dia === 0 || await env.HR_KV.get('pv:dia:' + hoje)) return;
   await env.HR_KV.put('pv:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
   const dias = pvDias(env), alvoIni = dataBahia(-(dias + 7)), alvoFim = dataBahia(-dias);
   const todos = await livTodos(env);
@@ -22314,7 +22316,7 @@ async function pontoBatidaBotao(env, from, id) { // pb_ok|data|funcId|id — don
 async function pontoAgora(env) {
   const cfg = await pontoCfg(env), hoje = dataBahia(), ag = agoraBahia(), L = cfg.lemb || {};
   const m = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
-  const folga = ag.dia === 7 || (cfg.feriados || []).includes(hoje);
+  const folga = semExpediente(env, cfg, hoje);
   const ent = m(L.entrada || '07:15'), sai = m(ag.dia === 6 ? (L.sabado || '12:15') : (L.saida || '17:45'));
   const lista = [];
   for (const f of cfg.funcs) {
@@ -22444,7 +22446,7 @@ async function pontoNotificar(env, f, titulo, corpo, tag) {
 async function pontoLembretes(env, cfg) {
   const L = cfg.lemb || {}; if (!L.ligado || !cfg.funcs.length) return;
   const ag = agoraBahia(), hoje = dataBahia();
-  if (ag.dia === 7 || (cfg.feriados || []).includes(hoje)) return;
+  if (semExpediente(env, cfg, hoje)) return;
   const m = (t) => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
   const ent = m(L.entrada), sai = m(ag.dia === 6 ? (L.sabado || L.saida) : L.saida), alm = Math.max(30, +L.almoco || 80);
   for (const f of cfg.funcs) {
@@ -22475,7 +22477,7 @@ async function pontoRotina(env) {
   const [hh, mm] = String(cfg.aviso).split(':').map(Number);
   const ag = agoraBahia();
   if (ag.min < (hh * 60 + (mm || 0))) return;
-  if (ag.dia === 7) return; // domingo
+  if (semExpediente(env, cfg, dataBahia())) return; // domingo, feriado ou folga
   const falta = [];
   for (const f of cfg.funcs) {
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
