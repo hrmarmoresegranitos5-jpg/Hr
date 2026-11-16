@@ -18625,6 +18625,28 @@ async function rotaBotInterna(req, env, url) {
     const quentes = []; for (const q of d.quentes) { let nome = ''; try { nome = (await lerNomeSalvo(env, q.num)) || ''; } catch (_) {} quentes.push({ ...q, nome }); }
     return jsonR({ ok: true, ...d, quentes, painel: t ? `${await urlPublica(env)}/painel?k=${t}` : '' });
   }
+  if (p === '/bot/orcamento/enviar' && req.method === 'POST') { // v107: "Enviar pelo bot" na tela do PDF do app
+    const body = await req.json().catch(() => null); if (!body) return jsonR({ ok: false, erro: 'JSON inválido' });
+    let d = String(body.tel || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
+    if (!/^55\d{10,11}$/.test(d)) return jsonR({ ok: false, erro: 'WhatsApp do cliente inválido (use DDD + número).' });
+    if (typeof body.pdf !== 'string' || body.pdf.length > PDF_MAX_BYTES * 1.4) return jsonR({ ok: false, erro: 'PDF ausente ou grande demais.' });
+    let bytes; try { bytes = base64ParaBytes(body.pdf); } catch (_) { return jsonR({ ok: false, erro: 'PDF inválido.' }); }
+    const num = normalizarBR(d), nome = String(body.nome || '').slice(0, 60), pedido = String(body.pedido || '').slice(0, 80), valor = +body.valor || 0;
+    const up = await subirPdfMeta(env, bytes, String(body.arquivo || 'Orcamento.pdf').slice(0, 80));
+    const pn = nome.split(' ')[0];
+    const msg = String(body.mensagem || '').trim() || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento${pedido ? ' de ' + pedido : ''} da HR Mármores e Granitos. Pode parcelar em até 10x sem juros no cartão, ou com desconto à vista. Qualquer dúvida, é só me chamar aqui.`;
+    const r = await enviarOrcamentoCliente(env, num, { mediaId: up.id, arquivoNome: up.nome, nome, valor, interesse: pedido, id: 'app' + Date.now() }, nome, msg);
+    await orcEnvRegistrar(env, num, { id: 'app' + Date.now(), valor, nome }, nome).catch(() => {});
+    if (nome) await ctAtualizar(env, num, { nome }).catch(() => {});
+    for (const v of variantesNumero(num)) { // a assistente sabe do orçamento quando ele responder
+      let c = null; try { c = JSON.parse((await env.HR_KV.get('ca:' + v)) || 'null'); } catch (_) {}
+      c = c || { dados: {}, hist: [] }; if (nome && !(c.dados && c.dados.nome)) c.dados = { ...(c.dados || {}), nome };
+      c.hist = [...(c.hist || []), { role: 'assistant', content: `[O Sr. Hangel mandou pelo app o orçamento${pedido ? ' de ' + pedido : ''}${valor ? ' no valor de R$ ' + reais(valor) : ''} em PDF. Se o cliente perguntar, use esses dados; desconto à vista até ${(await promoCfg(env)).descontoMax}% e até 10x sem juros no cartão.]` }].slice(-16);
+      await env.HR_KV.put('ca:' + v, JSON.stringify(c), { expirationTtl: 14 * 86400 });
+    }
+    await enviar(env, numeroDono(env), `Orçamento enviado pelo app para ${nome || rtpFmt(num)}${valor ? ' (R$ ' + reais(valor) + ')' : ''}. ${r}`).catch(() => {});
+    return jsonR({ ok: true, texto: r });
+  }
   if (p === '/bot/cliente' && req.method === 'GET') { // v105: o que o bot sabe de um cliente (ficha do app)
     let d = String(url.searchParams.get('tel') || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
     if (!/^55\d{10,11}$/.test(d)) return jsonR({ ok: false, erro: 'telefone inválido' });
