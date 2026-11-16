@@ -23984,6 +23984,12 @@ async function pontoNotificar(env, f, titulo, corpo, tag) {
     const via = await falarComFuncionario(env, f, `🕐 *${titulo}*\n${corpo}`, { titulo }).catch(() => '');
     if (via === 'whatsapp' || via === 'modelo') return 'whatsapp';
   }
+  if (f.tel && env.WHATSAPP_TOKEN) { // v110: sem notificação e sem modelo próprio de funcionário → modelos aprovados da HR, um atrás do outro
+    const tel = normalizarBR(String(f.tel).replace(/\D/g, '').replace(/^(?!55)/, '55'));
+    const txt = `${titulo}: ${corpo}`.replace(/\s+/g, ' ').slice(0, 190);
+    const x = await tplCadeiaEnviar(env, tel, { nome: String(f.nome || '').split(' ')[0], mensagem: txt, curta: txt }).catch(() => null);
+    if (x) return 'whatsapp';
+  }
   return '';
 }
 async function pontoLembretes(env, cfg) {
@@ -24171,6 +24177,17 @@ async function rotaBotPonto(req, env, url) {
     await env.HR_KV.delete('ponto:face:' + fid); await env.HR_KV.delete('ponto:rf:' + fid);
     return jsonR({ ok: true });
   }
+  if (p === '/bot/ponto/pedir-lembrete' && req.method === 'POST') { // v110: pede ao funcionário para ligar os lembretes no app dele
+    const b = await req.json().catch(() => ({})); const f = cfg.funcs.find(x => String(x.id) === String(b.funcId));
+    if (!f) return jsonR({ error: 'Funcionário não encontrado.' }, 404);
+    if (!f.tel) return jsonR({ error: 'Cadastre o WhatsApp do funcionário no RH.' }, 400);
+    const link = `${await urlPublica(env)}/ponto`;
+    const t = `Para o app do ponto te avisar quando você esquecer de bater, abra o *HR Ponto* (${link}) e toque em *LIGAR LEMBRETES* lá em cima, depois em *Permitir*. Leva 10 segundos.`;
+    const via = await falarComFuncionario(env, f, t, {}).catch(() => '');
+    let ok = via === 'whatsapp' || via === 'modelo';
+    if (!ok) { const tel = normalizarBR(String(f.tel).replace(/\D/g, '').replace(/^(?!55)/, '55')); ok = !!(await tplCadeiaEnviar(env, tel, { nome: String(f.nome).split(' ')[0], mensagem: t.replace(/\*/g, ''), curta: `Abra o app HR Ponto e toque em LIGAR LEMBRETES para ser avisado quando esquecer de bater o ponto: ${link}`.slice(0, 200) }).catch(() => null)); }
+    return jsonR({ ok, via: ok ? 'whatsapp' : '' });
+  }
   if (p === '/bot/ponto/testar' && req.method === 'POST') { // v35: manda um lembrete de teste
     const b = await req.json().catch(() => ({}));
     const f = cfg.funcs.find(x => String(x.id) === String(b.funcId));
@@ -24343,6 +24360,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   <div class="stchip" id="stChip"></div>
   <div class="ext" id="ext">🚚 Hoje você está liberado para <b>obra externa</b>: vale a localização da obra.</div>
   <div class="offbar" id="offBar" hidden>📶 Sem internet agora. Pode bater normalmente: o app guarda e envia sozinho quando a internet voltar.</div>
+  <div class="card" id="lembCard" style="display:none;border:1px solid var(--ouro);background:linear-gradient(135deg,rgba(196,164,106,.18),var(--s1))"><h3>🔔 Lembretes</h3><div id="lembTxt" style="font-size:.88rem;color:var(--t2);line-height:1.45"></div><button type="button" id="btLemb" style="display:none;width:100%;margin-top:10px;padding:13px;border-radius:12px;border:1px solid var(--ouro);background:var(--ouro);color:#141415;font-size:.95rem;font-weight:800">LIGAR LEMBRETES</button></div>
   <div class="fila" id="filaCard" hidden></div>
   <div class="card relc" id="relCard" hidden><h3 id="relT">Relatório de horas</h3><div id="relTab"></div><div id="relBt"></div></div>
   <div class="cam" id="cam" hidden><video id="vid" playsinline muted autoplay></video><div class="msg" id="camMsg"><span>Abrindo a câmera…</span></div></div>
@@ -24352,7 +24370,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   <div class="card"><h3>Hoje</h3><div class="linha" id="hoje"></div><div class="trabhj" id="trabHj"></div></div>
   <div class="card" id="resCard" hidden><h3 id="resT">Meu período</h3><div class="tres" id="resNum"></div><details class="det"><summary>Ver dia a dia</summary><div id="res"></div></details></div>
   <div class="card"><h3>Precisa corrigir algo?</h3><div class="pbts"><button type="button" id="btEsq">🕐 Esqueci de bater</button><button type="button" id="btFalta">📄 Justificar falta</button></div><div id="peds"></div></div>
-  <div class="card" id="lembCard" style="display:none"><h3>🔔 Lembretes</h3><div id="lembTxt" style="font-size:.88rem;color:var(--t2);line-height:1.45"></div><button type="button" id="btLemb" style="display:none;width:100%;margin-top:10px;padding:13px;border-radius:12px;border:1px solid var(--ouro);background:none;color:var(--claro);font-size:.95rem;font-weight:800">LIGAR LEMBRETES</button></div>
+
   <p class="aviso">Bata conectado no <b>Wi-Fi da oficina</b>.</p>
   <div id="hist" hidden></div>
 </div>
