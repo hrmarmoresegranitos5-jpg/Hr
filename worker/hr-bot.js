@@ -14064,6 +14064,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await paradosComando(env, from, msg).catch(e => { console.log('[PARADOS]', e.message); return false; })) return; // v96
     if (await indComando(env, from, bruto, msg).catch(e => { console.log('[IND]', e.message); return false; })) return; // v99
     if (await menuComando(env, from, msg).catch(() => false)) return; // v101
+    if (await caixaComando(env, from, msg).catch(e => { console.log('[CAIXA]', e.message); return false; })) return; // v102
     if (/^(reconquistar|reconquista|clientes perdidos|perdidos)$/.test(msg)) { await reconqLista(env, from, true); return; }
     if (/^(radar( de vendas)?|vendas da semana|relatorio de vendas|como foram as vendas( da semana)?|resumo de vendas)$/.test(msg)) { await radarEnviar(env, from).catch(async e => enviar(env, from, 'Não consegui montar o radar agora: ' + String(e.message).slice(0, 100))); return; } // v97
     if (await rtpTratarTexto(env, from, bruto, msg).catch(e => { console.log('[RTP] texto:', e.message); return false; })) return; // v93
@@ -16181,7 +16182,7 @@ const MENU_VENDAS = [
   ['reconq', 'Reconquistar perdidos', 'Quem desistiu há 1 a 2 meses'], ['promo', 'Ideias de promoção', '3 campanhas com os seus números'],
   ['plano', 'Plano de 30 dias', 'Vender mais e entrar nas cidades vizinhas'], ['indic', 'Indicações', 'Ranking e prêmios'],
   ['relat', 'Relatório do mês', 'Entrou, saiu, sobrou + PDF'], ['oficina', 'Painel da oficina', 'Link para a TV'],
-  ['cp', 'Compra Programada', 'Contratos e parcelas'], ['fer', 'Feriados', 'Próximos e o que muda'],
+  ['caixa', 'Previsão de caixa', 'Entra e sai nas próximas 4 semanas'], ['fer', 'Feriados', 'Próximos e o que muda'],
 ];
 async function menuComando(env, from, msg) {
   if (!/^(comandos|menu|menu de vendas|o que voce faz|atalhos|funcoes)$/.test(msg)) return false;
@@ -16192,6 +16193,7 @@ async function menuComando(env, from, msg) {
 async function menuBotao(env, from, id) {
   const k = id.split('|')[1];
   if (k === 'radar') { await radarEnviar(env, from); return true; }
+  if (k === 'caixa') { await enviar(env, from, await caixaTexto(env)); return true; }
   if (k === 'parados') return paradosComando(env, from, 'orcamentos parados');
   if (k === 'reconq') return reconqLista(env, from, true);
   if (k === 'promo') return promoComando(env, from, 'promocao', 'promocao');
@@ -16224,6 +16226,48 @@ async function reconqRotina(env) {
   const hoje = dataBahia(); if (diaSemanaISO(hoje) !== 3 || agoraBahia().min < 8 * 60 || await env.HR_KV.get('rq:dia:' + hoje)) return;
   await env.HR_KV.put('rq:dia:' + hoje, '1', { expirationTtl: 8 * 86400 });
   await reconqLista(env, numeroDono(env), false);
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v102: PREVISÃO DE CAIXA (próximas 4 semanas) — o que deve entrar (A Receber, boletos de clientes, saldos de
+//   entregas, parcelas da Compra Programada) e o que deve sair (boletos a pagar), semana a semana, com alerta e
+//   sugestão de quem cobrar quando uma semana fica no vermelho. "previsao de caixa"; também no radar de segunda.
+// ═════════════════════════════════════════════════════════════════════════════
+async function caixaPrevisao(env) {
+  const hoje = dataBahia(), fim = isoSomaDias(hoje, 27), sem = [0, 1, 2, 3].map(i => ({ ini: isoSomaDias(hoje, i * 7), fim: isoSomaDias(hoje, i * 7 + 6), ent: 0, sai: 0, ei: [], si: [] }));
+  const ponha = (data, v, tipo, rot) => { if (!(v > 0)) return; let d = data && data >= hoje ? data : hoje; if (d > fim) return; const w = sem.find(x => d >= x.ini && d <= x.fim); if (!w) return; if (tipo === 'e') { w.ent += v; w.ei.push([rot, v]); } else { w.sai += v; w.si.push([rot, v]); } };
+  const snap = await lerSnapshotCompleto(env).catch(() => null), d = (snap && snap.dados) || {}, atras = { ent: 0, sai: 0 };
+  for (const b of (d.boletos || [])) { if (!b || ['pago', 'cancelado'].includes(b.status)) continue; const v = +b.valor || 0, venc = String(b.vencimento || '').slice(0, 10), rot = (b.fornecedor || b.descricao || 'boleto').slice(0, 30);
+    if (venc && venc < hoje) { if (b.tipo === 'receber') atras.ent += v; else atras.sai += v; }
+    ponha(venc, v, b.tipo === 'receber' ? 'e' : 's', rot); }
+  const vistos = new Set();
+  try { const { itens } = await recLerItens(env); for (const it of (itens || [])) { const sd = Math.round(((+it.valor || 0) - (+it.pago || 0)) * 100) / 100; if (sd <= 0) continue; vistos.add(normaliza(it.cliente).split(' ')[0]); ponha(String(it.venc || '').slice(0, 10), sd, 'e', it.cliente); } } catch (_) {}
+  for (const r of await livTodos(env).catch(() => [])) { const sd = livSaldo(r); if (!(sd > 0) || !r.entregaEm || vistos.has(normaliza(r.cliente).split(' ')[0])) continue; vistos.add(normaliza(r.cliente).split(' ')[0]); ponha(hoje, sd, 'e', r.cliente + ' (já entregue)'); }
+  for (const a of (d.agenda || []).filter(ehAberto)) { const sd = (+a.valor || 0) - (+a.pago || 0); if (sd <= 0 || vistos.has(normaliza(a.cliente).split(' ')[0])) continue; ponha(String(a.entrega || '').slice(0, 10), sd, 'e', a.cliente + ' (na entrega)'); }
+  for (const c of (d.compraProgramada || [])) if (c.proxima && c.proxima.valor) ponha(c.proxima.data, +c.proxima.valor, 'e', c.cliente + ' (Compra Programada)');
+  const tm = (d.financas && d.financas.totaisPorMes) || {}, meses = Object.keys(tm).sort().filter(m => m < hoje.slice(0, 7)).slice(-3);
+  const mediaSai = meses.length ? meses.reduce((t, m) => t + (+tm[m].saidas || 0), 0) / meses.length : 0;
+  return { sem, atras, mediaSai, snapEm: snap && snap.ts };
+}
+async function caixaTexto(env) {
+  const p = await caixaPrevisao(env), R = v => 'R$ ' + reais(Math.round(v));
+  const L = p.sem.map((w, i) => `${i === 0 ? 'Esta semana' : dataBR(w.ini).slice(0, 5) + ' a ' + dataBR(w.fim).slice(0, 5)}: entra ${R(w.ent)} · sai ${R(w.sai)} · ${w.ent - w.sai >= 0 ? 'sobra' : '*falta*'} ${R(Math.abs(w.ent - w.sai))}`);
+  const tot = p.sem.reduce((t, w) => t + w.ent - w.sai, 0);
+  const alertas = [];
+  for (const [i, w] of p.sem.entries()) if (w.sai > w.ent && w.sai - w.ent > 300) { const cob = w.ei.concat(p.sem.slice(i + 1).flatMap(x => x.ei)).sort((a, b) => b[1] - a[1]).slice(0, 2); alertas.push(`${i === 0 ? 'Esta semana' : 'Semana de ' + dataBR(w.ini).slice(0, 5)} fica no vermelho em ${R(w.sai - w.ent)}${w.si.length ? ' (maiores contas: ' + w.si.sort((a, b) => b[1] - a[1]).slice(0, 2).map(x => x[0] + ' ' + R(x[1])).join(', ') + ')' : ''}.${cob.length ? ' Vale apertar: ' + cob.map(x => x[0] + ' ' + R(x[1])).join(', ') + '.' : ''}`); }
+  return cartaoDono('Previsão de caixa (4 semanas)', [...L, `No período: ${tot >= 0 ? 'sobra' : 'falta'} *${R(Math.abs(tot))}*`,
+    p.atras.ent ? `Clientes com boleto atrasado: ${R(p.atras.ent)} (já contado nesta semana)` : null, p.atras.sai ? `Contas atrasadas a pagar: ${R(p.atras.sai)} (já contadas nesta semana)` : null,
+    ...alertas, p.mediaSai ? `Atenção: aqui só entram boletos e valores combinados. Gastos do dia a dia (material, folha, combustível) somaram em média ${R(p.mediaSai)} por mês nos últimos meses.` : null,
+    'Para cobrar quem já recebeu: *cobrar entrega de ...* ou *a receber*.']);
+}
+async function caixaComando(env, from, msg) {
+  if (!/^(previsao( de caixa)?|fluxo de caixa|caixa (do mes|das proximas semanas|futuro)|vai faltar dinheiro\??|como vai ficar o caixa\??|previsao financeira)$/.test(msg)) return false;
+  await enviar(env, from, await caixaTexto(env)); return true;
+}
+async function caixaAlertaRotina(env) { // segunda e quinta: se alguma semana ficar no vermelho, avisa
+  const hoje = dataBahia(), dw = diaSemanaISO(hoje); if (![1, 4].includes(dw) || agoraBahia().min < 8 * 60 || await env.HR_KV.get('cx:av:' + hoje)) return;
+  await env.HR_KV.put('cx:av:' + hoje, '1', { expirationTtl: 8 * 86400 });
+  const p = await caixaPrevisao(env); if (!p.sem.slice(0, 2).some(w => w.sai - w.ent > 300)) return;
+  await avisarDono(env, await caixaTexto(env));
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -19177,6 +19221,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('radar de vendas', () => radarRotina(e2));
   await passo('indicação', () => indRotina(e2, snap));
   await passo('reconquista', () => reconqRotina(e2));
+  await passo('previsão de caixa', () => caixaAlertaRotina(e2));
   return { ok: true, feitos };
 }
 
