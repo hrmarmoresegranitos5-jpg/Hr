@@ -14041,6 +14041,7 @@ async function tratarMensagemBase(env, m, ctx) {
   }
   if (bruto === null || (bruto === '' && m.type !== 'text')) {
     if (m.type === 'sticker') return; // v23: figurinha é como um sorriso: não precisa de resposta
+    if (m.type === 'unsupported') { console.log('[BOT] mensagem "unsupported" (álbum de fotos / tipo novo do WhatsApp) ignorada', JSON.stringify(m.errors || '').slice(0, 200)); return; } // v112: o álbum chega como "unsupported" + as fotos uma a uma
     await enviar(env, from, fala(await getFalas(env), 'soTexto', {}));
     return;
   }
@@ -15676,7 +15677,7 @@ async function rtpTratarImagem(env, from, m) { // print com o número na legenda
   if (!ses && !(tel && RE_RTP_INTENCAO.test(normaliza(leg)) || tel && leg.replace(tel.txt, '').trim().length < 4)) {
     if (leg) return false;
     await rtpGuardarRecente(env, from, m);
-    await new Promise(r => setTimeout(r, 4000)); // prints mandados juntos: a legenda com o número costuma vir num deles
+    await new Promise(r => setTimeout(r, 8000)); // prints mandados juntos: a legenda (cadastrar cuba / número do cliente) costuma vir num deles
     const sc = await cubaSesLer(env, from); // v111: álbum do cadastro de cuba
     if (sc) { if (!sc.imgs.includes(m.image.id)) { sc.imgs.push(m.image.id); await env.HR_KV.put('cub:ses:' + from, JSON.stringify(sc), { expirationTtl: 30 * 60 }); } return true; }
     const s3 = await lerSes();
@@ -16460,6 +16461,7 @@ async function cubaTratarTexto(env, from, bruto, msg) {
   }
   // ajustes na prévia pendente
   const k = await env.HR_KV.get('cub:ult:' + from); const c = k && JSON.parse((await env.HR_KV.get('cub:p:' + k)) || 'null');
+  if (c && /^(reenviar|cadastrar de novo|mandar de novo|manda de novo|tentar de novo)( a| o)? ?(cuba|produto|cadastro)?$/.test(msg)) { delete c.enviado; await env.HR_KV.put('cub:p:' + k, JSON.stringify(c), { expirationTtl: 3 * 86400 }); return cubaBotao(env, from, 'cub|ok|' + k); } // v112
   if (!c || c.enviado) return false;
   let mud = false; const num = t => +String(t).replace(/[^\d,.]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
   let mm;
@@ -19229,6 +19231,11 @@ async function rotaBotInterna(req, env, url) {
     try { body = await req.json(); } catch (_) { return jsonR({ error: 'JSON inválido.' }, 400); }
     const cmd = await lerCmd(env, body.id);
     if (!cmd) return jsonR({ error: 'Comando não encontrado.' }, 404);
+    if (!body.ok && /a[cç][aã]o desconhecida/i.test(String(body.mensagem || ''))) { // v112: app desatualizado: deixa na fila e pede para reabrir o app
+      cmd.tentativasApp = (cmd.tentativasApp || 0) + 1; await salvarCmd(env, cmd);
+      if (cmd.tentativasApp === 1) await notificarDono(env, Date.now(), `Sr. Hangel, o aplicativo deste aparelho ainda está na versão antiga e não sabe fazer: ${cmd.resumo}. Feche o app e abra de novo (para atualizar): ele faz sozinho em seguida.`);
+      return jsonR({ ok: true, reagendado: true });
+    }
     cmd.status = body.ok ? 'concluido' : 'falhou'; cmd.resultado = String(body.mensagem || '').slice(0, 300);
     await salvarCmd(env, cmd);
     await notificarDono(env, Date.now(), body.ok
