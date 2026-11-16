@@ -18584,10 +18584,27 @@ async function rotaBotInterna(req, env, url) {
     const quentes = []; for (const q of d.quentes) { let nome = ''; try { nome = (await lerNomeSalvo(env, q.num)) || ''; } catch (_) {} quentes.push({ ...q, nome }); }
     return jsonR({ ok: true, ...d, quentes, painel: t ? `${await urlPublica(env)}/painel?k=${t}` : '' });
   }
+  if (p === '/bot/cliente' && req.method === 'GET') { // v105: o que o bot sabe de um cliente (ficha do app)
+    let d = String(url.searchParams.get('tel') || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
+    if (!/^55\d{10,11}$/.test(d)) return jsonR({ ok: false, erro: 'telefone inválido' });
+    const num = normalizarBR(d), n8 = ultimos8(num), out = { ok: true, num };
+    const tx = await txLer(env, num).catch(() => null);
+    out.conversa = tx && tx.f ? tx.f.slice(-12).map(f => ({ q: f.q, t: f.t, x: String(f.x || '').slice(0, 400) })) : [];
+    let ult = 0; for (const v of variantesNumero(num)) ult = Math.max(ult, Number(await env.HR_KV.get('ult:' + v)) || 0); out.ultimaMsg = ult || null;
+    let rt = null; for (const v of variantesNumero(num)) { try { rt = rt || JSON.parse((await env.HR_KV.get('rt:' + v)) || 'null'); } catch (_) {} }
+    if (rt) out.retomada = { em: rt.em, status: rt.status, pedido: rt.pedido, motivo: rt.motivo || '', segundo: rt.segundo || '' };
+    try { const lg = JSON.parse((await env.HR_KV.get('lq:log')) || '[]').filter(x => ultimos8(x.num) === n8).slice(-1)[0]; if (lg) out.quente = lg; } catch (_) {}
+    const cod = await env.HR_KV.get('ind:num:' + n8); if (cod) { let n = 0, f = 0; const l = await listarTodas(env, 'ind:uso:').catch(() => ({ keys: [] })); for (const k of l.keys.slice(0, 300)) { const u = await kvJson(env, k.name, null); if (u && u.cod === cod) { n++; if (u.fechou) f++; } } out.indicacao = { cod, chegaram: n, fecharam: f }; }
+    const uso = await kvJson(env, 'ind:uso:' + n8, null); if (uso) out.indicadoPor = uso.indicadorNome || uso.cod;
+    try { out.assumido = (await clientesAssumidos(env)).some(x => ultimos8(x) === n8); } catch (_) {}
+    return jsonR(out);
+  }
   if (p === '/bot/vendas/acao' && req.method === 'POST') {
     const b = await req.json().catch(() => ({})), dono = numeroDono(env), num = normalizarBR(String(b.num || '').replace(/\D/g, ''));
     if (b.acao === 'retomar' || b.acao === 'reconquistar') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); await paradosBotao(env, dono, b.acao === 'reconquistar' ? `rtpl|${num}|r` : `rtpl|${num}`); return jsonR({ ok: true }); }
     if (b.acao === 'radar') { await radarEnviar(env, dono); return jsonR({ ok: true }); }
+    if (b.acao === 'convite_ind') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); const c = await indConviteV99(env, num, String(b.nome || '')); if (!c) return jsonR({ ok: false, erro: 'programa de indicação desligado' }); await cliFilaAdd(env, [{ num, nome: String(b.nome || ''), texto: c.texto, tag: 'ind:' + Date.now() }]); await enviar(env, dono, `Convite de indicação enviado para ${b.nome || rtpFmt(num)} (código ${c.cod}), pedido pelo app.`); return jsonR({ ok: true, cod: c.cod }); }
+    if (b.acao === 'assumir' || b.acao === 'devolver') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); const t = b.acao + ' ' + num.replace(/^55/, ''); await tratarAssumir(env, dono, t, t); return jsonR({ ok: true }); }
     if (b.acao === 'promo') { await promoComando(env, dono, 'promocao', 'promocao'); return jsonR({ ok: true }); }
     if (b.acao === 'plano') { await promoComando(env, dono, 'estrategia', 'estrategia'); return jsonR({ ok: true }); }
     if (b.acao === 'caixa') { await enviar(env, dono, await caixaTexto(env)); return jsonR({ ok: true }); }
