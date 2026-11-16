@@ -16376,6 +16376,47 @@ async function metaRotina(env) {
   await avisarDono(env, cartaoDono('Meta do mês em risco', [metaLinha(st), par.length ? `Tem R$ ${reais(par.reduce((t, x) => t + x.valor, 0))} em ${par.length} orçamento(s) parados. Os maiores: ${par.slice(0, 3).map(x => x.nome + ' R$ ' + reais(x.valor)).join(', ')}.` : null, 'Sugestões: *orcamentos parados* (retomar os maiores hoje), *promocao* (campanha curta até o fim do mês) e *reconquistar*.']));
 }
 // ═════════════════════════════════════════════════════════════════════════════
+// v108: JORNADA DO CLIENTE — o cliente fica sabendo do andamento sem precisar perguntar:
+//   • quando o serviço entra em PRODUÇÃO na agenda do app: "seu pedido entrou em produção, previsão de entrega X";
+//   • na VÉSPERA da entrega/instalação (serviço PRONTO): "amanhã é o dia; alguém vai estar no local?".
+//   Só para quem tem o WhatsApp no cadastro do app. O dono recebe o resumo. JORNADA=0 desliga.
+// ═════════════════════════════════════════════════════════════════════════════
+const jorId = a => normaliza(`${a.cliente}|${a.inicio || ''}|${a.servico || ''}`).slice(0, 120);
+async function jornadaProducao(env, dados) {
+  if (String(env.JORNADA ?? '1') === '0') return;
+  const ag = Array.isArray(dados && dados.agenda) ? dados.agenda : [];
+  const prod = ag.filter(a => a && a.cliente && !a.concluido && /produ/.test(normaliza(a.etapa || '')));
+  let vistos = null; try { vistos = JSON.parse((await env.HR_KV.get('jor:prod')) || 'null'); } catch (_) {}
+  const ids = prod.map(jorId);
+  if (!Array.isArray(vistos)) { await env.HR_KV.put('jor:prod', JSON.stringify(ids.slice(-300))); return; } // primeira vez: só registra
+  const novos = prod.filter(a => !vistos.includes(jorId(a))).slice(0, 5);
+  await env.HR_KV.put('jor:prod', JSON.stringify([...new Set([...vistos, ...ids])].slice(-300)));
+  const fila = [], sem = [];
+  for (const a of novos) {
+    const num = await telefoneDoClienteApp(env, a.cliente).catch(() => ''); if (!num) { sem.push(a.cliente); continue; }
+    const n = nomeDeTratamento(a.cliente) || 'Olá', serv = String(a.servico || 'pedido').replace(/\s+/g, ' ').slice(0, 50).toLowerCase();
+    const prev = a.entrega ? ` A previsão de ${a.instala ? 'instalação' : 'entrega'} é ${DIAS_SEMANA[diaSemanaISO(a.entrega)].replace('-feira', '')}, ${dataBR(a.entrega).slice(0, 5)}.` : '';
+    fila.push({ num: normalizarBR(num), nome: a.cliente, tag: 'jor:p:' + jorId(a).slice(0, 40), pedido: serv, texto: `${n}, boa notícia: o seu pedido (${serv}) entrou em produção aqui na HR!${prev} Qualquer dúvida, é só chamar por aqui.` });
+  }
+  if (fila.length) await cliFilaAdd(env, fila);
+  if (fila.length || sem.length) await avisarDono(env, cartaoDono('Clientes avisados: em produção', [fila.length ? `Avisei: ${fila.map(x => x.nome).join(', ')}.` : null, sem.length ? `Sem WhatsApp no cadastro (avise o senhor): ${sem.join(', ')}.` : null])).catch(() => {});
+}
+async function jornadaVespera(env, snap) {
+  if (String(env.JORNADA ?? '1') === '0') return;
+  const hoje = dataBahia(); if (agoraBahia().min < 15 * 60 || await env.HR_KV.get('jor:vesp:' + hoje)) return;
+  await env.HR_KV.put('jor:vesp:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const eF = await envComFolgas(env).catch(() => env); let amanha = isoSomaDias(hoje, 1); for (let k = 0; k < 4 && semExpediente(eF, {}, amanha); k++) amanha = isoSomaDias(amanha, 1);
+  const ag = ((snap && snap.dados && snap.dados.agenda) || []).filter(a => a && a.cliente && !a.concluido && a.entrega === amanha && /pronto/.test(normaliza(a.etapa || '')));
+  const fila = [], sem = [];
+  for (const a of ag.slice(0, 8)) {
+    const num = await telefoneDoClienteApp(env, a.cliente).catch(() => ''); if (!num) { sem.push(a.cliente); continue; }
+    const n = nomeDeTratamento(a.cliente) || 'Olá', serv = String(a.servico || 'pedido').replace(/\s+/g, ' ').slice(0, 50).toLowerCase(), dia = amanha === isoSomaDias(hoje, 1) ? 'amanhã' : `${DIAS_SEMANA[diaSemanaISO(amanha)].replace('-feira', '')}, ${dataBR(amanha).slice(0, 5)}`;
+    fila.push({ num: normalizarBR(num), nome: a.cliente, tag: 'jor:v:' + amanha, pedido: serv, texto: `${n}, ${dia} é o dia da ${a.instala ? 'instalação' : 'entrega'} do seu pedido (${serv})! Vai ter alguém no local para receber a equipe? Se precisar mudar o horário, é só responder aqui.` });
+  }
+  if (fila.length) await cliFilaAdd(env, fila);
+  if (fila.length || sem.length) await avisarDono(env, cartaoDono(`Entregas de ${dataBR(amanha).slice(0, 5)}`, [fila.length ? `Confirmei com: ${fila.map(x => x.nome).join(', ')}. Se alguém pedir para mudar, a assistente te avisa.` : null, sem.length ? `Sem WhatsApp no cadastro: ${sem.join(', ')}.` : null])).catch(() => {});
+}
+// ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
 //   O Sr. Hangel manda fotos/vídeos com "obra ..." (ex.: "obra cozinha da Maria em granito preto"). Cada obra:
 //   • fotos vão para o CATÁLOGO DE SERVIÇOS FEITOS (portfólio/site);
@@ -18154,6 +18195,7 @@ async function rotaBotInterna(req, env, url) {
     const dados = (body && body.dados !== undefined) ? body.dados : body;
     await env.HR_KV.put('cfg:snapshot', JSON.stringify({ ts: Date.now(), dados }));
     try { await detectarProntosNovos(env, dados); } catch (e) { console.log('[BOT] detectar prontos:', e.message); }
+    try { await jornadaProducao(env, dados); } catch (e) { console.log('[BOT] jornada produção:', e.message); } // v108
     try { await livSincronizarAgenda(env, dados); } catch (e) { console.log('[BOT] livro (agenda):', e.message); }
     try { await detectarInstaladosNovos(env, dados); } catch (e) { console.log('[BOT] pós-instalação (detectar):', e.message); }
     return jsonR({ ok: true, bytes: raw.length });
@@ -19385,6 +19427,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('reconquista', () => reconqRotina(e2));
   await passo('previsão de caixa', () => caixaAlertaRotina(e2));
   await passo('meta do mês', () => metaRotina(e2));
+  await passo('véspera da entrega', () => jornadaVespera(e2, snap));
   return { ok: true, feitos };
 }
 
