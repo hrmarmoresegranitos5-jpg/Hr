@@ -22946,7 +22946,7 @@ function pontoProximo(lista) {
   const validas = lista.filter(b => b.status !== 'recusada');
   return PONTO_ORDEM[validas.length] || 'extra';
 }
-function pontoPublico(b) { return { id: b.id, tipo: b.tipo, rotulo: PONTO_TIPOS[b.tipo] || b.tipo, hora: b.hora, status: b.status, externo: !!b.externo, ajuste: !!b.ajuste, motivo: b.motivo || '', dist: b.dist ?? null, rosto: b.rosto ?? null, rostoRot: pontoRostoRotulo(b.rosto ?? null), vivo: b.vivo ?? null }; }
+function pontoPublico(b) { return { id: b.id, tipo: b.tipo, rotulo: PONTO_TIPOS[b.tipo] || b.tipo, hora: b.hora, horaOriginal: b.horaOriginal || '', status: b.status, externo: !!b.externo, ajuste: !!b.ajuste, motivo: b.motivo || '', dist: b.dist ?? null, rosto: b.rosto ?? null, rostoRot: pontoRostoRotulo(b.rosto ?? null), vivo: b.vivo ?? null }; }
 // ══════════════════════════════════════════════════════════════════════
 // v36 · ROSTO NO PONTO — cadastro com prova de vida (frente, aproximar, afastar, virar para os dois lados)
 // e conferência em toda batida (virar o rosto + olhar de frente). O celular calcula a "assinatura" do rosto
@@ -24213,7 +24213,22 @@ async function rotaBotPonto(req, env, url) {
     const d = /^\d{4}-\d{2}-\d{2}$/.test(b.data || '') ? b.data : '';
     if (!d || b.funcId == null) return jsonR({ error: 'Informe data e funcionário.' }, 400);
     const k = `ponto:d:${d}:${b.funcId}`, l = await pontoDia(env, d, b.funcId);
-    if (b.id && (b.acao === 'ok' || b.acao === 'recusar')) {
+    if (b.id && (b.acao === 'editar' || b.acao === 'remover')) { // v109: dono corrige a hora (ou o tipo) de uma batida, ou tira uma batida errada; a original fica registrada
+      const x = l.find(y => y.id === b.id); if (!x) return jsonR({ error: 'Batida não encontrada.' }, 404);
+      if (!String(b.motivo || '').trim()) return jsonR({ error: 'Ajuste precisa de motivo.' }, 400);
+      const mot = String(b.motivo).slice(0, 120);
+      if (b.acao === 'remover') { x.status = 'recusada'; x.decididoEm = Date.now(); x.motivo = (x.motivo ? x.motivo + ' · ' : '') + 'removida: ' + mot; }
+      else {
+        if (!/^\d{2}:\d{2}$/.test(b.hora || '')) return jsonR({ error: 'Hora inválida (HH:MM).' }, 400);
+        if (b.tipo && !PONTO_TIPOS[b.tipo]) return jsonR({ error: 'Tipo inválido.' }, 400);
+        const [h, m] = b.hora.split(':').map(Number);
+        if (!x.horaOriginal) { x.horaOriginal = x.hora; x.tipoOriginal = x.tipo; }
+        x.ts = Date.parse(d + 'T00:00:00-03:00') + (h * 60 + m) * 60000; x.hora = b.hora; if (b.tipo) x.tipo = b.tipo;
+        if (x.status === 'pendente' || x.status === 'recusada') x.status = 'ok';
+        x.ajuste = true; x.editadoEm = Date.now(); x.motivo = (x.motivo ? x.motivo + ' · ' : '') + `corrigida de ${x.horaOriginal}: ` + mot;
+        l.sort((a, c) => a.ts - c.ts);
+      }
+    } else if (b.id && (b.acao === 'ok' || b.acao === 'recusar')) {
       const x = l.find(y => y.id === b.id); if (!x) return jsonR({ error: 'Batida não encontrada.' }, 404);
       x.status = b.acao === 'ok' ? 'ok' : 'recusada'; x.decididoEm = Date.now(); if (b.motivo) x.motivo = (x.motivo ? x.motivo + ' · ' : '') + String(b.motivo).slice(0, 120);
     } else {
