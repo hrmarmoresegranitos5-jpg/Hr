@@ -12459,7 +12459,11 @@ function buildCfg(){
           h+='</div>';
           h+='<div style="margin-top:8px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Seção no catálogo</div><select class="cfginp" style="width:100%;" onchange="CFG.lav['+i+'].tipo=this.value;svCFG();buildCubaList();">'+['','Louça','Embutir','Sobrepor','Semi-encaixe','Apoio'].map(function(t){return '<option value="'+t+'"'+((c.tipo||'')===t?' selected':'')+'>'+(t||'Outros modelos')+'</option>';}).join('')+'</select></div>';
         } else {
-          h+='<div style="margin-top:2px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
+          h+='<div style="display:flex;gap:6px;margin-top:2px;">'
+            +'<div style="flex:1;"><div style="font-size:.52rem;color:var(--gold3);margin-bottom:2px;">Preço no catálogo R$</div><input class="cfginp" type="number" value="'+(c.pr||0)+'" placeholder="0" style="width:100%;" onchange="CFG.lav['+i+'].pr=+this.value;buildCubaList();svCFG();"></div>'
+            +'<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. base (calculadora) R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div></div>'
+            +'<div style="margin-top:6px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Medida de referência do preço</div><input class="cfginp" value="'+escH(c.dim||'')+'" placeholder="ex.: 50×40×15cm" style="width:100%;" onchange="CFG.lav['+i+'].dim=this.value;buildCubaList();svCFG();"></div>'
+            +'<div style="font-size:.6rem;color:var(--t3);margin-top:6px;line-height:1.5;">No catálogo aparece "a partir de" esse preço, com as fotos e a descrição. No orçamento, a calculadora usa as medidas reais e a M.O. base.</div>';
         }
         h+='</div>';
         if(!isEsc){
@@ -12491,6 +12495,7 @@ function buildCfg(){
     });
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{var _nl={id:\'l_\'+Date.now(),nm:\'Nova Cuba\',brand:\'Marca\',dim:\'??cm\',tipo:\'Louça\',pr:0,pr_orig:0,inst:220,instCli:280,photo:\'\',fotos:[],desc:\'\'};CFG.lav.push(_nl);_cfgOpen[\'lav_\'+_nl.id]=true;svCFG();buildCfg();}">+ Nova Cuba</button>';
     h+='<button class="cfgadd" onclick="if(typeof abrirMLImport===\'function\'){abrirMLImport(\'lav\');}" style="background:#2a2600;color:#ffe600;border:1px solid #6b5f00;margin-top:6px;">🛒 Nova Cuba pelo Mercado Livre (link)</button>';
+    h+='<button class="cfgadd" onclick="CFG.lav.push({id:\'esc_\'+Date.now(),nm:\'Cuba esculpida\',brand:\'HR\',dim:\'\',tipo:\'Esculpida\',pr:0,pr_orig:0,inst:320,instCli:0,photo:\'\',fotos:[],desc:\'Cuba esculpida na própria pedra da bancada.\'});svCFG();_cfgOpen[\'lav_\'+CFG.lav[CFG.lav.length-1].id]=true;buildCubaList();buildCfg();" style="margin-top:6px;">🪨 + Nova cuba esculpida (com fotos e preço)</button>';
     h+='<button class="cfgadd" onclick="if(typeof _imAbrirModal===\'function\'){_imAbrirModal(\'lav\');}else{alert(\'Módulo de Importação não carregado. Adicione app-import-manual.js ao index.html.\');}" style="background:#1a1a0a;color:#e0c068;border:1px solid #4a3a1a;margin-top:6px;">✍️ Adicionar Cuba (Fotos + IA)</button>';
   }
   else if(cfgTab===3){

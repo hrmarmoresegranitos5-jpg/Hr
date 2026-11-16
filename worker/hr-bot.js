@@ -16429,7 +16429,7 @@ async function jornadaVespera(env, snap) {
 //   (o do anúncio) e quais imagens são fotos do produto; o bot calcula o preço de venda pela margem e mostra a prévia.
 //   "Cadastrar" manda ao app (ação cadastrar_cuba): ele baixa as fotos e salva no catálogo (cozinha, lavatório ou acessório).
 // ═════════════════════════════════════════════════════════════════════════════
-const RE_CUBA_CAD = /\b(cadastr\w*|nova|novo|adicion\w*|coloc\w*|catalog\w*|inclu\w*|registr\w*|bota|poe|por)\b[^.]*\b(cuba|cubas|lavatorio|lavatorios|acessorio|acessorios|torneira|torneiras|produto)\b/;
+const RE_CUBA_CAD = /\b(cadastr\w*|nova|novo|adicion\w*|coloc\w*|catalog\w*|inclu\w*|registr\w*|bota|poe|por)\b[^.]*\b(cuba|cubas|lavatorio|lavatorios|acessorio|acessorios|torneira|torneiras|produto|esculpida|esculpidas)\b/;
 async function cubaMargemPadrao(env) { return +(await env.HR_KV.get('cuba:margem')) || 40; }
 function cubaMargemDe(t) { const m = normaliza(String(t || '')).match(/(?:margem|lucro)\s*(?:de\s*)?(\d{1,3})\s*%?|(\d{1,3})\s*%\s*(?:de\s*)?(?:margem|lucro)?/); const v = m ? +(m[1] || m[2]) : 0; return v > 0 && v <= 300 ? v : 0; }
 async function cubaSesLer(env, from) { try { return JSON.parse((await env.HR_KV.get('cub:ses:' + from)) || 'null'); } catch (_) { return null; } }
@@ -16470,7 +16470,7 @@ async function cubaTratarTexto(env, from, bruto, msg) {
   else if ((mm = msg.match(/^(?:custo|paguei|preco de custo)\s*(?:de\s*)?(?:r\$\s*)?([\d.,]+)$/))) { c.custo = num(mm[1]); c.pr = Math.round(c.custo * (1 + c.margem / 100)); mud = true; }
   else if ((mm = String(bruto).match(/^\s*nome\s*:\s*(.{3,60})$/i))) { c.nm = mm[1].trim(); mud = true; }
   else if ((mm = String(bruto).match(/^\s*(?:medidas?|dimens\w*)\s*:\s*(.{2,40})$/i))) { c.dim = mm[1].trim(); mud = true; }
-  else if ((mm = msg.match(/^(?:instalacao|mao de obra)\s*(?:r\$\s*)?([\d.,]+)$/))) { c.instCli = Math.round(num(mm[1])); mud = true; }
+  else if ((mm = msg.match(/^(?:instalacao|mao de obra)\s*(?:r\$\s*)?([\d.,]+)$/))) { if (c.tipo === 'Esculpida') c.inst = Math.round(num(mm[1])); else c.instCli = Math.round(num(mm[1])); mud = true; }
   else if (/^(e )?(de )?(lavatorio|banheiro)$/.test(msg)) { c.cat = 'lav'; mud = true; }
   else if (/^(e )?(de )?(cozinha)$/.test(msg)) { c.cat = 'coz'; mud = true; }
   else if (/^(e )?(acessorio|torneira)$/.test(msg)) { c.cat = 'ac'; mud = true; }
@@ -16491,6 +16491,12 @@ Responda SÓ JSON: {"cat":"coz|lav|ac","tipo":"só para lav: Louça (cuba de lou
   const fotos = []; for (const i of [...new Set(fotosIdx)].slice(0, 6)) { const md = await mdSalvar(env, imgs[i].buf, imgs[i].mime); fotos.push(await mdUrl(env, md, imgs[i].mime)); }
   const k = Date.now().toString(36);
   const c = { cat, tipo: cat === 'lav' && ['Louça', 'Sobrepor', 'Semi-encaixe', 'Embutir', 'Apoio'].includes(o.tipo) ? o.tipo : '', titulo: String(o.titulo || o.nm).slice(0, 160), nm: String(o.nm).slice(0, 60), brand: String(o.brand || '').slice(0, 40), dim: String(o.dim || '').slice(0, 40), desc: String(o.desc || '').slice(0, 400), features: (o.features || []).slice(0, 5).map(x => String(x).slice(0, 60)), custo, margem, pr: Math.round(custo * (1 + margem / 100)), inst: cat === 'lav' ? 220 : 110, instCli: cat === 'lav' ? 280 : cat === 'ac' ? 0 : 160, fotos, duvida: String(o.duvida || '').slice(0, 200) };
+  if (/esculp/.test(normaliza(ses.obs || ''))) { // v113: cuba esculpida na pedra: preço de referência do dono, sem custo/margem
+    const pv = normaliza(ses.obs).match(/(?:valor|preco|por|r\$)\s*(?:de\s*)?(?:r\$\s*)?(\d[\d.,]*)/), mo = normaliza(ses.obs).match(/(?:mao de obra|m\.?o\.?)\s*(?:de\s*)?(?:r\$\s*)?(\d[\d.,]*)/);
+    const n = t => +String(t).replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+    Object.assign(c, { cat: 'lav', tipo: 'Esculpida', brand: c.brand || 'HR', custo: 0, margem: 0, pr: pv ? Math.round(n(pv[1])) : 0, inst: mo ? Math.round(n(mo[1])) : 320, instCli: 0 });
+    if (!/esculp/i.test(c.nm)) c.nm = ('Cuba esculpida ' + c.nm.replace(/^cuba\s*/i, '')).slice(0, 60);
+  }
   await env.HR_KV.put('cub:p:' + k, JSON.stringify(c), { expirationTtl: 3 * 86400 });
   await env.HR_KV.put('cub:ult:' + from, k, { expirationTtl: 3 * 86400 });
   await cubaPrevia(env, from, k, c, true);
@@ -16498,9 +16504,10 @@ Responda SÓ JSON: {"cat":"coz|lav|ac","tipo":"só para lav: Louça (cuba de lou
 async function cubaPrevia(env, from, k, c, comFoto) {
   const CAT = { coz: 'Cuba de cozinha', lav: 'Lavatório / cuba de banheiro', ac: 'Acessório' };
   if (comFoto && c.fotos[0]) await postarMsg(env, from, { type: 'image', image: { link: c.fotos[0], caption: `${c.fotos.length} foto(s) do produto vão para o catálogo.` } }).catch(() => {});
-  await enviar(env, from, cartaoDono('Cadastro no catálogo', [`*${c.nm}*${c.brand ? ' · ' + c.brand : ''}`, `${CAT[c.cat]}${c.dim ? ' · ' + c.dim : ''}`,
-    c.custo ? `Custo: R$ ${reais(c.custo)} · margem ${c.margem}% · *venda: R$ ${reais(c.pr)}*` : `Não achei o preço no print. Mande: *custo 320* (ou *preço 450*).`,
-    c.cat !== 'ac' ? `Instalação cobrada do cliente: R$ ${reais(c.instCli)}` : null, c.desc ? `Descrição: ${c.desc}` : null, c.duvida ? `Confira: ${c.duvida}` : null,
+  await enviar(env, from, cartaoDono('Cadastro no catálogo', [`*${c.nm}*${c.brand ? ' · ' + c.brand : ''}`, `${c.tipo === 'Esculpida' ? 'Cuba esculpida na pedra (Banheiro)' : CAT[c.cat]}${c.dim ? ' · ' + c.dim : ''}`,
+    c.tipo === 'Esculpida' ? (c.pr ? `Preço no catálogo: *a partir de R$ ${reais(c.pr)}*${c.dim ? ' (' + c.dim + ')' : ''} · mão de obra base da calculadora: R$ ${reais(c.inst)}` : 'Falta o preço de referência: mande *preço 650* (e, se quiser, *mão de obra 350*).')
+      : c.custo ? `Custo: R$ ${reais(c.custo)} · margem ${c.margem}% · *venda: R$ ${reais(c.pr)}*` : `Não achei o preço no print. Mande: *custo 320* (ou *preço 450*).`,
+    c.cat !== 'ac' && c.tipo !== 'Esculpida' ? `Instalação cobrada do cliente: R$ ${reais(c.instCli)}` : null, c.desc ? `Descrição: ${c.desc}` : null, c.duvida ? `Confira: ${c.duvida}` : null,
     '', 'Para mudar: *margem 35* · *preço 499* · *custo 320* · *nome: ...* · *medidas: 60×40cm* · *lavatório* / *cozinha* · *instalação 180*']));
   await enviarComBotoes(env, from, c.custo || c.pr ? 'Cadastro no app?' : 'Falta o preço: mande *custo ...* antes de cadastrar.', [{ id: 'cub|ok|' + k, titulo: 'Cadastrar' }, { id: 'cub|no|' + k, titulo: 'Cancelar' }]);
 }
