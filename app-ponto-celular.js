@@ -78,7 +78,7 @@
       h += '<div style="padding:10px 12px;border:1px solid ' + BD + ';border-radius:12px;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="font-size:.88rem;">' + esc(f.nome) + '</b><span style="font-size:.7rem;color:' + (at ? '#4ade80' : '#f59e0b') + ';text-align:right;">' + (at ? '📱 celular ativo' + ((estado.push || {})[f.id] ? '<br>🔔 lembretes ligados' : '<br><span style="color:#f59e0b;">🔕 lembretes desligados</span>') + (estado.facial ? ((estado.rostos || {})[f.id] ? '<br>🙂 rosto cadastrado' : '<br><span style="color:#f59e0b;">rosto não cadastrado</span>') : '') : 'celular não ativado') + '</span></div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + btn(at ? '🔄 Trocar celular' : '🔑 Gerar código', "HRPonto.codigo('" + f.id + "')", GOLD)
-        + btn('🚚 Obra externa hoje', "HRPonto.externo('" + f.id + "')") + ((estado.rostos || {})[f.id] ? btn('♻️ Refazer rosto', "HRPonto.refazerRosto('" + f.id + "')") : '') + (at ? btn('🔔 Testar lembrete', "HRPonto.testar('" + f.id + "')") + btn('Desativar', "HRPonto.desativar('" + f.id + "')", '#f87171') : '') + '</div>'
+        + btn('✏️ Corrigir horários', "HRPonto.corrigir('" + f.id + "')") + btn('🚚 Obra externa hoje', "HRPonto.externo('" + f.id + "')") + ((estado.rostos || {})[f.id] ? btn('♻️ Refazer rosto', "HRPonto.refazerRosto('" + f.id + "')") : '') + (at ? btn('🔔 Testar lembrete', "HRPonto.testar('" + f.id + "')") + btn('Desativar', "HRPonto.desativar('" + f.id + "')", '#f87171') : '') + '</div>'
         + '<div id="hpCod_' + f.id + '"></div></div>';
     });
     if (!estado.funcs.length) h += '<div style="color:' + T3 + ';font-size:.8rem;">Nenhum funcionário ativo no RH.</div>';
@@ -94,6 +94,7 @@
           + '<span style="flex:1;">' + esc(TIPOS[b.tipo] || b.tipo) + ' <b>' + esc(b.hora) + '</b>' + (b.ajuste ? ' <i style="color:' + T3 + ';">(ajuste: ' + esc(b.motivo) + ')</i>' : '') + (b.externo ? ' 🚚' : '')
           + '<br><span style="font-size:.68rem;color:' + cor + ';">' + (b.status === 'ok' ? 'registrada' : b.status === 'pendente' ? 'aguardando · ' + esc(b.motivo) : 'recusada') + (b.dist != null ? ' · ' + b.dist + ' m' : '') + (b.rostoRot ? ' · ' + (b.rostoRot === 'confere' ? '<span style="color:#4ade80;">🙂 rosto confere</span>' : b.rostoRot === 'parecido' ? '<span style="color:#f59e0b;">rosto parecido</span>' : '<b style="color:#f87171;">🚨 rosto diferente</b>') : '') + '</span></span>'
           + ((b.ajuste || !(b.status !== 'ok' || b.motivo || (b.rostoRot && b.rostoRot !== 'confere') || b.vivo === false)) ? '' : btn('📷', "HRPonto.foto('" + b.id + "','" + f.id + "')"))
+          + (b.status !== 'recusada' ? btn('✏️', "HRPonto.corrigir('" + f.id + "','" + hoje() + "')") : '')
           + (b.status === 'pendente' ? btn('✅', "HRPonto.decidir('" + f.id + "','" + b.id + "','ok')", '#4ade80') + btn('❌', "HRPonto.decidir('" + f.id + "','" + b.id + "','recusar')", '#f87171') : '')
           + '</div>';
       });
@@ -103,7 +104,7 @@
     h += sec('📝 Pedidos dos funcionários');
     h += '<div style="font-size:.74rem;color:' + T3 + ';line-height:1.5;">No app do ponto, o funcionário pode pedir <b>"Esqueci de bater"</b> ou <b>"Justificar falta"</b> (com foto do atestado). O senhor aprova aqui ou pelos botões no WhatsApp. Falta abonada entra no RH sem desconto.</div><div id="hpPeds" style="font-size:.8rem;">Carregando…</div>';
     setTimeout(listarPedidos, 0);
-    h += '<button onclick="HRPonto.ajuste()" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">✍️ Ajuste: batida esquecida (com motivo)</button>';
+    h += '<button onclick="HRPonto.corrigir()" style="width:100%;margin-top:6px;padding:11px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;">✍️ Corrigir horários (esqueceu de bater ou bateu errado)</button>';
     // levar ao RH
     // relatórios de horas
     h += sec('4. Relatório de horas para o funcionário');
@@ -212,6 +213,68 @@
     var motivo = acao === 'recusar' ? (prompt('Motivo da recusa (aparece no registro):') || '') : '';
     if (acao === 'recusar' && !motivo.trim()) return;
     api('/bot/ponto/ajuste', { funcId: funcId, data: hoje(), id: id, acao: acao, motivo: motivo }).then(recarregar).catch(function (e) { toastP(e.message); });
+  }
+  // v109: corrigir horários de um dia (funcionário esqueceu de bater ou bateu errado): muda a hora/tipo, apaga ou acrescenta.
+  // Cada mudança fica registrada com o motivo e a hora original (o relatório mostra "corrigida de 07:42").
+  var TP_OPT = [['entrada', 'Entrada'], ['saida_almoco', 'Saída almoço'], ['volta_almoco', 'Volta almoço'], ['saida', 'Saída']];
+  function corrigir(funcId, data) {
+    var inp = 'padding:9px;border-radius:9px;border:1px solid ' + BD + ';background:#14141c;color:#fff;box-sizing:border-box;font-family:Outfit,sans-serif;';
+    var fs = (estado.funcs && estado.funcs.length ? estado.funcs : ((estado.cfg && estado.cfg.funcs) || []));
+    var opts = fs.map(function (f) { return '<option value="' + f.id + '"' + (String(f.id) === String(funcId) ? ' selected' : '') + '>' + esc(f.nome) + '</option>'; }).join('');
+    var d = document.createElement('div'); d.id = 'hpCorr'; d.style.cssText = 'position:fixed;inset:0;z-index:9995;background:rgba(0,0,0,.8);display:flex;align-items:flex-end;justify-content:center;';
+    d.innerHTML = '<div style="width:100%;max-width:480px;max-height:92vh;overflow:auto;background:#0d0d14;border-radius:16px 16px 0 0;padding:16px;color:#fff;font-family:Outfit,sans-serif;">'
+      + '<b style="color:' + GOLD + ';">✏️ Corrigir horários do ponto</b><div style="font-size:.72rem;color:' + T3 + ';margin:4px 0 10px;line-height:1.5;">Para quando o funcionário esqueceu de bater ou bateu errado. O horário original e o motivo ficam guardados no registro.</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:10px;"><select id="crF" style="' + inp + 'flex:1.3;">' + opts + '</select><input id="crD" type="date" value="' + (data || hoje()) + '" max="' + hoje() + '" style="' + inp + 'flex:1;"></div>'
+      + '<div id="crL" style="font-size:.8rem;color:' + T3 + ';">Carregando…</div>'
+      + '<button id="crAdd" style="width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px dashed ' + GOLD + ';background:none;color:' + GOLD + ';font-weight:700;">+ Acrescentar batida</button>'
+      + '<input id="crM" placeholder="Motivo (ex.: esqueceu de bater a saída)" style="' + inp + 'width:100%;margin-bottom:10px;">'
+      + '<div style="display:flex;gap:8px;"><button id="crC" style="flex:1;padding:12px;border-radius:10px;border:1px solid ' + BD + ';background:none;color:#fff;">Cancelar</button><button id="crOk" style="flex:2;padding:12px;border-radius:10px;border:none;background:' + GOLD + ';color:#000;font-weight:800;">Salvar correções</button></div></div>';
+    document.body.appendChild(d);
+    var linhas = [];
+    function sel(v) { return '<select data-k="tipo" style="' + inp + 'flex:1.3;">' + TP_OPT.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === v ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>'; }
+    function desenhar() {
+      var L = d.querySelector('#crL');
+      var vis = linhas.filter(function (x) { return !x.remover; });
+      if (!vis.length) { L.innerHTML = '<div style="padding:8px 0;">Nenhuma batida nesse dia. Use "Acrescentar batida".</div>'; return; }
+      L.innerHTML = linhas.map(function (x, i) {
+        if (x.remover) return '';
+        return '<div data-i="' + i + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' + sel(x.tipo) + '<input data-k="hora" type="time" value="' + esc(x.hora) + '" style="' + inp + 'flex:1;">'
+          + '<button data-rm="' + i + '" title="Apagar" style="padding:9px 11px;border-radius:9px;border:1px solid rgba(248,113,113,.5);background:none;color:#f87171;">🗑</button></div>'
+          + (x.status === 'pendente' ? '<div style="font-size:.66rem;color:#f59e0b;margin:-3px 0 6px;">aguardando: ao salvar fica confirmada</div>' : '') + (x.horaOriginal ? '<div style="font-size:.66rem;color:' + T3 + ';margin:-3px 0 6px;">já corrigida antes (original ' + esc(x.horaOriginal) + ')</div>' : '');
+      }).join('');
+    }
+    function lerCampos() { d.querySelectorAll('#crL [data-i]').forEach(function (row) { var x = linhas[+row.getAttribute('data-i')]; x.tipo = row.querySelector('[data-k=tipo]').value; x.hora = row.querySelector('[data-k=hora]').value; }); }
+    function carregar() {
+      var f = d.querySelector('#crF').value, dt = d.querySelector('#crD').value; d.querySelector('#crL').textContent = 'Carregando…';
+      api('/bot/ponto/registros?de=' + dt + '&ate=' + dt).then(function (j) {
+        var l = ((j.dias || {})[dt] || {})[f] || [];
+        linhas = l.filter(function (b) { return b.status !== 'recusada'; }).map(function (b) { return { id: b.id, tipo: b.tipo, hora: b.hora, tipo0: b.tipo, hora0: b.hora, status: b.status, horaOriginal: b.horaOriginal }; });
+        desenhar();
+      }).catch(function (e) { d.querySelector('#crL').textContent = e.message; });
+    }
+    d.querySelector('#crF').onchange = carregar; d.querySelector('#crD').onchange = carregar;
+    d.querySelector('#crL').onclick = function (ev) { var b = ev.target.closest('[data-rm]'); if (!b) return; lerCampos(); var x = linhas[+b.getAttribute('data-rm')]; if (x.id) x.remover = true; else linhas.splice(+b.getAttribute('data-rm'), 1); desenhar(); };
+    d.querySelector('#crAdd').onclick = function () { lerCampos(); var tem = linhas.filter(function (x) { return !x.remover; }).map(function (x) { return x.tipo; }); var prox = TP_OPT.map(function (o) { return o[0]; }).filter(function (t) { return tem.indexOf(t) < 0; })[0] || 'saida'; linhas.push({ tipo: prox, hora: '' }); desenhar(); };
+    d.querySelector('#crC').onclick = function () { d.remove(); };
+    d.querySelector('#crOk').onclick = function () {
+      lerCampos();
+      var f = d.querySelector('#crF').value, dt = d.querySelector('#crD').value, mot = d.querySelector('#crM').value.trim();
+      var ops = [];
+      linhas.forEach(function (x) {
+        if (x.remover) ops.push({ funcId: f, data: dt, id: x.id, acao: 'remover', motivo: mot });
+        else if (!x.id) { if (x.hora) ops.push({ funcId: f, data: dt, tipo: x.tipo, hora: x.hora, motivo: mot }); }
+        else if (x.hora !== x.hora0 || x.tipo !== x.tipo0) ops.push({ funcId: f, data: dt, id: x.id, acao: 'editar', tipo: x.tipo, hora: x.hora, motivo: mot });
+        else if (x.status === 'pendente') ops.push({ funcId: f, data: dt, id: x.id, acao: 'ok', motivo: mot });
+      });
+      if (linhas.some(function (x) { return !x.remover && !x.hora; })) { toastP('Preencha a hora de todas as batidas'); return; }
+      if (!ops.length) { toastP('Nada mudou'); return; }
+      if (!mot) { toastP('Escreva o motivo da correção'); d.querySelector('#crM').focus(); return; }
+      var bt = d.querySelector('#crOk'); bt.disabled = true; bt.textContent = 'Salvando…';
+      ops.reduce(function (p, o) { return p.then(function () { return api('/bot/ponto/ajuste', o); }); }, Promise.resolve())
+        .then(function () { d.remove(); toastP('✓ ' + ops.length + ' correção(ões) salva(s)'); recarregar(); try { sincronizarAuto && sincronizarAuto(true); } catch (e) {} })
+        .catch(function (e) { bt.disabled = false; bt.textContent = 'Salvar correções'; toastP(e.message); });
+    };
+    carregar();
   }
   function ajuste() {
     var opts = estado.funcs.map(function (f) { return '<option value="' + f.id + '">' + esc(f.nome) + '</option>'; }).join('');
@@ -561,5 +624,5 @@
   window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
 
-  window.HRPonto = { pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
+  window.HRPonto = { corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
 })();
