@@ -78,6 +78,7 @@
       h += '<div style="padding:10px 12px;border:1px solid ' + BD + ';border-radius:12px;margin-bottom:8px;">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="font-size:.88rem;">' + esc(f.nome) + '</b><span style="font-size:.7rem;color:' + (at ? '#4ade80' : '#f59e0b') + ';text-align:right;">' + (at ? '📱 celular ativo' + ((estado.push || {})[f.id] ? '<br>🔔 lembretes ligados' : '<br><span style="color:#f59e0b;">🔕 lembretes desligados</span>') + (estado.facial ? ((estado.rostos || {})[f.id] ? '<br>🙂 rosto cadastrado' : '<br><span style="color:#f59e0b;">rosto não cadastrado</span>') : '') : 'celular não ativado') + '</span></div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">' + btn(at ? '🔄 Trocar celular' : '🔑 Gerar código', "HRPonto.codigo('" + f.id + "')", GOLD)
+        + (at && !(estado.push || {})[f.id] ? btn('📲 Pedir para ligar lembretes', "HRPonto.pedirLemb('" + f.id + "')", GOLD) : '')
         + btn('✏️ Corrigir horários', "HRPonto.corrigir('" + f.id + "')") + btn('🚚 Obra externa hoje', "HRPonto.externo('" + f.id + "')") + ((estado.rostos || {})[f.id] ? btn('♻️ Refazer rosto', "HRPonto.refazerRosto('" + f.id + "')") : '') + (at ? btn('🔔 Testar lembrete', "HRPonto.testar('" + f.id + "')") + btn('Desativar', "HRPonto.desativar('" + f.id + "')", '#f87171') : '') + '</div>'
         + '<div id="hpCod_' + f.id + '"></div></div>';
     });
@@ -158,6 +159,7 @@
     var b = { ligado: document.getElementById('hlOn').checked, entrada: g('hlEnt'), saida: g('hlSai'), sabado: g('hlSab'), almoco: +g('hlAlm') || 80 };
     api('/bot/ponto/config', { lemb: b }).then(function (j) { estado.cfg = j.cfg; toastP(b.ligado ? '✓ Lembretes salvos' : 'Lembretes desligados'); }).catch(function (e) { toastP(e.message); });
   }
+  function pedirLemb(id) { var f = estado.funcs.find(function (x) { return String(x.id) === String(id); }) || {}; api('/bot/ponto/pedir-lembrete', { funcId: id }).then(function (j) { toastP(j.ok ? '📲 Mandei para ' + (f.nome || 'ele') + ' no WhatsApp como ligar os lembretes' : '⚠️ Não consegui mandar pelo WhatsApp: peça para ele abrir o app do ponto e tocar em LIGAR LEMBRETES'); }).catch(function (e) { toastP(e.message); }); }
   function testar(id) { api('/bot/ponto/testar', { funcId: id }).then(function (j) { toastP(j.via === 'notificação' ? '🔔 Teste enviado como notificação' : j.via === 'whatsapp' ? '💬 Teste enviado pelo WhatsApp (o celular dele está sem notificação)' : 'Não consegui avisar: ligue os lembretes no app dele ou cadastre o telefone no RH'); recarregar(); }).catch(function (e) { toastP(e.message); }); }
 
   // ── ações ──
@@ -382,7 +384,7 @@
               var vazios = (r.dias || []).filter(function (d) { return d.esp > 0 && !(d.trab > 0) && d.tipo !== 'feriado' && d.tipo !== 'acordo'; }).map(function (d) { return d.data.slice(8) + '/' + d.data.slice(5, 7); });
               if (vazios.length && !opts.forcar) {
                 var ka = 'hr_relpdf_aviso_' + f.id + '_' + per.df;
-                if (!localStorage.getItem(ka)) { try { localStorage.setItem(ka, '1'); } catch (e) {} api('/bot/ponto/aviso-dono', { texto: '📋 Não mandei o relatório de ponto do ' + per.label + ' de *' + f.nome + '*: tem dia de trabalho sem registro (' + vazios.join(', ') + '). Se for falta mesmo, confira e toque em *Reenviar* no RH → Ponto e ajustes → Relatório de horas.' }).catch(function () {}); }
+                if (!localStorage.getItem(ka)) { try { localStorage.setItem(ka, '1'); } catch (e) {} api('/bot/ponto/aviso-dono', { texto: '📋 Não mandei o relatório de ponto do ' + per.label + ' de *' + f.nome + '*: tem dia de trabalho sem registro (' + vazios.join(', ') + '). Se o senhor lançar esses dias no RH, o relatório sai sozinho na próxima vez que abrir o app (não precisa fazer mais nada). Se foi falta mesmo, toque em *Reenviar* no RH → Ponto e ajustes → Relatório de horas.' }).catch(function () {}); }
                 throw new Error('dias sem registro: ' + vazios.join(', '));
               }
               return blob64(r.blob).then(function (b64) { return { r: r, b64: b64 }; });
@@ -624,5 +626,5 @@
   window.HRPontoPrevias = enviarPrevias;
   setInterval(function () { if (!document.hidden) sincronizarAuto(false); }, 10 * 60000);
 
-  window.HRPonto = { corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
+  window.HRPonto = { pedirLemb: pedirLemb, corrigir: corrigir, pedDecidir: pedDecidir, pedFoto: pedFoto, sincronizarAuto: sincronizarAuto, cardRH: cardRH, aoAbrirRH: aoAbrirRH, abrir: abrir, salvarLemb: salvarLemb, testar: testar, refazerRosto: refazerRosto, salvarFacial: salvarFacial, enviarRel: enviarRel, salvarRelAuto: salvarRelAuto, cadastrarOficina: cadastrarOficina, salvarAviso: salvarAviso, codigo: codigo, externo: externo, desativar: desativar, foto: foto, decidir: decidir, ajuste: ajuste, importar: importar };
 })();
