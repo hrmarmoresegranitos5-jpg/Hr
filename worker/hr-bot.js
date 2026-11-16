@@ -4622,7 +4622,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     c._extra = {
       periodo: saudacaoHora(), assunto: c.assuntoInicial || '',
       hoje: dataBahia(), dia: new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date()),
-      ...(await (async () => { const eF = await envComFolgas(env); return { exped: situacaoExpediente(eF), hojeTxt: textoHoje(eF), promoTxt: await promoTextoCliente(env).catch(() => '') }; })()), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
+      ...(await (async () => { const eF = await envComFolgas(env); return { exped: situacaoExpediente(eF), hojeTxt: textoHoje(eF), promoTxt: [await promoTextoCliente(env).catch(() => ''), await indTextoCliente(env, from).catch(() => '')].filter(Boolean).join('\n') }; })()), cp, status, gal, pedras, primeira: !(c.hist && c.hist.length),
       leitura: normaliza(brutoL) !== normaliza(bruto) ? brutoL : '', corOpcoes: c.cor_opcoes || null, ficha: fichaParaIA(brutoL, c.dados),
       agendaCli: await agendaParaCliente(env),
       emojiMax: c.emojiMax || 0, genero: c.genero || '',
@@ -5758,7 +5758,7 @@ async function tratarPesquisa(env, from, bruto, msg) {
       }
       // pedido de indicação: só para quem deu nota 4 ou 5 (desligue com INDICACAO=0)
       if (String(env.INDICACAO ?? '1') !== '0') {
-        const convite = await textoConviteIndicacao(env, from, nome).catch(() => null);
+        const convite = ((await indConviteV99(env, from, nome).catch(() => null)) || {}).texto || await textoConviteIndicacao(env, from, nome).catch(() => null); // v99
         if (convite) await enviar(env, from, convite).catch(e => console.log('[BOT] pedido de indicação:', e.message));
       }
       await notificarDono(env, Date.now(), `*${nome}* deu nota *${nota}*.${ped && ped.valor ? ` Pedido de R$ ${reais(Number(ped.valor))}${ped.entrega_prevista ? ', entrega ' + dataBR(ped.entrega_prevista) : ''}.` : ''}\nwa.me/${from}`, { rotina: Number(nota) >= 4 }); // nota boa vai para o resumo; nota baixa avisa na hora
@@ -9074,7 +9074,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "indicacao" (programa de indicação: "indicacao: quem indica ganha ...; quem chega ganha ...", "convite indicacao <número> <nome>"), "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -14059,6 +14059,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await tratarRecadoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] recado funcionário:', e.message); return false; })) return; // v44
     if (await rtpEditar(env, from, bruto).catch(() => false)) return; // v93
     if (await paradosComando(env, from, msg).catch(e => { console.log('[PARADOS]', e.message); return false; })) return; // v96
+    if (await indComando(env, from, bruto, msg).catch(e => { console.log('[IND]', e.message); return false; })) return; // v99
     if (/^(radar( de vendas)?|vendas da semana|relatorio de vendas|como foram as vendas( da semana)?|resumo de vendas)$/.test(msg)) { await radarEnviar(env, from).catch(async e => enviar(env, from, 'Não consegui montar o radar agora: ' + String(e.message).slice(0, 100))); return; } // v97
     if (await rtpTratarTexto(env, from, bruto, msg).catch(e => { console.log('[RTP] texto:', e.message); return false; })) return; // v93
     if (await tratarRetomadaDono(env, from, bruto, msg).catch(e => { console.log('[BOT] retomada:', e.message); return false; })) return; // v43
@@ -16067,6 +16068,69 @@ async function quenteBotao(env, from, id) {
   await enviarTextoPuro(env, from, txFormatar(tx.f.slice(-10), tx.nome).slice(-3500));
   await enviarComBotoes(env, from, 'Quer assumir?', [{ id: 'lq|ass|' + num, titulo: 'Assumir' }]);
   return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v99: INDICAÇÃO TURBINADA (usa o programa da etapa 28: códigos HRxxxx, ind:uso, cfg:indicacao)
+//   • prêmio em brinde (texto) além do desconto em %: "indicacao: quem indica ganha ...; quem chega ganha ..."
+//   • convite também 12 a 16 dias depois da entrega (livro), com link de WhatsApp que já leva o código
+//   • a assistente sabe que o cliente foi indicado e oferece o benefício
+//   • indicado que fechou pelo app (não só pelo bot) também conta e agradece quem indicou
+//   • "convite indicacao <número> <nome>" e ranking em "indicacoes"
+// ═════════════════════════════════════════════════════════════════════════════
+function indPremios(cfg) {
+  return { novo: cfg.premio_novo || (cfg.pct_novo > 0 ? `${cfg.pct_novo}% de desconto` : ''), indicador: cfg.premio_ind || (cfg.pct_indicador > 0 ? `${cfg.pct_indicador}% de desconto no próximo pedido` : '') };
+}
+async function indConviteV99(env, numero, nome) {
+  const cfg = await lerCfgInd(env); if (!cfg.ativo || !indicacaoAtiva(env)) return null;
+  const cod = await obterCodigoIndicacao(env, normalizarBR(numero), nome), p = indPremios(cfg);
+  const link = await igLinkWhats(env, `Olá! Vim por indicação de ${String(nome || '').split(' ')[0] || 'um cliente'} (código ${cod}) e quero um orçamento.`).catch(() => '');
+  await env.HR_KV.put('ind:convnum:' + ultimos8(numero), '1', { expirationTtl: 300 * 86400 });
+  return { cod, texto: `${nomeDeTratamento(nome || '') || 'Olá'}, obrigado por confiar na HR! Conhece alguém que precisa de pedra (cozinha, banheiro, escada, soleira)? Indique a gente: ${p.indicador ? 'quando ele fechar, você ganha ' + p.indicador + '. ' : ''}${p.novo ? 'E ele ganha ' + p.novo + '. ' : ''}${link ? 'É só mandar este link para ele: ' + link : 'Peça para ele falar o código ' + cod + ' quando chamar a HR.'}` };
+}
+async function indTextoCliente(env, from) {
+  const u = await kvJson(env, 'ind:uso:' + ultimos8(from), null); if (!u || u.fechou) return '';
+  const p = indPremios(await lerCfgInd(env));
+  return `ESTE CLIENTE FOI INDICADO por ${u.indicadorNome || 'um cliente da HR'} (código ${u.cod}). Agradeça a indicação uma vez, de forma natural, e diga o benefício dele: ${p.novo || 'atendimento com prioridade'}. Não prometa nada além disso.`;
+}
+async function indRotina(env, snap) {
+  const hoje = dataBahia(); if (await env.HR_KV.get('ind:dia:' + hoje)) return;
+  await env.HR_KV.put('ind:dia:' + hoje, '1', { expirationTtl: 3 * 86400 });
+  const cfg = await lerCfgInd(env); if (!cfg.ativo || !indicacaoAtiva(env)) return;
+  const ini = dataBahia(-16), fim = dataBahia(-12), fila = [];
+  for (const r of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(r.entregaEm); if (!d || d < ini || d > fim || !r.tel || await env.HR_KV.get('ind:conv:' + r.id) || await env.HR_KV.get('ind:convnum:' + ultimos8(r.tel))) continue;
+    await env.HR_KV.put('ind:conv:' + r.id, '1', { expirationTtl: 400 * 86400 });
+    const c = await indConviteV99(env, r.tel, r.cliente); if (c) fila.push({ num: normalizarBR(r.tel), nome: r.cliente, texto: c.texto, tag: 'ind' });
+  }
+  if (fila.length) { await cliFilaAdd(env, fila); await avisarDono(env, cartaoDono('Indicação', [`Convidei para indicar amigos: ${fila.map(x => x.nome).join(', ')}.`, 'Cada um tem um código; quem chegar com ele aparece aqui.'])); }
+  const d = (snap && snap.dados) || {}, l = await listarTodas(env, 'ind:uso:').catch(() => ({ keys: [] }));
+  for (const k of l.keys.slice(0, 200)) {
+    const u = await kvJson(env, k.name, null); if (!u || u.fechou) continue;
+    const n8 = k.name.slice(8), o = (d.orcamentos || []).find(o => String(o.tel || '').replace(/\D/g, '').slice(-8) === n8 && /aprov|fech|aceit/.test(String(o.status || '')));
+    if (o) await indicacaoFechou(env, { numero: '55' + String(o.tel).replace(/\D/g, '').replace(/^55/, ''), nome: o.cliente, valor: +o.valor || 0 }).catch(e => console.log('[IND] fechou:', e.message));
+  }
+}
+async function indComando(env, from, bruto, msg) {
+  const mc = String(bruto).match(/^\s*indica[cç][aã]o\s*:\s*(.*quem.+)$/is);
+  if (mc) { const t = mc[1], a = t.match(/quem indica\w*\s*(?:=|:|ganha)\s*([^;\n]+)/i), b = t.match(/quem (?:chega|vem|e indicado|é indicado|foi indicado|fecha)\w*\s*(?:=|:|ganha)\s*([^;\n]+)/i);
+    if (!a && !b) { await enviar(env, from, 'Mande assim: *indicacao: quem indica ganha kit de limpeza e impermeabilização; quem chega ganha visita técnica grátis e prioridade na agenda*'); return true; }
+    const c = await kvJson(env, IND_CFG_KEY, {}); if (a) c.premio_ind = a[1].trim().slice(0, 120); if (b) c.premio_novo = b[1].trim().slice(0, 120); c.ativo = true;
+    await env.HR_KV.put(IND_CFG_KEY, JSON.stringify(c)); const p = indPremios(await lerCfgInd(env));
+    await enviar(env, from, cartaoDono('Programa de indicação', [`Quem indica ganha: ${p.indicador || '—'}`, `Quem chega ganha: ${p.novo || '—'}`, 'O convite vai para quem deu nota boa e para quem recebeu a obra há 12 dias, com o código e um link de WhatsApp. Para convidar alguém agora: *convite indicacao 74 9xxxx-xxxx Nome*.'])); return true; }
+  const mv = String(bruto).match(/^\s*convi(?:te|dar) (?:de |para |pra )?indica[cç][aã]o\s+(.+)$/i);
+  if (mv) { const tel = rtpTel(mv[1]); if (!tel) { await enviar(env, from, 'Mande com o número: *convite indicacao 74 9xxxx-xxxx Nome*.'); return true; }
+    const nome = mv[1].replace(tel.txt, '').trim() || (await lerNomeSalvo(env, tel.num).catch(() => '')) || '';
+    const c = await indConviteV99(env, tel.num, nome); if (!c) { await enviar(env, from, 'O programa de indicação está desligado. Para ligar: *indicação ligar*.'); return true; }
+    await cliFilaAdd(env, [{ num: tel.num, nome, texto: c.texto, tag: 'ind:' + Date.now() }]);
+    await enviar(env, from, `Convite enviado para ${nome || rtpFmt(tel.num)} com o código *${c.cod}*.`); return true; }
+  if (/^(indicacao|indicacoes|ranking de indicacao|quem indicou|quem mais indicou)$/.test(msg)) {
+    const cfg = await lerCfgInd(env), p = indPremios(cfg), l = await listarTodas(env, 'ind:uso:').catch(() => ({ keys: [] })), rk = new Map();
+    for (const k of l.keys.slice(0, 300)) { const u = await kvJson(env, k.name, null); if (!u) continue; const x = rk.get(u.cod) || { nome: u.indicadorNome || u.indicador, n: 0, f: 0, v: 0 }; x.n++; if (u.fechou) { x.f++; x.v += +u.valor || 0; } rk.set(u.cod, x); }
+    const top = [...rk.values()].sort((a, b) => b.f - a.f || b.n - a.n);
+    await enviar(env, from, cartaoDono('Programa de indicação' + (cfg.ativo ? '' : ' (desligado)'), [`Quem indica ganha: ${p.indicador || '—'}`, `Quem chega ganha: ${p.novo || '—'}`, `Indicados: ${l.keys.length} · fecharam: ${top.reduce((t, x) => t + x.f, 0)}`, ...(top.length ? ['Quem mais indicou:', ...top.slice(0, 8).map(x => `${x.nome}: ${x.n} chegaram, ${x.f} fecharam${x.v ? ' (R$ ' + reais(x.v) + ')' : ''}`)] : []), 'Trocar prêmio: *indicacao: quem indica ganha ...; quem chega ganha ...* · Convidar: *convite indicacao <número> <nome>*']));
+    return true; }
+  return false;
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -19018,6 +19082,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('promoções', () => promoRotina(e2));
   await passo('segundo contato', () => segundoToqueRotina(e2));
   await passo('radar de vendas', () => radarRotina(e2));
+  await passo('indicação', () => indRotina(e2, snap));
   return { ok: true, feitos };
 }
 
@@ -19048,7 +19113,7 @@ async function lerCfgSeg(env) {
 async function lerCfgInd(env) {
   const c = await kvJson(env, IND_CFG_KEY, {});
   const p = n => { n = Number(n); return n >= 0 && n <= 50 ? n : 5; };
-  return { ativo: c.ativo !== false, pct_novo: p(c.pct_novo ?? 5), pct_indicador: p(c.pct_indicador ?? c.pct_novo ?? 5) };
+  return { ativo: c.ativo !== false, pct_novo: p(c.pct_novo ?? 5), pct_indicador: p(c.pct_indicador ?? c.pct_novo ?? 5), premio_novo: String(c.premio_novo || ''), premio_ind: String(c.premio_ind || '') };
 }
 
 // ── Funil de vendas (contadores diários, duram 400 dias; cada pedido conta uma vez por etapa) ──
@@ -19291,8 +19356,8 @@ async function tratarIndicacaoEntrada(env, from, bruto, msg) {
     if (dono && ultimos8(dono.numero) !== ultimos8(from) && !(await env.HR_KV.get('ind:uso:' + ultimos8(from)))) {
       const cfg = await lerCfgInd(env);
       await env.HR_KV.put('ind:uso:' + ultimos8(from), JSON.stringify({ cod, indicador: dono.numero, indicadorNome: dono.nome || '', em: Date.now(), fechou: false }), { expirationTtl: 120 * 24 * 3600 });
-      await enviar(env, from, `Código de indicação reconhecido${dono.nome ? ' (indicação de ' + nomeDeTratamento(dono.nome) + ')' : ''}. A equipe vai conferir a vantagem de ${cfg.pct_novo}% no seu orçamento.`).catch(e => falhou(env, 'tratarIndicacaoEntrada: enviar', e));
-      await notificarDono(env, Date.now(), `*Indicação:* o cliente wa.me/${from} usou o código ${cod}, de ${dono.nome || dono.numero} (wa.me/${dono.numero}). Lembre de aplicar ${cfg.pct_novo}% de desconto no orçamento dele.`);
+      await enviar(env, from, `Código de indicação reconhecido${dono.nome ? ' (indicação de ' + nomeDeTratamento(dono.nome) + ')' : ''}.${indPremios(cfg).novo ? ' Você ganha ' + indPremios(cfg).novo + '.' : ''}`).catch(e => falhou(env, 'tratarIndicacaoEntrada: enviar', e));
+      await notificarDono(env, Date.now(), `*Indicação:* o cliente wa.me/${from} usou o código ${cod}, de ${dono.nome || dono.numero} (wa.me/${dono.numero}). ${indPremios(cfg).novo ? 'Benefício dele: ' + indPremios(cfg).novo + '.' : ''}`);
     }
     return false; // a conversa segue normalmente
   }
@@ -19311,9 +19376,10 @@ async function indicacaoFechou(env, ped) {
   u.fechou = true; u.fechouEm = Date.now(); u.valor = Number(ped.valor) || 0;
   await env.HR_KV.put(k, JSON.stringify(u), { expirationTtl: 120 * 24 * 3600 });
   const cfg = await lerCfgInd(env);
-  await notificarDono(env, Date.now(), `*Indicação fechou:* ${ped.nome || ped.numero} (R$ ${reais(u.valor)}) veio por ${u.indicadorNome || u.indicador}. Conceda ${cfg.pct_indicador}% de desconto no próximo pedido do indicador: wa.me/${u.indicador}`);
+  await notificarDono(env, Date.now(), `*Indicação fechou:* ${ped.nome || ped.numero} (R$ ${reais(u.valor)}) veio por ${u.indicadorNome || u.indicador}. Prêmio de quem indicou: ${indPremios(cfg).indicador || '—'} (já mandei o agradecimento): wa.me/${u.indicador}`);
   const p = nomeDeTratamento(u.indicadorNome) || 'Olá';
-  const txt = `${p}, a pessoa que você indicou fechou o pedido com a gente. Muito obrigado pela confiança! No seu próximo pedido você tem ${cfg.pct_indicador}% de desconto; é só avisar aqui na hora.`;
+  const pr = indPremios(cfg).indicador;
+  const txt = `${p}, a pessoa que você indicou fechou o pedido com a gente. Muito obrigado pela confiança!${pr ? ' Seu prêmio: ' + pr + '. Vamos combinar como você prefere receber?' : ''}`;
   try { await enviarProativo(env, u.indicador, txt, { nome: env.TEMPLATE_INDICACAO, params: [p, `${cfg.pct_indicador}%`] }); }
   catch (e) { console.log('[BOT] agradecimento ao indicador:', e.message); }
 }
@@ -19358,7 +19424,7 @@ async function tratarEtapa28Comandos(env, from, bruto, msg) {
   if (m) {
     const cfg = await lerCfgInd(env), v = m[1].toLowerCase();
     if (v === 'desligar' || v === 'ligar') cfg.ativo = v === 'ligar';
-    else { const nums = v.replace(/%/g, '').split(/\s+/).map(x => Number(x.replace(',', '.'))); cfg.pct_novo = nums[0]; cfg.pct_indicador = nums.length > 1 ? nums[1] : nums[0]; cfg.ativo = true; }
+    else { const nums = v.replace(/%/g, '').split(/\s+/).map(x => Number(x.replace(',', '.'))); cfg.premio_novo = ''; cfg.premio_ind = ''; cfg.pct_novo = nums[0]; cfg.pct_indicador = nums.length > 1 ? nums[1] : nums[0]; cfg.ativo = true; }
     await env.HR_KV.put(IND_CFG_KEY, JSON.stringify(cfg));
     await enviar(env, from, cfg.ativo ? `Indicação *ligada*, Sr. Hangel: o indicado ganha ${cfg.pct_novo}% e o indicador ganha ${cfg.pct_indicador}% no próximo pedido. Cada uso do código chega aqui para o senhor aplicar o desconto. Para ver a lista, escreva *indicações*.` : 'Indicação *desligada*, Sr. Hangel.');
     return true;
