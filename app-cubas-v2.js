@@ -49,11 +49,14 @@
       + '<div class="cv2-b">' + (c.brand || c.marca ? '<div class="cv2-marca">' + esc(c.brand || c.marca) + '</div>' : '')
       + '<div class="cv2-nm">' + esc(c.nm) + '</div>' + (c.dim ? '<div class="cv2-dim">' + esc(c.dim) + '</div>' : '')
       + (temDesc ? '<div class="cv2-de">' + brl(c.pr_orig) + '</div>' : '')
-      + (c.pr > 0 ? '<div class="cv2-pr">' + brl(c.pr) + '</div>' : '<div class="cv2-pr" style="font-size:.85rem;color:var(--t2);">Sob consulta</div>')
+      + (c.tipo === 'Esculpida' ? (c.pr > 0 ? '<div class="cv2-inst" style="margin-top:auto;padding-top:6px;">a partir de</div><div class="cv2-pr" style="padding-top:0;">' + brl(c.pr) + '</div>' : '<div class="cv2-pr" style="font-size:.8rem;color:var(--t2);">Preço pela medida</div>')
+        : c.pr > 0 ? '<div class="cv2-pr">' + brl(c.pr) + '</div>' : '<div class="cv2-pr" style="font-size:.85rem;color:var(--t2);">Sob consulta</div>')
       + '</div></div>';
   }
   function esculpidas(items, cat) {
-    var h = '<div class="cv2-sec">Cubas esculpidas na pedra</div>'
+    var h = '<div class="cv2-sec">Cubas esculpidas na pedra<span>' + items.length + '</span></div>'
+      + '<div class="cv2-grid" style="margin-bottom:10px;">' + items.map(function (c) { return card(c, cat); }).join('') + '</div>'
+      + '<div style="font-size:.6rem;letter-spacing:1.6px;text-transform:uppercase;color:var(--t3);font-weight:700;margin:4px 0 7px;">Calcular pela medida</div>'
       + '<div style="background:var(--s3);border:1px solid var(--bd2);border-radius:12px;padding:13px 14px;margin-bottom:10px;">'
       + '<div style="font-size:.72rem;color:var(--t2);line-height:1.6;margin-bottom:10px;">Cuba escavada direto na pedra. Informe as medidas para calcular o preço.</div>'
       + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;">';
