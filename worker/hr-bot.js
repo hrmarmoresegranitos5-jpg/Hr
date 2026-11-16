@@ -16296,7 +16296,7 @@ h1{font-size:1.3rem;margin:0 0 2px;color:#e3c88f}.s{color:#9d9487;font-size:.8re
 .v{font-weight:700;white-space:nowrap}button{background:#c9a45c;color:#1a1408;border:0;border-radius:99px;padding:8px 12px;font-weight:700;font-size:.8rem}button:disabled{opacity:.5}
 .w{display:grid;grid-template-columns:70px 1fr 1fr;gap:6px;align-items:center;font-size:.82rem;padding:6px 0}.bar{height:9px;border-radius:5px}.ok{color:#4ade80}.no{color:#ff7b72}.vz{color:#9d9487;padding:12px}
 </style></head><body><main><h1>Painel de vendas</h1><div class="s" id="at">carregando…</div>
-<div class="k" style="margin-top:14px"><div class="c"><span>Dinheiro parado</span><b id="kp">–</b><span id="kpn"></span></div><div class="c"><span>Retomadas 7 dias</span><b id="kr">–</b><span id="krn"></span></div></div>
+<div id="mt"></div><div class="k" style="margin-top:14px"><div class="c"><span>Dinheiro parado</span><b id="kp">–</b><span id="kpn"></span></div><div class="c"><span>Retomadas 7 dias</span><b id="kr">–</b><span id="krn"></span></div></div>
 <h2>Clientes quentes (3 dias)</h2><div class="l" id="q"></div>
 <h2>Orçamentos parados</h2><div class="l" id="p"></div>
 <h2>Previsão de caixa</h2><div class="l" style="padding:8px 12px" id="cx"></div>
@@ -16310,6 +16310,7 @@ function acao(b,a,num){b.disabled=true;b.textContent='Enviando…';fetch('painel
 function lista(id,arr,f,vazio){document.getElementById(id).innerHTML=arr.length?arr.map(f).join(''):'<div class="vz">'+vazio+'</div>'}
 fetch('painel/dados?k='+encodeURIComponent(K)).then(function(r){return r.json()}).then(function(d){
  document.getElementById('at').textContent='Atualizado '+new Date().toLocaleString('pt-BR',{timeZone:'America/Bahia',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+ var m=d.meta;if(m&&m.meta){var pc=Math.min(100,m.pct||0),cr=m.feito>=m.meta?'#4ade80':m.proj>=m.meta?'#c9a45c':'#f59e0b';document.getElementById('mt').innerHTML='<div class="c" style="margin-top:14px"><span>Meta do mês</span><b>'+R(m.feito)+' de '+R(m.meta)+' · '+(m.pct||0)+'%</b><div style="height:9px;border-radius:5px;background:#2e2a24;margin:6px 0;overflow:hidden"><div style="height:100%;width:'+pc+'%;background:'+cr+'"></div></div><span>'+(m.falta?'Faltam '+R(m.falta)+' · '+R(m.porDia)+'/dia útil · no ritmo: '+R(m.proj):'Meta batida!')+'</span></div>'}
  document.getElementById('kp').textContent=R(d.totalParado);document.getElementById('kpn').textContent=d.nParados+' orçamento(s) sem resposta';
  document.getElementById('kr').textContent=d.retomadas.resp+' de '+d.retomadas.env;document.getElementById('krn').textContent='responderam';
  lista('q',d.quentes,function(x){return '<div class="i"><div>'+e(tel(x.num))+'<small>"'+e(x.t)+'"</small></div><a href="https://wa.me/'+e(x.num)+'"><button>Abrir</button></a></div>'},'Nenhum sinal de compra nos últimos dias.');
