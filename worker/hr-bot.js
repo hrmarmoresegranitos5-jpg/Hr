@@ -6017,7 +6017,7 @@ async function montarResumoMatinal(env) {
     `3. HISTÓRICO: o que andou nas últimas 24 a 48 horas (orçamentos novos, aprovados ou enviados, clientes novos, perguntas sem resposta). Se houver DÚVIDAS QUE SE REPETEM, cite no máximo duas, diga quantos clientes perguntaram e sugira ensinar o bot a responder.`,
     `4. RASCUNHOS: se houver rascunho (de orçamento ou outro) SEM NOME de cliente, diga quantos e avise que precisam ser completados.`,
     `5. FINANÇAS: entradas, saídas e saldo do mês, boletos vencidos ou a vencer nos próximos dias e lançamentos pendentes. Valores em reais, sem centavos quando redondos.`,
-    `6. VENDAS (uma ou duas frases, só se houver dado): clientes quentes de ontem que ainda não fecharam, o maior orçamento parado (nome e valor) e quantas retomadas responderam. Termine sugerindo UMA ação de venda para hoje.`,
+    `6. VENDAS (uma ou duas frases, só se houver dado): se houver meta, quanto já vendeu, a porcentagem e quanto precisa por dia; clientes quentes de ontem que ainda não fecharam, o maior orçamento parado (nome e valor) e quantas retomadas responderam. Termine sugerindo UMA ação de venda para hoje.`,
     `REGRAS: use SOMENTE os dados acima; nunca invente nome, valor ou data. Se não houver dado de um assunto, diga em meia frase que não encontrou (ex.: "não encontrei rascunhos") em vez de inventar. Se o aplicativo não sincronizou há mais de um dia, diga isso no começo. Termine desejando um bom dia de trabalho.`,
     `Responda APENAS com o texto a ser falado.`,
   ].join('\n');
@@ -9077,7 +9077,7 @@ async function responderAgente(env, from, bruto, F, voz) {
       `MODELOS DA META: para o bot escrever primeiro a um cliente fora das 24 h precisa de modelo aprovado. Comandos: "criar modelos" (cria os da HR e pede aprovação) e "modelos" (mostra a situação). Com o modelo aprovado, mandar orçamento a cliente novo funciona: o cliente recebe o aviso e, ao tocar em Pode enviar, recebe o PDF.`,
       `CONFERÊNCIA DE FINANÇAS: se o Sr. Hangel quiser arrumar/corrigir as finanças pelo extrato, diga para escrever "conferir extrato", mandar os prints do extrato do Mercado Pago e depois "pronto"; o bot compara com o app, corrige e pergunta as saídas que faltam.`,
       `PDF DE ORÇAMENTO PEDIDO AQUI (soleira/peitoril e outros): quem calcula e gera o PDF é o app HR no CELULAR do Sr. Hangel; o PDF chega nesta conversa segundos depois de ele abrir o app (tela ligada). Se ele perguntar "cadê?" pelo PDF, diga exatamente isso; nunca diga que o PDF fica no computador.`,
-      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "indicacao" (programa de indicação: "indicacao: quem indica ganha ...; quem chega ganha ...", "convite indicacao <número> <nome>"), "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
+      `INSTAGRAM E POSTS (o bot ESTÁ ligado ao Instagram @ da HR; nunca diga que não tem acesso): a assistente responde o Direct e os comentários sozinha. Comandos que o Sr. Hangel pode usar: "meta 60000" / "meta 60 mil todo mes" / "meta" (meta de vendas do mês), "indicacao" (programa de indicação: "indicacao: quem indica ganha ...; quem chega ganha ...", "convite indicacao <número> <nome>"), "radar" / "vendas da semana" (números da semana e 3 ações), "orcamentos parados" (lista de quem não respondeu, para retomar com 1 toque), prints da conversa com um cliente + o número ("continue o atendimento do 74 9...") → o bot lê, entende onde parou e escreve a mensagem para fechar (ele aprova antes), "promocao" (a IA estuda os números e propõe 3 campanhas; com 1 toque faz vídeo, palavra no Direct e mensagens), "promocao: <ideia dele>", "encerrar promocao", "estrategia" (plano de 30 dias para vender mais e entrar nas cidades vizinhas), "dia da HR em Remanso 28/11" (visita grátis numa cidade vizinha), "cidades" / "cidades: A, B" (páginas no Google por cidade), "video de ano novo" / "video de natal" / "video do feriado" (o bot FAZ o vídeo no editor do computador e manda a prévia; nunca diga que não consegue criar o vídeo), "painel da oficina" (link para a TV da oficina), "relatorio do mes" / "relatorio de outubro", "feriados", "compra programada" (contratos) e "compra programada: Maria pagou 500", fotos/vídeos com a legenda "obra ..." (guarda no acervo e no catálogo de serviços feitos; vira vídeo do dia), "video do dia" (monta agora), "video do dia 9h", "video do dia desligar", "acervo", "instagram palavra QUERO" (quem comentar a palavra recebe catálogo e WhatsApp no Direct; "instagram palavra desligar"), "instagram clientes" (quantos vieram do Instagram, pediram orçamento e fecharam, e quais posts trouxeram), "instagram analise" (estuda os posts e reels e manda o que viraliza + ideias de vídeo com roteiro), "instagram resumo", "instagram pausar"/"instagram ligar", "editor" (conecta o editor de vídeo do computador). Para postar: ele manda a foto ou o vídeo aqui com "postar", "reels" ou "story" na legenda; o bot prepara a legenda, o computador edita o vídeo e chega a prévia com botões; "legenda: ..." troca o texto e "agendar 19h" agenda. Se ele perguntar por algo disso, explique em uma ou duas frases e indique o comando.`,
       ``,
       `COMO RACIOCINAR:`,
       `- Entenda a INTENÇÃO do Sr. Hangel, não só as palavras. Use o histórico da conversa: "mais uma soleira", "mesmo cliente", "mesmo material", "pode colocar junto" significam repetir cliente, pedra, prazo e pagamento do pedido anterior (veja as notas "[registrado: ...]" no histórico) e mudar só o que ele disser.`,
@@ -14066,6 +14066,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await menuComando(env, from, msg).catch(() => false)) return; // v101
     if (await caixaComando(env, from, msg).catch(e => { console.log('[CAIXA]', e.message); return false; })) return; // v102
     if (await pvComando(env, from, msg).catch(() => false)) return; // v103
+    if (await metaComando(env, from, bruto, msg).catch(e => { console.log('[META]', e.message); return false; })) return; // v106
     if (/^(reconquistar|reconquista|clientes perdidos|perdidos)$/.test(msg)) { await reconqLista(env, from, true); return; }
     if (/^(radar( de vendas)?|vendas da semana|relatorio de vendas|como foram as vendas( da semana)?|resumo de vendas)$/.test(msg)) { await radarEnviar(env, from).catch(async e => enviar(env, from, 'Não consegui montar o radar agora: ' + String(e.message).slice(0, 100))); return; } // v97
     if (await rtpTratarTexto(env, from, bruto, msg).catch(e => { console.log('[RTP] texto:', e.message); return false; })) return; // v93
@@ -16019,6 +16020,7 @@ async function radarDados(env) {
   out.promos = (await promoAtivas(env).catch(() => [])).map(p => `${p.titulo}: ${p.leads || 0} interessados`);
   const mes = hoje.slice(0, 7), ig = JSON.parse((await env.HR_KV.get('ig:fun:' + mes)) || '{"orc":{},"fech":{}}'); out.igMes = { orc: Object.keys(ig.orc || {}).length, fech: Object.keys(ig.fech || {}).length };
   out.agendaAberta = (d.agenda || []).filter(ehAberto).length;
+  try { const m = await metaStatus(env); if (m.meta) out.meta = m; } catch (_) {}
   return out;
 }
 async function radarEnviar(env, para) {
@@ -16029,6 +16031,7 @@ async function radarEnviar(env, para) {
     r.novos != null ? `Contatos novos: ${r.novos} · conversas: ${r.ativos}` : null,
     `Orçamentos: ${r.orc.n}${r.orc.v ? ' (R$ ' + reais(r.orc.v) + ')' : ''}${r.conv30 != null ? ' · fechamento nos últimos 30 dias: ' + r.conv30 + '%' : ''}`,
     r.vendas.n ? `Vendas fechadas: ${r.vendas.n} · R$ ${reais(r.vendas.v)}` : 'Nenhuma venda fechada registrada no app esta semana',
+    r.meta ? metaLinha(r.meta) : null,
     r.retomadas.env ? `Retomadas: ${r.retomadas.env} enviadas · ${r.retomadas.resp} responderam · ${r.retomadas.sim} com interesse` : null,
     r.respostaPorObjecao && r.respostaPorObjecao.length ? `Quem mais responde às retomadas (por motivo): ${r.respostaPorObjecao.join(' · ')}` : null,
     r.parados.n ? `Dinheiro parado: ${r.parados.n} orçamento(s) sem resposta, R$ ${reais(r.parados.v)}. Maiores: ${r.parados.top.join(', ')}` : null,
@@ -16154,7 +16157,8 @@ async function indComando(env, from, bruto, msg) {
 async function vendasMatinal(env) {
   const par = await paradosLista(env).catch(() => []), lg = JSON.parse((await env.HR_KV.get('lq:log')) || '[]').filter(x => Date.now() - x.em < 36 * 3600000);
   const l = await rtpHistLer(env), resp = l.filter(x => x.r && Date.now() - x.em < 7 * 86400000).length;
-  return { parados: par.length, valorParado: Math.round(par.reduce((t, x) => t + x.valor, 0)), maiores: par.slice(0, 2).map(x => `${x.nome} ${Math.round(x.valor)} reais, ${x.dias} dias`), clientesQuentes: lg.map(x => x.t).slice(-4), retomadasRespondidas7d: resp };
+  const mt = await metaStatus(env).catch(() => null);
+  return { meta: mt && mt.meta ? { meta: mt.meta, vendido: mt.feito, pct: mt.pct, faltaPorDia: Math.round(mt.porDia), projecao: mt.proj } : null, parados: par.length, valorParado: Math.round(par.reduce((t, x) => t + x.valor, 0)), maiores: par.slice(0, 2).map(x => `${x.nome} ${Math.round(x.valor)} reais, ${x.dias} dias`), clientesQuentes: lg.map(x => x.t).slice(-4), retomadasRespondidas7d: resp };
 }
 async function rtpHistLer(env) { try { return JSON.parse((await env.HR_KV.get('rtp:hist')) || '[]'); } catch (_) { return []; } }
 async function rtpHistAdd(env, reg, enviado) {
@@ -16282,7 +16286,7 @@ async function pvDados(env) {
   return { parados: par.slice(0, 25).map(x => ({ num: x.num, nome: x.nome, valor: x.valor, dias: x.dias, desc: x.desc })), totalParado: par.reduce((t, x) => t + x.valor, 0), nParados: par.length,
     quentes: lg.filter(x => Date.now() - x.em < 3 * 86400000).reverse().slice(0, 10).map(x => ({ num: x.num, t: x.t, em: x.em })),
     retomadas: { env: h7.length, resp: h7.filter(x => x.r).length }, taxa: apr.taxa, perdidos: rq.slice(0, 10).map(x => ({ num: x.num, nome: x.nome, motivo: x.motivo, valor: x.valor })),
-    promos: promos.map(p => ({ t: p.titulo, ate: p.ate, leads: p.leads || 0 })), caixa: cx ? cx.sem.map(w => ({ ini: w.ini, ent: Math.round(w.ent), sai: Math.round(w.sai) })) : [] };
+    promos: promos.map(p => ({ t: p.titulo, ate: p.ate, leads: p.leads || 0 })), meta: await metaStatus(env).catch(() => null), caixa: cx ? cx.sem.map(w => ({ ini: w.ini, ent: Math.round(w.ent), sai: Math.round(w.sai) })) : [] };
 }
 const PV_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vendas · HR</title><style>
 *{box-sizing:border-box}body{margin:0;background:#0f0e0c;color:#f3eee5;font-family:system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:18px 14px 60px}
@@ -16333,6 +16337,43 @@ async function pvComando(env, from, msg) {
   let t = await env.HR_KV.get('pv:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2, 8); await env.HR_KV.put('pv:tok', t); }
   await enviar(env, from, cartaoDono('Painel de vendas', [`${await urlPublica(env)}/painel?k=${t}`, 'Dinheiro parado, clientes quentes, retomadas, previsão de caixa e quem reconquistar, tudo numa tela. O botão Retomar manda a prévia aqui no WhatsApp. Salve o link na tela inicial do celular. Se o link vazar: *painel de vendas novo*.']));
   return true;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v106: META DE VENDAS DO MÊS — "meta 60000" (ou pelo app). Mostra quanto já foi fechado no mês (agenda do app:
+//   fechadoEm), a porcentagem, quanto falta por dia útil e a projeção no ritmo atual. Aparece no radar, no resumo
+//   das 7h, no painel e no app; no dia 20, se a projeção estiver abaixo, o bot avisa com sugestões.
+// ═════════════════════════════════════════════════════════════════════════════
+function diasUteisEntre(env, ini, fim) { let n = 0, d = ini; for (let i = 0; i < 40 && d <= fim; i++) { if (ehDiaUtil(env, d)) n++; d = isoSomaDias(d, 1); } return n; }
+async function metaStatus(env) {
+  const hoje = dataBahia(), mes = hoje.slice(0, 7); let meta = 0; try { meta = +(JSON.parse((await env.HR_KV.get('meta:' + mes)) || '{}').valor) || 0; } catch (_) {}
+  if (!meta) { try { meta = +(JSON.parse((await env.HR_KV.get('meta:padrao')) || '{}').valor) || 0; } catch (_) {} }
+  const snap = await lerSnapshotCompleto(env).catch(() => null), d = (snap && snap.dados) || {};
+  const vendas = (d.agenda || []).filter(a => String(a.fechadoEm || '').startsWith(mes)), feito = vendas.reduce((t, a) => t + (+a.valor || 0), 0);
+  const ini = mes + '-01', ult = isoSomaDias(isoSomaDias(ini, 32).slice(0, 7) + '-01', -1);
+  const uteisTot = diasUteisEntre(env, ini, ult) || 1, uteisPass = diasUteisEntre(env, ini, isoSomaDias(hoje, -1)), uteisResta = Math.max(0, uteisTot - uteisPass);
+  const proj = uteisPass ? feito / uteisPass * uteisTot : feito;
+  return { mes, meta, feito, n: vendas.length, pct: meta ? Math.round(feito / meta * 100) : null, falta: Math.max(0, meta - feito), porDia: uteisResta ? Math.max(0, meta - feito) / uteisResta : 0, uteisResta, proj: Math.round(proj) };
+}
+function metaLinha(m) {
+  if (!m.meta) return null;
+  return `Meta de ${relNomeMes(m.mes).split(' ')[0]}: R$ ${reais(m.feito)} de R$ ${reais(m.meta)} (${m.pct}%)${m.falta ? ` · faltam R$ ${reais(m.falta)} em ${m.uteisResta} dias úteis (R$ ${reais(Math.round(m.porDia))}/dia) · no ritmo atual fecha o mês em R$ ${reais(m.proj)}` : ' · meta batida! 🎯'}`;
+}
+async function metaComando(env, from, bruto, msg) {
+  const m = msg.match(/^meta(?: (?:de vendas|do mes|mensal))?(?: (?:de |para |pra )?(?:r\$ ?)?([\d.,]+) ?(mil|k)?)?( todo mes| sempre| fixa)?$/);
+  if (!m) return false;
+  if (m[1]) { let v = +String(m[1]).replace(/\./g, '').replace(',', '.'); if (m[2]) v *= 1000; if (!(v >= 100)) { await enviar(env, from, 'Valor estranho. Mande assim: *meta 60000* ou *meta 60 mil*.'); return true; }
+    const mes = dataBahia().slice(0, 7); await env.HR_KV.put('meta:' + mes, JSON.stringify({ valor: v, em: Date.now() })); if (m[3]) await env.HR_KV.put('meta:padrao', JSON.stringify({ valor: v }));
+    await enviar(env, from, cartaoDono('Meta definida', [`R$ ${reais(v)} em vendas fechadas em ${relNomeMes(mes)}${m[3] ? ' (e nos próximos meses também)' : ''}.`, metaLinha(await metaStatus(env)), 'Conta como venda o serviço marcado como fechado na agenda do app.'])); return true; }
+  const st = await metaStatus(env);
+  await enviar(env, from, st.meta ? cartaoDono('Meta do mês', [metaLinha(st), `${st.n} venda(s) fechada(s) no mês.`]) : 'Ainda não há meta para este mês. Mande *meta 60000* (ou *meta 60 mil todo mes* para repetir nos próximos meses).');
+  return true;
+}
+async function metaRotina(env) {
+  const hoje = dataBahia(); if (hoje.slice(8) !== '20' || agoraBahia().min < 8 * 60 || await env.HR_KV.get('meta:av:' + hoje)) return;
+  await env.HR_KV.put('meta:av:' + hoje, '1', { expirationTtl: 40 * 86400 });
+  const st = await metaStatus(env); if (!st.meta || st.proj >= st.meta) return;
+  const par = await paradosLista(env).catch(() => []);
+  await avisarDono(env, cartaoDono('Meta do mês em risco', [metaLinha(st), par.length ? `Tem R$ ${reais(par.reduce((t, x) => t + x.valor, 0))} em ${par.length} orçamento(s) parados. Os maiores: ${par.slice(0, 3).map(x => x.nome + ' R$ ' + reais(x.valor)).join(', ')}.` : null, 'Sugestões: *orcamentos parados* (retomar os maiores hoje), *promocao* (campanha curta até o fim do mês) e *reconquistar*.']));
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -18603,6 +18644,7 @@ async function rotaBotInterna(req, env, url) {
     const b = await req.json().catch(() => ({})), dono = numeroDono(env), num = normalizarBR(String(b.num || '').replace(/\D/g, ''));
     if (b.acao === 'retomar' || b.acao === 'reconquistar') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); await paradosBotao(env, dono, b.acao === 'reconquistar' ? `rtpl|${num}|r` : `rtpl|${num}`); return jsonR({ ok: true }); }
     if (b.acao === 'radar') { await radarEnviar(env, dono); return jsonR({ ok: true }); }
+    if (b.acao === 'meta') { const v = +String(b.valor || '').replace(/\./g, '').replace(',', '.'); if (!(v >= 100)) return jsonR({ ok: false, erro: 'valor inválido' }); const mes = dataBahia().slice(0, 7); await env.HR_KV.put('meta:' + mes, JSON.stringify({ valor: v, em: Date.now() })); if (b.todoMes) await env.HR_KV.put('meta:padrao', JSON.stringify({ valor: v })); return jsonR({ ok: true, meta: await metaStatus(env) }); }
     if (b.acao === 'convite_ind') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); const c = await indConviteV99(env, num, String(b.nome || '')); if (!c) return jsonR({ ok: false, erro: 'programa de indicação desligado' }); await cliFilaAdd(env, [{ num, nome: String(b.nome || ''), texto: c.texto, tag: 'ind:' + Date.now() }]); await enviar(env, dono, `Convite de indicação enviado para ${b.nome || rtpFmt(num)} (código ${c.cod}), pedido pelo app.`); return jsonR({ ok: true, cod: c.cod }); }
     if (b.acao === 'assumir' || b.acao === 'devolver') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); const t = b.acao + ' ' + num.replace(/^55/, ''); await tratarAssumir(env, dono, t, t); return jsonR({ ok: true }); }
     if (b.acao === 'promo') { await promoComando(env, dono, 'promocao', 'promocao'); return jsonR({ ok: true }); }
@@ -19320,6 +19362,7 @@ async function rotinaDiaria(env, opts = {}) {
   await passo('indicação', () => indRotina(e2, snap));
   await passo('reconquista', () => reconqRotina(e2));
   await passo('previsão de caixa', () => caixaAlertaRotina(e2));
+  await passo('meta do mês', () => metaRotina(e2));
   return { ok: true, feitos };
 }
 
