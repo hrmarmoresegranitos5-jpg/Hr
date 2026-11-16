@@ -82,6 +82,7 @@
     { acao: 'estoque_entrada', nome: 'Entrada no estoque', descricao: 'Soma m² de uma chapa no estoque (compra que chegou).', parametros: { material: 'nome da pedra', acabamento: 'polido, escovado... (opcional)', m2: 'metros quadrados', custoM2: 'custo por m² (opcional)' }, confirmar: true },
     { acao: 'estoque_baixa', nome: 'Baixa no estoque', descricao: 'Tira m² de uma chapa do estoque (uso, quebra, venda avulsa).', parametros: { material: 'nome da pedra', m2: 'metros quadrados' }, confirmar: true },
     { acao: 'cp_pagamento', nome: 'Pagamento da Compra Programada', descricao: 'Registra um pagamento de parcela na Compra Programada HR de um cliente (como o botão do app; lança em Finanças).', parametros: { cliente: 'nome do cliente ou número do contrato (CP-...)', valor: 'valor pago em reais', forma: 'pix, dinheiro, cartão... (opcional)', data: 'AAAA-MM-DD (opcional)' }, confirmar: true },
+    { acao: 'cadastrar_cuba', nome: 'Cadastrar cuba/produto no catálogo', descricao: 'Cadastra uma cuba de cozinha, lavatório ou acessório no catálogo (fotos, preço de custo, margem e preço de venda), lido de prints mandados no WhatsApp.', parametros: { nm: 'nome', cat: 'coz|lav|ac', custo: 'preço de custo', margem: '%', pr: 'preço de venda', fotos: 'links das fotos' }, confirmar: true },
     { acao: 'atualizar_bot', nome: 'Atualizar dados do bot', descricao: 'Reenvia agora ao Worker a lista de orçamentos em aberto e o A Receber.', confirmar: false }
   ];
 
@@ -208,6 +209,35 @@
     } catch (e) { return { ok: false, mensagem: e.message }; }
   }
 
+  // v7: cadastro de cuba vindo do WhatsApp (o bot leu os prints): baixa as fotos (900 px, JPEG) e salva no catálogo
+  function fotoDataUrl(url) {
+    return fetch(url).then(function (r) { if (!r.ok) throw new Error('foto ' + r.status); return r.blob(); }).then(function (b) {
+      return new Promise(function (ok, er) {
+        var u = URL.createObjectURL(b), img = new Image();
+        img.onload = function () { var sc = Math.min(1, 900 / img.width), c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg', 0.8)); };
+        img.onerror = function () { URL.revokeObjectURL(u); er(new Error('foto inválida')); };
+        img.src = u;
+      });
+    });
+  }
+  function exCadastrarCuba(p) {
+    if (typeof CFG === 'undefined' || !CFG) return Promise.resolve({ ok: false, mensagem: 'Configuração do app não carregou.' });
+    var cat = ['coz', 'lav', 'ac'].indexOf(p.cat) >= 0 ? p.cat : 'coz';
+    var lista = cat === 'coz' ? CFG.coz : cat === 'lav' ? CFG.lav : (CFG.ac || (CFG.ac = []));
+    var nm = String(p.nm || '').trim(); if (!nm) return Promise.resolve({ ok: false, mensagem: 'Faltou o nome.' });
+    var ja = lista.find(function (c) { return c && String(c.nm || '').toLowerCase() === nm.toLowerCase(); });
+    var fotos = (p.fotos || []).slice(0, 6);
+    return fotos.reduce(function (seq, u) { return seq.then(function (arr) { return fotoDataUrl(u).then(function (d) { arr.push(d); return arr; }).catch(function () { return arr; }); }); }, Promise.resolve([])).then(function (imgs) {
+      var prod = { id: (ja && ja.id) || ('bot_' + Date.now()), nm: nm, titulo: p.titulo || nm, desc: p.desc || '', dim: p.dim || '', pr: Math.round(+p.pr || 0), photo: imgs[0] || (ja && ja.photo) || '', fotos: imgs.length ? imgs : ((ja && ja.fotos) || []), _manual_custo: +p.custo || 0, _manual_margem: +p.margem || 0, _origem: 'whatsapp' };
+      if (cat === 'ac') prod.marca = p.brand || ''; else { prod.brand = p.brand || ''; prod.custo = +p.custo || 0; prod.pr_orig = 0; prod.inst = +p.inst || (cat === 'coz' ? 110 : 220); prod.instCli = +p.instCli || (cat === 'coz' ? 160 : 280); }
+      if (p.features && p.features.length) prod.features = p.features;
+      if (ja) Object.assign(ja, prod); else lista.push(prod);
+      try { if (typeof svCFG === 'function') svCFG(); } catch (e) {}
+      try { if (typeof buildCubaList === 'function') buildCubaList(); if (typeof buildAcList === 'function') buildAcList(); } catch (e) {}
+      return { ok: true, mensagem: (ja ? 'Atualizado' : 'Cadastrado') + ' em ' + (cat === 'coz' ? 'Cubas de cozinha' : cat === 'lav' ? 'Lavatórios' : 'Acessórios') + ': ' + nm + ' · venda R$ ' + prod.pr + ' · ' + imgs.length + ' foto(s).' };
+    });
+  }
+
   function exAtualizar() {
     return sincronizar(true).then(function () {
       try { if (typeof sincBot === 'function') sincBot(true); } catch (e) {}
@@ -225,6 +255,7 @@
       if (c.acao === 'agenda_data') return Promise.resolve(exData(p));
       if (c.acao === 'boletos_revisao') return Promise.resolve(exBoletosRevisao(p));
       if (c.acao === 'cp_pagamento') return Promise.resolve(exCompraProg(p));
+      if (c.acao === 'cadastrar_cuba') return exCadastrarCuba(p);
       if (c.acao === 'marcar_boleto_pago') return Promise.resolve(exBoleto(p));
       if (c.acao === 'estoque_entrada') return Promise.resolve(exEstoque(p, 1));
       if (c.acao === 'estoque_baixa') return Promise.resolve(exEstoque(p, -1));
