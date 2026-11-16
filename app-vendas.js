@@ -77,7 +77,15 @@
       + '<button class="hm-b" data-vd-ideia style="grid-column:1/-1;padding:10px;">✍️ Tenho uma ideia de promoção</button></div>'
       + '<div style="font-size:.68rem;color:var(--t3,#999);margin-top:8px;line-height:1.5;">As ações abrem no seu WhatsApp: o bot prepara e o senhor aprova antes de qualquer mensagem ir ao cliente.</div>';
 
-    var corpo = kpi
+    var m = d.meta, metaH;
+    if (m && m.meta) {
+      var pc = Math.min(100, m.pct || 0), cor = m.feito >= m.meta ? '#5dbf7a' : m.proj >= m.meta ? '#c9a84c' : '#f0b45a';
+      metaH = '<div data-vd-meta style="cursor:pointer;background:rgba(255,255,255,.04);border:1px solid var(--bd,rgba(255,255,255,.08));border-radius:10px;padding:9px 10px;margin-bottom:8px;">'
+        + '<div style="display:flex;justify-content:space-between;font-size:.74rem;"><span>🎯 Meta do mês</span><b>' + R(m.feito) + ' de ' + R(m.meta) + ' · ' + (m.pct || 0) + '%</b></div>'
+        + '<div style="height:9px;border-radius:5px;background:rgba(255,255,255,.08);margin:6px 0;overflow:hidden;"><div style="height:100%;width:' + pc + '%;background:' + cor + ';"></div></div>'
+        + '<div style="font-size:.68rem;color:var(--t3,#999);">' + (m.falta ? 'Faltam ' + R(m.falta) + ' · ' + R(m.porDia) + ' por dia útil (' + m.uteisResta + ' dias) · no ritmo atual: ' + R(m.proj) : 'Meta batida! 🎉') + '</div></div>';
+    } else metaH = '<button class="hm-b" data-vd-meta style="width:100%;padding:9px;margin-bottom:8px;">🎯 Definir meta de vendas do mês</button>';
+    var corpo = metaH + kpi
       + (q ? bloco('Clientes quentes', q) : '')
       + bloco('Orçamentos sem resposta', par || '<div class="hm-sub" style="padding:8px 2px;">Nenhum orçamento parado. 👏</div>')
       + (cx ? bloco('Previsão de caixa (4 semanas)', cx) : '')
@@ -91,9 +99,10 @@
   function desenharHome() {
     var ref = document.getElementById('homePosVenda'); if (!ref) return;
     var c = document.getElementById('homeVendas'); var d = V.d;
-    if (!d || (!d.nParados && !(d.quentes || []).length && !(d.perdidos || []).length)) { if (c) c.remove(); return; }
+    if (!d || (!d.nParados && !(d.quentes || []).length && !(d.perdidos || []).length && !(d.meta && d.meta.meta))) { if (c) c.remove(); return; }
     var neg = (d.caixa || []).slice(0, 2).filter(function (w) { return w.sai - w.ent > 300; })[0];
     var partes = [];
+    if (d.meta && d.meta.meta) partes.push('🎯 <b style="color:' + (d.meta.proj >= d.meta.meta ? '#5dbf7a' : '#f0b45a') + ';">' + (d.meta.pct || 0) + '% da meta</b>');
     if (d.nParados) partes.push('<b style="color:#f0b45a;">' + R(d.totalParado) + '</b> parado em ' + d.nParados + ' orçamento' + (d.nParados > 1 ? 's' : ''));
     if ((d.quentes || []).length) partes.push('<b style="color:#5dbf7a;">' + d.quentes.length + ' cliente' + (d.quentes.length > 1 ? 's' : '') + ' quente' + (d.quentes.length > 1 ? 's' : '') + '</b>');
     if (neg) partes.push('<b style="color:#f08a8a;">caixa −' + R(neg.sai - neg.ent) + '</b> ' + (d.caixa.indexOf(neg) ? 'semana que vem' : 'esta semana'));
@@ -120,6 +129,9 @@
     if (m) { ev.stopPropagation(); var k = m.getAttribute('data-vd-mais'); V.abertos[k] = !V.abertos[k]; desenhar(); return; }
     var hm = t.closest('[data-vd-home]');
     if (hm) { ev.stopPropagation(); try { openApp(12); } catch (e) {} setTimeout(function () { var x = document.querySelector('[data-vendas]'); if (x && x.scrollIntoView) x.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 600); return; }
+    var mt = t.closest('[data-vd-meta]');
+    if (mt) { ev.stopPropagation(); var atual = V.d && V.d.meta && V.d.meta.meta; var v = prompt('Meta de vendas fechadas neste mês (R$):', atual ? String(Math.round(atual)) : ''); if (v && /\d/.test(v)) { var todo = confirm('Usar essa meta também nos próximos meses?');
+      botApi('/bot/vendas/acao', { method: 'POST', body: JSON.stringify({ acao: 'meta', valor: v.replace(/[^\d,.]/g, ''), todoMes: todo }) }).then(function (j) { if (j && j.ok) { if (V.d) V.d.meta = j.meta; desenhar(); aviso('🎯 Meta salva.'); } else aviso('⚠️ ' + ((j && j.erro) || 'Não deu.')); }).catch(function (e) { aviso('⚠️ ' + e.message); }); } return; }
     var i = t.closest('[data-vd-ideia]');
     if (i) { ev.stopPropagation(); var ideia = prompt('Descreva a promoção (ex.: brinde de cuba inox para quem fechar cozinha até 20/12):'); if (ideia && ideia.trim().length >= 8) acao(i, 'promo_ideia', '', ideia.trim()); }
   }, true);
