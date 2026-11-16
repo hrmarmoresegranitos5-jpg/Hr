@@ -44,7 +44,7 @@
     var inst = +c.instCli || 0;
     return '<div class="cv2-card" onclick="abrirCubaFs(\'' + esc(c.id) + '\',\'' + cat + '\')">'
       + '<div class="cv2-img">' + (temDesc ? '<div class="cv2-off">' + Math.round((1 - c.pr / c.pr_orig) * 100) + '% OFF</div>' : '')
-      + (c.photo ? '<img loading="lazy" src="' + esc(c.photo) + '" alt="' + esc(c.nm) + '">' : '<div class="sem">🚰</div>')
+      + (c.photo ? '<img loading="lazy" src="' + esc(c.photo) + '" alt="' + esc(c.nm) + '">' : '<div class="sem">' + (c.tipo === 'Esculpida' ? '🪨' : '🚰') + '</div>')
       + (fotos > 1 ? '<div class="cv2-nf">📷 ' + fotos + '</div>' : '') + '</div>'
       + '<div class="cv2-b">' + (c.brand || c.marca ? '<div class="cv2-marca">' + esc(c.brand || c.marca) + '</div>' : '')
       + '<div class="cv2-nm">' + esc(c.nm) + '</div>' + (c.dim ? '<div class="cv2-dim">' + esc(c.dim) + '</div>' : '')
