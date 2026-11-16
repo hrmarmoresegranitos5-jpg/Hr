@@ -14065,6 +14065,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await indComando(env, from, bruto, msg).catch(e => { console.log('[IND]', e.message); return false; })) return; // v99
     if (await menuComando(env, from, msg).catch(() => false)) return; // v101
     if (await caixaComando(env, from, msg).catch(e => { console.log('[CAIXA]', e.message); return false; })) return; // v102
+    if (await pvComando(env, from, msg).catch(() => false)) return; // v103
     if (/^(reconquistar|reconquista|clientes perdidos|perdidos)$/.test(msg)) { await reconqLista(env, from, true); return; }
     if (/^(radar( de vendas)?|vendas da semana|relatorio de vendas|como foram as vendas( da semana)?|resumo de vendas)$/.test(msg)) { await radarEnviar(env, from).catch(async e => enviar(env, from, 'Não consegui montar o radar agora: ' + String(e.message).slice(0, 100))); return; } // v97
     if (await rtpTratarTexto(env, from, bruto, msg).catch(e => { console.log('[RTP] texto:', e.message); return false; })) return; // v93
@@ -16182,7 +16183,7 @@ const MENU_VENDAS = [
   ['reconq', 'Reconquistar perdidos', 'Quem desistiu há 1 a 2 meses'], ['promo', 'Ideias de promoção', '3 campanhas com os seus números'],
   ['plano', 'Plano de 30 dias', 'Vender mais e entrar nas cidades vizinhas'], ['indic', 'Indicações', 'Ranking e prêmios'],
   ['relat', 'Relatório do mês', 'Entrou, saiu, sobrou + PDF'], ['oficina', 'Painel da oficina', 'Link para a TV'],
-  ['caixa', 'Previsão de caixa', 'Entra e sai nas próximas 4 semanas'], ['fer', 'Feriados', 'Próximos e o que muda'],
+  ['caixa', 'Previsão de caixa', 'Entra e sai nas próximas 4 semanas'], ['painel', 'Painel de vendas', 'Tudo numa tela no celular'],
 ];
 async function menuComando(env, from, msg) {
   if (!/^(comandos|menu|menu de vendas|o que voce faz|atalhos|funcoes)$/.test(msg)) return false;
@@ -16194,6 +16195,7 @@ async function menuBotao(env, from, id) {
   const k = id.split('|')[1];
   if (k === 'radar') { await radarEnviar(env, from); return true; }
   if (k === 'caixa') { await enviar(env, from, await caixaTexto(env)); return true; }
+  if (k === 'painel') return pvComando(env, from, 'painel de vendas');
   if (k === 'parados') return paradosComando(env, from, 'orcamentos parados');
   if (k === 'reconq') return reconqLista(env, from, true);
   if (k === 'promo') return promoComando(env, from, 'promocao', 'promocao');
@@ -16268,6 +16270,69 @@ async function caixaAlertaRotina(env) { // segunda e quinta: se alguma semana fi
   await env.HR_KV.put('cx:av:' + hoje, '1', { expirationTtl: 8 * 86400 });
   const p = await caixaPrevisao(env); if (!p.sem.slice(0, 2).some(w => w.sai - w.ent > 300)) return;
   await avisarDono(env, await caixaTexto(env));
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v103: PAINEL DE VENDAS (página no celular) — "painel de vendas" manda o link. Mostra dinheiro parado, clientes
+//   quentes, retomadas, campanhas e a previsão de caixa; o botão "Retomar" de cada cliente faz o bot preparar a
+//   mensagem e mandar a prévia no WhatsApp do dono (nada vai ao cliente sem o OK).
+// ═════════════════════════════════════════════════════════════════════════════
+async function pvDados(env) {
+  const [par, cx, apr, promos, lg, rq] = await Promise.all([paradosLista(env).catch(() => []), caixaPrevisao(env).catch(() => null), rtpAprendizado(env).catch(() => ({ taxa: {} })), promoAtivas(env).catch(() => []), env.HR_KV.get('lq:log').then(x => JSON.parse(x || '[]')).catch(() => []), reconqCandidatos(env).catch(() => [])]);
+  const h = await rtpHistLer(env).catch(() => []), h7 = h.filter(x => Date.now() - x.em < 7 * 86400000);
+  return { parados: par.slice(0, 25).map(x => ({ num: x.num, nome: x.nome, valor: x.valor, dias: x.dias, desc: x.desc })), totalParado: par.reduce((t, x) => t + x.valor, 0), nParados: par.length,
+    quentes: lg.filter(x => Date.now() - x.em < 3 * 86400000).reverse().slice(0, 10).map(x => ({ num: x.num, t: x.t, em: x.em })),
+    retomadas: { env: h7.length, resp: h7.filter(x => x.r).length }, taxa: apr.taxa, perdidos: rq.slice(0, 10).map(x => ({ num: x.num, nome: x.nome, motivo: x.motivo, valor: x.valor })),
+    promos: promos.map(p => ({ t: p.titulo, ate: p.ate, leads: p.leads || 0 })), caixa: cx ? cx.sem.map(w => ({ ini: w.ini, ent: Math.round(w.ent), sai: Math.round(w.sai) })) : [] };
+}
+const PV_HTML = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vendas · HR</title><style>
+*{box-sizing:border-box}body{margin:0;background:#0f0e0c;color:#f3eee5;font-family:system-ui,sans-serif}main{max-width:760px;margin:0 auto;padding:18px 14px 60px}
+h1{font-size:1.3rem;margin:0 0 2px;color:#e3c88f}.s{color:#9d9487;font-size:.8rem}h2{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:#c9a45c;margin:22px 0 8px}
+.k{display:grid;grid-template-columns:1fr 1fr;gap:8px}.c{background:#171512;border:1px solid #2e2a24;border-radius:14px;padding:12px}.c b{display:block;font-size:1.3rem;margin-top:2px}.c span{font-size:.72rem;color:#9d9487}
+.l{background:#171512;border:1px solid #2e2a24;border-radius:14px}.i{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid #2e2a24}.i:last-child{border:0}.i div{flex:1;min-width:0}.i small{display:block;color:#9d9487;font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v{font-weight:700;white-space:nowrap}button{background:#c9a45c;color:#1a1408;border:0;border-radius:99px;padding:8px 12px;font-weight:700;font-size:.8rem}button:disabled{opacity:.5}
+.w{display:grid;grid-template-columns:70px 1fr 1fr;gap:6px;align-items:center;font-size:.82rem;padding:6px 0}.bar{height:9px;border-radius:5px}.ok{color:#4ade80}.no{color:#ff7b72}.vz{color:#9d9487;padding:12px}
+</style></head><body><main><h1>Painel de vendas</h1><div class="s" id="at">carregando…</div>
+<div class="k" style="margin-top:14px"><div class="c"><span>Dinheiro parado</span><b id="kp">–</b><span id="kpn"></span></div><div class="c"><span>Retomadas 7 dias</span><b id="kr">–</b><span id="krn"></span></div></div>
+<h2>Clientes quentes (3 dias)</h2><div class="l" id="q"></div>
+<h2>Orçamentos parados</h2><div class="l" id="p"></div>
+<h2>Previsão de caixa</h2><div class="l" style="padding:8px 12px" id="cx"></div>
+<h2>Para reconquistar</h2><div class="l" id="rq"></div>
+<h2>Campanhas</h2><div class="l" id="pr"></div>
+<p class="s" style="margin-top:20px">"Retomar" faz o bot preparar a mensagem e mandar a prévia no seu WhatsApp. Nada vai ao cliente sem o seu OK.</p></main>
+<script>
+var K=new URLSearchParams(location.search).get('k');function e(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function R(v){return 'R$ '+Math.round(v||0).toLocaleString('pt-BR')}function tel(n){return String(n).replace(/^55(\\d{2})(9?\\d{4})(\\d{4})$/,'($1) $2-$3')}
+function acao(b,a,num){b.disabled=true;b.textContent='Enviando…';fetch('painel/acao?k='+encodeURIComponent(K),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({acao:a,num:num})}).then(function(r){return r.json()}).then(function(j){b.textContent=j.ok?'Veja no WhatsApp':'Erro'}).catch(function(){b.textContent='Erro'})}
+function lista(id,arr,f,vazio){document.getElementById(id).innerHTML=arr.length?arr.map(f).join(''):'<div class="vz">'+vazio+'</div>'}
+fetch('painel/dados?k='+encodeURIComponent(K)).then(function(r){return r.json()}).then(function(d){
+ document.getElementById('at').textContent='Atualizado '+new Date().toLocaleString('pt-BR',{timeZone:'America/Bahia',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+ document.getElementById('kp').textContent=R(d.totalParado);document.getElementById('kpn').textContent=d.nParados+' orçamento(s) sem resposta';
+ document.getElementById('kr').textContent=d.retomadas.resp+' de '+d.retomadas.env;document.getElementById('krn').textContent='responderam';
+ lista('q',d.quentes,function(x){return '<div class="i"><div>'+e(tel(x.num))+'<small>"'+e(x.t)+'"</small></div><a href="https://wa.me/'+e(x.num)+'"><button>Abrir</button></a></div>'},'Nenhum sinal de compra nos últimos dias.');
+ lista('p',d.parados,function(x){return '<div class="i"><div>'+e(x.nome||tel(x.num))+'<small>'+x.dias+' dias'+(x.desc?' · '+e(x.desc):'')+'</small></div><span class="v">'+(x.valor?R(x.valor):'')+'</span><button onclick="acao(this,\\'retomar\\',\\''+e(x.num)+'\\')">Retomar</button></div>'},'Nenhum orçamento parado.');
+ lista('rq',d.perdidos,function(x){return '<div class="i"><div>'+e(x.nome||tel(x.num))+'<small>'+e(x.motivo)+'</small></div><span class="v">'+(x.valor?R(x.valor):'')+'</span><button onclick="acao(this,\\'reconquistar\\',\\''+e(x.num)+'\\')">Tentar</button></div>'},'Ninguém para reconquistar agora.');
+ lista('pr',d.promos,function(x){return '<div class="i"><div>'+e(x.t)+'<small>até '+e(x.ate.slice(8,10)+'/'+x.ate.slice(5,7))+'</small></div><span class="v">'+x.leads+' interessados</span></div>'},'Nenhuma campanha ativa. No WhatsApp: promocao');
+ var mx=Math.max.apply(null,[1].concat(d.caixa.map(function(w){return Math.max(w.ent,w.sai)})));
+ document.getElementById('cx').innerHTML=d.caixa.map(function(w,i){var sd=w.ent-w.sai;return '<div class="w"><span>'+(i?w.ini.slice(8,10)+'/'+w.ini.slice(5,7):'Esta sem.')+'</span><div><div class="bar" style="width:'+(w.ent/mx*100)+'%;background:#4ade80"></div><div class="bar" style="margin-top:3px;width:'+(w.sai/mx*100)+'%;background:#ff7b72"></div></div><span class="'+(sd>=0?'ok':'no')+'" style="text-align:right">'+(sd>=0?'+':'−')+R(Math.abs(sd))+'</span></div>'}).join('')||'<div class="vz">Sem dados.</div>';
+}).catch(function(){document.getElementById('at').textContent='Não consegui carregar. Link inválido?'});
+</script></body></html>`;
+async function rotaPainelVendas(req, env, url, ctx) {
+  if (!/^\/painel(\/dados|\/acao)?$/.test(url.pathname)) return null;
+  const tok = await env.HR_KV.get('pv:tok'); if (!tok || url.searchParams.get('k') !== tok) return new Response('Link inválido. Peça ao bot: painel de vendas.', { status: 403 });
+  if (url.pathname === '/painel') return new Response(PV_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (url.pathname === '/painel/dados') return new Response(JSON.stringify(await pvDados(env)), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
+  if (req.method !== 'POST') return new Response('{}', { status: 405 });
+  const b = await req.json().catch(() => ({})), num = normalizarBR(String(b.num || '').replace(/\D/g, ''));
+  if (!/^55\d{10,11}$/.test(num)) return new Response('{"ok":false}', { headers: { 'Content-Type': 'application/json' } });
+  const dono = numeroDono(env), id = b.acao === 'reconquistar' ? `rtpl|${num}|r` : `rtpl|${num}`;
+  ctx.waitUntil(paradosBotao(env, dono, id).catch(e => console.log('[PAINEL]', e.message)));
+  return new Response('{"ok":true}', { headers: { 'Content-Type': 'application/json' } });
+}
+async function pvComando(env, from, msg) {
+  if (!/^(painel( de)? vendas|painel do celular|link do painel|painel de vendas novo)$/.test(msg)) return false;
+  let t = await env.HR_KV.get('pv:tok'); if (!t || /novo/.test(msg)) { t = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2, 8); await env.HR_KV.put('pv:tok', t); }
+  await enviar(env, from, cartaoDono('Painel de vendas', [`${await urlPublica(env)}/painel?k=${t}`, 'Dinheiro parado, clientes quentes, retomadas, previsão de caixa e quem reconquistar, tudo numa tela. O botão Retomar manda a prévia aqui no WhatsApp. Salve o link na tela inicial do celular. Se o link vazar: *painel de vendas novo*.']));
+  return true;
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // v88: ACERVO DE OBRAS + VÍDEO DO DIA
@@ -25635,6 +25700,7 @@ export default {
     if (url.pathname === '/obras' || url.pathname === '/obras/' || url.pathname === '/obras/dados') return rotaAlbumObras(req, comKV(env), ctx, url); // v89: álbum de serviços feitos
     if (url.pathname.startsWith('/relatorio/')) { const r = await rotaRelatorio(req, comKV(env), url); if (r) return r; } // v91
     if (url.pathname === '/oficina' || url.pathname === '/oficina/dados') return rotaOficina(req, comKV(env), url);
+    if (url.pathname === '/painel' || url.pathname.startsWith('/painel/')) { const r = await rotaPainelVendas(req, comKV(env), url, ctx); if (r) return r; } // v103
     if (url.pathname.startsWith('/marmoraria-')) { const r = await rotaCidade(req, comKV(env), url); if (r) return r; } // v92
     if (url.pathname === '/sitemap.xml') return rotaSitemap(comKV(env));
     if (url.pathname === '/ponto' || url.pathname.startsWith('/ponto/')) return rotaPonto(req, env, ctx, url); // v34: HR Ponto
