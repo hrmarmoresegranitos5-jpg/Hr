@@ -18578,6 +18578,22 @@ async function rotaBotInterna(req, env, url) {
   }
 
   // Fila: pedidos de orçamento que o app ainda precisa montar
+  // v104: área de Vendas do app (mesmos dados do painel de vendas) e ações que o bot faz no WhatsApp do dono
+  if (p === '/bot/vendas' && req.method === 'GET') {
+    const d = await pvDados(env); const t = await env.HR_KV.get('pv:tok');
+    const quentes = []; for (const q of d.quentes) { let nome = ''; try { nome = (await lerNomeSalvo(env, q.num)) || ''; } catch (_) {} quentes.push({ ...q, nome }); }
+    return jsonR({ ok: true, ...d, quentes, painel: t ? `${await urlPublica(env)}/painel?k=${t}` : '' });
+  }
+  if (p === '/bot/vendas/acao' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({})), dono = numeroDono(env), num = normalizarBR(String(b.num || '').replace(/\D/g, ''));
+    if (b.acao === 'retomar' || b.acao === 'reconquistar') { if (!/^55\d{10,11}$/.test(num)) return jsonR({ ok: false, erro: 'número inválido' }); await paradosBotao(env, dono, b.acao === 'reconquistar' ? `rtpl|${num}|r` : `rtpl|${num}`); return jsonR({ ok: true }); }
+    if (b.acao === 'radar') { await radarEnviar(env, dono); return jsonR({ ok: true }); }
+    if (b.acao === 'promo') { await promoComando(env, dono, 'promocao', 'promocao'); return jsonR({ ok: true }); }
+    if (b.acao === 'plano') { await promoComando(env, dono, 'estrategia', 'estrategia'); return jsonR({ ok: true }); }
+    if (b.acao === 'caixa') { await enviar(env, dono, await caixaTexto(env)); return jsonR({ ok: true }); }
+    if (b.acao === 'promo_ideia' && String(b.texto || '').trim().length >= 8) { await enviar(env, dono, 'Montando a campanha que o senhor pediu no app…'); await promoIdeias(env, dono, String(b.texto).slice(0, 400)); return jsonR({ ok: true }); }
+    return jsonR({ ok: false, erro: 'ação desconhecida' });
+  }
   // Visitas técnicas pedidas pelos clientes e as já marcadas, para o app mostrar na agenda
   if (p === '/bot/visitas' && req.method === 'GET') {
     const ll = await env.HR_KV.list({ prefix: 'lead:' }), out = [], hoje = dataBahia();
