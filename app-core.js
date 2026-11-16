@@ -12445,7 +12445,7 @@ function buildCfg(){
       h+='<span style="font-size:.56rem;color:'+(nFotos?'var(--gold2)':'var(--t4)')+';background:'+(nFotos?'rgba(201,168,76,.12)':'var(--s3)')+';border-radius:20px;padding:1px 7px;font-weight:700;">📷 '+nFotos+'</span>';
       h+=(window.mlBadgeHtml?mlBadgeHtml(c):'');
       h+='</div></div>';
-      h+='<div style="text-align:right;flex-shrink:0;"><div style="font-size:.84rem;font-weight:800;color:var(--gold2);">'+(isEsc?'—':'R$ '+c.pr)+'</div><div style="font-size:.58rem;color:var(--t4);">M.O. R$ '+c.inst+'</div></div>';
+      h+='<div style="text-align:right;flex-shrink:0;"><div style="font-size:.84rem;font-weight:800;color:var(--gold2);">'+(isEsc?'<span style="font-size:.66rem;font-weight:600;color:var(--t3);">pela medida</span>':'R$ '+c.pr)+'</div><div style="font-size:.58rem;color:var(--t4);">M.O. R$ '+c.inst+'</div></div>';
       h+='<div style="font-size:.85rem;color:var(--t4);flex-shrink:0;transform:rotate('+(open?'180':'0')+'deg);">▾</div>';
       h+='</div>';
       if(open){
@@ -12457,6 +12457,7 @@ function buildCfg(){
           h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">De R$</div><input class="cfginp" type="number" value="'+(c.pr_orig||0)+'" style="width:100%;" placeholder="0" onchange="CFG.lav['+i+'].pr_orig=+this.value;buildCubaList();svCFG();"></div>';
           h+='<div style="flex:1;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:100%;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
           h+='</div>';
+          h+='<div style="margin-top:8px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">Seção no catálogo</div><select class="cfginp" style="width:100%;" onchange="CFG.lav['+i+'].tipo=this.value;svCFG();buildCubaList();">'+['','Louça','Embutir','Sobrepor','Semi-encaixe','Apoio'].map(function(t){return '<option value="'+t+'"'+((c.tipo||'')===t?' selected':'')+'>'+(t||'Outros modelos')+'</option>';}).join('')+'</select></div>';
         } else {
           h+='<div style="margin-top:2px;"><div style="font-size:.52rem;color:var(--t4);margin-bottom:2px;">M.O. Esculpida R$</div><input class="cfginp" type="number" value="'+c.inst+'" style="width:110px;" onchange="CFG.lav['+i+'].inst=+this.value;buildCubaList();svCFG();"></div>';
         }

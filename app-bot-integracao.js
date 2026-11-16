@@ -231,6 +231,7 @@
       var prod = { id: (ja && ja.id) || ('bot_' + Date.now()), nm: nm, titulo: p.titulo || nm, desc: p.desc || '', dim: p.dim || '', pr: Math.round(+p.pr || 0), photo: imgs[0] || (ja && ja.photo) || '', fotos: imgs.length ? imgs : ((ja && ja.fotos) || []), _manual_custo: +p.custo || 0, _manual_margem: +p.margem || 0, _origem: 'whatsapp' };
       if (cat === 'ac') prod.marca = p.brand || ''; else { prod.brand = p.brand || ''; prod.custo = +p.custo || 0; prod.pr_orig = 0; prod.inst = +p.inst || (cat === 'coz' ? 110 : 220); prod.instCli = +p.instCli || (cat === 'coz' ? 160 : 280); }
       if (p.features && p.features.length) prod.features = p.features;
+      if (cat === 'lav' && p.tipo) prod.tipo = p.tipo;
       if (ja) Object.assign(ja, prod); else lista.push(prod);
       try { if (typeof svCFG === 'function') svCFG(); } catch (e) {}
       try { if (typeof buildCubaList === 'function') buildCubaList(); if (typeof buildAcList === 'function') buildAcList(); } catch (e) {}
