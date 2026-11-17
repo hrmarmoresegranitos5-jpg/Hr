@@ -10624,6 +10624,18 @@ function gerarComprovante(id){
   var quitado = saldo !== null && saldo <= 0.005;
   var esc2 = function(x){ return escH(String(x==null?'':x)); };
   var logo = emp.logoUrl || '';
+  var dadosTerm = {
+    emp: { nome: emp.nome, cnpj: emp.cnpj, tel: emp.tel, end: emp.end, cidade: emp.cidade },
+    logo: emp.logoUrl || '',
+    num: num, data: dataLanc, cli: cli, refer: refer, nOrc: nOrc, forma: forma,
+    valor: t.value || 0, extenso: extenso,
+    totalOrc: totalOrc, totalPago: totalPago, saldo: saldo, quitado: quitado,
+    historico: historico.map(function(h){
+      return { data: h.date ? new Date(h.date+'T12:00:00').toLocaleDateString('pt-BR') : '',
+               forma: ((h.desc||'').match(/·\s*([^·—]+)\s*$/)||[])[1] || '',
+               valor: h.value || 0, tipo: h.type };
+    })
+  };
   var html;
   if (fmtRec === '58' || fmtRec === '80') {
     // ── CUPOM TÉRMICO: só preto, letra grande, largura da bobina ──
@@ -10703,9 +10715,17 @@ function gerarComprovante(id){
   }
   try { localStorage.setItem('hr_rec_fmt', fmtRec); } catch(e) {}
 
-  var w=window.open('','_blank','width=700,height=800');
-  if(w){w.document.write(html);w.document.close();}
-  else toast('Permita pop-ups para gerar o comprovante');
+  var _abrirHtmlRec=function(){
+    var w=window.open('','_blank','width=700,height=800');
+    if(w){w.document.write(html);w.document.close();}
+    else toast('Permita pop-ups para gerar o comprovante');
+  };
+  // cupom térmico: se a impressão direta (ESC/POS) estiver ligada, manda direto; senão (ou se falhar) abre a janela de sempre
+  if ((fmtRec === '58' || fmtRec === '80') && window.HR_TERMICA && HR_TERMICA.modoDireto()) {
+    HR_TERMICA.imprimirRecibo(dadosTerm, fmtRec, _abrirHtmlRec);
+    return;
+  }
+  _abrirHtmlRec();
 }
 // escolha do formato do comprovante (o último usado fica em destaque)
 function _comprovanteEscolherFormato(id){
@@ -10721,6 +10741,7 @@ function _comprovanteEscolherFormato(id){
     h += '<button type="button" onclick="document.getElementById(\'_recFmt\').remove();gerarComprovante('+id+',\''+o[0]+'\')" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-bottom:8px;padding:13px 14px;border-radius:12px;cursor:pointer;font-family:Outfit,sans-serif;border:1px solid '+(on?'var(--gold3)':'var(--bd2)')+';background:'+(on?'rgba(201,168,76,.12)':'var(--s2)')+';color:var(--tx);">'
       + '<span style="font-size:1.3rem;">'+o[1]+'</span><span style="flex:1;"><span style="display:block;font-size:.88rem;font-weight:800;">'+o[2]+(on?' <span style="font-size:.66rem;color:var(--gold);">· último usado</span>':'')+'</span><span style="display:block;font-size:.7rem;color:var(--t3);">'+o[3]+'</span></span></button>'; });
   h += '<button type="button" onclick="document.getElementById(\'_recFmt\').remove();" style="width:100%;padding:10px;border:none;background:transparent;color:var(--t3);font-size:.8rem;cursor:pointer;font-family:Outfit,sans-serif;">Cancelar</button></div>';
+  if (window.HR_TERMICA) { var _ic = h.lastIndexOf('<button'); h = h.slice(0, _ic) + HR_TERMICA.botaoConfigHtml() + h.slice(_ic); }
   m.innerHTML = h; m.addEventListener('click', function(e){ if (e.target === m) m.remove(); });
   document.body.appendChild(m);
 }
