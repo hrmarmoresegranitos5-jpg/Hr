@@ -1,0 +1,2216 @@
+// ══════════════════════════════════════════════════════════════
+// FINANÇAS — Módulo Completo com Abas
+// Abas: Resumo | Recebidos | A Receber | Despesas | Caixa
+// ══════════════════════════════════════════════════════════════
+
+var _finTab = 'resumo';
+
+// ═══ AUTO-CATEGORIZAÇÃO DE DESPESAS POR PALAVRA-CHAVE ═══
+// Sugere a categoria enquanto a pessoa digita a descrição, do mesmo
+// jeito que já funciona pros boletos (B_CAT_KEYWORDS). Só sugere —
+// se a pessoa escolher manualmente a categoria, a sugestão para de
+// sobrescrever (dataset.userSet).
+var _finCatKeywords = [
+  ['insumos',     /disco\s*(de\s*)?corte|disco\s*diamantado|lixa|rebolo|resina|talco|abrasivo|broca|pastilha|cola\b|silicone|espatula|espátula|massa\s*plastica|catalisador/i],
+  ['mao_obra',    /diarista|ajudante|instalador|pedreiro|m[aã]o\s*de\s*obra|servi[çc]o\s*prestado|freelancer|di[aá]ria/i],
+  ['combustivel', /combust[ií]vel|gasolina|diesel|posto\b|etanol/i],
+  ['ferramentas', /ferramenta|makita|dewalt|bosch|politriz|maquita|esmerilhadeira/i],
+  ['veiculo',     /oficina|mec[aâ]nic|pneu|borracharia|auto\s*pe[cç]as|lava\s*jato|funilaria|manuten[cç][aã]o\s*(do\s*)?(carro|ve[ií]culo|caminh|moto)|troca\s*de\s*[oó]leo/i],
+  ['fixo',        /aluguel|energia|luz\b|\bagua\b|água|internet|telefone|conta\s*de\s*(luz|agua|água)/i]
+];
+function _finGuessCategoria(desc) {
+  var n = desc || '';
+  for (var i = 0; i < _finCatKeywords.length; i++) {
+    if (_finCatKeywords[i][1].test(n)) return _finCatKeywords[i][0];
+  }
+  return '';
+}
+function _finAutoCat(desc, selId) {
+  var sel = document.getElementById(selId);
+  if (!sel || sel.dataset.userSet === '1') return;
+  var g = _finGuessCategoria(desc);
+  if (g) sel.value = g;
+}
+
+// Mostra o seletor de categoria só quando o lançamento é uma saída
+// ('out') — pra Entrada/Nota/A receber a categoria de despesa não
+// faz sentido.
+function _finToggleCatWrap(t, wrapId) {
+  var wrap = document.getElementById(wrapId);
+  if (wrap) wrap.style.display = (t === 'out') ? '' : 'none';
+}
+
+// ═══ ABRIR MODAL DE LANÇAMENTO ═══
+function openFin(t) {
+  fType = t;
+  document.querySelectorAll('.ts').forEach(function(o) {
+    o.classList.toggle('on', o.dataset.ftp === t);
+  });
+  var fd = document.getElementById('fData');
+  if (fd && !fd.value) fd.value = td();
+  var fc = document.getElementById('fCat');
+  if (fc) { fc.value = ''; fc.dataset.userSet = ''; }
+  _finToggleCatWrap(t, 'fCatWrap');
+  showMd('finMd');
+}
+
+function setFT(t) {
+  fType = t;
+  document.querySelectorAll('[data-ftp]').forEach(function(o) {
+    o.classList.toggle('on', o.dataset.ftp === t);
+  });
+  _finToggleCatWrap(t, 'fCatWrap');
+}
+
+function saveFin() {
+  var _fDesc=document.getElementById('fDesc');
+  var _fVal=document.getElementById('fVal');
+  var _fData=document.getElementById('fData');
+  if(!_fDesc||!_fVal||!_fData){console.error('saveFin: campo do modal não encontrado');return;}
+  var desc = _fDesc.value.trim();
+  var val  = +_fVal.value || 0;
+  var date = _fData.value;
+  if (!desc) { toast('Preencha a descrição'); return; }
+  var _fCat = document.getElementById('fCat');
+  var cat = (fType === 'out' && _fCat && _fCat.value) ? _fCat.value : undefined;
+  if (fType === 'out' && !cat) { toast('Escolha uma categoria pra despesa'); return; }
+  var _tr = { id: Date.now(), type: fType, desc: desc, value: val, date: date };
+  if (cat) _tr.cat = cat;
+  DB.t.unshift(_tr);
+  DB.sv(); renderFin(); closeAll();
+  _fDesc.value = '';
+  _fVal.value  = '';
+  if (_fCat) _fCat.value = '';
+  toast('✓ Lançado!');
+}
+
+function openEditTr(id) {
+  editTrId = id;
+  var t = DB.t.find(function(x) { return x.id === id; });
+  if (!t) return;
+  var _teDesc=document.getElementById('teDesc');
+  var _teVal=document.getElementById('teVal');
+  var _teData=document.getElementById('teData');
+  if(!_teDesc||!_teVal||!_teData){console.error('openEditTr: campo do modal não encontrado');return;}
+  _teDesc.value = t.desc  || '';
+  _teVal.value  = t.value || '';
+  _teData.value = t.date  || td();
+  var _teCat = document.getElementById('teCat');
+  if (_teCat) { _teCat.value = t.cat || ''; _teCat.dataset.userSet = t.cat ? '1' : ''; }
+  document.querySelectorAll('[data-tet]').forEach(function(o) {
+    o.classList.toggle('on', o.dataset.tet === t.type);
+  });
+  _finToggleCatWrap(t.type, 'teCatWrap');
+  showMd('trEdMd');
+}
+
+function setTET(tp) {
+  document.querySelectorAll('[data-tet]').forEach(function(o) {
+    o.classList.toggle('on', o.dataset.tet === tp);
+  });
+  _finToggleCatWrap(tp, 'teCatWrap');
+}
+
+function saveTrEdit() {
+  var t = DB.t.find(function(x) { return x.id === editTrId; });
+  if (!t) return;
+  var tp = document.querySelector('[data-tet].on');
+  t.type  = tp ? tp.dataset.tet : t.type;
+  t.desc  = document.getElementById('teDesc').value.trim() || t.desc;
+  t.value = +document.getElementById('teVal').value || t.value;
+  t.date  = document.getElementById('teData').value || t.date;
+  if (t.type === 'out') {
+    var _teCat = document.getElementById('teCat');
+    var cat = _teCat ? _teCat.value : '';
+    if (!cat) { toast('Escolha uma categoria pra despesa'); return; }
+    t.cat = cat;
+  } else {
+    delete t.cat;
+  }
+  DB.sv(); renderFin(); closeAll(); toast('✓ Atualizado!');
+}
+
+function delTr() {
+  if (!confirm('Excluir lançamento?')) return;
+  DB.t = DB.t.filter(function(x) { return x.id !== editTrId; });
+  DB.sv(); renderFin(); closeAll(); toast('✓ Excluído!');
+}
+
+// ═══ MARCAR PENDENTE COMO RECEBIDO ═══
+function receberPend(id) {
+  var t = DB.t.find(function(x) { return x.id === id; });
+  if (!t) return;
+  t.type = 'in';
+  t.date = td();
+  DB.sv(); renderFin();
+  toast('✅ Marcado como recebido!');
+}
+
+// ═══ TROCAR ABA ═══
+function finTab(tab) {
+  _finTab = tab;
+  document.querySelectorAll('.fin-tab').forEach(function(el) {
+    el.classList.toggle('on', el.dataset.ftab === tab);
+  });
+  renderFinBody();
+}
+
+// ═══ RENDER PRINCIPAL ═══
+function renderFin() {
+  var hoje     = td();
+  var mesAtual = hoje.slice(0, 7);
+
+  var recebidos = DB.t.filter(function(t) { return t.type === 'in'; });
+  var despesas  = DB.t.filter(function(t) { return t.type === 'out'; });
+  var pendentes = DB.t.filter(function(t) { return t.type === 'pend'; });
+
+  var totalRecebido = recebidos.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+  var totalDespesas = despesas.reduce(function(s, t)  { return s + (t.value || 0); }, 0);
+  var totalPendente = pendentes.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+  var saldoReal     = totalRecebido - totalDespesas;
+
+  var recebidoHoje = recebidos
+    .filter(function(t) { return t.date === hoje; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var recebidoMes = recebidos
+    .filter(function(t) { return (t.date || '').slice(0, 7) === mesAtual; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var atrasados     = pendentes.filter(function(t) { return t.date && t.date < hoje; });
+  var totalAtrasado = atrasados.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  // Hero
+  var fs = document.getElementById('finSaldo');
+  if (fs) {
+    fs.textContent = 'R$ ' + fm(saldoReal);
+    fs.className   = 'finval ' + (saldoReal >= 0 ? 'pos' : 'neg');
+  }
+  var fsub = document.getElementById('finSub');
+  if (fsub) {
+    fsub.textContent = totalPendente > 0
+      ? 'R$ ' + fm(totalPendente) + ' a receber' + (atrasados.length ? ' · ⚠️ ' + atrasados.length + ' em atraso' : '')
+      : 'R$ 0,00 a receber dos serviços';
+  }
+  // Mini-cards no hero (Entradas / Saídas / A Receber)
+  var fmc = document.getElementById('finMiniCards');
+  if (fmc) {
+    fmc.innerHTML = ''
+      + '<div class="fc"><div class="fcl">Entradas</div><div class="fcv g">R$ ' + fm(totalRecebido) + '</div></div>'
+      + '<div class="fc"><div class="fcl">Saídas</div><div class="fcv r">R$ ' + fm(totalDespesas) + '</div></div>'
+      + '<div class="fc" style="cursor:pointer;" onclick="finTab(\'areceber\')">'
+        + '<div class="fcl">A Receber</div>'
+        + '<div class="fcv b">R$ ' + fm(totalPendente) + '</div>'
+      + '</div>';
+  }
+
+  window._finMetrics = {
+    saldoReal, totalRecebido, totalDespesas, totalPendente,
+    lucro: saldoReal, recebidoHoje, recebidoMes,
+    totalAtrasado, recebidos, despesas, pendentes, atrasados, hoje, mesAtual
+  };
+
+  renderFinBody();
+  renderFixos();
+  renderCustoMaoObra();
+  renderSaudeFinanceira();
+  _finOrganizar();
+  renderProLabore();
+  renderSimplesNacional();
+  renderReservaMaquinas();
+}
+
+// ═══ CORPO DA ABA ATIVA ═══
+function renderFinBody() {
+  var body = document.getElementById('finBody');
+  if (!body) return;
+  var m = window._finMetrics || { recebidos:[], despesas:[], pendentes:[], atrasados:[], hoje:td(), mesAtual:td().slice(0,7), saldoReal:0, totalRecebido:0, totalDespesas:0, totalPendente:0, totalAtrasado:0, recebidoHoje:0, recebidoMes:0, lucro:0 };
+
+  if (_finTab === 'resumo')    { body.innerHTML = _finResumo(m); return; }
+  if (_finTab === 'boletos')   { body.innerHTML = renderBoletosTab(); return; }
+  if (_finTab === 'recebidos') { body.innerHTML = _finRecebidos(m); return; }
+  if (_finTab === 'areceber')  { body.innerHTML = _finAReceber(m); return; }
+  if (_finTab === 'despesas')  { body.innerHTML = _finDespesas(m); return; }
+  if (_finTab === 'caixa')     { body.innerHTML = _finCaixa(m); return; }
+}
+
+// ── RESUMO ──
+function _finResumo(m) {
+  var h = '';
+  h += '<div class="fin-cards6">';
+  h += _finCard('📅', 'Recebido Hoje',    fm(m.recebidoHoje),  'grn');
+  h += _finCard('📆', 'Recebido no Mês',  fm(m.recebidoMes),   'grn');
+  h += _finCard('📈', 'Lucro Líquido',    fm(m.lucro),         m.lucro >= 0 ? 'grn' : 'red');
+  h += _finCard('⏳', 'Previsão a Rec.',  fm(m.totalPendente), 'yel');
+  h += '</div>';
+
+  var _dm = (DB.t || []).filter(function(t) { return t.origem === 'dinheiro_mao' && String(t.date || '').slice(0, 7) === m.mesAtual; });
+  var _dmIn = _dm.filter(function(t) { return t.type === 'in'; }).reduce(function(a, t) { return a + (t.value || 0); }, 0);
+  var _dmOut = _dm.filter(function(t) { return t.type === 'out'; }).reduce(function(a, t) { return a + (t.value || 0); }, 0);
+  h += '<div class="fin-dm"><div class="fin-dm-t">💵 Dinheiro na mão · este mês</div><div class="fin-dm-r">'
+    + '<div><small>Entrou</small><b class="g">R$ ' + fm(_dmIn) + '</b></div>'
+    + '<div><small>Saiu</small><b class="r">R$ ' + fm(_dmOut) + '</b></div>'
+    + '<div><small>Saldo</small><b>R$ ' + fm(_dmIn - _dmOut) + '</b></div></div></div>';
+
+  h += '<button class="fin-resumo-btn" onclick="finResumoMes()">📤 Enviar resumo do mês <small>para o contador</small></button>';
+
+  if (m.totalAtrasado > 0) {
+    h += '<div class="fin-alerta">';
+    h += '<span>⚠️ R$ ' + fm(m.totalAtrasado) + ' em atraso</span>';
+    h += '<span class="fin-alerta-qt">' + m.atrasados.length + ' pendência(s)</span>';
+    h += '</div>';
+  }
+
+  h += '<div class="fin-qa-grid">';
+  h += _finQA('note', '📝', 'Nota',      'Anotação');
+  h += '</div>';
+
+  var ultimos = (DB.t || []).slice(0, 10);
+  if (ultimos.length) {
+    h += '<div class="fin-sec-lbl" style="margin:14px 0 6px;">Últimas movimentações</div>';
+    h += '<div class="fin-list">';
+    ultimos.forEach(function(t) { h += _finRow(t, m.hoje); });
+    h += '</div>';
+  } else {
+    h += _finEmpty('Nenhuma movimentação. Lance uma entrada para começar.');
+  }
+  return h;
+}
+
+// ── RECEBIDOS ──
+function _finRecebidos(m) {
+  var h = '';
+  h += '<div class="fin-hd-blk grn-blk">';
+  h += '<div><div class="fin-hd-lbl">Total Recebido</div><div class="fin-hd-val grn">R$ ' + fm(m.totalRecebido) + '</div></div>';
+  h += '<div><div class="fin-hd-lbl">Este Mês</div><div class="fin-hd-val grn">R$ ' + fm(m.recebidoMes) + '</div></div>';
+  h += '</div>';
+  h += '<div class="fin-add-btn-wrap"><button class="fin-add-btn fin-add-grn" data-qa="in">+ Nova Entrada</button></div>';
+
+  if (!m.recebidos.length) return h + _finEmpty('Nenhum valor recebido ainda');
+
+  _finGrupoMes(m.recebidos).forEach(function(g) {
+    h += '<div class="fin-mes-hd"><span>' + g.label + '</span><span class="grn">R$ ' + fm(g.total) + '</span></div>';
+    h += '<div class="fin-list">';
+    g.items.forEach(function(t) { h += _finRow(t, m.hoje); });
+    h += '</div>';
+  });
+  return h;
+}
+
+// ── A RECEBER ──
+function _finAReceber(m) {
+  var h    = '';
+  var hoje = m.hoje;
+  var atras = m.pendentes.filter(function(t) { return t.date && t.date < hoje; });
+  var futur = m.pendentes.filter(function(t) { return !t.date || t.date >= hoje; });
+
+  h += '<div class="fin-hd-blk yel-blk">';
+  h += '<div><div class="fin-hd-lbl">Total Pendente</div><div class="fin-hd-val yel">R$ ' + fm(m.totalPendente) + '</div></div>';
+  h += '<div><div class="fin-hd-lbl">Em Atraso</div><div class="fin-hd-val red">R$ ' + fm(m.totalAtrasado) + '</div></div>';
+  h += '</div>';
+  h += '<div class="fin-add-btn-wrap"><button class="fin-add-btn fin-add-yel" data-qa="pend">+ Nova Pendência</button></div>';
+
+  if (!m.pendentes.length) return h + _finEmpty('Nenhuma pendência — tudo recebido! ✅');
+
+  if (atras.length) {
+    h += '<div class="fin-mes-hd fin-mes-red"><span>⚠️ Atrasados</span><span class="red">R$ ' + fm(m.totalAtrasado) + '</span></div>';
+    h += '<div class="fin-list">';
+    atras.forEach(function(t) { h += _finRow(t, hoje, true); });
+    h += '</div>';
+  }
+  if (futur.length) {
+    _finGrupoMes(futur).forEach(function(g) {
+      h += '<div class="fin-mes-hd fin-mes-yel"><span>📅 ' + g.label + '</span><span class="yel">R$ ' + fm(g.total) + '</span></div>';
+      h += '<div class="fin-list">';
+      g.items.forEach(function(t) { h += _finRow(t, hoje); });
+      h += '</div>';
+    });
+  }
+  return h;
+}
+
+// ── DESPESAS ──
+function _finDespesas(m) {
+  var h = '';
+  h += '<div class="fin-hd-blk red-blk">';
+  h += '<div><div class="fin-hd-lbl">Total Despesas</div><div class="fin-hd-val red">R$ ' + fm(m.totalDespesas) + '</div></div>';
+  h += '</div>';
+  h += '<div class="fin-add-btn-wrap"><button class="fin-add-btn fin-add-red" data-qa="out">+ Nova Despesa</button></div>';
+
+  if (!m.despesas.length) return h + _finEmpty('Nenhuma despesa lançada');
+
+  _finGrupoMes(m.despesas).forEach(function(g) {
+    h += '<div class="fin-mes-hd fin-mes-red"><span>' + g.label + '</span><span class="red">R$ ' + fm(g.total) + '</span></div>';
+    h += '<div class="fin-list">';
+    g.items.forEach(function(t) { h += _finRow(t, m.hoje); });
+    h += '</div>';
+  });
+  return h;
+}
+
+// ── CAIXA ──
+function _finCaixa(m) {
+  var h = '';
+  var todos = (DB.t || []).filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); });
+
+  if (!todos.length) return _finEmpty('Nenhuma movimentação no caixa ainda');
+
+  // Agrupar por data
+  var porDia = {}, ordemDia = [];
+  todos.forEach(function(t) {
+    if (!porDia[t.date]) { porDia[t.date] = []; ordemDia.push(t.date); }
+    porDia[t.date].push(t);
+  });
+  var datasUnicas = ordemDia.filter(function(v, i) { return ordemDia.indexOf(v) === i; })
+                             .sort(function(a, b) { return b.localeCompare(a); });
+
+  // Saldo total
+  var saldoCaixa = todos.reduce(function(s, t) {
+    return s + (t.type === 'in' ? t.value : -t.value);
+  }, 0);
+
+  h += '<div class="fin-hd-blk">';
+  h += '<div><div class="fin-hd-lbl">Saldo do Caixa</div><div class="fin-hd-val ' + (saldoCaixa >= 0 ? 'grn' : 'red') + '">R$ ' + fm(saldoCaixa) + '</div></div>';
+  h += '<div><div class="fin-hd-lbl">Dias com mov.</div><div class="fin-hd-val">' + datasUnicas.length + '</div></div>';
+  h += '</div>';
+
+  datasUnicas.forEach(function(data) {
+    var items = porDia[data];
+    var ent   = items.filter(function(t) { return t.type === 'in'; }).reduce(function(s, t) { return s + t.value; }, 0);
+    var sai   = items.filter(function(t) { return t.type === 'out'; }).reduce(function(s, t) { return s + t.value; }, 0);
+    var saldoD = ent - sai;
+    var isHoje = data === m.hoje;
+
+    h += '<div class="fin-dia-hd' + (isHoje ? ' fin-dia-hoje' : '') + '">';
+    h += '<div class="fin-dia-dt">' + fd(data) + (isHoje ? '<span class="fin-hoje-tag">HOJE</span>' : '') + '</div>';
+    h += '<div class="fin-dia-saldo">';
+    if (ent) h += '<span class="grn-sm">+' + fm(ent) + '</span>';
+    if (sai) h += '<span class="red-sm"> −' + fm(sai) + '</span>';
+    h += '<span class="' + (saldoD >= 0 ? 'grn' : 'red') + '-sm"> = ' + fm(saldoD) + '</span>';
+    h += '</div></div>';
+    h += '<div class="fin-list">';
+    items.forEach(function(t) { h += _finRow(t, m.hoje); });
+    h += '</div>';
+  });
+  return h;
+}
+
+// ═══ HELPERS ═══
+
+function _finCard(icon, label, val, color) {
+  return '<div class="fin-card6">'
+    + '<div class="fin-card6-i">' + icon + '</div>'
+    + '<div class="fin-card6-lbl">' + label + '</div>'
+    + '<div class="fin-card6-val ' + (color||'') + '">R$ ' + val + '</div>'
+    + '</div>';
+}
+
+function _finQA(type, icon, name, sub) {
+  return '<div class="fin-qa-item" data-qa="' + type + '">'
+    + '<div class="fin-qa-i fin-qa-' + type + '">' + icon + '</div>'
+    + '<div><div class="fin-qa-nm">' + name + '</div><div class="fin-qa-sub">' + sub + '</div></div>'
+    + '</div>';
+}
+
+function _finRowParseDesc(desc) {
+  var result = { op: desc || '', client: '', service: '', raw: desc || '' };
+  if (!desc) return result;
+  var m = desc.match(/^(.+?)\s+—\s+(.+?)(?:\s+\((.+?)\))?$/);
+  if (m) {
+    result.op      = m[1].trim();
+    result.client  = m[2].trim();
+    result.service = m[3] ? m[3].trim() : '';
+  }
+  return result;
+}
+
+function _finRow(t, hoje, forceAtrasado) {
+  var isAtras = (forceAtrasado || (t.type === 'pend' && t.date && t.date < hoje));
+  var icons   = { in:'📈', out:'📉', note:'📝', pend:'⏳' };
+  var sign    = t.type === 'in' ? '+' : t.type === 'out' ? '−' : '';
+  var icon    = icons[t.type] || '·';
+  var p       = _finRowParseDesc(t.desc);
+
+  var h = '<div class="fin-row' + (isAtras ? ' fin-row-atras' : '') + '">';
+  h += '<div class="fin-dot fin-dot-' + (isAtras ? 'red' : t.type) + '">' + icon + '</div>';
+  h += '<div class="fin-row-body">';
+
+  if (p.client) {
+    h += '<div class="fin-row-cli">' + p.client + '</div>';
+    var sub = p.op;
+    if (p.service) sub += ' <span class="fin-row-svc">· ' + p.service + '</span>';
+    h += '<div class="fin-row-sub">' + sub + '</div>';
+  } else {
+    h += '<div class="fin-row-cli">' + (p.raw || '') + '</div>';
+  }
+
+  h += '<div class="fin-row-dt">' + (t.date ? fd(t.date) : '');
+  if (isAtras) h += ' <span class="fin-tag-atras">ATRASADO</span>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div class="fin-row-right">';
+  h += '<div class="fin-row-val fin-val-' + t.type + '">' + (t.value ? sign + 'R$ ' + fm(t.value) : '') + '</div>';
+  if (t.type === 'pend' && t.value) {
+    h += '<button class="fin-receber" onclick="receberPend(' + t.id + ')" title="Marcar como recebido">✓</button>';
+  }
+  h += '<button class="fin-edit" data-edittr="' + t.id + '">✏️</button>';
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+function _finGrupoMes(list) {
+  var meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var grupos = {}, ordem = [];
+  list.forEach(function(t) {
+    var k = (t.date || '9999-12').slice(0, 7);
+    if (!grupos[k]) { grupos[k] = { items:[], total:0, key:k }; ordem.push(k); }
+    grupos[k].items.push(t);
+    grupos[k].total += (t.value || 0);
+  });
+  var unico = ordem.filter(function(v, i) { return ordem.indexOf(v) === i; })
+                   .sort(function(a, b) { return b.localeCompare(a); });
+  return unico.map(function(k) {
+    var g = grupos[k], p = k.split('-');
+    g.label = meses[parseInt(p[1], 10) - 1] + ' ' + p[0];
+    return g;
+  });
+}
+
+function _finEmpty(msg) {
+  return '<div class="fin-empty">' + msg + '</div>';
+}
+
+// ═══ CUSTOS FIXOS ═══
+function renderFixos() {
+  var el = document.getElementById('fixosCard');
+  if (!el) return;
+  var tot = 0, h = '';
+  (CFG && CFG.fixos || []).forEach(function(f) {
+    tot += f.v;
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">' + f.n + '</span><span class="fin-fixo-vl">R$ ' + fm(f.v) + '</span></div>';
+  });
+  h += '<div class="fin-fixo-tot"><span>Total Mensal</span><span class="fin-fixo-tot-val">R$ ' + fm(tot) + '</span></div>';
+  el.innerHTML = h;
+}
+
+// ══════════════════════════════════════════════════════════════
+// CUSTO TOTAL DE MÃO DE OBRA — puxa da própria Finanças, olhando
+// só as transações que vieram do RH (origem: 'rh_pagamento').
+// Não depende de nada novo: é o espelhamento criado em
+// registrarPagamento() no app-funcionarios.js.
+// ══════════════════════════════════════════════════════════════
+function importarPagamentosRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.migrarPagamentosParaFinancas) return;
+  var r = HR_FUNC.migrarPagamentosParaFinancas();
+  if (r && r.ok) {
+    toast('✓ ' + r.importados + ' pagamento(s) importado(s) pra Finanças');
+  } else {
+    toast('Erro ao importar pagamentos');
+  }
+  renderFin();
+}
+
+function renderCustoMaoObra() {
+  var el = document.getElementById('custoMaoObraCard');
+  if (!el) return;
+  var mes = td().slice(0, 7);
+  var lista = (DB.t || []).filter(function(t) {
+    return t.origem === 'rh_pagamento' && (t.date || '').slice(0, 7) === mes;
+  });
+
+  var todosPags = (typeof HR_FUNC !== 'undefined') ? (HR_FUNC.getPagamentos() || {}) : {};
+  var idsJaLancados = {};
+  (DB.t || []).forEach(function(t){ if (t._rhPagId) idsJaLancados[t._rhPagId] = true; });
+  var pendentesImportar = Object.keys(todosPags).filter(function(id){ return !idsJaLancados[id]; }).length;
+
+  var avisoImportar = '';
+  if (pendentesImportar > 0) {
+    avisoImportar = '<div style="padding:10px 14px 0;">'
+      + '<button onclick="importarPagamentosRH()" style="width:100%;padding:10px;border-radius:9px;border:1px solid var(--bd2,#ddd);background:var(--gold,#c9a84c);color:#000;font-family:Outfit,sans-serif;font-size:.78rem;font-weight:700;cursor:pointer;">⬇️ Importar ' + pendentesImportar + ' pagamento(s) já registrado(s) no RH</button>'
+      + '</div>';
+  }
+
+  if (!lista.length) {
+    el.innerHTML = avisoImportar || ('<div class="sf-hint" style="padding:14px;">'
+      + 'Nenhum pagamento de funcionário lançado no RH este mês ainda. '
+      + 'Registre os pagamentos (inclusive os em mãos) no módulo RH pra esse painel preencher sozinho.'
+      + '</div>');
+    return;
+  }
+
+  var porFunc = {};
+  var total = 0;
+  lista.forEach(function(t) {
+    var fid = t.funcionarioId || '_sem';
+    if (!porFunc[fid]) porFunc[fid] = { nome: null, valor: 0, qtd: 0 };
+    porFunc[fid].valor += (t.value || 0);
+    porFunc[fid].qtd++;
+    total += (t.value || 0);
+  });
+
+  var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+  var h = '';
+  Object.keys(porFunc).forEach(function(fid) {
+    var f = funcs[fid];
+    var nome = f ? f.nome : 'Sem funcionário vinculado';
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">' + nome
+      + ' <span style="color:var(--t4);font-size:.62rem;">(' + porFunc[fid].qtd + ' lanç.)</span></span>'
+      + '<span class="fin-fixo-vl">R$ ' + fm(porFunc[fid].valor) + '</span></div>';
+  });
+  h += '<div class="fin-fixo-tot"><span>Total Mão de Obra · ' + mes.replace('-', '/') + '</span>'
+    + '<span class="fin-fixo-tot-val">R$ ' + fm(total) + '</span></div>';
+
+  h = avisoImportar + h;
+
+  // Aviso de contagem em duplicidade com o custo fixo "Funcionários"
+  var fixoFunc = (CFG.fixos || []).find(function(f) {
+    return /funcion/i.test(f.n || '');
+  });
+  if (fixoFunc && fixoFunc.v > 0) {
+    h += '<div class="sf-alerta sf-alerta-yel" style="margin:8px 14px 0;">'
+      + '🟡 Você ainda tem "' + fixoFunc.n + '" = R$ ' + fm(fixoFunc.v) + ' fixo no Config. '
+      + 'Agora que os pagamentos reais vêm do RH, isso pode estar contando em dobro — considere zerar esse custo fixo.'
+      + '</div>';
+  }
+
+  el.innerHTML = h;
+}
+
+
+
+function _sfGetConfig() {
+  if (!CFG.saudeFinanceira) {
+    CFG.saudeFinanceira = {
+      metaFaturamento: 0,
+      reservaEmergencia: 3, // meses
+      orcamentoVariavel: 0  // limite mensal p/ custos variáveis
+    };
+    svCFG();
+  }
+  // Migração: garante o sub-objeto de pró-labore em configs já existentes
+  if (typeof CFG.saudeFinanceira.proLabore !== 'object' || !CFG.saudeFinanceira.proLabore) {
+    CFG.saudeFinanceira.proLabore = {
+      minimoDesejado: 0 // valor mínimo mensal que o dono precisa tirar pra viver
+    };
+    svCFG();
+  }
+  // Migração: custos recorrentes automáticos (contador, insumos estimados,
+  // contas fixas etc.) + % de imposto sobre o recebido — deduzidos todo
+  // mês/decêndio sem precisar lançar cada um manualmente. Faz merge por
+  // nome, então rodar de novo só acrescenta itens novos, sem duplicar ou
+  // apagar o que já existia (inclusive se você editar os valores depois).
+  if (typeof CFG.saudeFinanceira.custosRecorrentes !== 'object' || !CFG.saudeFinanceira.custosRecorrentes) {
+    CFG.saudeFinanceira.custosRecorrentes = { impostoPct: 6, fixosMensais: [] };
+    svCFG();
+  }
+  var _crList = CFG.saudeFinanceira.custosRecorrentes.fixosMensais || (CFG.saudeFinanceira.custosRecorrentes.fixosMensais = []);
+  var _crDefaults = [
+    { n: 'Contador', v: 300 },
+    { n: 'Insumos (estimado)', v: 1300 },
+    { n: 'Internet', v: 100 },
+    { n: 'Água', v: 50 },
+    { n: 'Luz', v: 170 },
+    { n: 'Promob (minha parte)', v: 125 }, // R$1.500/ano ÷ 12
+    { n: 'Limpeza', v: 250 },
+    { n: 'Café da manhã', v: 300 },
+    { n: 'Depreciação de máquinas', v: 190 }
+  ];
+  var _crChanged = false;
+  _crDefaults.forEach(function(d) {
+    if (!_crList.some(function(x) { return x.n === d.n; })) { _crList.push(d); _crChanged = true; }
+  });
+  if (_crChanged) svCFG();
+  return CFG.saudeFinanceira;
+}
+
+function renderSaudeFinanceira() {
+  var el = document.getElementById('saudeFinCard');
+  if (!el) return;
+
+  var sf    = _sfGetConfig();
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+  var fixos = (CFG.fixos || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var vars  = (CFG.variaveis || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var totalCustos = fixos + vars;
+
+  // Dados do mês atual
+  var recMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'in' && (t.date || '').slice(0,7) === mes; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var despMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'out' && (t.date || '').slice(0,7) === mes; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var pendMes = (DB.t || [])
+    .filter(function(t) { return t.type === 'pend'; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var saldoMes      = recMes - despMes;
+  var metaFat       = sf.metaFaturamento || 0;
+  var pctMeta       = metaFat > 0 ? Math.min(100, Math.round((recMes / metaFat) * 100)) : 0;
+  var faltaMeta     = Math.max(0, metaFat - recMes - pendMes);
+  var pontoPequilibrio = totalCustos;
+  var lucroMes      = recMes - despMes - fixos;
+  var orcVar        = sf.orcamentoVariavel || 0;
+  var gastoVar      = (DB.t || [])
+    .filter(function(t) { return t.type === 'out' && (t.date || '').slice(0,7) === mes && t.isVariavel; })
+    .reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  // ── Semáforo de saúde ──
+  var saude, saudeCor, saudeMsg;
+  if (recMes >= pontoPequilibrio * 1.3) {
+    saude = '🟢'; saudeCor = 'var(--grn)';
+    saudeMsg = 'Mês saudável — cobrindo custos com folga';
+  } else if (recMes >= pontoPequilibrio) {
+    saude = '🟡'; saudeCor = '#d4a017';
+    saudeMsg = 'Mês equilibrado — custos cobertos';
+  } else if (recMes + pendMes >= pontoPequilibrio) {
+    saude = '🟠'; saudeCor = '#e07820';
+    saudeMsg = 'Depende de recebimentos pendentes para fechar';
+  } else {
+    saude = '🔴'; saudeCor = 'var(--red)';
+    saudeMsg = 'Atenção — faturamento abaixo do ponto de equilíbrio';
+  }
+
+  // ── Distribuição inteligente do saldo ──
+  var saldoDisp   = Math.max(0, recMes);
+  var reserva     = Math.round(saldoDisp * 0.10);
+  var custosCobertos = Math.min(saldoDisp, fixos + vars);
+  var sobra       = Math.max(0, saldoDisp - custosCobertos - reserva);
+
+  var h = '';
+
+  // Semáforo
+  h += '<div style="display:flex;align-items:center;gap:10px;padding:14px 14px 0;">';
+  h += '<span style="font-size:1.5rem;">' + saude + '</span>';
+  h += '<div>';
+  h += '<div style="font-size:.82rem;font-weight:700;color:' + saudeCor + ';">' + saudeMsg + '</div>';
+  h += '<div style="font-size:.65rem;color:var(--t3);margin-top:2px;">Mês atual · ' + mes.replace('-','/') + '</div>';
+  h += '</div></div>';
+
+  // ── Ponto de equilíbrio ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">⚖️ Ponto de Equilíbrio</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--red);">R$ ' + fm(totalCustos) + '</div><div class="sf-eq-lbl">Precisar faturar/mês</div></div>';
+  h += '<div class="sf-eq-sep">→</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:' + (recMes >= totalCustos ? 'var(--grn)' : '#e07820') + ';">R$ ' + fm(recMes) + '</div><div class="sf-eq-lbl">Faturado este mês</div></div>';
+  h += '</div>';
+  if (pontoPequilibrio > 0) {
+    var pctEq = Math.min(100, Math.round((recMes / pontoPequilibrio) * 100));
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctEq + '%;background:' + (pctEq >= 100 ? 'var(--grn)' : pctEq >= 70 ? '#d4a017' : 'var(--red)') + ';"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctEq + '% do ponto de equilíbrio</div>';
+  }
+  h += '</div>';
+
+  // ── Meta de faturamento ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>🎯 Meta do Mês</span>';
+  h += '<button class="sf-edit-btn" onclick="sfEditMeta()">editar</button>';
+  h += '</div>';
+  if (metaFat > 0) {
+    h += '<div class="sf-eq-row">';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(metaFat) + '</div><div class="sf-eq-lbl">Meta</div></div>';
+    h += '<div class="sf-eq-sep">·</div>';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--grn);">R$ ' + fm(recMes) + '</div><div class="sf-eq-lbl">Realizado</div></div>';
+    h += '<div class="sf-eq-sep">·</div>';
+    h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:#6ab0ff;">R$ ' + fm(pendMes) + '</div><div class="sf-eq-lbl">Pendente</div></div>';
+    h += '</div>';
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctMeta + '%;background:var(--gold2);"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctMeta + '% da meta';
+    if (faltaMeta > 0) h += ' · faltam R$ ' + fm(faltaMeta);
+    else h += ' · ✅ Meta batida!';
+    h += '</div>';
+  } else {
+    h += '<div class="sf-hint" onclick="sfEditMeta()">Toque para definir sua meta de faturamento mensal →</div>';
+  }
+  h += '</div>';
+
+  // ── Distribuição do dinheiro ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">💡 Como distribuir o que entrou</div>';
+  if (recMes > 0) {
+    var pctCusto = Math.min(100, Math.round((custosCobertos / recMes) * 100));
+    var pctRes   = Math.round((reserva / recMes) * 100);
+    var pctSobra = Math.max(0, 100 - pctCusto - pctRes);
+    h += '<div class="sf-dist-row">';
+    h += _sfDistItem('🏗️', 'Cobrir custos', custosCobertos, pctCusto, '#c94444');
+    h += _sfDistItem('🛡️', 'Reserva (10%)', reserva, pctRes, '#d4a017');
+    h += _sfDistItem('💰', 'Lucro livre', sobra, pctSobra, 'var(--grn)');
+    h += '</div>';
+    h += '<div class="sf-dist-bar">';
+    h += '<div style="flex:' + pctCusto + ';background:#c94444;border-radius:4px 0 0 4px;"></div>';
+    h += '<div style="flex:' + pctRes + ';background:#d4a017;"></div>';
+    h += '<div style="flex:' + Math.max(1, pctSobra) + ';background:var(--grn);border-radius:0 4px 4px 0;"></div>';
+    h += '</div>';
+  } else {
+    h += '<div class="sf-hint">Nenhuma entrada neste mês ainda.</div>';
+  }
+  h += '</div>';
+
+  // ── Custos variáveis ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>🚗 Custos Variáveis</span>';
+  h += '<button class="sf-edit-btn" onclick="sfEditVars()">editar</button>';
+  h += '</div>';
+  var varList = CFG.variaveis || [];
+  if (varList.length) {
+    varList.forEach(function(v) {
+      h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">' + v.n + '</span><span class="fin-fixo-vl" style="color:#d4a017;">≈ R$ ' + fm(v.v) + '/mês</span></div>';
+    });
+    h += '<div class="fin-fixo-tot"><span>Estimativa Mensal</span><span class="fin-fixo-tot-val" style="color:#d4a017;">R$ ' + fm(vars) + '</span></div>';
+  } else {
+    h += '<div class="sf-hint" onclick="sfEditVars()">Cadastre combustível, materiais, frete etc →</div>';
+  }
+  h += '</div>';
+
+  // ── Alertas ──
+  var alertas = _sfAlertas(recMes, despMes, fixos, vars, orcVar, gastoVar, saldoMes, pendMes);
+  if (alertas.length) {
+    h += '<div class="sf-section">';
+    h += '<div class="sf-title">⚠️ Alertas do Mês</div>';
+    alertas.forEach(function(a) { h += '<div class="sf-alerta sf-alerta-' + a.tipo + '">' + a.msg + '</div>'; });
+    h += '</div>';
+  }
+
+  el.innerHTML = h;
+}
+
+function _sfDistItem(icon, label, val, pct, cor) {
+  return '<div class="sf-dist-item">'
+    + '<div style="font-size:.95rem;">' + icon + '</div>'
+    + '<div style="font-size:.68rem;color:var(--t3);">' + label + '</div>'
+    + '<div style="font-size:.79rem;font-weight:700;color:' + cor + ';">R$ ' + fm(val) + '</div>'
+    + '<div style="font-size:.6rem;color:var(--t4);">' + pct + '%</div>'
+    + '</div>';
+}
+
+function _sfAlertas(recMes, despMes, fixos, vars, orcVar, gastoVar, saldoMes, pendMes) {
+  var alertas = [];
+  var totalCustos = fixos + vars;
+
+  if (recMes < totalCustos && recMes + pendMes < totalCustos) {
+    alertas.push({ tipo: 'red', msg: '🔴 Faturamento + pendentes abaixo dos custos totais este mês.' });
+  } else if (recMes < totalCustos) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Faturamento ainda não cobre os custos — mas há pendentes a receber.' });
+  }
+
+  if (despMes > recMes * 0.4) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Despesas avulsas acima de 40% do faturamento (' + Math.round(despMes/recMes*100) + '%).' });
+  }
+
+  if (orcVar > 0 && gastoVar > orcVar) {
+    alertas.push({ tipo: 'red', msg: '🔴 Custos variáveis ultrapassaram o orçamento (R$ ' + fm(gastoVar) + ' de R$ ' + fm(orcVar) + ').' });
+  } else if (orcVar > 0 && gastoVar > orcVar * 0.8) {
+    alertas.push({ tipo: 'yel', msg: '🟡 Custos variáveis em 80% do limite (R$ ' + fm(gastoVar) + ' de R$ ' + fm(orcVar) + ').' });
+  }
+
+  if (saldoMes < 0) {
+    alertas.push({ tipo: 'red', msg: '🔴 Saldo do mês negativo — saídas maiores que entradas.' });
+  }
+
+  return alertas;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PRÓ-LABORE — quanto você merece ganhar pelo que conseguiu vender
+//
+// Antes a sugestão só olhava "o que sobrou" no caixa. Agora ela
+// parte do que você efetivamente VENDEU (serviços fechados em
+// DB.j, contados pelo mês em que foram vendidos/agendados) e
+// aplica um % justo configurável — isso é o que você merece por
+// ter vendido aquilo, independente de o caixa já ter recebido
+// tudo ou não.
+//
+// Esse "valor justo" é então limitado por um teto de segurança
+// (baseado no lucro livre do mês e na sua reserva de emergência,
+// pra não descapitalizar o negócio). Se o que você merece for
+// maior do que o caixa aguenta com segurança agora, a diferença
+// não se perde: fica registrada como "a empresa ainda te deve" e
+// entra na conta dos próximos meses, até você conseguir retirar.
+//
+// Essa dívida é 100% calculada a partir do histórico real (vendas
+// em DB.j × retiradas em DB.t) — não existe um saldo guardado à
+// parte que possa ficar dessincronizado.
+//
+// Teto de segurança = % do lucro livre do mês (faturamento menos
+// custos fixos/variáveis menos reserva de 10%), variando conforme
+// a reserva de emergência (saldo real de caixa vs. meta em meses
+// de custo, CFG.saudeFinanceira.reservaEmergencia):
+//   caixa negativo        → 30% do lucro livre (modo cautela)
+//   reserva < 50% da meta → 45%
+//   reserva < 100% da meta→ 65%
+//   reserva completa      → 85%
+// O "mínimo desejado" configurado por você funciona como piso,
+// mas nunca passa do lucro livre real (dinheiro que existe agora).
+//
+// As retiradas reais são lançadas como despesa normal em DB.t
+// (type:'out', isProLabore:true) — assim já entram certinho nos
+// totais de Despesas/Caixa sem duplicar nada.
+// ══════════════════════════════════════════════════════════════
+
+function _plGetConfig() {
+  var pl = _sfGetConfig().proLabore; // já migrado/garantido por _sfGetConfig
+  if (pl.percentualVenda == null) { pl.percentualVenda = 10; svCFG(); } // % justo inicial sobre o que você vende — ajustável
+  return pl;
+}
+
+// Soma o valor dos serviços vendidos (DB.j) num mês específico,
+// usando o próprio id do job (sempre Date.now() na criação) como
+// data de venda — é quando o serviço entrou pra produção.
+function _plVendidoNoMes(mes) {
+  return (DB.j || []).filter(function(j) {
+    return j.id && new Date(j.id).toISOString().slice(0,7) === mes;
+  }).reduce(function(s, j) { return s + (j.value || 0); }, 0);
+}
+
+// ── Custos REAIS (transações lançadas em Finanças) ──────────────
+// Substitui o antigo modelo de fixos/variáveis ORÇADOS (CFG.fixos /
+// CFG.variaveis, distribuídos por fração de dias). Agora o app lê
+// direto o que foi de fato lançado: despesas reais (custos fixos,
+// insumos, mão de obra etc.) e o custo de material dos serviços
+// vendidos no período — igual a como você já lança tudo hoje.
+
+// Categorias de despesa disponíveis no modal "+ Despesa" (campo `fCat`/
+// `teCat` no index.html) — usadas pra quebrar as despesas reais por tipo
+// na UI do pró-labore, no lugar de um número só.
+var PL_CAT_LABEL = {
+  mao_obra:    '👷 Mão de obra',
+  insumos:     '🧰 Insumos',
+  fixo:        '🏠 Custo fixo',
+  combustivel: '⛽ Combustível',
+  ferramentas: '🔧 Ferramentas',
+  veiculo:     '🚗 Veículo / manutenção',
+  outros:      '📦 Outros',
+  '':          '❔ Sem categoria'
+};
+
+// Verdadeiro pra qualquer saída que representa custo de MATERIAL —
+// seja pela categoria escolhida no modal (`t.cat === 'material'`), seja
+// por vir de um boleto de fornecedor categoria Material (app-boletos.js,
+// B_CAT.material), que cai aqui via bMarcarPago() com a descrição
+// terminando em " — Material". Como o custo de material já é contado
+// por job (m2 × custoPedraEpoca — mais preciso e casado com a venda),
+// uma compra de material lançada como despesa normal contaria o mesmo
+// custo DUAS vezes. Por isso essas saídas ficam de fora de despesasReais.
+function _plEhDespesaMaterial(t) {
+  return t.cat === 'material' || /—\s*Material\s*$/.test(t.desc || '');
+}
+
+// Verdadeiro pra despesa categoria "Ferramentas" (compra/conserto de
+// máquina/equipamento). Desde que a Reserva de Depreciação de Máquinas
+// existe (item "Depreciação de máquinas" em custosRecorrentes, rateado
+// todo mês), esse desgaste já é descontado aos poucos no lucro líquido
+// via custo recorrente — contar a compra real de novo em despesasReais
+// cobraria o mesmo desgaste DUAS vezes. Por isso, assim como material,
+// essas saídas ficam de fora de despesasReais; o gasto real é abatido
+// da reserva já acumulada (ver _mqReserva).
+function _plEhDespesaFerramentas(t) {
+  return t.cat === 'ferramentas';
+}
+
+// Todas as saídas reais do período que entram na conta de despesas
+// (fixos, insumos, mão de obra), já filtradas: sem as retiradas de
+// pró-labore (isso não é custo do negócio, é a distribuição do lucro
+// que a gente está calculando), sem compras de material (contadas à
+// parte, via custo do job — ver _plEhDespesaMaterial acima) e sem
+// gastos com máquinas (contados à parte, via reserva de depreciação —
+// ver _plEhDespesaFerramentas acima).
+function _plDespesasBrutasNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'out' && !t.isProLabore && !_plEhDespesaMaterial(t) && !_plEhDespesaFerramentas(t) &&
+      t.date && t.date >= di && t.date <= df;
+  });
+}
+
+function _plDespesasNoPeriodo(di, df) {
+  return _plDespesasBrutasNoPeriodo(di, df).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+// Mesma soma de despesas reais, mas quebrada por categoria — pra
+// mostrar na UI de onde vem o dinheiro que sai (mão de obra, fixo,
+// combustível, ferramentas, outros/sem categoria). Só reflete o que
+// foi categorizado no modal de despesa; lançamentos antigos ou vindos
+// de outros módulos (ex. boletos) sem `cat` caem em "Sem categoria".
+function _plDespesasPorCategoriaNoPeriodo(di, df) {
+  var porCat = {};
+  Object.keys(PL_CAT_LABEL).forEach(function(k) { porCat[k] = 0; });
+  _plDespesasBrutasNoPeriodo(di, df).forEach(function(t) {
+    var k = (t.cat && PL_CAT_LABEL.hasOwnProperty(t.cat)) ? t.cat : '';
+    porCat[k] += (t.value || 0);
+  });
+  return porCat;
+}
+
+// Custo do material (pedra) reconhecido no período — agora casado com
+// a MESMA base de "recebido" (regime de caixa): o custo só entra no mês
+// em que o pagamento daquele serviço efetivamente aconteceu (via t.jId),
+// proporcional ao valor recebido. Pagamentos antigos, lançados antes
+// desse rastreamento existir (sem t.jId), caem no fallback antigo —
+// reconhecidos no mês de criação do serviço — pra não reescrever
+// silenciosamente o histórico já fechado.
+function _plCustoMaterialNoPeriodo(di, df) {
+  var total = 0;
+  (DB.j || []).forEach(function(j) {
+    if (!j.id || !j.value) return;
+    var custoTotal = (j.m2 || 0) * (j.custoPedraEpoca || j.matCusto || 0);
+    if (!custoTotal) return;
+    var custoPorReal = custoTotal / j.value;
+    var trackedPago = 0;
+    (DB.t || []).forEach(function(t) {
+      if (t.type !== 'in' || t.jId !== j.id) return;
+      trackedPago += (t.value || 0);
+      var d = (t.date || '').slice(0,10);
+      if (d >= di && d <= df) total += (t.value || 0) * custoPorReal;
+    });
+    var legacyPago = Math.max(0, (j.pago || 0) - trackedPago);
+    if (legacyPago > 0) {
+      var dj = new Date(j.id).toISOString().slice(0,10);
+      if (dj >= di && dj <= df) total += legacyPago * custoPorReal;
+    }
+  });
+  return total;
+}
+
+// Custos recorrentes automáticos (contador, insumos estimados etc.)
+// configurados em CFG.saudeFinanceira.custosRecorrentes.fixosMensais —
+// rateados pelos dias do período, pra não precisar lançar manualmente
+// todo mês/decêndio.
+function _plRecorrentesNoPeriodo(di, df) {
+  var sf = _sfGetConfig();
+  var lista = (sf.custosRecorrentes && sf.custosRecorrentes.fixosMensais) || [];
+  var totalMensal = lista.reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  if (!totalMensal) return 0;
+  var dias = Math.round((new Date(df) - new Date(di)) / 86400000) + 1;
+  return totalMensal / 30 * dias;
+}
+
+// Imposto (% configurado em custosRecorrentes.impostoPct) sobre o
+// recebido do período.
+function _plImpostoNoPeriodo(di, df) {
+  var sf  = _sfGetConfig();
+  var pct = (sf.custosRecorrentes && sf.custosRecorrentes.impostoPct) || 0;
+  if (!pct) return 0;
+  return _plRecebidoNoPeriodo(di, df) * pct / 100;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PROJEÇÃO SIMPLES NACIONAL — RBT12, faixa e alíquota efetiva real
+// A tabela do Simples traz uma alíquota NOMINAL por faixa, mas o
+// que se paga de fato é a alíquota EFETIVA, sempre menor a partir
+// da 2ª faixa:
+//   Alíquota Efetiva = (RBT12 × Alíquota Nominal − Parcela a
+//   Deduzir) ÷ RBT12
+// O % fixo configurado em custosRecorrentes.impostoPct (hoje 6%)
+// só bate exatamente com a realidade enquanto o RBT12 (receita
+// bruta acumulada dos últimos 12 meses) ficar na 1ª faixa de cada
+// anexo — a partir da 2ª faixa a conta muda, e essa tela avisa
+// antes de você ser pego de surpresa se o faturamento crescer.
+// Tabelas vigentes em 2026 (LC 123/2006, redação da LC 155/2016) —
+// confirme com seu contador qual anexo se aplica ao seu CNAE.
+// ══════════════════════════════════════════════════════════════
+
+var SN_TABELAS = {
+  I:   { nome: 'Anexo I — Comércio', faixas: [
+    { ate: 180000,   aliq: 0.0400, pd: 0 },
+    { ate: 360000,   aliq: 0.0730, pd: 5940 },
+    { ate: 720000,   aliq: 0.0950, pd: 13860 },
+    { ate: 1800000,  aliq: 0.1070, pd: 22500 },
+    { ate: 3600000,  aliq: 0.1430, pd: 87300 },
+    { ate: 4800000,  aliq: 0.1900, pd: 378000 }
+  ]},
+  II:  { nome: 'Anexo II — Indústria', faixas: [
+    { ate: 180000,   aliq: 0.0450, pd: 0 },
+    { ate: 360000,   aliq: 0.0780, pd: 5940 },
+    { ate: 720000,   aliq: 0.1000, pd: 13860 },
+    { ate: 1800000,  aliq: 0.1120, pd: 22500 },
+    { ate: 3600000,  aliq: 0.1470, pd: 85500 },
+    { ate: 4800000,  aliq: 0.3000, pd: 720000 }
+  ]},
+  III: { nome: 'Anexo III — Serviços gerais', faixas: [
+    { ate: 180000,   aliq: 0.0600, pd: 0 },
+    { ate: 360000,   aliq: 0.1120, pd: 9360 },
+    { ate: 720000,   aliq: 0.1350, pd: 17640 },
+    { ate: 1800000,  aliq: 0.1600, pd: 35640 },
+    { ate: 3600000,  aliq: 0.2100, pd: 125640 },
+    { ate: 4800000,  aliq: 0.3300, pd: 648000 }
+  ]},
+  IV:  { nome: 'Anexo IV — Construção/limpeza/vigilância (INSS patronal à parte)', faixas: [
+    { ate: 180000,   aliq: 0.0450, pd: 0 },
+    { ate: 360000,   aliq: 0.0900, pd: 8100 },
+    { ate: 720000,   aliq: 0.1020, pd: 12420 },
+    { ate: 1800000,  aliq: 0.1400, pd: 39780 },
+    { ate: 3600000,  aliq: 0.2200, pd: 183780 },
+    { ate: 4800000,  aliq: 0.3300, pd: 828000 }
+  ]},
+  V:   { nome: 'Anexo V — TI/consultoria/engenharia (Fator R < 28%)', faixas: [
+    { ate: 180000,   aliq: 0.1550, pd: 0 },
+    { ate: 360000,   aliq: 0.1800, pd: 4500 },
+    { ate: 720000,   aliq: 0.1950, pd: 9900 },
+    { ate: 1800000,  aliq: 0.2050, pd: 17100 },
+    { ate: 3600000,  aliq: 0.2300, pd: 62100 },
+    { ate: 4800000,  aliq: 0.3050, pd: 540000 }
+  ]}
+};
+
+// Garante (e migra, se preciso) o anexo configurado — default III,
+// que é o que bate com o 6% fixo já usado hoje em impostoPct.
+function _snGetAnexo() {
+  var sf = _sfGetConfig();
+  var cr = sf.custosRecorrentes;
+  if (!cr.anexoSimples || !SN_TABELAS[cr.anexoSimples]) { cr.anexoSimples = 'III'; svCFG(); }
+  return cr.anexoSimples;
+}
+
+// RBT12: soma do recebido (regime de caixa, igual ao resto do
+// módulo) nos 12 meses corridos terminados em mesRef (inclusive).
+function _snRBT12(mesRef) {
+  var ano = parseInt(mesRef.slice(0,4),10), mIdx = parseInt(mesRef.slice(5,7),10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var total = 0;
+  for (var i = 0; i < 12; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    total += _plRecebidoNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+  }
+  return total;
+}
+
+function _snFaixa(rbt12, anexo) {
+  var tab = SN_TABELAS[anexo].faixas;
+  for (var i = 0; i < tab.length; i++) {
+    if (rbt12 <= tab[i].ate) return { idx: i, dados: tab[i], estourouTeto: false };
+  }
+  // Acima de R$ 4,8 milhões: fora do teto do Simples — sinaliza,
+  // mas usa a última faixa como referência pro cálculo.
+  return { idx: tab.length - 1, dados: tab[tab.length - 1], estourouTeto: true };
+}
+
+function _snAliquotaEfetiva(rbt12, faixa) {
+  if (rbt12 <= 0) return faixa.dados.aliq;
+  return Math.max(0, (rbt12 * faixa.dados.aliq - faixa.dados.pd) / rbt12);
+}
+
+function _snProjecao() {
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+  var pad   = function(n){ return String(n).padStart(2,'0'); };
+  var anexo = _snGetAnexo();
+  var tab   = SN_TABELAS[anexo].faixas;
+  var rbt12 = _snRBT12(mes);
+  var faixa = _snFaixa(rbt12, anexo);
+  var aliqEfetiva = _snAliquotaEfetiva(rbt12, faixa);
+
+  var ultimoDiaMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
+  var recMes = _plRecebidoNoPeriodo(mes + '-01', mes + '-' + pad(ultimoDiaMes));
+  var dasEstimadoMes = recMes * aliqEfetiva;
+
+  var pisoFaixaAnterior = faixa.idx > 0 ? tab[faixa.idx - 1].ate : 0;
+  var tetoFaixaAtual     = faixa.dados.ate;
+  var faltaProximaFaixa  = Math.max(0, tetoFaixaAtual - rbt12);
+  var pctFaixaUsado      = tetoFaixaAtual > pisoFaixaAnterior
+    ? Math.min(100, Math.round(((rbt12 - pisoFaixaAnterior) / (tetoFaixaAtual - pisoFaixaAnterior)) * 100))
+    : 100;
+
+  // Média de recebido dos últimos 3 meses fechados, pra projetar em
+  // quantos meses (no ritmo atual) o RBT12 estoura a faixa em uso.
+  var ano = parseInt(mes.slice(0,4),10), mIdx = parseInt(mes.slice(5,7),10) - 1;
+  var somaUlt3 = 0, contUlt3 = 0;
+  for (var i = 1; i <= 3; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var r = _plRecebidoNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+    if (r > 0) { somaUlt3 += r; contUlt3++; }
+  }
+  var mediaMensal = contUlt3 ? somaUlt3 / contUlt3 : 0;
+  var mesesAteProximaFaixa = (mediaMensal > 0 && !faixa.estourouTeto)
+    ? Math.ceil(faltaProximaFaixa / mediaMensal) : null;
+  var proximaFaixaDados = (faixa.idx + 1 < tab.length) ? tab[faixa.idx + 1] : null;
+
+  return {
+    anexo: anexo, nomeAnexo: SN_TABELAS[anexo].nome, mes: mes,
+    rbt12: rbt12, faixa: faixa, aliqEfetiva: aliqEfetiva,
+    recMes: recMes, dasEstimadoMes: dasEstimadoMes,
+    pctFaixaUsado: pctFaixaUsado, faltaProximaFaixa: faltaProximaFaixa,
+    mesesAteProximaFaixa: mesesAteProximaFaixa, mediaMensal: mediaMensal,
+    proximaFaixaDados: proximaFaixaDados, estourouTeto: faixa.estourouTeto
+  };
+}
+
+function renderSimplesNacional() {
+  var el = document.getElementById('simplesNacionalCard');
+  if (!el) return;
+  var sf = _sfGetConfig();
+  var p  = _snProjecao();
+  var pctConfigurado = (sf.custosRecorrentes && sf.custosRecorrentes.impostoPct) || 0;
+  var aliqEfetivaPct = Math.round(p.aliqEfetiva * 10000) / 100;
+  var diverge = Math.abs(aliqEfetivaPct - pctConfigurado) >= 0.1;
+  var pf = function(n) { return n.toFixed(2).replace('.', ','); };
+
+  var h = '';
+
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">' + p.nomeAnexo + '</div>';
+  h += '<button class="sf-edit-btn" onclick="snEditAnexo()">trocar anexo</button>';
+  h += '</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:var(--gold2);margin-top:2px;">' + pf(aliqEfetivaPct) + '%</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">Alíquota efetiva real · faixa ' + (p.faixa.idx + 1) + ' de 6 · RBT12 R$ ' + fm(p.rbt12) + '</div>';
+  h += '</div>';
+
+  if (p.estourouTeto) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Seu RBT12 já passou de R$ 4.800.000 — acima do teto do Simples Nacional. Fale com seu contador sobre desenquadramento/mudança de regime.</div>';
+    h += '</div>';
+  }
+
+  if (diverge && !p.estourouTeto) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 O app hoje desconta ' + pctConfigurado + '% fixo de imposto, mas sua alíquota efetiva real é ' + pf(aliqEfetivaPct) + '%.';
+    h += '<div style="margin-top:8px;"><button class="sf-edit-btn" onclick="snAplicarAliquotaEfetiva()">🔧 Atualizar % usado no app para ' + pf(aliqEfetivaPct) + '%</button></div>';
+    h += '</div></div>';
+  }
+
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">📊 Faixa Atual</div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">RBT12 (últimos 12 meses)</span><span class="fin-fixo-vl">R$ ' + fm(p.rbt12) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">Teto da faixa ' + (p.faixa.idx + 1) + '</span><span class="fin-fixo-vl">R$ ' + fm(p.faixa.dados.ate) + '</span></div>';
+  h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + p.pctFaixaUsado + '%;background:' + (p.pctFaixaUsado >= 90 ? 'var(--red)' : p.pctFaixaUsado >= 70 ? '#d4a017' : 'var(--grn)') + ';"></div></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + p.pctFaixaUsado + '% da faixa usado';
+  if (!p.estourouTeto) h += ' · faltam R$ ' + fm(p.faltaProximaFaixa) + ' pra próxima faixa';
+  h += '</div>';
+  h += '</div>';
+
+  if (p.mesesAteProximaFaixa != null && p.proximaFaixaDados) {
+    h += '<div class="sf-section">';
+    h += '<div class="sf-title">📈 Projeção</div>';
+    h += '<div style="font-size:.75rem;color:var(--t2);line-height:1.5;">No ritmo médio dos últimos meses (R$ ' + fm(p.mediaMensal) + '/mês recebido), você deve entrar na próxima faixa em <b style="color:var(--gold2);">' + p.mesesAteProximaFaixa + ' mes' + (p.mesesAteProximaFaixa !== 1 ? 'es' : '') + '</b>, quando a alíquota nominal sobe para ' + pf(p.proximaFaixaDados.aliq * 100) + '%.</div>';
+    h += '</div>';
+  }
+
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🧾 DAS Estimado — ' + p.mes.replace('-','/') + '</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(p.recMes) + '</div><div class="sf-eq-lbl">Recebido no mês</div></div>';
+  h += '<div class="sf-eq-sep">×' + pf(aliqEfetivaPct) + '%</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--red);">R$ ' + fm(p.dasEstimadoMes) + '</div><div class="sf-eq-lbl">DAS estimado</div></div>';
+  h += '</div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+function snEditAnexo() {
+  var sf = _sfGetConfig();
+  var atual = _snGetAnexo();
+  var val = prompt(
+    'Anexo do Simples Nacional — confirme com seu contador se não tiver certeza:\n\n' +
+    'I = comércio · II = indústria · III = serviços gerais\n' +
+    'IV = construção/limpeza/vigilância · V = TI/consultoria (Fator R < 28%)',
+    atual
+  );
+  if (val === null) return;
+  var v = val.trim().toUpperCase();
+  if (!SN_TABELAS[v]) { toast('Anexo inválido — use I, II, III, IV ou V'); return; }
+  sf.custosRecorrentes.anexoSimples = v;
+  svCFG();
+  renderSimplesNacional();
+  toast('✓ Anexo atualizado para ' + SN_TABELAS[v].nome);
+}
+
+function snAplicarAliquotaEfetiva() {
+  var sf = _sfGetConfig();
+  var p  = _snProjecao();
+  var novoPct = Math.round(p.aliqEfetiva * 10000) / 100;
+  sf.custosRecorrentes.impostoPct = novoPct;
+  svCFG();
+  renderSaudeFinanceira();
+  renderProLabore();
+  renderSimplesNacional();
+  toast('✓ % de imposto atualizado para ' + novoPct.toFixed(2).replace('.', ',') + '%');
+}
+
+// Lucro bruto/líquido reais de um período: bruto = recebido − custo
+// de material; líquido = bruto − despesas reais (fixos, insumos, mão
+// de obra — tudo que foi de fato lançado como saída, exceto pró-labore)
+// − custos recorrentes automáticos (contador etc.) − imposto.
+function _plLucroNoPeriodo(di, df) {
+  var recebido        = _plRecebidoNoPeriodo(di, df);
+  var custoMaterial    = _plCustoMaterialNoPeriodo(di, df);
+  var despesasReais     = _plDespesasNoPeriodo(di, df);
+  var recorrentes      = _plRecorrentesNoPeriodo(di, df);
+  var imposto          = _plImpostoNoPeriodo(di, df);
+  var lucroBruto        = recebido - custoMaterial;
+  var lucroLiquido       = lucroBruto - despesasReais - recorrentes - imposto;
+  return { recebido: recebido, custoMaterial: custoMaterial, despesasReais: despesasReais, recorrentes: recorrentes, imposto: imposto, lucroBruto: lucroBruto, lucroLiquido: lucroLiquido };
+}
+
+// Custo total médio (despesas reais + material) dos últimos meses
+// FECHADOS antes de mesRef — base estável pra meta de reserva de
+// emergência, no lugar do antigo fixos+vars orçado. Procura até
+// `maxBusca` meses pra trás pra achar `nMeses` com movimento (cobre
+// meses sem nenhum lançamento, ex. app recém-começado a usar pra
+// isso). Sem NENHUM histórico, projeta o mês corrente (parcial) pra
+// uma estimativa de mês cheio, em vez de usar o valor bruto — que
+// ficaria artificialmente baixo nos primeiros dias do mês.
+function _plCustoMedioMensal(mesRef, nMeses) {
+  nMeses = nMeses || 3;
+  var maxBusca = 12;
+  var ano = parseInt(mesRef.slice(0,4),10), mIdx = parseInt(mesRef.slice(5,7),10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var total = 0, contados = 0;
+  for (var i = 1; i <= maxBusca && contados < nMeses; i++) {
+    var d = new Date(ano, mIdx - i, 1);
+    var key = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var l = _plLucroNoPeriodo(key + '-01', key + '-' + pad(ultimoDia));
+    if (l.despesasReais || l.custoMaterial) { total += (l.despesasReais + l.custoMaterial); contados++; }
+  }
+  if (!contados) {
+    var hoje = td();
+    var diaAtual = (hoje.slice(0,7) === mesRef) ? parseInt(hoje.slice(8,10),10) : null;
+    var ultimoDiaRef = new Date(ano, mIdx + 1, 0).getDate();
+    var lRef = _plLucroNoPeriodo(mesRef + '-01', mesRef + '-' + pad(ultimoDiaRef));
+    var brutoRef = lRef.despesasReais + lRef.custoMaterial;
+    // projeta o parcial do mês corrente pra uma estimativa de mês cheio
+    if (diaAtual && diaAtual > 0 && diaAtual < ultimoDiaRef) {
+      return Math.round(brutoRef / diaAtual * ultimoDiaRef);
+    }
+    return brutoRef;
+  }
+  return total / contados;
+}
+
+// Dívida acumulada de meses ANTERIORES ao mês corrente: soma, mês
+// a mês, quanto era justo (vendido × %) menos quanto foi de fato
+// retirado como pró-labore naquele mês. Só conta a diferença
+// quando o justo é maior que o retirado (a empresa "deve").
+function _plDevidoAcumulado(mesAtual, pctVenda) {
+  var lucroPorMes = {};
+  (DB.j || []).forEach(function(j) {
+    if (!j.id) return;
+    var m = new Date(j.id).toISOString().slice(0,7);
+    if (m >= mesAtual) return; // só meses já fechados, antes do atual
+    if (lucroPorMes.hasOwnProperty(m)) return; // já calculado
+    var ultimoDia = new Date(parseInt(m.slice(0,4),10), parseInt(m.slice(5,7),10), 0).getDate();
+    var l = _plLucroNoPeriodo(m+'-01', m+'-'+String(ultimoDia).padStart(2,'0'));
+    lucroPorMes[m] = l.lucroLiquido;
+  });
+  var retiradoPorMes = {};
+  (DB.t || []).filter(function(t) { return t.type === 'out' && t.isProLabore; }).forEach(function(t) {
+    var m = (t.date || '').slice(0,7);
+    if (m >= mesAtual) return;
+    retiradoPorMes[m] = (retiradoPorMes[m] || 0) + (t.value || 0);
+  });
+  var devido = 0;
+  Object.keys(lucroPorMes).forEach(function(m) {
+    var justo    = Math.max(0, lucroPorMes[m]) * pctVenda / 100;
+    var retirado = retiradoPorMes[m] || 0;
+    if (justo > retirado) devido += (justo - retirado);
+  });
+  return Math.round(devido);
+}
+
+// ── Pró-labore por DECÊNDIO (10 dias) ──────────────────────────
+// Usado quando o sócio não tem salário fixo: ele vive de um % sobre
+// o LUCRO LIVRE gerado em cada janela de 10 dias (1-10, 11-20,
+// 21-fim do mês), com o mesmo teto de segurança de caixa/reserva
+// já usado no cálculo mensal acima — só que fatiado por período.
+function _plPeriodoDecendio(mes, num) {
+  var ano = parseInt(mes.slice(0,4), 10), mIdx = parseInt(mes.slice(5,7), 10) - 1;
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var ultimoDia = new Date(ano, mIdx + 1, 0).getDate();
+  if (num === 1) return { di: mes+'-01', df: mes+'-10', dias: 10 };
+  if (num === 2) return { di: mes+'-11', df: mes+'-20', dias: 10 };
+  return { di: mes+'-21', df: mes+'-'+pad(ultimoDia), dias: (ultimoDia - 20) };
+}
+
+function _plVendidoNoPeriodo(di, df) {
+  return (DB.j || []).filter(function(j) {
+    if (!j.id) return false;
+    var d = new Date(j.id).toISOString().slice(0,10);
+    return d >= di && d <= df;
+  }).reduce(function(s, j) { return s + (j.value || 0); }, 0);
+}
+
+function _plRecebidoNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'in' && t.date && t.date >= di && t.date <= df;
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+function _plRetiradoNoPeriodo(di, df) {
+  return (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && t.date && t.date >= di && t.date <= df;
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+}
+
+// Dívida acumulada de tudo que veio ANTES do (mes, num) informado:
+// meses fechados inteiros (via _plDevidoAcumulado) + decêndios já
+// passados dentro do próprio mês atual, ainda não compensados.
+function _plDevidoAntesDoDecendio(mes, num, pctVenda) {
+  var devido = _plDevidoAcumulado(mes, pctVenda);
+  for (var n = 1; n < num; n++) {
+    var p = _plPeriodoDecendio(mes, n);
+    var justo    = Math.round(Math.max(0, _plLucroNoPeriodo(p.di, p.df).lucroLiquido) * pctVenda / 100);
+    var retirado = _plRetiradoNoPeriodo(p.di, p.df);
+    if (justo > retirado) devido += (justo - retirado);
+  }
+  return devido;
+}
+
+function _plCalcDecendio(mes, num) {
+  var sf  = _sfGetConfig();
+  var pl  = _plGetConfig();
+  var per = _plPeriodoDecendio(mes, num);
+
+  // ── lucro real do período (não mais fração de orçamento) ──
+  var l              = _plLucroNoPeriodo(per.di, per.df);
+  var recPeriodo     = l.recebido;
+  var custoMaterial  = l.custoMaterial;
+  var despesasReais  = l.despesasReais;
+  var lucroBruto     = l.lucroBruto;
+  var lucroLiquido   = l.lucroLiquido;
+
+  var reservaCorte = Math.round(Math.max(0, recPeriodo) * 0.10);
+  var lucroLivre   = Math.max(0, lucroLiquido - reservaCorte);
+
+  // ── teto de segurança: usa a posição de caixa REAL da empresa
+  //    hoje (não dá pra fatiar caixa por decêndio, é uma coisa só) ──
+  var saldoCaixa = (DB.t || [])
+    .filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); })
+    .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
+  var reservaMeses = sf.reservaEmergencia || 3;
+  var reservaAlvo  = _plCustoMedioMensal(mes, 3) * reservaMeses;
+  var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
+  var pctSeguranca, faixaSeguranca;
+  if (saldoCaixa <= 0)          { pctSeguranca = 30; faixaSeguranca = 'caixa negativo'; }
+  else if (pctReserva < 50)     { pctSeguranca = 45; faixaSeguranca = 'reserva abaixo de 50%'; }
+  else if (pctReserva < 100)    { pctSeguranca = 65; faixaSeguranca = 'reserva entre 50% e 100%'; }
+  else                          { pctSeguranca = 85; faixaSeguranca = 'reserva completa'; }
+  var tetoSeguranca = Math.round(lucroLivre * pctSeguranca / 100);
+
+  // ── quanto é justo neste período: % sobre o vendido + dívida anterior ──
+  var pctVenda        = pl.percentualVenda;
+  var vendidoPeriodo  = _plVendidoNoPeriodo(per.di, per.df);
+  var justoPeriodo    = Math.round(Math.max(0, lucroLiquido) * pctVenda / 100);
+  var devidoAnterior  = _plDevidoAntesDoDecendio(mes, num, pctVenda);
+  var totalMerecido   = justoPeriodo + devidoAnterior;
+
+  // ── sugestão final: o que é justo, limitado pelo teto de segurança ──
+  var sugerido = Math.min(totalMerecido, tetoSeguranca);
+  var pisoDesejado = (pl.minimoDesejado || 0) / 3; // mínimo mensal desejado, dividido em 3 parcelas
+  if (pisoDesejado > sugerido) sugerido = Math.min(pisoDesejado, lucroLivre);
+  sugerido = Math.max(0, Math.round(sugerido));
+  var minimoNaoCabe    = pisoDesejado > lucroLivre;
+  var saldoFicaDevendo = Math.max(0, totalMerecido - sugerido);
+
+  var retiradoPeriodo = _plRetiradoNoPeriodo(per.di, per.df);
+
+  return {
+    mes: mes, num: num, di: per.di, df: per.df, dias: per.dias,
+    custoMaterial: custoMaterial, despesasReais: despesasReais,
+    lucroBruto: lucroBruto, lucroLiquido: lucroLiquido,
+    recPeriodo: recPeriodo, lucroLivre: lucroLivre,
+    saldoCaixa: saldoCaixa, pctReserva: pctReserva,
+    pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
+    pctVenda: pctVenda, vendidoPeriodo: vendidoPeriodo, justoPeriodo: justoPeriodo,
+    devidoAnterior: devidoAnterior, totalMerecido: totalMerecido,
+    sugerido: sugerido, minimoNaoCabe: minimoNaoCabe, saldoFicaDevendo: saldoFicaDevendo,
+    retiradoPeriodo: retiradoPeriodo
+  };
+}
+
+// Decêndio de HOJE (o que os cards/lista do RH mostram por padrão).
+function _plCalcDecendioAtual() {
+  var hoje = td();
+  var mes  = hoje.slice(0,7);
+  var d    = parseInt(hoje.slice(8,10), 10);
+  var num  = d <= 10 ? 1 : d <= 20 ? 2 : 3;
+  return _plCalcDecendio(mes, num);
+}
+
+function _plCalc() {
+  var sf    = _sfGetConfig();
+  var pl    = _plGetConfig();
+  var hoje  = td();
+  var mes   = hoje.slice(0, 7);
+  var ultimoDiaMes = new Date(parseInt(mes.slice(0,4),10), parseInt(mes.slice(5,7),10), 0).getDate();
+  var diMes = mes + '-01', dfMes = mes + '-' + String(ultimoDiaMes).padStart(2,'0');
+
+  // ── lucro real do mês (não mais fração de orçamento) ──
+  var l               = _plLucroNoPeriodo(diMes, dfMes);
+  var recMes          = l.recebido;
+  var custoMaterialMes = l.custoMaterial;
+  var despesasMes     = l.despesasReais;
+  var recorrentesMes  = l.recorrentes;
+  var impostoMes      = l.imposto;
+  var lucroBrutoMes   = l.lucroBruto;
+  var lucroLiquidoMes = l.lucroLiquido;
+  var despesasPorCategoriaMes = _plDespesasPorCategoriaNoPeriodo(diMes, dfMes);
+
+  var reservaCorte = Math.round(Math.max(0, recMes) * 0.10);
+  var lucroLivre   = Math.max(0, lucroLiquidoMes - reservaCorte);
+
+  // ── saldo real de caixa (histórico completo, todas as entradas/saídas) ──
+  var saldoCaixa = (DB.t || [])
+    .filter(function(t) { return t.date && t.value && (t.type === 'in' || t.type === 'out'); })
+    .reduce(function(s, t) { return s + (t.type === 'in' ? t.value : -t.value); }, 0);
+
+  var reservaMeses = sf.reservaEmergencia || 3;
+  var reservaAlvo  = _plCustoMedioMensal(mes, 3) * reservaMeses;
+  var pctReserva   = reservaAlvo > 0 ? Math.max(0, Math.min(100, Math.round((saldoCaixa / reservaAlvo) * 100))) : 100;
+
+  // ── teto de segurança (protege o caixa/reserva) ──
+  var pctSeguranca, faixaSeguranca;
+  if (saldoCaixa <= 0)          { pctSeguranca = 30; faixaSeguranca = 'caixa negativo'; }
+  else if (pctReserva < 50)     { pctSeguranca = 45; faixaSeguranca = 'reserva abaixo de 50%'; }
+  else if (pctReserva < 100)    { pctSeguranca = 65; faixaSeguranca = 'reserva entre 50% e 100%'; }
+  else                          { pctSeguranca = 85; faixaSeguranca = 'reserva completa'; }
+  var tetoSeguranca = Math.round(lucroLivre * pctSeguranca / 100);
+
+  // ── quanto você merece: valor justo do que vendeu + dívida de meses anteriores ──
+  var pctVenda       = pl.percentualVenda;
+  var vendidoMes     = _plVendidoNoMes(mes);
+  var qtdVendidoMes  = (DB.j || []).filter(function(j) { return j.id && new Date(j.id).toISOString().slice(0,7) === mes; }).length;
+  var justoMes       = Math.round(Math.max(0, lucroLiquidoMes) * pctVenda / 100);
+  var devidoAnterior = _plDevidoAcumulado(mes, pctVenda);
+  var totalMerecido  = justoMes + devidoAnterior;
+
+  // ── sugestão final: o que é justo, limitado pelo teto de segurança do caixa ──
+  var sugerido = Math.min(totalMerecido, tetoSeguranca);
+  var pisoDesejado = pl.minimoDesejado || 0;
+  if (pisoDesejado > sugerido) sugerido = Math.min(pisoDesejado, lucroLivre); // respeita o mínimo que você precisa, sem passar do dinheiro livre real
+  sugerido = Math.max(0, Math.round(sugerido));
+  var minimoNaoCabe    = pisoDesejado > lucroLivre;
+  var saldoFicaDevendo = Math.max(0, totalMerecido - sugerido);
+
+  // ── retiradas já feitas este mês / total histórico ──
+  var retiradasMes = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0,7) === mes;
+  });
+  var retiradoMes = retiradasMes.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  var retiradasAno = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0,4) === mes.slice(0,4);
+  });
+  var retiradoAno = retiradasAno.reduce(function(s, t) { return s + (t.value || 0); }, 0);
+
+  return {
+    mes: mes, custoMaterialMes: custoMaterialMes, despesasMes: despesasMes,
+    despesasPorCategoriaMes: despesasPorCategoriaMes,
+    lucroBrutoMes: lucroBrutoMes, lucroLiquidoMes: lucroLiquidoMes,
+    recMes: recMes, lucroLivre: lucroLivre,
+    recorrentesMes: recorrentesMes, impostoMes: impostoMes,
+    saldoCaixa: saldoCaixa, reservaAlvo: reservaAlvo, pctReserva: pctReserva,
+    pctSeguranca: pctSeguranca, faixaSeguranca: faixaSeguranca, tetoSeguranca: tetoSeguranca,
+    pctVenda: pctVenda, vendidoMes: vendidoMes, qtdVendidoMes: qtdVendidoMes, justoMes: justoMes,
+    devidoAnterior: devidoAnterior, totalMerecido: totalMerecido,
+    sugerido: sugerido, minimoNaoCabe: minimoNaoCabe, saldoFicaDevendo: saldoFicaDevendo,
+    retiradoMes: retiradoMes, retiradoAno: retiradoAno, retiradasMes: retiradasMes
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESERVA DE DEPRECIAÇÃO DE MÁQUINAS — o item "Depreciação de
+// máquinas" em custosRecorrentes.fixosMensais já é descontado todo
+// mês do lucro líquido, como qualquer outro custo recorrente. Isso
+// monta, mês a mês, uma reserva virtual pro desgaste de equipamento.
+// Quando você gasta de verdade com máquina (despesa categoria
+// "🔧 Ferramentas" no modal de despesa), esse gasto sai dessa
+// reserva já acumulada — em vez de contar como custo extra do mês
+// (o que cobraria o desgaste duas vezes: uma no rateio mensal, outra
+// na hora da compra real). Por isso essas despesas ficam de fora de
+// despesasReais (ver _plEhDespesaFerramentas) e aparecem só aqui.
+// Sem ledger separado: tudo recalculado sempre a partir de DB.t e
+// da data de início guardada em custosRecorrentes.reservaMaquinasInicio.
+// ══════════════════════════════════════════════════════════════
+
+function _mqGetInicio() {
+  var sf = _sfGetConfig();
+  if (!sf.custosRecorrentes.reservaMaquinasInicio) {
+    sf.custosRecorrentes.reservaMaquinasInicio = td().slice(0, 7);
+    svCFG();
+  }
+  return sf.custosRecorrentes.reservaMaquinasInicio;
+}
+
+function _mqValorMensal() {
+  var sf   = _sfGetConfig();
+  var item = (sf.custosRecorrentes.fixosMensais || []).find(function(f) { return f.n === 'Depreciação de máquinas'; });
+  return item ? (item.v || 0) : 0;
+}
+
+function _mqReserva() {
+  var inicio = _mqGetInicio();
+  var mes    = td().slice(0, 7);
+  var anoI = parseInt(inicio.slice(0,4),10), mIdxI = parseInt(inicio.slice(5,7),10) - 1;
+  var anoA = parseInt(mes.slice(0,4),10),    mIdxA = parseInt(mes.slice(5,7),10) - 1;
+  var mesesDecorridos = (anoA - anoI) * 12 + (mIdxA - mIdxI) + 1;
+  var valorMensal = _mqValorMensal();
+  var acumulado   = mesesDecorridos * valorMensal;
+  var gasto = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && _plEhDespesaFerramentas(t) && t.date && t.date >= (inicio + '-01');
+  }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+  return {
+    inicio: inicio, mesesDecorridos: mesesDecorridos, valorMensal: valorMensal,
+    acumulado: acumulado, gasto: gasto, saldo: acumulado - gasto
+  };
+}
+
+function renderReservaMaquinas() {
+  var el = document.getElementById('reservaMaquinasCard');
+  if (!el) return;
+  var r = _mqReserva();
+  if (!r.valorMensal) { el.innerHTML = ''; return; }
+
+  var h = '';
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">Saldo disponível</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:' + (r.saldo >= 0 ? 'var(--gold2)' : 'var(--red)') + ';margin-top:2px;">R$ ' + fm(r.saldo) + '</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">R$ ' + fm(r.valorMensal) + '/mês reservado desde ' + r.inicio.replace('-','/') + ' (' + r.mesesDecorridos + ' mes' + (r.mesesDecorridos !== 1 ? 'es' : '') + ')</div>';
+  h += '</div>';
+
+  h += '<div class="sf-section">';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Acumulado (reserva mensal)</span><span class="fin-fixo-vl">R$ ' + fm(r.acumulado) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Gasto real com máquinas (🔧 Ferramentas)</span><span class="fin-fixo-vl">R$ ' + fm(r.gasto) + '</span></div>';
+  h += '<div class="fin-fixo-tot"><span>= Saldo</span><span class="fin-fixo-tot-val" style="color:' + (r.saldo >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(r.saldo) + '</span></div>';
+  h += '</div>';
+
+  if (r.saldo < 0) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 Você já gastou com máquinas mais do que a reserva acumulada até agora — o excedente saiu do caixa geral.</div>';
+    h += '</div>';
+  }
+
+  h += '<div style="padding:0 14px 14px;font-size:.6rem;color:var(--t3);">Pra um gasto sair dessa reserva, lance a despesa normalmente e escolha a categoria "🔧 Ferramentas".</div>';
+  el.innerHTML = h;
+}
+
+function renderProLabore() {
+  var el = document.getElementById('proLaboreCard');
+  if (!el) return;
+  var pl = _plGetConfig();
+  var c  = _plCalc();
+
+  var h = '';
+
+  // ── Sugestão do mês ──
+  h += '<div style="padding:14px 14px 0;">';
+  h += '<div style="font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;">Sugestão pra ' + c.mes.replace('-','/') + '</div>';
+  h += '<div style="font-size:1.6rem;font-weight:800;color:var(--gold2);margin-top:2px;">R$ ' + fm(c.sugerido) + '</div>';
+  h += '<div style="font-size:.68rem;color:var(--t4);margin-top:2px;">Você merece R$ ' + fm(c.totalMerecido) + ' pelo que vendeu · teto de segurança do caixa: R$ ' + fm(c.tetoSeguranca) + ' (' + c.pctSeguranca + '%, ' + c.faixaSeguranca + ')</div>';
+  h += '</div>';
+
+  if (c.minimoNaoCabe) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Seu mínimo desejado (R$ ' + fm(pl.minimoDesejado) + ') é maior que o lucro livre do mês (R$ ' + fm(c.lucroLivre) + '). O negócio ainda não sustenta esse valor sem mexer na reserva.</div>';
+    h += '</div>';
+  }
+  if (c.saldoFicaDevendo > 0) {
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-yel">🟡 A empresa ainda fica devendo R$ ' + fm(c.saldoFicaDevendo) + ' do que você merece — o caixa não aguenta pagar tudo agora com segurança. Isso entra na conta dos próximos meses.</div>';
+    h += '</div>';
+  }
+  if (c.recMes > 0 && c.retiradoMes / c.recMes > 0.4) {
+    var pctFat = Math.round((c.retiradoMes / c.recMes) * 100);
+    h += '<div class="sf-section" style="border-top:none;padding-top:0;">';
+    h += '<div class="sf-alerta sf-alerta-red">🔴 Suas retiradas já somam ' + pctFat + '% do faturamento deste mês — bem acima da faixa saudável (até ~30-40%). Vale segurar antes de tirar mais.</div>';
+    h += '</div>';
+  }
+
+  // ── Lucro Bruto / Líquido do mês (transações reais lançadas em Finanças) ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🧮 Lucro Real do Mês</div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">Recebido</span><span class="fin-fixo-vl">R$ ' + fm(c.recMes) + '</span></div>';
+  h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Custo de material</span><span class="fin-fixo-vl">R$ ' + fm(c.custoMaterialMes) + '</span></div>';
+  h += '<div class="fin-fixo-tot"><span>= Lucro Bruto</span><span class="fin-fixo-tot-val">R$ ' + fm(c.lucroBrutoMes) + '</span></div>';
+  h += '<div class="fin-fixo-row" style="margin-top:6px;"><span class="fin-fixo-nm">− Despesas reais (fixos, insumos, mão de obra...)</span><span class="fin-fixo-vl">R$ ' + fm(c.despesasMes) + '</span></div>';
+  if (c.despesasMes > 0) {
+    h += '<div style="padding-left:10px;margin-top:2px;">';
+    Object.keys(PL_CAT_LABEL).forEach(function(k) {
+      var v = c.despesasPorCategoriaMes[k] || 0;
+      if (!v) return;
+      h += '<div class="fin-fixo-row" style="opacity:.8;"><span class="fin-fixo-nm" style="font-size:.68rem;">' + PL_CAT_LABEL[k] + '</span><span class="fin-fixo-vl" style="font-size:.68rem;">R$ ' + fm(v) + '</span></div>';
+    });
+    h += '</div>';
+  }
+  if (c.recorrentesMes > 0) {
+    h += '<div class="fin-fixo-row" style="margin-top:6px;"><span class="fin-fixo-nm">− Custos recorrentes (contador, insumos estimados...)</span><span class="fin-fixo-vl">R$ ' + fm(c.recorrentesMes) + '</span></div>';
+    h += '<div style="text-align:right;margin-top:2px;"><button class="sf-edit-btn" onclick="crEditRecorrentes()">⚙️ configurar</button></div>';
+  }
+  if (c.impostoMes > 0) {
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">− Impostos</span><span class="fin-fixo-vl">R$ ' + fm(c.impostoMes) + '</span></div>';
+  }
+  h += '<div class="fin-fixo-tot"><span>= Lucro Líquido</span><span class="fin-fixo-tot-val" style="color:' + (c.lucroLiquidoMes >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(c.lucroLiquidoMes) + '</span></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);margin-top:6px;">Lucro livre pra pró-labore (após reserva de 10%): R$ ' + fm(c.lucroLivre) + '</div>';
+  h += '</div>';
+
+  // ── Valor justo pelo lucro ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>📈 Valor Justo Pelo Lucro</span>';
+  h += '<button class="sf-edit-btn" onclick="plEditPercentual()">⚙️ ' + c.pctVenda + '%</button>';
+  h += '</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.lucroLiquidoMes) + '</div><div class="sf-eq-lbl">Lucro líquido do mês</div></div>';
+  h += '<div class="sf-eq-sep">×' + c.pctVenda + '%</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(c.justoMes) + '</div><div class="sf-eq-lbl">Valor justo do mês</div></div>';
+  h += '</div>';
+  h += '<div style="font-size:.6rem;color:var(--t3);margin-top:4px;">Vendido este mês: R$ ' + fm(c.vendidoMes) + (c.qtdVendidoMes ? ' (' + c.qtdVendidoMes + ' serviço' + (c.qtdVendidoMes>1?'s':'') + ')' : '') + '</div>';
+  if (c.devidoAnterior > 0) {
+    h += '<div class="fin-fixo-row"><span class="fin-fixo-nm">+ Dívida de meses anteriores</span><span class="fin-fixo-vl">R$ ' + fm(c.devidoAnterior) + '</span></div>';
+    h += '<div class="fin-fixo-tot"><span>Total que você merece</span><span class="fin-fixo-tot-val">R$ ' + fm(c.totalMerecido) + '</span></div>';
+    h += '<button class="fin-add-btn" style="width:100%;margin-top:8px;" onclick="plLancarCreditoRH()">📥 Lançar dívida como crédito no RH</button>';
+  }
+  if (!c.vendidoMes) {
+    h += '<div class="sf-hint">Nenhum serviço vendido/agendado este mês ainda.</div>';
+  }
+  h += '</div>';
+
+  // ── Retirado este mês vs sugerido ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">📤 Retirado Este Mês</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--grn);">R$ ' + fm(c.retiradoMes) + '</div><div class="sf-eq-lbl">Já retirado</div></div>';
+  h += '<div class="sf-eq-sep">·</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--gold2);">R$ ' + fm(c.sugerido) + '</div><div class="sf-eq-lbl">Sugerido</div></div>';
+  h += '</div>';
+  if (c.sugerido > 0) {
+    var pctRet = Math.min(100, Math.round((c.retiradoMes / c.sugerido) * 100));
+    h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + pctRet + '%;background:' + (pctRet > 120 ? 'var(--red)' : pctRet >= 80 ? 'var(--grn)' : '#d4a017') + ';"></div></div>';
+    h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + pctRet + '% do sugerido</div>';
+  }
+  if (c.retiradoMes > c.sugerido * 1.2 && c.sugerido > 0) {
+    h += '<div class="sf-alerta sf-alerta-red" style="margin-top:8px;">🔴 Você já retirou bem acima do sugerido esse mês — atenção pra não descapitalizar o caixa.</div>';
+  } else if (c.retiradoMes === 0 && c.sugerido > 0) {
+    h += '<div class="sf-alerta sf-alerta-yel" style="margin-top:8px;">🟡 Você ainda não registrou nenhuma retirada esse mês, mas há valor sugerido disponível — não esqueça de se pagar.</div>';
+  }
+  h += '<button class="fin-add-btn fin-add-grn" style="width:100%;margin-top:10px;" onclick="plRegistrar()">💸 Registrar retirada</button>';
+  h += '</div>';
+
+  // ── Evolução mensal (retirado x merecido x mínimo desejado) ──
+  h += renderProLaboreEvolucao();
+
+  // ── Reserva de emergência (contexto do teto de segurança) ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title">🛡️ Reserva de Emergência</div>';
+  h += '<div class="sf-eq-row">';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:' + (c.saldoCaixa >= 0 ? 'var(--grn)' : 'var(--red)') + ';">R$ ' + fm(c.saldoCaixa) + '</div><div class="sf-eq-lbl">Caixa atual</div></div>';
+  h += '<div class="sf-eq-sep">/</div>';
+  h += '<div class="sf-eq-item"><div class="sf-eq-val" style="color:var(--t2);">R$ ' + fm(c.reservaAlvo) + '</div><div class="sf-eq-lbl">Meta (' + (_sfGetConfig().reservaEmergencia||3) + ' meses)</div></div>';
+  h += '</div>';
+  h += '<div class="sf-bar-wrap"><div class="sf-bar-fill" style="width:' + Math.min(100,c.pctReserva) + '%;background:' + (c.pctReserva>=100?'var(--grn)':c.pctReserva>=50?'#d4a017':'var(--red)') + ';"></div></div>';
+  h += '<div style="font-size:.63rem;color:var(--t3);text-align:right;margin-top:3px;">' + c.pctReserva + '% da meta — quanto mais completa, maior o teto de segurança sobre o valor justo</div>';
+  h += '</div>';
+
+  // ── Histórico recente ──
+  h += '<div class="sf-section">';
+  h += '<div class="sf-title" style="display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>📜 Retiradas do Mês</span>';
+  h += '<button class="sf-edit-btn" onclick="plEditConfig()">⚙️ mínimo desejado</button>';
+  h += '</div>';
+  if (c.retiradasMes.length) {
+    c.retiradasMes.forEach(function(t) {
+      h += '<div class="fin-fixo-row" style="cursor:pointer;" onclick="openEditTr(' + t.id + ')"><span class="fin-fixo-nm">' + fd(t.date) + ' · ' + (t.desc || 'Pró-labore') + '</span><span class="fin-fixo-vl">R$ ' + fm(t.value) + '</span></div>';
+    });
+  } else {
+    h += '<div class="sf-hint">Nenhuma retirada lançada esse mês ainda.</div>';
+  }
+  h += '<div class="fin-fixo-tot"><span>Total no Ano (' + c.mes.slice(0,4) + ')</span><span class="fin-fixo-tot-val">R$ ' + fm(c.retiradoAno) + '</span></div>';
+  h += '<div style="display:flex;gap:8px;margin-top:10px;">';
+  h += '<button class="fin-add-btn" style="flex:1;" onclick="plMigrarHistoricoRH()">📦 Importar pro RH</button>';
+  h += '<button class="fin-add-btn" style="flex:1;" onclick="plGerarResumoAnual(\'' + c.mes.slice(0,4) + '\')">📄 Resumo anual (IR)</button>';
+  h += '</div>';
+  h += '</div>';
+
+  el.innerHTML = h;
+}
+
+// ── Últimos n meses (mais antigo primeiro): retirado real x valor merecido
+// (vendido no mês × % justo atual) — usado no gráfico de evolução ──
+function _plHistoricoMeses(n) {
+  var pl = _plGetConfig();
+  var pctVenda = pl.percentualVenda;
+  var hoje = new Date();
+  var nomesMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  var meses = [];
+  for (var i = n - 1; i >= 0; i--) {
+    var d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    var retirado = (DB.t || []).filter(function(t) {
+      return t.type === 'out' && t.isProLabore && (t.date || '').slice(0, 7) === key;
+    }).reduce(function(s, t) { return s + (t.value || 0); }, 0);
+    var ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var lLiq = _plLucroNoPeriodo(key+'-01', key+'-'+String(ultimoDia).padStart(2,'0')).lucroLiquido;
+    var merecido = Math.round(Math.max(0, lLiq) * pctVenda / 100);
+    meses.push({ key: key, label: nomesMes[d.getMonth()], retirado: retirado, merecido: merecido });
+  }
+  return meses;
+}
+
+function renderProLaboreEvolucao() {
+  _injectPlChartStyles();
+  var pl = _plGetConfig();
+  var meses = _plHistoricoMeses(6);
+  var maxVal = meses.reduce(function(m, x) { return Math.max(m, x.retirado, x.merecido); }, 1);
+  var minimo = pl.minimoDesejado || 0;
+  var BAR_H = 80;
+  var minimoH = minimo > 0 ? Math.min(BAR_H, Math.round((minimo / maxVal) * BAR_H)) : 0;
+
+  var h = '<div class="sf-section">';
+  h += '<div class="sf-title">📊 Evolução do Pró-labore (6 meses)</div>';
+  h += '<div class="pl-chart-wrap">';
+  h += '<div class="pl-chart-legend">';
+  h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dot" style="background:var(--gold2);"></div>Retirado</div>';
+  h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dot" style="background:#60a5fa;"></div>Merecido</div>';
+  if (minimo > 0) h += '<div class="pl-chart-leg-item"><div class="pl-chart-leg-dash"></div>Mínimo desejado</div>';
+  h += '</div>';
+  h += '<div class="pl-chart-bars" style="--bar-max:' + BAR_H + 'px;">';
+  if (minimo > 0) {
+    h += '<div class="pl-chart-minline" style="bottom:' + (minimoH + 26) + 'px;"></div>';
+  }
+  meses.forEach(function(m) {
+    var retH = Math.round((m.retirado / maxVal) * BAR_H);
+    var merH = Math.round((m.merecido / maxVal) * BAR_H);
+    h += '<div class="pl-chart-col">';
+    h += '<div class="pl-chart-bars-group" title="' + m.label + ': retirado R$ ' + fm(m.retirado) + ' · merecido R$ ' + fm(m.merecido) + '">';
+    h += '<div class="pl-chart-bar retirado" style="height:' + retH + 'px;"></div>';
+    h += '<div class="pl-chart-bar merecido" style="height:' + merH + 'px;"></div>';
+    h += '</div>';
+    h += '<div class="pl-chart-label">' + m.label + '</div>';
+    h += '</div>';
+  });
+  h += '</div>'; // pl-chart-bars
+  h += '</div>'; // pl-chart-wrap
+  h += '</div>'; // sf-section
+  return h;
+}
+
+function _injectPlChartStyles() {
+  if (document.getElementById('plChartStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'plChartStyle';
+  s.textContent = `
+    .pl-chart-wrap { position:relative; overflow:hidden; }
+    .pl-chart-legend { display:flex; gap:14px; margin-bottom:10px; justify-content:flex-end; flex-wrap:wrap; }
+    .pl-chart-leg-item { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--t3); }
+    .pl-chart-leg-dot { width:8px; height:8px; border-radius:50%; }
+    .pl-chart-leg-dash { width:12px; height:0; border-top:2px dashed var(--t3); }
+    .pl-chart-bars { display:flex; align-items:flex-end; gap:6px; height:calc(var(--bar-max,80px) + 26px); padding-bottom:26px; position:relative; }
+    .pl-chart-minline { position:absolute; left:0; right:0; height:0; border-top:2px dashed rgba(201,168,76,.55); }
+    .pl-chart-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; position:relative; }
+    .pl-chart-bars-group { width:100%; display:flex; gap:2px; align-items:flex-end; justify-content:center; }
+    .pl-chart-bar { flex:1; border-radius:4px 4px 0 0; min-height:2px; transition:opacity .2s; }
+    .pl-chart-bar.retirado { background: linear-gradient(to top, #a1780f, var(--gold2)); }
+    .pl-chart-bar.merecido { background: linear-gradient(to top, #1e4d7a80, #60a5fa70); }
+    .pl-chart-label { position:absolute; bottom:4px; font-size:9px; color:var(--t4); font-weight:600; white-space:nowrap; }
+  `;
+  document.head.appendChild(s);
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESUMO ANUAL DE PRÓ-LABORE (PDF) — pra apoio na declaração de IR
+// ══════════════════════════════════════════════════════════════
+function _carregarJsPDFFin(cb) {
+  if (window.jspdf && window.jspdf.jsPDF) { cb(window.jspdf.jsPDF); return; }
+  if (window.jsPDF) { cb(window.jsPDF); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+  s.onload = function() { cb((window.jspdf && window.jspdf.jsPDF) || window.jsPDF); };
+  s.onerror = function() { toast('❌ Erro ao carregar jsPDF.'); };
+  document.head.appendChild(s);
+}
+
+function plGerarResumoAnual(ano) {
+  ano = String(ano || td().slice(0, 4));
+  var lista = (DB.t || []).filter(function(t) {
+    return t.type === 'out' && t.isProLabore && (t.date || '').slice(0, 4) === ano;
+  }).sort(function(a, b) { return (a.date || '').localeCompare(b.date || ''); });
+  if (!lista.length) { toast('Nenhuma retirada de pró-labore em ' + ano); return; }
+
+  toast('⏳ Gerando PDF...');
+  _carregarJsPDFFin(function(JsPDF) {
+    var doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pW = 210, mL = 14, cW = pW - 28, y = 18;
+    var empNome = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.nome) || 'HR Mármores e Granitos';
+    var empCNPJ = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.cnpj) || '';
+    var empTel  = (typeof CFG !== 'undefined' && CFG && CFG.emp && CFG.emp.tel)  || '';
+    var nomesMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+    function cabecalho() {
+      doc.setFillColor(12, 10, 3); doc.rect(0, 0, pW, 32, 'F');
+      doc.setFillColor(201, 168, 76); doc.rect(0, 0, pW, 1.5, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(201, 168, 76);
+      doc.text(empNome, mL, 16);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(160, 150, 130);
+      var infoEmp = [empCNPJ, empTel].filter(Boolean).join('  ·  ');
+      if (infoEmp) doc.text(infoEmp, mL, 21);
+      doc.setFontSize(9); doc.setTextColor(240, 236, 228);
+      doc.text('Resumo Anual de Pró-labore — ' + ano, mL, 27);
+    }
+    function cabecalhoTabela() {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(80, 70, 55);
+      doc.text('DATA', mL, y);
+      doc.text('DESCRIÇÃO', mL + 22, y);
+      doc.text('VALOR (R$)', mL + cW, y, { align: 'right' });
+      y += 2;
+      doc.setDrawColor(210, 200, 180); doc.line(mL, y, mL + cW, y);
+      y += 5;
+    }
+    function novaPaginaSeNecessario() {
+      if (y > 275) { doc.addPage(); cabecalho(); y = 42; cabecalhoTabela(); }
+    }
+
+    cabecalho(); y = 42; cabecalhoTabela();
+
+    var totalGeral = 0, mesAtualGrp = null, totalMes = 0;
+    function fecharSubtotalMes() {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120, 100, 60);
+      doc.text('Subtotal ' + nomesMes[parseInt(mesAtualGrp.slice(5, 7), 10) - 1], mL + 22, y);
+      doc.text(fm(totalMes), mL + cW, y, { align: 'right' });
+      y += 7; totalMes = 0;
+    }
+
+    lista.forEach(function(t) {
+      var mes = (t.date || '').slice(0, 7);
+      if (mesAtualGrp !== null && mes !== mesAtualGrp) {
+        fecharSubtotalMes();
+        novaPaginaSeNecessario();
+      }
+      mesAtualGrp = mes;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(60, 55, 45);
+      doc.text(fd(t.date), mL, y);
+      doc.text(String(t.desc || 'Pró-labore').substring(0, 45), mL + 22, y);
+      doc.text(fm(t.value), mL + cW, y, { align: 'right' });
+      y += 5.5;
+      totalMes += t.value || 0;
+      totalGeral += t.value || 0;
+      novaPaginaSeNecessario();
+    });
+    if (mesAtualGrp) fecharSubtotalMes();
+
+    novaPaginaSeNecessario();
+    doc.setDrawColor(201, 168, 76); doc.setLineWidth(0.6); doc.line(mL, y, mL + cW, y);
+    y += 6;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(201, 168, 76);
+    doc.text('TOTAL RETIRADO EM ' + ano, mL, y);
+    doc.text('R$ ' + fm(totalGeral), mL + cW, y, { align: 'right' });
+    y += 10;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(140, 130, 115);
+    doc.text('Documento gerado automaticamente para apoio na declaração de Imposto de Renda.', mL, y);
+    y += 4;
+    doc.text('Consulte um contador pra confirmar o enquadramento fiscal correto do pró-labore.', mL, y);
+
+    doc.save('pro-labore-' + ano + '.pdf');
+    toast('✓ PDF gerado!');
+  });
+}
+
+// ── Registrar retirada de pró-labore ──
+function plRegistrar() {
+  // Se o sócio já está cadastrado no RH, usa o formulário de pagamento
+  // de lá (mesmo motor de funcionários — fica editável, com adiantamento
+  // e saldo certinho). Só cai no prompt simples se ainda não existe RH.
+  if (typeof HR_FUNC !== 'undefined' && HR_FUNC.getFuncionarios) {
+    var funcs = HR_FUNC.getFuncionarios();
+    var socio = Object.values(funcs).filter(function(f) { return f.socio; })[0];
+    if (socio) {
+      HR_FUNC.abrirFormPagamento(socio.id);
+      setTimeout(function() {
+        var selTipo = document.getElementById('pag_tipo');
+        if (selTipo) selTipo.value = 'adiantamento';
+      }, 150);
+      return;
+    }
+  }
+  var val = prompt('Valor da retirada de pró-labore (R$):');
+  if (val === null) return;
+  val = +val || 0;
+  if (val <= 0) { toast('Informe um valor válido'); return; }
+  var data = prompt('Data (AAAA-MM-DD):', td());
+  if (data === null) return;
+  DB.t.unshift({ id: Date.now(), type: 'out', desc: 'Pró-labore', value: val, date: data || td(), isProLabore: true });
+  DB.sv();
+  renderFin();
+  toast('✓ Retirada de pró-labore registrada!');
+}
+
+// ── Lança a dívida acumulada (meses anteriores) como crédito no RH ──
+function plLancarCreditoRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.criarCredito || !HR_FUNC.getFuncionarios) {
+    toast('Módulo RH não carregado'); return;
+  }
+  var funcs = HR_FUNC.getFuncionarios();
+  var socio = Object.values(funcs).filter(function(f) { return f.socio; })[0];
+  if (!socio) { toast('Cadastre-se como Sócio no RH primeiro'); return; }
+  var c = _plCalc();
+  if (c.devidoAnterior <= 0) { toast('Não há dívida acumulada de meses anteriores'); return; }
+  HR_FUNC.criarCredito(socio.id, c.devidoAnterior, td(), 'Dívida acumulada de pró-labore (meses anteriores)', null, null);
+  toast('✓ Lançado como crédito no RH — aloque o decêndio na tela de Pagamento');
+  renderProLabore();
+}
+
+// ── Importa retiradas antigas de pró-labore (lançadas antes da integração
+//    com o RH) como pagamentos do sócio no RH — roda quantas vezes precisar,
+//    nunca duplica o que já foi importado ──
+function plMigrarHistoricoRH() {
+  if (typeof HR_FUNC === 'undefined' || !HR_FUNC.migrarProLaboreFinancasParaRH) {
+    toast('Módulo RH não carregado'); return;
+  }
+  var r = HR_FUNC.migrarProLaboreFinancasParaRH();
+  if (!r.ok) { toast(r.erro || 'Não foi possível migrar'); return; }
+  toast(r.importados > 0 ? ('✓ ' + r.importados + ' retirada(s) importada(s) pro RH') : 'Nada novo pra importar');
+  renderProLabore();
+}
+
+// ── Editar valor mínimo desejado ──
+function plEditConfig() {
+  var pl  = _plGetConfig();
+  var val = prompt('Valor mínimo mensal que você precisa tirar do negócio pra viver (R$):', pl.minimoDesejado || '');
+  if (val === null) return;
+  pl.minimoDesejado = +val || 0;
+  svCFG();
+  renderProLabore();
+  toast('✓ Mínimo desejado atualizado!');
+}
+
+// ── Editar % justo sobre o valor vendido ──
+function plEditPercentual() {
+  var pl  = _plGetConfig();
+  var val = prompt('Qual % do valor de cada serviço vendido é justo virar seu pró-labore? (ex: 10 = 10%)', pl.percentualVenda != null ? pl.percentualVenda : 10);
+  if (val === null) return;
+  var n = +val;
+  if (isNaN(n) || n < 0 || n > 100) { toast('Informe um número entre 0 e 100'); return; }
+  pl.percentualVenda = n;
+  svCFG();
+  renderProLabore();
+  toast('✓ % sobre vendas atualizado!');
+}
+
+// ── Editar meta ──
+function sfEditMeta() {
+  var sf  = _sfGetConfig();
+  var val = prompt('Meta de faturamento mensal (R$):', sf.metaFaturamento || '');
+  if (val === null) return;
+  sf.metaFaturamento = +val || 0;
+  svCFG();
+  renderSaudeFinanceira();
+  renderProLabore();
+}
+
+// ── Editar custos recorrentes automáticos (contador, insumos
+//    estimados, contas fixas...) + % de imposto — hoje só existiam
+//    como valores fixos no código; aqui dá pra ajustar quando mudar,
+//    sem precisar editar o app. ──
+function crEditRecorrentes() {
+  var sf = _sfGetConfig();
+  var el = document.getElementById('crMd');
+  if (!el) {
+    var md = document.createElement('div');
+    md.id = 'crMd';
+    md.className = 'ov';
+    md.style.cssText = 'align-items:flex-end;';
+    md.innerHTML = '<div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;max-height:85vh;overflow-y:auto;">'
+      + '<div style="font-size:1rem;font-weight:700;color:var(--gold2);margin-bottom:4px;">⚙️ Custos Recorrentes</div>'
+      + '<div style="font-size:.68rem;color:var(--t3);margin-bottom:14px;">Valores fixos mensais descontados automaticamente (contador, insumos estimados, contas fixas...), sem precisar lançar um por um todo mês.</div>'
+      + '<div id="crList"></div>'
+      + '<button class="cfgadd" style="margin-top:10px;" onclick="crAddItem()">+ Adicionar</button>'
+      + '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd);">'
+      + '<div style="font-size:.8rem;font-weight:700;color:var(--t2);margin-bottom:8px;">% de Imposto (Simples Nacional)</div>'
+      + '<div class="cfg-row"><input class="cfginp cfginp-w" type="number" step="0.01" id="crImposto" value="' + (sf.custosRecorrentes.impostoPct || 0) + '" placeholder="%"><span style="font-size:.7rem;color:var(--t3);">Ajuste manual — ou use "🔧 Atualizar" no card de Projeção Simples Nacional pra sincronizar com a alíquota efetiva real.</span></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:10px;margin-top:16px;">'
+      + '<button class="fin-add-btn fin-add-grn" style="flex:1;" onclick="crSaveRecorrentes()">Salvar</button>'
+      + '<button class="fin-add-btn" style="flex:1;background:var(--s3);" onclick="closeAll()">Cancelar</button>'
+      + '</div></div>';
+    document.body.appendChild(md);
+  }
+  _crRenderList();
+  showMd('crMd');
+}
+
+function _crRenderList() {
+  var el = document.getElementById('crList');
+  if (!el) return;
+  var sf   = _sfGetConfig();
+  var lista = sf.custosRecorrentes.fixosMensais || [];
+  var total = lista.reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  var h = '';
+  lista.forEach(function(f, i) {
+    h += '<div class="cfg-row">'
+      + '<input class="cfginp" value="' + f.n + '" style="flex:1;text-align:left;" placeholder="Ex: Contador" onchange="_sfGetConfig().custosRecorrentes.fixosMensais[' + i + '].n=this.value;_crUpdateTotal();">'
+      + '<input class="cfginp cfginp-w" type="number" value="' + f.v + '" placeholder="R$" onchange="_sfGetConfig().custosRecorrentes.fixosMensais[' + i + '].v=+this.value;_crUpdateTotal();">'
+      + '<button class="cfgdel" onclick="_sfGetConfig().custosRecorrentes.fixosMensais.splice(' + i + ',1);_crRenderList();">✕</button>'
+      + '</div>';
+  });
+  if (!lista.length) {
+    h = '<div style="font-size:.75rem;color:var(--t3);padding:8px 0;">Nenhum custo recorrente cadastrado.</div>';
+  }
+  h += '<div id="crTotal" style="font-size:.72rem;color:var(--t3);text-align:right;margin-top:6px;">Total mensal: R$ ' + fm(total) + '</div>';
+  el.innerHTML = h;
+}
+
+function _crUpdateTotal() {
+  var elT = document.getElementById('crTotal');
+  if (!elT) return;
+  var sf    = _sfGetConfig();
+  var total = (sf.custosRecorrentes.fixosMensais || []).reduce(function(s, f) { return s + (f.v || 0); }, 0);
+  elT.textContent = 'Total mensal: R$ ' + fm(total);
+}
+
+function crAddItem() {
+  var sf = _sfGetConfig();
+  sf.custosRecorrentes.fixosMensais.push({ n: '', v: 0 });
+  _crRenderList();
+}
+
+function crSaveRecorrentes() {
+  var sf = _sfGetConfig();
+  var impEl = document.getElementById('crImposto');
+  if (impEl) sf.custosRecorrentes.impostoPct = +impEl.value || 0;
+  svCFG();
+  closeAll();
+  renderSaudeFinanceira();
+  renderProLabore();
+  renderSimplesNacional();
+  renderReservaMaquinas();
+  toast('✓ Custos recorrentes salvos!');
+}
+
+// ── Editar custos variáveis ──
+function sfEditVars() {
+  if (!CFG.variaveis) CFG.variaveis = [];
+  var el = document.getElementById('sfVarMd');
+  if (!el) {
+    // Cria modal inline
+    var md = document.createElement('div');
+    md.id = 'sfVarMd';
+    md.className = 'ov';
+    md.style.cssText = 'align-items:flex-end;';
+    md.innerHTML = '<div style="background:var(--s2);border-top:1px solid var(--bd);border-radius:20px 20px 0 0;width:100%;max-width:460px;padding:22px 22px 40px;">'
+      + '<div style="font-size:1rem;font-weight:700;color:var(--gold2);margin-bottom:14px;">🚗 Custos Variáveis</div>'
+      + '<div id="sfVarList"></div>'
+      + '<button class="cfgadd" style="margin-top:10px;" onclick="sfAddVar()">+ Adicionar</button>'
+      + '<div style="display:flex;gap:10px;margin-top:16px;">'
+      + '<button class="fin-add-btn fin-add-grn" style="flex:1;" onclick="sfSaveVars()">Salvar</button>'
+      + '<button class="fin-add-btn" style="flex:1;background:var(--s3);" onclick="closeAll()">Cancelar</button>'
+      + '</div></div>';
+    document.body.appendChild(md);
+  }
+  _sfRenderVarList();
+  showMd('sfVarMd');
+}
+
+function _sfRenderVarList() {
+  var el = document.getElementById('sfVarList');
+  if (!el) return;
+  var h = '';
+  (CFG.variaveis || []).forEach(function(v, i) {
+    h += '<div class="cfg-row">'
+      + '<input class="cfginp" value="' + v.n + '" style="flex:1;text-align:left;" placeholder="Ex: Combustível" onchange="CFG.variaveis[' + i + '].n=this.value;">'
+      + '<input class="cfginp cfginp-w" type="number" value="' + v.v + '" placeholder="R$" onchange="CFG.variaveis[' + i + '].v=+this.value;">'
+      + '<button class="cfgdel" onclick="CFG.variaveis.splice(' + i + ',1);_sfRenderVarList();">✕</button>'
+      + '</div>';
+  });
+  if (!CFG.variaveis || !CFG.variaveis.length) {
+    h = '<div style="font-size:.75rem;color:var(--t3);padding:8px 0;">Nenhum custo variável cadastrado.</div>';
+  }
+  el.innerHTML = h;
+}
+
+function sfAddVar() {
+  if (!CFG.variaveis) CFG.variaveis = [];
+  CFG.variaveis.push({ n: '', v: 0 });
+  _sfRenderVarList();
+}
+
+function sfSaveVars() {
+  svCFG();
+  closeAll();
+  renderSaudeFinanceira();
+  renderProLabore();
+  renderFixos();
+  toast('✓ Custos variáveis salvos!');
+}
+
+
+// Blocos de análise: cabeçalho clicável abre/fecha (só "Saúde Financeira" começa aberto)
+function _finOrganizar() {
+  var ids = ['saudeFinCard','proLaboreCard','simplesNacionalCard','reservaMaquinasCard','custoMaoObraCard','fixosCard'];
+  window._finSecOpen = window._finSecOpen || { saudeFinCard: true };
+  ids.forEach(function(id) {
+    var card = document.getElementById(id); if (!card) return;
+    var hd = card.parentNode.querySelector('.sl'); if (!hd) return;
+    if (!hd.dataset.fo) {
+      hd.dataset.fo = '1'; hd.classList.add('fin-sec-hd');
+      hd.onclick = function() { window._finSecOpen[id] = !window._finSecOpen[id]; _finOrganizar(); };
+    }
+    var on = !!window._finSecOpen[id];
+    card.style.display = on ? '' : 'none';
+    hd.classList.toggle('open', on);
+  });
+}
+
+
+// Botão flutuante "+": lança entrada/despesa/a receber de qualquer tela
+(function() {
+  function montar() {
+    if (document.getElementById('fabPlus')) return;
+    var st = document.createElement('style');
+    st.textContent = '#fabPlus{position:fixed;right:14px;bottom:84px;z-index:700;display:flex;flex-direction:column;align-items:flex-end;gap:8px;}'
+      + '#fabPlus .fab-main{width:50px;height:50px;border-radius:50%;border:1px solid var(--gold);background:linear-gradient(135deg,#c9a84c,#8b6014);color:#1a1400;font-size:1.7rem;font-weight:700;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.5);cursor:pointer;}'
+      + '#fabPlus .fab-opt{display:none;font-family:inherit;font-size:.8rem;font-weight:700;padding:10px 16px;border-radius:22px;border:1px solid var(--bd2);background:var(--s3);color:var(--tx);box-shadow:0 3px 10px rgba(0,0,0,.45);cursor:pointer;}'
+      + '#fabPlus.open .fab-opt{display:block;}#fabPlus.open .fab-main{transform:rotate(45deg);}'
+      + '.fin-dm{margin:10px 0;padding:10px 12px;border:1px solid var(--bd2);border-radius:14px;background:var(--s2);}'
+      + '.fin-dm-t{font-size:.66rem;letter-spacing:.8px;text-transform:uppercase;color:var(--gold2);font-weight:700;margin-bottom:6px;}'
+      + '.fin-dm-r{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;}'
+      + '.fin-dm-r small{display:block;font-size:.58rem;color:var(--t3);}.fin-dm-r b{font-size:.82rem;}'
+      + '.fin-dm-r b.g{color:var(--grn);}.fin-dm-r b.r{color:var(--red);}';
+    document.head.appendChild(st);
+    var d = document.createElement('div'); d.id = 'fabPlus';
+    d.innerHTML = '<button class="fab-opt" data-t="out">➖ Despesa</button><button class="fab-opt" data-t="in">➕ Entrada</button><button class="fab-opt" data-t="pend">⏳ A receber</button><button class="fab-main" aria-label="Lançar">+</button>';
+    d.addEventListener('click', function(e) {
+      var o = e.target.closest('.fab-opt');
+      if (o) { d.classList.remove('open'); if (typeof openFin === 'function') openFin(o.dataset.t); return; }
+      if (e.target.closest('.fab-main')) d.classList.toggle('open');
+    });
+    document.body.appendChild(d);
+    // esconde na Secretária/Chat (o botão de enviar fica ali)
+    setInterval(function() {
+      var sec = document.getElementById('pg11');
+      d.style.display = (sec && sec.offsetParent !== null) ? 'none' : 'flex';
+    }, 500);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', montar); else montar();
+})();
+
+
+// Resumo do mês (texto pronto): compartilha pelo celular ou abre o WhatsApp
+function finResumoMes() {
+  var mes = td().slice(0, 7), nomes = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  var T = (DB.t || []).filter(function(t) { return String(t.date || '').slice(0, 7) === mes; });
+  var soma = function(a) { return a.reduce(function(x, t) { return x + (t.value || 0); }, 0); };
+  var ent = T.filter(function(t) { return t.type === 'in'; }), sai = T.filter(function(t) { return t.type === 'out'; });
+  var rot = { material:'Material', mao_obra:'Mão de obra', insumos:'Insumos', fixo:'Custo fixo', combustivel:'Combustível', ferramentas:'Ferramentas', veiculo:'Veículo / manutenção', outros:'Outros' };
+  var porCat = {};
+  sai.forEach(function(t) { var k = rot[t.cat] || ((typeof PL_CAT_LABEL !== 'undefined' && t.cat && PL_CAT_LABEL[t.cat]) ? PL_CAT_LABEL[t.cat].replace(/^\S+\s+/, '') : 'Sem categoria'); porCat[k] = (porCat[k] || 0) + (t.value || 0); });
+  var dm = T.filter(function(t) { return t.origem === 'dinheiro_mao'; });
+  var linhas = ['*HR Mármores e Granitos — resumo de ' + nomes[+mes.slice(5) - 1] + '/' + mes.slice(0, 4) + '*', '',
+    '💰 Entradas: R$ ' + fm(soma(ent)), '📉 Saídas: R$ ' + fm(soma(sai)), '📈 Saldo do mês: R$ ' + fm(soma(ent) - soma(sai)), '', '*Saídas por categoria*'];
+  Object.keys(porCat).sort(function(a, b) { return porCat[b] - porCat[a]; }).forEach(function(k) { linhas.push('• ' + k + ': R$ ' + fm(porCat[k])); });
+  var pagar = (DB.b || []).filter(function(b) { return b.tipo === 'pagar' && b.status !== 'pago'; });
+  if (dm.length) linhas.push('', '💵 Em dinheiro: entrou R$ ' + fm(soma(dm.filter(function(t) { return t.type === 'in'; }))) + ' · saiu R$ ' + fm(soma(dm.filter(function(t) { return t.type === 'out'; }))));
+  if (pagar.length) linhas.push('', '🧾 Boletos a pagar em aberto: ' + pagar.length + ' (R$ ' + fm(pagar.reduce(function(x, b) { return x + (b.valor || 0); }, 0)) + ')');
+  var txt = linhas.join('\n');
+  if (navigator.share) navigator.share({ title: 'Resumo do mês', text: txt }).catch(function() {});
+  else window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}

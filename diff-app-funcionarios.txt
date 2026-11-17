@@ -1,0 +1,209 @@
+--- /mnt/user-data/uploads/app-funcionarios.js	2026-07-14 17:28:10.812301000 +0000
++++ app-funcionarios.js	2026-07-14 18:15:48.073328714 +0000
+@@ -186,6 +186,19 @@
+                    return { num:3, di: mesStr+'-21', df: mesStr+'-'+pad(ultimoDia), label: '3º decêndio' };
+   }
+ 
++  // Dado um decêndio de origem (num + mesRef 'yyyy-mm'), retorna o decêndio
++  // seguinte — usado pra saber automaticamente pra onde mandar créditos
++  // (overpago ou HE acumulada) sem depender de escolha manual do usuário.
++  // 1→2, 2→3, 3→1 do mês seguinte.
++  function _decendioSeguinte(num, mesRef){
++    if (num === 1) return { num: 2, mesRef: mesRef };
++    if (num === 2) return { num: 3, mesRef: mesRef };
++    var ano = parseInt(mesRef.slice(0,4), 10), mes = parseInt(mesRef.slice(5,7), 10) - 1;
++    var d = new Date(ano, mes + 1, 1);
++    var novoMesRef = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
++    return { num: 1, mesRef: novoMesRef };
++  }
++
+ 
+   // ── Construtores de formulário ──
+   function _campo(label, inputHtml){
+@@ -2500,6 +2513,15 @@
+           _campo('Data', _inp('pag_data','date','', hoje)),
+           _campo('Valor (R$)', _inp('pag_valor','number','0,00', sugestao,'min="0.01" step="0.01"'))
+         )+
++        // Campos ocultos: guardam o estado do toggle "Pagar agora / Acumular"
++        // pra saber, no momento de salvar, se tem HE ficando de fora do valor
++        // digitado — e se sim, quanto, de qual decêndio/mês e quantas horas
++        // (usado por _salvarPagamento pra gerar o crédito automático).
++        '<input type="hidden" id="pag_he_incluir" value="1">'+
++        '<input type="hidden" id="pag_he_valor" value="0">'+
++        '<input type="hidden" id="pag_he_horas" value="0">'+
++        '<input type="hidden" id="pag_he_dec" value="">'+
++        '<input type="hidden" id="pag_he_mes" value="">'+
+         _campo('Forma de Pagamento', _sel('pag_forma', _FORMAS_PAG, 'pix'))+
+         _campo('Observação (opcional)', _inp('pag_obs','text','Ex: 1º decendio junho, vale farmácia...',''))
+       )+
+@@ -2565,6 +2587,23 @@
+       var selTipo = document.getElementById('pag_tipo');
+       if (!selFunc) return;
+ 
++      // Atualiza os campos ocultos que guardam o estado da HE (incluída ou
++      // acumulada) — usado por _salvarPagamento pra criar o crédito
++      // automático quando a HE fica de fora do valor pago agora.
++      function _atualizarCamposHEOcultos(s2) {
++        var hInc  = document.getElementById('pag_he_incluir');
++        var hVal  = document.getElementById('pag_he_valor');
++        var hHrs  = document.getElementById('pag_he_horas');
++        var hDec  = document.getElementById('pag_he_dec');
++        var hMes  = document.getElementById('pag_he_mes');
++        if (!hInc) return;
++        hInc.value = _extraPagIncluir ? '1' : '0';
++        hVal.value = (s2 && s2.valorExtra) || 0;
++        hHrs.value = (s2 && s2.totalExtra) || 0;
++        hDec.value = _decSelecionado;
++        hMes.value = _mesPeriodo;
++      }
++
+       function _atualizarPainel(){
+         var fid   = selFunc.value;
+         var tipo  = (selTipo && selTipo.value) || 'decendio';
+@@ -2580,10 +2619,17 @@
+         var s2   = calcSaldoFuncionario(fid, _dp2.di, _dp2.df);
+         info.innerHTML = _blocoSaldo(s2, f2, _extraPagIncluir, _decSelecionado, _mesPeriodo);
+         if (inpV && tipo === 'decendio') {
++          // Bugfix: antes este reset sempre usava só o valor fixo do decêndio,
++          // ignorando o toggle "Pagar agora/Acumular" — então trocar de
++          // funcionário (ou o load inicial) podia silenciosamente tirar a HE
++          // do campo mesmo com "Pagar agora" selecionado. Agora respeita
++          // _extraPagIncluir, igual o toggle já fazia.
+           var valDec2 = _decendioValorNum(f2, _decSelecionado);
+-          if (valDec2 > 0) inpV.value = valDec2.toFixed(2);
++          var heV2    = _extraPagIncluir ? (s2.valorExtra || 0) : 0;
++          if (valDec2 > 0) inpV.value = (valDec2 + heV2).toFixed(2);
+         }
+         if (dica) dica.style.display = tipo === 'decendio' ? '' : 'none';
++        _atualizarCamposHEOcultos(s2);
+       }
+       _atualizarPainel(); // aplica visibilidade inicial do campo de desconto
+ 
+@@ -2632,6 +2678,7 @@
+             inpV.value = (valDec > 0 ? valDec + heV : (parseFloat(f2.salario)||0) + heV).toFixed(2);
+           }
+         }
++        _atualizarCamposHEOcultos(s2);
+       }
+       // Expor funções para botões inline do HTML
+       HR_FUNC._toggleExtraPag    = _atualizarToggle;
+@@ -3020,6 +3067,16 @@
+   function criarCredito(funcionarioId, valor, data, obs, decNumOrigem, mesRefOrigem) {
+     var creditos = getCreditos();
+     var id = 'cred_' + genId();
++
++    // Destino padrão: o decêndio seguinte ao de origem. Antes o crédito
++    // nascia "sem destino" e ficava só como nota informativa até alguém
++    // escolher manualmente pra onde ele ia — na prática, ninguém escolhia,
++    // e o valor não entrava na soma de nenhum período (ver auditoria jul/2026).
++    // Agora ele já nasce contando automaticamente no próximo decêndio; o
++    // usuário ainda pode trocar o destino manualmente se quiser (ver
++    // _alocarCreditoSelect), inclusive voltando pra "sem destino".
++    var destino = (decNumOrigem && mesRefOrigem) ? _decendioSeguinte(decNumOrigem, mesRefOrigem) : null;
++
+     creditos[id] = {
+       id: id,
+       funcionarioId: funcionarioId,
+@@ -3028,8 +3085,8 @@
+       obs: obs || '',
+       decNumOrigem: decNumOrigem || null,
+       mesRefOrigem: mesRefOrigem || null,
+-      creditarDecendio: null,
+-      mesRefDestino: null,
++      creditarDecendio: destino ? destino.num    : null,
++      mesRefDestino:    destino ? destino.mesRef : null,
+       aplicado: false,
+       criadoEm: new Date().toISOString()
+     };
+@@ -3124,6 +3181,13 @@
+       var creditos = getCreditos();
+       creditos[existente.id].valor = valorCredito;
+       creditos[existente.id].obs   = obsAuto;
++      // Se esse crédito ficou "sem destino" (criado antes desta correção, ou
++      // zerado manualmente), aplica o destino padrão agora — próximo decêndio.
++      if (!creditos[existente.id].creditarDecendio) {
++        var destinoExistente = _decendioSeguinte(decPago, mesPago);
++        creditos[existente.id].creditarDecendio = destinoExistente.num;
++        creditos[existente.id].mesRefDestino    = destinoExistente.mesRef;
++      }
+       saveCreditos(creditos);
+       return creditos[existente.id];
+     }
+@@ -3202,17 +3266,32 @@
+       if (res) { if (antes) atualizados++; else criados++; }
+     });
+ 
+-    return { periodosVerificados: Object.keys(combos).length, criados: criados, atualizados: atualizados };
++    // Créditos que já existiam em aberto sem destino (de origens fora da
++    // varredura acima, ex: HE acumulada) também ganham destino padrão agora.
++    var direcionados = 0;
++    var todosCreditos = getCreditos();
++    Object.keys(todosCreditos).forEach(function(id){
++      var c = todosCreditos[id];
++      if (c.aplicado || c.creditarDecendio || !c.decNumOrigem || !c.mesRefOrigem) return;
++      var destino = _decendioSeguinte(c.decNumOrigem, c.mesRefOrigem);
++      c.creditarDecendio = destino.num;
++      c.mesRefDestino    = destino.mesRef;
++      direcionados++;
++    });
++    if (direcionados > 0) saveCreditos(todosCreditos);
++
++    return { periodosVerificados: Object.keys(combos).length, criados: criados, atualizados: atualizados, direcionados: direcionados };
+   }
+ 
+   // Chamada pelo botão "🔧 Verificar créditos retroativos" — roda a migração
+   // e atualiza a tela na hora, pra o crédito aparecer sem precisar reabrir o modal.
+   function _rodarMigracaoCreditos() {
+     var r = _migrarCreditosRetroativos();
+-    if (r.criados === 0 && r.atualizados === 0) {
++    if (r.criados === 0 && r.atualizados === 0 && !r.direcionados) {
+       _toast('✅ Nenhum crédito retroativo pendente — tudo já estava certo (' + r.periodosVerificados + ' períodos verificados).');
+     } else {
+-      _toast('🔧 ' + r.criados + ' crédito(s) novo(s) e ' + r.atualizados + ' atualizado(s), de ' + r.periodosVerificados + ' períodos verificados.');
++      var extra = r.direcionados ? (', ' + r.direcionados + ' redirecionado(s) pro próximo decêndio') : '';
++      _toast('🔧 ' + r.criados + ' crédito(s) novo(s) e ' + r.atualizados + ' atualizado(s)' + extra + ', de ' + r.periodosVerificados + ' períodos verificados.');
+     }
+     if (typeof HR_FUNC._atualizarPainelPagamento === 'function') {
+       HR_FUNC._atualizarPainelPagamento();
+@@ -3342,6 +3421,13 @@
+     var obs    = (document.getElementById('pag_obs')   || {}).value || '';
+     var descSel = (document.getElementById('pag_desconto_dec') || {}).value || '';
+ 
++    // Estado do toggle "Pagar agora / Acumular" no momento de salvar —
++    // se "Acumular" estava ativo, essa HE não entrou no valor digitado
++    // e precisa virar um crédito, senão ela some sem deixar rastro.
++    var heIncluir = ((document.getElementById('pag_he_incluir')||{}).value) !== '0';
++    var heValor   = parseFloat((document.getElementById('pag_he_valor')||{}).value) || 0;
++    var heHoras   = parseFloat((document.getElementById('pag_he_horas')||{}).value) || 0;
++
+     if (!funcId) { _toast('Selecione um funcionário'); return; }
+     if (!data)   { _toast('Informe a data');           return; }
+     if (!valor || valor <= 0) { _toast('Valor inválido'); return; }
+@@ -3358,9 +3444,26 @@
+     });
+     if (!res.ok) { _toast(res.erro); return; }
+ 
++    // ── HE acumulada: gera o crédito que faltava ────────────────────────
++    // Antes, escolher "Acumular" só tirava a HE do valor pago — o dinheiro
++    // não ficava registrado em lugar nenhum. Agora vira um crédito formal,
++    // já direcionado automaticamente pro próximo decêndio, com a explicação
++    // de qual período (dia a dia) essa hora extra é.
++    var creditoGerado = null;
++    if (tipo === 'decendio' && !heIncluir && heValor > 0.005) {
++      var diaOrigem  = parseInt(data.slice(8,10), 10);
++      var decOrigem  = diaOrigem <= 10 ? 1 : diaOrigem <= 20 ? 2 : 3;
++      var mesOrigem  = data.slice(0,7);
++      var perOrigem  = _periodoDecendio(decOrigem, mesOrigem);
++      var obsHE = 'Horas extras de ' + perOrigem.di.slice(8) + ' a ' + perOrigem.df.slice(8) +
++        '/' + mesOrigem.slice(5,7) + ' (' + heHoras.toFixed(1) + 'h) acumuladas — a pagar no próximo decêndio';
++      creditoGerado = criarCredito(funcId, heValor, data, obsHE, decOrigem, mesOrigem);
++    }
++
+     var t = _TIPOS_PAG[tipo] || _TIPOS_PAG.outro;
+     var descTxt = descontarDecendio ? (' — desconto no '+descontarDecendio+'º decêndio') : '';
+-    _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!' + descTxt);
++    var heTxt = creditoGerado ? (' · ' + _fmtMoeda(heValor) + ' de HE acumulada pro próximo decêndio') : '';
++    _toast(t.icon + ' ' + t.label + ' de ' + _fmtMoeda(valor) + ' registrado!' + descTxt + heTxt);
+     _closePagamento();
+     renderPaginaFuncionarios();
+ 

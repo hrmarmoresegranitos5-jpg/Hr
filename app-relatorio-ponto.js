@@ -1,0 +1,1481 @@
+/**
+ * app-relatorio-ponto.js
+ * Gerador de Relatório de Ponto — HR Mármores e Granitos
+ *
+ * Gera um PDF idêntico ao modelo físico da empresa:
+ *   • Cabeçalho: funcionário, departamento, salário, escala
+ *   • Tabela dia a dia: data | dia | entrada | saída almoço | volta almoço | saída |
+ *                       trabalhado | esperado | saldo | valor extra
+ *   • Rodapé: resumo financeiro + total a pagar
+ *
+ * Integração: botão "📄 Relatório de Ponto" no modal de pagamento
+ * (app-funcionarios.js — função abrirFormPagamento)
+ *
+ * Depende de: jsPDF (já carregado como window.jspdf.jsPDF no projeto)
+ *             HR_IMPORT.calcSaldoHE
+ *             HR_FUNC.getFuncionarios / getRegistros / getPagamentos
+ */
+
+var HR_RELATORIO_PONTO = (function () {
+  'use strict';
+
+  // ─── Config ─────────────────────────────────────────────────────────────────
+  // Número de WhatsApp do RH/dono, usado no link "dúvidas ou contestação" do
+  // rodapé do PDF. Formato: DDD + número, sem +55 (o link já adiciona o 55).
+  // Deixe vazio ('') para não mostrar o link.
+  // OBS: preenchido com o WhatsApp da empresa (74991484460). Se Hangel quiser
+  // um número diferente pra contestação de ponto, é só trocar aqui.
+  var WPP_CONTATO_RH = '74991484460';
+
+  // Acima deste número de minutos de hora extra NUM ÚNICO DIA, o sistema pede
+  // confirmação antes de gerar o relatório (evita pagar valor errado por
+  // erro de digitação/importação do ponto). 240min = 4h.
+  var LIMIAR_HE_ANOMALA_MIN = 240;
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  function _fmtMoeda(v) {
+    return 'R$ ' + parseFloat(v || 0).toFixed(2).replace('.', ',');
+  }
+
+  /**
+   * Rótulo do saldo do dia — agora um dia pode ter parte dobrada e parte
+   * triplicada ao mesmo tempo (ex: chegou alguns minutos antes das 7h: só
+   * esses minutos são ×3, o resto do dia continua ×2). Mostra o detalhe
+   * quando misto, em vez de rotular o dia inteiro como se fosse uma coisa só.
+   */
+  function _rotuloHE(l) {
+    var e200 = l.extra200Min || 0, e50 = l.extra50Min || 0;
+    if (e200 > 0 && e50 > 0) return ' (' + _fmtMin(e50) + ' ×2 + ' + _fmtMin(e200) + ' ×3)';
+    if (e200 > 0) return ' (triplicado)';
+    return ' (dobrado)';
+  }
+
+  function _fmtMin(min) {
+    var neg = min < 0;
+    var abs = Math.abs(Math.round(min));
+    var h = Math.floor(abs / 60);
+    var m = abs % 60;
+    return (neg ? '-' : '') + String(h).padStart(2, '0') + 'h' + String(m).padStart(2, '0') + 'm';
+  }
+
+  function _fmtHoras(h) {
+    var min = Math.round(Math.abs(parseFloat(h) || 0) * 60);
+    var hh = Math.floor(min / 60);
+    var mm = min % 60;
+    return String(hh).padStart(2, '0') + 'h' + String(mm).padStart(2, '0') + 'm';
+  }
+
+  var DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  var DIAS_NUM    = ['1ª',  '2ª',  '3ª',  '4ª',  '5ª',  '6ª',  'Sáb'];
+  var MESES_PT    = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                     'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+  function _dow(dataISO) {
+    return new Date(dataISO + 'T12:00:00').getDay(); // 0=dom
+  }
+
+  function _labelDia(dow) {
+    // Retorna "2ª", "Sáb", "Dom" etc — usa DIAS_NUM (já corrigido, indexado por getDay())
+    if (dow === 0) return 'Dom';
+    return DIAS_NUM[dow];
+  }
+
+  function _mesExtenso(di, df) {
+    var d = new Date(di + 'T12:00:00');
+    return MESES_PT[d.getMonth()] + ' / ' + d.getFullYear();
+  }
+
+  function _fmtData(iso) {
+    // "2026-06-01" → "01/06"
+    return iso.slice(8, 10) + '/' + iso.slice(5, 7);
+  }
+
+  function _esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _hhmm2min(s) {
+    if (!s || s === '—' || s === '-') return null;
+    var p = (s || '').split(':').map(Number);
+    if (p.length < 2 || isNaN(p[0]) || isNaN(p[1])) return null;
+    return p[0] * 60 + p[1];
+  }
+
+  // ─── Monta linhas da tabela ──────────────────────────────────────────────────
+
+  function _montarLinhas(meusRegs, f, di, df, funcId) {
+    // Jornada esperada: configurável via f.jornadaDiariaMin ou padrão 8h/dia-útil, 4h/sáb
+    var jornDia = f.jornadaDiariaMin ? parseInt(f.jornadaDiariaMin) : 480;
+    var jornSab = 240; // 4h sábado — padrão marmoraria
+    // CORREÇÃO: alerta (não bloqueia) se a jornada cadastrada for maior
+    // que o padrão de 8h — isso zera a hora extra silenciosamente no
+    // relatório (bug encontrado no cadastro do Fabrício).
+    if (jornDia > 480 && typeof console !== 'undefined') {
+      console.warn('[HR] ' + (f.nome || '?') + ' tem jornadaDiariaMin=' + jornDia + 'min (>8h) — relatório só conta extra acima disso.');
+    }
+
+    // ── Carrega exceções globais (feriados, acordos, declarados) ──────────────
+    var excPorData = {};
+    try {
+      var excsRaw = JSON.parse(localStorage.getItem('hr_excecoes') || '{}');
+      Object.values(excsRaw).forEach(function(e) {
+        if (e.data >= di && e.data <= df) excPorData[e.data] = e;
+      });
+    } catch(e) {}
+
+    // Indexa registros por data para acesso O(1)
+    var regPorData = {};
+    meusRegs.forEach(function (r) { regPorData[r.data] = r; });
+
+    // Percorre todos os dias do período
+    var linhas = [];
+    var dAtual = new Date(di + 'T12:00:00');
+    var dFim   = new Date(df + 'T12:00:00');
+
+    while (dAtual <= dFim) {
+      var iso = dAtual.toISOString().slice(0, 10);
+      var dow = dAtual.getDay();
+      var r   = regPorData[iso] || null;
+      var exc = excPorData[iso] || null;
+
+      // Jornada esperada para esse dia
+      var esperadoMin;
+      if (dow === 0) {
+        esperadoMin = 0; // domingo = folga
+      } else if (dow === 6) {
+        esperadoMin = jornSab;
+      } else {
+        esperadoMin = jornDia;
+      }
+
+      // ── Aplica exceção ao esperado ─────────────────────────────────────────
+      // Feriado dia todo → jornada = 0 (não é falta, não conta déficit)
+      // Feriado meio período → jornada = metade (trabalhou só de manhã)
+      // Acordo → jornada = 0 (saldo livre pelos horários reais)
+      var tipoLinha = r ? (r.tipo || 'normal') : 'ausente';
+      var obsExcecao = '';
+      // Horas a descontar da HE deste dia porque compensam falta/folga em outro
+      // dia (ex: trabalhou o feriado pra folgar no sábado — as horas do sábado
+      // não viram HE, só o que sobrar depois do desconto).
+      var compensarMin = 0;
+      if (exc) {
+        if (exc.tipo === 'feriado') {
+          if (exc.meioperiodo) {
+            // Meio período: desconta metade da jornada esperada
+            esperadoMin = Math.round(esperadoMin / 2);
+            obsExcecao = 'feriado meio período' + (exc.descricao ? ' — ' + exc.descricao : '');
+          } else {
+            // Dia todo: jornada zero, não é falta
+            esperadoMin = 0;
+            obsExcecao = 'feriado' + (exc.descricao ? ' — ' + exc.descricao : '');
+          }
+          tipoLinha = 'feriado';
+        } else if (exc.tipo === 'acordo') {
+          esperadoMin = 0;
+          tipoLinha = 'acordo';
+          obsExcecao = 'acordo' + (exc.descricao ? ' — ' + exc.descricao : '');
+        } else if (exc.tipo === 'declarado') {
+          // Declarado: jornada normal, mas usa horários da exceção se não há registro
+          obsExcecao = 'declarado' + (exc.descricao ? ' — ' + exc.descricao : '');
+        }
+        compensarMin = Math.round((parseFloat(exc.compensacaoHoras) || 0) * 60);
+      }
+
+      // Falta justificada (atestado) aprovada pelo dono no ponto pelo celular: dia sem jornada, não desconta
+      if (r && r.tipo === 'abonado') {
+        esperadoMin = 0; compensarMin = 0;
+        obsExcecao = 'falta abonada' + (r.motivoAbono ? ' — ' + r.motivoAbono : '');
+      }
+      if (r) {
+        var trabMin       = Math.round((parseFloat(r.horas) || 0) * 60);
+
+        // ── Janela noturna 00:00–07:00: sempre triplicada, pra todo mundo ──
+        // Minutos trabalhados nesse horário (madrugada ou virada de turno)
+        // são tirados do cálculo de jornada esperada e sempre viram HE ×3,
+        // mesmo em um dia que fecharia no negativo sem eles — não fica
+        // "escondido" dentro de um déficit do dia.
+        var minNoturno = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.minutosNoturnos === 'function')
+          ? HR_IMPORT.minutosNoturnos(r.entrada || '', r.saida || '') : 0;
+        var trabDiurno = Math.max(0, trabMin - minNoturno);
+
+        // Extra/déficit agora SEMPRE vêm do saldo real do dia (trabalhado −
+        // esperado), calculado aqui — não mais do campo r.extra salvo na
+        // importação. Aquele valor foi calculado ANTES de qualquer exceção
+        // (feriado meio período, acordo, "Direto confirmado") ser lançada
+        // na tela de correção, então ficava desatualizado sempre que o
+        // esperado do dia mudava depois do import — fazendo o relatório
+        // mostrar "—" (sem HE) em dias que na verdade tiveram extra real.
+        var brutoExtraDia = Math.max(0, trabDiurno - esperadoMin);
+        // Desconta a compensação ANTES de classificar/multiplicar — as horas
+        // descontadas não são pagas nem triplicadas, só abatem a folga devida.
+        compensarMin      = Math.min(brutoExtraDia, compensarMin);
+        var saldoMin      = (trabDiurno - esperadoMin - compensarMin) + minNoturno;
+        var extraMin      = Math.max(0, saldoMin);
+        if (compensarMin > 0) {
+          obsExcecao += (obsExcecao ? ' — ' : '') + 'descontadas ' + _fmtMin(compensarMin) + ' (compensação)';
+        }
+        if (minNoturno > 0) {
+          obsExcecao += (obsExcecao ? ' — ' : '') + _fmtMin(minNoturno) + ' em horário noturno (00h–07h), triplicado';
+        }
+
+        // Valor extra financeiro do dia
+        // (usa o motor unificado HR_IMPORT.calcValorHoraReal — mesma jornada
+        // real usada em calcSaldoFuncionario/app-funcionarios.js — em vez de
+        // um divisor fixo de 192h que dava valor de hora diferente daqui
+        // pra lá dependendo de qual relatório era gerado)
+        var salario     = parseFloat(f.salario) || 0;
+        var valorHora   = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+          ? HR_IMPORT.calcValorHoraReal(f, iso.slice(0, 7))
+          : salario / 192; // fallback se HR_IMPORT não estiver carregado
+
+        var valorExtra  = 0;
+        // Multiplicador correto vem do motor unificado HR_IMPORT._classificarHE
+        // (mesma regra usada na tela de correção de ponto): sábado só triplica
+        // se a saída for depois de 12:00 ("sábado tarde") — sábado de manhã,
+        // mesmo com exceção de acordo/feriado meio período, é dobrado (×2).
+        // Antes, este arquivo tinha sua própria regra simplificada
+        // (`dow===0 || dow===6` → sempre ×3), que triplicava indevidamente
+        // qualquer sábado, mesmo terminando de manhã.
+        var tipoHE = 'normal';
+        // Feriado declarado na tela de correção (exceção local, salva em
+        // hr_excecoes) NÃO é a mesma lista que HR_IMPORT._classificarHE usa
+        // pra decidir ×3 — aquele só olha o array global CFG.feriados. Então
+        // um feriado marcado aqui (dia todo ou meio período) sem estar
+        // também no CFG.feriados global caía na regra padrão de dia útil
+        // (×2) em vez da regra de feriado (×3). Sábado fica de fora dessa
+        // correção porque já tem regra própria e deliberada (só triplica se
+        // a saída for depois de 12:00 — sábado de manhã com feriado/acordo
+        // continua ×2).
+        var feriadoLocalForcaTriplo = !!(exc && exc.tipo === 'feriado' && dow !== 6);
+        var temNoturno = minNoturno > 0;
+        if (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT._classificarHE === 'function') {
+          var classeHE = HR_IMPORT._classificarHE({
+            data: iso, extra: extraMin,
+            entrada: r.entrada || '', saida: r.saida || '',
+            funcId: funcId || null
+          });
+          if (feriadoLocalForcaTriplo) {
+            classeHE = { extra50: 0, extra100: 0, extra200: extraMin };
+          }
+          // Não força mais o dia inteiro pra triplicada só por ter minutos
+          // noturnos (antes de 07h) ou depois das 18h — _classificarHE já
+          // calcula isso PROPORCIONALMENTE internamente (só o excedente ao
+          // limite vira ×3, o resto continua ×2). Antes, um funcionário que
+          // chegasse alguns minutos antes das 7h tinha o dia inteiro de HE
+          // pago como triplicada, o que superpagava bastante.
+          if (extraMin > 0 && r.destinoExtra !== 'banco') {
+            valorExtra = (classeHE.extra200 / 60) * 3.0 * valorHora +
+                         (classeHE.extra100 / 60) * 3.0 * valorHora +
+                         (classeHE.extra50  / 60) * 2.0 * valorHora;
+          }
+          if (classeHE.extra200 > 0 || classeHE.extra100 > 0) tipoHE = 'especial';
+        } else {
+          // Fallback (HR_IMPORT indisponível) — mantém regra antiga só como rede de segurança
+          var _ehTriplado = (dow === 0) || feriadoLocalForcaTriplo || temNoturno;
+          tipoHE = _ehTriplado ? 'especial' : 'normal';
+          if (extraMin > 0 && r.destinoExtra !== 'banco') {
+            valorExtra = (extraMin / 60) * (_ehTriplado ? 3.0 : 2.0) * valorHora;
+          }
+          var classeHE = _ehTriplado ? { extra50: 0, extra100: 0, extra200: extraMin } : { extra50: extraMin, extra100: 0, extra200: 0 };
+        }
+
+        // Observação do dia (prioriza exceção, depois dados do registro)
+        var obs = obsExcecao;
+        if (!obs) {
+          if (r.tipo === 'feriado')         obs = 'feriado';
+          else if (r.tipo === 'acordo')     obs = 'acordo';
+          else if (r.autoCompletado)        obs = 'incompleto';
+          else if (r.tipo === 'folga_banco') obs = 'folga banco';
+        }
+
+        // Dia trabalhado (entrada + saída registradas) mas sem batida de
+        // almoço no ponto → aqui na HR todo mundo bate o ponto do almoço,
+        // mesmo almoçando na empresa, então isso não é "sem almoço", é
+        // batida direta faltando no relógio/importação. Sinaliza em vez de
+        // esconder, pra não passar a impressão de jornada contínua real.
+        // Se já foi revisado e confirmado na tela de correção do import
+        // (semAlmocoConfirmado), mostra neutro em vez de alerta — já foi
+        // uma decisão consciente, não uma pendência.
+        var temEntSai    = r.entrada && r.saida;
+        var almocoDireta = !!(temEntSai && !r.saidaAlmoco && !r.voltaAlmoco && !r.semAlmocoConfirmado);
+        var almocoDiretoConf = !!(temEntSai && !r.saidaAlmoco && !r.voltaAlmoco && r.semAlmocoConfirmado);
+
+        linhas.push({
+          data:       iso,
+          diaTxt:     _labelDia(dow),
+          entrada:    r.entrada       || '—',
+          saidaAlm:   r.saidaAlmoco  || '—',
+          voltaAlm:   r.voltaAlmoco  || '—',
+          saida:      r.saida        || '—',
+          almocoDireta: almocoDireta,
+          almocoDiretoConf: almocoDiretoConf,
+          trabMin:    trabMin,
+          esperadoMin:esperadoMin,
+          saldoMin:   saldoMin,
+          valorExtra: valorExtra,
+          extraMin:   extraMin,
+          tipoHE:     tipoHE,
+          // Minutos de HE por faixa (proporcional — um dia pode ter parte
+          // dobrada e parte triplicada ao mesmo tempo, ex: chegou 6min antes
+          // das 7h). Usado na agregação do período e no rótulo do dia.
+          extra50Min:  classeHE.extra50  || 0,
+          extra200Min: (classeHE.extra100 || 0) + (classeHE.extra200 || 0),
+          obs:        obs,
+          tipo:       tipoLinha,
+          autoComp:   !!r.autoCompletado,
+          destinoBanco: r.destinoExtra === 'banco',
+          excDescricao: exc ? (exc.descricao || '') : '',
+          minNoturno: minNoturno,
+        });
+      } else if (dow !== 0) {
+        // Dia sem registro
+        // Se feriado dia todo ou acordo → não conta como ausência
+        var ehFolga = exc && (
+          (exc.tipo === 'feriado' && !exc.meioperiodo) ||
+          exc.tipo === 'acordo'
+        );
+        // Se declarado sem registro → usa horários da exceção (opcional)
+        var entDecl = (exc && exc.tipo === 'declarado' && exc.horEntrada) ? exc.horEntrada : '—';
+        var saiDecl = (exc && exc.tipo === 'declarado' && exc.horSaida)   ? exc.horSaida  : '—';
+
+        linhas.push({
+          data:       iso,
+          diaTxt:     _labelDia(dow),
+          entrada:    entDecl,
+          saidaAlm:   '—',
+          voltaAlm:   '—',
+          saida:      saiDecl,
+          trabMin:    0,
+          esperadoMin:esperadoMin,
+          // Feriado/acordo sem registro → saldo 0 (não é déficit)
+          saldoMin:   ehFolga ? 0 : -esperadoMin,
+          valorExtra: 0,
+          extraMin:   0,
+          tipoHE:     'normal',
+          obs:        obsExcecao,
+          tipo:       tipoLinha,
+          autoComp:   false,
+          destinoBanco: false,
+          excDescricao: exc ? (exc.descricao || '') : '',
+        });
+      }
+
+      dAtual.setDate(dAtual.getDate() + 1);
+    }
+
+    return linhas;
+  }
+  // ─── Carregamento dinâmico das libs ─────────────────────────────────────────
+
+  function _loadLibs(cb) {
+    // Garante html2canvas + jsPDF
+    function loadJsPDF(next) {
+      if ((window.jspdf && window.jspdf.jsPDF) || window.jsPDF) { next(); return; }
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = next;
+      s.onerror = function(){ if(typeof toast==='function') toast('Erro ao carregar jsPDF'); };
+      document.head.appendChild(s);
+    }
+    if (typeof html2canvas !== 'undefined') { loadJsPDF(cb); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = function(){ loadJsPDF(cb); };
+    s.onerror = function(){ if(typeof toast==='function') toast('Erro ao carregar html2canvas'); };
+    document.head.appendChild(s);
+  }
+
+  function _loadJsPDF(cb) {
+    var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (J) { cb(J); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = function () {
+      var J2 = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (J2) cb(J2);
+      else { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); }
+    };
+    s.onerror = function () { if (typeof toast === 'function') toast('Erro ao carregar jsPDF'); };
+    document.head.appendChild(s);
+  }
+
+  // ─── Overlay de preview (html2canvas → imagem, igual ao contrato) ────────────
+
+  function _abrirOverlayPonto(htmlRelatorio, pdfBlobFn, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado) {
+    var GOLD = '#C9A84C', GOLDB = 'rgba(201,168,76,.55)';
+
+    var old = document.getElementById('hrPontoPDFOverlay');
+    if (old) old.remove();
+
+    var ov = document.createElement('div');
+    ov.id = 'hrPontoPDFOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#111;display:flex;flex-direction:column;';
+
+    var temShare = !!navigator.share;
+    var bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 13px;background:#0f0c00;border-bottom:1px solid '+GOLDB+';flex-shrink:0;flex-wrap:wrap;';
+    bar.innerHTML =
+      '<span style="flex:1;font-size:.73rem;color:'+GOLD+';font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📋 '+nomeFunc+' · '+mesRef+'</span>'+
+      '<button id="hrPontoZoom" disabled style="background:transparent;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">🔍</button>'+
+      '<button id="hrPontoClose" style="background:transparent;border:1px solid rgba(201,168,76,.35);color:rgba(201,168,76,.7);padding:7px 11px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;">✕</button>'+
+      '<button id="hrPontoDown" disabled style="background:#1e1800;border:1px solid rgba(201,168,76,.2);color:rgba(201,168,76,.35);padding:7px 13px;border-radius:8px;font-size:.72rem;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">⏳ PDF...</button>'+
+      (temShare ? '<button id="hrPontoWpp" disabled style="background:#0d1f12;border:1px solid rgba(37,211,102,.25);color:rgba(37,211,102,.4);padding:7px 13px;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:Outfit,sans-serif;white-space:nowrap;">💬 WhatsApp</button>' : '');
+
+    var preview = document.createElement('div');
+    preview.style.cssText = 'flex:1;overflow:auto;background:#444;display:flex;justify-content:center;align-items:flex-start;padding:16px 8px;-webkit-overflow-scrolling:touch;';
+    preview.innerHTML = '<div style="text-align:center;color:#C9A84C;padding:60px 20px;font-family:Outfit,sans-serif;font-size:.85rem;letter-spacing:.5px;">⏳ Gerando visualização, aguarde...</div>';
+
+    ov.appendChild(bar);
+    ov.appendChild(preview);
+    document.body.appendChild(ov);
+
+    document.getElementById('hrPontoClose').onclick = function(){ ov.remove(); };
+
+    // Render off-screen HTML → canvas → imagem
+    var offscreen = document.createElement('div');
+    offscreen.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;';
+    offscreen.innerHTML = htmlRelatorio;
+    document.body.appendChild(offscreen);
+
+    var pdfBlobRef = null;
+
+    function _enableButtons() {
+      var btnDown = document.getElementById('hrPontoDown');
+      var btnWpp  = document.getElementById('hrPontoWpp');
+      if (btnDown) {
+        btnDown.innerHTML = '⬇ Salvar PDF';
+        btnDown.disabled = false;
+        btnDown.style.color = GOLD;
+        btnDown.style.borderColor = GOLDB;
+        btnDown.onclick = function(){
+          if (!pdfBlobRef) { if(typeof toast==='function') toast('PDF ainda gerando...'); return; }
+          var url = URL.createObjectURL(pdfBlobRef);
+          var a = document.createElement('a'); a.href = url; a.download = fileName;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+          if(typeof toast==='function') toast('✓ PDF salvo: '+fileName);
+        };
+      }
+      if (btnWpp && temShare) {
+        btnWpp.innerHTML = '💬 WhatsApp';
+        btnWpp.disabled = false;
+        btnWpp.style.color = '#25d366';
+        btnWpp.style.borderColor = 'rgba(37,211,102,.5)';
+        btnWpp.onclick = function(){
+          if (!pdfBlobRef) { if(typeof toast==='function') toast('PDF ainda gerando...'); return; }
+          var pdfFile = new File([pdfBlobRef], fileName, {type:'application/pdf'});
+          var textoWpp = jaQuitado
+            ? 'Relatório de ponto — '+mesRef+'\nStatus: já quitado ✅\n_HR Mármores e Granitos_'
+            : 'Relatório de ponto — '+mesRef+'\nVocê vai receber: '+valorMsg+'\n_HR Mármores e Granitos_';
+          var sd = { title:'Relatório de Ponto — '+nomeFunc, text: textoWpp };
+          if (navigator.canShare && navigator.canShare({files:[pdfFile]})) sd.files = [pdfFile];
+          navigator.share(sd).catch(function(e){
+            if (e && e.name !== 'AbortError') _fallbackWpp(pdfBlobRef, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado);
+          });
+        };
+      }
+    }
+
+    setTimeout(function(){
+      html2canvas(offscreen, { scale:2, useCORS:true, backgroundColor:'#ffffff', logging:false, width:794, windowWidth:794 })
+      .then(function(canvas){
+        document.body.removeChild(offscreen);
+
+        // Mostra preview como imagem
+        preview.innerHTML = '';
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:794px;';
+        var img = document.createElement('img');
+        img.src = canvas.toDataURL('image/jpeg', 0.90);
+        img.style.cssText = 'width:100%;display:block;box-shadow:0 4px 24px rgba(0,0,0,.7);border:1px solid rgba(201,168,76,.15);transition:width .15s ease;';
+        wrap.appendChild(img);
+        preview.appendChild(wrap);
+
+        // Zoom: tap na imagem ou botão 🔍 alterna entre ajustar-à-tela e tamanho ampliado (rolagem)
+        var zoomed = false;
+        function _setZoom(on){
+          zoomed = on;
+          if (zoomed) {
+            wrap.style.maxWidth = 'none';
+            img.style.width = '210%';
+            preview.style.justifyContent = 'flex-start';
+            preview.style.alignItems = 'flex-start';
+          } else {
+            wrap.style.maxWidth = '794px';
+            img.style.width = '100%';
+            preview.style.justifyContent = 'center';
+            preview.style.alignItems = 'flex-start';
+          }
+          var btnZoom = document.getElementById('hrPontoZoom');
+          if (btnZoom) btnZoom.style.color = zoomed ? GOLD : 'rgba(201,168,76,.7)';
+        }
+        img.onclick = function(){ _setZoom(!zoomed); };
+        var btnZoomEl = document.getElementById('hrPontoZoom');
+        if (btnZoomEl) {
+          btnZoomEl.disabled = false;
+          btnZoomEl.style.color = 'rgba(201,168,76,.7)';
+          btnZoomEl.style.borderColor = GOLDB;
+          btnZoomEl.onclick = function(){ _setZoom(!zoomed); };
+        }
+
+        // Gera PDF em background
+        pdfBlobRef = pdfBlobFn();
+        _enableButtons();
+        if(typeof toast==='function') toast('✓ Relatório pronto — '+nomeFunc+' · '+mesRef);
+      })
+      .catch(function(){
+        if(document.body.contains(offscreen)) document.body.removeChild(offscreen);
+        preview.innerHTML = '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#b8b0a0;font-family:Outfit,sans-serif;font-size:.85rem;text-align:center;padding:32px;"><div style="font-size:2.5rem;">📄</div><div>Erro ao gerar preview.</div></div>';
+        // Tenta gerar PDF mesmo assim
+        try { pdfBlobRef = pdfBlobFn(); _enableButtons(); } catch(e2){}
+      });
+    }, 200);
+  }
+
+  function _fallbackWpp(blob, fileName, nomeFunc, mesRef, telFunc, valorMsg, jaQuitado) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    var tel = (telFunc || '').replace(/\D/g, '');
+    var msg = jaQuitado
+      ? 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\nStatus: já quitado ✅\n\n_HR Mármores e Granitos_'
+      : 'Olá '+nomeFunc+',\n\nSegue o relatório de ponto referente a '+mesRef+'.\nVocê vai receber: '+(valorMsg||'')+'\n\n_HR Mármores e Granitos_';
+    setTimeout(function(){
+      window.open('https://wa.me/'+(tel?'55'+tel:'')+'?text='+encodeURIComponent(msg),'_blank');
+    }, 700);
+  }
+
+  // ─── Motor financeiro do decêndio (usado por jsPDF e pelo preview HTML) ──────
+  // Centraliza toda a conta: salário fixo do decêndio + HE do período
+  // − adiantamentos apontados para este decêndio − já pago = líquido a pagar.
+  function _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, totalDeficitMin, valorHora, meusPagsPeriodo) {
+    var diaIni = di.slice(8, 10);
+    var _quinz = !!(f && !f.socio && f.periodicidade === 'quinzenal');
+    var decNum = _quinz ? (parseInt(diaIni, 10) >= 16 ? 2 : 1) : (diaIni === '01' ? 1 : (diaIni === '11' ? 2 : 3));
+    var mesRef = di.slice(0, 7);
+
+    var salario  = parseFloat(f.salario) || 0;
+    var decValor = parseFloat(f['dec' + decNum]) || (salario / (_quinz ? 2 : 3));
+
+    // Pagamentos do decêndio propriamente dito (tipo='decendio') feitos neste período
+    var pagsDecendio = meusPagsPeriodo.filter(function (p) { return p.tipo === 'decendio'; });
+    var totalPagoDecendio = pagsDecendio.reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
+
+    // Outros pagamentos (bônus, HE avulsa etc) — não inclui vale/adiantamento,
+    // que agora são tratados separadamente pelo desconto direcionado.
+    var pagsOutros = meusPagsPeriodo.filter(function (p) {
+      return p.tipo !== 'decendio' && p.tipo !== 'vale' && p.tipo !== 'adiantamento';
+    });
+    var totalPagoOutros = pagsOutros.reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
+    var totalPago = totalPagoDecendio + totalPagoOutros;
+
+    // Adiantamentos/vales apontados especificamente para este decêndio
+    var adiantamentosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._adiantamentosAlvoDecendio)
+      ? HR_FUNC._adiantamentosAlvoDecendio(funcId, decNum, mesRef) : [];
+    // Crédito de OVERPAGO (empresa pagou a mais antes) desconta, igual adiantamento:
+    // entra na mesma lista para aparecer como linha de desconto no relatório.
+    var _overpagos = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosAlvoDecendio)
+      ? HR_FUNC._creditosAlvoDecendio(funcId, decNum, mesRef) : [];
+    adiantamentosAlvo = adiantamentosAlvo.concat(_overpagos.map(function (c) {
+      return { id: c.id, data: c.data, valor: c.valor, obs: 'Crédito de overpago' + (c.obs ? ' — ' + c.obs : '') };
+    }));
+    var totalAdiantamentos = adiantamentosAlvo.reduce(function (s, a) { return s + (parseFloat(a.valor) || 0); }, 0);
+
+    // Outros adiantamentos em aberto do funcionário (apontados p/ outros decêndios) — informativo
+    var todosAbertos = (typeof HR_FUNC !== 'undefined' && HR_FUNC._adiantamentosEmAberto)
+      ? HR_FUNC._adiantamentosEmAberto(funcId) : [];
+    var idsAlvo = {};
+    adiantamentosAlvo.forEach(function (a) { idsAlvo[a.id] = true; });
+    var outrosAdiantamentos = todosAbertos.filter(function (a) { return !idsAlvo[a.id]; });
+
+    // Créditos (overpago em decêndio anterior) apontados especificamente para este —
+    // mesmo padrão dos adiantamentos, só que somam ao invés de descontar.
+    var creditosAlvo = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosHEDecendio)
+      ? HR_FUNC._creditosHEDecendio(funcId, decNum, mesRef) : [];
+    var totalCreditos = creditosAlvo.reduce(function (s, c) { return s + (parseFloat(c.valor) || 0); }, 0);
+
+    // Outros créditos em aberto do funcionário (ainda sem decêndio de destino escolhido)
+    var creditosTodos = (typeof HR_FUNC !== 'undefined' && HR_FUNC._creditosEmAberto)
+      ? HR_FUNC._creditosEmAberto(funcId) : [];
+    var idsCredAlvo = {};
+    creditosAlvo.forEach(function (c) { idsCredAlvo[c.id] = true; });
+    var outrosCreditos = creditosTodos.filter(function (c) { return !idsCredAlvo[c.id]; });
+
+    // Desconta os minutos a menos (déficit) à hora normal (1×, sem adicional —
+    // hora extra é paga com adicional porque é trabalho a mais fora da jornada;
+    // hora faltante é só jornada não cumprida, então desconta ao valor cheio).
+    var totalDeficitValor = (Math.abs(totalDeficitMin || 0) / 60) * (valorHora || 0);
+
+    // Restante deste decêndio que foi passado pro decêndio seguinte (não é mais devido aqui)
+    var pendSai = (typeof HR_FUNC !== 'undefined' && HR_FUNC._pendSaiDecendio)
+      ? HR_FUNC._pendSaiDecendio(funcId, decNum, mesRef) : [];
+    var totalPendSai = pendSai.reduce(function (s, c) { return s + (parseFloat(c.valor) || 0); }, 0);
+
+    var totalDevido  = decValor + totalValorExtra - totalDeficitValor;
+    var totalLiquido = totalDevido - totalAdiantamentos + totalCreditos - totalPendSai;
+    var saldoFinal    = totalLiquido - totalPago;
+    var status = saldoFinal <= 0.5 ? 'pago' : 'pendente';
+
+    // Status resumido dos outros 2 decêndios do mês (para a faixinha de contexto)
+    var pagsTodoMes = {};
+    try { pagsTodoMes = HR_FUNC ? HR_FUNC.getPagamentos() : {}; } catch (e) {}
+    function _statusOutroDecendio(num) {
+      if (num === decNum) return null;
+      var per = (typeof HR_FUNC !== 'undefined' && HR_FUNC._periodoDecendio)
+        ? HR_FUNC._periodoDecendio(num, mesRef, f) : null;
+      if (!per) return null;
+      var valorDec = parseFloat(f['dec' + num]) || (salario / (_quinz ? 2 : 3));
+      var pago = Object.values(pagsTodoMes).filter(function (p) {
+        return p.funcionarioId == funcId && p.tipo === 'decendio' && p.data >= per.di && p.data <= per.df;
+      }).reduce(function (s, p) { return s + (parseFloat(p.valor) || 0); }, 0);
+      return { num: num, di: per.di, df: per.df, valor: valorDec, pago: pago, quitado: pago >= valorDec - 0.5 };
+    }
+    var outrosDecendios = (_quinz ? [1, 2] : [1, 2, 3]).map(_statusOutroDecendio).filter(function (x) { return x; });
+
+    return {
+      decNum: decNum, mesRef: mesRef, decValor: decValor,
+      totalDeficitValor: totalDeficitValor,
+      totalPagoDecendio: totalPagoDecendio, totalPagoOutros: totalPagoOutros, totalPago: totalPago,
+      adiantamentosAlvo: adiantamentosAlvo, totalAdiantamentos: totalAdiantamentos,
+      outrosAdiantamentos: outrosAdiantamentos,
+      creditosAlvo: creditosAlvo, totalCreditos: totalCreditos, outrosCreditos: outrosCreditos,
+      pendSai: pendSai, totalPendSai: totalPendSai,
+      totalDevido: totalDevido, totalLiquido: totalLiquido, saldoFinal: saldoFinal,
+      status: status, outrosDecendios: outrosDecendios
+    };
+  }
+
+  // ─── Resumo financeiro (usado no PDF e na pré-visualização) ──────────────────
+  // Só o que entra na conta do período, explicado em linguagem simples:
+  // horas dobradas (×2), triplicadas (×3), horas negativas e o quanto
+  // elas tiraram do valor. Nada de outros períodos nem adiantamentos de
+  // outras datas: isso confunde o funcionário.
+  // info: { extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, e50Min, e200Min,
+  //         v50, v200 (BRUTOS, antes de abater as negativas), valorExtraLiq, totalDeficitMin }
+  function _linhasResumoFin(fin, info) {
+    var VERDE = [42, 130, 70], VERM = [180, 60, 60], LARANJA = [200, 120, 40], NEUTRO = [30, 30, 30];
+    var horas = [];
+
+    var rows = [];
+    rows.push({ label: 'Salário do período', valor: fin.decValor, sinal: '', cor: NEUTRO });
+    if ((info.e50Min + info.e200Min) > 0) {
+      rows.push({ label: 'Horas extras (' + _fmtMin(info.e50Min + info.e200Min) + ')', valor: info.v50 + info.v200, sinal: '+', cor: VERDE });
+      if (info.e50Min > 0)  rows.push({ sub: true, label: 'dobradas (×2): ' + _fmtMin(info.e50Min),   valor: info.v50 });
+      if (info.e200Min > 0) rows.push({ sub: true, label: 'triplicadas (×3): ' + _fmtMin(info.e200Min), valor: info.v200 });
+    }
+    // Quanto as horas negativas tiraram do valor: a parte que abateu as extras
+    // (extras brutas − extras líquidas) + a parte que sobrou e saiu do salário.
+    var valorNegativas = Math.max(0, (info.v50 + info.v200) - info.valorExtraLiq) + (fin.totalDeficitValor || 0);
+    if (info.deficitBrutoMin > 0 && valorNegativas > 0.005) {
+      rows.push({ label: 'Horas negativas (' + _fmtMin(info.deficitBrutoMin) + ')', valor: valorNegativas, sinal: '-', cor: VERM });
+      var nota = 'As horas negativas são descontadas primeiro das horas extras dobradas (×2); as triplicadas (×3) só entram se as dobradas não bastarem.';
+      if ((fin.totalDeficitValor || 0) > 0.005) nota += ' O que as extras não cobriram foi descontado do salário.';
+      rows.push({ nota: nota });
+    }
+    fin.creditosAlvo.forEach(function (c) {
+      var ehPend = c.tipo === 'pend';
+      rows.push({ label: ehPend ? 'Restante não pago de período anterior' : 'Horas extras acumuladas (' + _fmtData(c.data) + ')', valor: parseFloat(c.valor) || 0, sinal: '+', cor: VERDE });
+    });
+    if ((fin.totalPendSai || 0) > 0.005) {
+      rows.push({ label: 'Restante passado pro próximo período', valor: fin.totalPendSai, sinal: '-', cor: LARANJA });
+    }
+    fin.adiantamentosAlvo.forEach(function (a) {
+      var ehOverpago = a.obs && String(a.obs).indexOf('Crédito de overpago') === 0;
+      rows.push({ label: ehOverpago ? 'Desconto de valor pago a mais' : 'Adiantamento de ' + _fmtData(a.data),
+        valor: parseFloat(a.valor) || 0, sinal: '-', cor: LARANJA });
+      if (ehOverpago) { // de onde veio: o período anterior em que se pagou mais do que o devido
+        var orig = String(a.obs).replace(/^Crédito de overpago\s*(—\s*)?/, '').replace(/\s*\(parcial:.*$/, '').replace(/ overpago — /, ': ').trim();
+        rows.push({ nota: orig ? 'Vem de um pagamento anterior que passou do valor devido — ' + orig + '.' : 'Vem de um pagamento anterior que passou do valor devido.' });
+      }
+    });
+    if (fin.totalPago > 0) {
+      rows.push({ label: 'Já pago neste período', valor: fin.totalPago, sinal: '-', cor: VERM });
+    }
+    return { horas: horas, rows: rows };
+  }
+
+  // ─── Gerador PDF principal ───────────────────────────────────────────────────
+
+  function gerarPDF(funcId, di, df) {
+    _loadLibs(function() {
+      var jsPDFClass = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+      if (!jsPDFClass) { if(typeof toast==='function') toast('jsPDF não carregado'); return; }
+      _executarGeracao(jsPDFClass, funcId, di, df);
+    });
+  }
+
+  function _executarGeracao(jsPDFClass, funcId, di, df, opts) {
+    opts = opts || {};
+    // Coleta dados
+    var funcs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+    var regs   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
+    var pags   = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getPagamentos()   : {};
+    var f      = funcs[funcId] || {};
+
+    if (!f.nome) { if (opts.erro) { opts.erro('Funcionário não encontrado.'); return; } alert('Funcionário não encontrado.'); return; }
+
+    var salario    = parseFloat(f.salario) || 0;
+    var valorHora  = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+      ? HR_IMPORT.calcValorHoraReal(f, di.slice(0, 7))
+      : salario / 192;
+
+    var meusRegs = Object.values(regs).filter(function (r) {
+      return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
+    });
+    var meusPags = Object.values(pags).filter(function (p) {
+      return p.funcionarioId != null && p.funcionarioId == funcId && p.data >= di && p.data <= df;
+    });
+
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
+
+    var totalTrabMin  = 0, totalEsperadoMin = 0, totalSaldoMin = 0;
+    var totalExtraMin50 = 0, totalExtraMin200 = 0;
+    var totalValorExtra50 = 0, totalValorExtra200 = 0;
+    var totalValorExtra = 0, totalDeficitMin = 0;
+
+    linhas.forEach(function (l) {
+      totalTrabMin      += l.trabMin;
+      totalEsperadoMin  += l.esperadoMin;
+      totalSaldoMin     += l.saldoMin;
+      totalValorExtra   += l.valorExtra;
+      if (l.saldoMin < 0) totalDeficitMin += l.saldoMin;
+      if (l.extraMin > 0 && !l.destinoBanco) {
+        // Proporcional por faixa real do dia, não binário (ver _rotuloHE)
+        var e200b = l.extra200Min || 0, e50b = l.extra50Min || 0;
+        totalExtraMin200 += e200b;
+        totalExtraMin50  += e50b;
+        if (l.extraMin > 0) {
+          totalValorExtra200 += l.valorExtra * (e200b / l.extraMin);
+          totalValorExtra50  += l.valorExtra * (e50b  / l.extraMin);
+        }
+      }
+    });
+
+    // ── Abate horas negativas/faltantes CONTRA as horas extras do período ──
+    // Regra: a falta é descontada primeiro da HE ×2 (dobrada). A HE ×3
+    // (triplicada — domingo/feriado/especial) é protegida e só é usada pra
+    // cobrir a falta se a ×2 sozinha não bastar (ou seja, se o total de
+    // horas extras ×2 for MENOR que as horas negativas do período). O que
+    // sobrar de falta sem nenhuma HE pra cobrir continua descontado à parte,
+    // ao valor cheio (1×) — é jornada não cumprida, não tem adicional.
+    //
+    // Guarda os brutos (antes de abater) só para exibição — o funcionário
+    // precisa ver que trabalhou hora extra e que ela foi usada pra cobrir
+    // a falta, não simplesmente "sumir" do relatório.
+    var extraBrutoMin       = totalExtraMin50 + totalExtraMin200;
+    var valorExtraBrutoTotal = totalValorExtra50 + totalValorExtra200;
+    var deficitBrutoMin     = Math.abs(totalDeficitMin);
+    var deficitAbatidoMin   = 0; // quanto da falta foi coberto pelas horas extras
+    var e50Bruto = totalExtraMin50, e200Bruto = totalExtraMin200;       // para o resumo do relatório
+    var v50Bruto = totalValorExtra50, v200Bruto = totalValorExtra200;
+
+    if (totalDeficitMin < 0) {
+      var _deficitAbs    = Math.abs(totalDeficitMin);
+      var _extra50Orig   = totalExtraMin50;
+      var _extra200Orig  = totalExtraMin200;
+
+      var _novoExtraMin50  = Math.max(0, _extra50Orig - _deficitAbs);
+      var _restanteDeficit = Math.max(0, _deficitAbs - _extra50Orig);
+
+      var _novoExtraMin200  = Math.max(0, _extra200Orig - _restanteDeficit);
+      var _faltaRestanteMin = Math.max(0, _restanteDeficit - _extra200Orig);
+
+      totalValorExtra50  = (_extra50Orig  > 0) ? totalValorExtra50  * (_novoExtraMin50  / _extra50Orig)  : 0;
+      totalValorExtra200 = (_extra200Orig > 0) ? totalValorExtra200 * (_novoExtraMin200 / _extra200Orig) : 0;
+      totalExtraMin50  = _novoExtraMin50;
+      totalExtraMin200 = _novoExtraMin200;
+      totalValorExtra  = totalValorExtra50 + totalValorExtra200;
+      totalDeficitMin  = -_faltaRestanteMin;
+
+      deficitAbatidoMin = _deficitAbs - _faltaRestanteMin;
+    }
+
+    // ── Resumo visual: quantos dias com jornada esperada foram batidos "completos" ──
+    var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
+    var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
+    var diasComAjuste = diasEsperados - diasCompletos;
+
+    // ── Alerta de anomalia: HE muito alta num único dia (possível erro de ponto) ──
+    var diaAnomalo = null;
+    linhas.forEach(function (l) {
+      if (l.extraMin >= LIMIAR_HE_ANOMALA_MIN && (!diaAnomalo || l.extraMin > diaAnomalo.extraMin)) diaAnomalo = l;
+    });
+    if (diaAnomalo && typeof window !== 'undefined' && window.confirm) {
+      var confirmou = window.confirm(
+        '⚠️ ' + (f.nome || 'Funcionário') + ' tem ' + _fmtMin(diaAnomalo.extraMin) +
+        ' de hora extra no dia ' + _fmtData(diaAnomalo.data) + '.\n\n' +
+        'Isso é bem mais que o normal — pode ser erro de importação/edição do ponto.\n\n' +
+        'Confirma que está certo e quer gerar o relatório mesmo assim?'
+      );
+      if (!confirmou) return null;
+    }
+
+    var fin = _calcularFinanceiroDecendio(funcId, f, di, df, totalValorExtra, totalDeficitMin, valorHora, meusPags);
+
+    var doc = new jsPDFClass({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    var pW = 210, pH = 297;
+    var mL = 12, mR = 12;
+    var cW = pW - mL - mR;
+
+    var COR_HEADER   = [26, 54, 93];
+    var COR_GOLD     = [185, 140, 50];
+    var COR_VERDE    = [42, 130, 70];
+    var COR_VERM     = [180, 60, 60];
+    var COR_LARANJA  = [200, 120, 40];
+    var COR_CINZA    = [180, 180, 180];
+    var COR_TH_BG    = [235, 240, 248];
+    var COR_LINHA_AL = [240, 248, 240];
+    var COR_LINHA_VM = [255, 242, 242];
+    var COR_LINHA_AM = [255, 252, 230];
+    var COR_LINHA_AZ = [230, 242, 255];
+
+    var y = 0;
+
+    // ── CABEÇALHO ────────────────────────────────────────────────────────────
+    doc.setFillColor.apply(doc, COR_HEADER);
+    doc.rect(0, 0, pW, 20, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.text('RELATÓRIO DE PONTO', pW / 2, 9, { align: 'center' });
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(f.nome || '', pW / 2, 15.5, { align: 'center' });
+    doc.setFontSize(7.5);
+    doc.setTextColor(200, 215, 240);
+    doc.text(_mesExtenso(di, df) + '  ·  ' + fin.decNum + 'º período (' + _fmtData(di) + ' a ' + _fmtData(df) + ')', pW / 2, 19, { align: 'center' });
+
+    y = 25;
+
+    // ── VALOR A RECEBER — a primeira (e principal) informação do documento ──
+    var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
+    var corStatus = fin.status === 'pago' ? COR_VERDE : COR_HEADER;
+    y = 27;
+    var relanceH = 22;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor.apply(doc, corStatus);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(mL, y, cW, relanceH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text(fin.status === 'pago' ? 'Valor já recebido' : 'Você vai receber', mL + 5, y + 7);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(19);
+    doc.setTextColor.apply(doc, corStatus);
+    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), mL + 5, y + 17);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(90, 90, 90);
+    doc.text('Trabalhou ' + diasTrabalhados + (diasTrabalhados === 1 ? ' dia' : ' dias'), pW - mR - 5, y + 16.5, { align: 'right' });
+    y += relanceH + 5;
+
+    // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ──────────────────
+    var resumo = _linhasResumoFin(fin, {
+      extraBrutoMin: extraBrutoMin, deficitBrutoMin: deficitBrutoMin, deficitAbatidoMin: deficitAbatidoMin,
+      e50Min: e50Bruto, e200Min: e200Bruto, v50: v50Bruto, v200: v200Bruto,
+      valorExtraLiq: totalValorExtra, totalDeficitMin: totalDeficitMin
+    });
+    var resumoRows = resumo.rows;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    var boxH = 9 + 15 + (resumo.horas.length ? resumo.horas.length * 6 + 10.5 : 0);
+    resumoRows.forEach(function (r) {
+      if (r.nota) { r.notaLinhas = doc.splitTextToSize(r.nota, cW - 12); boxH += r.notaLinhas.length * 3.6 + 1.5; }
+      else if (r.sub) boxH += 4.8;
+      else boxH += 6;
+    });
+
+    doc.setFillColor(fin.status === 'pago' ? 236 : 250, fin.status === 'pago' ? 246 : 244, fin.status === 'pago' ? 238 : 224);
+    doc.setDrawColor.apply(doc, fin.status === 'pago' ? COR_VERDE : COR_GOLD);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(mL, y, cW, boxH, 2, 2, 'FD');
+
+    var fy = y + 6.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor.apply(doc, COR_HEADER);
+    if (resumo.horas.length) {
+      doc.text('Horas do período', mL + 5, fy);
+      fy += 6.5;
+      resumo.horas.forEach(function (h) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(60, 60, 60);
+        doc.text(h.label, mL + 6, fy);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor.apply(doc, h.cor);
+        doc.text(h.texto, pW - mR - 5, fy, { align: 'right' });
+        fy += 6;
+      });
+      fy += 4;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor.apply(doc, COR_HEADER);
+    }
+    doc.text('Como chegamos nesse valor', mL + 5, fy);
+    fy += 6.5;
+
+    resumoRows.forEach(function (r) {
+      if (r.nota) {
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(7.5);
+        doc.setTextColor(120, 120, 120);
+        r.notaLinhas.forEach(function (t) { doc.text(t, mL + 6, fy - 1); fy += 3.6; });
+        fy += 1.5;
+        return;
+      }
+      if (r.sub) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.text('· ' + r.label, mL + 11, fy - 1);
+        doc.text(_fmtMoeda(r.valor), pW - mR - 5, fy - 1, { align: 'right' });
+        fy += 4.8;
+        return;
+      }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.text(r.label, mL + 6, fy);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor.apply(doc, r.cor);
+      doc.text((r.sinal ? r.sinal + ' ' : '') + _fmtMoeda(r.valor), pW - mR - 5, fy, { align: 'right' });
+      fy += 6;
+    });
+
+    fy += 1.5;
+    doc.setFillColor(fin.status === 'pago' ? 42 : 26, fin.status === 'pago' ? 130 : 54, fin.status === 'pago' ? 70 : 93);
+    doc.roundedRect(mL + 3, fy - 4.5, cW - 6, 9, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(fin.status === 'pago' ? 'QUITADO' : 'TOTAL A RECEBER', mL + 7, fy + 1.2);
+    doc.setFontSize(12);
+    doc.text(_fmtMoeda(Math.abs(fin.saldoFinal)), pW - mR - 7, fy + 1.4, { align: 'right' });
+
+    y += boxH + 5;
+
+    y += 2;
+
+    // Colunas de almoço sempre aparecem — aqui na HR todo mundo bate o
+    // ponto do almoço (mesmo comendo na empresa), então esconder a coluna
+    // quando um dia vem sem essa batida passaria a impressão errada de
+    // jornada contínua. Dias sem a batida mostram "Batida direta" (ver
+    // cells abaixo) em vez de sumir a coluna inteira.
+    var temAlmoco = true;
+
+    // ── TABELA DE PONTO ─────────────────────────────────────────────────────
+    var cols = [
+      { header: 'Data',        w: 15, align: 'center' },
+      { header: 'Dia',         w: 11, align: 'center' },
+      { header: 'Entrada',     w: 19, align: 'center' },
+      { header: 'Saída\nAlmoço', w: 19, align: 'center' },
+      { header: 'Volta\nAlmoço', w: 19, align: 'center' },
+      { header: 'Saída',       w: 19, align: 'center' },
+      { header: 'Trabalhado',  w: 28, align: 'center' },
+      { header: 'Trabalhou a\nmais / Faltou',w: 38, align: 'center' },
+    ];
+    var totalW = cols.reduce(function(s, c){ return s + c.w; }, 0);
+    var diff   = cW - totalW;
+    cols[cols.length - 1].w += diff;
+
+    var colX = [];
+    var cx = mL;
+    cols.forEach(function(c){ colX.push(cx); cx += c.w; });
+
+    var rowH  = 6.3;
+    var thH   = 8.6;
+
+    function _headerTabela() {
+      doc.setFillColor.apply(doc, COR_TH_BG);
+      doc.rect(mL, y, cW, thH, 'F');
+      doc.setDrawColor(180, 190, 210);
+      doc.setLineWidth(0.2);
+      doc.rect(mL, y, cW, thH, 'S');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.4);
+      doc.setTextColor(30, 50, 90);
+      cols.forEach(function(c, i) {
+        var lines = c.header.split('\n');
+        var tx = colX[i] + c.w / 2;
+        var baseY = y + (lines.length === 2 ? 3.4 : 5.6);
+        lines.forEach(function(line, li) {
+          doc.text(line, tx, baseY + li * 3.3, { align: 'center' });
+        });
+      });
+      y += thH;
+    }
+
+    _headerTabela();
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.6);
+
+    var saldoIdx = cols.length - 1;
+
+    linhas.forEach(function (l, idx) {
+      if (y + rowH > pH - 18) {
+        doc.addPage();
+        y = 12;
+        _headerTabela();
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.6);
+      }
+
+      if (l.tipo === 'feriado' || l.tipo === 'acordo') {
+        doc.setFillColor.apply(doc, COR_LINHA_AZ);
+        doc.rect(mL, y, cW, rowH, 'F');
+      } else if (l.extraMin > 0 && !l.destinoBanco) {
+        doc.setFillColor.apply(doc, COR_LINHA_AL);
+        doc.rect(mL, y, cW, rowH, 'F');
+      } else if (l.saldoMin < -5) {
+        doc.setFillColor.apply(doc, COR_LINHA_VM);
+        doc.rect(mL, y, cW, rowH, 'F');
+      } else if (l.autoComp) {
+        doc.setFillColor.apply(doc, COR_LINHA_AM);
+        doc.rect(mL, y, cW, rowH, 'F');
+      } else if (idx % 2 === 0) {
+        doc.setFillColor(252, 252, 252);
+        doc.rect(mL, y, cW, rowH, 'F');
+      }
+
+      doc.setDrawColor(210, 215, 220);
+      doc.setLineWidth(0.1);
+      doc.line(mL, y + rowH, mL + cW, y + rowH);
+
+      var cy = y + rowH - 1.9;
+      var corTexto = [40, 40, 40];
+      if (l.tipo === 'ausente') corTexto = [180, 60, 60];
+      else if (l.autoComp)      corTexto = [160, 120, 20];
+      doc.setTextColor.apply(doc, corTexto);
+
+      var cells = [
+        _fmtData(l.data), l.diaTxt, l.entrada, l.saidaAlm, l.voltaAlm, l.saida,
+        _fmtMin(l.trabMin),
+      ];
+      cells.forEach(function (txt, i) {
+        // Colunas 3 e 4 (Saída/Volta Almoço) — dia trabalhado sem batida de
+        // almoço vira uma célula mesclada: "Batida direta" (itálico, cinza
+        // de alerta) se ainda não foi revisado, ou "Direto" (neutro) se o
+        // dono já confirmou na tela de correção que foi intencional.
+        if ((l.almocoDireta || l.almocoDiretoConf) && i === 3) {
+          doc.setFont('helvetica', 'italic');
+          doc.setTextColor.apply(doc, l.almocoDireta ? [140, 140, 140] : [130, 150, 140]);
+          doc.setFontSize(7.4);
+          var wSpan = cols[3].w + cols[4].w;
+          doc.text(l.almocoDireta ? 'Batida direta' : 'Direto (confirmado)', colX[3] + wSpan / 2, cy, { align: 'center' });
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.6);
+          doc.setTextColor.apply(doc, corTexto);
+          return;
+        }
+        if ((l.almocoDireta || l.almocoDiretoConf) && i === 4) return; // já desenhado mesclado acima
+        var c = cols[i];
+        doc.text(txt, colX[i] + c.w / 2, cy, { align: 'center' });
+      });
+
+      // Coluna final "Saldo do Dia" — uma célula só, colorida
+      var saldoTxt, saldoCor;
+      if (l.extraMin > 0 && !l.destinoBanco) {
+        saldoTxt = '+' + _fmtMin(l.extraMin);
+        saldoCor = [40, 130, 70];
+      } else if (l.saldoMin < -5) {
+        saldoTxt = _fmtMin(l.saldoMin);
+        saldoCor = [180, 60, 60];
+      } else {
+        saldoTxt = '—';
+        saldoCor = [150, 150, 150];
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.6);
+      doc.setTextColor.apply(doc, saldoCor);
+      doc.text(saldoTxt, colX[saldoIdx] + cols[saldoIdx].w / 2, cy, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.6);
+
+      y += rowH;
+    });
+
+    // Observações
+    y += 2;
+    var obsLinhas = [];
+    linhas.forEach(function(l) {
+      if (l.tipo === 'feriado') {
+        obsLinhas.push('•' + _fmtData(l.data) + ': feriado' + (l.obs && l.obs.indexOf('meio') !== -1 ? ' meio período' : '') + (l.excDescricao ? ' (' + l.excDescricao + ')' : ''));
+      } else if (l.tipo === 'acordo') {
+        obsLinhas.push('•' + _fmtData(l.data) + ': acordo' + (l.excDescricao ? ' (' + l.excDescricao + ')' : ''));
+      } else if (l.autoComp) {
+        obsLinhas.push('•' + _fmtData(l.data) + ': horário incompleto');
+      }
+    });
+    if (obsLinhas.length > 0) {
+      if (y + 6 > pH - 15) { doc.addPage(); y = 15; }
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(6.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Observações: ' + obsLinhas.join(' | '), mL, y, { maxWidth: cW });
+      y += 5;
+    }
+
+    y += 2;
+
+    y += 4;
+
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(6);
+    var agora = new Date();
+    var dtGer = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    doc.text('Documento gerado em ' + dtGer + ' · HR Mármores e Granitos', pW / 2, y, { align: 'center' });
+
+    var _wppRH = opts.wppContato || WPP_CONTATO_RH; // relatório mandado pelo bot: a dúvida vai para a secretária
+    if (_wppRH) {
+      y += 6;
+      var msgContest = 'Olá! Sobre meu relatório de ponto (' + (f.nome || '') + ', ' + _mesExtenso(di, df) + '): tenho uma dúvida ou algo não bate.';
+      var urlContest = 'https://wa.me/' + (String(_wppRH).length > 11 ? '' : '55') + _wppRH + '?text=' + encodeURIComponent(msgContest);
+      doc.setFillColor(230, 246, 234);
+      doc.setDrawColor(120, 190, 140);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(mL + 20, y - 5, cW - 40, 8, 1.5, 1.5, 'FD');
+      doc.setTextColor(20, 110, 55);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.textWithLink('Dúvida ou algo não bate? Toque aqui e fale com o RH', pW / 2, y, { align: 'center', url: urlContest });
+    }
+
+    // ── Prepara dados de saída ────────────────────────────────────────────────
+    var nomeFmt = (f.nome || 'func').replace(/\s+/g, '_').toLowerCase();
+    var mesFmt  = di.slice(0, 7).replace('-', '') + '_' + di.slice(8,10) + '_' + df.slice(8,10);
+    var fileName = 'relatorio_ponto_' + nomeFmt + '_' + mesFmt + '.pdf';
+    var mesRef   = _mesExtenso(di, df) + ' (' + di.slice(8,10) + '-' + df.slice(8,10) + ')';
+    var telFunc  = f.telefone || f.tel || '';
+
+    var htmlPreview = _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
+      totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
+      extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, resumo);
+
+    var pdfBlobFn = function() { return doc.output('blob'); };
+
+    // Relatório para o bot mandar no WhatsApp: devolve o PDF e os números, sem abrir a tela
+    if (opts.paraBot) {
+      opts.paraBot({
+        blob: doc.output('blob'), fileName: fileName, nome: f.nome || '', di: di, df: df, mesRef: mesRef,
+        valor: Math.abs(fin.saldoFinal), status: fin.status,
+        fin: (resumo && resumo.rows || []).filter(function (r) { return !r.nota; }).map(function (r) { return { label: r.label, valor: Math.round((r.valor || 0) * 100) / 100, sinal: r.sinal || '', sub: !!r.sub }; }),
+        dias: linhas.map(function (l) { return { data: l.data, e: l.entrada, ai: l.saidaAlm, af: l.voltaAlm, s: l.saida, trab: l.trabMin, esp: l.esperadoMin, saldo: l.saldoMin, tipo: l.tipo || '', obs: l.obs || '' }; })
+      });
+      return;
+    }
+
+    var valorMsg = (fin.status === 'pago' ? 'já quitado' : _fmtMoeda(Math.abs(fin.saldoFinal)));
+    _abrirOverlayPonto(htmlPreview, pdfBlobFn, fileName, f.nome || 'Funcionário', mesRef, telFunc, valorMsg, fin.status === 'pago');
+  }
+
+  // ─── Gerador HTML do relatório (para preview via html2canvas) ────────────────
+
+  function _gerarHtmlRelatorio(f, linhas, di, df, totalExtraMin50, totalExtraMin200,
+    totalValorExtra, totalDeficitMin, meusPags, salario, valorHora, fin, totalValorExtra50, totalValorExtra200,
+    extraBrutoMin, deficitBrutoMin, deficitAbatidoMin, resumo) {
+
+    extraBrutoMin     = extraBrutoMin     || 0;
+    deficitBrutoMin   = deficitBrutoMin   || 0;
+    deficitAbatidoMin = deficitAbatidoMin || 0;
+
+    var mesRef = _mesExtenso(di, df);
+    var depto  = f.equipe || f.cargo || 'Marmoraria';
+    var diasEsperados = linhas.filter(function (l) { return l.esperadoMin > 0; }).length;
+    var diasCompletos = linhas.filter(function (l) { return l.esperadoMin > 0 && l.trabMin >= l.esperadoMin - 5; }).length;
+    var diasComAjuste = diasEsperados - diasCompletos;
+    var diasTrabalhados = linhas.filter(function (l) { return l.trabMin > 0; }).length;
+    var totalExtraMinRelance = totalExtraMin50 + totalExtraMin200;
+
+    // Colunas de almoço sempre aparecem — todo mundo na HR bate o ponto do
+    // almoço (mesmo comendo na empresa). Dias sem essa batida não somem a
+    // coluna; mostram "Batida direta" (ver rowsHtml) pra deixar claro que
+    // é uma falta de registro, não jornada contínua sem intervalo.
+    var temAlmoco = true;
+
+    function fmtMin(min) {
+      var neg = min < 0, abs = Math.abs(Math.round(min));
+      return (neg?'-':'')+String(Math.floor(abs/60)).padStart(2,'0')+'h'+String(abs%60).padStart(2,'0')+'m';
+    }
+    function fmtData(iso) { return iso.slice(8,10)+'/'+iso.slice(5,7); }
+    function fmtMoeda(v) { return 'R$ '+parseFloat(v||0).toFixed(2).replace('.',','); }
+
+    var rowsHtml = '';
+    linhas.forEach(function(l, idx) {
+      var bg = idx%2===0?'#fff':'#fafafa';
+      if (l.tipo==='feriado'||l.tipo==='acordo') bg='#e6f2ff';
+      else if (l.extraMin>0&&!l.destinoBanco)    bg='#f0fff0';
+      else if (l.saldoMin<-5)                    bg='#fff2f2';
+      else if (l.autoComp)                       bg='#fffce6';
+
+      var saldoDiaHtml;
+      if (l.extraMin>0 && !l.destinoBanco) {
+        saldoDiaHtml = '<span style="color:#2a8a46;font-weight:700;">+'+fmtMin(l.extraMin)+'</span>';
+      } else if (l.saldoMin<-5) {
+        saldoDiaHtml = '<span style="color:#b43c3c;font-weight:700;">'+fmtMin(l.saldoMin)+'</span>';
+      } else {
+        saldoDiaHtml = '<span style="color:#aaa;">—</span>';
+      }
+
+      rowsHtml +=
+        '<tr style="background:'+bg+';">'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtData(l.data)+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.diaTxt+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.entrada+'</td>'+
+        (l.almocoDireta
+          ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#999;">Batida direta</td>'
+          : (l.almocoDiretoConf
+              ? '<td colspan="2" style="text-align:center;padding:7px 5px;font-size:12px;font-style:italic;color:#7a9a85;">Direto (confirmado)</td>'
+              : '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saidaAlm+'</td>'+
+                '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.voltaAlm+'</td>'
+            )
+        )+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+l.saida+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+fmtMin(l.trabMin)+'</td>'+
+        '<td style="text-align:center;padding:7px 5px;font-size:13.5px;">'+saldoDiaHtml+'</td>'+
+        '</tr>';
+    });
+
+    var obsHtml = '';
+    linhas.forEach(function(l){
+      if (l.tipo==='feriado') {
+        var isMeio = l.obs&&l.obs.indexOf('meio')!==-1;
+        obsHtml += '•'+fmtData(l.data)+': feriado'+(isMeio?' meio período':'')+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
+      } else if (l.tipo==='acordo') {
+        obsHtml += '•'+fmtData(l.data)+': acordo'+(l.excDescricao?' ('+l.excDescricao+')':'')+' ';
+      } else if (l.autoComp) {
+        obsHtml += '•'+fmtData(l.data)+': horário incompleto ';
+      }
+    });
+
+    var agora = new Date();
+    var dtGer = agora.toLocaleDateString('pt-BR')+' '+agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+
+    var statusCorBg  = fin.status === 'pago' ? '#eaf7ee' : '#fdf7e6';
+    var statusCorBd  = fin.status === 'pago' ? '#8fcf9f' : '#e8c877';
+    var faixaCor     = fin.status === 'pago' ? '#2a8a46' : '#1a3660';
+
+    var horasHtml = '';
+    if (resumo.horas.length) {
+      horasHtml = '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Horas do período</div>'+
+        resumo.horas.map(function (h) {
+          return '<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
+            '<span style="color:#444;">'+_esc(h.label)+'</span>'+
+            '<span style="font-weight:700;color:rgb('+h.cor.join(',')+');">'+_esc(h.texto)+'</span></div>';
+        }).join('')+
+        '<div style="height:12px;"></div>';
+    }
+    var linhasResumo = '';
+    resumo.rows.forEach(function (r) {
+      if (r.nota) {
+        linhasResumo += '<div style="padding:0 0 8px;font-size:13px;color:#888;font-style:italic;line-height:1.4;">'+_esc(r.nota)+'</div>';
+        return;
+      }
+      if (r.sub) {
+        linhasResumo += '<div style="display:flex;justify-content:space-between;padding:0 0 6px 16px;font-size:13px;color:#888;">'+
+          '<span>· '+_esc(r.label)+'</span><span>'+fmtMoeda(r.valor)+'</span></div>';
+        return;
+      }
+      linhasResumo += '<div style="display:flex;justify-content:space-between;padding:8px 0 6px;font-size:16px;border-bottom:1px solid rgba(0,0,0,.06);">'+
+        '<span style="color:#444;">'+_esc(r.label)+'</span>'+
+        '<span style="font-weight:700;color:rgb('+r.cor.join(',')+');">'+(r.sinal ? r.sinal+' ' : '')+fmtMoeda(r.valor)+'</span></div>';
+    });
+
+    // Colunas da tabela — Saída/Volta Almoço só entram se alguém realmente bate almoço
+    var colsHead =
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Data</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Dia</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Entrada</th>'+
+      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída<br>Almoço</th>' : '')+
+      (temAlmoco ? '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Volta<br>Almoço</th>' : '')+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Saída</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhado</th>'+
+      '<th style="padding:8px 5px;font-size:12.5px;text-align:center;border:1px solid #ccd6e0;">Trabalhou a mais<br>/ Faltou</th>';
+
+    // Rodapé técnico — só o essencial (déficit, se houver), sem jargão.
+    // O resto (valor hora, ×2, ×3) já está explicado no card do topo.
+    var rodapeTecnico = '';
+
+    return '<div style="font-family:Arial,sans-serif;background:#fff;padding:16px 20px;color:#111;width:754px;box-sizing:border-box;">'+
+
+      // Cabeçalho
+      '<div style="background:#1a3660;color:#fff;text-align:center;padding:12px 0 8px;border-radius:6px 6px 0 0;">'+
+        '<div style="font-size:18px;font-weight:700;letter-spacing:1px;">RELATÓRIO DE PONTO</div>'+
+        '<div style="font-size:13px;margin-top:3px;">'+_esc(f.nome||'')+'</div>'+
+        '<div style="font-size:11px;opacity:.85;margin-top:2px;">'+mesRef+' · '+fin.decNum+'º período ('+fmtData(di)+' a '+fmtData(df)+')</div>'+
+      '</div>'+
+
+      // ── VALOR A RECEBER — a primeira (e principal) informação ───────────────
+      '<div style="background:#fff;border:2px solid '+faixaCor+';border-radius:8px;padding:14px 18px;margin-top:14px;display:flex;justify-content:space-between;align-items:flex-end;">'+
+        '<div>'+
+          '<div style="font-size:14px;color:#777;">'+(fin.status==='pago'?'Valor já recebido':'Você vai receber')+'</div>'+
+          '<div style="font-size:30px;font-weight:800;color:'+faixaCor+';">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</div>'+
+        '</div>'+
+        '<div style="font-size:15px;color:#555;">Trabalhou '+diasTrabalhados+(diasTrabalhados===1?' dia':' dias')+'</div>'+
+      '</div>'+
+
+      // ── COMO CHEGAMOS NESSE VALOR — só o que entra na conta ─────────────────
+      '<div style="background:'+statusCorBg+';border:1.5px solid '+statusCorBd+';border-radius:8px;padding:14px 18px;margin-top:12px;">'+
+        horasHtml+
+        '<div style="font-size:15px;font-weight:700;color:#1a3660;margin-bottom:6px;">Como chegamos nesse valor</div>'+
+        linhasResumo+
+        '<div style="background:'+faixaCor+';border-radius:6px;padding:12px 16px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;">'+
+          '<span style="color:#fff;font-size:16px;font-weight:700;">'+(fin.status==='pago'?'QUITADO':'TOTAL A RECEBER')+'</span>'+
+          '<span style="color:#fff;font-size:22px;font-weight:800;">'+fmtMoeda(Math.abs(fin.saldoFinal))+'</span>'+
+        '</div>'+
+      '</div>'+
+
+      // Tabela — só o ponto, limpo
+      '<div style="font-size:14px;font-weight:700;color:#1a3660;margin-top:16px;margin-bottom:6px;">Registro de ponto</div>'+
+      '<table style="width:100%;border-collapse:collapse;">'+
+        '<thead><tr style="background:#eaf0f8;color:#1a3660;">'+colsHead+'</tr></thead>'+
+        '<tbody>'+rowsHtml+'</tbody>'+
+      '</table>'+
+
+      (obsHtml ? '<div style="font-size:11.5px;color:#555;font-style:italic;margin-top:8px;">Observações: '+obsHtml+'</div>' : '')+
+
+      rodapeTecnico+
+
+      '<div style="text-align:center;font-size:9px;color:#aaa;margin-top:12px;">Documento gerado em '+dtGer+' · HR Mármores e Granitos</div>'+
+      (WPP_CONTATO_RH ? '<div style="text-align:center;margin-top:10px;"><a href="https://wa.me/55'+WPP_CONTATO_RH+'?text='+encodeURIComponent('Olá! Sobre meu relatório de ponto ('+(f.nome||'')+', '+mesRef+'): tenho uma dúvida ou algo não bate.')+'" style="display:inline-block;background:#e6f6ea;border:1px solid #78be8c;border-radius:6px;padding:8px 14px;font-size:13px;color:#146e37;font-weight:700;text-decoration:none;">Dúvida ou algo não bate? Toque aqui e fale com o RH</a></div>' : '')+
+    '</div>';
+  }
+
+  // ─── Deficit de um período, exposto pra outros módulos (ex: painel de ────────
+  // pagamento em app-funcionarios.js) reaproveitarem o mesmo cálculo de
+  // jornada esperada/saldo diário usado neste relatório, em vez de duplicar
+  // a lógica de _montarLinhas em outro arquivo.
+  // Retorna minutos de falta no período, sempre >= 0 (valor absoluto).
+  function calcDeficitPeriodo(funcId, di, df) {
+    if (!funcId || !di || !df) return 0;
+    var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+    var regs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
+    var f = funcs[funcId] || {};
+    var meusRegs = Object.values(regs).filter(function (r) {
+      return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
+    });
+    // Sem NENHUM registro no período inteiro = ponto ainda não foi importado/
+    // lançado, não é o funcionário "faltando todos os dias". Não gera déficit
+    // fantasma (ver calcExtraPeriodo, mesma regra e motivo detalhado lá).
+    if (meusRegs.length === 0) return 0;
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
+    var totalDeficitMin = 0;
+    linhas.forEach(function (l) { if (l.saldoMin < 0) totalDeficitMin += l.saldoMin; });
+    return Math.abs(totalDeficitMin);
+  }
+
+  // ─── Extras + déficit de um período, calculado 100% ao vivo a partir de ──────
+  // _montarLinhas — mesma fonte usada pelo Relatório de Ponto (classificação
+  // ×2/×3, janela noturna 00h-07h, abatimento de negativas contra extras).
+  // Existe pra o painel de pagamento (app-funcionarios.js) parar de usar o
+  // motor antigo baseado em r.extra "congelado" na importação, que diverge
+  // do relatório sempre que a classificação muda depois (feriado declarado,
+  // correção manual, janela noturna, etc). Uma única fonte de verdade.
+  function calcExtraPeriodo(funcId, di, df) {
+    if (!funcId || !di || !df) return null;
+    var funcs = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getFuncionarios() : {};
+    var regs  = (typeof HR_FUNC !== 'undefined') ? HR_FUNC.getRegistros()    : {};
+    var f = funcs[funcId] || {};
+    var meusRegs = Object.values(regs).filter(function (r) {
+      return r.funcionarioId != null && r.funcionarioId == funcId && r.data >= di && r.data <= df;
+    });
+
+    // Sem NENHUM registro no período inteiro: o ponto desse período ainda
+    // não foi importado/lançado no sistema — não dá pra saber se a pessoa
+    // faltou ou se é só falta de dado. _montarLinhas trata todo dia sem
+    // batida como falta total (saldoMin = -esperadoMin), então rodar ele
+    // aqui geraria um "déficit" do tamanho da jornada inteira do período
+    // (ex: 56h num decêndio de 10 dias) mesmo quando a pessoa trabalhou
+    // normal e só falta importar. Detecta esse caso e devolve zerado com
+    // um aviso, em vez de descontar dinheiro de um período sem dado nenhum.
+    if (meusRegs.length === 0) {
+      return {
+        totalExtra50Min: 0, totalExtra100Min: 0, totalExtra200Min: 0,
+        valorExtra50: 0, valorExtra100: 0, valorExtra200: 0,
+        valorTotalExtras: 0, totalExtraHoras: 0,
+        extraBrutoMin: 0, deficitBrutoMin: 0, deficitAbatidoMin: 0,
+        deficitRestanteMin: 0, deficitRestanteValor: 0, valorHoraBase: 0,
+        semRegistrosPeriodo: true
+      };
+    }
+
+    var linhas = _montarLinhas(meusRegs, f, di, df, funcId);
+
+    var extra50Min = 0, extra200Min = 0, valorExtra50 = 0, valorExtra200 = 0;
+    var deficitMin = 0;
+    linhas.forEach(function (l) {
+      if (l.saldoMin < 0) deficitMin += l.saldoMin;
+      if (l.extraMin > 0 && !l.destinoBanco) {
+        // Divide o valor financeiro do dia proporcionalmente entre as faixas
+        // reais (extra50Min/extra200Min) em vez de jogar o dia inteiro numa
+        // faixa só — um dia pode ter parte dobrada e parte triplicada.
+        var e200 = l.extra200Min || 0, e50 = l.extra50Min || 0;
+        extra200Min += e200;
+        extra50Min  += e50;
+        if (l.extraMin > 0) {
+          valorExtra200 += l.valorExtra * (e200 / l.extraMin);
+          valorExtra50  += l.valorExtra * (e50  / l.extraMin);
+        }
+      }
+    });
+
+    // Mesmo abatimento de negativas contra extras usado no Relatório de
+    // Ponto: desconta primeiro da ×2, só mexe na ×3 se a ×2 não bastar.
+    var extraBrutoMin  = extra50Min + extra200Min;
+    var deficitBrutoMin = Math.abs(deficitMin);
+    var deficitAbatidoMin = 0, deficitRestanteMin = 0;
+    if (deficitBrutoMin > 0) {
+      var novo50    = Math.max(0, extra50Min - deficitBrutoMin);
+      var restante  = Math.max(0, deficitBrutoMin - extra50Min);
+      var novo200   = Math.max(0, extra200Min - restante);
+      deficitRestanteMin = Math.max(0, restante - extra200Min);
+      deficitAbatidoMin  = deficitBrutoMin - deficitRestanteMin;
+      valorExtra50  = (extra50Min  > 0) ? valorExtra50  * (novo50  / extra50Min)  : 0;
+      valorExtra200 = (extra200Min > 0) ? valorExtra200 * (novo200 / extra200Min) : 0;
+      extra50Min  = novo50;
+      extra200Min = novo200;
+    }
+
+    var valorHora = (typeof HR_IMPORT !== 'undefined' && typeof HR_IMPORT.calcValorHoraReal === 'function')
+      ? HR_IMPORT.calcValorHoraReal(f, di.slice(0, 7)) : 0;
+
+    return {
+      totalExtra50Min:  extra50Min,
+      totalExtra100Min: 0, // não distinguido aqui — domingo/especial já somam junto em extra200 (mesma alíquota ×3)
+      totalExtra200Min: extra200Min,
+      valorExtra50:     valorExtra50,
+      valorExtra100:    0,
+      valorExtra200:    valorExtra200,
+      valorTotalExtras: valorExtra50 + valorExtra200,
+      totalExtraHoras:  (extra50Min + extra200Min) / 60,
+      extraBrutoMin:        extraBrutoMin,
+      deficitBrutoMin:      deficitBrutoMin,
+      deficitAbatidoMin:    deficitAbatidoMin,
+      deficitRestanteMin:   deficitRestanteMin,
+      deficitRestanteValor: (deficitRestanteMin / 60) * valorHora,
+      valorHoraBase:        valorHora
+    };
+  }
+
+  // ─── API pública ─────────────────────────────────────────────────────────────
+
+  return {
+    gerarPDF: gerarPDF,
+    // Gera o relatório do período sem abrir tela (para o bot mandar no WhatsApp). Promise com {blob, fileName, valor, fin, dias...}
+    gerarParaBot: function (funcId, di, df, wppContato) {
+      return new Promise(function (ok, erro) {
+        _loadLibs(function () {
+          var J = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+          if (!J) { erro(new Error('jsPDF não carregou')); return; }
+          try { _executarGeracao(J, funcId, di, df, { paraBot: ok, erro: function (m) { erro(new Error(m)); }, wppContato: wppContato }); } catch (e) { erro(e); }
+        });
+      });
+    },
+    calcDeficitPeriodo: calcDeficitPeriodo,
+    calcExtraPeriodo:   calcExtraPeriodo,
+  };
+
+})();
