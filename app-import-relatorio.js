@@ -391,6 +391,7 @@ var HR_IMPORT = (function () {
       if (exc) {
         // Feriado dia todo ou acordo sem meio período → jornada = 0 (não contabiliza)
         if (exc.tipo === 'feriado' && !exc.meioperiodo) return 0;
+        if (exc.tipo === 'feriado' && exc.meioperiodo && +exc.jornadaMin > 0) return +exc.jornadaMin; // horário combinado (ex.: 7h–11h = 4h)
         if (exc.tipo === 'acordo') return 0; // acordo: saldo calculado livremente pelos horários reais
         // Feriado meio período → jornada normal É REDUZIDA PELA METADE abaixo
         // (marca a flag aqui; a metade é aplicada só no final, depois de
