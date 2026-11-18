@@ -10,6 +10,18 @@
   function pedidoDe(q) { return [String(q.tipo || '').replace(/\+/g, ' + '), q.mat].filter(Boolean).join(' em ').slice(0, 80); }
   function telDe(q) { var t = String((q && q.tel) || '').replace(/\D/g, ''); if (!t && q && q.cli) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' ? _cliNorm(x.nome) === _cliNorm(q.cli) : x.nome === q.cli; }); if (c && c.tel) t = String(c.tel).replace(/\D/g, ''); } catch (e) {} } return t; }
 
+  function codDe(q) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' && _cliNorm(x.nome) === _cliNorm(q.cli); }); return (c && c.cod) || ''; } catch (e) { return ''; } }
+  // v2: todo PDF de orçamento gerado no app fica guardado no bot (ele manda depois, sem o app aberto)
+  var guardadoEm = 0;
+  setInterval(function () {
+    var u = window._ultimoPdf; if (!u || !u.blob || u.em <= guardadoEm || !base()) return;
+    guardadoEm = u.em;
+    var q = u.q || {}; if (!(u.num || q.orcNum || q.id) || u.blob.size > 6 * 1024 * 1024) return;
+    b64(u.blob).then(function (pdf) {
+      return fetch(base() + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: u.num || q.orcNum || '', cliente: q.cli || '', cliCod: codDe(q), tel: telDe(q), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: pedidoDe(q), arquivo: u.nome, pdf: pdf }) });
+    }).catch(function () {});
+  }, 3000);
+
   function botao(share) {
     if (document.getElementById('pdfBtnBot') || !base()) return;
     var t0 = Date.now() - 1500, b = document.createElement('button'); b.id = 'pdfBtnBot'; b.disabled = true;
@@ -26,7 +38,7 @@
       if (!confirm('Mandar o orçamento ' + (u.num || '') + ' para ' + (q.cli || 'o cliente') + ' pelo WhatsApp da HR?\n\nO bot acompanha sozinho: se o cliente sumir, aparece em "orçamentos parados" para retomar.')) return;
       b.disabled = true; b.innerHTML = '⏳ Enviando…';
       b64(u.blob).then(function (pdf) {
-        return fetch(base() + '/bot/orcamento/enviar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ tel: tel, nome: q.cli || '', pdf: pdf, arquivo: u.nome, valor: valor, pedido: pedido }) }).then(function (r) { return r.json(); });
+        return fetch(base() + '/bot/orcamento/enviar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ tel: tel, nome: q.cli || '', pdf: pdf, arquivo: u.nome, valor: valor, pedido: pedido, qId: q.id || '', orcNum: u.num || q.orcNum || '', cliCod: codDe(q) }) }).then(function (r) { return r.json(); });
       }).then(function (j) {
         if (j && j.ok) { b.innerHTML = '✓ Enviado'; aviso('🤖 ' + String(j.texto || 'Orçamento enviado pelo bot.').slice(0, 220)); if (q && !q.tel) { try { q.tel = tel; if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {} } }
         else { b.disabled = false; b.innerHTML = '🤖 Enviar pelo bot'; aviso('⚠️ ' + ((j && (j.erro || j.error)) || 'Não deu para enviar.')); }
