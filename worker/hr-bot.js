@@ -1,3 +1,4 @@
+// v122 (18/11/2026): áudio entendido em outra língua é refeito em português; sem o cartão "HR VISION | DOCUMENTO RECEBIDO" (dono não recebe; cliente recebe "Recebi, obrigada!" uma vez); pedido de reels antes dos vídeos fica guardado e monta quando chegam; a assistente do dono sabe os links do site
 // v121 (18/11/2026): VÍDEOS E FOTOS DO DONO — legenda "edite/monte/faça um vídeo..." monta o vídeo no editor com o que chegou; ferramenta montar_video (a assistente nunca diz que não recebeu os vídeos); um aviso por obra no acervo; álbum de cuba não pergunta se é extrato do MP nem responde "só leio texto"
 // v120 (18/11/2026): "te respondo"/"vou ver com fulano" encerram; vendedor/propaganda recebe uma resposta e o bot sai; "manda o PDF de novo" reenvia o arquivo de verdade; mensagem do dono que fala de Pix leva o Pix junto; sem aviso do modelo repetido; mais respostas automáticas reconhecidas (comunicado, afastamento)
 // v119 (18/11/2026): FIM DE CONVERSA E APRENDER COM O DONO — "ok"/"certo"/👍 depois de mensagem sem pergunta não recebe resposta; pergunta que a IA não sabe vai ao dono ("Como respondo?"), a resposta dele (texto ou áudio, sem comando) vai ao cliente reescrita e vira regra para todos
@@ -2424,7 +2425,15 @@ async function ouvirAudio(env, from, m, dono = true) {
     });
     const j = await r.json().catch(() => null);
     if (!r.ok) throw new Error(`${r.status}: ${(j?.error?.message || 'erro na transcrição').slice(0, 200)}`);
-    const texto = String(j?.text || '').trim();
+    let texto = String(j?.text || '').trim();
+    if (texto && /[\u0400-\u04FF\u0590-\u06FF\u3040-\u30FF\u4E00-\u9FFF]/.test(texto)) { // v122: veio em russo/ucraniano/etc.: refaz forçando português
+      try { const fd2 = new FormData(); fd2.append('file', new Blob([buf], { type: 'audio/ogg' }), 'audio.ogg'); fd2.append('model', 'whisper-1'); fd2.append('language', 'pt');
+        fd2.append('prompt', 'Conversa em português do Brasil com uma marmoraria da Bahia.');
+        const r2 = await fetch('https://api.openai.com/v1/audio/transcriptions', { method: 'POST', headers: { Authorization: `Bearer ${chave}` }, body: fd2 });
+        const j2 = await r2.json().catch(() => null); const t2 = String((j2 && j2.text) || '').trim();
+        texto = t2 && !/[\u0400-\u04FF\u0590-\u06FF\u3040-\u30FF\u4E00-\u9FFF]/.test(t2) ? t2 : '';
+      } catch (_) { texto = ''; }
+    }
     if (!texto) {
       await enviar(env, from, dono ? 'Sr. Hangel, não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?' : 'Não foi possível entender esse áudio. Poderia repetir ou escrever a mensagem?');
       return null;
@@ -8703,8 +8712,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'montar_video',
-    description: 'MONTA UM VÍDEO (Reels) no editor do computador com as fotos/vídeos que o Sr. Hangel mandou por último (veja MÍDIAS RECENTES) ou, se não houver, com uma compilação das obras do acervo, seguindo o pedido dele (frase, tema, data comemorativa: "frase de bom dia", "vídeo de Natal"). Use SEMPRE que ele pedir para editar, criar, montar ou fazer um vídeo; nunca diga que não consegue criar vídeo nem que não recebeu os vídeos. O vídeo volta para ele aprovar antes de postar.',
-    input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' } }, required: ['pedido'] },
+    description: 'MONTA UM VÍDEO (Reels; também "faça o vídeo de hoje", "vídeo do dia") no editor do computador com as fotos/vídeos que o Sr. Hangel mandou por último (veja MÍDIAS RECENTES) ou, se não houver, com uma compilação das obras do acervo, seguindo o pedido dele (frase, tema, data comemorativa: "frase de bom dia", "vídeo de Natal"). Use SEMPRE que ele pedir para editar, criar, montar ou fazer um vídeo; nunca diga que não consegue criar vídeo nem que não recebeu os vídeos. O vídeo volta para ele aprovar antes de postar.',
+    input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' }, vai_mandar: { type: 'boolean', description: 'true quando ele disse que AINDA VAI mandar as fotos/vídeos ("vou te mandar..."): o bot guarda o pedido e monta quando chegarem' } }, required: ['pedido'] },
   },
   {
     name: 'orcamentos_do_cliente',
@@ -9105,6 +9114,10 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
   if (nome === 'montar_video') { // v121
+    if (a.vai_mandar === true) { // v122
+      await env.HR_KV.put('acv:pedidoPend', JSON.stringify({ pedido: String(a.pedido || '').slice(0, 300), em: Date.now() }), { expirationTtl: 3600 });
+      return { texto: 'Pedido guardado: quando as fotos e vídeos chegarem (pode mandar tudo de uma vez), o bot espera parar de chegar e monta o reels sozinho, depois manda para aprovar. Diga isso em UMA frase curta e não peça mais nada.' };
+    }
     if (!(await estEditorPareado(env))) return { texto: 'O editor do computador não está conectado. Peça ao Sr. Hangel, em uma frase, para mandar "editor" e seguir os passos; depois é só pedir o vídeo de novo.' };
     let rec = null; try { rec = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); } catch (_) {}
     if (rec && a.usar_recentes !== false && Date.now() - rec.em < 6 * 3600000) {
@@ -9358,7 +9371,11 @@ async function responderAgente(env, from, bruto, F, voz) {
     try { const rec = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); const om = rec ? await acvLer(env, rec.id) : null;
       if (om) { const v = om.midias.filter(x => x.tipo === 'video').length, f = om.midias.length - v, min = Math.round((Date.now() - rec.em) / 60000);
         blocoMidia = `MÍDIAS RECENTES: há ${min} min o Sr. Hangel mandou ${v ? v + ' vídeo(s)' : ''}${v && f ? ' e ' : ''}${f ? f + ' foto(s)' : ''}; estão guardadas no acervo (obra "${om.desc}"). ELAS CHEGARAM: nunca diga que não recebeu. Se ele pedir para editar, montar ou fazer vídeo com elas ("esses aqui", "os que mandei"), use montar_video.${om.pedidoFeito ? ' Já foi pedido um vídeo com elas.' : ''}`; } } catch (_) {}
+    let blocoLinks = ''; // v122
+    try { const wu = await urlDoWorker(env), pu = await urlPublica(env);
+      blocoLinks = `LINKS DA HR (use quando o Sr. Hangel pedir o site ou um link; nunca diga que não existe): site oficial ${pu || 'https://' + DOMINIO_SITE}; catálogo de pedras ${(pu || wu)}/portfolio; álbum de obras ${(pu || wu)}/obras${wu && wu !== pu ? '; endereço do bot ' + wu : ''}.`; } catch (_) {}
     const blocoRegras = [
+      blocoLinks,
       blocoMidia,
       `LANÇAMENTOS FEITOS PELO WHATSAPP AINDA NÃO ENVIADOS AO APP:\n${JSON.stringify(ctx.pend)}`,
       ``,
@@ -14137,10 +14154,9 @@ async function tratarVision(env, from, m, dono, tipo) {
       const tp = await receberProjetoBancada(env, from, midia.buf, midia.mime).catch(e => { console.log('[BOT] projeto:', e.message); return ''; });
       if (tp) { m._projeto = tp; return true; }
     }
-    try { await visionEnviarTexto(env, from, VISION_CONFIRMACAO); }
-    catch (e) {
-      console.log('[VISION] confirmação direta falhou:', e.message);
-      await enviarTextoPuro(env, from, VISION_CONFIRMACAO).catch(e2 => console.log('[VISION] confirmação falhou:', e2.message));
+    if (!dono && !(await env.HR_KV.get('vis:conf:' + normalizarBR(from)))) { // v122: sem o cartão de robô; dono não recebe confirmação
+      await env.HR_KV.put('vis:conf:' + normalizarBR(from), '1', { expirationTtl: 15 * 60 });
+      if (!legenda) await enviar(env, from, tipo === 'pdf' ? 'Recebi o arquivo, obrigada!' : 'Recebi, obrigada!').catch(e => console.log('[VISION] confirmação:', e.message));
     }
     return !!legenda && !(dono && tipo === 'imagem');
   } catch (e) {
@@ -17084,7 +17100,8 @@ async function acvTratarMidia(env, from, m) {
   const aberto = alb && Date.now() < alb.ate;
   let o = null;
   if (leg && RE_POSTAR.test(leg)) return false; // "postar ..." continua sendo post na hora (estúdio)
-  const pedEd = leg && RE_EDITAR_VID.test(normaliza(leg)) ? leg.slice(0, 300) : ''; // v121
+  let pedEd = leg && RE_EDITAR_VID.test(normaliza(leg)) ? leg.slice(0, 300) : ''; // v121
+  if (!pedEd && !aberto) { try { const pp = JSON.parse((await env.HR_KV.get('acv:pedidoPend')) || 'null'); if (pp && Date.now() - pp.em < 60 * 60000) { pedEd = pp.pedido; await env.HR_KV.delete('acv:pedidoPend'); } } catch (_) {} } // v122: pediu o reels antes de mandar
   if (pedEd && aberto) { o = await acvLer(env, alb.id); if (o) { o.pedidoEdicao = pedEd; } }
   else if (pedEd) { o = await acvNovaObra(env, ''); o.pedidoEdicao = pedEd; }
   else if (leg && RE_OBRA.test(leg)) o = await acvNovaObra(env, acvDescricao(leg));
