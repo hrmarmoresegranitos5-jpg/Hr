@@ -1,4 +1,4 @@
-// app-pdf-bot.js — v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
+// app-pdf-bot.js — v3: manda também as peças (ficha de corte). v1: botão "🤖 Enviar pelo bot" na tela do PDF do orçamento.
 // O bot manda o PDF ao cliente pelo WhatsApp da HR (dentro ou fora das 24 h, com o modelo aprovado da Meta),
 // registra o orçamento para o acompanhamento automático (parados, retomada, cliente quente) e a assistente
 // passa a saber o valor e o que foi orçado quando o cliente responder. Usa window._ultimoPdf (app-core.js).
@@ -10,6 +10,17 @@
   function pedidoDe(q) { return [String(q.tipo || '').replace(/\+/g, ' + '), q.mat].filter(Boolean).join(' em ').slice(0, 80); }
   function telDe(q) { var t = String((q && q.tel) || '').replace(/\D/g, ''); if (!t && q && q.cli) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' ? _cliNorm(x.nome) === _cliNorm(q.cli) : x.nome === q.cli; }); if (c && c.tel) t = String(c.tel).replace(/\D/g, ''); } catch (e) {} } return t; }
 
+  // v3: pedra e peças do orçamento (para a ficha de corte que o bot manda ao Fabrício quando o dono fecha)
+  var ACB_DE = { sol_sem: 'sem', sol1: '1_lado', sol2: '2_lados', sol_45: '45', peit_sem: 'sem', peit_acb1: '1_lado', peit_acb2: '2_lados' };
+  function resumoDe(q) {
+    try {
+      var itens = (q.ambSnap || []).map(function (a) {
+        var acb = ''; Object.keys(a.svState || {}).forEach(function (k) { if (ACB_DE[k]) acb = ACB_DE[k]; });
+        return { ambiente: String(a.tipo || ''), acabamento: acb, pecas: (a.pecas || []).map(function (p) { return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0 }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) };
+      }).filter(function (it) { return it.pecas.length; });
+      return itens.length ? { pedra: q.mat || '', itens: itens } : null;
+    } catch (e) { return null; }
+  }
   function codDe(q) { try { var c = (JSON.parse(localStorage.getItem('hr_clientes') || '[]')).find(function (x) { return typeof _cliNorm === 'function' && _cliNorm(x.nome) === _cliNorm(q.cli); }); return (c && c.cod) || ''; } catch (e) { return ''; } }
   // v2: todo PDF de orçamento gerado no app fica guardado no bot (ele manda depois, sem o app aberto)
   var guardadoEm = 0;
@@ -18,7 +29,7 @@
     guardadoEm = u.em;
     var q = u.q || {}; if (!(u.num || q.orcNum || q.id) || u.blob.size > 6 * 1024 * 1024) return;
     b64(u.blob).then(function (pdf) {
-      return fetch(base() + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: u.num || q.orcNum || '', cliente: q.cli || '', cliCod: codDe(q), tel: telDe(q), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: pedidoDe(q), arquivo: u.nome, pdf: pdf }) });
+      return fetch(base() + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: u.num || q.orcNum || '', cliente: q.cli || '', cliCod: codDe(q), tel: telDe(q), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: pedidoDe(q), arquivo: u.nome, resumo: resumoDe(q), pdf: pdf }) });
     }).catch(function () {});
   }, 3000);
 
