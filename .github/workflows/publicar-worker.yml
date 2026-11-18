@@ -48,6 +48,20 @@ jobs:
           [ "$(echo "$RESP" | jq -r '.success')" = "true" ] || { echo "::error::O Cloudflare recusou o código."; exit 1; }
           echo "✅ Worker $WORKER atualizado."
 
+      - name: Copiar segredos do Mercado Livre para o worker
+        env:
+          ML_ID: ${{ secrets.ML_CLIENT_ID }}
+          ML_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
+        run: |
+          if [ -z "$ML_ID" ] || [ -z "$ML_SECRET" ]; then echo "Sem ML_CLIENT_ID/ML_CLIENT_SECRET no GitHub: pulei."; exit 0; fi
+          if [ -z "$CF_ACCOUNT" ]; then CF_ACCOUNT=$(curl -s -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/accounts | jq -r '.result[0].id'); fi
+          for NOME in ML_CLIENT_ID ML_CLIENT_SECRET; do
+            if [ "$NOME" = ML_CLIENT_ID ]; then VAL="$ML_ID"; else VAL="$ML_SECRET"; fi
+            BODY=$(jq -n --arg n "$NOME" --arg v "$VAL" '{name:$n,text:$v,type:"secret_text"}')
+            R=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/workers/scripts/$WORKER/secrets" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data "$BODY")
+            echo "$NOME: $(echo "$R" | jq -c '{success, errors}')"
+          done
+
       - name: Endereço público do bot (para o site oficial)
         run: |
           if [ -z "$CF_ACCOUNT" ]; then
