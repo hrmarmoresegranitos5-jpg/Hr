@@ -1,3 +1,4 @@
+// v151 (18/11/2026): PLANO DO DIA 6h30 (sugere passar fabricação a quem não instala hoje), ALERTA DE ATRASO 10h, FOTO DAS PEÇAS PRONTAS, PERDAS (perdas), SOBRAS (sobras; avisa quando um pedido cabe), ORÇAMENTOS ESQUECIDOS 3/7 dias, INDICAÇÃO no pós-venda, LINK DO GOOGLE pelo WhatsApp, PREVISÃO DO MÊS
 // v150 (18/11/2026): DESIGNAR ETAPA ("hoje Gibson vai acabar a cozinha da Maria": passa a fabricação/acabamento para ele, avisa e os pontos vão para ele); Gibson também faz rebaixo americano e acabamento
 // v149 (18/11/2026): ETAPAS COM VÁRIAS PESSOAS (producao_status: o dono conta quem fez o quê; pontos divididos), ETAPA DE ACABAMENTO (bot pergunta ao cortador quem acaba: Lucas/Jefferson/ele; acabamento +1), pontos pelo registro de etapas
 // v148 (18/11/2026): PRÊMIO DO MÊS — meta em todas as semanas (coringa: 1 semana compensada no total), líder do mês por % da meta, corrida do mês no app do funcionário, status no sábado, resultado dia 1º com "Pagar prêmios" (vira Bônus no RH), premio_mensal
@@ -2308,6 +2309,8 @@ async function tratarBotao(env, from, id, F) {
   if (/^onb_(ini|no|q|fp)\|/.test(id)) return onbBotaoDono(env, from, id); // v143
   if (/^gar_(pdf|ct|env)\|/.test(id)) return garBotaoDono(env, from, id); // v144
   if (/^prm_(pag|no)\|/.test(id)) return premioBotao(env, from, id); // v148
+  if (/^pdg(\||_no$)/.test(id)) return planoBotao(env, from, id); // v151
+  if (/^sob_(ok|no)\|/.test(id)) return sobraBotao(env, from, id); // v151
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -6143,7 +6146,7 @@ async function tratarPesquisa(env, from, bruto, msg) {
       await env.HR_KV.delete('sat:' + from);
       await enviar(env, from, 'Muito obrigada pela avaliação. Ficamos felizes em atendê-lo(a) e permanecemos à disposição.');
       // convite para avaliar no Google (só se o link estiver configurado em GOOGLE_AVALIACAO)
-      const linkGoogle = String(env.GOOGLE_AVALIACAO || '').trim();
+      const linkGoogle = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
       if (/^https:\/\//.test(linkGoogle) && !(await env.HR_KV.get('gav:' + ultimos8(from)))) {
         await env.HR_KV.put('gav:' + ultimos8(from), '1', { expirationTtl: 90 * 86400 }).catch(() => {});
         await enviar(env, from, `Se puder, a sua opinião no Google ajuda outras pessoas a conhecerem o nosso trabalho. Leva menos de um minuto: ${linkGoogle}`)
@@ -6761,6 +6764,9 @@ async function pedirAvaliacoes(env) {
   await garRotina(env).catch(e => console.log('[GAR] rotina:', e.message)); // v144
   await semanalRotina(env).catch(e => console.log('[SEMANA]', e.message)); // v146
   await metasRotina(env).catch(e => console.log('[META] rotina:', e.message)); // v147
+  await planoDiaRotina(env).catch(e => console.log('[PLANO]', e.message)); // v151
+  await atrasoRotina(env).catch(e => console.log('[ATRASO]', e.message)); // v151
+  await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -6888,7 +6894,7 @@ async function tratarAvaliacao(env, from, m, msg, id) {
     await atualizarAval(env, c.avalKey, { motivo });
     if ((c.nota || 0) >= 4) {
       await enviar(env, from, 'Obrigada! Fico feliz em ter ajudado. Quando precisar, é só chamar.');
-      const g = String(env.GOOGLE_AVALIACAO || '').trim();
+      const g = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
       if (/^https:\/\//.test(g) && !(await env.HR_KV.get('gav:' + ultimos8(from)))) { await env.HR_KV.put('gav:' + ultimos8(from), '1', { expirationTtl: 90 * 86400 }).catch(() => {}); await enviar(env, from, `Se puder, a sua opinião no Google ajuda outras pessoas a conhecerem o nosso trabalho. Leva menos de um minuto: ${g}`).catch(e => console.log('[BOT] convite Google:', e.message)); }
       await notificarDono(env, Date.now(), `*${nome || 'O cliente'}* deu ${c.nota}/5 no atendimento${motivo ? ' (' + String(MOTIVO_TXT[motivo] || motivo).toLowerCase() + ')' : ''}.\nwa.me/${from}`);
     } else {
@@ -7672,6 +7678,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
     }
   }, ficha);
   if (opc.so !== 'entrega' && okFab) await prodPerguntarAcabador(env, ped, numFab).catch(e => console.log('[ACAB]', e.message)); // v149
+  if (opc.so !== 'entrega' && okFab) await sobraAvisar(env, ped, numFab).catch(e => console.log('[SOBRA]', e.message)); // v151
   const retirada = ped.entrega === 'retirada';
   const entregaNoDono = ultimos8(numEnt) === ultimos8(doDono); // o dono já vê o endereço no resumo: não repete
   const okEnt = (retirada || entregaNoDono || opc.so === 'fabrica') ? true : await tentar('Entrega', numEnt, async n => {
@@ -7716,6 +7723,8 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
   if (idB && /^acb\|/.test(idB)) return prodAcabadorEscolhido(env, f, from, idB, nome); // v149
+  if (!idB && /\b(quebrou|quebrei|quebramos|trincou|trinquei|rachou|rachei|lascou|lasquei|estragou|estraguei|perdi a peca|perdemos)\b/.test(msg)) return perdaFuncionario(env, f, from, texto, nome); // v151
+  if (!idB && /\b(sobrou|retalho|guardei uma sobra|guardei a sobra)\b/.test(msg)) return sobraFuncionario(env, f, from, texto, nome); // v151
   if (idB && /^frs\|/.test(idB)) { const pd = await lerPedido(env, idB.slice(4)).catch(() => null); if (pd) return prodMarcarEntregue(env, pd, from, nome, ''); } // v137
   if (idB && /^(fgr|fgs|fgn)\|/.test(idB)) { // v135: conferência da entrega
     const [ac, pid, fm] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null);
@@ -7800,6 +7809,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
   } else if (!retirada && !ped.entregaEnviadaEm) { const ok = await despacharPedidoDireto(env, ped, { so: 'entrega' }).catch(() => false); if (ok) { ped.entregaEnviadaEm = Date.now(); await salvarPedido(env, ped); entTxt = ` Mandei os dados da entrega para ${nomeEntregador(env)}.`; } }
   else if (!retirada && ped.entregaEnviadaEm) { const g = await numEquipe(env, 'entrega', ped); if (g) { await enviar(env, g, `${avisoTeste(env)}✅ O pedido de *${ped.nome}* (${resumoPecas(ped)}) ficou pronto. Já pode levar${ped.entrega && ped.entrega.endereco ? ': ' + ped.entrega.endereco : ''}. Quando entregar, me diga: _entreguei o pedido de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); entTxt = ` Avisei o ${nomeEntregador(env)} que pode levar.`; } }
   await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt && !ped.fechDono ? ' O ' + nomeEntregador(env) + ' já recebeu a entrega.' : ''}`);
+  await prodPedirFotoPronto(env, ped, from, nome).catch(() => {}); // v151
   if (ped.fechDono && retirada && ped.numero) { // v137: retirada combinada pelo bot → avisa o cliente sozinho
     ped.prontoEm = Date.now(); await salvarPedido(env, ped);
     const pn = nomeDeTratamento(ped.nome), c = cobrarNaEntrega(ped);
@@ -8287,6 +8297,7 @@ async function agendaProdDia(env) {
     const cfgA = await pontoCfg(env), por = {};
     const add = (id, txt) => { if (!id) return; (por[id] = por[id] || []).push(txt); };
     for (const p of l) {
+      if (p.fichaEnviadaEm && !p.fabProntoEm && p.acabResp && p.corteEm && !p.acabEm) add(p.acabResp, `🪨 Acabamento: ${p.nome} — ${resumoPecas(p)}`); // v151
       if (p.fichaEnviadaEm && !p.fabProntoEm) { if (!p.corteEm) add(p.fabResp, `✂️ Cortar: ${p.nome} — ${resumoPecas(p)}`); if (p.fab2Resp && p.fab2Resp !== p.fabResp) add(p.fab2Resp, `${p.corteEm ? '🔧 Fabricar' : '⏳ Depois do corte'}: ${p.nome} — ${resumoPecas(p)}`); }
       if (p.janelaEtapa === 'confirmada' && diaIso(p.janela.ini) === hoje) add(p.entResp, `🚚 ${horaTs(p.janela.ini)}–${horaTs(p.janela.fim)} ${p.nome}${p.entrega && p.entrega.endereco ? ' · ' + p.entrega.endereco : ''}${cobrarNaEntrega(p) ? ' · cobrar R$ ' + reais(cobrarNaEntrega(p)) : ''}`);
     }
@@ -8549,8 +8560,9 @@ async function pv1Resposta(env, from, m) {
   }
   if (id.startsWith('pv1_ok|')) {
     r.status = 'ok'; await env.HR_KV.put(PV1 + pid, JSON.stringify(r), { expirationTtl: 120 * 86400 });
-    const link = String(env.GOOGLE_AVALIACAO || '').trim();
+    const link = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
     await enviar(env, from, `Que alegria${pn ? ', ' + pn : ''}! 🥰 Obrigada pela confiança.` + (/^https:\/\//.test(link) ? `\n\nSe puder, deixe a sua avaliação no Google. Leva menos de um minuto e ajuda muito a nossa empresa:\n${link}` : ' Sempre que precisar, é só chamar por aqui.'));
+    if (String(env.INDICACAO ?? '1') !== '0') { const cv = ((await indConviteV99(env, from, r.cli).catch(() => null)) || {}).texto; if (cv) await enviar(env, from, cv).catch(() => {}); } // v151: indicação premiada
     await pontoAvisarDono(env, `⭐ *${r.cli}* disse que ficou tudo ótimo com ${r.serv.replace(/\b(sua|seu) /, '')}${/^https:/.test(link) ? '. Mandei o link da avaliação no Google.' : '.'}`).catch(() => {});
     return true;
   }
@@ -9159,6 +9171,14 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   let ultimo = null; try { ultimo = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!pe && !(ultimo && Date.now() - ultimo.em < 15 * 60000)) return false;
   const pid = pe ? pe.pid : ultimo.pid, ped = await lerPedido(env, pid).catch(() => null); if (!ped) return false;
+  if (pe && pe.tipo === 'pronto') { // v151: foto das peças prontas (não trava nada)
+    let bf = null, tp = 'image/jpeg'; try { const r = await baixarMidia(env, m.image.id); bf = new Uint8Array(r.buf); tp = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
+    if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('pronto:' + ped.id, bytesParaBase64(bf), tp, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
+    await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)); await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: ped.id, em: Date.now() }), { expirationTtl: 3600 });
+    ped.fotoProntoEm = Date.now(); await salvarPedido(env, ped);
+    try { const up = await subirImagemMeta(env, bf, 'pronto-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `🔍 Peças prontas de ${ped.nome} (${resumoPecas(ped)}) · foto do ${nome}` } }).catch(() => {}); } catch (_) {}
+    await enviar(env, from, `📸 Foto guardada no pedido de ${ped.nome}. Valeu, ${nome}!`); return true;
+  }
   let buf = null, tipo = 'image/jpeg'; try { const r = await baixarMidia(env, m.image.id); buf = new Uint8Array(r.buf); tipo = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('ped:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
   await env.HR_KV.put('prod:fotoult:' + ultimos8(from), JSON.stringify({ pid: ped.id, em: Date.now() }), { expirationTtl: 3600 });
@@ -9578,6 +9598,199 @@ async function producaoStatusTool(env, a) {
   const n = nPecasPed(ped), base = { corte: n, acabamento: 1, fabricacao: 3 + n, finalizado: ids.length ? 3 + n : 0, instalacao: 5, entrega: 2, retirada: 0, inicio: 0 }[etapa] || 0;
   return { texto: `Registrado: ${nomes.join(' e ') || '—'} ${(nomes.length > 1 ? ETAPA_PL : ETAPA_TXT)[etapa]} ${a.item ? a.item + ' de ' : 'o serviço de '}${ped.nome}${isoOk(a.data) ? ' em ' + dataBR(a.data) : ' hoje'}${base ? ` · ${Math.round(base / Math.max(1, ids.length) * 10) / 10} ponto(s) para ${ids.length > 1 ? 'cada um' : nomes[0]}` : ''}${ped.origem === 'manual' && cands.length === 0 ? ' (serviço novo, aberto agora no controle de produção)' : ''}${naoAchou.length ? `. Não achei na equipe: ${naoAchou.join(', ')}` : ''}. Confirme em UMA frase curta.` };
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v151: PLANO DO DIA · ALERTA DE ATRASO · FOTO DAS PEÇAS PRONTAS · PERDAS · SOBRAS · ORÇAMENTOS ESQUECIDOS · PREVISÃO DO MÊS
+// ═════════════════════════════════════════════════════════════════════════════
+let v151TabOk = false;
+async function v151Tabelas(env) {
+  if (v151TabOk || !env.HR_DB) return !!env.HR_DB;
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS perda (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, dia TEXT, pid TEXT, cliente TEXT, descr TEXT, valor REAL, func TEXT, por TEXT)').run();
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS sobra (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, material TEXT, comp REAL, larg REAL, qtd INTEGER, origem TEXT, usada INTEGER DEFAULT 0, usadaEm INTEGER, usadaPid TEXT, por TEXT)').run();
+  v151TabOk = true; return true;
+}
+const mesesAbr = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+function cmTxt(c, l) { const f = x => (x / 100).toFixed(2).replace('.', ','); return `${f(c)} × ${f(l)} m`; }
+function pedraDe(p) { return String((p.resumoApp && p.resumoApp.pedra) || p.pedra || p.material || '').trim(); }
+function pecasDe(p) { const r = p.resumoApp || {}; const l = []; for (const it of (r.itens || [])) for (const pc of (it.pecas || [])) l.push({ qtd: +pc.qtd || 1, c: +pc.comp_cm || 0, l: +pc.larg_cm || 0 }); if (!l.length) for (const pc of (p.pecas || [])) l.push({ qtd: +pc.qtd || 1, c: +pc.comp_cm || 0, l: +pc.larg_cm || 0 }); return l.filter(x => x.c > 0 && x.l > 0); }
+// "120 x 40", "1,20 por 0,40" → cm
+function medidasTxt(t) { const m = String(t).match(/(\d+(?:[.,]\d+)?)\s*(?:x|por|×)\s*(\d+(?:[.,]\d+)?)/i); if (!m) return null; let a = parseFloat(m[1].replace(',', '.')), b = parseFloat(m[2].replace(',', '.')); if (a < 10) a *= 100; if (b < 10) b *= 100; return { c: Math.round(Math.max(a, b)), l: Math.round(Math.min(a, b)) }; }
+
+// ── 4) perdas ──
+async function perdaRegistrar(env, d) {
+  if (!(await v151Tabelas(env))) return null;
+  await env.HR_DB.prepare('INSERT INTO perda (ts, dia, pid, cliente, descr, valor, func, por) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), d.dia || dataBahia(), d.pid || '', d.cliente || '', String(d.descr || '').slice(0, 200), +d.valor || 0, d.func || '', d.por || 'dono').run();
+  return true;
+}
+function perdaEstimativa(p) { const custo = +p.custo || 0; const pcs = pecasDe(p); const area = pcs.reduce((t, x) => t + x.qtd * x.c * x.l / 10000, 0); if (!custo || !area || !pcs.length) return 0; const pc = pcs[0]; return Math.round(custo / area * (pc.c * pc.l / 10000)); }
+async function perdasTexto(env, mes) {
+  mes = mes || dataBahia().slice(0, 7); if (!(await v151Tabelas(env))) return 'O banco de dados não está ligado.';
+  const r = (await env.HR_DB.prepare('SELECT * FROM perda WHERE dia LIKE ? ORDER BY ts').bind(mes + '%').all()).results || [];
+  if (!r.length) return `Nenhuma perda registrada em ${mesesAbr[+mes.slice(5) - 1]}/${mes.slice(0, 4)}. 👏`;
+  const tot = r.reduce((t, x) => t + (+x.valor || 0), 0), porF = {};
+  for (const x of r) { const k = x.func || '—'; porF[k] = (porF[k] || 0) + 1; }
+  return [`💔 *Perdas de ${mesesAbr[+mes.slice(5) - 1]}/${mes.slice(0, 4)}*: ${r.length} · R$ ${reais(tot)}`, '', ...r.slice(-15).map(x => `• ${dataBR(x.dia).slice(0, 5)} ${x.cliente ? '*' + x.cliente + '* · ' : ''}${x.descr}${x.valor ? ' · R$ ' + reais(x.valor) : ''}${x.func ? ' (' + x.func + ')' : ''}`), '', 'Por pessoa: ' + Object.entries(porF).map(([k, n]) => `${k} ${n}`).join(' · '), '_Para corrigir o valor: "perda da Maria foi 300"._'].join('\n');
+}
+async function perdaTool(env, a) {
+  let ped = null; if (a.cliente) { const tk = tokensPedra(String(a.cliente)); ped = (await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))).sort((x, y) => (y.criado || 0) - (x.criado || 0))[0] || null; }
+  if (a.corrigir_valor && await v151Tabelas(env)) { const ult = await env.HR_DB.prepare("SELECT id FROM perda WHERE cliente LIKE ? ORDER BY ts DESC LIMIT 1").bind('%' + String(a.cliente || '').split(' ')[0] + '%').first(); if (ult) { await env.HR_DB.prepare('UPDATE perda SET valor = ? WHERE id = ?').bind(+a.valor || 0, ult.id).run(); return { texto: `Valor da perda corrigido para R$ ${reais(+a.valor || 0)}. Confirme em UMA frase.` }; } }
+  const val = +a.valor || (ped ? perdaEstimativa(ped) : 0);
+  await perdaRegistrar(env, { pid: ped ? ped.id : '', cliente: ped ? ped.nome : (a.cliente || ''), descr: a.descricao || 'peça perdida', valor: val, func: a.funcionario ? String(a.funcionario).split(' ')[0] : '', por: 'dono' });
+  return { texto: `Perda registrada${ped ? ' no pedido de ' + ped.nome : ''}: ${a.descricao || 'peça perdida'}${val ? ` · R$ ${reais(val)}${a.valor ? '' : ' (estimado pelo custo da pedra)'}` : ''}. ${ped && !ped.fabProntoEm ? 'Lembre de recortar a peça.' : ''} Confirme em UMA frase.` };
+}
+async function perdaFuncionario(env, f, from, texto, nome) {
+  const l = await pedidosProducao(env, p => ativoProd(p)), ach = acharPorNome(l, texto), ped = ach.length === 1 ? ach[0] : null;
+  const val = ped ? perdaEstimativa(ped) : 0;
+  await perdaRegistrar(env, { pid: ped ? ped.id : '', cliente: ped ? ped.nome : '', descr: String(texto).slice(0, 160), valor: val, func: nome, por: 'func' });
+  await enviar(env, from, `Anotado, ${nome}. Acontece. Já avisei o Sr. Hangel${ped ? ' para ver o material e o recorte da peça de ' + ped.nome : ''}.`);
+  await pontoAvisarDono(env, `💔 *${nome}* avisou uma perda${ped ? ' no pedido de *' + ped.nome + '*' : ''}: "${String(texto).slice(0, 160)}"${val ? `\nEstimativa: R$ ${reais(val)} (custo da pedra). Para corrigir: _perda da ${String(ped.nome).split(' ')[0]} foi 300_` : ''}`).catch(() => {});
+  return true;
+}
+
+// ── 6) sobras / retalhos ──
+async function sobraRegistrar(env, d) {
+  if (!(await v151Tabelas(env))) return null;
+  await env.HR_DB.prepare('INSERT INTO sobra (ts, material, comp, larg, qtd, origem, por) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(Date.now(), String(d.material || '').slice(0, 60), +d.comp, +d.larg, Math.max(1, +d.qtd || 1), String(d.origem || '').slice(0, 80), d.por || 'dono').run();
+  return true;
+}
+async function sobrasLivres(env) { if (!(await v151Tabelas(env))) return []; return (await env.HR_DB.prepare('SELECT * FROM sobra WHERE usada = 0 ORDER BY ts DESC LIMIT 200').all()).results || []; }
+function mesmaPedra(a, b) { const ta = tokensPedra(a), tb = tokensPedra(b); return ta.length && tb.length && ta.filter(w => tb.includes(w)).length >= Math.min(2, Math.min(ta.length, tb.length)); }
+async function sobraParaPedido(env, ped) {
+  if (pedComplexo(ped)) return null; const pedra = pedraDe(ped), pcs = pecasDe(ped); if (!pedra || !pcs.length) return null;
+  const maior = pcs.reduce((m, x) => x.c * x.l > m.c * m.l ? x : m, pcs[0]), qtd = pcs.reduce((t, x) => t + x.qtd, 0);
+  const cabe = s0 => { const nPorComp = Math.floor(s0.comp / maior.c), nPorLarg = Math.floor(s0.larg / maior.l); return Math.max(0, nPorComp * nPorLarg) * (s0.qtd || 1); };
+  const l = (await sobrasLivres(env)).filter(x => mesmaPedra(x.material, pedra) && cabe(x) >= qtd).sort((a, b) => a.comp * a.larg - b.comp * b.larg);
+  return l[0] || null;
+}
+async function sobraAvisar(env, ped, telCortador) {
+  const s0 = await sobraParaPedido(env, ped).catch(() => null); if (!s0 || ped.sobraAvisada) return;
+  ped.sobraAvisada = s0.id; await salvarPedido(env, ped);
+  const txt = `♻️ Dá para fazer *${ped.nome}* (${resumoPecas(ped)}) com a *sobra* de ${s0.material} ${cmTxt(s0.comp, s0.larg)}${s0.origem ? ' (' + s0.origem + ')' : ''}.`;
+  await enviarComBotoes(env, numeroDono(env), txt + ' Usar a sobra?', [{ id: 'sob_ok|' + s0.id + '|' + ped.id, titulo: 'Usar a sobra' }, { id: 'sob_no|' + s0.id + '|' + ped.id, titulo: 'Cortar da chapa' }]).catch(() => {});
+  if (telCortador && ultimos8(telCortador) !== ultimos8(numeroDono(env))) await enviar(env, telCortador, `${avisoTeste(env)}${txt} Confira antes de cortar da chapa.`).catch(() => {});
+}
+async function sobraBotao(env, from, id) {
+  const [ac, sid, pid] = id.split('|');
+  if (ac === 'sob_ok' && await v151Tabelas(env)) { await env.HR_DB.prepare('UPDATE sobra SET usada = 1, usadaEm = ?, usadaPid = ? WHERE id = ?').bind(Date.now(), pid, +sid).run(); const ped = await lerPedido(env, pid).catch(() => null); if (ped) { ped.usaSobra = +sid; await salvarPedido(env, ped); const t = await respTel(env, ped.fabResp); if (t) await enviar(env, t, `${avisoTeste(env)}♻️ O Sr. Hangel confirmou: *${ped.nome}* sai da sobra. Não corte da chapa nova.`).catch(() => {}); } await enviar(env, from, 'Fechado: a sobra foi reservada para esse pedido e o cortador foi avisado. ♻️'); return true; }
+  await enviar(env, from, 'Certo, corta da chapa. A sobra continua guardada.'); return true;
+}
+async function sobrasTexto(env) {
+  const l = await sobrasLivres(env); if (!l.length) return 'Nenhuma sobra guardada. Quando sobrar um retalho, mande: _sobrou Preto São Gabriel 1,20 x 0,40_.';
+  const g = {}; for (const x of l) (g[x.material] = g[x.material] || []).push(x);
+  return ['♻️ *Sobras guardadas*', '', ...Object.entries(g).map(([m, xs]) => `*${m}*\n` + xs.map(x => `  • ${cmTxt(x.comp, x.larg)}${x.qtd > 1 ? ' (' + x.qtd + ')' : ''}${x.origem ? ' · ' + x.origem : ''}`).join('\n')), '', '_Quando entrar soleira ou peitoril que caiba numa sobra, eu aviso._'].join('\n');
+}
+async function sobraTool(env, a) {
+  if (!a.material || !(+a.comp_cm > 0) || !(+a.larg_cm > 0)) return { erro: true, texto: 'Preciso da pedra e das medidas da sobra.' };
+  let c = +a.comp_cm, l = +a.larg_cm; if (c < 10) c *= 100; if (l < 10) l *= 100;
+  await sobraRegistrar(env, { material: a.material, comp: Math.max(c, l), larg: Math.min(c, l), qtd: a.qtd, origem: a.origem || '', por: 'dono' });
+  return { texto: `Sobra guardada: ${a.material} ${cmTxt(Math.max(c, l), Math.min(c, l))}${+a.qtd > 1 ? ' (' + a.qtd + ' pedaços)' : ''}. Quando um pedido couber nela, aviso. Confirme em UMA frase.` };
+}
+async function sobraFuncionario(env, f, from, texto, nome) {
+  const md = medidasTxt(texto); if (!md) { await enviar(env, from, `${nome}, me diga a pedra e a medida da sobra. Ex.: _sobrou Preto São Gabriel 1,20 x 0,40_`); return true; }
+  const mat = String(texto).replace(/^.*?\b(sobrou|sobra|retalho|guardei)\b\s*(um|uma|o|a)?\s*(retalho|pedaco|pedaço|sobra)?\s*(de|do|da)?\s*/i, '').replace(/(\d+(?:[.,]\d+)?)\s*(?:x|por|×)\s*(\d+(?:[.,]\d+)?).*$/i, '').replace(/\b(de|da|do|com|medindo|mede)\s*$/i, '').trim();
+  if (!mat || mat.length < 3) { await enviar(env, from, `${nome}, de qual pedra é essa sobra de ${cmTxt(md.c, md.l)}?`); return true; }
+  await sobraRegistrar(env, { material: mat.replace(/^./, x => x.toUpperCase()), comp: md.c, larg: md.l, origem: 'guardada por ' + nome, por: String(f.id) });
+  await enviar(env, from, `♻️ Sobra guardada: ${mat} ${cmTxt(md.c, md.l)}. Valeu, ${nome}!`); return true;
+}
+
+// ── 3) foto das peças prontas ──
+async function prodPedirFotoPronto(env, ped, from, nome) {
+  if (String(env.FOTO_PRONTO ?? '1') === '0' || !from || ehDono(env, from)) return;
+  await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'pronto', em: Date.now() }), { expirationTtl: 6 * 3600 });
+  await enviar(env, from, `📸 ${nome}, me manda uma *foto das peças prontas* de *${ped.nome}*? Fica guardada no pedido.`).catch(() => {});
+}
+
+// ── 1) plano do dia (6h30, para o dono aprovar antes da agenda das 7h) ──
+function instalaHoje(l, id, hoje) { return l.some(p => p.entResp === String(id) && !p.entregueEm && ((p.janela && diaIso(p.janela.ini) === hoje) || p.entrega_prevista === hoje || (p.dataInstalacao === hoje))); }
+async function planoDiaMontar(env) {
+  const hoje = dataBahia(), l = await pedidosProducao(env, ativoProd); const { map, cfg } = await funcoesEquipe(env), eqd = await equipeLer(env).catch(() => ({ funcs: [] }));
+  const linhas = [], por = {};
+  const add = (id, t) => { if (id) (por[id] = por[id] || []).push(t); };
+  for (const p of l) {
+    if (p.fichaEnviadaEm && !p.fabProntoEm) { if (!p.corteEm) add(p.fabResp, `cortar ${p.nome}`); if (p.acabResp && p.corteEm && !p.acabEm) add(p.acabResp, `acabamento ${p.nome}`); if (p.fab2Resp && p.fab2Resp !== p.fabResp) add(p.fab2Resp, `${p.corteEm ? 'fabricar' : 'depois do corte:'} ${p.nome}`); }
+    if (!p.entregueEm && p.janela && diaIso(p.janela.ini) === hoje) add(p.entResp, `${pedComplexo(p) ? 'instalar' : 'entregar'} ${p.nome} ${horaTs(p.janela.ini)}`);
+  }
+  const ferias = f => emFeriasHoje(eqd, f.id, hoje);
+  for (const f of cfg.funcs) { if (ferias(f)) { linhas.push(`• *${apelidoFunc(cfg, f)}*: 🏖️ de férias`); continue; } const it = por[f.id]; linhas.push(`• *${apelidoFunc(cfg, f)}*: ${it && it.length ? it.join(' · ') : '_sem tarefa no sistema_'}`); }
+  const sug = []; // quem instala e faz 45°/cuba/rebaixo, sem instalação hoje, pega uma fabricação parada
+  const ajud = cfg.funcs.filter(f => f.tel && !ferias(f) && (map[f.id] || []).includes('instalacao') && (map[f.id] || []).some(x => ['45', 'cuba', 'rebaixo'].includes(x)) && !instalaHoje(l, f.id, hoje));
+  const fila = l.filter(p => pedComplexo(p) && p.fichaEnviadaEm && p.corteEm && !p.fabProntoEm && !ajud.some(f => String(f.id) === String(p.fab2Resp))).sort((a, b) => (a.corteEm || 0) - (b.corteEm || 0));
+  for (const f of ajud) { const p = fila.shift(); if (p) sug.push({ f, p }); }
+  return { texto: [`🗓️ *Plano de hoje* (${dataBR(hoje)})`, '', ...linhas, '', 'Às 7h cada um recebe a própria lista. Para mudar: _hoje Gibson vai acabar a cozinha da Maria_.'].join('\n'), sug, cfg, vazio: !l.length };
+}
+async function planoDiaEnviar(env, forcar) {
+  const r = await planoDiaMontar(env); if (r.vazio && !forcar) return;
+  await pontoAvisarDono(env, r.texto).catch(() => {});
+  for (const { f, p } of r.sug) await enviarComBotoes(env, numeroDono(env), `💡 *${apelidoFunc(r.cfg, f)}* não tem instalação hoje. Passo para ele a fabricação de *${p.nome}* (${resumoPecas(p)}), cortada há ${Math.max(1, Math.round((Date.now() - p.corteEm) / 86400000))} dia(s)${p.fab2Resp ? ' e que está com o ' + (await respNome(env, p.fab2Resp)) : ''}?`, [{ id: 'pdg|' + p.id + '|' + f.id, titulo: 'Passar para ele' }, { id: 'pdg_no', titulo: 'Deixar como está' }]).catch(() => {});
+}
+async function planoDiaRotina(env) {
+  const ag = agoraBahia(); if (ag.dia === 7 || ag.dia === 0 || ag.min < 6 * 60 + 30 || ag.min > 9 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('plano:' + hoje)) return; if (!(await travaEnvio(env, 'plano:' + hoje))) return;
+  await env.HR_KV.put('plano:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  await planoDiaEnviar(env, false);
+}
+async function planoBotao(env, from, id) {
+  if (id === 'pdg_no') { await enviar(env, from, 'Certo, fica como está.'); return true; }
+  const [, pid, fid] = id.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei o pedido.'); return true; }
+  const r = await prodDesignar(env, ped, [String(fid)], null, { etapa: 'fabricacao', vai_fazer: true }, [], false);
+  await enviar(env, from, String(r.texto).replace(/ Confirme em UMA frase curta\.$/, '')); return true;
+}
+
+// ── 2) alerta de atraso (a partir das 10h, uma vez por dia por pedido) ──
+async function atrasoRotina(env) {
+  const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 10 * 60 || ag.min > 17 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('atr:' + hoje)) return; if (!(await travaEnvio(env, 'atr:' + hoje))) return;
+  await env.HR_KV.put('atr:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const l = await pedidosProducao(env, ativoProd), at = [];
+  for (const p of l) {
+    const fabAtr = p.fichaEnviadaEm && !p.fabProntoEm && ((p.prontoPrevisto && p.prontoPrevisto.ts < Date.now() - 3600000) || (p.entrega_prevista && p.entrega_prevista < hoje));
+    const entAtr = !p.entregueEm && p.fabProntoEm && p.janela && p.janela.fim < Date.now() - 12 * 3600000;
+    if (!fabAtr && !entAtr) continue;
+    const resp = fabAtr ? (p.acabResp && p.corteEm && !p.acabEm ? p.acabResp : p.corteEm && p.fab2Resp ? p.fab2Resp : p.fabResp) : p.entResp;
+    const quando = fabAtr ? (p.prontoPrevisto ? 'era para ' + diaFalado(diaIso(p.prontoPrevisto.ts)) + ' ' + horaTs(p.prontoPrevisto.ts) : 'o prazo era ' + dataBR(p.entrega_prevista)) : 'a entrega era ' + diaFalado(diaIso(p.janela.ini));
+    at.push(`• *${p.nome}* (${resumoPecas(p)}) — ${fabAtr ? 'na fábrica' : 'falta entregar'}, ${quando}${resp ? ' · com ' + await respNome(env, resp) : ''}`);
+    const t = await respTel(env, resp); if (t) await enviar(env, t, `${avisoTeste(env)}⏰ ${await respNome(env, resp)}, o de *${p.nome}* está atrasado (${quando}). Consegue terminar hoje? Me diga o horário ou o que está faltando.`).catch(() => {});
+  }
+  if (at.length) await pontoAvisarDono(env, [`⏰ *Atrasados hoje* (${at.length})`, '', ...at, '', 'Já cobrei os responsáveis. Se precisar, avise o cliente antes que ele pergunte.'].join('\n')).catch(() => {});
+}
+
+// ── 7) orçamentos esquecidos do app: lembra o dono aos 3 e aos 7 dias (o bot já insiste sozinho nos que ele mesmo mandou) ──
+async function esquecidosRotina(env) {
+  const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 9 * 60 || ag.min > 12 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('esq:' + hoje)) return; if (!(await travaEnvio(env, 'esq:' + hoje))) return;
+  await env.HR_KV.put('esq:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const l = (await paradosLista(env).catch(() => [])).filter(x => x.dias === 3 || x.dias === 7 || (ag.dia === 1 && (x.dias === 4 || x.dias === 8)));
+  if (!l.length) return;
+  await enviarLista(env, numeroDono(env), `📨 *Orçamentos sem resposta* — ${l.length} cliente(s) completaram ${[...new Set(l.map(x => x.dias))].join(' e ')} dias sem responder${l.some(x => x.valor) ? ' (R$ ' + reais(l.reduce((t, x) => t + x.valor, 0)) + ')' : ''}. Toque num nome e eu preparo a mensagem certa (você vê antes de enviar).`, 'Retomar',
+    l.slice(0, 10).map(x => ({ id: 'rtpl|' + x.num, titulo: String(x.nome || x.num).slice(0, 24), descricao: `${x.valor ? 'R$ ' + reais(x.valor) + ' · ' : ''}${x.dias} dias${x.desc ? ' · ' + x.desc : ''}`.slice(0, 72) })), true).catch(e => console.log('[ESQ]', e.message));
+}
+
+// ── 11) previsão do mês ──
+async function previsaoTexto(env) {
+  const hoje = dataBahia(), mes = hoje.slice(0, 7), fimMes = isoSomaDias(isoSomaDias(mes + '-01', 32).slice(0, 7) + '-01', -1);
+  let ent = 0, sai = 0; try { const u = await lancamentosUnificados(env, mes + '-01', hoje); for (const r of u.itens) { if (r.type === 'in') ent += r.value; else sai += r.value; } } catch (_) {}
+  let rec = 0, recAtr = 0, nRec = 0; try { const { itens } = await recLerItens(env); for (const it of (itens || [])) { const c = recCalc(it, hoje); if (c.rest <= 0.005) continue; if (it.venc && it.venc <= fimMes) { nRec++; rec += c.rest; if (it.venc < hoje) recAtr += c.rest; } } } catch (_) {}
+  const peds = await pedidosProducao(env, p => !p.entregueEm && p.fechDono && !p.pago); let naEnt = 0; for (const p of peds) naEnt += cobrarNaEntrega(p) || 0;
+  let bol = 0, nBol = 0; try { const snap = await lerSnapshotCompleto(env); for (const b of ((snap && snap.dados && snap.dados.boletos) || [])) { const v = String(b.venc || b.vencimento || b.data || ''); if (b && b.tipo === 'pagar' && (b.status === 'pendente' || b.status === 'vencido') && v && v <= fimMes) { bol += +b.valor || 0; nBol++; } } } catch (_) {}
+  const prev = ent + rec + naEnt, res = prev - sai - bol;
+  return [`🔮 *Previsão de ${mesesAbr[+mes.slice(5) - 1]}/${mes.slice(0, 4)}*`, '',
+    `✅ Já entrou: R$ ${reais(ent)}`, `🧾 A receber até o fim do mês: R$ ${reais(rec)}${nRec ? ` (${nRec} cliente(s)${recAtr ? ', R$ ' + reais(recAtr) + ' já vencidos' : ''})` : ''}`, `🚚 A receber na entrega (pedidos fechados): R$ ${reais(naEnt)}${peds.length ? ` (${peds.filter(p => cobrarNaEntrega(p)).length})` : ''}`,
+    `*Entrada prevista: R$ ${reais(prev)}*`, '', `💸 Já saiu: R$ ${reais(sai)}`, `📄 Boletos a pagar até o fim do mês: R$ ${reais(bol)}${nBol ? ` (${nBol})` : ''}`, '', `*Resultado previsto: R$ ${reais(res)}*`,
+    '_Parcelas e quem está devendo vêm do "A Receber" do app, que já cobra sozinho no vencimento._'].join('\n');
+}
+
+// ── 9) link da avaliação no Google pelo WhatsApp ──
+async function googleLinkCarregar(env) { if (globalThis.__gLinkEm && Date.now() - globalThis.__gLinkEm < 10 * 60000) return; globalThis.__gLinkEm = Date.now(); globalThis.__gLink = (await env.HR_KV.get('cfg:google_link').catch(() => '')) || ''; }
+
+async function v151ComandoDono(env, from, msg, texto) {
+  if (/^(perdas?|perdas do mes|quebras?|quanto (eu )?perdi( no mes)?\??)$/.test(msg)) { await enviar(env, from, await perdasTexto(env)); return true; }
+  if (/^(sobras?|retalhos?|sobras guardadas)$/.test(msg)) { await enviar(env, from, await sobrasTexto(env)); return true; }
+  if (/^(previsao( do mes| de caixa)?|quanto vai entrar( esse mes| este mes| no mes)?\??|vai entrar quanto( esse mes)?\??)$/.test(msg)) { await enviar(env, from, await previsaoTexto(env)); return true; }
+  if (/^(plano( do dia| de hoje)?)$/.test(msg)) { await planoDiaEnviar(env, true); return true; }
+  const g = String(texto || '').match(/^\s*link (?:do|da|de)? ?(?:google|avalia[cç][aã]o)[^h]*(https:\/\/\S+)/i);
+  if (g) { await env.HR_KV.put('cfg:google_link', g[1]); globalThis.__gLink = g[1]; globalThis.__gLinkEm = Date.now(); await enviar(env, from, '⭐ Link da avaliação no Google guardado. Clientes que disserem que ficou tudo ótimo no pós-venda já recebem esse link.'); return true; }
+  return false;
+}
+
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -10772,6 +10985,21 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
+    name: 'registrar_perda',
+    description: 'Registra uma PERDA/QUEBRA de material ("quebrou uma peça da Maria", "trincou o peitoril do João, perdi uns 200") ou corrige o valor da última perda de um cliente ("a perda da Maria foi 300" → corrigir_valor true). Sem valor, o bot estima pelo custo da pedra.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, descricao: { type: 'string' }, valor: { type: 'number' }, funcionario: { type: 'string' }, corrigir_valor: { type: 'boolean' } }, required: ['descricao'] },
+  },
+  {
+    name: 'registrar_sobra',
+    description: 'Guarda uma SOBRA/RETALHO de pedra para reaproveitar ("sobrou um pedaço de Preto São Gabriel de 1,20 x 0,40 da cozinha da Maria"). Medidas em cm (se ele disse em metros, converta). Quando entrar soleira/peitoril que caiba, o bot avisa.',
+    input_schema: { type: 'object', properties: { material: { type: 'string' }, comp_cm: { type: 'number' }, larg_cm: { type: 'number' }, qtd: { type: 'number' }, origem: { type: 'string', description: 'de onde veio (ex.: cozinha da Maria)' } }, required: ['material', 'comp_cm', 'larg_cm'] },
+  },
+  {
+    name: 'previsao_mes',
+    description: 'PREVISÃO DO MÊS: quanto já entrou, quanto falta receber (A Receber, parcelas e pedidos a receber na entrega), boletos a pagar e o resultado previsto. Use para "quanto vai entrar esse mês?", "como vai fechar o mês?".',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
     name: 'premio_mensal',
     description: 'Configura o PRÊMIO DO MÊS da equipe: valor em R$ para quem bater a meta em todas as semanas, extra do LÍDER do mês (R$ e/ou um prêmio em texto, ex.: "folga num sábado") e o coringa (uma semana abaixo compensada no total). Ex.: "prêmio do mês 200 e o líder ganha 80", "o líder ganha uma folga".',
     input_schema: { type: 'object', properties: { valor: { type: 'number' }, lider: { type: 'number' }, lider_texto: { type: 'string' }, coringa: { type: 'boolean' } } },
@@ -11239,6 +11467,9 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'meta_definir') return await metaDefinirTool(env, a); // v147
   if (nome === 'premio_mensal') return await premioConfigTool(env, a); // v148
   if (nome === 'producao_status') return await producaoStatusTool(env, a); // v149
+  if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
+  if (nome === 'registrar_sobra') return await sobraTool(env, a); // v151
+  if (nome === 'previsao_mes') return { texto: (await previsaoTexto(env)) + '\n\n(Repasse esses números de forma curta e clara.)' }; // v151
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
   if (nome === 'expediente_dia') return await expedienteDias(env, a); // v138
   if (nome === 'lembrar_dono') { // v123
@@ -16650,6 +16881,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
     if (await premioComandoDono(env, from, msg).catch(e => { console.log('[PREMIO] comando:', e.message); return false; })) return; // v148
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
@@ -25064,7 +25296,7 @@ async function cbBaixaDinheiro(env, from, cid, valorC) {
 const GAV_PREFIXO = 'gav:pend:';
 async function agendarAvaliacaoGoogle(env, numero, nome) {
   try {
-    const link = String(env.GOOGLE_AVALIACAO || '').trim();
+    const link = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
     if (!/^https:\/\//.test(link) || String(env.AVALIACAO_GOOGLE_POS_PAGAMENTO ?? '1') === '0') return;
     const n = normalizarBR(numero), u = ultimos8(n);
     if (!u || ehDono(env, n)) return;
@@ -25077,7 +25309,7 @@ async function agendarAvaliacaoGoogle(env, numero, nome) {
 
 async function enviarAvaliacoesGoogle(env) {
   if (String(env.PROATIVO ?? '1') === '0' || !horaComercialBahia()) return;
-  const link = String(env.GOOGLE_AVALIACAO || '').trim();
+  const link = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
   if (!/^https:\/\//.test(link)) return;
   const lista = await env.HR_KV.list({ prefix: GAV_PREFIXO });
   for (const k of lista.keys.slice(0, 10)) {
@@ -25857,7 +26089,7 @@ async function tratarPosInstalacao(env, from, bruto, msg) {
   if (v.tipo === 'positivo') {
     await fim('positivo');
     await enviar(env, from, `${p ? p + ', q' : 'Q'}ue bom saber que gostou! Muito obrigada pela confiança na ${empresa}.`);
-    const link = String(env.GOOGLE_AVALIACAO || '').trim();
+    const link = String(env.GOOGLE_AVALIACAO || globalThis.__gLink || '').trim();
     let pediu = false;
     if (/^https:\/\//.test(link) && !(await env.HR_KV.get('gav:' + ultimos8(from)))) {
       await env.HR_KV.put('gav:' + ultimos8(from), '1', { expirationTtl: 90 * 86400 }).catch(() => {});
@@ -28991,6 +29223,7 @@ async function alertaAppParado(env) {
 export default {
   async scheduled(event, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
+    await googleLinkCarregar(env).catch(() => {}); // v151
     configurarRegras(env); // v27: limite de peças e pingadeira
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
@@ -29036,6 +29269,7 @@ export default {
 
   async fetch(req, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
+    await googleLinkCarregar(env).catch(() => {}); // v151
     configurarRegras(env); // v27: limite de peças e pingadeira
     if (ctx && ctx.waitUntil) try { env._waitUntil = p => ctx.waitUntil(p); } catch (_) {} // v63k: tarefas depois da resposta
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
