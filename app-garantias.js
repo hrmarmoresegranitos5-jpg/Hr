@@ -1,4 +1,4 @@
-// app-garantias.js — v1: 🛡️ Garantias dos clientes (dados no bot, banco D1: nada se perde ao trocar de celular)
+// app-garantias.js — v2 (fotos da entrega). v1: 🛡️ Garantias dos clientes (dados no bot, banco D1: nada se perde ao trocar de celular)
 // Secretária → cartão "Garantias" → lista com busca e filtros, detalhes, certificado e contrato em PDF,
 // reenviar ao cliente pelo WhatsApp oficial, anotações, nova garantia (serviços antigos) e exportar planilha (CSV).
 (function () {
@@ -116,11 +116,18 @@
       + '<div class="gar-bts">' + (g.inicio ? '<button class="gar-bt pri" data-x="cert">📄 Certificado</button>' : '') + (g.tem_contrato ? '<button class="gar-bt" data-x="ct">✍️ Contrato</button>' : '')
       + (num && g.inicio ? '<button class="gar-bt" data-x="env">🤖 Mandar ao cliente</button>' : '') + (num ? '<a class="gar-bt zap" style="text-align:center;text-decoration:none;" href="https://wa.me/' + num + '" target="_blank" rel="noopener">💬 WhatsApp</a>' : '')
       + '<button class="gar-bt" data-x="nota">📝 Anotação</button><button class="gar-bt" data-x="edit">✏️ Editar</button></div>'
+      + '<div id="garFotos"></div>'
       + '<div style="margin-top:16px;font-size:.62rem;letter-spacing:.14em;color:#c9a84c;font-weight:800;">HISTÓRICO</div>'
       + ((g.eventos || []).map(function (e) { return '<div class="gar-ev"><small>' + new Date(e.ts).toLocaleString('pt-BR') + ' · ' + esc(e.tipo) + '</small>' + esc(e.texto) + '</div>'; }).join('') || '<div class="gar-ev">Sem eventos.</div>')
       + (g.situacao !== 'cancelada' ? '<button class="gar-bt" data-x="canc" style="width:100%;margin-top:14px;color:#f87171;border-color:rgba(248,113,113,.35);background:transparent;">Cancelar garantia</button>' : ''));
+    api('/bot/garantias/fotos?id=' + encodeURIComponent(g.id)).then(function (j) { // v2: fotos da entrega (comprovante)
+      var fs = (j && j.fotos) || [], box = sh.querySelector('#garFotos'); if (!fs.length || !box) return;
+      box.innerHTML = '<div style="margin-top:16px;font-size:.62rem;letter-spacing:.14em;color:#c9a84c;font-weight:800;">📸 FOTOS DA ENTREGA</div><div style="display:flex;gap:8px;overflow-x:auto;margin-top:8px;">' + fs.map(function (f) { return '<img data-foto="' + f.id + '" style="width:110px;height:110px;object-fit:cover;border-radius:12px;border:1px solid rgba(201,168,76,.35);background:#1b1813;flex:none;cursor:zoom-in;" alt="">'; }).join('') + '</div>';
+      box.querySelectorAll('img[data-foto]').forEach(function (im) { fetch(base() + '/bot/garantias/fotos?id=' + encodeURIComponent(g.id) + '&n=' + im.getAttribute('data-foto'), { headers: hdr() }).then(function (r) { return r.blob(); }).then(function (b) { im.src = URL.createObjectURL(b); }); });
+    }).catch(function () {});
     sh.onclick = function (e) {
       if (e.target === sh) { sh.remove(); return; }
+      var im = e.target.closest('img[data-foto]'); if (im && im.src) { window.open(im.src, '_blank'); return; }
       var b = e.target.closest('[data-x]'); if (!b) return; var x = b.getAttribute('data-x');
       if (x === 'cert') abrirPdf(g, 'cert'); else if (x === 'ct') abrirPdf(g, 'contrato');
       else if (x === 'env') api('/bot/garantias', { method: 'POST', headers: hdr(true), body: JSON.stringify({ acao: 'reenviar', id: g.id }) }).then(function (j) { aviso((j.ok ? '✅ ' : '⚠️ ') + j.texto); carregar(); }).catch(function (er) { aviso('⚠️ ' + er.message); });
