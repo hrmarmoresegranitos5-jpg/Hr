@@ -1,3 +1,4 @@
+// v148 (18/11/2026): PRÊMIO DO MÊS — meta em todas as semanas (coringa: 1 semana compensada no total), líder do mês por % da meta, corrida do mês no app do funcionário, status no sábado, resultado dia 1º com "Pagar prêmios" (vira Bônus no RH), premio_mensal
 // v147 (18/11/2026): METAS DA EQUIPE — pontos por produção, meta semanal automática ou do dono (meta_definir), tela "Minha meta" no app do funcionário (anel, ranking, medalhas, sequência, histórico), avisos 50%/100%/sexta, fechamento sábado com bônus
 // v146 (18/11/2026): EQUIPE INTELIGENTE (funções: corte/fabricação/45°/cuba/acabamento/instalação/entrega; distribui por carga e habilidade; corte → Hugo), FOTO OBRIGATÓRIA na entrega (comprovante ao dono, ao cliente e na garantia), DESEMPENHO do mês, RESUMO SEMANAL (domingo 19h), LUCRO do mês, REVISÃO ANUAL oferecida ao cliente 30 dias antes de vencer a garantia
 // v145 (18/11/2026): "fechei o serviço do João" com instalação (ou "assuma o João") → o bot assume: áudio, nome completo/CPF/endereço, PDF completo, contrato aceito e então o fechamento
@@ -2304,6 +2305,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^(fch|fchf)\|/.test(id)) return fechBotao(env, from, id); // v134
   if (/^onb_(ini|no|q|fp)\|/.test(id)) return onbBotaoDono(env, from, id); // v143
   if (/^gar_(pdf|ct|env)\|/.test(id)) return garBotaoDono(env, from, id); // v144
+  if (/^prm_(pag|no)\|/.test(id)) return premioBotao(env, from, id); // v148
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -9238,6 +9240,7 @@ async function semanalRotina(env) {
     await env.HR_KV.put('desemp:' + hoje, '1', { expirationTtl: 3 * 86400 });
     const ant = isoSomaDias(hoje, -1).slice(0, 7);
     await pontoAvisarDono(env, await desempenhoTexto(env, ant)); await pontoAvisarDono(env, await lucroTexto(env, ant));
+    await premioResultadoMes(env, ant).catch(e => console.log('[PREMIO]', e.message)); // v148
   }
 }
 async function grvOferecer(env, g) {
@@ -9352,7 +9355,8 @@ async function metasRotina(env) {
       L.push(`${pn.pct >= 100 ? '✅' : '❌'} *${nm}*: ${pn.pts}/${pn.meta} pts (${pn.pct}%)${pn.medalhas.length ? ' ' + pn.medalhas.map(m => m.i).join('') : ''}`);
       if (pn.pct >= 100 && pn.bonus) bonus.push(`${nm}: R$ ${reais(pn.bonus)}`);
       const tel = await respTel(env, f.id);
-      if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%). ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}`).catch(() => {});
+      const prm = await premioPainelFunc(env, f.id).catch(() => null), prmTxt = prm && prm.st !== 'sem' ? `\n🏆 Prêmio do mês (R$ ${reais(prm.valor)}): ${prm.semanas.map(w => w.futura ? '⬜' : w.bateu ? '✅' : w.atual ? '⏳' : '❌').join('')} — ${prm.txt}` : '';
+      if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%).${prmTxt} ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}`).catch(() => {});
     }
     if (lista.length) await pontoAvisarDono(env, [...L, ...(bonus.length ? ['', `💰 *Bônus a pagar:* ${bonus.join(' · ')}`] : []), '', '_Mude metas e bônus pelo WhatsApp: "meta do Fabrício 20 pontos, bônus 50"._'].join('\n')).catch(() => {});
   }
@@ -9372,6 +9376,98 @@ async function metaDefinirTool(env, a) {
   for (const f of alvo) { const c = m[f.id] || {}; if (a.automatica) delete c.pontos; else if (+a.pontos > 0) c.pontos = Math.round(+a.pontos); if (a.bonus != null) c.bonus = Math.max(0, +a.bonus || 0); m[f.id] = c; }
   await env.HR_KV.put('metas:cfg', JSON.stringify(m));
   return { texto: `Meta atualizada para ${alvo.map(f => f.nome.split(' ')[0]).join(', ')}: ${a.automatica ? 'automática (média + 10%)' : (+a.pontos > 0 ? a.pontos + ' pontos por semana' : 'sem mudança nos pontos')}${a.bonus != null ? ', bônus R$ ' + reais(+a.bonus || 0) : ''}. Já aparece no app do funcionário. Confirme em UMA frase.` };
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v148: PRÊMIO DO MÊS — ganha quem bate a meta em todas as semanas do mês; "coringa": pode ficar abaixo em UMA
+//   semana se compensar (pontos do mês ≥ soma das metas). Líder do mês = maior % da meta (justo entre funções).
+//   App do funcionário mostra a corrida do mês; bot avisa no sábado; dia 1º: resultado + botão "Pagar prêmios" (RH)
+// ═════════════════════════════════════════════════════════════════════════════
+async function premioCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('premio:cfg')) || '{}') || {}; } catch (_) {} return { valor: 150, lider: 50, liderTexto: '', coringa: true, ...c }; }
+function semanasDoMes(mes) { // segundas cujas semanas (seg–sáb) terminam no mês
+  const out = []; let d = semIni(mes + '-01');
+  for (let i = 0; i < 7; i++) { const sab = isoSomaDias(d, 5); if (sab.slice(0, 7) === mes) out.push(d); if (sab.slice(0, 7) > mes) break; d = isoSomaDias(d, 7); }
+  return out;
+}
+async function premioMes(env, mes) {
+  mes = mes || dataBahia().slice(0, 7);
+  const cfg = await pontoCfg(env), pc = await premioCfg(env), cfgM = await metasCfg(env), hoje = dataBahia(), semAtual = semIni(hoje);
+  let inicio = await env.HR_KV.get('metas:inicio'); if (!inicio) { inicio = semAtual; await env.HR_KV.put('metas:inicio', inicio); } // semanas antes do sistema não contam
+  const sems = semanasDoMes(mes).filter(ini => ini >= inicio), cache = {};
+  const pontosSem = async ini => (cache[ini] = cache[ini] || await metasPontos(env, ini, isoSomaDias(ini, 6)));
+  const res = [];
+  for (const f of cfg.funcs) {
+    const ws = [];
+    for (const ini of sems) {
+      if (ini > semAtual) { ws.push({ ini, futura: true }); continue; }
+      const hist = []; for (let k = 1; k <= 4; k++) { const a = isoSomaDias(ini, -7 * k); hist.push({ ini: a, pts: ((await pontosSem(a))[f.id] || {}).pts || 0 }); }
+      const m = await metaDe(env, f.id, cfgM, hist), pts = ((await pontosSem(ini))[f.id] || {}).pts || 0;
+      ws.push({ ini, pts, meta: m.meta, bateu: pts >= m.meta, atual: ini === semAtual && isoSomaDias(ini, 5) >= hoje });
+    }
+    const feitas = ws.filter(w => !w.futura && !w.atual), abaixo = feitas.filter(w => !w.bateu);
+    const somaP = ws.filter(w => !w.futura).reduce((t, w) => t + w.pts, 0), somaM = ws.filter(w => !w.futura).reduce((t, w) => t + w.meta, 0);
+    const ultMeta = (ws.filter(w => w.meta).slice(-1)[0] || {}).meta || 0;
+    const metaMes = ws.reduce((t, w) => t + (w.meta || ultMeta), 0); // semanas futuras: estima com a última meta
+    const ativo = ws.some(w => w.pts > 0), fechado = !ws.some(w => w.futura || w.atual);
+    let st, txt, falta = 0;
+    if (!ativo) { st = 'sem'; txt = 'Sem produção registrada no mês.'; }
+    else if (abaixo.length === 0) { st = 'caminho'; txt = fechado ? 'Bateu a meta em todas as semanas! 🎉' : feitas.length ? 'No caminho: todas as semanas batidas até agora.' : 'Valendo! Bata a meta desta semana e das próximas do mês.'; }
+    else if (abaixo.length === 1 && pc.coringa) { falta = Math.max(0, metaMes - somaP); st = falta ? 'coringa' : 'caminho'; txt = falta ? `Usou o coringa: para compensar, feche o mês com ${metaMes} pontos (faltam ${falta}).` : 'Usou o coringa e já compensou no total do mês. 👏'; }
+    else { st = 'fora'; txt = `Ficou abaixo da meta em ${abaixo.length} semanas: fora do prêmio deste mês.`; }
+    const ganhou = fechado && ativo && (abaixo.length === 0 || (abaixo.length === 1 && pc.coringa && somaP >= somaM));
+    res.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], semanas: ws, somaP, somaM, pct: somaM ? Math.round(somaP / somaM * 100) : 0, st, txt, falta, ganhou, fechado });
+  }
+  const fechado = res.length && res[0].fechado;
+  const cand = res.filter(r => fechado ? r.ganhou : (r.st === 'caminho' || r.st === 'coringa')).sort((a, b) => b.pct - a.pct || b.somaP - a.somaP);
+  const lider = cand[0] && cand[0].pct > 0 ? cand[0].id : '';
+  return { mes, sems, valor: pc.valor, lider: pc.lider, liderTexto: pc.liderTexto, coringa: pc.coringa, fechado, liderId: lider, lista: res };
+}
+async function premioPainelFunc(env, funcId) {
+  const pm = await premioMes(env), r = pm.lista.find(x => x.id === String(funcId)); if (!r) return null;
+  return { mes: pm.mes, valor: pm.valor, lider: pm.lider, liderTexto: pm.liderTexto, coringa: pm.coringa, semanas: r.semanas.map(w => ({ ini: w.ini, pts: w.pts || 0, meta: w.meta || 0, bateu: !!w.bateu, atual: !!w.atual, futura: !!w.futura })), st: r.st, txt: r.txt, pct: r.pct, ehLider: pm.liderId === String(funcId) };
+}
+async function premioResultadoMes(env, mes) { // dia 1º: quem ganhou o mês que passou
+  const pm = await premioMes(env, mes), cfg = await pontoCfg(env);
+  const ganharam = pm.lista.filter(r => r.ganhou), lider = pm.lista.find(r => r.id === pm.liderId && r.ganhou);
+  const nomeMes = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][+mes.slice(5) - 1];
+  const total = ganharam.length * pm.valor + (lider && pm.lider ? pm.lider : 0);
+  const L = [`🏆 *Prêmio do mês · ${nomeMes}*`, '', ...pm.lista.filter(r => r.st !== 'sem').map(r => `${r.ganhou ? '✅' : '❌'} *${r.nome}*: ${r.semanas.map(w => w.bateu ? '🟢' : '🔴').join('')} · ${r.pct}% da meta${r.ganhou ? ' → R$ ' + reais(pm.valor) : ''}${lider && r.id === lider.id ? ` + 🥇 líder${pm.lider ? ' R$ ' + reais(pm.lider) : ''}${pm.liderTexto ? ' (' + pm.liderTexto + ')' : ''}` : ''}`), '', ganharam.length ? `💰 *Total a pagar: R$ ${reais(total)}*` : 'Ninguém fechou o mês com a meta.'];
+  if (ganharam.length) {
+    await env.HR_KV.put('premio:pend:' + mes, JSON.stringify({ itens: [...ganharam.map(r => ({ funcId: r.id, nome: r.nome, valor: pm.valor, obs: 'Prêmio do mês ' + nomeMes })), ...(lider && pm.lider ? [{ funcId: lider.id, nome: lider.nome, valor: pm.lider, obs: 'Líder do mês ' + nomeMes }] : [])] }), { expirationTtl: 40 * 86400 });
+    await enviarComBotoes(env, numeroDono(env), L.join('\n'), [{ id: 'prm_pag|' + mes, titulo: 'Pagar prêmios' }, { id: 'prm_no|' + mes, titulo: 'Depois' }]).catch(() => {});
+  } else await pontoAvisarDono(env, L.join('\n')).catch(() => {});
+  for (const r of pm.lista.filter(x => x.st !== 'sem')) {
+    const tel = await respTel(env, r.id); if (!tel) continue;
+    await enviar(env, tel, `${avisoTeste(env)}🏆 ${r.nome}, resultado de ${nomeMes}: ${r.semanas.map(w => w.bateu ? '🟢' : '🔴').join('')} (${r.pct}% da meta). ${r.ganhou ? `*Você ganhou o prêmio do mês: R$ ${reais(pm.valor)}!* 🎉${lider && lider.id === r.id ? ` E foi o *líder do mês*${pm.lider ? ' (+R$ ' + reais(pm.lider) + ')' : ''}${pm.liderTexto ? ' — ' + pm.liderTexto : ''}! 🥇` : ''}` : 'Dessa vez não deu. O mês novo começou zerado: bora! 💪'}`).catch(() => {});
+  }
+}
+async function premioBotao(env, from, id) {
+  const [ac, mes] = id.split('|');
+  if (ac === 'prm_no') { await enviar(env, from, 'Certo, fica para depois. Mande "prêmio do mês" para ver de novo.'); return true; }
+  let p = null; try { p = JSON.parse((await env.HR_KV.get('premio:pend:' + mes)) || 'null'); } catch (_) {}
+  if (!p) { await enviar(env, from, 'Esses prêmios já foram registrados (ou expiraram).'); return true; }
+  await env.HR_KV.delete('premio:pend:' + mes);
+  const feitos = [];
+  for (const it of p.itens) {
+    const base = Date.now(), rand = Math.floor(Math.random() * 900 + 100), k = 'pag:' + String(base).padStart(13, '0') + '-' + rand;
+    await env.HR_KV.put(k, JSON.stringify({ k, waId: 'wp' + base + rand, funcId: it.funcId, nome: it.nome, valor: it.valor, tipo: 'bonus', data: dataBahia(), forma: 'pix', obs: it.obs, socio: false, importado: false }), { expirationTtl: 30 * 86400 });
+    feitos.push(`${it.nome}: R$ ${reais(it.valor)} (${it.obs})`);
+  }
+  await env.HR_KV.put('cfg:flag:pag', String(Date.now()), { expirationTtl: 86400 }).catch(() => {});
+  await enviar(env, from, cartaoDono('Prêmios registrados', [...feitos, 'Entram no RH (tipo Bônus) e em Finanças quando o app abrir.']));
+  return true;
+}
+async function premioComandoDono(env, from, msg) {
+  if (!/^(premio( do mes)?|premios( do mes)?|premio mensal|quem vai ganhar o premio\??)$/.test(msg)) return false;
+  const pm = await premioMes(env);
+  await enviar(env, from, [`🏆 *Prêmio do mês* · R$ ${reais(pm.valor)} por funcionário${pm.lider ? ` · líder +R$ ${reais(pm.lider)}` : ''}${pm.liderTexto ? ' (' + pm.liderTexto + ')' : ''}`, `Regra: bater a meta em todas as semanas${pm.coringa ? ' (uma semana abaixo pode ser compensada no total do mês)' : ''}.`, '',
+    ...pm.lista.filter(r => r.st !== 'sem').map(r => `${r.st === 'caminho' ? '🟢' : r.st === 'coringa' ? '🟡' : '🔴'} *${r.nome}*: ${r.semanas.map(w => w.futura ? '⬜' : w.atual ? '⏳' : w.bateu ? '✅' : '❌').join('')} · ${r.pct}%${pm.liderId === r.id ? ' · 🥇 liderando' : ''}`), '', '_Mudar: "prêmio do mês 200, líder 80" ou "prêmio do líder: folga num sábado"._'].join('\n'));
+  return true;
+}
+async function premioConfigTool(env, a) {
+  let c = {}; try { c = JSON.parse((await env.HR_KV.get('premio:cfg')) || '{}') || {}; } catch (_) {}
+  if (+a.valor >= 0 && a.valor != null) c.valor = +a.valor; if (a.lider != null) c.lider = Math.max(0, +a.lider || 0); if (a.lider_texto != null) c.liderTexto = String(a.lider_texto).slice(0, 80); if (typeof a.coringa === 'boolean') c.coringa = a.coringa;
+  await env.HR_KV.put('premio:cfg', JSON.stringify(c)); const pc = await premioCfg(env);
+  return { texto: `Prêmio do mês: R$ ${reais(pc.valor)} para quem bater a meta em todas as semanas${pc.coringa ? ' (com coringa)' : ''}; líder do mês: ${pc.lider ? 'R$ ' + reais(pc.lider) : ''}${pc.liderTexto ? (pc.lider ? ' + ' : '') + pc.liderTexto : ''}${!pc.lider && !pc.liderTexto ? 'sem extra' : ''}. Já aparece no app da equipe. Confirme em UMA frase.` };
 }
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
@@ -10562,6 +10658,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'premio_mensal',
+    description: 'Configura o PRÊMIO DO MÊS da equipe: valor em R$ para quem bater a meta em todas as semanas, extra do LÍDER do mês (R$ e/ou um prêmio em texto, ex.: "folga num sábado") e o coringa (uma semana abaixo compensada no total). Ex.: "prêmio do mês 200 e o líder ganha 80", "o líder ganha uma folga".',
+    input_schema: { type: 'object', properties: { valor: { type: 'number' }, lider: { type: 'number' }, lider_texto: { type: 'string' }, coringa: { type: 'boolean' } } },
+  },
+  {
     name: 'meta_definir',
     description: 'Define a META SEMANAL (em pontos) e/ou o BÔNUS de um funcionário (ou de "todos"). Ex.: "meta do Fabrício 20 pontos, bônus 50", "bônus de 80 para o Hugo", "meta automática do Lucas" (automatica=true: média das últimas semanas + 10%). Pontos: corte 1/peça, fabricação 3+1/peça, entrega 2, instalação 5, no prazo +1, foto +1, atraso −1.',
     input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, pontos: { type: 'number' }, bonus: { type: 'number', description: 'R$ por semana com a meta batida' }, automatica: { type: 'boolean' } }, required: ['funcionario'] },
@@ -11022,6 +11123,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'equipe_consultar') return await equipeConsultar(env); // v141
   if (nome === 'equipe_funcoes') return await equipeFuncoesTool(env, a); // v146
   if (nome === 'meta_definir') return await metaDefinirTool(env, a); // v147
+  if (nome === 'premio_mensal') return await premioConfigTool(env, a); // v148
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
   if (nome === 'expediente_dia') return await expedienteDias(env, a); // v138
   if (nome === 'lembrar_dono') { // v123
@@ -16434,6 +16536,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
+    if (await premioComandoDono(env, from, msg).catch(e => { console.log('[PREMIO] comando:', e.message); return false; })) return; // v148
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
@@ -26468,7 +26571,7 @@ async function rotaPonto(req, env, ctx, url) {
       const r = await pontoPedidoCriar(env, cfg, dev.funcId, nome, b);
       return r.erro ? J({ erro: r.erro }, 400) : J({ ok: true, pedido: r.pedido });
     }
-    if (p === '/ponto/metas') return J(await metaPainel(env, dev.funcId)); // v147
+    if (p === '/ponto/metas') { const mp = await metaPainel(env, dev.funcId); mp.premio = await premioPainelFunc(env, dev.funcId).catch(() => null); return J(mp); } // v147/v148
     if (p === '/ponto/meu') {
       const dias = [];
       for (let i = 0; i < 7; i++) { const d = dataBahia(-i); const l = await pontoDia(env, d, dev.funcId); if (l.length || i === 0) dias.push({ data: d, batidas: l.map(pontoPublico) }); }
@@ -27425,6 +27528,9 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
         +'<div style="flex:1;min-width:0"><h3>🎯 Minha meta da semana</h3><div class="big">'+(m.pct>=100?'Meta batida! '+m.pct+'%':'Faltam '+m.falta+' pontos')+'</div>'
         +'<div class="sub">'+(m.pct>=100?'Cada ponto a mais conta no ranking.':(m.diasRest>0?'Uns '+m.porDia+' por dia até sábado.':'Último dia!'))+(m.bonus?' · Bônus R$ '+m.bonus.toFixed(2).replace('.',','):'')+'</div>'
         +((m.seq+(m.pct>=100?1:0))?'<div class="sub">🔥 '+(m.seq+(m.pct>=100?1:0))+' semana(s) seguida(s) batendo a meta</div>':'')+(m.pos?'<div class="sub">🏅 '+m.pos+'º lugar na equipe</div>':'')+'</div></div>';
+      if(m.premio&&m.premio.st!=='sem'){var P=m.premio,cores={caminho:'#4cc38a',coringa:'#e0a530',fora:'#f07a7a'};h+='<div class="sec">🏆 Prêmio do mês · R$ '+P.valor.toFixed(2).replace('.',',')+(P.lider?' · líder +R$ '+P.lider.toFixed(2).replace('.',','):'')+(P.liderTexto?' ('+P.liderTexto+')':'')+'</div>'
+        +'<div style="display:flex;gap:6px;margin:4px 0 6px">'+P.semanas.map(function(w,i){var bg=w.futura?'rgba(255,255,255,.05)':w.bateu?'linear-gradient(135deg,#4cc38a,#2f9a68)':w.atual?'rgba(196,164,106,.25)':'rgba(240,122,122,.35)';return '<div style="flex:1;border-radius:10px;padding:7px 4px;text-align:center;background:'+bg+';font-size:.66rem"><b style="display:block;font-size:.9rem">'+(w.futura?'—':w.pts)+'</b>sem '+(i+1)+(w.meta&&!w.futura?'<br><small style="opacity:.7">meta '+w.meta+'</small>':'')+'</div>'}).join('')+'</div>'
+        +'<div class="sub" style="color:'+(cores[P.st]||'')+'">'+P.txt+(P.ehLider?' · 🥇 você está liderando!':'')+'</div>'}
       if(m.medalhas.length)h+='<div class="med">'+m.medalhas.map(function(x,i){return '<span style="animation-delay:'+(i*.12)+'s">'+x.i+' '+x.t+'</span>'}).join('')+'</div>';
       if(m.rank.length>1){var mx=Math.max.apply(null,m.rank.map(function(r){return r.pts}))||1;h+='<div class="sec">Ranking da semana</div>'+m.rank.map(function(r,i){return '<div class="rk'+(i+1===m.pos?' eu':'')+'"><i>'+(['🥇','🥈','🥉'][i]||(i+1))+'</i><span style="width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.nome+'</span><div class="bar"><u style="width:'+Math.round(r.pts/mx*100)+'%"></u></div><span>'+r.pts+'</span></div>'}).join('')}
       if(m.hist.length){var hm=Math.max.apply(null,m.hist.map(function(x){return x.pts}).concat([m.meta]))||1;h+='<div class="sec">Últimas semanas</div><div class="hs">'+m.hist.map(function(x){return '<div class="'+(x.pts>=m.meta?'ok':'')+'" style="height:'+Math.max(6,Math.round(x.pts/hm*60))+'px" title="'+x.pts+'"></div>'}).join('')+'</div>'}
