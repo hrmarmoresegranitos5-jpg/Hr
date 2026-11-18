@@ -1,3 +1,4 @@
+// v119 (18/11/2026): FIM DE CONVERSA E APRENDER COM O DONO — "ok"/"certo"/👍 depois de mensagem sem pergunta não recebe resposta; pergunta que a IA não sabe vai ao dono ("Como respondo?"), a resposta dele (texto ou áudio, sem comando) vai ao cliente reescrita e vira regra para todos
 // v118 (18/11/2026): ORÇAMENTO ATIVO — o último PDF mandado ao cliente é o orçamento da conversa (nº ORC, id do app, valor); fechamento, Pix e QR seguem nele; um novo substitui e o anterior só volta se pedirem ("o outro orçamento" → botões); cada PDF gerado no app fica guardado (/bot/orcpdf/guardar); dono: "orçamentos do fulano" / "manda o ORC-0585 pra ele"; código do cliente (C-0001) no histórico
 // v117 (18/11/2026): PAGAMENTO QUE SEGUE — "na entrega"/"pix" respondendo à pergunta de pagamento (do bot, da IA ou do dono) entra no passo a passo (entrega, localização, Pix); pedido fechado sem valor guarda a escolha até o dono mandar o valor; sem "Olá, fulana" repetido depois do modelo
 // v116 (18/11/2026): CONVERSA DE GENTE — a assistente não se apresenta como robô por conta própria, evita frases de robô e escreve no ritmo do WhatsApp; se perguntarem de verdade, continua dizendo que é a assistente virtual
@@ -4322,6 +4323,8 @@ function promptCliente(env, c, regras) {
     `- VISITA TÉCNICA (feita pelo próprio responsável, que confere as medidas no local e conversa sobre os detalhes; por isso NÃO pergunte se é reforma ou obra nova nem se o cliente tem medidas): colete, uma pergunta curta por vez e nesta ordem: (1) o que será feito (cozinha, banheiro, soleira...), (2) a pedra ou cor (ofereça o catálogo com fotos se ele não souber), (3) o endereço da obra (ou a localização atual), (4) o dia e a hora da visita. Perguntas diretas, em uma frase, sem rodeios. Se o cliente der as medidas por conta própria, registre em medidas_texto e siga.`,
     `- VISITA, QUEM MARCA É O SISTEMA: enquanto o cliente não confirmar o resumo com sim, não diga que a visita está marcada. Depois do sim, o sistema marca na agenda e envia a confirmação; você só marca pronto: true. Se o cliente pedir um horário que já passou hoje ou que a AGENDA mostra ocupado, ofereça o próximo horário livre. Confirme o endereço e o horário UMA vez só. Nunca invente horário.`,
     `- PAGAMENTO PEDIDO PELO CLIENTE: se o cliente pedir o Pix, a chave ou como pagar e houver ORÇAMENTO JÁ ENVIADO ou pedido em andamento, nunca diga que alguém manda depois: o sistema gera o Pix na hora (veja ORÇAMENTO JÁ ENVIADO). Pedido de pagamento NUNCA é motivo para "chamar_dono".`,
+    `- QUANDO NÃO SOUBER: diga em uma frase natural que vai confirmar e já retorna (ex.: \"Boa pergunta, deixa eu confirmar isso aqui e já te respondo.\") e preencha \"sem_resposta\". Nunca chute.`,
+    `- FIM DE CONVERSA: se a conversa já foi encerrada (você se despediu ou o cliente só confirmou), não puxe assunto novo nem repita despedida.`,
     `- ENCERRAMENTO CURTO: \"por nada\" só responde a um AGRADECIMENTO (obrigado, valeu). \"Ok\", \"certo\", \"entendi\" não são agradecimento: confirme em poucas palavras e, se houver próximo passo (aprovar o orçamento, enviar a localização, escolher a pedra), lembre esse passo em uma frase leve. Quando o cliente só agradecer ou disser \"fico no aguardo\", responda com no máximo uma frase curta e calorosa (ex.: \"Por nada, qualquer coisa é só chamar.\"). Não repita a data, o endereço nem o que já foi combinado, e não faça novas perguntas.`,
     `- LOCALIZAÇÃO RECEBIDA: uma mensagem no formato "[Localização enviada pelo cliente...]" é o pino do WhatsApp com o endereço da obra. Agradeça em poucas palavras, trate como endereço já recebido (preencha "endereco" com o texto) e siga para a próxima pergunta do funil. Nunca diga que só lê texto.`,
     `- LOCALIZAÇÃO: ao pedir o local da visita, peça DE PREFERÊNCIA a localização ATUAL do cliente (ele precisa estar no local da obra) e ENSINE a enviar, em passos curtos: no Android, tocar no clipe; no iPhone, tocar no +; escolher "Localização"; tocar em "Enviar sua localização atual". Avise para NÃO usar "Compartilhar localização em tempo real", que não é aceita. Se ele não estiver na obra ou preferir, aceite o endereço completo escrito com ponto de referência. Não repita o passo a passo se ele já enviou a localização.`,
@@ -4758,6 +4761,23 @@ async function listarArquivoConversas(env, dias) {
   } catch (e) { if (/no such table/i.test(e.message)) return []; throw e; }
 }
 
+// v119: o cliente encerrou ("ok", "certo", "beleza", 👍) e a última mensagem do bot não perguntou nada: não responde.
+//   "obrigado" ganha UMA resposta curta, a menos que o bot já tenha se despedido.
+const RE_ACK = /^(ok+|okay|oks|okk+|ta|ta bom|ta certo|ta joia|ta otimo|certo|certinho|beleza|blz|show|joia|combinado|entendi|entendido|perfeito|tudo bem|tudo certo|fechou|isso|isso mesmo|sim|uhum|aham|valeu|vlw|obrigad[oa]|obg|brigad[oa]|muito obrigad[oa]|obrigad[oa] mesmo|grat[oa]|tmj|top|otimo|maravilha|amem|de nada|blz entao|ok entao|certo entao|ok obrigad[oa]|ok valeu|certo obrigad[oa]|beleza obrigad[oa]|ta bom obrigad[oa]|show obrigad[oa]|ok blz|ok certo|ok ta bom)$/;
+const RE_DESPEDIDA_BOT = /(qualquer (coisa|duvida|necessidade)|e so (me )?chamar|me chama se precisar|estou a disposicao|fico a disposicao|conte conosco|por nada|de nada|ate (mais|logo|breve)|boa (tarde|noite|semana)|tenha um)/;
+function clienteEncerrou(c, bruto) {
+  const so = String(bruto || '').trim();
+  const t = normaliza(so).replace(/[.!,;]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const soEmoji = !t && /^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(so) && so.length <= 12;
+  if (!soEmoji && !RE_ACK.test(t)) return false;
+  const ult = ((c && c.hist) || []).filter(h => h.role === 'assistant').slice(-1)[0];
+  if (!ult) return false;
+  const u = String(ult.content || '');
+  if (u.includes('?')) return false; // respondeu a uma pergunta: a IA segue
+  const agradeceu = /\b(obrigad|brigad|valeu|vlw|grat)/.test(t);
+  if (agradeceu && !RE_DESPEDIDA_BOT.test(normaliza(u))) return false; // um "por nada" curto, uma vez
+  return true;
+}
 async function atenderClienteIA(env, from, bruto, perfil) {
   try {
     if (!(await limiteCliente(env, from))) return true; // passou do limite diário: fica em silêncio
@@ -4776,6 +4796,18 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     try { c = JSON.parse(cRaw || 'null'); } catch (_) {}
     if (!c) c = { dados: {}, hist: [] };
     if (await tratarRemarcarVisita(env, from, c, brutoL, bruto).catch(e => { console.log('[BOT] remarcar visita:', e.message); return false; })) return true; // remarcar/cancelar visita: o bot resolve sozinho
+    if (clienteEncerrou(c, bruto)) { // v119: conversa encerrada pelo cliente: fica em silêncio (só guarda a mensagem)
+      let oe = null; try { oe = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(from))) || 'null'); } catch (_) {}
+      const ultB = String(((c.hist || []).filter(h => h.role === 'assistant').slice(-1)[0] || {}).content || '');
+      const pdfSemConversa = oe && !oe.fechado && !c.aprovPerguntada && /\[PDF do or[cç]amento enviado\]|segue o (seu )?or[cç]amento/i.test(ultB); // "ok" logo depois do PDF: a IA pergunta da aprovação uma vez
+      if (!pdfSemConversa) {
+        c.hist = [...(c.hist || []), { role: 'user', content: String(bruto).slice(0, 200) }].slice(-14);
+        c.ultimaEm = Date.now(); c.encerradaEm = Date.now();
+        await env.HR_KV.put(chave, JSON.stringify(c), { expirationTtl: CLIENTE_TTL });
+        return true;
+      }
+      c.aprovPerguntada = Date.now();
+    }
     c.ultimaEm = Date.now(); // para o pedido de nota quando o cliente para de responder
     if (c.concluido) { // pedido anterior já enviado: começa um novo, guardando só o nome
       const { medidas } = resumoDados(c.dados);
@@ -5926,7 +5958,8 @@ async function registrarPerguntaSemResposta(env, from, nome, pergunta) {
   }
   lista.push({ pergunta: p, nome: nome || '', numero: from, em: Date.now(), aprender: true });
   await env.HR_KV.put('pq:lista', JSON.stringify(lista), { expirationTtl: 7 * 86400 });
-  await notificarDono(env, Date.now(), cartaoDono('Pergunta sem resposta · ' + (nome || 'Cliente'), [`Pergunta: "${p}"`, 'O que fazer: deslize esta mensagem e escreva *responder* + a resposta. Depois pergunto se guardo para as próximas.'], from));
+  await env.HR_KV.put('pq:aguarda', JSON.stringify({ pergunta: p, numero: from, nome: nome || '', em: Date.now() }), { expirationTtl: 6 * 3600 }); // v119
+  await notificarDono(env, Date.now(), cartaoDono('Como respondo? · ' + (nome || 'Cliente'), [`${nome || 'O cliente'} perguntou: "${p}"`, 'Me diga a resposta do seu jeito (texto ou áudio). Eu respondo a ele com as minhas palavras e passo a responder assim para todos os clientes.'], from));
 }
 
 // anota, sem avisar, que este cliente espera resposta do dono (ele responde com "responder")
@@ -13814,6 +13847,39 @@ async function tratarAssumir(env, from, bruto, msg) {
   }
   return false;
 }
+// v119: resposta do dono à última pergunta sem resposta, sem precisar de "responder" (até 30 min depois do aviso, ou deslizando o aviso)
+const RE_CMD_DONO = /^(qr|cobrar|cobranca|orcamentos?|manda|mande|mandar|envia|envie|enviar|assumir|devolver|regras|ensinar|esquecer|status|fila|leads|sinal|gastei|paguei|recebi|ponto|folha|agenda|resumo|caixa|extrato|conferir|testar|sair|dica|avaliac|instagram|insta|ig|modelos|criar|postar|post|story|reels|radar|parados|indica|cuba|guardar|responder|cancelar|lembrete|lembra|vale|boleto|boletos|pix|link)\b/;
+async function pqRespostaDono(env, from, bruto, msg) {
+  let a = null; try { a = JSON.parse((await env.HR_KV.get('pq:aguarda')) || 'null'); } catch (_) {}
+  if (!a || !a.numero) return false;
+  const citado = env._ctx && env._ctx.citado ? (await env.HR_KV.get('wm:' + env._ctx.citado).catch(() => null)) || '' : '';
+  const deslizou = citado && ultimos8(citado) === ultimos8(a.numero);
+  if (!deslizou && (Date.now() - a.em > 30 * 60000 || RE_CMD_DONO.test(msg) || /\?\s*$/.test(String(bruto)) || msg.split(' ').length < 2)) return false;
+  if (/^(nao sei|depois|deixa|ignora|ignorar|pular)$/.test(msg)) { await env.HR_KV.delete('pq:aguarda'); await enviar(env, from, 'Certo, Sr. Hangel, deixei essa sem resposta.'); return true; }
+  await env.HR_KV.delete('pq:aguarda');
+  const instr = String(bruto).trim().slice(0, 800);
+  let txt = instr;
+  try { // transforma a instrução do dono ("diz que a garantia é 1 ano") numa resposta natural ao cliente
+    const r = await chamarIA(env, `Você escreve, em nome da ${env.EMPRESA || 'HR Mármores e Granitos'}, a resposta a um cliente no WhatsApp. O dono explicou a resposta do jeito dele. Escreva SÓ a mensagem ao cliente: curta (1 ou 2 frases), natural, cordial, em português do Brasil, sem saudação, sem inventar nada além do que o dono disse, sem dizer "o dono disse". Se o dono já escreveu a mensagem pronta, use-a quase igual.`, [], `Pergunta do cliente: "${a.pergunta}"\nResposta do dono: "${instr}"`, { maxTokens: 300, timeoutMs: 20000 });
+    const lim = String(r || '').replace(/^["“]|["”]$/g, '').trim(); if (lim && lim.length < 700) txt = lim;
+  } catch (e) { console.log('[PQ] reescrever:', e.message); }
+  const pend = await lerPerguntasPendentes(env);
+  const perg = pend.find(x => x.aprender && x.numero === a.numero && normaliza(x.pergunta) === normaliza(a.pergunta)) || { pergunta: a.pergunta, numero: a.numero, outros: [] };
+  const alvos = [{ numero: a.numero, nome: a.nome }, ...(perg.outros || [])];
+  const enviados = [], fora = [];
+  for (const o of alvos) {
+    if (await janela24h(env, o.numero)) { await enviar(env, o.numero, txt).catch(() => fora.push(o)); enviados.push(o); for (const nk of variantesNumero(o.numero)) await anotarNoHistorico(env, nk, txt).catch(() => {}); }
+    else fora.push(o);
+  }
+  await env.HR_KV.put('pq:lista', JSON.stringify(pend.filter(x => !(x.numero === perg.numero && normaliza(x.pergunta) === normaliza(perg.pergunta)))), { expirationTtl: 7 * 86400 });
+  const regra = `Se perguntarem "${a.pergunta}" (ou algo parecido), responda: ${instr}`.replace(/\s+/g, ' ').slice(0, 400);
+  const mem = await lerMemoria(env); let id = null;
+  if (!mem.some(m => normaliza(m.texto) === normaliza(regra)) && mem.length < MEM_MAX) { id = novoIdMemoria(); mem.push({ id, texto: regra, escopo: 'atendimento', ts: Date.now() }); await salvarMemoria(env, mem); }
+  await removerFrequencia(env, a.pergunta).catch(() => {});
+  const nomes = enviados.map(o => o.nome || rtpFmt(o.numero)).join(', ');
+  await enviarComBotoes(env, from, [enviados.length ? `Respondi ${nomes}:` : 'Não consegui responder agora (o cliente passou das 24 h do WhatsApp).', enviados.length ? `_${txt}_` : '', fora.length ? `Não deu para mandar a ${fora.map(o => o.nome || rtpFmt(o.numero)).join(', ')} (passou das 24 h do WhatsApp); se perguntar de novo, já respondo assim.` : '', '', id ? 'E guardei para responder assim a todos os clientes daqui pra frente.' : 'Essa regra já estava guardada.'].filter(x => x !== '').join('\n'), id ? [{ id: 'mem_esq|' + id, titulo: 'Não guardar' }] : [{ id: 'resp_no', titulo: 'Ok' }]);
+  return true;
+}
 // depois que o dono responde uma pergunta sem resposta, o bot pergunta se ele quer guardar a resposta como regra de atendimento
 async function aprenderResposta(env, from, pergunta, resposta, qtdOutros = 0) {
   const texto = `Se perguntarem "${pergunta}", responda: ${resposta}`.replace(/\s+/g, ' ').slice(0, 300);
@@ -14321,6 +14387,7 @@ async function tratarMensagemBase(env, m, ctx) {
 
   if (dono) {
     if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
+    if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
