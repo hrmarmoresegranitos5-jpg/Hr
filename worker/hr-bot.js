@@ -1,3 +1,4 @@
+// v123 (18/11/2026): lembretes do dono pelo WhatsApp (lembrar_dono: 30 min antes e na hora); "avise ao fulano" acha o cliente; extrato MP casa por valor e hora, sem chutar
 // v122 (18/11/2026): áudio entendido em outra língua é refeito em português; sem o cartão "HR VISION | DOCUMENTO RECEBIDO" (dono não recebe; cliente recebe "Recebi, obrigada!" uma vez); pedido de reels antes dos vídeos fica guardado e monta quando chegam; a assistente do dono sabe os links do site
 // v121 (18/11/2026): VÍDEOS E FOTOS DO DONO — legenda "edite/monte/faça um vídeo..." monta o vídeo no editor com o que chegou; ferramenta montar_video (a assistente nunca diz que não recebeu os vídeos); um aviso por obra no acervo; álbum de cuba não pergunta se é extrato do MP nem responde "só leio texto"
 // v120 (18/11/2026): "te respondo"/"vou ver com fulano" encerram; vendedor/propaganda recebe uma resposta e o bot sai; "manda o PDF de novo" reenvia o arquivo de verdade; mensagem do dono que fala de Pix leva o Pix junto; sem aviso do modelo repetido; mais respostas automáticas reconhecidas (comunicado, afastamento)
@@ -6610,7 +6611,19 @@ function textoRetomada(c) {
   else q = 'se o resumo da visita está certo';
   return `${ola || ''}${ola ? 'f' : 'F'}icou faltando só um passo para deixar a sua visita técnica combinada: ${q}. Pode me responder quando quiser.`;
 }
+// v123: lembretes do dono (30 min antes e na hora)
+async function lembretesDono(env) {
+  let l = []; try { l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]'); } catch (_) { return; }
+  if (!l.length) return;
+  const agora = Date.now(); let mudou = false;
+  for (const x of l) {
+    if (!x.av30 && x.ts - agora <= 30 * 60000 && x.ts - agora > 5 * 60000) { if (await travaEnvio(env, 'lembd30:' + x.id)) { x.av30 = 1; mudou = true; await enviar(env, numeroDono(env), `⏰ Daqui a 30 minutos (${quandoBahia(x.ts).split(' às ')[1]}): ${x.texto}`).catch(() => {}); } }
+    if (!x.feito && x.ts <= agora) { if (await travaEnvio(env, 'lembd:' + x.id)) { x.feito = 1; mudou = true; await enviar(env, numeroDono(env), `⏰ *Lembrete:* ${x.texto}`).catch(() => {}); } }
+  }
+  if (mudou) await env.HR_KV.put('lemb:dono', JSON.stringify(l.filter(x => !x.feito || agora - x.ts < 3600000)));
+}
 async function pedirAvaliacoes(env) {
+  await lembretesDono(env).catch(e => console.log('[LEMB]', e.message));
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
     if (Date.now() - (globalThis.__avalVarredura || 0) < 300000) return; // no máximo a cada 5 min, sem gastar gravação do KV
@@ -8711,6 +8724,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'lembrar_dono',
+    description: 'AGENDA UM LEMBRETE para o Sr. Hangel: na hora marcada o bot manda a mensagem aqui no WhatsApp dele (funciona com o app fechado). Use para "me lembre amanhã às 12h", "me avisa da visita", "lembrete de..." e sempre que ele perguntar se você vai avisar. Nunca diga que não manda lembrete no WhatsApp.',
+    input_schema: { type: 'object', properties: { quando: { type: 'string', description: 'data e hora no fuso da Bahia, formato AAAA-MM-DDTHH:MM (use HOJE como referência)' }, texto: { type: 'string', description: 'o que lembrar, curto (ex.: Visita técnica na padaria da Regiane Cristina)' } }, required: ['quando', 'texto'] },
+  },
+  {
     name: 'montar_video',
     description: 'MONTA UM VÍDEO (Reels; também "faça o vídeo de hoje", "vídeo do dia") no editor do computador com as fotos/vídeos que o Sr. Hangel mandou por último (veja MÍDIAS RECENTES) ou, se não houver, com uma compilação das obras do acervo, seguindo o pedido dele (frase, tema, data comemorativa: "frase de bom dia", "vídeo de Natal"). Use SEMPRE que ele pedir para editar, criar, montar ou fazer um vídeo; nunca diga que não consegue criar vídeo nem que não recebeu os vídeos. O vídeo volta para ele aprovar antes de postar.',
     input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' }, vai_mandar: { type: 'boolean', description: 'true quando ele disse que AINDA VAI mandar as fotos/vídeos ("vou te mandar..."): o bot guarda o pedido e monta quando chegarem' } }, required: ['pedido'] },
@@ -9113,6 +9131,15 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const app = (await confAppAberto(env)) ? 'já está no app' : 'entra no app assim que ele abrir';
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
+  if (nome === 'lembrar_dono') { // v123
+    const mq = String(a.quando || '').match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);
+    if (!mq) return { erro: true, texto: 'Data/hora inválida. Use AAAA-MM-DDTHH:MM.' };
+    const ts = Date.parse(`${mq[1]}T${mq[2].padStart(2, '0')}:${mq[3]}:00-03:00`);
+    if (!(ts > Date.now() - 60000)) return { erro: true, texto: 'Esse horário já passou. Confirme o dia com o Sr. Hangel.' };
+    const l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]'); l.push({ ts, texto: String(a.texto || '').slice(0, 300), id: Date.now().toString(36) });
+    await env.HR_KV.put('lemb:dono', JSON.stringify(l.slice(-50)));
+    return { texto: `Lembrete agendado para ${quandoBahia(ts)}: "${a.texto}". O bot manda aqui no WhatsApp na hora (também 30 min antes). Confirme em UMA frase.` };
+  }
   if (nome === 'montar_video') { // v121
     if (a.vai_mandar === true) { // v122
       await env.HR_KV.put('acv:pedidoPend', JSON.stringify({ pedido: String(a.pedido || '').slice(0, 300), em: Date.now() }), { expirationTtl: 3600 });
@@ -9371,10 +9398,12 @@ async function responderAgente(env, from, bruto, F, voz) {
     try { const rec = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); const om = rec ? await acvLer(env, rec.id) : null;
       if (om) { const v = om.midias.filter(x => x.tipo === 'video').length, f = om.midias.length - v, min = Math.round((Date.now() - rec.em) / 60000);
         blocoMidia = `MÍDIAS RECENTES: há ${min} min o Sr. Hangel mandou ${v ? v + ' vídeo(s)' : ''}${v && f ? ' e ' : ''}${f ? f + ' foto(s)' : ''}; estão guardadas no acervo (obra "${om.desc}"). ELAS CHEGARAM: nunca diga que não recebeu. Se ele pedir para editar, montar ou fazer vídeo com elas ("esses aqui", "os que mandei"), use montar_video.${om.pedidoFeito ? ' Já foi pedido um vídeo com elas.' : ''}`; } } catch (_) {}
+    const blocoMP = `GASTOS DO MERCADO PAGO SEM NOME: o Mercado Pago não informa o nome nesses Pix; o Sr. Hangel identifica pelos prints do extrato (nome, valor e hora). Ao associar o que ele disser ("o Pix da Ellen foi pró-labore"), case SEMPRE pelo VALOR e pela HORA que aparecem no print e na lista pendente; nunca use o valor de outro item. Se não tiver certeza de qual item é, mostre a lista (valor + hora) e pergunte. Os valores estão no print: nunca peça ao Sr. Hangel valores que o print já mostra.`; // v123
     let blocoLinks = ''; // v122
     try { const wu = await urlDoWorker(env), pu = await urlPublica(env);
       blocoLinks = `LINKS DA HR (use quando o Sr. Hangel pedir o site ou um link; nunca diga que não existe): site oficial ${pu || 'https://' + DOMINIO_SITE}; catálogo de pedras ${(pu || wu)}/portfolio; álbum de obras ${(pu || wu)}/obras${wu && wu !== pu ? '; endereço do bot ' + wu : ''}.`; } catch (_) {}
     const blocoRegras = [
+      blocoMP,
       blocoLinks,
       blocoMidia,
       `LANÇAMENTOS FEITOS PELO WHATSAPP AINDA NÃO ENVIADOS AO APP:\n${JSON.stringify(ctx.pend)}`,
@@ -14291,8 +14320,9 @@ async function commsTratarDono(env, from, bruto, m) {
   // Pedido natural: “avise Nome que ...”, “mande uma mensagem para Nome ...”.
   const pedido = t.match(/^(?:por favor,?\s*)?(?:avise|avisar|informe|comunique|mande(?:\s+uma)?\s+mensagem\s+para|envie(?:\s+uma)?\s+mensagem\s+para|fale\s+com)\s+(.{2,80}?)\s+(?:que\s+|:|,\s*)(.{3,3500})$/i);
   if (pedido) {
-    const nome = pedido[1].trim().replace(/[.,;:]+$/, ''), corpo = pedido[2].trim();
-    const contato = await commsBuscarContato(env, nome);
+    const nome = pedido[1].trim().replace(/[.,;:]+$/, '').replace(/^(?:ao|à|a|pro|pra|para o|para a|para|o|os|as)\s+/i, ''), corpo = pedido[2].trim(); // v123
+    let contato = await commsBuscarContato(env, nome);
+    if (!contato) { const nCli = await numeroDoClientePorNome(env, nome).catch(() => ''); if (nCli) contato = { nome: (await nomeParaDono(env, nCli).catch(() => '')) || nome, numero: normalizarBR(nCli) }; } // v123: cliente já atendido
     if (!contato) {
       await enviar(env, from, `Ainda não tenho o número de *${nome}*. Compartilhe o cartão de contato dessa pessoa ou informe *contato: ${nome}, número com DDD*. Não enviei nada.`);
       return true;
@@ -14457,6 +14487,7 @@ async function tratarMensagemBase(env, m, ctx) {
 
   if (dono) {
     if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
+    if (await pontoRespostaTexto(env, from, msg).catch(e => { console.log('[PONTO] texto:', e.message); return false; })) return; // v123
     if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
@@ -24293,6 +24324,18 @@ async function pontoRelFalhaDono(env, f, per, rel) {
     } else if (!pdf) await pontoAvisarDono(env, `📋 Relatório do ${per.label} de *${f.nome}*: não consegui mandar (${motivo}).`);
   } catch (e) { console.log('[PONTO] falha relatório → dono', e.message); await pontoAvisarDono(env, `📋 Relatório do ${per.label} de *${f.nome}*: não consegui mandar (${motivo}).`); }
 }
+// v123: o dono responde o aviso do ponto escrevendo ("ele tá na empresa", "pode confirmar", "recusa") em vez de tocar no botão
+async function pontoRespostaTexto(env, from, msg) {
+  const cid = env._ctx && env._ctx.citado; if (!cid) return false;
+  const cit = String((await env.HR_KV.get('wo:' + cid).catch(() => null)) || ''); const mm = cit.match(/HR Ponto\*?:?\s*batida de \*?([^*(]+?)\*?\s*\(/); if (!mm) return false;
+  const sim = /\b(confirm\w*|pode|ok|certo|valid\w*|aprov\w*|ta na empresa|esta na empresa|ta na oficina|esta na oficina|ele ta aqui|ela ta aqui|estava aqui|tava aqui|e a oficina|sim)\b/.test(msg);
+  const nao = /\b(recus\w*|nao (estava|esta|ta|tava)|nega\w*|fora|nao e)\b/.test(msg);
+  if (sim === nao) return false;
+  let pd = null; try { pd = JSON.parse((await env.HR_KV.get('ponto:pend:' + normaliza(mm[1].trim()))) || 'null'); } catch (_) {}
+  if (!pd) return false;
+  if (sim && pd.pr) await pontoBotaoRede(env, from, 'pr_ok|' + pd.pr).catch(() => {});
+  return pontoBatidaBotao(env, from, (sim ? 'pb_ok|' : 'pb_no|') + pd.pb);
+}
 async function pontoAvisarDono(env, texto, botoes) {
   const dono = numeroDono(env); if (!dono) return;
   try { if (botoes) await enviarComBotoes(env, dono, texto, botoes); else await enviar(env, dono, texto); } catch (e) { console.log('[PONTO] aviso ao dono:', e.message); }
@@ -24471,6 +24514,7 @@ async function rotaPonto(req, env, ctx, url) {
       if (status === 'pendente') {
         const novaRede = !off && !ipOk && ip;
         const dDia = diaB === hoje ? '' : ` de ${diaB.slice(8)}/${diaB.slice(5, 7)}`;
+        await env.HR_KV.put('ponto:pend:' + normaliza(nome), JSON.stringify({ pb: `${diaB}|${dev.funcId}|${id}`, pr: novaRede ? ipK : '', em: Date.now() }), { expirationTtl: 2 * 86400 }).catch(() => {}); // v123
         await pontoAvisarDono(env, (alertaRosto ? '🚨 ' : off ? '📶 ' : '🕐 ') + `*HR Ponto*: batida de *${nome}* (${PONTO_TIPOS[tipo]}${dDia}, ${bat.hora}) ficou *aguardando*: ${motivo}.` + (novaRede ? '\n\nSe ele está na oficina, confirme que esta é a internet de vocês.' : ''),
           novaRede ? [{ id: 'pr_ok|' + ipK, titulo: '✅ É a oficina' }, { id: 'pr_no|' + ipK, titulo: '❌ Não é' }]
             : [{ id: `pb_ok|${diaB}|${dev.funcId}|${id}`, titulo: '✅ Confirmar' }, { id: `pb_no|${diaB}|${dev.funcId}|${id}`, titulo: '❌ Recusar' }]);
