@@ -1,3 +1,4 @@
+// v128 (18/11/2026): voz mais suave (shimmer, instruções curtas e delicadas); ELEVENLABS_KEY (+ ELEVENLABS_VOICE) usa voz real da ElevenLabs
 // v127 (18/11/2026): ASSISTENTE MULHER — voz feminina (coral por padrão; voz masculina em TTS_VOICE é ignorada) com instruções de voz real (sotaque nordestino suave, ritmo de áudio de WhatsApp); fala no feminino (obrigada) em todos os textos e nas duas IAs
 // v126 (18/11/2026): comprovante do cliente para o orçamento ativo: confere no Mercado Pago e confirma sozinho (orçamento Aceito, cliente avisado); se não achar, o dono confirma com um toque
 // v125 (18/11/2026): comprovante de Pix de cliente aceita o orçamento (não tenta etapa da agenda); app acha nomes com uma letra diferente
@@ -2526,14 +2527,27 @@ function textoParaFala(t) {
 
 // v127: a assistente é mulher: só vozes femininas (TTS_VOICE com voz masculina é ignorada)
 const VOZES_FEMININAS = ['coral', 'nova', 'shimmer', 'sage'];
-function vozFeminina(env) { const v = String(env.TTS_VOICE || '').toLowerCase().trim(); return VOZES_FEMININAS.includes(v) ? v : 'coral'; }
+function vozFeminina(env) { const v = String(env.TTS_VOICE || '').toLowerCase().trim(); return VOZES_FEMININAS.includes(v) ? v : 'shimmer'; } // v128: shimmer é a mais suave
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
   try {
-    const chave = chaveVoz(env);
     const fala = String(texto || '').trim().slice(0, VOZ_MAX_CHARS);
-    if (!chave || !fala) return false;
-    const tts = await fetch('https://api.openai.com/v1/audio/speech', {
+    if (!fala) return false;
+    let audio = null;
+    if (env.ELEVENLABS_KEY) { // v128: voz de pessoa de verdade (ElevenLabs); se falhar, cai para a da OpenAI
+      try {
+        const vid = env.ELEVENLABS_VOICE || 'EXAVITQu4vr4xnSDxMaL';
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}?output_format=opus_48000_64`, {
+          method: 'POST', headers: { 'xi-api-key': env.ELEVENLABS_KEY, 'Content-Type': 'application/json', Accept: 'audio/ogg' },
+          body: JSON.stringify({ text: fala, model_id: env.ELEVENLABS_MODEL || 'eleven_multilingual_v2', language_code: 'pt', voice_settings: { stability: 0.5, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true } }),
+        });
+        if (!r.ok) throw new Error(`elevenlabs ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`);
+        audio = await r.arrayBuffer();
+      } catch (e) { console.log('[BOT] voz ElevenLabs:', e.message); audio = null; }
+    }
+    const chave = chaveVoz(env);
+    if (!audio && !chave) return false;
+    const tts = audio ? null : await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2541,13 +2555,11 @@ async function enviarVoz(env, para, texto, opts = {}) {
         voice: vozFeminina(env), // v127: sempre voz de mulher
         input: fala,
         response_format: 'opus',
-        instructions: (opts.cliente ?? (env._ctx && env._ctx.cliente))
-          ? 'Você é uma mulher brasileira de uns 30 anos, atendente de uma loja de mármore e granito na Bahia, falando por mensagem de voz no WhatsApp com um cliente. Fale em português do Brasil com sotaque nordestino suave, voz doce, calorosa e sorridente, educada e gentil. Soe como uma pessoa real gravando um áudio no celular: ritmo natural de conversa, pequenas pausas entre as ideias, entonação que sobe e desce, nada de voz de locutora nem de robô. Fale os números e valores de forma natural (mil seiscentos e trinta e oito reais).'
-          : 'Você é uma mulher brasileira de uns 30 anos, secretária de confiança do dono de uma marmoraria na Bahia, mandando um áudio de WhatsApp para o chefe. Português do Brasil, sotaque nordestino suave, voz feminina calorosa, simpática e prestativa, com energia e bom humor na medida. Ritmo natural de quem grava áudio no celular, pausas curtas, entonação viva; nada de voz de locutora nem de robô.',
+        instructions: 'Voz feminina suave e delicada. Fale em português do Brasil com calma, num tom baixo, gentil e acolhedor, como uma moça educada conversando de perto. Natural e leve: sem animação exagerada, sem sorriso forçado, sem sotaque carregado, sem ênfase teatral.', // v128: menos é mais
       }),
     });
-    if (!tts.ok) throw new Error(`voz ${tts.status}: ${(await tts.text().catch(() => '')).slice(0, 200)}`);
-    const audio = await tts.arrayBuffer();
+    if (tts && !tts.ok) throw new Error(`voz ${tts.status}: ${(await tts.text().catch(() => '')).slice(0, 200)}`);
+    audio = audio || await tts.arrayBuffer();
 
     const fd = new FormData();
     fd.append('messaging_product', 'whatsapp');
