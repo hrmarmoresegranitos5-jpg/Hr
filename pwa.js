@@ -1,4 +1,4 @@
-// PWA Service Worker
+// PWA Service Worker (pwa.js v3)
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function(reg){
     // Força verificação imediata de atualização
@@ -25,12 +25,21 @@ if('serviceWorker' in navigator){
     });
     setInterval(function(){ reg.update().catch(function(){}); }, 30*60*1000);
   }).catch(function(){});
-  // Recarrega quando novo SW assumir (guard anti-loop)
-  var _swReloading = false;
+  // Versão nova do app (v3): antes recarregava a tela toda vez que o service worker mudava — inclusive na
+  // 1ª instalação e com o app em uso (o app "carregava várias vezes"). Agora:
+  //  • 1ª instalação (não havia SW controlando): não recarrega;
+  //  • nos primeiros segundos (ainda na abertura animada): recarrega uma vez, escondido pela abertura;
+  //  • com o app em uso: não interrompe — mostra o aviso "Nova versão · Atualizar";
+  //  • trava: no máximo 1 recarregamento automático a cada 2 minutos.
+  var _swTinha = !!navigator.serviceWorker.controller, _swT0 = Date.now(), _swReloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if(_swReloading) return;
-    _swReloading = true;
-    window.location.reload();
+    if(_swReloading || !_swTinha) return;
+    var ult = 0; try { ult = +sessionStorage.getItem('hr_swreload') || 0; } catch(e) {}
+    if(Date.now() - _swT0 < 6000 && Date.now() - ult > 120000 && !document.documentElement.classList.contains('hr-entrou')){
+      _swReloading = true;
+      try { sessionStorage.setItem('hr_swreload', String(Date.now())); } catch(e) {}
+      window.location.reload();
+    } else if(window.HRAtualizar && window.HRAtualizar.mostrar) window.HRAtualizar.mostrar();
   });
 }
 
