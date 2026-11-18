@@ -1,3 +1,4 @@
+// v121 (18/11/2026): VÍDEOS E FOTOS DO DONO — legenda "edite/monte/faça um vídeo..." monta o vídeo no editor com o que chegou; ferramenta montar_video (a assistente nunca diz que não recebeu os vídeos); um aviso por obra no acervo; álbum de cuba não pergunta se é extrato do MP nem responde "só leio texto"
 // v120 (18/11/2026): "te respondo"/"vou ver com fulano" encerram; vendedor/propaganda recebe uma resposta e o bot sai; "manda o PDF de novo" reenvia o arquivo de verdade; mensagem do dono que fala de Pix leva o Pix junto; sem aviso do modelo repetido; mais respostas automáticas reconhecidas (comunicado, afastamento)
 // v119 (18/11/2026): FIM DE CONVERSA E APRENDER COM O DONO — "ok"/"certo"/👍 depois de mensagem sem pergunta não recebe resposta; pergunta que a IA não sabe vai ao dono ("Como respondo?"), a resposta dele (texto ou áudio, sem comando) vai ao cliente reescrita e vira regra para todos
 // v118 (18/11/2026): ORÇAMENTO ATIVO — o último PDF mandado ao cliente é o orçamento da conversa (nº ORC, id do app, valor); fechamento, Pix e QR seguem nele; um novo substitui e o anterior só volta se pedirem ("o outro orçamento" → botões); cada PDF gerado no app fica guardado (/bot/orcpdf/guardar); dono: "orçamentos do fulano" / "manda o ORC-0585 pra ele"; código do cliente (C-0001) no histórico
@@ -8700,6 +8701,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'montar_video',
+    description: 'MONTA UM VÍDEO (Reels) no editor do computador com as fotos/vídeos que o Sr. Hangel mandou por último (veja MÍDIAS RECENTES) ou, se não houver, com uma compilação das obras do acervo, seguindo o pedido dele (frase, tema, data comemorativa: "frase de bom dia", "vídeo de Natal"). Use SEMPRE que ele pedir para editar, criar, montar ou fazer um vídeo; nunca diga que não consegue criar vídeo nem que não recebeu os vídeos. O vídeo volta para ele aprovar antes de postar.',
+    input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'o que ele quer no vídeo (frase, tema, estilo), com as palavras dele' }, usar_recentes: { type: 'boolean', description: 'true para usar o que ele acabou de mandar (padrão)' } }, required: ['pedido'] },
+  },
+  {
     name: 'orcamentos_do_cliente',
     description: 'Lista TODOS os orçamentos de um cliente feitos no app (número ORC, projeto, pedra, valor, data, situação, se o PDF está guardado e qual é o ATIVO na conversa do WhatsApp). Use quando o Sr. Hangel perguntar pelos orçamentos de alguém, quiser escolher qual mandar, ou citar o código do cliente (C-0012). O passo a passo (aprovação, Pix, entrega) sempre segue no último orçamento mandado ao cliente.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome, código (C-0012) ou telefone do cliente' } }, required: ['cliente'] },
@@ -9097,6 +9103,17 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const app = (await confAppAberto(env)) ? 'já está no app' : 'entra no app assim que ele abrir';
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
+  if (nome === 'montar_video') { // v121
+    if (!(await estEditorPareado(env))) return { texto: 'O editor do computador não está conectado. Peça ao Sr. Hangel, em uma frase, para mandar "editor" e seguir os passos; depois é só pedir o vídeo de novo.' };
+    let rec = null; try { rec = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); } catch (_) {}
+    if (rec && a.usar_recentes !== false && Date.now() - rec.em < 6 * 3600000) {
+      const r = await vdCriarObra(env, rec.id, a.pedido);
+      return { texto: r.j ? `Vídeo em montagem no computador com os ${r.o.midias.length} arquivo(s) que ele mandou, seguindo: "${a.pedido}". Chega para ele aprovar. Responda em uma frase.` : 'Não deu: ' + r.erro };
+    }
+    const r = await vdCriar(env, true); if (!r) return { texto: 'Não há obras no acervo para montar. Peça ao Sr. Hangel para mandar fotos ou vídeos de um trabalho.' };
+    r.j.desc = r.j.desc + '. Pedido do Sr. Hangel para o vídeo: ' + String(a.pedido || '').slice(0, 300); r.j.pedidoDono = String(a.pedido || '').slice(0, 300); await estGravar(env, r.j);
+    return { texto: `Vídeo em montagem com ${r.j.mix ? 'uma compilação de ' + r.j.mix.length + ' obras do acervo' : 'a obra ' + r.o.desc}, seguindo: "${a.pedido}". Chega para ele aprovar. Responda em uma frase.` };
+  }
   if (nome === 'orcamentos_do_cliente') { // v118
     const r = await orcsDoCliente(env, a.cliente || '');
     if (!r.ok) return { texto: 'O app ainda não mandou o histórico de orçamentos. Peça ao Sr. Hangel para abrir o app.' };
@@ -9336,7 +9353,12 @@ async function responderAgente(env, from, bruto, F, voz) {
     const blocoDados = ctx.dadosTxt
       ? `DADOS DO APP (cópia de ${ctx.quando}${ctx.cortado ? '; atenção: cortada por tamanho, pode estar incompleta' : ''}):\n${ctx.dadosTxt}`
       : `DADOS DO APP: ainda não sincronizados. Avise o dono que o aplicativo precisa enviar os dados ao bot antes de você responder sobre o app.`;
+    let blocoMidia = ''; // v121
+    try { const rec = JSON.parse((await env.HR_KV.get('acv:ultimaRec')) || 'null'); const om = rec ? await acvLer(env, rec.id) : null;
+      if (om) { const v = om.midias.filter(x => x.tipo === 'video').length, f = om.midias.length - v, min = Math.round((Date.now() - rec.em) / 60000);
+        blocoMidia = `MÍDIAS RECENTES: há ${min} min o Sr. Hangel mandou ${v ? v + ' vídeo(s)' : ''}${v && f ? ' e ' : ''}${f ? f + ' foto(s)' : ''}; estão guardadas no acervo (obra "${om.desc}"). ELAS CHEGARAM: nunca diga que não recebeu. Se ele pedir para editar, montar ou fazer vídeo com elas ("esses aqui", "os que mandei"), use montar_video.${om.pedidoFeito ? ' Já foi pedido um vídeo com elas.' : ''}`; } } catch (_) {}
     const blocoRegras = [
+      blocoMidia,
       `LANÇAMENTOS FEITOS PELO WHATSAPP AINDA NÃO ENVIADOS AO APP:\n${JSON.stringify(ctx.pend)}`,
       ``,
       `PEDIDOS RECENTES E SITUAÇÃO ATUAL (fonte oficial para perguntas como "ele aceitou?", "já pagou?", "como está o pedido do fulano?", "últimas conversas"; "aceitou" = o cliente confirmou o valor e/ou aprovou o PDF, conforme o campo situacao; "pago_ou_sinal" é a fonte sobre pagamento do pedido (para entregas já feitas veja também o LIVRO DE ENTREGAS E PAGAMENTOS abaixo); se o pedido não estiver aqui, diga que não encontrou; NUNCA invente status, pagamento ou aceite):\n${JSON.stringify(await resumoPedidosParaIA(env))}`,
@@ -14393,6 +14415,11 @@ async function tratarMensagemBase(env, m, ctx) {
   if (bruto === null || (bruto === '' && m.type !== 'text')) {
     if (m.type === 'sticker') return; // v23: figurinha é como um sorriso: não precisa de resposta
     if (m.type === 'unsupported') { console.log('[BOT] mensagem "unsupported" (álbum de fotos / tipo novo do WhatsApp) ignorada', JSON.stringify(m.errors || '').slice(0, 200)); return; } // v112: o álbum chega como "unsupported" + as fotos uma a uma
+    if (dono && ['image', 'video', 'document'].includes(m.type)) { // v121: foto do dono sem fluxo: não responde "só leio texto"
+      if (await fotosDeOutroFluxo(env, from).catch(() => false)) return;
+      if (!(await env.HR_KV.get('dono:fotoaj'))) { await env.HR_KV.put('dono:fotoaj', '1', { expirationTtl: 15 * 60 }); await enviar(env, from, 'Recebi, Sr. Hangel. O que faço com isso? Ex.: *cadastrar cuba*, *obra cozinha da Maria*, *postar*, ou me diga em uma frase.'); }
+      return;
+    }
     await enviar(env, from, fala(await getFalas(env), 'soTexto', {}));
     return;
   }
@@ -16801,6 +16828,15 @@ const RE_CUBA_CAD = /\b(cadastr\w*|nova|novo|adicion\w*|coloc\w*|catalog\w*|incl
 async function cubaMargemPadrao(env) { return +(await env.HR_KV.get('cuba:margem')) || 40; }
 function cubaMargemDe(t) { const m = normaliza(String(t || '')).match(/(?:margem|lucro)\s*(?:de\s*)?(\d{1,3})\s*%?|(\d{1,3})\s*%\s*(?:de\s*)?(?:margem|lucro)?/); const v = m ? +(m[1] || m[2]) : 0; return v > 0 && v <= 300 ? v : 0; }
 async function cubaSesLer(env, from) { try { return JSON.parse((await env.HR_KV.get('cub:ses:' + from)) || 'null'); } catch (_) { return null; } }
+// v121: as fotos fazem parte de outro pedido (cadastro de cuba, print de cliente, obra): não pergunta se é extrato
+async function fotosDeOutroFluxo(env, from) {
+  if (await cubaSesLer(env, from).catch(() => null)) return true;
+  if (await env.HR_KV.get('cub:ultses:' + from)) { try { const u = JSON.parse(await env.HR_KV.get('cub:ultses:' + from)); if (Date.now() - (u.criado || 0) < 10 * 60000) return true; } catch (_) {} }
+  if (await env.HR_KV.get('rtp:ses:' + from)) return true;
+  try { const al = JSON.parse((await env.HR_KV.get('acv:album')) || 'null'); if (al && Date.now() < al.ate) return true; } catch (_) {}
+  try { if (await mrTabela(env)) { const r = await env.HR_DB.prepare("SELECT leg FROM midia_rec WHERE de = ? AND em > ? AND leg != '' LIMIT 20").bind(from, Date.now() - 4 * 60000).all(); if ((r.results || []).some(x => RE_CUBA_CAD.test(normaliza(x.leg)) || RE_OBRA.test(x.leg) || RE_EDITAR_VID.test(normaliza(x.leg)))) return true; } } catch (_) {}
+  return false;
+}
 async function cubaTratarImagem(env, from, m) {
   if (m.type !== 'image' || !m.image || !m.image.id) return false;
   const leg = String(m.image.caption || '').trim(), n = normaliza(leg);
@@ -17034,6 +17070,8 @@ async function acvPortfolioAdd(env, o, buf, mime, quando) { // foto (ou capa de 
   await alterarPortfolio(env, async l => { l.push({ id: pid, tipo: 'trabalho', cat: o.cat || '', nome: '', legenda, mime, pedraNome: o.pedra || '', em: quando || Date.now(), viaBot: 1, obraId: o.id }); }, l => l.some(i => i.id === pid));
   return pid;
 }
+// v121: "edite esses vídeos com frase de bom dia", "monte um vídeo", "faz um vídeo com isso"
+const RE_EDITAR_VID = /\b(edit[ae]|editar|edita|monte|montar|monta|mont[ae] um video|fa[cz]a? (um |o )?video|faz (um |o )?video|cri[ae] (um |o )?video|criar (um |o )?video|transform[ae] em video|com (a |uma )?frase|vinheta|reels? com)\b/;
 async function acvTratarMidia(env, from, m) {
   let tipo = m.type, media = m[m.type] || {}, leg = String(media.caption || '').trim();
   if (m.type === 'document') {
@@ -17045,7 +17083,10 @@ async function acvTratarMidia(env, from, m) {
   const aberto = alb && Date.now() < alb.ate;
   let o = null;
   if (leg && RE_POSTAR.test(leg)) return false; // "postar ..." continua sendo post na hora (estúdio)
-  if (leg && RE_OBRA.test(leg)) o = await acvNovaObra(env, acvDescricao(leg));
+  const pedEd = leg && RE_EDITAR_VID.test(normaliza(leg)) ? leg.slice(0, 300) : ''; // v121
+  if (pedEd && aberto) { o = await acvLer(env, alb.id); if (o) { o.pedidoEdicao = pedEd; } }
+  else if (pedEd) { o = await acvNovaObra(env, ''); o.pedidoEdicao = pedEd; }
+  else if (leg && RE_OBRA.test(leg)) o = await acvNovaObra(env, acvDescricao(leg));
   else if (!leg && aberto) o = await acvLer(env, alb.id);
   else if (tipo === 'video' && !/^(comprovante|recibo|nota|pix|boleto)\b/i.test(normaliza(leg))) o = await acvNovaObra(env, leg ? acvDescricao(leg) : ''); // v88b: vídeo solto = obra nova (os seguintes entram juntos)
   if (!o) return false;
@@ -17061,6 +17102,7 @@ async function acvTratarMidia(env, from, m) {
   const o2 = (await acvLer(env, o.id)) || o; // relê: mídias chegando juntas
   o2.midias.push(it); o2.atualizado = Date.now(); await acvGravar(env, o2); o = o2;
   await env.HR_KV.put('acv:album', JSON.stringify({ id: o.id, ate: Date.now() + 10 * 60000 }), { expirationTtl: 1200 });
+  await env.HR_KV.put('acv:ultimaRec', JSON.stringify({ id: o.id, em: Date.now() }), { expirationTtl: 6 * 3600 }); // v121: a assistente do dono sabe que chegou
   const n = o.midias.length, t = acvConfirmar(env, from, o.id, n);
   await env.HR_KV.put('vd:novaObra', '1', { expirationTtl: 3 * 86400 });
   if (env._waitUntil) env._waitUntil(t); else await t;
@@ -17069,6 +17111,15 @@ async function acvTratarMidia(env, from, m) {
 async function acvConfirmar(env, from, id, n) { // espera o álbum terminar (15 s sem mídia nova) e confirma uma vez
   await new Promise(r => setTimeout(r, 15000));
   const o = await acvLer(env, id); if (!o || o.midias.length !== n) return;
+  if (Date.now() - (o.atualizado || 0) < 12000) return; // v121: ainda chegando (vídeos grandes demoram): o último confirma
+  if (o.pedidoEdicao && !o.pedidoFeito) { // v121: pediu para editar: monta o vídeo agora, sem o cartão do acervo
+    o.pedidoFeito = Date.now(); await acvGravar(env, o);
+    const r = await vdCriarObra(env, o.id, o.pedidoEdicao).catch(e => ({ erro: e.message }));
+    await enviar(env, from, r && r.j ? `🎬 Montando o vídeo com ${o.midias.length === 1 ? 'o vídeo' : 'os ' + o.midias.length + ' arquivos'} que o senhor mandou agora, seguindo o pedido: _${o.pedidoEdicao}_. Chega aqui para o senhor aprovar antes de postar.` : `Recebi ${o.midias.length} arquivo(s) para editar, mas não deu para montar agora: ${(r && r.erro) || 'erro'}`);
+    return;
+  }
+  if (await env.HR_KV.get('acv:card:' + id)) return; // v121: um aviso por obra (os arquivos seguintes entram em silêncio)
+  await env.HR_KV.put('acv:card:' + id, '1', { expirationTtl: 15 * 60 });
   const f = o.midias.filter(x => x.tipo === 'foto').length, v = o.midias.length - f, noSite = o.midias.filter(x => x.pf).length;
   const baixa = o.midias.filter(x => !x.doc).length && !(await env.HR_KV.get('acv:dicaDoc'));
   if (baixa) await env.HR_KV.put('acv:dicaDoc', '1', { expirationTtl: 30 * 86400 });
@@ -17130,6 +17181,19 @@ async function vdCriar(env, avisarSemObra) {
   const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
   for (const p of (esc.tipo === 'mix' ? esc.partes : [{ o, sel: esc.sel }, ...(esc.extras || [])])) { const x = (await acvLer(env, p.o.id)) || p.o; x.usos = (x.usos || 0) + 1; x.ultimoVideo = Date.now(); x.usadas = [...new Set([...(x.usadas || []), ...p.sel])]; await acvGravar(env, x); }
   await env.HR_KV.put('vd:ultimaObra', o.id, { expirationTtl: 30 * 86400 });
+  await env.HR_KV.put('vd:ultimo', JSON.stringify({ pid: j.id, em: Date.now() }), { expirationTtl: 7 * 86400 });
+  return { j, o };
+}
+// v121: monta um vídeo com uma obra escolhida (a que o dono acabou de mandar), com o pedido dele
+async function vdCriarObra(env, obraId, frase) {
+  if (!(await estEditorPareado(env))) return { erro: 'o editor do computador não está conectado (mande *editor* e siga os passos)' };
+  const o = await acvLer(env, obraId); if (!o || !(o.midias || []).length) return { erro: 'não achei os arquivos dessa obra' };
+  const sel = acvDisponiveis(o); if (!sel.length) return { erro: 'os arquivos dessa obra já não estão disponíveis (passou de 7 dias sem o computador guardar)' };
+  const ped = String(frase || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const j = { id: estId(10), criado: Date.now(), tipo: 'video', midias: [], destino: 'reels', desc: (o.semNome ? 'Trabalho da HR' : o.desc) + (ped ? '. Pedido do Sr. Hangel para o vídeo: ' + ped : ''), pedidoDono: ped, editar: true, montagem: true, estado: 'na_fila', original: true, obraId: o.id, sel };
+  await estGravar(env, j);
+  const fila = JSON.parse((await env.HR_KV.get('ed:fila')) || '[]'); fila.push(j.id); await env.HR_KV.put('ed:fila', JSON.stringify(fila.slice(-20)));
+  o.usos = (o.usos || 0) + 1; o.ultimoVideo = Date.now(); o.usadas = [...new Set([...(o.usadas || []), ...sel])]; await acvGravar(env, o);
   await env.HR_KV.put('vd:ultimo', JSON.stringify({ pid: j.id, em: Date.now() }), { expirationTtl: 7 * 86400 });
   return { j, o };
 }
@@ -17504,6 +17568,7 @@ async function confTratarPrint(env, from, m) {
   if (!ult2 || ult2.msg !== msg) return true;
   const mx = await env.HR_DB.prepare("SELECT COUNT(*) n FROM conf_img WHERE sid = ? AND estado != 'descartado'").bind(sid).first();
   if (s) await enviarComBotoes(env, from, `📥 Recebi *${mx.n} print(s)*. Se tem mais, mande. Se acabou, toque em *Conferir agora* e deixe o *app HR aberto* (ele me ajuda a ler e comparar).`, [{ id: 'conf_pronto|' + sid, titulo: 'Conferir agora' }]);
+  else if (await fotosDeOutroFluxo(env, from)) { await env.HR_DB.prepare("UPDATE conf_img SET estado = 'descartado' WHERE sid = 'auto' AND estado = 'novo'").run().catch(() => {}); return true; } // v121
   else await enviarComBotoes(env, from, `📷 Recebi *${mx.n} fotos* de uma vez. São *prints do extrato do Mercado Pago*?`, [{ id: 'conf_auto|sim', titulo: 'Sim, conferir' }, { id: 'conf_auto|nao', titulo: 'Não' }]);
   return true;
 }
