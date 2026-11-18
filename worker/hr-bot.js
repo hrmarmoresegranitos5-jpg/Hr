@@ -1,3 +1,4 @@
+// v129 (18/11/2026): cadastro de cuba pelo LINK do Mercado Livre (API com ML_CLIENT_ID/ML_CLIENT_SECRET no worker; o GitHub copia os segredos)
 // v128 (18/11/2026): voz mais suave (shimmer, instruções curtas e delicadas); ELEVENLABS_KEY (+ ELEVENLABS_VOICE) usa voz real da ElevenLabs
 // v127 (18/11/2026): ASSISTENTE MULHER — voz feminina (coral por padrão; voz masculina em TTS_VOICE é ignorada) com instruções de voz real (sotaque nordestino suave, ritmo de áudio de WhatsApp); fala no feminino (obrigada) em todos os textos e nas duas IAs
 // v126 (18/11/2026): comprovante do cliente para o orçamento ativo: confere no Mercado Pago e confirma sozinho (orçamento Aceito, cliente avisado); se não achar, o dono confirma com um toque
@@ -17034,7 +17035,75 @@ async function cubaTratarImagem(env, from, m) {
     await enviarComBotoes(env, from, `Recebi para cadastrar no catálogo. Mande todos os prints (informações, preço e fotos do produto); quando terminar, toque em *Ler e cadastrar*. Margem: ${ses.margem || await cubaMargemPadrao(env)}%${ses.margem ? '' : ' (padrão; para mudar escreva na legenda "margem 35")'}.`, [{ id: 'cub|ler', titulo: 'Ler e cadastrar' }, { id: 'cub|desc', titulo: 'Cancelar' }]); }
   return true;
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v129: CADASTRO PELO LINK DO MERCADO LIVRE — "cadastre essa cuba de cozinha https://produto.mercadolivre.com.br/MLB-..."
+//   Lê o anúncio pela API do ML (token do app: ML_CLIENT_ID / ML_CLIENT_SECRET no worker), monta a mesma prévia dos prints.
+// ═════════════════════════════════════════════════════════════════════════════
+const RE_ML_LINK = /(https?:\/\/[^\s]*(?:mercadolivre\.com|mercadolibre\.com|meli\.la|mlstatic)[^\s]*)|\bMLB-?\d{6,}\b/i;
+async function mlToken(env) {
+  if (!env.ML_CLIENT_ID || !env.ML_CLIENT_SECRET) return '';
+  const c = globalThis.__mlTok; if (c && Date.now() < c.exp) return c.v;
+  try { const k = await env.HR_KV.get('ml:tok'); if (k) { const o = JSON.parse(k); if (Date.now() < o.exp) { globalThis.__mlTok = o; return o.v; } } } catch (_) {}
+  const r = await fetch('https://api.mercadolibre.com/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'client_credentials', client_id: env.ML_CLIENT_ID, client_secret: env.ML_CLIENT_SECRET }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || !j.access_token) throw new Error('o Mercado Livre recusou o login do app (' + r.status + (j && j.message ? ': ' + j.message : '') + ')');
+  const o = { v: j.access_token, exp: Date.now() + Math.max(60, (+j.expires_in || 21600) - 300) * 1000 };
+  globalThis.__mlTok = o; await env.HR_KV.put('ml:tok', JSON.stringify(o), { expirationTtl: Math.max(60, Math.floor((o.exp - Date.now()) / 1000)) }).catch(() => {});
+  return o.v;
+}
+async function mlApi(env, caminho) {
+  const tok = await mlToken(env);
+  const r = await fetch('https://api.mercadolibre.com' + caminho, { headers: { Accept: 'application/json', ...(tok ? { Authorization: 'Bearer ' + tok } : {}) } });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`Mercado Livre ${r.status}${j && j.message ? ': ' + j.message : ''}${!tok && (r.status === 401 || r.status === 403) ? ' (falta ML_CLIENT_ID / ML_CLIENT_SECRET no worker)' : ''}`);
+  return j;
+}
+// link (curto, de produto ou de catálogo) → { item, prod }
+async function mlResolverLink(env, txt) {
+  let u = (String(txt).match(/https?:\/\/\S+/) || [''])[0].replace(/[)\].,]+$/, '');
+  if (u && /meli\.la|\/sec\/|click1\.|mercadolivre\.com\/[a-z0-9]{6,}$/i.test(u)) { try { const r = await fetch(u, { redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } }); u = r.url || u; } catch (_) {} }
+  const alvo = u || String(txt);
+  const item = (alvo.match(/\bMLB-?(\d{6,})\b(?!\/)/i) || [])[1];
+  const prod = (alvo.match(/\/p\/MLB-?(\d{5,})/i) || [])[1];
+  const wid = (alvo.match(/[?&#]wid=MLB-?(\d{6,})/i) || [])[1] || (alvo.match(/item_id[:=]MLB-?(\d{6,})/i) || [])[1];
+  return { item: wid ? 'MLB' + wid : (!prod && item ? 'MLB' + item : ''), prod: prod ? 'MLB' + prod : '', url: u };
+}
+async function mlLerAnuncio(env, txt) {
+  const l = await mlResolverLink(env, txt);
+  let it = null, pr = null;
+  if (l.item) it = await mlApi(env, '/items/' + l.item);
+  else if (l.prod) {
+    pr = await mlApi(env, '/products/' + l.prod);
+    const iid = pr && pr.buy_box_winner && pr.buy_box_winner.item_id;
+    if (iid) it = await mlApi(env, '/items/' + iid).catch(() => null);
+  } else throw new Error('não achei o código do anúncio nesse link');
+  let desc = ''; if (it && it.id) { try { const d = await mlApi(env, `/items/${it.id}/description`); desc = String(d.plain_text || '').slice(0, 1500); } catch (_) {} }
+  const attrs = [...((it && it.attributes) || []), ...((pr && pr.attributes) || [])].filter(a => a && a.name && a.value_name).slice(0, 40).map(a => `${a.name}: ${a.value_name}`);
+  const fotos = [...((it && it.pictures) || []), ...((pr && pr.pictures) || [])].map(f => String(f.secure_url || f.url || '').replace(/^http:/, 'https:')).filter(Boolean);
+  return { id: (it && it.id) || l.prod, titulo: (it && it.title) || (pr && pr.name) || '', preco: +(it && it.price) || +(pr && pr.buy_box_winner && pr.buy_box_winner.price) || 0, link: (it && it.permalink) || l.url, fotos: [...new Set(fotos)].slice(0, 6), attrs, desc };
+}
+async function cubaPeloLink(env, from, bruto, msg) {
+  if (!RE_ML_LINK.test(bruto)) return false;
+  if (!/\b(cadastr\w*|catalog\w*|adicion\w*|inclu\w*|coloc\w*|bota|poe|cuba|cubas|lavatorio|torneira|acessorio|produto)\b/.test(msg)) return false;
+  await enviar(env, from, 'Abrindo o anúncio do Mercado Livre…');
+  let a;
+  try { a = await mlLerAnuncio(env, bruto); }
+  catch (e) { await enviar(env, from, `Não consegui ler esse anúncio: ${String(e.message).slice(0, 160)}. Se preferir, mande os prints com a legenda *cadastrar cuba*.`); return true; }
+  const sis = `Você cadastra produtos no catálogo de uma marmoraria (HR Mármores e Granitos): cubas de cozinha, cubas/lavatórios de banheiro e acessórios (torneiras, válvulas, escorredores). Recebe os dados de um anúncio do Mercado Livre. Responda SÓ JSON: {"cat":"coz|lav|ac","tipo":"só para lav: Louça, Sobrepor ou Semi-encaixe; vazio para coz/ac","nm":"nome curto e claro para o catálogo, até 40 letras (ex.: Cuba Gourmet Inox 304 60x40)","brand":"marca ou vazio","dim":"medidas no formato 60×40×20cm, ou vazio","desc":"descrição para o cliente, 1 a 2 frases, destacando material, acabamento e o que acompanha","features":["até 5 itens curtos"],"duvida":"o que não ficou claro, ou vazio"}`;
+  let o = null;
+  try { o = lerJsonIA(await chamarIA(env, sis, [], `Pedido do Sr. Hangel: ${bruto.replace(/https?:\/\/\S+/g, '').trim() || 'cadastrar no catálogo'}\nTítulo: ${a.titulo}\nPreço: R$ ${a.preco}\nAtributos: ${a.attrs.join('; ')}\nDescrição: ${a.desc}`, { maxTokens: 900, timeoutMs: 25000 })); } catch (e) { console.log('[CUBA ML] IA:', e.message); }
+  o = o && o.nm ? o : { cat: /lavat|banheir/i.test(a.titulo + msg) ? 'lav' : /torneir|valvul|sifao|escorred|acessor/i.test(a.titulo + msg) ? 'ac' : 'coz', nm: a.titulo.slice(0, 40), brand: '', dim: '', desc: '', features: [] };
+  if (/\bcozinha\b/.test(msg)) o.cat = 'coz'; else if (/\b(lavatorio|banheiro)\b/.test(msg)) o.cat = 'lav'; else if (/\bacessorio\b/.test(msg)) o.cat = 'ac';
+  const margem = cubaMargemDe(bruto) || await cubaMargemPadrao(env), custo = Math.round(a.preco * 100) / 100, cat = ['coz', 'lav', 'ac'].includes(o.cat) ? o.cat : 'coz';
+  const k = Date.now().toString(36);
+  const c = { cat, tipo: cat === 'lav' && ['Louça', 'Sobrepor', 'Semi-encaixe', 'Embutir', 'Apoio'].includes(o.tipo) ? o.tipo : '', titulo: String(a.titulo).slice(0, 160), nm: String(o.nm).slice(0, 60), brand: String(o.brand || '').slice(0, 40), dim: String(o.dim || '').slice(0, 40), desc: String(o.desc || '').slice(0, 400), features: (o.features || []).slice(0, 5).map(x => String(x).slice(0, 60)), custo, margem, pr: Math.round(custo * (1 + margem / 100)), inst: cat === 'lav' ? 220 : 110, instCli: cat === 'lav' ? 280 : cat === 'ac' ? 0 : 160, fotos: a.fotos, nImgs: a.fotos.length, duvida: String(o.duvida || '').slice(0, 200), mlLink: a.link, mlId: a.id };
+  await env.HR_KV.put('cub:p:' + k, JSON.stringify(c), { expirationTtl: 3 * 86400 });
+  await env.HR_KV.put('cub:ult:' + from, k, { expirationTtl: 3 * 86400 });
+  await cubaPrevia(env, from, k, c, true);
+  return true;
+}
 async function cubaTratarTexto(env, from, bruto, msg) {
+  if (await cubaPeloLink(env, from, bruto, msg).catch(async e => { console.log('[CUBA ML]', e.message); await enviar(env, from, 'Não consegui ler esse anúncio: ' + String(e.message).slice(0, 140)); return true; })) return true; // v129
   // texto depois dos prints: "cadastra essa cuba com margem 40"
   if (RE_CUBA_CAD.test(msg) && /\b(cadastr\w*|catalog\w*|adicion\w*|inclu\w*)\b/.test(msg) && !/\b(orcamento|cliente|pedido)\b/.test(msg)) {
     const rec = (await rtpRecentes(env, from)).filter(x => Date.now() - x.em < 20 * 60000);
