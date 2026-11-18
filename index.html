@@ -133,8 +133,64 @@
 .b-red-txt{color:#f87171;}
 .b-yel-txt{color:#f59e0b;}
 </style>
+<style id="hrIntroCSS">
+/* ══ ABERTURA ANIMADA (app-entrada.js) ══ */
+#hrIntro{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;flex-direction:column;overflow:hidden;
+  background:radial-gradient(120% 80% at 50% 38%,#2a2112 0%,#14110c 42%,#070605 100%);font-family:Outfit,sans-serif;color:#fff;transition:opacity .7s ease,transform .9s cubic-bezier(.7,0,.2,1),filter .7s ease}
+#hrIntro.saindo{opacity:0;transform:scale(1.08);filter:blur(6px);pointer-events:none}
+#hrIntro.rapida{transition:opacity .35s ease}#hrIntro.rapida.saindo{transform:none;filter:none}
+#hrIntroCanvas{position:absolute;inset:0;width:100%;height:100%}
+#hrIntro .hi-logo{position:relative;width:132px;height:132px;display:flex;align-items:center;justify-content:center;animation:hiPop 1.1s cubic-bezier(.2,1.4,.3,1) both}
+#hrIntro .hi-anel{position:absolute;inset:-9px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 55%,#e8c96a 75%,#fff6d6 80%,#c9a84c 86%,transparent 100%);
+  -webkit-mask:radial-gradient(circle,transparent 63px,#000 64px);mask:radial-gradient(circle,transparent 63px,#000 64px);animation:hiGira 1.6s linear infinite}
+#hrIntro .hi-brilho{position:absolute;inset:-26px;border-radius:50%;background:radial-gradient(circle,rgba(232,201,106,.35),rgba(232,201,106,0) 65%);animation:hiPulsa 2.2s ease-in-out infinite}
+#hrIntro .hi-foto{position:relative;width:118px;height:118px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 2px rgba(232,201,106,.55),0 18px 50px rgba(0,0,0,.7)}#hrIntro .hi-foto img{width:100%;height:100%;object-fit:cover;transform:scale(1.42)}
+#hrIntro .hi-logo::after{content:"";position:absolute;inset:7px;border-radius:50%;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.55) 48%,transparent 62%);background-size:250% 100%;animation:hiReflexo 2.6s ease-in-out .9s infinite;mix-blend-mode:overlay}
+#hrIntro .hi-saud{margin-top:30px;font-size:.78rem;letter-spacing:.32em;text-transform:uppercase;color:#bfa565;opacity:0;animation:hiSobe .7s ease .35s forwards}
+#hrIntroNome{margin-top:8px;font-family:'Cormorant Garamond',serif;font-weight:700;font-size:2.05rem;letter-spacing:.06em;color:#f3dc92;text-shadow:0 2px 24px rgba(232,201,106,.35);white-space:nowrap}
+#hrIntroNome span{display:inline-block;opacity:0;transform:translateY(14px) scale(.9);animation:hiLetra .55s cubic-bezier(.2,1.3,.3,1) forwards}
+#hrIntro .hi-sub{margin-top:2px;font-size:.74rem;letter-spacing:.5em;color:#9c8a5c;text-transform:uppercase;opacity:0;animation:hiSobe .8s ease 1.4s forwards}
+#hrIntro .hi-trilho{margin-top:34px;width:min(220px,60vw);height:2px;border-radius:2px;background:rgba(232,201,106,.14);overflow:hidden;opacity:0;animation:hiSobe .5s ease .8s forwards}
+#hrIntroBarra{height:100%;width:100%;transform-origin:left;transform:scaleX(0);background:linear-gradient(90deg,#8a6d2c,#e8c96a,#fff3c4,#e8c96a);background-size:200% 100%;animation:hiBrilhoBarra 1.2s linear infinite;box-shadow:0 0 12px rgba(232,201,106,.8)}
+#hrIntro .hi-rodape{position:absolute;bottom:calc(26px + env(safe-area-inset-bottom));font-size:.62rem;letter-spacing:.24em;color:#5f5440;text-transform:uppercase;opacity:0;animation:hiSobe .8s ease 1.7s forwards}
+#hrIntro.rapida .hi-logo,#hrIntro.rapida .hi-saud,#hrIntro.rapida .hi-sub,#hrIntro.rapida .hi-trilho,#hrIntro.rapida .hi-rodape{animation-duration:.01s;animation-delay:0s}
+@keyframes hiPop{0%{opacity:0;transform:scale(.55);filter:blur(10px)}100%{opacity:1;transform:scale(1);filter:blur(0)}}
+@keyframes hiGira{to{transform:rotate(360deg)}}
+@keyframes hiPulsa{0%,100%{opacity:.55;transform:scale(.94)}50%{opacity:1;transform:scale(1.06)}}
+@keyframes hiReflexo{0%{background-position:150% 0}60%,100%{background-position:-60% 0}}
+@keyframes hiSobe{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes hiLetra{to{opacity:1;transform:none}}
+@keyframes hiBrilhoBarra{to{background-position:-200% 0}}
+/* entrada das telas e cartões */
+.hr-entrou .sp2-wrap>*{animation:hrCartao .6s cubic-bezier(.2,.9,.25,1) both}
+.hr-entrou .sp2-wrap>*:nth-child(1){animation-delay:.05s}.hr-entrou .sp2-wrap>*:nth-child(2){animation-delay:.12s}.hr-entrou .sp2-wrap>*:nth-child(3){animation-delay:.18s}
+.hr-entrou .sp2-wrap>*:nth-child(4){animation-delay:.24s}.hr-entrou .sp2-wrap>*:nth-child(5){animation-delay:.3s}.hr-entrou .sp2-wrap>*:nth-child(6){animation-delay:.36s}
+.hr-entrou .sp2-wrap>*:nth-child(n+7){animation-delay:.42s}
+.hr-entrou .sp2-q-btn{animation:hrCartao .55s cubic-bezier(.2,.9,.25,1) both}
+.hr-entrou .sp2-q-btn:nth-child(2){animation-delay:.32s}.hr-entrou .sp2-q-btn:nth-child(3){animation-delay:.37s}.hr-entrou .sp2-q-btn:nth-child(4){animation-delay:.42s}.hr-entrou .sp2-q-btn:nth-child(5){animation-delay:.47s}.hr-entrou .sp2-q-btn:nth-child(6){animation-delay:.52s}
+.hr-entrou .sp-cat-bar{animation:hrBarra .6s cubic-bezier(.2,.9,.25,1) .35s both}
+.sp2-q-btn,.sp-cat-btn,.btn{transition:transform .14s ease,filter .14s ease}
+.sp2-q-btn:active,.sp-cat-btn:active,.btn:active{transform:scale(.96);filter:brightness(1.15)}
+.pg.on{animation:hrTela .32s cubic-bezier(.2,.9,.25,1)}
+#sSplash.on,#sApp.on{animation:hrTela .35s cubic-bezier(.2,.9,.25,1)}
+#hrSomBt{margin-left:auto;margin-right:6px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(201,168,76,.35);background:rgba(201,168,76,.08);font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+@keyframes hrCartao{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes hrBarra{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:none}}
+@keyframes hrTela{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#hrIntro *,.hr-entrou *,.pg.on{animation-duration:.01s!important;animation-delay:0s!important}}
+</style>
 </head>
 <body>
+<div id="hrIntro" aria-hidden="true">
+  <canvas id="hrIntroCanvas"></canvas>
+  <div class="hi-logo"><div class="hi-brilho"></div><div class="hi-anel"></div><div class="hi-foto"><img src="icon-512.png" alt=""></div></div>
+  <div class="hi-saud" id="hrIntroSaud">Bem-vindo</div>
+  <div id="hrIntroNome">HR Mármores</div>
+  <div class="hi-sub">e Granitos</div>
+  <div class="hi-trilho"><div id="hrIntroBarra"></div></div>
+  <div class="hi-rodape">Pilão Arcado · Bahia</div>
+</div>
+<script src="app-entrada.js?v=1"></script>
 <script>
 // Minimal early bootstrap
 window._pendingPg=null;
@@ -1153,7 +1209,7 @@ if (typeof TUM === 'undefined') {
   <script src="app-import-relatorio.js?v=3"></script>
   <script src="app-banco-horas.js?v=1"></script>
   <script src="app-autobackup.js?v=5"></script>
-  <script src="pwa.js?v=2"></script>
+  <script src="pwa.js?v=3"></script>
   <script src="app-ml-import.js?v=2"></script>
   <script src="app-ml-monitor.js?v=1"></script>
   <script src="app-import-manual.js?v=1"></script>
