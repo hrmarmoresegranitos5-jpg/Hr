@@ -1,3 +1,4 @@
+// v141 (18/11/2026): FICHA DA EQUIPE — nome, telefone, cargo, aniversário, admissão/tempo de casa e férias vindos do RH do app; "equipe"/"aniversários"/"férias"; equipe_consultar/equipe_atualizar (volta ao app); avisos de aniversário (parabéns no dia), tempo de casa, férias (antes, saída, volta, prazo CLT); ponto não cobra quem está de férias
 // v140 (18/11/2026): meio período = 4 h de manhã (07:00–11:00) ou à tarde (13:00–17:00); sem manhã/tarde nem horário, o bot pergunta
 // v139 (18/11/2026): meio período com horário ("entrar 7h e sair 11h"), lembretes do ponto seguem o horário do dia; o app recebe as exceções (folga/meio período) para o banco de horas
 // v138 (18/11/2026): expediente_dia (folga / meio período / normal gravado no ponto, até em feriado) e avisar_equipe (manda de verdade no privado de cada funcionário; o bot não entra em grupo)
@@ -6740,6 +6741,7 @@ async function pedirAvaliacoes(env) {
   await lembretesDono(env).catch(e => console.log('[LEMB]', e.message));
   await saiLembretes(env).catch(e => console.log('[SAI] lembrete:', e.message)); // v132
   await fechRotina(env).catch(e => console.log('[AG] rotina:', e.message)); // v135
+  await equipeRotina(env).catch(e => console.log('[EQ] rotina:', e.message)); // v141
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -8274,6 +8276,108 @@ async function avisarEquipeTool(env, a) {
   const res = await recadoEquipe(env, cfg, alvo, rec.charAt(0).toUpperCase() + rec.slice(1));
   return { texto: `Aviso "${rec.slice(0, 200)}" entregue: ${res.join('; ')}. Diga ao Sr. Hangel, em 1 ou 2 frases, a quem chegou (copie a situação de cada um).` };
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v141: FICHA DA EQUIPE NO BOT — nome, telefone, cargo, aniversário, admissão e férias (vêm do RH do app)
+//   dono: "equipe" (lista), perguntas livres (IA: equipe_consultar), "o aniversário do Gibson é 12/03" (equipe_atualizar → volta ao app)
+//   rotina: aniversário (véspera ao dono, parabéns no dia ao funcionário), tempo de casa, férias (aviso antes, na saída e na volta;
+//   prazo legal: a cada 12 meses de casa ele ganha férias, que devem ser tiradas nos 12 meses seguintes)
+// ═════════════════════════════════════════════════════════════════════════════
+const EQ_K = 'equipe:dados', EQ_ED = 'equipe:edits';
+async function equipeLer(env) { try { return JSON.parse((await env.HR_KV.get(EQ_K)) || 'null') || { funcs: [] }; } catch (_) { return { funcs: [] }; } }
+const isoOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '';
+function equipeLimpar(l) {
+  return (Array.isArray(l) ? l : []).filter(f => f && f.id != null && f.nome).slice(0, 80).map(f => ({ id: String(f.id).slice(0, 40), nome: String(f.nome).slice(0, 60), tel: String(f.tel || '').replace(/\D/g, '').slice(0, 13), cargo: String(f.cargo || '').slice(0, 40),
+    nasc: isoOk(f.nasc), adm: isoOk(f.adm), fIni: isoOk(f.fIni), fFim: isoOk(f.fFim), ferias: !!f.ferias, socio: !!f.socio }));
+}
+const anosEntre = (de, ate) => { const [a, b] = [de, ate].map(x => x.split('-').map(Number)); let n = b[0] - a[0]; if (b[1] < a[1] || (b[1] === a[1] && b[2] < a[2])) n--; return n; };
+function tempoCasa(adm, hoje) {
+  if (!adm) return ''; const [a, b] = [adm, hoje].map(x => x.split('-').map(Number));
+  let meses = (b[0] - a[0]) * 12 + (b[1] - a[1]); if (b[2] < a[2]) meses--; if (meses < 0) return '';
+  const an = Math.floor(meses / 12), me = meses % 12;
+  return [an ? an + (an > 1 ? ' anos' : ' ano') : '', me ? me + (me > 1 ? ' meses' : ' mês') : ''].filter(Boolean).join(' e ') || 'menos de 1 mês';
+}
+const proxAniv = (nasc, hoje) => { if (!nasc) return ''; let y = +hoje.slice(0, 4), d = `${y}-${nasc.slice(5)}`; if (d < hoje) d = `${y + 1}-${nasc.slice(5)}`; return d; };
+const somaAnos = (iso, n) => `${+iso.slice(0, 4) + n}${iso.slice(4)}`;
+// situação das férias: períodos aquisitivos completos x férias já tiradas (as do app: fIni)
+function feriasSituacao(f, hoje) {
+  if (!f.adm) return null;
+  const anos = anosEntre(f.adm, hoje); if (anos < 1) return { direitoEm: somaAnos(f.adm, 1), pendente: false };
+  const ultimoDireito = somaAnos(f.adm, anos), limite = somaAnos(f.adm, anos + 1); // ganhou em ultimoDireito, deve tirar até limite
+  const tirou = f.fIni && f.fIni >= ultimoDireito;
+  const anterior = anos >= 2 && !(f.fIni && f.fIni >= somaAnos(f.adm, anos - 1)) ? somaAnos(f.adm, anos) : ''; // nem as do período anterior foram tiradas
+  return { direitoEm: ultimoDireito, limite, pendente: !tirou, vencida: anterior };
+}
+function equipeLinha(f, hoje, completo) {
+  const L = [`*${f.nome}*${f.cargo ? ' · ' + f.cargo : ''}${f.tel ? ' · ' + fmtNumero(normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel)) : ''}`];
+  if (f.nasc) { const pa = proxAniv(f.nasc, hoje); L.push(`🎂 ${dataBR(f.nasc).slice(0, 5)} (${anosEntre(f.nasc, hoje)} anos${pa === hoje ? ' · *HOJE*' : diasCorridos(hoje, pa) <= 30 ? ' · faz ' + (anosEntre(f.nasc, pa) ) + ' em ' + diasCorridos(hoje, pa) + ' dia(s)' : ''})`); }
+  if (f.adm) L.push(`📅 Admissão ${dataBR(f.adm)} · ${tempoCasa(f.adm, hoje)} de casa`);
+  if (f.fIni && f.fFim && hoje <= f.fFim) L.push(`🏖️ Férias ${dataBR(f.fIni)} a ${dataBR(f.fFim)}${hoje >= f.fIni ? ' · *de férias agora*' : ''}`);
+  else if (completo || f.adm) { const fs = feriasSituacao(f, hoje); if (fs) L.push(fs.vencida ? `⚠️ Férias *vencidas* (período de ${dataBR(somaAnos(fs.direitoEm, -1)).slice(6)} não tirado)` : fs.pendente ? `🏖️ Tem férias a tirar até ${dataBR(fs.limite)}${diasCorridos(hoje, fs.limite) <= 60 ? ' · *faltam ' + diasCorridos(hoje, fs.limite) + ' dias*' : ''}` : f.fIni ? `🏖️ Últimas férias: ${dataBR(f.fIni)}` : `🏖️ Direito a férias em ${dataBR(fs.direitoEm)}`); }
+  return L.join('\n   ');
+}
+async function equipeComando(env, from, msg) {
+  if (!/^(equipe|minha equipe|funcionarios|meus funcionarios|lista (da equipe|de funcionarios)|ficha da equipe|aniversarios|aniversariantes|ferias( da equipe)?)\??$/.test(msg)) return false;
+  const d = await equipeLer(env), hoje = dataBahia(), l = d.funcs.filter(f => !f.socio);
+  if (!l.length) { await enviar(env, from, 'Ainda não recebi a ficha da equipe. Abra o app (RH) por 1 minuto que ele manda sozinho.'); return true; }
+  let lista = l;
+  if (/aniversari/.test(msg)) lista = l.filter(f => f.nasc).sort((a, b) => proxAniv(a.nasc, hoje).localeCompare(proxAniv(b.nasc, hoje)));
+  await enviar(env, from, [`*${/aniversari/.test(msg) ? 'Aniversários' : /ferias/.test(msg) ? 'Férias da equipe' : 'Equipe'}* (${lista.length})`, '', ...lista.map(f => equipeLinha(f, hoje, /ferias/.test(msg))), '', '_Para mudar algo: "o aniversário do Gibson é 12/03", "Fabrício entra de férias dia 05/01 até 03/02"._'].join('\n'));
+  return true;
+}
+async function equipeConsultar(env) {
+  const d = await equipeLer(env), hoje = dataBahia();
+  if (!d.funcs.length) return { texto: 'A ficha da equipe ainda não chegou do app. Peça ao Sr. Hangel para abrir o RH do app por 1 minuto.' };
+  return { texto: `Ficha da equipe (hoje ${dataBR(hoje)}; atualizada pelo app em ${d.em ? new Date(d.em).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' }) : '?'}):\n` + d.funcs.map(f => equipeLinha(f, hoje, true).replace(/\*/g, '')).join('\n') + '\nResponda só o que ele perguntou, curto.' };
+}
+const EQ_CAMPOS = { telefone: 'tel', nascimento: 'nasc', admissao: 'adm', ferias_inicio: 'fIni', ferias_fim: 'fFim', cargo: 'cargo' };
+async function equipeAtualizar(env, a) {
+  const d = await equipeLer(env); if (!d.funcs.length) return { erro: true, texto: 'A ficha da equipe ainda não chegou do app.' };
+  const tk = tokensPedra(String(a.funcionario || '')), f = d.funcs.find(x => tk.length && tk.every(w => tokensPedra(x.nome).includes(w))) || d.funcs.find(x => tk.length && tokensPedra(x.nome)[0] === tk[0]);
+  if (!f) return { erro: true, texto: `Não achei "${a.funcionario}" na equipe. Tenho: ${d.funcs.map(x => x.nome.split(' ')[0]).join(', ')}.` };
+  const muda = {};
+  for (const [k, campo] of Object.entries(EQ_CAMPOS)) {
+    if (a[k] == null || a[k] === '') continue;
+    let v = String(a[k]).trim();
+    if (campo === 'tel') { v = v.replace(/\D/g, ''); if (v.length < 10) return { erro: true, texto: 'Telefone incompleto (DDD + número).' }; }
+    else if (campo !== 'cargo') { if (!isoOk(v)) return { erro: true, texto: `Data inválida em ${k} (use AAAA-MM-DD).` }; }
+    muda[campo] = v.slice(0, 40);
+  }
+  if (!Object.keys(muda).length) return { erro: true, texto: 'Diga o que mudar (telefone, nascimento, admissão, férias ou cargo).' };
+  Object.assign(f, muda); d.em = d.em || Date.now(); await env.HR_KV.put(EQ_K, JSON.stringify(d));
+  let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
+  ed.push({ id: String(Date.now()) + Math.random().toString(36).slice(2, 5), funcId: f.id, muda, em: Date.now() });
+  await env.HR_KV.put(EQ_ED, JSON.stringify(ed.slice(-50)), { expirationTtl: 30 * 86400 });
+  if (muda.tel) { const cfg = await pontoCfg(env); const cf = cfg.funcs.find(x => x.id === f.id); if (cf) { cf.tel = muda.tel; await pontoCfgSalvar(env, cfg); } }
+  return { texto: `Atualizado na ficha de ${f.nome}: ${Object.entries(muda).map(([k, v]) => `${({ tel: 'telefone', nasc: 'nascimento', adm: 'admissão', fIni: 'início das férias', fFim: 'fim das férias', cargo: 'cargo' })[k]} ${/^\d{4}-/.test(v) ? dataBR(v) : v}`).join(', ')}. Vai para o RH do app na próxima vez que ele abrir. Confirme em UMA frase.` };
+}
+// rotina diária (7h–10h): aniversários, tempo de casa e férias
+async function equipeRotina(env) {
+  const ag = agoraBahia(); if (ag.min < 7 * 60 || ag.min > 10 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('eqrot:' + hoje)) return;
+  if (!(await travaEnvio(env, 'eqrot:' + hoje))) return;
+  await env.HR_KV.put('eqrot:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const d = await equipeLer(env); if (!d.funcs.length) return;
+  const cfg = await pontoCfg(env), amanha = isoSomaDias(hoje, 1), dono = [];
+  for (const f of d.funcs) {
+    const cf = cfg.funcs.find(x => x.id === f.id) || (f.tel ? { ...f } : null), pn = f.nome.split(' ')[0];
+    if (f.nasc && f.nasc.slice(5) === amanha.slice(5)) dono.push(`🎂 Amanhã é aniversário de *${f.nome}* (${anosEntre(f.nasc, amanha)} anos).`);
+    if (f.nasc && f.nasc.slice(5) === hoje.slice(5)) {
+      dono.push(`🎂 Hoje é aniversário de *${f.nome}* (${anosEntre(f.nasc, hoje)} anos)${cf && !f.socio ? '. Mandei os parabéns em nome da HR.' : '.'}`);
+      if (cf && !f.socio) await falarComFuncionario(env, cf, `Feliz aniversário! 🎉 Toda a equipe da ${env.EMPRESA || 'HR Mármores e Granitos'} e o Sr. Hangel te desejam muita saúde, paz e sucesso. Obrigado por fazer parte do time!`, { saud: `Parabéns, ${pn}!`, recado: true, titulo: 'Feliz aniversário', cfg }).catch(() => {});
+    }
+    if (f.adm && f.adm.slice(5) === hoje.slice(5) && f.adm < hoje) dono.push(`🏆 Hoje *${f.nome}* completa ${anosEntre(f.adm, hoje)} ano(s) de casa.`);
+    if (f.fIni && f.fFim) {
+      if (diasCorridos(hoje, f.fIni) === 7) dono.push(`🏖️ *${f.nome}* entra de férias em 7 dias (${dataBR(f.fIni)} a ${dataBR(f.fFim)}).`);
+      if (f.fIni === amanha && cf) { dono.push(`🏖️ *${f.nome}* sai de férias amanhã. Avisei ele.`); await falarComFuncionario(env, cf, `Lembrete: suas férias começam amanhã (${dataBR(f.fIni)}) e vão até ${dataBR(f.fFim)}. A volta é dia ${dataBR(isoSomaDias(f.fFim, 1))}. Bom descanso!`, { saud: `Opa, ${pn}!`, recado: true, titulo: 'Suas férias', cfg }).catch(() => {}); }
+      if (f.fFim === hoje && cf) { await falarComFuncionario(env, cf, `Suas férias terminam hoje. Te esperamos amanhã (${dataBR(amanha)}) no horário normal!`, { saud: `E aí, ${pn}!`, recado: true, titulo: 'Volta das férias', cfg }).catch(() => {}); dono.push(`🏖️ *${f.nome}* volta das férias amanhã.`); }
+    }
+    const fs = !f.socio && feriasSituacao(f, hoje);
+    if (fs && fs.pendente && [60, 30, 15].includes(diasCorridos(hoje, fs.limite))) dono.push(`⚠️ *${f.nome}* precisa tirar férias até ${dataBR(fs.limite)} (faltam ${diasCorridos(hoje, fs.limite)} dias). Depois disso, pela CLT, elas são pagas em dobro.`);
+    if (fs && fs.direitoEm === hoje) dono.push(`🏖️ *${f.nome}* completou hoje mais um período e ganhou direito a férias (tirar até ${dataBR(somaAnos(hoje, 1))}).`);
+  }
+  if (dono.length) await pontoAvisarDono(env, ['👥 *Equipe*', ...dono].join('\n')).catch(() => {});
+}
+const emFeriasHoje = (d, id, hoje) => { const f = (d.funcs || []).find(x => x.id === String(id)); return !!(f && ((f.fIni && f.fFim && hoje >= f.fIni && hoje <= f.fFim) || f.ferias)); };
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -9463,6 +9567,16 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'equipe_consultar',
+    description: 'Ficha da equipe (do RH do app): nome, telefone, cargo, aniversário e idade, data de admissão e tempo de casa, férias (marcadas, a tirar até quando, vencidas). Use para QUALQUER pergunta sobre os funcionários: "quando é o aniversário do Gibson", "telefone do Fabrício", "quem está de férias", "quanto tempo de casa".',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'equipe_atualizar',
+    description: 'Muda a ficha de um funcionário pelo WhatsApp (vai também para o RH do app): telefone, data de nascimento, data de admissão, início/fim das férias, cargo. Use quando o Sr. Hangel disser algo como "o aniversário do Gibson é 12/03/1995", "Fabrício entra de férias dia 05/01 e volta 04/02" (fim = 03/02), "o número novo do Gibson é ...". Datas em AAAA-MM-DD.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, telefone: { type: 'string' }, nascimento: { type: 'string' }, admissao: { type: 'string' }, ferias_inicio: { type: 'string' }, ferias_fim: { type: 'string' }, cargo: { type: 'string' } }, required: ['funcionario'] },
+  },
+  {
     name: 'avisar_equipe',
     description: 'ENVIA de verdade um aviso/recado aos funcionários, no WhatsApp privado de cada um. Use SEMPRE que o Sr. Hangel pedir para avisar, comunicar ou falar algo à equipe ("avise os funcionários", "manda pra todo mundo que..."). Escreva o texto pronto para o funcionário ler (2ª pessoa, sem saudação), usando o contexto da conversa (ex.: o expediente que ele acabou de combinar). Nunca diga que avisou sem chamar esta ferramenta. O número oficial do bot NÃO entra em grupos de WhatsApp: se ele falar de grupo, explique isso e use esta ferramenta (manda no privado de cada um).',
     input_schema: { type: 'object', properties: { texto: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' }, description: 'nomes; vazio = todos' } }, required: ['texto'] },
@@ -9900,6 +10014,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   }
   if (nome === 'ficha_producao') return await fichaProducao(env, a); // v133
   if (nome === 'avisar_equipe') return await avisarEquipeTool(env, a); // v138
+  if (nome === 'equipe_consultar') return await equipeConsultar(env); // v141
+  if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
   if (nome === 'expediente_dia') return await expedienteDias(env, a); // v138
   if (nome === 'lembrar_dono') { // v123
     const mq = String(a.quando || '').match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);
@@ -15300,6 +15416,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
     if (await fechComandoDono(env, from, bruto, msg).catch(e => { console.log('[FECH] comando:', e.message); return false; })) return; // v134
     if (await painelProdDono(env, from, msg).catch(e => { console.log('[PROD] painel:', e.message); return false; })) return; // v137
+    if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
@@ -25724,8 +25841,10 @@ async function pontoLembretes(env, cfg) {
   const m = (t) => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
   const xh = (cfg.excBot || []).find(x => x.data === hoje && x.tipo === 'meio'); // v139: horário combinado do dia
   const ent = m((xh && xh.e) || L.entrada), sai = m((xh && xh.s) || (ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || L.saida) : L.saida)), alm = Math.max(30, +L.almoco || 80); // v138: meio período
+  const eqd = await equipeLer(env).catch(() => ({ funcs: [] })); // v141
   for (const f of cfg.funcs) {
     if (!(await env.HR_KV.get('ponto:fd:' + f.id))) continue; // só quem já tem o app ativado
+    if (emFeriasHoje(eqd, f.id, hoje)) continue; // v141: de férias
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
     const ult = l[l.length - 1], nome = String(f.nome).split(' ')[0];
     let k = '', t = '', c = '';
@@ -25766,6 +25885,18 @@ async function pontoRotina(env) {
 async function rotaBotPonto(req, env, url) {
   const p = url.pathname;
   const cfg = await pontoCfg(env);
+  if (p === '/bot/ponto/equipe' && req.method === 'POST') { // v141: ficha da equipe vinda do RH do app
+    const b = await req.json().catch(() => ({})); const funcs = equipeLimpar(b.funcs);
+    if (funcs.length) await env.HR_KV.put(EQ_K, JSON.stringify({ em: Date.now(), funcs }));
+    let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
+    return jsonR({ ok: true, n: funcs.length, edits: ed });
+  }
+  if (p === '/bot/ponto/equipe/ok' && req.method === 'POST') { // o app aplicou as mudanças feitas pelo WhatsApp
+    const b = await req.json().catch(() => ({})), ids = new Set((b.ids || []).map(String));
+    let ed = []; try { ed = JSON.parse((await env.HR_KV.get(EQ_ED)) || '[]'); } catch (_) {}
+    await env.HR_KV.put(EQ_ED, JSON.stringify(ed.filter(x => !ids.has(String(x.id)))), { expirationTtl: 30 * 86400 });
+    return jsonR({ ok: true });
+  }
   if (p === '/bot/ponto/config' && req.method === 'GET') return jsonR({ ok: true, cfg: { funcs: cfg.funcs, ips: cfg.ips, lat: cfg.lat, lng: cfg.lng, raio: cfg.raio, aviso: cfg.aviso, lemb: cfg.lemb, facial: cfg.facial, relAuto: cfg.relAuto !== false, apelidos: cfg.apelidos || {}, excBot: cfg.excBot || [] }, link: (await urlDoWorker(env).catch(() => '')) + '/ponto' });
   if (p === '/bot/ponto/config' && req.method === 'POST') {
     const b = await req.json().catch(() => ({}));
