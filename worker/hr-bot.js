@@ -1,3 +1,4 @@
+// v140 (18/11/2026): meio período = 4 h de manhã (07:00–11:00) ou à tarde (13:00–17:00); sem manhã/tarde nem horário, o bot pergunta
 // v139 (18/11/2026): meio período com horário ("entrar 7h e sair 11h"), lembretes do ponto seguem o horário do dia; o app recebe as exceções (folga/meio período) para o banco de horas
 // v138 (18/11/2026): expediente_dia (folga / meio período / normal gravado no ponto, até em feriado) e avisar_equipe (manda de verdade no privado de cada funcionário; o bot não entra em grupo)
 // v137 (18/11/2026): painel da produção ("produção", "como está o pedido do João"), retirada conferida com o Fabrício (buscou? pagou? → entregue + Finanças), "cortei" numa retirada avisa o cliente, agenda do dia às 7h para Fabrício e Gibson
@@ -8239,7 +8240,12 @@ async function expedienteDias(env, a) {
     cfg.excBot = (Array.isArray(cfg.excBot) ? cfg.excBot : []).filter(x => x.data !== iso);
     cfg.folgasBot = (Array.isArray(cfg.folgasBot) ? cfg.folgasBot : []).filter(x => x !== iso);
     const hm = v => /^\d{1,2}(:\d{2})?$/.test(String(v || '').replace(/h$/, '')) ? String(v).replace(/h$/, '').split(':').map((x, i) => String(+x).padStart(2, '0')).concat(['00']).slice(0, 2).join(':') : '';
-    const e = hm(d.entrada) || (cfg.lemb && cfg.lemb.entrada) || '07:15', sMeio = hm(d.saida) || (cfg.lemb && cfg.lemb.sabado) || '12:15';
+    if (tipo === 'meio' && !hm(d.entrada) && !hm(d.saida) && !['manha', 'tarde'].includes(d.periodo)) return { erro: true, texto: `Falta saber se o meio período de ${dataBR(iso)} é de manhã (07:00 às 11:00) ou à tarde (13:00 às 17:00). Pergunte ao Sr. Hangel em UMA frase curta.` };
+    const tarde = d.periodo === 'tarde' || (hm(d.entrada) && +hm(d.entrada).slice(0, 2) >= 12);
+    const mais4 = t => { const [h, mi] = t.split(':').map(Number), x = h * 60 + mi + 240; return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+    const menos4 = t => { const [h, mi] = t.split(':').map(Number), x = h * 60 + mi - 240; return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); };
+    const e = hm(d.entrada) || (hm(d.saida) ? menos4(hm(d.saida)) : tarde ? '13:00' : '07:00');
+    const sMeio = hm(d.saida) || mais4(e);
     if (tipo === 'folga') { cfg.feriados.push(iso); cfg.folgasBot.push(iso); folgas.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'folga', { expirationTtl: 60 * 86400 }); cfg.excBot.push({ data: iso, tipo }); }
     else { cfg.trab.push(iso); if (tipo === 'meio') { cfg.meios.push(iso); cfg.excBot.push({ data: iso, tipo, e, s: sMeio }); } else cfg.excBot.push({ data: iso, tipo }); await env.HR_KV.put('fer:dec:' + iso, 'trab', { expirationTtl: 60 * 86400 }); }
     const nm = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso);
@@ -9464,7 +9470,7 @@ const FERRAMENTAS = [
   {
     name: 'expediente_dia',
     description: 'GRAVA no ponto um expediente diferente combinado pelo Sr. Hangel: folga, meio período ou expediente normal (inclusive em feriado: "vamos trabalhar meio período na sexta e folgar sábado"). O ponto, os lembretes de saída e os prazos passam a seguir isso. Por padrão também avisa todos os funcionários no privado (avisar_equipe=false se ele disser para não avisar ainda).',
-    input_schema: { type: 'object', properties: { dias: { type: 'array', items: { type: 'object', properties: { data: { type: 'string', description: 'AAAA-MM-DD' }, tipo: { type: 'string', enum: ['folga', 'meio', 'normal'] }, entrada: { type: 'string', description: 'HH:MM, só no meio período, se ele disser (ex.: 07:00)' }, saida: { type: 'string', description: 'HH:MM, só no meio período (ex.: 11:00)' } }, required: ['data', 'tipo'] } }, avisar_equipe: { type: 'boolean' }, texto_aviso: { type: 'string', description: 'opcional: texto do aviso à equipe (2ª pessoa, sem saudação)' } }, required: ['dias'] },
+    input_schema: { type: 'object', properties: { dias: { type: 'array', items: { type: 'object', properties: { data: { type: 'string', description: 'AAAA-MM-DD' }, tipo: { type: 'string', enum: ['folga', 'meio', 'normal'] }, periodo: { type: 'string', enum: ['manha', 'tarde'], description: 'só no meio período: manhã = 07:00–11:00, tarde = 13:00–17:00 (4 horas). Se ele não disse manhã/tarde nem horário, NÃO chute: a ferramenta pede para perguntar' }, entrada: { type: 'string', description: 'HH:MM, só no meio período, se ele disser (ex.: 07:00)' }, saida: { type: 'string', description: 'HH:MM, só no meio período (ex.: 11:00)' } }, required: ['data', 'tipo'] } }, avisar_equipe: { type: 'boolean' }, texto_aviso: { type: 'string', description: 'opcional: texto do aviso à equipe (2ª pessoa, sem saudação)' } }, required: ['dias'] },
   },
   {
     name: 'ficha_producao',
