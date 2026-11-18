@@ -83,12 +83,51 @@
   window.abrirConversasClientes = abrir;
   window.exportarConversasClientes = exportar;
 
+  // v3: cartão de entrada em preto e dourado, com as não lidas e os últimos clientes
+  var resumo = null, resumoEm = 0;
+  function estiloCartao() {
+    if (document.getElementById('hrConvCss')) return;
+    var st = document.createElement('style'); st.id = 'hrConvCss';
+    st.textContent = '.cv-card{position:relative;display:flex;align-items:center;gap:13px;width:calc(100% - 24px);margin:12px 12px 6px;padding:14px 14px;border-radius:18px;border:1px solid rgba(201,168,76,.4);'
+      + 'background:radial-gradient(120% 140% at 0% 0%,rgba(232,201,106,.18),transparent 55%),linear-gradient(135deg,#1d1810,#0f0d0a);color:#f4eee2;font-family:inherit;text-align:left;cursor:pointer;overflow:hidden;box-shadow:0 10px 26px rgba(0,0,0,.45);transition:transform .15s}'
+      + '.cv-card:active{transform:scale(.98)}'
+      + '.cv-card::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,rgba(255,240,200,.12) 50%,transparent 65%);background-size:250% 100%;animation:cvBrilho 4s ease-in-out infinite;pointer-events:none}'
+      + '.cv-ic{width:48px;height:48px;border-radius:15px;flex:none;display:flex;align-items:center;justify-content:center;font-size:1.45rem;background:linear-gradient(135deg,#e8c96a,#a8862f);box-shadow:0 6px 16px rgba(201,168,76,.35)}'
+      + '.cv-tit{font-family:"Cormorant Garamond",serif;font-size:1.22rem;font-weight:700;color:#f0d78c;line-height:1.1}'
+      + '.cv-sub{font-size:.72rem;color:#a99d84;margin-top:3px}'
+      + '.cv-avs{display:flex;margin-top:7px}.cv-avs span{width:24px;height:24px;border-radius:50%;margin-right:-7px;border:2px solid #15120d;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:800;color:#fff}'
+      + '.cv-bd{position:absolute;top:10px;right:12px;background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;font-size:.66rem;font-weight:800;border-radius:12px;padding:2px 9px;box-shadow:0 2px 10px rgba(201,168,76,.45);animation:cvPulsa 1.8s ease-in-out infinite}'
+      + '.cv-seta{color:#c9a84c;font-size:1.3rem;flex:none}'
+      + '@keyframes cvBrilho{0%{background-position:150% 0}60%,100%{background-position:-60% 0}}@keyframes cvPulsa{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}';
+    document.head.appendChild(st);
+  }
+  function corAv(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; var a = h % 360; return 'linear-gradient(135deg,hsl(' + a + ',42%,42%),hsl(' + ((a + 40) % 360) + ',48%,26%))'; }
+  function ini(n) { var p = String(n || '?').replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); }
+  function pintarCartao(b) {
+    var r = resumo, novas = 0, avs = '';
+    if (r) {
+      var v = {}; try { v = JSON.parse(localStorage.getItem('hr_crm_vistos') || '{}') || {}; } catch (e) {}
+      r.forEach(function (c) { if (c.ultq === 'c' && Math.max(0, (c.total || 0) - (v[c.num] || 0)) > 0) novas++; });
+      avs = '<div class="cv-avs">' + r.slice(0, 5).map(function (c) { var nm = c.nome || c.perfil || '?'; return '<span style="background:' + corAv(c.num) + '">' + esc(ini(nm)) + '</span>'; }).join('') + '</div>';
+    }
+    b.innerHTML = '<span class="cv-ic">💬</span><div style="flex:1;min-width:0;"><div class="cv-tit">Conversas dos clientes</div>'
+      + '<div class="cv-sub">' + (r ? r.length + ' cliente(s) · fotos, áudios e PDFs' : 'Cada cliente com a conversa inteira') + '</div>' + avs + '</div>'
+      + (novas ? '<span class="cv-bd">' + novas + ' nova' + (novas > 1 ? 's' : '') + '</span>' : '') + '<span class="cv-seta">›</span>';
+  }
+  function atualizarResumo(b) {
+    if (Date.now() - resumoEm < 60000) { pintarCartao(b); return; }
+    resumoEm = Date.now();
+    var bs = ''; try { bs = String(_getBotCfg().url || '').replace(/\/+$/, ''); } catch (e) {}
+    if (!bs) { pintarCartao(b); return; }
+    fetch(bs + '/bot/crm/contatos', { headers: _botHeaders() }).then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.contatos) resumo = j.contatos; pintarCartao(b); }).catch(function () { pintarCartao(b); });
+  }
   function botao() {
     var sb = document.getElementById('secBody'); if (!sb || sb.querySelector('[data-conv-btn]')) return;
-    var b = document.createElement('button'); b.type = 'button'; b.setAttribute('data-conv-btn', '1');
-    b.style.cssText = 'display:flex;align-items:center;gap:10px;width:calc(100% - 24px);margin:12px 12px 4px;padding:12px 14px;border-radius:14px;border:1px solid var(--bd2);background:var(--s2);color:var(--tx);font-family:inherit;text-align:left;cursor:pointer;';
-    b.innerHTML = '<span style="font-size:1.3rem;">💬</span><div style="flex:1;"><b>Conversas dos clientes</b><div style="font-size:.7rem;color:var(--t3);">Cada cliente com a conversa inteira: fotos, áudios e PDFs</div></div><span style="color:var(--t3);">›</span>';
-    b.onclick = function () { (window.abrirCRM || abrir)(); };
+    estiloCartao();
+    var b = document.createElement('button'); b.type = 'button'; b.setAttribute('data-conv-btn', '1'); b.className = 'cv-card';
+    pintarCartao(b); atualizarResumo(b);
+    b.onclick = function () { resumoEm = 0; (window.abrirCRM || abrir)(); };
     sb.insertBefore(b, sb.firstChild);
   }
   function iniciar() {
