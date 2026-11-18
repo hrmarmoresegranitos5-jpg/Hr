@@ -1,3 +1,4 @@
+// v118 (18/11/2026): ORÇAMENTO ATIVO — o último PDF mandado ao cliente é o orçamento da conversa (nº ORC, id do app, valor); fechamento, Pix e QR seguem nele; um novo substitui e o anterior só volta se pedirem ("o outro orçamento" → botões); cada PDF gerado no app fica guardado (/bot/orcpdf/guardar); dono: "orçamentos do fulano" / "manda o ORC-0585 pra ele"; código do cliente (C-0001) no histórico
 // v117 (18/11/2026): PAGAMENTO QUE SEGUE — "na entrega"/"pix" respondendo à pergunta de pagamento (do bot, da IA ou do dono) entra no passo a passo (entrega, localização, Pix); pedido fechado sem valor guarda a escolha até o dono mandar o valor; sem "Olá, fulana" repetido depois do modelo
 // v116 (18/11/2026): CONVERSA DE GENTE — a assistente não se apresenta como robô por conta própria, evita frases de robô e escreve no ritmo do WhatsApp; se perguntarem de verdade, continua dizendo que é a assistente virtual
 // v115 (18/11/2026): ASSISTENTE QUE FECHA A VENDA — orçamento enviado → a IA conduz até a aprovação; "manda o pix"/"quero pagar" fecha e o Pix sai na hora; "ok" não vira "por nada"; resposta automática de outra empresa é ignorada; nota nunca no meio da venda; janela de 24 h confere o número sem o 9; dono: "mande pra ele" envia ao cliente o último QR code
@@ -815,10 +816,159 @@ async function pdfImgResultado(env, t, b) {
 //   fica registrado em orcenv:<número> (15 dias). Quando o cliente diz "pode confirmar", "pode fazer", "fechado", "aprovo"…,
 //   o bot confirma ao cliente, marca o pedido como aprovado e manda ao dono o cartão "Pedido fechado". Sem pedir nota no meio.
 // ═════════════════════════════════════════════════════════════════════════════
-async function orcEnvRegistrar(env, num, ped, nome) {
-  const o = { pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0, nome: nome || (ped && ped.nome) || '', em: Date.now(), fechado: 0 };
-  await env.HR_KV.put('orcenv:' + normalizarBR(num), JSON.stringify(o), { expirationTtl: 15 * 86400 });
+// v118: o orçamento mandado vira o ORÇAMENTO ATIVO da conversa (número ORC, id do app, valor, pedra, PDF).
+//   O passo a passo (aprovação, Pix, entrega) segue nele. Um orçamento novo toma o lugar; o anterior fica guardado
+//   em "anteriores" e só volta se o cliente ou o dono pedir.
+async function orcEnvRegistrar(env, num, ped, nome, meta) {
+  const m = meta || {}, k = 'orcenv:' + normalizarBR(num);
+  const orcNum = orcNumNorm(m.orcNum || (ped && ped.orcNum) || orcNumDoArquivo(m.arquivo || (ped && ped.arquivoNome)));
+  const h = (m.qId || (ped && ped.qId) || orcNum) ? await orcDoHistPorId(env, m.qId || (ped && ped.qId), orcNum).catch(() => null) : null;
+  const o = { pedId: ped && ped.id || null, valor: Number(m.valor) || (ped && Number(ped.valor)) || (h && h.valor) || 0, nome: nome || (ped && ped.nome) || (h && h.cliente) || '', em: Date.now(), fechado: 0,
+    qId: String(m.qId || (ped && ped.qId) || (h && h.id) || '') || null, orcNum: orcNum || (h && orcNumNorm(h.orcNum)) || '', projeto: m.projeto || (h && h.projeto) || (ped && ped.interesse) || '',
+    material: (h && h.material) || (ped && (ped.pedra || ped.cor)) || '', mediaId: m.mediaId || (ped && ped.mediaId) || null, arquivo: m.arquivo || (ped && ped.arquivoNome) || '' };
+  let ant = null; try { ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
+  const mesmo = ant && ((o.qId && ant.qId === o.qId) || (o.orcNum && ant.orcNum === o.orcNum) || (!o.qId && !o.orcNum && !ant.qId && !ant.orcNum && o.valor && Math.abs((ant.valor || 0) - o.valor) < 0.01));
+  if (mesmo) { // o mesmo orçamento reenviado: mantém o andamento (fechado, pedido)
+    for (const kk of ['fechado', 'novoId', 'valorPerguntado', 'formaPend', 'anteriores', 'reentrada']) if (ant[kk] != null) o[kk] = ant[kk];
+    for (const kk of ['qId', 'orcNum', 'projeto', 'material', 'mediaId', 'arquivo']) if (!o[kk] && ant[kk]) o[kk] = ant[kk];
+    if (!o.valor && ant.valor) o.valor = ant.valor;
+  } else if (ant && (ant.valor || ant.orcNum || ant.qId)) {
+    const { anteriores, ...resto } = ant;
+    const igual = x => (o.qId && x.qId === o.qId) || (o.orcNum && x.orcNum === o.orcNum);
+    o.anteriores = [{ ...resto, anteriores: undefined }, ...(anteriores || [])].filter(x => x && (x.orcNum || x.qId || x.valor) && !igual(x)).slice(0, 6);
+  }
+  await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 30 * 86400 });
+  return o;
 }
+const orcNumNorm = v => { const d = String(v || '').match(/(\d{1,6})/); return d && /orc/i.test(String(v)) ? 'ORC-' + d[1].padStart(4, '0') : (d && /^\s*\d{1,6}\s*$/.test(String(v)) ? 'ORC-' + d[1].padStart(4, '0') : ''); };
+const orcNumDoArquivo = a => { const m = String(a || '').match(/ORC[-_ ]?(\d{1,6})/i); return m ? 'ORC-' + m[1].padStart(4, '0') : ''; };
+async function orcDoHistPorId(env, qId, orcNum) {
+  const h = await lerHistorico(env); if (!h) return null;
+  const on = orcNumNorm(orcNum);
+  return h.orcamentos.find(o => (qId && String(o.id) === String(qId)) || (on && orcNumNorm(o.orcNum) === on)) || null;
+}
+const orcRotulo = o => [o.orcNum, [o.projeto, o.material].filter(Boolean).join(' em '), o.valor ? 'R$ ' + reais(o.valor) : ''].filter(Boolean).join(' · ');
+
+// ── v118: biblioteca de PDFs dos orçamentos (cada PDF gerado no app chega aqui sozinho) ──
+const orcPdfChave = (orcNum, qId) => orcNumNorm(orcNum) ? 'orcpdf:' + orcNumNorm(orcNum) : (qId ? 'orcpdf:id' + String(qId).slice(0, 30) : '');
+async function orcPdfLer(env, orcNum, qId) {
+  for (const k of [orcPdfChave(orcNum, null), qId ? 'orcpdf:id' + String(qId).slice(0, 30) : ''].filter(Boolean)) {
+    try { const r = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (r) return r; } catch (_) {}
+  }
+  if (qId) { try { const on = await env.HR_KV.get('orcpdf:qid:' + String(qId).slice(0, 30)); if (on) return JSON.parse((await env.HR_KV.get('orcpdf:' + on)) || 'null'); } catch (_) {} }
+  return null;
+}
+async function orcPdfGuardar(env, d, bytes) {
+  const orcNum = orcNumNorm(d.orcNum) || orcNumDoArquivo(d.arquivo), k = orcPdfChave(orcNum, d.qId); if (!k) return null;
+  const r = { qId: d.qId ? String(d.qId).slice(0, 30) : '', orcNum, cliente: String(d.cliente || '').slice(0, 60), cliCod: String(d.cliCod || '').slice(0, 12), tel: String(d.tel || '').replace(/\D/g, '').slice(0, 13),
+    valor: Number(d.valor) || 0, projeto: String(d.pedido || d.projeto || '').slice(0, 80), arquivo: String(d.arquivo || (orcNum || 'Orcamento') + '.pdf').slice(0, 80), mediaId: d.mediaId || null, mediaEm: d.mediaId ? Date.now() : 0, em: Date.now() };
+  if (bytes) { await env.HR_KV.put(k + ':b', bytesParaBase64(bytes), { expirationTtl: 120 * 86400 }); r.temBytes = 1; }
+  else { try { const ant = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (ant && ant.temBytes) r.temBytes = 1; } catch (_) {} }
+  await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+  if (r.qId && orcNum) await env.HR_KV.put('orcpdf:qid:' + r.qId, orcNum, { expirationTtl: 120 * 86400 });
+  return r;
+}
+// id de mídia da Meta válido (vence em ~30 dias): reaproveita ou sobe de novo a partir do PDF guardado
+async function orcPdfMedia(env, r) {
+  if (!r) return null;
+  if (r.mediaId && Date.now() - (r.mediaEm || 0) < 25 * 86400000) return r.mediaId;
+  if (!r.temBytes) return r.mediaId || null;
+  const k = orcPdfChave(r.orcNum, r.qId), b64 = await env.HR_KV.get(k + ':b'); if (!b64) return r.mediaId || null;
+  const up = await subirPdfMeta(env, base64ParaBytes(b64), r.arquivo || 'Orcamento.pdf');
+  r.mediaId = up.id; r.mediaEm = Date.now(); await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+  return up.id;
+}
+function bytesParaBase64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
+// todos os orçamentos de um cliente (código C-0001, nome ou telefone), mais recentes primeiro
+async function orcsDoCliente(env, termo, num) {
+  const h = await lerHistorico(env); if (!h) return { ok: false, lista: [] };
+  const t = String(termo || '').trim(), cod = (t.match(/\bc-?\s?(\d{1,5})\b/i) || [])[1];
+  const d8 = String(num || t).replace(/\D/g, '').slice(-8);
+  let cli = null;
+  if (cod) cli = h.clientes.find(c => String(c.cod || '').replace(/\D/g, '') === String(Number(cod)).padStart(4, '0') || Number(String(c.cod || '').replace(/\D/g, '')) === Number(cod));
+  if (!cli && d8.length === 8) cli = h.clientes.find(c => String(c.tel || '').replace(/\D/g, '').slice(-8) === d8);
+  if (!cli && t && !cod) { const qq = tokensPedra(t), cs = qq.length ? h.clientes.filter(c => casaNome(qq, c.nome)) : []; if (cs.length === 1) cli = cs[0]; }
+  const q = tokensPedra(cli ? cli.nome : t);
+  const lista = h.orcamentos.filter(o => !o.arquivado && ((cli && cli.cod && o.cliCod === cli.cod) || (d8.length === 8 && String(o.tel || '').replace(/\D/g, '').slice(-8) === d8) || (q.length && casaNome(q, o.cliente))))
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  return { ok: true, cliente: cli, lista };
+}
+// manda ao cliente um orçamento da biblioteca e o torna o ativo
+async function orcMandarDaBiblioteca(env, num, h, msgExtra) {
+  const r = await orcPdfLer(env, h.orcNum, h.id || h.qId);
+  const mid = r ? await orcPdfMedia(env, r).catch(() => null) : null;
+  if (!mid) return { ok: false, semPdf: true };
+  const nome = h.cliente || (r && r.cliente) || '';
+  const ped = { mediaId: mid, arquivoNome: (r && r.arquivo) || 'Orcamento.pdf', nome, valor: h.valor || (r && r.valor) || 0, interesse: [h.projeto, h.material].filter(Boolean).join(' em ') || (r && r.projeto) || '', id: 'orc' + Date.now(), qId: h.id || h.qId || (r && r.qId), orcNum: orcNumNorm(h.orcNum) || (r && r.orcNum) };
+  const txt = await enviarOrcamentoCliente(env, num, ped, nome, msgExtra || '');
+  await orcEnvRegistrar(env, num, ped, nome, { qId: ped.qId, orcNum: ped.orcNum, valor: ped.valor, projeto: h.projeto, mediaId: mid, arquivo: ped.arquivoNome }).catch(() => {});
+  return { ok: true, texto: txt };
+}
+// dono: "orçamentos do Osmailtom" / "orçamentos C-0012"
+const RE_ORCS_DO = /^(?:ver |mostra |mostrar |lista |listar |quais )?(?:os )?orcamentos? (?:do |da |de |dos |das )?(?:cliente )?(.{2,50})$/;
+async function orcsComandoDono(env, from, bruto, msg) {
+  const mm = msg.match(RE_ORCS_DO); if (!mm || /^(parados|pendentes|da semana|do mes|de hoje|abertos|aprovados|enviados)$/.test(mm[1])) return false;
+  const r = await orcsDoCliente(env, mm[1]);
+  if (!r.ok) { await enviar(env, from, 'Sr. Hangel, o aplicativo ainda não mandou o histórico de orçamentos ao bot. Abra o app que ele sincroniza sozinho e peça de novo.'); return true; }
+  if (!r.lista.length) return false; // não é um cliente: deixa para os outros comandos e a IA
+  const nomeCli = (r.cliente && r.cliente.nome) || r.lista[0].cliente;
+  const num = r.cliente && r.cliente.tel ? normalizarBR(String(r.cliente.tel).replace(/\D/g, '').replace(/^(?!55)/, '55')) : await numeroDoClientePorNome(env, nomeCli).catch(() => '');
+  let ativo = null; if (num) { try { ativo = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(num))) || 'null'); } catch (_) {} }
+  const L = [];
+  for (const o of r.lista.slice(0, 8)) {
+    const pdf = await orcPdfLer(env, o.orcNum, o.id);
+    const eh = ativo && ((ativo.qId && ativo.qId === String(o.id)) || (ativo.orcNum && ativo.orcNum === orcNumNorm(o.orcNum)));
+    L.push(`${eh ? '👉 ' : '• '}*${orcNumNorm(o.orcNum) || 'sem nº'}* · ${[o.projeto, o.material].filter(Boolean).join(' em ')} · R$ ${reais(o.valor)} · ${o.data ? dataBR(o.data) : ''} · ${o.status || ''}${pdf ? ' · PDF ✓' : ''}${eh ? ' · *ativo na conversa*' + (ativo.fechado ? ' (fechado)' : '') : ''}`);
+  }
+  await donoCtxCliente(env, num, nomeCli);
+  await enviar(env, from, [`*Orçamentos de ${nomeCli}*${r.cliente && r.cliente.cod ? ' · ' + r.cliente.cod : ''}${num ? ' · ' + rtpFmt(num) : ''}`, '', ...L, '', r.lista.length > 8 ? `_Mostrando 8 de ${r.lista.length}._` : '', 'Para mandar um ao cliente: _manda o ORC-0585 pra ele_. O passo a passo (aprovação, Pix, entrega) segue no último que for mandado.'].filter(x => x !== '').join('\n'));
+  return true;
+}
+// dono: "manda o ORC-0585 pro Osmailtom" / "manda o orc 585 pra ele"
+const RE_MANDA_ORC = /^(?:pode |por favor )?(?:mand[ae]|envi[ae]|reenvi[ae]|encaminh[ae]|pass[ae])\s+(?:o |a )?(?:orcamento |pdf )?(?:do |da )?(?:orc|orcamento)\s*-?\s*(\d{1,6})(?:\s+(?:pra|para|pro|ao|a|p)\s+(?:o |a )?(.{2,40}))?$/;
+async function orcMandarComandoDono(env, from, bruto, msg) {
+  const mm = msg.match(RE_MANDA_ORC); if (!mm) return false;
+  const on = 'ORC-' + mm[1].padStart(4, '0'), quem = (mm[2] || '').trim();
+  const h = await orcDoHistPorId(env, null, on) || await (async () => { const r = await orcPdfLer(env, on); return r ? { id: r.qId, orcNum: on, cliente: r.cliente, valor: r.valor, projeto: r.projeto, tel: r.tel } : null; })();
+  if (!h) { await enviar(env, from, `Sr. Hangel, não achei o ${on} no histórico que o app mandou. Abra o app (ele sincroniza sozinho) e tente de novo.`); return true; }
+  let num = '';
+  if (quem && !['ele', 'ela', 'cliente'].includes(quem)) num = await numeroDoClientePorNome(env, quem).catch(() => '');
+  if (!num && h.tel) { const d = String(h.tel).replace(/\D/g, ''); if (d.length >= 10) num = normalizarBR(d.startsWith('55') ? d : '55' + d); }
+  if (!num) { try { const ctx = JSON.parse((await env.HR_KV.get('dono:cliatual')) || 'null'); if (ctx && ctx.num) num = ctx.num; } catch (_) {} }
+  if (!num) num = await numeroDoClientePorNome(env, h.cliente).catch(() => '');
+  if (!num) { await enviar(env, from, `Sr. Hangel, não achei o WhatsApp de ${h.cliente}. Mande _manda o ${on} pro_ e o nome, ou cadastre o telefone dele no app.`); return true; }
+  const r = await orcMandarDaBiblioteca(env, normalizarBR(num), h);
+  if (r.ok) { await enviar(env, from, `${on} (${orcRotulo({ ...h, orcNum: on })}): ${r.texto}\nAgora o passo a passo segue nesse orçamento.`); return true; }
+  await env.HR_KV.put('orcpdf:espera:' + on, JSON.stringify({ num: normalizarBR(num), nome: h.cliente, de: from }), { expirationTtl: 3 * 3600 });
+  await enviar(env, from, `Sr. Hangel, o PDF do ${on} ainda não está guardado no bot. Abra esse orçamento no app e toque em *PDF*: ele chega aqui sozinho e eu mando na hora para ${h.cliente}.`);
+  return true;
+}
+// cliente: "me manda o outro orçamento" / "o primeiro orçamento" → lista os dele com botões
+const RE_OUTRO_ORC = /\b((o |a )?(outro|outra|primeiro|primeira|anterior|antigo|segundo|ultimo|1o|2o) (orcamento|proposta|pdf)|(orcamento|proposta) (anterior|antigo|de antes|velho|que voces? (me )?mandaram antes)|(os|as) (dois|duas|2|tres|3) (orcamentos|propostas)|outros orcamentos)\b/;
+async function orcOutroCliente(env, from, texto) {
+  const msg = normaliza(String(texto || '')); if (!RE_OUTRO_ORC.test(msg)) return false;
+  let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(from))) || 'null'); } catch (_) {}
+  const cands = [];
+  for (const a of ((o && o.anteriores) || [])) if (a.orcNum || a.qId) cands.push({ id: a.qId, orcNum: a.orcNum, projeto: a.projeto, material: a.material, valor: a.valor, cliente: a.nome });
+  const r = await orcsDoCliente(env, (o && o.nome) || '', from).catch(() => ({ lista: [] }));
+  for (const h of r.lista || []) if (!cands.some(c => (c.orcNum && c.orcNum === orcNumNorm(h.orcNum)) || (c.id && String(c.id) === String(h.id)))) cands.push({ id: h.id, orcNum: orcNumNorm(h.orcNum), projeto: h.projeto, material: h.material, valor: h.valor, cliente: h.cliente });
+  const outros = cands.filter(c => !(o && ((o.orcNum && c.orcNum === o.orcNum) || (o.qId && String(c.id) === String(o.qId))))).slice(0, 3);
+  if (!outros.length) return false;
+  await enviarComBotoes(env, from, `${outros.length > 1 ? 'Qual destes orçamentos você quer ver de novo?' : 'É este aqui?'}\n\n${outros.map(c => '• ' + orcRotulo(c)).join('\n')}`,
+    outros.map(c => ({ id: 'orcsel|' + (c.orcNum || 'id' + c.id), titulo: `${[c.projeto].filter(Boolean)[0] || c.orcNum || 'Orçamento'} R$${Math.round(c.valor || 0)}`.slice(0, 20) })));
+  return true;
+}
+async function orcSelCliente(env, from, id) {
+  const ch = id.slice(7), on = /^ORC-/.test(ch) ? ch : '', qid = on ? null : ch.replace(/^id/, '');
+  const h = await orcDoHistPorId(env, qid, on) || (on ? { orcNum: on } : { id: qid });
+  const r = await orcMandarDaBiblioteca(env, normalizarBR(from), h, 'Aqui está o orçamento que você pediu. Qualquer dúvida, é só me chamar.');
+  if (r.ok) { await notificarDono(env, Date.now(), `${h.cliente || 'O cliente'} pediu de novo o ${orcRotulo(h)}: mandei o PDF e agora o passo a passo segue nele.\nwa.me/${normalizarBR(from)}`, { rotina: true }).catch(() => {}); return true; }
+  await enviar(env, from, 'Vou pedir pra equipe te mandar esse orçamento agorinha por aqui.');
+  if (h.orcNum) await env.HR_KV.put('orcpdf:espera:' + orcNumNorm(h.orcNum), JSON.stringify({ num: normalizarBR(from), nome: h.cliente || '' }), { expirationTtl: 6 * 3600 });
+  await notificarDono(env, Date.now(), cartaoDono('Cliente pediu orçamento antigo · ' + (h.cliente || 'Cliente'), [orcRotulo(h) || 'orçamento sem número', 'O PDF não está guardado no bot.', `O que fazer: abra ${h.orcNum || 'esse orçamento'} no app e toque em *PDF*; eu mando na hora.`], normalizarBR(from))).catch(() => {});
+  return true;
+}
+
 // v115: "manda o pix", "qual a chave", "quero pagar" depois do orçamento = o cliente fechou e já escolheu o Pix
 const RE_PIX_PEDE = /\b((me )?(manda|mande|mandar|envia|envie|passa|passe|pode mandar|pode enviar|pode passar|qual|cade|me da|me de) (o |a |seu |sua )?(pix|chave( pix)?|qr( ?code)?|codigo( do)? pix)|(quero|vou|posso|como) (fazer o |faco o |fazer )?(pix|pagar|pagamento|o pagamento|dar o sinal|dar a entrada)|chave pix|pix (agora|ja|pra (eu|mim)|para (eu|mim))|vou (fazer|mandar) o pix|qual (e |eh )?(a )?(forma|chave) de pagamento)\b/;
 const RE_ENTREGA_PAGA = /\b(pago|pagar|pagamento|pagarei|acerto) (na|no) (entrega|hora|dia da entrega|instalacao)\b/;
@@ -862,6 +1012,7 @@ async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
   let nome = (await lerNomeSalvo(env, from).catch(() => '')) || o.nome || '';
   if (!nome && crmAtivo(env)) { const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(normalizarBR(from)).first().catch(() => null); nome = (ct && (ct.nome || nomeDoPerfil(ct.perfil))) || ''; }
   let base = o.pedId ? await lerPedido(env, o.pedId).catch(() => null) : null;
+  if ((!base || !(Number(base.valor) > 0)) && (o.qId || o.orcNum)) { const h = await orcDoHistPorId(env, o.qId, o.orcNum).catch(() => null); if (h) base = { ...(base || {}), id: (base && base.id) || null, nome: h.cliente, valor: Number(o.valor) || h.valor, orcApp: h.id, projetoApp: h.projeto, material: h.material, cor: h.material, origem: 'app', mediaId: (base && base.mediaId) || o.mediaId }; } // v118
   if (!base) base = await pedComPdfDoNumero(env, from, nome).catch(() => null);
   if (!(base && Number(base.valor) > 0)) { const b2 = await pedComValorDoCliente(env, from, nome || (base && base.nome) || '').catch(() => null); if (b2) base = { ...b2, mediaId: (base && base.mediaId) || b2.mediaId }; } // v79b: o PDF encaminhado não traz o valor: acha o pedido do mesmo cliente
   if (!nome && base) nome = base.nome || '';
@@ -878,7 +1029,7 @@ async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
     await env.HR_KV.put('cliped:' + from, String(novo.id), { expirationTtl: 14 * 24 * 60 * 60 });
     await gravarCliente(env, from, { pedidoId: novo.id }).catch(() => {});
     if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
-    const oa = (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
+    const oa = o.qId ? { id: o.qId } : (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
     if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor }).catch(() => {});
     await funilMarca(env, 'aprovou', novo).catch(() => {});
     if (forma === 'pix' || (forma === 'entrega' && !novo.sinalOferta)) { // v115: já disse como paga ("manda o pix"): não pergunta de novo, já manda o Pix
@@ -4103,7 +4254,7 @@ function promptCliente(env, c, regras) {
     x.periodo && x.primeira ? `PERÍODO DO DIA: ${x.periodo}.` : `NÃO cumprimente de novo (nada de "Bom dia", "Boa tarde", "Olá" nem o nome no começo): a saudação já foi feita; vá direto à resposta.`,
     c.assuntoInicial ? `O cliente começou dizendo: "${c.assuntoInicial}". Responda ou retome esse ponto assim que o nome estiver definido; não o ignore.` : '',
     `SITUAÇÃO DO PEDIDO DESTE CLIENTE: ${x.status || 'nenhum pedido localizado.'}`,
-    x.orcEnv ? `ORÇAMENTO JÁ ENVIADO (PDF${x.orcEnv.valor ? ', R$ ' + reais(x.orcEnv.valor) : ''}, em ${dataBR(new Date((x.orcEnv.em || Date.now()) - 3 * 3600000).toISOString().slice(0, 10))}) E AINDA NÃO FECHADO. Agora o seu papel é de vendedora: levar o cliente com naturalidade até a APROVAÇÃO. Regras desta fase: (1) Se o cliente reagir ao orçamento com "ok", "recebi", "certo", "vi", "pode sim", "show", NÃO responda "por nada": agradeça pela atenção e pergunte, de forma leve e sem pressão, se pode confirmar o pedido para a produção começar (pode lembrar em meia frase: Pix com desconto à vista ou cartão em até 10x). (2) Se ele APROVAR em qualquer palavra ou áudio (pode fazer, pode confirmar, fechado, quero, vamos fazer, aprovo), ou PEDIR O PIX, a chave, o QR code ou como pagar, devolva "aprovou_orcamento": true e, se ele disse como paga, "forma_pagamento": "pix" ou "entrega". O SISTEMA confirma o pedido, gera o Pix na hora (mesmo de madrugada) e pergunta entrega e localização: escreva só uma frase curta em "resposta". NUNCA diga que o responsável vai mandar o Pix depois, que a equipe passa a chave amanhã, nem marque "chamar_dono" por causa de pagamento. (3) "pode sim" ou "pode" respondendo a "posso te enviar?" NÃO é aprovação. (4) Se disser que vai pensar, conversar com a família ou ver depois, respeite: diga em uma frase que fica à disposição e que pode tirar qualquer dúvida; não insista. (5) Dúvida de valor, pedra, prazo ou desconto: responda em uma frase sem inventar nada e retome a aprovação. (6) Nunca peça nota nem avaliação.` : '',
+    x.orcEnv ? `ORÇAMENTO JÁ ENVIADO (PDF${x.orcEnv.orcNum ? ' ' + x.orcEnv.orcNum : ''}${x.orcEnv.projeto ? ', ' + x.orcEnv.projeto : ''}${x.orcEnv.material ? ' em ' + x.orcEnv.material : ''}${x.orcEnv.valor ? ', R$ ' + reais(x.orcEnv.valor) : ''}, em ${dataBR(new Date((x.orcEnv.em || Date.now()) - 3 * 3600000).toISOString().slice(0, 10))}) E AINDA NÃO FECHADO. Agora o seu papel é de vendedora: levar o cliente com naturalidade até a APROVAÇÃO. Regras desta fase: (1) Se o cliente reagir ao orçamento com "ok", "recebi", "certo", "vi", "pode sim", "show", NÃO responda "por nada": agradeça pela atenção e pergunte, de forma leve e sem pressão, se pode confirmar o pedido para a produção começar (pode lembrar em meia frase: Pix com desconto à vista ou cartão em até 10x). (2) Se ele APROVAR em qualquer palavra ou áudio (pode fazer, pode confirmar, fechado, quero, vamos fazer, aprovo), ou PEDIR O PIX, a chave, o QR code ou como pagar, devolva "aprovou_orcamento": true e, se ele disse como paga, "forma_pagamento": "pix" ou "entrega". O SISTEMA confirma o pedido, gera o Pix na hora (mesmo de madrugada) e pergunta entrega e localização: escreva só uma frase curta em "resposta". NUNCA diga que o responsável vai mandar o Pix depois, que a equipe passa a chave amanhã, nem marque "chamar_dono" por causa de pagamento. (3) "pode sim" ou "pode" respondendo a "posso te enviar?" NÃO é aprovação. (4) Se disser que vai pensar, conversar com a família ou ver depois, respeite: diga em uma frase que fica à disposição e que pode tirar qualquer dúvida; não insista. (5) Dúvida de valor, pedra, prazo ou desconto: responda em uma frase sem inventar nada e retome a aprovação. (6) Nunca peça nota nem avaliação. (7) A conversa segue SÓ neste orçamento (o último que foi mandado). Não cite orçamentos antigos por conta própria; se o cliente pedir outro orçamento, o sistema mostra a lista.` : '',
     (() => {
       const ult = (c.hist || []).filter(h => h.role === 'assistant').slice(-1)[0];
       return ult ? `SUA ÚLTIMA MENSAGEM AO CLIENTE: "${String(ult.content).replace(/\s+/g, ' ').slice(0, 300)}". Uma resposta curta do cliente (uma palavra, um número, "sim", "não", "o mesmo") é a RESPOSTA a essa mensagem: preencha em "dados" o campo a que ela se refere.` : '';
@@ -4612,6 +4763,7 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     if (!(await limiteCliente(env, from))) return true; // passou do limite diário: fica em silêncio
     if (await pdfImgPedido(env, from, bruto).catch(e => { console.log('[PDFIMG]', e.message); return false; })) return true; // v76
     if (await orcEnvFechamento(env, from, bruto).catch(e => { console.log('[ORCENV]', e.message); return false; })) return true; // v78
+    if (await orcOutroCliente(env, from, bruto).catch(e => { console.log('[ORC] outro:', e.message); return false; })) return true; // v118
     const brutoL = limparMensagemCliente(bruto); // leitura corrigida (abreviações, erros de digitação) para os leitores de código
 
     const chave = 'ca:' + from;
@@ -8489,7 +8641,12 @@ const FERRAMENTAS = [
   {
     name: 'enviar_orcamento_cliente',
     description: 'ENVIA AO CLIENTE o PDF do orçamento que o app já gerou (pedido de orçamento do Sr. Hangel, ex.: "manda o orçamento pra Eliane", "tente de novo mandar o orçamento pra ela"). Resolve sozinho a regra das 24 h da Meta usando os modelos aprovados da conta (o cliente recebe o aviso e, quando responder, recebe a mensagem e o PDF). Use SEMPRE esta ferramenta para mandar orçamento/PDF a cliente; nunca diga que não há modelo sem chamá-la.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
+  },
+  {
+    name: 'orcamentos_do_cliente',
+    description: 'Lista TODOS os orçamentos de um cliente feitos no app (número ORC, projeto, pedra, valor, data, situação, se o PDF está guardado e qual é o ATIVO na conversa do WhatsApp). Use quando o Sr. Hangel perguntar pelos orçamentos de alguém, quiser escolher qual mandar, ou citar o código do cliente (C-0012). O passo a passo (aprovação, Pix, entrega) sempre segue no último orçamento mandado ao cliente.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome, código (C-0012) ou telefone do cliente' } }, required: ['cliente'] },
   },
   {
     name: 'ponto_agora',
@@ -8884,9 +9041,26 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const app = (await confAppAberto(env)) ? 'já está no app' : 'entra no app assim que ele abrir';
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
+  if (nome === 'orcamentos_do_cliente') { // v118
+    const r = await orcsDoCliente(env, a.cliente || '');
+    if (!r.ok) return { texto: 'O app ainda não mandou o histórico de orçamentos. Peça ao Sr. Hangel para abrir o app.' };
+    if (!r.lista.length) return { texto: `Nenhum orçamento de ${a.cliente} no histórico do app.` };
+    const L = []; for (const o of r.lista.slice(0, 8)) L.push(`${orcNumNorm(o.orcNum) || 'sem nº'} · ${[o.projeto, o.material].filter(Boolean).join(' em ')} · R$ ${reais(o.valor)} · ${o.data ? dataBR(o.data) : ''} · ${o.status}${(await orcPdfLer(env, o.orcNum, o.id)) ? ' · PDF guardado' : ''}`);
+    return { texto: `Orçamentos de ${(r.cliente && r.cliente.nome) || r.lista[0].cliente}${r.cliente && r.cliente.cod ? ' (' + r.cliente.cod + ')' : ''}:\n${L.join('\n')}\nPara mandar um, use enviar_orcamento_cliente com "orc". Responda curto ao Sr. Hangel.` };
+  }
   if (nome === 'enviar_orcamento_cliente') { // v73d
     let num = numeroCliente(a.numero);
     if (!num && a.cliente) { const d = await destinoCobranca(env, a.cliente).catch(() => null); if (d && d.numero) num = numeroCliente(d.numero) || d.numero; }
+    if (a.orc && orcNumNorm(a.orc)) { // v118: orçamento escolhido pelo número: vem da biblioteca de PDFs
+      const on = orcNumNorm(a.orc), h = await orcDoHistPorId(env, null, on) || { orcNum: on, cliente: a.cliente };
+      if (!num && h.tel) { const dd = String(h.tel).replace(/\D/g, ''); if (dd.length >= 10) num = normalizarBR(dd.startsWith('55') ? dd : '55' + dd); }
+      if (!num) num = await numeroDoClientePorNome(env, a.cliente || h.cliente).catch(() => '');
+      if (!num) return { erro: true, texto: 'Não sei o telefone do cliente. Peça o número ao Sr. Hangel em uma frase.' };
+      const r = await orcMandarDaBiblioteca(env, normalizarBR(num), h, String(a.mensagem || '').trim());
+      if (r.ok) return { texto: `${on}: ${r.texto} O passo a passo agora segue nesse orçamento. Repasse em uma frase.` };
+      await env.HR_KV.put('orcpdf:espera:' + on, JSON.stringify({ num: normalizarBR(num), nome: a.cliente || h.cliente || '' }), { expirationTtl: 3 * 3600 });
+      return { texto: `O PDF do ${on} ainda não está guardado. Peça ao Sr. Hangel, em uma frase, para abrir esse orçamento no app e tocar em PDF: ele chega sozinho e o bot manda na hora.` };
+    }
     const ped = await pedComPdfDoNumero(env, num || '0', a.cliente || '').catch(() => null);
     if (!ped || !ped.mediaId) {
       if (!num) return { erro: true, texto: 'Não achei o PDF nem o telefone. Peça ao Sr. Hangel o número da cliente e que encaminhe o PDF aqui.' };
@@ -13246,7 +13420,7 @@ function limparHistorico(b) {
   const vistosC = new Set(), clientes = [];
   for (const c of b.clientes.slice(0, 20000)) {
     if (!c || !t(c.nome, 60)) continue;
-    const o = { nome: t(c.nome, 60), tel: t(c.tel, 20), cidade: t(c.cidade, 40) };
+    const o = { nome: t(c.nome, 60), tel: t(c.tel, 20), cidade: t(c.cidade, 40), cod: t(c.cod, 12) };
     const k = normaliza(o.nome) + '|' + o.tel.replace(/\D/g, '');
     if (vistosC.has(k)) continue;
     vistosC.add(k); clientes.push(o);
@@ -13255,7 +13429,7 @@ function limparHistorico(b) {
   for (const q of b.orcamentos.slice(0, 50000)) {
     if (!q || !t(q.cliente, 60)) continue;
     const dt = /^\d{4}-\d{2}-\d{2}$/.test(String(q.data || '')) ? String(q.data) : '';
-    const o = { id: t(q.id, 30), orcNum: t(q.orcNum, 30), prazo: n(q.prazo), cliente: t(q.cliente, 60), projeto: t(q.projeto, 70), material: t(q.material, 50), m2: n(q.m2), valor: n(q.valor), entrada: n(q.entrada), status: t(q.status, 15), data: dt, arquivado: q.arquivado ? 1 : 0 };
+    const o = { id: t(q.id, 30), orcNum: t(q.orcNum, 30), prazo: n(q.prazo), cliente: t(q.cliente, 60), projeto: t(q.projeto, 70), material: t(q.material, 50), m2: n(q.m2), valor: n(q.valor), entrada: n(q.entrada), status: t(q.status, 15), data: dt, arquivado: q.arquivado ? 1 : 0, cliCod: t(q.cliCod, 12), tel: t(q.tel, 20) };
     const k = o.id ? 'id:' + o.id : [normaliza(o.cliente), o.data, o.valor, normaliza(o.projeto)].join('|');
     if (vistosO.has(k)) continue;
     vistosO.add(k); orcamentos.push(o);
@@ -14072,17 +14246,24 @@ async function tratarMensagemBase(env, m, ctx) {
       if (await tratarDesistencia(env, from, tb, tm).catch(() => false)) return;
     }
   }
+  if (!dono && m.type === 'interactive' && String(m.interactive?.button_reply?.id || '').startsWith('orcsel|')) { await orcSelCliente(env, from, m.interactive.button_reply.id).catch(e => console.log('[ORC] sel:', e.message)); return; } // v118
   if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115
   if (!dono && (m.type === 'button' || m.type === 'interactive' || m.type === 'text') && await tratarTplPend(env, from, m)) return; // v73
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
+  if (dono && m.type === 'document' && orcNumDoArquivo(m.document && m.document.filename) && /pdf/i.test(String(m.document.mime_type || m.document.filename || ''))) { // v118: PDF de orçamento encaminhado pelo dono entra na biblioteca
+    try { const mid0 = await baixarMidia(env, m.document.id); m._pdfBuf = mid0.buf; const on = orcNumDoArquivo(m.document.filename); const h0 = await orcDoHistPorId(env, null, on).catch(() => null);
+      await orcPdfGuardar(env, { orcNum: on, qId: h0 && h0.id, cliente: h0 && h0.cliente, cliCod: h0 && h0.cliCod, tel: h0 && h0.tel, valor: h0 && h0.valor, projeto: h0 && [h0.projeto, h0.material].filter(Boolean).join(' em '), arquivo: m.document.filename }, new Uint8Array(mid0.buf));
+    } catch (e) { console.log('[ORCPDF] dono:', e.message); }
+  }
   if (dono && m.type === 'document' && /pdf/i.test(String(m.document && (m.document.mime_type || m.document.filename) || '')) && await env.HR_KV.get('orc:esperapdf')) { // v73e: PDF encaminhado para mandar ao cliente
     try {
       const w = JSON.parse(await env.HR_KV.get('orc:esperapdf')); await env.HR_KV.delete('orc:esperapdf');
-      const mid = await baixarMidia(env, m.document.id);
+      const mid = m._pdfBuf ? { buf: m._pdfBuf } : await baixarMidia(env, m.document.id);
       const up = await subirPdfMeta(env, new Uint8Array(mid.buf), m.document.filename || 'Orcamento.pdf');
-      const r = await enviarOrcamentoCliente(env, w.num, { mediaId: up.id, arquivoNome: up.nome, nome: w.nome }, w.nome, w.msg);
+      const onF = orcNumDoArquivo(m.document.filename), hF = onF ? await orcDoHistPorId(env, null, onF).catch(() => null) : null; // v118: o PDF traz o nº do orçamento
+      const r = await enviarOrcamentoCliente(env, w.num, { mediaId: up.id, arquivoNome: up.nome, nome: w.nome, orcNum: onF, qId: hF && hF.id, valor: hF && hF.valor, interesse: hF ? [hF.projeto, hF.material].filter(Boolean).join(' em ') : '' }, w.nome, w.msg);
       try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(w.num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {}
       await enviar(env, from, '📄 ' + r);
     } catch (e) { await enviar(env, from, 'Não consegui mandar esse PDF: ' + String(e.message).slice(0, 150)); }
@@ -14140,6 +14321,8 @@ async function tratarMensagemBase(env, m, ctx) {
 
   if (dono) {
     if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
+    if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
+    if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
     if (await tratarApelidoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] apelido:', e.message); return false; })) return; // v45
     if (await tratarRecadoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] recado funcionário:', e.message); return false; })) return; // v44
@@ -17527,7 +17710,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
     await enviar(env, num, texto);
     await postarMsg(env, num, { type: 'document', document: { id: ped.mediaId, filename: ped.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } });
     await semearConversaProativa(env, num, texto + ' [PDF do orçamento enviado]').catch(() => {});
-    await orcEnvRegistrar(env, num, ped, nome).catch(() => {}); // v78
+    await orcEnvRegistrar(env, num, ped, nome, { qId: ped.qId, orcNum: ped.orcNum, mediaId: ped.mediaId, arquivo: ped.arquivoNome, valor: ped.valor }).catch(() => {}); // v78/v118
     return `Enviei a mensagem e o PDF a ${nome || 'o cliente'} (wa.me/${num}).`;
   }
   await tplAutoEnv(env).catch(() => {});
@@ -17538,7 +17721,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
     const curto = `${pn ? pn + ', o' : 'O'} seu orçamento${dePed} está pronto. Posso te enviar por aqui? É só responder esta mensagem.`.slice(0, 200);
     try {
       await postarMsg(env, num, { type: 'template', template: { name: nomeResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
-      await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true, pedId: ped.id || null, valor: Number(ped.valor) || 0 }), { expirationTtl: 7 * 86400 });
+      await env.HR_KV.put('tplpend:' + normalizarBR(num), JSON.stringify({ texto, mediaId: ped.mediaId, arquivo: ped.arquivoNome, nome, em: Date.now(), qualquer: true, pedId: ped.id || null, valor: Number(ped.valor) || 0, qId: ped.qId || null, orcNum: ped.orcNum || '' }), { expirationTtl: 7 * 86400 });
       await semearConversaProativa(env, num, `Olá! Aqui é a assistente virtual da ${env.EMPRESA || 'HR Mármores e Granitos'}. ${curto}`).catch(() => {});
       return `${nome || 'O cliente'} estava fora das 24 h: mandei pelo modelo aprovado (${nomeResp}) "seu orçamento está pronto, posso te enviar por aqui?". Assim que responder qualquer coisa, o bot manda a mensagem e o PDF e avisa o Sr. Hangel.`;
     } catch (e) { return `A Meta recusou o modelo ${nomeResp}: ${String(e.message).slice(0, 140)}. Sugira ao Sr. Hangel encaminhar o PDF manualmente.`; }
@@ -17549,7 +17732,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
 async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
   if (!(await tplAprovado(env, 'hr_orcamento_pronto'))) return false;
   await postarMsg(env, numero, { type: 'template', template: { name: 'hr_orcamento_pronto', language: { code: 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: String(nome || 'tudo bem').split(' ')[0].slice(0, 30) }, { type: 'text', text: String(pedido || 'pedra').slice(0, 60) }] }] } });
-  await env.HR_KV.put('tplpend:' + normalizarBR(numero), JSON.stringify({ texto, mediaId: ped && ped.mediaId, arquivo: ped && ped.arquivoNome, nome, em: Date.now(), pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0 }), { expirationTtl: 7 * 86400 });
+  await env.HR_KV.put('tplpend:' + normalizarBR(numero), JSON.stringify({ texto, mediaId: ped && ped.mediaId, arquivo: ped && ped.arquivoNome, nome, em: Date.now(), pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0, qId: ped && ped.qId || null, orcNum: ped && ped.orcNum || '' }), { expirationTtl: 7 * 86400 });
   return true;
 }
 // cliente tocou em "Pode enviar" / "Agora não" do modelo
@@ -17576,7 +17759,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
   if (p.texto) await enviar(env, from, tirarSaudacao(p.texto)); // v117: o modelo já chamou pelo nome: não cumprimenta de novo
   if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
   await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
-  if (p.mediaId) await orcEnvRegistrar(env, from, { id: p.pedId, valor: p.valor }, p.nome).catch(() => {}); // v78
+  if (p.mediaId) await orcEnvRegistrar(env, from, { id: p.pedId, valor: p.valor }, p.nome, { qId: p.qId, orcNum: p.orcNum, mediaId: p.mediaId, arquivo: p.arquivo }).catch(() => {}); // v78/v118
   if (!forcar) await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} ${p.qualquer ? 'respondeu' : 'tocou em "Pode enviar"'}: mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
   return true;
 }
@@ -18895,6 +19078,22 @@ async function rotaBotInterna(req, env, url) {
     const quentes = []; for (const q of d.quentes) { let nome = ''; try { nome = (await lerNomeSalvo(env, q.num)) || ''; } catch (_) {} quentes.push({ ...q, nome }); }
     return jsonR({ ok: true, ...d, quentes, painel: t ? `${await urlPublica(env)}/painel?k=${t}` : '' });
   }
+  if (p === '/bot/orcpdf/guardar' && req.method === 'POST') { // v118: cada PDF gerado no app fica guardado para o bot mandar depois
+    const body = await req.json().catch(() => null); if (!body) return jsonR({ ok: false, erro: 'JSON inválido' });
+    if (typeof body.pdf !== 'string' || body.pdf.length > PDF_MAX_BYTES * 1.4) return jsonR({ ok: false, erro: 'PDF ausente ou grande demais.' });
+    let bytes; try { bytes = base64ParaBytes(body.pdf); } catch (_) { return jsonR({ ok: false, erro: 'PDF inválido.' }); }
+    if (String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') return jsonR({ ok: false, erro: 'Não é PDF.' });
+    const r = await orcPdfGuardar(env, body, bytes);
+    if (!r) return jsonR({ ok: false, erro: 'Orçamento sem número nem id.' });
+    let esp = null; try { esp = JSON.parse((await env.HR_KV.get('orcpdf:espera:' + r.orcNum)) || 'null'); } catch (_) {}
+    if (esp && esp.num) { // alguém estava esperando este PDF: manda agora
+      await env.HR_KV.delete('orcpdf:espera:' + r.orcNum);
+      const h = await orcDoHistPorId(env, r.qId, r.orcNum) || { id: r.qId, orcNum: r.orcNum, cliente: r.cliente, valor: r.valor, projeto: r.projeto };
+      const s2 = await orcMandarDaBiblioteca(env, esp.num, h).catch(e => ({ ok: false, texto: e.message }));
+      await enviar(env, numeroDono(env), s2.ok ? `${r.orcNum} chegou do app e já foi para ${esp.nome || h.cliente}: ${s2.texto}` : `${r.orcNum} chegou, mas não consegui mandar: ${String(s2.texto || '').slice(0, 120)}`).catch(() => {});
+    }
+    return jsonR({ ok: true, orcNum: r.orcNum });
+  }
   if (p === '/bot/orcamento/enviar' && req.method === 'POST') { // v107: "Enviar pelo bot" na tela do PDF do app
     const body = await req.json().catch(() => null); if (!body) return jsonR({ ok: false, erro: 'JSON inválido' });
     let d = String(body.tel || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = '55' + d;
@@ -18903,10 +19102,11 @@ async function rotaBotInterna(req, env, url) {
     let bytes; try { bytes = base64ParaBytes(body.pdf); } catch (_) { return jsonR({ ok: false, erro: 'PDF inválido.' }); }
     const num = normalizarBR(d), nome = String(body.nome || '').slice(0, 60), pedido = String(body.pedido || '').slice(0, 80), valor = +body.valor || 0;
     const up = await subirPdfMeta(env, bytes, String(body.arquivo || 'Orcamento.pdf').slice(0, 80));
+    await orcPdfGuardar(env, { qId: body.qId, orcNum: body.orcNum, cliente: nome, cliCod: body.cliCod, tel: d, valor, pedido, arquivo: up.nome, mediaId: up.id }, bytes).catch(e => console.log('[ORCPDF]', e.message)); // v118
     const pn = nome.split(' ')[0];
     const msg = String(body.mensagem || '').trim() || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento${pedido ? ' de ' + pedido : ''} da HR Mármores e Granitos. Pode parcelar em até 10x sem juros no cartão, ou com desconto à vista. Qualquer dúvida, é só me chamar aqui.`;
-    const r = await enviarOrcamentoCliente(env, num, { mediaId: up.id, arquivoNome: up.nome, nome, valor, interesse: pedido, id: 'app' + Date.now() }, nome, msg);
-    await orcEnvRegistrar(env, num, { id: 'app' + Date.now(), valor, nome }, nome).catch(() => {});
+    const r = await enviarOrcamentoCliente(env, num, { mediaId: up.id, arquivoNome: up.nome, nome, valor, interesse: pedido, id: 'app' + Date.now(), qId: body.qId ? String(body.qId) : null, orcNum: orcNumNorm(body.orcNum) || orcNumDoArquivo(up.nome) }, nome, msg);
+    await orcEnvRegistrar(env, num, { id: 'app' + Date.now(), valor, nome }, nome, { qId: body.qId, orcNum: body.orcNum || orcNumDoArquivo(up.nome), mediaId: up.id, arquivo: up.nome, projeto: pedido, valor }).catch(() => {}); // v118
     if (nome) await ctAtualizar(env, num, { nome }).catch(() => {});
     for (const v of variantesNumero(num)) { // a assistente sabe do orçamento quando ele responder
       let c = null; try { c = JSON.parse((await env.HR_KV.get('ca:' + v)) || 'null'); } catch (_) {}
@@ -20149,6 +20349,11 @@ async function iniciarQR(env, a) {
   } catch (_) {}
   const id = Date.now();
   const xq = { id, tipo: 'preparar', nome, pct, valorFixo: valorFixo || undefined, status: 'novo', em: id };
+  try { // v118: o cliente já tem um orçamento ativo na conversa (o último PDF mandado): o QR sai dele, sem perguntar qual
+    const nCli = await numeroDoClientePorNome(env, nome).catch(() => '');
+    const at = nCli ? JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(nCli))) || 'null') : null;
+    if (at && at.qId) { const cache = await lerCacheOrc(env); if (cache && cache.itens.some(i => i.qId === String(at.qId))) xq.qId = String(at.qId); }
+  } catch (_) {}
   try { // primeiro o cache do bot: o QR sai na hora, sem o app aberto
     if (await resolverQRPeloCache(env, xq)) return { texto: 'QR code sendo enviado ao Sr. Hangel agora. Responda apenas OK.', nota: `pediu QR code de ${nome} (${valorFixo ? 'R$ ' + reais(valorFixo) : pct + '%'})` };
   } catch (e) { await falhou(env, 'QR: cache de orçamentos', e); xq.status = 'novo'; delete xq.doCache; }

@@ -75,6 +75,7 @@ function enriquecer(c) {
 }
 
 function indexar() {
+  try { if (typeof window._cliGarantirCodigos === 'function') window._cliGarantirCodigos(); } catch (e) {}
   var cadastro = (typeof CLDB !== 'undefined') ? CLDB.get() : [];
   var clientes = [], porNorm = {};
   function novo(nome, cad) {
@@ -108,6 +109,7 @@ function casa(c, termo) {
   if (!termo) return true;
   var t = norm(termo), d = digits(termo);
   if (norm(c.nome).indexOf(t) >= 0) return true;
+  if (c.cad && c.cad.cod && norm(c.cad.cod).indexOf(t) >= 0) return true;
   if (c.cidade && norm(c.cidade).indexOf(t) >= 0) return true;
   if (d.length >= 4 && digits(c.tel).indexOf(d) >= 0) return true;
   var lt = String(termo).toLowerCase().trim();
@@ -132,7 +134,7 @@ function htmlLinha(c) {
   var wa = waLink(c.tel);
   return '<div class="hc-row" data-hc-key="' + esc(c.key) + '">' +
     '<div class="hc-av" style="color:' + cor(c.nome) + ';border-color:' + cor(c.nome) + '">' + esc((c.nome || '?').charAt(0).toUpperCase()) + '</div>' +
-    '<div class="hc-mid"><div class="hc-nm">' + esc(c.nome) + '</div>' +
+    '<div class="hc-mid"><div class="hc-nm">' + esc(c.nome) + (c.cad && c.cad.cod ? ' <span style="font-size:.68em;opacity:.55;font-weight:600">' + esc(c.cad.cod) + '</span>' : '') + '</div>' +
     '<div class="hc-sub">' + (wa ? '📱 ' + esc(fmtTel(c.tel)) : '<span class="hc-sem">Sem WhatsApp</span>') + ' · ' + c.nOrc + (c.nOrc === 1 ? ' orçamento' : ' orçamentos') + '</div>' +
     (tags ? '<div class="hc-tags">' + tags + '</div>' : '') + '</div>' +
     '<div class="hc-chev">›</div></div>';
@@ -210,7 +212,7 @@ function htmlFicha(c) {
   var wa = waLink(c.tel);
   var h = '<div class="hc-wrap"><button class="hc-voltar" data-hc-act="voltar">‹ Clientes</button>';
   h += '<div class="hc-cab"><div class="hc-av g" style="color:' + cor(c.nome) + ';border-color:' + cor(c.nome) + '">' + esc((c.nome || '?').charAt(0).toUpperCase()) + '</div>' +
-    '<div class="hc-mid"><div class="hc-h1">' + esc(c.nome) + '</div>' +
+    '<div class="hc-mid"><div class="hc-h1">' + esc(c.nome) + (c.cad && c.cad.cod ? ' <span style="font-size:.6em;opacity:.6;font-weight:600">' + esc(c.cad.cod) + '</span>' : '') + '</div>' +
     '<div class="hc-sub">' + (wa ? '📱 ' + esc(fmtTel(c.tel)) : '<span class="hc-sem">Sem WhatsApp cadastrado</span>') + (c.cidade ? ' · ' + esc(c.cidade) : '') + '</div></div></div>';
 
   // contato

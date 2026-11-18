@@ -22,11 +22,36 @@
     return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
   }
 
+  // v3: todo cliente do cadastro ganha um código fixo (C-0001, C-0002...) na ordem em que foi cadastrado
+  function garantirCodigos() {
+    if (typeof CLDB === 'undefined' || !CLDB.get) return [];
+    var l = CLDB.get(), max = 0, mudou = false;
+    l.forEach(function (c) { var n = parseInt(String((c && c.cod) || '').replace(/\D/g, ''), 10); if (n > max) max = n; });
+    l.slice().sort(function (a, b) { return (+a.id || 0) - (+b.id || 0); }).forEach(function (c) {
+      if (c && c.nome && !c.cod) { max++; c.cod = 'C-' + String(max).padStart(4, '0'); mudou = true; }
+    });
+    if (mudou) { try { CLDB.sv(l); } catch (e) {} }
+    return l;
+  }
+  window._cliGarantirCodigos = garantirCodigos;
+  // orçamento → cliente do cadastro (mesma regra da ficha: nome igual ou parecido ≥ 70)
+  function clienteDoOrc(lista, nome) {
+    var nn = (typeof _cliNorm === 'function') ? _cliNorm(nome) : String(nome || '').toLowerCase();
+    var melhor = null, ms = 0;
+    for (var i = 0; i < lista.length; i++) {
+      var c = lista[i]; if (!c || !c.nome) continue;
+      var s = (typeof _cliNorm === 'function' && _cliNorm(c.nome) === nn) ? 100 : (typeof _cliSim === 'function' ? _cliSim(nome, c.nome) : 0);
+      if (s > ms) { ms = s; melhor = c; }
+    }
+    return ms >= 70 ? melhor : null;
+  }
+
   function montar() {
-    var clientes = [];
+    var clientes = [], cad = [];
     try {
-      ((typeof CLDB !== 'undefined' && CLDB.get && CLDB.get()) || []).forEach(function (c) {
-        if (c && c.nome) clientes.push({ nome: txt(c.nome, 60), tel: txt(c.tel, 20), cidade: txt(c.cidade, 40) });
+      cad = garantirCodigos();
+      cad.forEach(function (c) {
+        if (c && c.nome) clientes.push({ nome: txt(c.nome, 60), tel: txt(c.tel, 20), cidade: txt(c.cidade, 40), cod: txt(c.cod, 12) });
       });
     } catch (e) {}
     var vc = {}; clientes = clientes.filter(function (c) { var k = c.nome.toLowerCase() + '|' + c.tel.replace(/\D/g, ''); if (vc[k]) return false; vc[k] = 1; return true; });
@@ -40,6 +65,10 @@
       });
     });
     var vo = {}; orcamentos = orcamentos.filter(function (o) { var k = o.id ? 'id:' + o.id : [o.cliente.toLowerCase(), o.data, o.valor, o.projeto.toLowerCase()].join('|'); if (vo[k]) return false; vo[k] = 1; return true; });
+    orcamentos.forEach(function (o) { // v3: código e telefone do cliente em cada orçamento (o bot acha todos os orçamentos dele)
+      var c = clienteDoOrc(cad, o.cliente);
+      if (c) { o.cliCod = txt(c.cod, 12); if (c.tel) o.tel = txt(c.tel, 20); }
+    });
     orcamentos.sort(function (a, b) { return a.data < b.data ? 1 : -1; });
     return { geradoEm: new Date().toISOString(), clientes: clientes, orcamentos: orcamentos };
   }
