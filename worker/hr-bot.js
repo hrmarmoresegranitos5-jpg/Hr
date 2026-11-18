@@ -1,3 +1,4 @@
+// v136 (18/11/2026): "fechei o de João Paulo, ele vai buscar (amanhã às 10h)" — o bot já sabe que é retirada/entrega (e o horário) e não pergunta de novo ao cliente
 // v135 (18/11/2026): ENTREGA AGENDADA — pergunta ao Fabrício a hora que fica pronto, propõe ao cliente a janela (+20 min, 1 h), cliente confirma, Gibson recebe endereço/horário/pagamento/troco, conferência no fim da janela (entregou? recebeu?) → entregue + Finanças + Livro; medidas no card do dono
 // v134 (18/11/2026): "FECHEI O SERVIÇO DE FULANO" — acha o orçamento e confirma, pega o número, Pix (só a chave) / dinheiro / na entrega, ficha ao Fabrício (Pix: depois do comprovante), entrega ao Gibson ou retirada com dia e hora marcados (avisa o Fabrício); o PDF do app traz as medidas
 // v133 (18/11/2026): PRODUÇÃO COM A EQUIPE — ficha_producao (pedido fechado no balcão vai ao Fabrício), Fabrício "cortei o da Maria" → pronto + entrega ao Gibson + botão avisar cliente; Gibson "entreguei" → entregue + pergunta o pagamento; "o que tenho pra fazer?"
@@ -7829,11 +7830,14 @@ async function fechComandoDono(env, from, bruto, msg) {
   const mm = msg.match(RE_FECHEI); if (!mm) return false;
   if (/\d+\s*(x|por)\s*\d+/.test(msg)) return false; // ditou as medidas: a ficha_producao (IA) cuida
   const forma = fechFormaDe(mm[1]);
-  const nome = mm[1].split(/\s*[,.;]\s*|\s+(?:e\s+)?(?:ele|ela|vai|que|ja|pagou|paga|pagar|pagamento|no pix|pelo pix|via pix|em dinheiro|no dinheiro|na entrega|no cartao|hoje|agora|ontem)\b/)[0].trim();
+  const t1 = mm[1].replace(/\b(paga\w*|pagamento|acerta\w*) (na|no) (entrega|hora)\b/g, '');
+  const receb = /\b(buscar|busca|busco|retirar|retira|retirada|pegar aqui|vem pegar|vai pegar|pega aqui|passa aqui|vem aqui)\b/.test(t1) ? 'retirada' : /\b(entregar|entrega|levar|leva|deixar na casa|mandar entregar)\b/.test(t1) ? 'entrega' : '';
+  const qd = lerQuando(t1), quando = qd.dia && qd.hora && /\b(\d{1,2})\s*(h\b|hs|horas?|:\d{2}|da manha|da tarde|da noite)|\bas \d/.test(t1) ? qd : null;
+  const nome = mm[1].split(/\s*[,.;]\s*|\s+(?:e\s+)?(?:ele|ela|vai|vem|que|ja|pagou|paga|pagar|pagamento|no pix|pelo pix|via pix|em dinheiro|no dinheiro|na entrega|no cartao|hoje|agora|ontem|amanha|depois|pra|para|buscar|retirar|pegar|entregar|levar|retirada|entrega)\b/)[0].trim();
   if (!nome || nome.length < 2 || /^(ele|ela|esse|isso|tudo)$/.test(nome)) return false;
   const cands = await fechCandidatos(env, nome);
   if (!cands.length) { await enviar(env, from, `Sr. Hangel, não achei orçamento de *${nome}* no app nem no bot. Me diga o que fechou com as medidas (ex.: _fechei com ${nome} 2 soleiras 80x15 em Branco Siena, 350 reais_) que eu monto a ficha.`); return true; }
-  const nst = { etapa: 'escolha', nome, forma, cands, em: Date.now() }; await fechSalvar(env, nst);
+  const nst = { etapa: 'escolha', nome, forma, receb, quando, cands, em: Date.now() }; await fechSalvar(env, nst);
   for (const c of cands) { if (c.pid) { const p = await lerPedido(env, c.pid).catch(() => null); c.medidas = p ? pecasTxt(p) : ''; } else { const pf = await orcPdfLer(env, c.orcNum, c.qId).catch(() => null); c.medidas = pf && pf.resumo ? pecasTxt({ resumoApp: pf.resumo }) : ''; } }
   await fechSalvar(env, nst);
   if (cands.length === 1) await enviarComBotoes(env, from, `Achei este orçamento de *${cands[0].nome}*:\n\n${fechRotulo(cands[0])}${cands[0].medidas ? '\n' + cands[0].medidas : ''}\n\nÉ esse que o senhor fechou?`, [{ id: 'fch|0', titulo: 'Sim, é esse' }, { id: 'fch|no', titulo: 'Não é esse' }]);
@@ -7876,6 +7880,8 @@ async function fechExecutar(env, from, st) {
     status: 'enviado', etapa: 'recebimento', aprovadoCliente: Date.now(), criado: Date.now(), atualizado: Date.now(), forma_pagto: forma === 'pix' ? 'pix' : 'entrega', pago: forma === 'din', pagoDinheiro: forma === 'din' };
   for (const kk of ['mp', 'aguardaPix', 'sinal', 'sinalOferta', 'despachadoEm', 'fichaEnviadaEm', 'entregaEnviadaEm', 'fabProntoEm', 'prontoEm', 'entregueEm', 'entrega', 'referencia', 'trocoPara', 'trocoPerguntado', 'despachoPendente', 'horaEntrega', 'horaEtapa', 'horaPendente']) delete ped[kk];
   if (forma === 'din') ped.trocoPerguntado = true;
+  if (st.receb === 'retirada') { ped.entrega = 'retirada'; if (st.quando) ped.horaRetirada = { dia: st.quando.dia, hora: st.quando.hora }; } // v136: o dono já disse
+  else if (st.receb === 'entrega') ped.entrega = 'cidade';
   await salvarPedido(env, ped);
   await env.HR_KV.put('cliped:' + num, String(ped.id), { expirationTtl: 21 * 86400 });
   await gravarCliente(env, num, { pedidoId: ped.id }).catch(() => {});
@@ -7888,7 +7894,7 @@ async function fechExecutar(env, from, st) {
   if (forma !== 'pix') fichaTxt = (await fechFicha(env, ped)) ? `✂️ Ficha de corte enviada ao ${nomeFabrica(env)}.` : '⚠️ A ficha ainda não foi: veja a mensagem abaixo.';
   else { ped.fichaAposPag = true; await salvarPedido(env, ped); fichaTxt = `✂️ A ficha vai ao ${nomeFabrica(env)} assim que o Pix for confirmado (comprovante dele ou o senhor confirmando).`; }
   const cli = await fechMsgCliente(env, num, ped.id);
-  const linhas = [`✅ *Fechado · ${c.nome}*`, fechRotulo(c), pecasTxt(ped) || '(sem medidas no bot)', `Pagamento: ${FECH_FORMA_TXT[forma]}.`, cli, fichaTxt, `Daqui pra frente eu cuido: pergunto ao ${nomeFabrica(env)} a hora que fica pronto, combino o horário com o cliente (+20 min), passo endereço, horário, pagamento e troco ao ${nomeEntregador(env)} e confiro com ele no horário se entregou e recebeu (lanço em Finanças). Se for retirada, marco dia e hora com o cliente.`].filter(Boolean);
+  const linhas = [`✅ *Fechado · ${c.nome}*`, fechRotulo(c), pecasTxt(ped) || '(sem medidas no bot)', `Pagamento: ${FECH_FORMA_TXT[forma]}.`, st.receb === 'retirada' ? `Recebimento: *retirada*${st.quando ? ` ${diaFalado(st.quando.dia)} às ${st.quando.hora}` : ' (pergunto ao cliente o dia e o horário)'}.` : st.receb === 'entrega' ? 'Recebimento: *entrega* (peço a localização ao cliente).' : '', cli, fichaTxt, `Daqui pra frente eu cuido: pergunto ao ${nomeFabrica(env)} a hora que fica pronto, combino o horário com o cliente (+20 min), passo endereço, horário, pagamento e troco ao ${nomeEntregador(env)} e confiro com ele no horário se entregou e recebeu (lanço em Finanças). Se for retirada, marco dia e hora com o cliente.`].filter(Boolean);
   if (forma === 'pix') await enviarComBotoes(env, from, linhas.join('\n'), [{ id: 'fchj|' + ped.id, titulo: 'Mandar ficha já' }]);
   else await enviar(env, from, linhas.join('\n'));
   await donoCtxCliente(env, num, c.nome).catch(() => {});
@@ -7917,8 +7923,11 @@ async function fechMsgCliente(env, num, pid, depoisModelo) {
       await enviarTextoPuro(env, num, `Favorecido: ${emp}\nValor: R$ ${reais(valor)}`);
     } else { await enviar(env, num, `${ola}Seu pedido${desc} está confirmado! ✅\n\n*Valor:* R$ ${reais(valor)}\n*Pagamento:* Pix`); await enviarPixCliente(env, num, ped); }
   } else if (ped.fechDono === 'din') await enviar(env, num, `${ola}Seu pedido${desc} está confirmado e o pagamento de R$ ${reais(valor)} já foi recebido. Muito obrigada! ✅ Ele já foi para a produção.`);
-  else await enviar(env, num, `${ola}Seu pedido${desc} está confirmado! ✅\n\n*Valor:* R$ ${reais(valor)}, pago na entrega (dinheiro ou cartão). Ele já foi para a produção.`);
-  await enviarComBotoes(env, num, 'Vou dar continuidade ao seu pedido por aqui. Prefere que a gente entregue ou vai retirar na marmoraria?', botoesRecebimento(ped));
+  else await enviar(env, num, `${ola}Seu pedido${desc} está confirmado! ✅\n\n*Valor:* R$ ${reais(valor)}, pago na ${ped.entrega === 'retirada' ? 'retirada' : 'entrega'} (dinheiro ou cartão). Ele já foi para a produção.`);
+  if (ped.entrega === 'retirada' && ped.horaRetirada) await fechRetiradaMarcar(env, num, ped, ped.horaRetirada.dia, ped.horaRetirada.hora, 'Vou dar continuidade ao seu pedido por aqui. ');
+  else if (ped.entrega === 'retirada') { ped.etapa = 'hora_ret'; await salvarPedido(env, ped); await enviar(env, num, `Vou dar continuidade ao seu pedido por aqui. A retirada é na ${ENDERECO_MARMORARIA}. Qual dia e horário fica melhor para você vir buscar?`); }
+  else if (ped.entrega === 'cidade') { ped.etapa = 'localizacao'; ped.tentLoc = 0; await salvarPedido(env, ped); await enviar(env, num, 'Vou dar continuidade ao seu pedido por aqui. ' + MSG_PEDIR_LOCALIZACAO); }
+  else await enviarComBotoes(env, num, 'Vou dar continuidade ao seu pedido por aqui. Prefere que a gente entregue ou vai retirar na marmoraria?', botoesRecebimento(ped));
   await anotarNoHistorico(env, num, `[Peças do pedido: ${pecasTxt(ped).replace(/\*/g, '').replace(/\n/g, '; ') || 'ver orçamento'}.] [O Sr. Hangel FECHOU o pedido${desc} (R$ ${reais(valor)}) com o cliente. Pagamento: ${FECH_FORMA_TXT[ped.fechDono]}${ped.fechDono === 'pix' ? '; a chave Pix já foi enviada, espere o comprovante' : ''}. Agora o bot pergunta entrega ou retirada. Não peça nota, não refaça orçamento.]`).catch(() => {});
   return depoisModelo ? '' : `Mandei a ${ped.nome}: confirmação${ped.fechDono === 'pix' ? ' + chave Pix' : ''} e a pergunta entrega ou retirada.`;
 }
@@ -7968,13 +7977,18 @@ async function fechRetiradaHora(env, from, ped, m) {
     if (/\b(hoje|amanha|segunda|terca|quarta|quinta|sexta|sabado|dia \d)/.test(normaliza(texto))) { ped.horaRetParcial = q.dia; await salvarPedido(env, ped); await enviar(env, from, `Certo, ${dataBR(q.dia)}. Em qual horário? Funcionamos das 7h às 17h.`); return true; }
   }
   if (!(q.dia && q.hora)) { if (texto.includes('?')) return false; await enviar(env, from, `${pn ? pn + ', m' : 'M'}e diga o dia e o horário, por exemplo: _amanhã às 15h_.`); return true; }
-  delete ped.horaRetParcial; ped.horaRetirada = { dia: q.dia, hora: q.hora }; ped.etapa = 'concluido'; await salvarPedido(env, ped);
+  delete ped.horaRetParcial;
+  return fechRetiradaMarcar(env, from, ped, q.dia, q.hora, `Perfeito${pn ? ', ' + pn : ''}! `);
+}
+async function fechRetiradaMarcar(env, from, ped, dia, hora, abertura) {
+  const q = { dia, hora };
+  ped.entrega = 'retirada'; ped.horaRetirada = { dia, hora }; ped.etapa = 'concluido'; await salvarPedido(env, ped);
   const quando = `${['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][diaSemanaISO(q.dia)]}, ${dataBR(q.dia)} às ${q.hora}`;
-  await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Sua retirada ficou marcada para *${quando}*, na ${ENDERECO_MARMORARIA}. Te espero! 😊`);
+  await enviar(env, from, `${abertura || ''}Sua retirada ficou marcada para *${quando}*, na ${ENDERECO_MARMORARIA}. Te espero! 😊`);
   const fab = await numEquipe(env, 'fabrica');
   if (fab) await enviar(env, fab, `${avisoTeste(env)}📦 *Retirada marcada*\nCliente: *${ped.nome}* (${resumoPecas(ped)})\nVem buscar: *${quando}*\nDeixe pronto até lá. Quando terminar, me diga: _cortei o pedido de ${String(ped.nome).split(' ')[0]}_.`).catch(e => console.log('[FECH] aviso fábrica:', e.message));
   await lembreteDonoAdd(env, quandoTs(q.dia, q.hora) - 3600000, `Retirada de ${ped.nome} (${resumoPecas(ped)}) às ${q.hora}`).catch(() => {});
-  await fechDespachar(env, ped);
+  await fechDespachar(env, ped, `📦 Retirada de *${ped.nome}* marcada: *${quando}*. ${nomeFabrica(env)} avisado.`);
   return true;
 }
 // o PDF do app chegou com as medidas: manda a ficha que estava esperando
