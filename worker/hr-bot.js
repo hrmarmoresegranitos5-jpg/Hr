@@ -1,3 +1,4 @@
+// v133 (18/11/2026): PRODUÇÃO COM A EQUIPE — ficha_producao (pedido fechado no balcão vai ao Fabrício), Fabrício "cortei o da Maria" → pronto + entrega ao Gibson + botão avisar cliente; Gibson "entreguei" → entregue + pergunta o pagamento; "o que tenho pra fazer?"
 // v132 (18/11/2026): lembrete de VOLTEI na saída no expediente; cobrança sem "sistema com inteligência artificial"; cumprimento repetido não reabre o histórico
 // v131 (18/11/2026): SAÍDA NO EXPEDIENTE no HR Ponto — pede, o dono libera no WhatsApp, SAINDO/VOLTEI no app; o tempo fora desconta das horas, a não ser atestado aceito
 // v130 (18/11/2026): "digitando..." renovado a cada 20 s até responder; respostas por áudio curtas (sai mais rápido)
@@ -7632,6 +7633,115 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   if (opc.so) { if (falhas.length) await notificarDono(env, Date.now(), falhas.join('\n\n')); return !falhas.length; }
   await notificarDono(env, Date.now(), [resumoDonoCompacto(env, ped, { retirada, mostrarEntrega: entregaNoDono && !retirada })].concat(falhas.flatMap(f => ['', f])).join('\n'));
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v133: PRODUÇÃO COM A EQUIPE — ficha de pedido fechado no balcão/telefone (ferramenta ficha_producao) e conversa com
+//   Fabrício (corte) e Gibson (entrega): "cortei o da Maria" → pronto, avisa o dono e manda a entrega ao Gibson;
+//   "entreguei o da Maria" → entregue, avisa o dono e pergunta o pagamento; "o que tenho pra fazer?" → lista.
+// ═════════════════════════════════════════════════════════════════════════════
+async function pedidosProducao(env, filtro) {
+  const out = []; const l = await env.HR_KV.list({ prefix: 'ped:', limit: 500 }).catch(() => ({ keys: [] }));
+  for (const k of l.keys) { try { const p = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (p && filtro(p)) out.push(p); } catch (_) {} }
+  return out.sort((a, b) => (a.despachadoEm || a.id || 0) - (b.despachadoEm || b.id || 0));
+}
+const naFabrica = p => !!p.fichaEnviadaEm && !p.fabProntoEm && !p.prontoEm && !p.entregueEm && p.status !== 'recusado';
+const naEntrega = p => (!!p.fabProntoEm || !!p.prontoEm || !!p.entregaEnviadaEm) && !p.entregueEm && String(p.entrega || '') !== 'retirada' && p.status !== 'recusado';
+const resumoPecas = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => `${(it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0)} ${String(it.ambiente || 'peça').toLowerCase()}`).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
+function acharPorNome(lista, texto) {
+  const tk = tokensPedra(texto || '');
+  const ach = lista.filter(p => { const t = tokensPedra(p.nome || ''); return t.some(w => tk.includes(w) && w.length >= 3); });
+  return ach.length ? ach : (lista.length === 1 ? lista : []);
+}
+async function papelFuncionario(env, f, from) {
+  const nums = await lerNumeros(env), n8 = ultimos8(from);
+  const fab = nums.fabrica || env.FABRICA_NUMERO || '', ent = nums.entrega || env.ENTREGA_NUMERO || '';
+  if (fab && ultimos8(fab) === n8) return 'fabrica';
+  if (ent && ultimos8(ent) === n8) return 'entrega';
+  const nf = normaliza(f.nome || '');
+  if (nf.split(' ')[0] === normaliza(nomeFabrica(env)).split(' ')[0]) return 'fabrica';
+  if (nf.split(' ')[0] === normaliza(nomeEntregador(env)).split(' ')[0]) return 'entrega';
+  return '';
+}
+async function producaoFuncionario(env, f, from, texto, idB, nome) {
+  const papel = await papelFuncionario(env, f, from); if (!papel) return false;
+  const msg = normaliza(texto || '');
+  if (idB && /^(fpr|fen)\|/.test(idB)) { const [ac, pid] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; } return ac === 'fpr' ? prodMarcarPronto(env, ped, from, nome) : prodMarcarEntregue(env, ped, from, nome, ''); }
+  if (/\b(o que (tem|tenho|falta)|tarefas?|minhas? (tarefas?|entregas?|fichas?)|pedidos?( de hoje)?|fila|lista|tem (algo|alguma coisa|servico|entrega|corte))\b/.test(msg) && msg.split(' ').length <= 10) {
+    const l = await pedidosProducao(env, papel === 'fabrica' ? naFabrica : naEntrega);
+    if (!l.length) { await enviar(env, from, papel === 'fabrica' ? `${nome}, não tem ficha de corte pendente agora. 👍` : `${nome}, não tem entrega pendente agora. 👍`); return true; }
+    await enviar(env, from, [`*${papel === 'fabrica' ? 'Fichas para cortar' : 'Entregas pendentes'}* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', papel === 'fabrica' ? 'Quando terminar um, me diga: _cortei o da Maria_.' : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
+    return true;
+  }
+  if (papel === 'fabrica' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito)\b/.test(msg)) {
+    const l = await pedidosProducao(env, naFabrica), ach = acharPorNome(l, texto);
+    if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei ficha pendente. Se for de um pedido novo, avise o Sr. Hangel.`); return !!l.length || true; }
+    if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual ficha ficou pronta?`, ach.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
+    return prodMarcarPronto(env, ach[0], from, nome);
+  }
+  if (papel === 'entrega' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei)\b/.test(msg)) {
+    const l = await pedidosProducao(env, naEntrega), ach = acharPorNome(l, texto);
+    if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei entrega pendente com esse nome. Avise o Sr. Hangel.`); return true; }
+    if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual você entregou?`, ach.slice(0, 3).map(p => ({ id: 'fen|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
+    return prodMarcarEntregue(env, ach[0], from, nome, texto);
+  }
+  if (papel === 'entrega') { // resposta sobre o pagamento recebido na entrega
+    let pg = null; try { pg = JSON.parse((await env.HR_KV.get('prod:pgperg:' + f.id)) || 'null'); } catch (_) {}
+    if (pg && Date.now() - pg.em < 6 * 3600000 && /\b(recebi|recebeu|pagou|pago|dinheiro|cartao|pix|nao pagou|vai pagar|depois)\b/.test(msg)) {
+      await env.HR_KV.delete('prod:pgperg:' + f.id);
+      await pontoAvisarDono(env, `💵 *${f.nome}* sobre o pagamento de *${pg.nome}* na entrega: "${String(texto).slice(0, 300)}"${pg.valor ? `\n(valor a cobrar: R$ ${reais(pg.valor)})` : ''}\nSe recebeu, lance: _recebi ${pg.valor ? reais(pg.valor) : 'VALOR'} de ${String(pg.nome).split(' ')[0]} em dinheiro_.`);
+      await enviar(env, from, `Anotado, ${nome}! Passei para o Sr. Hangel.`); return true;
+    }
+  }
+  return false;
+}
+async function prodMarcarPronto(env, ped, from, nome) {
+  if (ped.fabProntoEm || ped.prontoEm) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava marcado como pronto.`); return true; }
+  ped.fabProntoEm = Date.now(); await salvarPedido(env, ped);
+  const retirada = String(ped.entrega || '') === 'retirada';
+  let entTxt = '';
+  if (!retirada && !ped.entregaEnviadaEm) { const ok = await despacharPedidoDireto(env, ped, { so: 'entrega' }).catch(() => false); if (ok) { ped.entregaEnviadaEm = Date.now(); await salvarPedido(env, ped); entTxt = ` Mandei os dados da entrega para ${nomeEntregador(env)}.`; } }
+  await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt ? ' O ' + nomeEntregador(env) + ' já recebeu a entrega.' : ''}`);
+  if (ped.numero) await enviarComBotoes(env, numeroDono(env), `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}\nAvisar o cliente que está pronto${retirada ? ' para retirar' : ' e combinar a entrega'}?`, [{ id: 'pronto_ok|' + ped.id, titulo: 'Avisar cliente' }, { id: 'pronto_no', titulo: 'Não avisar' }]);
+  else await pontoAvisarDono(env, `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}`);
+  return true;
+}
+async function prodMarcarEntregue(env, ped, from, nome, texto) {
+  if (ped.entregueEm) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava como entregue.`); return true; }
+  ped.entregueEm = Date.now(); await salvarPedido(env, ped);
+  await livAuto(env, { cliente: ped.nome, tel: ped.numero, servico: resumoPecas(ped), valor: Number(ped.valor) || 0, entregaEm: dataBahia(), fonte: 'entregador' }).catch(() => {});
+  const cobrar = !ped.pago && Number(ped.valor) > 0 ? Number(ped.valor) : (ped.sinal && !ped.restantePago ? Number(ped.sinal.resto) || 0 : 0);
+  const jaDisse = /\b(recebi|pagou|dinheiro|cartao|pix)\b/.test(normaliza(texto || ''));
+  await pontoAvisarDono(env, `🚚 *${nomeEntregador(env)}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${cobrar ? `\nA cobrar na entrega: R$ ${reais(cobrar)}.` : ''}${jaDisse ? `\nEle disse: "${String(texto).slice(0, 200)}"` : ''}`);
+  if (cobrar && !jaDisse) {
+    const cfg = await pontoCfg(env), f = pontoFuncPorFone(cfg, from);
+    if (f) await env.HR_KV.put('prod:pgperg:' + f.id, JSON.stringify({ nome: ped.nome, valor: cobrar, pid: ped.id, em: Date.now() }), { expirationTtl: 6 * 3600 });
+    await enviar(env, from, `Valeu, ${nome}! Anotei a entrega de *${ped.nome}*. Recebeu os R$ ${reais(cobrar)}? Me diga como (dinheiro, cartão ou Pix) ou se ficou para depois.`);
+  } else await enviar(env, from, `Valeu, ${nome}! Anotei a entrega de *${ped.nome}* e avisei o Sr. Hangel.`);
+  return true;
+}
+// ficha de um pedido fechado fora do WhatsApp (balcão/telefone): o dono dita e a ficha vai ao Fabrício (e a entrega ao Gibson)
+async function fichaProducao(env, a) {
+  const nome = String(a.cliente || '').trim().slice(0, 60); if (!nome) return { erro: true, texto: 'Falta o nome do cliente.' };
+  let ped = null;
+  const ex = await pedidosProducao(env, p => !p.entregueEm && tokensPedra(p.nome || '').some(w => tokensPedra(nome).includes(w) && w.length >= 3) && (p.pecas || []).length && !p.fichaEnviadaEm);
+  if (ex.length === 1 && !(a.pecas || []).length) ped = ex[0];
+  if (!ped) {
+    const pecas = (Array.isArray(a.pecas) ? a.pecas : []).map(x => ({ tipo: /peitor/i.test(x.tipo) ? 'peitoril' : /soleir/i.test(x.tipo) ? 'soleira' : String(x.tipo || 'peça').slice(0, 20), qtd: Math.max(1, Math.round(+x.qtd || 1)), comp_cm: +x.comp_cm || 0, larg_cm: +x.larg_cm || 0 })).filter(x => x.comp_cm > 0 && x.larg_cm > 0);
+    if (!pecas.length) return { erro: true, texto: 'Faltam as peças com medidas (comprimento e largura em cm, e quantidade). Pergunte em uma frase.' };
+    const tipos = [...new Set(pecas.map(x => x.tipo))];
+    const itens = tipos.map(t => ({ ambiente: t === 'peitoril' ? 'Peitoril' : t === 'soleira' ? 'Soleira' : t, acabamento: t === 'peitoril' ? '2_lados' : (a.acabamento || ''), pecas: pecas.filter(x => x.tipo === t).map(({ qtd, comp_cm, larg_cm }) => ({ qtd, comp_cm, larg_cm })) }));
+    let num = numeroCliente(a.numero || ''); if (!num) num = normalizarBR(await numeroDoClientePorNome(env, nome).catch(() => '') || '');
+    const valor = +a.valor || 0, pago = a.pagamento === 'pago';
+    ped = { id: String(Date.now()), origem: 'balcao', nome, numero: num || '', interesse: tipos[0] === 'peitoril' ? 'peitoril' : 'soleira', pecas, cor: String(a.pedra || '').slice(0, 60), acabamento: a.acabamento || '', valor,
+      resumoApp: { pedra: String(a.pedra || '').slice(0, 60), itens }, status: 'enviado', etapa: 'concluido', criado: Date.now(), atualizado: Date.now(), despachadoEm: Date.now(),
+      entrega: a.entrega === 'retirada' ? 'retirada' : { endereco: String(a.endereco || '').slice(0, 200) }, referencia: String(a.referencia || '').slice(0, 160), pago, forma_pagto: pago ? 'pix' : 'entrega',
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(String(a.entrega_prevista || '')) ? { entrega_prevista: a.entrega_prevista } : {}) };
+    if (a.pagamento === 'sinal' && +a.sinal > 0 && valor) { ped.pago = true; ped.sinal = { pct: Math.round(+a.sinal / valor * 100), valor: +a.sinal, resto: Math.round((valor - +a.sinal) * 100) / 100 }; }
+  }
+  const ok = await despacharPedidoDireto(env, ped, { so: 'fabrica' }).catch(() => false);
+  if (ok) ped.fichaEnviadaEm = Date.now();
+  await salvarPedido(env, ped);
+  return { texto: ok ? `Ficha de corte de ${nome} enviada ao ${nomeFabrica(env)} (${resumoPecas(ped)}). Quando ele avisar que cortou, os dados da entrega vão sozinhos ao ${nomeEntregador(env)}${ped.entrega === 'retirada' ? ' (é retirada: não vai ao entregador)' : ''}. Confirme em UMA frase.` : 'Não consegui enviar a ficha (veja o aviso do bot). Diga isso em uma frase.' };
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -8821,6 +8931,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'ficha_producao',
+    description: 'Manda a FICHA DE CORTE de soleira/peitoril para o Fabrício (fábrica) de um pedido que o Sr. Hangel fechou com o cliente (no balcão, por telefone ou pelo WhatsApp). Os dados da entrega vão sozinhos ao Gibson quando o Fabrício avisar que cortou. Use quando ele disser "fechei com fulano...", "manda a ficha do fulano pro Fabrício". Se o pedido já existe no bot com as peças, basta o nome; senão, preencha as peças com as medidas que ele disse.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'telefone, se ele disse' }, pedra: { type: 'string' }, pecas: { type: 'array', items: { type: 'object', properties: { tipo: { type: 'string', description: 'soleira ou peitoril' }, qtd: { type: 'number' }, comp_cm: { type: 'number' }, larg_cm: { type: 'number' } } } }, acabamento: { type: 'string', description: 'só soleira: sem, 1_lado, 2_lados ou 45' }, entrega: { type: 'string', description: 'retirada ou entrega' }, endereco: { type: 'string' }, referencia: { type: 'string' }, valor: { type: 'number' }, pagamento: { type: 'string', description: 'pago, sinal ou cobrar (na entrega)' }, sinal: { type: 'number' }, entrega_prevista: { type: 'string', description: 'AAAA-MM-DD' } }, required: ['cliente'] },
+  },
+  {
     name: 'lembrar_dono',
     description: 'AGENDA UM LEMBRETE para o Sr. Hangel: na hora marcada o bot manda a mensagem aqui no WhatsApp dele (funciona com o app fechado). Use para "me lembre amanhã às 12h", "me avisa da visita", "lembrete de..." e sempre que ele perguntar se você vai avisar. Nunca diga que não manda lembrete no WhatsApp.',
     input_schema: { type: 'object', properties: { quando: { type: 'string', description: 'data e hora no fuso da Bahia, formato AAAA-MM-DDTHH:MM (use HOJE como referência)' }, texto: { type: 'string', description: 'o que lembrar, curto (ex.: Visita técnica na padaria da Regiane Cristina)' } }, required: ['quando', 'texto'] },
@@ -9241,6 +9356,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     const app = (await confAppAberto(env)) ? 'já está no app' : 'entra no app assim que ele abrir';
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
+  if (nome === 'ficha_producao') return await fichaProducao(env, a); // v133
   if (nome === 'lembrar_dono') { // v123
     const mq = String(a.quando || '').match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);
     if (!mq) return { erro: true, texto: 'Data/hora inválida. Use AAAA-MM-DDTHH:MM.' };
@@ -24471,8 +24587,10 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   }
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
-  if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto e as suas horas.`); return true; }
+  if (!texto && idB && /^(fpr|fen)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
+  if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
+  if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
   if (await rhPedidoVale(env, cfg, f, from, texto, nome)) return true; // v46
   // v44: resposta a um recado do dono (até 24 h depois): repassa ao dono
   const rp = +(await env.HR_KV.get('ponto:recpend:' + f.id)) || 0;
