@@ -1,3 +1,4 @@
+// v138 (18/11/2026): expediente_dia (folga / meio período / normal gravado no ponto, até em feriado) e avisar_equipe (manda de verdade no privado de cada funcionário; o bot não entra em grupo)
 // v137 (18/11/2026): painel da produção ("produção", "como está o pedido do João"), retirada conferida com o Fabrício (buscou? pagou? → entregue + Finanças), "cortei" numa retirada avisa o cliente, agenda do dia às 7h para Fabrício e Gibson
 // v136 (18/11/2026): "fechei o de João Paulo, ele vai buscar (amanhã às 10h)" — o bot já sabe que é retirada/entrega (e o horário) e não pergunta de novo ao cliente
 // v135 (18/11/2026): ENTREGA AGENDADA — pergunta ao Fabrício a hora que fica pronto, propõe ao cliente a janela (+20 min, 1 h), cliente confirma, Gibson recebe endereço/horário/pagamento/troco, conferência no fim da janela (entregou? recebeu?) → entregue + Finanças + Livro; medidas no card do dono
@@ -8219,6 +8220,47 @@ async function agendaProdDia(env) {
   if (ent && entregas.length) await enviar(env, ent, [`${avisoTeste(env)}☀️ *Bom dia, ${nomeEntregador(env)}! Entregas de hoje:*`, '', ...entregas.map(p => `• *${horaTs(p.janela.ini)}–${horaTs(p.janela.fim)}* ${p.nome}${p.entrega && p.entrega.endereco ? ' · ' + p.entrega.endereco : ''}${cobrarNaEntrega(p) ? ' · cobrar R$ ' + reais(cobrarNaEntrega(p)) : ' · pago'}${p.trocoPara > cobrarNaEntrega(p) && cobrarNaEntrega(p) ? ' · troco R$ ' + reais(p.trocoPara - cobrarNaEntrega(p)) : ''}${p.fabProntoEm ? '' : ' (ainda na fábrica)'}`)].join('\n')).catch(() => {});
   if (cortar.length || ret.length || entregas.length) await pontoAvisarDono(env, `☀️ *Produção de hoje:* ${cortar.length} na fábrica · ${entregas.length} entrega(s) · ${ret.length} retirada(s). Mande _produção_ para ver tudo.`).catch(() => {});
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v138: EXPEDIENTE COMBINADO E AVISO À EQUIPE DE VERDADE
+//   "vamos trabalhar meio período na sexta e folgar sábado" → grava no ponto (meio período / folga / normal)
+//   "avise os funcionários" → manda no privado de cada um (o número oficial não entra em grupo)
+// ═════════════════════════════════════════════════════════════════════════════
+async function expedienteDias(env, a) {
+  const cfg = await pontoCfg(env); for (const k of ['feriados', 'meios', 'trab']) cfg[k] = Array.isArray(cfg[k]) ? cfg[k] : [];
+  let folgas = []; try { folgas = JSON.parse((await env.HR_KV.get('fer:folgas')) || '[]'); } catch (_) {}
+  const feitos = [], hoje = dataBahia();
+  for (const d of (Array.isArray(a.dias) ? a.dias : []).slice(0, 10)) {
+    const iso = String(d.data || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso < hoje) continue;
+    const tipo = ['folga', 'meio', 'normal'].includes(d.tipo) ? d.tipo : '';
+    if (!tipo) continue;
+    const tira = k => { cfg[k] = cfg[k].filter(x => x !== iso); };
+    tira('feriados'); tira('meios'); tira('trab'); folgas = folgas.filter(x => x !== iso);
+    if (tipo === 'folga') { cfg.feriados.push(iso); folgas.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'folga', { expirationTtl: 60 * 86400 }); }
+    else { cfg.trab.push(iso); if (tipo === 'meio') cfg.meios.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'trab', { expirationTtl: 60 * 86400 }); }
+    const nm = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso);
+    feitos.push({ iso, tipo, txt: `${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso)}${nm ? ' (' + nm + ')' : ''}: ${tipo === 'folga' ? 'folga' : tipo === 'meio' ? `meio período (até ${(cfg.lemb && cfg.lemb.sabado) || '12:15'})` : 'expediente normal'}` });
+  }
+  if (!feitos.length) return { erro: true, texto: 'Nenhuma data válida (use AAAA-MM-DD, de hoje em diante).' };
+  for (const k of ['feriados', 'meios', 'trab']) cfg[k] = [...new Set(cfg[k])].filter(x => x >= dataBahia(-30)).sort().slice(-60);
+  await pontoCfgSalvar(env, cfg);
+  await env.HR_KV.put('fer:folgas', JSON.stringify([...new Set(folgas)].filter(d => d >= dataBahia(-5)).sort().slice(-30)));
+  let avis = '';
+  if (a.avisar_equipe !== false && cfg.funcs.length) {
+    const rec = String(a.texto_aviso || '').trim() || `Expediente combinado:\n${feitos.map(f => '• ' + f.txt).join('\n')}`;
+    const res = await recadoEquipe(env, cfg, cfg.funcs, rec);
+    avis = ` Aviso enviado a cada funcionário no privado: ${res.join('; ')}.`;
+  }
+  return { texto: `Gravado no ponto: ${feitos.map(f => f.txt).join(' | ')}. O ponto e os lembretes de saída já seguem isso.${avis} Confirme ao Sr. Hangel em no máximo 2 frases, dizendo exatamente o que foi gravado e a quem foi avisado.` };
+}
+async function avisarEquipeTool(env, a) {
+  const cfg = await pontoCfg(env); if (!cfg.funcs.length) return { erro: true, texto: 'Não há funcionários cadastrados no ponto.' };
+  const rec = String(a.texto || '').trim(); if (rec.length < 3) return { erro: true, texto: 'Falta o texto do aviso.' };
+  const nomes = (Array.isArray(a.funcionarios) ? a.funcionarios : []).join(' ');
+  const alvo = nomes ? funcsDoTexto(cfg, normaliza(nomes)) : cfg.funcs.slice();
+  if (!alvo.length) return { erro: true, texto: 'Não achei esses funcionários no ponto.' };
+  const res = await recadoEquipe(env, cfg, alvo, rec.charAt(0).toUpperCase() + rec.slice(1));
+  return { texto: `Aviso "${rec.slice(0, 200)}" entregue: ${res.join('; ')}. Diga ao Sr. Hangel, em 1 ou 2 frases, a quem chegou (copie a situação de cada um).` };
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -9094,7 +9136,7 @@ function isoSomaDias(iso, n) {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 // v90b: dia sem expediente = domingo, feriado nacional/da Bahia ou folga cadastrada no ponto (antes "domingo" era testado como 7 e nunca batia)
-function semExpediente(env, cfg, iso) { return diaSemanaISO(iso) === 0 || feriadosDoAno(env, +iso.slice(0, 4)).has(iso) || ((cfg && cfg.feriados) || []).includes(iso); }
+function semExpediente(env, cfg, iso) { if (((cfg && cfg.trab) || []).includes(iso)) return false; return diaSemanaISO(iso) === 0 || feriadosDoAno(env, +iso.slice(0, 4)).has(iso) || ((cfg && cfg.feriados) || []).includes(iso); }
 function diaSemanaISO(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = domingo
@@ -9406,6 +9448,16 @@ const FERRAMENTAS = [
     name: 'enviar_orcamento_cliente',
     description: 'ENVIA AO CLIENTE o PDF do orçamento que o app já gerou (pedido de orçamento do Sr. Hangel, ex.: "manda o orçamento pra Eliane", "tente de novo mandar o orçamento pra ela"). Resolve sozinho a regra das 24 h da Meta usando os modelos aprovados da conta (o cliente recebe o aviso e, quando responder, recebe a mensagem e o PDF). Use SEMPRE esta ferramenta para mandar orçamento/PDF a cliente; nunca diga que não há modelo sem chamá-la.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
+  },
+  {
+    name: 'avisar_equipe',
+    description: 'ENVIA de verdade um aviso/recado aos funcionários, no WhatsApp privado de cada um. Use SEMPRE que o Sr. Hangel pedir para avisar, comunicar ou falar algo à equipe ("avise os funcionários", "manda pra todo mundo que..."). Escreva o texto pronto para o funcionário ler (2ª pessoa, sem saudação), usando o contexto da conversa (ex.: o expediente que ele acabou de combinar). Nunca diga que avisou sem chamar esta ferramenta. O número oficial do bot NÃO entra em grupos de WhatsApp: se ele falar de grupo, explique isso e use esta ferramenta (manda no privado de cada um).',
+    input_schema: { type: 'object', properties: { texto: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' }, description: 'nomes; vazio = todos' } }, required: ['texto'] },
+  },
+  {
+    name: 'expediente_dia',
+    description: 'GRAVA no ponto um expediente diferente combinado pelo Sr. Hangel: folga, meio período ou expediente normal (inclusive em feriado: "vamos trabalhar meio período na sexta e folgar sábado"). O ponto, os lembretes de saída e os prazos passam a seguir isso. Por padrão também avisa todos os funcionários no privado (avisar_equipe=false se ele disser para não avisar ainda).',
+    input_schema: { type: 'object', properties: { dias: { type: 'array', items: { type: 'object', properties: { data: { type: 'string', description: 'AAAA-MM-DD' }, tipo: { type: 'string', enum: ['folga', 'meio', 'normal'] } }, required: ['data', 'tipo'] } }, avisar_equipe: { type: 'boolean' }, texto_aviso: { type: 'string', description: 'opcional: texto do aviso à equipe (2ª pessoa, sem saudação)' } }, required: ['dias'] },
   },
   {
     name: 'ficha_producao',
@@ -9834,6 +9886,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: `Cadastrado: ${a.nome}${r.num ? ' (wa.me/' + r.num + ')' : ' (sem telefone)'}; ${app}.${r.ligados ? ` Liguei o telefone a ${r.ligados} orçamento(s) desse cliente.` : ''} Confirme ao Sr. Hangel em UMA frase.` };
   }
   if (nome === 'ficha_producao') return await fichaProducao(env, a); // v133
+  if (nome === 'avisar_equipe') return await avisarEquipeTool(env, a); // v138
+  if (nome === 'expediente_dia') return await expedienteDias(env, a); // v138
   if (nome === 'lembrar_dono') { // v123
     const mq = String(a.quando || '').match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})/);
     if (!mq) return { erro: true, texto: 'Data/hora inválida. Use AAAA-MM-DDTHH:MM.' };
@@ -24896,6 +24950,12 @@ async function tratarRecadoFuncionario(env, from, bruto, msg) {
       if (j && j.texto && j.texto.length < rec.length * 2 + 20) rec = String(j.texto).trim();
     } catch (_) {}
   }
+  const res = await recadoEquipe(env, cfg, alvo, rec);
+  await enviar(env, from, `Recado: _${rec}_\n\n${res.join('\n')}` + (res.some(x => /guardado|app de ponto/.test(x)) && !env.TEMPLATE_FUNCIONARIO && !env.TEMPLATE_RECADO ? `\n\nPara chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).` : ''));
+  return true;
+}
+// v138: entrega um recado a cada funcionário (WhatsApp no privado; fora das 24 h pelo modelo ou pelo app do ponto)
+async function recadoEquipe(env, cfg, alvo, rec) {
   const res = [];
   for (const f of alvo) {
     if (!f.tel) { res.push(`${String(f.nome).split(' ')[0]}: sem telefone no RH`); continue; }
@@ -24908,8 +24968,7 @@ async function tratarRecadoFuncionario(env, from, bruto, msg) {
     const via = await falarComFuncionario(env, f, r1, { saud: sd, recado: true, titulo: "Recado do Sr. Hangel", cfg }); // v47: saudação solta + recado
     res.push(`${n}: ${via === 'whatsapp' ? 'entregue ✅' : via === 'modelo' ? 'chamado no WhatsApp (entrego quando ele tocar em Ver recado)' : via === 'app' ? 'avisado pelo app de ponto (vai no WhatsApp quando ele falar com o bot)' : 'guardado (entrego quando ele falar com o bot)'}`);
   }
-  await enviar(env, from, `Recado: _${rec}_\n\n${res.join('\n')}` + (res.some(x => /guardado|app de ponto/.test(x)) && !env.TEMPLATE_FUNCIONARIO && !env.TEMPLATE_RECADO ? `\n\nPara chegar sempre no WhatsApp deles, falta o modelo aprovado (TEMPLATE_RECADO).` : ''));
-  return true;
+  return res;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -25512,7 +25571,7 @@ async function pontoAgora(env) {
   const cfg = await pontoCfg(env), hoje = dataBahia(), ag = agoraBahia(), L = cfg.lemb || {};
   const m = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
   const folga = semExpediente(env, cfg, hoje);
-  const ent = m(L.entrada || '07:15'), sai = m(ag.dia === 6 ? (L.sabado || '12:15') : (L.saida || '17:45'));
+  const ent = m(L.entrada || '07:15'), sai = m(ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || '12:15') : (L.saida || '17:45')); // v138: meio período
   const lista = [];
   for (const f of cfg.funcs) {
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
@@ -25649,7 +25708,7 @@ async function pontoLembretes(env, cfg) {
   const ag = agoraBahia(), hoje = dataBahia();
   if (semExpediente(env, cfg, hoje)) return;
   const m = (t) => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
-  const ent = m(L.entrada), sai = m(ag.dia === 6 ? (L.sabado || L.saida) : L.saida), alm = Math.max(30, +L.almoco || 80);
+  const ent = m(L.entrada), sai = m(ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || L.saida) : L.saida), alm = Math.max(30, +L.almoco || 80); // v138: meio período
   for (const f of cfg.funcs) {
     if (!(await env.HR_KV.get('ponto:fd:' + f.id))) continue; // só quem já tem o app ativado
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
