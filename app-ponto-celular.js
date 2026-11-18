@@ -459,13 +459,15 @@
           if ((x.aI && !x.aF) || (!x.aI && x.aF)) { if (d < hoje()) r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': almoço com uma batida só'); return; }
           if (!funcs[fid]) return; // funcionário não existe mais no RH
           var e = min(x.ent), s = min(x.sai), alm = (x.aI && x.aF) ? Math.max(0, min(x.aF) - min(x.aI)) : 0;
+          var sl = ((j.saidas || {})[d] || {})[fid] || [], fora = 0, foraAb = 0; // v131: saída no expediente (desconta, a não ser atestado aceito)
+          sl.forEach(function (z) { var mm = +z.min || 0; if (z.atestado === 'aceito') foraAb += mm; else fora += mm; });
           var v = HR_IMPORT._validarJornada ? HR_IMPORT._validarJornada(e, s, alm) : { valido: s > e };
           if (!v.valido || !(s > e)) { r.incompletos.push(nome + ' ' + d.slice(8) + '/' + d.slice(5, 7) + ': horário estranho' + (v.motivo ? ' (' + v.motivo + ')' : '')); return; }
           var existe = null;
           Object.keys(regs).some(function (k) { var g = regs[k]; if (g && String(g.funcionarioId) === String(fid) && g.data === d) { existe = g; return true; } });
           if (existe && existe.origem !== 'ponto-celular') return; // veio de outro lugar: não mexe
-          if (existe && existe.entrada === x.ent && existe.saida === x.sai && (existe.saidaAlmoco || '') === x.aI && (existe.voltaAlmoco || '') === x.aF) return;
-          var c = HR_IMPORT._calcDia(e, s, d, alm, fid);
+          if (existe && existe.entrada === x.ent && existe.saida === x.sai && (existe.saidaAlmoco || '') === x.aI && (existe.voltaAlmoco || '') === x.aF && (+existe.foraMin || 0) === fora && (+existe.foraAbonadoMin || 0) === foraAb) return;
+          var c = HR_IMPORT._calcDia(e, s, d, alm + fora, fid);
           var cls = HR_IMPORT._classificarHE ? HR_IMPORT._classificarHE({ data: d, extra: c.extra, funcId: fid, entrada: x.ent, saida: x.sai }) : { extra50: 1, extra200: 0 };
           var tipo = (cls.extra200 > 0 && cls.extra50 === 0) ? ((CF.feriados && CF.feriados.indexOf(d) >= 0 && !(CF.diasEspeciais && CF.diasEspeciais.indexOf(d) >= 0)) ? 'feriado' : 'especial') : 'normal';
           var agora = new Date().toISOString();
@@ -473,7 +475,8 @@
           reg.entrada = x.ent; reg.saida = x.sai; reg.saidaAlmoco = x.aI; reg.voltaAlmoco = x.aF;
           reg.semAlmocoConfirmado = !!reg.semAlmocoConfirmado;
           reg.horas = parseFloat((c.trab / 60).toFixed(4)); reg.extra = parseFloat((c.extra / 60).toFixed(4)); reg.tipoExtra = tipo;
-          reg.observacao = 'Ponto pelo celular' + (x.aI ? '' : ' · sem batida de almoço') + (existe ? ' · atualizado' : '');
+          reg.foraMin = fora; reg.foraAbonadoMin = foraAb;
+          reg.observacao = 'Ponto pelo celular' + (x.aI ? '' : ' · sem batida de almoço') + (fora ? ' · saída no expediente: ' + fora + ' min descontados' : '') + (foraAb ? ' · saída com atestado: ' + foraAb + ' min (não desconta)' : '') + (existe ? ' · atualizado' : '');
           reg.atualizadoEm = agora;
           regs[reg.id] = reg; if (existe) r.atualizados++; else r.novos++;
         });

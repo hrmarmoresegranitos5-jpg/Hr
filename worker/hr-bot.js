@@ -1,3 +1,4 @@
+// v131 (18/11/2026): SAÍDA NO EXPEDIENTE no HR Ponto — pede, o dono libera no WhatsApp, SAINDO/VOLTEI no app; o tempo fora desconta das horas, a não ser atestado aceito
 // v130 (18/11/2026): "digitando..." renovado a cada 20 s até responder; respostas por áudio curtas (sai mais rápido)
 // v129 (18/11/2026): cadastro de cuba pelo LINK do Mercado Livre (API com ML_CLIENT_ID/ML_CLIENT_SECRET no worker; o GitHub copia os segredos)
 // v128 (18/11/2026): voz mais suave (shimmer, instruções curtas e delicadas); ELEVENLABS_KEY (+ ELEVENLABS_VOICE) usa voz real da ElevenLabs
@@ -2112,6 +2113,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('pr_ok|') || id.startsWith('pr_no|')) return pontoBotaoRede(env, from, id); // v34: HR Ponto, rede nova
   if (id.startsWith('ppd_ok|') || id.startsWith('ppd_no|')) return pontoPedidoBotao(env, from, id); // v85
   if (id.startsWith('pb_ok|') || id.startsWith('pb_no|')) return pontoBatidaBotao(env, from, id); // v85
+  if (/^sai_(ok|no|at|an)\|/.test(id)) return saiBotao(env, from, id); // v131
   if (id.startsWith('vl_ok|') || id.startsWith('vl_no|')) { await valeBotaoDono(env, from, id); return true; } // v46: vale pelo WhatsApp
   if (id.startsWith('conc_')) return tratarBotaoConc(env, from, id);
   if (id.startsWith('din_')) return tratarBotaoDinheiro(env, from, id);
@@ -24641,6 +24643,7 @@ async function rotaPonto(req, env, ctx, url) {
       if (!antes || JSON.parse(antes).endpoint !== limpo.endpoint) ctx && ctx.waitUntil && ctx.waitUntil(pushEnviar(env, limpo, { title: 'Lembretes ligados ✓', body: 'O HR Ponto vai te avisar se esquecer de bater.', tag: 'ponto-ok' }).catch(() => {}));
       return J({ ok: true });
     }
+    if (p === '/ponto/saida') { const r = await saiAcao(env, cfg, dev.funcId, nome, b); return r.erro ? J({ erro: r.erro }, 400) : J(r); } // v131
     if (p === '/ponto/pedido') { // v85: funcionário pede ajuste (esqueceu de bater) ou justifica falta (com foto do atestado)
       const r = await pontoPedidoCriar(env, cfg, dev.funcId, nome, b);
       return r.erro ? J({ erro: r.erro }, 400) : J({ ok: true, pedido: r.pedido });
@@ -24652,7 +24655,8 @@ async function rotaPonto(req, env, ctx, url) {
       const temRosto = !!(await env.HR_KV.get('ponto:face:' + dev.funcId));
       const relU = await pontoRelUltimo(env, dev.funcId), bn = relU && relU.status !== 'aprovado' ? await pontoBotNumero(env) : '';
       const pedidos = (await pontoPedidosLista(env)).filter(x => String(x.funcId) === String(dev.funcId)).slice(0, 8).map(pontoPedidoPublico);
-      return J({ ok: true, nome, hoje, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
+      const saidas = (await saiLista(env, hoje, dev.funcId)).filter(x => !['cancelado'].includes(x.status)).map(saiPublico); // v131
+      return J({ ok: true, nome, hoje, saidas, proximo: pontoProximo(await pontoDia(env, hoje, dev.funcId)), externo: ext, dias, ts: Date.now(), facial: cfg.facial !== false, temRosto, pedidos, jornada: { almoco: Math.max(30, +((cfg.lemb || {}).almoco) || 80) }, resumo: await pontoResumo(env, dev.funcId, hoje), relatorio: relU && (relU.status !== 'aprovado' || Date.now() - (relU.aprovadoEm || 0) < 86400000) ? Object.assign({}, relU, { bot: bn }) : null });
     }
 
     if (p === '/ponto/bater') {
@@ -24773,6 +24777,78 @@ async function pontoPedidoCriar(env, cfg, funcId, nome, b) {
   await pontoAvisarDono(env, cartaoDono(tipo === 'falta' ? 'Ponto · justificativa de falta' : 'Ponto · esqueceu de bater', [`${nome}: ${pontoPedidoTexto(ped)}`, `Motivo: ${motivo}`, ped.temFoto ? 'Mandou foto (atestado/comprovante): veja no app, RH → Ponto.' : null]),
     [{ id: 'ppd_ok|' + ped.id, titulo: tipo === 'falta' ? '✅ Abonar' : '✅ Aprovar' }, { id: 'ppd_no|' + ped.id, titulo: '❌ Recusar' }]);
   return { pedido: pontoPedidoPublico(ped) };
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v131: SAÍDA NO EXPEDIENTE — o funcionário pede (dentista, banco, resolver algo na rua), o dono aprova no WhatsApp,
+//   ele marca "Saindo" e "Voltei" no app. O tempo fora é DESCONTADO das horas do dia, a não ser que mande atestado/comprovante
+//   e o dono aceite (aí não desconta). Chave: ponto:sai:<dia>:<funcId> = lista de saídas.
+// ═════════════════════════════════════════════════════════════════════════════
+const SAI_MOTIVOS = { dentista: 'Dentista', medico: 'Médico / exame', banco: 'Banco / documentos', rua: 'Resolver algo na rua', familia: 'Assunto de família', outro: 'Outro' };
+async function saiLista(env, dia, funcId) { try { return JSON.parse((await env.HR_KV.get(`ponto:sai:${dia}:${funcId}`)) || '[]'); } catch (_) { return []; } }
+async function saiSalvar(env, dia, funcId, l) { await env.HR_KV.put(`ponto:sai:${dia}:${funcId}`, JSON.stringify(l), { expirationTtl: PONTO_TTL }); }
+const saiMin = x => { const a = String(x.saiu || ''), b = String(x.voltou || ''); const m = t => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; }; return /^\d{2}:\d{2}$/.test(a) && /^\d{2}:\d{2}$/.test(b) ? Math.max(0, m(b) - m(a)) : 0; };
+const saiPublico = x => ({ id: x.id, motivo: x.motivo, rotulo: SAI_MOTIVOS[x.motivo] || 'Saída', obs: x.obs || '', de: x.de, ate: x.ate || '', status: x.status, saiu: x.saiu || '', voltou: x.voltou || '', atestado: x.atestado || '', min: saiMin(x) });
+function saiHora() { const a = agoraBahia(); return String(Math.floor(a.min / 60)).padStart(2, '0') + ':' + String(a.min % 60).padStart(2, '0'); }
+async function saiAcao(env, cfg, funcId, nome, b) {
+  const hoje = dataBahia(), l = await saiLista(env, hoje, funcId), acao = String(b.acao || '');
+  const f = cfg.funcs.find(x => String(x.id) === String(funcId)) || { id: funcId, nome };
+  if (acao === 'pedir') {
+    const motivo = SAI_MOTIVOS[b.motivo] ? b.motivo : 'outro', obs = String(b.obs || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const de = /^\d{2}:\d{2}$/.test(b.de || '') ? b.de : saiHora(), ate = /^\d{2}:\d{2}$/.test(b.ate || '') ? b.ate : '';
+    if (motivo === 'outro' && obs.length < 3) return { erro: 'Escreva o motivo.' };
+    if (l.some(x => ['pedido', 'aprovado', 'fora'].includes(x.status))) return { erro: 'Você já tem uma saída em andamento hoje.' };
+    const x = { id: Date.now().toString(36) + pontoHex(3), motivo, obs, de, ate, status: 'pedido', em: Date.now() };
+    l.push(x); await saiSalvar(env, hoje, funcId, l);
+    await pontoAvisarDono(env, cartaoDono('Ponto · pedido de saída', [`${nome} quer sair às *${de}*${ate ? ', volta umas ' + ate : ''}.`, `Motivo: ${SAI_MOTIVOS[motivo]}${obs ? ' — ' + obs : ''}`, 'O tempo fora é descontado, a não ser que ele traga atestado.']),
+      [{ id: `sai_ok|${hoje}|${funcId}|${x.id}`, titulo: '✅ Liberar' }, { id: `sai_no|${hoje}|${funcId}|${x.id}`, titulo: '❌ Não liberar' }]);
+    return { ok: true, saida: saiPublico(x) };
+  }
+  const x = l.find(y => y.id === b.id) || l.slice().reverse().find(y => ['aprovado', 'fora', 'voltou'].includes(y.status));
+  if (!x) return { erro: 'Não achei essa saída.' };
+  if (acao === 'sair') {
+    if (x.status !== 'aprovado') return { erro: x.status === 'pedido' ? 'Aguarde o responsável liberar.' : 'Essa saída não está liberada.' };
+    x.status = 'fora'; x.saiu = saiHora(); await saiSalvar(env, hoje, funcId, l);
+    await pontoAvisarDono(env, `🚶 *HR Ponto*: ${nome} saiu às ${x.saiu} (${SAI_MOTIVOS[x.motivo]}).`);
+    return { ok: true, saida: saiPublico(x) };
+  }
+  if (acao === 'voltar') {
+    if (x.status !== 'fora') return { erro: 'Você não está marcado como fora.' };
+    x.status = 'voltou'; x.voltou = saiHora(); await saiSalvar(env, hoje, funcId, l);
+    await pontoAvisarDono(env, `↩️ *HR Ponto*: ${nome} voltou às ${x.voltou} (fora ${saiMin(x)} min). ${x.atestado === 'aceito' ? 'Com atestado: não desconta.' : 'Será descontado, a não ser que mande atestado.'}`);
+    return { ok: true, saida: saiPublico(x) };
+  }
+  if (acao === 'atestado') {
+    const foto = String(b.foto || '');
+    if (!/^data:image\/jpeg;base64,/.test(foto) || foto.length > 900000) return { erro: 'A foto não deu certo. Tente de novo.' };
+    await env.HR_KV.put('ponto:saif:' + x.id, foto, { expirationTtl: PONTO_FOTO_TTL });
+    x.atestado = 'enviado'; await saiSalvar(env, hoje, funcId, l);
+    const dono = numeroDono(env);
+    try { const bin = Uint8Array.from(atob(foto.split(',')[1]), c => c.charCodeAt(0)); const mid = await subirImagemMeta(env, bin, 'atestado-' + nome); await postarMsg(env, dono, { type: 'image', image: { id: mid, caption: `Atestado/comprovante de ${nome} (${SAI_MOTIVOS[x.motivo]})` } }); } catch (e) { console.log('[PONTO] atestado:', e.message); }
+    await pontoAvisarDono(env, `📄 *HR Ponto*: ${nome} mandou atestado da saída de hoje (${x.saiu || x.de}${x.voltou ? '–' + x.voltou : ''}). Aceitar = não desconta.`, [{ id: `sai_at|${hoje}|${funcId}|${x.id}`, titulo: '✅ Aceitar' }, { id: `sai_an|${hoje}|${funcId}|${x.id}`, titulo: '❌ Não aceitar' }]);
+    return { ok: true, saida: saiPublico(x) };
+  }
+  if (acao === 'cancelar') { if (!['pedido', 'aprovado'].includes(x.status)) return { erro: 'Não dá mais para cancelar.' }; x.status = 'cancelado'; await saiSalvar(env, hoje, funcId, l); return { ok: true, saida: saiPublico(x) }; }
+  return { erro: 'Ação inválida.' };
+}
+async function saiBotao(env, from, id) {
+  if (!ehDono(env, from)) return true;
+  const [ac, dia, funcId, sid] = id.split('|'), l = await saiLista(env, dia, funcId), x = l.find(y => y.id === sid);
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(y => String(y.id) === String(funcId)) || { id: funcId, nome: 'funcionário' };
+  if (!x) { await enviar(env, from, 'Não achei esse pedido de saída.'); return true; }
+  if (ac === 'sai_ok' || ac === 'sai_no') {
+    if (x.status !== 'pedido') { await enviar(env, from, 'Esse pedido já foi respondido.'); return true; }
+    x.status = ac === 'sai_ok' ? 'aprovado' : 'recusado'; x.decididoEm = Date.now(); await saiSalvar(env, dia, funcId, l);
+    await pontoNotificar(env, f, ac === 'sai_ok' ? 'Saída liberada ✓' : 'Saída não liberada', ac === 'sai_ok' ? 'Pode sair. No app, toque em SAINDO AGORA quando sair e em VOLTEI quando voltar.' : 'O responsável não liberou a saída agora. Fale com ele.', 'ponto-sai').catch(() => {});
+    await enviar(env, from, `${ac === 'sai_ok' ? 'Liberado' : 'Não liberado'}: ${f.nome}. Já avisei no app dele.`);
+    return true;
+  }
+  if (ac === 'sai_at' || ac === 'sai_an') {
+    x.atestado = ac === 'sai_at' ? 'aceito' : 'recusado'; await saiSalvar(env, dia, funcId, l);
+    await pontoNotificar(env, f, ac === 'sai_at' ? 'Atestado aceito ✓' : 'Atestado não aceito', ac === 'sai_at' ? 'O tempo fora não será descontado.' : 'O tempo fora será descontado. Fale com o responsável se tiver dúvida.', 'ponto-sai').catch(() => {});
+    await enviar(env, from, `${f.nome}: atestado ${ac === 'sai_at' ? 'aceito, não desconta' : 'recusado, desconta ' + saiMin(x) + ' min'}.`);
+    return true;
+  }
+  return true;
 }
 async function pontoPedidoDecidir(env, id, aprovar, resposta) {
   const l = await pontoPedidosLista(env), x = l.find(y => y.id === id);
@@ -25167,8 +25243,8 @@ async function rotaBotPonto(req, env, url) {
       const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d = x.toISOString().slice(0, 10); n++;
     }
     const ativos = {}, push = {}, rostos = {}; for (const f of cfg.funcs) { ativos[f.id] = !!(await env.HR_KV.get('ponto:fd:' + f.id)); push[f.id] = ativos[f.id] && !!(await env.HR_KV.get('ponto:push:' + f.id)); rostos[f.id] = !!(await env.HR_KV.get('ponto:face:' + f.id)); }
-    const abonos = {}; { let d2 = de, n2 = 0; while (d2 <= ate && n2 < 62) { for (const f of cfg.funcs) { const a = await env.HR_KV.get(`ponto:abono:${d2}:${f.id}`); if (a) (abonos[d2] = abonos[d2] || {})[f.id] = JSON.parse(a); } const x = new Date(d2 + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d2 = x.toISOString().slice(0, 10); n2++; } }
-    return jsonR({ ok: true, funcs: cfg.funcs, ativos, push, rostos, facial: cfg.facial !== false, dias, abonos });
+    const abonos = {}, saidas = {}; { let d2 = de, n2 = 0; while (d2 <= ate && n2 < 62) { for (const f of cfg.funcs) { const a = await env.HR_KV.get(`ponto:abono:${d2}:${f.id}`); if (a) (abonos[d2] = abonos[d2] || {})[f.id] = JSON.parse(a); const sl = (await saiLista(env, d2, f.id)).filter(x => x.status === 'voltou' || x.status === 'fora'); if (sl.length) (saidas[d2] = saidas[d2] || {})[f.id] = sl.map(saiPublico); } const x = new Date(d2 + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); d2 = x.toISOString().slice(0, 10); n2++; } }
+    return jsonR({ ok: true, funcs: cfg.funcs, ativos, push, rostos, facial: cfg.facial !== false, dias, abonos, saidas });
   }
   if (p === '/bot/ponto/agora' && req.method === 'GET') return jsonR(Object.assign({ ok: true }, await pontoAgora(env))); // v85
   if (p === '/bot/ponto/pedidos' && req.method === 'GET') return jsonR({ ok: true, pedidos: (await pontoPedidosLista(env)).slice(0, 60).map(pontoPedidoPublico) });
@@ -25326,12 +25402,24 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   <div class="tipos" id="tipos" hidden></div>
   <div class="card"><h3>Hoje</h3><div class="linha" id="hoje"></div><div class="trabhj" id="trabHj"></div></div>
   <div class="card" id="resCard" hidden><h3 id="resT">Meu período</h3><div class="tres" id="resNum"></div><details class="det"><summary>Ver dia a dia</summary><div id="res"></div></details></div>
+  <div class="card" id="saiCard"><h3>Precisa sair no expediente?</h3><div id="saiBox"></div></div>
   <div class="card"><h3>Precisa corrigir algo?</h3><div class="pbts"><button type="button" id="btEsq">🕐 Esqueci de bater</button><button type="button" id="btFalta">📄 Justificar falta</button></div><div id="peds"></div></div>
 
   <p class="aviso">Bata conectado no <b>Wi-Fi da oficina</b>.</p>
   <div id="hist" hidden></div>
 </div>
 
+<div class="sheet" id="saiSheet" hidden><div class="shbox">
+  <h3>🚶 Pedir para sair</h3>
+  <label>Motivo</label><select id="saiMot"><option value="dentista">Dentista</option><option value="medico">Médico / exame</option><option value="banco">Banco / documentos</option><option value="rua">Resolver algo na rua</option><option value="familia">Assunto de família</option><option value="outro">Outro</option></select>
+  <label>Detalhe (opcional)</label><input id="saiObs" placeholder="Ex.: consulta às 14h">
+  <label>Sai às</label><input type="time" id="saiDe">
+  <label>Volta mais ou menos às (opcional)</label><input type="time" id="saiAte">
+  <p class="aviso" style="color:var(--t2,#aaa)">O tempo fora é descontado das suas horas. Se trouxer atestado ou comprovante e o responsável aceitar, não desconta.</p>
+  <p class="aviso" id="saiErro" style="color:var(--err)"></p>
+  <div class="relbt"><button type="button" class="nao" id="saiCancel">Cancelar</button><button type="button" class="sim" id="saiEnviar">Pedir</button></div>
+</div></div>
+<input type="file" id="saiFoto" accept="image/*" capture="environment" hidden>
 <div class="sheet" id="sheet" hidden><div class="shbox">
   <h3 id="shT">Pedido</h3>
   <label>Qual dia</label><input type="date" id="shData">
@@ -25426,7 +25514,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
     HJ.sort(function(a,b){return minDe(a.hora)-minDe(b.hora)});
     proximo=ORDEM[HJ.length]||'extra';if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();
     $('ext').style.display=j.externo&&d0.data===hoje?'block':'none';
-    desenhaHoje();desenhaFila();desenhaPedidos(j.pedidos);
+    desenhaHoje();desenhaFila();desenhaPedidos(j.pedidos);SAIDAS=j.saidas||[];desenhaSaida();
     var ds=['dom','seg','ter','qua','qui','sex','sáb'],dd=function(d){var x=d.split('-');return ds[new Date(d+'T12:00:00Z').getUTCDay()]+' '+x[2]+'/'+x[1]};
     var tabela=function(R){
       var t='<table class="tab"><tr><th>Dia</th><th>Ent.</th><th>Alm.</th><th>Volta</th><th>Saída</th><th>Feito</th><th>Esper.</th><th>Extra</th></tr>';
@@ -25475,6 +25563,30 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
       if(c)render(c,true);else{$('telaPonto').hidden=false;$('offBar').hidden=false;HJ=[];fila().forEach(function(x){if(x.data===hojeISO())HJ.push({tipo:x.tipo,hora:x.hora,status:'pendente',fila:true,data:x.data})});proximo=ORDEM[HJ.length]||'extra';if(!escolhido)tipoSel=TIPOS[proximo]?proximo:'extra';desenhaTipos();desenhaHoje();desenhaFila()}
     });
   }
+  // ── v131: saída no expediente ──
+  var SAIDAS=[];
+  function desenhaSaida(){
+    var x=SAIDAS.slice().reverse().find(function(y){return y.status!=='cancelado'});var B=$('saiBox');if(!B)return;
+    var bt=function(id,t,cls){return '<button type="button" class="'+(cls||'')+'" data-sai="'+id+'" style="width:100%;margin-top:8px;padding:13px;border-radius:12px;border:1px solid var(--ouro,#c4a46a);background:'+(cls==='forte'?'var(--ouro,#c4a46a)':'transparent')+';color:'+(cls==='forte'?'#111':'inherit')+';font-weight:800;font-size:1rem">'+t+'</button>'};
+    if(!x||x.status==='recusado'&&!x.saiu){B.innerHTML=(x&&x.status==='recusado'?'<div class="ped">❌ Saída não liberada hoje.</div>':'')+bt('pedir','🚶 Pedir para sair');return}
+    var lin='<div class="ped"><b>'+x.rotulo+'</b>'+(x.obs?' · '+x.obs:'')+'<br><small>';
+    if(x.status==='pedido'){B.innerHTML=lin+'⏳ aguardando o responsável liberar (saída às '+x.de+')</small></div>'+bt('cancelar','Cancelar pedido');return}
+    if(x.status==='aprovado'){B.innerHTML=lin+'✅ liberado</small></div>'+bt('sair','SAINDO AGORA','forte')+bt('cancelar','Não vou mais sair');return}
+    if(x.status==='fora'){B.innerHTML=lin+'🚶 fora desde '+x.saiu+'</small></div>'+bt('voltar','VOLTEI','forte')+(x.atestado?'':bt('atestado','📄 Mandar atestado / comprovante'));return}
+    var at=x.atestado==='aceito'?' · atestado aceito (não desconta)':x.atestado==='enviado'?' · atestado enviado, aguardando':x.atestado==='recusado'?' · atestado não aceito':'';
+    B.innerHTML=lin+'↩️ saiu '+x.saiu+', voltou '+x.voltou+' ('+x.min+' min'+(x.atestado==='aceito'?'':' descontados')+')'+at+'</small></div>'+(x.atestado?'':bt('atestado','📄 Mandar atestado / comprovante'))+bt('pedir','🚶 Pedir outra saída');
+  }
+  function saiApi(c,okMsg){c.token=TOKEN;return api('/ponto/saida',c).then(function(j){if(!j.ok){alert(j.erro||'Não deu certo.');return}bip(true);if(okMsg)mostra('','✓',okMsg[0],'',okMsg[1]);carregar()}).catch(function(){alert('Sem internet agora. Tente de novo.')})}
+  $('saiBox').addEventListener('click',function(e){var b=e.target.closest('[data-sai]');if(!b)return;var a=b.getAttribute('data-sai'),x=SAIDAS.slice().reverse().find(function(y){return y.status!=='cancelado'});
+    if(a==='pedir'){var m=agoraMin();$('saiDe').value=String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');$('saiAte').value='';$('saiObs').value='';$('saiErro').textContent='';$('saiSheet').hidden=false;return}
+    if(a==='sair')return saiApi({acao:'sair',id:x.id},['Saída registrada','Quando voltar, toque em VOLTEI.']);
+    if(a==='voltar')return saiApi({acao:'voltar',id:x.id},['Bem-vindo de volta','Se tiver atestado ou comprovante, mande pelo botão.']);
+    if(a==='cancelar')return saiApi({acao:'cancelar',id:x.id});
+    if(a==='atestado'){$('saiFoto').dataset.id=x.id;$('saiFoto').click()}
+  });
+  $('saiFoto').onchange=function(){var f=this.files&&this.files[0],sid=this.dataset.id;if(!f)return;var im=new Image(),u=URL.createObjectURL(f);im.onload=function(){var M=1280,w=im.naturalWidth,h=im.naturalHeight,k=Math.min(1,M/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);saiApi({acao:'atestado',id:sid,foto:c.toDataURL('image/jpeg',.7)},['Atestado enviado','O responsável vai conferir.'])};im.src=u;this.value=''};
+  $('saiCancel').onclick=function(){$('saiSheet').hidden=true};
+  $('saiEnviar').onclick=function(){var c={acao:'pedir',motivo:$('saiMot').value,obs:$('saiObs').value.trim(),de:$('saiDe').value,ate:$('saiAte').value};if(c.motivo==='outro'&&c.obs.length<3){$('saiErro').textContent='Escreva o motivo no detalhe.';return}$('saiSheet').hidden=true;saiApi(c,['Pedido enviado','Você recebe o aviso aqui quando o responsável liberar.'])};
   // ── pedidos: esqueci de bater / justificar falta ──
   var shTipo='',shFotoUrl='';
   function abrirSheet(tipo){
