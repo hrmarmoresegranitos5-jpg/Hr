@@ -1,3 +1,4 @@
+// v143b: contrato com cláusula de atraso (multa 2% CDC art. 52 §1º, juros 1% a.m. pro rata, IPCA; 30 dias → suspensão/protesto com aviso)
 // v143 (18/11/2026): CLIENTE APROVADO NO BALCÃO → o dono manda o contato + "aprovou" → o bot se apresenta (áudio), coleta nome completo/CPF/endereço, à vista ou a prazo (dono ou cliente), app refaz o PDF completo, CONTRATO com garantia de 1 ano + "Li e concordo", e segue com Pix/entrega/produção
 // v142 (18/11/2026): PÓS-VENDA DE 1 MÊS PELO BOT — data real da entrega (livro / "Entregue" no app), o bot escreve sozinho (botões Ficou ótimo ⭐ → link do Google / Tive um problema → avisa o dono), fora das 24 h pelo modelo
 // v141 (18/11/2026): FICHA DA EQUIPE — nome, telefone, cargo, aniversário, admissão/tempo de casa e férias vindos do RH do app; "equipe"/"aniversários"/"férias"; equipe_consultar/equipe_atualizar (volta ao app); avisos de aniversário (parabéns no dia), tempo de casa, férias (antes, saída, volta, prazo CLT); ponto não cobra quem está de férias
@@ -8709,11 +8710,15 @@ async function contratoPdf(env, o) {
     ...pecas.map(p => ({ t: '• ' + p, i: 10, s: 9, g: 1 })), { t: '', g: 6 },
     { t: '2. VALOR E FORMA DE PAGAMENTO', s: 10, b: 1, c: G, g: 2 },
     { t: `Valor total: R$ ${reais(orc.valor || 0)}. Forma: ${o.formaPag === 'prazo' ? 'parcelado no cartão de crédito, nas condições do orçamento' : 'à vista (Pix ou dinheiro), nas condições do orçamento'}. A produção começa após a confirmação do pagamento ou do sinal combinado.`, g: 8 },
-    { t: '3. PRAZO', s: 10, b: 1, c: G, g: 2 },
+    { t: '3. ATRASO NO PAGAMENTO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'O valor não pago na data combinada será acrescido, a partir do dia seguinte ao vencimento, de: (a) multa de 2% (dois por cento) sobre o valor em atraso, limite previsto no art. 52, § 1º, do Código de Defesa do Consumidor; (b) juros de mora de 1% (um por cento) ao mês, calculados proporcionalmente aos dias de atraso (pro rata die), sem capitalização; e (c) correção monetária pelo IPCA, conforme o art. 389 do Código Civil.', g: 3 },
+    { t: 'Exemplo: R$ 1.000,00 pagos com 15 dias de atraso = R$ 20,00 de multa + R$ 5,00 de juros + a correção do período.', s: 9, i: 10, c: [0.4, 0.4, 0.4], g: 3 },
+    { t: 'Com mais de 30 (trinta) dias de atraso, a CONTRATADA poderá suspender a entrega ou a instalação até a regularização e adotar as medidas de cobrança previstas em lei, inclusive o protesto do débito e a inclusão em cadastros de proteção ao crédito, sempre com comunicação prévia ao CONTRATANTE.', g: 8 },
+    { t: '4. PRAZO', s: 10, b: 1, c: G, g: 2 },
     { t: `${orc.prazo ? 'Prazo de ' + orc.prazo + ' dias úteis' : 'Prazo conforme o orçamento'}, contado a partir da confirmação do pagamento e da liberação das medidas definitivas. O prazo pode ser ajustado por motivo de força maior, falta de material no fornecedor ou quando o local não estiver liberado para medição ou instalação.`, g: 8 },
-    { t: '4. MEDIDAS', s: 10, b: 1, c: G, g: 2 },
+    { t: '5. MEDIDAS', s: 10, b: 1, c: G, g: 2 },
     { t: 'As peças são produzidas sob medida. Quando as medidas forem informadas pelo CONTRATANTE, a CONTRATADA não responde por diferenças entre essas medidas e o local. Recomendamos a visita técnica da nossa equipe para conferência.', g: 8 },
-    { t: '5. GARANTIA', s: 10, b: 1, c: G, g: 2 },
+    { t: '6. GARANTIA', s: 10, b: 1, c: G, g: 2 },
     { t: 'A CONTRATADA oferece garantia de 1 (um) ano, contada da data da instalação, que cobre defeitos de FABRICAÇÃO e de INSTALAÇÃO realizada pela equipe da HR Mármores e Granitos.', g: 3 },
     { t: 'A garantia NÃO cobre:', b: 1, s: 9.5, g: 2 },
     { t: '• Serviços que não foram instalados pela equipe da CONTRATADA;', i: 10, s: 9.5, g: 1 },
@@ -8721,11 +8726,11 @@ async function contratoPdf(env, o) {
     { t: '• Danos por mau uso, impactos, quedas de objetos, calor excessivo ou produtos químicos agressivos (ácidos, removedores, cloro puro);', i: 10, s: 9.5, g: 1 },
     { t: '• Trincas ou desníveis causados por movimentação da estrutura da obra (paredes, pisos, móveis e bases) ou por alterações feitas por terceiros;', i: 10, s: 9.5, g: 1 },
     { t: '• Variações naturais de cor, veios, manchas e textura, que são características da pedra natural e não constituem defeito.', i: 10, s: 9.5, g: 8 },
-    { t: '6. OBRIGAÇÕES DO CONTRATANTE', s: 10, b: 1, c: G, g: 2 },
+    { t: '7. OBRIGAÇÕES DO CONTRATANTE', s: 10, b: 1, c: G, g: 2 },
     { t: 'Deixar o local liberado, limpo e com acesso; garantir que móveis, bases e paredes estejam nivelados, firmes e prontos para receber as peças; providenciar pontos de água e esgoto quando necessários; e acompanhar ou indicar quem receba a entrega.', g: 8 },
-    { t: '7. CANCELAMENTO', s: 10, b: 1, c: G, g: 2 },
+    { t: '8. CANCELAMENTO', s: 10, b: 1, c: G, g: 2 },
     { t: 'Como as peças são cortadas sob medida, após o início do corte os valores referentes ao material e ao serviço já executado não são reembolsáveis.', g: 8 },
-    { t: '8. ACEITE E FORO', s: 10, b: 1, c: G, g: 2 },
+    { t: '9. ACEITE E FORO', s: 10, b: 1, c: G, g: 2 },
     { t: 'Este contrato pode ser aceito por meio do botão “Li e concordo” no WhatsApp oficial da CONTRATADA, ficando registrados a data, a hora e o número do aceite, ou por assinatura abaixo. Fica eleito o foro da comarca da sede da CONTRATADA para resolver qualquer questão deste contrato.', g: 16 },
     { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 34 },
     { t: '_______________________________________          _______________________________________', s: 9, a: 'c', g: 0 },
