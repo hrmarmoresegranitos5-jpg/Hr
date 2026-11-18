@@ -153,11 +153,50 @@
         corpo.feitos = q ? 1 : 0;
         return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
       }
+      if (t.tipo === 'orc_completar') return orcCompletar(t).then(function (r) { corpo.feitos = r.ok ? 1 : 0; if (!r.ok) corpo.erro = r.erro; return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) }); });
       if (t.tipo === 'conferir') corpo.resultado = conferir(t.linhas || []);
       else if (t.tipo === 'aplicar') { var r = aplicar(t.ops); corpo.feitos = r.feitos; corpo.erros = r.erros; }
       else if (t.tipo === 'cliente') { corpo.feitos = cliente(t).feitos; }
       return api('/bot/fin/tarefa/resultado', { method: 'POST', body: JSON.stringify(corpo) });
     }).catch(function () {}).then(function () { busy = false; });
+  }
+  // v5: o bot coletou os dados completos do cliente → atualiza o orçamento e refaz o PDF (vai sozinho ao bot e ao cliente)
+  var ACB_DE = { sol_sem: 'sem', sol1: '1_lado', sol2: '2_lados', sol_45: '45', peit_sem: 'sem', peit_acb1: '1_lado', peit_acb2: '2_lados' };
+  function resumoDe(q) {
+    try {
+      var itens = (q.ambSnap || []).map(function (a) { var acb = ''; Object.keys(a.svState || {}).forEach(function (k) { if (ACB_DE[k]) acb = ACB_DE[k]; });
+        return { ambiente: String(a.tipo || ''), acabamento: acb, pecas: (a.pecas || []).map(function (p) { return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0 }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) }; })
+        .filter(function (it) { return it.pecas.length; });
+      return itens.length ? { pedra: q.mat || '', itens: itens } : null;
+    } catch (e) { return null; }
+  }
+  function b64De(blob) { return new Promise(function (ok, er) { var r = new FileReader(); r.onload = function () { ok(String(r.result).split(',')[1] || ''); }; r.onerror = er; r.readAsDataURL(blob); }); }
+  function orcCompletar(t) {
+    var q = (DB.q || []).find(function (x) { return (t.orcId && String(x.id) === String(t.orcId)) || (t.orcNum && x.orcNum === t.orcNum); });
+    if (!q) return Promise.resolve({ ok: false, erro: 'orçamento não encontrado no app' });
+    if (t.cliente) q.cli = t.cliente; if (t.tel) q.tel = t.tel; if (t.cidade) q.cidade = t.cidade; if (t.end) q.end = t.end; if (t.cpf) q.cpf = t.cpf;
+    if (t.formaPag) q.formaPag = t.formaPag;
+    try { DB.sv(); } catch (e) {}
+    try { if (typeof CLDB !== 'undefined' && CLDB.get) { var cs = CLDB.get() || [], c = cs.find(function (x) { return String(x.tel || '').replace(/\D/g, '').slice(-8) === String(t.tel || '').replace(/\D/g, '').slice(-8); }); if (c) { c.nome = t.cliente || c.nome; if (t.cidade) c.cidade = t.cidade; if (t.end) c.end = t.end; if (t.cpf) c.cpf = t.cpf; if (CLDB.sv) CLDB.sv(cs); } } } catch (e) {}
+    if (typeof gerarPDF !== 'function') return Promise.resolve({ ok: false, erro: 'gerador de PDF indisponível' });
+    return new Promise(function (ok) {
+      var fim = function (r) { window._botPdfHook = null; ok(r); };
+      var to = setTimeout(function () { fim(null); }, 30000);
+      window._botPdfHook = function (blob, nome) { clearTimeout(to); var ov = document.getElementById('pdfOv'); if (ov) ov.remove(); fim({ blob: blob, nome: nome }); };
+      try {
+        var hoje = typeof td === 'function' ? td() : new Date().toISOString().slice(0, 10);
+        var dataEst = (q.prazoEntrega && q.prazoEntrega >= hoje) ? q.prazoEntrega : (function () { var d = new Date(hoje + 'T12:00:00'); d.setDate(d.getDate() + (+q.prazoDias || +q.prazo || 15)); return d.toISOString().slice(0, 10); })();
+        var dias = Math.max(1, Math.round((new Date(dataEst + 'T00:00:00') - new Date(hoje + 'T00:00:00')) / 86400000));
+        window._pdfPrazoData = { dias: dias, base: hoje, dataEst: dataEst, lastEnd: null, emProd: (DB.j || []).filter(function (j) { return !j.done; }).length, hoje: hoje, isUrgent: false };
+        window._formaPagEscolhida = q.formaPag || 'vista';
+        pendQ = q; gerarPDF();
+      } catch (e) { clearTimeout(to); fim(null); }
+    }).then(function (r) {
+      if (!r || !r.blob) return { ok: false, erro: 'o PDF não ficou pronto' };
+      var bs = base(); return b64De(r.blob).then(function (pdf) {
+        return fetch(bs + '/bot/orcpdf/guardar', { method: 'POST', headers: _botHeaders(), body: JSON.stringify({ qId: q.id || '', orcNum: (String(r.nome || '').match(/ORC[-_]\d+/i) || [''])[0].replace('_', '-') || q.orcNum || '', cliente: q.cli || '', tel: String(q.tel || '').replace(/\D/g, ''), valor: q._vistaCalc != null ? q._vistaCalc : (q.vista || q.parc || 0), pedido: [String(q.tipo || '').replace(/\+/g, ' + '), q.mat].filter(Boolean).join(' em ').slice(0, 80), arquivo: r.nome, resumo: resumoDe(q), pdf: pdf }) });
+      }).then(function () { if (typeof toast === 'function') toast('📄 PDF de ' + (q.cli || 'cliente') + ' refeito com os dados completos'); return { ok: true }; });
+    }).catch(function (e) { return { ok: false, erro: String(e && e.message || e) }; });
   }
   window.finConferenciaAgora = ciclo;
   window._finConferir = conferir; window._finCliente = cliente; // usados em teste

@@ -1,3 +1,4 @@
+// v143 (18/11/2026): CLIENTE APROVADO NO BALCÃO → o dono manda o contato + "aprovou" → o bot se apresenta (áudio), coleta nome completo/CPF/endereço, à vista ou a prazo (dono ou cliente), app refaz o PDF completo, CONTRATO com garantia de 1 ano + "Li e concordo", e segue com Pix/entrega/produção
 // v142 (18/11/2026): PÓS-VENDA DE 1 MÊS PELO BOT — data real da entrega (livro / "Entregue" no app), o bot escreve sozinho (botões Ficou ótimo ⭐ → link do Google / Tive um problema → avisa o dono), fora das 24 h pelo modelo
 // v141 (18/11/2026): FICHA DA EQUIPE — nome, telefone, cargo, aniversário, admissão/tempo de casa e férias vindos do RH do app; "equipe"/"aniversários"/"férias"; equipe_consultar/equipe_atualizar (volta ao app); avisos de aniversário (parabéns no dia), tempo de casa, férias (antes, saída, volta, prazo CLT); ponto não cobra quem está de férias
 // v140 (18/11/2026): meio período = 4 h de manhã (07:00–11:00) ou à tarde (13:00–17:00); sem manhã/tarde nem horário, o bot pergunta
@@ -899,6 +900,7 @@ async function orcPdfGuardar(env, d, bytes) {
   await env.HR_KV.put(k, JSON.stringify(r), { expirationTtl: 120 * 86400 });
   if (r.qId && orcNum) await env.HR_KV.put('orcpdf:qid:' + r.qId, orcNum, { expirationTtl: 120 * 86400 });
   if (r.resumo && orcNum) await fechFichaDoPdf(env, orcNum, r.resumo).catch(e => console.log('[FECH] pdf:', e.message)); // v134
+  if (bytes) await onbPdfPronto(env, r).catch(e => console.log('[ONB] pdf:', e.message)); // v143
   return r;
 }
 // id de mídia da Meta válido (vence em ~30 dias): reaproveita ou sobe de novo a partir do PDF guardado
@@ -2295,6 +2297,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('cb_ok|') || id.startsWith('cb_no|') || id.startsWith('cb_re|')) return tratarBotaoCobrancaD1(env, from, id); // cobranças Pix em D1 (módulo novo)
   if (id.startsWith('pronto_ag|')) { await avisarPorRegistro(env, from, id.slice(10)); return true; }
   if (/^(fch|fchf)\|/.test(id)) return fechBotao(env, from, id); // v134
+  if (/^onb_(ini|no|q|fp)\|/.test(id)) return onbBotaoDono(env, from, id); // v143
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -6744,6 +6747,7 @@ async function pedirAvaliacoes(env) {
   await fechRotina(env).catch(e => console.log('[AG] rotina:', e.message)); // v135
   await equipeRotina(env).catch(e => console.log('[EQ] rotina:', e.message)); // v141
   await pv1Rotina(env).catch(e => console.log('[PV1] rotina:', e.message)); // v142
+  await onbRotina(env).catch(e => console.log('[ONB] rotina:', e.message)); // v143
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7672,7 +7676,7 @@ async function pedidosProducao(env, filtro) {
 }
 const naFabrica = p => !!p.fichaEnviadaEm && !p.fabProntoEm && !p.prontoEm && !p.entregueEm && p.status !== 'recusado';
 const naEntrega = p => (!!p.fabProntoEm || !!p.prontoEm || !!p.entregaEnviadaEm) && !p.entregueEm && String(p.entrega || '') !== 'retirada' && p.status !== 'recusado';
-const resumoPecas = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), a = String(it.ambiente || 'peça').toLowerCase(); return `${n} ${a}${n > 1 && !/s$/.test(a) ? (/l$/.test(a) ? '' : 's') : ''}`.replace(/peitoril$/, n > 1 ? 'peitoris' : 'peitoril'); }).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
+const resumoPecas = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), a = String(it.ambiente || 'peça').toLowerCase(); if (!/soleira|peitoril|peça/.test(a)) return a.charAt(0).toUpperCase() + a.slice(1); return `${n} ${a}${n > 1 && !/s$/.test(a) ? (/l$/.test(a) ? '' : 's') : ''}`.replace(/peitoril$/, n > 1 ? 'peitoris' : 'peitoril'); }).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = lista.filter(p => { const t = tokensPedra(p.nome || ''); return t.some(w => tk.includes(w) && w.length >= 3); });
@@ -7824,7 +7828,7 @@ async function fechCandidatos(env, nome) {
   const r = await orcsDoCliente(env, nome).catch(() => ({ lista: [] }));
   for (const h of (r.lista || []).filter(o => !/perdido/i.test(o.status || '')).slice(0, 4)) {
     const on = orcNumNorm(h.orcNum); if (on) vistos.add(on);
-    out.push({ fonte: 'app', qId: String(h.id || ''), orcNum: on, nome: h.cliente, valor: Number(h.valor) || 0, tel: h.tel || (r.cliente && r.cliente.tel) || '', projeto: h.projeto || '', material: h.material || '', data: h.data || '', status: h.status || '' });
+    out.push({ fonte: 'app', qId: String(h.id || ''), orcNum: on, nome: h.cliente, valor: Number(h.valor) || 0, tel: h.tel || (r.cliente && r.cliente.tel) || '', projeto: h.projeto || '', material: h.material || '', data: h.data || '', status: h.status || '', prazo: h.prazo || 0 });
   }
   const tk = tokensPedra(nome);
   const peds = await pedidosProducao(env, p => !p.entregueEm && !p.fechDono && p.origem !== 'pdf_dono' && Number(p.valor) > 0 && (p.pecas || []).length && Date.now() - (p.atualizado || p.criado || 0) < 45 * 86400000 && tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)));
@@ -7911,7 +7915,7 @@ async function fechExecutar(env, from, st) {
   let fichaTxt = '';
   if (forma !== 'pix') fichaTxt = (await fechFicha(env, ped)) ? `✂️ Ficha de corte enviada ao ${nomeFabrica(env)}.` : '⚠️ A ficha ainda não foi: veja a mensagem abaixo.';
   else { ped.fichaAposPag = true; await salvarPedido(env, ped); fichaTxt = `✂️ A ficha vai ao ${nomeFabrica(env)} assim que o Pix for confirmado (comprovante dele ou o senhor confirmando).`; }
-  const cli = await fechMsgCliente(env, num, ped.id);
+  const cli = await fechMsgCliente(env, num, ped.id, st.continuacao ? 'cont' : undefined);
   const linhas = [`✅ *Fechado · ${c.nome}*`, fechRotulo(c), pecasTxt(ped) || '(sem medidas no bot)', `Pagamento: ${FECH_FORMA_TXT[forma]}.`, st.receb === 'retirada' ? `Recebimento: *retirada*${st.quando ? ` ${diaFalado(st.quando.dia)} às ${st.quando.hora}` : ' (pergunto ao cliente o dia e o horário)'}.` : st.receb === 'entrega' ? 'Recebimento: *entrega* (peço a localização ao cliente).' : '', cli, fichaTxt, `Daqui pra frente eu cuido: pergunto ao ${nomeFabrica(env)} a hora que fica pronto, combino o horário com o cliente (+20 min), passo endereço, horário, pagamento e troco ao ${nomeEntregador(env)} e confiro com ele no horário se entregou e recebeu (lanço em Finanças). Se for retirada, marco dia e hora com o cliente.`].filter(Boolean);
   if (forma === 'pix') await enviarComBotoes(env, from, linhas.join('\n'), [{ id: 'fchj|' + ped.id, titulo: 'Mandar ficha já' }]);
   else await enviar(env, from, linhas.join('\n'));
@@ -7932,7 +7936,7 @@ async function fechMsgCliente(env, num, pid, depoisModelo) {
       return `${ped.nome} estava fora das 24 h: mandei o aviso aprovado; quando ele responder, vão ${ped.fechDono === 'pix' ? 'a chave Pix e ' : ''}a pergunta da entrega.`;
     } catch (e) { return `⚠️ A Meta recusou o aviso a ${ped.nome} (fora das 24 h): ${String(e.message).slice(0, 120)}. Mande uma mensagem a ele (wa.me/${num}) e, quando responder, eu sigo.`; }
   }
-  const ola = depoisModelo ? `Obrigada por responder${pn ? ', ' + pn : ''}! ` : `Olá${pn ? ', ' + pn : ''}! Aqui é da *${emp}*. 😊\n`;
+  const ola = depoisModelo === 'cont' ? '' : depoisModelo ? `Obrigada por responder${pn ? ', ' + pn : ''}! ` : `Olá${pn ? ', ' + pn : ''}! Aqui é da *${emp}*. 😊\n`;
   const valor = Number(ped.valor) || 0;
   if (ped.fechDono === 'pix') {
     if (env.PIX_CHAVE) {
@@ -8482,6 +8486,279 @@ async function pv1Resposta(env, from, m) {
   await enviar(env, from, `Poxa${pn ? ', ' + pn : ''}, sinto muito! Me conta o que aconteceu e, se puder, mande uma foto. Já vou passar para o Sr. Hangel resolver com você.`);
   await anotarNoHistorico(env, from, `[Pós-venda: o cliente disse que TEVE UM PROBLEMA com ${r.serv}. Acolha, peça detalhes e foto, e diga que o Sr. Hangel vai resolver. Não prometa prazo nem valor.]`).catch(() => {});
   await pontoAvisarDono(env, `⚠️ *${r.cli}* disse que teve um problema com ${r.serv.replace(/\b(sua|seu) /, '')} (entregue em ${dataBR(r.entrega)}). Pedi detalhes e foto.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+  return true;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v143: CLIENTE QUE APROVOU NO BALCÃO → O BOT ASSUME (onb = "onboarding")
+//   Dono manda o cartão de contato + "esse cliente aprovou, quer a chave Pix" → o bot acha o orçamento pelo nome,
+//   pergunta ao dono à vista/a prazo (se ele não disse; "não combinei" → pergunta ao cliente), escreve ao cliente
+//   (1ª mensagem em ÁUDIO de apresentação; fora das 24 h vai o modelo e o áudio quando ele responder), coleta nome
+//   completo, CPF e endereço, manda o app refazer o PDF com esses dados (tarefa orc_completar), envia o CONTRATO
+//   (garantia de 1 ano etc.) com o botão "Li e concordo" e segue com o fechamento (Pix, entrega/retirada, produção).
+// ═════════════════════════════════════════════════════════════════════════════
+const ONB_D = 'onb:dono', ONB_C = 'onb:c:', ONB_CARD = 'onb:ultcard';
+async function onbLer(env, num) { try { return JSON.parse((await env.HR_KV.get(ONB_C + num)) || 'null'); } catch (_) { return null; } }
+const onbSalvar = (env, o) => env.HR_KV.put(ONB_C + o.num, JSON.stringify({ ...o, at: Date.now() }), { expirationTtl: 30 * 86400 });
+const ONB_FP_TXT = { vista: 'à vista', prazo: 'parcelado no cartão', '?': 'a combinar' };
+// ── dono ──
+async function onbComandoDono(env, from, bruto, msg) {
+  let sd = null; try { sd = JSON.parse((await env.HR_KV.get(ONB_D)) || 'null'); } catch (_) {}
+  if (sd && Date.now() - sd.em < 6 * 3600000) { // respostas do dono às perguntas pendentes
+    const o = await onbLer(env, sd.num);
+    if (o && sd.etapa === 'forma' && msg.split(' ').length <= 8) {
+      const fp = /\b(nao combinei|nao falei|nao sei|pergunta|ainda nao)\b/.test(msg) ? '?' : /\b(prazo|parcel|cartao|vezes|\dx)\b/.test(msg) ? 'prazo' : /\b(vista|pix|dinheiro)\b/.test(msg) ? 'vista' : '';
+      if (fp) { await env.HR_KV.delete(ONB_D); o.formaPag = fp; await onbSalvar(env, o); await enviar(env, from, fp === '?' ? `Certo, eu pergunto a ${nomeDeTratamento(o.nome) || 'ele'} depois dos dados.` : `Anotado: ${ONB_FP_TXT[fp]}.`); await onbAvancar(env, o); return true; }
+    }
+    if (o && sd.etapa === 'valor') { const v = extrairValor(String(bruto)); const on = (String(bruto).match(/\b(?:orc[- ]?)?(\d{2,5})\b/i) || [])[1];
+      if (/orc/i.test(bruto) && on) { const h = await orcDoHistPorId(env, null, 'ORC-' + on.padStart(4, '0')).catch(() => null); if (h) { await env.HR_KV.delete(ONB_D); o.orc = { qId: String(h.id || ''), orcNum: orcNumNorm(h.orcNum), valor: h.valor, projeto: h.projeto, material: h.material, prazo: h.prazo }; await onbSalvar(env, o); await enviar(env, from, `Achei o ${o.orc.orcNum}: ${orcRotulo(h)}.`); return onbPerguntarForma(env, from, o); } }
+      if (v && v.n > 0) { await env.HR_KV.delete(ONB_D); o.orc = { ...(o.orc || {}), valor: v.n }; await onbSalvar(env, o); await enviar(env, from, `Anotado: R$ ${reais(v.n)}.`); return onbPerguntarForma(env, from, o); } }
+  }
+  if (!/\b(aprovou|aceitou|fechou|quer fechar|vai fechar|aprovado|confirmou)\b/.test(msg)) return false;
+  if (/\d+\s*(x|por)\s*\d+/.test(msg)) return false; // ditou medidas: ficha_producao
+  let card = null; try { card = JSON.parse((await env.HR_KV.get(ONB_CARD)) || 'null'); } catch (_) {}
+  const refere = /\b(esse|este|ess[ae] cliente|ele|ela|o contato|do contato|desse contato)\b/.test(msg);
+  if (!(card && Date.now() - card.em < 3 * 3600000 && (refere || msg.split(' ').length <= 14))) return false;
+  return onbIniciar(env, from, { num: card.num, nome: card.nome, pix: /\b(pix|chave)\b/.test(msg), formaPag: /\b(a prazo|parcel|cartao|vezes)\b/.test(msg) ? 'prazo' : /\b(a vista|avista)\b/.test(msg) ? 'vista' : '' });
+}
+async function onbIniciar(env, from, a) {
+  const num = normalizarBR(a.num); if (!num) return false;
+  await env.HR_KV.delete(ONB_CARD);
+  const cands = await fechCandidatos(env, a.nome).catch(() => []);
+  const o = { num, nome: a.nome, pix: !!a.pix, formaPag: a.formaPag || '', etapa: 'intro', dados: {}, em: Date.now(), cands: cands.filter(c => c.fonte === 'app').slice(0, 3) };
+  if (o.cands.length === 1) { const c = o.cands[0]; o.orc = { qId: c.qId, orcNum: c.orcNum, valor: c.valor, projeto: c.projeto, material: c.material, prazo: c.prazo }; }
+  await onbSalvar(env, o);
+  await onbContatoCliente(env, o);
+  if (!o.orc && o.cands.length > 1) { await env.HR_KV.put(ONB_D, JSON.stringify({ num, etapa: 'escolha', em: Date.now() }), { expirationTtl: 6 * 3600 }); await enviarComBotoes(env, from, `Já falei com *${a.nome}* ✅\nAchei ${o.cands.length} orçamentos dele. Qual foi aprovado?\n\n${o.cands.map((c, i) => `${i + 1}. ${fechRotulo(c)}`).join('\n')}`, o.cands.map((c, i) => ({ id: 'onb_q|' + num + '|' + i, titulo: `${i + 1}. ${c.orcNum || 'R$ ' + Math.round(c.valor)}`.slice(0, 20) }))); return true; }
+  if (!o.orc) { await env.HR_KV.put(ONB_D, JSON.stringify({ num, etapa: 'valor', em: Date.now() }), { expirationTtl: 6 * 3600 }); await enviar(env, from, `Já falei com *${a.nome}* ✅\nNão achei orçamento dele no app. Me diga o número (ex.: _ORC 585_) ou o valor aprovado (ex.: _1.250,00_).`); return true; }
+  await enviar(env, from, `Já falei com *${a.nome}* ✅ (${fechRotulo(o.cands[0])}).\nVou pegar nome completo, CPF e endereço, refazer o PDF com esses dados, mandar o contrato e seguir com ${o.pix ? 'a chave Pix' : 'o pagamento'}, entrega e produção.`);
+  return onbPerguntarForma(env, from, o);
+}
+async function onbPerguntarForma(env, from, o) {
+  if (o.formaPag) return true;
+  await env.HR_KV.put(ONB_D, JSON.stringify({ num: o.num, etapa: 'forma', em: Date.now() }), { expirationTtl: 6 * 3600 });
+  await enviarComBotoes(env, from, `O pagamento de *${o.nome}* vai ser à vista ou a prazo?`, [{ id: 'onb_fp|' + o.num + '|vista', titulo: 'À vista' }, { id: 'onb_fp|' + o.num + '|prazo', titulo: 'A prazo (cartão)' }, { id: 'onb_fp|' + o.num + '|?', titulo: 'Não combinei' }]);
+  return true;
+}
+async function onbBotaoDono(env, from, id) {
+  const [ac, num, v] = id.split('|'); const o = await onbLer(env, num);
+  if (ac === 'onb_no') { await env.HR_KV.delete(ONB_CARD); await enviar(env, from, 'Certo, só salvei o contato.'); return true; }
+  if (ac === 'onb_ini') { let card = null; try { card = JSON.parse((await env.HR_KV.get(ONB_CARD)) || 'null'); } catch (_) {} if (!card) { await enviar(env, from, 'Esse contato expirou. Mande o cartão de novo.'); return true; } return onbIniciar(env, from, { num: card.num, nome: card.nome, pix: true }); }
+  if (!o) { await enviar(env, from, 'Não achei esse atendimento.'); return true; }
+  if (ac === 'onb_q') { const c = o.cands[+v]; if (c) { o.orc = { qId: c.qId, orcNum: c.orcNum, valor: c.valor, projeto: c.projeto, material: c.material, prazo: c.prazo }; await onbSalvar(env, o); await env.HR_KV.delete(ONB_D); await enviar(env, from, `Certo: ${fechRotulo(c)}.`); return onbPerguntarForma(env, from, o); } }
+  if (ac === 'onb_fp') { await env.HR_KV.delete(ONB_D); o.formaPag = v; await onbSalvar(env, o); await enviar(env, from, v === '?' ? `Certo, eu pergunto a ${nomeDeTratamento(o.nome) || 'ele'}.` : `Anotado: ${ONB_FP_TXT[v]}.`); await onbAvancar(env, o); return true; }
+  return true;
+}
+// ── cliente ──
+const ONB_PEDE = 'Para eu deixar seu orçamento e o contrato completinhos, me envie por aqui:\n• *Nome completo*\n• *CPF*\n• *Endereço da obra* (rua, número, bairro e cidade)';
+async function onbContatoCliente(env, o) {
+  const pn = nomeDeTratamento(o.nome);
+  if (await janela24h(env, o.num)) return onbApresentar(env, o);
+  const curto = `${pn ? pn + ', a' : 'A'}qui é a secretária da HR Mármores e Granitos. Vou dar continuidade ao seu projeto por aqui. Posso te mandar um áudio rápido explicando os próximos passos?`.slice(0, 200);
+  try {
+    await postarMsg(env, o.num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
+    await env.HR_KV.put('tplpend:' + o.num, JSON.stringify({ onbNum: o.num, nome: o.nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+    await semearConversaProativa(env, o.num, curto).catch(() => {});
+    o.etapa = 'modelo'; await onbSalvar(env, o);
+  } catch (e) { await pontoAvisarDono(env, `⚠️ A Meta recusou a 1ª mensagem a ${o.nome}: ${String(e.message).slice(0, 120)}`).catch(() => {}); }
+}
+async function onbApresentar(env, o) {
+  const pn = nomeDeTratamento(o.nome);
+  const fala = `Olá${pn ? ', ' + pn : ''}! Tudo bem? Eu sou a secretária da HR Mármores e Granitos. O Sr. Hangel me passou o seu projeto${o.orc && o.orc.projeto ? ' de ' + String(o.orc.projeto).toLowerCase() : ''}, e a partir de agora eu vou dar continuidade com você por aqui e te orientar em cada etapa. Se tiver qualquer dúvida, é só falar comigo, eu sempre vou estar aqui pra te responder. Pra deixar seu orçamento e o contrato completinhos, me manda seu nome completo, seu CPF e o endereço da obra, tá bom?`;
+  const ok = await enviarVoz(env, o.num, fala).catch(() => false);
+  if (!ok) await enviar(env, o.num, fala);
+  await enviar(env, o.num, ONB_PEDE);
+  await anotarNoHistorico(env, o.num, `[Sou a secretária da HR. O Sr. Hangel me passou este cliente, que APROVOU o orçamento${o.orc ? ' ' + (o.orc.orcNum || '') + ' (' + [o.orc.projeto, o.orc.material].filter(Boolean).join(' em ') + ', R$ ' + reais(o.orc.valor || 0) + ')' : ''}. Pedi nome completo, CPF e endereço da obra para completar o orçamento e o contrato. Responda dúvidas com gentileza; se o cliente falar por áudio, continue em áudio.]`).catch(() => {});
+  o.etapa = 'dados'; o.pediuEm = Date.now(); await onbSalvar(env, o);
+}
+async function onbExtrair(env, texto) {
+  try {
+    const t = await chamarIA(env, 'Extraia dados cadastrais de um cliente brasileiro da mensagem. Responda SÓ JSON: {"nome_completo":"","cpf":"","endereco":"","cidade":"","forma":""} — forma: "vista" se disser à vista/Pix/dinheiro, "prazo" se disser parcelado/cartão/vezes; vazio se não disser. CPF só os 11 dígitos. Não invente nada.', [], String(texto).slice(0, 1200), { maxTokens: 200 });
+    const m = /\{[\s\S]*\}/.exec(t || ''); return m ? JSON.parse(m[0]) : {};
+  } catch (_) { return {}; }
+}
+const cpfOk = c => { c = String(c || '').replace(/\D/g, ''); if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false; let s = 0; for (let i = 0; i < 9; i++) s += +c[i] * (10 - i); let d = (s * 10) % 11 % 10; if (d !== +c[9]) return false; s = 0; for (let i = 0; i < 10; i++) s += +c[i] * (11 - i); return (s * 10) % 11 % 10 === +c[10]; };
+const cpfFmt = c => String(c).replace(/\D/g, '').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+async function onbClienteMsg(env, from, m) {
+  const num = normalizarBR(from), o = await onbLer(env, num); if (!o || ['fluxo', 'fim'].includes(o.etapa)) return false;
+  const btn = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : '';
+  if (btn.startsWith('onb_ct_ok|')) return onbContratoAceito(env, o, from);
+  if (btn.startsWith('onb_ct_dv|')) { await enviar(env, from, 'Claro! Qual é a sua dúvida sobre o contrato? Pode escrever ou mandar áudio.'); return true; }
+  if (btn.startsWith('onb_cf|')) { o.formaPag = btn.split('|')[2]; await onbSalvar(env, o); await enviar(env, from, `Anotado: ${ONB_FP_TXT[o.formaPag]}. 👍`); await onbAvancar(env, o); return true; }
+  if (!['dados', 'forma_cli'].includes(o.etapa)) return false;
+  let texto = m.type === 'text' ? String(m.text?.body || '') : (m._texto || '');
+  if (!texto && m.type === 'audio') { texto = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = texto; if (env._ctx) env._ctx.voz = true; }
+  if (!texto) return false;
+  const x = await onbExtrair(env, texto); let novo = false;
+  if (x.nome_completo && String(x.nome_completo).trim().split(/\s+/).length >= 2) { o.dados.nome = String(x.nome_completo).trim().slice(0, 80); novo = true; }
+  if (x.cpf && cpfOk(x.cpf)) { o.dados.cpf = String(x.cpf).replace(/\D/g, ''); novo = true; } else if (x.cpf) o.cpfInvalido = 1;
+  if (x.endereco && String(x.endereco).length >= 6) { o.dados.end = String(x.endereco).slice(0, 160); novo = true; }
+  if (x.cidade) { o.dados.cidade = String(x.cidade).slice(0, 50); novo = true; }
+  if (o.etapa === 'forma_cli' && (x.forma === 'vista' || x.forma === 'prazo')) { o.formaPag = x.forma; await onbSalvar(env, o); await enviar(env, from, `Anotado: ${ONB_FP_TXT[o.formaPag]}. 👍`); await onbAvancar(env, o); return true; }
+  if (!novo) { await onbSalvar(env, o); return false; } // dúvida/conversa: a secretária responde
+  await onbSalvar(env, o);
+  const falta = [!o.dados.nome && 'nome completo', !o.dados.cpf && (o.cpfInvalido ? 'CPF (confira os números, deu inválido)' : 'CPF'), !o.dados.end && 'endereço da obra'].filter(Boolean);
+  const pn = nomeDeTratamento(o.dados.nome || o.nome);
+  if (falta.length && !(falta.length === 1 && /^CPF/.test(falta[0]) && o.cpfPedido >= 2)) {
+    o.cpfPedido = (o.cpfPedido || 0) + (falta.some(f => /^CPF/.test(f)) ? 1 : 0); await onbSalvar(env, o);
+    await enviar(env, from, `Obrigada${pn ? ', ' + pn : ''}! Anotei. Só falta: ${falta.join(', ')}.`); return true;
+  }
+  await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Recebi tudo:\n• ${o.dados.nome || o.nome}${o.dados.cpf ? '\n• CPF ' + cpfFmt(o.dados.cpf) : ''}\n• ${o.dados.end}${o.dados.cidade && !normaliza(o.dados.end).includes(normaliza(o.dados.cidade)) ? ', ' + o.dados.cidade : ''}`);
+  o.etapa = 'dados_ok'; await onbSalvar(env, o);
+  await cadastrarClienteApp(env, o.dados.nome || o.nome, num, { cidade: o.dados.cidade || '', end: o.dados.end || '' }).catch(() => {});
+  await onbAvancar(env, o);
+  return true;
+}
+// decide o próximo passo
+async function onbAvancar(env, o) {
+  o = await onbLer(env, o.num) || o;
+  if (!['dados_ok', 'forma_cli'].includes(o.etapa)) return;
+  if (!o.orc || !o.orc.valor) return; // espera o dono dizer o orçamento/valor
+  if (!o.formaPag) return; // espera o dono
+  if (o.formaPag === '?') {
+    if (o.etapa === 'forma_cli') return;
+    o.etapa = 'forma_cli'; await onbSalvar(env, o);
+    await enviarComBotoes(env, o.num, `Como você prefere pagar os R$ ${reais(o.orc.valor)}?`, [{ id: 'onb_cf|' + o.num + '|vista', titulo: 'À vista (Pix/dinheiro)' }, { id: 'onb_cf|' + o.num + '|prazo', titulo: 'Parcelado no cartão' }]);
+    return;
+  }
+  o.etapa = 'pdf'; await onbSalvar(env, o);
+  if (o.orc.qId || o.orc.orcNum) {
+    await confEnfileirar(env, { tipo: 'orc_completar', orcId: o.orc.qId, orcNum: o.orc.orcNum, cliente: o.dados.nome || o.nome, tel: o.num.replace(/^55/, ''), cpf: o.dados.cpf ? cpfFmt(o.dados.cpf) : '', end: o.dados.end || '', cidade: o.dados.cidade || '', formaPag: o.formaPag === 'prazo' ? 'parcelado' : 'vista' });
+    for (const kk of [o.orc.orcNum, o.orc.qId ? 'id' + o.orc.qId : ''].filter(Boolean)) await env.HR_KV.put('onb:pdf:' + kk, o.num, { expirationTtl: 2 * 86400 });
+    o.pdfPedidoEm = Date.now(); await onbSalvar(env, o);
+    if (!(await confAppAberto(env))) await pontoAvisarDono(env, `📄 Para refazer o PDF de *${o.dados.nome || o.nome}* com os dados completos, *abra o app* (ele faz sozinho). Se não abrir em 20 min, eu mando o contrato e sigo assim mesmo.`).catch(() => {});
+  } else await onbContrato(env, o);
+}
+// o app refez o PDF (orcpdf/guardar) → manda ao cliente e segue
+async function onbPdfPronto(env, r) {
+  const ks = [r.qId ? 'onb:pdf:id' + r.qId : '', r.orcNum ? 'onb:pdf:' + r.orcNum : ''].filter(Boolean);
+  let num = null; for (const k of ks) if (!num) num = await env.HR_KV.get(k); if (!num) return;
+  const o = await onbLer(env, num); if (!o || o.etapa !== 'pdf') return;
+  for (const k of ks) await env.HR_KV.delete(k);
+  if (o.orc) { if (o.orc.orcNum) await env.HR_KV.delete('onb:pdf:' + o.orc.orcNum); if (o.orc.qId) await env.HR_KV.delete('onb:pdf:id' + o.orc.qId); }
+  const mid = await orcPdfMedia(env, r).catch(() => null);
+  const pn = nomeDeTratamento(o.dados.nome || o.nome);
+  if (mid) {
+    await enviar(env, num, `${pn ? pn + ', c' : 'C'}om as informações que você me passou, eu aprimorei o PDF do seu orçamento com mais detalhes. 📄`);
+    await postarMsg(env, num, { type: 'document', document: { id: mid, filename: r.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento completo · HR Mármores e Granitos' } });
+    await orcEnvRegistrar(env, num, { id: null }, o.dados.nome || o.nome, { qId: r.qId, orcNum: r.orcNum, valor: o.orc.valor, mediaId: mid, arquivo: r.arquivo }).catch(() => {});
+  }
+  await onbContrato(env, o);
+}
+async function onbRotina(env) {
+  if (Date.now() - (globalThis.__onbRot || 0) < 5 * 60000) return; globalThis.__onbRot = Date.now();
+  const l = await env.HR_KV.list({ prefix: ONB_C, limit: 100 }).catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    let o = null; try { o = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+    if (o && o.etapa === 'pdf' && o.pdfPedidoEm && Date.now() - o.pdfPedidoEm > 20 * 60000) { if (o.orc.orcNum) await env.HR_KV.delete('onb:pdf:' + o.orc.orcNum); if (o.orc.qId) await env.HR_KV.delete('onb:pdf:id' + o.orc.qId); await onbContrato(env, o); await pontoAvisarDono(env, `📄 O app não refez o PDF de ${o.nome} (fechado?). Mandei o contrato e segui.`).catch(() => {}); }
+    if (o && o.etapa === 'dados' && o.pediuEm && Date.now() - o.pediuEm > 24 * 3600000 && !o.lembrou) { o.lembrou = 1; await onbSalvar(env, o); if (await janela24h(env, o.num)) await enviar(env, o.num, `${nomeDeTratamento(o.nome) ? nomeDeTratamento(o.nome) + ', p' : 'P'}assando para lembrar: ${ONB_PEDE.charAt(0).toLowerCase() + ONB_PEDE.slice(1)}`).catch(() => {}); }
+  }
+}
+// ── contrato ──
+function pdfDocumento(linhas) { // linhas: [{t, s(tamanho), b(negrito), c(cor rgb), a('c' centro), g(espaço depois)}]; A4 com quebra de página
+  const W = 595, H = 842, M = 48, LW = W - 2 * M, enc = t => { let o = ''; for (const ch of String(t)) { const c = ch.codePointAt(0); o += c === 0x2014 ? '\x97' : c === 0x2013 ? '\x96' : c === 0x2022 ? '\x95' : c === 0x201C ? '\x93' : c === 0x201D ? '\x94' : c === 0x2019 ? '\x92' : c < 256 ? ch : '?'; } return o.replace(/[\\()]/g, x => '\\' + x); };
+  const larg = (t, s, b) => String(t).length * s * (b ? 0.56 : 0.5);
+  const pags = [[]]; let y = H - M;
+  const nova = () => { pags.push([]); y = H - M; };
+  for (const l of linhas) {
+    if (l.t === '---') { if (y < M + 20) nova(); pags[pags.length - 1].push(`0.79 0.66 0.30 RG 0.8 w ${M} ${y} m ${W - M} ${y} l S`); y -= (l.g || 12); continue; }
+    const s = l.s || 10, words = String(l.t || '').split(' '); let cur = '', rows = [];
+    for (const w of words) { const t2 = cur ? cur + ' ' + w : w; if (larg(t2, s, l.b) > LW && cur) { rows.push(cur); cur = w; } else cur = t2; } if (cur || !rows.length) rows.push(cur);
+    for (const r of rows) {
+      if (y < M + s) nova();
+      const x = l.a === 'c' ? Math.max(M, (W - larg(r, s, l.b)) / 2) : M + (l.i || 0);
+      const c = l.c || [0.12, 0.12, 0.12];
+      pags[pags.length - 1].push(`BT /${l.b ? 'F2' : 'F1'} ${s} Tf ${c.join(' ')} rg ${x.toFixed(1)} ${y.toFixed(1)} Td (${enc(r)}) Tj ET`);
+      y -= s * 1.38;
+    }
+    y -= (l.g != null ? l.g : 4);
+  }
+  const objs = [], add = o => { objs.push(o); return objs.length; };
+  const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'), f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const pagesId = objs.length + 1 + pags.length * 2; const kids = [];
+  pags.forEach((cmds, i) => {
+    const rod = `BT /F1 8 Tf 0.5 0.5 0.5 rg ${M} 28 Td (${enc('HR Mármores e Granitos · página ' + (i + 1) + ' de ' + pags.length)}) Tj ET`;
+    const st = [...cmds, rod].join('\n'); const cid = add(`<< /Length ${st.length} >>\nstream\n${st}\nendstream`);
+    kids.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${cid} 0 R >>`));
+  });
+  add(`<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`);
+  const cat = add(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  let out = '%PDF-1.4\n', offs = [];
+  objs.forEach((o, i) => { offs.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length; out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('') + `trailer\n<< /Size ${objs.length + 1} /Root ${cat} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const b = new Uint8Array(out.length); for (let i = 0; i < out.length; i++) b[i] = out.charCodeAt(i) & 255; return b;
+}
+async function contratoPdf(env, o) {
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', d = o.dados || {}, orc = o.orc || {};
+  const pdf = (orc.orcNum || orc.qId) ? await orcPdfLer(env, orc.orcNum, orc.qId).catch(() => null) : null;
+  const pecas = pdf && pdf.resumo ? pecasTxt({ resumoApp: pdf.resumo }).replace(/\*/g, '').split('\n') : [];
+  const nCt = 'CT-' + (orc.orcNum ? orc.orcNum.replace('ORC-', '') : String(Date.now()).slice(-6));
+  const hoje = dataBahia(), [yy, mm, dd] = hoje.split('-');
+  const retirada = o.retirada;
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'} · ${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 18 },
+    { t: 'CONTRATO DE PRESTAÇÃO DE SERVIÇOS', s: 14, b: 1, a: 'c', g: 0 },
+    { t: `Nº ${nCt}${orc.orcNum ? ' · referente ao orçamento ' + orc.orcNum : ''}`, s: 9, a: 'c', c: [0.4, 0.4, 0.4], g: 14 },
+    { t: 'CONTRATADA', s: 10, b: 1, c: G, g: 2 },
+    { t: `${emp}, inscrita no CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'}, com sede na ${ENDERECO_MARMORARIA}, Pilão Arcado – BA, doravante CONTRATADA.`, g: 8 },
+    { t: 'CONTRATANTE', s: 10, b: 1, c: G, g: 2 },
+    { t: `${d.nome || o.nome}${d.cpf ? ', CPF ' + cpfFmt(d.cpf) : ''}, residente em ${[d.end, d.cidade].filter(Boolean).join(', ') || '—'}, telefone ${fmtNumero(o.num)}, doravante CONTRATANTE.`, g: 12 },
+    { t: '1. OBJETO', s: 10, b: 1, c: G, g: 2 },
+    { t: `Fornecimento${retirada ? '' : ' e instalação'} de ${[orc.projeto, orc.material].filter(Boolean).join(' em ') || 'peças em pedra natural'}, conforme as medidas, os acabamentos e as especificações do orçamento ${orc.orcNum || ''}, que faz parte deste contrato.`, g: 3 },
+    ...pecas.map(p => ({ t: '• ' + p, i: 10, s: 9, g: 1 })), { t: '', g: 6 },
+    { t: '2. VALOR E FORMA DE PAGAMENTO', s: 10, b: 1, c: G, g: 2 },
+    { t: `Valor total: R$ ${reais(orc.valor || 0)}. Forma: ${o.formaPag === 'prazo' ? 'parcelado no cartão de crédito, nas condições do orçamento' : 'à vista (Pix ou dinheiro), nas condições do orçamento'}. A produção começa após a confirmação do pagamento ou do sinal combinado.`, g: 8 },
+    { t: '3. PRAZO', s: 10, b: 1, c: G, g: 2 },
+    { t: `${orc.prazo ? 'Prazo de ' + orc.prazo + ' dias úteis' : 'Prazo conforme o orçamento'}, contado a partir da confirmação do pagamento e da liberação das medidas definitivas. O prazo pode ser ajustado por motivo de força maior, falta de material no fornecedor ou quando o local não estiver liberado para medição ou instalação.`, g: 8 },
+    { t: '4. MEDIDAS', s: 10, b: 1, c: G, g: 2 },
+    { t: 'As peças são produzidas sob medida. Quando as medidas forem informadas pelo CONTRATANTE, a CONTRATADA não responde por diferenças entre essas medidas e o local. Recomendamos a visita técnica da nossa equipe para conferência.', g: 8 },
+    { t: '5. GARANTIA', s: 10, b: 1, c: G, g: 2 },
+    { t: 'A CONTRATADA oferece garantia de 1 (um) ano, contada da data da instalação, que cobre defeitos de FABRICAÇÃO e de INSTALAÇÃO realizada pela equipe da HR Mármores e Granitos.', g: 3 },
+    { t: 'A garantia NÃO cobre:', b: 1, s: 9.5, g: 2 },
+    { t: '• Serviços que não foram instalados pela equipe da CONTRATADA;', i: 10, s: 9.5, g: 1 },
+    { t: '• Pedras para retirada: a responsabilidade da CONTRATADA termina quando a equipe coloca as peças no veículo do CONTRATANTE. Transporte, manuseio e instalação a partir daí são de responsabilidade do CONTRATANTE;', i: 10, s: 9.5, g: 1 },
+    { t: '• Danos por mau uso, impactos, quedas de objetos, calor excessivo ou produtos químicos agressivos (ácidos, removedores, cloro puro);', i: 10, s: 9.5, g: 1 },
+    { t: '• Trincas ou desníveis causados por movimentação da estrutura da obra (paredes, pisos, móveis e bases) ou por alterações feitas por terceiros;', i: 10, s: 9.5, g: 1 },
+    { t: '• Variações naturais de cor, veios, manchas e textura, que são características da pedra natural e não constituem defeito.', i: 10, s: 9.5, g: 8 },
+    { t: '6. OBRIGAÇÕES DO CONTRATANTE', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Deixar o local liberado, limpo e com acesso; garantir que móveis, bases e paredes estejam nivelados, firmes e prontos para receber as peças; providenciar pontos de água e esgoto quando necessários; e acompanhar ou indicar quem receba a entrega.', g: 8 },
+    { t: '7. CANCELAMENTO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Como as peças são cortadas sob medida, após o início do corte os valores referentes ao material e ao serviço já executado não são reembolsáveis.', g: 8 },
+    { t: '8. ACEITE E FORO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Este contrato pode ser aceito por meio do botão “Li e concordo” no WhatsApp oficial da CONTRATADA, ficando registrados a data, a hora e o número do aceite, ou por assinatura abaixo. Fica eleito o foro da comarca da sede da CONTRATADA para resolver qualquer questão deste contrato.', g: 16 },
+    { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 34 },
+    { t: '_______________________________________          _______________________________________', s: 9, a: 'c', g: 0 },
+    { t: `${emp} (CONTRATADA)                              ${(d.nome || o.nome)} (CONTRATANTE)`, s: 8.5, a: 'c', c: [0.35, 0.35, 0.35], g: 6 },
+  ];
+  return { bytes: pdfDocumento(L), nome: `Contrato ${nCt} - ${d.nome || o.nome}.pdf`, nCt };
+}
+async function onbContrato(env, o) {
+  o = await onbLer(env, o.num) || o;
+  if (['contrato', 'fluxo', 'fim'].includes(o.etapa)) return;
+  try {
+    const c = await contratoPdf(env, o), up = await subirPdfMeta(env, c.bytes, c.nome);
+    const pn = nomeDeTratamento(o.dados.nome || o.nome);
+    await enviar(env, o.num, `${pn ? pn + ', a' : 'A'}qui está o *contrato de prestação de serviço*. Ele explica tudo o que está incluído, o prazo e a nossa *garantia de 1 ano* contra defeitos de fabricação e de instalação.`);
+    await postarMsg(env, o.num, { type: 'document', document: { id: up.id, filename: up.nome || c.nome, caption: 'Contrato · HR Mármores e Granitos' } });
+    await enviarComBotoes(env, o.num, 'Leia com calma. Se estiver tudo certo, toque em *Li e concordo* que eu já sigo com o pagamento e a entrega.', [{ id: 'onb_ct_ok|' + o.num, titulo: 'Li e concordo' }, { id: 'onb_ct_dv|' + o.num, titulo: 'Tenho uma dúvida' }]);
+    await env.HR_KV.put('contrato:' + o.num, JSON.stringify({ n: c.nCt, mediaId: up.id, nome: o.dados.nome || o.nome, cpf: o.dados.cpf || '', valor: o.orc && o.orc.valor, em: Date.now() }), { expirationTtl: 400 * 86400 });
+    o.etapa = 'contrato'; o.contratoN = c.nCt; await onbSalvar(env, o);
+    await postarMsg(env, numeroDono(env), { type: 'document', document: { id: up.id, filename: up.nome || c.nome, caption: `Contrato enviado a ${o.dados.nome || o.nome}` } }).catch(() => {});
+  } catch (e) { await pontoAvisarDono(env, `⚠️ Não consegui gerar o contrato de ${o.nome}: ${String(e.message).slice(0, 140)}`).catch(() => {}); }
+}
+async function onbContratoAceito(env, o, from) {
+  if (o.etapa !== 'contrato') { await enviar(env, from, 'Já está registrado, obrigada! 😊'); return true; }
+  let ct = {}; try { ct = JSON.parse((await env.HR_KV.get('contrato:' + o.num)) || '{}'); } catch (_) {}
+  ct.aceito = { em: Date.now(), num: o.num }; await env.HR_KV.put('contrato:' + o.num, JSON.stringify(ct), { expirationTtl: 400 * 86400 });
+  const pn = nomeDeTratamento(o.dados.nome || o.nome);
+  await enviar(env, from, `Contrato aceito, obrigada${pn ? ', ' + pn : ''}! ✅ Fica registrado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' })}.`);
+  await pontoAvisarDono(env, `✍️ *${o.dados.nome || o.nome}* aceitou o contrato ${ct.n || ''} pelo WhatsApp.`).catch(() => {});
+  o.etapa = 'fluxo'; await onbSalvar(env, o);
+  // segue o fechamento: pagamento, entrega/retirada, ficha ao Fabrício, Gibson…
+  const c = { fonte: 'app', qId: o.orc.qId || '', orcNum: o.orc.orcNum || '', nome: o.dados.nome || o.nome, valor: o.orc.valor || 0, tel: o.num, projeto: o.orc.projeto || '', material: o.orc.material || '' };
+  const forma = o.pix || o.formaPag === 'vista' ? 'pix' : 'ent';
+  await fechExecutar(env, numeroDono(env), { sel: c, num: o.num, forma, continuacao: true });
   return true;
 }
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -15295,7 +15572,9 @@ async function commsTratarDono(env, from, bruto, m) {
   const compartilhado = commsContatoCompartilhado(m);
   if (compartilhado) {
     await commsSalvarContato(env, compartilhado.nome, compartilhado.numero, { origem: 'contato_compartilhado' });
-    await enviar(env, from, `Contato *${compartilhado.nome}* salvo com o número recebido. Quando quiser, peça para preparar uma mensagem.`);
+    await env.HR_KV.put(ONB_CARD, JSON.stringify({ nome: compartilhado.nome, num: normalizarBR(compartilhado.numero), em: Date.now() }), { expirationTtl: 3 * 3600 }); // v143
+    await enviarComBotoes(env, from, `Contato *${compartilhado.nome}* salvo.
+Ele aprovou o orçamento? Se sim, eu assumo: falo com ele, pego os dados, mando o PDF completo, o contrato e sigo com pagamento e entrega. (Pode também me escrever: _ele aprovou e quer a chave Pix_.)`, [{ id: 'onb_ini|' + normalizarBR(compartilhado.numero), titulo: 'Aprovou: assuma' }, { id: 'onb_no|x', titulo: 'Só salvar' }]);
     return true;
   }
   // Aguardar aprovação explícita de um rascunho.
@@ -15423,6 +15702,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
   if (!dono && await pv1Resposta(env, from, m).catch(e => { console.log('[PV1] resposta:', e.message); return false; })) return; // v142
   if (!dono && await pvRespostaCliente(env, from, m).catch(e => { console.log('[BOT] pós-venda:', e.message); return false; })) return; // v46
   if (!dono && await tratarRetomadaCliente(env, from, m).catch(e => { console.log('[BOT] retomada cliente:', e.message); return false; })) return; // v43
@@ -15521,6 +15801,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
     if (await pontoRespostaTexto(env, from, msg).catch(e => { console.log('[PONTO] texto:', e.message); return false; })) return; // v123
     if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
+    if (await onbComandoDono(env, from, bruto, msg).catch(e => { console.log('[ONB] comando:', e.message); return false; })) return; // v143
     if (await fechComandoDono(env, from, bruto, msg).catch(e => { console.log('[FECH] comando:', e.message); return false; })) return; // v134
     if (await painelProdDono(env, from, msg).catch(e => { console.log('[PROD] painel:', e.message); return false; })) return; // v137
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
@@ -18880,6 +19161,7 @@ async function rotaFinTarefa(req, env, p) {
     t.estado = 'feito'; await env.HR_KV.put('fin:fila', JSON.stringify(f.filter(x => x.estado !== 'feito').slice(-20)), { expirationTtl: 3 * 86400 });
     if (t.tipo === 'conferir') await confReceberResultado(env, t, b.resultado || {});
     else if (t.tipo === 'pdfimg') await pdfImgResultado(env, t, b); // v76
+    else if (t.tipo === 'orc_completar' && !b.feitos) { const num = (t.orcId ? await env.HR_KV.get('onb:pdf:id' + t.orcId) : null) || (t.orcNum ? await env.HR_KV.get('onb:pdf:' + t.orcNum) : null); const o = num ? await onbLer(env, num) : null; if (o && o.etapa === 'pdf') { if (t.orcId) await env.HR_KV.delete('onb:pdf:id' + t.orcId); if (t.orcNum) await env.HR_KV.delete('onb:pdf:' + t.orcNum); await onbContrato(env, o); } await notificarDono(env, Date.now(), `O app não conseguiu refazer o PDF de ${t.cliente} (${b.erro || 'orçamento não encontrado'}). Mandei o contrato e segui.`).catch(() => {}); } // v143
     else if (t.tipo === 'orc_aceito' && !b.feitos) await notificarDono(env, Date.now(), `Não achei no app o orçamento de ${t.cliente || 'o cliente'} para marcar como Aceito. Marque pelo Histórico.`, { rotina: true }).catch(() => {}); // v79c
     else if (t.tipo === 'aplicar' && b.feitos) await notificarDono(env, Date.now(), `✅ Finanças atualizadas no app: ${b.feitos} ${b.feitos === 1 ? 'alteração' : 'alterações'}${b.erros ? ` (${b.erros} não encontrada(s))` : ''}.`, { rotina: true }).catch(() => {});
     return J({ ok: true });
@@ -19061,6 +19343,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
   if (!forcar && /^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
   if (!forcar && !p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
+  if (p.onbNum) { const o = await onbLer(env, normalizarBR(from)); if (o && o.etapa === 'modelo') { await onbApresentar(env, o); return true; } } // v143
   if (p.pv1Id) { let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + p.pv1Id)) || 'null'); } catch (_) {} if (r) { await pv1Mandar(env, r, normalizarBR(from), true); return true; } } // v142
   if (p.fechAgPid) { const pd = await lerPedido(env, p.fechAgPid).catch(() => null); if (pd && pd.janela) await enviarComBotoes(env, normalizarBR(from), `Obrigada por responder! A entrega do seu pedido pode ser *${janelaTxt(pd.janela)}*. Vai ter alguém para receber nesse horário?`, [{ id: 'fag_ok|' + pd.id, titulo: 'Sim, pode trazer' }, { id: 'fag_no|' + pd.id, titulo: 'Outro horário' }]); return true; } // v135
   if (p.fechPid) { await fechMsgCliente(env, normalizarBR(from), p.fechPid, true); await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} respondeu: mandei a confirmação do pedido${/pix/.test(String((await lerPedido(env, p.fechPid).catch(() => null) || {}).fechDono)) ? ', a chave Pix' : ''} e perguntei entrega ou retirada.`).catch(() => {}); return true; } // v134
