@@ -1,3 +1,5 @@
+// v145 (18/11/2026): "fechei o serviço do João" com instalação (ou "assuma o João") → o bot assume: áudio, nome completo/CPF/endereço, PDF completo, contrato aceito e então o fechamento
+// v144 (18/11/2026): GARANTIAS — cadastro permanente no D1 (contrato, aceite, entrega, validade 1 ano, modalidade), certificado em PDF ao cliente na entrega, "minha garantia"/chamados, "garantias"/"garantia do João" ao dono, rotas /bot/garantias para o app, aviso 30 dias antes de vencer
 // v143b: contrato com cláusula de atraso (multa 2% CDC art. 52 §1º, juros 1% a.m. pro rata, IPCA; 30 dias → suspensão/protesto com aviso)
 // v143 (18/11/2026): CLIENTE APROVADO NO BALCÃO → o dono manda o contato + "aprovou" → o bot se apresenta (áudio), coleta nome completo/CPF/endereço, à vista ou a prazo (dono ou cliente), app refaz o PDF completo, CONTRATO com garantia de 1 ano + "Li e concordo", e segue com Pix/entrega/produção
 // v142 (18/11/2026): PÓS-VENDA DE 1 MÊS PELO BOT — data real da entrega (livro / "Entregue" no app), o bot escreve sozinho (botões Ficou ótimo ⭐ → link do Google / Tive um problema → avisa o dono), fora das 24 h pelo modelo
@@ -2299,6 +2301,7 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('pronto_ag|')) { await avisarPorRegistro(env, from, id.slice(10)); return true; }
   if (/^(fch|fchf)\|/.test(id)) return fechBotao(env, from, id); // v134
   if (/^onb_(ini|no|q|fp)\|/.test(id)) return onbBotaoDono(env, from, id); // v143
+  if (/^gar_(pdf|ct|env)\|/.test(id)) return garBotaoDono(env, from, id); // v144
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
   if (id.startsWith('pronto_ok|')) { await avisarPedidoPronto(env, from, id.slice(10)); return true; }
@@ -6749,6 +6752,7 @@ async function pedirAvaliacoes(env) {
   await equipeRotina(env).catch(e => console.log('[EQ] rotina:', e.message)); // v141
   await pv1Rotina(env).catch(e => console.log('[PV1] rotina:', e.message)); // v142
   await onbRotina(env).catch(e => console.log('[ONB] rotina:', e.message)); // v143
+  await garRotina(env).catch(e => console.log('[GAR] rotina:', e.message)); // v144
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7677,7 +7681,7 @@ async function pedidosProducao(env, filtro) {
 }
 const naFabrica = p => !!p.fichaEnviadaEm && !p.fabProntoEm && !p.prontoEm && !p.entregueEm && p.status !== 'recusado';
 const naEntrega = p => (!!p.fabProntoEm || !!p.prontoEm || !!p.entregaEnviadaEm) && !p.entregueEm && String(p.entrega || '') !== 'retirada' && p.status !== 'recusado';
-const resumoPecas = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), a = String(it.ambiente || 'peça').toLowerCase(); if (!/soleira|peitoril|peça/.test(a)) return a.charAt(0).toUpperCase() + a.slice(1); return `${n} ${a}${n > 1 && !/s$/.test(a) ? (/l$/.test(a) ? '' : 's') : ''}`.replace(/peitoril$/, n > 1 ? 'peitoris' : 'peitoril'); }).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
+const resumoPecas = p => { const r = p.resumoApp || {}; if (!(r.itens && r.itens.length) && !(p.pecas || []).length && p.projetoApp) return p.projetoApp + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); const its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[p.interesse] || 'Peças', pecas: p.pecas || [] }]; return its.map(it => { const n = (it.pecas || []).reduce((t, x) => t + (x.qtd || 1), 0), a = String(it.ambiente || 'peça').toLowerCase(); if (!/soleira|peitoril|peça/.test(a)) return a.charAt(0).toUpperCase() + a.slice(1); return `${n} ${a}${n > 1 && !/s$/.test(a) ? (/l$/.test(a) ? '' : 's') : ''}`.replace(/peitoril$/, n > 1 ? 'peitoris' : 'peitoril'); }).join(' + ') + (r.pedra || p.cor ? ' · ' + (r.pedra || p.cor) : ''); };
 function acharPorNome(lista, texto) {
   const tk = tokensPedra(texto || '');
   const ach = lista.filter(p => { const t = tokensPedra(p.nome || ''); return t.some(w => tk.includes(w) && w.length >= 3); });
@@ -7761,6 +7765,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb) {
   if (ped.entregueEm && !receb) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava como entregue.`); return true; }
   const jaEntregue = !!ped.entregueEm;
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
+  if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
   if (!jaEntregue) await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, entrega: dataBahia() }, 'entregue');
   const cobrar = cobrarNaEntrega(ped);
   const tn = normaliza(texto || '');
@@ -7891,6 +7896,7 @@ function pecasDoResumo(rs) { const out = []; for (const it of ((rs && rs.itens) 
 async function fechExecutar(env, from, st) {
   if (!st.num) return fechSeguir(env, from, st);
   if (!st.forma) return fechSeguir(env, from, st);
+  if (!st.continuacao && st.sel && st.receb !== 'retirada' && fechTemInstalacao(st.sel)) return onbDoFech(env, from, st); // v145: serviço com instalação → dados completos + contrato antes
   await env.HR_KV.delete(FECH_K);
   const c = st.sel, num = st.num, forma = st.forma;
   let base = c.pid ? await lerPedido(env, c.pid).catch(() => null) : null;
@@ -7898,7 +7904,7 @@ async function fechExecutar(env, from, st) {
   const resumo = (base && base.resumoApp) || (pdf && pdf.resumo) || null;
   const pecas = (base && base.pecas && base.pecas.length) ? base.pecas : pecasDoResumo(resumo);
   const ped = { ...(base || {}), id: String(Date.now()), origem: 'fech_dono', fechDono: forma, pedOrigem: base ? base.id : null, numero: num, nome: c.nome, valor: c.valor || (base && Number(base.valor)) || 0,
-    resumoApp: resumo, pecas, cor: (resumo && resumo.pedra) || c.material || (base && base.cor) || '', qId: c.qId || (base && base.qId) || null, orcNum: c.orcNum || '',
+    resumoApp: resumo, pecas, cor: (resumo && resumo.pedra) || c.material || (base && base.cor) || '', qId: c.qId || (base && base.qId) || null, orcNum: c.orcNum || '', projetoApp: c.projeto || (base && base.projetoApp) || '',
     interesse: (base && base.interesse) || (pecas.some(x => x.tipo === 'peitoril') && !pecas.some(x => x.tipo === 'soleira') ? 'peitoril' : 'soleira'),
     status: 'enviado', etapa: 'recebimento', aprovadoCliente: Date.now(), criado: Date.now(), atualizado: Date.now(), forma_pagto: forma === 'pix' ? 'pix' : 'entrega', pago: forma === 'din', pagoDinheiro: forma === 'din' };
   for (const kk of ['mp', 'aguardaPix', 'sinal', 'sinalOferta', 'despachadoEm', 'fichaEnviadaEm', 'entregaEnviadaEm', 'fabProntoEm', 'prontoEm', 'entregueEm', 'entrega', 'referencia', 'trocoPara', 'trocoPerguntado', 'despachoPendente', 'horaEntrega', 'horaEtapa', 'horaPendente']) delete ped[kk];
@@ -8498,6 +8504,19 @@ async function pv1Resposta(env, from, m) {
 //   (garantia de 1 ano etc.) com o botão "Li e concordo" e segue com o fechamento (Pix, entrega/retirada, produção).
 // ═════════════════════════════════════════════════════════════════════════════
 const ONB_D = 'onb:dono', ONB_C = 'onb:c:', ONB_CARD = 'onb:ultcard';
+// v145: "fechei o serviço do João" com INSTALAÇÃO (cozinha, banheiro, bancada, túmulo…) → o bot assume: dados completos, contrato e depois o fechamento
+function fechTemInstalacao(c) { const t = normaliza([c.projeto, c.material].join(' ')); return !!t.trim() && !(PI_SO_ENTREGA.test(t) && !PI_COM_INSTALACAO.test(t)); }
+async function onbDoFech(env, from, st) {
+  await env.HR_KV.delete(FECH_K);
+  const c = st.sel;
+  const o = { num: normalizarBR(st.num), nome: c.nome, pix: st.forma === 'pix', formaPag: 'vista', fechForma: st.forma, etapa: 'intro', dados: {}, em: Date.now(), cands: [], retirada: false,
+    orc: { qId: c.qId || '', orcNum: c.orcNum || '', valor: c.valor || 0, projeto: c.projeto || '', material: c.material || '', prazo: c.prazo || 0 } };
+  await onbSalvar(env, o);
+  await onbContatoCliente(env, o);
+  await enviar(env, from, `✅ *${c.nome}* · ${fechRotulo(c)}
+Como tem instalação, eu assumo: já falei com ele (áudio de apresentação), vou pegar *nome completo, CPF e endereço da obra*, refazer o PDF com esses dados, mandar o *contrato* para ele aceitar e depois sigo com ${st.forma === 'pix' ? 'a chave Pix' : st.forma === 'din' ? 'o pagamento já recebido em dinheiro' : 'o pagamento na entrega'}, a ficha ao ${nomeFabrica(env)} e a entrega. Te aviso em cada etapa.`);
+  return true;
+}
 async function onbLer(env, num) { try { return JSON.parse((await env.HR_KV.get(ONB_C + num)) || 'null'); } catch (_) { return null; } }
 const onbSalvar = (env, o) => env.HR_KV.put(ONB_C + o.num, JSON.stringify({ ...o, at: Date.now() }), { expirationTtl: 30 * 86400 });
 const ONB_FP_TXT = { vista: 'à vista', prazo: 'parcelado no cartão', '?': 'a combinar' };
@@ -8514,7 +8533,14 @@ async function onbComandoDono(env, from, bruto, msg) {
       if (/orc/i.test(bruto) && on) { const h = await orcDoHistPorId(env, null, 'ORC-' + on.padStart(4, '0')).catch(() => null); if (h) { await env.HR_KV.delete(ONB_D); o.orc = { qId: String(h.id || ''), orcNum: orcNumNorm(h.orcNum), valor: h.valor, projeto: h.projeto, material: h.material, prazo: h.prazo }; await onbSalvar(env, o); await enviar(env, from, `Achei o ${o.orc.orcNum}: ${orcRotulo(h)}.`); return onbPerguntarForma(env, from, o); } }
       if (v && v.n > 0) { await env.HR_KV.delete(ONB_D); o.orc = { ...(o.orc || {}), valor: v.n }; await onbSalvar(env, o); await enviar(env, from, `Anotado: R$ ${reais(v.n)}.`); return onbPerguntarForma(env, from, o); } }
   }
-  if (!/\b(aprovou|aceitou|fechou|quer fechar|vai fechar|aprovado|confirmou)\b/.test(msg)) return false;
+  const assume = msg.match(/^(?:pode |por favor )?(?:assum[ae]|assuma|cuida|cuide|atend[ae])\s+(?:o |a |do |da )?(?:cliente )?(.{2,40})$/);
+  if (assume && !/^(ess[ea]|este|esta|ele|ela)\b/.test(assume[1])) { // pelo nome: acha o orçamento e o número
+    const nome = assume[1].trim(), cands = await fechCandidatos(env, nome).catch(() => []);
+    if (cands.length) { const nst = { etapa: 'escolha', nome, forma: /\bpix\b/.test(msg) ? 'pix' : '', cands, em: Date.now() }; await fechSalvar(env, nst);
+      await enviarComBotoes(env, from, `Achei ${cands.length > 1 ? 'estes orçamentos' : 'este orçamento'} de *${nome}*:\n\n${cands.map((c, i) => `${i + 1}. ${fechRotulo(c)}`).join('\n')}\n\nÉ ${cands.length > 1 ? 'qual' : 'esse'}?`, cands.length > 1 ? cands.map((c, i) => ({ id: 'fch|' + i, titulo: `${i + 1}. ${c.orcNum || 'R$ ' + Math.round(c.valor)}`.slice(0, 20) })) : [{ id: 'fch|0', titulo: 'Sim, é esse' }, { id: 'fch|no', titulo: 'Não é esse' }]); return true; }
+    await enviar(env, from, `Não achei orçamento de *${nome}*. Me mande o cartão de contato dele que eu assumo daí.`); return true;
+  }
+  if (!/\b(aprovou|aceitou|fechou|quer fechar|vai fechar|aprovado|confirmou|assum[ae]|assuma)\b/.test(msg)) return false;
   if (/\d+\s*(x|por)\s*\d+/.test(msg)) return false; // ditou medidas: ficha_producao
   let card = null; try { card = JSON.parse((await env.HR_KV.get(ONB_CARD)) || 'null'); } catch (_) {}
   const refere = /\b(esse|este|ess[ae] cliente|ele|ela|o contato|do contato|desse contato)\b/.test(msg);
@@ -8748,6 +8774,8 @@ async function onbContrato(env, o) {
     await postarMsg(env, o.num, { type: 'document', document: { id: up.id, filename: up.nome || c.nome, caption: 'Contrato · HR Mármores e Granitos' } });
     await enviarComBotoes(env, o.num, 'Leia com calma. Se estiver tudo certo, toque em *Li e concordo* que eu já sigo com o pagamento e a entrega.', [{ id: 'onb_ct_ok|' + o.num, titulo: 'Li e concordo' }, { id: 'onb_ct_dv|' + o.num, titulo: 'Tenho uma dúvida' }]);
     await env.HR_KV.put('contrato:' + o.num, JSON.stringify({ n: c.nCt, mediaId: up.id, nome: o.dados.nome || o.nome, cpf: o.dados.cpf || '', valor: o.orc && o.orc.valor, em: Date.now() }), { expirationTtl: 400 * 86400 });
+    const pdfO = o.orc && (o.orc.orcNum || o.orc.qId) ? await orcPdfLer(env, o.orc.orcNum, o.orc.qId).catch(() => null) : null; // v144: garantia nasce com o contrato
+    await garCriar(env, { ref: 'onb:' + o.num + ':' + (o.orc && (o.orc.orcNum || o.orc.qId) || ''), num: o.num, cliente: o.dados.nome || o.nome, cpf: o.dados.cpf || '', endereco: [o.dados.end, o.dados.cidade].filter(Boolean).join(', '), servico: o.orc && o.orc.projeto || '', material: o.orc && o.orc.material || '', pecas: JSON.stringify(pdfO && pdfO.resumo ? pecasTxt({ resumoApp: pdfO.resumo }).replace(/\*/g, '').split('\n') : []), valor: o.orc && o.orc.valor || 0, orc_num: o.orc && o.orc.orcNum || '', contrato_n: c.nCt, contrato_b64: bytesParaBase64(c.bytes), modalidade: o.retirada ? 'retirada' : 'instalacao', origem: 'contrato' }).catch(e => console.log('[GAR] contrato:', e.message));
     o.etapa = 'contrato'; o.contratoN = c.nCt; await onbSalvar(env, o);
     await postarMsg(env, numeroDono(env), { type: 'document', document: { id: up.id, filename: up.nome || c.nome, caption: `Contrato enviado a ${o.dados.nome || o.nome}` } }).catch(() => {});
   } catch (e) { await pontoAvisarDono(env, `⚠️ Não consegui gerar o contrato de ${o.nome}: ${String(e.message).slice(0, 140)}`).catch(() => {}); }
@@ -8756,15 +8784,252 @@ async function onbContratoAceito(env, o, from) {
   if (o.etapa !== 'contrato') { await enviar(env, from, 'Já está registrado, obrigada! 😊'); return true; }
   let ct = {}; try { ct = JSON.parse((await env.HR_KV.get('contrato:' + o.num)) || '{}'); } catch (_) {}
   ct.aceito = { em: Date.now(), num: o.num }; await env.HR_KV.put('contrato:' + o.num, JSON.stringify(ct), { expirationTtl: 400 * 86400 });
+  try { const gl = await garDoNumero(env, o.num); const g0 = gl.find(x => x.contrato_n === ct.n) || gl[0]; if (g0) { const gf = await garLer(env, g0.id); gf.aceite_em = Date.now(); await garSalvar(env, gf); await garEvento(env, gf.id, 'contrato aceito', `Aceite pelo WhatsApp (${fmtNumero(o.num)})`); } } catch (e) { console.log('[GAR] aceite:', e.message); } // v144
   const pn = nomeDeTratamento(o.dados.nome || o.nome);
   await enviar(env, from, `Contrato aceito, obrigada${pn ? ', ' + pn : ''}! ✅ Fica registrado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' })}.`);
   await pontoAvisarDono(env, `✍️ *${o.dados.nome || o.nome}* aceitou o contrato ${ct.n || ''} pelo WhatsApp.`).catch(() => {});
   o.etapa = 'fluxo'; await onbSalvar(env, o);
   // segue o fechamento: pagamento, entrega/retirada, ficha ao Fabrício, Gibson…
   const c = { fonte: 'app', qId: o.orc.qId || '', orcNum: o.orc.orcNum || '', nome: o.dados.nome || o.nome, valor: o.orc.valor || 0, tel: o.num, projeto: o.orc.projeto || '', material: o.orc.material || '' };
-  const forma = o.pix || o.formaPag === 'vista' ? 'pix' : 'ent';
+  const forma = o.fechForma || (o.pix || o.formaPag === 'vista' ? 'pix' : 'ent');
   await fechExecutar(env, numeroDono(env), { sel: c, num: o.num, forma, continuacao: true });
   return true;
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v144: GARANTIAS — cadastro permanente (D1), certificado em PDF, contrato guardado, chamados e lembretes
+//   • Nasce no contrato aceito (onb) ou na ENTREGA (Gibson/Fabrício, app "Entregue", livro); vale 1 ano a partir da entrega
+//   • Modalidade: instalação (fabricação + instalação) · entrega sem instalação / retirada (só fabricação)
+//   • Cliente recebe o CERTIFICADO DE GARANTIA em PDF; pode pedir de novo ("minha garantia") e abrir chamado
+//   • Dono: "garantias", "garantia do João"; app: tela 🛡️ Garantias (lista, busca, PDFs, reenviar, nova, exportar)
+// ═════════════════════════════════════════════════════════════════════════════
+let garTabOk = false;
+async function garTabela(env) {
+  if (garTabOk || !env.HR_DB) return !!env.HR_DB;
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS garantia (id TEXT PRIMARY KEY, num TEXT, cliente TEXT, cpf TEXT, endereco TEXT, servico TEXT, material TEXT, pecas TEXT, valor REAL, orc_num TEXT, contrato_n TEXT, aceite_em INTEGER, inicio TEXT, validade TEXT, modalidade TEXT, status TEXT, origem TEXT, ref TEXT, cert_b64 TEXT, contrato_b64 TEXT, obs TEXT, criado INTEGER, atualizado INTEGER)').run();
+  await env.HR_DB.prepare('CREATE INDEX IF NOT EXISTS garantia_num ON garantia (num)').run();
+  await env.HR_DB.prepare('CREATE INDEX IF NOT EXISTS garantia_ref ON garantia (ref)').run();
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS garantia_evento (id INTEGER PRIMARY KEY AUTOINCREMENT, gid TEXT, ts INTEGER, tipo TEXT, texto TEXT)').run();
+  garTabOk = true; return true;
+}
+const GAR_MOD = { instalacao: 'Fabricação e instalação', entrega: 'Fabricação (entregue sem instalação)', retirada: 'Fabricação (retirada pelo cliente)' };
+const garVence = ini => isoOk(ini) ? `${+ini.slice(0, 4) + 1}${ini.slice(4)}` : '';
+function garSituacao(g, hoje) {
+  hoje = hoje || dataBahia();
+  if (g.status === 'cancelada') return 'cancelada';
+  if (!g.inicio) return 'aguardando_entrega';
+  if (g.validade && g.validade < hoje) return 'vencida';
+  return 'ativa';
+}
+const GAR_SIT = { ativa: '🟢 Ativa', vencida: '⚪ Vencida', aguardando_entrega: '🟡 Aguardando entrega', cancelada: '⛔ Cancelada' };
+async function garNovoId(env) { const n = (Number(await env.HR_KV.get('gar:seq')) || 0) + 1; await env.HR_KV.put('gar:seq', String(n)); return 'G-' + String(n).padStart(4, '0'); }
+async function garEvento(env, gid, tipo, texto) { try { await garTabela(env); await env.HR_DB.prepare('INSERT INTO garantia_evento (gid, ts, tipo, texto) VALUES (?, ?, ?, ?)').bind(gid, Date.now(), tipo, String(texto || '').slice(0, 1000)).run(); } catch (e) { console.log('[GAR] evento:', e.message); } }
+async function garLer(env, id) { if (!(await garTabela(env))) return null; return await env.HR_DB.prepare('SELECT * FROM garantia WHERE id = ?').bind(id).first(); }
+async function garDoNumero(env, num) { if (!(await garTabela(env)) || !num) return []; const r = await env.HR_DB.prepare('SELECT id, num, cliente, servico, material, inicio, validade, modalidade, status, contrato_n, orc_num FROM garantia WHERE substr(num, -8) = ? ORDER BY criado DESC').bind(ultimos8(num)).all(); return r.results || []; }
+async function garSalvar(env, g) {
+  if (!(await garTabela(env))) return null;
+  const agora = Date.now(); g.atualizado = agora;
+  if (!g.id) { g.id = await garNovoId(env); g.criado = agora; }
+  const cols = ['id', 'num', 'cliente', 'cpf', 'endereco', 'servico', 'material', 'pecas', 'valor', 'orc_num', 'contrato_n', 'aceite_em', 'inicio', 'validade', 'modalidade', 'status', 'origem', 'ref', 'cert_b64', 'contrato_b64', 'obs', 'criado', 'atualizado'];
+  await env.HR_DB.prepare(`INSERT INTO garantia (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')}) ON CONFLICT(id) DO UPDATE SET ${cols.filter(c => c !== 'id' && c !== 'criado').map(c => `${c}=excluded.${c}`).join(',')}`)
+    .bind(...cols.map(c => g[c] == null ? null : g[c])).run();
+  return g;
+}
+// cria (ou acha) a garantia de um pedido/contrato; não duplica pela referência
+async function garCriar(env, a) {
+  if (!(await garTabela(env))) return null;
+  const ref = String(a.ref || '').slice(0, 60);
+  let g = ref ? await env.HR_DB.prepare('SELECT * FROM garantia WHERE ref = ?').bind(ref).first() : null;
+  if (!g && a.num && a.orc_num) g = await env.HR_DB.prepare('SELECT * FROM garantia WHERE substr(num, -8) = ? AND orc_num = ? ORDER BY criado DESC').bind(ultimos8(a.num), a.orc_num).first();
+  if (!g && a.num) g = await env.HR_DB.prepare("SELECT * FROM garantia WHERE substr(num, -8) = ? AND (inicio IS NULL OR inicio = '') AND status != 'cancelada' ORDER BY criado DESC").bind(ultimos8(a.num)).first();
+  g = g ? { ...g } : { status: 'ativa', origem: a.origem || 'bot', ref };
+  for (const k of ['num', 'cliente', 'cpf', 'endereco', 'servico', 'material', 'pecas', 'valor', 'orc_num', 'contrato_n', 'aceite_em', 'modalidade', 'contrato_b64', 'obs']) if (a[k] != null && a[k] !== '' && !g[k]) g[k] = a[k];
+  if (a.contrato_b64) g.contrato_b64 = a.contrato_b64; if (a.aceite_em) g.aceite_em = a.aceite_em;
+  if (!g.ref && ref) g.ref = ref;
+  if (a.inicio && !g.inicio) { g.inicio = a.inicio; g.validade = garVence(a.inicio); }
+  return garSalvar(env, g);
+}
+function garModalidade(ped) {
+  if (String(ped.entrega || '') === 'retirada') return 'retirada';
+  const t = normaliza([ped.interesse, ped.projetoApp, resumoPecas(ped)].join(' '));
+  return PI_SO_ENTREGA.test(t) && !PI_COM_INSTALACAO.test(t) ? 'entrega' : 'instalacao';
+}
+async function garCertificadoPdf(env, g) {
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', mod = g.modalidade || 'instalacao';
+  const pecas = (() => { try { return JSON.parse(g.pecas || '[]'); } catch (_) { return []; } })();
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'} · ${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 22 },
+    { t: 'CERTIFICADO DE GARANTIA', s: 20, b: 1, a: 'c', g: 2 },
+    { t: `Nº ${g.id}`, s: 11, b: 1, a: 'c', c: G, g: 18 },
+    { t: 'CLIENTE', s: 10, b: 1, c: G, g: 2 },
+    { t: `${g.cliente}${g.cpf ? ' · CPF ' + cpfFmt(g.cpf) : ''}${g.num ? ' · ' + fmtNumero(g.num) : ''}`, g: 2 },
+    ...(g.endereco ? [{ t: g.endereco, s: 9.5, c: [0.35, 0.35, 0.35], g: 10 }] : [{ t: '', g: 6 }]),
+    { t: 'SERVIÇO', s: 10, b: 1, c: G, g: 2 },
+    { t: `${[g.servico, g.material].filter(Boolean).join(' em ') || 'Peças em pedra natural'}${g.orc_num ? ' · orçamento ' + g.orc_num : ''}${g.contrato_n ? ' · contrato ' + g.contrato_n : ''}`, g: 2 },
+    ...pecas.slice(0, 12).map(p => ({ t: '• ' + p, s: 9, i: 10, g: 1 })), { t: '', g: 8 },
+    { t: 'VIGÊNCIA', s: 10, b: 1, c: G, g: 2 },
+    { t: `De ${dataBR(g.inicio)} a ${dataBR(g.validade)} (1 ano a partir da ${mod === 'retirada' ? 'retirada' : mod === 'entrega' ? 'entrega' : 'instalação'}).`, b: 1, s: 11, g: 10 },
+    { t: 'COBERTURA', s: 10, b: 1, c: G, g: 2 },
+    { t: mod === 'instalacao' ? 'Defeitos de FABRICAÇÃO das peças e de INSTALAÇÃO realizada pela equipe da HR Mármores e Granitos.' : `Defeitos de FABRICAÇÃO das peças. Como as peças foram ${mod === 'retirada' ? 'retiradas pelo cliente' : 'entregues sem instalação pela nossa equipe'}, não há garantia de instalação${mod === 'retirada' ? ', e a responsabilidade da HR terminou quando a equipe colocou as peças no veículo do cliente' : ''}.`, g: 8 },
+    { t: 'NÃO ESTÃO COBERTOS', s: 10, b: 1, c: G, g: 2 },
+    ...['Instalação feita por terceiros ou peças não instaladas pela equipe da HR;', 'Transporte e manuseio feitos pelo cliente (pedras para retirada);', 'Mau uso, impactos, quedas de objetos, calor excessivo e produtos químicos agressivos (ácidos, removedores, cloro puro);', 'Trincas ou desníveis causados por movimentação da obra (paredes, pisos, móveis, bases) ou por alterações de terceiros;', 'Variações naturais de cor, veios, manchas e textura da pedra natural.'].map(t => ({ t: '• ' + t, s: 9.5, i: 10, g: 1 })), { t: '', g: 8 },
+    { t: 'CUIDADOS PARA A PEDRA DURAR MAIS', s: 10, b: 1, c: G, g: 2 },
+    ...['Limpe com pano úmido, água e detergente neutro; seque em seguida;', 'Evite ácidos (limão, vinagre), água sanitária pura e produtos abrasivos;', 'Use apoio para panelas quentes e tábua para cortar;', 'Faça impermeabilização periódica (recomendamos a cada 12 meses).'].map(t => ({ t: '• ' + t, s: 9.5, i: 10, g: 1 })), { t: '', g: 8 },
+    { t: 'COMO ACIONAR A GARANTIA', s: 10, b: 1, c: G, g: 2 },
+    { t: `Fale com a gente pelo WhatsApp oficial da HR, informe o nº ${g.id} e mande fotos do problema. Nossa equipe avalia e agenda a visita técnica.`, g: 26 },
+    { t: `Pilão Arcado – BA, ${dataBR(dataBahia())}.`, a: 'c', g: 30 },
+    { t: '_______________________________________', s: 9, a: 'c', g: 0 },
+    { t: `${emp}`, s: 8.5, a: 'c', c: [0.35, 0.35, 0.35] },
+  ];
+  return pdfDocumento(L);
+}
+// ativa a garantia na entrega e manda o certificado ao cliente
+async function garAtivar(env, a, enviarCliente) {
+  try {
+    const ini = isoOk(a.inicio) || dataBahia();
+    const g = await garCriar(env, { ...a, inicio: ini });
+    if (!g) return null;
+    if (!g.inicio) { g.inicio = ini; g.validade = garVence(ini); }
+    g.status = 'ativa';
+    const bytes = await garCertificadoPdf(env, g); g.cert_b64 = bytesParaBase64(bytes);
+    await garSalvar(env, g);
+    await garEvento(env, g.id, 'ativada', `Garantia ativada (${GAR_MOD[g.modalidade] || ''}) de ${dataBR(g.inicio)} a ${dataBR(g.validade)}`);
+    if (enviarCliente && g.num) await garEnviarCertificado(env, g, bytes).catch(e => console.log('[GAR] envio:', e.message));
+    return g;
+  } catch (e) { console.log('[GAR] ativar:', e.message); return null; }
+}
+async function garEnviarCertificado(env, g, bytes, pedido) {
+  const num = normalizarBR(String(g.num).startsWith('55') ? g.num : '55' + g.num);
+  if (!(await janela24h(env, num))) return false;
+  bytes = bytes || (g.cert_b64 ? base64ParaBytes(g.cert_b64) : await garCertificadoPdf(env, g));
+  const up = await subirPdfMeta(env, bytes, `Certificado de Garantia ${g.id} - ${g.cliente}.pdf`);
+  const pn = nomeDeTratamento(g.cliente);
+  if (!pedido) await enviar(env, num, `${pn ? pn + ', s' : 'S'}eu serviço está protegido! 🛡️ Segue o seu *Certificado de Garantia* (nº ${g.id}), válido até ${dataBR(g.validade)}. Guarde com carinho; se precisar, é só me chamar por aqui.`);
+  await postarMsg(env, num, { type: 'document', document: { id: up.id, filename: up.nome || `Garantia ${g.id}.pdf`, caption: `Certificado de Garantia ${g.id} · HR Mármores e Granitos` } });
+  await garEvento(env, g.id, 'certificado', 'Certificado enviado ao cliente');
+  return true;
+}
+// a partir de um pedido entregue (bot) — chamado por prodMarcarEntregue
+async function garDoPedido(env, ped) {
+  const pdf = (ped.orcNum || ped.qId) ? await orcPdfLer(env, ped.orcNum, ped.qId).catch(() => null) : null;
+  const resumo = ped.resumoApp || (pdf && pdf.resumo) || null;
+  let ct = null; try { ct = JSON.parse((await env.HR_KV.get('contrato:' + normalizarBR(ped.numero))) || 'null'); } catch (_) {}
+  return garAtivar(env, { ref: 'ped:' + ped.id, num: ped.numero, cliente: ped.nome, servico: (resumo && resumo.itens || []).map(i => i.ambiente).join(' + ') || resumoPecas(ped).split(' · ')[0], material: (resumo && resumo.pedra) || ped.cor || '',
+    pecas: JSON.stringify(pecasTxt({ ...ped, resumoApp: resumo }).replace(/\*/g, '').split('\n').filter(Boolean)), valor: Number(ped.valor) || 0, orc_num: ped.orcNum || '', modalidade: garModalidade(ped),
+    contrato_n: ct && ct.n || '', aceite_em: ct && ct.aceito && ct.aceito.em || null, origem: 'pedido', inicio: dataBahia() }, true);
+}
+// livro de entregas (o app marca "Entregue") → garantia; as antigas entram sem mensagem
+async function garRotina(env) {
+  if (!env.HR_DB || Date.now() - (globalThis.__garRot || 0) < 30 * 60000) return; globalThis.__garRot = Date.now();
+  const hoje = dataBahia(), ini = await env.HR_KV.get('gar:livro:ok');
+  for (const x of await livTodos(env).catch(() => [])) {
+    const d = livDataOk(x.entregaEm); if (!d || diasCorridos(d, hoje) > 365 || diasCorridos(d, hoje) < 0) continue;
+    if (await env.HR_KV.get('gar:liv:' + x.id)) continue;
+    const desc = normaliza(x.desc || ''), mod = PI_SO_ENTREGA.test(desc) && !PI_COM_INSTALACAO.test(desc) ? 'entrega' : 'instalacao';
+    const recente = ini && diasCorridos(d, hoje) <= 3;
+    await garAtivar(env, { ref: 'liv:' + x.id, num: x.tel || '', cliente: x.cliente, servico: String(x.desc || '').split(' — ')[0], material: String(x.desc || '').split(' — ')[1] || '', valor: Number(x.valor) || 0, modalidade: mod, origem: 'livro', inicio: d }, recente && !!x.tel);
+    await env.HR_KV.put('gar:liv:' + x.id, '1', { expirationTtl: 400 * 86400 });
+  }
+  if (!ini) await env.HR_KV.put('gar:livro:ok', String(Date.now()));
+  // 30 dias antes de vencer: avisa o dono (oportunidade de revisão/impermeabilização)
+  if (await env.HR_KV.get('gar:venc:' + hoje)) return;
+  await env.HR_KV.put('gar:venc:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  await garTabela(env);
+  const r = await env.HR_DB.prepare("SELECT id, cliente, num, servico, validade FROM garantia WHERE validade = ? AND status = 'ativa'").bind(isoSomaDias(hoje, 30)).all();
+  for (const g of r.results || []) await pontoAvisarDono(env, `🛡️ A garantia *${g.id}* de *${g.cliente}* (${g.servico}) vence em 30 dias (${dataBR(g.validade)}). Boa hora para oferecer revisão e impermeabilização.${g.num ? '\nwa.me/' + normalizarBR(g.num) : ''}`).catch(() => {});
+}
+// ── cliente: "minha garantia", "quero acionar a garantia" ──
+async function garClienteMsg(env, from, m) {
+  if (m.type !== 'text' && !m._texto) return false;
+  const msg = normaliza(m.type === 'text' ? String(m.text?.body || '') : m._texto);
+  if (!/\bgarantia\b/.test(msg)) return false;
+  const l = await garDoNumero(env, from).catch(() => []); if (!l.length) return false;
+  const g = l[0], pn = nomeDeTratamento(g.cliente), sit = garSituacao(g);
+  if (/\b(problema|defeito|trinc|quebr|rachad|solt|mancha|acionar|usar a garantia|deu ruim|estragou|caiu)\b/.test(msg)) {
+    await garEvento(env, g.id, 'chamado', String(m.text?.body || m._texto).slice(0, 500));
+    await enviar(env, from, `${pn ? pn + ', s' : 'S'}into muito pelo transtorno! Abri o seu chamado na garantia *${g.id}* (${sit === 'ativa' ? 'válida até ' + dataBR(g.validade) : 'situação: ' + GAR_SIT[sit].replace(/^\S+ /, '').toLowerCase()}). Me mande fotos do problema, por favor, que o Sr. Hangel avalia e já agenda a visita.`);
+    await anotarNoHistorico(env, from, `[O cliente abriu CHAMADO DE GARANTIA ${g.id} (${g.servico}). Peça fotos e detalhes com gentileza; não prometa troca nem prazo: o Sr. Hangel avalia.]`).catch(() => {});
+    await pontoAvisarDono(env, `🛡️ *Chamado de garantia* ${g.id} — *${g.cliente}* (${g.servico}${g.material ? ' em ' + g.material : ''}, ${GAR_SIT[sit]}${g.validade ? ' até ' + dataBR(g.validade) : ''}):\n"${String(m.text?.body || m._texto).slice(0, 300)}"\nwa.me/${normalizarBR(from)}`).catch(() => {});
+    return true;
+  }
+  const full = await garLer(env, g.id);
+  if (sit === 'ativa' && full) { await enviar(env, from, `${pn ? pn + ', a' : 'A'} sua garantia *${g.id}* (${g.servico}) está *ativa* até *${dataBR(g.validade)}*. Vou te mandar o certificado de novo. 🛡️`); await garEnviarCertificado(env, full, null, true).catch(() => {}); return true; }
+  await enviar(env, from, `${pn ? pn + ', a' : 'A'} garantia *${g.id}* (${g.servico}) ${sit === 'vencida' ? 'venceu em ' + dataBR(g.validade) + '. Mas a gente pode fazer uma revisão e impermeabilização: quer que eu veja um horário?' : sit === 'aguardando_entrega' ? 'começa a valer no dia da entrega do seu pedido.' : 'está ' + GAR_SIT[sit].replace(/^\S+ /, '').toLowerCase() + '.'}`);
+  return true;
+}
+// ── dono ──
+async function garComandoDono(env, from, msg) {
+  const m1 = /^(garantias|minhas garantias|lista de garantias|garantias ativas)$/.test(msg), m2 = msg.match(/^(?:a |ver |mostra )?garantia (?:d[oae]s? )?(.{2,40})$/);
+  if (!m1 && !m2) return false;
+  if (!(await garTabela(env))) { await enviar(env, from, 'O banco de dados (D1) não está ligado no bot.'); return true; }
+  const hoje = dataBahia();
+  if (m2) {
+    const q = '%' + m2[1].trim() + '%', ehId = /^g-?\d+/i.test(m2[1].trim());
+    const r = await env.HR_DB.prepare(ehId ? 'SELECT * FROM garantia WHERE id = ?' : 'SELECT * FROM garantia WHERE cliente LIKE ? ORDER BY criado DESC LIMIT 5').bind(ehId ? m2[1].trim().toUpperCase().replace(/^G-?/, 'G-') : q).all();
+    const l = r.results || []; if (!l.length) { await enviar(env, from, `Não achei garantia de "${m2[1]}".`); return true; }
+    for (const g of l.slice(0, 3)) {
+      const ev = await env.HR_DB.prepare('SELECT ts, tipo, texto FROM garantia_evento WHERE gid = ? ORDER BY ts DESC LIMIT 4').bind(g.id).all();
+      await enviarComBotoes(env, from, [`🛡️ *${g.id}* · ${GAR_SIT[garSituacao(g, hoje)]}`, `*${g.cliente}*${g.num ? ' · ' + fmtNumero(normalizarBR(g.num)) : ''}`, `${[g.servico, g.material].filter(Boolean).join(' em ')}${g.orc_num ? ' · ' + g.orc_num : ''}`, `${GAR_MOD[g.modalidade] || ''}`, g.inicio ? `Vigência: ${dataBR(g.inicio)} a ${dataBR(g.validade)}` : 'Começa na entrega', g.contrato_n ? `Contrato ${g.contrato_n}${g.aceite_em ? ' · aceito em ' + new Date(g.aceite_em).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' }) : ''}` : '', ...(ev.results || []).map(e => `• ${new Date(e.ts).toLocaleDateString('pt-BR', { timeZone: 'America/Bahia' })} ${e.tipo}: ${String(e.texto).slice(0, 60)}`)].filter(Boolean).join('\n'),
+        [{ id: 'gar_pdf|' + g.id, titulo: 'Certificado (PDF)' }, ...(g.contrato_b64 ? [{ id: 'gar_ct|' + g.id, titulo: 'Contrato (PDF)' }] : []), ...(g.num && g.inicio ? [{ id: 'gar_env|' + g.id, titulo: 'Mandar ao cliente' }] : [])].slice(0, 3));
+    }
+    return true;
+  }
+  const r = await env.HR_DB.prepare('SELECT id, cliente, servico, inicio, validade, status FROM garantia ORDER BY criado DESC LIMIT 300').all(); const l = r.results || [];
+  const at = l.filter(g => garSituacao(g, hoje) === 'ativa'), venc30 = at.filter(g => diasCorridos(hoje, g.validade) <= 30), ag = l.filter(g => garSituacao(g, hoje) === 'aguardando_entrega');
+  const ch = await env.HR_DB.prepare("SELECT gid, ts, texto FROM garantia_evento WHERE tipo = 'chamado' AND ts > ? ORDER BY ts DESC LIMIT 5").bind(Date.now() - 30 * 86400000).all();
+  await enviar(env, from, [`🛡️ *Garantias* · ${at.length} ativa(s) · ${ag.length} aguardando entrega · ${l.length - at.length - ag.length} vencida(s)`, '',
+    ...(venc30.length ? ['*Vencem em 30 dias:*', ...venc30.map(g => `• ${g.id} ${g.cliente} — ${dataBR(g.validade)}`), ''] : []),
+    ...((ch.results || []).length ? ['*Chamados recentes:*', ...ch.results.map(c => `• ${c.gid} — ${String(c.texto).slice(0, 50)}`), ''] : []),
+    '*Últimas:*', ...l.slice(0, 8).map(g => `• ${g.id} ${g.cliente} — ${g.servico || ''} · ${GAR_SIT[garSituacao(g, hoje)]}${g.validade ? ' até ' + dataBR(g.validade).slice(0, 5) + '/' + g.validade.slice(2, 4) : ''}`), '', '_Detalhes: garantia do João (ou garantia G-0012). No app: Secretária → 🛡️ Garantias._'].join('\n'));
+  return true;
+}
+async function garBotaoDono(env, from, id) {
+  const [ac, gid] = id.split('|'); const g = await garLer(env, gid); if (!g) { await enviar(env, from, 'Não achei essa garantia.'); return true; }
+  if (ac === 'gar_env') { const ok = await garEnviarCertificado(env, g).catch(() => false); await enviar(env, from, ok ? `Certificado ${g.id} enviado a ${g.cliente}.` : `${g.cliente} está fora das 24 h do WhatsApp; mande uma mensagem a ele primeiro (wa.me/${normalizarBR(g.num)}).`); return true; }
+  const b64 = ac === 'gar_ct' ? g.contrato_b64 : (g.cert_b64 || bytesParaBase64(await garCertificadoPdf(env, g)));
+  if (!b64) { await enviar(env, from, 'Esse PDF não está guardado.'); return true; }
+  const up = await subirPdfMeta(env, base64ParaBytes(b64), `${ac === 'gar_ct' ? 'Contrato' : 'Certificado de Garantia'} ${g.id} - ${g.cliente}.pdf`);
+  await postarMsg(env, from, { type: 'document', document: { id: up.id, filename: up.nome || g.id + '.pdf', caption: `${ac === 'gar_ct' ? 'Contrato' : 'Certificado'} · ${g.id} · ${g.cliente}` } });
+  return true;
+}
+// ── rotas do app ──
+async function rotaGarantias(req, env, url) {
+  const p = url.pathname;
+  if (!(await garTabela(env))) return jsonR({ error: 'Banco D1 (HR_DB) não ligado no bot.' }, 503);
+  if (p === '/bot/garantias' && req.method === 'GET') {
+    const r = await env.HR_DB.prepare('SELECT id, num, cliente, cpf, endereco, servico, material, pecas, valor, orc_num, contrato_n, aceite_em, inicio, validade, modalidade, status, origem, obs, criado, atualizado, (contrato_b64 IS NOT NULL AND contrato_b64 != \'\') AS tem_contrato FROM garantia ORDER BY criado DESC LIMIT 2000').all();
+    const ev = await env.HR_DB.prepare("SELECT gid, ts, tipo, texto FROM garantia_evento ORDER BY ts DESC LIMIT 500").all();
+    const hoje = dataBahia(), evs = {}; for (const e of ev.results || []) (evs[e.gid] = evs[e.gid] || []).push(e);
+    return jsonR({ ok: true, garantias: (r.results || []).map(g => ({ ...g, situacao: garSituacao(g, hoje), eventos: (evs[g.id] || []).slice(0, 10) })) });
+  }
+  if (p === '/bot/garantias/pdf' && req.method === 'GET') {
+    const g = await garLer(env, url.searchParams.get('id') || ''); if (!g) return jsonR({ error: 'Garantia não encontrada.' }, 404);
+    const ct = url.searchParams.get('tipo') === 'contrato';
+    const b64 = ct ? g.contrato_b64 : (g.cert_b64 || (g.inicio ? bytesParaBase64(await garCertificadoPdf(env, g)) : ''));
+    if (!b64) return jsonR({ error: ct ? 'Sem contrato guardado.' : 'A garantia ainda não começou (aguardando entrega).' }, 404);
+    return new Response(base64ParaBytes(b64), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${(ct ? 'Contrato ' : 'Garantia ') + g.id}.pdf"`, ...CORS } });
+  }
+  if (p === '/bot/garantias' && req.method === 'POST') {
+    const b = await req.json().catch(() => ({}));
+    if (b.acao === 'reenviar') { const g = await garLer(env, b.id); if (!g) return jsonR({ error: 'não encontrada' }, 404); const ok = await garEnviarCertificado(env, g).catch(() => false); return jsonR({ ok, texto: ok ? 'Certificado enviado ao cliente.' : 'Cliente fora das 24 h do WhatsApp: mande uma mensagem a ele primeiro.' }); }
+    if (b.acao === 'cancelar') { const g = await garLer(env, b.id); if (!g) return jsonR({ error: 'não encontrada' }, 404); g.status = 'cancelada'; await garSalvar(env, g); await garEvento(env, g.id, 'cancelada', String(b.motivo || '').slice(0, 200)); return jsonR({ ok: true }); }
+    if (b.acao === 'nota') { await garEvento(env, String(b.id), 'nota', String(b.texto || '')); return jsonR({ ok: true }); }
+    // nova / editar
+    const ini = isoOk(b.inicio);
+    if (!b.cliente) return jsonR({ error: 'Falta o cliente.' }, 400);
+    let g = b.id ? await garLer(env, b.id) : null;
+    g = g ? { ...g } : { status: 'ativa', origem: 'manual', ref: 'man:' + Date.now() };
+    for (const k of ['cliente', 'cpf', 'endereco', 'servico', 'material', 'modalidade', 'obs', 'orc_num']) if (b[k] != null) g[k] = String(b[k]).slice(0, 200);
+    if (b.tel != null) g.num = String(b.tel).replace(/\D/g, '');
+    if (b.valor != null) g.valor = Number(b.valor) || 0;
+    if (ini) { g.inicio = ini; g.validade = garVence(ini); }
+    g.cert_b64 = g.inicio ? bytesParaBase64(await garCertificadoPdf(env, g)) : null;
+    await garSalvar(env, g); await garEvento(env, g.id, b.id ? 'editada' : 'criada', 'pelo app');
+    if (b.enviar && g.inicio && g.num) await garEnviarCertificado(env, g).catch(() => {});
+    return jsonR({ ok: true, id: g.id });
+  }
+  return null;
 }
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
@@ -15708,6 +15973,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
+  if (!dono && await garClienteMsg(env, from, m).catch(e => { console.log('[GAR] cliente:', e.message); return false; })) return; // v144
   if (!dono && await pv1Resposta(env, from, m).catch(e => { console.log('[PV1] resposta:', e.message); return false; })) return; // v142
   if (!dono && await pvRespostaCliente(env, from, m).catch(e => { console.log('[BOT] pós-venda:', e.message); return false; })) return; // v46
   if (!dono && await tratarRetomadaCliente(env, from, m).catch(e => { console.log('[BOT] retomada cliente:', e.message); return false; })) return; // v43
@@ -15810,6 +16076,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await fechComandoDono(env, from, bruto, msg).catch(e => { console.log('[FECH] comando:', e.message); return false; })) return; // v134
     if (await painelProdDono(env, from, msg).catch(e => { console.log('[PROD] painel:', e.message); return false; })) return; // v137
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
+    if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
@@ -20305,6 +20572,7 @@ async function rotaBotInterna(req, env, url) {
     return jsonR({ ok: true, total: contatos.length, contatos });
   }
   if (p.startsWith('/bot/ponto/')) return rotaBotPonto(req, env, url); // v34: HR Ponto (app do dono)
+  if (p.startsWith('/bot/garantias')) { const r = await rotaGarantias(req, env, url); if (r) return r; } // v144
   if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
     const b = await req.json().catch(() => ({})), out = {};
     for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) { const r = await pv1Agendar(env, it).catch(() => null); if (r) out[String(it.id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; }
