@@ -1,3 +1,4 @@
+// v115 (18/11/2026): ASSISTENTE QUE FECHA A VENDA — orçamento enviado → a IA conduz até a aprovação; "manda o pix"/"quero pagar" fecha e o Pix sai na hora; "ok" não vira "por nada"; resposta automática de outra empresa é ignorada; nota nunca no meio da venda; janela de 24 h confere o número sem o 9; dono: "mande pra ele" envia ao cliente o último QR code
 // v74 (14/11/2026): CADASTRO DE CLIENTES NO APP pelo bot (cadastrar_cliente; contato salvo e cliente de pedido vão para o banco de clientes do app; telefone ligado aos orçamentos)
 // v73b (14/11/2026): usa sozinho os modelos aprovados pelo nome (resposta_cliente, orcamento_cliente, retomada_cliente, posvenda_cliente, recado_funcionario, cobranca_order_hr)
 // v73 (14/11/2026): MODELOS DA META — acha os aprovados pela própria conta, "criar modelos" cria hr_orcamento_pronto/hr_resposta; cliente fora das 24 h recebe o aviso e o PDF ao tocar em "Pode enviar"; dentro das 24 h o PDF vai junto da mensagem
@@ -816,13 +817,18 @@ async function orcEnvRegistrar(env, num, ped, nome) {
   const o = { pedId: ped && ped.id || null, valor: ped && Number(ped.valor) || 0, nome: nome || (ped && ped.nome) || '', em: Date.now(), fechado: 0 };
   await env.HR_KV.put('orcenv:' + normalizarBR(num), JSON.stringify(o), { expirationTtl: 15 * 86400 });
 }
+// v115: "manda o pix", "qual a chave", "quero pagar" depois do orçamento = o cliente fechou e já escolheu o Pix
+const RE_PIX_PEDE = /\b((me )?(manda|mande|mandar|envia|envie|passa|passe|pode mandar|pode enviar|pode passar|qual|cade|me da|me de) (o |a |seu |sua )?(pix|chave( pix)?|qr( ?code)?|codigo( do)? pix)|(quero|vou|posso|como) (fazer o |faco o |fazer )?(pix|pagar|pagamento|o pagamento|dar o sinal|dar a entrada)|chave pix|pix (agora|ja|pra (eu|mim)|para (eu|mim))|vou (fazer|mandar) o pix|qual (e |eh )?(a )?(forma|chave) de pagamento)\b/;
+const RE_ENTREGA_PAGA = /\b(pago|pagar|pagamento|pagarei|acerto) (na|no) (entrega|hora|dia da entrega|instalacao)\b/;
 const RE_FECHA_ORC = /\b(pode confirmar|confirm\w* (o |meu )?pedido|confirmo|pode fazer|pode fazer sim|quero que fa[cz]a|quero que voces? fa[cz]a\w*|pode fechar|quero fechar|vamos fechar|fechad[oa]|fecho|aprov\w+|aceito|aceitei|pode produzir|pode mandar fazer|manda fazer|pode seguir|pode come[cç]ar|vou querer|quero sim|pode encomendar|faz pra mim|faca pra mim)\b/;
-async function orcEnvFechamento(env, from, texto) {
+async function orcEnvFechamento(env, from, texto, forcar) {
   const k = 'orcenv:' + normalizarBR(from);
   let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
   if (o && o.fechado) return false;
   const msg = normaliza(limparMensagemCliente(String(texto || '')));
-  if (!RE_FECHA_ORC.test(msg)) return false;
+  const pixPede = RE_PIX_PEDE.test(msg), entregaPede = !pixPede && RE_ENTREGA_PAGA.test(msg);
+  const forma = (forcar && forcar.forma) || (pixPede ? 'pix' : entregaPede ? 'entrega' : '');
+  if (!forcar && !RE_FECHA_ORC.test(msg) && !pixPede && !entregaPede) return false;
   if (!o) { // orçamento mandado antes do registro: vale o último PDF que o bot mandou a ele (CRM, 15 dias), se não houver pedido do próprio bot em andamento
     const pid = await pedidoIdDoCliente(env, from).catch(() => null);
     const pc = pid ? await lerPedido(env, pid).catch(() => null) : null;
@@ -833,14 +839,14 @@ async function orcEnvFechamento(env, from, texto) {
     if (!d) return false;
     o = { pedId: pc && pc.origem === 'dono' ? pc.id : null, valor: pc && pc.origem === 'dono' ? Number(pc.valor) || 0 : 0, nome: '', em: d.ts, fechado: 0 };
   }
-  if (/\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
+  if (!forcar && !pixPede && /\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
   o.fechado = Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
-  await orcEnvIniciarFluxo(env, from, o, texto);
+  await orcEnvIniciarFluxo(env, from, o, texto, forma);
   return true;
 }
 // v78b: o pedido fechado segue o MESMO passo a passo dos pedidos do bot: pagamento (Pix agora ou na entrega / sinal),
 //   entrega ou retirada, localização, referência e troco (tratarPosOrcamento). Usa uma cópia do pedido do dono, ligada ao cliente.
-async function orcEnvIniciarFluxo(env, from, o, texto) {
+async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
   let nome = (await lerNomeSalvo(env, from).catch(() => '')) || o.nome || '';
   if (!nome && crmAtivo(env)) { const ct = await env.HR_DB.prepare('SELECT nome, perfil FROM crm_ct WHERE num = ?').bind(normalizarBR(from)).first().catch(() => null); nome = (ct && (ct.nome || nomeDoPerfil(ct.perfil))) || ''; }
   let base = o.pedId ? await lerPedido(env, o.pedId).catch(() => null) : null;
@@ -862,8 +868,20 @@ async function orcEnvIniciarFluxo(env, from, o, texto) {
     const oa = (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
     if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor }).catch(() => {});
     await funilMarca(env, 'aprovou', novo).catch(() => {});
+    if ((forma === 'pix' || (forma === 'entrega' && !novo.sinalOferta)) && !o.valorPerguntado) { // v115: já disse como paga ("manda o pix"): não pergunta de novo, já manda o Pix
+      novo.forma_pagto = forma; novo.sinal = forma === 'pix' && novo.sinalOferta ? novo.sinalOferta : null;
+      if (forma === 'entrega') await funilMarca(env, 'pagto_entrega', novo).catch(() => {});
+      novo.etapa = 'localizacao'; novo.tentLoc = 0; await salvarPedido(env, novo);
+      await enviar(env, from, `${pn ? 'Perfeito, ' + pn + '! S' : 'Perfeito! S'}eu pedido está confirmado. ${forma === 'pix'
+        ? (novo.sinal ? `Para a produção começar, o sinal é de ${novo.sinal.pct}% (R$ ${reais(novo.sinal.valor)}) no Pix; o restante (R$ ${reais(novo.sinal.resto)}) é pago na entrega. Segue o Pix:` : `Segue o Pix de R$ ${reais(valor)}:`)
+        : 'O pagamento fica para a entrega.'}`);
+      if (forma === 'pix') await enviarPixCliente(env, from, novo);
+      await pedirRecebimento(env, from, novo, pn);
+      await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento (R$ ${reais(valor)}) e escolheu ${forma === 'pix' ? 'pagar no Pix; o Pix já foi enviado pelo sistema' : 'pagar na entrega'}. Agora o bot pergunta entrega ou retirada e a localização. Não peça nota, não diga que alguém vai mandar o Pix depois.]`).catch(() => {});
+    } else {
     await enviarComBotoes(env, from, `${o.valorPerguntado ? (pn ? pn + ', s' : 'S') + 'obre o pagamento:' : (pn ? pn + ', o' : 'O') + ' seu pedido está confirmado!'} ${novo.sinalOferta ? textoSinal(novo) + ' Como prefere?' : 'O pagamento será na entrega ou prefere fazer o Pix agora?'}`, botoesPagamento(novo));
     await anotarNoHistorico(env, from, `[O cliente FECHOU o orçamento (R$ ${reais(valor)}). Agora o bot pergunta a forma de pagamento, depois entrega ou retirada e a localização. Não peça nota e não diga que vai "repassar".]`).catch(() => {});
+    }
   } else if (!o.valorPerguntado) { // v79b: sem o valor, pergunta ao dono e segue assim que ele responder
     o.valorPerguntado = Date.now(); await env.HR_KV.put('orcenv:' + normalizarBR(from), JSON.stringify(o), { expirationTtl: 15 * 86400 });
     await env.HR_KV.put('orcenv:valor:aguarda', normalizarBR(from), { expirationTtl: 6 * 3600 });
@@ -874,10 +892,11 @@ async function orcEnvIniciarFluxo(env, from, o, texto) {
     await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.`);
     await anotarNoHistorico(env, from, '[O cliente FECHOU o orçamento enviado em PDF. A equipe vai combinar pagamento e entrega. Não peça nota e não diga que vai "repassar" de novo.]').catch(() => {});
   }
+  await donoCtxCliente(env, from, nome); // v115
   if (!(novo && o.valorPerguntado)) await notificarDono(env, Date.now(), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), [
     valor ? `Valor do orçamento: R$ ${reais(valor)}` : null,
     texto ? `Confirmou: "${String(texto).replace(/\s+/g, ' ').slice(0, 140)}"` : 'Fechado pelo senhor.',
-    novo ? 'Situação: o bot está perguntando o pagamento (Pix ou na entrega), entrega ou retirada e a localização. A ficha chega ao senhor no fim.'
+    novo ? (novo.forma_pagto === 'pix' ? `Situação: pediu o Pix; já mandei o Pix de R$ ${reais(valorPix(novo))}${novo.sinal ? ' (sinal de ' + novo.sinal.pct + '%)' : ''} e estou perguntando entrega ou retirada e a localização. Aviso quando cair.` : 'Situação: o bot está perguntando o pagamento (Pix ou na entrega), entrega ou retirada e a localização. A ficha chega ao senhor no fim.')
       : 'O que fazer: não achei o valor do orçamento no bot. Combine o pagamento e a entrega com ela.',
   ], from));
   return novo;
@@ -4062,6 +4081,7 @@ function promptCliente(env, c, regras) {
     x.periodo && x.primeira ? `PERÍODO DO DIA: ${x.periodo}.` : `NÃO cumprimente de novo (nada de "Bom dia", "Boa tarde", "Olá" nem o nome no começo): a saudação já foi feita; vá direto à resposta.`,
     c.assuntoInicial ? `O cliente começou dizendo: "${c.assuntoInicial}". Responda ou retome esse ponto assim que o nome estiver definido; não o ignore.` : '',
     `SITUAÇÃO DO PEDIDO DESTE CLIENTE: ${x.status || 'nenhum pedido localizado.'}`,
+    x.orcEnv ? `ORÇAMENTO JÁ ENVIADO (PDF${x.orcEnv.valor ? ', R$ ' + reais(x.orcEnv.valor) : ''}, em ${dataBR(new Date((x.orcEnv.em || Date.now()) - 3 * 3600000).toISOString().slice(0, 10))}) E AINDA NÃO FECHADO. Agora o seu papel é de vendedora: levar o cliente com naturalidade até a APROVAÇÃO. Regras desta fase: (1) Se o cliente reagir ao orçamento com "ok", "recebi", "certo", "vi", "pode sim", "show", NÃO responda "por nada": agradeça pela atenção e pergunte, de forma leve e sem pressão, se pode confirmar o pedido para a produção começar (pode lembrar em meia frase: Pix com desconto à vista ou cartão em até 10x). (2) Se ele APROVAR em qualquer palavra ou áudio (pode fazer, pode confirmar, fechado, quero, vamos fazer, aprovo), ou PEDIR O PIX, a chave, o QR code ou como pagar, devolva "aprovou_orcamento": true e, se ele disse como paga, "forma_pagamento": "pix" ou "entrega". O SISTEMA confirma o pedido, gera o Pix na hora (mesmo de madrugada) e pergunta entrega e localização: escreva só uma frase curta em "resposta". NUNCA diga que o responsável vai mandar o Pix depois, que a equipe passa a chave amanhã, nem marque "chamar_dono" por causa de pagamento. (3) "pode sim" ou "pode" respondendo a "posso te enviar?" NÃO é aprovação. (4) Se disser que vai pensar, conversar com a família ou ver depois, respeite: diga em uma frase que fica à disposição e que pode tirar qualquer dúvida; não insista. (5) Dúvida de valor, pedra, prazo ou desconto: responda em uma frase sem inventar nada e retome a aprovação. (6) Nunca peça nota nem avaliação.` : '',
     (() => {
       const ult = (c.hist || []).filter(h => h.role === 'assistant').slice(-1)[0];
       return ult ? `SUA ÚLTIMA MENSAGEM AO CLIENTE: "${String(ult.content).replace(/\s+/g, ' ').slice(0, 300)}". Uma resposta curta do cliente (uma palavra, um número, "sim", "não", "o mesmo") é a RESPOSTA a essa mensagem: preencha em "dados" o campo a que ela se refere.` : '';
@@ -4128,7 +4148,8 @@ function promptCliente(env, c, regras) {
     `- BANCADAS (cozinha, banheiro, lavabo, área de serviço): NUNCA dê preço, faixa de preço nem estimativa de bancada, cuba, cooktop, rebaixo, frontão, sainha ou instalação; são muitas escolhas e o valor só sai depois da visita técnica gratuita, que é sempre a sua sugestão. Antes de marcar, o FUNIL DA VISITA faz algumas perguntas rápidas para o responsável já chegar preparado; todas são opcionais: se o cliente não souber, registre "na_visita" e siga, sem insistir. Se o cliente tiver PROJETO, peça o arquivo; o que vier dele é lido ao pé da letra pelo sistema: nunca deduza medidas nem detalhes do projeto, e nunca descreva o que não foi lido. Instalação de bancada é assunto do responsável na visita (não diga que não fazemos instalação de bancada: isso vale só para soleira e peitoril).`,
     `- VISITA TÉCNICA (feita pelo próprio responsável, que confere as medidas no local e conversa sobre os detalhes; por isso NÃO pergunte se é reforma ou obra nova nem se o cliente tem medidas): colete, uma pergunta curta por vez e nesta ordem: (1) o que será feito (cozinha, banheiro, soleira...), (2) a pedra ou cor (ofereça o catálogo com fotos se ele não souber), (3) o endereço da obra (ou a localização atual), (4) o dia e a hora da visita. Perguntas diretas, em uma frase, sem rodeios. Se o cliente der as medidas por conta própria, registre em medidas_texto e siga.`,
     `- VISITA, QUEM MARCA É O SISTEMA: enquanto o cliente não confirmar o resumo com sim, não diga que a visita está marcada. Depois do sim, o sistema marca na agenda e envia a confirmação; você só marca pronto: true. Se o cliente pedir um horário que já passou hoje ou que a AGENDA mostra ocupado, ofereça o próximo horário livre. Confirme o endereço e o horário UMA vez só. Nunca invente horário.`,
-    `- ENCERRAMENTO CURTO: quando o cliente só agradecer ou disser \"ok\", \"certo\", \"fico no aguardo\", responda com no máximo uma frase curta e calorosa (ex.: \"Por nada, qualquer coisa é só chamar.\"). Não repita a data, o endereço nem o que já foi combinado, e não faça novas perguntas.`,
+    `- PAGAMENTO PEDIDO PELO CLIENTE: se o cliente pedir o Pix, a chave ou como pagar e houver ORÇAMENTO JÁ ENVIADO ou pedido em andamento, nunca diga que alguém manda depois: o sistema gera o Pix na hora (veja ORÇAMENTO JÁ ENVIADO). Pedido de pagamento NUNCA é motivo para "chamar_dono".`,
+    `- ENCERRAMENTO CURTO: \"por nada\" só responde a um AGRADECIMENTO (obrigado, valeu). \"Ok\", \"certo\", \"entendi\" não são agradecimento: confirme em poucas palavras e, se houver próximo passo (aprovar o orçamento, enviar a localização, escolher a pedra), lembre esse passo em uma frase leve. Quando o cliente só agradecer ou disser \"fico no aguardo\", responda com no máximo uma frase curta e calorosa (ex.: \"Por nada, qualquer coisa é só chamar.\"). Não repita a data, o endereço nem o que já foi combinado, e não faça novas perguntas.`,
     `- LOCALIZAÇÃO RECEBIDA: uma mensagem no formato "[Localização enviada pelo cliente...]" é o pino do WhatsApp com o endereço da obra. Agradeça em poucas palavras, trate como endereço já recebido (preencha "endereco" com o texto) e siga para a próxima pergunta do funil. Nunca diga que só lê texto.`,
     `- LOCALIZAÇÃO: ao pedir o local da visita, peça DE PREFERÊNCIA a localização ATUAL do cliente (ele precisa estar no local da obra) e ENSINE a enviar, em passos curtos: no Android, tocar no clipe; no iPhone, tocar no +; escolher "Localização"; tocar em "Enviar sua localização atual". Avise para NÃO usar "Compartilhar localização em tempo real", que não é aceita. Se ele não estiver na obra ou preferir, aceite o endereço completo escrito com ponto de referência. Não repita o passo a passo se ele já enviou a localização.`,
     `- MATERIAIS (fatos confirmados): a marmoraria trabalha com granito, mármore, quartzo, travertino e lâmina ultracompacta. NÃO trabalha com porcelanato. Se pedirem porcelanato, explique com gentileza e sugira a lâmina ultracompacta ou o quartzo como alternativas modernas. Faz tudo em pedra: bancadas, pias, lavatórios, soleiras, peitoris, escadas, pisos e túmulos.`,
@@ -4148,7 +4169,7 @@ function promptCliente(env, c, regras) {
     `5. Quando tiver tudo, mostre um RESUMO organizado e pergunte se está correto. Só marque "pronto": true DEPOIS que o cliente confirmar o resumo.`,
     `6. Depois de pronto: se for SOLEIRA ou PEITORIL, agradeça e diga que o valor está sendo calculado e será enviado aqui mesmo em instantes; o PDF com todas as informações segue depois que ele confirmar o pedido (não prometa valor nem horário exato). Nos outros projetos, diga que a equipe retorna em breve.`,
     `FORMATO DA SAÍDA: apenas JSON, sem texto fora dele:`,
-    `{"resposta":"mensagem para o cliente","dados":{"nome":null,"interesse":null,"cor":null,"pecas":[{"tipo":"soleira","qtd":1,"comp_cm":null,"larg_cm":null}],"entrega":null,"acabamento":null,"acabamento_2":null,"endereco":null,"detalhe":null,"medidas_texto":null,"obra":null,"medidas_por":null,"visita":null,"horario":null,"visita_dia":null,"bancada":{"projeto":null,"posicao":null,"ceramica":null,"sainha":null,"cuba":null,"cuba_modelo":null,"cooktop":null,"rebaixo":null,"acessorios":null,"acessorios_quais":null,"balcao":null,"obs":null,"pular":null}},"pronto":false,"chamar_dono":false,"nome_confirmado":null,"enviar_fotos":null,"sem_resposta":null,"entendeu":true}`,
+    `{"resposta":"mensagem para o cliente","dados":{"nome":null,"interesse":null,"cor":null,"pecas":[{"tipo":"soleira","qtd":1,"comp_cm":null,"larg_cm":null}],"entrega":null,"acabamento":null,"acabamento_2":null,"endereco":null,"detalhe":null,"medidas_texto":null,"obra":null,"medidas_por":null,"visita":null,"horario":null,"visita_dia":null,"bancada":{"projeto":null,"posicao":null,"ceramica":null,"sainha":null,"cuba":null,"cuba_modelo":null,"cooktop":null,"rebaixo":null,"acessorios":null,"acessorios_quais":null,"balcao":null,"obs":null,"pular":null}},"pronto":false,"chamar_dono":false,"aprovou_orcamento":null,"forma_pagamento":null,"nome_confirmado":null,"enviar_fotos":null,"sem_resposta":null,"entendeu":true}`,
     `Em "dados" devolva só o que já souber (null no resto). "pecas" é sempre a lista COMPLETA e atualizada, não só a peça nova. \"entendeu\" é true quando você conseguiu entender o cliente; false somente se não deu mesmo.`,
     MARCA_PARTE_CONVERSA,
     `=== PARTE DESTA CONVERSA ===`,
@@ -4632,7 +4653,12 @@ async function atenderClienteIA(env, from, bruto, perfil) {
     };
     // resposta direta à pergunta pendente (medidas, acabamento, pedra): o código lê sozinho e dispensa a IA (mais rápido e sem risco de erro)
     respostaBancadaCodigo(c, brutoL); // v33: número da posição, sim/não da bancada
-    let rapido = respostaSimplesDaFalta(c, brutoL, pedras);
+    { // v115: orçamento enviado em PDF e ainda não fechado: a IA conduz para a aprovação
+      let oe = null; try { oe = JSON.parse((await env.HR_KV.get('orcenv:' + normalizarBR(from))) || 'null'); } catch (_) {}
+      if (!oe && crmAtivo(env)) { try { await crmTabela(env); const d = await env.HR_DB.prepare("SELECT ts FROM crm_msg WHERE num = ? AND q = 'b' AND tipo = 'document' AND ts > ? ORDER BY ts DESC LIMIT 1").bind(normalizarBR(from), Date.now() - 15 * 86400000).first(); if (d) oe = { em: d.ts, fechado: 0, valor: 0 }; } catch (_) {} }
+      c._extra.orcEnv = oe && !oe.fechado ? oe : null;
+    }
+    let rapido = c._extra.orcEnv ? null : respostaSimplesDaFalta(c, brutoL, pedras);
     let saida;
     if (rapido) saida = { entendeu: true, resposta: '', dados: {} };
     else {
@@ -4652,6 +4678,11 @@ async function atenderClienteIA(env, from, bruto, perfil) {
       }
     }
 
+    // v115: a IA entendeu que o cliente aprovou o orçamento enviado (em qualquer palavra ou áudio): o sistema assume o fechamento
+    if (c._extra.orcEnv && saida && saida.aprovou_orcamento === true) {
+      const fp = ['pix', 'entrega'].includes(saida.forma_pagamento) ? saida.forma_pagamento : '';
+      if (await orcEnvFechamento(env, from, bruto, { forma: fp }).catch(e => { console.log('[ORCENV] IA:', e.message); return false; })) return true;
+    }
     // junta o que a IA coletou
     const novo = (saida.dados && typeof saida.dados === 'object') ? saida.dados : {};
     for (const k of ['nome', 'interesse', 'cor', 'endereco', 'detalhe', 'medidas_texto', 'horario', 'visita_dia']) {
@@ -6362,6 +6393,11 @@ async function pedirAvaliacoes(env) {
       }
       if (c.avalPedida) continue;
       if (await env.HR_KV.get('humano:' + from) || await env.HR_KV.get('aval:ult:' + from)) continue;
+      if (c.hist.filter(h => h.role === 'user' && !ehRespostaAutomatica(h.content)).length < 2) continue; // v115: resposta automática de empresa não conta como conversa
+      if (await env.HR_KV.get('tplpend:' + normalizarBR(from))) continue; // v115: o orçamento ainda nem foi entregue
+      if (crmAtivo(env)) { // v115: orçamento em PDF mandado nos últimos 15 dias = venda em andamento: a nota fica para depois da entrega
+        try { await crmTabela(env); const dd = await env.HR_DB.prepare("SELECT ts FROM crm_msg WHERE num = ? AND q = 'b' AND tipo = 'document' AND ts > ? LIMIT 1").bind(normalizarBR(from), agora - 15 * 86400000).first(); if (dd) continue; } catch (_) {}
+      }
       if (await env.HR_KV.get('orcenv:' + normalizarBR(from))) continue; // v78: orçamento do dono em andamento (enviado ou fechado): nota só depois
       { const uc = Math.max(Number(await env.HR_KV.get('ult:' + from)) || 0, await crmUltimaDoCliente(env, from)); if (agora - uc < AVAL_OCIOSO_MS) continue; } // v78: o cliente acabou de falar
       if (!c.concluido && c.dados && INTERESSES[c.dados.interesse]) { // começou um atendimento e não terminou: NÃO pede nota; retoma uma vez de onde parou
@@ -13608,6 +13644,7 @@ async function tratarPedidoHumano(env, from, m) {
   const bruto = String((m.text && m.text.body) || '');
   if (!pedeAtendimentoHumano(bruto)) return false;
   const nome = await nomeParaDono(env, from).catch(() => '');
+  await donoCtxCliente(env, from, nome); // v115
   await env.HR_KV.put('humano:' + from, JSON.stringify({ nome, desde: Date.now(), origem: 'cliente' }), { expirationTtl: HUMANO_TTL });
   const u = ultimos8(from);
   if (u) await env.HR_KV.put('apr2:' + u, '1', { expirationTtl: apresTtl(env) }).catch(() => {}); // quem pede uma pessoa não recebe o banner de apresentação
@@ -13944,6 +13981,24 @@ async function commsTratarDono(env, from, bruto, m) {
   return false;
 }
 
+// v115: resposta automática de WhatsApp Business ("estamos fora do horário de atendimento...") não é o cliente falando
+const RE_AUTO_RESP = /(fora do (nosso )?horario de atendimento|nosso horario de (atendimento|funcionamento) (e|eh)|responderemos (a )?(sua )?mensagem|retornaremos (o mais breve|assim que|em breve|sua mensagem|seu contato)|em breve (retornaremos|responderemos|entraremos em contato)|mensagem automatica|resposta automatica|no momento (nao (podemos|estamos|conseguimos)|estamos (fora|ausentes|indisponiveis))|obrigad[oa] (por|pelo) (entrar em contato|seu contato|sua mensagem|contatar)|agradecemos (o|seu|pelo|a sua|sua) (contato|mensagem)|seja bem[ -]vindo a|bem[ -]vind[oa] (a|ao) )/;
+function ehRespostaAutomatica(t) {
+  const s = normaliza(String(t || ''));
+  if (s.length < 40) return false;
+  const fortes = (s.match(new RegExp(RE_AUTO_RESP.source, 'g')) || []).length;
+  return fortes >= 2 || (fortes >= 1 && s.length >= 90);
+}
+async function tratarRespostaAutomatica(env, from, bruto) {
+  const num = normalizarBR(from);
+  let entregou = false;
+  if (await env.HR_KV.get('tplpend:' + num)) entregou = await tplRespostaCliente(env, from, { type: 'text', text: { body: '' } }, true).catch(e => { console.log('[AUTO]', e.message); return false; });
+  if (!(await env.HR_KV.get('auto:av:' + num))) {
+    await env.HR_KV.put('auto:av:' + num, '1', { expirationTtl: 12 * 3600 });
+    const nome = await nomeParaDono(env, from).catch(() => '');
+    await notificarDono(env, Date.now(), `${nome ? '*' + nome + '*' : 'O contato'} respondeu com a *mensagem automática* do WhatsApp dele ("${String(bruto).replace(/\s+/g, ' ').slice(0, 70)}…"). Não é uma pessoa: não respondi${entregou ? '. Como a conversa abriu, mandei o que estava guardado (a mensagem e o PDF); ele lê quando voltar' : ''}.\nwa.me/${num}`).catch(() => {});
+  }
+}
 async function tratarMensagemBase(env, m, ctx) {
   const from = m.from;
   if (!from) return;
@@ -13996,6 +14051,7 @@ async function tratarMensagemBase(env, m, ctx) {
       if (await tratarDesistencia(env, from, tb, tm).catch(() => false)) return;
     }
   }
+  if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115
   if (!dono && (m.type === 'button' || m.type === 'interactive' || m.type === 'text') && await tratarTplPend(env, from, m)) return; // v73
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
@@ -14062,6 +14118,8 @@ async function tratarMensagemBase(env, m, ctx) {
   const F = await getFalas(env);
 
   if (dono) {
+    if (await qrMandarPraEle(env, from, bruto, msg).catch(e => { console.log('[QR] mandar pra ele:', e.message); return false; })) return; // v115
+    if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
     if (await tratarApelidoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] apelido:', e.message); return false; })) return; // v45
     if (await tratarRecadoFuncionario(env, from, bruto, msg).catch(e => { console.log('[BOT] recado funcionário:', e.message); return false; })) return; // v44
     if (await rtpEditar(env, from, bruto).catch(() => false)) return; // v93
@@ -16093,6 +16151,7 @@ async function quenteDetectar(env, from, bruto) {
   const valor = orc && +orc.valor ? orc.valor : ped && ped.valor ? ped.valor : 0;
   if (!nome) nome = (orc && orc.cliente) || (ped && ped.nome) || '';
   const L = [`${nome || 'Cliente'} · ${rtpFmt(normalizarBR(from))}`, `Disse: "${String(bruto).replace(/\s+/g, ' ').slice(0, 160)}"`, orc ? `Orçamento: ${[orc.projeto || orc.ambiente, orc.material].filter(Boolean).join(' · ') || 'no app'}${valor ? ' · R$ ' + reais(valor) : ''} (${dataBR(orc.data).slice(0, 5)})` : valor ? `Orçamento enviado pelo bot: R$ ${reais(valor)}` : null, 'A assistente está respondendo. Se quiser fechar o senhor mesmo, toque em Assumir.'];
+  await donoCtxCliente(env, from, nome); // v115
   await enviarComBotoes(env, numeroDono(env), cartaoDono('Cliente quente', L), [{ id: 'lq|ass|' + normalizarBR(from), titulo: 'Assumir' }, { id: 'lq|ver|' + normalizarBR(from), titulo: 'Ver conversa' }]).catch(() => {});
 }
 async function quenteBotao(env, from, id) {
@@ -17443,8 +17502,7 @@ async function enviarOrcamentoCliente(env, num, ped, nome, mensagem) {
   const pedido = ((ped.itens && ped.itens.length ? ped.itens.map(i => String(i.ambiente || '').toLowerCase()).filter(Boolean).join(' e ') : '') || String(ped.interesse || '').toLowerCase()) + (ped.pedra ? ' em ' + ped.pedra : '');
   const dePed = pedido ? ' de ' + pedido : '';
   const texto = mensagem || `Olá${pn ? ', ' + pn : ''}! Segue o seu orçamento${dePed}. Qualquer dúvida, é só me chamar por aqui.`;
-  const ult = Math.max(Number(await env.HR_KV.get('ult:' + num)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(num))) || 0);
-  if (Date.now() - ult < 23 * 3600 * 1000) {
+  if (await janela24h(env, num)) { // v115: antes só olhava o número com o 9 e mandava o modelo a quem acabou de falar
     await enviar(env, num, texto);
     await postarMsg(env, num, { type: 'document', document: { id: ped.mediaId, filename: ped.arquivoNome || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } });
     await semearConversaProativa(env, num, texto + ' [PDF do orçamento enviado]').catch(() => {});
@@ -17475,18 +17533,24 @@ async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
 }
 // cliente tocou em "Pode enviar" / "Agora não" do modelo
 async function tratarTplPend(env, from, m) { if (!(await env.HR_KV.get('tplpend:' + normalizarBR(from)))) return false; return tplRespostaCliente(env, from, m).catch(e => { console.log('[TPL] resposta:', e.message); return false; }); }
-async function tplRespostaCliente(env, from, m) {
+async function tplRespostaCliente(env, from, m, forcar) {
   const txt = normaliza(String((m.button && (m.button.text || m.button.payload)) || (m.interactive && m.interactive.button_reply && m.interactive.button_reply.title) || (m.text && m.text.body) || ''));
   const k = 'tplpend:' + normalizarBR(from);
   const p = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (!p) return false;
-  if (/^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
-  if (!p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
+  if (!forcar && /^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
+  if (!forcar && !p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
+  if (p.pixRef) { // v115: o que estava guardado era o Pix que o dono mandou enviar
+    const q = await qrLer(env, p.pixRef);
+    const ok = q && await qrEnviarAoCliente(env, normalizarBR(from), q, p.nome).catch(e => { console.log('[QR] tplpend:', e.message); return false; });
+    await notificarDono(env, Date.now(), ok ? `✅ ${p.nome || 'O cliente'} respondeu: mandei o Pix de R$ ${reais(q.valor)}. Aviso quando cair.` : `${p.nome || 'O cliente'} respondeu, mas o Pix guardado não existe mais. Peça um novo QR code.`).catch(() => {});
+    return true;
+  }
   if (p.texto) await enviar(env, from, p.texto);
   if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
   await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
   if (p.mediaId) await orcEnvRegistrar(env, from, { id: p.pedId, valor: p.valor }, p.nome).catch(() => {}); // v78
-  await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} ${p.qualquer ? 'respondeu' : 'tocou em "Pode enviar"'}: mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
+  if (!forcar) await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} ${p.qualquer ? 'respondeu' : 'tocou em "Pode enviar"'}: mandei a mensagem${p.mediaId ? ' e o PDF do orçamento' : ''}. A secretária segue a conversa.`).catch(() => {});
   return true;
 }
 // comandos do dono (texto já normalizado: minúsculo e sem acento)
@@ -19978,7 +20042,7 @@ async function enviarQRProfissional(env, para, d) {
   if (d.tipo) linhas.push(`Serviço: ${d.tipo}`);
   if (d.total && d.total > d.valor + 0.009) linhas.push('', `Total do serviço: R$ ${reais(d.total)}`, `Sinal agora: *R$ ${reais(d.valor)}*`, `Restante na entrega: R$ ${reais(Math.round((d.total - d.valor) * 100) / 100)}`);
   else linhas.push('', `Valor: *R$ ${reais(d.valor)}*`);
-  linhas.push('', `Válido até *${quandoBahia(d.venceEm)}*`, 'Mostre o QR code ao cliente ou toque em *Copiar código Pix*. O pagamento é confirmado aqui automaticamente e entra nas finanças.');
+  linhas.push('', `Válido até *${quandoBahia(d.venceEm)}*`, d.paraCliente ? 'Toque em *Copiar código Pix* e cole no app do seu banco (Pix Copia e Cola). Assim que o pagamento cair, a confirmação chega aqui.' : 'Mostre o QR code ao cliente ou toque em *Copiar código Pix*. O pagamento é confirmado aqui automaticamente e entra nas finanças. Para mandar ao cliente, escreva *mande pra ele*.');
   const montar = (comImagem, comExp = true) => ({ type: 'interactive', interactive: {
     type: 'order_details',
     ...(comImagem && mid ? { header: { type: 'image', image: { id: mid } } } : {}),
@@ -20073,6 +20137,80 @@ async function iniciarQR(env, a) {
 const QR_FILL = new Set(('faz faca fazer gera gerar gere me um uma o a os as de do da dos das pro pra para pelo pela cliente sr sra seu dona pix sinal entrada agora ja por favor que fechou fechado fechei fechamos servico servicos vai dar da ta esta com e no na mande manda envia enviar preciso quero queria voce secretaria mais ai la aqui pagar pagou pagando valor reais real r qr code qrcode porcento cento metade pede pedido orcamento orcamentos olha olhe mim ele ela fez secretario obrigado obrigada tudo bem').split(' '));
 
 // "qr code do João", "faz o qr do João 30%", "o fulano fechou, vai dar 50% agora, faça o qr code", "qr do João R$ 800"
+// v115: o último QR code gerado para o dono fica guardado (2 h) para "mande pra ele" / "envia pro cliente"
+async function qrGuardar(env, q) {
+  const r = { ...q, em: Date.now() };
+  await env.HR_KV.put('qrcli:' + q.ref, JSON.stringify(r), { expirationTtl: 3 * 86400 });
+  await env.HR_KV.put('qrcli:ultimo', q.ref, { expirationTtl: 2 * 3600 });
+}
+async function qrLer(env, ref) { try { return JSON.parse((await env.HR_KV.get('qrcli:' + ref)) || 'null'); } catch (_) { return null; } }
+// o cliente que o dono tem em mente: o último cartão de cliente (cliente quente, pediu uma pessoa, pedido fechado)
+async function donoCtxCliente(env, num, nome) { if (num) await env.HR_KV.put('dono:cliatual', JSON.stringify({ num: normalizarBR(num), nome: nome || '', em: Date.now() }), { expirationTtl: 6 * 3600 }).catch(() => {}); }
+async function qrNumeroDoCliente(env, q, nomeDito) {
+  const tk = s => normaliza(String(s || '')).split(' ').filter(w => w.length > 2);
+  const alvo = tk(nomeDito || q.cliente);
+  try {
+    const ctx = JSON.parse((await env.HR_KV.get('dono:cliatual')) || 'null');
+    if (ctx && ctx.num) {
+      const nm = tk(ctx.nome || (await nomeParaDono(env, ctx.num).catch(() => '')));
+      if (!alvo.length || alvo.some(w => nm.includes(w))) return ctx.num;
+    }
+  } catch (_) {}
+  const n = await numeroDoClientePorNome(env, nomeDito || q.cliente).catch(() => '');
+  return n ? normalizarBR(n) : '';
+}
+async function qrEnviarAoCliente(env, num, q, nome) {
+  if (q.venceEm && q.venceEm < Date.now()) return false;
+  const pn = nomeDeTratamento(nome || q.cliente);
+  const sinal = q.total && q.total > q.valor + 0.009;
+  await enviar(env, num, `${pn ? pn + ', s' : 'S'}egue o Pix ${sinal ? `do sinal (R$ ${reais(q.valor)}) do seu pedido${q.tipo ? ' de ' + String(q.tipo).toLowerCase() : ''}; o restante (R$ ${reais(Math.round((q.total - q.valor) * 100) / 100)}) é pago na entrega` : `de R$ ${reais(q.valor)}${q.tipo ? ' do seu pedido de ' + String(q.tipo).toLowerCase() : ''}`}. Assim que o pagamento cair, eu confirmo aqui.`);
+  const ok = await enviarQRProfissional(env, num, { ...q, paraCliente: true }).catch(() => false);
+  if (!ok) {
+    if (q.png) await enviarImagemPNG(env, num, q.png, `QR code Pix de R$ ${reais(q.valor)}`).catch(() => {});
+    await enviarTextoPuro(env, num, q.codigo);
+  }
+  try { // o pagamento confirmado avisa o cliente também
+    const lk = JSON.parse((await env.HR_KV.get('lk:' + q.ref)) || 'null');
+    if (lk) { lk.destino = num; lk.cli = lk.cli || nome || q.cliente; await env.HR_KV.put('lk:' + q.ref, JSON.stringify(lk), { expirationTtl: 40 * 24 * 3600 }); }
+  } catch (_) {}
+  for (const nk of new Set([num, num.length === 13 ? num.slice(0, 4) + num.slice(5) : num])) await anotarNoHistorico(env, nk, `[O Pix de R$ ${reais(q.valor)}${sinal ? ' (sinal)' : ''} foi enviado ao cliente pelo sistema. Se ele disser que pagou, diga que a confirmação chega aqui automaticamente assim que o banco confirmar. Não peça nota.]`).catch(() => {});
+  return true;
+}
+const RE_MANDA_PRA_ELE = /^(?:(?:pode|por favor|ja|agora|entao|ok|certo|beleza)\s+)*(?:mand[ae]|mandar|envi[ae]|enviar|encaminh[ae]|pass[ae]|repass[ae])(?:\s+(?:o|a|esse|essa|este|esta|isso|isto|ai))?(?:\s+(?:qr(?: ?code)?|pix|codigo(?: pix)?|chave(?: pix)?|cobranca|qr code do pix))?(?:\s+(?:pra|para|pro|pros|ao|a|p|pr))?\s+(?:(?:o|a)\s+)?(ele|ela|cliente|clientes|[a-z]{3,20})(?:\s+(?:agora|ja|por favor|pf|pfv))?$/;
+async function qrMandarPraEle(env, from, bruto, msg) {
+  const ref = await env.HR_KV.get('qrcli:ultimo'); if (!ref) return false;
+  const mm = msg.match(RE_MANDA_PRA_ELE); if (!mm) return false;
+  const q = await qrLer(env, ref); if (!q) return false;
+  const quem = ['ele', 'ela', 'cliente', 'clientes'].includes(mm[1]) ? '' : mm[1];
+  if (quem && !normaliza(q.cliente).split(' ').some(w => w.startsWith(quem.slice(0, 4)))) return false; // outro nome: não é sobre este QR
+  if (q.venceEm && q.venceEm < Date.now()) { await enviar(env, from, `Sr. Hangel, o QR code de ${q.cliente} já venceu. Peça um novo: _qr code do ${String(q.cliente).split(' ')[0]} 50%_.`); return true; }
+  const num = await qrNumeroDoCliente(env, q, quem);
+  if (!num) { await env.HR_KV.put('qrcli:semnum', ref, { expirationTtl: 3600 }); await enviar(env, from, `Sr. Hangel, não achei o WhatsApp de *${q.cliente}*. Me mande o número dele (só os dígitos, com DDD) que eu envio o Pix.`); return true; }
+  await env.HR_KV.delete('qrcli:ultimo'); // um "mande pra ele" por QR: não reenvia depois por engano
+  if (await janela24h(env, num)) {
+    await qrEnviarAoCliente(env, num, q, q.cliente);
+    await enviar(env, from, `Pronto, Sr. Hangel: mandei a ${q.cliente} o Pix de R$ ${reais(q.valor)}${q.total > q.valor + 0.009 ? ' (sinal)' : ''} com o botão de copiar. Aviso aqui quando cair.\nwa.me/${num}`);
+    return true;
+  }
+  const nomeResp = env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente');
+  const pn = nomeDeTratamento(q.cliente);
+  try {
+    await postarMsg(env, num, { type: 'template', template: { name: nomeResp, language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(`${pn ? pn + ', o' : 'O'} Pix do seu pedido está pronto. Posso te enviar por aqui? É só responder esta mensagem.`).slice(0, 200) }] }] } });
+    await env.HR_KV.put('tplpend:' + num, JSON.stringify({ pixRef: ref, nome: q.cliente, em: Date.now(), qualquer: true }), { expirationTtl: 3 * 86400 });
+    await enviar(env, from, `Sr. Hangel, ${q.cliente} está fora das 24 h do WhatsApp: mandei o aviso aprovado "o Pix do seu pedido está pronto, posso enviar?". Assim que ele responder, o Pix vai na hora.`);
+  } catch (e) { await enviar(env, from, `Sr. Hangel, ${q.cliente} está fora das 24 h e a Meta recusou o aviso (${String(e.message).slice(0, 100)}). Toque em *Copiar código Pix* e mande pelo seu WhatsApp.`); }
+  return true;
+}
+// o dono respondeu o número pedido acima
+async function qrNumeroRespondido(env, from, msg) {
+  const ref = await env.HR_KV.get('qrcli:semnum'); if (!ref) return false;
+  const d = String(msg).replace(/\D/g, ''); if (!/^(55)?\d{10,11}$/.test(d)) return false;
+  await env.HR_KV.delete('qrcli:semnum');
+  const q = await qrLer(env, ref); if (!q) return false;
+  await donoCtxCliente(env, d.startsWith('55') ? d : '55' + d, q.cliente);
+  await env.HR_KV.put('qrcli:ultimo', ref, { expirationTtl: 2 * 3600 });
+  return qrMandarPraEle(env, from, '', 'mande pra ele');
+}
 async function tratarQR(env, from, bruto, msg) {
   if (!/\bqr( ?code)?\b/.test(msg) || msg.length > 140) return false;
   const mp = String(bruto || '').match(/(\d{1,3})\s*(?:%|por\s?cento)/i);
@@ -20129,6 +20267,7 @@ async function processarResultadoQR(env, x, body) {
     await env.HR_KV.put('lk:' + ref, JSON.stringify({ valor, desc, em: Date.now(), pagId: pix.id, codigo: pix.codigo,
       qr: { reqId: x.id, qId: String(d.qId), cliente: d.cliente || x.nome, tipo: d.tipo || '', pct: Math.round(Number(d.pct) || x.pct || 50), total } }), { expirationTtl: 40 * 24 * 3600 });
     const rotulo = x.valorFixo ? 'Sinal combinado' : pctTxt;
+    await qrGuardar(env, { ref, valor, total, rotulo, cliente: d.cliente || x.nome, tipo: d.tipo || '', codigo: pix.codigo, png: pix.png, venceEm: pix.venceEm }).catch(() => {}); // v115
     const cartao = await enviarQRProfissional(env, dono, { ref, valor, total, rotulo, cliente: d.cliente || x.nome, tipo: d.tipo || '', codigo: pix.codigo, png: pix.png, venceEm: pix.venceEm });
     if (cartao) {
       const lkq = JSON.parse((await env.HR_KV.get('lk:' + ref)) || 'null');
@@ -21194,11 +21333,15 @@ async function cbCriarPro(env, d) { // { nome, numero, descricao, principalC, ve
 }
 
 // ── Cartão nativo da Meta ──
-async function cbJanelaAberta(env, numero) {
-  const n = String(numero);
+async function cbJanelaAberta(env, numero) { return janela24h(env, numero); }
+// v115: a Meta manda o número sem o 9 (557481173548) e o bot guarda com o 9 (5574981173548): confere as duas formas e o CRM
+async function janela24h(env, numero) {
+  const n = normalizarBR(numero);
   const alt = n.length === 13 && n.startsWith('55') ? n.slice(0, 4) + n.slice(5) : n;
-  for (const k of [n, alt]) { const t = Number(await env.HR_KV.get('ult:' + k).catch(() => 0)) || 0; if (t && Date.now() - t < 23 * 3600000) return true; }
-  return false;
+  let t = 0;
+  for (const k of new Set([String(numero).replace(/\D/g, ''), n, alt])) t = Math.max(t, Number(await env.HR_KV.get('ult:' + k).catch(() => 0)) || 0);
+  if (!(t && Date.now() - t < 23 * 3600000)) t = Math.max(t, await crmUltimaDoCliente(env, n).catch(() => 0));
+  return !!(t && Date.now() - t < 23 * 3600000);
 }
 
 // ── Etapa 65: reference_id único por mensagem + modelo Order details fora das 24 h ──
