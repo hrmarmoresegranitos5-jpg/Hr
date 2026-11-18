@@ -1,3 +1,4 @@
+// v117 (18/11/2026): PAGAMENTO QUE SEGUE — "na entrega"/"pix" respondendo à pergunta de pagamento (do bot, da IA ou do dono) entra no passo a passo (entrega, localização, Pix); pedido fechado sem valor guarda a escolha até o dono mandar o valor; sem "Olá, fulana" repetido depois do modelo
 // v116 (18/11/2026): CONVERSA DE GENTE — a assistente não se apresenta como robô por conta própria, evita frases de robô e escreve no ritmo do WhatsApp; se perguntarem de verdade, continua dizendo que é a assistente virtual
 // v115 (18/11/2026): ASSISTENTE QUE FECHA A VENDA — orçamento enviado → a IA conduz até a aprovação; "manda o pix"/"quero pagar" fecha e o Pix sai na hora; "ok" não vira "por nada"; resposta automática de outra empresa é ignorada; nota nunca no meio da venda; janela de 24 h confere o número sem o 9; dono: "mande pra ele" envia ao cliente o último QR code
 // v74 (14/11/2026): CADASTRO DE CLIENTES NO APP pelo bot (cadastrar_cliente; contato salvo e cliente de pedido vão para o banco de clientes do app; telefone ligado aos orçamentos)
@@ -825,11 +826,20 @@ const RE_FECHA_ORC = /\b(pode confirmar|confirm\w* (o |meu )?pedido|confirmo|pod
 async function orcEnvFechamento(env, from, texto, forcar) {
   const k = 'orcenv:' + normalizarBR(from);
   let o = null; try { o = JSON.parse((await env.HR_KV.get(k)) || 'null'); } catch (_) {}
-  if (o && o.fechado) return false;
   const msg = normaliza(limparMensagemCliente(String(texto || '')));
+  // v117: resposta curta à pergunta "Pix agora ou na entrega?" (feita pelo bot, pela IA ou numa mensagem do dono)
+  let pagCurto = '';
+  { const mc = msg.replace(/^(e |eh |vai ser |vou pagar |prefiro |pode ser |sera |quero )+/, '').trim();
+    if (/^(na entrega|entrega|pagar na entrega|pago na entrega|na hora|na hora da entrega|dinheiro|em dinheiro|no dinheiro|cartao|no cartao|na entrega mesmo|entrega mesmo)$/.test(mc)) pagCurto = 'entrega';
+    else if (/^(pix|no pix|pix agora|agora no pix|pelo pix|pix mesmo|faco o pix|faco pix)$/.test(mc)) pagCurto = 'pix';
+    if (pagCurto && !o) { // só vale se a última mensagem ao cliente perguntou a forma de pagamento
+      let ult = ''; try { const cc = JSON.parse((await env.HR_KV.get('ca:' + from)) || 'null'); ult = normaliza(String(((cc && cc.hist) || []).filter(h => h.role === 'assistant').slice(-1)[0]?.content || '')); } catch (_) {}
+      if (!(/\bpix\b/.test(ult) && /\b(entrega|pagamento|pagar)\b/.test(ult))) pagCurto = '';
+    } }
+  if (o && o.fechado && (o.novoId || !pagCurto)) return false; // pedido já criado: o passo a passo do pedido cuida; fechado sem pedido: só segue com a forma de pagamento
   const pixPede = RE_PIX_PEDE.test(msg), entregaPede = !pixPede && RE_ENTREGA_PAGA.test(msg);
-  const forma = (forcar && forcar.forma) || (pixPede ? 'pix' : entregaPede ? 'entrega' : '');
-  if (!forcar && !RE_FECHA_ORC.test(msg) && !pixPede && !entregaPede) return false;
+  const forma = (forcar && forcar.forma) || (pixPede ? 'pix' : entregaPede ? 'entrega' : pagCurto);
+  if (!forcar && !RE_FECHA_ORC.test(msg) && !pixPede && !entregaPede && !pagCurto) return false;
   if (!o) { // orçamento mandado antes do registro: vale o último PDF que o bot mandou a ele (CRM, 15 dias), se não houver pedido do próprio bot em andamento
     const pid = await pedidoIdDoCliente(env, from).catch(() => null);
     const pc = pid ? await lerPedido(env, pid).catch(() => null) : null;
@@ -840,8 +850,9 @@ async function orcEnvFechamento(env, from, texto, forcar) {
     if (!d) return false;
     o = { pedId: pc && pc.origem === 'dono' ? pc.id : null, valor: pc && pc.origem === 'dono' ? Number(pc.valor) || 0 : 0, nome: '', em: d.ts, fechado: 0 };
   }
-  if (!forcar && !pixPede && /\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
-  o.fechado = Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
+  if (!forcar && !pixPede && !pagCurto && /\b(nao|ainda nao|talvez|depois|vou pensar|desconto|mais barato|quanto|se eu)\b/.test(msg) && !/\b(pode confirmar|quero que fa[cz]a|pode fazer)\b/.test(msg)) return false;
+  if (o.fechado) o.reentrada = true; // já tinha confirmado: não repete "seu pedido está confirmado"
+  o.fechado = o.fechado || Date.now(); await env.HR_KV.put(k, JSON.stringify(o), { expirationTtl: 15 * 86400 });
   await orcEnvIniciarFluxo(env, from, o, texto, forma);
   return true;
 }
@@ -863,17 +874,18 @@ async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
     if (typeof novo.entrega !== 'string') delete novo.entrega;
     await prepararSinal(env, novo);
     await salvarPedido(env, novo);
+    o.novoId = novo.id; delete o.formaPend; await env.HR_KV.put('orcenv:' + normalizarBR(from), JSON.stringify(o), { expirationTtl: 15 * 86400 }).catch(() => {}); // v117
     await env.HR_KV.put('cliped:' + from, String(novo.id), { expirationTtl: 14 * 24 * 60 * 60 });
     await gravarCliente(env, from, { pedidoId: novo.id }).catch(() => {});
     if (base && base.id) { base.aprovadoCliente = Date.now(); base.fechadoPeloCliente = Date.now(); await salvarPedido(env, base).catch(() => {}); }
     const oa = (base && base.orcApp) ? { id: base.orcApp } : await orcDoHistoricoApp(env, nome).catch(() => null); // v79c: no Histórico do app, o orçamento passa para "Aceito"
     if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor }).catch(() => {});
     await funilMarca(env, 'aprovou', novo).catch(() => {});
-    if ((forma === 'pix' || (forma === 'entrega' && !novo.sinalOferta)) && !o.valorPerguntado) { // v115: já disse como paga ("manda o pix"): não pergunta de novo, já manda o Pix
+    if (forma === 'pix' || (forma === 'entrega' && !novo.sinalOferta)) { // v115: já disse como paga ("manda o pix"): não pergunta de novo, já manda o Pix
       novo.forma_pagto = forma; novo.sinal = forma === 'pix' && novo.sinalOferta ? novo.sinalOferta : null;
       if (forma === 'entrega') await funilMarca(env, 'pagto_entrega', novo).catch(() => {});
       novo.etapa = 'localizacao'; novo.tentLoc = 0; await salvarPedido(env, novo);
-      await enviar(env, from, `${pn ? 'Perfeito, ' + pn + '! S' : 'Perfeito! S'}eu pedido está confirmado. ${forma === 'pix'
+      await enviar(env, from, `${o.reentrada ? 'Combinado!' : pn ? 'Perfeito, ' + pn + '! Seu pedido está confirmado.' : 'Perfeito! Seu pedido está confirmado.'} ${forma === 'pix'
         ? (novo.sinal ? `Para a produção começar, o sinal é de ${novo.sinal.pct}% (R$ ${reais(novo.sinal.valor)}) no Pix; o restante (R$ ${reais(novo.sinal.resto)}) é pago na entrega. Segue o Pix:` : `Segue o Pix de R$ ${reais(valor)}:`)
         : 'O pagamento fica para a entrega.'}`);
       if (forma === 'pix') await enviarPixCliente(env, from, novo);
@@ -888,6 +900,12 @@ async function orcEnvIniciarFluxo(env, from, o, texto, forma) {
     await env.HR_KV.put('orcenv:valor:aguarda', normalizarBR(from), { expirationTtl: 6 * 3600 });
     await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado. Já te passo as próximas etapas por aqui.`);
     await enviar(env, numeroDono(env), cartaoDono('Pedido fechado · ' + (nome || 'Cliente'), ['Não achei o valor do orçamento no bot.', 'O que fazer: responda só o valor (ex.: *594,38*) que eu sigo com ela: pagamento, entrega e localização.'], from));
+    return null;
+  } else if (forma) { // v117: já confirmou antes e agora disse como paga, mas o valor ainda não chegou: anota e cobra o valor do dono
+    o.formaPend = forma; await env.HR_KV.put('orcenv:' + normalizarBR(from), JSON.stringify(o), { expirationTtl: 15 * 86400 });
+    await env.HR_KV.put('orcenv:valor:aguarda', normalizarBR(from), { expirationTtl: 6 * 3600 });
+    await enviar(env, from, forma === 'pix' ? 'Combinado! Só confirmo o valor certinho e já te mando o Pix por aqui.' : 'Combinado, o pagamento fica para a entrega. Já te pergunto os detalhes da entrega.');
+    await enviar(env, numeroDono(env), cartaoDono('Valor do pedido · ' + (nome || 'Cliente'), [`Escolheu: ${forma === 'pix' ? 'Pix' : 'pagar na entrega'}.`, 'Não achei o valor do orçamento no bot.', 'O que fazer: responda só o valor (ex.: *594,38*) que eu sigo com o cliente: entrega e localização.'], from));
     return null;
   } else { // sem o valor do orçamento não há como cobrar pelo bot: confirma e o dono combina
     await enviar(env, from, `Perfeito${pn ? ', ' + pn : ''}! Seu pedido está confirmado.\n\nJá avisei a equipe: a gente fala com você por aqui para combinar o pagamento e a entrega. O prazo é o que está no orçamento.`);
@@ -938,7 +956,7 @@ async function orcEnvValorDono(env, from, msg) {
   let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + num)) || 'null'); } catch (_) {}
   o = o || { pedId: null, nome: '', em: Date.now(), fechado: Date.now() };
   o.valor = v.n; await env.HR_KV.put('orcenv:' + num, JSON.stringify(o), { expirationTtl: 15 * 86400 });
-  const novo = await orcEnvIniciarFluxo(env, num, o, '');
+  const novo = await orcEnvIniciarFluxo(env, num, o, '', o.formaPend || '');
   if (novo) await enviar(env, from, `Certo, R$ ${reais(v.n)}. Já perguntei a forma de pagamento a ${novo.nome || 'ela'}; depois sigo com a entrega e a localização.`);
   return true;
 }
@@ -13506,8 +13524,7 @@ async function decidirRascunho(env, from, enviarAgora) {
   const pedPdf = /or[cç]amento|pdf|proposta/i.test(String(r.texto) + ' ' + String(r.pedido || '')) ? await pedComPdfDoNumero(env, r.numero, r.nome).catch(() => null) : null;
   let via = null, erro = '';
   try {
-    const ult = Math.max(Number(await env.HR_KV.get('ult:' + r.numero)) || 0, Number(await env.HR_KV.get('ult:' + normalizarBR(r.numero))) || 0);
-    const fora = Date.now() - ult >= 23 * 3600 * 1000;
+    const fora = !(await janela24h(env, r.numero)); // v117
     if (fora && pedPdf && await tplAvisarOrcamento(env, r.numero, pedPdf.nome || r.nome, (pedPdf.itens && pedPdf.itens[0] && pedPdf.itens[0].ambiente ? pedPdf.itens.map(i => String(i.ambiente).toLowerCase()).join(' e ') : pedPdf.interesse || 'pedra') + (pedPdf.pedra ? ' em ' + pedPdf.pedra : ''), r.texto, pedPdf)) via = 'aviso';
     else if (fora && tplResp && String(r.texto).length > 200) { // v74b: texto grande fora das 24 h → aviso curto pelo modelo; o texto inteiro vai quando o cliente responder
       const pn = String(r.nome || '').trim().split(' ')[0];
@@ -17536,6 +17553,12 @@ async function tplAvisarOrcamento(env, numero, nome, pedido, texto, ped) {
   return true;
 }
 // cliente tocou em "Pode enviar" / "Agora não" do modelo
+// v117: "Olá, Eliane. Confirmando: ..." → "Confirmando: ..." (usado depois do modelo, que já cumprimentou pelo nome)
+function tirarSaudacao(t) {
+  let s = String(t || '').replace(/^\s*(?:[Oo]l[áa]|[Oo]ie?|[Bb]om dia|[Bb]oa tarde|[Bb]oa noite)(?:\s*,\s*|\s+)(?:sr\.?\s*|sra\.?\s*|dona\s+|seu\s+)?[A-ZÀ-Ú][\wÀ-ú]*(?:\s+[A-ZÀ-Ú][\wÀ-ú]*)?\s*[!.,]\s*/u, '');
+  s = s.replace(/^\s*(?:ol[áa]|oi|bom dia|boa tarde|boa noite)\s*[!.,]\s*/i, '');
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : String(t || '');
+}
 async function tratarTplPend(env, from, m) { if (!(await env.HR_KV.get('tplpend:' + normalizarBR(from)))) return false; return tplRespostaCliente(env, from, m).catch(e => { console.log('[TPL] resposta:', e.message); return false; }); }
 async function tplRespostaCliente(env, from, m, forcar) {
   const txt = normaliza(String((m.button && (m.button.text || m.button.payload)) || (m.interactive && m.interactive.button_reply && m.interactive.button_reply.title) || (m.text && m.text.body) || ''));
@@ -17550,7 +17573,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
     await notificarDono(env, Date.now(), ok ? `✅ ${p.nome || 'O cliente'} respondeu: mandei o Pix de R$ ${reais(q.valor)}. Aviso quando cair.` : `${p.nome || 'O cliente'} respondeu, mas o Pix guardado não existe mais. Peça um novo QR code.`).catch(() => {});
     return true;
   }
-  if (p.texto) await enviar(env, from, p.texto);
+  if (p.texto) await enviar(env, from, tirarSaudacao(p.texto)); // v117: o modelo já chamou pelo nome: não cumprimenta de novo
   if (p.mediaId) await postarMsg(env, from, { type: 'document', document: { id: p.mediaId, filename: p.arquivo || 'Orcamento.pdf', caption: 'Seu orçamento da HR Mármores e Granitos.' } }).catch(e => console.log('[TPL] pdf:', e.message));
   await semearConversaProativa(env, from, (p.texto || 'Orçamento enviado.') + ' [PDF do orçamento enviado]').catch(() => {});
   if (p.mediaId) await orcEnvRegistrar(env, from, { id: p.pedId, valor: p.valor }, p.nome).catch(() => {}); // v78
