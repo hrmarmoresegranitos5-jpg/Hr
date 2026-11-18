@@ -1,4 +1,4 @@
-// app-crm.js — v1: CRM das conversas do bot (Secretária → "Conversas dos clientes").
+// app-crm.js — v2 (visual preto e dourado, filtros, animações). v1: CRM das conversas do bot (Secretária → "Conversas dos clientes").
 // Lista de clientes → toque → conversa inteira num visual de WhatsApp: fotos, áudios (com a transcrição),
 // vídeos, documentos, modelos, botões, localização e os tiques de entregue/lido.
 // Dados: Worker /bot/crm/* (x-bot-key). Os arquivos chegam com a chave do bot e viram blob local.
@@ -44,65 +44,95 @@
   function marcarVisto(num, total) { try { var v = vistos(); v[num] = total; localStorage.setItem('hr_crm_vistos', JSON.stringify(v)); } catch (e) {} }
 
   var CSS = [
-    '#hrCrm{position:fixed;inset:0;z-index:9990;background:#0b141a;color:#e9edef;display:flex;flex-direction:column;font-family:inherit;}',
+    /* v2: visual da HR — preto e dourado, vidro, animações */
+    '#hrCrm{position:fixed;inset:0;z-index:9990;color:#efe9dc;display:flex;flex-direction:column;font-family:Outfit,inherit;overflow:hidden;background:#0a0908;animation:crmEntra .32s cubic-bezier(.2,.9,.25,1);}',
+    '#hrCrm::before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(90% 50% at 85% -10%,rgba(201,168,76,.16),transparent 60%),radial-gradient(70% 40% at -10% 110%,rgba(201,168,76,.10),transparent 60%);}',
     '#hrCrm *{box-sizing:border-box;}',
-    '.crm-top{display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:#202c33;min-height:58px;}',
-    '.crm-top b{font-size:1.02rem;}',
-    '.crm-ic{background:none;border:none;color:#aebac1;font-size:1.25rem;padding:6px 8px;cursor:pointer;border-radius:50%;line-height:1;}',
-    '.crm-busca{margin:8px 10px;display:flex;align-items:center;background:#202c33;border-radius:10px;padding:0 10px;}',
-    '.crm-busca input{flex:1;background:none;border:none;color:#e9edef;padding:10px 6px;font-size:.92rem;outline:none;font-family:inherit;}',
-    '.crm-lista{flex:1;overflow-y:auto;}',
-    '.crm-ct{display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;}',
-    '.crm-ct:active{background:#202c33;}',
-    '.crm-av{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;}',
-    '.crm-ct-c{flex:1;min-width:0;border-bottom:1px solid #222d34;padding-bottom:10px;}',
+    '#hrCrm>*{position:relative;}',
+    '.crm-top{display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:max(12px,env(safe-area-inset-top));min-height:62px;background:linear-gradient(180deg,rgba(26,22,14,.96),rgba(14,12,9,.92));border-bottom:1px solid rgba(201,168,76,.28);box-shadow:0 8px 24px rgba(0,0,0,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:2;}',
+    '.crm-top b{font-family:"Cormorant Garamond",serif;font-size:1.32rem;font-weight:700;color:#f0d78c;letter-spacing:.02em;}',
+    '.crm-ic{background:rgba(201,168,76,.08);border:1px solid rgba(201,168,76,.22);color:#e8c96a;font-size:1.05rem;width:38px;height:38px;cursor:pointer;border-radius:12px;line-height:1;display:flex;align-items:center;justify-content:center;flex:none;transition:transform .15s,background .15s;}',
+    '.crm-ic:active{transform:scale(.9);background:rgba(201,168,76,.22);}',
+    '.crm-busca{margin:12px 12px 6px;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid rgba(201,168,76,.2);border-radius:14px;padding:0 12px;transition:border-color .2s,box-shadow .2s;}',
+    '.crm-busca:focus-within{border-color:#c9a84c;box-shadow:0 0 0 3px rgba(201,168,76,.15);}',
+    '.crm-busca input{flex:1;background:none!important;border:none!important;box-shadow:none!important;color:#efe9dc;padding:12px 4px;font-size:.92rem;outline:none;font-family:inherit;margin:0;}',
+    '.crm-busca input::placeholder{color:#7d7462;}',
+    '.crm-chips{display:flex;gap:8px;padding:4px 12px 10px;overflow-x:auto;scrollbar-width:none;}',
+    '.crm-chips::-webkit-scrollbar{display:none;}',
+    '.crm-chip{flex:none;border:1px solid rgba(201,168,76,.25);background:rgba(255,255,255,.03);color:#b9ad92;border-radius:20px;padding:6px 13px;font-size:.78rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .18s;}',
+    '.crm-chip b{margin-left:5px;font-size:.7rem;color:#e8c96a;}',
+    '.crm-chip.on{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;border-color:transparent;box-shadow:0 4px 14px rgba(201,168,76,.35);}',
+    '.crm-chip.on b{color:#1a1408;}',
+    '.crm-lista{flex:1;overflow-y:auto;padding:2px 10px 20px;}',
+    '.crm-ct{display:flex;align-items:center;gap:12px;padding:11px 12px;margin:0 0 8px;cursor:pointer;border-radius:16px;background:linear-gradient(135deg,rgba(255,255,255,.035),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.05);opacity:0;animation:crmSobe .45s cubic-bezier(.2,.9,.25,1) forwards;transition:transform .15s,border-color .2s,background .2s;}',
+    '.crm-ct:active{transform:scale(.985);background:rgba(201,168,76,.08);}',
+    '.crm-ct.nv{border-color:rgba(201,168,76,.45);background:linear-gradient(135deg,rgba(201,168,76,.13),rgba(201,168,76,.03));}',
+    '.crm-av{width:50px;height:50px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1rem;color:#fff;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08),0 4px 12px rgba(0,0,0,.4);position:relative;}',
+    '.crm-ct.nv .crm-av{box-shadow:0 0 0 2px #0a0908,0 0 0 4px #c9a84c,0 0 18px rgba(201,168,76,.45);}',
+    '.crm-ct-c{flex:1;min-width:0;}',
     '.crm-l1{display:flex;justify-content:space-between;gap:8px;align-items:baseline;}',
-    '.crm-nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    '.crm-hr{font-size:.72rem;color:#8696a0;flex:none;}',
-    '.crm-hr.nv{color:#25d366;}',
-    '.crm-l2{display:flex;justify-content:space-between;gap:8px;margin-top:3px;}',
-    '.crm-pv{font-size:.82rem;color:#8696a0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    '.crm-bd{background:#25d366;color:#0b141a;border-radius:10px;font-size:.7rem;font-weight:700;padding:1px 7px;flex:none;}',
-    '.crm-tag{font-size:.62rem;color:#d4a94e;border:1px solid #d4a94e55;border-radius:6px;padding:0 5px;margin-left:6px;vertical-align:middle;}',
-    '.crm-chat{flex:1;overflow-y:auto;padding:8px 10px 16px;background:#0b141a;background-image:radial-gradient(#ffffff08 1px,transparent 1px);background-size:22px 22px;}',
-    '.crm-dia{text-align:center;margin:10px 0;}',
-    '.crm-dia span{background:#182229;color:#8696a0;font-size:.72rem;padding:5px 10px;border-radius:8px;}',
-    '.crm-row{display:flex;margin:2px 0;}',
+    '.crm-nm{font-weight:700;font-size:.98rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f4eee2;}',
+    '.crm-hr{font-size:.7rem;color:#857b66;flex:none;}',
+    '.crm-hr.nv{color:#e8c96a;font-weight:700;}',
+    '.crm-l2{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;}',
+    '.crm-pv{font-size:.8rem;color:#9a917e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.crm-ct.nv .crm-pv{color:#d8ccb0;}',
+    '.crm-bd{background:linear-gradient(135deg,#e8c96a,#c9a84c);color:#1a1408;border-radius:11px;font-size:.7rem;font-weight:800;padding:2px 8px;flex:none;box-shadow:0 2px 8px rgba(201,168,76,.4);animation:crmPulsa 2s ease-in-out infinite;}',
+    '.crm-tag{font-size:.58rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#1a1408;background:#c9a84c;border-radius:6px;padding:1px 6px;margin-left:7px;vertical-align:middle;}',
+    '.crm-bot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(201,168,76,.18);font-size:.6rem;margin-right:4px;vertical-align:-2px;}',
+    '.crm-chat{flex:1;overflow-y:auto;padding:10px 12px 18px;background-color:#0a0908;background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27240%27 height=%27240%27%3E%3Cpath d=%27M-10 60 C40 20 90 110 140 70 S230 40 260 90%27 stroke=%27%23c9a84c%27 stroke-opacity=%27.07%27 fill=%27none%27/%3E%3Cpath d=%27M-10 170 C50 140 80 210 150 180 S220 150 260 200%27 stroke=%27%23c9a84c%27 stroke-opacity=%27.05%27 fill=%27none%27/%3E%3C/svg%3E"),radial-gradient(120% 60% at 50% 0%,rgba(201,168,76,.08),transparent 70%);}',
+    '.crm-dia{text-align:center;margin:14px 0 10px;position:sticky;top:4px;z-index:1;}',
+    '.crm-dia span{background:rgba(20,17,12,.88);border:1px solid rgba(201,168,76,.28);color:#e8c96a;font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:5px 12px;border-radius:20px;backdrop-filter:blur(6px);}',
+    '.crm-row{display:flex;margin:3px 0;}',
     '.crm-row.b{justify-content:flex-end;}',
-    '.crm-bb{max-width:82%;padding:6px 8px 4px;border-radius:9px;font-size:.9rem;line-height:1.35;position:relative;word-wrap:break-word;overflow-wrap:anywhere;box-shadow:0 1px .5px #0000004d;}',
-    '.crm-row.c .crm-bb{background:#202c33;border-top-left-radius:2px;}',
-    '.crm-row.b .crm-bb{background:#005c4b;border-top-right-radius:2px;}',
-    '.crm-bb a{color:#53bdeb;}',
-    '.crm-meta{float:right;font-size:.66rem;color:#ffffff99;margin:6px 0 -2px 10px;white-space:nowrap;}',
+    '.crm-row.novo{animation:crmBolha .38s cubic-bezier(.2,1.2,.3,1) both;}',
+    '.crm-bb{max-width:82%;padding:8px 10px 5px;border-radius:14px;font-size:.9rem;line-height:1.4;position:relative;word-wrap:break-word;overflow-wrap:anywhere;box-shadow:0 2px 10px rgba(0,0,0,.35);}',
+    '.crm-row.c .crm-bb{background:#1b1a19;border:1px solid rgba(255,255,255,.06);border-top-left-radius:4px;}',
+    '.crm-row.b .crm-bb{background:linear-gradient(160deg,#3a3018,#241e10);border:1px solid rgba(201,168,76,.32);border-top-right-radius:4px;color:#f6edd5;}',
+    '.crm-bb a{color:#f0d78c;}',
+    '.crm-meta{float:right;font-size:.64rem;color:#ffffff80;margin:7px 0 -2px 10px;white-space:nowrap;}',
     '.crm-tk{margin-left:3px;letter-spacing:-3px;}',
-    '.crm-tk.lido{color:#53bdeb;}',
+    '.crm-tk.lido{color:#5ec8ff;}',
     '.crm-tk.erro{color:#f15c6d;letter-spacing:0;}',
-    '.crm-img{display:block;max-width:260px;width:100%;min-height:120px;border-radius:6px;margin-bottom:3px;background:#ffffff10;cursor:zoom-in;object-fit:cover;}',
+    '.crm-img{display:block;max-width:260px;width:100%;min-height:120px;border-radius:10px;margin-bottom:4px;background:#ffffff10;cursor:zoom-in;object-fit:cover;}',
     '.crm-stk{width:120px;height:120px;object-fit:contain;background:none;}',
-    '.crm-vid{display:block;max-width:260px;width:100%;border-radius:6px;margin-bottom:3px;background:#000;}',
-    '.crm-aud{width:240px;max-width:100%;height:40px;display:block;}',
-    '.crm-trans{font-size:.78rem;color:#ffffffb3;font-style:italic;margin-top:4px;border-left:2px solid #ffffff40;padding-left:6px;}',
-    '.crm-doc{display:flex;align-items:center;gap:10px;background:#00000026;border-radius:7px;padding:9px 10px;margin-bottom:3px;cursor:pointer;min-width:200px;}',
-    '.crm-doc .ic{font-size:1.6rem;}',
-    '.crm-doc .nm{font-size:.84rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;}',
-    '.crm-doc .sb{font-size:.7rem;color:#ffffff99;}',
-    '.crm-bts{display:flex;flex-direction:column;gap:2px;margin-top:2px;}',
-    '.crm-bt{background:#005c4b;color:#53bdeb;text-align:center;padding:8px;border-radius:8px;font-size:.84rem;}',
-    '.crm-row.c .crm-bt{background:#202c33;}',
-    '.crm-mdl{font-size:.64rem;color:#d4a94e;margin-bottom:3px;}',
-    '.crm-resp{font-size:.64rem;color:#8696a0;margin-bottom:2px;}',
-    '.crm-rea{display:inline-block;background:#202c33;border-radius:12px;padding:2px 8px;font-size:.95rem;}',
-    '.crm-sem{color:#8696a0;font-size:.82rem;font-style:italic;}',
-    '.crm-info{font-size:.72rem;color:#8696a0;}',
-    '.crm-mais{display:block;margin:6px auto 10px;background:#202c33;color:#aebac1;border:none;border-radius:14px;padding:6px 14px;font-size:.78rem;cursor:pointer;font-family:inherit;}',
-    '.crm-vazio{text-align:center;color:#8696a0;padding:40px 20px;font-size:.88rem;line-height:1.5;}',
-    '.crm-rod{background:#202c33;padding:8px 12px;padding-bottom:max(8px,env(safe-area-inset-bottom));display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:.76rem;color:#8696a0;}',
-    '.crm-rod a{background:#25d366;color:#0b141a;text-decoration:none;font-weight:700;border-radius:18px;padding:8px 14px;font-size:.8rem;white-space:nowrap;}',
-    '#hrCrmZoom{position:fixed;inset:0;z-index:9995;background:#000e;display:flex;align-items:center;justify-content:center;}',
-    '#hrCrmZoom img{max-width:100%;max-height:100%;object-fit:contain;}'
+    '.crm-vid{display:block;max-width:260px;width:100%;border-radius:10px;margin-bottom:4px;background:#000;}',
+    '.crm-aud{width:240px;max-width:100%;height:40px;display:block;filter:sepia(.5) saturate(1.4) hue-rotate(-10deg);}',
+    '.crm-trans{font-size:.78rem;color:#ffffffb8;font-style:italic;margin-top:5px;border-left:2px solid rgba(201,168,76,.6);padding-left:7px;}',
+    '.crm-doc{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.28);border:1px solid rgba(201,168,76,.22);border-radius:10px;padding:10px 11px;margin-bottom:4px;cursor:pointer;min-width:210px;transition:background .15s;}',
+    '.crm-doc:active{background:rgba(201,168,76,.15);}',
+    '.crm-doc .ic{font-size:1.5rem;width:38px;height:38px;border-radius:10px;background:rgba(201,168,76,.14);display:flex;align-items:center;justify-content:center;flex:none;}',
+    '.crm-doc .nm{font-size:.84rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;}',
+    '.crm-doc .sb{font-size:.68rem;color:#e8c96aaa;}',
+    '.crm-bts{display:flex;flex-direction:column;gap:3px;margin-top:3px;}',
+    '.crm-bt{background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.3);color:#f0d78c;text-align:center;padding:8px;border-radius:10px;font-size:.82rem;font-weight:600;}',
+    '.crm-row.c .crm-bt{background:#1b1a19;}',
+    '.crm-mdl{display:inline-block;font-size:.6rem;font-weight:700;letter-spacing:.04em;color:#1a1408;background:rgba(232,201,106,.85);border-radius:6px;padding:1px 6px;margin-bottom:5px;}',
+    '.crm-resp{font-size:.64rem;color:#b9ad92;margin-bottom:3px;}',
+    '.crm-rea{display:inline-block;background:#1b1a19;border:1px solid rgba(201,168,76,.25);border-radius:14px;padding:2px 9px;font-size:.95rem;}',
+    '.crm-sem{color:#9a917e;font-size:.8rem;font-style:italic;}',
+    '.crm-info{font-size:.72rem;color:#9a917e;}',
+    '.crm-mais{display:block;margin:6px auto 12px;background:rgba(201,168,76,.1);color:#e8c96a;border:1px solid rgba(201,168,76,.3);border-radius:16px;padding:7px 16px;font-size:.78rem;cursor:pointer;font-family:inherit;}',
+    '.crm-vazio{text-align:center;color:#9a917e;padding:50px 20px;font-size:.9rem;line-height:1.6;}',
+    '.crm-vazio .ic{font-size:2.6rem;display:block;margin-bottom:10px;animation:crmFlut 3s ease-in-out infinite;}',
+    '.crm-skel{height:72px;border-radius:16px;margin:0 0 8px;background:linear-gradient(90deg,rgba(255,255,255,.03) 0%,rgba(201,168,76,.09) 50%,rgba(255,255,255,.03) 100%);background-size:200% 100%;animation:crmBrilho 1.2s linear infinite;}',
+    '.crm-rod{background:linear-gradient(0deg,rgba(14,12,9,.98),rgba(26,22,14,.94));border-top:1px solid rgba(201,168,76,.25);padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:.76rem;color:#b9ad92;}',
+    '.crm-jan{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:20px;padding:6px 11px;}',
+    '.crm-jan i{width:8px;height:8px;border-radius:50%;background:#7d7462;display:inline-block;}',
+    '.crm-jan.ok i{background:#34d399;box-shadow:0 0 8px #34d399;animation:crmPulsa 1.6s ease-in-out infinite;}',
+    '.crm-rod a{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,#2be07a,#1fae5b);color:#05140b;text-decoration:none;font-weight:800;border-radius:22px;padding:10px 16px;font-size:.82rem;white-space:nowrap;box-shadow:0 6px 18px rgba(37,211,102,.3);}',
+    '.crm-rod a:active{transform:scale(.96);}',
+    '#hrCrmZoom{position:fixed;inset:0;z-index:9995;background:#000e;display:flex;align-items:center;justify-content:center;animation:crmEntra .2s ease;}',
+    '#hrCrmZoom img{max-width:100%;max-height:100%;object-fit:contain;}',
+    '@keyframes crmEntra{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}',
+    '@keyframes crmSobe{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}',
+    '@keyframes crmBolha{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}',
+    '@keyframes crmPulsa{0%,100%{opacity:1}50%{opacity:.65}}',
+    '@keyframes crmFlut{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}',
+    '@keyframes crmBrilho{to{background-position:-200% 0}}'
   ].join('\n');
 
-  var st = { contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '' };
+  var st = { contatos: [], aberto: null, msgs: [], mais: false, timer: null, blobs: {}, obs: null, sig: '', filtro: 'todos', vistosIds: {} };
 
   function css() { if (document.getElementById('hrCrmCss')) return; var s = document.createElement('style'); s.id = 'hrCrmCss'; s.textContent = CSS; document.head.appendChild(s); }
   function api(cam) {
@@ -110,7 +140,7 @@
     return fetch(b + cam, { headers: hdr() }).then(function (r) { return r.json().catch(function () { return { error: 'Resposta inválida do bot (' + r.status + ').' }; }); })
       .then(function (j) { if (j && j.error) throw new Error(j.error); return j; });
   }
-  function cor(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return 'hsl(' + (h % 360) + ',45%,38%)'; }
+  function cor(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; var a = h % 360; return 'linear-gradient(135deg,hsl(' + a + ',42%,42%),hsl(' + ((a + 40) % 360) + ',48%,26%))'; }
   function iniciais(n) { var p = String(n || '?').replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase(); }
   function tokens(n) { return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z]+/).filter(function (t) { return t.length > 2; }); }
   // o nome do app só vale quando bate com o nome que a pessoa deu ao bot (ou do perfil); senão o cadastro do app está com outro dono
@@ -141,8 +171,9 @@
     var d = document.getElementById('hrCrm'); if (!d) return;
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="sair">←</button><div style="flex:1;"><b>Conversas</b><div class="crm-info" id="crmSub">Clientes atendidos pelo bot</div></div>' +
       '<button class="crm-ic" data-a="exportar" title="Exportar">⤓</button><button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
-      '<div class="crm-busca"><span style="color:#8696a0;">🔍</span><input id="crmQ" placeholder="Pesquisar nome ou número" autocomplete="off"></div>' +
-      '<div class="crm-lista" id="crmLista"><div class="crm-vazio">Carregando…</div></div>';
+      '<div class="crm-busca"><span style="color:#c9a84c;">🔍</span><input id="crmQ" placeholder="Pesquisar nome ou número" autocomplete="off"></div>' +
+      '<div class="crm-chips" id="crmChips"></div>' +
+      '<div class="crm-lista" id="crmLista">' + (st.contatos.length ? '' : '<div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div><div class="crm-skel"></div>') + '</div>';
     d.onclick = function (ev) {
       var a = ev.target.closest('[data-a]'); if (a) {
         var x = a.getAttribute('data-a');
@@ -151,6 +182,7 @@
         else if (x === 'exportar') { if (window.exportarConversasClientes) window.exportarConversasClientes(); }
         return;
       }
+      var fc = ev.target.closest('[data-f]'); if (fc) { st.filtro = fc.getAttribute('data-f'); desenharLista(); return; }
       var c = ev.target.closest('[data-num]'); if (c) abrirConversa(c.getAttribute('data-num'));
     };
     var q = document.getElementById('crmQ'); q.oninput = function () { desenharLista(); };
@@ -162,34 +194,41 @@
   }
   function desenharLista() {
     var l = document.getElementById('crmLista'); if (!l || st.aberto) return;
-    if (!st.contatos.length) { if (!/Carregando/.test(l.textContent)) l.innerHTML = '<div class="crm-vazio">Nenhuma conversa ainda.<br>As próximas mensagens dos clientes aparecem aqui.</div>'; return; }
+    if (!st.contatos.length) { if (!l.querySelector('.crm-skel')) l.innerHTML = '<div class="crm-vazio"><span class="ic">💬</span>Nenhuma conversa ainda.<br>As próximas mensagens dos clientes aparecem aqui.</div>'; return; }
     var app = nomesApp(), v = vistos(), q = String((document.getElementById('crmQ') || {}).value || '').toLowerCase().trim(), qd = q.replace(/\D/g, '');
+    var novasDe = function (c) { var n = c.ultq === 'c' ? Math.max(0, (c.total || 0) - (v[c.num] || 0)) : 0; if (!(c.num in v) && c.ultq === 'c') n = Math.min(n, 9); return n; };
+    var nNao = st.contatos.filter(function (c) { return novasDe(c) > 0; }).length, nNovo = st.contatos.filter(function (c) { return !app[so8(c.num)]; }).length;
+    var ch = document.getElementById('crmChips');
+    if (ch) ch.innerHTML = [['todos', 'Todas', st.contatos.length], ['nao', 'Não lidas', nNao], ['novos', 'Clientes novos', nNovo], ['hoje', 'Hoje', st.contatos.filter(function (c) { return new Date(c.ult).toDateString() === new Date().toDateString(); }).length]]
+      .map(function (x) { return '<button class="crm-chip' + (st.filtro === x[0] ? ' on' : '') + '" data-f="' + x[0] + '">' + x[1] + (x[2] ? '<b>' + x[2] + '</b>' : '') + '</button>'; }).join('');
     var lista = st.contatos.filter(function (c) {
+      if (st.filtro === 'nao' && !novasDe(c)) return false;
+      if (st.filtro === 'novos' && app[so8(c.num)]) return false;
+      if (st.filtro === 'hoje' && new Date(c.ult).toDateString() !== new Date().toDateString()) return false;
       if (!q) return true;
       var n = nomeDe(c, app).toLowerCase();
       return n.indexOf(q) >= 0 || String(c.perfil || '').toLowerCase().indexOf(q) >= 0 || (qd.length >= 3 && String(c.num).indexOf(qd) >= 0);
     });
     var sub = document.getElementById('crmSub'); if (sub) sub.textContent = st.contatos.length + ' cliente(s)';
-    l.innerHTML = lista.map(function (c) {
-      var nm = nomeDe(c, app), novas = c.ultq === 'c' ? Math.max(0, (c.total || 0) - (v[c.num] || 0)) : 0;
-      if (!(c.num in v) && c.ultq === 'c') novas = Math.min(novas, 9);
+    l.innerHTML = lista.map(function (c, i) {
+      var nm = nomeDe(c, app), novas = novasDe(c);
       var noApp = !!app[so8(c.num)];
-      return '<div class="crm-ct" data-num="' + esc(c.num) + '"><div class="crm-av" style="background:' + cor(c.num) + ';">' + esc(iniciais(nm)) + '</div>' +
+      return '<div class="crm-ct' + (novas ? ' nv' : '') + '" style="animation-delay:' + Math.min(i, 12) * 0.04 + 's" data-num="' + esc(c.num) + '"><div class="crm-av" style="background:' + cor(c.num) + ';">' + esc(iniciais(nm)) + '</div>' +
         '<div class="crm-ct-c"><div class="crm-l1"><span class="crm-nm">' + esc(nm) + (noApp ? '' : '<span class="crm-tag">novo</span>') + '</span><span class="crm-hr' + (novas ? ' nv' : '') + '">' + esc(quando(c.ult)) + '</span></div>' +
-        '<div class="crm-l2"><span class="crm-pv">' + (c.ultq === 'b' ? '🤖 ' : '') + esc(c.ultx || '') + '</span>' + (novas ? '<span class="crm-bd">' + novas + '</span>' : '') + '</div></div></div>';
-    }).join('') || '<div class="crm-vazio">Nada encontrado.</div>';
+        '<div class="crm-l2"><span class="crm-pv">' + (c.ultq === 'b' ? '<span class="crm-bot">🤖</span>' : '') + esc(c.ultx || '') + '</span>' + (novas ? '<span class="crm-bd">' + novas + '</span>' : '') + '</div></div></div>';
+    }).join('') || '<div class="crm-vazio"><span class="ic">🔎</span>Nada encontrado' + (st.filtro !== 'todos' ? ' neste filtro.' : '.') + '</div>';
   }
 
   // ── conversa ──
   function abrirConversa(num) {
-    st.aberto = num; st.msgs = []; st.sig = '';
+    st.aberto = num; st.msgs = []; st.sig = ''; st.vistosIds = {}; delete st.sig0;
     var c = st.contatos.find(function (x) { return x.num === num; }) || { num: num }, app = nomesApp(), nm = nomeDe(c, app), cli = app[so8(num)];
     var d = document.getElementById('hrCrm'); if (!d) return;
     d.innerHTML = '<div class="crm-top"><button class="crm-ic" data-a="voltar">←</button><div class="crm-av" style="width:38px;height:38px;font-size:.85rem;background:' + cor(num) + ';">' + esc(iniciais(nm)) + '</div>' +
       '<div style="flex:1;min-width:0;"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(nm) + '</b><div class="crm-info">' + esc(fmtNum(num)) + (c.perfil && c.perfil !== nm ? ' · ~' + esc(c.perfil) : '') + (cli ? (appConflita(c, cli) ? ' · ⚠️ no app este número está como "' + esc(cli.nome) + '"' : ' · no app') : '') + '</div></div>' +
       '<button class="crm-ic" data-a="recarregar" title="Atualizar">⟳</button></div>' +
-      '<div class="crm-chat" id="crmChat"><div class="crm-vazio">Carregando conversa…</div></div>' +
-      '<div class="crm-rod"><span id="crmJanela"></span><a href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener">Abrir no WhatsApp</a></div>';
+      '<div class="crm-chat" id="crmChat"><div class="crm-vazio"><span class="ic">💬</span>Carregando conversa…</div></div>' +
+      '<div class="crm-rod"><span id="crmJanela" class="crm-jan"><i></i>…</span><a href="https://wa.me/' + esc(String(num).replace(/\D/g, '')) + '" target="_blank" rel="noopener"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.5-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6-.3.4c.1.3.6 1 1.3 1.6.9.8 1.6 1 1.9 1.2.2.1.4.1.5-.1l.7-.9c.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.7-.1 1.3z"/></svg>WhatsApp</a></div>';
     d.onclick = function (ev) {
       var a = ev.target.closest('[data-a]');
       if (a) {
@@ -211,7 +250,7 @@
       if (st.aberto !== num) return;
       var ms = j.mensagens || [], sig = ms.length + ':' + (ms.length ? ms[ms.length - 1].id + ms[ms.length - 1].st : '') + ':' + ms.map(function (m) { return m.st; }).join('');
       var jan = document.getElementById('crmJanela');
-      if (jan) jan.textContent = j.janelaAte > Date.now() ? '🟢 Pode responder livre até ' + hora(j.janelaAte) + (new Date(j.janelaAte).toDateString() !== new Date().toDateString() ? ' de amanhã' : '') : '⚪ Fora das 24 h (só por modelo)';
+      if (jan) { var ok = j.janelaAte > Date.now(); jan.className = 'crm-jan' + (ok ? ' ok' : ''); jan.innerHTML = '<i></i>' + (ok ? 'Livre até ' + hora(j.janelaAte) + (new Date(j.janelaAte).toDateString() !== new Date().toDateString() ? ' de amanhã' : '') : 'Fora das 24 h · só modelo'); }
       if (silencioso && sig === st.sig) return;
       var antigas = st.msgs.filter(function (m) { return !ms.some(function (x) { return x.id === m.id; }) && (!ms.length || m.ts < ms[0].ts); });
       st.msgs = antigas.concat(ms); if (primeira) st.mais = !!j.mais; st.sig = sig;
@@ -275,10 +314,11 @@
       var bts = '';
       if (ex.botoes && ex.botoes.length) bts = '<div class="crm-bts">' + ex.botoes.map(function (b) { return '<div class="crm-bt">' + esc(b) + '</div>'; }).join('') + '</div>';
       else if (ex.lista && ex.lista.itens) bts = '<div class="crm-bts"><div class="crm-bt">☰ ' + esc(ex.lista.botao || 'Opções') + '</div></div><div class="crm-info" style="margin-top:3px;">' + ex.lista.itens.map(esc).join(' · ') + '</div>';
-      h += '<div class="crm-row ' + q + '"><div style="max-width:82%;display:flex;flex-direction:column;align-items:' + (q === 'b' ? 'flex-end' : 'flex-start') + ';"><div class="crm-bb" style="max-width:100%;">' + topo + midiaHtml(m) + txt +
+      var nova = st.sig0 !== undefined && !st.vistosIds[m.id]; st.vistosIds[m.id] = 1;
+      h += '<div class="crm-row ' + q + (nova ? ' novo' : '') + '"><div style="max-width:82%;display:flex;flex-direction:column;align-items:' + (q === 'b' ? 'flex-end' : 'flex-start') + ';"><div class="crm-bb" style="max-width:100%;">' + topo + midiaHtml(m) + txt +
         '<span class="crm-meta">' + esc(hora(m.ts)) + tique(m) + '</span><div style="clear:both;"></div></div>' + bts + '</div></div>';
     });
-    ch.innerHTML = h;
+    ch.innerHTML = h; st.sig0 = 1;
     ligarMidias();
   }
 
