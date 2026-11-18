@@ -1,3 +1,4 @@
+// v126 (18/11/2026): comprovante do cliente para o orçamento ativo: confere no Mercado Pago e confirma sozinho (orçamento Aceito, cliente avisado); se não achar, o dono confirma com um toque
 // v125 (18/11/2026): comprovante de Pix de cliente aceita o orçamento (não tenta etapa da agenda); app acha nomes com uma letra diferente
 // v124 (18/11/2026): VISITA E ANOTAÇÕES — "visita amanhã às 12h na casa da Regiane" marca direto (sem pedido do cliente), entra na agenda e nas anotações, aviso na véspera 19h, manhã, 1 h antes e na hora; anotação acha o cliente ("casa de", "da/do") e não perde palavras; anotação com dia/hora vira lembrete; comando "agenda"/"lembretes"
 // v123 (18/11/2026): lembretes do dono pelo WhatsApp (lembrar_dono: 30 min antes e na hora); "avise ao fulano" acha o cliente; extrato MP casa por valor e hora, sem chutar
@@ -949,6 +950,52 @@ async function orcMandarComandoDono(env, from, bruto, msg) {
   await env.HR_KV.put('orcpdf:espera:' + on, JSON.stringify({ num: normalizarBR(num), nome: h.cliente, de: from }), { expirationTtl: 3 * 3600 });
   await enviar(env, from, `Sr. Hangel, o PDF do ${on} ainda não está guardado no bot. Abra esse orçamento no app e toque em *PDF*: ele chega aqui sozinho e eu mando na hora para ${h.cliente}.`);
   return true;
+}
+// v126: o cliente manda o COMPROVANTE do Pix do orçamento ativo (sem cobrança do bot): confere na conta; se achar, confirma sozinho;
+//   se não, avisa o cliente que está conferindo e o dono confirma com um toque
+async function orcComprovanteCliente(env, from, m) {
+  const num = normalizarBR(from);
+  let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + num)) || 'null'); } catch (_) {}
+  if (!o || o.pagoEm) return false;
+  const pid = await pedidoIdDoCliente(env, from).catch(() => null);
+  if (pid) { const pd = await lerPedido(env, pid).catch(() => null); if (pd && pd.mp && !pd.pago) return false; } // o pedido do bot cuida (conferirComprovante)
+  const info = m[m.type] || {};
+  let dados = null;
+  try { const { buf, tipo } = await baixarMidia(env, info.id); const mt = String(tipo || info.mime_type || '').split(';')[0].toLowerCase();
+    if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mt) && buf.byteLength <= 8 * 1048576) dados = await lerComprovanteIA(env, buf, mt); } catch (e) { console.log('[CMP] ler:', e.message); }
+  if (!dados || dados.eh_comprovante !== true || !(Number(dados.valor) > 0)) return false;
+  const valor = Number(dados.valor), nome = o.nome || (await nomeParaDono(env, from).catch(() => '')) || '';
+  await receberMidiaCliente(env, from, m).catch(() => {});
+  const recOk = !dados.recebedor || nomesDaConta(env).some(n => nomesCompativeis(n, dados.recebedor) === true) || /hr marmore/i.test(normaliza(dados.recebedor));
+  let cand = []; if (mpAtivo(env) && recOk) cand = await mpCandidatosPix(env, { id: 'orc' + num }, valor).catch(() => []);
+  const bate = cand.find(c => !c.pagador || !dados.pagador || nomesCompativeis(c.pagador, dados.pagador) !== false);
+  if (bate && dados.situacao !== 'agendada' && dados.situacao !== 'falhou') { await env.HR_KV.put('mp:ok:' + bate.id, 'orc', { expirationTtl: 60 * 86400 }); await orcPagoConfirmar(env, num, valor, 'conta', dados); return true; }
+  o.cmpPend = { valor, em: Date.now(), pagador: dados.pagador || '' }; await env.HR_KV.put('orcenv:' + num, JSON.stringify(o), { expirationTtl: 30 * 86400 });
+  const pn = nomeDeTratamento(nome);
+  await enviar(env, from, `${pn ? pn + ', r' : 'R'}ecebi o comprovante, obrigada! Estou conferindo o pagamento e já te confirmo por aqui.`);
+  const dif = o.valor && Math.abs(o.valor - valor) > Math.max(1, o.valor * 0.01);
+  await enviarComBotoes(env, numeroDono(env), cartaoDono('Comprovante · ' + (nome || 'Cliente'), [
+    `Pix de *R$ ${reais(valor)}*${dados.pagador ? ' de ' + dados.pagador : ''}${dados.data_hora ? ' em ' + String(dados.data_hora).replace('T', ' ') : ''}.`,
+    o.valor ? `Orçamento${o.orcNum ? ' ' + o.orcNum : ''}: R$ ${reais(o.valor)}${dif ? ' · *valor diferente*' : ' · confere'}` : null,
+    !recOk ? `*Atenção:* recebedor no comprovante: ${dados.recebedor}` : null,
+    dados.situacao === 'agendada' ? '*Atenção:* Pix AGENDADO (ainda não saiu da conta dele).' : null,
+    'Não achei esse Pix na conta do Mercado Pago ainda. Se caiu, toque em *Confirmar*: o orçamento vira Aceito, vai para a agenda e ele recebe a confirmação.',
+  ].filter(Boolean), from), [{ id: 'cmpok|' + num, titulo: 'Confirmar' }, { id: 'cmpno|' + num, titulo: 'Não caiu' }]);
+  return true;
+}
+async function orcPagoConfirmar(env, num, valor, fonte, dados) {
+  let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + num)) || 'null'); } catch (_) {}
+  o = o || { em: Date.now(), valor };
+  o.fechado = o.fechado || Date.now(); o.pagoEm = Date.now(); o.pagoValor = valor; delete o.cmpPend;
+  await env.HR_KV.put('orcenv:' + num, JSON.stringify(o), { expirationTtl: 30 * 86400 });
+  const nome = o.nome || (await nomeParaDono(env, num).catch(() => '')) || '';
+  const oa = o.qId ? { id: o.qId } : await orcDoHistoricoApp(env, nome).catch(() => null);
+  if (oa && oa.id) await confEnfileirar(env, { tipo: 'orc_aceito', orcId: oa.id, cliente: nome, valor: o.valor || valor }).catch(() => {});
+  await funilMarca(env, 'aprovou', { id: o.pedId || oa && oa.id || num }).catch(() => {});
+  const pn = nomeDeTratamento(nome), sinal = o.valor && valor < o.valor - 1;
+  await enviar(env, num, `${pn ? pn + ', p' : 'P'}agamento de R$ ${reais(valor)} confirmado, obrigada! ${sinal ? `Ficou o restante de R$ ${reais(Math.round((o.valor - valor) * 100) / 100)} para a entrega. ` : ''}Seu pedido já entrou na nossa agenda de produção; a gente te avisa por aqui de cada etapa.`);
+  for (const nk of variantesNumero(num)) await anotarNoHistorico(env, nk, `[Pagamento de R$ ${reais(valor)} CONFIRMADO e pedido em produção. Não peça Pix de novo nem nota.]`).catch(() => {});
+  await notificarDono(env, Date.now(), cartaoDono('Pedido pago · ' + (nome || 'Cliente'), [`R$ ${reais(valor)} ${fonte === 'conta' ? 'confirmado na conta do Mercado Pago' : 'confirmado pelo senhor'}${sinal ? ' (sinal; restante R$ ' + reais(Math.round((o.valor - valor) * 100) / 100) + ')' : ''}.`, oa && oa.id ? 'Orçamento marcado como Aceito no app (vai para a agenda quando o app abrir).' : 'Não achei o orçamento no app: aceite à mão no Histórico.', 'Cliente avisado.'], num)).catch(() => {});
 }
 // v120: manda de novo o PDF do orçamento ativo da conversa
 async function orcReenviarPdf(env, from) {
@@ -2066,6 +2113,15 @@ async function tratarBotao(env, from, id, F) {
   if (id.startsWith('entr|')) { if (!ehDono(env, from)) return false; await cobrarRestante(env, from, id.slice(5)); return true; }
   if (id === 'entr_no') { await enviar(env, from, 'Certo, Sr. Hangel. Quando entregar, escreva *entregue* e o nome do cliente.'); return true; }
   if (id.startsWith('cobrenv|') || id.startsWith('cobrcan|')) return tratarBotaoCobrancaCliente(env, from, id);
+  if (id.startsWith('cmpok|') || id.startsWith('cmpno|')) { // v126
+    if (!ehDono(env, from)) return false;
+    const num = id.slice(6); let o = null; try { o = JSON.parse((await env.HR_KV.get('orcenv:' + num)) || 'null'); } catch (_) {}
+    if (!o || !o.cmpPend) { await enviar(env, from, o && o.pagoEm ? 'Esse pagamento já foi confirmado.' : 'Esse comprovante já foi tratado.'); return true; }
+    if (id.startsWith('cmpok|')) { await orcPagoConfirmar(env, num, o.cmpPend.valor, 'dono'); return true; }
+    delete o.cmpPend; await env.HR_KV.put('orcenv:' + num, JSON.stringify(o), { expirationTtl: 30 * 86400 });
+    await enviar(env, from, `Certo. Não confirmei nada para ${o.nome || 'o cliente'}. Se quiser falar com ele: wa.me/${num}`);
+    return true;
+  }
   if (id.startsWith('qrsel|')) {
     if (!ehDono(env, from)) return false;
     const [, reqId, qId] = id.split('|');
@@ -14472,6 +14528,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono && m.type === 'text' && ehRespostaAutomatica(m.text && m.text.body)) { await tratarRespostaAutomatica(env, from, m.text.body); return; } // v115
   if (!dono && (m.type === 'button' || m.type === 'interactive' || m.type === 'text') && await tratarTplPend(env, from, m)) return; // v73
   if (!dono && await tratarMotivoPerda(env, from, m).catch(e => { console.log('[BOT] motivo da perda:', e.message); return false; })) return; // v32
+  if (!dono && ['image', 'document'].includes(m.type) && await orcComprovanteCliente(env, from, m).catch(e => { console.log('[CMP] orçamento:', e.message); return false; })) return; // v126
   if (!dono && await tratarPosOrcamento(env, from, m)) return; // cliente com orçamento aprovado pelo dono: aprovação, pagamento, entrega
 
   if (dono && m.type === 'document' && orcNumDoArquivo(m.document && m.document.filename) && /pdf/i.test(String(m.document.mime_type || m.document.filename || ''))) { // v118: PDF de orçamento encaminhado pelo dono entra na biblioteca
