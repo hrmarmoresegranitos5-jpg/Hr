@@ -1,3 +1,4 @@
+// v150 (18/11/2026): DESIGNAR ETAPA ("hoje Gibson vai acabar a cozinha da Maria": passa a fabricação/acabamento para ele, avisa e os pontos vão para ele); Gibson também faz rebaixo americano e acabamento
 // v149 (18/11/2026): ETAPAS COM VÁRIAS PESSOAS (producao_status: o dono conta quem fez o quê; pontos divididos), ETAPA DE ACABAMENTO (bot pergunta ao cortador quem acaba: Lucas/Jefferson/ele; acabamento +1), pontos pelo registro de etapas
 // v148 (18/11/2026): PRÊMIO DO MÊS — meta em todas as semanas (coringa: 1 semana compensada no total), líder do mês por % da meta, corrida do mês no app do funcionário, status no sábado, resultado dia 1º com "Pagar prêmios" (vira Bônus no RH), premio_mensal
 // v147 (18/11/2026): METAS DA EQUIPE — pontos por produção, meta semanal automática ou do dono (meta_definir), tela "Minha meta" no app do funcionário (anel, ranking, medalhas, sequência, histórico), avisos 50%/100%/sexta, fechamento sábado com bônus
@@ -7730,7 +7731,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     const acabMeu = p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm && naFabrica(p);
     const l = await pedidosProducao(env, p => meu(p) && (acabMeu(p) || (papel !== 'entrega' && naFabrica(p) && (p.fabResp === String(f.id) ? !p.corteEm || !p.fab2Resp : p.fab2Resp === String(f.id) || !p.fabResp)) || (papel !== 'fabrica' && naEntrega(p))));
     if (!l.length) { await enviar(env, from, `${nome}, não tem nada pendente para você agora. 👍`); return true; }
-    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : papel === 'fabrica' ? 'Quando terminar um, me diga: _cortei o da Maria_.' : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
+    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
     return true;
   }
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
@@ -9110,15 +9111,15 @@ async function rotaGarantias(req, env, url) {
 //   faz 45° e abre cuba; Jefferson instala, entrega e faz acabamento). O bot distribui: corte para quem está com menos
 //   fichas; serviço com 45°/cuba/bancada passa pelo Hugo depois do corte; instalação com cuba/45° vai ao Gibson.
 // ═════════════════════════════════════════════════════════════════════════════
-const FUNC_PADRAO = { fabricio: ['corte'], lucas: ['corte', 'acabamento'], hugo: ['fabricacao', '45', 'cuba', 'acabamento'], gibson: ['instalacao', 'entrega', '45', 'cuba'], jefferson: ['instalacao', 'entrega', 'acabamento'] };
-const FUNC_TXT = { corte: 'corte de chapas', fabricacao: 'fabricação', '45': '45°', cuba: 'abrir cuba', acabamento: 'acabamento', instalacao: 'instalação', entrega: 'entrega' };
+const FUNC_PADRAO = { fabricio: ['corte'], lucas: ['corte', 'acabamento'], hugo: ['fabricacao', '45', 'cuba', 'rebaixo', 'acabamento'], gibson: ['instalacao', 'entrega', '45', 'cuba', 'rebaixo', 'acabamento'], jefferson: ['instalacao', 'entrega', 'acabamento'] };
+const FUNC_TXT = { corte: 'corte de chapas', fabricacao: 'fabricação', '45': '45°', cuba: 'abrir cuba', rebaixo: 'rebaixo americano', acabamento: 'acabamento', instalacao: 'instalação', entrega: 'entrega' };
 async function funcoesEquipe(env) {
   let m = {}; try { m = JSON.parse((await env.HR_KV.get('equipe:funcoes')) || '{}') || {}; } catch (_) {}
   const cfg = await pontoCfg(env), out = {};
   for (const f of cfg.funcs) { const pn = normaliza(String(f.nome).split(' ')[0]); out[f.id] = m[f.id] || FUNC_PADRAO[pn] || []; }
   return { map: out, cfg };
 }
-const FAB_F = ['corte', 'fabricacao', '45', 'cuba', 'acabamento'], ENT_F = ['instalacao', 'entrega'];
+const FAB_F = ['corte', 'fabricacao', '45', 'cuba', 'rebaixo', 'acabamento'], ENT_F = ['instalacao', 'entrega'];
 async function respTel(env, id) { if (!id) return ''; const cfg = await pontoCfg(env); const f = cfg.funcs.find(x => String(x.id) === String(id)); return f && f.tel ? normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel) : ''; }
 async function respNome(env, id) { const cfg = await pontoCfg(env); const f = cfg.funcs.find(x => String(x.id) === String(id)); return f ? apelidoFunc(cfg, f) || String(f.nome).split(' ')[0] : ''; }
 function pedComplexo(p) {
@@ -9513,7 +9514,7 @@ const ETAPA_PL = { inicio: 'começaram', corte: 'cortaram', acabamento: 'fizeram
 async function prodPerguntarAcabador(env, ped, telCortador) {
   if (ped.acabResp || ped.acabPerguntaEm || !precisaAcab(ped) || !ped.fabResp) return;
   const { map, cfg } = await funcoesEquipe(env);
-  const ops = cfg.funcs.filter(f => (map[f.id] || []).includes('acabamento') && !(map[f.id] || []).includes('fabricacao') && String(f.id) !== String(ped.fabResp) && f.tel).slice(0, 2);
+  const ops = cfg.funcs.filter(f => (map[f.id] || []).includes('acabamento') && !(map[f.id] || []).includes('fabricacao') && !(map[f.id] || []).includes('45') && String(f.id) !== String(ped.fabResp) && f.tel).slice(0, 2);
   const nm = await respNome(env, ped.fabResp); if (!telCortador) return;
   ped.acabPerguntaEm = Date.now(); await salvarPedido(env, ped);
   await enviarComBotoes(env, telCortador, `${avisoTeste(env)}📋 ${nm}, você recebeu a ficha técnica de *${ped.nome}* (${resumoPecas(ped)}). Assim que terminar o corte, quem vai fazer o *acabamento*?`,
@@ -9526,6 +9527,25 @@ async function prodAcabadorEscolhido(env, f, from, idB, nome) {
   await enviar(env, from, quem === 'eu' ? `Fechado, ${nome}: corte e acabamento de *${ped.nome}* com você. Quando terminar tudo: _terminei o da ${String(ped.nome).split(' ')[0]}_.` : `Fechado! Quando você cortar, eu aviso o ${an} para fazer o acabamento de *${ped.nome}*.`);
   if (quem !== 'eu') { const t = await respTel(env, ped.acabResp); if (t) await enviar(env, t, `${avisoTeste(env)}🪨 ${an}, o acabamento de *${ped.nome}* (${resumoPecas(ped)}) vai ser seu. Te aviso quando o ${nome} terminar o corte.`).catch(() => {}); }
   return true;
+}
+// v150: o dono passa uma etapa para alguém (ex.: Gibson sem instalação no dia vai acabar a cozinha: 45°, rebaixo americano, cuba, acabamento)
+async function prodDesignar(env, ped, ids, _, a, naoAchou, novo) {
+  const id = ids[0], etapa = String(a.etapa || ''); const nm = await respNome(env, id), tel = await respTel(env, id);
+  const final = ['fabricacao', 'finalizado', 'acabamento'].includes(etapa);
+  const antes = final && pedComplexo(ped) ? ped.fab2Resp : final ? ped.acabResp : etapa === 'corte' ? ped.fabResp : ped.entResp;
+  if (antes && String(antes) !== String(id) && ped.fichaEnviadaEm) { const ta = await respTel(env, antes); if (ta) await enviar(env, ta, `${avisoTeste(env)}ℹ️ ${await respNome(env, antes)}, o Sr. Hangel passou ${etapa === 'corte' ? 'o corte' : etapa === 'instalacao' || etapa === 'entrega' ? 'a ' + etapa.replace('instalacao', 'instalação') : 'a fabricação'} de *${ped.nome}* para o ${await respNome(env, id)}. Não precisa fazer esse.`).catch(() => {}); }
+  if (etapa === 'corte') { ped.fabResp = id; ped.corteEm = null; }
+  else if (final && pedComplexo(ped)) { ped.fab2Resp = id; ped.fab2Avisado = Date.now(); ped.fabProntoEm = null; }
+  else if (final) { ped.acabResp = id; ped.acabEm = null; }
+  else if (etapa === 'instalacao' || etapa === 'entrega') { ped.entResp = id; }
+  if (novo) { ped.fichaEnviadaEm = ped.fichaEnviadaEm || Date.now(); if (!ped.corteEm && etapa !== 'corte') ped.corteEm = Date.now(); }
+  await salvarPedido(env, ped);
+  const oque = a.tarefa ? String(a.tarefa) : ({ corte: 'o corte', acabamento: 'o acabamento', fabricacao: 'a fabricação', finalizado: 'a fabricação', instalacao: 'a instalação', entrega: 'a entrega', inicio: 'o serviço' })[etapa] || 'o serviço';
+  const cortado = ped.corteEm ? ' As peças já estão cortadas.' : '';
+  const fim = (etapa === 'instalacao' || etapa === 'entrega') ? `Quando terminar, me diga: _instalei o da ${String(ped.nome).split(' ')[0]}_ e mande a foto.` : `Quando terminar, me diga: _terminei o da ${String(ped.nome).split(' ')[0]}_.`;
+  let avisou = false;
+  if (tel) { await enviar(env, tel, `${avisoTeste(env)}📋 ${nm}, ${a.data && isoOk(a.data) ? 'no dia ' + dataBR(a.data) : 'hoje'} ${oque} de *${ped.nome}* (${resumoPecas(ped)}) é com você.${cortado} ${fim}`).then(() => { avisou = true; }).catch(() => {}); }
+  return { texto: `Designado: ${nm} vai fazer ${oque} de ${ped.nome}${novo ? ' (serviço aberto agora no controle de produção)' : ''}. ${avisou ? 'Ele já foi avisado no WhatsApp' : 'Não consegui avisar no WhatsApp (sem número no RH)'}; quando ele disser que terminou, os pontos vão para ele.${naoAchou.length ? ` Não achei: ${naoAchou.join(', ')}.` : ''} Confirme em UMA frase curta.` };
 }
 // owner: atualiza a etapa de um serviço (com 1 ou mais participantes)
 async function producaoStatusTool(env, a) {
@@ -9543,6 +9563,7 @@ async function producaoStatusTool(env, a) {
   }
   const ts = isoOk(a.data) ? quandoTs(a.data, '17:00') : Date.now();
   ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+  if (a.vai_fazer) return prodDesignar(env, ped, ids, nomesDe => nomesDe, a, naoAchou, cands.length === 0);
   if (etapa !== 'finalizado') ped.prodLog.push({ e: etapa, por: ids, ts, dono: 1 });
   if (etapa === 'inicio') ped.iniciadoEm = ped.iniciadoEm || ts;
   if (etapa === 'corte') { ped.corteEm = ts; ped.corteFeitoPor = ids[0]; }
@@ -10747,8 +10768,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'producao_status',
-    description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' } }, required: ['cliente', 'etapa', 'funcionarios'] },
+    description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
     name: 'premio_mensal',
@@ -10763,7 +10784,7 @@ const FERRAMENTAS = [
   {
     name: 'equipe_funcoes',
     description: 'Muda o que cada funcionário faz (o bot usa isso para distribuir corte, fabricação/45°/cuba, instalação e entrega). Ex.: "o Jefferson agora também faz 45°", "Lucas também instala", "tira o Lucas da entrega".',
-    input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, funcoes: { type: 'array', items: { type: 'string', description: 'corte, fabricacao, 45, cuba, acabamento, instalacao, entrega' } }, modo: { type: 'string', enum: ['adicionar', 'remover', 'definir'] } }, required: ['funcionario', 'funcoes'] },
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, funcoes: { type: 'array', items: { type: 'string', description: 'corte, fabricacao, 45, cuba, rebaixo, acabamento, instalacao, entrega' } }, modo: { type: 'string', enum: ['adicionar', 'remover', 'definir'] } }, required: ['funcionario', 'funcoes'] },
   },
   {
     name: 'equipe_consultar',
