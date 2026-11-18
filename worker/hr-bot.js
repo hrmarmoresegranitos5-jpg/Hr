@@ -1,3 +1,4 @@
+// v137 (18/11/2026): painel da produção ("produção", "como está o pedido do João"), retirada conferida com o Fabrício (buscou? pagou? → entregue + Finanças), "cortei" numa retirada avisa o cliente, agenda do dia às 7h para Fabrício e Gibson
 // v136 (18/11/2026): "fechei o de João Paulo, ele vai buscar (amanhã às 10h)" — o bot já sabe que é retirada/entrega (e o horário) e não pergunta de novo ao cliente
 // v135 (18/11/2026): ENTREGA AGENDADA — pergunta ao Fabrício a hora que fica pronto, propõe ao cliente a janela (+20 min, 1 h), cliente confirma, Gibson recebe endereço/horário/pagamento/troco, conferência no fim da janela (entregou? recebeu?) → entregue + Finanças + Livro; medidas no card do dono
 // v134 (18/11/2026): "FECHEI O SERVIÇO DE FULANO" — acha o orçamento e confirma, pega o número, Pix (só a chave) / dinheiro / na entrega, ficha ao Fabrício (Pix: depois do comprovante), entrega ao Gibson ou retirada com dia e hora marcados (avisa o Fabrício); o PDF do app traz as medidas
@@ -7683,13 +7684,15 @@ async function papelFuncionario(env, f, from) {
 async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const papel = await papelFuncionario(env, f, from); if (!papel) return false;
   const msg = normaliza(texto || '');
+  if (idB && /^frs\|/.test(idB)) { const pd = await lerPedido(env, idB.slice(4)).catch(() => null); if (pd) return prodMarcarEntregue(env, pd, from, nome, ''); } // v137
   if (idB && /^(fgr|fgs|fgn)\|/.test(idB)) { // v135: conferência da entrega
     const [ac, pid, fm] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null);
     if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
-    if (ac === 'fgn') { await enviar(env, from, `Certo, ${nome}. Quando entregar, me diga: _entreguei o pedido de ${String(ped.nome).split(' ')[0]}_.`); return true; }
+    if (ac === 'fgn') { await enviar(env, from, String(ped.entrega) === 'retirada' ? `Certo, ${nome}. Quando ${String(ped.nome).split(' ')[0]} vier, me diga: _${String(ped.nome).split(' ')[0]} buscou_.` : `Certo, ${nome}. Quando entregar, me diga: _entreguei o pedido de ${String(ped.nome).split(' ')[0]}_.`); return true; }
     return prodMarcarEntregue(env, ped, from, nome, '', ac === 'fgr' ? { valor: cobrarNaEntrega(ped), forma: fm === 'c' ? 'cartao' : 'dinheiro' } : null);
   }
   if (papel === 'fabrica' && texto && await fechPrazoFabrica(env, from, texto, nome)) return true; // v135
+  if (papel === 'fabrica' && texto && await prodRetiradaFabrica(env, from, texto, nome)) return true; // v137
   if (idB && /^(fpr|fen)\|/.test(idB)) { const [ac, pid] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; } return ac === 'fpr' ? prodMarcarPronto(env, ped, from, nome) : prodMarcarEntregue(env, ped, from, nome, ''); }
   if (/\b(o que (tem|tenho|falta)|tarefas?|minhas? (tarefas?|entregas?|fichas?)|pedidos?( de hoje)?|fila|lista|tem (algo|alguma coisa|servico|entrega|corte))\b/.test(msg) && msg.split(' ').length <= 10) {
     const l = await pedidosProducao(env, papel === 'fabrica' ? naFabrica : naEntrega);
@@ -7732,7 +7735,13 @@ async function prodMarcarPronto(env, ped, from, nome) {
   } else if (!retirada && !ped.entregaEnviadaEm) { const ok = await despacharPedidoDireto(env, ped, { so: 'entrega' }).catch(() => false); if (ok) { ped.entregaEnviadaEm = Date.now(); await salvarPedido(env, ped); entTxt = ` Mandei os dados da entrega para ${nomeEntregador(env)}.`; } }
   else if (!retirada && ped.entregaEnviadaEm) { const g = await numEquipe(env, 'entrega'); if (g) { await enviar(env, g, `${avisoTeste(env)}✅ O pedido de *${ped.nome}* (${resumoPecas(ped)}) ficou pronto. Já pode levar${ped.entrega && ped.entrega.endereco ? ': ' + ped.entrega.endereco : ''}. Quando entregar, me diga: _entreguei o pedido de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); entTxt = ` Avisei o ${nomeEntregador(env)} que pode levar.`; } }
   await enviar(env, from, `Show, ${nome}! Anotei que o de *${ped.nome}* ficou pronto. Avisei o Sr. Hangel.${entTxt && !ped.fechDono ? ' O ' + nomeEntregador(env) + ' já recebeu a entrega.' : ''}`);
-  if (ped.numero) await enviarComBotoes(env, numeroDono(env), `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}\nAvisar o cliente que está pronto${retirada ? ' para retirar' : ' e combinar a entrega'}?`, [{ id: 'pronto_ok|' + ped.id, titulo: 'Avisar cliente' }, { id: 'pronto_no', titulo: 'Não avisar' }]);
+  if (ped.fechDono && retirada && ped.numero) { // v137: retirada combinada pelo bot → avisa o cliente sozinho
+    ped.prontoEm = Date.now(); await salvarPedido(env, ped);
+    const pn = nomeDeTratamento(ped.nome), c = cobrarNaEntrega(ped);
+    await enviar(env, ped.numero, `${pn ? pn + ', s' : 'S'}eu pedido está pronto! ✅ ${ped.horaRetirada ? `Te esperamos ${diaFalado(ped.horaRetirada.dia)} às ${ped.horaRetirada.hora}` : 'Pode vir buscar quando quiser'} na ${ENDERECO_MARMORARIA}.${c ? ` O pagamento de R$ ${reais(c)} é na retirada.` : ''}`).catch(() => {});
+    await pontoAvisarDono(env, `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}). Avisei o cliente que está pronto para retirar.`).catch(() => {});
+  } else if (ped.fechDono && !retirada) await pontoAvisarDono(env, `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}`).catch(() => {});
+  else if (ped.numero) await enviarComBotoes(env, numeroDono(env), `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}\nAvisar o cliente que está pronto${retirada ? ' para retirar' : ' e combinar a entrega'}?`, [{ id: 'pronto_ok|' + ped.id, titulo: 'Avisar cliente' }, { id: 'pronto_no', titulo: 'Não avisar' }]);
   else await pontoAvisarDono(env, `✂️ *${nomeFabrica(env)}* terminou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${entTxt}`);
   return true;
 }
@@ -7744,14 +7753,16 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb) {
   const cobrar = cobrarNaEntrega(ped);
   const tn = normaliza(texto || '');
   if (!receb && cobrar && /\b(recebi|recebeu|pagou|pago)\b/.test(tn) && !/\b(nao (recebi|pagou)|vai pagar|depois|fiado)\b/.test(tn)) { const v = extrairValor(texto); receb = { valor: v && v.n > 0 ? v.n : cobrar, forma: /cart/.test(tn) ? 'cartao' : /pix/.test(tn) ? 'pix' : 'dinheiro' }; }
+  const ret = String(ped.entrega || '') === 'retirada', quem = ret ? nomeFabrica(env) : nomeEntregador(env);
   if (receb && cobrar) {
-    await fechReceber(env, ped, receb.valor || cobrar, receb.forma, nomeEntregador(env));
-    await pontoAvisarDono(env, `🚚 *${nomeEntregador(env)}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}). Serviço marcado como entregue.`).catch(() => {});
-    await enviar(env, from, `Valeu, ${nome}! Anotei a entrega de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)} em ${receb.forma === 'cartao' ? 'cartão' : receb.forma}. Já lancei para o Sr. Hangel.`);
+    await fechReceber(env, ped, receb.valor || cobrar, receb.forma, quem);
+    await pontoAvisarDono(env, ret ? `📦 *${ped.nome}* buscou o pedido (${resumoPecas(ped)}). Serviço marcado como entregue.` : `🚚 *${quem}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}). Serviço marcado como entregue.`).catch(() => {});
+    await enviar(env, from, `Valeu, ${nome}! Anotei ${ret ? 'a retirada' : 'a entrega'} de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)} em ${receb.forma === 'cartao' ? 'cartão' : receb.forma}. Já lancei para o Sr. Hangel.`);
     if (ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, seu pedido foi entregue e o pagamento confirmado. Muito obrigada pela preferência! 😊`).catch(() => {});
     return true;
   }
   if (jaEntregue) return true;
+  if (ret && !cobrar) { await pontoAvisarDono(env, `📦 *${ped.nome}* buscou o pedido (${resumoPecas(ped)}). Serviço marcado como entregue.`).catch(() => {}); await enviar(env, from, `Valeu, ${nome}! Anotei que ${ped.nome} buscou.`); return true; } // v137
   const jaDisse = /\b(recebi|pagou|dinheiro|cartao|pix)\b/.test(tn);
   await pontoAvisarDono(env, `🚚 *${nomeEntregador(env)}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}).${cobrar ? `\nA cobrar na entrega: R$ ${reais(cobrar)}.` : ''}${jaDisse ? `\nEle disse: "${String(texto).slice(0, 200)}"` : ''}`);
   if (cobrar && !jaDisse) {
@@ -8120,7 +8131,8 @@ async function fechReceber(env, ped, valor, forma, quem) {
 // conferência no fim da janela e lembretes (rotina a cada ~15 min)
 async function fechRotina(env) {
   if (Date.now() - (globalThis.__fechRot || 0) < 4 * 60000) return; globalThis.__fechRot = Date.now();
-  const peds = await pedidosProducao(env, p => p.fechDono && !p.entregueEm && (p.janela || p.prontoPergEm));
+  await agendaProdDia(env).catch(e => console.log('[AG] agenda do dia:', e.message)); // v137
+  const peds = await pedidosProducao(env, p => p.fechDono && !p.entregueEm && (p.janela || p.prontoPergEm || p.horaRetirada));
   const g = await numEquipe(env, 'entrega'), agora = Date.now();
   for (const p of peds) {
     if (p.janelaEtapa === 'confirmada' && p.janela.fim <= agora && g && (!p.conferPergEm || (agora - p.conferPergEm > 60 * 60000 && (p.conferN || 0) < 4))) {
@@ -8132,9 +8144,80 @@ async function fechRotina(env) {
           : [{ id: 'fgs|' + p.id, titulo: 'Entreguei' }, { id: 'fgn|' + p.id, titulo: 'Ainda não' }]).catch(e => console.log('[AG] conferir:', e.message));
       if (p.conferN === 3) await pontoAvisarDono(env, `⚠️ ${nomeEntregador(env)} ainda não confirmou a entrega de *${p.nome}* (${p.horaEntrega}).`).catch(() => {});
     }
+    if (String(p.entrega) === 'retirada' && p.horaRetirada && quandoTs(p.horaRetirada.dia, p.horaRetirada.hora) + 3600000 <= agora && (!p.conferPergEm || (agora - p.conferPergEm > 2 * 3600000 && (p.conferN || 0) < 3))) { // v137
+      const fab = await numEquipe(env, 'fabrica'); if (!fab || !(await travaEnvio(env, 'fechret:' + p.id + ':' + (p.conferN || 0)))) continue;
+      p.conferPergEm = agora; p.conferN = (p.conferN || 0) + 1; await salvarPedido(env, p);
+      const c = cobrarNaEntrega(p);
+      await enviarComBotoes(env, fab, `${avisoTeste(env)}📦 ${nomeFabrica(env)}, *${p.nome}* já veio buscar o pedido (marcado ${p.horaRetirada.hora})?${c ? ` Pagou os *R$ ${reais(c)}*?` : ''}`,
+        c ? [{ id: 'fgr|' + p.id + '|d', titulo: 'Pagou em dinheiro' }, { id: 'fgr|' + p.id + '|c', titulo: 'Pagou cartão/Pix' }, { id: 'fgn|' + p.id, titulo: 'Ainda não veio' }]
+          : [{ id: 'frs|' + p.id, titulo: 'Já buscou' }, { id: 'fgn|' + p.id, titulo: 'Ainda não veio' }]).catch(() => {});
+      if (p.conferN === 3) await pontoAvisarDono(env, `⚠️ *${p.nome}* não veio buscar o pedido (marcado ${diaFalado(p.horaRetirada.dia)} às ${p.horaRetirada.hora}). wa.me/${p.numero}`).catch(() => {});
+      continue;
+    }
     if (p.janelaEtapa === 'proposta' && agora - (p.janelaPropostaEm || 0) > 2 * 3600000 && !p.janelaAvisouDono) { p.janelaAvisouDono = 1; await salvarPedido(env, p); await pontoAvisarDono(env, `⏳ *${p.nome}* ainda não respondeu ao horário da entrega (${janelaTxt(p.janela)}). wa.me/${p.numero}`).catch(() => {}); }
     if (p.prontoPergEm && !p.prontoPrevisto && !p.fabProntoEm && agora - p.prontoPergEm > 90 * 60000 && !p.prontoRelembrou) { p.prontoRelembrou = 1; await salvarPedido(env, p); const fab = await numEquipe(env, 'fabrica'); if (fab) await enviar(env, fab, `${avisoTeste(env)}⏰ ${nomeFabrica(env)}, ainda preciso saber: que horas fica pronto o pedido de *${p.nome}*? Ex.: _hoje às 16h_.`).catch(() => {}); }
   }
+}
+// ═════════════════════════════════════════════════════════════════════════════
+// v137: PAINEL DA PRODUÇÃO, RETIRADA CONFERIDA E AGENDA DA EQUIPE
+//   dono: "pedidos em andamento" / "produção" / "como está o pedido do João" → etapa de cada pedido
+//   retirada: no horário marcado (+1 h) pergunta ao Fabrício se o cliente buscou e pagou → entregue + Finanças
+//   Fabrício "cortei" numa retirada → avisa o cliente sozinho; "o João buscou" → baixa
+//   7h: Fabrício recebe as fichas e retiradas do dia; Gibson, as entregas do dia
+// ═════════════════════════════════════════════════════════════════════════════
+const ativoProd = p => !p.entregueEm && p.status !== 'recusado' && (p.fechDono || p.fichaEnviadaEm) && Date.now() - (p.criado || 0) < 45 * 86400000;
+function etapaProd(p) {
+  const ret = String(p.entrega || '') === 'retirada', L = [];
+  if (p.fechDono === 'pix' && !p.pago) L.push('💳 aguardando o Pix');
+  if (!p.fichaEnviadaEm) L.push('📄 ficha ainda não foi à fábrica');
+  else if (!p.fabProntoEm) L.push(`✂️ na fábrica${p.prontoPrevisto ? ' · pronto ' + diaFalado(diaIso(p.prontoPrevisto.ts)) + ' às ' + horaTs(p.prontoPrevisto.ts) : p.prontoPergEm ? ' · esperando o ' + nomeFabrica(env0()) + ' dizer a hora' : ''}`);
+  else L.push('✅ pronto');
+  if (ret) L.push(p.horaRetirada ? `📦 retirada ${diaFalado(p.horaRetirada.dia)} às ${p.horaRetirada.hora}` : '📦 retirada · esperando o cliente marcar o horário');
+  else if (p.janelaEtapa === 'confirmada') L.push(`🚚 entrega ${p.horaEntrega}`);
+  else if (p.janelaEtapa === 'proposta' || p.janelaEtapa === 'outro') L.push(`📅 esperando o cliente confirmar o horário (${janelaTxt(p.janela)})`);
+  else if (p.etapa !== 'concluido') L.push('📍 esperando o cliente mandar entrega/localização');
+  const c = cobrarNaEntrega(p); if (c) L.push(`💵 a receber R$ ${reais(c)}${p.trocoPara > c ? ' (troco p/ ' + reais(p.trocoPara) + ')' : ''}`);
+  return L;
+}
+let __env0 = null; const env0 = () => __env0 || {};
+const RE_PAINEL_PROD = /^(?:ver |mostra |quais )?(?:os )?(pedidos( em (andamento|producao|aberto))?|producao|em producao|andamento|entregas?( de hoje| pendentes)?|retiradas?( de hoje)?|painel( da producao)?|o que (tem|esta) (em|na) producao)\??$/;
+const RE_STATUS_PED = /^(?:como (?:esta|ta|anda|vai)|e|status|situacao)\s+(?:o |a )?(?:pedido|servico|entrega|orcamento)?\s*(?:d[oae]s?|da)\s+(.{2,40})\??$/;
+async function painelProdDono(env, from, msg) {
+  __env0 = env;
+  const um = msg.match(RE_STATUS_PED);
+  if (!RE_PAINEL_PROD.test(msg) && !um) return false;
+  let l = await pedidosProducao(env, ativoProd);
+  if (um) { const ach = acharPorNome(l, um[1]); if (!ach.length) return false; l = ach; }
+  if (!l.length) { await enviar(env, from, 'Não há pedidos em produção ou para entregar agora. 👍'); return true; }
+  const out = [um ? `*Pedido de ${l[0].nome}*` : `*Produção e entregas* (${l.length})`, ''];
+  for (const p of l.slice(0, 12)) out.push(`*${p.nome}* — ${resumoPecas(p)}${p.valor ? ' · R$ ' + reais(p.valor) : ''}\n   ${etapaProd(p).join('\n   ')}`, '');
+  if (um && l.length === 1) { const pt = pecasTxt(l[0]); if (pt) out.push(pt); if (l[0].numero) out.push('wa.me/' + l[0].numero); }
+  await enviar(env, from, out.join('\n').trim());
+  return true;
+}
+// Fabrício: "o João buscou" / "já veio buscar o da Maria"
+async function prodRetiradaFabrica(env, from, texto, nome) {
+  const msg = normaliza(texto); if (!/\b(buscou|retirou|pegou|veio buscar|veio pegar|levou|ja buscaram|buscaram)\b/.test(msg)) return false;
+  const l = await pedidosProducao(env, p => !p.entregueEm && String(p.entrega || '') === 'retirada' && (p.fichaEnviadaEm || p.fechDono)), ach = acharPorNome(l, texto);
+  if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho retirada de: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei retirada pendente com esse nome.`); return true; }
+  if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, quem buscou?`, ach.slice(0, 3).map(p => ({ id: 'frs|' + p.id, titulo: String(p.nome).slice(0, 20) }))); return true; }
+  return prodMarcarEntregue(env, ach[0], from, nome, texto);
+}
+// agenda do dia da equipe (7h)
+async function agendaProdDia(env) {
+  const ag = agoraBahia(); if (ag.min < 7 * 60 || ag.min > 9 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('agprod:' + hoje)) return;
+  if (!(await travaEnvio(env, 'agprod:' + hoje))) return;
+  await env.HR_KV.put('agprod:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const l = await pedidosProducao(env, ativoProd);
+  const fab = await numEquipe(env, 'fabrica'), ent = await numEquipe(env, 'entrega');
+  const cortar = l.filter(p => p.fichaEnviadaEm && !p.fabProntoEm);
+  const ret = l.filter(p => String(p.entrega) === 'retirada' && p.horaRetirada && p.horaRetirada.dia === hoje);
+  const entregas = l.filter(p => p.janelaEtapa === 'confirmada' && diaIso(p.janela.ini) === hoje).sort((a, b) => a.janela.ini - b.janela.ini);
+  if (fab && (cortar.length || ret.length)) await enviar(env, fab, [`${avisoTeste(env)}☀️ *Bom dia, ${nomeFabrica(env)}! Hoje:*`, ...(cortar.length ? ['', '*Para cortar:*', ...cortar.map(p => `• ${p.nome} — ${resumoPecas(p)}${p.prontoPrevisto ? ' · pronto até ' + horaTs(p.prontoPrevisto.ts) + (diaIso(p.prontoPrevisto.ts) !== hoje ? ' (' + diaFalado(diaIso(p.prontoPrevisto.ts)) + ')' : '') : ''}`)] : []),
+    ...(ret.length ? ['', '*Vêm buscar:*', ...ret.map(p => `• ${p.horaRetirada.hora} — ${p.nome} (${resumoPecas(p)})${cobrarNaEntrega(p) ? ' · receber R$ ' + reais(cobrarNaEntrega(p)) : ''}`)] : [])].join('\n')).catch(() => {});
+  if (ent && entregas.length) await enviar(env, ent, [`${avisoTeste(env)}☀️ *Bom dia, ${nomeEntregador(env)}! Entregas de hoje:*`, '', ...entregas.map(p => `• *${horaTs(p.janela.ini)}–${horaTs(p.janela.fim)}* ${p.nome}${p.entrega && p.entrega.endereco ? ' · ' + p.entrega.endereco : ''}${cobrarNaEntrega(p) ? ' · cobrar R$ ' + reais(cobrarNaEntrega(p)) : ' · pago'}${p.trocoPara > cobrarNaEntrega(p) && cobrarNaEntrega(p) ? ' · troco R$ ' + reais(p.trocoPara - cobrarNaEntrega(p)) : ''}${p.fabProntoEm ? '' : ' (ainda na fábrica)'}`)].join('\n')).catch(() => {});
+  if (cortar.length || ret.length || entregas.length) await pontoAvisarDono(env, `☀️ *Produção de hoje:* ${cortar.length} na fábrica · ${entregas.length} entrega(s) · ${ret.length} retirada(s). Mande _produção_ para ver tudo.`).catch(() => {});
 }
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
@@ -15149,6 +15232,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await pontoRespostaTexto(env, from, msg).catch(e => { console.log('[PONTO] texto:', e.message); return false; })) return; // v123
     if (await pqRespostaDono(env, from, bruto, msg).catch(e => { console.log('[PQ] resposta do dono:', e.message); return false; })) return; // v119
     if (await fechComandoDono(env, from, bruto, msg).catch(e => { console.log('[FECH] comando:', e.message); return false; })) return; // v134
+    if (await painelProdDono(env, from, msg).catch(e => { console.log('[PROD] painel:', e.message); return false; })) return; // v137
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
@@ -24984,7 +25068,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   }
   let texto = m.type === 'text' ? String(m.text?.body || '').trim() : (m._texto || '');
   if (!texto && m.type === 'audio') { try { texto = (await ouvirAudio(env, from, m, false)) || ''; m._texto = texto; } catch (_) {} }
-  if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
+  if (!texto && idB && /^(fpr|fen|fgr|fgs|fgn|frs)\|/.test(idB) && await producaoFuncionario(env, f, from, '', idB, nome).catch(() => false)) return true; // v133
   if (!texto) { await enviar(env, from, `${nome}, por aqui eu só consigo ler texto e áudio sobre o seu ponto, as suas horas e os pedidos.`); return true; }
   if (entregues) return true; // ele escreveu e havia recado guardado: primeiro lê o recado
   if (await producaoFuncionario(env, f, from, texto, idB, nome).catch(e => { console.log('[PROD] funcionário:', e.message); return false; })) return true; // v133
