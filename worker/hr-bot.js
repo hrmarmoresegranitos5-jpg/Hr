@@ -1,3 +1,4 @@
+// v147 (18/11/2026): METAS DA EQUIPE — pontos por produção, meta semanal automática ou do dono (meta_definir), tela "Minha meta" no app do funcionário (anel, ranking, medalhas, sequência, histórico), avisos 50%/100%/sexta, fechamento sábado com bônus
 // v146 (18/11/2026): EQUIPE INTELIGENTE (funções: corte/fabricação/45°/cuba/acabamento/instalação/entrega; distribui por carga e habilidade; corte → Hugo), FOTO OBRIGATÓRIA na entrega (comprovante ao dono, ao cliente e na garantia), DESEMPENHO do mês, RESUMO SEMANAL (domingo 19h), LUCRO do mês, REVISÃO ANUAL oferecida ao cliente 30 dias antes de vencer a garantia
 // v145 (18/11/2026): "fechei o serviço do João" com instalação (ou "assuma o João") → o bot assume: áudio, nome completo/CPF/endereço, PDF completo, contrato aceito e então o fechamento
 // v144 (18/11/2026): GARANTIAS — cadastro permanente no D1 (contrato, aceite, entrega, validade 1 ano, modalidade), certificado em PDF ao cliente na entrega, "minha garantia"/chamados, "garantias"/"garantia do João" ao dono, rotas /bot/garantias para o app, aviso 30 dias antes de vencer
@@ -6755,6 +6756,7 @@ async function pedirAvaliacoes(env) {
   await onbRotina(env).catch(e => console.log('[ONB] rotina:', e.message)); // v143
   await garRotina(env).catch(e => console.log('[GAR] rotina:', e.message)); // v144
   await semanalRotina(env).catch(e => console.log('[SEMANA]', e.message)); // v146
+  await metasRotina(env).catch(e => console.log('[META] rotina:', e.message)); // v147
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7758,12 +7760,14 @@ async function prodMarcarPronto(env, ped, from, nome) {
       if (t2) await enviar(env, t2, `${avisoTeste(env)}🪚 As peças de *${ped.nome}* (${resumoPecas(ped)}) já estão *cortadas*. Pode seguir com a fabricação (45°, cuba, acabamento). Quando terminar: _terminei o de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
       await enviar(env, from, `Show, ${nome}! Corte de *${ped.nome}* anotado. Passei para o ${n2 || 'Hugo'} fazer a fabricação.`);
       await pontoAvisarDono(env, `🪚 ${nome} cortou o pedido de *${ped.nome}*; ${n2 || 'Hugo'} segue com a fabricação.`).catch(() => {});
+      await metaChecar(env, fid); // v147
       return true;
     }
     ped.fabFeitoPor = fid || ped.fabResp || ''; if (!ped.corteEm) { ped.corteEm = Date.now(); ped.corteFeitoPor = ped.corteFeitoPor || fid; }
   }
   ped.fabProntoEm = Date.now(); await salvarPedido(env, ped);
   const quemFez = (await respNome(env, ped.fabFeitoPor)) || nomeFabrica(env); // v146
+  await metaChecar(env, ped.fabFeitoPor); // v147
   const retirada = String(ped.entrega || '') === 'retirada';
   let entTxt = '';
   if (ped.fechDono && !retirada && !ped.janela) { // v135: pronto agora → combina o horário com o cliente
@@ -7790,6 +7794,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   const jaEntregue = !!ped.entregueEm;
   ped.entregueEm = ped.entregueEm || Date.now(); ped.janelaEtapa = ped.janela ? 'entregue' : ped.janelaEtapa; await salvarPedido(env, ped);
   if (!jaEntregue && ped.numero) await garDoPedido(env, ped).catch(e => console.log('[GAR] entrega:', e.message)); // v144
+  if (!jaEntregue) await metaChecar(env, ped.entFeitoPor); // v147
   if (!jaEntregue) await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, entrega: dataBahia() }, 'entregue');
   const cobrar = cobrarNaEntrega(ped);
   const tn = normaliza(texto || '');
@@ -9264,6 +9269,110 @@ async function grvResposta(env, from, m) {
   await pontoAvisarDono(env, `🧽 *${g ? g.cliente : 'Cliente'}* quer *revisão com impermeabilização* ${diaFalado(q.dia)} às ${q.hora} (garantia ${gid} vence ${g ? dataBR(g.validade) : ''}). Confirme com ele.\nwa.me/${num}`).catch(() => {});
   return true;
 }
+// ═════════════════════════════════════════════════════════════════════════════
+// v147: METAS DA EQUIPE — pontos por produção, meta semanal inteligente (média das últimas semanas + 10%),
+//   tela "Minha meta" no app do funcionário (anel de progresso, faltam, sequência 🔥, medalhas, ranking, histórico),
+//   avisos no WhatsApp (50%, 100%, sexta "faltam X"), fechamento no sábado com o bônus para o dono.
+//   Pontos: corte 1/peça · fabricação 3 + 1/peça · entrega 2 · instalação 5 · no prazo +1 · foto +1 · atraso −1
+// ═════════════════════════════════════════════════════════════════════════════
+const semIni = iso => { const d = diaSemanaISO(iso); return isoSomaDias(iso, d === 0 ? -6 : 1 - d); }; // segunda
+const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
+const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
+async function metasPontos(env, de, ate) {
+  const out = {}, add = (id, pts, tipo, ped) => { if (!id) return; const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts += pts; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: '' }); return o; };
+  const dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
+  for (const p of await pedidosProducao(env, () => true)) {
+    const n = nPecasPed(p), cx = pedComplexo(p);
+    if (p.corteFeitoPor && dentro(p.corteEm)) { const o = add(p.corteFeitoPor, n, 'corte', p); if (o) o.tarefas[o.tarefas.length - 1].dia = diaDe(p.corteEm); }
+    if (p.fabFeitoPor && dentro(p.fabProntoEm) && p.fabFeitoPor !== p.corteFeitoPor) { let pts = 3 + n; const no = p.prontoPrevisto ? p.fabProntoEm <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; const o = add(p.fabFeitoPor, pts, 'fabricação', p); if (o) { o.tarefas[o.tarefas.length - 1].dia = diaDe(p.fabProntoEm); if (no === true) o.noPrazo++; if (no === false) o.atraso++; } }
+    if (p.entFeitoPor && dentro(p.entregueEm)) { let pts = cx ? 5 : 2; const no = p.janela ? p.entregueEm <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; const o = add(p.entFeitoPor, pts, cx ? 'instalação' : 'entrega', p); if (o) { o.tarefas[o.tarefas.length - 1].dia = diaDe(p.entregueEm); if (no === true) o.noPrazo++; if (no === false) o.atraso++; if (p.fotoEntregaEm) o.fotos++; } }
+  }
+  return out;
+}
+async function metasCfg(env) { try { return JSON.parse((await env.HR_KV.get('metas:cfg')) || '{}') || {}; } catch (_) { return {}; } }
+async function metaDe(env, funcId, cfgM, hist) { // meta da semana: a do dono ou automática (média das 4 últimas semanas com produção + 10%)
+  const c = (cfgM || await metasCfg(env))[funcId] || {};
+  if (c.pontos > 0) return { meta: c.pontos, auto: false, bonus: c.bonus || 0 };
+  const { map } = await funcoesEquipe(env), fs = map[funcId] || [];
+  const minimo = fs.includes('fabricacao') ? 12 : fs.some(x => ENT_F.includes(x)) ? 12 : 15;
+  const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
+  const media = ws.length ? ws.reduce((t, w) => t + w.pts, 0) / ws.length : 0;
+  return { meta: Math.max(minimo, Math.ceil(media * 1.1)), auto: true, bonus: c.bonus || 0 };
+}
+async function metasSemanas(env, nSem) { // [{ini, fim, por:{id:{pts...}}}] da semana atual para trás
+  const hoje = dataBahia(), out = []; let ini = semIni(hoje);
+  for (let i = 0; i < nSem; i++) { const fim = isoSomaDias(ini, 6); out.push({ ini, fim, por: await metasPontos(env, ini, fim) }); ini = isoSomaDias(ini, -7); }
+  return out;
+}
+async function metaPainel(env, funcId) {
+  const sems = await metasSemanas(env, 7), cfgM = await metasCfg(env), cfg = await pontoCfg(env);
+  const hist = sems.slice(1).map(w => ({ ini: w.ini, pts: (w.por[funcId] || {}).pts || 0 }));
+  const m = await metaDe(env, funcId, cfgM, hist), atual = sems[0].por[funcId] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 };
+  // sequência: semanas seguidas (anteriores) batendo a meta
+  let seq = 0; for (const w of hist) { const mw = await metaDe(env, funcId, cfgM, hist.filter(x => x.ini < w.ini)); if (w.pts >= mw.meta) seq++; else break; }
+  const rank = cfg.funcs.map(f => ({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], pts: (sems[0].por[f.id] || {}).pts || 0 })).filter(x => x.pts > 0 || x.id === String(funcId)).sort((a, b) => b.pts - a.pts);
+  const medalhas = [];
+  if (atual.pts >= m.meta) medalhas.push({ i: '🎯', t: 'Meta batida' });
+  if (atual.pts >= m.meta * 1.5) medalhas.push({ i: '🚀', t: 'Superou 150%' });
+  if (seq >= 2) medalhas.push({ i: '🔥', t: `${seq + (atual.pts >= m.meta ? 1 : 0)} semanas seguidas` });
+  if (atual.fotos && atual.fotos === atual.tarefas.filter(t => /entrega|instala/.test(t.tipo)).length) medalhas.push({ i: '📸', t: 'Todas as entregas com foto' });
+  if (atual.noPrazo >= 3 && !atual.atraso) medalhas.push({ i: '⏱️', t: 'Tudo no prazo' });
+  if (rank[0] && rank[0].id === String(funcId) && rank[0].pts > 0) medalhas.push({ i: '🏆', t: 'Líder da semana' });
+  const hojeD = dataBahia(), diasRest = Math.max(0, 6 - ((diaSemanaISO(hojeD) + 6) % 7)); // até sábado
+  const falta = Math.max(0, m.meta - atual.pts);
+  return { ok: true, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
+    porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
+    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte', '1 ponto por peça'], ['🔧 Fabricação (45°, cuba, bancada)', '3 + 1 por peça'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '5 pontos'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
+}
+// avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
+async function metaChecar(env, funcId) {
+  try {
+    if (!funcId || String(env.METAS ?? '1') === '0') return;
+    const pn = await metaPainel(env, funcId), k = 'meta:av:' + funcId + ':' + pn.semana.ini;
+    const ja = (await env.HR_KV.get(k)) || '';
+    const tel = await respTel(env, funcId), nome = await respNome(env, funcId); if (!tel) return;
+    if (pn.pct >= 100 && !ja.includes('100')) { await env.HR_KV.put(k, ja + '100', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}🎯🎉 *${nome}, META BATIDA!* ${pn.pts} de ${pn.meta} pontos nesta semana.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}* garantido!` : ''} Cada ponto a mais conta para o ranking. 💪`).catch(() => {}); await pontoAvisarDono(env, `🎯 *${nome}* bateu a meta da semana (${pn.pts}/${pn.meta} pts)${pn.bonus ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {}); }
+    else if (pn.pct >= 50 && !ja.includes('50')) { await env.HR_KV.put(k, ja + '50', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}💪 ${nome}, metade da meta da semana! ${pn.pts} de ${pn.meta} pontos. Faltam ${pn.falta}.`).catch(() => {}); }
+  } catch (e) { console.log('[META] checar:', e.message); }
+}
+async function metasRotina(env) {
+  if (String(env.METAS ?? '1') === '0') return;
+  const ag = agoraBahia(), hoje = dataBahia(), cfg = await pontoCfg(env);
+  if (ag.dia === 5 && ag.min >= 14 * 60 && ag.min < 16 * 60 && !(await env.HR_KV.get('meta:sex:' + hoje)) && await travaEnvio(env, 'meta:sex:' + hoje)) { // sexta: "faltam X"
+    await env.HR_KV.put('meta:sex:' + hoje, '1', { expirationTtl: 3 * 86400 });
+    for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id); const tel = await respTel(env, f.id); if (!tel || pn.pct >= 100 || (!pn.pts && !pn.tarefas.length)) continue; await enviar(env, tel, `${avisoTeste(env)}⏳ ${apelidoFunc(cfg, f) || f.nome.split(' ')[0]}, faltam *${pn.falta} pontos* para a meta da semana (${pn.pts}/${pn.meta}). Dá pra fechar até amanhã! 💪`).catch(() => {}); }
+  }
+  if (ag.dia === 6 && ag.min >= 13 * 60 && !(await env.HR_KV.get('meta:fim:' + hoje)) && await travaEnvio(env, 'meta:fim:' + hoje)) { // sábado: fechamento
+    await env.HR_KV.put('meta:fim:' + hoje, '1', { expirationTtl: 3 * 86400 });
+    const L = ['🏁 *Metas da semana*', ''], bonus = [];
+    const lista = []; for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id); if (!pn.pts && !pn.tarefas.length) continue; lista.push({ f, pn }); }
+    lista.sort((a, b) => b.pn.pct - a.pn.pct);
+    for (const { f, pn } of lista) {
+      const nm = apelidoFunc(cfg, f) || f.nome.split(' ')[0];
+      L.push(`${pn.pct >= 100 ? '✅' : '❌'} *${nm}*: ${pn.pts}/${pn.meta} pts (${pn.pct}%)${pn.medalhas.length ? ' ' + pn.medalhas.map(m => m.i).join('') : ''}`);
+      if (pn.pct >= 100 && pn.bonus) bonus.push(`${nm}: R$ ${reais(pn.bonus)}`);
+      const tel = await respTel(env, f.id);
+      if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%). ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}`).catch(() => {});
+    }
+    if (lista.length) await pontoAvisarDono(env, [...L, ...(bonus.length ? ['', `💰 *Bônus a pagar:* ${bonus.join(' · ')}`] : []), '', '_Mude metas e bônus pelo WhatsApp: "meta do Fabrício 20 pontos, bônus 50"._'].join('\n')).catch(() => {});
+  }
+}
+async function metasComandoDono(env, from, msg) {
+  if (!/^(metas|metas da equipe|meta da equipe|como estao as metas\??)$/.test(msg)) return false;
+  const cfg = await pontoCfg(env), L = ['🎯 *Metas da semana*', ''];
+  for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id); L.push(`*${apelidoFunc(cfg, f) || f.nome.split(' ')[0]}*: ${pn.pts}/${pn.meta} pts (${pn.pct}%)${pn.auto ? ' · meta automática' : ''}${pn.bonus ? ' · bônus R$ ' + reais(pn.bonus) : ''}${pn.seq ? ' · 🔥' + pn.seq : ''}`); }
+  L.push('', '_Pontos: corte 1/peça · fabricação 3+1/peça · entrega 2 · instalação 5 · no prazo +1 · foto +1 · atraso −1._', '_Para mudar: "meta do Hugo 18 pontos, bônus 60" ou "meta automática do Lucas"._');
+  await enviar(env, from, L.join('\n')); return true;
+}
+async function metaDefinirTool(env, a) {
+  const cfg = await pontoCfg(env), tk = tokensPedra(String(a.funcionario || ''));
+  const alvo = /^(todos|equipe|todo mundo)$/i.test(String(a.funcionario || '').trim()) ? cfg.funcs : cfg.funcs.filter(x => tk.length && tokensPedra(x.nome)[0] === tk[0]);
+  if (!alvo.length) return { erro: true, texto: `Não achei "${a.funcionario}" na equipe.` };
+  const m = await metasCfg(env);
+  for (const f of alvo) { const c = m[f.id] || {}; if (a.automatica) delete c.pontos; else if (+a.pontos > 0) c.pontos = Math.round(+a.pontos); if (a.bonus != null) c.bonus = Math.max(0, +a.bonus || 0); m[f.id] = c; }
+  await env.HR_KV.put('metas:cfg', JSON.stringify(m));
+  return { texto: `Meta atualizada para ${alvo.map(f => f.nome.split(' ')[0]).join(', ')}: ${a.automatica ? 'automática (média + 10%)' : (+a.pontos > 0 ? a.pontos + ' pontos por semana' : 'sem mudança nos pontos')}${a.bonus != null ? ', bônus R$ ' + reais(+a.bonus || 0) : ''}. Já aparece no app do funcionário. Confirme em UMA frase.` };
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -10453,6 +10562,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou ou já está na conversa (ex.: wa.me/55...)' }, orc: { type: 'string', description: 'número do orçamento, se o Sr. Hangel citou (ex.: ORC-0585)' }, mensagem: { type: 'string', description: 'mensagem curta e simpática para ir junto do PDF (opcional)' } }, required: ['cliente'] },
   },
   {
+    name: 'meta_definir',
+    description: 'Define a META SEMANAL (em pontos) e/ou o BÔNUS de um funcionário (ou de "todos"). Ex.: "meta do Fabrício 20 pontos, bônus 50", "bônus de 80 para o Hugo", "meta automática do Lucas" (automatica=true: média das últimas semanas + 10%). Pontos: corte 1/peça, fabricação 3+1/peça, entrega 2, instalação 5, no prazo +1, foto +1, atraso −1.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, pontos: { type: 'number' }, bonus: { type: 'number', description: 'R$ por semana com a meta batida' }, automatica: { type: 'boolean' } }, required: ['funcionario'] },
+  },
+  {
     name: 'equipe_funcoes',
     description: 'Muda o que cada funcionário faz (o bot usa isso para distribuir corte, fabricação/45°/cuba, instalação e entrega). Ex.: "o Jefferson agora também faz 45°", "Lucas também instala", "tira o Lucas da entrega".',
     input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, funcoes: { type: 'array', items: { type: 'string', description: 'corte, fabricacao, 45, cuba, acabamento, instalacao, entrega' } }, modo: { type: 'string', enum: ['adicionar', 'remover', 'definir'] } }, required: ['funcionario', 'funcoes'] },
@@ -10907,6 +11021,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'avisar_equipe') return await avisarEquipeTool(env, a); // v138
   if (nome === 'equipe_consultar') return await equipeConsultar(env); // v141
   if (nome === 'equipe_funcoes') return await equipeFuncoesTool(env, a); // v146
+  if (nome === 'meta_definir') return await metaDefinirTool(env, a); // v147
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
   if (nome === 'expediente_dia') return await expedienteDias(env, a); // v138
   if (nome === 'lembrar_dono') { // v123
@@ -16318,6 +16433,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
     if (await orcMandarComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] mandar:', e.message); return false; })) return; // v118
     if (await orcsComandoDono(env, from, bruto, msg).catch(e => { console.log('[ORC] lista:', e.message); return false; })) return; // v118
     if (await qrNumeroRespondido(env, from, msg).catch(e => { console.log('[QR] número:', e.message); return false; })) return; // v115
@@ -26352,6 +26468,7 @@ async function rotaPonto(req, env, ctx, url) {
       const r = await pontoPedidoCriar(env, cfg, dev.funcId, nome, b);
       return r.erro ? J({ erro: r.erro }, 400) : J({ ok: true, pedido: r.pedido });
     }
+    if (p === '/ponto/metas') return J(await metaPainel(env, dev.funcId)); // v147
     if (p === '/ponto/meu') {
       const dias = [];
       for (let i = 0; i < 7; i++) { const d = dataBahia(-i); const l = await pontoDia(env, d, dev.funcId); if (l.length || i === 0) dias.push({ data: d, batidas: l.map(pontoPublico) }); }
@@ -27048,6 +27165,17 @@ body{padding:calc(14px + env(safe-area-inset-top)) 16px calc(24px + env(safe-are
 .top span{font-size:.8rem;color:var(--t2)}
 .relogio{text-align:center;margin:6px 0 2px;font-size:3.6rem;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .data{text-align:center;color:var(--t2);font-size:.9rem;margin-bottom:14px}
+.meta{border:1px solid rgba(196,164,106,.45);background:radial-gradient(120% 120% at 0% 0%,rgba(236,213,163,.14),transparent 55%),var(--s1);position:relative;overflow:hidden}
+.meta .mh{display:flex;align-items:center;gap:14px}.meta .anel{position:relative;width:104px;height:104px;flex:none}.meta .anel svg{transform:rotate(-90deg)}
+.meta .anel .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}.meta .anel b{font-size:1.5rem;color:var(--claro)}.meta .anel small{font-size:.62rem;color:var(--t2)}
+.meta h3{margin:0 0 2px;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ouro)}.meta .big{font-size:1.1rem;font-weight:800}.meta .sub{font-size:.8rem;color:var(--t2);margin-top:3px}
+.meta .med{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.meta .med span{font-size:.7rem;padding:4px 8px;border-radius:12px;background:rgba(196,164,106,.14);border:1px solid rgba(196,164,106,.3);animation:mPop .5s cubic-bezier(.2,1.4,.3,1) both}
+.meta .sec{font-size:.62rem;letter-spacing:.14em;color:var(--ouro);margin:14px 0 6px;font-weight:700;text-transform:uppercase}
+.meta .rk{display:flex;align-items:center;gap:8px;font-size:.82rem;padding:5px 0}.meta .rk i{width:22px;text-align:center;font-style:normal}.meta .rk .bar{flex:1;height:8px;border-radius:5px;background:rgba(255,255,255,.07);overflow:hidden}.meta .rk .bar u{display:block;height:100%;background:linear-gradient(90deg,var(--ouro),var(--claro));border-radius:5px}
+.meta .rk.eu{color:var(--claro);font-weight:700}.meta .hs{display:flex;align-items:flex-end;gap:6px;height:60px}.meta .hs div{flex:1;border-radius:5px 5px 2px 2px;background:rgba(255,255,255,.12);position:relative}.meta .hs div.ok{background:linear-gradient(0deg,var(--ouro),var(--claro))}
+.meta .tf{font-size:.78rem;padding:4px 0;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between}.meta .rg{font-size:.74rem;color:var(--t2);display:grid;grid-template-columns:1fr auto;gap:2px 10px}
+.meta.festa::after{content:"🎉";position:absolute;right:12px;top:8px;font-size:1.6rem;animation:mPop .8s cubic-bezier(.2,1.4,.3,1) both}
+@keyframes mPop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
 .ola{text-align:center;font-size:1.15rem;margin-bottom:12px}.ola b{color:var(--claro)}
 .cam{position:relative;width:200px;height:200px;margin:0 auto 14px;border-radius:50%;overflow:hidden;background:var(--s2);border:3px solid var(--ouro)}
 .cam video,.cam img{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
@@ -27138,6 +27266,7 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
   <button type="button" class="outro" id="btOutro">Bater outro tipo</button>
   <div class="tipos" id="tipos" hidden></div>
   <div class="card"><h3>Hoje</h3><div class="linha" id="hoje"></div><div class="trabhj" id="trabHj"></div></div>
+  <div class="card meta" id="metaCard" hidden></div>
   <div class="card" id="resCard" hidden><h3 id="resT">Meu período</h3><div class="tres" id="resNum"></div><details class="det"><summary>Ver dia a dia</summary><div id="res"></div></details></div>
   <div class="card" id="saiCard"><h3>Precisa sair no expediente?</h3><div id="saiBox"></div></div>
   <div class="card"><h3>Precisa corrigir algo?</h3><div class="pbts"><button type="button" id="btEsq">🕐 Esqueci de bater</button><button type="button" id="btFalta">📄 Justificar falta</button></div><div id="peds"></div></div>
@@ -27287,7 +27416,26 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
       $('relCard').hidden=false;
     }else $('relCard').hidden=true;
   }
+  // ── v147: minha meta da semana ──
+  function carregarMeta(){
+    api('/ponto/metas',{token:TOKEN}).then(function(m){
+      if(!m||!m.ok)return;var C=$('metaCard');if(!C)return;
+      var R=44,L=2*Math.PI*R,pc=Math.min(100,m.pct),cor=m.pct>=100?'#4cc38a':'#c4a46a';
+      var h='<div class="mh"><div class="anel"><svg width="104" height="104"><circle cx="52" cy="52" r="'+R+'" stroke="rgba(255,255,255,.08)" stroke-width="10" fill="none"/><circle id="mArc" cx="52" cy="52" r="'+R+'" stroke="'+cor+'" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="'+L+'" stroke-dashoffset="'+L+'" style="transition:stroke-dashoffset 1.2s cubic-bezier(.2,.9,.25,1)"/></svg><div class="c"><b id="mPts">0</b><small>de '+m.meta+' pts</small></div></div>'
+        +'<div style="flex:1;min-width:0"><h3>🎯 Minha meta da semana</h3><div class="big">'+(m.pct>=100?'Meta batida! '+m.pct+'%':'Faltam '+m.falta+' pontos')+'</div>'
+        +'<div class="sub">'+(m.pct>=100?'Cada ponto a mais conta no ranking.':(m.diasRest>0?'Uns '+m.porDia+' por dia até sábado.':'Último dia!'))+(m.bonus?' · Bônus R$ '+m.bonus.toFixed(2).replace('.',','):'')+'</div>'
+        +((m.seq+(m.pct>=100?1:0))?'<div class="sub">🔥 '+(m.seq+(m.pct>=100?1:0))+' semana(s) seguida(s) batendo a meta</div>':'')+(m.pos?'<div class="sub">🏅 '+m.pos+'º lugar na equipe</div>':'')+'</div></div>';
+      if(m.medalhas.length)h+='<div class="med">'+m.medalhas.map(function(x,i){return '<span style="animation-delay:'+(i*.12)+'s">'+x.i+' '+x.t+'</span>'}).join('')+'</div>';
+      if(m.rank.length>1){var mx=Math.max.apply(null,m.rank.map(function(r){return r.pts}))||1;h+='<div class="sec">Ranking da semana</div>'+m.rank.map(function(r,i){return '<div class="rk'+(i+1===m.pos?' eu':'')+'"><i>'+(['🥇','🥈','🥉'][i]||(i+1))+'</i><span style="width:74px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.nome+'</span><div class="bar"><u style="width:'+Math.round(r.pts/mx*100)+'%"></u></div><span>'+r.pts+'</span></div>'}).join('')}
+      if(m.hist.length){var hm=Math.max.apply(null,m.hist.map(function(x){return x.pts}).concat([m.meta]))||1;h+='<div class="sec">Últimas semanas</div><div class="hs">'+m.hist.map(function(x){return '<div class="'+(x.pts>=m.meta?'ok':'')+'" style="height:'+Math.max(6,Math.round(x.pts/hm*60))+'px" title="'+x.pts+'"></div>'}).join('')+'</div>'}
+      if(m.tarefas.length)h+='<div class="sec">O que você fez nesta semana</div>'+m.tarefas.map(function(t){return '<div class="tf"><span>'+t.tipo+' · '+t.nome+'</span><b>+'+t.pts+'</b></div>'}).join('');
+      h+='<details style="margin-top:10px"><summary style="font-size:.76rem;color:var(--t2)">Como ganhar pontos</summary><div class="rg" style="margin-top:6px">'+m.regras.map(function(r){return '<span>'+r[0]+'</span><b>'+r[1]+'</b>'}).join('')+'</div></details>';
+      C.innerHTML=h;C.hidden=false;C.classList.toggle('festa',m.pct>=100);
+      requestAnimationFrame(function(){var a=document.getElementById('mArc');if(a)a.style.strokeDashoffset=String(L*(1-pc/100));var e=document.getElementById('mPts'),n=0,alvo=m.pts,st=Math.max(1,Math.ceil(alvo/30));var iv=setInterval(function(){n=Math.min(alvo,n+st);if(e)e.textContent=n;if(n>=alvo)clearInterval(iv)},30)});
+    }).catch(function(){});
+  }
   function carregar(){
+    carregarMeta();
     api('/ponto/meu?t='+encodeURIComponent(TOKEN)).then(function(j){
       ONLINE=true;
       if(j.desativado){try{localStorage.removeItem('hrponto_token')}catch(e){}TOKEN='';telaAtivar();$('erroAtivar').textContent=j.erro||'';return}
