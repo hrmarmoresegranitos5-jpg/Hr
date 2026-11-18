@@ -1,3 +1,4 @@
+// v152 (18/11/2026): ACORDO DE PAGAMENTO (acordo_pagamento: termo em PDF com aceite, instalador sabe quanto receber, diferença vai para a 1ª parcela, Pix em cada vencimento pela cobrança profissional; "acordos", "termo da Maria")
 // v151 (18/11/2026): PLANO DO DIA 6h30 (sugere passar fabricação a quem não instala hoje), ALERTA DE ATRASO 10h, FOTO DAS PEÇAS PRONTAS, PERDAS (perdas), SOBRAS (sobras; avisa quando um pedido cabe), ORÇAMENTOS ESQUECIDOS 3/7 dias, INDICAÇÃO no pós-venda, LINK DO GOOGLE pelo WhatsApp, PREVISÃO DO MÊS
 // v150 (18/11/2026): DESIGNAR ETAPA ("hoje Gibson vai acabar a cozinha da Maria": passa a fabricação/acabamento para ele, avisa e os pontos vão para ele); Gibson também faz rebaixo americano e acabamento
 // v149 (18/11/2026): ETAPAS COM VÁRIAS PESSOAS (producao_status: o dono conta quem fez o quê; pontos divididos), ETAPA DE ACABAMENTO (bot pergunta ao cortador quem acaba: Lucas/Jefferson/ele; acabamento +1), pontos pelo registro de etapas
@@ -6767,6 +6768,7 @@ async function pedirAvaliacoes(env) {
   await planoDiaRotina(env).catch(e => console.log('[PLANO]', e.message)); // v151
   await atrasoRotina(env).catch(e => console.log('[ATRASO]', e.message)); // v151
   await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
+  await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7835,6 +7837,7 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   const ret = String(ped.entrega || '') === 'retirada', quem = ret ? nomeFabrica(env) : nomeEntregador(env);
   if (receb && cobrar) {
     await fechReceber(env, ped, receb.valor || cobrar, receb.forma, quem);
+    if (ped.acordo) { await pontoAvisarDono(env, `🚚 *${quem}* instalou o de *${ped.nome}*. Serviço marcado como entregue.`).catch(() => {}); await enviar(env, from, `Valeu, ${nome}! Anotei a instalação de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)}. O restante fica comigo.`); return true; } // v152
     await pontoAvisarDono(env, ret ? `📦 *${ped.nome}* buscou o pedido (${resumoPecas(ped)}). Serviço marcado como entregue.` : `🚚 *${quem}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}). Serviço marcado como entregue.`).catch(() => {});
     await enviar(env, from, `Valeu, ${nome}! Anotei ${ret ? 'a retirada' : 'a entrega'} de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)} em ${receb.forma === 'cartao' ? 'cartão' : receb.forma}. Já lancei para o Sr. Hangel.`);
     if (ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, seu pedido foi entregue e o pagamento confirmado. Muito obrigada pela preferência! 😊`).catch(() => {});
@@ -8205,6 +8208,7 @@ async function fechReceber(env, ped, valor, forma, quem) {
   const rec = await registrarLancamento(env, { type: 'in', value: valor, desc: `Recebido de ${ped.nome} (entrega)`.slice(0, 80), date: dataBahia(), forma: fm }).catch(e => { console.log('[AG] fin:', e.message); return null; });
   await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, pagamento: { valor, forma: fm, ref: 'ent' + ped.id, origem: 'bot' } }, 'recebido na entrega');
   ped.recebidoEntrega = { valor, forma: fm, em: Date.now(), quem }; ped.pago = true; if (ped.sinal) ped.restantePago = true; await salvarPedido(env, ped);
+  if (ped.acordo) await acdInstalacaoPaga(env, ped, valor).catch(e => console.log('[ACD]', e.message)); // v152
   const msg = `💰 *${quem}* recebeu *R$ ${reais(valor)}* em ${fm === 'cartao' ? 'cartão' : fm} de *${ped.nome}*.\n${rec ? 'Lancei a entrada em Finanças' : 'Não consegui lançar em Finanças (lance à mão)'} e no Livro de entregas.`;
   if (rec && rec.k) await enviarComBotoes(env, numeroDono(env), msg, [{ id: 'desf|' + rec.k, titulo: 'Desfazer lançamento' }]).catch(() => {});
   else await pontoAvisarDono(env, msg).catch(() => {});
@@ -9791,6 +9795,158 @@ async function v151ComandoDono(env, from, msg, texto) {
   return false;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// v152: ACORDO DE PAGAMENTO (cliente que não pagou como combinado e vai instalar assim mesmo)
+//   Dono: "a Maria vai pagar 1500 na instalação amanhã e o restante em 2x, 10/12 e 10/01" → acordo_pagamento:
+//   • cliente recebe o TERMO DE ACORDO em PDF (valores, datas, multa 2% + juros 1% a.m.) com [Li e concordo]
+//   • instalador fica sabendo quanto receber; quando ele disser "instalei, recebi 1500 no pix" entra em Finanças
+//   • o que faltar na instalação soma na 1ª parcela; em cada vencimento vai a cobrança profissional (Pix/QR) e os lembretes
+// ═════════════════════════════════════════════════════════════════════════════
+const ACD = 'acd:';
+async function acdLer(env, id) { try { return JSON.parse((await env.HR_KV.get(ACD + id)) || 'null'); } catch (_) { return null; } }
+async function acdSalvar(env, a) { await env.HR_KV.put(ACD + a.id, JSON.stringify(a), { expirationTtl: 400 * 86400 }); await env.HR_KV.put('acd:num:' + ultimos8(a.num), a.id, { expirationTtl: 400 * 86400 }); }
+function acdParcTxt(a) { return a.parcelas.map((x, i) => `${i + 1}ª: R$ ${reais(x.valor)} em ${dataBR(x.data)}${x.paga ? ' ✅' : ''}`).join('\n'); }
+function acdPdf(env, a, ct) {
+  const G = [0.62, 0.48, 0.16], emp = env.EMPRESA || 'HR Mármores e Granitos', hoje = dataBahia(), [yy, mm, dd] = hoje.split('-');
+  const L = [
+    { t: emp.toUpperCase(), s: 16, b: 1, a: 'c', c: G, g: 0 },
+    { t: `CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'} · ${ENDERECO_MARMORARIA} · Pilão Arcado – BA`, s: 8, a: 'c', c: [0.4, 0.4, 0.4], g: 8 },
+    { t: '---', g: 18 },
+    { t: 'TERMO DE ACORDO DE PAGAMENTO', s: 14, b: 1, a: 'c', g: 0 },
+    { t: `Nº ${a.n}${ct && ct.n ? ' · referente ao contrato ' + ct.n : ''}`, s: 9, a: 'c', c: [0.4, 0.4, 0.4], g: 14 },
+    { t: 'PARTES', s: 10, b: 1, c: G, g: 2 },
+    { t: `CREDORA: ${emp}, CNPJ ${env.EMPRESA_CNPJ || '64.639.182/0001-28'}, com sede na ${ENDERECO_MARMORARIA}, Pilão Arcado – BA.`, g: 2 },
+    { t: `DEVEDOR(A): ${a.nome}${ct && ct.cpf ? ', CPF ' + cpfFmt(ct.cpf) : ''}, telefone ${fmtNumero(a.num)}.`, g: 8 },
+    { t: '1. ORIGEM DO VALOR', s: 10, b: 1, c: G, g: 2 },
+    { t: `Fornecimento e instalação de ${a.desc || 'peças em pedra natural'}, no valor total de R$ ${reais(a.total)}. Já foram pagos R$ ${reais(a.jaPago)}. Saldo em aberto: R$ ${reais(a.total - a.jaPago)}.`, g: 8 },
+    { t: '2. FORMA DE PAGAMENTO DO SALDO', s: 10, b: 1, c: G, g: 2 },
+    ...(a.naInst > 0 ? [{ t: `• R$ ${reais(a.naInst)} no dia da instalação${a.dataInst ? ' (' + dataBR(a.dataInst) + ')' : ''}, em Pix ou dinheiro;`, i: 10, g: 1 }] : []),
+    ...a.parcelas.map((x, i) => ({ t: `• ${i + 1}ª parcela: R$ ${reais(x.valor)} com vencimento em ${dataBR(x.data)};`, i: 10, g: 1 })),
+    { t: 'Se o valor do dia da instalação for pago em parte, a diferença é somada à 1ª parcela. Os pagamentos podem ser feitos por Pix pelo link/QR code enviado pelo WhatsApp oficial da CREDORA.', s: 9.5, g: 8 },
+    { t: '3. ATRASO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'A parcela não paga no vencimento terá, a partir do dia seguinte: multa de 2% (dois por cento), conforme o art. 52, § 1º, do Código de Defesa do Consumidor; juros de mora de 1% (um por cento) ao mês, calculados por dia de atraso (art. 406 do Código Civil); e correção monetária pelo IPCA.', g: 3 },
+    { t: 'Com mais de 30 (trinta) dias de atraso de qualquer parcela, as demais vencem antecipadamente e a CREDORA poderá adotar as medidas de cobrança previstas em lei, inclusive o protesto do título e a inclusão em cadastros de proteção ao crédito, após aviso prévio.', g: 8 },
+    { t: '4. GARANTIA DO SERVIÇO', s: 10, b: 1, c: G, g: 2 },
+    { t: 'Este acordo não altera a garantia de 1 (um) ano do serviço, conforme o contrato e o certificado de garantia.', g: 8 },
+    { t: '5. ACEITE', s: 10, b: 1, c: G, g: 2 },
+    { t: 'O DEVEDOR(A) reconhece o saldo acima e aceita este termo pelo botão “Li e concordo” no WhatsApp oficial da CREDORA, ficando registrados a data, a hora e o número do aceite, ou por assinatura abaixo.', g: 8 },
+    { t: `Pilão Arcado – BA, ${+dd} de ${NOMES_MES[+mm - 1]} de ${yy}.`, a: 'c', g: 34 },
+    { t: '_______________________________________          _______________________________________', s: 9, a: 'c', g: 0 },
+    { t: `${emp} (CREDORA)                              ${a.nome} (DEVEDOR/A)`, s: 8.5, a: 'c', c: [0.35, 0.35, 0.35], g: 6 },
+  ];
+  return { bytes: pdfDocumento(L), nome: `Acordo ${a.n} - ${a.nome}.pdf` };
+}
+async function acdMandarTermo(env, a) {
+  const ct = JSON.parse((await env.HR_KV.get('contrato:' + a.num).catch(() => null)) || 'null');
+  const pdf = acdPdf(env, a, ct), up = await subirPdfMeta(env, pdf.bytes, pdf.nome), pn = nomeDeTratamento(a.nome);
+  await enviar(env, a.num, `${pn ? pn + ', c' : 'C'}onforme combinado com o Sr. Hangel, organizei o pagamento do seu projeto para ficar tranquilo para você:\n\n${a.naInst > 0 ? `• *R$ ${reais(a.naInst)}* no dia da instalação${a.dataInst ? ' (' + diaFalado(a.dataInst) + ')' : ''}\n` : ''}${a.parcelas.map((x, i) => `• *R$ ${reais(x.valor)}* até ${dataBR(x.data)}`).join('\n')}\n\nNo dia de cada parcela eu te mando o Pix por aqui. 😊`);
+  await postarMsg(env, a.num, { type: 'document', document: { id: up.id, filename: pdf.nome, caption: 'Termo de acordo de pagamento' } });
+  await enviarComBotoes(env, a.num, 'Se estiver tudo certo, toque em *Li e concordo*.', [{ id: 'acd_ok|' + a.id, titulo: 'Li e concordo' }, { id: 'acd_dv|' + a.id, titulo: 'Tenho uma dúvida' }]);
+  a.termoEm = Date.now(); a.etapa = 'termo'; await acdSalvar(env, a);
+  await postarMsg(env, numeroDono(env), { type: 'document', document: { id: up.id, filename: pdf.nome, caption: `Termo de acordo enviado a ${a.nome}` } }).catch(() => {});
+}
+async function acordoTool(env, from, x) {
+  const total = +x.total || 0, jaPago = +x.ja_pago || 0, naInst = +x.na_instalacao || 0;
+  const parcelas = (Array.isArray(x.parcelas) ? x.parcelas : []).map(p => ({ valor: Math.round((+p.valor || 0) * 100) / 100, data: isoOk(p.data) })).filter(p => p.valor > 0 && p.data).sort((a, b) => a.data.localeCompare(b.data));
+  if (!x.cliente) return { erro: true, texto: 'Falta o nome da cliente.' };
+  if (!total) return { erro: true, texto: 'Pergunte em UMA frase o valor total do projeto.' };
+  const resto = Math.round((total - jaPago - naInst) * 100) / 100;
+  if (resto > 1 && !parcelas.length) return { erro: true, texto: `Faltam R$ ${reais(resto)} depois da instalação. Pergunte em UMA frase como ela vai pagar o restante (quantas vezes e em que datas). Sugira, se ele não souber: ${resto > 1500 ? '2 ou 3 parcelas mensais' : 'uma parcela em 30 dias'}.` };
+  const somaP = parcelas.reduce((t, p) => t + p.valor, 0);
+  if (parcelas.length && Math.abs(somaP - resto) > 5) return { erro: true, texto: `As contas não fecham: total R$ ${reais(total)} − pago R$ ${reais(jaPago)} − instalação R$ ${reais(naInst)} = R$ ${reais(resto)}, mas as parcelas somam R$ ${reais(somaP)}. Confirme com ele em UMA frase.` };
+  if (parcelas.length && Math.abs(somaP - resto) > 0.01) parcelas[parcelas.length - 1].valor = Math.round((parcelas[parcelas.length - 1].valor + resto - somaP) * 100) / 100;
+  const dest = await destinoCobranca(env, x.numero || x.cliente); if (!dest) return { erro: true, texto: 'Não achei o WhatsApp dessa cliente. Peça o número com DDD (ou o contato) em UMA frase; nada foi feito ainda.' };
+  const num = normalizarBR(dest.numero), nome = String(x.nome_completo || x.cliente).trim();
+  // pedido de instalação (para o instalador saber quanto receber e para a entrega/foto/garantia)
+  const tk = tokensPedra(nome); let ped = (await pedidosProducao(env, p => !p.entregueEm && (ultimos8(p.numero || '') === ultimos8(num) || (tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)))))).sort((a, b) => (b.criado || 0) - (a.criado || 0))[0];
+  if (!ped) ped = { id: String(Date.now()), origem: 'acordo', nome, numero: num, projetoApp: x.descricao || 'Instalação', pecas: [], status: 'enviado', etapa: 'concluido', criado: Date.now(), fichaEnviadaEm: Date.now(), corteEm: Date.now(), fabProntoEm: Date.now(), entrega: { endereco: x.endereco || '' } };
+  ped.numero = ped.numero || num; ped.fechDono = ped.fechDono || 'ent'; ped.pago = naInst > 0 ? false : true; ped.valor = naInst; ped.sinal = null; ped.recebidoEntrega = null;
+  ped.dataInstalacao = isoOk(x.data_instalacao) || ped.dataInstalacao || ''; ped.entrega_prevista = ped.dataInstalacao || ped.entrega_prevista;
+  ped.fichaEnviadaEm = ped.fichaEnviadaEm || Date.now(); ped.fabProntoEm = ped.fabProntoEm || Date.now(); // já fabricado: vai instalar
+  const cfg = await pontoCfg(env), insts = [];
+  for (const nmF of (Array.isArray(x.instaladores) ? x.instaladores : [])) { const t2 = tokensPedra(String(nmF)); const f = cfg.funcs.find(z => t2.length && tokensPedra(z.nome)[0] === t2[0]); if (f) insts.push(f); }
+  if (insts.length) ped.entResp = String(insts[0].id); else if (!ped.entResp) await prodAtribuir(env, ped, 'entrega').catch(() => {});
+  const a = { id: 'A' + Date.now().toString(36), n: 'AC-' + String(Date.now()).slice(-6), num, nome, desc: x.descricao || resumoPecas(ped), total, jaPago, naInst, dataInst: ped.dataInstalacao, parcelas, pid: ped.id, criado: Date.now(), etapa: 'novo' };
+  ped.acordo = a.id; await salvarPedido(env, ped); await acdSalvar(env, a);
+  // cliente
+  let cli = '';
+  if (await janela24h(env, num)) { await acdMandarTermo(env, a); cli = 'Mandei a ela o resumo e o termo de acordo em PDF para aceitar.'; }
+  else {
+    const curto = `${nomeDeTratamento(nome) || 'Olá'}, aqui é da ${env.EMPRESA || 'HR Mármores e Granitos'}. Organizei os pagamentos do seu projeto conforme combinado com o Sr. Hangel. Posso te enviar por aqui?`.slice(0, 200);
+    try { await postarMsg(env, num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } }); await env.HR_KV.put('tplpend:' + num, JSON.stringify({ acdId: a.id, nome, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 }); await semearConversaProativa(env, num, curto).catch(() => {}); cli = 'Ela estava fora das 24 h: mandei o aviso aprovado; quando responder, vai o termo de acordo.'; }
+    catch (e) { cli = `A Meta recusou o aviso (fora das 24 h). Mande um "oi" para ela (wa.me/${num}) e, quando responder, digite "termo da ${nome.split(' ')[0]}".`; }
+  }
+  // instalador
+  let inst = '';
+  for (const f of (insts.length ? insts : [cfg.funcs.find(z => String(z.id) === String(ped.entResp))].filter(Boolean))) {
+    const t = await respTel(env, f.id); if (!t) continue;
+    await enviar(env, t, `${avisoTeste(env)}🔧 ${apelidoFunc(cfg, f)}, ${a.dataInst ? diaFalado(a.dataInst) : 'na próxima instalação'}: *${nome}*${ped.entrega && ped.entrega.endereco ? ' · ' + ped.entrega.endereco : ''}.\n💰 ${naInst > 0 ? `*Receber R$ ${reais(naInst)}* (Pix ou dinheiro). O restante já está combinado comigo, não precisa cobrar.` : 'Não precisa cobrar nada: o pagamento está combinado comigo.'}\n📸 No fim, foto com todas as peças instaladas.\nQuando terminar: _instalei o da ${nome.split(' ')[0]}, recebi ${naInst > 0 ? reais(naInst) : ''} no pix_`).catch(() => {});
+    inst = inst ? inst + ' e ' + apelidoFunc(cfg, f) : apelidoFunc(cfg, f);
+  }
+  return { texto: `Acordo ${a.n} criado para ${nome}: ${naInst > 0 ? `R$ ${reais(naInst)} na instalação${a.dataInst ? ' (' + dataBR(a.dataInst) + ')' : ''} + ` : ''}${parcelas.map(p => `R$ ${reais(p.valor)} em ${dataBR(p.data)}`).join(' + ') || 'nada depois'}. ${cli} ${inst ? `${inst} já ${inst.includes(' e ') ? 'sabem' : 'sabe'} quanto receber.` : 'Não achei o instalador no RH para avisar.'} Se ela pagar menos na instalação, a diferença vai para a 1ª parcela. Em cada vencimento o bot manda o Pix e os lembretes, com multa e juros se atrasar. Resuma isso em 2-3 frases curtas.` };
+}
+// pagamento recebido na instalação → ajusta a 1ª parcela e ativa as cobranças
+async function acdInstalacaoPaga(env, ped, valor) {
+  const a = await acdLer(env, ped.acordo); if (!a || a.instPagoEm) return;
+  a.instPagoEm = Date.now(); a.instPago = valor;
+  const falta = Math.round((a.naInst - valor) * 100) / 100;
+  if (Math.abs(falta) > 0.5 && a.parcelas.length) a.parcelas[0].valor = Math.max(0, Math.round((a.parcelas[0].valor + falta) * 100) / 100);
+  else if (falta > 0.5) a.parcelas.push({ valor: falta, data: isoSomaDias(dataBahia(), 30) });
+  a.parcelas = a.parcelas.filter(p => p.valor > 0.5); await acdSalvar(env, a);
+  if (a.parcelas.length) {
+    if (await janela24h(env, a.num)) await enviar(env, a.num, `Recebemos R$ ${reais(valor)} na instalação. Obrigada! 🙏\nFicou assim:\n${acdParcTxt(a)}\nNo dia, mando o Pix por aqui.`).catch(() => {});
+    await pontoAvisarDono(env, `📋 *Acordo de ${a.nome}*: recebido R$ ${reais(valor)} na instalação${Math.abs(falta) > 0.5 ? ` (${falta > 0 ? 'faltaram' : 'sobraram'} R$ ${reais(Math.abs(falta))}, ajustei a 1ª parcela)` : ''}.\n${acdParcTxt(a)}`).catch(() => {});
+  }
+}
+async function acdRotina(env) {
+  const ag = agoraBahia(); if (ag.min < 8 * 60 || ag.min > 18 * 60) return;
+  const hoje = dataBahia(); if (await env.HR_KV.get('acdr:' + hoje)) return; if (!(await travaEnvio(env, 'acdr:' + hoje))) return;
+  await env.HR_KV.put('acdr:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+  for (const k of l.keys) {
+    if (/^acd:num:/.test(k.name)) continue; let a = null; try { a = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (!a || a.cancelado) continue;
+    let mud = false;
+    for (let i = 0; i < a.parcelas.length; i++) {
+      const p = a.parcelas[i]; if (p.paga || p.cobradaEm) continue;
+      if (p.data === isoSomaDias(hoje, 2) && !p.avisoEm) { p.avisoEm = Date.now(); mud = true; if (await janela24h(env, a.num)) await enviar(env, a.num, `${nomeDeTratamento(a.nome) || 'Olá'}, passando para lembrar: a ${i + 1}ª parcela de R$ ${reais(p.valor)} vence ${diaFalado(p.data)} (${dataBR(p.data)}). No dia eu te mando o Pix. 😊`).catch(() => {}); }
+      if (p.data <= hoje) { // o sistema de cobrança profissional envia (QR, Pix, multa/juros e lembretes)
+        const id = 'A' + Date.now().toString(36) + i;
+        await env.HR_KV.put(CBAG_PREFIX + id, JSON.stringify({ id, from: numeroDono(env), nome: a.nome, numero: telefoneD1(a.num), quando: Date.now() + 60000, args: { cliente: a.num, nome: a.nome, valor: p.valor, descricao: `${String(a.desc).slice(0, 40)} · parcela ${i + 1}/${a.parcelas.length}`, vencimento: p.data, desconto: 0, regua: true }, criadoEm: Date.now() }), { expirationTtl: 14 * 86400 });
+        p.cobradaEm = Date.now(); mud = true;
+        await pontoAvisarDono(env, `📋 Hoje vence a ${i + 1}ª parcela de *${a.nome}* (R$ ${reais(p.valor)}). A cobrança com Pix sai agora. Se ela pagar em dinheiro, me diga: _${String(a.nome).split(' ')[0]} pagou a parcela_.`).catch(() => {});
+      }
+    }
+    if (mud) await acdSalvar(env, a);
+  }
+}
+async function acdClienteMsg(env, from, m) {
+  const id = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : ''; if (!/^acd_(ok|dv)\|/.test(id)) return false;
+  const a = await acdLer(env, id.split('|')[1]); if (!a) return false;
+  if (id.startsWith('acd_ok|')) { a.aceitoEm = Date.now(); a.aceitoNum = normalizarBR(from); a.etapa = 'aceito'; await acdSalvar(env, a); await enviar(env, from, 'Perfeito, obrigada! ✅ Acordo registrado. Qualquer coisa, é só chamar aqui.'); await pontoAvisarDono(env, `✅ *${a.nome}* aceitou o acordo ${a.n} pelo WhatsApp (${new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' })}).`).catch(() => {}); return true; }
+  await enviar(env, from, 'Claro! Me conta sua dúvida que eu te ajudo, e se precisar passo para o Sr. Hangel.');
+  await anotarNoHistorico(env, from, `[A cliente tem dúvida sobre o ACORDO DE PAGAMENTO ${a.n}: ${a.naInst ? 'R$ ' + reais(a.naInst) + ' na instalação; ' : ''}${a.parcelas.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join('; ')}. Multa 2% e juros 1% a.m. no atraso. Responda com calma; mudança de valor ou data só com o Sr. Hangel.]`).catch(() => {});
+  await pontoAvisarDono(env, `❓ *${a.nome}* tem dúvida sobre o acordo de pagamento. wa.me/${normalizarBR(from)}`).catch(() => {}); return true;
+}
+async function acdComandoDono(env, from, msg) {
+  const pg = msg.match(/^(.+?) (?:pagou|quitou) (?:a )?(?:\d+a? )?parcela(?: (?:em|no) (dinheiro|pix|cartao))?/);
+  if (pg) { // baixa manual de parcela do acordo
+    const tk = tokensPedra(pg[1]), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+    for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (!a || !tk.every(w => tokensPedra(a.nome).includes(w))) continue;
+      const i = a.parcelas.findIndex(p => !p.paga); if (i < 0) { await enviar(env, from, `As parcelas de ${a.nome} já estão todas pagas. ✅`); return true; }
+      const p = a.parcelas[i]; p.paga = Date.now(); await acdSalvar(env, a);
+      let canc = false; if (p.cobradaEm) { const ag2 = await listarTodas(env, CBAG_PREFIX).catch(() => ({ keys: [] })); for (const kk of ag2.keys) { try { const v = JSON.parse((await env.HR_KV.get(kk.name)) || 'null'); if (v && v.numero === telefoneD1(a.num)) { await env.HR_KV.delete(kk.name); canc = true; } } catch (_) {} } const rc = await cbFerramentaCancelar(env, from, { cliente: a.num }).catch(() => null); if (rc && !rc.erro) canc = true; }
+      await registrarLancamento(env, { type: 'in', value: p.valor, desc: `${a.nome} · parcela ${i + 1}/${a.parcelas.length} (acordo)`.slice(0, 80), date: dataBahia(), forma: pg[2] || 'dinheiro' }).catch(() => {});
+      const rest = a.parcelas.filter(x => !x.paga);
+      await enviar(env, from, `✅ Baixa da ${i + 1}ª parcela de *${a.nome}* (R$ ${reais(p.valor)}) lançada em Finanças${canc ? ' e a cobrança do Pix cancelada' : p.cobradaEm ? '. ⚠️ Confira se a cobrança do Pix dessa parcela ainda está aberta (escreva _inadimplência_)' : ''}. ${rest.length ? 'Faltam: ' + rest.map(x => 'R$ ' + reais(x.valor) + ' em ' + dataBR(x.data)).join(', ') + '.' : 'Acordo quitado! 🎉'}`);
+      if (await janela24h(env, a.num)) await enviar(env, a.num, `Recebemos a ${i + 1}ª parcela (R$ ${reais(p.valor)}). Obrigada! 🙏${rest.length ? '' : ' Seu acordo está quitado. ✅'}`).catch(() => {});
+      return true; }
+  }
+  const mt = msg.match(/^(?:termo|acordo)(?: de pagamento)? d[aoe] (.+)$/); if (!mt) { if (/^acordos?( de pagamento)?$/.test(msg)) { const l = await listarTodas(env, ACD).catch(() => ({ keys: [] })), out = []; for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (a && a.parcelas.some(p => !p.paga)) out.push(`• *${a.nome}* (${a.n}${a.aceitoEm ? ', aceito' : ''}): ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' ' + dataBR(p.data).slice(0, 5)).join(' · ')}`); } await enviar(env, from, out.length ? ['📋 *Acordos em aberto*', '', ...out].join('\n') : 'Nenhum acordo em aberto.'); return true; } return false; }
+  const tk = tokensPedra(mt[1]), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+  for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (a && tk.every(w => tokensPedra(a.nome).includes(w))) { await acdMandarTermo(env, a); await enviar(env, from, `Termo de acordo enviado a ${a.nome}.`); return true; } }
+  return false;
+}
+
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -10985,6 +11141,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
+    name: 'acordo_pagamento',
+    description: 'ACORDO DE PAGAMENTO: cliente que não pagou como combinado e o serviço vai ser instalado/entregue assim mesmo, ou qualquer saldo que ela vai pagar em partes (ex.: "a Maria não conseguiu pagar, o projeto deu 6 mil, já pagou 2 mil, amanhã a gente instala, ela paga 1500 na instalação e o resto em 2x dia 10/12 e 10/01"). O bot manda à cliente o termo de acordo em PDF para aceitar, avisa o instalador quanto receber, ajusta a 1ª parcela se ela pagar menos e manda o Pix em cada vencimento (multa e juros no atraso). Se ele não disse como fica o restante, chame sem "parcelas" que a ferramenta diz o que perguntar. Datas em AAAA-MM-DD (use a data de HOJE do contexto).',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, numero: { type: 'string', description: 'WhatsApp com DDD, se ele deu ou mandou o contato' }, total: { type: 'number', description: 'valor total do projeto' }, ja_pago: { type: 'number', description: 'quanto já foi pago (cartão, sinal etc.)' }, na_instalacao: { type: 'number', description: 'quanto ela paga no dia da instalação' }, data_instalacao: { type: 'string' }, parcelas: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string' } } }, description: 'o restante depois da instalação' }, instaladores: { type: 'array', items: { type: 'string' } }, descricao: { type: 'string', description: 'ex.: Cozinha em Preto São Gabriel' }, endereco: { type: 'string' } }, required: ['cliente', 'total'] },
+  },
+  {
     name: 'registrar_perda',
     description: 'Registra uma PERDA/QUEBRA de material ("quebrou uma peça da Maria", "trincou o peitoril do João, perdi uns 200") ou corrige o valor da última perda de um cliente ("a perda da Maria foi 300" → corrigir_valor true). Sem valor, o bot estima pelo custo da pedra.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, descricao: { type: 'string' }, valor: { type: 'number' }, funcionario: { type: 'string' }, corrigir_valor: { type: 'boolean' } }, required: ['descricao'] },
@@ -11468,6 +11629,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'premio_mensal') return await premioConfigTool(env, a); // v148
   if (nome === 'producao_status') return await producaoStatusTool(env, a); // v149
   if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
+  if (nome === 'acordo_pagamento') return await acordoTool(env, from, a); // v152
   if (nome === 'registrar_sobra') return await sobraTool(env, a); // v151
   if (nome === 'previsao_mes') return { texto: (await previsaoTexto(env)) + '\n\n(Repasse esses números de forma curta e clara.)' }; // v151
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
@@ -16774,6 +16936,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
   if (!dono && await garClienteMsg(env, from, m).catch(e => { console.log('[GAR] cliente:', e.message); return false; })) return; // v144
   if (!dono && await grvResposta(env, from, m).catch(e => { console.log('[GRV]', e.message); return false; })) return; // v146
@@ -16881,6 +17044,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
     if (await premioComandoDono(env, from, msg).catch(e => { console.log('[PREMIO] comando:', e.message); return false; })) return; // v148
@@ -20423,6 +20587,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
   if (!forcar && !p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
   if (p.grvId) { const g = await garLer(env, p.grvId); if (g) { await enviarComBotoes(env, normalizarBR(from), `Obrigada por responder! A revisão com impermeabilização protege a pedra contra manchas e deixa com cara de nova. Quer agendar?`, [{ id: 'grv_ok|' + g.id, titulo: 'Quero agendar' }, { id: 'grv_no|' + g.id, titulo: 'Agora não' }]); return true; } } // v146
+  if (p.acdId) { const a = await acdLer(env, p.acdId); if (a) { await acdMandarTermo(env, a); return true; } } // v152
   if (p.onbNum) { const o = await onbLer(env, normalizarBR(from)); if (o && o.etapa === 'modelo') { await onbApresentar(env, o); return true; } } // v143
   if (p.pv1Id) { let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + p.pv1Id)) || 'null'); } catch (_) {} if (r) { await pv1Mandar(env, r, normalizarBR(from), true); return true; } } // v142
   if (p.fechAgPid) { const pd = await lerPedido(env, p.fechAgPid).catch(() => null); if (pd && pd.janela) await enviarComBotoes(env, normalizarBR(from), `Obrigada por responder! A entrega do seu pedido pode ser *${janelaTxt(pd.janela)}*. Vai ter alguém para receber nesse horário?`, [{ id: 'fag_ok|' + pd.id, titulo: 'Sim, pode trazer' }, { id: 'fag_no|' + pd.id, titulo: 'Outro horário' }]); return true; } // v135
