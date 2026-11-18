@@ -1,3 +1,4 @@
+// v124 (18/11/2026): VISITA E ANOTAÇÕES — "visita amanhã às 12h na casa da Regiane" marca direto (sem pedido do cliente), entra na agenda e nas anotações, aviso na véspera 19h, manhã, 1 h antes e na hora; anotação acha o cliente ("casa de", "da/do") e não perde palavras; anotação com dia/hora vira lembrete; comando "agenda"/"lembretes"
 // v123 (18/11/2026): lembretes do dono pelo WhatsApp (lembrar_dono: 30 min antes e na hora); "avise ao fulano" acha o cliente; extrato MP casa por valor e hora, sem chutar
 // v122 (18/11/2026): áudio entendido em outra língua é refeito em português; sem o cartão "HR VISION | DOCUMENTO RECEBIDO" (dono não recebe; cliente recebe "Recebi, obrigada!" uma vez); pedido de reels antes dos vídeos fica guardado e monta quando chegam; a assistente do dono sabe os links do site
 // v121 (18/11/2026): VÍDEOS E FOTOS DO DONO — legenda "edite/monte/faça um vídeo..." monta o vídeo no editor com o que chegou; ferramenta montar_video (a assistente nunca diz que não recebeu os vídeos); um aviso por obra no acervo; álbum de cuba não pergunta se é extrato do MP nem responde "só leio texto"
@@ -6199,6 +6200,12 @@ async function lembretesVisitaCliente(env) {
 async function lembretesVisitaDono(env) {
   const hoje = dataBahia(), { min } = agoraBahia();
   const ll = await env.HR_KV.list({ prefix: 'lead:' });
+  if (min >= 19 * 60 && !(await env.HR_KV.get('vis:vespera:' + hoje))) { // v124: véspera às 19h
+    const am = isoSomaDias(hoje, 1), L = [];
+    for (const k of ll.keys) { let l = null; try { l = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {} if (l && l.querVisita && l.visitaConfirmada && l.visitaDia === am) L.push(`${l.horario || ''} ${l.nome || l.numero}${l.endereco ? ' - ' + l.endereco : ''}`.trim()); }
+    await env.HR_KV.put('vis:vespera:' + hoje, '1', { expirationTtl: 2 * 86400 });
+    if (L.length) await avisarDono(env, `*Amanhã você tem ${L.length === 1 ? 'visita técnica' : L.length + ' visitas técnicas'}, Sr. Hangel:*\n${L.sort().map(x => '• ' + x).join('\n')}`);
+  }
   const manha = [], horaAntes = [], naHora = [];
   for (const k of ll.keys) {
     let l = null; try { l = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
@@ -6611,6 +6618,11 @@ function textoRetomada(c) {
   else q = 'se o resumo da visita está certo';
   return `${ola || ''}${ola ? 'f' : 'F'}icou faltando só um passo para deixar a sua visita técnica combinada: ${q}. Pode me responder quando quiser.`;
 }
+async function lembreteDonoAdd(env, ts, texto, soManha) {
+  const l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]');
+  l.push({ ts: soManha ? Date.parse(new Date(ts).toISOString().slice(0, 10) + 'T07:00:00-03:00') : ts, texto: String(texto).slice(0, 300), id: Date.now().toString(36) + Math.random().toString(36).slice(2, 4), ...(soManha ? { av30: 1 } : {}) });
+  await env.HR_KV.put('lemb:dono', JSON.stringify(l.slice(-80)));
+}
 // v123: lembretes do dono (30 min antes e na hora)
 async function lembretesDono(env) {
   let l = []; try { l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]'); } catch (_) { return; }
@@ -6624,6 +6636,7 @@ async function lembretesDono(env) {
 }
 async function pedirAvaliacoes(env) {
   await lembretesDono(env).catch(e => console.log('[LEMB]', e.message));
+  if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
     if (Date.now() - (globalThis.__avalVarredura || 0) < 300000) return; // no máximo a cada 5 min, sem gastar gravação do KV
@@ -8784,8 +8797,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'marcar_visita',
-    description: 'Marca (ou remarca) a VISITA TÉCNICA de um cliente que pediu visita pelo WhatsApp, quando o Sr. Hangel disser o dia e a hora (ex.: \"marca a visita da Maria na sexta às 14h\"). O bot avisa o cliente com a confirmação e lembra o Sr. Hangel na data. Converta o dia para AAAA-MM-DD usando a data de HOJE do contexto e a hora para HH:MM. Sem \"numero\", informe o NOME do cliente. Se o nome bater com mais de um cliente, a ferramenta devolve a lista: pergunte qual em uma frase.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou' }, dia: { type: 'string', description: 'AAAA-MM-DD' }, hora: { type: 'string', description: 'HH:MM' } }, required: ['dia', 'hora'] },
+    description: 'Marca (ou remarca) a VISITA TÉCNICA de QUALQUER cliente (pediu pelo WhatsApp, na loja, por telefone ou indicação), quando o Sr. Hangel disser o dia e a hora (ex.: \"visita amanhã às 12h na padaria da Regiane\"); se ele não disse a hora, pergunte só a hora. Não peça telefone nem confirmação: marque direto. A visita entra na agenda e o Sr. Hangel é avisado na véspera, de manhã, 1 hora antes e na hora (ex.: \"marca a visita da Maria na sexta às 14h\"). O bot avisa o cliente com a confirmação e lembra o Sr. Hangel na data. Converta o dia para AAAA-MM-DD usando a data de HOJE do contexto e a hora para HH:MM. Sem \"numero\", informe o NOME do cliente. Se o nome bater com mais de um cliente, a ferramenta devolve a lista: pergunte qual em uma frase.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string', description: 'nome do cliente' }, numero: { type: 'string', description: 'telefone, se o Sr. Hangel citou' }, dia: { type: 'string', description: 'AAAA-MM-DD' }, hora: { type: 'string', description: 'HH:MM' }, endereco: { type: 'string', description: 'endereço ou referência (ex.: padaria do centro), se ele disse' }, obs: { type: 'string', description: 'o que medir ou outro detalhe, se ele disse' }, forcar: { type: 'boolean' }, avisar_cliente: { type: 'boolean', description: 'false se ele não quiser que o cliente receba a confirmação' } }, required: ['dia', 'hora'] },
   },
   {
     name: 'classificar_gasto_mp',
@@ -9053,7 +9066,20 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
       const pend = todos.filter(x => !x.l.visitaConfirmada).sort((p, q) => String(q.k).localeCompare(String(p.k)));
       cand = pend.slice(0, 1);
     }
-    if (!cand.length) return { erro: true, texto: 'Não achei pedido de visita técnica desse cliente. Peça ao Sr. Hangel o nome ou o número do cliente, em uma frase.' };
+    if (!cand.length) { // v124: o dono marca direto (cliente da loja, do telefone, indicação): cria a visita na agenda e lembra igual
+      if (!a.cliente && !num) return { erro: true, texto: 'Falta o nome do cliente. Pergunte em uma frase de quem é a visita.' };
+      const numV = num || (a.cliente ? normalizarBR(await numeroDoClientePorNome(env, a.cliente).catch(() => '') || '') : '');
+      const lid = 'dono' + Date.now();
+      const l = { id: lid, origem: 'dono', querVisita: true, visitaConfirmada: true, confirmadaEm: Date.now(), visitaDia: dia, horario: hora, nome: String(a.cliente || '').slice(0, 60), numero: numV || '', endereco: String(a.endereco || '').slice(0, 200), obs: String(a.obs || '').slice(0, 300), criado: Date.now() };
+      const choque2 = todos.find(x => x.l.visitaConfirmada && x.l.visitaDia === dia && horaParaMin(x.l.horario) === horaParaMin(hora));
+      if (choque2 && !a.forcar) return { erro: true, texto: `Já existe visita em ${dataBR(dia)} às ${hora} com ${choque2.l.nome || 'outro cliente'}. Pergunte ao Sr. Hangel se quer manter as duas (chame de novo com forcar: true) ou outro horário. Nada foi marcado.` };
+      await env.HR_KV.put('lead:' + lid, JSON.stringify(l), { expirationTtl: LEAD_TTL });
+      await registrarNota(env, { cliente: l.nome, tipo: 'visita', texto: `Visita técnica ${dataBR(dia)} às ${hora}${l.endereco ? ' - ' + l.endereco : ''}${l.obs ? ' - ' + l.obs : ''}` }).catch(() => {});
+      const semV = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Bahia', weekday: 'long' }).format(new Date(dia + 'T12:00:00-03:00'));
+      let avisou = '';
+      if (numV && a.avisar_cliente !== false) { try { if (await janela24h(env, numV)) { await enviar(env, numV, `${nomeDeTratamento(l.nome) || 'Olá'}, a sua visita técnica ficou marcada para ${semV}, ${dataBR(dia)}, às ${hora}${l.endereco ? ', em ' + l.endereco : ''}. Se precisar mudar, é só responder por aqui.`); avisou = ' O cliente recebeu a confirmação no WhatsApp.'; } } catch (_) {} }
+      return { texto: `Visita marcada: ${l.nome}, ${semV} ${dataBR(dia)} às ${hora}${l.endereco ? ' (' + l.endereco + ')' : ''}. Entrou na agenda e nas anotações; o Sr. Hangel recebe aviso na véspera à noite, na manhã do dia, 1 hora antes e na hora.${avisou} Confirme em UMA frase curta, sem pedir mais nada.` };
+    }
     const nums = [...new Set(cand.map(x => ultimos8(x.l.numero)))];
     if (nums.length > 1) return { erro: true, texto: 'Mais de um cliente com esse nome: ' + cand.map(x => `${x.l.nome} (final ${String(x.l.numero).slice(-4)})`).join('; ') + '. Pergunte qual deles, em uma frase. Nada foi marcado.' };
     cand.sort((p, q) => String(q.k).localeCompare(String(p.k)));
@@ -9136,8 +9162,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     if (!mq) return { erro: true, texto: 'Data/hora inválida. Use AAAA-MM-DDTHH:MM.' };
     const ts = Date.parse(`${mq[1]}T${mq[2].padStart(2, '0')}:${mq[3]}:00-03:00`);
     if (!(ts > Date.now() - 60000)) return { erro: true, texto: 'Esse horário já passou. Confirme o dia com o Sr. Hangel.' };
-    const l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]'); l.push({ ts, texto: String(a.texto || '').slice(0, 300), id: Date.now().toString(36) });
-    await env.HR_KV.put('lemb:dono', JSON.stringify(l.slice(-50)));
+    await lembreteDonoAdd(env, ts, a.texto, false);
     return { texto: `Lembrete agendado para ${quandoBahia(ts)}: "${a.texto}". O bot manda aqui no WhatsApp na hora (também 30 min antes). Confirme em UMA frase.` };
   }
   if (nome === 'montar_video') { // v121
@@ -11549,6 +11574,27 @@ async function tratarExtratoMP(env, from, msg) {
 const NOTA_TRIGGER = /^\s*(anotações|anotação|anotacoes|anotacao|anotar|anota|nota|medidas|medida|visita)(?=[\s:,\-–]|$)\s*[:,\-–]?\s*/i;
 const TIPOS_NOTA = { medidas: 'Medidas', visita: 'Visita', geral: 'Geral' };
 
+// v124: "amanhã às 12h", "hoje 15:30", "sexta às 9", "dia 25 às 14h", "depois de amanhã meio dia" → { dia: AAAA-MM-DD, hora: HH:MM | '' }
+function lerQuando(texto) {
+  const t = normaliza(String(texto || '')).replace(/meio dia/g, '12h').replace(/meia noite/g, '0h');
+  const hoje = dataBahia(); let dia = '';
+  if (/\bdepois de amanha\b/.test(t)) dia = isoSomaDias(hoje, 2);
+  else if (/\bamanha\b/.test(t)) dia = isoSomaDias(hoje, 1);
+  else if (/\bhoje\b/.test(t)) dia = hoje;
+  else {
+    const md = t.match(/\bdia (\d{1,2})(?:\/(\d{1,2}))?\b/) || t.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+    if (md) { const d = +md[1]; let mo = md[2] ? +md[2] : +hoje.slice(5, 7), y = +hoje.slice(0, 4);
+      const mk = () => `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      let iso = mk(); if (iso < hoje) { if (md[2]) y++; else { mo++; if (mo > 12) { mo = 1; y++; } } iso = mk(); } dia = iso; }
+    else { const ds = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado']; const i = ds.findIndex(d => new RegExp('\\b' + d).test(t)); if (i >= 0) { let k = (i - diaSemanaISO(hoje) + 7) % 7; if (k === 0) k = 7; dia = isoSomaDias(hoje, k); } }
+  }
+  const mh = t.match(/\b(\d{1,2})(?:[:h](\d{2}))?\s+(?=da manha|de manha|da tarde|de tarde|da noite|de noite)/) || t.match(/\b(?:as|a|pelas|umas)\s+(\d{1,2})(?:[:h ](\d{2}))?\s*(?:h|hs|horas?)?\b/) || t.match(/\b(\d{1,2})(?::(\d{2})|h(\d{2})?|\s*horas?)\b/);
+  let hora = '';
+  if (mh) { let h = +mh[1]; const mi = mh[2] || mh[3] || '00'; if (/\b(da tarde|de tarde|da noite|de noite)\b/.test(t) && h < 12) h += 12; if (h <= 23 && +mi <= 59) hora = `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`; }
+  if (!dia && hora) dia = hora > new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Bahia', hour: '2-digit', minute: '2-digit' }).format(new Date()) ? hoje : isoSomaDias(hoje, 1);
+  return { dia, hora };
+}
+const quandoTs = (dia, hora) => Date.parse(`${dia}T${hora || '08:00'}:00-03:00`);
 function interpretarNota(bruto) {
   const original = String(bruto || '').trim();
   const m = original.match(NOTA_TRIGGER);
@@ -11556,6 +11602,7 @@ function interpretarNota(bruto) {
   const gatilho = normaliza(m[1]);
   // "medidas..." e "visita..." são palavras comuns: com "?" é pergunta, não anotação
   if (/^(medida|visita)/.test(gatilho) && /\?/.test(original)) return null;
+  if (gatilho === 'visita' && (lerQuando(original).dia || /\b(marca|marcar|agendar|agenda)\b/.test(normaliza(original)))) return null; // v124: é agendamento de visita
 
   let resto = original.slice(m[0].length).trim();
   resto = resto.replace(/^(?:cliente|para)\s+/i, '');
@@ -11592,6 +11639,11 @@ function interpretarNota(bruto) {
       }
     }
   }
+  if (!cliente && texto) { // v124: "... na casa de Regiane Cristini, da padaria" / "pra Maria Silva ..."
+    const mc = texto.match(/\b(?:casa d[aoe]|cliente|pra|para|d[ao]s? (?:senhora|senhor|sr\.?|sra\.?|dona|seu))\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\wÀ-ú]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\wÀ-ú]+){0,3})/) || texto.match(/\bd[aoe]\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\wÀ-ú]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\wÀ-ú]+){1,3})/);
+    if (mc) cliente = mc[1].trim();
+  }
+  if (gatilho === 'visita' && texto && !/^visita/i.test(texto)) texto = 'Visita ' + texto; // v124: não perde a palavra
   if (!texto) return { vazio: true };
 
   // "noventa por quinze" transcrito como "90 por 15" → "90 x 15" (o app lê o "x")
@@ -11602,7 +11654,7 @@ function interpretarNota(bruto) {
   if (gatilho.startsWith('medida')) tipo = 'medidas';
   else if (gatilho === 'visita') tipo = 'visita';
   else if (/\d+(?:[.,]\d+)?\s*[x*]\s*\d/.test(n) || /\b(soleiras?|peitoril|peitoris|bancadas?|medidas?)\b/.test(n)) tipo = 'medidas';
-  else if (/\b(visita|endereco|rua|bairro|casa)\b/.test(n)) tipo = 'visita';
+  else if (/\b(visita|endereco|rua|bairro)\b/.test(n)) tipo = 'visita';
 
   cliente = cliente.replace(/\s+/g, ' ');
   if (cliente) cliente = cliente.split(' ').map(p => p ? p.charAt(0).toUpperCase() + p.slice(1) : p).join(' ');
@@ -11679,6 +11731,14 @@ async function tratarNotas(env, from, bruto, msg) {
     await enviar(env, from, `*Últimas anotações, Sr. Hangel*\n\n${linhas.join('\n\n')}`);
     return true;
   }
+  if (/^(lembretes|meus lembretes|avisos|agenda|minha agenda|agenda de hoje|o que tenho hoje|o que tenho amanha|compromissos)$/.test(msg)) { // v124
+    let l = []; try { l = JSON.parse((await env.HR_KV.get('lemb:dono')) || '[]'); } catch (_) {}
+    const vis = await visitasAgendadas(env, dataBahia()).catch(() => []);
+    const fut = l.filter(x => !x.feito && x.ts > Date.now() - 3600000).sort((a, b) => a.ts - b.ts).slice(0, 12);
+    const L = [...(vis.length ? ['*Visitas técnicas*', ...vis.filter(v => v.situacao === 'marcada').sort((a, b) => String(a.dia + a.horario).localeCompare(String(b.dia + b.horario))).slice(0, 10).map(v => `• ${/^\d{4}/.test(v.dia) ? dataBR(v.dia) : v.dia}${v.horario ? ' às ' + v.horario : ''} — ${v.cliente || 'cliente'}${v.endereco ? ' (' + v.endereco + ')' : ''}`), ...vis.filter(v => v.situacao !== 'marcada').slice(0, 5).map(v => `• ${v.cliente || 'cliente'} — pediu visita, falta marcar o dia`), ''] : []), ...(fut.length ? ['*Lembretes*', ...fut.map(x => `• ${quandoBahia(x.ts)} — ${x.texto}`)] : [])];
+    await enviar(env, from, L.length ? L.join('\n') : 'Sr. Hangel, não há visitas nem lembretes marcados. Para marcar: _visita amanhã às 10h na casa da Maria, rua tal_ ou _me lembre sexta às 9h de ligar pro João_.');
+    return true;
+  }
   if (['desfazer nota', 'apagar nota', 'cancelar nota', 'desfazer anotacao', 'apagar ultima nota'].includes(msg)) {
     await responderNotaDesfeita(env, from, await desfazerUltimaNota(env));
     return true;
@@ -11693,15 +11753,15 @@ async function tratarNotas(env, from, bruto, msg) {
     return true;
   }
   const rec = await registrarNota(env, n);
+  const qd = lerQuando(n.texto); let avisoTxt = ''; // v124: anotação com dia/hora ganha aviso
+  if (qd.dia) { const ts = quandoTs(qd.dia, qd.hora); if (ts > Date.now()) { await lembreteDonoAdd(env, ts, `${n.cliente ? n.cliente + ': ' : ''}${previaNota(n.texto, 160)}`, !qd.hora); avisoTxt = `*Aviso:* ${qd.hora ? quandoBahia(ts) + ' (e 30 min antes)' : dataBR(qd.dia) + ' às 7h'}`; } }
   await enviarComBotoes(env, from, [
-    '*Anotação registrada, Sr. Hangel.*',
+    '*Anotado, Sr. Hangel.*',
     '',
-    `*Cliente:* ${n.cliente || 'Sem cliente'}`,
-    `*Tipo:* ${TIPOS_NOTA[n.tipo] || TIPOS_NOTA.geral}`,
-    `*Anotação:* ${previaNota(n.texto)}`,
-    '',
-    '_Será incluída em Anotações no aplicativo na próxima sincronização._',
-  ].join('\n'), [{ id: 'ndesf|' + rec.k, titulo: 'Desfazer anotação' }]);
+    n.cliente ? `*Cliente:* ${n.cliente}` : null,
+    `*${TIPOS_NOTA[n.tipo] || TIPOS_NOTA.geral}:* ${previaNota(n.texto)}`,
+    avisoTxt || null,
+  ].filter(x => x !== null).join('\n'), [{ id: 'ndesf|' + rec.k, titulo: 'Desfazer' }]);
   return true;
 }
 
