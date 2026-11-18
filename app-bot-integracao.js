@@ -62,9 +62,13 @@
     if (!busca.length) return { erro: 'informe o nome do cliente ou o id do orçamento.' };
     var lista = ativos().filter(function (q) {
       var tk = norm(q.cli).split(' ');
-      return busca.every(function (b) { return tk.some(function (t) { return t === b || t.indexOf(b) === 0; }); });
+      return busca.every(function (b) { return tk.some(function (t) { return casaTok(b, t); }); });
     }).sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); });
     if (!lista.length) return { erro: 'não achei orçamento em aberto de "' + p.cliente + '".' };
+    if (lista.length > 1 && +p.valor > 0) { // v9: o valor do comprovante escolhe o orçamento certo
+      var v = +p.valor, perto = lista.filter(function (x) { return Math.abs(totalDe(x) - v) <= Math.max(2, v * 0.02); });
+      if (perto.length === 1) return { q: perto[0] };
+    }
     if (lista.length > 1) {
       return { erro: 'há mais de um orçamento de "' + p.cliente + '": ' + lista.slice(0, 3).map(function (x) { return x.cli + ' R$ ' + fm(totalDe(x)) + ' (id ' + x.id + ')'; }).join('; ') + '. Peça de novo com o id.' };
     }
@@ -73,7 +77,7 @@
 
   // ───────── 1. capacidades ─────────
   var ACOES = [
-    { acao: 'aceitar_orcamento', nome: 'Aceitar orçamento', descricao: 'Marca o orçamento do cliente como Aceito e manda para a Agenda (sem lançar valor nas Finanças).', parametros: { cliente: 'nome do cliente', qId: 'id do orçamento (opcional, use se houver mais de um)' }, confirmar: true },
+    { acao: 'aceitar_orcamento', nome: 'Aceitar orçamento', descricao: 'Marca o orçamento do cliente como Aceito e manda para a Agenda (sem lançar valor nas Finanças).', parametros: { cliente: 'nome do cliente', qId: 'id do orçamento (opcional, use se houver mais de um)', valor: 'valor pago ou do orçamento (opcional; escolhe o orçamento certo quando o cliente tem vários)' }, confirmar: true },
     { acao: 'marcar_perdido', nome: 'Marcar orçamento como perdido', descricao: 'Marca como Perdido o orçamento pendente do cliente (cliente desistiu).', parametros: { cliente: 'nome do cliente', qId: 'id do orçamento (opcional)' }, confirmar: true },
     { acao: 'criar_nota', nome: 'Criar nota', descricao: 'Cria uma anotação em Notas do aplicativo (lembrete, medida, recado).', parametros: { texto: 'o que anotar', cliente: 'nome do cliente (opcional)', tipo: 'geral, medidas ou visita (opcional)' }, confirmar: false },
     { acao: 'agenda_etapa', nome: 'Mudar etapa na agenda', descricao: 'Muda a etapa de um serviço da Agenda: producao, pronto, entregue ou instalado (o pagamento continua sendo lançado pelo Sr. Hangel).', parametros: { cliente: 'nome do cliente', etapa: 'producao, pronto, entregue ou instalado' }, confirmar: true },
@@ -129,9 +133,17 @@
     DB.sv(); try { if (typeof renderNotas === 'function') renderNotas(); } catch (e) {}
     return { ok: true, mensagem: 'Nota criada' + (p.cliente ? ' para ' + p.cliente : '') + '.' };
   }
+  // v9: "Osmailton" acha "Osmailtom" (uma letra trocada, nomes escritos diferente)
+  function casaTok(b, t) {
+    if (t === b || t.indexOf(b) === 0) return true;
+    if (b.length < 4 || Math.abs(b.length - t.length) > 1) return false;
+    var i = 0, j = 0, dif = 0;
+    while (i < b.length && j < t.length) { if (b[i] === t[j]) { i++; j++; continue; } if (++dif > 1) return false; if (b.length > t.length) i++; else if (t.length > b.length) j++; else { i++; j++; } }
+    return dif + (b.length - i) + (t.length - j) <= 1;
+  }
   function acharJob(nome) {
     var busca = norm(nome).split(' ').filter(Boolean); if (!busca.length) return { erro: 'informe o nome do cliente.' };
-    var l = (DB.j || []).filter(function (j) { var tk = norm(j.cli).split(' '); return busca.every(function (b) { return tk.some(function (t) { return t === b || t.indexOf(b) === 0; }); }); });
+    var l = (DB.j || []).filter(function (j) { var tk = norm(j.cli).split(' '); return busca.every(function (b) { return tk.some(function (t) { return casaTok(b, t); }); }); });
     var abertos = l.filter(function (j) { try { _migrateJobStage(j); } catch (e) {} return !j.done; });
     var lista = (abertos.length ? abertos : l).sort(function (a, b) { return (+b.id || 0) - (+a.id || 0); });
     if (!lista.length) return { erro: 'não achei serviço de "' + nome + '" na agenda.' };
@@ -139,7 +151,11 @@
     return { j: lista[0] };
   }
   function exEtapa(p) {
-    var r = acharJob(p.cliente); if (!r.j) return { ok: false, mensagem: r.erro };
+    var r = acharJob(p.cliente);
+    if (!r.j && /^(producao|produção)$/i.test(String(p.etapa || ''))) { // v9: ainda não está na agenda: aceita o orçamento (vai para a agenda)
+      var ac = exAceitar(p); if (ac.ok) return ac;
+    }
+    if (!r.j) return { ok: false, mensagem: r.erro };
     var j = r.j, et = String(p.etapa || '').toLowerCase();
     if (JOB_STAGES.indexOf(et) < 0) return { ok: false, mensagem: 'etapa inválida (use producao, pronto, entregue ou instalado).' };
     if (et === 'instalado' && !j.instala) et = 'entregue';
