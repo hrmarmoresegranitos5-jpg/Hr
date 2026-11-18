@@ -1,3 +1,4 @@
+// v142 (18/11/2026): PÓS-VENDA DE 1 MÊS PELO BOT — data real da entrega (livro / "Entregue" no app), o bot escreve sozinho (botões Ficou ótimo ⭐ → link do Google / Tive um problema → avisa o dono), fora das 24 h pelo modelo
 // v141 (18/11/2026): FICHA DA EQUIPE — nome, telefone, cargo, aniversário, admissão/tempo de casa e férias vindos do RH do app; "equipe"/"aniversários"/"férias"; equipe_consultar/equipe_atualizar (volta ao app); avisos de aniversário (parabéns no dia), tempo de casa, férias (antes, saída, volta, prazo CLT); ponto não cobra quem está de férias
 // v140 (18/11/2026): meio período = 4 h de manhã (07:00–11:00) ou à tarde (13:00–17:00); sem manhã/tarde nem horário, o bot pergunta
 // v139 (18/11/2026): meio período com horário ("entrar 7h e sair 11h"), lembretes do ponto seguem o horário do dia; o app recebe as exceções (folga/meio período) para o banco de horas
@@ -6742,6 +6743,7 @@ async function pedirAvaliacoes(env) {
   await saiLembretes(env).catch(e => console.log('[SAI] lembrete:', e.message)); // v132
   await fechRotina(env).catch(e => console.log('[AG] rotina:', e.message)); // v135
   await equipeRotina(env).catch(e => console.log('[EQ] rotina:', e.message)); // v141
+  await pv1Rotina(env).catch(e => console.log('[PV1] rotina:', e.message)); // v142
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -8378,6 +8380,110 @@ async function equipeRotina(env) {
   if (dono.length) await pontoAvisarDono(env, ['👥 *Equipe*', ...dono].join('\n')).catch(() => {});
 }
 const emFeriasHoje = (d, id, hoje) => { const f = (d.funcs || []).find(x => x.id === String(id)); return !!(f && ((f.fIni && f.fFim && hoje >= f.fIni && hoje <= f.fFim) || f.ferias)); };
+// ═════════════════════════════════════════════════════════════════════════════
+// v142: PÓS-VENDA DE 1 MÊS PELO BOT — 30 dias depois da ENTREGA REAL (livro de entregas / "Entregue" no app),
+//   o bot escreve sozinho ao cliente (cozinha, banheiro, bancadas, túmulos…): "ficou tudo certo?"
+//   ⭐ Ficou ótimo → agradece e pede a avaliação no Google (GOOGLE_AVALIACAO) · Tive um problema → ouve e avisa o dono.
+//   Fora das 24 h vai pelo modelo aprovado e o resto quando ele responder. Sem telefone: avisa o dono.
+// ═════════════════════════════════════════════════════════════════════════════
+const PV1 = 'pv1:', PV1_DIAS = 30;
+const pv1Chave = (cli, ent) => 'pv1k:' + tokensPedra(cli || '').slice(0, 2).join('-') + ':' + ent;
+function pv1Serv(desc) {
+  const t = normaliza(desc || '');
+  const M = [['cozinha', 'a bancada da sua cozinha'], ['gourmet', 'a sua área gourmet'], ['lavabo', 'a bancada do lavabo'], ['banheiro', 'a bancada do banheiro'], ['lavatorio', 'o lavatório'], ['tumulo', 'o túmulo'], ['jazigo', 'o jazigo'], ['capela', 'a capela'], ['escada', 'a escada'], ['nicho', 'o nicho'], ['piscina', 'a borda da piscina'], ['fachada', 'a fachada'], ['soleira', 'as soleiras'], ['peitoril', 'os peitoris'], ['bancada', 'a sua bancada']];
+  for (const [k, v] of M) if (t.includes(k)) return v;
+  return 'o seu serviço';
+}
+async function pv1Agendar(env, it) {
+  const ent = isoOk(it.entrega); if (!ent || !it.cli) return null;
+  const id = String(it.id || ('liv' + Date.now())).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+  const ch = pv1Chave(it.cli, ent);
+  const ja = await env.HR_KV.get(ch); if (ja && ja !== id) return null; // o mesmo cliente e a mesma entrega já estão na fila
+  let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + id)) || 'null'); } catch (_) {}
+  const tel = String(it.tel || '').replace(/\D/g, '');
+  if (r) { if (tel && !r.tel) { r.tel = tel; if (r.status === 'sem_tel') r.status = 'agendado'; } if (tel && it.agora) { r.tel = tel; if (['agendado', 'sem_tel', 'erro'].includes(r.status)) { r.status = 'agendado'; r.quando = Date.now(); r.agora = 1; } } if (r.entrega !== ent && r.status === 'agendado' && !r.agora) { r.entrega = ent; r.quando = quandoTs(isoSomaDias(ent, PV1_DIAS), '10:00'); } await env.HR_KV.put(PV1 + id, JSON.stringify(r), { expirationTtl: 120 * 86400 }); return r; }
+  if (diasCorridos(ent, dataBahia()) > 75) return null; // muito antigo
+  r = { id, cli: String(it.cli).slice(0, 60), tel, serv: pv1Serv(it.serv || it.desc), entrega: ent, quando: it.agora ? Date.now() : quandoTs(isoSomaDias(ent, PV1_DIAS), '10:00'), status: 'agendado', em: Date.now() };
+  await env.HR_KV.put(PV1 + id, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+  await env.HR_KV.put(ch, id, { expirationTtl: 120 * 86400 });
+  return r;
+}
+function pv1Texto(r) {
+  const pn = nomeDeTratamento(r.cli);
+  return `Oi${pn ? ', ' + pn : ''}! Aqui é da *${'HR Mármores e Granitos'}*. 😊\nFaz um mês que entregamos ${r.serv} (dia ${dataBR(r.entrega).slice(0, 5)}). Ficou tudo certinho? Está gostando da pedra?`;
+}
+async function pv1Mandar(env, r, num, depoisModelo) {
+  await postarMsg(env, num, { type: 'interactive', interactive: { type: 'button', body: { text: (depoisModelo ? 'Obrigada por responder! ' : '') + pv1Texto(r) }, action: { buttons: [{ type: 'reply', reply: { id: 'pv1_ok|' + r.id, title: 'Ficou ótimo! ⭐' } }, { type: 'reply', reply: { id: 'pv1_pb|' + r.id, title: 'Tive um problema' } }] } } });
+  await anotarNoHistorico(env, num, `[Pós-venda de 1 mês: perguntei se ${r.serv} (entregue em ${dataBR(r.entrega)}) ficou tudo certo. Se ele relatar problema, acolha, peça foto e diga que o Sr. Hangel vai resolver; se elogiar, agradeça.]`).catch(() => {});
+}
+async function pv1Rotina(env) {
+  if (String(env.POS_VENDA_1MES ?? '1') === '0' || !atenderClientes(env)) return;
+  if (Date.now() - (globalThis.__pv1 || 0) < 4 * 60000) return; globalThis.__pv1 = Date.now();
+  const ag = agoraBahia(); if (ag.min < 9 * 60 || ag.min > 18 * 60 || ag.dia === 0) return;
+  // entregas do livro (o app e o bot gravam a data real ali)
+  if (!(await env.HR_KV.get('pv1:livro:' + dataBahia()))) {
+    await env.HR_KV.put('pv1:livro:' + dataBahia(), '1', { expirationTtl: 2 * 86400 });
+    for (const x of await livTodos(env).catch(() => [])) {
+      const d = livDataOk(x.entregaEm); if (!d || diasCorridos(d, dataBahia()) < PV1_DIAS - 3 || diasCorridos(d, dataBahia()) > PV1_DIAS + 20) continue;
+      const desc = normaliza(x.desc || ''); if (PI_SO_ENTREGA.test(desc) && !PI_COM_INSTALACAO.test(desc)) continue; // só soleira/peitoril: fica de fora
+      await pv1Agendar(env, { id: 'liv' + x.id, cli: x.cliente, tel: x.tel, desc: x.desc, entrega: d }).catch(() => {});
+    }
+  }
+  const l = await env.HR_KV.list({ prefix: PV1, limit: 200 }).catch(() => ({ keys: [] }));
+  let n = 0;
+  for (const k of l.keys) {
+    if (/^pv1:livro:/.test(k.name) || n >= 5) continue;
+    let r = null; try { r = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); } catch (_) {}
+    if (!r || r.status !== 'agendado' || Date.now() < r.quando) continue;
+    if (!(await travaEnvio(env, 'pv1:' + r.id))) continue;
+    let num = r.tel ? normalizarBR(r.tel.startsWith('55') ? r.tel : '55' + r.tel) : '';
+    if (!num) num = normalizarBR(await numeroDoClientePorNome(env, r.cli).catch(() => '') || '');
+    if (!num) { r.status = 'sem_tel'; await env.HR_KV.put(k.name, JSON.stringify(r), { expirationTtl: 120 * 86400 }); await pontoAvisarDono(env, `💬 *Pós-venda de 1 mês* de *${r.cli}* (${r.serv}): não tenho o WhatsApp dele. Salve o telefone no orçamento/cliente no app que eu mando sozinho.`).catch(() => {}); continue; }
+    n++; r.num = num;
+    try {
+      if (await janela24h(env, num)) { await pv1Mandar(env, r, num); r.status = 'enviado'; }
+      else {
+        const curto = `${nomeDeTratamento(r.cli) ? nomeDeTratamento(r.cli) + ', a' : 'A'}qui é da HR Mármores e Granitos. Faz um mês da entrega e queria saber se ficou tudo certo. Posso te fazer uma pergunta rápida?`.slice(0, 200);
+        await postarMsg(env, num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } });
+        await env.HR_KV.put('tplpend:' + num, JSON.stringify({ pv1Id: r.id, nome: r.cli, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 });
+        await semearConversaProativa(env, num, curto).catch(() => {});
+        r.status = 'enviado'; r.porModelo = 1;
+      }
+      r.enviadoEm = Date.now();
+    } catch (e) { r.status = 'erro'; r.erro = String(e.message).slice(0, 120); }
+    await env.HR_KV.put(k.name, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+    for (const v of variantesNumero(num)) await env.HR_KV.put('pv1:num:' + v, r.id, { expirationTtl: 10 * 86400 });
+    await pontoAvisarDono(env, r.status === 'enviado' ? `💬 Mandei o *pós-venda de 1 mês* para *${r.cli}* (${r.serv.replace(/\b(sua|seu) /, '')}, entregue em ${dataBR(r.entrega)}).` : `⚠️ Não consegui mandar o pós-venda de ${r.cli}: ${r.erro || ''}`).catch(() => {});
+  }
+}
+async function pv1Resposta(env, from, m) {
+  const id = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : '';
+  let pid = (id.match(/^pv1_(?:ok|pb)\|(.+)$/) || [])[1];
+  let livre = false;
+  if (!pid) { if (m.type !== 'text') return false; for (const v of variantesNumero(normalizarBR(from))) { const x = await env.HR_KV.get('pv1:num:' + v); if (x) { pid = x; break; } } livre = true; }
+  if (!pid) return false;
+  let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + pid)) || 'null'); } catch (_) {}
+  if (!r || !['enviado', 'respondeu'].includes(r.status) && !id) return false;
+  const pn = nomeDeTratamento(r.cli);
+  if (livre) { // respondeu escrevendo: a secretária conversa; o dono fica sabendo
+    if (r.status !== 'enviado' || Date.now() - (r.enviadoEm || 0) > 7 * 86400000) return false;
+    r.status = 'respondeu'; r.resposta = String(m.text?.body || '').slice(0, 300); await env.HR_KV.put(PV1 + pid, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+    await pontoAvisarDono(env, `💬 *${r.cli}* respondeu o pós-venda (${r.serv}): "${r.resposta}"\nwa.me/${normalizarBR(from)}`).catch(() => {});
+    return false;
+  }
+  if (id.startsWith('pv1_ok|')) {
+    r.status = 'ok'; await env.HR_KV.put(PV1 + pid, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+    const link = String(env.GOOGLE_AVALIACAO || '').trim();
+    await enviar(env, from, `Que alegria${pn ? ', ' + pn : ''}! 🥰 Obrigada pela confiança.` + (/^https:\/\//.test(link) ? `\n\nSe puder, deixe a sua avaliação no Google. Leva menos de um minuto e ajuda muito a nossa empresa:\n${link}` : ' Sempre que precisar, é só chamar por aqui.'));
+    await pontoAvisarDono(env, `⭐ *${r.cli}* disse que ficou tudo ótimo com ${r.serv.replace(/\b(sua|seu) /, '')}${/^https:/.test(link) ? '. Mandei o link da avaliação no Google.' : '.'}`).catch(() => {});
+    return true;
+  }
+  r.status = 'problema'; await env.HR_KV.put(PV1 + pid, JSON.stringify(r), { expirationTtl: 120 * 86400 });
+  await enviar(env, from, `Poxa${pn ? ', ' + pn : ''}, sinto muito! Me conta o que aconteceu e, se puder, mande uma foto. Já vou passar para o Sr. Hangel resolver com você.`);
+  await anotarNoHistorico(env, from, `[Pós-venda: o cliente disse que TEVE UM PROBLEMA com ${r.serv}. Acolha, peça detalhes e foto, e diga que o Sr. Hangel vai resolver. Não prometa prazo nem valor.]`).catch(() => {});
+  await pontoAvisarDono(env, `⚠️ *${r.cli}* disse que teve um problema com ${r.serv.replace(/\b(sua|seu) /, '')} (entregue em ${dataBR(r.entrega)}). Pedi detalhes e foto.\nwa.me/${normalizarBR(from)}`).catch(() => {});
+  return true;
+}
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
 async function despachoBotao(env, from, id) {
   const [acao, pid, extra] = id.split('|');
@@ -15317,6 +15423,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && await pv1Resposta(env, from, m).catch(e => { console.log('[PV1] resposta:', e.message); return false; })) return; // v142
   if (!dono && await pvRespostaCliente(env, from, m).catch(e => { console.log('[BOT] pós-venda:', e.message); return false; })) return; // v46
   if (!dono && await tratarRetomadaCliente(env, from, m).catch(e => { console.log('[BOT] retomada cliente:', e.message); return false; })) return; // v43
   if (!dono && await tratarCobrancaCliente(env, from, m).catch(e => { console.log('[BOT] cobrança do cliente:', e.message); return false; })) return; // botões do cartão de cobrança e data de prazo
@@ -18954,6 +19061,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
   if (!forcar && /^(agora nao|nao)$/.test(txt)) { await env.HR_KV.delete(k); await enviar(env, from, 'Tudo bem! Quando quiser ver o orçamento, é só mandar uma mensagem aqui. 😊'); await notificarDono(env, Date.now(), `${p.nome || 'O cliente'} respondeu "Agora não" ao aviso do orçamento.`, { rotina: true }).catch(() => {}); return true; }
   if (!forcar && !p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
+  if (p.pv1Id) { let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + p.pv1Id)) || 'null'); } catch (_) {} if (r) { await pv1Mandar(env, r, normalizarBR(from), true); return true; } } // v142
   if (p.fechAgPid) { const pd = await lerPedido(env, p.fechAgPid).catch(() => null); if (pd && pd.janela) await enviarComBotoes(env, normalizarBR(from), `Obrigada por responder! A entrega do seu pedido pode ser *${janelaTxt(pd.janela)}*. Vai ter alguém para receber nesse horário?`, [{ id: 'fag_ok|' + pd.id, titulo: 'Sim, pode trazer' }, { id: 'fag_no|' + pd.id, titulo: 'Outro horário' }]); return true; } // v135
   if (p.fechPid) { await fechMsgCliente(env, normalizarBR(from), p.fechPid, true); await notificarDono(env, Date.now(), `✅ ${p.nome || 'O cliente'} respondeu: mandei a confirmação do pedido${/pix/.test(String((await lerPedido(env, p.fechPid).catch(() => null) || {}).fechDono)) ? ', a chave Pix' : ''} e perguntei entrega ou retirada.`).catch(() => {}); return true; } // v134
   if (p.pixRef) { // v115: o que estava guardado era o Pix que o dono mandou enviar
@@ -19909,6 +20017,12 @@ async function rotaBotInterna(req, env, url) {
     return jsonR({ ok: true, total: contatos.length, contatos });
   }
   if (p.startsWith('/bot/ponto/')) return rotaBotPonto(req, env, url); // v34: HR Ponto (app do dono)
+  if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
+    const b = await req.json().catch(() => ({})), out = {};
+    for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) { const r = await pv1Agendar(env, it).catch(() => null); if (r) out[String(it.id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; }
+    for (const id of (Array.isArray(b.consultar) ? b.consultar : []).slice(0, 100)) { try { const r = JSON.parse((await env.HR_KV.get(PV1 + String(id).replace(/[^A-Za-z0-9_-]/g, ''))) || 'null'); if (r) out[String(id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; } catch (_) {} }
+    return jsonR({ ok: true, itens: out });
+  }
   if (p === '/bot/livro' && req.method === 'GET') {
     const t = await livTodos(env);
     return jsonR({ ok: true, total: t.length, registros: t.map(livPublico) });
