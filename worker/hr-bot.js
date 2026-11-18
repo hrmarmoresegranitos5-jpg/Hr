@@ -1,3 +1,4 @@
+// v139 (18/11/2026): meio período com horário ("entrar 7h e sair 11h"), lembretes do ponto seguem o horário do dia; o app recebe as exceções (folga/meio período) para o banco de horas
 // v138 (18/11/2026): expediente_dia (folga / meio período / normal gravado no ponto, até em feriado) e avisar_equipe (manda de verdade no privado de cada funcionário; o bot não entra em grupo)
 // v137 (18/11/2026): painel da produção ("produção", "como está o pedido do João"), retirada conferida com o Fabrício (buscou? pagou? → entregue + Finanças), "cortei" numa retirada avisa o cliente, agenda do dia às 7h para Fabrício e Gibson
 // v136 (18/11/2026): "fechei o de João Paulo, ele vai buscar (amanhã às 10h)" — o bot já sabe que é retirada/entrega (e o horário) e não pergunta de novo ao cliente
@@ -8235,13 +8236,19 @@ async function expedienteDias(env, a) {
     if (!tipo) continue;
     const tira = k => { cfg[k] = cfg[k].filter(x => x !== iso); };
     tira('feriados'); tira('meios'); tira('trab'); folgas = folgas.filter(x => x !== iso);
-    if (tipo === 'folga') { cfg.feriados.push(iso); folgas.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'folga', { expirationTtl: 60 * 86400 }); }
-    else { cfg.trab.push(iso); if (tipo === 'meio') cfg.meios.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'trab', { expirationTtl: 60 * 86400 }); }
+    cfg.excBot = (Array.isArray(cfg.excBot) ? cfg.excBot : []).filter(x => x.data !== iso);
+    cfg.folgasBot = (Array.isArray(cfg.folgasBot) ? cfg.folgasBot : []).filter(x => x !== iso);
+    const hm = v => /^\d{1,2}(:\d{2})?$/.test(String(v || '').replace(/h$/, '')) ? String(v).replace(/h$/, '').split(':').map((x, i) => String(+x).padStart(2, '0')).concat(['00']).slice(0, 2).join(':') : '';
+    const e = hm(d.entrada) || (cfg.lemb && cfg.lemb.entrada) || '07:15', sMeio = hm(d.saida) || (cfg.lemb && cfg.lemb.sabado) || '12:15';
+    if (tipo === 'folga') { cfg.feriados.push(iso); cfg.folgasBot.push(iso); folgas.push(iso); await env.HR_KV.put('fer:dec:' + iso, 'folga', { expirationTtl: 60 * 86400 }); cfg.excBot.push({ data: iso, tipo }); }
+    else { cfg.trab.push(iso); if (tipo === 'meio') { cfg.meios.push(iso); cfg.excBot.push({ data: iso, tipo, e, s: sMeio }); } else cfg.excBot.push({ data: iso, tipo }); await env.HR_KV.put('fer:dec:' + iso, 'trab', { expirationTtl: 60 * 86400 }); }
     const nm = feriadosInfo(env, +iso.slice(0, 4)).nomes.get(iso);
-    feitos.push({ iso, tipo, txt: `${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso)}${nm ? ' (' + nm + ')' : ''}: ${tipo === 'folga' ? 'folga' : tipo === 'meio' ? `meio período (até ${(cfg.lemb && cfg.lemb.sabado) || '12:15'})` : 'expediente normal'}` });
+    const durM = tipo === 'meio' ? (+sMeio.slice(0, 2) * 60 + +sMeio.slice(3)) - (+e.slice(0, 2) * 60 + +e.slice(3)) : 0;
+    feitos.push({ iso, tipo, txt: `${DIAS_SEMANA[diaSemanaISO(iso)]}, ${dataBR(iso)}${nm ? ' (' + nm + ')' : ''}: ${tipo === 'folga' ? 'folga' : tipo === 'meio' ? `meio período, das ${e} às ${sMeio}${durM > 0 ? ' (' + (durM % 60 ? Math.floor(durM / 60) + 'h' + (durM % 60) : durM / 60 + ' horas') + ', sem almoço)' : ''}` : 'expediente normal'}` });
   }
   if (!feitos.length) return { erro: true, texto: 'Nenhuma data válida (use AAAA-MM-DD, de hoje em diante).' };
-  for (const k of ['feriados', 'meios', 'trab']) cfg[k] = [...new Set(cfg[k])].filter(x => x >= dataBahia(-30)).sort().slice(-60);
+  for (const k of ['feriados', 'meios', 'trab', 'folgasBot']) cfg[k] = [...new Set(cfg[k] || [])].filter(x => x >= dataBahia(-30)).sort().slice(-60);
+  cfg.excBot = (cfg.excBot || []).filter(x => x.data >= dataBahia(-30)).sort((a, b) => a.data < b.data ? -1 : 1).slice(-40);
   await pontoCfgSalvar(env, cfg);
   await env.HR_KV.put('fer:folgas', JSON.stringify([...new Set(folgas)].filter(d => d >= dataBahia(-5)).sort().slice(-30)));
   let avis = '';
@@ -9457,7 +9464,7 @@ const FERRAMENTAS = [
   {
     name: 'expediente_dia',
     description: 'GRAVA no ponto um expediente diferente combinado pelo Sr. Hangel: folga, meio período ou expediente normal (inclusive em feriado: "vamos trabalhar meio período na sexta e folgar sábado"). O ponto, os lembretes de saída e os prazos passam a seguir isso. Por padrão também avisa todos os funcionários no privado (avisar_equipe=false se ele disser para não avisar ainda).',
-    input_schema: { type: 'object', properties: { dias: { type: 'array', items: { type: 'object', properties: { data: { type: 'string', description: 'AAAA-MM-DD' }, tipo: { type: 'string', enum: ['folga', 'meio', 'normal'] } }, required: ['data', 'tipo'] } }, avisar_equipe: { type: 'boolean' }, texto_aviso: { type: 'string', description: 'opcional: texto do aviso à equipe (2ª pessoa, sem saudação)' } }, required: ['dias'] },
+    input_schema: { type: 'object', properties: { dias: { type: 'array', items: { type: 'object', properties: { data: { type: 'string', description: 'AAAA-MM-DD' }, tipo: { type: 'string', enum: ['folga', 'meio', 'normal'] }, entrada: { type: 'string', description: 'HH:MM, só no meio período, se ele disser (ex.: 07:00)' }, saida: { type: 'string', description: 'HH:MM, só no meio período (ex.: 11:00)' } }, required: ['data', 'tipo'] } }, avisar_equipe: { type: 'boolean' }, texto_aviso: { type: 'string', description: 'opcional: texto do aviso à equipe (2ª pessoa, sem saudação)' } }, required: ['dias'] },
   },
   {
     name: 'ficha_producao',
@@ -25571,7 +25578,8 @@ async function pontoAgora(env) {
   const cfg = await pontoCfg(env), hoje = dataBahia(), ag = agoraBahia(), L = cfg.lemb || {};
   const m = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
   const folga = semExpediente(env, cfg, hoje);
-  const ent = m(L.entrada || '07:15'), sai = m(ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || '12:15') : (L.saida || '17:45')); // v138: meio período
+  const xh = (cfg.excBot || []).find(x => x.data === hoje && x.tipo === 'meio'); // v139: horário combinado do dia
+  const ent = m((xh && xh.e) || L.entrada || '07:15'), sai = m((xh && xh.s) || (ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || '12:15') : (L.saida || '17:45'))); // v138: meio período
   const lista = [];
   for (const f of cfg.funcs) {
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
@@ -25708,7 +25716,8 @@ async function pontoLembretes(env, cfg) {
   const ag = agoraBahia(), hoje = dataBahia();
   if (semExpediente(env, cfg, hoje)) return;
   const m = (t) => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
-  const ent = m(L.entrada), sai = m(ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || L.saida) : L.saida), alm = Math.max(30, +L.almoco || 80); // v138: meio período
+  const xh = (cfg.excBot || []).find(x => x.data === hoje && x.tipo === 'meio'); // v139: horário combinado do dia
+  const ent = m((xh && xh.e) || L.entrada), sai = m((xh && xh.s) || (ag.dia === 6 || (cfg.meios || []).includes(hoje) ? (L.sabado || L.saida) : L.saida)), alm = Math.max(30, +L.almoco || 80); // v138: meio período
   for (const f of cfg.funcs) {
     if (!(await env.HR_KV.get('ponto:fd:' + f.id))) continue; // só quem já tem o app ativado
     const l = (await pontoDia(env, hoje, f.id)).filter(b => b.status !== 'recusada');
@@ -25751,7 +25760,7 @@ async function pontoRotina(env) {
 async function rotaBotPonto(req, env, url) {
   const p = url.pathname;
   const cfg = await pontoCfg(env);
-  if (p === '/bot/ponto/config' && req.method === 'GET') return jsonR({ ok: true, cfg: { funcs: cfg.funcs, ips: cfg.ips, lat: cfg.lat, lng: cfg.lng, raio: cfg.raio, aviso: cfg.aviso, lemb: cfg.lemb, facial: cfg.facial, relAuto: cfg.relAuto !== false, apelidos: cfg.apelidos || {} }, link: (await urlDoWorker(env).catch(() => '')) + '/ponto' });
+  if (p === '/bot/ponto/config' && req.method === 'GET') return jsonR({ ok: true, cfg: { funcs: cfg.funcs, ips: cfg.ips, lat: cfg.lat, lng: cfg.lng, raio: cfg.raio, aviso: cfg.aviso, lemb: cfg.lemb, facial: cfg.facial, relAuto: cfg.relAuto !== false, apelidos: cfg.apelidos || {}, excBot: cfg.excBot || [] }, link: (await urlDoWorker(env).catch(() => '')) + '/ponto' });
   if (p === '/bot/ponto/config' && req.method === 'POST') {
     const b = await req.json().catch(() => ({}));
     if (Array.isArray(b.funcs)) cfg.funcs = b.funcs.filter(f => f && f.id != null && f.nome).map(f => ({ id: String(f.id).slice(0, 40), nome: String(f.nome).slice(0, 60), tel: String(f.tel || '').replace(/\D/g, '').slice(0, 13) })).slice(0, 60);
@@ -25762,7 +25771,7 @@ async function rotaBotPonto(req, env, url) {
     if (typeof b.facial === 'boolean') cfg.facial = b.facial; // v36
     if (typeof b.relAuto === 'boolean') cfg.relAuto = b.relAuto; // v40
     if (b.apelidos && typeof b.apelidos === 'object') { cfg.apelidos = {}; for (const [k, v] of Object.entries(b.apelidos).slice(0, 60)) { const t = String(v || '').trim().slice(0, 25); if (t) cfg.apelidos[k] = t; } } // v45
-    if (Array.isArray(b.feriados)) cfg.feriados = b.feriados.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= dataBahia(-1)).slice(0, 60);
+    if (Array.isArray(b.feriados)) cfg.feriados = [...new Set([...b.feriados.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= dataBahia(-1)), ...(cfg.folgasBot || []).filter(d => d >= dataBahia(-1))])].filter(d => !(cfg.trab || []).includes(d)).slice(0, 60); // v139: folgas do bot ficam
     if (b.usarEstaRede) { const k = pontoIpChave(req.headers.get('cf-connecting-ip')); if (k && !cfg.ips.includes(k)) cfg.ips = [k, ...cfg.ips].slice(0, 6); }
     if (b.limparRedes) cfg.ips = [];
     await pontoCfgSalvar(env, cfg);

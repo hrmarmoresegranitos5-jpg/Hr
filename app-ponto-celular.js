@@ -441,7 +441,32 @@
     }).catch(function (e) { console.warn('[HRPonto] vales', e); return 0; });
   }
   var sincronizando = false;
+  // v16: folga / meio período combinados pelo WhatsApp viram exceção do RH (banco de horas e relatórios)
+  var excEm = 0;
+  function sincExcecoesBot() {
+    if (!bot() || Date.now() - excEm < 5 * 60000) return Promise.resolve();
+    excEm = Date.now();
+    return api('/bot/ponto/config').then(function (j) {
+      var lst = (j && j.cfg && j.cfg.excBot) || [], excs = lerJ('hr_excecoes'), mudou = false, vistos = {};
+      lst.forEach(function (x) {
+        if (!x || !/^\d{4}-\d{2}-\d{2}$/.test(x.data || '')) return;
+        var id = 'bot_' + x.data; vistos[id] = 1;
+        var novo = null;
+        if (x.tipo === 'folga') novo = { id: id, data: x.data, tipo: 'feriado', meioperiodo: false, descricao: 'Folga combinada pelo WhatsApp' };
+        else if (x.tipo === 'meio') {
+          var mn = function (t) { var p = String(t || '').split(':'); return (+p[0]) * 60 + (+p[1] || 0); };
+          var dur = Math.max(0, mn(x.s) - mn(x.e));
+          novo = { id: id, data: x.data, tipo: 'feriado', meioperiodo: true, jornadaMin: dur || 0, horEntrada: x.e || '', horSaida: x.s || '', descricao: 'Meio período ' + (x.e || '') + '–' + (x.s || '') + ' (WhatsApp)' };
+        }
+        if (novo && JSON.stringify(excs[id]) !== JSON.stringify(novo)) { excs[id] = novo; mudou = true; }
+        if (!novo && excs[id]) { delete excs[id]; mudou = true; }
+      });
+      Object.keys(excs).forEach(function (k) { if (/^bot_/.test(k) && !vistos[k] && excs[k].data >= hoje()) { delete excs[k]; mudou = true; } });
+      if (mudou) { localStorage.setItem('hr_excecoes', JSON.stringify(excs)); try { if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {} }
+    }).catch(function () {});
+  }
   function sincronizarAuto(avisar) {
+    sincExcecoesBot();
     if (!bot() || sincronizando) return Promise.resolve(null);
     if (typeof HR_IMPORT === 'undefined' || !HR_IMPORT._calcDia) return lancarVales().then(function () { return null; }); // v46: vales não dependem do cálculo
     sincronizando = true;
