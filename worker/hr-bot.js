@@ -2531,7 +2531,7 @@ function vozFeminina(env) { const v = String(env.TTS_VOICE || '').toLowerCase().
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
   try {
-    const fala = String(texto || '').trim().slice(0, VOZ_MAX_CHARS);
+    const fala = String(texto || '').trim().slice(0, VOZ_MAX_CHARS).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
     let audio = null;
     if (env.ELEVENLABS_KEY) { // v128: voz de pessoa de verdade (ElevenLabs); se falhar, cai para a da OpenAI
