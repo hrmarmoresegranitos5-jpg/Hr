@@ -1,3 +1,4 @@
+// v130 (18/11/2026): "digitando..." renovado a cada 20 s até responder; respostas por áudio curtas (sai mais rápido)
 // v129 (18/11/2026): cadastro de cuba pelo LINK do Mercado Livre (API com ML_CLIENT_ID/ML_CLIENT_SECRET no worker; o GitHub copia os segredos)
 // v128 (18/11/2026): voz mais suave (shimmer, instruções curtas e delicadas); ELEVENLABS_KEY (+ ELEVENLABS_VOICE) usa voz real da ElevenLabs
 // v127 (18/11/2026): ASSISTENTE MULHER — voz feminina (coral por padrão; voz masculina em TTS_VOICE é ignorada) com instruções de voz real (sotaque nordestino suave, ritmo de áudio de WhatsApp); fala no feminino (obrigada) em todos os textos e nas duas IAs
@@ -470,6 +471,7 @@ async function enviar(env, para, texto) {
 }
 // Texto de verdade, sem virar áudio (chave Pix, links, avisos ao dono)
 async function enviarTextoPuro(env, para, texto, jaVariado) {
+  if (env && env._digTimer) { env._digParar = true; clearInterval(env._digTimer); env._digTimer = null; } // v130
   if (!jaVariado && ehDono(env, para)) texto = variarTratamentoDono(env, texto);
   texto = semEmojiPara(env, para, comNomeDono(env, texto));
   const v = env.GRAPH_VERSION || 'v23.0';
@@ -1426,6 +1428,7 @@ async function ferrFolhaFuncionarios(env, a) {
 // Regras da Meta: até 3 botões (título ≤ 20 caracteres); lista até 10 linhas (título ≤ 24).
 // Só funcionam dentro da janela de 24h — como o dono sempre escreve primeiro, ok.
 async function postarMsg(env, para, extra) {
+  if (env && env._digTimer) { env._digParar = true; clearInterval(env._digTimer); env._digTimer = null; } // v130
   const v = env.GRAPH_VERSION || 'v23.0';
   const r = await fetch(`https://graph.facebook.com/${v}/${env.PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
@@ -2452,7 +2455,7 @@ async function baixarMidia(env, mediaId) {
 
 // ── Áudio: entender (transcrição) e responder por voz ────────────────
 const VOZ_MAX_BYTES = 10 * 1024 * 1024; // áudios maiores que isso são recusados
-const VOZ_MAX_CHARS = 1500;             // limite do texto falado (mantém o áudio curto)
+const VOZ_MAX_CHARS = 700; // v130: áudio curto sai mais rápido             // limite do texto falado (mantém o áudio curto)
 
 function chaveVoz(env) {
   if (env.OPENAI_KEY) return env.OPENAI_KEY;
@@ -4349,6 +4352,7 @@ function promptCliente(env, c, regras) {
     c._volta ? `ACABOU DE VOLTAR DO CATÁLOGO escolhendo: ${c._volta}. ${c.cor_opcoes && c.cor_opcoes.length > 1 ? 'São várias pedras: pergunte, em uma frase, qual delas ele quer para este projeto.' : 'A pedra já está registrada: confirme com UMA frase curta e vá direto para a próxima pergunta do funil (nunca reabra assunto já respondido).'}` : '',
     (c.opcoesVisita && c.opcoesVisita.length && !(c.dados && c.dados.visita_dia)) ? `HORÁRIOS LIVRES QUE VOCÊ JÁ OFERECEU AO CLIENTE (não invente outros): ${c.opcoesVisita.map((o, i) => `${i + 1}) ${o.dia} ${o.hora}`).join('; ')}. Se ele escolher um (número, "a primeira", dia ou hora), preencha "visita_dia" (AAAA-MM-DD) e "horario" (HH:MM) com a opção escolhida e siga para o resumo. Se pedir outro dia, ofereça só horários livres da AGENDA.` : '',
     x.cp && x.cp.ultimo ? `HISTÓRICO: este cliente já foi atendido antes (${x.cp.ultimo.data}): ${falarMedidas(juntarIguais(x.cp.ultimo.resumo))}.${x.primeira ? ' (esta é a primeira resposta da conversa)' : ''}` : '',
+    (env._ctx && env._ctx.voz) ? 'RESPOSTA EM ÁUDIO: o cliente falou por áudio e a sua resposta vira áudio. Responda curto, como num áudio de WhatsApp: no máximo 2 frases curtas (até umas 30 palavras), sem listas, sem links, sem emojis.' : '',
     x.periodo && x.primeira ? `PERÍODO DO DIA: ${x.periodo}.` : `NÃO cumprimente de novo (nada de "Bom dia", "Boa tarde", "Olá" nem o nome no começo): a saudação já foi feita; vá direto à resposta.`,
     c.assuntoInicial ? `O cliente começou dizendo: "${c.assuntoInicial}". Responda ou retome esse ponto assim que o nome estiver definido; não o ignore.` : '',
     `SITUAÇÃO DO PEDIDO DESTE CLIENTE: ${x.status || 'nenhum pedido localizado.'}`,
@@ -14501,6 +14505,10 @@ async function tratarMensagemBase(env, m, ctx) {
 
   if (m.type === 'reaction') return; // v23: 👍/❤️ numa mensagem é reação, não pedido (antes o cliente recebia "só leio texto")
   digitando(env, m.id);
+  if (m.id) { // v130: renova o "digitando..." a cada 20 s até a resposta sair (antes sumia no meio de respostas demoradas)
+    const t0 = Date.now(); env._digId = m.id;
+    env._digTimer = setInterval(() => { if (Date.now() - t0 > 90000 || env._digParar) { clearInterval(env._digTimer); return; } digitando(env, m.id); }, 20000);
+  }
   // Respostas do dono ao pedido de prazo e botões de aprovação valem mesmo no modo de teste (senão viravam mensagem de cliente)
   if (ehDono(env, from) && m.type !== 'audio') {
     const idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : '';
