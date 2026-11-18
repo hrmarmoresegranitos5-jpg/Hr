@@ -465,8 +465,34 @@
       if (mudou) { localStorage.setItem('hr_excecoes', JSON.stringify(excs)); try { if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {} }
     }).catch(function () {});
   }
+  // v17: ficha da equipe (telefone, cargo, aniversário, admissão, férias) vai ao bot; o que o dono mudar pelo WhatsApp volta para cá
+  var eqEm = 0, eqHash = '';
+  function sincEquipeBot(forcar) {
+    if (!bot() || (!forcar && Date.now() - eqEm < 10 * 60000)) return Promise.resolve();
+    eqEm = Date.now();
+    var raw = lerJ('hr_funcionarios');
+    var lista = Object.keys(raw).map(function (k) { var f = raw[k]; if (f && f.id == null) f.id = k; return f; })
+      .filter(function (f) { return f && f.nome && f.ativo !== false; })
+      .map(function (f) { return { id: String(f.id), nome: String(f.nome).trim(), tel: String(f.telefone || f.tel || '').replace(/\D/g, ''), cargo: f.cargo || '', nasc: f.nascimento || '', adm: f.admissao || '', fIni: f.feriasInicio || '', fFim: f.feriasFim || '', ferias: f.ativo === 'ferias', socio: !!f.socio }; });
+    var h = JSON.stringify(lista);
+    return api('/bot/ponto/equipe', { funcs: h === eqHash && !forcar ? [] : lista }).then(function (j) {
+      eqHash = h;
+      var eds = (j && j.edits) || []; if (!eds.length) return;
+      var CAMPO = { tel: 'telefone', nasc: 'nascimento', adm: 'admissao', fIni: 'feriasInicio', fFim: 'feriasFim', cargo: 'cargo' }, feitos = [];
+      eds.forEach(function (e) {
+        var f = raw[e.funcId] || Object.keys(raw).map(function (k) { return raw[k]; }).filter(function (x) { return x && String(x.id) === String(e.funcId); })[0];
+        if (f) Object.keys(e.muda || {}).forEach(function (k) { if (CAMPO[k]) f[CAMPO[k]] = e.muda[k]; });
+        feitos.push(e.id);
+      });
+      localStorage.setItem('hr_funcionarios', JSON.stringify(raw)); try { if (typeof DB !== 'undefined' && DB.sv) DB.sv(); } catch (e) {}
+      eqHash = '';
+      return api('/bot/ponto/equipe/ok', { ids: feitos });
+    }).catch(function () {});
+  }
+  window.HRPontoEquipe = sincEquipeBot;
+  setTimeout(function () { sincEquipeBot(true); }, 20000);
   function sincronizarAuto(avisar) {
-    sincExcecoesBot();
+    sincExcecoesBot(); sincEquipeBot(false);
     if (!bot() || sincronizando) return Promise.resolve(null);
     if (typeof HR_IMPORT === 'undefined' || !HR_IMPORT._calcDia) return lancarVales().then(function () { return null; }); // v46: vales não dependem do cálculo
     sincronizando = true;
