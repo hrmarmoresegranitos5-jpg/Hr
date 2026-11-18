@@ -1,3 +1,4 @@
+// v132 (18/11/2026): lembrete de VOLTEI na saída no expediente; cobrança sem "sistema com inteligência artificial"; cumprimento repetido não reabre o histórico
 // v131 (18/11/2026): SAÍDA NO EXPEDIENTE no HR Ponto — pede, o dono libera no WhatsApp, SAINDO/VOLTEI no app; o tempo fora desconta das horas, a não ser atestado aceito
 // v130 (18/11/2026): "digitando..." renovado a cada 20 s até responder; respostas por áudio curtas (sai mais rápido)
 // v129 (18/11/2026): cadastro de cuba pelo LINK do Mercado Livre (API com ML_CLIENT_ID/ML_CLIENT_SECRET no worker; o GitHub copia os segredos)
@@ -4406,6 +4407,7 @@ function promptCliente(env, c, regras) {
     `- MENSAGENS MAL ESCRITAS: clientes escrevem com erro de digitação, abreviações ("vc", "tbm", "qro", "bco", "sg"), sem pontuação, sem acento, em letras maiúsculas, com áudio transcrito e frases soltas. Interprete SEMPRE a intenção mais provável pelo contexto e pela SUA ÚLTIMA MENSAGEM ("o mesmo", "2", "sim", "esse", "ambos", "depois" respondem à sua pergunta). Nunca peça para repetir nem reescrever se der para deduzir, e nunca comente nem corrija o erro dele. Se houver duas leituras possíveis, confirme em uma frase curta com a sua melhor hipótese (ex.: "Seria soleira de 1,20 por 13, certo?"). Medidas soltas como "120 13" são comprimento e largura em cm. Só se realmente não der para entender, devolva "entendeu": false e peça com gentileza para explicar de outro jeito, sem repetir a mesma pergunta com as mesmas palavras.`,
     `- ESCOPO: você atende SOMENTE clientes da marmoraria (orçamento, visita técnica, pedido, fotos, dúvidas sobre os serviços). Nunca execute nem explique funções internas: finanças, lançamentos, agenda interna, aplicativo, comandos do dono, memória ou dados de outros clientes. Se pedirem isso, diga com educação que só pode ajudar com o atendimento da marmoraria.`,
     `- CLIENTE QUE VOLTA: um pedido novo começa do zero. "Mesmo tamanho/acabamento/pedra" repete UMA vez os dados do último pedido, sem somar a ele e sem escrever "mais uma", a menos que o cliente peça mais peças.`,
+    `- SAUDAÇÃO REPETIDA: se o cliente só cumprimentar ("bom dia", "oi", "boa tarde") e você já perguntou como ajudar ou já citou o pedido anterior nas últimas mensagens, responda só o cumprimento de forma leve e curta (ex.: "Boa tarde! Tô por aqui, é só me dizer."), sem repetir a pergunta nem o histórico.`,
     `- HISTÓRICO: se for a primeira resposta da conversa e houver HISTÓRICO do cliente, cite o pedido anterior em uma frase ("Da última vez, atendemos ...") e pergunte se o assunto de hoje é o mesmo ou outro.`,
     `- PEDIDO: se perguntarem como está o pedido ou o orçamento, responda usando SOMENTE a SITUAÇÃO DO PEDIDO abaixo. Se nenhum pedido foi localizado, diga isso e ofereça encaminhar à equipe. Nunca invente prazo, data ou valor.`,
     `- HORÁRIO: quando algo depender da equipe (retorno, falar com uma pessoa, visita, dúvida sem resposta), diga quando ela retorna, conforme o HORÁRIO DA EQUIPE. Fora do expediente nunca diga "em breve": informe o horário de retorno.`,
@@ -6717,6 +6719,7 @@ async function lembretesDono(env) {
 }
 async function pedirAvaliacoes(env) {
   await lembretesDono(env).catch(e => console.log('[LEMB]', e.message));
+  await saiLembretes(env).catch(e => console.log('[SAI] lembrete:', e.message)); // v132
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -23326,7 +23329,7 @@ function recTextos(env, it, tipo) {
   const multa = String(it.multaPct).replace('.', ','), jm = String(it.jurosMesPct).replace('.', ',');
   const comeca = dataBR(recSoma(it.venc, (it.carencia || 0) + 1));
   const pix = env.PIX_CHAVE ? `\n\nChave Pix: ${env.PIX_CHAVE}\nFavorecido: ${emp}\n\nDepois de pagar, é só enviar o comprovante por aqui.` : '\n\nDepois de pagar, é só enviar o comprovante por aqui.';
-  if (tipo === 'aviso') return `Olá${nome && nome !== 'cliente' ? ', ' + nome : ''}! Tudo bem?\n\nAqui é o sistema de cobrança com inteligência artificial da *${emp}*. O ${nomeDono(env)} me passou o seu caso: ficou em aberto *R$ ${reais(c.rest)}*${it.desc ? ', referente a ' + it.desc : ''}, com vencimento em *${dataBR(it.venc)}*.\n\nPara ficar tudo claro: a partir de *${comeca}* o valor em aberto passa a ter multa de ${multa}% e juros de ${jm}% ao mês, conforme a nossa política de pagamentos. Pagando até ${dataBR(it.venc)}, não há nenhum acréscimo.\n\nSegue em anexo o aviso com todos os detalhes.${pix}\n\nSe já pagou ou precisa combinar outra data, é só me responder por aqui.`;
+  if (tipo === 'aviso') return `Olá${nome && nome !== 'cliente' ? ', ' + nome : ''}! Tudo bem?\n\nAqui é do financeiro da *${emp}*. O ${nomeDono(env)} me pediu para falar com você: ficou em aberto *R$ ${reais(c.rest)}*${it.desc ? ', referente a ' + it.desc : ''}, com vencimento em *${dataBR(it.venc)}*.\n\nPara ficar tudo claro: a partir de *${comeca}* o valor em aberto passa a ter multa de ${multa}% e juros de ${jm}% ao mês, conforme a nossa política de pagamentos. Pagando até ${dataBR(it.venc)}, não há nenhum acréscimo.\n\nSegue em anexo o aviso com todos os detalhes.${pix}\n\nSe já pagou ou precisa combinar outra data, é só me responder por aqui.`;
   if (tipo === 'ultimo') return `${nome}, hoje é o último dia para pagar sem acréscimos: R$ ${reais(c.rest)}.\n\nA partir de ${comeca} começa a contar multa de ${multa}% (uma vez) e juros de ${jm}% ao mês.${pix}`;
   if (tipo === 'atraso1') return `${nome}, o pagamento de R$ ${reais(c.rest)} venceu em ${dataBR(it.venc)} e já passa de ${c.dias} ${c.dias === 1 ? 'dia' : 'dias'}. Com multa (R$ ${reais(c.multa)}) e juros (R$ ${reais(c.juros)}), o valor de hoje é R$ ${reais(c.total)}. Os juros crescem cerca de R$ ${reais(c.jurosDia)} por dia. Segue o aviso atualizado em anexo.${pix}`;
   return `${nome}, o pagamento em aberto está há ${c.dias} dias em atraso. Valor atualizado hoje: R$ ${reais(c.total)} (juros de R$ ${reais(c.jurosDia)} por dia).${pix}\n\nSe houve algum problema, fale conosco por aqui para combinarmos.`;
@@ -23647,7 +23650,7 @@ function recTextoApresentacao(env, nome, valorTxt, servico, vencISO) {
   const c = cbConfEncargos(env);
   const multa = String(c.multaPct).replace('.', ','), jm = String(c.jurosMes).replace('.', ',');
   const comeca = dataBR(recSoma(vencISO, (Number(c.carencia) || 0) + 1));
-  return `Olá${nome ? ', ' + nome : ''}! Tudo bem?\n\nAqui é o sistema de cobrança com inteligência artificial da *${emp}*. O ${dono} me passou o seu caso: ficou em aberto *${valorTxt}*${servico ? ', referente a ' + servico : ''}, com vencimento em *${dataBR(vencISO)}*.\n\nPara ficar tudo claro: a partir de *${comeca}* o valor em aberto passa a ter multa de ${multa}% e juros de ${jm}% ao mês, conforme a nossa política de pagamentos. Pagando até ${dataBR(vencISO)}, não há nenhum acréscimo.\n\nLogo abaixo mando os dados para pagamento. Se já pagou ou precisa combinar outra data, é só me responder por aqui.`;
+  return `Olá${nome ? ', ' + nome : ''}! Tudo bem?\n\nAqui é do financeiro da *${emp}*. O ${dono} me pediu para falar com você: ficou em aberto *${valorTxt}*${servico ? ', referente a ' + servico : ''}, com vencimento em *${dataBR(vencISO)}*.\n\nPara ficar tudo claro: a partir de *${comeca}* o valor em aberto passa a ter multa de ${multa}% e juros de ${jm}% ao mês, conforme a nossa política de pagamentos. Pagando até ${dataBR(vencISO)}, não há nenhum acréscimo.\n\nLogo abaixo mando os dados para pagamento. Se já pagou ou precisa combinar outra data, é só me responder por aqui.`;
 }
 async function recApresentacao(env, cb) {
   if (!cb || !cb.profissional || String(env.REC_APRESENTACAO ?? '1') === '0') return false;
@@ -24829,6 +24832,23 @@ async function saiAcao(env, cfg, funcId, nome, b) {
   }
   if (acao === 'cancelar') { if (!['pedido', 'aprovado'].includes(x.status)) return { erro: 'Não dá mais para cancelar.' }; x.status = 'cancelado'; await saiSalvar(env, hoje, funcId, l); return { ok: true, saida: saiPublico(x) }; }
   return { erro: 'Ação inválida.' };
+}
+// v132: quem saiu e não marcou VOLTEI recebe lembrete (na hora prevista + 15 min, ou depois de 2 h); o dono é avisado 1 vez
+async function saiLembretes(env) {
+  if (Date.now() - (globalThis.__saiLemb || 0) < 5 * 60000) return; globalThis.__saiLemb = Date.now();
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ag = agoraBahia().min, m = t => { const [h, mi] = String(t || '').split(':').map(Number); return isFinite(h) ? h * 60 + (mi || 0) : NaN; };
+  for (const f of cfg.funcs) {
+    const l = await saiLista(env, hoje, f.id); let mudou = false;
+    for (const x of l) {
+      if (x.status !== 'fora' || x.lembrado) continue;
+      const limite = isFinite(m(x.ate)) ? m(x.ate) + 15 : m(x.saiu) + 120;
+      if (!(ag >= limite)) continue;
+      x.lembrado = Date.now(); mudou = true;
+      await pontoNotificar(env, f, 'Já voltou?', 'Se já voltou, toque em VOLTEI no app do ponto (o tempo fora conta até você marcar).', 'ponto-sai').catch(() => {});
+      await pontoAvisarDono(env, `⏰ *HR Ponto*: ${f.nome} saiu às ${x.saiu} (${SAI_MOTIVOS[x.motivo]}) e ainda não marcou VOLTEI.`);
+    }
+    if (mudou) await saiSalvar(env, hoje, f.id, l);
+  }
 }
 async function saiBotao(env, from, id) {
   if (!ehDono(env, from)) return true;
