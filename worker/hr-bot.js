@@ -6825,6 +6825,7 @@ async function pedirAvaliacoes(env) {
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
   await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   await auditoriaRotina(env).catch(e => console.log('[AUD]', e.message)); // v181
+  await mig182Reabrir(env).catch(e => console.log('[MIG182]', e.message)); // v182
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7815,6 +7816,8 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${difTxt(p) ? '\n   ' + difTxt(p) : ''}${p.cortadas && !p.corteEm ? `\n   ✂️ ${p.cortadas} de ${nPecasPed(p)} cortadas` : ''}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
     return true;
   }
+  if (!idB && await prodItensResposta(env, f, from, texto, nome).catch(e => { console.log('[ITENS] resposta:', e.message); return false; })) return true; // v182
+  if (!idB && papel !== 'entrega' && await prodItensFuncionario(env, f, from, texto, nome).catch(e => { console.log('[ITENS]', e.message); return false; })) return true; // v182: "terminei 2 lavatórios da Maria"
   if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
   if (papel !== 'fabrica' && /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|vou comecar|comecei|cheguei|chegamos|inicio da instalacao|iniciei|to comecando|estou comecando)\b/.test(msg) && await prodInicioInstalacao(env, f, from, texto, nome)) return true; // v156
   if (papel !== 'entrega' && /\b(pronto|pronta|prontos|cortei|terminei|acabei|finalizei|concluí|conclui|feito|ta feito|esta feito|acabamento)\b/.test(msg)) {
@@ -7824,6 +7827,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     if (ach.length > 1) { await enviarComBotoes(env, from, `${nome}, qual ficha ficou pronta?`, ach.slice(0, 3).map(p => ({ id: 'fpr|' + p.id, titulo: String(p.nome || 'cliente').slice(0, 20) }))); return true; }
     return prodMarcarPronto(env, ach[0], from, nome);
   }
+  if (papel === 'fabrica' && /\b(entreguei|entregamos|instalei|instalamos|ja entreguei)\b/.test(msg) && !/\b(terminei|cortei|poli|acabei)\b/.test(msg)) { await enviar(env, from, `${nome}, a entrega/instalação é marcada por quem instala. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do Jailton_, _terminei 2 lavatórios da Maria_ ou _terminei o acabamento do Douglas_.`); return true; } // v182
   if (papel !== 'fabrica' && /\b(entreguei|entregue|entregamos|deixei|instalei|ja entreguei)\b/.test(msg)) {
     const l = await pedidosProducao(env, naEntrega), ach = acharPorNome(l, texto);
     if (!ach.length) { await enviar(env, from, l.length ? `${nome}, de qual cliente? Tenho: ${l.map(p => p.nome).join(', ')}.` : `${nome}, não achei entrega pendente com esse nome. Avise o Sr. Hangel.`); return true; }
@@ -7908,6 +7912,8 @@ async function prodMarcarPronto(env, ped, from, nome) {
   return true;
 }
 async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
+  if (!ped.entregueEm && String(ped.entrega || '') !== 'retirada') { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); // v182: só quem entrega/instala (ou o responsável) dá a entrega
+    if (f0) { const fs = (await funcoesEquipe(env)).map[f0.id] || []; if (!fs.some(x => ENT_F.includes(x)) && String(ped.entResp || '') !== String(f0.id)) { await env.HR_KV.delete('prod:fotoesp:' + ultimos8(from)).catch(() => {}); await enviar(env, from, `${nome}, a entrega/instalação de *${ped.nome}* é marcada por quem instala${ped.entResp ? ' (' + (await respNome(env, ped.entResp)) + ')' : ''}. Se você terminou uma parte na fábrica, diga por exemplo: _terminei os frontões do ${String(ped.nome).split(' ')[0]}_ ou _terminei o acabamento do ${String(ped.nome).split(' ')[0]}_.`); return true; } } }
   if (ped.entregueEm && !receb) { await enviar(env, from, `${nome}, o de ${ped.nome} já estava como entregue.`); return true; }
   if (!ped.entregueEm && !fotoOk && !ped.fotoEntregaEm && String(env.FOTO_ENTREGA ?? '1') !== '0' && String(ped.entrega || '') !== 'retirada' && env.HR_DB) return prodPedirFoto(env, ped, from, nome, texto, receb); // v146
   { const cfg0 = await pontoCfg(env), f0 = pontoFuncPorFone(cfg0, from); if (f0 && !ped.entFeitoPor) ped.entFeitoPor = String(f0.id); } // v146
@@ -9287,6 +9293,7 @@ async function prodPedirFoto(env, ped, from, nome, texto, receb) {
 async function prodFotoRecebida(env, f, from, m, nome) {
   let pe = null; try { pe = JSON.parse((await env.HR_KV.get('prod:fotoesp:' + ultimos8(from))) || 'null'); } catch (_) {}
   const leg = String((m.image && m.image.caption) || '').trim();
+  if (leg && !pe && await prodItensFuncionario(env, f, from, leg, nome, { mid: m.image.id }).catch(e => { console.log('[ITENS] foto:', e.message); return false; })) return true; // v182: "frontões do Papinha finalizados"
   if (leg && !pe && !/\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|instalando|entreguei|entregando|terminei|terminando|pronto|pronta|acabei|cortei|montando|montei)\b/.test(normaliza(leg))) return prodFotoPerguntar(env, f, from, m, nome, leg); // v176: legenda só com o cliente ("Serviços da dona Renata") → lista desse cliente, sem passar pela IA
   if (leg && (!pe || /\b(iniciando|inicia|iniciou|iniciar|comecando|comeca|comecou|comecei|cheguei|instalei|entreguei|terminei|pronto)\b/.test(normaliza(leg)))) { // v156: foto com legenda ("iniciando Maria", "instalei o da Maria")
     await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
@@ -9496,10 +9503,12 @@ const NIVEIS_DIF = [{ min: 0, nome: 'simples', ico: '🟢', mult: 1 }, { min: 6,
 function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det : nPecasPed(p); return [...NIVEIS_DIF].reverse().find(x => sc >= x.min) || NIVEIS_DIF[0]; }
 // pontos base de cada etapa (sem prazo e foto)
 function ptsEtapa(p, e) {
+  { const its = p && !p.__item && p.resumoApp && p.resumoApp.itens; // v182: vários itens → cada item vale como um serviço (soma)
+    if (its && its.length > 1 && ['acabamento', 'polimento', 'fabricacao'].includes(e)) return meio(its.reduce((t, it) => t + ptsEtapa(ptsItemPed(p, it), e), 0)); }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
   if (e === 'corte') return meio((d ? d.corte : n) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); // corte pesa menos o nível (o difícil é a fabricação)
   if (e === 'fabricacao') return d ? meio((2 + d.det + d.corte * 0.5) * mu) : 3 + n;
-  if (e === 'acabamento') return d ? meio((1 + d.det * 0.5) * mu) : 1;
+  if (e === 'acabamento' || e === 'polimento') return d ? meio((1 + d.det * 0.5) * mu) : 1; // v182: polimento vale como o acabamento
   if (e === 'instalacao') return d ? meio((3 + d.corte * 0.5) * mu) : 5;
   if (e === 'entrega') return 2;
   return 0;
@@ -9511,7 +9520,7 @@ const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) :
 async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
   Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
-  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts) }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
+  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts), ts: ts || 0 }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
   for (const p of (lista || await pedidosProducao(env, () => true))) {
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
@@ -9522,14 +9531,16 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
       if (!dentro(x.ts) || !Array.isArray(x.por) || !x.por.length || x.e === 'inicio' || x.e === 'inicio_inst') continue;
       if (x.e === 'avaliacao' || x.e === 'retrabalho') { for (const id of x.por) add(String(id), +x.pts || 0, x.e === 'avaliacao' ? `⭐ cliente deu ${x.nota}` : `🔁 retrabalho${x.motivo ? ' (' + String(x.motivo).slice(0, 30) + ')' : ''}`, p, x.ts, null); continue; } // v157
       let pts = 0, ex = null;
-      if (x.e === 'corte') pts = x.pecas ? meio(ptsEtapa(p, 'corte') * x.pecas / n) || 0.5 : ptsEtapa(p, 'corte'); // v156: dificuldade e corte por peça
-      else if (x.e === 'acabamento') pts = ptsEtapa(p, 'acabamento');
+      const fx = x.frac != null ? +x.frac : x.pecas ? x.pecas / n : 1; // v182: parte do serviço (itens/peças)
+      if (x.e === 'corte') pts = fx < 1 ? meio(ptsEtapa(p, 'corte') * fx) || 0.5 : ptsEtapa(p, 'corte'); // v156: dificuldade e corte por peça
+      else if (x.e === 'acabamento' || x.e === 'polimento') pts = fx < 1 ? meio(ptsEtapa(p, x.e) * fx) || 0.5 : ptsEtapa(p, x.e);
+      else if (x.e === 'fabricacao' && fx < 1) pts = meio(ptsEtapa(p, 'fabricacao') * fx) || 0.5;
       else if (x.e === 'fabricacao') { pts = ptsEtapa(p, 'fabricacao'); const no = p.prontoPrevisto ? x.ts <= p.prontoPrevisto.ts + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; ex = { no }; }
       else if (x.e === 'entrega' || x.e === 'instalacao') { pts = ptsEtapa(p, x.e) + (x.e === 'instalacao' && p.instIniFotoEm ? 1 : 0); const no = p.janela ? x.ts <= p.janela.fim + 30 * 60000 : null; if (no === true) pts += 1; if (no === false) pts -= 1; if (p.fotoEntregaEm) pts += 1; ex = { no, foto: !!p.fotoEntregaEm }; }
       else continue;
       if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
-      for (const id of x.por) add(String(id), cada, (x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
+      for (const id of x.por) add(String(id), cada, (x.itens && x.itens.length ? `${x.itens.length} ${x.itens.length > 1 ? 'itens' : 'item'} · ` : x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
     }
   }
   try { if (env.HR_DB) { const rs = await env.HR_DB.prepare('SELECT func, cliente, ts FROM perda WHERE dia BETWEEN ? AND ?').bind(de, ate).all(); for (const x of rs.results || []) if (x.func) add(String(x.func), -1, '💥 quebra/perda', { nome: x.cliente || 'peça', id: null }, x.ts, null); } } catch (_) {} // v181
@@ -9590,7 +9601,7 @@ async function metaPainel(env, funcId) {
   const metaDia = metaDoDia(m.meta), ptsHoje = meio((atual.tarefas || []).filter(t => t.dia === hojeD).reduce((t, x) => t + x.pts, 0)); // v181
   const xp = await xpDe(env, funcId, atual.pts), car = carreira(xp);
   return { ok: true, teto, metaDia, ptsHoje, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
-    porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
+    porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: (atual.tarefas || []).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 12), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
     hist: hist.slice(0, 6).reverse(), regras: [['🎚️ Nível do serviço', '🟢 ×1 · 🟡 ×1,25 · 🔴 ×1,5 · 💎 ×1,8'], ['🏅 Faixas da semana', '🥉 80% · 🥈 100% · 🥇 125% · 💎 150%'], ['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
 // avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
@@ -9777,8 +9788,8 @@ async function premioConfigTool(env, a) {
 //   corta, o acabador é avisado; "terminei o acabamento da Maria" → +1 ponto e o pedido fica pronto.
 // ═════════════════════════════════════════════════════════════════════════════
 function precisaAcab(p) { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ acabamento: p.acabamento || '' }]; return !pedComplexo(p) && its.some(i => i.acabamento && i.acabamento !== 'sem') || (!pedComplexo(p) && /peitoril/.test(normaliza(p.interesse || '')) && !its.some(i => i.acabamento === 'sem')); }
-const ETAPA_TXT = { inicio: 'começou', corte: 'cortou', acabamento: 'fez o acabamento', fabricacao: 'fabricou', finalizado: 'finalizou', instalacao: 'instalou', entrega: 'entregou', retirada: 'entregou na retirada' };
-const ETAPA_PL = { inicio: 'começaram', corte: 'cortaram', acabamento: 'fizeram o acabamento', fabricacao: 'fabricaram', finalizado: 'finalizaram', instalacao: 'instalaram', entrega: 'entregaram', retirada: 'entregaram na retirada' };
+const ETAPA_TXT = { inicio: 'começou', corte: 'cortou', polimento: 'poliu', acabamento: 'fez o acabamento', fabricacao: 'fabricou', finalizado: 'finalizou', instalacao: 'instalou', entrega: 'entregou', retirada: 'entregou na retirada' };
+const ETAPA_PL = { inicio: 'começaram', corte: 'cortaram', polimento: 'poliram', acabamento: 'fizeram o acabamento', fabricacao: 'fabricaram', finalizado: 'finalizaram', instalacao: 'instalaram', entrega: 'entregaram', retirada: 'entregaram na retirada' };
 async function prodPerguntarAcabador(env, ped, telCortador) {
   if (ped.acabResp || ped.acabPerguntaEm || !precisaAcab(ped) || !ped.fabResp) return;
   const { map, cfg } = await funcoesEquipe(env);
@@ -10284,6 +10295,7 @@ function eqManual(nome, fs) {
     '• Pergunte quando quiser: _o que tenho pra fazer?_',
     ...(faz('corte') ? ['• Terminou um corte: _cortei o da Maria_'] : []),
     ...(faz('acabamento') || faz('fabricacao') || faz('45') ? ['• Terminou acabamento ou fabricação: _terminei o da Maria_ e mande a foto das peças prontas'] : []),
+    '• Projeto com vários itens: cada item conta na hora. Ex.: _terminei 2 lavatórios da Maria_, _poli os frontões do Jailton_, _cortei todos os peitoris da Ana_. Se não disser qual, eu mostro a lista e você responde os números.', // v182
     ...(faz('entrega') || faz('instalacao') ? ['• Entregou ou instalou: _instalei o da Maria, recebi 1500 no pix_ e mande a *foto com todas as peças*'] : []),
     '• 📸 *Fotos:* mande a foto com a legenda dizendo o que foi (ex.: _iniciando a instalação da Maria_, _terminei a cozinha da Maria_). Sem legenda, eu pergunto de qual serviço é e você só toca na opção.',
     '• Quebrou alguma peça: _quebrou o peitoril da Ana_ (sem problema, é só para controle)',
@@ -10667,7 +10679,7 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
       const porDono = (p.prodLog || []).some(x => (x.e === 'instalacao' || x.e === 'entrega') && x.dono) && Date.now() - p.entregueEm < 12 * 3600000 && !p.fotoEntregaEm;
       if (porDono) linhas.push({ id: `fot|${p.id}|reabre`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação agora (foto do local)' });
       linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Guardar a foto no serviço' }); continue; }
-    if (naEntrega(p) && (String(p.entResp) === id || String(p.instIniPor) === id || instala || !p.entResp)) { // v176/v180: quem instala (o ajudante também); o acabador não vê opções de instalação
+    if (naEntrega(p) && (String(p.entResp) === id || String(p.instIniPor) === id || instala)) { // v182: quem não instala nunca vê início/fim de instalação // v176/v180: quem instala (o ajudante também); o acabador não vê opções de instalação
       if (!p.instIniEm) linhas.push({ id: `fot|${p.id}|ini`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação (foto do local)' });
       linhas.push({ id: `fot|${p.id}|fim`, titulo: `✅ ${pn}`.slice(0, 24), descricao: pedComplexo(p) ? 'Terminei a instalação (foto final)' : 'Entreguei (foto das peças)' });
     } else if (naFabrica(p) && (!p.fabResp || [p.fabResp, p.fab2Resp].map(String).includes(id))) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: p.corteEm || !precisaAcab(p) ? 'Terminei (peças prontas)' : 'Terminei o corte' });
@@ -10777,6 +10789,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v182: etapas por item (cada lavatório/frontão é uma parte da etapa), polimento, só quem instala marca entrega, correção das entregas de hoje, reabrir entrega.
 // v181: blindagem dos pontos (uma vez por etapa, anulação, foto, quebra, trava de qualidade), metas mais difíceis, meta do dia, exigências do prêmio e auditoria diária.
 // v180: foto/texto "começando o corte/acabamento" marca o início (tempo real); acabador vê as opções dele; "falta o Lucas terminar" não dá a etapa como feita.
 // v179: análise de desempenho (ponto, tempo por tarefa, velocidade × qualidade, retorno sobre o salário, aumento) + retorno semanal a cada um.
@@ -11008,11 +11021,15 @@ const META_UNICAS = ['acabamento', 'fabricacao', 'instalacao', 'entrega', 'retir
 function metasBlindar(p, log, n) {
   const anul = log.filter(x => x.e === 'anulado');
   const vale = log.filter(x => x.e !== 'anulado' && !x.anulado && !anul.some(a => a.alvo === x.e && (!a.quem || (x.por || []).map(String).includes(String(a.quem))) && (!a.ate || x.ts <= a.ate)));
-  const esc = {}; for (const x of vale) if (META_UNICAS.includes(x.e)) { const c = esc[x.e]; if (!c || (c.dono && !x.dono)) esc[x.e] = x; }
-  let soma = 0; const cortes = [], inteiros = vale.filter(x => x.e === 'corte' && !x.pecas), inteiro = inteiros.find(x => !x.dono) || inteiros[0];
-  for (const x of vale.filter(x => x.e === 'corte' && x.pecas).sort((a, b) => a.ts - b.ts)) { const r = Math.min(+x.pecas || 0, n - soma); if (r > 0) { cortes.push(r === x.pecas ? x : { ...x, pecas: r }); soma += r; } }
-  if (inteiro && soma < n) cortes.push(soma ? { ...inteiro, pecas: n - soma } : inteiro);
-  return vale.filter(x => !META_UNICAS.includes(x.e) && x.e !== 'corte').concat(Object.values(esc), cortes);
+  const grp = e => ['entrega', 'instalacao', 'retirada'].includes(e) ? 'ent' : e, ETS = ['corte', 'polimento', 'acabamento', 'fabricacao', 'ent']; // v182: cada etapa soma no máximo 100% (itens/peças), uma só entrega
+  const fr = x => x.frac != null ? +x.frac : x.pecas ? (+x.pecas) / n : null, out = vale.filter(x => !ETS.includes(grp(x.e)));
+  for (const g of ETS) {
+    const xs = vale.filter(x => grp(x.e) === g); if (!xs.length) continue; let soma = 0;
+    if (g !== 'ent') for (const x of xs.filter(x => fr(x) != null).sort((a, b) => a.ts - b.ts)) { const r = Math.min(fr(x), 1 - soma); if (r > 0.001) { out.push(Math.abs(r - fr(x)) < 0.001 ? x : { ...x, frac: r, pecas: undefined }); soma += r; } }
+    const inteiros = xs.filter(x => g === 'ent' || fr(x) == null), inteiro = inteiros.find(x => !x.dono) || inteiros[0];
+    if (inteiro && soma < 0.999) out.push(soma ? { ...inteiro, frac: Math.round((1 - soma) * 1000) / 1000, pecas: undefined } : inteiro);
+  }
+  return out;
 }
 const pctQ = pn => Math.min(pn.pts / pn.meta * 100, pn.teto || 999); // faixa com a trava de qualidade
 const metaDoDia = metaSem => Math.ceil(metaSem / 6 * 1.1 * 2) / 2; // 6 dias de trabalho, +10%
@@ -11077,6 +11094,133 @@ async function premioExigencias(env, fid, mes, ws) {
   const nota = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : null, pctDias = uteis ? Math.round(bateu / uteis * 100) : 0;
   const okDias = uteis < 3 || pctDias >= 60, okQual = retrab <= 1 && perdas <= 1 && (nota == null || nota >= 4.5);
   return { uteis, bateu, pctDias, retrab, perdas, nota: nota != null ? Math.round(nota * 10) / 10 : null, okDias, okQual, ok: okDias && okQual };
+}
+
+// v182: ETAPAS POR ITEM — um projeto com vários itens (ex.: 4 lavatórios, a bancada e os frontões da cozinha) tem cada item como
+// uma parte da etapa (corte, polimento, acabamento, fabricação). Cada item vale a sua parte dos pontos (pelo tamanho).
+// "terminei esse lavatório", "terminei 2 lavatórios da Maria", "poli os frontões do Papinha", "cortei todos os peitoris".
+const ITEM_NOUN = /\b(lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
+const capT = t => String(t || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+function ptsItemPed(p, it) { return { __item: true, interesse: it.ambiente || p.interesse || '', projetoApp: it.ambiente || '', resumoApp: { pedra: (p.resumoApp || {}).pedra, itens: [it] }, pecas: (it.pecas || []).map(pc => ({ tipo: it.ambiente || 'peça', ...pc })) }; }
+function unidadesPed(p) {
+  const r = p.resumoApp || {}, its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: p.interesse || '', pecas: p.pecas || [] }];
+  const area = pc => Math.max(1, (+pc.comp_cm || 1) * (+pc.larg_cm || 1)), U = [];
+  if (its.length > 1) its.forEach((it, i) => { const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, k = its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length;
+    U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
+  else { const amb = normaliza(its[0].ambiente || p.interesse || '');
+    for (const pc of its[0].pecas || []) for (let k = 0; k < Math.min(+pc.qtd || 1, 20); k++) { const est = (+pc.larg_cm || 0) <= 25;
+      const tipo = /peitor/.test(amb) ? 'peitoril' : /soleir/.test(amb) ? 'soleira' : est ? 'frontão/saia' : /lavat|banheir/.test(amb) ? 'lavatório' : 'bancada';
+      U.push({ i: U.length, nome: `${capT(tipo)} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: area(pc), tipo: normaliza(tipo + ' ' + amb), larg: +pc.larg_cm || 0 }); } }
+  const tot = U.reduce((t, u) => t + u.peso, 0) || 1; U.forEach(u => { u.frac = u.peso / tot; }); return U.slice(0, 30);
+}
+function casaNoun(u, noun) {
+  const n = normaliza(noun), t = u.tipo + ' ' + normaliza(u.nome);
+  if (/^(pecas?|itens|item)$/.test(n)) return true;
+  if (/^lavat|^lavabo/.test(n)) return /lavat|lavabo|banheir/.test(t);
+  if (/^front|^testeir|^saia|^rodape|^espelho/.test(n)) return u.larg > 0 && u.larg <= 25 && !/peitor|soleir/.test(t);
+  if (/^peitor/.test(n)) return /peitor/.test(t);
+  if (/^soleir/.test(n)) return /soleir/.test(t);
+  if (/^bancad|^tampo|^balca|^ilha|^mesa/.test(n)) return u.larg > 25 || /bancad|cozinh|tampo|balca|ilha|mesa/.test(t);
+  return t.includes(n.replace(/s$/, '').slice(0, 5));
+}
+function nomeParecido(ped, texto) { // "Papinho" acha "Jailton (papinha)"
+  const tk = tokensPedra(texto), tp = tokensPedra(ped.nome || ''); return tp.some(w => w.length >= 3 && (tk.includes(w) || (w.length >= 5 && tk.some(x => x.length >= 5 && x.slice(0, -1) === w.slice(0, -1)))));
+}
+async function prodItensFuncionario(env, f, from, texto, nome, foto) {
+  const msg = normaliza(texto || '');
+  if (!/\b(terminei|terminamos|terminad[oa]s?|finalizei|finalizad[oa]s?|acabei|acabad[oa]s?|prontos?|prontas?|cortei|cortad[oa]s?|poli|polid[oa]s?|lustrei|lustrad[oa]s?|feitos|feitas)\b/.test(msg)) return false;
+  const nm = msg.match(ITEM_NOUN), qn = msg.match(/\b(\d{1,2}|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez)\b/), esse = /\b(esse|esses|essa|essas|este|estes|esta|estas)\b/.test(msg);
+  if (!nm && !qn && !esse) return false;
+  const id = String(f.id), l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && p.status !== 'recusado');
+  let ach = l.filter(p => nomeParecido(p, texto)); if (!ach.length) ach = await prodPorApelido(env, l, texto).catch(() => []);
+  if (!ach.length) { let fu = null; try { fu = JSON.parse((await env.HR_KV.get('prod:fotoult:' + ultimos8(from))) || 'null'); } catch (_) {} if (fu && Date.now() - fu.em < 30 * 60000) ach = l.filter(p => String(p.id) === String(fu.pid)); }
+  if (!ach.length) { const mine = l.filter(p => [p.fabResp, p.fab2Resp, p.acabResp].map(String).includes(id) && unidadesPed(p).length > 1); if (mine.length === 1) ach = mine; }
+  if (ach.length !== 1) return false;
+  const ped = ach[0], U = unidadesPed(ped); if (U.length < 2) return false;
+  const papel = (await funcoesEquipe(env)).map[id] || [];
+  let et = /\b(cortei|cortad)/.test(msg) ? 'corte' : /\b(poli|polid|lustr|polimento)/.test(msg) ? 'polimento' : null;
+  if (!et) et = String(ped.acabResp) === id && !ped.acabEm ? 'acabamento' : String(ped.fabResp) === id && !ped.corteEm ? 'corte' : pedComplexo(ped) && String(ped.fab2Resp) === id ? 'fabricacao' : ped.corteEm || !papel.includes('corte') ? (pedComplexo(ped) && papel.includes('fabricacao') ? 'fabricacao' : 'acabamento') : 'corte';
+  const prog = ped.prog || {}, feitos = new Set(prog[et] || []), pend = U.filter(u => !feitos.has(u.i));
+  if (!pend.length) { await enviar(env, from, `${nome}, ${ETAPA_NOME[et] || et} de *${ped.nome}* já estava completo em todos os itens.`); return true; }
+  const noun = nm ? nm[1] : '', cand = noun ? pend.filter(u => casaNoun(u, noun)) : pend;
+  const q = qn ? (/^\d+$/.test(qn[1]) ? +qn[1] : NUM_TXT[qn[1]] || 0) : 0, todos = /\b(todos|todas|tudo)\b/.test(msg);
+  let sel = [];
+  if (q && q <= cand.length && q < 30) sel = cand.slice(0, q);
+  else if (todos && cand.length) sel = cand;
+  else if (cand.length === 1 && (noun || esse)) sel = cand;
+  else if (noun && /(s|es|is)$/.test(noun) && !/^(pecas|itens)$/.test(noun) && cand.length) sel = cand; // "terminei os lavatórios"
+  else if (noun && !/^(pecas?|itens|item)$/.test(noun) && /\b(\w+ad[oa]s|feitos|feitas|prontos|prontas|terminamos)\b/.test(msg) && cand.length) sel = cand; // "frontões finalizados"
+  if (foto) await env.HR_KV.put('prod:itensfoto:' + ultimos8(from), JSON.stringify(foto), { expirationTtl: 3600 });
+  if (!sel.length) {
+    const lista = (cand.length ? cand : pend);
+    await env.HR_KV.put('prod:itens:' + ultimos8(from), JSON.stringify({ pid: ped.id, et, ids: lista.map(u => u.i), em: Date.now() }), { expirationTtl: 6 * 3600 });
+    await enviar(env, from, [`📋 ${nome}, qual item de *${ped.nome}* ficou ${et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto'}?`, '', ...lista.slice(0, 15).map((u, k) => `*${k + 1}.* ${u.nome}`), '', `Responda os números (ex.: _1, 3_) ou *todos*.`].join('\n'));
+    return true;
+  }
+  return prodItensRegistrar(env, f, from, ped, et, sel, nome);
+}
+const ETAPA_NOME = { corte: 'o corte', polimento: 'o polimento', acabamento: 'o acabamento', fabricacao: 'a fabricação' };
+async function prodItensResposta(env, f, from, texto, nome) {
+  let c = null; try { c = JSON.parse((await env.HR_KV.get('prod:itens:' + ultimos8(from))) || 'null'); } catch (_) {} if (!c) return false;
+  const msg = normaliza(texto || ''); if (!/^\s*(todos|todas|tudo|[\d\s,e]+)\s*$/.test(msg)) return false;
+  const ped = await lerPedido(env, c.pid).catch(() => null); if (!ped) return false; const U = unidadesPed(ped);
+  const nums = /todos|todas|tudo/.test(msg) ? c.ids.map((_, k) => k + 1) : (msg.match(/\d{1,2}/g) || []).map(Number);
+  const sel = [...new Set(nums)].map(k => U[c.ids[k - 1]]).filter(Boolean); if (!sel.length) { await enviar(env, from, 'Não entendi os números. Ex.: _1, 3_ ou *todos*.'); return true; }
+  await env.HR_KV.delete('prod:itens:' + ultimos8(from));
+  return prodItensRegistrar(env, f, from, ped, c.et, sel, nome);
+}
+async function prodItensRegistrar(env, f, from, ped, et, sel, nome) {
+  const id = String(f.id), U = unidadesPed(ped); ped.prog = ped.prog || {}; const feitos = new Set(ped.prog[et] || []);
+  sel = sel.filter(u => !feitos.has(u.i)); if (!sel.length) { await enviar(env, from, `${nome}, esses itens já estavam anotados.`); return true; }
+  const frac = Math.round(sel.reduce((t, u) => t + u.frac, 0) * 1000) / 1000;
+  sel.forEach(u => feitos.add(u.i)); ped.prog[et] = [...feitos];
+  const completo = ped.prog[et].length >= U.length;
+  ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+  if (!completo) ped.prodLog.push({ e: et, por: [id], ts: Date.now(), frac, itens: sel.map(u => u.i) });
+  else { const resto = Math.round(Math.max(0, 1 - (ped.prodLog.filter(x => x.e === et && x.frac != null).reduce((t, x) => t + x.frac, 0))) * 1000) / 1000; if (resto > 0.001 && resto < 0.999) ped.prodLog.push({ e: et, por: [id], ts: Date.now(), frac: resto, itens: sel.map(u => u.i) }); }
+  if (et === 'corte') ped.cortadas = Math.min(nPecasPed(ped), (+ped.cortadas || 0) + sel.length);
+  if (et === 'polimento' && completo) ped.poliEm = Date.now();
+  await salvarPedido(env, ped);
+  { let ft = null; try { ft = JSON.parse((await env.HR_KV.get('prod:itensfoto:' + ultimos8(from))) || 'null'); } catch (_) {} // a foto que veio junto fica no pedido
+    if (ft && ft.mid) { await env.HR_KV.delete('prod:itensfoto:' + ultimos8(from)); try { const b = await baixarMidia(env, ft.mid); if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind((completo && et !== 'polimento' ? 'pronto:' : 'obra:') + ped.id, bytesParaBase64(new Uint8Array(b.buf)), b.tipo, Date.now(), id).run(); if (completo && et !== 'polimento' && et !== 'corte') { ped.fotoProntoEm = Date.now(); await salvarPedido(env, ped); } } catch (_) {} } }
+  const pts = meio(ptsEtapa(ped, et) * frac) || 0.5, faltam = U.filter(u => !feitos.has(u.i));
+  const quais = sel.length <= 3 ? sel.map(u => u.nome).join(', ') : `${sel.length} itens`;
+  if (completo && et !== 'polimento') { // a etapa inteira acabou: segue o fluxo normal (passa ao acabador / pedido pronto)
+    if (et === 'acabamento' && !ped.acabResp) { ped.acabResp = id; await salvarPedido(env, ped); }
+    await enviar(env, from, `✅ ${capT(ETAPA_NOME[et].replace(/^(o|a) /, ''))} de *${ped.nome}* completo (${quais})!`).catch(() => {});
+    await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 });
+    const r = await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return r;
+  }
+  await enviar(env, from, `✅ Anotado, ${nome}: ${quais} de *${ped.nome}* — ${et === 'corte' ? 'cortado' : et === 'polimento' ? 'polido' : 'pronto'} (+${vPt(pts)} pts).${faltam.length ? `\nFaltam ${faltam.length}: ${faltam.slice(0, 6).map(u => u.nome).join(', ')}${faltam.length > 6 ? '…' : ''}.` : `\n${capT(ETAPA_NOME[et].replace(/^(o|a) /, ''))} completo.${ped.acabResp && String(ped.acabResp) !== id ? ' Falta o acabamento.' : ''}`}`);
+  await metaChecar(env, id); return true;
+}
+// dono: reabre uma entrega/instalação marcada por engano (ex.: foto da fábrica escolhida como "terminei a instalação")
+async function reabrirEntrega(env, ped, motivo) {
+  ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : [];
+  for (const al of ['entrega', 'instalacao', 'retirada']) if (ped.prodLog.some(x => x.e === al) || ped.entFeitoPor) ped.prodLog.push({ e: 'anulado', alvo: al, quem: '', ate: Date.now(), ts: Date.now(), motivo: motivo || 'entrega marcada por engano', dono: 1 });
+  ped.entregueEm = null; ped.entFeitoPor = null; ped.fotoEntregaEm = null; ped.pecasEntregues = null; ped.janelaEtapa = ped.janela ? 'combinada' : ped.janelaEtapa;
+  await salvarPedido(env, ped);
+}
+async function pedidoReabrirTool(env, a) {
+  const tk = tokensPedra(String(a.cliente || '')); const l = await pedidosProducao(env, p => p.entregueEm && tk.length && (tk.every(w => tokensPedra(p.nome || '').includes(w)) || nomeParecido(p, a.cliente)));
+  const ped = l.sort((x, y) => (y.entregueEm || 0) - (x.entregueEm || 0))[0]; if (!ped) return { erro: true, texto: `Não achei entrega registrada de ${a.cliente}.` };
+  if (a.tambem_inicio) { ped.instIniEm = null; ped.instIniPor = null; ped.instIniFotoEm = null; }
+  await reabrirEntrega(env, ped, a.motivo);
+  return { texto: `Reaberto: ${ped.nome} volta a constar como NÃO entregue; os pontos da entrega foram anulados${a.tambem_inicio ? ' e o início da instalação foi apagado' : ''}. Confirme em UMA frase.` };
+}
+// correção automática (uma vez): entregas de hoje marcadas por quem não instala nem é o responsável
+async function mig182Reabrir(env) {
+  if (await env.HR_KV.get('mig:182')) return; if (!(await travaEnvio(env, 'mig:182'))) return; await env.HR_KV.put('mig:182', '1');
+  const cfg = await pontoCfg(env), { map } = await funcoesEquipe(env), desde = Date.now() - 36 * 3600000, out = [];
+  for (const p of await pedidosProducao(env, p => p.entregueEm && p.entregueEm > desde && String(p.entrega || '') !== 'retirada')) {
+    let por = ''; try { if (env.HR_DB) { const r = await env.HR_DB.prepare('SELECT por FROM foto_entrega WHERE ref = ? ORDER BY ts DESC LIMIT 1').bind('ped:' + p.id).first(); por = String((r && r.por) || ''); } } catch (_) {}
+    if (!por || (p.prodLog || []).some(x => (x.e === 'entrega' || x.e === 'instalacao') && x.dono)) continue;
+    if ((map[por] || []).some(x => ENT_F.includes(x)) || String(p.entResp) === por) continue;
+    const ini = String(p.instIniPor || '') === por; if (ini) { p.instIniEm = null; p.instIniPor = null; p.instIniFotoEm = null; }
+    await reabrirEntrega(env, p, 'foto da fábrica marcada como entrega');
+    const f = cfg.funcs.find(x => String(x.id) === por); out.push(`• *${p.nome}* (marcado por ${f ? apelidoFunc(cfg, f) : 'alguém da fábrica'}${ini ? ', início também' : ''})`);
+  }
+  if (out.length) await pontoAvisarDono(env, ['🛠️ *Corrigi entregas marcadas por engano hoje:*', ...out, '', 'Voltaram a constar como *não entregues* e os pontos da entrega saíram. O cliente não foi avisado. Quem entrega/instala é que marca o fim.'].join('\n')).catch(() => {});
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -12286,7 +12430,7 @@ const FERRAMENTAS = [
   {
     name: 'producao_status',
     description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). ATENÇÃO AO TEMPO DO VERBO: só marque como feito o que ele disse no PASSADO ("instalaram", "terminou"). Futuro ou presente ("vão instalar", "hoje instalam", "estão instalando", "amanhã entrega") é vai_fazer=true — marcar antes da hora emite a garantia e dá pontos sem o serviço existir. Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
-    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'polimento', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
     name: 'acordo_alterar',
@@ -12401,6 +12545,11 @@ const FERRAMENTAS = [
       data: { type: 'string', description: 'AAAA-MM-DD; vazio = hoje' },
       entrada: { type: 'string', description: 'HH:MM, só se ele disse' }, saida_almoco: { type: 'string', description: 'HH:MM' }, volta_almoco: { type: 'string', description: 'HH:MM' }, saida: { type: 'string', description: 'HH:MM, só se ele disse (pode ser o horário previsto de saída)' },
       motivo: { type: 'string', description: 'ex.: hora extra no sábado' } }, required: ['funcionarios'] },
+  },
+  {
+    name: 'pedido_reabrir_entrega',
+    description: 'REABRE uma entrega/instalação marcada por engano (ex.: "o Cássio não foi entregue, foi só uma etapa", "reabre a entrega do Jailton"). O pedido volta a NÃO entregue e os pontos da entrega saem. tambem_inicio=true se o início da instalação também foi marcado por engano.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, motivo: { type: 'string' }, tambem_inicio: { type: 'boolean' } }, required: ['cliente'] },
   },
   {
     name: 'pontos_anular',
@@ -12866,6 +13015,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
   if (nome === 'pontos_anular') return await pontosAnularTool(env, a); // v181
+  if (nome === 'pedido_reabrir_entrega') return await pedidoReabrirTool(env, a); // v182
   if (nome === 'desempenho_equipe') { const t = a.aumento && !a.funcionario ? await aumentoTexto(env) : await desempenhoEquipeTexto(env, a.dias || (a.funcionario ? 30 : 30), a.funcionario || ''); return { texto: t + '\n\nRepasse ao Sr. Hangel este relatório como está (pode resumir se ele pediu algo específico). Não invente números.' }; } // v179
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
