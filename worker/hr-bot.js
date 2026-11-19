@@ -7835,10 +7835,10 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   if (idB && /^(fpr|fen)\|/.test(idB)) { const [ac, pid] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; } return ac === 'fpr' ? prodMarcarPronto(env, ped, from, nome) : prodMarcarEntregue(env, ped, from, nome, ''); }
   if (/\b(o que (tem|tenho|falta)|tarefas?|minhas? (tarefas?|entregas?|fichas?)|pedidos?( de hoje)?|fila|lista|tem (algo|alguma coisa|servico|entrega|corte))\b/.test(msg) && msg.split(' ').length <= 10) {
     const meu = p => !p.fabResp && !p.entResp ? true : [p.fabResp, p.fab2Resp, p.entResp, p.acabResp].includes(String(f.id));
-    const acabMeu = p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm && naFabrica(p);
+    const acabMeu = p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm && !p.entregueEm; // v187: também depois de marcado pronto antes da hora
     const l = await pedidosProducao(env, p => meu(p) && (acabMeu(p) || (papel !== 'entrega' && naFabrica(p) && (p.fabResp === String(f.id) ? !p.corteEm || !p.fab2Resp : p.fab2Resp === String(f.id) || !p.fabResp)) || (papel !== 'fabrica' && naEntrega(p))));
     if (!l.length) { await enviar(env, from, `${nome}, não tem nada pendente para você agora. 👍`); return true; }
-    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${difTxt(p) ? '\n   ' + difTxt(p) : ''}${p.cortadas && !p.corteEm ? `\n   ✂️ ${p.cortadas} de ${nPecasPed(p)} cortadas` : ''}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
+    await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${difTxt(p) ? '\n   ' + difTxt(p) : ''}${(() => { const U = unidadesPed(p); if (U.length < 2 || papel === 'entrega') return p.cortadas && !p.corteEm ? `\n   ✂️ ${p.cortadas} de ${nPecasPed(p)} cortadas` : ''; const et = String(p.acabResp) === String(f.id) && p.corteEm && !p.acabEm ? 'acabamento' : !p.corteEm ? 'corte' : pedComplexo(p) ? 'fabricacao' : 'acabamento'; const ok = new Set((p.prog || {})[et] || []), fal = U.filter(u => !ok.has(u.i)); return `\n   📋 ${et}: ${ok.size} de ${U.length} itens${fal.length ? ' · faltam ' + fal.slice(0, 4).map(u => u.nome).join(', ') + (fal.length > 4 ? '…' : '') : ''}`; })()}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
     return true;
   }
   if (!idB && await eqExplicarPontos(env, f, from, texto, nome).catch(e => { console.log('[PTS] explicar:', e.message); return false; })) return true; // v183
@@ -10823,6 +10823,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v187: "minhas tarefas" mostra o progresso por item (2 de 4 lavatórios, quais faltam).
 // v186: o bot do cliente prometeu algo que só o dono faz ("envio o termo em instantes") → aviso ao dono.
 // v185: CPF/nome que o cliente manda completam a garantia emitida sem CPF (e a da Renata é corrigida); mensagens à equipe sem repetição simultânea.
 // v184: economia da IA (cache de 1 h nas regras e dados, cache nas voltas das ferramentas, parte viva fora do cache, histórico resumido, Haiku no RH e na contagem, "ok/obrigado" sem IA) e medidor ("consumo da ia").
@@ -14103,6 +14104,7 @@ async function resumoPedidosParaIA(env, max = 8) {
       situacao: situacaoPedidoTxt(ped),
       lucro_estimado: ped.custo > 0 ? `R$ ${reais(ped.lucro)} (${ped.margemPct ?? '?'}%)` : null,
       pago_ou_sinal: ped.pago ? 'sim' : 'não consta',
+      producao: (() => { try { const U = unidadesPed(ped), pr = ped.prog || {}; const et = Object.keys(pr); if (U.length < 2 || !et.length) return undefined; return et.map(e => `${e} ${pr[e].length}/${U.length}`).join(', '); } catch (_) { return undefined; } })(), // v187: itens feitos por etapa
     }));
   } catch (e) { console.log('[BOT] resumo pedidos:', e.message); return []; }
 }
