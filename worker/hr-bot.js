@@ -7783,6 +7783,10 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
   const msg = normaliza(texto || '');
   if (idB && /^acb\|/.test(idB)) return prodAcabadorEscolhido(env, f, from, idB, nome); // v149
   if (!idB && /\b(quebrou|quebrei|quebramos|trincou|trinquei|rachou|rachei|lascou|lasquei|estragou|estraguei|perdi a peca|perdemos)\b/.test(msg)) return perdaFuncionario(env, f, from, texto, nome); // v151
+  if (!idB && msg.split(' ').length <= 6 && !/\b(iniciando|inicia|comec|cheguei|instalei|entreguei|terminei|cortei|pronto|acabei)\w*/.test(msg) && await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) { // v172: "é da Renata" depois de uma foto
+    let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
+    if (fp && fp.mid) { const rec = await pedidosProducao(env, p => !p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000); if (acharPorNome(rec, texto).length) return prodFotoPerguntar(env, f, from, { type: 'image', image: { id: fp.mid } }, nome, texto); }
+  }
   if (!idB && /\b(sobrou|retalho|guardei uma sobra|guardei a sobra)\b/.test(msg)) return sobraFuncionario(env, f, from, texto, nome); // v151
   if (idB && /^frs\|/.test(idB)) { const pd = await lerPedido(env, idB.slice(4)).catch(() => null); if (pd) return prodMarcarEntregue(env, pd, from, nome, ''); } // v137
   if (idB && /^(fgr|fgs|fgn)\|/.test(idB)) { // v135: conferência da entrega
@@ -10578,10 +10582,19 @@ async function prodFotoPerguntar(env, f, from, m, nome, leg) {
   await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify({ mid: m.image.id, em: Date.now() }), { expirationTtl: 6 * 3600 });
   const id = String(f.id); let l = await pedidosProducao(env, p => !p.entregueEm && (p.fichaEnviadaEm || p.fechDono) && [p.fabResp, p.fab2Resp, p.acabResp, p.entResp].includes(id));
   if (leg) { const ach = acharPorNome(l, leg); if (ach.length) l = [...ach, ...l.filter(p => !ach.includes(p))]; } // v169: o cliente da legenda vem primeiro
+  if (!l.length || (leg && !acharPorNome(l, leg).length)) { // v172: sem serviço aberto com ele → serviços recentes da equipe (abertos ou entregues nos últimos 3 dias)
+    const rec = await pedidosProducao(env, p => (p.fichaEnviadaEm || p.fechDono || p.origem === 'manual' || p.origem === 'acordo') && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
+    let ach = leg ? acharPorNome(rec, leg) : []; const outros = rec.sort((a, b) => (b.atualizado || b.criado || 0) - (a.atualizado || a.criado || 0)).filter(p => !ach.includes(p) && !l.includes(p));
+    l = [...ach, ...l, ...outros].slice(0, 4);
+  }
   const linhas = [];
   for (const p of l.slice(0, 4)) {
     const pn = String(p.nome || 'cliente').split(' ').slice(0, 2).join(' ');
-    if (p.entResp === id && naEntrega(p)) {
+    if (p.entregueEm) { // v172: entregue — se foi o dono que marcou hoje (ex.: "vão instalar" virou "instalaram"), dá para começar de verdade
+      const porDono = (p.prodLog || []).some(x => (x.e === 'instalacao' || x.e === 'entrega') && x.dono) && Date.now() - p.entregueEm < 12 * 3600000 && !p.fotoEntregaEm;
+      if (porDono) linhas.push({ id: `fot|${p.id}|reabre`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação agora (foto do local)' });
+      linhas.push({ id: `fot|${p.id}|foto`, titulo: `📷 ${pn}`.slice(0, 24), descricao: 'Guardar a foto no serviço' }); continue; }
+    if ((p.entResp === id || !p.entResp) && naEntrega(p)) {
       if (!p.instIniEm) linhas.push({ id: `fot|${p.id}|ini`, titulo: `📍 ${pn}`.slice(0, 24), descricao: 'Começando a instalação (foto do local)' });
       linhas.push({ id: `fot|${p.id}|fim`, titulo: `✅ ${pn}`.slice(0, 24), descricao: pedComplexo(p) ? 'Terminei a instalação (foto final)' : 'Entreguei (foto das peças)' });
     } else if (naFabrica(p)) linhas.push({ id: `fot|${p.id}|pronto`, titulo: `✅ ${pn}`.slice(0, 24), descricao: 'Terminei (peças prontas)' });
@@ -10597,6 +10610,11 @@ async function prodFotoEscolha(env, f, from, idB, nome) {
   if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
   const img = { type: 'image', image: { id: fp.mid } };
+  if (ac === 'reabre') { // v172: desfaz a instalação marcada antes da hora (os pontos voltam a contar quando terminar de verdade)
+    ped.prodLog = (ped.prodLog || []).filter(x => !((x.e === 'instalacao' || x.e === 'entrega') && x.dono)); ped.entregueEm = null; ped.entFeitoPor = ped.entFeitoPor || String(f.id); ped.entResp = ped.entResp || String(f.id); ped.fabProntoEm = ped.fabProntoEm || Date.now(); ped.instIniEm = null; await salvarPedido(env, ped);
+    await pontoAvisarDono(env, `ℹ️ A instalação de *${ped.nome}* estava marcada como feita, mas ${nome} está começando agora. Reabri o serviço; os pontos e a baixa saem quando ele terminar.`).catch(() => {});
+    await env.HR_KV.put('prod:fotopend:' + ultimos8(from), JSON.stringify(fp), { expirationTtl: 6 * 3600 }); return prodFotoEscolha(env, f, from, `fot|${ped.id}|ini`, nome);
+  }
   if (ac === 'ini') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodInicioInstalacao(env, f, from, 'iniciando a instalação do ' + ped.nome, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
   if (ac === 'fim') { await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, texto: '', receb: null, em: Date.now() }), { expirationTtl: 12 * 3600 }); return prodFotoRecebida(env, f, from, img, nome); }
   if (ac === 'pronto') { await env.HR_KV.put('prod:fotoja:' + ultimos8(from), '1', { expirationTtl: 120 }); await prodMarcarPronto(env, ped, from, nome); await env.HR_KV.delete('prod:fotoja:' + ultimos8(from)); return prodFotoRecebida(env, f, from, img, nome); }
@@ -11840,7 +11858,7 @@ const FERRAMENTAS = [
   },
   {
     name: 'producao_status',
-    description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
+    description: 'ATUALIZA A PRODUÇÃO pelo que o Sr. Hangel conta: quem fez qual etapa de qual serviço (soma pontos na meta). Uma chamada por etapa; vários funcionários na mesma etapa dividem os pontos. Ex.: "hoje Fabrício e Lucas começaram a fabricação da Maria" (etapa inicio), "Fabrício terminou a fabricação da Maria" (fabricacao), "Hugo finalizou o serviço da Maria" (finalizado), "Gibson e Jefferson instalaram a bancada da Maria" (instalacao), "Fabrício cortou e Lucas fez os acabamentos dos peitoris da Maria" (duas chamadas: corte com Fabrício; acabamento com Lucas). ATENÇÃO AO TEMPO DO VERBO: só marque como feito o que ele disse no PASSADO ("instalaram", "terminou"). Futuro ou presente ("vão instalar", "hoje instalam", "estão instalando", "amanhã entrega") é vai_fazer=true — marcar antes da hora emite a garantia e dá pontos sem o serviço existir. Para algo que a pessoa VAI fazer use vai_fazer=true: "hoje Gibson vai acabar a cozinha da Maria, que Fabrício terminou de cortar ontem" = duas chamadas: corte com Fabrício e data de ontem; depois etapa fabricacao, funcionarios [Gibson], vai_fazer true, tarefa "acabamento". Etapas: inicio, corte, acabamento, fabricacao, finalizado, instalacao, entrega, retirada.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
