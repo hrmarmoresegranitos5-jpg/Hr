@@ -7905,7 +7905,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
       const t2 = await respTel(env, ped.fab2Resp), n2 = await respNome(env, ped.fab2Resp);
       const sH = unidadesEtapa(ped, 'fabricacao') || [], uP = unidadesEtapa(ped, 'polimento') || []; // v188
       if (t2) await enviar(env, t2, `${avisoTeste(env)}🪚 As peças de *${ped.nome}* (${resumoPecas(ped)}) já estão *cortadas*. A sua parte:${sH.length ? '\n' + sH.map(u => `• ${u.nome} (${vPt(u.pts)} pts)`).join('\n') : ' 45°, cuba e acabamento.'}\nA cada parte pronta pode me dizer (ex.: _colei a cuba da ${String(ped.nome).split(' ')[0]}_). No fim: _terminei o de ${String(ped.nome).split(' ')[0]}_.`).catch(() => {});
-      if (uP.length) { const pid = await polidorDe(env, ped); if (pid && pid !== String(ped.fab2Resp)) { ped.poliResp = pid; await salvarPedido(env, ped); const tp = await respTel(env, pid); if (tp) await enviar(env, tp, `${avisoTeste(env)}✨ ${await respNome(env, pid)}, os frontões/saias de *${ped.nome}* estão cortados. Pode fazer o *polimento* (${uP.length} peça${uP.length > 1 ? 's' : ''}):\n${uP.slice(0, 8).map(u => '• ' + u.nome).join('\n')}\nQuando terminar: _poli os frontões da ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); } }
+      if (uP.length) { const pid = await polidorDe(env, ped); if (pid && pid !== String(ped.fab2Resp)) { ped.poliResp = pid; await salvarPedido(env, ped); const tp = await respTel(env, pid); if (tp) await enviar(env, tp, `${avisoTeste(env)}✨ ${await respNome(env, pid)}, os frontões/saias de *${ped.nome}* estão cortados. Pode fazer o *polimento e o acabamento* (${uP.length} parte${uP.length > 1 ? 's' : ''}):\n${uP.slice(0, 8).map(u => '• ' + u.nome).join('\n')}\nQuando terminar: _poli os frontões da ${String(ped.nome).split(' ')[0]}_.`).catch(() => {}); } }
       await enviar(env, from, `Show, ${nome}! Corte de *${ped.nome}* anotado. Passei para o ${n2 || 'Hugo'} fazer a fabricação.`);
       await pontoAvisarDono(env, `🪚 ${nome} cortou o pedido de *${ped.nome}*; ${n2 || 'Hugo'} segue com a fabricação.`).catch(() => {});
       await metaChecar(env, fid); // v147
@@ -10832,6 +10832,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v189: saia reta/boleada (acabamento) e slim (polimento) passam para o polidor; saia 45° continua com o Hugo.
 // v188: etapas reais da bancada (corte com tampo do rebaixo, polimento de frontões/saias, Hugo: rebaixo americano, cuba sobrepor/embutida/flush/esculpida, saia 45°, cooktop, furos); "a cuba da Maria é flush".
 // v187: "minhas tarefas" mostra o progresso por item (2 de 4 lavatórios, quais faltam).
 // v186: o bot do cliente prometeu algo que só o dono faz ("envio o termo em instantes") → aviso ao dono.
@@ -11197,6 +11198,7 @@ function casaNoun(u, noun) {
   if (/^(pecas?|itens|item)$/.test(n)) return true;
   if (/^rebaix|^tampo/.test(n) && /rebaixo/.test(t)) return true; if (/^cuba/.test(n)) return /cuba/.test(t); if (/^cook/.test(n)) return /cooktop/.test(t); if (/^furo/.test(n)) return /furo/.test(t); if (/^saias? (em |de )?45/.test(n)) return /45/.test(t); // v188
   if (/^lavat|^lavabo/.test(n)) return /lavat|lavabo|banheir/.test(t);
+  if (/^saia/.test(n) && /saia (reta|boleada|slim)/.test(t)) return true; // v189
   if (/^front|^testeir|^saia|^rodape|^espelho/.test(n)) return u.larg > 0 && u.larg <= 25 && !/peitor|soleir/.test(t);
   if (/^peitor/.test(n)) return /peitor/.test(t);
   if (/^soleir/.test(n)) return /soleir/.test(t);
@@ -11355,7 +11357,7 @@ function servicosHugo(it) {
   if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
   if (sv.includes('cook')) L.push({ nome: 'Recorte do cooktop', pts: 1.5 });
   if (sv.includes('s_45') || it.acabamento === '45') L.push({ nome: 'Saia em 45°: corte, colagem e acabamento', pts: Math.min(8, Math.max(3, meio(saiaM * 0.75))) }); // frontões e saias têm a mesma largura no orçamento: estimativa
-  else if (sv.some(k => /^s_(reta|boleada|slim)$/.test(k))) L.push({ nome: 'Saias: colagem e acabamento', pts: Math.max(1, meio(saiaM * 0.5)) });
+  // v189: saia reta, boleada e slim são do POLIDOR (acabamento/polimento), não do Hugo
   const furos = sv.filter(k => k === 'forn' || k === 'fralo').length; if (furos) L.push({ nome: `Furos (${furos})`, pts: 0.5 * furos });
   if (!L.length) L.push({ nome: 'Acabamento final', pts: 1 });
   return L;
@@ -11368,7 +11370,13 @@ function unidadesEtapa(p, et) {
     const dim = pc => `${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`;
     if (et === 'corte') { for (const pc of it.pecas) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `${pcEstreita(pc) ? 'Frontão/saia' : 'Bancada'} ${dim(pc)}`, pts: ptsBasePeca(pc.comp_cm, pc.larg_cm), larg: +pc.larg_cm || 0, tipo: normaliza((pcEstreita(pc) ? 'frontao saia ' : 'bancada ') + (it.ambiente || '')) });
       if ((it.sv || []).includes('reb_a')) U.push({ nome: pre + 'Tampo do rebaixo americano', pts: 1, larg: 30, tipo: 'tampo rebaixo' }); }
-    if (et === 'polimento') for (const pc of it.pecas.filter(pcEstreita)) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `Frontão/saia ${dim(pc)}`, pts: meio(0.5 + (+pc.comp_cm || 0) / 200) || 0.5, larg: +pc.larg_cm || 0, tipo: 'frontao saia' });
+    if (et === 'polimento') { for (const pc of it.pecas.filter(pcEstreita)) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `Frontão/saia ${dim(pc)}`, pts: meio(0.5 + (+pc.comp_cm || 0) / 200) || 0.5, larg: +pc.larg_cm || 0, tipo: 'frontao saia' });
+      const sv = it.sv || [], m = it.pecas.filter(pcEstreita).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100; // v189: saias do polidor (45° é do Hugo)
+      if (!sv.includes('s_45') && it.acabamento !== '45') {
+        if (sv.includes('s_boleada')) U.push({ nome: pre + 'Saia boleada: acabamento', pts: Math.min(5, Math.max(1.5, meio(m * 0.6))), larg: 5, tipo: 'saia boleada acabamento' });
+        else if (sv.includes('s_reta')) U.push({ nome: pre + 'Saia reta: acabamento', pts: Math.min(4, Math.max(1, meio(m * 0.4))), larg: 5, tipo: 'saia reta acabamento' });
+        if (sv.includes('s_slim')) U.push({ nome: pre + 'Saia slim: polimento', pts: Math.min(2, Math.max(0.5, meio(m * 0.25))), larg: 5, tipo: 'saia slim polimento' });
+      } }
     if (et === 'fabricacao') for (const s of servicosHugo(it)) U.push({ nome: pre + s.nome, pts: s.pts, larg: 0, tipo: normaliza(s.nome) });
   });
   const tot = U.reduce((t, u) => t + u.pts, 0) || 1; U.forEach((u, k) => { u.i = k; u.peso = u.pts; u.frac = u.pts / tot; }); return U.slice(0, 40);
