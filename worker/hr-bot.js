@@ -11654,6 +11654,23 @@ const NARR199 = {
   dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
   fim: 'Bora bater a meta, equipe!',
 };
+// v205: levantamento (uma vez) de quanto tempo cada tipo de tarefa levou x pontos, para calibrar
+async function diag205(env) {
+  if (!env.HR_DB || await env.HR_KV.get('diag:205')) return; await env.HR_KV.put('diag:205', '1', { expirationTtl: 3 * 86400 });
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
+  const cfg = await pontoCfg(env), peds = await pedidosProducao(env, () => true), de = dataBahia(-60), dentro = ts => { const d = diaDe(ts); return d && d >= de; };
+  const nome = id => (cfg.funcs.find(f => String(f.id) === String(id)) || {}).nome || id, out = [];
+  const tipoPed = p => { const its = ((p.resumoApp || {}).itens || []); const amb = normaliza(its.map(i => i.ambiente).join(' ') + ' ' + (p.interesse || '')); return pedComplexo(p) ? 'complexo' : /peitor|soleir|rodape|filete|degrau|escad/.test(amb) ? 'pequenas' : 'simples'; };
+  for (const p of peds) {
+    const log = Array.isArray(p.prodLog) ? p.prodLog : [], n = nPecasPed(p), tp = tipoPed(p), area = (((p.resumoApp || {}).itens || []).flatMap(i => i.pecas || []).reduce((t, x) => t + (+x.comp_cm || 0) * (+x.larg_cm || 0) * (+x.qtd || 1), 0) / 10000);
+    const base = { ped: p.nome, tipo: tp, n, m2: Math.round(area * 100) / 100 };
+    if (p.corteEm && dentro(p.corteEm)) { const ini = p.corteIniEm && p.corteIniEm < p.corteEm ? p.corteIniEm : null; out.push({ ...base, et: 'corte', por: nome(p.corteFeitoPor || ((log.find(x => x.e === 'corte') || {}).por || [])[0]), pts: ptsEtapa(p, 'corte'), minReal: ini ? minUteis(env, ini, p.corteEm) : null, minFicha: p.fichaEnviadaEm ? minUteis(env, p.fichaEnviadaEm, p.corteEm) : null }); }
+    for (const x of log) if ((x.e === 'acabamento' || x.e === 'polimento') && x.ts && dentro(x.ts)) out.push({ ...base, et: x.e, por: (x.por || []).map(nome).join('+'), pts: ptsEtapa(p, x.e), minReal: p.acabIniEm && p.acabIniEm < x.ts ? minUteis(env, p.acabIniEm, x.ts) : null, minFicha: p.corteEm ? minUteis(env, p.corteEm, x.ts) : null });
+    if (pedComplexo(p) && p.fabProntoEm && dentro(p.fabProntoEm)) out.push({ ...base, et: 'fabricacao', por: nome(p.fabFeitoPor), pts: ptsEtapa(p, 'fabricacao'), minReal: null, minFicha: p.corteEm ? minUteis(env, p.corteEm, p.fabProntoEm) : null });
+    if (p.entregueEm && dentro(p.entregueEm)) out.push({ ...base, et: pedComplexo(p) ? 'instalacao' : 'entrega', por: nome(p.entFeitoPor), pts: ptsEtapa(p, pedComplexo(p) ? 'instalacao' : 'entrega'), minReal: p.instIniEm ? minUteis(env, p.instIniEm, p.entregueEm) : null, minFicha: null });
+  }
+  await env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind('tempos', JSON.stringify(out).slice(0, 900000)).run();
+}
 // v203: o cooktop saiu do Hugo — avisa o dono do novo total do Hugo
 async function mig203(env) {
   if (await env.HR_KV.get('mig:203')) return; if (!(await travaEnvio(env, 'mig:203'))) return; await env.HR_KV.put('mig:203', '1');
@@ -31395,6 +31412,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
+    if (ctx && ctx.waitUntil && !globalThis.__diag205) { globalThis.__diag205 = 1; ctx.waitUntil(diag205(env).catch(e => console.log('[DIAG205]', e.message))); } // v205
     if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).then(() => mig203(env)).catch(e => console.log('[MIG202]', e.message))); } // v202/v203
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
