@@ -1,3 +1,4 @@
+// v154 (19/11/2026): EQUIPE VALENDO ("equipe valendo"/"equipe em teste" no KV; padrão valendo), manual de boas-vindas a cada funcionário, +pontos na hora, resumo do fim do dia 17h30, mural com a foto do serviço entregue
 // v153 (18/11/2026): acordo busca o orçamento pelo nome (orcamento_nome), prévia com [Confirmar e enviar], pede à cliente nome completo, CPF e endereço antes do termo
 // v152 (18/11/2026): ACORDO DE PAGAMENTO (acordo_pagamento: termo em PDF com aceite, instalador sabe quanto receber, diferença vai para a 1ª parcela, Pix em cada vencimento pela cobrança profissional; "acordos", "termo da Maria")
 // v151 (18/11/2026): PLANO DO DIA 6h30 (sugere passar fabricação a quem não instala hoje), ALERTA DE ATRASO 10h, FOTO DAS PEÇAS PRONTAS, PERDAS (perdas), SOBRAS (sobras; avisa quando um pedido cabe), ORÇAMENTOS ESQUECIDOS 3/7 dias, INDICAÇÃO no pós-venda, LINK DO GOOGLE pelo WhatsApp, PREVISÃO DO MÊS
@@ -6771,6 +6772,8 @@ async function pedirAvaliacoes(env) {
   await atrasoRotina(env).catch(e => console.log('[ATRASO]', e.message)); // v151
   await esquecidosRotina(env).catch(e => console.log('[ESQ]', e.message)); // v151
   await acdRotina(env).catch(e => console.log('[ACD] rotina:', e.message)); // v152
+  await eqBoasVindasRotina(env, false).catch(e => console.log('[EQ] boas-vindas:', e.message)); // v154
+  await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7625,7 +7628,7 @@ async function despacharPedidoDireto(env, ped, opc = {}) {
   const itens = (r.itens && r.itens.length) ? r.itens : [{ ambiente: INTERESSES[ped.interesse] || 'Peças', acabamento: ped.acabamento || '', pecas: ped.pecas || [] }];
   const blocos = itens.map(it => `*${it.ambiente || 'Peças'}* — ${ORC_ACAB_TXT[it.acabamento] || 'acabamento conforme o orçamento'}\n` +
     agruparPecas(it.pecas).map(x => `• ${x.qtd || 1} ${(x.qtd || 1) === 1 ? 'peça' : 'peças'} de ${medidaFalada(x.comp_cm, x.larg_cm)}`).join('\n')).join('\n\n');
-  const AVISO_TESTE = String(env.TESTE_PRODUCAO ?? '1') === '0' ? [] : ['*TESTE: IGNORE ESTA MENSAGEM.*', 'Estamos testando um novo sistema na HR Mármores e Granitos. Em breve teremos uma assistente com IA. Não é preciso fazer nada.', ''];
+  const AVISO_TESTE = !emTesteEquipe(env) ? [] : ['*TESTE: IGNORE ESTA MENSAGEM.*', 'Estamos testando um novo sistema na HR Mármores e Granitos. Em breve teremos uma assistente com IA. Não é preciso fazer nada.', ''];
   const ficha = ['*FICHA DE CORTE*', `Cliente: ${ped.nome || '---'}`, `Pedra: ${r.pedra || ped.cor || 'a confirmar'}`, '', blocos].join('\n');
 
   const sn = ped.sinal && ped.sinal.valor ? ped.sinal : null;
@@ -7804,6 +7807,7 @@ async function prodMarcarPronto(env, ped, from, nome) {
   let terminou = 'terminou o pedido de';
   if (ped.acabEm && ped.acabResp && String(ped.acabResp) !== String(ped.fabFeitoPor)) { terminou = `cortou e *${await respNome(env, ped.acabResp)}* fez o acabamento. Ficou pronto o pedido de`; } // v149
   await metaChecar(env, ped.fabFeitoPor); // v147
+  if (ped.acabResp && ped.acabEm && String(ped.acabResp) !== String(ped.fabFeitoPor)) await metaChecar(env, ped.acabResp); // v154
   const retirada = String(ped.entrega || '') === 'retirada';
   let entTxt = '';
   if (ped.fechDono && !retirada && !ped.janela) { // v135: pronto agora → combina o horário com o cliente
@@ -7890,7 +7894,10 @@ async function fichaProducao(env, a) {
 // ═════════════════════════════════════════════════════════════════════════════
 const FECH_K = 'fech:dono';
 const RE_FECHEI = /^(?:ja |eu )?(?:fechei|fechamos|fechou|vendi|vendemos|fechado)\s+(?:(?:o|a)\s+)?(?:servico|pedido|orcamento|trabalho|obra|venda|negocio)?\s*(?:d[oae]s?|com|pra|para|pro)?\s*(?:o |a )?(.{2,60})$/;
-const avisoTeste = env => String(env.TESTE_PRODUCAO ?? '1') === '0' ? '' : '*TESTE: IGNORE ESTA MENSAGEM.*\n';
+// v154: "equipe valendo" / "equipe em teste" pelo WhatsApp (guardado no KV); sem escolha, vale (mensagens reais)
+const emTesteEquipe = env => { const m = globalThis.__eqModo; if (m === 'teste') return true; if (m === 'real') return false; return String(env.TESTE_PRODUCAO ?? '0') === '1'; };
+async function eqModoCarregar(env) { if (globalThis.__eqModoEm && Date.now() - globalThis.__eqModoEm < 5 * 60000) return; globalThis.__eqModoEm = Date.now(); globalThis.__eqModo = (await env.HR_KV.get('cfg:equipe_modo').catch(() => '')) || ''; }
+const avisoTeste = env => !emTesteEquipe(env) ? '' : '*TESTE: IGNORE ESTA MENSAGEM.*\n';
 async function numEquipe(env, papel, ped) {
   if (ped) { const t = await respTel(env, papel === 'fabrica' ? (ped.fab2Resp && ped.corteEm ? ped.fab2Resp : ped.fabResp) : ped.entResp); if (t) return t; } // v146
   const n = await lerNumeros(env); return normalizarBR(String((papel === 'fabrica' ? (n.fabrica || env.FABRICA_NUMERO) : (n.entrega || env.ENTREGA_NUMERO)) || '').replace(/\D/g, '')) || ''; }
@@ -9195,6 +9202,7 @@ async function prodFotoRecebida(env, f, from, m, nome) {
     const up = await subirImagemMeta(env, buf, 'entrega-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id;
     if (mid) {
       await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📸 Comprovante: ${nome} entregou o pedido de ${ped.nome}` } }).catch(() => {});
+      await eqMural(env, ped, mid, f.id).catch(() => {}); // v154
       if (ped.numero && await janela24h(env, ped.numero)) await postarMsg(env, ped.numero, { type: 'image', image: { id: mid, caption: `Seu pedido foi entregue! ✅ Foto das peças no local. Qualquer coisa, é só chamar por aqui.` } }).catch(() => {});
     }
   } catch (e) { console.log('[FOTO] envio:', e.message); }
@@ -9392,6 +9400,11 @@ async function metaChecar(env, funcId) {
     const pn = await metaPainel(env, funcId), k = 'meta:av:' + funcId + ':' + pn.semana.ini;
     const ja = (await env.HR_KV.get(k)) || '';
     const tel = await respTel(env, funcId), nome = await respNome(env, funcId); if (!tel) return;
+    { // v154: avisa cada ponto ganho, na hora
+      const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
+      if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !(pn.pct >= 50 && !ja.includes('50')) && !(pn.pct >= 100 && !ja.includes('100'))) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${Math.round((pn.pts - antes) * 10) / 10} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}` : ' · meta batida 🎯'}`).catch(() => {}); }
+    }
     if (pn.pct >= 100 && !ja.includes('100')) { await env.HR_KV.put(k, ja + '100', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}🎯🎉 *${nome}, META BATIDA!* ${pn.pts} de ${pn.meta} pontos nesta semana.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}* garantido!` : ''} Cada ponto a mais conta para o ranking. 💪`).catch(() => {}); await pontoAvisarDono(env, `🎯 *${nome}* bateu a meta da semana (${pn.pts}/${pn.meta} pts)${pn.bonus ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {}); }
     else if (pn.pct >= 50 && !ja.includes('50')) { await env.HR_KV.put(k, ja + '50', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}💪 ${nome}, metade da meta da semana! ${pn.pts} de ${pn.meta} pontos. Faltam ${pn.falta}.`).catch(() => {}); }
   } catch (e) { console.log('[META] checar:', e.message); }
@@ -9989,6 +10002,78 @@ async function acdComandoDono(env, from, msg) {
   const mt = msg.match(/^(?:termo|acordo)(?: de pagamento)? d[aoe] (.+)$/); if (!mt) { if (/^acordos?( de pagamento)?$/.test(msg)) { const l = await listarTodas(env, ACD).catch(() => ({ keys: [] })), out = []; for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (a && a.parcelas.some(p => !p.paga)) out.push(`• *${a.nome}* (${a.n}${a.aceitoEm ? ', aceito' : ''}): ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' ' + dataBR(p.data).slice(0, 5)).join(' · ')}`); } await enviar(env, from, out.length ? ['📋 *Acordos em aberto*', '', ...out].join('\n') : 'Nenhum acordo em aberto.'); return true; } return false; }
   const tk = tokensPedra(mt[1]), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
   for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const a = await acdLer(env, k.name.slice(4)); if (a && tk.every(w => tokensPedra(a.nome).includes(w))) { await acdMandarTermo(env, a); await enviar(env, from, `Termo de acordo enviado a ${a.nome}.`); return true; } }
+  return false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v154: EQUIPE VALENDO — boas-vindas com o manual, resumo do fim do dia, mural de serviços entregues (foto para a equipe)
+// ═════════════════════════════════════════════════════════════════════════════
+async function eqEnviar(env, tel, texto, curto) { // fora das 24 h usa o modelo aprovado e guarda o texto para quando responder
+  if (await janela24h(env, tel)) { await enviar(env, tel, texto); return 'ok'; }
+  try { await postarMsg(env, tel, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto).slice(0, 200) }] }] } }); await env.HR_KV.put('eq:pend:' + ultimos8(tel), texto, { expirationTtl: 7 * 86400 }); return 'modelo'; }
+  catch (e) { return 'falha'; }
+}
+function eqManual(nome, fs) {
+  const faz = f => fs.includes(f);
+  return [`👋 Oi, ${nome}! Aqui é a secretária da HR Mármores e Granitos. A partir de hoje eu organizo a produção com vocês por aqui.`, '',
+    '*Como funciona:*',
+    '• Eu mando as fichas técnicas e as tarefas de cada um; toda manhã chega a sua lista do dia.',
+    '• Pergunte quando quiser: _o que tenho pra fazer?_',
+    ...(faz('corte') ? ['• Terminou um corte: _cortei o da Maria_'] : []),
+    ...(faz('acabamento') || faz('fabricacao') || faz('45') ? ['• Terminou acabamento ou fabricação: _terminei o da Maria_ e mande a foto das peças prontas'] : []),
+    ...(faz('entrega') || faz('instalacao') ? ['• Entregou ou instalou: _instalei o da Maria, recebi 1500 no pix_ e mande a *foto com todas as peças*'] : []),
+    '• Quebrou alguma peça: _quebrou o peitoril da Ana_ (sem problema, é só para controle)',
+    '• Sobrou retalho bom: _sobrou Preto São Gabriel 1,20 x 0,40_',
+    '• Sua meta: _minha meta_', '',
+    '⭐ *Cada tarefa vale pontos* (corte, acabamento, fabricação, entrega, instalação, no prazo e com foto). Eu aviso cada ponto na hora, e quem bate a meta do mês concorre ao prêmio.', '',
+    'Qualquer dúvida, é só perguntar aqui. Bom trabalho! 💪'].join('\n');
+}
+async function eqBoasVindasRotina(env, forcar) { // forcar: true = reenvia a todos; 'cmd' = agora, só a quem ainda não recebeu
+  const ag = agoraBahia(); if (!forcar && (ag.dia === 0 || ag.min < 7 * 60 || ag.min > 17 * 60)) return [];
+  if (emTesteEquipe(env)) return [];
+  const { map, cfg } = await funcoesEquipe(env), out = [];
+  for (const f of cfg.funcs) {
+    if (!f.tel || f.inativo) continue; const k = 'eq:bv:' + f.id; if (forcar !== true && await env.HR_KV.get(k)) continue;
+    const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel), nome = apelidoFunc(cfg, f);
+    const r = await eqEnviar(env, tel, eqManual(nome, map[f.id] || []), `Oi ${nome}, aqui é a secretária da HR Mármores e Granitos. A partir de hoje organizo as tarefas da produção com vocês por aqui. Responda esta mensagem para ver como funciona.`);
+    if (r !== 'falha') await env.HR_KV.put(k, String(Date.now()), { expirationTtl: 400 * 86400 });
+    out.push(`${nome}: ${r === 'ok' ? 'recebeu o manual' : r === 'modelo' ? 'recebeu o aviso (o manual vai quando ele responder)' : 'não consegui enviar'}`);
+  }
+  if (out.length && !forcar) await pontoAvisarDono(env, ['✅ *Equipe valendo:* mandei o manual do bot para:', ...out.map(x => '• ' + x)].join('\n')).catch(() => {});
+  return out;
+}
+// resposta do funcionário ao aviso do modelo → manda o texto guardado
+async function eqPendente(env, from) { const k = 'eq:pend:' + ultimos8(from), t = await env.HR_KV.get(k); if (!t) return false; await env.HR_KV.delete(k); await enviar(env, from, t); return true; }
+// resumo do fim do dia (17h30, seg a sáb)
+async function eqResumoDiaRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia === 0 || ag.min < 17 * 60 + 30 || ag.min > 19 * 60 || emTesteEquipe(env) || String(env.METAS ?? '1') === '0') return;
+  if (await env.HR_KV.get('eqdia:' + hoje)) return; if (!(await travaEnvio(env, 'eqdia:' + hoje))) return;
+  await env.HR_KV.put('eqdia:' + hoje, '1', { expirationTtl: 2 * 86400 });
+  const cfg = await pontoCfg(env), pts = await metasPontos(env, hoje, hoje), eqd = await equipeLer(env).catch(() => ({ funcs: [] }));
+  for (const f of cfg.funcs) {
+    if (!f.tel || emFeriasHoje(eqd, f.id, hoje)) continue;
+    const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) continue; const d = pts[f.id];
+    const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); if (!(await janela24h(env, tel))) continue; // só quem está conversando (sem modelo pago todo dia)
+    await enviar(env, tel, [`🌇 *Fim do dia, ${apelidoFunc(cfg, f)}!*`, '', d && d.tarefas.length ? `Hoje: ${d.tarefas.map(t => `${t.tipo} ${t.nome.split(' ')[0]} (+${t.pts})`).join(' · ')}\n*+${d.pts} pontos hoje*` : 'Hoje não registrei tarefa sua. Se fez alguma, me conte (ex.: _terminei o da Maria_ ou _instalei o da Maria_).', `Semana: *${pn.pts} de ${pn.meta}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${pn.falta}${pn.porDia ? ' (' + pn.porDia + ' por dia)' : ''}` : ' · meta batida 🎯'}`, '', 'Descanse! Amanhã cedo mando a sua lista. 💪'].join('\n')).catch(() => {});
+  }
+}
+// mural: serviço entregue com foto → a equipe vê o resultado do trabalho
+async function eqMural(env, ped, mediaId, quemId) {
+  if (String(env.EQUIPE_MURAL ?? '1') === '0' || emTesteEquipe(env) || !mediaId) return;
+  const cfg = await pontoCfg(env), nomes = [];
+  const ids = new Set([ped.fabFeitoPor, ped.corteFeitoPor, ped.entFeitoPor, ...(Array.isArray(ped.prodLog) ? ped.prodLog.flatMap(x => x.por || []) : [])].filter(Boolean).map(String));
+  for (const id of ids) nomes.push(await respNome(env, id));
+  const cap = `🏆 *Serviço entregue:* ${ped.nome.split(' ')[0]} · ${resumoPecas(ped)}\nFeito por: ${nomes.filter(Boolean).join(', ') || 'equipe HR'}. Parabéns, time! 👏`;
+  for (const f of cfg.funcs) { if (!f.tel || String(f.id) === String(quemId)) continue; const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel); if (await janela24h(env, tel)) await postarMsg(env, tel, { type: 'image', image: { id: mediaId, caption: cap } }).catch(() => {}); }
+}
+async function eqModoComando(env, from, msg) {
+  if (/^(equipe valendo|equipe (ao )?vivo|ativar equipe|liberar equipe|tirar (o )?(aviso de )?teste|modo real|equipe real)$/.test(msg)) {
+    await env.HR_KV.put('cfg:equipe_modo', 'real'); globalThis.__eqModo = 'real'; globalThis.__eqModoEm = Date.now();
+    const out = await eqBoasVindasRotina(env, 'cmd').catch(() => []);
+    await enviar(env, from, `✅ Equipe valendo: as mensagens aos funcionários saem sem o aviso de teste.${out.length ? '\n' + out.map(x => '• ' + x).join('\n') : ''}`); return true;
+  }
+  if (/^(equipe (em )?teste|modo teste|voltar (o )?teste)$/.test(msg)) { await env.HR_KV.put('cfg:equipe_modo', 'teste'); globalThis.__eqModo = 'teste'; globalThis.__eqModoEm = Date.now(); await enviar(env, from, '🧪 Equipe em teste: as mensagens aos funcionários voltam a sair com "TESTE: IGNORE".'); return true; }
+  if (/^(manual (da )?equipe|reenviar manual)$/.test(msg)) { const out = await eqBoasVindasRotina(env, true).catch(() => []); await enviar(env, from, out.length ? 'Manual reenviado:\n' + out.map(x => '• ' + x).join('\n') : 'Não achei funcionários com telefone no RH.'); return true; }
   return false;
 }
 
@@ -12536,7 +12621,7 @@ async function coletarPrazos(env, manual) {
 
 async function avisarEquipePrazo(env, numero, texto, resumo) {
   if (!numero || ultimos8(numero) === ultimos8(numeroDono(env))) return 'dono'; // sem número definido: só o dono recebe
-  const pref = String(env.TESTE_PRODUCAO ?? '1') === '0' ? '' : '*TESTE: IGNORE ESTA MENSAGEM.*\n';
+  const pref = !emTesteEquipe(env) ? '' : '*TESTE: IGNORE ESTA MENSAGEM.*\n';
   try { const r = await enviarProativo(env, numero, pref + texto, env.TEMPLATE_PRAZO ? { nome: env.TEMPLATE_PRAZO, params: [resumo] } : null); return r ? 'ok' : 'janela'; }
   catch (e) { console.log('[BOT] aviso de prazo à equipe:', e.message); return 'erro'; }
 }
@@ -17089,6 +17174,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
     if (await metasComandoDono(env, from, msg).catch(e => { console.log('[META] comando:', e.message); return false; })) return; // v147
@@ -26922,6 +27008,8 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   const f = pontoFuncPorFone(cfg, from); if (!f) return false;
   ctx.cliente = false;
   await env.HR_KV.put('ponto:ultzap:' + f.id, String(Date.now()), { expirationTtl: 2 * 86400 }); // v41: conversa aberta (24 h)
+  await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {}); // v154: janela de 24 h também para a equipe
+  if (await eqPendente(env, from).catch(() => false)) { if (m.type === 'button') return true; } // v154: manual guardado do modelo
   const nome = apelidoFunc(cfg, f); // v45: como a equipe chama
   let idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : m.type === 'button' ? String(m.button?.payload || '') : '';
   // v44: "Ver aviso" (modelo) ou qualquer mensagem dele: entrega o que estava guardado
@@ -29434,6 +29522,7 @@ export default {
   async scheduled(event, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     await googleLinkCarregar(env).catch(() => {}); // v151
+    await eqModoCarregar(env).catch(() => {}); // v154
     configurarRegras(env); // v27: limite de peças e pingadeira
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
     // v19: gatilho opcional de 5 em 5 min só para o aviso de app parado (defina CRON_ALERTA_APP com o mesmo texto do gatilho criado no Cloudflare)
@@ -29480,6 +29569,7 @@ export default {
   async fetch(req, env, ctx) {
     env = comKV(env); // v24: conversas gravadas com metadados (ver "ECONOMIA DO KV")
     await googleLinkCarregar(env).catch(() => {}); // v151
+    await eqModoCarregar(env).catch(() => {}); // v154
     configurarRegras(env); // v27: limite de peças e pingadeira
     if (ctx && ctx.waitUntil) try { env._waitUntil = p => ctx.waitUntil(p); } catch (_) {} // v63k: tarefas depois da resposta
     await tplAutoEnv(env, ctx).catch(() => {}); // v73b
