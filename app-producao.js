@@ -16,7 +16,7 @@
     });
   }
   var ET = { corte: '✂️ Corte', polimento: '✨ Polimento e acabamento das saias', fabricacao: '🛠️ Hugo (rebaixo, cuba, 45°)', acabamento: '🪨 Acabamento' };
-  var TIPOS = [['bancada', 'Bancada'], ['frontao', 'Frontão'], ['saia', 'Saia'], ['tampo', 'Tampo do rebaixo'], ['peitoril', 'Peitoril'], ['soleira', 'Soleira'], ['outro', 'Outro']];
+  var TIPOS = [['bancada', 'Bancada'], ['frontao', 'Frontão'], ['saia', 'Saia'], ['tampo', 'Tampo do rebaixo'], ['peitoril', 'Peitoril'], ['soleira', 'Soleira'], ['retencao', 'Pedra de retenção'], ['outro', 'Outro']];
   var RESP = [['fabResp', 'Corte'], ['poliResp', 'Polimento'], ['fab2Resp', 'Hugo / fabricação'], ['acabResp', 'Acabamento'], ['entResp', 'Instalação / entrega']];
   var st = { d: null, aberto: null, ed: null };
 

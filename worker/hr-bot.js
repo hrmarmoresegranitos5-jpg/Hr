@@ -10833,6 +10833,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v192: pedra de retenção nas soleiras (largura configurada no app/WhatsApp, comprimento da soleira): orçamento pelo WhatsApp, peça na produção e nos pontos.
 // v191: previsão inteligente da produção (ritmo aprendido de cada um, fila por entrega, risco de atraso às 7h, gargalo) — comando "previsão da produção", ferramenta da IA e painel.
 // v190: ficha de produção no app (tipo de cada peça, saia, cuba, rebaixo, cooktop e responsáveis) usada nas etapas e pontos; o app manda o nome das peças do orçamento.
 // v189: saia reta/boleada (acabamento) e slim (polimento) passam para o polidor; saia 45° continua com o Hugo.
@@ -11030,6 +11031,7 @@ async function aumentoTexto(env) {
   return L.join('\n');
 }
 async function desempComandoDono(env, from, msg, bruto) {
+  { const mr = msg.match(/^(?:pedra de )?retencao (?:de |com |=)?(\d+(?:[.,]\d)?) ?cm$/); if (mr) { const c = await retencaoCfg(env); c.larg = parseFloat(mr[1].replace(',', '.')); await env.HR_KV.put('cfg:retencao', JSON.stringify(c)); await enviar(env, from, `Pedra de retenção: ${vPt(c.larg)} cm de largura (o comprimento é o da soleira).`); return true; } } // v192
   if (/^(previsao( da)? producao|vai dar tempo\??|quando fica pronto\??|fila( da producao)?|gargalo|previsao dos pedidos)$/.test(msg)) { await enviar(env, from, await previsaoTextoProd(env, false)); return true; } // v191
   if (await cubaTipoComando(env, from, msg)) return true; // v188
   { const mg = msg.match(/^(?:reenvia|reenviar|manda de novo|mande de novo|envia|enviar|manda) (?:o certificado d[ae] |a )?garantia d[aoe] ([a-z ]{3,40})$/); // v185
@@ -11178,7 +11180,7 @@ async function mig185Garantias(env) {
 // v182: ETAPAS POR ITEM — um projeto com vários itens (ex.: 4 lavatórios, a bancada e os frontões da cozinha) tem cada item como
 // uma parte da etapa (corte, polimento, acabamento, fabricação). Cada item vale a sua parte dos pontos (pelo tamanho).
 // "terminei esse lavatório", "terminei 2 lavatórios da Maria", "poli os frontões do Papinha", "cortei todos os peitoris".
-const ITEM_NOUN = /\b(rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
+const ITEM_NOUN = /\b(retenc(?:ao|oes)|pedras? de retencao|rebaixos?|cubas?|cooktops?|cook|furos?|tampos?|saias? (?:em |de )?45|lavatorios?|lavabos?|frontoes|frontao|frontais|frontal|frontan|frontaos|testeiras?|saias?|rodapes?|peitoris|peitoril|soleiras?|bancadas?|tampos?|pecas?|nichos?|prateleiras?|degraus?|escadas?|cubas?|ilhas?|balcoes|balcao|espelhos?|mesas?|itens|item)\b/;
 const capT = t => String(t || '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 function ptsItemPed(p, it) { return { __item: true, interesse: it.ambiente || p.interesse || '', projetoApp: it.ambiente || '', resumoApp: { pedra: (p.resumoApp || {}).pedra, itens: [it] }, pecas: (it.pecas || []).map(pc => ({ tipo: it.ambiente || 'peça', ...pc })) }; }
 function unidadesPed(p, et) {
@@ -11193,7 +11195,7 @@ function unidadesPed(p, et) {
     U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
   else { const amb = normaliza(its[0].ambiente || p.interesse || '');
     for (const pc of its[0].pecas || []) for (let k = 0; k < Math.min(+pc.qtd || 1, 20); k++) { const est = (+pc.larg_cm || 0) <= 25;
-      const tipo = /peitor/.test(amb) ? 'peitoril' : /soleir/.test(amb) ? 'soleira' : est ? 'frontão/saia' : /lavat|banheir/.test(amb) ? 'lavatório' : 'bancada';
+      const tipo = /reten/.test(normaliza(String(pc.rot || pc.desc || ''))) ? 'pedra de retenção' : /peitor/.test(amb) ? 'peitoril' : /soleir/.test(amb) ? 'soleira' : est ? 'frontão/saia' : /lavat|banheir/.test(amb) ? 'lavatório' : 'bancada'; // v192
       U.push({ i: U.length, nome: `${capT(tipo)} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: area(pc), tipo: normaliza(tipo + ' ' + amb), larg: +pc.larg_cm || 0 }); } }
   const tot = U.reduce((t, u) => t + u.peso, 0) || 1; U.forEach(u => { u.frac = u.peso / tot; }); return U.slice(0, 30);
 }
@@ -11202,6 +11204,7 @@ function casaNoun(u, noun) {
   if (/^(pecas?|itens|item)$/.test(n)) return true;
   if (/^rebaix|^tampo/.test(n) && /rebaixo/.test(t)) return true; if (/^cuba/.test(n)) return /cuba/.test(t); if (/^cook/.test(n)) return /cooktop/.test(t); if (/^furo/.test(n)) return /furo/.test(t); if (/^saias? (em |de )?45/.test(n)) return /45/.test(t); // v188
   if (/^lavat|^lavabo/.test(n)) return /lavat|lavabo|banheir/.test(t);
+  if (/^reten/.test(n)) return /reten/.test(t); // v192
   if (/^saia/.test(n) && /saia (reta|boleada|slim)/.test(t)) return true; // v189
   if (/^front|^testeir|^saia|^rodape|^espelho/.test(n)) return u.larg > 0 && u.larg <= 25 && !/peitor|soleir/.test(t);
   if (/^peitor/.test(n)) return /peitor/.test(t);
@@ -11235,7 +11238,7 @@ async function prodItensFuncionario(env, f, from, texto, nome, foto) {
   if (q && q <= cand.length && q < 30) sel = cand.slice(0, q);
   else if (todos && cand.length) sel = cand;
   else if (cand.length === 1 && (noun || esse)) sel = cand;
-  else if (noun && /(s|es|is)$/.test(noun) && !/^(pecas|itens)$/.test(noun) && cand.length) sel = cand; // "terminei os lavatórios"
+  else if (noun && (/(s|es|is)$/.test(noun) || /^pedras /.test(noun) || /coes$/.test(noun)) && !/^(pecas|itens)$/.test(noun) && cand.length) sel = cand; // "terminei os lavatórios", "as pedras de retenção"
   else if (noun && !/^(pecas?|itens|item)$/.test(noun) && /\b(\w+ad[oa]s|feitos|feitas|prontos|prontas|terminamos)\b/.test(msg) && cand.length) sel = cand; // "frontões finalizados"
   if (foto) await env.HR_KV.put('prod:itensfoto:' + ultimos8(from), JSON.stringify(foto), { expirationTtl: 3600 });
   if (!sel.length) {
@@ -11414,15 +11417,17 @@ async function mig188Etapas(env) {
 
 // v190: FICHA DE PRODUÇÃO no app — o Sr. Hangel confere/ajusta cada peça (bancada, frontão, saia, tampo), o tipo da saia e da cuba,
 // rebaixo e cooktop, e quem faz cada etapa. O bot usa isso nas partes de cada etapa e nos pontos (sem chute pela largura).
-const TIPOS_PECA = ['bancada', 'frontao', 'saia', 'tampo', 'peitoril', 'soleira', 'outro'];
+const TIPOS_PECA = ['bancada', 'frontao', 'saia', 'tampo', 'peitoril', 'soleira', 'retencao', 'outro'];
 function tipoDaPeca(pc, it) {
   if (pc && TIPOS_PECA.includes(pc.tipoP)) return pc.tipoP;
   const r = normaliza(String((pc && pc.rot) || '')), amb = normaliza(String((it && it.ambiente) || ''));
+  if (/reten/.test(r)) return 'retencao'; // v192: pedra de retenção da soleira
   if (/front|espelho|rodabanc/.test(r)) return 'frontao'; if (/saia|testeira/.test(r)) return 'saia'; if (/tampo/.test(r)) return 'tampo'; if (/peitor/.test(r)) return 'peitoril'; if (/soleir/.test(r)) return 'soleira';
   if (/peitor/.test(amb)) return 'peitoril'; if (/soleir/.test(amb)) return 'soleira';
   return (+pc.larg_cm || 0) > 0 && (+pc.larg_cm || 0) <= 25 ? 'frontao' : 'bancada'; // sem ficha: estreita = frontão/saia
 }
-const NOME_PECA = { bancada: 'Bancada', frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo', peitoril: 'Peitoril', soleira: 'Soleira', outro: 'Peça' };
+const NOME_PECA = { bancada: 'Bancada', frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo', peitoril: 'Peitoril', soleira: 'Soleira', retencao: 'Pedra de retenção', outro: 'Peça' };
+async function retencaoCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('cfg:retencao')) || '{}') || {}; } catch (_) {} return { larg: +c.larg > 0 ? +c.larg : 4, ...c }; } // v192
 async function producaoPainel(env) {
   const { map, cfg } = await funcoesEquipe(env);
   const l = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && (p.fichaEnviadaEm || p.fechDono) && p.resumoApp && (p.resumoApp.itens || []).length);
@@ -12657,6 +12662,8 @@ const FERRAMENTAS = [
         manter_feriado: { type: 'boolean', description: 'true só se o Sr. Hangel confirmou entregar num feriado/domingo/folga' },
         hora_entrega: { type: 'string', description: 'HH:MM, se ele disser a hora (ex.: "hoje às 15h" → 15:00; "sexta às 10h"). Pode ser no mesmo dia.' },
         pagamento: { type: 'string', enum: ['vista', 'parcelado'], description: 'omita se ele não disser' },
+        retencao: { type: 'boolean', description: 'SOLEIRA com pedra de retenção (a pedrinha colada em cima que segura a água). O comprimento é o da soleira e a largura é a configurada no app; só passe se ele pedir.' },
+        retencao_larg_cm: { type: 'number', description: 'largura da pedra de retenção em cm, só se ele disser uma diferente da configurada' },
       },
       required: ['cliente', 'ambiente', 'pedra', 'pecas', 'acabamento'],
     },
@@ -13445,6 +13452,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     if (!ACABAMENTOS.includes(a.acabamento)) return { erro: true, texto: 'Falta o acabamento (sem, 1 lado, 2 lados ou 45 graus). Pergunte ao Sr. Hangel.' };
     const pecas = pecasValidas(a.pecas, amb);
     if (!pecas.length) return { erro: true, texto: 'Faltam as medidas das peças (comprimento x largura em cm). Pergunte ao Sr. Hangel.' };
+    if (a.retencao && amb === 'Soleira') { const lr = +a.retencao_larg_cm > 0 ? +a.retencao_larg_cm : (await retencaoCfg(env)).larg; for (const pc of pecas.slice()) pecas.push({ desc: 'Pedra de retenção', qtd: pc.qtd, comp_cm: pc.comp_cm, larg_cm: lr }); } // v192
 
     let pedra = String(a.pedra || '').trim();
     const pedras = await pedrasDoCatalogo(env);
@@ -23204,6 +23212,7 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/ponto/')) return rotaBotPonto(req, env, url); // v34: HR Ponto (app do dono)
   if (p.startsWith('/bot/garantias')) { const r = await rotaGarantias(req, env, url); if (r) return r; } // v144
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
+  if (p === '/bot/retencao') { if (req.method === 'POST') { const b = await req.json().catch(() => ({})); const c = await retencaoCfg(env); if (+b.larg > 0 && +b.larg < 30) c.larg = Math.round(+b.larg * 10) / 10; await env.HR_KV.put('cfg:retencao', JSON.stringify(c)); return jsonR({ ok: true, ...c }); } return jsonR({ ok: true, ...(await retencaoCfg(env)) }); } // v192
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
