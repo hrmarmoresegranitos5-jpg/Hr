@@ -7816,6 +7816,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     await enviar(env, from, [`*Suas tarefas* (${l.length})`, '', ...l.slice(0, 10).map((p, i) => `${i + 1}. *${p.nome || 'cliente'}* — ${resumoPecas(p)}${difTxt(p) ? '\n   ' + difTxt(p) : ''}${p.cortadas && !p.corteEm ? `\n   ✂️ ${p.cortadas} de ${nPecasPed(p)} cortadas` : ''}${papel === 'entrega' ? (p.entrega && p.entrega.endereco ? '\n   📍 ' + p.entrega.endereco : '') + (p.horaEntrega ? '\n   🕐 ' + p.horaEntrega : '') : (p.entrega_prevista ? ' · até ' + dataBR(p.entrega_prevista) : '')}`), '', l.some(p => p.acabResp === String(f.id) && p.corteEm && !p.acabEm) ? 'Quando terminar o acabamento, me diga: _terminei o acabamento da Maria_.' : l.some(p => naFabrica(p) && [p.fab2Resp, p.fabResp].includes(String(f.id))) && (papel === 'fabrica' || l.every(p => naFabrica(p))) ? `Quando terminar um, me diga: _${l.some(p => p.fab2Resp === String(f.id)) ? 'terminei' : 'cortei'} o da Maria_.` : 'Quando entregar, me diga: _entreguei o da Maria_ (e se recebeu pagamento).'].join('\n'));
     return true;
   }
+  if (!idB && await eqExplicarPontos(env, f, from, texto, nome).catch(e => { console.log('[PTS] explicar:', e.message); return false; })) return true; // v183
   if (!idB && await prodItensResposta(env, f, from, texto, nome).catch(e => { console.log('[ITENS] resposta:', e.message); return false; })) return true; // v182
   if (!idB && papel !== 'entrega' && await prodItensFuncionario(env, f, from, texto, nome).catch(e => { console.log('[ITENS]', e.message); return false; })) return true; // v182: "terminei 2 lavatórios da Maria"
   if (papel !== 'entrega' && /\bcortei\b/.test(msg) && await prodCorteParcial(env, f, from, texto, nome, msg)) return true; // v156
@@ -9548,7 +9549,7 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
 }
 // v158: faixas da semana (sobre a meta) e carreira (pontos acumulados de sempre)
 const FAIXAS = [{ pct: 80, ico: '🥉', nome: 'Bronze' }, { pct: 100, ico: '🥈', nome: 'Prata (meta)' }, { pct: 125, ico: '🥇', nome: 'Ouro' }, { pct: 150, ico: '💎', nome: 'Diamante' }];
-const CARREIRA = [{ xp: 0, ico: '🔰', nome: 'Aprendiz' }, { xp: 100, ico: '🛠️', nome: 'Ajudante' }, { xp: 300, ico: '⭐', nome: 'Profissional' }, { xp: 700, ico: '🌟', nome: 'Especialista' }, { xp: 1500, ico: '👑', nome: 'Mestre' }, { xp: 3000, ico: '🏛️', nome: 'Lenda da HR' }];
+const CARREIRA = [{ xp: 0, ico: '🔰', nome: 'Largada' }, { xp: 100, ico: '🔥', nome: 'Ritmo' }, { xp: 300, ico: '⭐', nome: 'Destaque' }, { xp: 700, ico: '🌟', nome: 'Craque' }, { xp: 1500, ico: '👑', nome: 'Mestre' }, { xp: 3000, ico: '🏛️', nome: 'Lenda da HR' }]; // v183: nomes de nível de pontos (não de cargo)
 function carreira(xp) { let i = 0; for (let k = 0; k < CARREIRA.length; k++) if (xp >= CARREIRA[k].xp) i = k; const nx = CARREIRA[i + 1]; return { i, ...CARREIRA[i], prox: nx ? { ...nx, faltam: Math.ceil(nx.xp - xp) } : null, pctProx: nx ? Math.round((xp - CARREIRA[i].xp) / (nx.xp - CARREIRA[i].xp) * 100) : 100 }; }
 async function xpDe(env, funcId, ptsSemana) { // semanas fechadas (KV) + a semana atual
   let base = Number(await env.HR_KV.get('xp:base:' + funcId)); if (!Number.isFinite(base) || base < 0) base = 0;
@@ -10789,6 +10790,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v183: funcionário pergunta sobre pontos/nível/meta → explicação com os números dele; níveis renomeados (não são cargo); dono define o nível inicial.
 // v182: etapas por item (cada lavatório/frontão é uma parte da etapa), polimento, só quem instala marca entrega, correção das entregas de hoje, reabrir entrega.
 // v181: blindagem dos pontos (uma vez por etapa, anulação, foto, quebra, trava de qualidade), metas mais difíceis, meta do dia, exigências do prêmio e auditoria diária.
 // v180: foto/texto "começando o corte/acabamento" marca o início (tempo real); acabador vê as opções dele; "falta o Lucas terminar" não dá a etapa como feita.
@@ -10977,6 +10979,7 @@ async function aumentoTexto(env) {
   return L.join('\n');
 }
 async function desempComandoDono(env, from, msg, bruto) {
+  if (await nivelComandoDono(env, from, msg)) return true; // v183
   let m = String(bruto || '').match(/^\s*sal[aá]rio d[oae]s?\s+([A-Za-zÀ-ú]+)[^\d]{0,12}(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)\s*$/i);
   if (m) { const cfg = await pontoCfg(env), tk = normaliza(m[1]), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk) || normaliza(apelidoFunc(cfg, x)) === tk); if (!f) { await enviar(env, from, `Não achei ${m[1]} na equipe.`); return true; }
     const v = parseFloat(m[2].replace(/\./g, '').replace(',', '.')); if (!(v > 100)) return false; const s = await salariosLer(env); s[f.id] = v; await env.HR_KV.put('cfg:salarios', JSON.stringify(s));
@@ -11221,6 +11224,44 @@ async function mig182Reabrir(env) {
     const f = cfg.funcs.find(x => String(x.id) === por); out.push(`• *${p.nome}* (marcado por ${f ? apelidoFunc(cfg, f) : 'alguém da fábrica'}${ini ? ', início também' : ''})`);
   }
   if (out.length) await pontoAvisarDono(env, ['🛠️ *Corrigi entregas marcadas por engano hoje:*', ...out, '', 'Voltaram a constar como *não entregues* e os pontos da entrega saíram. O cliente não foi avisado. Quem entrega/instala é que marca o fim.'].join('\n')).catch(() => {});
+}
+
+// v183: o funcionário pergunta sobre pontos, nível, meta ou faixa ("por que estou como aprendiz?", "o que é ajudante em 86 pontos?") → o bot explica com os números dele
+async function eqExplicarPontos(env, f, from, texto, nome) {
+  const msg = normaliza(texto || '');
+  const tema = /\b(aprendiz|ajudante|profissional|especialista|mestre|nivel|niveis|carreira|largada|ritmo|destaque|craque|lenda|pontos?|pts|meta|faixa|bronze|prata|ouro|diamante|ranking|lugar|bonus|premio)\b/.test(msg);
+  const pergunta = /\?|\b(por ?que|pq|o que|oque|quanto|quantos|quantas|como|significa|quer dizer|entendi nao|nao entendi|explica|me fala|cade)\b/.test(msg);
+  if (!tema || !pergunta) return false;
+  const pn = await metaPainel(env, f.id).catch(() => null); if (!pn) return false;
+  const car = pn.carreira, cfg = await pontoCfg(env);
+  const L = [`${nome}, te explico:`];
+  if (/\b(aprendiz|ajudante|profissional|especialista|mestre|nivel|niveis|carreira|largada|ritmo|destaque|craque|lenda|conhece)\b/.test(msg)) {
+    L.push('', `🎖️ *Nível* é só a soma dos pontos que você junta *desde que o sistema de pontos começou* (esta semana). *Não é cargo* e não mede o seu tempo de casa nem a sua experiência: todo mundo começou do zero no mesmo dia, inclusive quem trabalha aqui há anos.`,
+      `Você está no ${car.ico} *${car.nome}* com *${vPt(pn.xp)} pontos*${car.prox ? `. Faltam *${vPt(car.prox.faltam)}* para o ${car.prox.ico} *${car.prox.nome}*` : ''}.`,
+      'Níveis: ' + CARREIRA.map(x => `${x.ico} ${x.nome} (${x.xp})`).join(' · '));
+  }
+  if (/\b(pontos?|pts|meta|faixa|bronze|prata|ouro|diamante|ranking|lugar|bonus|premio)\b/.test(msg)) {
+    L.push('', `🎯 *Semana:* ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}. 📅 *Hoje:* ${vPt(pn.ptsHoje || 0)} de ${vPt(pn.metaDia)}.`,
+      `Faixas da semana: 🥉 Bronze 80% · 🥈 Prata 100% (meta) · 🥇 Ouro 125% · 💎 Diamante 150%.`,
+      'Cada tarefa que você marca soma: corte, acabamento, cada item de um projeto, com foto. Peça maior e com mais detalhe vale mais. Retrabalho tira 2 pontos.');
+  }
+  L.push('', 'Quer ver tudo? Mande _minhas tarefas_ ou _meus pontos_.');
+  await enviar(env, from, L.join('\n'));
+  if (/\b(aprendiz|conhece|injust|nao concordo|errado)\b/.test(msg)) await pontoAvisarDono(env, `ℹ️ *${nome}* perguntou sobre o nível dele: "${String(texto).slice(0, 140)}". Expliquei que o nível conta só os pontos desde que o sistema começou, não a experiência. Se quiser reconhecer a experiência dele, mande: _nível do ${nome} ${CARREIRA[2].nome}_ (ou outro nível).`).catch(() => {});
+  return true;
+}
+// dono: "nível do Lucas Destaque" / "nível do Gibson 3" → a carreira dele começa nesse nível
+async function nivelComandoDono(env, from, msg) {
+  const m = msg.match(/^(?:nivel|carreira) d[oae] ([a-z]+) (?:comeca no |no |em |para |pra )?(?:nivel )?([a-z0-9 ]+?)$/); if (!m) return false;
+  const cfg = await pontoCfg(env), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(m[1]) || normaliza(apelidoFunc(cfg, x)) === m[1]); if (!f) return false;
+  const ANT = { aprendiz: 0, ajudante: 1, profissional: 2, especialista: 3, mestre: 4, lenda: 5 }, alvo = m[2].trim();
+  let i = /^\d$/.test(alvo) ? +alvo - 1 : CARREIRA.findIndex(x => normaliza(x.nome).startsWith(alvo) || normaliza(x.nome).split(' ').includes(alvo)); if (i < 0 && ANT[alvo] != null) i = ANT[alvo];
+  if (!(i >= 0 && i < CARREIRA.length)) { await enviar(env, from, 'Níveis: ' + CARREIRA.map((x, k) => `${k + 1}. ${x.ico} ${x.nome} (${x.xp})`).join(' · ')); return true; }
+  const pn = await metaPainel(env, f.id).catch(() => null), sem = pn ? Math.max(0, pn.pts) : 0, base = Math.max(0, CARREIRA[i].xp - sem);
+  await env.HR_KV.put('xp:base:' + f.id, String(base)); await env.HR_KV.put('xp:nivel:' + f.id, String(i));
+  await enviar(env, from, `Feito: a carreira do ${apelidoFunc(cfg, f)} agora está no ${CARREIRA[i].ico} *${CARREIRA[i].nome}* (${CARREIRA[i].xp} pontos). Daqui ele sobe com os pontos de cada semana.`);
+  if (f.tel) await eqTexto(env, f.tel, `${avisoTeste(env)}🎖️ ${apelidoFunc(cfg, f)}, o Sr. Hangel reconheceu a sua experiência: a sua carreira de pontos agora começa no ${CARREIRA[i].ico} *${CARREIRA[i].nome}*. 💪`).catch(() => {});
+  return true;
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
