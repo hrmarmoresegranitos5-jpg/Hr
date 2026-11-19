@@ -10832,6 +10832,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v190: ficha de produção no app (tipo de cada peça, saia, cuba, rebaixo, cooktop e responsáveis) usada nas etapas e pontos; o app manda o nome das peças do orçamento.
 // v189: saia reta/boleada (acabamento) e slim (polimento) passam para o polidor; saia 45° continua com o Hugo.
 // v188: etapas reais da bancada (corte com tampo do rebaixo, polimento de frontões/saias, Hugo: rebaixo americano, cuba sobrepor/embutida/flush/esculpida, saia 45°, cooktop, furos); "a cuba da Maria é flush".
 // v187: "minhas tarefas" mostra o progresso por item (2 de 4 lavatórios, quais faltam).
@@ -11349,9 +11350,9 @@ async function nivelComandoDono(env, from, msg) {
 // saia em 45° (muito trabalhosa), cooktop e furos. Cada parte vale os seus pontos; o que já foi lançado é recalculado com estas regras.
 function cubaTipo(it) { const t = normaliza(String(it.cubaInst || '') + ' ' + String(it.cuba || '')); return /esc_mxc/.test(t) ? 'esc3' : /esc_com/.test(t) ? 'esc2' : /esc_sim|esculp/.test(t) ? 'esc1' : /flush/.test(t) ? 'flush' : /embut/.test(t) ? 'embutir' : /sobrep/.test(t) ? 'sobrepor' : ''; }
 const CUBA_HUGO = { sobrepor: [1.5, 'Cuba de sobrepor: recorte, polimento e colar'], embutir: [3, 'Cuba embutida: recorte, polimento e colagem'], flush: [6, 'Cuba flush: recorte profissional e nivelamento'], esc1: [6, 'Cuba esculpida'], esc2: [8, 'Cuba esculpida com detalhe'], esc3: [10, 'Cuba esculpida completa'], '': [2.5, 'Cuba: recorte, polimento e colagem'] };
-const pcEstreita = pc => (+pc.larg_cm || 0) > 0 && (+pc.larg_cm || 0) <= 25;
+const pcEstreita = (pc, it) => ['frontao', 'saia'].includes(tipoDaPeca(pc, it)); // v190: pela ficha (ou pela largura, sem ficha)
 function servicosHugo(it) {
-  const sv = it.sv || [], L = [], saiaM = (it.pecas || []).filter(pcEstreita).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
+  const sv = it.sv || [], L = [], saiasF = (it.pecas || []).filter(pc => tipoDaPeca(pc, it) === 'saia'), saiaM = (saiasF.length ? saiasF : (it.pecas || []).filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100;
   if (sv.includes('reb_a')) L.push({ nome: 'Rebaixo americano: recorte, polimento e colar o tampo', pts: 4 });
   if (sv.includes('reb_n')) L.push({ nome: 'Rebaixo: recorte e polimento', pts: 2 });
   if (sv.includes('cuba_lav') || sv.includes('cuba_coz') || it.cuba) { const c = CUBA_HUGO[cubaTipo(it)]; L.push({ nome: c[1], pts: c[0] }); }
@@ -11368,10 +11369,11 @@ function unidadesEtapa(p, et) {
   its.forEach((it, i) => {
     const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, pre = mais ? (mesmos > 1 ? `${nm} ${its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length}` : nm) + ' · ' : '';
     const dim = pc => `${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`;
-    if (et === 'corte') { for (const pc of it.pecas) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `${pcEstreita(pc) ? 'Frontão/saia' : 'Bancada'} ${dim(pc)}`, pts: ptsBasePeca(pc.comp_cm, pc.larg_cm), larg: +pc.larg_cm || 0, tipo: normaliza((pcEstreita(pc) ? 'frontao saia ' : 'bancada ') + (it.ambiente || '')) });
+    const nmP = pc => { const t = tipoDaPeca(pc, it); return pc.tipoP || pc.rot ? NOME_PECA[t] : (t === 'frontao' ? 'Frontão/saia' : NOME_PECA[t]); };
+    if (et === 'corte') { for (const pc of it.pecas) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `${nmP(pc)} ${dim(pc)}`, pts: ptsBasePeca(pc.comp_cm, pc.larg_cm), larg: +pc.larg_cm || 0, tipo: normaliza(tipoDaPeca(pc, it) + ' ' + (pcEstreita(pc, it) ? 'frontao saia ' : '') + (it.ambiente || '')) });
       if ((it.sv || []).includes('reb_a')) U.push({ nome: pre + 'Tampo do rebaixo americano', pts: 1, larg: 30, tipo: 'tampo rebaixo' }); }
-    if (et === 'polimento') { for (const pc of it.pecas.filter(pcEstreita)) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `Frontão/saia ${dim(pc)}`, pts: meio(0.5 + (+pc.comp_cm || 0) / 200) || 0.5, larg: +pc.larg_cm || 0, tipo: 'frontao saia' });
-      const sv = it.sv || [], m = it.pecas.filter(pcEstreita).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100; // v189: saias do polidor (45° é do Hugo)
+    if (et === 'polimento') { for (const pc of it.pecas.filter(pc => pcEstreita(pc, it))) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ nome: pre + `${nmP(pc)} ${dim(pc)}`, pts: meio(0.5 + (+pc.comp_cm || 0) / 200) || 0.5, larg: +pc.larg_cm || 0, tipo: 'frontao saia' });
+      const sv = it.sv || [], m = (it.pecas.filter(pc => tipoDaPeca(pc, it) === 'saia').length ? it.pecas.filter(pc => tipoDaPeca(pc, it) === 'saia') : it.pecas.filter(pc => pcEstreita(pc, it))).reduce((t, pc) => t + (+pc.comp_cm || 0) * (+pc.qtd || 1), 0) / 100; // v189: saias do polidor (45° é do Hugo)
       if (!sv.includes('s_45') && it.acabamento !== '45') {
         if (sv.includes('s_boleada')) U.push({ nome: pre + 'Saia boleada: acabamento', pts: Math.min(5, Math.max(1.5, meio(m * 0.6))), larg: 5, tipo: 'saia boleada acabamento' });
         else if (sv.includes('s_reta')) U.push({ nome: pre + 'Saia reta: acabamento', pts: Math.min(4, Math.max(1, meio(m * 0.4))), larg: 5, tipo: 'saia reta acabamento' });
@@ -11405,6 +11407,50 @@ async function mig188Etapas(env) {
     let n = 0; for (const x of p.prodLog) if (x.e === 'acabamento' && x.itens) { x.e = 'polimento'; n += x.itens.length; }
     p.prog = p.prog || {}; const U = unidadesEtapa(p, 'polimento') || []; p.prog.polimento = U.slice(0, n).map(u => u.i); delete p.prog.acabamento; await salvarPedido(env, p);
   }
+}
+
+// v190: FICHA DE PRODUÇÃO no app — o Sr. Hangel confere/ajusta cada peça (bancada, frontão, saia, tampo), o tipo da saia e da cuba,
+// rebaixo e cooktop, e quem faz cada etapa. O bot usa isso nas partes de cada etapa e nos pontos (sem chute pela largura).
+const TIPOS_PECA = ['bancada', 'frontao', 'saia', 'tampo', 'peitoril', 'soleira', 'outro'];
+function tipoDaPeca(pc, it) {
+  if (pc && TIPOS_PECA.includes(pc.tipoP)) return pc.tipoP;
+  const r = normaliza(String((pc && pc.rot) || '')), amb = normaliza(String((it && it.ambiente) || ''));
+  if (/front|espelho|rodabanc/.test(r)) return 'frontao'; if (/saia|testeira/.test(r)) return 'saia'; if (/tampo/.test(r)) return 'tampo'; if (/peitor/.test(r)) return 'peitoril'; if (/soleir/.test(r)) return 'soleira';
+  if (/peitor/.test(amb)) return 'peitoril'; if (/soleir/.test(amb)) return 'soleira';
+  return (+pc.larg_cm || 0) > 0 && (+pc.larg_cm || 0) <= 25 ? 'frontao' : 'bancada'; // sem ficha: estreita = frontão/saia
+}
+const NOME_PECA = { bancada: 'Bancada', frontao: 'Frontão', saia: 'Saia', tampo: 'Tampo', peitoril: 'Peitoril', soleira: 'Soleira', outro: 'Peça' };
+async function producaoPainel(env) {
+  const { map, cfg } = await funcoesEquipe(env);
+  const l = await pedidosProducao(env, p => !p.entregueEm && p.status !== 'recusado' && (p.fichaEnviadaEm || p.fechDono) && p.resumoApp && (p.resumoApp.itens || []).length);
+  const etapas = p => (pedComplexo(p) ? ['corte', 'polimento', 'fabricacao'] : ['corte', precisaAcab(p) ? 'acabamento' : null]).filter(Boolean);
+  const peds = l.sort((a, b) => (b.criado || 0) - (a.criado || 0)).slice(0, 40).map(p => {
+    const prog = p.prog || {};
+    return { id: String(p.id), nome: p.nome, criado: p.criado, entrega: p.entrega_prevista || null, complexo: pedComplexo(p), pedra: (p.resumoApp || {}).pedra || '',
+      resp: { fabResp: p.fabResp || '', poliResp: p.poliResp || '', fab2Resp: p.fab2Resp || '', acabResp: p.acabResp || '', entResp: p.entResp || '' },
+      status: { corte: !!p.corteEm, polimento: !!p.poliEm, fabricacao: !!p.fabProntoEm, acabamento: !!p.acabEm, pronto: !!(p.fabProntoEm || p.prontoEm) },
+      itens: (p.resumoApp.itens || []).map((it, i) => ({ i, ambiente: it.ambiente || '', sv: it.sv || [], cuba: !!(it.cuba || (it.sv || []).some(k => /^cuba_/.test(k))), cubaInst: cubaTipo(it), saia: (it.sv || []).includes('s_45') || it.acabamento === '45' ? '45' : (it.sv || []).includes('s_boleada') ? 'boleada' : (it.sv || []).includes('s_reta') ? 'reta' : (it.sv || []).includes('s_slim') ? 'slim' : '', rebaixo: (it.sv || []).includes('reb_a') ? 'americano' : (it.sv || []).includes('reb_n') ? 'normal' : '', cook: (it.sv || []).includes('cook'),
+        pecas: (it.pecas || []).map((pc, j) => ({ j, qtd: +pc.qtd || 1, comp: +pc.comp_cm || 0, larg: +pc.larg_cm || 0, rot: pc.rot || '', tipo: tipoDaPeca(pc, it), conf: !!pc.tipoP })) })),
+      etapas: etapas(p).map(e => { const U = unidadesPed(p, e), ok = new Set(prog[e] || []), done = e === 'corte' ? !!p.corteEm : e === 'polimento' ? !!p.poliEm : e === 'acabamento' ? !!p.acabEm : !!p.fabProntoEm;
+        return { e, pts: ptsEtapa(p, e), partes: U.map(u => ({ nome: u.nome, pts: meio(ptsEtapa(p, e) * u.frac) || 0.5, feito: done || ok.has(u.i) })) }; }),
+      total: ptsServico(p), nivel: (() => { const n = nivelDif(p); return n.ico + ' ' + n.nome; })() };
+  });
+  return { ok: true, pedidos: peds, equipe: cfg.funcs.map(f => ({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], funcoes: map[f.id] || [] })) };
+}
+async function producaoFichaSalvar(env, b) {
+  const ped = await lerPedido(env, String(b.pid || '')).catch(() => null); if (!ped || !ped.resumoApp) return { ok: false, erro: 'Pedido não encontrado.' };
+  const SAIAS = ['s_45', 's_reta', 's_boleada', 's_slim'], CUBAS = { sobrepor: 'sobrepor', embutida: 'embutir', embutir: 'embutir', flush: 'flush', esculpida: 'esc_sim' };
+  for (const x of Array.isArray(b.itens) ? b.itens : []) {
+    const it = (ped.resumoApp.itens || [])[+x.i]; if (!it) continue; let sv = (it.sv || []).filter(k => !SAIAS.includes(k) && k !== 'reb_a' && k !== 'reb_n' && k !== 'cook');
+    if (x.saia) sv.push({ '45': 's_45', reta: 's_reta', boleada: 's_boleada', slim: 's_slim' }[x.saia]); if (x.rebaixo === 'americano') sv.push('reb_a'); if (x.rebaixo === 'normal') sv.push('reb_n'); if (x.cook) sv.push('cook');
+    if (x.cubaInst && CUBAS[x.cubaInst]) { it.cubaInst = CUBAS[x.cubaInst]; if (!sv.some(k => /^cuba_/.test(k))) sv.push(/lavat|banheir|lavabo/.test(normaliza(it.ambiente || '')) ? 'cuba_lav' : 'cuba_coz'); } else if (x.cubaInst === 'sem') { it.cubaInst = ''; sv = sv.filter(k => !/^cuba_/.test(k)); it.cuba = ''; }
+    it.sv = [...new Set(sv.filter(Boolean))]; if (x.saia === '45') it.acabamento = '45'; else if (it.acabamento === '45') it.acabamento = '';
+    for (const y of Array.isArray(x.pecas) ? x.pecas : []) { const pc = (it.pecas || [])[+y.j]; if (pc && TIPOS_PECA.includes(y.tipo)) pc.tipoP = y.tipo; }
+  }
+  const cfg = await pontoCfg(env), ok = id => !id || cfg.funcs.some(f => String(f.id) === String(id));
+  for (const k of ['fabResp', 'poliResp', 'fab2Resp', 'acabResp', 'entResp']) if (b.resp && k in b.resp && ok(b.resp[k])) ped[k] = b.resp[k] || null;
+  ped.fichaConferidaEm = Date.now(); await salvarPedido(env, ped);
+  return { ok: true, pedido: (await producaoPainel(env)).pedidos.find(x => x.id === String(ped.id)) || null };
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -23093,6 +23139,8 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/ponto/')) return rotaBotPonto(req, env, url); // v34: HR Ponto (app do dono)
   if (p.startsWith('/bot/garantias')) { const r = await rotaGarantias(req, env, url); if (r) return r; } // v144
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
+  if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
+  if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
   if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
   if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
