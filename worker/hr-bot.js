@@ -17264,6 +17264,7 @@ Ele aprovou o orçamento? Se sim, eu assumo: falo com ele, pego os dados, mando 
   const pedido = t.match(/^(?:por favor,?\s*)?(?:avise|avisar|informe|comunique|mande(?:\s+uma)?\s+mensagem\s+para|envie(?:\s+uma)?\s+mensagem\s+para|fale\s+com)\s+(.{2,80}?)\s+(?:que\s+|:|,\s*)(.{3,3500})$/i);
   if (pedido) {
     const nome = pedido[1].trim().replace(/[.,;:]+$/, '').replace(/^(?:ao|à|a|pro|pra|para o|para a|para|o|os|as)\s+/i, ''), corpo = pedido[2].trim(); // v123
+    { const cfgF = await pontoCfg(env).catch(() => ({ funcs: [] })); if (cfgF.funcs.length && funcsDoTexto(cfgF, normaliza(nome)).length) return false; } // v159b: funcionário → recado da equipe (IA), não HR Comms
     let contato = await commsBuscarContato(env, nome);
     if (!contato) { const nCli = await numeroDoClientePorNome(env, nome).catch(() => ''); if (nCli) contato = { nome: (await nomeParaDono(env, nCli).catch(() => '')) || nome, numero: normalizarBR(nCli) }; } // v123: cliente já atendido
     if (!contato) {
@@ -27098,6 +27099,8 @@ async function tratarApelidoFuncionario(env, from, bruto, msg) {
 async function tratarRecadoFuncionario(env, from, bruto, msg) {
   const m = /^(?:bot,?\s*)?(avis[ae]|mand[ae]|fal[ae]|diz|dig[ae]|envi[ae]|pass[ae]|lembr[ae]|recado)\b\s*(?:(?:para|pra|pro|pros|pras|ao|aos|a|o|os|as)\s+)?(.+)$/.exec(msg);
   if (!m) return false;
+  // v159b: pedido de áudio ou de mensagem com tom/estilo ("descontraído", "chamando de farofinha", "incentivando") → a IA escreve a mensagem (avisar_equipe)
+  if (/\b(audio|audios|voz|descontraid\w*|engracad\w*|brincadeira|brincando|zoando|chamando|incentiv\w*|motiv\w*|elogi\w*|animad\w*|carinhos\w*|serio|seria|formal|criativ\w*|estilo|tom|caprich\w* na mensagem|escreve|escreva|crie|cria)\b/.test(msg)) return false;
   const cfg = await pontoCfg(env); if (!cfg.funcs.length) return false;
   const alvo = funcsDoTexto(cfg, m[2].slice(0, 60)); if (!alvo.length) return false;
   const orig = String(bruto).trim();
