@@ -9821,7 +9821,7 @@ async function premioMes(env, mes) {
   for (const f of cfg.funcs) {
     const ws = [];
     for (const ini of sems) {
-      if (ini > semAtual) { ws.push({ ini, futura: true }); continue; }
+      if (ini > semAtual) { const mf = await metaDe(env, f.id, cfgM, [], ini).catch(() => ({ meta: 0 })); ws.push({ ini, futura: true, meta: mf.meta }); continue; } // v208: meta das semanas que faltam (meta do mês completa)
       const hist = []; for (let k = 1; k <= 4; k++) { const a = isoSomaDias(ini, -7 * k); hist.push({ ini: a, pts: ((await pontosSem(a))[f.id] || {}).pts || 0 }); }
       const m = await metaDe(env, f.id, cfgM, hist, ini), ps = (await pontosSem(ini))[f.id] || {}, pts = ps.pts || 0, tarefasDia = {}; for (const t of ps.tarefas || []) tarefasDia[t.dia] = (tarefasDia[t.dia] || 0) + t.pts; // v181
       ws.push({ ini, pts, meta: m.meta, bateu: pts >= m.meta, atual: ini === semAtual && isoSomaDias(ini, 5) >= hoje, tarefasDia });
@@ -9840,7 +9840,7 @@ async function premioMes(env, mes) {
     if (ex && !ex.ok && (st === 'caminho' || st === 'coringa')) { st = 'fora'; txt = !ex.okQual ? `Qualidade do mês fora do prêmio (${ex.retrab} retrabalho(s), ${ex.perdas} quebra(s)${ex.nota != null ? ', nota ' + String(ex.nota).replace('.', ',') : ''}). Máximo: 1 retrabalho, 1 quebra e nota 4,5.` : `Bateu a meta do dia em ${ex.bateu} de ${ex.uteis} dias (${ex.pctDias}%). Para o prêmio, precisa de 60% dos dias.`; }
     else if (ex && (st === 'caminho' || st === 'coringa')) txt += ` Meta do dia: ${ex.bateu}/${ex.uteis} dias (precisa 60%).`;
     const ganhou = fechado && ativo && (!ex || ex.ok) && (abaixo.length === 0 || (abaixo.length === 1 && pc.coringa && somaP >= somaM));
-    res.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], ex, semanas: ws, somaP, somaM, pct: somaM ? Math.round(somaP / somaM * 100) : 0, st, txt, falta, ganhou, fechado });
+    res.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], ex, semanas: ws, somaP, somaM, metaMes: ws.reduce((t, w) => t + (+w.meta || 0), 0), pct: somaM ? Math.round(somaP / somaM * 100) : 0, st, txt, falta, ganhou, fechado });
   }
   const fechado = res.length && res[0].fechado;
   const cand = res.filter(r => fechado ? r.ganhou : (r.st === 'caminho' || r.st === 'coringa')).sort((a, b) => b.pct - a.pct || b.somaP - a.somaP);
@@ -10731,9 +10731,9 @@ async function bonusPainel(env, mes) {
     const liderV = lider && pm.lider ? pm.lider : 0;
     func.push({ id: String(f.id), nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], nomeCompleto: f.nome, funcoes: (map[f.id] || []).map(k => FUNC_TXT[k] || k),
       metaFixa: +c.pontos || 0, bonusSemana: bonusSem,
-      semana: pn ? { pts: pn.pts, meta: pn.meta, pct: pn.pct, falta: pn.falta, faixa: pn.faixa, prox: pn.prox, pos: pn.pos, porDia: pn.porDia, diasRest: pn.diasRest, tarefas: pn.tarefas.slice(0, 10), medalhas: pn.medalhas, auto: pn.auto } : null,
+      semana: pn ? { pts: pn.pts, meta: pn.meta, ptsHoje: pn.ptsHoje || 0, metaDia: pn.metaDia || 0, pct: pn.pct, falta: pn.falta, faixa: pn.faixa, prox: pn.prox, pos: pn.pos, porDia: pn.porDia, diasRest: pn.diasRest, tarefas: pn.tarefas.slice(0, 10), medalhas: pn.medalhas, auto: pn.auto } : null,
       carreira: { ...car, xp },
-      mes: { semanas: r.semanas, st: r.st, txt: r.txt, falta: r.falta || 0, pct: r.pct || 0, somaP: r.somaP || 0, somaM: r.somaM || 0, ganhou: !!r.ganhou, lider },
+      mes: { semanas: r.semanas, st: r.st, txt: r.txt, falta: r.falta || 0, pct: r.pct || 0, somaP: r.somaP || 0, somaM: r.somaM || 0, metaMes: r.metaMes || 0, ganhou: !!r.ganhou, lider },
       pagar: { premio, lider: r.ganhou ? liderV : 0, bonusSemanas: bonusSem * semBatidas, total: premio + (r.ganhou ? liderV : 0) + bonusSem * semBatidas },
       previsto: { premio: pm.fechado ? premio : premioPrev, lider: liderV && (pm.fechado ? r.ganhou : premioPrev) ? liderV : 0, bonusSemanas: bonusSem * semBatidasAteAgora } });
   }

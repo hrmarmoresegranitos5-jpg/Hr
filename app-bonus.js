@@ -65,11 +65,19 @@
     var h = '<div class="bon-card" style="animation-delay:' + (i * 0.05) + 's" data-f="' + esc(x.id) + '"><div class="bon-l1"><div class="bon-av">' + esc(String(x.nome || '?').charAt(0).toUpperCase()) + '</div><div style="min-width:0"><div class="bon-nm">' + esc(x.nome) + '</div><div class="bon-fn">' + (x.funcoes.length ? esc(x.funcoes.join(', ')) : '') + '</div></div>'
       + '<div class="bon-pg"><b>' + brl(valor) + '</b><span>' + (d.fechado ? 'a pagar' : 'previsto') + '</span></div></div>';
     h += '<span class="bon-st" style="background:rgba(' + s[1] + ',.15);color:rgb(' + s[1] + ');border:1px solid rgba(' + s[1] + ',.4)">' + s[0] + '</span> <span class="bon-fn">' + esc(x.mes.txt) + '</span>';
-    if (sem) { // v2: simples — semana X de Y, barra até a meta, quanto falta
-      var pc = Math.min(100, sem.pts / Math.max(1, sem.meta) * 100), ok = sem.pts >= sem.meta;
-      h += '<div style="margin-top:12px;font-size:.78rem;color:#9a917e">Pontos da semana</div>'
-        + '<div style="display:flex;align-items:baseline;gap:8px"><b style="font-size:1.9rem;color:' + (ok ? '#7ee2a8' : '#f0d78c') + '">' + pt(sem.pts) + '</b><span style="font-size:1rem;color:#c9bfa6">de ' + pt(sem.meta) + '</span>' + (ok ? '<span style="margin-left:auto">🎯 meta batida</span>' : '<span style="margin-left:auto;font-size:.85rem;color:#c9bfa6">faltam <b style="color:#efe9dc">' + pt(sem.falta) + '</b></span>') + '</div>'
-        + '<div class="bon-bar" style="height:12px"><i style="width:' + pc + '%;' + (ok ? 'background:linear-gradient(90deg,#34d399,#7ee2a8)' : '') + '"></i></div>';
+    if (sem) { // v3: três barras simples — hoje, semana e mês
+      var barra = function (ic, rot, v, m, sub) {
+        var ok = m > 0 && v >= m, pc = m > 0 ? Math.min(100, v / m * 100) : 0, falta = Math.max(0, Math.round((m - v) * 10) / 10);
+        return '<div style="margin-top:12px"><div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:.95rem">' + ic + '</span><b style="font-size:.9rem;color:#efe9dc">' + rot + '</b>'
+          + '<span style="margin-left:auto;font-size:1.15rem;font-weight:800;color:' + (ok ? '#7ee2a8' : '#f0d78c') + '">' + pt(v) + '</span><span style="font-size:.85rem;color:#9a917e">de ' + pt(m) + '</span></div>'
+          + '<div style="position:relative;height:16px;border-radius:10px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:5px"><i style="position:absolute;left:0;top:0;bottom:0;width:' + pc + '%;border-radius:10px;background:' + (ok ? 'linear-gradient(90deg,#34d399,#7ee2a8)' : 'linear-gradient(90deg,#c9a84c,#f0d78c)') + '"></i>'
+          + '<span style="position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000">' + Math.round(m > 0 ? v / m * 100 : 0) + '%</span></div>'
+          + '<div style="font-size:.72rem;color:#9a917e;margin-top:3px">' + (ok ? '✅ meta batida' : 'faltam <b style="color:#efe9dc">' + pt(falta) + '</b>' + (sub ? ' · ' + sub : '')) + '</div></div>';
+      };
+      var mes = x.mes || {}, mm = mes.metaMes || mes.somaM || 0;
+      h += barra('📅', 'Hoje', sem.ptsHoje || 0, sem.metaDia || 0, '')
+        + barra('📆', 'Semana', sem.pts, sem.meta, sem.diasRest ? '~' + pt(sem.porDia) + ' por dia' : '')
+        + barra('🗓️', 'Mês', mes.somaP || 0, mm, '');
     }
     if (aberto) {
       var P = d.fechado ? x.pagar : x.previsto;
