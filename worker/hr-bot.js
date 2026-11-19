@@ -9260,7 +9260,8 @@ async function fotoTabela(env) { if (fotoTabOk || !env.HR_DB) return !!env.HR_DB
 async function prodPedirFoto(env, ped, from, nome, texto, receb) {
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, texto: texto || '', receb: receb || null, em: Date.now() }), { expirationTtl: 12 * 3600 });
   if (await env.HR_KV.get('prod:fotoja:' + ultimos8(from))) return true; // v156: a foto já veio junto
-  await enviar(env, from, `📸 ${nome}, antes de dar baixa: me manda uma *foto mostrando todas as peças* de *${ped.nome}*${String(ped.entrega) === 'retirada' ? '' : ' (de preferência já no lugar)'}. É o comprovante da entrega.`);
+  if (contarAtivo(env, ped)) { const q = nPecasPed(ped); await enviar(env, from, `📸 ${nome}, antes de dar baixa: me manda uma foto com *as ${q} peça(s) de ${ped.nome} aparecendo* (${resumoPecas(ped)}).\n• coloca lado a lado, sem empilhar\n• tira de um pouco mais longe, pra caber todas\nEu vou contar na foto. Ela é o comprovante de que tudo chegou inteiro.`); return true; } // v175: poucas peças → todas têm que aparecer
+  await enviar(env, from, `📸 ${nome}, antes de dar baixa: me manda uma *foto mostrando as peças* de *${ped.nome}*${String(ped.entrega) === 'retirada' ? '' : ' (de preferência já no lugar)'}. Se forem muitas e não couberem todas, tudo bem: pega o máximo que der. É o comprovante da entrega.`);
   return true;
 }
 async function prodFotoRecebida(env, f, from, m, nome) {
@@ -9292,10 +9293,17 @@ async function prodFotoRecebida(env, f, from, m, nome) {
   let buf = null, tipo = 'image/jpeg'; try { const r = await baixarMidia(env, m.image.id); buf = new Uint8Array(r.buf); tipo = r.tipo; } catch (e) { await enviar(env, from, 'Não consegui baixar a foto. Manda de novo, por favor.'); return true; }
   if (pe && !m._jaSalva && !pe.contado && contarAtivo(env, ped)) { // v174: soleira/peitoril — confere a quantidade na foto antes de dar baixa
     const r = await contarPecasFoto(env, ped, buf, tipo).catch(() => null), esp = nPecasPed(ped);
-    if (r && r.ok) pe.contado = esp;
+    if (r && r.ok) { pe.contado = esp; await env.HR_KV.delete('prod:contar:' + ultimos8(from)); }
+    else if (!pe.tent) { // v175: 1ª tentativa — pede outra foto com todas aparecendo
+      await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ ...pe, tent: 1 }), { expirationTtl: 12 * 3600 });
+      await env.HR_KV.put('prod:contar:' + ultimos8(from), JSON.stringify({ pid: ped.id, mid: m.image.id, pe: { ...pe, tent: 1 }, ia: r ? r.n : null, em: Date.now() }), { expirationTtl: 6 * 3600 });
+      await enviarComBotoes(env, from, `📸 ${nome}, ${r && r.n != null ? `na foto eu contei *${r.n}* peça(s)` : 'não consegui contar as peças nessa foto'}, e o pedido de *${ped.nome}* tem *${esp}*.\nAs ${esp} peças precisam *aparecer todas* na foto: coloca lado a lado, sem empilhar, e tira de um pouco mais longe. *Manda outra foto*, por favor.${r && r.obs ? '\n_' + r.obs + '_' : ''}`,
+        [{ id: 'cnt|' + ped.id + '|' + esp, titulo: `✅ Já estão as ${esp}` }, { id: 'cnt|' + ped.id + '|outro', titulo: 'Entrego outro número' }]);
+      return true;
+    }
     else {
       if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('ped:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(() => {});
-      await env.HR_KV.put('prod:contar:' + ultimos8(from), JSON.stringify({ pid: ped.id, mid: m.image.id, pe, ia: r ? r.n : null, em: Date.now() }), { expirationTtl: 6 * 3600 });
+      await env.HR_KV.put('prod:contar:' + ultimos8(from), JSON.stringify({ pid: ped.id, mid: m.image.id, pe, ia: r ? r.n : null, salva: true, em: Date.now() }), { expirationTtl: 6 * 3600 });
       await enviarComBotoes(env, from, `📸 ${nome}, ${r && r.n != null ? `na foto eu contei *${r.n}* peça(s)` : 'não consegui contar as peças na foto'}, e o pedido de *${ped.nome}* tem *${esp}* (${resumoPecas(ped)}).\nConta pra mim: quantas você está entregando?${r && r.obs ? '\n_' + r.obs + '_' : ''}`,
         [{ id: 'cnt|' + ped.id + '|' + esp, titulo: `✅ São ${esp}` }, { id: 'cnt|' + ped.id + '|outro', titulo: 'Outro número' }]);
       return true;
@@ -10696,6 +10704,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v175: poucas peças → o pedido da foto explica como mostrar todas; se não bater, pede OUTRA foto antes de perguntar a quantidade. Muitas: tudo bem não caber.
 // v174: CONFERÊNCIA DA QUANTIDADE na foto da entrega (soleiras/peitoris, poucas peças) — a IA conta; se não bater, o entregador confirma
 function contarAtivo(env, ped) { const n = nPecasPed(ped); return String(env.CONTAR_PECAS ?? '1') !== '0' && !pedComplexo(ped) && n >= 1 && n <= (Number(env.CONTAR_PECAS_MAX) || 15) && String(ped.entrega || '') !== 'retirada'; }
 async function contarPecasFoto(env, ped, buf, mime) {
@@ -10716,7 +10725,7 @@ async function contarFinalizar(env, f, from, c, n, nome) {
   if (n !== esp) await pontoAvisarDono(env, `⚠️ *${nome}* está entregando *${n}* peça(s) para *${ped.nome}*, mas o pedido tem *${esp}* (${resumoPecas(ped)}).${c.ia != null ? ` Na foto a IA contou ${c.ia}.` : ''} Confira com ele.`).catch(() => {});
   else await enviar(env, from, `✅ Conferido: ${n} peça(s). Valeu, ${nome}!`).catch(() => {});
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ ...c.pe, contado: n }), { expirationTtl: 12 * 3600 });
-  return prodFotoRecebida(env, f, from, { type: 'image', image: { id: c.mid }, _jaSalva: true }, nome);
+  return prodFotoRecebida(env, f, from, { type: 'image', image: { id: c.mid }, _jaSalva: !!c.salva }, nome);
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
