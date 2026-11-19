@@ -10369,7 +10369,7 @@ async function prodInicioInstalacao(env, f, from, texto, nome) {
 async function prodFotoInicio(env, f, from, ped, buf, tipo, nome) {
   if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind('inicio:' + ped.id, bytesParaBase64(buf), tipo, Date.now(), String(f.id)).run().catch(e => console.log('[FOTO]', e.message));
   ped.instIniFotoEm = Date.now(); await salvarPedido(env, ped);
-  try { const up = await subirImagemMeta(env, buf, 'inicio-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📍 Início da instalação · ${ped.nome} · ${nome} · ${horaTs(Date.now())}` } }).catch(() => {}); } catch (_) {}
+  try { const up = await subirImagemMeta(env, buf, 'inicio-' + (ped.nome || 'cliente')), mid = typeof up === 'string' ? up : up && up.id; if (mid) await postarMsg(env, numeroDono(env), { type: 'image', image: { id: mid, caption: `📍 Início da instalação · ${ped.nome} · ${nome} · ${horaTs(ped.instIniEm || Date.now())}` } }).catch(() => {}); } catch (_) {}
   await enviar(env, from, `📸 Foto do início guardada. Bom trabalho! Quando terminar: _instalei o da ${String(ped.nome).split(' ')[0]}_ e a foto com todas as peças instaladas.`);
 }
 
@@ -10650,6 +10650,37 @@ async function eqDicaFotosRotina(env, forcar) {
   }
   if (out.length && !forcar) await pontoAvisarDono(env, ['📸 Mandei para a equipe como enviar as fotos (com legenda ou escolhendo na lista):', ...out.map(x => '• ' + x)].join('\n')).catch(() => {});
   return out;
+}
+
+// v173: o dono escolhe uma foto que o funcionário JÁ mandou ("salva a primeira foto do Gibson como início da montagem da Renata")
+async function fotoEquipeUsarTool(env, a) {
+  const cfg = await pontoCfg(env), tkF = tokensPedra(String(a.funcionario || '')), f = cfg.funcs.find(x => tkF.length && tokensPedra(x.nome)[0] === tkF[0]) || cfg.funcs.find(x => normaliza(apelidoFunc(cfg, x) || '') === normaliza(a.funcionario || ''));
+  if (!f || !f.tel) return { erro: true, texto: 'Não achei esse funcionário (ou ele está sem telefone no RH).' };
+  if (!crmAtivo(env)) return { erro: true, texto: 'O histórico das conversas (CRM) não está ligado; não consigo achar a foto antiga.' };
+  await crmTabela(env);
+  const tel = normalizarBR(f.tel.startsWith('55') ? f.tel : '55' + f.tel), desde = Date.now() - (Number(a.horas) > 0 ? +a.horas : 12) * 3600000;
+  const r = (await env.HR_DB.prepare("SELECT ts, midia, texto FROM crm_msg WHERE substr(num, -8) = ? AND q = 'c' AND tipo = 'image' AND ts > ? ORDER BY ts ASC").bind(ultimos8(tel), desde).all()).results || [];
+  if (!r.length) return { erro: true, texto: `Não achei fotos do ${apelidoFunc(cfg, f)} nas últimas horas.` };
+  const qual = String(a.qual || 'primeira'), idx = qual === 'ultima' ? r.length - 1 : qual === 'segunda' ? Math.min(1, r.length - 1) : 0, foto = r[idx];
+  let buf = null, tipo = 'image/jpeg';
+  try { if (String(foto.midia).startsWith('d:')) { const x = await crmLerArquivo(env, foto.midia.slice(2)); buf = new Uint8Array(x.buf); tipo = x.mime || tipo; } else { const x = await baixarMidia(env, String(foto.midia).slice(2)); buf = new Uint8Array(x.buf); tipo = x.tipo || tipo; } }
+  catch (e) { return { erro: true, texto: 'Não consegui baixar essa foto (' + String(e.message).slice(0, 80) + ').' }; }
+  const tk = tokensPedra(String(a.cliente || '')), l = await pedidosProducao(env, p => tk.length && tk.every(w => tokensPedra(p.nome || '').includes(w)) && (!p.entregueEm || Date.now() - p.entregueEm < 3 * 86400000));
+  const ped = l.sort((x, y) => (y.atualizado || y.criado || 0) - (x.atualizado || x.criado || 0))[0]; if (!ped) return { erro: true, texto: 'Não achei o serviço desse cliente. Pergunte o nome em UMA frase.' };
+  const nome = apelidoFunc(cfg, f), etapa = String(a.etapa || 'inicio');
+  await env.HR_KV.delete('prod:fotopend:' + ultimos8(tel)).catch(() => {}); await env.HR_KV.delete('prod:fotoesp:' + ultimos8(tel)).catch(() => {});
+  if (etapa === 'inicio') {
+    let reaberto = false;
+    if (ped.entregueEm && !ped.fotoEntregaEm) { ped.prodLog = (ped.prodLog || []).filter(x => !((x.e === 'instalacao' || x.e === 'entrega') && x.dono)); ped.entregueEm = null; reaberto = true; }
+    ped.fabProntoEm = ped.fabProntoEm || Date.now(); ped.entResp = ped.entResp || String(f.id); ped.entFeitoPor = null;
+    ped.instIniEm = foto.ts; ped.instIniPor = String(f.id); ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog.filter(x => x.e !== 'inicio_inst') : []; ped.prodLog.push({ e: 'inicio_inst', por: [String(f.id)], ts: foto.ts });
+    await salvarPedido(env, ped);
+    await prodFotoInicio(env, f, tel, ped, buf, tipo, nome);
+    if (ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, nossa equipe já está aí começando a instalação. 😊 Qualquer coisa, é só falar comigo por aqui.`).catch(() => {});
+    return { texto: `Feito: a ${idx + 1}ª foto do ${nome} (${horaTs(foto.ts)}) virou o INÍCIO da montagem de ${ped.nome}, às ${horaTs(foto.ts)}.${reaberto ? ' O serviço estava marcado como instalado antes da hora: reabri (os pontos e a baixa saem quando ele terminar, com a foto final).' : ''} Ele foi avisado. Confirme em UMA frase.` };
+  }
+  if (await fotoTabela(env)) await env.HR_DB.prepare('INSERT INTO foto_entrega (ref, b64, mime, ts, por) VALUES (?, ?, ?, ?, ?)').bind((etapa === 'fim' ? 'ped:' : 'obra:') + ped.id, bytesParaBase64(buf), tipo, foto.ts, String(f.id)).run().catch(() => {});
+  return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -11867,6 +11898,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, parcelas: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string' } } } } }, required: ['cliente', 'parcelas'] },
   },
   {
+    name: 'foto_equipe_usar',
+    description: 'Usa uma foto que um FUNCIONÁRIO já mandou no WhatsApp (o bot guarda todas) para registrar uma etapa, quando o Sr. Hangel pedir. Ex.: "salva a primeira foto do Gibson como início da montagem da Renata" → funcionario Gibson, cliente Renata, qual primeira, etapa inicio. etapa "inicio" marca o início da instalação com o horário da foto (e reabre se foi marcada como feita antes da hora); "foto" só guarda no pedido.',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string' }, cliente: { type: 'string' }, qual: { type: 'string', enum: ['primeira', 'segunda', 'ultima'] }, etapa: { type: 'string', enum: ['inicio', 'foto'] }, horas: { type: 'number', description: 'procurar nas últimas N horas (padrão 12)' } }, required: ['funcionario', 'cliente'] },
+  },
+  {
     name: 'registrar_retrabalho',
     description: 'Registra um RETRABALHO (serviço que voltou por erro: medida errada, peça trincada na instalação, desnível, silicone mal feito). Desconta 2 pontos de quem fez a etapa (divididos se foram vários) e entra no relatório de qualidade. Ex.: "a bancada da Maria voltou, ficou desnivelada, foi o Gibson" → etapa instalacao, funcionarios [Gibson]. Sem funcionário, o bot usa quem fez a etapa. desconta=false se ele disser que não é para tirar ponto.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega'] }, motivo: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' } }, desconta: { type: 'boolean' }, avisar: { type: 'boolean' } }, required: ['cliente', 'etapa'] },
@@ -12362,6 +12398,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
   if (nome === 'acordo_pagamento') return await acordoTool(env, from, a); // v152
   if (nome === 'registrar_retrabalho') return await retrabalhoTool(env, a); // v157
+  if (nome === 'foto_equipe_usar') return await fotoEquipeUsarTool(env, a); // v173
   if (nome === 'acordo_alterar') return await acordoAlterarTool(env, a); // v162
   if (nome === 'registrar_sobra') return await sobraTool(env, a); // v151
   if (nome === 'previsao_mes') return { texto: (await previsaoTexto(env)) + '\n\n(Repasse esses números de forma curta e clara.)' }; // v151
