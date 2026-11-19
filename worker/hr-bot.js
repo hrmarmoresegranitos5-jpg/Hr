@@ -1480,7 +1480,7 @@ async function postarMsg(env, para, extra) {
     throw new Error(`WhatsApp API ${r.status}: ${corpo.slice(0, 300)}`);
   }
   const j = await r.json().catch(() => null);
-  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); crmAdd(env, para, crmDeSaida(extra, id)); } catch (_) {} // v48 · v62 · v75
+  try { const id = j && j.messages && j.messages[0] && j.messages[0].id; if (id && Array.isArray(env._wamTrack) && normalizarBR(para) === env._wamAlvo) env._wamTrack.push(id); await registrarMsgDono(env, para, id, resumoMsgDono(extra)); txRegistrar(env, para, 'b', txTexto(extra)); crmAdd(env, para, Object.assign(crmDeSaida(extra, id), extra && extra.type === 'audio' && env._falaVoz ? { texto: '🗣️ ' + env._falaVoz } : {})); } catch (_) {} // v48 · v62 · v75 · v159c: áudio com o texto falado
   return j;
 }
 
@@ -2623,7 +2623,7 @@ async function enviarVoz(env, para, texto, opts = {}) {
       method: 'POST', headers: authBearer(env), body: fd,
     });
     if (!up?.id) throw new Error('a Meta não devolveu o id do áudio');
-    await postarMsg(env, para, { type: 'audio', audio: { id: up.id } });
+    env._falaVoz = fala; try { await postarMsg(env, para, { type: 'audio', audio: { id: up.id } }); } finally { env._falaVoz = ''; }
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
     return true;
   } catch (e) {
