@@ -11640,6 +11640,19 @@ const NARR199 = {
   dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
   fim: 'Bora bater a meta, equipe!',
 };
+// v201: conferência (uma vez): pontos de hoje/semana da equipe e o pedido do Jailton, para revisar a pontuação do Hugo
+async function diag201(env) {
+  if (!env.HR_DB || await env.HR_KV.get('diag:201')) return; await env.HR_KV.put('diag:201', '1', { expirationTtl: 3 * 86400 });
+  await env.HR_DB.prepare('CREATE TABLE IF NOT EXISTS tmp_diag (k TEXT PRIMARY KEY, v TEXT)').run();
+  const put = (k, v) => env.HR_DB.prepare('INSERT OR REPLACE INTO tmp_diag (k, v) VALUES (?, ?)').bind(k, JSON.stringify(v).slice(0, 900000)).run();
+  const cfg = await pontoCfg(env), hoje = dataBahia(), ini = semIni(hoje), todos = await pedidosProducao(env, () => true);
+  const nome = id => (cfg.funcs.find(f => String(f.id) === String(id)) || {}).nome || id;
+  const sem = await metasPontos(env, ini, isoSomaDias(ini, 6), todos);
+  await put('semana', Object.fromEntries(Object.entries(sem).map(([id, o]) => [nome(id), { pts: o.pts, tarefas: o.tarefas.map(t => [t.dia, t.nome, t.tipo, t.pts]) }])));
+  const js = todos.filter(p => /jailton|papinha/i.test(p.nome || ''));
+  await put('jailton', js.map(p => ({ id: p.id, nome: p.nome, complexo: pedComplexo(p), nPecas: nPecasPed(p), dif: dificuldade(p), nivel: nivelDif(p), etapas: { corte: ptsEtapa(p, 'corte'), fabricacao: ptsEtapa(p, 'fabricacao'), acabamento: ptsEtapa(p, 'acabamento'), polimento: ptsEtapa(p, 'polimento'), instalacao: ptsEtapa(p, 'instalacao') }, hugo: ((p.resumoApp || {}).itens || []).map(it => ({ amb: it.ambiente, sv: it.sv, cuba: it.cuba, cubaInst: it.cubaInst, acab: it.acabamento, pecas: (it.pecas || []).map(x => [x.qtd, x.comp_cm, x.larg_cm, x.rot || '', x.tipoP || '']), hugo: servicosHugo(it) })), prodLog: p.prodLog, prog: p.prog, resp: { fab: p.fabResp, fab2: p.fab2Resp, acab: p.acabResp, poli: p.poliResp, ent: p.entResp }, ts: { corte: p.corteEm, fabPronto: p.fabProntoEm, acab: p.acabEm, entregue: p.entregueEm, fotoPronto: p.fotoProntoEm } })));
+  await put('funcs', cfg.funcs.map(f => [f.id, f.nome]));
+}
 // v200: serve a narração de cada cena (gera a que faltar) para a página que monta o vídeo com voz no celular do dono
 async function vozVideoRota(env, k) {
   const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=86400' };
@@ -31346,6 +31359,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
+    if (ctx && ctx.waitUntil && !globalThis.__diag201) { globalThis.__diag201 = 1; ctx.waitUntil(diag201(env).catch(e => console.log('[DIAG201]', e.message))); } // v201
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
