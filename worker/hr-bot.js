@@ -1,3 +1,4 @@
+// v160 (19/11/2026): VOZ MAIS NATURAL (vozes brasileiras da ElevenLabs quando houver chave, instrução de conversa de WhatsApp, texto limpo para fala) e "voz" para ouvir amostras e escolher
 // v159 (19/11/2026): avisar_equipe em ÁUDIO (audio=true) e sempre com a mensagem final escrita (nunca a instrução do dono); áudio guardado para quem estava fora das 24 h
 // v158 (19/11/2026): NÍVEL DO SERVIÇO multiplica pontos (🟢×1 🟡×1,25 🔴×1,5 💎×1,8), META DESAFIADORA (média+15% ou 90% da melhor semana), FAIXAS 🥉🥈🥇💎 comemoradas, CARREIRA (Aprendiz → Lenda) com XP acumulado
 // v157 (19/11/2026): RECEBIMENTO PELO CLIENTE (✅ Tudo certo / ⚠️ problema + nota 1-5 da equipe; nota 5 = +1 ponto), RETRABALHO (−2, registrar_retrabalho), RELATÓRIO "qualidade" (fotos, horário, notas, retrabalhos)
@@ -2582,54 +2583,81 @@ function textoParaFala(t) {
 // v127: a assistente é mulher: só vozes femininas (TTS_VOICE com voz masculina é ignorada)
 const VOZES_FEMININAS = ['coral', 'nova', 'shimmer', 'sage'];
 function vozFeminina(env) { const v = String(env.TTS_VOICE || '').toLowerCase().trim(); return VOZES_FEMININAS.includes(v) ? v : 'shimmer'; } // v128: shimmer é a mais suave
+// v160: VOZ MAIS NATURAL — vozes brasileiras, entrega de conversa (não de locutora), texto preparado para fala e escolha pelo WhatsApp ("voz")
+const VOZ_OPCOES = [
+  { k: 'el_roberta', prov: 'el', id: 'RGymW84CSmfVugnA5tvA', nome: 'Roberta (brasileira, conversa)' },
+  { k: 'el_keren', prov: 'el', id: '33B4UnXyTNbgLmdEDh5P', nome: 'Keren (brasileira, jovem e doce)' },
+  { k: 'oa_coral', prov: 'oa', id: 'coral', nome: 'Coral (OpenAI)' },
+  { k: 'oa_sage', prov: 'oa', id: 'sage', nome: 'Sage (OpenAI)' },
+  { k: 'oa_shimmer', prov: 'oa', id: 'shimmer', nome: 'Shimmer (OpenAI, a atual)' },
+];
+async function vozEscolhaCarregar(env) { if (globalThis.__vozEm && Date.now() - globalThis.__vozEm < 5 * 60000) return; globalThis.__vozEm = Date.now(); globalThis.__voz = (await env.HR_KV.get('cfg:voz').catch(() => '')) || ''; }
+// o texto escrito vira fala: sem emoji, asterisco, sublinhado, links; números de dinheiro por extenso ficam com o TTS
+function falaCasual(t) { // v160: complemento do textoParaFala para áudio de conversa
+  return String(t || '').replace(/https?:\/\/\S+/g, '').replace(/\bkkk+\b/gi, 'haha').replace(/\bvc\b/gi, 'você').replace(/\btb\b/gi, 'também').replace(/\bpq\b/gi, 'porque').replace(/\bblz\b/gi, 'beleza').replace(/!{2,}/g, '!').replace(/\.\s*\./g, '.').trim();
+}
+const VOZ_INSTR = 'Fale como uma moça brasileira de verdade mandando um áudio no WhatsApp para alguém conhecido: português do Brasil com sotaque nordestino leve, ritmo natural de conversa (nem lento nem corrido), entonação que sobe e desce, pausas curtas onde a gente respira, sorriso leve na voz. Nada de voz de locutora, de atendimento eletrônico ou de leitura. Se o texto for brincalhão, fale com alegria e leveza; se for sério, com calma e firmeza.';
+async function gerarVoz(env, fala, escolha) {
+  const op = VOZ_OPCOES.find(x => x.k === escolha) || null;
+  const elId = op && op.prov === 'el' ? op.id : (!op && env.ELEVENLABS_KEY ? (env.ELEVENLABS_VOICE || 'RGymW84CSmfVugnA5tvA') : '');
+  if (env.ELEVENLABS_KEY && elId) {
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${elId}?output_format=opus_48000_64`, {
+        method: 'POST', headers: { 'xi-api-key': env.ELEVENLABS_KEY, 'Content-Type': 'application/json', Accept: 'audio/ogg' },
+        body: JSON.stringify({ text: fala, model_id: env.ELEVENLABS_MODEL || 'eleven_multilingual_v2', language_code: 'pt', voice_settings: { stability: 0.38, similarity_boost: 0.8, style: 0.35, use_speaker_boost: true, speed: 1.03 } }),
+      });
+      if (!r.ok) throw new Error(`elevenlabs ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`);
+      return { audio: await r.arrayBuffer(), via: 'el:' + elId };
+    } catch (e) { console.log('[BOT] voz ElevenLabs:', e.message); if (op && op.prov === 'el') throw e; }
+  } else if (op && op.prov === 'el') throw new Error('falta a chave ELEVENLABS_KEY');
+  const chave = chaveVoz(env); if (!chave) throw new Error('sem chave de voz');
+  const tts = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST', headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: env.TTS_MODEL || 'gpt-4o-mini-tts', voice: op && op.prov === 'oa' ? op.id : vozFeminina(env), input: fala, response_format: 'opus', instructions: env.TTS_INSTRUCOES || VOZ_INSTR }),
+  });
+  if (!tts.ok) throw new Error(`voz ${tts.status}: ${(await tts.text().catch(() => '')).slice(0, 200)}`);
+  return { audio: await tts.arrayBuffer(), via: 'oa:' + (op && op.prov === 'oa' ? op.id : vozFeminina(env)) };
+}
+async function subirVozEnviar(env, para, audio, fala) {
+  const fd = new FormData();
+  fd.append('messaging_product', 'whatsapp'); fd.append('type', 'audio/ogg');
+  fd.append('file', new Blob([audio], { type: 'audio/ogg' }), 'voz.ogg');
+  const up = await graphJson(env, `https://graph.facebook.com/${gv(env)}/${env.PHONE_NUMBER_ID}/media`, { method: 'POST', headers: authBearer(env), body: fd });
+  if (!up?.id) throw new Error('a Meta não devolveu o id do áudio');
+  env._falaVoz = fala; try { await postarMsg(env, para, { type: 'audio', audio: { id: up.id } }); } finally { env._falaVoz = ''; }
+}
 // Gera a voz (OGG/Opus), sobe na Meta e envia como mensagem de voz. Nunca derruba o fluxo.
 async function enviarVoz(env, para, texto, opts = {}) {
   try {
-    const fala = String(texto || '').trim().slice(0, VOZ_MAX_CHARS).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
+    await vozEscolhaCarregar(env).catch(() => {});
+    const fala = falaCasual(textoParaFala(String(texto || '').trim().slice(0, VOZ_MAX_CHARS))).replace(/\bHangel\b/g, 'Rangel').replace(/\bHANGEL\b/g, 'RANGEL').replace(/\bhangel\b/g, 'rangel'); // v128b: pronúncia do nome (Rangel)
     if (!fala) return false;
-    let audio = null;
-    if (env.ELEVENLABS_KEY) { // v128: voz de pessoa de verdade (ElevenLabs); se falhar, cai para a da OpenAI
-      try {
-        const vid = env.ELEVENLABS_VOICE || 'EXAVITQu4vr4xnSDxMaL';
-        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vid}?output_format=opus_48000_64`, {
-          method: 'POST', headers: { 'xi-api-key': env.ELEVENLABS_KEY, 'Content-Type': 'application/json', Accept: 'audio/ogg' },
-          body: JSON.stringify({ text: fala, model_id: env.ELEVENLABS_MODEL || 'eleven_multilingual_v2', language_code: 'pt', voice_settings: { stability: 0.5, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true } }),
-        });
-        if (!r.ok) throw new Error(`elevenlabs ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`);
-        audio = await r.arrayBuffer();
-      } catch (e) { console.log('[BOT] voz ElevenLabs:', e.message); audio = null; }
-    }
-    const chave = chaveVoz(env);
-    if (!audio && !chave) return false;
-    const tts = audio ? null : await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${chave}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: env.TTS_MODEL || 'gpt-4o-mini-tts',
-        voice: vozFeminina(env), // v127: sempre voz de mulher
-        input: fala,
-        response_format: 'opus',
-        instructions: 'Voz feminina suave e delicada. Fale em português do Brasil com calma, num tom baixo, gentil e acolhedor, como uma moça educada conversando de perto. Natural e leve: sem animação exagerada, sem sorriso forçado, sem sotaque carregado, sem ênfase teatral.', // v128: menos é mais
-      }),
-    });
-    if (tts && !tts.ok) throw new Error(`voz ${tts.status}: ${(await tts.text().catch(() => '')).slice(0, 200)}`);
-    audio = audio || await tts.arrayBuffer();
-
-    const fd = new FormData();
-    fd.append('messaging_product', 'whatsapp');
-    fd.append('type', 'audio/ogg');
-    fd.append('file', new Blob([audio], { type: 'audio/ogg' }), 'voz.ogg');
-    const up = await graphJson(env, `https://graph.facebook.com/${gv(env)}/${env.PHONE_NUMBER_ID}/media`, {
-      method: 'POST', headers: authBearer(env), body: fd,
-    });
-    if (!up?.id) throw new Error('a Meta não devolveu o id do áudio');
-    env._falaVoz = fala; try { await postarMsg(env, para, { type: 'audio', audio: { id: up.id } }); } finally { env._falaVoz = ''; }
+    let g = null; try { g = await gerarVoz(env, fala, opts.voz || globalThis.__voz || ''); } catch (e) { if (opts.voz) throw e; g = await gerarVoz(env, fala, ''); } // a voz escolhida falhou: usa a padrão
+    await subirVozEnviar(env, para, g.audio, String(texto || '').trim().slice(0, VOZ_MAX_CHARS));
     if (env._ctx && normalizarBR(para) === env._ctx.de) env._ctx.falou = true;
     return true;
   } catch (e) {
+    if (opts.voz) throw e;
     console.log('[BOT] voz falhou (a resposta em texto já foi enviada):', e.message);
     return false;
   }
+}
+// dono: "voz" → ouve amostras e escolhe; "voz 2" → escolhe
+async function vozComando(env, from, msg) {
+  const m = msg.match(/^(?:voz|vozes|trocar (?:a )?voz|mudar (?:a )?voz|testar (?:a )?voz)(?:\s+(\d))?$/); if (!m) return false;
+  const disp = VOZ_OPCOES.filter(x => x.prov === 'oa' ? !!chaveVoz(env) : !!env.ELEVENLABS_KEY);
+  if (m[1]) { const op = disp[+m[1] - 1]; if (!op) { await enviar(env, from, `Escolha um número de 1 a ${disp.length}.`); return true; }
+    await env.HR_KV.put('cfg:voz', op.k); globalThis.__voz = op.k; globalThis.__vozEm = Date.now();
+    await enviar(env, from, `✅ Voz trocada para *${op.nome}*. A partir de agora todos os áudios saem com ela.`);
+    await enviarVoz(env, from, 'Pronto, chefe! Agora é essa a minha voz. Gostou?').catch(() => {}); return true; }
+  if (!disp.length) { await enviar(env, from, 'Não tenho nenhuma chave de voz ligada (OPENAI_KEY ou ELEVENLABS_KEY).'); return true; }
+  await enviar(env, from, `🎙️ Vou mandar ${disp.length} amostras. Ouça e me diga o número da que achar mais natural: _voz 1_, _voz 2_…${!env.ELEVENLABS_KEY ? '\n\n_As vozes mais naturais (brasileiras de verdade) são da ElevenLabs. Para liberar, cadastre a chave ELEVENLABS_KEY no Cloudflare (plano pago a partir de uns US$ 5/mês)._' : ''}`);
+  const frase = 'Oi, chefe! Tudo bem? Aqui é a secretária da HR. Olha só, o pedido da Maria ficou prontinho e o Gibson já tá saindo pra instalar, viu?';
+  for (let k = 0; k < disp.length; k++) {
+    await enviar(env, from, `*${k + 1}.* ${disp[k].nome}${globalThis.__voz === disp[k].k ? ' ← atual' : ''}`);
+    await enviarVoz(env, from, frase, { voz: disp[k].k }).catch(async e => { await enviar(env, from, `(essa não funcionou: ${String(e.message).slice(0, 80)})`); });
+  }
+  return true;
 }
 
 // Pedido explícito de resposta falada, mesmo escrevendo
@@ -17450,6 +17478,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
     if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
     if (await acdComandoDono(env, from, msg).catch(e => { console.log('[ACD] comando:', e.message); return false; })) return; // v152
     if (await v151ComandoDono(env, from, msg, bruto).catch(e => { console.log('[V151] comando:', e.message); return false; })) return; // v151
