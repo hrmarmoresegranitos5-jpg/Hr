@@ -2953,6 +2953,25 @@ const modeloClaude = (nome, padrao) => (/^claude/i.test(String(nome || '')) ? St
 // O contrário: com OpenAI, um nome "claude..." esquecido é ignorado
 const modeloOpenAI = nome => (nome && !/^claude/i.test(String(nome)) ? String(nome) : 'gpt-4o-mini');
 
+// v184: CONSUMO DA IA — cada chamada soma no dia (entrada, cache, saída) por área; comando "consumo da ia"
+const IA_PRECO = { sonnet: { i: 3, o: 15 }, haiku: { i: 1, o: 5 }, opus: { i: 5, o: 25 } }; // US$ por milhão de tokens (estimativa)
+async function iaUso(env, cat, model, u) {
+  try { if (!u || !env.HR_KV) return; const k = 'ia:uso:' + dataBahia(); let d = {}; try { d = JSON.parse((await env.HR_KV.get(k)) || '{}') || {}; } catch (_) {}
+    const fam = /haiku/.test(model) ? 'haiku' : /opus/.test(model) ? 'opus' : 'sonnet', p = IA_PRECO[fam], c = (d[cat] = d[cat] || { n: 0, in: 0, cw: 0, cr: 0, out: 0, usd: 0 });
+    const inp = +u.input_tokens || 0, cw = +u.cache_creation_input_tokens || 0, cr = +u.cache_read_input_tokens || 0, out = +u.output_tokens || 0;
+    c.n++; c.in += inp; c.cw += cw; c.cr += cr; c.out += out; c.usd = Math.round((c.usd + (inp * p.i + cw * p.i * 1.6 + cr * p.i * 0.1 + out * p.o) / 1e6) * 10000) / 10000;
+    await env.HR_KV.put(k, JSON.stringify(d), { expirationTtl: 40 * 86400 });
+  } catch (_) {}
+}
+async function consumoIaTexto(env) {
+  const L = ['🤖 *Consumo da IA*', ''], dol = +(env.DOLAR || 5.6); let tot7 = 0;
+  for (let i = 0; i < 7; i++) { const d = dataBahia(-i); let x = {}; try { x = JSON.parse((await env.HR_KV.get('ia:uso:' + d)) || '{}') || {}; } catch (_) {}
+    const usd = Object.values(x).reduce((t, c) => t + (c.usd || 0), 0), n = Object.values(x).reduce((t, c) => t + (c.n || 0), 0); tot7 += usd;
+    if (i === 0) { L.push(`*Hoje:* ${n} chamada(s) · ~R$ ${reais(usd * dol)}`); for (const [k, c] of Object.entries(x).sort((a, b) => b[1].usd - a[1].usd)) L.push(`• ${k}: ${c.n}× · ~R$ ${reais(c.usd * dol)} · ${Math.round((c.in + c.cw + c.cr) / 1000)} mil tokens lidos (${c.in + c.cw + c.cr ? Math.round(c.cr / (c.in + c.cw + c.cr) * 100) : 0}% do cache)`); L.push(''); }
+    else if (n) L.push(`${dataBR(d).slice(0, 5)}: ${n} chamada(s) · ~R$ ${reais(usd * dol)}`); }
+  L.push('', `*7 dias:* ~R$ ${reais(tot7 * dol)} · mês estimado ~R$ ${reais(tot7 / 7 * 30 * dol)}`, '_Estimativa pelos preços públicos (dólar a R$ ' + String(dol).replace('.', ',') + '). O cache deixa as mensagens seguidas até 90% mais baratas._');
+  return L.join('\n');
+}
 async function chamarIA(env, sistema, historico, pergunta, opts = {}) {
   sistema = comNomeDono(env, sistema);
   const prov = String(env.AI_PROVIDER || 'openai').toLowerCase();
@@ -2973,6 +2992,7 @@ async function chamarIA(env, sistema, historico, pergunta, opts = {}) {
       });
       const j = await r.json().catch(() => null);
       if (!r.ok) throw new Error(`${r.status}: ${(j?.error?.message || 'erro na API').slice(0, 200)}`);
+      await iaUso(env, opts.cat || 'geral', j.model || opts.model || env.AI_MODEL || 'sonnet', j.usage); // v184
       return (j.content || []).map(b => b.text || '').join('');
     }
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -10790,6 +10810,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v184: economia da IA (cache de 1 h nas regras e dados, cache nas voltas das ferramentas, parte viva fora do cache, histórico resumido, Haiku no RH e na contagem, "ok/obrigado" sem IA) e medidor ("consumo da ia").
 // v183: funcionário pergunta sobre pontos/nível/meta → explicação com os números dele; níveis renomeados (não são cargo); dono define o nível inicial.
 // v182: etapas por item (cada lavatório/frontão é uma parte da etapa), polimento, só quem instala marca entrega, correção das entregas de hoje, reabrir entrega.
 // v181: blindagem dos pontos (uma vez por etapa, anulação, foto, quebra, trava de qualidade), metas mais difíceis, meta do dia, exigências do prêmio e auditoria diária.
@@ -10827,7 +10848,7 @@ async function pendFotosRotina(env) {
 function contarAtivo(env, ped) { const n = nPecasPed(ped); return String(env.CONTAR_PECAS ?? '1') !== '0' && !pedComplexo(ped) && n >= 1 && n <= (Number(env.CONTAR_PECAS_MAX) || 15) && String(ped.entrega || '') !== 'retirada'; }
 async function contarPecasFoto(env, ped, buf, mime) {
   const esp = nPecasPed(ped);
-  const o = await iaVisaoJSON(env, 'Você confere entregas de uma marmoraria. Conte quantas PEÇAS de pedra (soleiras, peitoris: tiras retangulares de granito/mármore) aparecem na foto. Conte só pedras inteiras e separadas; ignore pisos já assentados, paredes, ferramentas e outros materiais. Responda SÓ JSON: {"pecas": número ou null se não der para contar, "certeza": "alta"|"media"|"baixa", "quebrada": true|false, "obs": "frase curta se algo chamar atenção (peça quebrada, foto escura, peças empilhadas)"}', [{ buf, mime: mime || 'image/jpeg' }], `O pedido tem ${esp} peça(s): ${resumoPecas(ped)}. Quantas peças você conta na foto?`, 300);
+  const o = await iaVisaoJSON(env, 'Você confere entregas de uma marmoraria. Conte quantas PEÇAS de pedra (soleiras, peitoris: tiras retangulares de granito/mármore) aparecem na foto. Conte só pedras inteiras e separadas; ignore pisos já assentados, paredes, ferramentas e outros materiais. Responda SÓ JSON: {"pecas": número ou null se não der para contar, "certeza": "alta"|"media"|"baixa", "quebrada": true|false, "obs": "frase curta se algo chamar atenção (peça quebrada, foto escura, peças empilhadas)"}', [{ buf, mime: mime || 'image/jpeg' }], `O pedido tem ${esp} peça(s): ${resumoPecas(ped)}. Quantas peças você conta na foto?`, 300, env.AI_MODEL_LEVE || 'claude-haiku-5-5'); // v184: contar peças é tarefa simples
   const n = o && Number.isFinite(+o.pecas) ? Math.round(+o.pecas) : null;
   return { n, ok: n === esp && o.certeza !== 'baixa' && !o.quebrada, obs: o && o.quebrada ? 'Parece ter peça quebrada na foto.' : (o && o.obs) || '' };
 }
@@ -13238,21 +13259,22 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
 }
 
 async function chamarAnthropicFerramentas(env, sistemaBlocos, msgs) {
-  sistemaBlocos = sistemaBlocos.map(t => comNomeDono(env, t));
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'),
-      max_tokens: 1500,
-      // o 1º bloco (cópia dos dados do app) é grande e quase não muda: fica em cache e as próximas mensagens saem mais baratas e rápidas
-      system: sistemaBlocos.map((t, i) => (i === 0 ? { type: 'text', text: t, cache_control: { type: 'ephemeral' } } : { type: 'text', text: t })),
-      tools: comNomeDonoObj(env, FERRAMENTAS), // v24: descrições das ferramentas também usam o DONO_NOME
-      messages: msgs,
-    }),
+  sistemaBlocos = sistemaBlocos.map(t => comNomeDono(env, t)).filter(t => String(t || '').trim());
+  // v184: ferramentas + regras (mudam 1× por dia) e os dados do app ficam em cache de 1 h; a parte viva (pedidos, leads) vai por último sem cache.
+  // A última mensagem também fica em cache: as voltas das ferramentas na mesma pergunta saem ~90% mais baratas.
+  const cc = () => globalThis.__semTTL ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' }, nCache = Math.min(2, sistemaBlocos.length - (sistemaBlocos.length > 2 ? 1 : 0));
+  const ms = msgs.map((m, i) => { if (i !== msgs.length - 1) return m; const c = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : (Array.isArray(m.content) ? m.content.map(b => ({ ...b })) : m.content); if (Array.isArray(c) && c.length) c[c.length - 1] = { ...c[c.length - 1], cache_control: { type: 'ephemeral' } }; return { ...m, content: c }; });
+  const corpo = () => JSON.stringify({
+    model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: 1500,
+    system: sistemaBlocos.map((t, i) => (i < nCache ? { type: 'text', text: t, cache_control: cc() } : { type: 'text', text: t })),
+    tools: comNomeDonoObj(env, FERRAMENTAS), // v24: descrições das ferramentas também usam o DONO_NOME
+    messages: ms,
   });
-  const j = await r.json().catch(() => null);
+  let r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: corpo() });
+  let j = await r.json().catch(() => null);
+  if (!r.ok && r.status === 400 && !globalThis.__semTTL && /ttl|cache/i.test(j?.error?.message || '')) { globalThis.__semTTL = true; r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: corpo() }); j = await r.json().catch(() => null); }
   if (!r.ok) throw new Error(`${r.status}: ${(j?.error?.message || 'erro na API').slice(0, 200)}`);
+  await iaUso(env, 'dono', j.model || env.AI_MODEL || 'sonnet', j.usage);
   return j;
 }
 
@@ -13285,7 +13307,7 @@ async function responderAgente(env, from, bruto, F, voz) {
     let blocoLinks = ''; // v122
     try { const wu = await urlDoWorker(env), pu = await urlPublica(env);
       blocoLinks = `LINKS DA HR (use quando o Sr. Hangel pedir o site ou um link; nunca diga que não existe): site oficial ${pu || 'https://' + DOMINIO_SITE}; catálogo de pedras ${(pu || wu)}/portfolio; álbum de obras ${(pu || wu)}/obras${wu && wu !== pu ? '; endereço do bot ' + wu : ''}.`; } catch (_) {}
-    const blocoRegras = [
+    const _regrasL = [
       blocoMP,
       blocoLinks,
       blocoMidia,
@@ -13356,10 +13378,13 @@ async function responderAgente(env, from, bruto, F, voz) {
       ``,
       `FORMATO DA RESPOSTA (WhatsApp): *negrito* com um asterisco, _itálico_ com sublinhado; valores como R$ 1.250,00. Uma frase curta de abertura dirigida ao Sr. Hangel; depois cada informação na sua PRÓPRIA LINHA, com o rótulo em negrito; linha em branco entre blocos. Nunca em parágrafo corrido. Listas com no máximo 8 itens (diga quantos ficaram de fora).`,
       `Quando uma ferramenta já enviou a confirmação ao Sr. Hangel, responda apenas OK, sem repetir os detalhes. Nunca escreva colchetes de registro como "[registrado: ...]" nas respostas: eles só existem no histórico.`,
-    ].join('\n');
+    ];
+    const VIVO = /^(MÍDIAS RECENTES|LANÇAMENTOS FEITOS PELO WHATSAPP|PEDIDOS RECENTES E SITUAÇÃO|LIVRO DE ENTREGAS|ÚLTIMOS LEADS|PERGUNTAS DE CLIENTES)/; // v184: o que muda a toda hora fica fora do cache
+    const blocoRegras = _regrasL.filter(x => !VIVO.test(String(x || ''))).join('\n'), blocoVivo = _regrasL.filter(x => VIVO.test(String(x || ''))).join('\n\n');
 
     let hist = [];
     try { hist = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; } catch (_) {}
+    hist = hist.map(h => h && h.role === 'assistant' && typeof h.content === 'string' && h.content.length > 900 ? { ...h, content: h.content.slice(0, 900) + '…' } : h); // v184: respostas antigas resumidas
     hist = hist.filter(h => h && typeof h.content === 'string' && h.content.trim());
     while (hist.length && hist[0].role !== 'user') hist.shift();
 
@@ -13367,7 +13392,7 @@ async function responderAgente(env, from, bruto, F, voz) {
     const notas = [];
     let resposta = '', terminou = false;
     for (let volta = 0; volta < AGENTE_MAX_VOLTAS && !terminou; volta++) {
-      const r = await chamarModeloAgente(env, [blocoDados, blocoRegras], msgs);
+      const r = await chamarModeloAgente(env, [blocoRegras, blocoDados, blocoVivo], msgs); // v184: ordem para o cache
       const blocos = Array.isArray(r.content) ? r.content : [];
       const usos = blocos.filter(b => b.type === 'tool_use');
       if (r.stop_reason !== 'tool_use' || !usos.length) {
@@ -18531,6 +18556,11 @@ async function tratarMensagemBase(env, m, ctx) {
       if (olaAg) { await enviarComBotoes(env, from, fala(F, 'donoOla', {}), [BTN_HOJE, BTN_Q.financas, BTN_Q.agenda]); return; }
       const ehOrc = querOrcamento(msg) || pareceDadoOrcamento(msg);
       if (!ehOrc && !pareceConsulta(bruto, msg) && lancamentoSimples(bruto) && await tratarFinancas(env, from, bruto, msg, F, voz)) return;
+      if (/^(ok|okay|blz|beleza|valeu|vlw|obrigad[oa]|brigad[oa]|show|top|perfeito|massa|tranquilo|otimo|maravilha|joia|certo|entendi|beleza entao|fechou)[!. ]*$/.test(msg) || /^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(String(bruto || '').trim())) { // v184: sem pergunta pendente do bot, não chama a IA
+        let h = []; try { h = JSON.parse((await env.HR_KV.get('ag:hist')) || '[]') || []; } catch (_) {} const ult = h.filter(x => x && x.role === 'assistant').slice(-1)[0];
+        if (!ult || !/\?\s*$|\?[^?]{0,80}$/.test(String(ult.content || '').slice(-200))) { await enviar(env, from, '👍'); return; }
+      }
+      if (/^(consumo|gasto|custo)( da| de)? (ia|inteligencia artificial|tokens?)\??$|^tokens?$/.test(msg)) { await enviar(env, from, await consumoIaTexto(env)); return; } // v184
       await responderAgente(env, from, bruto, F, voz);
       return;
     }
@@ -20095,13 +20125,14 @@ async function rtpTratarTexto(env, from, bruto, msg) { // "continue o atendiment
   await rtpProcessar(env, from, tel.num, rec.map(x => x.id), String(bruto).replace(tel.txt, ' ').trim().slice(0, 400)).catch(async e => { console.log('[RTP]', e.message); await enviar(env, from, await textoFalhaIA(env, e)); });
   return true;
 }
-async function iaVisaoJSON(env, sistema, imgs, texto, maxTokens) {
+async function iaVisaoJSON(env, sistema, imgs, texto, maxTokens, modelo) {
   const prov = String(env.AI_PROVIDER || 'openai').toLowerCase(), ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 60000);
   try {
     if (prov === 'anthropic') {
       const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: ctl.signal, headers: { 'x-api-key': env.AI_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({ model: modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: maxTokens || 2000, system: sistema, messages: [{ role: 'user', content: [...imgs.map(i => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: bufB64(i.buf) } })), { type: 'text', text: texto }] }] }) });
+        body: JSON.stringify({ model: modelo || modeloClaude(env.AI_MODEL, 'claude-sonnet-5-5'), max_tokens: maxTokens || 2000, system: sistema, messages: [{ role: 'user', content: [...imgs.map(i => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: bufB64(i.buf) } })), { type: 'text', text: texto }] }] }) });
       const j = await r.json().catch(() => null); if (!r.ok) throw new Error(`${r.status}: ${(j?.error?.message || 'erro na API').slice(0, 200)}`);
+      await iaUso(env, 'fotos', j.model || modelo || 'sonnet', j.usage); // v184
       return lerJsonIA((j.content || []).map(b => b.text || '').join(''));
     }
     const r = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: ctl.signal, headers: { 'Authorization': `Bearer ${env.AI_KEY}`, 'Content-Type': 'application/json' },
@@ -28326,6 +28357,9 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     await pontoRelDecidir(env, cfg, f, rel.df, 'ok');
     await enviar(env, from, `Obrigada, ${nome}! Relatório do ${rel.label} aprovado. ✅`); return true;
   }
+  { const t0 = normaliza(texto); // v184: agradecimento e "ok" não gastam IA
+    if (/^(obrigad[oa]|obg|brigad[oa]|valeu|vlw|agradeco|muito obrigad[oa])( (viu|mesmo|demais|dona|moca|secretaria))*[!. ]*$/.test(t0) || /^[\p{Extended_Pictographic}\s\u200d\ufe0f]+$/u.test(String(texto || '').trim())) { await enviar(env, from, `Por nada, ${nome}! 💪`); return true; }
+    if (/^(ok|okay|blz|beleza|certo|ta certo|ta bom|ta|show|top|entendi|combinado|fechou|sim|isso|tranquilo|de boa|joia|positivo)[!. ]*$/.test(t0)) { await enviar(env, from, '👍'); return true; } }
   const atual = await pontoResumo(env, f.id, dataBahia());
   const tab = r => r ? r.dias.map(l => `${l.data}: entrada ${l.e || '-'}, almoço ${l.ai || '-'} a ${l.af || '-'}, saída ${l.s || '-'}, feito ${hmPonto(l.feito)}, esperado ${hmPonto(l.esp)}, extra ${l.extra ? hmPonto(l.extra) : '0:00'}${l.oficial ? '' : ' (ainda não conferido pelo RH)'}`).join('\n') + `\nTOTAL feito ${hmPonto(r.total.feito)}, esperado ${hmPonto(r.total.esperado)}, extra ${hmPonto(r.total.extra)}` : '(nada)';
   const sistema = `Você é a secretária de RH da HR Mármores e Granitos, falando pelo WhatsApp com o funcionário ${f.nome}.
@@ -28345,7 +28379,7 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
   let hist = []; try { hist = JSON.parse((await env.HR_KV.get('rh:hist:' + f.id)) || '[]'); } catch (_) {}
   let out = null;
   try {
-    const t = await chamarIA(env, sistema, hist.slice(-10), texto, { maxTokens: 600 });
+    const t = await chamarIA(env, sistema, hist.slice(-6), texto, { maxTokens: 400, model: env.AI_MODEL_RH || 'claude-haiku-5-5', cat: 'equipe' }); // v184: Haiku basta para o RH
     const mj = /\{[\s\S]*\}/.exec(t || ''); out = mj ? JSON.parse(mj[0]) : null;
   } catch (e) { console.log('[RH] IA:', e.message); }
   if (!out || !out.resposta) out = { resposta: `${nome}, recebi sua mensagem e vou passar para o responsável.`, escalar: true, resumo_para_dono: texto };
