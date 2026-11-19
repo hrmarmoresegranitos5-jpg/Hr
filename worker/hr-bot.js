@@ -6855,6 +6855,7 @@ async function pedirAvaliacoes(env) {
   await mig188Etapas(env).catch(e => console.log('[MIG188]', e.message)); // v188
   await previsaoRotina(env).catch(e => console.log('[PREV]', e.message)); // v191
   await mig193Expediente(env).catch(e => console.log('[MIG193]', e.message)); // v193
+  await mig195Garantia(env).catch(e => console.log('[MIG195]', e.message)); // v195
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9062,11 +9063,16 @@ async function garCriar(env, a) {
   let g = ref ? await env.HR_DB.prepare('SELECT * FROM garantia WHERE ref = ?').bind(ref).first() : null;
   if (!g && a.num && a.orc_num) g = await env.HR_DB.prepare('SELECT * FROM garantia WHERE substr(num, -8) = ? AND orc_num = ? ORDER BY criado DESC').bind(ultimos8(a.num), a.orc_num).first();
   if (!g && a.num) g = await env.HR_DB.prepare("SELECT * FROM garantia WHERE substr(num, -8) = ? AND (inicio IS NULL OR inicio = '') AND status != 'cancelada' ORDER BY criado DESC").bind(ultimos8(a.num)).first();
+  if (!g && a.num && a.servico) { /* v195: mesmo cliente + mesmo serviço (pedido e livro registram a mesma entrega) = mesma garantia */
+    const rs = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE substr(num, -8) = ? AND status != 'cancelada' AND criado > ? ORDER BY criado DESC LIMIT 10").bind(ultimos8(a.num), Date.now() - 150 * 86400000).all()).results || [];
+    const sv = normaliza(a.servico).trim(); g = rs.find(x => normaliza(x.servico || '').trim() === sv) || null; if (g) g = { ...g, _existia: g.status === 'ativa' && !!g.cert_b64 };
+  }
   g = g ? { ...g } : { status: 'ativa', origem: a.origem || 'bot', ref };
   for (const k of ['num', 'cliente', 'cpf', 'endereco', 'servico', 'material', 'pecas', 'valor', 'orc_num', 'contrato_n', 'aceite_em', 'modalidade', 'contrato_b64', 'obs']) if (a[k] != null && a[k] !== '' && !g[k]) g[k] = a[k];
   if (a.contrato_b64) g.contrato_b64 = a.contrato_b64; if (a.aceite_em) g.aceite_em = a.aceite_em;
   if (!g.ref && ref) g.ref = ref;
   if (a.inicio && !g.inicio) { g.inicio = a.inicio; g.validade = garVence(a.inicio); }
+  const ex = g._existia; delete g._existia; if (ex) return { ...g, _existia: true };
   return garSalvar(env, g);
 }
 function garModalidade(ped) {
@@ -9111,6 +9117,7 @@ async function garAtivar(env, a, enviarCliente) {
     const ini = isoOk(a.inicio) || dataBahia();
     const g = await garCriar(env, { ...a, inicio: ini });
     if (!g) return null;
+    if (g._existia) { delete g._existia; return g; } // v195: já emitida (e enviada) para este serviço — não duplica nem reenvia
     if (!g.inicio) { g.inicio = ini; g.validade = garVence(ini); }
     if (!g.cpf || !cpfOk(g.cpf) || String(g.cliente || '').trim().split(/\s+/).length < 2 || /\b[A-Z]\.?$/.test(String(g.cliente || '').trim())) { // v163: sem nome completo e CPF não há garantia
       const dd = await garDadosConhecidos(env, g.num);
@@ -10579,6 +10586,7 @@ async function garDadosConhecidos(env, num) {
   try { const ct = JSON.parse((await env.HR_KV.get('contrato:' + n)) || 'null'); if (ct && ct.cpf) { out.cpf = String(ct.cpf).replace(/\D/g, ''); out.nome = ct.nome; } } catch (_) {}
   if (!out.cpf) { try { const aid = await env.HR_KV.get('acd:num:' + ultimos8(n)); const a = aid ? await acdLer(env, aid) : null; if (a && a.dados && a.dados.cpf) { out.cpf = a.dados.cpf; out.nome = a.dados.nome; out.end = [a.dados.end, a.dados.cidade].filter(Boolean).join(', '); } } catch (_) {} }
   if (!out.cpf) { try { const o = await onbLer(env, n); if (o && o.dados && o.dados.cpf) { out.cpf = o.dados.cpf; out.nome = o.dados.nome; out.end = [o.dados.end, o.dados.cidade].filter(Boolean).join(', '); } } catch (_) {} }
+  if (!out.cpf) { try { if (await garTabela(env)) { const rs = (await env.HR_DB.prepare("SELECT cliente, cpf, endereco FROM garantia WHERE substr(num, -8) = ? AND cpf IS NOT NULL AND cpf != '' ORDER BY criado DESC LIMIT 5").bind(ultimos8(n)).all()).results || []; const g = rs.find(x => cpfOk(x.cpf)); if (g) { out.cpf = String(g.cpf).replace(/\D/g, ''); out.nome = g.cliente; if (g.endereco) out.end = g.endereco; } } } catch (_) {} } // v195: dados que o cliente já mandou numa garantia anterior
   return out;
 }
 async function garPedirDados(env, g) {
@@ -10835,6 +10843,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v195: garantia não duplica (mesmo cliente + mesmo serviço vindo do pedido e do livro); CPF de garantia anterior é reaproveitado; G-0043 da Renata cancelada.
 // v194: desenho técnico do app (rota /bot/desenho): guarda no pedido, troca as peças pelas do desenho e manda a imagem à equipe.
 // v193: mensagens seguidas do dono viram uma só para a IA; resposta curta continua a tarefa; "são 3 peitoris" não relê fotos da cuba; total do dia inclui o lançamento novo; pronúncia Rangel; expediente 20/11 e 21/11 gravado.
 // v192: pedra de retenção nas soleiras (largura configurada no app/WhatsApp, comprimento da soleira): orçamento pelo WhatsApp, peça na produção e nos pontos.
@@ -11542,6 +11551,18 @@ async function mig193Expediente(env) {
   const dias = []; if (!tem('2026-11-20')) dias.push({ data: '2026-11-20', tipo: 'meio', periodo: 'manha' }); if (!tem('2026-11-21')) dias.push({ data: '2026-11-21', tipo: 'folga' });
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
+}
+// v195: a entrega da Renata gerou a G-0043 duplicada (pedido + livro) pedindo CPF de novo — cancela a duplicada e tira o pedido de dados
+async function mig195Garantia(env) {
+  if (await env.HR_KV.get('mig:195')) return; if (!(await travaEnvio(env, 'mig:195'))) return; await env.HR_KV.put('mig:195', '1');
+  if (!(await garTabela(env))) return;
+  const g = await env.HR_DB.prepare("SELECT * FROM garantia WHERE id = 'G-0043'").first(); if (!g || g.status !== 'aguardando_dados') return;
+  const ok = await env.HR_DB.prepare("SELECT id FROM garantia WHERE id = 'G-0041' AND status = 'ativa'").first(); if (!ok) return;
+  await env.HR_DB.prepare("UPDATE garantia SET status = 'cancelada', obs = 'Duplicada da G-0041 (mesmo serviço)', atualizado = ? WHERE id = 'G-0043'").bind(Date.now()).run();
+  await garEvento(env, 'G-0043', 'cancelada', 'Duplicada da G-0041 — a cliente já tem o certificado').catch(() => {});
+  const k = 'gar:dados:' + ultimos8(normalizarBR(String(g.num))); if ((await env.HR_KV.get(k)) === 'G-0043') await env.HR_KV.delete(k);
+  try { const tp = 'tplpend:' + normalizarBR(String(g.num)); const t = JSON.parse((await env.HR_KV.get(tp)) || 'null'); if (t && t.garDadosId === 'G-0043') await env.HR_KV.delete(tp); } catch (_) {}
+  await pontoAvisarDono(env, `🛡️ Corrigido: a *G-0043* da Renata era duplicada da *G-0041* (mesma cozinha) — cancelei. Ela já tem o certificado com nome e CPF; não vou cobrar os dados dela de novo. A partir de agora, uma entrega registrada no pedido e no livro gera uma garantia só, e quem já mandou CPF não é perguntado de novo.`).catch(() => {});
 }
 // v194: DESENHO TÉCNICO do app → produção: guarda o desenho no pedido, pode trocar a lista de peças do pedido pela do desenho
 // (medidas reais: bancadas, frontões, saias, tampo do rebaixo) e manda a imagem para quem faz cada etapa.
