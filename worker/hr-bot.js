@@ -1,3 +1,4 @@
+// v158 (19/11/2026): NÍVEL DO SERVIÇO multiplica pontos (🟢×1 🟡×1,25 🔴×1,5 💎×1,8), META DESAFIADORA (média+15% ou 90% da melhor semana), FAIXAS 🥉🥈🥇💎 comemoradas, CARREIRA (Aprendiz → Lenda) com XP acumulado
 // v157 (19/11/2026): RECEBIMENTO PELO CLIENTE (✅ Tudo certo / ⚠️ problema + nota 1-5 da equipe; nota 5 = +1 ponto), RETRABALHO (−2, registrar_retrabalho), RELATÓRIO "qualidade" (fotos, horário, notas, retrabalhos)
 // v156 (19/11/2026): PONTOS POR DIFICULDADE (tamanho da peça + cuba/esculpida/rebaixo/45°/saia/furos), CORTE PEÇA A PEÇA ("cortei 2 da Maria"), INÍCIO DA INSTALAÇÃO com foto (cliente avisado, duração), FOTO COM LEGENDA
 // v155 (19/11/2026): contato de funcionário enviado pelo dono → confirma, grava o telefone no RH e manda o manual
@@ -9371,17 +9372,21 @@ function dificuldade(p) {
   }
   return { corte: meio(corte), det: meio(det), lista: [...new Set(lista)] };
 }
+// v158: NÍVEL do serviço multiplica os pontos (serviço difícil vale bem mais)
+const NIVEIS_DIF = [{ min: 0, nome: 'simples', ico: '🟢', mult: 1 }, { min: 6, nome: 'médio', ico: '🟡', mult: 1.25 }, { min: 14, nome: 'alto', ico: '🔴', mult: 1.5 }, { min: 25, nome: 'obra de arte', ico: '💎', mult: 1.8 }];
+function nivelDif(p) { const d = dificuldade(p); const sc = d ? d.corte + d.det : nPecasPed(p); return [...NIVEIS_DIF].reverse().find(x => sc >= x.min) || NIVEIS_DIF[0]; }
 // pontos base de cada etapa (sem prazo e foto)
 function ptsEtapa(p, e) {
-  const d = dificuldade(p), n = nPecasPed(p);
-  if (e === 'corte') return d ? d.corte : n;
-  if (e === 'fabricacao') return d ? meio(2 + d.det + d.corte * 0.5) : 3 + n;
-  if (e === 'acabamento') return d ? meio(1 + d.det * 0.5) : 1;
-  if (e === 'instalacao') return d ? meio(3 + d.corte * 0.5) : 5;
+  const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
+  if (e === 'corte') return meio((d ? d.corte : n) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); // corte pesa menos o nível (o difícil é a fabricação)
+  if (e === 'fabricacao') return d ? meio((2 + d.det + d.corte * 0.5) * mu) : 3 + n;
+  if (e === 'acabamento') return d ? meio((1 + d.det * 0.5) * mu) : 1;
+  if (e === 'instalacao') return d ? meio((3 + d.corte * 0.5) * mu) : 5;
   if (e === 'entrega') return 2;
   return 0;
 }
-function difTxt(p) { const d = dificuldade(p); if (!d) return ''; return `nível ${d.corte + d.det >= 14 ? '🔴 alto' : d.corte + d.det >= 6 ? '🟡 médio' : '🟢 simples'}${d.lista.length ? ' · ' + d.lista.join(', ') : ''}`; }
+function ptsServico(p) { return meio(ptsEtapa(p, 'corte') + (pedComplexo(p) ? ptsEtapa(p, 'fabricacao') : ptsEtapa(p, 'acabamento')) + (String(p.entrega || '') === 'retirada' ? 0 : ptsEtapa(p, pedComplexo(p) ? 'instalacao' : 'entrega'))); }
+function difTxt(p) { const d = dificuldade(p); if (!d) return ''; const nv = nivelDif(p); return `${nv.ico} nível ${nv.nome}${nv.mult > 1 ? ' (×' + String(nv.mult).replace('.', ',') + ')' : ''}${d.lista.length ? ' · ' + d.lista.join(', ') : ''} · vale até ${vPt(ptsServico(p))} pts`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
 async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
@@ -9408,15 +9413,34 @@ async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog)
   }
   return out;
 }
+// v158: faixas da semana (sobre a meta) e carreira (pontos acumulados de sempre)
+const FAIXAS = [{ pct: 80, ico: '🥉', nome: 'Bronze' }, { pct: 100, ico: '🥈', nome: 'Prata (meta)' }, { pct: 125, ico: '🥇', nome: 'Ouro' }, { pct: 150, ico: '💎', nome: 'Diamante' }];
+const CARREIRA = [{ xp: 0, ico: '🔰', nome: 'Aprendiz' }, { xp: 100, ico: '🛠️', nome: 'Ajudante' }, { xp: 300, ico: '⭐', nome: 'Profissional' }, { xp: 700, ico: '🌟', nome: 'Especialista' }, { xp: 1500, ico: '👑', nome: 'Mestre' }, { xp: 3000, ico: '🏛️', nome: 'Lenda da HR' }];
+function carreira(xp) { let i = 0; for (let k = 0; k < CARREIRA.length; k++) if (xp >= CARREIRA[k].xp) i = k; const nx = CARREIRA[i + 1]; return { i, ...CARREIRA[i], prox: nx ? { ...nx, faltam: Math.ceil(nx.xp - xp) } : null, pctProx: nx ? Math.round((xp - CARREIRA[i].xp) / (nx.xp - CARREIRA[i].xp) * 100) : 100 }; }
+async function xpDe(env, funcId, ptsSemana) { // semanas fechadas (KV) + a semana atual
+  let base = Number(await env.HR_KV.get('xp:base:' + funcId)); if (!Number.isFinite(base) || base < 0) base = 0;
+  return Math.round((base + Math.max(0, ptsSemana || 0)) * 10) / 10;
+}
+async function xpFecharSemana(env, cfg) { // sábado: soma a semana na carreira (uma vez por semana)
+  const ini = semIni(dataBahia()); if (await env.HR_KV.get('xp:fech:' + ini)) return; await env.HR_KV.put('xp:fech:' + ini, '1', { expirationTtl: 40 * 86400 });
+  const por = await metasPontos(env, ini, isoSomaDias(ini, 6));
+  for (const f of cfg.funcs) { const v = (por[f.id] || {}).pts || 0; if (!v) continue; const b = Number(await env.HR_KV.get('xp:base:' + f.id)) || 0; await env.HR_KV.put('xp:base:' + f.id, String(Math.round((b + Math.max(0, v)) * 10) / 10)); }
+}
+async function xpIniciar(env) { // 1ª vez: a carreira começa com o que já foi feito nas semanas anteriores
+  if (await env.HR_KV.get('xp:ini')) return; await env.HR_KV.put('xp:ini', '1');
+  const sems = await metasSemanas(env, 8), cfg = await pontoCfg(env);
+  for (const f of cfg.funcs) { const v = sems.slice(1).reduce((t, w) => t + Math.max(0, (w.por[f.id] || {}).pts || 0), 0); if (v) await env.HR_KV.put('xp:base:' + f.id, String(Math.round(v * 10) / 10)); }
+  for (const w of sems.slice(1)) await env.HR_KV.put('xp:fech:' + w.ini, '1', { expirationTtl: 40 * 86400 });
+}
 async function metasCfg(env) { try { return JSON.parse((await env.HR_KV.get('metas:cfg')) || '{}') || {}; } catch (_) { return {}; } }
 async function metaDe(env, funcId, cfgM, hist) { // meta da semana: a do dono ou automática (média das 4 últimas semanas com produção + 10%)
   const c = (cfgM || await metasCfg(env))[funcId] || {};
   if (c.pontos > 0) return { meta: c.pontos, auto: false, bonus: c.bonus || 0 };
   const { map } = await funcoesEquipe(env), fs = map[funcId] || [];
-  const minimo = fs.includes('fabricacao') ? 12 : fs.some(x => ENT_F.includes(x)) ? 12 : 15;
+  const minimo = fs.includes('fabricacao') ? 16 : fs.some(x => ENT_F.includes(x)) ? 15 : 18; // v158: meta desafiadora
   const ws = (hist || []).filter(w => w.pts > 0).slice(0, 4);
-  const media = ws.length ? ws.reduce((t, w) => t + w.pts, 0) / ws.length : 0;
-  return { meta: Math.max(minimo, Math.ceil(media * 1.1)), auto: true, bonus: c.bonus || 0 };
+  const media = ws.length ? ws.reduce((t, w) => t + w.pts, 0) / ws.length : 0, melhor = ws.reduce((m, w) => Math.max(m, w.pts), 0);
+  return { meta: Math.max(minimo, Math.ceil(media * 1.15), Math.ceil(melhor * 0.9)), auto: true, bonus: c.bonus || 0 };
 }
 async function metasSemanas(env, nSem) { // [{ini, fim, por:{id:{pts...}}}] da semana atual para trás
   const hoje = dataBahia(), out = []; let ini = semIni(hoje);
@@ -9439,24 +9463,45 @@ async function metaPainel(env, funcId) {
   if (rank[0] && rank[0].id === String(funcId) && rank[0].pts > 0) medalhas.push({ i: '🏆', t: 'Líder da semana' });
   const hojeD = dataBahia(), diasRest = Math.max(0, 6 - ((diaSemanaISO(hojeD) + 6) % 7)); // até sábado
   const falta = Math.max(0, m.meta - atual.pts);
-  return { ok: true, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
+  const pctR = atual.pts / m.meta * 100, faixa = [...FAIXAS].reverse().find(x => pctR >= x.pct) || null, prox = FAIXAS.find(x => pctR < x.pct) || null; // v158
+  const xp = await xpDe(env, funcId, atual.pts), car = carreira(xp);
+  return { ok: true, faixa, prox: prox ? { ...prox, faltam: meio(Math.max(0, m.meta * prox.pct / 100 - atual.pts)) } : null, xp, carreira: car, semana: { ini: sems[0].ini, fim: isoSomaDias(sems[0].ini, 5) }, pts: atual.pts, meta: m.meta, auto: m.auto, bonus: m.bonus, pct: Math.min(200, Math.round(atual.pts / m.meta * 100)), falta, diasRest,
     porDia: diasRest > 0 ? Math.ceil(falta / diasRest) : falta, tarefas: atual.tarefas.slice(-12).reverse(), seq, medalhas, rank: rank.slice(0, 6), pos: rank.findIndex(x => x.id === String(funcId)) + 1,
-    hist: hist.slice(0, 6).reverse(), regras: [['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
+    hist: hist.slice(0, 6).reverse(), regras: [['🎚️ Nível do serviço', '🟢 ×1 · 🟡 ×1,25 · 🔴 ×1,5 · 💎 ×1,8'], ['🏅 Faixas da semana', '🥉 80% · 🥈 100% · 🥇 125% · 💎 150%'], ['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
 // avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
 async function metaChecar(env, funcId) {
   try {
     if (!funcId || String(env.METAS ?? '1') === '0') return;
+    await xpIniciar(env).catch(() => {}); // v158
     const pn = await metaPainel(env, funcId), k = 'meta:av:' + funcId + ':' + pn.semana.ini;
     const ja = (await env.HR_KV.get(k)) || '';
     const tel = await respTel(env, funcId), nome = await respNome(env, funcId); if (!tel) return;
     { // v154: avisa cada ponto ganho, na hora
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !(pn.pct >= 50 && !ja.includes('50')) && !(pn.pct >= 100 && !ja.includes('100'))) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.falta > 0 ? ` · faltam ${vPt(pn.falta)}` : ' · meta batida 🎯'}`).catch(() => {}); }
+        const cruzou = FAIXAS.some(x => pn.pts / pn.meta * 100 >= x.pct && !ja.includes('|' + x.pct));
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
     }
-    if (pn.pct >= 100 && !ja.includes('100')) { await env.HR_KV.put(k, ja + '100', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}🎯🎉 *${nome}, META BATIDA!* ${pn.pts} de ${pn.meta} pontos nesta semana.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}* garantido!` : ''} Cada ponto a mais conta para o ranking. 💪`).catch(() => {}); await pontoAvisarDono(env, `🎯 *${nome}* bateu a meta da semana (${pn.pts}/${pn.meta} pts)${pn.bonus ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {}); }
-    else if (pn.pct >= 50 && !ja.includes('50')) { await env.HR_KV.put(k, ja + '50', { expirationTtl: 9 * 86400 }); await enviar(env, tel, `${avisoTeste(env)}💪 ${nome}, ${pn.pct >= 85 ? 'quase lá' : 'metade da meta da semana'}! ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos. Faltam ${vPt(pn.falta)}.`).catch(() => {}); }
+    // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
+    const pctR = pn.pts / pn.meta * 100, nova = [...FAIXAS].reverse().find(x => pctR >= x.pct && !ja.includes('|' + x.pct));
+    if (nova) {
+      await env.HR_KV.put(k, ja + FAIXAS.filter(x => pctR >= x.pct).map(x => '|' + x.pct).join(''), { expirationTtl: 9 * 86400 });
+      const frase = { 80: `🥉 *BRONZE!* ${nome}, você chegou a 80% da meta. Faltam ${vPt(pn.falta)} para a Prata. Bora! 💪`, 100: `🥈🎉 *META BATIDA, ${nome}!* Prata garantida com ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}*!` : ''} Agora vem o Ouro: mais ${vPt(meio(pn.meta * 1.25 - pn.pts))} pontos. 🥇`, 125: `🥇🔥 *OURO!* ${nome}, 125% da meta (${vPt(pn.pts)} pontos)! Pouca gente chega aqui. O Diamante está a ${vPt(meio(pn.meta * 1.5 - pn.pts))} pontos. 💎`, 150: `💎👑 *DIAMANTE!* ${nome}, 150% da meta! ${vPt(pn.pts)} pontos nesta semana. Você é referência na HR! 🏆` }[nova.pct];
+      await enviar(env, tel, avisoTeste(env) + frase).catch(() => {});
+      if (nova.pct >= 100) await pontoAvisarDono(env, `${nova.ico} *${nome}* chegou no *${nova.nome}* da semana (${vPt(pn.pts)}/${vPt(pn.meta)} pts)${pn.bonus && nova.pct === 100 ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {});
+      if (nova.pct >= 125 && !emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `${nova.ico} *${nome}* chegou no *${nova.nome.toUpperCase()}* desta semana! Quem vem junto? 💪`).catch(() => {}); } }
+    }
+    { // carreira: subiu de nível?
+      const kc = 'xp:nivel:' + funcId, antes = await env.HR_KV.get(kc), car = pn.carreira;
+      if (antes == null) await env.HR_KV.put(kc, String(car.i));
+      else if (car.i > +antes) {
+        await env.HR_KV.put(kc, String(car.i));
+        await enviar(env, tel, `${avisoTeste(env)}🎖️ *SUBIU DE NÍVEL!* ${nome}, agora você é *${car.ico} ${car.nome}* na HR (${vPt(pn.xp)} pontos na carreira).${car.prox ? ` Próximo: ${car.prox.ico} ${car.prox.nome} em ${car.prox.faltam} pontos.` : ' Nível máximo! 🏛️'}`).catch(() => {});
+        await pontoAvisarDono(env, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}* (${vPt(pn.xp)} pontos na carreira). Vale um parabéns pessoalmente!`).catch(() => {});
+        if (!emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}*! Parabéns! 👏`).catch(() => {}); } }
+      }
+    }
   } catch (e) { console.log('[META] checar:', e.message); }
 }
 async function metasRotina(env) {
@@ -9468,17 +9513,19 @@ async function metasRotina(env) {
   }
   if (ag.dia === 6 && ag.min >= 13 * 60 && !(await env.HR_KV.get('meta:fim:' + hoje)) && await travaEnvio(env, 'meta:fim:' + hoje)) { // sábado: fechamento
     await env.HR_KV.put('meta:fim:' + hoje, '1', { expirationTtl: 3 * 86400 });
+    await xpIniciar(env).catch(() => {});
     const L = ['🏁 *Metas da semana*', ''], bonus = [];
     const lista = []; for (const f of cfg.funcs) { const pn = await metaPainel(env, f.id); if (!pn.pts && !pn.tarefas.length) continue; lista.push({ f, pn }); }
     lista.sort((a, b) => b.pn.pct - a.pn.pct);
     for (const { f, pn } of lista) {
       const nm = apelidoFunc(cfg, f) || f.nome.split(' ')[0];
-      L.push(`${pn.pct >= 100 ? '✅' : '❌'} *${nm}*: ${pn.pts}/${pn.meta} pts (${pn.pct}%)${pn.medalhas.length ? ' ' + pn.medalhas.map(m => m.i).join('') : ''}`);
+      L.push(`${pn.faixa ? pn.faixa.ico : '❌'} *${nm}*: ${vPt(pn.pts)}/${vPt(pn.meta)} pts (${pn.pct}%) · ${pn.carreira.ico} ${pn.carreira.nome}${pn.medalhas.length ? ' ' + pn.medalhas.map(m => m.i).join('') : ''}`);
       if (pn.pct >= 100 && pn.bonus) bonus.push(`${nm}: R$ ${reais(pn.bonus)}`);
       const tel = await respTel(env, f.id);
       const prm = await premioPainelFunc(env, f.id).catch(() => null), prmTxt = prm && prm.st !== 'sem' ? `\n🏆 Prêmio do mês (R$ ${reais(prm.valor)}): ${prm.semanas.map(w => w.futura ? '⬜' : w.bateu ? '✅' : w.atual ? '⏳' : '❌').join('')} — ${prm.txt}` : '';
       if (tel) await enviar(env, tel, `${avisoTeste(env)}🏁 ${nm}, fechamento da semana: *${pn.pts} de ${pn.meta} pontos* (${pn.pct}%).${prmTxt} ${pn.pct >= 100 ? `Parabéns, meta batida! 🎉${pn.bonus ? ' Bônus de R$ ' + reais(pn.bonus) + '.' : ''}` : `Faltaram ${pn.falta}. Semana que vem a gente bate! 💪`}${pn.pos ? ` Você ficou em ${pn.pos}º lugar.` : ''}`).catch(() => {});
     }
+    await xpFecharSemana(env, cfg).catch(e => console.log('[XP]', e.message)); // v158: soma a semana na carreira
     if (lista.length) await pontoAvisarDono(env, [...L, ...(bonus.length ? ['', `💰 *Bônus a pagar:* ${bonus.join(' · ')}`] : []), '', '_Mude metas e bônus pelo WhatsApp: "meta do Fabrício 20 pontos, bônus 50"._'].join('\n')).catch(() => {});
   }
 }
@@ -28384,6 +28431,8 @@ input.cod{width:100%;padding:18px;border-radius:14px;border:1px solid var(--bd);
         +'<div style="flex:1;min-width:0"><h3>🎯 Minha meta da semana</h3><div class="big">'+(m.pct>=100?'Meta batida! '+m.pct+'%':'Faltam '+m.falta+' pontos')+'</div>'
         +'<div class="sub">'+(m.pct>=100?'Cada ponto a mais conta no ranking.':(m.diasRest>0?'Uns '+m.porDia+' por dia até sábado.':'Último dia!'))+(m.bonus?' · Bônus R$ '+m.bonus.toFixed(2).replace('.',','):'')+'</div>'
         +((m.seq+(m.pct>=100?1:0))?'<div class="sub">🔥 '+(m.seq+(m.pct>=100?1:0))+' semana(s) seguida(s) batendo a meta</div>':'')+(m.pos?'<div class="sub">🏅 '+m.pos+'º lugar na equipe</div>':'')+'</div></div>';
+      if(m.carreira){var F=[['🥉',80],['🥈',100],['🥇',125],['💎',150]];h+='<div class="sec">Faixas da semana</div><div style="display:flex;gap:6px;margin:4px 0 2px">'+F.map(function(f){var ok=m.pts/m.meta*100>=f[1];return '<div style="flex:1;text-align:center;padding:6px 0;border-radius:10px;font-size:.78rem;background:'+(ok?'linear-gradient(135deg,#c4a46a,#8a6d3b)':'rgba(255,255,255,.05)')+';opacity:'+(ok?1:.55)+'">'+f[0]+'<br><small>'+f[1]+'%</small></div>'}).join('')+'</div>'+(m.prox?'<div class="sub">Próxima: '+m.prox.ico+' '+m.prox.nome.replace(' (meta)','')+' em '+String(m.prox.faltam).replace('.',',')+' pontos</div>':'<div class="sub">💎 Você está no topo desta semana!</div>');
+        var K=m.carreira;h+='<div class="sec">Minha carreira na HR</div><div style="display:flex;align-items:center;gap:10px"><div style="font-size:1.8rem">'+K.ico+'</div><div style="flex:1"><b>'+K.nome+'</b> <small style="color:var(--t2)">· '+String(m.xp).replace('.',',')+' pts</small><div style="height:8px;border-radius:6px;background:rgba(255,255,255,.08);margin-top:5px;overflow:hidden"><div style="height:100%;width:'+K.pctProx+'%;background:linear-gradient(90deg,#c4a46a,#f0d9a0)"></div></div><small style="color:var(--t2)">'+(K.prox?'Próximo: '+K.prox.ico+' '+K.prox.nome+' em '+K.prox.faltam+' pontos':'Nível máximo 🏛️')+'</small></div></div>';}
       if(m.premio&&m.premio.st!=='sem'){var P=m.premio,cores={caminho:'#4cc38a',coringa:'#e0a530',fora:'#f07a7a'};h+='<div class="sec">🏆 Prêmio do mês · R$ '+P.valor.toFixed(2).replace('.',',')+(P.lider?' · líder +R$ '+P.lider.toFixed(2).replace('.',','):'')+(P.liderTexto?' ('+P.liderTexto+')':'')+'</div>'
         +'<div style="display:flex;gap:6px;margin:4px 0 6px">'+P.semanas.map(function(w,i){var bg=w.futura?'rgba(255,255,255,.05)':w.bateu?'linear-gradient(135deg,#4cc38a,#2f9a68)':w.atual?'rgba(196,164,106,.25)':'rgba(240,122,122,.35)';return '<div style="flex:1;border-radius:10px;padding:7px 4px;text-align:center;background:'+bg+';font-size:.66rem"><b style="display:block;font-size:.9rem">'+(w.futura?'—':w.pts)+'</b>sem '+(i+1)+(w.meta&&!w.futura?'<br><small style="opacity:.7">meta '+w.meta+'</small>':'')+'</div>'}).join('')+'</div>'
         +'<div class="sub" style="color:'+(cores[P.st]||'')+'">'+P.txt+(P.ehLider?' · 🥇 você está liderando!':'')+'</div>'}
