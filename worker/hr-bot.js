@@ -1,3 +1,4 @@
+// v162 (19/11/2026): "sim" ao aviso só abre o manual; "sim/ok/tá certo" aprova o relatório; secretária no feminino; pontos fora das 24 h ficam guardados; nota de atendimento sem duplicar e não durante acordo/instalação; pedido de mudança no acordo vai ao dono (acordo_alterar)
 // v161 (19/11/2026): foto com legenda sem cliente reconhecido fica guardada até ele escolher (botões); a única tarefa dele vale; apelidos de clientes ("Papinha é a Maria Souza")
 // v160 (19/11/2026): VOZ MAIS NATURAL (vozes brasileiras da ElevenLabs quando houver chave, instrução de conversa de WhatsApp, texto limpo para fala) e "voz" para ouvir amostras e escolher
 // v159 (19/11/2026): avisar_equipe em ÁUDIO (audio=true) e sempre com a mensagem final escrita (nunca a instrução do dono); áudio guardado para quem estava fora das 24 h
@@ -2322,6 +2323,7 @@ async function tratarBotao(env, from, id, F) {
   if (/^pdg(\||_no$)/.test(id)) return planoBotao(env, from, id); // v151
   if (/^sob_(ok|no)\|/.test(id)) return sobraBotao(env, from, id); // v151
   if (/^acdp_(ok|no)\|/.test(id)) return acdBotaoDono(env, from, id); // v153
+  if (/^acdm_no\|/.test(id)) { const a = await acdLer(env, id.split('|')[1]); if (a && await janela24h(env, a.num)) await enviar(env, a.num, `${nomeDeTratamento(a.nome) || 'Olá'}, falei com o Sr. Hangel e o acordo continua como combinado: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' e ')}. Qualquer dúvida, estou aqui. 😊`).catch(() => {}); await enviar(env, from, 'Certo, mantive o acordo e avisei a cliente.'); return true; } // v162
   if (/^eqc_(ok|no)\|/.test(id)) return eqContatoBotao(env, from, id); // v155
   if (id.startsWith('fchj|')) { const pd = await lerPedido(env, id.slice(5)).catch(() => null); if (!pd) { await enviar(env, from, 'Não achei esse pedido.'); return true; } await enviar(env, from, (await fechFicha(env, pd)) ? `✂️ Ficha de ${pd.nome} enviada ao ${nomeFabrica(env)}.` : 'A ficha não foi: veja o aviso acima.'); return true; }
   if (id === 'pronto_no') { await enviar(env, from, 'Certo, Sr. Hangel. Não avisei o cliente.'); return true; }
@@ -6833,6 +6835,9 @@ async function pedirAvaliacoes(env) {
       }
       if (c.avalPedida) continue;
       if (await env.HR_KV.get('humano:' + from) || await env.HR_KV.get('aval:ult:' + from)) continue;
+      if (await env.HR_KV.get('aval:ped8:' + ultimos8(from)) || await env.HR_KV.get('acd:num:' + ultimos8(from))) continue; // v162: já pedida (outra variação do número) ou cliente com acordo
+      if (!globalThis.__avalProd || Date.now() - globalThis.__avalProd.em > 60000) globalThis.__avalProd = { em: Date.now(), s: new Set((await pedidosProducao(env, p => !p.entregueEm && (p.fechDono || p.fichaEnviadaEm)).catch(() => [])).map(p => ultimos8(p.numero || '')).filter(Boolean)) };
+      if (globalThis.__avalProd.s.has(ultimos8(from))) continue; // v162: serviço em produção/instalação: a nota fica para o pós-venda
       if (c.hist.filter(h => h.role === 'user' && !ehRespostaAutomatica(h.content)).length < 2) continue; // v115: resposta automática de empresa não conta como conversa
       if (await env.HR_KV.get('tplpend:' + normalizarBR(from))) continue; // v115: o orçamento ainda nem foi entregue
       if (crmAtivo(env)) { // v115: orçamento em PDF mandado nos últimos 15 dias = venda em andamento: a nota fica para depois da entrega
@@ -6869,7 +6874,8 @@ async function pedirAvaliacoes(env) {
       }
       const ocioso = agora - ultima;
       if (ocioso < AVAL_OCIOSO_MS || ocioso > AVAL_JANELA_MS) continue;               // fora da janela de 24 h do WhatsApp, não dá para escrever
-      if (!(await travaEnvio(env, 'nota:' + from))) continue; // outro gatilho já está enviando
+      if (!(await travaEnvio(env, 'nota:' + ultimos8(from)))) continue; // outro gatilho já está enviando (v162: por número, sem variação)
+      await env.HR_KV.put('aval:ped8:' + ultimos8(from), '1', { expirationTtl: 30 * 86400 });
       try { const fresco = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (fresco && fresco.avalPedida) continue; } catch (_) {}
       const nome = nomeDeTratamento(c.dados && c.dados.nome);
       try {
@@ -9514,6 +9520,10 @@ async function metaPainel(env, funcId) {
     hist: hist.slice(0, 6).reverse(), regras: [['🎚️ Nível do serviço', '🟢 ×1 · 🟡 ×1,25 · 🔴 ×1,5 · 💎 ×1,8'], ['🏅 Faixas da semana', '🥉 80% · 🥈 100% · 🥇 125% · 💎 150%'], ['✂️ Corte (por peça)', '1 a 4,5 pelo tamanho'], ['🔧 Fabricação', '2 + detalhes'], ['💎 Detalhes', 'cuba 1 · esculpida 3 a 8 · rebaixo 1,5 a 2,5 · 45° 2 · saia 1 a 2 · furos 0,5'], ['🪨 Acabamento', '1 + metade dos detalhes'], ['🚚 Entrega', '2 pontos'], ['🛠️ Instalação', '3 + tamanho do serviço'], ['📍 Foto de início e fim', '+1'], ['🌟 Cliente deu nota 5', '+1'], ['🔁 Retrabalho', '−2'], ['⏱️ No prazo', '+1'], ['📸 Foto na entrega', '+1'], ['⚠️ Atraso', '−1']] };
 }
 // avisos de progresso no WhatsApp (chamado quando alguém conclui uma tarefa)
+async function eqTexto(env, tel, texto) { // v162: dentro das 24 h envia; fora guarda e entrega quando ele falar
+  if (await janela24h(env, tel)) return enviar(env, tel, texto);
+  return eqPendAdd(env, tel, { texto });
+}
 async function metaChecar(env, funcId) {
   try {
     if (!funcId || String(env.METAS ?? '1') === '0') return;
@@ -9525,14 +9535,14 @@ async function metaChecar(env, funcId) {
       const kp = 'meta:ult:' + funcId + ':' + pn.semana.ini, antes = Number(await env.HR_KV.get(kp)) || 0;
       if (pn.pts > antes + 0.05) { await env.HR_KV.put(kp, String(pn.pts), { expirationTtl: 9 * 86400 }); const t = pn.tarefas && pn.tarefas[0];
         const cruzou = FAIXAS.some(x => pn.pts / pn.meta * 100 >= x.pct && !ja.includes('|' + x.pct));
-        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await enviar(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
+        if (String(env.PONTOS_AVISO ?? '1') !== '0' && !cruzou) await eqTexto(env, tel, `${avisoTeste(env)}⭐ *+${vPt(Math.round((pn.pts - antes) * 10) / 10)} ponto(s)*, ${nome}!${t ? ` (${t.tipo} · ${t.nome})` : ''}\nSemana: *${vPt(pn.pts)} de ${vPt(pn.meta)}* (${pn.pct}%)${pn.faixa ? ' ' + pn.faixa.ico : ''}${pn.pos ? ` · ${pn.pos}º lugar` : ''}${pn.prox ? ` · ${pn.prox.ico} ${pn.prox.nome.replace(' (meta)', '')} em ${vPt(pn.prox.faltam)}` : ' · 💎 no topo'}\n${pn.carreira.ico} ${pn.carreira.nome} · ${vPt(pn.xp)} pts na carreira`).catch(() => {}); }
     }
     // v158: cada faixa alcançada é comemorada (e a equipe fica sabendo do Ouro e do Diamante)
     const pctR = pn.pts / pn.meta * 100, nova = [...FAIXAS].reverse().find(x => pctR >= x.pct && !ja.includes('|' + x.pct));
     if (nova) {
       await env.HR_KV.put(k, ja + FAIXAS.filter(x => pctR >= x.pct).map(x => '|' + x.pct).join(''), { expirationTtl: 9 * 86400 });
       const frase = { 80: `🥉 *BRONZE!* ${nome}, você chegou a 80% da meta. Faltam ${vPt(pn.falta)} para a Prata. Bora! 💪`, 100: `🥈🎉 *META BATIDA, ${nome}!* Prata garantida com ${vPt(pn.pts)} de ${vPt(pn.meta)} pontos.${pn.bonus ? ` Bônus de *R$ ${reais(pn.bonus)}*!` : ''} Agora vem o Ouro: mais ${vPt(meio(pn.meta * 1.25 - pn.pts))} pontos. 🥇`, 125: `🥇🔥 *OURO!* ${nome}, 125% da meta (${vPt(pn.pts)} pontos)! Pouca gente chega aqui. O Diamante está a ${vPt(meio(pn.meta * 1.5 - pn.pts))} pontos. 💎`, 150: `💎👑 *DIAMANTE!* ${nome}, 150% da meta! ${vPt(pn.pts)} pontos nesta semana. Você é referência na HR! 🏆` }[nova.pct];
-      await enviar(env, tel, avisoTeste(env) + frase).catch(() => {});
+      await eqTexto(env, tel, avisoTeste(env) + frase).catch(() => {});
       if (nova.pct >= 100) await pontoAvisarDono(env, `${nova.ico} *${nome}* chegou no *${nova.nome}* da semana (${vPt(pn.pts)}/${vPt(pn.meta)} pts)${pn.bonus && nova.pct === 100 ? ` · bônus R$ ${reais(pn.bonus)}` : ''}.`).catch(() => {});
       if (nova.pct >= 125 && !emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `${nova.ico} *${nome}* chegou no *${nova.nome.toUpperCase()}* desta semana! Quem vem junto? 💪`).catch(() => {}); } }
     }
@@ -9541,7 +9551,7 @@ async function metaChecar(env, funcId) {
       if (antes == null) await env.HR_KV.put(kc, String(car.i));
       else if (car.i > +antes) {
         await env.HR_KV.put(kc, String(car.i));
-        await enviar(env, tel, `${avisoTeste(env)}🎖️ *SUBIU DE NÍVEL!* ${nome}, agora você é *${car.ico} ${car.nome}* na HR (${vPt(pn.xp)} pontos na carreira).${car.prox ? ` Próximo: ${car.prox.ico} ${car.prox.nome} em ${car.prox.faltam} pontos.` : ' Nível máximo! 🏛️'}`).catch(() => {});
+        await eqTexto(env, tel, `${avisoTeste(env)}🎖️ *SUBIU DE NÍVEL!* ${nome}, agora você é *${car.ico} ${car.nome}* na HR (${vPt(pn.xp)} pontos na carreira).${car.prox ? ` Próximo: ${car.prox.ico} ${car.prox.nome} em ${car.prox.faltam} pontos.` : ' Nível máximo! 🏛️'}`).catch(() => {});
         await pontoAvisarDono(env, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}* (${vPt(pn.xp)} pontos na carreira). Vale um parabéns pessoalmente!`).catch(() => {});
         if (!emTesteEquipe(env)) { const cfgE = await pontoCfg(env); for (const g of cfgE.funcs) { if (!g.tel || String(g.id) === String(funcId)) continue; const tg = normalizarBR(g.tel.startsWith('55') ? g.tel : '55' + g.tel); if (await janela24h(env, tg)) await enviar(env, tg, `🎖️ *${nome}* subiu para *${car.ico} ${car.nome}*! Parabéns! 👏`).catch(() => {}); } }
       }
@@ -10106,7 +10116,18 @@ async function acdClienteMsg(env, from, m) {
   const id = m.type === 'interactive' ? (m.interactive?.button_reply?.id || '') : '';
   if (!id) { // v153: coleta nome completo, CPF e endereço antes do termo
     const aid = await env.HR_KV.get('acd:num:' + ultimos8(normalizarBR(from))); if (!aid) return false;
-    const a = await acdLer(env, aid); if (!a || a.etapa !== 'dados' || a.cancelado) return false;
+    const a = await acdLer(env, aid); if (!a || a.cancelado) return false;
+    if (a.etapa !== 'dados') { // v162: quer mudar data, valor ou parcela → quem decide é o Sr. Hangel (a IA não promete)
+      let tx = m.type === 'text' ? String(m.text?.body || '') : ''; if (!tx && m.type === 'audio') { tx = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = tx; }
+      const n = normaliza(tx);
+      if (a.parcelas.some(p => !p.paga) && /\b(parcela|parcelas|vencimento|data|datas|dia \d|mudar|trocar|alterar|adiar|prorrogar|mais prazo|empurrar|nao vou conseguir|nao consigo pagar|desconto|diminuir|valor)\b/.test(n) && /\b(parcela|pagar|pagamento|vencimento|data|dia|prazo|valor|acordo)\b/.test(n)) {
+        await enviar(env, from, `Entendi${nomeDeTratamento(a.nome) ? ', ' + nomeDeTratamento(a.nome) : ''}! Vou passar o seu pedido para o Sr. Hangel e te confirmo por aqui assim que ele responder. 😊`);
+        await enviarComBotoes(env, numeroDono(env), `📋 *${a.nome}* pediu mudança no acordo ${a.n}:\n"${tx.slice(0, 300)}"\n\nHoje está: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' · ')}\n\nPara mudar, me diga por exemplo: _muda o acordo da ${String(a.nome).split(' ')[0]} para 18/12 e 31/12_.`, [{ id: 'acdm_no|' + a.id, titulo: 'Manter como está' }]).catch(() => {});
+        await anotarNoHistorico(env, from, `[O cliente pediu mudança no acordo de pagamento; foi passado ao Sr. Hangel. NÃO confirme nem prometa nova data ou valor até ele decidir. Hoje vale: ${a.parcelas.filter(p => !p.paga).map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join('; ')}.]`).catch(() => {});
+        return true;
+      }
+      return false;
+    }
     let texto = m.type === 'text' ? String(m.text?.body || '') : '';
     if (!texto && m.type === 'audio') texto = (await ouvirAudio(env, from, m, false).catch(() => '')) || '';
     if (!texto) return false;
@@ -10129,6 +10150,19 @@ async function acdClienteMsg(env, from, m) {
   await enviar(env, from, 'Claro! Me conta sua dúvida que eu te ajudo, e se precisar passo para o Sr. Hangel.');
   await anotarNoHistorico(env, from, `[A cliente tem dúvida sobre o ACORDO DE PAGAMENTO ${a.n}: ${a.naInst ? 'R$ ' + reais(a.naInst) + ' na instalação; ' : ''}${a.parcelas.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join('; ')}. Multa 2% e juros 1% a.m. no atraso. Responda com calma; mudança de valor ou data só com o Sr. Hangel.]`).catch(() => {});
   await pontoAvisarDono(env, `❓ *${a.nome}* tem dúvida sobre o acordo de pagamento. wa.me/${normalizarBR(from)}`).catch(() => {}); return true;
+}
+async function acordoAlterarTool(env, x) {
+  const tk = tokensPedra(String(x.cliente || '')), l = await listarTodas(env, ACD).catch(() => ({ keys: [] }));
+  let a = null; for (const k of l.keys) { if (/^acd:num:/.test(k.name)) continue; const v = await acdLer(env, k.name.slice(4)); if (v && !v.cancelado && tk.length && tk.every(w => tokensPedra(v.nome + ' ' + ((v.dados && v.dados.nome) || '')).includes(w)) && (!a || v.criado > a.criado)) a = v; }
+  if (!a) return { erro: true, texto: 'Não achei acordo dessa cliente. Pergunte o nome em UMA frase.' };
+  const novas = (Array.isArray(x.parcelas) ? x.parcelas : []).map(p => ({ valor: Math.round((+p.valor || 0) * 100) / 100, data: isoOk(p.data) })).filter(p => p.valor > 0 && p.data).sort((p, q) => p.data.localeCompare(q.data));
+  if (!novas.length) return { erro: true, texto: 'Faltam as novas parcelas (valor e data).' };
+  const abertas = a.parcelas.filter(p => !p.paga), somaA = abertas.reduce((t, p) => t + p.valor, 0), somaN = novas.reduce((t, p) => t + p.valor, 0);
+  if (Math.abs(somaA - somaN) > 5) return { erro: true, texto: `As parcelas novas somam R$ ${reais(somaN)}, mas faltam R$ ${reais(somaA)}. Confirme com ele em UMA frase.` };
+  a.parcelas = [...a.parcelas.filter(p => p.paga), ...novas]; a.alteradoEm = Date.now(); a.aceitoEm = null; a.etapa = a.dados && a.dados.cpf ? 'novo' : a.etapa; await acdSalvar(env, a);
+  let cli = '';
+  if (await janela24h(env, a.num)) { await acdMandarTermo(env, a).catch(() => {}); cli = 'Mandei a ela as novas datas e o termo atualizado para aceitar.'; } else cli = 'Ela está fora das 24 h; quando ela falar, mando o termo atualizado (ou diga "termo da ' + String(a.nome).split(' ')[0] + '").';
+  return { texto: `Acordo de ${a.nome} alterado: ${novas.map(p => 'R$ ' + reais(p.valor) + ' em ' + dataBR(p.data)).join(' + ')}. ${cli} Confirme em UMA frase.` };
 }
 async function acdComandoDono(env, from, msg) {
   const pg = msg.match(/^(.+?) (?:pagou|quitou) (?:a )?(?:\d+a? )?parcela(?: (?:em|no) (dinheiro|pix|cartao))?/);
@@ -11593,6 +11627,11 @@ const FERRAMENTAS = [
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['inicio', 'corte', 'acabamento', 'fabricacao', 'finalizado', 'instalacao', 'entrega', 'retirada'] }, funcionarios: { type: 'array', items: { type: 'string' } }, item: { type: 'string', description: 'ex.: bancada, peitoris, soleiras (se ele disse)' }, pecas: { type: 'number', description: 'quantidade de peças, se ele disse' }, data: { type: 'string', description: 'AAAA-MM-DD; omita para hoje' }, vai_fazer: { type: 'boolean', description: 'true quando é algo que a pessoa VAI fazer (designar a tarefa a ela, ex.: "hoje Gibson vai acabar a cozinha da Maria"), não algo já feito' }, tarefa: { type: 'string', description: 'o que ela vai fazer, nas palavras dele (ex.: 45°, rebaixo americano, recorte de cuba e acabamento)' } }, required: ['cliente', 'etapa', 'funcionarios'] },
   },
   {
+    name: 'acordo_alterar',
+    description: 'MUDA as parcelas de um ACORDO DE PAGAMENTO que já existe (datas e/ou valores), quando o Sr. Hangel decidir (ex.: "muda o acordo da Renata para 18/12 e 31/12", "a parcela da Carla passa para dia 20"). Passe as parcelas que faltam, já com valor e data (AAAA-MM-DD); se ele só mudou as datas, repita os valores atuais. O bot avisa a cliente e manda o termo atualizado. Nunca diga que mudou sem esta ferramenta.',
+    input_schema: { type: 'object', properties: { cliente: { type: 'string' }, parcelas: { type: 'array', items: { type: 'object', properties: { valor: { type: 'number' }, data: { type: 'string' } } } } }, required: ['cliente', 'parcelas'] },
+  },
+  {
     name: 'registrar_retrabalho',
     description: 'Registra um RETRABALHO (serviço que voltou por erro: medida errada, peça trincada na instalação, desnível, silicone mal feito). Desconta 2 pontos de quem fez a etapa (divididos se foram vários) e entra no relatório de qualidade. Ex.: "a bancada da Maria voltou, ficou desnivelada, foi o Gibson" → etapa instalacao, funcionarios [Gibson]. Sem funcionário, o bot usa quem fez a etapa. desconta=false se ele disser que não é para tirar ponto.',
     input_schema: { type: 'object', properties: { cliente: { type: 'string' }, etapa: { type: 'string', enum: ['corte', 'acabamento', 'fabricacao', 'instalacao', 'entrega'] }, motivo: { type: 'string' }, funcionarios: { type: 'array', items: { type: 'string' } }, desconta: { type: 'boolean' }, avisar: { type: 'boolean' } }, required: ['cliente', 'etapa'] },
@@ -12088,6 +12127,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
   if (nome === 'registrar_perda') return await perdaTool(env, a); // v151
   if (nome === 'acordo_pagamento') return await acordoTool(env, from, a); // v152
   if (nome === 'registrar_retrabalho') return await retrabalhoTool(env, a); // v157
+  if (nome === 'acordo_alterar') return await acordoAlterarTool(env, a); // v162
   if (nome === 'registrar_sobra') return await sobraTool(env, a); // v151
   if (nome === 'previsao_mes') return { texto: (await previsaoTexto(env)) + '\n\n(Repasse esses números de forma curta e clara.)' }; // v151
   if (nome === 'equipe_atualizar') return await equipeAtualizar(env, a); // v141
@@ -27343,7 +27383,7 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
   ctx.cliente = false;
   await env.HR_KV.put('ponto:ultzap:' + f.id, String(Date.now()), { expirationTtl: 2 * 86400 }); // v41: conversa aberta (24 h)
   await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {}); // v154: janela de 24 h também para a equipe
-  if (await eqPendente(env, from).catch(() => false)) { if (m.type === 'button') return true; } // v154: manual guardado do modelo
+  if (await eqPendente(env, from).catch(() => false)) { const t0 = normaliza(m.type === 'text' ? String(m.text?.body || '') : ''); if (m.type === 'button' || m.type !== 'text' || t0.length < 25) return true; } // v154/v162: manual guardado; "sim"/"ok" só abre o manual
   const nome = apelidoFunc(cfg, f); // v45: como a equipe chama
   let idB = m.type === 'interactive' ? (m.interactive?.button_reply?.id || m.interactive?.list_reply?.id || '') : m.type === 'button' ? String(m.button?.payload || '') : '';
   // v44: "Ver aviso" (modelo) ou qualquer mensagem dele: entrega o que estava guardado
@@ -27382,6 +27422,10 @@ async function rhAtenderFuncionario(env, from, m, ctx) {
     return true;
   }
   const rel = await pontoRelUltimo(env, f.id);
+  if (rel && rel.status !== 'aprovado' && /^(sim|s|ok|okay|aprovo|aprovado|confirmo|certo|ta certo|esta certo|tudo certo|ta tudo certo|correto|de acordo|pode ser|isso|blz|beleza|👍)[.! ]*$/.test(normaliza(texto))) { // v162
+    await pontoRelDecidir(env, cfg, f, rel.df, 'ok');
+    await enviar(env, from, `Obrigada, ${nome}! Relatório do ${rel.label} aprovado. ✅`); return true;
+  }
   const atual = await pontoResumo(env, f.id, dataBahia());
   const tab = r => r ? r.dias.map(l => `${l.data}: entrada ${l.e || '-'}, almoço ${l.ai || '-'} a ${l.af || '-'}, saída ${l.s || '-'}, feito ${hmPonto(l.feito)}, esperado ${hmPonto(l.esp)}, extra ${l.extra ? hmPonto(l.extra) : '0:00'}${l.oficial ? '' : ' (ainda não conferido pelo RH)'}`).join('\n') + `\nTOTAL feito ${hmPonto(r.total.feito)}, esperado ${hmPonto(r.total.esperado)}, extra ${hmPonto(r.total.extra)}` : '(nada)';
   const sistema = `Você é a secretária de RH da HR Mármores e Granitos, falando pelo WhatsApp com o funcionário ${f.nome}.
@@ -27405,6 +27449,7 @@ Responda SÓ com JSON: {"resposta":"texto para o ${nome}","escalar":false,"resum
     const mj = /\{[\s\S]*\}/.exec(t || ''); out = mj ? JSON.parse(mj[0]) : null;
   } catch (e) { console.log('[RH] IA:', e.message); }
   if (!out || !out.resposta) out = { resposta: `${nome}, recebi sua mensagem e vou passar para o responsável.`, escalar: true, resumo_para_dono: texto };
+  out.resposta = String(out.resposta).replace(/\bObrigado\b/g, 'Obrigada').replace(/\bobrigado\b/g, 'obrigada'); // v162: a secretária é mulher
   await enviar(env, from, String(out.resposta).slice(0, 1200));
   hist = hist.concat([{ role: 'user', content: texto.slice(0, 800) }, { role: 'assistant', content: String(out.resposta).slice(0, 800) }]).slice(-12);
   await env.HR_KV.put('rh:hist:' + f.id, JSON.stringify(hist), { expirationTtl: 3 * 86400 });
