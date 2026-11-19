@@ -2242,6 +2242,7 @@ async function tratarBotao(env, from, id, F) {
   }
   if (id === 'cmd_desfazer') { await responderDesfeito(env, from, F, await desfazerUltimo(env)); return true; }
   if (id.startsWith('desf|')) { await responderDesfeito(env, from, F, await desfazerPorChave(env, id.slice(5))); return true; }
+  if (/^(pgpix|pgok|pgno|pgrep)\|/.test(id)) return fechPagBotao(env, from, id); // v197
 
   if (id.startsWith('ped_desc|') || id.startsWith('ped_descno|')) { await decidirDesconto(env, from, id); return true; }
 
@@ -6856,6 +6857,7 @@ async function pedirAvaliacoes(env) {
   await previsaoRotina(env).catch(e => console.log('[PREV]', e.message)); // v191
   await mig193Expediente(env).catch(e => console.log('[MIG193]', e.message)); // v193
   await mig195Garantia(env).catch(e => console.log('[MIG195]', e.message)); // v195
+  await mig197Renata(env).catch(e => console.log('[MIG197]', e.message)); // v197
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -7869,7 +7871,7 @@ async function producaoFuncionario(env, f, from, texto, idB, nome) {
     let pg = null; try { pg = JSON.parse((await env.HR_KV.get('prod:pgperg:' + f.id)) || 'null'); } catch (_) {}
     if (pg && Date.now() - pg.em < 6 * 3600000 && /\b(recebi|recebeu|pagou|pago|dinheiro|cartao|pix|nao pagou|vai pagar|depois)\b/.test(msg)) {
       await env.HR_KV.delete('prod:pgperg:' + f.id);
-      if (!/\b(nao pagou|nao recebi|vai pagar|depois|fiado)\b/.test(msg)) { const pd = pg.pid ? await lerPedido(env, pg.pid).catch(() => null) : null; if (pd) { const v = extrairValor(texto); await fechReceber(env, pd, v && v.n > 0 ? v.n : pg.valor, /cart/.test(msg) ? 'cartao' : /pix/.test(msg) ? 'pix' : 'dinheiro', nomeEntregador(env)); await enviar(env, from, `Anotado, ${nome}! Lancei o recebimento para o Sr. Hangel.`); return true; } }
+      if (!/\b(nao pagou|nao recebi|vai pagar|depois|fiado)\b/.test(msg)) { const pd = pg.pid ? await lerPedido(env, pg.pid).catch(() => null) : null; if (pd) { const v = extrairValor(texto); const r = await fechReceber(env, pd, v && v.n > 0 ? v.n : pg.valor, /cart/.test(msg) ? 'cartao' : /pix/.test(msg) ? 'pix' : 'dinheiro', nome, { func: nome }); await enviar(env, from, r && r.pendente ? `Anotado, ${nome}! ${r.forma === 'pix' ? 'O Pix cai na conta do Sr. Hangel' : 'O cartão cai na conta do Sr. Hangel'}; passei para ele confirmar.` : `Anotado, ${nome}! Lancei o recebimento para o Sr. Hangel. O dinheiro fica com você até entregar a ele.`); return true; } }
       await pontoAvisarDono(env, `💵 *${f.nome}* sobre o pagamento de *${pg.nome}* na entrega: "${String(texto).slice(0, 300)}"${pg.valor ? `\n(valor a cobrar: R$ ${reais(pg.valor)})` : ''}\nSe recebeu, lance: _recebi ${pg.valor ? reais(pg.valor) : 'VALOR'} de ${String(pg.nome).split(' ')[0]} em dinheiro_.`);
       await enviar(env, from, `Anotado, ${nome}! Passei para o Sr. Hangel.`); return true;
     }
@@ -7962,7 +7964,8 @@ async function prodMarcarEntregue(env, ped, from, nome, texto, receb, fotoOk) {
   if (!receb && cobrar && /\b(recebi|recebeu|pagou|pago)\b/.test(tn) && !/\b(nao (recebi|pagou)|vai pagar|depois|fiado)\b/.test(tn)) { const v = extrairValor(texto); receb = { valor: v && v.n > 0 ? v.n : cobrar, forma: /cart/.test(tn) ? 'cartao' : /pix/.test(tn) ? 'pix' : 'dinheiro' }; }
   const ret = String(ped.entrega || '') === 'retirada', quem = ret ? nomeFabrica(env) : nomeEntregador(env);
   if (receb && cobrar) {
-    await fechReceber(env, ped, receb.valor || cobrar, receb.forma, quem);
+    const rr = await fechReceber(env, ped, receb.valor || cobrar, receb.forma, quem, { func: nome });
+    if (rr && rr.pendente) { await pontoAvisarDono(env, `🚚 *${nome}* ${ret ? 'entregou na retirada' : 'instalou/entregou'} o de *${ped.nome}*. Serviço marcado como entregue.`).catch(() => {}); await enviar(env, from, `Valeu, ${nome}! Anotei ${ret ? 'a retirada' : 'a entrega'} de *${ped.nome}*. ${rr.forma === 'pix' ? 'O Pix' : 'O cartão'} cai na conta do Sr. Hangel; passei para ele confirmar.`); return true; } // v197
     if (ped.acordo) { await pontoAvisarDono(env, `🚚 *${quem}* instalou o de *${ped.nome}*. Serviço marcado como entregue.`).catch(() => {}); await enviar(env, from, `Valeu, ${nome}! Anotei a instalação de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)}. O restante fica comigo.`); return true; } // v152
     await pontoAvisarDono(env, ret ? `📦 *${ped.nome}* buscou o pedido (${resumoPecas(ped)}). Serviço marcado como entregue.` : `🚚 *${quem}* entregou o pedido de *${ped.nome}* (${resumoPecas(ped)}). Serviço marcado como entregue.`).catch(() => {});
     await enviar(env, from, `Valeu, ${nome}! Anotei ${ret ? 'a retirada' : 'a entrega'} de *${ped.nome}* e os R$ ${reais(receb.valor || cobrar)} em ${receb.forma === 'cartao' ? 'cartão' : receb.forma}. Já lancei para o Sr. Hangel.`);
@@ -8330,18 +8333,47 @@ async function fechJanelaConfirmar(env, ped) {
   return true;
 }
 // recebeu na entrega: Finanças + Livro de entregas, pedido quitado
-async function fechReceber(env, ped, valor, forma, quem) {
+async function fechReceber(env, ped, valor, forma, quem, opc = {}) {
   valor = Math.round(Number(valor) * 100) / 100; if (!(valor > 0)) return null;
   const fm = /cart/.test(forma) ? 'cartao' : /pix/.test(forma) ? 'pix' : 'dinheiro';
   if (ped.recebidoEntrega) return null;
+  if (fm !== 'dinheiro' && !opc.confirmado) return fechPagPendente(env, ped, valor, fm, opc.func || quem); // v197: Pix/cartão caem na conta do dono — funcionário não confirma recebimento
   const rec = await registrarLancamento(env, { type: 'in', value: valor, desc: `Recebido de ${ped.nome} (entrega)`.slice(0, 80), date: dataBahia(), forma: fm }).catch(e => { console.log('[AG] fin:', e.message); return null; });
   await livAuto(env, { cliente: ped.nome, tel: ped.numero, desc: resumoPecas(ped), valor: Number(ped.valor) || 0, pagamento: { valor, forma: fm, ref: 'ent' + ped.id, origem: 'bot' } }, 'recebido na entrega');
   ped.recebidoEntrega = { valor, forma: fm, em: Date.now(), quem }; ped.pago = true; if (ped.sinal) ped.restantePago = true; await salvarPedido(env, ped);
+  if (fm === 'dinheiro' && opc.func) { ped.recebidoEntrega.comFunc = opc.func; await salvarPedido(env, ped); } // v197: dinheiro em mãos com o funcionário até ele repassar
   if (ped.acordo) await acdInstalacaoPaga(env, ped, valor).catch(e => console.log('[ACD]', e.message)); // v152
-  const msg = `💰 *${quem}* recebeu *R$ ${reais(valor)}* em ${fm === 'cartao' ? 'cartão' : fm} de *${ped.nome}*.\n${rec ? 'Lancei a entrada em Finanças' : 'Não consegui lançar em Finanças (lance à mão)'} e no Livro de entregas.`;
-  if (rec && rec.k) await enviarComBotoes(env, numeroDono(env), msg, [{ id: 'desf|' + rec.k, titulo: 'Desfazer lançamento' }]).catch(() => {});
+  const comF = fm === 'dinheiro' && opc.func && !opc.confirmado;
+  const msg = comF ? `💵 *${opc.func}* recebeu *R$ ${reais(valor)} em dinheiro* de *${ped.nome}*. O dinheiro está *nas mãos do ${opc.func}* até ele te entregar.\n${rec ? 'Lancei a entrada em Finanças' : 'Não consegui lançar em Finanças (lance à mão)'} e no Livro de entregas.`
+    : `💰 ${opc.confirmado ? 'Confirmado' : `*${quem}* recebeu`}: *R$ ${reais(valor)}* em ${fm === 'cartao' ? 'cartão' : fm} de *${ped.nome}*.\n${rec ? 'Lancei a entrada em Finanças' : 'Não consegui lançar em Finanças (lance à mão)'} e no Livro de entregas.`;
+  const bts = [...(comF ? [{ id: 'pgrep|' + ped.id, titulo: `${String(opc.func).split(' ')[0]} me entregou`.slice(0, 20) }] : []), ...(rec && rec.k ? [{ id: 'desf|' + rec.k, titulo: 'Desfazer lançamento' }] : [])];
+  if (bts.length) await enviarComBotoes(env, numeroDono(env), msg, bts).catch(() => {});
   else await pontoAvisarDono(env, msg).catch(() => {});
   return rec;
+}
+// v197: Pix/cartão informado pelo funcionário: não é recebimento — o dono decide (cobrança Pix, já caiu, ou nada)
+async function fechPagPendente(env, ped, valor, fm, func) {
+  await env.HR_KV.put('pgpend:' + ped.id, JSON.stringify({ valor, fm, func, em: Date.now() }), { expirationTtl: 30 * 86400 });
+  ped.pagInformado = { valor, forma: fm, por: func || '', em: Date.now() }; await salvarPedido(env, ped);
+  const pn = String(ped.nome || 'cliente').split(' ')[0];
+  const txt = fm === 'pix'
+    ? `💳 *${func || 'A equipe'}* disse que *${ped.nome}* vai pagar/pagou *R$ ${reais(valor)} no Pix*.\nAinda *não lancei nada* como recebido. Faço uma *cobrança Pix* para ${pn} (com QR e link)?`
+    : `💳 *${func || 'A equipe'}* disse que *${ped.nome}* pagou *R$ ${reais(valor)} no cartão*.\nAinda *não lancei nada*: confira se caiu na maquininha.`;
+  await enviarComBotoes(env, numeroDono(env), txt, [...(fm === 'pix' ? [{ id: 'pgpix|' + ped.id, titulo: 'Fazer cobrança Pix' }] : []), { id: 'pgok|' + ped.id, titulo: 'Já caiu na conta' }, { id: 'pgno|' + ped.id, titulo: 'Ainda não' }]).catch(() => {});
+  return { pendente: true, forma: fm };
+}
+async function fechPagBotao(env, from, id) {
+  const [ac, pid] = id.split('|'); const ped = await lerPedido(env, pid).catch(() => null);
+  if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
+  if (ac === 'pgrep') { if (ped.recebidoEntrega) { ped.recebidoEntrega.repassadoEm = Date.now(); await salvarPedido(env, ped); } await enviar(env, from, `✅ Anotado: o dinheiro de *${ped.nome}* já está com o senhor.`); return true; }
+  let pd = null; try { pd = JSON.parse((await env.HR_KV.get('pgpend:' + pid)) || 'null'); } catch (_) {}
+  const valor = (pd && pd.valor) || cobrarNaEntrega(ped);
+  if (ped.recebidoEntrega) { await enviar(env, from, `O pagamento de *${ped.nome}* já está lançado.`); return true; }
+  if (ac === 'pgno') { await enviar(env, from, `Certo, nada lançado. *${ped.nome}* continua devendo R$ ${reais(valor)}.`); return true; }
+  if (ac === 'pgok') { await env.HR_KV.delete('pgpend:' + pid); await fechReceber(env, ped, valor, (pd && pd.fm) || 'pix', 'Sr. Hangel', { confirmado: true });
+    if (!ped.acordo && ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, recebemos o seu pagamento de R$ ${reais(valor)}. Muito obrigada! 😊`).catch(() => {}); return true; }
+  if (ac === 'pgpix') return qcobCriar(env, from, { nome: ped.nome, tel: ped.numero ? normalizarBR(ped.numero) : '', saldo: valor, desc: resumoPecas(ped), entrega: dataBahia() });
+  return false;
 }
 // conferência no fim da janela e lembretes (rotina a cada ~15 min)
 async function fechRotina(env) {
@@ -10851,6 +10883,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v197: Pix/cartão dito pelo funcionário não é recebimento: o dono escolhe fazer a cobrança Pix, "já caiu" ou "ainda não"; dinheiro fica "em mãos" com quem recebeu até o dono confirmar. Recebimento de R$ 1.500 da Renata desfeito.
 // v196: foto com legenda que já diz o cliente e o que foi ("Serviço de Renata finalizando", resposta "Dona Renata serviço finalizado") vai direto, sem a lista.
 // v195: garantia não duplica (mesmo cliente + mesmo serviço vindo do pedido e do livro); CPF de garantia anterior é reaproveitado; G-0043 da Renata cancelada.
 // v194: desenho técnico do app (rota /bot/desenho): guarda no pedido, troca as peças pelas do desenho e manda a imagem à equipe.
@@ -11560,6 +11593,23 @@ async function mig193Expediente(env) {
   const dias = []; if (!tem('2026-11-20')) dias.push({ data: '2026-11-20', tipo: 'meio', periodo: 'manha' }); if (!tem('2026-11-21')) dias.push({ data: '2026-11-21', tipo: 'folga' });
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
+}
+// v197: o Gibson respondeu "Pix" e o bot lançou R$ 1.500 como recebido — o Sr. Hangel não recebeu nada. Desfaz tudo e deixa pendente.
+async function mig197Renata(env) {
+  if (await env.HR_KV.get('mig:197')) return; if (!(await travaEnvio(env, 'mig:197'))) return; await env.HR_KV.put('mig:197', '1');
+  const l = await pedidosProducao(env, p => /renata/i.test(p.nome || '') && p.recebidoEntrega && p.recebidoEntrega.forma === 'pix' && Date.now() - p.recebidoEntrega.em < 3 * 86400000);
+  const out = [];
+  for (const ped of l) {
+    const v = ped.recebidoEntrega.valor;
+    let finOk = 'não achei', cur;
+    do { const r = await env.HR_KV.list({ prefix: 'fin:179511', cursor: cur }); for (const k of r.keys) { const rec = JSON.parse((await env.HR_KV.get(k.name)) || 'null'); if (rec && rec.type === 'in' && Math.abs(rec.value - v) < 0.01 && /Recebido de Renata/i.test(rec.desc || '')) { if (rec.importado) finOk = 'já estava no app (apague lá em Finanças)'; else { await env.HR_KV.delete(k.name); if ((await env.HR_KV.get('ultimo:fin')) === k.name) await env.HR_KV.delete('ultimo:fin'); await env.HR_KV.put('cfg:flag:fin', String(Date.now()), { expirationTtl: 86400 }).catch(() => {}); finOk = 'apagado'; } } } cur = r.list_complete ? null : r.cursor; } while (cur);
+    try { const todos = await livTodos(env); for (const r of todos) { const n0 = (r.pagamentos || []).length; r.pagamentos = (r.pagamentos || []).filter(x => x.ref !== 'ent' + ped.id); if (r.pagamentos.length !== n0) await livSalvar(env, r); } } catch (e) { console.log('[MIG197] livro', e.message); }
+    if (ped.acordo) { try { const a = await acdLer(env, ped.acordo); if (a && a.instPagoEm) { delete a.instPagoEm; delete a.instPago; await acdSalvar(env, a); } } catch (_) {} }
+    delete ped.recebidoEntrega; ped.pago = false; if (ped.sinal) ped.restantePago = false; await salvarPedido(env, ped);
+    await env.HR_KV.put('pgpend:' + ped.id, JSON.stringify({ valor: v, fm: 'pix', func: 'Gibson', em: Date.now() }), { expirationTtl: 30 * 86400 });
+    out.push({ ped, v, finOk });
+  }
+  for (const x of out) await enviarComBotoes(env, numeroDono(env), `↩️ *Desfeito:* o Gibson só respondeu "Pix" e eu lancei *R$ ${reais(x.v)}* de *${x.ped.nome}* como recebido — erro meu. Finanças: ${x.finOk}; tirei do Livro de entregas e o acordo voltou a esperar o pagamento da instalação.\nDaqui para frente, Pix ou cartão dito pela equipe *nunca* vira recebido sem o senhor confirmar. Faço a cobrança Pix para ela?`, [{ id: 'pgpix|' + x.ped.id, titulo: 'Fazer cobrança Pix' }, { id: 'pgok|' + x.ped.id, titulo: 'Já caiu na conta' }, { id: 'pgno|' + x.ped.id, titulo: 'Ainda não' }]).catch(() => {});
 }
 // v195: a entrega da Renata gerou a G-0043 duplicada (pedido + livro) pedindo CPF de novo — cancela a duplicada e tira o pedido de dados
 async function mig195Garantia(env) {
