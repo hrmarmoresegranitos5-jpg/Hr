@@ -6858,6 +6858,7 @@ async function pedirAvaliacoes(env) {
   await mig193Expediente(env).catch(e => console.log('[MIG193]', e.message)); // v193
   await mig195Garantia(env).catch(e => console.log('[MIG195]', e.message)); // v195
   await mig197Renata(env).catch(e => console.log('[MIG197]', e.message)); // v197
+  await mig198Ajudante(env).catch(e => console.log('[MIG198]', e.message)); // v198
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9617,6 +9618,10 @@ async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (p
       else continue;
       if (!x.dono && !p.fotoProntoEm && x.ts < Date.now() - 24 * 3600000 && (x.e === 'fabricacao' || (x.e === 'acabamento' && !cx))) pts = meio(pts / 2) || 0.5; // v181: sem foto das peças prontas vale metade
       const cada = Math.round(pts / x.por.length * 10) / 10;
+      if ((x.e === 'instalacao' || x.e === 'entrega') && Array.isArray(p.instAjud)) { // v198: ajudante da instalação ganha metade, sem tirar do instalador
+        const ini = (p.instIniEm || x.ts - 12 * 3600000) - 3 * 3600000, aj = [...new Set(p.instAjud.filter(a => a.ts >= ini && a.ts <= x.ts + 4 * 3600000).map(a => String(a.id)))].filter(id => !x.por.map(String).includes(id));
+        for (const id of aj) add(id, meio(pts / 2) || 0.5, (x.e === 'instalacao' ? 'instalação' : 'entrega') + ' (ajudante)', p, x.ts, ex);
+      }
       for (const id of x.por) add(String(id), cada, (x.itens && x.itens.length ? `${x.itens.length} ${x.itens.length > 1 ? 'itens' : 'item'} · ` : x.pecas ? `${x.pecas} peça${x.pecas > 1 ? 's' : ''} · ` : '') + ({ corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', entrega: 'entrega', instalacao: 'instalação' })[x.e] + (x.por.length > 1 ? ' (em dupla)' : ''), p, x.ts, ex);
     }
   }
@@ -10797,12 +10802,21 @@ async function prodFotoEscolha(env, f, from, idB, nome) { // v176: com várias f
     if (ok) await enviar(env, from, `📷 E guardei mais ${ok} foto(s) no mesmo pedido.`).catch(() => {}); }
   return r;
 }
+// v198: quem instala junto (manda foto do serviço no dia da instalação e é da instalação/entrega) ganha a parte de ajudante
+async function instAjudAnotar(env, ped, f) {
+  if (!f || !ped) return; const id = String(f.id); if (id === String(ped.entResp || '') || id === String(ped.entFeitoPor || '')) return;
+  const fs = (await funcoesEquipe(env)).map[id] || []; if (!fs.some(x => ENT_F.includes(x))) return;
+  if (!(naEntrega(ped) || ped.instIniEm || (ped.entregueEm && Date.now() - ped.entregueEm < 12 * 3600000))) return;
+  const l = Array.isArray(ped.instAjud) ? ped.instAjud : []; if (l.some(a => a.id === id && Date.now() - a.ts < 12 * 3600000)) return;
+  ped.instAjud = [...l, { id, ts: Date.now() }].slice(-6); await salvarPedido(env, ped);
+}
 async function prodFotoEscolha1(env, f, from, idB, nome) {
   let [, pid, ac] = idB.split('|'); const ped = await lerPedido(env, pid).catch(() => null); if (!ped) { await enviar(env, from, 'Não achei esse pedido.'); return true; }
   let fp = null; try { fp = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {}
   if (!fp || !fp.mid) { await enviar(env, from, 'A foto expirou. Manda de novo, por favor.'); return true; }
   await env.HR_KV.delete('prod:fotopend:' + ultimos8(from));
   const img = { type: 'image', image: { id: fp.mid } };
+  await instAjudAnotar(env, ped, f).catch(e => console.log('[AJUD]', e.message)); // v198
   if (ac === 'reabre') { // v172: desfaz a instalação marcada antes da hora (os pontos voltam a contar quando terminar de verdade)
     ped.prodLog = (ped.prodLog || []).filter(x => !((x.e === 'instalacao' || x.e === 'entrega') && x.dono)); ped.entregueEm = null; ped.entFeitoPor = ped.entFeitoPor || String(f.id); ped.entResp = ped.entResp || String(f.id); ped.fabProntoEm = ped.fabProntoEm || Date.now(); ped.instIniEm = null; await salvarPedido(env, ped);
     await pontoAvisarDono(env, `ℹ️ A instalação de *${ped.nome}* estava marcada como feita, mas ${nome} está começando agora. Reabri o serviço; os pontos e a baixa saem quando ele terminar.`).catch(() => {});
@@ -10883,6 +10897,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v198: ajudante da instalação (manda foto no dia) ganha metade dos pontos sem tirar do instalador; carreira começa pelo tempo de casa (admissão do RH, enviada pelo app).
 // v197: Pix/cartão dito pelo funcionário não é recebimento: o dono escolhe fazer a cobrança Pix, "já caiu" ou "ainda não"; dinheiro fica "em mãos" com quem recebeu até o dono confirmar. Recebimento de R$ 1.500 da Renata desfeito.
 // v196: foto com legenda que já diz o cliente e o que foi ("Serviço de Renata finalizando", resposta "Dona Renata serviço finalizado") vai direto, sem a lista.
 // v195: garantia não duplica (mesmo cliente + mesmo serviço vindo do pedido e do livro); CPF de garantia anterior é reaproveitado; G-0043 da Renata cancelada.
@@ -11393,6 +11408,23 @@ async function eqExplicarPontos(env, f, from, texto, nome) {
   return true;
 }
 // dono: "nível do Lucas Destaque" / "nível do Gibson 3" → a carreira dele começa nesse nível
+// v198: a carreira de pontos começou do zero em nov/2026 para todos — quem tem tempo de casa começa num nível compatível
+const CAR_TEMPO = [[36, 3], [12, 2], [3, 1]]; // meses de casa → nível (Craque, Destaque, Ritmo)
+async function carreiraPorTempo(env, adm) {
+  const cfg = await pontoCfg(env), ini = '2026-11-01', subiu = [];
+  for (const f of cfg.funcs) {
+    const d = String((adm || {})[f.id] || '').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d >= ini) continue;
+    if (await env.HR_KV.get('xp:nivel:' + f.id)) continue; // o dono já escolheu o nível dele
+    const meses = (Date.parse(ini) - Date.parse(d)) / (30.44 * 86400000), r = CAR_TEMPO.find(x => meses >= x[0]); if (!r) continue;
+    const i = r[1], ja = Number(await env.HR_KV.get('xp:tempo:' + f.id)); if (ja >= i) continue;
+    const pn = await metaPainel(env, f.id).catch(() => null), sem = pn ? Math.max(0, pn.pts) : 0, b = Number(await env.HR_KV.get('xp:base:' + f.id)) || 0;
+    const nb = Math.max(b, CARREIRA[i].xp - sem); await env.HR_KV.put('xp:base:' + f.id, String(nb)); await env.HR_KV.put('xp:tempo:' + f.id, String(i));
+    if (nb > b) { subiu.push(`${apelidoFunc(cfg, f)} → ${CARREIRA[i].ico} ${CARREIRA[i].nome} (${Math.floor(meses)} meses de casa)`);
+      if (f.tel) await eqTexto(env, f.tel, `${avisoTeste(env)}🎖️ ${apelidoFunc(cfg, f)}, a carreira de pontos começou do zero para todo mundo quando o sistema começou. Pelo seu *tempo de casa* (${Math.floor(meses / 12) ? Math.floor(meses / 12) + ' ano(s)' : Math.floor(meses) + ' meses'}), você agora começa no ${CARREIRA[i].ico} *${CARREIRA[i].nome}*. Daqui sobe com os pontos de cada semana. 💪`).catch(() => {}); }
+  }
+  if (subiu.length) await pontoAvisarDono(env, `🎖️ Ajustei a carreira de pontos pelo *tempo de casa* (data de admissão do RH):\n${subiu.join('\n')}\nQuer outro nível para alguém? Diga: _nível do Lucas Destaque_.`).catch(() => {});
+  return subiu;
+}
 async function nivelComandoDono(env, from, msg) {
   const m = msg.match(/^(?:nivel|carreira) d[oae] ([a-z]+) (?:comeca no |no |em |para |pra )?(?:nivel )?([a-z0-9 ]+?)$/); if (!m) return false;
   const cfg = await pontoCfg(env), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(m[1]) || normaliza(apelidoFunc(cfg, x)) === m[1]); if (!f) return false;
@@ -11593,6 +11625,16 @@ async function mig193Expediente(env) {
   const dias = []; if (!tem('2026-11-20')) dias.push({ data: '2026-11-20', tipo: 'meio', periodo: 'manha' }); if (!tem('2026-11-21')) dias.push({ data: '2026-11-21', tipo: 'folga' });
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
+}
+// v198: o Jefferson instalou a cozinha da Renata junto com o Gibson (mandou fotos 09:17 e 15:33) e ficou sem ponto
+async function mig198Ajudante(env) {
+  if (await env.HR_KV.get('mig:198')) return; if (!(await travaEnvio(env, 'mig:198'))) return; await env.HR_KV.put('mig:198', '1');
+  const cfg = await pontoCfg(env), j = cfg.funcs.find(x => /jefferson/i.test(x.nome || '')); if (!j) return;
+  const l = await pedidosProducao(env, p => /renata/i.test(p.nome || '') && p.entregueEm && Date.now() - p.entregueEm < 3 * 86400000); if (l.length !== 1) return;
+  const ped = l[0]; if (String(ped.entFeitoPor) === String(j.id)) return;
+  ped.instAjud = [...(Array.isArray(ped.instAjud) ? ped.instAjud : []), { id: String(j.id), ts: ped.entregueEm - 60000 }]; await salvarPedido(env, ped);
+  await pontoAvisarDono(env, `✅ O *Jefferson* agora ganha a parte de *ajudante* da instalação da Renata (metade dos pontos da instalação, sem tirar nada do Gibson). Daqui para frente, quem manda foto do serviço no dia da instalação conta como ajudante sozinho.`).catch(() => {});
+  if (j.tel) await eqTexto(env, j.tel, `${avisoTeste(env)}✅ Jefferson, a instalação da Renata que você fez junto com o Gibson agora conta para você também (parte de ajudante). Sempre que ajudar numa instalação, mande foto do serviço que os pontos entram. 💪`).catch(() => {});
 }
 // v197: o Gibson respondeu "Pix" e o bot lançou R$ 1.500 como recebido — o Sr. Hangel não recebeu nada. Desfaz tudo e deixa pendente.
 async function mig197Renata(env) {
@@ -23349,7 +23391,7 @@ async function rotaBotInterna(req, env, url) {
   if (p === '/bot/producao' && req.method === 'GET') return jsonR(await producaoPainel(env)); // v190
   if (p === '/bot/producao/ficha' && req.method === 'POST') return jsonR(await producaoFichaSalvar(env, await req.json().catch(() => ({})))); // v190
   if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
-  if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
+  if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (b.adm && typeof b.adm === 'object') { const ad = {}; for (const [k, v] of Object.entries(b.adm).slice(0, 60)) if (/^\d{4}-\d{2}-\d{2}/.test(String(v))) ad[String(k).slice(0, 40)] = String(v).slice(0, 10); await env.HR_KV.put('cfg:admissao', JSON.stringify(ad)); await carreiraPorTempo(env, ad).catch(e => console.log('[CAR] tempo:', e.message)); } /* v198 */ if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
   if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
     const b = await req.json().catch(() => ({})), out = {};
     for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) { const r = await pv1Agendar(env, it).catch(() => null); if (r) out[String(it.id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; }
