@@ -6860,6 +6860,7 @@ async function pedirAvaliacoes(env) {
   await mig197Renata(env).catch(e => console.log('[MIG197]', e.message)); // v197
   await mig198Ajudante(env).catch(e => console.log('[MIG198]', e.message)); // v198
   await mig199Narracao(env).catch(e => console.log('[MIG199]', e.message)); // v199
+  await mig202Jailton(env).catch(e => console.log('[MIG202]', e.message)); // v202
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9585,7 +9586,7 @@ function ptsEtapa(p, e) {
     if (e === 'corte') { const d = dificuldade(p); return meio(((d ? d.corte : nPecasPed(p)) + ((p.resumoApp.itens || []).filter(i => (i.sv || []).includes('reb_a')).length)) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); }
   }
   const d = dificuldade(p), n = nPecasPed(p), mu = d ? nivelDif(p).mult : 1;
-  if (e === 'corte') return meio((d ? d.corte : n) * (mu > 1 ? 1 + (mu - 1) / 2 : 1)); // corte pesa menos o nível (o difícil é a fabricação)
+  if (e === 'fabricacao' && !d && p && pedComplexo(p)) { const tx = hugoPeloTexto(p); if (tx > 0) return meio(Math.max(3 + n, 1 + tx)); } // v202: pedido sem ficha: lê o que o serviço tem pela descrição // corte pesa menos o nível (o difícil é a fabricação)
   if (e === 'fabricacao') return d ? meio((2 + d.det + d.corte * 0.5) * mu) : 3 + n;
   if (e === 'acabamento' || e === 'polimento') return d ? meio((1 + d.det * 0.5) * mu) : 1; // v182: polimento vale como o acabamento
   if (e === 'instalacao') return d ? meio((3 + d.corte * 0.5) * mu) : 5;
@@ -11478,6 +11479,16 @@ function unidadesEtapa(p, et) {
   const tot = U.reduce((t, u) => t + u.pts, 0) || 1; U.forEach((u, k) => { u.i = k; u.peso = u.pts; u.frac = u.pts / tot; }); return U.slice(0, 40);
 }
 function poliPtsTotal(p) { const U = unidadesEtapa(p, 'polimento'); return U ? meio(U.reduce((t, u) => t + u.pts, 0)) : 0; }
+// v202: pedido criado pela conversa (sem ficha das peças): os serviços do Hugo saem da descrição (45°, cuba, cooktop, rebaixo, furos)
+function hugoPeloTexto(p) {
+  const t = normaliza([p.interesse, p.projetoApp, p.desc, p.descricao, p.obs, p.servico, p.ambiente, p.resumo, typeof p.pecas === 'string' ? p.pecas : ''].filter(x => typeof x === 'string').join(' '));
+  let v = 0; const nItens = Math.max(1, (t.match(/\b(pia|bancada|balcao|ilha|lavatorio|mesa)\b/g) || []).length);
+  if (/\b45\b|quarenta e cinco|meia esquadria/.test(t)) v += Math.min(8, 3 * Math.min(2, nItens));
+  if (/rebaixo americano|rebaixo/.test(t)) v += 4;
+  if (/cuba|bojo/.test(t)) v += /flush/.test(t) ? 6 : /esculp/.test(t) ? 6 : /sobrep/.test(t) ? 1.5 : /embut/.test(t) ? 3 : 2.5;
+  if (/cooktop|cook top|fogao/.test(t)) v += 1.5;
+  return v;
+}
 function hugoPtsBase(p) { return ((p.resumoApp || {}).itens || []).filter(i => (i.pecas || []).length).reduce((t, it) => t + servicosHugo(it).reduce((a, s) => a + s.pts, 0), 0); }
 async function polidorDe(env, ped) {
   if (ped.poliResp) return String(ped.poliResp); const { map, cfg } = await funcoesEquipe(env);
@@ -11627,6 +11638,7 @@ async function mig193Expediente(env) {
   if (!dias.length) return; const r = await expedienteDias(env, { dias, avisar_equipe: false }).catch(e => ({ texto: e.message }));
   globalThis.__expEm = 0; await pontoAvisarDono(env, `📅 Gravei o expediente que o senhor combinou: *sexta 20/11 meio período (07:00–11:00)* e *sábado 21/11 folga*. Prazos e previsões já contam com isso. Se não for isso, me diga.`).catch(() => {});
 }
+// v202: pedido sem ficha (criado pela conversa) conta os serviços do Hugo pela descrição; pedido do Jailton com a ficha do desenho.
 // v200: rota pública /voz-video/<cena> (só a narração do vídeo da equipe, nada mais).
 // v199: narração do vídeo "pontos, metas e prêmio" — gera a voz de cada cena (mesma voz do bot) e guarda no D1 (tabela tmp_voz) para o vídeo
 const NARR199 = {
@@ -11640,6 +11652,21 @@ const NARR199 = {
   dicas: 'Dicas para ganhar mais pontos: mande foto de cada etapa, porque vale ponto e protege o seu trabalho. Ajudou numa instalação? Mande foto do serviço e ganhe a parte de ajudante. O seu nível começa pelo seu tempo de casa. E a qualquer hora, pergunte ao bot: quantos pontos eu tenho?',
   fim: 'Bora bater a meta, equipe!',
 };
+// v202: o pedido do Jailton (papinha) foi criado pela conversa, sem peças: o Hugo ganhou 4 pontos (serviço simples). Ficha pelo desenho do Sr. Hangel.
+async function mig202Jailton(env) {
+  if (await env.HR_KV.get('mig:202')) return; if (!(await travaEnvio(env, 'mig:202'))) return; await env.HR_KV.put('mig:202', '1');
+  const ped = await lerPedido(env, '1795087424460').catch(() => null); if (!ped || ((ped.resumoApp || {}).itens || []).some(i => (i.pecas || []).length)) return;
+  const cfg = await pontoCfg(env), hugo = cfg.funcs.find(f => /hugo/i.test(f.nome || ''));
+  const semAntes = hugo ? ((await metasPontos(env, semIni(dataBahia()), isoSomaDias(semIni(dataBahia()), 6)))[hugo.id] || {}).pts || 0 : 0;
+  ped.resumoApp = { ...(ped.resumoApp || {}), itens: [
+    { ambiente: 'Pia com área seca para cooktop', acabamento: '45', sv: ['cuba_coz', 'cook', 's_45'], cuba: 'retangular', cubaInst: 'embutir', pecas: [{ qtd: 1, comp_cm: 206, larg_cm: 60, rot: 'Bancada', tipoP: 'bancada' }, { qtd: 1, comp_cm: 206, larg_cm: 10, rot: 'Frontão', tipoP: 'frontao' }, { qtd: 2, comp_cm: 58, larg_cm: 10, rot: 'Frontão lateral', tipoP: 'frontao' }, { qtd: 1, comp_cm: 206, larg_cm: 4, rot: 'Saia em 45°', tipoP: 'saia' }] },
+    { ambiente: 'Balcão', acabamento: '45', sv: ['s_45'], cuba: '', cubaInst: '', pecas: [{ qtd: 1, comp_cm: 142, larg_cm: 45.5, rot: 'Bancada', tipoP: 'bancada' }, { qtd: 1, comp_cm: 58.9, larg_cm: 11, rot: 'Frontão em 45°', tipoP: 'frontao' }, { qtd: 1, comp_cm: 142, larg_cm: 4, rot: 'Saia em 45°', tipoP: 'saia' }, { qtd: 2, comp_cm: 45.5, larg_cm: 4, rot: 'Saia em 45° lateral', tipoP: 'saia' }] },
+  ] };
+  await salvarPedido(env, ped);
+  if (!hugo) return; const depois = ((await metasPontos(env, semIni(dataBahia()), isoSomaDias(semIni(dataBahia()), 6)))[hugo.id] || {}).pts || 0;
+  await pontoAvisarDono(env, `🛠️ Corrigido: o pedido do *Jailton (papinha)* foi criado pela conversa, sem a lista de peças, e contou como serviço simples — o Hugo tinha ficado com 4 pontos. Pus a ficha pelo seu desenho (pia 206×60 com cuba, cooktop e saia em 45°; balcão 142×45,5 com saia e frontão em 45°). *Hugo: ${vPt(semAntes)} → ${vPt(depois)} pontos na semana.*\nDaqui para frente, pedido sem ficha conta a cuba, o cooktop, o rebaixo e o 45° pela descrição.`).catch(() => {});
+  if (hugo.tel && depois > semAntes) await eqTexto(env, hugo.tel, `${avisoTeste(env)}🛠️ Hugo, o serviço do Jailton (papinha) estava contando como serviço simples. Corrigi: cuba, cooktop e saia em 45° agora contam. Sua semana foi de *${vPt(semAntes)}* para *${vPt(depois)} pontos*. 💪`).catch(() => {});
+}
 // v201: conferência (uma vez): pontos de hoje/semana da equipe e o pedido do Jailton, para revisar a pontuação do Hugo
 async function diag201(env) {
   if (!env.HR_DB || await env.HR_KV.get('diag:201')) return; await env.HR_KV.put('diag:201', '1', { expirationTtl: 3 * 86400 });
@@ -31359,7 +31386,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (req.method === 'GET' && /^\/voz-video\/[a-z]+$/.test(url.pathname)) return vozVideoRota(env, url.pathname.split('/')[2]); // v200
-    if (ctx && ctx.waitUntil && !globalThis.__diag201) { globalThis.__diag201 = 1; ctx.waitUntil(diag201(env).catch(e => console.log('[DIAG201]', e.message))); } // v201
+    if (ctx && ctx.waitUntil && !globalThis.__mig202) { globalThis.__mig202 = 1; ctx.waitUntil(mig202Jailton(env).catch(e => console.log('[MIG202]', e.message))); } // v202
     if (req.method === 'GET') { const sd = await siteDominio(req, env, ctx, url).catch(() => null); if (sd) return sd; } // v90
     if (req.method === 'POST' && url.pathname === '/webhook' || url.pathname === '/bot/pedidos') ctx.waitUntil(estTickLeve(comKV(env)).catch(() => {})); // v71b: publicações em processamento não dependem só da rotina agendada
     if (url.pathname.startsWith('/bot/')) return rotaBot(req, env, url);
