@@ -17,7 +17,7 @@
       var itens = (q.ambSnap || []).map(function (a) {
         var acb = ''; Object.keys(a.svState || {}).forEach(function (k) { if (ACB_DE[k]) acb = ACB_DE[k]; });
         var ci = ''; [a, a.selCuba || {}].forEach(function (o) { Object.keys(o || {}).forEach(function (k) { var v = o[k]; if (typeof v === 'string' && /^(sobrepor|embutir|embutida|flush)$/i.test(v)) ci = v.toLowerCase(); }); }); // v5: tipo de instalação da cuba
-        return { ambiente: String(a.tipo || ''), acabamento: acb, sv: Object.keys(a.svState || {}), cuba: a.selCuba ? String(a.selCuba.id || '') : '', cubaInst: ci, pecas: (a.pecas || []).map(function (p) { return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0 }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) };
+        return { ambiente: String(a.tipo || ''), acabamento: acb, sv: Object.keys(a.svState || {}), cuba: a.selCuba ? String(a.selCuba.id || '') : '', cubaInst: ci, pecas: (a.pecas || []).map(function (p) { var rot = ''; ['n', 'nome', 'label', 'desc', 'tipo', 't', 'obs'].forEach(function (k) { if (!rot && typeof p[k] === 'string' && p[k].trim() && p[k].length < 40) rot = p[k].trim(); }); return { qtd: +p.q || 1, comp_cm: +p.w || 0, larg_cm: +p.h || 0, rot: rot }; }).filter(function (p) { return p.comp_cm > 0 && p.larg_cm > 0; }) };
       }).filter(function (it) { return it.pecas.length; });
       return itens.length ? { pedra: q.mat || '', itens: itens } : null;
     } catch (e) { return null; }
