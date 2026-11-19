@@ -1,3 +1,4 @@
+// v167 (19/11/2026): orçamento com entrega HOJE (pronta entrega) e aviso de feriado na data; "manda a ficha técnica pra Fabrício" vai para a IA
 // v166 (19/11/2026): DICA DE FOTOS para a equipe (uma vez para cada um; "dica das fotos" reenvia) e o manual explica as fotos
 // v165 (19/11/2026): FOTO DA EQUIPE não cai mais no atendimento de cliente; sem legenda, o bot pergunta de qual serviço (começou, terminou, entregou ou só guardar)
 // v164 (19/11/2026): PAINEL DE BONIFICAÇÃO (GET /bot/bonus, POST /bot/bonus/pagar) para o app: regras, metas, pontos, faixas, carreira, prêmio e quanto pagar
@@ -10673,6 +10674,7 @@ async function despachoComandoDono(env, from, bruto, msg) {
   }
   const mm = msg.match(/^(mandar|manda|enviar|envia) (a )?(ficha|entrega|dados da entrega)( d[aeo])? (.+)$/);
   if (!mm) return false;
+  if (/^(tecnica|de corte|de producao)\b|\b(pra|pro|para)\b/.test(normaliza(mm[5]))) return false; // v167: "ficha técnica pra Fabrício" → a IA acha o pedido certo
   const alvo = normaliza(mm[5]).split(' ')[0];
   const l = await env.HR_KV.list({ prefix: 'ped:', limit: 400 }).catch(() => ({ keys: [] }));
   let achado = null;
@@ -11750,7 +11752,8 @@ const FERRAMENTAS = [
         },
         acabamento: { type: 'string', enum: ['sem', '1_lado', '2_lados', '45'] },
         prazo_dias_uteis: { type: 'integer', description: 'prazo de entrega em dias úteis, como o Sr. Hangel disse (uma semana = 5)' },
-        data_entrega: { type: 'string', description: 'AAAA-MM-DD, somente se ele disser uma data específica em vez de dias' },
+        data_entrega: { type: 'string', description: 'AAAA-MM-DD, somente se ele disser uma data específica em vez de dias. "Hoje", "hoje mesmo", "agora" ou "pronta entrega" = a data de HOJE (é permitido entregar no mesmo dia).' },
+        manter_feriado: { type: 'boolean', description: 'true só se o Sr. Hangel confirmou entregar num feriado/domingo' },
         pagamento: { type: 'string', enum: ['vista', 'parcelado'], description: 'omita se ele não disser' },
       },
       required: ['cliente', 'ambiente', 'pedra', 'pecas', 'acabamento'],
@@ -12412,10 +12415,10 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
       if (!d || !d.numero) return { erro: true, texto: `Não achei o número de "${String(a.cliente).slice(0, 40)}". Peça ao Sr. Hangel o número com DDD (ou que compartilhe o contato) em uma frase. Nada foi preparado.` };
       num = numeroCliente(d.numero) || d.numero; nomeDest = d.nome || '';
     }
-    if (!num) num = await ultimoCliente(env);
-    if (!num) return { erro: true, texto: 'Não sei a qual cliente se refere. Pergunte ao Sr. Hangel o número ou o nome, em uma frase.' };
+    if (!num) return { erro: true, texto: 'Não sei a qual cliente se refere. Pergunte ao Sr. Hangel o nome ou o número, em uma frase. Nada foi preparado.' }; // v167: nunca supõe o último cliente
     const nm = nomeDest || (a.cliente ? String(a.cliente).slice(0, 40) : '') || await nomeParaDono(env, num);
-    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto, nome: nm || '' }), { expirationTtl: 60 * 60 });
+    await env.HR_KV.put('rascunho:resp', JSON.stringify({ numero: num, texto, nome: nm || '', em: Date.now() }), { expirationTtl: 60 * 60 });
+    await env.HR_KV.put('rascunho:atalho', '1', { expirationTtl: 10 * 60 }); // v167: "sim" só vale logo em seguida
     await enviarComBotoes(env, from, `Rascunho para ${nm ? nm + ' (wa.me/' + num + ')' : 'wa.me/' + num}:\n\n_${texto}_\n\nEnvio assim?`, [{ id: 'resp_ok', titulo: 'Enviar' }, { id: 'resp_no', titulo: 'Cancelar' }]);
     return { texto: 'Rascunho mostrado ao Sr. Hangel com botões. NÃO escreva mais nada; responda apenas "Aguardo a sua confirmação."', nota: `rascunho de resposta ao cliente ${nm || num}` };
   }
@@ -12524,7 +12527,8 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     let prazo = null;
     const hoje = dataBahia();
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(a.data_entrega || ''))) {
-      if (a.data_entrega <= hoje) return { erro: true, texto: 'A data de entrega precisa ser depois de hoje. Confirme com o Sr. Hangel.' };
+      if (a.data_entrega < hoje) return { erro: true, texto: 'A data de entrega já passou. Confirme com o Sr. Hangel.' }; // v167: hoje é permitido (pronta entrega)
+      if (!a.manter_feriado && !ehDiaUtil(env, a.data_entrega)) { const fn = feriadosInfo(env, +a.data_entrega.slice(0, 4)).nomes.get(a.data_entrega); let prox = a.data_entrega; for (let i = 0; i < 10 && !ehDiaUtil(env, prox); i++) prox = isoSomaDias(prox, 1); return { erro: true, texto: `${dataBR(a.data_entrega)} é ${fn ? 'feriado (' + fn + ')' : diaSemanaISO(a.data_entrega) === 0 ? 'domingo' : 'dia sem expediente'}. Pergunte em UMA frase se mantém nesse dia ou passa para ${dataBR(prox)}.` }; }
       prazo = calcularPrazo(env, { data: a.data_entrega });
     } else if (Math.round(Number(a.prazo_dias_uteis)) >= 1) {
       prazo = calcularPrazo(env, { uteis: Math.round(Number(a.prazo_dias_uteis)) });
@@ -17074,10 +17078,12 @@ async function decidirRascunho(env, from, enviarAgora) {
     : 'Enviado ao cliente, Sr. Hangel.');
 }
 async function tratarAssumir(env, from, bruto, msg) {
+  if (!/^(isso|sim|pode|pode enviar|pode mandar|envia|enviar|manda|mandar|ok|confirmo|isso mesmo|positivo|nao|cancela|cancelar|deixa|nao envia|nao mande|nao manda)$/.test(msg)) await env.HR_KV.delete('rascunho:atalho').catch(() => {}); // v167
   if (msg.split(' ').length <= 4 && !msg.includes('?')) {
     const sim = /^(isso|sim|pode|pode enviar|pode mandar|envia|enviar|manda|mandar|ok|confirmo|isso mesmo|positivo)$/.test(msg);
     const nao = /^(nao|cancela|cancelar|deixa|nao envia|nao mande|nao manda)$/.test(msg);
-    if ((sim || nao) && await env.HR_KV.get('rascunho:resp')) { await decidirRascunho(env, from, sim); return true; }
+    if ((sim || nao) && await env.HR_KV.get('rascunho:resp') && await env.HR_KV.get('rascunho:atalho')) { await env.HR_KV.delete('rascunho:atalho'); await decidirRascunho(env, from, sim); return true; } // v167: "sim" solto só confirma o rascunho se for a resposta logo em seguida
+    if (!sim && !nao) await env.HR_KV.delete('rascunho:atalho').catch(() => {});
   }
   const cmd = msg.match(/^(assumir|devolver)\b\s*(?:a\s+)?(?:conversa|cliente|atendimento)?\s*(.*)$/);
   if (cmd && msg.split(' ').length <= 8) {
