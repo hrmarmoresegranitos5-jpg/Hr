@@ -10355,7 +10355,9 @@ async function prodInicioInstalacao(env, f, from, texto, nome) {
   const ped = ach[0]; ped.instIniEm = Date.now(); ped.instIniPor = String(f.id); ped.prodLog = Array.isArray(ped.prodLog) ? ped.prodLog : []; ped.prodLog.push({ e: 'inicio_inst', por: [String(f.id)], ts: Date.now() }); await salvarPedido(env, ped);
   const fotoJa = await env.HR_KV.get('prod:fotoja:' + ultimos8(from));
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ pid: ped.id, tipo: 'inicio', em: Date.now() }), { expirationTtl: 3 * 3600 });
-  if (!fotoJa) await enviar(env, from, `🔧 Boa, ${nome}! Início da instalação de *${ped.nome}* às ${horaTs(Date.now())}. Me manda uma *foto do local antes de começar* (mostra como estava). Ela protege você e a empresa.`);
+  let fpI = null; if (!fotoJa) { try { fpI = JSON.parse((await env.HR_KV.get('prod:fotopend:' + ultimos8(from))) || 'null'); } catch (_) {} } // v170: usa a foto que ele já tinha mandado
+  if (fpI && fpI.mid) { await env.HR_KV.delete('prod:fotopend:' + ultimos8(from)); await prodFotoRecebida(env, f, from, { type: 'image', image: { id: fpI.mid } }, nome).catch(e => console.log('[FOTO] pend início:', e.message)); }
+  else if (!fotoJa) await enviar(env, from, `🔧 Boa, ${nome}! Início da instalação de *${ped.nome}* às ${horaTs(Date.now())}. Me manda uma *foto do local antes de começar* (mostra como estava). Ela protege você e a empresa.`);
   await pontoAvisarDono(env, `🔧 *${nome}* começou a instalação de *${ped.nome}* às ${horaTs(Date.now())}${ped.entrega && ped.entrega.endereco ? ' · ' + ped.entrega.endereco : ''}.`).catch(() => {});
   if (ped.numero && await janela24h(env, ped.numero)) await enviar(env, ped.numero, `${nomeDeTratamento(ped.nome) || 'Olá'}, nossa equipe chegou e começou a instalação. 😊 Qualquer coisa, é só falar comigo por aqui.`).catch(() => {});
   return true;
