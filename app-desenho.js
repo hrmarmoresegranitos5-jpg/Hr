@@ -1,4 +1,5 @@
-// app-desenho.js — v2: 📐 Projeto 2D sob medida (no padrão dos desenhos da HR)
+// app-desenho.js — v3: escreve o projeto como fala (ou dita) e o desenho sai sozinho; botões só em 'Ajustar detalhes'.
+// v2: 📐 Projeto 2D sob medida (no padrão dos desenhos da HR)
 // Folha retrato com o cabeçalho verde da HR (Cliente, Descrição, Material), peças em perspectiva com traço cinza,
 // medidas grandes em verde junto das bordas e as observações embaixo (centro da cuba, rebaixo, saias, frontões).
 // Várias peças na mesma folha: pia reta, cozinha em L, lavatório, prateleira, nicho e placas (divisória etc.).
@@ -40,7 +41,7 @@
     if (t === 'placa') { p.A = 40; p.H = 80; p.nome = 'Divisória'; p.saia = 'nenhuma'; p.frF = false; }
     return p;
   }
-  function novo() { return { v: 2, id: 'd' + Date.now(), cliente: '', desc: '', material: '', obs: '', pid: '', pecas: [novaPeca('L')] }; }
+  function novo() { return { v: 2, id: 'd' + Date.now(), cliente: '', desc: '', material: '', obs: '', pid: '', texto: '', pecas: [] }; }
   function migrar(d) { // desenhos da v1 (forma/A/B/recortes)
     if (!d || d.v === 2) return d;
     var p = novaPeca(d.forma === 'reta' ? 'bancada' : 'L'); p.A = num(d.A, 200); p.p = num(d.p, 60); p.B = num(d.B, 95); p.fr = num(d.frAlt, 10); p.saia = d.saiaTipo || 'reta'; p.saiaAlt = num(d.saiaAlt, 4);
@@ -96,8 +97,7 @@
     if (rb.on && oblq(pc) && pc.tipo !== 'prateleira') {
       var rc = Math.max(10, num(rb.c, 121)), rl = Math.min(p - 4, Math.max(10, num(rb.l, 48))), rx0;
       if (!vazio(rb.x)) rx0 = num(rb.x);
-      else if (c.tipo !== 'nenhuma' && !vazio(c.x)) rx0 = xRef(num(c.x), c.ref) - rc / 2;
-      else rx0 = meioX - rc / 2;
+      else { rx0 = c.tipo !== 'nenhuma' && !vazio(c.x) ? xRef(num(c.x), c.ref) - rc / 2 : meioX - rc / 2; rx0 = Math.max(m.x0 + 3, Math.min(rx0, m.x1 - 3 - rc)); }
       rebR = { t: 'reb', x0: rx0, x1: rx0 + rc, y0: m.y1 - 2 - rl, y1: m.y1 - 2 };
       L.push(rebR);
     }
@@ -387,6 +387,132 @@
   }
   function b64(blob) { return new Promise(function (ok, erro) { var r = new FileReader(); r.onload = function () { ok(String(r.result).split(',')[1] || ''); }; r.onerror = erro; r.readAsDataURL(blob); }); }
 
+  // ── v3: escrever o projeto como fala (sem IA, sem custo) ──
+  var NUM = '(\\d+(?:[.,]\\d+)?)';
+  function nn(t) { return num(t); }
+  function semAc(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  var PALNUM = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6 };
+  function tipoDe(t) {
+    var achados = [[/cozinha em l\b|\bem l\b|\bl\b/, 'L'], [/lavat|banheiro/, 'lavatorio'], [/pratel/, 'prateleira'], [/\bpia\b|bancada|balcao|ilha/, 'bancada'], [/nicho/, 'nicho'], [/divis|placa|soleira|peitor|tampo|degrau/, 'placa']];
+    var best = null; achados.forEach(function (a) { var m = a[0].exec(t); if (m && (!best || m.index < best.i)) best = { i: m.index, t: a[1] }; });
+    return best ? best.t : null;
+  }
+  function interpretar(texto) {
+    var segs = String(texto || '').split(/\n+|;|\s\+\s/).map(function (x) { return x.trim(); }).filter(Boolean), out = [];
+    segs.forEach(function (seg) {
+      seg = seg.normalize('NFC'); var t = semAc(seg), tp = tipoDe(t);
+      if (!tp) { if (out.length) { out[out.length - 1]._resto = (out[out.length - 1]._resto || []).concat([seg]); } return; }
+      var pc = novaPeca(tp), mq;
+      if (tp === 'L') { pc.frD = false; }
+      if (/balcao/.test(t)) pc.nome = 'Balcão'; else if (/ilha/.test(t)) pc.nome = 'Ilha'; else if (/soleira/.test(t)) pc.nome = 'Soleira'; else if (/peitor/.test(t)) pc.nome = 'Peitoril'; else if (/divis/.test(t)) pc.nome = 'Divisória'; else if (/degrau/.test(t)) pc.nome = 'Degrau'; else if (tp === 'placa' && /tampo/.test(t)) pc.nome = 'Tampo';
+      if (/balcao|ilha/.test(t) && !/cuba|rebaixo|bojo|area molhada/.test(t)) pc.cuba.tipo = 'nenhuma';
+      if ((mq = /^(\d+)\s*x?\s+(?=[a-z])/.exec(t)) || (mq = /^(um|uma|dois|duas|tres|quatro|cinco|seis)\s/.exec(t)) || (mq = /\b(\d+)\s*x\b(?!\s*\d)/.exec(t)) || (mq = /\b(\d+)\s*(?:unidades|pecas|vezes)\b/.exec(t))) pc.qtd = PALNUM[mq[1]] || +mq[1];
+      var temFr = false, frLados = null, ctx = '', dimsOk = false, obs = [];
+      var SEP = /,(?!\d)|;|\.\s|\s+com\s+|\s+e\s+(?=[a-z])|\s(?<!\bsem\s)(?=(?:sainhas?|saias?|frontao|frontoes|espelho|cuba|bojo|rebaixo|area molhada|cooktop|fogao|pe estrutural|largura|profundidade|altura|perna (?:esq|dir|pra|para|na|a)|canto (?:na|no|da|do|fica) (?:perna|fundo)|sem (?:sainha|saia|frontao|frontoes|cuba)|valvula|vista)\b)/g, cl = [], orig = [], ini = 0, mm;
+      while ((mm = SEP.exec(t))) { if (mm.index > ini) { cl.push(t.slice(ini, mm.index).trim()); orig.push(seg.slice(ini, mm.index).trim()); } ini = mm.index + mm[0].length; if (!mm[0].length) SEP.lastIndex++; }
+      cl.push(t.slice(ini).trim()); orig.push(seg.slice(ini).trim());
+      cl.forEach(function (c, ci) { if (!c) return;
+        var usou = false, m;
+        if (/sem (sainha|saia)/.test(c)) { pc.saia = 'nenhuma'; return; }
+        if (/sem frontao|sem frontoes/.test(c)) { pc.frF = pc.frE = pc.frD = false; temFr = 'nao'; return; }
+        if (/sem cuba/.test(c)) { pc.cuba.tipo = 'nenhuma'; return; }
+        if (/rebaixo|area molhada/.test(c)) { ctx = 'reb'; pc.reb.on = true; usou = true; }
+        else if (/cooktop|fogao/.test(c)) { ctx = 'cook'; pc.cook.on = true; usou = true; }
+        else if (/cuba|bojo/.test(c)) { ctx = 'cuba'; usou = true; if (pc.cuba.tipo === 'nenhuma') pc.cuba.tipo = 'retangular'; }
+        else if (/\bpe\b|pe estrutural|pe de apoio/.test(c)) { ctx = 'pe'; pc.pe = /esquerd/.test(c) ? 'esq' : 'dir'; usou = true; }
+        else if (/sainha|saia/.test(c)) { ctx = 'saia'; usou = true; if (pc.saia === 'nenhuma') pc.saia = 'reta'; }
+        else if (/frontao|frontoes|espelho/.test(c)) { ctx = 'fr'; usou = true; temFr = true; }
+        if (/esculp/.test(c) && (ctx === 'cuba' || tp === 'lavatorio')) { pc.cuba.tipo = /rampad/.test(c) ? 'rampada' : 'esculpida'; pc.cuba.w = 50; pc.cuba.h = 35; ctx = 'cuba'; usou = true; }
+        if (ctx === 'cuba' || /cuba/.test(c)) {
+          if (/redond/.test(c)) { pc.cuba.tipo = 'redonda'; pc.cuba.w = pc.cuba.h = pc.tipo === 'lavatorio' ? 40 : 45; }
+          if (/oval/.test(c)) { pc.cuba.tipo = 'oval'; pc.cuba.w = 48; pc.cuba.h = 36; }
+          if (/sobrepor/.test(c)) pc.cuba.inst = 'sobrepor'; if (/embut/.test(c)) pc.cuba.inst = 'embutida'; if (/flush/.test(c)) pc.cuba.inst = 'flush';
+        }
+        if (/saia|sainha/.test(c) || ctx === 'saia') { if (/45/.test(c)) pc.saia = '45'; else if (/slim/.test(c)) pc.saia = 'slim'; else if (/bolead/.test(c)) pc.saia = 'boleada'; else if (/reta/.test(c)) pc.saia = 'reta'; }
+        if (/perna|lado da perna|l (pra|para)/.test(c) || (tp === 'L' && /^(pra |para )?(a )?(esquerda|direita)$/.test(c))) { if (/esquerd/.test(c)) pc.perna = 'esq'; if (/direit/.test(c)) pc.perna = 'dir'; usou = true; }
+        if (/canto (na|da|fica na) perna/.test(c)) { pc.emenda = 'perna'; usou = true; } if (/canto (no|do|fica no) fundo/.test(c)) { pc.emenda = 'principal'; usou = true; }
+        if (/vista|fundo p/.test(c)) { if (/esquerd/.test(c)) pc.vista = -1; if (/direit/.test(c)) pc.vista = 1; usou = true; }
+        if (ctx === 'fr' && /lados|laterais|3 lados|tres lados/.test(c)) { frLados = 'ambos'; }
+        else if (ctx === 'fr' && /lado esquerdo|esquerda/.test(c)) frLados = frLados === 'dir' ? 'ambos' : 'esq';
+        else if (ctx === 'fr' && /lado direito|direita/.test(c)) frLados = frLados === 'esq' ? 'ambos' : 'dir';
+        // medidas: N x M (x K) ou N por M
+        var dm = new RegExp(NUM + '\\s*(?:x|por|\\*)\\s*' + NUM + '(?:\\s*(?:x|por)\\s*' + NUM + ')?').exec(c), un = new RegExp(NUM).exec(c), v1 = un ? nn(un[1]) : null;
+        var lado = /direit/.test(c) ? 'dir' : 'esq';
+        if (/inicio/.test(c) && v1 != null && !dm) { pc.reb.on = true; pc.reb.x = v1; return; }
+        if (ctx === 'reb' && (usou || /^(de |a |com )?\d/.test(c) || /canto/.test(c))) {
+          if (dm) { pc.reb.c = nn(dm[1]); pc.reb.l = nn(dm[2]); } else if (v1 != null && /canto|inicio|afastad|distan/.test(c)) pc.reb.x = lado === 'dir' ? '' : v1; else if (v1 != null) pc.reb.c = v1;
+          return;
+        }
+        if (ctx === 'cuba' && (usou || /^(de |a |no |com )?\d/.test(c) || /canto|centro|lado/.test(c))) {
+          if (dm) { pc.cuba.w = nn(dm[1]); pc.cuba.h = nn(dm[2]); }
+          var pos = new RegExp(NUM + '\\s*(?:cm)?\\s*(?:do|da|de|ate o|pro|para o)?\\s*(?:canto|lado|ponta|parede)').exec(c) || new RegExp('(?:canto|lado)\\s*(?:esquerdo|direito)[^0-9]*' + NUM).exec(c) || new RegExp('(?:centro|meio)[^0-9]*' + NUM).exec(c) || (/afastad|distan/.test(c) ? un : null);
+          if (pos) { var pv = nn(pos[1]); if (/afastad/.test(c) && !/centro/.test(c)) pv += num(pc.cuba.w) / 2; pc.cuba.x = pv; pc.cuba.ref = lado; }
+          else if (!dm && v1 != null && /^(de )?\d/.test(c)) { pc.cuba.w = v1; if (pc.cuba.tipo === 'redonda') pc.cuba.h = v1; }
+          if (/no centro|no meio/.test(c) && !pos) pc.cuba.x = '';
+          return;
+        }
+        if (ctx === 'cook' && (usou || /^\d/.test(c) || /canto/.test(c))) {
+          if (dm) { pc.cook.w = nn(dm[1]); pc.cook.h = nn(dm[2]); }
+          var pk = new RegExp(NUM + '\\s*(?:cm)?\\s*(?:do|da)?\\s*canto').exec(c); if (pk) pc.cook.x = lado === 'dir' ? Math.max(0, num(pc.A) - nn(pk[1])) : nn(pk[1]);
+          return;
+        }
+        if (ctx === 'pe' && v1 != null) { pc.peAlt = v1; return; }
+        if (ctx === 'saia' && v1 != null && !/45/.test(String(v1)) ) { pc.saiaAlt = v1; return; }
+        if (ctx === 'saia' && v1 != null) { var m45 = c.replace(/em 45|45 ?(°|graus)?/g, ''); var u2 = new RegExp(NUM).exec(m45); if (u2) pc.saiaAlt = nn(u2[1]); return; }
+        if (ctx === 'fr' && v1 != null) { pc.fr = v1; return; }
+        if (ctx === 'fr' && /padrao/.test(c)) { pc.fr = 10; return; }
+        if (usou && ctx) return;
+        // medidas da peça
+        if ((m = new RegExp('largura(?: da perna)?\\s*(?:de)?\\s*' + NUM).exec(c)) || (m = new RegExp(NUM + '\\s*(?:cm)?\\s*de largura').exec(c))) { if (/perna/.test(c)) pc.pB = nn(m[1]); else { pc.p = nn(m[1]); pc.pB = nn(m[1]); } return; }
+        if ((m = new RegExp('profundidade\\s*(?:de)?\\s*' + NUM).exec(c))) { if (tp === 'nicho') pc.prof = nn(m[1]); else { pc.p = nn(m[1]); pc.pB = nn(m[1]); } return; }
+        if ((m = new RegExp('altura\\s*(?:de)?\\s*' + NUM).exec(c))) { pc.H = nn(m[1]); return; }
+        if ((m = new RegExp('(?:comprimento|fundo|parede)\\s*(?:de)?\\s*' + NUM).exec(c))) { pc.A = nn(m[1]); return; }
+        if ((m = new RegExp('perna\\s*(?:de)?\\s*' + NUM).exec(c))) { pc.B = nn(m[1]); return; }
+        if (dm && !dimsOk) {
+          dimsOk = true;
+          if (tp === 'L') { pc.A = nn(dm[1]); pc.B = nn(dm[2]); if (dm[3]) { pc.p = pc.pB = nn(dm[3]); } }
+          else if (tp === 'nicho') { pc.A = nn(dm[1]); pc.H = nn(dm[2]); if (dm[3]) pc.prof = nn(dm[3]); }
+          else if (tp === 'placa') { pc.A = nn(dm[1]); pc.H = nn(dm[2]); }
+          else { pc.A = nn(dm[1]); pc.p = nn(dm[2]); }
+          return;
+        }
+        if (ci > 0 && !usou && !/\d/.test(c) && c.length > 2) obs.push(orig[ci] || c);
+      });
+      if (temFr === true || frLados) { pc.frF = true; }
+      if (tp === 'L' && temFr !== 'nao') { if (pc.perna === 'esq') pc.frE = true; else pc.frD = true; }
+      if (frLados === 'ambos') { pc.frE = pc.frD = true; } else if (frLados === 'esq') pc.frE = true; else if (frLados === 'dir') pc.frD = true;
+      if (pc.reb.on && pc.cuba.tipo === 'nenhuma') pc.cuba.tipo = 'retangular';
+      if (obs.length) pc.obs = obs.join(', ');
+      out.push(pc);
+    });
+    out.forEach(function (pc) { if (pc._resto) { pc.obs = (pc.obs ? pc.obs + ', ' : '') + pc._resto.join(', '); delete pc._resto; } });
+    return out;
+  }
+  function entendi(pc) {
+    var x = [(num(pc.qtd) > 1 ? num(pc.qtd) + '× ' : '') + nomePeca(pc)];
+    if (pc.tipo === 'L') x.push(f1(num(pc.A)) + ' + perna ' + f1(num(pc.B)) + ' (' + (pc.perna === 'esq' ? 'esquerda' : 'direita') + '), largura ' + f1(num(pc.p)));
+    else if (oblq(pc)) x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.p)));
+    else x.push(f1(num(pc.A)) + ' × ' + f1(num(pc.H)) + (pc.tipo === 'nicho' ? ', prof. ' + f1(num(pc.prof)) : ''));
+    if (oblq(pc)) {
+      if (temSaia(pc)) x.push('sainha ' + ({ reta: 'reta', slim: 'slim', '45': 'em 45°', boleada: 'boleada' }[pc.saia]) + ' de ' + f1(num(pc.saiaAlt)));
+      var fl = []; if (pc.frF) fl.push('fundo'); if (pc.frE) fl.push('esquerdo'); if (pc.frD) fl.push('direito');
+      if (fl.length && pc.tipo !== 'prateleira') x.push('frontão ' + f1(num(pc.fr)) + ' (' + fl.join(', ') + ')');
+      var c = pc.cuba; if (c.tipo !== 'nenhuma' && pc.tipo !== 'prateleira') x.push('cuba ' + ({ retangular: '', redonda: 'redonda ', oval: 'oval ', esculpida: 'esculpida ', rampada: 'rampada ' }[c.tipo]) + (c.tipo === 'redonda' ? 'Ø' + f1(num(c.w)) : f1(num(c.w)) + '×' + f1(num(c.h))) + (c.inst === 'sobrepor' && !/esc|ramp/.test(c.tipo) ? ' de sobrepor' : c.inst === 'flush' ? ' flush' : '') + (vazio(c.x) ? (pc.reb.on ? ' no centro do rebaixo' : ' no meio') : ' a ' + f1(num(c.x)) + ' do canto ' + (c.ref === 'dir' ? 'direito' : 'esquerdo')));
+      if (pc.reb.on) x.push('rebaixo ' + f1(num(pc.reb.c)) + '×' + f1(num(pc.reb.l)) + (vazio(pc.reb.x) ? '' : ' (início a ' + f1(num(pc.reb.x)) + ')'));
+      if (pc.cook.on) x.push('cooktop' + (vazio(pc.cook.x) ? '' : ' a ' + f1(num(pc.cook.x))));
+      if (pc.pe !== 'nenhum') x.push('pé ' + f1(num(pc.peAlt)) + ' no lado ' + (pc.pe === 'dir' ? 'direito' : 'esquerdo'));
+    }
+    if (pc.obs) x.push('obs.: ' + pc.obs);
+    return x.join(' · ');
+  }
+  var EXEMPLOS = [
+    'Cozinha em L 250 x 160, largura 60, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo',
+    'Pia 206 x 60, sainha 45, frontão 10 nos lados, cuba a 92 do canto direito, cooktop a 38 do canto esquerdo',
+    'Lavatório 80 x 45, sainha reta 10, frontão 10, cuba redonda embutida\nPrateleira 80 x 35, sainha 4',
+    '2 lavatórios 120 x 45, sainha reta 12, frontão padrão, cuba oval\n3 divisórias 40 x 80',
+    'Lavatório 80 x 50, sainha 20, cuba esculpida rampada, válvula oculta\nNicho 67 x 54, profundidade 10'
+  ];
+
   // ── tela ──
   var CSS = '#hrDes{position:fixed;inset:0;z-index:9990;background:#0a0908;color:#efe9dc;display:flex;flex-direction:column;font-family:Outfit,inherit}#hrDes *{box-sizing:border-box}'
     + '.des-top{display:flex;align-items:center;gap:10px;padding:12px;padding-top:max(12px,env(safe-area-inset-top));background:linear-gradient(180deg,rgba(26,22,14,.96),rgba(14,12,9,.92));border-bottom:1px solid rgba(201,168,76,.18)}'
@@ -407,7 +533,8 @@
     + '.des-pc{display:flex;justify-content:space-between;font-size:.8rem;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)}.des-pc b{color:#f0d78c}'
     + '.des-av{font-size:.78rem;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);border-radius:10px;padding:7px 9px;margin-top:7px}'
     + '.des-li{display:flex;align-items:center;gap:10px;border-radius:13px;padding:12px;margin-bottom:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);cursor:pointer}'
-    + '.des-dica{font-size:.74rem;color:#9a917e;margin-top:6px;line-height:1.4}'
+    + '.des-dica{font-size:.74rem;color:#9a917e;margin-top:6px;line-height:1.4}.des-txt{min-height:120px;font-size:1rem;line-height:1.45}'
+    + '.des-ent{font-size:.82rem;color:#d7f0dc;background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.25);border-radius:10px;padding:7px 9px;margin-top:7px;line-height:1.4}.des-ex{margin-top:9px;font-size:.78rem;color:#c9a84c}.des-ex summary{cursor:pointer}.des-exi{margin-top:6px;padding:8px;border-radius:9px;background:#16130e;color:#c9bfa6;cursor:pointer;line-height:1.35}'
     + '.des-bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(10,9,8,.96);border-top:1px solid rgba(201,168,76,.18);z-index:2}.des-bar .des-bt{margin:0;padding:12px 6px;font-size:.84rem}'
     + '#hrDesZoom{position:fixed;inset:0;z-index:9995;background:#2a2a2a;overflow:hidden;touch-action:none}#hrDesZoom .in{transform-origin:0 0;position:absolute;left:0;top:0}#hrDesZoom .fx{position:absolute;right:12px;top:max(12px,env(safe-area-inset-top));z-index:2;background:rgba(0,0,0,.6);color:#fff;border:none;border-radius:12px;padding:10px 14px;font-size:1rem}'
     + '.des-card-sec{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border-radius:16px;padding:14px;margin:10px 0;background:linear-gradient(135deg,rgba(96,165,250,.14),rgba(201,168,76,.05));border:1px solid rgba(96,165,250,.35);color:#efe9dc;cursor:pointer}.des-card-sec .ic{font-size:1.5rem}.des-card-sec .t{font-weight:800}.des-card-sec .s{font-size:.72rem;color:#9a917e}';
@@ -451,9 +578,19 @@
     h += '<div style="display:flex;gap:6px;margin-top:9px"><button class="des-x" data-dup="' + i + '" style="border-color:rgba(201,168,76,.35);color:#e8c96a">Duplicar</button><button class="des-x" data-rmpc="' + i + '">Remover peça</button></div>';
     return h + '</div>';
   }
+  function entendiHtml() {
+    var d = st.d, ps = d.pecas || [];
+    if (!ps.length) return '<div class="des-dica">Escreva acima e o desenho aparece sozinho.</div>';
+    return ps.map(function (pc, i) { return '<div class="des-ent">✅ ' + esc(entendi(pc)) + '</div>' + avisos(pc).map(function (a) { return '<div class="des-av">⚠️ ' + esc(a) + '</div>'; }).join(''); }).join('');
+  }
   function painel() {
-    var d = st.d, h = '<div class="des-sec"><h4>Projeto</h4>' + campo('cliente', 'Cliente', d.cliente) + '<div style="height:7px"></div>' + campo('material', 'Material', d.material, false, 'ex.: preto São Gabriel')
-      + '<div style="margin-top:7px"><span class="des-l">Descrição (vazio = escrevo sozinho)</span><textarea class="des-ta" data-f="desc" placeholder="' + esc(descAuto(d)) + '">' + esc(d.desc || '') + '</textarea></div></div>';
+    var d = st.d, h = '<div class="des-sec"><h4>✍️ Escreva o projeto</h4><textarea class="des-ta des-txt" data-f="texto" placeholder="Escreva como você fala. Ex.:\nCozinha em L 250 x 160, perna esquerda, sainha 45, frontão 10, rebaixo 121x48, cuba a 155 do canto esquerdo">' + esc(d.texto || '') + '</textarea>'
+      + '<div class="des-dica">🎤 Pode ditar pelo microfone do teclado. Uma peça por linha.</div><div id="desEnt">' + entendiHtml() + '</div>'
+      + '<details class="des-ex"><summary>Ver exemplos</summary>' + EXEMPLOS.map(function (x, i) { return '<div class="des-exi" data-ex="' + i + '">' + esc(x).replace(/\n/g, '<br>') + '</div>'; }).join('') + '</details></div><div id="desCvSlot"></div>';
+    h += '<div class="des-sec"><div class="des-g2" style="margin-top:0">' + campo('cliente', 'Cliente', d.cliente) + campo('material', 'Material', d.material, false, 'ex.: preto São Gabriel') + '</div></div>';
+    h += '<button class="des-bt des-bt2" data-acao="det" style="margin:0 0 10px">' + (st.det ? '▾ Esconder detalhes' : '⚙️ Ajustar detalhes (opcional)') + '</button>';
+    if (!st.det) return h;
+    h += '<div class="des-sec"><span class="des-l">Descrição na folha (vazio = escrevo sozinho)</span><textarea class="des-ta" data-f="desc" placeholder="' + esc(descAuto(d)) + '">' + esc(d.desc || '') + '</textarea></div>';
     h += (d.pecas || []).map(painelPeca).join('');
     h += '<div class="des-sec"><h4>Adicionar peça</h4><div class="des-add">' + Object.keys(TIPOS).map(function (k) { return '<button data-addpc="' + k + '">' + TIPOS[k].ic + ' ' + TIPOS[k].n + '</button>'; }).join('') + '</div></div>';
     h += '<div class="des-sec"><h4>Observações gerais</h4><textarea class="des-ta" data-f="obs" placeholder="Uma por linha. Ex.: Área molhada 130x48">' + esc(d.obs || '') + '</textarea></div>';
@@ -466,12 +603,14 @@
     var m = document.getElementById('desMain'); if (!m) return;
     m.innerHTML = '<div class="des-cv" id="desCv" data-acao="zoom"></div><div class="des-pn" id="desPn">' + painel() + '</div>';
     var bar = document.getElementById('desBar'); if (bar) bar.style.display = 'flex';
-    desenharCv();
+    encaixarCv(); desenharCv();
   }
+  function encaixarCv() { var cv = document.getElementById('desCv'), sl = document.getElementById('desCvSlot'), m = document.getElementById('desMain'); if (!cv) return; if (innerWidth < 900 && sl) { if (cv.parentNode !== sl) { sl.appendChild(cv); cv.style.marginBottom = '10px'; } } else if (m && cv.parentNode !== m) m.insertBefore(cv, m.firstChild); }
   function desenharCv() { var cv = document.getElementById('desCv'); if (!cv) return; cv.innerHTML = folhaSvg(st.d) + '<span class="lupa">🔍 Toque para ampliar</span>'; }
   function atualizarPainel() {
     var pn = document.getElementById('desPn'); if (!pn) return; var y = document.getElementById('desMain').scrollTop, ae = document.activeElement, foco = ae && ae.getAttribute('data-f'), pci = ae && ae.closest('[data-pc]');
-    pn.innerHTML = painel(); document.getElementById('desMain').scrollTop = y;
+    var cv = document.getElementById('desCv'); if (cv && pn.contains(cv)) document.getElementById('desMain').appendChild(cv);
+    pn.innerHTML = painel(); encaixarCv(); document.getElementById('desMain').scrollTop = y;
     if (foco) { var sel = pci ? pn.querySelector('[data-pc="' + pci.getAttribute('data-pc') + '"] [data-f="' + foco + '"]') : pn.querySelector(':scope > .des-sec [data-f="' + foco + '"]'); if (sel) { sel.focus(); try { var v = sel.value; sel.setSelectionRange(v.length, v.length); } catch (e) {} } }
   }
   function telaLista() {
@@ -517,7 +656,7 @@
     el.innerHTML = '<div class="des-top"><button class="des-ic" data-acao="voltar">←</button><div style="flex:1;"><b>📐 Projeto 2D</b><div class="des-sub" id="desSub"></div></div></div><div class="des-main" id="desMain"></div>'
       + '<div class="des-bar" id="desBar" style="display:none"><button class="des-bt des-bt2" data-acao="salvar">💾 Salvar</button><button class="des-bt des-bt2" data-acao="png">📤 Imagem</button><button class="des-bt" data-acao="prod">🏭 Produção</button></div>';
     document.body.appendChild(el);
-    el.addEventListener('input', function (e) { var t = e.target.closest('[data-f]'); if (!t || st.tela !== 'editor') return; lerCampo(t); desenharCv(); clearTimeout(st.tm); st.tm = setTimeout(function () { var pc = pcDe(t); if (pc) { var hd = document.querySelector('[data-pc="' + st.d.pecas.indexOf(pc) + '"] .des-pc-h'); if (hd) { var tmp = document.createElement('div'); tmp.innerHTML = painelPeca(pc, st.d.pecas.indexOf(pc)); var nh = tmp.querySelector('.des-pc-h'); hd.innerHTML = nh.innerHTML; var sec = hd.parentNode; sec.querySelectorAll('.des-av').forEach(function (a) { a.remove(); }); var rb2 = sec.querySelector('[data-dup]'); if (!rb2) return; var ref = rb2.parentNode; tmp.querySelectorAll('.des-av').forEach(function (a) { sec.insertBefore(a, ref); }); } } }, 500); });
+    el.addEventListener('input', function (e) { var t = e.target.closest('[data-f]'); if (!t || st.tela !== 'editor') return; lerCampo(t); if (t.getAttribute('data-f') === 'texto' && !pcDe(t)) { var np = interpretar(t.value); if (np.length || !t.value.trim()) st.d.pecas = np; var en = document.getElementById('desEnt'); if (en) en.innerHTML = entendiHtml(); desenharCv(); return; } desenharCv(); clearTimeout(st.tm); st.tm = setTimeout(function () { var pc = pcDe(t); if (pc) { var hd = document.querySelector('[data-pc="' + st.d.pecas.indexOf(pc) + '"] .des-pc-h'); if (hd) { var tmp = document.createElement('div'); tmp.innerHTML = painelPeca(pc, st.d.pecas.indexOf(pc)); var nh = tmp.querySelector('.des-pc-h'); hd.innerHTML = nh.innerHTML; var sec = hd.parentNode; sec.querySelectorAll('.des-av').forEach(function (a) { a.remove(); }); var rb2 = sec.querySelector('[data-dup]'); if (!rb2) return; var ref = rb2.parentNode; tmp.querySelectorAll('.des-av').forEach(function (a) { sec.insertBefore(a, ref); }); } } }, 500); });
     el.addEventListener('click', function (e) {
       var d = st.d, a = e.target.closest('[data-acao]'), ch = e.target.closest('[data-ch]'), tg = e.target.closest('[data-tg]'), ad = e.target.closest('[data-addpc]'), rm = e.target.closest('[data-rmpc]'), dp = e.target.closest('[data-dup]'), ap = e.target.closest('[data-abrepc]'), ab = e.target.closest('[data-abre]');
       if (ch) { var pc = pcDe(ch), k = ch.getAttribute('data-ch'), vv = ch.getAttribute('data-v'); if (k === 'vista') vv = +vv; setK(pc, k, vv); if (k === 'cuba.tipo') { var cb = pc.cuba; if (vv === 'redonda') { cb.w = pc.tipo === 'lavatorio' ? 40 : 45; cb.h = cb.w; } else if (vv === 'oval') { cb.w = 48; cb.h = 36; } else if (/esculp|rampada/.test(vv)) { cb.w = 50; cb.h = 35; } else if (vv === 'retangular') { cb.w = pc.tipo === 'lavatorio' ? 45 : 56; cb.h = pc.tipo === 'lavatorio' ? 30 : 34; } } desenharCv(); atualizarPainel(); return; }
@@ -526,11 +665,13 @@
       if (rm) { if (!confirm('Remover esta peça?')) return; d.pecas.splice(+rm.getAttribute('data-rmpc'), 1); st.aberta = -1; desenharCv(); atualizarPainel(); return; }
       if (dp) { var cp = JSON.parse(JSON.stringify(d.pecas[+dp.getAttribute('data-dup')])); cp.id = uid(); d.pecas.splice(+dp.getAttribute('data-dup') + 1, 0, cp); st.aberta = +dp.getAttribute('data-dup') + 1; desenharCv(); atualizarPainel(); return; }
       if (ap) { var i = +ap.getAttribute('data-abrepc'); st.aberta = st.aberta === i ? -1 : i; atualizarPainel(); return; }
-      if (ab) { var x = lista().filter(function (y) { return y.id === ab.getAttribute('data-abre'); })[0]; if (x) { st.d = x; st.aberta = 0; st.tela = 'editor'; render(); } return; }
+      if (ab) { var x = lista().filter(function (y) { return y.id === ab.getAttribute('data-abre'); })[0]; if (x) { st.d = x; st.aberta = 0; st.det = !x.texto; st.tela = 'editor'; render(); } return; }
+      var ex = e.target.closest('[data-ex]'); if (ex) { d.texto = EXEMPLOS[+ex.getAttribute('data-ex')]; d.pecas = interpretar(d.texto); st.aberta = -1; desenharCv(); atualizarPainel(); return; }
       if (!a) return; var k3 = a.getAttribute('data-acao');
+      if (k3 === 'det') { st.det = !st.det; atualizarPainel(); return; }
       if (k3 === 'zoom') { zoom(); return; }
       if (k3 === 'voltar') { if (st.tela === 'editor') { guardar(st.d); st.tela = 'lista'; render(); } else el.remove(); return; }
-      if (k3 === 'novo') { st.d = novo(); st.aberta = 0; st.tela = 'editor'; render(); return; }
+      if (k3 === 'novo') { st.d = novo(); st.aberta = 0; st.det = false; st.tela = 'editor'; render(); return; }
       if (k3 === 'apagar') { if (confirm('Apagar este desenho?')) { apagar(d.id); st.tela = 'lista'; render(); } return; }
       if (k3 === 'salvar') { guardar(d); aviso('💾 Projeto salvo'); return; }
       if (k3 === 'png') { guardar(d); pngDe(d).then(function (b) { var nome = 'Projeto ' + (d.cliente || 'HR') + '.png', f = new File([b], nome, { type: 'image/png' }); if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f], title: nome }).catch(function () {}); var u2 = URL.createObjectURL(b), l = document.createElement('a'); l.href = u2; l.download = nome; document.body.appendChild(l); l.click(); l.remove(); setTimeout(function () { URL.revokeObjectURL(u2); }, 4000); }).catch(function (er) { aviso('⚠️ ' + er.message); }); return; }
@@ -549,5 +690,5 @@
   }
   function iniciar() { var sb = document.getElementById('secBody'); if (!sb) return setTimeout(iniciar, 1500); cartaoSec(); new MutationObserver(cartaoSec).observe(sb, { childList: true }); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
-  window.abrirDesenho = abrir; window.__hrDesTeste = { folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, avisos: avisos, migrar: migrar, st: st };
+  window.abrirDesenho = abrir; window.__hrDesTeste = { folhaSvg: folhaSvg, novo: novo, novaPeca: novaPeca, corte: corte, itemProducao: itemProducao, notas: notas, descAuto: descAuto, interpretar: interpretar, entendi: entendi, avisos: avisos, migrar: migrar, st: st };
 })();
