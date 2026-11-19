@@ -6823,6 +6823,7 @@ async function pedirAvaliacoes(env) {
   await eqDicaFotosRotina(env, false).catch(e => console.log('[EQ] dica fotos:', e.message)); // v166
   await eqResumoDiaRotina(env).catch(e => console.log('[EQ] resumo do dia:', e.message)); // v154
   await pendFotosRotina(env).catch(e => console.log('[FOTOS] pendências:', e.message)); // v178
+  await desempSemanalRotina(env).catch(e => console.log('[DSM] semanal:', e.message)); // v179
   if (Date.now() - (globalThis.__visLemb || 0) > 5 * 60000) { globalThis.__visLemb = Date.now(); await lembretesVisitaDono(env).catch(e => console.log('[VISITA] lembrete:', e.message)); } // v124: não depende só do agendamento
   if (String(env.AVALIACAO ?? '1') === '0') return;
   try {
@@ -9394,7 +9395,8 @@ async function lucroTexto(env, mes) {
     `💵 Caixa do mês até hoje: entrou R$ ${reais(ent)} · saiu R$ ${reais(sai)} · *resultado R$ ${reais(ent - sai)}*`,
     '_A margem bruta desconta só a pedra; mão de obra, frete e custos fixos estão no resultado do caixa._'].join('\n');
 }
-async function equipeExtrasComando(env, from, msg) {
+async function equipeExtrasComando(env, from, msg, bruto) {
+  if (await desempComandoDono(env, from, msg, bruto).catch(e => { console.log('[DSM]', e.message); return false; })) return true; // v179
   if (/^(desempenho|desempenho (da equipe|do mes)|ranking( da equipe)?|produtividade)$/.test(msg)) { await enviar(env, from, await desempenhoTexto(env)); return true; }
   if (/^(resumo( da)? semana|resumo semanal|como foi a semana\??)$/.test(msg)) { await enviar(env, from, await resumoSemanaTexto(env)); return true; }
   if (/^(lucro|lucro do mes|lucro por (pedra|servico)|margem|quanto (eu )?lucrei( no mes| esse mes)?\??)$/.test(msg)) { await enviar(env, from, await lucroTexto(env)); return true; }
@@ -9425,7 +9427,7 @@ async function semanalRotina(env) {
   if (hoje.slice(8) === '01' && ag.min >= 8 * 60 && !(await env.HR_KV.get('desemp:' + hoje)) && await travaEnvio(env, 'desemp:' + hoje)) { // dia 1º: desempenho e lucro do mês que passou
     await env.HR_KV.put('desemp:' + hoje, '1', { expirationTtl: 3 * 86400 });
     const ant = isoSomaDias(hoje, -1).slice(0, 7);
-    await pontoAvisarDono(env, await desempenhoTexto(env, ant)); await pontoAvisarDono(env, await lucroTexto(env, ant));
+    await pontoAvisarDono(env, await desempenhoEquipeTexto(env, 30).catch(() => desempenhoTexto(env, ant))); await pontoAvisarDono(env, await lucroTexto(env, ant)); await pontoAvisarDono(env, await aumentoTexto(env).catch(() => '')).catch(() => {}); // v179
     await premioResultadoMes(env, ant).catch(e => console.log('[PREMIO]', e.message)); // v148
   }
 }
@@ -9498,10 +9500,11 @@ function ptsServico(p) { return meio(ptsEtapa(p, 'corte') + (pedComplexo(p) ? pt
 function difTxt(p) { const d = dificuldade(p); if (!d) return ''; const nv = nivelDif(p); return `${nv.ico} nível ${nv.nome}${nv.mult > 1 ? ' (×' + String(nv.mult).replace('.', ',') + ')' : ''}${d.lista.length ? ' · ' + d.lista.join(', ') : ''} · vale até ${vPt(ptsServico(p))} pts`; }
 const nPecasPed = p => { const r = p.resumoApp || {}; const its = (r.itens && r.itens.length) ? r.itens : [{ pecas: p.pecas || [] }]; return Math.max(1, its.reduce((t, it) => t + (it.pecas || []).reduce((a, x) => a + (x.qtd || 1), 0), 0)); };
 const diaDe = ts => ts ? new Date(ts - 3 * 3600000).toISOString().slice(0, 10) : '';
-async function metasPontos(env, de, ate) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
+async function metasPontos(env, de, ate, lista) { // v149: registro de etapas (prodLog) com vários participantes; campos antigos completam
   const out = {}, dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
-  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts) }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
-  for (const p of await pedidosProducao(env, () => true)) {
+  Object.defineProperty(out, '_ped', { value: {}, enumerable: false }); // v179: pontos de cada um em cada pedido (divide o valor do serviço)
+  const add = (id, pts, tipo, ped, ts, extra) => { if (!id) return; if (pts > 0 && ped && ped.id != null) { const q = (out._ped[ped.id] = out._ped[ped.id] || {}); q[id] = (q[id] || 0) + pts; } const o = (out[id] = out[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0, fotos: 0 }); o.pts = Math.round((o.pts + pts) * 10) / 10; o.tarefas.push({ tipo, nome: ped.nome, pts, dia: diaDe(ts) }); if (extra) { if (extra.no === true) o.noPrazo++; if (extra.no === false) o.atraso++; if (extra.foto) o.fotos++; } };
+  for (const p of (lista || await pedidosProducao(env, () => true))) {
     const n = nPecasPed(p), cx = pedComplexo(p), log = Array.isArray(p.prodLog) ? p.prodLog.slice() : [], tipos = new Set(log.map(x => x.e));
     if (!tipos.has('corte') && p.corteFeitoPor && p.corteEm) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm });
     else if (tipos.has('corte') && p.corteEm && p.corteFeitoPor && log.filter(x => x.e === 'corte').every(x => x.pecas)) { const feitas = log.filter(x => x.e === 'corte').reduce((t, x) => t + x.pecas, 0); if (n - feitas > 0) log.push({ e: 'corte', por: [p.corteFeitoPor], ts: p.corteEm, pecas: n - feitas }); } // v156: o resto do corte parcial
@@ -10738,6 +10741,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v179: análise de desempenho (ponto, tempo por tarefa, velocidade × qualidade, retorno sobre o salário, aumento) + retorno semanal a cada um.
 // v178: PENDÊNCIAS DE FOTO — lembra uma vez: foto que falta para dar baixa (1h30), foto sem serviço escolhido (1h), instalação começada e não terminada (6h)
 async function pendFotosRotina(env) {
   const ag = agoraBahia(); if (ag.dia === 0 || ag.min < 8 * 60 || ag.min > 17 * 60 + 30) return;
@@ -10787,6 +10791,173 @@ async function contarFinalizar(env, f, from, c, n, nome) {
   else await enviar(env, from, `✅ Conferido: ${n} peça(s). Valeu, ${nome}!`).catch(() => {});
   await env.HR_KV.put('prod:fotoesp:' + ultimos8(from), JSON.stringify({ ...c.pe, contado: n }), { expirationTtl: 12 * 3600 });
   return prodFotoRecebida(env, f, from, { type: 'image', image: { id: c.mid }, _jaSalva: !!c.salva }, nome);
+}
+
+// v179: ANÁLISE DE DESEMPENHO — horário (ponto), quanto tempo cada um leva em cada tarefa, velocidade × qualidade,
+// quanto cada um gera em serviço comparado ao salário e se merece aumento. Dono: "desempenho", "desempenho do Gibson",
+// "quem merece aumento", "salário do Gibson é 1800", "referência de retorno 4x". App: /bot/desempenho. Sábado: retorno a cada um.
+async function salariosLer(env) { let s = {}; try { s = JSON.parse((await env.HR_KV.get('cfg:salarios')) || '{}') || {}; } catch (_) {} return s; }
+async function dsmCfg(env) { let c = {}; try { c = JSON.parse((await env.HR_KV.get('cfg:desemp')) || '{}') || {}; } catch (_) {} return { ...c, mult: +c.mult > 0 ? +c.mult : 3 }; }
+const dsmMinDia = ts => { const d = new Date(ts - 3 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+const dsmHm = s => { const [h, m] = String(s || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+const dsmHH = m => m == null ? '—' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.round(m % 60)).padStart(2, '0')}`;
+const dsmDur = m => { m = Math.round(m || 0); if (m < 60) return m + ' min'; const h = Math.floor(m / 60), r = m % 60; return h + 'h' + (r ? String(r).padStart(2, '0') : ''); };
+const dsmMed = l => { const a = l.filter(x => Number.isFinite(x)).sort((x, y) => x - y); if (!a.length) return null; const k = Math.floor(a.length / 2); return a.length % 2 ? a[k] : (a[k - 1] + a[k]) / 2; };
+const dsmBRL = v => 'R$ ' + reais(Math.round(v || 0));
+const dsmPct = (a, b) => (a != null && b) ? Math.round((a - b) / b * 100) : null;
+function dsmDiaTrab(env, d) { const x = expDia(d); if (x) return x.tipo !== 'folga'; if (diaSemanaISO(d) === 0) return false; return !feriadosDoAno(env, +d.slice(0, 4)).has(d); }
+function minUteis(env, a, b) { // minutos de expediente entre dois instantes (dias de trabalho, sem o almoço)
+  if (!a || !b || b <= a) return 0; let tot = 0; const d0 = diaDe(a), d1 = diaDe(b);
+  for (let i = 0, d = d0; i < 45 && d <= d1; i++, d = isoSomaDias(d, 1)) {
+    if (!dsmDiaTrab(env, d)) continue; const ex = expedienteHoras(env, d), e = dsmHm(ex.e), s = dsmHm(ex.s);
+    const ini = d === d0 ? Math.max(e, dsmMinDia(a)) : e, fim = d === d1 ? Math.min(s, dsmMinDia(b)) : s; if (fim <= ini) continue;
+    tot += (fim - ini) - (s > 13 * 60 ? Math.max(0, Math.min(fim, 13 * 60) - Math.max(ini, 12 * 60)) : 0);
+  }
+  return tot;
+}
+async function pontoHorasDia(env, d, cfg, memo) { // { funcId: { ent, sai, min } } — dias fechados ficam guardados
+  if (memo && memo[d]) return memo[d];
+  const k = 'dsm:h:' + d, fechado = d <= dataBahia(-2);
+  if (fechado) { try { const c = JSON.parse((await env.HR_KV.get(k)) || 'null'); if (c) { if (memo) memo[d] = c; return c; } } catch (_) {} }
+  const out = {};
+  for (const f of cfg.funcs) {
+    const l = (await pontoDia(env, d, f.id)).filter(b => b && b.status !== 'recusada' && b.ts && b.ts <= Date.now());
+    const t = tp => { const x = l.filter(b => b.tipo === tp).sort((a, b) => a.ts - b.ts); return x.length ? x[0].ts : 0; };
+    const ent = t('entrada'), sa = t('saida_almoco'), va = t('volta_almoco'), sai = t('saida'); if (!ent) continue;
+    let min = 0; if (sai > ent) { min = (sai - ent) / 60000; if (sa && va > sa) min -= (va - sa) / 60000; } else if (sa > ent) min = (sa - ent) / 60000;
+    out[f.id] = { ent: dsmMinDia(ent), sai: sai ? dsmMinDia(sai) : null, min: Math.max(0, Math.round(min)) };
+  }
+  if (fechado) await env.HR_KV.put(k, JSON.stringify(out), { expirationTtl: 200 * 86400 }).catch(() => {});
+  if (memo) memo[d] = out; return out;
+}
+const DSM_ET = { corte: 'corte', acabamento: 'acabamento', fabricacao: 'fabricação', instalacao: 'instalação/entrega' };
+async function analiseEquipe(env, de, ate, opc = {}) {
+  const cfg = opc.cfg || await pontoCfg(env), sal = await salariosLer(env), dc = await dsmCfg(env), { map } = await funcoesEquipe(env), cfgM = await metasCfg(env);
+  const peds = opc.peds || await pedidosProducao(env, () => true);
+  const per = await metasPontos(env, de, ate, peds), tot = opc.tot || await metasPontos(env, '2000-01-01', '2999-12-31', peds);
+  const R = {}, r = id => (R[id] = R[id] || { horas: 0, dias: 0, atrasos: 0, ent: [], sai: [], tempos: {}, notas: [], retrab: 0, receita: 0, perdas: 0 });
+  if (!opc.semPonto) for (let d = de, i = 0; d <= ate && d <= dataBahia() && i < 100; d = isoSomaDias(d, 1), i++) {
+    const h = await pontoHorasDia(env, d, cfg, opc.memo), e0 = dsmHm(expedienteHoras(env, d).e);
+    for (const [id, x] of Object.entries(h)) { const o = r(String(id)); o.dias++; o.horas += x.min / 60; o.ent.push(x.ent); if (x.sai != null) o.sai.push(x.sai); if (x.ent > e0 + 10) o.atrasos++; }
+  }
+  const dentro = ts => { const d = diaDe(ts); return d && d >= de && d <= ate; };
+  const T = (id, et, min, pts) => { if (!id || !(min > 0) || min > 5 * 600) return; (r(String(id)).tempos[et] = r(String(id)).tempos[et] || []).push({ min, pts: Math.max(0.5, pts || 1) }); };
+  for (const p of peds) {
+    const log = Array.isArray(p.prodLog) ? p.prodLog : [], n = nPecasPed(p);
+    const cortes = log.filter(x => x.e === 'corte' && x.ts).sort((a, b) => a.ts - b.ts); let ant = p.fichaEnviadaEm || 0;
+    for (const x of cortes) { if (dentro(x.ts) && ant) for (const id of x.por || []) T(id, 'corte', minUteis(env, ant, x.ts) / (x.por.length || 1), x.pecas ? ptsEtapa(p, 'corte') * x.pecas / n : ptsEtapa(p, 'corte')); ant = x.ts; }
+    if (!cortes.length && p.corteFeitoPor && p.corteEm && p.fichaEnviadaEm && dentro(p.corteEm)) T(p.corteFeitoPor, 'corte', minUteis(env, p.fichaEnviadaEm, p.corteEm), ptsEtapa(p, 'corte'));
+    for (const x of log) if (x.e === 'acabamento' && dentro(x.ts)) for (const id of x.por || []) T(id, 'acabamento', minUteis(env, p.corteEm || p.fichaEnviadaEm, x.ts), ptsEtapa(p, 'acabamento'));
+    if (pedComplexo(p) && p.fabProntoEm && p.fabFeitoPor && p.corteEm && dentro(p.fabProntoEm)) T(p.fabFeitoPor, 'fabricacao', minUteis(env, p.corteEm, p.fabProntoEm), ptsEtapa(p, 'fabricacao'));
+    if (p.instIniEm && p.entregueEm && dentro(p.entregueEm)) { const ev = log.find(x => (x.e === 'instalacao' || x.e === 'entrega') && !x.dono && Array.isArray(x.por)); const quem = ev ? ev.por : [p.entFeitoPor || p.instIniPor];
+      for (const id of quem.filter(Boolean)) T(id, 'instalacao', minUteis(env, p.instIniEm, p.entregueEm), ptsEtapa(p, pedComplexo(p) ? 'instalacao' : 'entrega')); }
+    for (const x of log) { if (!dentro(x.ts)) continue; if (x.e === 'avaliacao' && x.nota) for (const id of x.por || []) r(String(id)).notas.push(+x.nota); if (x.e === 'retrabalho') for (const id of x.por || []) r(String(id)).retrab++; }
+    const v = Number(p.valor) || 0, tp = tot._ped && tot._ped[p.id], pp = per._ped && per._ped[p.id]; // o valor do serviço é dividido pelos pontos de cada um no pedido
+    if (v > 0 && tp && pp) { const soma = Object.values(tp).reduce((a, b) => a + b, 0); if (soma > 0) for (const [id, x] of Object.entries(pp)) r(id).receita += v * x / soma; }
+  }
+  try { if (env.HR_DB) { const rs = await env.HR_DB.prepare('SELECT func, valor FROM perda WHERE dia BETWEEN ? AND ?').bind(de, ate).all(); for (const x of rs.results || []) if (x.func) r(String(x.func)).perdas += +x.valor || 0; } } catch (_) {}
+  const dias = Math.round((Date.parse(ate) - Date.parse(de)) / 86400000) + 1, out = [];
+  for (const f of cfg.funcs) {
+    const id = String(f.id), o = r(id), m = per[id] || { pts: 0, tarefas: [], noPrazo: 0, atraso: 0 };
+    if (!m.pts && !o.dias && !Object.keys(o.tempos).length) continue;
+    const salM = +sal[id] || +f.salario || 0, custo = o.dias ? salM * o.dias / 26 : salM * dias / 30, tempos = {}; // com ponto: só os dias trabalhados (26 por mês)
+    for (const [et, l] of Object.entries(o.tempos)) tempos[et] = { n: l.length, med: Math.round(dsmMed(l.map(x => x.min))), minPt: Math.round(dsmMed(l.map(x => x.min / x.pts))) };
+    out.push({ id, nome: apelidoFunc(cfg, f) || f.nome.split(' ')[0], funcoes: map[id] || [], pts: m.pts || 0, tarefas: (m.tarefas || []).filter(t => t.pts > 0).length, noPrazo: m.noPrazo || 0, atraso: m.atraso || 0,
+      horas: Math.round(o.horas * 10) / 10, dias: o.dias, atrasos: o.atrasos, entMed: o.ent.length ? Math.round(dsmMed(o.ent)) : null, saiMed: o.sai.length ? Math.round(dsmMed(o.sai)) : null,
+      ptsHora: o.horas >= 4 ? Math.round(m.pts / o.horas * 100) / 100 : null, tempos, nota: o.notas.length ? Math.round(o.notas.reduce((a, b) => a + b, 0) / o.notas.length * 10) / 10 : null, nAval: o.notas.length,
+      retrab: o.retrab, perdas: Math.round(o.perdas), receita: Math.round(o.receita), salario: salM, custo: Math.round(custo), retorno: custo > 0 ? Math.round(o.receita / custo * 10) / 10 : null, mult: dc.mult,
+      metaSem: +(cfgM[id] || {}).pontos || 15, ptsSem: Math.round((m.pts || 0) / Math.max(1, o.dias ? o.dias / 6 : dias / 7) * 10) / 10 });
+  }
+  return { de, ate, dias, func: out };
+}
+async function analiseComTendencia(env, dias) { // período atual × o anterior do mesmo tamanho
+  const ate = dataBahia(), de = isoSomaDias(ate, -(dias - 1)), ant1 = isoSomaDias(de, -1), ant0 = isoSomaDias(ant1, -(dias - 1));
+  const cfg = await pontoCfg(env), peds = await pedidosProducao(env, () => true), tot = await metasPontos(env, '2000-01-01', '2999-12-31', peds), memo = {};
+  const a = await analiseEquipe(env, de, ate, { cfg, peds, tot, memo }), b = await analiseEquipe(env, ant0, ant1, { cfg, peds, tot, memo });
+  for (const x of a.func) { const y = b.func.find(z => z.id === x.id); x.antes = y ? { ptsHora: y.ptsHora, ptsSem: y.ptsSem, tempos: y.tempos, nota: y.nota, retrab: y.retrab, atrasos: y.atrasos, dias: y.dias } : null; }
+  return a;
+}
+function avaliarAumento(x) { // critérios que o dono pode conferir; a decisão é dele
+  const c = [];
+  const prod = x.ptsSem >= x.metaSem; c.push({ k: 'producao', ok: prod, txt: `produção: ${String(x.ptsSem).replace('.', ',')} pts/semana (meta ${x.metaSem})` });
+  const qual = x.retrab <= 1 && (x.nota == null || x.nota >= 4.5) && x.perdas <= 300; c.push({ k: 'qualidade', ok: qual, txt: `qualidade: ${x.retrab} retrabalho(s)${x.nota != null ? ', nota ' + String(x.nota).replace('.', ',') : ''}${x.perdas ? ', perdas ' + dsmBRL(x.perdas) : ''}` });
+  if (x.dias) { const pont = x.atrasos / x.dias <= 0.1; c.push({ k: 'pontualidade', ok: pont, txt: `pontualidade: ${x.atrasos} atraso(s) em ${x.dias} dias` }); }
+  if (x.retorno != null) c.push({ k: 'retorno', ok: x.retorno >= x.mult, txt: `retorno: gerou ${dsmBRL(x.receita)} = ${String(x.retorno).replace('.', ',')}× o salário (referência ${x.mult}×)` });
+  if (x.antes && x.antes.ptsHora && x.ptsHora) { const v = dsmPct(x.ptsHora, x.antes.ptsHora); c.push({ k: 'evolucao', ok: v >= -5, txt: `evolução: ${v >= 0 ? '+' : ''}${v}% de pontos por hora` }); }
+  const NM = { producao: 'produção', qualidade: 'qualidade', pontualidade: 'pontualidade', retorno: 'retorno sobre o salário', evolucao: 'evolução' }; c.forEach(z => { z.nm = NM[z.k] || z.k; });
+  const ok = c.filter(z => z.ok).length, falta = c.filter(z => !z.ok);
+  let v, sug = 0;
+  if (!qual) v = '🔴 Ainda não: qualidade primeiro';
+  else if (x.retorno == null) v = falta.length ? '🟡 Falta: ' + falta.map(z => z.nm).join(', ') + ' (cadastre o salário para ver o retorno)' : '🟡 Bom, mas cadastre o salário para ver se se paga';
+  else if (!falta.length) { sug = (x.retorno >= x.mult * 1.5 && x.ptsSem >= x.metaSem * 1.25) ? 10 : 5; v = `✅ Merece aumento (sugestão: ${sug}%, ${dsmBRL(x.salario * sug / 100)}/mês)`; }
+  else if (falta.length === 1) v = '🟡 Quase: falta ' + falta[0].nm;
+  else v = '🔴 Ainda não: falta ' + falta.map(z => z.nm).join(', ');
+  return { criterios: c, ok, total: c.length, veredito: v, sugestaoPct: sug };
+}
+function dsmSeta(atual, antes, menorMelhor) { const v = dsmPct(atual, antes); if (v == null || !Number.isFinite(v)) return ''; if (Math.abs(v) < 3) return ' (=)'; const bom = menorMelhor ? v < 0 : v > 0; return ` (${bom ? '⬆️ ' : '⬇️ '}${Math.abs(v)}% ${menorMelhor ? (v < 0 ? 'mais rápido' : 'mais lento') : (v > 0 ? 'a mais' : 'a menos')})`; }
+function dsmLinhas(x, detalhe) {
+  const L = [`*${x.nome}* · ${String(x.pts).replace('.', ',')} pts · ${x.tarefas} tarefa(s)${x.ptsHora ? ` · ${String(x.ptsHora).replace('.', ',')} pt/hora${x.antes ? dsmSeta(x.ptsHora, x.antes.ptsHora) : ''}` : ''}`];
+  if (x.dias) L.push(`⏰ ${x.dias} dia(s) · ${String(x.horas).replace('.', ',')} h · chega ${dsmHH(x.entMed)} · sai ${dsmHH(x.saiMed)}${x.atrasos ? ` · ${x.atrasos} atraso(s)` : ' · sem atraso'}`);
+  for (const [et, t] of Object.entries(x.tempos)) L.push(`⏱️ ${DSM_ET[et] || et}: ${dsmDur(t.med)} por serviço · ${t.minPt} min/ponto${x.antes && x.antes.tempos[et] ? dsmSeta(t.minPt, x.antes.tempos[et].minPt, true) : ''} (${t.n})`);
+  const tp = x.noPrazo + x.atraso; L.push(`⭐ ${x.nota != null ? 'nota ' + String(x.nota).replace('.', ',') + ` (${x.nAval})` : 'sem avaliação'} · ${x.retrab} retrabalho(s)${tp ? ` · no prazo ${Math.round(x.noPrazo / tp * 100)}%` : ''}${x.perdas ? ' · perdas ' + dsmBRL(x.perdas) : ''}`);
+  if (x.salario) L.push(`💰 gerou ${dsmBRL(x.receita)} · salário do período ${dsmBRL(x.custo)} → *${String(x.retorno).replace('.', ',')}×* ${x.retorno >= x.mult ? '✅ se paga' : x.retorno >= 1 ? '🟡 abaixo da referência ' + x.mult + '×' : '🔴 não está se pagando'}`);
+  else L.push(`💰 gerou ${dsmBRL(x.receita)} em serviços · _salário não cadastrado_`);
+  if (detalhe) { const a = avaliarAumento(x); L.push('', `*Aumento?* ${a.veredito}`, ...a.criterios.map(c => `${c.ok ? '✅' : '❌'} ${c.txt}`)); }
+  return L;
+}
+async function desempenhoEquipeTexto(env, dias, nomeF) {
+  dias = Math.max(7, Math.min(120, +dias || 30));
+  const a = await analiseComTendencia(env, dias);
+  let l = a.func; if (nomeF) { const tk = tokensPedra(nomeF); l = l.filter(x => tokensPedra(x.nome).some(w => tk.includes(w))); if (!l.length) return `Não achei ${nomeF} com produção ou ponto nos últimos ${dias} dias.`; }
+  l.sort((x, y) => (y.ptsHora || 0) - (x.ptsHora || 0) || y.pts - x.pts);
+  const L = [`📊 *Desempenho${nomeF ? '' : ' da equipe'}* · últimos ${dias} dias (${dataBR(a.de).slice(0, 5)} a ${dataBR(a.ate).slice(0, 5)})`, '_comparado com os ' + dias + ' dias anteriores_', ''];
+  for (const x of l) L.push(...dsmLinhas(x, !!nomeF), '');
+  if (!l.length) L.push('Ainda não há produção nem ponto registrados neste período.');
+  if (!nomeF && l.length) { const sem = l.filter(x => !x.salario).map(x => x.nome); L.push('_Tempo = horas de expediente desde que a tarefa chegou para ele até terminar. Minutos por ponto: quanto menor, mais rápido (o ponto já pesa o tamanho e os detalhes da peça). O valor gerado divide cada pedido pelos pontos de quem trabalhou nele._'); if (sem.length) L.push(`_Sem salário cadastrado: ${sem.join(', ')}. Abra Bonificação/Desempenho no app ou mande "salário do ${sem[0]} é 1800"._`); L.push('', 'Para ver quem merece aumento: _quem merece aumento_. Um só: _desempenho do Gibson_.'); }
+  return L.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+async function aumentoTexto(env) {
+  const a = await analiseComTendencia(env, 90), L = ['💼 *Quem merece aumento?* · últimos 90 dias', '_A decisão é sua; abaixo estão os números de cada um._', ''];
+  const l = a.func.filter(x => x.pts > 0 || x.dias > 0).map(x => ({ x, av: avaliarAumento(x) })).sort((p, q) => q.av.ok / q.av.total - p.av.ok / p.av.total || (q.x.retorno || 0) - (p.x.retorno || 0));
+  for (const { x, av } of l) L.push(`*${x.nome}* — ${av.veredito}`, ...av.criterios.map(c => `${c.ok ? '✅' : '❌'} ${c.txt}`), '');
+  if (!l.length) L.push('Ainda não há dados de 90 dias.');
+  L.push(`_Referência de retorno: ${l.length ? l[0].x.mult : 3}× o salário em serviços (o resto paga pedra, impostos, ferramentas e lucro). Mude com "referência de retorno 4x"._`);
+  return L.join('\n');
+}
+async function desempComandoDono(env, from, msg, bruto) {
+  let m = String(bruto || '').match(/^\s*sal[aá]rio d[oae]s?\s+([A-Za-zÀ-ú]+)[^\d]{0,12}(?:r\$\s*)?([\d.]+(?:,\d{1,2})?)\s*$/i);
+  if (m) { const cfg = await pontoCfg(env), tk = normaliza(m[1]), f = cfg.funcs.find(x => normaliza(x.nome).split(' ').includes(tk) || normaliza(apelidoFunc(cfg, x)) === tk); if (!f) { await enviar(env, from, `Não achei ${m[1]} na equipe.`); return true; }
+    const v = parseFloat(m[2].replace(/\./g, '').replace(',', '.')); if (!(v > 100)) return false; const s = await salariosLer(env); s[f.id] = v; await env.HR_KV.put('cfg:salarios', JSON.stringify(s));
+    await enviar(env, from, `Anotado: salário do ${apelidoFunc(cfg, f)} = ${dsmBRL(v)}/mês. Agora o desempenho mostra se ele está se pagando.`); return true; }
+  m = msg.match(/^referencia de retorno (\d+(?:[.,]\d)?) ?x?$/); if (m) { const c = await dsmCfg(env); c.mult = parseFloat(m[1].replace(',', '.')); await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); await enviar(env, from, `Referência de retorno: ${c.mult}× o salário.`); return true; }
+  if (/^(quem merece aumento\??|aumento|aumentos|avaliacao (da equipe|de aumento)|quem (esta|ta) (se )?pagando( o salario)?\??)$/.test(msg)) { await enviar(env, from, await aumentoTexto(env)); return true; }
+  m = msg.match(/^(?:desempenho|produtividade)(?: da equipe)?(?: (?:ultim[oa]s |dos )?(\d{1,3}) dias| da semana| do mes)?$/);
+  if (m) { await enviar(env, from, await desempenhoEquipeTexto(env, m[1] || (/semana/.test(msg) ? 7 : 30))); return true; }
+  m = msg.match(/^(?:desempenho|produtividade|avaliacao|aumento) d[oae] ([a-z]+)(?: (?:ultim[oa]s )?(\d{1,3}) dias)?\??$/);
+  if (m) { await enviar(env, from, await desempenhoEquipeTexto(env, m[2] || 30, m[1])); return true; }
+  return false;
+}
+// sábado de manhã: cada um recebe a própria evolução (velocidade só vale com qualidade) — recorde com qualidade ganha +3 na carreira
+async function desempSemanalRotina(env) {
+  const ag = agoraBahia(), hoje = dataBahia(); if (ag.dia !== 6 || ag.min < 10 * 60 + 30 || ag.min > 12 * 60) return;
+  const k = 'dsm:sem:' + hoje; if (await env.HR_KV.get(k)) return; if (!(await travaEnvio(env, k))) return; await env.HR_KV.put(k, '1', { expirationTtl: 3 * 86400 });
+  const cfg = await pontoCfg(env), peds = await pedidosProducao(env, () => true), tot = await metasPontos(env, '2000-01-01', '2999-12-31', peds), memo = {};
+  const ini = semIni(hoje), a = await analiseEquipe(env, ini, hoje, { cfg, peds, tot, memo, semPonto: true }), b = await analiseEquipe(env, isoSomaDias(ini, -28), isoSomaDias(ini, -1), { cfg, peds, tot, memo, semPonto: true });
+  for (const x of a.func) {
+    if (!x.tarefas) continue; const f = cfg.funcs.find(z => String(z.id) === x.id); if (!f || !f.tel) continue; const y = b.func.find(z => z.id === x.id);
+    const L = [`📈 *${x.nome}, a sua semana*`, `${String(x.pts).replace('.', ',')} ponto(s) em ${x.tarefas} tarefa(s).`];
+    let melhor = null, pior = null;
+    for (const [et, t] of Object.entries(x.tempos)) { const t0 = y && y.tempos[et]; if (!t0 || t0.n < 2) continue; const v = dsmPct(t.minPt, t0.minPt); if (v <= -10 && (!melhor || v < melhor.v)) melhor = { et, v, t, t0 }; if (v >= 15 && (!pior || v > pior.v)) pior = { et, v, t, t0 }; }
+    const qualOk = !x.retrab && (x.nota == null || x.nota >= 4.5);
+    if (melhor && qualOk) { L.push(`⚡ ${DSM_ET[melhor.et]}: ${melhor.t.minPt} min por ponto (sua média era ${melhor.t0.minPt}) — *${Math.abs(melhor.v)}% mais rápido* e sem retrabalho. 👏`, '🎖️ Recorde com qualidade: *+3 na sua carreira*.');
+      const bse = Number(await env.HR_KV.get('xp:base:' + x.id)) || 0; await env.HR_KV.put('xp:base:' + x.id, String(Math.round((bse + 3) * 10) / 10)); }
+    else if (melhor) L.push(`⚡ ${DSM_ET[melhor.et]} ficou ${Math.abs(melhor.v)}% mais rápido, mas teve retrabalho. Velocidade só vale com o serviço bem feito: o retrabalho tira 2 pontos.`);
+    if (pior) L.push(`🔎 ${DSM_ET[pior.et]} levou mais que a sua média (${pior.t.minPt} contra ${pior.t0.minPt} min por ponto). Se alguma coisa travou (pedra, máquina, ficha), me conta que eu aviso o Sr. Hangel.`);
+    if (x.retrab && !melhor) L.push(`🔁 Teve ${x.retrab} retrabalho(s). Conferir medida e acabamento antes de sair da fábrica economiza tempo e pontos.`);
+    if (x.nota >= 4.5) L.push(`⭐ Os clientes deram nota ${String(x.nota).replace('.', ',')}. Ótimo!`);
+    if (!melhor && !pior && !x.retrab) L.push('Ritmo firme e sem retrabalho. Para subir de faixa: um serviço a mais por semana, com o mesmo capricho.');
+    await eqTexto(env, f.tel, L.join("\n")).catch(() => {});
+  }
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -12113,6 +12284,11 @@ const FERRAMENTAS = [
       motivo: { type: 'string', description: 'ex.: hora extra no sábado' } }, required: ['funcionarios'] },
   },
   {
+    name: 'desempenho_equipe',
+    description: 'ANÁLISE DE DESEMPENHO dos funcionários: horário (chegada, saída, atrasos pelo ponto), quanto tempo cada um leva em cada tarefa (corte, acabamento, fabricação, instalação), pontos por hora, qualidade (retrabalho, nota dos clientes, perdas), quanto cada um gerou em serviços × o salário (se está se pagando) e se merece aumento. Use para "como está o Gibson?", "quem está mais rápido?", "o Fabrício está pagando o salário dele?", "quem merece aumento?", "quanto tempo o Lucas leva no acabamento?".',
+    input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome (vazio = equipe toda)' }, dias: { type: 'number', description: 'período em dias (padrão 30; 90 para aumento)' }, aumento: { type: 'boolean', description: 'true para a avaliação de aumento de todos (90 dias)' } } },
+  },
+  {
     name: 'folha_funcionarios',
     description: 'Quanto cada FUNCIONÁRIO tem a receber no período (decêndio/quinzena) atual e no que acabou de fechar, com a conta (salário do período, horas extras, horas negativas, adiantamentos e descontos) — o mesmo cálculo do relatório de ponto do app. Use para "quanto o Gibson vai receber amanhã?", "quanto tenho que pagar de folha?", "quanto devo ao Fabrício?". Sem funcionário, traz todos e o total.',
     input_schema: { type: 'object', properties: { funcionario: { type: 'string', description: 'nome do funcionário (vazio = todos)' } } },
@@ -12565,6 +12741,7 @@ async function executarFerramenta(env, from, nome, a, F, voz) {
     try { const rr = JSON.parse((await env.HR_KV.get('rascunho:resp')) || 'null'); if (rr && normalizarBR(rr.numero) === normalizarBR(num)) await env.HR_KV.delete('rascunho:resp'); } catch (_) {} // v74b: o rascunho antigo não é reenviado por um "sim" depois
     return { texto: r + ' Repasse ao Sr. Hangel em UMA ou DUAS frases, sem inventar.' };
   }
+  if (nome === 'desempenho_equipe') { const t = a.aumento && !a.funcionario ? await aumentoTexto(env) : await desempenhoEquipeTexto(env, a.dias || (a.funcionario ? 30 : 30), a.funcionario || ''); return { texto: t + '\n\nRepasse ao Sr. Hangel este relatório como está (pode resumir se ele pediu algo específico). Não invente números.' }; } // v179
   if (nome === 'folha_funcionarios') return await ferrFolhaFuncionarios(env, a); // v80
   if (nome === 'ponto_funcionario') return await ferrPontoFuncionario(env, a); // v80b
   if (nome === 'pagar_folha') return await rhFolhaPreparar(env, from, a); // v81
@@ -17935,7 +18112,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await painelProdDono(env, from, msg).catch(e => { console.log('[PROD] painel:', e.message); return false; })) return; // v137
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
-    if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await equipeExtrasComando(env, from, msg, bruto).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
     if (await garDadosComando(env, from, msg).catch(e => { console.log('[GAR] dados cmd:', e.message); return false; })) return; // v163
     if (await apelidoClienteComando(env, from, msg, bruto).catch(() => false)) return; // v161
     if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
@@ -22445,6 +22622,8 @@ async function rotaBotInterna(req, env, url) {
   if (p.startsWith('/bot/ponto/')) return rotaBotPonto(req, env, url); // v34: HR Ponto (app do dono)
   if (p.startsWith('/bot/garantias')) { const r = await rotaGarantias(req, env, url); if (r) return r; } // v144
   if (p.startsWith('/bot/bonus')) { const r = await rotaBonus(req, env, url); if (r) return r; } // v164
+  if (p === '/bot/desempenho' && req.method === 'GET') { const d = Math.max(7, Math.min(120, +url.searchParams.get('dias') || 30)); const a = await analiseComTendencia(env, d); for (const x of a.func) x.aumento = avaliarAumento(x); return jsonR({ ok: true, ...a, mult: (await dsmCfg(env)).mult }); } // v179
+  if (p === '/bot/desempenho/salarios' && req.method === 'POST') { const b = await req.json().catch(() => ({})), s = await salariosLer(env); for (const [k, v] of Object.entries(b.sal || {}).slice(0, 60)) { const n = +v; if (n > 100 && n < 100000) s[String(k).slice(0, 40)] = Math.round(n * 100) / 100; } await env.HR_KV.put('cfg:salarios', JSON.stringify(s)); if (+b.mult > 0) { const c = await dsmCfg(env); c.mult = +b.mult; await env.HR_KV.put('cfg:desemp', JSON.stringify(c)); } return jsonR({ ok: true, sal: s }); } // v179
   if (p === '/bot/posvenda1' && req.method === 'POST') { // v142: o app manda as entregas (data real) → o bot agenda e envia sozinho
     const b = await req.json().catch(() => ({})), out = {};
     for (const it of (Array.isArray(b.itens) ? b.itens : []).slice(0, 60)) { const r = await pv1Agendar(env, it).catch(() => null); if (r) out[String(it.id)] = { status: r.status, quando: r.quando, enviadoEm: r.enviadoEm || 0 }; }
