@@ -5330,6 +5330,10 @@ async function atenderClienteIA(env, from, bruto, perfil) {
 
     let respostaGenerica = false; // v23: true quando a resposta é o "não entendi" padrão
     let resposta = organizarTexto(String(saida.resposta || '').trim());
+    if (/\b(vou (enviar|mandar|organizar|providenciar|preparar|verificar|confirmar|retornar)|envio (por aqui )?(em instantes|ja|já|logo)|em instantes|ja (te )?(mando|envio)|retorno (em breve|logo)|aguarde (que|um))\b/i.test(resposta) && !/or[cç]amento|pdf|foto/i.test(resposta) && !(await env.HR_KV.get('prom:' + ultimos8(from)))) { // v186: o bot prometeu algo ao cliente → o dono fica sabendo (a IA não executa sozinha)
+      await env.HR_KV.put('prom:' + ultimos8(from), '1', { expirationTtl: 3600 });
+      await pontoAvisarDono(env, `⚠️ O bot disse a *${(c.dados && c.dados.nome) || nomeDeTratamento(perfil && perfil.nome) || from}* que vai fazer algo: "${resposta.slice(0, 220)}". Confira se precisa de você (ela só recebe se alguém mandar).`).catch(() => {});
+    }
     let naoEntendeu = saida.entendeu === false || saida.entendeu === 'false';
     if (!resposta && !rapido) {
       const pedeValor = /\b(valor|preco|quanto|orcamento|cade)\b/.test(normaliza(brutoL));
@@ -10819,6 +10823,7 @@ async function fotoEquipeUsarTool(env, a) {
   return { texto: `Foto do ${nome} (${horaTs(foto.ts)}) guardada no serviço de ${ped.nome}. Confirme em UMA frase.` };
 }
 
+// v186: o bot do cliente prometeu algo que só o dono faz ("envio o termo em instantes") → aviso ao dono.
 // v185: CPF/nome que o cliente manda completam a garantia emitida sem CPF (e a da Renata é corrigida); mensagens à equipe sem repetição simultânea.
 // v184: economia da IA (cache de 1 h nas regras e dados, cache nas voltas das ferramentas, parte viva fora do cache, histórico resumido, Haiku no RH e na contagem, "ok/obrigado" sem IA) e medidor ("consumo da ia").
 // v183: funcionário pergunta sobre pontos/nível/meta → explicação com os números dele; níveis renomeados (não são cargo); dono define o nível inicial.
@@ -11163,6 +11168,10 @@ function unidadesPed(p) {
   const r = p.resumoApp || {}, its = (r.itens && r.itens.length) ? r.itens : [{ ambiente: p.interesse || '', pecas: p.pecas || [] }];
   const area = pc => Math.max(1, (+pc.comp_cm || 1) * (+pc.larg_cm || 1)), U = [];
   if (its.length > 1) its.forEach((it, i) => { const nm = capT(it.ambiente || 'item'), mesmos = its.filter(x => x.ambiente === it.ambiente).length, k = its.slice(0, i + 1).filter(x => x.ambiente === it.ambiente).length;
+    const qt = (it.pecas || []).reduce((t, pc) => t + (+pc.qtd || 1), 0), solta = /peitor|soleir|rodape|degrau|filete|baguete/.test(normaliza(it.ambiente || '')); // v186: peitoris/soleiras do mesmo item contam peça por peça
+    if (qt > 1 && solta) { const pi = ptsEtapa(ptsItemPed(p, it), 'acabamento') || 1, ar = (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) || 1;
+      for (const pc of it.pecas || []) for (let q = 0; q < Math.min(+pc.qtd || 1, 20); q++) U.push({ i: U.length, nome: `${nm} ${Math.round(+pc.comp_cm || 0)}×${Math.round(+pc.larg_cm || 0)}`, peso: pi * area(pc) / ar, tipo: normaliza(it.ambiente || ''), larg: +pc.larg_cm || 0 });
+      return; }
     U.push({ i: U.length, nome: mesmos > 1 ? `${nm} ${k}` : nm, peso: ptsEtapa(ptsItemPed(p, it), 'acabamento') || (it.pecas || []).reduce((t, pc) => t + area(pc) * (+pc.qtd || 1), 0) / 1e4 || 1, tipo: normaliza(it.ambiente || ''), larg: Math.max(0, ...(it.pecas || []).map(pc => +pc.larg_cm || 0)) }); });
   else { const amb = normaliza(its[0].ambiente || p.interesse || '');
     for (const pc of its[0].pecas || []) for (let k = 0; k < Math.min(+pc.qtd || 1, 20); k++) { const est = (+pc.larg_cm || 0) <= 25;
