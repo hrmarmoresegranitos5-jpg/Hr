@@ -1,3 +1,4 @@
+// v163 (19/11/2026): GARANTIA SÓ COM NOME COMPLETO E CPF (usa os do contrato/acordo; senão pede ao cliente e emite quando chegar); "pede o CPF da Renata para a garantia"
 // v162 (19/11/2026): "sim" ao aviso só abre o manual; "sim/ok/tá certo" aprova o relatório; secretária no feminino; pontos fora das 24 h ficam guardados; nota de atendimento sem duplicar e não durante acordo/instalação; pedido de mudança no acordo vai ao dono (acordo_alterar)
 // v161 (19/11/2026): foto com legenda sem cliente reconhecido fica guardada até ele escolher (botões); a única tarefa dele vale; apelidos de clientes ("Papinha é a Maria Souza")
 // v160 (19/11/2026): VOZ MAIS NATURAL (vozes brasileiras da ElevenLabs quando houver chave, instrução de conversa de WhatsApp, texto limpo para fala) e "voz" para ouvir amostras e escolher
@@ -8963,11 +8964,12 @@ const garVence = ini => isoOk(ini) ? `${+ini.slice(0, 4) + 1}${ini.slice(4)}` : 
 function garSituacao(g, hoje) {
   hoje = hoje || dataBahia();
   if (g.status === 'cancelada') return 'cancelada';
+  if (g.status === 'aguardando_dados') return 'aguardando_dados'; // v163
   if (!g.inicio) return 'aguardando_entrega';
   if (g.validade && g.validade < hoje) return 'vencida';
   return 'ativa';
 }
-const GAR_SIT = { ativa: '🟢 Ativa', vencida: '⚪ Vencida', aguardando_entrega: '🟡 Aguardando entrega', cancelada: '⛔ Cancelada' };
+const GAR_SIT = { ativa: '🟢 Ativa', vencida: '⚪ Vencida', aguardando_entrega: '🟡 Aguardando entrega', aguardando_dados: '🟠 Aguardando nome e CPF', cancelada: '⛔ Cancelada' };
 async function garNovoId(env) { const n = (Number(await env.HR_KV.get('gar:seq')) || 0) + 1; await env.HR_KV.put('gar:seq', String(n)); return 'G-' + String(n).padStart(4, '0'); }
 async function garEvento(env, gid, tipo, texto) { try { await garTabela(env); await env.HR_DB.prepare('INSERT INTO garantia_evento (gid, ts, tipo, texto) VALUES (?, ?, ?, ?)').bind(gid, Date.now(), tipo, String(texto || '').slice(0, 1000)).run(); } catch (e) { console.log('[GAR] evento:', e.message); } }
 async function garLer(env, id) { if (!(await garTabela(env))) return null; return await env.HR_DB.prepare('SELECT * FROM garantia WHERE id = ?').bind(id).first(); }
@@ -9038,6 +9040,16 @@ async function garAtivar(env, a, enviarCliente) {
     const g = await garCriar(env, { ...a, inicio: ini });
     if (!g) return null;
     if (!g.inicio) { g.inicio = ini; g.validade = garVence(ini); }
+    if (!g.cpf || !cpfOk(g.cpf) || String(g.cliente || '').trim().split(/\s+/).length < 2 || /\b[A-Z]\.?$/.test(String(g.cliente || '').trim())) { // v163: sem nome completo e CPF não há garantia
+      const dd = await garDadosConhecidos(env, g.num);
+      if (dd.cpf) { g.cpf = dd.cpf; if (dd.nome) g.cliente = dd.nome; if (dd.end && !g.endereco) g.endereco = dd.end; }
+    }
+    if (!g.cpf || !cpfOk(g.cpf)) {
+      g.status = 'aguardando_dados'; await garSalvar(env, g);
+      await garEvento(env, g.id, 'dados', 'Aguardando nome completo e CPF do cliente para emitir o certificado');
+      if (enviarCliente && g.num) await garPedirDados(env, g).catch(e => console.log('[GAR] pedir dados:', e.message));
+      return g;
+    }
     g.status = 'ativa';
     const bytes = await garCertificadoPdf(env, g); g.cert_b64 = bytesParaBase64(bytes);
     await garSalvar(env, g);
@@ -10431,6 +10443,62 @@ async function apelidoClienteComando(env, from, msg, bruto) {
   let ap = {}; try { ap = JSON.parse((await env.HR_KV.get('cli:apelidos')) || '{}') || {}; } catch (_) {}
   ap[apl] = real; await env.HR_KV.put('cli:apelidos', JSON.stringify(ap));
   await enviar(env, from, `Anotado: quando a equipe falar "${m[1].trim()}", é o serviço de *${real}*. 👍`); return true;
+}
+
+// v163: garantia só com NOME COMPLETO e CPF — o bot pede ao cliente e emite o certificado quando chegar
+async function garDadosConhecidos(env, num) {
+  const n = normalizarBR(String(num || '').startsWith('55') ? num : '55' + num), out = {};
+  try { const ct = JSON.parse((await env.HR_KV.get('contrato:' + n)) || 'null'); if (ct && ct.cpf) { out.cpf = String(ct.cpf).replace(/\D/g, ''); out.nome = ct.nome; } } catch (_) {}
+  if (!out.cpf) { try { const aid = await env.HR_KV.get('acd:num:' + ultimos8(n)); const a = aid ? await acdLer(env, aid) : null; if (a && a.dados && a.dados.cpf) { out.cpf = a.dados.cpf; out.nome = a.dados.nome; out.end = [a.dados.end, a.dados.cidade].filter(Boolean).join(', '); } } catch (_) {} }
+  if (!out.cpf) { try { const o = await onbLer(env, n); if (o && o.dados && o.dados.cpf) { out.cpf = o.dados.cpf; out.nome = o.dados.nome; out.end = [o.dados.end, o.dados.cidade].filter(Boolean).join(', '); } } catch (_) {} }
+  return out;
+}
+async function garPedirDados(env, g) {
+  const num = normalizarBR(String(g.num).startsWith('55') ? g.num : '55' + g.num), pn = nomeDeTratamento(g.cliente);
+  await env.HR_KV.put('gar:dados:' + ultimos8(num), g.id, { expirationTtl: 60 * 86400 });
+  const txt = `${pn ? pn + ', p' : 'P'}ara eu emitir o seu *Certificado de Garantia* de 1 ano, preciso de dois dados:\n• *nome completo*\n• *CPF*\n\nPode mandar por aqui (escrito ou áudio). Sem eles a garantia não pode ser registrada. 🛡️`;
+  if (await janela24h(env, num)) await enviar(env, num, txt);
+  else {
+    const curto = `${pn || 'Olá'}, aqui é da ${env.EMPRESA || 'HR Mármores e Granitos'}. Para emitir o seu certificado de garantia preciso do seu nome completo e CPF. Posso te explicar por aqui?`.slice(0, 200);
+    try { await postarMsg(env, num, { type: 'template', template: { name: env.TEMPLATE_RESPOSTA || String(env.TEMPLATE_RESPOSTA_PADRAO || 'resposta_cliente'), language: { code: env.TEMPLATE_RESPOSTA_IDIOMA || env.TEMPLATE_IDIOMA || 'pt_BR' }, components: [{ type: 'body', parameters: [{ type: 'text', text: semEmoji(curto) }] }] } }); await env.HR_KV.put('tplpend:' + num, JSON.stringify({ garDadosId: g.id, nome: g.cliente, em: Date.now(), qualquer: true }), { expirationTtl: 7 * 86400 }); } catch (_) {}
+  }
+  await pontoAvisarDono(env, `🛡️ A garantia *${g.id}* de *${g.cliente}* só sai com nome completo e CPF. Já pedi a ela; emito o certificado assim que chegar.`).catch(() => {});
+}
+async function garDadosMsg(env, from, m) {
+  const gid = await env.HR_KV.get('gar:dados:' + ultimos8(normalizarBR(from))); if (!gid) return false;
+  let tx = m.type === 'text' ? String(m.text?.body || '') : (m._texto || '');
+  if (!tx && m.type === 'audio') { tx = (await ouvirAudio(env, from, m, false).catch(() => '')) || ''; m._texto = tx; }
+  if (!tx || !/\d{3}\D?\d{3}\D?\d{3}\D?\d{2}|\bcpf\b|^\s*[A-Za-zÀ-ú]+(\s+[A-Za-zÀ-ú]+){2,}\s*$/.test(tx)) return false; // não parece resposta aos dados
+  const g0 = await garLer(env, gid); if (!g0 || g0.status !== 'aguardando_dados') { await env.HR_KV.delete('gar:dados:' + ultimos8(normalizarBR(from))); return false; }
+  const g = { ...g0 }, x = await onbExtrair(env, tx);
+  let pend = {}; try { pend = JSON.parse((await env.HR_KV.get('gar:dadosp:' + gid)) || '{}') || {}; } catch (_) {}
+  if (x.nome_completo && String(x.nome_completo).trim().split(/\s+/).length >= 2) pend.nome = String(x.nome_completo).trim().slice(0, 80);
+  let ruim = false; if (x.cpf && cpfOk(x.cpf)) pend.cpf = String(x.cpf).replace(/\D/g, ''); else if (x.cpf) ruim = true;
+  if (x.endereco) pend.end = String(x.endereco).slice(0, 160);
+  await env.HR_KV.put('gar:dadosp:' + gid, JSON.stringify(pend), { expirationTtl: 60 * 86400 });
+  const falta = [!pend.nome && 'nome completo', !pend.cpf && (ruim ? 'o CPF (o número não confere, pode conferir?)' : 'CPF')].filter(Boolean);
+  if (falta.length) { await enviar(env, from, `Obrigada! Só falta: ${falta.join(' e ')}.`); return true; }
+  g.cliente = pend.nome; g.cpf = pend.cpf; if (pend.end && !g.endereco) g.endereco = pend.end; g.status = 'ativa';
+  await env.HR_KV.delete('gar:dados:' + ultimos8(normalizarBR(from))); await env.HR_KV.delete('gar:dadosp:' + gid);
+  const bytes = await garCertificadoPdf(env, g); g.cert_b64 = bytesParaBase64(bytes); await garSalvar(env, g);
+  await garEvento(env, g.id, 'ativada', `Dados recebidos (CPF ${cpfFmt(g.cpf)}). Garantia ativada de ${dataBR(g.inicio)} a ${dataBR(g.validade)}`);
+  await garEnviarCertificado(env, g, bytes).catch(e => console.log('[GAR] envio:', e.message));
+  await pontoAvisarDono(env, `🛡️ *${g.cliente}* mandou nome e CPF (${cpfFmt(g.cpf)}). Garantia *${g.id}* emitida até ${dataBR(g.validade)}.`).catch(() => {});
+  try { const aid = await env.HR_KV.get('acd:num:' + ultimos8(normalizarBR(from))); const a = aid ? await acdLer(env, aid) : null; if (a && a.etapa === 'dados') { a.dados = { ...(a.dados || {}), nome: g.cliente, cpf: g.cpf, ...(pend.end ? { end: pend.end } : {}) }; if (a.dados.end) { a.etapa = 'novo'; await acdSalvar(env, a); await acdMandarTermo(env, a); } else await acdSalvar(env, a); } } catch (_) {} // aproveita para o acordo
+  return true;
+}
+// dono: "pede o CPF da Renata para a garantia" / "garantia da Renata sem CPF" → volta a aguardar e pede os dados
+async function garDadosComando(env, from, msg) {
+  const mm = msg.match(/(?:garantia|cpf|dados)\b.*?\bd[aoe] ([a-z ]{3,40}?)(?:\s+(?:pra|para|sem|precisa|pedir|da garantia|na garantia)\b.*)?$/);
+  if (!mm || !/\b(cpf|nome completo|dados)\b/.test(msg) || !/\bgarantia\b/.test(msg)) return false;
+  const tk = tokensPedra(mm[1]); if (!tk.length || !(await garTabela(env))) return false;
+  const r = (await env.HR_DB.prepare("SELECT * FROM garantia WHERE status != 'cancelada' ORDER BY criado DESC LIMIT 300").all()).results || [];
+  const g = r.find(x => tk.every(w => tokensPedra(x.cliente || '').includes(w))); if (!g) return false;
+  const g2 = { ...g, status: 'aguardando_dados', cert_b64: null }; await garSalvar(env, g2);
+  await garEvento(env, g.id, 'dados', 'O Sr. Hangel pediu nome completo e CPF para emitir o certificado');
+  await garPedirDados(env, g2);
+  await enviar(env, from, `Pronto: a garantia *${g.id}* de *${g.cliente}* voltou para "aguardando nome e CPF" e já pedi os dados a ela. O certificado sai assim que ela mandar.`);
+  return true;
 }
 
 // botões do dono: ficha à produção / dados da entrega ao entregador / horário da entrega
@@ -17435,6 +17503,7 @@ async function tratarMensagemBase(env, m, ctx) {
   if (!dono) await kvMarcarHora(env, 'ult:' + from, 3 * 24 * 60 * 60, ULT_REGRAVAR_MS).catch(() => {});
   if (!dono && (m.type === 'audio' || m.type === 'text')) await kvGravarSeMudou(env, 'clivoz:' + ultimos8(from), m.type === 'audio' ? '1' : '0', 3 * 24 * 60 * 60).catch(() => {});
   if (!dono) await kvUltimoCliente(env, from).catch(() => {});
+  if (!dono && await garDadosMsg(env, from, m).catch(e => { console.log('[GAR] dados:', e.message); return false; })) return; // v163
   if (!dono && await rcbClienteMsg(env, from, m).catch(e => { console.log('[RCB] cliente:', e.message); return false; })) return; // v157
   if (!dono && await acdClienteMsg(env, from, m).catch(e => { console.log('[ACD] cliente:', e.message); return false; })) return; // v152
   if (!dono && await onbClienteMsg(env, from, m).catch(e => { console.log('[ONB] cliente:', e.message); return false; })) return; // v143
@@ -17544,6 +17613,7 @@ async function tratarMensagemBase(env, m, ctx) {
     if (await equipeComando(env, from, msg).catch(e => { console.log('[EQ] comando:', e.message); return false; })) return; // v141
     if (await garComandoDono(env, from, msg).catch(e => { console.log('[GAR] comando:', e.message); return false; })) return; // v144
     if (await equipeExtrasComando(env, from, msg).catch(e => { console.log('[EQ] extras:', e.message); return false; })) return; // v146
+    if (await garDadosComando(env, from, msg).catch(e => { console.log('[GAR] dados cmd:', e.message); return false; })) return; // v163
     if (await apelidoClienteComando(env, from, msg, bruto).catch(() => false)) return; // v161
     if (await vozComando(env, from, msg).catch(e => { console.log('[VOZ] comando:', e.message); return false; })) return; // v160
     if (await eqModoComando(env, from, msg).catch(e => { console.log('[EQ] modo:', e.message); return false; })) return; // v154
@@ -21090,6 +21160,7 @@ async function tplRespostaCliente(env, from, m, forcar) {
   if (!forcar && !p.qualquer && !/^(pode enviar|pode|sim|manda|pode mandar|ok|quero)$/.test(txt) && m.type !== 'button') return false;
   await env.HR_KV.delete(k);
   if (p.grvId) { const g = await garLer(env, p.grvId); if (g) { await enviarComBotoes(env, normalizarBR(from), `Obrigada por responder! A revisão com impermeabilização protege a pedra contra manchas e deixa com cara de nova. Quer agendar?`, [{ id: 'grv_ok|' + g.id, titulo: 'Quero agendar' }, { id: 'grv_no|' + g.id, titulo: 'Agora não' }]); return true; } } // v146
+  if (p.garDadosId) { const g = await garLer(env, p.garDadosId); if (g && g.status === 'aguardando_dados') { await enviar(env, normalizarBR(from), `Obrigada por responder! 😊 Para emitir o seu *Certificado de Garantia* de 1 ano, me manda por favor seu *nome completo* e *CPF*. Pode ser por áudio.`); return true; } } // v163
   if (p.acdId) { const a = await acdLer(env, p.acdId); if (a) { if (a.etapa === 'dados') await enviar(env, normalizarBR(from), `Obrigada! 😊 Conforme combinado com o Sr. Hangel: ${a.naInst > 0 ? `R$ ${reais(a.naInst)} na instalação e ` : ''}${a.parcelas.map(x => `R$ ${reais(x.valor)} em ${dataBR(x.data)}`).join(' e ')}.\n\nPara deixar o termo certinho, me manda por favor seu *nome completo*, *CPF* e *endereço da instalação*. Pode ser por áudio.`); else await acdMandarTermo(env, a); return true; } } // v152/v153
   if (p.onbNum) { const o = await onbLer(env, normalizarBR(from)); if (o && o.etapa === 'modelo') { await onbApresentar(env, o); return true; } } // v143
   if (p.pv1Id) { let r = null; try { r = JSON.parse((await env.HR_KV.get(PV1 + p.pv1Id)) || 'null'); } catch (_) {} if (r) { await pv1Mandar(env, r, normalizarBR(from), true); return true; } } // v142
